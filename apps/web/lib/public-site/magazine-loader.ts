@@ -75,6 +75,7 @@ export async function loadPublishedMagazine(
     .select('id, title, description, cover_image_url')
     .eq('congregation_id', congregationId)
     .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
     .limit(1)
     .maybeSingle<Magazine>()
 

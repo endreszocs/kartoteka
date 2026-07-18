@@ -18,6 +18,12 @@ export type PublicVisualThemeKey = (typeof PUBLIC_VISUAL_THEME_KEYS)[number]
 export interface PublicVisualThemeAssets {
   /** Teljes szelessegu, 16:9-es vagy szelesebb generalt hero hatter. */
   hero: string
+  /** Opcionális, generált közösségi életkép a kezdőlap történeti blokkjához. */
+  community?: string
+  /** Opcionális, generált örökségi kép a kezdőlap történeti blokkjához. */
+  heritage?: string
+  /** Opcionális, generált széles kép a találkozási felhíváshoz. */
+  invitation?: string
 }
 
 export interface PublicVisualThemeDefinition {
@@ -46,7 +52,12 @@ export const PUBLIC_VISUAL_THEMES: Readonly<
   'elo-kert': {
     key: 'elo-kert',
     displayName: 'Élő kert',
-    assets: themeAssets('elo-kert'),
+    assets: {
+      ...themeAssets('elo-kert'),
+      community: '/public-site/themes/elo-kert/baratosi-community-v2.png',
+      heritage: '/public-site/themes/elo-kert/baratosi-heritage-v2.png',
+      invitation: '/public-site/themes/elo-kert/baratosi-hero-v2.png',
+    },
     adminPreview: {
       eyebrow: 'Élő közösség',
       summary: 'Friss, közösségi és eseményközpontú megjelenés.',

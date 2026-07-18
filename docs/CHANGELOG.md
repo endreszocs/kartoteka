@@ -23,6 +23,64 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-18] — Élőbb gyülekezeti honlap, egyszerűbb tartalomkezelés
+<!-- key: 2026-07-18-public-site-visual-content -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gyulekezeti_munkatars, gyulekezeti_tag, latogato -->
+
+### 🎨 Látványosabb nyilvános gyülekezeti oldal
+
+- **A legfontosabb információk rögtön a nyitóképen láthatók:** a következő
+  alkalom, a közösségi meghívás és a találkozási hely három jól olvasható,
+  lebegő kártyán jelenik meg. A kártyák telefonon sem takarják a fő szöveget,
+  nagyobb képernyőn pedig hangsúlyosan a nyitókép elé kerülnek.
+
+- **Az „Élő kert” arculat több saját, egyedileg készített képet és finom
+  animációt kapott:** a nyitókép után a közösségi élet, a református örökség
+  és a személyes meghívás külön képi fejezetben jelenik meg. A mozgások a
+  látogató akadálymentességi beállítását tiszteletben tartják.
+
+- **Mindhárom választható arculat továbbra is használható:** a lelkipásztor a
+  számára megfelelő témát választja ki, a honlap pedig telefonon, tableten és
+  számítógépen is az adott képernyőhöz igazodik.
+
+### 🗓️ Egyszerűbb lelkészi szerkesztés
+
+- **A gyülekezeti alkalmak most már valóban szerkeszthetők:** megadható a nap,
+  az időpont, az alkalom neve, helyszíne és rövid megjegyzése; a sorrend is
+  átrendezhető. A nyilvános oldal kizárólag a mentett adatokat mutatja, ezért
+  más gyülekezethez tartozó vagy feltételezett időpont nem jelenhet meg.
+
+- **A gyülekezeti újság feltöltése közvetlenebb lett:** az új lapszám PDF-je
+  és borítóképe a kezelőfelületről tölthető fel, látható folyamat- és
+  hibaüzenetekkel. A kézzel megadott hivatkozás lehetősége is megmaradt. A
+  mentés és a bezárás megvárja a feltöltés végét; a „Mégse” gombbal elvetett
+  vagy törölt lapszámhoz tartozó fájlokat a rendszer is kitakarítja. Egy
+  törölt lapszám akkor sem marad látható, ha a háttértár átmenetileg nem
+  elérhető.
+
+- **A bemutatkozó szöveg eszköztára egyértelműbb:** csak olyan formázásokat
+  kínál, amelyeket a biztonságos megjelenítés valóban megőriz.
+
+### 🔒 Megbízhatóbb nyilvános működés
+
+- **A keresőknek szánt oldaltérkép személyes adatok nélkül készül:** csak a
+  közzétett, keresőindexelésre engedélyezett gyülekezeti oldalak, hírek és
+  lapszámok kerülhetnek bele.
+
+- **A bevezetés visszafelé kompatibilis és biztonságosan kikapcsolható:** a
+  publikus oldal a szükséges adatbázis-frissítés alatt is elérhető marad. A
+  Tagi portál csak a teljes adatbázis- és jogosultsági ellenőrzés után
+  kapcsolható be; addig zárt állapotban marad.
+
+### 🔧 Rendszergazdáknak
+
+- A teljes alkalomszerkesztéshez és az új oldaltérképhez a
+  `migration-docs/sql/2026-07-18-public-site-content-and-sitemap.sql`
+  migrációt a hozzá tartozó rollout-dokumentum sorrendjében kell futtatni.
+
+---
+
 ## [2026-07-17] — Megújult gyülekezeti weboldal és biztonságos tagi portál
 <!-- key: 2026-07-17-public-site-member-portal -->
 <!-- category: feature -->

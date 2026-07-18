@@ -14,6 +14,20 @@ export const metadata: Metadata = {
   description: 'A gyülekezeti weboldal arculati és publikálási beállításai.',
 }
 
+const PUBLIC_SITE_SETTINGS_COLUMNS =
+  'slug, display_name, tagline, hero_image_url, crest_image_url, theme_id, custom_primary_color, custom_accent_color, contact_email, contact_phone, address, about_html, is_published, robots_index, show_member_count, show_presbyter_count, show_family_count, show_age_distribution, override_member_count, override_presbyter_count, override_family_count'
+
+function isMissingServiceTimesColumn(error: {
+  code?: string
+  message?: string
+} | null): boolean {
+  return Boolean(
+    error
+      && (error.code === 'PGRST204' || error.code === '42703')
+      && error.message?.includes('service_times'),
+  )
+}
+
 export default async function PublicSiteSettingsPage() {
   const access = await getEffectiveAccessContext()
   if (!access.user) redirect('/login')
@@ -22,12 +36,10 @@ export default async function PublicSiteSettingsPage() {
   const congregationId = access.effectiveCongregationId
   if (!congregationId) redirect('/publikus-oldal')
 
-  const [siteResult, themesResult] = await Promise.all([
+  const [siteWithServiceTimesResult, themesResult] = await Promise.all([
     access.supabase
       .from('public_sites')
-      .select(
-        'slug, display_name, tagline, hero_image_url, crest_image_url, theme_id, custom_primary_color, custom_accent_color, contact_email, contact_phone, address, about_html, is_published, robots_index, show_member_count, show_presbyter_count, show_family_count, show_age_distribution, override_member_count, override_presbyter_count, override_family_count',
-      )
+      .select(`${PUBLIC_SITE_SETTINGS_COLUMNS}, service_times`)
       .eq('congregation_id', congregationId)
       .maybeSingle(),
     access.supabase
@@ -38,6 +50,21 @@ export default async function PublicSiteSettingsPage() {
       .eq('is_active', true)
       .order('sort_order'),
   ])
+
+  let siteResult = siteWithServiceTimesResult
+  let serviceTimesSupported = true
+
+  // Expand/contract: a web build a migráció előtt is megnyithatja és mentheti
+  // a régi beállításokat. Csak a bizonyítottan hiányzó új oszlopnál használjuk
+  // a régi, explicit mezőlistát; jogosultsági hibát soha nem fedünk el.
+  if (isMissingServiceTimesColumn(siteWithServiceTimesResult.error)) {
+    serviceTimesSupported = false
+    siteResult = await access.supabase
+      .from('public_sites')
+      .select(PUBLIC_SITE_SETTINGS_COLUMNS)
+      .eq('congregation_id', congregationId)
+      .maybeSingle()
+  }
 
   const site = siteResult.data
   const themes = (themesResult.data ?? []) as PublicSiteThemeOption[]
@@ -110,6 +137,9 @@ export default async function PublicSiteSettingsPage() {
             contact_phone: site?.contact_phone ?? '',
             address: site?.address ?? '',
             about_html: site?.about_html ?? '',
+            ...(serviceTimesSupported
+              ? { service_times: site?.service_times ?? [] }
+              : {}),
             is_published: site?.is_published ?? false,
             robots_index: site?.robots_index ?? false,
             show_member_count: site?.show_member_count ?? false,

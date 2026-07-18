@@ -2,7 +2,7 @@
 
 /**
  * TipTap WYSIWYG editor — Word-szerű szerkesztő bejegyzésekhez és leírásokhoz.
- * Toolbar: Bold, Italic, Heading 1-3, Bullet list, Ordered list, Link, Horizontal rule.
+ * Toolbar: Bold, Italic, allowed headings, Bullet list, Ordered list, Link, Horizontal rule.
  * A formázás azonnal látható a szerkesztő mezőben.
  */
 
@@ -14,7 +14,6 @@ import Image from '@tiptap/extension-image'
 import {
   Bold,
   Italic,
-  Heading1,
   Heading2,
   Heading3,
   List,
@@ -46,7 +45,12 @@ export function TiptapEditor({
     immediatelyRender: false,
     extensions: [
       StarterKit.configure({
-        heading: { levels: [1, 2, 3] },
+        // A kompakt szerkesztő a sanitizeAboutHtml szűrőhöz igazodik:
+        // ott csak h3/h4 címsor marad meg. A normál posztszerkesztőben a
+        // sanitizePostBody h2/h3 elemeket engedi; h1 egyik felületen sem kerül
+        // a mentett HTML-be.
+        heading: { levels: compact ? [3] : [2, 3] },
+        horizontalRule: compact ? false : {},
       }),
       Link.configure({
         openOnClick: false,
@@ -120,20 +124,15 @@ export function TiptapEditor({
 
         <div className="mx-1 h-5 w-px bg-slate-200" aria-hidden="true" />
 
-        <ToolbarButton
-          pressed={editor.isActive('heading', { level: 1 })}
-          onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-          title="Címsor 1"
-        >
-          <Heading1 className="size-4" />
-        </ToolbarButton>
-        <ToolbarButton
-          pressed={editor.isActive('heading', { level: 2 })}
-          onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-          title="Címsor 2"
-        >
-          <Heading2 className="size-4" />
-        </ToolbarButton>
+        {!compact && (
+          <ToolbarButton
+            pressed={editor.isActive('heading', { level: 2 })}
+            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+            title="Címsor 2"
+          >
+            <Heading2 className="size-4" />
+          </ToolbarButton>
+        )}
         <ToolbarButton
           pressed={editor.isActive('heading', { level: 3 })}
           onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
@@ -173,12 +172,14 @@ export function TiptapEditor({
             <ImageIcon className="size-4" />
           </ToolbarButton>
         )}
-        <ToolbarButton
-          onClick={() => editor.chain().focus().setHorizontalRule().run()}
-          title="Vonal"
-        >
-          <Minus className="size-4" />
-        </ToolbarButton>
+        {!compact && (
+          <ToolbarButton
+            onClick={() => editor.chain().focus().setHorizontalRule().run()}
+            title="Vonal"
+          >
+            <Minus className="size-4" />
+          </ToolbarButton>
+        )}
 
         <div className="mx-1 h-5 w-px bg-slate-200" aria-hidden="true" />
 

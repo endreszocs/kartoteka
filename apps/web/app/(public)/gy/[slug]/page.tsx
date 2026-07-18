@@ -7,6 +7,8 @@ import { loadPublicSiteStats } from '@/lib/public-site/stats-loader'
 import { sanitizeAboutHtml } from '@/lib/public-site/sanitize'
 import { shouldBypassPublicImageOptimization } from '@/lib/public-site/public-image'
 import { PublicHero } from '@/components/public/public-hero'
+import { PublicHomeHighlights } from '@/components/public/public-home-highlights'
+import { PublicHomeVisualStory } from '@/components/public/public-home-visual-story'
 import { PublicPostCard } from '@/components/public/public-post-card'
 import { PublicVerseBlock } from '@/components/public/public-verse-block'
 import { PublicServiceTimes } from '@/components/public/public-service-times'
@@ -42,6 +44,7 @@ export default async function CongregationHomePage({
   return (
     <>
       <PublicHero site={site} />
+      <PublicHomeHighlights site={site} />
 
       {/* Statisztikák — dizájnos szekció */}
       {showCountStats && (
@@ -169,6 +172,8 @@ export default async function CongregationHomePage({
           )}
         </div>
       </section>
+
+      <PublicHomeVisualStory site={site} />
 
       {/* Istentiszteletek + elérhetőség */}
       <PublicServiceTimes site={site} />

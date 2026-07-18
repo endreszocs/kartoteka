@@ -1,0 +1,583 @@
+.previewPage {
+  min-height: 100vh;
+  background: #e8edf2;
+}
+
+.previewToolbar {
+  position: relative;
+  z-index: 60;
+  border-bottom: 1px solid #d9e0e7;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 14px 36px -30px rgba(15, 23, 42, 0.7);
+}
+
+.toolbarInner {
+  width: min(100%, 82rem);
+  margin: 0 auto;
+  padding: 0.75rem 1rem;
+}
+
+.toolbarIntro {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.previewBadge {
+  display: inline-flex;
+  min-height: 1.75rem;
+  flex: 0 0 auto;
+  align-items: center;
+  border-radius: 999px;
+  background: #e7f5ee;
+  padding: 0.25rem 0.65rem;
+  color: #196044;
+  font-size: 0.67rem;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.toolbarTitle {
+  margin: 0;
+  color: #17212b;
+  font-size: 0.9rem;
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+.toolbarNote {
+  display: none;
+  margin: 0.15rem 0 0;
+  color: #667585;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.themePicker {
+  display: grid;
+  grid-auto-columns: minmax(10.5rem, 1fr);
+  grid-auto-flow: column;
+  gap: 0.45rem;
+  margin-top: 0.7rem;
+  padding: 0.15rem 0.1rem 0.35rem;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+}
+
+.themeButton {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 3rem;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid #dce3e9;
+  border-radius: 0.85rem;
+  background: #fff;
+  padding: 0.35rem;
+  color: #263442;
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.themeButton[data-featured] {
+  border-color: #c9a35f;
+  background: linear-gradient(135deg, #fffdf8, #f8f1e4);
+}
+
+.themeButton[data-featured]::after {
+  position: absolute;
+  top: -0.42rem;
+  right: 0.5rem;
+  border-radius: 999px;
+  background: #183d2f;
+  padding: 0.15rem 0.4rem;
+  color: #fff;
+  content: 'ÚJ';
+  font-size: 0.54rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.themeButton:hover {
+  border-color: #8fa1b2;
+  transform: translateY(-1px);
+}
+
+.themeButton:focus-visible {
+  outline: 3px solid rgba(31, 107, 79, 0.24);
+  outline-offset: 2px;
+}
+
+.themeButton[data-active] {
+  border-color: #247354;
+  box-shadow: 0 0 0 2px rgba(36, 115, 84, 0.14);
+}
+
+.themeThumbnail {
+  width: 2.35rem;
+  height: 2.35rem;
+  flex: 0 0 auto;
+  border-radius: 0.65rem;
+  background-position: center;
+  background-size: cover;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+}
+
+.themeButtonCopy {
+  min-width: 0;
+}
+
+.themeButtonCopy strong,
+.themeButtonCopy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.themeButtonCopy strong {
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
+.themeButtonCopy small {
+  display: none;
+  margin-top: 0.12rem;
+  color: #6a7987;
+  font-size: 0.66rem;
+}
+
+.themeBoundary {
+  min-height: 100vh;
+  background: var(--public-surface);
+}
+
+.themeBoundary :global(.public-site-root) {
+  background-color: var(--public-surface);
+  color: var(--public-ink);
+  font-family: var(--public-body-font);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.themeBoundary :global(.public-site-root h1),
+.themeBoundary :global(.public-site-root h2),
+.themeBoundary :global(.public-site-root h3),
+.themeBoundary :global(.public-site-root h4) {
+  font-family: var(--public-heading-font);
+  font-weight: 600;
+}
+
+.themeBoundary :global(.public-site-root h1) {
+  font-size: clamp(2.25rem, 1.6rem + 3.2vw, 4.25rem);
+  line-height: 1.08;
+  letter-spacing: -0.01em;
+}
+
+.themeBoundary :global(.public-site-root h2) {
+  font-size: clamp(1.85rem, 1.4rem + 2.2vw, 3rem);
+  line-height: 1.15;
+  letter-spacing: -0.005em;
+}
+
+.themeBoundary :global(.public-site-root h3) {
+  font-size: clamp(1.35rem, 1.1rem + 1.2vw, 1.875rem);
+  line-height: 1.25;
+}
+
+.themeBoundary :global(.public-site-root h4) {
+  font-size: clamp(1.1rem, 0.95rem + 0.7vw, 1.35rem);
+  line-height: 1.3;
+}
+
+.themeBoundary :global(.public-site-root p) {
+  font-size: clamp(0.95rem, 0.85rem + 0.3vw, 1.08rem);
+}
+
+.themeBoundary :global(.public-section) {
+  padding: clamp(3rem, 2rem + 3.5vw, 6rem) 0;
+}
+
+.themeBoundary :global(.public-container) {
+  width: 100%;
+  max-width: 72rem;
+  margin: 0 auto;
+  padding-right: clamp(1rem, 0.5rem + 2vw, 2rem);
+  padding-left: clamp(1rem, 0.5rem + 2vw, 2rem);
+}
+
+.themeBoundary :global(.public-card) {
+  transition:
+    transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.35s ease,
+    border-color 0.25s ease;
+}
+
+.themeBoundary :global(.public-card:hover) {
+  transform: translateY(-4px);
+  box-shadow:
+    0 24px 50px -20px rgba(0, 0, 0, 0.15),
+    0 12px 24px -14px rgba(0, 0, 0, 0.08);
+}
+
+.themeBoundary :global(.public-btn) {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  padding: 0.8rem 1.25rem;
+  font-size: 0.92rem;
+  font-weight: 650;
+  white-space: nowrap;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.25s ease,
+    background-color 0.25s ease;
+}
+
+.themeBoundary :global(.public-btn svg) {
+  width: 1rem;
+  height: 1rem;
+}
+
+.themeBoundary :global(.public-btn-primary) {
+  background: var(--public-primary);
+  color: #fff;
+  box-shadow: 0 10px 24px -12px
+    color-mix(in srgb, var(--public-primary) 70%, transparent);
+}
+
+.themeBoundary :global(.public-btn-primary:hover) {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 32px -14px
+    color-mix(in srgb, var(--public-primary) 80%, transparent);
+}
+
+.themeBoundary :global(.public-btn-outline) {
+  border: 1.5px solid color-mix(in srgb, var(--public-ink) 15%, transparent);
+  background: transparent;
+  color: var(--public-ink);
+}
+
+.themeBoundary :global(.public-btn-outline:hover) {
+  border-color: var(--public-primary);
+  background: color-mix(in srgb, var(--public-primary) 6%, transparent);
+  color: var(--public-primary-on-surface);
+}
+
+.themeBoundary :global(.public-anim-fade-up),
+.themeBoundary :global(.public-anim-fade-in),
+.themeBoundary :global(.public-anim-scale-in) {
+  animation: preview-fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.themeBoundary :global(.public-anim-float) {
+  animation: preview-float 6s ease-in-out infinite;
+}
+
+.themeBoundary :global(.public-anim-drift) {
+  animation: preview-drift 20s ease-in-out infinite;
+}
+
+.themeBoundary :global(.public-delay-100) {
+  animation-delay: 0.1s;
+}
+
+.themeBoundary :global(.public-delay-200) {
+  animation-delay: 0.2s;
+}
+
+.themeBoundary :global(.public-delay-300) {
+  animation-delay: 0.3s;
+}
+
+.themeBoundary :global(.public-delay-400) {
+  animation-delay: 0.4s;
+}
+
+.themeBoundary :global(.public-delay-500) {
+  animation-delay: 0.5s;
+}
+
+.skipLink {
+  position: fixed;
+  top: 0.75rem;
+  left: 1rem;
+  z-index: 100000;
+  min-height: 44px;
+  transform: translateY(-6rem);
+  border-radius: 0.75rem;
+  background: var(--public-primary);
+  padding: 0.65rem 1rem;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.25);
+  transition: transform 160ms ease;
+}
+
+.skipLink:focus {
+  transform: translateY(0);
+}
+
+.postGrid {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.invitationSection {
+  padding: 0 0 clamp(3rem, 2rem + 3vw, 5.5rem);
+}
+
+.invitationCard {
+  position: relative;
+  display: grid;
+  gap: 1.25rem;
+  overflow: hidden;
+  border-radius: max(var(--public-radius), 1rem);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(255, 255, 255, 0.15), transparent 18rem),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--public-primary) 94%, #000),
+      color-mix(in srgb, var(--public-primary) 76%, var(--public-accent))
+    );
+  padding: 1.5rem;
+  color: #fff;
+  box-shadow: 0 24px 60px -35px var(--public-primary);
+}
+
+.invitationIcon {
+  display: flex;
+  width: 3.25rem;
+  height: 3.25rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.invitationIcon svg {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.invitationCopy h2,
+.invitationCopy p {
+  margin: 0;
+  color: #fff;
+}
+
+.invitationCopy h2 {
+  margin-top: 0.3rem;
+  font-size: clamp(1.8rem, 1.45rem + 2vw, 2.8rem) !important;
+}
+
+.invitationCopy > p:last-child {
+  max-width: 42rem;
+  margin-top: 0.65rem;
+  color: rgba(255, 255, 255, 0.84);
+  line-height: 1.7;
+}
+
+.invitationEyebrow {
+  font-size: 0.72rem !important;
+  font-weight: 750;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.invitationActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.invitationActions :global(.public-btn-primary) {
+  background: #fff;
+  color: var(--public-primary);
+}
+
+.invitationActions :global(.public-btn-outline) {
+  border-color: rgba(255, 255, 255, 0.38);
+  color: #fff;
+}
+
+.invitationActions :global(.public-btn-outline:hover) {
+  border-color: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.previewNotice {
+  display: flex;
+  width: min(calc(100% - 2rem), 46rem);
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin: 0 auto 2rem;
+  border: 1px dashed color-mix(in srgb, var(--public-ink) 20%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--public-soft) 68%, transparent);
+  padding: 0.9rem 1rem;
+  color: var(--public-muted);
+}
+
+.previewNotice svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 auto;
+  margin-top: 0.18rem;
+  color: var(--public-accent-on-surface);
+}
+
+.previewNotice p {
+  margin: 0;
+  font-size: 0.78rem !important;
+  line-height: 1.55;
+}
+
+.activeThemeAnnouncement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@keyframes preview-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes preview-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes preview-drift {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  33% {
+    transform: translate(2%, -2%);
+  }
+  66% {
+    transform: translate(-1%, 1%);
+  }
+}
+
+@media (min-width: 40rem) {
+  .toolbarInner {
+    padding: 0.85rem 1.25rem;
+  }
+
+  .toolbarNote,
+  .themeButtonCopy small {
+    display: block;
+  }
+
+  .themeButtonCopy strong {
+    font-size: 0.78rem;
+  }
+
+  .postGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.5rem;
+  }
+
+  .postGrid > :last-child {
+    grid-column: 1 / -1;
+    width: min(100%, calc(50% - 0.75rem));
+    justify-self: center;
+  }
+
+  .invitationCard {
+    padding: 2rem;
+  }
+}
+
+@media (min-width: 64rem) {
+  .toolbarInner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+  }
+
+  .themePicker {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-auto-columns: auto;
+    grid-auto-flow: row;
+    width: min(100%, 52rem);
+    margin-top: 0;
+    padding: 0.15rem 0;
+    overflow: visible;
+  }
+
+  .postGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .postGrid > :last-child {
+    grid-column: auto;
+    width: auto;
+  }
+
+  .invitationCard {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 2.5rem;
+  }
+
+  .invitationActions {
+    justify-content: flex-end;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .themeButton,
+  .skipLink,
+  .themeBoundary :global(.public-card) {
+    transition: none;
+  }
+
+  .themeButton:hover,
+  .themeBoundary :global(.public-card:hover) {
+    transform: none;
+  }
+
+  .themeBoundary :global(.public-anim-fade-up),
+  .themeBoundary :global(.public-anim-fade-in),
+  .themeBoundary :global(.public-anim-scale-in),
+  .themeBoundary :global(.public-anim-float),
+  .themeBoundary :global(.public-anim-drift) {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

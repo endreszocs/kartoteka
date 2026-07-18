@@ -4,8 +4,22 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { savePublicSiteSettings } from '@/app/(dashboard)/publikus-oldal/actions'
-import type { PublicSiteSettingsInput } from '@/lib/validations/public-site'
-import { Save, Palette, Eye, EyeOff, Image as ImageIcon } from 'lucide-react'
+import type {
+  PublicServiceTime,
+  PublicSiteSettingsInput,
+} from '@/lib/validations/public-site'
+import {
+  ArrowDown,
+  ArrowUp,
+  CalendarClock,
+  Eye,
+  EyeOff,
+  Image as ImageIcon,
+  Palette,
+  Plus,
+  Save,
+  Trash2,
+} from 'lucide-react'
 import { ImageUploader } from './image-uploader'
 import { TiptapEditor } from './tiptap-editor'
 import {
@@ -45,9 +59,61 @@ export function PublicSiteSettingsForm({ initial, themes }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [form, setForm] = useState<PublicSiteSettingsInput>(initial)
+  const serviceTimesSupported = initial.service_times !== undefined
 
   function update<K extends keyof PublicSiteSettingsInput>(key: K, value: PublicSiteSettingsInput[K]) {
     setForm((f) => ({ ...f, [key]: value }))
+  }
+
+  function addServiceTime() {
+    const current = form.service_times ?? []
+    if (current.length >= 12) {
+      toast.error('Legfeljebb 12 rendszeres alkalom adható meg.')
+      return
+    }
+
+    update('service_times', [
+      ...current,
+      {
+        id: globalThis.crypto.randomUUID(),
+        day: '',
+        time: '',
+        title: '',
+        location: '',
+        note: '',
+      },
+    ])
+  }
+
+  function updateServiceTime<K extends keyof PublicServiceTime>(
+    id: string,
+    key: K,
+    value: PublicServiceTime[K],
+  ) {
+    update(
+      'service_times',
+      (form.service_times ?? []).map((item) =>
+        item.id === id ? { ...item, [key]: value } : item,
+      ),
+    )
+  }
+
+  function removeServiceTime(id: string) {
+    update(
+      'service_times',
+      (form.service_times ?? []).filter((item) => item.id !== id),
+    )
+  }
+
+  function moveServiceTime(index: number, direction: -1 | 1) {
+    const current = [...(form.service_times ?? [])]
+    const targetIndex = index + direction
+    if (targetIndex < 0 || targetIndex >= current.length) return
+
+    const [item] = current.splice(index, 1)
+    if (!item) return
+    current.splice(targetIndex, 0, item)
+    update('service_times', current)
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -314,6 +380,179 @@ export function PublicSiteSettingsForm({ initial, themes }: Props) {
             />
           </div>
         </div>
+      </section>
+
+      {/* Rendszeres alkalmak */}
+      <section className="card-raised p-4 sm:p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+              <CalendarClock className="size-5" aria-hidden="true" />
+            </div>
+            <div>
+              <h2 className="font-heading text-xl text-slate-800">Rendszeres alkalmak</h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
+                Csak a valóban állandó időpontokat add meg. A sorrend itt és a
+                nyilvános oldalon is ugyanaz lesz.
+              </p>
+            </div>
+          </div>
+          {serviceTimesSupported && (
+            <button
+              type="button"
+              onClick={addServiceTime}
+              disabled={(form.service_times?.length ?? 0) >= 12}
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-700/20 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+            >
+              <Plus className="size-4" aria-hidden="true" />
+              Alkalom hozzáadása
+            </button>
+          )}
+        </div>
+
+        {!serviceTimesSupported ? (
+          <div
+            role="status"
+            className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950"
+          >
+            Az alkalmak szerkesztése az adatbázis-frissítés után válik elérhetővé.
+            A többi weboldal-beállítást addig is biztonságosan mentheted.
+          </div>
+        ) : (form.service_times?.length ?? 0) === 0 ? (
+          <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50/70 p-6 text-center sm:p-8">
+            <CalendarClock className="mx-auto size-8 text-slate-400" aria-hidden="true" />
+            <p className="mt-3 font-medium text-slate-700">Még nincs közzétett rendszeres alkalom.</p>
+            <p className="mt-1 text-sm leading-6 text-slate-500">
+              A nyilvános oldal ilyenkor nem talál ki időpontot, hanem erről egyértelmű
+              tájékoztatást mutat.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-5 space-y-4">
+            {(form.service_times ?? []).map((serviceTime, index) => {
+              const prefix = `public-site-service-${serviceTime.id}`
+
+              return (
+                <fieldset
+                  key={serviceTime.id}
+                  className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+                >
+                  <legend className="sr-only">{index + 1}. rendszeres alkalom</legend>
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <span className="inline-flex min-h-8 items-center rounded-full bg-slate-100 px-3 text-xs font-semibold uppercase tracking-wider text-slate-600">
+                      {index + 1}. alkalom
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => moveServiceTime(index, -1)}
+                        disabled={index === 0}
+                        className="inline-flex size-11 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-500/20 disabled:opacity-30"
+                        aria-label={`${index + 1}. alkalom feljebb mozgatása`}
+                      >
+                        <ArrowUp className="size-4" aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveServiceTime(index, 1)}
+                        disabled={index === (form.service_times?.length ?? 0) - 1}
+                        className="inline-flex size-11 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-500/20 disabled:opacity-30"
+                        aria-label={`${index + 1}. alkalom lejjebb mozgatása`}
+                      >
+                        <ArrowDown className="size-4" aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeServiceTime(serviceTime.id)}
+                        className="inline-flex size-11 items-center justify-center rounded-xl text-red-600 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-500/20"
+                        aria-label={`${index + 1}. alkalom törlése`}
+                      >
+                        <Trash2 className="size-4" aria-hidden="true" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-[minmax(0,1.35fr)_minmax(9rem,0.65fr)]">
+                    <div>
+                      <label htmlFor={`${prefix}-day`} className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        Nap vagy ismétlődés *
+                      </label>
+                      <input
+                        id={`${prefix}-day`}
+                        type="text"
+                        required
+                        maxLength={80}
+                        value={serviceTime.day}
+                        onChange={(event) => updateServiceTime(serviceTime.id, 'day', event.target.value)}
+                        placeholder="pl. Vasárnap vagy minden hónap első péntekén"
+                        className="modal-input"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor={`${prefix}-time`} className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        Kezdés *
+                      </label>
+                      <input
+                        id={`${prefix}-time`}
+                        type="time"
+                        required
+                        value={serviceTime.time}
+                        onChange={(event) => updateServiceTime(serviceTime.id, 'time', event.target.value)}
+                        className="modal-input"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label htmlFor={`${prefix}-title`} className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        Alkalom neve *
+                      </label>
+                      <input
+                        id={`${prefix}-title`}
+                        type="text"
+                        required
+                        maxLength={80}
+                        value={serviceTime.title}
+                        onChange={(event) => updateServiceTime(serviceTime.id, 'title', event.target.value)}
+                        placeholder="pl. Istentisztelet, bibliaóra vagy ifjúsági alkalom"
+                        className="modal-input"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor={`${prefix}-location`} className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        Helyszín
+                      </label>
+                      <input
+                        id={`${prefix}-location`}
+                        type="text"
+                        maxLength={120}
+                        value={serviceTime.location || ''}
+                        onChange={(event) => updateServiceTime(serviceTime.id, 'location', event.target.value)}
+                        placeholder="Opcionális"
+                        className="modal-input"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor={`${prefix}-note`} className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        Rövid megjegyzés
+                      </label>
+                      <input
+                        id={`${prefix}-note`}
+                        type="text"
+                        maxLength={160}
+                        value={serviceTime.note || ''}
+                        onChange={(event) => updateServiceTime(serviceTime.id, 'note', event.target.value)}
+                        placeholder="Opcionális"
+                        className="modal-input"
+                      />
+                    </div>
+                  </div>
+                </fieldset>
+              )
+            })}
+            <p className="text-right text-xs text-slate-500">
+              {form.service_times?.length ?? 0} / 12 alkalom
+            </p>
+          </div>
+        )}
       </section>
 
       {/* Rólunk szöveg */}

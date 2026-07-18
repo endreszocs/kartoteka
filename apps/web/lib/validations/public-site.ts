@@ -25,6 +25,59 @@ const customPrimaryColorOptional = hexColorOptional.refine(
   'Az elsődleges szín legyen elég sötét a fehér feliratokhoz (legalább 4.5:1 kontraszt)',
 )
 
+export const publicServiceTimeSchema = z.object({
+  id: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .uuid('Az alkalom azonosítója érvénytelen'),
+  day: z
+    .string()
+    .trim()
+    .min(2, 'Add meg az alkalom napját')
+    .max(80, 'A nap vagy ismétlődés leírása legfeljebb 80 karakter lehet'),
+  time: z
+    .string()
+    .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, 'Az időpont ÓÓ:PP formátumú legyen'),
+  title: z
+    .string()
+    .trim()
+    .min(2, 'Add meg az alkalom nevét')
+    .max(80, 'Az alkalom neve legfeljebb 80 karakter lehet'),
+  location: z
+    .string()
+    .trim()
+    .max(120, 'A helyszín legfeljebb 120 karakter lehet')
+    .nullish()
+    .or(z.literal('')),
+  note: z
+    .string()
+    .trim()
+    .max(160, 'A megjegyzés legfeljebb 160 karakter lehet')
+    .nullish()
+    .or(z.literal('')),
+})
+
+export const publicServiceTimesSchema = z
+  .array(publicServiceTimeSchema)
+  .max(12, 'Legfeljebb 12 rendszeres alkalom adható meg')
+  .superRefine((items, context) => {
+    const seenIds = new Set<string>()
+
+    items.forEach((item, index) => {
+      if (seenIds.has(item.id)) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Minden alkalomnak egyedi azonosítóval kell rendelkeznie',
+          path: [index, 'id'],
+        })
+      }
+      seenIds.add(item.id)
+    })
+  })
+
+export type PublicServiceTime = z.infer<typeof publicServiceTimeSchema>
+
 // Publikus oldal beállítások
 export const publicSiteSettingsSchema = z.object({
   slug: z
@@ -46,6 +99,9 @@ export const publicSiteSettingsSchema = z.object({
   contact_phone: z.string().max(30).nullish(),
   address: z.string().max(200).nullish(),
   about_html: z.string().max(10000).nullish(),
+  // Opcionális az expand/contract rollout miatt. Ha a mező hiányzik, a régi
+  // adatbázison a többi beállítás továbbra is biztonságosan menthető.
+  service_times: publicServiceTimesSchema.optional(),
   is_published: z.boolean().default(false),
   robots_index: z.boolean().default(false),
   // Nyilvános statisztikák

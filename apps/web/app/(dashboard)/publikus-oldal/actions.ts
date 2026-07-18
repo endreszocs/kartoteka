@@ -125,6 +125,15 @@ export async function savePublicSiteSettings(
     contact_phone: parsed.data.contact_phone || null,
     address: parsed.data.address || null,
     about_html: sanitizedAbout,
+    ...(parsed.data.service_times === undefined
+      ? {}
+      : {
+          service_times: parsed.data.service_times.map((serviceTime) => ({
+            ...serviceTime,
+            location: serviceTime.location || null,
+            note: serviceTime.note || null,
+          })),
+        }),
     is_published: parsed.data.is_published,
     robots_index: parsed.data.robots_index,
     show_member_count: parsed.data.show_member_count ?? false,

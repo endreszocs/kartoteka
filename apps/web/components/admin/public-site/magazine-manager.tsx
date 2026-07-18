@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useId, useRef, useState, useTransition } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -10,9 +10,33 @@ import {
   saveMagazineIssue,
   deleteMagazineIssue,
 } from '@/app/(dashboard)/publikus-oldal/magazin/actions'
+import {
+  cleanupMagazineIssueUploads,
+  uploadMagazinePdf,
+  uploadPublicSiteImage,
+} from '@/app/(dashboard)/publikus-oldal/upload-actions'
 import { shouldBypassMagazineImageOptimization } from '@/lib/public-site/magazine-image'
 import { safePublicHttpsUrl } from '@/lib/public-site/safe-url'
-import { ChevronLeft, ChevronRight, Plus, Save, Trash2, FileText, Eye, EyeOff } from 'lucide-react'
+import {
+  ALLOWED_IMAGE_TYPES,
+  ALLOWED_PDF_TYPES,
+  MAX_IMAGE_SIZE,
+  MAX_PDF_SIZE,
+} from '@/lib/public-site/storage'
+import {
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Plus,
+  Save,
+  Trash2,
+  FileText,
+  Eye,
+  EyeOff,
+  Loader2,
+  Upload,
+} from 'lucide-react'
 
 interface Magazine {
   id: string
@@ -52,6 +76,12 @@ type NewIssueForm = {
   is_published: boolean
 }
 
+type MagazineUploadKind = 'pdf' | 'cover'
+
+type UploadFeedback =
+  | { status: 'idle'; message: '' }
+  | { status: 'success' | 'error'; message: string }
+
 const EMPTY_ISSUE: NewIssueForm = {
   issue_number: '',
   title: '',
@@ -80,6 +110,57 @@ export function MagazineManager({ magazine, issues, pagination }: Props) {
   // Új lapszám form (ha van magazin)
   const [showNewIssueForm, setShowNewIssueForm] = useState(false)
   const [newIssue, setNewIssue] = useState<NewIssueForm>(EMPTY_ISSUE)
+  const [newIssueId, setNewIssueId] = useState<string | null>(null)
+  const [uploadPendingByKind, setUploadPendingByKind] = useState<
+    Record<MagazineUploadKind, boolean>
+  >({ pdf: false, cover: false })
+  const isIssueUploadPending = uploadPendingByKind.pdf || uploadPendingByKind.cover
+
+  function handleIssueUploadPendingChange(
+    kind: MagazineUploadKind,
+    pending: boolean,
+  ) {
+    setUploadPendingByKind((current) =>
+      current[kind] === pending ? current : { ...current, [kind]: pending },
+    )
+  }
+
+  function openNewIssueForm() {
+    setNewIssue(EMPTY_ISSUE)
+    setNewIssueId(crypto.randomUUID())
+    setShowNewIssueForm(true)
+  }
+
+  function closeNewIssueForm() {
+    setShowNewIssueForm(false)
+    setNewIssue(EMPTY_ISSUE)
+    setNewIssueId(null)
+    setUploadPendingByKind({ pdf: false, cover: false })
+  }
+
+  function handleCancelNewIssue() {
+    if (isIssueUploadPending) {
+      toast.error('Várd meg, amíg a fájlfeltöltés befejeződik.')
+      return
+    }
+    if (!newIssueId) {
+      closeNewIssueForm()
+      return
+    }
+
+    startTransition(async () => {
+      try {
+        const result = await cleanupMagazineIssueUploads(newIssueId)
+        if (result.error) {
+          toast.error(result.error)
+          return
+        }
+        closeNewIssueForm()
+      } catch {
+        toast.error('A feltöltött piszkozatfájlok takarítása nem sikerült.')
+      }
+    })
+  }
 
   function handleSaveMagazine() {
     if (!magForm.title.trim()) {
@@ -103,8 +184,16 @@ export function MagazineManager({ magazine, issues, pagination }: Props) {
   }
 
   function handleCreateIssue() {
+    if (isIssueUploadPending) {
+      toast.error('Várd meg, amíg a fájlfeltöltés befejeződik.')
+      return
+    }
     if (!magazine) {
       toast.error('Előbb hozz létre egy magazint.')
+      return
+    }
+    if (!newIssueId) {
+      toast.error('A lapszám azonosítója hiányzik. Nyisd meg újra az űrlapot.')
       return
     }
     if (!newIssue.issue_number.trim() || !newIssue.pdf_url.trim()) {
@@ -113,6 +202,7 @@ export function MagazineManager({ magazine, issues, pagination }: Props) {
     }
     startTransition(async () => {
       const result = await saveMagazineIssue({
+        id: newIssueId,
         magazine_id: magazine.id,
         issue_number: newIssue.issue_number,
         title: newIssue.title || null,
@@ -121,13 +211,12 @@ export function MagazineManager({ magazine, issues, pagination }: Props) {
         published_at: newIssue.published_at || null,
         notes: newIssue.notes || null,
         is_published: newIssue.is_published,
-      })
+      }, 'create')
       if ('error' in result && result.error) {
         toast.error(result.error)
       } else {
         toast.success('Lapszám hozzáadva')
-        setNewIssue(EMPTY_ISSUE)
-        setShowNewIssueForm(false)
+        closeNewIssueForm()
         router.refresh()
       }
     })
@@ -146,7 +235,7 @@ export function MagazineManager({ magazine, issues, pagination }: Props) {
         published_at: issue.published_at || null,
         notes: issue.notes || null,
         is_published: !issue.is_published,
-      })
+      }, 'update')
       if ('error' in result && result.error) {
         toast.error(result.error)
       } else {
@@ -163,7 +252,11 @@ export function MagazineManager({ magazine, issues, pagination }: Props) {
       if ('error' in result && result.error) {
         toast.error(result.error)
       } else {
-        toast.success('Törölve')
+        if (result.warning) {
+          toast.warning(result.warning)
+        } else {
+          toast.success('Törölve')
+        }
         router.refresh()
       }
     })
@@ -237,8 +330,9 @@ export function MagazineManager({ magazine, issues, pagination }: Props) {
             </div>
             <button
               type="button"
-              onClick={() => setShowNewIssueForm(!showNewIssueForm)}
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-700/25 focus-visible:ring-offset-2"
+              onClick={showNewIssueForm ? handleCancelNewIssue : openNewIssueForm}
+              disabled={isPending || isIssueUploadPending}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-700/25 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
             >
               <Plus className="w-4 h-4" />
               Új lapszám
@@ -246,8 +340,11 @@ export function MagazineManager({ magazine, issues, pagination }: Props) {
           </div>
 
           {/* Új lapszám form */}
-          {showNewIssueForm && (
-            <div className="mb-4 p-4 rounded-xl bg-emerald-50/40 border border-emerald-100/70 space-y-3">
+          {showNewIssueForm && newIssueId && (
+            <div
+              className="mb-4 space-y-3 rounded-xl border border-emerald-100/70 bg-emerald-50/40 p-4"
+              aria-busy={isPending || isIssueUploadPending}
+            >
               <div className="grid sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-slate-500 block mb-1">
@@ -273,26 +370,34 @@ export function MagazineManager({ magazine, issues, pagination }: Props) {
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="text-xs font-semibold text-slate-500 block mb-1">
-                    PDF URL *
-                  </label>
-                  <input
-                    type="url"
+                  <MagazineIssueUploadField
+                    issueId={newIssueId}
+                    kind="pdf"
                     value={newIssue.pdf_url}
-                    onChange={(e) => setNewIssue({ ...newIssue, pdf_url: e.target.value })}
-                    placeholder="https://..."
-                    className="modal-input"
+                    onChange={(pdfUrl) => setNewIssue((current) => ({
+                      ...current,
+                      pdf_url: pdfUrl,
+                    }))}
+                    onPendingChange={(pending) =>
+                      handleIssueUploadPendingChange('pdf', pending)
+                    }
+                    disabled={isPending || isIssueUploadPending}
+                    required
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 block mb-1">
-                    Borítókép URL
-                  </label>
-                  <input
-                    type="url"
+                  <MagazineIssueUploadField
+                    issueId={newIssueId}
+                    kind="cover"
                     value={newIssue.cover_image_url}
-                    onChange={(e) => setNewIssue({ ...newIssue, cover_image_url: e.target.value })}
-                    className="modal-input"
+                    onChange={(coverImageUrl) => setNewIssue((current) => ({
+                      ...current,
+                      cover_image_url: coverImageUrl,
+                    }))}
+                    onPendingChange={(pending) =>
+                      handleIssueUploadPendingChange('cover', pending)
+                    }
+                    disabled={isPending || isIssueUploadPending}
                   />
                 </div>
                 <div>
@@ -332,18 +437,16 @@ export function MagazineManager({ magazine, issues, pagination }: Props) {
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowNewIssueForm(false)
-                    setNewIssue(EMPTY_ISSUE)
-                  }}
-                  className="inline-flex min-h-11 items-center justify-center rounded-full px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-500/25 focus-visible:ring-offset-2"
+                  onClick={handleCancelNewIssue}
+                  disabled={isPending || isIssueUploadPending}
+                  className="inline-flex min-h-11 items-center justify-center rounded-full px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-500/25 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
                 >
                   Mégse
                 </button>
                 <button
                   type="button"
                   onClick={handleCreateIssue}
-                  disabled={isPending}
+                  disabled={isPending || isIssueUploadPending}
                   className="inline-flex min-h-11 items-center gap-2 rounded-full bg-emerald-700 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-700/25 focus-visible:ring-offset-2 disabled:opacity-60"
                 >
                   <Save className="w-4 h-4" />
@@ -495,6 +598,188 @@ export function MagazineManager({ magazine, issues, pagination }: Props) {
           )}
         </section>
       )}
+    </div>
+  )
+}
+
+function MagazineIssueUploadField({
+  issueId,
+  kind,
+  value,
+  onChange,
+  onPendingChange,
+  disabled = false,
+  required = false,
+}: {
+  issueId: string
+  kind: MagazineUploadKind
+  value: string
+  onChange: (url: string) => void
+  onPendingChange: (pending: boolean) => void
+  disabled?: boolean
+  required?: boolean
+}) {
+  const inputId = useId()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [isPending, startTransition] = useTransition()
+  const [feedback, setFeedback] = useState<UploadFeedback>({ status: 'idle', message: '' })
+
+  const isPdf = kind === 'pdf'
+  const label = isPdf ? 'PDF dokumentum' : 'Borítókép'
+  const allowedTypes = isPdf ? ALLOWED_PDF_TYPES : ALLOWED_IMAGE_TYPES
+  const maxSize = isPdf ? MAX_PDF_SIZE : MAX_IMAGE_SIZE
+  const acceptedTypes = isPdf
+    ? 'application/pdf'
+    : 'image/jpeg,image/png,image/webp'
+  const typeHelp = isPdf
+    ? 'PDF — legfeljebb 20 MB'
+    : 'JPG, PNG vagy WebP — legfeljebb 2 MB'
+  const safeValue = safePublicHttpsUrl(value)
+  const hasUnsafeValue = Boolean(value && !safeValue)
+
+  function reportError(message: string) {
+    setFeedback({ status: 'error', message })
+    toast.error(message)
+  }
+
+  function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
+    if (disabled) return
+    const file = event.currentTarget.files?.[0]
+    if (!file) return
+
+    if (!allowedTypes.has(file.type)) {
+      reportError(isPdf
+        ? 'Csak PDF dokumentum tölthető fel.'
+        : 'Csak JPG, PNG vagy WebP kép tölthető fel.')
+      event.currentTarget.value = ''
+      return
+    }
+    if (file.size > maxSize) {
+      reportError(`A fájl túl nagy. A megengedett méret legfeljebb ${maxSize / 1024 / 1024} MB.`)
+      event.currentTarget.value = ''
+      return
+    }
+
+    const formData = new FormData()
+    formData.append('file', file)
+    if (isPdf) {
+      formData.append('issueId', issueId)
+    } else {
+      formData.append('target', JSON.stringify({ kind: 'magazine-cover', issueId }))
+    }
+
+    setFeedback({ status: 'idle', message: '' })
+    onPendingChange(true)
+    startTransition(async () => {
+      try {
+        const result = isPdf
+          ? await uploadMagazinePdf(formData)
+          : await uploadPublicSiteImage(formData)
+
+        if (result.error) {
+          reportError(result.error)
+        } else if (result.url) {
+          onChange(result.url)
+          const successMessage = isPdf
+            ? 'A PDF feltöltve, a hivatkozás kitöltve.'
+            : 'A borítókép feltöltve, a hivatkozás kitöltve.'
+          setFeedback({ status: 'success', message: successMessage })
+          toast.success(successMessage)
+        } else {
+          reportError('A feltöltés nem adott vissza elérhető hivatkozást.')
+        }
+      } catch {
+        reportError('A fájlfeltöltés váratlan hiba miatt megszakadt.')
+      } finally {
+        if (fileInputRef.current) fileInputRef.current.value = ''
+        onPendingChange(false)
+      }
+    })
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3">
+      <label
+        htmlFor={`${inputId}-url`}
+        className="mb-1 block text-xs font-semibold text-slate-600"
+      >
+        {label}{required ? ' *' : ''}
+      </label>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <input
+          id={`${inputId}-url`}
+          type="url"
+          value={value}
+          disabled={disabled}
+          onChange={(event) => {
+            onChange(event.target.value)
+            setFeedback({ status: 'idle', message: '' })
+          }}
+          placeholder="https://..."
+          className="modal-input min-w-0 flex-1"
+          required={required}
+          aria-invalid={hasUnsafeValue}
+          aria-describedby={`${inputId}-help ${inputId}-status`}
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={disabled || isPending}
+          className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+        >
+          {isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Upload className="h-4 w-4" aria-hidden="true" />
+          )}
+          {isPending ? 'Feltöltés…' : 'Fájl kiválasztása'}
+        </button>
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={acceptedTypes}
+        disabled={disabled}
+        className="hidden"
+        onChange={handleFileSelect}
+        aria-label={`${label} fájl kiválasztása`}
+      />
+
+      <div id={`${inputId}-help`} className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+        <span>{typeHelp}</span>
+        {safeValue && (
+          <a
+            href={safeValue}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex min-h-8 items-center gap-1 font-semibold text-emerald-700 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
+          >
+            Jelenlegi fájl megnyitása
+            <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+          </a>
+        )}
+      </div>
+
+      <div id={`${inputId}-status`} className="mt-2 min-h-5" aria-live="polite">
+        {isPending && (
+          <p role="status" className="text-xs font-medium text-emerald-700">
+            Feltöltés folyamatban…
+          </p>
+        )}
+        {!isPending && feedback.status === 'success' && (
+          <p role="status" className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+            {feedback.message}
+          </p>
+        )}
+        {!isPending && (feedback.status === 'error' || hasUnsafeValue) && (
+          <p role="alert" className="text-xs font-medium text-red-700">
+            {feedback.status === 'error'
+              ? feedback.message
+              : 'Csak biztonságos https:// hivatkozás menthető.'}
+          </p>
+        )}
+      </div>
     </div>
   )
 }

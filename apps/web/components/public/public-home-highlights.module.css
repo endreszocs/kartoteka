@@ -1,0 +1,129 @@
+.section {
+  position: relative;
+  z-index: 30;
+  isolation: isolate;
+  margin-top: -3.25rem;
+  padding-bottom: clamp(2.5rem, 2rem + 2vw, 4rem);
+  pointer-events: none;
+}
+
+.grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--public-ink) 9%, transparent);
+  border-radius: var(--public-radius);
+  background: color-mix(in srgb, var(--public-surface) 96%, white);
+  padding: 1rem;
+  box-shadow:
+    0 28px 64px -34px color-mix(in srgb, var(--public-ink) 36%, transparent),
+    0 10px 28px -22px rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(18px) saturate(1.12);
+  pointer-events: auto;
+}
+
+.icon {
+  display: flex;
+  width: 2.8rem;
+  height: 2.8rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--public-primary) 11%, transparent);
+  color: var(--public-primary-on-surface);
+}
+
+.icon svg {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
+.copy {
+  min-width: 0;
+}
+
+.eyebrow,
+.detail,
+.title {
+  margin: 0;
+}
+
+.eyebrow {
+  color: var(--public-primary-on-surface);
+  font-size: 0.68rem !important;
+  font-weight: 750;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin-top: 0.1rem;
+  overflow-wrap: anywhere;
+  color: var(--public-ink);
+  font-family: var(--public-body-font) !important;
+  font-size: clamp(0.98rem, 0.92rem + 0.28vw, 1.12rem) !important;
+  font-weight: 750 !important;
+  line-height: 1.3 !important;
+  letter-spacing: -0.01em !important;
+}
+
+.detail {
+  margin-top: 0.15rem;
+  overflow-wrap: anywhere;
+  color: var(--public-muted);
+  font-size: 0.78rem !important;
+  line-height: 1.45;
+}
+
+@media (min-width: 40rem) {
+  .section {
+    margin-top: -5.75rem;
+  }
+
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .card {
+    display: block;
+    min-height: 10.25rem;
+    padding: 1.25rem;
+  }
+
+  .icon {
+    margin-bottom: 0.9rem;
+  }
+}
+
+@media (min-width: 64rem) {
+  .section {
+    margin-top: -7.25rem;
+  }
+
+  .card {
+    display: flex;
+    min-height: 7.6rem;
+    padding: 1.35rem;
+  }
+
+  .icon {
+    width: 3.1rem;
+    height: 3.1rem;
+    margin-bottom: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    transition: none !important;
+  }
+}

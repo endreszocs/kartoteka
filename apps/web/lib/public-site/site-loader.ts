@@ -2,6 +2,10 @@ import { cache } from 'react'
 import { z } from 'zod'
 
 import { createPublicServerClient } from '@/lib/supabase/public-server'
+import {
+  publicServiceTimesSchema,
+  type PublicServiceTime,
+} from '@/lib/validations/public-site'
 import { FALLBACK_THEME, type PublicSiteTheme } from './theme-presets'
 import { safePublicHttpsUrl } from './safe-url'
 
@@ -20,6 +24,7 @@ export interface PublicSiteData {
   contact_phone: string | null
   address: string | null
   about_html: string | null
+  service_times: PublicServiceTime[]
   robots_index: boolean
   show_member_count?: boolean
   show_presbyter_count?: boolean
@@ -51,6 +56,8 @@ const publicSiteRowSchema = z.object({
   contact_phone: z.string().nullable(),
   address: z.string().nullable(),
   about_html: z.string().nullable(),
+  // A V1 RPC és a migráció előtti közvetlen olvasás még nem adja vissza.
+  service_times: publicServiceTimesSchema.optional(),
   robots_index: z.boolean(),
   show_member_count: z.boolean(),
   show_presbyter_count: z.boolean(),
@@ -117,32 +124,40 @@ export const loadPublicSiteBySlug = cache(
 
     const supabase = createPublicServerClient()
 
-    const contextResult = await supabase
-      .rpc('public_site_context', { p_slug: parsedSlug.data })
+    const v2ContextResult = await supabase
+      .rpc('public_site_context_v2', { p_slug: parsedSlug.data })
       .maybeSingle()
 
-    let rawSite = contextResult.data
-    let loadError = contextResult.error
+    let rawSite = v2ContextResult.data
+    let loadError = v2ContextResult.error
 
-    // Expand/contract rollout: a web build biztonságosan megelőzheti az RPC-t
-    // létrehozó migrációt. Kizárólag a hiányzó függvény ismert
-    // hibakódjainál használjuk a korábbi, explicit mezőlistás olvasást;
-    // jogosultsági, szerződés- vagy futási hibát nem kerülünk meg.
-    // A public-site security migráció az RPC mellett vissza is vonja ezt a
-    // közvetlen anon hozzáférést, ezért utána csak az új út marad aktív.
-    if (isMissingPublicContextRpc(contextResult.error?.code)) {
-      console.warn(
-        '[public-site] A public_site_context RPC még nem érhető el; átmeneti kompatibilitási olvasás fut.',
-      )
-      const legacyResult = await supabase
-        .from('public_sites')
-        .select(PUBLIC_SITE_SAFE_COLUMNS)
-        .eq('slug', parsedSlug.data)
-        .eq('is_published', true)
+    // Expand/contract: a V2 frontend telepíthető a service_times migráció
+    // előtt. Ilyenkor a már biztonságos V1 RPC adja vissza a régi mezőket,
+    // az alkalomlista pedig becsületesen üres marad.
+    if (isMissingPublicContextRpc(v2ContextResult.error?.code)) {
+      const v1ContextResult = await supabase
+        .rpc('public_site_context', { p_slug: parsedSlug.data })
         .maybeSingle()
 
-      rawSite = legacyResult.data
-      loadError = legacyResult.error
+      rawSite = v1ContextResult.data
+      loadError = v1ContextResult.error
+
+      // Csak a V1 RPC hiányánál lépünk tovább a migráció előtti kompatibilis
+      // közvetlen olvasásra. Jogosultsági vagy futási hibát nem kerülünk meg.
+      if (isMissingPublicContextRpc(v1ContextResult.error?.code)) {
+        console.warn(
+          '[public-site] A public_site_context RPC-k még nem érhetők el; átmeneti kompatibilitási olvasás fut.',
+        )
+        const legacyResult = await supabase
+          .from('public_sites')
+          .select(PUBLIC_SITE_SAFE_COLUMNS)
+          .eq('slug', parsedSlug.data)
+          .eq('is_published', true)
+          .maybeSingle()
+
+        rawSite = legacyResult.data
+        loadError = legacyResult.error
+      }
     }
 
     const parsedSite = publicSiteRowSchema.safeParse(rawSite)
@@ -180,6 +195,7 @@ export const loadPublicSiteBySlug = cache(
       contact_phone: site.contact_phone,
       address: site.address,
       about_html: site.about_html,
+      service_times: site.service_times ?? [],
       robots_index: site.robots_index,
       show_member_count: site.show_member_count ?? false,
       show_presbyter_count: site.show_presbyter_count ?? false,

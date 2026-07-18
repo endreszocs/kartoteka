@@ -3,12 +3,12 @@ import { Calendar, Clock, MapPin, Mail, Phone } from 'lucide-react'
 
 /**
  * Istentiszteleti időpontok + elérhetőség blokk.
- * A service time-ok jelenleg fix szövegek; a jövőben lehet őket a
- * public_sites táblához kapcsolni egy `service_times` jsonb mezővel.
+ * Az alkalmak kizárólag a gyülekezet által mentett, validált adatokból jönnek.
+ * Üres listánál nem jelenítünk meg feltételezett időpontot.
  */
 export function PublicServiceTimes({ site }: { site: PublicSiteData }) {
   return (
-    <section className="public-section">
+    <section className="public-section" id="alkalmak">
       <div className="public-container">
         <div className="grid gap-6 md:grid-cols-2 lg:gap-10">
           {/* Istentiszteletek */}
@@ -34,65 +34,58 @@ export function PublicServiceTimes({ site }: { site: PublicSiteData }) {
               Közösségünk állandó alkalmai — szeretettel várunk mindenkit.
             </p>
 
-            <ul className="space-y-3">
-              <li
-                className="flex items-start gap-3 pb-3 border-b"
-                style={{ borderColor: 'color-mix(in srgb, var(--public-ink) 6%, transparent)' }}
+            {site.service_times.length > 0 ? (
+              <ul className="space-y-3">
+                {site.service_times.map((serviceTime, index) => (
+                  <li
+                    key={serviceTime.id}
+                    className={
+                      index < site.service_times.length - 1
+                        ? 'flex items-start gap-3 border-b pb-3'
+                        : 'flex items-start gap-3'
+                    }
+                    style={{ borderColor: 'color-mix(in srgb, var(--public-ink) 6%, transparent)' }}
+                  >
+                    <Clock
+                      className="mt-0.5 size-5 shrink-0"
+                      style={{ color: 'var(--public-accent-on-surface)' }}
+                      aria-hidden="true"
+                    />
+                    <div className="min-w-0">
+                      <div className="font-semibold" style={{ color: 'var(--public-ink)' }}>
+                        {serviceTime.day} · {serviceTime.time}
+                      </div>
+                      <div className="text-sm" style={{ color: 'var(--public-muted)' }}>
+                        {serviceTime.title}
+                      </div>
+                      {serviceTime.location && (
+                        <div className="mt-1 flex items-start gap-1.5 text-sm" style={{ color: 'var(--public-muted)' }}>
+                          <MapPin className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                          <span>{serviceTime.location}</span>
+                        </div>
+                      )}
+                      {serviceTime.note && (
+                        <p className="mt-1 text-sm italic" style={{ color: 'var(--public-muted)' }}>
+                          {serviceTime.note}
+                        </p>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div
+                className="rounded-xl border border-dashed p-4 text-sm leading-6"
+                style={{
+                  borderColor: 'color-mix(in srgb, var(--public-ink) 14%, transparent)',
+                  backgroundColor: 'color-mix(in srgb, var(--public-soft) 55%, transparent)',
+                  color: 'var(--public-muted)',
+                }}
               >
-                <Clock
-                  className="w-5 h-5 mt-0.5 shrink-0"
-                  style={{ color: 'var(--public-accent-on-surface)' }}
-                />
-                <div>
-                  <div
-                    className="font-semibold"
-                    style={{ color: 'var(--public-ink)' }}
-                  >
-                    Vasárnap 10:00
-                  </div>
-                  <div className="text-sm" style={{ color: 'var(--public-muted)' }}>
-                    Főistentisztelet
-                  </div>
-                </div>
-              </li>
-              <li
-                className="flex items-start gap-3 pb-3 border-b"
-                style={{ borderColor: 'color-mix(in srgb, var(--public-ink) 6%, transparent)' }}
-              >
-                <Clock
-                  className="w-5 h-5 mt-0.5 shrink-0"
-                  style={{ color: 'var(--public-accent-on-surface)' }}
-                />
-                <div>
-                  <div
-                    className="font-semibold"
-                    style={{ color: 'var(--public-ink)' }}
-                  >
-                    Szerda 18:00
-                  </div>
-                  <div className="text-sm" style={{ color: 'var(--public-muted)' }}>
-                    Bibliaóra
-                  </div>
-                </div>
-              </li>
-              <li className="flex items-start gap-3">
-                <Clock
-                  className="w-5 h-5 mt-0.5 shrink-0"
-                  style={{ color: 'var(--public-accent-on-surface)' }}
-                />
-                <div>
-                  <div
-                    className="font-semibold"
-                    style={{ color: 'var(--public-ink)' }}
-                  >
-                    Péntek 19:00
-                  </div>
-                  <div className="text-sm" style={{ color: 'var(--public-muted)' }}>
-                    Ifjúsági alkalom
-                  </div>
-                </div>
-              </li>
-            </ul>
+                A rendszeres alkalmak időpontjai még nincsenek közzétéve.
+                Az aktuális időpontokról érdeklődj az elérhetőségeinken.
+              </div>
+            )}
           </div>
 
           {/* Elérhetőség */}
