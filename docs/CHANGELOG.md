@@ -64,6 +64,11 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ### 🔒 Megbízhatóbb nyilvános működés
 
+- **A tagi belépést most két egymástól független biztonsági kapu védi:** a
+  lelkészi engedély mellett a rendszer külön kéri a teljes adatbázis- és
+  jogosultsági próba igazolását is. Egy régebbről bekapcsolva maradt Railway
+  kapcsoló önmagában többé nem tudja idő előtt megnyitni a tagi felületet.
+
 - **A keresőknek szánt oldaltérkép személyes adatok nélkül készül:** csak a
   közzétett, keresőindexelésre engedélyezett gyülekezeti oldalak, hírek és
   lapszámok kerülhetnek bele.

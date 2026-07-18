@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { getEffectiveAccessContext } from "@/lib/auth/effective-access";
 import { runMemberNewsletterWorker } from "@/lib/email/member-newsletter-worker";
+import { isMemberPortalAuthEnabled } from "@/lib/member-portal/feature-flags";
 import { canAccessPublicSiteAdmin } from "@/lib/public-site/admin-access";
 
 const PAGE_PATH = "/publikus-oldal/tagi-portal";
@@ -15,10 +16,6 @@ type ScopedTable =
   | "member_congregation_applications"
   | "member_person_change_requests"
   | "member_newsletter_campaigns";
-
-function isMemberPortalEnabled(): boolean {
-  return process.env.MEMBER_PORTAL_AUTH_ENABLED === "true";
-}
 
 function value(formData: FormData, name: string): string {
   const raw = formData.get(name);
@@ -36,7 +33,7 @@ function outcome(kind: "success" | "error", message: string): never {
  * action endpoint from being a broader capability than its page.
  */
 async function requirePastoralMemberPortalAccess() {
-  if (!isMemberPortalEnabled())
+  if (!isMemberPortalAuthEnabled())
     outcome("error", "A tagi portál még nincs bekapcsolva.");
 
   const access = await getEffectiveAccessContext();

@@ -26,6 +26,7 @@ import {
 import { NewsletterSubmitButton } from "./newsletter-submit-button";
 import { PublicSiteAdminNav } from "@/components/admin/public-site/public-site-admin-nav";
 import { getEffectiveAccessContext } from "@/lib/auth/effective-access";
+import { isMemberPortalAuthEnabled } from "@/lib/member-portal/feature-flags";
 import { canAccessPublicSiteAdmin } from "@/lib/public-site/admin-access";
 import { cn } from "@/lib/utils";
 
@@ -35,7 +36,7 @@ export const metadata: Metadata = {
     "Tagi csatlakozási kérelmek, adatmódosítások és hírlevelek kezelése.",
 };
 
-const PORTAL_ENABLED = process.env.MEMBER_PORTAL_AUTH_ENABLED === "true";
+const PORTAL_ENABLED = isMemberPortalAuthEnabled();
 
 type Application = {
   id: string;
@@ -309,11 +310,10 @@ export default async function MemberPortalAdminPage({
               </h2>
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 A felület kizárólag akkor lesz működőképes, ha a member-portal
-                migrációk és a token-hook ellenőrzése után a{" "}
+                migrációk és a token-hook ellenőrzése után mindkét kapu aktív:{" "}
                 <code className="rounded bg-white px-1.5 py-0.5 text-xs">
-                  MEMBER_PORTAL_AUTH_ENABLED=true
-                </code>{" "}
-                környezeti változó is be van állítva.
+                  MEMBER_PORTAL_AUTH_ENABLED=true és MEMBER_PORTAL_SCHEMA_READY=true
+                </code>.
               </p>
             </div>
             <div className="p-6 sm:p-8">
