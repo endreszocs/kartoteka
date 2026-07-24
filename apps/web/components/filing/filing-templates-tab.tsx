@@ -102,7 +102,10 @@ export function FilingTemplatesTab() {
   }
 
   function handleSeed() {
-    if (!confirm('Behúzod az alapértelmezett sablonokat? (Keresztelési-, Konfirmációs-, Esketési-, Tagsági igazolás)')) return
+    // 2026-07 (W1): a seedDefaultFilingTemplates NÉV-alapon pótol — csak a
+    // hiányzó nevű alapsablonokat szúrja be, a meglévőket nem bántja, ezért
+    // bármikor biztonságosan újrafuttatható.
+    if (!confirm('Betöltöd a hiányzó alapértelmezett sablonokat? (10 alapsablon: igazolások és levelek magyarul és románul — a már meglévő sablonjaid változatlanok maradnak.)')) return
 
     startTransition(async () => {
       const result = await seedDefaultFilingTemplates()
@@ -137,7 +140,10 @@ export function FilingTemplatesTab() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {templates.length === 0 && !loading && (
+          {/* 2026-07 (W1): a pótlás-gomb MINDIG látszik — meglévő sablonok
+              mellett is behúzza a később hozzáadott új alapsablonokat
+              (név-alapú pótlás, a meglévők érintetlenek). */}
+          {!loading && (
             <Button
               variant="outline"
               className="rounded-xl border-teal-200 text-teal-700 hover:bg-teal-50"
@@ -145,7 +151,7 @@ export function FilingTemplatesTab() {
               disabled={isPending}
             >
               <Sparkles className="mr-1.5 h-4 w-4" />
-              Alapsablonok betöltése
+              {templates.length === 0 ? 'Alapsablonok betöltése' : 'Alapsablonok pótlása'}
             </Button>
           )}
           <Button

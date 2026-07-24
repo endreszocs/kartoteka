@@ -1115,6 +1115,12 @@ function DigitalContent() {
       </p>
       <ul className="list-disc pl-5 space-y-1">
         <li>
+          A Sablonok fülön <strong>10 alapértelmezett sablon</strong> tölthető be — magyar
+          és román nyelvű igazolások (keresztelési, tagsági, temetési, két személyre szóló)
+          és hivatalos levelek —, az {'„Alapsablonok pótlása"'} gombbal a később hozzáadott
+          újak is behúzhatók a meglévők érintése nélkül.
+        </li>
+        <li>
           A <strong>személy-kereső</strong> a tagnyilvántartásból dolgozik — a kiválasztott
           személy(ek) anyakönyvi adatai (keresztelés, konfirmálás, házasság) automatikusan
           töltik a sablon-mezőket.

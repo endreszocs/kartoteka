@@ -42,8 +42,18 @@ import { ageFromDate } from '@/lib/utils/date'
 import { cn } from '@/lib/utils'
 import type { EnrichedMember } from '@/lib/constants/members'
 import { toast } from 'sonner'
-import { MemberCertificateDialog } from '@/components/members/member-certificate-dialog'
 import { MemberStatusBadge } from '@/components/members/member-status-badge'
+
+// 2026-07-24 (W2): az „Igazolás kiállítása" gomb az F6-os iktató-oldali
+// kiállító-motort nyitja (a régi, iktatás nélküli MemberCertificateDialog
+// kivezetve — a tagsági igazolást a seed „Tagsági igazolás" sablon adja).
+// A dialógus KATTINTÁSKORI lazy-importtal töltődik (a filing-main
+// openCertDialog mintája): NEM modul-szintű dynamic().catch(), mert ott egy
+// átmeneti chunk-hiba után a hibakomponens örökre beégne; így hibánál toast
+// jelez, és a KÖVETKEZŐ kattintás újra próbálja az importot. A type-only
+// import build-kor törlődik.
+type CertificateIssueDialogComponent =
+  typeof import('@/components/filing/certificate-issue-dialog').CertificateIssueDialog
 
 interface MemberDetailsDialogProps {
   open: boolean
@@ -184,8 +194,11 @@ export function MemberDetailsDialogV2({
   const [loadError, setLoadError] = useState(false)
   const [reloadToken, setReloadToken] = useState(0)
   const [tab, setTab] = useState<Tab>('personal')
-  // 2026-06-10 (Fázis 5, P3-3): tagsági igazolás nyomtatása
+  // 2026-07-24 (W2): F6-os igazolás/levél-kiállító (iktatással) — lásd a
+  // CertificateIssueDialogComponent kommentjét a fájl tetején.
   const [certOpen, setCertOpen] = useState(false)
+  const [CertDialog, setCertDialog] = useState<CertificateIssueDialogComponent | null>(null)
+  const [certChunkLoading, setCertChunkLoading] = useState(false)
   // 2026-07-24 (PR-11 review): melyik tag adatai vannak betöltve — a
   // reloadToken-es CSENDES frissítés (pl. anyakönyv-mentés után) NEM dobja
   // vissza a felhasználót az Összefoglaló fülre és nem villant skeletont.
@@ -300,6 +313,32 @@ export function MemberDetailsDialogV2({
 
     setTab(nextTab)
     requestAnimationFrame(() => document.getElementById(`member-tab-${nextTab}`)?.focus())
+  }
+
+  // ── 2026-07-24 (W2): Igazolás/levél-kiállító megnyitása ────────────────
+  // Az első kattintás tölti be a lazy chunkot; hibánál toast, és a következő
+  // kattintás ÚJRA próbálja (nincs beégett hibakomponens). Siker után a
+  // komponens state-ben marad — a dialógus maga resetel nyitáskor, és az
+  // initialPersonIds alapján előre betölti a tag anyakönyvi adatait.
+  async function openCertDialog() {
+    if (CertDialog) {
+      setCertOpen(true)
+      return
+    }
+    if (certChunkLoading) return
+    setCertChunkLoading(true)
+    try {
+      const mod = await import('@/components/filing/certificate-issue-dialog')
+      // Függvény-formájú setState kell: a komponens maga is függvény, a sima
+      // setState updater-nek értelmezné és azonnal meghívná.
+      setCertDialog(() => mod.CertificateIssueDialog)
+      setCertOpen(true)
+    } catch (err) {
+      console.warn('[tagnyilvantartas] igazolás-kiállító chunk-betöltési hiba:', err)
+      toast.error('Az igazolás-kiállító most nem tölthető be — próbáld újra.')
+    } finally {
+      setCertChunkLoading(false)
+    }
   }
 
   // 2026-07-24 (PR-11): a karton törzse variant-független — 'sheet' módban a
@@ -904,9 +943,16 @@ export function MemberDetailsDialogV2({
             </div>
 
             <div className="ml-auto flex min-w-max gap-2">
-              <Button variant="outline" size="sm" className="min-h-11 rounded-xl bg-background/80 text-primary hover:bg-primary/5" onClick={() => setCertOpen(true)}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="min-h-11 rounded-xl bg-background/80 text-primary hover:bg-primary/5"
+                title="Hivatalos igazolás/levél kiállítása iktatással"
+                disabled={certChunkLoading}
+                onClick={() => void openCertDialog()}
+              >
                 <Printer className="mr-1.5 size-3.5" />
-                Igazolás
+                Igazolás kiállítása
               </Button>
             </div>
           </footer>
@@ -917,8 +963,17 @@ export function MemberDetailsDialogV2({
     return (
       <>
         {cardBody}
-        {/* 2026-06-10 (Fázis 5, P3-3): nyomtatható tagsági igazolás */}
-        <MemberCertificateDialog open={certOpen} onOpenChange={setCertOpen} szemelyId={member.id} />
+        {/* 2026-07-24 (W2): F6-os kiállító-motor — a tag előre kiválasztva,
+            sikeres iktatás után nincs frissítendő lista ezen a nézeten. */}
+        {CertDialog && (
+          <CertDialog
+            open={certOpen}
+            onOpenChange={setCertOpen}
+            year={new Date().getFullYear()}
+            onIssued={() => {}}
+            initialPersonIds={[member.id]}
+          />
+        )}
       </>
     )
   }
@@ -932,8 +987,17 @@ export function MemberDetailsDialogV2({
       >
         {cardBody}
       </SheetContent>
-      {/* 2026-06-10 (Fázis 5, P3-3): nyomtatható tagsági igazolás */}
-      <MemberCertificateDialog open={certOpen} onOpenChange={setCertOpen} szemelyId={member.id} />
+      {/* 2026-07-24 (W2): F6-os kiállító-motor — a tag előre kiválasztva,
+          sikeres iktatás után nincs frissítendő lista ezen a nézeten. */}
+      {CertDialog && (
+        <CertDialog
+          open={certOpen}
+          onOpenChange={setCertOpen}
+          year={new Date().getFullYear()}
+          onIssued={() => {}}
+          initialPersonIds={[member.id]}
+        />
+      )}
     </Sheet>
   )
 }
