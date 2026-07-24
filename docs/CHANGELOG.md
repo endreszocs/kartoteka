@@ -23,6 +23,43 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-24] — Választói nyomtatási központ: hivatalos (kanonikus) alapmód + egyértelmű többlapos előnézet
+<!-- key: 2026-07-24-tagnyilv-pr12-nyomtatasi-kozpont -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.101 -->
+
+### 🎨 Nyomtatási központ — nem tűnik többé csonkának
+
+- **Az előnézet fölött mostantól látszik a terjedelem** („292 fő · 11 oldal")
+  és egy jelzés, hogy **az előnézet görgethető — minden oldal ott van.**
+  (A teljes névsor eddig is benne volt a nyomtatványban — az 1. lap 22 sora
+  után lapozódik tovább —, de ezt semmi nem jelezte, így csonkának tűnt.
+  Ellenőriztük: a 292 fős névsor 11 lapos PDF-be hibátlanul kikerül.)
+- Az összegzésben is megjelenik a **„Terjedelem: N A4-oldal"** sor.
+
+### ✨ Hivatalos (kanonikus) alapmód
+
+- **Új, alapból bekapcsolt „Hivatalos névjegyzék" mód:** a nyomtatvány
+  pontosan a Választók fül **„Névjegyzéki választó"** számával egyező kört
+  tartalmazza — jogosult ÉS (járulékot fizetett VAGY felmentett), a
+  **részlegesen fizetőkkel együtt.** Ez a szám kerül beküldésre az
+  egyházmegyének is, így a nyomtatott és a beküldött létszám mindig egyezik.
+  (Korábban az alapszűrő csak a teljesen fizetőket vette be — ezért tért el
+  a nyomtatvány létszáma a fülön látott összes választótól.)
+- A részletes finomszűrők (teljes/részleges, évenként) a hivatalos mód
+  kikapcsolásával továbbra is elérhetők.
+
+### 🎨 Pontosított számláló-feliratok
+
+- A Választók fül 4. kártyája **„Jogosult (fizetés nélkül is)"** feliratot
+  kapott — ez a 18+, aktív (jogosult) tagok teljes köre, ami természetesen
+  több lehet, mint a névjegyzék; az 1. kártya pedig **„Névjegyzéki
+  választó"** lett. (A korábbi feliratokkal a két szám egymásnak
+  ellentmondani látszott.)
+
+---
+
 ## [2026-07-24] — Karton-egységesítés: személyi + családi karton egymás mellett, közös arculattal
 <!-- key: 2026-07-24-tagnyilv-pr11-karton-egyseg -->
 <!-- category: improvement -->
