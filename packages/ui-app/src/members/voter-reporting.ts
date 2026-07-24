@@ -136,6 +136,8 @@ export function buildVoterListReport(params: {
   /** 2026-07-24 (PR-14): a gyülekezet ROMÁN hivatalos neve (congregations.nev_ro)
    *  — a fejlécben a magyar név alatt jelenik meg. */
   congregationNameRo?: string | null
+  /** 2026-07-25 (PR-15): adóazonosító (CIF) — a román név alatti sorba. */
+  cif?: string | null
   address?: string | null
   phone?: string | null
   /** Keltezés helysége (congregations.varos); fallback: a gyülekezetnév első szava. */
@@ -147,7 +149,7 @@ export function buildVoterListReport(params: {
    *  (pl. a desktop-nyomtatvány adatforrás-megjegyzése). */
   note?: string | null
 }): VoterPrintResult {
-  const { voters, year, congregationName, congregationNameRo, address, phone, city, logoUrl, note } = params
+  const { voters, year, congregationName, congregationNameRo, cif, address, phone, city, logoUrl, note } = params
   const yearRange = `${year} - ${year + 1}`
 
   // Teljes fejléc MINDEN lapon — a logó adat-URL-je a stíluslapban él (1×).
@@ -156,6 +158,7 @@ export function buildVoterListReport(params: {
     <div class="lh-text">
       <div class="lh-name">${esc(congregationName)}</div>
       ${congregationNameRo && congregationNameRo.trim() && congregationNameRo.trim() !== congregationName ? `<div class="lh-name-ro">${esc(congregationNameRo.trim())}</div>` : ''}
+      ${cif && cif.trim() ? `<div>CIF: ${esc(cif.trim())}</div>` : ''}
       ${address ? `<div>${esc(address)}</div>` : ''}
       ${phone ? `<div>Tel: ${esc(phone)}</div>` : ''}
     </div>

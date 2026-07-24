@@ -20,7 +20,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { buildVoterListReport } from '@/lib/members/voter-reporting'
-import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
+import { printToBrowser } from '@/lib/utils/print-engine-v2'
 import { getVoterPrintContext, type VoterRow } from '@/app/(dashboard)/tagnyilvantartas/voter-actions'
 import { toast } from 'sonner'
 
@@ -52,11 +52,11 @@ export function VoterPrintDialog({
   // felülbírálással) — kikapcsolható; a felmentett fizetettnek számít.
   const [onlyEligible, setOnlyEligible] = useState(true)
   const [includeExempt, setIncludeExempt] = useState(true)
-  const [printing, setPrinting] = useState(false)
   const [sendingToPrinter, setSendingToPrinter] = useState(false)
   const [congregationName, setCongregationName] = useState('Gyülekezet')
   // 2026-07-24 (PR-14): a román hivatalos név a fejlécbe (pl. Parohia Reformată Brateș)
   const [congregationNameRo, setCongregationNameRo] = useState<string | null>(null)
+  const [cif, setCif] = useState<string | null>(null)
   const [address, setAddress] = useState<string | null>(null)
   const [phone, setPhone] = useState<string | null>(null)
   const [city, setCity] = useState<string | null>(null)
@@ -74,6 +74,7 @@ export function VoterPrintDialog({
       if (cancelled) return
       setCongregationName(ctx.congregationName)
       setCongregationNameRo(ctx.congregationNameRo)
+      setCif(ctx.cif)
       setAddress(ctx.address)
       setPhone(ctx.phone)
       setCity(ctx.city)
@@ -134,30 +135,13 @@ export function VoterPrintDialog({
       year: currentYear,
       congregationName,
       congregationNameRo,
+      cif,
       address,
       phone,
       city,
       logoUrl: logoDataUrl,
     })
-  }, [filteredVoters, currentYear, congregationName, congregationNameRo, address, phone, city, logoDataUrl])
-
-  async function handlePdf() {
-    setPrinting(true)
-    try {
-      await printToPdf(report.html, report.filename, {
-        orientation: report.orientation,
-        // 2026-07-17 (F3): a lap-margót a dokumentum .page paddingje adja (WYSIWYG);
-        // a motor-margó a stíluslap-javítás után 210mm-es lapnál jobb-szélvágást okozna.
-        margin: [0, 0],
-        format: 'a4',
-      })
-      toast.success(`${report.title} PDF elkészült.`)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'A PDF mentése nem sikerült.')
-    } finally {
-      setPrinting(false)
-    }
-  }
+  }, [filteredVoters, currentYear, congregationName, congregationNameRo, cif, address, phone, city, logoDataUrl])
 
   async function handleDirectPrint() {
     setSendingToPrinter(true)
@@ -357,24 +341,29 @@ export function VoterPrintDialog({
                 </div>
               )}
 
+              {/* 2026-07-25 (PR-15, user-döntés): a PDF-mentés gomb kivezetve — a
+                  böngésző BEÉPÍTETT (hibátlan, vektoros) PDF-készítője a kanonikus
+                  út: Nyomtatás → Cél: „Mentés PDF-ként". */}
+              <div className="rounded-lg border border-blue-200 bg-blue-50/70 p-3 text-xs leading-5 text-blue-900">
+                <p className="font-semibold">💡 PDF-be mentés</p>
+                <p className="mt-1">
+                  Kattints a <strong>Nyomtatás</strong> gombra, majd a megjelenő
+                  nyomtatási ablakban a <strong>Cél / Nyomtató</strong> listából
+                  válaszd a <strong>&bdquo;Mentés PDF-ként&rdquo;</strong> lehetőséget —
+                  így éles, kereshető szövegű, hibátlan PDF-et kapsz minden oldallal.
+                </p>
+              </div>
+
               <div className="flex flex-wrap gap-2 pt-1">
                 <Button variant="ghost" className="flex-1" onClick={() => onOpenChange(false)}>
                   Bezárás
                 </Button>
                 <Button
-                  variant="outline"
-                  className="flex-1"
+                  className="flex-[2]"
                   onClick={() => void handleDirectPrint()}
                   disabled={sendingToPrinter || !anyFilter || filteredVoters.length === 0}
                 >
-                  {sendingToPrinter ? 'Nyomtatás...' : 'Direkt nyomtatás'}
-                </Button>
-                <Button
-                  className="flex-1"
-                  onClick={() => void handlePdf()}
-                  disabled={printing || !anyFilter || filteredVoters.length === 0}
-                >
-                  {printing ? 'PDF készül...' : 'PDF-be mentés'}
+                  {sendingToPrinter ? 'Nyomtatás...' : 'Nyomtatás / Mentés PDF-ként'}
                 </Button>
               </div>
             </div>

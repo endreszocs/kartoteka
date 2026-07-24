@@ -30,7 +30,9 @@ import {
 } from 'lucide-react'
 
 import { getFamilyGraphData } from '@/app/(dashboard)/tagnyilvantartas/family-graph-actions'
-import { FamilyDetailsDialogRefined } from '@/components/modals/family-details-dialog-refined'
+import { RegistryCardsHost } from '@/components/modals/registry-cards-host'
+import { getEnrichedMemberById } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
+import type { EnrichedMember } from '@/lib/constants/members'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -153,6 +155,17 @@ export function FamilyGraphTab() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [familyDialogId, setFamilyDialogId] = useState<number | null>(null)
   const [familyDialogOpen, setFamilyDialogOpen] = useState(false)
+  // 2026-07-25 (PR-15): a beágyazott, EGYMÁST FEDŐ karton-sheetek helyett a
+  // persons-tab kettős nézete — személy BALRA, család JOBBRA, egymás MELLETT.
+  const [personMember, setPersonMember] = useState<EnrichedMember | null>(null)
+  const [personOpen, setPersonOpen] = useState(false)
+  const personLoadTokenRef = useRef(0)
+  // Az Esc-kezelő (stale-closure-mentes) őre: nyitva van-e bármely lap/panel.
+  const dialogOpenRef = useRef(false)
+  useEffect(() => {
+    dialogOpenRef.current =
+      familyDialogOpen || personOpen || filterOpen || nodeListOpen || searchOpen || touchExploreMode
+  }, [familyDialogOpen, personOpen, filterOpen, nodeListOpen, searchOpen, touchExploreMode])
   const galaxyRef = useRef<FamilyGalaxyHandle | null>(null)
   const [hoverTip, setHoverTip] = useState<{ node: FamilyGraphNode; x: number; y: number } | null>(null)
   // 2026-07-24 (PR-5, D5 döntés): teljes képernyős (immerzív) mód — a háló a
@@ -163,6 +176,19 @@ export function FamilyGraphTab() {
   // automatikusan összecsukódik (esemény a dashboard-layoutnak).
   const [immersive, setImmersive] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(0)
+  const sectionRef = useRef<HTMLElement | null>(null)
+  // 2026-07-25 (PR-15): immerzívből kilépve a beágyazott nézet címe a ragadós
+  // fejléc ALÁ került — kilépéskor a szekciót a fejléc alá görgetjük.
+  const prevImmersiveRef = useRef(true)
+  useEffect(() => {
+    const wasImmersive = prevImmersiveRef.current
+    prevImmersiveRef.current = immersive
+    if (wasImmersive && !immersive) {
+      requestAnimationFrame(() => {
+        sectionRef.current?.scrollIntoView({ block: 'start', behavior: 'auto' })
+      })
+    }
+  }, [immersive])
 
   useEffect(() => {
     if (!immersive) return
@@ -184,6 +210,10 @@ export function FamilyGraphTab() {
     if (sidebar && resizeObserver) resizeObserver.observe(sidebar)
     window.addEventListener('resize', update)
     const exitOnEscape = (event: KeyboardEvent) => {
+      // 2026-07-25 (PR-15): amíg bármely lap/panel nyitva van, az Esc AZT
+      // zárja — az immerzív módból nem esünk ki (a kilépés után a beágyazott
+      // nézetben a ragadós fejléc kitakarta a címet).
+      if (dialogOpenRef.current) return
       if (event.key === 'Escape') setImmersive(false)
     }
     window.addEventListener('keydown', exitOnEscape)
@@ -336,6 +366,23 @@ export function FamilyGraphTab() {
     setFamilyDialogOpen(true)
   }
 
+  // 2026-07-25 (PR-15): tag-kattintás a családi kartonról — a személyi karton a
+  // BAL oszlopban nyílik, a család JOBBRA nyitva marad (token-őr a persons-tab
+  // mintájára: gyors dupla-kattintás + zárás utáni szellem-újranyílás ellen).
+  async function openPersonFromFamily(memberId: number) {
+    const targetFamilyId = familyDialogId
+    if (targetFamilyId == null) return
+    const token = ++personLoadTokenRef.current
+    try {
+      const enriched = await getEnrichedMemberById(memberId, targetFamilyId)
+      if (token !== personLoadTokenRef.current || !enriched) return
+      setPersonMember(enriched as EnrichedMember)
+      setPersonOpen(true)
+    } catch {
+      /* betöltési hiba — a családi karton nyitva marad */
+    }
+  }
+
   if (loadState.status === 'loading') return <FamilyGraphLoading />
   if (loadState.status === 'error') {
     return <FamilyGraphError message={loadState.message} onRetry={handleRetry} />
@@ -350,13 +397,16 @@ export function FamilyGraphTab() {
   return (
     <>
       <section
+        ref={sectionRef}
         className={cn(
           'relative isolate overflow-hidden bg-[#071b1c] text-white',
           immersive
             ? // 2026-07-24 (PR-5, D5): immerzív mód — fixen a sidebar melletti
               // teljes terület, a fejléc/hero/vers FÖLÖTT (lefedi őket).
               'fixed inset-y-0 right-0 z-[45] flex flex-col rounded-none border-0'
-            : 'rounded-[1.75rem] border border-[#b4ddd5]/15 shadow-[0_28px_80px_-42px_rgba(4,38,37,0.72)] sm:rounded-[2rem]',
+            : // 2026-07-25 (PR-15): scroll-mt — görgetéskor a cím a ragadós
+              // fejléc (h-16) alatt álljon meg, ne csússzon alá.
+              'scroll-mt-20 rounded-[1.75rem] border border-[#b4ddd5]/15 shadow-[0_28px_80px_-42px_rgba(4,38,37,0.72)] sm:rounded-[2rem]',
         )}
         style={immersive ? { left: sidebarWidth } : undefined}
       >
@@ -636,13 +686,35 @@ export function FamilyGraphTab() {
         onSelect={focusNode}
       />
 
-      <FamilyDetailsDialogRefined
-        open={familyDialogOpen}
-        onOpenChange={(open) => {
-          setFamilyDialogOpen(open)
-          if (!open) setFamilyDialogId(null)
-        }}
+      {/* 2026-07-25 (PR-15): kettős nézet — a korábbi egymásra nyíló sheetek
+          helyett személy BALRA + család JOBBRA, egymás mellett. */}
+      <RegistryCardsHost
+        personOpen={personOpen}
+        member={personMember}
+        personFamilyId={familyDialogId}
+        familyOpen={familyDialogOpen}
         familyId={familyDialogId}
+        personName={personMember ? `${personMember.csaladnev ?? ''} ${personMember.k_nev ?? ''}`.trim() : null}
+        onClosePerson={() => {
+          personLoadTokenRef.current++
+          setPersonOpen(false)
+        }}
+        onCloseFamily={() => {
+          personLoadTokenRef.current++
+          setFamilyDialogOpen(false)
+          if (!personOpen) setFamilyDialogId(null)
+        }}
+        onCloseAll={() => {
+          personLoadTokenRef.current++
+          setPersonOpen(false)
+          setFamilyDialogOpen(false)
+          setFamilyDialogId(null)
+        }}
+        onOpenFamily={(id) => {
+          setFamilyDialogId(id)
+          setFamilyDialogOpen(true)
+        }}
+        onOpenMember={(id) => void openPersonFromFamily(id)}
       />
     </>
   )

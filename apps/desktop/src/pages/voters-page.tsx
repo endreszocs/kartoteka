@@ -65,6 +65,8 @@ export function VotersPage() {
   // 2026-07-24 (PR-8 review): a nyomtatvány-fejléc cím+telefon (web-paritás)
   const [congregationAddress, setCongregationAddress] = useState<string | null>(null)
   const [congregationPhone, setCongregationPhone] = useState<string | null>(null)
+  // 2026-07-25 (PR-15): adóazonosító (CIF) a fejlécbe
+  const [congregationCif, setCongregationCif] = useState<string | null>(null)
   // 2026-07-24 (PR-13): címer a laponkénti nyomtatvány-fejlécbe
   const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null)
   const [rows, setRows] = useState<SzemelyListRow[]>([])
@@ -87,9 +89,13 @@ export function VotersPage() {
             setCongregationName(cong.name || cong.nev_hu || 'Gyülekezet')
             setCongregationNameRo(cong.nev_ro ?? null)
             setCongregationCity(cong.varos ?? null)
-            // A webes getVoterPrintContext cím-összeállításával egyezően
-            setCongregationAddress([cong.cim, cong.varos, cong.megye].filter(Boolean).join(', ') || null)
+            // A webes getVoterPrintContext cím-összeállításával egyezően —
+            // 2026-07-25 (PR-15): az utca elé „str." (strada) előtag.
+            const rawCim = (cong.cim ?? '').trim()
+            const strCim = rawCim ? (/^str(\.|\s|ada)/i.test(rawCim) ? rawCim : `str. ${rawCim}`) : null
+            setCongregationAddress([strCim, cong.varos, cong.megye].filter(Boolean).join(', ') || null)
             setCongregationPhone(cong.telefon ?? null)
+            setCongregationCif(cong.adoszam ?? null)
             // 2026-07-24 (PR-13): címer a laponkénti fejlécbe — adat-URL-ként,
             // hogy offline gyorsítótárból is biztosan renderelődjön (best effort).
             if (cong.cimer_url) {
@@ -201,6 +207,7 @@ export function VotersPage() {
         year,
         congregationName,
         congregationNameRo,
+        cif: congregationCif,
         address: congregationAddress,
         phone: congregationPhone,
         city: congregationCity,

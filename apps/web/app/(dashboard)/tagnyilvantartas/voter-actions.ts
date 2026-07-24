@@ -346,6 +346,8 @@ export interface VoterPrintContext {
   /** 2026-07-24 (PR-14): a gyülekezet ROMÁN hivatalos neve (congregations.nev_ro)
    *  — a nyomtatvány-fejlécben a magyar név alatt jelenik meg. */
   congregationNameRo: string | null
+  /** 2026-07-25 (PR-15): adóazonosító (CIF) a fejlécbe. */
+  cif: string | null
   address: string | null
   phone: string | null
   /** A keltezés helysége (congregations.varos) — 2026-07-17 (PR-2): a korábbi
@@ -357,7 +359,7 @@ export interface VoterPrintContext {
 
 export async function getVoterPrintContext(): Promise<VoterPrintContext> {
   const { supabase, congregationId: congId } = await getEffectiveCongregationContext()
-  if (!congId) return { congregationName: 'Gyülekezet', congregationNameRo: null, address: null, phone: null, city: null, cimerUrl: null }
+  if (!congId) return { congregationName: 'Gyülekezet', congregationNameRo: null, cif: null, address: null, phone: null, city: null, cimerUrl: null }
 
   const { data } = await supabase
     .from('congregations')
@@ -367,11 +369,16 @@ export async function getVoterPrintContext(): Promise<VoterPrintContext> {
 
   const congregationName = (data?.nev_hu as string | null) || (data?.name as string | null) || 'Gyülekezet'
   const congregationNameRo = (data?.nev_ro as string | null) || null
-  const addressParts = [data?.cim, data?.varos, data?.megye].filter(Boolean) as string[]
+  const cif = (data?.adoszam as string | null) || null
+  // 2026-07-25 (PR-15): a cím ROMÁN formában — az utca elé „str." (strada)
+  // előtag, különben a puszta utcanév önmagában értelmezhetetlen.
+  const rawCim = ((data?.cim as string | null) || '').trim()
+  const strCim = rawCim ? (/^str(\.|\s|ada)/i.test(rawCim) ? rawCim : `str. ${rawCim}`) : null
+  const addressParts = [strCim, data?.varos, data?.megye].filter(Boolean) as string[]
   const address = addressParts.length > 0 ? addressParts.join(', ') : null
   const phone = (data?.telefon as string | null) || null
   const city = (data?.varos as string | null) || null
   const cimerUrl = (data?.cimer_url as string | null) || null
 
-  return { congregationName, congregationNameRo, address, phone, city, cimerUrl }
+  return { congregationName, congregationNameRo, cif, address, phone, city, cimerUrl }
 }
