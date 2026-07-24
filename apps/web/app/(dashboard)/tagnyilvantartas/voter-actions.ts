@@ -246,6 +246,56 @@ export async function recomputeVoterEligibility(): Promise<{
 }
 
 /**
+ * 2026-07-24 (PR-9, user 1. észrevétel): a konfirmáció-kritérium gyülekezet-
+ * szintű kapcsolója. FALSE = aki 18+, aktív és fizet/felmentett, az
+ * konfirmálási rekord NÉLKÜL is jogosult (pl. amíg a konfirmálási anyakönyv
+ * nincs bevezetve a rendszerbe).
+ */
+export async function getVoterConfirmationRequirement(): Promise<boolean> {
+  const { supabase, congregationId: congId } = await getEffectiveCongregationContext()
+  if (!congId) return true
+  const { data, error } = await supabase
+    .from('congregations')
+    .select('valaszto_konfirmacio_szukseges')
+    .eq('id', congId)
+    .maybeSingle()
+  if (error) {
+    // Ha a migráció még nem futott le (nincs oszlop), a korábbi viselkedés él.
+    console.warn('[voters] konfirmáció-beállítás nem olvasható (lefutott a PR-9 migráció?):', error.message)
+    return true
+  }
+  return (data?.valaszto_konfirmacio_szukseges as boolean | null) ?? true
+}
+
+export async function setVoterConfirmationRequirement(required: boolean): Promise<{ ok: boolean; error?: string; eligible?: number }> {
+  const { supabase, congregationId: congId } = await getEffectiveCongregationContext()
+  if (!congId) return { ok: false, error: 'Nincs aktív gyülekezet.' }
+
+  const { error } = await supabase
+    .from('congregations')
+    .update({ valaszto_konfirmacio_szukseges: required })
+    .eq('id', congId)
+  if (error) return { ok: false, error: `A beállítás mentése sikertelen: ${error.message} (Lefutott a 2026-07-24-es PR-9 migráció?)` }
+
+  await logAuditEvent({
+    action: 'voter.confirmation_requirement_set',
+    targetTable: 'congregations',
+    targetId: congId,
+    metadata: { required },
+  }, supabase)
+
+  // A kapcsoló-váltás után azonnal újraszámolunk, hogy a jogosult-jelölések
+  // az új szabályt tükrözzék.
+  const { data, error: rpcError } = await supabase.rpc('recompute_voter_eligibility', { p_congregation_id: congId })
+  revalidatePath('/tagnyilvantartas')
+  if (rpcError) {
+    return { ok: false, error: `A beállítás mentve, de az újraszámítás nem futott le: ${rpcError.message}` }
+  }
+  const res = data as { eligible?: number } | null
+  return { ok: true, eligible: res?.eligible }
+}
+
+/**
  * Egy tag választói jogosultságának kézi felülbírálása.
  * override: 1 = mindig jogosult, 0 = mindig kizárt, null = automatikus (szabály dönt).
  * A beállítás után újraszámítja az érintett gyülekezetet.
