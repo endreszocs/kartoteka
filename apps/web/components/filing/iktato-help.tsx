@@ -1144,6 +1144,28 @@ function DigitalContent() {
         aláírt <strong>másodpéldány</strong> pedig az irattárba kerül.
       </Callout>
 
+      <S>Életút- és családi igazolás (háromnyelvű)</S>
+      <p>
+        A kiállító sablon-választójának <Pill tone="teal">⭐ Életút- és családi igazolás</Pill>{' '}
+        pontja egyetlen egyháztag <strong>teljes egyházi életútját</strong> (keresztelés,
+        konfirmáció, házasság, gyermekek, elhalálozás és nyughely) állítja ki
+        magyar–román–angol, számozott mezős hivatalos nyomtatványként, anyakönyvi
+        (kötet/folyószám) hivatkozásokkal — akár hatósági, bírósági felhasználásra is.
+        Ha az anyakönyvi nyilvántartásból kötelező adat hiányzik, a rendszer{' '}
+        <strong>nyomtatható TODO-listát</strong> ad (mit kell megkeresni és hová bevezetni);
+        az igazolás ilyenkor is kiállítható, a hiányzó rovatok kitöltő-vonallal jelennek meg.
+      </p>
+
+      <S>Egyháztag átadása másik egyházközségnek</S>
+      <p>
+        Az {'„Egyháztag átadása másik egyházközségnek"'} sablonnál a kiállítóban{' '}
+        <strong>cél-egyházközség kereső</strong> jelenik meg. Az iktatás után a rendszer
+        automatikusan rögzíti az átadás tényét: a tag státusza {'„elköltözött"'} lesz, a
+        cél-egyházközség lelkésze pedig <strong>átjelentkezési értesítést</strong> kap az
+        iktatószámmal — a papíralapú kiköltözési irat postázását ez nem váltja ki, de a két
+        gyülekezet nyilvántartása azonnal szinkronban marad.
+      </p>
+
       <S>Iratcsomók és leltár</S>
       <p>
         Az <Pill tone="violet">Iratcsomók</Pill> fülön évenként hozhatók létre csomók —

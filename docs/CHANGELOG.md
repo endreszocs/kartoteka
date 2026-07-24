@@ -23,6 +23,30 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Életút-igazolás három nyelven + egyháztag-átadás
+<!-- key: 2026-07-25-iktato-f8b-eletut-atadas -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+<!-- version: web v0.9.111 -->
+
+### ✨ Új funkciók
+
+- **Életút- és családi igazolás — három nyelven, akár törvényszéknek.** A
+  kiállítóban új, kiemelt lehetőség: egy egyháztag teljes egyházközségi
+  életútját (születés, keresztelés, konfirmáció, házasság, gyermekek,
+  elhalálozás és nyughely — a Sírhelyek modulból a pontos sírhely-számmal)
+  hivatalos, magyar–román–angol feliratú, nemzetközi mintájú nyomtatványba
+  rendezi, anyakönyvi hivatkozásokkal, záradékokkal és kettős aláírással.
+- **Nyomtatható teendő-lista a hiányzó adatokról:** ha az igazoláshoz valamely
+  adat nincs bevezetve, a rendszer pontosan megmondja, mit hol kell rögzíteni —
+  a pótlás után az igazolás magától kitöltődik, és az adatbázis is gazdagodik.
+- **Egyháztag átadása másik egyházközségnek:** új sablon, a cél-gyülekezet a
+  rendszer gyülekezet-adatbázisából kereshető ki; a kiállítás egyben rögzíti
+  az átadást (a tag elköltözötté válik), a fogadó gyülekezet lelkésze pedig
+  átjelentkezési kérelmet kap, amit egy kattintással elfogadhat.
+
+---
+
 ## [2026-07-25] — Családi háló: csillagképek — a rokoni szálak mesélnek, nem a család-csillagok
 <!-- key: 2026-07-25-tagnyilv-pr16-csillagkep -->
 <!-- category: feature -->

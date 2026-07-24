@@ -105,7 +105,7 @@ export function FilingTemplatesTab() {
     // 2026-07 (W1): a seedDefaultFilingTemplates NÉV-alapon pótol — csak a
     // hiányzó nevű alapsablonokat szúrja be, a meglévőket nem bántja, ezért
     // bármikor biztonságosan újrafuttatható.
-    if (!confirm('Betöltöd a hiányzó alapértelmezett sablonokat? (10 alapsablon: igazolások és levelek magyarul és románul — a már meglévő sablonjaid változatlanok maradnak.)')) return
+    if (!confirm('Betöltöd a hiányzó alapértelmezett sablonokat? (11 alapsablon: igazolások és levelek magyarul és románul — a már meglévő sablonjaid változatlanok maradnak.)')) return
 
     startTransition(async () => {
       const result = await seedDefaultFilingTemplates()
