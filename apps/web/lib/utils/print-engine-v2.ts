@@ -21,16 +21,31 @@ async function createPrintIframe(htmlContent: string) {
   document.body.appendChild(iframe)
   iframe.srcdoc = htmlContent
 
-  // Biztonsági időkorlát, ha a load esemény valamiért nem érkezne meg.
-  await Promise.race([loaded, new Promise((r) => window.setTimeout(r, 1200))])
-  // Egy extra tick a layout/betűk stabilizálódásához.
-  await new Promise((resolve) => window.setTimeout(resolve, 120))
-
+  // 2026-07-24 (PR-14, „1 lapos PDF" gyökérok): a korábbi FIX 1200 ms-os
+  // versenyfutás lassabb gépen/nagy dokumentumnál FÉLBEHAGYOTT DOM-mal ment
+  // tovább — a PDF-be csak az addig beparsolt lapok kerültek. Mostantól a
+  // TÉNYLEGES készenlétet várjuk: load-esemény VAGY readyState==='complete',
+  // legfeljebb 15 mp-ig pollozva; utána betű-betöltés + dupla layout-tick.
+  const deadline = Date.now() + 15000
+  let ready = false
+  const markReady = () => { ready = true }
+  void loaded.then(markReady)
+  while (!ready && Date.now() < deadline) {
+    const doc = iframe.contentDocument
+    if (doc && doc.readyState === 'complete' && doc.body) ready = true
+    else await new Promise((r) => window.setTimeout(r, 100))
+  }
   const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document
-  if (!iframeDoc) {
+  if (!iframeDoc || !iframeDoc.body) {
     if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
     throw new Error('A nyomtatási előnézet nem hozható létre.')
   }
+  // Betűtípusok (ha a böngésző támogatja) + két képkocka a layout stabilizálódásához.
+  try {
+    const fonts = (iframeDoc as Document & { fonts?: { ready: Promise<unknown> } }).fonts
+    if (fonts?.ready) await Promise.race([fonts.ready, new Promise((r) => window.setTimeout(r, 2000))])
+  } catch { /* nem kritikus */ }
+  await new Promise((resolve) => window.setTimeout(resolve, 120))
 
   return { iframe, iframeDoc }
 }
@@ -68,6 +83,12 @@ async function renderSheetsToPdf(
     const img = canvas.toDataURL('image/jpeg', 0.85)
     if (i > 0) pdf.addPage('a4', 'portrait')
     pdf.addImage(img, 'JPEG', 0, 0, 210, 297)
+  }
+  // Védőháló: a PDF-oldalszámnak BETŰRE egyeznie kell a lapszámmal — különben
+  // inkább hiba, mint csonka hivatalos dokumentum.
+  const pageCount = (pdf as unknown as { getNumberOfPages(): number }).getNumberOfPages()
+  if (pageCount !== sheets.length) {
+    throw new Error(`PDF-oldalszám-eltérés (${pageCount}/${sheets.length}).`)
   }
   pdf.save(filename)
 }
@@ -126,6 +147,15 @@ export async function printToPdf(
     try {
       applyPrintStyles(iframeDoc)
       const sheetEls = Array.from(iframeDoc.querySelectorAll<HTMLElement>('body .sheet'))
+      // 2026-07-24 (PR-14): a dokumentum a body-n hordozza a VÁRT lapszámot —
+      // ha a DOM-ban kevesebb lap van (félbeszakadt betöltés), SOSEM mentünk
+      // csonka hivatalos dokumentumot: hangos hibát adunk újrapróbálkozáshoz.
+      const expected = Number(iframeDoc.body.dataset.sheetCount || '0')
+      if (expected > 0 && sheetEls.length !== expected) {
+        throw new Error(
+          `A nyomtatvány nem töltött be hiánytalanul (${sheetEls.length}/${expected} lap) — kérlek, próbáld újra.`,
+        )
+      }
       if (sheetEls.length > 0) {
         const pageHeightPx = sheetEls[0].offsetWidth * (297 / 210)
         const allPageSized = sheetEls.every((s) => s.offsetHeight <= pageHeightPx * 1.02)
@@ -135,7 +165,14 @@ export async function printToPdf(
         }
       }
     } catch (e) {
-      // Bármi hiba → visszaesés a bevált teljes-dokumentum útvonalra.
+      // Ismert lapszámú (data-sheet-count) dokumentumnál NINCS néma fallback —
+      // a teljes-dokumentum útvonal GPU-plafonos gépen üres PDF-et adna. A hibát
+      // a hívó felszínre viszi (toast), a felhasználó újrapróbálhatja.
+      if (iframeDoc.body?.dataset.sheetCount) {
+        if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
+        throw e
+      }
+      // Lapszám-jelzés nélküli (régi) dokumentumok: visszaesés a bevált útra.
       console.warn('[printToPdf] laponkénti render sikertelen, fallback html2pdf-re:', e instanceof Error ? e.message : e)
     } finally {
       if (iframe.parentNode) iframe.parentNode.removeChild(iframe)

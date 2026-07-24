@@ -55,6 +55,8 @@ export function VoterPrintDialog({
   const [printing, setPrinting] = useState(false)
   const [sendingToPrinter, setSendingToPrinter] = useState(false)
   const [congregationName, setCongregationName] = useState('Gyülekezet')
+  // 2026-07-24 (PR-14): a román hivatalos név a fejlécbe (pl. Parohia Reformată Brateș)
+  const [congregationNameRo, setCongregationNameRo] = useState<string | null>(null)
   const [address, setAddress] = useState<string | null>(null)
   const [phone, setPhone] = useState<string | null>(null)
   const [city, setCity] = useState<string | null>(null)
@@ -71,6 +73,7 @@ export function VoterPrintDialog({
     void getVoterPrintContext().then(async ctx => {
       if (cancelled) return
       setCongregationName(ctx.congregationName)
+      setCongregationNameRo(ctx.congregationNameRo)
       setAddress(ctx.address)
       setPhone(ctx.phone)
       setCity(ctx.city)
@@ -130,12 +133,13 @@ export function VoterPrintDialog({
       voters: voterData,
       year: currentYear,
       congregationName,
+      congregationNameRo,
       address,
       phone,
       city,
       logoUrl: logoDataUrl,
     })
-  }, [filteredVoters, currentYear, congregationName, address, phone, city, logoDataUrl])
+  }, [filteredVoters, currentYear, congregationName, congregationNameRo, address, phone, city, logoDataUrl])
 
   async function handlePdf() {
     setPrinting(true)
