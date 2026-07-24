@@ -17,10 +17,14 @@
  */
 
 import {
+  allocateFamilyPayments,
+  computeBaseExpectedForMemberYear,
   computeJarulekForMemberYear,
+  isJarulekExcludedMemberStatus,
   type DebtCalcMode,
   type JarulekDiscountRule,
   type JarulekExemption,
+  type JarulekPaymentLike,
   type JarulekYearSetting,
 } from '@kartoteka/ui-app'
 
@@ -240,7 +244,7 @@ export async function expectedJarulekOnline(
   const [memberRes, bealitasRes, discRes, exRes, famRes, congRes] = await Promise.all([
     supabase.from('szemely').select('id, sz_datum, foglalkozas').eq('id', personId).eq('congregation_id', congregationId).maybeSingle(),
     supabase.from('bealitas').select('id, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid').eq('congregation_id', congregationId).eq('id', String(year)).maybeSingle(),
-    supabase.from('jarulek_kedvezmeny').select('id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras').eq('congregation_id', congregationId).eq('aktiv', true).eq('ev', year),
+    supabase.from('jarulek_kedvezmeny').select('id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras').eq('congregation_id', congregationId).eq('aktiv', true).eq('ev', year).order('sorrend', { ascending: true }),
     supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('congregation_id', congregationId),
     supabase.from('haztartas_tag').select('id_szemely, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)').eq('congregation_id', congregationId).eq('id_szemely', personId).is('ervenyes_ig', null),
     supabase.from('congregations').select('eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid').eq('id', congregationId).maybeSingle(),
@@ -313,6 +317,49 @@ export async function expectedJarulekOnline(
   const debtCalcMode: DebtCalcMode = 'akkori' // currentYear:year mellett irreleváns (web-azonos)
   const prospectiveDate = prospectiveDateIso ? new Date(prospectiveDateIso) : null
 
+  // 2026-07-17 (F5, Q7 — a web getExpectedJarulek tükre): a családhoz kötött
+  // befizetések felosztása a család tagjai közt. A roster csak akkor kell, ha van
+  // családhoz kötött tétel.
+  let paymentsForCalc: JarulekPaymentLike[] = maintenancePayments
+  if (familyId != null && maintenancePayments.some((p) => p.id_csalad != null)) {
+    const { data: famTagData } = await supabase
+      .from('haztartas_tag')
+      .select('id_szemely, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)')
+      .eq('congregation_id', congregationId)
+      .is('ervenyes_ig', null)
+    const famMemberIds = new Set<number>([personId])
+    for (const row of (famTagData || []) as Array<{
+      id_szemely: number
+      haztartas: { legacy_csalad_id: number | null; isaktiv: boolean | null; ervenyes_ig: string | null } | { legacy_csalad_id: number | null; isaktiv: boolean | null; ervenyes_ig: string | null }[] | null
+    }>) {
+      const h = Array.isArray(row.haztartas) ? row.haztartas[0] : row.haztartas
+      if (h && h.isaktiv === true && h.ervenyes_ig == null && h.legacy_csalad_id === familyId && row.id_szemely) {
+        famMemberIds.add(row.id_szemely)
+      }
+    }
+    const { data: famSzemely } = await supabase
+      .from('szemely')
+      .select('id, sz_datum, foglalkozas, meghalt, member_status')
+      .eq('congregation_id', congregationId)
+      .in('id', [...famMemberIds])
+    const roster = ((famSzemely || []) as Array<{
+      id: number; sz_datum: string | null; foglalkozas: string | null; meghalt: boolean | null; member_status: string | null
+    }>)
+      .filter((m) => !m.meghalt && !isJarulekExcludedMemberStatus(m.member_status))
+      .map((m) => ({ id: m.id, sz_datum: m.sz_datum, familyId, foglalkozas: m.foglalkozas }))
+    paymentsForCalc = allocateFamilyPayments(maintenancePayments, roster, (mem, y) =>
+      computeBaseExpectedForMemberYear({
+        member: mem,
+        year: y,
+        currentYear: year,
+        debtCalcMode,
+        yearSettings,
+        discounts,
+        exemptions,
+      }),
+    )
+  }
+
   const result = computeJarulekForMemberYear({
     member: { id: member.id, sz_datum: member.sz_datum, familyId, foglalkozas: member.foglalkozas },
     year,
@@ -321,7 +368,7 @@ export async function expectedJarulekOnline(
     yearSettings,
     discounts,
     exemptions,
-    payments: maintenancePayments,
+    payments: paymentsForCalc,
     prospectiveDate: prospectiveDate && !Number.isNaN(prospectiveDate.getTime()) ? prospectiveDate : null,
   })
   return { expected: result.expected, paid: result.paid, debt: result.debt, hasBase }

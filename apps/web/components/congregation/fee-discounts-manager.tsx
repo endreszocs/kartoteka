@@ -63,7 +63,16 @@ function getEmptyDiscountForm(defaultYear: number) {
     szazalek: 50,
     fixOsszeg: 0,
     jovLeiras: '',
+    // 2026-07-17 (F5): a kor-kedvezmény módja — % (levonandó) VAGY fix RON (fizetendő).
+    // A wizard eddig is tudott fix-módot, a kezelő némán 50%-ká rontotta szerkesztéskor.
+    korMode: 'szazalek' as 'szazalek' | 'fix',
   }
+}
+
+/** Érvényes HH-NN (hónap 01-12, nap 01-31)? A puszta \d{2}-\d{2} regex a '13-01'-et
+ *  is átengedte, amit a motor a KÖVETKEZŐ évre görgetett (rollover-csapda). */
+function isValidMonthDay(value: string): boolean {
+  return /^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/.test(value)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -100,6 +109,28 @@ export function FeeDiscountsManager({
   }, [loadDiscounts])
 
   async function handleSaveDiscount() {
+    // 2026-07-17 (F5): kliens-oldali validációk a néma no-op / rollover-aknák ellen
+    // (a zod-séma szerver-oldalon ugyanezt kényszeríti).
+    if (discountForm.tipus === 'idoszak') {
+      if (!isValidMonthDay(discountForm.kezdet) || !isValidMonthDay(discountForm.hatarid)) {
+        toast.error('Érvénytelen dátum: hónap-nap (HH-NN) alakban add meg, pl. 07-01 = július 1.')
+        return
+      }
+      if (!(discountForm.kedvOsszeg >= 1)) {
+        toast.error('A kedvezményes összeg legalább 1 RON legyen — a 0 összegű időszaki szabály nem érvényesülne. Teljes mentesüléshez használd a felmentést vagy a foglalkozás-kedvezményt.')
+        return
+      }
+    }
+    if (discountForm.tipus === 'kor') {
+      if (!(discountForm.korTol >= 18)) {
+        toast.error('A korhatár legalább 18 év legyen (a járulék 18 éves kortól jár).')
+        return
+      }
+      if (discountForm.korMode === 'szazalek' && !(discountForm.szazalek >= 1 && discountForm.szazalek <= 100)) {
+        toast.error('A kedvezmény százaléka 1 és 100 között legyen.')
+        return
+      }
+    }
     const result = await saveCongregationFeeDiscount(congregationId, discountForm)
     if (result.error) {
       toast.error(result.error)
@@ -157,8 +188,9 @@ export function FeeDiscountsManager({
           <strong>💡 Több kedvezmény egy évben:</strong> Egy évre <strong>több időszaki
           kedvezményt</strong> is be lehet állítani — pl. lépcsőzetes korai-fizetés
           kedvezménnyel (jún. 1-ig 130 RON, júl. 15-ig 140 RON, aug. 1-ig 160 RON).
-          A rendszer a <strong>sorrend</strong> szerint alkalmazza: a legalacsonyabb
-          sorrend-értékű a legjobb kedvezmény.
+          A rendszer mindig a <strong>legkedvezőbb</strong> (legkisebb fizetendő összeget adó)
+          érvényes szabályt alkalmazza. A <strong>sorrend</strong> mező csak a lenti lista
+          megjelenítési sorrendjét szabja meg.
         </div>
 
         {discounts.length === 0 ? (
@@ -203,6 +235,10 @@ export function FeeDiscountsManager({
                               szazalek: discount.szazalek ?? 50,
                               fixOsszeg: discount.fix_osszeg ?? 0,
                               jovLeiras: discount.jov_leiras || '',
+                              // F5: a wizard fix-RON módú kor-sora szerkesztéskor is fix marad
+                              korMode: (discount.tipus === 'kor' && discount.fix_osszeg != null
+                                ? 'fix'
+                                : 'szazalek') as 'szazalek' | 'fix',
                             })
                           }
                           onDelete={() => void handleDeleteDiscount(discount.id)}
@@ -308,16 +344,53 @@ export function FeeDiscountsManager({
 
           {discountForm.tipus === 'kor' && (
             <div className="rounded-[1rem] border border-amber-100 bg-amber-50/40 p-3">
+              {/* 2026-07-17 (F5): %/fix mód-választó — a wizard fix-RON módú kor-szabályát
+                  a kezelő eddig némán 50% levonássá konvertálta szerkesztéskor. */}
+              <div className="mb-3 flex flex-wrap gap-2">
+                {([
+                  ['szazalek', 'Kedvezmény %-ban', 'pl. 50% levonás a díjból'],
+                  ['fix', 'Fix fizetendő összeg', 'pl. 60 RON (0 = mentesül)'],
+                ] as const).map(([mode, title, hint]) => (
+                  <label
+                    key={mode}
+                    className={`flex cursor-pointer items-center gap-2 rounded-xl border-2 px-3 py-2 text-sm transition-colors ${
+                      discountForm.korMode === mode
+                        ? 'border-amber-400 bg-amber-100/60'
+                        : 'border-slate-200 bg-white hover:border-amber-200'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="kor-mode"
+                      className="size-3.5"
+                      checked={discountForm.korMode === mode}
+                      onChange={() => setDiscountForm((prev) => ({ ...prev, korMode: mode }))}
+                    />
+                    <span>
+                      <strong className="block text-slate-800">{title}</strong>
+                      <span className="block text-[11px] text-slate-500">{hint}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <Field label="Korhatár (-től, év)">
-                  <Input type="number" min={0} className={FIELD_INPUT_CLASS} value={discountForm.korTol} onChange={(event) => setDiscountForm((prev) => ({ ...prev, korTol: Number(event.target.value) }))} />
+                  <Input type="number" min={18} className={FIELD_INPUT_CLASS} value={discountForm.korTol} onChange={(event) => setDiscountForm((prev) => ({ ...prev, korTol: Number(event.target.value) }))} />
                 </Field>
-                <Field label="Kedvezmény (%)">
-                  <Input type="number" min={0} max={100} className={FIELD_INPUT_CLASS} value={discountForm.szazalek} onChange={(event) => setDiscountForm((prev) => ({ ...prev, szazalek: Number(event.target.value) }))} />
-                </Field>
+                {discountForm.korMode === 'szazalek' ? (
+                  <Field label="Kedvezmény (%)">
+                    <Input type="number" min={1} max={100} className={FIELD_INPUT_CLASS} value={discountForm.szazalek} onChange={(event) => setDiscountForm((prev) => ({ ...prev, szazalek: Number(event.target.value) }))} />
+                  </Field>
+                ) : (
+                  <Field label="Fizetendő összeg (RON) — 0 = mentesül">
+                    <Input type="number" min={0} className={FIELD_INPUT_CLASS} value={discountForm.fixOsszeg} onChange={(event) => setDiscountForm((prev) => ({ ...prev, fixOsszeg: Number(event.target.value) }))} />
+                  </Field>
+                )}
               </div>
               <p className="mt-2 text-[11px] text-slate-500">
-                Aki a megadott évek fölött van, a kedvezmény százalékával kevesebbet fizet.
+                {discountForm.korMode === 'szazalek'
+                  ? 'Aki a megadott évek fölött van, a kedvezmény százalékával kevesebbet fizet.'
+                  : 'Aki a megadott évek fölött van, a megadott fix összeget fizeti (0 = teljesen mentesül).'}
               </p>
             </div>
           )}
@@ -465,7 +538,9 @@ function DiscountCard({
       // 2026-07-16: betűs hónap — a nyers „01-01–07-01" nem volt egyértelmű.
       ? `${formatMonthDayRange(discount.kezdet, discount.hatarid)} · Kedvezményes összeg: ${Number(discount.kedv_osszeg || 0).toLocaleString('hu-HU')} RON`
       : discount.tipus === 'kor'
-        ? `${discount.kor_tol || 0}+ éves kortól · ${discount.szazalek || 0}% kedvezmény`
+        ? discount.fix_osszeg != null
+          ? `${discount.kor_tol || 0}+ éves kortól · fizetendő ${Number(discount.fix_osszeg) === 0 ? 'mentesül (0 RON)' : `${Number(discount.fix_osszeg).toLocaleString('hu-HU')} RON`}`
+          : `${discount.kor_tol || 0}+ éves kortól · ${discount.szazalek || 0}% kedvezmény`
         : discount.tipus === 'foglalkozas'
           ? `Foglalkozás: ${discount.jov_leiras || '—'} · Fizetendő: ${Number(discount.fix_osszeg || 0).toLocaleString('hu-HU')} RON`
           : `${discount.szazalek || 0}% vagy ${Number(discount.fix_osszeg || 0).toLocaleString('hu-HU')} RON · ${discount.jov_leiras || 'Szociális kedvezmény'}`

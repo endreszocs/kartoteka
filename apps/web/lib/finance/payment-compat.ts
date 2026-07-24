@@ -10,6 +10,9 @@ type PaymentGoalRef = {
 
 export interface PaymentDetailsRow {
   id: number
+  /** 2026-07-17 (F5, Q7): a befizetés valódi címzettje — a családi felosztáshoz kell. */
+  id_szemely?: number | null
+  id_csalad?: number | null
   datum: string
   osszeg: number
   fizetettev: number | null
@@ -114,7 +117,7 @@ export async function fetchPersonPaymentsCompat(
       supabase
         .from('befizetes')
         .select(
-          'id, datum, osszeg, fizetettev, nyugta, iratszam, stornozott, befizetescel(nev, id_szamadasicel, szamadasicel(id))',
+          'id, id_szemely, id_csalad, datum, osszeg, fizetettev, nyugta, iratszam, stornozott, befizetescel(nev, id_szamadasicel, szamadasicel(id))',
         )
         .eq('id_szemely', personId)
         .or('deleted.eq.false,deleted.is.null')
@@ -122,7 +125,7 @@ export async function fetchPersonPaymentsCompat(
     () =>
       supabase
         .from('befizetes')
-        .select('id, datum, osszeg, fizetettev, nyugta, iratszam, stornozott, befizetescel(nev, szamadasicel(kod))')
+        .select('id, id_szemely, id_csalad, datum, osszeg, fizetettev, nyugta, iratszam, stornozott, befizetescel(nev, szamadasicel(kod))')
         .eq('id_szemely', personId)
         .or('deleted.eq.false,deleted.is.null')
         .order('datum', { ascending: false }),
@@ -130,7 +133,7 @@ export async function fetchPersonPaymentsCompat(
       supabase
         .from('befizetes')
         .select(
-          'id, datum, osszeg, fizetettev, nyugtaszam, bizonylatszam, iratszam, befizetescel(nev, szamadasicel(kod))',
+          'id, id_szemely, id_csalad, datum, osszeg, fizetettev, nyugtaszam, bizonylatszam, iratszam, befizetescel(nev, szamadasicel(kod))',
         )
         .eq('id_szemely', personId)
         .or('deleted.eq.false,deleted.is.null')
@@ -139,7 +142,7 @@ export async function fetchPersonPaymentsCompat(
       supabase
         .from('befizetes')
         .select(
-          'id, datum, osszeg, fizetettev, nyugtaszam, bizonylatszam, iratszam, befizetescel(nev, id_szamadasicel, szamadasicel(id))',
+          'id, id_szemely, id_csalad, datum, osszeg, fizetettev, nyugtaszam, bizonylatszam, iratszam, befizetescel(nev, id_szamadasicel, szamadasicel(id))',
         )
         .eq('id_szemely', personId)
         .or('deleted.eq.false,deleted.is.null')
@@ -176,7 +179,7 @@ export async function fetchFamilyPaymentsCompat(
       supabase
         .from('befizetes')
         .select(
-          'id, osszeg, datum, fizetettev, nyugta, iratszam, stornozott, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, id_szamadasicel, szamadasicel(id))',
+          'id, id_szemely, id_csalad, osszeg, datum, fizetettev, nyugta, iratszam, stornozott, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, id_szamadasicel, szamadasicel(id))',
         )
         .eq('id_csalad', familyId)
         .or('deleted.eq.false,deleted.is.null')
@@ -186,7 +189,7 @@ export async function fetchFamilyPaymentsCompat(
       supabase
         .from('befizetes')
         .select(
-          'id, osszeg, datum, fizetettev, nyugta, iratszam, stornozott, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, szamadasicel(kod))',
+          'id, id_szemely, id_csalad, osszeg, datum, fizetettev, nyugta, iratszam, stornozott, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, szamadasicel(kod))',
         )
         .eq('id_csalad', familyId)
         .or('deleted.eq.false,deleted.is.null')
@@ -196,7 +199,7 @@ export async function fetchFamilyPaymentsCompat(
       supabase
         .from('befizetes')
         .select(
-          'id, osszeg, datum, fizetettev, nyugtaszam, bizonylatszam, iratszam, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, szamadasicel(kod))',
+          'id, id_szemely, id_csalad, osszeg, datum, fizetettev, nyugtaszam, bizonylatszam, iratszam, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, szamadasicel(kod))',
         )
         .eq('id_csalad', familyId)
         .or('deleted.eq.false,deleted.is.null')
@@ -206,7 +209,7 @@ export async function fetchFamilyPaymentsCompat(
       supabase
         .from('befizetes')
         .select(
-          'id, osszeg, datum, fizetettev, nyugtaszam, bizonylatszam, iratszam, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, id_szamadasicel, szamadasicel(id))',
+          'id, id_szemely, id_csalad, osszeg, datum, fizetettev, nyugtaszam, bizonylatszam, iratszam, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, id_szamadasicel, szamadasicel(id))',
         )
         .eq('id_csalad', familyId)
         .or('deleted.eq.false,deleted.is.null')
@@ -241,7 +244,7 @@ export async function fetchPaymentsByMemberIdsCompat(
       supabase
         .from('befizetes')
         .select(
-          'id, osszeg, datum, fizetettev, nyugta, iratszam, stornozott, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, id_szamadasicel, szamadasicel(id))',
+          'id, id_szemely, id_csalad, osszeg, datum, fizetettev, nyugta, iratszam, stornozott, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, id_szamadasicel, szamadasicel(id))',
         )
         .in('id_szemely', memberIds)
         .or('deleted.eq.false,deleted.is.null')
@@ -251,7 +254,7 @@ export async function fetchPaymentsByMemberIdsCompat(
       supabase
         .from('befizetes')
         .select(
-          'id, osszeg, datum, fizetettev, nyugta, iratszam, stornozott, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, szamadasicel(kod))',
+          'id, id_szemely, id_csalad, osszeg, datum, fizetettev, nyugta, iratszam, stornozott, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, szamadasicel(kod))',
         )
         .in('id_szemely', memberIds)
         .or('deleted.eq.false,deleted.is.null')
@@ -261,7 +264,7 @@ export async function fetchPaymentsByMemberIdsCompat(
       supabase
         .from('befizetes')
         .select(
-          'id, osszeg, datum, fizetettev, nyugtaszam, bizonylatszam, iratszam, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, szamadasicel(kod))',
+          'id, id_szemely, id_csalad, osszeg, datum, fizetettev, nyugtaszam, bizonylatszam, iratszam, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, szamadasicel(kod))',
         )
         .in('id_szemely', memberIds)
         .or('deleted.eq.false,deleted.is.null')
@@ -271,7 +274,7 @@ export async function fetchPaymentsByMemberIdsCompat(
       supabase
         .from('befizetes')
         .select(
-          'id, osszeg, datum, fizetettev, nyugtaszam, bizonylatszam, iratszam, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, id_szamadasicel, szamadasicel(id))',
+          'id, id_szemely, id_csalad, osszeg, datum, fizetettev, nyugtaszam, bizonylatszam, iratszam, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, id_szamadasicel, szamadasicel(id))',
         )
         .in('id_szemely', memberIds)
         .or('deleted.eq.false,deleted.is.null')

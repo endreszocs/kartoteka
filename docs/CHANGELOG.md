@@ -23,6 +23,48 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-17] — Családi befizetés igazságos felosztása + kedvezmény-beállítások rendbetéve
+<!-- key: 2026-07-17-penzugy-f5-kedvezmeny-ui -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+<!-- version: web v0.9.105 -->
+
+### 🐛 Pénzügy — Kedvezmények és családi befizetések
+
+- **A családi befizetés mostantól feloszlik a család tagjai között** — idősebb tag
+  előbb, kinek-kinek a saját éves díjáig, a maradék a legidősebbnél marad. Eddig egy
+  220 lejes családi befizetés a család MINDEN tagjánál teljes 220 lejként jelent
+  meg, így a házastárs is „rendezettnek" látszott, pedig az ő díja nem folyt be.
+  A Tartozások lista, a tagnyilvántartás, a tag-kartoték és az asztali alkalmazás
+  egységesen az új szabály szerint számol. A felosztás okos: aki már a saját nevén
+  fizetett, annak a részét nem veszi el; a névhez ÉS családhoz egyszerre kötött
+  (pl. importált) befizetésnél a megnevezett tag díja feletti többlet a család
+  többi tagját rendezi — a régi Excel-ből áthozott adat nem sérül.
+
+- **A kor-kedvezmény mostantól fix összeggel is megadható a kedvezmény-kezelőben**
+  (pl. „70 év felett fizetendő 60 lej", vagy 0 = mentesül) — eddig a beállítás-
+  varázslóban felvett fix összegű szabályt a kezelő szerkesztéskor némán 50%-os
+  levonássá rontotta. A kártya-felirat is a valós módot mutatja.
+
+- **Új védő-ellenőrzések a kedvezmény-mentésnél:** érvénytelen dátum (pl. „13-01")
+  többé nem menthető (ami eddig egész évben tévesen kedvezményes árat mutatott);
+  az időszaki kedvezményes összeg legalább 1 lej (a 0 lejes szabály némán
+  hatástalan volt); a korhatár legalább 18 év.
+
+- **A „Tartozás-számítási mód" választó kivezetve mindenhonnan** (beállítás-varázsló,
+  haladó szerkesztő, regisztrációs varázsló, Pénzügy-fejléc) — a rendszer mindig az
+  „akkori" (a tartozás évének beállításai szerinti) módon számol. Az „aktuális" mód
+  a listákon nem működött, és a tag-kartoték eltérő összeget mutathatott. Futtatandó
+  SQL: migration-docs/sql/2026-07-17-f5-tartozas-mod-normalizalas.sql (a tárolt
+  „aktuális" értékek normalizálása + adat-diagnosztika).
+
+- **A kedvezmény-panel súgója javítva:** a rendszer mindig a legkedvezőbb érvényes
+  szabályt alkalmazza (a „sorrend" mező csak a lista megjelenítését rendezi).
+
+---
+
+---
+
 
 ## [2026-07-17] — Induló (nyitó) egyenlegek: megadhatók a kezdő évre — kassza és bankszámlák, a felületről elérhetően
 <!-- key: 2026-07-17-penzugy-f4-nyito-egyenlegek -->

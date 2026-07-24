@@ -183,9 +183,186 @@ function getRelevantPayments(
   return payments.filter((payment) => {
     if (payment.fizetettev !== year) return false
     if (payment.id_szemely === memberId) return true
-    if (familyId && payment.id_csalad === familyId) return true
+    // 2026-07-17 (F5, Q7): a családi ág CSAK a tisztán családi tételre (id_szemely
+    // NÉLKÜL) illeszkedik — a személyhez ÉS családhoz egyszerre kötött tétel a
+    // megnevezett személyé, nem duplázódik a többi családtagra. A tisztán családi
+    // tételeket a hívók az allocateFamilyPayments-szel osztják fel; ez az ág csak
+    // fel nem osztott (roster nélküli) esetben ad teljes jóváírást (fallback).
+    if (payment.id_szemely == null && familyId && payment.id_csalad === familyId) return true
     return false
   })
+}
+
+/**
+ * 2026-07-17 (F5, Q7): a tag adott évi ALAP elvárt díja a korai-fizetési (időszaki)
+ * kedvezmény NÉLKÜL — determinisztikus, befizetés-független érték. A családi
+ * befizetés-felosztás plafonjaként szolgál (a felosztás nem függhet a befizetésektől,
+ * különben körkörös lenne a számítás).
+ */
+export function computeBaseExpectedForMemberYear(params: {
+  member: JarulekMemberLike
+  year: number
+  currentYear: number
+  debtCalcMode: DebtCalcMode
+  yearSettings: Record<number, JarulekYearSetting>
+  discounts: JarulekDiscountRule[]
+  exemptions: JarulekExemption[]
+}): number {
+  const { member, year, currentYear, debtCalcMode, yearSettings, discounts, exemptions } = params
+  if (isExemptForYear(member.id, member.familyId, exemptions, year)) return 0
+  const { setting } = getYearSetting(year, yearSettings, debtCalcMode, currentYear)
+  const baseFee = normalizeAmount(setting?.eves_jarulek)
+  if (baseFee <= 0) return 0
+  const age = getAgeForYear(member, year)
+  if (age !== null && age < JARULEK_MIN_AGE) return 0
+  const active = discounts.filter((d) => d.aktiv && d.ev === year)
+  return Math.min(
+    baseFee,
+    getAgeAdjustedFee(member, year, baseFee, active).amount,
+    getOccupationAdjustedFee(member, baseFee, active).amount,
+  )
+}
+
+/**
+ * 2026-07-17 (F5): a járulék-számításból kizárt tagsági státuszok KANONIKUS
+ * predikátuma — web és desktop, lista-szűrés ÉS családi felosztási roster egyaránt
+ * ezt használja, különben ugyanarra a családi tételre képernyőnként más felosztás
+ * jönne ki. Az éles adatban 'elköltözött' és 'elkoltozott' írásmód is él →
+ * normalizálva (kisbetű, szóköz/kötőjel nélkül) hasonlítunk.
+ */
+const EXCLUDED_MEMBER_STATUSES = new Set([
+  'elkoltozott', 'elköltözött',
+  'kitert', 'kitért',
+  'torolt', 'törölt',
+  'elhunyt',
+])
+
+export function isJarulekExcludedMemberStatus(value: string | null | undefined): boolean {
+  const normalized = String(value ?? '').trim().toLowerCase().replace(/[\s_-]+/g, '')
+  return EXCLUDED_MEMBER_STATUSES.has(normalized)
+}
+
+/**
+ * 2026-07-17 (F5, Q7 — user-döntés): a CSALÁDI befizetés FELOSZTÁSA a család tagjai
+ * közt. „A család egyénekből áll, úgy is kell őket kezelni" — eddig a családi tétel
+ * MINDEN családtagnál teljes összegként jelent meg (többszörös jóváírás: 220 lej
+ * befizetés a férj ÉS a feleség 220-220 lejét is rendezettnek mutatta).
+ *
+ * Kétféle családhoz kötött tétel van:
+ *  - TISZTÁN családi (id_szemely NÉLKÜL): teljes egészében felosztódik — idősebb
+ *    tag előbb, kinek-kinek az évi ALAP elvárásáig; a maradék a legidősebbnél.
+ *  - VEGYES (id_szemely ÉS id_csalad — az importőrök minden párosított sorhoz
+ *    családot is írnak!): a megnevezett tagé az összeg a SAJÁT elvárásáig, a
+ *    TÖBBLET a család többi tagjára oszlik (idősebb előbb); a végső maradék a
+ *    megnevezettnél marad (látható túlfizetés). Így egy importált „családi
+ *    440 a férj nevén" sor a feleséget is rendezi — a történeti adat nem sérül.
+ *
+ * További szabályok:
+ *  - a tagok SAJÁT nevesített befizetései előre „foglalják" a helyüket (seeding):
+ *    a családi tétel oda folyik, ahol tényleg hiány van — a már fizetett idősebb
+ *    tag nem szívja el a fiatalabbnak szánt részt,
+ *  - a tételek dátum szerint sorban töltenek (a korai befizetés a korai-fizetési
+ *    kedvezményhez a helyes dátummal kerül a taghoz),
+ *  - roster nélküli család (vagy rosteren kívüli megnevezett) tétele változatlan
+ *    marad (a getRelevantPayments fallback-/személy-ága kezeli, mint eddig).
+ *
+ * A visszaadott lista a nem érintett tételeket változatlanul tartalmazza + az
+ * érintett tételek személyre bontott „virtuális" darabjait (id_szemely kitöltve).
+ */
+export function allocateFamilyPayments(
+  payments: JarulekPaymentLike[],
+  members: JarulekMemberLike[],
+  expectedOf: (member: JarulekMemberLike, year: number) => number,
+): JarulekPaymentLike[] {
+  const byFamily = new Map<number, JarulekMemberLike[]>()
+  for (const m of members) {
+    if (m.familyId == null) continue
+    const list = byFamily.get(m.familyId) || []
+    list.push(m)
+    byFamily.set(m.familyId, list)
+  }
+  if (byFamily.size === 0) return payments
+  for (const list of byFamily.values()) {
+    list.sort((a, b) => {
+      const ay = Number(String(a.sz_datum || '').slice(0, 4)) || 9999
+      const by = Number(String(b.sz_datum || '').slice(0, 4)) || 9999
+      if (ay !== by) return ay - by // kisebb születési év = idősebb → előbb
+      return a.id - b.id
+    })
+  }
+
+  const rosterIds = new Set<number>()
+  for (const list of byFamily.values()) for (const m of list) rosterIds.add(m.id)
+
+  const isPureFamily = (p: JarulekPaymentLike) =>
+    p.id_szemely == null && p.id_csalad != null && byFamily.has(p.id_csalad)
+  const isMixedFamily = (p: JarulekPaymentLike) =>
+    p.id_szemely != null &&
+    p.id_csalad != null &&
+    byFamily.has(p.id_csalad) &&
+    rosterIds.has(p.id_szemely)
+
+  const familyEntries = payments
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => isPureFamily(p) || isMixedFamily(p))
+  if (familyEntries.length === 0) return payments
+  const familyIdx = new Set(familyEntries.map(({ i }) => i))
+  // Dátum szerinti feldolgozás (determinisztikus; azonos napnál az eredeti sorrend dönt).
+  familyEntries.sort(
+    (a, b) => String(a.p.datum || '').localeCompare(String(b.p.datum || '')) || a.i - b.i,
+  )
+
+  // Seeding: a fel nem osztott, nevesített tételek előre foglalják a tag capjét.
+  const allocatedSoFar = new Map<string, number>() // `${memberId}:${fizetettev}` → eddig foglalt
+  payments.forEach((p, i) => {
+    if (familyIdx.has(i)) return
+    if (p.id_szemely == null || p.fizetettev == null) return
+    const key = `${p.id_szemely}:${p.fizetettev}`
+    allocatedSoFar.set(key, (allocatedSoFar.get(key) || 0) + normalizeAmount(p.osszeg))
+  })
+
+  const virtual: JarulekPaymentLike[] = []
+  for (const { p } of familyEntries) {
+    const fam = byFamily.get(p.id_csalad as number) as JarulekMemberLike[]
+    const year = p.fizetettev
+    let remaining = normalizeAmount(p.osszeg)
+    if (year == null || remaining <= 0) {
+      virtual.push(p) // fizetettev nélkül úgysem számít be sehol — érintetlenül átmegy
+      continue
+    }
+    // Vegyes tételnél a MEGNEVEZETT tag az első a sorban, a maradék hozzá tér vissza;
+    // tisztán családi tételnél idősebb-először, a maradék a legidősebbé.
+    const named = p.id_szemely != null ? fam.find((m) => m.id === p.id_szemely) || null : null
+    const order = named ? [named, ...fam.filter((m) => m.id !== named.id)] : fam
+    const overflowTarget = named ?? fam[0]
+
+    const parts: JarulekPaymentLike[] = []
+    for (const m of order) {
+      if (remaining <= 0) break
+      const key = `${m.id}:${year}`
+      const cap = Math.max(0, expectedOf(m, year) - (allocatedSoFar.get(key) || 0))
+      const share = Math.min(remaining, cap)
+      if (share <= 0) continue
+      allocatedSoFar.set(key, (allocatedSoFar.get(key) || 0) + share)
+      parts.push({ ...p, id_szemely: m.id, osszeg: share })
+      remaining -= share
+    }
+    if (remaining > 0 && overflowTarget) {
+      // Maradék (túlfizetés): vegyesnél a megnevezettnél, tisztán családinál a
+      // legidősebbnél marad — látható, nem tűnik el.
+      const existing = parts.find((x) => x.id_szemely === overflowTarget.id)
+      if (existing) existing.osszeg = normalizeAmount(existing.osszeg) + remaining
+      else parts.push({ ...p, id_szemely: overflowTarget.id, osszeg: remaining })
+    }
+    virtual.push(...parts)
+  }
+
+  const out: JarulekPaymentLike[] = []
+  payments.forEach((p, i) => {
+    if (!familyIdx.has(i)) out.push(p)
+  })
+  out.push(...virtual)
+  return out
 }
 
 function sumPaymentsUntil(payments: JarulekPaymentLike[], deadline: Date | null) {

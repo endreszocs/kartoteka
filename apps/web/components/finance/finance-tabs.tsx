@@ -315,7 +315,7 @@ export function FinanceTabs({
       .sort((a, b) => a.kod.localeCompare(b.kod))
   }, [kiaCelMap, celById, scope])
 
-  const debtModeLabel = debtCalcMode === 'aktualis' ? 'Aktuális évi besorolás' : 'Akkori évi besorolás'
+  // 2026-07-17 (F5, Q6): a mód-chip kivezetve — a rendszer mindig „akkori" módon számol.
   const hasReceiptWarnings = receiptHealth.missingNumbers.length > 0 || receiptHealth.duplicateNumbers.length > 0 || receiptHealth.chronologyIssues.length > 0
   // 2026-07-11 (S7): a hiányzók kettébontva — az ELŐZŐ évből áthozottak külön
   // jelölést kapnak, hogy látszódjon: nem az idei évben maradtak el.
@@ -416,10 +416,6 @@ export function FinanceTabs({
             <span className="inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
               <Building2 className="size-3.5 text-teal-600" />
               {congregationName}
-            </span>
-            <span className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 shadow-sm">
-              <Wallet className="size-3.5" />
-              Tartozásszámítás: {debtModeLabel}
             </span>
             {/* Oblio e-Factura chip — minden Pénzügy fülön elérhető. Kattintásra
                 modal nyílik a kapcsolat-teszttel és beállítással. */}

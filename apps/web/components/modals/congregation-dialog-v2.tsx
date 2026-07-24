@@ -251,7 +251,12 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
         web: congregation.web || '',
         evesJarulek: congregation.eves_jarulek ?? 100,
         jarulekKedvezmenyes: congregation.jarulek_kedvezmenyes ?? 0,
-        jarulekHatarid: congregation.jarulek_hatarid || '12-31',
+        // 2026-07-17 (F5): a szigorított HH-NN validáció miatt a régi, érvénytelen
+        // tárolt érték (pl. '31-12') mentés-blokkolót okozna — a mező a UI-ból nem
+        // szerkeszthető, ezért betöltéskor sanitizáljuk.
+        jarulekHatarid: /^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/.test(congregation.jarulek_hatarid || '')
+          ? (congregation.jarulek_hatarid as string)
+          : '12-31',
         iban: congregation.iban || '',
         bank: congregation.bank || '',
         dioceseId: congregation.diocese_id || '',
@@ -979,33 +984,14 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
                         </div>
                       </Panel>
 
+                      {/* 2026-07-17 (F5, Q6 — user-döntés): a „Tartozás számítási módja"
+                          választó KIVEZETVE — a rendszer mindig az akkori év beállításai
+                          szerint számol. Statikus tájékoztató maradt a helyén. */}
                       <Panel title="Tartozás számítási módja">
-                        <div className="grid gap-2">
-                          <label className={`flex cursor-pointer flex-col gap-1 rounded-[1rem] border-2 p-2.5 transition ${form.tartozasSzamitasMod === 'akkori' ? 'border-sky-500 bg-sky-50/80' : 'border-slate-200 hover:border-slate-300'}`}>
-                            <span className="flex items-center gap-2">
-                              <input type="radio" checked={form.tartozasSzamitasMod === 'akkori'} onChange={() => update('tartozasSzamitasMod', 'akkori')} />
-                              <span className="font-semibold text-slate-800">Akkori összeg</span>
-                            </span>
-                            <span className="pl-6 text-xs text-slate-600">
-                              Rögzített évenkénti díj. A 2023-as tartozás a 2023-as díjon marad.
-                            </span>
-                          </label>
-                          <label className={`flex cursor-pointer flex-col gap-1 rounded-[1rem] border-2 p-2.5 transition ${form.tartozasSzamitasMod === 'aktualis' ? 'border-sky-500 bg-sky-50/80' : 'border-slate-200 hover:border-slate-300'}`}>
-                            <span className="flex items-center gap-2">
-                              <input type="radio" checked={form.tartozasSzamitasMod === 'aktualis'} onChange={() => update('tartozasSzamitasMod', 'aktualis')} />
-                              <span className="font-semibold text-slate-800">Aktuális összeg</span>
-                            </span>
-                            <span className="pl-6 text-xs text-slate-600">
-                              Mindig a mai díjat mutatja. Tükrözi az inflációt.
-                            </span>
-                          </label>
-                        </div>
-                        <div className="mt-2 rounded-[1rem] border border-amber-100 bg-amber-50/60 px-3 py-2 text-[11px] leading-4 text-amber-900">
-                          <strong>📘 Példa:</strong> Egy tag 2023-ban nem fizette ki a 150 RON-os díjat. Ma 2026-ban a díj 200 RON.
-                          <ul className="mt-1 list-inside list-disc space-y-0.5">
-                            <li>Akkori: a tartozás <strong>150 RON</strong></li>
-                            <li>Aktuális: a tartozás <strong>200 RON</strong></li>
-                          </ul>
+                        <div className="rounded-[1rem] border border-slate-200 bg-slate-50/70 px-3 py-2.5 text-xs leading-5 text-slate-600">
+                          A rendszer a régi évek tartozását mindig az <strong>akkori év</strong>{' '}
+                          beállításai (díja és kedvezményei) szerint számolja — pl. a 2023-as
+                          tartozás a 2023-as díjon marad. Ez a könyvelésileg helyes, rögzített mód.
                         </div>
                       </Panel>
                     </div>
