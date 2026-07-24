@@ -23,6 +23,36 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-24] — Családi háló: teljes képernyős mód, Kartotéka-logós betöltő + gyorsabb és stabilabb működés
+<!-- key: 2026-07-24-tagnyilv-pr5-halo -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.94 -->
+
+### ✨ Családi háló
+
+- **Teljes képernyős mód:** a háló fejlécén új „Teljes képernyő" gomb — a
+  kapcsolati háló a sidebar melletti TELJES képernyőt kitölti (a fejléc és
+  minden más eltűnik alóla), a sidebar a könnyű navigációhoz látható marad.
+  Kilépés: „Kilépés" gomb vagy Esc.
+- **Kartotéka-logós betöltő képernyő:** a háló betöltése alatt a Kartotéka
+  emblémája lüktet fénykoszorúval és finom folyamatjelzővel a csillagos tér
+  fölött — a korábbi szürke pöttyök helyett.
+
+### 🐛 Stabilitás és sebesség
+
+- **Megszűnt egy memória-szivárgás:** minden csomópont-kijelölés grafikus
+  memóriát hagyott hátra — hosszas nézegetésnél (főleg telefonon) ez
+  akadozáshoz, végül a vászon elvesztéséhez vezethetett.
+- **A háló induláskor kétszer épült fel** — mostantól egyszer (gyorsabb megnyitás).
+- **Telefonon takarékosabb renderelés** (alacsonyabb felbontás-plafon, felesleges
+  számítások kikapcsolva) — kevesebb melegedés és akadozás.
+- **Ha a grafikus megjelenítés (WebGL) nem érhető el**, eddig néma fekete
+  doboz látszott — mostantól érthető üzenet jelenik meg, ami a Csomópontlista
+  gombhoz irányít (ott minden adat böngészhető).
+
+---
+
 ## [2026-07-24] — Személyi karton: pontos hátralék, rendezett befizetés-lista, valódi családi címkék + hiányzó mezők pótlása
 <!-- key: 2026-07-24-tagnyilv-pr4-karton -->
 <!-- category: bugfix -->
