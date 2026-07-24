@@ -23,6 +23,36 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-24] — Körzetek: automatikus körzetesítés varázslóval — utcánként vagy korosztály szerint, kiegyensúlyozott elosztással
+<!-- key: 2026-07-24-tagnyilv-pr7-korzetesites -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.97 -->
+
+### ✨ Automatikus körzetesítés (új funkció)
+
+- **Új „Automatikus körzetesítés" gomb** a Körzetek fülön: egy 3 lépéses
+  varázsló **utcánként vagy korosztály szerint** osztja el a családokat a
+  kívánt számú körzetbe — a javasolt körzetszám a presbiterek száma.
+- **Kiegyensúlyozott elosztás lélekszám szerint** (vagy családszám szerint) —
+  és **a családok sosem szakadnak szét**: a hozzárendelés mindig egész
+  családokra történik.
+- **A hosszú utcák / népes korosztályok automatikusan részekre bomlanak**
+  („Fő utca (1. rész)", „(2. rész)"), hogy egyetlen nagy utca ne torzítsa el
+  a kiosztást — ahogy kérted.
+- **Előnézet írás előtt:** a javasolt kiosztás kártyákon jelenik meg — a
+  körzetek **nevei átírhatók**, körzetenként **több presbiter is kiosztható**,
+  és amíg nem kattintasz az „Alkalmazás"-ra, semmi nem íródik az adatbázisba.
+- **Minden család elosztásra kerül** — ami automatikusan nem osztható (nincs
+  utca rögzítve, vagy nincs születési dátum), az okkal listázva jelenik meg,
+  és kézzel rendelhető hozzá.
+- **„X család még nincs körzethez rendelve" jelzés** a Körzetek fül tetején —
+  egy kattintással indítható róla az elosztás. (Régóta hiányolt jelzés.)
+- Több faluból álló (szórvány) gyülekezetnél a különböző falvak azonos nevű
+  utcái külön csoportnak számítanak.
+
+---
+
 ## [2026-07-24] — Importáló: időtálló motorok — ékezet-tűrő felismerés, a kézi párosítás tényleg érvényesül + biztonsági frissítés
 <!-- key: 2026-07-24-tagnyilv-pr6-import-motor -->
 <!-- category: improvement -->
