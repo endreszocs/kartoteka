@@ -23,6 +23,28 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-24] — Több igazolás-sablon + kiállítás a személyi kartonról
+<!-- key: 2026-07-24-iktato-sablonok-karton -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+<!-- version: web v0.9.108 -->
+
+### ✨ Új funkciók
+
+- **Hat új alapsablon az iktatóban** (összesen tíz): kétszemélyes keresztelési
+  igazolás (pl. házasulandó párnak — a hivatalos minta szövegével), temetési
+  igazolás, lelkészi ajánlás, két román nyelvű igazolás (Adeverință de botez
+  és de membru — a hivatalos ügyintézéshez), valamint általános kísérőlevél.
+  A meglévő gyülekezetek a Sablonok fülön az „Alapsablonok pótlása" gombbal
+  egy kattintással megkapják az újakat — a saját sablonokat nem érinti.
+- **Igazolás-kiállítás közvetlenül a személyi kartonról.** A tag kartonján az
+  „Igazolás kiállítása" gomb mostantól ugyanazt a kiállítót nyitja, mint az
+  iktató: az illető előre kiválasztva, az anyakönyvi adatok automatikusan
+  kitöltve — és a kiállított irat hivatalos iratszámmal azonnal bekerül az
+  iktatókönyvbe. (A korábbi, iktatás nélküli gyorsnyomtatás kivezetésre került.)
+
+---
+
 ## [2026-07-24] — A Pénzügy súgó frissítve a legújabb változásokkal
 <!-- key: 2026-07-24-penzugy-sugo-frissites -->
 <!-- category: improvement -->

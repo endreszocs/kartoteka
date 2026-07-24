@@ -268,6 +268,193 @@ const KONFIRMACIOS_IGAZOLAS = `<div style="padding:50px;font-family:'Times New R
   </div>
 </div>`
 
+// ─── 2026-07 (W1): további alapsablonok — magyar + román ──────────
+// A sablonok KIZÁRÓLAG létező placeholderekre épülnek: az auto-kulcsokra
+// ({{gyulekezet}}, {{lelkipasztor}}, {{iratszam}}, {{datum}}, {{helyseg}}),
+// a kiállító (CertificateIssueDialog/buildPersonValues) személy-kulcsaira
+// ({{nev}}, {{szul_datum}}, {{apja_neve}}, … + 2. személynél `_2` utótag),
+// valamint a PLACEHOLDER_DOCS-ban dokumentált kézi kulcsokra ({{cel}},
+// {{indoklas}}, {{cimzett}}, {{targy_szoveg}}, {{temetes_datuma}}, …).
+
+/**
+ * Két személyre (pl. testvérpár, házaspár) szóló keresztelési igazolás —
+ * a felhasználó hivatalos mintája alapján. A 2. személy adatai a `_2`
+ * végű placeholderekből töltődnek; a {{cel}} kézi mező (pl. „keresztelés").
+ */
+const KERESZTELESI_IGAZOLAS_KET_SZEMELY = `<div style="padding:50px;font-family:'Times New Roman',serif;line-height:1.6;font-size:14px;">
+  <div style="text-align:left;">Szám: {{iratszam}}</div>
+  <div style="text-align:center;font-weight:bold;font-size:1.2rem;margin-top:20px;">
+    Tárgy: Keresztelési igazolás
+  </div>
+  <p style="margin-top:40px;text-indent:50px;">
+    A <b>{{gyulekezet}}</b> Lelkipásztori Hivatala igazolja, hogy
+    <b>{{nev}}</b>, {{apja_neve}} és {{anyja_neve}} református szülők gyermeke
+    {{szul_datum}} napján született, a keresztség sákramentumában részesült,
+    konfirmált egyházközségünkben.
+  </p>
+  <p style="text-indent:50px;">
+    <b>{{nev_2}}</b>, {{apja_neve_2}} és {{anyja_neve_2}} református szülők gyermeke
+    {{szul_datum_2}} napján született, a keresztség sákramentumában részesült,
+    konfirmált egyházközségünkben.
+  </p>
+  <p style="text-indent:50px;">
+    Nevezettek egyházközségünk nyilvántartott tagjai; jelen bizonylatot
+    személyes kérésükre állítottuk ki {{cel}} céljából.
+  </p>
+  <div style="margin-top:60px;display:flex;justify-content:space-between;">
+    <div>{{helyseg}}, {{datum}}</div>
+    <div style="text-align:center;">
+      Isten áldásával,<br><br><br>
+      _______________________<br>
+      {{lelkipasztor}} lelkipásztor
+    </div>
+  </div>
+</div>`
+
+/**
+ * Temetési igazolás — az elhunyt adatai + a temetés ténye. Az elhalálozás
+ * és a temetés dátuma kézi placeholder (az anyakönyvi kiállító nem tölti).
+ */
+const TEMETESI_IGAZOLAS = `<div style="padding:50px;font-family:'Times New Roman',serif;line-height:1.6;font-size:14px;">
+  <div style="text-align:left;">Szám: {{iratszam}}</div>
+  <div style="text-align:center;font-weight:bold;font-size:1.2rem;margin-top:20px;">
+    Tárgy: Temetési igazolás
+  </div>
+  <p style="margin-top:40px;text-indent:50px;">
+    A <b>{{gyulekezet}}</b> Lelkipásztori Hivatala igazolja, hogy néhai
+    <b>{{nev}}</b> (szül.: {{szul_datum}}, {{apja_neve}} és {{anyja_neve}}
+    gyermeke) {{elhalalozas_datuma}} napján elhunyt, és {{temetes_datuma}}
+    napján a református egyház szertartása szerint eltemettük.
+  </p>
+  <p style="text-indent:50px;">
+    Jelen igazolást a hozzátartozók kérésére, hivatalos felhasználásra
+    állítottuk ki.
+  </p>
+  <div style="margin-top:60px;display:flex;justify-content:space-between;">
+    <div>{{helyseg}}, {{datum}}</div>
+    <div style="text-align:center;">
+      _______________________<br>
+      {{lelkipasztor}} lelkipásztor
+    </div>
+  </div>
+</div>`
+
+/**
+ * Általános lelkészi ajánlólevél — az {{indoklas}} kézi mezőbe kerül az
+ * ajánlás konkrét tartalma (pl. munkavállalás, tanulmányok, szolgálat).
+ */
+const LELKESZI_AJANLAS = `<div style="padding:50px;font-family:'Times New Roman',serif;line-height:1.6;font-size:14px;">
+  <div style="text-align:left;">Szám: {{iratszam}}</div>
+  <div style="text-align:center;font-weight:bold;font-size:1.2rem;margin-top:20px;">
+    Tárgy: Lelkészi ajánlás
+  </div>
+  <p style="margin-top:40px;text-indent:50px;">
+    Alulírott, a <b>{{gyulekezet}}</b> lelkipásztora, ezúton ajánlom
+    <b>{{nev}}</b> (szül.: {{szul_datum}}) egyháztagunkat, aki egyházközségünk
+    nyilvántartott, gyülekezeti életünkben részt vevő tagja.
+  </p>
+  <p style="text-indent:50px;">{{indoklas}}</p>
+  <p style="text-indent:50px;">
+    Nevezettet jó szívvel ajánlom, kérem szíves támogatásukat.
+  </p>
+  <div style="margin-top:60px;display:flex;justify-content:space-between;">
+    <div>{{helyseg}}, {{datum}}</div>
+    <div style="text-align:center;">
+      Isten áldásával,<br><br><br>
+      _______________________<br>
+      {{lelkipasztor}} lelkipásztor
+    </div>
+  </div>
+</div>`
+
+/**
+ * Román nyelvű keresztelési igazolás (Adeverință de botez) — hivatalos
+ * hangnem, ugyanazok a placeholderek, mint a magyar változatban.
+ * Megjegyzés: a {{datum}}/{{szul_datum}} értékek magyar formátumban
+ * töltődnek — a mezők kézzel átírhatók román formára.
+ */
+const ADEVERINTA_DE_BOTEZ = `<div style="padding:50px;font-family:'Times New Roman',serif;line-height:1.6;font-size:14px;">
+  <div style="text-align:left;">Nr.: {{iratszam}}</div>
+  <div style="text-align:center;font-weight:bold;font-size:1.2rem;margin-top:20px;">
+    ADEVERINȚĂ DE BOTEZ
+  </div>
+  <p style="margin-top:40px;text-indent:50px;">
+    Oficiul Parohial al Parohiei Reformate <b>{{gyulekezet}}</b> adeverește
+    prin prezenta că <b>{{nev}}</b>, fiul/fiica lui {{apja_neve}} și al/a
+    {{anyja_neve}}, născut(ă) la data de {{szul_datum}}, a primit sacramentul
+    botezului la data de {{kereszteles_datuma}} în parohia noastră.
+  </p>
+  <p style="text-indent:50px;">
+    Prezenta adeverință se eliberează la cererea persoanei interesate,
+    pentru a-i servi la {{cel}}.
+  </p>
+  <div style="margin-top:60px;display:flex;justify-content:space-between;">
+    <div>{{helyseg}}, {{datum}}</div>
+    <div style="text-align:center;">
+      _______________________<br>
+      {{lelkipasztor}}<br>
+      preot paroh
+    </div>
+  </div>
+</div>`
+
+/**
+ * Román nyelvű tagsági igazolás (Adeverință de membru) — hivatalos hangnem.
+ */
+const ADEVERINTA_DE_MEMBRU = `<div style="padding:50px;font-family:'Times New Roman',serif;line-height:1.6;font-size:14px;">
+  <div style="text-align:left;">Nr.: {{iratszam}}</div>
+  <div style="text-align:center;font-weight:bold;font-size:1.2rem;margin-top:20px;">
+    ADEVERINȚĂ DE MEMBRU
+  </div>
+  <p style="margin-top:40px;text-indent:50px;">
+    Oficiul Parohial al Parohiei Reformate <b>{{gyulekezet}}</b> adeverește
+    prin prezenta că <b>{{nev}}</b>, născut(ă) la data de {{szul_datum}},
+    cu domiciliul în {{lakcim}}, figurează în evidențele noastre ca membru
+    înregistrat al parohiei.
+  </p>
+  <p style="text-indent:50px;">
+    Prezenta adeverință se eliberează la cererea persoanei interesate,
+    pentru a-i servi la {{cel}}.
+  </p>
+  <div style="margin-top:60px;display:flex;justify-content:space-between;">
+    <div>{{helyseg}}, {{datum}}</div>
+    <div style="text-align:center;">
+      _______________________<br>
+      {{lelkipasztor}}<br>
+      preot paroh
+    </div>
+  </div>
+</div>`
+
+/**
+ * Általános hivatalos levél-váz (megkeresés / kísérőlevél) — a {{cimzett}}
+ * és a {{targy_szoveg}} kézi placeholder; a törzs a kiállításkor szabadon
+ * átírható a konkrét ügy szerint.
+ */
+const HIVATALOS_MEGKERESES = `<div style="padding:50px;font-family:'Times New Roman',serif;line-height:1.6;font-size:14px;">
+  <div style="text-align:left;">Szám: {{iratszam}}</div>
+  <div style="margin-top:16px;">Címzett: {{cimzett}}</div>
+  <div style="text-align:center;font-weight:bold;font-size:1.2rem;margin-top:20px;">
+    Tárgy: {{targy_szoveg}}
+  </div>
+  <p style="margin-top:40px;">Tisztelt Cím!</p>
+  <p style="text-indent:50px;">
+    A tárgyban megjelölt ügyben fordulunk Önökhöz. Mellékelten megküldjük
+    a szükséges iratokat, kérjük szíves ügyintézésüket.
+  </p>
+  <p style="text-indent:50px;">
+    Kérdés esetén lelkipásztori hivatalunk készséggel áll rendelkezésükre.
+  </p>
+  <p>Tisztelettel:</p>
+  <div style="margin-top:60px;display:flex;justify-content:space-between;">
+    <div>{{helyseg}}, {{datum}}</div>
+    <div style="text-align:center;">
+      _______________________<br>
+      {{lelkipasztor}} lelkipásztor
+    </div>
+  </div>
+</div>`
+
 export const SEED_TEMPLATES: SeedTemplate[] = [
   {
     nev: 'Keresztelési igazolás',
@@ -292,6 +479,45 @@ export const SEED_TEMPLATES: SeedTemplate[] = [
     tipus: 'igazolas',
     leiras: 'Egyháztagsági státuszt igazoló dokumentum.',
     tartalom: TAGSAGI_IGAZOLAS,
+  },
+  // ─── 2026-07 (W1): további alapsablonok — a seedDefaultFilingTemplates
+  // NÉV-alapú pótlása miatt a meglévő gyülekezeteknél is bármikor behúzhatók.
+  {
+    nev: 'Keresztelési igazolás (két személy)',
+    tipus: 'igazolas',
+    leiras:
+      'Két személyre (pl. testvérpár) szóló keresztelési igazolás — a 2. személy adatai a _2 végű placeholderekből töltődnek.',
+    tartalom: KERESZTELESI_IGAZOLAS_KET_SZEMELY,
+  },
+  {
+    nev: 'Temetési igazolás',
+    tipus: 'igazolas',
+    leiras: 'Az elhunyt adatait és a református szertartás szerinti temetés tényét rögzítő igazolás.',
+    tartalom: TEMETESI_IGAZOLAS,
+  },
+  {
+    nev: 'Lelkészi ajánlás',
+    tipus: 'level',
+    leiras: 'Általános lelkészi ajánlólevél egyháztag számára — az indoklás kézzel tölthető.',
+    tartalom: LELKESZI_AJANLAS,
+  },
+  {
+    nev: 'Adeverință de botez (román)',
+    tipus: 'igazolas',
+    leiras: 'Román nyelvű keresztelési igazolás hivatalos hangnemben (Adeverință de botez).',
+    tartalom: ADEVERINTA_DE_BOTEZ,
+  },
+  {
+    nev: 'Adeverință de membru (román)',
+    tipus: 'igazolas',
+    leiras: 'Román nyelvű egyháztagsági igazolás hivatalos hangnemben (Adeverință de membru).',
+    tartalom: ADEVERINTA_DE_MEMBRU,
+  },
+  {
+    nev: 'Hivatalos megkeresés / kísérőlevél',
+    tipus: 'level',
+    leiras: 'Általános hivatalos levél-váz címzettel és tárggyal — a törzs kiállításkor szabadon átírható.',
+    tartalom: HIVATALOS_MEGKERESES,
   },
 ]
 
@@ -336,4 +562,10 @@ export const PLACEHOLDER_DOCS: Array<{
   { key: 'anyja_neve_2', label: 'Anyja neve (2. személy)', auto: false, description: 'A második személy anyjának neve' },
   { key: 'kereszteles_datuma_2', label: 'Keresztelés dátuma (2. személy)', auto: false, description: 'A második személy keresztelésének dátuma' },
   { key: 'konfirmalas_datuma_2', label: 'Konfirmálás dátuma (2. személy)', auto: false, description: 'A második személy konfirmálásának dátuma' },
+  // ─── 2026-07 (W1): az új alapsablonok kézi placeholderei ───
+  { key: 'cel', label: 'Cél', auto: false, description: 'Az igazolás kiállításának célja (pl. keresztelés, iskolai beiratkozás)' },
+  { key: 'elhalalozas_datuma', label: 'Elhalálozás dátuma', auto: false, description: 'Az elhunyt halálának dátuma' },
+  { key: 'temetes_datuma', label: 'Temetés dátuma', auto: false, description: 'A temetés dátuma' },
+  { key: 'cimzett', label: 'Címzett', auto: false, description: 'A levél címzettje (intézmény vagy személy, címmel)' },
+  { key: 'targy_szoveg', label: 'Tárgy', auto: false, description: 'A levél tárgya' },
 ]

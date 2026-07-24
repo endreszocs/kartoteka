@@ -6,7 +6,8 @@
  * Lépéses felépítés (balra vezérlők, jobbra élő A4-előnézet; lg alatt fül-váltó):
  *  (a) sablon-választó — a meglévő iktató-sablonok + „Szabad levél" üres törzzsel,
  *  (b) személy-kereső — több személy (pl. házaspár) kiválasztható chip-listával,
- *      az anyakönyvi adatok (szemely-actions) automatikusan töltik a placeholdereket,
+ *      az anyakönyvi adatok (szemely-actions) automatikusan töltik a placeholdereket;
+ *      a személyi kartonról nyitva az `initialPersonIds` prop előre betölti a tagot,
  *  (c) fejléc-választó — többnyelvű hivatalos levélfej (letterheads.buildLetterheadHtml),
  *  (d) placeholder-űrlap + szerkeszthető törzs-szöveg.
  *
@@ -237,9 +238,13 @@ export interface CertificateIssueDialogProps {
   year: number
   /** Sikeres iktatás után hívódik (a szülő frissítheti a listát). */
   onIssued: () => void
+  /** 2026-07-24 (W2): megnyitáskor automatikusan betöltendő személy-id-k
+   *  (pl. a személyi karton „Igazolás kiállítása" gombja a tag id-jét adja át).
+   *  Hibánál toast — a kereső ilyenkor is üresen használható marad. */
+  initialPersonIds?: number[]
 }
 
-export function CertificateIssueDialog({ open, onOpenChange, year, onIssued }: CertificateIssueDialogProps) {
+export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, initialPersonIds }: CertificateIssueDialogProps) {
   // (a) sablonok
   const [templates, setTemplates] = useState<FilingTemplate[]>([])
   const [templateId, setTemplateId] = useState<string>(FREE_LETTER_ID)
@@ -288,6 +293,14 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued }: C
     ? '1.'
     : (selectedTemplate ? TIPUS_UGYKOR[selectedTemplate.tipus] ?? null : null)
 
+  // 2026-07-24 (W2): a kezdeti személy-id-k STABIL kulcsa — a tömb-identitás
+  // renderenként változhat (a szülő pl. inline `[member.id]`-t ad át), a
+  // join-olt string nem, így a megnyitási reset-effekt NEM fut újra (és nem
+  // resetel) minden szülő-rendernél, csak nyitáskor / tényleges id-váltásnál.
+  const initialIdsKey = (initialPersonIds || [])
+    .filter((n) => Number.isInteger(n))
+    .join(',')
+
   // ── Megnyitáskor: állapot-reset + kontextus-betöltés ─────────────
   useEffect(() => {
     if (!open) return
@@ -309,6 +322,25 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued }: C
     setIssuedIratszam(null)
     setMobileView('form')
     setContentH(A4_PORTRAIT_H) // az előző kiállítás előnézet-magassága ne ragadjon át
+    setLoadingPersons(false) // zárás közben félbemaradt betöltés jelzője ne ragadjon be
+
+    // 2026-07-24 (W2): személyi kartonról nyitva a kezdeti személy(ek)
+    // betöltése a teljes reset UTÁN — hibánál toast, és a persons üres marad
+    // (a kereső ettől még használható). A cancelled-őr a zárás/újranyitás
+    // közben beérkező elavult választ dobja el.
+    if (initialIdsKey) {
+      const ids = initialIdsKey.split(',').map(Number)
+      setLoadingPersons(true)
+      void getPersonCertificateData(ids).then((res) => {
+        if (cancelled) return
+        setLoadingPersons(false)
+        if (res.error) {
+          toast.error(res.error)
+          return
+        }
+        setPersons(res.persons)
+      })
+    }
 
     setLoadingCtx(true)
     void (async () => {
@@ -344,7 +376,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued }: C
     return () => {
       cancelled = true
     }
-  }, [open])
+  }, [open, initialIdsKey])
 
   // ── (b) debounced személy-keresés ────────────────────────────────
   const searchSeq = useRef(0)
