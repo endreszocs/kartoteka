@@ -579,13 +579,27 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {editEntry ? 'Irat szerkesztése' : `Új irat - ${keltYear}/${fSeqNum > 0 ? fSeqNum : '…'} (várható)`}
-            </DialogTitle>
+            <DialogTitle>{editEntry ? 'Irat szerkesztése' : 'Új irat'}</DialogTitle>
+            {/* 2026-07-25 (éles teszt-kérés): a következő iktatószám jól
+                láthatóan, token-stílusú jelvényben — a meglévő
+                getNextSequenceNumber-előnézetből; a szám csak a mentéskor
+                véglegesedik (nem foglalt). */}
             {!editEntry && (
-              <DialogDescription>
-                Az iktatószám a kelt dátum évét követi, és csak a mentéskor véglegesedik — a fenti szám előnézet, nem foglalt.
-              </DialogDescription>
+              <>
+                <p className="inline-flex w-fit max-w-full flex-wrap items-center gap-1.5 self-center rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-medium text-primary sm:self-start">
+                  <Stamp className="size-3.5 shrink-0" aria-hidden />
+                  <span>
+                    Következő iktatószám:{' '}
+                    <b className="font-mono tabular-nums">
+                      {keltYear}/{fSeqNum > 0 ? fSeqNum : '…'}
+                    </b>{' '}
+                    (automatikus)
+                  </span>
+                </p>
+                <DialogDescription>
+                  Az iktatószám a kelt dátum évét követi, és csak a mentéskor véglegesedik — a fenti szám előnézet, nem foglalt.
+                </DialogDescription>
+              </>
             )}
           </DialogHeader>
           <div className="space-y-4">

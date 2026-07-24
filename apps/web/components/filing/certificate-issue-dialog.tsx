@@ -30,6 +30,11 @@
  * elejére „Szám: {{iratszam}}" sor kerül — így a seed-sablonok (amelyekben
  * mindkettő benne van) nem duplázódnak, a Szabad levél viszont teljes.
  *
+ * Tárgy-sor (2026-07, F8a): a „Szám: …" sor ALÁ a keret strukturálisan
+ * beírja a „Tárgy: {tárgy}" sort az iktatókönyvi tárgy-mező értékével.
+ * Duplikátum-őr: ha a törzs ELEJE már tartalmaz saját „Tárgy:" szöveget
+ * (régi, DB-ben maradt seed-sablonok / egyedi sablonok), a keret kihagyja.
+ *
  * WYSIWYG: az előnézet, a PDF és a nyomtatás UGYANAZT a HTML-t kapja
  * (fit-to-width A4 iframe, a worklog-print-dialog mintája szerint).
  */
@@ -63,6 +68,7 @@ import {
   generateNextIratszam,
   getAutoPlaceholderContext,
   listFilingTemplates,
+  seedDefaultFilingTemplates,
 } from '@/app/(dashboard)/iktato/template-actions'
 import {
   getCongregationHeader,
@@ -72,6 +78,7 @@ import {
 import {
   PLACEHOLDER_DOCS,
   buildAutoValues,
+  escapeHtml,
   extractPlaceholders,
   formatHungarianDate,
   renderTemplate,
@@ -102,7 +109,7 @@ const FREE_LETTER_ID = '__szabad_level__'
 /** Legfeljebb ennyi személy választható ki (pl. házaspár + 2 gyermek). */
 const MAX_PERSONS = 4
 
-/** Fit-to-width előnézet: A4 álló lap-szélesség képpontban (~96 dpi + ráhagyás). */
+/** Fit-to-page előnézet: A4 álló lap méretei képpontban (~96 dpi + ráhagyás). */
 const A4_PORTRAIT_W = 812
 const A4_PORTRAIT_H = 1123
 
@@ -190,29 +197,82 @@ function placeholderLabel(key: string): string {
 const TIMES_FONT = "font-family:'Times New Roman',serif;"
 
 /**
+ * Duplikátum-őr a keret Tárgy-sorához: ha a törzs ELEJÉN már van saját
+ * „Tárgy:" szöveg (egyedi/régi sablonok), a keret NEM tesz rá másodikat.
+ * A vizsgált ablak 400 karakter (nem ~200): a régi, DB-ben maradt
+ * seed-sablonokban a belső Tárgy-címsor a nyitó div-ek inline stílusai
+ * MIATT kb. a 240–250. karakternél kezdődik.
+ */
+function bodyHasOwnTargy(body: string): boolean {
+  // Mindhárom fejléc-nyelv címkéjét felismerjük (régi/egyedi sablonok védelme).
+  return /(Tárgy|Obiect|Subject)\s*:/i.test(body.slice(0, 400))
+}
+
+// A keret „Szám:" és „Tárgy:" címkéi a fejléc nyelvét követik (2026-07-25,
+// user-visszajelzés): román irathoz „Nr. / Obiect", angolhoz „No. / Subject".
+const KERET_CIMKEK: Record<LetterheadLang, { szam: string; targy: string }> = {
+  hu: { szam: 'Szám', targy: 'Tárgy' },
+  ro: { szam: 'Nr.', targy: 'Obiect' },
+  en: { szam: 'No.', targy: 'Subject' },
+}
+
+/**
  * A dokumentum-sablon összeállítása a törzsből:
  *  - Szabad levélnél a plain-text törzs pre-wrap wrapperbe kerül,
  *  - „Szám: {{iratszam}}" sor, ha a törzsben nincs iratszám,
+ *  - „Tárgy: {tárgy}" sor a „Szám: …" sor ALATT (2026-07, F8a) — az
+ *    iktatókönyvi tárgy-mező értékével; a bodyHasOwnTargy-őr védi a
+ *    duplázástól a saját Tárgy-sorral bíró (régi/egyedi) sablonokat,
  *  - automatikus záró blokk (helység+dátum+aláírás), ha nincs {{lelkipasztor}}.
  * Az eredmény MÉG placeholderes — a renderTemplate tölti ki.
+ * ⚠️ A keret-részek átmennek a sanitizeFilingHtml-en → csak a whitelistelt
+ * style-property-k használhatók bennük (padding, margin-top, font-*, …).
  */
-function buildAssembledTemplate(body: string, opts: { szabad: boolean; hasLetterhead: boolean }): string {
+function buildAssembledTemplate(
+  body: string,
+  opts: { szabad: boolean; hasLetterhead: boolean; targy: string; lang: LetterheadLang },
+): string {
   const hasIratszam = /\{\{\s*iratszam\s*\}\}/.test(body)
   const hasClosing = /\{\{\s*lelkipasztor\s*\}\}/.test(body)
   const topPad = opts.hasLetterhead ? 8 : 36
+  const cimkek = KERET_CIMKEK[opts.lang]
+
+  const targyText = (opts.targy || '').trim()
+  const wantsTargy = Boolean(targyText) && !bodyHasOwnTargy(body)
+  // A törzs BELSEJÉBE fűzött változat a sablon-wrapper Times-betűjét örökli;
+  // az önálló (keret-szintű) változat a „Szám:" keret-sor stílusát követi.
+  const targyInBodyLine = `<div style="margin-top:4px;">${cimkek.targy}: ${escapeHtml(targyText)}</div>`
+  const targyStandaloneLine = `<div style="padding:6px 50px 0;${TIMES_FONT}font-size:14px;">${cimkek.targy}: ${escapeHtml(targyText)}</div>`
 
   const parts: string[] = []
   if (!hasIratszam) {
     parts.push(
-      `<div style="padding:${topPad}px 50px 0;${TIMES_FONT}font-size:14px;">Szám: {{iratszam}}</div>`,
+      `<div style="padding:${topPad}px 50px 0;${TIMES_FONT}font-size:14px;">${cimkek.szam}: {{iratszam}}</div>`,
     )
+    if (wantsTargy) parts.push(targyStandaloneLine)
   }
+
+  let assembledBody = body
+  if (hasIratszam && wantsTargy) {
+    // A sablon-törzs saját „Szám: {{iratszam}}" / „Nr.: {{iratszam}}" sora ALÁ
+    // fűzzük a Tárgy-sort (a seed-sablonok egy-elemű div-sora). Ha a minta nem
+    // illeszkedik (egyedi markup), a Tárgy-sor a törzs ELÉ kerül keret-sorként.
+    const iratszamLine = /<div[^>]*>[^<]*\{\{\s*iratszam\s*\}\}[^<]*<\/div>/
+    if (iratszamLine.test(assembledBody)) {
+      // Csere-FÜGGVÉNNYEL, nem csere-stringgel: a tárgy-szöveg `$`-jeleit a
+      // String.replace különben speciális mintaként ($&, $1, …) értelmezné.
+      assembledBody = assembledBody.replace(iratszamLine, (m) => `${m}\n  ${targyInBodyLine}`)
+    } else {
+      parts.push(targyStandaloneLine)
+    }
+  }
+
   if (opts.szabad) {
     parts.push(
-      `<div style="padding:24px 50px 0;${TIMES_FONT}line-height:1.6;font-size:14px;white-space:pre-wrap;">${body}</div>`,
+      `<div style="padding:24px 50px 0;${TIMES_FONT}line-height:1.6;font-size:14px;white-space:pre-wrap;">${assembledBody}</div>`,
     )
   } else {
-    parts.push(body)
+    parts.push(assembledBody)
   }
   if (!hasClosing) {
     parts.push(
@@ -249,6 +309,9 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   const [templates, setTemplates] = useState<FilingTemplate[]>([])
   const [templateId, setTemplateId] = useState<string>(FREE_LETTER_ID)
   const [body, setBody] = useState('')
+  // 2026-07-25 (éles teszt): az üres listánál futó automatikus seed nem
+  // sikerült → diszkrét hint a választó alatt (nem hangos hiba).
+  const [templateSeedFailed, setTemplateSeedFailed] = useState(false)
 
   // (b) személyek
   const [searchQuery, setSearchQuery] = useState('')
@@ -323,6 +386,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     setMobileView('form')
     setContentH(A4_PORTRAIT_H) // az előző kiállítás előnézet-magassága ne ragadjon át
     setLoadingPersons(false) // zárás közben félbemaradt betöltés jelzője ne ragadjon be
+    setTemplateSeedFailed(false) // az előző megnyitás seed-hintje ne ragadjon át
 
     // 2026-07-24 (W2): személyi kartonról nyitva a kezdeti személy(ek)
     // betöltése a teljes reset UTÁN — hibánál toast, és a persons üres marad
@@ -354,7 +418,33 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
       if (cancelled) return
 
       if (tplRes.error) toast.error(tplRes.error)
-      setTemplates(tplRes.data || [])
+      let tplList = tplRes.data || []
+      let seedFailed = false
+
+      // 2026-07-25 (éles teszt: üres sablon-lista): ha a gyülekezetben még
+      // EGYETLEN sablon sincs (és a lekérés nem hibázott), a 10 alapsablont
+      // automatikusan betöltjük, majd újratöltjük a listát — a kiállító ne
+      // induljon üres választóval. Ha a seed nem sikerül (pl. jogosultság
+      // híján), NEM hibázunk hangosan: diszkrét hint jelzi a választó alatt,
+      // hogy a Sablonok fülön pótolható. Cancel-őr minden await után.
+      if (!tplRes.error && tplList.length === 0) {
+        const seedRes = await seedDefaultFilingTemplates()
+        if (cancelled) return
+        if (seedRes.error) {
+          seedFailed = true
+        } else {
+          const reloadRes = await listFilingTemplates()
+          if (cancelled) return
+          if (!reloadRes.error && (reloadRes.data || []).length > 0) {
+            tplList = reloadRes.data || []
+            toast.success('A 10 alapsablon automatikusan betöltésre került.')
+          } else {
+            seedFailed = true
+          }
+        }
+      }
+      setTemplates(tplList)
+      setTemplateSeedFailed(seedFailed)
 
       setHeader(headerRes.header)
       setHeaderError(headerRes.error)
@@ -471,8 +561,10 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   )
 
   const assembledRaw = useMemo(
-    () => buildAssembledTemplate(body, { szabad, hasLetterhead: Boolean(lang && header) }),
-    [body, szabad, lang, header],
+    // 2026-07 (F8a): az iktatókönyvi tárgy a keret „Tárgy: …" soraként a
+    // dokumentumba is bekerül (a „Szám: …" sor alá) — lásd buildAssembledTemplate.
+    () => buildAssembledTemplate(body, { szabad, hasLetterhead: Boolean(lang && header), targy: subject, lang: lang || 'hu' }),
+    [body, szabad, lang, header, subject],
   )
   const placeholders = useMemo(() => extractPlaceholders(assembledRaw), [assembledRaw])
   const autoKeys = useMemo(() => {
@@ -490,7 +582,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     const letterhead =
       lang && header ? `<div style="padding:36px 50px 0;">${buildLetterheadHtml(lang, header)}</div>` : ''
     return `<!DOCTYPE html>
-<html lang="${lang === 'ro' ? 'ro' : 'hu'}">
+<html lang="${lang === 'ro' ? 'ro' : lang === 'en' ? 'en' : 'hu'}">
 <head>
   <meta charset="utf-8" />
   <title>${docTitle}</title>
@@ -521,16 +613,23 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     return () => window.clearTimeout(t)
   }, [fullHtml])
 
-  // ── Fit-to-width A4 előnézet (worklog-print-dialog minta) ────────
+  // ── Fit-to-page A4 előnézet ──────────────────────────────────────
+  // 2026-07-25 (éles teszt): korábban csak a SZÉLESSÉGHEZ igazítottunk, így
+  // az oldal alja kilógott és két irányban kellett görgetni. Most a panel
+  // TÉNYLEGES belső méretét (contentRect: szélesség ÉS magasság, padding
+  // nélkül) mérjük — a doboz fix magasságú, így a mérés nem körkörös. A
+  // mobil fül-váltásnál a rejtett panel 0×0-t jelentene, azt eldobjuk.
   const previewBoxRef = useRef<HTMLDivElement>(null)
-  const [boxW, setBoxW] = useState(0)
+  const [boxSize, setBoxSize] = useState({ w: 0, h: 0 })
   useEffect(() => {
     if (!open) return
     const el = previewBoxRef.current
     if (!el || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width ?? 0
-      if (w > 0) setBoxW(w)
+      const rect = entries[0]?.contentRect
+      if (rect && rect.width > 0 && rect.height > 0) {
+        setBoxSize({ w: rect.width, h: rect.height })
+      }
     })
     ro.observe(el)
     return () => ro.disconnect()
@@ -549,10 +648,16 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     setContentH(Math.max(h, A4_PORTRAIT_H))
   }, [])
 
-  const targetW = boxW > 0 ? Math.max(0, boxW - 24) : A4_PORTRAIT_W
-  const scale = Math.min(1, targetW / A4_PORTRAIT_W)
-  const scaledW = Math.round(A4_PORTRAIT_W * scale)
-  const scaledH = Math.round(contentH * scale)
+  // Fit-to-page: a lap a rendelkezésre álló szélesség ÉS magasság közül a
+  // SZŰKEBBHEZ igazodik — egy A4 oldal MINDIG egészben látszik, vízszintes
+  // scrollbar semmilyen méretnél nincs. A -4px a lap-wrapper 1px-es keretét
+  // és a kerekítést fedezi. Többoldalas dokumentumnál a további oldalak a
+  // külső panel FÜGGŐLEGES görgetésével jönnek, ugyanazon a scale-en.
+  const availW = boxSize.w > 0 ? Math.max(0, boxSize.w - 4) : A4_PORTRAIT_W
+  const availH = boxSize.h > 0 ? Math.max(0, boxSize.h - 4) : A4_PORTRAIT_H
+  const scale = Math.min(1, availW / A4_PORTRAIT_W, availH / A4_PORTRAIT_H)
+  const scaledW = Math.floor(A4_PORTRAIT_W * scale)
+  const scaledH = Math.ceil(contentH * scale)
 
   // ── Kiállítás és iktatás ─────────────────────────────────────────
   async function handleIssue() {
@@ -727,8 +832,9 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                   </select>
                   {templates.length === 0 ? (
                     <p className="text-xs text-muted-foreground">
-                      Még nincsenek sablonok — a Sablonok fülön betöltheted az alapértelmezetteket,
-                      vagy írj szabad levelet.
+                      {templateSeedFailed
+                        ? 'Nincsenek sablonok — a Sablonok fülön pótolhatók.'
+                        : 'Még nincsenek sablonok — a Sablonok fülön betöltheted az alapértelmezetteket, vagy írj szabad levelet.'}
                     </p>
                   ) : null}
                 </section>
@@ -1075,9 +1181,13 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               Élő előnézet (A4 álló)
             </p>
+            {/* FIX magasságú panel (mobilon kisebb — ott a sticky fejléc +
+                fül-váltó is helyet foglal): a ResizeObserver így a tényleges
+                panel-magasságot méri, és az alap-zoom a teljes első oldalt
+                mutatja. Belső scrollbar csak függőlegesen, több oldalnál. */}
             <div
               ref={previewBoxRef}
-              className="max-h-[72vh] min-h-[280px] overflow-y-auto rounded-2xl border border-border bg-muted p-3"
+              className="h-[60vh] min-h-[280px] overflow-y-auto overflow-x-hidden rounded-2xl border border-border bg-muted p-3 lg:h-[72vh]"
             >
               <div
                 className="mx-auto overflow-hidden rounded-md border border-border bg-white shadow-sm"

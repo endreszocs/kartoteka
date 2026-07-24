@@ -40,18 +40,33 @@ export interface CertificatePersonHit {
 
 /** A gyülekezet hivatalos fejléc-adatai (congregations tábla). */
 export interface CongregationHeaderData {
-  /** congregations.name (hivatalos név) — üresnél nev_hu fallback. */
+  /** congregations.name (hivatalos név) — üresnél nev_hu fallback.
+   *  Nyelvfüggetlen tartalék, ha a nyelv-specifikus név hiányzik. */
   hivatalosNev: string
-  /** Összerakott postai cím: irányítószám + város, utca + házszám. */
-  cim: string | null
+  /** congregations.nev_hu — a magyar név (üresnél null, fallback: hivatalosNev). */
+  nevHu: string | null
+  /** congregations.nev_ro — a román név (üresnél null, fallback: hivatalosNev). */
+  nevRo: string | null
+  /** congregations.nev_en — az angol név (üresnél null, fallback: hivatalosNev). */
+  nevEn: string | null
+  /** Összerakott postai cím (magyar/rögzített változat):
+   *  „irányítószám város, utca házszám". */
+  cimHu: string | null
+  /** Román cím-változat. A congregations strukturált cím-mezői (varos, cim,
+   *  iranyitoszam, hazszam) EGYETLEN — jellemzően magyar — változatot tárolnak;
+   *  a román helység-/utcanév az adrlocality.name_ro / adrstreet.name_ro
+   *  oszlopokban élne (adrlocality_id/adrstreet_id join), ami a verifikált
+   *  congregations-oszlopokon kívül esik → jelenleg mindig null, és a fejléc
+   *  ilyenkor EGY közös cím-sort ír (follow-up: adrlocality-join). */
+  cimRo: string | null
   telefon: string | null
   email: string | null
   /** congregations.adoszam (CIF). */
   cif: string | null
   web: string | null
-  /** congregations.cimer_url — a fejléc-címer képe. */
+  /** congregations.cimer_url — a fejléc-címer (logó) képe. */
   cimerUrl: string | null
 }
 
 /** A többnyelvű fejléc nyelvei. */
-export type LetterheadLang = 'hu' | 'ro'
+export type LetterheadLang = 'hu' | 'ro' | 'en'

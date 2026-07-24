@@ -79,6 +79,30 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Iktató-finomítások: új fejléc, tárgy-sor, teljes oldalas előnézet
+<!-- key: 2026-07-25-iktato-f8a-fejlec-elonezet -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+<!-- version: web v0.9.110 -->
+
+### 🎨 Fejlesztések
+
+- **Megújult hivatalos fejléc a kiállított iratokon:** balra igazítva, a címer
+  mellett az egyházközség neve a választott nyelven, alatta a cím magyarul és
+  románul (a nyilvántartott helység-/utcanevekből), a CIF és az elérhetőségek —
+  mostantól **angol fejléc** is választható a magyar és a román mellett.
+- **A „Szám:" alatt megjelenik a „Tárgy:" sor** (román iraton „Obiect:",
+  angolon „Subject:"), és utána következik az irat szövege.
+- **Az élő előnézet egyben mutatja a teljes A4 oldalt** — nem kell többé
+  jobbra-balra görgetni.
+- **A sablonok maguktól betöltődnek:** ha a gyülekezetnél még nincsenek
+  alapsablonok, a kiállító első megnyitásakor automatikusan megkapja mind a
+  tízet.
+- **Az új irat rögzítésekor jól láthatóan megjelenik a következő iktatószám**
+  („Következő iktatószám: 2026/1 — automatikus").
+
+---
+
 ## [2026-07-24] — Gyorsabb munkanapló-táblázat + megújult súgó
 <!-- key: 2026-07-24-munkanaplo-perf-sugo -->
 <!-- category: improvement -->

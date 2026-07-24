@@ -147,6 +147,14 @@ export function buildAutoValues(ctx: AutoPlaceholderContext): Record<string, str
 
 // ─────────────────────────────────────────────────────────────────
 // Seed sablonok (default templates)
+//
+// 2026-07 (F8a): a belső „Tárgy: …" címsorok KIKERÜLTEK a seed-sablonokból —
+// a kiállító kerete (certificate-issue-dialog/buildAssembledTemplate) írja a
+// „Tárgy: {tárgy}" sort a „Szám: …" sor alá az iktatókönyvi tárgyból, így
+// nem duplázódik. A régi, DB-ben maradt sablon-példányok saját Tárgy-sorát
+// a keret duplikátum-őre (bodyHasOwnTargy) ismeri fel és hagyja békén.
+// A két román sablon nagybetűs cím-sora (ADEVERINȚĂ DE …) NEM Tárgy-sor,
+// hanem a dokumentum típus-címe — az megmaradt.
 // ─────────────────────────────────────────────────────────────────
 
 /**
@@ -177,9 +185,6 @@ export interface SeedTemplate {
  */
 const KERESZTELESI_IGAZOLAS = `<div style="padding:50px;font-family:'Times New Roman',serif;line-height:1.6;font-size:14px;">
   <div style="text-align:left;">Szám: {{iratszam}}</div>
-  <div style="text-align:center;font-weight:bold;font-size:1.2rem;margin-top:20px;">
-    Tárgy: Keresztelési igazolás
-  </div>
   <p style="margin-top:40px;text-indent:50px;">
     A <b>{{gyulekezet}}</b> Lelkipásztori Hivatala igazolja, hogy
     <b>{{nev}}</b>, {{apja_neve}} és {{anyja_neve}} református szülők gyermeke
@@ -202,9 +207,6 @@ const KERESZTELESI_IGAZOLAS = `<div style="padding:50px;font-family:'Times New R
 
 const TAGSAGI_IGAZOLAS = `<div style="padding:50px;font-family:'Times New Roman',serif;line-height:1.6;font-size:14px;">
   <div style="text-align:left;">Szám: {{iratszam}}</div>
-  <div style="text-align:center;font-weight:bold;font-size:1.2rem;margin-top:20px;">
-    Tárgy: Tagsági igazolás
-  </div>
   <p style="margin-top:40px;text-indent:50px;">
     A <b>{{gyulekezet}}</b> Lelkipásztori Hivatala igazolja, hogy
     <b>{{nev}}</b> (szül.: {{szul_datum}}, lakcím: {{lakcim}}) a
@@ -224,9 +226,6 @@ const TAGSAGI_IGAZOLAS = `<div style="padding:50px;font-family:'Times New Roman'
 
 const ESKETESI_IGAZOLAS = `<div style="padding:50px;font-family:'Times New Roman',serif;line-height:1.6;font-size:14px;">
   <div style="text-align:left;">Szám: {{iratszam}}</div>
-  <div style="text-align:center;font-weight:bold;font-size:1.2rem;margin-top:20px;">
-    Tárgy: Esketési igazolás
-  </div>
   <p style="margin-top:40px;text-indent:50px;">
     A <b>{{gyulekezet}}</b> Lelkipásztori Hivatala igazolja, hogy
     <b>{{ferj_nev}}</b> és <b>{{feleseg_nev}}</b> {{eskuvo_datuma}} napján
@@ -247,9 +246,6 @@ const ESKETESI_IGAZOLAS = `<div style="padding:50px;font-family:'Times New Roman
 
 const KONFIRMACIOS_IGAZOLAS = `<div style="padding:50px;font-family:'Times New Roman',serif;line-height:1.6;font-size:14px;">
   <div style="text-align:left;">Szám: {{iratszam}}</div>
-  <div style="text-align:center;font-weight:bold;font-size:1.2rem;margin-top:20px;">
-    Tárgy: Konfirmációs igazolás
-  </div>
   <p style="margin-top:40px;text-indent:50px;">
     A <b>{{gyulekezet}}</b> Lelkipásztori Hivatala igazolja, hogy
     <b>{{nev}}</b> (szül.: {{szul_datum}}) a református hitvallást és
@@ -283,9 +279,6 @@ const KONFIRMACIOS_IGAZOLAS = `<div style="padding:50px;font-family:'Times New R
  */
 const KERESZTELESI_IGAZOLAS_KET_SZEMELY = `<div style="padding:50px;font-family:'Times New Roman',serif;line-height:1.6;font-size:14px;">
   <div style="text-align:left;">Szám: {{iratszam}}</div>
-  <div style="text-align:center;font-weight:bold;font-size:1.2rem;margin-top:20px;">
-    Tárgy: Keresztelési igazolás
-  </div>
   <p style="margin-top:40px;text-indent:50px;">
     A <b>{{gyulekezet}}</b> Lelkipásztori Hivatala igazolja, hogy
     <b>{{nev}}</b>, {{apja_neve}} és {{anyja_neve}} református szülők gyermeke
@@ -317,9 +310,6 @@ const KERESZTELESI_IGAZOLAS_KET_SZEMELY = `<div style="padding:50px;font-family:
  */
 const TEMETESI_IGAZOLAS = `<div style="padding:50px;font-family:'Times New Roman',serif;line-height:1.6;font-size:14px;">
   <div style="text-align:left;">Szám: {{iratszam}}</div>
-  <div style="text-align:center;font-weight:bold;font-size:1.2rem;margin-top:20px;">
-    Tárgy: Temetési igazolás
-  </div>
   <p style="margin-top:40px;text-indent:50px;">
     A <b>{{gyulekezet}}</b> Lelkipásztori Hivatala igazolja, hogy néhai
     <b>{{nev}}</b> (szül.: {{szul_datum}}, {{apja_neve}} és {{anyja_neve}}
@@ -345,9 +335,6 @@ const TEMETESI_IGAZOLAS = `<div style="padding:50px;font-family:'Times New Roman
  */
 const LELKESZI_AJANLAS = `<div style="padding:50px;font-family:'Times New Roman',serif;line-height:1.6;font-size:14px;">
   <div style="text-align:left;">Szám: {{iratszam}}</div>
-  <div style="text-align:center;font-weight:bold;font-size:1.2rem;margin-top:20px;">
-    Tárgy: Lelkészi ajánlás
-  </div>
   <p style="margin-top:40px;text-indent:50px;">
     Alulírott, a <b>{{gyulekezet}}</b> lelkipásztora, ezúton ajánlom
     <b>{{nev}}</b> (szül.: {{szul_datum}}) egyháztagunkat, aki egyházközségünk
@@ -428,15 +415,13 @@ const ADEVERINTA_DE_MEMBRU = `<div style="padding:50px;font-family:'Times New Ro
 
 /**
  * Általános hivatalos levél-váz (megkeresés / kísérőlevél) — a {{cimzett}}
- * és a {{targy_szoveg}} kézi placeholder; a törzs a kiállításkor szabadon
- * átírható a konkrét ügy szerint.
+ * kézi placeholder; a törzs a kiállításkor szabadon átírható a konkrét ügy
+ * szerint. A Tárgy-sort a kiállító kerete adja (buildAssembledTemplate) —
+ * a korábbi {{targy_szoveg}}-es belső Tárgy-címsor ezért kikerült.
  */
 const HIVATALOS_MEGKERESES = `<div style="padding:50px;font-family:'Times New Roman',serif;line-height:1.6;font-size:14px;">
   <div style="text-align:left;">Szám: {{iratszam}}</div>
   <div style="margin-top:16px;">Címzett: {{cimzett}}</div>
-  <div style="text-align:center;font-weight:bold;font-size:1.2rem;margin-top:20px;">
-    Tárgy: {{targy_szoveg}}
-  </div>
   <p style="margin-top:40px;">Tisztelt Cím!</p>
   <p style="text-indent:50px;">
     A tárgyban megjelölt ügyben fordulunk Önökhöz. Mellékelten megküldjük
@@ -516,7 +501,7 @@ export const SEED_TEMPLATES: SeedTemplate[] = [
   {
     nev: 'Hivatalos megkeresés / kísérőlevél',
     tipus: 'level',
-    leiras: 'Általános hivatalos levél-váz címzettel és tárggyal — a törzs kiállításkor szabadon átírható.',
+    leiras: 'Általános hivatalos levél-váz címzettel — a tárgy-sort a kiállító adja, a törzs kiállításkor szabadon átírható.',
     tartalom: HIVATALOS_MEGKERESES,
   },
 ]
@@ -567,5 +552,7 @@ export const PLACEHOLDER_DOCS: Array<{
   { key: 'elhalalozas_datuma', label: 'Elhalálozás dátuma', auto: false, description: 'Az elhunyt halálának dátuma' },
   { key: 'temetes_datuma', label: 'Temetés dátuma', auto: false, description: 'A temetés dátuma' },
   { key: 'cimzett', label: 'Címzett', auto: false, description: 'A levél címzettje (intézmény vagy személy, címmel)' },
-  { key: 'targy_szoveg', label: 'Tárgy', auto: false, description: 'A levél tárgya' },
+  // 2026-07 (F8a): a seed-sablonokból kikerült — csak régi, DB-ben maradt
+  // sablon-példányok használhatják még, ezért a katalógusban marad.
+  { key: 'targy_szoveg', label: 'Tárgy', auto: false, description: 'A levél tárgya (régi sablonokban; az újakban a kiállító kerete adja a Tárgy-sort)' },
 ]
