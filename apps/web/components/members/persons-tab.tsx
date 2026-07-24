@@ -1140,6 +1140,9 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
         }}
         member={detailsMember}
         familyId={detailsMember?.familyId ?? null}
+        // 2026-07-24 (PR-4 F5.8): a kartonon mentett megjegyzés/hozzájárulás után a
+        // lista frissül — eddig újranyitáskor a mentés ELŐTTI adat látszott.
+        onDataChanged={() => void fetchFirstPage({ preserveMembers: true })}
         onEdit={() => detailsMember && openEdit(detailsMember)}
         onShowFamilyTree={(id) => {
           setTreeMemberId(id)

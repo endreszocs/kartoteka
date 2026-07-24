@@ -47,6 +47,9 @@ interface MemberDetailsDialogProps {
   onEdit?: () => void
   onShowFamilyTree?: (memberId: number) => void
   onOpenFamily?: (familyId: number) => void
+  /** 2026-07-24 (PR-4 F5.8): a kartonon mentett megjegyzés/hozzájárulás után hívódik —
+   *  a lista így frissülhet, különben újranyitáskor a mentés ELŐTTI adat látszik. */
+  onDataChanged?: () => void
 }
 
 type Tab = 'personal' | 'registry' | 'payments' | 'privacy' | 'arrears'
@@ -158,6 +161,7 @@ export function MemberDetailsDialogV2({
   onEdit,
   onShowFamilyTree,
   onOpenFamily,
+  onDataChanged,
 }: MemberDetailsDialogProps) {
   const [details, setDetails] = useState<MemberDetailsData | null>(null)
   const [familySummary, setFamilySummary] = useState<FamilySummaryData>(null)
@@ -228,12 +232,23 @@ export function MemberDetailsDialogV2({
   }, [member])
 
   const paymentTotal = useMemo(() => {
-    return (details?.befizetesek || []).reduce((sum, item) => sum + Number(item.osszeg || 0), 0)
+    // 2026-07-24 (PR-4 F5.4): a stornózott tétel NEM számít az összegbe (F1-4 elv).
+    return (details?.befizetesek || []).reduce(
+      (sum, item) => sum + (item.stornozott ? 0 : Number(item.osszeg || 0)),
+      0,
+    )
   }, [details])
 
   if (!member) return null
 
-  const hasArrears = member.paymentStatus === 'hatralekos'
+  // 2026-07-24 (PR-4 F5.2): a Hátralék fül a TÉNYLEGES hátralék-bontásból dönt,
+  // nem a bemenő member.paymentStatus-ból — így (a) a családi kartonról nyitott
+  // karton (hard-kódolt 'rendezve') és (b) az idénre rendezett, de RÉGI években
+  // tartozó tag többéves tartozása is látható. Amíg a részletek töltődnek, a
+  // lista-státusz a fallback.
+  const hasArrears = details
+    ? (details.arrearsBreakdown || []).length > 0
+    : member.paymentStatus === 'hatralekos'
   const tabs: Array<{ value: Tab; label: string; icon: typeof User | typeof AlertTriangle }> = hasArrears
     ? [...BASE_TABS, { value: 'arrears', label: 'Hátralék', icon: AlertTriangle }]
     : BASE_TABS
@@ -467,11 +482,22 @@ export function MemberDetailsDialogV2({
                           </div>
 
                           <div className="mt-1 divide-y divide-border/45">
+                            {/* 2026-07-24 (PR-4 F5.5): a címkék a TÉNYLEGES haztartas_tag-
+                                szerepből jönnek (nem heurisztikából), és egy gyermek
+                                kartonján a testvérei „Testvér" címkét kapnak. */}
                             {familySummary.adults.map((person) => (
                               <FamilySummaryRow
                                 key={`adult-${person.id}`}
                                 name={getFamilyPersonName(person)}
-                                relation={person.id === member.id ? 'Ő maga' : currentIsFamilyAdult ? 'Házastárs' : 'Szülő / családfő'}
+                                relation={
+                                  person.id === member.id
+                                    ? 'Ő maga'
+                                    : person.role === 'csaladfo'
+                                      ? (currentIsFamilyAdult ? 'Házastárs (családfő)' : 'Családfő')
+                                      : person.role === 'hazastars'
+                                        ? (currentIsFamilyAdult ? 'Házastárs' : 'Szülő')
+                                        : 'Szülő / családfő'
+                                }
                                 birthDate={person.sz_datum}
                               />
                             ))}
@@ -479,7 +505,15 @@ export function MemberDetailsDialogV2({
                               <FamilySummaryRow
                                 key={`child-${person.id}`}
                                 name={getFamilyPersonName(person)}
-                                relation={person.id === member.id ? 'Ő maga' : person.role === 'unoka' ? 'Unoka' : 'Gyermek'}
+                                relation={
+                                  person.id === member.id
+                                    ? 'Ő maga'
+                                    : !currentIsFamilyAdult
+                                      ? 'Testvér'
+                                      : person.role === 'unoka'
+                                        ? 'Unoka'
+                                        : 'Gyermek'
+                                }
                                 birthDate={person.sz_datum}
                               />
                             ))}
@@ -579,7 +613,11 @@ export function MemberDetailsDialogV2({
                       <EditableNote
                         initial={member.megjegyzes}
                         placeholder="Pl. látogatási emlékeztető, családi körülmények, imatéma…"
-                        onSave={(note) => updateMemberNote(member.id, note)}
+                        onSave={async (note) => {
+                          const res = await updateMemberNote(member.id, note)
+                          if (!('error' in res && res.error)) onDataChanged?.()
+                          return res
+                        }}
                       />
                     </SummaryPanel>
                   </div>
@@ -686,15 +724,19 @@ export function MemberDetailsDialogV2({
                       <>
                         <div className="space-y-2 lg:hidden">
                           {details.befizetesek.map((payment) => (
-                            <article key={payment.id} className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
+                            <article key={payment.id} className={`rounded-2xl border border-border/60 bg-card p-4 shadow-sm ${payment.stornozott ? 'opacity-60' : ''}`}>
                               <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
                                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Dátum</p>
                                   <p className="mt-1 font-semibold text-foreground">{formatDisplayDate(payment.datum)}</p>
                                 </div>
-                                <p className="shrink-0 font-semibold tabular-nums text-emerald-700">{Number(payment.osszeg).toFixed(2)} RON</p>
+                                {/* 2026-07-24 (PR-4 F5.4): a stornózott tétel áthúzva + jelölve */}
+                                <p className={`shrink-0 font-semibold tabular-nums ${payment.stornozott ? 'text-muted-foreground line-through' : 'text-emerald-700'}`}>{Number(payment.osszeg).toFixed(2)} RON</p>
                               </div>
-                              <p className="mt-3 text-sm font-medium text-foreground">{payment.befizetescel?.nev || 'Általános befizetés'}</p>
+                              <p className="mt-3 text-sm font-medium text-foreground">
+                                {payment.befizetescel?.nev || 'Általános befizetés'}
+                                {payment.stornozott && <span className="ml-2 rounded-md bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">STORNÓ</span>}
+                              </p>
                               <div className="mt-3 grid grid-cols-2 gap-3 border-t border-border/50 pt-3 text-xs">
                                 <div>
                                   <p className="text-muted-foreground">Év</p>
@@ -721,10 +763,12 @@ export function MemberDetailsDialogV2({
                           </thead>
                           <tbody className="divide-y divide-border/45">
                             {details.befizetesek.map((payment) => (
-                              <tr key={payment.id} className="transition-colors hover:bg-primary/[0.035] motion-reduce:transition-none">
+                              <tr key={payment.id} className={`transition-colors hover:bg-primary/[0.035] motion-reduce:transition-none ${payment.stornozott ? 'opacity-60' : ''}`}>
                                 <td className="px-4 py-3 font-medium text-foreground">{formatDisplayDate(payment.datum)}</td>
                                 <td className="px-4 py-3 text-muted-foreground">
                                   {payment.befizetescel?.nev || 'Általános befizetés'}
+                                  {/* 2026-07-24 (PR-4 F5.4): stornó-jelölés */}
+                                  {payment.stornozott && <span className="ml-2 rounded-md bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">STORNÓ</span>}
                                 </td>
                                 <td className="px-4 py-3 text-muted-foreground">
                                   {payment.fizetettev ? `${payment.fizetettev}. év` : 'Nincs megadva'}
@@ -732,7 +776,7 @@ export function MemberDetailsDialogV2({
                                 <td className="px-4 py-3 text-muted-foreground">
                                   {getTransactionDocumentNumber(payment) || 'Nincs rögzítve'}
                                 </td>
-                                <td className="px-4 py-3 text-right font-semibold text-emerald-700">
+                                <td className={`px-4 py-3 text-right font-semibold ${payment.stornozott ? 'text-muted-foreground line-through' : 'text-emerald-700'}`}>
                                   {Number(payment.osszeg).toFixed(2)} RON
                                 </td>
                               </tr>
@@ -754,7 +798,11 @@ export function MemberDetailsDialogV2({
                       <EditableNote
                         initial={member.megjegyzes}
                         placeholder="Pl. fizetési megállapodás, részletfizetés, egyeztetés…"
-                        onSave={(note) => updateMemberNote(member.id, note)}
+                        onSave={async (note) => {
+                          const res = await updateMemberNote(member.id, note)
+                          if (!('error' in res && res.error)) onDataChanged?.()
+                          return res
+                        }}
                       />
                     </SoftPanel>
                   </div>
@@ -788,7 +836,10 @@ export function MemberDetailsDialogV2({
                         gdprConsentAt={consentSnapshot.gdprConsentAt}
                         photoConsent={consentSnapshot.photoConsent}
                         mailingConsent={consentSnapshot.mailingConsent}
-                        onSaved={setConsentSnapshot}
+                        onSaved={(snapshot) => {
+                          setConsentSnapshot(snapshot)
+                          onDataChanged?.()
+                        }}
                       />
                     </SoftPanel>
 

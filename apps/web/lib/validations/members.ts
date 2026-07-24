@@ -74,12 +74,9 @@ export const memberSchema = z.object({
   konfirmacio_datum: z.string().optional().or(z.literal('')),
   konfirmacio_hely: z.string().optional().or(z.literal('')),
   konfirmacio_lelkesz: z.string().optional().or(z.literal('')),
-  // 2026-06-02: Esketés (új tag wizard / szerkesztés)
-  esketes_datum: z.string().optional().or(z.literal('')),
-  esketes_hely: z.string().optional().or(z.literal('')),
-  esketes_lelkesz: z.string().optional().or(z.literal('')),
-  esketes_hazastars_nev: z.string().optional().or(z.literal('')),
-  // Pénzügyi
+  // 2026-07-24 (PR-4, D4 döntés): az esketes_* mezők TÖRÖLVE — a saveMember soha
+  // nem mentette őket (néma adatvesztés); az esketés az Anyakönyv modul hatásköre.
+  // Pénzügyi ('nem_fizet' kivezetve — sehol nem volt hatása)
   fizeto_status: z.enum(['fizet', 'felmentett', 'nem_fizet']).optional(),
   // #1 (Endre): GDPR-hozzájárulások + közösségi profil-link — a személyi kartonról (űrlap)
   // is menthető legyen (eddig csak a részletező dialógus külön ConsentEditor-jéből ment).

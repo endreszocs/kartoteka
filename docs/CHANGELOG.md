@@ -23,6 +23,59 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-24] — Személyi karton: pontos hátralék, rendezett befizetés-lista, valódi családi címkék + hiányzó mezők pótlása
+<!-- key: 2026-07-24-tagnyilv-pr4-karton -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.93 -->
+
+### 🐛 Személyi karton — pénzügyek
+
+- **A Hátralék fül mostantól mindig megjelenik, ha tényleg van tartozás** —
+  eddig (1) a családi kartonról megnyitott személyi karton mindig „Rendezve"
+  státuszt mutatott, és (2) az idénre rendezett, de korábbi években tartozó
+  tag régi hátraléka láthatatlan volt a kartonon.
+- **A hátralék-számítás többé nem becsül túl:** eddig a sok közös (családi)
+  befizetéssel rendelkező családoknál a régebbi évek befizetései kimaradtak
+  a számításból egy rejtett levágás miatt.
+- **A befizetés-lista időrendben jelenik meg** (a személyi és családi tételek
+  eddig rendezetlenül keveredtek), a „Legutóbbi év" kártya a valóban legutóbbi
+  befizetést mutatja, és **a stornózott tételek áthúzva, STORNÓ jelöléssel**
+  látszanak — az összesítőbe nem számítanak bele.
+
+### 🐛 Személyi karton — család és adatok
+
+- **A családi háttér címkéi a valós szerepekből jönnek** („Családfő",
+  „Házastárs", „Szülő"), és egy gyermek kartonján a testvérei mostantól
+  **„Testvér"** címkét kapnak (eddig tévesen „Gyermek" látszott). A megjelenített
+  gyermekek kor szerint rendezettek.
+- **Duplikált anyakönyvi rekordnál** (pl. kétszer importált keresztelés) a
+  karton eddig némán „Nincs rögzítve"-t mutatott — mostantól a legutóbbi
+  bejegyzés jelenik meg.
+- **A megjegyzés és a hozzájárulások mentése után a lista is frissül** — eddig
+  a karton újranyitásakor a mentés előtti szöveg köszönt vissza.
+- **A családi karton nem ragad örök betöltésbe** hiba esetén — hibaüzenet +
+  „Újrapróbálom" gomb jelenik meg.
+
+### ✨ Tag-űrlap
+
+- **Új mezők:** Leánykori név + Tömbház / Lépcsőház / Emelet / Ajtó — a mentés
+  eddig is kezelte őket, de nem lehetett kitölteni (csak importtal kerülhettek be).
+- **A Fizetési státusz mostantól szerkesztésnél is működik:** „Felmentett"
+  választásnál felmentés-rekord jön létre, visszaállításnál lezárul — eddig a
+  mező szerkesztésnél semmit nem csinált. A funkciótlan „Nem fizet" opció kikerült.
+- **Az Esketés-blokk kikerült az űrlapról** — a kitöltött esküvői adatok eddig
+  NÉMÁN ELVESZTEK (a mentés sosem tárolta őket); az esketés rögzítése az
+  Anyakönyv → Esketés modulban történik, ahogy eddig is ott volt a helye.
+- A házastárs-keresőben megszűnt az a rés, hogy szerkesztéskor egy **másik
+  családban élő házas személy** is kiválasztható volt (dupla családtagság).
+- Az „aktív tag" besorolás mostantól az ékezet nélkül rögzített „Reformatus"
+  vallású tagoknál is egységes minden felületen.
+- Apróságok: sötét módban a mezők nem világítanak fehéren; a belépés-oka
+  képernyő gombjai nem érnek a képernyő széléig telefonon.
+
+---
+
 ## [2026-07-18] — A családok importja megjavult: az importált családok mostantól tényleg megjelennek
 <!-- key: 2026-07-18-tagnyilv-pr3-csalad-import -->
 <!-- category: bugfix -->

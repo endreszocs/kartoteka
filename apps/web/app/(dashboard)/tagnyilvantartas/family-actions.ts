@@ -34,7 +34,8 @@ export interface MemberFamilySummary {
   id: number
   displayName: string
   memberCount: number
-  adults: MemberFamilySummaryPerson[]
+  /** 2026-07-24 (PR-4 F5.5): a szerep is jön — a karton címkéi eddig tippeltek. */
+  adults: Array<MemberFamilySummaryPerson & { role: 'csaladfo' | 'hazastars' }>
   children: Array<MemberFamilySummaryPerson & { role: 'gyermek' | 'unoka' }>
   childrenCount: number
 }
@@ -400,13 +401,14 @@ export async function getMemberFamilySummary(id: number): Promise<MemberFamilySu
   const pickPerson = (value: PersonRelation): MemberFamilySummaryPerson | null =>
     Array.isArray(value) ? value[0] ?? null : value
 
-  const adultMap = new Map<number, MemberFamilySummaryPerson>()
+  const adultMap = new Map<number, MemberFamilySummary['adults'][number]>()
   const childMap = new Map<number, MemberFamilySummary['children'][number]>()
   for (const row of (tagResult.data ?? []) as unknown as TagRelation[]) {
     const person = pickPerson(row.szemely)
     if (!person) continue
     if (row.szerep === 'csaladfo' || row.szerep === 'hazastars') {
-      adultMap.set(person.id, person)
+      // 2026-07-24 (PR-4 F5.5): a tényleges szerep megy a kartonra (nem heurisztika)
+      adultMap.set(person.id, { ...person, role: row.szerep })
     } else if (row.szerep === 'gyermek' || row.szerep === 'unoka') {
       childMap.set(person.id, { ...person, role: row.szerep })
     }
@@ -415,7 +417,11 @@ export async function getMemberFamilySummary(id: number): Promise<MemberFamilySu
   const adults = [...adultMap.values()]
   const allChildren = [...childMap.values()]
   const childrenCount = allChildren.length
-  const children = allChildren.slice(0, 4)
+  // 2026-07-24 (PR-4 F5.5): kor szerinti rendezés a slice ELŐTT — eddig a
+  // DB-id-sorrend miatt a „4 megjelenített gyermek" önkényes részhalmaz volt.
+  const children = allChildren
+    .sort((a, b) => String(a.sz_datum || '9999').localeCompare(String(b.sz_datum || '9999')))
+    .slice(0, 4)
   const uniqueMembers = new Set([...adultMap.keys(), ...childMap.keys()])
   const surnames = [...new Set(adults.map((person) => person.csaladnev?.trim()).filter(Boolean))]
   const displayName = surnames.length > 0 ? `${surnames.join('–')} család` : `Család #${id}`
@@ -621,16 +627,24 @@ export async function searchFamilyMember(query: string, role: 'ferfi' | 'no' | '
   const members = ((membersRaw || []) as any[]).map((row) => applyStreetLocalityFallback(row))
   if (!members.length) return []
 
-  // Házasok kiszűrése
-  const { data: allFamilies } = await supabase.from('csalad').select('id_ferfi, id_no')
+  // Házasok kiszűrése — csak AKTÍV családok számítanak.
+  // 2026-07-24 (PR-4 F5.7): szerkesztésnél eddig a szűrő TELJESEN kikapcsolt
+  // (bármely más családban házas személy kiválasztható volt → dupla
+  // családtagság). Mostantól csak a SZERKESZTETT család saját tagjai
+  // engedélyezettek a házasok közül.
+  const { data: allFamilies } = await supabase.from('csalad').select('id, id_ferfi, id_no').eq('isaktiv', true)
   const marriedIds = new Set<number>()
-  ;(allFamilies || []).forEach((f: { id_ferfi: number | null; id_no: number | null }) => {
-    // Szerkesztéskor a jelenlegi család tagjait ne szűrjük ki
+  const currentFamilyMemberIds = new Set<number>()
+  ;(allFamilies || []).forEach((f: { id: number; id_ferfi: number | null; id_no: number | null }) => {
     if (role === 'ferfi' && f.id_ferfi) marriedIds.add(f.id_ferfi)
     if (role === 'no' && f.id_no) marriedIds.add(f.id_no)
+    if (editFamilyId !== undefined && f.id === editFamilyId) {
+      if (f.id_ferfi) currentFamilyMemberIds.add(f.id_ferfi)
+      if (f.id_no) currentFamilyMemberIds.add(f.id_no)
+    }
   })
 
-  return members.filter(m => !marriedIds.has(m.id) || (editFamilyId !== undefined))
+  return members.filter(m => !marriedIds.has(m.id) || currentFamilyMemberIds.has(m.id))
 }
 
 /**

@@ -324,16 +324,20 @@ export async function getMembers(): Promise<{
 
 export async function getMemberDetails(id: number, familyId?: number | null) {
   const { supabase, congregationId } = await getProfileCongregation()
-  const [memberRes, kereszt, konfirm, hazassagRes, temetesRes, bekolt, attert, payments, familyPayments, yearlySettingsRes, exemptionsRes, discountsRes, congregationRes] = await Promise.all([
+  const [memberRes, kereszt, konfirm, hazassagRes, temetesRes, bekolt, attert, payments, familyPayments, yearlySettingsRes, exemptionsRes, discountsRes, congregationRes, arrearsPaymentsRes] = await Promise.all([
     congregationId
       ? supabase.from('szemely').select('sz_datum, foglalkozas').eq('id', id).eq('congregation_id', congregationId).maybeSingle()
       : Promise.resolve({ data: null }),
-    supabase.from('keresztseg').select('*, adrlocality!helyid(name)').eq('id_szemely', id).maybeSingle(),
-    supabase.from('konfirmalas').select('*, adrlocality!helyid(name)').eq('id_szemely', id).maybeSingle(),
-    supabase.from('hazassag').select('id, datum, lelkeszneve, megjegyzes, adrlocality!helyid(name), id_ferfi, id_no').or(`id_ferfi.eq.${id},id_no.eq.${id}`).maybeSingle(),
-    supabase.from('temetes').select('*, adrlocality!thelyid(name)').eq('id_szemely', id).maybeSingle(),
-    supabase.from('bekoltozott').select('*, adrlocality!honnanid(name)').eq('id_szemely', id).maybeSingle(),
-    supabase.from('attert').select('*, adrlocality!honnanid(name)').eq('id_szemely', id).maybeSingle(),
+    // 2026-07-24 (PR-4 F5.3): .limit(1) + id-desc rendezés a maybeSingle ELÉ —
+    // duplikált anyakönyvi rekordnál (pl. kétszer importált keresztelés,
+    // újraházasodás) a maybeSingle eddig PGRST116-tal elhalt, és a karton némán
+    // „Nincs rögzítve"-t mutatott LÉTEZŐ adatnál. Így a legutóbbi rekord jön.
+    supabase.from('keresztseg').select('*, adrlocality!helyid(name)').eq('id_szemely', id).order('id', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('konfirmalas').select('*, adrlocality!helyid(name)').eq('id_szemely', id).order('id', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('hazassag').select('id, datum, lelkeszneve, megjegyzes, adrlocality!helyid(name), id_ferfi, id_no').or(`id_ferfi.eq.${id},id_no.eq.${id}`).order('id', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('temetes').select('*, adrlocality!thelyid(name)').eq('id_szemely', id).order('id', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('bekoltozott').select('*, adrlocality!honnanid(name)').eq('id_szemely', id).order('id', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('attert').select('*, adrlocality!honnanid(name)').eq('id_szemely', id).order('id', { ascending: false }).limit(1).maybeSingle(),
     fetchPersonPaymentsCompat(supabase, id),
     familyId ? fetchFamilyPaymentsCompat(supabase, familyId) : Promise.resolve([]),
     congregationId
@@ -350,17 +354,49 @@ export async function getMemberDetails(id: number, familyId?: number | null) {
     congregationId
       ? supabase.from('congregations').select('tartozas_szamitas_mod').eq('id', congregationId).maybeSingle()
       : Promise.resolve({ data: null }),
+    // 2026-07-24 (PR-4 F5.4): LIMIT-MENTES járulék-lekérdezés a hátralék-bontáshoz —
+    // a payment-compat megjelenítési listái limitáltak (30/60), 30-nál több
+    // család-szintű befizetésnél a karton TÚLBECSÜLTE a tartozást.
+    supabase.from('befizetes')
+      .select('id, datum, fizetettev, osszeg, stornozott, befizetescel!id_befizetescel(id_szamadasicel)')
+      .or(familyId ? `id_szemely.eq.${id},id_csalad.eq.${familyId}` : `id_szemely.eq.${id}`)
+      .or('deleted.eq.false,deleted.is.null'),
   ])
 
   const currentYear = new Date().getFullYear()
-  const allPayments = [...payments, ...familyPayments].reduce<typeof payments>((acc, payment) => {
-    if (!acc.some((item) => item.id === payment.id)) acc.push(payment)
-    return acc
-  }, [])
+  // 2026-07-24 (PR-4 F5.4): globális datum-desc rendezés az összefésülés UTÁN —
+  // eddig a személyi + családi lista egymás után fűzve, rendezetlenül ment ki,
+  // és a karton „Legutóbbi év" kártyája a [0] elemből rossz értéket vett.
+  const allPayments = [...payments, ...familyPayments]
+    .reduce<typeof payments>((acc, payment) => {
+      if (!acc.some((item) => item.id === payment.id)) acc.push(payment)
+      return acc
+    }, [])
+    .sort((a, b) => String(b.datum || '').localeCompare(String(a.datum || '')))
   // 2026-07-17 (F1-4): a stornózott befizetés a hátralék-bontásba nem számít bele —
   // bit-azonosan a Tartozások listával (a befizetés-TÖRTÉNET listája viszont
   // változatlanul minden sort mutat).
-  const jarulekPayments = allPayments.filter((payment) => !payment.stornozott && isChurchMaintenanceCode(payment.befizetescelkod))
+  // 2026-07-24 (PR-4 F5.4): elsődleges forrás a limit-mentes lekérdezés; hibájánál
+  // HANGOS log + visszaesés a (limitált) megjelenítési listára.
+  type ArrearsPaymentRow = {
+    id: number
+    datum: string | null
+    fizetettev: number | null
+    osszeg: number
+    stornozott: boolean | null
+    befizetescel?: PaymentGoalCodeRef | PaymentGoalCodeRef[]
+  }
+  let jarulekPayments: Array<{ datum: string | null; fizetettev: number | null; osszeg: number }>
+  if (arrearsPaymentsRes.error || !arrearsPaymentsRes.data) {
+    console.error(
+      '[tagnyilvantartas/reszletek] A limit-mentes járulék-lekérdezés hibázott — a limitált listából számolunk (a hátralék túlbecsülhető):',
+      arrearsPaymentsRes.error?.message,
+    )
+    jarulekPayments = allPayments.filter((payment) => !payment.stornozott && isChurchMaintenanceCode(payment.befizetescelkod))
+  } else {
+    jarulekPayments = ((arrearsPaymentsRes.data || []) as ArrearsPaymentRow[])
+      .filter((payment) => !payment.stornozott && isChurchMaintenanceCode(getPaymentGoalCode(payment.befizetescel)))
+  }
 
   const exemptions = (exemptionsRes.data || []) as Array<{
     id_szemely: number | null
@@ -512,6 +548,34 @@ export async function saveMember(data: MemberInput) {
     // UPDATE
     const { error } = await supabase.from('szemely').update(memberData).eq('id', d.id).eq('congregation_id', congregationId)
     if (error) return { error: `Hiba: ${error.message}` }
+
+    // 2026-07-24 (PR-4 F5.10): a Fizetési státusz eddig UPDATE-nél teljesen
+    // figyelmen kívül maradt (halott vezérlő volt). Mostantól: 'felmentett'-re
+    // váltásnál felmentés-rekord nyílik (ha nincs aktív), 'fizet'-re váltásnál
+    // az aktív felmentés lezárul (tavalyi évvel).
+    if (d.fizeto_status === 'felmentett' || d.fizeto_status === 'fizet') {
+      const nowYear = new Date().getFullYear()
+      const { data: exemptions } = await supabase.from('felmentes')
+        .select('id, kezdete, vege')
+        .eq('id_szemely', d.id)
+        .eq('congregation_id', congregationId)
+      const active = ((exemptions || []) as Array<{ id: number; kezdete: number | null; vege: number | null }>)
+        .filter((f) => nowYear >= (f.kezdete || 0) && nowYear <= (f.vege || 2099))
+      if (d.fizeto_status === 'felmentett' && active.length === 0) {
+        const { error: exemptError } = await supabase.from('felmentes').insert([{
+          id_szemely: d.id, congregation_id: congregationId, felmento: 'Rendszer',
+          datum: new Date().toISOString(), oka: 'Tag-szerkesztés: felmentett státusz',
+          kezdete: nowYear, vege: 2099,
+        }])
+        if (exemptError) return { error: `A tag mentve, de a felmentés rögzítése nem sikerült: ${exemptError.message}` }
+      } else if (d.fizeto_status === 'fizet' && active.length > 0) {
+        for (const f of active) {
+          const { error: closeError } = await supabase.from('felmentes')
+            .update({ vege: nowYear - 1 }).eq('id', f.id).eq('congregation_id', congregationId)
+          if (closeError) return { error: `A tag mentve, de a felmentés lezárása nem sikerült: ${closeError.message}` }
+        }
+      }
+    }
   } else {
     // INSERT
     memberData.cnp = generateCnp()

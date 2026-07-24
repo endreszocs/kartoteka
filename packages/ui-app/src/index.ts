@@ -16,12 +16,13 @@
  *   - UI primitív @kartoteka/ui-ből (Button, Input, Dialog, cn, …)
  *   - reszponzív kötelező: mobil + tablet + desktop
  *
- * Későbbi hullámok (2026-04-25u):
- *   - members/      — member-form-dialog, member-detail-dialog
- *   - families/     — family-form-dialog, family-detail-dialog
- *   - finance/      — 50+ finance-modál és tab
- *   - dashboard/    — StatCard, dashboard-tabok
- *   - …
+ * Jelenlegi tartalom (2026-07-24 frissítve — a korábbi komment félrevezetett):
+ *   - members/      — MemberAvatar, FamilyCardModern, AvatarEditorBody,
+ *                     family-card-print, social-avatar (a member-form/detail
+ *                     dialógusok NEM közösek: web és desktop külön implementál)
+ *   - finance/      — finance-modálok és tabok
+ *   - dashboard/    — StatCard, dashboard-tabok, BirthdayListDialog
+ *   - layout/       — PageHero, ColorTabs, …
  */
 
 export * from './layout/PageHero'

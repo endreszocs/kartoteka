@@ -99,8 +99,12 @@ export function isActiveMember(
   // egyházfenntartást." A korábbi szabály az ÜRES vallást is reformátusnak
   // vette — ezt visszavontuk. Az üres vallású tagok csak akkor aktívak, ha
   // valaha fizettek egyházfenntartást.
-  const v = (m.vallas || '').trim().toLowerCase()
-  const isReformatus = v === 'református'
+  // 2026-07-24 (PR-4 F5.6): NFD-normalizált összevetés — az ékezet nélküli
+  // 'Reformatus' vallású (importált) tag eddig itt NEM számított aktívnak,
+  // miközben a lista (registry-list) és a karton NFD-vel igen → felületenként
+  // eltérő lélekszámok. Mostantól bit-azonos mindhárom hellyel.
+  const v = (m.vallas || '').trim().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  const isReformatus = v === 'reformatus'
   const hasEverPaid = (everPaidPersonIds || paidPersonIds).has(m.id)
   return isReformatus || hasEverPaid
 }
