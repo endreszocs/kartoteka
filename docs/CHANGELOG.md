@@ -23,6 +23,25 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Családi háló: csillagképek — a rokoni szálak mesélnek, nem a család-csillagok
+<!-- key: 2026-07-25-tagnyilv-pr16-csillagkep -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+<!-- version: web v0.9.111 -->
+
+### ✨ Csillagképek a családi hálóban
+
+- **Nincs többé külön csillag a családoknak** — az égboltot az egyének és a
+  köztük futó rokoni szálak rajzolják ki, mint az égi csillagképek.
+  (A család-napok és a tagsági küllők a szűrőkben visszakapcsolhatók.)
+- **Vidd a kurzort bárkire:** kigyullad a TELJES kiterjedt rokonsága —
+  nagyszülők, unokatestvérek, és a **családok közötti házassági hidak** is —
+  arany szálakkal összekötve, a többi csillag elhalványul.
+- **A csillagképnek neve van:** felül jelvényen jelenik meg — pl.
+  „✦ Beder család csillagképe · 23 tag".
+
+---
+
 ## [2026-07-25] — Nyomtatás egyszerűsítve (PDF a böngészőből), CIF + román cím a fejlécben, kartonok egymás mellett a hálóból is
 <!-- key: 2026-07-25-tagnyilv-pr15-nyomtatas-kartonok -->
 <!-- category: improvement -->

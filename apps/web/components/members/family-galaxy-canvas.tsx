@@ -48,6 +48,14 @@ export interface FamilyGalaxyHandle {
   reset: () => void
 }
 
+/** 2026-07-25 (PR-16): a hover alatt kiemelt „csillagkép" meta-adata. */
+export interface ConstellationInfo {
+  /** Pl. „Beder család csillagképe". */
+  name: string
+  /** A csillagkép tagjainak száma. */
+  size: number
+}
+
 interface FamilyGalaxyCanvasProps {
   data: FamilyGraphData
   density: FamilyGalaxyDensity
@@ -58,6 +66,8 @@ interface FamilyGalaxyCanvasProps {
   reducedMotion: boolean
   onSelectNode: (nodeId: string | null) => void
   onHoverNode?: (node: FamilyGraphNode | null, clientX: number, clientY: number) => void
+  /** 2026-07-25 (PR-16): a hover alatti csillagkép (kiterjedt rokonság) jelzése. */
+  onConstellation?: (info: ConstellationInfo | null) => void
 }
 
 // ── Paletta ────────────────────────────────────────────────────────────────
@@ -215,8 +225,20 @@ class GalaxyScene {
   private filters: GalaxyFilters
   private highlightIds: Set<string> | null = null
 
+  // ── 2026-07-25 (PR-16): csillagkép-réteg ─────────────────────────────────
+  // Személy-szomszédság a rokoni éleken (minden nem-membership él) — a hover
+  // alatti KITERJEDT rokonság (nagyszülők, unokatestvérek, családok KÖZÖTTI
+  // házassági hidak) bejárásához.
+  private kinAdjacency = new Map<string, Set<string>>()
+  /** személy → a háztartás-csillag címkéje (a csillagkép nevéhez). */
+  private familyLabelByPerson = new Map<string, string>()
+  private positionsById = new Map<string, { x: number; y: number; z: number }>()
+  private constellationLines: THREE.LineSegments | null = null
+  private constellationIds: Set<string> | null = null
+
   onSelect: (id: string | null) => void = () => {}
   onHover: (node: FamilyGraphNode | null, x: number, y: number) => void = () => {}
+  onConstellation: (info: { name: string; size: number } | null) => void = () => {}
 
   constructor(
     container: HTMLElement,
@@ -361,6 +383,35 @@ class GalaxyScene {
     }
     this.nodeEntries = entries
     this.indexById = new Map(entries.map((e, i) => [e.node.id, i]))
+    this.positionsById = new Map(entries.map((e) => [e.node.id, { x: e.x, y: e.y, z: e.z }]))
+    this.constellationLines = null
+    this.constellationIds = null
+    this.onConstellation(null)
+
+    // 2026-07-25 (PR-16): rokonsági szomszédság + személy→család-címke a
+    // csillagkép-bejáráshoz (a membership NEM rokoni él — az a címkéhez kell).
+    this.kinAdjacency = new Map()
+    this.familyLabelByPerson = new Map()
+    const familyLabelById = new Map<string, string>()
+    for (const n of this.data.nodes) {
+      if (n.kind === 'family') familyLabelById.set(n.id, n.label)
+    }
+    const addKin = (a: string, b: string) => {
+      if (!this.kinAdjacency.has(a)) this.kinAdjacency.set(a, new Set())
+      this.kinAdjacency.get(a)!.add(b)
+    }
+    for (const e of this.data.edges) {
+      if (e.kind === 'membership') {
+        const famLabel = familyLabelById.get(e.source) ?? familyLabelById.get(e.target)
+        const person = e.source.startsWith('person:') ? e.source : e.target
+        if (famLabel && person.startsWith('person:') && !this.familyLabelByPerson.has(person)) {
+          this.familyLabelByPerson.set(person, famLabel)
+        }
+        continue
+      }
+      addKin(e.source, e.target)
+      addKin(e.target, e.source)
+    }
 
     const N = entries.length
     const posArr = new Float32Array(N * 3)
@@ -487,6 +538,107 @@ class GalaxyScene {
   private edgeDim(id: string) {
     if (!this.highlightIds) return 1
     return this.highlightIds.has(id) ? 1.1 : 0.14
+  }
+
+  // ── 2026-07-25 (PR-16): csillagkép — a hover alatti KITERJEDT rokonság ────
+  // A rokoni éleken bejárt teljes összefüggő komponens (nagyszülők, unoka-
+  // testvérek, és a családok KÖZÖTTI házassági hidak is), plafonnal.
+  private computeConstellation(startId: string): Set<string> {
+    const CAP = 400
+    const out = new Set<string>([startId])
+    const queue = [startId]
+    while (queue.length > 0 && out.size < CAP) {
+      const current = queue.shift()!
+      const neighbors = this.kinAdjacency.get(current)
+      if (!neighbors) continue
+      for (const nb of neighbors) {
+        if (!out.has(nb)) {
+          out.add(nb)
+          queue.push(nb)
+          if (out.size >= CAP) break
+        }
+      }
+    }
+    return out
+  }
+
+  private constellationName(startId: string, startNode: FamilyGraphNode): string {
+    const famLabel = this.familyLabelByPerson.get(startId)
+    let base = (famLabel ?? '').trim()
+    if (!base) base = (startNode.label ?? '').trim().split(/\s+/)[0] ?? ''
+    base = base.replace(/\s+család(ja)?$/i, '').trim()
+    return base ? `${base} család csillagképe` : 'Családi csillagkép'
+  }
+
+  /** A pont-fényerők (aDim) helybeni frissítése — TELJES rebuild nélkül. */
+  private refreshDims() {
+    if (!this.nodePoints) return
+    const attr = this.nodePoints.geometry.getAttribute('aDim') as THREE.BufferAttribute
+    for (let i = 0; i < this.nodeEntries.length; i += 1) {
+      const n = this.nodeEntries[i].node
+      let dim = this.nodeDim(n)
+      if (this.constellationIds) {
+        dim = this.constellationIds.has(n.id) ? 1.45 : Math.min(dim, 0.12)
+      }
+      attr.setX(i, dim)
+    }
+    attr.needsUpdate = true
+  }
+
+  /** Arany csillagkép-vonalak a rokonsági élekre a kiemelt halmazon belül. */
+  private rebuildConstellationLines() {
+    if (!this.nodeGroup) return
+    if (this.constellationLines) {
+      this.nodeGroup.remove(this.constellationLines)
+      this.constellationLines.geometry.dispose()
+      ;(this.constellationLines.material as THREE.Material).dispose()
+      this.constellationLines = null
+    }
+    const ids = this.constellationIds
+    if (!ids) return
+    const segs: number[] = []
+    for (const e of this.data.edges) {
+      if (e.kind === 'membership') continue
+      if (!ids.has(e.source) || !ids.has(e.target)) continue
+      const a = this.positionsById.get(e.source)
+      const b = this.positionsById.get(e.target)
+      if (!a || !b) continue
+      // enyhe z-emelés, hogy a csillagkép-vonal a háttér-élek FÖLÉ kerüljön
+      segs.push(a.x, a.y, a.z + 6, b.x, b.y, b.z + 6)
+    }
+    if (segs.length === 0) return
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(segs), 3))
+    const lines = new THREE.LineSegments(
+      g,
+      new THREE.LineBasicMaterial({
+        color: 0xffd98a,
+        transparent: true,
+        opacity: 0.85,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    )
+    lines.frustumCulled = false
+    lines.renderOrder = 2
+    this.nodeGroup.add(lines)
+    this.constellationLines = lines
+  }
+
+  private applyConstellation(node: FamilyGraphNode | null) {
+    if (!node || node.kind === 'family') {
+      if (!this.constellationIds) return
+      this.constellationIds = null
+      this.refreshDims()
+      this.rebuildConstellationLines()
+      this.onConstellation(null)
+      return
+    }
+    const ids = this.computeConstellation(node.id)
+    this.constellationIds = ids
+    this.refreshDims()
+    this.rebuildConstellationLines()
+    this.onConstellation({ name: this.constellationName(node.id, node), size: ids.size })
   }
 
   setData(data: FamilyGraphData, density: FamilyGalaxyDensity, filters: GalaxyFilters) {
@@ -622,6 +774,9 @@ class GalaxyScene {
       } else {
         this.onHover(null, 0, 0)
       }
+      // 2026-07-25 (PR-16): a hover alatt a TELJES kiterjedt rokonság
+      // (csillagkép) kiemelése — könnyűsúlyú attribútum-frissítéssel.
+      this.applyConstellation(entry ? entry.node : null)
     }
   }
 
@@ -684,7 +839,7 @@ class GalaxyScene {
 export const FamilyGalaxyCanvas = forwardRef<FamilyGalaxyHandle, FamilyGalaxyCanvasProps>(
   function FamilyGalaxyCanvas(props, ref) {
     const {
-      data, density, filters, highlightIds, interactive, reducedMotion, onSelectNode, onHoverNode,
+      data, density, filters, highlightIds, interactive, reducedMotion, onSelectNode, onHoverNode, onConstellation,
     } = props
     const containerRef = useRef<HTMLDivElement | null>(null)
     const sceneRef = useRef<GalaxyScene | null>(null)
@@ -713,6 +868,7 @@ export const FamilyGalaxyCanvas = forwardRef<FamilyGalaxyHandle, FamilyGalaxyCan
         })
         scene.onSelect = (id) => onSelectNode(id)
         scene.onHover = (node, x, y) => onHoverNode?.(node, x, y)
+        scene.onConstellation = (info) => onConstellation?.(info)
         sceneRef.current = scene
         container.querySelector('canvas')?.addEventListener('webglcontextlost', handleContextLost)
       } catch (err) {

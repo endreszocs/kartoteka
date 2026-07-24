@@ -47,6 +47,7 @@ import {
 import type { FamilyGalaxyDensity } from '@/lib/members/family-galaxy-layout'
 import {
   FamilyGalaxyCanvas,
+  type ConstellationInfo,
   type FamilyGalaxyHandle,
 } from '@/components/members/family-galaxy-canvas'
 import { cn } from '@/lib/utils'
@@ -73,11 +74,14 @@ interface GraphFilters {
   relationshipEdges: boolean
 }
 
+// 2026-07-25 (PR-16, user-döntés): a családoknak NINCS külön csillaguk —
+// az egyének közötti rokoni kapcsolatok rajzolják ki a „csillagképeket"
+// (a család-csillag és a tagsági küllők a szűrőkkel visszakapcsolhatók).
 const DEFAULT_FILTERS: GraphFilters = {
-  families: true,
+  families: false,
   people: true,
   deceased: true,
-  membershipEdges: true,
+  membershipEdges: false,
   relationshipEdges: true,
 }
 
@@ -168,6 +172,8 @@ export function FamilyGraphTab() {
   }, [familyDialogOpen, personOpen, filterOpen, nodeListOpen, searchOpen, touchExploreMode])
   const galaxyRef = useRef<FamilyGalaxyHandle | null>(null)
   const [hoverTip, setHoverTip] = useState<{ node: FamilyGraphNode; x: number; y: number } | null>(null)
+  // 2026-07-25 (PR-16): a hover alatti csillagkép (kiterjedt rokonság) jelvénye
+  const [constellation, setConstellation] = useState<ConstellationInfo | null>(null)
   // 2026-07-24 (PR-5, D5 döntés): teljes képernyős (immerzív) mód — a háló a
   // sidebar MELLETTI teljes területet tölti ki (fejléc/hero/vers fölé kerül),
   // a sidebar navigációnak látható marad. Kilépés: X gomb vagy Esc.
@@ -574,7 +580,20 @@ export function FamilyGraphTab() {
                 if (!id) setMode('global')
               }}
               onHoverNode={(node, x, y) => setHoverTip(node ? { node, x, y } : null)}
+              onConstellation={setConstellation}
             />
+            {/* 2026-07-25 (PR-16): a hover alatti csillagkép neve — mint az égi
+                csillagképeké (pl. „Beder család csillagképe"). */}
+            {constellation && (
+              <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-full border border-amber-200/25 bg-[#08181c]/85 px-4 py-1.5 text-center shadow-xl backdrop-blur">
+                <p className="whitespace-nowrap text-sm font-semibold text-amber-100">
+                  ✦ {constellation.name}
+                </p>
+                <p className="text-[10px] uppercase tracking-[0.14em] text-teal-50/55">
+                  {constellation.size} tag · a rokoni szálak arannyal kiemelve
+                </p>
+              </div>
+            )}
             {hoverTip && (
               <div
                 className="pointer-events-none absolute z-30 max-w-[16rem] -translate-x-1/2 -translate-y-[calc(100%+12px)] truncate rounded-xl border border-teal-200/20 bg-[#08181c]/85 px-2.5 py-1.5 text-xs text-teal-50 shadow-xl backdrop-blur"
