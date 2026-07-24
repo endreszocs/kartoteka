@@ -23,6 +23,20 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-24] — A Pénzügy súgó frissítve a legújabb változásokkal
+<!-- key: 2026-07-24-penzugy-sugo-frissites -->
+<!-- category: improvement -->
+<!-- version: v0.9.107 -->
+<!-- targets: minden pénzügyet kezelő felhasználó -->
+
+### 🎨 UX javítások
+
+- **Súgó — „Mi változott?" új témával bővült**: a július végi pénzügy-frissítések (pontosabb tartozás-számítás, családi befizetés-felosztás, egységes számítási mód, kor-kedvezmény fix összeggel, nyugta-előnézet vízjellel és kerületi címerrel, kísérőív forrás-választóval, induló egyenlegek) lelkészi nyelven, egy helyen elmagyarázva.
+- **Súgó — Tartozások téma kibővítve**: részletesen leírja, hogyan osztódik szét a család nevére rögzített befizetés a tagok közt (idősebb tag előbb, ki-ki a saját évi összegéig), és hogy a saját névre szóló befizetés — a többlettel együtt — mindig a befizetőnél marad.
+- **Tartozások fül**: a lista feletti magyarázó szöveg is röviden összefoglalja a családi felosztás szabályát.
+
+---
+
 ## [2026-07-24] — Gyors javítás: telepítési hiba elhárítva
 <!-- key: 2026-07-24-penzugy-f5-orphan-dialog-hotfix -->
 <!-- category: bugfix -->
