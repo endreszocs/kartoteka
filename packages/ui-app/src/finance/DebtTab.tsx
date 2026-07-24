@@ -326,7 +326,9 @@ export function DebtTab({
           <p className="text-sm font-semibold text-slate-700">Tényleges járulékállapot</p>
           <p className="text-xs text-slate-500">
             A lista csak az egyházfenntartási befizetésekkel számol, és figyelembe veszi az éves
-            kedvezményeket, a határidős kedvezményt és a felmentéseket is.
+            kedvezményeket, a határidős kedvezményt és a felmentéseket is. A család nevére
+            rögzített befizetés a tagok közt osztódik (ki-ki a saját évi összegéig); a saját
+            névre szóló befizetés — a többlettel együtt — mindig a befizetőnél marad.
           </p>
         </div>
         {/* 2026-07-17 (F5, Q6): a mód-jelvény kivezetve — a rendszer mindig az

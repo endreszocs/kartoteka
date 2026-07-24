@@ -266,6 +266,54 @@ const SECTIONS: Section[] = [
           },
         ],
       },
+      {
+        // 2026-07-24 (F5-sugo): a július végi pénzügy-finomhangolás (v0.9.86–0.9.105)
+        key: 'valtozas-jarulek-nyitok',
+        label: 'Járulék, kedvezmények, induló egyenlegek',
+        icon: Coins,
+        color: 'amber',
+        shortDescription:
+          'Pontos tartozás-számítás, családi befizetés-felosztás, nyugta-előnézet, induló egyenlegek',
+        intro:
+          'A július végi frissítés-sorozat középpontjában a járulék-tartozások PONTOS számítása áll — emellett megújult a nyugta- és kísérőív-nyomtatás, és megadhatók a rendszerindításkori induló egyenlegek.',
+        whenNeeded:
+          'A Tartozások fülön más számokat látsz, mint korábban — itt a magyarázat, miért az újak a pontosak. Illetve ha most kezded a rendszert használni, és meg kell adnod a kassza/bank induló egyenlegét.',
+        whatItDoes:
+          'Javított tartozás-számítás (a befizetések tényleg beszámítódnak, a családi befizetés tagonként osztódik), rugalmasabb kedvezmények, nyugta-előnézet vízjellel és címerrel, kísérőív forrás-választóval, és induló egyenlegek felvitele.',
+        howItWorks: [
+          {
+            text: 'Tartozás-számítás javítva: a befizetések mostantól biztosan beszámítódnak a Tartozások fülön (korábban egy rejtett technikai hiba miatt előfordulhatott, hogy MINDEN befizetés figyelmen kívül maradt, és mindenki tartozónak látszott), a sztornózott tétel nem számít fizetettnek, és a Beállításokban megadott évi díjat minden képernyő ugyanúgy használja.',
+          },
+          {
+            text: 'Családi befizetés felosztása: a család nevére rögzített befizetés mostantól a család tagjai közt osztódik szét — ki-ki a saját évi összegéig. A saját névre szóló befizetés (a többlettel együtt) mindig a befizetőnél marad. A részletes szabályokat a „Tartozások" témában találod.',
+          },
+          {
+            text: 'Egységes számítási mód: a „Tartozás-számítási mód" választó megszűnt — a rendszer mindig az adott tartozás-év beállításai szerint számol („akkori" mód). Így egy régi év tartozása nem változik meg attól, hogy idén más a díj.',
+          },
+          {
+            text: 'Kedvezmények: a kor-kedvezmény a kezelőben is megadható fix összegként (nem csak százalékként) — pl. „70 év felett fizetendő 60 RON". A rendszer emellett kiszűri a hibás beállításokat: 0 lejes időszaki szabály és érvénytelen hónap-nap (pl. „13-01") nem menthető.',
+          },
+          {
+            text: 'Nyugta-nyomtatás: nyomtatás előtt előnézet nyílik; a „MÁSOLAT" vízjel alapból rajta van, de a kis X-szel levehető; a fejlécben az egyházkerület címere szerepel, és a nyugtán mindig látszik, melyik ÉVRE szól a befizetés.',
+          },
+          {
+            text: 'Kiadási kísérőív: a jogcímek NÉVVEL szerepelnek (magyarul és románul, nem kóddal); az aláírók az utolsó lap aljára kerültek; és forrás-választóval készíthető — az összes tétel, csak a kassza, vagy egy-egy bankszámla — mindegyik forrásnak saját, év elejétől futó oldalszámozásával.',
+          },
+          {
+            text: 'Induló (nyitó) egyenlegek: ha a KARTOTEKA egy már működő könyvelést vesz át, a kezdő költségvetési év induló egyenlegei megadhatók — a Kassza fülön a „Nyitó egyenlegek" gombbal, a Bank fülön a bankszámla-kártyáról, vagy a gyülekezeti beállítás-varázsló Pénzügy lapján. Ezt csak egyszer, a rendszer indulásakor kell megtenni; a következő évek nyitói már maguktól számolódnak.',
+          },
+        ],
+        tips: [
+          {
+            kind: 'warning',
+            text: 'Ha a Tartozások fülön váratlan számot látsz, először a Beállítások → Éves díjak és a kedvezmény-szabályok (kor, felmentés) beállítását ellenőrizd — a lista csak akkor pontos, ha ezek a valóságot tükrözik.',
+          },
+          {
+            kind: 'tip',
+            text: 'Az induló egyenlegek megadása után a Registru Banca és a Számadás nyomtatványok is a helyes nyitóval számolnak — évváltásnál a rendszer a megfelelő évi nyitót használja.',
+          },
+        ],
+      },
     ],
   },
 
@@ -915,6 +963,23 @@ const SECTIONS: Section[] = [
           {
             // 2026-07-10 (S3-sugo): év szerinti áttekintés
             text: 'Év szerinti áttekintés: az év-választóval (bal oldalt, a cím alatt) visszalapozhatsz a korábbi évekre — évente látod, ki mennyivel maradt el. A visszamenőleges befizetésnél a Tétel rögzítése „Melyik évre" mezőjével a megfelelő évhez könyvelhetsz.',
+          },
+          {
+            // 2026-07-24 (F5-sugo): Q7 családi felosztás — a három eset
+            text: 'SAJÁT NÉVRE szóló befizetés: mindig a befizetőnél marad — a többlettel együtt. Ha valaki a saját nevén az évi járuléknál többet fizet, a többlet az Ő kartotékján látszik; a rendszer soha nem veszi el, és nem osztja szét a család többi tagjára.',
+          },
+          {
+            text: 'A CSALÁD nevére szóló befizetés: a család tagjai közt osztódik szét — az idősebb tagtól kezdve, mindenkinél legfeljebb az adott évi elvárt összegig (a kor- és foglalkozás-kedvezményt is beleszámítva). Így egyetlen 220 lejes családi befizetéstől nem látszik a család MINDEN tagja „rendezettnek" — csak az, akinek a része tényleg befolyt.',
+            hint: 'Aki már a saját nevén befizette az évi járulékát, annak a helyét egy későbbi családi befizetés nem tölti újra — a családi összeg oda kerül, ahol tényleg hiány van.',
+          },
+          {
+            text: 'A régi rendszerből ÁTHOZOTT (importált) befizetéseknél, ahol a tétel egyszerre kapcsolódik személyhez ÉS családhoz, a megnevezett tag évi járuléka feletti rész a család többi tagjának hiányát fedezi — így az Excel-ből áthozott történeti adat nem vész el.',
+          },
+        ],
+        tips: [
+          {
+            kind: 'tip',
+            text: 'Ha egy család egyben fizeti mindenki járulékát, a Tétel rögzítése ablak „Család keresése" gombjával tagonként külön sorba rögzítheted — így minden összeg pontosan a megfelelő személyhez kerül, és a felosztásra sincs szükség.',
           },
         ],
       },
