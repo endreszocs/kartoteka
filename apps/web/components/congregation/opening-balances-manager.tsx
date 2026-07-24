@@ -35,7 +35,15 @@ const FORRASA_LABEL: Record<string, string> = {
   carryover: 'előző évből áthozva',
 }
 
-export function OpeningBalancesManager({ bankAccounts }: { bankAccounts: BankAccountLite[] }) {
+export function OpeningBalancesManager({
+  bankAccounts,
+  congregationId,
+}: {
+  bankAccounts: BankAccountLite[]
+  /** 2026-07-17 (F4 guard): a hívó felület gyülekezete — a server action hangos
+   *  hibát ad, ha eltér az effektív scope-tól (néma rossz-gyülekezet írás ellen). */
+  congregationId?: string
+}) {
   const [data, setData] = useState<OpeningBalancesSettings | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [year, setYear] = useState<number | null>(null)
@@ -50,7 +58,7 @@ export function OpeningBalancesManager({ bankAccounts }: { bankAccounts: BankAcc
   )
 
   const load = useCallback(async () => {
-    const res = await getOpeningBalancesSettings()
+    const res = await getOpeningBalancesSettings(congregationId)
     if (res.error || !res.data) {
       setLoadError(res.error || 'Ismeretlen hiba.')
       return
@@ -58,7 +66,7 @@ export function OpeningBalancesManager({ bankAccounts }: { bankAccounts: BankAcc
     setLoadError(null)
     setData(res.data)
     setYear((y) => y ?? res.data!.earliestYear)
-  }, [])
+  }, [congregationId])
 
   useEffect(() => {
     void load()
@@ -128,9 +136,30 @@ export function OpeningBalancesManager({ bankAccounts }: { bankAccounts: BankAcc
       toast.error('Adj meg legalább egy nyitó egyenleget.')
       return
     }
+    // 2026-07-17 (F4 guard): az induló egyenleget jellemzően EGYSZER, rendszer-
+    // induláskor kell megadni — CSAK akkor kérünk felülírás-megerősítést, ha a
+    // mentés ténylegesen ÉRINT egy már rögzített sort (első rögzítésnél nem riaszt).
+    const cashOverwrite = cashNum != null && !!data?.cashRows.some((r) => r.eve === year)
+    const bankOverwrite = bankok.some((b) =>
+      !!data?.bankRows.some((r) => r.eve === year && r.bankszamla_id === b.bankszamla_id),
+    )
+    if (cashOverwrite || bankOverwrite) {
+      // Fail-closed: ha nincs window (elvi SSR-ág), inkább NEM mentünk megerősítés nélkül.
+      if (typeof window === 'undefined') return
+      const ok = window.confirm(
+        `A(z) ${year}. évre már van rögzített nyitó egyenleg, és a mentés felülírná. Biztosan folytatod? ` +
+          'A mentés után minden kassza- és bankegyenleg (és az évek közti átvitel) újraszámolódik.',
+      )
+      if (!ok) return
+    }
     setSaving(true)
     try {
-      const res = await saveOpeningBalancesSettings({ eve: year, keszpenz: cashNum, bankok })
+      const res = await saveOpeningBalancesSettings({
+        eve: year,
+        keszpenz: cashNum,
+        bankok,
+        expectedCongregationId: congregationId,
+      })
       if (res.error) {
         toast.error(res.error)
         return

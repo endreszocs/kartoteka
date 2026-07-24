@@ -23,6 +23,42 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+
+## [2026-07-17] — Induló (nyitó) egyenlegek: megadhatók a kezdő évre — kassza és bankszámlák, a felületről elérhetően
+<!-- key: 2026-07-17-penzugy-f4-nyito-egyenlegek -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+<!-- version: web v0.9.104 -->
+
+### ✨ Pénzügy — Induló egyenlegek (a rendszer egy meglévő könyvelésbe illeszkedik)
+
+- **Az induló (év eleji) egyenlegek mostantól megadhatók a felületről** — a kassza
+  RON-ban, a bankszámlák számlánként (valutában, árfolyammal). A szerkesztő eddig
+  készen állt, de egyetlen felületről sem lehetett elérni. Elérés: a Kassza fül
+  „Nyitó egyenleg" kártyáján az „Induló egyenleg…" gomb, a Bank fül számla-kártyáin
+  a „add meg kézzel itt" link, valamint a gyülekezeti beállítás-varázsló
+  „Pénzügyi alap" panelje.
+
+- **Egyszeri megadás, védelemmel:** az induló egyenleget jellemzően egyszer, a
+  rendszer indulásakor (a legelső költségvetési évre) kell megadni. Ha egy évre
+  már van rögzített nyitó, a felülírás előtt a rendszer megerősítést kér;
+  véglegesített év nyitója továbbra sem szerkeszthető.
+
+- **A Registru Banca nyomtatvány mostantól a rögzített évi nyitóval számol** —
+  eddig egy régi, év nélküli mezőt használt, ami torzíthatta a bankregiszter
+  nyitó sorát és napi egyenlegeit.
+
+- **A desktop alkalmazás egyenlegei is a rögzített nyitókból indulnak** — eddig
+  az asztali összesítő mindig 0 nyitóval számolt (offline továbbra is a
+  korábbi viselkedés él, jelzéssel).
+
+- **Rendszergazdai javítás engedélyezése:** külön SQL futtatandó
+  (migration-docs/sql/2026-07-17-f4-nyito-egyenleg-admin-rls.sql), hogy az
+  admin és az egyházkerületi admin is javíthassa a nyitókat — eddig csak
+  láthatta őket.
+
+---
+
 ## [2026-07-24] — Névjegyzék-nyomtatvány 2. kör: tényleg tele lapok, hiánytalan PDF, cella-középre igazítás, román név
 <!-- key: 2026-07-24-tagnyilv-pr14-nevjegyzek-pdf -->
 <!-- category: bugfix -->

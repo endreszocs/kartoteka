@@ -59,6 +59,8 @@ interface FinancePrintDialogProps {
   congregationNameRo?: string
   carryoverCash: number
   carryoverBank: number
+  /** 2026-07-17 (F4): az idei rögzített bank-nyitók számlánként (Registru Banca). */
+  bankNyitoMap?: Record<number, number>
   currentYear: number
   settings: BealitasRow
 }
@@ -69,6 +71,7 @@ type YearRecordsPayload = {
   expense: KiadasRow[]
   carryoverCash: number
   carryoverBank: number
+  bankNyitoMap?: Record<number, number>
 }
 
 /** Bizonylat-típusok, amelyeknek NEM kellenek a bevétel/kiadás sorok
@@ -101,6 +104,7 @@ export function FinancePrintDialog({
   congregationNameRo,
   carryoverCash,
   carryoverBank,
+  bankNyitoMap,
   currentYear,
   settings,
 }: FinancePrintDialogProps) {
@@ -165,6 +169,7 @@ export function FinancePrintDialog({
             const expenseUse = yr ? yr.expense : expense
             const carryoverCashUse = yr ? yr.carryoverCash : carryoverCash
             const carryoverBankUse = yr ? yr.carryoverBank : carryoverBank
+            const bankNyitoMapUse = yr ? yr.bankNyitoMap : bankNyitoMap
 
             // Korábbi bizonylatok újranyomtatása (a snapshot adatból)
             if (filters.printType === 'decont_reprint') {
@@ -237,6 +242,7 @@ export function FinancePrintDialog({
               congregationNameRo,
               carryoverCash: carryoverCashUse,
               carryoverBank: carryoverBankUse,
+              bankNyitoMap: bankNyitoMapUse,
               nyugtatombok:
                 filters.printType === 'nyugtatomb_kimutatas'
                   ? filters.nyugtatombok
@@ -261,6 +267,7 @@ export function FinancePrintDialog({
               expense: res.expense,
               carryoverCash: res.carryoverCash ?? 0,
               carryoverBank: res.carryoverBank ?? 0,
+              bankNyitoMap: res.bankNyitoMap,
             } satisfies YearRecordsPayload
           }}
           onLoadNyugtatombok={async (year) => {

@@ -40,7 +40,11 @@ export interface OpeningBalancesSettings {
   finalizedYears: number[]
 }
 
-export async function getOpeningBalancesSettings(): Promise<{
+export async function getOpeningBalancesSettings(
+  /** 2026-07-17 (F4 guard): a hívó felület által ELVÁRT gyülekezet — ha eltér az
+   *  effektív scope-tól, hangos hibát adunk a néma rossz-gyülekezet olvasás helyett. */
+  expectedCongregationId?: string,
+): Promise<{
   data?: OpeningBalancesSettings
   error?: string
 }> {
@@ -48,6 +52,9 @@ export async function getOpeningBalancesSettings(): Promise<{
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   const congregationId = access.effectiveCongregationId
   if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
+  if (expectedCongregationId && expectedCongregationId !== congregationId) {
+    return { error: 'A megnyitott gyülekezet nem egyezik az aktív munkamenet gyülekezetével — a nyitó egyenlegek nem szerkeszthetők innen.' }
+  }
   const supabase = access.supabase
 
   const [bevMinRes, kiaMinRes, cashRes, bankRes, bealitasRes] = await Promise.all([
@@ -123,6 +130,8 @@ export interface SaveOpeningBalancesInput {
     nyito_valuta: number
     arfolyam?: number | null
   }>
+  /** 2026-07-17 (F4 guard): a hívó felület által ELVÁRT gyülekezet (lásd getOpeningBalancesSettings). */
+  expectedCongregationId?: string
 }
 
 export async function saveOpeningBalancesSettings(
@@ -132,6 +141,9 @@ export async function saveOpeningBalancesSettings(
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   const congregationId = access.effectiveCongregationId
   if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
+  if (input.expectedCongregationId && input.expectedCongregationId !== congregationId) {
+    return { error: 'A megnyitott gyülekezet nem egyezik az aktív munkamenet gyülekezetével — a mentés megszakítva (rossz gyülekezet nyitóját írta volna felül).' }
+  }
   const supabase = access.supabase
 
   if (!Number.isFinite(input.eve) || input.eve < 2000 || input.eve > 2100) {

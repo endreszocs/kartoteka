@@ -144,6 +144,7 @@ export default async function PenzugyPage({
         initialExpense={data.initialExpense}
         carryoverCash={data.carryoverCash}
         carryoverBank={data.carryoverBank}
+        bankNyitoMap={data.bankNyitoMap}
         congregationName={data.congregationName}
         congregationNameRo={data.congregationNameRo}
         congregationId={scopeId}

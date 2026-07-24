@@ -161,6 +161,8 @@ export interface BankTabProps {
   onTransactionChanged?: () => void | Promise<void>
   onBankImported?: () => void | Promise<void>
   onBankAccountSaved?: () => void | Promise<void>
+  /** 2026-07-17 (F4): az Induló (nyitó) egyenlegek szerkesztőjének megnyitása. */
+  onOpenOpeningBalances?: () => void
 
   // ── UI-feedback callback ───────────────────────────────────
   onToast?: (message: string, kind: BankToastKind) => void
@@ -251,6 +253,7 @@ export function BankTab({
   onTransactionChanged,
   onBankImported,
   onBankAccountSaved,
+  onOpenOpeningBalances,
   onToast,
   onExportXlsx,
   onConfirm,
@@ -751,7 +754,7 @@ export function BankTab({
                     <p className="truncate text-[11px] text-slate-400">
                       {account.iban || 'Nincs IBAN'} · {valuta}
                     </p>
-                    {ny ? (
+                    {ny && (
                       <p className="text-[11px] text-slate-600 leading-snug">
                         <span className="font-medium text-slate-700">
                           {currentYear}. január 1. nyitó:
@@ -764,13 +767,29 @@ export function BankTab({
                           </span>
                         )}
                       </p>
-                    ) : (
-                      <p className="text-[11px] text-amber-700 italic">
-                        Nyitó egyenleg még nincs rögzítve {currentYear}-re — importálj egy kivonatot.
-                      </p>
                     )}
                   </div>
                 </button>
+                {/* 2026-07-17 (F4): a hiányzó-nyitó figyelmeztetés a szűrő-gombon KÍVÜL —
+                    így az „add meg kézzel" valódi <button> lehet (a gombba ágyazott
+                    role=button span felolvasónak elérhetetlen és érvénytelen HTML). */}
+                {!ny && (
+                  <div className="px-4 pb-2 -mt-2">
+                    <p className="text-[11px] text-amber-700 italic">
+                      Nyitó egyenleg még nincs rögzítve {currentYear}-re — importálj egy kivonatot
+                      {onOpenOpeningBalances ? ', vagy' : '.'}
+                    </p>
+                    {onOpenOpeningBalances && (
+                      <button
+                        type="button"
+                        onClick={onOpenOpeningBalances}
+                        className="mt-1 inline-flex min-h-8 items-center rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1 text-[11px] font-semibold text-teal-800 transition hover:bg-teal-100"
+                      >
+                        add meg kézzel itt
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div className="flex items-center gap-2 border-t border-slate-100 px-3 py-2">
                   <button
                     type="button"

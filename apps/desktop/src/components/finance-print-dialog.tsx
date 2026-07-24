@@ -59,6 +59,8 @@ interface DesktopFinancePrintDialogProps {
   congregationNameRo?: string
   carryoverCash: number
   carryoverBank: number
+  /** 2026-07-17 (F4, web-paritás): az idei rögzített bank-nyitók számlánként (Registru Banca). */
+  bankNyitoMap?: Record<number, number>
   currentYear: number
   settings: BealitasRow
   onToast?: (msg: string, kind: 'success' | 'error' | 'info' | 'warning') => void
@@ -70,6 +72,7 @@ type YearRecordsPayload = {
   expense: KiadasRow[]
   carryoverCash: number
   carryoverBank: number
+  bankNyitoMap?: Record<number, number>
 }
 
 /** Bizonylat-típusok, amelyeknek NEM kellenek a bevétel/kiadás sorok. */
@@ -101,6 +104,7 @@ export function DesktopFinancePrintDialog({
   congregationNameRo,
   carryoverCash,
   carryoverBank,
+  bankNyitoMap,
   currentYear,
   settings,
   onToast,
@@ -162,6 +166,7 @@ export function DesktopFinancePrintDialog({
               const expenseUse = yr ? yr.expense : expense
               const carryoverCashUse = yr ? yr.carryoverCash : carryoverCash
               const carryoverBankUse = yr ? yr.carryoverBank : carryoverBank
+              const bankNyitoMapUse = yr ? yr.bankNyitoMap : bankNyitoMap
 
               // Korábbi bizonylatok újranyomtatása (a mentett pillanatképből)
               if (filters.printType === 'decont_reprint') {
@@ -235,6 +240,7 @@ export function DesktopFinancePrintDialog({
                 congregationNameRo,
                 carryoverCash: carryoverCashUse,
                 carryoverBank: carryoverBankUse,
+                bankNyitoMap: bankNyitoMapUse,
                 nyugtatombok:
                   filters.printType === 'nyugtatomb_kimutatas'
                     ? filters.nyugtatombok
@@ -265,7 +271,7 @@ export function DesktopFinancePrintDialog({
                   supabase.from('kiadas').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
                   supabase.from('keszpenz_nyito_egyenleg').select('eve, nyito_egyenleg')
                     .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
-                  supabase.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron')
+                  supabase.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron, bankszamla_id')
                     .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
                 ])
                 const firstErr = bevRes.error || kiaRes.error || prevBevRes.error || prevKiaRes.error
@@ -279,9 +285,13 @@ export function DesktopFinancePrintDialog({
                   else recCashPrev += Number(r.nyito_egyenleg) || 0
                 }
                 let recBankCur = 0, recBankPrev = 0, hasBankCur = false
-                for (const r of (bankNyitoRes.data || []) as { eve: number; nyito_egyenleg_ron: number }[]) {
-                  if (r.eve === year) { recBankCur += Number(r.nyito_egyenleg_ron) || 0; hasBankCur = true }
-                  else recBankPrev += Number(r.nyito_egyenleg_ron) || 0
+                const yearBankNyitoMap: Record<number, number> = {}
+                for (const r of (bankNyitoRes.data || []) as { eve: number; nyito_egyenleg_ron: number; bankszamla_id: number }[]) {
+                  if (r.eve === year) {
+                    recBankCur += Number(r.nyito_egyenleg_ron) || 0
+                    hasBankCur = true
+                    if (r.bankszamla_id != null) yearBankNyitoMap[r.bankszamla_id] = Number(r.nyito_egyenleg_ron) || 0
+                  } else recBankPrev += Number(r.nyito_egyenleg_ron) || 0
                 }
                 let cashNet = 0, bankNet = 0
                 ;((prevBevRes.data || []) as { osszeg: number; bankszamla_id: number | null }[]).forEach((r) => {
@@ -297,6 +307,7 @@ export function DesktopFinancePrintDialog({
                   expense: (kiaRes.data || []) as KiadasRow[],
                   carryoverCash: hasCashCur ? recCashCur : recCashPrev + cashNet,
                   carryoverBank: hasBankCur ? recBankCur : recBankPrev + bankNet,
+                  bankNyitoMap: yearBankNyitoMap,
                 } satisfies YearRecordsPayload
               } catch (e) {
                 onToast?.(`A(z) ${year}. évi tételek betöltése sikertelen: ${errorMessage(e)}`, 'error')

@@ -246,6 +246,11 @@ export interface FinanceReportData {
   congregationNameRo?: string
   carryoverCash: number
   carryoverBank: number
+  /** 2026-07-17 (F4): a kiválasztott év RÖGZÍTETT nyitó egyenlegei bankszámlánként
+   *  (bankszamla_nyito_egyenleg.nyito_egyenleg_ron, bankszamla_id → RON). A Registru
+   *  Banca ebből veszi az egy-számlás nyitót — a legacy bankszamlak.nyito_egyenleg
+   *  (egyoszlopos, év nélküli) csak fallback. */
+  bankNyitoMap?: Record<number, number>
   /** Nyugtatömb kimutatás soradatai — csak a `nyugtatomb_kimutatas` típushoz kötelező. */
   nyugtatombok?: NyugtatombReportRow[]
 }
@@ -400,7 +405,17 @@ function buildRegistruBanca(data: FinanceReportData, f: MonthFilters): FinancePr
   const mExpense = bankFilter(filterByMonth(data.expense, f.year, f.month))
 
   const bank = data.bankAccounts.find((b) => b.id === f.bankAccountId)
-  const openBal = bank?.nyito_egyenleg || data.carryoverBank
+  // 2026-07-17 (F4): a per-éves rögzített nyitó az elsődleges — a legacy
+  // bankszamlak.nyito_egyenleg év nélküli, elavult érték (torzította a regisztert).
+  // EGY-számlás módban az aggregát carryoverBank-ra SOHA nem esünk vissza (az egy
+  // MÁSIK számla rögzített nyitóját mutatná ennek a számlának a nyitójaként).
+  const recordedNyito = f.bankAccountId != null ? data.bankNyitoMap?.[f.bankAccountId] : undefined
+  const openBal =
+    recordedNyito != null
+      ? recordedNyito
+      : f.bankAccountId != null
+        ? Number(bank?.nyito_egyenleg ?? 0) || 0
+        : data.carryoverBank
   const carry = computeCarryover(data.income, data.expense, f.year, f.month, bankFilter, openBal)
 
   type Row = { date: string; docType: string; docNum: string; desc: string; income: number; expense: number; code: string }

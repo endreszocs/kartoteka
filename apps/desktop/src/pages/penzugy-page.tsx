@@ -125,6 +125,7 @@ export function PenzugyPage() {
   const [balances, setBalances] = useState<FinanceBalances>(EMPTY_BALANCES)
   // Előző évi záró kassza-egyenleg (a Kassza-fül nyitó egyenlege).
   const [carryoverCash, setCarryoverCash] = useState(0)
+  const [bankNyitoMap, setBankNyitoMap] = useState<Record<number, number>>({})
   // Előző évi záró bank-egyenleg (a Bank-fül nyitó egyenlege) — paritás #5.
   const [carryoverBank, setCarryoverBank] = useState(0)
   // Online törzsadatok a Bank/Monetár fülhöz (lokális tükör nélkül): aktív
@@ -255,8 +256,52 @@ export function PenzugyPage() {
       }
       const internalCelIds = { internalIncomeCelIds, internalExpenseCelIds }
 
-      const prevBalances = calculateBalances(prevBefLocal.map(toBefitetesRow), prevKiaLocal.map(toKiadasRow), 0, 0, internalCelIds)
-      const yearBalances = calculateBalances(incomeRows, expenseRows, prevBalances.cashBalance, prevBalances.bankBalance, internalCelIds)
+      // 2026-07-17 (F4, web-paritás): a rögzített nyitó egyenlegek beszámítása.
+      // A web initFinance logikája: ha az IDEI évre van rögzített nyitó, az a bázis;
+      // különben az előző évi rögzített nyitó + előző évi nettó forgalom. A desktop
+      // eddig FIXEN 0 nyitóval indult → az aggregát kassza/bank-egyenleg hibás volt.
+      // Online lekérés, offline-fallback: 0 (a régi viselkedés).
+      let recCashPrev = 0, recBankPrev = 0
+      let recCashCur: number | null = null, recBankCur: number | null = null
+      const bankNyitoCur: Record<number, number> = {}
+      try {
+        if (await isOnlineWithSession()) {
+          const sb = getDesktopSupabase()
+          // 5s-os plafon: captive-portal/kiesés esetén ne blokkolja a lokális betöltést.
+          const [cashNyRes, bankNyRes] = (await Promise.race([
+            Promise.all([
+              sb.from('keszpenz_nyito_egyenleg').select('eve, nyito_egyenleg')
+                .eq('congregation_id', congId).in('eve', [year - 1, year]),
+              sb.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron, bankszamla_id')
+                .eq('congregation_id', congId).in('eve', [year - 1, year]),
+            ]),
+            new Promise<never>((_, reject) =>
+              window.setTimeout(() => reject(new Error('nyito-egyenleg lekérés timeout')), 5000),
+            ),
+          ])) as [
+            { data: unknown[] | null; error: { message: string } | null },
+            { data: unknown[] | null; error: { message: string } | null },
+          ]
+          if (cashNyRes.error || bankNyRes.error) {
+            console.warn('[penzugy-page] Rögzített nyitó-lekérés hibázott — 0 bázis:', cashNyRes.error?.message || bankNyRes.error?.message)
+          }
+          for (const r of (cashNyRes.data || []) as { eve: number; nyito_egyenleg: number }[]) {
+            if (r.eve === year) recCashCur = (recCashCur ?? 0) + (Number(r.nyito_egyenleg) || 0)
+            else recCashPrev += Number(r.nyito_egyenleg) || 0
+          }
+          for (const r of (bankNyRes.data || []) as { eve: number; nyito_egyenleg_ron: number; bankszamla_id: number }[]) {
+            if (r.eve === year) {
+              recBankCur = (recBankCur ?? 0) + (Number(r.nyito_egyenleg_ron) || 0)
+              if (r.bankszamla_id != null) bankNyitoCur[r.bankszamla_id] = Number(r.nyito_egyenleg_ron) || 0
+            } else recBankPrev += Number(r.nyito_egyenleg_ron) || 0
+          }
+        }
+      } catch {
+        /* offline / hálózati hiba / timeout — 0 bázissal számolunk, mint eddig */
+      }
+      setBankNyitoMap(bankNyitoCur)
+      const prevBalances = calculateBalances(prevBefLocal.map(toBefitetesRow), prevKiaLocal.map(toKiadasRow), recCashPrev, recBankPrev, internalCelIds)
+      const yearBalances = calculateBalances(incomeRows, expenseRows, recCashCur ?? prevBalances.cashBalance, recBankCur ?? prevBalances.bankBalance, internalCelIds)
 
       // 2026-07-10 (S2-#5 paritás): előző évi TÉNY kódonként — a web
       // getPreviousYearActuals (actions.ts) aggregálásának tükre, a már betöltött
@@ -342,8 +387,10 @@ export function PenzugyPage() {
       setKiaCelMap(kiaMap)
       setSzamadasiCellek(cells)
       setBalances(yearBalances)
-      setCarryoverCash(prevBalances.cashBalance)
-      setCarryoverBank(prevBalances.bankBalance)
+      // 2026-07-17 (F4): az idei rögzített nyitó felülbírálja az előző évi zárót
+      // (web initFinance-paritás) — a nyomtatási dialógus és a KPI-k ezt kapják.
+      setCarryoverCash(recCashCur ?? prevBalances.cashBalance)
+      setCarryoverBank(recBankCur ?? prevBalances.bankBalance)
       setBankAccounts(banks)
       setInternalTransfers(transfers)
       setBudgetData(budget)
@@ -758,6 +805,7 @@ export function PenzugyPage() {
           congregationNameRo={congregationNameRo}
           carryoverCash={carryoverCash}
           carryoverBank={carryoverBank}
+          bankNyitoMap={bankNyitoMap}
           currentYear={year}
           settings={settings}
           onToast={(msg, kind) => setPageToast({ kind, msg })}
