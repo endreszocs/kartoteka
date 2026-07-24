@@ -23,6 +23,43 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Nyomtatás egyszerűsítve (PDF a böngészőből), CIF + román cím a fejlécben, kartonok egymás mellett a hálóból is
+<!-- key: 2026-07-25-tagnyilv-pr15-nyomtatas-kartonok -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.110 -->
+
+### 🎨 Nyomtatási központ — egyetlen, megbízható út
+
+- **A „PDF-be mentés" gomb kivezetve** (a képre-fényképező mentés egyes
+  gépeken üres dokumentumot adott) — helyette **egy „Nyomtatás / Mentés
+  PDF-ként" gomb** van, és egy jól látható útmutató: a nyomtatási ablak
+  **Cél** listájából válaszd a **„Mentés PDF-ként"** lehetőséget. Így a
+  böngésző beépített, vektoros PDF-készítője dolgozik: éles, kereshető
+  szövegű, hibátlan PDF minden oldallal — minden gépen. (A körzeti
+  névsor-nyomtatónál ugyanígy.)
+
+### 🎨 Nyomtatvány-fejléc: CIF + pontos cím román formában
+
+- A román név alatt megjelenik a **CIF** (adóazonosító) és a pontos cím
+  **„str."** (strada) előtaggal az utca neve előtt — pl.
+  „str. Parohiei, Brateş, Kovászna".
+
+### 🐛 Kartonok a Családi hálóból — nincs többé egymásra csúszás
+
+- A hálóból megnyitott családi kartonról egy tagra kattintva eddig a két
+  ablak **egymást fedte** — mostantól itt is az egymás melletti kettős
+  nézet nyílik (személy balra, család jobbra), telefonon váltógombokkal.
+
+### 🐛 Családi háló — a cím nem csúszik a fejléc alá
+
+- Az **Esc** eddig akkor is kilépett a teljes képernyős hálóból, ha csak
+  egy kartont akartál vele bezárni — és a beágyazott nézet címét kitakarta
+  a ragadós fejléc. Mostantól az Esc előbb a nyitott kartont zárja, és
+  kilépéskor a háló címe a fejléc alá igazítva jelenik meg.
+
+---
+
 ## [2026-07-24] — Gyorsabb munkanapló-táblázat + megújult súgó
 <!-- key: 2026-07-24-munkanaplo-perf-sugo -->
 <!-- category: improvement -->
