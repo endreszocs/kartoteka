@@ -265,6 +265,14 @@ export async function getPersonCertificateData(
  * (letterheads.buildLetterheadHtml). A cím a strukturált mezőkből áll össze:
  * "{iranyitoszam} {varos}, {cim} {hazszam}" — a hiányzó darabok kimaradnak
  * (a getCongregationForSetup select-mintája szerint, congregation/actions.ts).
+ *
+ * 2026-07 (F8a): a háromnyelvű fejléchez a nev_hu/nev_ro/nev_en is lejön.
+ * CSAK verifikált congregations-oszlopok (2026-07-25, Database_schema.sql +
+ * élő app-selectek: welcome/actions.ts:293, congregation/actions.ts:1536).
+ * A magyar ÉS román cím-változat az adrlocality/adrstreet name_hu/name_ro
+ * oszlopaiból áll elő (adrlocality_id/adrstreet_id join — az address-form.tsx
+ * bevált mintája); ha a strukturált hivatkozás hiányzik, a szabad szöveges
+ * varos/cim mezők adják az EGY közös cím-sort (cimRo=null).
  */
 export async function getCongregationHeader(): Promise<{
   header: CongregationHeaderData | null
@@ -275,28 +283,55 @@ export async function getCongregationHeader(): Promise<{
 
   const { data, error } = await supabase
     .from('congregations')
-    .select('name, nev_hu, adoszam, cim, varos, iranyitoszam, hazszam, email, telefon, web, cimer_url')
+    .select('name, nev_hu, nev_ro, nev_en, adoszam, cim, varos, iranyitoszam, hazszam, email, telefon, web, cimer_url, helyseg:adrlocality!adrlocality_id(name_hu, name_ro), utca:adrstreet!adrstreet_id(name_hu, name_ro)')
     .eq('id', congId)
     .maybeSingle()
   if (error) return { header: null, error: `Gyülekezeti adatok lekérése sikertelen: ${error.message}` }
   if (!data) return { header: null, error: 'A gyülekezet nem található.' }
 
+  type NevPar = { name_hu: string | null; name_ro: string | null } | null
   const row = data as {
-    name: string | null; nev_hu: string | null; adoszam: string | null
+    name: string | null; nev_hu: string | null; nev_ro: string | null; nev_en: string | null
+    adoszam: string | null
     cim: string | null; varos: string | null; iranyitoszam: string | null; hazszam: string | null
     email: string | null; telefon: string | null; web: string | null; cimer_url: string | null
+    helyseg: NevPar | NevPar[]; utca: NevPar | NevPar[]
   }
+  // A PostgREST a beágyazást objektumként vagy 1 elemű tömbként is adhatja.
+  const one = (v: NevPar | NevPar[]): NevPar => (Array.isArray(v) ? v[0] ?? null : v)
+  const helyseg = one(row.helyseg)
+  const utca = one(row.utca)
 
   // Cím összerakása: "527045 Barátos, Fő út 45." — a helység-rész és az
   // utca-rész külön, vesszővel elválasztva; üres darabok kihagyva.
-  const localityPart = [row.iranyitoszam, row.varos].map(clean).filter(Boolean).join(' ')
-  const streetPart = [row.cim, row.hazszam].map(clean).filter(Boolean).join(' ')
-  const cim = [localityPart, streetPart].filter(Boolean).join(', ') || null
+  // A magyar/román változat az adrlocality/adrstreet name_hu/name_ro mezőiből
+  // jön (address-form minta); fallback a szabad szöveges varos/cim mezőkre.
+  const buildCim = (helysegNev: string | null, utcaNev: string | null): string | null => {
+    const localityPart = [row.iranyitoszam, helysegNev].map(clean).filter(Boolean).join(' ')
+    const streetPart = [utcaNev, row.hazszam].map(clean).filter(Boolean).join(' ')
+    return [localityPart, streetPart].filter(Boolean).join(', ') || null
+  }
+  const cimHu = buildCim(
+    clean(helyseg?.name_hu ?? null) || clean(row.varos),
+    clean(utca?.name_hu ?? null) || clean(row.cim),
+  )
+  // Román cím csak akkor, ha van legalább egy VALÓDI román elem és eltér a
+  // magyar sortól — különben a fejléc egyetlen közös cím-sort ír.
+  const cimRoJelolt = buildCim(
+    clean(helyseg?.name_ro ?? null) || clean(row.varos),
+    clean(utca?.name_ro ?? null) || clean(row.cim),
+  )
+  const vanRomanElem = Boolean(clean(helyseg?.name_ro ?? null) || clean(utca?.name_ro ?? null))
+  const cimRo = vanRomanElem && cimRoJelolt && cimRoJelolt !== cimHu ? cimRoJelolt : null
 
   return {
     header: {
       hivatalosNev: clean(row.name) || clean(row.nev_hu) || '',
-      cim,
+      nevHu: clean(row.nev_hu) || null,
+      nevRo: clean(row.nev_ro) || null,
+      nevEn: clean(row.nev_en) || null,
+      cimHu,
+      cimRo,
       telefon: clean(row.telefon) || null,
       email: clean(row.email) || null,
       cif: clean(row.adoszam) || null,
