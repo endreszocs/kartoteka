@@ -26,6 +26,19 @@ export const filingEntrySchema = z.object({
 
   // ─── 2026-05-29 Fázis 3: Workflow ───
   has_duplicate: z.boolean().optional().default(false),
+
+  // ─── 2026-07-25: Visszamenőleges iktatás ───
+  /**
+   * Kézi iktatószám visszamenőleges iktatáshoz — CSAK új iratra, és csak a
+   * sorszám-számláló (iktato_sequence_pointers.last_sequence) alatti szabad
+   * számok adhatók ki (a guard a saveFilingEntry-ben). Az automatikus
+   * sorszámozást nem érinti: a pointer ilyenkor NEM lép.
+   */
+  manualSequenceNumber: z
+    .number({ message: 'A kézi iktatószám csak szám lehet' })
+    .int('A kézi iktatószám egész szám kell legyen')
+    .positive('A kézi iktatószám pozitív szám kell legyen')
+    .optional(),
 })
 
 export type FilingEntryInput = z.infer<typeof filingEntrySchema>

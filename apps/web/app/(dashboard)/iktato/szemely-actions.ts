@@ -23,6 +23,7 @@ import type {
   CongregationHeaderData,
   PersonCertData,
 } from '@/lib/iktato/certificate-types'
+import { roUtcaElotag } from '@/lib/iktato/letterheads'
 
 // ─────────────────────────────────────────────────────────────────
 // 1) Személy-kereső
@@ -317,11 +318,14 @@ export async function getCongregationHeader(): Promise<{
   )
   // Román cím csak akkor, ha van legalább egy VALÓDI román elem és eltér a
   // magyar sortól — különben a fejléc egyetlen közös cím-sort ír.
+  // 2026-07 (F8c): a VALÓDI román utcanév elé „str. " előtag kerül, ha még
+  // nincs típus-megjelölése (roUtcaElotag) — a magyar sor érintetlen.
+  const utcaRoNev = clean(utca?.name_ro ?? null)
   const cimRoJelolt = buildCim(
     clean(helyseg?.name_ro ?? null) || clean(row.varos),
-    clean(utca?.name_ro ?? null) || clean(row.cim),
+    utcaRoNev ? roUtcaElotag(utcaRoNev) : clean(row.cim),
   )
-  const vanRomanElem = Boolean(clean(helyseg?.name_ro ?? null) || clean(utca?.name_ro ?? null))
+  const vanRomanElem = Boolean(clean(helyseg?.name_ro ?? null) || utcaRoNev)
   const cimRo = vanRomanElem && cimRoJelolt && cimRoJelolt !== cimHu ? cimRoJelolt : null
 
   return {
@@ -332,6 +336,10 @@ export async function getCongregationHeader(): Promise<{
       nevEn: clean(row.nev_en) || null,
       cimHu,
       cimRo,
+      // F8c: a keltezés-sor nyelvhelyes helység-neve (dokumentum-csaladok
+      // keltezesSor) — magyar fallback a szabad szöveges varos mezőre.
+      helysegHu: clean(helyseg?.name_hu ?? null) || clean(row.varos) || null,
+      helysegRo: clean(helyseg?.name_ro ?? null) || null,
       telefon: clean(row.telefon) || null,
       email: clean(row.email) || null,
       cif: clean(row.adoszam) || null,

@@ -25,6 +25,7 @@ import {
   saveFilingEntry,
   deleteFilingEntry,
   getNextSequenceNumber,
+  getRetroactiveInfo,
   closeFilingYear,
   reopenFilingYear,
   getYearClosure,
@@ -116,6 +117,30 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
   const [yearClosure, setYearClosure] = useState<IktatoYearlyClosure | null>(null)
   const [closing, setClosing] = useState(false)
   const [reopening, setReopening] = useState(false)
+
+  // ── 2026-07-25: visszamenőleges iktatás (kézi sorszám a számláló alatt) ──
+  // A mód CSAK új iratra él; a szabad számokat a getRetroactiveInfo adja.
+  const [retroOpen, setRetroOpen] = useState(false)
+  const [retroLoading, setRetroLoading] = useState(false)
+  const [retroInfo, setRetroInfo] = useState<Awaited<ReturnType<typeof getRetroactiveInfo>> | null>(null)
+  const [retroManualInput, setRetroManualInput] = useState('')
+
+  // A kézi sorszám csak pozitív egészként érvényes (a chipek is ide írnak).
+  const retroManualSeq = useMemo(() => {
+    const trimmed = retroManualInput.trim()
+    if (!trimmed) return null
+    const n = Number(trimmed)
+    return Number.isInteger(n) && n > 0 ? n : null
+  }, [retroManualInput])
+  // Aktív visszamenőleges mód = kinyitott panel + érvényes kézi szám, új iraton.
+  const retroActive = retroOpen && !editEntry && retroManualSeq !== null
+
+  /** A visszamenőleges mód teljes resetje — dialógus nyitásakor és zárásakor. */
+  function resetRetro() {
+    setRetroOpen(false)
+    setRetroInfo(null)
+    setRetroManualInput('')
+  }
 
   /**
    * 2026-07-17 (F6/K6): csatolmány-darabszámok a sor-jelvényekhez — egyetlen
@@ -216,6 +241,8 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
   }, [csomok])
 
   function openDialog(entry?: FilingEntry) {
+    // 2026-07-25: a visszamenőleges mód minden nyitáskor tiszta lappal indul.
+    resetRetro()
     if (entry) {
       setEditEntry(entry)
       setFDirection(entry.direction as FilingDirection)
@@ -282,6 +309,25 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
     }
   }, [dialogOpen, editEntry, keltYear])
 
+  // 2026-07-25: a szabad számok listája a KELT-ÉV számlálójához tartozik —
+  // a panel kinyitásakor és kelt-évváltáskor újratöltjük; ilyenkor a korábban
+  // kiválasztott kézi szám is törlődik (más évben már mást jelentene).
+  useEffect(() => {
+    if (!dialogOpen || editEntry || !retroOpen) return
+    let cancelled = false
+    setRetroLoading(true)
+    setRetroInfo(null)
+    setRetroManualInput('')
+    getRetroactiveInfo(keltYear).then((info) => {
+      if (cancelled) return
+      setRetroInfo(info)
+      setRetroLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [dialogOpen, editEntry, retroOpen, keltYear])
+
   // 2026-05-29 Fázis 3: hivatali út validáció (figyelmeztetés)
   const hivataliUtWarnings: HivataliUtWarning[] = useMemo(
     () =>
@@ -341,6 +387,12 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
       toast.error('A dátum kötelező!')
       return
     }
+    // 2026-07-25: kinyitott visszamenőleges panel + értelmezhetetlen kézi szám
+    // ne csússzon át némán automatikus iktatásba.
+    if (retroOpen && !editEntry && retroManualInput.trim() !== '' && retroManualSeq === null) {
+      toast.error('A kézi iktatószám pozitív egész szám kell legyen.')
+      return
+    }
 
     setSaving(true)
     const mellekSzam = fMellekletekSzama.trim() === '' ? null : Number(fMellekletekSzama)
@@ -367,12 +419,21 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
       retention_type: retentionFromUgykor,
       // 2026-05-29 Fázis 3
       has_duplicate: fHasDuplicate,
+      // 2026-07-25: visszamenőleges iktatás — kézi sorszám a számláló alól.
+      manualSequenceNumber: retroActive && retroManualSeq !== null ? retroManualSeq : undefined,
     })
 
     if (result.error) toast.error(result.error)
     else {
-      toast.success(editEntry ? 'Irat frissítve!' : 'Irat iktatva!')
+      toast.success(
+        editEntry
+          ? 'Irat frissítve!'
+          : retroActive
+            ? `Irat visszamenőleg iktatva: ${keltYear}/${retroManualSeq}.`
+            : 'Irat iktatva!',
+      )
       setDialogOpen(false)
+      resetRetro()
       refreshEntries()
     }
     setSaving(false)
@@ -576,7 +637,14 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
         />
       )}
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open)
+          // 2026-07-25: záráskor a visszamenőleges mód is resetel.
+          if (!open) resetRetro()
+        }}
+      >
         <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editEntry ? 'Irat szerkesztése' : 'Új irat'}</DialogTitle>
@@ -586,19 +654,112 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
                 véglegesedik (nem foglalt). */}
             {!editEntry && (
               <>
-                <p className="inline-flex w-fit max-w-full flex-wrap items-center gap-1.5 self-center rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-medium text-primary sm:self-start">
-                  <Stamp className="size-3.5 shrink-0" aria-hidden />
-                  <span>
-                    Következő iktatószám:{' '}
-                    <b className="font-mono tabular-nums">
-                      {keltYear}/{fSeqNum > 0 ? fSeqNum : '…'}
-                    </b>{' '}
-                    (automatikus)
-                  </span>
-                </p>
+                {retroActive ? (
+                  /* 2026-07-25: aktív visszamenőleges mód — a jelvény a KÉZI
+                     számot mutatja, figyelmeztető (amber) tónussal. */
+                  <p className="inline-flex w-fit max-w-full flex-wrap items-center gap-1.5 self-center rounded-full border border-amber-400 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-800 sm:self-start">
+                    <Stamp className="size-3.5 shrink-0" aria-hidden />
+                    <span>
+                      Kézi iktatószám:{' '}
+                      <b className="font-mono tabular-nums">
+                        {keltYear}/{retroManualSeq}
+                      </b>{' '}
+                      (visszamenőleges)
+                    </span>
+                  </p>
+                ) : (
+                  <p className="inline-flex w-fit max-w-full flex-wrap items-center gap-1.5 self-center rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-medium text-primary sm:self-start">
+                    <Stamp className="size-3.5 shrink-0" aria-hidden />
+                    <span>
+                      Következő iktatószám:{' '}
+                      <b className="font-mono tabular-nums">
+                        {keltYear}/{fSeqNum > 0 ? fSeqNum : '…'}
+                      </b>{' '}
+                      (automatikus)
+                    </span>
+                  </p>
+                )}
                 <DialogDescription>
-                  Az iktatószám a kelt dátum évét követi, és csak a mentéskor véglegesedik — a fenti szám előnézet, nem foglalt.
+                  {retroActive
+                    ? 'Visszamenőleges iktatás: a kézi szám a számláló alatti szabad számok közül kerül ki — az automatikus sorszámozást nem érinti.'
+                    : 'Az iktatószám a kelt dátum évét követi, és csak a mentéskor véglegesedik — a fenti szám előnézet, nem foglalt.'}
                 </DialogDescription>
+
+                {/* ── 2026-07-25: visszamenőleges iktatás (korábbi szám kiadása) ──
+                    Diszkrét kapcsoló a jelvény alatt; kinyitva a számláló alatti
+                    szabad számok chip-listája + kézi szám-input. Biztonsági elv:
+                    az automata csak felfelé lépked, ezért a pointer alatti szabad
+                    számok kiadása nem okozhat jövőbeli ütközést. */}
+                <button
+                  type="button"
+                  onClick={() => setRetroOpen((open) => !open)}
+                  className="w-fit self-center text-xs text-amber-700 underline underline-offset-2 hover:text-amber-900 sm:self-start"
+                >
+                  {retroOpen
+                    ? 'Visszamenőleges iktatás elrejtése'
+                    : 'Visszamenőleges iktatás (korábbi szám kiadása)…'}
+                </button>
+                {retroOpen && (
+                  <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50/60 p-3 text-left">
+                    <p className="text-xs leading-relaxed text-amber-900">
+                      Csak a jelenlegi számláló alatti szabad számok adhatók ki — az automatikus sorszámozást nem érinti.
+                    </p>
+                    {retroLoading ? (
+                      <p className="text-xs text-amber-800">Szabad számok betöltése…</p>
+                    ) : retroInfo?.error ? (
+                      <p className="text-xs text-destructive">{retroInfo.error}</p>
+                    ) : retroInfo ? (
+                      <>
+                        {retroInfo.szabadSzamok.length === 0 ? (
+                          <p className="text-xs text-amber-800">Nincs szabad szám a számláló alatt.</p>
+                        ) : (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {retroInfo.szabadSzamok.slice(0, 15).map((szam) => (
+                              <button
+                                key={szam}
+                                type="button"
+                                onClick={() => setRetroManualInput(String(szam))}
+                                className={`rounded-full border px-2.5 py-1 font-mono text-xs tabular-nums transition-colors ${
+                                  retroManualSeq === szam
+                                    ? 'border-amber-500 bg-amber-500 text-white'
+                                    : 'border-amber-300 bg-background text-amber-800 hover:bg-amber-100'
+                                }`}
+                              >
+                                {keltYear}/{szam}
+                              </button>
+                            ))}
+                            {retroInfo.osszesSzabad > 15 && (
+                              <span className="text-[11px] text-amber-800">
+                                további {retroInfo.osszesSzabad - 15} szabad szám
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Label htmlFor="retro-manual-seq" className="text-xs text-amber-900">
+                            Kézi sorszám:
+                          </Label>
+                          <Input
+                            id="retro-manual-seq"
+                            type="number"
+                            min={1}
+                            max={retroInfo.pointer > 0 ? retroInfo.pointer : undefined}
+                            inputMode="numeric"
+                            value={retroManualInput}
+                            onChange={(event) => setRetroManualInput(event.target.value)}
+                            placeholder="pl. 88"
+                            className="h-8 w-24"
+                          />
+                          {retroManualSeq !== null && retroInfo.pointer > 0 && retroManualSeq > retroInfo.pointer && (
+                            <span className="text-[11px] text-destructive">
+                              A számláló ({retroInfo.pointer}) feletti szám kézzel nem adható ki.
+                            </span>
+                          )}
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                )}
               </>
             )}
           </DialogHeader>

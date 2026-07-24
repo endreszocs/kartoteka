@@ -2,6 +2,12 @@
  * Iktató F8b (B2) — CIEC-mintájú, HÁROMNYELVŰ (hu/ro/en) életút-/családi
  * igazolás nyomtatvány-generátor.
  *
+ * F8c (2026-07-25): nyelv-mód (nyelvMod: 'hu' | 'ro' | 'en' | 'harom',
+ * default 'harom' — visszafelé kompatibilis). Egynyelvű módban a
+ * mezőfeliratok/címek/záradékok/keret-címkék CSAK az adott nyelven jelennek
+ * meg (a 3-nyelvű blokkok adott nyelvi sora), a levélfej is a mód nyelvét
+ * követi; a nyelvi záradék csak 'harom' módban kerül a nyomtatványra.
+ *
  * A szerkezet, a formulák és a kötelező/opcionális elemek forrása a kutatási
  * tervdoc: docs/project-tracking/KARTOTEKA-eletutigazolas-kutatas-2026-07-25.md
  *  - cím-blokk: IGAZOLÁS / ADEVERINȚĂ — extras din registrele parohiale… /
@@ -35,6 +41,15 @@ import type { EletutHazassag, EletutHiany, EletutIgazolasData } from './eletut-t
 // Publikus típus — a hívó (kiállító dialógus, B3) opciói
 // ─────────────────────────────────────────────────────────────────
 
+/**
+ * A nyomtatvány nyelv-módja (F8c): 'harom' = a hagyományos háromnyelvű
+ * (hu+ro+en) nyomtatvány; 'hu' / 'ro' / 'en' = egynyelvű változat, ahol a
+ * mezőfeliratok, címek és záradékok CSAK az adott nyelven jelennek meg
+ * (a meglévő 3-nyelvű blokkok adott nyelvi sora). A nyelvi záradék
+ * („eltérés esetén a román szöveg irányadó") csak 'harom' módban értelmes.
+ */
+export type EletutNyelvMod = 'hu' | 'ro' | 'en' | 'harom'
+
 export interface EletutIgazolasHtmlOptions {
   /** A B1 adatgyűjtő (eletut-actions) által összeállított igazolás-adatcsomag. */
   data: EletutIgazolasData
@@ -50,6 +65,8 @@ export interface EletutIgazolasHtmlOptions {
   lelkipasztor: string
   /** A főgondnok neve — üresen a vonal kézi aláírásra marad. */
   fogondnok?: string | null
+  /** Nyelv-mód — alapértelmezés: 'harom' (visszafelé kompatibilis). */
+  nyelvMod?: EletutNyelvMod
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -101,27 +118,39 @@ function nevelo(nev: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Háromnyelvű építőkövek
+// Nyelv-módos építőkövek ('harom' = mindhárom nyelv; különben egynyelvű)
 // ─────────────────────────────────────────────────────────────────
 
-/** Háromnyelvű mező-felirat blokk (HU vastag, RO/EN dőlt, kisebb betű). */
-function cimke(hu: string, ro: string, en: string): string {
-  return `<div class="cimke"><span class="hu">${hu}</span><br /><span class="ro">${ro}</span><br /><span class="en">${en}</span></div>`
+/** Az adott nyelvű változat kiválasztása ('harom' módban a hívó nem ezt használja). */
+function valaszt(mod: EletutNyelvMod, hu: string, ro: string, en: string): string {
+  return mod === 'ro' ? ro : mod === 'en' ? en : hu
 }
 
-/** Egy számozott CIEC-mező sor: sorszám + 3 nyelvű felirat + érték. */
-function mezoSor(szam: number, hu: string, ro: string, en: string, ertekHtml: string): string {
-  return `<tr class="mezo"><td class="szam">${szam}.</td><td>${cimke(hu, ro, en)}<div class="mezo-ertek">${ertekHtml}</div></td></tr>`
+/** Mező-felirat blokk: 'harom' = 3 sor (HU vastag, RO/EN dőlt); egynyelvű = 1 vastag sor. */
+function cimke(mod: EletutNyelvMod, hu: string, ro: string, en: string): string {
+  if (mod === 'harom') {
+    return `<div class="cimke"><span class="hu">${hu}</span><br /><span class="ro">${ro}</span><br /><span class="en">${en}</span></div>`
+  }
+  return `<div class="cimke"><span class="solo">${valaszt(mod, hu, ro, en)}</span></div>`
 }
 
-/** Szakasz-fejléc sor (A/B/C/D) — háromnyelvű, kiemelt háttérrel. */
-function szakaszSor(cim: string): string {
+/** Egy számozott CIEC-mező sor: sorszám + felirat(ok) + érték. */
+function mezoSor(mod: EletutNyelvMod, szam: number, hu: string, ro: string, en: string, ertekHtml: string): string {
+  return `<tr class="mezo"><td class="szam">${szam}.</td><td>${cimke(mod, hu, ro, en)}<div class="mezo-ertek">${ertekHtml}</div></td></tr>`
+}
+
+/** Szakasz-fejléc sor (A/B/C/D) — kiemelt háttérrel; 'harom' módban 3 nyelv egy sorban. */
+function szakaszSor(mod: EletutNyelvMod, hu: string, ro: string, en: string): string {
+  const cim = mod === 'harom' ? [hu, ro, en].join(' &middot; ') : valaszt(mod, hu, ro, en)
   return `<tr class="szakasz"><td colspan="2">${cim}</td></tr>`
 }
 
-/** Háromnyelvű záradék-blokk (HU normál + RO/EN dőlt, kisebb betű). */
-function zaradek(hu: string, ro: string, en: string): string {
-  return `<div class="zaradek"><p class="hu">${hu}</p><p class="ro">${ro}</p><p class="en">${en}</p></div>`
+/** Záradék-blokk: 'harom' = 3 bekezdés (HU normál + RO/EN dőlt); egynyelvű = 1 normál. */
+function zaradek(mod: EletutNyelvMod, hu: string, ro: string, en: string): string {
+  if (mod === 'harom') {
+    return `<div class="zaradek"><p class="hu">${hu}</p><p class="ro">${ro}</p><p class="en">${en}</p></div>`
+  }
+  return `<div class="zaradek"><p>${valaszt(mod, hu, ro, en)}</p></div>`
 }
 
 /**
@@ -158,9 +187,9 @@ const STILUS_ALAP = `
     @media print { body { background: #fff; padding: 0; } .sheet { margin: 0 auto; box-shadow: none; } }`
 
 /** Teljes HTML-dokumentum burkoló (iframe/srcdoc + print-engine-v2 kompatibilis). */
-function dokumentum(cim: string, stilus: string, lapTartalom: string): string {
+function dokumentum(cim: string, stilus: string, lapTartalom: string, lang = 'hu'): string {
   return `<!doctype html>
-<html lang="hu">
+<html lang="${lang}">
 <head>
 <meta charset="utf-8" />
 <title>${esc(cim)}</title>
@@ -202,6 +231,8 @@ const IGAZOLAS_STILUS = `${STILUS_ALAP}
     .cimke { font-size: 9pt; line-height: 1.28; }
     .cimke .hu { font-weight: bold; }
     .cimke .ro, .cimke .en { font-style: italic; color: #374151; }
+    /* Egynyelvű mód (F8c): az egyetlen felirat-sor vastag, nyelvtől függetlenül. */
+    .cimke .solo { font-weight: bold; }
     .mezo-ertek { font-size: 10.5pt; font-weight: 600; margin-top: .8mm; }
 
     table.gyermekek { width: 100%; border-collapse: collapse; margin-top: 1mm; }
@@ -253,6 +284,8 @@ function van1895ElottiBejegyzes(data: EletutIgazolasData): boolean {
  */
 export function buildEletutIgazolasHtml(opts: EletutIgazolasHtmlOptions): string {
   const { data, header, iratszam, helyseg, datum, lelkipasztor } = opts
+  // F8c: nyelv-mód — alapértelmezés 'harom' (visszafelé kompatibilis).
+  const mod: EletutNyelvMod = opts.nyelvMod || 'harom'
   const fogondnok = txt(opts.fogondnok)
   const adat = data.adat
   const szemely = adat.szemely
@@ -265,27 +298,53 @@ export function buildEletutIgazolasHtml(opts: EletutIgazolasHtmlOptions): string
   const nevRo = txt(header.nevRo) || hivatalos
   const nevEn = txt(header.nevEn) || hivatalos
 
-  // ── (1) Fejléc: magyar levélfej + kis 3-nyelvű egyház-lánc sor ──
-  const fejlec = buildLetterheadHtml('hu', header)
-  const egyhazLanc = `<div class="egyhaz-lanc">Romániai Református Egyház &middot; Biserica Reformată din România &middot; Reformed Church in Romania — cult recunoscut conform Legii nr. 489/2006</div>`
+  // ── (1) Fejléc: levélfej a dokumentum nyelvén + egyház-lánc sor ──
+  // 'harom' módban magyar levélfej (hagyomány); egynyelvűben a mód nyelve.
+  const fejlec = buildLetterheadHtml(mod === 'harom' ? 'hu' : mod, header)
+  const egyhazLancSzoveg =
+    mod === 'harom'
+      ? 'Romániai Református Egyház &middot; Biserica Reformată din România &middot; Reformed Church in Romania — cult recunoscut conform Legii nr. 489/2006'
+      : valaszt(
+          mod,
+          'Romániai Református Egyház',
+          'Biserica Reformată din România — cult recunoscut conform Legii nr. 489/2006',
+          'Reformed Church in Romania',
+        )
+  const egyhazLanc = `<div class="egyhaz-lanc">${egyhazLancSzoveg}</div>`
 
-  // ── (2) Iktatószám-sor + 3 nyelvű cím-blokk (tervdoc 2. pont) ──
-  const szamSor = `<div class="szam-sor">Szám / Nr. / No.: <b>${ertekVagyVonal(txt(iratszam), 30)}</b></div>`
+  // ── (2) Iktatószám-sor + cím-blokk (tervdoc 2. pont) ──
+  const szamCimke = mod === 'harom' ? 'Szám / Nr. / No.' : valaszt(mod, 'Szám', 'Nr.', 'No.')
+  const szamSor = `<div class="szam-sor">${szamCimke}: <b>${ertekVagyVonal(txt(iratszam), 30)}</b></div>`
+  const cimHu = `<div class="fo">IGAZOLÁS</div>
+    <div class="alcim">kivonat az egyházközségi anyakönyvekből</div>`
+  const cimRo = (fo: boolean) => `<div class="${fo ? 'fo' : 'masodik'}">ADEVERINȚĂ</div>
+    <div class="alcim">— extras din registrele parohiale (matricolele bisericești) —</div>`
+  const cimEn = (fo: boolean) => `<div class="${fo ? 'fo' : 'masodik'}">CERTIFICATE</div>
+    <div class="alcim">— Extract from the Parish Registers —</div>`
   const cimBlokk = `<div class="cim-blokk">
-    <div class="fo">IGAZOLÁS</div>
-    <div class="alcim">kivonat az egyházközségi anyakönyvekből</div>
-    <div class="masodik">ADEVERINȚĂ</div>
-    <div class="alcim">— extras din registrele parohiale (matricolele bisericești) —</div>
-    <div class="masodik">CERTIFICATE</div>
-    <div class="alcim">— Extract from the Parish Registers —</div>
+    ${
+      mod === 'harom'
+        ? `${cimHu}
+    ${cimRo(false)}
+    ${cimEn(false)}`
+        : valaszt(mod, cimHu, cimRo(true), cimEn(true))
+    }
   </div>`
 
-  // ── (3) Tanúsító nyitómondat mindhárom nyelven (tervdoc-formulák) ──
+  // ── (3) Tanúsító nyitómondat (tervdoc-formulák; egynyelvűben csak a mód nyelve) ──
   const lelkeszHtml = `<b>${esc(lelkipasztor)}</b>`
-  const nyito = `<div class="nyito">
-    <p class="hu">Alulírott ${lelkeszHtml}, ${nevelo(nevHu)} <b>${esc(nevHu)}</b> lelkipásztora, egyházközségünk hivatalos anyakönyveinek bejegyzései alapján igazolom, hogy az alábbi, számozott rovatokban foglalt adatok az anyakönyvi bejegyzésekkel mindenben megegyeznek:</p>
-    <p class="ro">Subsemnatul ${lelkeszHtml}, preot paroh (pastor) ${roParohia(nevRo)}, adeveresc prin prezenta, în conformitate cu înregistrările din registrele parohiale (matricolele bisericești) păstrate la oficiul parohial, că datele înscrise în rubricile numerotate de mai jos corespund întocmai înregistrărilor:</p>
-    <p class="en">I, the undersigned ${lelkeszHtml}, ${enParish(nevEn)}, do hereby certify from the records (parish registers) of this parish that the particulars entered in the numbered fields below are in full conformity with the said records:</p>
+  const nyitoHu = `Alulírott ${lelkeszHtml}, ${nevelo(nevHu)} <b>${esc(nevHu)}</b> lelkipásztora, egyházközségünk hivatalos anyakönyveinek bejegyzései alapján igazolom, hogy az alábbi, számozott rovatokban foglalt adatok az anyakönyvi bejegyzésekkel mindenben megegyeznek:`
+  const nyitoRo = `Subsemnatul ${lelkeszHtml}, preot paroh (pastor) ${roParohia(nevRo)}, adeveresc prin prezenta, în conformitate cu înregistrările din registrele parohiale (matricolele bisericești) păstrate la oficiul parohial, că datele înscrise în rubricile numerotate de mai jos corespund întocmai înregistrărilor:`
+  const nyitoEn = `I, the undersigned ${lelkeszHtml}, ${enParish(nevEn)}, do hereby certify from the records (parish registers) of this parish that the particulars entered in the numbered fields below are in full conformity with the said records:`
+  const nyito =
+    mod === 'harom'
+      ? `<div class="nyito">
+    <p class="hu">${nyitoHu}</p>
+    <p class="ro">${nyitoRo}</p>
+    <p class="en">${nyitoEn}</p>
+  </div>`
+      : `<div class="nyito">
+    <p>${valaszt(mod, nyitoHu, nyitoRo, nyitoEn)}</p>
   </div>`
 
   // ── (4) CIEC-stílusú számozott mezős táblázat ──
@@ -293,11 +352,11 @@ export function buildEletutIgazolasHtml(opts: EletutIgazolasHtmlOptions): string
   const sorok: string[] = []
   const mezo = (hu: string, ro: string, en: string, ertekHtml: string) => {
     sorszam += 1
-    sorok.push(mezoSor(sorszam, hu, ro, en, ertekHtml))
+    sorok.push(mezoSor(mod, sorszam, hu, ro, en, ertekHtml))
   }
 
   // A) Személy
-  sorok.push(szakaszSor('A) A SZEMÉLY &middot; PERSOANA &middot; THE PERSON'))
+  sorok.push(szakaszSor(mod, 'A) A SZEMÉLY', 'A) PERSOANA', 'A) THE PERSON'))
   mezo(
     'Családi és utóneve',
     'Numele și prenumele',
@@ -335,7 +394,10 @@ export function buildEletutIgazolasHtml(opts: EletutIgazolasHtmlOptions): string
   // B) Egyházi életút — anyakönyvi hivatkozásokkal (egyhazi_szam)
   sorok.push(
     szakaszSor(
-      'B) EGYHÁZI ÉLETÚT — AZ EGYHÁZKÖZSÉGI ANYAKÖNYVEK SZERINT &middot; PARCURSUL ÎN VIAȚA BISERICII — CONFORM REGISTRELOR PAROHIALE &middot; RECORD OF CHURCH LIFE — ACCORDING TO THE PARISH REGISTERS',
+      mod,
+      'B) EGYHÁZI ÉLETÚT — AZ EGYHÁZKÖZSÉGI ANYAKÖNYVEK SZERINT',
+      'B) PARCURSUL ÎN VIAȚA BISERICII — CONFORM REGISTRELOR PAROHIALE',
+      'B) RECORD OF CHURCH LIFE — ACCORDING TO THE PARISH REGISTERS',
     ),
   )
   const kereszteles = adat.kereszteles
@@ -412,12 +474,17 @@ export function buildEletutIgazolasHtml(opts: EletutIgazolasHtmlOptions): string
   })
 
   // C) Gyermekek — táblázatos alblokk (üres listánál kitöltő-vonalas sor)
-  sorok.push(szakaszSor('C) GYERMEKEI &middot; COPIII &middot; CHILDREN'))
+  sorok.push(szakaszSor(mod, 'C) GYERMEKEI', 'C) COPIII', 'C) CHILDREN'))
+  // Oszlop-fejlécek: 'harom' módban 3-nyelvű blokk, egynyelvűben a mód nyelve.
+  const gyermekTh = (hu: string, ro: string, en: string): string =>
+    mod === 'harom'
+      ? `<th>${hu}<span class="ro">${ro}</span><span class="en">${en}</span></th>`
+      : `<th>${valaszt(mod, hu, ro, en)}</th>`
   const gyermekFejlec = `<tr>
-    <th>Név<span class="ro">Numele</span><span class="en">Name</span></th>
-    <th>Születési idő<span class="ro">Data nașterii</span><span class="en">Date of birth</span></th>
-    <th>Keresztelés<span class="ro">Botezul (data)</span><span class="en">Baptism (date)</span></th>
-    <th>Anyakönyvi szám<span class="ro">Nr. înregistrării</span><span class="en">Register entry no.</span></th>
+    ${gyermekTh('Név', 'Numele', 'Name')}
+    ${gyermekTh('Születési idő', 'Data nașterii', 'Date of birth')}
+    ${gyermekTh('Keresztelés', 'Botezul (data)', 'Baptism (date)')}
+    ${gyermekTh('Anyakönyvi szám', 'Nr. înregistrării', 'Register entry no.')}
   </tr>`
   const gyermekSorok =
     adat.gyermekek.length > 0
@@ -435,6 +502,7 @@ export function buildEletutIgazolasHtml(opts: EletutIgazolasHtmlOptions): string
   sorszam += 1
   sorok.push(
     `<tr class="mezo"><td class="szam">${sorszam}.</td><td>${cimke(
+      mod,
       'Az anyakönyvekben bejegyzett gyermekei',
       'Copiii înregistrați în registrele parohiale',
       'Children entered in the parish registers',
@@ -448,7 +516,7 @@ export function buildEletutIgazolasHtml(opts: EletutIgazolasHtmlOptions): string
   const sirhely = txt(adat.sirhely)
   if (szemely.elhunyt || elhalalozas !== null || sirhely) {
     sorok.push(
-      szakaszSor('D) ELHALÁLOZÁSA ÉS NYUGHELYE &middot; DECESUL ȘI LOCUL DE VECI &middot; DEATH AND RESTING PLACE'),
+      szakaszSor(mod, 'D) ELHALÁLOZÁSA ÉS NYUGHELYE', 'D) DECESUL ȘI LOCUL DE VECI', 'D) DEATH AND RESTING PLACE'),
     )
     mezo(
       'Elhalálozás dátuma',
@@ -493,6 +561,7 @@ export function buildEletutIgazolasHtml(opts: EletutIgazolasHtmlOptions): string
 
   // ── (5) Záradékok — a tervdoc formulái szó szerint ──
   const forrasZaradek = zaradek(
+    mod,
     'Jelen igazolás a felsorolt adatokat az egyházközségi anyakönyvek bejegyzéseivel mindenben megegyezően, közhitelesen tanúsítja.',
     'Prezenta adeverință este întocmită conform registrelor parohiale, datele fiind conforme cu înregistrările originale. Certific exactitatea prezentului extras.',
     'I certify that the above is a true and correct extract from the parish registers kept at this parish office.',
@@ -503,6 +572,7 @@ export function buildEletutIgazolasHtml(opts: EletutIgazolasHtmlOptions): string
   const kerelmezoRo = kerelmezo ? `<b>${esc(kerelmezo)}</b>` : 'celui în drept'
   const kerelmezoEn = kerelmezo ? `<b>${esc(kerelmezo)}</b>` : 'the person concerned / an entitled family member'
   const celZaradek = zaradek(
+    mod,
     `Jelen igazolást ${kerelmezoHu} kérésére, ${cel ? esc(cel) : 'bíróság és hatóságok előtti felhasználás'} céljából adtam ki.`,
     `Prezenta adeverință s-a eliberat la cererea ${kerelmezoRo}, pentru a-i servi ${cel ? `la ${esc(cel)}` : 'în fața instanțelor judecătorești și a autorităților publice'}.`,
     `This certificate has been issued at the request of ${kerelmezoEn} for ${cel ? esc(cel) : 'submission to courts of law and public authorities'}.`,
@@ -510,28 +580,49 @@ export function buildEletutIgazolasHtml(opts: EletutIgazolasHtmlOptions): string
   // 1895. október 1. előtti bejegyzésnél közokirati megjegyzés (tervdoc 5. pont).
   const zaradek1895 = van1895ElottiBejegyzes(data)
     ? zaradek(
+        mod,
         'Megjegyzés: az 1895. október 1. előtti bejegyzések a korabeli jog (1894. évi XXXIII. tc.) szerint hivatalos állami anyakönyvi bejegyzésnek minősültek, így az azokból kiadott kivonat közokirati jellegű.',
         'Mențiune: înregistrările anterioare datei de 1 octombrie 1895 au fost efectuate în registrele confesionale care, potrivit legii în vigoare la acea dată (Legea XXXIII din 1894), aveau caracter de registre oficiale de stare civilă; extrasul eliberat din acestea are, prin urmare, caracter de act oficial.',
         'Note: entries made before 1 October 1895 were kept in the parish registers which, under the law then in force (Act XXXIII of 1894), served as the official civil registers; extracts issued from them therefore have the character of official public records.',
       )
     : ''
-  const nyelviZaradek = zaradek(
-    'Az igazolás magyar, román és angol nyelven készült; eltérés esetén a román szöveg irányadó.',
-    'Prezenta a fost întocmită în limbile maghiară, română și engleză; în caz de divergențe, textul în limba română prevalează.',
-    'Issued in Hungarian, Romanian and English; in case of discrepancy the Romanian text shall prevail.',
-  )
+  // A nyelvi záradék CSAK 'harom' módban értelmes (F8c) — egynyelvű
+  // nyomtatványon nincs több nyelvi változat, amire hivatkozhatna.
+  const nyelviZaradek =
+    mod === 'harom'
+      ? zaradek(
+          mod,
+          'Az igazolás magyar, román és angol nyelven készült; eltérés esetén a román szöveg irányadó.',
+          'Prezenta a fost întocmită în limbile maghiară, română și engleză; în caz de divergențe, textul în limba română prevalează.',
+          'Issued in Hungarian, Romanian and English; in case of discrepancy the Romanian text shall prevail.',
+        )
+      : ''
   const zaradekok = `<div class="zaradekok">${forrasZaradek}${celZaradek}${zaradek1895}${nyelviZaradek}</div>`
 
   // ── (6) Keltezés + két aláírás-blokk, középen P.H. / L.S. ──
-  const kelt = `<div class="kelt">Kelt / Emisă la / Issued at: <b>${ertekVagyVonal(helyseg, 35)}</b>, <b>${ertekVagyVonal(datum, 30)}</b></div>`
+  const keltCimke = mod === 'harom' ? 'Kelt / Emisă la / Issued at' : valaszt(mod, 'Kelt', 'Emisă la', 'Issued at')
+  const kelt = `<div class="kelt">${keltCimke}: <b>${ertekVagyVonal(helyseg, 35)}</b>, <b>${ertekVagyVonal(datum, 30)}</b></div>`
+  const lelkeszSzerep =
+    mod === 'harom'
+      ? 'Lelkipásztor / Preot paroh (Pastor) / Minister'
+      : valaszt(mod, 'Lelkipásztor', 'Preot paroh (Pastor)', 'Minister')
+  const fogondnokSzerep =
+    mod === 'harom' ? 'Főgondnok / Prim-curator / Chief Elder' : valaszt(mod, 'Főgondnok', 'Prim-curator', 'Chief Elder')
+  const pecsetFelirat = mod === 'harom' ? 'P.H. / L.S.' : valaszt(mod, 'P.H.', 'L.S.', 'L.S.')
   const alairasok = `<div class="alairasok">
-    <div class="alairas"><div class="vonal"></div><div class="nev">${esc(lelkipasztor)}</div><div class="szerep">Lelkipásztor / Preot paroh (Pastor) / Minister</div></div>
-    <div class="pecset">P.H. / L.S.</div>
-    <div class="alairas"><div class="vonal"></div><div class="nev">${fogondnok ? esc(fogondnok) : '&nbsp;'}</div><div class="szerep">Főgondnok / Prim-curator / Chief Elder</div></div>
+    <div class="alairas"><div class="vonal"></div><div class="nev">${esc(lelkipasztor)}</div><div class="szerep">${lelkeszSzerep}</div></div>
+    <div class="pecset">${pecsetFelirat}</div>
+    <div class="alairas"><div class="vonal"></div><div class="nev">${fogondnok ? esc(fogondnok) : '&nbsp;'}</div><div class="szerep">${fogondnokSzerep}</div></div>
   </div>`
 
   const lap = [fejlec, egyhazLanc, szamSor, cimBlokk, nyito, mezoTabla, zaradekok, kelt, alairasok].join('\n')
-  return dokumentum(`Életút-igazolás — ${txt(szemely.teljesNev) || 'egyháztag'}`, IGAZOLAS_STILUS, lap)
+  const dokCim =
+    mod === 'ro'
+      ? `Adeverință — ${txt(szemely.teljesNev) || 'membru'}`
+      : mod === 'en'
+        ? `Certificate — ${txt(szemely.teljesNev) || 'parish member'}`
+        : `Életút-igazolás — ${txt(szemely.teljesNev) || 'egyháztag'}`
+  return dokumentum(dokCim, IGAZOLAS_STILUS, lap, mod === 'harom' ? 'hu' : mod)
 }
 
 // ─────────────────────────────────────────────────────────────────

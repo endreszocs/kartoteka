@@ -147,7 +147,12 @@ export async function searchCongregations(
  *  3. szemely.member_status = 'elköltözött' (a removeMember 'elkoltozott'
  *     ágával azonosan),
  *  4. best-effort ertesitesek-üzenet a cél-gyülekezet lelkészeinek a kért
- *     szöveggel + a dokumentum szövegével (RLS-elutasításnál warning).
+ *     szöveggel + a dokumentum szövegével (RLS-elutasításnál warning),
+ *  5. F8c: best-effort kereszt-iktatás — az igazolás a FOGADÓ gyülekezet
+ *     iktatójába BEJÖVŐ iratként is bekerül (iktato_atadas_bejegyzes
+ *     SECURITY DEFINER RPC, hivatkozással a küldő iktatószámára); hibája
+ *     warning, a kiosztott fogadó-oldali iktatószám a warnings-ban és a
+ *     fogadoIktatoszam mezőben jön vissza.
  *
  * Duplikátum-őr: ha a taghoz MÁR van függő (pending) átjelentkezési kérelem
  * ugyanahhoz a cél-gyülekezethez, új elkoltozott-sort nem szúrunk be (nem
@@ -325,6 +330,63 @@ export async function registerAtadas(input: RegisterAtadasInput): Promise<Regist
     warnings.push(`A részletes in-app üzenet küldése nem sikerült (${e instanceof Error ? e.message : 'ismeretlen hiba'}) — az átjelentkezési kérelem kézbesült.`)
   }
 
+  // ── F8c: az igazolás iktatása a FOGADÓ gyülekezetnél BEJÖVŐ iratként ──
+  // A kereszt-gyülekezeti írást a SECURITY DEFINER iktato_atadas_bejegyzes
+  // RPC végzi (2026-07-25-f8c-atadas-kereszt-iktatas.sql): auth-horgonya a
+  // fenti elkoltozott-trigger által létrehozott (vagy már meglévő pending)
+  // átjelentkezési kérelem. Best-effort: ha az RPC hibázik (pl. a migráció
+  // még nem fut le, vagy a fogadó éve lezárt), csak warning megy vissza —
+  // az átadás és a kérelem ettől függetlenül él.
+  let fogadoIktatoszam: string | null = null
+  try {
+    const ma = new Date().toISOString().slice(0, 10)
+    const { data: crossData, error: crossErr } = await supabase.rpc('iktato_atadas_bejegyzes', {
+      p_szemely_id: szemelyId,
+      p_target_congregation_id: celCongregationId,
+      p_direction: 'incoming',
+      p_subject: `Egyháztag-átadási igazolás — ${tagNev} (érkezett: ${sajatNev})`,
+      p_sender_or_recipient: sajatNev,
+      p_kelt: ma,
+      p_external_ref_szam: iktatoszam,
+      p_targykivonat: `${tagNev} egyháztag-átadási igazolása a(z) ${sajatNev} egyházközségtől (küldő iktatószám: ${iktatoszam}).`,
+    })
+    if (crossErr) {
+      // PGRST202 / 42883 = az RPC még nincs telepítve az adatbázisban.
+      const rpcMissing =
+        crossErr.code === 'PGRST202' ||
+        crossErr.code === '42883' ||
+        /could not find the function/i.test(crossErr.message)
+      warnings.push(
+        rpcMissing
+          ? 'Az igazolás a fogadó gyülekezet iktatójába NEM került be: a kereszt-gyülekezeti iktató funkció (iktato_atadas_bejegyzes) még nincs telepítve az adatbázisban — az átjelentkezési kérelem ettől függetlenül kézbesült.'
+          : `Az igazolás a fogadó gyülekezet iktatójába nem került be (${crossErr.message}) — az átjelentkezési kérelem ettől függetlenül kézbesült.`,
+      )
+    } else {
+      const parsedCross = (crossData || null) as {
+        year?: number
+        sequence_number?: number
+      } | null
+      if (
+        parsedCross &&
+        typeof parsedCross.year === 'number' &&
+        typeof parsedCross.sequence_number === 'number'
+      ) {
+        fogadoIktatoszam = `${parsedCross.year}/${parsedCross.sequence_number}`
+        warnings.push(
+          `Az igazolás a(z) ${celNev} iktatókönyvében bejövő iratként is iktatva lett: ${fogadoIktatoszam} (hivatkozással a ${iktatoszam} iktatószámra).`,
+        )
+      } else {
+        warnings.push(
+          'A fogadó-oldali iktatás megtörtént, de a kiosztott iktatószám nem olvasható ki a válaszból.',
+        )
+      }
+    }
+  } catch (e) {
+    warnings.push(
+      `Az igazolás fogadó-oldali iktatása nem sikerült (${e instanceof Error ? e.message : 'ismeretlen hiba'}) — az átjelentkezési kérelem kézbesült.`,
+    )
+  }
+
   await logAuditEvent(
     {
       action: 'member.transfer_certificate',
@@ -335,6 +397,8 @@ export async function registerAtadas(input: RegisterAtadasInput): Promise<Regist
         cel_congregation_id: celCongregationId,
         actor_id: userId ?? null,
         duplicate_pending_skip: skipElkoltozott,
+        // F8c: a fogadó gyülekezetnél kiosztott bejövő iktatószám (ha sikerült).
+        fogado_iktatoszam: fogadoIktatoszam,
       },
     },
     supabase,
@@ -343,7 +407,7 @@ export async function registerAtadas(input: RegisterAtadasInput): Promise<Regist
   revalidatePath('/tagnyilvantartas')
   revalidatePath('/anyakonyv')
   revalidatePath('/notifications')
-  return { success: true, error: null, warnings }
+  return { success: true, error: null, warnings, fogadoIktatoszam }
 }
 
 // ─────────────────────────────────────────────────────────────────

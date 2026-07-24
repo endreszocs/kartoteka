@@ -36,4 +36,11 @@ export interface RegisterAtadasResult {
    * elutasította — a beépített átjelentkezési értesítés ettől még kézbesül).
    */
   warnings: string[]
+  /**
+   * F8c: az igazolás a FOGADÓ gyülekezet iktatójában BEJÖVŐ iratként is
+   * iktatásra kerül (iktato_atadas_bejegyzes RPC) — ez a kiosztott
+   * fogadó-oldali iktatószám ("év/sorszám"). null, ha a kereszt-iktatás
+   * nem sikerült (a részletek a warnings-ban).
+   */
+  fogadoIktatoszam?: string | null
 }
