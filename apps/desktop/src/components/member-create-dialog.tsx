@@ -65,7 +65,9 @@ type FormFields = {
   foglalkozas: string
   nemzetiseg: string
   csaladfo: '1' | '0'
-  voter_eligible: '1' | '0'
+  /** 2026-07-24 (PR-8 review): 3-állapotú választói felülbírálás — '' = automatikus
+   *  (a szabály dönt a következő újraszámításkor), '1'/'0' = kézi, MEGMARADÓ döntés. */
+  voter_override: '' | '1' | '0'
   member_status: string
   megjegyzes: string
 }
@@ -93,7 +95,7 @@ const EMPTY: FormFields = {
   foglalkozas: '',
   nemzetiseg: '',
   csaladfo: '0',
-  voter_eligible: '0',
+  voter_override: '',
   member_status: 'aktív',
   megjegyzes: '',
 }
@@ -189,7 +191,11 @@ export function MemberCreateDialog({
       foglalkozas: form.foglalkozas.trim() || null,
       nemzetiseg: form.nemzetiseg.trim() || null,
       csaladfo: form.csaladfo === '1',
-      voter_eligible: form.voter_eligible === '1',
+      // 2026-07-24 (PR-8 review): 3-állapotú felülbírálás — a kézi döntés
+      // felülbírálásként rögzül (a webes „Jogosultság frissítése" megőrzi);
+      // automatikus módban a szabály dönt a következő újraszámításkor.
+      voter_eligible: form.voter_override === '1',
+      voter_manual_override: form.voter_override === '' ? null : form.voter_override === '1' ? 1 : 0,
       meghalt: false,
       member_status: form.member_status || 'aktív',
       isvisible: true,
@@ -458,16 +464,25 @@ export function MemberCreateDialog({
               />
               Családfő
             </label>
+            {/* 2026-07-24 (PR-8 review): a sima jelölő némán ÖRÖK kézi felül-
+                bírálást hozott létre — helyette a szerkesztővel egyező,
+                3-állapotú választó, felirattal a megmaradásról. */}
             <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={form.voter_eligible === '1'}
-                onChange={(e) => upd('voter_eligible', e.currentTarget.checked ? '1' : '0')}
+              Választói jogosultság
+              <select
+                value={form.voter_override}
+                onChange={(e) => upd('voter_override', e.currentTarget.value as '' | '1' | '0')}
                 disabled={saving}
-                className="size-4 accent-violet-600"
-              />
-              Választó
+                className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm"
+              >
+                <option value="">Automatikus (a rendszer számítja)</option>
+                <option value="1">Kézi felülbírálás: VÁLASZTÓ</option>
+                <option value="0">Kézi felülbírálás: nem választó</option>
+              </select>
             </label>
+            <p className="-mt-1 text-[10px] italic text-slate-500">
+              A kézi felülbírálás a jogosultság-újraszámítás után is megmarad.
+            </p>
           </FormGroup>
 
           <FormGroup title="Megjegyzés (opcionális)">

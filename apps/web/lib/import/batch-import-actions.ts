@@ -227,6 +227,22 @@ export async function executeBatchImport(
       continue
     }
 
+    // 2026-07-17 (PR-1, F3.7 guard): a generikus batch-út NEM oldja fel az
+    // _utca_text/_helyseg_text virtuális címmezőket (nincs utca/helység-resolver
+    // a lookup-resolverben) — szemely-célú profilnál ez néma cím-vesztés lenne.
+    // Hangos hibával a tagnyilvántartás import-varázslójára irányítunk.
+    if (
+      profile.targetTable === 'szemely' &&
+      profile.columnMap.some((c) => c.dbColumn === '_utca_text' || c.dbColumn === '_helyseg_text')
+    ) {
+      allErrors.push({
+        sheet: config.sheetName,
+        row: 0,
+        message: `A(z) "${profile.label}" profil címmezőket (utca/helység) tartalmaz, amelyeket csak a Tagnyilvántartás import-varázslója tud feloldani — ezen az útvonalon a címek elvesznének. Használd a Tagnyilvántartás → Rendszergazdai importáló varázslót.`,
+      })
+      continue
+    }
+
     // Transzformálás
     const result: BatchTransformResult = transformSheet(
       sheet.rows,
@@ -234,6 +250,15 @@ export async function executeBatchImport(
       profile,
       ctx,
     )
+
+    // 2026-07-24 (PR-6 F7.4): a fel-nem-ismert oszlopok eddig NÉMÁN kimaradtak
+    // az importból — fejléc-átnevezésnél (új évi sablon) ez csendes adathiányt
+    // okozott. Mostantól hangos figyelmeztetés megy az eredménybe.
+    if (result.headerMatch.unmatched.length > 0 && allLookupStats.warnings.length < 50) {
+      allLookupStats.warnings.push(
+        `[${config.sheetName}] ${result.headerMatch.unmatched.length} oszlop NEM importálódik (nem párosítható a(z) "${profile.label}" profilhoz): ${result.headerMatch.unmatched.join(', ')}`,
+      )
+    }
 
     // Hibás sorok
     for (const err of result.errors) {

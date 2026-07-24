@@ -85,6 +85,39 @@ export function matchHeaders(
   return { matched, unmatched, missingRequired }
 }
 
+/**
+ * 2026-07-24 (PR-6 F7.3): fejléc-párosítás a wizard EXPLICIT mappingjéből.
+ * A mapping kulcsa az Excel-fejléc, értéke a cél dbColumn (null = kihagyás).
+ * A required-validáció változatlanul él; ismeretlen dbColumn-t (profil-drift)
+ * kihagyunk és unmatched-ként jelzünk.
+ */
+export function matchHeadersExplicit(
+  excelHeaders: string[],
+  profile: ImportProfile,
+  explicitMapping: Record<string, string | null>,
+): HeaderMatchResult {
+  const byDbColumn = new Map(profile.columnMap.map((col) => [col.dbColumn, col]))
+  const matched = new Map<string, ColumnMapping>()
+  const unmatched: string[] = []
+
+  for (const header of excelHeaders) {
+    const dbColumn = explicitMapping[header]
+    const mapping = dbColumn ? byDbColumn.get(dbColumn) : undefined
+    if (mapping) {
+      matched.set(header, mapping)
+    } else {
+      unmatched.push(header)
+    }
+  }
+
+  const matchedDbCols = new Set([...matched.values()].map((m) => m.dbColumn))
+  const missingRequired = profile.columnMap
+    .filter((col) => col.required && !matchedDbCols.has(col.dbColumn))
+    .map((col) => col.excelHeader)
+
+  return { matched, unmatched, missingRequired }
+}
+
 // ---------------------------------------------------------------------------
 // Cella konverzió
 // ---------------------------------------------------------------------------
@@ -329,8 +362,17 @@ export function transformSheet(
   headers: string[],
   profile: ImportProfile,
   ctx: AutoColumnContext,
+  /**
+   * 2026-07-24 (PR-6 F7.3): a wizard KÉZI oszlop-párosítása (excelHeader →
+   * dbColumn | null=kihagyás). Ha meg van adva, EZT használjuk az auto-match
+   * helyett — eddig a felhasználó átmappolása SOSEM jutott el a szerverig,
+   * és amit az előnézet mutatott, nem az importálódott.
+   */
+  explicitMapping?: Record<string, string | null>,
 ): BatchTransformResult {
-  const headerMatch = matchHeaders(headers, profile)
+  const headerMatch = explicitMapping
+    ? matchHeadersExplicit(headers, profile, explicitMapping)
+    : matchHeaders(headers, profile)
 
   // Ha kötelező oszlop hiányzik, az egész sheet hibás
   if (headerMatch.missingRequired.length > 0) {

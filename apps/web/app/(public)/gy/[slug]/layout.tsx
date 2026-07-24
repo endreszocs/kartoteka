@@ -1,9 +1,11 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import { loadPublicSiteBySlug } from '@/lib/public-site/site-loader'
-import { buildThemeCssVariables, buildGoogleFontsUrl } from '@/lib/public-site/theme-presets'
+import { buildThemeCssVariables } from '@/lib/public-site/theme-presets'
 import { PublicSiteHeader } from '@/components/public/public-site-header'
 import { PublicSiteFooter } from '@/components/public/public-site-footer'
+import { PublicRouteFrame } from './public-route-frame'
+import { isMemberPortalAuthEnabled } from './tagi-portal/auth-enabled'
 
 export async function generateMetadata({
   params,
@@ -37,13 +39,9 @@ export default async function CongregationSiteLayout({
     site.custom_primary_color,
     site.custom_accent_color,
   )
-  const googleFontsUrl = buildGoogleFontsUrl(site.theme)
-
-  return (
-    <div className="public-site-root min-h-screen flex flex-col">
-      {googleFontsUrl && (
-        <link rel="stylesheet" href={googleFontsUrl} precedence="default" />
-      )}
+  const memberPortalEnabled = isMemberPortalAuthEnabled()
+  const publicThemeBase = (
+    <>
       <style>{`
         .public-site-root {
           ${cssVariables}
@@ -204,7 +202,7 @@ export default async function CongregationSiteLayout({
         }
         .public-btn-outline:hover {
           border-color: var(--public-primary);
-          color: var(--public-primary);
+          color: var(--public-primary-on-surface);
           background: color-mix(in srgb, var(--public-primary) 6%, transparent);
         }
 
@@ -220,13 +218,13 @@ export default async function CongregationSiteLayout({
         .public-prose ul, .public-prose ol { margin: 1em 0; padding-left: 1.5em; }
         .public-prose li { margin: 0.4em 0; }
         .public-prose a {
-          color: var(--public-primary);
+          color: var(--public-primary-on-surface);
           text-decoration: underline;
           text-underline-offset: 3px;
           text-decoration-thickness: 1.5px;
         }
         .public-prose a:hover {
-          color: color-mix(in srgb, var(--public-primary) 80%, black);
+          color: color-mix(in srgb, var(--public-primary-on-surface) 80%, black);
         }
         .public-prose blockquote {
           border-left: 3px solid var(--public-accent);
@@ -241,11 +239,9 @@ export default async function CongregationSiteLayout({
           margin: 1.5em 0;
         }
 
-        /* Mobil touch target minimum */
-        .public-site-root a, .public-site-root button {
+        /* Mobil touch target minimum. A szövegközi linkeket nem méretezzük át. */
+        .public-site-root button {
           min-height: 44px;
-          display: inline-flex;
-          align-items: center;
         }
 
         /* Reduced motion */
@@ -264,14 +260,34 @@ export default async function CongregationSiteLayout({
           }
         }
       `}</style>
+    </>
+  )
 
-      <PublicSiteHeader site={site} />
+  const publicHeader = (
+    <>
+      <a
+        href="#public-main-content"
+        className="fixed left-4 top-3 z-[100000] -translate-y-24 rounded-xl bg-[var(--public-primary)] px-4 py-2 font-semibold text-white shadow-xl transition-transform focus:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--public-primary)] motion-reduce:transition-none"
+      >
+        Ugrás a fő tartalomra
+      </a>
+      <PublicSiteHeader
+        site={site}
+        memberPortalEnabled={memberPortalEnabled}
+      />
+    </>
+  )
 
-      <main className="flex-1">
-        {children}
-      </main>
-
-      <PublicSiteFooter site={site} />
-    </div>
+  return (
+    <PublicRouteFrame
+      publicFooter={<PublicSiteFooter site={site} />}
+      publicHeader={publicHeader}
+      publicHomePath={`/gy/${site.slug}`}
+      publicThemeBase={publicThemeBase}
+      memberDashboardPath={`/gy/${site.slug}/tagi-fiok`}
+      presetKey={site.theme.preset_key}
+    >
+      {children}
+    </PublicRouteFrame>
   )
 }

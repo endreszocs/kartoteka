@@ -64,9 +64,31 @@ export async function getDistrictsWithCounts() {
   const korzetek = districts
   const csaladok = ((csaladData || []) as Array<{ legacy_csalad_id: number; id_csoport: number }>)
     .map((r) => ({ id: r.legacy_csalad_id, id_csoport: r.id_csoport }))
+
+  // 2026-07-24 (PR-10): a körzethez KÖZVETLENÜL rendelt (család nélküli)
+  // személyek száma — ellenálló az oszlop hiányára (PR-10 migráció előtt).
+  const singleCountByCsoport = new Map<number, number>()
+  {
+    const { data: soloData, error: soloError } = await supabase
+      .from('szemely')
+      .select('id_csoport')
+      .eq('congregation_id', congregationId)
+      .eq('isvisible', true)
+      .eq('meghalt', false)
+      .not('id_csoport', 'is', null)
+    if (soloError) {
+      console.warn('[districts] szemely.id_csoport nem olvasható (PR-10 migráció?):', soloError.message)
+    } else {
+      for (const r of (soloData || []) as Array<{ id_csoport: number }>) {
+        singleCountByCsoport.set(r.id_csoport, (singleCountByCsoport.get(r.id_csoport) || 0) + 1)
+      }
+    }
+  }
+
   return korzetek.map(k => ({
     ...k,
     familyCount: csaladok.filter(c => c.id_csoport === k.id).length,
+    singleCount: singleCountByCsoport.get(k.id) || 0,
   }))
 }
 

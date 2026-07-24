@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import type { Metadata } from 'next'
 import {
   loadPublicSiteBySlug,
@@ -7,7 +8,9 @@ import {
   loadPublishedPosts,
 } from '@/lib/public-site/site-loader'
 import { PublicPostCard } from '@/components/public/public-post-card'
-import { ArrowLeft, Calendar, Share2 } from 'lucide-react'
+import { sanitizePostBody } from '@/lib/public-site/sanitize'
+import { shouldBypassPublicImageOptimization } from '@/lib/public-site/public-image'
+import { ArrowLeft, Calendar } from 'lucide-react'
 
 export async function generateMetadata({
   params,
@@ -51,6 +54,7 @@ export default async function PostDetailPage({
 
   const post = await loadPublishedPostBySlug(site.congregation_id, postSlug)
   if (!post) notFound()
+  const safeBodyHtml = sanitizePostBody(post.body_html)
 
   // Kapcsolódó (utolsó 3 másik) posztok ajánlása
   const allRecent = await loadPublishedPosts(site.congregation_id, 6)
@@ -62,13 +66,14 @@ export default async function PostDetailPage({
       <section className="relative overflow-hidden">
         {post.cover_image_url ? (
           <>
-            <div
-              className="absolute inset-0 z-0"
-              style={{
-                backgroundImage: `url(${post.cover_image_url})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-              }}
+            <Image
+              src={post.cover_image_url}
+              alt=""
+              fill
+              preload
+              sizes="100vw"
+              unoptimized={shouldBypassPublicImageOptimization(post.cover_image_url)}
+              className="z-0 object-cover"
             />
             <div
               className="absolute inset-0 z-10"
@@ -135,7 +140,7 @@ export default async function PostDetailPage({
         <div
           className="public-prose mx-auto text-base sm:text-lg public-anim-fade-up"
           style={{ color: 'var(--public-ink)' }}
-          dangerouslySetInnerHTML={{ __html: post.body_html }}
+          dangerouslySetInnerHTML={{ __html: safeBodyHtml }}
         />
 
         {/* Divider + share */}
@@ -173,7 +178,7 @@ export default async function PostDetailPage({
             <div className="mb-8 text-center">
               <div
                 className="text-xs sm:text-sm font-semibold tracking-widest uppercase mb-3"
-                style={{ color: 'var(--public-accent)' }}
+                style={{ color: 'var(--public-accent-on-surface)' }}
               >
                 Folytasd az olvasást
               </div>
@@ -183,7 +188,12 @@ export default async function PostDetailPage({
             </div>
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {related.map((p) => (
-                <PublicPostCard key={p.id} post={p} slug={site.slug} />
+                <PublicPostCard
+                  key={p.id}
+                  post={p}
+                  slug={site.slug}
+                  themeKey={site.theme.preset_key}
+                />
               ))}
             </div>
           </div>

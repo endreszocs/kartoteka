@@ -1,0 +1,148 @@
+.root {
+  isolation: isolate;
+}
+
+.root[data-public-theme="filmszeru-tortenet"],
+.root[data-public-theme="elo-kert"],
+.root[data-public-theme="csendes-parokia"],
+.root[data-public-theme="zsoltaros-orokseg"] {
+  background-color: var(--public-surface);
+  background-image:
+    radial-gradient(
+      circle at 8% 18%,
+      color-mix(in srgb, var(--public-primary) 6%, transparent),
+      transparent 26rem
+    ),
+    radial-gradient(
+      circle at 92% 46%,
+      color-mix(in srgb, var(--public-accent) 7%, transparent),
+      transparent 30rem
+    );
+  background-repeat: no-repeat;
+}
+
+/* Filmszeru tortenet: a kezdolap sajat shellt kap, az aloldalak sotet-zold,
+   arany reszletekkel folytatjak ugyanazt az arculatot. */
+.root[data-public-theme="filmszeru-tortenet"] {
+  --public-theme-card-shadow: 0 24px 58px -38px
+    color-mix(in srgb, var(--public-primary) 58%, transparent);
+}
+
+.root[data-public-theme="filmszeru-tortenet"] :global(.public-card) {
+  border-radius: max(var(--public-radius), 1.25rem);
+  box-shadow: var(--public-theme-card-shadow);
+}
+
+.root[data-public-theme="filmszeru-tortenet"] :global(.public-btn) {
+  border-radius: 999px;
+}
+
+.root[data-public-theme="filmszeru-tortenet"] :global(.public-site-header) {
+  box-shadow: 0 12px 42px -32px
+    color-mix(in srgb, var(--public-primary) 78%, transparent);
+}
+
+/* Elo kert: levegos, kozossegi, latszolag retegzett feluletek. */
+.root[data-public-theme="elo-kert"] {
+  --public-theme-card-shadow: 0 22px 55px -35px
+    color-mix(in srgb, var(--public-primary) 45%, transparent);
+}
+
+.root[data-public-theme="elo-kert"] :global(.public-card) {
+  border-radius: max(var(--public-radius), 1.5rem);
+  box-shadow: var(--public-theme-card-shadow);
+}
+
+.root[data-public-theme="elo-kert"] :global(.public-btn) {
+  border-radius: 1rem;
+}
+
+.root[data-public-theme="elo-kert"] :global(.public-site-header) {
+  box-shadow: 0 12px 40px -32px
+    color-mix(in srgb, var(--public-primary) 70%, transparent);
+}
+
+/* Csendes parokia: meleg, nyugodt, taktilis kartyak. */
+.root[data-public-theme="csendes-parokia"] {
+  background-position:
+    left 22rem,
+    right 64rem;
+}
+
+.root[data-public-theme="csendes-parokia"] :global(.public-card) {
+  border-radius: max(var(--public-radius), 1.125rem);
+  box-shadow: 0 18px 46px -34px
+    color-mix(in srgb, var(--public-ink) 42%, transparent);
+}
+
+.root[data-public-theme="csendes-parokia"] :global(.public-card:hover) {
+  transform: translateY(-2px);
+}
+
+.root[data-public-theme="csendes-parokia"] :global(.public-btn) {
+  border-radius: 0.875rem;
+}
+
+.root[data-public-theme="csendes-parokia"] :global(.public-site-header) {
+  border-bottom-color: color-mix(
+    in srgb,
+    var(--public-accent) 26%,
+    transparent
+  ) !important;
+}
+
+/* Zsoltaros orokseg: szerkesztosegi ritmus, finom vonalak, kevesebb lebeges. */
+.root[data-public-theme="zsoltaros-orokseg"] {
+  background-position:
+    left 16rem,
+    right 72rem;
+}
+
+.root[data-public-theme="zsoltaros-orokseg"] :global(h1),
+.root[data-public-theme="zsoltaros-orokseg"] :global(h2),
+.root[data-public-theme="zsoltaros-orokseg"] :global(h3) {
+  letter-spacing: 0.012em;
+}
+
+.root[data-public-theme="zsoltaros-orokseg"] :global(.public-card) {
+  border-radius: min(var(--public-radius), 0.5rem);
+  border-top-width: 3px;
+  border-top-color: var(--public-accent) !important;
+  box-shadow: none;
+}
+
+.root[data-public-theme="zsoltaros-orokseg"] :global(.public-card:hover) {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 40px -32px
+    color-mix(in srgb, var(--public-ink) 50%, transparent);
+}
+
+.root[data-public-theme="zsoltaros-orokseg"] :global(.public-btn) {
+  border-radius: 0.25rem;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.root[data-public-theme="zsoltaros-orokseg"] :global(.public-site-header) {
+  border-bottom-width: 2px;
+  border-bottom-color: color-mix(
+    in srgb,
+    var(--public-accent) 48%,
+    transparent
+  ) !important;
+}
+
+@media (min-width: 64rem) {
+  .root[data-public-theme="zsoltaros-orokseg"] :global(.public-container) {
+    max-width: 76rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root[data-public-theme="filmszeru-tortenet"] :global(.public-card:hover),
+  .root[data-public-theme="elo-kert"] :global(.public-card:hover),
+  .root[data-public-theme="csendes-parokia"] :global(.public-card:hover),
+  .root[data-public-theme="zsoltaros-orokseg"] :global(.public-card:hover) {
+    transform: none;
+  }
+}

@@ -3,7 +3,8 @@
 /**
  * Publikus access-request server action (M0.2).
  *
- * Anon user hívhatja — a Supabase RLS engedélyezi az INSERT-et.
+ * Anon user hívhatja, de az access_requests írás kizárólag a szerver action
+ * hitelesített, validált és rate-limitált service útvonalán történik.
  * Rate-limit: max 3 kérelem / IP / 24 óra (SQL-függvénnyel).
  * A user confirmation-emailt kap Brevo-n keresztül (vagy Resend-en, env szerint).
  * Az admin(ok) is kapnak notification-emailt.
@@ -11,10 +12,18 @@
 
 import { headers } from 'next/headers'
 
-import { createClient } from '@/lib/supabase/server'
+import {
+  removeAccessRequestDocument,
+  storeAccessRequestDocument,
+} from '@/lib/access-requests/document-storage'
+import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
+import { createPublicServerClient } from '@/lib/supabase/public-server'
 import { hashClientIp } from '@/lib/utils/ip-hash'
 import { sendEmail } from '@/lib/email/send'
 import { confirmationEmail, adminNotificationEmail } from '@/lib/email/templates/access-request'
+
+const GENERIC_SUBMISSION_ERROR =
+  'A kérelmet most nem sikerült rögzíteni. Kérjük, próbálja meg később.'
 
 export type AccessRequestRole =
   | 'lelkesz'
@@ -39,8 +48,8 @@ export interface SubmitAccessRequestInput {
   email: string
   full_name: string
   requested_role: AccessRequestRole
-  /** Új mező (v0.9.37): a kérelmező itt adja meg a saját jelszavát.
-   *  A signUp() egyből Supabase-user fiókot is létrehoz az `auth.users`-ben,
+  /** A kérelmező itt adja meg a saját jelszavát.
+   *  A szerver egy megerősítésre váró Supabase-user fiókot hoz létre,
    *  `email_confirmed_at = null` állapotban. Az admin elfogadás után
    *  `profiles.status = 'active'` lesz, és a user a megadott jelszóval beléphet.
    *  Min. 8 karakter. */
@@ -56,8 +65,6 @@ export interface SubmitAccessRequestInput {
   /** 2026-06-04 — kötelező egyházközség listából (congregations FK, UUID).
    *  A jóváhagyáskor ez lesz a profiles.congregation_id. */
   requested_congregation_id: string
-  /** 2026-06-03 — opcionális feltöltött igazolás útvonala (access-request-docs bucket). */
-  document_path?: string
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -66,11 +73,9 @@ export interface SubmitResult {
   success: boolean
   error?: string
   rateLimited?: boolean
-  /** 2026-05-02 (v0.9.43): jelzi, hogy az email már regisztrálva van —
-   *  a UI ekkor egy speciális képernyőt mutat: "Belépés / Elfelejtett jelszó". */
+  /** @deprecated Anti-enumeration miatt a szerver action már soha nem állítja be. */
   alreadyExists?: boolean
-  /** 2026-06-05: ha az email már regisztrálva van, MELYIK gyülekezetnél
-   *  (a registration_email_info RPC-ből). A UI kiírja az alreadyExists képernyőn. */
+  /** @deprecated Anti-enumeration miatt gyülekezetnév nem kerül publikus válaszba. */
   congregationName?: string | null
 }
 
@@ -81,14 +86,16 @@ export interface SubmitResult {
  *  1. Input validáció (szerveroldalon)
  *  2. IP-hash kiszámítása a request headerekből
  *  3. Rate-limit ellenőrzés (3/24h)
- *  4. INSERT az access_requests táblába
- *  5. Confirmation email a kérelmezőnek
- *  6. Notification email az admin(ok)nak
+ *  4. Anti-enumeráló, admin-oldali Auth signup-link generálás
+ *  5. Szerveroldali dokumentum-validálás + idempotens access_requests INSERT
+ *  6. Saját szolgáltatón át küldött email-megerősítő link
+ *  7. Notification email az admin(ok)nak
  *
  * Hibák nem szökkenek fel kivételként — minden esetben `SubmitResult`-et ad vissza.
  */
 export async function submitAccessRequest(
   input: SubmitAccessRequestInput,
+  documentData?: FormData,
 ): Promise<SubmitResult> {
   // ── 1. Input validáció ──────────────────────────────────────
   const email = (input.email || '').trim().toLowerCase()
@@ -99,7 +106,7 @@ export async function submitAccessRequest(
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return { success: false, error: 'Érvényes email-címet adjon meg.' }
   }
-  if (!fullName || fullName.length < 3) {
+  if (!fullName || fullName.length < 3 || fullName.length > 200) {
     return { success: false, error: 'Teljes nevét adja meg (min. 3 karakter).' }
   }
   if (!VALID_ROLES.includes(role)) {
@@ -113,7 +120,7 @@ export async function submitAccessRequest(
     return { success: false, error: 'A jelszó legfeljebb 72 karakter lehet (bcrypt limit).' }
   }
   // 2026-05-02 (v0.9.39) — Telefonszám kötelezővé téve.
-  if (!input.phone?.trim()) {
+  if (!input.phone?.trim() || input.phone.trim().length > 50) {
     return { success: false, error: 'A telefonszám megadása kötelező.' }
   }
   // 2026-06-03 — Egyházkerület + egyházmegye kötelezővé téve.
@@ -127,14 +134,26 @@ export async function submitAccessRequest(
   if (!input.requested_congregation_id || !UUID_RE.test(input.requested_congregation_id)) {
     return { success: false, error: 'Válassza ki az egyházközséget.' }
   }
+  if ((input.justification?.trim().length ?? 0) > 2000) {
+    return { success: false, error: 'Az indoklás legfeljebb 2000 karakter lehet.' }
+  }
+  if ((input.referrer?.trim().length ?? 0) > 500) {
+    return { success: false, error: 'A hivatkozás mező túl hosszú.' }
+  }
 
   // ── 2. IP-hash (GDPR-kompatibilis: csak hash, nem IP) ───────
   const requestHeaders = await headers()
   const ipHash = hashClientIp(requestHeaders)
   const userAgent = requestHeaders.get('user-agent')?.slice(0, 300) || null
 
-  // ── 3. Supabase kliens (anon — RLS policy engedélyezi az INSERT-et) ──
-  const supabase = await createClient()
+  if (!ipHash && process.env.NODE_ENV === 'production') {
+    console.error('[access-request] A kliens IP-je production környezetben nem oldható fel.')
+    return { success: false, error: GENERIC_SUBMISSION_ERROR }
+  }
+
+  // Cookie-mentes anon kliens: egy meglévő staff/tagi session nem változtathatja
+  // meg a publikus rate-limit és referenciaadat-lekérdezések RLS-kontextusát.
+  const supabase = createPublicServerClient()
 
   // ── 4. Rate-limit ellenőrzés ───────────────────────────────
   if (ipHash) {
@@ -143,7 +162,9 @@ export async function submitAccessRequest(
     })
     if (rlErr) {
       console.error('[access-request] rate-limit check hiba:', rlErr.message)
-      // Nem blokkoljuk — inkább engedjük át, mint hogy jogos kérelmet elutasítsunk
+      // A következő lépés privilegizált szerveroldali írás, ezért a rate-limit
+      // állapota nélkül fail closed módon megállunk.
+      return { success: false, error: GENERIC_SUBMISSION_ERROR }
     } else if (rlOk === false) {
       return {
         success: false,
@@ -153,152 +174,227 @@ export async function submitAccessRequest(
     }
   }
 
-  // ── 4/b. Előzetes email-ellenőrzés (2026-06-05) ────────────────────
-  // Ha az email MÁR regisztrálva van, NE a signUp anti-enumeration
-  // viselkedésére hagyatkozzunk (egyes Supabase-verziók némán sikert
-  // jeleznek). A registration_email_info RPC megbízhatóan visszaadja a
-  // státuszt ÉS a gyülekezet nevét — így megmondhatjuk a felhasználónak,
-  // melyik gyülekezetnél van regisztrálva, és átirányíthatjuk az
-  // "Elfelejtett jelszó" oldalra.
-  {
-    const { data: emailInfo } = await supabase.rpc('registration_email_info', {
-      p_email: email,
-    })
-    const info = (emailInfo || null) as { status?: string; congregation_name?: string | null } | null
-    if (info && info.status && info.status !== 'not_registered') {
-      const congName = info.congregation_name?.trim() || null
-      return {
-        success: false,
-        alreadyExists: true,
-        congregationName: congName,
-        error: congName
-          ? `Ez az email-cím már regisztrálva van a(z) ${congName} gyülekezetnél. ` +
-            'Ha emlékszik a jelszavára, lépjen be — különben állítsa vissza az "Elfelejtett jelszó" oldalon.'
-          : 'Ez az email-cím már regisztrálva van a Kartotéka rendszerben. ' +
-            'Ha emlékszik a jelszavára, lépjen be — különben állítsa vissza az "Elfelejtett jelszó" oldalon.',
-      }
-    }
+  // A teljes Auth + kérelem folyamatot a szerver koordinálja. A generateLink
+  // pontosan jelzi, hogy új user jött-e létre, ezért egy későbbi DB/Storage hiba
+  // esetén csak az ebben a hívásban létrehozott accountot kompenzáljuk vissza.
+  let adminClient: ReturnType<typeof getSupabaseAdminClient>
+  try {
+    adminClient = getSupabaseAdminClient()
+  } catch (error) {
+    console.error(
+      '[access-request] A szerveroldali kérelemíró kliens nem érhető el:',
+      error instanceof Error ? error.message : error,
+    )
+    return { success: false, error: GENERIC_SUBMISSION_ERROR }
   }
 
-  // ── 5. SUPABASE SIGN-UP — user fiók létrehozás a megadott jelszóval ─
-  // 2026-05-02 (v0.9.37): a felhasználó kérése — a kérelmező adja meg a
-  // jelszavát az űrlapon. A signUp() létrehoz egy auth.users sort
-  // (email_confirmed_at = null), és emailt küld a Supabase-en keresztül
-  // (vagy a Brevo SMTP-n, ha be van állítva a Supabase-ben).
-  //
-  // A POSTGRES "profiles" trigger automatikusan létrehoz egy 'pending' státuszú
-  // profil-sort. Az admin elfogadás → status='active' → a user beléphet.
-  //
-  // Ha az email már foglalt (signUp 422), bizonyos Supabase-verziók
-  // sikeres válasszal térnek vissza — csak nem küldenek email-t. Ez
-  // intentional anti-enumeration. Ekkor mi még meg tudjuk csinálni az
-  // access_requests insert-et, ami az admin szempontjából elegendő.
-  const { error: signUpErr } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: {
-        full_name: fullName,
-        requested_role: role,
+  // A kliens által küldött három UUID valódi hierarchiáját a szerver ellenőrzi.
+  const [dioceseResult, congregationResult] = await Promise.all([
+    adminClient
+      .from('dioceses')
+      .select('id, name, district_id, districts(name)')
+      .eq('id', input.requested_diocese_id)
+      .maybeSingle(),
+    adminClient
+      .from('congregations')
+      .select('id, name, nev_hu, diocese_id')
+      .eq('id', input.requested_congregation_id)
+      .maybeSingle(),
+  ])
+
+  if (
+    dioceseResult.error
+    || congregationResult.error
+    || !dioceseResult.data
+    || !congregationResult.data
+    || dioceseResult.data.district_id !== input.requested_district_id
+    || congregationResult.data.diocese_id !== input.requested_diocese_id
+  ) {
+    return { success: false, error: 'A kiválasztott egyházi szervezeti egységek nem illeszkednek.' }
+  }
+
+  const congregationName =
+    congregationResult.data.nev_hu?.trim()
+    || congregationResult.data.name?.trim()
+    || input.congregation_slug?.trim()
+    || null
+  const dioceseName = dioceseResult.data.name?.trim() || null
+  const districtRelation = dioceseResult.data.districts as
+    | { name?: string | null }
+    | Array<{ name?: string | null }>
+    | null
+  const districtName = Array.isArray(districtRelation)
+    ? districtRelation[0]?.name?.trim() || null
+    : districtRelation?.name?.trim() || null
+
+  // Idempotencia e-mail alapján még Auth-user létrehozása előtt. A publikus
+  // válasz meglévő kérelemnél és meglévő Auth-fióknál is ugyanaz marad.
+  const { data: existingRequest, error: existingRequestError } = await adminClient
+    .from('access_requests')
+    .select('id')
+    .eq('email', email)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (existingRequestError) {
+    console.error('[access-request] Idempotencia-ellenőrzési hiba.')
+    return { success: false, error: GENERIC_SUBMISSION_ERROR }
+  }
+  if (existingRequest) {
+    return { success: true }
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL
+    || (process.env.NODE_ENV === 'production' ? 'https://kartoteka.app' : 'http://localhost:3000')
+  let confirmationRedirect: string
+  try {
+    confirmationRedirect = new URL('/login?confirmed=1', appUrl).toString()
+  } catch {
+    console.error('[access-request] Érvénytelen NEXT_PUBLIC_APP_URL.')
+    return { success: false, error: GENERIC_SUBMISSION_ERROR }
+  }
+
+  const { data: signupLink, error: signupError } =
+    await adminClient.auth.admin.generateLink({
+      type: 'signup',
+      email,
+      password,
+      options: {
+        data: { full_name: fullName },
+        redirectTo: confirmationRedirect,
       },
-      emailRedirectTo:
-        (process.env.NEXT_PUBLIC_APP_URL || 'https://kartoteka.app') +
-        '/login?confirmed=1',
-    },
+    })
+
+  if (signupError) {
+    if (
+      signupError.code === 'user_already_exists'
+      || /already registered|already exists|user_already_exists/i.test(signupError.message)
+    ) {
+      return { success: true }
+    }
+    console.error('[access-request] Auth signup-link generálási hiba:', signupError.code)
+    return { success: false, error: GENERIC_SUBMISSION_ERROR }
+  }
+
+  const candidateUserId = signupLink.user?.id
+  const verificationUrl = signupLink.properties?.action_link
+  if (
+    !candidateUserId
+    || !verificationUrl
+    || signupLink.user.email?.trim().toLowerCase() !== email
+  ) {
+    console.error('[access-request] Hiányos vagy eltérő Auth signup-link válasz.')
+    if (candidateUserId && UUID_RE.test(candidateUserId)) {
+      const { error: cleanupError } =
+        await adminClient.auth.admin.deleteUser(candidateUserId)
+      if (cleanupError) {
+        console.error('[access-request] A hiányos signup-válasz kompenzációja sikertelen.')
+      }
+    }
+    return { success: false, error: GENERIC_SUBMISSION_ERROR }
+  }
+
+  let documentPath: string | null = null
+  try {
+    documentPath = await storeAccessRequestDocument(candidateUserId, documentData)
+  } catch (error) {
+    console.error(
+      '[access-request] A dokumentum szerveroldali ellenőrzése/tárolása sikertelen:',
+      error instanceof Error ? error.message : error,
+    )
+    const { error: authCleanupError } =
+      await adminClient.auth.admin.deleteUser(candidateUserId)
+    if (authCleanupError) {
+      console.error(
+        '[access-request] A dokumentumhiba utáni Auth kompenzáció sikertelen:',
+        authCleanupError.message,
+      )
+    }
+    return { success: false, error: GENERIC_SUBMISSION_ERROR }
+  }
+
+  // Az Auth-user, dokumentum és kérelem egy kompenzálható szerveroldali saga.
+  const { error: insErr } = await adminClient.from('access_requests').insert({
+    id: candidateUserId,
+    email,
+    full_name: fullName,
+    requested_role: role,
+    congregation_slug: congregationName,
+    phone: input.phone?.trim() || null,
+    justification: input.justification?.trim() || null,
+    referrer: input.referrer?.trim() || null,
+    requested_district_id: input.requested_district_id,
+    requested_diocese_id: input.requested_diocese_id,
+    requested_congregation_id: input.requested_congregation_id,
+    document_path: documentPath,
+    ip_hash: ipHash,
+    user_agent: userAgent,
+    resulting_user_id: candidateUserId,
   })
 
-  if (signUpErr) {
-    // 2026-05-02 (v0.9.43) — Felhasználó kérése: ha az email már létezik,
-    // konkrét üzenetet adjunk, NE pedig csendben folytassuk az access_request
-    // insertet (mert a user nem értené miért nem kap email-t).
-    //
-    // Egy belső gyülekezeti rendszerben az email-enumeration kockázata
-    // alacsony — a UX fontosabb: a usert átirányítjuk a Belépés vagy az
-    // Elfelejtett jelszó oldalra.
-    const isUserExists =
-      /already registered|already exists|user_already_exists/i.test(signUpErr.message)
-    if (isUserExists) {
-      return {
-        success: false,
-        alreadyExists: true,
-        error:
-          'Ez az email-cím már regisztrálva van a Kartotéka rendszerben. ' +
-          'Ha emlékszik a jelszavára, lépjen be — különben állítsa vissza az "Elfelejtett jelszó" oldalon.',
-      }
-    }
-    return {
-      success: false,
-      error: `A fiók-létrehozás nem sikerült: ${signUpErr.message}`,
-    }
-  }
-
-  // ── 6. INSERT az access_requests-be (admin elbírálás listája) ───────
-  const { error: insErr } = await supabase
-    .from('access_requests')
-    .insert({
-      email,
-      full_name: fullName,
-      requested_role: role,
-      congregation_slug: input.congregation_slug?.trim() || null,
-      phone: input.phone?.trim() || null,
-      justification: input.justification?.trim() || null,
-      referrer: input.referrer?.trim() || null,
-      requested_district_id: input.requested_district_id,
-      requested_diocese_id: input.requested_diocese_id,
-      requested_congregation_id: input.requested_congregation_id,
-      document_path: input.document_path?.trim() || null,
-      ip_hash: ipHash,
-      user_agent: userAgent,
-    })
-
   if (insErr) {
+    await removeAccessRequestDocument(documentPath)
+    const { error: authRollbackError } =
+      await adminClient.auth.admin.deleteUser(candidateUserId)
+    if (authRollbackError) {
+      console.error('[access-request] Az Auth kompenzáció sikertelen:', authRollbackError.message)
+    }
+    if (insErr.code === '23505') return { success: true }
+    console.error('[access-request] A kérelem beszúrása sikertelen:', insErr.message)
     return {
       success: false,
-      error: insErr.message || 'Nem sikerült rögzíteni a kérelmet.',
+      error: GENERIC_SUBMISSION_ERROR,
     }
   }
 
-  // ── 6/0. Egyházkerület + egyházmegye nevek az admin-emailhez ────────
-  // (a dioceses → districts join-ból; az anon SELECT engedélyezett rajtuk)
-  let dioceseName: string | null = null
-  let districtName: string | null = null
-  {
-    const { data: dioceseRow } = await supabase
-      .from('dioceses')
-      .select('name, districts(name)')
-      .eq('id', input.requested_diocese_id)
-      .maybeSingle()
-    if (dioceseRow) {
-      dioceseName = (dioceseRow as { name?: string }).name ?? null
-      const dist = (dioceseRow as { districts?: { name?: string } | null }).districts
-      districtName = dist?.name ?? null
-    }
-  }
-
-  // ── 6. Email-ek — fire-and-log (ha sikertelen, nem akadályozza a flow-t) ──
-
-  // 6/a. Confirmation a kérelmezőnek
+  // A generateLink nem küld levelet: a megerősítő URL-t a saját, auditálható
+  // email-szolgáltatónkon át adjuk át a kérelmezőnek.
   const confirmRes = await sendEmail(
     confirmationEmail({
       email,
       fullName,
       requestedRole: ROLE_LABELS[role],
+      verificationUrl,
     }),
   )
   if (!confirmRes.success) {
     console.error('[access-request] confirmation email hiba:', confirmRes.error)
+    if (process.env.NODE_ENV === 'production') {
+      const { error: requestRollbackError } = await adminClient
+        .from('access_requests')
+        .delete()
+        .eq('id', candidateUserId)
+
+      if (!requestRollbackError) {
+        await removeAccessRequestDocument(documentPath)
+        const { error: authRollbackError } =
+          await adminClient.auth.admin.deleteUser(candidateUserId)
+        if (authRollbackError) {
+          console.error(
+            '[access-request] Az email-hiba utáni Auth kompenzáció sikertelen:',
+            authRollbackError.message,
+          )
+        }
+      } else {
+        console.error(
+          '[access-request] Az email-hiba utáni kérelem-kompenzáció sikertelen:',
+          requestRollbackError.message,
+        )
+      }
+      return { success: false, error: GENERIC_SUBMISSION_ERROR }
+    }
   }
 
   // 6/b. Admin notification — nézzük meg, kik az aktív admin-ok
   // (egyelőre a `profiles.role='admin'` user-eket; M0.5-ben ez finomodhat)
-  const { data: admins } = await supabase
+  const { data: admins } = await adminClient
     .from('profiles')
     .select('email, full_name')
     .eq('role', 'admin')
     .not('email', 'is', null)
 
-  const adminPortalUrl =
-    (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000') + '/admin?tab=access-requests'
+  const adminPortalUrl = new URL('/admin?tab=access-requests', appUrl).toString()
 
   if (admins && admins.length > 0) {
     for (const admin of admins as Array<{ email: string; full_name: string | null }>) {
@@ -309,10 +405,10 @@ export async function submitAccessRequest(
           requesterName: fullName,
           requesterEmail: email,
           requestedRole: ROLE_LABELS[role],
-          congregationSlug: input.congregation_slug || null,
+          congregationSlug: congregationName,
           districtName,
           dioceseName,
-          hasDocument: Boolean(input.document_path?.trim()),
+          hasDocument: Boolean(documentPath),
           justification: input.justification || null,
           adminPortalUrl,
         }),
@@ -323,5 +419,6 @@ export async function submitAccessRequest(
     }
   }
 
+  // A válasz szándékosan azonos egy már létező e-mail esetével.
   return { success: true }
 }

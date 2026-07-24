@@ -19,6 +19,7 @@ import {
   useEffect,
   useImperativeHandle,
   useRef,
+  useState,
 } from 'react'
 import * as THREE from 'three'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
@@ -194,6 +195,8 @@ class GalaxyScene {
   private entrance = 0
   private motion = true
   private interactive = true
+  /** 2026-07-24 (PR-5 F8.5): érintős (finom pointer nélküli) eszköz — dpr-plafon + hover-raycast kihagyás */
+  private coarsePointer = false
   private raf = 0
   private lastNow = 0
   private disposed = false
@@ -232,8 +235,14 @@ class GalaxyScene {
     this.motion = !opts.reducedMotion
     this.interactive = opts.interactive
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' })
+    // 2026-07-24 (PR-5 F8.5, mobil-teljesítmény): érintős (finom pointer nélküli)
+    // eszközön alacsonyabb dpr-plafon + antialias ki (a composer render-targetjei
+    // miatt az MSAA amúgy is hatástalan volt — csak költség).
+    this.coarsePointer =
+      window.matchMedia('(any-pointer: coarse)').matches &&
+      !window.matchMedia('(any-pointer: fine)').matches
+    const dpr = Math.min(window.devicePixelRatio || 1, this.coarsePointer ? 1.5 : 2)
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: 'high-performance' })
     this.renderer.setClearColor(0x03080c, 1)
     this.renderer.setPixelRatio(dpr)
     container.appendChild(this.renderer.domElement)
@@ -305,6 +314,11 @@ class GalaxyScene {
     this.nodeGroup.traverse((o) => {
       const mesh = o as THREE.Points | THREE.LineSegments
       if (mesh.geometry) mesh.geometry.dispose()
+      // 2026-07-24 (PR-5 F8.5): a materialok is felszabadulnak — eddig minden
+      // kijelölés (teljes rebuild) GPU-memóriát/shader-programot szivárogtatott.
+      const material = (mesh as { material?: THREE.Material | THREE.Material[] }).material
+      if (Array.isArray(material)) material.forEach((m) => m.dispose())
+      else if (material) material.dispose()
     })
     this.nodeGroup = null
     this.nodePoints = null
@@ -486,13 +500,9 @@ class GalaxyScene {
 
   setHighlight(ids: Set<string> | null) {
     this.highlightIds = ids
-    // csak a dim-attribútumokat frissítjük — nem építünk újra
-    if (this.nodePoints) {
-      const attr = this.nodePoints.geometry.getAttribute('aDim') as THREE.BufferAttribute
-      this.nodeEntries.forEach((e, i) => attr.setX(i, this.nodeDim(e.node)))
-      attr.needsUpdate = true
-    }
-    // az élek dimje újraépítést igényel (vertex-szín) — olcsóbb teljes rebuild
+    // 2026-07-24 (PR-5 F8.5): az él-dim vertex-szín, ezért teljes rebuild kell —
+    // a korábbi attribútum-frissítés HALOTT kód volt (a rebuild úgyis felülírta),
+    // csak duplán dolgozott minden kijelölésnél.
     this.buildGraph()
   }
 
@@ -591,6 +601,9 @@ class GalaxyScene {
   }
 
   private updateHover() {
+    // 2026-07-24 (PR-5 F8.5): érintős eszközön nincs hover — a minden-frame-es
+    // raycast ott csak akkumelegítő volt.
+    if (this.coarsePointer) return
     if (!this.nodePoints || !this.interactive) return
     this.ray.setFromCamera(this.mouse, this.camera)
     this.ray.params.Points!.threshold = Math.max(8, this.camDist / 44)
@@ -655,6 +668,10 @@ class GalaxyScene {
     this.starsFar.geometry.dispose()
     this.starsNear.geometry.dispose()
     ;(this.nebula.geometry as THREE.BufferGeometry).dispose()
+    // 2026-07-24 (PR-5 F8.5): a csillagtér/köd materialjai is felszabadulnak
+    ;(this.starsFar.material as THREE.Material).dispose()
+    ;(this.starsNear.material as THREE.Material).dispose()
+    ;(this.nebula.material as THREE.Material).dispose()
     this.composer.dispose()
     this.renderer.dispose()
     if (this.renderer.domElement.parentElement === this.container) {
@@ -680,11 +697,16 @@ export const FamilyGalaxyCanvas = forwardRef<FamilyGalaxyHandle, FamilyGalaxyCan
       reset: () => sceneRef.current?.reset(),
     }), [])
 
+    // 2026-07-24 (PR-5 F8.5): a WebGL-hiba többé nem néma üres fekete doboz —
+    // látható üzenet + a Csomópontlista-alternatíva ajánlása.
+    const [webglFailed, setWebglFailed] = useState(false)
+
     // Init (egyszer) — az adat-/szűrő-frissítéseket külön effektek kezelik
     useEffect(() => {
       const container = containerRef.current
       if (!container) return
       let scene: GalaxyScene | null = null
+      const handleContextLost = () => setWebglFailed(true)
       try {
         scene = new GalaxyScene(container, {
           data, density, filters, reducedMotion, interactive,
@@ -692,15 +714,17 @@ export const FamilyGalaxyCanvas = forwardRef<FamilyGalaxyHandle, FamilyGalaxyCan
         scene.onSelect = (id) => onSelectNode(id)
         scene.onHover = (node, x, y) => onHoverNode?.(node, x, y)
         sceneRef.current = scene
+        container.querySelector('canvas')?.addEventListener('webglcontextlost', handleContextLost)
       } catch (err) {
-        // WebGL nem elérhető / kontextus-hiba — csendes fallback (a szülő üres teret mutat)
         console.error('[family-galaxy] WebGL init failed', err)
+        setWebglFailed(true)
       }
 
       const ro = new ResizeObserver(() => sceneRef.current?.resize())
       ro.observe(container)
       return () => {
         ro.disconnect()
+        container.querySelector('canvas')?.removeEventListener('webglcontextlost', handleContextLost)
         scene?.dispose()
         sceneRef.current = null
       }
@@ -708,11 +732,43 @@ export const FamilyGalaxyCanvas = forwardRef<FamilyGalaxyHandle, FamilyGalaxyCan
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
-    useEffect(() => { sceneRef.current?.setData(data, density, filters) }, [data, density, filters])
-    useEffect(() => { sceneRef.current?.setHighlight(highlightIds) }, [highlightIds])
+    // 2026-07-24 (PR-5 F8.5): a mount UTÁNI első effekt-futás kihagyása — a
+    // konstruktor már felépítette a gráfot, az azonnali setData/setHighlight
+    // duplán építette ugyanazt (dupla induló költség).
+    const firstDataRun = useRef(true)
+    useEffect(() => {
+      if (firstDataRun.current) {
+        firstDataRun.current = false
+        return
+      }
+      sceneRef.current?.setData(data, density, filters)
+    }, [data, density, filters])
+    const firstHighlightRun = useRef(true)
+    useEffect(() => {
+      if (firstHighlightRun.current) {
+        firstHighlightRun.current = false
+        if (!highlightIds) return
+      }
+      sceneRef.current?.setHighlight(highlightIds)
+    }, [highlightIds])
     useEffect(() => { sceneRef.current?.setMotion(!reducedMotion) }, [reducedMotion])
     useEffect(() => { sceneRef.current?.setInteractive(interactive) }, [interactive])
 
-    return <div ref={containerRef} className="absolute inset-0 size-full" />
+    return (
+      <div ref={containerRef} className="absolute inset-0 size-full">
+        {webglFailed && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center p-6 text-center">
+            <div className="max-w-sm rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+              <p className="font-heading text-lg font-semibold text-white">A látványos háló itt nem indítható el</p>
+              <p className="mt-2 text-sm leading-6 text-teal-50/60">
+                Ezen az eszközön/böngészőben a WebGL nem elérhető vagy megszakadt.
+                A családok és kapcsolatok a <strong>Csomópontlista</strong> gombbal
+                továbbra is teljeskörűen böngészhetők.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    )
   },
 )

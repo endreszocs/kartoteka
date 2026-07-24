@@ -1,4 +1,5 @@
 import { AGE_GROUPS, type EnrichedMember } from '@/lib/constants/members'
+import { isAdult } from '@/lib/members/age'
 
 export interface MemberOverviewPerson {
   id: number
@@ -206,7 +207,9 @@ export function buildMemberOverviewSnapshot(
       left: members.filter((member) => member.member_status === 'kitért').length,
       topFam: Object.entries(familyNames).sort((left, right) => right[1] - left[1]).slice(0, 10),
       topFirst: Object.entries(firstNames).sort((left, right) => right[1] - left[1]).slice(0, 10),
-      currentVoters: ages.filter((age) => age >= 18).length,
+      // 2026-07-17 (PR-2 F1.4): dátum-pontos 18+ (a voter-RPC szemantikájával
+      // egyezően) — az évszám-alapú számítás a szülinap előtt is felnőttnek vett.
+      currentVoters: activeMembers.filter((member) => isAdult(member.sz_datum)).length,
       currentKonfirmando: groups['13-14'],
     },
   }

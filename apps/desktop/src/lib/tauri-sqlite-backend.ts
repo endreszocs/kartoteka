@@ -1216,10 +1216,16 @@ export class TauriSqliteBackend implements StorageBackend {
    * A SQLite SELECT csak a status-szűrőt és az ORDER BY-t alkalmazza; a
    * diakritika-tolerans search a JS oldalon történik (NFD normalizálás +
    * substring), mert a SQLite default collation nem ismeri a magyar/román
-   * ékezeteket. A `limit` a tipikus 200-1000 sor mellett gyors marad.
+   * ékezeteket.
+   *
+   * 2026-07-24 (PR-8, F9 P1): kereséskor a LIMIT-et a SZŰRÉS UTÁN alkalmazzuk —
+   * korábban a SQL LIMIT előbb vágott (családnév-sorrend első N sora), és a
+   * JS-kereső már csak abban keresett: egy 600 fős gyülekezetben a „Zoltán"
+   * keresés a 20-as picker-limitnél 0 találatot adott.
    */
   async listLocalSzemely(input: SzemelyListInput): Promise<SzemelyListRow[]> {
     const limit = input.limit ?? 500
+    const search = (input.search ?? '').trim()
 
     // Status WHERE — alap a 'mind'
     const whereParts: string[] = ['congregation_id = ?1', 'isvisible = 1']
@@ -1270,37 +1276,40 @@ export class TauriSqliteBackend implements StorageBackend {
         sz_datum, ferfi, csaladfo, meghalt, member_status,
         apjaneve, anyjaneve,
         c_szam, c_tombhaz, c_lepcsohaz, c_ajto, c_emelet, c_szcim,
-        telefon, email, vallas, foglalkozas, nemzetiseg, voter_eligible,
+        telefon, email, vallas, foglalkozas, nemzetiseg, voter_eligible, voter_manual_override,
         congregation_id, family_id, type, isvisible, megjegyzes,
         revision, updated_at
       FROM szemely_local
       WHERE ${whereParts.join(' AND ')}
       ${orderSql}
-      LIMIT ${Math.floor(limit)}`
+      ${search ? '' : `LIMIT ${Math.floor(limit)}`}`
 
     const rows = await dbSelect<SzemelyListRow>(sql, params as never)
 
     // Diakritika-toleráns search a JS-oldalon (a SQLite COLLATE NOCASE nem ismeri
     // a magyar/román ékezetek normalizálását)
-    const search = (input.search ?? '').trim()
     if (!search) return rows
 
     const norm = (s: string | null | undefined): string =>
       (s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
     const needle = norm(search)
 
-    return rows.filter((r) => {
-      const fields = [
-        r.csaladnev,
-        r.k_nev,
-        r.ferjk_nev,
-        r.szcs_nev,
-        r.c_szcim,
-        r.telefon,
-        r.email,
-      ]
-      return fields.some((f) => norm(f).includes(needle))
-    })
+    // A limit a TALÁLATOKRA vonatkozik (nem a nyers lekérdezésre) — így a
+    // keresés a teljes helyi állományban dolgozik.
+    return rows
+      .filter((r) => {
+        const fields = [
+          r.csaladnev,
+          r.k_nev,
+          r.ferjk_nev,
+          r.szcs_nev,
+          r.c_szcim,
+          r.telefon,
+          r.email,
+        ]
+        return fields.some((f) => norm(f).includes(needle))
+      })
+      .slice(0, Math.floor(limit))
   }
 
   /**
@@ -1379,6 +1388,8 @@ export class TauriSqliteBackend implements StorageBackend {
     foglalkozas: string | null
     nemzetiseg: string | null
     voter_eligible: boolean
+    /** 2026-07-24 (PR-8): kézi felülbírálás (NULL=auto, 1=választó, 0=nem). */
+    voter_manual_override?: number | null
     family_id: string | null
     type: string | null
     isvisible: boolean
@@ -1393,7 +1404,7 @@ export class TauriSqliteBackend implements StorageBackend {
         c_szam, c_tombhaz, c_lepcsohaz, c_ajto, c_emelet, c_szcim,
         telefon, email, vallas, foglalkozas, nemzetiseg, voter_eligible,
         family_id, type, isvisible, megjegyzes,
-        userid, sync_state, created_at, updated_at
+        userid, sync_state, created_at, updated_at, voter_manual_override
       ) VALUES (
         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
         ?9, ?10, ?11, ?12, ?13,
@@ -1401,7 +1412,7 @@ export class TauriSqliteBackend implements StorageBackend {
         ?18, ?19, ?20, ?21, ?22, ?23,
         ?24, ?25, ?26, ?27, ?28, ?29,
         ?30, ?31, ?32, ?33,
-        ?34, 'pending', datetime('now'), datetime('now')
+        ?34, 'pending', datetime('now'), datetime('now'), ?35
       )`,
       [
         row.id,
@@ -1438,6 +1449,7 @@ export class TauriSqliteBackend implements StorageBackend {
         row.isvisible ? 1 : 0,
         row.megjegyzes,
         row.userid,
+        row.voter_manual_override ?? null,
       ],
     )
   }

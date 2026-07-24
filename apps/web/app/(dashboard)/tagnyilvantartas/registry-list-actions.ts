@@ -229,17 +229,22 @@ function decodeCursor(cursor: string | null | undefined, expectedFingerprint: st
 
 function normalizeMemberRow(row: unknown): MemberRow {
   const raw = row as MemberRow & {
-    adrstreet?: NameRelation | NameRelation[] | null
+    adrstreet?: (NameRelation & { adrlocality?: NameRelation | NameRelation[] | null }) | Array<NameRelation & { adrlocality?: NameRelation | NameRelation[] | null }> | null
     adrlocality?: NameRelation | NameRelation[] | null
     birthLocality?: NameRelation | NameRelation[] | null
   }
+
+  // 2026-07-17 (PR-1, település-P0): ha a c_helysegid-join üres (import-hiba
+  // öröksége), a település az utca → adrstreet.localityid láncból pótlódik.
+  const street = pickRelation(raw.adrstreet) as (NameRelation & { adrlocality?: NameRelation | NameRelation[] | null }) | null
+  const streetLocality = street ? (pickRelation(street.adrlocality) as { name: string } | null) : null
 
   return {
     ...raw,
     // A jelenlegi production sémában a költözés a member_status mezőn él.
     elkoltozott: raw.elkoltozott ?? false,
-    adrstreet: pickRelation(raw.adrstreet) as { name: string } | null,
-    adrlocality: pickRelation(raw.adrlocality) as { name: string } | null,
+    adrstreet: street ? { name: street.name as string } : null,
+    adrlocality: (pickRelation(raw.adrlocality) as { name: string } | null) ?? streetLocality,
     birthLocality: pickRelation(raw.birthLocality) as { name: string } | null,
   }
 }
@@ -255,7 +260,7 @@ async function loadMemberRows(supabase: SupabaseClient, congregationId: string) 
         mailing_consent, social_profil_url, voter_eligible, voter_manual_override,
         type, befizetoev, id_apja, id_anyja, apjaneve, anyjaneve, megjegyzes,
         c_helysegid, c_utcaid, c_szam, c_tombhaz, c_lepcsohaz, c_emelet, c_ajto,
-        congregation_id, adrstreet!c_utcaid(name), adrlocality!c_helysegid(name),
+        congregation_id, adrstreet!c_utcaid(name, adrlocality!localityid(name)), adrlocality!c_helysegid(name),
         birthLocality:adrlocality!sz_helyid(name)
       `)
       .eq('congregation_id', congregationId)

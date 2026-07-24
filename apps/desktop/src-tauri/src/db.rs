@@ -2072,8 +2072,26 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("v32 migráció (munkanaplo napszak/úrvacsorázók) sikertelen: {e}"))?;
     }
 
+    // v33 (2026-07-24, PR-8 — választói felülbírálás paritás): a Supabase
+    // `szemely.voter_manual_override` lokális tükre (NULL = automatikus,
+    // 1 = kézzel választó, 0 = kézzel nem választó). A desktop eddig a
+    // voter_eligible-t közvetlenül írta, amit a webes „Jogosultság frissítése"
+    // (recompute) felülírt — a felülbírálás-oszloppal a kézi döntés megmarad.
+    if current < 33 {
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            ALTER TABLE szemely_local ADD COLUMN voter_manual_override INTEGER;
+            ALTER TABLE szemely_pending_local ADD COLUMN voter_manual_override INTEGER;
+            PRAGMA user_version = 33;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v33 migráció (voter_manual_override) sikertelen: {e}"))?;
+    }
+
     // Jövőbeli migrációk ide:
-    // if current < 33 { ... PRAGMA user_version = 33; }
+    // if current < 34 { ... PRAGMA user_version = 34; }
 
     Ok(())
 }
