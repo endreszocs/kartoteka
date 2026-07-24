@@ -43,7 +43,9 @@ interface MemberFormDialogProps {
 // 2026-06-02: a user kérése — input mezők JOBBAN láthatóak legyenek.
 // Egységes osztály minden szerkeszthető mezőre: fehér háttér, finom shadow,
 // határozott szürke border. (Eddig az alap Input bg-background = transparent-szerű.)
-const FIELD_CLASS = 'min-h-11 rounded-xl bg-white shadow-sm border-slate-300 focus-visible:border-emerald-400 focus-visible:ring-emerald-300/40'
+// 2026-07-24 (PR-4): + dark-mode tokenek — a hard-kódolt fehér mezők sötét
+// módban fehér foltként világítottak a sötét kártyán.
+const FIELD_CLASS = 'min-h-11 rounded-xl bg-white shadow-sm border-slate-300 focus-visible:border-emerald-400 focus-visible:ring-emerald-300/40 dark:bg-slate-900/60 dark:border-slate-700'
 const FIELD_CLASS_COMPACT = FIELD_CLASS + ' h-11'
 
 type WizardStep = 1 | 2 | 3
@@ -57,7 +59,10 @@ const WIZARD_STEPS: { id: WizardStep; label: string; icon: typeof User }[] = [
 // erre a lépésre ugrunk vissza, különben a hibajelzés láthatatlan maradna
 // (a „nem történik semmi a mentésre" bug oka).
 const STEP1_FIELDS: readonly (keyof MemberFormValues)[] = ['csaladnev', 'k_nev', 'szcs_nev', 'ferfi', 'sz_datum', 'sz_hely_text', 'foglalkozas', 'vallas', 'c_helyseg_text', 'c_utca_text', 'c_szam', 'c_tombhaz', 'c_lepcsohaz', 'c_emelet', 'c_ajto', 'telefon', 'email', 'megjegyzes', 'apjaneve', 'anyjaneve', 'id_apja_cnp', 'id_anyja_cnp', 'bek_datum', 'bek_honnan', 'bek_igazolas', 'att_datum', 'att_felekezet', 'att_honnan', 'belepes_oka']
-const STEP2_FIELDS: readonly (keyof MemberFormValues)[] = ['kereszteles_datum', 'kereszteles_hely', 'kereszteles_lelkesz', 'konfirmacio_datum', 'konfirmacio_hely', 'konfirmacio_lelkesz', 'esketes_datum', 'esketes_hely', 'esketes_lelkesz', 'esketes_hazastars_nev']
+// 2026-07-24 (PR-4, D4 döntés): az esketés-mezők KIKERÜLTEK — a saveMember soha
+// nem mentette őket (néma adatvesztés volt), az esketés rögzítése kizárólag az
+// Anyakönyv → Esketés modulban történik.
+const STEP2_FIELDS: readonly (keyof MemberFormValues)[] = ['kereszteles_datum', 'kereszteles_hely', 'kereszteles_lelkesz', 'konfirmacio_datum', 'konfirmacio_hely', 'konfirmacio_lelkesz']
 
 export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormDialogProps) {
   const [loading, setLoading] = useState(false)
@@ -144,6 +149,9 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
         photo_consent: editMember.photo_consent ?? false,
         mailing_consent: editMember.mailing_consent ?? false,
         social_profil_url: editMember.social_profil_url || '',
+        // 2026-07-24 (PR-4 F5.10): a Fizetési státusz előtöltése — eddig
+        // szerkesztésnél mindig 'fizet'-en állt, a mentés pedig ignorálta.
+        fizeto_status: editMember.paymentStatus === 'felmentett' ? 'felmentett' : 'fizet',
       })
     } else {
       setStep('choose')
@@ -286,7 +294,7 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
 
         {/* Pre-screen: belépés oka */}
         {step === 'choose' && !editMember && (
-          <div className="space-y-3 py-4">
+          <div className="space-y-3 px-4 py-4 sm:px-6">
             <p className="text-sm text-muted-foreground">Válassza ki a belépés okát:</p>
             {ENTRY_REASONS.map(r => (
               <Button key={r} variant="outline" className="h-auto min-h-14 w-full justify-start rounded-xl py-3 text-left" onClick={() => selectEntryReason(r)}>
@@ -382,7 +390,7 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                     </div>
                   </div>
 
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
                   <div className="space-y-1.5">
                     <Label htmlFor="member-csaladnev">Családnév *</Label>
                     <Input id="member-csaladnev" {...register('csaladnev')} placeholder="Kovács" className={FIELD_CLASS} aria-invalid={!!errors.csaladnev} />
@@ -392,6 +400,11 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                     <Label htmlFor="member-k-nev">Keresztnév *</Label>
                     <Input id="member-k-nev" {...register('k_nev')} placeholder="János" className={FIELD_CLASS} aria-invalid={!!errors.k_nev} />
                     {errors.k_nev && <p role="alert" className="text-xs text-destructive">{errors.k_nev.message}</p>}
+                  </div>
+                  {/* 2026-07-24 (PR-4 F5.10): eddig a mentés írta, de input NEM volt hozzá */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="member-szcs-nev">Leánykori név</Label>
+                    <Input id="member-szcs-nev" {...register('szcs_nev')} placeholder="Szabó" className={FIELD_CLASS} />
                   </div>
                 </div>
 
@@ -464,6 +477,27 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                   </div>
                 </div>
 
+                {/* 2026-07-24 (PR-4 F5.10): tömbházas (romániai) cím-mezők — a mentés
+                    eddig is írta őket, de input nem volt: csak importtal kerülhettek be. */}
+                <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="member-block">Tömbház</Label>
+                    <Input id="member-block" {...register('c_tombhaz')} placeholder="A2" className={FIELD_CLASS} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="member-staircase">Lépcsőház</Label>
+                    <Input id="member-staircase" {...register('c_lepcsohaz')} placeholder="B" className={FIELD_CLASS} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="member-floor">Emelet</Label>
+                    <Input id="member-floor" {...register('c_emelet')} placeholder="3" className={FIELD_CLASS} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="member-door">Ajtó</Label>
+                    <Input id="member-door" {...register('c_ajto')} placeholder="12" className={FIELD_CLASS} />
+                  </div>
+                </div>
+
                 <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
                   <div className="space-y-1.5">
                     <Label htmlFor="member-occupation">Foglalkozás</Label>
@@ -501,7 +535,7 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                       />
                       <input type="hidden" {...register(type === 'apa' ? 'id_apja_cnp' : 'id_anyja_cnp')} />
                       {parentSearchVisible[type] && parentResults[type].length > 0 && (
-                        <div className="absolute z-10 top-full left-0 right-0 bg-white border rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
+                        <div className="absolute z-10 top-full left-0 right-0 bg-white dark:bg-slate-900 border rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
                           {parentResults[type].map(r => (
                             <button type="button" key={r.id} className="min-h-11 w-full cursor-pointer border-b p-2 text-left text-sm hover:bg-slate-50 last:border-0" onClick={() => selectParent(r, type)}>
                               <div className="font-medium">{r.csaladnev} {r.k_nev}</div>
@@ -586,26 +620,13 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                   </div>
                 </div>
 
-                {/* 2026-06-02: ESKETÉS — eddig hiányzott! */}
-                <div className="rounded-lg border border-rose-200 bg-rose-50/60 p-3 space-y-2">
-                  <h4 className="text-sm font-semibold text-rose-900">Esketés</h4>
-                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
-                    <div><Label htmlFor="member-wedding-date" className="text-xs">Dátum</Label><Input id="member-wedding-date" type="date" {...register('esketes_datum')} className={FIELD_CLASS_COMPACT} /></div>
-                    <div><Label htmlFor="member-wedding-place" className="text-xs">Hely</Label><Input id="member-wedding-place" {...register('esketes_hely')} className={FIELD_CLASS_COMPACT} placeholder="Település/templom" /></div>
-                    <div><Label htmlFor="member-wedding-pastor" className="text-xs">Lelkész</Label><Input id="member-wedding-pastor" {...register('esketes_lelkesz')} className={FIELD_CLASS_COMPACT} /></div>
-                  </div>
-                  <div>
-                    <Label htmlFor="member-spouse-name" className="text-xs">Házastárs neve</Label>
-                    <Input
-                      id="member-spouse-name"
-                      {...register('esketes_hazastars_nev')}
-                      className={FIELD_CLASS_COMPACT}
-                      placeholder="Pl. Kovács Mária"
-                    />
-                    <p className="mt-0.5 text-[10.5px] text-rose-700/70">
-                      Csak név — a kapcsolat összekötése az Anyakönyv → Esketés modulban történik
-                    </p>
-                  </div>
+                {/* 2026-07-24 (PR-4, D4 döntés): az esketés-blokk KIKERÜLT — a mentés
+                    sosem tárolta (néma adatvesztés volt); az esketés az Anyakönyv
+                    modul hatásköre. */}
+                <div className="rounded-lg border border-rose-200 bg-rose-50/60 p-3 text-xs text-rose-900">
+                  <strong>Esketés:</strong> a házassági adatok rögzítése az{' '}
+                  <strong>Anyakönyv → Esketés</strong> modulban történik — ott a
+                  házastárs-kapcsolat is összeköthető, és a család automatikusan létrejön.
                 </div>
               </div>
             )}
@@ -615,6 +636,9 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
               <div className="space-y-3 pt-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="member-payment-status">Fizetési státusz</Label>
+                  {/* 2026-07-24 (PR-4 F5.10): a "Nem fizet" halott opció törölve (sehol
+                      nem volt hatása); a mező mostantól SZERKESZTÉSNÉL is működik —
+                      felmentett ⇄ fizető váltásnál felmentés-rekord nyílik/záródik. */}
                   <select
                     id="member-payment-status"
                     {...register('fizeto_status')}
@@ -622,10 +646,11 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                   >
                     <option value="fizet">Fizető</option>
                     <option value="felmentett">Felmentett</option>
-                    <option value="nem_fizet">Nem fizet (18 év alatti)</option>
                   </select>
                   <p className="mt-1 text-[11px] text-slate-500">
-                    A pontos járulékösszeg és kedvezmények a Pénzügy modulban állíthatóak.
+                    „Felmentett&rdquo; választásnál felmentés-rekord jön létre (az idei
+                    évtől); visszaállításnál a felmentés lezárul. A pontos járulékösszeg
+                    és kedvezmények a Pénzügy modulban állíthatóak.
                   </p>
                 </div>
 

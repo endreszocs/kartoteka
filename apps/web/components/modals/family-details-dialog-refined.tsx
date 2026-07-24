@@ -12,7 +12,6 @@ import { Camera,
   DoorOpen,
   Heart,
   Home,
-  Mail,
   MapPin,
   Pencil,
   Phone,
@@ -22,8 +21,10 @@ import { Camera,
   Users,
   X,
 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 import { getFamilyDetails, getFamilyVisits, getEnrichedMemberById } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import { getFamilyTreeData } from '@/lib/family-tree/get-family-tree'
 import type { FamilyTreeData } from '@/lib/family-tree/types'
@@ -93,6 +94,9 @@ export function FamilyDetailsDialogRefined({
   // 2026-06-11: fénykép/közösségi-link szerkesztő + a lap újratöltése mentés után
   const [avatarEditPerson, setAvatarEditPerson] = useState<{ id: number; name: string; kepUrl?: string | null; socialUrl?: string | null } | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  // 2026-07-24 (PR-4 F5.9): hiba-állapot — eddig egy szerver/hálózati hiba
+  // ÖRÖK „betöltés" spinnert hagyott (nem volt .catch a then-láncokon).
+  const [loadError, setLoadError] = useState(false)
 
   // 2026-06-02: család szerkesztés + új családlátogatás
   const [editFamilyOpen, setEditFamilyOpen] = useState(false)
@@ -107,9 +111,10 @@ export function FamilyDetailsDialogRefined({
   }
 
   // Visits frissítése mentés után
+  // 2026-07-24 (PR-4 F5.11): a redundáns dynamic import törölve — a
+  // getFamilyVisits fent statikusan importált.
   async function refreshVisits() {
     if (!familyId) return
-    const { getFamilyVisits } = await import('@/app/(dashboard)/tagnyilvantartas/family-actions')
     const v = await getFamilyVisits(familyId)
     setVisits(v as FamilyVisit[])
   }
@@ -123,12 +128,19 @@ export function FamilyDetailsDialogRefined({
       setTreeData(null)
       setVisits(null)
       setLoading(true)
+      setLoadError(false)
       setActiveTab('general')
-      getFamilyDetails(familyId).then((value) => {
-        if (cancelled) return
-        setData(value)
-        setLoading(false)
-      })
+      getFamilyDetails(familyId)
+        .then((value) => {
+          if (cancelled) return
+          setData(value)
+          setLoading(false)
+        })
+        .catch(() => {
+          if (cancelled) return
+          setLoadError(true)
+          setLoading(false)
+        })
     })
     return () => { cancelled = true }
   }, [open, familyId, reloadKey])
@@ -137,11 +149,20 @@ export function FamilyDetailsDialogRefined({
   useEffect(() => {
     if (activeTab !== 'tree' || !familyId || treeData !== null) return
     let cancelled = false
-    setTreeLoading(true)
-    getFamilyTreeData(familyId).then((d) => {
+    queueMicrotask(() => {
       if (cancelled) return
-      setTreeData(d)
-      setTreeLoading(false)
+      setTreeLoading(true)
+      getFamilyTreeData(familyId)
+        .then((d) => {
+          if (cancelled) return
+          setTreeData(d)
+          setTreeLoading(false)
+        })
+        .catch(() => {
+          if (cancelled) return
+          setTreeLoading(false)
+          toast.error('A családfa betöltése nem sikerült — próbáld újra a fül megnyitásával.')
+        })
     })
     return () => { cancelled = true }
   }, [activeTab, familyId, treeData])
@@ -150,11 +171,20 @@ export function FamilyDetailsDialogRefined({
   useEffect(() => {
     if (activeTab !== 'visits' || !familyId || visits !== null) return
     let cancelled = false
-    setVisitsLoading(true)
-    getFamilyVisits(familyId).then((v) => {
+    queueMicrotask(() => {
       if (cancelled) return
-      setVisits(v as FamilyVisit[])
-      setVisitsLoading(false)
+      setVisitsLoading(true)
+      getFamilyVisits(familyId)
+        .then((v) => {
+          if (cancelled) return
+          setVisits(v as FamilyVisit[])
+          setVisitsLoading(false)
+        })
+        .catch(() => {
+          if (cancelled) return
+          setVisitsLoading(false)
+          toast.error('A látogatások betöltése nem sikerült — próbáld újra a fül megnyitásával.')
+        })
     })
     return () => { cancelled = true }
   }, [activeTab, familyId, visits])
@@ -213,6 +243,16 @@ export function FamilyDetailsDialogRefined({
                 <p className="font-heading text-lg text-foreground">
                   Családi karton betöltése…
                 </p>
+              </div>
+            ) : loadError ? (
+              /* 2026-07-24 (PR-4 F5.9): hiba-állapot + Újrapróbálom (a member-details minta) */
+              <div className="px-8 py-16 text-center">
+                <Users className="mx-auto mb-3 size-10 text-destructive/60" />
+                <p className="font-heading text-lg text-foreground">A családi karton nem tölthető be</p>
+                <p className="mt-1 text-sm text-muted-foreground">Hálózati vagy szerverhiba történt.</p>
+                <Button type="button" variant="outline" className="mt-4 rounded-xl" onClick={() => setReloadKey((k) => k + 1)}>
+                  Újrapróbálom
+                </Button>
               </div>
             ) : !family ? (
               <div className="px-8 py-16 text-center text-muted-foreground">
@@ -1120,6 +1160,3 @@ function VisitsList({ visits }: { visits: FamilyVisit[] }) {
   )
 }
 
-// 2026-06-02: a Mail import csak akkor kell, ha emailt mutatunk — most nem,
-// de a tree-shake-hez ez nem gond.
-void Mail
