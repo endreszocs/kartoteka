@@ -23,6 +23,42 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-24] — Névjegyzék-nyomtatvány 2. kör: tényleg tele lapok, hiánytalan PDF, cella-középre igazítás, román név
+<!-- key: 2026-07-24-tagnyilv-pr14-nevjegyzek-pdf -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.103 -->
+
+### 🐛 Az 1 lapos / hiányos PDF gyökere megszüntetve
+
+- **A PDF-mentés eddig egy fix 1,2 másodperces időkorlát után indult** — ha a
+  nyomtatvány (a 9× beágyazott címer-kép miatt megnőtt dokumentum) lassabban
+  töltött be, a mentés a FÉLIG betöltött anyagból készült: ezért lett 1 oldalas
+  a PDF. Mostantól a motor a **tényleges betöltöttséget várja meg** (legfeljebb
+  15 mp), és **a lapszámot egyezteti a dokumentumban rögzített várt lapszámmal**
+  — ha nem egyezik, hangos hibát ad és újrapróbálható, de **csonka hivatalos
+  dokumentum soha többé nem mentődhet némán.**
+- A címer adat-képe mostantól **egyszer** szerepel a dokumentumban (nem
+  laponként) — a nyomtatvány kilencedére fogyott, villámgyorsan betölt.
+
+### 🐛 A cellák szövege a helyére került
+
+- A PDF-ben a szövegek eddig a cellák aljára csúsztak és a sorok szétnyúltak —
+  a renderelő nem tudja kezelni a CSS-szövegvágást (ismert html2canvas-korlát).
+  **Javítás: a hosszú szövegek már a nyomtatvány összeállításakor rövidülnek**
+  (… jellel), a cellák fix magasságúak, a szöveg **függőlegesen középre** kerül
+  — a képernyőn, a nyomtatásban és a PDF-ben azonosan.
+
+### 🎨 Tényleg tele A4-oldalak + román név
+
+- **46 sor / oldal** (mérve: 94%-os lap-kihasználtság, a táblázat a lábléc
+  fölött 1 cm-rel végződik) — 301 fő = 7 tele lap.
+- **A fejlécben a gyülekezet román hivatalos neve is megjelenik** (pl.
+  „Parohia Reformată Brateș") a magyar név alatt — a Beállításokban rögzített
+  román névből (`nev_ro`); ha ott nincs kitöltve, a sor kimarad.
+
+---
+
 ## [2026-07-24] — Választói névjegyzék nyomtatvány: tele A4-oldalak, logós fejléc minden lapon, javított PDF-mentés
 <!-- key: 2026-07-24-tagnyilv-pr13-nevjegyzek-nyomtatvany -->
 <!-- category: bugfix -->

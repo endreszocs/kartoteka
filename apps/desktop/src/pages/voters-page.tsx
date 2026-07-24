@@ -59,6 +59,8 @@ export function VotersPage() {
   const dataVersion = useDataVersion()
   const [congregationId, setCongregationId] = useState<string | null>(null)
   const [congregationName, setCongregationName] = useState<string>('Gyülekezet')
+  // 2026-07-24 (PR-14): román hivatalos név a fejlécbe (congregations.nev_ro)
+  const [congregationNameRo, setCongregationNameRo] = useState<string | null>(null)
   const [congregationCity, setCongregationCity] = useState<string | null>(null)
   // 2026-07-24 (PR-8 review): a nyomtatvány-fejléc cím+telefon (web-paritás)
   const [congregationAddress, setCongregationAddress] = useState<string | null>(null)
@@ -83,6 +85,7 @@ export function VotersPage() {
           const cong = await getLocalOwnCongregation(resolvedUser.id)
           if (mounted && cong) {
             setCongregationName(cong.name || cong.nev_hu || 'Gyülekezet')
+            setCongregationNameRo(cong.nev_ro ?? null)
             setCongregationCity(cong.varos ?? null)
             // A webes getVoterPrintContext cím-összeállításával egyezően
             setCongregationAddress([cong.cim, cong.varos, cong.megye].filter(Boolean).join(', ') || null)
@@ -197,6 +200,7 @@ export function VotersPage() {
         })),
         year,
         congregationName,
+        congregationNameRo,
         address: congregationAddress,
         phone: congregationPhone,
         city: congregationCity,

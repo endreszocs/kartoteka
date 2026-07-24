@@ -343,6 +343,9 @@ export async function setVoterOverride(szemelyId: number, override: 0 | 1 | null
  */
 export interface VoterPrintContext {
   congregationName: string
+  /** 2026-07-24 (PR-14): a gyülekezet ROMÁN hivatalos neve (congregations.nev_ro)
+   *  — a nyomtatvány-fejlécben a magyar név alatt jelenik meg. */
+  congregationNameRo: string | null
   address: string | null
   phone: string | null
   /** A keltezés helysége (congregations.varos) — 2026-07-17 (PR-2): a korábbi
@@ -354,20 +357,21 @@ export interface VoterPrintContext {
 
 export async function getVoterPrintContext(): Promise<VoterPrintContext> {
   const { supabase, congregationId: congId } = await getEffectiveCongregationContext()
-  if (!congId) return { congregationName: 'Gyülekezet', address: null, phone: null, city: null, cimerUrl: null }
+  if (!congId) return { congregationName: 'Gyülekezet', congregationNameRo: null, address: null, phone: null, city: null, cimerUrl: null }
 
   const { data } = await supabase
     .from('congregations')
-    .select('name, nev_hu, adoszam, cim, varos, megye, telefon, cimer_url')
+    .select('name, nev_hu, nev_ro, adoszam, cim, varos, megye, telefon, cimer_url')
     .eq('id', congId)
     .maybeSingle()
 
   const congregationName = (data?.nev_hu as string | null) || (data?.name as string | null) || 'Gyülekezet'
+  const congregationNameRo = (data?.nev_ro as string | null) || null
   const addressParts = [data?.cim, data?.varos, data?.megye].filter(Boolean) as string[]
   const address = addressParts.length > 0 ? addressParts.join(', ') : null
   const phone = (data?.telefon as string | null) || null
   const city = (data?.varos as string | null) || null
   const cimerUrl = (data?.cimer_url as string | null) || null
 
-  return { congregationName, address, phone, city, cimerUrl }
+  return { congregationName, congregationNameRo, address, phone, city, cimerUrl }
 }
