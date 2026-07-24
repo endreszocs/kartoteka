@@ -58,6 +58,9 @@ export function VoterPrintDialog({
   const [address, setAddress] = useState<string | null>(null)
   const [phone, setPhone] = useState<string | null>(null)
   const [city, setCity] = useState<string | null>(null)
+  // 2026-07-24 (PR-13): a címer adat-URL-ként — így a PDF-render és a direkt
+  // nyomtatás is garantáltan látja (nincs CORS-/betöltés-időzítés kérdés).
+  const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null)
   const [loadingCtx, setLoadingCtx] = useState(false)
 
   // Első megnyitáskor — gyülekezet kontextus (fejléchez)
@@ -65,13 +68,29 @@ export function VoterPrintDialog({
     if (!open) return
     let cancelled = false
     setLoadingCtx(true)
-    void getVoterPrintContext().then(ctx => {
+    void getVoterPrintContext().then(async ctx => {
       if (cancelled) return
       setCongregationName(ctx.congregationName)
       setAddress(ctx.address)
       setPhone(ctx.phone)
       setCity(ctx.city)
       setLoadingCtx(false)
+      if (ctx.cimerUrl) {
+        try {
+          const res = await fetch(ctx.cimerUrl)
+          if (!res.ok) return
+          const blob = await res.blob()
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(String(reader.result))
+            reader.onerror = () => reject(reader.error)
+            reader.readAsDataURL(blob)
+          })
+          if (!cancelled) setLogoDataUrl(dataUrl)
+        } catch {
+          /* logó nélkül is teljes értékű a nyomtatvány */
+        }
+      }
     })
     return () => { cancelled = true }
   }, [open])
@@ -114,8 +133,9 @@ export function VoterPrintDialog({
       address,
       phone,
       city,
+      logoUrl: logoDataUrl,
     })
-  }, [filteredVoters, currentYear, congregationName, address, phone, city])
+  }, [filteredVoters, currentYear, congregationName, address, phone, city, logoDataUrl])
 
   async function handlePdf() {
     setPrinting(true)

@@ -348,15 +348,17 @@ export interface VoterPrintContext {
   /** A keltezés helysége (congregations.varos) — 2026-07-17 (PR-2): a korábbi
    *  gyülekezetnév-első-szava heurisztika többszavas településnél hibázott. */
   city: string | null
+  /** 2026-07-24 (PR-13): az egyházközség címere — a nyomtatvány laponkénti fejlécébe. */
+  cimerUrl: string | null
 }
 
 export async function getVoterPrintContext(): Promise<VoterPrintContext> {
   const { supabase, congregationId: congId } = await getEffectiveCongregationContext()
-  if (!congId) return { congregationName: 'Gyülekezet', address: null, phone: null, city: null }
+  if (!congId) return { congregationName: 'Gyülekezet', address: null, phone: null, city: null, cimerUrl: null }
 
   const { data } = await supabase
     .from('congregations')
-    .select('name, nev_hu, adoszam, cim, varos, megye, telefon')
+    .select('name, nev_hu, adoszam, cim, varos, megye, telefon, cimer_url')
     .eq('id', congId)
     .maybeSingle()
 
@@ -365,6 +367,7 @@ export async function getVoterPrintContext(): Promise<VoterPrintContext> {
   const address = addressParts.length > 0 ? addressParts.join(', ') : null
   const phone = (data?.telefon as string | null) || null
   const city = (data?.varos as string | null) || null
+  const cimerUrl = (data?.cimer_url as string | null) || null
 
-  return { congregationName, address, phone, city }
+  return { congregationName, address, phone, city, cimerUrl }
 }

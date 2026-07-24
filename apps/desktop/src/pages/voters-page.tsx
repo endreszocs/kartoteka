@@ -63,6 +63,8 @@ export function VotersPage() {
   // 2026-07-24 (PR-8 review): a nyomtatvány-fejléc cím+telefon (web-paritás)
   const [congregationAddress, setCongregationAddress] = useState<string | null>(null)
   const [congregationPhone, setCongregationPhone] = useState<string | null>(null)
+  // 2026-07-24 (PR-13): címer a laponkénti nyomtatvány-fejlécbe
+  const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null)
   const [rows, setRows] = useState<SzemelyListRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -85,6 +87,25 @@ export function VotersPage() {
             // A webes getVoterPrintContext cím-összeállításával egyezően
             setCongregationAddress([cong.cim, cong.varos, cong.megye].filter(Boolean).join(', ') || null)
             setCongregationPhone(cong.telefon ?? null)
+            // 2026-07-24 (PR-13): címer a laponkénti fejlécbe — adat-URL-ként,
+            // hogy offline gyorsítótárból is biztosan renderelődjön (best effort).
+            if (cong.cimer_url) {
+              try {
+                const res = await fetch(cong.cimer_url)
+                if (res.ok) {
+                  const blob = await res.blob()
+                  const dataUrl = await new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader()
+                    reader.onload = () => resolve(String(reader.result))
+                    reader.onerror = () => reject(reader.error)
+                    reader.readAsDataURL(blob)
+                  })
+                  if (mounted) setLogoDataUrl(dataUrl)
+                }
+              } catch {
+                /* logó nélkül is teljes értékű a nyomtatvány */
+              }
+            }
           }
         } catch {
           /* csendes — offline fallback nevek maradnak */
@@ -179,6 +200,7 @@ export function VotersPage() {
         address: congregationAddress,
         phone: congregationPhone,
         city: congregationCity,
+        logoUrl: logoDataUrl,
         // A webes kanonikus (fizetett/felmentett) szűréstől való eltérés a
         // papíron is látszik — hivatalos dokumentumnál kötelező jelzés.
         note: 'A névjegyzék a szinkronizált választói jogosultság-jelölés alapján készült; a járulékfizetés/felmentés szerinti szűrés a webes nyomtatási központban érhető el.',

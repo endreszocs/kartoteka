@@ -23,6 +23,37 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-24] — Választói névjegyzék nyomtatvány: tele A4-oldalak, logós fejléc minden lapon, javított PDF-mentés
+<!-- key: 2026-07-24-tagnyilv-pr13-nevjegyzek-nyomtatvany -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.102 -->
+
+### 🐛 Az „üres PDF" hiba gyökere megszüntetve
+
+- **A PDF-mentés mostantól laponként készül** — korábban a teljes (akár 10+
+  oldalas) dokumentum EGYETLEN óriási képre renderelődött, ami sok
+  számítógép grafikus korlátját túllépte, és **némán üres PDF-et adott.**
+  A laponkénti renderelésnél ez fizikailag nem fordulhat elő; ráadásul a
+  mentés sokkal gyorsabb (mérve: 292 fős névsor, 9 lap — 3 másodperc), és a
+  lap-tördelés pixelpontos. (A javítás minden lapozott A4-nyomtatványra
+  érvényes, pl. a körzeti névsorokra is.)
+
+### 🎨 A nyomtatvány megújult
+
+- **A teljes A4-oldal ki van használva:** oldalanként 36 sor (a korábbi
+  fél-oldalas 22/30 helyett) — a hosszú címek pontokkal (…) rövidülnek,
+  így egyetlen sor sem törik és semmi nem csúszik át a következő lapra.
+- **Minden oldal tetején teljes fejléc:** az egyházközség **címere**,
+  neve, címe és telefonszáma — a „folytatás" felirat megszűnt.
+- **Oldalszám „1/9" formátumban** minden lap alján — látszik, hány oldalas
+  a dokumentum.
+- A címert a Beállításokban feltöltött logóból veszi (ha nincs, a fejléc
+  logó nélkül, hiánytalanul jelenik meg).
+- A desktop Választók-oldala ugyanezt az új sablont nyomtatja.
+
+---
+
 ## [2026-07-24] — Asztali alkalmazás: teljes szinkron-megbízhatóság, működő kereső, Választók-oldal
 <!-- key: 2026-07-24-tagnyilv-pr8-desktop-paritas -->
 <!-- category: improvement -->

@@ -35,37 +35,59 @@ async function createPrintIframe(htmlContent: string) {
   return { iframe, iframeDoc }
 }
 
-export async function printToPdf(
-  htmlContent: string,
+/**
+ * 2026-07-24 (PR-13, „üres PDF" gyökérok): laponkénti PDF-render.
+ *
+ * A html2pdf a TELJES dokumentumot EGYETLEN canvasra rasterizálja — egy
+ * 10+ lapos névjegyzéknél ez ~30 000 px magas canvas, ami sok gépen túllépi
+ * a GPU textúra-plafonját (~16 384 px) → a canvas némán ÜRES lesz, a mentett
+ * PDF pedig fehér lapokból áll. A lapozott (.sheet) dokumentumainknál ehelyett
+ * MINDEN lapot KÜLÖN (~3 000 px-es) canvasra renderelünk és külön PDF-oldalként
+ * adunk hozzá — nincs canvas-plafon, és a lap-tördelés pixelpontos.
+ *
+ * A html2canvas + jspdf a html2pdf.js tranzitív függőségei (a lockfile rögzíti
+ * őket) — közvetlenül importáljuk, új függőség nélkül.
+ */
+async function renderSheetsToPdf(
+  sheets: HTMLElement[],
   filename: string,
-  options?: {
-    orientation?: 'portrait' | 'landscape'
-    margin?: number[]
-    format?: string
-  },
-) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const html2pdf = (await import('html2pdf.js' as any)).default
-  const { iframe, iframeDoc } = await createPrintIframe(htmlContent)
+): Promise<void> {
+  const html2canvas = (await import('html2canvas')).default
+  const { jsPDF } = await import('jspdf')
 
-  // 2026-07-17 (F3 P1 gyökérok): a html2pdf 0.14 a `.from(iframeDoc.body)` hívásnál
-  // CSAK a body-részfát klónozza — az iframe <head>-jében ülő <style> (a wrap()
-  // teljes stíluslapja) KIMARADT, így minden PDF stílus nélkül raszterizálódott
-  // (nincs táblázat-keret, rossz betű, elveszett oldaltörés). A stíluslapokat a
-  // body ELEJÉRE másoljuk (sorrendtartóan, fragmenttel), hogy a klónnal együtt
-  // utazzanak — és a .page:last-child/.sheet:last-child szelektorok is épek
-  // maradjanak (a lapok maradnak az utolsó elem-gyerekek).
+  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true })
+  for (let i = 0; i < sheets.length; i++) {
+    // Mért kompromisszum (2026-07-24, 292 soros teszt): scale 2.5 + JPEG 0.85
+    // → 3 mp / 4,8 MB / ~240 DPI; a scale 3 + PNG 29 mp-et és 5,4 MB-ot adott.
+    const canvas = await html2canvas(sheets[i], {
+      scale: 2.5,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      logging: false,
+    })
+    const img = canvas.toDataURL('image/jpeg', 0.85)
+    if (i > 0) pdf.addPage('a4', 'portrait')
+    pdf.addImage(img, 'JPEG', 0, 0, 210, 297)
+  }
+  pdf.save(filename)
+}
+
+// 2026-07-17 (F3 P1 gyökérok): a html2pdf 0.14 a `.from(iframeDoc.body)` hívásnál
+// CSAK a body-részfát klónozza — az iframe <head>-jében ülő <style> (a wrap()
+// teljes stíluslapja) KIMARADT, így minden PDF stílus nélkül raszterizálódott
+// (nincs táblázat-keret, rossz betű, elveszett oldaltörés). A stíluslapokat a
+// body ELEJÉRE másoljuk (sorrendtartóan, fragmenttel), hogy a klónnal együtt
+// utazzanak — és a .page:last-child/.sheet:last-child szelektorok is épek
+// maradjanak (a lapok maradnak az utolsó elem-gyerekek).
+// A html2canvas a KÉPERNYŐS médiát rendereli — a @media print szabályok maguktól
+// nem élnek. Valódi print-emuláció: a dokumentum SAJÁT @media print szabályait
+// emeljük be feltétel nélküli szabályként (a fragment végén → felülírják a
+// képernyős értékeket).
+function applyPrintStyles(iframeDoc: Document) {
   const styleFrag = iframeDoc.createDocumentFragment()
   iframeDoc.querySelectorAll('head style').forEach((el) => {
     styleFrag.appendChild(el.cloneNode(true))
   })
-  // A html2canvas a KÉPERNYŐS médiát rendereli — a @media print szabályok maguktól
-  // nem élnek. Valódi print-emuláció: a dokumentum SAJÁT @media print szabályait
-  // emeljük be feltétel nélküli szabályként (a fragment végén → felülírják a
-  // képernyős értékeket). Így minden dokumentum a saját nyomtatási értékeit kapja
-  // (pl. .page min-height 208/295mm — a képernyős 297mm túllógna a html2pdf
-  // lap-rácsán és üres közlapokat szúrna be), a body-paddinggel margózó
-  // dokumentumok (pl. iratcsomó-leltár) pedig érintetlenek maradnak.
   let printCss = ''
   for (const sheet of Array.from(iframeDoc.styleSheets)) {
     try {
@@ -85,6 +107,56 @@ export async function printToPdf(
     styleFrag.appendChild(printEmu)
   }
   iframeDoc.body.insertBefore(styleFrag, iframeDoc.body.firstChild)
+}
+
+export async function printToPdf(
+  htmlContent: string,
+  filename: string,
+  options?: {
+    orientation?: 'portrait' | 'landscape'
+    margin?: number[]
+    format?: string
+  },
+) {
+  // 2026-07-24 (PR-13): lapozott (.sheet) A4-dokumentumnál laponkénti render —
+  // csak akkor, ha MINDEN lap ténylegesen lap-méretű (a túlnövő lapokat — pl.
+  // egy-lapos „vizuális" nézetek — a bevált teljes-dokumentum útvonal viszi).
+  if ((options?.orientation ?? 'portrait') === 'portrait') {
+    const { iframe, iframeDoc } = await createPrintIframe(htmlContent)
+    try {
+      applyPrintStyles(iframeDoc)
+      const sheetEls = Array.from(iframeDoc.querySelectorAll<HTMLElement>('body .sheet'))
+      if (sheetEls.length > 0) {
+        const pageHeightPx = sheetEls[0].offsetWidth * (297 / 210)
+        const allPageSized = sheetEls.every((s) => s.offsetHeight <= pageHeightPx * 1.02)
+        if (allPageSized) {
+          await renderSheetsToPdf(sheetEls, filename)
+          return
+        }
+      }
+    } catch (e) {
+      // Bármi hiba → visszaesés a bevált teljes-dokumentum útvonalra.
+      console.warn('[printToPdf] laponkénti render sikertelen, fallback html2pdf-re:', e instanceof Error ? e.message : e)
+    } finally {
+      if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
+    }
+  }
+  return printToPdfLegacy(htmlContent, filename, options)
+}
+
+async function printToPdfLegacy(
+  htmlContent: string,
+  filename: string,
+  options?: {
+    orientation?: 'portrait' | 'landscape'
+    margin?: number[]
+    format?: string
+  },
+) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const html2pdf = (await import('html2pdf.js' as any)).default
+  const { iframe, iframeDoc } = await createPrintIframe(htmlContent)
+  applyPrintStyles(iframeDoc)
 
   // A html2pdf a klónt a FŐDOKUMENTUMBA fűzi a raszterizálás idejére (láthatatlan
   // overlay-ben) — a klónnal utazó <style>-ok viszont globálisak, és másodpercekre

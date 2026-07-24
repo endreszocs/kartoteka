@@ -1,23 +1,17 @@
 /**
- * Választók névjegyzéke hivatalos nyomtatvány.
+ * Választók névjegyzéke hivatalos nyomtatvány — KÖZÖS építő (web + desktop).
  *
  * A Valasztok_nevjegyzeke_minta.pdf struktúráját követi:
- * - Portré A4
- * - Fejléc: gyülekezet neve, cím, telefon
- * - Cím: "Választók névjegyzéke [ ÉÉÉÉ - ÉÉÉÉ+1 ]"
- * - Tábla: S.sz., Választó neve, Foglalkozás, Lakcím, Lakhelye, Felszólamás (Presb.hat, Esper.hat.)
+ * - Portré A4, WYSIWYG lapozott séma (@page margin 0; lap = .sheet div)
+ * - Tábla: S.sz., Választó neve, Foglalkozás, Lakcím, Lakhelye, Felszólamás
  * - Záró szöveg + aláírások (lelkipásztor, gondnok)
  *
- * 2026-07-17 (PR-2 F2.1) — WYSIWYG LAPOZOTT séma (a lelkészi jelentés
- * print.ts + official-journal.ts bizonyított mintája):
- *   - @page margin 0; a lap-margót a .sheet padding adja (bal 18mm = lefűzés)
- *   - lap = .sheet div (210×297mm, page-break-after: always)
- *   - determinisztikus sor-tördelés lapokra, MINDEN lapon ismételt táblázat-fejléc
- *   - laponkénti "Oldal X / Y" lábléc (a CSS counter(page) Chromiumban element-
- *     tartalomban NEM működik — a korábbi minta emiatt sosem mutatott oldalszámot)
- *   - a záró szöveg + aláírások fixen az utolsó lapon (ha nem fér, saját lapon)
- * Ez egyszerre javítja: dupla margó, hiányzó oldalszám, PDF-beli sor-félbevágás
- * és a 2. oldaltól hiányzó táblázat-fejléc.
+ * 2026-07-24 (PR-13 — felhasználói észrevételek):
+ *   - MINDEN lapon teljes fejléc: egyházközség LOGÓJA + neve + címe + telefonja
+ *     (nincs többé „folytatás" felirat)
+ *   - a lap TELJES kihasználása: a cellák egysorosak (ellipszis), így a
+ *     sormagasság determinisztikus és a kapacitás biztonsággal növelhető
+ *   - oldalszám „1/8" formátumban minden lap alján
  */
 
 export interface VoterRow {
@@ -32,8 +26,7 @@ export interface VoterPrintResult {
   filename: string
   orientation: 'portrait' | 'landscape'
   html: string
-  /** 2026-07-24 (PR-12): a lapok száma — az előnézet fölött jelezzük, hogy a
-   *  dokumentum többlapos és görgethető (a user az 1. lap 22 sorát látta csak). */
+  /** A lapok száma — az előnézet fölött jelezzük, hogy a dokumentum többlapos. */
   sheetCount: number
 }
 
@@ -41,12 +34,13 @@ function esc(v: string) {
   return v.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
-// Konzervatív lap-kapacitások (a sorok hosszú címnél 2 sorba törhetnek —
-// a keret inkább hagyjon alul levegőt, mint hogy a tartalom átcsorogjon):
-const ROWS_FIRST_SHEET = 22
-const ROWS_PER_SHEET = 30
+// Lap-kapacitások — a cellák EGYSOROSAK (nowrap + ellipszis), ezért a
+// sormagasság determinisztikus (~21px). A4 hasznos magasság ~1009px
+// (297mm − 14+16mm padding); fejléc+cím+táblafejléc ~150px → ~40 sor férne,
+// 36-tal biztonsági ráhagyást tartunk.
+const ROWS_PER_SHEET = 36
 /** Ha az utolsó táblázat-lapon ennél több sor van, a záró blokk külön lapra kerül. */
-const CLOSING_FITS_UNTIL_ROWS = 24
+const CLOSING_FITS_UNTIL_ROWS = 28
 
 function voterStyles() {
   return `
@@ -54,16 +48,21 @@ function voterStyles() {
     * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { font-family: 'Times New Roman', serif; color: #111827; margin: 0; background: #e2e8f0; padding: 18px 0; }
     /* Bal 18mm: lefűzési (lyukasztás-)margó — a lelkészi jelentés mintája. */
-    .sheet { width: 210mm; min-height: 297mm; margin: 0 auto 18px; background: #fff; box-shadow: 0 18px 40px rgba(15,23,42,.12); padding: 14mm 14mm 16mm 18mm; page-break-after: always; position: relative; overflow: hidden; }
+    .sheet { width: 210mm; min-height: 297mm; margin: 0 auto 18px; background: #fff; box-shadow: 0 18px 40px rgba(15,23,42,.12); padding: 12mm 14mm 16mm 18mm; page-break-after: always; position: relative; overflow: hidden; }
     .sheet:last-child { page-break-after: auto; margin-bottom: 0; }
-    .header { text-align: left; font-size: 11px; font-style: italic; margin-bottom: 8px; color: #475569; }
-    .title { text-align: center; font-size: 16px; font-weight: bold; margin: 12px 0 10px; }
-    .title-cont { text-align: center; font-size: 11px; font-weight: bold; margin: 0 0 6px; color: #475569; }
-    table { width: 100%; border-collapse: collapse; margin-top: 4px; }
-    th, td { border: 1px solid #334155; padding: 4px 6px; font-size: 10px; vertical-align: top; }
+    .letterhead { display: flex; align-items: center; gap: 12px; border-bottom: 2px solid #334155; padding-bottom: 6px; margin-bottom: 8px; }
+    .letterhead img { width: 15mm; height: 15mm; object-fit: contain; flex: 0 0 auto; }
+    .letterhead .lh-text { font-size: 11px; line-height: 1.35; color: #1f2937; }
+    .letterhead .lh-name { font-size: 13px; font-weight: bold; }
+    .note { font-size: 10px; font-style: italic; color: #475569; margin: 2px 0 4px; }
+    .title { text-align: center; font-size: 15px; font-weight: bold; margin: 8px 0 8px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 2px; table-layout: fixed; }
+    th, td { border: 1px solid #334155; padding: 3px 6px; font-size: 10px; vertical-align: top; }
+    /* Egysoros cellák: determinisztikus sormagasság → tele lap, átfolyás nélkül. */
+    td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     th { background: #e2e8f0; text-align: center; font-weight: bold; }
     .text-center { text-align: center; }
-    .closing { margin-top: 16px; font-size: 11px; line-height: 1.6; text-align: justify; }
+    .closing { margin-top: 14px; font-size: 11px; line-height: 1.6; text-align: justify; }
     .date-line { margin-top: 12px; font-size: 11px; }
     .signature-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 24px; margin-top: 24px; }
     .signature-box { text-align: center; font-size: 11px; }
@@ -71,7 +70,7 @@ function voterStyles() {
     .sheet-footer { position: absolute; bottom: 7mm; left: 18mm; right: 14mm; display: flex; justify-content: space-between; font-size: 9px; color: #94a3b8; }
     @media print {
       body { background: #fff; padding: 0; }
-      /* 296mm: 1mm ráhagyás, hogy a html2pdf lap-rácsán ne szülessen üres közlap. */
+      /* 296mm: 1mm ráhagyás, hogy a nyomtató lap-rácsán ne szülessen üres közlap. */
       .sheet { margin: 0; box-shadow: none; min-height: 296mm; }
     }
   `
@@ -98,9 +97,9 @@ function tableHead(): string {
 function voterTr(v: VoterRow, index: number): string {
   return `<tr>
     <td class="text-center">${index + 1}</td>
-    <td>${esc(v.name)}</td>
+    <td title="${esc(v.name)}">${esc(v.name)}</td>
     <td>${esc(v.occupation || '')}</td>
-    <td>${esc(v.address || '')}</td>
+    <td title="${esc(v.address || '')}">${esc(v.address || '')}</td>
     <td>${esc(v.settlement || '')}</td>
     <td></td>
     <td></td>
@@ -115,17 +114,24 @@ export function buildVoterListReport(params: {
   phone?: string | null
   /** Keltezés helysége (congregations.varos); fallback: a gyülekezetnév első szava. */
   city?: string | null
-  /** 2026-07-24 (PR-8): opcionális dőlt megjegyzés-sor az 1. lap fejléce alatt
-   *  (pl. a desktop-nyomtatvány adatforrás-megjegyzése). Web: nem használja. */
+  /** Az egyházközség címere/logója — data-URL ajánlott (a PDF-render és a
+   *  nyomtatás is biztosan látja); http(s) URL is működik betöltés után. */
+  logoUrl?: string | null
+  /** Opcionális dőlt megjegyzés-sor az 1. lap fejléce alatt
+   *  (pl. a desktop-nyomtatvány adatforrás-megjegyzése). */
   note?: string | null
 }): VoterPrintResult {
-  const { voters, year, congregationName, address, phone, city, note } = params
+  const { voters, year, congregationName, address, phone, city, logoUrl, note } = params
   const yearRange = `${year} - ${year + 1}`
 
-  const header = `<div class="header">
-    <div>${esc(congregationName)}</div>
-    ${address ? `<div>${esc(address)}</div>` : ''}
-    ${phone ? `<div>Tel: ${esc(phone)}</div>` : ''}
+  // 2026-07-24 (PR-13): teljes fejléc MINDEN lapon — logó + adatok.
+  const letterhead = `<div class="letterhead">
+    ${logoUrl ? `<img src="${esc(logoUrl)}" alt="" />` : ''}
+    <div class="lh-text">
+      <div class="lh-name">${esc(congregationName)}</div>
+      ${address ? `<div>${esc(address)}</div>` : ''}
+      ${phone ? `<div>Tel: ${esc(phone)}</div>` : ''}
+    </div>
   </div>`
 
   const closing = `<div class="closing">
@@ -139,16 +145,16 @@ export function buildVoterListReport(params: {
     <div class="signature-box"><div class="signature-line">gondnok</div></div>
   </div>`
 
-  // ── Determinisztikus lapokra tördelés ────────────────────────────────
+  // ── Determinisztikus lapokra tördelés (egységes kapacitás minden lapon,
+  //    mert a fejléc minden lapon azonos helyet foglal) ──────────────────
   const chunks: VoterRow[][] = []
   if (voters.length === 0) {
     chunks.push([])
   } else {
     let cursor = 0
     while (cursor < voters.length) {
-      const capacity = chunks.length === 0 ? ROWS_FIRST_SHEET : ROWS_PER_SHEET
-      chunks.push(voters.slice(cursor, cursor + capacity))
-      cursor += capacity
+      chunks.push(voters.slice(cursor, cursor + ROWS_PER_SHEET))
+      cursor += ROWS_PER_SHEET
     }
   }
 
@@ -156,8 +162,9 @@ export function buildVoterListReport(params: {
   const closingOnOwnSheet = lastChunkRows > CLOSING_FITS_UNTIL_ROWS
   const totalSheets = chunks.length + (closingOnOwnSheet ? 1 : 0)
 
+  // 2026-07-24 (PR-13): oldalszám „1/8" formátumban.
   const footer = (page: number) =>
-    `<div class="sheet-footer"><span>Kartotéka</span><span>Oldal ${page} / ${totalSheets}</span></div>`
+    `<div class="sheet-footer"><span>Kartotéka · ${esc(congregationName)}</span><span>${page}/${totalSheets}</span></div>`
 
   const closingBlock = `${closing}${dateLine}${signatures}`
 
@@ -168,11 +175,9 @@ export function buildVoterListReport(params: {
     const rowsHtml = chunk.map((v, i) => voterTr(v, rowOffset + i)).join('')
     rowOffset += chunk.length
     return `<div class="sheet">
-      ${isFirst ? header : ''}
-      ${isFirst && note ? `<div class="header" style="font-size:10px">${esc(note)}</div>` : ''}
-      ${isFirst
-        ? `<div class="title">Választók névjegyzéke [ ${yearRange} ]</div>`
-        : `<div class="title-cont">Választók névjegyzéke [ ${yearRange} ] — folytatás</div>`}
+      ${letterhead}
+      ${isFirst && note ? `<div class="note">${esc(note)}</div>` : ''}
+      <div class="title">Választók névjegyzéke [ ${yearRange} ]</div>
       <table>
         ${tableHead()}
         <tbody>${rowsHtml}</tbody>
@@ -184,7 +189,8 @@ export function buildVoterListReport(params: {
 
   if (closingOnOwnSheet) {
     sheets.push(`<div class="sheet">
-      <div class="title-cont">Választók névjegyzéke [ ${yearRange} ] — lezárás</div>
+      ${letterhead}
+      <div class="title">Választók névjegyzéke [ ${yearRange} ] — lezárás</div>
       ${closingBlock}
       ${footer(totalSheets)}
     </div>`)
