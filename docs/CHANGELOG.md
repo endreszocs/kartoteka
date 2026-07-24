@@ -23,6 +23,18 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-24] — Gyors javítás: telepítési hiba elhárítva
+<!-- key: 2026-07-24-penzugy-f5-orphan-dialog-hotfix -->
+<!-- category: bugfix -->
+<!-- version: v0.9.106 -->
+<!-- targets: technikai javítás, a felhasználók számára nem látható -->
+
+### 🐛 Javítások
+
+- **Telepítési hiba elhárítva**: az előző frissítés összefésülésekor egy már használaton kívüli, régi ablak-fájl tévedésből a rendszerben maradt, és megakasztotta az új verzió kiadását. A fájl eltávolításra került — a rendszer működését ez nem érinti, egyetlen képernyő sem változott.
+
+---
+
 ## [2026-07-17] — Családi befizetés igazságos felosztása + kedvezmény-beállítások rendbetéve
 <!-- key: 2026-07-17-penzugy-f5-kedvezmeny-ui -->
 <!-- category: bugfix -->
