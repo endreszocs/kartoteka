@@ -1,6 +1,6 @@
 {
   "name": "@kartoteka/web",
-  "version": "0.9.108",
+  "version": "0.9.109",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",

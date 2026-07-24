@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-24] — Gyorsabb munkanapló-táblázat + megújult súgó
+<!-- key: 2026-07-24-munkanaplo-perf-sugo -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+<!-- version: web v0.9.109 -->
+
+### 🎨 Fejlesztések
+
+- **A munkanapló táblázatos rögzítője nagy évfolyamnál is simán gépelhető** —
+  „Egész év" nézetben (akár több száz bejegyzésnél) is csak az éppen
+  szerkesztett sor frissül, a beviteli mezők nem akadnak.
+- **A munkanapló súgója teljesen igazodik a sötét témához** és az összes
+  színvilághoz — minden blokk jól olvasható marad.
+
+---
+
 ## [2026-07-24] — Több igazolás-sablon + kiállítás a személyi kartonról
 <!-- key: 2026-07-24-iktato-sablonok-karton -->
 <!-- category: feature -->

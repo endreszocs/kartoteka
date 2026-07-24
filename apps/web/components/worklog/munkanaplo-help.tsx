@@ -31,6 +31,10 @@ const CATEGORIES: HelpCategory[] = [
   { id: 'print', label: 'Export és nyomtatás', Icon: Printer, short: 'CSV export, hivatalos jelentés' },
 ]
 
+// 2026-07-24 (P2 follow-up): teljes token-migráció — a hardkódolt slate/teal
+// osztályok helyett szemantikus tokenek (bg-card, bg-muted, text-foreground,
+// text-muted-foreground, border-border, text-primary), így a súgó a sötét
+// témában is a paletta szerint kontrasztos, a .dark override-hackek nélkül.
 export function MunkanaploHelp() {
   const [active, setActive] = useState<string>(CATEGORIES[0].id)
   const activeCategory = CATEGORIES.find((c) => c.id === active) ?? CATEGORIES[0]
@@ -38,11 +42,11 @@ export function MunkanaploHelp() {
   return (
     <div className="card-raised overflow-hidden p-0">
       <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] min-h-[500px]">
-        <aside className="border-b border-slate-200 bg-slate-50/60 lg:border-b-0 lg:border-r">
+        <aside className="border-b border-border bg-muted/40 lg:border-b-0 lg:border-r">
           <div className="px-5 py-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Súgó</p>
-            <h2 className="mt-1 font-heading text-xl text-slate-800">Munkanapló</h2>
-            <p className="mt-1 text-xs text-slate-500">Lelkészi szolgálat dokumentálása</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Súgó</p>
+            <h2 className="mt-1 font-heading text-xl text-foreground">Munkanapló</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Lelkészi szolgálat dokumentálása</p>
           </div>
           <nav className="px-2 pb-3">
             {CATEGORIES.map((cat) => {
@@ -53,17 +57,17 @@ export function MunkanaploHelp() {
                   type="button"
                   onClick={() => setActive(cat.id)}
                   className={`group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
-                    isActive ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200' : 'text-slate-600 hover:bg-white/70'
+                    isActive ? 'bg-card text-foreground shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:bg-card/60'
                   }`}
                 >
-                  <span className={`flex size-8 shrink-0 items-center justify-center rounded-md ${isActive ? 'bg-teal-50 text-teal-700' : 'bg-slate-100 text-slate-500'}`}>
+                  <span className={`flex size-8 shrink-0 items-center justify-center rounded-md ${isActive ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
                     <cat.Icon className="size-4" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className={`block text-sm font-medium ${isActive ? 'text-slate-900' : 'text-slate-700'}`}>{cat.label}</span>
-                    <span className="block truncate text-[11px] text-slate-500">{cat.short}</span>
+                    <span className={`block text-sm font-medium ${isActive ? 'text-foreground' : 'text-foreground/80'}`}>{cat.label}</span>
+                    <span className="block truncate text-[11px] text-muted-foreground">{cat.short}</span>
                   </span>
-                  <ChevronRight className={`size-3.5 shrink-0 ${isActive ? 'text-slate-400' : 'opacity-0'}`} />
+                  <ChevronRight className={`size-3.5 shrink-0 ${isActive ? 'text-muted-foreground' : 'opacity-0'}`} />
                 </button>
               )
             })}
@@ -72,16 +76,16 @@ export function MunkanaploHelp() {
 
         <main className="px-5 py-7 sm:px-8 sm:py-8 lg:px-10 lg:py-9">
           <div className="mb-6 flex items-start gap-3">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <activeCategory.Icon className="size-5" />
             </span>
             <div>
-              <h3 className="font-heading text-2xl text-slate-800">{activeCategory.label}</h3>
-              <p className="mt-0.5 text-sm text-slate-500">{activeCategory.short}</p>
+              <h3 className="font-heading text-2xl text-foreground">{activeCategory.label}</h3>
+              <p className="mt-0.5 text-sm text-muted-foreground">{activeCategory.short}</p>
             </div>
           </div>
 
-          <div className="space-y-5 text-sm leading-relaxed text-slate-700">
+          <div className="space-y-5 text-sm leading-relaxed text-foreground/90">
             {active === 'general' && <GeneralContent />}
             {active === 'table' && <TableContent />}
             {active === 'service' && <ServiceContent />}
@@ -98,7 +102,7 @@ export function MunkanaploHelp() {
 }
 
 function S({ children }: { children: React.ReactNode }) {
-  return <h4 className="font-heading text-base font-semibold text-slate-800 mt-5 first:mt-0">{children}</h4>
+  return <h4 className="font-heading text-base font-semibold text-foreground mt-5 first:mt-0">{children}</h4>
 }
 
 function GeneralContent() {
