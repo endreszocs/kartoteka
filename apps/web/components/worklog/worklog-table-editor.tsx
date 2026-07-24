@@ -12,8 +12,12 @@
 //
 // MOBIL: a rács overflow-x-auto konténerben él (az oldal sosem görget
 // vízszintesen), md alatt rövid jelzés ajánlja a dialógusos rögzítést.
+//
+// PERF (F4-review follow-up): az EditorRow memo-zott, sor-kulcsos (dispatch)
+// callbackekkel és cache-elt baseline-draftokkal — egy cella gépelése csak a
+// SAJÁT sorát rendereli újra („Egész év” nézetben 150+ sor mellett is).
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } from 'react'
 import { Loader2, Pencil, Plus, Smartphone, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -251,10 +255,20 @@ function NumInput({
 
 // ---------------------------------------------------------------------------
 // Egy sor (meglévő VAGY az alsó, mindig-üres új sor).
+//
+// PERF: a sor memo-zott — minden propja referencia-stabil (a draft a szülő
+// cache-éből / state-éből jön, a callbackek sor-kulcsos dispatchek), így egy
+// másik sor gépelése ezt a sort NEM rendereli újra.
 // ---------------------------------------------------------------------------
 
+/** Sor-kulcs: meglévő sor id-ja vagy 'new' (az alsó, mindig-üres sor). */
+type RowKey = number | 'new'
+
 interface EditorRowProps {
+  /** A sor kulcsa — a stabil (dispatch-stílusú) callbackek ezzel hívódnak. */
+  rowKey: RowKey
   category: WorklogCategory
+  /** CSAK a saját sor draftja — referencia-stabil, amíg a sort nem érintik (memo!). */
   draft: RowDraft
   /** Éven belüli folyamatos sorszám (csak megjelenítés); új sornál nem jelenik meg. */
   ssz?: number
@@ -262,25 +276,47 @@ interface EditorRowProps {
   saving: boolean
   deleting?: boolean
   isNew?: boolean
-  onField: <K extends keyof RowDraft>(field: K, value: RowDraft[K]) => void
+  onField: (rowKey: RowKey, field: keyof RowDraft, value: string) => void
   /** Enter — a sor azonnali mentése. */
-  onCommit: () => void
+  onCommit: (rowKey: RowKey) => void
   /** A fókusz elhagyta a sort — mentés, ha piszkos. */
-  onRowLeave: () => void
-  onDelete?: () => void
+  onRowLeave: (rowKey: RowKey) => void
+  onDelete?: (rowKey: number) => void
   /** Dialógusos (űrlapos) szerkesztés — minden mező elérhető benne. */
-  onEditForm?: () => void
+  onEditForm?: (rowKey: number) => void
   dateRef?: Ref<HTMLInputElement>
 }
 
-function EditorRow({
-  category, draft, ssz, dirty, saving, deleting, isNew,
-  onField, onCommit, onRowLeave, onDelete, onEditForm, dateRef,
+const EditorRow = memo(function EditorRow({
+  rowKey, category, draft, ssz, dirty, saving, deleting, isNew,
+  onField: onFieldProp, onCommit: onCommitProp, onRowLeave: onRowLeaveProp,
+  onDelete: onDeleteProp, onEditForm: onEditFormProp, dateRef,
 }: EditorRowProps) {
   const rowRef = useRef<HTMLTableRowElement | null>(null)
+
+  // Lokális wrapperek: a dispatch-propok sor-kulccsal hívódnak, a JSX pedig a
+  // korábbi (kulcs nélküli) szignatúrát használja. Ezek a wrapperek csak a sor
+  // SAJÁT renderelésekor készülnek újra — a memo-határt nem érintik; az
+  // EnekekField/IgehelyField amúgy sem memo-zott, propjaik frissessége számít.
+  function onField<K extends keyof RowDraft>(field: K, value: RowDraft[K]) {
+    onFieldProp(rowKey, field, value)
+  }
+  const onCommit = () => onCommitProp(rowKey)
+  const onRowLeave = () => onRowLeaveProp(rowKey)
+  // Törlés/űrlap-szerkesztés csak meglévő (szám-kulcsú) sorokra érkezik.
+  const numericRowKey = rowKey === 'new' ? null : rowKey
+  const deleteCb = onDeleteProp
+  const editCb = onEditFormProp
+  const onDelete = deleteCb && numericRowKey !== null ? () => deleteCb(numericRowKey) : undefined
+  const onEditForm = editCb && numericRowKey !== null ? () => editCb(numericRowKey) : undefined
+
   // A blur-időzítő mindig a legfrissebb handlert hívja (stale closure ellen).
+  // Effect-ben frissül (render közbeni ref-írás lint-hibát adna); dep-lista
+  // nélkül minden render után lefut, így a 120 ms-os időzítő sosem lát elavultat.
   const leaveRef = useRef(onRowLeave)
-  leaveRef.current = onRowLeave
+  useEffect(() => {
+    leaveRef.current = onRowLeave
+  })
 
   // React onBlur = focusout (bubbol): kis késleltetéssel ellenőrizzük, hogy a
   // fókusz tényleg elhagyta-e a sort — cellák közti Tab / okos-mező legördülő
@@ -514,7 +550,7 @@ function EditorRow({
       </td>
     </tr>
   )
-}
+})
 
 // ---------------------------------------------------------------------------
 // Fő komponens
@@ -522,8 +558,8 @@ function EditorRow({
 
 export function WorklogTableEditor({ yearEntries, year, month, category, onChanged, onEditEntry }: WorklogTableEditorProps) {
   // Csak a megérintett sorokhoz tárolunk draftot; a megjelenített érték
-  // draft ?? entryToDraft(entry). Sikeres mentés után a draft törlődik,
-  // a friss adat a szülő újratöltéséből (onChanged) jön.
+  // draft ?? getBaseline(entry) (cache-elt entryToDraft). Sikeres mentés után
+  // a draft törlődik, a friss adat a szülő újratöltéséből (onChanged) jön.
   const [drafts, setDrafts] = useState<Record<number, RowDraft>>({})
   const [newDraft, setNewDraft] = useState<RowDraft>(() => emptyDraft(year, month))
   const [savingIds, setSavingIds] = useState<Set<number | 'new'>>(() => new Set())
@@ -539,6 +575,21 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
   const newDateRef = useRef<HTMLInputElement | null>(null)
 
   const entriesById = useMemo(() => new Map(yearEntries.map((e) => [e.id, e])), [yearEntries])
+
+  // Baseline-cache (PERF): az entryToDraft entry-objektumonként EGYSZER fut le
+  // (lazy, első használatkor), és referencia-stabil draftot ad — a memo-zott
+  // EditorRow draft-propja így nem változik, amíg a sort nem érintették.
+  // Újratöltéskor (onChanged) új entry-objektumok jönnek, a WeakMap magától
+  // „frissül” (a régiek a GC-re maradnak).
+  const baselineCache = useRef(new WeakMap<WorklogEntry, RowDraft>())
+  function getBaseline(entry: WorklogEntry): RowDraft {
+    let baseline = baselineCache.current.get(entry)
+    if (!baseline) {
+      baseline = entryToDraft(entry)
+      baselineCache.current.set(entry, baseline)
+    }
+    return baseline
+  }
 
   // Év/hónap/kategória-váltáskor az új-sor draft friss defaultot kap.
   useEffect(() => {
@@ -564,10 +615,12 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
     })
   }
 
-  function setRowField(entry: WorklogEntry, field: keyof RowDraft, value: string) {
+  function setRowField(id: number, field: keyof RowDraft, value: string) {
+    const entry = entriesById.get(id)
+    if (!entry) return
     setDrafts((prev) => ({
       ...prev,
-      [entry.id]: withField(prev[entry.id] ?? entryToDraft(entry), field, value),
+      [id]: withField(prev[id] ?? getBaseline(entry), field, value),
     }))
   }
 
@@ -576,7 +629,7 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
     const entry = entriesById.get(id)
     const draft = draftsRef.current[id]
     if (!entry || !draft) return
-    if (!isDirty(draft, entryToDraft(entry))) return
+    if (!isDirty(draft, getBaseline(entry))) return
     if (!draft.idopont || !draft.jellege) {
       toast.error('A dátum és a jelleg kitöltése kötelező — a sor még nincs mentve.')
       return
@@ -628,18 +681,18 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
     }
   }
 
-  async function handleDelete(entry: WorklogEntry) {
+  async function handleDelete(id: number) {
     if (!confirm('Biztosan törli a bejegyzést?')) return
-    setDeletingId(entry.id)
+    setDeletingId(id)
     try {
-      const result = await deleteWorklog(entry.id)
+      const result = await deleteWorklog(id)
       if (result.error) {
         toast.error(result.error)
         return
       }
       setDrafts((prev) => {
         const next = { ...prev }
-        delete next[entry.id]
+        delete next[id]
         return next
       })
       toast.success('Bejegyzés törölve.')
@@ -648,6 +701,41 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
       setDeletingId(null)
     }
   }
+
+  function openEditForm(id: number) {
+    const entry = entriesById.get(id)
+    if (entry) onEditEntry?.(entry)
+  }
+
+  // ---- Stabil sor-callbackek (PERF) ---------------------------------------
+  // A memo-zott EditorRow referencia-stabil callbackeket kap; a mindig friss
+  // handlereket ref-en át hívjuk (stale closure ellen — ugyanaz a minta, mint
+  // a sorbeli leaveRef). A useCallback-ek deps nélkül SOHA nem cserélődnek.
+  const actionsRef = useRef({ setRowField, saveExistingRow, saveNewRow, handleDelete, openEditForm })
+  actionsRef.current = { setRowField, saveExistingRow, saveNewRow, handleDelete, openEditForm }
+
+  const handleRowField = useCallback((rowKey: RowKey, field: keyof RowDraft, value: string) => {
+    if (rowKey === 'new') setNewDraft((prev) => withField(prev, field, value))
+    else actionsRef.current.setRowField(rowKey, field, value)
+  }, [])
+
+  const handleRowCommit = useCallback((rowKey: RowKey) => {
+    if (rowKey === 'new') void actionsRef.current.saveNewRow(true)
+    else void actionsRef.current.saveExistingRow(rowKey)
+  }, [])
+
+  const handleRowLeave = useCallback((rowKey: RowKey) => {
+    if (rowKey === 'new') void actionsRef.current.saveNewRow(false)
+    else void actionsRef.current.saveExistingRow(rowKey)
+  }, [])
+
+  const handleRowDelete = useCallback((id: number) => {
+    void actionsRef.current.handleDelete(id)
+  }, [])
+
+  const handleRowEditForm = useCallback((id: number) => {
+    actionsRef.current.openEditForm(id)
+  }, [])
 
   const colCount = category === 'szolgalat' ? 15 : category === 'katekezis' ? 10 : 7
   const newRowDirty = isDirty(newDraft, emptyDraft(year, month))
@@ -721,23 +809,26 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
             )}
 
             {visible.map(({ entry, ssz }) => {
-              const baseline = entryToDraft(entry)
-              const draft = drafts[entry.id] ?? baseline
-              const dirty = entry.id in drafts && isDirty(draft, baseline)
+              // Lazy draft (PERF): a baseline cache-ből jön (stabil referencia),
+              // draft csak a megérintett sorokhoz él, és az isDirty is csak
+              // azokra fut le — a többi sor propjai változatlanok → memo-skip.
+              const rowDraft = drafts[entry.id]
+              const baseline = getBaseline(entry)
               return (
                 <EditorRow
                   key={entry.id}
+                  rowKey={entry.id}
                   category={category}
-                  draft={draft}
+                  draft={rowDraft ?? baseline}
                   ssz={ssz}
-                  dirty={dirty}
+                  dirty={rowDraft !== undefined && isDirty(rowDraft, baseline)}
                   saving={savingIds.has(entry.id)}
                   deleting={deletingId === entry.id}
-                  onField={(field, value) => setRowField(entry, field, value)}
-                  onCommit={() => void saveExistingRow(entry.id)}
-                  onRowLeave={() => void saveExistingRow(entry.id)}
-                  onDelete={() => void handleDelete(entry)}
-                  onEditForm={onEditEntry ? () => onEditEntry(entry) : undefined}
+                  onField={handleRowField}
+                  onCommit={handleRowCommit}
+                  onRowLeave={handleRowLeave}
+                  onDelete={handleRowDelete}
+                  onEditForm={onEditEntry ? handleRowEditForm : undefined}
                 />
               )
             })}
@@ -745,13 +836,14 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
             {/* Mindig-üres új beviteli sor a táblázat alján. */}
             <EditorRow
               isNew
+              rowKey="new"
               category={category}
               draft={newDraft}
               dirty={newRowDirty}
               saving={savingIds.has('new')}
-              onField={(field, value) => setNewDraft((prev) => withField(prev, field, value))}
-              onCommit={() => void saveNewRow(true)}
-              onRowLeave={() => void saveNewRow(false)}
+              onField={handleRowField}
+              onCommit={handleRowCommit}
+              onRowLeave={handleRowLeave}
               dateRef={newDateRef}
             />
           </tbody>
