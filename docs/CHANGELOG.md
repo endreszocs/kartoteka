@@ -23,6 +23,43 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-18] — A családok importja megjavult: az importált családok mostantól tényleg megjelennek
+<!-- key: 2026-07-18-tagnyilv-pr3-csalad-import -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, rendszergazda -->
+<!-- version: web v0.9.92 -->
+
+### 🐛 Tagnyilvántartás — családok importja
+
+- **Az importált családok mostantól megjelennek a Családok fülön.** Eddig az
+  import sikert jelzett („N új család"), de a Családok fül üres maradt — az
+  import ugyanis a régi családtáblákba írt, a fül viszont már az új
+  háztartás-nyilvántartásból olvas. Mostantól minden import (családfős import,
+  „családokká szervezés", automatikus családszerkezet-összeállítás) végén a
+  rendszer automatikusan átvezeti a családokat az új nyilvántartásba — és ha
+  ez bármiért nem sikerül, figyelmeztetést kapsz, nem marad néma.
+- **A nagy fájlok importja többé nem szakad meg:** a család-importok eddig 8
+  másodperc után megszakadhattak (és ilyenkor MINDEN visszagörgetődött) —
+  mostantól 120 másodpercig futhatnak, mint a többi hosszú művelet.
+- **A családfők mostantól tényleg családfőként kerülnek be** — eddig egy
+  rejtett alapértelmezés miatt mindenki „nem családfő" jelöléssel jött létre,
+  ami rossz családkötésekhez vezethetett.
+- **Védelmek a félrekattintás ellen:** ha a fájl neve családokra utal, de az
+  „Új tagok importálása" mód van kiválasztva, a rendszer rákérdez (különben
+  minden családfő még egyszer létrejönne); a „Csak családokká szervezés"
+  módban a profilválasztó zárolt; és a „Családszerkezet összeállítása" gomb
+  ismételt importnál is elérhető.
+- A „családokká szervezés" futásai mostantól bekerülnek az import-naplóba.
+
+### 🔧 Rendszergazdáknak (futtatandó SQL)
+
+- `migration-docs/sql/2026-07-18-pr3-csalad-import-haztartas-sync.sql` — az új
+  átvezető függvény + a 120 másodperces időkorlát + **egyszeri pótlás**: a
+  korábban beimportált, eddig láthatatlan családok átvezetése (a fájl a
+  végén ellenőrző lekérdezésekkel).
+
+---
+
 ## [2026-07-18] — Választhatóvá vált a filmszerű gyülekezeti honlap
 <!-- key: 2026-07-18-cinematic-public-site-theme -->
 <!-- category: feature -->

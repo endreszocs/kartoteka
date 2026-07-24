@@ -193,7 +193,60 @@ export async function executeFamiliesFromExistingPersonsImport(
     })),
   ]
 
+  // 2026-07-18 (PR-3 F6.1, P0): a legacy csalad-rekordokat átvezetjük az ÚJ
+  // haztartas-modellbe — a Családok fül CSAK abból olvas, enélkül az importált
+  // családok láthatatlanok. Hibája nem nyelődik el némán: warning kerül a listába.
+  if (insertedCsalad > 0 || insertedGyerek > 0) {
+    const { error: syncError } = await supabase.rpc('sync_households_from_csalad', {
+      p_congregation_id: targetCongregationId,
+    })
+    if (syncError) {
+      combinedErrors.push({
+        row: 0,
+        message: `A családok létrejöttek, de a háztartás-átvezetés nem futott le (${syncError.message}) — a Családok fülön még nem látszanak. Futtasd újra az importot, vagy jelezd a rendszergazdának (sync_households_from_csalad).`,
+        severity: 'warning' as RowIssueSeverity,
+      })
+    }
+  }
+
   revalidatePath('/tagnyilvantartas')
+
+  // Audit log (best-effort) — 2026-07-18 (PR-3): eddig CSAK a family-heads út
+  // naplózott; a "családokká szervezés" futásai utólag nem voltak rekonstruálhatók.
+  try {
+    const { logImportRun } = await import('./import-log')
+    await logImportRun({
+      supabase,
+      congregationId: targetCongregationId,
+      userId: access.user.id,
+      module: 'members',
+      fileName: file.name,
+      totalInserted: insertedCsalad + insertedGyerek,
+      totalSkipped: combinedErrors.length,
+      perSheetLog: [
+        {
+          sheet: sheet.name,
+          profile: 'families_from_existing_persons',
+          inserted: insertedCsalad + insertedGyerek,
+          skipped: combinedErrors.filter((e) => e.severity === 'error').length,
+        },
+      ],
+      lookupStats: {
+        personResolved: 0,
+        personUnresolved: notFound,
+        categoryResolved: 0,
+        categoryUnresolved: 0,
+        warnings: [],
+      },
+      errors: combinedErrors.map((e) => ({
+        sheet: sheet.name,
+        row: e.row,
+        message: `[${e.severity ?? 'error'}] ${e.message}${e.name ? ` (${e.name})` : ''}`,
+      })),
+    })
+  } catch (e) {
+    console.warn('[executeFamiliesFromExistingPersonsImport] audit log sikertelen:', e)
+  }
 
   return {
     success: true,
