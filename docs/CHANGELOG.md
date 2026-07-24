@@ -23,6 +23,36 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-24] — Importáló: időtálló motorok — ékezet-tűrő felismerés, a kézi párosítás tényleg érvényesül + biztonsági frissítés
+<!-- key: 2026-07-24-tagnyilv-pr6-import-motor -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, rendszergazda -->
+<!-- version: web v0.9.96 -->
+
+### ✨ Importáló — nem törik el idővel
+
+- **A kézi oszlop-párosítás mostantól tényleg érvényesül:** ha az importálónál
+  kézzel párosítasz egy oszlopot, eddig a beállítás elveszett a mentés
+  pillanatában, és a rendszer a saját (auto) felismerésére esett vissza —
+  amit az előnézet mutatott, nem az importálódott. Mostantól **amit látsz,
+  az kerül be.**
+- **Ékezet-tűrő oszlop-felismerés:** a régi adatkezelő ékezet nélküli
+  exportjai („Csaladnev", „Szuletesi datum", „Kereszteles" fülnév) mostantól
+  maguktól felismerődnek — nem kell kézzel párosítani, és az új évi sablonok
+  sem törnek el emiatt.
+- **A fel nem ismert oszlopok többé nem vesznek el némán:** az import
+  eredményében figyelmeztetés sorolja fel, mely oszlopok maradtak ki — eddig
+  egy átnevezett oszlop csendes adathiányt okozott.
+- **Excel-motor biztonsági frissítés:** az Excel-olvasó könyvtár egy 2022-es,
+  két ismert sérülékenységű verzión ragadt (a régi csatornán soha nem
+  frissülhetett) — most a hivatalos új kiadásra (0.20.3) állt át.
+- **Regressziós teszt-háló:** 39 ellenőrzés fedi az import-motort
+  (oszlop-felismerés, dátum-határesetek, Excel-beolvasás) — a mostani
+  frissítés előtt ÉS után is mind zöld, és minden jövőbeli motorváltozásnál
+  lefuttatható (`scripts/test-import-engine.ts`).
+
+---
+
 ## [2026-07-24] — Családfa: dédszülőtől a szépszülőig, unokatestvérek és házassági rokonság — valódi rokonsági címkékkel
 <!-- key: 2026-07-24-tagnyilv-pr5b-csaladfa -->
 <!-- category: feature -->

@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, HelpCircle, Sparkles } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import type { ImportProfile, ColumnMapping } from '@/lib/import/import-profiles'
+import { normalizeForMatch, type ImportProfile, type ColumnMapping } from '@/lib/import/import-profiles'
 
 interface ColumnMappingStepProps {
   /** Az Excel fájlból detektált fejlécek */
@@ -36,10 +36,9 @@ interface ResolvedMapping {
   isOverride: boolean
 }
 
-function normalizeForMatch(s: string): string {
-  return s.toLowerCase().replace(/[.\s_-]+/g, '').trim()
-}
-
+// 2026-07-24 (PR-6 F7.5): a helyi normalizeForMatch-másolat TÖRÖLVE — a közös,
+// ékezet-lehántó helpert használjuk (lib/import/import-profiles), így az
+// előnézeti párosítás bitre azonos a szerver-oldalival (nincs drift).
 function matchHeaderToProfile(header: string, profile: ImportProfile): ColumnMapping | null {
   const norm = normalizeForMatch(header)
   for (const col of profile.columnMap) {

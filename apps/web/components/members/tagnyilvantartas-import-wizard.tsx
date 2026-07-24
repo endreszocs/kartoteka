@@ -32,6 +32,7 @@ import {
   PROFILE_PERSONS,
   PROFILE_FAMILY_HEADS,
   PROFILE_FAMILIES_FROM_EXISTING_PERSONS,
+  normalizeForMatch,
   type ImportProfile,
 } from '@/lib/import/import-profiles'
 import { parseAndPreview } from '@/lib/import/batch-import-actions'
@@ -112,10 +113,8 @@ function detectInitialProfile(fileName: string): ImportProfile {
   return PROFILE_PERSONS
 }
 
-function normalizeForMatch(s: string): string {
-  return s.toLowerCase().replace(/[.\s_-]+/g, '').trim()
-}
-
+// 2026-07-24 (PR-6 F7.5): a helyi normalizeForMatch-másolat TÖRÖLVE — a közös,
+// ékezet-lehántó helper (lib/import/import-profiles) az egyetlen forrás.
 function autoMapHeaders(
   excelHeaders: string[],
   profile: ImportProfile,
@@ -527,6 +526,9 @@ export function TagnyilvantartasImportWizard({
       if (mode === 'admin' && selectedCongId) {
         formData.append('targetCongregationId', selectedCongId)
       }
+      // 2026-07-24 (PR-6 F7.3): az EFFEKTÍV (auto + kézi felülírás) oszlop-
+      // párosítás a szerverre megy — amit az előnézet mutat, AZ importálódik.
+      formData.append('columnMapping', JSON.stringify(effectiveMapping))
 
       // Helység-egyeztetés (3. lépés) — JSONB map átadása az import RPC-nek.
       // 2026-07-17 (PR-1, település-P0 GYÖKÉROK-FIX): a kulcsot a SQL
@@ -639,7 +641,7 @@ export function TagnyilvantartasImportWizard({
         setStage('preview')
       }
     })
-  }, [file, activeSheet, profile, mode, selectedCongId, congregationId, router, resolvedLocalityMap, resolvedPostalcodes, importMode])
+  }, [file, activeSheet, profile, mode, selectedCongId, congregationId, router, resolvedLocalityMap, resolvedPostalcodes, importMode, effectiveMapping])
 
   // ─── Stepper aktív és befejezett lépések ─────────────────────────
   const activeStepId =

@@ -91,6 +91,18 @@ export async function executeFamilyHeadImport(
     }
   }
 
+  // 2026-07-24 (PR-6 F7.3): a wizard KÉZI oszlop-párosítása — eddig sosem
+  // jutott el a szerverig, az import az auto-matchre esett vissza.
+  const columnMappingRaw = formData.get('columnMapping') as string | null
+  let columnMapping: Record<string, string | null> | undefined
+  if (columnMappingRaw) {
+    try {
+      columnMapping = JSON.parse(columnMappingRaw)
+    } catch {
+      columnMapping = undefined
+    }
+  }
+
   // Új: a wizard "Utca-postakód-egyeztetés" lépés eredménye
   const resolvedStreetPostalcodesRaw = formData.get('resolvedStreetPostalcodes') as string | null
   let resolvedStreetPostalcodes: Record<string, string> | null = null
@@ -177,6 +189,7 @@ export async function executeFamilyHeadImport(
     sheet.headers,
     chosenProfile,
     ctx,
+    columnMapping,
   )
 
   if (transformResult.errors.length > 0 && transformResult.records.length === 0) {
