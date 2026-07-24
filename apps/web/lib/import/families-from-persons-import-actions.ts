@@ -97,6 +97,18 @@ export async function executeFamiliesFromExistingPersonsImport(
     return { error: `A "${sheet.name}" fül problémás: ${sheet.warning}` }
   }
 
+  // 2026-07-24 (PR-6 F7.3): a wizard KÉZI oszlop-párosítása — eddig sosem
+  // jutott el a szerverig, az import az auto-matchre esett vissza.
+  const columnMappingRaw = formData.get('columnMapping') as string | null
+  let columnMapping: Record<string, string | null> | undefined
+  if (columnMappingRaw) {
+    try {
+      columnMapping = JSON.parse(columnMappingRaw)
+    } catch {
+      columnMapping = undefined
+    }
+  }
+
   // Transzformálás
   const ctx: AutoColumnContext = {
     congregationId: targetCongregationId,
@@ -109,6 +121,7 @@ export async function executeFamiliesFromExistingPersonsImport(
     sheet.headers,
     PROFILE_FAMILIES_FROM_EXISTING_PERSONS,
     ctx,
+    columnMapping,
   )
 
   if (transformResult.errors.length > 0 && transformResult.records.length === 0) {

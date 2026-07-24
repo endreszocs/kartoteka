@@ -251,6 +251,15 @@ export async function executeBatchImport(
       ctx,
     )
 
+    // 2026-07-24 (PR-6 F7.4): a fel-nem-ismert oszlopok eddig NÉMÁN kimaradtak
+    // az importból — fejléc-átnevezésnél (új évi sablon) ez csendes adathiányt
+    // okozott. Mostantól hangos figyelmeztetés megy az eredménybe.
+    if (result.headerMatch.unmatched.length > 0 && allLookupStats.warnings.length < 50) {
+      allLookupStats.warnings.push(
+        `[${config.sheetName}] ${result.headerMatch.unmatched.length} oszlop NEM importálódik (nem párosítható a(z) "${profile.label}" profilhoz): ${result.headerMatch.unmatched.join(', ')}`,
+      )
+    }
+
     // Hibás sorok
     for (const err of result.errors) {
       if (allErrors.length < 50) {
