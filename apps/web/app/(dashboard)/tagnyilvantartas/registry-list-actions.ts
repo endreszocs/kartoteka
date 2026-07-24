@@ -5,10 +5,12 @@ import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
-import { normalizeDebtCalcMode } from '@/lib/constants/finance'
 import type { EnrichedMember, MemberRow, PaymentStatus } from '@/lib/constants/members'
 import {
+  allocateFamilyPayments,
+  computeBaseExpectedForMemberYear,
   computeJarulekForMemberYear,
+  isJarulekExcludedMemberStatus,
   type JarulekDiscountRule,
   type JarulekExemption,
   type JarulekPaymentLike,
@@ -94,7 +96,8 @@ type FinancialContext = {
   everPaidFamilyIds: Set<number>
   yearSettings: Record<number, JarulekYearSetting>
   discounts: JarulekDiscountRule[]
-  debtCalcMode: ReturnType<typeof normalizeDebtCalcMode>
+  /** 2026-07-17 (F5, Q6): a mód kivezetve — mindig 'akkori'. */
+  debtCalcMode: 'akkori'
 }
 
 type CursorPayload = {
@@ -367,6 +370,7 @@ async function loadDiscounts(supabase: SupabaseClient, congregationId: string, c
     .eq('congregation_id', congregationId)
     .eq('ev', currentYear)
     .eq('aktiv', true)
+    .order('sorrend', { ascending: true })
 
   let discountData = result.data as Array<Record<string, unknown>> | null
   if (result.error) {
@@ -376,6 +380,7 @@ async function loadDiscounts(supabase: SupabaseClient, congregationId: string, c
       .eq('congregation_id', congregationId)
       .eq('ev', currentYear)
       .eq('aktiv', true)
+      .order('sorrend', { ascending: true })
     if (retry.error) {
       console.warn('[registry-list] A járulékkedvezmények nem olvashatók:', retry.error.message)
       return []
@@ -396,7 +401,7 @@ async function loadDiscounts(supabase: SupabaseClient, congregationId: string, c
 
 async function loadFinancialContext(supabase: SupabaseClient, congregationId: string): Promise<FinancialContext> {
   const currentYear = new Date().getFullYear()
-  const [payments, exemptionRows, settingsResult, discounts, congregationResult] = await Promise.all([
+  const [payments, exemptionRows, settingsResult, discounts] = await Promise.all([
     loadMaintenancePayments(supabase, congregationId),
     loadExemptions(supabase, congregationId),
     supabase
@@ -405,15 +410,12 @@ async function loadFinancialContext(supabase: SupabaseClient, congregationId: st
       .eq('congregation_id', congregationId)
       .eq('id', String(currentYear)),
     loadDiscounts(supabase, congregationId, currentYear),
-    supabase
-      .from('congregations')
-      .select('tartozas_szamitas_mod')
-      .eq('id', congregationId)
-      .maybeSingle(),
+    // 2026-07-17 (F5, Q6): a congregations.tartozas_szamitas_mod lekérdezés törölve —
+    // a mód kivezetve; ráadásul egy már olvasatlan lekérdezés hibája dobta volna el
+    // az egész névjegyzék-listát.
   ])
 
   if (settingsResult.error) throw new Error(`Járulékbeállítások lekérdezése sikertelen: ${settingsResult.error.message}`)
-  if (congregationResult.error) throw new Error(`Gyülekezeti beállítás lekérdezése sikertelen: ${congregationResult.error.message}`)
 
   // 2026-07-17 (F1-4): a stornózott befizetés a FIZETETT-státuszba és a számításba nem
   // számít bele, de az everPaid (aktív-tag besorolás) SZÁNDÉKOSAN stornóval együtt épül —
@@ -464,7 +466,8 @@ async function loadFinancialContext(supabase: SupabaseClient, congregationId: st
     everPaidFamilyIds,
     yearSettings,
     discounts,
-    debtCalcMode: normalizeDebtCalcMode(congregationResult.data?.tartozas_szamitas_mod),
+    // 2026-07-17 (F5, Q6): a tartozas_szamitas_mod kivezetve — mindig 'akkori'.
+    debtCalcMode: 'akkori',
   }
 }
 
@@ -473,6 +476,29 @@ function enrichMembers(
   householdByMember: Map<number, MemberHouseholdState>,
   financial: FinancialContext,
 ) {
+  // 2026-07-17 (F5, Q7): a tisztán családi befizetések felosztása a tagok közt
+  // (idősebb előbb, alap-elvárásig) — bit-azonos a Tartozás-listával.
+  // A roster a KANONIKUS kizárt-státusz predikátummal szűr (bit-azonos a Tartozás-listával).
+  const allocationMembers = members
+    .filter((m) => !m.meghalt && !isJarulekExcludedMemberStatus(m.member_status))
+    .map((m) => ({
+      id: m.id,
+      sz_datum: m.sz_datum,
+      familyId: householdByMember.get(m.id)?.familyId ?? null,
+      foglalkozas: m.foglalkozas,
+    }))
+  const allocatedPayments = allocateFamilyPayments(financial.currentPayments, allocationMembers, (mem, y) =>
+    computeBaseExpectedForMemberYear({
+      member: mem,
+      year: y,
+      currentYear: financial.currentYear,
+      debtCalcMode: financial.debtCalcMode,
+      yearSettings: financial.yearSettings,
+      discounts: financial.discounts,
+      exemptions: financial.exemptions,
+    }),
+  )
+
   return members.map((member): EnrichedMember => {
     const familyId = householdByMember.get(member.id)?.familyId ?? null
     const jarulek = computeJarulekForMemberYear({
@@ -488,7 +514,7 @@ function enrichMembers(
       yearSettings: financial.yearSettings,
       discounts: financial.discounts,
       exemptions: financial.exemptions,
-      payments: financial.currentPayments,
+      payments: allocatedPayments,
     })
 
     let paymentStatus: PaymentStatus = 'hatralekos'
@@ -499,12 +525,10 @@ function enrichMembers(
       financial.exemptPersonIds.has(member.id) ||
       (familyId != null && financial.exemptFamilyIds.has(familyId))
     ) paymentStatus = 'felmentett'
-    else if (
-      jarulek.expected === 0 ||
-      jarulek.paid >= jarulek.expected ||
-      financial.paidPersonIds.has(member.id) ||
-      (familyId != null && financial.paidFamilyIds.has(familyId))
-    ) paymentStatus = 'rendezve'
+    // 2026-07-17 (F5, Q7): a paidPersonIds/paidFamilyIds ÖSSZEG-VAK ágak törölve a
+    // rendezve-döntésből — a családi felosztás után épp ezek hozták volna vissza a
+    // régi „egy családi befizetés mindenkit rendez" szemantikát.
+    else if (jarulek.expected === 0 || jarulek.paid >= jarulek.expected) paymentStatus = 'rendezve'
 
     return {
       ...member,

@@ -14,6 +14,11 @@ import {
 } from '@/lib/email/templates/congregation-transfer'
 import { logAuditEvent } from '@/lib/audit/log'
 
+// 2026-07-17 (F5): HH-NN érvényes tartománnyal (hónap 01-12, nap 01-31) — a puszta
+// \d{2}-\d{2} a '13-01'-et is átengedte, amit a motor a KÖVETKEZŐ évre görgetett
+// (az időszaki kedvezmény egész évben „elérhetőnek" látszott).
+const MONTH_DAY_REGEX = /^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/
+
 const congregationSchema = z.object({
   id: z.string().uuid(),
   // 2026-06-21: a welcome-varázsló „Hivatalos név" mezője (a `name` oszlopba) — eddig csak a
@@ -37,20 +42,12 @@ const congregationSchema = z.object({
   web: z.string().optional(),
   evesJarulek: z.number().min(0).default(100),
   jarulekKedvezmenyes: z.number().min(0).default(0),
-  jarulekHatarid: z.string().regex(/^\d{2}-\d{2}$/).default('07-01'),
+  jarulekHatarid: z.string().regex(MONTH_DAY_REGEX).default('07-01'),
   iban: z.string().optional(),
   bank: z.string().optional(),
   dioceseId: z.string().uuid().optional().or(z.literal('')),
   tartozasSzamitasMod: z.enum(['akkori', 'aktualis']).default('akkori'),
   cimerUrl: z.string().url().optional().or(z.literal('')),
-})
-
-const annualFeeSchema = z.object({
-  year: z.number().int().min(2000).max(2100),
-  evesJarulek: z.number().min(0),
-  jarulekKedvezmenyes: z.number().min(0).default(0),
-  jarulekHatarid: z.string().regex(/^\d{2}-\d{2}$/).default('07-01'),
-  note: z.string().optional(),
 })
 
 const bankAccountSchema = z.object({
@@ -65,20 +62,34 @@ const bankAccountSchema = z.object({
   aktiv: z.boolean().default(true),
 })
 
-const feeDiscountSchema = z.object({
-  id: z.string().uuid().optional(),
-  ev: z.number().int().min(2000).max(2100),
-  tipus: z.enum(['idoszak', 'kor', 'jovedelem', 'foglalkozas']),
-  sorrend: z.number().int().min(0).default(0),
-  aktiv: z.boolean().default(true),
-  kezdet: z.string().regex(/^\d{2}-\d{2}$/).optional().or(z.literal('')),
-  hatarid: z.string().regex(/^\d{2}-\d{2}$/).optional().or(z.literal('')),
-  kedvOsszeg: z.number().min(0).nullable().optional(),
-  korTol: z.number().int().min(0).nullable().optional(),
-  szazalek: z.number().min(0).max(100).nullable().optional(),
-  fixOsszeg: z.number().min(0).nullable().optional(),
-  jovLeiras: z.string().optional().or(z.literal('')),
-})
+const feeDiscountSchema = z
+  .object({
+    id: z.string().uuid().optional(),
+    ev: z.number().int().min(2000).max(2100),
+    tipus: z.enum(['idoszak', 'kor', 'jovedelem', 'foglalkozas']),
+    sorrend: z.number().int().min(0).default(0),
+    aktiv: z.boolean().default(true),
+    kezdet: z.string().regex(MONTH_DAY_REGEX, 'Érvénytelen hónap-nap (HH-NN), pl. 07-01.').optional().or(z.literal('')),
+    hatarid: z.string().regex(MONTH_DAY_REGEX, 'Érvénytelen hónap-nap (HH-NN), pl. 07-01.').optional().or(z.literal('')),
+    kedvOsszeg: z.number().min(0).nullable().optional(),
+    korTol: z.number().int().min(0).nullable().optional(),
+    szazalek: z.number().min(0).max(100).nullable().optional(),
+    fixOsszeg: z.number().min(0).nullable().optional(),
+    jovLeiras: z.string().optional().or(z.literal('')),
+    /** 2026-07-17 (F5): a kor-kedvezmény módja — % (levonandó) vagy fix RON (fizetendő). */
+    korMode: z.enum(['szazalek', 'fix']).optional(),
+  })
+  // Q8 (user-döntés): a 0 RON-os időszaki szabály TILOS — a motor nem-szabályként
+  // eldobná, miközben a kártya „él"-ként mutatná (néma no-op).
+  .refine((d) => d.tipus !== 'idoszak' || (d.kedvOsszeg ?? 0) >= 1, {
+    message: 'Az időszaki kedvezményes összeg legalább 1 RON legyen.',
+    path: ['kedvOsszeg'],
+  })
+  // A járulék 18 éves kortól jár — 0-s korhatár (üres input) minden felnőttre érvényesítené.
+  .refine((d) => d.tipus !== 'kor' || (d.korTol ?? 0) >= 18, {
+    message: 'A korhatár legalább 18 év legyen.',
+    path: ['korTol'],
+  })
 
 function isMissingRelationError(error: { code?: string; message?: string } | null | undefined) {
   const lower = error?.message?.toLowerCase() || ''
@@ -295,7 +306,9 @@ export async function updateCongregation(data: z.infer<typeof congregationSchema
     iban: parsed.data.iban || null,
     bank: parsed.data.bank || null,
     diocese_id: parsed.data.dioceseId || null,
-    tartozas_szamitas_mod: parsed.data.tartozasSzamitasMod,
+    // 2026-07-17 (F5, Q6): a mód kivezetve — mindig 'akkori' íródik (a régi
+    // kliensből érkező 'aktualis' sem kerülhet vissza a DB-be).
+    tartozas_szamitas_mod: 'akkori',
     cimer_url: parsed.data.cimerUrl || null,
   }
 
@@ -694,47 +707,9 @@ export async function getCongregationAnnualFees(congregationId: string) {
   }
 }
 
-export async function saveCongregationAnnualFee(congregationId: string, payload: z.infer<typeof annualFeeSchema>) {
-  const parsed = annualFeeSchema.safeParse(payload)
-  if (!parsed.success) {
-    return { error: parsed.error.issues[0].message }
-  }
-
-  const permission = await requireActiveCongregation(congregationId)
-  if ('error' in permission) return { error: permission.error }
-
-  const { supabase } = permission.access
-  const record = {
-    congregation_id: congregationId,
-    year: parsed.data.year,
-    eves_jarulek: parsed.data.evesJarulek,
-    jarulek_kedvezmenyes: parsed.data.jarulekKedvezmenyes,
-    jarulek_hatarid: parsed.data.jarulekHatarid,
-    note: parsed.data.note || null,
-  }
-
-  const result = await supabase
-    .from('congregation_annual_fees')
-    .upsert(record, { onConflict: 'congregation_id,year' })
-
-  if (result.error) {
-    if (isMissingRelationError(result.error)) {
-      return { error: 'Az éves egyházfenntartási előzményekhez még futtatni kell az SQL bővítést.' }
-    }
-
-    if (isPermissionError(result.error)) {
-      return {
-        error:
-          'Az éves előzmények táblája már létezik, de az aktuális adatbázis-jogosultság nem engedi a mentést. Futtasd le a `migration-docs/sql/2026-04-09-extension-table-policies.sql` fájlt.',
-      }
-    }
-
-    return { error: result.error.message }
-  }
-
-  revalidatePath('/', 'layout')
-  return { success: 'Az éves pénzügyi előzmény sikeresen elmentve.' }
-}
+// 2026-07-17 (F5): a saveCongregationAnnualFee TÖRÖLVE — halott kód volt: egyetlen
+// hívója a szintén árva (sehonnan nem importált) congregation-dialog.tsx, és a
+// számítás által nem olvasott congregation_annual_fees tükör-táblába írt.
 
 export async function getCongregationBankAccounts(congregationId: string) {
   const permission = await requireActiveCongregation(congregationId)
@@ -952,15 +927,24 @@ export async function saveCongregationFeeDiscount(
     hatarid: parsed.data.tipus === 'idoszak' ? parsed.data.hatarid || null : null,
     kedv_osszeg: parsed.data.tipus === 'idoszak' ? parsed.data.kedvOsszeg ?? null : null,
     kor_tol: parsed.data.tipus === 'kor' ? parsed.data.korTol ?? null : null,
+    // 2026-07-17 (F5): a kor-kedvezmény KÉTMÓDÚ — % (levonandó) VAGY fix RON
+    // (fizetendő; a motor a fix_osszeg-et preferálja). Eddig kor-ra a fix_osszeg
+    // feltétel nélkül NULL volt → a wizard fix-módú szabálya szerkesztés-mentéskor
+    // némán 50% levonássá romlott.
     szazalek:
-      parsed.data.tipus === 'kor' || parsed.data.tipus === 'jovedelem'
-        ? parsed.data.szazalek ?? null
-        : null,
-    // fix összeg: szociális (jovedelem) VAGY foglalkozás-alapú (a fizetendő összeg; 0 = mentesül)
+      parsed.data.tipus === 'kor'
+        ? (parsed.data.korMode === 'fix' ? null : parsed.data.szazalek ?? null)
+        : parsed.data.tipus === 'jovedelem'
+          ? parsed.data.szazalek ?? null
+          : null,
+    // fix összeg: kor (fix mód), szociális (jovedelem) VAGY foglalkozás-alapú
+    // (a fizetendő összeg; 0 = mentesül)
     fix_osszeg:
-      parsed.data.tipus === 'jovedelem' || parsed.data.tipus === 'foglalkozas'
-        ? parsed.data.fixOsszeg ?? null
-        : null,
+      parsed.data.tipus === 'kor'
+        ? (parsed.data.korMode === 'fix' ? parsed.data.fixOsszeg ?? null : null)
+        : parsed.data.tipus === 'jovedelem' || parsed.data.tipus === 'foglalkozas'
+          ? parsed.data.fixOsszeg ?? null
+          : null,
     // jov_leiras: szociális → szabad szöveg; foglalkozás → vesszős kulcsszavak (a tag foglalkozás-mezőjéhez)
     jov_leiras:
       parsed.data.tipus === 'jovedelem' || parsed.data.tipus === 'foglalkozas'
@@ -1251,7 +1235,7 @@ const congregationSetupSchema = z.object({
   diocese_id: z.string().uuid().optional().or(z.literal('')),
   eves_jarulek: z.number().min(0).default(100),
   jarulek_kedvezmenyes: z.number().min(0).default(0),
-  jarulek_hatarid: z.string().regex(/^\d{2}-\d{2}$/, 'Formátum: HH-NN (pl. 07-01)').default('07-01'),
+  jarulek_hatarid: z.string().regex(MONTH_DAY_REGEX, 'Formátum: HH-NN (pl. 07-01)').default('07-01'),
   tartozas_szamitas_mod: z.enum(['akkori', 'aktualis']).default('akkori'),
 })
 

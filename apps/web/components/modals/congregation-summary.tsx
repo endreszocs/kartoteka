@@ -42,7 +42,7 @@ const EMPTY = '—'
 const ron = (n: number) => `${(Number(n) || 0).toLocaleString('hu-HU')} RON`
 const huDate = (d: string | null) =>
   d ? new Date(d).toLocaleDateString('hu-HU', { year: 'numeric', month: 'long', day: 'numeric' }) : null
-const modeLabel = (m: 'akkori' | 'aktualis') => (m === 'aktualis' ? 'Aktuális évi besorolás' : 'Akkori évi besorolás')
+// 2026-07-17 (F5, Q6): a tartozás-számítási mód kivezetve — mindig „akkori".
 
 // ── Színpaletták kategóriánként (élénk, „apple settings" jelleg) ──────────────
 type Accent = 'sky' | 'violet' | 'emerald' | 'amber' | 'teal' | 'rose' | 'indigo'
@@ -175,7 +175,7 @@ export function CongregationSummary({
           <Row label="Éves egyházfenntartás" value={ron(data.evesJarulek)} mono />
           <Row label="Kedvezményes alapösszeg" value={ron(data.jarulekKedvezmenyes)} mono />
           <Row label="Járulék határidő" value={data.jarulekHatarid || undefined} mono />
-          <Row label="Tartozás-számítás" value={modeLabel(data.tartozasSzamitasMod)} />
+          <Row label="Tartozás-számítás" value="Akkori évi besorolás (rögzített)" />
         </Group>
 
         {data.discounts.length > 0 && (
@@ -276,7 +276,7 @@ export function buildCongregationSummaryPrintHtml(data: CongregationSummaryData)
       ['Éves egyházfenntartás', ron(data.evesJarulek)],
       ['Kedvezményes alapösszeg', ron(data.jarulekKedvezmenyes)],
       ['Járulék határidő', data.jarulekHatarid],
-      ['Tartozás-számítás', modeLabel(data.tartozasSzamitasMod)],
+      ['Tartozás-számítás', 'Akkori évi besorolás (rögzített)'],
     ]))}
     ${data.discounts.length ? section('Kedvezmények', '#b45309', rowsHtml(data.discounts.map((d, i) => [`#${i + 1}`, d] as [string, string]))) : ''}
     ${pastors.length ? section('Lelkészek', '#0369a1', rowsHtml(pastors)) : ''}

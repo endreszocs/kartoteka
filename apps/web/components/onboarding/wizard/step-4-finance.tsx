@@ -15,7 +15,6 @@ import { useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
-  Calculator,
   Loader2,
   Wallet,
 } from 'lucide-react'
@@ -26,7 +25,6 @@ import { Button } from '@/components/ui/button'
 import {
   WizardSectionCard,
   WizardField,
-  WizardBanner,
   Input,
 } from './_helpers/wizard-ui'
 import {
@@ -180,71 +178,9 @@ export function Step4Finance({
         </div>
       </WizardSectionCard>
 
-      {/* Tartozás-számítási mód */}
-      <WizardSectionCard
-        icon={Calculator}
-        iconColor="text-cyan-700"
-        iconBg="bg-cyan-50"
-        title="Tartozás-számítási mód"
-        description="Hogyan számolja a rendszer a régi évek tartozását?"
-      >
-        <WizardBanner tone="info">
-          <p>
-            Egy tagnak lehet pl. 2022-es tartozása. A rendszer ezt a 2022-es
-            beállítások szerint számolja (&bdquo;akkori&rdquo;), vagy az aktuális
-            évi beállítások alapján (&bdquo;aktuális&rdquo;)? Ha nem vagy biztos,
-            válaszd az &bdquo;akkori&rdquo;-t — ez a leggyakoribb és legtisztább.
-          </p>
-        </WizardBanner>
-
-        <div className="grid gap-3 md:grid-cols-2">
-          <label
-            className={`flex cursor-pointer items-start gap-3 rounded-xl border-2 p-4 transition-colors ${
-              form.tartozas_szamitas_mod === 'akkori'
-                ? 'border-cyan-500 bg-cyan-50/50'
-                : 'border-slate-200 bg-white hover:border-cyan-200'
-            }`}
-          >
-            <input
-              type="radio"
-              name="tartozas_mode"
-              className="mt-1 size-4"
-              checked={form.tartozas_szamitas_mod === 'akkori'}
-              onChange={() => update('tartozas_szamitas_mod', 'akkori')}
-            />
-            <span className="text-sm">
-              <strong className="block text-slate-800">Akkori év szerint</strong>
-              <span className="mt-0.5 block text-xs text-slate-600">
-                A 2022-es tartozás a 2022-es beállítások szerint van számolva.
-                Ajánlott — ez a hagyományos.
-              </span>
-            </span>
-          </label>
-
-          <label
-            className={`flex cursor-pointer items-start gap-3 rounded-xl border-2 p-4 transition-colors ${
-              form.tartozas_szamitas_mod === 'aktualis'
-                ? 'border-cyan-500 bg-cyan-50/50'
-                : 'border-slate-200 bg-white hover:border-cyan-200'
-            }`}
-          >
-            <input
-              type="radio"
-              name="tartozas_mode"
-              className="mt-1 size-4"
-              checked={form.tartozas_szamitas_mod === 'aktualis'}
-              onChange={() => update('tartozas_szamitas_mod', 'aktualis')}
-            />
-            <span className="text-sm">
-              <strong className="block text-slate-800">Aktuális év szerint</strong>
-              <span className="mt-0.5 block text-xs text-slate-600">
-                A régi tartozások az aktuális évi járulékkal vannak számolva.
-                Egyszerűbb — de figyeld a változások hatását.
-              </span>
-            </span>
-          </label>
-        </div>
-      </WizardSectionCard>
+      {/* 2026-07-17 (F5, Q6 — user-döntés): a „Tartozás-számítási mód" választó
+          KIVEZETVE — a rendszer mindig az „akkori" (a tartozás évének beállításai
+          szerinti) módon számol. */}
 
       {/* Kedvezmények — foglalkozás-alapú + időszaki + kor */}
       <FeeDiscountsSection
@@ -256,11 +192,11 @@ export function Step4Finance({
         onOccupationChange={setOccupationDiscounts}
       />
 
-      {/* Múlt évek — csak akkori módban van értelme */}
+      {/* Múlt évek — Q6 után mindig látható (a számítás mindig „akkori" módú) */}
       <PastYearsSection
         years={pastYears}
         onChange={setPastYears}
-        visible={form.tartozas_szamitas_mod === 'akkori'}
+        visible
       />
 
       {/* Nav buttons */}

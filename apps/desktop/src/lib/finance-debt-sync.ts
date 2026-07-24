@@ -62,7 +62,8 @@ export async function pullDebtData(congregationId: string): Promise<PullDebtResu
       supabase
         .from('jarulek_kedvezmeny')
         .select('id, congregation_id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras')
-        .eq('congregation_id', congregationId),
+        .eq('congregation_id', congregationId)
+        .order('sorrend', { ascending: true }),
     ])
     if (felmRes.error) return { success: false, error: felmRes.error.message }
     // Ellenálló a `kezdet` oszlop hiányára (régi séma): ha a lekérdezés hibázott, újra `kezdet` nélkül —

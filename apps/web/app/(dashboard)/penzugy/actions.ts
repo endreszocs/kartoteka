@@ -25,7 +25,6 @@ import {
   type FxRevaluationInput,
 } from '@/lib/validations/finance'
 import {
-  normalizeDebtCalcMode,
   RENTAL_SZAMADASICEL_MAP,
   RENTAL_SZAMADASICEL_CODES,
   FX_REVAL_NYERESEG_KOD,
@@ -50,11 +49,15 @@ import { getEffectiveCongregationContext, getEffectiveAccessContext } from '@/li
 import { inventoryItemSchema } from '@/lib/validations/inventory'
 import { INVENTORY_CATEGORY_PREFIXES, serializeInventoryCategory } from '@/lib/constants/inventory.next'
 import {
+  allocateFamilyPayments,
+  computeBaseExpectedForMemberYear,
   computeJarulekForMemberYear,
+  isJarulekExcludedMemberStatus,
   todayInBucharest,
   JARULEK_MINOR_RULE,
   type JarulekDiscountRule,
   type JarulekExemption,
+  type JarulekPaymentLike,
   type JarulekYearSetting,
 } from '@/lib/finance/jarulek-calculation'
 import { calculateRentalDebts, type RentalPaymentLike } from '@/lib/finance/rental-calculation'
@@ -96,17 +99,10 @@ import { submitDocument } from '@/app/(dashboard)/dashboard-egyhazmegye/document
  * a desktop explicit listát használ — itt a listás megoldás a félreérthetetlenebb).
  * A kizárt halmaz megegyezik a desktopéval (finance-debt-compute.ts).
  */
-const EXCLUDED_MEMBER_STATUSES = new Set([
-  'elkoltozott', 'elköltözött',
-  'kitert', 'kitért',
-  'torolt', 'törölt',
-  'elhunyt',
-])
-
-function isExcludedMemberStatus(value: string | null | undefined) {
-  const normalized = String(value ?? '').trim().toLowerCase().replace(/[\s_-]+/g, '')
-  return EXCLUDED_MEMBER_STATUSES.has(normalized)
-}
+// 2026-07-17 (F5): a kizárt-státusz predikátum a KÖZÖS motorba került
+// (isJarulekExcludedMemberStatus) — web és desktop, lista ÉS családi felosztási
+// roster ugyanazt használja, különben képernyőnként más felosztás jönne ki.
+const isExcludedMemberStatus = isJarulekExcludedMemberStatus
 
 // ── Profil segéd ─────────────────────────────────────────────
 
@@ -1060,7 +1056,10 @@ export async function initFinance(year: number) {
       .from('jarulek_kedvezmeny')
       .select('id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras')
       .eq('congregation_id', congregationId)
-      .eq('aktiv', true),
+      .eq('aktiv', true)
+      // 2026-07-17 (F5): determinisztikus sorrend — azonos árú szabályoknál a
+      // megjelenített címke ne a DB véletlen sor-sorrendjétől függjön.
+      .order('sorrend', { ascending: true }),
     // 2026-06-30 (perf): a belsomozgas (transferRes) és a congregations (congRes)
     // korábban a Promise.all UTÁN, szekvenciálisan futott — egyik sem függ a fő
     // blokktól, ezért bevonjuk a párhuzamos hullámba (2 round-trippel kevesebb).
@@ -1111,7 +1110,10 @@ export async function initFinance(year: number) {
   } else {
     congregationName = congRes.data?.nev_hu || congRes.data?.name || ''
     congregationNameRo = (congRes.data?.nev_ro as string | null) || ''
-    debtCalcMode = normalizeDebtCalcMode(congRes.data?.tartozas_szamitas_mod)
+    // 2026-07-17 (F5, Q6 — user-döntés): a tartozas_szamitas_mod KIVEZETVE — mindig
+    // 'akkori' (a régi tartozás a saját éve beállításaival számol). Az 'aktualis'
+    // mód a listákon amúgy is no-op volt, egyetlen helyen élt (tag-adatlap), és ott
+    // képernyők közti inkonzisztenciát okozott. A DB-oszlop megmarad, de nem hat.
   }
 
   // Kategória map-ek felépítése
@@ -1339,7 +1341,7 @@ export async function initFinance(year: number) {
   if (discountsRes.error) {
     const retry = await supabase.from('jarulek_kedvezmeny')
       .select('id, ev, tipus, aktiv, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras')
-      .eq('congregation_id', congregationId).eq('aktiv', true)
+      .eq('congregation_id', congregationId).eq('aktiv', true).order('sorrend', { ascending: true })
     if (retry.error) console.warn('[initFinance] jarulek_kedvezmeny retry (kezdet nélkül) is hibázott — a kedvezmények kimaradnak:', retry.error.message)
     discData = retry.data as Array<Record<string, unknown>> | null
   }
@@ -1377,7 +1379,7 @@ export async function initFinance(year: number) {
   // szerver/kliens összeget és elállított gépóránál hibás számlázást adna.
   const asOfDate = todayInBucharest()
 
-  const debtRows: DebtRow[] = ((membersRes.data || []) as Array<{
+  const eligibleDebtMembers = ((membersRes.data || []) as Array<{
     id: number
     csaladnev: string | null
     k_nev: string | null
@@ -1385,8 +1387,30 @@ export async function initFinance(year: number) {
     foglalkozas: string | null
     meghalt: boolean | null
     member_status: string | null
-  }>)
-    .filter((member) => !member.meghalt && !isExcludedMemberStatus(member.member_status))
+  }>).filter((member) => !member.meghalt && !isExcludedMemberStatus(member.member_status))
+
+  // 2026-07-17 (F5, Q7 — user-döntés): a tisztán családi befizetések FELOSZTÁSA a
+  // család tagjai közt (idősebb előbb, kinek-kinek az évi alap elvárásáig) — eddig
+  // a családi tétel minden tagnál teljes összegként jelent meg (többszörös jóváírás).
+  const allocationMembers = eligibleDebtMembers.map((member) => ({
+    id: member.id,
+    sz_datum: member.sz_datum,
+    familyId: personToFamilyMap[member.id] ?? null,
+    foglalkozas: member.foglalkozas,
+  }))
+  const allocatedPayments = allocateFamilyPayments(maintenancePayments, allocationMembers, (mem, y) =>
+    computeBaseExpectedForMemberYear({
+      member: mem,
+      year: y,
+      currentYear: year,
+      debtCalcMode,
+      yearSettings,
+      discounts,
+      exemptions,
+    }),
+  )
+
+  const debtRows: DebtRow[] = eligibleDebtMembers
     .map((member) => {
       const familyId = personToFamilyMap[member.id] ?? null
       const result = computeJarulekForMemberYear({
@@ -1402,7 +1426,7 @@ export async function initFinance(year: number) {
         yearSettings,
         discounts,
         exemptions,
-        payments: maintenancePayments,
+        payments: allocatedPayments,
         asOfDate,
       })
 
@@ -2408,7 +2432,7 @@ export async function getExpectedJarulek(
   const [memberRes, bealitasRes, discRes, exRes, famRes, congRes] = await Promise.all([
     supabase.from('szemely').select('id, sz_datum, foglalkozas').eq('id', personId).eq('congregation_id', congregationId).maybeSingle(),
     supabase.from('bealitas').select('id, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid').eq('congregation_id', congregationId).eq('id', String(year)).maybeSingle(),
-    supabase.from('jarulek_kedvezmeny').select('id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras').eq('congregation_id', congregationId).eq('aktiv', true).eq('ev', year),
+    supabase.from('jarulek_kedvezmeny').select('id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras').eq('congregation_id', congregationId).eq('aktiv', true).eq('ev', year).order('sorrend', { ascending: true }),
     supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('congregation_id', congregationId),
     supabase.from('haztartas_tag').select('id_szemely, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)').eq('congregation_id', congregationId).eq('id_szemely', personId).is('ervenyes_ig', null),
     supabase.from('congregations').select('tartozas_szamitas_mod, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid').eq('id', congregationId).maybeSingle(),
@@ -2477,7 +2501,7 @@ export async function getExpectedJarulek(
   if (discRes.error) {
     const retry = await supabase.from('jarulek_kedvezmeny')
       .select('id, ev, tipus, aktiv, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras')
-      .eq('congregation_id', congregationId).eq('aktiv', true).eq('ev', year)
+      .eq('congregation_id', congregationId).eq('aktiv', true).eq('ev', year).order('sorrend', { ascending: true })
     if (retry.error) console.warn('[getExpectedJarulek] jarulek_kedvezmeny retry (kezdet nélkül) is hibázott — a kedvezmények kimaradnak:', retry.error.message)
     discData = retry.data as Array<Record<string, unknown>> | null
   }
@@ -2491,7 +2515,54 @@ export async function getExpectedJarulek(
     fix_osszeg: row.fix_osszeg == null ? null : Number(row.fix_osszeg) || 0,
   }))
   const exemptions = (exRes.data || []) as JarulekExemption[]
-  const debtCalcMode = normalizeDebtCalcMode(cong?.tartozas_szamitas_mod)
+  // 2026-07-17 (F5, Q6): a tartozas_szamitas_mod kivezetve — mindig 'akkori'.
+  const debtCalcMode = 'akkori' as const
+
+  // 2026-07-17 (F5, Q7 — bit-azonos a Tartozás-listával): a tisztán családi
+  // befizetések felosztása a család tagjai közt. Ehhez a család rostere kell —
+  // csak akkor kérjük le, ha van felosztandó (tisztán családi) tétel.
+  let paymentsForCalc: JarulekPaymentLike[] = maintenancePayments
+  // (A vegyes — személy+család — tétel is felosztás-köteles: a megnevezett tag
+  // elvárása feletti többlet a család többi tagjára folyik.)
+  if (familyId != null && maintenancePayments.some((p) => p.id_csalad != null)) {
+    const { data: famTagData } = await supabase
+      .from('haztartas_tag')
+      .select('id_szemely, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)')
+      .eq('congregation_id', congregationId)
+      .is('ervenyes_ig', null)
+    const famMemberIds = new Set<number>()
+    for (const row of (famTagData || []) as Array<{
+      id_szemely: number
+      haztartas: { legacy_csalad_id: number | null; isaktiv: boolean | null; ervenyes_ig: string | null } | { legacy_csalad_id: number | null; isaktiv: boolean | null; ervenyes_ig: string | null }[] | null
+    }>) {
+      const h = Array.isArray(row.haztartas) ? row.haztartas[0] : row.haztartas
+      if (h && h.isaktiv === true && h.ervenyes_ig == null && h.legacy_csalad_id === familyId && row.id_szemely) {
+        famMemberIds.add(row.id_szemely)
+      }
+    }
+    famMemberIds.add(personId)
+    const { data: famSzemely } = await supabase
+      .from('szemely')
+      .select('id, sz_datum, foglalkozas, meghalt, member_status')
+      .eq('congregation_id', congregationId)
+      .in('id', [...famMemberIds])
+    const roster = ((famSzemely || []) as Array<{
+      id: number; sz_datum: string | null; foglalkozas: string | null; meghalt: boolean | null; member_status: string | null
+    }>)
+      .filter((m) => !m.meghalt && !isExcludedMemberStatus(m.member_status))
+      .map((m) => ({ id: m.id, sz_datum: m.sz_datum, familyId, foglalkozas: m.foglalkozas }))
+    paymentsForCalc = allocateFamilyPayments(maintenancePayments, roster, (mem, y) =>
+      computeBaseExpectedForMemberYear({
+        member: mem,
+        year: y,
+        currentYear: year,
+        debtCalcMode,
+        yearSettings,
+        discounts,
+        exemptions,
+      }),
+    )
+  }
 
   const prospectiveDate = prospectiveDateIso ? new Date(prospectiveDateIso) : null
   const result = computeJarulekForMemberYear({
@@ -2502,7 +2573,7 @@ export async function getExpectedJarulek(
     yearSettings,
     discounts,
     exemptions,
-    payments: maintenancePayments,
+    payments: paymentsForCalc,
     prospectiveDate: prospectiveDate && !Number.isNaN(prospectiveDate.getTime()) ? prospectiveDate : null,
   })
   return { expected: result.expected, paid: result.paid, debt: result.debt, hasBase }
@@ -2555,11 +2626,18 @@ export async function createYearlySettings(
   }
   const localityId = congregation?.adrlocality_id ?? null
 
+  // 2026-07-17 (F5): a határidő csak érvényes HH-NN alakban mehet az adatbázisba —
+  // a '2026-07-01' / '07.01' / '13-01' formák a motorban néma hibát okoztak volna.
+  const safeHatarid =
+    jarulekHatarid && /^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/.test(jarulekHatarid)
+      ? jarulekHatarid
+      : '07-01'
+
   const basePayload = {
     id: yearId,
     congregation_id: congregationId,
     eves_jarulek: evesJarulek,
-    jarulek_hatarid: jarulekHatarid || '07-01',
+    jarulek_hatarid: safeHatarid,
     jarulek_kedvezmenyes: opts?.jarulekKedvezmenyes ?? (Number(congregation?.jarulek_kedvezmenyes) || 0),
     aktiv: true,
     isszemelyibefizetes: false,

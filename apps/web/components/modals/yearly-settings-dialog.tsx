@@ -21,6 +21,12 @@ export function YearlySettingsDialog({ year }: YearlySettingsDialogProps) {
 
   async function handleSubmit() {
     if (jarulek <= 0) { toast.error('Az éves járulék pozitív szám kell legyen!'); return }
+    // 2026-07-17 (F5): beírt-de-érvénytelen határidőnél hibaüzenet — a szerver néma
+    // '07-01' defaultja csak ÜRES inputra indokolt.
+    if (hatarid.trim() !== '' && !/^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/.test(hatarid.trim())) {
+      toast.error('Érvénytelen határidő: hónap-nap (HH-NN) alakban add meg, pl. 07-01 = július 1.')
+      return
+    }
     setLoading(true)
     const result = await createYearlySettings(year, jarulek, hatarid)
     if (result.error) toast.error(result.error)

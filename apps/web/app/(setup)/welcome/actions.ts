@@ -127,7 +127,7 @@ export interface WizardData {
 // ──────────────────────────────────────────────────────────────────
 
 const DATE_YYYY_MM_DD = /^\d{4}-\d{2}-\d{2}$/
-const DATE_MM_DD = /^\d{2}-\d{2}$/
+const DATE_MM_DD = /^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/
 
 const wizardCongregationSchema = z.object({
   nev: z.string().max(500).optional(),
@@ -729,10 +729,10 @@ export async function completeWizard(): Promise<
   }
 
   const yearlyFee = Number(wd.finance?.eves_jarulek) || existingFee
-  const yearlyDeadline = /^\d{2}-\d{2}$/.test(wd.finance?.jarulek_hatarid || '')
+  const yearlyDeadline = /^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/.test(wd.finance?.jarulek_hatarid || '')
     ? (wd.finance?.jarulek_hatarid as string)
     : existingDeadline
-  if (yearlyFee <= 0 || !/^\d{2}-\d{2}$/.test(yearlyDeadline)) {
+  if (yearlyFee <= 0 || !/^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/.test(yearlyDeadline)) {
     return {
       error:
         'A pénzügyi alapadatok hiányosak. Kérem, adja meg az éves járulék összegét és a fizetési határidőt a Pénzügy lépésben.',
@@ -847,9 +847,9 @@ export async function completeWizard(): Promise<
     if (wd.finance?.jarulek_hatarid) {
       congUpdate.jarulek_hatarid = wd.finance.jarulek_hatarid
     }
-    if (wd.finance?.tartozas_szamitas_mod) {
-      congUpdate.tartozas_szamitas_mod = wd.finance.tartozas_szamitas_mod
-    }
+    // 2026-07-17 (F5, Q6): a tartozas_szamitas_mod kivezetve — mindig 'akkori'
+    // íródik (a régi kliensből érkező 'aktualis' sem kerül a DB-be).
+    congUpdate.tartozas_szamitas_mod = 'akkori'
 
     // Legacy fallback: ha vannak bankszámlák a wizardban, az elsőt
     // (vagy a fő számlát) szinkronizáljuk a `congregations.iban`/`bank`
@@ -929,8 +929,8 @@ export async function completeWizard(): Promise<
         wd.discountPeriods
           .filter(
             p =>
-              /^\d{2}-\d{2}$/.test(p.kezdet) &&
-              /^\d{2}-\d{2}$/.test(p.hatarid) &&
+              /^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/.test(p.kezdet) &&
+              /^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/.test(p.hatarid) &&
               Number(p.kedv_osszeg) > 0,
           )
           .forEach((p, idx) => {
@@ -1086,15 +1086,14 @@ export async function completeWizard(): Promise<
     // A felhasználó max 5 visszamenő évet adhat meg a wizardban. Csak azokat
     // mentjük, amelyikben legalább egy mező ki van töltve. Idempotens upsert
     // a (id, congregation_id) PK-re.
-    if (
-      Array.isArray(wd.pastYears) &&
-      wd.finance.tartozas_szamitas_mod === 'akkori'
-    ) {
+    // 2026-07-17 (F5, Q6): a mód-guard törölve — a számítás mindig 'akkori', a
+    // múlt-évi sorok mentése minden esetben megtörténik.
+    if (Array.isArray(wd.pastYears)) {
       const filledYears = wd.pastYears.filter(
         y =>
           (y.eves_jarulek && y.eves_jarulek > 0) ||
           (y.jarulek_kedvezmenyes && y.jarulek_kedvezmenyes > 0) ||
-          (y.jarulek_hatarid && /^\d{2}-\d{2}$/.test(y.jarulek_hatarid)),
+          (y.jarulek_hatarid && /^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/.test(y.jarulek_hatarid)),
       )
       for (const year of filledYears) {
         const yearRow: Record<string, unknown> = {

@@ -104,10 +104,9 @@ export function DebtTab({
   debtRowsByYear,
 }: DebtTabProps) {
   const yearlyFee = yearlyFees[currentYear] || 0
-  const modeLabel =
-    debtCalcMode === 'aktualis'
-      ? 'Aktuális év szerinti besorolás'
-      : 'Akkori év szerinti besorolás'
+  // 2026-07-17 (F5, Q6): a debtCalcMode prop megmarad (API-kompat), de a mód-címke
+  // kivezetve — mindig 'akkori' számítás fut.
+  void debtCalcMode
 
   // ── 2026-07-10 (S2-1c): szűrő-állapotok ────────────────────────────────
   const [search, setSearch] = useState('')
@@ -330,9 +329,8 @@ export function DebtTab({
             kedvezményeket, a határidős kedvezményt és a felmentéseket is.
           </p>
         </div>
-        <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-          {modeLabel}
-        </span>
+        {/* 2026-07-17 (F5, Q6): a mód-jelvény kivezetve — a rendszer mindig az
+            „akkori" (a tartozás évének beállításai szerinti) módon számol. */}
       </div>
 
       {yearlyFee === 0 && (
