@@ -23,6 +23,48 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-24] — Körzetesítés a TELJES gyülekezetre: egyedülállók hozzárendelése + körzetenkénti nyomtatható névsor
+<!-- key: 2026-07-24-tagnyilv-pr10-korzet-teljes -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, presbiter -->
+<!-- version: web v0.9.99 -->
+
+### ✨ Körzetesítés — mostantól senki sem marad ki
+
+- **A család nélküli tagok (egyedülállók, özvegyek, elváltak) is körzetbe
+  kerülnek:** az automatikus körzetesítő varázsló mostantól a **teljes
+  gyülekezetet** osztja el — a családokat családként, a család nélkülieket
+  személyként (utcájuk vagy korosztályuk szerint), és a végösszesítő is
+  külön mutatja: „X család + Y egyedülálló hozzárendelve".
+  (Rendszergazdai SQL futtatása szükséges — lásd lent.)
+- **A körzet-kártyákon** a családszám mellett megjelenik az **egyedülállók
+  száma** is.
+- **A Választók fül körzet-oszlopa** a család nélküli tagoknál is mutatja
+  a saját körzet-hozzárendelést.
+
+### ✨ Körzetenkénti nyomtatható névsor
+
+- **Minden körzet-kártyán új „Nyomtatás" gomb** — élő A4-előnézettel,
+  kétféle nézetben:
+  - **Családi (vizuális) nézet:** a családok kártyákon, a családtagok
+    együtt (nem, kor, özvegy/elvált jelöléssel), külön szekcióban az
+    egyedülállók;
+  - **Tömör névsor:** lapozott A4-táblázat oldalszámokkal („Oldal X / Y").
+- **Statisztika-fejléc a nyomtatványon:** családok, fő összesen,
+  egyedülállók (ebből özvegy / elvált) — így a presbiter azonnal látja,
+  kikből áll a körzete.
+- Direkt nyomtatás és PDF-mentés egyaránt elérhető.
+
+### 🔧 Rendszergazdai teendő
+
+- Futtatandó SQL: `migration-docs/sql/2026-07-24-pr10-szemely-korzet.sql`
+  (új `szemely.id_csoport` oszlop — e nélkül az egyedülállók hozzárendelése
+  hibát jelez, a többi funkció változatlanul működik).
+- A meglévő körzetek megmaradnak; az egyedülállók besorolásához **futtasd
+  újra az automatikus körzetesítő varázslót** a migráció után.
+
+---
+
 ## [2026-07-24] — Tesztelési észrevételek 1. köre: konfirmáció-kapcsoló, teljes képernyős háló alapból, CNP-álhibák vége + kattintható születésnap-lista
 <!-- key: 2026-07-24-tagnyilv-pr9-eszrevetelek -->
 <!-- category: improvement -->

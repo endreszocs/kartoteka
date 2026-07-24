@@ -21,17 +21,20 @@
  */
 
 export interface AutoDistrictFamily {
-  /** legacy csalad.id */
+  /** 2026-07-24 (PR-10): 'csalad' (default) = legacy csalad.id;
+   *  'szemely' = CSALÁD NÉLKÜLI személy (egyedülálló/özvegy/elvált) — az id a szemely.id */
+  kind?: 'csalad' | 'szemely'
+  /** legacy csalad.id VAGY (kind='szemely' esetén) szemely.id */
   id: number
   utcaNev: string | null
   telepules: string | null
-  /** A háztartás lélekszáma (felnőttek + gyermekek) */
+  /** A háztartás lélekszáma (felnőtt + gyermek); egyedülállónál 1 */
   memberCount: number
-  /** A legidősebb felnőtt születési dátuma (korosztály-módhoz) */
+  /** A legidősebb felnőtt (ill. a személy) születési dátuma (korosztály-módhoz) */
   oldestBirthDate: string | null
   /** Jelenlegi körzet (null = besorolatlan) */
   currentCsoportId: number | null
-  /** Megjelenítéshez: a családfő neve */
+  /** Megjelenítéshez: a családfő / a személy neve */
   displayName: string
 }
 
@@ -49,7 +52,11 @@ export interface PlannedDistrict {
   /** Default név — a wizard előnézetében szerkeszthető (D3d) */
   name: string
   familyIds: number[]
+  /** 2026-07-24 (PR-10): a körzetbe osztott CSALÁD NÉLKÜLI személyek (szemely.id) */
+  personIds: number[]
   familyCount: number
+  /** Egyedülállók száma a körzetben */
+  singleCount: number
   memberCount: number
   /** A körzetbe került csoportok címkéi (utcák vagy korosztály-sávok) */
   groupLabels: string[]
@@ -174,13 +181,19 @@ export function planDistricts(
   const districts: PlannedDistrict[] = bins
     .filter((bin) => bin.groups.length > 0)
     .map((bin, index) => {
-      const binFamilies = bin.groups.flatMap((g) => g.families)
+      const binUnits = bin.groups.flatMap((g) => g.families)
+      // 2026-07-24 (PR-10): a körzetbe családok ÉS család nélküli személyek
+      // egyaránt kerülhetnek — az alkalmazás kétfelé írja őket.
+      const binFamilies = binUnits.filter((u) => (u.kind ?? 'csalad') === 'csalad')
+      const binSingles = binUnits.filter((u) => u.kind === 'szemely')
       return {
         key: `district-${index + 1}`,
         name: `${index + 1}. körzet`,
         familyIds: binFamilies.map((f) => f.id),
+        personIds: binSingles.map((p) => p.id),
         familyCount: binFamilies.length,
-        memberCount: binFamilies.reduce((sum, f) => sum + Math.max(1, f.memberCount), 0),
+        singleCount: binSingles.length,
+        memberCount: binUnits.reduce((sum, f) => sum + Math.max(1, f.memberCount), 0),
         groupLabels: bin.groups.map((g) => g.label).sort((a, b) => a.localeCompare(b, 'hu')),
       }
     })

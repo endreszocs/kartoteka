@@ -50,7 +50,7 @@ export function AutoDistrictWizard({ open, onOpenChange, input, onApplied }: Aut
   const [names, setNames] = useState<Record<string, string>>({})
   const [presbytersByDistrict, setPresbytersByDistrict] = useState<Record<string, number[]>>({})
   const [applying, setApplying] = useState(false)
-  const [result, setResult] = useState<{ createdDistricts: number; assignedFamilies: number } | null>(null)
+  const [result, setResult] = useState<{ createdDistricts: number; assignedFamilies: number; assignedSingles: number } | null>(null)
 
   // Megnyitáskor: alapállapot + default körzetszám = presbiterek száma
   useEffect(() => {
@@ -116,6 +116,8 @@ export function AutoDistrictWizard({ open, onOpenChange, input, onApplied }: Aut
       districts: plan.districts.map((d) => ({
         name: names[d.key]?.trim() || d.name,
         familyIds: d.familyIds,
+        // 2026-07-24 (PR-10): a család nélküli személyek is a körzetbe kerülnek
+        personIds: d.personIds,
         presbyterIds: presbytersByDistrict[d.key] || [],
       })),
     })
@@ -127,6 +129,7 @@ export function AutoDistrictWizard({ open, onOpenChange, input, onApplied }: Aut
     setResult({
       createdDistricts: response.createdDistricts ?? 0,
       assignedFamilies: response.assignedFamilies ?? 0,
+      assignedSingles: response.assignedSingles ?? 0,
     })
     setStep('done')
     onApplied()
@@ -152,8 +155,11 @@ export function AutoDistrictWizard({ open, onOpenChange, input, onApplied }: Aut
           {step === 'params' && (
             <div className="space-y-4">
               <div className="rounded-xl border border-cyan-200 bg-cyan-50/50 p-3 text-xs leading-5 text-cyan-900 dark:border-cyan-900/40 dark:bg-cyan-950/30 dark:text-cyan-200">
-                {families.length} család ({families.reduce((s, f) => s + Math.max(1, f.memberCount), 0)} fő) ·{' '}
-                {presbyters.length} presbiter · {families.filter((f) => f.currentCsoportId == null).length} család körzet nélkül
+                {/* 2026-07-24 (PR-10): a TELJES gyülekezet körzetesül — családok ÉS egyedülállók */}
+                {families.filter((f) => (f.kind ?? 'csalad') === 'csalad').length} család +{' '}
+                {families.filter((f) => f.kind === 'szemely').length} egyedülálló
+                ({families.reduce((s, f) => s + Math.max(1, f.memberCount), 0)} fő) ·{' '}
+                {presbyters.length} presbiter · {families.filter((f) => f.currentCsoportId == null).length} egység körzet nélkül
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
@@ -242,6 +248,12 @@ export function AutoDistrictWizard({ open, onOpenChange, input, onApplied }: Aut
                     />
                     <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
                       <span className="inline-flex items-center gap-1"><Users className="size-3.5" /> {district.familyCount} család</span>
+                      {district.singleCount > 0 && (
+                        <>
+                          <span>·</span>
+                          <span>{district.singleCount} egyedülálló</span>
+                        </>
+                      )}
                       <span>·</span>
                       <span>{district.memberCount} fő</span>
                     </div>
@@ -301,7 +313,7 @@ export function AutoDistrictWizard({ open, onOpenChange, input, onApplied }: Aut
               </div>
               <p className="font-heading text-lg font-semibold">A körzetesítés elkészült!</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                {result.createdDistricts} új körzet · {result.assignedFamilies} család hozzárendelve.
+                {result.createdDistricts} új körzet · {result.assignedFamilies} család + {result.assignedSingles} egyedülálló hozzárendelve.
               </p>
               <p className="mt-3 text-xs text-muted-foreground">
                 Minden kiosztás utólag is módosítható a Körzetek fülön.

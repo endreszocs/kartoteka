@@ -48,11 +48,23 @@ export async function getVoters(): Promise<VoterRow[]> {
   const currentYear = new Date().getFullYear()
   const prevYear = currentYear - 1
 
+  // 2026-07-24 (PR-10): + id_csoport a család nélküliek körzet-oszlopához —
+  // ellenállóan: ha a PR-10 migráció (szemely.id_csoport) még nem futott le,
+  // az oszlop nélkül olvasunk újra (különben az EGÉSZ fül üresen maradna).
+  const szemelySelectBase =
+    'id, csaladnev, k_nev, ferfi, sz_datum, foglalkozas, c_szam, voter_eligible, voter_manual_override, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name, adrlocality!localityid(name))'
+  let szemelyFetched: { data: unknown; error: { message: string } | null } = await supabase.from('szemely').select(`${szemelySelectBase}, id_csoport`)
+    .eq('congregation_id', congId).eq('isvisible', true).eq('meghalt', false).order('csaladnev')
+  if (szemelyFetched.error) {
+    console.warn('[voters] szemely.id_csoport nem olvasható (PR-10 migráció?):', szemelyFetched.error.message)
+    szemelyFetched = await supabase.from('szemely').select(szemelySelectBase)
+      .eq('congregation_id', congId).eq('isvisible', true).eq('meghalt', false).order('csaladnev')
+  }
+
   const [szemelyRes, konfirmRes, csaladRes, gyerekRes, jarulekRes, bealitasRes, districtState, felmentesRes] = await Promise.all([
     // 2026-07-17 (PR-1): az adrstreet-embed a település-fallbackhoz az utca
     // adrlocality-ját is lehozza (c_helysegid-hiány pótlása).
-    supabase.from('szemely').select('id, csaladnev, k_nev, ferfi, sz_datum, foglalkozas, c_szam, voter_eligible, voter_manual_override, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name, adrlocality!localityid(name))')
-      .eq('congregation_id', congId).eq('isvisible', true).eq('meghalt', false).order('csaladnev'),
+    Promise.resolve(szemelyFetched),
     supabase.from('konfirmalas').select('id_szemely').eq('congregation_id', congId),
     // 2026-06-01 (hibrid család-modell Fázis 2): új haztartas + haztartas_tag-ból
     supabase.from('haztartas')
@@ -74,7 +86,7 @@ export async function getVoters(): Promise<VoterRow[]> {
   ])
 
   // 2026-07-17 (PR-1): település-fallback az utca-láncból (c_helysegid-hiány pótlása).
-  const szemelyek = ((szemelyRes.data || []) as unknown as Array<{ id: number; csaladnev: string; k_nev: string; ferfi: boolean; sz_datum: string | null; foglalkozas: string | null; c_szam: string | null; voter_eligible: boolean | null; voter_manual_override: number | null; adrlocality: { name: string } | null; adrstreet: ({ name: string; adrlocality?: { name: string } | { name: string }[] | null }) | null }>).map((row) => applyStreetLocalityFallback(row))
+  const szemelyek = ((szemelyRes.data || []) as unknown as Array<{ id: number; csaladnev: string; k_nev: string; ferfi: boolean; sz_datum: string | null; foglalkozas: string | null; c_szam: string | null; voter_eligible: boolean | null; voter_manual_override: number | null; id_csoport?: number | null; adrlocality: { name: string } | null; adrstreet: ({ name: string; adrlocality?: { name: string } | { name: string }[] | null }) | null }>).map((row) => applyStreetLocalityFallback(row))
   const konfirmaltIds = new Set((konfirmRes.data || []).map((k: { id_szemely: number }) => k.id_szemely))
   // 2026-06-01 (hibrid család-modell Fázis 2): a haztartas-ot átkonvertáljuk
   // a régi csalad-szerkezetbe (id, id_csoport, id_ferfi, id_no) — backward-kompat.
@@ -200,7 +212,9 @@ export async function getVoters(): Promise<VoterRow[]> {
         konfirmalt: konfirmaltIds.has(m.id),
         jarulekFizeto: jarulekFizetoIds.has(m.id),
         jarulekMaxEv: jarulekBySzemely[m.id] || 0,
-        korzet_nev: getKorzet(m.id),
+        // 2026-07-24 (PR-10): család nélküli tagnál a SAJÁT (szemely.id_csoport)
+        // körzet-hozzárendelés a fallback.
+        korzet_nev: getKorzet(m.id) || (m.id_csoport != null ? getVisibleDistrictName(m.id_csoport, districtNameMap) : ''),
         paidPrevYearSum: paidPrevByPerson[m.id] || 0,
         paidCurrentYearSum: paidCurrentByPerson[m.id] || 0,
         expectedPrevYear,
