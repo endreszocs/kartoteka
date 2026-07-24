@@ -8,16 +8,24 @@ import {
   type PublicMagazineInput,
   type PublicMagazineIssueInput,
 } from '@/lib/validations/public-site'
+import { canAccessPublicSiteAdmin } from '@/lib/public-site/admin-access'
+import { cleanupMagazineIssueUploads } from '@/app/(dashboard)/publikus-oldal/upload-actions'
 
 interface ActionResult {
   success?: boolean
   error?: string
+  warning?: string
   id?: string
 }
+
+type MagazineIssueOperation = 'create' | 'update'
 
 export async function saveMagazine(input: PublicMagazineInput): Promise<ActionResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!canAccessPublicSiteAdmin(access, 'write')) {
+    return { error: 'Nincs jogosultságod a magazin szerkesztéséhez.' }
+  }
   const congregationId = access.effectiveCongregationId
   if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
 
@@ -56,15 +64,29 @@ export async function saveMagazine(input: PublicMagazineInput): Promise<ActionRe
 
 export async function saveMagazineIssue(
   input: PublicMagazineIssueInput,
+  operation: MagazineIssueOperation,
 ): Promise<ActionResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!canAccessPublicSiteAdmin(access, 'write')) {
+    return { error: 'Nincs jogosultságod a lapszám szerkesztéséhez.' }
+  }
   const congregationId = access.effectiveCongregationId
   if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
 
   const parsed = publicMagazineIssueSchema.safeParse(input)
   if (!parsed.success) {
     return { error: parsed.error.issues.map((i) => i.message).join(', ') }
+  }
+
+  const { data: ownedMagazine, error: magazineError } = await access.supabase
+    .from('public_magazines')
+    .select('id')
+    .eq('id', parsed.data.magazine_id)
+    .eq('congregation_id', congregationId)
+    .maybeSingle()
+  if (magazineError || !ownedMagazine) {
+    return { error: 'A kiválasztott magazin nem ehhez a gyülekezethez tartozik.' }
   }
 
   const payload = {
@@ -79,18 +101,32 @@ export async function saveMagazineIssue(
     is_published: parsed.data.is_published,
   }
 
-  if (parsed.data.id) {
+  const issueId = parsed.data.id
+  if (!issueId) return { error: 'A lapszám azonosítója kötelező.' }
+
+  if (operation === 'create') {
+    // Az új űrlap előre létrehozott UUID-je köti össze a rekordot a már
+    // feltöltött, gyülekezet/lapszám prefixbe helyezett fájlokkal.
     const { error } = await access.supabase
+      .from('public_magazine_issues')
+      .insert({ id: issueId, ...payload })
+    if (error) return { error: error.message }
+  } else if (operation === 'update') {
+    // Frissítés soha nem válhat implicit INSERT-té: egy törölt vagy közben
+    // eltűnt rekordot stale kliensállapot nem hozhat vissza.
+    const { data: updatedIssue, error } = await access.supabase
       .from('public_magazine_issues')
       .update(payload)
-      .eq('id', parsed.data.id)
+      .eq('id', issueId)
       .eq('congregation_id', congregationId)
+      .select('id')
+      .maybeSingle()
     if (error) return { error: error.message }
+    if (!updatedIssue) {
+      return { error: 'A frissítendő lapszám már nem található.' }
+    }
   } else {
-    const { error } = await access.supabase
-      .from('public_magazine_issues')
-      .insert(payload)
-    if (error) return { error: error.message }
+    return { error: 'Érvénytelen lapszámművelet.' }
   }
 
   revalidatePath('/publikus-oldal/magazin')
@@ -105,22 +141,61 @@ export async function saveMagazineIssue(
     revalidatePath(`/gy/${site.slug}/magazin`)
   }
 
-  return { success: true }
+  return { success: true, id: issueId }
 }
 
 export async function deleteMagazineIssue(id: string): Promise<ActionResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!canAccessPublicSiteAdmin(access, 'write')) {
+    return { error: 'Nincs jogosultságod a lapszám törléséhez.' }
+  }
   const congregationId = access.effectiveCongregationId
   if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
 
-  const { error } = await access.supabase
+  const { data: site } = await access.supabase
+    .from('public_sites')
+    .select('slug')
+    .eq('congregation_id', congregationId)
+    .maybeSingle()
+
+  // Először a tenant-szűkített adatbázisrekord tűnik el. Így sem egy
+  // részleges Storage-takarítás, sem egy stale kliens nem hagyhat a publikus
+  // magazinban törött PDF- vagy borítóhivatkozást. A save update-ága nem végez
+  // implicit INSERT-et, ezért a törölt rekord nem támasztható fel.
+  const { data: deletedIssue, error } = await access.supabase
     .from('public_magazine_issues')
     .delete()
     .eq('id', id)
     .eq('congregation_id', congregationId)
+    .select('id')
+    .maybeSingle()
   if (error) return { error: error.message }
+  if (!deletedIssue) {
+    return { error: 'A törlendő lapszám nem található ebben a gyülekezetben.' }
+  }
 
   revalidatePath('/publikus-oldal/magazin')
+  if (site?.slug) revalidatePath(`/gy/${site.slug}/magazin`)
+
+  // A rekord törlése után best-effort takarítunk. Ha a Storage átmenetileg
+  // hibázik, a lapszám akkor sem marad publikusan listázva; az admin figyelmeztetést
+  // kap, a gyülekezeti adatok integritása pedig változatlanul megmarad.
+  try {
+    const cleanupResult = await cleanupMagazineIssueUploads(id)
+    if (cleanupResult.error) {
+      return {
+        success: true,
+        warning: `${cleanupResult.error} A lapszám a nyilvános oldalról már eltűnt.`,
+      }
+    }
+  } catch {
+    return {
+      success: true,
+      warning:
+        'A lapszám a nyilvános oldalról eltűnt, de a hozzá tartozó fájlok takarítása nem fejeződött be.',
+    }
+  }
+
   return { success: true }
 }

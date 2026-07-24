@@ -12,7 +12,6 @@ import { Camera,
   DoorOpen,
   Heart,
   Home,
-  Mail,
   MapPin,
   Pencil,
   Phone,
@@ -22,8 +21,10 @@ import { Camera,
   Users,
   X,
 } from 'lucide-react'
+import { toast } from 'sonner'
 
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
+import { Button } from '@/components/ui/button'
 import { getFamilyDetails, getFamilyVisits, getEnrichedMemberById } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import { getFamilyTreeData } from '@/lib/family-tree/get-family-tree'
 import type { FamilyTreeData } from '@/lib/family-tree/types'
@@ -41,6 +42,12 @@ interface FamilyDetailsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   familyId: number | null
+  /** 2026-07-24 (PR-11): 'sheet' (default) = önálló, jobbról beúszó karton;
+   *  'panel' = a RegistryCardsHost egyik oszlopa (nincs saját Sheet-keret). */
+  variant?: 'sheet' | 'panel'
+  /** 2026-07-24 (PR-11): ha megadva, a tag-kattintás a szülőre delegálódik
+   *  (egymás melletti kettős nézet) a beágyazott személyi karton helyett. */
+  onOpenMember?: (memberId: number) => void
 }
 
 type FamilyData = Awaited<ReturnType<typeof getFamilyDetails>>
@@ -69,6 +76,8 @@ export function FamilyDetailsDialogRefined({
   open,
   onOpenChange,
   familyId,
+  variant = 'sheet',
+  onOpenMember,
 }: FamilyDetailsDialogProps) {
   const [data, setData] = useState<FamilyData | null>(null)
   const [loading, setLoading] = useState(false)
@@ -93,6 +102,9 @@ export function FamilyDetailsDialogRefined({
   // 2026-06-11: fénykép/közösségi-link szerkesztő + a lap újratöltése mentés után
   const [avatarEditPerson, setAvatarEditPerson] = useState<{ id: number; name: string; kepUrl?: string | null; socialUrl?: string | null } | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  // 2026-07-24 (PR-4 F5.9): hiba-állapot — eddig egy szerver/hálózati hiba
+  // ÖRÖK „betöltés" spinnert hagyott (nem volt .catch a then-láncokon).
+  const [loadError, setLoadError] = useState(false)
 
   // 2026-06-02: család szerkesztés + új családlátogatás
   const [editFamilyOpen, setEditFamilyOpen] = useState(false)
@@ -100,6 +112,12 @@ export function FamilyDetailsDialogRefined({
 
   async function openMemberCard(memberId: number) {
     if (!familyId) return
+    // 2026-07-24 (PR-11): host-módban a szülő nyitja a személyi kartont a bal
+    // oldali oszlopban (kettős nézet) — a beágyazott fallback csak önálló módban él.
+    if (onOpenMember) {
+      onOpenMember(memberId)
+      return
+    }
     setMemberDialogLoading(true)
     const enriched = await getEnrichedMemberById(memberId, familyId)
     setMemberDialogMember(enriched as EnrichedMember | null)
@@ -107,9 +125,10 @@ export function FamilyDetailsDialogRefined({
   }
 
   // Visits frissítése mentés után
+  // 2026-07-24 (PR-4 F5.11): a redundáns dynamic import törölve — a
+  // getFamilyVisits fent statikusan importált.
   async function refreshVisits() {
     if (!familyId) return
-    const { getFamilyVisits } = await import('@/app/(dashboard)/tagnyilvantartas/family-actions')
     const v = await getFamilyVisits(familyId)
     setVisits(v as FamilyVisit[])
   }
@@ -123,12 +142,19 @@ export function FamilyDetailsDialogRefined({
       setTreeData(null)
       setVisits(null)
       setLoading(true)
+      setLoadError(false)
       setActiveTab('general')
-      getFamilyDetails(familyId).then((value) => {
-        if (cancelled) return
-        setData(value)
-        setLoading(false)
-      })
+      getFamilyDetails(familyId)
+        .then((value) => {
+          if (cancelled) return
+          setData(value)
+          setLoading(false)
+        })
+        .catch(() => {
+          if (cancelled) return
+          setLoadError(true)
+          setLoading(false)
+        })
     })
     return () => { cancelled = true }
   }, [open, familyId, reloadKey])
@@ -137,11 +163,20 @@ export function FamilyDetailsDialogRefined({
   useEffect(() => {
     if (activeTab !== 'tree' || !familyId || treeData !== null) return
     let cancelled = false
-    setTreeLoading(true)
-    getFamilyTreeData(familyId).then((d) => {
+    queueMicrotask(() => {
       if (cancelled) return
-      setTreeData(d)
-      setTreeLoading(false)
+      setTreeLoading(true)
+      getFamilyTreeData(familyId)
+        .then((d) => {
+          if (cancelled) return
+          setTreeData(d)
+          setTreeLoading(false)
+        })
+        .catch(() => {
+          if (cancelled) return
+          setTreeLoading(false)
+          toast.error('A családfa betöltése nem sikerült — próbáld újra a fül megnyitásával.')
+        })
     })
     return () => { cancelled = true }
   }, [activeTab, familyId, treeData])
@@ -150,11 +185,20 @@ export function FamilyDetailsDialogRefined({
   useEffect(() => {
     if (activeTab !== 'visits' || !familyId || visits !== null) return
     let cancelled = false
-    setVisitsLoading(true)
-    getFamilyVisits(familyId).then((v) => {
+    queueMicrotask(() => {
       if (cancelled) return
-      setVisits(v as FamilyVisit[])
-      setVisitsLoading(false)
+      setVisitsLoading(true)
+      getFamilyVisits(familyId)
+        .then((v) => {
+          if (cancelled) return
+          setVisits(v as FamilyVisit[])
+          setVisitsLoading(false)
+        })
+        .catch(() => {
+          if (cancelled) return
+          setVisitsLoading(false)
+          toast.error('A látogatások betöltése nem sikerült — próbáld újra a fül megnyitásával.')
+        })
     })
     return () => { cancelled = true }
   }, [activeTab, familyId, visits])
@@ -185,26 +229,29 @@ export function FamilyDetailsDialogRefined({
     if (!family.csoport?.nev) missing.push('körzet')
   }
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="!w-[min(1120px,calc(100vw-1rem))] !max-w-[min(1120px,calc(100vw-1rem))] max-h-[calc(100dvh-1rem)] overflow-hidden rounded-[1.75rem] border-0 bg-transparent p-0 shadow-none sm:!w-[min(1120px,calc(100vw-2rem))] sm:!max-w-[min(1120px,calc(100vw-2rem))]"
-        showCloseButton={false}
-      >
-        <div className="relative overflow-hidden rounded-[1.75rem] bg-card shadow-[0_32px_90px_-34px_rgba(11,55,50,0.58)] ring-1 ring-border">
+  // 2026-07-24 (PR-11): a karton törzse variant-független — 'sheet' módban a
+  // saját jobbról beúszó Sheet-be, 'panel' módban a RegistryCardsHost oszlopába
+  // kerül (a személyi kartonnal egymás mellett; a család mindig JOBBRA).
+  const isPanel = variant === 'panel'
+
+  const cardBody = (
+        <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-card">
+          {/* 2026-07-24 (PR-11 review): a betöltés/hiba/üres állapotoknak is legyen
+              hozzáférhető dialógus-neve sheet-módban (a cím a family-ágban él). */}
+          {!isPanel && !family && <SheetTitle className="sr-only">Családi karton</SheetTitle>}
           {/* A bezárás gomb mindig látható; a többi művelet az egységes alsó sávban van. */}
-          <div className="absolute right-3 top-3 z-30 flex items-center gap-2">
+          <div className="absolute right-3 z-30 flex items-center gap-2 [top:max(0.75rem,env(safe-area-inset-top))]">
             <button
               type="button"
               onClick={() => onOpenChange(false)}
               className="inline-flex size-11 items-center justify-center rounded-full border border-border bg-card/95 text-muted-foreground shadow-md backdrop-blur transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-              aria-label="Bezárás"
+              aria-label="Családi karton bezárása"
             >
               <X className="size-4" />
             </button>
           </div>
 
-          <div className="max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {loading ? (
               <div className="px-8 py-16 text-center">
                 <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/10">
@@ -213,6 +260,16 @@ export function FamilyDetailsDialogRefined({
                 <p className="font-heading text-lg text-foreground">
                   Családi karton betöltése…
                 </p>
+              </div>
+            ) : loadError ? (
+              /* 2026-07-24 (PR-4 F5.9): hiba-állapot + Újrapróbálom (a member-details minta) */
+              <div className="px-8 py-16 text-center">
+                <Users className="mx-auto mb-3 size-10 text-destructive/60" />
+                <p className="font-heading text-lg text-foreground">A családi karton nem tölthető be</p>
+                <p className="mt-1 text-sm text-muted-foreground">Hálózati vagy szerverhiba történt.</p>
+                <Button type="button" variant="outline" className="mt-4 rounded-xl" onClick={() => setReloadKey((k) => k + 1)}>
+                  Újrapróbálom
+                </Button>
               </div>
             ) : !family ? (
               <div className="px-8 py-16 text-center text-muted-foreground">
@@ -246,16 +303,34 @@ export function FamilyDetailsDialogRefined({
                         </p>
                       </div>
 
-                      <DialogTitle className="font-heading text-3xl font-semibold leading-tight text-foreground sm:text-4xl">
-                        {familyName ? (
-                          <>
-                            {familyName}{' '}
-                            <span className="font-normal text-muted-foreground">család</span>
-                          </>
-                        ) : (
-                          <span className="italic text-muted-foreground">— névtelen család —</span>
-                        )}
-                      </DialogTitle>
+                      {isPanel ? (
+                        <h2 className="font-heading text-3xl font-semibold leading-tight text-foreground sm:text-4xl">
+                          {familyName ? (
+                            <>
+                              {familyName}{' '}
+                              <span className="font-normal text-muted-foreground">család</span>
+                            </>
+                          ) : (
+                            <span className="italic text-muted-foreground">— névtelen család —</span>
+                          )}
+                        </h2>
+                      ) : (
+                        <SheetTitle className="font-heading text-3xl font-semibold leading-tight text-foreground sm:text-4xl">
+                          {familyName ? (
+                            <>
+                              {familyName}{' '}
+                              <span className="font-normal text-muted-foreground">család</span>
+                            </>
+                          ) : (
+                            <span className="italic text-muted-foreground">— névtelen család —</span>
+                          )}
+                        </SheetTitle>
+                      )}
+                      {!isPanel && (
+                        <SheetDescription className="sr-only">
+                          A család tagjai, anyakönyvi bejegyzései, látogatásai és befizetései.
+                        </SheetDescription>
+                      )}
                     </div>
                   </div>
 
@@ -300,7 +375,10 @@ export function FamilyDetailsDialogRefined({
                 </header>
 
                 {/* ───── TAB-BAR ───── */}
-                <nav aria-label="Családi karton nézetei" className="sticky top-0 z-20 flex gap-1 overflow-x-auto border-y border-border/60 bg-muted/30 px-2 backdrop-blur-md sm:px-6">
+                {/* 2026-07-24 (PR-11 review): mobilon jobb oldalt hely marad a lebegő
+                    X-nek — különben a végigscrollozott utolsó fül ('Befizetések')
+                    pont a bezárás-gomb alá kerülne, és a koppintás bezárná a kartont. */}
+                <nav aria-label="Családi karton nézetei" className="sticky top-0 z-20 flex gap-1 overflow-x-auto border-y border-border/60 bg-muted/30 pl-2 pr-16 backdrop-blur-md sm:pl-6 sm:pr-16">
                   <TabButton
                     active={activeTab === 'general'}
                     onClick={() => setActiveTab('general')}
@@ -533,16 +611,25 @@ export function FamilyDetailsDialogRefined({
                             <thead className="sticky top-0 bg-muted/80 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground backdrop-blur">
                               <tr>
                                 <th className="px-3 py-2">Dátum</th>
+                                {/* 2026-07-24 (PR-11, 7. észrevétel): látszódjon, MELYIK tag fizetett */}
+                                <th className="px-3 py-2">Befizető</th>
                                 <th className="px-3 py-2">Cél</th>
                                 <th className="px-3 py-2 text-right">Összeg</th>
                                 <th className="hidden px-3 py-2 sm:table-cell">Bizonylat</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-border/70">
-                              {payments.map((p) => (
+                              {payments.map((p) => {
+                                const payerName = p.szemely
+                                  ? `${p.szemely.csaladnev ?? ''} ${p.szemely.k_nev ?? ''}`.trim()
+                                  : ''
+                                return (
                                 <tr key={p.id} className="transition-colors hover:bg-primary/5 motion-reduce:transition-none">
                                   <td className="px-3 py-2 text-muted-foreground">
                                     {formatShortDate(p.datum)}
+                                  </td>
+                                  <td className="max-w-[10rem] truncate px-3 py-2 font-medium text-foreground" title={payerName || undefined}>
+                                    {payerName || <span className="italic text-muted-foreground">családi</span>}
                                   </td>
                                   <td className="px-3 py-2 text-foreground">
                                     {p.befizetescel?.nev || '—'}
@@ -554,7 +641,8 @@ export function FamilyDetailsDialogRefined({
                                     {getTransactionDocumentNumber(p) || '—'}
                                   </td>
                                 </tr>
-                              ))}
+                                )
+                              })}
                             </tbody>
                           </table>
                         </div>
@@ -564,7 +652,10 @@ export function FamilyDetailsDialogRefined({
                   )}
                 </div>
 
-                <footer className="sticky bottom-0 z-20 flex items-center justify-between gap-3 border-t border-border/70 bg-card/95 px-4 py-3 shadow-[0_-14px_30px_-26px_rgba(15,67,61,0.7)] backdrop-blur-md sm:px-6">
+                {/* 2026-07-24 (PR-11 review): teljes magasságú Sheet-ben a footer az
+                    iPhone home-sávjába lógna — safe-area alsó padding (a személyi
+                    karton mintája). */}
+                <footer className="sticky bottom-0 z-20 flex items-center justify-between gap-3 border-t border-border/70 bg-card/95 px-4 pt-3 [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-14px_30px_-26px_rgba(15,67,61,0.7)] backdrop-blur-md sm:px-6">
                   <p className="hidden text-xs text-muted-foreground sm:block">
                     {children.length + Number(Boolean(family.ferfi)) + Number(Boolean(family.no))} családtag · {payments.length} befizetés
                   </p>
@@ -590,8 +681,10 @@ export function FamilyDetailsDialogRefined({
             )}
           </div>
         </div>
-      </DialogContent>
+  )
 
+  const subDialogs = (
+    <>
       {/* 2026-06-02: Drill-down dialog — egy person-kartonra kattintáskor. */}
       {/* 2026-06-11: fénykép + közösségi link szerkesztő */}
       <AvatarEditorDialog
@@ -601,17 +694,21 @@ export function FamilyDetailsDialogRefined({
         onSaved={() => setReloadKey((k) => k + 1)}
       />
 
-      <MemberDetailsDialogV2
-        open={!!memberDialogMember || memberDialogLoading}
-        onOpenChange={(open) => {
-          if (!open) {
-            setMemberDialogMember(null)
-            setMemberDialogLoading(false)
-          }
-        }}
-        member={memberDialogMember}
-        familyId={familyId}
-      />
+      {/* 2026-07-24 (PR-11): beágyazott fallback — csak akkor él, ha a szülő
+          nem delegálja a tag-kattintást (onOpenMember nélküli, önálló használat). */}
+      {!onOpenMember && (
+        <MemberDetailsDialogV2
+          open={!!memberDialogMember || memberDialogLoading}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) {
+              setMemberDialogMember(null)
+              setMemberDialogLoading(false)
+            }
+          }}
+          member={memberDialogMember}
+          familyId={familyId}
+        />
+      )}
 
       {/* 2026-06-02: Családi karton szerkesztése (cím, körzet, tagok) */}
       <FamilyFormDialog
@@ -679,7 +776,32 @@ export function FamilyDetailsDialogRefined({
         familyLabel={familyName}
         onSaved={refreshVisits}
       />
-    </Dialog>
+    </>
+  )
+
+  if (isPanel) {
+    return (
+      <>
+        {cardBody}
+        {subDialogs}
+      </>
+    )
+  }
+
+  // 2026-07-24 (PR-11): önálló mód — a családi karton is jobbról úszik be
+  // (a személyi kartonnal egyező Sheet-séma), a korábbi középre pattanó
+  // Dialog helyett.
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        showCloseButton={false}
+        className="h-dvh gap-0 overflow-hidden border-primary/15 bg-card p-0 shadow-[-32px_0_90px_-48px_rgba(8,58,54,0.55)] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] data-[side=right]:w-full data-[side=right]:max-w-none data-[side=right]:data-ending-style:translate-x-full data-[side=right]:data-starting-style:translate-x-full data-[side=right]:sm:w-[min(94vw,70rem)] data-[side=right]:sm:max-w-[70rem] motion-reduce:transition-none"
+      >
+        {cardBody}
+      </SheetContent>
+      {subDialogs}
+    </Sheet>
   )
 }
 
@@ -1120,6 +1242,3 @@ function VisitsList({ visits }: { visits: FamilyVisit[] }) {
   )
 }
 
-// 2026-06-02: a Mail import csak akkor kell, ha emailt mutatunk — most nem,
-// de a tree-shake-hez ez nem gond.
-void Mail

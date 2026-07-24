@@ -91,6 +91,18 @@ export async function executeFamilyHeadImport(
     }
   }
 
+  // 2026-07-24 (PR-6 F7.3): a wizard KÉZI oszlop-párosítása — eddig sosem
+  // jutott el a szerverig, az import az auto-matchre esett vissza.
+  const columnMappingRaw = formData.get('columnMapping') as string | null
+  let columnMapping: Record<string, string | null> | undefined
+  if (columnMappingRaw) {
+    try {
+      columnMapping = JSON.parse(columnMappingRaw)
+    } catch {
+      columnMapping = undefined
+    }
+  }
+
   // Új: a wizard "Utca-postakód-egyeztetés" lépés eredménye
   const resolvedStreetPostalcodesRaw = formData.get('resolvedStreetPostalcodes') as string | null
   let resolvedStreetPostalcodes: Record<string, string> | null = null
@@ -177,6 +189,7 @@ export async function executeFamilyHeadImport(
     sheet.headers,
     chosenProfile,
     ctx,
+    columnMapping,
   )
 
   if (transformResult.errors.length > 0 && transformResult.records.length === 0) {
@@ -213,6 +226,12 @@ export async function executeFamilyHeadImport(
       cleaned[key] = val
     }
     cleaned['create_csalad'] = createCsalad
+    // 2026-07-18 (PR-3 F6.3): a "Családfők és családok" úton felvett fej
+    // TÉNYLEG családfő — az RPC defaultja false (a profil-komment tévesen
+    // állította true-nak), emiatt minden importált fej csaladfo=false lett,
+    // és a gyerek-matcher (s.csaladfo=false feltétel) fejeket is gyerekként
+    // köthetett be másik családba.
+    if (createCsalad) cleaned['csaladfo'] = true
     return cleaned
   })
 
@@ -248,6 +267,22 @@ export async function executeFamilyHeadImport(
       name: e.name,
     })),
   ]
+
+  // 2026-07-18 (PR-3 F6.1, P0): a legacy csalad-rekordokat átvezetjük az ÚJ
+  // haztartas-modellbe — a Családok fül CSAK abból olvas, enélkül az importált
+  // családok láthatatlanok. Hibája nem nyelődik el némán: warning kerül a listába.
+  if (insertedCsalad > 0) {
+    const { error: syncError } = await supabase.rpc('sync_households_from_csalad', {
+      p_congregation_id: targetCongregationId,
+    })
+    if (syncError) {
+      combinedErrors.push({
+        row: 0,
+        message: `A családok létrejöttek, de a háztartás-átvezetés nem futott le (${syncError.message}) — a Családok fülön még nem látszanak. Futtasd újra az importot, vagy jelezd a rendszergazdának (sync_households_from_csalad).`,
+        severity: 'warning' as RowIssueSeverity,
+      })
+    }
+  }
 
   // Revalidate
   revalidatePath('/tagnyilvantartas')

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   AlertTriangle,
   ArrowLeftRight,
@@ -194,6 +194,18 @@ export function DashboardLayoutClient({
 }: DashboardLayoutClientProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+
+  // 2026-07-24 (PR-9, 2. észrevétel): a Családi háló teljes képernyős módja
+  // eseménnyel kéri a sidebar összecsukását/visszanyitását (a tab-komponens
+  // nem éri el ezt a state-et közvetlenül).
+  useEffect(() => {
+    const handleSetCollapsed = (event: Event) => {
+      const detail = (event as CustomEvent<{ collapsed?: boolean }>).detail
+      if (typeof detail?.collapsed === 'boolean') setSidebarCollapsed(detail.collapsed)
+    }
+    window.addEventListener('kartoteka:sidebar-set-collapsed', handleSetCollapsed)
+    return () => window.removeEventListener('kartoteka:sidebar-set-collapsed', handleSetCollapsed)
+  }, [])
 
   return (
     <div className="flex h-screen overflow-hidden">

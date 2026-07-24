@@ -93,7 +93,10 @@ export async function pushPendingCsalad(
         const payload = {
           id_ferfi: row.id_ferfi,
           id_no: row.id_no,
-          c_utcaid: -1,
+          // 2026-07-24 (PR-8, F9 P2): a -1 dummy KIVEZETVE — a webes cím-lánc a
+          // nem létező -1-es utcára üres címet adott. ⚠️ ELŐFELTÉTEL:
+          // 2026-07-24-pr8-c-utcaid-null-migracio.sql (DROP NOT NULL).
+          c_utcaid: null,
           c_szam: row.c_szam,
           c_tombhaz: row.c_tombhaz,
           c_lepcsohaz: row.c_lepcsohaz,

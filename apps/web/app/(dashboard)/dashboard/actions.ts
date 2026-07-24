@@ -4,11 +4,12 @@ import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 
 // FONTOS: ez egy 'use server' fájl — csak ASYNC FÜGGVÉNYT exportálhat.
 // A típusok és segéd-fv-ek NEM exportáltak (lokálisak), így nem sérül a szabály.
+type StreetRel = { name: string | null; adrlocality?: { name: string | null } | { name: string | null }[] | null }
 type AddressMemberRow = {
   id: number
   c_szam: string | null
   c_szcim: string | null
-  adrstreet: { name: string | null } | { name: string | null }[] | null
+  adrstreet: StreetRel | StreetRel[] | null
   adrlocality: { name: string | null } | { name: string | null }[] | null
 }
 
@@ -24,7 +25,11 @@ function composeAddress(m: AddressMemberRow): string | null {
 
   const localityRaw = m.adrlocality
   const localityObj = Array.isArray(localityRaw) ? localityRaw[0] : localityRaw
-  const locality = localityObj?.name?.trim() || null
+  // 2026-07-17 (PR-1): ha a c_helysegid-join üres (import-hiba öröksége), a
+  // település az utca beágyazott adrlocality-jából pótlódik.
+  const streetLocRaw = streetObj?.adrlocality
+  const streetLocObj = Array.isArray(streetLocRaw) ? streetLocRaw[0] : streetLocRaw
+  const locality = localityObj?.name?.trim() || streetLocObj?.name?.trim() || null
 
   const hazszam = m.c_szam?.trim() || null
   const szabadSzoveg = m.c_szcim?.trim() || null
@@ -53,7 +58,7 @@ export async function getBirthdayListAddresses(): Promise<Record<string, string>
 
   const { data } = await supabase
     .from('szemely')
-    .select('id, c_szam, c_szcim, adrstreet!c_utcaid(name), adrlocality!c_helysegid(name)')
+    .select('id, c_szam, c_szcim, adrstreet!c_utcaid(name, adrlocality!localityid(name)), adrlocality!c_helysegid(name)')
     .eq('congregation_id', congregationId)
     .eq('meghalt', false)
 

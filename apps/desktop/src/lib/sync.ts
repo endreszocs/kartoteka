@@ -35,6 +35,54 @@ import { getDesktopSupabase } from './supabase'
 import { dbExecute, dbSelect, getSetting, setSetting } from './local-db'
 
 // ═════════════════════════════════════════════════════════════════════════
+// 2026-07-24 (PR-8, F9): lapozott Supabase-letöltés
+//
+// A PostgREST alapértelmezett 1000 soros plafonja miatt a sima `await query`
+// NÉMÁN csonkolja a nagy eredményhalmazokat (település-katalógus, 1000+ tagos
+// gyülekezet, évtizedes anyakönyv, sírhely-nyilvántartás) — ráadásul a delta-
+// kurzor a csonka lap max updated_at-jára ugrott, így a plafonon túli sorok
+// VÉGLEG kimaradhattak. A helper .range()-lapokban tölti le a teljes halmazt;
+// a stabil lapozáshoz másodlagos `id`-rendezést fűz a lekérdezéshez (azonos
+// updated_at-ú sorok sorrendje lapok között nem csúszhat el).
+// ═════════════════════════════════════════════════════════════════════════
+
+/** FONTOS invariáns: nem lehet nagyobb a Supabase „Max Rows" (dashboard →
+ *  Settings → API, jelenleg 1000) értékénél — de a lenti ciklus erre is
+ *  ellenálló: a lépésköz a TÉNYLEGESEN kapott sorszám, és csak ÜRES lapnál
+ *  áll meg, így egy leszállított szerver-plafon sem csonkol némán. */
+const SYNC_PULL_PAGE_SIZE = 1000
+
+async function selectAllPaged<T = Record<string, unknown>>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  opts?: { pageSize?: number; orderColumn?: string | null },
+): Promise<{ data: T[] | null; error: { message: string } | null }> {
+  const pageSize = Math.min(opts?.pageSize ?? SYNC_PULL_PAGE_SIZE, 1000)
+  const orderColumn = opts?.orderColumn === undefined ? 'id' : opts.orderColumn
+  const q = orderColumn ? query.order(orderColumn, { ascending: true }) : query
+  // Review-javítás: lapok KÖZBEN történő szerver-írás eltolhatja az offseteket
+  // → ugyanaz a sor két lapon is megjöhet. Kulcs szerinti dedup (utolsó nyer),
+  // hogy a TRUNCATE+INSERT fogyasztók ne bukjanak UNIQUE-sértésen.
+  const byKey = new Map<unknown, T>()
+  const plain: T[] = []
+  for (let from = 0; ; ) {
+    const { data, error } = await q.range(from, from + pageSize - 1)
+    if (error) return { data: null, error }
+    const page = (data ?? []) as T[]
+    for (const row of page) {
+      const key = orderColumn ? (row as Record<string, unknown>)[orderColumn] : undefined
+      if (orderColumn && key !== undefined) byKey.set(key, row)
+      else plain.push(row)
+    }
+    if (page.length === 0) break
+    from += page.length
+    // Rövid lap → valószínűleg vége; de csak az ÜRES lap a biztos stop
+    // (ha a szerver Max Rows < pageSize, a rövid lap még NEM a vége).
+  }
+  return { data: [...byKey.values(), ...plain], error: null }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
 // PULL (M2.4 + M2.6) — Supabase → profiles_local
 // ═════════════════════════════════════════════════════════════════════════
 
@@ -179,10 +227,12 @@ export async function pullAllProfiles(
     .order('updated_at', { ascending: true })
 
   if (effectiveMode === 'delta' && lastPullAll) {
-    query = query.gt('updated_at', lastPullAll)
+    // 2026-07-24 (PR-8): gte — az azonos updated_at-ú, kurzor-határra eső sorok
+    // nem veszhetnek el (az upsert idempotens, az újra-letöltés olcsó).
+    query = query.gte('updated_at', lastPullAll)
   }
 
-  const { data, error } = await query
+  const { data, error } = await selectAllPaged<ProfileLocalRow>(query)
   if (error) {
     throw new Error(`Supabase delta-pull hiba: ${error.message}`)
   }
@@ -1016,6 +1066,8 @@ interface MemberSupabaseRow {
   foglalkozas: string | null
   nemzetiseg: string | null
   voter_eligible: boolean | null
+  /** 2026-07-24 (PR-8): kézi választói felülbírálás (NULL=auto, 1=választó, 0=nem). */
+  voter_manual_override: number | null
   congregation_id: string | null
   family_id: string | null
   type: string | null
@@ -1032,7 +1084,7 @@ const MEMBER_SELECT_COLS =
   'sz_datum, ferfi, csaladfo, meghalt, member_status, ' +
   'apjaneve, anyjaneve, id_apja, id_anyja, ' +
   'c_szam, c_tombhaz, c_lepcsohaz, c_ajto, c_emelet, c_szcim, ' +
-  'telefon, email, vallas, foglalkozas, nemzetiseg, voter_eligible, ' +
+  'telefon, email, vallas, foglalkozas, nemzetiseg, voter_eligible, voter_manual_override, ' +
   'congregation_id, family_id, type, isvisible, megjegyzes, kep, social_profil_url, revision, updated_at'
 
 /** Kulcs-prefix — a per-gyülekezet last_pull külön mezőben él. */
@@ -1101,10 +1153,12 @@ export async function pullMembersOfOwnCongregation(
     .order('updated_at', { ascending: true })
 
   if (effectiveMode === 'delta' && lastPull) {
-    query = query.gt('updated_at', lastPull)
+    // 2026-07-24 (PR-8): gte — az azonos updated_at-ú, kurzor-határra eső sorok
+    // nem veszhetnek el (az upsert idempotens, az újra-letöltés olcsó).
+    query = query.gte('updated_at', lastPull)
   }
 
-  const { data, error } = await query
+  const { data, error } = await selectAllPaged(query)
   if (error) {
     throw new Error(`Supabase pullMembers hiba: ${error.message}`)
   }
@@ -1121,7 +1175,7 @@ export async function pullMembersOfOwnCongregation(
           c_szam, c_tombhaz, c_lepcsohaz, c_ajto, c_emelet, c_szcim,
           telefon, email, vallas, foglalkozas, nemzetiseg, voter_eligible,
           congregation_id, family_id, type, isvisible, megjegyzes,
-          kep, social_profil_url,
+          kep, social_profil_url, voter_manual_override,
           revision, updated_at, synced_at)
        VALUES
          (?1, ?2, ?3, ?4, ?5, ?6, ?7,
@@ -1130,7 +1184,7 @@ export async function pullMembersOfOwnCongregation(
           ?17, ?18, ?19, ?20, ?21, ?22,
           ?23, ?24, ?25, ?26, ?27, ?28,
           ?29, ?30, ?31, ?32, ?33,
-          ?36, ?37,
+          ?36, ?37, ?38,
           ?34, ?35, datetime('now'))
        ON CONFLICT(id) DO UPDATE SET
          cnp = excluded.cnp,
@@ -1167,6 +1221,7 @@ export async function pullMembersOfOwnCongregation(
          megjegyzes = excluded.megjegyzes,
          kep = excluded.kep,
          social_profil_url = excluded.social_profil_url,
+         voter_manual_override = excluded.voter_manual_override,
          revision = excluded.revision,
          updated_at = excluded.updated_at,
          synced_at = excluded.synced_at`,
@@ -1208,6 +1263,7 @@ export async function pullMembersOfOwnCongregation(
         row.updated_at ?? null,
         row.kep ?? null,
         row.social_profil_url ?? null,
+        row.voter_manual_override ?? null,
       ],
     )
   }
@@ -1572,10 +1628,12 @@ export async function pullWorklogOfOwnCongregation(
     .order('updated_at', { ascending: true })
 
   if (effectiveMode === 'delta' && lastPull) {
-    query = query.gt('updated_at', lastPull)
+    // 2026-07-24 (PR-8): gte — az azonos updated_at-ú, kurzor-határra eső sorok
+    // nem veszhetnek el (az upsert idempotens, az újra-letöltés olcsó).
+    query = query.gte('updated_at', lastPull)
   }
 
-  const { data, error } = await query
+  const { data, error } = await selectAllPaged(query)
   if (error) {
     throw new Error(`Supabase pullWorklog hiba: ${error.message}`)
   }
@@ -2255,11 +2313,14 @@ export async function pullFamiliesOfOwnCongregation(
   const effectiveMode: 'delta' | 'full' | 'full-initial' =
     mode === 'full' ? 'full' : lastPull ? 'delta' : 'full-initial'
 
-  // 3. RPC hívás
-  const { data, error } = await supabase.rpc('get_csaladok_for_congregation', {
-    target_congregation_id: congregationId,
-    updated_since: effectiveMode === 'delta' && lastPull ? lastPull : null,
-  })
+  // 3. RPC hívás — 2026-07-24 (PR-8): lapozva (a PostgREST 1000-es plafonja az
+  // RPC-eredményekre is érvényes; SETOF-függvényen a range/order működik).
+  const { data, error } = await selectAllPaged(
+    supabase.rpc('get_csaladok_for_congregation', {
+      target_congregation_id: congregationId,
+      updated_since: effectiveMode === 'delta' && lastPull ? lastPull : null,
+    }),
+  )
   if (error) {
     throw new Error(`Supabase pullFamilies hiba: ${error.message}`)
   }
@@ -2359,10 +2420,13 @@ export async function pullGyerekOfOwnCongregation(
   const effectiveMode: 'delta' | 'full' | 'full-initial' =
     mode === 'full' ? 'full' : lastPull ? 'delta' : 'full-initial'
 
-  const { data, error } = await supabase.rpc('get_gyerek_for_congregation', {
-    target_congregation_id: congregationId,
-    updated_since: effectiveMode === 'delta' && lastPull ? lastPull : null,
-  })
+  // 2026-07-24 (PR-8): lapozva (a PostgREST 1000-es plafonja az RPC-re is áll).
+  const { data, error } = await selectAllPaged(
+    supabase.rpc('get_gyerek_for_congregation', {
+      target_congregation_id: congregationId,
+      updated_since: effectiveMode === 'delta' && lastPull ? lastPull : null,
+    }),
+  )
   if (error) {
     throw new Error(`Supabase pullGyerek hiba: ${error.message}`)
   }
@@ -2508,6 +2572,9 @@ export async function createSzemelyEntry(
     foglalkozas: (input.foglalkozas as string | null) ?? null,
     nemzetiseg: (input.nemzetiseg as string | null) ?? null,
     voter_eligible: Boolean(input.voter_eligible ?? false),
+    // 2026-07-24 (PR-8): explicit kézi jelölés létrehozáskor → felülbírálás,
+    // hogy a webes recompute ne írja vissza.
+    voter_manual_override: (input.voter_manual_override as number | null | undefined) ?? null,
     family_id: (input.family_id as string | null) ?? null,
     type: (input.type as string | null) ?? 'normal',
     isvisible: Boolean(input.isvisible ?? true),
@@ -2604,19 +2671,12 @@ export async function createSzemelyEntry(
 }
 
 function buildServerInsertPayload(input: Record<string, unknown>): Record<string, unknown> {
-  // A pending-payload közvetlenül mehet INSERT-be; a szerver-szükségleti
-  // mezők (`c_utcaid`, `befizetoev`) NOT NULL, így ha a zod-séma nem adott
-  // értéket, defaultot adunk.
   const payload: Record<string, unknown> = { ...input }
 
-  // A szemely tábla NOT NULL oszlopai közül 2 olyan, amit a kliens nem
-  // feltétlenül tud megadni:
-  //   - c_utcaid (integer FK adrstreet-re) — V1-ben a szöveges címet
-  //     használjuk, az FK-t null-ról NOT NULL-ra ösztönzik → -1 dummy
-  //   - befizetoev (integer) — default az aktuális év
-  if (payload.c_utcaid === undefined || payload.c_utcaid === null) {
-    payload.c_utcaid = -1 // ideiglenes dummy; a cím-FK normalizálás külön flow
-  }
+  // 2026-07-24 (PR-8, F9 P2): a c_utcaid=-1 dummy KIVEZETVE — a -1 a webes
+  // cím-láncot törte. ⚠️ ELŐFELTÉTEL: 2026-07-24-pr8-c-utcaid-null-migracio.sql
+  // (DROP NOT NULL) lefuttatása a kiadás előtt.
+  if (payload.c_utcaid === -1) payload.c_utcaid = null
   if (payload.befizetoev === undefined || payload.befizetoev === null) {
     payload.befizetoev = new Date().getFullYear()
   }
@@ -2700,7 +2760,8 @@ export async function createCsaladEntry(
       const payload = {
         id_ferfi: input.id_ferfi,
         id_no: input.id_no,
-        c_utcaid: -1,
+        // 2026-07-24 (PR-8 review): az utolsó kimaradt -1 dummy is kivezetve.
+        c_utcaid: null,
         c_szam: input.c_szam,
         c_tombhaz: input.c_tombhaz,
         c_lepcsohaz: input.c_lepcsohaz,
@@ -3152,62 +3213,64 @@ export async function pullRegistryOfOwnCongregation(userId: string): Promise<{
     attertRes,
     kitertRes,
   ] = await Promise.all([
-    supabase
+    // 2026-07-24 (PR-8): mind a 8 tábla lapozva — egy évszázados anyakönyv
+    // táblánként simán meghaladhatja a PostgREST 1000 soros plafonját.
+    selectAllPaged(supabase
       .from('keresztseg')
       .select(
         'id, congregation_id, datum, okirat, lelkeszneve, id_szemely, helyid, megjegyzes,' +
           ' keresztszulok, munkanaploba, munkanaplo_id, revision, updated_at',
       )
-      .eq('congregation_id', congregationId),
-    supabase
+      .eq('congregation_id', congregationId)),
+    selectAllPaged(supabase
       .from('konfirmalas')
       .select(
         'id, congregation_id, datum, lelkeszneve, id_szemely, megjegyzes,' +
           ' munkanaplo_id, keresztelesideje, revision, updated_at',
       )
-      .eq('congregation_id', congregationId),
-    supabase
+      .eq('congregation_id', congregationId)),
+    selectAllPaged(supabase
       .from('hazassag')
       .select(
         'id, congregation_id, datum, hlevel, lelkeszneve, id_ferfi, id_no, tanuk, megjegyzes,' +
           ' munkanaploba, munkanaplo_id, revision, updated_at',
       )
-      .eq('congregation_id', congregationId),
-    supabase
+      .eq('congregation_id', congregationId)),
+    selectAllPaged(supabase
       .from('temetes')
       .select(
         'id, congregation_id, tdatum, hdatum, okirat, lelkeszneve, id_szemely, thelyid, hoka, megjegyzes,' +
           ' munkanaploba, munkanaplo_id, hhelyid, revision, updated_at',
       )
-      .eq('congregation_id', congregationId),
-    supabase
+      .eq('congregation_id', congregationId)),
+    selectAllPaged(supabase
       .from('bekoltozott')
       .select(
         'id, congregation_id, mikor, id_szemely, honnanid, igazolas, megjegyzes,' +
           ' revision, updated_at',
       )
-      .eq('congregation_id', congregationId),
-    supabase
+      .eq('congregation_id', congregationId)),
+    selectAllPaged(supabase
       .from('elkoltozott')
       .select(
         'id, congregation_id, mikor, id_szemely, hovaid, kulfoldre, megjegyzes,' +
           ' revision, updated_at',
       )
-      .eq('congregation_id', congregationId),
-    supabase
+      .eq('congregation_id', congregationId)),
+    selectAllPaged(supabase
       .from('attert')
       .select(
         'id, congregation_id, mikor, id_szemely, honnanid, felekezet, megjegyzes,' +
           ' revision, updated_at',
       )
-      .eq('congregation_id', congregationId),
-    supabase
+      .eq('congregation_id', congregationId)),
+    selectAllPaged(supabase
       .from('kitert')
       .select(
         'id, congregation_id, mikor, id_szemely, hovaid, felekezet, megjegyzes,' +
           ' revision, updated_at',
       )
-      .eq('congregation_id', congregationId),
+      .eq('congregation_id', congregationId)),
   ])
 
   if (keresztelesRes.error)
@@ -3783,10 +3846,10 @@ export async function pullInventoryOfOwnCongregation(userId: string): Promise<{
     return { pulledRows: 0, mode: 'no-congregation', lastPullIso: new Date().toISOString() }
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await selectAllPaged(supabase
     .from('leltar_tetelek')
     .select('*')
-    .eq('congregation_id', congregationId)
+    .eq('congregation_id', congregationId))
 
   if (error) throw new Error(`Supabase pullInventory: ${error.message}`)
 
@@ -4014,10 +4077,10 @@ export async function pullFilingOfOwnCongregation(userId: string): Promise<{
     return { pulledRows: 0, mode: 'no-congregation', lastPullIso: new Date().toISOString() }
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await selectAllPaged(supabase
     .from('iktato')
     .select('*')
-    .eq('congregation_id', congregationId)
+    .eq('congregation_id', congregationId))
 
   if (error) throw new Error(`Supabase pullFiling: ${error.message}`)
 
@@ -4261,11 +4324,11 @@ export async function pullMinutesOfOwnCongregation(userId: string): Promise<{
     }
   }
 
-  // 1) Fő tábla
-  const jkRes = await supabase
+  // 1) Fő tábla — 2026-07-24 (PR-8): lapozva
+  const jkRes = await selectAllPaged(supabase
     .from('presbiteri_jegyzokonyvek')
     .select('*')
-    .eq('congregation_id', congregationId)
+    .eq('congregation_id', congregationId))
   if (jkRes.error) throw new Error(`Supabase pullMinutes/jk: ${jkRes.error.message}`)
   const jkRows = (jkRes.data ?? []) as unknown as Array<Record<string, unknown>>
   const jkIds = jkRows.map((r) => String(r.id ?? ''))
@@ -4277,9 +4340,9 @@ export async function pullMinutesOfOwnCongregation(userId: string): Promise<{
 
   if (jkIds.length > 0) {
     const [pRes, aRes, rRes] = await Promise.all([
-      supabase.from('jegyzokonyv_resztvevok').select('*').in('jegyzokonyv_id', jkIds),
-      supabase.from('jegyzokonyv_napirendi_pontok').select('*').in('jegyzokonyv_id', jkIds),
-      supabase.from('jegyzokonyv_hatarozatok').select('*').in('jegyzokonyv_id', jkIds),
+      selectAllPaged(supabase.from('jegyzokonyv_resztvevok').select('*').in('jegyzokonyv_id', jkIds)),
+      selectAllPaged(supabase.from('jegyzokonyv_napirendi_pontok').select('*').in('jegyzokonyv_id', jkIds)),
+      selectAllPaged(supabase.from('jegyzokonyv_hatarozatok').select('*').in('jegyzokonyv_id', jkIds)),
     ])
     if (pRes.error) throw new Error(`Supabase pullMinutes/resztvevok: ${pRes.error.message}`)
     if (aRes.error) throw new Error(`Supabase pullMinutes/napirend: ${aRes.error.message}`)
@@ -4651,11 +4714,11 @@ export async function pullCemeteriesOfOwnCongregation(userId: string): Promise<{
     }
   }
 
-  // 1) Temetők
-  const cemRes = await supabase
+  // 1) Temetők — 2026-07-24 (PR-8): lapozva (sírhely-nyilvántartás könnyen 1000+ soros)
+  const cemRes = await selectAllPaged(supabase
     .from('sirhelytemeto')
     .select('*')
-    .eq('congregation_id', congregationId)
+    .eq('congregation_id', congregationId))
   if (cemRes.error) throw new Error(`Supabase pullCemeteries/temeto: ${cemRes.error.message}`)
   const cemRows = (cemRes.data ?? []) as unknown as Array<Record<string, unknown>>
   const temetoIds = cemRows.map((r) => Number(r.id))
@@ -4666,18 +4729,18 @@ export async function pullCemeteriesOfOwnCongregation(userId: string): Promise<{
   let deceasedRows: Array<Record<string, unknown>> = []
 
   if (temetoIds.length > 0) {
-    const plotRes = await supabase
+    const plotRes = await selectAllPaged(supabase
       .from('sirhely')
       .select('*')
-      .in('temetoid', temetoIds)
+      .in('temetoid', temetoIds))
     if (plotRes.error) throw new Error(`Supabase pullCemeteries/sirhely: ${plotRes.error.message}`)
     plotRows = (plotRes.data ?? []) as unknown as Array<Record<string, unknown>>
     const plotIds = plotRows.map((r) => Number(r.id))
 
     if (plotIds.length > 0) {
       const [bRes, eRes] = await Promise.all([
-        supabase.from('sirhelyberles').select('*').in('sirhelyid', plotIds),
-        supabase.from('sirhelyelhunyt').select('*').in('sirhelyid', plotIds),
+        selectAllPaged(supabase.from('sirhelyberles').select('*').in('sirhelyid', plotIds)),
+        selectAllPaged(supabase.from('sirhelyelhunyt').select('*').in('sirhelyid', plotIds)),
       ])
       if (bRes.error) throw new Error(`Supabase pullCemeteries/berles: ${bRes.error.message}`)
       if (eRes.error) throw new Error(`Supabase pullCemeteries/elhunyt: ${eRes.error.message}`)
@@ -5014,10 +5077,10 @@ export async function pullProgramsOfOwnCongregation(userId: string): Promise<{
     return { pulledRows: 0, mode: 'no-congregation', lastPullIso: new Date().toISOString() }
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await selectAllPaged(supabase
     .from('gyulekezeti_programok')
     .select('*')
-    .eq('congregation_id', congregationId)
+    .eq('congregation_id', congregationId))
 
   if (error) throw new Error(`Supabase pullPrograms: ${error.message}`)
 
@@ -5186,10 +5249,10 @@ export async function pullAnnualReportsOfOwnCongregation(userId: string): Promis
     return { pulledRows: 0, mode: 'no-congregation', lastPullIso: new Date().toISOString() }
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await selectAllPaged(supabase
     .from('annual_reports')
     .select('*')
-    .eq('congregation_id', congregationId)
+    .eq('congregation_id', congregationId))
 
   if (error) throw new Error(`Supabase pullAnnualReports: ${error.message}`)
 
@@ -5314,9 +5377,11 @@ export async function pullAdrlocalityCatalog(): Promise<{
   lastPullIso: string
 }> {
   const supabase = getDesktopSupabase()
-  const { data, error } = await supabase
+  // 2026-07-24 (PR-8): lapozva — az országos település-katalógus jóval 1000
+  // sor fölött van, a korábbi sima select némán az első 1000-re csonkolta!
+  const { data, error } = await selectAllPaged(supabase
     .from('adrlocality')
-    .select('id, name, megye_id, country, postcode')
+    .select('id, name, megye_id, country, postcode'))
 
   if (error) throw new Error(`Supabase pullAdrlocality: ${error.message}`)
 

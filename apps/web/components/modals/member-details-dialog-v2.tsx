@@ -1,13 +1,18 @@
 ﻿'use client'
 
-import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
   AlertTriangle,
+  ArrowLeftRight,
   BookOpen,
   CalendarDays,
   ChevronRight,
+  Church,
   CreditCard,
+  Cross,
+  DoorOpen,
   GitBranch,
+  Heart,
   IdCard,
   Mail,
   MapPin,
@@ -15,6 +20,7 @@ import {
   Phone,
   Printer,
   ShieldCheck,
+  Sparkles,
   User,
   Users,
   X,
@@ -29,7 +35,7 @@ import {
   SheetDescription,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { getMemberDetails, updateMemberNote, updateRegistryEventNote, updateMemberConsents } from '@/app/(dashboard)/tagnyilvantartas/actions'
+import { getMemberDetails, updateMemberNote, updateRegistryEventDetails, updateMemberConsents, type NoteEventKind } from '@/app/(dashboard)/tagnyilvantartas/actions'
 import { getMemberFamilySummary } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import { getTransactionDocumentNumber } from '@/lib/constants/finance'
 import { ageFromDate } from '@/lib/utils/date'
@@ -47,6 +53,12 @@ interface MemberDetailsDialogProps {
   onEdit?: () => void
   onShowFamilyTree?: (memberId: number) => void
   onOpenFamily?: (familyId: number) => void
+  /** 2026-07-24 (PR-4 F5.8): a kartonon mentett megjegyzés/hozzájárulás után hívódik —
+   *  a lista így frissülhet, különben újranyitáskor a mentés ELŐTTI adat látszik. */
+  onDataChanged?: () => void
+  /** 2026-07-24 (PR-11): 'sheet' (default) = önálló, jobbról beúszó karton;
+   *  'panel' = a RegistryCardsHost egyik oszlopa (nincs saját Sheet-keret). */
+  variant?: 'sheet' | 'panel'
 }
 
 type Tab = 'personal' | 'registry' | 'payments' | 'privacy' | 'arrears'
@@ -133,7 +145,9 @@ function getMembershipPresentation(member: EnrichedMember) {
 function buildDirectionsUrl(member: EnrichedMember) {
   const destination = joinAddress(member)
   if (!destination || destination === 'Nincs rögzítve') return null
-  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`
+  // 2026-07-17 (PR-1): ország-kontexus a query-ben — település nélküli/azonos nevű
+  // utcáknál a Google különben a világ bármely pontjára irányíthat.
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${destination}, România`)}`
 }
 
 function getRelationName(
@@ -156,6 +170,8 @@ export function MemberDetailsDialogV2({
   onEdit,
   onShowFamilyTree,
   onOpenFamily,
+  onDataChanged,
+  variant = 'sheet',
 }: MemberDetailsDialogProps) {
   const [details, setDetails] = useState<MemberDetailsData | null>(null)
   const [familySummary, setFamilySummary] = useState<FamilySummaryData>(null)
@@ -170,6 +186,14 @@ export function MemberDetailsDialogV2({
   const [tab, setTab] = useState<Tab>('personal')
   // 2026-06-10 (Fázis 5, P3-3): tagsági igazolás nyomtatása
   const [certOpen, setCertOpen] = useState(false)
+  // 2026-07-24 (PR-11 review): melyik tag adatai vannak betöltve — a
+  // reloadToken-es CSENDES frissítés (pl. anyakönyv-mentés után) NEM dobja
+  // vissza a felhasználót az Összefoglaló fülre és nem villant skeletont.
+  const lastLoadedMemberIdRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!open) lastLoadedMemberIdRef.current = null
+  }, [open])
 
   useEffect(() => {
     if (!open || !member) return
@@ -178,11 +202,15 @@ export function MemberDetailsDialogV2({
 
     queueMicrotask(() => {
       if (cancelled) return
-      setDetails(null)
-      setFamilySummary(null)
-      setLoading(true)
+      const isNewIdentity = lastLoadedMemberIdRef.current !== member.id
+      lastLoadedMemberIdRef.current = member.id
+      if (isNewIdentity) {
+        setDetails(null)
+        setFamilySummary(null)
+        setLoading(true)
+        setTab('personal')
+      }
       setLoadError(false)
-      setTab('personal')
 
       const familySummaryRequest = familyId
         ? getMemberFamilySummary(familyId).catch(() => null)
@@ -226,12 +254,23 @@ export function MemberDetailsDialogV2({
   }, [member])
 
   const paymentTotal = useMemo(() => {
-    return (details?.befizetesek || []).reduce((sum, item) => sum + Number(item.osszeg || 0), 0)
+    // 2026-07-24 (PR-4 F5.4): a stornózott tétel NEM számít az összegbe (F1-4 elv).
+    return (details?.befizetesek || []).reduce(
+      (sum, item) => sum + (item.stornozott ? 0 : Number(item.osszeg || 0)),
+      0,
+    )
   }, [details])
 
   if (!member) return null
 
-  const hasArrears = member.paymentStatus === 'hatralekos'
+  // 2026-07-24 (PR-4 F5.2): a Hátralék fül a TÉNYLEGES hátralék-bontásból dönt,
+  // nem a bemenő member.paymentStatus-ból — így (a) a családi kartonról nyitott
+  // karton (hard-kódolt 'rendezve') és (b) az idénre rendezett, de RÉGI években
+  // tartozó tag többéves tartozása is látható. Amíg a részletek töltődnek, a
+  // lista-státusz a fallback.
+  const hasArrears = details
+    ? (details.arrearsBreakdown || []).length > 0
+    : member.paymentStatus === 'hatralekos'
   const tabs: Array<{ value: Tab; label: string; icon: typeof User | typeof AlertTriangle }> = hasArrears
     ? [...BASE_TABS, { value: 'arrears', label: 'Hátralék', icon: AlertTriangle }]
     : BASE_TABS
@@ -263,26 +302,35 @@ export function MemberDetailsDialogV2({
     requestAnimationFrame(() => document.getElementById(`member-tab-${nextTab}`)?.focus())
   }
 
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        showCloseButton={false}
-        className="h-dvh gap-0 overflow-hidden border-primary/15 bg-card p-0 shadow-[-32px_0_90px_-48px_rgba(8,58,54,0.55)] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] data-[side=right]:w-full data-[side=right]:max-w-none data-[side=right]:data-ending-style:translate-x-full data-[side=right]:data-starting-style:translate-x-full data-[side=right]:sm:w-[min(92vw,56rem)] data-[side=right]:sm:max-w-[56rem] data-[side=right]:xl:w-[min(48vw,56rem)] data-[side=right]:xl:max-w-[56rem] motion-reduce:transition-none"
-      >
+  // 2026-07-24 (PR-11): a karton törzse variant-független — 'sheet' módban a
+  // saját jobbról beúszó Sheet-be, 'panel' módban a RegistryCardsHost oszlopába kerül.
+  const isPanel = variant === 'panel'
+
+  const cardBody = (
         <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-card">
-          <header className="relative shrink-0 border-b border-primary/10 bg-gradient-to-br from-primary/10 via-card to-accent/10 px-4 pb-4 [padding-top:max(1rem,env(safe-area-inset-top))] sm:px-6 sm:pb-5 [@media(max-height:600px)]:pb-2 [@media(max-height:600px)]:[padding-top:max(0.5rem,env(safe-area-inset-top))]">
-            <div className="flex items-start justify-between gap-3">
+          <header className="relative shrink-0 overflow-hidden border-b border-primary/10 bg-gradient-to-br from-primary/10 via-card to-amber-50/45 px-4 pb-4 [padding-top:max(1rem,env(safe-area-inset-top))] sm:px-6 sm:pb-5 dark:to-card [@media(max-height:600px)]:pb-2 [@media(max-height:600px)]:[padding-top:max(0.5rem,env(safe-area-inset-top))]">
+            {/* 2026-07-24 (PR-11): a családi karton színvilága — szivárvány-sáv + blur-foltok */}
+            <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary via-teal-500 to-amber-400" />
+            <div aria-hidden className="pointer-events-none absolute -right-8 -top-12 size-40 rounded-full bg-primary/15 blur-3xl" />
+            <div aria-hidden className="pointer-events-none absolute -bottom-12 -left-8 size-32 rounded-full bg-amber-200/35 blur-3xl dark:bg-amber-700/10" />
+            <div className="relative flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary/70">
-                  Tagnyilvántartás
-                </p>
-                <SheetTitle className="mt-0.5 font-heading text-2xl font-medium tracking-tight text-foreground">
-                  Személyi karton
-                </SheetTitle>
-                <SheetDescription className="sr-only">
-                  {baseName} személyes, családi, anyakönyvi és pénzügyi adatainak áttekintése.
-                </SheetDescription>
+                <div className="flex items-center gap-2">
+                  <Sparkles className="size-3.5 text-amber-600 dark:text-amber-400" />
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/75">
+                    Személyi karton · #{member.id}
+                  </p>
+                </div>
+                {isPanel ? (
+                  <span className="sr-only">{baseName} — személyi karton</span>
+                ) : (
+                  <>
+                    <SheetTitle className="sr-only">{baseName} — személyi karton</SheetTitle>
+                    <SheetDescription className="sr-only">
+                      {baseName} személyes, családi, anyakönyvi és pénzügyi adatainak áttekintése.
+                    </SheetDescription>
+                  </>
+                )}
               </div>
 
               <div className="flex shrink-0 items-center gap-1.5">
@@ -311,7 +359,7 @@ export function MemberDetailsDialogV2({
               </div>
             </div>
 
-            <div className="mt-4 flex min-w-0 items-start gap-3.5 sm:gap-4 [@media(max-height:600px)]:mt-2">
+            <div className="relative mt-4 flex min-w-0 items-start gap-3.5 sm:gap-4 [@media(max-height:600px)]:mt-2">
               <div className="shrink-0 [@media(max-height:600px)]:hidden">
                 <MemberAvatar
                   name={baseName}
@@ -347,15 +395,16 @@ export function MemberDetailsDialogV2({
               </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-3 gap-2 [@media(max-height:600px)]:mt-1 [@media(max-height:600px)]:gap-1.5">
+            <div className="relative mt-4 grid grid-cols-3 gap-2 [@media(max-height:600px)]:mt-1 [@media(max-height:600px)]:gap-1.5">
               <MemberQuickAction icon={<Phone className="size-4" />} label="Telefon" href={member.telefon ? `tel:${member.telefon}` : null} />
               <MemberQuickAction icon={<Mail className="size-4" />} label="E-mail" href={member.email ? `mailto:${member.email}` : null} />
               <MemberQuickAction icon={<MapPin className="size-4" />} label="Útvonal" href={directionsUrl} external />
             </div>
           </header>
 
+          {/* 2026-07-24 (PR-11): a családi karton pill-tabjainak stílusa (közös vizuális nyelv) */}
           <nav
-            className={`sticky top-0 z-10 flex shrink-0 overflow-x-auto border-b border-border/60 bg-card/95 px-3 backdrop-blur-sm ${hasArrears ? 'sm:px-6 md:grid md:grid-cols-5 md:overflow-visible' : 'sm:grid sm:grid-cols-4 sm:overflow-visible sm:px-6'}`}
+            className="sticky top-0 z-10 flex shrink-0 gap-1 overflow-x-auto border-b border-border/60 bg-muted/30 px-2 backdrop-blur-md sm:px-4"
             aria-label="Személyi karton részei"
             aria-orientation="horizontal"
             role="tablist"
@@ -375,16 +424,17 @@ export function MemberDetailsDialogV2({
                     aria-selected={active}
                     aria-controls={`member-panel-${value}`}
                     tabIndex={active ? 0 : -1}
-                    className={`relative inline-flex min-h-12 min-w-max items-center justify-center gap-2 whitespace-nowrap border-b-2 px-3 py-2 text-[12px] font-semibold transition disabled:cursor-wait disabled:opacity-60 ${hasArrears ? 'md:w-full md:min-w-0 md:px-2 md:text-[13px]' : 'sm:w-full sm:min-w-0 sm:px-2 sm:text-[13px]'} motion-reduce:transition-none [@media(max-height:600px)]:min-h-11 ${
+                    className={`relative my-1.5 inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-[13px] font-semibold transition-all disabled:cursor-wait disabled:opacity-60 motion-reduce:transition-none sm:px-4 ${
                       active
                         ? isArrears
-                          ? 'border-rose-500 text-rose-700 dark:text-rose-300'
-                          : 'border-primary text-primary'
-                        : 'border-transparent text-muted-foreground hover:border-primary/25 hover:text-foreground'
+                          ? 'bg-background text-rose-600 shadow-sm ring-1 ring-border/60 dark:text-rose-300'
+                          : 'bg-background text-primary shadow-sm ring-1 ring-border/60'
+                        : 'text-muted-foreground hover:bg-background/55 hover:text-foreground'
                     }`}
                   >
                     <Icon className="size-4" />
                     <span>{label}</span>
+                    {active && <span aria-hidden className={`absolute inset-x-4 -bottom-1.5 h-0.5 rounded-full ${isArrears ? 'bg-rose-400' : 'bg-amber-400'}`} />}
                   </button>
                 )
               })}
@@ -453,10 +503,7 @@ export function MemberDetailsDialogV2({
                                 type="button"
                                 variant="ghost"
                                 className="size-11 shrink-0 rounded-xl p-0 text-primary"
-                                onClick={() => {
-                                  onOpenChange(false)
-                                  setTimeout(() => onOpenFamily(familyId), 150)
-                                }}
+                                onClick={() => onOpenFamily(familyId)}
                                 aria-label={`${familySummary.displayName} családi kartonjának megnyitása`}
                               >
                                 <ChevronRight className="size-5" />
@@ -465,11 +512,22 @@ export function MemberDetailsDialogV2({
                           </div>
 
                           <div className="mt-1 divide-y divide-border/45">
+                            {/* 2026-07-24 (PR-4 F5.5): a címkék a TÉNYLEGES haztartas_tag-
+                                szerepből jönnek (nem heurisztikából), és egy gyermek
+                                kartonján a testvérei „Testvér" címkét kapnak. */}
                             {familySummary.adults.map((person) => (
                               <FamilySummaryRow
                                 key={`adult-${person.id}`}
                                 name={getFamilyPersonName(person)}
-                                relation={person.id === member.id ? 'Ő maga' : currentIsFamilyAdult ? 'Házastárs' : 'Szülő / családfő'}
+                                relation={
+                                  person.id === member.id
+                                    ? 'Ő maga'
+                                    : person.role === 'csaladfo'
+                                      ? (currentIsFamilyAdult ? 'Házastárs (családfő)' : 'Családfő')
+                                      : person.role === 'hazastars'
+                                        ? (currentIsFamilyAdult ? 'Házastárs' : 'Szülő')
+                                        : 'Szülő / családfő'
+                                }
                                 birthDate={person.sz_datum}
                               />
                             ))}
@@ -477,7 +535,15 @@ export function MemberDetailsDialogV2({
                               <FamilySummaryRow
                                 key={`child-${person.id}`}
                                 name={getFamilyPersonName(person)}
-                                relation={person.id === member.id ? 'Ő maga' : person.role === 'unoka' ? 'Unoka' : 'Gyermek'}
+                                relation={
+                                  person.id === member.id
+                                    ? 'Ő maga'
+                                    : !currentIsFamilyAdult
+                                      ? 'Testvér'
+                                      : person.role === 'unoka'
+                                        ? 'Unoka'
+                                        : 'Gyermek'
+                                }
                                 birthDate={person.sz_datum}
                               />
                             ))}
@@ -511,10 +577,7 @@ export function MemberDetailsDialogV2({
                             type="button"
                             variant="outline"
                             className="min-h-11 flex-1 justify-start rounded-xl bg-background/80"
-                            onClick={() => {
-                              onOpenChange(false)
-                              setTimeout(() => onOpenFamily(familyId), 150)
-                            }}
+                            onClick={() => onOpenFamily(familyId)}
                           >
                             <Users className="size-4" />
                             Családi karton · #{familyId}
@@ -577,90 +640,27 @@ export function MemberDetailsDialogV2({
                       <EditableNote
                         initial={member.megjegyzes}
                         placeholder="Pl. látogatási emlékeztető, családi körülmények, imatéma…"
-                        onSave={(note) => updateMemberNote(member.id, note)}
+                        onSave={async (note) => {
+                          const res = await updateMemberNote(member.id, note)
+                          if (!('error' in res && res.error)) onDataChanged?.()
+                          return res
+                        }}
                       />
                     </SummaryPanel>
                   </div>
                 )}
 
                 {tab === 'registry' && (
-                  <div className="space-y-4">
-                    <div className="grid gap-3.5 sm:grid-cols-2">
-                      <RegistryEventCard
-                        eyebrow="Keresztelés"
-                        title={details?.kereszteles ? formatDisplayDate(details.kereszteles.datum) : 'Nincs rögzítve'}
-                        description={[
-                          details?.kereszteles?.adrlocality?.name ? `Helyszín: ${details.kereszteles.adrlocality.name}` : null,
-                          details?.kereszteles?.lelkeszneve ? `Lelkész: ${details.kereszteles.lelkeszneve}` : null,
-                        ].filter(Boolean) as string[]}
-                        tone="sky"
-                        note={details?.kereszteles?.megjegyzes}
-                        onSaveNote={details?.kereszteles ? (n) => updateRegistryEventNote('keresztseg', details.kereszteles.id, n) : undefined}
-                      />
-                      <RegistryEventCard
-                        eyebrow="Konfirmáció"
-                        title={details?.konfirmacio ? formatDisplayDate(details.konfirmacio.datum) : 'Nincs rögzítve'}
-                        description={[
-                          details?.konfirmacio?.adrlocality?.name ? `Helyszín: ${details.konfirmacio.adrlocality.name}` : null,
-                          details?.konfirmacio?.lelkeszneve ? `Lelkész: ${details.konfirmacio.lelkeszneve}` : null,
-                        ].filter(Boolean) as string[]}
-                        tone="violet"
-                        note={details?.konfirmacio?.megjegyzes}
-                        onSaveNote={details?.konfirmacio ? (n) => updateRegistryEventNote('konfirmalas', details.konfirmacio.id, n) : undefined}
-                      />
-                      <RegistryEventCard
-                        eyebrow="Esküvő"
-                        title={details?.hazassag ? formatDisplayDate(details.hazassag.datum) : 'Nincs rögzítve'}
-                        description={[
-                          getRelationName(details?.hazassag?.adrlocality) ? `Helyszín: ${getRelationName(details?.hazassag?.adrlocality)}` : null,
-                          details?.hazassag?.lelkeszneve ? `Lelkész: ${details.hazassag.lelkeszneve}` : null,
-                        ].filter(Boolean) as string[]}
-                        tone="amber"
-                        note={details?.hazassag?.megjegyzes}
-                        onSaveNote={details?.hazassag?.id ? (n) => updateRegistryEventNote('hazassag', details.hazassag!.id, n) : undefined}
-                      />
-                      <RegistryEventCard
-                        eyebrow="Beköltözött"
-                        title={details?.bekoltozott ? formatDisplayDate(details.bekoltozott.mikor) : 'Nincs rögzítve'}
-                        description={[
-                          details?.bekoltozott?.adrlocality?.name ? `Honnan: ${details.bekoltozott.adrlocality.name}` : null,
-                        ].filter(Boolean) as string[]}
-                        tone="teal"
-                        note={details?.bekoltozott?.megjegyzes}
-                        onSaveNote={details?.bekoltozott ? (n) => updateRegistryEventNote('bekoltozott', details.bekoltozott.id, n) : undefined}
-                      />
-                      <RegistryEventCard
-                        eyebrow="Áttért"
-                        title={details?.attert ? formatDisplayDate(details.attert.mikor) : 'Nincs rögzítve'}
-                        description={[
-                          details?.attert?.adrlocality?.name ? `Honnan: ${details.attert.adrlocality.name}` : null,
-                        ].filter(Boolean) as string[]}
-                        tone="amber"
-                        note={details?.attert?.megjegyzes}
-                        onSaveNote={details?.attert ? (n) => updateRegistryEventNote('attert', details.attert.id, n) : undefined}
-                      />
-                      <RegistryEventCard
-                        eyebrow="Temetés"
-                        title={details?.temetes ? formatDisplayDate(details.temetes.tdatum || details.temetes.hdatum || null) : 'Nincs rögzítve'}
-                        description={[
-                          details?.temetes?.adrlocality?.name ? `Helyszín: ${details.temetes.adrlocality.name}` : null,
-                          details?.temetes?.lelkeszneve ? `Lelkész: ${details.temetes.lelkeszneve}` : null,
-                          details?.temetes?.hoka ? `Halál oka: ${details.temetes.hoka}` : null,
-                        ].filter(Boolean) as string[]}
-                        tone="rose"
-                        note={details?.temetes?.megjegyzes}
-                        onSaveNote={details?.temetes ? (n) => updateRegistryEventNote('temetes', details.temetes.id, n) : undefined}
-                      />
-                    </div>
-
-                    {!details?.kereszteles && !details?.konfirmacio && !details?.hazassag && !details?.bekoltozott && !details?.attert && !details?.temetes && (
-                      <EmptyState
-                        icon={<BookOpen className="size-10" />}
-                        title="Nincs anyakönyvi adat"
-                        description="Ehhez a személyhez még nem került rögzítésre keresztelés, konfirmáció vagy más egyházi esemény."
-                      />
-                    )}
-                  </div>
+                  /* 2026-07-24 (PR-11, 7. észrevétel): táblázatos anyakönyv-szekció a
+                     családi karton mintájára + soronkénti szerkesztés — a mentés
+                     ugyanazokba a táblákba ír, amiket az Anyakönyv modul olvas. */
+                  <MemberRegistrySection
+                    details={details}
+                    onChanged={() => {
+                      setReloadToken((current) => current + 1)
+                      onDataChanged?.()
+                    }}
+                  />
                 )}
 
                 {tab === 'payments' && (
@@ -684,15 +684,19 @@ export function MemberDetailsDialogV2({
                       <>
                         <div className="space-y-2 lg:hidden">
                           {details.befizetesek.map((payment) => (
-                            <article key={payment.id} className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
+                            <article key={payment.id} className={`rounded-2xl border border-border/60 bg-card p-4 shadow-sm ${payment.stornozott ? 'opacity-60' : ''}`}>
                               <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
                                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Dátum</p>
                                   <p className="mt-1 font-semibold text-foreground">{formatDisplayDate(payment.datum)}</p>
                                 </div>
-                                <p className="shrink-0 font-semibold tabular-nums text-emerald-700">{Number(payment.osszeg).toFixed(2)} RON</p>
+                                {/* 2026-07-24 (PR-4 F5.4): a stornózott tétel áthúzva + jelölve */}
+                                <p className={`shrink-0 font-semibold tabular-nums ${payment.stornozott ? 'text-muted-foreground line-through' : 'text-emerald-700'}`}>{Number(payment.osszeg).toFixed(2)} RON</p>
                               </div>
-                              <p className="mt-3 text-sm font-medium text-foreground">{payment.befizetescel?.nev || 'Általános befizetés'}</p>
+                              <p className="mt-3 text-sm font-medium text-foreground">
+                                {payment.befizetescel?.nev || 'Általános befizetés'}
+                                {payment.stornozott && <span className="ml-2 rounded-md bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">STORNÓ</span>}
+                              </p>
                               <div className="mt-3 grid grid-cols-2 gap-3 border-t border-border/50 pt-3 text-xs">
                                 <div>
                                   <p className="text-muted-foreground">Év</p>
@@ -719,10 +723,12 @@ export function MemberDetailsDialogV2({
                           </thead>
                           <tbody className="divide-y divide-border/45">
                             {details.befizetesek.map((payment) => (
-                              <tr key={payment.id} className="transition-colors hover:bg-primary/[0.035] motion-reduce:transition-none">
+                              <tr key={payment.id} className={`transition-colors hover:bg-primary/[0.035] motion-reduce:transition-none ${payment.stornozott ? 'opacity-60' : ''}`}>
                                 <td className="px-4 py-3 font-medium text-foreground">{formatDisplayDate(payment.datum)}</td>
                                 <td className="px-4 py-3 text-muted-foreground">
                                   {payment.befizetescel?.nev || 'Általános befizetés'}
+                                  {/* 2026-07-24 (PR-4 F5.4): stornó-jelölés */}
+                                  {payment.stornozott && <span className="ml-2 rounded-md bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">STORNÓ</span>}
                                 </td>
                                 <td className="px-4 py-3 text-muted-foreground">
                                   {payment.fizetettev ? `${payment.fizetettev}. év` : 'Nincs megadva'}
@@ -730,7 +736,7 @@ export function MemberDetailsDialogV2({
                                 <td className="px-4 py-3 text-muted-foreground">
                                   {getTransactionDocumentNumber(payment) || 'Nincs rögzítve'}
                                 </td>
-                                <td className="px-4 py-3 text-right font-semibold text-emerald-700">
+                                <td className={`px-4 py-3 text-right font-semibold ${payment.stornozott ? 'text-muted-foreground line-through' : 'text-emerald-700'}`}>
                                   {Number(payment.osszeg).toFixed(2)} RON
                                 </td>
                               </tr>
@@ -752,7 +758,11 @@ export function MemberDetailsDialogV2({
                       <EditableNote
                         initial={member.megjegyzes}
                         placeholder="Pl. fizetési megállapodás, részletfizetés, egyeztetés…"
-                        onSave={(note) => updateMemberNote(member.id, note)}
+                        onSave={async (note) => {
+                          const res = await updateMemberNote(member.id, note)
+                          if (!('error' in res && res.error)) onDataChanged?.()
+                          return res
+                        }}
                       />
                     </SoftPanel>
                   </div>
@@ -786,7 +796,10 @@ export function MemberDetailsDialogV2({
                         gdprConsentAt={consentSnapshot.gdprConsentAt}
                         photoConsent={consentSnapshot.photoConsent}
                         mailingConsent={consentSnapshot.mailingConsent}
-                        onSaved={setConsentSnapshot}
+                        onSaved={(snapshot) => {
+                          setConsentSnapshot(snapshot)
+                          onDataChanged?.()
+                        }}
                       />
                     </SoftPanel>
 
@@ -871,10 +884,7 @@ export function MemberDetailsDialogV2({
                   variant="outline"
                   size="sm"
                   className="min-h-11 rounded-xl bg-background/80"
-                  onClick={() => {
-                    onOpenChange(false)
-                    setTimeout(() => onOpenFamily(familyId), 150)
-                  }}
+                  onClick={() => onOpenFamily(familyId)}
                 >
                   <Users className="size-4" />
                   Családi karton
@@ -901,6 +911,26 @@ export function MemberDetailsDialogV2({
             </div>
           </footer>
         </div>
+  )
+
+  if (isPanel) {
+    return (
+      <>
+        {cardBody}
+        {/* 2026-06-10 (Fázis 5, P3-3): nyomtatható tagsági igazolás */}
+        <MemberCertificateDialog open={certOpen} onOpenChange={setCertOpen} szemelyId={member.id} />
+      </>
+    )
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        showCloseButton={false}
+        className="h-dvh gap-0 overflow-hidden border-primary/15 bg-card p-0 shadow-[-32px_0_90px_-48px_rgba(8,58,54,0.55)] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] data-[side=right]:w-full data-[side=right]:max-w-none data-[side=right]:data-ending-style:translate-x-full data-[side=right]:data-starting-style:translate-x-full data-[side=right]:sm:w-[min(92vw,56rem)] data-[side=right]:sm:max-w-[56rem] data-[side=right]:xl:w-[min(48vw,56rem)] data-[side=right]:xl:max-w-[56rem] motion-reduce:transition-none"
+      >
+        {cardBody}
       </SheetContent>
       {/* 2026-06-10 (Fázis 5, P3-3): nyomtatható tagsági igazolás */}
       <MemberCertificateDialog open={certOpen} onOpenChange={setCertOpen} szemelyId={member.id} />
@@ -1121,51 +1151,330 @@ function MiniFact({ label, value }: { label: string; value: string }) {
   )
 }
 
-function RegistryEventCard({
-  eyebrow,
-  title,
-  description,
-  tone,
-  note,
-  onSaveNote,
+// ── Anyakönyv-szekció (2026-07-24, PR-11, 7. észrevétel) ──────────────────
+// A családi karton táblázatos anyakönyv-nézetének személyi megfelelője +
+// soronkénti szerkesztés. A mentés (updateRegistryEventDetails) ugyanazokba a
+// táblákba ír, amiket az Anyakönyv modul olvas — a módosítás ott is megjelenik.
+
+interface MemberRegistryRow {
+  kind: NoteEventKind
+  recordId: number
+  label: string
+  icon: ReactNode
+  tone: string
+  date: string | null
+  location: string | null
+  pastor: string | null
+  note: string | null
+  hoka: string | null
+  hasPastor: boolean
+  hasHoka: boolean
+  /** A helyszín-mező címkéje (Helyszín vagy Honnan). */
+  locationLabel: string
+}
+
+// 2026-07-24 (PR-11 review): a megjegyzés '|sablon:{json}' utótagja (emléklap-/
+// gyászjelentés-adat, az Anyakönyv modul tárolási mintája) NEM jeleníthető meg
+// és NEM szerkeszthető innen — a szerver mentéskor változatlanul visszafűzi.
+function visibleNote(note: string | null | undefined): string | null {
+  if (!note) return null
+  const idx = note.indexOf('|sablon:')
+  const base = (idx >= 0 ? note.slice(0, idx) : note).trim()
+  return base || null
+}
+
+function buildMemberRegistryRows(details: MemberDetailsData | null): MemberRegistryRow[] {
+  if (!details) return []
+  const rows: MemberRegistryRow[] = []
+  if (details.kereszteles) {
+    rows.push({
+      kind: 'keresztseg', recordId: details.kereszteles.id, label: 'Keresztelés',
+      icon: <Church className="size-3.5 text-blue-500" />, tone: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-900',
+      date: details.kereszteles.datum ?? null, location: details.kereszteles.adrlocality?.name ?? null,
+      pastor: details.kereszteles.lelkeszneve ?? null, note: visibleNote(details.kereszteles.megjegyzes),
+      hoka: null, hasPastor: true, hasHoka: false, locationLabel: 'Helyszín',
+    })
+  }
+  if (details.konfirmacio) {
+    rows.push({
+      kind: 'konfirmalas', recordId: details.konfirmacio.id, label: 'Konfirmáció',
+      icon: <Sparkles className="size-3.5 text-emerald-500" />, tone: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900',
+      date: details.konfirmacio.datum ?? null, location: details.konfirmacio.adrlocality?.name ?? null,
+      pastor: details.konfirmacio.lelkeszneve ?? null, note: visibleNote(details.konfirmacio.megjegyzes),
+      hoka: null, hasPastor: true, hasHoka: false, locationLabel: 'Helyszín',
+    })
+  }
+  if (details.hazassag) {
+    rows.push({
+      kind: 'hazassag', recordId: details.hazassag.id, label: 'Esküvő',
+      icon: <Heart className="size-3.5 text-rose-500" />, tone: 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900',
+      date: details.hazassag.datum ?? null, location: getRelationName(details.hazassag.adrlocality),
+      pastor: details.hazassag.lelkeszneve ?? null, note: visibleNote(details.hazassag.megjegyzes),
+      hoka: null, hasPastor: true, hasHoka: false, locationLabel: 'Helyszín',
+    })
+  }
+  if (details.bekoltozott) {
+    rows.push({
+      kind: 'bekoltozott', recordId: details.bekoltozott.id, label: 'Beköltözött',
+      icon: <DoorOpen className="size-3.5 text-teal-500" />, tone: 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-900',
+      date: details.bekoltozott.mikor ?? null, location: details.bekoltozott.adrlocality?.name ?? null,
+      pastor: null, note: visibleNote(details.bekoltozott.megjegyzes),
+      hoka: null, hasPastor: false, hasHoka: false, locationLabel: 'Honnan',
+    })
+  }
+  if (details.attert) {
+    rows.push({
+      kind: 'attert', recordId: details.attert.id, label: 'Áttért',
+      icon: <ArrowLeftRight className="size-3.5 text-amber-500" />, tone: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900',
+      date: details.attert.mikor ?? null, location: details.attert.adrlocality?.name ?? null,
+      pastor: null, note: visibleNote(details.attert.megjegyzes),
+      hoka: null, hasPastor: false, hasHoka: false, locationLabel: 'Honnan',
+    })
+  }
+  if (details.temetes) {
+    rows.push({
+      kind: 'temetes', recordId: details.temetes.id, label: 'Temetés',
+      icon: <Cross className="size-3.5 text-slate-500" />, tone: 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800/60 dark:text-slate-300 dark:border-slate-700',
+      date: details.temetes.tdatum || details.temetes.hdatum || null, location: details.temetes.adrlocality?.name ?? null,
+      pastor: details.temetes.lelkeszneve ?? null, note: visibleNote(details.temetes.megjegyzes),
+      hoka: details.temetes.hoka ?? null, hasPastor: true, hasHoka: true, locationLabel: 'Helyszín',
+    })
+  }
+  return rows
+}
+
+function MemberRegistrySection({
+  details,
+  onChanged,
 }: {
-  eyebrow: string
-  title: string
-  description: string[]
-  tone: 'sky' | 'violet' | 'teal' | 'amber' | 'rose'
-  /** 2026-06-10: az eseményhez tartozó megjegyzés (megjegyzes oszlop) */
-  note?: string | null
-  /** Ha megadva, a kártya alján szerkeszthető megjegyzés-mező jelenik meg. */
-  onSaveNote?: (note: string) => Promise<{ error?: string } | { success?: boolean }>
+  details: MemberDetailsData | null
+  onChanged: () => void
 }) {
-  const toneClasses = {
-    sky: 'from-sky-50/80 to-cyan-50/60 border-sky-100 dark:from-sky-950/25 dark:to-card dark:border-sky-900/50',
-    violet: 'from-violet-50/80 to-fuchsia-50/60 border-violet-100 dark:from-violet-950/25 dark:to-card dark:border-violet-900/50',
-    teal: 'from-teal-50/80 to-emerald-50/60 border-teal-100 dark:from-teal-950/25 dark:to-card dark:border-teal-900/50',
-    amber: 'from-amber-50/80 to-orange-50/60 border-amber-100 dark:from-amber-950/25 dark:to-card dark:border-amber-900/50',
-    rose: 'from-rose-50/80 to-pink-50/60 border-rose-100 dark:from-rose-950/25 dark:to-card dark:border-rose-900/50',
-  }[tone]
+  const rows = buildMemberRegistryRows(details)
+  const [editingKind, setEditingKind] = useState<NoteEventKind | null>(null)
+
+  if (rows.length === 0) {
+    return (
+      <EmptyState
+        icon={<BookOpen className="size-10" />}
+        title="Nincs anyakönyvi adat"
+        description="Ehhez a személyhez még nem került rögzítésre keresztelés, konfirmáció vagy más egyházi esemény."
+      />
+    )
+  }
+
+  const editingRow = rows.find((row) => row.kind === editingKind) ?? null
 
   return (
-    <div className={`rounded-2xl border bg-gradient-to-br ${toneClasses} p-4 shadow-[0_18px_40px_-36px_rgba(21,84,74,0.35)] sm:p-5`}>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{eyebrow}</p>
-      <p className="mt-2 font-heading text-lg font-semibold text-foreground">{title}</p>
-      <div className="mt-3 space-y-1.5">
-        {description.length > 0 ? (
-          description.map((line) => (
-            <p key={line} className="text-sm text-muted-foreground">
-              {line}
-            </p>
-          ))
-        ) : (
-          <p className="text-sm text-muted-foreground">Nincs további részlet.</p>
-        )}
-      </div>
-      {onSaveNote && (
-        <div className="mt-3 border-t border-border/45 pt-3">
-          <EditableNote initial={note} placeholder="Megjegyzés ehhez az eseményhez…" onSave={onSaveNote} />
+    <div className="space-y-4">
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        {/* Asztali táblázat — a családi karton RegistryTable-mintája */}
+        <div className="hidden overflow-x-auto sm:block">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/70 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <tr>
+                <th className="w-36 px-3 py-2">Esemény</th>
+                <th className="w-28 px-3 py-2">Dátum</th>
+                {/* 2026-07-24 (PR-11 review): semleges fejléc — a Beköltözött/Áttért
+                    sorokban ez a HONNAN települése, nem a helyszín. */}
+                <th className="px-3 py-2">Település</th>
+                <th className="px-3 py-2">Lelkész</th>
+                <th className="px-3 py-2">Megjegyzés</th>
+                <th className="w-14 px-3 py-2 text-right"><span className="sr-only">Szerkesztés</span></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/70">
+              {rows.map((row) => (
+                <tr key={row.kind} className="transition-colors hover:bg-primary/5 motion-reduce:transition-none">
+                  <td className="px-3 py-2">
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${row.tone}`}>
+                      {row.icon}
+                      {row.label}
+                    </span>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 font-medium text-foreground">{row.date ? formatDisplayDate(row.date) : '—'}</td>
+                  <td className="px-3 py-2 text-muted-foreground">{row.location || '—'}</td>
+                  <td className="px-3 py-2 text-muted-foreground">{row.pastor || '—'}</td>
+                  <td className="max-w-[16rem] truncate px-3 py-2 text-muted-foreground" title={row.note || undefined}>
+                    {row.hoka ? `Halál oka: ${row.hoka}${row.note ? ' · ' : ''}` : ''}
+                    {row.note || (!row.hoka ? '—' : '')}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="size-11 rounded-xl p-0 text-muted-foreground hover:text-primary"
+                      onClick={() => setEditingKind(editingKind === row.kind ? null : row.kind)}
+                      aria-label={`${row.label} szerkesztése`}
+                      aria-expanded={editingKind === row.kind}
+                      aria-controls="member-registry-editor"
+                    >
+                      <Pencil className="size-3.5" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
+
+        {/* Mobil: kompakt kártya-lista */}
+        <div className="divide-y divide-border/70 sm:hidden">
+          {rows.map((row) => (
+            <div key={row.kind} className="space-y-1 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${row.tone}`}>
+                  {row.icon}
+                  {row.label}
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-foreground">{row.date ? formatDisplayDate(row.date) : '—'}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="size-11 rounded-xl p-0 text-muted-foreground"
+                    onClick={() => setEditingKind(editingKind === row.kind ? null : row.kind)}
+                    aria-label={`${row.label} szerkesztése`}
+                    aria-expanded={editingKind === row.kind}
+                    aria-controls="member-registry-editor"
+                  >
+                    <Pencil className="size-3.5" />
+                  </Button>
+                </div>
+              </div>
+              {(row.location || row.pastor) && (
+                <div className="text-[11px] text-muted-foreground">
+                  {row.location && `${row.locationLabel}: ${row.location}`}
+                  {row.location && row.pastor && ' · '}
+                  {row.pastor && `Lelkész: ${row.pastor}`}
+                </div>
+              )}
+              {(row.note || row.hoka) && (
+                <div className="text-[11px] text-muted-foreground">
+                  {row.hoka && `Halál oka: ${row.hoka}`}
+                  {row.hoka && row.note && ' · '}
+                  {row.note}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {editingRow && (
+        <RegistryEventEditor
+          key={editingRow.kind}
+          row={editingRow}
+          onCancel={() => setEditingKind(null)}
+          onSaved={() => {
+            setEditingKind(null)
+            onChanged()
+          }}
+        />
       )}
+    </div>
+  )
+}
+
+function RegistryEventEditor({
+  row,
+  onCancel,
+  onSaved,
+}: {
+  row: MemberRegistryRow
+  onCancel: () => void
+  onSaved: () => void
+}) {
+  const [datum, setDatum] = useState(row.date ? row.date.slice(0, 10) : '')
+  const [helyNev, setHelyNev] = useState(row.location || '')
+  const [lelkesz, setLelkesz] = useState(row.pastor || '')
+  const [hoka, setHoka] = useState(row.hoka || '')
+  const [note, setNote] = useState(row.note || '')
+  const [saving, setSaving] = useState(false)
+  // 2026-07-24 (PR-11 review): megnyitáskor a képernyőre görgetünk és a
+  // dátum-mezőre fókuszálunk — mobilon a lista alatt nyílik az űrlap, e nélkül
+  // a ceruza-koppintás „nem csinál semmit" érzetet kelt.
+  const containerRef = useRef<HTMLDivElement>(null)
+  const dateInputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    const reduceMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    containerRef.current?.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' })
+    dateInputRef.current?.focus({ preventScroll: true })
+  }, [])
+
+  const inputClass =
+    'h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground shadow-xs outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-[3px] focus:ring-ring/20 motion-reduce:transition-none'
+
+  async function handleSave() {
+    setSaving(true)
+    const res = await updateRegistryEventDetails(row.kind, row.recordId, {
+      datum: datum || null,
+      // 2026-07-24 (PR-11 review): ha a helyszín-mezőhöz NEM nyúlt a felhasználó,
+      // undefined megy — a szerver ilyenkor nem írja az oszlopot (nem tudja
+      // átirányítani/kiüríteni a helység-FK-t egy változatlan mentés).
+      helyNev: helyNev === (row.location || '') ? undefined : helyNev || null,
+      lelkeszneve: row.hasPastor ? lelkesz || null : null,
+      megjegyzes: note || null,
+      hoka: row.hasHoka ? hoka || null : undefined,
+    })
+    setSaving(false)
+    if (res && 'error' in res && res.error) {
+      toast.error(res.error)
+      return
+    }
+    toast.success(`${row.label} adatai mentve — az Anyakönyv modulban is frissült.`)
+    onSaved()
+  }
+
+  return (
+    <div ref={containerRef} id="member-registry-editor" tabIndex={-1} className="rounded-2xl border border-primary/20 bg-primary/[0.03] p-4 shadow-sm outline-none sm:p-5">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${row.tone}`}>
+          {row.icon}
+          {row.label} szerkesztése
+        </span>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block text-xs font-medium text-muted-foreground">
+          Dátum
+          <input ref={dateInputRef} type="date" value={datum} onChange={(e) => setDatum(e.target.value)} className={`mt-1 ${inputClass}`} />
+        </label>
+        <label className="block text-xs font-medium text-muted-foreground">
+          {row.locationLabel} (település)
+          <input type="text" value={helyNev} onChange={(e) => setHelyNev(e.target.value)} placeholder="Pl. Barátos" className={`mt-1 ${inputClass}`} />
+        </label>
+        {row.hasPastor && (
+          <label className="block text-xs font-medium text-muted-foreground">
+            Lelkész neve
+            <input type="text" value={lelkesz} onChange={(e) => setLelkesz(e.target.value)} className={`mt-1 ${inputClass}`} />
+          </label>
+        )}
+        {row.hasHoka && (
+          <label className="block text-xs font-medium text-muted-foreground">
+            Halál oka
+            <input type="text" value={hoka} onChange={(e) => setHoka(e.target.value)} className={`mt-1 ${inputClass}`} />
+          </label>
+        )}
+        <label className="block text-xs font-medium text-muted-foreground sm:col-span-2">
+          Megjegyzés
+          <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} className={`mt-1 w-full resize-y rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-xs outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-[3px] focus:ring-ring/20 motion-reduce:transition-none`} />
+        </label>
+      </div>
+      <p className="mt-3 text-[11px] leading-4 text-muted-foreground">
+        {row.kind === 'hazassag'
+          ? 'Az esküvő a közös házassági anyakönyvi bejegyzést módosítja — mindkét házastárs kartonján és az Anyakönyv oldalon is ez jelenik meg.'
+          : 'A mentés az anyakönyvi nyilvántartásba ír — a módosítás az Anyakönyv oldalon is megjelenik.'}
+      </p>
+      <div className="mt-3 flex items-center justify-end gap-2">
+        <Button type="button" variant="ghost" size="sm" className="min-h-11 rounded-xl px-3.5 text-xs" onClick={onCancel} disabled={saving}>
+          Mégse
+        </Button>
+        <Button type="button" size="sm" className="min-h-11 rounded-xl px-3.5 text-xs" onClick={handleSave} disabled={saving}>
+          {saving ? 'Mentés…' : 'Mentés'}
+        </Button>
+      </div>
     </div>
   )
 }

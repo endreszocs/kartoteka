@@ -1,211 +1,282 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
+import { shouldBypassPublicImageOptimization } from '@/lib/public-site/public-image'
 import { usePathname } from 'next/navigation'
-import { Menu, X, Home, Newspaper, BookOpen, Users, ChevronRight } from 'lucide-react'
+import {
+  Menu,
+  X,
+  Home,
+  Newspaper,
+  BookOpen,
+  Users,
+  UserRoundCheck,
+  ChevronRight,
+} from 'lucide-react'
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet'
 
 interface Props {
   slug: string
   displayName: string
   crestImageUrl?: string | null
+  primaryColor: string
+  primaryOnSurfaceColor: string
+  inkColor: string
+  memberPortalEnabled?: boolean
 }
 
-export function PublicMobileNav({ slug, displayName, crestImageUrl }: Props) {
+function normalizePathname(pathname: string): string {
+  if (pathname === '/') return pathname
+  return pathname.replace(/\/+$/, '')
+}
+
+function isActivePath(pathname: string, href: string, isHome = false): boolean {
+  const currentPath = normalizePathname(pathname)
+  if (isHome) return currentPath === href
+  return currentPath === href || currentPath.startsWith(`${href}/`)
+}
+
+export function PublicMobileNav({
+  slug,
+  displayName,
+  crestImageUrl,
+  primaryColor,
+  primaryOnSurfaceColor,
+  inkColor,
+  memberPortalEnabled = false,
+}: Props) {
   const [open, setOpen] = useState(false)
-  const [mounted, setMounted] = useState(false)
   const pathname = usePathname()
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     let cancelled = false
     queueMicrotask(() => {
-      if (!cancelled) setMounted(true)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    queueMicrotask(() => {
-      if (cancelled) return
-      setOpen(false)
-      document.body.style.overflow = ''
+      if (!cancelled) setOpen(false)
     })
     return () => {
       cancelled = true
     }
   }, [pathname])
 
-  const handleOpen = useCallback(() => {
-    setOpen(true)
-    document.body.style.overflow = 'hidden'
-  }, [])
+  useEffect(() => {
+    const desktopQuery = window.matchMedia('(min-width: 1024px)')
+    const closeOnDesktop = (event: MediaQueryListEvent) => {
+      if (event.matches) setOpen(false)
+    }
 
-  const handleClose = useCallback(() => {
-    setOpen(false)
-    document.body.style.overflow = ''
+    desktopQuery.addEventListener('change', closeOnDesktop)
+    return () => desktopQuery.removeEventListener('change', closeOnDesktop)
   }, [])
 
   const items = [
-    { href: `/gy/${slug}`, label: 'Kezdőlap', icon: Home, desc: 'Főoldal és hírek' },
-    { href: `/gy/${slug}/posts`, label: 'Hírek', icon: Newspaper, desc: 'Bejegyzések és aktualitások' },
-    { href: `/gy/${slug}/magazin`, label: 'Magazin', icon: BookOpen, desc: 'Gyülekezeti újság' },
-    { href: `/gy/${slug}/rolunk`, label: 'Rólunk', icon: Users, desc: 'Bemutatkozás' },
+    {
+      href: `/gy/${slug}`,
+      label: 'Kezdőlap',
+      icon: Home,
+      desc: 'Főoldal és hírek',
+      isHome: true,
+    },
+    {
+      href: `/gy/${slug}/posts`,
+      label: 'Hírek',
+      icon: Newspaper,
+      desc: 'Bejegyzések és aktualitások',
+    },
+    {
+      href: `/gy/${slug}/magazin`,
+      label: 'Magazin',
+      icon: BookOpen,
+      desc: 'Gyülekezeti újság',
+    },
+    {
+      href: `/gy/${slug}/rolunk`,
+      label: 'Rólunk',
+      icon: Users,
+      desc: 'Bemutatkozás',
+    },
+    ...(memberPortalEnabled
+      ? [{
+          href: `/gy/${slug}/tagi-portal`,
+          label: 'Tagi portál',
+          icon: UserRoundCheck,
+          desc: 'Belépés és tagi regisztráció',
+        }]
+      : []),
   ]
-
-  const drawerContent = open && mounted ? createPortal(
-    <div className="lg:hidden" style={{ position: 'fixed', inset: 0, zIndex: 99999 }}>
-      {/* Overlay animált */}
-      <div
-        onClick={handleClose}
-        style={{
-          position: 'absolute', inset: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          backdropFilter: 'blur(4px)',
-          WebkitBackdropFilter: 'blur(4px)',
-          animation: 'fadeIn 0.2s ease-out',
-        }}
-      />
-
-      {/* Drawer panel */}
-      <div
-        style={{
-          position: 'absolute', top: 0, right: 0, bottom: 0,
-          width: '300px', maxWidth: '88vw',
-          background: 'linear-gradient(180deg, #ffffff 0%, #f8fafb 100%)',
-          boxShadow: '-12px 0 40px rgba(0,0,0,0.2)',
-          display: 'flex', flexDirection: 'column',
-          animation: 'slideIn 0.25s cubic-bezier(0.22,1,0.36,1)',
-        }}
-      >
-        {/* Fejléc — dekoratív */}
-        <div style={{
-          padding: '24px 20px 20px',
-          background: 'linear-gradient(135deg, var(--public-primary, #14514b) 0%, color-mix(in srgb, var(--public-primary, #14514b) 80%, #000) 100%)',
-          color: '#fff',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
-              {crestImageUrl ? (
-                <img
-                  src={crestImageUrl}
-                  alt=""
-                  style={{ width: '44px', height: '44px', borderRadius: '12px', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.3)' }}
-                />
-              ) : (
-                <div style={{
-                  width: '44px', height: '44px', borderRadius: '12px',
-                  background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '20px', fontWeight: 'bold',
-                }}>
-                  {displayName.charAt(0)}
-                </div>
-              )}
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: '15px', fontWeight: 600, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {displayName}
-                </div>
-                <div style={{ fontSize: '11px', opacity: 0.7, marginTop: '2px' }}>Gyülekezeti weboldal</div>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={handleClose}
-              style={{
-                padding: '8px', borderRadius: '10px', cursor: 'pointer',
-                border: 'none', background: 'rgba(255,255,255,0.15)', color: '#fff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                transition: 'background 0.15s',
-              }}
-              aria-label="Menü bezárása"
-            >
-              <X style={{ width: '18px', height: '18px' }} />
-            </button>
-          </div>
-        </div>
-
-        {/* Menüpontok */}
-        <nav style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
-          {items.map((item) => {
-            const Icon = item.icon
-            const isActive = pathname === item.href
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={handleClose}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '14px',
-                  padding: '14px 14px', borderRadius: '14px',
-                  textDecoration: 'none', marginBottom: '4px',
-                  backgroundColor: isActive ? 'rgba(20,81,75,0.08)' : 'transparent',
-                  transition: 'background 0.15s',
-                }}
-              >
-                <div style={{
-                  width: '40px', height: '40px', borderRadius: '12px',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  backgroundColor: isActive ? 'var(--public-primary, #14514b)' : '#f1f5f9',
-                  color: isActive ? '#fff' : '#64748b',
-                  transition: 'all 0.15s',
-                  flexShrink: 0,
-                }}>
-                  <Icon style={{ width: '18px', height: '18px' }} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '15px', fontWeight: 600, color: isActive ? 'var(--public-primary, #14514b)' : '#1e293b' }}>
-                    {item.label}
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '1px' }}>
-                    {item.desc}
-                  </div>
-                </div>
-                <ChevronRight style={{ width: '16px', height: '16px', color: '#cbd5e1', flexShrink: 0 }} />
-              </Link>
-            )
-          })}
-        </nav>
-
-        {/* Lábléc */}
-        <div style={{
-          padding: '16px 20px', borderTop: '1px solid #f1f5f9',
-          background: '#fff',
-        }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-            fontSize: '11px', color: '#94a3b8',
-          }}>
-            <span>Működik a</span>
-            <span style={{ fontWeight: 600, color: '#64748b' }}>Kartotéka</span>
-            <span>rendszerrel</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Animációk */}
-      <style>{`
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
-      `}</style>
-    </div>,
-    document.body,
-  ) : null
 
   return (
     <div className="lg:hidden">
-      <button
-        type="button"
-        onClick={handleOpen}
-        className="p-2.5 rounded-xl hover:bg-black/5 transition-colors"
-        style={{ color: 'var(--public-ink, #1e293b)' }}
-        aria-label="Menü megnyitása"
-      >
-        <Menu className="w-6 h-6" />
-      </button>
-      {drawerContent}
+      {/* A modal Sheet kezeli az Escape-et, a fokuszcsapdat es a scroll-lock cleanupot. */}
+      <Sheet open={open} onOpenChange={setOpen} modal>
+        <SheetTrigger
+          render={
+            <button
+              ref={triggerRef}
+              type="button"
+              className="inline-flex h-11 w-11 min-h-11 min-w-11 items-center justify-center rounded-xl transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--public-primary-on-surface)] focus-visible:ring-offset-2 motion-reduce:transition-none"
+              style={{ color: 'var(--public-ink, #1e293b)' }}
+              aria-label="Navigációs menü megnyitása"
+            />
+          }
+        >
+          <Menu className="h-6 w-6" aria-hidden="true" />
+        </SheetTrigger>
+
+        <SheetContent
+          side="right"
+          role="dialog"
+          aria-modal="true"
+          showCloseButton={false}
+          initialFocus={closeButtonRef}
+          finalFocus={triggerRef}
+          className="w-[min(88vw,22rem)] max-w-none gap-0 overflow-hidden border-l-0 bg-white p-0 text-slate-900 motion-reduce:transform-none motion-reduce:transition-none sm:max-w-sm"
+          data-public-mobile-nav-dialog=""
+          style={
+            {
+              '--public-primary': primaryColor,
+              '--public-primary-on-surface': primaryOnSurfaceColor,
+              '--public-ink': inkColor,
+            } as CSSProperties
+          }
+        >
+          <div
+            className="flex items-center justify-between gap-3 px-5 py-5 text-white"
+            style={{
+              background:
+                'linear-gradient(135deg, var(--public-primary, #14514b) 0%, color-mix(in srgb, var(--public-primary, #14514b) 80%, #000) 100%)',
+            }}
+          >
+            <div className="flex min-w-0 items-center gap-3">
+              {crestImageUrl ? (
+                <Image
+                  src={crestImageUrl}
+                  alt=""
+                  width={44}
+                  height={44}
+                  sizes="44px"
+                  unoptimized={shouldBypassPublicImageOptimization(crestImageUrl)}
+                  className="h-11 w-11 shrink-0 rounded-xl border-2 border-white/30 object-cover"
+                />
+              ) : (
+                <div
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/15 text-xl font-bold"
+                  aria-hidden="true"
+                >
+                  {displayName.charAt(0)}
+                </div>
+              )}
+              <div className="min-w-0">
+                <SheetTitle className="truncate font-heading text-base font-semibold leading-tight text-white">
+                  {displayName}
+                </SheetTitle>
+                <SheetDescription className="mt-1 text-xs text-white/85">
+                  Gyülekezeti weboldal navigációja
+                </SheetDescription>
+              </div>
+            </div>
+
+            <SheetClose
+              render={
+                <button
+                  ref={closeButtonRef}
+                  type="button"
+                  className="inline-flex h-11 w-11 min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-white/15 text-white transition-colors hover:bg-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--public-primary)] motion-reduce:transition-none"
+                  aria-label="Navigációs menü bezárása"
+                />
+              }
+            >
+              <X className="h-5 w-5" aria-hidden="true" />
+            </SheetClose>
+          </div>
+
+          <nav
+            aria-label="Fő navigáció"
+            className="flex-1 overflow-y-auto overscroll-contain p-3"
+          >
+            {items.map((item) => {
+              const Icon = item.icon
+              const isActive = isActivePath(pathname, item.href, item.isHome)
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setOpen(false)}
+                  aria-current={isActive ? 'page' : undefined}
+                  className="mb-1 flex min-h-16 w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left no-underline transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--public-primary-on-surface)] focus-visible:ring-offset-2 motion-reduce:transition-none"
+                  style={{
+                    backgroundColor: isActive
+                      ? 'color-mix(in srgb, var(--public-primary, #14514b) 9%, transparent)'
+                      : undefined,
+                  }}
+                >
+                  <span
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
+                    style={{
+                      backgroundColor: isActive
+                        ? 'var(--public-primary, #14514b)'
+                        : '#f1f5f9',
+                      color: isActive ? '#fff' : '#64748b',
+                    }}
+                    aria-hidden="true"
+                  >
+                    <Icon className="h-[1.125rem] w-[1.125rem]" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className="block text-[0.95rem] font-semibold"
+                      style={{
+                        color: isActive
+                          ? 'var(--public-primary-on-surface, #14514b)'
+                          : '#1e293b',
+                      }}
+                    >
+                      {item.label}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-slate-500">{item.desc}</span>
+                  </span>
+                  <ChevronRight
+                    className="h-4 w-4 shrink-0 text-slate-300"
+                    aria-hidden="true"
+                  />
+                </Link>
+              )
+            })}
+          </nav>
+
+          <div className="border-t border-slate-100 bg-white px-5 py-4 text-center text-[0.7rem] text-slate-500">
+            Működik a <span className="font-semibold text-slate-500">Kartotéka</span>{' '}
+            rendszerrel
+          </div>
+
+          <style>{`
+            [data-slot='sheet-overlay'] {
+              background-color: rgba(15, 23, 42, 0.52) !important;
+              backdrop-filter: blur(4px);
+              -webkit-backdrop-filter: blur(4px);
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+              [data-slot='sheet-overlay'],
+              [data-public-mobile-nav-dialog] {
+                animation: none !important;
+                transition: none !important;
+              }
+            }
+          `}</style>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

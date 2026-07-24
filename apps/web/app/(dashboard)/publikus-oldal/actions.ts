@@ -10,6 +10,7 @@ import {
 } from '@/lib/validations/public-site'
 import { validateSlug } from '@/lib/public-site/slug'
 import { sanitizeAboutHtml, markdownToSanitizedHtml } from '@/lib/public-site/sanitize'
+import { canAccessPublicSiteAdmin } from '@/lib/public-site/admin-access'
 
 interface ActionResult {
   success?: boolean
@@ -58,6 +59,9 @@ export async function savePublicSiteSettings(
   if (!access.user || !access.profile) {
     return { error: 'Nincs bejelentkezett felhasználó.' }
   }
+  if (!canAccessPublicSiteAdmin(access, 'write')) {
+    return { error: 'Nincs jogosultságod a publikus oldal szerkesztéséhez.' }
+  }
   const congregationId = access.effectiveCongregationId
   if (!congregationId) {
     return { error: 'Nincs aktív gyülekezet.' }
@@ -76,6 +80,18 @@ export async function savePublicSiteSettings(
     : null
 
   const { supabase } = access
+
+  if (parsed.data.theme_id) {
+    const { data: selectedTheme, error: themeError } = await supabase
+      .from('public_site_themes')
+      .select('id')
+      .eq('id', parsed.data.theme_id)
+      .eq('is_active', true)
+      .maybeSingle()
+    if (themeError || !selectedTheme) {
+      return { error: 'A kiválasztott téma nem elérhető.' }
+    }
+  }
 
   // Ellenőrizzük, hogy a slug nem foglalt-e más gyülekezet által
   const { data: existing } = await supabase
@@ -109,15 +125,24 @@ export async function savePublicSiteSettings(
     contact_phone: parsed.data.contact_phone || null,
     address: parsed.data.address || null,
     about_html: sanitizedAbout,
+    ...(parsed.data.service_times === undefined
+      ? {}
+      : {
+          service_times: parsed.data.service_times.map((serviceTime) => ({
+            ...serviceTime,
+            location: serviceTime.location || null,
+            note: serviceTime.note || null,
+          })),
+        }),
     is_published: parsed.data.is_published,
     robots_index: parsed.data.robots_index,
     show_member_count: parsed.data.show_member_count ?? false,
     show_presbyter_count: parsed.data.show_presbyter_count ?? false,
     show_family_count: parsed.data.show_family_count ?? false,
     show_age_distribution: parsed.data.show_age_distribution ?? false,
-    override_member_count: parsed.data.override_member_count || null,
-    override_presbyter_count: parsed.data.override_presbyter_count || null,
-    override_family_count: parsed.data.override_family_count || null,
+    override_member_count: parsed.data.override_member_count ?? null,
+    override_presbyter_count: parsed.data.override_presbyter_count ?? null,
+    override_family_count: parsed.data.override_family_count ?? null,
   }
 
   if (mine) {
@@ -132,13 +157,21 @@ export async function savePublicSiteSettings(
   }
 
   // Frissítjük a congregations táblán is a redundáns mezőket
-  await supabase
+  const { error: congregationSyncError } = await supabase
     .from('congregations')
     .update({
       public_slug: parsed.data.slug,
       public_site_enabled: parsed.data.is_published,
     })
     .eq('id', congregationId)
+  if (congregationSyncError) {
+    return {
+      error: handleDbError(
+        congregationSyncError,
+        'savePublicSiteSettings.congregationSync',
+      ),
+    }
+  }
 
   revalidatePath('/publikus-oldal')
   revalidatePath(`/gy/${parsed.data.slug}`)
@@ -152,6 +185,9 @@ export async function savePublicPost(input: PublicPostInput): Promise<ActionResu
   const access = await getEffectiveAccessContext()
   if (!access.user || !access.profile) {
     return { error: 'Nincs bejelentkezett felhasználó.' }
+  }
+  if (!canAccessPublicSiteAdmin(access, 'write')) {
+    return { error: 'Nincs jogosultságod bejegyzés szerkesztéséhez.' }
   }
   const congregationId = access.effectiveCongregationId
   if (!congregationId) {
@@ -236,6 +272,9 @@ export async function savePublicPost(input: PublicPostInput): Promise<ActionResu
 export async function deletePublicPost(postId: string): Promise<ActionResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!canAccessPublicSiteAdmin(access, 'write')) {
+    return { error: 'Nincs jogosultságod bejegyzés törléséhez.' }
+  }
   const congregationId = access.effectiveCongregationId
   if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
 

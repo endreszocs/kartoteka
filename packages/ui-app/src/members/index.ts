@@ -29,3 +29,11 @@ export {
   type FamilyCardPrintData,
   type FamilyCardPrintPerson,
 } from './family-card-print'
+// 2026-07-24 (PR-8, F9): a választói névjegyzék A4-építője KÖZÖS — a web
+// nyomtatási központja és a desktop Választók-oldala ugyanazt a lapozott
+// (WYSIWYG .sheet) nyomtatványt állítja elő.
+export {
+  buildVoterListReport,
+  type VoterRow as VoterPrintRow,
+  type VoterPrintResult,
+} from './voter-reporting'

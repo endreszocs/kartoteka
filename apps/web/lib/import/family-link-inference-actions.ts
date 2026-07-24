@@ -151,8 +151,22 @@ export async function applyFamilyLinks(
     return { error: `A családszerkezet összeállítása sikertelen: ${error.message}` }
   }
 
+  // 2026-07-18 (PR-3 F6.1, P0): az auto-link a legacy csalad/gyerek táblákat
+  // írja (házastárs id_no + gyerek-kapcsolatok) — az ÚJ haztartas-modellbe
+  // átvezetés nélkül a Családok fül nem tükrözné a kötéseket. A szinkron
+  // idempotens; a hibáját jelezzük, nem nyeljük el.
+  const { error: syncError } = await supabase.rpc('sync_households_from_csalad', {
+    p_congregation_id: targetCongId,
+  })
+
   // A wizard fő útja a /tagnyilvantartas oldalra mutat — frissítés
   revalidatePath('/tagnyilvantartas')
+
+  if (syncError) {
+    return {
+      error: `A kapcsolatok létrejöttek, de a háztartás-átvezetés nem futott le (${syncError.message}) — futtasd újra a lépést, vagy jelezd a rendszergazdának.`,
+    }
+  }
 
   return { success: true, data: data as FamilyLinkResponse }
 }

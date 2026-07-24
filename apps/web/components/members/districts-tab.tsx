@@ -10,10 +10,13 @@ import {
   getDistrictsWithCounts, saveDistrict, deleteDistrict,
   getDistrictFamilies, assignFamilyToDistrict, removeFamilyFromDistrict,
 } from '@/app/(dashboard)/tagnyilvantartas/presbyter-actions'
+import { getAutoDistrictInput, type AutoDistrictInput } from '@/app/(dashboard)/tagnyilvantartas/district-auto-actions'
+import { AutoDistrictWizard } from '@/components/members/auto-district-wizard'
+import { DistrictPrintDialog } from '@/components/members/district-print-dialog'
 import { toast } from 'sonner'
-import { MapPin, Users, Edit2, Trash2, Plus, Check, X } from 'lucide-react'
+import { MapPin, Users, Edit2, Trash2, Plus, Check, X, Wand2, Printer, UserRound } from 'lucide-react'
 
-interface DistrictWithCount { id: number; nev: string; isaktiv: boolean; familyCount: number }
+interface DistrictWithCount { id: number; nev: string; isaktiv: boolean; familyCount: number; singleCount: number }
 
 export function DistrictsTab() {
   const [districts, setDistricts] = useState<DistrictWithCount[]>([])
@@ -25,6 +28,12 @@ export function DistrictsTab() {
   const [formAktiv, setFormAktiv] = useState(true)
   const [saving, setSaving] = useState(false)
 
+  // 2026-07-24 (PR-7 F4.3): auto-körzetesítő wizard + „körzet nélkül" sáv (H6)
+  const [wizardOpen, setWizardOpen] = useState(false)
+  const [autoInput, setAutoInput] = useState<AutoDistrictInput | null>(null)
+  // 2026-07-24 (PR-10): körzet-nyomtatás
+  const [printDistrict, setPrintDistrict] = useState<{ id: number; nev: string } | null>(null)
+
   const [familiesOpen, setFamiliesOpen] = useState(false)
   const [currentDistrictId, setCurrentDistrictId] = useState<number | null>(null)
   const [currentDistrictName, setCurrentDistrictName] = useState('')
@@ -35,6 +44,11 @@ export function DistrictsTab() {
     const data = await getDistrictsWithCounts()
     setDistricts(data)
     setLoading(false)
+    // A wizard-bemenet (családok+presbiterek) háttérben töltődik — a „körzet
+    // nélkül" sávhoz és az azonnali wizard-nyitáshoz. Hibája nem blokkol.
+    getAutoDistrictInput()
+      .then(setAutoInput)
+      .catch((e) => console.warn('[districts] auto-input betöltés sikertelen:', e))
   }, [])
 
   const refreshDistricts = useCallback(() => {
@@ -105,8 +119,29 @@ export function DistrictsTab() {
             <p className="text-xs text-slate-400">Gyülekezeti körzetek és család-hozzárendelések</p>
           </div>
         </div>
-        <Button size="sm" className="rounded-lg shadow-sm" onClick={() => openForm()}>+ Új körzet</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            className="rounded-lg bg-cyan-600 shadow-sm hover:bg-cyan-700"
+            onClick={() => setWizardOpen(true)}
+          >
+            <Wand2 className="mr-1 size-3.5" /> Automatikus körzetesítés
+          </Button>
+          <Button size="sm" variant="outline" className="rounded-lg shadow-sm" onClick={() => openForm()}>+ Új körzet</Button>
+        </div>
       </div>
+
+      {/* 2026-07-24 (PR-7): régóta hiányolt jelzés (H6) — körzet nélküli családok */}
+      {autoInput && autoInput.unassignedFamilyCount > 0 && (
+        <div className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+          <span>
+            <strong>{autoInput.unassignedFamilyCount} család</strong> még nincs körzethez rendelve.
+          </span>
+          <Button size="sm" variant="outline" className="rounded-lg border-amber-300 text-amber-800 hover:bg-amber-100 dark:text-amber-200" onClick={() => setWizardOpen(true)}>
+            <Wand2 className="mr-1 size-3.5" /> Elosztás automatikusan
+          </Button>
+        </div>
+      )}
 
       <div className="card-raised px-4 py-3 text-xs leading-5 text-muted-foreground">
         A rendszer itt csak azokat a körzeteket mutatja, amelyek ehhez a gyülekezethez kapcsolódnak, vagy még sehol nincsenek használatban. Ez segít megelőzni, hogy más gyülekezet adatai véletlenül megjelenjenek vagy szerkeszthetővé váljanak.
@@ -135,6 +170,11 @@ export function DistrictsTab() {
                       <span className="inline-flex items-center gap-1 text-xs text-slate-400">
                         <Users className="w-3 h-3" /> {d.familyCount} család
                       </span>
+                      {d.singleCount > 0 && (
+                        <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+                          <UserRound className="w-3 h-3" /> {d.singleCount} egyedülálló
+                        </span>
+                      )}
                       {d.isaktiv
                         ? <Badge className="text-[10px] bg-emerald-100 text-emerald-700 border-0">Aktív</Badge>
                         : <Badge className="text-[10px] bg-slate-100 text-slate-500 border-0">Inaktív</Badge>}
@@ -150,6 +190,10 @@ export function DistrictsTab() {
                 <Button variant="ghost" size="sm" className="h-7 text-xs text-cyan-600 gap-1" onClick={() => openFamilies(d.id, d.nev)}>
                   <Users className="w-3 h-3" /> Családok
                 </Button>
+                {/* 2026-07-24 (PR-10): körzeti névsor nyomtatása statisztikákkal */}
+                <Button variant="ghost" size="sm" className="h-7 text-xs text-teal-600 gap-1" onClick={() => setPrintDistrict({ id: d.id, nev: d.nev })}>
+                  <Printer className="w-3 h-3" /> Nyomtatás
+                </Button>
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-400 hover:text-red-500" onClick={() => handleDelete(d.id, d.nev)}>
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
@@ -158,6 +202,22 @@ export function DistrictsTab() {
           ))}
         </div>
       )}
+
+      {/* Automatikus körzetesítés wizard */}
+      <AutoDistrictWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        input={autoInput}
+        onApplied={refreshDistricts}
+      />
+
+      {/* 2026-07-24 (PR-10): körzeti névsor nyomtatása */}
+      <DistrictPrintDialog
+        open={printDistrict != null}
+        onOpenChange={(open) => { if (!open) setPrintDistrict(null) }}
+        districtId={printDistrict?.id ?? null}
+        districtName={printDistrict?.nev ?? ''}
+      />
 
       {/* Körzet form */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>

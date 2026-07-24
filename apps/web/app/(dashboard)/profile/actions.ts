@@ -305,18 +305,25 @@ export async function saveProfileDetails(payload: z.infer<typeof profileSchema>)
   const data = parsed.data
   const cleanPhotoUrl = data.photoUrl || null
 
-  const { error: profileError } = await supabase
+  const { data: updatedProfile, error: profileError } = await supabase
     .from('profiles')
-    .upsert({
-      id: user.id,
-      email: user.email || null,
+    .update({
       full_name: data.fullName,
       phone: data.phone || null,
       birth_date: data.birthDate || null,
     })
+    .eq('id', user.id)
+    .select('id')
+    .maybeSingle()
 
   if (profileError) {
     return { error: `A profil mentése sikertelen: ${profileError.message}` }
+  }
+  if (!updatedProfile) {
+    return {
+      error:
+        'A profil nem található. A biztonságos profilfrissítés nem hoz létre új jogosultsági rekordot.',
+    }
   }
 
   const authData: Record<string, unknown> = {

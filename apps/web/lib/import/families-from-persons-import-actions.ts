@@ -97,6 +97,18 @@ export async function executeFamiliesFromExistingPersonsImport(
     return { error: `A "${sheet.name}" fül problémás: ${sheet.warning}` }
   }
 
+  // 2026-07-24 (PR-6 F7.3): a wizard KÉZI oszlop-párosítása — eddig sosem
+  // jutott el a szerverig, az import az auto-matchre esett vissza.
+  const columnMappingRaw = formData.get('columnMapping') as string | null
+  let columnMapping: Record<string, string | null> | undefined
+  if (columnMappingRaw) {
+    try {
+      columnMapping = JSON.parse(columnMappingRaw)
+    } catch {
+      columnMapping = undefined
+    }
+  }
+
   // Transzformálás
   const ctx: AutoColumnContext = {
     congregationId: targetCongregationId,
@@ -109,6 +121,7 @@ export async function executeFamiliesFromExistingPersonsImport(
     sheet.headers,
     PROFILE_FAMILIES_FROM_EXISTING_PERSONS,
     ctx,
+    columnMapping,
   )
 
   if (transformResult.errors.length > 0 && transformResult.records.length === 0) {
@@ -193,7 +206,60 @@ export async function executeFamiliesFromExistingPersonsImport(
     })),
   ]
 
+  // 2026-07-18 (PR-3 F6.1, P0): a legacy csalad-rekordokat átvezetjük az ÚJ
+  // haztartas-modellbe — a Családok fül CSAK abból olvas, enélkül az importált
+  // családok láthatatlanok. Hibája nem nyelődik el némán: warning kerül a listába.
+  if (insertedCsalad > 0 || insertedGyerek > 0) {
+    const { error: syncError } = await supabase.rpc('sync_households_from_csalad', {
+      p_congregation_id: targetCongregationId,
+    })
+    if (syncError) {
+      combinedErrors.push({
+        row: 0,
+        message: `A családok létrejöttek, de a háztartás-átvezetés nem futott le (${syncError.message}) — a Családok fülön még nem látszanak. Futtasd újra az importot, vagy jelezd a rendszergazdának (sync_households_from_csalad).`,
+        severity: 'warning' as RowIssueSeverity,
+      })
+    }
+  }
+
   revalidatePath('/tagnyilvantartas')
+
+  // Audit log (best-effort) — 2026-07-18 (PR-3): eddig CSAK a family-heads út
+  // naplózott; a "családokká szervezés" futásai utólag nem voltak rekonstruálhatók.
+  try {
+    const { logImportRun } = await import('./import-log')
+    await logImportRun({
+      supabase,
+      congregationId: targetCongregationId,
+      userId: access.user.id,
+      module: 'members',
+      fileName: file.name,
+      totalInserted: insertedCsalad + insertedGyerek,
+      totalSkipped: combinedErrors.length,
+      perSheetLog: [
+        {
+          sheet: sheet.name,
+          profile: 'families_from_existing_persons',
+          inserted: insertedCsalad + insertedGyerek,
+          skipped: combinedErrors.filter((e) => e.severity === 'error').length,
+        },
+      ],
+      lookupStats: {
+        personResolved: 0,
+        personUnresolved: notFound,
+        categoryResolved: 0,
+        categoryUnresolved: 0,
+        warnings: [],
+      },
+      errors: combinedErrors.map((e) => ({
+        sheet: sheet.name,
+        row: e.row,
+        message: `[${e.severity ?? 'error'}] ${e.message}${e.name ? ` (${e.name})` : ''}`,
+      })),
+    })
+  } catch (e) {
+    console.warn('[executeFamiliesFromExistingPersonsImport] audit log sikertelen:', e)
+  }
 
   return {
     success: true,

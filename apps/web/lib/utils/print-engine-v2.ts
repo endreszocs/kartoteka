@@ -21,51 +21,94 @@ async function createPrintIframe(htmlContent: string) {
   document.body.appendChild(iframe)
   iframe.srcdoc = htmlContent
 
-  // Biztonsági időkorlát, ha a load esemény valamiért nem érkezne meg.
-  await Promise.race([loaded, new Promise((r) => window.setTimeout(r, 1200))])
-  // Egy extra tick a layout/betűk stabilizálódásához.
-  await new Promise((resolve) => window.setTimeout(resolve, 120))
-
+  // 2026-07-24 (PR-14, „1 lapos PDF" gyökérok): a korábbi FIX 1200 ms-os
+  // versenyfutás lassabb gépen/nagy dokumentumnál FÉLBEHAGYOTT DOM-mal ment
+  // tovább — a PDF-be csak az addig beparsolt lapok kerültek. Mostantól a
+  // TÉNYLEGES készenlétet várjuk: load-esemény VAGY readyState==='complete',
+  // legfeljebb 15 mp-ig pollozva; utána betű-betöltés + dupla layout-tick.
+  const deadline = Date.now() + 15000
+  let ready = false
+  const markReady = () => { ready = true }
+  void loaded.then(markReady)
+  while (!ready && Date.now() < deadline) {
+    const doc = iframe.contentDocument
+    if (doc && doc.readyState === 'complete' && doc.body) ready = true
+    else await new Promise((r) => window.setTimeout(r, 100))
+  }
   const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document
-  if (!iframeDoc) {
+  if (!iframeDoc || !iframeDoc.body) {
     if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
     throw new Error('A nyomtatási előnézet nem hozható létre.')
   }
+  // Betűtípusok (ha a böngésző támogatja) + két képkocka a layout stabilizálódásához.
+  try {
+    const fonts = (iframeDoc as Document & { fonts?: { ready: Promise<unknown> } }).fonts
+    if (fonts?.ready) await Promise.race([fonts.ready, new Promise((r) => window.setTimeout(r, 2000))])
+  } catch { /* nem kritikus */ }
+  await new Promise((resolve) => window.setTimeout(resolve, 120))
 
   return { iframe, iframeDoc }
 }
 
-export async function printToPdf(
-  htmlContent: string,
+/**
+ * 2026-07-24 (PR-13, „üres PDF" gyökérok): laponkénti PDF-render.
+ *
+ * A html2pdf a TELJES dokumentumot EGYETLEN canvasra rasterizálja — egy
+ * 10+ lapos névjegyzéknél ez ~30 000 px magas canvas, ami sok gépen túllépi
+ * a GPU textúra-plafonját (~16 384 px) → a canvas némán ÜRES lesz, a mentett
+ * PDF pedig fehér lapokból áll. A lapozott (.sheet) dokumentumainknál ehelyett
+ * MINDEN lapot KÜLÖN (~3 000 px-es) canvasra renderelünk és külön PDF-oldalként
+ * adunk hozzá — nincs canvas-plafon, és a lap-tördelés pixelpontos.
+ *
+ * A html2canvas + jspdf a html2pdf.js tranzitív függőségei (a lockfile rögzíti
+ * őket) — közvetlenül importáljuk, új függőség nélkül.
+ */
+async function renderSheetsToPdf(
+  sheets: HTMLElement[],
   filename: string,
-  options?: {
-    orientation?: 'portrait' | 'landscape'
-    margin?: number[]
-    format?: string
-  },
-) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const html2pdf = (await import('html2pdf.js' as any)).default
-  const { iframe, iframeDoc } = await createPrintIframe(htmlContent)
+): Promise<void> {
+  const html2canvas = (await import('html2canvas')).default
+  const { jsPDF } = await import('jspdf')
 
-  // 2026-07-17 (F3 P1 gyökérok): a html2pdf 0.14 a `.from(iframeDoc.body)` hívásnál
-  // CSAK a body-részfát klónozza — az iframe <head>-jében ülő <style> (a wrap()
-  // teljes stíluslapja) KIMARADT, így minden PDF stílus nélkül raszterizálódott
-  // (nincs táblázat-keret, rossz betű, elveszett oldaltörés). A stíluslapokat a
-  // body ELEJÉRE másoljuk (sorrendtartóan, fragmenttel), hogy a klónnal együtt
-  // utazzanak — és a .page:last-child/.sheet:last-child szelektorok is épek
-  // maradjanak (a lapok maradnak az utolsó elem-gyerekek).
+  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true })
+  for (let i = 0; i < sheets.length; i++) {
+    // Mért kompromisszum (2026-07-24, 292 soros teszt): scale 2.5 + JPEG 0.85
+    // → 3 mp / 4,8 MB / ~240 DPI; a scale 3 + PNG 29 mp-et és 5,4 MB-ot adott.
+    const canvas = await html2canvas(sheets[i], {
+      scale: 2.5,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      logging: false,
+    })
+    const img = canvas.toDataURL('image/jpeg', 0.85)
+    if (i > 0) pdf.addPage('a4', 'portrait')
+    pdf.addImage(img, 'JPEG', 0, 0, 210, 297)
+  }
+  // Védőháló: a PDF-oldalszámnak BETŰRE egyeznie kell a lapszámmal — különben
+  // inkább hiba, mint csonka hivatalos dokumentum.
+  const pageCount = (pdf as unknown as { getNumberOfPages(): number }).getNumberOfPages()
+  if (pageCount !== sheets.length) {
+    throw new Error(`PDF-oldalszám-eltérés (${pageCount}/${sheets.length}).`)
+  }
+  pdf.save(filename)
+}
+
+// 2026-07-17 (F3 P1 gyökérok): a html2pdf 0.14 a `.from(iframeDoc.body)` hívásnál
+// CSAK a body-részfát klónozza — az iframe <head>-jében ülő <style> (a wrap()
+// teljes stíluslapja) KIMARADT, így minden PDF stílus nélkül raszterizálódott
+// (nincs táblázat-keret, rossz betű, elveszett oldaltörés). A stíluslapokat a
+// body ELEJÉRE másoljuk (sorrendtartóan, fragmenttel), hogy a klónnal együtt
+// utazzanak — és a .page:last-child/.sheet:last-child szelektorok is épek
+// maradjanak (a lapok maradnak az utolsó elem-gyerekek).
+// A html2canvas a KÉPERNYŐS médiát rendereli — a @media print szabályok maguktól
+// nem élnek. Valódi print-emuláció: a dokumentum SAJÁT @media print szabályait
+// emeljük be feltétel nélküli szabályként (a fragment végén → felülírják a
+// képernyős értékeket).
+function applyPrintStyles(iframeDoc: Document) {
   const styleFrag = iframeDoc.createDocumentFragment()
   iframeDoc.querySelectorAll('head style').forEach((el) => {
     styleFrag.appendChild(el.cloneNode(true))
   })
-  // A html2canvas a KÉPERNYŐS médiát rendereli — a @media print szabályok maguktól
-  // nem élnek. Valódi print-emuláció: a dokumentum SAJÁT @media print szabályait
-  // emeljük be feltétel nélküli szabályként (a fragment végén → felülírják a
-  // képernyős értékeket). Így minden dokumentum a saját nyomtatási értékeit kapja
-  // (pl. .page min-height 208/295mm — a képernyős 297mm túllógna a html2pdf
-  // lap-rácsán és üres közlapokat szúrna be), a body-paddinggel margózó
-  // dokumentumok (pl. iratcsomó-leltár) pedig érintetlenek maradnak.
   let printCss = ''
   for (const sheet of Array.from(iframeDoc.styleSheets)) {
     try {
@@ -85,6 +128,72 @@ export async function printToPdf(
     styleFrag.appendChild(printEmu)
   }
   iframeDoc.body.insertBefore(styleFrag, iframeDoc.body.firstChild)
+}
+
+export async function printToPdf(
+  htmlContent: string,
+  filename: string,
+  options?: {
+    orientation?: 'portrait' | 'landscape'
+    margin?: number[]
+    format?: string
+  },
+) {
+  // 2026-07-24 (PR-13): lapozott (.sheet) A4-dokumentumnál laponkénti render —
+  // csak akkor, ha MINDEN lap ténylegesen lap-méretű (a túlnövő lapokat — pl.
+  // egy-lapos „vizuális" nézetek — a bevált teljes-dokumentum útvonal viszi).
+  if ((options?.orientation ?? 'portrait') === 'portrait') {
+    const { iframe, iframeDoc } = await createPrintIframe(htmlContent)
+    try {
+      applyPrintStyles(iframeDoc)
+      const sheetEls = Array.from(iframeDoc.querySelectorAll<HTMLElement>('body .sheet'))
+      // 2026-07-24 (PR-14): a dokumentum a body-n hordozza a VÁRT lapszámot —
+      // ha a DOM-ban kevesebb lap van (félbeszakadt betöltés), SOSEM mentünk
+      // csonka hivatalos dokumentumot: hangos hibát adunk újrapróbálkozáshoz.
+      const expected = Number(iframeDoc.body.dataset.sheetCount || '0')
+      if (expected > 0 && sheetEls.length !== expected) {
+        throw new Error(
+          `A nyomtatvány nem töltött be hiánytalanul (${sheetEls.length}/${expected} lap) — kérlek, próbáld újra.`,
+        )
+      }
+      if (sheetEls.length > 0) {
+        const pageHeightPx = sheetEls[0].offsetWidth * (297 / 210)
+        const allPageSized = sheetEls.every((s) => s.offsetHeight <= pageHeightPx * 1.02)
+        if (allPageSized) {
+          await renderSheetsToPdf(sheetEls, filename)
+          return
+        }
+      }
+    } catch (e) {
+      // Ismert lapszámú (data-sheet-count) dokumentumnál NINCS néma fallback —
+      // a teljes-dokumentum útvonal GPU-plafonos gépen üres PDF-et adna. A hibát
+      // a hívó felszínre viszi (toast), a felhasználó újrapróbálhatja.
+      if (iframeDoc.body?.dataset.sheetCount) {
+        if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
+        throw e
+      }
+      // Lapszám-jelzés nélküli (régi) dokumentumok: visszaesés a bevált útra.
+      console.warn('[printToPdf] laponkénti render sikertelen, fallback html2pdf-re:', e instanceof Error ? e.message : e)
+    } finally {
+      if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
+    }
+  }
+  return printToPdfLegacy(htmlContent, filename, options)
+}
+
+async function printToPdfLegacy(
+  htmlContent: string,
+  filename: string,
+  options?: {
+    orientation?: 'portrait' | 'landscape'
+    margin?: number[]
+    format?: string
+  },
+) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const html2pdf = (await import('html2pdf.js' as any)).default
+  const { iframe, iframeDoc } = await createPrintIframe(htmlContent)
+  applyPrintStyles(iframeDoc)
 
   // A html2pdf a klónt a FŐDOKUMENTUMBA fűzi a raszterizálás idejére (láthatatlan
   // overlay-ben) — a klónnal utazó <style>-ok viszont globálisak, és másodpercekre
@@ -94,6 +203,14 @@ export async function printToPdf(
     'body > *:not(.html2pdf__overlay){visibility:hidden!important}body{background:#fff!important}'
   document.head.appendChild(veil)
 
+  // 2026-07-17 (PR-2 F2.2, canvas-limit őr): a html2canvas EGY canvasra rendereli
+  // a teljes dokumentumot; a Chromium canvas-dimenzió plafonja ~32 767px. Hosszú
+  // (10+ oldalas) nyomtatványnál a fix scale:3 ezt túllépné → csonka/üres PDF.
+  // A skálát a mért tartalom-magassághoz igazítjuk (rövid dokumentumnál marad 3).
+  const MAX_CANVAS_PX = 30000
+  const contentHeight = Math.max(iframeDoc.body.scrollHeight, 1)
+  const safeScale = Math.max(1.25, Math.min(3, MAX_CANVAS_PX / contentHeight))
+
   const opt = {
     margin: options?.margin || [0, 0],
     filename,
@@ -101,7 +218,7 @@ export async function printToPdf(
     // (A korábbi JPEG/scale:2 adott „fapados", elmosódott eredményt.)
     image: { type: 'png' },
     html2canvas: {
-      scale: 3,
+      scale: safeScale,
       useCORS: true,
       letterRendering: true,
       backgroundColor: '#ffffff',

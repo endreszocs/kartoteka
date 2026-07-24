@@ -23,11 +23,12 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+
 ## [2026-07-17] — Induló (nyitó) egyenlegek: megadhatók a kezdő évre — kassza és bankszámlák, a felületről elérhetően
 <!-- key: 2026-07-17-penzugy-f4-nyito-egyenlegek -->
 <!-- category: feature -->
 <!-- targets: lelkesz, gondnok, konyvelo -->
-<!-- version: web v0.9.90 -->
+<!-- version: web v0.9.104 -->
 
 ### ✨ Pénzügy — Induló egyenlegek (a rendszer egy meglévő könyvelésbe illeszkedik)
 
@@ -55,6 +56,748 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   (migration-docs/sql/2026-07-17-f4-nyito-egyenleg-admin-rls.sql), hogy az
   admin és az egyházkerületi admin is javíthassa a nyitókat — eddig csak
   láthatta őket.
+
+---
+
+## [2026-07-24] — Névjegyzék-nyomtatvány 2. kör: tényleg tele lapok, hiánytalan PDF, cella-középre igazítás, román név
+<!-- key: 2026-07-24-tagnyilv-pr14-nevjegyzek-pdf -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.103 -->
+
+### 🐛 Az 1 lapos / hiányos PDF gyökere megszüntetve
+
+- **A PDF-mentés eddig egy fix 1,2 másodperces időkorlát után indult** — ha a
+  nyomtatvány (a 9× beágyazott címer-kép miatt megnőtt dokumentum) lassabban
+  töltött be, a mentés a FÉLIG betöltött anyagból készült: ezért lett 1 oldalas
+  a PDF. Mostantól a motor a **tényleges betöltöttséget várja meg** (legfeljebb
+  15 mp), és **a lapszámot egyezteti a dokumentumban rögzített várt lapszámmal**
+  — ha nem egyezik, hangos hibát ad és újrapróbálható, de **csonka hivatalos
+  dokumentum soha többé nem mentődhet némán.**
+- A címer adat-képe mostantól **egyszer** szerepel a dokumentumban (nem
+  laponként) — a nyomtatvány kilencedére fogyott, villámgyorsan betölt.
+
+### 🐛 A cellák szövege a helyére került
+
+- A PDF-ben a szövegek eddig a cellák aljára csúsztak és a sorok szétnyúltak —
+  a renderelő nem tudja kezelni a CSS-szövegvágást (ismert html2canvas-korlát).
+  **Javítás: a hosszú szövegek már a nyomtatvány összeállításakor rövidülnek**
+  (… jellel), a cellák fix magasságúak, a szöveg **függőlegesen középre** kerül
+  — a képernyőn, a nyomtatásban és a PDF-ben azonosan.
+
+### 🎨 Tényleg tele A4-oldalak + román név
+
+- **46 sor / oldal** (mérve: 94%-os lap-kihasználtság, a táblázat a lábléc
+  fölött 1 cm-rel végződik) — 301 fő = 7 tele lap.
+- **A fejlécben a gyülekezet román hivatalos neve is megjelenik** (pl.
+  „Parohia Reformată Brateș") a magyar név alatt — a Beállításokban rögzített
+  román névből (`nev_ro`); ha ott nincs kitöltve, a sor kimarad.
+
+---
+
+## [2026-07-24] — Választói névjegyzék nyomtatvány: tele A4-oldalak, logós fejléc minden lapon, javított PDF-mentés
+<!-- key: 2026-07-24-tagnyilv-pr13-nevjegyzek-nyomtatvany -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.102 -->
+
+### 🐛 Az „üres PDF" hiba gyökere megszüntetve
+
+- **A PDF-mentés mostantól laponként készül** — korábban a teljes (akár 10+
+  oldalas) dokumentum EGYETLEN óriási képre renderelődött, ami sok
+  számítógép grafikus korlátját túllépte, és **némán üres PDF-et adott.**
+  A laponkénti renderelésnél ez fizikailag nem fordulhat elő; ráadásul a
+  mentés sokkal gyorsabb (mérve: 292 fős névsor, 9 lap — 3 másodperc), és a
+  lap-tördelés pixelpontos. (A javítás minden lapozott A4-nyomtatványra
+  érvényes, pl. a körzeti névsorokra is.)
+
+### 🎨 A nyomtatvány megújult
+
+- **A teljes A4-oldal ki van használva:** oldalanként 36 sor (a korábbi
+  fél-oldalas 22/30 helyett) — a hosszú címek pontokkal (…) rövidülnek,
+  így egyetlen sor sem törik és semmi nem csúszik át a következő lapra.
+- **Minden oldal tetején teljes fejléc:** az egyházközség **címere**,
+  neve, címe és telefonszáma — a „folytatás" felirat megszűnt.
+- **Oldalszám „1/9" formátumban** minden lap alján — látszik, hány oldalas
+  a dokumentum.
+- A címert a Beállításokban feltöltött logóból veszi (ha nincs, a fejléc
+  logó nélkül, hiánytalanul jelenik meg).
+- A desktop Választók-oldala ugyanezt az új sablont nyomtatja.
+
+---
+
+## [2026-07-24] — Asztali alkalmazás: teljes szinkron-megbízhatóság, működő kereső, Választók-oldal
+<!-- key: 2026-07-24-tagnyilv-pr8-desktop-paritas -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: desktop v0.9.5 (web: belső átrendezés, viselkedés-változás nélkül) -->
+
+### 🐛 Szinkronizáció — nagy adatállományok is hiánytalanul
+
+- **A letöltő szinkron mostantól lapozva tölti le az adatokat** — korábban
+  minden tábla némán az első 1000 sorra csonkolódott (ez a település-
+  katalógust MÁR MOST érintette, és nagy gyülekezetnél a tagokat,
+  anyakönyvet, sírhelyeket is érintette volna). A kurzor-kezelés is
+  megerősödött: az azonos időbélyegű, határra eső sorok nem veszhetnek el.
+
+### 🐛 Kereső — a „Zoltán"-hiba javítva
+
+- **A tag-kereső (a család-ablakok személy-választóiban is) mostantól a
+  TELJES helyi állományban keres** — korábban csak a lista első
+  10–20 sorában, így pl. egy keresztnévre gyakran 0 találat jött.
+
+### 🐛 Cím-lánc — nincs több kamu-utca
+
+- **Az asztali család-/taglétrehozás nem ír többé „-1" kamu-utcát** az éles
+  adatbázisba (ez a webes felületen üres címként jelent meg).
+
+### ✨ Választói felülbírálás — a kézi döntés megmarad
+
+- **A tag-szerkesztőben a „Választó" kapcsolót felülbírálás-választó
+  váltja:** Automatikus / Kézi: választó / Kézi: nem választó. A kézi
+  döntést a webes „Jogosultság frissítése" is megőrzi — korábban a
+  desktopon átállított jelölést a web visszaírta.
+
+### ✨ Új: Választók-oldal az asztali alkalmazásban
+
+- **Tag-lista → „Választók" gomb:** a névjegyzéki választók listája a
+  helyi (offline is elérhető) adatból, keresővel és számlálókkal, és a
+  **hivatalos „Választók névjegyzéke" A4-nyomtatvány** ugyanazzal a
+  lapozott sablonnal nyomtatható, mint a weben.
+
+### 🔧 Teendő (rendszergazdai — a 0.9.5 kiadás ELŐTT!)
+
+- **KÖTELEZŐ SQL:** `migration-docs/sql/2026-07-24-pr8-c-utcaid-null-migracio.sql`
+  — az utca-hivatkozás oszlopok nullolhatóvá tétele + a régi „-1" kamu-sorok
+  kitakarítása. E nélkül az utca nélküli offline-mentések elakadnának.
+- **Ajánlott SQL:** `migration-docs/sql/2026-07-24-pr8-csalad-gyerek-rpc-gte.sql`
+  — a család-/gyerek-szinkron kurzor-határ javítása (időbélyeg-határra eső
+  sorok nem maradhatnak ki).
+- Az új funkciókhoz **új asztali kiadás (0.9.5) telepítése** szükséges;
+  a helyi adatbázis-bővítés első indításkor automatikusan lefut.
+
+---
+
+## [2026-07-24] — Választói nyomtatási központ: hivatalos (kanonikus) alapmód + egyértelmű többlapos előnézet
+<!-- key: 2026-07-24-tagnyilv-pr12-nyomtatasi-kozpont -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.101 -->
+
+### 🎨 Nyomtatási központ — nem tűnik többé csonkának
+
+- **Az előnézet fölött mostantól látszik a terjedelem** („292 fő · 11 oldal")
+  és egy jelzés, hogy **az előnézet görgethető — minden oldal ott van.**
+  (A teljes névsor eddig is benne volt a nyomtatványban — az 1. lap 22 sora
+  után lapozódik tovább —, de ezt semmi nem jelezte, így csonkának tűnt.
+  Ellenőriztük: a 292 fős névsor 11 lapos PDF-be hibátlanul kikerül.)
+- Az összegzésben is megjelenik a **„Terjedelem: N A4-oldal"** sor.
+
+### ✨ Hivatalos (kanonikus) alapmód
+
+- **Új, alapból bekapcsolt „Hivatalos névjegyzék" mód:** a nyomtatvány
+  pontosan a Választók fül **„Névjegyzéki választó"** számával egyező kört
+  tartalmazza — jogosult ÉS (járulékot fizetett VAGY felmentett), a
+  **részlegesen fizetőkkel együtt.** Ez a szám kerül beküldésre az
+  egyházmegyének is, így a nyomtatott és a beküldött létszám mindig egyezik.
+  (Korábban az alapszűrő csak a teljesen fizetőket vette be — ezért tért el
+  a nyomtatvány létszáma a fülön látott összes választótól.)
+- A részletes finomszűrők (teljes/részleges, évenként) a hivatalos mód
+  kikapcsolásával továbbra is elérhetők.
+
+### 🎨 Pontosított számláló-feliratok
+
+- A Választók fül 4. kártyája **„Jogosult (fizetés nélkül is)"** feliratot
+  kapott — ez a 18+, aktív (jogosult) tagok teljes köre, ami természetesen
+  több lehet, mint a névjegyzék; az 1. kártya pedig **„Névjegyzéki
+  választó"** lett. (A korábbi feliratokkal a két szám egymásnak
+  ellentmondani látszott.)
+
+---
+
+## [2026-07-24] — Karton-egységesítés: személyi + családi karton egymás mellett, közös arculattal
+<!-- key: 2026-07-24-tagnyilv-pr11-karton-egyseg -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.100 -->
+
+### 🎨 Egységes kartonok — közös vizuális nyelv
+
+- **A személyi karton a családi karton arculatát kapta:** azonos fejléc
+  (színes felső sáv, borostyán-árnyalatú háttér) és azonos fül-stílus —
+  a két karton mostantól összetartozónak látszik.
+- **Mindkét karton oldalról úszik be:** a családi karton is a képernyő
+  jobb széléről csúszik be (a korábbi középre ugró ablak helyett).
+
+### ✨ Egymás melletti kettős nézet
+
+- **Átkattintásnál mindkét karton látszik:** ha a személyi kartonról a
+  családi kartont nyitod (vagy fordítva: a családi kartonon egy tagra
+  kattintasz), a két karton **egymás mellett** jelenik meg — a személyi
+  karton mindig **balra**, a családi mindig **jobbra**, akármelyik nyílt
+  előbb. Nincs többé bezár–újranyit „pattogás".
+- **Telefonon** (ahol két oszlopnak nincs hely) felül váltógombokkal
+  ugorhatsz a két karton között.
+
+### ✨ Családi befizetések — látszik, KI fizetett
+
+- **Új „Befizető" oszlop** a családi karton Befizetések fülén: minden
+  tételnél megjelenik, melyik családtag fizette be (a család-szintű
+  tételeknél „családi" jelölés).
+
+### ✨ Anyakönyv a személyi kartonon — táblázatban, szerkeszthetően
+
+- **A személyi karton Anyakönyv füle táblázatos lett** (a családi karton
+  mintájára): esemény, dátum, helyszín, lelkész, megjegyzés egy sorban.
+- **Soronkénti szerkesztés:** a ceruza-ikonnal a dátum, a helyszín
+  (település), a lelkész neve, temetésnél a halál oka és a megjegyzés is
+  módosítható — **a mentés az anyakönyvi nyilvántartásba ír, így a
+  módosítás az Anyakönyv oldalon is azonnal megjelenik.**
+
+---
+
+## [2026-07-24] — Körzetesítés a TELJES gyülekezetre: egyedülállók hozzárendelése + körzetenkénti nyomtatható névsor
+<!-- key: 2026-07-24-tagnyilv-pr10-korzet-teljes -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, presbiter -->
+<!-- version: web v0.9.99 -->
+
+### ✨ Körzetesítés — mostantól senki sem marad ki
+
+- **A család nélküli tagok (egyedülállók, özvegyek, elváltak) is körzetbe
+  kerülnek:** az automatikus körzetesítő varázsló mostantól a **teljes
+  gyülekezetet** osztja el — a családokat családként, a család nélkülieket
+  személyként (utcájuk vagy korosztályuk szerint), és a végösszesítő is
+  külön mutatja: „X család + Y egyedülálló hozzárendelve".
+  (Rendszergazdai SQL futtatása szükséges — lásd lent.)
+- **A körzet-kártyákon** a családszám mellett megjelenik az **egyedülállók
+  száma** is.
+- **A Választók fül körzet-oszlopa** a család nélküli tagoknál is mutatja
+  a saját körzet-hozzárendelést.
+
+### ✨ Körzetenkénti nyomtatható névsor
+
+- **Minden körzet-kártyán új „Nyomtatás" gomb** — élő A4-előnézettel,
+  kétféle nézetben:
+  - **Családi (vizuális) nézet:** a családok kártyákon, a családtagok
+    együtt (nem, kor, özvegy/elvált jelöléssel), külön szekcióban az
+    egyedülállók;
+  - **Tömör névsor:** lapozott A4-táblázat oldalszámokkal („Oldal X / Y").
+- **Statisztika-fejléc a nyomtatványon:** családok, fő összesen,
+  egyedülállók (ebből özvegy / elvált) — így a presbiter azonnal látja,
+  kikből áll a körzete.
+- Direkt nyomtatás és PDF-mentés egyaránt elérhető.
+
+### 🔧 Rendszergazdai teendő
+
+- Futtatandó SQL: `migration-docs/sql/2026-07-24-pr10-szemely-korzet.sql`
+  (új `szemely.id_csoport` oszlop — e nélkül az egyedülállók hozzárendelése
+  hibát jelez, a többi funkció változatlanul működik).
+- A meglévő körzetek megmaradnak; az egyedülállók besorolásához **futtasd
+  újra az automatikus körzetesítő varázslót** a migráció után.
+
+---
+
+## [2026-07-24] — Tesztelési észrevételek 1. köre: konfirmáció-kapcsoló, teljes képernyős háló alapból, CNP-álhibák vége + kattintható születésnap-lista
+<!-- key: 2026-07-24-tagnyilv-pr9-eszrevetelek -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, rendszergazda -->
+<!-- version: web v0.9.98 -->
+
+### ✨ Választók — konfirmáció-kapcsoló
+
+- **A konfirmáció-feltétel mostantól kikapcsolható** a Választók fülön
+  („Konfirmáció megkövetelése" jelölő): ha a konfirmálási anyakönyv még nincs
+  bevezetve a rendszerbe, kikapcsolva **aki fizet (vagy felmentett) és aktív
+  18+ tag, az választójogosultnak számít**. Átkapcsoláskor a rendszer azonnal
+  újraszámolja a jelöléseket. (Rendszergazdai SQL futtatása szükséges — lásd lent.)
+
+### ✨ Családi háló
+
+- **A Családi háló fül mostantól alapból teljes képernyős:** a fejléc és a
+  fülsor nem látszik, nincs görgetés, és **a sidebar automatikusan
+  ikonsávvá csukódik** — kilépéskor visszanyílik. (A „Kilépés" gombbal vagy
+  Esc-kel a hagyományos beágyazott nézet is elérhető.)
+
+### 🐛 Hibák fül — CNP-álhibák vége
+
+- **Rendszerszinten rögzítve: a CNP mező a Kartotékában egyházi belső
+  azonosító** (az `EC-2026-…` formátum teljesen érvényes), nem az állami
+  személyi szám — a „13 számjegy" formátum-ellenőrzés ezért teljesen kikerült.
+  A képen látott hibák egy régi (június 2-i) futásból ragadtak bent: a
+  **„Hibák újraellenőrzése" gomb megnyomásával az elavult hibák automatikusan
+  lezáródnak** (az újraellenőrzés a nem újratalálható hibákat rendezettnek
+  jelöli).
+
+### ✨ Áttekintés + súgó
+
+- **Az „E havi születésnaposok" doboz kattintható lett** — ugyanazt a
+  szűrhető, nyomtatható születésnap-listát nyitja (időszak, kor, nem,
+  lakcím), mint az irányítópult.
+- **A tagnyilvántartás súgója frissült:** automatikus körzetesítés, az új
+  választói szabály és konfirmáció-kapcsoló, a CNP-tudnivaló és a hibák
+  újraellenőrzése is le van írva.
+
+### 🔧 Rendszergazdáknak (futtatandó SQL)
+
+- `migration-docs/sql/2026-07-24-pr9-valaszto-konfirmacio-kapcsolo.sql` —
+  az új beállítás-oszlop + a jogosultság-számító függvény frissítése
+  (a végén próbafuttatással).
+
+---
+
+## [2026-07-24] — Körzetek: automatikus körzetesítés varázslóval — utcánként vagy korosztály szerint, kiegyensúlyozott elosztással
+<!-- key: 2026-07-24-tagnyilv-pr7-korzetesites -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.97 -->
+
+### ✨ Automatikus körzetesítés (új funkció)
+
+- **Új „Automatikus körzetesítés" gomb** a Körzetek fülön: egy 3 lépéses
+  varázsló **utcánként vagy korosztály szerint** osztja el a családokat a
+  kívánt számú körzetbe — a javasolt körzetszám a presbiterek száma.
+- **Kiegyensúlyozott elosztás lélekszám szerint** (vagy családszám szerint) —
+  és **a családok sosem szakadnak szét**: a hozzárendelés mindig egész
+  családokra történik.
+- **A hosszú utcák / népes korosztályok automatikusan részekre bomlanak**
+  („Fő utca (1. rész)", „(2. rész)"), hogy egyetlen nagy utca ne torzítsa el
+  a kiosztást — ahogy kérted.
+- **Előnézet írás előtt:** a javasolt kiosztás kártyákon jelenik meg — a
+  körzetek **nevei átírhatók**, körzetenként **több presbiter is kiosztható**,
+  és amíg nem kattintasz az „Alkalmazás"-ra, semmi nem íródik az adatbázisba.
+- **Minden család elosztásra kerül** — ami automatikusan nem osztható (nincs
+  utca rögzítve, vagy nincs születési dátum), az okkal listázva jelenik meg,
+  és kézzel rendelhető hozzá.
+- **„X család még nincs körzethez rendelve" jelzés** a Körzetek fül tetején —
+  egy kattintással indítható róla az elosztás. (Régóta hiányolt jelzés.)
+- Több faluból álló (szórvány) gyülekezetnél a különböző falvak azonos nevű
+  utcái külön csoportnak számítanak.
+
+---
+
+## [2026-07-24] — Importáló: időtálló motorok — ékezet-tűrő felismerés, a kézi párosítás tényleg érvényesül + biztonsági frissítés
+<!-- key: 2026-07-24-tagnyilv-pr6-import-motor -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, rendszergazda -->
+<!-- version: web v0.9.96 -->
+
+### ✨ Importáló — nem törik el idővel
+
+- **A kézi oszlop-párosítás mostantól tényleg érvényesül:** ha az importálónál
+  kézzel párosítasz egy oszlopot, eddig a beállítás elveszett a mentés
+  pillanatában, és a rendszer a saját (auto) felismerésére esett vissza —
+  amit az előnézet mutatott, nem az importálódott. Mostantól **amit látsz,
+  az kerül be.**
+- **Ékezet-tűrő oszlop-felismerés:** a régi adatkezelő ékezet nélküli
+  exportjai („Csaladnev", „Szuletesi datum", „Kereszteles" fülnév) mostantól
+  maguktól felismerődnek — nem kell kézzel párosítani, és az új évi sablonok
+  sem törnek el emiatt.
+- **A fel nem ismert oszlopok többé nem vesznek el némán:** az import
+  eredményében figyelmeztetés sorolja fel, mely oszlopok maradtak ki — eddig
+  egy átnevezett oszlop csendes adathiányt okozott.
+- **Excel-motor biztonsági frissítés:** az Excel-olvasó könyvtár egy 2022-es,
+  két ismert sérülékenységű verzión ragadt (a régi csatornán soha nem
+  frissülhetett) — most a hivatalos új kiadásra (0.20.3) állt át.
+- **Regressziós teszt-háló:** 39 ellenőrzés fedi az import-motort
+  (oszlop-felismerés, dátum-határesetek, Excel-beolvasás) — a mostani
+  frissítés előtt ÉS után is mind zöld, és minden jövőbeli motorváltozásnál
+  lefuttatható (`scripts/test-import-engine.ts`).
+
+---
+
+## [2026-07-24] — Családfa: dédszülőtől a szépszülőig, unokatestvérek és házassági rokonság — valódi rokonsági címkékkel
+<!-- key: 2026-07-24-tagnyilv-pr5b-csaladfa -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.95 -->
+
+### ✨ Családfa — kiterjesztett rokonság
+
+- **A családfa mostantól 5 generációt jár be felfelé** (szülő → nagyszülő →
+  dédszülő → ükszülő → szépszülő) **és 3-at lefelé** (gyermek → unoka →
+  dédunoka) — eddig 2-2 volt a határ.
+- **Az unokatestvérek végre megjelennek a fán** — egy bejárási hiba miatt
+  eddig szisztematikusan kimaradtak, pedig az adatból levezethetők voltak.
+- **A rokonsági címkék mostantól igazak:** a rendszer a tényleges rokonsági
+  utat számolja ki, így a nagybácsi többé nem „Apa", a vő nem „Fiú", a sógor
+  nem „Testvér". Ismert címkék: nagybácsi/nagynéni, unokatestvér,
+  unokaöcs/unokahúg, déd-nagybácsi, másod-unokatestvér…
+- **Házassági rokonság is** (kérésed szerint): após, anyós, meny, vő,
+  sógor/sógornő, mostohaszülő — mind a helyes címkével.
+- **A csak „nagyszülő-unoka"-ként rögzített kapcsolatok is felkerülnek a
+  fára** (ahol a köztes szülő nincs a nyilvántartásban) — eddig csak a
+  hálón látszottak, a fán nem.
+- **A házaspárok egymás mellé kerülnek** a fa minden sorában — a házaspár-vonal
+  eddig az egész soron átívelhetett, ami nagy fánál olvashatatlan volt.
+
+### 🐛 Megbízhatóság
+
+- **A családfa hibája többé nem néma:** eddig bármilyen adatbázis-hiba üres
+  fát adott „Nincs elegendő adat" felirattal — mostantól valódi hibaüzenet
+  jön, és újra lehet próbálni.
+- **A fa csak a saját gyülekezet adataiból épül** — esperesi/admin
+  szerepkörben eddig idegen gyülekezetek kapcsolatai is belekeveredhettek.
+- Nagy rokonsági hálónál megszűnt a rejtett levágás (lapozott lekérdezések),
+  és egy ésszerű plafon védi a megjelenítést a túl nagy fáktól.
+
+---
+
+## [2026-07-24] — Családi háló: teljes képernyős mód, Kartotéka-logós betöltő + gyorsabb és stabilabb működés
+<!-- key: 2026-07-24-tagnyilv-pr5-halo -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.94 -->
+
+### ✨ Családi háló
+
+- **Teljes képernyős mód:** a háló fejlécén új „Teljes képernyő" gomb — a
+  kapcsolati háló a sidebar melletti TELJES képernyőt kitölti (a fejléc és
+  minden más eltűnik alóla), a sidebar a könnyű navigációhoz látható marad.
+  Kilépés: „Kilépés" gomb vagy Esc.
+- **Kartotéka-logós betöltő képernyő:** a háló betöltése alatt a Kartotéka
+  emblémája lüktet fénykoszorúval és finom folyamatjelzővel a csillagos tér
+  fölött — a korábbi szürke pöttyök helyett.
+
+### 🐛 Stabilitás és sebesség
+
+- **Megszűnt egy memória-szivárgás:** minden csomópont-kijelölés grafikus
+  memóriát hagyott hátra — hosszas nézegetésnél (főleg telefonon) ez
+  akadozáshoz, végül a vászon elvesztéséhez vezethetett.
+- **A háló induláskor kétszer épült fel** — mostantól egyszer (gyorsabb megnyitás).
+- **Telefonon takarékosabb renderelés** (alacsonyabb felbontás-plafon, felesleges
+  számítások kikapcsolva) — kevesebb melegedés és akadozás.
+- **Ha a grafikus megjelenítés (WebGL) nem érhető el**, eddig néma fekete
+  doboz látszott — mostantól érthető üzenet jelenik meg, ami a Csomópontlista
+  gombhoz irányít (ott minden adat böngészhető).
+
+---
+
+## [2026-07-24] — Személyi karton: pontos hátralék, rendezett befizetés-lista, valódi családi címkék + hiányzó mezők pótlása
+<!-- key: 2026-07-24-tagnyilv-pr4-karton -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.93 -->
+
+### 🐛 Személyi karton — pénzügyek
+
+- **A Hátralék fül mostantól mindig megjelenik, ha tényleg van tartozás** —
+  eddig (1) a családi kartonról megnyitott személyi karton mindig „Rendezve"
+  státuszt mutatott, és (2) az idénre rendezett, de korábbi években tartozó
+  tag régi hátraléka láthatatlan volt a kartonon.
+- **A hátralék-számítás többé nem becsül túl:** eddig a sok közös (családi)
+  befizetéssel rendelkező családoknál a régebbi évek befizetései kimaradtak
+  a számításból egy rejtett levágás miatt.
+- **A befizetés-lista időrendben jelenik meg** (a személyi és családi tételek
+  eddig rendezetlenül keveredtek), a „Legutóbbi év" kártya a valóban legutóbbi
+  befizetést mutatja, és **a stornózott tételek áthúzva, STORNÓ jelöléssel**
+  látszanak — az összesítőbe nem számítanak bele.
+
+### 🐛 Személyi karton — család és adatok
+
+- **A családi háttér címkéi a valós szerepekből jönnek** („Családfő",
+  „Házastárs", „Szülő"), és egy gyermek kartonján a testvérei mostantól
+  **„Testvér"** címkét kapnak (eddig tévesen „Gyermek" látszott). A megjelenített
+  gyermekek kor szerint rendezettek.
+- **Duplikált anyakönyvi rekordnál** (pl. kétszer importált keresztelés) a
+  karton eddig némán „Nincs rögzítve"-t mutatott — mostantól a legutóbbi
+  bejegyzés jelenik meg.
+- **A megjegyzés és a hozzájárulások mentése után a lista is frissül** — eddig
+  a karton újranyitásakor a mentés előtti szöveg köszönt vissza.
+- **A családi karton nem ragad örök betöltésbe** hiba esetén — hibaüzenet +
+  „Újrapróbálom" gomb jelenik meg.
+
+### ✨ Tag-űrlap
+
+- **Új mezők:** Leánykori név + Tömbház / Lépcsőház / Emelet / Ajtó — a mentés
+  eddig is kezelte őket, de nem lehetett kitölteni (csak importtal kerülhettek be).
+- **A Fizetési státusz mostantól szerkesztésnél is működik:** „Felmentett"
+  választásnál felmentés-rekord jön létre, visszaállításnál lezárul — eddig a
+  mező szerkesztésnél semmit nem csinált. A funkciótlan „Nem fizet" opció kikerült.
+- **Az Esketés-blokk kikerült az űrlapról** — a kitöltött esküvői adatok eddig
+  NÉMÁN ELVESZTEK (a mentés sosem tárolta őket); az esketés rögzítése az
+  Anyakönyv → Esketés modulban történik, ahogy eddig is ott volt a helye.
+- A házastárs-keresőben megszűnt az a rés, hogy szerkesztéskor egy **másik
+  családban élő házas személy** is kiválasztható volt (dupla családtagság).
+- Az „aktív tag" besorolás mostantól az ékezet nélkül rögzített „Reformatus"
+  vallású tagoknál is egységes minden felületen.
+- Apróságok: sötét módban a mezők nem világítanak fehéren; a belépés-oka
+  képernyő gombjai nem érnek a képernyő széléig telefonon.
+
+---
+
+## [2026-07-18] — A családok importja megjavult: az importált családok mostantól tényleg megjelennek
+<!-- key: 2026-07-18-tagnyilv-pr3-csalad-import -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, rendszergazda -->
+<!-- version: web v0.9.92 -->
+
+### 🐛 Tagnyilvántartás — családok importja
+
+- **Az importált családok mostantól megjelennek a Családok fülön.** Eddig az
+  import sikert jelzett („N új család"), de a Családok fül üres maradt — az
+  import ugyanis a régi családtáblákba írt, a fül viszont már az új
+  háztartás-nyilvántartásból olvas. Mostantól minden import (családfős import,
+  „családokká szervezés", automatikus családszerkezet-összeállítás) végén a
+  rendszer automatikusan átvezeti a családokat az új nyilvántartásba — és ha
+  ez bármiért nem sikerül, figyelmeztetést kapsz, nem marad néma.
+- **A nagy fájlok importja többé nem szakad meg:** a család-importok eddig 8
+  másodperc után megszakadhattak (és ilyenkor MINDEN visszagörgetődött) —
+  mostantól 120 másodpercig futhatnak, mint a többi hosszú művelet.
+- **A családfők mostantól tényleg családfőként kerülnek be** — eddig egy
+  rejtett alapértelmezés miatt mindenki „nem családfő" jelöléssel jött létre,
+  ami rossz családkötésekhez vezethetett.
+- **Védelmek a félrekattintás ellen:** ha a fájl neve családokra utal, de az
+  „Új tagok importálása" mód van kiválasztva, a rendszer rákérdez (különben
+  minden családfő még egyszer létrejönne); a „Csak családokká szervezés"
+  módban a profilválasztó zárolt; és a „Családszerkezet összeállítása" gomb
+  ismételt importnál is elérhető.
+- A „családokká szervezés" futásai mostantól bekerülnek az import-naplóba.
+
+### 🔧 Rendszergazdáknak (futtatandó SQL)
+
+- `migration-docs/sql/2026-07-18-pr3-csalad-import-haztartas-sync.sql` — az új
+  átvezető függvény + a 120 másodperces időkorlát + **egyszeri pótlás**: a
+  korábban beimportált, eddig láthatatlan családok átvezetése (a fájl a
+  végén ellenőrző lekérdezésekkel).
+
+---
+
+## [2026-07-18] — Választhatóvá vált a filmszerű gyülekezeti honlap
+<!-- key: 2026-07-18-cinematic-public-site-theme -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gyulekezeti_munkatars, gyulekezeti_tag, latogato -->
+
+### ✨ Új, negyedik honlaparculat
+
+- **A „Filmszerű történet” most már a Weboldal-beállítások között is
+  kiválasztható:** nem külön fejlesztői látványterv többé, hanem ugyanolyan
+  menthető gyülekezeti sablon, mint az Élő kert, a Csendes parókia és a
+  Zsoltáros örökség.
+
+- **A látvány minden gyülekezet saját adataival működik:** a név, a mottó, a
+  következő alkalom, a cím, az elérhetőségek, a hírek, a magazin és a
+  közzétett statisztikák automatikusan a nyilvántartott adatokból kerülnek a
+  nagyképes, finoman animált oldalra. Hiányzó adat helyett nem jelenik meg
+  kitalált időpont vagy mintaelérhetőség.
+
+- **Telefonon is teljes marad a honlap:** a gyors információs kártyák rögtön a
+  nyitókép után következnek, a Hírek, Magazin, Rólunk és – bekapcsolás után –
+  a Tagi portál mobilról is elérhető. A mozgáscsökkentést kérő látogatóknál az
+  animációk kikapcsolnak.
+
+### 🔧 Bevezetési megjegyzés
+
+- A negyedik téma megjelenéséhez a
+  `migration-docs/sql/2026-07-17-public-site-v2-themes.sql` átdolgozott,
+  idempotens seedjét újra kell futtatni, majd a publikus olvasási biztonsági
+  ellenőrzést is le kell zárni. A seed már nem módosít RLS-policyt vagy
+  adatbázis-jogosultságot.
+
+---
+
+## [2026-07-18] — Élőbb gyülekezeti honlap, egyszerűbb tartalomkezelés
+<!-- key: 2026-07-18-public-site-visual-content -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gyulekezeti_munkatars, gyulekezeti_tag, latogato -->
+
+### 🎨 Látványosabb nyilvános gyülekezeti oldal
+
+- **A legfontosabb információk rögtön a nyitóképen láthatók:** a következő
+  alkalom, a közösségi meghívás és a találkozási hely három jól olvasható,
+  lebegő kártyán jelenik meg. A kártyák telefonon sem takarják a fő szöveget,
+  nagyobb képernyőn pedig hangsúlyosan a nyitókép elé kerülnek.
+
+- **Az „Élő kert” arculat több saját, egyedileg készített képet és finom
+  animációt kapott:** a nyitókép után a közösségi élet, a református örökség
+  és a személyes meghívás külön képi fejezetben jelenik meg. A mozgások a
+  látogató akadálymentességi beállítását tiszteletben tartják.
+
+- **Mindhárom választható arculat továbbra is használható:** a lelkipásztor a
+  számára megfelelő témát választja ki, a honlap pedig telefonon, tableten és
+  számítógépen is az adott képernyőhöz igazodik.
+
+### 🗓️ Egyszerűbb lelkészi szerkesztés
+
+- **A gyülekezeti alkalmak most már valóban szerkeszthetők:** megadható a nap,
+  az időpont, az alkalom neve, helyszíne és rövid megjegyzése; a sorrend is
+  átrendezhető. A nyilvános oldal kizárólag a mentett adatokat mutatja, ezért
+  más gyülekezethez tartozó vagy feltételezett időpont nem jelenhet meg.
+
+- **A gyülekezeti újság feltöltése közvetlenebb lett:** az új lapszám PDF-je
+  és borítóképe a kezelőfelületről tölthető fel, látható folyamat- és
+  hibaüzenetekkel. A kézzel megadott hivatkozás lehetősége is megmaradt. A
+  mentés és a bezárás megvárja a feltöltés végét; a „Mégse” gombbal elvetett
+  vagy törölt lapszámhoz tartozó fájlokat a rendszer is kitakarítja. Egy
+  törölt lapszám akkor sem marad látható, ha a háttértár átmenetileg nem
+  elérhető.
+
+- **A bemutatkozó szöveg eszköztára egyértelműbb:** csak olyan formázásokat
+  kínál, amelyeket a biztonságos megjelenítés valóban megőriz.
+
+### 🔒 Megbízhatóbb nyilvános működés
+
+- **A tagi belépést most két egymástól független biztonsági kapu védi:** a
+  lelkészi engedély mellett a rendszer külön kéri a teljes adatbázis- és
+  jogosultsági próba igazolását is. Egy régebbről bekapcsolva maradt Railway
+  kapcsoló önmagában többé nem tudja idő előtt megnyitni a tagi felületet.
+
+- **A keresőknek szánt oldaltérkép személyes adatok nélkül készül:** csak a
+  közzétett, keresőindexelésre engedélyezett gyülekezeti oldalak, hírek és
+  lapszámok kerülhetnek bele.
+
+- **A bevezetés visszafelé kompatibilis és biztonságosan kikapcsolható:** a
+  publikus oldal a szükséges adatbázis-frissítés alatt is elérhető marad. A
+  Tagi portál csak a teljes adatbázis- és jogosultsági ellenőrzés után
+  kapcsolható be; addig zárt állapotban marad.
+
+### 🔧 Rendszergazdáknak
+
+- A teljes alkalomszerkesztéshez és az új oldaltérképhez a
+  `migration-docs/sql/2026-07-18-public-site-content-and-sitemap.sql`
+  migrációt a hozzá tartozó rollout-dokumentum sorrendjében kell futtatni.
+
+---
+
+## [2026-07-17] — Megújult gyülekezeti weboldal és biztonságos tagi portál
+<!-- key: 2026-07-17-public-site-member-portal -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gyulekezeti_munkatars, gyulekezeti_tag -->
+
+### ✨ Nyilvános gyülekezeti oldal
+
+- **Három teljes arculat közül választhat a lelkipásztor:** az Élő kert friss és
+  közösségi, a Csendes parókia meleg és otthonos, a Zsoltáros örökség pedig
+  elegáns, hagyományőrző megjelenést ad. Mindháromhoz saját, egyedileg
+  készített háttérkép tartozik.
+
+- **A teljes oldal telefonról indul, de tableten és számítógépen is kényelmes:**
+  nagy érintési felületek, jól olvasható szövegek, akadálymentes navigáció,
+  megújult hírek, magazin, bemutatkozás, alkalmak és gyülekezeti statisztikák.
+
+- **Részletesebb lelkészi kezelőfelület készült:** az arculat, a színek, a
+  nyitókép, a hírek és a magazin egy egységes, mobilbarát felületről gondozható.
+
+### 👥 Tagi portál
+
+- **A gyülekezeti tag a saját gyülekezete oldalán regisztrálhat.** Az e-mailes
+  megerősítés után a kérelem a lelkipásztorhoz kerül, aki név, születési adat és
+  elérhetőség alapján a megfelelő nyilvántartott személyhez kapcsolhatja.
+
+- **Jóváhagyás után a tag kizárólag a saját adatait látja:** személyes adatlap,
+  jóváhagyott családi kapcsolatok és csak a saját nevéhez könyvelt befizetések.
+  Más családtag vagy gyülekezeti tag pénzügyi adata nem jelenhet meg.
+
+- **Az adatváltozás nem írja felül csendben a nyilvántartást.** A tag módosítási
+  kérelmet küld, a lelkipásztor pedig tételesen jóváhagyja vagy indoklással
+  elutasítja; csak a jóváhagyott változás kerül be a kartotékba.
+
+- **A lelkipásztor hírlevelet küldhet a regisztrált tagoknak.** Csak az kap
+  levelet, aki ezt saját maga engedélyezte; a rendszer külön kezeli a hirdetéseket
+  és az eseményeket, naplózza a kézbesítést, és sikertelen küldésnél biztonságosan
+  újrapróbálható.
+
+### 🔒 Adatvédelem és biztonságos bevezetés
+
+- **A lelkészi és a tagi fiók ugyanazt a megbízható beléptetést használja, de
+  az adataik és jogosultságaik teljesen elkülönülnek.** A tag nem kaphat lelkészi
+  hozzáférést, és minden személyes lekérés a saját fiókhoz és gyülekezethez
+  van kötve.
+
+- **A funkció fokozatosan, ellenőrzött bekapcsolással indul.** A nyilvános oldalak
+  a telepítés alatt is elérhetők maradnak, a Tagi portál menüpont pedig csak az
+  adatbázis-biztonsági ellenőrzések és a próbabejelentkezések sikeres lezárása után
+  jelenik meg.
+
+---
+
+## [2026-07-17] — Választók névjegyzéke: a jogosultság-számítás megjavult, a nyomtatvány A4-pontos lett oldalszámokkal
+<!-- key: 2026-07-17-tagnyilv-pr2-valasztoi -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.91 -->
+
+### 🐛 Választói névjegyzék — jogosultság
+
+- **A „Jogosultság frissítése" gomb mostantól tényleg működik** — eddig egy
+  rejtett adatbázis-hiba miatt minden futása elhalt, ezért a „Jogosult"
+  jelölés soha senkinél nem jelent meg. (Rendszergazdai SQL futtatása
+  szükséges — lásd lent.)
+- **Az elköltözés adminisztrálása megjavult:** eddig ugyanez a rejtett hiba
+  miatt az elköltözött tag státusza „aktív" maradt, és a névjegyzéken is
+  rajta maradt. Mostantól a státusz rendben átáll.
+- **A névjegyzék szabálya egységes lett** (a Kánon szerint): 18. évét
+  betöltött (születésnap-pontosan számolva), konfirmált, aktív tag, aki az
+  egyházfenntartói járulékot megfizette VAGY érvényes felmentése van —
+  **a felmentett fizetettnek számít**. A fül „Összes választó" számlálója,
+  a nyomtatvány és az egyházmegyének beküldött létszám mostantól ugyanezt
+  az egy szabályt követi.
+- **A családi (közös) befizetés is beszámít** mindkét házastársnak, és a
+  stornózott befizetés többé nem számít fizetettnek — pontosan úgy, ahogy
+  a Pénzügy Tartozások-listája számol.
+- **A beküldött létszám többé nem függ a képernyő-szűrőktől** — eddig ha a
+  keresőbe be volt írva egy név, akár 1-2 fős „névjegyzék-létszám" mehetett
+  be hivatalosan az egyházmegyének.
+- **A lelkészi jelentés I.11 pontja** (Választói névjegyzékben szereplők)
+  mostantól automatikusan kitöltődik (és továbbra is felülírható).
+
+### 🎨 Választói névjegyzék — nyomtatás
+
+- **A nyomtatvány valóban A4-re szabott lett:** megszűnt a dupla (24 mm-es)
+  margó, bal oldalon lefűzési margót kapott, és **minden lap alján ott az
+  oldalszám („Oldal X / Y")** — ez volt a bejelentett hiba.
+- **Minden oldalon megismétlődik a táblázat fejléce**, a sorok nem vágódnak
+  ketté a lapok határán — nyomtatásban és PDF-mentésben is.
+- **A hivatalos listára alapból csak a választói jogosultak kerülnek**
+  (kikapcsolható szűrő), és a felmentettek külön kapcsolóval szerepelnek.
+- **Hosszú (több tíz oldalas) névjegyzék PDF-mentése sem törik meg** — a
+  rendszer a felbontást a dokumentum hosszához igazítja.
+- **A keltezés helysége** a gyülekezet beállított városából jön (nem a
+  gyülekezetnév első szavából).
+- Ha az adott évre nincs éves járulék beállítva, a nyomtatási ablak
+  mostantól megmondja, miért üres a lista, és hová kattints a pótláshoz.
+
+### 🔧 Rendszergazdáknak (futtatandó SQL)
+
+- `migration-docs/sql/2026-07-17-pr2-valasztoi-rpc-fix.sql` — a
+  jogosultság-újraszámító függvény javítása (a nem létező oszlop helyett a
+  költözés-tábla alapján zár ki). A fájl végén próbafuttatás és ellenőrző
+  lekérdezések.
+
+---
+
+## [2026-07-17] — Tagnyilvántartás: a lakcímekben megjelenik a település, és a „Házhoz irányítás" újra működik
+<!-- key: 2026-07-17-tagnyilv-pr1-telepules -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, rendszergazda -->
+<!-- version: web v0.9.89 -->
+
+### 🐛 Tagnyilvántartás — lakcím / település
+
+- **A tagok lakcímében mostantól a település is megjelenik** — eddig sok
+  (importált) tagnál csak az utca és a házszám látszott. A hiba oka az volt,
+  hogy az importáló a magyar, ékezetes településneveket másképp írta át, mint
+  ahogy az adatbázis kereste őket, ezért a település-kapcsolat üresen maradt.
+  Ez javítva lett, és a rendszer mostantól akkor is kiírja a települést, ha egy
+  régebbi importból hiányzik: ilyenkor az utcából következteti ki.
+- **A személyi kartonon az „Útvonal" gomb újra jó helyre visz** — a
+  térkép-alkalmazás mostantól a teljes címet kapja meg (településsel és
+  ország-megjelöléssel), így nem a világ másik felén lévő azonos nevű utcába
+  irányít.
+- **Az importáló helység-egyeztetése mostantól a TELJES fájlt átnézi** — eddig
+  csak az első néhány sor településeit ajánlotta fel egyeztetésre, így a
+  később előforduló falvak kimaradtak.
+- **Excel-export, tagsági igazolás, születésnapi lista, választói névjegyzék:**
+  mindenhol a helyes, teljes lakcím jelenik meg.
+
+### 🔧 Rendszergazdáknak (futtatandó SQL-ek)
+
+- `migration-docs/sql/2026-07-17-pr1-import-helyseg-fallback.sql` — az
+  import-RPC védőhálója: ha a helység-egyeztetés bármiért kihagyna egy
+  települést, a rendszer az utcából pótolja.
+- `migration-docs/sql/2026-07-17-pr1-szemely-c-helysegid-backfill.sql` — a
+  KORÁBBAN importált tagok hiányzó településeinek egyszeri pótlása (előbb az
+  ellenőrző lekérdezést futtasd, aztán az UPDATE-et!).
 
 ---
 

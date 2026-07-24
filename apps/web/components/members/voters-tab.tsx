@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { getVoters, recomputeVoterEligibility, setVoterOverride, type VoterRow } from '@/app/(dashboard)/tagnyilvantartas/voter-actions'
+import { getVoters, recomputeVoterEligibility, setVoterOverride, getVoterConfirmationRequirement, setVoterConfirmationRequirement, type VoterRow } from '@/app/(dashboard)/tagnyilvantartas/voter-actions'
 import { Users, User, UserRound, CheckCircle, Printer, Send, Scale as ScaleIcon, RefreshCw, Lock, Unlock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { submitDocument } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
@@ -20,6 +20,9 @@ export function VotersTab() {
   const [eligFilter, setEligFilter] = useState('mind')
   const [printOpen, setPrintOpen] = useState(false)
   const [recomputing, setRecomputing] = useState(false)
+  // 2026-07-24 (PR-9, 1. észrevétel): konfirmáció-kritérium kapcsoló
+  const [confirmationRequired, setConfirmationRequired] = useState(true)
+  const [confirmationSaving, setConfirmationSaving] = useState(false)
   // 2026-06-30 (perf): csak az első `visibleCount` sort rendereljük; a fejléc-szám,
   // az egyházmegyének beküldött létszám és a nyomtatás TOVÁBBRA IS a teljes
   // halmazon dolgozik — csak a DOM-ba írt sorok száma korlátozott.
@@ -33,7 +36,26 @@ export function VotersTab() {
 
   useEffect(() => {
     reload()
+    void getVoterConfirmationRequirement().then(setConfirmationRequired)
   }, [])
+
+  async function handleConfirmationToggle(required: boolean) {
+    setConfirmationSaving(true)
+    setConfirmationRequired(required) // optimista — hibánál visszaáll
+    const res = await setVoterConfirmationRequirement(required)
+    setConfirmationSaving(false)
+    if (!res.ok) {
+      setConfirmationRequired(!required)
+      toast.error(res.error || 'A beállítás mentése nem sikerült.')
+      return
+    }
+    await reload()
+    toast.success(
+      required
+        ? `Konfirmáció megkövetelve — ${res.eligible ?? 0} jogosult a friss szabály szerint.`
+        : `Konfirmáció-feltétel kikapcsolva — aki fizet és aktív 18+ tag, az jogosult (${res.eligible ?? 0} fő).`,
+    )
+  }
 
   async function handleRecompute() {
     setRecomputing(true)
@@ -74,23 +96,28 @@ export function VotersTab() {
   // 2026-06-30 (perf): a 4 KPI-számláló egyetlen memoizált menetbe vonva — korábban
   // 4 teljes .filter() futott MINDEN renderkor (pl. minden gépelésnél a keresőben).
   // A teljes voters halmazon dolgozik (nem a szűrt listán), ezért [voters] a függőség.
-  const { fizetoCount, maleCount, femaleCount, eligibleCount } = useMemo(() => {
-    let fizeto = 0, male = 0, female = 0, eligible = 0
+  // 2026-07-17 (PR-2, D1): az „Összes választó" a KANONIKUS névjegyzék-tagság
+  // (jogosult ÉS fizetett-vagy-felmentett), nem a puszta járulékfizetés.
+  const { canonCount, maleCount, femaleCount, eligibleCount } = useMemo(() => {
+    let canon = 0, male = 0, female = 0, eligible = 0
     for (const v of voters) {
-      if (v.jarulekFizeto) { fizeto++; if (v.ferfi) male++; else female++ }
+      if (v.nevjegyzekTag) { canon++; if (v.ferfi) male++; else female++ }
       if (v.eligible) eligible++
     }
-    return { fizetoCount: fizeto, maleCount: male, femaleCount: female, eligibleCount: eligible }
+    return { canonCount: canon, maleCount: male, femaleCount: female, eligibleCount: eligible }
   }, [voters])
 
   return (
     <div className="space-y-4">
       {/* KPI kártyák */}
+      {/* 2026-07-24 (PR-12): a 4. kártya címkéje pontosítva — az a NYERS jogosultak
+          száma (18+, aktív; fizetés nélkül is), ami több lehet, mint a névjegyzék:
+          a régi „Jogosult (névjegyzék)" felirat mellett a 412 > 301 hibának tűnt. */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiCard icon={<Users className="w-5 h-5" />} gradient="from-blue-500 to-indigo-600" value={fizetoCount} label="Összes választó" />
+        <KpiCard icon={<Users className="w-5 h-5" />} gradient="from-blue-500 to-indigo-600" value={canonCount} label="Névjegyzéki választó" />
         <KpiCard icon={<User className="w-5 h-5" />} gradient="from-blue-400 to-blue-500" value={maleCount} label="Férfi" />
         <KpiCard icon={<UserRound className="w-5 h-5" />} gradient="from-pink-500 to-rose-500" value={femaleCount} label="Nő" />
-        <KpiCard icon={<ScaleIcon className="w-5 h-5" />} gradient="from-emerald-500 to-green-600" value={eligibleCount} label="Jogosult (névjegyzék)" />
+        <KpiCard icon={<ScaleIcon className="w-5 h-5" />} gradient="from-emerald-500 to-green-600" value={eligibleCount} label="Jogosult (fizetés nélkül is)" />
       </div>
 
       {/* Műveletek */}
@@ -101,11 +128,29 @@ export function VotersTab() {
           className="rounded-xl border-emerald-200 text-emerald-700 hover:bg-emerald-50"
           onClick={handleRecompute}
           disabled={recomputing || loading}
-          title="A választói névjegyzék frissítése a szabály alapján: 18+, konfirmált, élő aktív tag (a kézi felülbírálás megmarad)"
+          title={confirmationRequired
+            ? 'A választói névjegyzék frissítése a szabály alapján: 18+, konfirmált, élő aktív tag (a kézi felülbírálás megmarad)'
+            : 'A választói névjegyzék frissítése a szabály alapján: 18+, élő aktív tag — konfirmáció-feltétel KIKAPCSOLVA (a kézi felülbírálás megmarad)'}
         >
           <RefreshCw className={`mr-1 size-3.5 ${recomputing ? 'animate-spin' : ''}`} />
           {recomputing ? 'Frissítés…' : 'Jogosultság frissítése'}
         </Button>
+        {/* 2026-07-24 (PR-9, 1. észrevétel): a konfirmáció-kritérium kikapcsolható —
+            ha a konfirmálási anyakönyv még nincs bevezetve, aki fizet és aktív
+            18+ tag, az jogosultnak számít. */}
+        <label
+          className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 text-xs font-medium text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200"
+          title="Ha a konfirmálási anyakönyv még nincs bevezetve a rendszerbe, kapcsold ki — ilyenkor aki fizet (vagy felmentett) és aktív 18+ tag, az jogosultnak számít."
+        >
+          <input
+            type="checkbox"
+            checked={confirmationRequired}
+            disabled={confirmationSaving || loading}
+            onChange={e => void handleConfirmationToggle(e.target.checked)}
+            className="rounded"
+          />
+          Konfirmáció megkövetelése
+        </label>
         <Button
           size="sm"
           variant="outline"
@@ -121,12 +166,15 @@ export function VotersTab() {
           variant="outline"
           className="rounded-xl border-emerald-200 text-emerald-700 hover:bg-emerald-50"
           onClick={async () => {
-            if (!confirm('Beküldöd a választók névjegyzékét az egyházmegyének?')) return
+            if (!confirm(`Beküldöd a választók névjegyzékét az egyházmegyének? (${canonCount} fő)`)) return
             const year = new Date().getFullYear()
-            const snapshot = { voterCount: filtered.length, year }
+            // 2026-07-17 (PR-2 F1.5): a beküldött létszám a KANONIKUS definíció
+            // (jogosult ÉS fizetett-vagy-felmentett), NEM a képernyőn épp aktív
+            // szűrők (pl. keresőmező) eredménye — a definíció a snapshotba kerül.
+            const snapshot = { voterCount: canonCount, year, rule: 'eligible_and_paid_or_exempt' }
             const result = await submitDocument('valasztok_nevjegyzeke', year, snapshot)
             if ('error' in result && result.error) toast.error(result.error)
-            else toast.success('Választók névjegyzéke beküldve az egyházmegyének!')
+            else toast.success(`Választók névjegyzéke beküldve az egyházmegyének (${canonCount} fő)!`)
           }}
         >
           <Send className="mr-1 size-3.5" />

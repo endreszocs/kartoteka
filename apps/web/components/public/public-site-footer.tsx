@@ -1,4 +1,6 @@
 import Link from 'next/link'
+import Image from 'next/image'
+import { shouldBypassPublicImageOptimization } from '@/lib/public-site/public-image'
 import { Mail, Phone, MapPin, Heart } from 'lucide-react'
 import type { PublicSiteData } from '@/lib/public-site/site-loader'
 
@@ -27,9 +29,13 @@ export function PublicSiteFooter({ site }: { site: PublicSiteData }) {
           <div>
             <div className="flex items-center gap-3 mb-4">
               {site.crest_image_url ? (
-                <img
+                <Image
                   src={site.crest_image_url}
                   alt={site.display_name}
+                  width={48}
+                  height={48}
+                  sizes="48px"
+                  unoptimized={shouldBypassPublicImageOptimization(site.crest_image_url)}
                   className="w-12 h-12 rounded-xl object-cover shrink-0"
                 />
               ) : (
@@ -63,7 +69,7 @@ export function PublicSiteFooter({ site }: { site: PublicSiteData }) {
           <div>
             <h4
               className="mb-4 text-sm font-semibold uppercase tracking-widest"
-              style={{ color: 'var(--public-accent)' }}
+              style={{ color: 'var(--public-accent-on-surface)' }}
             >
               Elérhetőség
             </h4>
@@ -116,7 +122,7 @@ export function PublicSiteFooter({ site }: { site: PublicSiteData }) {
           <div>
             <h4
               className="mb-4 text-sm font-semibold uppercase tracking-widest"
-              style={{ color: 'var(--public-accent)' }}
+              style={{ color: 'var(--public-accent-on-surface)' }}
             >
               Menü
             </h4>
@@ -156,14 +162,14 @@ export function PublicSiteFooter({ site }: { site: PublicSiteData }) {
             <span>Működik a</span>
             <span
               className="font-semibold"
-              style={{ color: 'var(--public-primary)' }}
+              style={{ color: 'var(--public-primary-on-surface)' }}
             >
               Kartotéka
             </span>
             <span>rendszerrel</span>
             <Heart
               className="w-3.5 h-3.5 ml-1"
-              style={{ color: 'var(--public-accent)' }}
+              style={{ color: 'var(--public-accent-on-surface)' }}
               fill="currentColor"
             />
           </div>

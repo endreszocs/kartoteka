@@ -105,10 +105,22 @@ export function matchHeader(
   return null
 }
 
-/** Normalizálja a stringet összehasonlításhoz: kisbetű, pont/szóköz eltávolítás */
-function normalizeForMatch(s: string): string {
+/**
+ * Normalizálja a stringet összehasonlításhoz: kisbetű, ÉKEZET-LEHÁNTÁS,
+ * pont/szóköz/aláhúzás eltávolítás.
+ *
+ * 2026-07-24 (PR-6 F7.5): az ékezet-lehántás EDDIG HIÁNYZOTT (a matchHeader
+ * doc-kommentje tévesen ígérte) — a régi adatkezelő ékezet nélküli exportjai
+ * ('Csaladnev', 'Szuletesi datum', 'Kereszteles' fülnév) csak akkor találtak,
+ * ha véletlenül volt pont olyan alias. Mostantól 'Családnév' ≡ 'Csaladnev' —
+ * az új évi/ékezetlen sablonok maguktól matchelnek, nem törnek el.
+ * EXPORTÁLT: a kliens-oldali mapping-lépés is EZT használja (nincs drift).
+ */
+export function normalizeForMatch(s: string): string {
   return s
     .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
     .replace(/[.\s_-]+/g, '')
     .trim()
 }

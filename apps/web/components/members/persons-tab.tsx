@@ -42,9 +42,9 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { FamilyDetailsDialogRefined } from '@/components/modals/family-details-dialog-refined'
+import { RegistryCardsHost } from '@/components/modals/registry-cards-host'
+import { getEnrichedMemberById } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import { FamilyTreeDialog } from '@/components/modals/family-tree-dialog'
-import { MemberDetailsDialogV2 } from '@/components/modals/member-details-dialog-v2'
 import { MemberFormDialog } from '@/components/modals/member-form-dialog'
 import { MemberRemoveDialog } from '@/components/modals/member-remove-dialog'
 import { MEMBER_STATUS_FILTERS, PAYMENT_STATUS_CONFIG } from '@/lib/constants/members'
@@ -273,7 +273,6 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
   const [treeMemberId, setTreeMemberId] = useState<number | null>(null)
   const [familyOpen, setFamilyOpen] = useState(false)
   const [familyDetailsId, setFamilyDetailsId] = useState<number | null>(null)
-  const [returnToPersonAfterFamily, setReturnToPersonAfterFamily] = useState(false)
 
   const serverSearch = deferredSearchQuery.trim()
   const serverQuery = useMemo<MemberListQuery>(() => ({
@@ -555,8 +554,35 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
 
   function openFamilyFromList(familyId: number) {
     setFamilyDetailsId(familyId)
-    setReturnToPersonAfterFamily(false)
     setFamilyOpen(true)
+  }
+
+  // 2026-07-24 (PR-11): a családi kartonról tag-kattintás — a személyi karton
+  // a BAL oszlopban nyílik meg, a családi karton NYITVA marad (kettős nézet).
+  // Review-javítások: token-őr (gyors dupla-kattintás sorrendje + zárás utáni
+  // „szellem-újranyílás" ellen), betöltés-visszajelzés és hangos hiba.
+  const personLoadTokenRef = useRef(0)
+  async function openPersonFromFamily(memberId: number) {
+    const targetFamilyId = familyDetailsId
+    if (targetFamilyId == null) return
+    const token = ++personLoadTokenRef.current
+    const loadingToastId = toast.loading('Személyi karton betöltése…')
+    try {
+      const enriched = await getEnrichedMemberById(memberId, targetFamilyId)
+      if (token !== personLoadTokenRef.current) return
+      if (!enriched) {
+        toast.error('A személyi karton nem tölthető be. Próbáld újra.')
+        return
+      }
+      setDetailsMember(enriched as MemberListItem)
+      setDetailsOpen(true)
+    } catch {
+      if (token === personLoadTokenRef.current) {
+        toast.error('A személyi karton nem tölthető be. Próbáld újra.')
+      }
+    } finally {
+      toast.dismiss(loadingToastId)
+    }
   }
 
   async function handleFormClose(open: boolean) {
@@ -1132,39 +1158,49 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
         </PopoverPrimitive.Positioner>
       </PopoverPrimitive.Portal>
 
-      <MemberDetailsDialogV2
-        open={detailsOpen}
-        onOpenChange={(open) => {
-          if (!open && treeOpen) return
-          setDetailsOpen(open)
-        }}
+      {/* 2026-07-24 (PR-11, 7. észrevétel): a személyi ÉS a családi karton egyetlen
+          jobbról beúszó Sheet-ben — átkattintásnál egymás MELLETT (személy balra,
+          család jobbra), a korábbi bezár-újranyit „pattogás" helyett. */}
+      <RegistryCardsHost
+        personOpen={detailsOpen}
         member={detailsMember}
-        familyId={detailsMember?.familyId ?? null}
-        onEdit={() => detailsMember && openEdit(detailsMember)}
+        personFamilyId={detailsMember?.familyId ?? null}
+        familyOpen={familyOpen}
+        familyId={familyDetailsId}
+        personName={detailsMember ? formatNameWithPrefix(detailsMember) : null}
+        onClosePerson={() => {
+          if (treeOpen) return
+          personLoadTokenRef.current++
+          setDetailsOpen(false)
+        }}
+        onCloseFamily={() => {
+          personLoadTokenRef.current++
+          setFamilyOpen(false)
+          setFamilyDetailsId(null)
+        }}
+        onCloseAll={() => {
+          if (treeOpen) return
+          personLoadTokenRef.current++
+          setDetailsOpen(false)
+          setFamilyOpen(false)
+          setFamilyDetailsId(null)
+        }}
+        onOpenFamily={(id) => {
+          setFamilyDetailsId(id)
+          setFamilyOpen(true)
+        }}
+        onOpenMember={(id) => void openPersonFromFamily(id)}
+        // 2026-07-24 (PR-4 F5.8): a kartonon mentett megjegyzés/hozzájárulás után a
+        // lista frissül — eddig újranyitáskor a mentés ELŐTTI adat látszott.
+        onDataChanged={() => void fetchFirstPage({ preserveMembers: true })}
+        onEditMember={() => detailsMember && openEdit(detailsMember)}
         onShowFamilyTree={(id) => {
           setTreeMemberId(id)
           setTreeOpen(true)
         }}
-        onOpenFamily={(id) => {
-          setFamilyDetailsId(id)
-          setReturnToPersonAfterFamily(true)
-          setFamilyOpen(true)
-        }}
       />
       <MemberFormDialog open={formOpen} onOpenChange={handleFormClose} editMember={editingMember} />
       <MemberRemoveDialog open={removeOpen} onOpenChange={handleRemoveClose} member={removingMember} />
-      <FamilyDetailsDialogRefined
-        open={familyOpen}
-        onOpenChange={(open) => {
-          setFamilyOpen(open)
-          if (!open) {
-            setFamilyDetailsId(null)
-            if (returnToPersonAfterFamily && detailsMember) setDetailsOpen(true)
-            setReturnToPersonAfterFamily(false)
-          }
-        }}
-        familyId={familyDetailsId}
-      />
       <FamilyTreeDialog
         open={treeOpen}
         onOpenChange={(open) => {

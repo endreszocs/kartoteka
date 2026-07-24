@@ -12,7 +12,7 @@
     "@kartoteka/schema-types": "*",
     "@kartoteka/supabase-client": "*",
     "@kartoteka/validations": "*",
-    "xlsx": "^0.18.5",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.3.6"
   },
   "devDependencies": {
