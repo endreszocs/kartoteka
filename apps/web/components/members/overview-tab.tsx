@@ -1,9 +1,12 @@
 'use client'
 
+import { useState } from 'react'
 import { AGE_GROUPS } from '@/lib/constants/members'
 import { ageFromDate } from '@/lib/utils/date'
 import type { MemberOverviewSnapshot } from '@/lib/members/member-overview'
-import { Users, Heart, TrendingUp, MapPin, Crown, Baby, UserCheck, GraduationCap, Calendar } from 'lucide-react'
+import { Users, Heart, TrendingUp, MapPin, Crown, Baby, UserCheck, GraduationCap, Calendar, ChevronRight } from 'lucide-react'
+import { BirthdayListDialog } from '@/components/dashboard/birthday-list-dialog'
+import { getBirthdayListData, type BirthdayListData } from '@/app/(dashboard)/tagnyilvantartas/birthday-list-actions'
 
 interface OverviewTabProps {
   snapshot: MemberOverviewSnapshot
@@ -11,6 +14,24 @@ interface OverviewTabProps {
 
 export function OverviewTab({ snapshot }: OverviewTabProps) {
   const { birthdays, nameDays, nameDayMembers, stats } = snapshot
+
+  // 2026-07-24 (PR-9, 6. észrevétel): a születésnap-doboz a dashboard-éval
+  // AZONOS szűrő/nyomtató dialógust nyitja — lazy betöltéssel.
+  const [birthdayDialogOpen, setBirthdayDialogOpen] = useState(false)
+  const [birthdayData, setBirthdayData] = useState<BirthdayListData | null>(null)
+  const [birthdayLoading, setBirthdayLoading] = useState(false)
+
+  async function openBirthdayDialog() {
+    setBirthdayDialogOpen(true)
+    if (!birthdayData && !birthdayLoading) {
+      setBirthdayLoading(true)
+      try {
+        setBirthdayData(await getBirthdayListData())
+      } finally {
+        setBirthdayLoading(false)
+      }
+    }
+  }
 
   const avgAge = stats.ageCount > 0 ? (stats.ageSum / stats.ageCount).toFixed(1) : '—'
   const menPct = stats.total > 0 ? Math.round(stats.men / stats.total * 100) : 0
@@ -220,15 +241,24 @@ export function OverviewTab({ snapshot }: OverviewTabProps) {
 
       {/* ── E havi születésnaposok (2026-06-10, Fázis 5 / P3-1) ───── */}
       <div className="card-raised p-5">
-        <div className="mb-3 flex items-center gap-3">
+        {/* 2026-07-24 (PR-9): a fejléc kattintható — a dashboard-dialógust nyitja */}
+        <button
+          type="button"
+          onClick={() => void openBirthdayDialog()}
+          className="mb-3 flex w-full items-center gap-3 rounded-xl text-left transition hover:bg-amber-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 dark:hover:bg-amber-950/20"
+          title="Születésnap-lista szűrővel és nyomtatással"
+        >
           <div className="icon-raised w-10 h-10 bg-gradient-to-br from-amber-400 to-orange-500">
             <Calendar className="w-5 h-5 text-white" />
           </div>
-          <div>
-            <h3 className="text-sm font-semibold text-slate-700">E havi születésnaposok</h3>
-            <p className="text-xs text-slate-400">Köszöntéshez — az aktuális hónapban születettek (élő tagok).</p>
+          <div className="min-w-0 flex-1">
+            <h3 className="flex items-center gap-1 text-sm font-semibold text-slate-700">
+              E havi születésnaposok
+              <ChevronRight className="size-4 text-amber-500" />
+            </h3>
+            <p className="text-xs text-slate-400">Kattints a szűrhető, nyomtatható listához (időszak, kor, nem, lakcím).</p>
           </div>
-        </div>
+        </button>
         {birthdays.length === 0 ? (
           <p className="text-xs text-slate-400">Ebben a hónapban nincs születésnapos tag.</p>
         ) : (
@@ -270,6 +300,15 @@ export function OverviewTab({ snapshot }: OverviewTabProps) {
           )}
         </div>
       </div>
+
+      {/* 2026-07-24 (PR-9, 6. észrevétel): a dashboard-dal AZONOS dialógus */}
+      <BirthdayListDialog
+        open={birthdayDialogOpen}
+        onOpenChange={setBirthdayDialogOpen}
+        allMembers={birthdayData?.members ?? []}
+        congregationName={birthdayData?.congregationName ?? 'Gyülekezet'}
+        congregationLogo={birthdayData?.congregationLogo ?? null}
+      />
     </div>
   )
 }

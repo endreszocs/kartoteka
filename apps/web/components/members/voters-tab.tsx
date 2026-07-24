@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { getVoters, recomputeVoterEligibility, setVoterOverride, type VoterRow } from '@/app/(dashboard)/tagnyilvantartas/voter-actions'
+import { getVoters, recomputeVoterEligibility, setVoterOverride, getVoterConfirmationRequirement, setVoterConfirmationRequirement, type VoterRow } from '@/app/(dashboard)/tagnyilvantartas/voter-actions'
 import { Users, User, UserRound, CheckCircle, Printer, Send, Scale as ScaleIcon, RefreshCw, Lock, Unlock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { submitDocument } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
@@ -20,6 +20,9 @@ export function VotersTab() {
   const [eligFilter, setEligFilter] = useState('mind')
   const [printOpen, setPrintOpen] = useState(false)
   const [recomputing, setRecomputing] = useState(false)
+  // 2026-07-24 (PR-9, 1. észrevétel): konfirmáció-kritérium kapcsoló
+  const [confirmationRequired, setConfirmationRequired] = useState(true)
+  const [confirmationSaving, setConfirmationSaving] = useState(false)
   // 2026-06-30 (perf): csak az első `visibleCount` sort rendereljük; a fejléc-szám,
   // az egyházmegyének beküldött létszám és a nyomtatás TOVÁBBRA IS a teljes
   // halmazon dolgozik — csak a DOM-ba írt sorok száma korlátozott.
@@ -33,7 +36,26 @@ export function VotersTab() {
 
   useEffect(() => {
     reload()
+    void getVoterConfirmationRequirement().then(setConfirmationRequired)
   }, [])
+
+  async function handleConfirmationToggle(required: boolean) {
+    setConfirmationSaving(true)
+    setConfirmationRequired(required) // optimista — hibánál visszaáll
+    const res = await setVoterConfirmationRequirement(required)
+    setConfirmationSaving(false)
+    if (!res.ok) {
+      setConfirmationRequired(!required)
+      toast.error(res.error || 'A beállítás mentése nem sikerült.')
+      return
+    }
+    await reload()
+    toast.success(
+      required
+        ? `Konfirmáció megkövetelve — ${res.eligible ?? 0} jogosult a friss szabály szerint.`
+        : `Konfirmáció-feltétel kikapcsolva — aki fizet és aktív 18+ tag, az jogosult (${res.eligible ?? 0} fő).`,
+    )
+  }
 
   async function handleRecompute() {
     setRecomputing(true)
@@ -103,11 +125,29 @@ export function VotersTab() {
           className="rounded-xl border-emerald-200 text-emerald-700 hover:bg-emerald-50"
           onClick={handleRecompute}
           disabled={recomputing || loading}
-          title="A választói névjegyzék frissítése a szabály alapján: 18+, konfirmált, élő aktív tag (a kézi felülbírálás megmarad)"
+          title={confirmationRequired
+            ? 'A választói névjegyzék frissítése a szabály alapján: 18+, konfirmált, élő aktív tag (a kézi felülbírálás megmarad)'
+            : 'A választói névjegyzék frissítése a szabály alapján: 18+, élő aktív tag — konfirmáció-feltétel KIKAPCSOLVA (a kézi felülbírálás megmarad)'}
         >
           <RefreshCw className={`mr-1 size-3.5 ${recomputing ? 'animate-spin' : ''}`} />
           {recomputing ? 'Frissítés…' : 'Jogosultság frissítése'}
         </Button>
+        {/* 2026-07-24 (PR-9, 1. észrevétel): a konfirmáció-kritérium kikapcsolható —
+            ha a konfirmálási anyakönyv még nincs bevezetve, aki fizet és aktív
+            18+ tag, az jogosultnak számít. */}
+        <label
+          className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 text-xs font-medium text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200"
+          title="Ha a konfirmálási anyakönyv még nincs bevezetve a rendszerbe, kapcsold ki — ilyenkor aki fizet (vagy felmentett) és aktív 18+ tag, az jogosultnak számít."
+        >
+          <input
+            type="checkbox"
+            checked={confirmationRequired}
+            disabled={confirmationSaving || loading}
+            onChange={e => void handleConfirmationToggle(e.target.checked)}
+            className="rounded"
+          />
+          Konfirmáció megkövetelése
+        </label>
         <Button
           size="sm"
           variant="outline"

@@ -158,11 +158,17 @@ export function FamilyGraphTab() {
   // 2026-07-24 (PR-5, D5 döntés): teljes képernyős (immerzív) mód — a háló a
   // sidebar MELLETTI teljes területet tölti ki (fejléc/hero/vers fölé kerül),
   // a sidebar navigációnak látható marad. Kilépés: X gomb vagy Esc.
-  const [immersive, setImmersive] = useState(false)
+  // 2026-07-24 (PR-9, 2. észrevétel): ALAPBÓL teljes képernyős — a fül
+  // megnyitásakor a hero/fülsor nem látszik, nincs görgetés, és a sidebar
+  // automatikusan összecsukódik (esemény a dashboard-layoutnak).
+  const [immersive, setImmersive] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(0)
 
   useEffect(() => {
     if (!immersive) return
+    // A sidebar csukódjon össze (ikonsávvá) — a layout figyeli az eseményt;
+    // kilépéskor visszanyitjuk.
+    window.dispatchEvent(new CustomEvent('kartoteka:sidebar-set-collapsed', { detail: { collapsed: true } }))
     const sidebar = Array.from(document.querySelectorAll('aside')).find(
       (el) => window.getComputedStyle(el).display !== 'none',
     )
@@ -189,6 +195,8 @@ export function FamilyGraphTab() {
       window.removeEventListener('resize', update)
       window.removeEventListener('keydown', exitOnEscape)
       document.body.style.overflow = previousOverflow
+      // Kilépéskor / fül-elhagyáskor a sidebar visszanyílik.
+      window.dispatchEvent(new CustomEvent('kartoteka:sidebar-set-collapsed', { detail: { collapsed: false } }))
     }
   }, [immersive])
 

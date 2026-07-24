@@ -961,8 +961,26 @@ function DistrictsContent() {
       <SectionTitle>Mit lehet körzethez rendelni?</SectionTitle>
       <ul className="list-disc pl-5 space-y-1">
         <li><strong>Családokat</strong> — közös lakcímű, vagy közös pasztorációs területű családok.</li>
-        <li><strong>Presbitereket</strong> — egy presbiter felelős lehet egy adott körzet pasztorációjáért.</li>
+        <li><strong>Presbitereket</strong> — egy körzethez <strong>több presbiter</strong> is rendelhető.</li>
       </ul>
+
+      <SectionTitle>Automatikus körzetesítés</SectionTitle>
+      <p>
+        Az <strong>„Automatikus körzetesítés&rdquo;</strong> gombbal egy varázsló osztja el
+        a családokat a kívánt számú körzetbe. Két szempont választható:
+      </p>
+      <ul className="list-disc pl-5 space-y-1">
+        <li><strong>Utcánként</strong> — a település és utca szerint csoportosít; a hosszú
+          utcák automatikusan részekre bomlanak, hogy a körzetek kiegyensúlyozottak legyenek.</li>
+        <li><strong>Korosztály szerint</strong> — a család legidősebb felnőttje szerinti sávokba.</li>
+      </ul>
+      <p>
+        A kiegyensúlyozás <strong>lélekszám</strong> (vagy családszám) szerint történik, és a
+        családok sosem szakadnak szét. A javasolt kiosztás <strong>előnézetben</strong> jelenik meg:
+        a körzet-nevek átírhatók, körzetenként presbiterek oszthatók ki, és semmi nem íródik az
+        adatbázisba, amíg nem kattintasz az „Alkalmazás&rdquo;-ra. Amelyik család automatikusan nem
+        osztható (nincs utca vagy születési dátum), az okkal listázva marad, és kézzel rendelhető hozzá.
+      </p>
 
       <SectionTitle>Mire jó?</SectionTitle>
       <ul className="list-disc pl-5 space-y-1">
@@ -992,11 +1010,23 @@ function VotersContent() {
 
       <SectionTitle>A választói jogosultság feltételei</SectionTitle>
       <ul className="list-disc pl-5 space-y-1">
-        <li>Betöltötte a <strong>18. életévét</strong> a választás évében.</li>
-        <li><strong>Nem elhunyt</strong> (és lehetőleg nem elköltözött sem).</li>
+        <li>Betöltötte a <strong>18. életévét</strong> (születésnap-pontosan számolva).</li>
+        <li><strong>Aktív tag</strong> — nem elhunyt, nem elköltözött, nem kitért.</li>
         <li>Az <strong>aktuális vagy az előző évben fizetett egyházfenntartó járulékot</strong>{' '}
-          (kód: <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">101.01</code>).</li>
+          (kód: <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">101.01</code>) —{' '}
+          <strong>a felmentett fizetettnek számít</strong> (családi közös befizetés is beszámít
+          mindkét házastársnak).</li>
+        <li><strong>Konfirmált</strong> — DE ez a feltétel a fülön lévő „Konfirmáció
+          megkövetelése&rdquo; kapcsolóval <strong>kikapcsolható</strong>, ha a konfirmálási
+          anyakönyv még nincs bevezetve a rendszerbe. Kikapcsolt állapotban aki fizet és
+          aktív 18+ tag, az jogosultnak számít.</li>
       </ul>
+      <p>
+        A „Jogosultság frissítése&rdquo; gomb számolja újra a jelöléseket a szabály szerint
+        (a kézi lakat-felülbírálások megmaradnak). A nyomtatási központ lapozott,
+        A4-pontos hivatalos névjegyzéket készít <strong>oldalszámokkal</strong>, és
+        alapból csak a jogosultakat tartalmazza.
+      </p>
 
       <SectionTitle>Mit lát a Választók fülön?</SectionTitle>
       <p>
@@ -1068,7 +1098,12 @@ function ErrorsContent() {
         </div>
         <div>
           <Pill tone="amber">Formátum-hiba</Pill>
-          <p className="mt-1">Érvénytelen formátum: rossz email, telefonszám vagy CNP (személyi szám).</p>
+          <p className="mt-1">Érvénytelen formátum: rossz email vagy telefonszám.
+            <strong> Fontos:</strong> a CNP mező a rendszerben <strong>egyházi belső
+            azonosító</strong> (az <code className="rounded bg-slate-100 px-1 text-xs">EC-2026-…</code>{' '}
+            formátum teljesen érvényes) — erre NINCS formátum-ellenőrzés. Ha régebbi
+            „A CNP nem 13 számjegy&rdquo; hibákat látsz, nyomd meg a „Hibák
+            újraellenőrzése&rdquo; gombot: az elavult hibák automatikusan lezáródnak.</p>
         </div>
         <div>
           <Pill tone="red">Logikai ellentmondás</Pill>

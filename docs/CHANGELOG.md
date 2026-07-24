@@ -23,6 +23,54 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-24] — Tesztelési észrevételek 1. köre: konfirmáció-kapcsoló, teljes képernyős háló alapból, CNP-álhibák vége + kattintható születésnap-lista
+<!-- key: 2026-07-24-tagnyilv-pr9-eszrevetelek -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, rendszergazda -->
+<!-- version: web v0.9.98 -->
+
+### ✨ Választók — konfirmáció-kapcsoló
+
+- **A konfirmáció-feltétel mostantól kikapcsolható** a Választók fülön
+  („Konfirmáció megkövetelése" jelölő): ha a konfirmálási anyakönyv még nincs
+  bevezetve a rendszerbe, kikapcsolva **aki fizet (vagy felmentett) és aktív
+  18+ tag, az választójogosultnak számít**. Átkapcsoláskor a rendszer azonnal
+  újraszámolja a jelöléseket. (Rendszergazdai SQL futtatása szükséges — lásd lent.)
+
+### ✨ Családi háló
+
+- **A Családi háló fül mostantól alapból teljes képernyős:** a fejléc és a
+  fülsor nem látszik, nincs görgetés, és **a sidebar automatikusan
+  ikonsávvá csukódik** — kilépéskor visszanyílik. (A „Kilépés" gombbal vagy
+  Esc-kel a hagyományos beágyazott nézet is elérhető.)
+
+### 🐛 Hibák fül — CNP-álhibák vége
+
+- **Rendszerszinten rögzítve: a CNP mező a Kartotékában egyházi belső
+  azonosító** (az `EC-2026-…` formátum teljesen érvényes), nem az állami
+  személyi szám — a „13 számjegy" formátum-ellenőrzés ezért teljesen kikerült.
+  A képen látott hibák egy régi (június 2-i) futásból ragadtak bent: a
+  **„Hibák újraellenőrzése" gomb megnyomásával az elavult hibák automatikusan
+  lezáródnak** (az újraellenőrzés a nem újratalálható hibákat rendezettnek
+  jelöli).
+
+### ✨ Áttekintés + súgó
+
+- **Az „E havi születésnaposok" doboz kattintható lett** — ugyanazt a
+  szűrhető, nyomtatható születésnap-listát nyitja (időszak, kor, nem,
+  lakcím), mint az irányítópult.
+- **A tagnyilvántartás súgója frissült:** automatikus körzetesítés, az új
+  választói szabály és konfirmáció-kapcsoló, a CNP-tudnivaló és a hibák
+  újraellenőrzése is le van írva.
+
+### 🔧 Rendszergazdáknak (futtatandó SQL)
+
+- `migration-docs/sql/2026-07-24-pr9-valaszto-konfirmacio-kapcsolo.sql` —
+  az új beállítás-oszlop + a jogosultság-számító függvény frissítése
+  (a végén próbafuttatással).
+
+---
+
 ## [2026-07-24] — Körzetek: automatikus körzetesítés varázslóval — utcánként vagy korosztály szerint, kiegyensúlyozott elosztással
 <!-- key: 2026-07-24-tagnyilv-pr7-korzetesites -->
 <!-- category: feature -->
