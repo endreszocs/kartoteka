@@ -155,6 +155,42 @@ export function FamilyGraphTab() {
   const [familyDialogOpen, setFamilyDialogOpen] = useState(false)
   const galaxyRef = useRef<FamilyGalaxyHandle | null>(null)
   const [hoverTip, setHoverTip] = useState<{ node: FamilyGraphNode; x: number; y: number } | null>(null)
+  // 2026-07-24 (PR-5, D5 döntés): teljes képernyős (immerzív) mód — a háló a
+  // sidebar MELLETTI teljes területet tölti ki (fejléc/hero/vers fölé kerül),
+  // a sidebar navigációnak látható marad. Kilépés: X gomb vagy Esc.
+  const [immersive, setImmersive] = useState(false)
+  const [sidebarWidth, setSidebarWidth] = useState(0)
+
+  useEffect(() => {
+    if (!immersive) return
+    const sidebar = Array.from(document.querySelectorAll('aside')).find(
+      (el) => window.getComputedStyle(el).display !== 'none',
+    )
+    const update = () => {
+      setSidebarWidth(
+        sidebar && window.getComputedStyle(sidebar).display !== 'none'
+          ? sidebar.getBoundingClientRect().width
+          : 0,
+      )
+    }
+    update()
+    const resizeObserver = sidebar ? new ResizeObserver(update) : null
+    if (sidebar && resizeObserver) resizeObserver.observe(sidebar)
+    window.addEventListener('resize', update)
+    const exitOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setImmersive(false)
+    }
+    window.addEventListener('keydown', exitOnEscape)
+    // A háttér-oldal ne görgethessen az overlay alatt.
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      resizeObserver?.disconnect()
+      window.removeEventListener('resize', update)
+      window.removeEventListener('keydown', exitOnEscape)
+      document.body.style.overflow = previousOverflow
+    }
+  }, [immersive])
 
   useEffect(() => {
     const pointerQuery = window.matchMedia('(any-pointer: coarse)')
@@ -305,7 +341,17 @@ export function FamilyGraphTab() {
 
   return (
     <>
-      <section className="relative isolate overflow-hidden rounded-[1.75rem] border border-[#b4ddd5]/15 bg-[#071b1c] text-white shadow-[0_28px_80px_-42px_rgba(4,38,37,0.72)] sm:rounded-[2rem]">
+      <section
+        className={cn(
+          'relative isolate overflow-hidden bg-[#071b1c] text-white',
+          immersive
+            ? // 2026-07-24 (PR-5, D5): immerzív mód — fixen a sidebar melletti
+              // teljes terület, a fejléc/hero/vers FÖLÖTT (lefedi őket).
+              'fixed inset-y-0 right-0 z-[45] flex flex-col rounded-none border-0'
+            : 'rounded-[1.75rem] border border-[#b4ddd5]/15 shadow-[0_28px_80px_-42px_rgba(4,38,37,0.72)] sm:rounded-[2rem]',
+        )}
+        style={immersive ? { left: sidebarWidth } : undefined}
+      >
         <GraphBackdrop />
 
         <header className="relative z-20 border-b border-white/[0.08] px-4 py-4 sm:px-5 sm:py-5 lg:px-6 [@media(max-height:600px)]:py-3">
@@ -416,11 +462,28 @@ export function FamilyGraphTab() {
                   <Badge className="min-w-5 border-0 bg-amber-200 px-1.5 text-[#173331]">{activeFilterCount}</Badge>
                 )}
               </Button>
+
+              {/* 2026-07-24 (PR-5, D5): teljes képernyő be/ki — Esc is kilép */}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setImmersive((value) => !value)}
+                aria-label={immersive ? 'Kilépés a teljes képernyőből' : 'Teljes képernyő'}
+                className={cn(
+                  'min-h-11 shrink-0 border-white/10 bg-white/[0.045] text-teal-50 hover:bg-white/10 hover:text-white max-sm:size-11 max-sm:px-0 [@media(max-height:600px)]:size-11 [@media(max-height:600px)]:px-0',
+                  immersive && 'border-amber-200/30 bg-amber-200/10 text-amber-100',
+                )}
+              >
+                {immersive ? <X className="size-4" /> : <Maximize2 className="size-4" />}
+                <span className="hidden sm:inline [@media(max-height:600px)]:hidden">
+                  {immersive ? 'Kilépés' : 'Teljes képernyő'}
+                </span>
+              </Button>
             </div>
           </div>
         </header>
 
-        <div className="relative z-10">
+        <div className={cn('relative z-10', immersive && 'min-h-0 flex-1')}>
           <p id="family-graph-description" className="sr-only">
             A kapcsolati háló vizuális vászna. A teljes, billentyűzettel bejárható tartalom a
             Csomópontlista gombbal nyitható meg.
@@ -430,7 +493,10 @@ export function FamilyGraphTab() {
           </p>
           <div
             className={cn(
-              'relative h-[clamp(22rem,62dvh,34rem)] min-h-0 w-full overflow-hidden sm:h-[clamp(30rem,68dvh,44rem)] lg:h-[calc(100dvh-16rem)] lg:min-h-[35rem] lg:max-h-[48rem] [@media(max-height:600px)]:h-[20rem] [@media(max-height:600px)]:min-h-0',
+              'relative min-h-0 w-full overflow-hidden',
+              immersive
+                ? 'h-full'
+                : 'h-[clamp(22rem,62dvh,34rem)] sm:h-[clamp(30rem,68dvh,44rem)] lg:h-[calc(100dvh-16rem)] lg:min-h-[35rem] lg:max-h-[48rem] [@media(max-height:600px)]:h-[20rem] [@media(max-height:600px)]:min-h-0',
               coarsePointer && !touchExploreMode ? 'touch-pan-y' : 'touch-none',
             )}
             role="img"
@@ -1268,20 +1334,26 @@ function FamilyGraphLoading() {
         </div>
       </div>
 
+      {/* 2026-07-24 (PR-5 F8.4): Kartotéka-logós betöltő — a desktop-splash
+          halo-mintája a galaxis csillagtere fölött (motion-reduce: statikus). */}
       <div className="relative z-10 mt-10 flex min-h-[25rem] items-center justify-center">
-        <div className="relative size-64 opacity-60 sm:size-80">
-          {[
-            'left-[45%] top-[42%] size-14 bg-amber-300/20 border-amber-200/30 rounded-2xl',
-            'left-[8%] top-[15%] size-8 bg-teal-300/15 border-teal-200/20 rounded-full',
-            'right-[7%] top-[9%] size-7 bg-rose-300/15 border-rose-200/20 rounded-full',
-            'bottom-[8%] left-[12%] size-7 bg-teal-300/15 border-teal-200/20 rounded-full',
-            'bottom-[12%] right-[9%] size-9 bg-teal-300/15 border-teal-200/20 rounded-full',
-          ].map((className) => (
-            <span key={className} className={cn('absolute border motion-safe:animate-pulse', className)} />
-          ))}
-          <svg className="absolute inset-0 size-full" viewBox="0 0 320 320" aria-hidden>
-            <path d="M160 150 L38 60 M160 150 L280 52 M160 150 L277 272 M160 150 L48 273" fill="none" stroke="rgba(145,219,207,.18)" strokeWidth="1.5" />
-          </svg>
+        <div className="relative flex flex-col items-center">
+          <span
+            aria-hidden
+            className="absolute left-1/2 top-1/2 size-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(148,222,209,0.22),rgba(251,213,130,0.10)_45%,transparent_70%)] blur-2xl motion-safe:animate-pulse sm:size-80"
+          />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/KARTOTEKA_V3.png"
+            alt=""
+            aria-hidden
+            className="relative size-28 select-none object-contain drop-shadow-[0_18px_40px_rgba(148,222,209,0.35)] motion-safe:animate-[pulse_2.4s_ease-in-out_infinite] sm:size-36"
+            draggable={false}
+          />
+          <div className="relative mt-6 h-1 w-44 overflow-hidden rounded-full bg-white/10 sm:w-56">
+            <span className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-gradient-to-r from-teal-300/70 to-amber-200/80 motion-safe:animate-[kt-loading-sweep_1.6s_ease-in-out_infinite] motion-reduce:w-full" />
+          </div>
+          <style>{`@keyframes kt-loading-sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }`}</style>
         </div>
       </div>
     </section>
