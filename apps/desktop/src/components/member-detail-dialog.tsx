@@ -34,7 +34,8 @@ import {
   type SzemelyUpdateInput,
 } from '@kartoteka/validations'
 
-import { updateSzemelyEntry } from '../lib/sync'
+import { pullMembersOfOwnCongregation, updateSzemelyEntry } from '../lib/sync'
+import { getDesktopSupabase } from '../lib/supabase'
 import { fetchSocialAvatarImageDesktop, saveMemberAvatarDesktop } from '../lib/avatar'
 
 interface MemberDetailDialogProps {
@@ -180,13 +181,34 @@ export function MemberDetailDialog({
             'újragondolhatod a saját változtatásaidat és újra próbálhatod.',
         })
       } else if (result.queuedToOutbox) {
+        // 2026-07-24 (PR-8 review): automatikusra visszaállított felülbírálásnál
+        // offline nem tudunk újraszámolni — jelezzük, hogy a flag később frissül.
+        const clearedToAutoOffline =
+          'voter_manual_override' in normalized && normalized.voter_manual_override === null
         setBanner({
           kind: 'offline',
-          text: 'Elmentettem offline-ban. A szinkron a következő online-menetben küldi fel.',
+          text:
+            'Elmentettem offline-ban. A szinkron a következő online-menetben küldi fel.' +
+            (clearedToAutoOffline
+              ? ' A választói jogosultság a következő online újraszámításkor frissül.'
+              : ''),
         })
         onSaved?.()
         setTimeout(() => setMode('view'), 1500)
       } else {
+        // 2026-07-24 (PR-8 review): ha a felülbírálást AUTOMATIKUSRA állították
+        // vissza, a voter_eligible a régi kényszerített értéken ragadna minden
+        // felületen — online azonnal újraszámoltatjuk (best effort, a webes
+        // setVoterOverride mintája), és delta-pullal frissítjük a lokál cache-t.
+        if ('voter_manual_override' in normalized && normalized.voter_manual_override === null && m.congregation_id) {
+          try {
+            const supabase = getDesktopSupabase()
+            await supabase.rpc('recompute_voter_eligibility', { p_congregation_id: m.congregation_id })
+            await pullMembersOfOwnCongregation(userId, 'delta')
+          } catch {
+            /* best effort — a webes „Jogosultság frissítése" pótolja */
+          }
+        }
         setBanner({ kind: 'success', text: 'A változás mentve.' })
         onSaved?.()
         setTimeout(() => setMode('view'), 800)
@@ -509,7 +531,10 @@ type EditableFields = {
   megjegyzes: string
   // M8.4 admin-jelzők (boolean → string '0'/'1' a form-state-ben; patch-be boolean-ként)
   meghalt: string
-  voter_eligible: string
+  /** 2026-07-24 (PR-8): választói KÉZI felülbírálás — '' = automatikus,
+   *  '1' = kézzel választó, '0' = kézzel nem választó. A voter_eligible-t
+   *  közvetlenül többé nem szerkesztjük (a webes recompute felülírná). */
+  voter_override: string
   csaladfo: string
   member_status: string
 }
@@ -599,14 +624,30 @@ function EditBody({
           onChange={(v) => upd('meghalt', v ? '1' : '0')}
           disabled={disabled}
         />
-        <CheckboxRow
-          id="voter_eligible"
-          label="Választó"
-          hint="Ha a tag jogosult presbitérium-, lelkész- és gondnokválasztásra."
-          checked={form.voter_eligible === '1'}
-          onChange={(v) => upd('voter_eligible', v ? '1' : '0')}
-          disabled={disabled}
-        />
+        {/* 2026-07-24 (PR-8): a közvetlen voter_eligible-kapcsoló helyett
+            felülbírálás-választó — a kézi döntést a webes „Jogosultság
+            frissítése" (recompute) is megőrzi. */}
+        <div className="grid grid-cols-3 items-center gap-2 pt-1">
+          <Label htmlFor="voter_override" className="col-span-1 text-xs text-slate-500">
+            Választói jogosultság
+          </Label>
+          <select
+            id="voter_override"
+            value={form.voter_override}
+            onChange={(e) => upd('voter_override', e.currentTarget.value)}
+            disabled={disabled}
+            className="col-span-2 h-8 rounded-md border border-input bg-background px-2 text-sm"
+          >
+            <option value="">Automatikus (a rendszer számítja)</option>
+            <option value="1">Kézi felülbírálás: VÁLASZTÓ</option>
+            <option value="0">Kézi felülbírálás: nem választó</option>
+          </select>
+        </div>
+        <p className="-mt-1 text-[10px] italic text-slate-500">
+          Automatikus módban a jogosultságot a rendszer számítja (18+, aktív tag,
+          a webes beállítások szerint). A kézi felülbírálás mindkét irányban
+          megmarad a jogosultság-újraszámítás után is.
+        </p>
         <CheckboxRow
           id="csaladfo"
           label="Családfő"
@@ -824,7 +865,6 @@ const EDITABLE_TEXT_KEYS: (keyof EditableFields)[] = [
  */
 const EDITABLE_BOOL_KEYS: (keyof EditableFields)[] = [
   'meghalt',
-  'voter_eligible',
   'csaladfo',
 ]
 
@@ -840,6 +880,9 @@ function extractEditable(m: SzemelyListRow): EditableFields {
     // szemely_local: integer 0/1 → '0'/'1' string
     out[key] = raw === 1 || raw === '1' || raw === true ? '1' : '0'
   }
+  // 2026-07-24 (PR-8): felülbírálás-állapot (NULL=auto, 1/0=kézi)
+  out.voter_override =
+    m.voter_manual_override === 1 ? '1' : m.voter_manual_override === 0 ? '0' : ''
   return out
 }
 
@@ -870,6 +913,19 @@ function buildPatch(m: SzemelyListRow, form: EditableFields): Record<string, unk
     const formBool = form[key] === '1'
     if (originalBool !== formBool) {
       patch[key] = formBool
+    }
+  }
+
+  // 2026-07-24 (PR-8): választói felülbírálás — kézi állításnál a
+  // voter_eligible is azonnal követi (a webes recompute az override-ot
+  // megőrzi; automatikusra visszaállítva a következő recompute dönt).
+  const originalOverride =
+    m.voter_manual_override === 1 ? '1' : m.voter_manual_override === 0 ? '0' : ''
+  if (originalOverride !== form.voter_override) {
+    patch.voter_manual_override =
+      form.voter_override === '' ? null : form.voter_override === '1' ? 1 : 0
+    if (form.voter_override !== '') {
+      patch.voter_eligible = form.voter_override === '1'
     }
   }
 

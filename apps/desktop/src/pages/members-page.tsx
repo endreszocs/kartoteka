@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Home,
   Pencil,
+  Scale,
   Search,
   UserPlus,
   Users,
@@ -206,16 +207,29 @@ export function MembersPage() {
           Icon={Users}
           stats={heroStats}
           actions={
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => navigate('/csaladok')}
-              className="gap-2"
-            >
-              <Home className="size-4" />
-              Családok
-              <ChevronRight className="size-3.5 opacity-60" />
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate('/csaladok')}
+                className="gap-2"
+              >
+                <Home className="size-4" />
+                Családok
+                <ChevronRight className="size-3.5 opacity-60" />
+              </Button>
+              {/* 2026-07-24 (PR-8, F9): Választók-oldal desktopon */}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate('/valasztok')}
+                className="gap-2"
+              >
+                <Scale className="size-4" />
+                Választók
+                <ChevronRight className="size-3.5 opacity-60" />
+              </Button>
+            </div>
           }
         />
 

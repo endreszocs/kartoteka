@@ -73,6 +73,10 @@ export const szemelyUpdateInputSchema = z.object({
   // Admin-jellegű (csak bizonyos szerepkörök — a UI-oldalon szűkítjük)
   csaladfo: z.boolean().optional(),
   voter_eligible: z.boolean().optional(),
+  /** 2026-07-24 (PR-8): kézi választói felülbírálás — null=automatikus,
+   *  1=kézzel választó, 0=kézzel nem választó. A webes „Jogosultság
+   *  frissítése" (recompute) ezt tiszteletben tartja. */
+  voter_manual_override: z.union([z.literal(0), z.literal(1)]).nullable().optional(),
   meghalt: z.boolean().optional(),
   member_status: z.string().trim().max(40).nullable().optional(),
 
