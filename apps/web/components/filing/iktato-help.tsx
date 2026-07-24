@@ -1111,23 +1111,34 @@ function DigitalContent() {
       <S>Igazolás / levél kiállítása — automatikus iktatással</S>
       <p>
         {'Az „Iktatott iratok" fül '}<Pill tone="teal">Igazolás / levél kiállítása</Pill>{' '}
-        gombja hivatalos iratot készít sablonból vagy szabad levélként:
+        gombja hivatalos iratot készít <strong>nyelvfüggetlen dokumentum-családokból</strong>{' '}
+        (keresztelési, konfirmációi, esketési, tagsági és temetési igazolás, lelkészi
+        ajánlás, egyháztag-átadás, hivatalos levél), saját sablonból vagy szabad levélként:
       </p>
       <ul className="list-disc pl-5 space-y-1">
         <li>
-          A Sablonok fülön <strong>10 alapértelmezett sablon</strong> tölthető be — magyar
-          és román nyelvű igazolások (keresztelési, tagsági, temetési, két személyre szóló)
-          és hivatalos levelek —, az {'„Alapsablonok pótlása"'} gombbal a később hozzáadott
-          újak is behúzhatók a meglévők érintése nélkül.
+          Az EGYETLEN <strong>{'„Dokumentum nyelve"'}</strong> választó (magyar / română /
+          English) vezérli a teljes iratot: a levélfejet, a {'„Szám/Tárgy"'} címkéket
+          {' (románul „Nr./Obiect", angolul „No./Subject")'}, a keltezést a helység
+          nyelvhelyes nevével ÉS a törzs-szöveget — nincs többé külön román sablon, amely
+          magyar kerettel keveredhetne.
         </li>
         <li>
           A <strong>személy-kereső</strong> a tagnyilvántartásból dolgozik — a kiválasztott
-          személy(ek) anyakönyvi adatai (keresztelés, konfirmálás, házasság) automatikusan
-          töltik a sablon-mezőket.
+          személyek (a dokumentumtól függően akár 4 fő) anyakönyvi adatai automatikusan
+          töltik a szöveget, személyenként külön bekezdéssel. A választó alatt látszik az
+          irat <strong>ügykör- és irattári besorolása</strong> is.
         </li>
         <li>
-          A <strong>hivatalos levélfej</strong> magyarul vagy románul készül a gyülekezet
-          beállított adataiból (név, cím, CIF, elérhetőségek, címer).
+          Ha a kiválasztott személynél <strong>hiányzik a keresztelés, konfirmálás vagy
+          házasság dátuma</strong>, a {'„Bevezetés az anyakönyvbe"'} gombbal helyben
+          pótolható — a bejegyzés valóban az anyakönyvbe kerül, és az igazolás azonnal
+          kitöltődik vele.
+        </li>
+        <li>
+          A <strong>saját sablonok</strong> (Sablonok fül) továbbra is használhatók a
+          {' „Saját sablonok"'} csoportból — azok a megírt nyelvükön maradnak, a keret
+          követi a kiválasztott nyelvet.
         </li>
         <li>
           A <strong>{'„Kiállítás és iktatás"'}</strong> gomb kimenő iratként, a MAI kelttel,
@@ -1144,21 +1155,23 @@ function DigitalContent() {
         aláírt <strong>másodpéldány</strong> pedig az irattárba kerül.
       </Callout>
 
-      <S>Életút- és családi igazolás (háromnyelvű)</S>
+      <S>Életút- és családi igazolás</S>
       <p>
-        A kiállító sablon-választójának <Pill tone="teal">⭐ Életút- és családi igazolás</Pill>{' '}
+        A kiállító választójának <Pill tone="teal">⭐ Életút- és családi igazolás</Pill>{' '}
         pontja egyetlen egyháztag <strong>teljes egyházi életútját</strong> (keresztelés,
-        konfirmáció, házasság, gyermekek, elhalálozás és nyughely) állítja ki
-        magyar–román–angol, számozott mezős hivatalos nyomtatványként, anyakönyvi
-        (kötet/folyószám) hivatkozásokkal — akár hatósági, bírósági felhasználásra is.
-        Ha az anyakönyvi nyilvántartásból kötelező adat hiányzik, a rendszer{' '}
-        <strong>nyomtatható TODO-listát</strong> ad (mit kell megkeresni és hová bevezetni);
-        az igazolás ilyenkor is kiállítható, a hiányzó rovatok kitöltő-vonallal jelennek meg.
+        konfirmáció, házasság, gyermekek, elhalálozás és nyughely) állítja ki számozott
+        mezős hivatalos nyomtatványként, anyakönyvi (kötet/folyószám) hivatkozásokkal —
+        akár hatósági, bírósági felhasználásra is. Az {'„Igazolás nyelve"'} választóval
+        készülhet <strong>háromnyelvű</strong> (alapértelmezés, magyar–román–angol) vagy
+        egynyelvű (magyar / román / angol) változat. Ha az anyakönyvi nyilvántartásból
+        kötelező adat hiányzik, a rendszer <strong>nyomtatható TODO-listát</strong> ad
+        (mit kell megkeresni és hová bevezetni); az igazolás ilyenkor is kiállítható, a
+        hiányzó rovatok kitöltő-vonallal jelennek meg.
       </p>
 
       <S>Egyháztag átadása másik egyházközségnek</S>
       <p>
-        Az {'„Egyháztag átadása másik egyházközségnek"'} sablonnál a kiállítóban{' '}
+        Az {'„Egyháztag átadása másik egyházközségnek"'} dokumentumnál a kiállítóban{' '}
         <strong>cél-egyházközség kereső</strong> jelenik meg. Az iktatás után a rendszer
         automatikusan rögzíti az átadás tényét: a tag státusza {'„elköltözött"'} lesz, a
         cél-egyházközség lelkésze pedig <strong>átjelentkezési értesítést</strong> kap az

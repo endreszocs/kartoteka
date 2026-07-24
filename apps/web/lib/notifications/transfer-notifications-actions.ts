@@ -15,12 +15,21 @@
  *      - accepted: a tag congregation_id-je az új gyülekezetre vált
  *      - rejected: a tag marad az eredeti gyülekezetnél
  *   5. Mindkét esetben a forrás-lelkész egy ertesitesek üzenetet kap
+ *   6. F8c (2026-07-25) — ELFOGADÁSKOR best-effort formaságok: automatikus
+ *      visszaigazoló válaszlevél a fogadó iktatójában KIMENŐ iratként
+ *      (saveFilingEntry), a KÜLDŐ iktatójában BEJÖVŐ iratként
+ *      (iktato_atadas_bejegyzes SECURITY DEFINER RPC — auth-horgonya az
+ *      imént elbírált kérelem), és a levél szövege in-app üzenetként a
+ *      küldő lelkészeinek. Ezek hibája warnings-ként megy vissza, a
+ *      tag-átvétel (respond-RPC) sikerét NEM befolyásolja.
  */
 
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
+import { saveFilingEntry } from '@/app/(dashboard)/iktato/actions'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { buildAtadasValaszlevelHtml } from '@/lib/iktato/atadas-valaszlevel'
 import { createClient } from '@/lib/supabase/server'
 
 // ─── Típusok ─────────────────────────────────────────────────────────────
@@ -180,7 +189,14 @@ export async function respondToTransferNotification(input: {
   id: string
   status: 'accepted' | 'rejected'
   note?: string
-}): Promise<{ success?: boolean; error?: string }> {
+}): Promise<{
+  success?: boolean
+  error?: string
+  /** F8c: a best-effort formaságok (iktatás/értesítés) nem-blokkoló hibái. */
+  warnings?: string[]
+  /** F8c: a visszaigazoló levél fogadó-oldali (kimenő) iktatószáma, ha sikerült. */
+  valaszIratszam?: string | null
+}> {
   const parsed = respondSchema.safeParse(input)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
@@ -189,17 +205,33 @@ export async function respondToTransferNotification(input: {
 
   const supabase = await createClient()
 
-  // Kizárólag a best-effort visszaigazolás megjelenítési nevéhez kell.
+  // Kizárólag a best-effort visszaigazolás megjelenítési adataihoz kell
+  // (tag-név, gyülekezet-nevek, szemely_id az F8c kereszt-iktatáshoz).
   // Jogosultsági vagy állapotdöntés nem támaszkodhat erre a snapshotra: azt az RPC
   // DB-live adatokból, ugyanabban a tranzakcióban végzi el.
-  let notificationSnapshot: { member_snapshot: unknown } | null = null
+  type CongNameRel =
+    | { name: string | null; nev_hu: string | null }
+    | { name: string | null; nev_hu: string | null }[]
+    | null
+  type TransferSnapshotRow = {
+    szemely_id: number | null
+    member_snapshot: unknown
+    source_congregation: CongNameRel
+    target_congregation: CongNameRel
+  }
+  let notificationSnapshot: TransferSnapshotRow | null = null
   try {
     const { data } = await supabase
       .from('member_transfer_notifications')
-      .select('member_snapshot')
+      .select(`
+        szemely_id,
+        member_snapshot,
+        source_congregation:congregations!source_congregation_id(name, nev_hu),
+        target_congregation:congregations!target_congregation_id(name, nev_hu)
+      `)
       .eq('id', parsed.data.id)
       .maybeSingle()
-    notificationSnapshot = data
+    notificationSnapshot = data as unknown as TransferSnapshotRow | null
   } catch {
     // A megjelenítési snapshot hiánya nem akadályozhatja az atomikus döntést.
   }
@@ -224,6 +256,10 @@ export async function respondToTransferNotification(input: {
     return { error: 'Az átjelentkezési kérelem feldolgozása nem sikerült.' }
   }
 
+  // F8c: a formaságok nem-blokkoló hibái — a hívó UI toastként mutatja őket.
+  const warnings: string[] = []
+  let valaszIratszam: string | null = null
+
   // Idempotens ismétlésnél az RPC changed=false eredményt ad: ilyenkor nem
   // készítünk második visszaigazolást a forrásgyülekezetnek.
   if (result.data.changed) {
@@ -247,9 +283,170 @@ export async function respondToTransferNotification(input: {
     } catch {
       // Best effort: az RPC sikerét egy másodlagos értesítési hiba nem írhatja felül.
     }
+
+    // ── F8c: ELFOGADÁS utáni formaságok (best-effort — a döntés már él) ──
+    // Sorrend a kontraktus szerint: előbb a respond-RPC (fent, atomikus),
+    // utána a formaságok — ezek egyike sem fordíthatja vissza az átvételt.
+    if (result.data.status === 'accepted') {
+      const one = (rel: CongNameRel | undefined): string | null => {
+        const row = Array.isArray(rel) ? rel[0] || null : rel || null
+        return (row?.nev_hu || '').trim() || (row?.name || '').trim() || null
+      }
+      // A hívó a FOGADÓ gyülekezet tagja — a neve az effektív kontextusból is
+      // feloldható, ha a join-os snapshot nem jött össze.
+      const fogadoNev =
+        one(notificationSnapshot?.target_congregation) || access.congregationName || 'gyülekezetünk'
+      const kuldoNev = one(notificationSnapshot?.source_congregation) || 'a küldő egyházközség'
+      // Az eredeti átadó iratszám a B3-as flow-ból: az elkoltozott.megjegyzes
+      // („Egyháztag-átadási igazolás — iktatószám: ÉÉÉÉ/N") a trigger által a
+      // member_snapshot.megjegyzes-be másolva. Import-úton érkezett kérelemnél
+      // nincs ilyen — akkor hivatkozás nélkül megy a levél.
+      const eredetiIratszam =
+        (snapshot?.megjegyzes || '').match(/iktat[oó]sz[aá]m:\s*(\S+)/i)?.[1] || null
+      const ma = new Date().toISOString().slice(0, 10)
+
+      // (a) Visszaigazoló levél a SAJÁT (fogadó) iktatóba — KIMENŐ irat.
+      try {
+        const saveRes = await saveFilingEntry({
+          direction: 'outgoing',
+          kelt: ma,
+          subject: `Átjelentkezés visszaigazolása — ${memberName}`,
+          sender_or_recipient: kuldoNev,
+          external_ref_szam: eredetiIratszam,
+          targykivonat: `A(z) ${fogadoNev} egyházközség elfogadta ${memberName} átjelentkezési kérelmét — visszaigazoló levél a(z) ${kuldoNev} részére.`,
+          has_duplicate: false,
+        })
+        if ('error' in saveRes && saveRes.error) {
+          warnings.push(`A visszaigazoló levél saját (kimenő) iktatása nem sikerült: ${saveRes.error}`)
+        } else if ('sequenceNumber' in saveRes && typeof saveRes.sequenceNumber === 'number') {
+          valaszIratszam = `${saveRes.year}/${saveRes.sequenceNumber}`
+        } else {
+          warnings.push('A visszaigazoló levél kimenő iktatása megtörtént, de a kiosztott iktatószám nem olvasható ki a válaszból.')
+        }
+      } catch (e) {
+        warnings.push(`A visszaigazoló levél kimenő iktatása nem sikerült (${e instanceof Error ? e.message : 'ismeretlen hiba'}).`)
+      }
+
+      // (b) A visszaigazolás BEJÖVŐ iktatása a KÜLDŐ gyülekezetnél — a
+      // SECURITY DEFINER iktato_atadas_bejegyzes RPC-vel (auth-horgonya az
+      // imént elbírált kérelem: target=hívó, source=cél irányban).
+      const szemelyId = notificationSnapshot?.szemely_id
+      if (typeof szemelyId === 'number' && Number.isInteger(szemelyId) && szemelyId > 0) {
+        try {
+          const { error: crossErr } = await supabase.rpc('iktato_atadas_bejegyzes', {
+            p_szemely_id: szemelyId,
+            p_target_congregation_id: result.data.source_congregation_id,
+            p_direction: 'incoming',
+            p_subject: `Átjelentkezés visszaigazolása — ${memberName} (érkezett: ${fogadoNev})`,
+            p_sender_or_recipient: fogadoNev,
+            p_kelt: ma,
+            p_external_ref_szam: valaszIratszam,
+            p_targykivonat: `A(z) ${fogadoNev} egyházközség elfogadta ${memberName} átjelentkezési kérelmét${eredetiIratszam ? ` (eredeti irat: ${eredetiIratszam})` : ''}.`,
+          })
+          if (crossErr) {
+            // PGRST202 / 42883 = az RPC még nincs telepítve az adatbázisban.
+            const rpcMissing =
+              crossErr.code === 'PGRST202' ||
+              crossErr.code === '42883' ||
+              /could not find the function/i.test(crossErr.message)
+            warnings.push(
+              rpcMissing
+                ? 'A visszaigazolás a küldő gyülekezet iktatójába NEM került be: a kereszt-gyülekezeti iktató funkció (iktato_atadas_bejegyzes) még nincs telepítve az adatbázisban.'
+                : `A visszaigazolás a küldő gyülekezet iktatójába nem került be (${crossErr.message}).`,
+            )
+          }
+        } catch (e) {
+          warnings.push(`A visszaigazolás küldő-oldali iktatása nem sikerült (${e instanceof Error ? e.message : 'ismeretlen hiba'}).`)
+        }
+      } else {
+        warnings.push('A visszaigazolás küldő-oldali iktatásához nem sikerült kiolvasni a személy-azonosítót — a küldő iktatójába nem került bejövő irat.')
+      }
+
+      // (c) Best-effort: a válaszlevél SZÖVEGE in-app üzenetként a küldő
+      // gyülekezet lelkészeinek (címzett-kör az atadas-actions mintája
+      // szerint; az INSERT sima lelkésznél az ertesitesek RLS-én elbukhat —
+      // ilyenkor warning, a fenti általános visszaigazoló értesítés már él).
+      try {
+        const [profRes, roleRes] = await Promise.all([
+          supabase
+            .from('profiles')
+            .select('id')
+            .eq('congregation_id', result.data.source_congregation_id)
+            .eq('role', 'lelkesz')
+            .eq('status', 'active'),
+          supabase
+            .from('profile_roles')
+            .select('profile_id')
+            .eq('scope', 'congregation')
+            .eq('scope_id', result.data.source_congregation_id)
+            .eq('role', 'lelkesz')
+            .eq('approval_status', 'approved')
+            .eq('active', true),
+        ])
+        const recipientIds = new Set<string>()
+        for (const r of (profRes.data || []) as Array<{ id: string }>) recipientIds.add(r.id)
+        for (const r of (roleRes.data || []) as Array<{ profile_id: string }>) recipientIds.add(r.profile_id)
+
+        if (recipientIds.size === 0) {
+          warnings.push('A küldő gyülekezethez nem található aktív lelkész-profil — a válaszlevél szövege in-app üzenetként nem ment ki (az általános visszaigazoló értesítés így is megjelenik).')
+        } else {
+          const letterHtml = buildAtadasValaszlevelHtml({
+            fogadoGyulekezet: fogadoNev,
+            kuldoGyulekezet: kuldoNev,
+            szemelyNev: memberName,
+            eredetiIratszam,
+            valaszIratszam: valaszIratszam || '—',
+            kelt: new Date().toLocaleDateString('hu-HU', { year: 'numeric', month: 'long', day: 'numeric' }),
+            lelkipasztor: access.fullName || '',
+          })
+          const rows = Array.from(recipientIds).map((rid) => ({
+            user_id: rid,
+            congregation_id: result.data.source_congregation_id,
+            cim: `Átjelentkezés visszaigazolása érkezett: ${memberName}`,
+            uzenet: htmlToPlainText(letterHtml),
+            tipus: 'info',
+            hivatkozas: '/notifications',
+          }))
+          const { error: notifErr } = await supabase.from('ertesitesek').insert(rows)
+          if (notifErr) {
+            warnings.push(`A válaszlevél in-app kézbesítését az értesítés-tábla jogosultsági szabálya (RLS) elutasította (${notifErr.message}) — az általános visszaigazoló értesítés így is megjelenik a küldőnél.`)
+          }
+        }
+      } catch (e) {
+        warnings.push(`A válaszlevél in-app kézbesítése nem sikerült (${e instanceof Error ? e.message : 'ismeretlen hiba'}).`)
+      }
+    }
   }
 
   revalidatePath('/notifications')
   revalidatePath('/tagnyilvantartas')
-  return { success: true }
+  return { success: true, warnings, valaszIratszam }
+}
+
+// ─── Belső segéd (nem exportált — 'use server' modul csak async function-t
+// exportálhat, lásd MEMORY: nextjs16_use_server_only_async) ────────────────
+
+/**
+ * A válaszlevél HTML-je → olvasható sima szöveg az ertesitesek.uzenet
+ * törzsébe (a bell-dropdown sima szövegként jelenít meg). Az atadas-actions
+ * azonos nevű segédjének mintája; a style/script blokkok kidobva.
+ */
+function htmlToPlainText(html: string): string {
+  const MAX_LEN = 6000
+  const text = String(html || '')
+    .replace(/<(style|script)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replaceAll('&nbsp;', ' ')
+    .replaceAll('&amp;', '&')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#39;', "'")
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\s*\n\s*/g, '\n')
+    .trim()
+  if (text.length <= MAX_LEN) return text
+  return `${text.slice(0, MAX_LEN)}\n… (a szöveg levágva — a teljes levél a fogadó gyülekezet iktatójában, a fenti iktatószámon érhető el)`
 }

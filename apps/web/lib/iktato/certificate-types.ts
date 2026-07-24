@@ -66,6 +66,12 @@ export interface CongregationHeaderData {
   web: string | null
   /** congregations.cimer_url — a fejléc-címer (logó) képe. */
   cimerUrl: string | null
+  /** A gyülekezet helységének MAGYAR neve (adrlocality.name_hu, fallback:
+   *  a szabad szöveges varos mező) — a magyar keltezés-sorhoz (F8c). */
+  helysegHu: string | null
+  /** A helység ROMÁN neve (adrlocality.name_ro) — a román/angol keltezés-
+   *  sorhoz; ha nincs strukturált helység-hivatkozás, null (F8c). */
+  helysegRo: string | null
 }
 
 /** A többnyelvű fejléc nyelvei. */

@@ -50,6 +50,29 @@
  *    debounced) — a kiválasztott név a {{cel_gyulekezet}} placeholderbe kerül,
  *    sikeres iktatás után pedig a registerAtadas rögzíti az átadás tényét
  *    (tag-státusz „elköltözött" + átjelentkezési értesítés a cél-gyülekezetnek).
+ *
+ * 2026-07-25 (F8c — nyelvfüggetlen dokumentum-családok) éles teszt-észrevételek
+ * nyomán a kiállító elsődleges útja a DOKUMENTUM-CSALÁD lett
+ * (lib/iktato/dokumentum-csaladok.ts):
+ *  - a NYELV a DOKUMENTUM tulajdonsága: EGYETLEN „Dokumentum nyelve" (hu/ro/en)
+ *    választó vezérli a fejlécet (buildLetterheadHtml), a Szám/Tárgy címkéket
+ *    (NYELV_CIMKEK), a keltezést (keltezesSor + a helység nyelvhelyes neve:
+ *    helysegHu/helysegRo) ÉS a család-törzset (buildBody) — nincs többé külön
+ *    „román sablon", ami magyar kerettel keveredhetne;
+ *  - a sablon-választó CSOPORTOSÍTOTT: ⭐ Életút → Igazolások (családok) →
+ *    Levelek (családok + Szabad levél) → Saját sablonok (a DB-ből, a 11 seed-név
+ *    kiszűrve — azok szerepét a családok vették át; a Sablonok fül változatlan);
+ *  - a család maxSzemely-e vezérli a kereső-limitet, a törzs personönkénti
+ *    bekezdésekkel épül; az iktatókönyvi tárgy automatikusan
+ *    „{család neve} — {nevek}" (szerkeszthető marad);
+ *  - ANYAKÖNYVI GYORS-BEVEZETÉS: ha a kiválasztott személynél hiányzik a
+ *    keresztelés/konfirmálás/házasság dátuma, mini-űrlap hívja a meglévő
+ *    anyakönyvi CREATE actionöket (saveBaptism/saveConfirmationBatch/
+ *    saveMarriage), majd a személy-adatok újratöltődnek — az anyakönyv is
+ *    gazdagodik (a registry-dialógusok személy-előtöltése csak edit-módú
+ *    editEntry-n át megy, ezért nem újrahasznosíthatók create-ra);
+ *  - életút-módban új „Igazolás nyelve" választó (hu/ro/en/háromnyelvű) →
+ *    buildEletutIgazolasHtml nyelvMod.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -57,6 +80,7 @@ import {
   AlertTriangle,
   BadgeCheck,
   Building2,
+  CalendarPlus,
   Download,
   ListChecks,
   Loader2,
@@ -93,7 +117,17 @@ import {
 import { getEletutAdat } from '@/app/(dashboard)/iktato/eletut-actions'
 import { registerAtadas, searchCongregations } from '@/app/(dashboard)/iktato/atadas-actions'
 import {
+  saveBaptism,
+  saveConfirmationBatch,
+  saveMarriage,
+} from '@/app/(dashboard)/anyakonyv/actions'
+import {
+  MemberSearchSelect,
+  type MemberSearchResult,
+} from '@/components/registry/member-search-select'
+import {
   PLACEHOLDER_DOCS,
+  SEED_TEMPLATES,
   buildAutoValues,
   escapeHtml,
   extractPlaceholders,
@@ -103,7 +137,19 @@ import {
   type TemplateType,
 } from '@/lib/filing/templates'
 import { buildLetterheadHtml, LETTERHEAD_LANGS } from '@/lib/iktato/letterheads'
-import { buildEletutIgazolasHtml, buildEletutTodoHtml } from '@/lib/iktato/eletut-igazolas'
+import {
+  DOKUMENTUM_CSALADOK,
+  NYELV_CIMKEK,
+  getDokumentumCsalad,
+  keltezesSor,
+  type DokumentumCsalad,
+  type DokumentumNyelv,
+} from '@/lib/iktato/dokumentum-csaladok'
+import {
+  buildEletutIgazolasHtml,
+  buildEletutTodoHtml,
+  type EletutNyelvMod,
+} from '@/lib/iktato/eletut-igazolas'
 import type { EletutAdat, EletutHiany, EletutIgazolasData } from '@/lib/iktato/eletut-types'
 import type { CongregationSearchHit } from '@/lib/iktato/atadas-types'
 import type {
@@ -129,6 +175,23 @@ const FREE_LETTER_ID = '__szabad_level__'
 /** Az életút-/családi igazolás (F8b) speciális mód virtuális azonosítója. */
 const ELETUT_ID = '__eletut_igazolas__'
 
+/** A dokumentum-családok virtuális select-értékének előtagja (F8c). */
+const CSALAD_PREFIX = '__csalad__:'
+
+/**
+ * A beépített seed-sablonok nevei — a kiállító „Saját sablonok" csoportjából
+ * KISZŰRVE (F8c): a szerepüket a nyelvfüggetlen dokumentum-családok vették át,
+ * így nem dupláznák a választót. A Sablonok fül (szerkesztés/pótlás) változatlan.
+ */
+const SEED_NEV_SET = new Set(SEED_TEMPLATES.map((t) => t.nev))
+
+/** Az aláírás-blokk szerep-felirata a dokumentum nyelvén (F8c, család-út). */
+const ALAIRO_SZEREP: Record<DokumentumNyelv, string> = {
+  hu: 'lelkipásztor',
+  ro: 'preot paroh',
+  en: 'minister',
+}
+
 /** Az egyháztag-átadás flow-t bekapcsoló seed-sablon neve (név-alapú felismerés). */
 const ATADAS_SABLON_NEV = 'Egyháztag átadása másik egyházközségnek'
 
@@ -152,6 +215,8 @@ const URES_FEJLEC: CongregationHeaderData = {
   cif: null,
   web: null,
   cimerUrl: null,
+  helysegHu: null,
+  helysegRo: null,
 }
 
 /** Legfeljebb ennyi személy választható ki (pl. házaspár + 2 gyermek). */
@@ -278,13 +343,9 @@ function bodyHasOwnTargy(body: string): boolean {
   return /(Tárgy|Obiect|Subject)\s*:/i.test(body.slice(0, 400))
 }
 
-// A keret „Szám:" és „Tárgy:" címkéi a fejléc nyelvét követik (2026-07-25,
-// user-visszajelzés): román irathoz „Nr. / Obiect", angolhoz „No. / Subject".
-const KERET_CIMKEK: Record<LetterheadLang, { szam: string; targy: string }> = {
-  hu: { szam: 'Szám', targy: 'Tárgy' },
-  ro: { szam: 'Nr.', targy: 'Obiect' },
-  en: { szam: 'No.', targy: 'Subject' },
-}
+// A keret „Szám:" és „Tárgy:" címkéi a DOKUMENTUM nyelvét követik (F8c):
+// a kanonikus címke-készlet a dokumentum-családok moduljából jön
+// (NYELV_CIMKEK — „Szám/Tárgy", „Nr./Obiect", „No./Subject").
 
 /**
  * A dokumentum-sablon összeállítása a törzsből:
@@ -305,7 +366,7 @@ function buildAssembledTemplate(
   const hasIratszam = /\{\{\s*iratszam\s*\}\}/.test(body)
   const hasClosing = /\{\{\s*lelkipasztor\s*\}\}/.test(body)
   const topPad = opts.hasLetterhead ? 8 : 36
-  const cimkek = KERET_CIMKEK[opts.lang]
+  const cimkek = NYELV_CIMKEK[opts.lang]
 
   const targyText = (opts.targy || '').trim()
   const wantsTargy = Boolean(targyText) && !bodyHasOwnTargy(body)
@@ -358,6 +419,218 @@ function buildAssembledTemplate(
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Anyakönyvi gyors-bevezetés (F8c — user 3. pont)
+// ─────────────────────────────────────────────────────────────────
+
+/** A gyors-bevezetéssel pótolható anyakönyvi események. */
+type AnyakonyvKind = 'kereszteles' | 'konfirmalas' | 'hazassag'
+
+const ANYAKONYV_KIND_CIMKE: Record<AnyakonyvKind, string> = {
+  kereszteles: 'keresztelési dátum',
+  konfirmalas: 'konfirmálási dátum',
+  hazassag: 'egyházi házasság',
+}
+
+const ANYAKONYV_KIND_DATUM_CIMKE: Record<AnyakonyvKind, string> = {
+  kereszteles: 'A keresztelés dátuma',
+  konfirmalas: 'A konfirmálás dátuma',
+  hazassag: 'A házasságkötés dátuma',
+}
+
+/** Melyik dokumentum-családhoz melyik anyakönyvi dátum kell (F8c). */
+const CSALAD_ANYAKONYV_KINDS: Record<string, AnyakonyvKind[]> = {
+  keresztelesi_igazolas: ['kereszteles'],
+  konfirmacioi_igazolas: ['konfirmalas'],
+  esketesi_igazolas: ['hazassag'],
+  egyhaztag_atadas: ['kereszteles', 'konfirmalas'],
+}
+
+function hianyzikAnyakonyviDatum(p: PersonCertData, kind: AnyakonyvKind): boolean {
+  if (kind === 'kereszteles') return !p.keresztelesDatum
+  if (kind === 'konfirmalas') return !p.konfirmalasDatum
+  return !p.hazassagDatum
+}
+
+/**
+ * Egy hiányzó anyakönyvi adat sora „Bevezetés az anyakönyvbe" mini-űrlappal.
+ *
+ * DOKUMENTÁLT DÖNTÉS (F8c): az anyakönyvi modul rögzítő dialógusai
+ * (BaptismDialog / ConfirmationDialog / MarriageDialog) személy-előtöltést
+ * csak az `editEntry` propon át ismernek, az viszont SZERKESZTŐ (update)
+ * módba kapcsolja őket — előtöltött személlyel ÚJ bejegyzés nem nyitható a
+ * módosításuk nélkül, ezért nem újrahasznosíthatók create-ra. Helyette ez a
+ * minimál mini-űrlap közvetlenül a meglévő anyakönyvi CREATE actionöket hívja
+ * (saveBaptism / saveConfirmationBatch / saveMarriage — az egyházi anyakönyvi
+ * számot a szerver automatikusan sorszámozza), a mentés után pedig a kiállító
+ * újratölti a személy adatait (getPersonCertificateData) — a bevezetett adat
+ * a dokumentum helyére kerül ÉS az anyakönyv is gazdagodik.
+ */
+function QuickRegistryEntry({
+  person,
+  kind,
+  onSaved,
+}: {
+  person: PersonCertData
+  kind: AnyakonyvKind
+  onSaved: () => Promise<void> | void
+}) {
+  const [formOpen, setFormOpen] = useState(false)
+  const [datum, setDatum] = useState('')
+  const [spouse, setSpouse] = useState<MemberSearchResult | null>(null)
+  const [saving, setSaving] = useState(false)
+  const datumId = `iktato-anyakonyv-${person.id}-${kind}`
+
+  async function handleSave() {
+    if (!datum) {
+      toast.error('A dátum megadása kötelező.')
+      return
+    }
+    setSaving(true)
+    try {
+      if (kind === 'kereszteles') {
+        const res = await saveBaptism({ id_szemely: person.id, datum, munkanaploba: false })
+        if (res?.error) {
+          toast.error(res.error)
+          return
+        }
+      } else if (kind === 'konfirmalas') {
+        const res = await saveConfirmationBatch({
+          datum,
+          candidates: [person.id],
+          munkanaploba: false,
+        })
+        if (res?.error) {
+          toast.error(res.error)
+          return
+        }
+      } else {
+        if (!spouse) {
+          toast.error('A házasság bevezetéséhez válaszd ki a házastársat is.')
+          return
+        }
+        // Vőlegény/menyasszony a nem-mezők szerint (a hazassag tábla
+        // id_ferfi/id_no oszlopaihoz); ha egyik nem sem ismert, nem találgatunk.
+        let idFerfi: number | null = null
+        let idNo: number | null = null
+        if (person.nem === 'ferfi') {
+          idFerfi = person.id
+          idNo = spouse.id
+        } else if (person.nem === 'no') {
+          idNo = person.id
+          idFerfi = spouse.id
+        } else if (spouse.ferfi === true) {
+          idFerfi = spouse.id
+          idNo = person.id
+        } else if (spouse.ferfi === false) {
+          idNo = spouse.id
+          idFerfi = person.id
+        }
+        if (idFerfi == null || idNo == null) {
+          toast.error(
+            'Nem állapítható meg, ki a vőlegény és ki a menyasszony (hiányzó nem-adat) — rögzítsd a házasságot az Anyakönyv modulban.',
+          )
+          return
+        }
+        const res = await saveMarriage({ id_ferfi: idFerfi, id_no: idNo, datum })
+        if (res?.error) {
+          toast.error(res.error)
+          return
+        }
+      }
+      toast.success('Bevezetve az anyakönyvbe — az adat a dokumentumba került, és az anyakönyv is gazdagodott.')
+      setFormOpen(false)
+      setDatum('')
+      setSpouse(null)
+      await onSaved()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-amber-300/70 bg-amber-50 p-2.5 text-xs dark:border-amber-500/40 dark:bg-amber-500/10">
+      <div className="flex flex-wrap items-center justify-between gap-1.5">
+        <p className="flex min-w-0 items-start gap-1.5 font-medium text-amber-900 dark:text-amber-200">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+          <span className="min-w-0">
+            <b>{person.teljesNev}</b>: hiányzó {ANYAKONYV_KIND_CIMKE[kind]}
+          </span>
+        </p>
+        {!formOpen ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 rounded-lg text-xs"
+            onClick={() => setFormOpen(true)}
+          >
+            <CalendarPlus className="mr-1 size-3.5" aria-hidden />
+            Bevezetés az anyakönyvbe
+          </Button>
+        ) : null}
+      </div>
+      {formOpen ? (
+        <div className="mt-2 space-y-2">
+          <div className="space-y-1">
+            <label htmlFor={datumId} className="text-[11px] font-medium text-foreground">
+              {ANYAKONYV_KIND_DATUM_CIMKE[kind]}
+            </label>
+            <Input
+              id={datumId}
+              type="date"
+              value={datum}
+              onChange={(e) => setDatum(e.target.value)}
+              className="h-8 bg-background text-xs"
+            />
+          </div>
+          {kind === 'hazassag' ? (
+            <div className="space-y-1">
+              <span className="text-[11px] font-medium text-foreground">
+                Házastárs (a tagnyilvántartásból)
+              </span>
+              <MemberSearchSelect
+                value={spouse}
+                onChange={setSpouse}
+                genderFilter={person.nem === 'ferfi' ? false : person.nem === 'no' ? true : undefined}
+                compact
+                placeholder="Házastárs keresése…"
+              />
+            </div>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              className="h-7 rounded-lg text-xs"
+              onClick={() => void handleSave()}
+              disabled={saving}
+            >
+              {saving ? <Loader2 className="mr-1 size-3.5 animate-spin" aria-hidden /> : null}
+              Bevezetés
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 rounded-lg text-xs"
+              onClick={() => setFormOpen(false)}
+              disabled={saving}
+            >
+              Mégse
+            </Button>
+          </div>
+          <p className="text-[10px] leading-snug text-amber-900/80 dark:text-amber-100/80">
+            A bevezetés valódi anyakönyvi bejegyzést hoz létre (az egyházi anyakönyvi számot a
+            rendszer sorszámozza); a további részletek (lelkész, keresztszülők, tanúk…) az
+            Anyakönyv modulban pótolhatók.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Komponens
 // ─────────────────────────────────────────────────────────────────
 
@@ -391,14 +664,19 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   const [persons, setPersons] = useState<PersonCertData[]>([])
   const [loadingPersons, setLoadingPersons] = useState(false)
 
-  // (c) fejléc
-  const [lang, setLang] = useState<LetterheadLang | ''>('hu')
+  // (c) A DOKUMENTUM NYELVE (F8c) — EGYETLEN választó vezérli a fejlécet,
+  // a Szám/Tárgy címkéket, a keltezést és a család-törzsek szövegét.
+  const [docLang, setDocLang] = useState<DokumentumNyelv>('hu')
+  // A hivatalos levélfej elhagyható (a régi „Fejléc nélkül" opció utódja).
+  const [noLetterhead, setNoLetterhead] = useState(false)
   const [header, setHeader] = useState<CongregationHeaderData | null>(null)
   const [headerError, setHeaderError] = useState<string | null>(null)
 
   // (d) értékek
   const [autoValues, setAutoValues] = useState<Record<string, string>>({})
   const [manualValues, setManualValues] = useState<Record<string, string>>({})
+  // A dokumentum-családok kézi mezőinek értékei (F8c, kulcs → érték).
+  const [keziValues, setKeziValues] = useState<Record<string, string>>({})
   const [previewIratszam, setPreviewIratszam] = useState('')
   const [loadingCtx, setLoadingCtx] = useState(false)
 
@@ -419,6 +697,8 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   const [eletutCel, setEletutCel] = useState(ELETUT_CEL_ALAPERTEK)
   const [eletutSirhely, setEletutSirhely] = useState('')
   const [eletutFogondnok, setEletutFogondnok] = useState('')
+  // F8c: az életút-nyomtatvány nyelv-módja — default a háromnyelvű változat.
+  const [eletutNyelvMod, setEletutNyelvMod] = useState<EletutNyelvMod>('harom')
 
   // ── Átadás-mód (F8b — B4): cél-egyházközség kereső ───────────────
   const [congQuery, setCongQuery] = useState('')
@@ -434,24 +714,58 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
 
   const szabad = templateId === FREE_LETTER_ID
   const eletutMode = templateId === ELETUT_ID
+  // F8c: a kiválasztott dokumentum-család (az új elsődleges út).
+  const selectedCsalad = useMemo<DokumentumCsalad | null>(
+    () =>
+      templateId.startsWith(CSALAD_PREFIX)
+        ? getDokumentumCsalad(templateId.slice(CSALAD_PREFIX.length))
+        : null,
+    [templateId],
+  )
   const selectedTemplate = useMemo(
     () => templates.find((t) => t.id === templateId) || null,
     [templates, templateId],
   )
-  // Átadás-mód: NÉV-alapú felismerés a seed-sablonra (a régi, DB-ben maradt
-  // példányok id-je gyülekezetenként más — a név viszont stabil).
+  // F8c: a „Saját sablonok" csoport — a 11 seed-név kiszűrve (a családok
+  // váltják ki őket); a saját sablonok a régi egynyelvű úton működnek tovább.
+  const sajatSablonok = useMemo(
+    () => templates.filter((t) => !SEED_NEV_SET.has((t.nev || '').trim())),
+    [templates],
+  )
+  // Átadás-mód: az „egyhaztag_atadas" CSALÁD, illetve (visszafelé
+  // kompatibilitásként) a seed-sablon NÉV-alapú felismerése (a régi, DB-ben
+  // maradt példányok id-je gyülekezetenként más — a név viszont stabil).
   const atadasMode =
-    !szabad && !eletutMode && (selectedTemplate?.nev || '').trim() === ATADAS_SABLON_NEV
+    selectedCsalad?.id === 'egyhaztag_atadas' ||
+    (!szabad &&
+      !eletutMode &&
+      !selectedCsalad &&
+      (selectedTemplate?.nev || '').trim() === ATADAS_SABLON_NEV)
   const docTitle = eletutMode
     ? 'Életút- és családi igazolás'
-    : selectedTemplate?.nev || 'Szabad levél'
+    : selectedCsalad?.nev || selectedTemplate?.nev || 'Szabad levél'
   const nevek = useMemo(() => joinNamesHu(persons.map((p) => p.teljesNev)), [persons])
-  // Az életút-igazolás a 2. ügykörbe tartozik (anya- és családkönyvi igazolások).
+  // F8c: nevek vesszős felsorolása — a család-út iktatókönyvi tárgyához.
+  const nevekVesszo = useMemo(
+    () =>
+      persons
+        .map((p) => (p.teljesNev || '').trim())
+        .filter(Boolean)
+        .join(', '),
+    [persons],
+  )
+  // F8c: a család maxSzemely-e vezérli a kereső-limitet (0 = nem személyhez
+  // kötött dokumentum — a személy-szekció ilyenkor el is tűnik).
+  const maxSzemelyLimit = eletutMode ? 1 : selectedCsalad ? selectedCsalad.maxSzemely : MAX_PERSONS
+  // Az életút-igazolás a 2. ügykörbe tartozik (anya- és családkönyvi igazolások);
+  // a családok a saját (látható) ügykör-besorolásukat hozzák.
   const ugykorKod: string | null = eletutMode
     ? '2.'
-    : szabad
-      ? '1.'
-      : (selectedTemplate ? TIPUS_UGYKOR[selectedTemplate.tipus] ?? null : null)
+    : selectedCsalad
+      ? selectedCsalad.ugykorKod
+      : szabad
+        ? '1.'
+        : (selectedTemplate ? TIPUS_UGYKOR[selectedTemplate.tipus] ?? null : null)
 
   // 2026-07-24 (W2): a kezdeti személy-id-k STABIL kulcsa — a tömb-identitás
   // renderenként változhat (a szülő pl. inline `[member.id]`-t ad át), a
@@ -473,8 +787,10 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     setHits([])
     setSearchError(null)
     setPersons([])
-    setLang('hu')
+    setDocLang('hu')
+    setNoLetterhead(false)
     setManualValues({})
+    setKeziValues({})
     setSubject('')
     setSubjectTouched(false)
     setIssuing(false)
@@ -493,6 +809,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     setEletutCel(ELETUT_CEL_ALAPERTEK)
     setEletutSirhely('')
     setEletutFogondnok('')
+    setEletutNyelvMod('harom')
     setCongQuery('')
     setCongHits([])
     setCongError(null)
@@ -548,7 +865,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
           if (cancelled) return
           if (!reloadRes.error && (reloadRes.data || []).length > 0) {
             tplList = reloadRes.data || []
-            toast.success('A 11 alapsablon automatikusan betöltésre került.')
+            toast.success('A 11 alapsablon betöltésre került a Sablonok fülre.')
           } else {
             seedFailed = true
           }
@@ -669,9 +986,11 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
 
   function selectCelCongregation(hit: CongregationSearchHit) {
     setCelCongregation(hit)
-    // A kiválasztott név a {{cel_gyulekezet}} placeholderbe kerül (a mező-
-    // űrlapon kézzel tovább finomítható, pl. hivatalos hosszú név).
+    // A kiválasztott név a {{cel_gyulekezet}} placeholderbe (régi sablon-út),
+    // ÉS a család kézi mezőjébe kerül (F8c) — a mező-űrlapon kézzel tovább
+    // finomítható, pl. hivatalos hosszú név.
     setManualValues((prev) => ({ ...prev, cel_gyulekezet: hit.nev }))
+    setKeziValues((prev) => ({ ...prev, cel_gyulekezet: hit.nev }))
     setCongQuery('')
     setCongHits([])
   }
@@ -679,6 +998,11 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   function clearCelCongregation() {
     setCelCongregation(null)
     setManualValues((prev) => {
+      const next = { ...prev }
+      delete next.cel_gyulekezet
+      return next
+    })
+    setKeziValues((prev) => {
       const next = { ...prev }
       delete next.cel_gyulekezet
       return next
@@ -702,8 +1026,10 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
       setHits([])
       return
     }
-    if (persons.length >= MAX_PERSONS) {
-      toast.info(`Legfeljebb ${MAX_PERSONS} személy választható ki.`)
+    // F8c: a limit a kiválasztott dokumentum-család maxSzemely-e (családon
+    // kívül a régi MAX_PERSONS plafon él).
+    if (maxSzemelyLimit <= 0 || persons.length >= maxSzemelyLimit) {
+      toast.info(`Ehhez a dokumentumhoz legfeljebb ${Math.max(1, maxSzemelyLimit)} személy választható ki.`)
       return
     }
     setLoadingPersons(true)
@@ -730,11 +1056,48 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     setPersons((prev) => prev.filter((p) => p.id !== id))
   }
 
-  // ── Sablon-váltás: törzs + iktatási tárgy frissítése ─────────────
+  // F8c: az anyakönyvi gyors-bevezetés utáni újratöltés — a bevezetett adat
+  // a helyére kerül (a személy-kezelt kézi felülírások törlésével, ahogy az
+  // addPerson is teszi).
+  const reloadPersons = useCallback(async () => {
+    const ids = persons.map((p) => p.id).filter((n) => Number.isInteger(n) && n > 0)
+    if (ids.length === 0) return
+    const res = await getPersonCertificateData(ids)
+    if (res.error) {
+      toast.error(res.error)
+      return
+    }
+    setPersons(res.persons)
+    setManualValues((prev) => {
+      const next: Record<string, string> = {}
+      for (const [k, v] of Object.entries(prev)) if (!PERSON_MANAGED_KEYS.has(k)) next[k] = v
+      return next
+    })
+  }, [persons])
+
+  // ── Sablon-váltás: törzs + kézi mezők + iktatási tárgy frissítése ──
   function handleTemplateChange(nextId: string) {
     setTemplateId(nextId)
     const tpl = templates.find((t) => t.id === nextId) || null
-    setBody(nextId === FREE_LETTER_ID || nextId === ELETUT_ID ? '' : tpl?.tartalom || '')
+    const csalad = nextId.startsWith(CSALAD_PREFIX)
+      ? getDokumentumCsalad(nextId.slice(CSALAD_PREFIX.length))
+      : null
+    setBody(nextId === FREE_LETTER_ID || nextId === ELETUT_ID || csalad ? '' : tpl?.tartalom || '')
+    // F8c: család-váltásnál a kézi mezők alapértékekkel indulnak, a
+    // személy-lista a család maxSzemely-limitjére vágva (0 = nem személyhez
+    // kötött → üres lista, a személy-szekció el is tűnik).
+    if (csalad) {
+      const kezdo: Record<string, string> = {}
+      for (const m of csalad.keziMezok) if (m.alapertek) kezdo[m.key] = m.alapertek
+      // Átadás-családnál a már kiválasztott cél-gyülekezet neve megmarad.
+      if (csalad.id === 'egyhaztag_atadas' && celCongregation) {
+        kezdo.cel_gyulekezet = celCongregation.nev
+      }
+      setKeziValues(kezdo)
+      setPersons((prev) => prev.slice(0, csalad.maxSzemely))
+    } else {
+      setKeziValues({})
+    }
     // Életút-módban EGY személy választható — a többes kiválasztásból az
     // 1. személy marad (az adat-betöltést a személy-figyelő effekt indítja).
     if (nextId === ELETUT_ID) setPersons((prev) => prev.slice(0, 1))
@@ -744,10 +1107,11 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   }
 
   // Az iktatókönyvi tárgy automatikus követése, amíg a user nem írta át.
-  const autoSubject = useMemo(
-    () => `${docTitle}${nevek ? ` — ${nevek}` : ''}`,
-    [docTitle, nevek],
-  )
+  // F8c: család-útnál „{család neve} — {nevek vesszővel}".
+  const autoSubject = useMemo(() => {
+    const nevResz = selectedCsalad ? nevekVesszo : nevek
+    return `${docTitle}${nevResz ? ` — ${nevResz}` : ''}`
+  }, [docTitle, selectedCsalad, nevekVesszo, nevek])
   useEffect(() => {
     if (!subjectTouched) setSubject(autoSubject)
   }, [autoSubject, subjectTouched])
@@ -766,8 +1130,15 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   const assembledRaw = useMemo(
     // 2026-07 (F8a): az iktatókönyvi tárgy a keret „Tárgy: …" soraként a
     // dokumentumba is bekerül (a „Szám: …" sor alá) — lásd buildAssembledTemplate.
-    () => buildAssembledTemplate(body, { szabad, hasLetterhead: Boolean(lang && header), targy: subject, lang: lang || 'hu' }),
-    [body, szabad, lang, header, subject],
+    // F8c: a keret-címkék nyelvét a „Dokumentum nyelve" választó adja.
+    () =>
+      buildAssembledTemplate(body, {
+        szabad,
+        hasLetterhead: Boolean(!noLetterhead && header),
+        targy: subject,
+        lang: docLang,
+      }),
+    [body, szabad, noLetterhead, header, subject, docLang],
   )
   const placeholders = useMemo(() => extractPlaceholders(assembledRaw), [assembledRaw])
   const autoKeys = useMemo(() => {
@@ -787,12 +1158,14 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
       const sanitized = sanitizeFilingHtml(assembledRaw)
       const rendered = renderTemplate(sanitized, values)
       const letterhead =
-        lang && header ? `<div style="padding:36px 50px 0;">${buildLetterheadHtml(lang, header)}</div>` : ''
+        !noLetterhead && header
+          ? `<div style="padding:36px 50px 0;">${buildLetterheadHtml(docLang, header)}</div>`
+          : ''
       return `<!DOCTYPE html>
-<html lang="${lang === 'ro' ? 'ro' : lang === 'en' ? 'en' : 'hu'}">
+<html lang="${docLang}">
 <head>
   <meta charset="utf-8" />
-  <title>${docTitle}</title>
+  <title>${escapeHtml(docTitle)}</title>
   <style>
     /* WYSIWYG-elv (official-journal/iratcsomó-leltár minta): @page margin 0,
        a lap-margót a tartalom saját 50px-es paddingje adja — 15mm-es @page
@@ -800,6 +1173,12 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
        előnézet és a PDF (html2canvas, margó nélkül). */
     @page { size: A4 portrait; margin: 0; }
     body { margin: 0; background: #fff; }
+    /* F8c: az előnézet-iframe-en belül SOHA ne lehessen vízszintes görgetés —
+       egy túlszéles elem (pl. régi sablon fix szélessége) se okozzon
+       belső horizontális scrollbart; a hosszú szavak törhetők. */
+    html, body { overflow-x: hidden; }
+    body { word-break: break-word; }
+    img { max-width: 100%; }
     @media print { body { padding: 0; } }
   </style>
 </head>
@@ -809,7 +1188,81 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
 </body>
 </html>`
     },
-    [assembledRaw, lang, header, docTitle],
+    [assembledRaw, noLetterhead, docLang, header, docTitle],
+  )
+
+  // ── F8c: a dokumentum-család teljes HTML-je — a NYELV vezérel mindent ──
+  // (fejléc, Szám/Tárgy címkék, keltezés nyelvhelyes helység-névvel, törzs).
+  const composeCsaladHtml = useCallback(
+    (csalad: DokumentumCsalad, iratszamText: string): string => {
+      const cimkek = NYELV_CIMKEK[docLang]
+      // A gyülekezet neve a dokumentum nyelvén (nev_hu/nev_ro/nev_en →
+      // hivatalos név → auto-placeholder fallback).
+      const gyulekezetNev =
+        ((docLang === 'ro' ? header?.nevRo : docLang === 'en' ? header?.nevEn : header?.nevHu) || '')
+          .trim() ||
+        (header?.hivatalosNev || '').trim() ||
+        (autoValues.gyulekezet || '').trim()
+      // A keltezés helysége a nyelvnek megfelelő névvel (helysegHu/helysegRo,
+      // magyar fallback) — user-észrevétel: román iraton ne a magyar név álljon.
+      const keltHelyseg =
+        docLang === 'hu'
+          ? header?.helysegHu || autoValues.helyseg || ''
+          : header?.helysegRo || header?.helysegHu || autoValues.helyseg || ''
+      const keltSor = keltezesSor(docLang, keltHelyseg, todayIso())
+      const lelkesz = (autoValues.lelkipasztor || '').trim()
+      const letterhead =
+        !noLetterhead && header
+          ? `<div style="padding:36px 50px 0;">${buildLetterheadHtml(docLang, header)}</div>`
+          : ''
+      const topPad = letterhead ? 8 : 36
+      const targyText = subject.trim()
+      const torzs = csalad.buildBody({
+        persons,
+        nyelv: docLang,
+        kezi: keziValues,
+        gyulekezetNev,
+      })
+      const keret = [
+        `<div style="padding:${topPad}px 50px 0;${TIMES_FONT}font-size:14px;">${cimkek.szam}: ${escapeHtml(iratszamText)}</div>`,
+        targyText
+          ? `<div style="padding:6px 50px 0;${TIMES_FONT}font-size:14px;">${cimkek.targy}: ${escapeHtml(targyText)}</div>`
+          : '',
+        torzs,
+        `<div style="padding:0 50px 50px;${TIMES_FONT}font-size:14px;line-height:1.6;">
+        <div style="margin-top:56px;display:flex;justify-content:space-between;gap:24px;">
+          <div>${escapeHtml(keltSor)}</div>
+          <div style="text-align:center;">_______________________<br />${lelkesz ? escapeHtml(lelkesz) : '__________'}<br />${escapeHtml(ALAIRO_SZEREP[docLang])}</div>
+        </div>
+      </div>`,
+      ]
+        .filter(Boolean)
+        .join('\n')
+      // A törzs app-generált és minden dinamikus érték escape-elt, de a
+      // védelmi mélység kedvéért ugyanazon a sanitizeren megy át, mint a
+      // sablon-út (a családok a whitelistelt style-készleten belül építenek).
+      const sanitized = sanitizeFilingHtml(keret)
+      return `<!DOCTYPE html>
+<html lang="${docLang}">
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(csalad.nev)}</title>
+  <style>
+    @page { size: A4 portrait; margin: 0; }
+    body { margin: 0; background: #fff; word-break: break-word; }
+    /* F8c: az előnézet-iframe-en belül SOHA ne legyen vízszintes görgetés. */
+    html, body { overflow-x: hidden; }
+    img { max-width: 100%; }
+    @media print { body { padding: 0; } }
+  </style>
+</head>
+<body>
+  ${letterhead}
+  ${sanitized}
+</body>
+</html>`
+    },
+    [docLang, header, autoValues, noLetterhead, subject, persons, keziValues],
   )
 
   // Az életút-igazolás B2-adatcsomagja: a betöltött adat + a kézi mezők.
@@ -826,8 +1279,9 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   const fullHtml = useMemo(() => {
     if (eletutMode) {
       if (!eletutIgazolasData) return eletutUresElonezetHtml()
-      // A háromnyelvű nyomtatvány a saját (mindig magyar levélfej + 3-nyelvű
-      // egyház-lánc) fejlécét építi — a (c) fejléc-választó itt nem érvényes.
+      // A nyomtatvány a saját fejlécét építi (F8c: a nyelv-mód szerint —
+      // 'harom' módban magyar levélfej + 3-nyelvű egyház-lánc); a
+      // dokumentum-nyelv választó itt nem érvényes.
       return buildEletutIgazolasHtml({
         data: eletutIgazolasData,
         header: header ?? URES_FEJLEC,
@@ -836,8 +1290,11 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
         datum: autoValues.datum || formatHungarianDate(),
         lelkipasztor: autoValues.lelkipasztor || '',
         fogondnok: eletutFogondnok.trim() || null,
+        nyelvMod: eletutNyelvMod,
       })
     }
+    // F8c: a dokumentum-család a teljes iratot maga építi a kért nyelven.
+    if (selectedCsalad) return composeCsaladHtml(selectedCsalad, iratszamValue)
     return composeStandardHtml(mergedValues)
   }, [
     eletutMode,
@@ -846,9 +1303,39 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     issuedIratszam,
     autoValues,
     eletutFogondnok,
+    eletutNyelvMod,
+    selectedCsalad,
+    composeCsaladHtml,
+    iratszamValue,
     composeStandardHtml,
     mergedValues,
   ])
+
+  // ── F8c: hiányzó anyakönyvi adatok listája a gyors-bevezetéshez ──
+  // Család-útnál a család releváns eseményei; régi sablon-útnál a sablon
+  // placeholderei jelölik ki, mely dátumok kellenének. Életút-módban a
+  // meglévő TODO-lista fedi a hiányokat.
+  const quickEntries = useMemo(() => {
+    if (eletutMode) return []
+    let kinds: AnyakonyvKind[]
+    if (selectedCsalad) {
+      kinds = CSALAD_ANYAKONYV_KINDS[selectedCsalad.id] || []
+    } else {
+      const set = new Set(placeholders)
+      kinds = []
+      if (set.has('kereszteles_datuma') || set.has('kereszteles_datuma_2')) kinds.push('kereszteles')
+      if (set.has('konfirmalas_datuma') || set.has('konfirmalas_datuma_2')) kinds.push('konfirmalas')
+      if (set.has('eskuvo_datuma')) kinds.push('hazassag')
+    }
+    if (kinds.length === 0) return []
+    const out: Array<{ person: PersonCertData; kind: AnyakonyvKind }> = []
+    for (const p of persons) {
+      for (const k of kinds) {
+        if (hianyzikAnyakonyviDatum(p, k)) out.push({ person: p, kind: k })
+      }
+    }
+    return out
+  }, [eletutMode, selectedCsalad, placeholders, persons])
   // Gépelés közbeni render-vihar ellen IDŐ-alapú debounce: az iframe
   // srcDoc-cseréje teljes dokumentum-újraparszolást + layoutot indít, és a
   // useDeferredValue ezt leütésenként átengedte (nem debounce) — lassú
@@ -914,13 +1401,16 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     const szemely = persons[0]
     const cel = celCongregation
     if (!szemely || !cel) return // a handleIssue-őr miatt nem fordulhat elő
-    // A végleges (iratszámos) dokumentum szövege megy az értesítés törzsébe.
-    const finalHtml = composeStandardHtml({
-      ...autoValues,
-      ...personValues,
-      ...manualValues,
-      iratszam,
-    })
+    // A végleges (iratszámos) dokumentum szövege megy az értesítés törzsébe —
+    // F8c: család-útnál ugyanaz a composeCsaladHtml, mint az előnézeté.
+    const finalHtml = selectedCsalad
+      ? composeCsaladHtml(selectedCsalad, iratszam)
+      : composeStandardHtml({
+          ...autoValues,
+          ...personValues,
+          ...manualValues,
+          iratszam,
+        })
     const res = await registerAtadas({
       szemelyId: szemely.id,
       celCongregationId: cel.id,
@@ -976,7 +1466,12 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
         direction: 'outgoing',
         kelt,
         subject: trimmedSubject,
-        sender_or_recipient: nevek || null,
+        // F8c: a hivatalos levél (nem személyhez kötött család) partnere a
+        // kézi „Címzett" mező; egyébként a kiválasztott személyek nevei.
+        sender_or_recipient:
+          selectedCsalad?.id === 'hivatalos_level'
+            ? (keziValues.cimzett || '').trim() || null
+            : nevek || null,
         targykivonat: null,
         elintezes_ideje: kelt,
         elintezes_modja: 'Kiállítva',
@@ -1056,9 +1551,22 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
 
   const issueYearNow = new Date().getFullYear()
 
+  // ── F8c: szekció-számozás módonként (életútban nincs nyelv-szekció;
+  // 0-személyes családnál — pl. hivatalos levél — nincs személy-szekció).
+  const szemelySzekcio = eletutMode || !selectedCsalad || selectedCsalad.maxSzemely > 0
+  let szekcioSzam = 1
+  const numSablon = szekcioSzam++
+  const numSzemelyek = szemelySzekcio ? szekcioSzam++ : 0
+  const numNyelv = !eletutMode ? szekcioSzam++ : 0
+  const numAdatok = szekcioSzam++
+  const numIktatas = szekcioSzam
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[96vh] overflow-y-auto p-0 sm:max-w-6xl">
+      {/* F8c: overflow-x-hidden a dialóguson — az `overflow-y-auto` mellett az
+          overflow-x különben `auto`-ra számítódik, és bármely túlszéles belső
+          elem VÍZSZINTES scrollbart adna az egész ablaknak. */}
+      <DialogContent className="max-h-[96vh] overflow-y-auto overflow-x-hidden p-0 sm:max-w-6xl">
         <DialogHeader className="sticky top-0 z-10 border-b border-border bg-background px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -1069,8 +1577,8 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                 Igazolás / levél kiállítása
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground">
-                Sablonból vagy szabad levélként, anyakönyvi adatokkal előtöltve — kiállítás után
-                automatikus iktatással.
+                Magyar, román vagy angol nyelvű hivatalos irat anyakönyvi adatokkal előtöltve —
+                kiállítás után automatikus iktatással.
               </DialogDescription>
             </div>
           </div>
@@ -1110,7 +1618,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
             tabIndex={-1}
             aria-label="Kiállítás beállításai"
             className={cn(
-              'space-y-5 border-border p-4 outline-none sm:p-5 lg:block lg:border-r',
+              'min-w-0 space-y-5 border-border p-4 outline-none sm:p-5 lg:block lg:border-r',
               mobileView === 'form' ? 'block' : 'hidden',
             )}
           >
@@ -1121,47 +1629,78 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
               </div>
             ) : (
               <>
-                {/* (a) Sablon */}
+                {/* (a) Dokumentum — F8c: csoportosított választó (kiemelt életút →
+                    igazolás-családok → levél-családok + szabad levél → saját sablonok) */}
                 <section className="space-y-2">
                   <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                    1. Sablon
+                    {numSablon}. Dokumentum
                   </h3>
                   <select
                     value={templateId}
                     onChange={(e) => handleTemplateChange(e.target.value)}
-                    aria-label="Sablon kiválasztása"
+                    aria-label="Dokumentum kiválasztása"
                     className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   >
-                    <option value={FREE_LETTER_ID}>Szabad levél (üres törzs)</option>
-                    {/* F8b: kiemelt speciális mód a sablonok ELŐTT. */}
-                    <option value={ELETUT_ID}>⭐ Életút- és családi igazolás (3 nyelvű, hivatalos)</option>
-                    {templates.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.nev}
-                      </option>
-                    ))}
+                    {/* F8b: kiemelt speciális mód mindenek ELŐTT. */}
+                    <option value={ELETUT_ID}>⭐ Életút- és családi igazolás (hivatalos)</option>
+                    <optgroup label="Igazolások">
+                      {DOKUMENTUM_CSALADOK.filter((cs) => cs.tipus === 'igazolas').map((cs) => (
+                        <option key={cs.id} value={CSALAD_PREFIX + cs.id}>
+                          {cs.nev}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Levelek">
+                      {DOKUMENTUM_CSALADOK.filter((cs) => cs.tipus === 'level').map((cs) => (
+                        <option key={cs.id} value={CSALAD_PREFIX + cs.id}>
+                          {cs.nev}
+                        </option>
+                      ))}
+                      <option value={FREE_LETTER_ID}>Szabad levél (üres törzs)</option>
+                    </optgroup>
+                    {sajatSablonok.length > 0 ? (
+                      <optgroup label="Saját sablonok">
+                        {sajatSablonok.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.nev}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
                   </select>
-                  {eletutMode ? (
-                    <p className="rounded-xl border border-primary/30 bg-primary/5 p-2.5 text-[11px] leading-snug text-foreground">
-                      Hivatalos, háromnyelvű (magyar–román–angol) igazolás egy egyháztag teljes
-                      egyházi életútjáról és családjáról, anyakönyvi hivatkozásokkal — akár
-                      hatósági/bírósági felhasználásra. A szerkezete kötött; a hiányzó rovatok
-                      kitöltő-vonallal nyomtatódnak.
+                  {selectedCsalad ? (
+                    <p className="text-[11px] leading-snug text-muted-foreground">
+                      Iktatáskor: ügykör <b>{selectedCsalad.ugykorKod}</b>{' '}
+                      {selectedCsalad.ugykorNev} · Irattár: az ügykör szerint (
+                      {getRetentionForUgykor(selectedCsalad.ugykorKod)})
                     </p>
                   ) : null}
-                  {templates.length === 0 ? (
+                  {eletutMode ? (
+                    <p className="rounded-xl border border-primary/30 bg-primary/5 p-2.5 text-[11px] leading-snug text-foreground">
+                      Hivatalos igazolás egy egyháztag teljes egyházi életútjáról és családjáról,
+                      anyakönyvi hivatkozásokkal — akár hatósági/bírósági felhasználásra. A
+                      szerkezete kötött; a hiányzó rovatok kitöltő-vonallal nyomtatódnak. Az
+                      „Igazolás nyelve” lentebb választható (alapesetben háromnyelvű).
+                    </p>
+                  ) : null}
+                  {templateSeedFailed ? (
                     <p className="text-xs text-muted-foreground">
-                      {templateSeedFailed
-                        ? 'Nincsenek sablonok — a Sablonok fülön pótolhatók.'
-                        : 'Még nincsenek sablonok — a Sablonok fülön betöltheted az alapértelmezetteket, vagy írj szabad levelet.'}
+                      Az alapsablonok automatikus betöltése nem sikerült — a Sablonok fülön
+                      pótolhatók (a beépített dokumentumok enélkül is működnek).
                     </p>
                   ) : null}
                 </section>
 
-                {/* (b) Személyek */}
+                {/* (b) Személyek — F8c: 0-személyes családnál (hivatalos levél)
+                    a teljes szekció elmarad; a limit a család maxSzemely-e. */}
+                {szemelySzekcio ? (
                 <section className="space-y-2">
                   <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                    {eletutMode ? '2. Egyháztag (egy személy)' : '2. Személyek (anyakönyvből)'}
+                    {eletutMode
+                      ? `${numSzemelyek}. Egyháztag (egy személy)`
+                      : maxSzemelyLimit === 1
+                        ? `${numSzemelyek}. Személy (anyakönyvből)`
+                        : `${numSzemelyek}. Személyek (anyakönyvből, legfeljebb ${maxSzemelyLimit})`}
                   </h3>
                   {eletutMode ? (
                     <p className="text-[11px] leading-snug text-muted-foreground">
@@ -1241,7 +1780,29 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                     <p className="text-xs text-muted-foreground">Nincs találat.</p>
                   ) : null}
 
-                  {persons.length > 1 ? (
+                  {/* F8c: anyakönyvi gyors-bevezetés a hiányzó dátumokhoz — a
+                      mentés után a személy-adatok újratöltődnek, a bevezetett
+                      érték a dokumentum helyére kerül. */}
+                  {quickEntries.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {quickEntries.map(({ person, kind }) => (
+                        <QuickRegistryEntry
+                          key={`${person.id}-${kind}`}
+                          person={person}
+                          kind={kind}
+                          onSaved={reloadPersons}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {selectedCsalad && persons.length > 1 ? (
+                    <p className="text-[11px] leading-snug text-muted-foreground">
+                      A dokumentum minden kiválasztott személyre külön bekezdést kap, a
+                      kiválasztás sorrendjében.
+                    </p>
+                  ) : null}
+                  {!selectedCsalad && !eletutMode && persons.length > 1 ? (
                     <p className="text-[11px] leading-snug text-muted-foreground">
                       Több személynél a szám nélküli mezők az <b>1. személy</b> adatai, a 2. személyé
                       a <code>_2</code> végű placeholderek ({'{{nev_2}}'}…); a {'{{nevek}}'} az összes
@@ -1249,12 +1810,13 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                     </p>
                   ) : null}
                 </section>
+                ) : null}
 
                 {/* (b/2) Átadás-mód: cél-egyházközség kereső (F8b — B4) */}
                 {atadasMode ? (
                   <section className="space-y-2">
                     <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      2/b. Cél-egyházközség (átadás)
+                      {numSzemelyek || numSablon}/b. Cél-egyházközség (átadás)
                     </h3>
 
                     {celCongregation ? (
@@ -1322,46 +1884,122 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                     )}
 
                     <p className="text-[11px] leading-snug text-muted-foreground">
-                      A kiválasztott név a {'{{cel_gyulekezet}}'} mezőbe kerül. Az iktatás után a
-                      rendszer rögzíti az átadás tényét: a tag státusza „elköltözött” lesz, a
-                      cél-egyházközség lelkésze pedig átjelentkezési értesítést kap az
-                      iktatószámmal.
+                      A kiválasztott név a „Cél-egyházközség” mezőbe kerül (ott kézzel tovább
+                      pontosítható). Az iktatás után a rendszer rögzíti az átadás tényét: a tag
+                      státusza „elköltözött” lesz, a cél-egyházközség lelkésze pedig
+                      átjelentkezési értesítést kap az iktatószámmal.
                     </p>
                   </section>
                 ) : null}
 
                 {!eletutMode ? (
                   <>
-                {/* (c) Fejléc */}
+                {/* (c) A dokumentum nyelve — F8c: a korábbi „Hivatalos fejléc"
+                    választó HELYETT. Egyetlen választó vezérli a fejlécet, a
+                    Szám/Tárgy címkéket, a keltezést és a család-törzs nyelvét. */}
                 <section className="space-y-2">
                   <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                    3. Hivatalos fejléc
+                    {numNyelv}. Dokumentum nyelve
                   </h3>
                   <select
-                    value={lang}
-                    onChange={(e) => setLang(e.target.value as LetterheadLang | '')}
-                    aria-label="Fejléc nyelve"
+                    value={docLang}
+                    onChange={(e) => setDocLang(e.target.value as DokumentumNyelv)}
+                    aria-label="A dokumentum nyelve"
                     className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   >
                     {LETTERHEAD_LANGS.map((l) => (
                       <option key={l.value} value={l.value}>
-                        Fejléc: {l.label}
+                        {l.label}
                       </option>
                     ))}
-                    <option value="">Fejléc nélkül</option>
                   </select>
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    {selectedCsalad
+                      ? 'A nyelv az EGÉSZ iratot vezérli: a levélfejet, a Szám/Tárgy címkéket, a keltezést és a törzs-szöveget.'
+                      : 'A nyelv a levélfejet, a Szám/Tárgy címkéket és a keretet vezérli — a saját sablon törzse a megírt nyelven marad.'}
+                  </p>
+                  <label className="flex items-center gap-2 text-xs text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={noLetterhead}
+                      onChange={(e) => setNoLetterhead(e.target.checked)}
+                      className="size-3.5"
+                    />
+                    Hivatalos levélfej nélkül (pl. előnyomott levélpapírra)
+                  </label>
                   {headerError ? (
                     <p className="flex items-start gap-1.5 text-xs text-destructive">
                       <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                      {headerError} — a dokumentum fejléc nélkül készül.
+                      {headerError} — a dokumentum levélfej nélkül készül.
                     </p>
                   ) : null}
                 </section>
 
-                {/* (d) Placeholder-űrlap */}
+                {selectedCsalad ? (
+                  /* (d) F8c: a dokumentum-család kézi mezői — a törzs-szöveget a
+                     rendszer állítja össze a kért nyelven, itt csak a családhoz
+                     tartozó kiegészítő adatok tölthetők. */
+                  <section className="space-y-3">
+                    <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      {numAdatok}. Adatok
+                    </h3>
+                    {selectedCsalad.keziMezok.length === 0 ? (
+                      <p className="text-xs italic text-muted-foreground">
+                        Ehhez a dokumentumhoz nincs kézi mező — minden adat az anyakönyvből
+                        töltődik.
+                      </p>
+                    ) : (
+                      <div className="space-y-2.5">
+                        {selectedCsalad.keziMezok.map((m) => {
+                          const isDatum = m.key.endsWith('_datuma')
+                          const isTobbsoros = m.key === 'torzs'
+                          const mezoId = `csalad-mezo-${m.key}`
+                          return (
+                            <div key={m.key} className="space-y-1">
+                              <label
+                                htmlFor={mezoId}
+                                className="text-sm font-medium text-foreground"
+                              >
+                                {m.label}
+                              </label>
+                              {isTobbsoros ? (
+                                <textarea
+                                  id={mezoId}
+                                  value={keziValues[m.key] ?? ''}
+                                  onChange={(e) =>
+                                    setKeziValues((prev) => ({ ...prev, [m.key]: e.target.value }))
+                                  }
+                                  rows={8}
+                                  placeholder="Írd ide a levél szövegét… (üres sor = új bekezdés)"
+                                  className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                />
+                              ) : (
+                                <input
+                                  id={mezoId}
+                                  type={isDatum ? 'date' : 'text'}
+                                  value={keziValues[m.key] ?? ''}
+                                  onChange={(e) =>
+                                    setKeziValues((prev) => ({ ...prev, [m.key]: e.target.value }))
+                                  }
+                                  className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                />
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                    <p className="text-[11px] leading-snug text-muted-foreground">
+                      A törzs-szöveget a rendszer állítja össze a kiválasztott nyelven, a
+                      személyek anyakönyvi adataival — a hiányzó értékek kitöltő-vonallal
+                      nyomtatódnak, és a papíron kézzel pótolhatók.
+                    </p>
+                  </section>
+                ) : (
+                /* (d) Placeholder-űrlap (saját sablonok + szabad levél — régi út) */
                 <section className="space-y-3">
                   <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                    4. Mezők
+                    {numAdatok}. Mezők
                   </h3>
                   {placeholders.length === 0 ? (
                     <p className="text-xs italic text-muted-foreground">
@@ -1443,13 +2081,35 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                     </p>
                   </div>
                 </section>
+                )}
                   </>
                 ) : (
                   /* ── Életút-mód: hiány-panel + kézi mezők (a (c)/(d) helyett) ── */
                   <section className="space-y-3">
                     <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      3. Az igazolás adatai
+                      {numAdatok}. Az igazolás adatai
                     </h3>
+
+                    {/* F8c: az igazolás nyelve — default a háromnyelvű nyomtatvány. */}
+                    <div className="space-y-1">
+                      <label
+                        htmlFor="eletut-nyelv"
+                        className="text-sm font-medium text-foreground"
+                      >
+                        Igazolás nyelve
+                      </label>
+                      <select
+                        id="eletut-nyelv"
+                        value={eletutNyelvMod}
+                        onChange={(e) => setEletutNyelvMod(e.target.value as EletutNyelvMod)}
+                        className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      >
+                        <option value="harom">Háromnyelvű (magyar–román–angol)</option>
+                        <option value="hu">Magyar</option>
+                        <option value="ro">Română</option>
+                        <option value="en">English</option>
+                      </select>
+                    </div>
 
                     {!persons[0] ? (
                       <p className="text-xs text-muted-foreground">
@@ -1578,9 +2238,10 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                       </p>
                     ) : null}
                     <p className="text-[11px] leading-snug text-muted-foreground">
-                      Az igazolás mindig a hivatalos, háromnyelvű nyomtatványként készül (magyar
-                      levélfej + HU/RO/EN mezőfeliratok) — a fejléc- és mező-beállítások itt nem
-                      érvényesek.
+                      {eletutNyelvMod === 'harom'
+                        ? 'Az igazolás a hivatalos, háromnyelvű nyomtatványként készül (magyar levélfej + HU/RO/EN mezőfeliratok).'
+                        : 'Az igazolás egynyelvű nyomtatványként készül — a levélfej és minden felirat a kiválasztott nyelven.'}{' '}
+                      A dokumentum-nyelv és mező-beállítások itt nem érvényesek.
                     </p>
                   </section>
                 )}
@@ -1588,7 +2249,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                 {/* Iktatás */}
                 <section className="space-y-3 rounded-2xl border border-border bg-card p-3 sm:p-4">
                   <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                    {eletutMode ? '4.' : '5.'} Kiállítás és iktatás
+                    {numIktatas}. Kiállítás és iktatás
                   </h3>
 
                   <div className="space-y-1">
@@ -1715,13 +2376,13 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
             )}
           </div>
 
-          {/* ── JOBB: élő A4 előnézet (fit-to-width) ─────────────── */}
+          {/* ── JOBB: élő A4 előnézet (fit-to-page) ─────────────── */}
           <div
             ref={previewPanelRef}
             tabIndex={-1}
             aria-label="Élő A4 előnézet"
             className={cn(
-              'p-4 outline-none sm:p-5 lg:block',
+              'min-w-0 overflow-x-hidden p-4 outline-none sm:p-5 lg:block',
               mobileView === 'preview' ? 'block' : 'hidden',
             )}
           >
@@ -1731,13 +2392,21 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
             {/* FIX magasságú panel (mobilon kisebb — ott a sticky fejléc +
                 fül-váltó is helyet foglal): a ResizeObserver így a tényleges
                 panel-magasságot méri, és az alap-zoom a teljes első oldalt
-                mutatja. Belső scrollbar csak függőlegesen, több oldalnál. */}
+                mutatja. Belső scrollbar csak függőlegesen, több oldalnál.
+                F8c (görgetés-bug gyökérjavítás): scrollbar-gutter: stable — a
+                függőleges scrollbar megjelenése így NEM változtatja a mért
+                belső szélességet (nincs mérés↔scrollbar oda-vissza ugrálás,
+                és a lap jobb széle sem csúszhat ki). */}
             <div
               ref={previewBoxRef}
               className="h-[60vh] min-h-[280px] overflow-y-auto overflow-x-hidden rounded-2xl border border-border bg-muted p-3 lg:h-[72vh]"
+              style={{ scrollbarGutter: 'stable' }}
             >
+              {/* max-w-full biztosíték: ha a mérés (boxSize) még nem futott le
+                  — pl. az első frame a mobil fül-váltás után —, a lap-wrapper
+                  akkor sem lóghat túl a panelen. */}
               <div
-                className="mx-auto overflow-hidden rounded-md border border-border bg-white shadow-sm"
+                className="mx-auto max-w-full overflow-hidden rounded-md border border-border bg-white shadow-sm"
                 style={{ width: scaledW || undefined, height: scaledH || undefined }}
               >
                 <iframe
@@ -1752,6 +2421,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                     transform: `scale(${scale})`,
                     transformOrigin: 'top left',
                     background: '#fff',
+                    display: 'block', // inline-baseline hézag ellen
                   }}
                 />
               </div>

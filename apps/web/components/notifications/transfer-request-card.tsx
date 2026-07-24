@@ -53,7 +53,14 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
         toast.error(res.error)
         return
       }
-      toast.success(`${memberName} átjelentkezése elfogadva.`)
+      // F8c: a visszaigazoló levél kimenő iktatószáma (ha az iktatás sikerült).
+      toast.success(
+        res.valaszIratszam
+          ? `${memberName} átjelentkezése elfogadva. A visszaigazoló levél iktatva: ${res.valaszIratszam} (a küldő gyülekezet bejövő iratként is megkapja).`
+          : `${memberName} átjelentkezése elfogadva.`,
+      )
+      // A formaságok (iktatás/értesítés) nem-blokkoló hibái — az átvétel él.
+      for (const w of res.warnings || []) toast.warning(w)
       onResponded?.()
     })
   }
@@ -74,6 +81,7 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
         return
       }
       toast.success(`${memberName} átjelentkezése elutasítva.`)
+      for (const w of res.warnings || []) toast.warning(w)
       onResponded?.()
     })
   }

@@ -48,6 +48,25 @@ const PHONE_LABELS: Record<LetterheadLang, string> = {
   en: 'Phone/fax:',
 }
 
+/**
+ * Román utcanév-típusok, amelyek elé NEM kell „str. " előtag: már van típus-
+ * megjelölés (str./strada/aleea/bulevardul/calea/piața/șoseaua…), vagy a cím
+ * eleve házszámmal kezdődik (falusi „nr. 45" forma).
+ */
+const RO_UTCA_TIPUS = /^(str\.?|strada|stradela|aleea|bulevardul|b-?dul\.?|calea|pia[țt]a|p-?[țt]a\.?|șoseaua|sos\.?|splaiul|drumul|intrarea|fundătura|fundatura|trecerea|nr\.?)(\s|$)/i
+
+/**
+ * A cím ROMÁN sorának utcaneve elé „str. " előtag, ha még nincs típus-
+ * megjelölése (user-észrevétel, 2026-07-25: a román címsor hivatalos formája
+ * „str. {utcanév} {házszám}"). Számmal kezdődő értéket (házszám-only cím)
+ * változatlanul hagy. A MAGYAR sor utcaneve érintetlen marad.
+ */
+export function roUtcaElotag(utcaNev: string): string {
+  const t = (utcaNev || '').trim()
+  if (!t || /^\d/.test(t) || RO_UTCA_TIPUS.test(t)) return t
+  return `str. ${t}`
+}
+
 /** HTML-escape minden dinamikus értékre (XSS + törött markup ellen). */
 function esc(value: string): string {
   return String(value)

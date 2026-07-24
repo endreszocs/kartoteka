@@ -55,6 +55,113 @@ export async function getNextSequenceNumber(year: number): Promise<number> {
   return (data?.[0]?.sequence_number || 0) + 1
 }
 
+// ─── 2026-07-25: Visszamenőleges iktatás (kézi sorszám a számláló alatt) ───
+
+type EffectiveSupabase = Awaited<ReturnType<typeof getEffectiveCongregationContext>>['supabase']
+
+/**
+ * A sorszám-számláló (pointer) aktuális állása egy (gyülekezet, év) párra.
+ * Elsődleges forrás az `iktato_sequence_pointers.last_sequence` (van rá
+ * SELECT-policy, lásd 2026-05-17-iktato-sequence-pointer-rpc.sql); ha a
+ * pointer-sor hiányzik vagy nem olvasható, fallback a MAX(sequence_number)
+ * az iktato-ból — TÖRÖLTEKKEL EGYÜTT, mert a törölt sor száma is a
+ * számlálótól származik, a pointer nem lehet alatta.
+ * ⚠️ RLS-megjegyzés: a pointer-tábla select-policyja a profiles.congregation_id
+ * SKALÁRT nézi — kerületi adminnak más gyülekezetet nézve a pointer-sor némán
+ * nem látszik; ilyenkor a MAX-fallback él (az iktato saját policyja szerint).
+ */
+async function getSequencePointer(
+  supabase: EffectiveSupabase,
+  congId: string,
+  year: number,
+): Promise<number> {
+  const { data: pointerRow } = await supabase
+    .from('iktato_sequence_pointers')
+    .select('last_sequence')
+    .eq('congregation_id', congId)
+    .eq('year', year)
+    .maybeSingle()
+  const fromPointer = (pointerRow as { last_sequence: number } | null)?.last_sequence
+  if (typeof fromPointer === 'number' && fromPointer > 0) return fromPointer
+  const { data: maxRow } = await supabase
+    .from('iktato')
+    .select('sequence_number')
+    .eq('congregation_id', congId)
+    .eq('year', year)
+    .order('sequence_number', { ascending: false })
+    .limit(1)
+  return maxRow?.[0]?.sequence_number || 0
+}
+
+/**
+ * Visszamenőleges iktatáshoz: a jelenlegi sorszám-számláló (pointer) állása és
+ * az ALATTA lévő szabad (ki nem osztott) sorszámok. Biztonsági elv: az automata
+ * sorszámozás (next_iktato_sequence RPC) csak felfelé lépked, ezért a pointer
+ * alatti szabad számokat sosem osztja ki újra → a kézi kiadásuk nem okozhat
+ * jövőbeli ütközést. A `szabadSzamok` az első legfeljebb 30 szabad szám
+ * (növekvően), az `osszesSzabad` a teljes darabszám.
+ */
+export async function getRetroactiveInfo(year: number): Promise<{
+  pointer: number
+  szabadSzamok: number[]
+  osszesSzabad: number
+  error: string | null
+}> {
+  const { supabase, congId } = await getCongId()
+  if (!congId) {
+    return { pointer: 0, szabadSzamok: [], osszesSzabad: 0, error: 'Nincs bejelentkezett felhasználó.' }
+  }
+  const pointer = await getSequencePointer(supabase, congId, year)
+  if (pointer <= 0) {
+    return {
+      pointer: 0,
+      szabadSzamok: [],
+      osszesSzabad: 0,
+      error: 'Visszamenőleges iktatáshoz előbb legyen legalább egy automatikus iktatás ebben az évben.',
+    }
+  }
+  // Foglaltnak CSAK a nem törölt sorok számítanak: a partial unique index
+  // (iktato_unique_active_cong_year_seq, WHERE deleted = false — lásd a
+  // 2026-05-17-es SQL-t) a törölt sor számát újra kiadhatóvá teszi.
+  // 1000-es lapozás a getFilingEntries mintájára (PostgREST-limit).
+  const PAGE_SIZE = 1000
+  const occupied = new Set<number>()
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('iktato')
+      .select('sequence_number')
+      .eq('congregation_id', congId)
+      .eq('year', year)
+      .eq('deleted', false)
+      .order('sequence_number', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) {
+      return {
+        pointer,
+        szabadSzamok: [],
+        osszesSzabad: 0,
+        error: `A foglalt sorszámok lekérése sikertelen: ${error.message}`,
+      }
+    }
+    const page = (data || []) as { sequence_number: number }[]
+    for (const row of page) occupied.add(row.sequence_number)
+    if (page.length < PAGE_SIZE) break
+  }
+  // Szabad = az 1..pointer tartomány nem foglalt számai. Az első 30 növekvően
+  // (a chip-lista ebből mutat ~15-öt), a teljes darabszám számítással.
+  const szabadSzamok: number[] = []
+  for (let n = 1; n <= pointer && szabadSzamok.length < 30; n++) {
+    if (!occupied.has(n)) szabadSzamok.push(n)
+  }
+  let foglaltAPointerAlatt = 0
+  for (const n of occupied) {
+    if (n >= 1 && n <= pointer) foglaltAPointerAlatt++
+  }
+  const osszesSzabad = Math.max(0, pointer - foglaltAPointerAlatt)
+  return { pointer, szabadSzamok, osszesSzabad, error: null }
+}
+
 export async function saveFilingEntry(data: FilingEntryInput) {
   const parsed = filingEntrySchema.safeParse(data)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -97,6 +204,35 @@ export async function saveFilingEntry(data: FilingEntryInput) {
   if (d.id) {
     const { error } = await supabase.from('iktato').update(record).eq('id', d.id).eq('congregation_id', congId)
     if (error) return { error: `Hiba: ${error.message}` }
+  } else if (d.manualSequenceNumber != null) {
+    // ── 2026-07-25: VISSZAMENŐLEGES iktatás kézi sorszámmal (csak ÚJ iratra) ──
+    // Biztonsági elv: kézi szám CSAK a sorszám-számláló (pointer) ALATTI
+    // tartományból adható ki — az automata (next_iktato_sequence RPC) csak
+    // felfelé lépked, így az alatta lévő szabad számokat sosem osztja ki újra
+    // → nincs jövőbeli ütközés. A pointer ITT NEM változik (nincs RPC-hívás)!
+    const manualSeq = d.manualSequenceNumber
+    const pointer = await getSequencePointer(supabase, congId, year)
+    if (pointer <= 0) {
+      return { error: 'Visszamenőleges iktatáshoz előbb legyen legalább egy automatikus iktatás ebben az évben.' }
+    }
+    if (manualSeq > pointer) {
+      return {
+        error: `Visszamenőleg csak a jelenlegi számláló (${pointer}) alatti szabad számok adhatók ki — a jövőbeli számokat az automatikus sorszámozás osztja.`,
+      }
+    }
+    record.sequence_number = manualSeq
+    const { error } = await supabase.from('iktato').insert([record])
+    if (error) {
+      // 23505 = unique_violation — az iktato_unique_active_cong_year_seq
+      // partial unique index (deleted=false) utasította el a duplikátumot.
+      if (error.code === '23505') {
+        return { error: `A ${year}/${manualSeq} iktatószám már foglalt — válassz másik szabad számot.` }
+      }
+      return { error: `Hiba: ${error.message}` }
+    }
+    revalidatePath('/iktato')
+    // Az insert-ág meglévő visszatérési alakja (lásd az automata ág megjegyzését).
+    return { success: true, year, sequenceNumber: manualSeq }
   } else {
     // DIAGNOSTICS P3-5: atomic per-(cong, year) sorszám az RPC-ből.
     // A korábbi `getNextSequenceNumber(year)` SELECT MAX + INSERT két lépéses

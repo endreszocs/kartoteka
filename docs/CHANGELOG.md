@@ -23,6 +23,38 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Nyelvválasztós kiállító, visszamenőleges iktatás, teljes átadási kör
+<!-- key: 2026-07-25-iktato-f8c-nyelv-atadas -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+<!-- version: web v0.9.112 -->
+
+### ✨ Új funkciók
+
+- **A dokumentum nyelve egyetlen választással állítható** (magyar / román /
+  angol): a fejléc, a Szám/Tárgy feliratok, a keltezés helység-neve (Barátos ↔
+  Brateș) és az igazolás szövege együtt vált — nincs többé külön román sablon.
+- **Az igazolások több személyre is kiállíthatók** (akár 4 főre, személyenkénti
+  bekezdésekkel); a sablonok kategóriánként csoportosítva jelennek meg, és
+  látszik, melyik ügykörbe kerül az irat iktatáskor.
+- **Hiányzó anyakönyvi adat helyben pótolható:** ha a keresztelés, konfirmálás
+  vagy házasság dátuma nincs bevezetve, egy gombbal ott helyben rögzíthető —
+  az igazolás kitöltődik, és az anyakönyv is gazdagodik.
+- **Visszamenőleges iktatás:** ha a rendszer használatát pl. a 89-es számmal
+  kezdted, a korábbi papír-iratok (88, 87, 86…) utólag is iktathatók — a
+  szabad számok kattintható listából választhatók, és az automatikus
+  sorszámozást nem zavarják.
+- **Az egyháztag-átadás teljes hivatalos körrel zárul:** az igazolás a fogadó
+  gyülekezet iktatójába bejövő iratként érkezik; az elfogadáskor automatikus
+  válaszlevél készül, amely a fogadónál kimenő, a küldőnél bejövő iratként
+  kerül iktatásra — mindkét iktatókönyvben hiánytalan a nyomvonal.
+- **Az életút-igazolás nyelve választható:** magyar, román, angol vagy
+  háromnyelvű változat.
+- Javítások: a román címben „str." előtag az utcanév előtt; az előnézet
+  mindig egyben mutatja a teljes oldalt (nincs vízszintes görgetés).
+
+---
+
 ## [2026-07-25] — Életút-igazolás három nyelven + egyháztag-átadás
 <!-- key: 2026-07-25-iktato-f8b-eletut-atadas -->
 <!-- category: feature -->
