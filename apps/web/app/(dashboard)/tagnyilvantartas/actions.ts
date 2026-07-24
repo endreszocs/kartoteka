@@ -11,6 +11,7 @@ import { fetchFamilyPaymentsCompat, fetchPersonPaymentsCompat } from '@/lib/fina
 import { computeJarulekForMemberYear, type JarulekDiscountRule, type JarulekExemption, type JarulekYearSetting } from '@/lib/finance/jarulek-calculation'
 import { normalizeDebtCalcMode } from '@/lib/constants/finance'
 import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallback'
+import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
 
 // ── Segéd: congregation_id a profilból ───────────────────────
 
@@ -57,7 +58,11 @@ async function getOrCreateLocality(name: string): Promise<number | null> {
   const supabase = await createClient()
   // 1) Meglévő település keresése — SELECT-grant mindig van, így ez a
   //    leggyakoribb eset a migráció lefutása előtt is működik.
-  const { data: existing } = await supabase.from('adrlocality').select('id').ilike('name', trimmed).limit(1).maybeSingle()
+  // 2026-07-24 (PR-11 review): a % és _ ILIKE-metakarakterek escape-elve
+  // (különben pl. "Sepsi_szentgyörgy" mintaként viselkedne), és determinisztikus
+  // sorrend duplikált nevű települések esetére.
+  const escaped = trimmed.replace(/([\\%_])/g, '\\$1')
+  const { data: existing } = await supabase.from('adrlocality').select('id').ilike('name', escaped).order('id', { ascending: true }).limit(1).maybeSingle()
   if (existing?.id) return existing.id
   // 2) Létrehozás guardolt RPC-n
   const { data, error } = await supabase.rpc('app_get_or_create_locality', { p_name: trimmed })
@@ -984,17 +989,157 @@ export async function updateMemberConsents(
 const NOTE_EVENT_KINDS = ['keresztseg', 'konfirmalas', 'hazassag', 'temetes', 'bekoltozott', 'attert'] as const
 export type NoteEventKind = (typeof NOTE_EVENT_KINDS)[number]
 
+// 2026-07-24 (PR-11 review): az anyakönyvi megjegyzés a '|sablon:{json}'
+// utótagban strukturált emléklap-/gyászjelentés-adatot hordozhat (az Anyakönyv
+// modul mintája) — a személyi kartonról mentett jegyzet NEM írhatja felül.
+function splitSablonSuffix(note: string | null | undefined): { visible: string; suffix: string } {
+  if (!note) return { visible: '', suffix: '' }
+  const idx = note.indexOf('|sablon:')
+  if (idx < 0) return { visible: note, suffix: '' }
+  return { visible: note.slice(0, idx), suffix: note.slice(idx) }
+}
+
 export async function updateRegistryEventNote(kind: NoteEventKind, recordId: number, note: string) {
   if (!NOTE_EVENT_KINDS.includes(kind)) return { error: 'Ismeretlen eseménytípus.' }
   const { supabase, user, congregationId } = await getProfileCongregation()
   if (!user || !congregationId) return { error: 'Nincs bejelentkezett felhasználó.' }
-  const { error } = await supabase.from(kind)
-    .update({ megjegyzes: note.trim() || null })
+  // 2026-07-24 (PR-11 review): a sablon-utótag megőrzése + 0 sorra hangos hiba.
+  const { data: existingRow } = await supabase.from(kind)
+    .select('megjegyzes')
+    .eq('id', recordId)
+    .eq('congregation_id', congregationId)
+    .maybeSingle()
+  if (!existingRow) return { error: 'A bejegyzés nem található — lehet, hogy törölve lett, vagy más gyülekezeté.' }
+  const { suffix } = splitSablonSuffix((existingRow as { megjegyzes: string | null }).megjegyzes)
+  const { error, count } = await supabase.from(kind)
+    .update({ megjegyzes: `${note.trim()}${suffix}` || null }, { count: 'exact' })
     .eq('id', recordId)
     .eq('congregation_id', congregationId)
   if (error) return { error: `Hiba: ${error.message}` }
+  if (!count) return { error: 'A bejegyzés nem található — lehet, hogy törölve lett, vagy más gyülekezeté.' }
   await logAuditEvent({ action: 'registry.note_update', targetTable: kind, targetId: String(recordId) }, supabase)
   revalidatePath('/tagnyilvantartas')
+  return { success: true }
+}
+
+// 2026-07-24 (PR-11, 7. észrevétel): anyakönyvi esemény TELJES szerkesztése a
+// személyi kartonról — ugyanazokba a táblákba ír, amiket az Anyakönyv modul
+// olvas, így a módosítás ott is azonnal megjelenik. A helyszín NÉVBŐL oldódik
+// fel (getOrCreateLocality), táblánként a megfelelő oszlopokba.
+export async function updateRegistryEventDetails(
+  kind: NoteEventKind,
+  recordId: number,
+  payload: {
+    datum: string | null
+    /** undefined = a mező ÉRINTETLEN (nem írjuk); ''/null = a felhasználó törölte. */
+    helyNev?: string | null
+    lelkeszneve: string | null
+    megjegyzes: string | null
+    /** Csak temetésnél értelmezett; undefined = érintetlen. */
+    hoka?: string | null
+  },
+) {
+  if (!NOTE_EVENT_KINDS.includes(kind)) return { error: 'Ismeretlen eseménytípus.' }
+  const { supabase, user, congregationId } = await getProfileCongregation()
+  if (!user || !congregationId) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  const dateColumn = kind === 'temetes' ? 'tdatum' : kind === 'bekoltozott' || kind === 'attert' ? 'mikor' : 'datum'
+  const localityColumn = kind === 'temetes' ? 'thelyid' : kind === 'bekoltozott' || kind === 'attert' ? 'honnanid' : 'helyid'
+  const hasPastor = kind !== 'bekoltozott' && kind !== 'attert'
+
+  // Elő-olvasás: (a) létezés/gyülekezet-ellenőrzés, (b) a megjegyzés
+  // '|sablon:' utótagjának megőrzése, (c) audit before-értékek,
+  // (d) munkanapló-link a szinkronhoz.
+  const { data: existingRow, error: readError } = await supabase.from(kind)
+    .select('*')
+    .eq('id', recordId)
+    .eq('congregation_id', congregationId)
+    .maybeSingle()
+  if (readError) return { error: `Hiba: ${readError.message}` }
+  if (!existingRow) return { error: 'A bejegyzés nem található — lehet, hogy törölve lett, vagy más gyülekezeté.' }
+  const before = existingRow as Record<string, unknown>
+
+  const { suffix: sablonSuffix } = splitSablonSuffix(before.megjegyzes as string | null)
+  const newNote = payload.megjegyzes?.trim() || ''
+
+  const update: Record<string, unknown> = {
+    [dateColumn]: payload.datum?.trim() || null,
+    megjegyzes: `${newNote}${sablonSuffix}` || null,
+  }
+  if (hasPastor) update.lelkeszneve = payload.lelkeszneve?.trim() || null
+  // hoka: csak ha a hívó ténylegesen küldte — az undefined NEM törli az oszlopot.
+  if (kind === 'temetes' && payload.hoka !== undefined) update.hoka = payload.hoka?.trim() || null
+
+  // Helyszín: undefined = érintetlen mező, az oszlophoz nem nyúlunk — így az
+  // változatlan mentés nem tudja átirányítani/kiüríteni a helység-FK-t.
+  if (payload.helyNev !== undefined) {
+    const helyNev = payload.helyNev?.trim()
+    if (helyNev) {
+      const localityId = await getOrCreateLocality(helyNev)
+      if (localityId == null) return { error: `A(z) „${helyNev}" helység nem hozható létre.` }
+      update[localityColumn] = localityId
+    } else {
+      update[localityColumn] = null
+    }
+  }
+
+  // 2026-07-24 (PR-11 review): count nélkül a 0 soros UPDATE (más gyülekezet
+  // bejegyzése / RLS-tiltás) hamis sikert jelezne — a saveBaptism mintája.
+  const { error, count } = await supabase.from(kind)
+    .update(update, { count: 'exact' })
+    .eq('id', recordId)
+    .eq('congregation_id', congregationId)
+  if (error) return { error: `Hiba: ${error.message}` }
+  if (!count) return { error: 'A bejegyzés nem található — lehet, hogy törölve lett, vagy más gyülekezeté.' }
+
+  // Munkanapló-szinkron (nem blokkoló): ha az eseményhez munkanapló-bejegyzés
+  // kapcsolódik, a dátum/lelkész ott is frissül — különben szétcsúszna.
+  const worklogId = (before.munkanaplo_id as number | null | undefined) ?? null
+  const newDate = payload.datum?.trim() || null
+  if (worklogId && newDate && (kind === 'keresztseg' || kind === 'konfirmalas' || kind === 'hazassag' || kind === 'temetes')) {
+    try {
+      const jellege = kind === 'keresztseg' ? 'Keresztelő' : kind === 'konfirmalas' ? 'Konfirmáció' : kind === 'hazassag' ? 'Esketés' : 'Temetés'
+      const personIds = kind === 'hazassag'
+        ? [before.id_ferfi, before.id_no].filter((v): v is number => typeof v === 'number')
+        : typeof before.id_szemely === 'number' ? [before.id_szemely] : []
+      let cim = jellege
+      if (personIds.length > 0) {
+        const { data: personRows } = await supabase.from('szemely').select('id, csaladnev, k_nev').in('id', personIds)
+        const names = (personRows || []).map((p: { csaladnev: string | null; k_nev: string | null }) => `${p.csaladnev || ''} ${p.k_nev || ''}`.trim()).filter(Boolean)
+        if (names.length > 0) cim = `${jellege}: ${names.join(' és ')}`
+      }
+      await syncRegistryWorklogLink(supabase, congregationId, {
+        sourceTable: kind,
+        sourceId: recordId,
+        currentWorklogId: worklogId,
+        munkanaploba: true,
+        payload: {
+          idopont: newDate,
+          jellege,
+          cim,
+          szolgalt: hasPastor ? payload.lelkeszneve?.trim() || null : null,
+        },
+      })
+    } catch (e) {
+      console.warn('[updateRegistryEventDetails] munkanaplo-szinkron sikertelen:', e instanceof Error ? e.message : e)
+    }
+  }
+
+  const beforeValues: Record<string, unknown> = {}
+  for (const key of Object.keys(update)) beforeValues[key] = before[key]
+  await logAuditEvent({
+    action: 'registry.event_update',
+    targetTable: kind,
+    targetId: String(recordId),
+    metadata: {
+      before: beforeValues,
+      after: update,
+      persons: kind === 'hazassag' ? { id_ferfi: before.id_ferfi ?? null, id_no: before.id_no ?? null } : { id_szemely: before.id_szemely ?? null },
+    },
+  }, supabase)
+  revalidatePath('/tagnyilvantartas')
+  revalidatePath('/anyakonyv')
+  revalidatePath('/munkanaplo')
   return { success: true }
 }
 

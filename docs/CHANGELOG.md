@@ -23,6 +23,47 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-24] — Karton-egységesítés: személyi + családi karton egymás mellett, közös arculattal
+<!-- key: 2026-07-24-tagnyilv-pr11-karton-egyseg -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.100 -->
+
+### 🎨 Egységes kartonok — közös vizuális nyelv
+
+- **A személyi karton a családi karton arculatát kapta:** azonos fejléc
+  (színes felső sáv, borostyán-árnyalatú háttér) és azonos fül-stílus —
+  a két karton mostantól összetartozónak látszik.
+- **Mindkét karton oldalról úszik be:** a családi karton is a képernyő
+  jobb széléről csúszik be (a korábbi középre ugró ablak helyett).
+
+### ✨ Egymás melletti kettős nézet
+
+- **Átkattintásnál mindkét karton látszik:** ha a személyi kartonról a
+  családi kartont nyitod (vagy fordítva: a családi kartonon egy tagra
+  kattintasz), a két karton **egymás mellett** jelenik meg — a személyi
+  karton mindig **balra**, a családi mindig **jobbra**, akármelyik nyílt
+  előbb. Nincs többé bezár–újranyit „pattogás".
+- **Telefonon** (ahol két oszlopnak nincs hely) felül váltógombokkal
+  ugorhatsz a két karton között.
+
+### ✨ Családi befizetések — látszik, KI fizetett
+
+- **Új „Befizető" oszlop** a családi karton Befizetések fülén: minden
+  tételnél megjelenik, melyik családtag fizette be (a család-szintű
+  tételeknél „családi" jelölés).
+
+### ✨ Anyakönyv a személyi kartonon — táblázatban, szerkeszthetően
+
+- **A személyi karton Anyakönyv füle táblázatos lett** (a családi karton
+  mintájára): esemény, dátum, helyszín, lelkész, megjegyzés egy sorban.
+- **Soronkénti szerkesztés:** a ceruza-ikonnal a dátum, a helyszín
+  (település), a lelkész neve, temetésnél a halál oka és a megjegyzés is
+  módosítható — **a mentés az anyakönyvi nyilvántartásba ír, így a
+  módosítás az Anyakönyv oldalon is azonnal megjelenik.**
+
+---
+
 ## [2026-07-24] — Körzetesítés a TELJES gyülekezetre: egyedülállók hozzárendelése + körzetenkénti nyomtatható névsor
 <!-- key: 2026-07-24-tagnyilv-pr10-korzet-teljes -->
 <!-- category: feature -->
