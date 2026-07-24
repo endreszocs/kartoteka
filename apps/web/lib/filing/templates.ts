@@ -355,6 +355,47 @@ const LELKESZI_AJANLAS = `<div style="padding:50px;font-family:'Times New Roman'
 </div>`
 
 /**
+ * Egyháztag-átadási igazolás másik egyházközségnek (2026-07, F8b — B3).
+ * A kutatási jelentés (KARTOTEKA-eletutigazolas-kutatas-2026-07-25.md)
+ * formulái szerint: anyakönyvi hivatkozású tanúsító nyitómondat +
+ * cél-záradék (kinek a kérésére / milyen célra készült). A személy-adatok
+ * ({{nev}}, {{szul_datum}}, {{anyja_neve}}, {{kereszteles_datuma}},
+ * {{konfirmalas_datuma}}) az anyakönyvi kiállítóból töltődnek; a
+ * {{cel_gyulekezet}} kézi placeholder (a cél-egyházközség neve).
+ */
+const EGYHAZTAG_ATADAS = `<div style="padding:50px;font-family:'Times New Roman',serif;line-height:1.6;font-size:14px;">
+  <div style="text-align:left;">Szám: {{iratszam}}</div>
+  <p style="margin-top:40px;text-indent:50px;">
+    A(z) <b>{{gyulekezet}}</b> Lelkipásztori Hivatala egyházközségünk hivatalos
+    anyakönyveinek bejegyzései alapján igazolja, hogy <b>{{nev}}</b>
+    (született: {{szul_datum}}, anyja neve: {{anyja_neve}}) egyházközségünk
+    nyilvántartott tagja volt.
+  </p>
+  <p style="text-indent:50px;">
+    Nevezettet — kérésére, illetve elköltözése okán — ezennel átadjuk a(z)
+    <b>{{cel_gyulekezet}}</b> részére, és tisztelettel kérjük szíves
+    nyilvántartásba vételét.
+  </p>
+  <p style="text-indent:50px;">
+    Anyakönyveink szerint a keresztség sákramentumában {{kereszteles_datuma}}
+    napján részesült, konfirmációi fogadalmat {{konfirmalas_datuma}} napján tett.
+  </p>
+  <p style="text-indent:50px;">
+    Jelen igazolást a cél-egyházközség megkeresésére, hivatalos felhasználás
+    céljából állítottuk ki; a felsorolt adatok anyakönyveink bejegyzéseivel
+    mindenben megegyeznek.
+  </p>
+  <div style="margin-top:60px;display:flex;justify-content:space-between;">
+    <div>{{helyseg}}, {{datum}}</div>
+    <div style="text-align:center;">
+      Isten áldásával,<br><br><br>
+      _______________________<br>
+      {{lelkipasztor}} lelkipásztor
+    </div>
+  </div>
+</div>`
+
+/**
  * Román nyelvű keresztelési igazolás (Adeverință de botez) — hivatalos
  * hangnem, ugyanazok a placeholderek, mint a magyar változatban.
  * Megjegyzés: a {{datum}}/{{szul_datum}} értékek magyar formátumban
@@ -486,6 +527,14 @@ export const SEED_TEMPLATES: SeedTemplate[] = [
     leiras: 'Általános lelkészi ajánlólevél egyháztag számára — az indoklás kézzel tölthető.',
     tartalom: LELKESZI_AJANLAS,
   },
+  // ─── 2026-07 (F8b — B3): egyháztag-átadás flow sablonja ───
+  {
+    nev: 'Egyháztag átadása másik egyházközségnek',
+    tipus: 'level',
+    leiras:
+      'Hivatalos átadó igazolás egyháztag másik egyházközségnek történő átadásához — a cél-egyházközség neve a {{cel_gyulekezet}} mezőből töltődik, a személy anyakönyvi adatai automatikusan.',
+    tartalom: EGYHAZTAG_ATADAS,
+  },
   {
     nev: 'Adeverință de botez (román)',
     tipus: 'igazolas',
@@ -552,6 +601,8 @@ export const PLACEHOLDER_DOCS: Array<{
   { key: 'elhalalozas_datuma', label: 'Elhalálozás dátuma', auto: false, description: 'Az elhunyt halálának dátuma' },
   { key: 'temetes_datuma', label: 'Temetés dátuma', auto: false, description: 'A temetés dátuma' },
   { key: 'cimzett', label: 'Címzett', auto: false, description: 'A levél címzettje (intézmény vagy személy, címmel)' },
+  // ─── 2026-07 (F8b — B3): egyháztag-átadás kézi placeholdere ───
+  { key: 'cel_gyulekezet', label: 'Cél-egyházközség', auto: false, description: 'A cél-egyházközség hivatalos neve, amelynek a tagot átadjuk' },
   // 2026-07 (F8a): a seed-sablonokból kikerült — csak régi, DB-ben maradt
   // sablon-példányok használhatják még, ezért a katalógusban marad.
   { key: 'targy_szoveg', label: 'Tárgy', auto: false, description: 'A levél tárgya (régi sablonokban; az újakban a kiállító kerete adja a Tárgy-sort)' },

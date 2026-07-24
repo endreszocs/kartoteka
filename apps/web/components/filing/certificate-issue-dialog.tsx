@@ -37,13 +37,28 @@
  *
  * WYSIWYG: az előnézet, a PDF és a nyomtatás UGYANAZT a HTML-t kapja
  * (fit-to-width A4 iframe, a worklog-print-dialog mintája szerint).
+ *
+ * 2026-07-25 (F8b — B4) két speciális mód:
+ *  - ÉLETÚT-MÓD: a sablon-választó kiemelt „⭐ Életút- és családi igazolás"
+ *    opciója — EGY személy, getEletutAdat betöltés, hiány-figyelmeztető panel
+ *    nyomtatható TODO-listával (a kiállítás hiányok mellett is engedett,
+ *    kitöltő-vonalakkal), kézi mezők (kérelmező/cél/sírhely/főgondnok), az
+ *    előnézet a buildEletutIgazolasHtml háromnyelvű nyomtatványát mutatja,
+ *    az iktatás a meglévő saveFilingEntry-úton történik.
+ *  - ÁTADÁS-MÓD: az „Egyháztag átadása másik egyházközségnek" seed-sablon
+ *    (név-alapú felismerés) cél-gyülekezet keresőt kap (searchCongregations,
+ *    debounced) — a kiválasztott név a {{cel_gyulekezet}} placeholderbe kerül,
+ *    sikeres iktatás után pedig a registerAtadas rögzíti az átadás tényét
+ *    (tag-státusz „elköltözött" + átjelentkezési értesítés a cél-gyülekezetnek).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   BadgeCheck,
+  Building2,
   Download,
+  ListChecks,
   Loader2,
   Printer,
   Search,
@@ -75,6 +90,8 @@ import {
   getPersonCertificateData,
   searchPersonsForCertificate,
 } from '@/app/(dashboard)/iktato/szemely-actions'
+import { getEletutAdat } from '@/app/(dashboard)/iktato/eletut-actions'
+import { registerAtadas, searchCongregations } from '@/app/(dashboard)/iktato/atadas-actions'
 import {
   PLACEHOLDER_DOCS,
   buildAutoValues,
@@ -86,6 +103,9 @@ import {
   type TemplateType,
 } from '@/lib/filing/templates'
 import { buildLetterheadHtml, LETTERHEAD_LANGS } from '@/lib/iktato/letterheads'
+import { buildEletutIgazolasHtml, buildEletutTodoHtml } from '@/lib/iktato/eletut-igazolas'
+import type { EletutAdat, EletutHiany, EletutIgazolasData } from '@/lib/iktato/eletut-types'
+import type { CongregationSearchHit } from '@/lib/iktato/atadas-types'
 import type {
   CertificatePersonHit,
   CongregationHeaderData,
@@ -105,6 +125,34 @@ import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
 
 /** A „Szabad levél" virtuális sablon-azonosítója a select-ben. */
 const FREE_LETTER_ID = '__szabad_level__'
+
+/** Az életút-/családi igazolás (F8b) speciális mód virtuális azonosítója. */
+const ELETUT_ID = '__eletut_igazolas__'
+
+/** Az egyháztag-átadás flow-t bekapcsoló seed-sablon neve (név-alapú felismerés). */
+const ATADAS_SABLON_NEV = 'Egyháztag átadása másik egyházközségnek'
+
+/** Az életút-igazolás alapértelmezett kiállítási célja (cél-záradék). */
+const ELETUT_CEL_ALAPERTEK = 'hatósági felhasználás'
+
+/**
+ * Üres fejléc-fallback az életút-nyomtatványhoz: fejléc-betöltési hibánál a
+ * nyomtatvány kitöltő-vonalas rovatokkal így is elkészül (a hibát a felület
+ * külön jelzi) — a buildEletutIgazolasHtml kötelező header-paramétere miatt.
+ */
+const URES_FEJLEC: CongregationHeaderData = {
+  hivatalosNev: '',
+  nevHu: null,
+  nevRo: null,
+  nevEn: null,
+  cimHu: null,
+  cimRo: null,
+  telefon: null,
+  email: null,
+  cif: null,
+  web: null,
+  cimerUrl: null,
+}
 
 /** Legfeljebb ennyi személy választható ki (pl. házaspár + 2 gyermek). */
 const MAX_PERSONS = 4
@@ -195,6 +243,28 @@ function placeholderLabel(key: string): string {
 }
 
 const TIMES_FONT = "font-family:'Times New Roman',serif;"
+
+/**
+ * Életút-mód, még kiválasztott személy nélkül: A4-es tájékoztató lap az
+ * előnézet-iframe-be (a fit-to-page méretezés így is helyesen működik).
+ */
+function eletutUresElonezetHtml(): string {
+  return `<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="utf-8" />
+<title>Életút- és családi igazolás</title>
+<style>
+  @page { size: A4 portrait; margin: 0; }
+  body { margin: 0; background: #fff; }
+  .lap { width: 210mm; min-height: 297mm; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 25mm; font-family: 'Times New Roman', Georgia, serif; font-size: 13pt; color: #64748b; text-align: center; }
+</style>
+</head>
+<body data-sheet-count="1">
+<div class="lap">Válassz ki egy egyháztagot a keresővel — a háromnyelvű életút-igazolás élő előnézete itt jelenik meg.</div>
+</body>
+</html>`
+}
 
 /**
  * Duplikátum-őr a keret Tárgy-sorához: ha a törzs ELEJÉN már van saját
@@ -340,21 +410,48 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   const [issuedIratszam, setIssuedIratszam] = useState<string | null>(null)
   const [printing, setPrinting] = useState(false)
 
+  // ── Életút-mód (F8b — B4): adat + hiányok + kézi mezők ───────────
+  const [eletutAdat, setEletutAdat] = useState<EletutAdat | null>(null)
+  const [eletutHianyok, setEletutHianyok] = useState<EletutHiany[]>([])
+  const [eletutError, setEletutError] = useState<string | null>(null)
+  const [eletutLoading, setEletutLoading] = useState(false)
+  const [eletutKerelmezo, setEletutKerelmezo] = useState('')
+  const [eletutCel, setEletutCel] = useState(ELETUT_CEL_ALAPERTEK)
+  const [eletutSirhely, setEletutSirhely] = useState('')
+  const [eletutFogondnok, setEletutFogondnok] = useState('')
+
+  // ── Átadás-mód (F8b — B4): cél-egyházközség kereső ───────────────
+  const [congQuery, setCongQuery] = useState('')
+  const [congSearching, setCongSearching] = useState(false)
+  const [congHits, setCongHits] = useState<CongregationSearchHit[]>([])
+  const [congError, setCongError] = useState<string | null>(null)
+  const [celCongregation, setCelCongregation] = useState<CongregationSearchHit | null>(null)
+
   // mobil fül-váltó + fókusz a lépés/fül-váltásnál (a11y)
   const [mobileView, setMobileView] = useState<'form' | 'preview'>('form')
   const formPanelRef = useRef<HTMLDivElement>(null)
   const previewPanelRef = useRef<HTMLDivElement>(null)
 
   const szabad = templateId === FREE_LETTER_ID
+  const eletutMode = templateId === ELETUT_ID
   const selectedTemplate = useMemo(
     () => templates.find((t) => t.id === templateId) || null,
     [templates, templateId],
   )
-  const docTitle = selectedTemplate?.nev || 'Szabad levél'
+  // Átadás-mód: NÉV-alapú felismerés a seed-sablonra (a régi, DB-ben maradt
+  // példányok id-je gyülekezetenként más — a név viszont stabil).
+  const atadasMode =
+    !szabad && !eletutMode && (selectedTemplate?.nev || '').trim() === ATADAS_SABLON_NEV
+  const docTitle = eletutMode
+    ? 'Életút- és családi igazolás'
+    : selectedTemplate?.nev || 'Szabad levél'
   const nevek = useMemo(() => joinNamesHu(persons.map((p) => p.teljesNev)), [persons])
-  const ugykorKod: string | null = szabad
-    ? '1.'
-    : (selectedTemplate ? TIPUS_UGYKOR[selectedTemplate.tipus] ?? null : null)
+  // Az életút-igazolás a 2. ügykörbe tartozik (anya- és családkönyvi igazolások).
+  const ugykorKod: string | null = eletutMode
+    ? '2.'
+    : szabad
+      ? '1.'
+      : (selectedTemplate ? TIPUS_UGYKOR[selectedTemplate.tipus] ?? null : null)
 
   // 2026-07-24 (W2): a kezdeti személy-id-k STABIL kulcsa — a tömb-identitás
   // renderenként változhat (a szülő pl. inline `[member.id]`-t ad át), a
@@ -387,6 +484,20 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     setContentH(A4_PORTRAIT_H) // az előző kiállítás előnézet-magassága ne ragadjon át
     setLoadingPersons(false) // zárás közben félbemaradt betöltés jelzője ne ragadjon be
     setTemplateSeedFailed(false) // az előző megnyitás seed-hintje ne ragadjon át
+    // F8b: az életút- és átadás-mód állapota se ragadjon át az előző kiállításból.
+    setEletutAdat(null)
+    setEletutHianyok([])
+    setEletutError(null)
+    setEletutLoading(false)
+    setEletutKerelmezo('')
+    setEletutCel(ELETUT_CEL_ALAPERTEK)
+    setEletutSirhely('')
+    setEletutFogondnok('')
+    setCongQuery('')
+    setCongHits([])
+    setCongError(null)
+    setCongSearching(false)
+    setCelCongregation(null)
 
     // 2026-07-24 (W2): személyi kartonról nyitva a kezdeti személy(ek)
     // betöltése a teljes reset UTÁN — hibánál toast, és a persons üres marad
@@ -422,7 +533,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
       let seedFailed = false
 
       // 2026-07-25 (éles teszt: üres sablon-lista): ha a gyülekezetben még
-      // EGYETLEN sablon sincs (és a lekérés nem hibázott), a 10 alapsablont
+      // EGYETLEN sablon sincs (és a lekérés nem hibázott), a 11 alapsablont
       // automatikusan betöltjük, majd újratöltjük a listát — a kiállító ne
       // induljon üres választóval. Ha a seed nem sikerül (pl. jogosultság
       // híján), NEM hibázunk hangosan: diszkrét hint jelzi a választó alatt,
@@ -437,7 +548,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
           if (cancelled) return
           if (!reloadRes.error && (reloadRes.data || []).length > 0) {
             tplList = reloadRes.data || []
-            toast.success('A 10 alapsablon automatikusan betöltésre került.')
+            toast.success('A 11 alapsablon automatikusan betöltésre került.')
           } else {
             seedFailed = true
           }
@@ -500,8 +611,97 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     return () => window.clearTimeout(t)
   }, [open, searchQuery])
 
+  // ── Életút-mód: a kiválasztott EGY személy teljes életútjának betöltése ──
+  // A mezoId-séma és a hiány-lista a B1-kontraktusból (eletut-actions) jön;
+  // a cancelled-őr a mód-/személy-váltás közben beérkező elavult választ dobja el.
+  const eletutPersonId = eletutMode ? (persons[0]?.id ?? null) : null
+  useEffect(() => {
+    if (!open || eletutPersonId == null) {
+      setEletutAdat(null)
+      setEletutHianyok([])
+      setEletutError(null)
+      setEletutLoading(false)
+      return
+    }
+    let cancelled = false
+    setEletutLoading(true)
+    setEletutError(null)
+    void getEletutAdat(eletutPersonId).then((res) => {
+      if (cancelled) return
+      setEletutLoading(false)
+      setEletutAdat(res.adat)
+      setEletutHianyok(res.hianyok)
+      setEletutError(res.error)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [open, eletutPersonId])
+
+  // ── Átadás-mód: debounced cél-egyházközség keresés (searchCongregations) ──
+  // A személy-kereső sequence-mintáját követi (elavult/szellem-válasz védelem).
+  const congSeq = useRef(0)
+  useEffect(() => {
+    if (!open || !atadasMode) {
+      congSeq.current++
+      return
+    }
+    const q = congQuery.trim()
+    if (q.length < 2) {
+      congSeq.current++
+      setCongHits([])
+      setCongSearching(false)
+      setCongError(null)
+      return
+    }
+    const mySeq = ++congSeq.current
+    setCongSearching(true)
+    const t = window.setTimeout(() => {
+      void searchCongregations(q).then((res) => {
+        if (mySeq !== congSeq.current) return // elavult válasz
+        setCongHits(res.results)
+        setCongError(res.error)
+        setCongSearching(false)
+      })
+    }, 300)
+    return () => window.clearTimeout(t)
+  }, [open, atadasMode, congQuery])
+
+  function selectCelCongregation(hit: CongregationSearchHit) {
+    setCelCongregation(hit)
+    // A kiválasztott név a {{cel_gyulekezet}} placeholderbe kerül (a mező-
+    // űrlapon kézzel tovább finomítható, pl. hivatalos hosszú név).
+    setManualValues((prev) => ({ ...prev, cel_gyulekezet: hit.nev }))
+    setCongQuery('')
+    setCongHits([])
+  }
+
+  function clearCelCongregation() {
+    setCelCongregation(null)
+    setManualValues((prev) => {
+      const next = { ...prev }
+      delete next.cel_gyulekezet
+      return next
+    })
+  }
+
   async function addPerson(hit: CertificatePersonHit) {
     if (persons.some((p) => p.id === hit.id)) return
+    // Életút-módban EGY személy választható: az új kiválasztás LECSERÉLI az
+    // előzőt (az életút-adatokat a személy-váltásra figyelő effekt tölti újra).
+    if (eletutMode) {
+      setLoadingPersons(true)
+      const res = await getPersonCertificateData([hit.id])
+      setLoadingPersons(false)
+      if (res.error) {
+        toast.error(res.error)
+        return
+      }
+      setPersons(res.persons)
+      setSearchQuery('')
+      setHits([])
+      return
+    }
     if (persons.length >= MAX_PERSONS) {
       toast.info(`Legfeljebb ${MAX_PERSONS} személy választható ki.`)
       return
@@ -534,7 +734,10 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   function handleTemplateChange(nextId: string) {
     setTemplateId(nextId)
     const tpl = templates.find((t) => t.id === nextId) || null
-    setBody(nextId === FREE_LETTER_ID ? '' : tpl?.tartalom || '')
+    setBody(nextId === FREE_LETTER_ID || nextId === ELETUT_ID ? '' : tpl?.tartalom || '')
+    // Életút-módban EGY személy választható — a többes kiválasztásból az
+    // 1. személy marad (az adat-betöltést a személy-figyelő effekt indítja).
+    if (nextId === ELETUT_ID) setPersons((prev) => prev.slice(0, 1))
     // A már iktatott állapot új dokumentumnál nem érvényes.
     setIssued(false)
     setIssuedIratszam(null)
@@ -573,15 +776,19 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     return set
   }, [])
 
-  const fullHtml = useMemo(() => {
-    // A sablon-törzs admin/lelkész által szerkesztett → sanitize (P1-3b minta);
-    // az app-generált fejléc és a renderTemplate-escape-elt értékek megbízhatók.
-    // Előnézet, PDF és nyomtatás UGYANEZT a HTML-t kapja (WYSIWYG).
-    const sanitized = sanitizeFilingHtml(assembledRaw)
-    const rendered = renderTemplate(sanitized, mergedValues)
-    const letterhead =
-      lang && header ? `<div style="padding:36px 50px 0;">${buildLetterheadHtml(lang, header)}</div>` : ''
-    return `<!DOCTYPE html>
+  // A sablon-alapú (nem-életút) dokumentum összeállítása ADOTT értékekkel —
+  // a fullHtml memo ÉS az átadás-regisztráció (végleges, iratszámos példány)
+  // is ezt hívja, így a kettő garantáltan ugyanazt a HTML-t kapja.
+  const composeStandardHtml = useCallback(
+    (values: Record<string, string>) => {
+      // A sablon-törzs admin/lelkész által szerkesztett → sanitize (P1-3b minta);
+      // az app-generált fejléc és a renderTemplate-escape-elt értékek megbízhatók.
+      // Előnézet, PDF és nyomtatás UGYANEZT a HTML-t kapja (WYSIWYG).
+      const sanitized = sanitizeFilingHtml(assembledRaw)
+      const rendered = renderTemplate(sanitized, values)
+      const letterhead =
+        lang && header ? `<div style="padding:36px 50px 0;">${buildLetterheadHtml(lang, header)}</div>` : ''
+      return `<!DOCTYPE html>
 <html lang="${lang === 'ro' ? 'ro' : lang === 'en' ? 'en' : 'hu'}">
 <head>
   <meta charset="utf-8" />
@@ -601,7 +808,47 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   ${rendered}
 </body>
 </html>`
-  }, [assembledRaw, mergedValues, lang, header, docTitle])
+    },
+    [assembledRaw, lang, header, docTitle],
+  )
+
+  // Az életút-igazolás B2-adatcsomagja: a betöltött adat + a kézi mezők.
+  // A kézi sírhely-szöveg CSAK akkor kerül a nyomtatványra, ha a Sírhelyek
+  // modul láncából nem jött strukturált érték (az adat-forrás az elsődleges).
+  const eletutIgazolasData = useMemo<EletutIgazolasData | null>(() => {
+    if (!eletutAdat) return null
+    const sirhelyKezi = eletutSirhely.trim()
+    const adat =
+      !eletutAdat.sirhely && sirhelyKezi ? { ...eletutAdat, sirhely: sirhelyKezi } : eletutAdat
+    return { adat, hianyok: eletutHianyok, kerelmezo: eletutKerelmezo, cel: eletutCel }
+  }, [eletutAdat, eletutHianyok, eletutKerelmezo, eletutCel, eletutSirhely])
+
+  const fullHtml = useMemo(() => {
+    if (eletutMode) {
+      if (!eletutIgazolasData) return eletutUresElonezetHtml()
+      // A háromnyelvű nyomtatvány a saját (mindig magyar levélfej + 3-nyelvű
+      // egyház-lánc) fejlécét építi — a (c) fejléc-választó itt nem érvényes.
+      return buildEletutIgazolasHtml({
+        data: eletutIgazolasData,
+        header: header ?? URES_FEJLEC,
+        iratszam: issuedIratszam, // null → kitöltő-vonal a nyomtatványon
+        helyseg: autoValues.helyseg || '',
+        datum: autoValues.datum || formatHungarianDate(),
+        lelkipasztor: autoValues.lelkipasztor || '',
+        fogondnok: eletutFogondnok.trim() || null,
+      })
+    }
+    return composeStandardHtml(mergedValues)
+  }, [
+    eletutMode,
+    eletutIgazolasData,
+    header,
+    issuedIratszam,
+    autoValues,
+    eletutFogondnok,
+    composeStandardHtml,
+    mergedValues,
+  ])
   // Gépelés közbeni render-vihar ellen IDŐ-alapú debounce: az iframe
   // srcDoc-cseréje teljes dokumentum-újraparszolást + layoutot indít, és a
   // useDeferredValue ezt leütésenként átengedte (nem debounce) — lassú
@@ -659,12 +906,67 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   const scaledW = Math.floor(A4_PORTRAIT_W * scale)
   const scaledH = Math.ceil(contentH * scale)
 
+  // ── Átadás rögzítése iktatás után (F8b — B3 registerAtadas) ──────
+  // Csak sikeres iktatás + visszaolvasott iratszám után hívjuk: a tag státusza
+  // „elköltözött" lesz, a cél-gyülekezet átjelentkezési kérelmet + best-effort
+  // részletes üzenetet kap (a warnings nem-blokkoló jelzések).
+  async function runRegisterAtadas(iratszam: string) {
+    const szemely = persons[0]
+    const cel = celCongregation
+    if (!szemely || !cel) return // a handleIssue-őr miatt nem fordulhat elő
+    // A végleges (iratszámos) dokumentum szövege megy az értesítés törzsébe.
+    const finalHtml = composeStandardHtml({
+      ...autoValues,
+      ...personValues,
+      ...manualValues,
+      iratszam,
+    })
+    const res = await registerAtadas({
+      szemelyId: szemely.id,
+      celCongregationId: cel.id,
+      iktatoszam: iratszam,
+      dokumentumHtml: finalHtml,
+    })
+    if (res.success) {
+      toast.success(
+        `Átadás rögzítve: ${szemely.teljesNev} státusza „elköltözött” lett, a(z) ${cel.nev} átjelentkezési értesítést kapott (${iratszam}).`,
+      )
+    } else {
+      toast.error(
+        res.error ||
+          'Az átadás rögzítése sikertelen — az igazolás iktatva maradt, az átadást a Tagnyilvántartásban rögzítsd kézzel.',
+      )
+    }
+    for (const w of res.warnings) toast.warning(w)
+  }
+
+  // ── Az életút-igazolás hiány-TODO-listájának nyomtatása ──────────
+  async function handleTodoPrint() {
+    if (eletutHianyok.length === 0) return
+    setPrinting(true)
+    try {
+      await printToBrowser(buildEletutTodoHtml(eletutHianyok, persons[0]?.teljesNev || ''))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'A TODO-lista nyomtatása nem indítható.')
+    } finally {
+      setPrinting(false)
+    }
+  }
+
   // ── Kiállítás és iktatás ─────────────────────────────────────────
   async function handleIssue() {
     if (issuing || issued) return // dupla-kattintás védelem
     const trimmedSubject = subject.trim()
     if (!trimmedSubject) {
       toast.error('Az iktatókönyvi tárgy kötelező.')
+      return
+    }
+    if (eletutMode && (!persons[0] || !eletutIgazolasData)) {
+      toast.error('Az életút-igazoláshoz válassz ki egy egyháztagot, és várd meg az adatok betöltését.')
+      return
+    }
+    if (atadasMode && (!persons[0] || !celCongregation)) {
+      toast.error('Az átadási sablonhoz válaszd ki az átadott egyháztagot ÉS a cél-egyházközséget.')
       return
     }
     setIssuing(true)
@@ -695,10 +997,17 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
         const iratszam = `${res.year}/${res.sequenceNumber}`
         setIssuedIratszam(iratszam)
         toast.success(`Iktatva: ${iratszam} — a szám bekerült a dokumentumba.`)
+        // Átadás-mód: az iktatószám birtokában rögzítjük az átadás tényét is.
+        if (atadasMode) await runRegisterAtadas(iratszam)
       } else {
         toast.warning(
           'Az irat iktatva lett, de a kiosztott iratszámot nem sikerült visszaolvasni — ellenőrizd az iktatókönyvben, és írd be kézzel.',
         )
+        if (atadasMode) {
+          toast.warning(
+            'Az átadás rögzítése iktatószám nélkül nem lehetséges — a cél-gyülekezet értesítése elmaradt; rögzítsd az átadást a Tagnyilvántartásban.',
+          )
+        }
       }
       onIssued()
     } finally {
@@ -824,12 +1133,22 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                     className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   >
                     <option value={FREE_LETTER_ID}>Szabad levél (üres törzs)</option>
+                    {/* F8b: kiemelt speciális mód a sablonok ELŐTT. */}
+                    <option value={ELETUT_ID}>⭐ Életút- és családi igazolás (3 nyelvű, hivatalos)</option>
                     {templates.map((t) => (
                       <option key={t.id} value={t.id}>
                         {t.nev}
                       </option>
                     ))}
                   </select>
+                  {eletutMode ? (
+                    <p className="rounded-xl border border-primary/30 bg-primary/5 p-2.5 text-[11px] leading-snug text-foreground">
+                      Hivatalos, háromnyelvű (magyar–román–angol) igazolás egy egyháztag teljes
+                      egyházi életútjáról és családjáról, anyakönyvi hivatkozásokkal — akár
+                      hatósági/bírósági felhasználásra. A szerkezete kötött; a hiányzó rovatok
+                      kitöltő-vonallal nyomtatódnak.
+                    </p>
+                  ) : null}
                   {templates.length === 0 ? (
                     <p className="text-xs text-muted-foreground">
                       {templateSeedFailed
@@ -842,8 +1161,13 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                 {/* (b) Személyek */}
                 <section className="space-y-2">
                   <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                    2. Személyek (anyakönyvből)
+                    {eletutMode ? '2. Egyháztag (egy személy)' : '2. Személyek (anyakönyvből)'}
                   </h3>
+                  {eletutMode ? (
+                    <p className="text-[11px] leading-snug text-muted-foreground">
+                      Az életút-igazolás EGY személyről szól — új kiválasztás lecseréli az előzőt.
+                    </p>
+                  ) : null}
 
                   {persons.length > 0 ? (
                     <ul className="flex flex-wrap gap-1.5" aria-label="Kiválasztott személyek">
@@ -926,6 +1250,88 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                   ) : null}
                 </section>
 
+                {/* (b/2) Átadás-mód: cél-egyházközség kereső (F8b — B4) */}
+                {atadasMode ? (
+                  <section className="space-y-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      2/b. Cél-egyházközség (átadás)
+                    </h3>
+
+                    {celCongregation ? (
+                      <div className="flex items-center gap-1.5 rounded-xl border border-border bg-muted px-2.5 py-1.5 text-sm text-foreground">
+                        <Building2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                        <span className="min-w-0 flex-1 truncate">
+                          {celCongregation.nev}
+                          {celCongregation.megye ? (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              ({celCongregation.megye})
+                            </span>
+                          ) : null}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={clearCelCongregation}
+                          aria-label="Cél-egyházközség törlése"
+                          className="rounded-full p-0.5 text-muted-foreground transition hover:bg-background hover:text-foreground"
+                        >
+                          <X className="size-3.5" aria-hidden />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="relative">
+                          <Building2
+                            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                            aria-hidden
+                          />
+                          <Input
+                            value={congQuery}
+                            onChange={(e) => setCongQuery(e.target.value)}
+                            placeholder="Gyülekezet neve (min. 2 betű)…"
+                            aria-label="Cél-egyházközség keresése"
+                            className="pl-9"
+                          />
+                        </div>
+                        {congSearching ? (
+                          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <Loader2 className="size-3.5 animate-spin" aria-hidden /> Keresés…
+                          </p>
+                        ) : congError ? (
+                          <p className="text-xs text-destructive">{congError}</p>
+                        ) : congHits.length > 0 ? (
+                          <ul className="max-h-48 overflow-y-auto rounded-xl border border-border bg-card divide-y divide-border">
+                            {congHits.map((hit) => (
+                              <li key={hit.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => selectCelCongregation(hit)}
+                                  className="flex w-full items-baseline justify-between gap-2 px-3 py-2 text-left text-sm text-foreground transition hover:bg-muted"
+                                >
+                                  <span className="min-w-0 truncate font-medium">{hit.nev}</span>
+                                  <span className="shrink-0 text-xs text-muted-foreground">
+                                    {hit.megye || '—'}
+                                  </span>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : congQuery.trim().length >= 2 ? (
+                          <p className="text-xs text-muted-foreground">Nincs találat.</p>
+                        ) : null}
+                      </>
+                    )}
+
+                    <p className="text-[11px] leading-snug text-muted-foreground">
+                      A kiválasztott név a {'{{cel_gyulekezet}}'} mezőbe kerül. Az iktatás után a
+                      rendszer rögzíti az átadás tényét: a tag státusza „elköltözött” lesz, a
+                      cél-egyházközség lelkésze pedig átjelentkezési értesítést kap az
+                      iktatószámmal.
+                    </p>
+                  </section>
+                ) : null}
+
+                {!eletutMode ? (
+                  <>
                 {/* (c) Fejléc */}
                 <section className="space-y-2">
                   <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -1037,11 +1443,152 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                     </p>
                   </div>
                 </section>
+                  </>
+                ) : (
+                  /* ── Életút-mód: hiány-panel + kézi mezők (a (c)/(d) helyett) ── */
+                  <section className="space-y-3">
+                    <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      3. Az igazolás adatai
+                    </h3>
+
+                    {!persons[0] ? (
+                      <p className="text-xs text-muted-foreground">
+                        Válassz ki egy egyháztagot a fenti keresővel — az életút-adatok
+                        (keresztelés, konfirmáció, házasság, gyermekek, elhalálozás, sírhely)
+                        automatikusan betöltődnek az anyakönyvi nyilvántartásból.
+                      </p>
+                    ) : eletutLoading ? (
+                      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Loader2 className="size-3.5 animate-spin" aria-hidden /> Életút-adatok
+                        betöltése…
+                      </p>
+                    ) : eletutError ? (
+                      <p className="flex items-start gap-1.5 text-xs text-destructive">
+                        <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                        {eletutError}
+                      </p>
+                    ) : eletutAdat ? (
+                      <>
+                        {eletutHianyok.length > 0 ? (
+                          <div className="space-y-2 rounded-xl border border-amber-300/70 bg-amber-50 p-3 dark:border-amber-500/40 dark:bg-amber-500/10">
+                            <p className="flex items-start gap-1.5 text-xs font-medium text-amber-900 dark:text-amber-200">
+                              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                              {eletutHianyok.length} hiányzó adat — az igazolás így is kiállítható
+                              (a hiányzó rovatok kitöltő-vonallal nyomtatódnak), de érdemes előbb
+                              pótolni:
+                            </p>
+                            <ul className="max-h-44 space-y-1 overflow-y-auto pl-1 text-[11px] leading-snug text-amber-900/90 dark:text-amber-100/90">
+                              {eletutHianyok.map((h) => (
+                                <li key={h.mezoId}>
+                                  <b>{h.cimke}</b> —{' '}
+                                  <span className="opacity-80">{h.hovaVezesse}</span>
+                                </li>
+                              ))}
+                            </ul>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="rounded-xl"
+                              onClick={() => void handleTodoPrint()}
+                              disabled={printing}
+                            >
+                              <ListChecks className="mr-1.5 size-4" aria-hidden />
+                              TODO-lista nyomtatása
+                            </Button>
+                          </div>
+                        ) : (
+                          <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                            <BadgeCheck className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden />
+                            Minden kötelező adat megvan az anyakönyvi nyilvántartásban.
+                          </p>
+                        )}
+
+                        <div className="space-y-2.5">
+                          <div className="space-y-1">
+                            <label
+                              htmlFor="eletut-kerelmezo"
+                              className="text-sm font-medium text-foreground"
+                            >
+                              Kérelmező neve
+                            </label>
+                            <Input
+                              id="eletut-kerelmezo"
+                              value={eletutKerelmezo}
+                              onChange={(e) => setEletutKerelmezo(e.target.value)}
+                              placeholder="Üresen: „nevezett / jogosult hozzátartozója”"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label
+                              htmlFor="eletut-cel"
+                              className="text-sm font-medium text-foreground"
+                            >
+                              A kiállítás célja
+                            </label>
+                            <Input
+                              id="eletut-cel"
+                              value={eletutCel}
+                              onChange={(e) => setEletutCel(e.target.value)}
+                              placeholder={ELETUT_CEL_ALAPERTEK}
+                            />
+                          </div>
+                          {eletutAdat.szemely.elhunyt && !eletutAdat.sirhely ? (
+                            <div className="space-y-1">
+                              <label
+                                htmlFor="eletut-sirhely"
+                                className="text-sm font-medium text-foreground"
+                              >
+                                Sírhely (kézzel)
+                              </label>
+                              <Input
+                                id="eletut-sirhely"
+                                value={eletutSirhely}
+                                onChange={(e) => setEletutSirhely(e.target.value)}
+                                placeholder="pl. Református temető, A parcella, 3. sor, 12. sírhely"
+                              />
+                              <p className="text-[11px] text-muted-foreground">
+                                A Sírhelyek modulban nincs hozzárendelés — az itt megadott szöveg
+                                kerül a nyomtatvány nyughely-rovatába.
+                              </p>
+                            </div>
+                          ) : null}
+                          <div className="space-y-1">
+                            <label
+                              htmlFor="eletut-fogondnok"
+                              className="text-sm font-medium text-foreground"
+                            >
+                              Főgondnok neve (opcionális)
+                            </label>
+                            <Input
+                              id="eletut-fogondnok"
+                              value={eletutFogondnok}
+                              onChange={(e) => setEletutFogondnok(e.target.value)}
+                              placeholder="Üresen a vonal kézi aláírásra marad"
+                            />
+                          </div>
+                        </div>
+                      </>
+                    ) : null}
+
+                    {headerError ? (
+                      <p className="flex items-start gap-1.5 text-xs text-destructive">
+                        <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                        {headerError} — a nyomtatvány fejléc-adatai kitöltő-vonallal készülnek.
+                      </p>
+                    ) : null}
+                    <p className="text-[11px] leading-snug text-muted-foreground">
+                      Az igazolás mindig a hivatalos, háromnyelvű nyomtatványként készül (magyar
+                      levélfej + HU/RO/EN mezőfeliratok) — a fejléc- és mező-beállítások itt nem
+                      érvényesek.
+                    </p>
+                  </section>
+                )}
 
                 {/* Iktatás */}
                 <section className="space-y-3 rounded-2xl border border-border bg-card p-3 sm:p-4">
                   <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                    5. Kiállítás és iktatás
+                    {eletutMode ? '4.' : '5.'} Kiállítás és iktatás
                   </h3>
 
                   <div className="space-y-1">
@@ -1145,7 +1692,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                           size="sm"
                           className="rounded-xl"
                           onClick={() => void handlePrint()}
-                          disabled={printing || loadingCtx}
+                          disabled={printing || loadingCtx || (eletutMode && !eletutIgazolasData)}
                         >
                           <Printer className="mr-1.5 size-4" aria-hidden />
                           Nyomtatás iktatás nélkül
@@ -1155,7 +1702,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                           size="sm"
                           className="rounded-xl"
                           onClick={() => void handlePdf()}
-                          disabled={printing || loadingCtx}
+                          disabled={printing || loadingCtx || (eletutMode && !eletutIgazolasData)}
                         >
                           <Download className="mr-1.5 size-4" aria-hidden />
                           PDF iktatás nélkül
