@@ -16,6 +16,11 @@
 --      EGÉSZ import visszagörgetődött. Itt mindkettő 120s-ot kap.
 --
 -- FUTTATÁSI SORREND: 1. ELŐ-ELLENŐRZÉS → 2. RPC → 3. ALTER-ek → 4. CATCH-UP → 5. VERIFIKÁCIÓ
+--
+-- v2 (2026-07-18): az első futás "invalid input syntax for type integer: <uuid>"
+--   hibával elhalt — a cim.id UUID, nem integer; a v_cim_id deklaráció
+--   %TYPE-ra váltva, így a tábla tényleges oszloptípusát veszi fel.
+--   (A hibás futás mindent visszagörgetett — ezt a fájlt az ELEJÉTŐL kell futtatni.)
 -- ============================================================================
 
 -- ────────────────────────────────────────────────────────────────────────────
@@ -44,7 +49,9 @@ SET statement_timeout = '120s'
 AS $$
 DECLARE
   v_rec record;
-  v_cim_id integer;
+  -- v2: %TYPE — a cim.id UUID az élesben (nem integer); így mindig a tábla
+  -- tényleges kulcstípusát veszi fel.
+  v_cim_id public.cim.id%TYPE;
   v_created_haztartas int := 0;
   v_created_tag int := 0;
   v_created_kapcsolat int := 0;
