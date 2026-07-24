@@ -104,6 +104,8 @@ export const szemelyCreateInputSchema = z.object({
   // Adminisztratív flag-ek (egyelőre default-álható)
   csaladfo: z.boolean().optional().default(false),
   voter_eligible: z.boolean().optional().default(false),
+  /** 2026-07-24 (PR-8): kézi választói felülbírálás létrehozáskor (null=auto). */
+  voter_manual_override: z.union([z.literal(0), z.literal(1)]).nullable().optional(),
   meghalt: z.boolean().optional().default(false),
   member_status: z.string().trim().max(40).nullable().optional().default('aktív'),
   isvisible: z.boolean().optional().default(true),

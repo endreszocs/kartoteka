@@ -219,8 +219,12 @@ function buildServerInsertPayload(row: Record<string, unknown>): Record<string, 
     }
   }
 
-  // Szerver NOT NULL mezők biztosító háló
-  if (out.c_utcaid === undefined || out.c_utcaid === null) out.c_utcaid = -1
+  // 2026-07-24 (PR-8, F9 P2): a c_utcaid=-1 dummy KIVEZETVE — a -1 a webes
+  // cím-láncot törte (adrstreet-join a nem létező -1-es utcára → üres cím).
+  // ⚠️ ELŐFELTÉTEL: a 2026-07-24-pr8-c-utcaid-null-migracio.sql lefuttatása
+  // (DROP NOT NULL) — e nélkül az utca nélküli offline-mentés 23502-vel
+  // pattanna vissza a szerverről.
+  if (out.c_utcaid === -1) out.c_utcaid = null
   if (out.befizetoev === undefined || out.befizetoev === null) {
     out.befizetoev = new Date().getFullYear()
   }

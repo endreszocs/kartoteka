@@ -23,6 +23,58 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-24] — Asztali alkalmazás: teljes szinkron-megbízhatóság, működő kereső, Választók-oldal
+<!-- key: 2026-07-24-tagnyilv-pr8-desktop-paritas -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: desktop v0.9.5 (web: belső átrendezés, viselkedés-változás nélkül) -->
+
+### 🐛 Szinkronizáció — nagy adatállományok is hiánytalanul
+
+- **A letöltő szinkron mostantól lapozva tölti le az adatokat** — korábban
+  minden tábla némán az első 1000 sorra csonkolódott (ez a település-
+  katalógust MÁR MOST érintette, és nagy gyülekezetnél a tagokat,
+  anyakönyvet, sírhelyeket is érintette volna). A kurzor-kezelés is
+  megerősödött: az azonos időbélyegű, határra eső sorok nem veszhetnek el.
+
+### 🐛 Kereső — a „Zoltán"-hiba javítva
+
+- **A tag-kereső (a család-ablakok személy-választóiban is) mostantól a
+  TELJES helyi állományban keres** — korábban csak a lista első
+  10–20 sorában, így pl. egy keresztnévre gyakran 0 találat jött.
+
+### 🐛 Cím-lánc — nincs több kamu-utca
+
+- **Az asztali család-/taglétrehozás nem ír többé „-1" kamu-utcát** az éles
+  adatbázisba (ez a webes felületen üres címként jelent meg).
+
+### ✨ Választói felülbírálás — a kézi döntés megmarad
+
+- **A tag-szerkesztőben a „Választó" kapcsolót felülbírálás-választó
+  váltja:** Automatikus / Kézi: választó / Kézi: nem választó. A kézi
+  döntést a webes „Jogosultság frissítése" is megőrzi — korábban a
+  desktopon átállított jelölést a web visszaírta.
+
+### ✨ Új: Választók-oldal az asztali alkalmazásban
+
+- **Tag-lista → „Választók" gomb:** a névjegyzéki választók listája a
+  helyi (offline is elérhető) adatból, keresővel és számlálókkal, és a
+  **hivatalos „Választók névjegyzéke" A4-nyomtatvány** ugyanazzal a
+  lapozott sablonnal nyomtatható, mint a weben.
+
+### 🔧 Teendő (rendszergazdai — a 0.9.5 kiadás ELŐTT!)
+
+- **KÖTELEZŐ SQL:** `migration-docs/sql/2026-07-24-pr8-c-utcaid-null-migracio.sql`
+  — az utca-hivatkozás oszlopok nullolhatóvá tétele + a régi „-1" kamu-sorok
+  kitakarítása. E nélkül az utca nélküli offline-mentések elakadnának.
+- **Ajánlott SQL:** `migration-docs/sql/2026-07-24-pr8-csalad-gyerek-rpc-gte.sql`
+  — a család-/gyerek-szinkron kurzor-határ javítása (időbélyeg-határra eső
+  sorok nem maradhatnak ki).
+- Az új funkciókhoz **új asztali kiadás (0.9.5) telepítése** szükséges;
+  a helyi adatbázis-bővítés első indításkor automatikusan lefut.
+
+---
+
 ## [2026-07-24] — Választói nyomtatási központ: hivatalos (kanonikus) alapmód + egyértelmű többlapos előnézet
 <!-- key: 2026-07-24-tagnyilv-pr12-nyomtatasi-kozpont -->
 <!-- category: improvement -->

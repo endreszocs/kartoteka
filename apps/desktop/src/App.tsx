@@ -30,6 +30,7 @@ import { PenzugyPage } from './pages/penzugy-page'
 import { PinEntryPage } from './pages/pin-entry-page'
 import { PinSetupPage } from './pages/pin-setup-page'
 import { PlaceholderPage } from './pages/placeholder-page'
+import { VotersPage } from './pages/voters-page'
 
 /**
  * Kartotéka Desktop — App gyökér.
@@ -73,6 +74,8 @@ function App() {
           <Route path="/penzugy/bank-import" element={<BankImportPage />} />
           <Route path="/tagnyilvantartas" element={<MembersPage />} />
           <Route path="/csaladok" element={<FamiliesPage />} />
+          {/* 2026-07-24 (PR-8, F9): Választók-oldal desktopon */}
+          <Route path="/valasztok" element={<VotersPage />} />
           <Route path="/anyakonyv" element={<AnyakonyvPage />} />
           <Route path="/leltar" element={<LeltarPage />} />
           <Route path="/iktato" element={<IktatoPage />} />

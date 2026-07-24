@@ -40,6 +40,8 @@ export const szemelyListRowSchema = z.object({
   foglalkozas: z.string().nullable(),
   nemzetiseg: z.string().nullable(),
   voter_eligible: z.number().int().min(0).max(1),
+  /** 2026-07-24 (PR-8): kézi választói felülbírálás (NULL=auto, 1=választó, 0=nem). */
+  voter_manual_override: z.number().int().min(0).max(1).nullable().optional(),
   congregation_id: z.string().nullable(),
   family_id: z.string().nullable(),
   type: z.string().nullable(),
