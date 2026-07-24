@@ -37,6 +37,12 @@ export function VoterPrintDialog({
   voters,
   currentYear,
 }: VoterPrintDialogProps) {
+  // 2026-07-24 (PR-12): KANONIKUS alapmód — a nyomtatvány alapból PONTOSAN a
+  // Választók fül „Összes választó" számával (és az egyházmegyei beküldéssel)
+  // egyező kört tartalmazza: jogosult ÉS (járulékot fizetett VAGY felmentett).
+  // A korábbi alapszűrő (csak a TELJESEN fizetők) kihagyta a részlegesen
+  // fizetőket → a nyomtatott létszám eltért a beküldöttől (292 ≠ 301).
+  const [canonical, setCanonical] = useState(true)
   const [prevFull, setPrevFull] = useState(true)
   const [prevPartial, setPrevPartial] = useState(false)
   const [currFull, setCurrFull] = useState(true)
@@ -71,6 +77,9 @@ export function VoterPrintDialog({
   }, [open])
 
   const filteredVoters = useMemo(() => {
+    // 2026-07-24 (PR-12): kanonikus mód — a névjegyzék-tagság kész flagje
+    // (voter-actions.nevjegyzekTag), bit-egyezően a KPI-vel és a beküldéssel.
+    if (canonical) return voters.filter(v => v.nevjegyzekTag)
     return voters.filter(v => {
       // Jogosultsági alapszűrő (D2: default BE, kikapcsolható)
       if (onlyEligible && !v.eligible) return false
@@ -82,7 +91,7 @@ export function VoterPrintDialog({
       const exemptMatch = includeExempt && v.felmentett
       return prevFullMatch || prevPartialMatch || currFullMatch || currPartialMatch || exemptMatch
     })
-  }, [voters, prevFull, prevPartial, currFull, currPartial, onlyEligible, includeExempt])
+  }, [voters, canonical, prevFull, prevPartial, currFull, currPartial, onlyEligible, includeExempt])
 
   // Hiányzó éves járulék-beállítás felismerése (üres-lista zsákutca magyarázata)
   const expectedPrev = voters[0]?.expectedPrevYear ?? 0
@@ -138,7 +147,7 @@ export function VoterPrintDialog({
     }
   }
 
-  const anyFilter = prevFull || prevPartial || currFull || currPartial || includeExempt
+  const anyFilter = canonical || prevFull || prevPartial || currFull || currPartial || includeExempt
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -171,10 +180,39 @@ export function VoterPrintDialog({
               </div>
 
               <div className="space-y-2">
+                {/* 2026-07-24 (PR-12): kanonikus alapmód — a nyomtatvány egyezik a
+                    Választók fül „Összes választó" számával és a beküldéssel. */}
+                <label className="flex items-start gap-2 rounded-lg border-2 border-blue-300 bg-blue-50/60 p-2.5 cursor-pointer hover:border-blue-400 transition">
+                  <input
+                    type="checkbox"
+                    checked={canonical}
+                    onChange={e => setCanonical(e.target.checked)}
+                    className="mt-0.5 rounded"
+                  />
+                  <div>
+                    <div className="text-sm font-medium text-slate-700">
+                      <strong>Hivatalos névjegyzék</strong> (ajánlott)
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      Jogosult ÉS (járulékot fizetett VAGY felmentett) — pontosan a
+                      Választók fül &bdquo;Összes választó&rdquo; száma; ez a kör kerül
+                      beküldésre az egyházmegyének is. A részlegesen fizetők IS benne vannak.
+                    </div>
+                  </div>
+                </label>
+
+                {canonical && (
+                  <p className="rounded-lg bg-slate-50 px-2.5 py-2 text-[11px] text-slate-500">
+                    Az alábbi finomszűrők a hivatalos mód kikapcsolásával válnak elérhetővé.
+                  </p>
+                )}
+
+                <div className={canonical ? 'pointer-events-none select-none space-y-2 opacity-45' : 'space-y-2'}>
                 <label className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 p-2.5 cursor-pointer hover:border-emerald-300 transition">
                   <input
                     type="checkbox"
                     checked={onlyEligible}
+                    disabled={canonical}
                     onChange={e => setOnlyEligible(e.target.checked)}
                     className="mt-0.5 rounded"
                   />
@@ -190,6 +228,7 @@ export function VoterPrintDialog({
                   <input
                     type="checkbox"
                     checked={includeExempt}
+                    disabled={canonical}
                     onChange={e => setIncludeExempt(e.target.checked)}
                     className="mt-0.5 rounded"
                   />
@@ -205,6 +244,7 @@ export function VoterPrintDialog({
                   <input
                     type="checkbox"
                     checked={prevFull}
+                    disabled={canonical}
                     onChange={e => setPrevFull(e.target.checked)}
                     className="mt-0.5 rounded"
                   />
@@ -220,6 +260,7 @@ export function VoterPrintDialog({
                   <input
                     type="checkbox"
                     checked={prevPartial}
+                    disabled={canonical}
                     onChange={e => setPrevPartial(e.target.checked)}
                     className="mt-0.5 rounded"
                   />
@@ -235,6 +276,7 @@ export function VoterPrintDialog({
                   <input
                     type="checkbox"
                     checked={currFull}
+                    disabled={canonical}
                     onChange={e => setCurrFull(e.target.checked)}
                     className="mt-0.5 rounded"
                   />
@@ -250,6 +292,7 @@ export function VoterPrintDialog({
                   <input
                     type="checkbox"
                     checked={currPartial}
+                    disabled={canonical}
                     onChange={e => setCurrPartial(e.target.checked)}
                     className="mt-0.5 rounded"
                   />
@@ -260,6 +303,7 @@ export function VoterPrintDialog({
                     <div className="text-[11px] text-slate-400">0 &lt; befizetés &lt; éves járulék</div>
                   </div>
                 </label>
+                </div>
               </div>
             </div>
 
@@ -267,8 +311,10 @@ export function VoterPrintDialog({
             <div className="card-raised p-4 space-y-2">
               <div className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-600">
                 <div><span className="font-semibold text-slate-800">Év:</span> {currentYear} – {currentYear + 1}</div>
-                <div><span className="font-semibold text-slate-800">Beleszámítottak száma:</span> {filteredVoters.length}</div>
-                <div><span className="font-semibold text-slate-800">Tájolás:</span> A4 álló</div>
+                <div><span className="font-semibold text-slate-800">Beleszámítottak száma:</span> {filteredVoters.length} fő</div>
+                {/* 2026-07-24 (PR-12): a lapszám is látszik — a teljes névsor több
+                    A4-lapra tördelődik, az előnézet görgethető. */}
+                <div><span className="font-semibold text-slate-800">Terjedelem:</span> {report.sheetCount} A4-oldal (álló)</div>
                 {loadingCtx && <div className="text-[11px] text-blue-600 mt-1">Gyülekezeti adatok betöltése...</div>}
               </div>
 
@@ -312,11 +358,21 @@ export function VoterPrintDialog({
 
           {/* ── Jobb oldal: előnézet ──────────────── */}
           <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-slate-100/80 p-3 shadow-inner">
+            {/* 2026-07-24 (PR-12): egyértelmű jelzés, hogy az előnézet TÖBB lapos és
+                görgethető — a user csak az 1. lap 22 sorát látta, és csonkának hitte. */}
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-2 text-xs text-slate-600">
+              <span className="font-semibold text-slate-700">
+                {filteredVoters.length} fő · {report.sheetCount} oldal
+              </span>
+              <span className="rounded-full bg-blue-100 px-2.5 py-1 font-medium text-blue-700">
+                ↓ Az előnézet görgethető — minden oldal itt van
+              </span>
+            </div>
             <div className="rounded-[22px] border border-slate-200 bg-white shadow-sm">
               <iframe
                 title={report.title}
                 srcDoc={report.html}
-                className="h-[78vh] min-h-[760px] w-full rounded-[22px] bg-white"
+                className="h-[74vh] min-h-[700px] w-full rounded-[22px] bg-white"
               />
             </div>
           </div>

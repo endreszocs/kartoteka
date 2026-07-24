@@ -32,6 +32,9 @@ export interface VoterPrintResult {
   filename: string
   orientation: 'portrait' | 'landscape'
   html: string
+  /** 2026-07-24 (PR-12): a lapok száma — az előnézet fölött jelezzük, hogy a
+   *  dokumentum többlapos és görgethető (a user az 1. lap 22 sorát látta csak). */
+  sheetCount: number
 }
 
 function esc(v: string) {
@@ -188,5 +191,6 @@ export function buildVoterListReport(params: {
     filename: `Valasztok_nevjegyzeke_${year}.pdf`,
     orientation: 'portrait',
     html: `<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8"><title>Választók névjegyzéke</title><style>${voterStyles()}</style></head><body>${sheets.join('')}</body></html>`,
+    sheetCount: totalSheets,
   }
 }

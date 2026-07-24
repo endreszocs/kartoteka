@@ -110,11 +110,14 @@ export function VotersTab() {
   return (
     <div className="space-y-4">
       {/* KPI kártyák */}
+      {/* 2026-07-24 (PR-12): a 4. kártya címkéje pontosítva — az a NYERS jogosultak
+          száma (18+, aktív; fizetés nélkül is), ami több lehet, mint a névjegyzék:
+          a régi „Jogosult (névjegyzék)" felirat mellett a 412 > 301 hibának tűnt. */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiCard icon={<Users className="w-5 h-5" />} gradient="from-blue-500 to-indigo-600" value={canonCount} label="Összes választó" />
+        <KpiCard icon={<Users className="w-5 h-5" />} gradient="from-blue-500 to-indigo-600" value={canonCount} label="Névjegyzéki választó" />
         <KpiCard icon={<User className="w-5 h-5" />} gradient="from-blue-400 to-blue-500" value={maleCount} label="Férfi" />
         <KpiCard icon={<UserRound className="w-5 h-5" />} gradient="from-pink-500 to-rose-500" value={femaleCount} label="Nő" />
-        <KpiCard icon={<ScaleIcon className="w-5 h-5" />} gradient="from-emerald-500 to-green-600" value={eligibleCount} label="Jogosult (névjegyzék)" />
+        <KpiCard icon={<ScaleIcon className="w-5 h-5" />} gradient="from-emerald-500 to-green-600" value={eligibleCount} label="Jogosult (fizetés nélkül is)" />
       </div>
 
       {/* Műveletek */}
