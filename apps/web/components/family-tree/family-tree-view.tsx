@@ -688,6 +688,17 @@ function buildLayout(
 
   const positions = new Map<number, { x: number; y: number }>()
 
+  // 2026-07-24 (PR-5b F8.2): házaspár-csoportosítás — a soron belül a
+  // házastársak EGYMÁS MELLÉ kerülnek. A korábbi „férfiak balra, aztán
+  // névsor" rendezésnél a házaspár-vonal az egész soron átívelt, és több
+  // generációnál (az új 5 szintes mélységgel) olvashatatlanná vált.
+  const spousePartner = new Map<number, number>()
+  for (const e of data.edges) {
+    if (e.type !== 'spouse') continue
+    if (!spousePartner.has(e.from)) spousePartner.set(e.from, e.to)
+    if (!spousePartner.has(e.to)) spousePartner.set(e.to, e.from)
+  }
+
   gens.forEach((gen, gIdx) => {
     const items = byGen.get(gen)!
     items.sort((a, b) => {
@@ -698,10 +709,28 @@ function buildLayout(
       return an.localeCompare(bn, 'hu')
     })
 
-    const rowWidth = items.length * NODE_W + (items.length - 1) * GAP_X
+    // Pár-csoportosítás: a rendezett sorrendben haladva a személy után rögtön
+    // a (még el nem helyezett) házastársa következik.
+    const placed = new Set<number>()
+    const ordered: typeof items = []
+    for (const m of items) {
+      if (placed.has(m.id)) continue
+      ordered.push(m)
+      placed.add(m.id)
+      const partnerId = spousePartner.get(m.id)
+      if (partnerId && !placed.has(partnerId)) {
+        const partner = items.find((x) => x.id === partnerId)
+        if (partner) {
+          ordered.push(partner)
+          placed.add(partner.id)
+        }
+      }
+    }
+
+    const rowWidth = ordered.length * NODE_W + (ordered.length - 1) * GAP_X
     const startX = (totalWidth - rowWidth) / 2
 
-    items.forEach((m, mIdx) => {
+    ordered.forEach((m, mIdx) => {
       positions.set(m.id, {
         x: startX + mIdx * (NODE_W + GAP_X),
         y: gIdx * (NODE_H + GAP_Y),

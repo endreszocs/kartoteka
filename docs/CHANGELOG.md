@@ -23,6 +23,43 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-24] — Családfa: dédszülőtől a szépszülőig, unokatestvérek és házassági rokonság — valódi rokonsági címkékkel
+<!-- key: 2026-07-24-tagnyilv-pr5b-csaladfa -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.95 -->
+
+### ✨ Családfa — kiterjesztett rokonság
+
+- **A családfa mostantól 5 generációt jár be felfelé** (szülő → nagyszülő →
+  dédszülő → ükszülő → szépszülő) **és 3-at lefelé** (gyermek → unoka →
+  dédunoka) — eddig 2-2 volt a határ.
+- **Az unokatestvérek végre megjelennek a fán** — egy bejárási hiba miatt
+  eddig szisztematikusan kimaradtak, pedig az adatból levezethetők voltak.
+- **A rokonsági címkék mostantól igazak:** a rendszer a tényleges rokonsági
+  utat számolja ki, így a nagybácsi többé nem „Apa", a vő nem „Fiú", a sógor
+  nem „Testvér". Ismert címkék: nagybácsi/nagynéni, unokatestvér,
+  unokaöcs/unokahúg, déd-nagybácsi, másod-unokatestvér…
+- **Házassági rokonság is** (kérésed szerint): após, anyós, meny, vő,
+  sógor/sógornő, mostohaszülő — mind a helyes címkével.
+- **A csak „nagyszülő-unoka"-ként rögzített kapcsolatok is felkerülnek a
+  fára** (ahol a köztes szülő nincs a nyilvántartásban) — eddig csak a
+  hálón látszottak, a fán nem.
+- **A házaspárok egymás mellé kerülnek** a fa minden sorában — a házaspár-vonal
+  eddig az egész soron átívelhetett, ami nagy fánál olvashatatlan volt.
+
+### 🐛 Megbízhatóság
+
+- **A családfa hibája többé nem néma:** eddig bármilyen adatbázis-hiba üres
+  fát adott „Nincs elegendő adat" felirattal — mostantól valódi hibaüzenet
+  jön, és újra lehet próbálni.
+- **A fa csak a saját gyülekezet adataiból épül** — esperesi/admin
+  szerepkörben eddig idegen gyülekezetek kapcsolatai is belekeveredhettek.
+- Nagy rokonsági hálónál megszűnt a rejtett levágás (lapozott lekérdezések),
+  és egy ésszerű plafon védi a megjelenítést a túl nagy fáktól.
+
+---
+
 ## [2026-07-24] — Családi háló: teljes képernyős mód, Kartotéka-logós betöltő + gyorsabb és stabilabb működés
 <!-- key: 2026-07-24-tagnyilv-pr5-halo -->
 <!-- category: improvement -->
