@@ -21,6 +21,13 @@
 --   hibával elhalt — a cim.id UUID, nem integer; a v_cim_id deklaráció
 --   %TYPE-ra váltva, így a tábla tényleges oszloptípusát veszi fel.
 --   (A hibás futás mindent visszagörgetett — ezt a fájlt az ELEJÉTŐL kell futtatni.)
+--
+-- v3 (2026-07-18): a 2. futás UGYANAZON a 31. soron halt el — ez a RÉGI (v1)
+--   függvényszöveg, tehát nem a javított fájl futott (régi editor-fül, vagy
+--   csak egy KIJELÖLT rész — a Supabase a kijelölést futtatja!).
+--   ⚠️ FUTTATÁS ELŐTT: nyisd meg EZT a fájlt frissen, másold be az EGÉSZET egy
+--   ÚJ SQL-editor fülre, és kijelölés NÉLKÜL futtasd. A CREATE után egy
+--   ellenőrző SELECT azonnal megmondja, a javított verzió települt-e.
 -- ============================================================================
 
 -- ────────────────────────────────────────────────────────────────────────────
@@ -200,6 +207,12 @@ COMMENT ON FUNCTION public.sync_households_from_csalad(uuid) IS
 REVOKE ALL ON FUNCTION public.sync_households_from_csalad(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.sync_households_from_csalad(uuid) FROM anon;
 GRANT EXECUTE ON FUNCTION public.sync_households_from_csalad(uuid) TO authenticated;
+
+-- ── TELEPÍTÉS-ELLENŐRZŐ (v3) ────────────────────────────────────────────────
+-- Várt: v2_telepitve = true. Ha FALSE, a fenti CREATE nem futott le (régi
+-- fül/kijelölés) — ilyenkor NE menj tovább a 4. szakaszra!
+SELECT position('cim.id%TYPE' IN pg_get_functiondef('public.sync_households_from_csalad(uuid)'::regprocedure)) > 0
+  AS v2_telepitve;
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 3. statement_timeout = 120s a két batch-RPC-re (a 2026-07-15-ös infer-fix
