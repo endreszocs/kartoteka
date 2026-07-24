@@ -323,6 +323,20 @@ export function TagnyilvantartasImportWizard({
       return
     }
 
+    // 2026-07-18 (PR-3 F6.5): fájlnév-őr — ha a fájl neve családokra utal, de a
+    // mód "Új tagok importálása", minden családfő MÉG EGYSZER létrejönne
+    // (duplikált személyek, a CNP auto-generált — semmi nem véd). Explicit
+    // megerősítést kérünk.
+    if (
+      importMode === 'new_persons' &&
+      (file.name.toLowerCase().includes('csalad') || file.name.toLowerCase().includes('family'))
+    ) {
+      const proceed = confirm(
+        `A fájl neve („${file.name}") családokra utal, de az „Új tagok importálása" mód van kiválasztva — ez ÚJ SZEMÉLYEKET hoz létre.\n\nHa a személyek már be vannak importálva és csak családokká szeretnéd szervezni őket, válaszd a „Csak családokká szervezés" módot!\n\nBiztosan új személyeket importálsz?`,
+      )
+      if (!proceed) return
+    }
+
     // Az importMode alapján döntjük meg a profilt:
     //  - 'families_from_existing' → mindig PROFILE_FAMILIES_FROM_EXISTING_PERSONS
     //  - 'new_persons' → fájlnév-detektálás (PROFILE_PERSONS vagy PROFILE_FAMILY_HEADS)
@@ -825,7 +839,15 @@ export function TagnyilvantartasImportWizard({
           profile={profile}
           overrides={mappingOverrides}
           onOverrideChange={handleOverrideChange}
-          availableProfiles={AVAILABLE_PROFILES}
+          // 2026-07-18 (PR-3 F6.5): "Csak családokká szervezés" módban a
+          // profilválasztó ZÁROLT — a korábbi lista nem tartalmazta az aktív
+          // profilt, és egy átkattintás után nem volt visszaút (rossz RPC,
+          // akár duplikált személy-létrehozás).
+          availableProfiles={
+            importMode === 'families_from_existing'
+              ? [PROFILE_FAMILIES_FROM_EXISTING_PERSONS]
+              : AVAILABLE_PROFILES
+          }
           selectedProfileKey={profile.key}
           onProfileChange={handleProfileChange}
           onBack={() => setStage('upload')}
@@ -895,8 +917,11 @@ export function TagnyilvantartasImportWizard({
         <ResultStep
           result={importResult}
           onNewImport={reset}
+          // 2026-07-18 (PR-3 F6.5): az auto-link 0 új beszúrt sornál is elérhető —
+          // ismételt futtatásnál (minden sor "már szerepel") épp a házastárs/gyerek
+          // pótlás lenne a cél, de a gomb eddig eltűnt.
           extraAction={
-            linkTargetCongId && importResult.insertedTotal > 0 ? (
+            linkTargetCongId ? (
               <Button
                 type="button"
                 onClick={() => setStage('family-link')}
