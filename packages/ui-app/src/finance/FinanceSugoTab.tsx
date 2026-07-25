@@ -174,6 +174,10 @@ const SECTIONS: Section[] = [
             text: 'A Számadás nyomtatványán megjelent a hivatalos nyitó 3 sor, és a záró egyenleg mostantól helyesen számolódik: nyitó + évi bevételek − évi kiadások. (Korábban tévesen a nyitó összeg szerepelt „év végi" egyenlegként.)',
           },
           {
+            // 2026-07-25 (G3-sugo)
+            text: 'Évi pénzügyi kép a Számadás fül tetején: az évi bevétel és kiadás mellett nagyban látszik a pénztári (Casa), a banki (Banca) és az együttes egyenleg — a Kassza és a Bank füllel azonos számítással.',
+          },
+          {
             text: 'Az Excel-exportban a „Várakozik banki egyeztetésre" felirat a VALÓS állapotot mutatja — amint a banki pár beérkezett és párosodott, a felirat eltűnik. A párosítás-figyelő is pontosabb: csak valódi kassza↔bank párokat fogad el.',
           },
           {
@@ -920,6 +924,10 @@ const SECTIONS: Section[] = [
         howItWorks: [
           {
             text: 'Bármikor megnézheted az aktuális állást — nem kell várni az év végéig.',
+          },
+          {
+            // 2026-07-25 (G3-sugo): évi összegző hero
+            text: 'Évi pénzügyi kép a fül tetején: egy pillantással látod az évi bevételt és kiadást, a pénztári (Casa) és a banki (Banca) egyenleget, és nagy számmal a rendelkezésre álló pénzt összesen — pontosan ugyanazokkal a számokkal, amiket a Kassza és a Bank fül mutat.',
           },
           {
             // 2026-07-10 (S3-sugo): hivatalos nyitó 3 sor + helyes záró egyenleg

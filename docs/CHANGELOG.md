@@ -23,6 +23,19 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Évi pénzügyi kép a Számadás fülön
+<!-- key: 2026-07-25-penzugy-g3-szamadas-hero -->
+<!-- category: improvement -->
+<!-- version: v0.9.113 -->
+<!-- targets: minden pénzügyet kezelő felhasználó -->
+
+### ✨ Új funkciók
+
+- **Évi pénzügyi kép a Számadás fül tetején**: egy pillantással látod az évi bevételt és kiadást, a pénztári (Casa) és a banki (Banca) egyenleget, és nagy számmal a rendelkezésre álló pénzt összesen. A számok pontosan ugyanabból a számításból jönnek, mint a Kassza és a Bank fül egyenlegei — nem fordulhat elő eltérés a fülek között. Az év-választóval visszalapozva a korábbi évek képét is megnézheted.
+- **Asztali (offline) verzió**: ugyanez az összegző a desktop Számadás fülére is felkerült (a következő asztali kiadástól).
+
+---
+
 ## [2026-07-25] — Nyelvválasztós kiállító, visszamenőleges iktatás, teljes átadási kör
 <!-- key: 2026-07-25-iktato-f8c-nyelv-atadas -->
 <!-- category: feature -->
