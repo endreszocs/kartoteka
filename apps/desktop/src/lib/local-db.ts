@@ -43,6 +43,36 @@ export async function dbExecute(sql: string, params: SqlParam[] = []): Promise<n
 }
 
 /**
+ * 2026-07-25 (F6.7): KÖTEGELT írás — UGYANAZ az SQL, `n` paraméter-sorral.
+ *
+ * A szinkron eddig soronként hívta a `dbExecute`-ot: külön IPC-kör és külön
+ * tranzakció MINDEN sorra. Ez a hívás egyetlen körben, egyetlen tranzakcióban,
+ * egyetlen előkészített utasítással írja be a köteget.
+ *
+ * ⚠️ ATOMIKUS: ha bármelyik sor hibázik, a TELJES köteg visszagördül (a Rust
+ * oldalon a tranzakció rollback-el). Ezért a hívó soha nem kap félig beírt
+ * állapotot — de azt sem feltételezheti, hogy a hiba előtti sorok bennmaradtak.
+ *
+ * A köteget darabokra bontjuk, hogy egy IPC-üzenet se legyen aránytalanul nagy,
+ * és a haladás-jelzés is működhessen két darab között.
+ */
+export async function dbExecuteMany(
+  sql: string,
+  rows: SqlParam[][],
+  opts: { chunkSize?: number; onProgress?: (done: number, total: number) => void } = {},
+): Promise<number> {
+  if (rows.length === 0) return 0
+  const chunkSize = Math.max(1, opts.chunkSize ?? 500)
+  let affected = 0
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const slice = rows.slice(i, i + chunkSize)
+    affected += await invoke<number>('db_execute_many', { sql, rows: slice })
+    opts.onProgress?.(Math.min(i + chunkSize, rows.length), rows.length)
+  }
+  return affected
+}
+
+/**
  * SELECT hívás: visszaadja a sorokat objektum-tömbként.
  * A visszaadott `T` generikus — a hívó felelőssége az oszlopnevek + típusok
  * helyessége.

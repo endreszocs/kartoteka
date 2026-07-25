@@ -32,7 +32,7 @@
 
 import { errorMessage } from './error'
 import { getDesktopSupabase } from './supabase'
-import { dbExecute, dbSelect, getSetting, setSetting } from './local-db'
+import { dbExecute, dbExecuteMany, dbSelect, getSetting, setSetting, type SqlParam } from './local-db'
 
 // ═════════════════════════════════════════════════════════════════════════
 // 2026-07-24 (PR-8, F9): lapozott Supabase-letöltés
@@ -1272,9 +1272,51 @@ export async function pullMembersOfOwnCongregation(
   const rows = (data ?? []) as unknown as MemberSupabaseRow[]
 
   // 4. Upsert a lokális cache-be — soronként
+  const memberBatch: SqlParam[][] = []
   for (const row of rows) {
-    await dbExecute(
-      `INSERT INTO szemely_local
+    memberBatch.push([
+      row.id,
+      row.cnp,
+      row.szcs_nev,
+      row.k_nev,
+      row.csaladnev,
+      row.ferjk_nev,
+      row.allapot,
+      row.sz_datum,
+      row.ferfi ? 1 : 0,
+      row.csaladfo ? 1 : 0,
+      row.meghalt ? 1 : 0,
+      row.member_status,
+      row.apjaneve,
+      row.anyjaneve,
+      row.id_apja,
+      row.id_anyja,
+      row.c_szam,
+      row.c_tombhaz,
+      row.c_lepcsohaz,
+      row.c_ajto,
+      row.c_emelet,
+      row.c_szcim,
+      row.telefon,
+      row.email,
+      row.vallas,
+      row.foglalkozas,
+      row.nemzetiseg,
+      row.voter_eligible ? 1 : 0,
+      row.congregation_id,
+      row.family_id,
+      row.type,
+      row.isvisible ? 1 : 0,
+      row.megjegyzes,
+      row.revision ?? 0,
+      row.updated_at ?? null,
+      row.kep ?? null,
+      row.social_profil_url ?? null,
+      row.voter_manual_override ?? null,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO szemely_local
          (id, cnp, szcs_nev, k_nev, csaladnev, ferjk_nev, allapot,
           sz_datum, ferfi, csaladfo, meghalt, member_status,
           apjaneve, anyjaneve, id_apja, id_anyja,
@@ -1331,48 +1373,8 @@ export async function pullMembersOfOwnCongregation(
          revision = excluded.revision,
          updated_at = excluded.updated_at,
          synced_at = excluded.synced_at`,
-      [
-        row.id,
-        row.cnp,
-        row.szcs_nev,
-        row.k_nev,
-        row.csaladnev,
-        row.ferjk_nev,
-        row.allapot,
-        row.sz_datum,
-        row.ferfi ? 1 : 0,
-        row.csaladfo ? 1 : 0,
-        row.meghalt ? 1 : 0,
-        row.member_status,
-        row.apjaneve,
-        row.anyjaneve,
-        row.id_apja,
-        row.id_anyja,
-        row.c_szam,
-        row.c_tombhaz,
-        row.c_lepcsohaz,
-        row.c_ajto,
-        row.c_emelet,
-        row.c_szcim,
-        row.telefon,
-        row.email,
-        row.vallas,
-        row.foglalkozas,
-        row.nemzetiseg,
-        row.voter_eligible ? 1 : 0,
-        row.congregation_id,
-        row.family_id,
-        row.type,
-        row.isvisible ? 1 : 0,
-        row.megjegyzes,
-        row.revision ?? 0,
-        row.updated_at ?? null,
-        row.kep ?? null,
-        row.social_profil_url ?? null,
-        row.voter_manual_override ?? null,
-      ],
-    )
-  }
+    memberBatch,
+  )
 
   // 5. last_pull frissítés — a legújabb kapott updated_at-ra
   let newLastPull = lastPull ?? new Date(0).toISOString()
@@ -1608,12 +1610,10 @@ function worklogLastPullKey(congregationId: string): string {
 }
 
 /**
- * Egy Supabase `munkanaplo`-sor upsert-je a lokális tükörbe.
- * Közös út: pull-sync + az outbox-flush utáni temp-sor csere.
+ * A `munkanaplo` upsert SQL-je — 2026-07-25 (F6.7) óta külön konstans, hogy a
+ * pull-hurok KÖTEGELVE (`dbExecuteMany`) is használhassa ugyanezt az utasítást.
  */
-async function upsertWorklogLocalRow(row: WorklogSupabaseRow): Promise<void> {
-  await dbExecute(
-    `INSERT INTO munkanaplo_local
+const WORKLOG_UPSERT_SQL = `INSERT INTO munkanaplo_local
        (id, idopont, jellege, id_jellege, bibliaolvasas, alapige, cim, enekek,
         jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, jelenlet_osszesen,
         szolgalt, persely, megjegyzes, mediapath, kategoria, du,
@@ -1650,35 +1650,45 @@ async function upsertWorklogLocalRow(row: WorklogSupabaseRow): Promise<void> {
        congregation_id = excluded.congregation_id,
        revision = excluded.revision,
        updated_at = excluded.updated_at,
-       synced_at = excluded.synced_at`,
-    [
-      row.id,
-      row.idopont,
-      row.jellege,
-      row.id_jellege,
-      row.bibliaolvasas,
-      row.alapige,
-      row.cim,
-      row.enekek,
-      row.jelenlet_ferfi,
-      row.jelenlet_no,
-      row.jelenlet_gyermek,
-      row.jelenlet_osszesen ?? 0,
-      row.szolgalt,
-      row.persely,
-      row.megjegyzes,
-      row.mediapath,
-      row.kategoria,
-      row.du ? 1 : 0,
-      row.napszak ?? null,
-      row.uv_templomban ?? null,
-      row.uv_betegnel ?? null,
-      row.deleted ? 1 : 0,
-      row.congregation_id,
-      row.revision ?? 0,
-      row.updated_at ?? null,
-    ],
-  )
+       synced_at = excluded.synced_at`
+
+/** A `WORKLOG_UPSERT_SQL` paraméter-sora egyetlen szerver-sorból. */
+function worklogUpsertParams(row: WorklogSupabaseRow): SqlParam[] {
+  return [
+    row.id,
+    row.idopont,
+    row.jellege,
+    row.id_jellege,
+    row.bibliaolvasas,
+    row.alapige,
+    row.cim,
+    row.enekek,
+    row.jelenlet_ferfi,
+    row.jelenlet_no,
+    row.jelenlet_gyermek,
+    row.jelenlet_osszesen ?? 0,
+    row.szolgalt,
+    row.persely,
+    row.megjegyzes,
+    row.mediapath,
+    row.kategoria,
+    row.du ? 1 : 0,
+    row.napszak ?? null,
+    row.uv_templomban ?? null,
+    row.uv_betegnel ?? null,
+    row.deleted ? 1 : 0,
+    row.congregation_id,
+    row.revision ?? 0,
+    row.updated_at ?? null,
+  ]
+}
+
+/**
+ * Egy Supabase `munkanaplo`-sor upsert-je a lokális tükörbe.
+ * Közös út: pull-sync + az outbox-flush utáni temp-sor csere.
+ */
+async function upsertWorklogLocalRow(row: WorklogSupabaseRow): Promise<void> {
+  await dbExecute(WORKLOG_UPSERT_SQL, worklogUpsertParams(row))
 }
 
 /**
@@ -1769,10 +1779,8 @@ export async function pullWorklogOfOwnCongregation(
 
   const rows = (data ?? []) as unknown as WorklogSupabaseRow[]
 
-  // 4. Upsert soronként
-  for (const row of rows) {
-    await upsertWorklogLocalRow(row)
-  }
+  // 4. Upsert — 2026-07-25 (F6.7) óta KÖTEGELVE (egy tranzakció, egy IPC-kör)
+  await dbExecuteMany(WORKLOG_UPSERT_SQL, rows.map(worklogUpsertParams))
 
   // 5. last_pull frissítés
   let newLastPull = lastPull ?? new Date(0).toISOString()
@@ -2457,9 +2465,26 @@ export async function pullFamiliesOfOwnCongregation(
   const rows = (data ?? []) as unknown as CsaladSupabaseRow[]
 
   // 4. Upsert — soronként
+  const csaladBatch: SqlParam[][] = []
   for (const row of rows) {
-    await dbExecute(
-      `INSERT INTO csalad_local
+    csaladBatch.push([
+      row.id,
+      row.id_ferfi,
+      row.id_no,
+      row.c_utcaid,
+      row.c_szam ?? '',
+      row.c_tombhaz,
+      row.c_lepcsohaz,
+      row.c_ajto,
+      row.c_emelet,
+      row.id_csoport,
+      row.isaktiv ? 1 : 0,
+      row.revision,
+      row.updated_at,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO csalad_local
          (id, id_ferfi, id_no, c_utcaid, c_szam, c_tombhaz, c_lepcsohaz,
           c_ajto, c_emelet, id_csoport, isaktiv, revision, updated_at, synced_at)
        VALUES
@@ -2479,23 +2504,8 @@ export async function pullFamiliesOfOwnCongregation(
          revision = excluded.revision,
          updated_at = excluded.updated_at,
          synced_at = datetime('now')`,
-      [
-        row.id,
-        row.id_ferfi,
-        row.id_no,
-        row.c_utcaid,
-        row.c_szam ?? '',
-        row.c_tombhaz,
-        row.c_lepcsohaz,
-        row.c_ajto,
-        row.c_emelet,
-        row.id_csoport,
-        row.isaktiv ? 1 : 0,
-        row.revision,
-        row.updated_at,
-      ],
-    )
-  }
+    csaladBatch,
+  )
 
   // 5. last_pull frissítése — a legnagyobb updated_at-re
   let newestIso = lastPull ?? new Date(0).toISOString()
@@ -2593,9 +2603,12 @@ export async function pullGyerekOfOwnCongregation(
 
   const rows = (data ?? []) as unknown as GyerekSupabaseRow[]
 
+  const gyerekBatch: SqlParam[][] = []
   for (const row of rows) {
-    await dbExecute(
-      `INSERT INTO gyerek_local
+    gyerekBatch.push([row.id, row.id_csalad, row.id_szemely, row.revision, row.updated_at])
+  }
+  await dbExecuteMany(
+    `INSERT INTO gyerek_local
          (id, id_csalad, id_szemely, revision, updated_at, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))
        ON CONFLICT(id) DO UPDATE SET
@@ -2604,9 +2617,8 @@ export async function pullGyerekOfOwnCongregation(
          revision = excluded.revision,
          updated_at = excluded.updated_at,
          synced_at = datetime('now')`,
-      [row.id, row.id_csalad, row.id_szemely, row.revision, row.updated_at],
-    )
-  }
+    gyerekBatch,
+  )
 
   let newestIso = lastPull ?? new Date(0).toISOString()
   for (const row of rows) {
@@ -3487,188 +3499,204 @@ export async function pullRegistryOfOwnCongregation(userId: string): Promise<{
   await dbExecute('DELETE FROM kitert_local WHERE congregation_id = ?1', [congregationId])
 
   const krRows = (keresztelesRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  const keresztsegBatch: SqlParam[][] = []
   for (const r of krRows) {
-    await dbExecute(
-      `INSERT INTO keresztseg_local
+    keresztsegBatch.push([
+      r.id as number,
+      r.congregation_id as string,
+      (r.datum as string | null) ?? null,
+      (r.okirat as string | null) ?? null,
+      (r.lelkeszneve as string | null) ?? null,
+      (r.id_szemely as number | null) ?? null,
+      (r.helyid as number | null) ?? null,
+      (r.megjegyzes as string | null) ?? null,
+      (r.keresztszulok as string | null) ?? null,
+      (r.munkanaploba as boolean | null) === true ? 1 : 0,
+      (r.munkanaplo_id as number | null) ?? null,
+      Number(r.revision ?? 0),
+      (r.updated_at as string | null) ?? null,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO keresztseg_local
          (id, congregation_id, datum, okirat, lelkeszneve, id_szemely, helyid, megjegyzes,
           keresztszulok, munkanaploba, munkanaplo_id, revision, updated_at, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, datetime('now'))`,
-      [
-        r.id as number,
-        r.congregation_id as string,
-        (r.datum as string | null) ?? null,
-        (r.okirat as string | null) ?? null,
-        (r.lelkeszneve as string | null) ?? null,
-        (r.id_szemely as number | null) ?? null,
-        (r.helyid as number | null) ?? null,
-        (r.megjegyzes as string | null) ?? null,
-        (r.keresztszulok as string | null) ?? null,
-        (r.munkanaploba as boolean | null) === true ? 1 : 0,
-        (r.munkanaplo_id as number | null) ?? null,
-        Number(r.revision ?? 0),
-        (r.updated_at as string | null) ?? null,
-      ],
-    )
-  }
+    keresztsegBatch,
+  )
 
   const knRows = (konfirmacioRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  const konfirmalasBatch: SqlParam[][] = []
   for (const r of knRows) {
-    await dbExecute(
-      `INSERT INTO konfirmalas_local
+    konfirmalasBatch.push([
+      r.id as number,
+      r.congregation_id as string,
+      (r.datum as string | null) ?? null,
+      (r.lelkeszneve as string | null) ?? null,
+      (r.id_szemely as number | null) ?? null,
+      (r.megjegyzes as string | null) ?? null,
+      (r.munkanaplo_id as number | null) ?? null,
+      (r.keresztelesideje as string | null) ?? null,
+      Number(r.revision ?? 0),
+      (r.updated_at as string | null) ?? null,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO konfirmalas_local
          (id, congregation_id, datum, lelkeszneve, id_szemely, megjegyzes,
           munkanaplo_id, keresztelesideje, revision, updated_at, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, datetime('now'))`,
-      [
-        r.id as number,
-        r.congregation_id as string,
-        (r.datum as string | null) ?? null,
-        (r.lelkeszneve as string | null) ?? null,
-        (r.id_szemely as number | null) ?? null,
-        (r.megjegyzes as string | null) ?? null,
-        (r.munkanaplo_id as number | null) ?? null,
-        (r.keresztelesideje as string | null) ?? null,
-        Number(r.revision ?? 0),
-        (r.updated_at as string | null) ?? null,
-      ],
-    )
-  }
+    konfirmalasBatch,
+  )
 
   const hzRows = (hazassagRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  const hazassagBatch: SqlParam[][] = []
   for (const r of hzRows) {
-    await dbExecute(
-      `INSERT INTO hazassag_local
+    hazassagBatch.push([
+      r.id as number,
+      r.congregation_id as string,
+      (r.datum as string | null) ?? null,
+      (r.hlevel as string | null) ?? null,
+      (r.lelkeszneve as string | null) ?? null,
+      (r.id_ferfi as number | null) ?? null,
+      (r.id_no as number | null) ?? null,
+      (r.tanuk as string | null) ?? null,
+      (r.megjegyzes as string | null) ?? null,
+      (r.munkanaploba as boolean | null) === true ? 1 : 0,
+      (r.munkanaplo_id as number | null) ?? null,
+      Number(r.revision ?? 0),
+      (r.updated_at as string | null) ?? null,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO hazassag_local
          (id, congregation_id, datum, hlevel, lelkeszneve, id_ferfi, id_no, tanuk, megjegyzes,
           munkanaploba, munkanaplo_id, revision, updated_at, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, datetime('now'))`,
-      [
-        r.id as number,
-        r.congregation_id as string,
-        (r.datum as string | null) ?? null,
-        (r.hlevel as string | null) ?? null,
-        (r.lelkeszneve as string | null) ?? null,
-        (r.id_ferfi as number | null) ?? null,
-        (r.id_no as number | null) ?? null,
-        (r.tanuk as string | null) ?? null,
-        (r.megjegyzes as string | null) ?? null,
-        (r.munkanaploba as boolean | null) === true ? 1 : 0,
-        (r.munkanaplo_id as number | null) ?? null,
-        Number(r.revision ?? 0),
-        (r.updated_at as string | null) ?? null,
-      ],
-    )
-  }
+    hazassagBatch,
+  )
 
   const tmRows = (temetesRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  const temetesBatch: SqlParam[][] = []
   for (const r of tmRows) {
-    await dbExecute(
-      `INSERT INTO temetes_local
+    temetesBatch.push([
+      r.id as number,
+      r.congregation_id as string,
+      (r.tdatum as string | null) ?? null,
+      (r.hdatum as string | null) ?? null,
+      (r.okirat as string | null) ?? null,
+      (r.lelkeszneve as string | null) ?? null,
+      (r.id_szemely as number | null) ?? null,
+      (r.thelyid as number | null) ?? null,
+      (r.hoka as string | null) ?? null,
+      (r.megjegyzes as string | null) ?? null,
+      (r.munkanaploba as boolean | null) === true ? 1 : 0,
+      (r.munkanaplo_id as number | null) ?? null,
+      (r.hhelyid as number | null) ?? null,
+      Number(r.revision ?? 0),
+      (r.updated_at as string | null) ?? null,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO temetes_local
          (id, congregation_id, tdatum, hdatum, okirat, lelkeszneve, id_szemely, thelyid, hoka, megjegyzes,
           munkanaploba, munkanaplo_id, hhelyid, revision, updated_at, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, datetime('now'))`,
-      [
-        r.id as number,
-        r.congregation_id as string,
-        (r.tdatum as string | null) ?? null,
-        (r.hdatum as string | null) ?? null,
-        (r.okirat as string | null) ?? null,
-        (r.lelkeszneve as string | null) ?? null,
-        (r.id_szemely as number | null) ?? null,
-        (r.thelyid as number | null) ?? null,
-        (r.hoka as string | null) ?? null,
-        (r.megjegyzes as string | null) ?? null,
-        (r.munkanaploba as boolean | null) === true ? 1 : 0,
-        (r.munkanaplo_id as number | null) ?? null,
-        (r.hhelyid as number | null) ?? null,
-        Number(r.revision ?? 0),
-        (r.updated_at as string | null) ?? null,
-      ],
-    )
-  }
+    temetesBatch,
+  )
 
   // ── Sprint D — 4 mozgás-tábla INSERT ──
   const bkRows = (bekoltozottRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  const bekoltozottBatch: SqlParam[][] = []
   for (const r of bkRows) {
-    await dbExecute(
-      `INSERT INTO bekoltozott_local
+    bekoltozottBatch.push([
+      r.id as number,
+      r.congregation_id as string,
+      (r.mikor as string | null) ?? null,
+      (r.id_szemely as number | null) ?? null,
+      (r.honnanid as number | null) ?? null,
+      (r.igazolas as string | null) ?? null,
+      (r.megjegyzes as string | null) ?? null,
+      Number(r.revision ?? 0),
+      (r.updated_at as string | null) ?? null,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO bekoltozott_local
          (id, congregation_id, mikor, id_szemely, honnanid, igazolas, megjegyzes,
           revision, updated_at, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))`,
-      [
-        r.id as number,
-        r.congregation_id as string,
-        (r.mikor as string | null) ?? null,
-        (r.id_szemely as number | null) ?? null,
-        (r.honnanid as number | null) ?? null,
-        (r.igazolas as string | null) ?? null,
-        (r.megjegyzes as string | null) ?? null,
-        Number(r.revision ?? 0),
-        (r.updated_at as string | null) ?? null,
-      ],
-    )
-  }
+    bekoltozottBatch,
+  )
 
   const elRows = (elkoltozottRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  const elkoltozottBatch: SqlParam[][] = []
   for (const r of elRows) {
-    await dbExecute(
-      `INSERT INTO elkoltozott_local
+    elkoltozottBatch.push([
+      r.id as number,
+      r.congregation_id as string,
+      (r.mikor as string | null) ?? null,
+      (r.id_szemely as number | null) ?? null,
+      (r.hovaid as number | null) ?? null,
+      (r.kulfoldre as boolean | null) ? 1 : 0,
+      (r.megjegyzes as string | null) ?? null,
+      Number(r.revision ?? 0),
+      (r.updated_at as string | null) ?? null,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO elkoltozott_local
          (id, congregation_id, mikor, id_szemely, hovaid, kulfoldre, megjegyzes,
           revision, updated_at, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))`,
-      [
-        r.id as number,
-        r.congregation_id as string,
-        (r.mikor as string | null) ?? null,
-        (r.id_szemely as number | null) ?? null,
-        (r.hovaid as number | null) ?? null,
-        (r.kulfoldre as boolean | null) ? 1 : 0,
-        (r.megjegyzes as string | null) ?? null,
-        Number(r.revision ?? 0),
-        (r.updated_at as string | null) ?? null,
-      ],
-    )
-  }
+    elkoltozottBatch,
+  )
 
   const atRows = (attertRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  const attertBatch: SqlParam[][] = []
   for (const r of atRows) {
-    await dbExecute(
-      `INSERT INTO attert_local
+    attertBatch.push([
+      r.id as number,
+      r.congregation_id as string,
+      (r.mikor as string | null) ?? null,
+      (r.id_szemely as number | null) ?? null,
+      (r.honnanid as number | null) ?? null,
+      (r.felekezet as string | null) ?? null,
+      (r.megjegyzes as string | null) ?? null,
+      Number(r.revision ?? 0),
+      (r.updated_at as string | null) ?? null,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO attert_local
          (id, congregation_id, mikor, id_szemely, honnanid, felekezet, megjegyzes,
           revision, updated_at, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))`,
-      [
-        r.id as number,
-        r.congregation_id as string,
-        (r.mikor as string | null) ?? null,
-        (r.id_szemely as number | null) ?? null,
-        (r.honnanid as number | null) ?? null,
-        (r.felekezet as string | null) ?? null,
-        (r.megjegyzes as string | null) ?? null,
-        Number(r.revision ?? 0),
-        (r.updated_at as string | null) ?? null,
-      ],
-    )
-  }
+    attertBatch,
+  )
 
   const ktRows = (kitertRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  const kitertBatch: SqlParam[][] = []
   for (const r of ktRows) {
-    await dbExecute(
-      `INSERT INTO kitert_local
+    kitertBatch.push([
+      r.id as number,
+      r.congregation_id as string,
+      (r.mikor as string | null) ?? null,
+      (r.id_szemely as number | null) ?? null,
+      (r.hovaid as number | null) ?? null,
+      (r.felekezet as string | null) ?? null,
+      (r.megjegyzes as string | null) ?? null,
+      Number(r.revision ?? 0),
+      (r.updated_at as string | null) ?? null,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO kitert_local
          (id, congregation_id, mikor, id_szemely, hovaid, felekezet, megjegyzes,
           revision, updated_at, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))`,
-      [
-        r.id as number,
-        r.congregation_id as string,
-        (r.mikor as string | null) ?? null,
-        (r.id_szemely as number | null) ?? null,
-        (r.hovaid as number | null) ?? null,
-        (r.felekezet as string | null) ?? null,
-        (r.megjegyzes as string | null) ?? null,
-        Number(r.revision ?? 0),
-        (r.updated_at as string | null) ?? null,
-      ],
-    )
-  }
+    kitertBatch,
+  )
 
   const nowIso = new Date().toISOString()
   await setSetting(`anyakonyv:last_pull:${congregationId}`, nowIso)
@@ -4042,9 +4070,47 @@ export async function pullInventoryOfOwnCongregation(userId: string): Promise<{
   await dbExecute('DELETE FROM leltar_tetelek_local WHERE congregation_id = ?1', [congregationId])
 
   const rows = (data ?? []) as Array<Record<string, unknown>>
+  const leltarBatch: SqlParam[][] = []
   for (const r of rows) {
-    await dbExecute(
-      `INSERT INTO leltar_tetelek_local
+    leltarBatch.push([
+      String(r.id ?? ''),
+      congregationId,
+      (r.leltari_szam as string | null) ?? null,
+      (r.regi_leltari_szam as string | null) ?? null,
+      String(r.megnevezes ?? ''),
+      (r.kategoria as string | null) ?? null,
+      (r.beszerzes_erteke as number | null) ?? (r.beszerzesi_ertek as number | null) ?? null,
+      (r.beszerzes_datuma as string | null) ?? null,
+      (r.beszerzes_bizonylat as string | null) ?? null,
+      (r.katalogus_kod as string | null) ?? null,
+      (r.hasznalati_ido as number | null) ?? (r.hasznalati_ido_ev as number | null) ?? null,
+      (r.helyszin as string | null) ?? null,
+      (r.felelos_szemely_id as number | null) ?? null,
+      (r.felelos_nev as string | null) ?? (r.felelos_neve as string | null) ?? null,
+      (r.vonalkod as string | null) ?? null,
+      (r.megjegyzes as string | null) ?? null,
+      (r.mennyiseg as number | null) ?? 1,
+      (r.mertekegyseg as string | null) ?? 'db',
+      (r.torles_datuma as string | null) ?? null,
+      (r.torles_bizonylat as string | null) ?? null,
+      (r.torles_indoklasa as string | null) ?? null,
+      (r.szerzo as string | null) ?? null,
+      (r.konyv_isbn as string | null) ?? null,
+      (r.konyv_kiado as string | null) ?? null,
+      (r.konyv_kiadas_helye as string | null) ?? null,
+      (r.konyv_kiadas_eve as number | null) ?? null,
+      (r.konyv_terjedelem as string | null) ?? null,
+      (r.konyv_sorozatcim as string | null) ?? null,
+      (r.is_deleted as boolean | null) ? 1 : 0,
+      (r.created_at as string | null) ?? null,
+      (r.userid as string | null) ?? null,
+      (r.penzugy_xkey as string | null) ?? null,
+      Number(r.revision ?? 0),
+      (r.updated_at as string | null) ?? null,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO leltar_tetelek_local
          (id, congregation_id, leltari_szam, regi_leltari_szam, megnevezes, kategoria,
           beszerzes_erteke, beszerzes_datuma, beszerzes_bizonylat, katalogus_kod,
           hasznalati_ido, helyszin, felelos_szemely_id, felelos_nev, vonalkod, megjegyzes,
@@ -4055,44 +4121,8 @@ export async function pullInventoryOfOwnCongregation(userId: string): Promise<{
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
                ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30,
                ?31, ?32, ?33, ?34, datetime('now'))`,
-      [
-        String(r.id ?? ''),
-        congregationId,
-        (r.leltari_szam as string | null) ?? null,
-        (r.regi_leltari_szam as string | null) ?? null,
-        String(r.megnevezes ?? ''),
-        (r.kategoria as string | null) ?? null,
-        (r.beszerzes_erteke as number | null) ?? (r.beszerzesi_ertek as number | null) ?? null,
-        (r.beszerzes_datuma as string | null) ?? null,
-        (r.beszerzes_bizonylat as string | null) ?? null,
-        (r.katalogus_kod as string | null) ?? null,
-        (r.hasznalati_ido as number | null) ?? (r.hasznalati_ido_ev as number | null) ?? null,
-        (r.helyszin as string | null) ?? null,
-        (r.felelos_szemely_id as number | null) ?? null,
-        (r.felelos_nev as string | null) ?? (r.felelos_neve as string | null) ?? null,
-        (r.vonalkod as string | null) ?? null,
-        (r.megjegyzes as string | null) ?? null,
-        (r.mennyiseg as number | null) ?? 1,
-        (r.mertekegyseg as string | null) ?? 'db',
-        (r.torles_datuma as string | null) ?? null,
-        (r.torles_bizonylat as string | null) ?? null,
-        (r.torles_indoklasa as string | null) ?? null,
-        (r.szerzo as string | null) ?? null,
-        (r.konyv_isbn as string | null) ?? null,
-        (r.konyv_kiado as string | null) ?? null,
-        (r.konyv_kiadas_helye as string | null) ?? null,
-        (r.konyv_kiadas_eve as number | null) ?? null,
-        (r.konyv_terjedelem as string | null) ?? null,
-        (r.konyv_sorozatcim as string | null) ?? null,
-        (r.is_deleted as boolean | null) ? 1 : 0,
-        (r.created_at as string | null) ?? null,
-        (r.userid as string | null) ?? null,
-        (r.penzugy_xkey as string | null) ?? null,
-        Number(r.revision ?? 0),
-        (r.updated_at as string | null) ?? null,
-      ],
-    )
-  }
+    leltarBatch,
+  )
 
   const nowIso = new Date().toISOString()
   await setSetting(`leltar:last_pull:${congregationId}`, nowIso)
@@ -4273,38 +4303,40 @@ export async function pullFilingOfOwnCongregation(userId: string): Promise<{
   await dbExecute('DELETE FROM iktato_local WHERE congregation_id = ?1', [congregationId])
 
   const rows = (data ?? []) as Array<Record<string, unknown>>
+  const iktatoBatch: SqlParam[][] = []
   for (const r of rows) {
-    await dbExecute(
-      `INSERT INTO iktato_local
+    iktatoBatch.push([
+      String(r.id ?? ''),
+      congregationId,
+      Number(r.year ?? new Date().getFullYear()),
+      Number(r.sequence_number ?? 0),
+      ((r.direction as string | null) ?? 'incoming') as FilingDirection,
+      (r.kelt as string | null) ?? null,
+      String(r.subject ?? ''),
+      (r.sender_or_recipient as string | null) ?? null,
+      (r.file_folder as string | null) ?? null,
+      (r.targykivonat as string | null) ?? null,
+      (r.elintezes_ideje as string | null) ?? null,
+      (r.elintezes_modja as string | null) ?? null,
+      (r.irattarijel as string | null) ?? null,
+      (r.megjegyzes as string | null) ?? null,
+      (r.oldalszam as number | null) ?? null,
+      (r.userid as string | null) ?? null,
+      Number(r.revision ?? 0),
+      (r.updated_at as string | null) ?? null,
+      (r.deleted as boolean | null) ? 1 : 0,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO iktato_local
          (id, congregation_id, year, sequence_number, direction, kelt, subject,
           sender_or_recipient, file_folder, targykivonat, elintezes_ideje,
           elintezes_modja, irattarijel, megjegyzes, oldalszam, userid,
           revision, updated_at, deleted, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
                ?17, ?18, ?19, datetime('now'))`,
-      [
-        String(r.id ?? ''),
-        congregationId,
-        Number(r.year ?? new Date().getFullYear()),
-        Number(r.sequence_number ?? 0),
-        ((r.direction as string | null) ?? 'incoming') as FilingDirection,
-        (r.kelt as string | null) ?? null,
-        String(r.subject ?? ''),
-        (r.sender_or_recipient as string | null) ?? null,
-        (r.file_folder as string | null) ?? null,
-        (r.targykivonat as string | null) ?? null,
-        (r.elintezes_ideje as string | null) ?? null,
-        (r.elintezes_modja as string | null) ?? null,
-        (r.irattarijel as string | null) ?? null,
-        (r.megjegyzes as string | null) ?? null,
-        (r.oldalszam as number | null) ?? null,
-        (r.userid as string | null) ?? null,
-        Number(r.revision ?? 0),
-        (r.updated_at as string | null) ?? null,
-        (r.deleted as boolean | null) ? 1 : 0,
-      ],
-    )
-  }
+    iktatoBatch,
+  )
 
   const nowIso = new Date().toISOString()
   await setSetting(`iktato:last_pull:${congregationId}`, nowIso)
@@ -4550,94 +4582,102 @@ export async function pullMinutesOfOwnCongregation(userId: string): Promise<{
   }
 
   // 4) INSERT — fő
+  const jkvBatch: SqlParam[][] = []
   for (const r of jkRows) {
-    await dbExecute(
-      `INSERT INTO presbiteri_jegyzokonyvek_local
+    jkvBatch.push([
+      String(r.id ?? ''),
+      congregationId,
+      ((r.tipus as string | null) ?? 'presbiteri') as MinutesType,
+      Number(r.ev ?? new Date().getFullYear()),
+      Number(r.ules_sorszam ?? 0),
+      (r.datum as string | null) ?? null,
+      (r.hely as string | null) ?? null,
+      (r.kezdes as string | null) ?? null,
+      (r.zaras as string | null) ?? null,
+      (r.elnok_neve as string | null) ?? null,
+      (r.jegyzo_neve as string | null) ?? null,
+      (r.hitelesito1 as string | null) ?? null,
+      (r.hitelesito2 as string | null) ?? null,
+      (r.igevers as string | null) ?? null,
+      (r.felolvasas as string | null) ?? null,
+      (r.megjegyzes as string | null) ?? null,
+      (r.allapot as string | null) ?? null,
+      (r.hatarozatkepesseg as boolean | null) === false ? 0 : 1,
+      Number(r.revision ?? 0),
+      (r.created_at as string | null) ?? null,
+      (r.updated_at as string | null) ?? null,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO presbiteri_jegyzokonyvek_local
          (id, congregation_id, tipus, ev, ules_sorszam, datum, hely, kezdes, zaras,
           elnok_neve, jegyzo_neve, hitelesito1, hitelesito2, igevers, felolvasas,
           megjegyzes, allapot, hatarozatkepesseg, revision, created_at, updated_at, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
                ?19, ?20, ?21, datetime('now'))`,
-      [
-        String(r.id ?? ''),
-        congregationId,
-        ((r.tipus as string | null) ?? 'presbiteri') as MinutesType,
-        Number(r.ev ?? new Date().getFullYear()),
-        Number(r.ules_sorszam ?? 0),
-        (r.datum as string | null) ?? null,
-        (r.hely as string | null) ?? null,
-        (r.kezdes as string | null) ?? null,
-        (r.zaras as string | null) ?? null,
-        (r.elnok_neve as string | null) ?? null,
-        (r.jegyzo_neve as string | null) ?? null,
-        (r.hitelesito1 as string | null) ?? null,
-        (r.hitelesito2 as string | null) ?? null,
-        (r.igevers as string | null) ?? null,
-        (r.felolvasas as string | null) ?? null,
-        (r.megjegyzes as string | null) ?? null,
-        (r.allapot as string | null) ?? null,
-        (r.hatarozatkepesseg as boolean | null) === false ? 0 : 1,
-        Number(r.revision ?? 0),
-        (r.created_at as string | null) ?? null,
-        (r.updated_at as string | null) ?? null,
-      ],
-    )
-  }
+    jkvBatch,
+  )
 
   // 5) INSERT — altáblák
+  const jkvResztvevoBatch: SqlParam[][] = []
   for (const r of participantRows) {
-    await dbExecute(
-      `INSERT INTO jegyzokonyv_resztvevok_local
+    jkvResztvevoBatch.push([
+      String(r.id ?? ''),
+      String(r.jegyzokonyv_id ?? ''),
+      String(r.nev ?? ''),
+      (r.statusz as string | null) ?? null,
+      (r.szerep as string | null) ?? null,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO jegyzokonyv_resztvevok_local
          (id, jegyzokonyv_id, nev, statusz, szerep, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))`,
-      [
-        String(r.id ?? ''),
-        String(r.jegyzokonyv_id ?? ''),
-        String(r.nev ?? ''),
-        (r.statusz as string | null) ?? null,
-        (r.szerep as string | null) ?? null,
-      ],
-    )
-  }
+    jkvResztvevoBatch,
+  )
+  const jkvNapirendBatch: SqlParam[][] = []
   for (const r of agendaRows) {
-    await dbExecute(
-      `INSERT INTO jegyzokonyv_napirendi_pontok_local
+    jkvNapirendBatch.push([
+      String(r.id ?? ''),
+      String(r.jegyzokonyv_id ?? ''),
+      Number(r.sorszam ?? 0),
+      String(r.cim ?? ''),
+      (r.eloado as string | null) ?? null,
+      (r.targyalas as string | null) ?? null,
+      (r.szavazas_igen as number | null) ?? null,
+      (r.szavazas_nem as number | null) ?? null,
+      (r.szavazas_tartozkodo as number | null) ?? null,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO jegyzokonyv_napirendi_pontok_local
          (id, jegyzokonyv_id, sorszam, cim, eloado, targyalas,
           szavazas_igen, szavazas_nem, szavazas_tartozkodo, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))`,
-      [
-        String(r.id ?? ''),
-        String(r.jegyzokonyv_id ?? ''),
-        Number(r.sorszam ?? 0),
-        String(r.cim ?? ''),
-        (r.eloado as string | null) ?? null,
-        (r.targyalas as string | null) ?? null,
-        (r.szavazas_igen as number | null) ?? null,
-        (r.szavazas_nem as number | null) ?? null,
-        (r.szavazas_tartozkodo as number | null) ?? null,
-      ],
-    )
-  }
+    jkvNapirendBatch,
+  )
+  const jkvHatarozatBatch: SqlParam[][] = []
   for (const r of resolutionRows) {
-    await dbExecute(
-      `INSERT INTO jegyzokonyv_hatarozatok_local
+    jkvHatarozatBatch.push([
+      String(r.id ?? ''),
+      String(r.jegyzokonyv_id ?? ''),
+      (r.ev as number | null) ?? null,
+      Number(r.sorszam ?? 0),
+      String(r.szoveg ?? ''),
+      (r.felelos as string | null) ?? null,
+      (r.hatarido as string | null) ?? null,
+      (r.napirendi_pont_sorszam as number | null) ?? null,
+      (r.napirendi_pont_id as string | null) ?? null,
+      (r.allapot as string | null) ?? 'elfogadva',
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO jegyzokonyv_hatarozatok_local
          (id, jegyzokonyv_id, ev, sorszam, szoveg, felelos, hatarido,
           napirendi_pont_sorszam, napirendi_pont_id, allapot, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, datetime('now'))`,
-      [
-        String(r.id ?? ''),
-        String(r.jegyzokonyv_id ?? ''),
-        (r.ev as number | null) ?? null,
-        Number(r.sorszam ?? 0),
-        String(r.szoveg ?? ''),
-        (r.felelos as string | null) ?? null,
-        (r.hatarido as string | null) ?? null,
-        (r.napirendi_pont_sorszam as number | null) ?? null,
-        (r.napirendi_pont_id as string | null) ?? null,
-        (r.allapot as string | null) ?? 'elfogadva',
-      ],
-    )
-  }
+    jkvHatarozatBatch,
+  )
 
   // 2026-07-25 (F6.6): ÁRVA AL-SOROK takarítása. A fő táblát a gyülekezetre
   // ürítjük, az altáblákat viszont CSAK a szervertől kapott jegyzőkönyv-ID-kre
@@ -4964,120 +5004,128 @@ export async function pullCemeteriesOfOwnCongregation(userId: string): Promise<{
   }
 
   // 4) INSERT — temetők
+  const temetoBatch: SqlParam[][] = []
   for (const r of cemRows) {
-    await dbExecute(
-      `INSERT INTO sirhelytemeto_local
+    temetoBatch.push([
+      Number(r.id),
+      congregationId,
+      String(r.nev ?? ''),
+      (r.cim as string | null) ?? null,
+      (r.megjegyzes as string | null) ?? null,
+      (r.aktiv as boolean | null) === false ? 0 : 1,
+      (r.deleted as boolean | null) ? 1 : 0,
+      Number(r.revision ?? 0),
+      (r.updated_at as string | null) ?? null,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO sirhelytemeto_local
          (id, congregation_id, nev, cim, megjegyzes, aktiv, deleted,
           revision, updated_at, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))`,
-      [
-        Number(r.id),
-        congregationId,
-        String(r.nev ?? ''),
-        (r.cim as string | null) ?? null,
-        (r.megjegyzes as string | null) ?? null,
-        (r.aktiv as boolean | null) === false ? 0 : 1,
-        (r.deleted as boolean | null) ? 1 : 0,
-        Number(r.revision ?? 0),
-        (r.updated_at as string | null) ?? null,
-      ],
-    )
-  }
+    temetoBatch,
+  )
 
   // 5) INSERT — parcellák
+  const sirhelyBatch: SqlParam[][] = []
   for (const r of plotRows) {
-    await dbExecute(
-      `INSERT INTO sirhely_local
+    sirhelyBatch.push([
+      Number(r.id),
+      Number(r.temetoid),
+      (r.parcella as string | null) ?? null,
+      (r.sor as string | null) ?? null,
+      (r.szam as string | null) ?? null,
+      (r.allapot as string | null) ?? null,
+      (r.elhelyezkedes as string | null) ?? null,
+      (r.meret as string | null) ?? null,
+      (r.tipus as string | null) ?? null,
+      (r.megjegyzes as string | null) ?? null,
+      (r.gps_lat as number | null) ?? null,
+      (r.gps_lng as number | null) ?? null,
+      (r.deleted as boolean | null) ? 1 : 0,
+      (r.aktivberlesid as number | null) ?? null,
+      (r.imagelnk as string | null) ?? null,
+      (r.created_at as string | null) ?? null,
+      Number(r.revision ?? 0),
+      (r.updated_at as string | null) ?? null,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO sirhely_local
          (id, temetoid, parcella, sor, szam, allapot, elhelyezkedes, meret, tipus,
           megjegyzes, gps_lat, gps_lng, deleted, aktivberlesid, imagelnk,
           created_at, revision, updated_at, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
                ?16, ?17, ?18, datetime('now'))`,
-      [
-        Number(r.id),
-        Number(r.temetoid),
-        (r.parcella as string | null) ?? null,
-        (r.sor as string | null) ?? null,
-        (r.szam as string | null) ?? null,
-        (r.allapot as string | null) ?? null,
-        (r.elhelyezkedes as string | null) ?? null,
-        (r.meret as string | null) ?? null,
-        (r.tipus as string | null) ?? null,
-        (r.megjegyzes as string | null) ?? null,
-        (r.gps_lat as number | null) ?? null,
-        (r.gps_lng as number | null) ?? null,
-        (r.deleted as boolean | null) ? 1 : 0,
-        (r.aktivberlesid as number | null) ?? null,
-        (r.imagelnk as string | null) ?? null,
-        (r.created_at as string | null) ?? null,
-        Number(r.revision ?? 0),
-        (r.updated_at as string | null) ?? null,
-      ],
-    )
-  }
+    sirhelyBatch,
+  )
 
   // 6) INSERT — bérletek
+  const berlesBatch: SqlParam[][] = []
   for (const r of rentalRows) {
-    await dbExecute(
-      `INSERT INTO sirhelyberles_local
+    berlesBatch.push([
+      Number(r.id),
+      Number(r.sirhelyid),
+      (r.befizetesid as number | null) ?? null,
+      String(r.berlo ?? ''),
+      (r.berloid as number | null) ?? null,
+      (r.berlocim as string | null) ?? null,
+      (r.berloelerhetoseg as string | null) ?? null,
+      (r.megvaltas as string | null) ?? null,
+      (r.lejarata as string | null) ?? null,
+      (r.tipus as string | null) ?? null,
+      (r.osszeg as number | null) ?? null,
+      (r.megjegyzes as string | null) ?? null,
+      (r.deleted as boolean | null) ? 1 : 0,
+      Number(r.revision ?? 0),
+      (r.updated_at as string | null) ?? null,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO sirhelyberles_local
          (id, sirhelyid, befizetesid, berlo, berloid, berlocim, berloelerhetoseg,
           megvaltas, lejarata, tipus, osszeg, megjegyzes, deleted,
           revision, updated_at, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, datetime('now'))`,
-      [
-        Number(r.id),
-        Number(r.sirhelyid),
-        (r.befizetesid as number | null) ?? null,
-        String(r.berlo ?? ''),
-        (r.berloid as number | null) ?? null,
-        (r.berlocim as string | null) ?? null,
-        (r.berloelerhetoseg as string | null) ?? null,
-        (r.megvaltas as string | null) ?? null,
-        (r.lejarata as string | null) ?? null,
-        (r.tipus as string | null) ?? null,
-        (r.osszeg as number | null) ?? null,
-        (r.megjegyzes as string | null) ?? null,
-        (r.deleted as boolean | null) ? 1 : 0,
-        Number(r.revision ?? 0),
-        (r.updated_at as string | null) ?? null,
-      ],
-    )
-  }
+    berlesBatch,
+  )
 
   // 7) INSERT — elhunytak
+  const elhunytBatch: SqlParam[][] = []
   for (const r of deceasedRows) {
-    await dbExecute(
-      `INSERT INTO sirhelyelhunyt_local
+    elhunytBatch.push([
+      Number(r.id),
+      Number(r.sirhelyid),
+      (r.temetesid as number | null) ?? null,
+      String(r.nev ?? ''),
+      (r.sznev as string | null) ?? null,
+      (r.ferfi as boolean | null) === true ? 1 : (r.ferfi as boolean | null) === false ? 0 : null,
+      (r.sz_datum as string | null) ?? null,
+      (r.sz_hely as string | null) ?? null,
+      (r.anyjaneve as string | null) ?? null,
+      (r.hdatum as string | null) ?? null,
+      (r.hhely as string | null) ?? null,
+      (r.tdatum as string | null) ?? null,
+      (r.ttipus as string | null) ?? null,
+      (r.tmodja as string | null) ?? null,
+      (r.elhelyezkedes as string | null) ?? null,
+      (r.temetteto as string | null) ?? null,
+      (r.szolgaltato as string | null) ?? null,
+      (r.megjegyzes as string | null) ?? null,
+      (r.deleted as boolean | null) ? 1 : 0,
+      Number(r.revision ?? 0),
+      (r.updated_at as string | null) ?? null,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO sirhelyelhunyt_local
          (id, sirhelyid, temetesid, nev, sznev, ferfi, sz_datum, sz_hely, anyjaneve,
           hdatum, hhely, tdatum, ttipus, tmodja, elhelyezkedes, temetteto, szolgaltato,
           megjegyzes, deleted, revision, updated_at, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19,
                ?20, ?21, datetime('now'))`,
-      [
-        Number(r.id),
-        Number(r.sirhelyid),
-        (r.temetesid as number | null) ?? null,
-        String(r.nev ?? ''),
-        (r.sznev as string | null) ?? null,
-        (r.ferfi as boolean | null) === true ? 1 : (r.ferfi as boolean | null) === false ? 0 : null,
-        (r.sz_datum as string | null) ?? null,
-        (r.sz_hely as string | null) ?? null,
-        (r.anyjaneve as string | null) ?? null,
-        (r.hdatum as string | null) ?? null,
-        (r.hhely as string | null) ?? null,
-        (r.tdatum as string | null) ?? null,
-        (r.ttipus as string | null) ?? null,
-        (r.tmodja as string | null) ?? null,
-        (r.elhelyezkedes as string | null) ?? null,
-        (r.temetteto as string | null) ?? null,
-        (r.szolgaltato as string | null) ?? null,
-        (r.megjegyzes as string | null) ?? null,
-        (r.deleted as boolean | null) ? 1 : 0,
-        Number(r.revision ?? 0),
-        (r.updated_at as string | null) ?? null,
-      ],
-    )
-  }
+    elhunytBatch,
+  )
 
   // 2026-07-25 (F6.6): ÁRVA AL-SOROK takarítása. A sírhelyeket csak a szervertől
   // kapott TEMETŐ-ID-kre ürítjük, a bérleteket/elhunytakat pedig a kapott
@@ -5307,42 +5355,44 @@ export async function pullProgramsOfOwnCongregation(userId: string): Promise<{
   ])
 
   const rows = (data ?? []) as Array<Record<string, unknown>>
+  const programBatch: SqlParam[][] = []
   for (const r of rows) {
-    await dbExecute(
-      `INSERT INTO gyulekezeti_programok_local
+    programBatch.push([
+      String(r.id ?? ''),
+      congregationId,
+      String(r.cim ?? ''),
+      String(r.datum ?? new Date().toISOString().slice(0, 10)),
+      (r.datum_vege as string | null) ?? null,
+      (r.ido_kezdes as string | null) ?? null,
+      (r.ido_befejezes as string | null) ?? null,
+      (r.helyszin as string | null) ?? null,
+      String(r.tipus ?? 'egyeb'),
+      String(r.prioritas ?? 'normal'),
+      (r.ismetlodes_tipus as string | null) ?? null,
+      (r.egyedi_tipus_nev as string | null) ?? null,
+      (r.egyedi_emoji as string | null) ?? null,
+      (r.megjegyzes as string | null) ?? null,
+      (r.teljesitett as boolean | null) ? 1 : 0,
+      (r.teljesites_datum as string | null) ?? null,
+      (r.letrehozta_id as string | null) ?? null,
+      (r.letrehozta_nev as string | null) ?? null,
+      (r.leiras as string | null) ?? null,
+      (r.szin as string | null) ?? null,
+      Number(r.revision ?? 0),
+      (r.created_at as string | null) ?? null,
+      (r.updated_at as string | null) ?? null,
+    ])
+  }
+  await dbExecuteMany(
+    `INSERT INTO gyulekezeti_programok_local
          (id, congregation_id, cim, datum, datum_vege, ido_kezdes, ido_befejezes,
           helyszin, tipus, prioritas, ismetlodes_tipus, egyedi_tipus_nev, egyedi_emoji,
           megjegyzes, teljesitett, teljesites_datum, letrehozta_id, letrehozta_nev,
           leiras, szin, revision, created_at, updated_at, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
                ?19, ?20, ?21, ?22, ?23, datetime('now'))`,
-      [
-        String(r.id ?? ''),
-        congregationId,
-        String(r.cim ?? ''),
-        String(r.datum ?? new Date().toISOString().slice(0, 10)),
-        (r.datum_vege as string | null) ?? null,
-        (r.ido_kezdes as string | null) ?? null,
-        (r.ido_befejezes as string | null) ?? null,
-        (r.helyszin as string | null) ?? null,
-        String(r.tipus ?? 'egyeb'),
-        String(r.prioritas ?? 'normal'),
-        (r.ismetlodes_tipus as string | null) ?? null,
-        (r.egyedi_tipus_nev as string | null) ?? null,
-        (r.egyedi_emoji as string | null) ?? null,
-        (r.megjegyzes as string | null) ?? null,
-        (r.teljesitett as boolean | null) ? 1 : 0,
-        (r.teljesites_datum as string | null) ?? null,
-        (r.letrehozta_id as string | null) ?? null,
-        (r.letrehozta_nev as string | null) ?? null,
-        (r.leiras as string | null) ?? null,
-        (r.szin as string | null) ?? null,
-        Number(r.revision ?? 0),
-        (r.created_at as string | null) ?? null,
-        (r.updated_at as string | null) ?? null,
-      ],
-    )
-  }
+    programBatch,
+  )
 
   const nowIso = new Date().toISOString()
   await setSetting(`programok:last_pull:${congregationId}`, nowIso)
@@ -5606,19 +5656,21 @@ export async function pullAdrlocalityCatalog(): Promise<{
   await dbExecute('DELETE FROM adrlocality_local', [])
 
   const rows = (data ?? []) as Array<Record<string, unknown>>
+  const localityBatch: SqlParam[][] = []
   for (const r of rows) {
-    await dbExecute(
-      `INSERT INTO adrlocality_local (id, name, megye_id, country, postcode, synced_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))`,
-      [
-        Number(r.id),
-        String(r.name ?? ''),
-        (r.megye_id as number | null) ?? null,
-        (r.country as string | null) ?? null,
-        (r.postcode as string | null) ?? null,
-      ],
-    )
+    localityBatch.push([
+      Number(r.id),
+      String(r.name ?? ''),
+      (r.megye_id as number | null) ?? null,
+      (r.country as string | null) ?? null,
+      (r.postcode as string | null) ?? null,
+    ])
   }
+  await dbExecuteMany(
+    `INSERT INTO adrlocality_local (id, name, megye_id, country, postcode, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))`,
+    localityBatch,
+  )
 
   const nowIso = new Date().toISOString()
   await setSetting('adrlocality:last_pull', nowIso)

@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Az asztali alkalmazás szinkronja lényegesen gyorsabb lett
+<!-- key: 2026-07-25-f67-szinkron-kotegelt-iras -->
+<!-- category: improvement -->
+<!-- version: v0.9.125 (asztali: 0.9.11) -->
+<!-- targets: az asztali (offline) alkalmazás használói -->
+
+### ✨ Fejlesztések
+
+- **Gyorsabb szinkron és gyorsabb első indulás.** Az asztali alkalmazás eddig **egyesével**, külön-külön írta be a helyi másolatba a szerverről letöltött sorokat — minden egyes tagnál, családnál, befizetésnél, kiadásnál, munkanapló-bejegyzésnél, leltári tételnél és iktatói sornál külön adatbázis-műveletet indított. Egy nagyobb gyülekezetnél ez több tízezer külön művelet volt, és ez volt a fő oka annak, hogy a szinkron — különösen az **első, teljes letöltés** — sokáig tartott. Mostantól a program **kötegekben** ír, ami nagyságrendekkel kevesebb műveletet jelent.
+- **Biztonságosabb is lett**: egy köteg vagy teljes egészében beíródik, vagy egyáltalán nem — így megszakadó szinkron (áramszünet, hálózat-kiesés, az app bezárása) után sem maradhat félig beírt, kevert állapot a helyi másolatban. A következő szinkron egyszerűen újra letölti az érintett kört.
+- Az **országos településlista** letöltése (ez a legnagyobb tábla, több ezer sorral) szintén ebbe a gyorsabb útba került.
+
+> A gyorsulás **új asztali kiadás (0.9.11)** telepítése után érezhető. A böngészős felületet ez a változás nem érinti.
+
+---
+
 ## [2026-07-25] — Asztali alkalmazás: nem maradnak árva sorok a törölt temetők és jegyzőkönyvek után
 <!-- key: 2026-07-25-f66-arva-alsorok -->
 <!-- category: bugfix -->
