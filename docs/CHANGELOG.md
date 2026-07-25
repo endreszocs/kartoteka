@@ -26,7 +26,7 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 ## [2026-07-25] — Az asztali alkalmazás szinkronja lényegesen gyorsabb lett
 <!-- key: 2026-07-25-f67-szinkron-kotegelt-iras -->
 <!-- category: improvement -->
-<!-- version: v0.9.125 (asztali: 0.9.11) -->
+<!-- version: v0.9.126 (asztali: 0.9.11) -->
 <!-- targets: az asztali (offline) alkalmazás használói -->
 
 ### ✨ Fejlesztések
@@ -36,6 +36,40 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - Az **országos településlista** letöltése (ez a legnagyobb tábla, több ezer sorral) szintén ebbe a gyorsabb útba került.
 
 > A gyorsulás **új asztali kiadás (0.9.11)** telepítése után érezhető. A böngészős felületet ez a változás nem érinti.
+
+---
+
+## [2026-07-25] — Iratok telefonos befotózása, wizardos rögzítés, szép A4-elrendezés
+<!-- key: 2026-07-25-iktato-f8d-f8e-szkenner-tipografia -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+<!-- version: web v0.9.125 -->
+
+### ✨ Új funkciók
+
+- **Papíralapú irat befotózása telefonnal — QR-kóddal.** Az irat csatolmányainál
+  megjelenik egy QR-kód: olvasd be a telefonoddal, és bejelentkezés nélkül,
+  egyenesen az irathoz fotózhatsz. A kép magától tömörödik (olvasható marad, de
+  kevés helyet foglal), és **digitális iktató-pecsétet** kap — az iktatószám, a
+  dátum és az iratcsomó a kép alá illesztett sávba kerül, így **soha nem takar
+  el semmit** a dokumentumból. Az eredeti és a pecsételt változat is megmarad.
+  A munkamenet néhány percig él, és bármikor lezárható.
+- **Új irat rögzítése varázslóval:** három áttekinthető lépés (irány → részletek
+  → összegzés), nagy, kattintható kártyákkal; sorozatos bevitelhez pedig
+  **táblázatos gyorsrögzítés** a lista tetején.
+- **Német nyelvű iratok** is kiállíthatók (magyar, román, angol mellett) — és a
+  tárgy sora is a dokumentum nyelvén jelenik meg (Obiect / Subject / Betreff).
+
+### 🎨 Fejlesztések
+
+- **Megszépült minden hivatalos irat A4-en:** hivatalos margók (25 mm lefűzési
+  oldalon), 12 pontos betű, levegős sorköz, szótagolás — a szöveg nem „folyik"
+  szét, az aláírás pedig mindig a lap alján, a helyén áll.
+- **Az élő előnézet mostantól mindig egyben, teljes szélességben mutatja a
+  lapot** — semmilyen ablakméretnél nincs oldalra görgetés vagy levágás.
+- Az életút-igazolás aláírásánál megjelenik a település neve; a keltezés
+  helysége mostantól a valódi település (magyarul „Barátos"), és a kiállításnál
+  szabadon átírható.
 
 ---
 

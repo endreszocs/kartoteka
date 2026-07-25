@@ -295,15 +295,22 @@ export async function getAutoPlaceholderContext(): Promise<{
   // Lelkipásztor neve a `profile.full_name`-ből
   const lelkipasztor = profile?.full_name || ''
 
-  // Helység a congregations táblából
+  // Keltezés helysége (TELEPÜLÉS). 2026-07-25 (F8e): korábban a `cim` mezőt
+  // olvastuk, ami az UTCÁT tárolja — így minden régi sablon {{helyseg}}
+  // placeholdere utcanevet kapott. A helyes forrás a strukturált
+  // adrlocality.name_hu (a getCongregationHeader mintája), tartalék a
+  // szabad szöveges `varos`.
   let helyseg = ''
   if (profile?.congregation_id) {
     const { data: cong } = await supabase
       .from('congregations')
-      .select('cim')
+      .select('varos, helyseg:adrlocality!adrlocality_id(name_hu, name_ro)')
       .eq('id', profile.congregation_id)
       .maybeSingle()
-    helyseg = (cong?.cim as string) || ''
+    type NevPar = { name_hu: string | null; name_ro: string | null } | null
+    const row = cong as { varos: string | null; helyseg: NevPar | NevPar[] } | null
+    const hely = Array.isArray(row?.helyseg) ? row?.helyseg[0] ?? null : row?.helyseg ?? null
+    helyseg = (hely?.name_hu || row?.varos || '').trim()
   }
 
   return {

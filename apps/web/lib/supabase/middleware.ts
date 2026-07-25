@@ -16,7 +16,15 @@ const PASTOR_AUTH_ROUTES = ['/login', '/forgot-password', '/oauth-complete', '/a
 // különben /login-ra dobta volna át a query stringgel együtt
 // (`?error=access_denied&error_code=otp_expired&...`). A page maga
 // kliens-oldalon ellenőrzi a recovery-session érvényességét.
-const PUBLIC_AUTH_ROUTES = ['/hozzaferes-kerese', '/reset-password']
+//
+// 2026-07-25 (F8d): a `/m/feltoltes/{token}` mobil feltöltő oldal IS publikus.
+// A desktopon megjelenített QR-kódot a lelkész telefonja olvassa be, ahol
+// senki sincs bejelentkezve — a rövid életű token az egyetlen belépő. Enélkül
+// a middleware /login-ra dobná a telefont (ugyanaz a csapda, mint a
+// /reset-password-nél). A tényleges jogosultság-ellenőrzés a DB-ben van:
+// qr_session_lookup / qr_register_upload (SECURITY DEFINER, token-hash +
+// lejárat + darab-limit) és a qr-staging storage-policy.
+const PUBLIC_AUTH_ROUTES = ['/hozzaferes-kerese', '/reset-password', '/m/feltoltes']
 
 // Web-onboarding wizard útvonala (M6.3 2026-04-22 óta a /api/standalone/*
 // route-ok kivezetve — a portable Inno Setup build megszüntetve).
