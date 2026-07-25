@@ -23,6 +23,28 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Megújult fejléc: külön profilváltó és széles, képes fiók-menü
+<!-- key: 2026-07-25-fejlec-ketto-legordulo -->
+<!-- category: improvement -->
+<!-- targets: minden felhasználó -->
+<!-- version: web v0.9.129 -->
+
+### 🎨 UX javítások
+
+- **A fejléc két legördülője szétvált, mert eddig mindkettő ugyanazt mutatta.** A bal felső gyülekezet-gomb és a jobb felső avatár korábban azonos, hosszú, függőleges menüt nyitott. Mostantól: **bal = szolgálatváltás, jobb = fiók és beállítások**.
+- **A profilváltó görgetés nélkül kifér.** A szerepek hasábokba rendeződnek, és a panel annyival szélesebb, amennyi kell — így egy több gyülekezetet ellátó lelkésznek vagy egy esperesnek sem kell görgetnie. A böngésző annyi hasábot nyit, amennyi elfér, telefonon tehát magától egy oszlop marad.
+- **A fiók-menü vízszintes lett**, egymás melletti hasábokkal: **Fiók · Gyülekezet · Segítség és megjelenés**, mellettük egy képes panel a saját nevével és szerepével. Mivel így több minden elfér, minden menüpont alá odakerült egy rövid magyarázat is (*„Alapadatok, cím, bank"*, *„Törölt tételek visszaállítása"*).
+- **Két új belépési pont a menüben**: **Súgó és támogatás**, illetve **Sötét/Világos mód** — ez utóbbi egyetlen kattintás, a menü nyitva marad, hogy azonnal lássa a különbséget. Eddig a téma csak a Beállítások ablak mélyén volt elérhető.
+
+### 🐛 Javítások
+
+- **A menü kiemelése olvashatatlan volt.** Az egérrel átfutott menüpont tömör zöld lapot kapott fehér szöveggel, ami a betűméret mellett nem érte el a kontraszt-követelményt. Mostantól visszafogott, világos kiemelés van, olvasható szöveggel.
+- **A profilváltó sorai billentyűzettel nem voltak elérhetők** (a nyíl-navigáció átugrotta őket), a keresőmezőből pedig a lefelé nyíllal nem lehetett a találatokra lépni. Mindkettő javítva.
+- **A váltás alatt álló sor elhalványult** — pont az, amelyiken a visszajelző pörgő futott. Most végig jól látható.
+- **A kis magyarázó szövegek olvashatóbbak lettek** mind a világos, mind a sötét témában (a korábbi halvány tónus egyik témában sem érte el az olvashatósági küszöböt).
+
+---
+
 ## [2026-07-25] — Javítás: magyar településnév és a címer az iratokon
 <!-- key: 2026-07-25-iktato-helyseg-logo -->
 <!-- category: bugfix -->
