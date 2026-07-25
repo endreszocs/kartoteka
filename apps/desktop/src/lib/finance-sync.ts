@@ -50,7 +50,15 @@ export async function pullBefizetesek(
           'id, xkey, id_csalad, id_szemely, forrasa, id_befizetescel, datum, osszeg, nyugta, iratszam, irattipus, csalad, megjegyzes, deleted, created, fizetettev, userid, is_potlas, bankszamla_id, stornozott, stornozott_at, stornozott_indok, stornozott_by, osszeg_ron, arfolyam, congregation_id, revision, updated_at',
         )
         .eq('congregation_id', congregationId)
-        .eq('fizetettev', year)
+        // 2026-07-25 (F6.3 / M2): a KÉT évfogalom UNIÓJA — `fizetettev` = melyik
+        // ÉVRE szól (tartozás), `datum` = mikor FOLYT BE (kassza/egyenleg).
+        // Eddig csak a jogcím-évre szűrtünk, ezért az asztali kassza MÁS
+        // halmazt mutatott, mint a böngésző (a mérés szerint évi 33 tétel,
+        // 6,6% eltérés). A fogyasztók a saját oszlopukkal szűrnek — lásd
+        // penzugy-page.tsx.
+        .or(
+          `fizetettev.eq.${year},and(datum.gte.${year}-01-01,datum.lte.${year}-12-31)`,
+        )
         .eq('deleted', false),
     )
 
@@ -296,12 +304,17 @@ export async function getLocalBefizetesek(
   year: number,
 ): Promise<LocalBefizetesRow[]> {
   return dbSelect<LocalBefizetesRow>(
+    // 2026-07-25 (F6.3 / M2): a lokális olvasó is a KÉT halmaz UNIÓJÁT adja
+    // (jogcím-év VAGY pénztári nap az adott évben) — a hívó szűr tovább a
+    // saját szemantikája szerint. Így a kassza a webbel azonos halmazt lát,
+    // a tartozás pedig továbbra is a jogcím-évet.
     `SELECT * FROM befizetes_local
-       WHERE congregation_id = ?1 AND fizetettev = ?2 AND deleted = 0
+       WHERE congregation_id = ?1 AND deleted = 0
+         AND (fizetettev = ?2 OR (datum >= ?3 AND datum <= ?4))
        ORDER BY datum DESC, id DESC`,
     // 2026-07-25 (F6.1): a LIMIT 500 TÖRÖLVE — a lokális olvasás is csonkolt
     // (van index congregation_id/fizetettev/datum-ra, table-scan nincs).
-    [congregationId, year],
+    [congregationId, year, `${year}-01-01`, `${year}-12-31T23:59:59`],
   )
 }
 
