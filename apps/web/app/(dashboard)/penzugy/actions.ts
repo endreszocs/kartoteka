@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto'
 import { revalidatePath } from 'next/cache'
 // 2026-07-11 (S6): visszamenőleges kassza↔bank átvezetésnél a következő évi
 // automatikus ('carryover') nyitó újraszámolása.
-import { refreshNextYearCarryoverUseCase } from '@kartoteka/core'
+import { refreshNextYearCarryoverUseCase, resolveNyitoEgyenlegekUseCase } from '@kartoteka/core'
 import {
   incomeSchema,
   expenseSchema,
@@ -535,12 +535,34 @@ export async function getYearFinanceRecords(year: number): Promise<{
     else carryoverBankNet -= Number(r.osszeg_ron ?? r.osszeg) || 0
   })
 
+  // 2026-07-25 (G5): „előző évi záró = következő évi nyitó" — OLVASÁS-ONLY
+  // feloldás számlánként (a rögzített sor mindig hiteles; ha nincs, a legutolsó
+  // korábbi sor + a közte lévő évek nettó forgalma adja). Így a nyitót CSAK
+  // EGYSZER, a rendszer indulásakor kell megadni. A DB-t NEM írjuk (lezárt év
+  // sérthetetlensége + nyomtatási út olvasó marad).
+  const resolved = await resolveNyitoEgyenlegekUseCase(
+    { congregationId, eve: year },
+    { supabase, runtime: 'web' },
+  )
+  const resolvedBankMap: Record<number, number> = { ...bankNyitoMap }
+  if (resolved.success) {
+    for (const [id, r] of Object.entries(resolved.bank)) resolvedBankMap[Number(id)] = r.value
+  }
+
   return {
     income: (bevRes.data || []) as BefitetesRow[],
     expense: (kiaRes.data || []) as KiadasRow[],
-    carryoverCash: hasCashCur ? recCashCur : recCashPrev + carryoverCashNet,
-    carryoverBank: hasBankCur ? recBankCur : recBankPrev + carryoverBankNet,
-    bankNyitoMap,
+    carryoverCash: resolved.success
+      ? resolved.cash.value
+      : hasCashCur
+        ? recCashCur
+        : recCashPrev + carryoverCashNet,
+    carryoverBank: resolved.success
+      ? resolved.bankTotal
+      : hasBankCur
+        ? recBankCur
+        : recBankPrev + carryoverBankNet,
+    bankNyitoMap: resolvedBankMap,
   }
 }
 
@@ -1279,8 +1301,27 @@ export async function initFinance(year: number) {
     if (r.bankszamla_id == null) carryoverCashNet -= Number(r.osszeg_ron ?? r.osszeg) || 0
     else carryoverBankNet -= Number(r.osszeg_ron ?? r.osszeg) || 0
   })
-  const carryoverCash = hasCashCur ? recCashCur : recCashPrev + carryoverCashNet
-  const carryoverBank = hasBankCur ? recBankCur : recBankPrev + carryoverBankNet
+  // 2026-07-25 (G5): „előző évi záró = következő évi nyitó" — OLVASÁS-ONLY
+  // feloldás számlánként (lásd resolve-nyito.ts). A rögzített sor mindig
+  // hiteles; ha az évre nincs, a legutolsó korábbi + a közte lévő évek nettó
+  // forgalma adja. Hibánál a korábbi (aggregát) fallback marad érvényben.
+  const resolvedNyito = await resolveNyitoEgyenlegekUseCase(
+    { congregationId, eve: year },
+    { supabase, runtime: 'web' },
+  )
+  if (resolvedNyito.success) {
+    for (const [id, r] of Object.entries(resolvedNyito.bank)) bankNyitoMap[Number(id)] = r.value
+  }
+  const carryoverCash = resolvedNyito.success
+    ? resolvedNyito.cash.value
+    : hasCashCur
+      ? recCashCur
+      : recCashPrev + carryoverCashNet
+  const carryoverBank = resolvedNyito.success
+    ? resolvedNyito.bankTotal
+    : hasBankCur
+      ? recBankCur
+      : recBankPrev + carryoverBankNet
 
   // Évenkénti járulék
   const yearlyFees: Record<number, number> = {}

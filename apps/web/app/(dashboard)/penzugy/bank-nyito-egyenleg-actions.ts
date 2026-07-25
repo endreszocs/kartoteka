@@ -49,6 +49,11 @@ export async function getBankszamlaNyitoEgyenleg(
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!access.effectiveCongregationId) return { error: 'Nincs aktív gyülekezet.' }
 
+  // 2026-07-25 (G5): SZÁNDÉKOSAN a nyers DB-sort adja vissza — a levezetett
+  // (előző évi záróból számolt) nyitó NEM szivároghat ide, mert ezt az actiont
+  // a BCR-import-varázsló is hívja: devizás számlán a RON-értéket valuta-ként
+  // értelmezné és árfolyammal felszorozva HIBÁS nyitót mentene. A levezetett
+  // értéket a Bank fül a `derivedNyitoRon` propon kapja (initFinance).
   return getBankszamlaNyitoEgyenlegUseCase(
     { congregationId: access.effectiveCongregationId, bankszamlaId, eve },
     { supabase: access.supabase, runtime: 'web', userId: access.user.id },

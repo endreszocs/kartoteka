@@ -152,6 +152,13 @@ export interface BankTabProps {
     type: BankTransactionType
     id: number
   }) => Promise<{ success?: boolean; error?: string | null }>
+  /**
+   * 2026-07-25 (G5): a LEVEZETETT nyitó számlánként (bankszamla_id → RON),
+   * ha az adott évre nincs rögzített sor — az „előző évi záró = idei nyitó"
+   * feloldásból (initFinance). Csak megjelenítés/számítás; nincs DB-sor mögötte.
+   */
+  derivedNyitoRon?: Record<number, number>
+
   onLoadNyitoEgyenleg?: (
     bankszamlaId: number,
     eve: number,
@@ -249,6 +256,7 @@ export function BankTab({
   currentYear: currentYearProp,
   unpairedInternalIds,
   onUndoStorno,
+  derivedNyitoRon,
   onLoadNyitoEgyenleg,
   onTransactionChanged,
   onBankImported,
@@ -504,10 +512,17 @@ export function BankTab({
       // A nyitó alap:
       //   - 'all' szűrő: a parent által számolt `carryoverBank` (minden bankszámla)
       //   - 1 bankszámla: a tényleges rögzített éves nyitó RON (ha van)
+      // 2026-07-25 (G5): egy számlára szűrve a rögzített sor az elsődleges, de ha
+      // nincs, a LEVEZETETT nyitó jön (különben a szűrt nézet 0-ról indulna,
+      // miközben az „Összes" nyitója tartalmazza ezt a számlát is).
       const openingBase =
         selectedBankFilter === 'all'
           ? carryoverBank
-          : Number(nyitoMap[selectedBankFilter]?.nyito_egyenleg_ron ?? 0)
+          : Number(
+              nyitoMap[selectedBankFilter]?.nyito_egyenleg_ron ??
+                derivedNyitoRon?.[selectedBankFilter] ??
+                0,
+            )
 
       let opening = openingBase
       let income = 0
@@ -727,6 +742,8 @@ export function BankTab({
           {bankAccounts.map((account) => {
             const selected = selectedBankFilter === account.id
             const ny = nyitoMap[account.id]
+            // Levezetett nyitó (nincs rögzített sor az évre) — a kártya ezt mutatja.
+            const derivedNy = ny == null ? derivedNyitoRon?.[account.id] : undefined
             const valuta = account.valuta || 'RON'
             const isRon = valuta === 'RON'
             return (
@@ -766,6 +783,24 @@ export function BankTab({
                             ({formatCurrency(Number(ny.nyito_egyenleg_ron))} RON)
                           </span>
                         )}
+                        {/* 2026-07-25 (G5): jelezzük, ha a nyitó AUTOMATIKUSAN jött
+                            az előző évi záróból — a lelkésznek nem kell beírnia. */}
+                        {ny.forrasa === 'carryover' && (
+                          <span className="block text-slate-400">
+                            automatikusan az előző évi záróból
+                          </span>
+                        )}
+                      </p>
+                    )}
+                    {derivedNy != null && (
+                      <p className="text-[11px] leading-snug text-slate-600">
+                        <span className="font-medium text-slate-700">
+                          {currentYear}. január 1. nyitó:
+                        </span>{' '}
+                        {formatCurrency(derivedNy)} RON
+                        <span className="block text-slate-400">
+                          automatikusan az előző évi záróból
+                        </span>
                       </p>
                     )}
                   </div>
@@ -773,7 +808,7 @@ export function BankTab({
                 {/* 2026-07-17 (F4): a hiányzó-nyitó figyelmeztetés a szűrő-gombon KÍVÜL —
                     így az „add meg kézzel" valódi <button> lehet (a gombba ágyazott
                     role=button span felolvasónak elérhetetlen és érvénytelen HTML). */}
-                {!ny && (
+                {!ny && derivedNy == null && (
                   <div className="px-4 pb-2 -mt-2">
                     <p className="text-[11px] text-amber-700 italic">
                       Nyitó egyenleg még nincs rögzítve {currentYear}-re — importálj egy kivonatot

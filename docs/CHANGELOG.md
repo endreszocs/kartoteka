@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Az előző évi záró automatikusan a következő év nyitója
+<!-- key: 2026-07-25-penzugy-g5-nyito-carryover -->
+<!-- category: improvement -->
+<!-- version: v0.9.115 -->
+<!-- targets: minden pénzügyet kezelő felhasználó -->
+
+### ✨ Új funkciók
+
+- **Nem kell minden évben megadni a nyitó egyenleget**: a bankszámlák és a kassza előző évi ZÁRÓ egyenlege mostantól automatikusan a következő év NYITÓJA lesz — számlánként külön, „automatikusan az előző évi záróból" jelöléssel. Ha utólag könyvelsz egy korábbi évbe, a nyitó magától követi a változást; a rendszer több évet is átláncol, egészen az utolsó kézzel megadott évig.
+- **A kézzel megadott (vagy importált) nyitót a rendszer SOHA nem írja felül** — a rendszer indulásakor egyszer megadott induló egyenleg marad a hiteles alap.
+- A levezetett nyitó **nem íródik be** a nyilvántartásba: minden megnyitáskor frissen számolódik, így a már véglegesített (lezárt) évek adatait semmi nem módosítja.
+- **Asztali (offline) verzió**: ugyanez a feloldás fut internet-kapcsolat esetén (a következő asztali kiadástól).
+
+---
+
 ## [2026-07-25] — Nyugtatömb-készlet a valóság szerint
 <!-- key: 2026-07-25-penzugy-g4-nyugtatomb-hasznalat -->
 <!-- category: improvement -->

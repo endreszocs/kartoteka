@@ -34,6 +34,8 @@ type WebBankTabProps = Pick<
   | 'incomeRecords'
   | 'expenseRecords'
   | 'carryoverBank'
+  // 2026-07-25 (G5): levezetett nyitó számlánként, ha az évre nincs rögzített sor
+  | 'derivedNyitoRon'
   | 'bankAccounts'
   | 'bevCelMap'
   | 'kiaCelMap'

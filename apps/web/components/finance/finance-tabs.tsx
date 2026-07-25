@@ -640,6 +640,7 @@ export function FinanceTabs({
             incomeRecords={incomeRecords}
             expenseRecords={expenseRecords}
             carryoverBank={carryoverBank}
+            derivedNyitoRon={bankNyitoMap}
             bankAccounts={bankAccounts}
             bevCelMap={bevCelMap}
             kiaCelMap={kiaCelMap}
