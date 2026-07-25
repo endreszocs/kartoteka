@@ -13,6 +13,7 @@
 
 import { getDesktopSupabase } from './supabase'
 import { dbExecute, dbSelect, type SqlParam } from './local-db'
+import { selectAllPaged } from './sync'
 
 // ─────────────────────────────────────────────────────────────────────────
 // Pull befizetések
@@ -28,7 +29,11 @@ export interface PullBefizetesekResult {
  * Lehúzza a gyülekezet adott évi befizetéseit a szerverről a
  * `befizetes_local` táblába. A meglévő helyi sorokat UPSERT-tel felülírjuk.
  *
- * Limit 500 — nagyobb gyülekezeteknél tovább kell fejleszteni cursor-szal.
+ * 2026-07-25 (F6.1): a korábbi `.limit(500)` plafonok KIVEZETVE. 2025-ben már
+ * 470/469 tétel/gyülekezet volt — a datum DESC + limit(500) az év LEGRÉGEBBI
+ * sorait dobta volna el NÉMÁN (és mivel minden desktop pénzügy-oldal a lokális
+ * tükörből renderel, online is csonkolt volna: hibás számadás, hamis tartozás).
+ * Helyette a `selectAllPaged` lapozó (1000-es lapok, csak ÜRES lap a stop).
  */
 export async function pullBefizetesek(
   congregationId: string,
@@ -36,16 +41,18 @@ export async function pullBefizetesek(
 ): Promise<PullBefizetesekResult> {
   try {
     const supabase = getDesktopSupabase()
-    const { data, error } = await supabase
-      .from('befizetes')
-      .select(
-        'id, xkey, id_csalad, id_szemely, forrasa, id_befizetescel, datum, osszeg, nyugta, iratszam, irattipus, csalad, megjegyzes, deleted, created, fizetettev, userid, is_potlas, bankszamla_id, stornozott, stornozott_at, stornozott_indok, stornozott_by, osszeg_ron, arfolyam, congregation_id, revision, updated_at',
-      )
-      .eq('congregation_id', congregationId)
-      .eq('fizetettev', year)
-      .eq('deleted', false)
-      .order('datum', { ascending: false })
-      .limit(500)
+    // 2026-07-25 (F6.1): LAPOZOTT lekérés — a limit(500) némán levágta az év
+    // legrégebbi tételeit. A rendezést a lapozó adja (id ASC, stabil offset).
+    const { data, error } = await selectAllPaged(
+      supabase
+        .from('befizetes')
+        .select(
+          'id, xkey, id_csalad, id_szemely, forrasa, id_befizetescel, datum, osszeg, nyugta, iratszam, irattipus, csalad, megjegyzes, deleted, created, fizetettev, userid, is_potlas, bankszamla_id, stornozott, stornozott_at, stornozott_indok, stornozott_by, osszeg_ron, arfolyam, congregation_id, revision, updated_at',
+        )
+        .eq('congregation_id', congregationId)
+        .eq('fizetettev', year)
+        .eq('deleted', false),
+    )
 
     if (error) {
       return { success: false, pulled: 0, error: error.message }
@@ -146,17 +153,18 @@ export async function pullKiadasok(
 ): Promise<PullBefizetesekResult> {
   try {
     const supabase = getDesktopSupabase()
-    const { data, error } = await supabase
-      .from('kiadas')
-      .select(
-        'id, xkey, id_kiadascel, datum, osszeg, nyugta, iratszam, irattipus, megjegyzes, created, deleted, atvevo, atvevoid, userid, is_potlas, bankszamla_id, vonatkozo_idoszak, kedvezmenyezett_cui, stornozott, stornozott_at, stornozott_indok, stornozott_by, osszeg_ron, arfolyam, congregation_id, revision, updated_at',
-      )
-      .eq('congregation_id', congregationId)
-      .gte('datum', `${year}-01-01`)
-      .lte('datum', `${year}-12-31T23:59:59`)
-      .eq('deleted', false)
-      .order('datum', { ascending: false })
-      .limit(500)
+    // 2026-07-25 (F6.1): LAPOZOTT lekérés (lásd a fájl fejlécét).
+    const { data, error } = await selectAllPaged(
+      supabase
+        .from('kiadas')
+        .select(
+          'id, xkey, id_kiadascel, datum, osszeg, nyugta, iratszam, irattipus, megjegyzes, created, deleted, atvevo, atvevoid, userid, is_potlas, bankszamla_id, vonatkozo_idoszak, kedvezmenyezett_cui, stornozott, stornozott_at, stornozott_indok, stornozott_by, osszeg_ron, arfolyam, congregation_id, revision, updated_at',
+        )
+        .eq('congregation_id', congregationId)
+        .gte('datum', `${year}-01-01`)
+        .lte('datum', `${year}-12-31T23:59:59`)
+        .eq('deleted', false),
+    )
 
     if (error) {
       return { success: false, pulled: 0, error: error.message }
@@ -290,8 +298,9 @@ export async function getLocalBefizetesek(
   return dbSelect<LocalBefizetesRow>(
     `SELECT * FROM befizetes_local
        WHERE congregation_id = ?1 AND fizetettev = ?2 AND deleted = 0
-       ORDER BY datum DESC, id DESC
-       LIMIT 500`,
+       ORDER BY datum DESC, id DESC`,
+    // 2026-07-25 (F6.1): a LIMIT 500 TÖRÖLVE — a lokális olvasás is csonkolt
+    // (van index congregation_id/fizetettev/datum-ra, table-scan nincs).
     [congregationId, year],
   )
 }
@@ -335,8 +344,8 @@ export async function getLocalKiadasok(
     `SELECT * FROM kiadas_local
        WHERE congregation_id = ?1 AND deleted = 0
        AND datum >= ?3 AND datum <= ?4
-       ORDER BY datum DESC, id DESC
-       LIMIT 500`,
+       ORDER BY datum DESC, id DESC`,
+    // 2026-07-25 (F6.1): a LIMIT 500 TÖRÖLVE (lásd fent).
     [congregationId, year, `${year}-01-01`, `${year}-12-31T23:59:59`],
   )
 }

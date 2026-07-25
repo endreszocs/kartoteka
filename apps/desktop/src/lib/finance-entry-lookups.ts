@@ -30,6 +30,7 @@ import {
 
 import { getDesktopSupabase } from './supabase'
 import { isOnlineWithSession } from './use-session-online'
+import { selectAllPaged } from './sync'
 
 // ── Web-azonos helperek (a befizetés-cél kódjának kibontása + egyházfenntartás-szűrő) ──
 // 2026-07-17 (F1-1 P0, web-azonos): a szamadasicel-nek NINCS `kod` oszlopa (az `id`
@@ -72,10 +73,20 @@ export async function nextReceiptNumbersOnline(
   // KERÜLETI: az összes valódi készpénz-iratszám max+1 (AUTO- és tükrözött kizárva).
   // 2026-06-30 FIX: készpénz = `bankszamla_id IS NULL` (kassza), NEM irattipus — így az
   // importált nyugták (irattipus 'chitanta' stb.) is beleszámítanak. Web-azonos (getNextReceiptNumbers).
-  const { data: allData } = await supabase.from('befizetes')
-    .select('iratszam, nyugta')
-    .eq('congregation_id', congregationId).eq('deleted', false)
-    .is('bankszamla_id', null).is('belso_mozgas_xkey', null)
+  // 2026-07-25 (F6.1): LAPOZOTT — a PostgREST sor-plafonja (1000) némán levágta
+  // volna a MAX-számítás bemenetét → ÚJRA KIADOTT nyugtaszám. Web-azonos fix.
+  const { data: allData, error: allErr } = await selectAllPaged<{ iratszam: string | null; nyugta: string | null }>(
+    supabase.from('befizetes')
+      .select('id, iratszam, nyugta')
+      .eq('congregation_id', congregationId).eq('deleted', false)
+      .is('bankszamla_id', null).is('belso_mozgas_xkey', null),
+  )
+  // 2026-07-25 (F6.1 review, P1): a lapozó HIBÁJÁT TILOS elnyelni — hibánál a
+  // régi kód üres/„1" javaslatot adott, ami DUPLIKÁLT nyugtaszámot okozott volna.
+  if (allErr) {
+    console.error('[nextReceiptNumbersOnline] kerületi szám lekérdezés hiba:', allErr.message)
+    return { keruleti: '', gyulekezeti: '' }
+  }
   // A tükrözés-kizárást (nyugta === iratszam) NEM alkalmazzuk a kerületire (kiejtette a régi/import
   // előzményt); csak az AUTO- auto-iratszámot zárjuk ki. (Web-azonos, lásd getNextReceiptNumbers.)
   const keruletiVals = ((allData || []) as Array<{ iratszam: string | null; nyugta: string | null }>)
@@ -85,11 +96,17 @@ export async function nextReceiptNumbersOnline(
   const keruleti = befMax.num > 0 ? pad(befMax.num + 1, befMax.width) : ''
 
   // GYÜLEKEZETI: ezévi valódi nyugta (nyugta != iratszam) max+1.
-  const { data: yearData } = await supabase.from('befizetes')
-    .select('iratszam, nyugta')
-    .eq('congregation_id', congregationId).eq('deleted', false)
-    .is('bankszamla_id', null).is('belso_mozgas_xkey', null)
-    .gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`)
+  const { data: yearData, error: yearErr } = await selectAllPaged<{ iratszam: string | null; nyugta: string | null }>(
+    supabase.from('befizetes')
+      .select('id, iratszam, nyugta')
+      .eq('congregation_id', congregationId).eq('deleted', false)
+      .is('bankszamla_id', null).is('belso_mozgas_xkey', null)
+      .gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
+  )
+  if (yearErr) {
+    console.error('[nextReceiptNumbersOnline] ezévi szám lekérdezés hiba:', yearErr.message)
+    return { keruleti: '', gyulekezeti: '' }
+  }
   const thisYear = maxNumOf(
     ((yearData || []) as Array<{ iratszam: string | null; nyugta: string | null }>)
       .filter((r) => r.nyugta && r.nyugta !== r.iratszam).map((r) => r.nyugta),
@@ -97,11 +114,19 @@ export async function nextReceiptNumbersOnline(
   if (thisYear.num > 0) return { keruleti, gyulekezeti: pad(thisYear.num + 1, thisYear.width) }
 
   // Új év: van-e korábbi évi? (a hívó kérdez rá)
-  const { data: prevData } = await supabase.from('befizetes')
-    .select('iratszam, nyugta, datum')
-    .eq('congregation_id', congregationId).eq('deleted', false)
-    .is('bankszamla_id', null).is('belso_mozgas_xkey', null)
-    .lt('datum', `${year}-01-01`).order('datum', { ascending: false }).limit(500)
+  // 2026-07-25 (F6.1): a .limit(500) KIVEZETVE — évi ~470 tételnél egyetlen
+  // korábbi év sem fért bele, így a „tavalyi utolsó" gyülekezeti szám hibás lehetett.
+  const { data: prevData, error: prevErr } = await selectAllPaged<{ iratszam: string | null; nyugta: string | null; datum: string }>(
+    supabase.from('befizetes')
+      .select('id, iratszam, nyugta, datum')
+      .eq('congregation_id', congregationId).eq('deleted', false)
+      .is('bankszamla_id', null).is('belso_mozgas_xkey', null)
+      .lt('datum', `${year}-01-01`),
+  )
+  if (prevErr) {
+    console.error('[nextReceiptNumbersOnline] korábbi évi szám lekérdezés hiba:', prevErr.message)
+    return { keruleti, gyulekezeti: '' }
+  }
   const prevRows = ((prevData || []) as Array<{ iratszam: string | null; nyugta: string | null; datum: string }>)
     .filter((r) => r.nyugta && r.nyugta !== r.iratszam)
   if (prevRows.length === 0) return { keruleti, gyulekezeti: '1' }

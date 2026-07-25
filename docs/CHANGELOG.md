@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Nincs többé néma adat-levágás a pénzügyben
+<!-- key: 2026-07-25-f6-lapozas-limitek -->
+<!-- category: bugfix -->
+<!-- version: v0.9.118 -->
+<!-- targets: minden pénzügyet kezelő felhasználó, kiemelten a nagyobb gyülekezetek -->
+
+### 🐛 Javítások
+
+- **Nyugtaszám-generálás javítva (fontos!)**: a következő nyugtaszám kiszámítása egy olyan lekérdezésre épült, amelyet az adatbázis egy ezer soros határon némán levághatott — emiatt előfordulhatott volna, hogy a rendszer egy **már használt nyugtaszámot ajánl fel újra**. A lekérdezés mostantól teljes egészében, lapozva fut, rendezetten; a lekérdezés hibája sem marad rejtve.
+- **Az asztali (offline) alkalmazás a teljes évet letölti**: eddig évi 500 tételnél megállt a szinkron, és mivel az asztali pénzügy-képernyők a helyi másolatból dolgoznak, **az év eleji tételek némán hiányozhattak** — hibás számadást és hamis tartozásokat okozva. 2025-ben már 470 befizetés/gyülekezet volt, tehát a határ karnyújtásnyira volt. Mostantól lapozva, korlát nélkül tölt.
+- **A Számadás és a nyomtatványok is teljes adatból számolnak**: az éves (és előző évi) tétel-lekérdezések mostantól lapozva futnak a weben és az asztali alkalmazásban is — így az egyházmegyének küldött éves elszámolás összegei és a nyitó egyenlegek ezer tétel fölött sem csonkulhatnak.
+- **A Befizetések/Kiadások listák** is lapozva töltenek (a korábbi 500-as, majd a szerveroldali ezres határ helyett) — a fejléc-összesítő így a tényleges összeget mutatja.
+- Ugyanez a levágás megszűnt a helyi lekérdezésekben, a nyugtaszám-számításban és a nyugtatömb-kimutatásban is. Az asztali nyugtaszám-javaslat ezentúl inkább üresen marad, mint hogy hibás lekérdezés után egy már használt számot ajánljon.
+
+---
+
 ## [2026-07-25] — Átláthatóbb fejléc-menü és gyorsabb profilváltás
 <!-- key: 2026-07-25-header-mega-menu -->
 <!-- category: improvement -->

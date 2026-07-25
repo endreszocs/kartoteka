@@ -844,7 +844,9 @@ function RecentExpenseSection({
           year,
           kiadasceId: filterCelId,
           orderBy: 'datum-desc',
-          limit: 500,
+          // 2026-07-25 (F6.1): 500 → 2000 (a lista-séma plafonja). 2025-ben már
+          // 470 tétel/év volt — az 500 az idei évet is levágta volna.
+          limit: 2000,
           includeDeleted: false,
           includeStornozott: true,
         },

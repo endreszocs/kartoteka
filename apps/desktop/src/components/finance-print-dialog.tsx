@@ -44,6 +44,7 @@ import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
 import { isOnlineWithSession } from '../lib/use-session-online'
 import { printHtmlViaIframe } from '../lib/print-html'
+import { selectAllPaged } from '../lib/sync'
 
 interface DesktopFinancePrintDialogProps {
   open: boolean
@@ -265,10 +266,12 @@ export function DesktopFinancePrintDialog({
                 const supabase = getDesktopSupabase()
                 const congregationId = settings.congregation_id
                 const [bevRes, kiaRes, prevBevRes, prevKiaRes, cashNyitoRes, bankNyitoRes] = await Promise.all([
-                  supabase.from('befizetes').select('id, osszeg, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
-                  supabase.from('kiadas').select('id, osszeg, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
-                  supabase.from('befizetes').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
-                  supabase.from('kiadas').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
+                  // 2026-07-25 (F6.1): LAPOZVA — ez a nyomtatványok (Számadás,
+                  // Registru, nyitó) forrása; a szerver-plafon némán hibás összeget adott volna.
+                  selectAllPaged(supabase.from('befizetes').select('id, osszeg, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`)),
+                  selectAllPaged(supabase.from('kiadas').select('id, osszeg, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`)),
+                  selectAllPaged(supabase.from('befizetes').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`)),
+                  selectAllPaged(supabase.from('kiadas').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`)),
                   supabase.from('keszpenz_nyito_egyenleg').select('eve, nyito_egyenleg')
                     .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
                   supabase.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron, bankszamla_id')
@@ -303,8 +306,8 @@ export function DesktopFinancePrintDialog({
                   else bankNet -= Number(r.osszeg) || 0
                 })
                 return {
-                  income: (bevRes.data || []) as BefitetesRow[],
-                  expense: (kiaRes.data || []) as KiadasRow[],
+                  income: (bevRes.data || []) as unknown as BefitetesRow[],
+                  expense: (kiaRes.data || []) as unknown as KiadasRow[],
                   carryoverCash: hasCashCur ? recCashCur : recCashPrev + cashNet,
                   carryoverBank: hasBankCur ? recBankCur : recBankPrev + bankNet,
                   bankNyitoMap: yearBankNyitoMap,
@@ -329,13 +332,20 @@ export function DesktopFinancePrintDialog({
                   .order('szam_kezdet', { ascending: true })
                 if (error) return { data: undefined, error: error.message }
 
-                const { data: chitantak } = await supabase
-                  .from('oblio_szamlak')
-                  .select('tomb_id, gyulekezeti_szam')
-                  .eq('congregation_id', settings.congregation_id)
-                  .eq('tipus', 'chitanta_papir')
-                  .eq('stornozott', false)
-                  .not('gyulekezeti_szam', 'is', null)
+                // 2026-07-25 (F6.1): LAPOZOTT — a kiállított nyugták száma évente
+                // több száz, a PostgREST plafonja némán levágta volna a min/max-ot.
+                const { data: chitantak } = await selectAllPaged<{
+                  tomb_id: string | null
+                  gyulekezeti_szam: number | null
+                }>(
+                  supabase
+                    .from('oblio_szamlak')
+                    .select('id, tomb_id, gyulekezeti_szam')
+                    .eq('congregation_id', settings.congregation_id)
+                    .eq('tipus', 'chitanta_papir')
+                    .eq('stornozott', false)
+                    .not('gyulekezeti_szam', 'is', null),
+                )
 
                 const gyulSzamByTomb = new Map<string, { min: number; max: number }>()
                 for (const c of chitantak || []) {
