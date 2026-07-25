@@ -29,6 +29,33 @@ import {
   type ListIncomeInput,
 } from '@kartoteka/validations'
 
+
+/**
+ * 2026-07-25 (F6.1): LAPOZOTT lekérés a kért `limit`-ig. A PostgREST szerver-
+ * oldali „Max Rows" plafonja (tipikusan 1000) a kliens `.limit()`-jét felülírja
+ * és NÉMÁN levág — a listák fejléc-összesítője emiatt hibás összeget mutatott
+ * volna. Csak az ÜRES lap a biztos stop (leszállított plafonnál a rövid lap még
+ * nem a vége); a `limit` továbbra is felső korlát.
+ */
+async function fetchRowsPaged<T>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  limit: number,
+  pageSize = 1000,
+): Promise<{ data: T[] | null; error: { message: string } | null }> {
+  const out: T[] = []
+  for (let from = 0; out.length < limit; ) {
+    const take = Math.min(pageSize, limit - out.length)
+    const { data, error } = await query.range(from, from + take - 1)
+    if (error) return { data: null, error }
+    const page = (data ?? []) as T[]
+    out.push(...page)
+    if (page.length === 0) break
+    from += page.length
+  }
+  return { data: out.slice(0, limit), error: null }
+}
+
 export interface ListIncomeCtx {
   supabase: SupabaseClient
   runtime: 'web' | 'desktop'
@@ -144,7 +171,6 @@ export async function listIncomeUseCase(
       .from('befizetes')
       .select(SELECT_COLS)
       .eq('congregation_id', clean.congregationId)
-      .limit(limit)
 
     // Sorrend
     if (orderBy === 'datum-desc') {
@@ -186,7 +212,7 @@ export async function listIncomeUseCase(
       query = query.eq('stornozott', false)
     }
 
-    const { data, error } = await query
+    const { data, error } = await fetchRowsPaged<Record<string, unknown>>(query, limit)
     if (error) {
       return { success: false, error: `Lista-hiba: ${error.message}` }
     }

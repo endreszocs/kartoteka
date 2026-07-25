@@ -52,7 +52,7 @@ import { dbExecute, dbSelect, getSetting, setSetting } from './local-db'
  *  áll meg, így egy leszállított szerver-plafon sem csonkol némán. */
 const SYNC_PULL_PAGE_SIZE = 1000
 
-async function selectAllPaged<T = Record<string, unknown>>(
+export async function selectAllPaged<T = Record<string, unknown>>(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   query: any,
   opts?: { pageSize?: number; orderColumn?: string | null },

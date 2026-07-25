@@ -490,11 +490,13 @@ export async function getYearFinanceRecords(year: number): Promise<{
   if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
   const supabase = access.supabase
 
+  // 2026-07-25 (F6.1): a 4 tétel-lekérdezés LAPOZVA — ez a Számadás/Registru
+  // nyomtatvány forrása, a PostgREST 1000-es plafonja némán hibás összegeket adott volna.
   const [bevRes, kiaRes, prevBevRes, prevKiaRes, cashNyitoRes, bankNyitoRes] = await Promise.all([
-    supabase.from('befizetes').select('id, osszeg, osszeg_ron, arfolyam, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
-    supabase.from('kiadas').select('id, osszeg, osszeg_ron, arfolyam, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
-    supabase.from('befizetes').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
-    supabase.from('kiadas').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
+    fetchAllPaged(supabase.from('befizetes').select('id, osszeg, osszeg_ron, arfolyam, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`)),
+    fetchAllPaged(supabase.from('kiadas').select('id, osszeg, osszeg_ron, arfolyam, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`)),
+    fetchAllPaged(supabase.from('befizetes').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`)),
+    fetchAllPaged(supabase.from('kiadas').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`)),
     supabase.from('keszpenz_nyito_egyenleg').select('eve, nyito_egyenleg')
       .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
     supabase.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron, bankszamla_id')
@@ -526,11 +528,12 @@ export async function getYearFinanceRecords(year: number): Promise<{
   // 2026-07-11 (S9): a könyvelés RON-ban — a bank-carryover a RON-ekvivalenst
   // (osszeg_ron) használja, nem a deviza-összeget. RON számlán osszeg==osszeg_ron.
   let carryoverCashNet = 0, carryoverBankNet = 0
-  ;(prevBevRes.data || []).forEach((r: { osszeg: number; osszeg_ron?: number | null; bankszamla_id: number | null }) => {
+  type PrevFlowRow = { osszeg: number; osszeg_ron?: number | null; bankszamla_id: number | null }
+  ;((prevBevRes.data || []) as unknown as PrevFlowRow[]).forEach((r) => {
     if (r.bankszamla_id == null) carryoverCashNet += Number(r.osszeg_ron ?? r.osszeg) || 0
     else carryoverBankNet += Number(r.osszeg_ron ?? r.osszeg) || 0
   })
-  ;(prevKiaRes.data || []).forEach((r: { osszeg: number; osszeg_ron?: number | null; bankszamla_id: number | null }) => {
+  ;((prevKiaRes.data || []) as unknown as PrevFlowRow[]).forEach((r) => {
     if (r.bankszamla_id == null) carryoverCashNet -= Number(r.osszeg_ron ?? r.osszeg) || 0
     else carryoverBankNet -= Number(r.osszeg_ron ?? r.osszeg) || 0
   })
@@ -1038,13 +1041,13 @@ export async function initFinance(year: number) {
     // 2026-06-30 (perf): '*' helyett a BefizetesRow/KiadasRow típus mezői (a DB-ben
     // ~31/33 oszlop, de a UI csak ~18/16-ot olvas) — bit-azonos a fogyasztóknak,
     // kevesebb adat-transzfer/deszerializálás nagy gyülekezetnél (sok ezer tétel/év).
-    supabase.from('befizetes').select('id, osszeg, osszeg_ron, arfolyam, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
-    supabase.from('kiadas').select('id, osszeg, osszeg_ron, arfolyam, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
+    fetchAllPaged(supabase.from('befizetes').select('id, osszeg, osszeg_ron, arfolyam, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`)),
+    fetchAllPaged(supabase.from('kiadas').select('id, osszeg, osszeg_ron, arfolyam, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`)),
     // Előző évi adatok az átviteli egyenleghez (bankszamla_id: NULL=kassza, egyébként bank)
     // 2026-07-10 (S3 audit KRITIKUS #1): a carryover-lánc a stornózott tételeket
     // is kihagyja — a calculateBalances-szel azonos szemantika.
-    supabase.from('befizetes').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
-    supabase.from('kiadas').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
+    fetchAllPaged(supabase.from('befizetes').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`)),
+    fetchAllPaged(supabase.from('kiadas').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`)),
     supabase.from('bealitas').select('id, eves_jarulek').eq('congregation_id', congregationId),
     // 2026-07-16 (P0 JAVÍTÁS): a select KÉT NEM LÉTEZŐ oszlopot kért — `prefix` és
     // `elkoltozott`. A `szemely`-nek egyik sem oszlopa (information_schema-val
@@ -2121,6 +2124,36 @@ export async function getNextReceiptNumber(year: number): Promise<number> {
 // és léptetjük +1-gyel (lépésben), a vezető nullák megőrzésével (pl. „0115301" → „0115302").
 // Így a két szám együtt lép, és a régi (tükrözött nyugta=iratszam) adat sem rontja el a
 // gyülekezeti sorozatot az első valódi tétel után (önjavító).
+/**
+ * 2026-07-25 (F6.1): LAPOZOTT lekérés — a PostgREST implicit sor-plafonja
+ * (tipikusan 1000) NÉMÁN levágja a nagy lekérdezéseket. A nyugtaszám-generátor
+ * MAX-számítása ezen a plafonon ült: rendezés nélkül a legnagyobb iratszám
+ * kimaradhatott, és a rendszer ÚJRA KIADHATOTT egy már használt nyugtaszámot.
+ * Csak az ÜRES lap a biztos stop (leszállított szerver-plafonnál a rövid lap
+ * még nem a vége) — a desktop selectAllPaged-del azonos szemantika.
+ */
+async function fetchAllPaged<
+  // A supabase-lekérdezés sor-típusa a hívó oldalán dől el; `any` az alapérték,
+  // hogy a helper DROP-IN cseréje legyen a nyers `await query`-nek.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  T = any,
+>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  pageSize = 1000,
+): Promise<{ data: T[]; error: { message: string } | null }> {
+  const out: T[] = []
+  for (let from = 0; ; ) {
+    const { data, error } = await query.range(from, from + pageSize - 1)
+    if (error) return { data: out, error }
+    const page = (data ?? []) as T[]
+    out.push(...page)
+    if (page.length === 0) break
+    from += page.length
+  }
+  return { data: out, error: null }
+}
+
 export async function getNextReceiptNumbers(
   year: number,
 ): Promise<{ keruleti: string; gyulekezeti: string; ujEv?: boolean; tavalyiUtolso?: string; tavalyiEv?: number }> {
@@ -2160,6 +2193,9 @@ export async function getNextReceiptNumbers(
     .eq('deleted', false)
     .or('stornozott.eq.false,stornozott.is.null')
     .is('bankszamla_id', null)
+    // A lapozáshoz KÖTELEZŐ a determinisztikus rendezés (id ASC) — enélkül a
+    // .range() ablakok átfedhetnek/kihagyhatnak sorokat.
+    .order('id', { ascending: true })
   if (scope.scope === 'congregation') allQ = allQ.is('belso_mozgas_xkey', null)
 
   // #Endre 2026-07-01 (perf): a 3 FÜGGETLEN lekérdezés PÁRHUZAMOSAN (nem sorosan): kerületi (allQ),
@@ -2173,6 +2209,7 @@ export async function getNextReceiptNumbers(
     .is('bankszamla_id', null)
     .gte('datum', `${year}-01-01`)
     .lte('datum', `${year}-12-31`)
+    .order('id', { ascending: true })
   if (scope.scope === 'congregation') yearQ = yearQ.is('belso_mozgas_xkey', null)
   let prevQ = supabase.from(T.befizetes)
     .select('iratszam, nyugta, datum')
@@ -2181,10 +2218,21 @@ export async function getNextReceiptNumbers(
     .or('stornozott.eq.false,stornozott.is.null') // 2026-07-10 (S3-#12)
     .is('bankszamla_id', null)
     .lt('datum', `${year}-01-01`)
-    .order('datum', { ascending: false })
-    .limit(500)
+    // 2026-07-25 (F6.1): a .limit(500) KIVEZETVE — évi ~470 tételnél már egyetlen
+    // korábbi év sem fért bele, így a „tavalyi utolsó" szám hibás lehetett.
+    .order('id', { ascending: true })
   if (scope.scope === 'congregation') prevQ = prevQ.is('belso_mozgas_xkey', null)
-  const [allRes, yearRes, prevRes] = await Promise.all([allQ, yearQ, prevQ])
+  const [allRes, yearRes, prevRes] = await Promise.all([
+    fetchAllPaged<{ iratszam: string | null; nyugta: string | null }>(allQ),
+    fetchAllPaged<{ iratszam: string | null; nyugta: string | null }>(yearQ),
+    fetchAllPaged<{ iratszam: string | null; nyugta: string | null; datum: string }>(prevQ),
+  ])
+  // A lekérdezés hibája NEM maradhat néma: hibás MAX = újra kiadott nyugtaszám.
+  const firstErr = allRes.error || yearRes.error || prevRes.error
+  if (firstErr) {
+    console.error('[getNextReceiptNumbers] a nyugtaszám-lekérdezés HIBÁZOTT:', firstErr.message)
+    return { keruleti: '', gyulekezeti: '' }
+  }
   const allData = allRes.data
   const yearData = yearRes.data
   const prevData = prevRes.data
