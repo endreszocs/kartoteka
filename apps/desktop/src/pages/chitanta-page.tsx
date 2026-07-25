@@ -39,7 +39,9 @@ import {
 } from '@kartoteka/ui'
 import {
   issueChitantaUseCase,
+  getChitantaTombUsageUseCase,
   listChitantaTombokUseCase,
+  type ChitantaTombUsage,
   listChitantasUseCase,
   refillChitantaWalletUseCase,
   stornoChitantaUseCase,
@@ -81,6 +83,9 @@ export function ChitantaPage() {
   const [congregationId, setCongregationId] = useState<string | null>(null)
 
   const [rows, setRows] = useState<ChitantaTombRow[]>([])
+  // 2026-07-25 (F6.2 / G4-paritás): a berögzített nyugtaszámokból számított
+  // elhasználtság — enélkül az aktív-tömb panel TÚLBECSÜLTE a maradékot.
+  const [tombUsage, setTombUsage] = useState<Record<string, ChitantaTombUsage>>({})
   const [loadingTombok, setLoadingTombok] = useState(true)
   const [tombokError, setTombokError] = useState<string | null>(null)
 
@@ -144,6 +149,32 @@ export function ChitantaPage() {
       )
       if (result.success) {
         setRows(result.rows)
+        if (result.source === 'supabase' && result.rows.length > 0) {
+          // A használat-számítás a teljes kassza-történetet lapozza — a kiállító
+          // oldal FORRÓ útján ezért időkorláttal fut, és a hibája/lassúsága nem
+          // blokkolhatja a nyugta kiállítását (ilyenkor a DB-számláló marad).
+          try {
+            const usageRes = await Promise.race([
+              getChitantaTombUsageUseCase(
+                {
+                  congregationId,
+                  tombok: result.rows.map((r) => ({
+                    id: r.id,
+                    szam_kezdet: r.szam_kezdet,
+                    szam_veg: r.szam_veg,
+                  })),
+                },
+                { supabase, runtime: 'desktop' },
+              ),
+              new Promise<never>((_, reject) =>
+                window.setTimeout(() => reject(new Error('tomb-hasznalat timeout')), 6000),
+              ),
+            ])
+            if (usageRes.success) setTombUsage(usageRes.usage)
+          } catch (usageErr) {
+            console.warn('[chitanta-page] tömb-használat számítás kihagyva:', usageErr)
+          }
+        }
       } else {
         setTombokError(result.error)
       }
@@ -225,7 +256,7 @@ export function ChitantaPage() {
             {tombokError}
           </div>
         ) : (
-          <ActiveChitantaTombPanel rows={rows} />
+          <ActiveChitantaTombPanel rows={rows} usage={tombUsage} />
         )}
 
         {/* Offline szám-tárca (A-M7.2d1+A-M7.2d2b) — a lelkész a mezőn is tudjon

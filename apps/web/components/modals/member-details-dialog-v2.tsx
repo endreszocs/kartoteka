@@ -708,13 +708,22 @@ export function MemberDetailsDialogV2({
                       <div className="grid gap-3 sm:grid-cols-3">
                         <MiniFact label="Összes tétel" value={`${details?.befizetesek.length || 0} befizetés`} />
                         <MiniFact label="Összeg" value={`${paymentTotal.toFixed(2)} RON`} />
+                        {/* 2026-07-25 (F6.3, M5): a LEGNAGYOBB jogcím-év (fizetettev),
+                            nem a dátum szerint legfrissebb sor éve — hátralék
+                            rendezésekor az utóbbi félrevezető volt (egy tavalyi
+                            évre szóló friss befizetés „legutóbbi év"-ként a
+                            tavalyi évet mutatta). */}
                         <MiniFact
-                          label="Legutóbbi év"
-                          value={
-                            details?.befizetesek[0]?.fizetettev
-                              ? `${details.befizetesek[0].fizetettev}. év`
-                              : 'Nincs évhez kötve'
-                          }
+                          label="Legutóbbi rendezett év"
+                          value={(() => {
+                            // A stornózott tétel NEM számít rendezettnek
+                            // (F1-4 elv — a szomszédos „Összeg" csempe is kizárja).
+                            const years = (details?.befizetesek || [])
+                              .filter((b) => !b.stornozott)
+                              .map((b) => Number(b.fizetettev))
+                              .filter((y) => Number.isFinite(y) && y > 0)
+                            return years.length > 0 ? `${Math.max(...years)}. év` : 'Nincs évhez kötve'
+                          })()}
                         />
                       </div>
                     </SoftPanel>

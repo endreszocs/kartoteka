@@ -13,6 +13,7 @@
 
 import { getDesktopSupabase } from './supabase'
 import { dbExecute, dbSelect, type SqlParam } from './local-db'
+import { selectAllPaged } from './sync'
 
 // ─────────────────────────────────────────────────────────────────────────
 // Pull befizetések
@@ -28,24 +29,87 @@ export interface PullBefizetesekResult {
  * Lehúzza a gyülekezet adott évi befizetéseit a szerverről a
  * `befizetes_local` táblába. A meglévő helyi sorokat UPSERT-tel felülírjuk.
  *
- * Limit 500 — nagyobb gyülekezeteknél tovább kell fejleszteni cursor-szal.
+ * 2026-07-25 (F6.1): a korábbi `.limit(500)` plafonok KIVEZETVE. 2025-ben már
+ * 470/469 tétel/gyülekezet volt — a datum DESC + limit(500) az év LEGRÉGEBBI
+ * sorait dobta volna el NÉMÁN (és mivel minden desktop pénzügy-oldal a lokális
+ * tükörből renderel, online is csonkolt volna: hibás számadás, hamis tartozás).
+ * Helyette a `selectAllPaged` lapozó (1000-es lapok, csak ÜRES lap a stop).
  */
+
+/**
+ * 2026-07-25 (F6.4): KÍSÉRTET-SOROK TAKARÍTÁSA (tombstone).
+ *
+ * A pull `deleted = false`-ra szűr és CSAK upsertel — ezért a szerveren
+ * utólag TÖRÖLT (vagy az évből kimozgatott) sor ÖRÖKRE bennmaradt a helyi
+ * másolatban. Mivel az asztali pénzügy-oldalak a helyi másolatból
+ * renderelnek, ez nem létező pénzt mutatott a kasszában és az egyenlegben.
+ *
+ * A takarítás CSAK teljes, hibátlan pull után fut (akkor a `serverIds` a
+ * hiteles, teljes halmaz az adott hatókörre), és kizárólag a hatókörön
+ * belüli, a szerveren már nem szereplő sorokat törli. Ha a lekérdezés
+ * hibázott volna, a hívó előbb kilép — így sosem törlünk hiányos adat miatt.
+ */
+async function reconcileLocalRows(
+  table: 'befizetes_local' | 'kiadas_local',
+  scopeWhere: string,
+  scopeParams: SqlParam[],
+  serverIds: Set<string>,
+): Promise<number> {
+  const localRows = await dbSelect<{ id: number }>(
+    `SELECT id FROM ${table} WHERE ${scopeWhere}`,
+    scopeParams,
+  )
+  // ⚠️ BIZTONSÁGI SZELEP: ha a szerver ÜRES halmazt adott, de lokálisan VAN adat
+  // a hatókörben, az szinte biztosan jogosultsági/szűrési anomália (a projektben
+  // dokumentált RLS scope-divergencia: más gyülekezetre nézve némán 0 sor jön).
+  // Ilyenkor a „takarítás" az egész évet kiürítené — inkább nem nyúlunk hozzá.
+  if (serverIds.size === 0 && localRows.length > 0) {
+    console.warn(
+      `[finance-sync] a ${table} takarítása KIHAGYVA: a szerver 0 sort adott, ` +
+        `miközben lokálisan ${localRows.length} sor van a hatókörben (jogosultsági anomália?).`,
+    )
+    return 0
+  }
+  // Az azonosítókat SZÖVEGKÉNT vetjük össze — a szerveren int8, ami nagy értéknél
+  // JS-számként pontosságot veszíthetne.
+  const stale = localRows.map((r) => r.id).filter((id) => !serverIds.has(String(id)))
+  if (stale.length === 0) return 0
+  // Darabolva törlünk (SQLite paraméter-plafon).
+  const CHUNK = 200
+  for (let i = 0; i < stale.length; i += CHUNK) {
+    const slice = stale.slice(i, i + CHUNK)
+    const placeholders = slice.map((_, idx) => `?${idx + 1}`).join(', ')
+    await dbExecute(`DELETE FROM ${table} WHERE id IN (${placeholders})`, slice)
+  }
+  return stale.length
+}
+
 export async function pullBefizetesek(
   congregationId: string,
   year: number,
 ): Promise<PullBefizetesekResult> {
   try {
     const supabase = getDesktopSupabase()
-    const { data, error } = await supabase
-      .from('befizetes')
-      .select(
-        'id, xkey, id_csalad, id_szemely, forrasa, id_befizetescel, datum, osszeg, nyugta, iratszam, irattipus, csalad, megjegyzes, deleted, created, fizetettev, userid, is_potlas, bankszamla_id, stornozott, stornozott_at, stornozott_indok, stornozott_by, osszeg_ron, arfolyam, congregation_id, revision, updated_at',
-      )
-      .eq('congregation_id', congregationId)
-      .eq('fizetettev', year)
-      .eq('deleted', false)
-      .order('datum', { ascending: false })
-      .limit(500)
+    // 2026-07-25 (F6.1): LAPOZOTT lekérés — a limit(500) némán levágta az év
+    // legrégebbi tételeit. A rendezést a lapozó adja (id ASC, stabil offset).
+    const { data, error } = await selectAllPaged(
+      supabase
+        .from('befizetes')
+        .select(
+          'id, xkey, id_csalad, id_szemely, forrasa, id_befizetescel, datum, osszeg, nyugta, iratszam, irattipus, csalad, megjegyzes, deleted, created, fizetettev, userid, is_potlas, bankszamla_id, stornozott, stornozott_at, stornozott_indok, stornozott_by, osszeg_ron, arfolyam, congregation_id, revision, updated_at',
+        )
+        .eq('congregation_id', congregationId)
+        // 2026-07-25 (F6.3 / M2): a KÉT évfogalom UNIÓJA — `fizetettev` = melyik
+        // ÉVRE szól (tartozás), `datum` = mikor FOLYT BE (kassza/egyenleg).
+        // Eddig csak a jogcím-évre szűrtünk, ezért az asztali kassza MÁS
+        // halmazt mutatott, mint a böngésző (a mérés szerint évi 33 tétel,
+        // 6,6% eltérés). A fogyasztók a saját oszlopukkal szűrnek — lásd
+        // penzugy-page.tsx.
+        .or(
+          `fizetettev.eq.${year},and(datum.gte.${year}-01-01,datum.lte.${year}-12-31)`,
+        )
+        .eq('deleted', false),
+    )
 
     if (error) {
       return { success: false, pulled: 0, error: error.message }
@@ -129,6 +193,19 @@ export async function pullBefizetesek(
       pulled += 1
     }
 
+    // 2026-07-25 (F6.4): a szerveren törölt/kimozgatott sorok takarítása —
+    // a hatókör AZONOS a lekérdezésével (jogcím-év VAGY pénztári nap az évben).
+    const serverIds = new Set((data || []).map((row) => String((row as Record<string, unknown>).id)))
+    const removed = await reconcileLocalRows(
+      'befizetes_local',
+      'congregation_id = ?1 AND (fizetettev = ?2 OR (datum >= ?3 AND datum <= ?4))',
+      [congregationId, year, `${year}-01-01`, `${year}-12-31T23:59:59`],
+      serverIds,
+    )
+    if (removed > 0) {
+      console.info(`[finance-sync] ${removed} elavult befizetés-sor törölve a helyi másolatból.`)
+    }
+
     return { success: true, pulled }
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'ismeretlen'
@@ -146,17 +223,18 @@ export async function pullKiadasok(
 ): Promise<PullBefizetesekResult> {
   try {
     const supabase = getDesktopSupabase()
-    const { data, error } = await supabase
-      .from('kiadas')
-      .select(
-        'id, xkey, id_kiadascel, datum, osszeg, nyugta, iratszam, irattipus, megjegyzes, created, deleted, atvevo, atvevoid, userid, is_potlas, bankszamla_id, vonatkozo_idoszak, kedvezmenyezett_cui, stornozott, stornozott_at, stornozott_indok, stornozott_by, osszeg_ron, arfolyam, congregation_id, revision, updated_at',
-      )
-      .eq('congregation_id', congregationId)
-      .gte('datum', `${year}-01-01`)
-      .lte('datum', `${year}-12-31T23:59:59`)
-      .eq('deleted', false)
-      .order('datum', { ascending: false })
-      .limit(500)
+    // 2026-07-25 (F6.1): LAPOZOTT lekérés (lásd a fájl fejlécét).
+    const { data, error } = await selectAllPaged(
+      supabase
+        .from('kiadas')
+        .select(
+          'id, xkey, id_kiadascel, datum, osszeg, nyugta, iratszam, irattipus, megjegyzes, created, deleted, atvevo, atvevoid, userid, is_potlas, bankszamla_id, vonatkozo_idoszak, kedvezmenyezett_cui, stornozott, stornozott_at, stornozott_indok, stornozott_by, osszeg_ron, arfolyam, congregation_id, revision, updated_at',
+        )
+        .eq('congregation_id', congregationId)
+        .gte('datum', `${year}-01-01`)
+        .lte('datum', `${year}-12-31T23:59:59`)
+        .eq('deleted', false),
+    )
 
     if (error) {
       return { success: false, pulled: 0, error: error.message }
@@ -240,6 +318,18 @@ export async function pullKiadasok(
       pulled += 1
     }
 
+    // 2026-07-25 (F6.4): kísértet-sorok takarítása (lásd reconcileLocalRows).
+    const serverIds = new Set((data || []).map((row) => String((row as Record<string, unknown>).id)))
+    const removed = await reconcileLocalRows(
+      'kiadas_local',
+      'congregation_id = ?1 AND datum >= ?2 AND datum <= ?3',
+      [congregationId, `${year}-01-01`, `${year}-12-31T23:59:59`],
+      serverIds,
+    )
+    if (removed > 0) {
+      console.info(`[finance-sync] ${removed} elavult kiadás-sor törölve a helyi másolatból.`)
+    }
+
     return { success: true, pulled }
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'ismeretlen'
@@ -288,11 +378,17 @@ export async function getLocalBefizetesek(
   year: number,
 ): Promise<LocalBefizetesRow[]> {
   return dbSelect<LocalBefizetesRow>(
+    // 2026-07-25 (F6.3 / M2): a lokális olvasó is a KÉT halmaz UNIÓJÁT adja
+    // (jogcím-év VAGY pénztári nap az adott évben) — a hívó szűr tovább a
+    // saját szemantikája szerint. Így a kassza a webbel azonos halmazt lát,
+    // a tartozás pedig továbbra is a jogcím-évet.
     `SELECT * FROM befizetes_local
-       WHERE congregation_id = ?1 AND fizetettev = ?2 AND deleted = 0
-       ORDER BY datum DESC, id DESC
-       LIMIT 500`,
-    [congregationId, year],
+       WHERE congregation_id = ?1 AND deleted = 0
+         AND (fizetettev = ?2 OR (datum >= ?3 AND datum <= ?4))
+       ORDER BY datum DESC, id DESC`,
+    // 2026-07-25 (F6.1): a LIMIT 500 TÖRÖLVE — a lokális olvasás is csonkolt
+    // (van index congregation_id/fizetettev/datum-ra, table-scan nincs).
+    [congregationId, year, `${year}-01-01`, `${year}-12-31T23:59:59`],
   )
 }
 
@@ -335,8 +431,8 @@ export async function getLocalKiadasok(
     `SELECT * FROM kiadas_local
        WHERE congregation_id = ?1 AND deleted = 0
        AND datum >= ?3 AND datum <= ?4
-       ORDER BY datum DESC, id DESC
-       LIMIT 500`,
+       ORDER BY datum DESC, id DESC`,
+    // 2026-07-25 (F6.1): a LIMIT 500 TÖRÖLVE (lásd fent).
     [congregationId, year, `${year}-01-01`, `${year}-12-31T23:59:59`],
   )
 }

@@ -504,6 +504,9 @@
   /* Emerald/amber/sky szövegek — sötétebb árnyalatok világosodnak */
   .text-emerald-900, .text-emerald-800 { color: rgb(167 243 208) !important; }
   .text-amber-900, .text-amber-800 { color: rgb(253 230 138) !important; }
+  /* 2026-07-25 (G4): a -700-as figyelmeztetes-szinek is vilagosodnak (tomb-keszlet). */
+  .text-amber-700 { color: rgb(252 211 77) !important; }
+  .text-rose-700 { color: rgb(253 164 175) !important; }
   .text-sky-900, .text-sky-800 { color: rgb(186 230 253) !important; }
   .text-rose-900, .text-rose-800 { color: rgb(254 205 211) !important; }
   .text-violet-900, .text-violet-800 { color: rgb(221 214 254) !important; }

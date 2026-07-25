@@ -16,6 +16,7 @@ import type { JarulekExemption, JarulekDiscountRule } from '@kartoteka/ui-app'
 
 import { getDesktopSupabase } from './supabase'
 import { dbExecute, dbSelect } from './local-db'
+import { selectAllPaged } from './sync'
 
 async function ensureDebtTables(): Promise<void> {
   await dbExecute(
@@ -53,17 +54,63 @@ export interface PullDebtResult {
   error?: string
 }
 
+
+/**
+ * 2026-07-25 (F6.5): a lokális tükörből törli azokat a sorokat, amiket a
+ * (TELJES hatókörű) szerver-lekérdezés már nem ad vissza.
+ *
+ * ⚠️ Csak TELJES hatókörű pull után hívható — delta-pullnál mindent kitörölne.
+ * Biztonsági szelep: üres szerver-halmaz + meglévő lokális adat esetén kihagy
+ * (a dokumentált RLS scope-divergencia ellen).
+ */
+async function reconcileDebtTable(
+  localTable: 'felmentes_local' | 'jarulek_kedvezmeny_local',
+  congregationId: string,
+  serverRows: Array<Record<string, unknown>>,
+): Promise<void> {
+  const serverIds = new Set(serverRows.map((r) => String(r.id)))
+  const localRows = await dbSelect<{ id: number | string }>(
+    `SELECT id FROM ${localTable} WHERE congregation_id = ?1`,
+    [congregationId],
+  )
+  if (serverIds.size === 0 && localRows.length > 0) {
+    console.warn(
+      `[finance-debt-sync] ${localTable} takarítása KIHAGYVA: a szerver 0 sort adott, ` +
+        `miközben lokálisan ${localRows.length} sor van (jogosultsági anomália?).`,
+    )
+    return
+  }
+  const stale = localRows.map((r) => r.id).filter((id) => !serverIds.has(String(id)))
+  if (stale.length === 0) return
+  const CHUNK = 200
+  for (let i = 0; i < stale.length; i += CHUNK) {
+    const slice = stale.slice(i, i + CHUNK)
+    const placeholders = slice.map((_, idx) => `?${idx + 1}`).join(', ')
+    await dbExecute(`DELETE FROM ${localTable} WHERE id IN (${placeholders})`, slice)
+  }
+  console.info(`[finance-debt-sync] ${localTable}: ${stale.length} elavult sor takarítva.`)
+}
+
 export async function pullDebtData(congregationId: string): Promise<PullDebtResult> {
   try {
     await ensureDebtTables()
     const supabase = getDesktopSupabase()
+    // 2026-07-25 (F6.5 review, P2): LAPOZVA — a takarítás a szerver-halmazt
+    // hiteles egésznek veszi, ezért a PostgREST sor-plafonja fölött a levágott
+    // sorok „töröltnek" minősülnének, és a takarítás KITÖRÖLNÉ őket.
     const [felmRes, kedvRes] = await Promise.all([
-      supabase.from('felmentes').select('id, congregation_id, id_szemely, id_csalad, kezdete, vege').eq('congregation_id', congregationId),
-      supabase
-        .from('jarulek_kedvezmeny')
-        .select('id, congregation_id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras')
-        .eq('congregation_id', congregationId)
-        .order('sorrend', { ascending: true }),
+      selectAllPaged(
+        supabase
+          .from('felmentes')
+          .select('id, congregation_id, id_szemely, id_csalad, kezdete, vege')
+          .eq('congregation_id', congregationId),
+      ),
+      selectAllPaged(
+        supabase
+          .from('jarulek_kedvezmeny')
+          .select('id, congregation_id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras')
+          .eq('congregation_id', congregationId),
+      ),
     ])
     if (felmRes.error) return { success: false, error: felmRes.error.message }
     // Ellenálló a `kezdet` oszlop hiányára (régi séma): ha a lekérdezés hibázott, újra `kezdet` nélkül —
@@ -71,10 +118,12 @@ export async function pullDebtData(congregationId: string): Promise<PullDebtResu
     // initFinance ellenállóságával (commit 535c33fc); a kezdet ekkor null (nyitott ablak).
     let kedvData = kedvRes.data as Array<Record<string, unknown>> | null
     if (kedvRes.error) {
-      const retry = await supabase
-        .from('jarulek_kedvezmeny')
-        .select('id, congregation_id, ev, tipus, aktiv, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras')
-        .eq('congregation_id', congregationId)
+      const retry = await selectAllPaged(
+        supabase
+          .from('jarulek_kedvezmeny')
+          .select('id, congregation_id, ev, tipus, aktiv, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras')
+          .eq('congregation_id', congregationId),
+      )
       if (retry.error) return { success: false, error: retry.error.message }
       kedvData = retry.data as Array<Record<string, unknown>> | null
     }
@@ -126,6 +175,14 @@ export async function pullDebtData(congregationId: string): Promise<PullDebtResu
         ],
       )
     }
+
+    // 2026-07-25 (F6.5): a VÉGLEGESEN törölt sorok takarítása. Ez a két pull
+    // TELJES hatókört tölt (nincs updated_at-kurzor), ezért a szerver-halmaz
+    // hiteles egész — a takarítás itt közvetlenül biztonságos. Ha ezt nem
+    // tennénk: a weben törölt felmentés/kedvezmény ÖRÖKRE érvényben maradna a
+    // desktop tartozás-számításában (hamis mentesség, hamis kedvezmény).
+    await reconcileDebtTable('felmentes_local', congregationId, felmRes.data || [])
+    await reconcileDebtTable('jarulek_kedvezmeny_local', congregationId, kedvData || [])
 
     return { success: true }
   } catch (err) {

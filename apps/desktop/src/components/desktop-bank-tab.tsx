@@ -32,6 +32,10 @@ type DesktopBankTabProps = Pick<
   | 'incomeRecords'
   | 'expenseRecords'
   | 'carryoverBank'
+  // 2026-07-25 (F6.2 / G5-paritás): levezetett nyitó számlánként — enélkül a
+  // kártyák „nincs rögzítve" feliratot mutattak, és egy számlára szűrve 0-ról
+  // indult a nyitó, miközben az „Összes" már a feloldott értéket tartalmazta.
+  | 'derivedNyitoRon'
   | 'bankAccounts'
   | 'bevCelMap'
   | 'kiaCelMap'

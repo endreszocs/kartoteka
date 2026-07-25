@@ -14,6 +14,31 @@
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import type { GoalRow } from './goals-actions'
 
+
+/**
+ * 2026-07-25 (F6.3): LAPOZOTT lekérés — a többéves összesítők (5 év × több száz
+ * tétel) rég túlnőttek a szerver implicit sor-plafonján, ami NÉMÁN levágta a
+ * bevétel/kiadás összegeket az éves jelentésben. Csak az ÜRES lap a biztos stop.
+ */
+async function fetchAllPagedRows(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  pageSize = 1000,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<{ data: any[]; error: { message: string } | null }> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const out: any[] = []
+  for (let from = 0; ; ) {
+    const { data, error } = await query.range(from, from + pageSize - 1)
+    if (error) return { data: out, error }
+    const page = data ?? []
+    out.push(...page)
+    if (page.length === 0) break
+    from += page.length
+  }
+  return { data: out, error: null }
+}
+
 export interface PresentationData {
   year: number
   congregation: {
@@ -182,21 +207,35 @@ export async function getPresentationData(year: number): Promise<{
       .eq('congregation_id', effectiveCongregationId)
       .eq('isaktiv', true)
       .is('ervenyes_ig', null),
-    supabase
-      .from('befizetes')
-      .select('osszeg, datum, fizetettev, id_szemely, id_befizetescel, befizetescel(nev)')
-      .eq('congregation_id', effectiveCongregationId)
-      .eq('deleted', false)
-      .eq('stornozott', false)
-      .gte('datum', `${years[0]}-01-01`)
-      .lte('datum', `${year}-12-31`),
-    supabase
-      .from('kiadas')
-      .select('osszeg, datum, kiadascel:id_kiadascel(nev)')
-      .eq('congregation_id', effectiveCongregationId)
-      .eq('deleted', false)
-      .gte('datum', `${years[0]}-01-01`)
-      .lte('datum', `${year}-12-31`),
+    // 2026-07-25 (F6.3, M1): a lekérdezés KÉT szemantikát szolgál ki — a
+    // bevétel-összesítők a PÉNZTÁRI NAP (datum), a „fizetett tagok" aránya a
+    // KÖTELEZETTSÉGI ÉV (fizetettev) szerint szűrnek. Eddig CSAK datum-ablakkal
+    // töltöttünk, így egy 2026 januárjában rendezett 2025-ös hátralék kiesett →
+    // a 2025-ös fizetési arány NÉMÁN alulszámolt. Most a KÉT ablak UNIÓJÁT
+    // töltjük, és minden aggregáció a saját oszlopával szűr (lásd lent).
+    // Lapozva is: 5 év × ~470 tétel bőven a szerver sor-plafonja felett van.
+    fetchAllPagedRows(
+      supabase
+        .from('befizetes')
+        .select('osszeg, datum, fizetettev, id_szemely, id_befizetescel, befizetescel(nev)')
+        .eq('congregation_id', effectiveCongregationId)
+        .eq('deleted', false)
+        .eq('stornozott', false)
+        .or(
+          `and(datum.gte.${years[0]}-01-01,datum.lte.${year}-12-31),and(fizetettev.gte.${years[0]},fizetettev.lte.${year})`,
+        )
+        .order('id', { ascending: true }),
+    ),
+    fetchAllPagedRows(
+      supabase
+        .from('kiadas')
+        .select('osszeg, datum, kiadascel:id_kiadascel(nev)')
+        .eq('congregation_id', effectiveCongregationId)
+        .eq('deleted', false)
+        .gte('datum', `${years[0]}-01-01`)
+        .lte('datum', `${year}-12-31`)
+        .order('id', { ascending: true }),
+    ),
     supabase
       .from('gyulekezeti_programok')
       .select('datum, tipus, teljesitett')
@@ -351,6 +390,16 @@ export async function getPresentationData(year: number): Promise<{
   const families = (familiesResult.data || []).length
 
   // ─── Befizetések ───
+  // 2026-07-25 (F6.3 review): a lapozás hibája RÉSZLEGES adatot adna vissza —
+  // ez plauzibilis, de csonka pénzügyi számokat jelentene a jelentésben.
+  // Legalább HANGOSAN naplózzuk (a néma-csonkolás hibaosztály elleni védelem).
+  if (befizetesResult.error || kiadasResult.error) {
+    console.error(
+      '[eves-jelentes] a pénzügyi lekérdezés HIBÁZOTT — a jelentés összegei csonkák lehetnek:',
+      befizetesResult.error?.message || kiadasResult.error?.message,
+    )
+  }
+
   const befizetesek = (befizetesResult.data || []) as Array<{
     osszeg: number
     datum: string
@@ -359,6 +408,8 @@ export async function getPresentationData(year: number): Promise<{
     befizetescel: { nev: string } | { nev: string }[] | null
   }>
 
+  // PÉNZMOZGÁS-szemantika: a bevétel/kiadás összesítők a PÉNZTÁRI NAP (datum)
+  // szerint sorolnak évhez — ez a számadás/kassza logikája.
   const financeByYear = years.map((y) => {
     const yearIncome = befizetesek
       .filter((b) => new Date(b.datum).getFullYear() === y)
@@ -404,8 +455,20 @@ export async function getPresentationData(year: number): Promise<{
     if (isNaN(bd.getTime())) return true
     return (currentYear - bd.getFullYear()) >= 18
   }).length
+  // KÖTELEZETTSÉGI-ÉV szemantika: „ki rendezte a(z) N. évet" — ez mindig a
+  // fizetettev, függetlenül attól, mikor folyt be (hátralék-rendezés).
+  //
+  // ⚠️ TUDATOS KORLÁT (2026-07-25, F6.3 review): ez egy PREZENTÁCIÓS
+  // becslés, NEM a Tartozások fül hiteles számítása:
+  //   - a NULL id_szemely (tisztán családi tétel) sorokat KIHAGYJA — a családi
+  //     befizetés tagokra osztása (allocateFamilyPayments) itt nem fut le,
+  //     ezért az ilyen családok tagjai nem számítanak „fizetőnek";
+  //   - jogcímre nem szűr: minden fizetettev=év tétel beszámít.
+  // A hiteles, tagonkénti kép a Pénzügy → Tartozások fülön van.
   const paidMemberIds = new Set(
-    befizetesek.filter((b) => b.fizetettev === year).map((b) => b.id_szemely),
+    befizetesek
+      .filter((b) => b.fizetettev === year && b.id_szemely != null)
+      .map((b) => b.id_szemely),
   )
   const egyhazfenntartas = {
     activeMembers: activeMembers.length,

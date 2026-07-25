@@ -46,6 +46,7 @@ import {
   undoStornoUseCase,
   autoIssueChitantaForBefizetesUseCase,
   getChitantakForBefizetesekUseCase,
+  resolveNyitoEgyenlegekUseCase,
 } from '@kartoteka/core'
 
 import { DesktopShell } from '../lib/shell/desktop-shell'
@@ -84,6 +85,7 @@ import { DesktopBudgetPrintDialog } from '../components/budget-print-dialog'
 import { ChitantaPrintDialog } from '../components/chitanta-print-dialog'
 import { DesktopChitantaTombRequiredDialog } from '../components/chitanta-tomb-required-dialog'
 import { DESKTOP_HELP_SECTIONS } from '../lib/desktop-help-sections'
+import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
 
 // 2026-06-11 (paritás #5): Bank / Költségvetés / Monetár is a web-azonos
 // megosztott komponenssel renderelődik. Egyedül a Bérleti szerződések fül vár
@@ -106,16 +108,30 @@ const TAB_DEFS = [
 
 const EMPTY_BALANCES: FinanceBalances = { cashBalance: 0, bankBalance: 0, totalIncome: 0, totalExpense: 0 }
 
+/**
+ * A fül-azonosító kiolvasása az URL-ből.
+ *
+ * ⚠️ HashRouter: az ÚTVONAL is a hash-ben van, ezért a teljes hash így néz ki:
+ * `#/penzugy#accounting`. A korábbi kód a vezető '#'-et vágta le és az EGÉSZ
+ * maradékot ('/penzugy#accounting') hasonlította a fül-nevekhez → sosem talált,
+ * mindig a 'dashboard' fülre esett (a /penzugy/szamadas deep-link is).
+ * Ezért az UTOLSÓ '#' utáni szegmenst nézzük.
+ */
 function readHashTab(): string {
   if (typeof window === 'undefined') return 'dashboard'
-  const h = window.location.hash.replace(/^#/, '')
+  const raw = window.location.hash
+  const h = raw.slice(raw.lastIndexOf('#') + 1)
   return TAB_DEFS.some((t) => t.value === h) ? h : 'dashboard'
 }
 
 export function PenzugyPage() {
   const [activeTab, setActiveTab] = useState<string>(readHashTab)
   const [loading, setLoading] = useState(true)
-  const [year] = useState<number>(() => new Date().getFullYear())
+  // 2026-07-25 (F6.2 review, P1): ÉV-VÁLASZTÓ. A most törölt aloldalakon volt
+  // év-dropdown, az egységes oldalon nem — így januárban az ELŐZŐ évi Számadás/
+  // Tartozás/Áttekintés elérhetetlenné vált volna (pedig az éves számadás épp
+  // akkor készül). A web ugyanezt a FinanceYearSelector-ral adja.
+  const [year, setYear] = useState<number>(() => new Date().getFullYear())
 
   const [income, setIncome] = useState<BefitetesRow[]>([])
   const [expense, setExpense] = useState<KiadasRow[]>([])
@@ -158,6 +174,10 @@ export function PenzugyPage() {
   const [printOpen, setPrintOpen] = useState(false)
   const [budgetPrintOpen, setBudgetPrintOpen] = useState(false)
   // Page-szintű visszajelzés (pl. sztornó-visszavonás eredménye a Kassza fülről).
+  // 2026-07-25 (F6.4): hány OFFLINE rögzített (még fel nem töltött) befizetés
+  // van — ezek a szerver-tükörben még nincsenek benne, tehát a lenti számok
+  // NEM tartalmazzák őket. Enélkül a lelkész némán kevesebbet látott.
+  const [pendingCount, setPendingCount] = useState(0)
   const [pageToast, setPageToast] = useState<
     { kind: 'success' | 'error' | 'info' | 'warning'; msg: string } | null
   >(null)
@@ -176,10 +196,15 @@ export function PenzugyPage() {
     setActiveTab(readHashTab())
   }, [location])
   useEffect(() => {
-    const cur = window.location.hash.replace(/^#/, '')
-    if (cur !== activeTab) {
-      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${activeTab}`)
-    }
+    // ⚠️ HashRouter: a `window.location.pathname` NEM az útvonal (az a hash-ben
+    // van) — a korábbi replaceState `#dashboard`-ra írta az egész hash-t, így
+    // egy újratöltés a Kezdőlapra esett. Csak a hash UTOLSÓ szegmensét cseréljük.
+    const raw = window.location.hash
+    const cut = raw.lastIndexOf('#')
+    const cur = raw.slice(cut + 1)
+    if (cur === activeTab) return
+    const routePart = cut > 0 ? raw.slice(0, cut) : raw || '#/penzugy'
+    window.history.replaceState(null, '', `${routePart}#${activeTab}`)
   }, [activeTab])
 
   const load = useCallback(async () => {
@@ -237,7 +262,14 @@ export function PenzugyPage() {
       setCongregationName(cong?.nev_hu || cong?.name || '')
       setCongregationNameRo((cong as { nev_ro?: string | null } | null)?.nev_ro || '')
 
-      const incomeRows = befLocal.map(toBefitetesRow)
+      // 2026-07-25 (F6.3 / M2): a lokális olvasó a KÉT évfogalom UNIÓJÁT adja
+      // vissza, ezért itt kell szétválasztani a szemantikákat:
+      //   - PÉNZMOZGÁS (kassza, bank, tranzakciók, egyenlegek, számadás) →
+      //     a PÉNZTÁRI NAP (datum) éve — a webbel bit-azonos halmaz;
+      //   - KÖTELEZETTSÉG (tartozás) → a jogcím-év (fizetettev), lásd lent.
+      const inYear = (datum: string | null | undefined, y: number) =>
+        typeof datum === 'string' && datum.slice(0, 4) === String(y)
+      const incomeRows = befLocal.filter((b) => inYear(b.datum, year)).map(toBefitetesRow)
       const expenseRows = kiaLocal.map(toKiadasRow)
 
       // 2026-07-10 (#3 defense-in-depth): a belső-mozgás cél-id-k kizárása a
@@ -299,8 +331,40 @@ export function PenzugyPage() {
       } catch {
         /* offline / hálózati hiba / timeout — 0 bázissal számolunk, mint eddig */
       }
+      // 2026-07-25 (G5, web-paritás): „előző évi záró = következő évi nyitó" —
+      // OLVASÁS-ONLY feloldás számlánként. Online ág; hiba/offline esetén a
+      // fenti (rögzített sor + fallback) értékek maradnak.
+      let resolvedCash: number | null = null
+      let resolvedBankTotal: number | null = null
+      try {
+        if (await isOnlineWithSession()) {
+          const sb2 = getDesktopSupabase()
+          const resolved = (await Promise.race([
+            resolveNyitoEgyenlegekUseCase(
+              { congregationId: congId, eve: year },
+              { supabase: sb2, runtime: 'desktop' },
+            ),
+            new Promise<never>((_, reject) =>
+              window.setTimeout(() => reject(new Error('nyito-feloldas timeout')), 6000),
+            ),
+          ])) as Awaited<ReturnType<typeof resolveNyitoEgyenlegekUseCase>>
+          if (resolved.success) {
+            resolvedCash = resolved.cash.value
+            resolvedBankTotal = resolved.bankTotal
+            for (const [id, r] of Object.entries(resolved.bank)) {
+              bankNyitoCur[Number(id)] = r.value
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[penzugy-page] nyitó-feloldás kihagyva:', err)
+      }
+      if (resolvedCash != null) recCashCur = resolvedCash
+      if (resolvedBankTotal != null) recBankCur = resolvedBankTotal
       setBankNyitoMap(bankNyitoCur)
-      const prevBalances = calculateBalances(prevBefLocal.map(toBefitetesRow), prevKiaLocal.map(toKiadasRow), recCashPrev, recBankPrev, internalCelIds)
+      // Az előző évi átvitel is PÉNZMOZGÁS-szemantika (datum szerinti év).
+      const prevBefRows = prevBefLocal.filter((b) => inYear(b.datum, year - 1)).map(toBefitetesRow)
+      const prevBalances = calculateBalances(prevBefRows, prevKiaLocal.map(toKiadasRow), recCashPrev, recBankPrev, internalCelIds)
       const yearBalances = calculateBalances(incomeRows, expenseRows, recCashCur ?? prevBalances.cashBalance, recBankCur ?? prevBalances.bankBalance, internalCelIds)
 
       // 2026-07-10 (S2-#5 paritás): előző évi TÉNY kódonként — a web
@@ -308,20 +372,43 @@ export function PenzugyPage() {
       // lokális előző évi sorokból. A belső-mozgás kódok (100.xx/3xx/4xx) a webbel
       // azonosan kizárva. Ha az előző évből nincs lokálisan szinkronizált sor,
       // null marad → a referencia-oszlop nem jelenik meg (nem mutatunk hamis 0-kat).
+      // 2026-07-25 (M2 review, P1): a PÉNZMOZGÁS-szemantikájú, DATUM szerint
+      // szűrt halmazból aggregálunk. Az uniós `prevBefLocal` mindkét évfogalom
+      // sorait tartalmazza — abból összegezve a referencia-oszlop FELFELÉ
+      // torzult volna (a webes getPreviousYearActuals tisztán datum-alapú).
+      // Egyúttal web-paritás: stornó kizárva + RON-ekvivalens (osszeg_ron).
+      const prevBefForActuals = prevBefLocal.filter(
+        (b) => inYear(b.datum, year - 1) && !b.stornozott,
+      )
+      const prevKiaForActuals = prevKiaLocal.filter((k) => !k.stornozott)
       const prevIncomeByKod: Record<string, number> = {}
-      for (const b of prevBefLocal) {
+      for (const b of prevBefForActuals) {
         const kod = bevMap[b.id_befizetescel]
         if (!kod || isInternalKod(kod)) continue
-        prevIncomeByKod[kod] = (prevIncomeByKod[kod] || 0) + (Number(b.osszeg) || 0)
+        prevIncomeByKod[kod] =
+          (prevIncomeByKod[kod] || 0) + (Number(b.osszeg_ron ?? b.osszeg) || 0)
       }
       const prevExpenseByKod: Record<string, number> = {}
-      for (const k of prevKiaLocal) {
+      for (const k of prevKiaForActuals) {
         const kod = kiaMap[k.id_kiadascel]
         if (!kod || isInternalKod(kod)) continue
-        prevExpenseByKod[kod] = (prevExpenseByKod[kod] || 0) + (Number(k.osszeg) || 0)
+        prevExpenseByKod[kod] =
+          (prevExpenseByKod[kod] || 0) + (Number(k.osszeg_ron ?? k.osszeg) || 0)
       }
+      // 2026-07-25 (F6.4): offline rögzített tételek számbavétele (a helyi
+      // staging-táblából) — hibatűrő, a pénzügy-nézetet nem blokkolja.
+      try {
+        const pendings = await getTauriSqliteBackend().listLocalPendingBefizetes(congId, year)
+        setPendingCount(pendings.length)
+      } catch (err) {
+        console.warn('[penzugy-page] a függő (offline) tételek lekérdezése kimaradt:', err)
+        setPendingCount(0)
+      }
+
       setPrevActuals(
-        prevBefLocal.length === 0 && prevKiaLocal.length === 0
+        // A null-őr is a HELYES (szűrt) halmazokra épül — különben tisztán
+        // rossz szemantikájú sorokból épült oszlopot mutatnánk 0 helyett.
+        prevBefForActuals.length === 0 && prevKiaForActuals.length === 0
           ? null
           : { income: prevIncomeByKod, expense: prevExpenseByKod },
       )
@@ -370,7 +457,16 @@ export function PenzugyPage() {
       }
 
       const maintenancePayments: JarulekPaymentLike[] = befLocal
-        .filter((b) => (bevMap[b.id_befizetescel] || '').startsWith('101.01'))
+        // 2026-07-25 (F6.3 / M2): KÖTELEZETTSÉGI-ÉV szemantika — a motor a
+        // `fizetettev`-vel sorol évhez, ezért az uniós halmazból ide CSAK a
+        // jogcím-év szerinti sorok kellenek (a januárban rendezett előző évi
+        // hátralék így is beszámít, ahogy a weben).
+        .filter((b) => b.fizetettev === year)
+        // 2026-07-25 (F6.2 review, P1): a stornózott befizetés NEM számít fizetettnek
+    // (F1-4 web-paritás — a web `.or('stornozott.eq.false,stornozott.is.null')`-lal
+    // szűr). Ez a szűrés a most törölt penzugy-tartozasok-page-en már megvolt, az
+    // egységes oldalról hiányzott → sztornó után „Rendezett"-nek látszott a tag.
+    .filter((b) => !b.stornozott && (bevMap[b.id_befizetescel] || '').startsWith('101.01'))
         .map((b) => ({ id_szemely: b.id_szemely ?? null, id_csalad: b.id_csalad ?? null, datum: b.datum ?? null, fizetettev: b.fizetettev ?? null, osszeg: b.osszeg }))
 
       const computedDebt = buildDebtRows({
@@ -495,6 +591,24 @@ export function PenzugyPage() {
           // 2026-06-11 (Endre #2): az Excel-könyvelés beállításai eddig
           // „eldugva" éltek — innen egy kattintás a Beállítások → Könyvelés fül.
           extraActions={
+            <>
+              {/* Év-választó — a betöltés (load) a `year`-re van kötve, tehát
+                  váltáskor a teljes oldal újratölt (lokális tükör + online). */}
+              <label className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs">
+                <span className="text-muted-foreground">Év</span>
+                <select
+                  value={year}
+                  onChange={(event) => setYear(Number(event.target.value))}
+                  className="bg-transparent text-sm font-semibold outline-none"
+                  aria-label="Költségvetési év"
+                >
+                  {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i).map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </label>
             <button
               type="button"
               onClick={() => {
@@ -514,8 +628,25 @@ export function PenzugyPage() {
               <FileSpreadsheet className="mr-1.5 size-3.5" />
               Excel-könyvelés
             </button>
+            </>
           }
         />
+
+        {/* 2026-07-25 (F6.4): az offline rögzített tételek NINCSENEK benne a lenti
+            számokban (a szerver-tükörből dolgozunk) — ezt ki kell mondani, mert
+            különben a lelkész hiányzó pénzt lát. */}
+        {pendingCount > 0 && (
+          <div
+            role="status"
+            className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          >
+            <strong>
+              {pendingCount} internet nélkül rögzített tétel még nincs feltöltve.
+            </strong>{' '}
+            Az alábbi kimutatások (kassza, egyenlegek, számadás) ezeket még nem tartalmazzák —
+            a feltöltés a kapcsolat helyreállása után automatikusan megtörténik.
+          </div>
+        )}
 
         {pageToast && (
           <div
@@ -673,6 +804,7 @@ export function PenzugyPage() {
               incomeRecords={income}
               expenseRecords={expense}
               carryoverBank={carryoverBank}
+              derivedNyitoRon={bankNyitoMap}
               bankAccounts={bankAccounts}
               bevCelMap={bevCelMap}
               kiaCelMap={kiaCelMap}
@@ -756,6 +888,9 @@ export function PenzugyPage() {
               carryoverBank={carryoverBank}
               prevActualIncome={prevActuals?.income}
               prevActualExpense={prevActuals?.expense}
+              // 2026-07-25 (G3 paritás): évi összegző hero — ugyanaz a balances,
+              // amiből a Kassza/Bank fülek egyenlege is számolódik.
+              balances={balances}
             />
           ) : activeTab === 'debt' ? (
             <DebtTab debtRows={debtRows} yearlyFees={yearlyFees} currentYear={year} debtCalcMode="akkori" />

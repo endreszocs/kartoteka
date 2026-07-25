@@ -174,6 +174,10 @@ const SECTIONS: Section[] = [
             text: 'A Számadás nyomtatványán megjelent a hivatalos nyitó 3 sor, és a záró egyenleg mostantól helyesen számolódik: nyitó + évi bevételek − évi kiadások. (Korábban tévesen a nyitó összeg szerepelt „év végi" egyenlegként.)',
           },
           {
+            // 2026-07-25 (G3-sugo)
+            text: 'Évi pénzügyi kép a Számadás fül tetején: az évi bevétel és kiadás mellett nagyban látszik a pénztári (Casa), a banki (Banca) és az együttes egyenleg — a Kassza és a Bank füllel azonos számítással.',
+          },
+          {
             text: 'Az Excel-exportban a „Várakozik banki egyeztetésre" felirat a VALÓS állapotot mutatja — amint a banki pár beérkezett és párosodott, a felirat eltűnik. A párosítás-figyelő is pontosabb: csak valódi kassza↔bank párokat fogad el.',
           },
           {
@@ -227,6 +231,10 @@ const SECTIONS: Section[] = [
           },
           {
             text: 'Oblio ellenőrzés: a „Mappa beállítása" gomb most már tényleg megnyitja a mappa-választót, és a rendszer megjegyzi a kiválasztott KARTOTEKA mappát (Chrome vagy Edge böngésző szükséges).',
+          },
+          {
+            // 2026-07-25 (G2-sugo): fejléc mega menü + profilváltó
+            text: 'Fejléc-menü (a jobb felső avatár): széles, kategorizált menü nyílik — „Fiók" és „Gyülekezet" csoportokkal. A bal felső gyülekezet-csempére kattintva ugyanez a menü nyílik. Több szerepkör esetén a profilváltó csoportosítva (gyülekezet / egyházmegye / egyházkerület / rendszer) jelenik meg, öt szerep felett keresővel — és a váltás is gyorsabb lett.',
           },
         ],
       },
@@ -301,6 +309,18 @@ const SECTIONS: Section[] = [
           },
           {
             text: 'Induló (nyitó) egyenlegek: ha a KARTOTEKA egy már működő könyvelést vesz át, a kezdő költségvetési év induló egyenlegei megadhatók — a Kassza fülön a „Nyitó egyenlegek" gombbal, a Bank fülön a bankszámla-kártyáról, vagy a gyülekezeti beállítás-varázsló Pénzügy lapján. Ezt csak egyszer, a rendszer indulásakor kell megtenni; a következő évek nyitói már maguktól számolódnak.',
+          },
+          {
+            // 2026-07-25 (G1-sugo)
+            text: 'Kedvezmények egyszerűbben: a „Sorrend" mező megszűnt — a rendszer mindig automatikusan a tagnak legkedvezőbb szabályt alkalmazza. A kedvezményes időszakok egy év-idővonalon látszanak (melyik szakaszban mennyi a fizetendő, hol él a teljes éves díj), és a lépcsőzetes korai-fizetési kedvezmény egyetlen menetben, több sorban rögzíthető.',
+          },
+          {
+            // 2026-07-25 (G5-sugo)
+            text: 'Nyitó egyenleg csak EGYSZER: az induló egyenleget elég a rendszer indulásakor megadni — utána minden év nyitója automatikusan az előző év zárójából jön (a bankszámla-kártyán „automatikusan az előző évi záróból" felirattal), számlánként külön. Ha utólag rögzítesz egy régebbi évbe, a következő évek nyitója magától követi. A kézzel megadott nyitót a rendszer soha nem írja felül, és a levezetett értéket nem is menti el — így a lezárt évek adatai érintetlenek maradnak.',
+          },
+          {
+            // 2026-07-25 (G4-sugo)
+            text: 'Nyugtatömb-készlet a valóság szerint: a Leltár → Anyagraktár és a Kassza fül tömb-paneljén a készlet mostantól a berögzített kerületi nyugtaszámokból számolódik — nem marad többé tévesen „100/100". A stornózott és az anulált (0 lejes) nyugta is elhasznált lapnak számít.',
           },
         ],
         tips: [
@@ -676,6 +696,10 @@ const SECTIONS: Section[] = [
           {
             text: 'Éves kimutatás: Nyomtatási központ → „Nyugtatömb kimutatás" — a hivatalos formátumban.',
           },
+          {
+            // 2026-07-25 (G4-sugo): valós készlet a berögzített nyugtaszámokból
+            text: 'Valós készlet: a tömbök elhasználtsága a TÉNYLEGESEN berögzített kerületi nyugtaszámokból számolódik — akkor is pontos, ha a nyugtaszámot a tétel-rögzítőben kézzel írtad be. A vezető nullák nem számítanak (a 0115032 és a 115032 ugyanaz a nyugta), a családi nyugta al-sorai (/1, /2…) egy lapnak számítanak, és a stornózott vagy anulált (0 lejes) nyugta is elhasznált lap — a rontott papír nem kerül vissza a tömbbe.',
+          },
         ],
         tips: [
           {
@@ -920,6 +944,10 @@ const SECTIONS: Section[] = [
         howItWorks: [
           {
             text: 'Bármikor megnézheted az aktuális állást — nem kell várni az év végéig.',
+          },
+          {
+            // 2026-07-25 (G3-sugo): évi összegző hero
+            text: 'Évi pénzügyi kép a fül tetején: egy pillantással látod az évi bevételt és kiadást, a pénztári (Casa) és a banki (Banca) egyenleget, és nagy számmal a rendelkezésre álló pénzt összesen — pontosan ugyanazokkal a számokkal, amiket a Kassza és a Bank fül mutat.',
           },
           {
             // 2026-07-10 (S3-sugo): hivatalos nyitó 3 sor + helyes záró egyenleg

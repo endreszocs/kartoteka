@@ -64,6 +64,18 @@ export {
 } from './finance/chitanta-tomb/active-status'
 
 export {
+  computeChitantaTombUsage,
+  extractNyomdaiSzamFromIratszam,
+  getChitantaTombUsageUseCase,
+  type ChitantaTombRangeLike,
+  type ChitantaTombUsage,
+  type GetChitantaTombUsageCtx,
+  type GetChitantaTombUsageInput,
+  type GetChitantaTombUsageResult,
+  type NyomdaiSzamAdat,
+} from './finance/chitanta-tomb/usage'
+
+export {
   issueChitantaUseCase,
   type IssueChitantaCtx,
   type IssueChitantaResult,
@@ -331,3 +343,13 @@ export {
   type UpsertNyitoEgyenlegInput,
   type YearStartCheckResult,
 } from './finance/bank-import/nyito-egyenleg'
+
+export {
+  resolveNyitoEgyenlegekUseCase,
+  resolveNyitoForYear,
+  type NyitoRecordedRow,
+  type ResolvedNyito,
+  type ResolveNyitoCtx,
+  type ResolveNyitoInput,
+  type ResolveNyitoResult,
+} from './finance/bank-import/resolve-nyito'

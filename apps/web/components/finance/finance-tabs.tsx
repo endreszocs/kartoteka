@@ -640,6 +640,7 @@ export function FinanceTabs({
             incomeRecords={incomeRecords}
             expenseRecords={expenseRecords}
             carryoverBank={carryoverBank}
+            derivedNyitoRon={bankNyitoMap}
             bankAccounts={bankAccounts}
             bevCelMap={bevCelMap}
             kiaCelMap={kiaCelMap}
@@ -678,7 +679,9 @@ export function FinanceTabs({
         </TabsContent>
 
         <TabsContent value="accounting" className="mt-4">
-          {/* 2026-07-10 (#2): carryoverCash/Bank — nyitó egyenleg blokk a fülön. */}
+          {/* 2026-07-10 (#2): carryoverCash/Bank — nyitó egyenleg blokk a fülön.
+              2026-07-25 (G3): balances — évi összegző hero, a Kassza/Bank/Dashboard
+              fülekkel bit-azonos memo lecsorgatva. */}
           <AccountingTabV2
             szamadasiCellek={szamadasiCellek}
             incomeRecords={incomeRecords}
@@ -690,6 +693,8 @@ export function FinanceTabs({
             scope={scope}
             carryoverCash={carryoverCash}
             carryoverBank={carryoverBank}
+            // Diocese-módban a hero rejtve — a carryover/balances szemantika ott más.
+            balances={scope === 'diocese' ? undefined : balances}
           />
         </TabsContent>
 

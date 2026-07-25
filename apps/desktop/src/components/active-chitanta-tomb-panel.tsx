@@ -1,5 +1,6 @@
 import { AlertCircle } from 'lucide-react'
 
+import type { ChitantaTombUsage } from '@kartoteka/core'
 import {
   computeChitantaTombStatus,
   type ChitantaTombRow,
@@ -14,11 +15,23 @@ import {
  *
  * Négy UI-állapot (pasztorálisan, a feedback_lelkesz_informalas.md alapelv szerint):
  *   - 🟢 Rendben (>5 marad)     — "Következő szám: X · Maradék: Y db"
- *   - 🟡 Kevés (≤5 marad)        — "…  ⚠ hamarosan elfogy"
+ *   - 🟡 Kevés (≤10 marad)       — "…  ⚠ hamarosan elfogy"
  *   - 🔴 Elfogyott (0 maradék)   — "Elfogyott — új tömböt kell megnyitni"
  *   - 🔴 Nincs aktív tömb         — info-panel: "Új tömb rögzítése szükséges"
+ *
+ * 2026-07-25 (F6.2 / G4-paritás): opcionális `usage` — a berögzített kerületi
+ * nyugtaszámokból SZÁMÍTOTT elhasználtság. Enélkül a panel a DB-számlálót
+ * mutatta (amit csak a hivatalos auto-kiállítás növel), így a hero ellentmondott
+ * az alatta lévő kártyáknak, és a kiállításkor TÚLBECSÜLTE a maradékot.
+ * A „Következő szám" SZÁNDÉKOSAN DB-alapú marad — azt a hivatalos számozás adja.
  */
-export function ActiveChitantaTombPanel({ rows }: { rows: ChitantaTombRow[] }) {
+export function ActiveChitantaTombPanel({
+  rows,
+  usage,
+}: {
+  rows: ChitantaTombRow[]
+  usage?: Record<string, ChitantaTombUsage>
+}) {
   const active = [...rows]
     .filter((r) => r.aktiv)
     .sort((a, b) => a.szam_kezdet - b.szam_kezdet)[0]
@@ -42,8 +55,15 @@ export function ActiveChitantaTombPanel({ rows }: { rows: ChitantaTombRow[] }) {
   }
 
   const status = computeChitantaTombStatus(active)
-  const exhausted = status.maradek === 0
-  const low = !exhausted && status.maradek <= 5
+  // max(DB-számláló, számított) — web-paritás (chitanta-tombok-panel.tsx).
+  const felhasznalt = Math.max(
+    status.felhasznalt_darabszam,
+    usage?.[active.id]?.szamitottFelhasznalt ?? 0,
+  )
+  const maradek = Math.max(0, status.darabszam_ossz - felhasznalt)
+  const exhausted = maradek === 0
+  // Web-paritás: a figyelmeztetés küszöbe 10 (chitanta-tombok-panel.tsx).
+  const low = !exhausted && maradek <= 10
 
   const toneClasses = exhausted
     ? 'border-red-200 bg-red-50 text-red-900'
@@ -70,13 +90,13 @@ export function ActiveChitantaTombPanel({ rows }: { rows: ChitantaTombRow[] }) {
                 {status.kovetkezo_szam}
               </span>
               {' · '}
-              Maradék: <span className="font-semibold">{status.maradek} db</span>
+              Maradék: <span className="font-semibold">{maradek} db</span>
               {low && <span className="ml-2 font-semibold">⚠ hamarosan elfogy</span>}
             </p>
           )}
         </div>
         <div className="text-[11px] opacity-80">
-          {status.felhasznalt_darabszam} / {status.darabszam_ossz} kiállítva
+          {felhasznalt} / {status.darabszam_ossz} kiállítva
         </div>
       </div>
     </div>

@@ -22,12 +22,13 @@
  */
 
 import { useMemo, useState, type ReactNode } from 'react'
-import { Scale, Send, TrendingDown, TrendingUp } from 'lucide-react'
+import { Landmark, Scale, Send, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
 
 import { Badge, Button } from '@kartoteka/ui'
 
 import { FinanceLoadingState } from './FinanceLoadingState'
 import { formatCurrency, sortCellsHierarchically } from './helpers'
+import type { FinanceBalances } from './helpers'
 import type { BealitasRow, BefitetesRow, KiadasRow, SzamadasiCel } from './types'
 
 export type AccountingScope = 'congregation' | 'diocese'
@@ -61,6 +62,15 @@ export interface AccountingTabProps {
 
   /** 2026-07-10 (S2 #9): a betöltő-állapot logója (web: '/kartoteka-icon.png'). */
   loadingLogoSrc?: string
+
+  /**
+   * 2026-07-25 (G3): évi összegző hero — a szülő által MÁR kiszámolt, a Kassza/
+   * Bank/Dashboard fülekkel bit-azonos egyenlegek (web: FinanceTabs balances
+   * memo, desktop: penzugy-page yearBalances). OPCIONÁLIS: ha undefined (pl. a
+   * desktop önálló számadás-oldala), a hero-sor nem jelenik meg. A fülön belül
+   * TILOS újraszámolni — a divergencia-kapu ellen csak lecsorgatás megengedett.
+   */
+  balances?: FinanceBalances
 
   /**
    * 2026-07-10 (#2): előző évi (currentYear-1) TÉNY kódonként — halvány
@@ -120,6 +130,7 @@ export function AccountingTab({
   carryoverCash,
   carryoverBank,
   loadingLogoSrc,
+  balances,
   prevActualIncome,
   prevActualExpense,
   onRequestUnlock,
@@ -249,6 +260,77 @@ export function AccountingTab({
 
   return (
     <div className="space-y-4">
+      {/* 2026-07-25 (G3): évi összegző hero — bevétel/kiadás + kassza/bank záró
+          és a kettő együtt, NAGYBAN. A számok a szülőtől kapott balances-ből
+          jönnek (a Kassza/Bank/Dashboard fülekkel bit-azonos calculateBalances). */}
+      {balances && (
+        <div className="card-raised p-5">
+          <div className="flex items-center gap-2">
+            <Wallet className="size-4 text-emerald-600" />
+            <p className="text-base font-semibold text-slate-800">
+              {currentYear}. évi pénzügyi kép
+            </p>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <HeroStat
+              label={`Bevétel (${currentYear})`}
+              value={balances.totalIncome}
+              tone="emerald"
+              icon={<TrendingUp className="size-4" />}
+            />
+            <HeroStat
+              label={`Kiadás (${currentYear})`}
+              value={balances.totalExpense}
+              tone="rose"
+              icon={<TrendingDown className="size-4" />}
+            />
+            <HeroStat
+              label="Kassza egyenleg (Casa)"
+              value={balances.cashBalance}
+              tone={balances.cashBalance >= 0 ? 'sky' : 'rose'}
+              icon={<Wallet className="size-4" />}
+            />
+            <HeroStat
+              label="Banki egyenleg (Banca)"
+              value={balances.bankBalance}
+              tone={balances.bankBalance >= 0 ? 'violet' : 'rose'}
+              icon={<Landmark className="size-4" />}
+            />
+          </div>
+          {(() => {
+            const totalAvailable = balances.cashBalance + balances.bankBalance
+            const positive = totalAvailable >= 0
+            // /60-as bg-változatok: ezekre VAN dark-override a kartoteka.css-ben
+            // (a /70-re és a red-50-re nincs — világos szöveg világos sávon).
+            return (
+              <div
+                className={`mt-3 flex flex-wrap items-center justify-between gap-3 rounded-[1.4rem] px-5 py-4 ${
+                  positive ? 'bg-emerald-50/60' : 'bg-rose-50/60'
+                }`}
+              >
+                <div className="min-w-0">
+                  <p className="text-sm text-slate-500">Rendelkezésre álló pénz összesen</p>
+                  <p
+                    className={`text-2xl sm:text-3xl font-bold tabular-nums break-words ${
+                      positive ? 'text-emerald-600' : 'text-rose-600'
+                    }`}
+                  >
+                    {formatCurrency(totalAvailable)} RON
+                  </p>
+                </div>
+                <p className="max-w-xs text-xs leading-5 text-slate-400">
+                  Kassza + banki egyenleg együtt — a Kassza és a Bank füllel azonos
+                  számítás (stornó nélkül; a belső átvezetés az egyenlegben szerepel, a
+                  bevétel/kiadás összesítőben nem). A lenti terv–tény táblázat csak a
+                  számadási kódra könyvelt tételeket összegzi, ezért ott kis eltérés
+                  lehetséges (pl. kód nélküli vagy devizás tétel).
+                </p>
+              </div>
+            )
+          })()}
+        </div>
+      )}
+
       {/* 2026-07-10 (S2 #10): a NYITÓ egyenlegek a hivatalos minta szerint a
           Bevételek tábla 1–3. sorai (lásd lent, openingRows) — a külön kártya megszűnt. */}
       <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
@@ -434,6 +516,39 @@ function ProgressCard({
       </div>
       <p className="mt-3 text-xs opacity-80">
         Tény: {formatCurrency(actual)} RON · Terv: {formatCurrency(budget)} RON
+      </p>
+    </div>
+  )
+}
+
+// 2026-07-25 (G3): az évi összegző hero kis kártyája — ikonos, tabular-nums,
+// 375px-en 1 oszlopra törik (a grid a hívónál).
+function HeroStat({
+  label,
+  value,
+  tone,
+  icon,
+}: {
+  label: string
+  value: number
+  tone: 'sky' | 'emerald' | 'violet' | 'rose'
+  icon: ReactNode
+}) {
+  const toneClassName = {
+    sky: 'bg-sky-50 text-sky-700',
+    emerald: 'bg-emerald-50 text-emerald-700',
+    violet: 'bg-violet-50 text-violet-700',
+    rose: 'bg-rose-50 text-rose-700',
+  }[tone]
+
+  return (
+    <div className={`rounded-[1.35rem] px-4 py-4 ${toneClassName}`}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] uppercase tracking-[0.22em] opacity-75">{label}</p>
+        <span className="opacity-70">{icon}</span>
+      </div>
+      <p className="mt-2 text-2xl font-semibold tabular-nums break-words">
+        {formatCurrency(value)} RON
       </p>
     </div>
   )

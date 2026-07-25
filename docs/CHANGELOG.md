@@ -27,7 +27,7 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 <!-- key: 2026-07-25-iktato-f8d-f8e-szkenner-tipografia -->
 <!-- category: feature -->
 <!-- targets: lelkesz -->
-<!-- version: web v0.9.113 -->
+<!-- version: web v0.9.125 -->
 
 ### ✨ Új funkciók
 
@@ -54,6 +54,196 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - Az életút-igazolás aláírásánál megjelenik a település neve; a keltezés
   helysége mostantól a valódi település (magyarul „Barátos"), és a kiállításnál
   szabadon átírható.
+
+---
+
+## [2026-07-25] — Asztali alkalmazás: nem maradnak árva sorok a törölt temetők és jegyzőkönyvek után
+<!-- key: 2026-07-25-f66-arva-alsorok -->
+<!-- category: bugfix -->
+<!-- version: v0.9.124 (asztali: 0.9.10) -->
+<!-- targets: az asztali (offline) alkalmazás használói -->
+
+### 🐛 Javítások
+
+- **Törölt temető vagy jegyzőkönyv után nem maradnak félárva adatok**: ha a böngészőben töröltek egy temetőt (vagy egy presbiteri jegyzőkönyvet), az asztali helyi másolatban a hozzájuk tartozó sorok — sírhelyek, bérletek, elhunytak, illetve napirendi pontok, határozatok, résztvevők — eddig **örökre bent maradtak**, gazdátlanul. A szinkron mostantól ezeket is elrendezi.
+- Az **anyakönyvi, leltári, iktatói és éves jelentés** adatok ellenőrizve: ezeknél a szinkron eddig is teljes egészében frissítette a helyi másolatot, tehát ott nem volt hasonló hiba.
+
+> Az asztali változásokhoz **új asztali kiadás (0.9.10)** telepítése szükséges.
+
+---
+
+## [2026-07-25] — A törölt tagok eltűnnek az asztali alkalmazásból is
+<!-- key: 2026-07-25-f65-tombstone-tagnyilvantartas -->
+<!-- category: bugfix -->
+<!-- version: v0.9.123 (asztali: 0.9.9) -->
+<!-- targets: az asztali (offline) alkalmazás használói — kiemelten a választói névjegyzék -->
+
+### 🐛 Javítások
+
+- **A böngészőben véglegesen törölt tag eddig ÉLŐ, AKTÍV tagként maradt az asztali gépen.** Az asztali szinkron csak a *módosításokat* kérdezi le, a végleges törlésről pedig semmilyen jelzést nem kapott — így a törölt személy ott maradt a taglistában, beleszámított a lélekszámba és a statisztikákba, **tartozást is számolt rá a rendszer**, és ami a legsúlyosabb: **rákerült a kinyomtatott hivatalos választói névjegyzékre**. Mostantól a szinkron rendszeresen ellenőrzi és eltávolítja ezeket.
+- Ugyanez javítva a **családoknál** és a **családi gyermek-kapcsolatoknál** is.
+- **Törölt felmentés és kedvezmény**: a böngészőben törölt járulék-felmentés vagy kedvezmény eddig **örökre érvényben maradt** az asztali tartozás-számításban (hamis mentesség, hamis kedvezmény) — ez is megszűnt.
+
+> Az asztali változásokhoz **új asztali kiadás (0.9.9)** telepítése szükséges. Az ellenőrzés kíméletes: naponta legfeljebb kétszer fut, csak akkor takarít, ha a szervertől hibátlan, teljes listát kapott, és üres válasznál inkább kihagyja (nehogy egy pillanatnyi jogosultsági hiba kiürítse a helyi másolatot). A már bennragadt kísértet-sorok a következő ellenőrzéskor (legkésőbb 12 órán belül, vagy azonnal az alkalmazás első indításakor) eltűnnek.
+
+---
+
+## [2026-07-25] — Asztali alkalmazás: eltűnnek a kísértet-tételek, látszanak a feltöltésre várók
+<!-- key: 2026-07-25-f64-tombstone-pending -->
+<!-- category: bugfix -->
+<!-- version: v0.9.122 (asztali: 0.9.8) -->
+<!-- targets: az asztali (offline) alkalmazás használói -->
+
+### 🐛 Javítások
+
+- **A böngészőben törölt tétel eltűnik az asztali alkalmazásból is.** Eddig az asztali változat csak hozzáadni tudott a helyi másolatához: ha egy befizetést vagy kiadást a böngészőben töröltek, az az asztali kasszában és az egyenlegben **örökre bent maradt** — vagyis nem létező pénzt mutatott. A szinkron mostantól a törölt tételeket is elrendezi. (Csak hibátlan, teljes letöltés után takarít, tehát megszakadt kapcsolat miatt semmi nem vész el.)
+- **Látszik, ha van feltöltésre váró tétel.** Ha internet nélkül rögzítettél befizetést, a Pénzügy oldal tetején mostantól kiírja, hány ilyen tétel van, és hogy a lenti kimutatások ezeket még nem tartalmazzák — eddig ezek némán hiányoztak a kasszából és az egyenlegből.
+
+> Az asztali változásokhoz **új asztali kiadás (0.9.8)** telepítése szükséges.
+
+---
+
+## [2026-07-25] — Az asztali kassza ugyanazt mutatja, mint a böngésző
+<!-- key: 2026-07-25-f63-m2-desktop-kassza -->
+<!-- category: bugfix -->
+<!-- version: v0.9.121 (asztali: 0.9.7) -->
+<!-- targets: az asztali (offline) alkalmazás használói -->
+
+### 🐛 Javítások
+
+- **Az asztali kassza és a böngésző ugyanazt a pénztárkönyvet mutatja.** Eddig az asztali alkalmazás a befizetéseket az szerint töltötte le, hogy **melyik évre szólnak**, a böngésző viszont az szerint, hogy **mikor folytak be** — ezért ugyanarra az évre a két felület más tételeket (és más egyenleget) mutatott. A mérés szerint ez 2025-ben 33 tételt érintett. Mostantól az asztali alkalmazás mindkét szempontot letölti, és minden nézet a hozzá illő szerint dolgozik: a **kassza, a bank, a tranzakciók és a számadás a befizetés napja szerint**, a **Tartozások pedig aszerint, hogy melyik évre szól** a befizetés.
+- Ezzel a januárban rendezett előző évi hátralék is a helyére kerül: a kasszában az idei napon látszik, a tartozásoknál pedig a tavalyi évet rendezi — mindkét felületen egyformán.
+- **Devizás banki tétel**: az asztali egyenlegekbe eddig a deviza-összeg került (pl. 100 EUR mint 100 lej); mostantól a lej-egyenérték számít, ahogy a böngészőben.
+- Az „Előző évi tény" referencia-oszlop (Számadás, Költségvetés) is a befizetés napja szerint számol, a sztornózott tételek nélkül — a webbel azonosan.
+
+> ⚠️ **A korábbi évek asztali számai is elmozdulhatnak** — a helyes, böngészőben látott értékre. A mérésünk szerint pl. 25 tétel (kb. 3965 RON) volt 2025-ös dátummal a 2024-es évre könyvelve: ezek mostantól a 2025-ös kasszában szerepelnek (ott, ahol befolytak), nem a 2024-esben. Ha korábban az asztali alkalmazásból nyomtattál számadást, érdemes újranyomtatni.
+
+> Az asztali változásokhoz **új asztali kiadás (0.9.7)** telepítése szükséges.
+
+---
+
+## [2026-07-25] — Pontosabb éves jelentés és kedvezmény-számítás
+<!-- key: 2026-07-25-f63-fizetettev-szemantika -->
+<!-- category: bugfix -->
+<!-- version: v0.9.120 -->
+<!-- targets: lelkész — éves jelentés, tartozások -->
+
+### 🐛 Javítások
+
+- **Az éves jelentés fizetési aránya alulszámolt**: a „hányan rendezték az évet" mutató csak azokat a befizetéseket látta, amelyek az adott naptári évben *folytak be* — így egy januárban rendezett előző évi hátralék kimaradt belőle. Mostantól a befizetés **melyik évre szól** (jogcím-év) számít. (A mutató továbbra is prezentációs becslés: a tisztán családi befizetéseket nem osztja tagokra — a hiteles, tagonkénti kép a Pénzügy → Tartozások fülön van.)
+- **Az éves jelentés bevétel/kiadás összesítői eddig csonkulhattak**: a többéves lekérdezés túlnőtt az adatbázis egy lekérdezésre eső határán, így nagyobb gyülekezetnél hiányos összegek jelenhettek meg. Mostantól lapozva tölt, és a lekérdezés hibája sem marad néma.
+- **Kedvezményes időszak határai — időzóna-független számítás**: az asztali alkalmazás eddig két órával „eltolva" nézte a befizetés napját, ezért a kedvezményes időszak **kezdőnapján** fizető elesett a kedvezménytől, a **határidő utáni napon** fizető viszont még megkapta — a böngésző mindkét esetben helyesen döntött. Mostantól a két felület azonos eredményt ad. ⚠️ Az asztali alkalmazásban ezért néhány tagnál elmozdulhat a tartozás: a kezdőnapon fizetők javára, a határidő utáni napon fizetők terhére (a böngészőben látott, helyes értékre).
+- **Tag adatlap**: a „Legutóbbi év" mező mostantól a legutóbb **rendezett** évet mutatja (a legnagyobb jogcím-évet, a sztornózott tételek nélkül), nem a legfrissebb befizetés évét — hátralék rendezésekor az utóbbi félrevezető volt.
+
+> **Ellenőrzéshez**: a `migration-docs/sql/2026-07-25-f63-fizetettev-datum-diagnosztika.sql` (csak lekérdezés) megmutatja, hány befizetésnél tér el a jogcím-év a befizetés dátumától — ez dönti el, kell-e hozzányúlni a bizonylatszám-sorozathoz.
+
+---
+
+## [2026-07-25] — Asztali alkalmazás: azonos számok, valós nyugtatömb-készlet
+<!-- key: 2026-07-25-f6-desktop-paritas -->
+<!-- category: improvement -->
+<!-- version: v0.9.119 (asztali: 0.9.6) -->
+<!-- targets: az asztali (offline) alkalmazás használói -->
+
+### 🎨 UX javítások
+
+- **Nyitó egyenleg a Bank fülön**: az asztali alkalmazás bankszámla-kártyáin is megjelenik az előző évi záróból levezetett nyitó egyenleg — eddig „nincs rögzítve" felirat állt ott, és egy számlára szűrve nullától indult a kimutatás, miközben az összesítő már a helyes értéket mutatta.
+- **Nyugtatömb valós készlete a kiállításnál is**: az „Aktív tömb" panel (a Nyugtatömbök és a nyugta-kiállítás oldalon) mostantól a ténylegesen berögzített nyugtaszámokból számol — eddig többet mutatott maradékként, mint amennyi valójában volt, és ellentmondott az alatta lévő tömb-kártyáknak.
+- **Mindenhol ugyanaz a szám**: a Pénzügy néhány régi, közvetlen hivatkozással elérhető aloldala saját, eltérő módon számolt (nyitó egyenleg és a belső átvezetések figyelmen kívül hagyásával) — ezek mostantól az egységes Pénzügy oldal megfelelő fülére visznek, így ugyanabból az adatból ugyanaz az eredmény látszik. A régi hivatkozások továbbra is működnek, és a helyes fülre nyílnak.
+- **Év-választó a Pénzügy oldalon**: az asztali alkalmazásban is visszaválthatsz korábbi évekre (Áttekintés, Számadás, Tartozások, Kassza…) — év elején így a előző évi számadás is megnézhető.
+- **Sztornózott befizetés nem számít fizetettnek** a Tartozások fülön (az asztali változat eddig „rendezettnek" mutathatott egy tagot, akinek a befizetését utólag sztornózták — a webhez igazítva).
+
+> Az asztali változásokhoz **új asztali kiadás (0.9.6)** telepítése szükséges.
+
+---
+
+## [2026-07-25] — Nincs többé néma adat-levágás a pénzügyben
+<!-- key: 2026-07-25-f6-lapozas-limitek -->
+<!-- category: bugfix -->
+<!-- version: v0.9.118 -->
+<!-- targets: minden pénzügyet kezelő felhasználó, kiemelten a nagyobb gyülekezetek -->
+
+### 🐛 Javítások
+
+- **Nyugtaszám-generálás javítva (fontos!)**: a következő nyugtaszám kiszámítása egy olyan lekérdezésre épült, amelyet az adatbázis egy ezer soros határon némán levághatott — emiatt előfordulhatott volna, hogy a rendszer egy **már használt nyugtaszámot ajánl fel újra**. A lekérdezés mostantól teljes egészében, lapozva fut, rendezetten; a lekérdezés hibája sem marad rejtve.
+- **Az asztali (offline) alkalmazás a teljes évet letölti**: eddig évi 500 tételnél megállt a szinkron, és mivel az asztali pénzügy-képernyők a helyi másolatból dolgoznak, **az év eleji tételek némán hiányozhattak** — hibás számadást és hamis tartozásokat okozva. 2025-ben már 470 befizetés/gyülekezet volt, tehát a határ karnyújtásnyira volt. Mostantól lapozva, korlát nélkül tölt.
+- **A Számadás és a nyomtatványok is teljes adatból számolnak**: az éves (és előző évi) tétel-lekérdezések mostantól lapozva futnak a weben és az asztali alkalmazásban is — így az egyházmegyének küldött éves elszámolás összegei és a nyitó egyenlegek ezer tétel fölött sem csonkulhatnak.
+- **A Befizetések/Kiadások listák** is lapozva töltenek (a korábbi 500-as, majd a szerveroldali ezres határ helyett) — a fejléc-összesítő így a tényleges összeget mutatja.
+- Ugyanez a levágás megszűnt a helyi lekérdezésekben, a nyugtaszám-számításban és a nyugtatömb-kimutatásban is. Az asztali nyugtaszám-javaslat ezentúl inkább üresen marad, mint hogy hibás lekérdezés után egy már használt számot ajánljon.
+
+---
+
+## [2026-07-25] — Átláthatóbb fejléc-menü és gyorsabb profilváltás
+<!-- key: 2026-07-25-header-mega-menu -->
+<!-- category: improvement -->
+<!-- version: v0.9.117 -->
+<!-- targets: minden felhasználó, kiemelten a több gyülekezetben/tisztségben szolgálók -->
+
+### 🎨 UX javítások
+
+- **Mega menü a fejlécben**: a korábbi keskeny, egyhasábos lista helyett széles, **kategorizált** menü nyílik — „Fiók" (Profil, Beállítások, Offline mentés) és „Gyülekezet" (Gyülekezetünk, Gyülekezet-beállítás, Kuka) csoportokkal, két hasábban. Telefonon egy hasáb, a képernyő szélességéhez igazodva.
+- **A bal felső gyülekezet-csempe is megnyitja a menüt** — ez mutatja az aktív kontextust, így természetes hely a váltáshoz.
+- **Újratervezett profilváltó**: a szerepek mostantól **csoportosítva** jelennek meg (Gyülekezet / Egyházmegye / Egyházkerület / Teljes rendszer), és **öt szerep felett kereső** is segít — nem kell hosszú listát görgetni.
+- **Gyorsabb váltás**: a rendszer már a szerepre mutatáskor előtölti a cél-képernyőt, és a kiválasztott sor azonnal jelzi, hogy folyamatban van a váltás.
+- Nagyobb, ujjbarát menüsorok telefonon.
+
+---
+
+## [2026-07-25] — Áttekinthetőbb kedvezmény-beállítás
+<!-- key: 2026-07-25-penzugy-g1-kedvezmeny-panel -->
+<!-- category: improvement -->
+<!-- version: v0.9.116 -->
+<!-- targets: lelkész, gondnok — Gyülekezet beállításai -->
+
+### 🎨 UX javítások
+
+- **A „Sorrend" mező megszűnt** a kedvezmény-beállításnál. Félrevezető volt: prioritást sugallt, pedig a rendszer mindig automatikusan a tagnak **legkedvezőbb** (legkisebb fizetendő összeget adó) szabályt alkalmazza — a beállított sorrendnek semmilyen hatása nem volt a számításra. Mostantól nincs mit beállítani rajta.
+- **Év-időszalag**: a kedvezményes időszakok egy jan–dec sávon, színes szakaszokkal és a fizetendő összeggel jelennek meg — egy pillantással látszik a lépcsőzetes korai-fizetési kedvezmény, és hol érvényes a teljes éves díj. A folyó évben a mai napot jelölő vonal is látszik.
+- **Több időszak egyszerre**: a „További időszak hozzáadása" gombbal egy menetben rögzíthető a teljes lépcsőzet (pl. jún. 1-ig 130 RON, júl. 15-ig 140 RON, aug. 1-ig 160 RON) — nem kell egyenként menteni.
+- **Értelmes lista-sorrend**: a kedvezmények mostantól maguktól rendeződnek (időszaki: határidő szerint, kor: korhatár szerint, foglalkozás: kulcsszó szerint).
+
+---
+
+## [2026-07-25] — Az előző évi záró automatikusan a következő év nyitója
+<!-- key: 2026-07-25-penzugy-g5-nyito-carryover -->
+<!-- category: improvement -->
+<!-- version: v0.9.115 -->
+<!-- targets: minden pénzügyet kezelő felhasználó -->
+
+### ✨ Új funkciók
+
+- **Nem kell minden évben megadni a nyitó egyenleget**: a bankszámlák és a kassza előző évi ZÁRÓ egyenlege mostantól automatikusan a következő év NYITÓJA lesz — számlánként külön, „automatikusan az előző évi záróból" jelöléssel. Ha utólag könyvelsz egy korábbi évbe, a nyitó magától követi a változást; a rendszer több évet is átláncol, egészen az utolsó kézzel megadott évig.
+- **A kézzel megadott (vagy importált) nyitót a rendszer SOHA nem írja felül** — a rendszer indulásakor egyszer megadott induló egyenleg marad a hiteles alap.
+- A levezetett nyitó **nem íródik be** a nyilvántartásba: minden megnyitáskor frissen számolódik, így a már véglegesített (lezárt) évek adatait semmi nem módosítja.
+- **Asztali (offline) verzió**: ugyanez a feloldás fut internet-kapcsolat esetén (a következő asztali kiadástól).
+
+---
+
+## [2026-07-25] — Nyugtatömb-készlet a valóság szerint
+<!-- key: 2026-07-25-penzugy-g4-nyugtatomb-hasznalat -->
+<!-- category: improvement -->
+<!-- version: v0.9.114 -->
+<!-- targets: minden pénzügyet kezelő felhasználó -->
+
+### ✨ Új funkciók
+
+- **A nyugtatömbök elhasználtsága mostantól a ténylegesen berögzített kerületi nyugtaszámokból számolódik** — a Leltár → Anyagraktár tömb-táblázata és a Kassza fül tömb-panelje nem mutat többé tévesen „100/100 készletet". A vezető nullák nem számítanak (0115032 = 115032), a családi nyugta al-sorai (/1, /2…) egy lapnak számítanak, a stornózott és az anulált (0 lejes) nyugta is elhasznált lap. Fogyóban lévő tömbnél (10 lap alatt) sárga, kifogyottnál piros jelzés.
+- A hivatalosan (automatikusan) kiállított nyugták továbbra is beszámítanak — a kétféle út egyesítve, duplázás nélkül.
+- **Az éves „Nyugtatömb kimutatás" is a valós használatot mutatja** — a csak kézzel használt tömbök eddig ki sem kerültek a hivatalos ívre; mostantól a berögzített nyugtaszámok első/utolsó dátumával együtt szerepelnek.
+- **Asztali (offline) verzió**: a tömb-kártyák ugyanígy a valós elhasználtságot mutatják (a következő asztali kiadástól; internet nélkül a hivatalos számláló látszik).
+
+---
+
+## [2026-07-25] — Évi pénzügyi kép a Számadás fülön
+<!-- key: 2026-07-25-penzugy-g3-szamadas-hero -->
+<!-- category: improvement -->
+<!-- version: v0.9.113 -->
+<!-- targets: minden pénzügyet kezelő felhasználó -->
+
+### ✨ Új funkciók
+
+- **Évi pénzügyi kép a Számadás fül tetején**: egy pillantással látod az évi bevételt és kiadást, a pénztári (Casa) és a banki (Banca) egyenleget, és nagy számmal a rendelkezésre álló pénzt összesen. A számok pontosan ugyanabból a számításból jönnek, mint a Kassza és a Bank fül egyenlegei — nem fordulhat elő eltérés a fülek között. Az év-választóval visszalapozva a korábbi évek képét is megnézheted.
+- **Asztali (offline) verzió**: ugyanez az összegző a desktop Számadás fülére is felkerült (a következő asztali kiadástól).
 
 ---
 

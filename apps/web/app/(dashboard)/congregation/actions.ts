@@ -86,6 +86,12 @@ const feeDiscountSchema = z
     path: ['kedvOsszeg'],
   })
   // A járulék 18 éves kortól jár — 0-s korhatár (üres input) minden felnőttre érvényesítené.
+  // 2026-07-25 (G1): fordított időszak (kezdet > hatarid) tiltása — a motor
+  // ilyenkor jan. 1-től a vég-dátumig MINDENKIRE a kedvezményes árat adná.
+  .refine((d) => d.tipus !== 'idoszak' || !d.kezdet || !d.hatarid || d.kezdet <= d.hatarid, {
+    message: 'A kezdő dátum nem lehet későbbi a vég dátumnál (pl. 01-01 → 07-01).',
+    path: ['kezdet'],
+  })
   .refine((d) => d.tipus !== 'kor' || (d.korTol ?? 0) >= 18, {
     message: 'A korhatár legalább 18 év legyen.',
     path: ['korTol'],
@@ -876,6 +882,10 @@ export async function getCongregationFeeDiscounts(congregationId: string) {
     .eq('congregation_id', congregationId)
     .order('ev', { ascending: false })
     .order('sorrend', { ascending: true })
+    // 2026-07-25 (G1): determinisztikus tiebreak — a „Sorrend" mező kivezetésével
+    // az azonos sorrend-értékű sorok között a rögzítés ideje dönt (a lista
+    // szemantikus rendezését a panel maga végzi).
+    .order('created_at', { ascending: true })
 
   if (result.error) {
     if (isMissingRelationError(result.error)) {
