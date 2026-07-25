@@ -23,7 +23,7 @@ import type {
   CongregationHeaderData,
   PersonCertData,
 } from '@/lib/iktato/certificate-types'
-import { roUtcaElotag } from '@/lib/iktato/letterheads'
+import { gyulekezetNevMag, roUtcaElotag } from '@/lib/iktato/letterheads'
 
 // ─────────────────────────────────────────────────────────────────
 // 1) Személy-kereső
@@ -327,12 +327,17 @@ export async function getCongregationHeader(): Promise<{
     const varosNev = clean(row.varos)
     // PostgREST or()-szűrő: az értéket idézőjelbe tesszük (szóköz/pont/vessző
     // miatt), és kiszedjük belőle a szűrő-szintaxist törő karaktereket.
+    // A `%` WILDCARD-ként marad benne (lásd lent): a román vessző-alatti ș/ț
+    // (U+0219/U+021B) és a cedillás ş/ţ (U+015F/U+0163) keveredése miatt az
+    // EXAKT ilike gyakran nem talál — ezért az ékezetes betűket `_`-ra
+    // cseréljük (egy karakter, bármi lehet).
     const q = varosNev.replace(/["\\%*(),]/g, '').trim()
+    const qLaza = q.replace(/[^\x20-\x7E]/g, '_')
     if (q) {
       const { data: locRows, error: locError } = await supabase
         .from('adrlocality')
         .select('id, name_hu, name_ro')
-        .or(`name_hu.ilike."${q}",name_ro.ilike."${q}"`)
+        .or(`name_hu.ilike."${qLaza}",name_ro.ilike."${qLaza}"`)
         .order('id', { ascending: true })
         .limit(1)
       // Hiba esetén NEM hibázunk hangosan: a fejléc a régi (varos-alapú)
@@ -344,6 +349,17 @@ export async function getCongregationHeader(): Promise<{
       }
     }
   }
+
+  // 2026-07-25 (2. user-észrevétel ugyanerre): ha a katalógus-keresés sem
+  // talált (nincs adrlocality-sor, vagy a diakritikák annyira eltérnek), a
+  // gyülekezet NEVÉBŐL bontjuk ki a helységnevet — ez mindig rendelkezésre
+  // áll és mindig a helyes nyelvű alakot adja:
+  //   „Barátosi Református Egyházközség" → „Barátos"
+  //   „Parohia Reformată Brateș"          → „Brateș"
+  // (A gyulekezetNevMag a magyar „-i" képzőt is levágja; a német levélfej
+  // ugyanezt a helper-t használja.)
+  if (!helysegNevHu) helysegNevHu = clean(gyulekezetNevMag(row.nev_hu || row.name || ''))
+  if (!helysegNevRo) helysegNevRo = clean(gyulekezetNevMag(row.nev_ro || ''))
 
   // Cím összerakása: "527045 Barátos, Fő út 45." — a helység-rész és az
   // utca-rész külön, vesszővel elválasztva; üres darabok kihagyva.
