@@ -141,7 +141,7 @@ function parseMonthDay(year: number, monthDay?: string | null) {
 
 function parseComparableDate(value?: string | null) {
   if (!value) return null
-  const date = new Date(value.includes('T') ? value : `${value}T00:00:00`)
+  const date = new Date(value.includes('T') ? value : `${value}T00:00:00Z`)
   return Number.isNaN(date.getTime()) ? null : date
 }
 

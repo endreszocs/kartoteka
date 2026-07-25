@@ -23,6 +23,23 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Pontosabb éves jelentés és kedvezmény-számítás
+<!-- key: 2026-07-25-f63-fizetettev-szemantika -->
+<!-- category: bugfix -->
+<!-- version: v0.9.120 -->
+<!-- targets: lelkész — éves jelentés, tartozások -->
+
+### 🐛 Javítások
+
+- **Az éves jelentés fizetési aránya alulszámolt**: a „hányan rendezték az évet" mutató csak azokat a befizetéseket látta, amelyek az adott naptári évben *folytak be* — így egy januárban rendezett előző évi hátralék kimaradt belőle. Mostantól a befizetés **melyik évre szól** (jogcím-év) számít. (A mutató továbbra is prezentációs becslés: a tisztán családi befizetéseket nem osztja tagokra — a hiteles, tagonkénti kép a Pénzügy → Tartozások fülön van.)
+- **Az éves jelentés bevétel/kiadás összesítői eddig csonkulhattak**: a többéves lekérdezés túlnőtt az adatbázis egy lekérdezésre eső határán, így nagyobb gyülekezetnél hiányos összegek jelenhettek meg. Mostantól lapozva tölt, és a lekérdezés hibája sem marad néma.
+- **Kedvezményes időszak határai — időzóna-független számítás**: az asztali alkalmazás eddig két órával „eltolva" nézte a befizetés napját, ezért a kedvezményes időszak **kezdőnapján** fizető elesett a kedvezménytől, a **határidő utáni napon** fizető viszont még megkapta — a böngésző mindkét esetben helyesen döntött. Mostantól a két felület azonos eredményt ad. ⚠️ Az asztali alkalmazásban ezért néhány tagnál elmozdulhat a tartozás: a kezdőnapon fizetők javára, a határidő utáni napon fizetők terhére (a böngészőben látott, helyes értékre).
+- **Tag adatlap**: a „Legutóbbi év" mező mostantól a legutóbb **rendezett** évet mutatja (a legnagyobb jogcím-évet, a sztornózott tételek nélkül), nem a legfrissebb befizetés évét — hátralék rendezésekor az utóbbi félrevezető volt.
+
+> **Ellenőrzéshez**: a `migration-docs/sql/2026-07-25-f63-fizetettev-datum-diagnosztika.sql` (csak lekérdezés) megmutatja, hány befizetésnél tér el a jogcím-év a befizetés dátumától — ez dönti el, kell-e hozzányúlni a bizonylatszám-sorozathoz.
+
+---
+
 ## [2026-07-25] — Asztali alkalmazás: azonos számok, valós nyugtatömb-készlet
 <!-- key: 2026-07-25-f6-desktop-paritas -->
 <!-- category: improvement -->
