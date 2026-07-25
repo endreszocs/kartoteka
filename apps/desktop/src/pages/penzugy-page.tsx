@@ -257,7 +257,14 @@ export function PenzugyPage() {
       setCongregationName(cong?.nev_hu || cong?.name || '')
       setCongregationNameRo((cong as { nev_ro?: string | null } | null)?.nev_ro || '')
 
-      const incomeRows = befLocal.map(toBefitetesRow)
+      // 2026-07-25 (F6.3 / M2): a lokális olvasó a KÉT évfogalom UNIÓJÁT adja
+      // vissza, ezért itt kell szétválasztani a szemantikákat:
+      //   - PÉNZMOZGÁS (kassza, bank, tranzakciók, egyenlegek, számadás) →
+      //     a PÉNZTÁRI NAP (datum) éve — a webbel bit-azonos halmaz;
+      //   - KÖTELEZETTSÉG (tartozás) → a jogcím-év (fizetettev), lásd lent.
+      const inYear = (datum: string | null | undefined, y: number) =>
+        typeof datum === 'string' && datum.slice(0, 4) === String(y)
+      const incomeRows = befLocal.filter((b) => inYear(b.datum, year)).map(toBefitetesRow)
       const expenseRows = kiaLocal.map(toKiadasRow)
 
       // 2026-07-10 (#3 defense-in-depth): a belső-mozgás cél-id-k kizárása a
@@ -350,7 +357,9 @@ export function PenzugyPage() {
       if (resolvedCash != null) recCashCur = resolvedCash
       if (resolvedBankTotal != null) recBankCur = resolvedBankTotal
       setBankNyitoMap(bankNyitoCur)
-      const prevBalances = calculateBalances(prevBefLocal.map(toBefitetesRow), prevKiaLocal.map(toKiadasRow), recCashPrev, recBankPrev, internalCelIds)
+      // Az előző évi átvitel is PÉNZMOZGÁS-szemantika (datum szerinti év).
+      const prevBefRows = prevBefLocal.filter((b) => inYear(b.datum, year - 1)).map(toBefitetesRow)
+      const prevBalances = calculateBalances(prevBefRows, prevKiaLocal.map(toKiadasRow), recCashPrev, recBankPrev, internalCelIds)
       const yearBalances = calculateBalances(incomeRows, expenseRows, recCashCur ?? prevBalances.cashBalance, recBankCur ?? prevBalances.bankBalance, internalCelIds)
 
       // 2026-07-10 (S2-#5 paritás): előző évi TÉNY kódonként — a web
@@ -358,20 +367,33 @@ export function PenzugyPage() {
       // lokális előző évi sorokból. A belső-mozgás kódok (100.xx/3xx/4xx) a webbel
       // azonosan kizárva. Ha az előző évből nincs lokálisan szinkronizált sor,
       // null marad → a referencia-oszlop nem jelenik meg (nem mutatunk hamis 0-kat).
+      // 2026-07-25 (M2 review, P1): a PÉNZMOZGÁS-szemantikájú, DATUM szerint
+      // szűrt halmazból aggregálunk. Az uniós `prevBefLocal` mindkét évfogalom
+      // sorait tartalmazza — abból összegezve a referencia-oszlop FELFELÉ
+      // torzult volna (a webes getPreviousYearActuals tisztán datum-alapú).
+      // Egyúttal web-paritás: stornó kizárva + RON-ekvivalens (osszeg_ron).
+      const prevBefForActuals = prevBefLocal.filter(
+        (b) => inYear(b.datum, year - 1) && !b.stornozott,
+      )
+      const prevKiaForActuals = prevKiaLocal.filter((k) => !k.stornozott)
       const prevIncomeByKod: Record<string, number> = {}
-      for (const b of prevBefLocal) {
+      for (const b of prevBefForActuals) {
         const kod = bevMap[b.id_befizetescel]
         if (!kod || isInternalKod(kod)) continue
-        prevIncomeByKod[kod] = (prevIncomeByKod[kod] || 0) + (Number(b.osszeg) || 0)
+        prevIncomeByKod[kod] =
+          (prevIncomeByKod[kod] || 0) + (Number(b.osszeg_ron ?? b.osszeg) || 0)
       }
       const prevExpenseByKod: Record<string, number> = {}
-      for (const k of prevKiaLocal) {
+      for (const k of prevKiaForActuals) {
         const kod = kiaMap[k.id_kiadascel]
         if (!kod || isInternalKod(kod)) continue
-        prevExpenseByKod[kod] = (prevExpenseByKod[kod] || 0) + (Number(k.osszeg) || 0)
+        prevExpenseByKod[kod] =
+          (prevExpenseByKod[kod] || 0) + (Number(k.osszeg_ron ?? k.osszeg) || 0)
       }
       setPrevActuals(
-        prevBefLocal.length === 0 && prevKiaLocal.length === 0
+        // A null-őr is a HELYES (szűrt) halmazokra épül — különben tisztán
+        // rossz szemantikájú sorokból épült oszlopot mutatnánk 0 helyett.
+        prevBefForActuals.length === 0 && prevKiaForActuals.length === 0
           ? null
           : { income: prevIncomeByKod, expense: prevExpenseByKod },
       )
@@ -420,6 +442,11 @@ export function PenzugyPage() {
       }
 
       const maintenancePayments: JarulekPaymentLike[] = befLocal
+        // 2026-07-25 (F6.3 / M2): KÖTELEZETTSÉGI-ÉV szemantika — a motor a
+        // `fizetettev`-vel sorol évhez, ezért az uniós halmazból ide CSAK a
+        // jogcím-év szerinti sorok kellenek (a januárban rendezett előző évi
+        // hátralék így is beszámít, ahogy a weben).
+        .filter((b) => b.fizetettev === year)
         // 2026-07-25 (F6.2 review, P1): a stornózott befizetés NEM számít fizetettnek
     // (F1-4 web-paritás — a web `.or('stornozott.eq.false,stornozott.is.null')`-lal
     // szűr). Ez a szűrés a most törölt penzugy-tartozasok-page-en már megvolt, az

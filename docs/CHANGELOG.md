@@ -23,6 +23,25 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Az asztali kassza ugyanazt mutatja, mint a böngésző
+<!-- key: 2026-07-25-f63-m2-desktop-kassza -->
+<!-- category: bugfix -->
+<!-- version: v0.9.121 (asztali: 0.9.7) -->
+<!-- targets: az asztali (offline) alkalmazás használói -->
+
+### 🐛 Javítások
+
+- **Az asztali kassza és a böngésző ugyanazt a pénztárkönyvet mutatja.** Eddig az asztali alkalmazás a befizetéseket az szerint töltötte le, hogy **melyik évre szólnak**, a böngésző viszont az szerint, hogy **mikor folytak be** — ezért ugyanarra az évre a két felület más tételeket (és más egyenleget) mutatott. A mérés szerint ez 2025-ben 33 tételt érintett. Mostantól az asztali alkalmazás mindkét szempontot letölti, és minden nézet a hozzá illő szerint dolgozik: a **kassza, a bank, a tranzakciók és a számadás a befizetés napja szerint**, a **Tartozások pedig aszerint, hogy melyik évre szól** a befizetés.
+- Ezzel a januárban rendezett előző évi hátralék is a helyére kerül: a kasszában az idei napon látszik, a tartozásoknál pedig a tavalyi évet rendezi — mindkét felületen egyformán.
+- **Devizás banki tétel**: az asztali egyenlegekbe eddig a deviza-összeg került (pl. 100 EUR mint 100 lej); mostantól a lej-egyenérték számít, ahogy a böngészőben.
+- Az „Előző évi tény" referencia-oszlop (Számadás, Költségvetés) is a befizetés napja szerint számol, a sztornózott tételek nélkül — a webbel azonosan.
+
+> ⚠️ **A korábbi évek asztali számai is elmozdulhatnak** — a helyes, böngészőben látott értékre. A mérésünk szerint pl. 25 tétel (kb. 3965 RON) volt 2025-ös dátummal a 2024-es évre könyvelve: ezek mostantól a 2025-ös kasszában szerepelnek (ott, ahol befolytak), nem a 2024-esben. Ha korábban az asztali alkalmazásból nyomtattál számadást, érdemes újranyomtatni.
+
+> Az asztali változásokhoz **új asztali kiadás (0.9.7)** telepítése szükséges.
+
+---
+
 ## [2026-07-25] — Pontosabb éves jelentés és kedvezmény-számítás
 <!-- key: 2026-07-25-f63-fizetettev-szemantika -->
 <!-- category: bugfix -->

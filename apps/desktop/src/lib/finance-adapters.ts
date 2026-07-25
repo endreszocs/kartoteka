@@ -22,6 +22,10 @@ export function toBefitetesRow(r: LocalBefizetesRow): BefitetesRow {
   const row = {
     id: r.id,
     osszeg: r.osszeg,
+    // 2026-07-25 (M2 review, P2): a RON-ekvivalens ÁTVITELE — a közös
+    // calculateBalances `osszeg_ron ?? osszeg`-et számol, enélkül a devizás
+    // (pl. EUR) banki tétel a DEVIZA-összeggel került az egyenlegbe.
+    osszeg_ron: r.osszeg_ron ?? null,
     datum: r.datum,
     id_befizetescel: r.id_befizetescel ?? null,
     id_szemely: r.id_szemely ?? null,
@@ -46,6 +50,8 @@ export function toKiadasRow(r: LocalKiadasRow): KiadasRow {
   const row = {
     id: r.id,
     osszeg: r.osszeg,
+    // 2026-07-25 (M2 review, P2): RON-ekvivalens (lásd toBefitetesRow).
+    osszeg_ron: r.osszeg_ron ?? null,
     datum: r.datum,
     id_kiadascel: r.id_kiadascel ?? null,
     kedvezmenyzett: null,
