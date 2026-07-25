@@ -23,6 +23,25 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Javítás: magyar településnév és a címer az iratokon
+<!-- key: 2026-07-25-iktato-helyseg-logo -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz -->
+<!-- version: web v0.9.128 -->
+
+### 🐛 Javítások
+
+- **Magyar iraton mostantól a település magyar neve szerepel** (Barátos), a
+  fejléc címsorában és a keltezésnél is. Ha a gyülekezetnél nincs kiválasztva
+  strukturált helység, a rendszer immár a gyülekezet nevéből is felismeri
+  („Barátosi Református Egyházközség" → „Barátos"), és a román írásjelek
+  eltérése sem akadályozza a felismerést.
+- **A címer nem tűnik el többé az előnézetből**, ha a szerkesztés közben
+  bármit módosítasz (pl. bepipálsz egy eseményt) — a logó beágyazva utazik a
+  dokumentummal, így a PDF-be és a nyomtatásba is biztosan belekerül.
+
+---
+
 ## [2026-07-25] — Igazolás-kiállító finomhangolás: aláírás, előnézet, pipálható tartalom
 <!-- key: 2026-07-25-iktato-f8f-elonezet-esemenyek -->
 <!-- category: improvement -->

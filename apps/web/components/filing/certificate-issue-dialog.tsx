@@ -777,7 +777,53 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   const [docLang, setDocLang] = useState<DokumentumNyelv>('hu')
   // A hivatalos levélfej elhagyható (a régi „Fejléc nélkül" opció utódja).
   const [noLetterhead, setNoLetterhead] = useState(false)
-  const [header, setHeader] = useState<CongregationHeaderData | null>(null)
+  const [headerNyers, setHeaderNyers] = useState<CongregationHeaderData | null>(null)
+  /**
+   * A címer BEÁGYAZOTT (data: URI) változata — 2026-07-25, user-észrevétel:
+   * „ha rákattintok a konfirmációra, eltűnik a fejlécből a logó".
+   *
+   * Ok: minden szerkesztés (pipa, mező) új `srcDoc`-ot ad az előnézet-iframe-nek,
+   * ami TELJES dokumentum-újratöltés — a távoli címer-kép ilyenkor újra
+   * hálózatról töltődne, és a gyors egymásutánban megszakított kérések miatt
+   * el-eltűnik. Ugyanez a gond a PDF-mentésnél is (a html2canvas a
+   * más-originű képet CORS miatt kihagyhatja).
+   *
+   * Megoldás: a képet EGYSZER letöltjük és data: URI-ként ágyazzuk a
+   * dokumentumba — így minden újratöltésnél azonnal ott van, és a PDF-be is
+   * belekerül. Hiba esetén marad az eredeti URL (a fejléc szövege sosem függ
+   * ettől).
+   */
+  const [cimerDataUrl, setCimerDataUrl] = useState<string | null>(null)
+  const nyersCimerUrl = headerNyers?.cimerUrl || ''
+  useEffect(() => {
+    setCimerDataUrl(null)
+    if (!nyersCimerUrl) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(nyersCimerUrl)
+        if (!res.ok) return
+        const blob = await res.blob()
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result || ''))
+          reader.onerror = () => reject(reader.error)
+          reader.readAsDataURL(blob)
+        })
+        if (!cancelled && dataUrl.startsWith('data:')) setCimerDataUrl(dataUrl)
+      } catch {
+        // Néma: a fejléc az eredeti URL-lel is helyes marad.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [nyersCimerUrl])
+  /** A dokumentumba menő fejléc-adat (beágyazott címerrel, ha sikerült). */
+  const header = useMemo<CongregationHeaderData | null>(() => {
+    if (!headerNyers) return null
+    return cimerDataUrl ? { ...headerNyers, cimerUrl: cimerDataUrl } : headerNyers
+  }, [headerNyers, cimerDataUrl])
   const [headerError, setHeaderError] = useState<string | null>(null)
   // F8e (user 4.): a keltezés helysége SZERKESZTHETŐ — amíg a felhasználó nem
   // írja át, a nyelvhelyes automatikus nevet követi (lásd keltHelysegAuto).
@@ -994,7 +1040,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
       setTemplates(tplList)
       setTemplateSeedFailed(seedFailed)
 
-      setHeader(headerRes.header)
+      setHeaderNyers(headerRes.header)
       setHeaderError(headerRes.error)
 
       // Az előnézeti szám (nem-atomikus MAX+1 becslés) szándékosan NEM kerül
