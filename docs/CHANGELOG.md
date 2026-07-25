@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Áttekinthetőbb kedvezmény-beállítás
+<!-- key: 2026-07-25-penzugy-g1-kedvezmeny-panel -->
+<!-- category: improvement -->
+<!-- version: v0.9.116 -->
+<!-- targets: lelkész, gondnok — Gyülekezet beállításai -->
+
+### 🎨 UX javítások
+
+- **A „Sorrend" mező megszűnt** a kedvezmény-beállításnál. Félrevezető volt: prioritást sugallt, pedig a rendszer mindig automatikusan a tagnak **legkedvezőbb** (legkisebb fizetendő összeget adó) szabályt alkalmazza — a beállított sorrendnek semmilyen hatása nem volt a számításra. Mostantól nincs mit beállítani rajta.
+- **Év-időszalag**: a kedvezményes időszakok egy jan–dec sávon, színes szakaszokkal és a fizetendő összeggel jelennek meg — egy pillantással látszik a lépcsőzetes korai-fizetési kedvezmény, és hol érvényes a teljes éves díj. A folyó évben a mai napot jelölő vonal is látszik.
+- **Több időszak egyszerre**: a „További időszak hozzáadása" gombbal egy menetben rögzíthető a teljes lépcsőzet (pl. jún. 1-ig 130 RON, júl. 15-ig 140 RON, aug. 1-ig 160 RON) — nem kell egyenként menteni.
+- **Értelmes lista-sorrend**: a kedvezmények mostantól maguktól rendeződnek (időszaki: határidő szerint, kor: korhatár szerint, foglalkozás: kulcsszó szerint).
+
+---
+
 ## [2026-07-25] — Az előző évi záró automatikusan a következő év nyitója
 <!-- key: 2026-07-25-penzugy-g5-nyito-carryover -->
 <!-- category: improvement -->

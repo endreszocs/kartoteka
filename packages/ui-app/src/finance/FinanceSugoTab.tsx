@@ -307,6 +307,10 @@ const SECTIONS: Section[] = [
             text: 'Induló (nyitó) egyenlegek: ha a KARTOTEKA egy már működő könyvelést vesz át, a kezdő költségvetési év induló egyenlegei megadhatók — a Kassza fülön a „Nyitó egyenlegek" gombbal, a Bank fülön a bankszámla-kártyáról, vagy a gyülekezeti beállítás-varázsló Pénzügy lapján. Ezt csak egyszer, a rendszer indulásakor kell megtenni; a következő évek nyitói már maguktól számolódnak.',
           },
           {
+            // 2026-07-25 (G1-sugo)
+            text: 'Kedvezmények egyszerűbben: a „Sorrend" mező megszűnt — a rendszer mindig automatikusan a tagnak legkedvezőbb szabályt alkalmazza. A kedvezményes időszakok egy év-idővonalon látszanak (melyik szakaszban mennyi a fizetendő, hol él a teljes éves díj), és a lépcsőzetes korai-fizetési kedvezmény egyetlen menetben, több sorban rögzíthető.',
+          },
+          {
             // 2026-07-25 (G5-sugo)
             text: 'Nyitó egyenleg csak EGYSZER: az induló egyenleget elég a rendszer indulásakor megadni — utána minden év nyitója automatikusan az előző év zárójából jön (a bankszámla-kártyán „automatikusan az előző évi záróból" felirattal), számlánként külön. Ha utólag rögzítesz egy régebbi évbe, a következő évek nyitója magától követi. A kézzel megadott nyitót a rendszer soha nem írja felül, és a levezetett értéket nem is menti el — így a lezárt évek adatai érintetlenek maradnak.',
           },
