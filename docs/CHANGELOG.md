@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Átláthatóbb fejléc-menü és gyorsabb profilváltás
+<!-- key: 2026-07-25-header-mega-menu -->
+<!-- category: improvement -->
+<!-- version: v0.9.117 -->
+<!-- targets: minden felhasználó, kiemelten a több gyülekezetben/tisztségben szolgálók -->
+
+### 🎨 UX javítások
+
+- **Mega menü a fejlécben**: a korábbi keskeny, egyhasábos lista helyett széles, **kategorizált** menü nyílik — „Fiók" (Profil, Beállítások, Offline mentés) és „Gyülekezet" (Gyülekezetünk, Gyülekezet-beállítás, Kuka) csoportokkal, két hasábban. Telefonon egy hasáb, a képernyő szélességéhez igazodva.
+- **A bal felső gyülekezet-csempe is megnyitja a menüt** — ez mutatja az aktív kontextust, így természetes hely a váltáshoz.
+- **Újratervezett profilváltó**: a szerepek mostantól **csoportosítva** jelennek meg (Gyülekezet / Egyházmegye / Egyházkerület / Teljes rendszer), és **öt szerep felett kereső** is segít — nem kell hosszú listát görgetni.
+- **Gyorsabb váltás**: a rendszer már a szerepre mutatáskor előtölti a cél-képernyőt, és a kiválasztott sor azonnal jelzi, hogy folyamatban van a váltás.
+- Nagyobb, ujjbarát menüsorok telefonon.
+
+---
+
 ## [2026-07-25] — Áttekinthetőbb kedvezmény-beállítás
 <!-- key: 2026-07-25-penzugy-g1-kedvezmeny-panel -->
 <!-- category: improvement -->
