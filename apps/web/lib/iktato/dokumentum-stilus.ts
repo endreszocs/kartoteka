@@ -12,9 +12,10 @@
  *     bekezdés-TÉRKÖZ (3.5mm) behúzás HELYETT — sosem mindkettő.
  *     ⚠️ A `hyphens: auto` CSAK akkor működik, ha a dokumentumon ott a `lang`
  *     attribútum — ezért adja a `dokumentumBurok` KÖTELEZŐEN a `<html lang="…">`-t.
- *  2. A „lent üres a lap / lelóg az aláírás" ellen a lap FLEX-OSZLOP:
- *     `.page__header` (fix) · `.page__body` (nyúlik) · `.page__sign`
- *     (`margin-top: auto` → mindig a szövegtükör aljára ül).
+ *  2. A lap FLEX-OSZLOP: `.page__header` · `.page__body` · `.page__sign`.
+ *     Az aláírás-blokk a SZÖVEGET követi 18mm-es térközzel (2026-07-25-i
+ *     user-visszajelzés: a korábbi lap-aljára-rögzítés rövid igazolásnál
+ *     elszakította az aláírást a szövegtől).
  *  3. Hivatalos A4-tükör (DIN 5008 + magyar ügyviteli gyakorlat): 25mm bal
  *     (lefűzés), 20mm jobb/felső, 18mm alsó margó, 12pt serif.
  *
@@ -107,11 +108,16 @@ export function dokumentumStilus(): string {
     .page:last-child { page-break-after: auto; break-after: auto; }
 
     .page__header { flex: 0 0 auto; }
-    .page__body   { flex: 1 1 auto; }
+    /* A törzs NEM nyúlik: az aláírás a SZÖVEGET követi (user-visszajelzés,
+       2026-07-25). A korábbi nyúló törzs + automatikus felső margó a lap
+       aljára lökte az aláírást, ami rövid igazolásnál elszakadt a szövegtől. */
+    .page__body   { flex: 0 0 auto; }
     .page__sign   {
       flex: 0 0 auto;
-      margin-top: auto;      /* KULCS: a szövegtükör aljára */
-      padding-top: 18mm;     /* az aláírás fölött 18–20mm üres hely */
+      /* Az aláírás fölött 18mm üres hely a kézírásnak — a szöveg után,
+         nem a lap alján. A lap alsó része üresen marad, ez a hivatalos
+         levélforma. */
+      margin-top: 18mm;
       page-break-inside: avoid;
       break-inside: avoid;
     }
@@ -228,7 +234,7 @@ export interface DokumentumBurokOpts {
  *   html[lang] > body[data-sheet-count=1] > .page.sheet
  *      ├── .page__header  (levélfej + .page__meta: Szám / Tárgy)
  *      ├── .page__body    (törzs)
- *      └── .page__sign    (keltezés + aláírás — margin-top:auto-val a lap alján)
+ *      └── .page__sign    (keltezés + aláírás — a szöveget követi 18mm-rel)
  */
 export function dokumentumBurok(opts: DokumentumBurokOpts): string {
   const lang = (opts.lang || 'hu').trim() || 'hu'

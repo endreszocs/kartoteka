@@ -23,6 +23,30 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Igazolás-kiállító finomhangolás: aláírás, előnézet, pipálható tartalom
+<!-- key: 2026-07-25-iktato-f8f-elonezet-esemenyek -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+<!-- version: web v0.9.127 -->
+
+### 🎨 Fejlesztések
+
+- **Az aláírás mostantól a szöveget követi** (18 mm-rel alatta), nem a lap
+  legaljára szorulva — így a rövid igazolás is arányos, hivatalos képet ad.
+- **Az élő előnézet minden esetben a teljes lapot mutatja.** A korábbi
+  levágódás oka az volt, hogy a méretezés csak akkor indult el, ha az előnézet
+  már a képernyőn volt a megnyitás pillanatában — betöltés közben vagy
+  fülváltás után elmaradt. Most a panel megjelenésekor mindig beindul.
+- **Kipipálható, mi kerüljön az igazolás szövegébe:** keresztelés, konfirmáció,
+  házasságkötés — igazolás-fajtánként értelmes alapbeállítással. Ha egy
+  bepipált eseményhez nincs adat, kitöltő-vonal kerül a papírra (kézzel
+  pótolható), és a hiányzó adat továbbra is egy gombbal bevezethető.
+- **Keresztelési igazolásnál a kiállítás célja alapból „keresztszülőség".**
+- **A keltezés helysége követi a dokumentum nyelvét** (magyar iraton „Barátos",
+  románon „Brateș") — és utána is szabadon átírható.
+
+---
+
 ## [2026-07-25] — Az asztali alkalmazás szinkronja lényegesen gyorsabb lett
 <!-- key: 2026-07-25-f67-szinkron-kotegelt-iras -->
 <!-- category: improvement -->

@@ -74,6 +74,25 @@
  *  - életút-módban új „Igazolás nyelve" választó (hu/ro/en/háromnyelvű) →
  *    buildEletutIgazolasHtml nyelvMod.
  *
+ * 2026-07-25 (F8f — KIPIPÁLHATÓ ESEMÉNYEK) a user éles észrevétele nyomán:
+ *  - „Kimaradt a konfirmálás. De ezek legyenek kipipálható konfirmációk, hogy
+ *    ezek közül melyik kerüljön bele a szövegbe!" → a család-út Adatok-szekciója
+ *    „Az igazolás tartalma" pipa-csoporttal indul (Keresztelés / Konfirmáció /
+ *    Házasságkötés — amit a család `esemenyOpciok`-ban kínál). A kiválasztás a
+ *    buildBody `esemenyek` opciójába megy, így az élő előnézet azonnal követi.
+ *  - A pipák ALAPÁLLAPOTA a család `alap` értéke, de a KIEGÉSZÍTŐ eseményekről
+ *    (amiről a dokumentum nem szól) a pipa automatikusan lekerül, ha a
+ *    kiválasztott személyeknél nincs rá adat (vanEsemenyAdat). A család MAG-
+ *    eseménye (keresztelési igazoláson a keresztelés — CSALAD_ANYAKONYV_KINDS)
+ *    adat híján is bepipálva marad, különben a dokumentum kiürülne. A jelölő
+ *    mindkét irányban átállítható: adat nélkül bepipálva kitöltő-vonal kerül a
+ *    szövegbe, ami a papíron kézzel pótolható (ezt jelzés is írja az űrlapon,
+ *    a hiányzó dátum pedig a gyors-bevezetéssel az anyakönyvbe is bevezethető).
+ *    A kézzel átállított pipa a személy-váltást is túléli (lásd esemenyAllapot).
+ *  - „Keresztelés esetén a keresztszülőség egyértelmű" → a keresztelési igazolás
+ *    `cel` mezőjének `alapertek`-je („keresztszülőség") előtöltésre kerül
+ *    (a család-váltás kézi-mező inicializálása már ma is tiszteletben tartja).
+ *
  * 2026-07-25 (F8e — A4-tipográfia + előnézet-gyökérfix) a kutatási tervdoc
  * (docs/project-tracking/KARTOTEKA-a4-tipografia-elonezet-kutatas-2026-07-25.md)
  * alapján:
@@ -88,7 +107,7 @@
  *    A4 × scale, ez van centrálva) → iframe (fix A4-szélesség, `transform:
  *    scale()`, `transform-origin: 0 0`). A transform a layout UTÁN hat, ezért a
  *    wrapper méretét KÉZZEL szorozzuk a skálával — enélkül lógott túl/vágódott
- *    le a lap. Mérés: useLayoutEffect + ResizeObserver rAF-halasztással,
+ *    le a lap. Mérés: callback-ref + ResizeObserver rAF-halasztással,
  *    0-mérés-őrrel (rejtett panel) és 0.0005-ös küszöbbel (RO-loop ellen).
  *    A lap MINDIG teljes szélességében látszik, vízszintes görgetés nincs.
  *  - NYELV: a választó NÉMETTEL bővült (hu/ro/en/de). A dokumentumon a
@@ -99,7 +118,7 @@
  *    hiba biztos megoldása; ugyanez megy az életút-nyomtatványba is.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   BadgeCheck,
@@ -166,8 +185,10 @@ import {
   NYELV_CIMKEK,
   getDokumentumCsalad,
   keltezesSor,
+  vanEsemenyAdat,
   type DokumentumCsalad,
   type DokumentumNyelv,
+  type EsemenyKulcs,
 } from '@/lib/iktato/dokumentum-csaladok'
 import { A4_H_PX, A4_W_PX, dokumentumBurok } from '@/lib/iktato/dokumentum-stilus'
 import {
@@ -261,14 +282,6 @@ function alairasBlokkHtml(keltSor: string, alairo: string, szerep: string): stri
   </div>
 </div>`
 }
-
-/**
- * SSR-barát useLayoutEffect: a fit-to-page mérés KÖTELEZŐEN layout-effektben
- * fut (különben egy frame-ig 1.0-s skálával villanna a lap — kutatás 4. pont),
- * de a szerver-oldali renderelésnél a React figyelmeztetne, ezért ott
- * useEffect-re esünk vissza.
- */
-const useIzomorfLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
 
 /** Az egyháztag-átadás flow-t bekapcsoló seed-sablon neve (név-alapú felismerés). */
 const ATADAS_SABLON_NEV = 'Egyháztag átadása másik egyházközségnek'
@@ -512,6 +525,34 @@ const CSALAD_ANYAKONYV_KINDS: Record<string, AnyakonyvKind[]> = {
   egyhaztag_atadas: ['kereszteles', 'konfirmalas'],
 }
 
+/**
+ * F8f: a szöveg-építő esemény-kulcsa → a gyors-bevezetés anyakönyvi eseménye.
+ * (A két készlet szándékosan külön él: az egyik a DOKUMENTUM szövegéé, a másik
+ * az ANYAKÖNYVI rögzítésé — a nevük csak a konfirmációnál tér el.)
+ */
+const ESEMENY_ANYAKONYV_KIND: Record<EsemenyKulcs, AnyakonyvKind> = {
+  kereszteles: 'kereszteles',
+  konfirmacio: 'konfirmalas',
+  hazassag: 'hazassag',
+}
+
+/** Ugyanez visszafelé (a család MAG-eseményeinek felismeréséhez — F8f). */
+const ANYAKONYV_KIND_ESEMENY: Record<AnyakonyvKind, EsemenyKulcs> = {
+  kereszteles: 'kereszteles',
+  konfirmalas: 'konfirmacio',
+  hazassag: 'hazassag',
+}
+
+/**
+ * A család MAG-eseményei: amiről a dokumentum SZÓL (a gyors-bevezetés fix
+ * készletéből származtatva). Ezek pipája adat híján SEM kerül ki automatikusan
+ * — egy keresztelési igazolás keresztelés-mondat nélkül értelmetlen volna;
+ * hiányzó dátumnál kitöltő-vonal kerül a szövegbe (és jelzés az űrlapra).
+ */
+function csaladMagEsemenyek(csaladId: string): Set<EsemenyKulcs> {
+  return new Set((CSALAD_ANYAKONYV_KINDS[csaladId] || []).map((k) => ANYAKONYV_KIND_ESEMENY[k]))
+}
+
 function hianyzikAnyakonyviDatum(p: PersonCertData, kind: AnyakonyvKind): boolean {
   if (kind === 'kereszteles') return !p.keresztelesDatum
   if (kind === 'konfirmalas') return !p.konfirmalasDatum
@@ -748,6 +789,11 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   const [manualValues, setManualValues] = useState<Record<string, string>>({})
   // A dokumentum-családok kézi mezőinek értékei (F8c, kulcs → érték).
   const [keziValues, setKeziValues] = useState<Record<string, string>>({})
+  // F8f: a KÉZZEL átállított esemény-pipák (csak amit a felhasználó megérintett).
+  // A nem szereplő kulcsok automatikus értéket kapnak — lásd esemenyAllapot.
+  const [esemenyValasztas, setEsemenyValasztas] = useState<
+    Partial<Record<EsemenyKulcs, boolean>>
+  >({})
   const [previewIratszam, setPreviewIratszam] = useState('')
   const [loadingCtx, setLoadingCtx] = useState(false)
 
@@ -864,6 +910,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     setKeltHelysegTouched(false)
     setManualValues({})
     setKeziValues({})
+    setEsemenyValasztas({}) // F8f: az esemény-pipák a család alapértékeire állnak
     setSubject('')
     setSubjectTouched(false)
     setIssuing(false)
@@ -1156,6 +1203,10 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
       ? getDokumentumCsalad(nextId.slice(CSALAD_PREFIX.length))
       : null
     setBody(nextId === FREE_LETTER_ID || nextId === ELETUT_ID || csalad ? '' : tpl?.tartalom || '')
+    // F8f: dokumentum-váltásnál az esemény-pipák MINDIG az új család
+    // alapértékeire állnak vissza (az előző dokumentum kézi állításai nem
+    // ragadhatnak át — pl. az esketési igazolásnál bekapcsolt keresztelés).
+    setEsemenyValasztas({})
     // F8c: család-váltásnál a kézi mezők alapértékekkel indulnak, a
     // személy-lista a család maxSzemely-limitjére vágva (0 = nem személyhez
     // kötött → üres lista, a személy-szekció el is tűnik).
@@ -1215,6 +1266,13 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   useEffect(() => {
     if (!keltHelysegTouched) setKeltHelyseg(keltHelysegAuto)
   }, [keltHelysegAuto, keltHelysegTouched])
+  // NYELVVÁLTÁSKOR a helység MINDIG a nyelvhelyes névre áll vissza (user-kérés,
+  // 2026-07-25: „a keltezés helysége a nyelv függvényében változzon"). A kézi
+  // felülírás így csak az adott nyelven belül marad érvényben — nyelvet váltva
+  // újra a katalógus-nevet ajánljuk (utána természetesen ismét átírható).
+  useEffect(() => {
+    setKeltHelysegTouched(false)
+  }, [docLang])
   /** A ténylegesen használt keltezés-helység (üres mezőnél az automatikus név). */
   const keltHelysegErtek = keltHelyseg.trim() || keltHelysegAuto
 
@@ -1296,6 +1354,41 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     [torzsSablon, noLetterhead, docLang, header, docTitle, dokumentumTargy, keltHelysegErtek],
   )
 
+  // ── F8f: kipipálható események („Az igazolás tartalma") ──────────
+  // A család mondja meg, MELY események kapcsolhatók (esemenyOpciok) és mi az
+  // alapállapotuk; ha nincs ilyen lista, a család nem esemény-vezérelt → nem
+  // rajzolunk pipa-blokkot, és a buildBody is az alapértelmezett szöveget adja.
+  const esemenyOpciok = selectedCsalad?.esemenyOpciok ?? null
+  /**
+   * A pipák TÉNYLEGES állapota három lépcsőben:
+   *  1. amit a felhasználó KÉZZEL állított (esemenyValasztas) — az mindig nyer,
+   *     és a személy-váltást is túléli;
+   *  2. a család MAG-eseménye (csaladMagEsemenyek): marad az `alap` érték, adat
+   *     nélkül is — a keresztelési igazolásból nem tűnhet el a keresztelés;
+   *  3. a többi (kiegészítő) esemény: csak akkor indul bepipálva, ha a
+   *     kiválasztott személyek valamelyikénél VAN rá adat (vanEsemenyAdat) —
+   *     így egy adat nélküli konfirmáció nem kerül magától a szövegbe, kézzel
+   *     viszont bekapcsolható (ilyenkor kitöltő-vonal kerül a helyére).
+   * Amíg nincs kiválasztott személy, a család alapértéke látszik — különben az
+   * űrlap üres pipákkal indulna, ami félrevezető.
+   */
+  const esemenyAllapot = useMemo<Partial<Record<EsemenyKulcs, boolean>>>(() => {
+    if (!esemenyOpciok || !selectedCsalad) return {}
+    const nincsSzemely = persons.length === 0
+    const mag = csaladMagEsemenyek(selectedCsalad.id)
+    const out: Partial<Record<EsemenyKulcs, boolean>> = {}
+    for (const o of esemenyOpciok) {
+      const kezi = esemenyValasztas[o.key]
+      if (kezi !== undefined) {
+        out[o.key] = kezi
+        continue
+      }
+      const vanAdat = nincsSzemely || mag.has(o.key) || vanEsemenyAdat(persons, o.key)
+      out[o.key] = o.alap && vanAdat
+    }
+    return out
+  }, [esemenyOpciok, selectedCsalad, esemenyValasztas, persons])
+
   // ── F8c: a dokumentum-család teljes HTML-je — a NYELV vezérel mindent ──
   // (fejléc, Szám/Tárgy címkék, keltezés nyelvhelyes helység-névvel, törzs).
   const composeCsaladHtml = useCallback(
@@ -1325,6 +1418,9 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
         nyelv: docLang,
         kezi: keziValues,
         gyulekezetNev,
+        // F8f: a kipipált események — a hiányzó kulcs a család alapértéke lenne,
+        // ezért az esemenyAllapot MINDEN kínált kulcsot expliciten megad.
+        esemenyek: esemenyAllapot,
       })
       // A törzs app-generált és minden dinamikus érték escape-elt, de a
       // védelmi mélység kedvéért ugyanazon a sanitizeren megy át, mint a
@@ -1349,6 +1445,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
       keltHelysegErtek,
       persons,
       keziValues,
+      esemenyAllapot,
     ],
   )
 
@@ -1409,7 +1506,15 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     if (eletutMode) return []
     let kinds: AnyakonyvKind[]
     if (selectedCsalad) {
-      kinds = CSALAD_ANYAKONYV_KINDS[selectedCsalad.id] || []
+      // F8f: a család FIX készlete + a BEPIPÁLT események uniója — így a
+      // korábbi gyors-bevezetések megmaradnak, és az újonnan bekapcsolt
+      // esemény (pl. konfirmáció a keresztelési igazoláson) is pótolható
+      // közvetlenül az anyakönyvbe.
+      const set = new Set<AnyakonyvKind>(CSALAD_ANYAKONYV_KINDS[selectedCsalad.id] || [])
+      for (const [key, be] of Object.entries(esemenyAllapot)) {
+        if (be) set.add(ESEMENY_ANYAKONYV_KIND[key as EsemenyKulcs])
+      }
+      kinds = [...set]
     } else {
       const set = new Set(placeholders)
       kinds = []
@@ -1425,7 +1530,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
       }
     }
     return out
-  }, [eletutMode, selectedCsalad, placeholders, persons])
+  }, [eletutMode, selectedCsalad, placeholders, persons, esemenyAllapot])
   // Gépelés közbeni render-vihar ellen IDŐ-alapú debounce: az iframe
   // srcDoc-cseréje teljes dokumentum-újraparszolást + layoutot indít, és a
   // useDeferredValue ezt leütésenként átengedte (nem debounce) — lassú
@@ -1446,41 +1551,65 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   // túllógott/levágódott (ez volt a háromszor bejelentett hiba gyökere).
   // A skálázás CSAK a szélességhez igazít: a teljes lapszélesség mindig
   // látszik (vízszintes görgetés soha), a hosszabb irat függőlegesen görgethető.
-  const previewHostRef = useRef<HTMLDivElement>(null)
+  const previewHostRef = useRef<HTMLDivElement | null>(null)
+  const previewRoRef = useRef<ResizeObserver | null>(null)
+  const previewRafRef = useRef(0)
   const [scale, setScale] = useState(1)
-  useIzomorfLayoutEffect(() => {
-    if (!open) return
-    const host = previewHostRef.current
-    if (!host) return
-    let raf = 0
-    const apply = () => {
-      const el = previewHostRef.current
-      if (!el) return
-      const cs = window.getComputedStyle(el)
-      const padL = Number.parseFloat(cs.paddingLeft) || 0
-      const padR = Number.parseFloat(cs.paddingRight) || 0
-      // clientWidth = padding-doboz a görgetősáv NÉLKÜL; a paddingeket és a
-      // lap-keretet levonva kapjuk a lapnak jutó tényleges szélességet.
-      const w = el.clientWidth - padL - padR - LAP_KERET_PX
-      if (w <= 0) return // 0-mérés-őr: rejtett panel (mobil fül) → NE írj semmit
-      const next = Math.min(1, Math.max(MIN_SCALE, w / A4_W_PX))
-      // Küszöb: a törtpixel-ingadozásból származó ResizeObserver-hurok ellen.
-      setScale((prev) => (Math.abs(prev - next) > 0.0005 ? next : prev))
-    }
-    apply()
-    if (typeof ResizeObserver === 'undefined') return
-    // rAF-halasztás: a RO-callbackben azonnal írt layout „ResizeObserver loop"
-    // hibát adna; így a következő frame-ben, egyszer futunk le.
-    const ro = new ResizeObserver(() => {
-      window.cancelAnimationFrame(raf)
-      raf = window.requestAnimationFrame(apply)
-    })
-    ro.observe(host)
-    return () => {
-      ro.disconnect()
-      window.cancelAnimationFrame(raf)
-    }
-  }, [open])
+
+  const applyScale = useCallback(() => {
+    const el = previewHostRef.current
+    if (!el) return
+    const cs = window.getComputedStyle(el)
+    const padL = Number.parseFloat(cs.paddingLeft) || 0
+    const padR = Number.parseFloat(cs.paddingRight) || 0
+    // clientWidth = padding-doboz a görgetősáv NÉLKÜL; a paddingeket és a
+    // lap-keretet levonva kapjuk a lapnak jutó tényleges szélességet.
+    const w = el.clientWidth - padL - padR - LAP_KERET_PX
+    if (w <= 0) return // 0-mérés-őr: rejtett panel (mobil fül) → NE írj semmit
+    const next = Math.min(1, Math.max(MIN_SCALE, w / A4_W_PX))
+    // Küszöb: a törtpixel-ingadozásból származó ResizeObserver-hurok ellen.
+    setScale((prev) => (Math.abs(prev - next) > 0.0005 ? next : prev))
+  }, [])
+
+  /**
+   * CALLBACK REF a mérő-hosthoz (2026-07-25, a NEGYEDIK bejelentés javítása).
+   *
+   * A korábbi `useLayoutEffect([open])` csak a dialógus megnyitásának
+   * pillanatában futott — ha az előnézet-panel akkor MÉG NEM volt a DOM-ban
+   * (betöltés alatt, vagy mobilon a másik fülön), a `previewHostRef.current`
+   * null volt, a ResizeObserver sosem kapcsolt be, és a skála 1-en ragadt →
+   * a 794 px-es lap túllógott a ~500 px-es panelen, a szöveg jobb oldalt
+   * levágódott. A callback ref a csomópont TÉNYLEGES csatolásakor fut, tehát
+   * feltételes renderelésnél és fül-váltásnál is mindig beindítja a mérést.
+   */
+  const setPreviewHost = useCallback(
+    (node: HTMLDivElement | null) => {
+      previewRoRef.current?.disconnect()
+      previewRoRef.current = null
+      previewHostRef.current = node
+      if (!node) return
+      applyScale()
+      if (typeof ResizeObserver === 'undefined') return
+      // rAF-halasztás: a RO-callbackben azonnal írt layout „ResizeObserver
+      // loop" hibát adna; így a következő frame-ben, egyszer futunk le.
+      const ro = new ResizeObserver(() => {
+        window.cancelAnimationFrame(previewRafRef.current)
+        previewRafRef.current = window.requestAnimationFrame(applyScale)
+      })
+      ro.observe(node)
+      previewRoRef.current = ro
+    },
+    [applyScale],
+  )
+
+  // Unmount-takarítás (a callback ref a node cseréjét már kezeli).
+  useEffect(
+    () => () => {
+      previewRoRef.current?.disconnect()
+      window.cancelAnimationFrame(previewRafRef.current)
+    },
+    [],
+  )
 
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [contentH, setContentH] = useState(A4_H_PX)
@@ -1730,6 +1859,66 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
       </p>
     </div>
   )
+
+  /**
+   * F8f (user 2.) — „Az igazolás tartalma": kipipálható anyakönyvi ESEMÉNYEK.
+   * Csak a család kínálta opciók (esemenyOpciok) jelennek meg; a pipa azonnal
+   * átírja az élő előnézetet (esemenyAllapot → buildBody `esemenyek`).
+   * Adat nélküli eseménynél halvány jelzés figyelmeztet, hogy kitöltő-vonal
+   * kerül a szövegbe — a jelölő ettől még bekapcsolható (kézzel pótolható a
+   * papíron), a hiányzó dátum pedig a lenti gyors-bevezetéssel az ANYAKÖNYVBE
+   * is bevezethető.
+   */
+  const esemenyBlokk =
+    esemenyOpciok && esemenyOpciok.length > 0 ? (
+      <fieldset className="rounded-xl border border-border bg-muted/40 p-3">
+        <legend className="flex items-center gap-1.5 px-1 text-sm font-medium text-foreground">
+          <ListChecks className="size-4 text-muted-foreground" aria-hidden />
+          Az igazolás tartalma
+        </legend>
+        <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+          Jelöld be, mely anyakönyvi események kerüljenek bele a szövegbe. Az adat nélküli
+          kiegészítő eseményekről a rendszer leveszi a pipát — kézzel bármikor visszatehető.
+        </p>
+        <div className="mt-1.5 space-y-0.5">
+          {esemenyOpciok.map((o) => {
+            const kind = ESEMENY_ANYAKONYV_KIND[o.key]
+            const hianyzok = persons.filter((p) => hianyzikAnyakonyviDatum(p, kind))
+            const bepipalva = esemenyAllapot[o.key] === true
+            const mezoId = `cert-esemeny-${o.key}`
+            return (
+              <div key={o.key}>
+                <label
+                  htmlFor={mezoId}
+                  className="flex cursor-pointer items-center gap-2.5 py-1.5 text-sm text-foreground"
+                >
+                  <input
+                    id={mezoId}
+                    type="checkbox"
+                    checked={bepipalva}
+                    onChange={(e) =>
+                      setEsemenyValasztas((prev) => ({ ...prev, [o.key]: e.target.checked }))
+                    }
+                    className="size-4 shrink-0 accent-primary"
+                  />
+                  <span className="min-w-0">{o.label}</span>
+                </label>
+                {hianyzok.length > 0 ? (
+                  <p className="pl-[26px] text-[11px] leading-snug text-muted-foreground">
+                    {hianyzok.length === persons.length
+                      ? 'nincs adat'
+                      : `nincs adat: ${hianyzok.map((p) => p.teljesNev).join(', ')}`}{' '}
+                    {bepipalva
+                      ? '— kitöltő-vonal kerül a szövegbe'
+                      : '— bepipálva kitöltő-vonal kerülne a szövegbe'}
+                  </p>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
+      </fieldset>
+    ) : null
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -2119,6 +2308,9 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                     <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       {numAdatok}. Adatok
                     </h3>
+                    {/* F8f: elöl a kipipálható események — ezek döntik el, mi
+                        kerül a törzs-szövegbe (a többi mező csak kiegészít). */}
+                    {esemenyBlokk}
                     {keltezesHelysegMezo}
                     {selectedCsalad.keziMezok.length === 0 ? (
                       <p className="text-xs italic text-muted-foreground">
@@ -2588,7 +2780,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                 scrollbar-oszcilláció (mérés ↔ görgetősáv oda-vissza) ellen —
                 a mért szélesség így állandó. Vízszintes görgetés SOHA. */}
             <div
-              ref={previewHostRef}
+              ref={setPreviewHost}
               className="max-h-[68vh] min-h-[280px] overflow-y-scroll overflow-x-hidden rounded-2xl border border-border bg-muted p-3 lg:max-h-[78vh]"
               style={{ scrollbarGutter: 'stable' }}
             >

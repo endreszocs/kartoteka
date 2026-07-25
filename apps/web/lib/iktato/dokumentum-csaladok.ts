@@ -16,6 +16,17 @@
  *  2. A dokumentum TÁRGYA is a dokumentum nyelvén — ehhez minden család
  *     `nevNyelv` mezőt kapott (a `nev` továbbra is a magyar UI-választó címkéje).
  *
+ * F8f (2026-07-25) a user élesből érkezett két észrevétele:
+ *  1. „Keresztelés esetén a keresztszülőség egyértelmű — az legyen kitöltve!"
+ *     → a keresztelési igazolás `cel` kézi mezője `alapertek: 'keresztszülőség'`.
+ *  2. „Kimaradt a konfirmálás. De ezek legyenek kipipálható konfirmációk, hogy
+ *     ezek közül melyik kerüljön bele a szövegbe!" → a családok `esemenyOpciok`
+ *     listát adnak (keresztelés / konfirmáció / házasságkötés) alapértékkel, a
+ *     buildBody pedig `esemenyek`-kel kapja, mi került pipára. A személy-
+ *     bekezdés így alap-állítás + a BEPIPÁLT események klauzuláiból épül, mind a
+ *     négy nyelven nyelvhelyesen (0 eseménynél sincs csonka mondat, 1-nél nincs
+ *     felsorolás-maradvány) — lásd a szemelyMondat()/felsorol() blokkot.
+ *
  * TIPOGRÁFIA (F8e): a törzs már NEM inline-stílusos, sorkizárt, behúzott
  * bekezdéseket ad, hanem TISZTA `<p>` elemeket a közös A4-stíluslap osztályaival
  * (lib/iktato/dokumentum-stilus.ts). A kutatási tervdoc
@@ -58,6 +69,26 @@ import { gyulekezetNevMag } from './letterheads'
 /** A dokumentum nyelve — a fejléc, a keret-címkék és a törzs is ezt követi. */
 export type DokumentumNyelv = 'hu' | 'ro' | 'en' | 'de'
 
+/**
+ * F8f (2026-07-25, user-teszt): a törzsbe kerülő ANYAKÖNYVI ESEMÉNYEK kulcsai.
+ * A kiállító ezekből ad KIPIPÁLHATÓ listát („ezek közül melyik kerüljön bele a
+ * szövegbe"), a család pedig megmondja, mely eseményeket kínálja és melyik
+ * legyen alapból bepipálva.
+ */
+export type EsemenyKulcs = 'kereszteles' | 'konfirmacio' | 'hazassag'
+
+/** Egy kipipálható esemény a kiállító-űrlapon. */
+export interface EsemenyOpcio {
+  key: EsemenyKulcs
+  /** Magyar UI-címke (a kiállító felülete magyar, mint a `nev` mező). */
+  label: string
+  /** Alapból bepipálva? (a kiállító ezzel inicializálja az űrlapot) */
+  alap: boolean
+}
+
+/** Az események kronológiai (megjelenítési) sorrendje a törzs-mondatokban. */
+export const ESEMENY_SORREND: EsemenyKulcs[] = ['kereszteles', 'konfirmacio', 'hazassag']
+
 export interface DokumentumCsalad {
   /** Stabil azonosító, pl. 'keresztelesi_igazolas'. */
   id: string
@@ -80,16 +111,64 @@ export interface DokumentumCsalad {
   /** A családhoz tartozó kézi (felhasználó által töltendő) mezők. */
   keziMezok: Array<{ key: string; label: string; alapertek?: string }>
   /**
+   * Mely anyakönyvi események kapcsolhatók BE/KI a törzs-szövegben (F8f).
+   * Hiányzik → a család szövege nem esemény-vezérelt (marad változatlan).
+   * A sorrend a kiállító-űrlapon megjelenő sorrend; a MONDATBAN mindig a
+   * kronológiai ESEMENY_SORREND érvényesül.
+   */
+  esemenyOpciok?: EsemenyOpcio[]
+  /**
    * A KÉSZ HTML-törzs előállítása — personönkénti bekezdésekkel, a kért
    * nyelven. A gyulekezetNev a hívó által már a dokumentum NYELVÉN kiválasztott
    * gyülekezetnév (nev_hu/nev_ro/nev_en, fallback: hivatalos név).
+   *
+   * Az `esemenyek` a kipipált események állapota; a HIÁNYZÓ kulcs a család
+   * `esemenyOpciok`-beli `alap` értékét jelenti (így a régi, esemény-opció
+   * nélküli hívások változatlanul az alapértelmezett szöveget adják).
    */
   buildBody(opts: {
     persons: PersonCertData[]
     nyelv: DokumentumNyelv
     kezi: Record<string, string>
     gyulekezetNev: string
+    esemenyek?: Partial<Record<EsemenyKulcs, boolean>>
   }): string
+}
+
+/**
+ * A ténylegesen szövegbe kerülő események — kronológiai sorrendben.
+ * Csak a család által KÍNÁLT kulcsok jöhetnek szóba; a hiányzó választás a
+ * család `alap` értékére esik vissza.
+ */
+export function aktivEsemenyek(
+  opciok: EsemenyOpcio[] | undefined,
+  valasztas: Partial<Record<EsemenyKulcs, boolean>> | undefined,
+): EsemenyKulcs[] {
+  if (!opciok || opciok.length === 0) return []
+  return ESEMENY_SORREND.filter((key) => {
+    const opcio = opciok.find((o) => o.key === key)
+    if (!opcio) return false
+    const valasztott = valasztas?.[key]
+    return valasztott === undefined ? opcio.alap : valasztott === true
+  })
+}
+
+/**
+ * Van-e a kiválasztott személyek BÁRMELYIKÉNÉL adat az adott eseményre?
+ *
+ * A törzs-építő szándékosan NEM rejti el a bepipált, de adat nélküli eseményt
+ * (kitöltő-vonal marad a helyén, ami a nyomtatott lapon kézzel pótolható) —
+ * ezzel a segéddel viszont a kiállító-űrlap ELŐRE ki tudja venni a pipát az
+ * olyan eseményekből, amelyekre egyetlen kiválasztott személynél sincs adat.
+ */
+export function vanEsemenyAdat(persons: PersonCertData[], key: EsemenyKulcs): boolean {
+  const mezo = (p: PersonCertData): string | null =>
+    key === 'kereszteles'
+      ? p.keresztelesDatum
+      : key === 'konfirmacio'
+        ? p.konfirmalasDatum
+        : p.hazassagDatum
+  return (persons || []).some((p) => !!(mezo(p) || '').trim())
 }
 
 /**
@@ -368,6 +447,145 @@ function deVerstorbene(nem: Nem): string {
       : 'der/die verstorbene'
 }
 
+/** A házastárs megnevezése a NÉZŐPONTBAN álló személy neme szerint. */
+function hazastarsCimke(nyelv: DokumentumNyelv, nem: Nem): string {
+  if (nyelv === 'ro') return nem === 'ferfi' ? 'soția' : nem === 'no' ? 'soțul' : 'soț/soție'
+  if (nyelv === 'en') return 'spouse'
+  if (nyelv === 'de') return nem === 'ferfi' ? 'Ehefrau' : nem === 'no' ? 'Ehemann' : 'Ehepartner'
+  return 'házastársa'
+}
+
+// ─────────────────────────────────────────────────────────────────
+// F8f — KIPIPÁLHATÓ ESEMÉNYEK a személy-mondatban
+//
+// A user éles észrevétele (2026-07-25): „ezek legyenek kipipálható
+// konfirmációk, hogy ezek közül melyik kerüljön bele a szövegbe". Ezért a
+// személy-bekezdés nem fix mondat többé, hanem EGY alap-állítás (név + szülők
+// + születés) + a BEPIPÁLT események klauzulái, nyelvhelyesen összefűzve.
+//
+// Nyelvtani szabályok, amiket a felsorol()/szemelyMondat() együtt garantál:
+//  - 0 esemény  → a mondat az alap-állításnál ér véget (nincs csonka vessző,
+//                 és NEM kerül a végére a „egyházközségünkben" helyhatározó);
+//  - 1 esemény  → „alap ÉS esemény" (nincs felsorolás-maradvány);
+//  - 2+ esemény → „alap, e1 ÉS e2" (magyarul/románul/németül sincs vessző a
+//                 kötőszó előtt, angolul sincs Oxford-vessző).
+//  - NÉMET: az alárendelt (dass-) mondat igevégű, ezért a helyhatározó nem a
+//    mondat végére kerül, hanem az ELSŐ esemény-klauzulába.
+//
+// FONTOS (user-döntés): a bepipált, de ADAT NÉLKÜLI esemény NEM tűnik el —
+// kitöltő-vonal („__________") marad a dátum helyén, ahogy a papír-alapú
+// gyakorlat kívánja (kézzel pótolható). A pipa kivétele az egyetlen mód az
+// esemény elhagyására; ehhez ad a vanEsemenyAdat() előzetes segítséget.
+// ─────────────────────────────────────────────────────────────────
+
+/** Nyelvhelyes felsorolás: „a" · „a és b" · „a, b és c" (kötőszó előtt nincs vessző). */
+function felsorol(nyelv: DokumentumNyelv, tagok: string[]): string {
+  const t = tagok.filter((x) => (x || '').trim().length > 0)
+  if (t.length === 0) return ''
+  if (t.length === 1) return t[0]
+  const kotoszo =
+    nyelv === 'ro' ? ' și ' : nyelv === 'en' ? ' and ' : nyelv === 'de' ? ' und ' : ' és '
+  return `${t.slice(0, -1).join(', ')}${kotoszo}${t[t.length - 1]}`
+}
+
+/** „…egyházközségünkben" helyhatározó a mondat végén (németnél lásd DE_HELY). */
+const HELY_SUFFIX: Record<DokumentumNyelv, string> = {
+  hu: ' egyházközségünkben',
+  ro: ' în parohia noastră',
+  en: ' in our parish',
+  de: '',
+}
+
+/** Németül a helyhatározó az ELSŐ esemény-klauzulába kerül (igevégű mondat). */
+const DE_HELY = ' in unserer Kirchengemeinde'
+
+/**
+ * Egy esemény alárendelt klauzulája — a mondat alanya (a személy) NEM ismétlődik.
+ * A `loc` a német helyhatározó (csak az első klauzulán, különben üres),
+ * a `konfHitvallas` a konfirmációi igazolás bővebb megfogalmazását kéri.
+ */
+function esemenyKlauzula(
+  key: EsemenyKulcs,
+  nyelv: DokumentumNyelv,
+  p: PersonCertData,
+  opts: { loc: string; konfHitvallas?: boolean },
+): string {
+  const loc = opts.loc
+
+  if (key === 'kereszteles') {
+    const d = datumErtek(nyelv, p.keresztelesDatum)
+    if (nyelv === 'ro') return `a primit sacramentul botezului la data de <b>${d}</b>`
+    if (nyelv === 'en') return `received the sacrament of holy baptism on <b>${d}</b>`
+    if (nyelv === 'de') return `am <b>${d}</b>${loc} das Sakrament der heiligen Taufe empfing`
+    return `a keresztség sákramentumában részesült <b>${d}</b> napján`
+  }
+
+  if (key === 'konfirmacio') {
+    const d = datumErtek(nyelv, p.konfirmalasDatum)
+    const bo = opts.konfHitvallas === true
+    // A bővebb („hitvallásos") változat SZÁNDÉKOSAN nem tartalmaz belső
+    // kötőszót: a klauzula elé a felsorolás már tehet egy „és"-t, és a kettő
+    // egymás mellett („… napján ÉS a hitvallást ÉS a tanítást ismerve …")
+    // gyengén olvasható hivatalos iraton.
+    if (nyelv === 'ro') {
+      return bo
+        ? `a fost ${roConfirmat(p.nem)} în credința reformată la data de <b>${d}</b>`
+        : `a fost ${roConfirmat(p.nem)} la data de <b>${d}</b>`
+    }
+    if (nyelv === 'en') {
+      return bo
+        ? `was confirmed in the Reformed faith on <b>${d}</b>`
+        : `was confirmed on <b>${d}</b>`
+    }
+    if (nyelv === 'de') {
+      return bo
+        ? `im reformierten Glauben am <b>${d}</b>${loc} konfirmiert wurde`
+        : `am <b>${d}</b>${loc} konfirmiert wurde`
+    }
+    return bo
+      ? `a református hitvallás ismeretében konfirmált <b>${d}</b> napján`
+      : `konfirmált <b>${d}</b> napján`
+  }
+
+  // hazassag
+  const d = datumErtek(nyelv, p.hazassagDatum)
+  const tars = (p.hazastarsNev || '').trim()
+  const paren = tars ? ` (${hazastarsCimke(nyelv, p.nem)}: <b>${escapeHtml(tars)}</b>)` : ''
+  if (nyelv === 'ro') return `s-a cununat religios la data de <b>${d}</b>${paren}`
+  if (nyelv === 'en') return `was joined in marriage on <b>${d}</b>${paren}`
+  if (nyelv === 'de') return `am <b>${d}</b>${loc} kirchlich getraut wurde${paren}`
+  return `házasságot kötött <b>${d}</b> napján${paren}`
+}
+
+/**
+ * Egy személy KÉSZ mondata: alap-állítás + a bepipált események klauzulái,
+ * nyelvhelyesen összefűzve, ponttal lezárva.
+ *
+ * - `alap`: teljes értékű állítás önmagában is (pl. „X, A és B gyermeke,
+ *   D napján született") — így 0 esemény esetén sem lesz csonka a mondat;
+ * - `helyhatarozo`: false, ha az alap-állítás már tartalmazza a gyülekezetet
+ *   (pl. „egyházközségünk nyilvántartott tagja") — ilyenkor nem ismételjük.
+ */
+function szemelyMondat(opts: {
+  nyelv: DokumentumNyelv
+  p: PersonCertData
+  alap: string
+  esemenyek: EsemenyKulcs[]
+  konfHitvallas?: boolean
+  helyhatarozo?: boolean
+}): string {
+  const { nyelv, p, alap, esemenyek } = opts
+  const hely = opts.helyhatarozo !== false
+  const klauzulak = esemenyek.map((key, i) =>
+    esemenyKlauzula(key, nyelv, p, {
+      loc: hely && nyelv === 'de' && i === 0 ? DE_HELY : '',
+      konfHitvallas: opts.konfHitvallas,
+    }),
+  )
+  const suffix = klauzulak.length > 0 && hely ? HELY_SUFFIX[nyelv] : ''
+  return `${felsorol(nyelv, [alap, ...klauzulak])}${suffix}.`
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Közös záró-bekezdések (egyes/többes számban, mind a négy nyelven)
 // ─────────────────────────────────────────────────────────────────
@@ -468,6 +686,42 @@ const UGYKOR_LEVEL = {
   ugykorNev: 'Levelezés',
 } as const
 
+/** Az esemény-pipák magyar UI-címkéi (egy forrásból minden családhoz). */
+const ESEMENY_CIMKE: Record<EsemenyKulcs, string> = {
+  kereszteles: 'Keresztelés',
+  konfirmacio: 'Konfirmáció',
+  hazassag: 'Házasságkötés',
+}
+
+/** Esemény-opció rövidítő: `esem('kereszteles', true)`. */
+function esem(key: EsemenyKulcs, alap: boolean): EsemenyOpcio {
+  return { key, label: ESEMENY_CIMKE[key], alap }
+}
+
+// Melyik család mit kínál — a kiállító ezekből rajzolja a pipa-listát.
+// (A modul-szintű konstansok azért kellenek, mert a buildBody-nak is látnia
+//  kell őket a `this` használata nélkül — a hívó destrukturálhatja a családot.)
+const OPCIOK_KERESZTELES: EsemenyOpcio[] = [
+  esem('kereszteles', true),
+  esem('konfirmacio', true),
+  esem('hazassag', false),
+]
+const OPCIOK_KONFIRMACIO: EsemenyOpcio[] = [
+  esem('kereszteles', true),
+  esem('konfirmacio', true),
+  esem('hazassag', false),
+]
+const OPCIOK_TAGSAG: EsemenyOpcio[] = [
+  esem('kereszteles', true),
+  esem('konfirmacio', true),
+  esem('hazassag', true),
+]
+const OPCIOK_ESKETES: EsemenyOpcio[] = [
+  esem('kereszteles', false),
+  esem('konfirmacio', false),
+  esem('hazassag', true),
+]
+
 /** A katalógus stabil család-azonosítói (a név-tábla kulcsai). */
 type CsaladId =
   | 'keresztelesi_igazolas'
@@ -545,43 +799,36 @@ export const DOKUMENTUM_CSALADOK: DokumentumCsalad[] = [
     tipus: 'igazolas',
     ...UGYKOR_IGAZOLAS,
     maxSzemely: 4,
-    keziMezok: [{ key: 'cel', label: 'Kiállítás célja (pl. keresztszülőség, iskolai beiratkozás)' }],
-    buildBody({ persons, nyelv, kezi, gyulekezetNev }) {
+    keziMezok: [
+      {
+        key: 'cel',
+        label: 'Kiállítás célja (pl. keresztszülőség, iskolai beiratkozás)',
+        // User-észrevétel (2026-07-25): „Keresztelés esetén a keresztszülőség
+        // egyértelmű — az legyen kitöltve!"
+        alapertek: 'keresztszülőség',
+      },
+    ],
+    esemenyOpciok: OPCIOK_KERESZTELES,
+    buildBody({ persons, nyelv, kezi, gyulekezetNev, esemenyek }) {
       const emberek = szemelyLista(persons, 4)
       const tobb = emberek.length > 1
       const cel = ertek(kezi.cel)
+      const aktiv = aktivEsemenyek(OPCIOK_KERESZTELES, esemenyek)
 
       const mondat = (p: PersonCertData): string => {
         const nev = ertek(p.teljesNev)
         const szul = datumErtek(nyelv, p.szuletesiDatum)
-        const ker = datumErtek(nyelv, p.keresztelesDatum)
-        const konf = datumSzoveg(nyelv, p.konfirmalasDatum)
-        if (nyelv === 'ro') {
-          return (
-            `<b>${nev}</b>, ${roFiu(p.nem)} lui ${ertek(p.apjaNeve)} și ${roAlA(p.nem)} ${ertek(p.anyjaNeve)}, părinți reformați, s-a născut la data de <b>${szul}</b>, a primit sacramentul botezului la data de <b>${ker}</b>` +
-            (konf ? `, a fost ${roConfirmat(p.nem)} la data de <b>${escapeHtml(konf)}</b>` : '') +
-            ' în parohia noastră.'
-          )
-        }
-        if (nyelv === 'en') {
-          return (
-            `<b>${nev}</b>, child of ${ertek(p.apjaNeve)} and ${ertek(p.anyjaNeve)}, members of the Reformed Church, was born on <b>${szul}</b> and received the sacrament of holy baptism on <b>${ker}</b>` +
-            (konf ? `, and was confirmed on <b>${escapeHtml(konf)}</b>` : '') +
-            ' in our parish.'
-          )
-        }
-        if (nyelv === 'de') {
-          return (
-            `<b>${nev}</b>, Kind der reformierten Eltern ${ertek(p.apjaNeve)} und ${ertek(p.anyjaNeve)}, am <b>${szul}</b> geboren wurde und am <b>${ker}</b> in unserer Kirchengemeinde das Sakrament der heiligen Taufe empfing` +
-            (konf ? ` sowie am <b>${escapeHtml(konf)}</b> konfirmiert wurde` : '') +
-            '.'
-          )
-        }
-        return (
-          `<b>${nev}</b>, ${ertek(p.apjaNeve)} és ${ertek(p.anyjaNeve)} református szülők gyermeke <b>${szul}</b> napján született, a keresztség sákramentumában részesült <b>${ker}</b> napján` +
-          (konf ? `, konfirmált <b>${escapeHtml(konf)}</b> napján` : '') +
-          ' egyházközségünkben.'
-        )
+        const apa = ertek(p.apjaNeve)
+        const anya = ertek(p.anyjaNeve)
+        const alap =
+          nyelv === 'ro'
+            ? `<b>${nev}</b>, ${roFiu(p.nem)} lui ${apa} și ${roAlA(p.nem)} ${anya}, părinți reformați, s-a născut la data de <b>${szul}</b>`
+            : nyelv === 'en'
+              ? `<b>${nev}</b>, child of ${apa} and ${anya}, members of the Reformed Church, was born on <b>${szul}</b>`
+              : nyelv === 'de'
+                ? `<b>${nev}</b>, Kind der reformierten Eltern ${apa} und ${anya}, am <b>${szul}</b> geboren wurde`
+                : `<b>${nev}</b>, ${apa} és ${anya} református szülők gyermeke, <b>${szul}</b> napján született`
+        return szemelyMondat({ nyelv, p, alap, esemenyek: aktiv })
       }
 
       const bekezdesek = [
@@ -602,25 +849,26 @@ export const DOKUMENTUM_CSALADOK: DokumentumCsalad[] = [
     ...UGYKOR_IGAZOLAS,
     maxSzemely: 4,
     keziMezok: [{ key: 'cel', label: 'Kiállítás célja' }],
-    buildBody({ persons, nyelv, kezi, gyulekezetNev }) {
+    esemenyOpciok: OPCIOK_KONFIRMACIO,
+    buildBody({ persons, nyelv, kezi, gyulekezetNev, esemenyek }) {
       const emberek = szemelyLista(persons, 4)
       const tobb = emberek.length > 1
       const cel = ertek(kezi.cel)
+      const aktiv = aktivEsemenyek(OPCIOK_KONFIRMACIO, esemenyek)
 
       const mondat = (p: PersonCertData): string => {
         const nev = ertek(p.teljesNev)
         const szul = datumErtek(nyelv, p.szuletesiDatum)
-        const konf = datumErtek(nyelv, p.konfirmalasDatum)
-        if (nyelv === 'ro') {
-          return `<b>${nev}</b> (${roNascut(p.nem)} la data de <b>${szul}</b>) a depus mărturia de credință reformată și a fost ${roConfirmat(p.nem)} în parohia noastră la data de <b>${konf}</b>.`
-        }
-        if (nyelv === 'en') {
-          return `<b>${nev}</b> (born on <b>${szul}</b>) made profession of the Reformed faith and was confirmed in our parish on <b>${konf}</b>.`
-        }
-        if (nyelv === 'de') {
-          return `<b>${nev}</b> (geboren am <b>${szul}</b>) das reformierte Glaubensbekenntnis abgelegt hat und am <b>${konf}</b> in unserer Kirchengemeinde konfirmiert wurde.`
-        }
-        return `<b>${nev}</b> (szül.: <b>${szul}</b>) a református hitvallást és anyaszentegyházunk tanítását ismerve <b>${konf}</b> napján konfirmált egyházközségünkben.`
+        const alap =
+          nyelv === 'ro'
+            ? `<b>${nev}</b> s-a născut la data de <b>${szul}</b>`
+            : nyelv === 'en'
+              ? `<b>${nev}</b> was born on <b>${szul}</b>`
+              : nyelv === 'de'
+                ? `<b>${nev}</b> am <b>${szul}</b> geboren wurde`
+                : `<b>${nev}</b> <b>${szul}</b> napján született`
+        // A konfirmáció ebben a családban a BŐVEBB, hitvallásos formulát kapja.
+        return szemelyMondat({ nyelv, p, alap, esemenyek: aktiv, konfHitvallas: true })
       }
 
       const bekezdesek = [
@@ -641,9 +889,16 @@ export const DOKUMENTUM_CSALADOK: DokumentumCsalad[] = [
     ...UGYKOR_IGAZOLAS,
     maxSzemely: 2,
     keziMezok: [{ key: 'cel', label: 'Kiállítás célja' }],
-    buildBody({ persons, nyelv, kezi, gyulekezetNev }) {
+    esemenyOpciok: OPCIOK_ESKETES,
+    buildBody({ persons, nyelv, kezi, gyulekezetNev, esemenyek }) {
       const emberek = szemelyLista(persons, 2)
       const cel = ertek(kezi.cel)
+      const aktiv = aktivEsemenyek(OPCIOK_ESKETES, esemenyek)
+      const hazassagKell = aktiv.includes('hazassag')
+      // A pár KÖZÖS mondata a házasságkötésé; a keresztelés/konfirmáció viszont
+      // személyenként eltér → külön bekezdésekbe kerül.
+      const egyeni = aktiv.filter((k) => k !== 'hazassag')
+
       // Férj/feleség a nem-mező szerint; hiányában a kiválasztás sorrendje.
       const ferj = emberek.find((p) => p.nem === 'ferfi') || emberek[0] || URES_SZEMELY
       const feleseg =
@@ -652,23 +907,77 @@ export const DOKUMENTUM_CSALADOK: DokumentumCsalad[] = [
         nyelv,
         [ferj.hazassagDatum, feleseg.hazassagDatum].find(Boolean) || null,
       )
+      const ferjNev = ertek(ferj.teljesNev)
+      const felesegNev = ertek(feleseg.teljesNev)
 
-      const fo =
+      /** A pár közös esketési mondata (ha a Házasságkötés be van pipálva). */
+      const eskuvoMondat =
         nyelv === 'ro'
-          ? `<b>${ertek(ferj.teljesNev)}</b> și <b>${ertek(feleseg.teljesNev)}</b> s-au cununat religios, după ritualul Bisericii Reformate, în parohia noastră, la data de <b>${datum}</b>.`
+          ? `<b>${ferjNev}</b> și <b>${felesegNev}</b> s-au cununat religios, după ritualul Bisericii Reformate, în parohia noastră, la data de <b>${datum}</b>.`
           : nyelv === 'en'
-            ? `<b>${ertek(ferj.teljesNev)}</b> and <b>${ertek(feleseg.teljesNev)}</b> were joined in marriage according to the rites of the Reformed Church in our parish on <b>${datum}</b>.`
+            ? `<b>${ferjNev}</b> and <b>${felesegNev}</b> were joined in marriage according to the rites of the Reformed Church in our parish on <b>${datum}</b>.`
             : nyelv === 'de'
-              ? `<b>${ertek(ferj.teljesNev)}</b> und <b>${ertek(feleseg.teljesNev)}</b> am <b>${datum}</b> in unserer Kirchengemeinde nach der Ordnung der Reformierten Kirche kirchlich getraut wurden.`
-              : `<b>${ertek(ferj.teljesNev)}</b> és <b>${ertek(feleseg.teljesNev)}</b> <b>${datum}</b> napján református szertartás szerint házasságot kötöttek egyházközségünkben.`
+              ? `<b>${ferjNev}</b> und <b>${felesegNev}</b> am <b>${datum}</b> in unserer Kirchengemeinde nach der Ordnung der Reformierten Kirche kirchlich getraut wurden.`
+              : `<b>${ferjNev}</b> és <b>${felesegNev}</b> <b>${datum}</b> napján református szertartás szerint házasságot kötöttek egyházközségünkben.`
 
-      return torzs(
-        [
-          bek(`${tanusitoIntro(nyelv, gyulekezetNev)} ${fo}`),
-          bek(tagsagiZaro(nyelv, true, cel)),
-        ],
-        CSALAD_NEVEK.esketesi_igazolas[nyelv],
+      /** Tartalék mondat, ha EGYETLEN esemény sincs bepipálva (nincs csonka lap). */
+      const azonositoMondat = (): string => {
+        const f1 = datumErtek(nyelv, ferj.szuletesiDatum)
+        const f2 = datumErtek(nyelv, feleseg.szuletesiDatum)
+        if (nyelv === 'ro') {
+          return `<b>${ferjNev}</b> (${roNascut(ferj.nem)} la data de <b>${f1}</b>) și <b>${felesegNev}</b> (${roNascut(feleseg.nem)} la data de <b>${f2}</b>) figurează în evidențele noastre ca membri înregistrați ai parohiei.`
+        }
+        if (nyelv === 'en') {
+          return `<b>${ferjNev}</b> (born on <b>${f1}</b>) and <b>${felesegNev}</b> (born on <b>${f2}</b>) are, according to our records, registered members of our parish.`
+        }
+        if (nyelv === 'de') {
+          return `<b>${ferjNev}</b> (geboren am <b>${f1}</b>) und <b>${felesegNev}</b> (geboren am <b>${f2}</b>) nach unseren Unterlagen eingetragene Mitglieder unserer Kirchengemeinde sind.`
+        }
+        return `<b>${ferjNev}</b> (szül.: <b>${f1}</b>) és <b>${felesegNev}</b> (szül.: <b>${f2}</b>) egyházközségünk nyilvántartott tagjai.`
+      }
+
+      /** Egy fél saját (keresztelés/konfirmáció) mondata. */
+      const egyeniMondat = (p: PersonCertData): string => {
+        const nev = ertek(p.teljesNev)
+        const szul = datumErtek(nyelv, p.szuletesiDatum)
+        const alap =
+          nyelv === 'ro'
+            ? `<b>${nev}</b> s-a născut la data de <b>${szul}</b>`
+            : nyelv === 'en'
+              ? `<b>${nev}</b> was born on <b>${szul}</b>`
+              : nyelv === 'de'
+                ? `<b>${nev}</b> am <b>${szul}</b> geboren wurde`
+                : `<b>${nev}</b> <b>${szul}</b> napján született`
+        return szemelyMondat({ nyelv, p, alap, esemenyek: egyeni })
+      }
+
+      const bekezdesek: string[] = []
+      if (hazassagKell) {
+        bekezdesek.push(bek(`${tanusitoIntro(nyelv, gyulekezetNev)} ${eskuvoMondat}`))
+      }
+      if (egyeni.length > 0) {
+        for (const p of emberek) {
+          const mondat = egyeniMondat(p)
+          bekezdesek.push(
+            bek(
+              bekezdesek.length === 0
+                ? `${tanusitoIntro(nyelv, gyulekezetNev)} ${mondat}`
+                : `${tovabbiIntro(nyelv)}${mondat}`,
+            ),
+          )
+        }
+      }
+      const nincsEsemeny = bekezdesek.length === 0
+      if (nincsEsemeny) {
+        bekezdesek.push(bek(`${tanusitoIntro(nyelv, gyulekezetNev)} ${azonositoMondat()}`))
+      }
+      // Ha a tartalék (tagsági) mondat került a törzsbe, a záró bekezdés NE
+      // ismételje meg a tagságot — ilyenkor a csak-célt kimondó formula áll.
+      bekezdesek.push(
+        bek(nincsEsemeny ? celZaro(nyelv, true, cel) : tagsagiZaro(nyelv, true, cel)),
       )
+
+      return torzs(bekezdesek, CSALAD_NEVEK.esketesi_igazolas[nyelv])
     },
   },
 
@@ -681,25 +990,27 @@ export const DOKUMENTUM_CSALADOK: DokumentumCsalad[] = [
     ...UGYKOR_IGAZOLAS,
     maxSzemely: 4,
     keziMezok: [{ key: 'cel', label: 'Kiállítás célja' }],
-    buildBody({ persons, nyelv, kezi, gyulekezetNev }) {
+    esemenyOpciok: OPCIOK_TAGSAG,
+    buildBody({ persons, nyelv, kezi, gyulekezetNev, esemenyek }) {
       const emberek = szemelyLista(persons, 4)
       const tobb = emberek.length > 1
       const cel = ertek(kezi.cel)
+      const aktiv = aktivEsemenyek(OPCIOK_TAGSAG, esemenyek)
 
       const mondat = (p: PersonCertData): string => {
         const nev = ertek(p.teljesNev)
         const szul = datumErtek(nyelv, p.szuletesiDatum)
         const anyja = ertek(p.anyjaNeve)
-        if (nyelv === 'ro') {
-          return `<b>${nev}</b> (${roNascut(p.nem)} la data de <b>${szul}</b>, numele mamei: ${anyja}) figurează în evidențele noastre ca membru înregistrat al parohiei.`
-        }
-        if (nyelv === 'en') {
-          return `<b>${nev}</b> (born on <b>${szul}</b>, mother's name: ${anyja}) is, according to our records, a registered member of our parish.`
-        }
-        if (nyelv === 'de') {
-          return `<b>${nev}</b> (geboren am <b>${szul}</b>, Name der Mutter: ${anyja}) nach unseren Unterlagen eingetragenes Mitglied unserer Kirchengemeinde ist.`
-        }
-        return `<b>${nev}</b> (szül.: <b>${szul}</b>, anyja neve: ${anyja}) egyházközségünk nyilvántartott tagja.`
+        const alap =
+          nyelv === 'ro'
+            ? `<b>${nev}</b> (${roNascut(p.nem)} la data de <b>${szul}</b>, numele mamei: ${anyja}) figurează în evidențele noastre ca membru înregistrat al parohiei`
+            : nyelv === 'en'
+              ? `<b>${nev}</b> (born on <b>${szul}</b>, mother's name: ${anyja}) is, according to our records, a registered member of our parish`
+              : nyelv === 'de'
+                ? `<b>${nev}</b> (geboren am <b>${szul}</b>, Name der Mutter: ${anyja}) nach unseren Unterlagen eingetragenes Mitglied unserer Kirchengemeinde ist`
+                : `<b>${nev}</b> (szül.: <b>${szul}</b>, anyja neve: ${anyja}) egyházközségünk nyilvántartott tagja`
+        // Az alap-állítás MÁR megnevezi a gyülekezetet → nincs záró helyhatározó.
+        return szemelyMondat({ nyelv, p, alap, esemenyek: aktiv, helyhatarozo: false })
       }
 
       const bekezdesek = [
