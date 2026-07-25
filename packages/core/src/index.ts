@@ -343,3 +343,13 @@ export {
   type UpsertNyitoEgyenlegInput,
   type YearStartCheckResult,
 } from './finance/bank-import/nyito-egyenleg'
+
+export {
+  resolveNyitoEgyenlegekUseCase,
+  resolveNyitoForYear,
+  type NyitoRecordedRow,
+  type ResolvedNyito,
+  type ResolveNyitoCtx,
+  type ResolveNyitoInput,
+  type ResolveNyitoResult,
+} from './finance/bank-import/resolve-nyito'

@@ -307,6 +307,10 @@ const SECTIONS: Section[] = [
             text: 'Induló (nyitó) egyenlegek: ha a KARTOTEKA egy már működő könyvelést vesz át, a kezdő költségvetési év induló egyenlegei megadhatók — a Kassza fülön a „Nyitó egyenlegek" gombbal, a Bank fülön a bankszámla-kártyáról, vagy a gyülekezeti beállítás-varázsló Pénzügy lapján. Ezt csak egyszer, a rendszer indulásakor kell megtenni; a következő évek nyitói már maguktól számolódnak.',
           },
           {
+            // 2026-07-25 (G5-sugo)
+            text: 'Nyitó egyenleg csak EGYSZER: az induló egyenleget elég a rendszer indulásakor megadni — utána minden év nyitója automatikusan az előző év zárójából jön (a bankszámla-kártyán „automatikusan az előző évi záróból" felirattal), számlánként külön. Ha utólag rögzítesz egy régebbi évbe, a következő évek nyitója magától követi. A kézzel megadott nyitót a rendszer soha nem írja felül, és a levezetett értéket nem is menti el — így a lezárt évek adatai érintetlenek maradnak.',
+          },
+          {
             // 2026-07-25 (G4-sugo)
             text: 'Nyugtatömb-készlet a valóság szerint: a Leltár → Anyagraktár és a Kassza fül tömb-paneljén a készlet mostantól a berögzített kerületi nyugtaszámokból számolódik — nem marad többé tévesen „100/100". A stornózott és az anulált (0 lejes) nyugta is elhasznált lapnak számít.',
           },

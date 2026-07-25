@@ -46,6 +46,7 @@ import {
   undoStornoUseCase,
   autoIssueChitantaForBefizetesUseCase,
   getChitantakForBefizetesekUseCase,
+  resolveNyitoEgyenlegekUseCase,
 } from '@kartoteka/core'
 
 import { DesktopShell } from '../lib/shell/desktop-shell'
@@ -299,6 +300,36 @@ export function PenzugyPage() {
       } catch {
         /* offline / hálózati hiba / timeout — 0 bázissal számolunk, mint eddig */
       }
+      // 2026-07-25 (G5, web-paritás): „előző évi záró = következő évi nyitó" —
+      // OLVASÁS-ONLY feloldás számlánként. Online ág; hiba/offline esetén a
+      // fenti (rögzített sor + fallback) értékek maradnak.
+      let resolvedCash: number | null = null
+      let resolvedBankTotal: number | null = null
+      try {
+        if (await isOnlineWithSession()) {
+          const sb2 = getDesktopSupabase()
+          const resolved = (await Promise.race([
+            resolveNyitoEgyenlegekUseCase(
+              { congregationId: congId, eve: year },
+              { supabase: sb2, runtime: 'desktop' },
+            ),
+            new Promise<never>((_, reject) =>
+              window.setTimeout(() => reject(new Error('nyito-feloldas timeout')), 6000),
+            ),
+          ])) as Awaited<ReturnType<typeof resolveNyitoEgyenlegekUseCase>>
+          if (resolved.success) {
+            resolvedCash = resolved.cash.value
+            resolvedBankTotal = resolved.bankTotal
+            for (const [id, r] of Object.entries(resolved.bank)) {
+              bankNyitoCur[Number(id)] = r.value
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[penzugy-page] nyitó-feloldás kihagyva:', err)
+      }
+      if (resolvedCash != null) recCashCur = resolvedCash
+      if (resolvedBankTotal != null) recBankCur = resolvedBankTotal
       setBankNyitoMap(bankNyitoCur)
       const prevBalances = calculateBalances(prevBefLocal.map(toBefitetesRow), prevKiaLocal.map(toKiadasRow), recCashPrev, recBankPrev, internalCelIds)
       const yearBalances = calculateBalances(incomeRows, expenseRows, recCashCur ?? prevBalances.cashBalance, recBankCur ?? prevBalances.bankBalance, internalCelIds)
