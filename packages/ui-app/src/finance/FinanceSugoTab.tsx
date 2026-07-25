@@ -306,6 +306,10 @@ const SECTIONS: Section[] = [
           {
             text: 'Induló (nyitó) egyenlegek: ha a KARTOTEKA egy már működő könyvelést vesz át, a kezdő költségvetési év induló egyenlegei megadhatók — a Kassza fülön a „Nyitó egyenlegek" gombbal, a Bank fülön a bankszámla-kártyáról, vagy a gyülekezeti beállítás-varázsló Pénzügy lapján. Ezt csak egyszer, a rendszer indulásakor kell megtenni; a következő évek nyitói már maguktól számolódnak.',
           },
+          {
+            // 2026-07-25 (G4-sugo)
+            text: 'Nyugtatömb-készlet a valóság szerint: a Leltár → Anyagraktár és a Kassza fül tömb-paneljén a készlet mostantól a berögzített kerületi nyugtaszámokból számolódik — nem marad többé tévesen „100/100". A stornózott és az anulált (0 lejes) nyugta is elhasznált lapnak számít.',
+          },
         ],
         tips: [
           {
@@ -679,6 +683,10 @@ const SECTIONS: Section[] = [
           },
           {
             text: 'Éves kimutatás: Nyomtatási központ → „Nyugtatömb kimutatás" — a hivatalos formátumban.',
+          },
+          {
+            // 2026-07-25 (G4-sugo): valós készlet a berögzített nyugtaszámokból
+            text: 'Valós készlet: a tömbök elhasználtsága a TÉNYLEGESEN berögzített kerületi nyugtaszámokból számolódik — akkor is pontos, ha a nyugtaszámot a tétel-rögzítőben kézzel írtad be. A vezető nullák nem számítanak (a 0115032 és a 115032 ugyanaz a nyugta), a családi nyugta al-sorai (/1, /2…) egy lapnak számítanak, és a stornózott vagy anulált (0 lejes) nyugta is elhasznált lap — a rontott papír nem kerül vissza a tömbbe.',
           },
         ],
         tips: [

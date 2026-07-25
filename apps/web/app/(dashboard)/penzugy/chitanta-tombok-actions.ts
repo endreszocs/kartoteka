@@ -14,6 +14,7 @@ import { revalidatePath } from 'next/cache'
 import {
   createChitantaTombUseCase,
   getActiveChitantaTombStatusUseCase,
+  getChitantaTombUsageUseCase,
   listChitantaTombokUseCase,
 } from '@kartoteka/core'
 
@@ -35,6 +36,15 @@ export interface ChitantaTomb {
   aktiv: boolean
   megjegyzes: string | null
   created_at: string
+  /**
+   * 2026-07-25 (G4): a berögzített kerületi nyugtaszámokból SZÁMÍTOTT
+   * elhasználtság (DISTINCT nyomdai szám a tartományban, stornóval és
+   * anuláltakkal együtt; vezető nullák nélkül egyeztetve). A kijelzéshez:
+   * max(felhasznalt_darabszam, szamitott_felhasznalt) — egyik út se vesszen el.
+   */
+  szamitott_felhasznalt?: number
+  /** Ebből 0 értékű (anulált) nyugta. */
+  anulalt_darab?: number
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -65,6 +75,21 @@ export async function listChitantaTombok(): Promise<{
     (r): r is typeof r & { congregation_id: string } => r.congregation_id !== null,
   )
 
+  // 2026-07-25 (G4): valós elhasználtság a berögzített kerületi nyugtaszámokból.
+  // Hiba esetén a lista attól még visszamegy (a kártya a DB-mezőre esik vissza) —
+  // az RLS-divergencia (kerületi admin más gyülekezete) is így degradál kecsesen.
+  const usageResult = await getChitantaTombUsageUseCase(
+    {
+      congregationId: access.effectiveCongregationId,
+      tombok: filtered.map((r) => ({ id: r.id, szam_kezdet: r.szam_kezdet, szam_veg: r.szam_veg })),
+    },
+    { supabase: access.supabase, runtime: 'web' },
+  )
+  const usage = usageResult.success ? usageResult.usage : {}
+  if (!usageResult.success) {
+    console.error('[listChitantaTombok] használat-számítás hiba:', usageResult.error)
+  }
+
   return {
     data: filtered.map((r) => ({
       id: r.id,
@@ -82,6 +107,8 @@ export async function listChitantaTombok(): Promise<{
       aktiv: r.aktiv,
       megjegyzes: r.megjegyzes,
       created_at: r.created_at,
+      szamitott_felhasznalt: usage[r.id]?.szamitottFelhasznalt,
+      anulalt_darab: usage[r.id]?.anulaltDarab,
     })),
   }
 }
@@ -360,6 +387,25 @@ export async function getChitantaTombokReport(year: number): Promise<{
 
   if (error) return { error: error.message }
 
+  // 2026-07-25 (G4): valós használat a berögzített kerületi nyugtaszámokból —
+  // a kizárólag kézzel használt tömb (elso/utolso_hasznalat_datum NULL, a
+  // felhasznalt_darabszam 0) különben ki sem került volna az éves kimutatásba.
+  const usageRes = await getChitantaTombUsageUseCase(
+    {
+      congregationId: access.effectiveCongregationId,
+      tombok: (tombok || []).map((t) => ({
+        id: t.id as string,
+        szam_kezdet: t.szam_kezdet as number,
+        szam_veg: t.szam_veg as number,
+      })),
+    },
+    { supabase: access.supabase, runtime: 'web' },
+  )
+  const usageMap = usageRes.success ? usageRes.usage : {}
+  if (!usageRes.success) {
+    console.error('[getChitantaTombokReport] használat-számítás hiba:', usageRes.error)
+  }
+
   // A gyülekezeti számok lekérdezése minden tömbre
   const { data: chitantak } = await access.supabase
     .from('oblio_szamlak')
@@ -381,18 +427,31 @@ export async function getChitantaTombokReport(year: number): Promise<{
     }
   }
 
-  // Szűrjük azokat a tömböket, amelyek az adott évben voltak használatban
+  // Szűrjük azokat a tömböket, amelyek az adott évben voltak használatban.
+  // 2026-07-25 (G4): a DB-dátumok MELLETT a számított (kézi rögzítésből
+  // származó) első/utolsó használat is számít, és az illeszkedés
+  // tartomány-alapú (első ≤ év ≤ utolsó — a köztes évek se essenek ki).
+  const yearOf = (d: string | null | undefined) => (d ? new Date(d).getFullYear() : null)
+  const inYear = (elso: string | null | undefined, utolso: string | null | undefined) => {
+    const e = yearOf(elso)
+    const u = yearOf(utolso)
+    if (e == null && u == null) return false
+    return (e ?? u ?? 0) <= year && year <= (u ?? e ?? 0)
+  }
   const filtered = (tombok || []).filter((t) => {
-    const elso = t.elso_hasznalat_datum as string | null
-    const utolso = t.utolso_hasznalat_datum as string | null
-    if (!elso && !utolso) return false
-    const elsoYear = elso ? new Date(elso).getFullYear() : null
-    const utolsoYear = utolso ? new Date(utolso).getFullYear() : null
-    return elsoYear === year || utolsoYear === year
+    const usage = usageMap[t.id as string]
+    return (
+      inYear(t.elso_hasznalat_datum as string | null, t.utolso_hasznalat_datum as string | null) ||
+      inYear(usage?.elsoHasznalat, usage?.utolsoHasznalat)
+    )
   })
+
+  const minDate = (a: string | null, b: string | null) => (a && b ? (a < b ? a : b) : a || b)
+  const maxDate = (a: string | null, b: string | null) => (a && b ? (a > b ? a : b) : a || b)
 
   const report: ChitantaTombReport[] = filtered.map((t, idx) => {
     const gyul = gyulSzamByTomb.get(t.id as string)
+    const usage = usageMap[t.id as string]
     return {
       id: t.id as string,
       sorszam: idx + 1,
@@ -400,11 +459,14 @@ export async function getChitantaTombokReport(year: number): Promise<{
       seria: t.seria as string,
       nyomdai_kezdet: t.szam_kezdet as number,
       nyomdai_veg: t.szam_veg as number,
-      datum_kezdet: (t.elso_hasznalat_datum as string | null) || null,
-      datum_veg: (t.utolso_hasznalat_datum as string | null) || null,
+      datum_kezdet: minDate((t.elso_hasznalat_datum as string | null) || null, usage?.elsoHasznalat ?? null),
+      datum_veg: maxDate((t.utolso_hasznalat_datum as string | null) || null, usage?.utolsoHasznalat ?? null),
       sajat_kezdet: gyul?.min ?? null,
       sajat_veg: gyul?.max ?? null,
-      felhasznalt_darabszam: t.felhasznalt_darabszam as number,
+      felhasznalt_darabszam: Math.max(
+        t.felhasznalt_darabszam as number,
+        usage?.szamitottFelhasznalt ?? 0,
+      ),
       darabszam_ossz: t.darabszam_ossz as number,
       aktiv: t.aktiv as boolean,
     }

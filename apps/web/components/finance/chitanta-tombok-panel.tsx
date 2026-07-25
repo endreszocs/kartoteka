@@ -94,13 +94,23 @@ export function ChitantaTombokPanel({ congregationName, refreshKey }: Props) {
     await load()
   }
 
+  // 2026-07-25 (G4): az aktív kártya is a valós (számított) elhasználtságot
+  // mutatja — különben a hero 0/100-at mutatna, míg az alatta lévő táblázat
+  // pl. 37/100-at. A kovetkezo_szam viszont SZÁNDÉKOSAN DB-alapú marad (a
+  // hivatalos auto-kiállítás számozása).
+  const activeEnriched = active ? tombok.find((t) => t.id === active.id) : undefined
+  const activeFelhasznalt = active
+    ? Math.max(active.felhasznalt_darabszam, activeEnriched?.szamitott_felhasznalt ?? 0)
+    : 0
+  const activeMaradek = active ? Math.max(0, active.darabszam_ossz - activeFelhasznalt) : 0
   const activePercentage =
     active && active.darabszam_ossz > 0
-      ? Math.round((active.felhasznalt_darabszam / active.darabszam_ossz) * 100)
+      ? Math.round((activeFelhasznalt / active.darabszam_ossz) * 100)
       : 0
 
   const hasNoActive = !loading && !active
-  const runningLow = active && active.maradek > 0 && active.maradek <= 10
+  const runningLow = active && activeMaradek > 0 && activeMaradek <= 10
+  const activeExhausted = active != null && activeMaradek === 0
 
   return (
     <div className="space-y-4">
@@ -179,9 +189,11 @@ export function ChitantaTombokPanel({ congregationName, refreshKey }: Props) {
       ) : active ? (
         <div
           className={`rounded-2xl border p-4 ${
-            runningLow
-              ? 'border-amber-300 bg-amber-50/60'
-              : 'border-emerald-200 bg-emerald-50/50'
+            activeExhausted
+              ? 'border-rose-300 bg-rose-50/60'
+              : runningLow
+                ? 'border-amber-300 bg-amber-50/60'
+                : 'border-emerald-200 bg-emerald-50/50'
           }`}
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -209,7 +221,7 @@ export function ChitantaTombokPanel({ congregationName, refreshKey }: Props) {
             </div>
             <div className="text-right">
               <div className="text-3xl font-bold text-slate-800">
-                {active.maradek}
+                {activeMaradek}
               </div>
               <p className="text-xs text-slate-600">maradt / {active.darabszam_ossz}</p>
             </div>
@@ -218,7 +230,11 @@ export function ChitantaTombokPanel({ congregationName, refreshKey }: Props) {
           <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-200">
             <div
               className={`h-full transition-all ${
-                runningLow ? 'bg-amber-500' : 'bg-emerald-500'
+                activeExhausted
+                  ? 'bg-rose-500'
+                  : runningLow
+                    ? 'bg-amber-500'
+                    : 'bg-emerald-500'
               }`}
               style={{ width: `${activePercentage}%` }}
             />
@@ -254,8 +270,16 @@ export function ChitantaTombokPanel({ congregationName, refreshKey }: Props) {
               </thead>
               <tbody>
                 {tombok.map((t) => {
+                  // 2026-07-25 (G4): valós elhasználtság — max(DB-számláló, a
+                  // berögzített kerületi nyugtaszámokból számított érték).
+                  const felhasznalt = Math.max(
+                    t.felhasznalt_darabszam,
+                    t.szamitott_felhasznalt ?? 0,
+                  )
+                  const maradek = Math.max(0, t.darabszam_ossz - felhasznalt)
+                  const fogyoban = maradek > 0 && maradek <= 10
                   const pct = t.darabszam_ossz
-                    ? Math.round((t.felhasznalt_darabszam / t.darabszam_ossz) * 100)
+                    ? Math.round((felhasznalt / t.darabszam_ossz) * 100)
                     : 0
                   return (
                     <tr key={t.id} className="border-t border-slate-100">
@@ -272,17 +296,36 @@ export function ChitantaTombokPanel({ congregationName, refreshKey }: Props) {
                         {t.szam_veg.toString().padStart(7, '0')}
                       </td>
                       <td className="px-3 py-2 text-right">
-                        <div>
-                          {t.felhasznalt_darabszam} / {t.darabszam_ossz}
+                        <div
+                          className={
+                            maradek === 0
+                              ? 'text-rose-700'
+                              : fogyoban
+                                ? 'text-amber-700'
+                                : undefined
+                          }
+                        >
+                          {felhasznalt} / {t.darabszam_ossz}
                         </div>
                         <div className="mt-0.5 h-1 w-16 ml-auto rounded-full bg-slate-200 overflow-hidden">
                           <div
                             className={`h-full ${
-                              t.aktiv ? 'bg-emerald-500' : 'bg-slate-400'
+                              maradek === 0
+                                ? 'bg-rose-500'
+                                : fogyoban
+                                  ? 'bg-amber-500'
+                                  : t.aktiv
+                                    ? 'bg-emerald-500'
+                                    : 'bg-slate-400'
                             }`}
                             style={{ width: `${pct}%` }}
                           />
                         </div>
+                        {(t.anulalt_darab ?? 0) > 0 && (
+                          <div className="mt-0.5 text-[11px] text-slate-400">
+                            ebből anulált: {t.anulalt_darab}
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-xs text-slate-600">
                         <div>{formatDateShort(t.elso_hasznalat_datum)}</div>

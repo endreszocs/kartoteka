@@ -129,8 +129,15 @@ export function MaterialWarehouseTab({ congregationName }: Props) {
   const tombStats = useMemo(() => {
     const aktivTombok = tombok.filter((t) => t.aktiv).length
     const totalBlocks = tombok.length
+    // 2026-07-25 (G4): itt is a valos (szamitott) elhasznaltsaggal — ma nem
+    // renderelodik sehol, de kesz csapda volna a nyers DB-szamlaloval.
     const remainingReceipts = tombok.reduce(
-      (s, t) => s + (t.darabszam_ossz - t.felhasznalt_darabszam),
+      (s, t) =>
+        s +
+        Math.max(
+          0,
+          t.darabszam_ossz - Math.max(t.felhasznalt_darabszam, t.szamitott_felhasznalt ?? 0),
+        ),
       0,
     )
     const totalValue = tombok.reduce((s, t) => s + (Number(t.vasarlas_ara) || 0), 0)
@@ -434,6 +441,12 @@ export function MaterialWarehouseTab({ congregationName }: Props) {
             <BookOpen className="mr-1 size-3.5" />
             Új tömb
           </Button>
+          {/* 2026-07-25 (G4): saját sorba törve (basis-full), hogy 375px-en ne
+              nyomja szét az ikonos címsort. */}
+          <p className="basis-full text-[11px] leading-4 text-slate-400">
+            A készlet a berögzített kerületi nyugtaszámokból számolódik — a stornózott és az
+            anulált (0 lejes) nyugta is elhasznált lap.
+          </p>
         </div>
 
         {tombLoading ? (
@@ -477,10 +490,20 @@ export function MaterialWarehouseTab({ congregationName }: Props) {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {tombok.map((t) => {
-                  const maradek = t.darabszam_ossz - t.felhasznalt_darabszam
+                  // 2026-07-25 (G4): a valós elhasználtság a berögzített kerületi
+                  // nyugtaszámokból számolódik (vezető nullák nélkül egyeztetve);
+                  // max(DB-számláló, számított) — a hivatalos auto-kiállítás se vesszen el.
+                  const felhasznalt = Math.max(
+                    t.felhasznalt_darabszam,
+                    t.szamitott_felhasznalt ?? 0,
+                  )
+                  const maradek = Math.max(0, t.darabszam_ossz - felhasznalt)
                   const pct = t.darabszam_ossz
                     ? Math.round((maradek / t.darabszam_ossz) * 100)
                     : 0
+                  const fogyoban = maradek > 0 && maradek <= 10
+                  // Kifogyott tömbnél a sáv TELI rose — a 0%-os sáv láthatatlan volna.
+                  const savSzelesseg = maradek === 0 ? 100 : pct
                   return (
                     <tr key={t.id} className="hover:bg-slate-50/60">
                       <td className="p-2.5">
@@ -503,15 +526,38 @@ export function MaterialWarehouseTab({ congregationName }: Props) {
                       </td>
                       <td className="p-2.5 text-right">
                         <div className="inline-flex items-center gap-2">
-                          <span className="font-semibold">{maradek}</span>
+                          <span
+                            className={`font-semibold ${
+                              maradek === 0
+                                ? 'text-rose-700'
+                                : fogyoban
+                                  ? 'text-amber-700'
+                                  : ''
+                            }`}
+                          >
+                            {maradek}
+                          </span>
                           <span className="text-xs text-slate-500">/ {t.darabszam_ossz}</span>
                         </div>
                         <div className="mt-1 h-1 w-20 ml-auto rounded-full bg-slate-200 overflow-hidden">
                           <div
-                            className={`h-full ${t.aktiv ? 'bg-emerald-500' : 'bg-slate-400'}`}
-                            style={{ width: `${pct}%` }}
+                            className={`h-full ${
+                              maradek === 0
+                                ? 'bg-rose-500'
+                                : fogyoban
+                                  ? 'bg-amber-500'
+                                  : t.aktiv
+                                    ? 'bg-emerald-500'
+                                    : 'bg-slate-400'
+                            }`}
+                            style={{ width: `${savSzelesseg}%` }}
                           />
                         </div>
+                        {(t.anulalt_darab ?? 0) > 0 && (
+                          <div className="mt-0.5 text-[11px] text-slate-400">
+                            ebből anulált: {t.anulalt_darab}
+                          </div>
+                        )}
                       </td>
                       <td className="p-2.5">
                         {t.aktiv ? (

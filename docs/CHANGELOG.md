@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Nyugtatömb-készlet a valóság szerint
+<!-- key: 2026-07-25-penzugy-g4-nyugtatomb-hasznalat -->
+<!-- category: improvement -->
+<!-- version: v0.9.114 -->
+<!-- targets: minden pénzügyet kezelő felhasználó -->
+
+### ✨ Új funkciók
+
+- **A nyugtatömbök elhasználtsága mostantól a ténylegesen berögzített kerületi nyugtaszámokból számolódik** — a Leltár → Anyagraktár tömb-táblázata és a Kassza fül tömb-panelje nem mutat többé tévesen „100/100 készletet". A vezető nullák nem számítanak (0115032 = 115032), a családi nyugta al-sorai (/1, /2…) egy lapnak számítanak, a stornózott és az anulált (0 lejes) nyugta is elhasznált lap. Fogyóban lévő tömbnél (10 lap alatt) sárga, kifogyottnál piros jelzés.
+- A hivatalosan (automatikusan) kiállított nyugták továbbra is beszámítanak — a kétféle út egyesítve, duplázás nélkül.
+- **Az éves „Nyugtatömb kimutatás" is a valós használatot mutatja** — a csak kézzel használt tömbök eddig ki sem kerültek a hivatalos ívre; mostantól a berögzített nyugtaszámok első/utolsó dátumával együtt szerepelnek.
+- **Asztali (offline) verzió**: a tömb-kártyák ugyanígy a valós elhasználtságot mutatják (a következő asztali kiadástól; internet nélkül a hivatalos számláló látszik).
+
+---
+
 ## [2026-07-25] — Évi pénzügyi kép a Számadás fülön
 <!-- key: 2026-07-25-penzugy-g3-szamadas-hero -->
 <!-- category: improvement -->
