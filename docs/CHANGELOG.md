@@ -23,6 +23,24 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Asztali alkalmazás: azonos számok, valós nyugtatömb-készlet
+<!-- key: 2026-07-25-f6-desktop-paritas -->
+<!-- category: improvement -->
+<!-- version: v0.9.119 (asztali: 0.9.6) -->
+<!-- targets: az asztali (offline) alkalmazás használói -->
+
+### 🎨 UX javítások
+
+- **Nyitó egyenleg a Bank fülön**: az asztali alkalmazás bankszámla-kártyáin is megjelenik az előző évi záróból levezetett nyitó egyenleg — eddig „nincs rögzítve" felirat állt ott, és egy számlára szűrve nullától indult a kimutatás, miközben az összesítő már a helyes értéket mutatta.
+- **Nyugtatömb valós készlete a kiállításnál is**: az „Aktív tömb" panel (a Nyugtatömbök és a nyugta-kiállítás oldalon) mostantól a ténylegesen berögzített nyugtaszámokból számol — eddig többet mutatott maradékként, mint amennyi valójában volt, és ellentmondott az alatta lévő tömb-kártyáknak.
+- **Mindenhol ugyanaz a szám**: a Pénzügy néhány régi, közvetlen hivatkozással elérhető aloldala saját, eltérő módon számolt (nyitó egyenleg és a belső átvezetések figyelmen kívül hagyásával) — ezek mostantól az egységes Pénzügy oldal megfelelő fülére visznek, így ugyanabból az adatból ugyanaz az eredmény látszik. A régi hivatkozások továbbra is működnek, és a helyes fülre nyílnak.
+- **Év-választó a Pénzügy oldalon**: az asztali alkalmazásban is visszaválthatsz korábbi évekre (Áttekintés, Számadás, Tartozások, Kassza…) — év elején így a előző évi számadás is megnézhető.
+- **Sztornózott befizetés nem számít fizetettnek** a Tartozások fülön (az asztali változat eddig „rendezettnek" mutathatott egy tagot, akinek a befizetését utólag sztornózták — a webhez igazítva).
+
+> Az asztali változásokhoz **új asztali kiadás (0.9.6)** telepítése szükséges.
+
+---
+
 ## [2026-07-25] — Nincs többé néma adat-levágás a pénzügyben
 <!-- key: 2026-07-25-f6-lapozas-limitek -->
 <!-- category: bugfix -->

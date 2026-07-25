@@ -1,4 +1,4 @@
-import { HashRouter, Routes, Route } from 'react-router-dom'
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 
 import { AuthGate } from './lib/auth-gate'
 import { LoginPage } from './pages/login-page'
@@ -22,10 +22,6 @@ import { KiadasPage } from './pages/kiadas-page'
 import { MembersPage } from './pages/members-page'
 import { MissziosMuhelyPage } from './pages/misszios-muhely-page'
 import { MunkanaploPage } from './pages/munkanaplo-page'
-import { PenzugyDashboardPage } from './pages/penzugy-dashboard-page'
-import { PenzugyTranzakciokPage } from './pages/penzugy-tranzakciok-page'
-import { PenzugySzamadasPage } from './pages/penzugy-szamadas-page'
-import { PenzugyTartozasokPage } from './pages/penzugy-tartozasok-page'
 import { PenzugyPage } from './pages/penzugy-page'
 import { PinEntryPage } from './pages/pin-entry-page'
 import { PinSetupPage } from './pages/pin-setup-page'
@@ -59,15 +55,22 @@ function App() {
           <Route path="/dashboard" element={<HomePage />} />
           <Route path="/munkanaplo" element={<MunkanaploPage />} />
           {/* 2026-06-10 (B-hullám): a Pénzügy EGYSÉGES tab-oldal (mint a web
-              FinanceTabs) — hero + ColorTabs + tab-tartalom. A különálló
-              /penzugy/* oldalak megmaradnak (sidebar-almenü, deep-link). */}
+              FinanceTabs) — hero + ColorTabs + tab-tartalom.
+              2026-07-25 (F6.2): a különálló /penzugy/attekintes|tranzakciok|
+              szamadas|tartozasok oldalak ÁTIRÁNYÍTVA az egységes oldal megfelelő
+              fülére. A sidebar amúgy is oda mutatott (`/penzugy#…`), viszont
+              ezek az árva oldalak MÁS SZÁMOKAT adtak: a dashboard-változat 0
+              nyitóval és a belső mozgások kizárása NÉLKÜL számolt, a
+              számadás-változat pedig nyitó/előző-évi tény/egyenleg nélkül —
+              ugyanarra az évre eltérő egyenleg. A régi deep-linkek így is
+              működnek, de mindenki UGYANAZT a számot látja. */}
           <Route path="/penzugy" element={<PenzugyPage />} />
-          <Route path="/penzugy/attekintes" element={<PenzugyDashboardPage />} />
+          <Route path="/penzugy/attekintes" element={<Navigate to="/penzugy#dashboard" replace />} />
           <Route path="/penzugy/befizetes" element={<BefizetesPage />} />
           <Route path="/penzugy/kiadas" element={<KiadasPage />} />
-          <Route path="/penzugy/tranzakciok" element={<PenzugyTranzakciokPage />} />
-          <Route path="/penzugy/szamadas" element={<PenzugySzamadasPage />} />
-          <Route path="/penzugy/tartozasok" element={<PenzugyTartozasokPage />} />
+          <Route path="/penzugy/tranzakciok" element={<Navigate to="/penzugy#transactions" replace />} />
+          <Route path="/penzugy/szamadas" element={<Navigate to="/penzugy#accounting" replace />} />
+          <Route path="/penzugy/tartozasok" element={<Navigate to="/penzugy#debt" replace />} />
           <Route path="/penzugy/belsomozgas" element={<BelsomozgasPage />} />
           <Route path="/penzugy/chitanta" element={<ChitantaPage />} />
           <Route path="/penzugy/chitanta-tombok" element={<ChitantaTombokPage />} />

@@ -178,7 +178,7 @@ export function ChitantaTombokPage() {
         {/* Aktív tömb panel — a napi bizonylat-kiállítás alapja.
             Deriváljuk a `rows`-ból (nincs dupla query), a `@kartoteka/validations`
             `computeChitantaTombStatus()` segédfn-nel. A-M7.2a (2026-04-22). */}
-        {!loading && rows.length > 0 && <ActiveChitantaTombPanel rows={rows} />}
+        {!loading && rows.length > 0 && <ActiveChitantaTombPanel rows={rows} usage={usageMap} />}
 
         {/* Sikeres rögzítés banner */}
         {successToast && (
