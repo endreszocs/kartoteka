@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Asztali alkalmazás: eltűnnek a kísértet-tételek, látszanak a feltöltésre várók
+<!-- key: 2026-07-25-f64-tombstone-pending -->
+<!-- category: bugfix -->
+<!-- version: v0.9.122 (asztali: 0.9.8) -->
+<!-- targets: az asztali (offline) alkalmazás használói -->
+
+### 🐛 Javítások
+
+- **A böngészőben törölt tétel eltűnik az asztali alkalmazásból is.** Eddig az asztali változat csak hozzáadni tudott a helyi másolatához: ha egy befizetést vagy kiadást a böngészőben töröltek, az az asztali kasszában és az egyenlegben **örökre bent maradt** — vagyis nem létező pénzt mutatott. A szinkron mostantól a törölt tételeket is elrendezi. (Csak hibátlan, teljes letöltés után takarít, tehát megszakadt kapcsolat miatt semmi nem vész el.)
+- **Látszik, ha van feltöltésre váró tétel.** Ha internet nélkül rögzítettél befizetést, a Pénzügy oldal tetején mostantól kiírja, hány ilyen tétel van, és hogy a lenti kimutatások ezeket még nem tartalmazzák — eddig ezek némán hiányoztak a kasszából és az egyenlegből.
+
+> Az asztali változásokhoz **új asztali kiadás (0.9.8)** telepítése szükséges.
+
+---
+
 ## [2026-07-25] — Az asztali kassza ugyanazt mutatja, mint a böngésző
 <!-- key: 2026-07-25-f63-m2-desktop-kassza -->
 <!-- category: bugfix -->

@@ -35,6 +35,55 @@ export interface PullBefizetesekResult {
  * tükörből renderel, online is csonkolt volna: hibás számadás, hamis tartozás).
  * Helyette a `selectAllPaged` lapozó (1000-es lapok, csak ÜRES lap a stop).
  */
+
+/**
+ * 2026-07-25 (F6.4): KÍSÉRTET-SOROK TAKARÍTÁSA (tombstone).
+ *
+ * A pull `deleted = false`-ra szűr és CSAK upsertel — ezért a szerveren
+ * utólag TÖRÖLT (vagy az évből kimozgatott) sor ÖRÖKRE bennmaradt a helyi
+ * másolatban. Mivel az asztali pénzügy-oldalak a helyi másolatból
+ * renderelnek, ez nem létező pénzt mutatott a kasszában és az egyenlegben.
+ *
+ * A takarítás CSAK teljes, hibátlan pull után fut (akkor a `serverIds` a
+ * hiteles, teljes halmaz az adott hatókörre), és kizárólag a hatókörön
+ * belüli, a szerveren már nem szereplő sorokat törli. Ha a lekérdezés
+ * hibázott volna, a hívó előbb kilép — így sosem törlünk hiányos adat miatt.
+ */
+async function reconcileLocalRows(
+  table: 'befizetes_local' | 'kiadas_local',
+  scopeWhere: string,
+  scopeParams: SqlParam[],
+  serverIds: Set<string>,
+): Promise<number> {
+  const localRows = await dbSelect<{ id: number }>(
+    `SELECT id FROM ${table} WHERE ${scopeWhere}`,
+    scopeParams,
+  )
+  // ⚠️ BIZTONSÁGI SZELEP: ha a szerver ÜRES halmazt adott, de lokálisan VAN adat
+  // a hatókörben, az szinte biztosan jogosultsági/szűrési anomália (a projektben
+  // dokumentált RLS scope-divergencia: más gyülekezetre nézve némán 0 sor jön).
+  // Ilyenkor a „takarítás" az egész évet kiürítené — inkább nem nyúlunk hozzá.
+  if (serverIds.size === 0 && localRows.length > 0) {
+    console.warn(
+      `[finance-sync] a ${table} takarítása KIHAGYVA: a szerver 0 sort adott, ` +
+        `miközben lokálisan ${localRows.length} sor van a hatókörben (jogosultsági anomália?).`,
+    )
+    return 0
+  }
+  // Az azonosítókat SZÖVEGKÉNT vetjük össze — a szerveren int8, ami nagy értéknél
+  // JS-számként pontosságot veszíthetne.
+  const stale = localRows.map((r) => r.id).filter((id) => !serverIds.has(String(id)))
+  if (stale.length === 0) return 0
+  // Darabolva törlünk (SQLite paraméter-plafon).
+  const CHUNK = 200
+  for (let i = 0; i < stale.length; i += CHUNK) {
+    const slice = stale.slice(i, i + CHUNK)
+    const placeholders = slice.map((_, idx) => `?${idx + 1}`).join(', ')
+    await dbExecute(`DELETE FROM ${table} WHERE id IN (${placeholders})`, slice)
+  }
+  return stale.length
+}
+
 export async function pullBefizetesek(
   congregationId: string,
   year: number,
@@ -142,6 +191,19 @@ export async function pullBefizetesek(
         ],
       )
       pulled += 1
+    }
+
+    // 2026-07-25 (F6.4): a szerveren törölt/kimozgatott sorok takarítása —
+    // a hatókör AZONOS a lekérdezésével (jogcím-év VAGY pénztári nap az évben).
+    const serverIds = new Set((data || []).map((row) => String((row as Record<string, unknown>).id)))
+    const removed = await reconcileLocalRows(
+      'befizetes_local',
+      'congregation_id = ?1 AND (fizetettev = ?2 OR (datum >= ?3 AND datum <= ?4))',
+      [congregationId, year, `${year}-01-01`, `${year}-12-31T23:59:59`],
+      serverIds,
+    )
+    if (removed > 0) {
+      console.info(`[finance-sync] ${removed} elavult befizetés-sor törölve a helyi másolatból.`)
     }
 
     return { success: true, pulled }
@@ -254,6 +316,18 @@ export async function pullKiadasok(
         ],
       )
       pulled += 1
+    }
+
+    // 2026-07-25 (F6.4): kísértet-sorok takarítása (lásd reconcileLocalRows).
+    const serverIds = new Set((data || []).map((row) => String((row as Record<string, unknown>).id)))
+    const removed = await reconcileLocalRows(
+      'kiadas_local',
+      'congregation_id = ?1 AND datum >= ?2 AND datum <= ?3',
+      [congregationId, `${year}-01-01`, `${year}-12-31T23:59:59`],
+      serverIds,
+    )
+    if (removed > 0) {
+      console.info(`[finance-sync] ${removed} elavult kiadás-sor törölve a helyi másolatból.`)
     }
 
     return { success: true, pulled }
