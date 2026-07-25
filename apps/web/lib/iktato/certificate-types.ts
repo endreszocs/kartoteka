@@ -74,5 +74,16 @@ export interface CongregationHeaderData {
   helysegRo: string | null
 }
 
-/** A többnyelvű fejléc nyelvei. */
-export type LetterheadLang = 'hu' | 'ro' | 'en'
+/**
+ * A többnyelvű fejléc nyelvei.
+ *
+ * F8e (2026-07-25, user-kérés): NÉMET is — `de`. A gyülekezetnek nincs külön
+ * német nevet tároló oszlopa (a CongregationHeaderData szándékosan változatlan),
+ * ezért a német fejléc a magyar/hivatalos névből építi a „Reformierte
+ * Kirchengemeinde {helység}" alakot (letterheads.deGemeindeNev).
+ *
+ * ⚠️ Ez a típus a dokumentum nyelvével (dokumentum-csaladok.DokumentumNyelv)
+ * betűre azonos halmaz — a kiállító EGY „Dokumentum nyelve" választóval
+ * vezérli mindkettőt.
+ */
+export type LetterheadLang = 'hu' | 'ro' | 'en' | 'de'

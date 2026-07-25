@@ -1217,10 +1217,24 @@ function DigitalContent() {
           korlátozott, védett linkkel történik.
         </li>
         <li>
+          <strong>{'„Fotózás telefonnal (QR)"'}</strong>: a gépen megjelenő QR-kódot beolvasva a
+          telefonon megnyílik egy egyszerű feltöltő lap — <em>bejelentkezés nélkül</em>, csak
+          ehhez az egy irathoz, és a kód <strong>10 percig</strong> érvényes (a{' '}
+          {'„Munkamenet lezárása"'} gombbal azonnal visszavonható). A befotózott oldalak pár
+          másodpercen belül megjelennek a gépen a csatolmányok között.
+        </li>
+        <li>
           <strong>{'„Csak metaadat"'}</strong>: ha az irat csak papíron létezik, fájl nélkül is
           rögzíthető a léte (megnevezéssel, megjegyzéssel) — így a nyilvántartás teljes marad.
         </li>
       </ul>
+      <p>
+        A feltöltött képek automatikusan <strong>tömörödnek</strong> (gyorsabb feltöltés, kisebb
+        tárhely) és <strong>digitális iktató-pecsétet</strong> kapnak: a kép <em>alatt</em> egy
+        fehér sávban jelenik meg az iktatószám, a dátum, az iratcsomó és a gyülekezet neve — így a
+        pecsét soha nem takarja el az irat szövegét. PDF-nél a pecsét az első lap alsó margójára
+        kerül. A pecsételés a csatolmány-ablakban egy pipával kikapcsolható.
+      </p>
       <Callout tone="amber">
         A digitális másolat <strong>NEM helyettesíti</strong> az eredeti papír irat
         előírás szerinti irattári megőrzését — a befotózás a gyors visszakeresést és a

@@ -26,15 +26,36 @@
  * A buildEletutTodoHtml a hiány-listát (EletutHiany[]) nyomtatható A4
  * ellenőrző-listává alakítja (mit kell megkeresni + hova kell bevezetni).
  *
- * WYSIWYG-elv (minta: lelkeszi-jelentes/print.ts + worklog/official-journal.ts):
- * @page A4 portrait margin 0, a lap-margót a .sheet paddingja adja (18mm bal
- * lefűző-margóval) — az előnézet, a PDF és a nyomtatás UGYANAZT a HTML-t kapja.
- * A body `data-sheet-count` attribútuma a print-engine-v2 csonka-PDF-őréhez kell.
+ * WYSIWYG-elv: az előnézet, a PDF és a nyomtatás UGYANAZT a HTML-t kapja
+ * (@page margin 0 + a lap-margót a .page padding adja). A body
+ * `data-sheet-count` attribútuma a print-engine-v2 csonka-PDF-őréhez kell —
+ * ezt a közös burok (dokumentum-stilus.ts) írja ki.
  * Tisztán pure modul (nincs DOM-hivatkozás) — a hívó iframe/srcdoc-ba tölti.
+ *
+ * F8e (2026-07-25) — user teszt-észrevételek nyomán:
+ *  - A4-TIPOGRÁFIA: a lap a KÖZÖS kanonikus profilra állt át
+ *    (lib/iktato/dokumentum-stilus.ts — dokumentumBurok/dokumentumStilus),
+ *    amely a kutatási jelentés paramétereit követi
+ *    (docs/project-tracking/KARTOTEKA-a4-tipografia-elonezet-kutatas-2026-07-25.md):
+ *    25mm bal lefűző-margó / 20mm jobb / 20mm fent / 18mm lent, Times-lánc,
+ *    1.45 sorköz, BALRA ZÁRT szöveg `hyphens: auto`-val (a sorkizárás
+ *    elválasztás nélkül volt a csúnya tördelés gyökere — és a html2canvas
+ *    justify-word-spacing hibáját is elkerüljük), flex-oszlop + `margin-top:
+ *    auto` az aláírás-sávon (az aláírás a szövegtükör aljára ül).
+ *    Az űrlap-specifikus stílus `extraCss`-ként megy (a sűrű CIEC-táblázat
+ *    10.5pt-os alap-betűvel fér el jól).
+ *  - KELTEZÉS-HELYSÉG: a keltezés a gyülekezet ANYAKÖNYVI helységnevét kapja a
+ *    dokumentum nyelvén (header.helysegHu / helysegRo) — a hívó `helyseg`
+ *    paramétere csak tartalék, mert az a szabad szöveges cím-mezőből is jöhet
+ *    (élesben így jelent meg magyar nyomtatványon a román „Brateș").
+ *  - A keltezés-sor a KÉT ALÁÍRÁSSAL EGY blokkban van (nem törik szét), így a
+ *    település neve mindig ott áll az aláírások fölött.
  */
 
 import type { CongregationHeaderData } from './certificate-types'
 import { buildLetterheadHtml } from './letterheads'
+import { keltezesSor } from './dokumentum-csaladok'
+import { dokumentumBurok } from './dokumentum-stilus'
 import type { EletutHazassag, EletutHiany, EletutIgazolasData } from './eletut-types'
 
 // ─────────────────────────────────────────────────────────────────
@@ -57,9 +78,20 @@ export interface EletutIgazolasHtmlOptions {
   header: CongregationHeaderData
   /** A kiosztott iktatószám — null esetén kitöltő-vonal kerül a helyére. */
   iratszam: string | null
-  /** Keltezés helye (jellemzően a gyülekezet helysége). */
+  /**
+   * Keltezés helye — TARTALÉK érték. Elsődlegesen a `header.helysegHu` /
+   * `header.helysegRo` (a gyülekezet anyakönyvi helysége a dokumentum nyelvén)
+   * kerül a nyomtatványra; ez a mező csak akkor jut szerephez, ha a fejléc-
+   * adatban nincs helység. (F8e: a hívó eddig a szabad szöveges cím-mezőt adta
+   * át, ezért jelent meg magyar nyomtatványon a román helységnév.)
+   */
   helyseg: string
-  /** Keltezés dátuma, megjelenítésre kész szövegként (pl. „2026. július 25."). */
+  /**
+   * Keltezés dátuma — ISO (YYYY-MM-DD) VAGY megjelenítésre kész magyar szöveg
+   * („2026. július 25."). Mindkettőt felismerjük, és a nyelv-mód szerinti
+   * formára hozzuk („la 25 iulie 2026" / „July 25, 2026"); ismeretlen formátum
+   * változatlanul kerül a lapra.
+   */
   datum: string
   /** A kiállító lelkipásztor neve (aláírás-blokk + nyitómondat). */
   lelkipasztor: string
@@ -98,6 +130,35 @@ function fmtDatum(v: string): string {
 function fmtDatumHa(v: string | null | undefined): string {
   const t = txt(v)
   return t ? fmtDatum(t) : ''
+}
+
+/** Magyar hónapnevek — a „2026. július 25." alakú keltezés visszafejtéséhez. */
+const HU_HONAPOK = [
+  'január', 'február', 'március', 'április', 'május', 'június',
+  'július', 'augusztus', 'szeptember', 'október', 'november', 'december',
+]
+
+/**
+ * A keltezés dátumának ISO-alakja (YYYY-MM-DD), ha felismerhető.
+ * Elfogadja az ISO formát ÉS a magyar hosszú alakot („2026. július 25."),
+ * mert a hívó jelenleg megjelenítésre kész magyar szöveget ad át — enélkül a
+ * román/angol nyomtatványra magyar hónapnév kerülne. Ismeretlen formátumnál
+ * null (ilyenkor a nyers szöveg megy a lapra, változtatás nélkül).
+ */
+function isoDatum(v: string): string | null {
+  const t = txt(v)
+  const iso = t.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`
+  const hu = t.match(/^(\d{4})\.\s*([^\s.]+)\.?\s*(\d{1,2})\.?$/)
+  if (hu) {
+    const honapIdx = HU_HONAPOK.indexOf(hu[2].toLowerCase())
+    if (honapIdx >= 0) {
+      const ho = String(honapIdx + 1).padStart(2, '0')
+      const nap = String(Number(hu[3])).padStart(2, '0')
+      return `${hu[1]}-${ho}-${nap}`
+    }
+  }
+  return null
 }
 
 /** Kitöltő-vonal (üres rovathoz — kézzel pótolható a nyomtatványon). */
@@ -173,84 +234,88 @@ function enParish(nevEn: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Közös lap-stílus — WYSIWYG (@page margin 0 + .sheet padding, 18mm bal)
+// Közös lap-stílus — az E1-kontraktus kanonikus A4-profilja
 // ─────────────────────────────────────────────────────────────────
-
-const STILUS_ALAP = `
-    @page { size: A4 portrait; margin: 0; }
-    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    body { font-family: 'Times New Roman', Georgia, serif; color: #111827; margin: 0; background: #e2e8f0; padding: 12px 0; font-size: 10.5pt; line-height: 1.4; }
-    /* Nagyobb bal padding (18mm): lefűzhetőség — lyukasztás-margó. */
-    .sheet { width: 210mm; min-height: 297mm; margin: 0 auto 12px; background: #fff; box-shadow: 0 12px 30px rgba(15,23,42,.14); padding: 12mm 14mm 14mm 18mm; page-break-after: always; position: relative; }
-    .sheet:last-child { page-break-after: auto; margin-bottom: 0; }
-    .kitolto { display: inline-block; border-bottom: 0.5pt dotted #111827; height: 3mm; vertical-align: baseline; }
-    @media print { body { background: #fff; padding: 0; } .sheet { margin: 0 auto; box-shadow: none; } }`
-
-/** Teljes HTML-dokumentum burkoló (iframe/srcdoc + print-engine-v2 kompatibilis). */
-function dokumentum(cim: string, stilus: string, lapTartalom: string, lang = 'hu'): string {
-  return `<!doctype html>
-<html lang="${lang}">
-<head>
-<meta charset="utf-8" />
-<title>${esc(cim)}</title>
-<style>${stilus}
-</style>
-</head>
-<body data-sheet-count="1">
-<div class="sheet">
-${lapTartalom}
-</div>
-</body>
-</html>`
-}
+//
+// A lap geometriája, tipográfiája és a flex-oszlopos (fej · törzs · aláírás)
+// szerkezete a KÖZÖS modulból jön (lib/iktato/dokumentum-stilus.ts), amely a
+// kutatási jelentés paramétereit önti kódba (25mm bal lefűző-margó / 20mm jobb
+// / 20mm fent / 18mm lent, Times-lánc, 1.45 sorköz, BALRA ZÁRT + hyphens:auto
+// + kötelező `lang`, `.page__sign { margin-top: auto }`). Így az életút-
+// igazolás pixelre ugyanúgy néz ki, mint a többi hivatalos irat.
+//
+// Az alábbi kiegészítő CSS CSAK a CIEC-mezős űrlap sajátja (a burok az
+// `extraCss`-t a stíluslap VÉGÉRE fűzi, így ezek felülírják az alapot):
+// az űrlap sűrű táblázat, ezért 10.5pt alap betűméret a folyószöveg-iratok
+// 12pt-ja helyett — a margók, a sorköz, az igazítás és az elválasztás
+// változatlanul a kanonikus profilé.
 
 // ─────────────────────────────────────────────────────────────────
 // 1) Az igazolás-nyomtatvány
 // ─────────────────────────────────────────────────────────────────
 
-const IGAZOLAS_STILUS = `${STILUS_ALAP}
+/** Csak a CIEC-űrlap saját stílusa — a kanonikus profil VÉGÉRE fűzve. */
+const IGAZOLAS_EXTRA_CSS = `
+    /* A sűrű, mezős űrlap kisebb alap-betűvel fér el jól az A4-tükörben. */
+    .page { font-size: 10.5pt; color: #111827; }
+    /* A Szám-sor közvetlenül a levélfej alatt, szűkebb térközzel. */
+    .page__meta { margin: 4mm 0 3mm; }
+    /* Az aláírás-blokk fölött a kanonikus 18mm-t a keltezés-sorral együtt adjuk ki. */
+    .page__sign { padding-top: 8mm; }
 
-    /* Kis 3-nyelvű egyház-lánc sor közvetlenül a levélfej alatt. */
-    .egyhaz-lanc { text-align: center; font-size: 8.5pt; letter-spacing: .02em; margin: -4mm 0 4mm; }
+    /* Kis 3-nyelvű egyház-lánc sor közvetlenül a levélfej alatt. A levélfej
+       saját 24px alsó margóval jön (letterheads.ts), azt húzzuk vissza. */
+    .egyhaz-lanc { text-align: center; font-size: 8.5pt; line-height: 1.3; letter-spacing: .02em; margin: -4mm 0 0; }
 
-    .szam-sor { margin: 0 0 4mm; }
-    .cim-blokk { text-align: center; margin: 0 0 4mm; }
-    .cim-blokk .fo { font-size: 15pt; font-weight: bold; letter-spacing: .18em; }
-    .cim-blokk .masodik { font-size: 11.5pt; font-weight: bold; letter-spacing: .1em; margin-top: 1.2mm; }
-    .cim-blokk .alcim { font-size: 9.5pt; margin-top: .4mm; }
+    .cim-blokk { text-align: center; margin: 0 0 4mm; page-break-after: avoid; break-after: avoid; }
+    .cim-blokk .fo { font-size: 16pt; font-weight: bold; letter-spacing: .12em; line-height: 1.2; }
+    .cim-blokk .masodik { font-size: 12pt; font-weight: bold; letter-spacing: .08em; line-height: 1.2; margin-top: 1.4mm; }
+    .cim-blokk .alcim { font-size: 9.5pt; line-height: 1.3; margin-top: .6mm; }
 
-    .nyito p { margin: 0 0 1.8mm; text-align: justify; }
+    /* Balra zárt + elválasztás (a sorkizárás helyett) — lásd dokumentum-stilus. */
+    .page .nyito p { margin: 0 0 2.2mm; }
     .nyito .ro, .nyito .en { font-size: 9.5pt; font-style: italic; color: #1f2937; }
 
-    table.mezok { width: 100%; border-collapse: collapse; margin: 2.5mm 0 4mm; }
-    table.mezok td { border: 0.6pt solid #334155; padding: 1.2mm 2mm; vertical-align: top; }
+    /* table-layout: fixed — a hosszú értékek nem tolják szét a tükröt. */
+    table.mezok { width: 100%; table-layout: fixed; border-collapse: collapse; margin: 3mm 0 4mm; }
+    table.mezok td { border: 0.6pt solid #334155; padding: 1.4mm 2mm; vertical-align: top; }
     table.mezok tr { page-break-inside: avoid; break-inside: avoid; }
-    td.szam { width: 8mm; text-align: right; font-size: 9pt; color: #334155; }
-    tr.szakasz td { background: #f1f5f9; font-weight: bold; font-size: 9.5pt; letter-spacing: .04em; padding: 1.6mm 2mm; }
+    table.mezok .oszlop-szam { width: 9mm; }
+    td.szam { text-align: right; font-size: 9pt; color: #334155; }
+    tr.szakasz td { background: #f1f5f9; font-weight: bold; font-size: 9.5pt; letter-spacing: .04em; padding: 1.8mm 2mm; }
+    /* Szakasz-fejléc ne maradjon a lap alján, a sorai nélkül. */
+    tr.szakasz { page-break-after: avoid; break-after: avoid; }
     /* A mező-feliratok 3 nyelven, 9pt-tal (HU vastag, RO/EN dőlt) — az érték egyszer. */
-    .cimke { font-size: 9pt; line-height: 1.28; }
+    .cimke { font-size: 9pt; line-height: 1.3; }
     .cimke .hu { font-weight: bold; }
     .cimke .ro, .cimke .en { font-style: italic; color: #374151; }
     /* Egynyelvű mód (F8c): az egyetlen felirat-sor vastag, nyelvtől függetlenül. */
     .cimke .solo { font-weight: bold; }
-    .mezo-ertek { font-size: 10.5pt; font-weight: 600; margin-top: .8mm; }
+    .mezo-ertek { font-size: 10.5pt; font-weight: 600; line-height: 1.35; margin-top: 1mm; overflow-wrap: anywhere; }
 
-    table.gyermekek { width: 100%; border-collapse: collapse; margin-top: 1mm; }
-    table.gyermekek th, table.gyermekek td { border: 0.5pt solid #64748b; padding: 1mm 1.5mm; font-size: 9.5pt; text-align: left; vertical-align: top; }
+    table.gyermekek { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 1.4mm; }
+    table.gyermekek th, table.gyermekek td { border: 0.5pt solid #64748b; padding: 1mm 1.5mm; font-size: 9.5pt; line-height: 1.3; text-align: left; vertical-align: top; }
     table.gyermekek th { font-size: 8.5pt; background: #f8fafc; }
     table.gyermekek th .ro, table.gyermekek th .en { display: block; font-weight: normal; font-style: italic; font-size: 7.5pt; color: #374151; }
+    table.gyermekek .oszlop-nev { width: 40%; }
+    table.gyermekek .oszlop-datum { width: 20%; }
 
     .zaradekok { margin-top: 3mm; }
-    .zaradek { margin: 0 0 2.2mm; page-break-inside: avoid; break-inside: avoid; }
-    .zaradek p { margin: 0 0 .6mm; font-size: 9.5pt; text-align: justify; }
+    .zaradek { margin: 0 0 2.4mm; page-break-inside: avoid; break-inside: avoid; }
+    .page .zaradek p { margin: 0 0 .8mm; font-size: 9.5pt; line-height: 1.4; }
     .zaradek .ro, .zaradek .en { font-size: 8.8pt; font-style: italic; color: #1f2937; }
 
-    .kelt { margin-top: 5mm; }
-    .alairasok { display: flex; justify-content: space-between; align-items: flex-end; gap: 8mm; margin-top: 11mm; page-break-inside: avoid; break-inside: avoid; }
-    .alairas { width: 60mm; text-align: center; }
+    /* Kitöltő-vonal az üres rovatokhoz (kézzel pótolható a nyomtatványon). */
+    .kitolto { display: inline-block; max-width: 100%; border-bottom: 0.5pt dotted #111827; height: 3mm; vertical-align: baseline; }
+
+    /* Keltezés: jobbra zárva, közvetlenül az aláírások fölött (egy blokkban) —
+       a település neve így MINDIG ott áll az aláírás-blokkban. */
+    .kelt { text-align: right; margin: 0 0 2mm; }
+    .alairasok { display: flex; justify-content: space-between; align-items: flex-end; gap: 8mm; margin-top: 12mm; page-break-inside: avoid; break-inside: avoid; }
+    .alairas { width: 58mm; text-align: center; }
     .alairas .vonal { border-bottom: 0.6pt solid #111827; height: 9mm; margin-bottom: 1.5mm; }
-    .alairas .nev { font-weight: bold; min-height: 4.5mm; }
-    .alairas .szerep { font-size: 8.5pt; }
+    .alairas .nev { font-weight: bold; min-height: 4.5mm; line-height: 1.25; }
+    .alairas .szerep { font-size: 8.5pt; line-height: 1.25; }
     .pecset { width: 26mm; height: 26mm; border: 0.6pt dashed #64748b; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 8.5pt; color: #334155; flex: 0 0 auto; align-self: center; }`
 
 /** 1895. október 1. — Erdélyben eddig a felekezeti anyakönyv volt a hivatalos. */
@@ -313,8 +378,9 @@ export function buildEletutIgazolasHtml(opts: EletutIgazolasHtmlOptions): string
   const egyhazLanc = `<div class="egyhaz-lanc">${egyhazLancSzoveg}</div>`
 
   // ── (2) Iktatószám-sor + cím-blokk (tervdoc 2. pont) ──
+  // A Szám-sor a burok fejléc-sávjába kerül (.page__meta > .doc-szam).
   const szamCimke = mod === 'harom' ? 'Szám / Nr. / No.' : valaszt(mod, 'Szám', 'Nr.', 'No.')
-  const szamSor = `<div class="szam-sor">${szamCimke}: <b>${ertekVagyVonal(txt(iratszam), 30)}</b></div>`
+  const szamSor = `${szamCimke}: <b>${ertekVagyVonal(txt(iratszam), 30)}</b>`
   const cimHu = `<div class="fo">IGAZOLÁS</div>
     <div class="alcim">kivonat az egyházközségi anyakönyvekből</div>`
   const cimRo = (fo: boolean) => `<div class="${fo ? 'fo' : 'masodik'}">ADEVERINȚĂ</div>
@@ -476,15 +542,17 @@ export function buildEletutIgazolasHtml(opts: EletutIgazolasHtmlOptions): string
   // C) Gyermekek — táblázatos alblokk (üres listánál kitöltő-vonalas sor)
   sorok.push(szakaszSor(mod, 'C) GYERMEKEI', 'C) COPIII', 'C) CHILDREN'))
   // Oszlop-fejlécek: 'harom' módban 3-nyelvű blokk, egynyelvűben a mód nyelve.
-  const gyermekTh = (hu: string, ro: string, en: string): string =>
+  // Az oszlop-osztályok fix táblázat-elrendezéshez kellenek (table-layout:
+  // fixed) — így a hosszú nevek nem tolják szét a szövegtükröt.
+  const gyermekTh = (osztaly: string, hu: string, ro: string, en: string): string =>
     mod === 'harom'
-      ? `<th>${hu}<span class="ro">${ro}</span><span class="en">${en}</span></th>`
-      : `<th>${valaszt(mod, hu, ro, en)}</th>`
+      ? `<th class="${osztaly}">${hu}<span class="ro">${ro}</span><span class="en">${en}</span></th>`
+      : `<th class="${osztaly}">${valaszt(mod, hu, ro, en)}</th>`
   const gyermekFejlec = `<tr>
-    ${gyermekTh('Név', 'Numele', 'Name')}
-    ${gyermekTh('Születési idő', 'Data nașterii', 'Date of birth')}
-    ${gyermekTh('Keresztelés', 'Botezul (data)', 'Baptism (date)')}
-    ${gyermekTh('Anyakönyvi szám', 'Nr. înregistrării', 'Register entry no.')}
+    ${gyermekTh('oszlop-nev', 'Név', 'Numele', 'Name')}
+    ${gyermekTh('oszlop-datum', 'Születési idő', 'Data nașterii', 'Date of birth')}
+    ${gyermekTh('oszlop-datum', 'Keresztelés', 'Botezul (data)', 'Baptism (date)')}
+    ${gyermekTh('', 'Anyakönyvi szám', 'Nr. înregistrării', 'Register entry no.')}
   </tr>`
   const gyermekSorok =
     adat.gyermekek.length > 0
@@ -555,7 +623,10 @@ export function buildEletutIgazolasHtml(opts: EletutIgazolasHtmlOptions): string
     )
   }
 
+  // A <colgroup> KELL: az első sor egy colspan=2-es szakasz-fejléc, abból a
+  // table-layout: fixed nem tudná kiszámolni a sorszám-oszlop szélességét.
   const mezoTabla = `<table class="mezok">
+  <colgroup><col class="oszlop-szam" /><col /></colgroup>
   ${sorok.join('\n  ')}
   </table>`
 
@@ -600,8 +671,29 @@ export function buildEletutIgazolasHtml(opts: EletutIgazolasHtmlOptions): string
   const zaradekok = `<div class="zaradekok">${forrasZaradek}${celZaradek}${zaradek1895}${nyelviZaradek}</div>`
 
   // ── (6) Keltezés + két aláírás-blokk, középen P.H. / L.S. ──
+  // F8e (user-észrevétel 3.): a keltezés-sorban a TELEPÜLÉS neve a gyülekezet
+  // anyakönyvi helysége a dokumentum nyelvén (header.helysegHu/helysegRo) —
+  // a hívó `helyseg` paramétere csak tartalék. Élesben a hívó a szabad szöveges
+  // cím-mezőt adta át, ezért állt magyar nyomtatványon a román helységnév
+  // (Brateș ↔ Barátos). Román/angol nyomtatványon a román alak az elsődleges
+  // (hivatalos, hatóság előtt használt név), magyaron a magyar.
   const keltCimke = mod === 'harom' ? 'Kelt / Emisă la / Issued at' : valaszt(mod, 'Kelt', 'Emisă la', 'Issued at')
-  const kelt = `<div class="kelt">${keltCimke}: <b>${ertekVagyVonal(helyseg, 35)}</b>, <b>${ertekVagyVonal(datum, 30)}</b></div>`
+  const helysegHu = txt(header.helysegHu)
+  const helysegRo = txt(header.helysegRo)
+  const keltHelyseg =
+    mod === 'ro' || mod === 'en'
+      ? helysegRo || helysegHu || txt(helyseg)
+      : helysegHu || txt(helyseg) || helysegRo
+  // A dátum a nyelv-mód szerinti hosszú alakra hozva („2026. július 25." /
+  // „la 25 iulie 2026" / „July 25, 2026"); a keltezesSor a G1-kontraktusból
+  // jön, így a formátum a család-alapú iratokéval bit-azonos.
+  const keltIso = isoDatum(datum)
+  const keltNyelv = mod === 'ro' ? 'ro' : mod === 'en' ? 'en' : 'hu'
+  const keltTartalom =
+    keltHelyseg && keltIso
+      ? `<b>${esc(keltezesSor(keltNyelv, keltHelyseg, keltIso))}</b>`
+      : `<b>${ertekVagyVonal(keltHelyseg, 35)}</b>, <b>${ertekVagyVonal(txt(datum), 30)}</b>`
+  const kelt = `<div class="kelt">${keltCimke}: ${keltTartalom}</div>`
   const lelkeszSzerep =
     mod === 'harom'
       ? 'Lelkipásztor / Preot paroh (Pastor) / Minister'
@@ -615,30 +707,49 @@ export function buildEletutIgazolasHtml(opts: EletutIgazolasHtmlOptions): string
     <div class="alairas"><div class="vonal"></div><div class="nev">${fogondnok ? esc(fogondnok) : '&nbsp;'}</div><div class="szerep">${fogondnokSzerep}</div></div>
   </div>`
 
-  const lap = [fejlec, egyhazLanc, szamSor, cimBlokk, nyito, mezoTabla, zaradekok, kelt, alairasok].join('\n')
   const dokCim =
     mod === 'ro'
       ? `Adeverință — ${txt(szemely.teljesNev) || 'membru'}`
       : mod === 'en'
         ? `Certificate — ${txt(szemely.teljesNev) || 'parish member'}`
         : `Életút-igazolás — ${txt(szemely.teljesNev) || 'egyháztag'}`
-  return dokumentum(dokCim, IGAZOLAS_STILUS, lap, mod === 'harom' ? 'hu' : mod)
+
+  // A lap három rétege (kutatási jelentés 1. pont) a KÖZÖS burokból:
+  // .page__header (levélfej + Szám) · .page__body (törzs) · .page__sign.
+  // Az aláírás-sáv `margin-top: auto`-val a szövegtükör aljára ül, és EGYBEN
+  // marad (break-inside: avoid) — így a keltezés (benne a település nevével)
+  // sosem szakad el az aláírásoktól.
+  return dokumentumBurok({
+    lang: mod === 'harom' ? 'hu' : mod,
+    cim: dokCim,
+    fejlecHtml: `${fejlec}\n    ${egyhazLanc}`,
+    szamSor,
+    torzsHtml: `${cimBlokk}
+    ${nyito}
+    ${mezoTabla}
+    ${zaradekok}`,
+    alairasHtml: `${kelt}
+    ${alairasok}`,
+    extraCss: IGAZOLAS_EXTRA_CSS,
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────
 // 2) Nyomtatható TODO-lista a hiányzó adatokról
 // ─────────────────────────────────────────────────────────────────
 
-const TODO_STILUS = `${STILUS_ALAP}
-
-    h1 { font-size: 14pt; text-align: center; letter-spacing: .04em; margin: 2mm 0 2mm; }
+const TODO_EXTRA_CSS = `
+    .page { font-size: 10.5pt; color: #111827; }
+    .page h1 { font-size: 15pt; letter-spacing: .04em; line-height: 1.25; margin: 0 0 3mm; }
     .bevezeto { text-align: center; font-size: 9.5pt; color: #334155; margin: 0 0 6mm; }
-    table.hianyok { width: 100%; border-collapse: collapse; }
-    table.hianyok th, table.hianyok td { border: 0.6pt solid #334155; padding: 2mm 2.5mm; text-align: left; vertical-align: top; font-size: 10pt; }
+    table.hianyok { width: 100%; table-layout: fixed; border-collapse: collapse; }
+    table.hianyok th, table.hianyok td { border: 0.6pt solid #334155; padding: 2mm 2.5mm; text-align: left; vertical-align: top; font-size: 10pt; line-height: 1.35; }
     table.hianyok th { background: #f1f5f9; font-size: 9.5pt; }
     table.hianyok tr { page-break-inside: avoid; break-inside: avoid; }
-    td.sorszam { width: 8mm; text-align: right; color: #334155; }
-    td.pipa { width: 10mm; text-align: center; }
+    /* A szélességek a th-kra IS kellenek: table-layout: fixed mellett az ELSŐ
+       sor cellái határozzák meg az oszlop-szélességet. */
+    .sorszam { width: 9mm; text-align: right; color: #334155; }
+    .pipa { width: 12mm; text-align: center; }
     .pipa-doboz { display: inline-block; width: 4mm; height: 4mm; border: 0.6pt solid #334155; }
     .nincs-hiany { border: 0.6pt solid #334155; padding: 5mm; text-align: center; font-size: 10.5pt; }
     .labjegyzet { margin-top: 6mm; padding-top: 2.5mm; border-top: 0.5pt solid #94a3b8; font-size: 9pt; font-style: italic; color: #334155; }`
@@ -666,15 +777,21 @@ export function buildEletutTodoHtml(hianyok: EletutHiany[], szemelyNev: string):
   const torzs =
     lista.length > 0
       ? `<table class="hianyok">
-  <tr><th></th><th>Mit kell megkeresni?</th><th>Hova kell bevezetni a rendszerben?</th><th>Kész</th></tr>
+  <tr><th class="sorszam"></th><th>Mit kell megkeresni?</th><th>Hova kell bevezetni a rendszerben?</th><th class="pipa">Kész</th></tr>
   ${sorok}
   </table>`
       : `<div class="nincs-hiany">Nincs hiányzó adat — az igazolás minden rovata az anyakönyvi nyilvántartásból kitölthető.</div>`
 
   const lap = `<h1>Hiányzó adatok — ${esc(nev)} életút-igazolásához</h1>
-<div class="bevezeto">Ellenőrző-lista a kiállítás előtt: az alábbi adatok az anyakönyvekből / irattárból pótlandók.</div>
-${torzs}
-<div class="labjegyzet">A bevezetés után az igazolás automatikusan kitöltődik, és az adatbázis is gazdagodik.</div>`
+    <div class="bevezeto">Ellenőrző-lista a kiállítás előtt: az alábbi adatok az anyakönyvekből / irattárból pótlandók.</div>
+    ${torzs}
+    <div class="labjegyzet">A bevezetés után az igazolás automatikusan kitöltődik, és az adatbázis is gazdagodik.</div>`
 
-  return dokumentum(`Hiányzó adatok — ${nev}`, TODO_STILUS, lap)
+  // Belső munkalap: nincs levélfej és aláírás — csak a törzs a közös A4-tükörben.
+  return dokumentumBurok({
+    lang: 'hu',
+    cim: `Hiányzó adatok — ${nev}`,
+    torzsHtml: lap,
+    extraCss: TODO_EXTRA_CSS,
+  })
 }

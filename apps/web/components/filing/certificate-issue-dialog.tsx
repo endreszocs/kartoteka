@@ -73,9 +73,33 @@
  *    editEntry-n át megy, ezért nem újrahasznosíthatók create-ra);
  *  - életút-módban új „Igazolás nyelve" választó (hu/ro/en/háromnyelvű) →
  *    buildEletutIgazolasHtml nyelvMod.
+ *
+ * 2026-07-25 (F8e — A4-tipográfia + előnézet-gyökérfix) a kutatási tervdoc
+ * (docs/project-tracking/KARTOTEKA-a4-tipografia-elonezet-kutatas-2026-07-25.md)
+ * alapján:
+ *  - A DOKUMENTUM HTML-je a KANONIKUS A4-burokból épül
+ *    (lib/iktato/dokumentum-stilus.ts → dokumentumBurok): `.page` flex-oszlop
+ *    (fejléc / törzs / aláírás), DIN 5008 margók (20/20/18/25 mm), 12 pt serif,
+ *    1.45 sorköz, balra zárt + `hyphens: auto` a `lang` attribútummal — a
+ *    korábbi ad-hoc 50px-es paddingek és a keret-sorok saját stílusai helyett.
+ *    Az aláírás-blokk a `margin-top:auto` miatt MINDIG a szövegtükör alján ül.
+ *  - ELŐNÉZET-SKÁLÁZÁS (3. bejelentés — gyökérfix): a tervdoc 4. fejezetének
+ *    3-rétegű mintája — scroll-host (itt MÉRÜNK) → fit-wrapper (layout-méret =
+ *    A4 × scale, ez van centrálva) → iframe (fix A4-szélesség, `transform:
+ *    scale()`, `transform-origin: 0 0`). A transform a layout UTÁN hat, ezért a
+ *    wrapper méretét KÉZZEL szorozzuk a skálával — enélkül lógott túl/vágódott
+ *    le a lap. Mérés: useLayoutEffect + ResizeObserver rAF-halasztással,
+ *    0-mérés-őrrel (rejtett panel) és 0.0005-ös küszöbbel (RO-loop ellen).
+ *    A lap MINDIG teljes szélességében látszik, vízszintes görgetés nincs.
+ *  - NYELV: a választó NÉMETTEL bővült (hu/ro/en/de). A dokumentumon a
+ *    „Tárgy" a dokumentum nyelvén, a család nyelvhelyes nevével (nevNyelv)
+ *    jelenik meg; az iktatókönyvi tárgy-mező MARAD magyar (magyar iktatókönyv).
+ *  - KELTEZÉS HELYSÉGE: szerkeszthető mező (előtöltve a nyelvhelyes névvel) —
+ *    a hiányzó strukturált helység-hivatkozás miatti „Brateș a magyar iraton"
+ *    hiba biztos megoldása; ugyanez megy az életút-nyomtatványba is.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   BadgeCheck,
@@ -136,7 +160,7 @@ import {
   type FilingTemplate,
   type TemplateType,
 } from '@/lib/filing/templates'
-import { buildLetterheadHtml, LETTERHEAD_LANGS } from '@/lib/iktato/letterheads'
+import { buildLetterheadHtml } from '@/lib/iktato/letterheads'
 import {
   DOKUMENTUM_CSALADOK,
   NYELV_CIMKEK,
@@ -145,6 +169,7 @@ import {
   type DokumentumCsalad,
   type DokumentumNyelv,
 } from '@/lib/iktato/dokumentum-csaladok'
+import { A4_H_PX, A4_W_PX, dokumentumBurok } from '@/lib/iktato/dokumentum-stilus'
 import {
   buildEletutIgazolasHtml,
   buildEletutTodoHtml,
@@ -190,7 +215,60 @@ const ALAIRO_SZEREP: Record<DokumentumNyelv, string> = {
   hu: 'lelkipásztor',
   ro: 'preot paroh',
   en: 'minister',
+  de: 'Pfarrer',
 }
+
+/**
+ * A „Dokumentum nyelve" választó opciói (F8e — NÉMETTEL bővítve).
+ *
+ * Szándékosan NEM a letterheads LETTERHEAD_LANGS listája: az a levélfej-építő
+ * (LetterheadLang = hu/ro/en) saját készlete, a dokumentum nyelve viszont a
+ * német változatot is ismeri (DokumentumNyelv).
+ */
+const DOC_LANG_OPTIONS: Array<{ value: DokumentumNyelv; label: string }> = [
+  { value: 'hu', label: 'Magyar' },
+  { value: 'ro', label: 'Română' },
+  { value: 'en', label: 'English' },
+  { value: 'de', label: 'Deutsch' },
+]
+
+/**
+ * A hivatalos levélfej HTML-je a dokumentum nyelvén.
+ *
+ * 2026-07-25 (F8e): a letterheads.ts natív német ágat kapott (Reformierte
+ * Kirchengemeinde / Pfarramt), ezért a korábbi „angol fejléc + felirat-csere"
+ * áthidalás megszűnt — a négy nyelv (hu/ro/en/de) egy az egyben átmegy.
+ */
+function fejlecHtmlNyelven(nyelv: DokumentumNyelv, header: CongregationHeaderData): string {
+  return buildLetterheadHtml(nyelv as LetterheadLang, header)
+}
+
+/**
+ * Az aláírás-blokk (keltezés + aláírás-vonal) HTML-je a dokumentum-stílus
+ * OSZTÁLY-SZERZŐDÉSE szerint (.alairas-sor / -kelt / -blokk / -vonal / -nev /
+ * -szerep). A burok `.page__sign` sávjába kerül, amely `margin-top:auto`-val a
+ * szövegtükör ALJÁRA húzza — így nem marad „lógó" üres rész a lap alján
+ * (kutatás 1. pont). App-generált markup, minden dinamikus érték escape-elve.
+ */
+function alairasBlokkHtml(keltSor: string, alairo: string, szerep: string): string {
+  const nev = (alairo || '').trim()
+  return `<div class="alairas-sor">
+  <div class="alairas-kelt">${escapeHtml(keltSor)}</div>
+  <div class="alairas-blokk">
+    <div class="alairas-vonal"></div>
+    <div class="alairas-nev">${nev ? escapeHtml(nev) : '&nbsp;'}</div>
+    <div class="alairas-szerep">${escapeHtml(szerep)}</div>
+  </div>
+</div>`
+}
+
+/**
+ * SSR-barát useLayoutEffect: a fit-to-page mérés KÖTELEZŐEN layout-effektben
+ * fut (különben egy frame-ig 1.0-s skálával villanna a lap — kutatás 4. pont),
+ * de a szerver-oldali renderelésnél a React figyelmeztetne, ezért ott
+ * useEffect-re esünk vissza.
+ */
+const useIzomorfLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
 
 /** Az egyháztag-átadás flow-t bekapcsoló seed-sablon neve (név-alapú felismerés). */
 const ATADAS_SABLON_NEV = 'Egyháztag átadása másik egyházközségnek'
@@ -222,9 +300,15 @@ const URES_FEJLEC: CongregationHeaderData = {
 /** Legfeljebb ennyi személy választható ki (pl. házaspár + 2 gyermek). */
 const MAX_PERSONS = 4
 
-/** Fit-to-page előnézet: A4 álló lap méretei képpontban (~96 dpi + ráhagyás). */
-const A4_PORTRAIT_W = 812
-const A4_PORTRAIT_H = 1123
+/**
+ * Fit-to-page előnézet: a lap-wrapper 1px-es keretének (bal+jobb) levonása a
+ * mért szélességből — így a keretes lap SEM lóghat túl a görgető-dobozon.
+ * (Az A4-méretek a kanonikus dokumentum-stílusból jönnek: A4_W_PX/A4_H_PX.)
+ */
+const LAP_KERET_PX = 2
+
+/** Az előnézet minimális skálája (kutatás 4. pont: Math.max(minScale, …)). */
+const MIN_SCALE = 0.2
 
 /**
  * Sablon-típus → jellemző EREK 2024-es ügykör-kód. Az igazolások a 2. pontba
@@ -307,28 +391,18 @@ function placeholderLabel(key: string): string {
   return PLACEHOLDER_DOCS.find((p) => p.key === key)?.label || key
 }
 
-const TIMES_FONT = "font-family:'Times New Roman',serif;"
-
 /**
  * Életút-mód, még kiválasztott személy nélkül: A4-es tájékoztató lap az
  * előnézet-iframe-be (a fit-to-page méretezés így is helyesen működik).
+ * F8e: a kanonikus A4-burokból épül — nincs külön, kézzel írt stíluslap.
  */
 function eletutUresElonezetHtml(): string {
-  return `<!DOCTYPE html>
-<html lang="hu">
-<head>
-<meta charset="utf-8" />
-<title>Életút- és családi igazolás</title>
-<style>
-  @page { size: A4 portrait; margin: 0; }
-  body { margin: 0; background: #fff; }
-  .lap { width: 210mm; min-height: 297mm; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 25mm; font-family: 'Times New Roman', Georgia, serif; font-size: 13pt; color: #64748b; text-align: center; }
-</style>
-</head>
-<body data-sheet-count="1">
-<div class="lap">Válassz ki egy egyháztagot a keresővel — a háromnyelvű életút-igazolás élő előnézete itt jelenik meg.</div>
-</body>
-</html>`
+  return dokumentumBurok({
+    lang: 'hu',
+    cim: 'Életút- és családi igazolás',
+    torzsHtml:
+      '<p style="text-align:center;color:#64748b;margin-top:40mm;">Válassz ki egy egyháztagot a keresővel — a hivatalos életút-igazolás élő előnézete itt jelenik meg.</p>',
+  })
 }
 
 /**
@@ -347,75 +421,68 @@ function bodyHasOwnTargy(body: string): boolean {
 // a kanonikus címke-készlet a dokumentum-családok moduljából jön
 // (NYELV_CIMKEK — „Szám/Tárgy", „Nr./Obiect", „No./Subject").
 
+/** A sablon-út (saját sablonok / szabad levél) törzs-előkészítésének eredménye. */
+interface TorzsSablon {
+  /** A MÉG placeholderes törzs-HTML (a renderTemplate tölti ki). */
+  torzs: string
+  /** Kell-e a keretnek külön „Szám: …" sort adnia (a törzsben nincs iratszám)? */
+  szamSorKell: boolean
+  /** Kell-e a keretnek külön „Tárgy: …" sort adnia (a törzsbe nem került be)? */
+  targySorKell: boolean
+  /** Kell-e a keretnek aláírás-blokkot adnia (a törzsben nincs {{lelkipasztor}})? */
+  alairasKell: boolean
+}
+
 /**
- * A dokumentum-sablon összeállítása a törzsből:
+ * A sablon-törzs előkészítése a kanonikus A4-burokhoz (F8e).
+ *
+ * A korábbi verzió MAGA rakta össze a teljes iratot (ad-hoc 50px-es paddingek,
+ * saját Times-stílusok, kézi záró blokk) — ezt most a dokumentumBurok végzi
+ * (`.page` flex-oszlop + tipográfia), ez a függvény csak a TÖRZSET adja, és
+ * megmondja, mely keret-elemek hiányoznak belőle:
  *  - Szabad levélnél a plain-text törzs pre-wrap wrapperbe kerül,
- *  - „Szám: {{iratszam}}" sor, ha a törzsben nincs iratszám,
- *  - „Tárgy: {tárgy}" sor a „Szám: …" sor ALATT (2026-07, F8a) — az
- *    iktatókönyvi tárgy-mező értékével; a bodyHasOwnTargy-őr védi a
- *    duplázástól a saját Tárgy-sorral bíró (régi/egyedi) sablonokat,
- *  - automatikus záró blokk (helység+dátum+aláírás), ha nincs {{lelkipasztor}}.
- * Az eredmény MÉG placeholderes — a renderTemplate tölti ki.
- * ⚠️ A keret-részek átmennek a sanitizeFilingHtml-en → csak a whitelistelt
- * style-property-k használhatók bennük (padding, margin-top, font-*, …).
+ *  - ha a törzs hozza a saját „Szám: {{iratszam}}" sorát, a keret nem duplázza,
+ *  - a Tárgy-sor lehetőleg a törzs saját „Szám: …" sora ALÁ fűződik (F8a),
+ *    különben a keret adja; a bodyHasOwnTargy-őr védi a duplázástól a saját
+ *    Tárgy-sorral bíró (régi/egyedi) sablonokat,
+ *  - ha a törzsben nincs {{lelkipasztor}}, az aláírás-blokk a keretből jön.
+ * ⚠️ A törzs átmegy a sanitizeFilingHtml-en → csak a whitelistelt
+ * style-property-k használhatók benne (padding, margin-top, font-*, …).
  */
-function buildAssembledTemplate(
+function buildTorzsSablon(
   body: string,
-  opts: { szabad: boolean; hasLetterhead: boolean; targy: string; lang: LetterheadLang },
-): string {
+  opts: { szabad: boolean; targy: string; lang: DokumentumNyelv },
+): TorzsSablon {
   const hasIratszam = /\{\{\s*iratszam\s*\}\}/.test(body)
   const hasClosing = /\{\{\s*lelkipasztor\s*\}\}/.test(body)
-  const topPad = opts.hasLetterhead ? 8 : 36
   const cimkek = NYELV_CIMKEK[opts.lang]
 
   const targyText = (opts.targy || '').trim()
   const wantsTargy = Boolean(targyText) && !bodyHasOwnTargy(body)
-  // A törzs BELSEJÉBE fűzött változat a sablon-wrapper Times-betűjét örökli;
-  // az önálló (keret-szintű) változat a „Szám:" keret-sor stílusát követi.
-  const targyInBodyLine = `<div style="margin-top:4px;">${cimkek.targy}: ${escapeHtml(targyText)}</div>`
-  const targyStandaloneLine = `<div style="padding:6px 50px 0;${TIMES_FONT}font-size:14px;">${cimkek.targy}: ${escapeHtml(targyText)}</div>`
+  let targySorKell = wantsTargy
 
-  const parts: string[] = []
-  if (!hasIratszam) {
-    parts.push(
-      `<div style="padding:${topPad}px 50px 0;${TIMES_FONT}font-size:14px;">${cimkek.szam}: {{iratszam}}</div>`,
-    )
-    if (wantsTargy) parts.push(targyStandaloneLine)
-  }
-
-  let assembledBody = body
+  let torzs = body
   if (hasIratszam && wantsTargy) {
     // A sablon-törzs saját „Szám: {{iratszam}}" / „Nr.: {{iratszam}}" sora ALÁ
     // fűzzük a Tárgy-sort (a seed-sablonok egy-elemű div-sora). Ha a minta nem
-    // illeszkedik (egyedi markup), a Tárgy-sor a törzs ELÉ kerül keret-sorként.
+    // illeszkedik (egyedi markup), a Tárgy-sort a keret adja hozzá.
     const iratszamLine = /<div[^>]*>[^<]*\{\{\s*iratszam\s*\}\}[^<]*<\/div>/
-    if (iratszamLine.test(assembledBody)) {
+    if (iratszamLine.test(torzs)) {
+      const targyInBodyLine = `<div style="margin-top:4px;">${cimkek.targy}: ${escapeHtml(targyText)}</div>`
       // Csere-FÜGGVÉNNYEL, nem csere-stringgel: a tárgy-szöveg `$`-jeleit a
       // String.replace különben speciális mintaként ($&, $1, …) értelmezné.
-      assembledBody = assembledBody.replace(iratszamLine, (m) => `${m}\n  ${targyInBodyLine}`)
-    } else {
-      parts.push(targyStandaloneLine)
+      torzs = torzs.replace(iratszamLine, (m) => `${m}\n  ${targyInBodyLine}`)
+      targySorKell = false
     }
   }
 
   if (opts.szabad) {
-    parts.push(
-      `<div style="padding:24px 50px 0;${TIMES_FONT}line-height:1.6;font-size:14px;white-space:pre-wrap;">${assembledBody}</div>`,
-    )
-  } else {
-    parts.push(assembledBody)
+    // A szabad levél gépelt szövege sortartó — a tipográfiát (betű, sorköz,
+    // margók) a burok `.page` / `.doc-torzs` szabálya adja.
+    torzs = `<div class="doc-torzs" style="white-space:pre-wrap;">${torzs}</div>`
   }
-  if (!hasClosing) {
-    parts.push(
-      `<div style="padding:0 50px 50px;${TIMES_FONT}font-size:14px;line-height:1.6;">
-        <div style="margin-top:56px;display:flex;justify-content:space-between;gap:24px;">
-          <div>{{helyseg}}, {{datum}}</div>
-          <div style="text-align:center;">_______________________<br>{{lelkipasztor}}<br>lelkipásztor</div>
-        </div>
-      </div>`,
-    )
-  }
-  return parts.join('\n')
+
+  return { torzs, szamSorKell: !hasIratszam, targySorKell, alairasKell: !hasClosing }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -671,6 +738,10 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   const [noLetterhead, setNoLetterhead] = useState(false)
   const [header, setHeader] = useState<CongregationHeaderData | null>(null)
   const [headerError, setHeaderError] = useState<string | null>(null)
+  // F8e (user 4.): a keltezés helysége SZERKESZTHETŐ — amíg a felhasználó nem
+  // írja át, a nyelvhelyes automatikus nevet követi (lásd keltHelysegAuto).
+  const [keltHelyseg, setKeltHelyseg] = useState('')
+  const [keltHelysegTouched, setKeltHelysegTouched] = useState(false)
 
   // (d) értékek
   const [autoValues, setAutoValues] = useState<Record<string, string>>({})
@@ -789,6 +860,8 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     setPersons([])
     setDocLang('hu')
     setNoLetterhead(false)
+    setKeltHelyseg('')
+    setKeltHelysegTouched(false)
     setManualValues({})
     setKeziValues({})
     setSubject('')
@@ -797,7 +870,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     setIssued(false)
     setIssuedIratszam(null)
     setMobileView('form')
-    setContentH(A4_PORTRAIT_H) // az előző kiállítás előnézet-magassága ne ragadjon át
+    setContentH(A4_H_PX) // az előző kiállítás előnézet-magassága ne ragadjon át
     setLoadingPersons(false) // zárás közben félbemaradt betöltés jelzője ne ragadjon be
     setTemplateSeedFailed(false) // az előző megnyitás seed-hintje ne ragadjon át
     // F8b: az életút- és átadás-mód állapota se ragadjon át az előző kiállításból.
@@ -1116,6 +1189,35 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     if (!subjectTouched) setSubject(autoSubject)
   }, [autoSubject, subjectTouched])
 
+  // F8e (user 2.): a DOKUMENTUMRA kerülő Tárgy a dokumentum NYELVÉN — a
+  // dokumentum-család nyelvhelyes nevével (nevNyelv) + a személynevekkel
+  // (pl. RO: „Obiect: Adeverință de botez — Nagy Timea"). Az iktatókönyvi
+  // tárgy-mező ettől FÜGGETLENÜL magyar marad (magyar iktatókönyv).
+  // Család-úton kívül (saját sablon / szabad levél) nincs mit fordítani:
+  // ott az iktatókönyvi tárgy szövege kerül a dokumentumra is.
+  const dokumentumTargy = useMemo(() => {
+    if (!selectedCsalad) return subject.trim()
+    const csaladNev = (selectedCsalad.nevNyelv[docLang] || selectedCsalad.nev).trim()
+    return `${csaladNev}${nevekVesszo ? ` — ${nevekVesszo}` : ''}`
+  }, [selectedCsalad, docLang, nevekVesszo, subject])
+
+  // F8e (user 4.): a keltezés helységének AUTOMATIKUS (nyelvhelyes) neve.
+  // Magyar iraton a magyar név az elsődleges — a korábbi hiba gyökere az volt,
+  // hogy strukturált helység-hivatkozás híján a szabad szöveges (román nevű)
+  // varos mező jött. A mező alább kézzel is átírható.
+  const keltHelysegAuto = useMemo(() => {
+    const hu = (header?.helysegHu || '').trim()
+    const ro = (header?.helysegRo || '').trim()
+    const szabadSzoveg = (autoValues.helyseg || '').trim()
+    if (docLang === 'hu') return hu || szabadSzoveg || ro
+    return ro || hu || szabadSzoveg
+  }, [header, autoValues.helyseg, docLang])
+  useEffect(() => {
+    if (!keltHelysegTouched) setKeltHelyseg(keltHelysegAuto)
+  }, [keltHelysegAuto, keltHelysegTouched])
+  /** A ténylegesen használt keltezés-helység (üres mezőnél az automatikus név). */
+  const keltHelysegErtek = keltHelyseg.trim() || keltHelysegAuto
+
   // ── Értékek + dokumentum összeállítása ───────────────────────────
   const personValues = useMemo(() => buildPersonValues(persons), [persons])
   // Iktatás ELŐTT a dokumentumba NEM kerülhet a nem-atomikus előnézeti szám
@@ -1123,24 +1225,37 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   // helyette kitöltetlen vonal. A previewIratszam csak tájékoztató hint.
   const iratszamValue = issuedIratszam ?? manualValues.iratszam ?? '__________'
   const mergedValues = useMemo<Record<string, string>>(
-    () => ({ ...autoValues, ...personValues, ...manualValues, iratszam: iratszamValue }),
-    [autoValues, personValues, manualValues, iratszamValue],
+    () => ({
+      ...autoValues,
+      ...personValues,
+      ...manualValues,
+      iratszam: iratszamValue,
+      // F8e: a {{helyseg}} placeholder is a SZERKESZTHETŐ keltezés-helységet
+      // kapja (a saját sablonok záró blokkja is ezt írja ki).
+      helyseg: keltHelysegErtek,
+    }),
+    [autoValues, personValues, manualValues, iratszamValue, keltHelysegErtek],
   )
 
-  const assembledRaw = useMemo(
-    // 2026-07 (F8a): az iktatókönyvi tárgy a keret „Tárgy: …" soraként a
-    // dokumentumba is bekerül (a „Szám: …" sor alá) — lásd buildAssembledTemplate.
-    // F8c: a keret-címkék nyelvét a „Dokumentum nyelve" választó adja.
-    () =>
-      buildAssembledTemplate(body, {
-        szabad,
-        hasLetterhead: Boolean(!noLetterhead && header),
-        targy: subject,
-        lang: docLang,
-      }),
-    [body, szabad, noLetterhead, header, subject, docLang],
+  // F8e: a sablon-út törzse + a hiányzó keret-elemek jelzése (a teljes iratot
+  // a kanonikus dokumentumBurok rakja össze — lásd composeStandardHtml).
+  const torzsSablon = useMemo(
+    () => buildTorzsSablon(body, { szabad, targy: subject, lang: docLang }),
+    [body, szabad, subject, docLang],
   )
-  const placeholders = useMemo(() => extractPlaceholders(assembledRaw), [assembledRaw])
+  const placeholders = useMemo(() => {
+    // A {{helyseg}} mezőt a dedikált „Keltezés helysége" mező vezérli (F8e) —
+    // a placeholder-listából kivesszük, hogy ne legyen két, egymásnak
+    // ellentmondó beviteli helye ugyanannak az értéknek.
+    const list = extractPlaceholders(torzsSablon.torzs).filter((k) => k !== 'helyseg')
+    const out = [...list]
+    const set = new Set(list)
+    // A keretből jövő elemek mezői is szerkeszthetők maradjanak (korábban a
+    // keret a sablon RÉSZE volt, így a placeholder-kigyűjtés hozta őket).
+    if (torzsSablon.szamSorKell && !set.has('iratszam')) out.push('iratszam')
+    if (torzsSablon.alairasKell && !set.has('lelkipasztor')) out.push('lelkipasztor')
+    return out
+  }, [torzsSablon])
   const autoKeys = useMemo(() => {
     const set = new Set<string>()
     for (const p of PLACEHOLDER_DOCS) if (p.auto) set.add(p.key)
@@ -1155,40 +1270,30 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
       // A sablon-törzs admin/lelkész által szerkesztett → sanitize (P1-3b minta);
       // az app-generált fejléc és a renderTemplate-escape-elt értékek megbízhatók.
       // Előnézet, PDF és nyomtatás UGYANEZT a HTML-t kapja (WYSIWYG).
-      const sanitized = sanitizeFilingHtml(assembledRaw)
+      const sanitized = sanitizeFilingHtml(torzsSablon.torzs)
       const rendered = renderTemplate(sanitized, values)
-      const letterhead =
-        !noLetterhead && header
-          ? `<div style="padding:36px 50px 0;">${buildLetterheadHtml(docLang, header)}</div>`
-          : ''
-      return `<!DOCTYPE html>
-<html lang="${docLang}">
-<head>
-  <meta charset="utf-8" />
-  <title>${escapeHtml(docTitle)}</title>
-  <style>
-    /* WYSIWYG-elv (official-journal/iratcsomó-leltár minta): @page margin 0,
-       a lap-margót a tartalom saját 50px-es paddingje adja — 15mm-es @page
-       margóval a böngészős nyomtatás máshol tördelt volna, mint az
-       előnézet és a PDF (html2canvas, margó nélkül). */
-    @page { size: A4 portrait; margin: 0; }
-    body { margin: 0; background: #fff; }
-    /* F8c: az előnézet-iframe-en belül SOHA ne lehessen vízszintes görgetés —
-       egy túlszéles elem (pl. régi sablon fix szélessége) se okozzon
-       belső horizontális scrollbart; a hosszú szavak törhetők. */
-    html, body { overflow-x: hidden; }
-    body { word-break: break-word; }
-    img { max-width: 100%; }
-    @media print { body { padding: 0; } }
-  </style>
-</head>
-<body>
-  ${letterhead}
-  ${rendered}
-</body>
-</html>`
+      const cimkek = NYELV_CIMKEK[docLang]
+      const targyText = (dokumentumTargy || '').trim()
+      const keltSor = keltezesSor(docLang, keltHelysegErtek, todayIso())
+      return dokumentumBurok({
+        lang: docLang,
+        cim: docTitle,
+        fejlecHtml: !noLetterhead && header ? fejlecHtmlNyelven(docLang, header) : '',
+        // A Szám/Tárgy sorok KÉSZ HTML-ként mennek a burokba → itt escape-elünk.
+        szamSor: torzsSablon.szamSorKell
+          ? `${cimkek.szam}: ${escapeHtml(values.iratszam ?? '')}`
+          : '',
+        targySor:
+          torzsSablon.targySorKell && targyText
+            ? `${cimkek.targy}: ${escapeHtml(targyText)}`
+            : '',
+        torzsHtml: rendered,
+        alairasHtml: torzsSablon.alairasKell
+          ? alairasBlokkHtml(keltSor, values.lelkipasztor ?? '', ALAIRO_SZEREP[docLang])
+          : '',
+      })
     },
-    [assembledRaw, noLetterhead, docLang, header, docTitle],
+    [torzsSablon, noLetterhead, docLang, header, docTitle, dokumentumTargy, keltHelysegErtek],
   )
 
   // ── F8c: a dokumentum-család teljes HTML-je — a NYELV vezérel mindent ──
@@ -1197,72 +1302,54 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     (csalad: DokumentumCsalad, iratszamText: string): string => {
       const cimkek = NYELV_CIMKEK[docLang]
       // A gyülekezet neve a dokumentum nyelvén (nev_hu/nev_ro/nev_en →
-      // hivatalos név → auto-placeholder fallback).
+      // hivatalos név → auto-placeholder fallback). Németnél az angol nevet
+      // adjuk át: a német szöveg-építő (deAmt/deGemeindeNev) úgyis a
+      // helységnév-magot bontja ki belőle („Reformierte Kirchengemeinde
+      // Barátos"), tehát bármelyik név-alakból helyes német nevet képez.
       const gyulekezetNev =
-        ((docLang === 'ro' ? header?.nevRo : docLang === 'en' ? header?.nevEn : header?.nevHu) || '')
-          .trim() ||
+        ((docLang === 'ro'
+          ? header?.nevRo
+          : docLang === 'en' || docLang === 'de'
+            ? header?.nevEn
+            : header?.nevHu) || ''
+        ).trim() ||
         (header?.hivatalosNev || '').trim() ||
         (autoValues.gyulekezet || '').trim()
-      // A keltezés helysége a nyelvnek megfelelő névvel (helysegHu/helysegRo,
-      // magyar fallback) — user-észrevétel: román iraton ne a magyar név álljon.
-      const keltHelyseg =
-        docLang === 'hu'
-          ? header?.helysegHu || autoValues.helyseg || ''
-          : header?.helysegRo || header?.helysegHu || autoValues.helyseg || ''
-      const keltSor = keltezesSor(docLang, keltHelyseg, todayIso())
+      // A keltezés helysége a SZERKESZTHETŐ mezőből (F8e — user 4.), amely
+      // alapból a nyelvhelyes nevet ajánlja (helysegHu/helysegRo).
+      const keltSor = keltezesSor(docLang, keltHelysegErtek, todayIso())
       const lelkesz = (autoValues.lelkipasztor || '').trim()
-      const letterhead =
-        !noLetterhead && header
-          ? `<div style="padding:36px 50px 0;">${buildLetterheadHtml(docLang, header)}</div>`
-          : ''
-      const topPad = letterhead ? 8 : 36
-      const targyText = subject.trim()
+      const targyText = (dokumentumTargy || '').trim()
       const torzs = csalad.buildBody({
         persons,
         nyelv: docLang,
         kezi: keziValues,
         gyulekezetNev,
       })
-      const keret = [
-        `<div style="padding:${topPad}px 50px 0;${TIMES_FONT}font-size:14px;">${cimkek.szam}: ${escapeHtml(iratszamText)}</div>`,
-        targyText
-          ? `<div style="padding:6px 50px 0;${TIMES_FONT}font-size:14px;">${cimkek.targy}: ${escapeHtml(targyText)}</div>`
-          : '',
-        torzs,
-        `<div style="padding:0 50px 50px;${TIMES_FONT}font-size:14px;line-height:1.6;">
-        <div style="margin-top:56px;display:flex;justify-content:space-between;gap:24px;">
-          <div>${escapeHtml(keltSor)}</div>
-          <div style="text-align:center;">_______________________<br />${lelkesz ? escapeHtml(lelkesz) : '__________'}<br />${escapeHtml(ALAIRO_SZEREP[docLang])}</div>
-        </div>
-      </div>`,
-      ]
-        .filter(Boolean)
-        .join('\n')
       // A törzs app-generált és minden dinamikus érték escape-elt, de a
       // védelmi mélység kedvéért ugyanazon a sanitizeren megy át, mint a
       // sablon-út (a családok a whitelistelt style-készleten belül építenek).
-      const sanitized = sanitizeFilingHtml(keret)
-      return `<!DOCTYPE html>
-<html lang="${docLang}">
-<head>
-  <meta charset="utf-8" />
-  <title>${escapeHtml(csalad.nev)}</title>
-  <style>
-    @page { size: A4 portrait; margin: 0; }
-    body { margin: 0; background: #fff; word-break: break-word; }
-    /* F8c: az előnézet-iframe-en belül SOHA ne legyen vízszintes görgetés. */
-    html, body { overflow-x: hidden; }
-    img { max-width: 100%; }
-    @media print { body { padding: 0; } }
-  </style>
-</head>
-<body>
-  ${letterhead}
-  ${sanitized}
-</body>
-</html>`
+      return dokumentumBurok({
+        lang: docLang,
+        cim: csalad.nev,
+        fejlecHtml: !noLetterhead && header ? fejlecHtmlNyelven(docLang, header) : '',
+        // A Szám/Tárgy sorok KÉSZ HTML-ként mennek a burokba → itt escape-elünk.
+        szamSor: `${cimkek.szam}: ${escapeHtml(iratszamText)}`,
+        targySor: targyText ? `${cimkek.targy}: ${escapeHtml(targyText)}` : '',
+        torzsHtml: sanitizeFilingHtml(torzs),
+        alairasHtml: alairasBlokkHtml(keltSor, lelkesz, ALAIRO_SZEREP[docLang]),
+      })
     },
-    [docLang, header, autoValues, noLetterhead, subject, persons, keziValues],
+    [
+      docLang,
+      header,
+      autoValues,
+      noLetterhead,
+      dokumentumTargy,
+      keltHelysegErtek,
+      persons,
+      keziValues,
+    ],
   )
 
   // Az életút-igazolás B2-adatcsomagja: a betöltött adat + a kézi mezők.
@@ -1286,7 +1373,9 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
         data: eletutIgazolasData,
         header: header ?? URES_FEJLEC,
         iratszam: issuedIratszam, // null → kitöltő-vonal a nyomtatványon
-        helyseg: autoValues.helyseg || '',
+        // F8e (user 3./4.): a szerkeszthető, nyelvhelyes településnév — ez
+        // jelenik meg a nyomtatvány keltezésében ÉS aláírás-blokkjában is.
+        helyseg: keltHelysegErtek,
         datum: autoValues.datum || formatHungarianDate(),
         lelkipasztor: autoValues.lelkipasztor || '',
         fogondnok: eletutFogondnok.trim() || null,
@@ -1302,6 +1391,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     header,
     issuedIratszam,
     autoValues,
+    keltHelysegErtek,
     eletutFogondnok,
     eletutNyelvMod,
     selectedCsalad,
@@ -1347,51 +1437,103 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
     return () => window.clearTimeout(t)
   }, [fullHtml])
 
-  // ── Fit-to-page A4 előnézet ──────────────────────────────────────
-  // 2026-07-25 (éles teszt): korábban csak a SZÉLESSÉGHEZ igazítottunk, így
-  // az oldal alja kilógott és két irányban kellett görgetni. Most a panel
-  // TÉNYLEGES belső méretét (contentRect: szélesség ÉS magasság, padding
-  // nélkül) mérjük — a doboz fix magasságú, így a mérés nem körkörös. A
-  // mobil fül-váltásnál a rejtett panel 0×0-t jelentene, azt eldobjuk.
-  const previewBoxRef = useRef<HTMLDivElement>(null)
-  const [boxSize, setBoxSize] = useState({ w: 0, h: 0 })
-  useEffect(() => {
+  // ── Fit-to-page A4 előnézet (F8e — GYÖKÉRFIX) ────────────────────
+  // A kutatási tervdoc 4. fejezetének 3-rétegű mintája:
+  //   scroll-host (ITT mérünk) → fit-wrapper (layout-méret = A4 × scale,
+  //   ez van centrálva) → iframe (fix A4-szélesség + transform: scale()).
+  // A transform a layout UTÁN hat, ezért a wrapper méretét KÉZZEL szorozzuk a
+  // skálával — enélkül a skálázott lap változatlan méretű dobozt foglalt, és
+  // túllógott/levágódott (ez volt a háromszor bejelentett hiba gyökere).
+  // A skálázás CSAK a szélességhez igazít: a teljes lapszélesség mindig
+  // látszik (vízszintes görgetés soha), a hosszabb irat függőlegesen görgethető.
+  const previewHostRef = useRef<HTMLDivElement>(null)
+  const [scale, setScale] = useState(1)
+  useIzomorfLayoutEffect(() => {
     if (!open) return
-    const el = previewBoxRef.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver((entries) => {
-      const rect = entries[0]?.contentRect
-      if (rect && rect.width > 0 && rect.height > 0) {
-        setBoxSize({ w: rect.width, h: rect.height })
-      }
+    const host = previewHostRef.current
+    if (!host) return
+    let raf = 0
+    const apply = () => {
+      const el = previewHostRef.current
+      if (!el) return
+      const cs = window.getComputedStyle(el)
+      const padL = Number.parseFloat(cs.paddingLeft) || 0
+      const padR = Number.parseFloat(cs.paddingRight) || 0
+      // clientWidth = padding-doboz a görgetősáv NÉLKÜL; a paddingeket és a
+      // lap-keretet levonva kapjuk a lapnak jutó tényleges szélességet.
+      const w = el.clientWidth - padL - padR - LAP_KERET_PX
+      if (w <= 0) return // 0-mérés-őr: rejtett panel (mobil fül) → NE írj semmit
+      const next = Math.min(1, Math.max(MIN_SCALE, w / A4_W_PX))
+      // Küszöb: a törtpixel-ingadozásból származó ResizeObserver-hurok ellen.
+      setScale((prev) => (Math.abs(prev - next) > 0.0005 ? next : prev))
+    }
+    apply()
+    if (typeof ResizeObserver === 'undefined') return
+    // rAF-halasztás: a RO-callbackben azonnal írt layout „ResizeObserver loop"
+    // hibát adna; így a következő frame-ben, egyszer futunk le.
+    const ro = new ResizeObserver(() => {
+      window.cancelAnimationFrame(raf)
+      raf = window.requestAnimationFrame(apply)
     })
-    ro.observe(el)
-    return () => ro.disconnect()
+    ro.observe(host)
+    return () => {
+      ro.disconnect()
+      window.cancelAnimationFrame(raf)
+    }
   }, [open])
 
   const iframeRef = useRef<HTMLIFrameElement>(null)
-  const [contentH, setContentH] = useState(A4_PORTRAIT_H)
+  const [contentH, setContentH] = useState(A4_H_PX)
+  /**
+   * Az iframe TARTALMI magasságának mérése (a lap-wrapper ehhez igazodik).
+   * A documentElement.scrollHeight sosem kisebb az iframe aktuális
+   * magasságánál („racsni": rövidebb dokumentumra üres lap maradt volna),
+   * ezért a mérés előtt 0-ra állítjuk a magasságot — a tervdoc iframe-mintája.
+   */
   const measurePreview = useCallback(() => {
-    const doc = iframeRef.current?.contentDocument
-    if (!doc) return
-    // Viewport-FÜGGETLEN mérés: a documentElement.scrollHeight sosem kisebb
-    // az iframe aktuális magasságánál (= contentH), így azzal a magasság csak
-    // nőni tudott volna („racsni") — rövidebb dokumentumra (sablonváltás,
-    // újranyitás) több képernyőnyi üres lap maradt volna az előnézetben.
-    const h = Math.ceil(doc.body?.getBoundingClientRect().height || 0)
-    setContentH(Math.max(h, A4_PORTRAIT_H))
+    const el = iframeRef.current
+    const doc = el?.contentDocument
+    if (!el || !doc) return
+    const elozoHeight = el.style.height
+    el.style.height = '0px'
+    const body = doc.body
+    const de = doc.documentElement
+    const lap = (body?.firstElementChild as HTMLElement | null) ?? null
+    const merve = Math.max(
+      body?.scrollHeight ?? 0,
+      de?.scrollHeight ?? 0,
+      body ? body.getBoundingClientRect().height : 0,
+      lap ? lap.getBoundingClientRect().height : 0,
+    )
+    if (merve <= 0) {
+      // Rejtett/üres dokumentum (pl. mobil fül-váltás) — az előző magasság marad.
+      el.style.height = elozoHeight
+      return
+    }
+    const next = Math.max(Math.ceil(merve), A4_H_PX)
+    // A React csak state-VÁLTOZÁSNÁL írná vissza a magasságot; ha a mért érték
+    // azonos a mostanival, kézzel kell visszaállítani (különben 0-n ragadna).
+    el.style.height = `${next}px`
+    setContentH(next)
   }, [])
 
-  // Fit-to-page: a lap a rendelkezésre álló szélesség ÉS magasság közül a
-  // SZŰKEBBHEZ igazodik — egy A4 oldal MINDIG egészben látszik, vízszintes
-  // scrollbar semmilyen méretnél nincs. A -4px a lap-wrapper 1px-es keretét
-  // és a kerekítést fedezi. Többoldalas dokumentumnál a további oldalak a
-  // külső panel FÜGGŐLEGES görgetésével jönnek, ugyanazon a scale-en.
-  const availW = boxSize.w > 0 ? Math.max(0, boxSize.w - 4) : A4_PORTRAIT_W
-  const availH = boxSize.h > 0 ? Math.max(0, boxSize.h - 4) : A4_PORTRAIT_H
-  const scale = Math.min(1, availW / A4_PORTRAIT_W, availH / A4_PORTRAIT_H)
-  const scaledW = Math.floor(A4_PORTRAIT_W * scale)
-  const scaledH = Math.ceil(contentH * scale)
+  /**
+   * Mérés a betöltés UTÁN: `doc.fonts.ready` (a webfont újratördeli a lapot)
+   * + egy rAF, hogy a layout biztosan lezáruljon.
+   */
+  const scheduleMeasure = useCallback(() => {
+    const run = () => window.requestAnimationFrame(() => measurePreview())
+    const fonts = iframeRef.current?.contentDocument?.fonts
+    if (fonts?.ready) void fonts.ready.then(run).catch(() => run())
+    else run()
+  }, [measurePreview])
+
+  // Mobil fül-váltás után (a panel újra látható lesz) újramérünk — a rejtett
+  // állapotban a 0-mérés-őr miatt sem a skála, sem a magasság nem frissült.
+  useEffect(() => {
+    if (!open || mobileView !== 'preview') return
+    scheduleMeasure()
+  }, [open, mobileView, scheduleMeasure])
 
   // ── Átadás rögzítése iktatás után (F8b — B3 registerAtadas) ──────
   // Csak sikeres iktatás + visszaolvasott iratszám után hívjuk: a tag státusza
@@ -1561,6 +1703,34 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   const numAdatok = szekcioSzam++
   const numIktatas = szekcioSzam
 
+  /**
+   * F8e (user 4.) — „Keltezés helysége" mező. Mindhárom Adatok-szekcióban
+   * (család / saját sablon / életút) ugyanez az egy mező jelenik meg (a
+   * szekciók kizárják egymást, így az azonosító nem duplázódik). Az érték a
+   * keltezés-sorba ÉS az életút-nyomtatványba is bekerül.
+   */
+  const keltezesHelysegMezo = (
+    <div className="space-y-1">
+      <label htmlFor="cert-kelt-helyseg" className="text-sm font-medium text-foreground">
+        Keltezés helysége
+      </label>
+      <Input
+        id="cert-kelt-helyseg"
+        value={keltHelyseg}
+        onChange={(e) => {
+          setKeltHelyseg(e.target.value)
+          setKeltHelysegTouched(true)
+        }}
+        placeholder={keltHelysegAuto || 'pl. Barátos'}
+      />
+      <p className="text-[11px] leading-snug text-muted-foreground">
+        Ez a településnév kerül a keltezés-sorba (és az igazolás aláírás-blokkjába).
+        Nyelvváltáskor a rendszer a nyelvhelyes nevet ajánlja — kézzel bármikor átírható
+        (pl. ha a magyar név helyett a román jelenne meg).
+      </p>
+    </div>
+  )
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* F8c: overflow-x-hidden a dialóguson — az `overflow-y-auto` mellett az
@@ -1577,8 +1747,8 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                 Igazolás / levél kiállítása
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground">
-                Magyar, román vagy angol nyelvű hivatalos irat anyakönyvi adatokkal előtöltve —
-                kiállítás után automatikus iktatással.
+                Magyar, román, angol vagy német nyelvű hivatalos irat anyakönyvi adatokkal
+                előtöltve — kiállítás után automatikus iktatással.
               </DialogDescription>
             </div>
           </div>
@@ -1907,7 +2077,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                     aria-label="A dokumentum nyelve"
                     className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   >
-                    {LETTERHEAD_LANGS.map((l) => (
+                    {DOC_LANG_OPTIONS.map((l) => (
                       <option key={l.value} value={l.value}>
                         {l.label}
                       </option>
@@ -1915,9 +2085,15 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                   </select>
                   <p className="text-[11px] leading-snug text-muted-foreground">
                     {selectedCsalad
-                      ? 'A nyelv az EGÉSZ iratot vezérli: a levélfejet, a Szám/Tárgy címkéket, a keltezést és a törzs-szöveget.'
+                      ? 'A nyelv az EGÉSZ iratot vezérli: a levélfejet, a Szám/Tárgy címkéket (a Tárgy szövegét is), a keltezést és a törzs-szöveget.'
                       : 'A nyelv a levélfejet, a Szám/Tárgy címkéket és a keretet vezérli — a saját sablon törzse a megírt nyelven marad.'}
                   </p>
+                  {docLang === 'de' ? (
+                    <p className="text-[11px] leading-snug text-muted-foreground">
+                      Német nyelvnél a levélfej az angol változatból készül (a gyülekezetnek
+                      nincs német neve), német hivatal-felirattal.
+                    </p>
+                  ) : null}
                   <label className="flex items-center gap-2 text-xs text-foreground">
                     <input
                       type="checkbox"
@@ -1943,10 +2119,11 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                     <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       {numAdatok}. Adatok
                     </h3>
+                    {keltezesHelysegMezo}
                     {selectedCsalad.keziMezok.length === 0 ? (
                       <p className="text-xs italic text-muted-foreground">
-                        Ehhez a dokumentumhoz nincs kézi mező — minden adat az anyakönyvből
-                        töltődik.
+                        Ehhez a dokumentumhoz nincs további kézi mező — minden adat az
+                        anyakönyvből töltődik.
                       </p>
                     ) : (
                       <div className="space-y-2.5">
@@ -2001,9 +2178,10 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                   <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                     {numAdatok}. Mezők
                   </h3>
+                  {keltezesHelysegMezo}
                   {placeholders.length === 0 ? (
                     <p className="text-xs italic text-muted-foreground">
-                      A dokumentumban nincsenek kitöltendő mezők.
+                      A dokumentumban nincsenek további kitöltendő mezők.
                     </p>
                   ) : (
                     <div className="space-y-2.5">
@@ -2110,6 +2288,8 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                         <option value="en">English</option>
                       </select>
                     </div>
+
+                    {keltezesHelysegMezo}
 
                     {!persons[0] ? (
                       <p className="text-xs text-muted-foreground">
@@ -2265,6 +2445,18 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                       }}
                       disabled={issued}
                     />
+                    {/* F8e (user 2.): a magyar iktatókönyv miatt ez a mező MAGYAR
+                        marad; a dokumentumra a Tárgy a választott nyelven kerül. */}
+                    <p className="text-[11px] leading-snug text-muted-foreground">
+                      Az iktatókönyvbe <b>magyarul</b> kerül (a magyar nyelvű iktatókönyv miatt).
+                      {selectedCsalad && docLang !== 'hu' ? (
+                        <>
+                          {' '}
+                          A dokumentumon a Tárgy a választott nyelven jelenik meg:{' '}
+                          <i>{dokumentumTargy}</i>.
+                        </>
+                      ) : null}
+                    </p>
                   </div>
 
                   <p className="text-[11px] leading-snug text-muted-foreground">
@@ -2389,43 +2581,47 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               Élő előnézet (A4 álló)
             </p>
-            {/* FIX magasságú panel (mobilon kisebb — ott a sticky fejléc +
-                fül-váltó is helyet foglal): a ResizeObserver így a tényleges
-                panel-magasságot méri, és az alap-zoom a teljes első oldalt
-                mutatja. Belső scrollbar csak függőlegesen, több oldalnál.
-                F8c (görgetés-bug gyökérjavítás): scrollbar-gutter: stable — a
-                függőleges scrollbar megjelenése így NEM változtatja a mért
-                belső szélességet (nincs mérés↔scrollbar oda-vissza ugrálás,
-                és a lap jobb széle sem csúszhat ki). */}
+            {/* (1) SCROLL-HOST — ITT mérünk (F8e, kutatás 4. fejezet).
+                Rugalmas magasság (max-h): a lap MINDIG teljes szélességében
+                látszik, a hosszabb irat függőlegesen görgethető. A fix
+                `overflow-y: scroll` + `scrollbar-gutter: stable` a
+                scrollbar-oszcilláció (mérés ↔ görgetősáv oda-vissza) ellen —
+                a mért szélesség így állandó. Vízszintes görgetés SOHA. */}
             <div
-              ref={previewBoxRef}
-              className="h-[60vh] min-h-[280px] overflow-y-auto overflow-x-hidden rounded-2xl border border-border bg-muted p-3 lg:h-[72vh]"
+              ref={previewHostRef}
+              className="max-h-[68vh] min-h-[280px] overflow-y-scroll overflow-x-hidden rounded-2xl border border-border bg-muted p-3 lg:max-h-[78vh]"
               style={{ scrollbarGutter: 'stable' }}
             >
-              {/* max-w-full biztosíték: ha a mérés (boxSize) még nem futott le
-                  — pl. az első frame a mobil fül-váltás után —, a lap-wrapper
-                  akkor sem lóghat túl a panelen. */}
+              {/* (2) FIT-WRAPPER — a transform NEM változtat layout-méretet,
+                  ezért a wrapper méretét kézzel szorozzuk a skálával; a
+                  centrálás is ITT történik (mx-auto). A max-w-full biztosíték
+                  az első, még mérés előtti frame-re. */}
               <div
                 className="mx-auto max-w-full overflow-hidden rounded-md border border-border bg-white shadow-sm"
-                style={{ width: scaledW || undefined, height: scaledH || undefined }}
+                style={{ width: A4_W_PX * scale, height: contentH * scale }}
               >
+                {/* (3) LAP — fix A4-szélesség, origin 0 0 (alapból center!). */}
                 <iframe
                   ref={iframeRef}
-                  onLoad={measurePreview}
+                  onLoad={scheduleMeasure}
                   title="Dokumentum előnézet"
                   srcDoc={iframeHtml}
                   style={{
-                    width: A4_PORTRAIT_W,
+                    width: A4_W_PX,
                     height: contentH,
                     border: '0',
                     transform: `scale(${scale})`,
-                    transformOrigin: 'top left',
+                    transformOrigin: '0 0',
                     background: '#fff',
                     display: 'block', // inline-baseline hézag ellen
                   }}
                 />
               </div>
             </div>
+            <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
+              Az előnézet a valódi A4-lapot mutatja kicsinyítve — a nyomtatás és a PDF
+              ugyanezt a dokumentumot kapja, teljes méretben.
+            </p>
           </div>
         </div>
       </DialogContent>
