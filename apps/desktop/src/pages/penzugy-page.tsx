@@ -756,6 +756,9 @@ export function PenzugyPage() {
               carryoverBank={carryoverBank}
               prevActualIncome={prevActuals?.income}
               prevActualExpense={prevActuals?.expense}
+              // 2026-07-25 (G3 paritás): évi összegző hero — ugyanaz a balances,
+              // amiből a Kassza/Bank fülek egyenlege is számolódik.
+              balances={balances}
             />
           ) : activeTab === 'debt' ? (
             <DebtTab debtRows={debtRows} yearlyFees={yearlyFees} currentYear={year} debtCalcMode="akkori" />
