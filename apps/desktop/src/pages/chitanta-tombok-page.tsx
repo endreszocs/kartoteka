@@ -25,7 +25,9 @@ import {
 } from '@kartoteka/ui'
 import {
   createChitantaTombUseCase,
+  getChitantaTombUsageUseCase,
   listChitantaTombokUseCase,
+  type ChitantaTombUsage,
   type CreateChitantaTombResult,
   type ListChitantaTombokResult,
 } from '@kartoteka/core'
@@ -45,6 +47,8 @@ export function ChitantaTombokPage() {
   const [congregationId, setCongregationId] = useState<string | null>(null)
 
   const [rows, setRows] = useState<ChitantaTombRow[]>([])
+  /** 2026-07-25 (G4): valós elhasználtság a berögzített nyugtaszámokból (online). */
+  const [usageMap, setUsageMap] = useState<Record<string, ChitantaTombUsage>>({})
   const [loading, setLoading] = useState(true)
   const [source, setSource] = useState<'supabase' | 'local' | null>(null)
   const [listError, setListError] = useState<string | null>(null)
@@ -91,6 +95,22 @@ export function ChitantaTombokPage() {
       if (result.success) {
         setRows(result.rows)
         setSource(result.source)
+        // 2026-07-25 (G4): valós használat — csak online forrásnál számolható;
+        // offline-ban a DB-számláló marad (a kártya Math.max-a kezeli).
+        if (result.source === 'supabase' && result.rows.length > 0) {
+          const usageRes = await getChitantaTombUsageUseCase(
+            {
+              congregationId,
+              tombok: result.rows.map((r) => ({
+                id: r.id,
+                szam_kezdet: r.szam_kezdet,
+                szam_veg: r.szam_veg,
+              })),
+            },
+            { supabase, runtime: 'desktop' },
+          )
+          if (usageRes.success) setUsageMap(usageRes.usage)
+        }
       } else {
         setListError(result.error)
       }
@@ -205,7 +225,7 @@ export function ChitantaTombokPage() {
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {rows.map((row) => (
-              <ChitantaTombCard key={row.id} row={row} />
+              <ChitantaTombCard key={row.id} row={row} usage={usageMap[row.id]} />
             ))}
           </div>
         )}
@@ -283,11 +303,15 @@ function EmptyState({
 // Egy tömb kártyája
 // ─────────────────────────────────────────────────────────────────────────
 
-function ChitantaTombCard({ row }: { row: ChitantaTombRow }) {
+function ChitantaTombCard({ row, usage }: { row: ChitantaTombRow; usage?: ChitantaTombUsage }) {
   const status = computeChitantaTombStatus(row)
+  // 2026-07-25 (G4): a kijelzett elhasználtság = max(DB-számláló, a berögzített
+  // kerületi nyugtaszámokból számított érték) — web-paritás.
+  const felhasznalt = Math.max(status.felhasznalt_darabszam, usage?.szamitottFelhasznalt ?? 0)
+  const maradek = Math.max(0, status.darabszam_ossz - felhasznalt)
   const isAktiv = row.aktiv
-  const lowStock = isAktiv && status.maradek <= 5 && status.maradek > 0
-  const exhausted = isAktiv && status.maradek === 0
+  const lowStock = isAktiv && maradek <= 5 && maradek > 0
+  const exhausted = isAktiv && maradek === 0
 
   return (
     <Card className={!isAktiv ? 'opacity-70' : undefined}>
@@ -312,8 +336,14 @@ function ChitantaTombCard({ row }: { row: ChitantaTombRow }) {
         </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">Felhasznált:</span>
-          <span className="font-medium">{status.felhasznalt_darabszam} db</span>
+          <span className="font-medium">{felhasznalt} db</span>
         </div>
+        {(usage?.anulaltDarab ?? 0) > 0 && (
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>ebből anulált:</span>
+            <span>{usage?.anulaltDarab} db</span>
+          </div>
+        )}
         <div className="flex justify-between">
           <span className="text-muted-foreground">Maradék:</span>
           <span
@@ -325,7 +355,7 @@ function ChitantaTombCard({ row }: { row: ChitantaTombRow }) {
                   : 'text-emerald-700'
             }`}
           >
-            {status.maradek} db
+            {maradek} db
           </span>
         </div>
         {isAktiv && status.maradek > 0 && (

@@ -64,6 +64,18 @@ export {
 } from './finance/chitanta-tomb/active-status'
 
 export {
+  computeChitantaTombUsage,
+  extractNyomdaiSzamFromIratszam,
+  getChitantaTombUsageUseCase,
+  type ChitantaTombRangeLike,
+  type ChitantaTombUsage,
+  type GetChitantaTombUsageCtx,
+  type GetChitantaTombUsageInput,
+  type GetChitantaTombUsageResult,
+  type NyomdaiSzamAdat,
+} from './finance/chitanta-tomb/usage'
+
+export {
   issueChitantaUseCase,
   type IssueChitantaCtx,
   type IssueChitantaResult,
