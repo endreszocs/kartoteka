@@ -19,8 +19,8 @@ use auth_pin::{
     auth_pin_clear, auth_pin_has, auth_pin_set, auth_pin_status, auth_pin_verify,
 };
 use db::{
-    chitanta_wallet_claim_next, chitanta_wallet_release, db_execute, db_select, db_status,
-    iratszam_wallet_claim_next, iratszam_wallet_release, open_and_migrate, DbState,
+    chitanta_wallet_claim_next, chitanta_wallet_release, db_execute, db_execute_many, db_select,
+    db_status, iratszam_wallet_claim_next, iratszam_wallet_release, open_and_migrate, DbState,
 };
 use device::device_info;
 use avatar::{fetch_image, fetch_page_text};
@@ -73,6 +73,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             db_execute,
+            db_execute_many,
             db_select,
             db_status,
             device_info,

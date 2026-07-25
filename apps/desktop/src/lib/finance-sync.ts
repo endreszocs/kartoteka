@@ -12,7 +12,7 @@
  */
 
 import { getDesktopSupabase } from './supabase'
-import { dbExecute, dbSelect, type SqlParam } from './local-db'
+import { dbExecute, dbExecuteMany, dbSelect, type SqlParam } from './local-db'
 import { selectAllPaged } from './sync'
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -115,11 +115,43 @@ export async function pullBefizetesek(
       return { success: false, pulled: 0, error: error.message }
     }
 
-    let pulled = 0
+    // 2026-07-25 (F6.7): KÖTEGELT írás — egy tranzakció, egy IPC-kör.
+    const upsertBatch: SqlParam[][] = []
     for (const row of data || []) {
       const r = row as Record<string, SqlParam>
-      await dbExecute(
-        `INSERT INTO befizetes_local (
+      upsertBatch.push([
+        r.id,
+        r.xkey ?? '',
+        r.id_csalad ?? null,
+        r.id_szemely ?? null,
+        r.forrasa ?? null,
+        r.id_befizetescel,
+        r.datum,
+        r.osszeg,
+        r.nyugta ?? null,
+        r.iratszam,
+        r.irattipus,
+        r.csalad ? 1 : 0,
+        r.megjegyzes ?? null,
+        r.deleted ? 1 : 0,
+        r.created ?? null,
+        r.fizetettev,
+        r.userid,
+        r.is_potlas ? 1 : 0,
+        r.bankszamla_id ?? null,
+        r.stornozott ? 1 : 0,
+        r.stornozott_at ?? null,
+        r.stornozott_indok ?? null,
+        r.stornozott_by ?? null,
+        r.osszeg_ron ?? null,
+        r.arfolyam ?? null,
+        r.congregation_id,
+        r.revision ?? 0,
+        r.updated_at,
+      ])
+    }
+    await dbExecuteMany(
+      `INSERT INTO befizetes_local (
           id, xkey, id_csalad, id_szemely, forrasa, id_befizetescel, datum, osszeg,
           nyugta, iratszam, irattipus, csalad, megjegyzes, deleted, created, fizetettev,
           userid, is_potlas, bankszamla_id, stornozott, stornozott_at, stornozott_indok,
@@ -159,39 +191,9 @@ export async function pullBefizetesek(
           revision = excluded.revision,
           updated_at = excluded.updated_at,
           synced_at = datetime('now')`,
-        [
-          r.id,
-          r.xkey ?? '',
-          r.id_csalad ?? null,
-          r.id_szemely ?? null,
-          r.forrasa ?? null,
-          r.id_befizetescel,
-          r.datum,
-          r.osszeg,
-          r.nyugta ?? null,
-          r.iratszam,
-          r.irattipus,
-          r.csalad ? 1 : 0,
-          r.megjegyzes ?? null,
-          r.deleted ? 1 : 0,
-          r.created ?? null,
-          r.fizetettev,
-          r.userid,
-          r.is_potlas ? 1 : 0,
-          r.bankszamla_id ?? null,
-          r.stornozott ? 1 : 0,
-          r.stornozott_at ?? null,
-          r.stornozott_indok ?? null,
-          r.stornozott_by ?? null,
-          r.osszeg_ron ?? null,
-          r.arfolyam ?? null,
-          r.congregation_id,
-          r.revision ?? 0,
-          r.updated_at,
-        ],
-      )
-      pulled += 1
-    }
+      upsertBatch,
+    )
+    const pulled = upsertBatch.length
 
     // 2026-07-25 (F6.4): a szerveren törölt/kimozgatott sorok takarítása —
     // a hatókör AZONOS a lekérdezésével (jogcím-év VAGY pénztári nap az évben).
@@ -240,11 +242,42 @@ export async function pullKiadasok(
       return { success: false, pulled: 0, error: error.message }
     }
 
-    let pulled = 0
+    // 2026-07-25 (F6.7): KÖTEGELT írás — egy tranzakció, egy IPC-kör.
+    const upsertBatch: SqlParam[][] = []
     for (const row of data || []) {
       const r = row as Record<string, SqlParam>
-      await dbExecute(
-        `INSERT INTO kiadas_local (
+      upsertBatch.push([
+        r.id,
+        r.xkey ?? '',
+        r.id_kiadascel,
+        r.datum,
+        r.osszeg,
+        r.nyugta ?? null,
+        r.iratszam,
+        r.irattipus,
+        r.megjegyzes ?? null,
+        r.created ?? null,
+        r.deleted ? 1 : 0,
+        r.atvevo ?? null,
+        r.atvevoid ?? null,
+        r.userid,
+        r.is_potlas ? 1 : 0,
+        r.bankszamla_id ?? null,
+        r.vonatkozo_idoszak ?? null,
+        r.kedvezmenyezett_cui ?? null,
+        r.stornozott ? 1 : 0,
+        r.stornozott_at ?? null,
+        r.stornozott_indok ?? null,
+        r.stornozott_by ?? null,
+        r.osszeg_ron ?? null,
+        r.arfolyam ?? null,
+        r.congregation_id,
+        r.revision ?? 0,
+        r.updated_at,
+      ])
+    }
+    await dbExecuteMany(
+      `INSERT INTO kiadas_local (
           id, xkey, id_kiadascel, datum, osszeg, nyugta, iratszam, irattipus,
           megjegyzes, created, deleted, atvevo, atvevoid, userid, is_potlas,
           bankszamla_id, vonatkozo_idoszak, kedvezmenyezett_cui, stornozott,
@@ -285,38 +318,9 @@ export async function pullKiadasok(
           revision = excluded.revision,
           updated_at = excluded.updated_at,
           synced_at = datetime('now')`,
-        [
-          r.id,
-          r.xkey ?? '',
-          r.id_kiadascel,
-          r.datum,
-          r.osszeg,
-          r.nyugta ?? null,
-          r.iratszam,
-          r.irattipus,
-          r.megjegyzes ?? null,
-          r.created ?? null,
-          r.deleted ? 1 : 0,
-          r.atvevo ?? null,
-          r.atvevoid ?? null,
-          r.userid,
-          r.is_potlas ? 1 : 0,
-          r.bankszamla_id ?? null,
-          r.vonatkozo_idoszak ?? null,
-          r.kedvezmenyezett_cui ?? null,
-          r.stornozott ? 1 : 0,
-          r.stornozott_at ?? null,
-          r.stornozott_indok ?? null,
-          r.stornozott_by ?? null,
-          r.osszeg_ron ?? null,
-          r.arfolyam ?? null,
-          r.congregation_id,
-          r.revision ?? 0,
-          r.updated_at,
-        ],
-      )
-      pulled += 1
-    }
+      upsertBatch,
+    )
+    const pulled = upsertBatch.length
 
     // 2026-07-25 (F6.4): kísértet-sorok takarítása (lásd reconcileLocalRows).
     const serverIds = new Set((data || []).map((row) => String((row as Record<string, unknown>).id)))

@@ -2180,6 +2180,66 @@ pub fn db_execute(
         .map_err(|e| format!("SQL execute hiba: {e}"))
 }
 
+/// 2026-07-25 (F6.7): KÖTEGELT ÍRÁS — egy utasítás, `n` paraméter-sor.
+///
+/// MIÉRT KELL: a szinkron eddig SORONKÉNT hívta a `db_execute`-ot. Egy 1000
+/// fős gyülekezet teljes szinkronja így nagyságrendileg 10 000+ külön IPC-kört
+/// jelentett, és minden egyes írás SAJÁT tranzakcióba került (az SQLite
+/// autocommit-ja miatt lemez-szinkronizálással) — ez a fő oka annak, hogy a
+/// nagy évek betöltése lassú.
+///
+/// EZ A MEGOLDÁS: egyetlen IPC-hívás, egyetlen tranzakció, egyetlen ELŐKÉSZÍTETT
+/// utasítás újrahasználva minden sorra. Az SQL-elemzés és a lemez-szinkronizálás
+/// így soronként egyszer helyett kötegenként egyszer történik.
+///
+/// ATOMICITÁS: ha bármelyik sor hibázik, a `tx` felszabadulásakor a rusqlite
+/// alapértelmezés szerint VISSZAGÖRGET — tehát vagy az egész köteg beíródik,
+/// vagy egy sor sem. Ez SZIGORÚBB, mint a régi soronkénti viselkedés (ott egy
+/// hiba félig beírt állapotot hagyott), és a hívó szempontjából helyesebb is.
+#[tauri::command]
+pub fn db_execute_many(
+    state: State<'_, DbState>,
+    sql: String,
+    rows: Vec<Vec<JsonValue>>,
+) -> Result<usize, String> {
+    // DIAGNOSTICS P0-3a: ugyanaz a védelmi SQL-szűrő, mint a db_execute-nál.
+    is_safe_sql(&sql)?;
+
+    if rows.is_empty() {
+        return Ok(0);
+    }
+
+    let mut guard = state
+        .conn
+        .lock()
+        .map_err(|e| format!("DB mutex zárolás sikertelen: {e}"))?;
+    let conn = guard
+        .as_mut()
+        .ok_or_else(|| "A DB még nincs megnyitva".to_string())?;
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Tranzakció indítása sikertelen: {e}"))?;
+
+    let mut affected: usize = 0;
+    {
+        let mut stmt = tx
+            .prepare(&sql)
+            .map_err(|e| format!("SQL előkészítés hiba: {e}"))?;
+        for (idx, row) in rows.iter().enumerate() {
+            let sql_params: Vec<rusqlite::types::Value> = row.iter().map(json_to_sql).collect();
+            affected += stmt
+                .execute(params_from_iter(sql_params))
+                .map_err(|e| format!("SQL execute hiba a(z) {}. sornál: {e}", idx + 1))?;
+        }
+    }
+
+    tx.commit()
+        .map_err(|e| format!("Tranzakció lezárása sikertelen: {e}"))?;
+
+    Ok(affected)
+}
+
 /// Futtat egy SELECT-et és visszaadja a sorokat objektumok listájaként.
 #[tauri::command]
 pub fn db_select(
