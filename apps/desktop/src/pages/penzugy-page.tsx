@@ -85,6 +85,7 @@ import { DesktopBudgetPrintDialog } from '../components/budget-print-dialog'
 import { ChitantaPrintDialog } from '../components/chitanta-print-dialog'
 import { DesktopChitantaTombRequiredDialog } from '../components/chitanta-tomb-required-dialog'
 import { DESKTOP_HELP_SECTIONS } from '../lib/desktop-help-sections'
+import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
 
 // 2026-06-11 (paritás #5): Bank / Költségvetés / Monetár is a web-azonos
 // megosztott komponenssel renderelődik. Egyedül a Bérleti szerződések fül vár
@@ -173,6 +174,10 @@ export function PenzugyPage() {
   const [printOpen, setPrintOpen] = useState(false)
   const [budgetPrintOpen, setBudgetPrintOpen] = useState(false)
   // Page-szintű visszajelzés (pl. sztornó-visszavonás eredménye a Kassza fülről).
+  // 2026-07-25 (F6.4): hány OFFLINE rögzített (még fel nem töltött) befizetés
+  // van — ezek a szerver-tükörben még nincsenek benne, tehát a lenti számok
+  // NEM tartalmazzák őket. Enélkül a lelkész némán kevesebbet látott.
+  const [pendingCount, setPendingCount] = useState(0)
   const [pageToast, setPageToast] = useState<
     { kind: 'success' | 'error' | 'info' | 'warning'; msg: string } | null
   >(null)
@@ -390,6 +395,16 @@ export function PenzugyPage() {
         prevExpenseByKod[kod] =
           (prevExpenseByKod[kod] || 0) + (Number(k.osszeg_ron ?? k.osszeg) || 0)
       }
+      // 2026-07-25 (F6.4): offline rögzített tételek számbavétele (a helyi
+      // staging-táblából) — hibatűrő, a pénzügy-nézetet nem blokkolja.
+      try {
+        const pendings = await getTauriSqliteBackend().listLocalPendingBefizetes(congId, year)
+        setPendingCount(pendings.length)
+      } catch (err) {
+        console.warn('[penzugy-page] a függő (offline) tételek lekérdezése kimaradt:', err)
+        setPendingCount(0)
+      }
+
       setPrevActuals(
         // A null-őr is a HELYES (szűrt) halmazokra épül — különben tisztán
         // rossz szemantikájú sorokból épült oszlopot mutatnánk 0 helyett.
@@ -616,6 +631,22 @@ export function PenzugyPage() {
             </>
           }
         />
+
+        {/* 2026-07-25 (F6.4): az offline rögzített tételek NINCSENEK benne a lenti
+            számokban (a szerver-tükörből dolgozunk) — ezt ki kell mondani, mert
+            különben a lelkész hiányzó pénzt lát. */}
+        {pendingCount > 0 && (
+          <div
+            role="status"
+            className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          >
+            <strong>
+              {pendingCount} internet nélkül rögzített tétel még nincs feltöltve.
+            </strong>{' '}
+            Az alábbi kimutatások (kassza, egyenlegek, számadás) ezeket még nem tartalmazzák —
+            a feltöltés a kapcsolat helyreállása után automatikusan megtörténik.
+          </div>
+        )}
 
         {pageToast && (
           <div
