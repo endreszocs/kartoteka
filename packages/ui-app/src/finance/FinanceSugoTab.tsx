@@ -232,6 +232,10 @@ const SECTIONS: Section[] = [
           {
             text: 'Oblio ellenőrzés: a „Mappa beállítása" gomb most már tényleg megnyitja a mappa-választót, és a rendszer megjegyzi a kiválasztott KARTOTEKA mappát (Chrome vagy Edge böngésző szükséges).',
           },
+          {
+            // 2026-07-25 (G2-sugo): fejléc mega menü + profilváltó
+            text: 'Fejléc-menü (a jobb felső avatár): széles, kategorizált menü nyílik — „Fiók" és „Gyülekezet" csoportokkal. A bal felső gyülekezet-csempére kattintva ugyanez a menü nyílik. Több szerepkör esetén a profilváltó csoportosítva (gyülekezet / egyházmegye / egyházkerület / rendszer) jelenik meg, öt szerep felett keresővel — és a váltás is gyorsabb lett.',
+          },
         ],
       },
       {

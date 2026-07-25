@@ -19,6 +19,7 @@ import {
   type ProfileRoleRow,
   type ProfileRoleScope,
 } from '@/lib/profile-roles/types'
+import { getStartPathForScope } from '@/lib/auth/scope-start-path'
 
 const SCOPE_ICONS: Record<ProfileRoleScope, React.ComponentType<{ className?: string }>> = {
   system: Globe,
@@ -101,24 +102,7 @@ function getInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
-/**
- * A scope szerinti cél-route — egyezik a server action
- * `determineStartPageForScope` logikájával. Csak prefetch-hez kell, így
- * pontatlanság nem okoz hibát (csak nem prefetch-eli a célt).
- */
-function predictRedirectPath(scope: ProfileRoleScope, role: string): string {
-  switch (scope) {
-    case 'system':
-      return role === 'admin' ? '/admin' : '/dashboard'
-    case 'district':
-      return '/dashboard-kerulet'
-    case 'diocese':
-      return '/dashboard-egyhazmegye'
-    case 'congregation':
-    default:
-      return '/dashboard'
-  }
-}
+
 
 export function ProfileChooser({
   profileRoles,
@@ -175,7 +159,7 @@ export function ProfileChooser({
    */
   function handleHover(scope: ProfileRoleScope, role: string) {
     if (isPending) return
-    const target = predictRedirectPath(scope, role)
+    const target = getStartPathForScope(scope, role)
     router.prefetch(target)
   }
 

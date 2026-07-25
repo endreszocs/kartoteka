@@ -24,6 +24,7 @@
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { getStartPathForScope } from '@/lib/auth/scope-start-path'
 
 const ACTIVE_PROFILE_ROLE_COOKIE = 'kartoteka_active_profile_role'
 // 30 napos érvényesség — a user ritkán vált profilt naponta
@@ -78,23 +79,11 @@ export async function switchActiveProfileRole(
 
   // Server-side redirect — a kliens azonnal a célon van, NEXT_REDIRECT signal
   redirect(
-    determineStartPageForScope(
+    getStartPathForScope(
       profileRole.scope as ProfileRoleScope,
       profileRole.role as string,
     ),
   )
 }
 
-function determineStartPageForScope(scope: ProfileRoleScope, role: string): string {
-  switch (scope) {
-    case 'system':
-      return role === 'admin' ? '/admin' : '/dashboard'
-    case 'district':
-      return '/dashboard-kerulet'
-    case 'diocese':
-      return '/dashboard-egyhazmegye'
-    case 'congregation':
-    default:
-      return '/dashboard'
-  }
-}
+

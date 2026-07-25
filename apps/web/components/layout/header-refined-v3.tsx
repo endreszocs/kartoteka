@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, Church, HardDrive, HelpCircle, Landmark, LogOut, Settings, Shield, Trash2, User } from 'lucide-react'
+import { ChevronDown, Church, HardDrive, HelpCircle, Landmark, LogOut, Settings, Shield, Trash2, User, Users } from 'lucide-react'
 import { SupportDialog } from '@/components/layout/support-dialog'
 import { SettingsDialog } from '@/components/modals/settings-dialog'
 
@@ -12,7 +12,9 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -55,6 +57,11 @@ interface HeaderProps {
   /** Sidebar collapse/expand toggle — a Kartotéka-ikonra kattintásra. */
   onToggleSidebar?: () => void
 }
+
+// 2026-07-25 (G2): széles mega menü — desktopon 2 oszlopos, mobilon a
+// képernyő szélességéhez igazodik (soha nem lóg ki).
+const MEGA_MENU_CLASS =
+  'w-[min(30rem,calc(100vw-1.5rem))] rounded-[1.4rem] border border-border bg-popover p-2 shadow-lg backdrop-blur-xl'
 
 function getRoleLabel(role: string) {
   const roleLabels: Record<string, string> = {
@@ -138,6 +145,114 @@ export function HeaderRefinedV3({
     await signOut()
   }
 
+  // 2026-07-25 (G2): MEGA MENÜ — a korábbi 288px-es, lapos, 8+ elemű oszlop
+  // helyett széles, KATEGORIZÁLT menü (desktopon 2 oszlop). A tartalom egyszer
+  // épül fel, és két trigger (avatár + kontextus-chip) is ezt mountolja.
+  const megaMenuBody = (
+    <>
+      {hasMultipleRoles && (
+        <>
+          <div className="px-1.5 pb-1 pt-0.5">
+            <ProfileSwitcher
+              activeProfileRoleId={activeProfileRoleId}
+              profileRoles={profileRoles}
+              scopeNames={scopeNames}
+            />
+          </div>
+          {/* 2026-07-25 (G2): billentyűzet-/felolvasó-barát tartalék — a
+              switcher-sorok nem a menü saját navigációs listájában élnek, ezért
+              a teljes profilválasztó oldal külön menüpontként is elérhető. */}
+          <DropdownMenuItem
+            onClick={() => router.push('/valassz-profilt')}
+            className="min-h-10 gap-3 rounded-xl py-2.5"
+          >
+            <Users className="size-4 text-primary/70" />
+            <span className="flex-1">Összes profil megnyitása</span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+        </>
+      )}
+
+      <div className="grid gap-x-2 sm:grid-cols-2">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="px-2 pt-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            Fiók
+          </DropdownMenuLabel>
+          <DropdownMenuItem onClick={onOpenProfile} className="min-h-10 gap-3 rounded-xl py-2.5">
+            <User className="size-4 text-primary/70" />
+            Profil
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => setSettingsOpen(true)}
+            className="min-h-10 gap-3 rounded-xl py-2.5"
+          >
+            <Settings className="size-4 text-primary/70" />
+            Beállítások
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => router.push('/offline')}
+            className="min-h-10 gap-3 rounded-xl py-2.5"
+          >
+            <HardDrive className="size-4 text-primary/70" />
+            <span className="flex-1">Offline mentés</span>
+            <OfflineMenuItemBadge />
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="px-2 pt-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            Gyülekezet
+          </DropdownMenuLabel>
+          <DropdownMenuItem onClick={onOpenCongregation} className="min-h-10 gap-3 rounded-xl py-2.5">
+            <Church className="size-4 text-primary/70" />
+            Gyülekezetünk
+          </DropdownMenuItem>
+          {/* A varázsló a DashboardShell-lel window-eventen kommunikál — a híd marad. */}
+          <DropdownMenuItem
+            onClick={() => {
+              window.dispatchEvent(new Event('kartoteka:open-congregation-setup-wizard'))
+            }}
+            className="min-h-10 gap-3 rounded-xl py-2.5"
+          >
+            <Landmark className="size-4 text-primary/70" />
+            <div className="flex flex-col">
+              <span>Gyülekezet-beállítás</span>
+              <span className="text-[10px] text-muted-foreground">
+                Alapadatok, cím, banki adatok
+              </span>
+            </div>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => router.push('/kuka')}
+            className="min-h-10 gap-3 rounded-xl py-2.5"
+          >
+            <Trash2 className="size-4 text-primary/70" />
+            <span className="flex-1">Kuka</span>
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+      </div>
+
+      <DropdownMenuSeparator />
+      {onOpenGodMode && (
+        <DropdownMenuItem
+          onClick={onOpenGodMode}
+          className="min-h-10 gap-3 rounded-xl py-2.5 text-red-600"
+        >
+          <Shield className="size-4" />
+          Rendszergazdai mód
+        </DropdownMenuItem>
+      )}
+      <DropdownMenuItem
+        onClick={handleSignOut}
+        disabled={signingOut}
+        className="min-h-10 gap-3 rounded-xl py-2.5 text-red-600"
+      >
+        <LogOut className="size-4" />
+        {signingOut ? 'Kijelentkezés...' : 'Kijelentkezés'}
+      </DropdownMenuItem>
+    </>
+  )
+
   return (
     <header className="sticky top-0 z-30 h-16 shrink-0 border-b border-border bg-background/74 backdrop-blur-2xl">
       <div className="flex h-full items-center justify-between gap-3.5 px-4 lg:px-7">
@@ -161,28 +276,43 @@ export function HeaderRefinedV3({
             />
           </button>
 
-          {/* Sablon-szerű "input-szerű" gyülekezet chip — címer + 2 sor szöveg */}
-          <div className="flex min-w-0 items-center gap-3 rounded-[10px] border border-border bg-card px-3.5 py-1.5">
-            <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg" style={{ background: 'var(--accent)' }}>
-              {congregationLogo ? (
-                <div
-                  aria-hidden="true"
-                  className="size-full bg-cover bg-center bg-no-repeat"
-                  style={{ backgroundImage: `url(${congregationLogo})` }}
-                />
-              ) : (
-                <Church className="size-5 text-white" />
+          {/* Sablon-szerű "input-szerű" gyülekezet chip — címer + 2 sor szöveg.
+              2026-07-25 (G2, K2): a chip KATTINTHATÓ — ugyanazt a mega menüt
+              nyitja, mint az avatár (a chip mutatja az aktív kontextust, ezért
+              természetes belépési pont a profilváltáshoz). */}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className="flex min-w-0 items-center gap-3 rounded-[10px] border border-border bg-card px-3.5 py-1.5 text-left outline-none transition hover:border-primary/40 hover:bg-muted/50"
+              aria-label={`${contextChip.primary} — kontextus és menü megnyitása`}
+              title="Kontextus váltása és menü"
+            >
+              <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg" style={{ background: 'var(--accent)' }}>
+                {congregationLogo ? (
+                  <div
+                    aria-hidden="true"
+                    className="size-full bg-cover bg-center bg-no-repeat"
+                    style={{ backgroundImage: `url(${congregationLogo})` }}
+                  />
+                ) : (
+                  <Church className="size-5 text-white" />
+                )}
+              </div>
+              <div className="min-w-0 leading-tight">
+                <div className="truncate font-heading text-[14.5px] font-semibold text-foreground">
+                  {contextChip.primary}
+                </div>
+                <div className="truncate text-[11px] text-muted-foreground">
+                  {contextChip.secondary}
+                </div>
+              </div>
+              {hasMultipleRoles && (
+                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
               )}
-            </div>
-            <div className="min-w-0 leading-tight">
-              <div className="truncate font-heading text-[14.5px] font-semibold text-foreground">
-                {contextChip.primary}
-              </div>
-              <div className="truncate text-[11px] text-muted-foreground">
-                {contextChip.secondary}
-              </div>
-            </div>
-          </div>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className={MEGA_MENU_CLASS}>
+              {megaMenuBody}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         <div className="flex items-center gap-2">
@@ -221,92 +351,8 @@ export function HeaderRefinedV3({
               <ChevronDown className="hidden size-3.5 text-muted-foreground sm:block" />
             </DropdownMenuTrigger>
 
-            <DropdownMenuContent
-              align="end"
-              className="w-72 rounded-[1.4rem] border border-border bg-popover p-2 shadow-lg backdrop-blur-xl"
-            >
-              {hasMultipleRoles && (
-                <>
-                  <ProfileSwitcher
-                    activeProfileRoleId={activeProfileRoleId}
-                    profileRoles={profileRoles}
-                    scopeNames={scopeNames}
-                  />
-                  <DropdownMenuSeparator />
-                </>
-              )}
-              <DropdownMenuItem onClick={onOpenProfile} className="gap-3 rounded-xl py-2.5">
-                <User className="size-4 text-primary/70" />
-                Profil
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onOpenCongregation} className="gap-3 rounded-xl py-2.5">
-                <Church className="size-4 text-primary/70" />
-                Gyülekezetünk
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => router.push('/offline')}
-                className="gap-3 rounded-xl py-2.5"
-              >
-                <HardDrive className="size-4 text-primary/70" />
-                <span className="flex-1">Offline mentés</span>
-                <OfflineMenuItemBadge />
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => router.push('/kuka')}
-                className="gap-3 rounded-xl py-2.5"
-              >
-                <Trash2 className="size-4 text-primary/70" />
-                <span className="flex-1">Kuka</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => setSettingsOpen(true)}
-                className="gap-3 rounded-xl py-2.5"
-              >
-                <Settings className="size-4 text-primary/70" />
-                Beállítások
-              </DropdownMenuItem>
-
-              {/* Beállító varázslók szekció — Endre kérése (2026-05-04):
-                  külön menüpontok a két varázslóhoz, ha utólag adatokat
-                  szeretnénk javítani. */}
-              <DropdownMenuSeparator />
-              <div className="px-3 pt-2 pb-1">
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
-                  Beállító varázslók
-                </p>
-              </div>
-              {/* 2026-06-12 (Endre): a „Kezdő beállító varázsló" menüpont
-                  KIVÉVE — éles használatban félrevezető volt; a gyülekezeti
-                  adatok javítására a Gyülekezet-beállítás varázsló szolgál. */}
-              <DropdownMenuItem
-                onClick={() => {
-                  window.dispatchEvent(new Event('kartoteka:open-congregation-setup-wizard'))
-                }}
-                className="gap-3 rounded-xl py-2.5"
-              >
-                <Landmark className="size-4 text-primary/70" />
-                <div className="flex flex-col">
-                  <span>Gyülekezet-beállítás</span>
-                  <span className="text-[10px] text-muted-foreground">Alapadatok, cím, elérhetőség, banki adatok</span>
-                </div>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              {onOpenGodMode && (
-                <DropdownMenuItem onClick={onOpenGodMode} className="gap-3 rounded-xl py-2.5 text-red-600">
-                  <Shield className="size-4" />
-                  Rendszergazdai mód
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={handleSignOut}
-                disabled={signingOut}
-                className="gap-3 rounded-xl py-2.5 text-red-600"
-              >
-                <LogOut className="size-4" />
-                {signingOut ? 'Kijelentkezés...' : 'Kijelentkezés'}
-              </DropdownMenuItem>
+            <DropdownMenuContent align="end" className={MEGA_MENU_CLASS}>
+              {megaMenuBody}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
