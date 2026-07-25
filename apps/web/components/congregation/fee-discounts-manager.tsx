@@ -75,6 +75,19 @@ function isValidMonthDay(value: string): boolean {
   return /^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/.test(value)
 }
 
+// 2026-07-25 (G1): év-időszalag — a HH-NN kód pozíciója az éven belül (0..1).
+const MONTH_CUM_DAYS = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
+const YEAR_DAYS = 365
+
+function monthDayToFraction(value: string | null | undefined): number | null {
+  if (!value || !isValidMonthDay(value)) return null
+  const [mm, dd] = value.split('-').map((part) => Number(part))
+  const dayOfYear = MONTH_CUM_DAYS[mm - 1] + (dd - 1)
+  return Math.min(1, Math.max(0, dayOfYear / YEAR_DAYS))
+}
+
+const MONTH_SHORT = ['J', 'F', 'M', 'Á', 'M', 'J', 'J', 'A', 'Sz', 'O', 'N', 'D']
+
 // ─────────────────────────────────────────────────────────────
 // FeeDiscountsManager — önálló KEDVEZMÉNYEK panel (jarulek_kedvezmeny CRUD)
 // ─────────────────────────────────────────────────────────────
@@ -92,6 +105,13 @@ export function FeeDiscountsManager({
   const [discountSchemaReady, setDiscountSchemaReady] = useState(true)
   const [discountWarning, setDiscountWarning] = useState<string | null>(null)
   const [discountForm, setDiscountForm] = useState(getEmptyDiscountForm(new Date().getFullYear()))
+  // 2026-07-25 (G1): TÖBB időszaki kedvezmény egyszerre — a welcome-varázsló
+  // DiscountPeriodSlot-mintája szerint. Csak ÚJ rögzítésnél (szerkesztésnél a
+  // meglévő egy sorra fókuszálunk), a mentés soronkénti upsert.
+  const [extraPeriods, setExtraPeriods] = useState<
+    Array<{ key: string; kezdet: string; hatarid: string; kedvOsszeg: number }>
+  >([])
+  const [savingAll, setSavingAll] = useState(false)
 
   const loadDiscounts = useCallback(async () => {
     if (!congregationId) return
@@ -108,6 +128,15 @@ export function FeeDiscountsManager({
     queueMicrotask(() => { void loadDiscounts() })
   }, [loadDiscounts])
 
+  /** Lista-frissítés az űrlap ürítése NÉLKÜL (részleges mentés hibaágához). */
+  async function loadDiscountsKeepForm() {
+    const refreshed = await getCongregationFeeDiscounts(congregationId)
+    if ('error' in refreshed && refreshed.error) toast.error(refreshed.error)
+    setDiscounts((refreshed.rows || []) as FeeDiscountRow[])
+    setDiscountSchemaReady(refreshed.schemaReady !== false)
+    setDiscountWarning('warning' in refreshed ? refreshed.warning || null : null)
+  }
+
   async function handleSaveDiscount() {
     // 2026-07-17 (F5): kliens-oldali validációk a néma no-op / rollover-aknák ellen
     // (a zod-séma szerver-oldalon ugyanezt kényszeríti).
@@ -118,6 +147,12 @@ export function FeeDiscountsManager({
       }
       if (!(discountForm.kedvOsszeg >= 1)) {
         toast.error('A kedvezményes összeg legalább 1 RON legyen — a 0 összegű időszaki szabály nem érvényesülne. Teljes mentesüléshez használd a felmentést vagy a foglalkozás-kedvezményt.')
+        return
+      }
+      // 2026-07-25 (G1): fordított ablak (pl. 11-01 → 07-01) tiltása — a motor
+      // ilyenkor jan. 1-től a VÉG-dátumig mindenkire a kedvezményes árat adná.
+      if (discountForm.kezdet > discountForm.hatarid) {
+        toast.error('A kezdő dátum nem lehet későbbi a vég dátumnál (pl. 01-01 → 07-01).')
         return
       }
     }
@@ -131,13 +166,76 @@ export function FeeDiscountsManager({
         return
       }
     }
-    const result = await saveCongregationFeeDiscount(congregationId, discountForm)
+    // 2026-07-25 (G1): a „Sorrend" mező megszűnt (a motorra nem hatott — mindig a
+    // LEGKEDVEZŐBB szabály nyer). Új sornál automatikus, determinisztikus értéket
+    // adunk (adott év+típus legnagyobbja + 1), szerkesztésnél a meglévő marad.
+    const autoSorrend = discountForm.id
+      ? discountForm.sorrend
+      : discounts
+          .filter((d) => d.ev === discountForm.ev && d.tipus === discountForm.tipus)
+          .reduce((max, d) => Math.max(max, d.sorrend ?? 0), -1) + 1
+
+    // 2026-07-25 (G1): a további időszakokat ELŐBB ellenőrizzük, és CSAK utána
+    // mentünk bármit — így hibás sor esetén nem marad félkész (részleges) mentés.
+    const savesExtras = !discountForm.id && discountForm.tipus === 'idoszak'
+    const pendingExtras = savesExtras ? extraPeriods : []
+    for (const [index, period] of pendingExtras.entries()) {
+      const label = `A(z) ${index + 2}. időszak`
+      if (!isValidMonthDay(period.kezdet) || !isValidMonthDay(period.hatarid)) {
+        toast.error(`${label} dátuma érvénytelen (HH-NN alak kell, pl. 07-02).`)
+        return
+      }
+      if (period.kezdet > period.hatarid) {
+        toast.error(`${label} kezdő dátuma nem lehet későbbi a vég dátumnál.`)
+        return
+      }
+      if (!(period.kedvOsszeg >= 1)) {
+        toast.error(`${label} kedvezményes összege legalább 1 RON legyen.`)
+        return
+      }
+    }
+
+    setSavingAll(true)
+    const result = await saveCongregationFeeDiscount(congregationId, {
+      ...discountForm,
+      sorrend: autoSorrend,
+    })
     if (result.error) {
+      setSavingAll(false)
       toast.error(result.error)
       return
     }
 
-    toast.success(result.success)
+    // A további időszakok mentése — a MÁR mentett sorokat kivesszük az
+    // állapotból, a maradék a képernyőn marad (nem kell újragépelni).
+    let extraSaved = 0
+    for (const [index, period] of pendingExtras.entries()) {
+      const extraResult = await saveCongregationFeeDiscount(congregationId, {
+        ...discountForm,
+        id: undefined,
+        kezdet: period.kezdet,
+        hatarid: period.hatarid,
+        kedvOsszeg: period.kedvOsszeg,
+        sorrend: autoSorrend + index + 1,
+      })
+      if (extraResult.error) {
+        setExtraPeriods(pendingExtras.slice(extraSaved))
+        setSavingAll(false)
+        toast.error(
+          `${extraSaved + 1} kedvezmény elmentve, de a(z) ${index + 2}. időszak nem: ${extraResult.error}`,
+        )
+        await loadDiscountsKeepForm()
+        void onChanged?.()
+        return
+      }
+      extraSaved += 1
+    }
+    setExtraPeriods([])
+    setSavingAll(false)
+
+    toast.success(
+      extraSaved > 0 ? `${extraSaved + 1} kedvezmény elmentve.` : result.success,
+    )
     // #Endre: mentés után az űrlap ürül, de MEGTARTJUK az évet és a típust — így a lelkész
     // AZONNAL rögzítheti a következő (pl. újabb időszaki) kedvezményt anélkül, hogy újra beállítaná.
     setDiscountForm({ ...getEmptyDiscountForm(discountForm.ev), tipus: discountForm.tipus })
@@ -189,8 +287,7 @@ export function FeeDiscountsManager({
           kedvezményt</strong> is be lehet állítani — pl. lépcsőzetes korai-fizetés
           kedvezménnyel (jún. 1-ig 130 RON, júl. 15-ig 140 RON, aug. 1-ig 160 RON).
           A rendszer mindig a <strong>legkedvezőbb</strong> (legkisebb fizetendő összeget adó)
-          érvényes szabályt alkalmazza. A <strong>sorrend</strong> mező csak a lenti lista
-          megjelenítési sorrendjét szabja meg.
+          érvényes szabályt alkalmazza — nincs kézi sorrend, nem is kell beállítani semmit.
         </div>
 
         {discounts.length === 0 ? (
@@ -203,9 +300,24 @@ export function FeeDiscountsManager({
             {Array.from(new Set(discounts.map((d) => d.ev)))
               .sort((a, b) => b - a)
               .map((year) => {
+                // 2026-07-25 (G1): SZEMANTIKUS rendezés a megszűnt „sorrend" helyett —
+                // időszaki: határidő szerint (a lépcsőzetes korai fizetés természetes
+                // időrendje), kor: korhatár szerint, foglalkozás: kulcsszó szerint.
+                const TYPE_ORDER = { idoszak: 0, kor: 1, foglalkozas: 2, jovedelem: 3 } as const
                 const yearDiscounts = discounts
                   .filter((d) => d.ev === year)
-                  .sort((a, b) => a.sorrend - b.sorrend)
+                  .sort((a, b) => {
+                    const typeDiff = (TYPE_ORDER[a.tipus] ?? 9) - (TYPE_ORDER[b.tipus] ?? 9)
+                    if (typeDiff !== 0) return typeDiff
+                    if (a.tipus === 'idoszak') {
+                      return (a.hatarid || '').localeCompare(b.hatarid || '')
+                    }
+                    if (a.tipus === 'kor') return (a.kor_tol ?? 0) - (b.kor_tol ?? 0)
+                    return (a.jov_leiras || '').localeCompare(b.jov_leiras || '', 'hu')
+                  })
+                const periodDiscounts = yearDiscounts.filter(
+                  (d) => d.tipus === 'idoszak' && d.aktiv,
+                )
                 return (
                   <div key={year}>
                     <div className="mb-2 flex items-center gap-2">
@@ -216,12 +328,18 @@ export function FeeDiscountsManager({
                         {yearDiscounts.length} kedvezmény
                       </span>
                     </div>
+                    {/* 2026-07-25 (G1): év-időszalag — egy pillantással látszik, melyik
+                        időszakban mennyi a fizetendő, és hol él a teljes éves díj. */}
+                    {periodDiscounts.length > 0 && (
+                      <DiscountTimeline year={year} periods={periodDiscounts} />
+                    )}
                     <div className="grid gap-3 lg:grid-cols-2">
                       {yearDiscounts.map((discount) => (
                         <DiscountCard
                           key={discount.id}
                           discount={discount}
-                          onEdit={() =>
+                          onEdit={() => {
+                            setExtraPeriods([])
                             setDiscountForm({
                               id: discount.id,
                               ev: discount.ev,
@@ -240,7 +358,7 @@ export function FeeDiscountsManager({
                                 ? 'fix'
                                 : 'szazalek') as 'szazalek' | 'fix',
                             })
-                          }
+                          }}
                           onDelete={() => void handleDeleteDiscount(discount.id)}
                         />
                       ))}
@@ -264,7 +382,7 @@ export function FeeDiscountsManager({
               example="Aki júl. 1-ig fizet, 130 RON-t fizet a 150 helyett."
               selected={discountForm.tipus === 'idoszak'}
               hasActive={activeTypes.has('idoszak')}
-              onClick={() => setDiscountForm((prev) => ({ ...prev, tipus: 'idoszak' }))}
+              onClick={() => { setExtraPeriods([]); setDiscountForm((prev) => ({ ...prev, tipus: 'idoszak' })) }}
             />
             <DiscountTypeCard
               icon={<BadgePercent className="size-5" />}
@@ -273,7 +391,7 @@ export function FeeDiscountsManager({
               example="65+ éves tag 50%-ot kap — 75 RON-t fizet a 150 helyett."
               selected={discountForm.tipus === 'kor'}
               hasActive={activeTypes.has('kor')}
-              onClick={() => setDiscountForm((prev) => ({ ...prev, tipus: 'kor' }))}
+              onClick={() => { setExtraPeriods([]); setDiscountForm((prev) => ({ ...prev, tipus: 'kor' })) }}
             />
             <DiscountTypeCard
               icon={<GraduationCap className="size-5" />}
@@ -282,7 +400,7 @@ export function FeeDiscountsManager({
               example="Tanuló / diák tag 0 RON-t fizet."
               selected={discountForm.tipus === 'foglalkozas'}
               hasActive={activeTypes.has('foglalkozas')}
-              onClick={() => setDiscountForm((prev) => ({ ...prev, tipus: 'foglalkozas' }))}
+              onClick={() => { setExtraPeriods([]); setDiscountForm((prev) => ({ ...prev, tipus: 'foglalkozas' })) }}
             />
           </div>
           {/* 2026-07-16: a „Szociális" (jovedelem) típus-kártya ELTÁVOLÍTVA. A
@@ -306,12 +424,12 @@ export function FeeDiscountsManager({
         <div className="space-y-3">
           <p className="text-xs text-slate-500">2. lépés — add meg az adatokat:</p>
 
+          {/* 2026-07-25 (G1): a „Sorrend" mező TÖRÖLVE — a motorra semmilyen hatása
+              nem volt (mindig a legkedvezőbb szabály nyer), a felirata viszont
+              prioritást sugallt. Az értéket a rendszer automatikusan adja. */}
           <div className="grid gap-3 md:grid-cols-2">
             <Field label="Év">
               <Input type="number" className={FIELD_INPUT_CLASS} value={discountForm.ev} onChange={(event) => setDiscountForm((prev) => ({ ...prev, ev: Number(event.target.value) }))} />
-            </Field>
-            <Field label="Sorrend (ha több szabály érvényes)">
-              <Input type="number" className={FIELD_INPUT_CLASS} value={discountForm.sorrend} onChange={(event) => setDiscountForm((prev) => ({ ...prev, sorrend: Number(event.target.value) }))} />
             </Field>
           </div>
 
@@ -332,6 +450,92 @@ export function FeeDiscountsManager({
                   <Input type="number" min={0} className={FIELD_INPUT_CLASS} value={discountForm.kedvOsszeg} onChange={(event) => setDiscountForm((prev) => ({ ...prev, kedvOsszeg: Number(event.target.value) }))} />
                 </Field>
               </div>
+              {/* 2026-07-25 (G1): TÖBB időszak egy menetben — a lépcsőzetes korai
+                  fizetés (pl. jún. 1-ig 130, júl. 15-ig 140) így egyszerre rögzíthető. */}
+              {!discountForm.id && (
+                <div className="mt-3 space-y-2">
+                  {extraPeriods.map((period, index) => (
+                    <div key={period.key} className="grid items-end gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+                      <Field label={`${index + 2}. időszak — kezdő (hónap-nap)`}>
+                        <Input
+                          className={FIELD_INPUT_CLASS}
+                          value={period.kezdet}
+                          placeholder="07-02"
+                          onChange={(event) =>
+                            setExtraPeriods((prev) =>
+                              prev.map((row) =>
+                                row.key === period.key ? { ...row, kezdet: event.target.value } : row,
+                              ),
+                            )
+                          }
+                        />
+                        <p className="mt-1 text-[11px] font-medium text-teal-700">{formatMonthDay(period.kezdet)}</p>
+                      </Field>
+                      <Field label="Vég (hónap-nap)">
+                        <Input
+                          className={FIELD_INPUT_CLASS}
+                          value={period.hatarid}
+                          placeholder="11-01"
+                          onChange={(event) =>
+                            setExtraPeriods((prev) =>
+                              prev.map((row) =>
+                                row.key === period.key ? { ...row, hatarid: event.target.value } : row,
+                              ),
+                            )
+                          }
+                        />
+                        <p className="mt-1 text-[11px] font-medium text-teal-700">{formatMonthDay(period.hatarid)}</p>
+                      </Field>
+                      <Field label="Kedvezményes összeg (RON)">
+                        <Input
+                          type="number"
+                          min={1}
+                          className={FIELD_INPUT_CLASS}
+                          value={period.kedvOsszeg}
+                          onChange={(event) =>
+                            setExtraPeriods((prev) =>
+                              prev.map((row) =>
+                                row.key === period.key
+                                  ? { ...row, kedvOsszeg: Number(event.target.value) }
+                                  : row,
+                              ),
+                            )
+                          }
+                        />
+                      </Field>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="mb-1 min-h-9 text-red-600 hover:text-red-700"
+                        onClick={() => setExtraPeriods((prev) => prev.filter((row) => row.key !== period.key))}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="min-h-9 rounded-xl border-sky-200 text-sky-700 hover:bg-sky-50"
+                    onClick={() =>
+                      setExtraPeriods((prev) => [
+                        ...prev,
+                        {
+                          key: `p${prev.length}-${prev.length + Math.floor(performance.now())}`,
+                          kezdet: '',
+                          hatarid: '',
+                          kedvOsszeg: 0,
+                        },
+                      ])
+                    }
+                  >
+                    <Plus className="mr-1 size-3.5" />
+                    További időszak hozzáadása
+                  </Button>
+                </div>
+              )}
               <p className="mt-2 text-[11px] text-slate-500">
                 Aki ebben az időszakban fizet, a &bdquo;kedvezményes összeg&rdquo;-et fizeti a teljes díj helyett.
                 A dátum <strong>hónap-nap</strong> sorrendben van: a <code>07-01</code> = <strong>július 1.</strong> (nem január 7.).
@@ -435,15 +639,26 @@ export function FeeDiscountsManager({
               ballal csak SZERKESZTÉSKOR lehet elvetni. Mentés után az űrlap ürül (év+típus marad),
               így egyből rögzíthető a következő kedvezmény. */}
           {discountForm.id ? (
-            <Button type="button" variant="ghost" onClick={() => setDiscountForm(getEmptyDiscountForm(discountForm.ev))}>
+            <Button type="button" variant="ghost" onClick={() => { setExtraPeriods([]); setDiscountForm(getEmptyDiscountForm(discountForm.ev)) }}>
               Mégse (szerkesztés elvetése)
             </Button>
           ) : (
             <span className="text-[11px] text-slate-400">Kitöltés után kattints a hozzáadásra — több szabály is felvehető.</span>
           )}
-          <Button type="button" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => void handleSaveDiscount()}>
+          <Button
+            type="button"
+            className="bg-emerald-600 hover:bg-emerald-700"
+            disabled={savingAll}
+            onClick={() => void handleSaveDiscount()}
+          >
             {discountForm.id ? <Save className="mr-2 size-4" /> : <Plus className="mr-2 size-4" />}
-            {discountForm.id ? 'Módosítás mentése' : 'Kedvezmény hozzáadása'}
+            {savingAll
+              ? 'Mentés…'
+              : discountForm.id
+                ? 'Módosítás mentése'
+                : discountForm.tipus === 'idoszak' && extraPeriods.length > 0
+                  ? `${extraPeriods.length + 1} kedvezmény mentése`
+                  : 'Kedvezmény hozzáadása'}
           </Button>
         </div>
       </Panel>
@@ -521,6 +736,145 @@ function DiscountTypeCard({
         <strong>Példa:</strong> {example}
       </div>
     </button>
+  )
+}
+
+/**
+ * 2026-07-25 (G1): ÉV-IDŐSZALAG az időszaki (korai fizetési) kedvezményekhez.
+ *
+ * A sáv az ÉRVÉNYES ÁRAT mutatja: ha több időszak fedi ugyanazt a napot, a
+ * motorral azonosan a LEGKISEBB fizetendő nyer (jarulek-calculation.ts min-fold).
+ * Ezért nem a nyers ablakokat rajzoljuk egymásra (az a legdrágábbat mutatná
+ * felül), hanem határpontokon felszabdalt, összevont szakaszokat.
+ */
+function DiscountTimeline({
+  year,
+  periods,
+}: {
+  year: number
+  periods: FeeDiscountRow[]
+}) {
+  const windows = periods
+    .map((p) => {
+      // Nyitott alsó határ (legacy kumulatív mód): kezdet nélkül az év elejétől él.
+      const start = monthDayToFraction(p.kezdet) ?? 0
+      const end = monthDayToFraction(p.hatarid)
+      if (end == null || end < start) return null
+      return { start, end, amount: Number(p.kedv_osszeg || 0) }
+    })
+    .filter((w): w is { start: number; end: number; amount: number } => w != null)
+
+  if (windows.length === 0) return null
+
+  // Határpontok → elemi szakaszok → szakaszonként a legkisebb érvényes ár.
+  const bounds = Array.from(new Set([0, 1, ...windows.flatMap((w) => [w.start, w.end])])).sort(
+    (a, b) => a - b,
+  )
+  type Segment = { start: number; end: number; amount: number | null }
+  const raw: Segment[] = []
+  for (let i = 0; i < bounds.length - 1; i++) {
+    const from = bounds[i]
+    const to = bounds[i + 1]
+    if (to <= from) continue
+    const mid = (from + to) / 2
+    const covering = windows.filter((w) => mid >= w.start && mid <= w.end)
+    const amount = covering.length > 0 ? Math.min(...covering.map((w) => w.amount)) : null
+    raw.push({ start: from, end: to, amount })
+  }
+  // Azonos árú szomszédok összevonása.
+  const segments: Segment[] = []
+  for (const seg of raw) {
+    const prev = segments[segments.length - 1]
+    if (prev && prev.amount === seg.amount) prev.end = seg.end
+    else segments.push({ ...seg })
+  }
+
+  const today = new Date()
+  const todayFraction =
+    today.getFullYear() === year
+      ? monthDayToFraction(
+          `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`,
+        )
+      : null
+
+  // Olcsóbb ár = zöldebb (a rangsor az árak növekvő sorrendje).
+  const prices = Array.from(
+    new Set(segments.filter((seg) => seg.amount != null).map((seg) => seg.amount as number)),
+  ).sort((a, b) => a - b)
+  const TONES = [
+    'bg-emerald-500/85 text-white',
+    'bg-teal-500/85 text-white',
+    'bg-sky-500/85 text-white',
+    'bg-violet-500/85 text-white',
+  ]
+
+  return (
+    <div className="mb-3 rounded-[1rem] border border-slate-200 bg-white/80 p-3">
+      <p className="mb-2 text-[11px] font-medium text-slate-600">
+        {year}. évi fizetendő összeg a befizetés ideje szerint — a szürke szakaszokon a
+        teljes éves díj érvényes
+      </p>
+      <div className="relative h-9 w-full overflow-hidden rounded-lg bg-slate-100">
+        {segments.map((seg) => {
+          const width = Math.max(0.6, (seg.end - seg.start) * 100)
+          const toneIndex = seg.amount != null ? prices.indexOf(seg.amount) : -1
+          return (
+            <div
+              key={`${seg.start}-${seg.end}`}
+              className={`absolute top-0 flex h-full items-center justify-center overflow-hidden text-[10px] font-semibold ${
+                seg.amount == null
+                  ? 'bg-slate-200 text-slate-500'
+                  : TONES[toneIndex % TONES.length]
+              }`}
+              style={{ left: `${seg.start * 100}%`, width: `${width}%` }}
+              title={
+                seg.amount == null
+                  ? 'Teljes éves díj'
+                  : `${seg.amount.toLocaleString('hu-HU')} RON fizetendő`
+              }
+            >
+              <span className="truncate px-1">
+                {seg.amount == null ? 'teljes' : seg.amount.toLocaleString('hu-HU')}
+              </span>
+            </div>
+          )
+        })}
+        {todayFraction != null && (
+          <div
+            className="absolute top-0 h-full w-0.5 bg-rose-600"
+            style={{ left: `${todayFraction * 100}%` }}
+            title="ma"
+          />
+        )}
+      </div>
+      {/* A hónap-feliratok a TÉNYLEGES nap-arány szerint (nem egyenletesen). */}
+      <div className="relative mt-1 h-3">
+        {MONTH_SHORT.map((month, index) => (
+          <span
+            key={`${month}-${index}`}
+            className="absolute text-[9px] text-slate-400"
+            style={{ left: `${(MONTH_CUM_DAYS[index] / YEAR_DAYS) * 100}%` }}
+          >
+            {month}
+          </span>
+        ))}
+      </div>
+      {/* Képernyőolvasónak: a szakaszok szövegesen is. */}
+      <p className="sr-only">
+        {segments
+          .map(
+            (seg) =>
+              `${Math.round(seg.start * 12) + 1}. hónaptól: ${
+                seg.amount == null ? 'teljes éves díj' : `${seg.amount} RON`
+              }`,
+          )
+          .join('; ')}
+      </p>
+      <p className="mt-1.5 text-[10px] leading-4 text-slate-400">
+        A Beállítások „éves kedvezmény + határidő" mezője is korai-fizetési kedvezményt ad —
+        az itteni sáv csak az ezen a panelen rögzített időszakokat mutatja.
+      </p>
+    </div>
   )
 }
 
