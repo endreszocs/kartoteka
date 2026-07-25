@@ -107,16 +107,30 @@ const TAB_DEFS = [
 
 const EMPTY_BALANCES: FinanceBalances = { cashBalance: 0, bankBalance: 0, totalIncome: 0, totalExpense: 0 }
 
+/**
+ * A fül-azonosító kiolvasása az URL-ből.
+ *
+ * ⚠️ HashRouter: az ÚTVONAL is a hash-ben van, ezért a teljes hash így néz ki:
+ * `#/penzugy#accounting`. A korábbi kód a vezető '#'-et vágta le és az EGÉSZ
+ * maradékot ('/penzugy#accounting') hasonlította a fül-nevekhez → sosem talált,
+ * mindig a 'dashboard' fülre esett (a /penzugy/szamadas deep-link is).
+ * Ezért az UTOLSÓ '#' utáni szegmenst nézzük.
+ */
 function readHashTab(): string {
   if (typeof window === 'undefined') return 'dashboard'
-  const h = window.location.hash.replace(/^#/, '')
+  const raw = window.location.hash
+  const h = raw.slice(raw.lastIndexOf('#') + 1)
   return TAB_DEFS.some((t) => t.value === h) ? h : 'dashboard'
 }
 
 export function PenzugyPage() {
   const [activeTab, setActiveTab] = useState<string>(readHashTab)
   const [loading, setLoading] = useState(true)
-  const [year] = useState<number>(() => new Date().getFullYear())
+  // 2026-07-25 (F6.2 review, P1): ÉV-VÁLASZTÓ. A most törölt aloldalakon volt
+  // év-dropdown, az egységes oldalon nem — így januárban az ELŐZŐ évi Számadás/
+  // Tartozás/Áttekintés elérhetetlenné vált volna (pedig az éves számadás épp
+  // akkor készül). A web ugyanezt a FinanceYearSelector-ral adja.
+  const [year, setYear] = useState<number>(() => new Date().getFullYear())
 
   const [income, setIncome] = useState<BefitetesRow[]>([])
   const [expense, setExpense] = useState<KiadasRow[]>([])
@@ -177,10 +191,15 @@ export function PenzugyPage() {
     setActiveTab(readHashTab())
   }, [location])
   useEffect(() => {
-    const cur = window.location.hash.replace(/^#/, '')
-    if (cur !== activeTab) {
-      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${activeTab}`)
-    }
+    // ⚠️ HashRouter: a `window.location.pathname` NEM az útvonal (az a hash-ben
+    // van) — a korábbi replaceState `#dashboard`-ra írta az egész hash-t, így
+    // egy újratöltés a Kezdőlapra esett. Csak a hash UTOLSÓ szegmensét cseréljük.
+    const raw = window.location.hash
+    const cut = raw.lastIndexOf('#')
+    const cur = raw.slice(cut + 1)
+    if (cur === activeTab) return
+    const routePart = cut > 0 ? raw.slice(0, cut) : raw || '#/penzugy'
+    window.history.replaceState(null, '', `${routePart}#${activeTab}`)
   }, [activeTab])
 
   const load = useCallback(async () => {
@@ -401,7 +420,11 @@ export function PenzugyPage() {
       }
 
       const maintenancePayments: JarulekPaymentLike[] = befLocal
-        .filter((b) => (bevMap[b.id_befizetescel] || '').startsWith('101.01'))
+        // 2026-07-25 (F6.2 review, P1): a stornózott befizetés NEM számít fizetettnek
+    // (F1-4 web-paritás — a web `.or('stornozott.eq.false,stornozott.is.null')`-lal
+    // szűr). Ez a szűrés a most törölt penzugy-tartozasok-page-en már megvolt, az
+    // egységes oldalról hiányzott → sztornó után „Rendezett"-nek látszott a tag.
+    .filter((b) => !b.stornozott && (bevMap[b.id_befizetescel] || '').startsWith('101.01'))
         .map((b) => ({ id_szemely: b.id_szemely ?? null, id_csalad: b.id_csalad ?? null, datum: b.datum ?? null, fizetettev: b.fizetettev ?? null, osszeg: b.osszeg }))
 
       const computedDebt = buildDebtRows({
@@ -526,6 +549,24 @@ export function PenzugyPage() {
           // 2026-06-11 (Endre #2): az Excel-könyvelés beállításai eddig
           // „eldugva" éltek — innen egy kattintás a Beállítások → Könyvelés fül.
           extraActions={
+            <>
+              {/* Év-választó — a betöltés (load) a `year`-re van kötve, tehát
+                  váltáskor a teljes oldal újratölt (lokális tükör + online). */}
+              <label className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs">
+                <span className="text-muted-foreground">Év</span>
+                <select
+                  value={year}
+                  onChange={(event) => setYear(Number(event.target.value))}
+                  className="bg-transparent text-sm font-semibold outline-none"
+                  aria-label="Költségvetési év"
+                >
+                  {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i).map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </label>
             <button
               type="button"
               onClick={() => {
@@ -545,6 +586,7 @@ export function PenzugyPage() {
               <FileSpreadsheet className="mr-1.5 size-3.5" />
               Excel-könyvelés
             </button>
+            </>
           }
         />
 
@@ -704,6 +746,7 @@ export function PenzugyPage() {
               incomeRecords={income}
               expenseRecords={expense}
               carryoverBank={carryoverBank}
+              derivedNyitoRon={bankNyitoMap}
               bankAccounts={bankAccounts}
               bevCelMap={bevCelMap}
               kiaCelMap={kiaCelMap}
