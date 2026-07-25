@@ -1,23 +1,32 @@
 ﻿'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import type { ReactNode } from 'react'
 import {
   AlertCircle,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Check,
+  ChevronLeft,
+  ChevronRight,
   Copy as CopyIcon,
   Files,
   FolderArchive,
   FolderInput,
   Lock,
   Paperclip,
+  Search,
   Stamp,
   Unlock,
   X,
+  Zap,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { ModuleHero } from '@/components/shared/module-hero'
 import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import {
@@ -33,6 +42,7 @@ import {
 import { assignEntryToCsomo, listIratcsomok } from '@/app/(dashboard)/iktato/csomo-actions'
 import type { FilingEntryWithCsomo, IratcsomoWithCount } from '@/lib/iktato/csomo-types'
 import { createClient } from '@/lib/supabase/client'
+import { cn } from '@/lib/utils'
 import { FILING_DIRECTIONS, FILING_DIRECTION_LABELS, FILING_FOLDERS } from '@/lib/constants/filing'
 import type { FilingDirection, FilingEntry, IktatoYearlyClosure } from '@/lib/constants/filing'
 import {
@@ -51,6 +61,7 @@ import { printIktatoPecset, printIktatokonyv } from './iktato-print'
 import { FilingOverview } from './filing-overview'
 import { IratcsomoPanel } from './iratcsomo-panel'
 import { CsatolmanyPanel } from './csatolmany-panel'
+import { FilingQuickRow } from './filing-quick-row'
 
 // 2026-07-17 (F6/K6): az Igazolás/levél-kiállító dialógus KATTINTÁSKORI lazy-
 // importtal töltődik (a worklog-tabs lelkészi-jelentés mintája szerint) — NEM
@@ -69,6 +80,61 @@ interface FilingMainProps {
 }
 
 type FilingTab = 'iratok' | 'csomok' | 'sablonok' | 'help' | 'admin-import'
+
+// ─── 2026-07-25 (F8d/S3): a lépéses „Új irat" varázsló lépései ───
+// (1) Alapok — irány, kelt, tárgy, feladó/címzett + iktatószám-jelvény;
+// (2) Részletek — ügykör, hivatkozások, ügyintézés; (3) Összegzés — áttekintés
+// + iktatás. Szerkesztésnél ugyanez a varázsló előtöltve indul.
+type WizardStep = 1 | 2 | 3
+const WIZARD_STEPS: { step: WizardStep; label: string; hint: string }[] = [
+  {
+    step: 1,
+    label: 'Alapok',
+    hint: 'Irány, keltezés, tárgy és a levelezőpartner — ennyi az iktatáshoz kötelező.',
+  },
+  {
+    step: 2,
+    label: 'Részletek',
+    hint: 'Ügykör, EREK-rovatok, ügyintézés és megjegyzések — mind kitölthető később is.',
+  },
+  {
+    step: 3,
+    label: 'Összegzés',
+    hint: 'Nézd át az adatokat, majd iktasd az iratot.',
+  },
+]
+
+/**
+ * 2026-07-25 (F8d/S3): egy sor az Összegzés-lépés áttekintő kártyáján.
+ * Üres érték helyett gondolatjel — így látszik, mi maradt kitöltetlen.
+ */
+function SummaryRow({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string
+  value: ReactNode
+  mono?: boolean
+}) {
+  const empty = value === null || value === undefined || value === ''
+  return (
+    <div className="flex flex-col gap-0.5 py-1.5 sm:flex-row sm:items-baseline sm:gap-3">
+      <dt className="shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground sm:w-44">
+        {label}
+      </dt>
+      <dd
+        className={cn(
+          'min-w-0 break-words text-sm',
+          empty ? 'text-muted-foreground' : 'text-foreground',
+          mono && !empty && 'font-mono tabular-nums',
+        )}
+      >
+        {empty ? '—' : value}
+      </dd>
+    </div>
+  )
+}
 
 export function FilingMain({ congregationName, showAdminImport = false, adminImportContent }: FilingMainProps) {
   const currentYear = new Date().getFullYear()
@@ -141,6 +207,13 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
     setRetroInfo(null)
     setRetroManualInput('')
   }
+
+  // ── 2026-07-25 (F8d/S3): lépéses varázsló-állapot ──
+  const [wizardStep, setWizardStep] = useState<WizardStep>(1)
+  const [ugykorSearch, setUgykorSearch] = useState('')
+  // A lépés-cím fókusz-célpontja (a11y): lépésváltáskor ide ugrik a fókusz.
+  const stepHeadingRef = useRef<HTMLHeadingElement | null>(null)
+  const prevStepRef = useRef<WizardStep>(1)
 
   /**
    * 2026-07-17 (F6/K6): csatolmány-darabszámok a sor-jelvényekhez — egyetlen
@@ -241,8 +314,11 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
   }, [csomok])
 
   function openDialog(entry?: FilingEntry) {
-    // 2026-07-25: a visszamenőleges mód minden nyitáskor tiszta lappal indul.
+    // 2026-07-25: a visszamenőleges mód minden nyitáskor tiszta lappal indul,
+    // a varázsló pedig az 1. (Alapok) lépésről — szerkesztésnél előtöltve.
     resetRetro()
+    setWizardStep(1)
+    setUgykorSearch('')
     if (entry) {
       setEditEntry(entry)
       setFDirection(entry.direction as FilingDirection)
@@ -327,6 +403,68 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
       cancelled = true
     }
   }, [dialogOpen, editEntry, retroOpen, keltYear])
+
+  // ── 2026-07-25 (F8d/S3): varázsló-navigáció + a11y fókusz-kezelés ──
+  // Lépésváltáskor a fókusz a lépés-címre ugrik: a képernyőolvasó bejelenti
+  // az új lépést, a billentyűzetes user a tartalom elején folytatja. Az első
+  // nyitáskor NEM fut (a Radix a dialógust fókuszálja), csak tényleges váltásnál.
+  useEffect(() => {
+    if (!dialogOpen) {
+      prevStepRef.current = 1
+      return
+    }
+    if (prevStepRef.current !== wizardStep) {
+      prevStepRef.current = wizardStep
+      requestAnimationFrame(() => stepHeadingRef.current?.focus())
+    }
+  }, [dialogOpen, wizardStep])
+
+  /**
+   * Továbblépés validációval: az Alapok lépésről csak kitöltött kötelező
+   * mezőkkel (kelt + tárgy) lehet menni, és a kinyitott visszamenőleges panel
+   * értelmezhetetlen kézi száma sem csúszhat tovább némán.
+   */
+  function goNextStep() {
+    if (wizardStep === 1) {
+      if (!fKelt) {
+        toast.error('A kelt dátum kötelező!')
+        return
+      }
+      if (!fSubject.trim()) {
+        toast.error('A tárgy kötelező!')
+        return
+      }
+      if (retroOpen && !editEntry && retroManualInput.trim() !== '' && retroManualSeq === null) {
+        toast.error('A kézi iktatószám pozitív egész szám kell legyen.')
+        return
+      }
+    }
+    setWizardStep((s) => (s < 3 ? ((s + 1) as WizardStep) : s))
+  }
+
+  /** Visszalépés — validáció nélkül (a már megadott adatok megmaradnak). */
+  function goPrevStep() {
+    setWizardStep((s) => (s > 1 ? ((s - 1) as WizardStep) : s))
+  }
+
+  // Az aktuális lépés metaadata (cím + fejléc-magyarázat).
+  const activeWizardStep = WIZARD_STEPS[wizardStep - 1]
+
+  /** Dialógus-zárás gombbal — a Radix-féle zárásokkal azonos reset-úton. */
+  function closeDialog() {
+    setDialogOpen(false)
+    resetRetro()
+    setWizardStep(1)
+  }
+
+  // Ügykör-választó keresője (2. lépés): kód + név + leírás szerint szűr.
+  const filteredUgykorok = useMemo(() => {
+    const q = ugykorSearch.trim().toLowerCase()
+    if (!q) return FILING_UGYKOROK
+    return FILING_UGYKOROK.filter((entry) =>
+      `${entry.kod} ${entry.nev} ${entry.desc ?? ''}`.toLowerCase().includes(q),
+    )
+  }, [ugykorSearch])
 
   // 2026-05-29 Fázis 3: hivatali út validáció (figyelmeztetés)
   const hivataliUtWarnings: HivataliUtWarning[] = useMemo(
@@ -434,6 +572,7 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
       )
       setDialogOpen(false)
       resetRetro()
+      setWizardStep(1)
       refreshEntries()
     }
     setSaving(false)
@@ -634,6 +773,7 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
           csatolmanyCounts={csatolmanyCounts}
           onOpenCsatolmany={(entry) => setAttachmentEntry(entry)}
           onOpenCsomoPicker={(entry) => setCsomoPickerEntry(entry)}
+          onQuickSaved={refreshEntries}
         />
       )}
 
@@ -641,306 +781,693 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
         open={dialogOpen}
         onOpenChange={(open) => {
           setDialogOpen(open)
-          // 2026-07-25: záráskor a visszamenőleges mód is resetel.
-          if (!open) resetRetro()
+          // 2026-07-25: záráskor a visszamenőleges mód és a varázsló is resetel.
+          if (!open) {
+            resetRetro()
+            setWizardStep(1)
+          }
         }}
       >
         <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editEntry ? 'Irat szerkesztése' : 'Új irat'}</DialogTitle>
-            {/* 2026-07-25 (éles teszt-kérés): a következő iktatószám jól
-                láthatóan, token-stílusú jelvényben — a meglévő
-                getNextSequenceNumber-előnézetből; a szám csak a mentéskor
-                véglegesedik (nem foglalt). */}
-            {!editEntry && (
-              <>
-                {retroActive ? (
-                  /* 2026-07-25: aktív visszamenőleges mód — a jelvény a KÉZI
-                     számot mutatja, figyelmeztető (amber) tónussal. */
-                  <p className="inline-flex w-fit max-w-full flex-wrap items-center gap-1.5 self-center rounded-full border border-amber-400 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-800 sm:self-start">
-                    <Stamp className="size-3.5 shrink-0" aria-hidden />
-                    <span>
-                      Kézi iktatószám:{' '}
-                      <b className="font-mono tabular-nums">
-                        {keltYear}/{retroManualSeq}
-                      </b>{' '}
-                      (visszamenőleges)
-                    </span>
-                  </p>
-                ) : (
-                  <p className="inline-flex w-fit max-w-full flex-wrap items-center gap-1.5 self-center rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-medium text-primary sm:self-start">
-                    <Stamp className="size-3.5 shrink-0" aria-hidden />
-                    <span>
-                      Következő iktatószám:{' '}
-                      <b className="font-mono tabular-nums">
-                        {keltYear}/{fSeqNum > 0 ? fSeqNum : '…'}
-                      </b>{' '}
-                      (automatikus)
-                    </span>
-                  </p>
-                )}
-                <DialogDescription>
-                  {retroActive
-                    ? 'Visszamenőleges iktatás: a kézi szám a számláló alatti szabad számok közül kerül ki — az automatikus sorszámozást nem érinti.'
-                    : 'Az iktatószám a kelt dátum évét követi, és csak a mentéskor véglegesedik — a fenti szám előnézet, nem foglalt.'}
-                </DialogDescription>
+            <DialogTitle>{editEntry ? 'Irat szerkesztése' : 'Új irat iktatása'}</DialogTitle>
+            <DialogDescription>{activeWizardStep.hint}</DialogDescription>
+          </DialogHeader>
 
-                {/* ── 2026-07-25: visszamenőleges iktatás (korábbi szám kiadása) ──
-                    Diszkrét kapcsoló a jelvény alatt; kinyitva a számláló alatti
-                    szabad számok chip-listája + kézi szám-input. Biztonsági elv:
-                    az automata csak felfelé lépked, ezért a pointer alatti szabad
-                    számok kiadása nem okozhat jövőbeli ütközést. */}
-                <button
-                  type="button"
-                  onClick={() => setRetroOpen((open) => !open)}
-                  className="w-fit self-center text-xs text-amber-700 underline underline-offset-2 hover:text-amber-900 sm:self-start"
-                >
-                  {retroOpen
-                    ? 'Visszamenőleges iktatás elrejtése'
-                    : 'Visszamenőleges iktatás (korábbi szám kiadása)…'}
-                </button>
-                {retroOpen && (
-                  <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50/60 p-3 text-left">
-                    <p className="text-xs leading-relaxed text-amber-900">
-                      Csak a jelenlegi számláló alatti szabad számok adhatók ki — az automatikus sorszámozást nem érinti.
+          {/* ── 2026-07-25 (F8d/S3): lépés-jelző (1-2-3) ────────────────────
+              A már elvégzett lépések visszafelé kattinthatók; előre csak a
+              „Tovább" gomb visz (ott fut a validáció). Telefonon csak az
+              aktív lépés neve látszik — a körök végig. */}
+          <ol className="flex items-center gap-1 sm:gap-1.5" aria-label="Az iktatás lépései">
+            {WIZARD_STEPS.map((item, index) => {
+              const done = item.step < wizardStep
+              const active = item.step === wizardStep
+              return (
+                <li key={item.step} className="flex min-w-0 flex-1 items-center gap-1 sm:gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setWizardStep(item.step)}
+                    disabled={item.step > wizardStep}
+                    aria-current={active ? 'step' : undefined}
+                    className={cn(
+                      'flex min-w-0 flex-1 items-center gap-1.5 rounded-full border px-2 py-1.5 text-left transition-colors sm:px-2.5',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      active
+                        ? 'border-primary/40 bg-primary/10 text-primary'
+                        : done
+                          ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-700/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60'
+                          : 'cursor-not-allowed border-border bg-muted/40 text-muted-foreground',
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'grid size-6 shrink-0 place-items-center rounded-full text-[11px] font-semibold tabular-nums',
+                        active
+                          ? 'bg-primary text-primary-foreground'
+                          : done
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-muted-foreground/20 text-muted-foreground',
+                      )}
+                    >
+                      {done ? <Check className="size-3.5" aria-hidden /> : item.step}
+                    </span>
+                    <span
+                      className={cn(
+                        'truncate text-xs font-medium',
+                        active ? 'inline' : 'hidden sm:inline',
+                      )}
+                    >
+                      {item.label}
+                    </span>
+                  </button>
+                  {index < WIZARD_STEPS.length - 1 && (
+                    <span
+                      aria-hidden
+                      className={cn('h-px w-2 shrink-0 sm:w-3', done ? 'bg-emerald-400' : 'bg-border')}
+                    />
+                  )}
+                </li>
+              )
+            })}
+          </ol>
+
+          {/* A lépés-cím a fókusz-célpont is (a11y): lépésváltáskor ide ugrik. */}
+          <h3
+            ref={stepHeadingRef}
+            tabIndex={-1}
+            className="text-sm font-semibold text-foreground outline-none"
+          >
+            {wizardStep}. lépés — {activeWizardStep.label}
+          </h3>
+
+          {yearClosure && (
+            <div className="flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
+              <Lock className="size-3.5 mt-0.5 shrink-0" aria-hidden />
+              <span>
+                Ez az év (<strong>{year}</strong>) lezárva — a mentés nem fog sikerülni. A lezárás lelkészi vagy admin jogosultsággal oldható fel.
+              </span>
+            </div>
+          )}
+
+          {/* ══════════ 1. LÉPÉS — ALAPOK ══════════ */}
+          {wizardStep === 1 && (
+            <div className="space-y-4">
+              {/* 2026-07-25 (éles teszt-kérés): a következő iktatószám jól
+                  láthatóan, token-stílusú jelvényben — a meglévő
+                  getNextSequenceNumber-előnézetből; a szám csak a mentéskor
+                  véglegesedik (nem foglalt). Alatta a visszamenőleges panel. */}
+              {!editEntry && (
+                <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-3">
+                  {retroActive ? (
+                    /* 2026-07-25: aktív visszamenőleges mód — a jelvény a KÉZI
+                       számot mutatja, figyelmeztető (amber) tónussal. */
+                    <p className="inline-flex w-fit max-w-full flex-wrap items-center gap-1.5 rounded-full border border-amber-400 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-800 dark:border-amber-600 dark:bg-amber-950/50 dark:text-amber-200">
+                      <Stamp className="size-3.5 shrink-0" aria-hidden />
+                      <span>
+                        Kézi iktatószám:{' '}
+                        <b className="font-mono tabular-nums">
+                          {keltYear}/{retroManualSeq}
+                        </b>{' '}
+                        (visszamenőleges)
+                      </span>
                     </p>
-                    {retroLoading ? (
-                      <p className="text-xs text-amber-800">Szabad számok betöltése…</p>
-                    ) : retroInfo?.error ? (
-                      <p className="text-xs text-destructive">{retroInfo.error}</p>
-                    ) : retroInfo ? (
-                      <>
-                        {retroInfo.szabadSzamok.length === 0 ? (
-                          <p className="text-xs text-amber-800">Nincs szabad szám a számláló alatt.</p>
-                        ) : (
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {retroInfo.szabadSzamok.slice(0, 15).map((szam) => (
-                              <button
-                                key={szam}
-                                type="button"
-                                onClick={() => setRetroManualInput(String(szam))}
-                                className={`rounded-full border px-2.5 py-1 font-mono text-xs tabular-nums transition-colors ${
-                                  retroManualSeq === szam
-                                    ? 'border-amber-500 bg-amber-500 text-white'
-                                    : 'border-amber-300 bg-background text-amber-800 hover:bg-amber-100'
-                                }`}
-                              >
-                                {keltYear}/{szam}
-                              </button>
-                            ))}
-                            {retroInfo.osszesSzabad > 15 && (
-                              <span className="text-[11px] text-amber-800">
-                                további {retroInfo.osszesSzabad - 15} szabad szám
+                  ) : (
+                    <p className="inline-flex w-fit max-w-full flex-wrap items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
+                      <Stamp className="size-3.5 shrink-0" aria-hidden />
+                      <span>
+                        Következő iktatószám:{' '}
+                        <b className="font-mono tabular-nums">
+                          {keltYear}/{fSeqNum > 0 ? fSeqNum : '…'}
+                        </b>{' '}
+                        (automatikus)
+                      </span>
+                    </p>
+                  )}
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {retroActive
+                      ? 'Visszamenőleges iktatás: a kézi szám a számláló alatti szabad számok közül kerül ki — az automatikus sorszámozást nem érinti.'
+                      : 'Az iktatószám a kelt dátum évét követi, és csak a mentéskor véglegesedik — a fenti szám előnézet, nem foglalt.'}
+                  </p>
+
+                  {/* ── 2026-07-25: visszamenőleges iktatás (korábbi szám kiadása) ──
+                      Diszkrét kapcsoló a jelvény alatt; kinyitva a számláló alatti
+                      szabad számok chip-listája + kézi szám-input. Biztonsági elv:
+                      az automata csak felfelé lépked, ezért a pointer alatti szabad
+                      számok kiadása nem okozhat jövőbeli ütközést. */}
+                  <button
+                    type="button"
+                    onClick={() => setRetroOpen((open) => !open)}
+                    aria-expanded={retroOpen}
+                    className="w-fit text-xs text-amber-700 underline underline-offset-2 hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-300"
+                  >
+                    {retroOpen
+                      ? 'Visszamenőleges iktatás elrejtése'
+                      : 'Visszamenőleges iktatás (korábbi szám kiadása)…'}
+                  </button>
+                  {retroOpen && (
+                    <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50/60 p-3 text-left dark:border-amber-700/60 dark:bg-amber-950/30">
+                      <p className="text-xs leading-relaxed text-amber-900 dark:text-amber-200">
+                        Csak a jelenlegi számláló alatti szabad számok adhatók ki — az automatikus sorszámozást nem érinti.
+                      </p>
+                      {retroLoading ? (
+                        <p className="text-xs text-amber-800 dark:text-amber-300">Szabad számok betöltése…</p>
+                      ) : retroInfo?.error ? (
+                        <p className="text-xs text-destructive">{retroInfo.error}</p>
+                      ) : retroInfo ? (
+                        <>
+                          {retroInfo.szabadSzamok.length === 0 ? (
+                            <p className="text-xs text-amber-800 dark:text-amber-300">Nincs szabad szám a számláló alatt.</p>
+                          ) : (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {retroInfo.szabadSzamok.slice(0, 15).map((szam) => (
+                                <button
+                                  key={szam}
+                                  type="button"
+                                  onClick={() => setRetroManualInput(String(szam))}
+                                  className={cn(
+                                    'rounded-full border px-2.5 py-1 font-mono text-xs tabular-nums transition-colors',
+                                    retroManualSeq === szam
+                                      ? 'border-amber-500 bg-amber-500 text-white'
+                                      : 'border-amber-300 bg-background text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-950/60',
+                                  )}
+                                >
+                                  {keltYear}/{szam}
+                                </button>
+                              ))}
+                              {retroInfo.osszesSzabad > 15 && (
+                                <span className="text-[11px] text-amber-800 dark:text-amber-300">
+                                  további {retroInfo.osszesSzabad - 15} szabad szám
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Label htmlFor="retro-manual-seq" className="text-xs text-amber-900 dark:text-amber-200">
+                              Kézi sorszám:
+                            </Label>
+                            <Input
+                              id="retro-manual-seq"
+                              type="number"
+                              min={1}
+                              max={retroInfo.pointer > 0 ? retroInfo.pointer : undefined}
+                              inputMode="numeric"
+                              value={retroManualInput}
+                              onChange={(event) => setRetroManualInput(event.target.value)}
+                              placeholder="pl. 88"
+                              className="h-8 w-24"
+                            />
+                            {retroManualSeq !== null && retroInfo.pointer > 0 && retroManualSeq > retroInfo.pointer && (
+                              <span className="text-[11px] text-destructive">
+                                A számláló ({retroInfo.pointer}) feletti szám kézzel nem adható ki.
                               </span>
                             )}
                           </div>
-                        )}
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Label htmlFor="retro-manual-seq" className="text-xs text-amber-900">
-                            Kézi sorszám:
-                          </Label>
-                          <Input
-                            id="retro-manual-seq"
-                            type="number"
-                            min={1}
-                            max={retroInfo.pointer > 0 ? retroInfo.pointer : undefined}
-                            inputMode="numeric"
-                            value={retroManualInput}
-                            onChange={(event) => setRetroManualInput(event.target.value)}
-                            placeholder="pl. 88"
-                            className="h-8 w-24"
-                          />
-                          {retroManualSeq !== null && retroInfo.pointer > 0 && retroManualSeq > retroInfo.pointer && (
-                            <span className="text-[11px] text-destructive">
-                              A számláló ({retroInfo.pointer}) feletti szám kézzel nem adható ki.
-                            </span>
-                          )}
-                        </div>
-                      </>
-                    ) : null}
-                  </div>
-                )}
-              </>
-            )}
-          </DialogHeader>
-          <div className="space-y-4">
-            {/* ─── Alapinformációk ─── */}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        </>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Irány: nagy, kattintható kártyák (a régi select helyett) ── */}
               <div className="space-y-1.5">
-                <Label>Irány *</Label>
-                <select value={fDirection} onChange={(event) => setFDirection(event.target.value as FilingDirection)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                  {FILING_DIRECTIONS.map((item) => (
-                    <option key={item} value={item}>{FILING_DIRECTION_LABELS[item]}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Ügykörjegyzék pontszáma (2024-)</Label>
-                <select
-                  value={fUgykorKod}
-                  onChange={(event) => setFUgykorKod(event.target.value)}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                <Label id="wiz-direction-label">Irány *</Label>
+                <div
+                  role="radiogroup"
+                  aria-labelledby="wiz-direction-label"
+                  className="grid grid-cols-1 gap-2 sm:grid-cols-2"
                 >
-                  <option value="">— Válassz ügykört —</option>
-                  {FILING_UGYKOROK.map((entry) => (
-                    <option key={entry.kod} value={entry.kod}>
-                      {entry.parentKod ? '  ' : ''}{entry.kod} {entry.nev} ({entry.retention})
-                    </option>
-                  ))}
-                </select>
+                  {FILING_DIRECTIONS.map((item) => {
+                    const selected = fDirection === item
+                    const Icon = item === 'incoming' ? ArrowDownLeft : ArrowUpRight
+                    return (
+                      <button
+                        key={item}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        onClick={() => setFDirection(item)}
+                        className={cn(
+                          'flex items-start gap-3 rounded-xl border-2 p-3 text-left transition-all',
+                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                          selected
+                            ? item === 'incoming'
+                              ? 'border-sky-500 bg-sky-50 shadow-sm dark:bg-sky-950/40'
+                              : 'border-emerald-500 bg-emerald-50 shadow-sm dark:bg-emerald-950/40'
+                            : 'border-border bg-card hover:border-muted-foreground/40 hover:bg-muted/40',
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            'grid size-9 shrink-0 place-items-center rounded-full',
+                            selected
+                              ? item === 'incoming'
+                                ? 'bg-sky-600 text-white'
+                                : 'bg-emerald-600 text-white'
+                              : 'bg-muted text-muted-foreground',
+                          )}
+                        >
+                          <Icon className="size-4" aria-hidden />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                            {FILING_DIRECTION_LABELS[item]}
+                            {selected && <Check className="size-3.5 shrink-0 text-primary" aria-hidden />}
+                          </span>
+                          <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                            {item === 'incoming'
+                              ? 'Hozzánk beérkezett irat — a feladó és a beérkezés napja a lényeg.'
+                              : 'Tőlünk kimenő irat — a címzett és a postázás adatai a lényeg.'}
+                          </span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="wiz-kelt">Kelt (irat keltezése) *</Label>
+                  <Input
+                    id="wiz-kelt"
+                    type="date"
+                    value={fKelt}
+                    onChange={(event) => setFKelt(event.target.value)}
+                  />
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    Az iktatószám ennek a dátumnak az évét követi.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="wiz-sender">
+                    {fDirection === 'incoming' ? 'Feladó' : 'Címzett'}
+                  </Label>
+                  <Input
+                    id="wiz-sender"
+                    value={fSender}
+                    onChange={(event) => setFSender(event.target.value)}
+                    placeholder={fDirection === 'incoming' ? 'Pl. Esperesi Hivatal' : 'Pl. Egyházmegyei Tanács'}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="wiz-subject">Tárgy *</Label>
+                <Input
+                  id="wiz-subject"
+                  value={fSubject}
+                  onChange={(event) => setFSubject(event.target.value)}
+                  placeholder="Irat rövid tárgya"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* ══════════ 2. LÉPÉS — RÉSZLETEK ══════════ */}
+          {wizardStep === 2 && (
+            <div className="space-y-4">
+              {/* ── Ügykör-választó: kereshető kártya-lista a régi select helyett ── */}
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Label id="wiz-ugykor-label">Ügykörjegyzék pontszáma (EREK 2024–)</Label>
+                  {fUgykorKod && (
+                    <button
+                      type="button"
+                      onClick={() => setFUgykorKod('')}
+                      className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                    >
+                      Ügykör törlése
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <Search
+                    className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                    aria-hidden
+                  />
+                  <Input
+                    value={ugykorSearch}
+                    onChange={(event) => setUgykorSearch(event.target.value)}
+                    placeholder="Keresés az ügykörök közt (pl. jelentés, anyakönyv, 6/1.)…"
+                    aria-label="Ügykör keresése"
+                    className="pl-8"
+                  />
+                </div>
+                <div
+                  role="radiogroup"
+                  aria-labelledby="wiz-ugykor-label"
+                  className="max-h-56 space-y-1 overflow-y-auto rounded-xl border border-border bg-muted/20 p-1.5"
+                >
+                  {filteredUgykorok.length === 0 ? (
+                    <p className="px-2 py-4 text-center text-xs text-muted-foreground">
+                      Nincs találat — próbáld más szóval, vagy töröld a keresőt.
+                    </p>
+                  ) : (
+                    filteredUgykorok.map((entry) => {
+                      const selected = fUgykorKod === entry.kod
+                      return (
+                        <button
+                          key={entry.kod}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          onClick={() => setFUgykorKod(selected ? '' : entry.kod)}
+                          className={cn(
+                            'flex w-full items-start gap-2 rounded-lg border px-2 py-1.5 text-left transition-colors',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                            entry.parentKod && 'ml-3 w-[calc(100%-0.75rem)]',
+                            selected
+                              ? 'border-primary/40 bg-primary/10'
+                              : 'border-transparent hover:border-border hover:bg-background',
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              'mt-0.5 shrink-0 rounded-md px-1.5 py-0.5 font-mono text-[11px] tabular-nums',
+                              selected ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
+                            )}
+                          >
+                            {entry.kod}
+                          </span>
+                          <span className="min-w-0 flex-1 text-xs font-medium leading-snug text-foreground">
+                            {entry.nev}
+                          </span>
+                          <Badge variant="outline" className="mt-0.5 shrink-0 text-[10px]">
+                            {entry.retention}
+                          </Badge>
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
                 {fUgykorKod && FILING_UGYKOROK_MAP[fUgykorKod]?.desc && (
-                  <p className="text-xs text-slate-500 mt-1">
+                  <p className="rounded-lg bg-muted/40 px-2.5 py-1.5 text-xs leading-relaxed text-muted-foreground">
                     {FILING_UGYKOROK_MAP[fUgykorKod].desc}
                   </p>
                 )}
               </div>
-              <div className="space-y-1.5">
-                <Label>Kelt (irat keltezése) *</Label>
-                <Input type="date" value={fKelt} onChange={(event) => setFKelt(event.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Feladó / címzett</Label>
-                <Input value={fSender} onChange={(event) => setFSender(event.target.value)} placeholder={fDirection === 'incoming' ? 'Feladó' : 'Címzett'} />
-              </div>
-            </div>
 
-            <div className="space-y-1.5">
-              <Label>Tárgy *</Label>
-              <Input value={fSubject} onChange={(event) => setFSubject(event.target.value)} placeholder="Irat rövid tárgya" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Tárgykivonat</Label>
-              <Input value={fTargykivonat} onChange={(event) => setFTargykivonat(event.target.value)} placeholder="Bővebb leírás" />
-            </div>
+              {/* ─── EREK Iktatókönyv-rovatok (2026-05-28) ─── */}
+              <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-3 dark:border-blue-800/60 dark:bg-blue-950/30">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+                  EREK iktatókönyv-rovatok (PDF 2-9. rovat)
+                </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="wiz-ext-szam" className="text-xs">Külső iktatószám (a küldőtől)</Label>
+                    <Input
+                      id="wiz-ext-szam"
+                      value={fExternalRefSzam}
+                      onChange={(event) => setFExternalRefSzam(event.target.value)}
+                      placeholder="pl. Esperesi 479/2023"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="wiz-ext-kelt" className="text-xs">Külső irat kelte</Label>
+                    <Input
+                      id="wiz-ext-kelt"
+                      type="date"
+                      value={fExternalRefKelt}
+                      onChange={(event) => setFExternalRefKelt(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="wiz-beerkezes" className="text-xs">Beérkezés ideje (hivatalunkba)</Label>
+                    <Input
+                      id="wiz-beerkezes"
+                      type="date"
+                      value={fBeerkezesIdeje}
+                      onChange={(event) => setFBeerkezesIdeje(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="wiz-mellekletek" className="text-xs">Mellékletek száma</Label>
+                    <Input
+                      id="wiz-mellekletek"
+                      type="number"
+                      min={0}
+                      inputMode="numeric"
+                      value={fMellekletekSzama}
+                      onChange={(event) => setFMellekletekSzama(event.target.value)}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="wiz-valasz" className="text-xs">Hivatkozás más iktatószámra</Label>
+                    <Input
+                      id="wiz-valasz"
+                      value={fValaszIktatoszam}
+                      onChange={(event) => setFValaszIktatoszam(event.target.value)}
+                      placeholder='pl. "lásd 36/2023" — a válaszlevél iktatószáma'
+                    />
+                  </div>
+                </div>
+              </div>
 
-            {/* ─── EREK Iktatókönyv-rovatok (2026-05-28) ─── */}
-            <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-blue-700 mb-2">
-                EREK iktatókönyv-rovatok (PDF 2-9. rovat)
-              </p>
+              <div className="space-y-1.5">
+                <Label htmlFor="wiz-targykivonat">Tárgykivonat</Label>
+                <Textarea
+                  id="wiz-targykivonat"
+                  value={fTargykivonat}
+                  onChange={(event) => setFTargykivonat(event.target.value)}
+                  placeholder="Bővebb leírás az iratról"
+                  className="min-h-[72px]"
+                />
+              </div>
+
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Külső iktatószám (a küldőtől)</Label>
+                  <Label htmlFor="wiz-elint-datum">Elintézés dátuma (postázás)</Label>
                   <Input
-                    value={fExternalRefSzam}
-                    onChange={(event) => setFExternalRefSzam(event.target.value)}
-                    placeholder="pl. Esperesi 479/2023"
+                    id="wiz-elint-datum"
+                    type="date"
+                    value={fElintDatum}
+                    onChange={(event) => setFElintDatum(event.target.value)}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Külső irat kelte</Label>
-                  <Input type="date" value={fExternalRefKelt} onChange={(event) => setFExternalRefKelt(event.target.value)} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Beérkezés ideje (hivatalunkba)</Label>
-                  <Input type="date" value={fBeerkezesIdeje} onChange={(event) => setFBeerkezesIdeje(event.target.value)} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Mellékletek száma</Label>
+                  <Label htmlFor="wiz-elint-mod">Elintézés módja</Label>
                   <Input
-                    type="number"
-                    min={0}
-                    value={fMellekletekSzama}
-                    onChange={(event) => setFMellekletekSzama(event.target.value)}
-                    placeholder="0"
-                  />
-                </div>
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label className="text-xs">Hivatkozás más iktatószámra</Label>
-                  <Input
-                    value={fValaszIktatoszam}
-                    onChange={(event) => setFValaszIktatoszam(event.target.value)}
-                    placeholder='pl. "lásd 36/2023" — a válaszlevél iktatószáma'
+                    id="wiz-elint-mod"
+                    value={fElintMod}
+                    onChange={(event) => setFElintMod(event.target.value)}
+                    placeholder="pl. Postázva, Átadva, Iktatva"
                   />
                 </div>
               </div>
-            </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>Elintézés dátuma (postázás)</Label>
-                <Input type="date" value={fElintDatum} onChange={(event) => setFElintDatum(event.target.value)} />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="wiz-irattarijel">Irattárijel</Label>
+                  <Input
+                    id="wiz-irattarijel"
+                    value={fIrattarijel}
+                    onChange={(event) => setFIrattarijel(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="wiz-megjegyzes">Megjegyzés</Label>
+                  <Input
+                    id="wiz-megjegyzes"
+                    value={fMegj}
+                    onChange={(event) => setFMegj(event.target.value)}
+                  />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label>Elintézés módja</Label>
-                <Input value={fElintMod} onChange={(event) => setFElintMod(event.target.value)} />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>Irattárijel</Label>
-                <Input value={fIrattarijel} onChange={(event) => setFIrattarijel(event.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Megjegyzés</Label>
-                <Input value={fMegj} onChange={(event) => setFMegj(event.target.value)} />
-              </div>
-            </div>
 
-            {/* ─── 2026-05-29 Fázis 3: Másodpéldány-flag + hivatali út validáció ─── */}
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 space-y-2">
-              <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={fHasDuplicate}
-                  onChange={(e) => setFHasDuplicate(e.target.checked)}
-                  className="size-4"
-                />
-                <CopyIcon className="size-4 text-slate-500" />
-                Az iratnak van archivált másodpéldánya
-              </label>
-              <p className="text-[11px] text-slate-500 leading-relaxed pl-6">
-                Jellemzően jelentések, választói névjegyzékek és más felsőbb hatósághoz küldött iratok esetén pipálandó.
-                Az iktatókönyv-printen külön jelzéssel jelenik meg.
-              </p>
+              {/* ─── 2026-05-29 Fázis 3: Másodpéldány-flag + hivatali út validáció ─── */}
+              <div className="space-y-2 rounded-md border border-border bg-muted/30 p-3">
+                <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={fHasDuplicate}
+                    onChange={(e) => setFHasDuplicate(e.target.checked)}
+                    className="size-4"
+                  />
+                  <CopyIcon className="size-4 text-muted-foreground" aria-hidden />
+                  Az iratnak van archivált másodpéldánya
+                </label>
+                <p className="pl-6 text-[11px] leading-relaxed text-muted-foreground">
+                  Jellemzően jelentések, választói névjegyzékek és más felsőbb hatósághoz küldött iratok esetén pipálandó.
+                  Az iktatókönyv-printen külön jelzéssel jelenik meg.
+                </p>
+
+                {hivataliUtWarnings.length > 0 && (
+                  <div className="space-y-1.5 border-t border-border pt-2">
+                    {hivataliUtWarnings.map((w, i) => (
+                      <div
+                        key={i}
+                        className={cn(
+                          'flex items-start gap-1.5 text-xs',
+                          w.severity === 'warning'
+                            ? 'text-amber-800 dark:text-amber-300'
+                            : 'text-muted-foreground',
+                        )}
+                      >
+                        <AlertCircle
+                          className={cn(
+                            'size-3.5 mt-0.5 shrink-0',
+                            w.severity === 'warning' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground',
+                          )}
+                          aria-hidden
+                        />
+                        <span>{w.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ══════════ 3. LÉPÉS — ÖSSZEGZÉS ══════════ */}
+          {wizardStep === 3 && (
+            <div className="space-y-4">
+              <div className="overflow-hidden rounded-xl border border-border bg-card">
+                {/* Fejléc-sáv: iktatószám + irány — ez a „bélyegző" a kártyán. */}
+                <div
+                  className={cn(
+                    'flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5',
+                    fDirection === 'incoming'
+                      ? 'bg-sky-50 dark:bg-sky-950/40'
+                      : 'bg-emerald-50 dark:bg-emerald-950/40',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'grid size-8 shrink-0 place-items-center rounded-full text-white',
+                      fDirection === 'incoming' ? 'bg-sky-600' : 'bg-emerald-600',
+                    )}
+                  >
+                    {fDirection === 'incoming' ? (
+                      <ArrowDownLeft className="size-4" aria-hidden />
+                    ) : (
+                      <ArrowUpRight className="size-4" aria-hidden />
+                    )}
+                  </span>
+                  <span className="text-sm font-semibold text-foreground">
+                    {FILING_DIRECTION_LABELS[fDirection]}
+                  </span>
+                  <span className="ml-auto font-mono text-sm font-semibold tabular-nums text-foreground">
+                    {editEntry
+                      ? `${editEntry.year}/${editEntry.sequence_number}`
+                      : retroActive
+                        ? `${keltYear}/${retroManualSeq}`
+                        : `${keltYear}/${fSeqNum > 0 ? fSeqNum : '…'}`}
+                  </span>
+                  <Badge variant="outline" className="shrink-0 text-[10px]">
+                    {editEntry ? 'meglévő' : retroActive ? 'visszamenőleges' : 'automatikus'}
+                  </Badge>
+                </div>
+                <dl className="divide-y divide-border/60 px-3 py-1">
+                  <SummaryRow label="Kelt" value={fKelt} mono />
+                  <SummaryRow label="Tárgy" value={fSubject} />
+                  <SummaryRow
+                    label={fDirection === 'incoming' ? 'Feladó' : 'Címzett'}
+                    value={fSender}
+                  />
+                  <SummaryRow
+                    label="Ügykör"
+                    value={
+                      fUgykorKod
+                        ? `${fUgykorKod} ${FILING_UGYKOROK_MAP[fUgykorKod]?.nev ?? ''} (${
+                            FILING_UGYKOROK_MAP[fUgykorKod]?.retention ?? '—'
+                          })`
+                        : ''
+                    }
+                  />
+                  <SummaryRow label="Tárgykivonat" value={fTargykivonat} />
+                  <SummaryRow label="Külső iktatószám" value={fExternalRefSzam} mono />
+                  <SummaryRow label="Külső irat kelte" value={fExternalRefKelt} mono />
+                  <SummaryRow label="Beérkezés ideje" value={fBeerkezesIdeje} mono />
+                  <SummaryRow label="Mellékletek száma" value={fMellekletekSzama} mono />
+                  <SummaryRow label="Hivatkozás" value={fValaszIktatoszam} />
+                  <SummaryRow label="Elintézés dátuma" value={fElintDatum} mono />
+                  <SummaryRow label="Elintézés módja" value={fElintMod} />
+                  <SummaryRow label="Irattárijel" value={fIrattarijel} />
+                  <SummaryRow label="Megjegyzés" value={fMegj} />
+                  <SummaryRow
+                    label="Másodpéldány"
+                    value={fHasDuplicate ? 'Van archivált másodpéldány' : 'Nincs'}
+                  />
+                </dl>
+              </div>
 
               {hivataliUtWarnings.length > 0 && (
-                <div className="space-y-1.5 pt-2 border-t border-slate-200">
+                <div className="space-y-1.5 rounded-lg border border-amber-300 bg-amber-50/60 p-3 dark:border-amber-700/60 dark:bg-amber-950/30">
                   {hivataliUtWarnings.map((w, i) => (
                     <div
                       key={i}
-                      className={`flex items-start gap-1.5 text-xs ${
-                        w.severity === 'warning' ? 'text-amber-800' : 'text-slate-600'
-                      }`}
+                      className={cn(
+                        'flex items-start gap-1.5 text-xs',
+                        w.severity === 'warning'
+                          ? 'text-amber-800 dark:text-amber-300'
+                          : 'text-muted-foreground',
+                      )}
                     >
-                      <AlertCircle className={`size-3.5 mt-0.5 shrink-0 ${w.severity === 'warning' ? 'text-amber-600' : 'text-slate-400'}`} />
+                      <AlertCircle
+                        className={cn(
+                          'size-3.5 mt-0.5 shrink-0',
+                          w.severity === 'warning' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground',
+                        )}
+                        aria-hidden
+                      />
                       <span>{w.message}</span>
                     </div>
                   ))}
                 </div>
               )}
+
+              {/* 2026-07-17 (F6/K6): csatolmányok a szerkesztő-dialógusban is —
+                  csak MENTETT iratnál (új iratnak még nincs azonosítója). */}
+              {editEntry && (
+                <div className="rounded-lg border border-border p-3">
+                  <CsatolmanyPanel
+                    iktatoId={editEntry.id}
+                    iktatoszam={`${editEntry.year}/${editEntry.sequence_number}`}
+                    onChanged={() => void loadCsatolmanyCounts(entries.map((e) => e.id))}
+                  />
+                </div>
+              )}
             </div>
+          )}
 
-            {/* 2026-07-17 (F6/K6): csatolmányok a szerkesztő-dialógusban is —
-                csak MENTETT iratnál (új iratnak még nincs azonosítója). */}
-            {editEntry && (
-              <div className="rounded-lg border border-slate-200 p-3">
-                <CsatolmanyPanel
-                  iktatoId={editEntry.id}
-                  iktatoszam={`${editEntry.year}/${editEntry.sequence_number}`}
-                  onChanged={() => void loadCsatolmanyCounts(entries.map((e) => e.id))}
-                />
-              </div>
-            )}
-
-            {yearClosure && (
-              <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 flex items-start gap-1.5">
-                <Lock className="size-3.5 mt-0.5 shrink-0" />
-                <span>
-                  Ez az év (<strong>{year}</strong>) lezárva — a mentés nem fog sikerülni. A lezárás lelkészi vagy admin jogosultsággal oldható fel.
-                </span>
-              </div>
-            )}
-          </div>
-          <div className="flex justify-end gap-2 pt-3">
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Mégse</Button>
-            <Button
-              onClick={handleSave}
-              disabled={saving || Boolean(yearClosure)}
-              title={yearClosure ? 'Az iktatókönyv ezen az évre lezárt.' : undefined}
-            >
-              {saving ? 'Mentés...' : 'Mentés'}
+          {/* ── Varázsló-lábléc: Mégse · Vissza · Tovább / Iktatás ── */}
+          <div className="flex flex-col-reverse gap-2 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
+            <Button variant="ghost" onClick={closeDialog} disabled={saving}>
+              Mégse
             </Button>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
+              {wizardStep > 1 && (
+                <Button variant="outline" onClick={goPrevStep} disabled={saving}>
+                  <ChevronLeft className="size-4" aria-hidden />
+                  Vissza
+                </Button>
+              )}
+              {wizardStep < 3 ? (
+                <Button onClick={goNextStep}>
+                  Tovább
+                  <ChevronRight className="size-4" aria-hidden />
+                </Button>
+              ) : (
+                <Button
+                  size="lg"
+                  onClick={handleSave}
+                  disabled={saving || Boolean(yearClosure)}
+                  title={yearClosure ? 'Az iktatókönyv ezen az évre lezárt.' : undefined}
+                >
+                  <Stamp className="size-4" aria-hidden />
+                  {saving
+                    ? 'Mentés…'
+                    : editEntry
+                      ? 'Módosítások mentése'
+                      : retroActive
+                        ? `Iktatás — ${keltYear}/${retroManualSeq}`
+                        : 'Iktatás'}
+                </Button>
+              )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -1134,6 +1661,11 @@ interface FilingEntriesViewProps {
   onOpenCsatolmany: (entry: FilingEntryWithCsomo) => void
   /** „Csomóba" választó nyitása az adott irathoz. */
   onOpenCsomoPicker: (entry: FilingEntryWithCsomo) => void
+  /**
+   * 2026-07-25 (F8d/S3): a táblázatos gyorsrögzítő sikeres iktatása után —
+   * a szülő újratölti az év iratait (és a csatolmány-számlálókat).
+   */
+  onQuickSaved: () => void
 }
 
 function FilingEntriesView({
@@ -1158,7 +1690,13 @@ function FilingEntriesView({
   csatolmanyCounts,
   onOpenCsatolmany,
   onOpenCsomoPicker,
+  onQuickSaved,
 }: FilingEntriesViewProps) {
+  // 2026-07-25 (F8d/S3): a táblázatos gyorsrögzítő sor nyitva van-e. Csak
+  // md-től érhető el (a sor maga is `hidden md:block`) — telefonon a lépéses
+  // varázsló a kényelmes út.
+  const [quickRowOpen, setQuickRowOpen] = useState(false)
+
   return (
     <>
       {/* 2026-07-17 (F6/K3+K6): év-összkép a régi 4 stat-kártya HELYETT —
@@ -1185,6 +1723,25 @@ function FilingEntriesView({
 
         <Input placeholder="Keresés..." value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} className="w-full sm:w-56" />
         <div className="ml-auto flex flex-wrap gap-2">
+          {/* 2026-07-25 (F8d/S3): táblázatos gyorsrögzítés — sorozat-iktatáshoz.
+              md alatt rejtve: telefonon a lépéses varázsló a kényelmes út. */}
+          <Button
+            size="sm"
+            variant={quickRowOpen ? 'default' : 'outline'}
+            className="hidden md:inline-flex"
+            onClick={() => setQuickRowOpen((open) => !open)}
+            disabled={isClosed}
+            aria-expanded={quickRowOpen}
+            aria-controls="filing-quick-row"
+            title={
+              isClosed
+                ? 'Az év lezárt — nem vehető fel új bejegyzés.'
+                : 'Kompakt sor a lista fölött: irány, kelt, tárgy, partner, ügykör → Enter = iktatás'
+            }
+          >
+            <Zap className="size-3.5" aria-hidden />
+            {quickRowOpen ? 'Gyorsrögzítés elrejtése' : 'Gyorsrögzítés'}
+          </Button>
           {onPrintIktatokonyv && (
             <Button size="sm" variant="outline" onClick={onPrintIktatokonyv}>
               Iktatókönyv nyomtatás
@@ -1210,6 +1767,14 @@ function FilingEntriesView({
           </Button>
         </div>
       </div>
+
+      {/* 2026-07-25 (F8d/S3): a gyorsrögzítő sor a lista FÖLÖTT — sikeres
+          iktatás után a szülő újratölt, a sor pedig ürül a következő irathoz. */}
+      {quickRowOpen && !isClosed && (
+        <div id="filing-quick-row">
+          <FilingQuickRow onSaved={onQuickSaved} />
+        </div>
+      )}
 
       {loading ? (
         <div className="py-8 text-center text-sm text-muted-foreground">Betöltés...</div>

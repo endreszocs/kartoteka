@@ -274,6 +274,10 @@ export async function getPersonCertificateData(
  * oszlopaiból áll elő (adrlocality_id/adrstreet_id join — az address-form.tsx
  * bevált mintája); ha a strukturált hivatkozás hiányzik, a szabad szöveges
  * varos/cim mezők adják az EGY közös cím-sort (cimRo=null).
+ *
+ * 2026-07-25 (F8e): NÉV-ALAPÚ helység-feloldás, ha nincs adrlocality_id — lásd
+ * a getCongregationHeader belsejében a részletes megjegyzést (a magyar
+ * keltezésben élesben a román „Brateș" jelent meg „Barátos" helyett).
  */
 export async function getCongregationHeader(): Promise<{
   header: CongregationHeaderData | null
@@ -303,6 +307,44 @@ export async function getCongregationHeader(): Promise<{
   const helyseg = one(row.helyseg)
   const utca = one(row.utca)
 
+  // ── Helység-nevek (magyar + román) ────────────────────────────────
+  // Elsődleges forrás a strukturált hivatkozás (adrlocality_id join).
+  let helysegNevHu = clean(helyseg?.name_hu ?? null)
+  let helysegNevRo = clean(helyseg?.name_ro ?? null)
+
+  // 2026-07-25 (F8e, user-észrevétel): ha a gyülekezetnél NINCS strukturált
+  // helység-hivatkozás, eddig a szabad szöveges `varos` mező volt az EGYETLEN
+  // forrás — az viszont sok gyülekezetnél a ROMÁN nevet tartalmazza, így a
+  // MAGYAR keltezés-sorra is a román alak került („Brateș" a „Barátos" helyett).
+  // Ilyenkor NÉV-ALAPÚ feloldással megkeressük a helységet az adrlocality
+  // katalógusban (name_hu VAGY name_ro egyezés), és onnan vesszük a magyar és a
+  // román nevet is. Determinizmus: .order('id') + limit 1 (azonos nevű
+  // helységeknél is stabil, és a név-pár úgyis ugyanaz).
+  // ⚠️ Ez csak MENTŐÖV: a VÉGLEGES megoldás, hogy a gyülekezet beállításaiban
+  // (Gyülekezet → cím) ki legyen választva a strukturált helység — akkor ez az
+  // ág fel sem merül, és az irányítószám/utca is a katalógusból jön.
+  if (!helysegNevHu && !helysegNevRo) {
+    const varosNev = clean(row.varos)
+    // PostgREST or()-szűrő: az értéket idézőjelbe tesszük (szóköz/pont/vessző
+    // miatt), és kiszedjük belőle a szűrő-szintaxist törő karaktereket.
+    const q = varosNev.replace(/["\\%*(),]/g, '').trim()
+    if (q) {
+      const { data: locRows, error: locError } = await supabase
+        .from('adrlocality')
+        .select('id, name_hu, name_ro')
+        .or(`name_hu.ilike."${q}",name_ro.ilike."${q}"`)
+        .order('id', { ascending: true })
+        .limit(1)
+      // Hiba esetén NEM hibázunk hangosan: a fejléc a régi (varos-alapú)
+      // tartalékkal is helyes marad, csak nyelvhelyesség nélkül.
+      if (!locError && locRows && locRows.length > 0) {
+        const loc = locRows[0] as { name_hu: string | null; name_ro: string | null }
+        helysegNevHu = clean(loc.name_hu)
+        helysegNevRo = clean(loc.name_ro)
+      }
+    }
+  }
+
   // Cím összerakása: "527045 Barátos, Fő út 45." — a helység-rész és az
   // utca-rész külön, vesszővel elválasztva; üres darabok kihagyva.
   // A magyar/román változat az adrlocality/adrstreet name_hu/name_ro mezőiből
@@ -312,8 +354,10 @@ export async function getCongregationHeader(): Promise<{
     const streetPart = [utcaNev, row.hazszam].map(clean).filter(Boolean).join(' ')
     return [localityPart, streetPart].filter(Boolean).join(', ') || null
   }
+  // A cím helység-része is a (szükség esetén név-alapon feloldott) katalógus-
+  // névből jön — így a fejléc magyar sora is „Barátos", nem „Brateș".
   const cimHu = buildCim(
-    clean(helyseg?.name_hu ?? null) || clean(row.varos),
+    helysegNevHu || clean(row.varos),
     clean(utca?.name_hu ?? null) || clean(row.cim),
   )
   // Román cím csak akkor, ha van legalább egy VALÓDI román elem és eltér a
@@ -322,10 +366,10 @@ export async function getCongregationHeader(): Promise<{
   // nincs típus-megjelölése (roUtcaElotag) — a magyar sor érintetlen.
   const utcaRoNev = clean(utca?.name_ro ?? null)
   const cimRoJelolt = buildCim(
-    clean(helyseg?.name_ro ?? null) || clean(row.varos),
+    helysegNevRo || clean(row.varos),
     utcaRoNev ? roUtcaElotag(utcaRoNev) : clean(row.cim),
   )
-  const vanRomanElem = Boolean(clean(helyseg?.name_ro ?? null) || utcaRoNev)
+  const vanRomanElem = Boolean(helysegNevRo || utcaRoNev)
   const cimRo = vanRomanElem && cimRoJelolt && cimRoJelolt !== cimHu ? cimRoJelolt : null
 
   return {
@@ -338,8 +382,9 @@ export async function getCongregationHeader(): Promise<{
       cimRo,
       // F8c: a keltezés-sor nyelvhelyes helység-neve (dokumentum-csaladok
       // keltezesSor) — magyar fallback a szabad szöveges varos mezőre.
-      helysegHu: clean(helyseg?.name_hu ?? null) || clean(row.varos) || null,
-      helysegRo: clean(helyseg?.name_ro ?? null) || null,
+      // F8e: a nevek szükség esetén NÉV-ALAPON feloldva az adrlocality-ból.
+      helysegHu: helysegNevHu || clean(row.varos) || null,
+      helysegRo: helysegNevRo || null,
       telefon: clean(row.telefon) || null,
       email: clean(row.email) || null,
       cif: clean(row.adoszam) || null,
