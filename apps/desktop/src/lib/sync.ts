@@ -4639,6 +4639,22 @@ export async function pullMinutesOfOwnCongregation(userId: string): Promise<{
     )
   }
 
+  // 2026-07-25 (F6.6): ÁRVA AL-SOROK takarítása. A fő táblát a gyülekezetre
+  // ürítjük, az altáblákat viszont CSAK a szervertől kapott jegyzőkönyv-ID-kre
+  // — ezért ha egy jegyzőkönyvet TÖRÖLNEK a szerveren, a hozzá tartozó
+  // napirendi pontok / határozatok / résztvevők örökre bennmaradnak.
+  for (const childTable of [
+    'jegyzokonyv_resztvevok_local',
+    'jegyzokonyv_napirendi_pontok_local',
+    'jegyzokonyv_hatarozatok_local',
+  ]) {
+    await dbExecute(
+      `DELETE FROM ${childTable}
+        WHERE jegyzokonyv_id NOT IN (SELECT id FROM presbiteri_jegyzokonyvek_local)`,
+      [],
+    )
+  }
+
   const nowIso = new Date().toISOString()
   await setSetting(`jegyzokonyvek:last_pull:${congregationId}`, nowIso)
 
@@ -5060,6 +5076,22 @@ export async function pullCemeteriesOfOwnCongregation(userId: string): Promise<{
         Number(r.revision ?? 0),
         (r.updated_at as string | null) ?? null,
       ],
+    )
+  }
+
+  // 2026-07-25 (F6.6): ÁRVA AL-SOROK takarítása. A sírhelyeket csak a szervertől
+  // kapott TEMETŐ-ID-kre ürítjük, a bérleteket/elhunytakat pedig a kapott
+  // parcella-ID-kre — ezért ha egy TEMETŐ (vagy egy parcella) törlődik a
+  // szerveren, a hozzá tartozó sorok örökre bennmaradnak a helyi másolatban.
+  // Sorrend: előbb a sírhelyek (a temetőkhöz), utána a rájuk épülő sorok.
+  await dbExecute(
+    'DELETE FROM sirhely_local WHERE temetoid NOT IN (SELECT id FROM sirhelytemeto_local)',
+    [],
+  )
+  for (const childTable of ['sirhelyberles_local', 'sirhelyelhunyt_local']) {
+    await dbExecute(
+      `DELETE FROM ${childTable} WHERE sirhelyid NOT IN (SELECT id FROM sirhely_local)`,
+      [],
     )
   }
 

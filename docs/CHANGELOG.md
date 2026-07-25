@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Asztali alkalmazás: nem maradnak árva sorok a törölt temetők és jegyzőkönyvek után
+<!-- key: 2026-07-25-f66-arva-alsorok -->
+<!-- category: bugfix -->
+<!-- version: v0.9.124 (asztali: 0.9.10) -->
+<!-- targets: az asztali (offline) alkalmazás használói -->
+
+### 🐛 Javítások
+
+- **Törölt temető vagy jegyzőkönyv után nem maradnak félárva adatok**: ha a böngészőben töröltek egy temetőt (vagy egy presbiteri jegyzőkönyvet), az asztali helyi másolatban a hozzájuk tartozó sorok — sírhelyek, bérletek, elhunytak, illetve napirendi pontok, határozatok, résztvevők — eddig **örökre bent maradtak**, gazdátlanul. A szinkron mostantól ezeket is elrendezi.
+- Az **anyakönyvi, leltári, iktatói és éves jelentés** adatok ellenőrizve: ezeknél a szinkron eddig is teljes egészében frissítette a helyi másolatot, tehát ott nem volt hasonló hiba.
+
+> Az asztali változásokhoz **új asztali kiadás (0.9.10)** telepítése szükséges.
+
+---
+
 ## [2026-07-25] — A törölt tagok eltűnnek az asztali alkalmazásból is
 <!-- key: 2026-07-25-f65-tombstone-tagnyilvantartas -->
 <!-- category: bugfix -->
