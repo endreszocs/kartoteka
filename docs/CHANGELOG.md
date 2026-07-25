@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — A törölt tagok eltűnnek az asztali alkalmazásból is
+<!-- key: 2026-07-25-f65-tombstone-tagnyilvantartas -->
+<!-- category: bugfix -->
+<!-- version: v0.9.123 (asztali: 0.9.9) -->
+<!-- targets: az asztali (offline) alkalmazás használói — kiemelten a választói névjegyzék -->
+
+### 🐛 Javítások
+
+- **A böngészőben véglegesen törölt tag eddig ÉLŐ, AKTÍV tagként maradt az asztali gépen.** Az asztali szinkron csak a *módosításokat* kérdezi le, a végleges törlésről pedig semmilyen jelzést nem kapott — így a törölt személy ott maradt a taglistában, beleszámított a lélekszámba és a statisztikákba, **tartozást is számolt rá a rendszer**, és ami a legsúlyosabb: **rákerült a kinyomtatott hivatalos választói névjegyzékre**. Mostantól a szinkron rendszeresen ellenőrzi és eltávolítja ezeket.
+- Ugyanez javítva a **családoknál** és a **családi gyermek-kapcsolatoknál** is.
+- **Törölt felmentés és kedvezmény**: a böngészőben törölt járulék-felmentés vagy kedvezmény eddig **örökre érvényben maradt** az asztali tartozás-számításban (hamis mentesség, hamis kedvezmény) — ez is megszűnt.
+
+> Az asztali változásokhoz **új asztali kiadás (0.9.9)** telepítése szükséges. Az ellenőrzés kíméletes: naponta legfeljebb kétszer fut, csak akkor takarít, ha a szervertől hibátlan, teljes listát kapott, és üres válasznál inkább kihagyja (nehogy egy pillanatnyi jogosultsági hiba kiürítse a helyi másolatot). A már bennragadt kísértet-sorok a következő ellenőrzéskor (legkésőbb 12 órán belül, vagy azonnal az alkalmazás első indításakor) eltűnnek.
+
+---
+
 ## [2026-07-25] — Asztali alkalmazás: eltűnnek a kísértet-tételek, látszanak a feltöltésre várók
 <!-- key: 2026-07-25-f64-tombstone-pending -->
 <!-- category: bugfix -->

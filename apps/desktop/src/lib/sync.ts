@@ -110,6 +110,112 @@ export interface PullResult {
 const LAST_PULL_KEY = 'sync:profiles:last_pull'
 const LAST_PULL_ALL_KEY = 'sync:profiles:last_pull_all'
 
+
+/**
+ * 2026-07-25 (F6.5): ID-SÖPRÉS — a szerveren VÉGLEGESEN törölt sorok takarítása
+ * a lokális tükörből.
+ *
+ * MIÉRT KELL KÜLÖN MEGOLDÁS: a `szemely` / `csalad` / `gyerek` táblákon NINCS
+ * `deleted` oszlop és nincs tombstone-tábla — a webes végleges törlés FIZIKAI
+ * DELETE, a szinkron-triggerek pedig csak BEFORE UPDATE-ek. A delta-pull
+ * (`gte('updated_at', lastPull)`) tehát a törlésről SOHA nem szerez tudomást,
+ * és a törölt tag ÖRÖKRE bennmarad a lokális tükörben — élő, aktív tagként.
+ *
+ * ⚠️ MIÉRT NEM MÁSOLHATÓ IDE a pénzügyi `reconcileLocalRows` minta: az azért
+ * biztonságos, mert a pénzügyi pull TELJES évet tölt újra, így a szerver-halmaz
+ * a hatókör hiteles egésze. A delta-pull válasza viszont CSAK a változás — a
+ * minta szó szerinti átemelése „töröld, ami nem változott" lenne, azaz egyetlen
+ * módosított tag után a teljes taglistát kiürítené.
+ *
+ * EZ A MEGOLDÁS: külön, KÖNNYŰ (`select('id')`) lekérdezés a TELJES hatókörre,
+ * lapozva — egy 1000 fős gyülekezetnél nagyságrendileg 10-20 KB. Csak ekkor
+ * hiteles a halmaz, és csak ekkor érvényes a biztonsági szelep is.
+ *
+ * FÉKEK:
+ *   - hibánál SOHA nem takarít (korai kilépés);
+ *   - ha a szerver 0 sort ad, de lokálisan van adat → KIHAGY + figyelmeztet
+ *     (a dokumentált RLS scope-divergencia különben kiürítené a tükröt).
+ *     ⚠️ ISMERT KORLÁT: emiatt egy LEGITIM teljes kiürítés (admin
+ *     `wipe_congregation_data`, vagy az utolsó felmentés/kedvezmény törlése)
+ *     nem takarítódik ki magától — ilyenkor a helyi adatbázis újratöltése
+ *     (kijelentkezés + újra belépés friss telepítéssel) az út;
+ *   - időzár: alapból 12 óránként fut táblánként+gyülekezetenként, hogy ne
+ *     terhelje minden szinkron-ciklust (`force`-szal kikényszeríthető).
+ */
+export async function sweepDeletedRows(opts: {
+  localTable: string
+  congregationId: string
+  /**
+   * A LOKÁLIS hatókör: mely sorok jöhetnek szóba törlésre. Külön kell megadni,
+   * mert a `csalad_local` / `gyerek_local` táblákon NINCS congregation_id —
+   * ott a tagokon (szemely_local) keresztül vezet a hatókör.
+   */
+  localScopeSql: string
+  localScopeParams: (string | number)[]
+  /** A szerver TELJES hatókör-halmazát adó lekérdezés (id-listát ad vissza). */
+  fetchServerIds: () => Promise<{ ids: Set<string> } | { error: string }>
+  /** Ha true, az időzárat átugorja (első/teljes szinkron). */
+  force?: boolean
+  /** Óra — ennél ritkábban nem fut (alapértelmezés: 12). */
+  minHours?: number
+}): Promise<{ removed: number; skipped: boolean; reason?: string }> {
+  const throttleKey = `sync:sweep:${opts.localTable}:${opts.congregationId}`
+
+  if (!opts.force) {
+    const last = await getSetting(throttleKey)
+    if (last) {
+      const elapsedMs = Date.now() - new Date(last).getTime()
+      const minMs = (opts.minHours ?? 12) * 3600 * 1000
+      if (Number.isFinite(elapsedMs) && elapsedMs >= 0 && elapsedMs < minMs) {
+        return { removed: 0, skipped: true, reason: 'idozar' }
+      }
+    }
+  }
+
+  // A LOKÁLIS oldal ELŐSZÖR (review, P3): ha nincs mit takarítani, meg sem
+  // szólítjuk a hálózatot — az első (full-initial) szinkronnál a tükör üres.
+  const localRows = await dbSelect<{ id: number | string }>(
+    `SELECT id FROM ${opts.localTable} WHERE ${opts.localScopeSql}`,
+    opts.localScopeParams,
+  )
+  if (localRows.length === 0) {
+    await setSetting(throttleKey, new Date().toISOString())
+    return { removed: 0, skipped: true, reason: 'ures-lokalis-tukor' }
+  }
+
+  const result = await opts.fetchServerIds()
+  if ('error' in result) {
+    console.warn(`[sync] ${opts.localTable} id-söprés KIHAGYVA (lekérdezés-hiba):`, result.error)
+    return { removed: 0, skipped: true, reason: 'lekerdezes-hiba' }
+  }
+  const serverIds = result.ids
+
+  // ⚠️ BIZTONSÁGI SZELEP: teljes hatókört kértünk — ha a szerver mégis üres
+  // halmazt ad, miközben lokálisan van adat, az jogosultsági/szűrési anomália.
+  if (serverIds.size === 0 && localRows.length > 0) {
+    console.warn(
+      `[sync] ${opts.localTable} id-söprés KIHAGYVA: a szerver 0 sort adott, ` +
+        `miközben lokálisan ${localRows.length} sor van (jogosultsági anomália?).`,
+    )
+    return { removed: 0, skipped: true, reason: 'ures-szerver-halmaz' }
+  }
+
+  const stale = localRows.map((r) => r.id).filter((id) => !serverIds.has(String(id)))
+  if (stale.length > 0) {
+    const CHUNK = 200
+    for (let i = 0; i < stale.length; i += CHUNK) {
+      const slice = stale.slice(i, i + CHUNK)
+      const placeholders = slice.map((_, idx) => `?${idx + 1}`).join(', ')
+      await dbExecute(`DELETE FROM ${opts.localTable} WHERE id IN (${placeholders})`, slice)
+    }
+    console.info(
+      `[sync] ${opts.localTable}: ${stale.length} véglegesen törölt sor takarítva a helyi másolatból.`,
+    )
+  }
+  await setSetting(throttleKey, new Date().toISOString())
+  return { removed: stale.length, skipped: false }
+}
+
 export async function pullOwnProfile(userId: string): Promise<PullResult> {
   const supabase = getDesktopSupabase()
 
@@ -1282,6 +1388,29 @@ export async function pullMembersOfOwnCongregation(
     await setSetting(lastPullKey, new Date().toISOString())
   }
 
+  // 2026-07-25 (F6.5): a VÉGLEGESEN törölt tagok takarítása. A delta-pull erről
+  // sosem szerez tudomást (fizikai DELETE, nincs tombstone), ezért külön,
+  // időzárral futó id-söprés kell — különben a törölt tag ÉLŐ, AKTÍV tagként
+  // marad a gépen, és rákerül a hivatalos választói névjegyzékre is.
+  try {
+    await sweepDeletedRows({
+      localTable: 'szemely_local',
+      congregationId,
+      localScopeSql: 'congregation_id = ?1',
+      localScopeParams: [congregationId],
+      fetchServerIds: async () => {
+        const res = await selectAllPaged<{ id: number | string }>(
+          supabase.from('szemely').select('id').eq('congregation_id', congregationId),
+        )
+        if (res.error) return { error: res.error.message }
+        return { ids: new Set((res.data ?? []).map((r) => String(r.id))) }
+      },
+      force: effectiveMode === 'full-initial',
+    })
+  } catch (err) {
+    console.warn('[sync] a tag-söprés kimaradt:', err)
+  }
+
   return {
     pulledRows: rows.length,
     mode: effectiveMode,
@@ -2375,6 +2504,37 @@ export async function pullFamiliesOfOwnCongregation(
   }
   await setSetting(lastPullKey, newestIso)
 
+
+  // 2026-07-25 (F6.5): véglegesen törölt sorok takarítása — a delta-pull
+  // erről nem szerez tudomást (fizikai DELETE a szerveren). A családot a web fizikailag törli.
+  try {
+    await sweepDeletedRows({
+      localTable: 'csalad_local',
+      congregationId,
+      // ⚠️ A `csalad` táblán NINCS congregation_id (a hatókör a tagokon át
+      // vezet) — ezért a lokális jelöltek a gyülekezet tagjaihoz kötött
+      // családok. Konzervatív: az egyetlen tagot sem tartalmazó családot nem
+      // bántjuk (inkább maradjon, mint tévesen törlődjön).
+      localScopeSql:
+        'id IN (SELECT DISTINCT id_csalad FROM szemely_local WHERE congregation_id = ?1 AND id_csalad IS NOT NULL)',
+      localScopeParams: [congregationId],
+      fetchServerIds: async () => {
+        // A meglévő SECURITY DEFINER RPC — `updated_since` epochra állítva a
+        // TELJES hatókört adja vissza (a delta-pull ugyanezt hívja kurzorral).
+        const res = await selectAllPaged<{ id: number | string }>(
+          supabase.rpc('get_csaladok_for_congregation', {
+            target_congregation_id: congregationId,
+            updated_since: new Date(0).toISOString(),
+          }),
+        )
+        if (res.error) return { error: res.error.message }
+        return { ids: new Set((res.data ?? []).map((r) => String(r.id))) }
+      },
+      force: effectiveMode === 'full-initial',
+    })
+  } catch (err) {
+    console.warn('[sync] a csalad_local söprés kimaradt:', err)
+  }
   return { pulledRows: rows.length, mode: effectiveMode, lastPullIso: newestIso }
 }
 
@@ -2454,6 +2614,32 @@ export async function pullGyerekOfOwnCongregation(
   }
   await setSetting(lastPullKey, newestIso)
 
+
+  // 2026-07-25 (F6.5): véglegesen törölt sorok takarítása — a delta-pull
+  // erről nem szerez tudomást (fizikai DELETE a szerveren). Család törlésekor a gyerek-sorok is fizikailag törlődnek.
+  try {
+    await sweepDeletedRows({
+      localTable: 'gyerek_local',
+      congregationId,
+      // A `gyerek` táblán sincs congregation_id — a hatókör a családokon át.
+      localScopeSql:
+        'id_csalad IN (SELECT DISTINCT id_csalad FROM szemely_local WHERE congregation_id = ?1 AND id_csalad IS NOT NULL)',
+      localScopeParams: [congregationId],
+      fetchServerIds: async () => {
+        const res = await selectAllPaged<{ id: number | string }>(
+          supabase.rpc('get_gyerek_for_congregation', {
+            target_congregation_id: congregationId,
+            updated_since: new Date(0).toISOString(),
+          }),
+        )
+        if (res.error) return { error: res.error.message }
+        return { ids: new Set((res.data ?? []).map((r) => String(r.id))) }
+      },
+      force: effectiveMode === 'full-initial',
+    })
+  } catch (err) {
+    console.warn('[sync] a gyerek_local söprés kimaradt:', err)
+  }
   return { pulledRows: rows.length, mode: effectiveMode, lastPullIso: newestIso }
 }
 
