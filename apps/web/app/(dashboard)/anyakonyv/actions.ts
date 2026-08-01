@@ -710,8 +710,9 @@ export async function saveBaptism(data: BaptismInput) {
     await supabase.from('szemely').update(szemelyUpdate).eq('id', d.id_szemely).eq('congregation_id', congId)
   }
 
+  let familyWarning: string | null = null
   if (d.id_apja_cnp || d.id_anyja_cnp) {
-    await checkAndCreateFamily(supabase, d.id_szemely, d.id_apja_cnp || null, d.id_anyja_cnp || null)
+    familyWarning = await checkAndCreateFamily(supabase, d.id_szemely, d.id_apja_cnp || null, d.id_anyja_cnp || null)
   }
 
   // 2026-05-29: ha a felhasználó megadta az anya leánykori nevét
@@ -777,26 +778,39 @@ export async function saveBaptism(data: BaptismInput) {
 
   revalidatePath('/anyakonyv')
   revalidatePath('/munkanaplo')
-  return { success: true }
+  return { success: true, warning: familyWarning ?? undefined }
 }
 
 // ── Család automatikus létrehozás ────────────────────────────
 
+// 2026-08-01 (PR-18): visszatérési érték — figyelmeztető szöveg, ha a gyermek
+// már egy MÁSIK aktív család tagja (ilyenkor nem hozunk létre dupla tagságot).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function checkAndCreateFamily(supabase: any, childId: number, fatherCnp: string | null, motherCnp: string | null) {
+async function checkAndCreateFamily(supabase: any, childId: number, fatherCnp: string | null, motherCnp: string | null): Promise<string | null> {
   let ferfiId: number | null = null
   let noId: number | null = null
 
+  // 2026-08-01 (PR-18): a congregation_id-t ELŐRE vesszük, és a CNP-lookup a
+  // gyermek gyülekezetére szűr — enélkül más gyülekezet azonos CNP-jű személye
+  // is bekerülhetett a családba.
+  const { data: childRowEarly } = await supabase
+    .from('szemely')
+    .select('congregation_id')
+    .eq('id', childId)
+    .single()
+  const congId = childRowEarly?.congregation_id as string | undefined
+  if (!congId) return null // védelmi háló — congregation_id nélkül nem írhatunk
+
   if (fatherCnp) {
-    const { data } = await supabase.from('szemely').select('id, c_utcaid, c_szam').eq('cnp', fatherCnp).limit(1)
+    const { data } = await supabase.from('szemely').select('id, c_utcaid, c_szam').eq('cnp', fatherCnp).eq('congregation_id', congId).limit(1)
     if (data?.[0]) ferfiId = data[0].id
   }
   if (motherCnp) {
-    const { data } = await supabase.from('szemely').select('id, c_utcaid, c_szam').eq('cnp', motherCnp).limit(1)
+    const { data } = await supabase.from('szemely').select('id, c_utcaid, c_szam').eq('cnp', motherCnp).eq('congregation_id', congId).limit(1)
     if (data?.[0]) noId = data[0].id
   }
 
-  if (!ferfiId && !noId) return
+  if (!ferfiId && !noId) return null
 
   // Meglévő család keresés
   let famQuery = supabase.from('csalad').select('id').eq('isaktiv', true)
@@ -819,8 +833,28 @@ async function checkAndCreateFamily(supabase: any, childId: number, fatherCnp: s
     }
   }
 
-  // Gyerek regisztráció — RÉGI modell (csalad + gyerek)
+  // 2026-08-01 (PR-18): dupla-tagsági őr — ha a gyermek már MÁSIK aktív család
+  // tagja, NEM szúrunk be második gyerek-sort némán, hanem figyelmeztetünk.
+  let alreadyElsewhere = false
+  let warning: string | null = null
   if (famId) {
+    const { data: otherRows } = await supabase
+      .from('gyerek')
+      .select('id_csalad, csalad:csalad!id_csalad(id, isaktiv)')
+      .eq('id_szemely', childId)
+      .neq('id_csalad', famId)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    alreadyElsewhere = ((otherRows || []) as any[]).some((r) => {
+      const cs = Array.isArray(r.csalad) ? r.csalad[0] : r.csalad
+      return !!cs?.isaktiv
+    })
+    if (alreadyElsewhere) {
+      warning = 'A megkeresztelt személy már egy másik család tagjaként szerepel, ezért a szülők alapján NEM rendeltük hozzá automatikusan egy második családhoz. Áthelyezni a személyi karton „Családhoz rendelés" gombjával lehet.'
+    }
+  }
+
+  // Gyerek regisztráció — RÉGI modell (csalad + gyerek)
+  if (famId && !alreadyElsewhere) {
     const { data: check } = await supabase.from('gyerek').select('id').eq('id_szemely', childId).eq('id_csalad', famId).limit(1)
     if (!check?.length) await supabase.from('gyerek').insert([{ id_csalad: famId, id_szemely: childId }])
   }
@@ -829,15 +863,7 @@ async function checkAndCreateFamily(supabase: any, childId: number, fatherCnp: s
   // A vér szerinti szülő-gyerek kapcsolatokat és a háztartás-tagságot is
   // rögzítjük az új táblákba, hogy az új keresztelők után a getParentsForChild
   // azonnal az új modellből olvashasson (ne kelljen a régi-fallback ágra menni).
-  //
-  // A congregation_id-t a gyermek szemely-rekordjából vesszük.
-  const { data: childRow } = await supabase
-    .from('szemely')
-    .select('congregation_id')
-    .eq('id', childId)
-    .single()
-  const congId = childRow?.congregation_id as string | undefined
-  if (!congId) return // védelmi háló — congregation_id nélkül nem írhatunk
+  // A vér szerinti kapcsolat a családtagságtól FÜGGETLENÜL rögzül.
 
   // ── A) szülő-gyerek kapcsolatok rögzítése ────────────────────────────
   // Idempotens: előbb check, csak ha nincs aktív rekord → insert.
@@ -864,7 +890,7 @@ async function checkAndCreateFamily(supabase: any, childId: number, fatherCnp: s
 
   // ── B) Gyerek háztartás-tagság az új modellben ────────────────────────
   // A háztartást a régi csalad.id alapján találjuk meg (`legacy_csalad_id`).
-  if (famId) {
+  if (famId && !alreadyElsewhere) {
     const { data: haztartas } = await supabase
       .from('haztartas')
       .select('id')
@@ -891,6 +917,8 @@ async function checkAndCreateFamily(supabase: any, childId: number, fatherCnp: s
       }
     }
   }
+
+  return warning
 }
 
 // 2026-06-10 (Fázis 3, átvilágítás P1-7a): házasságkötéskor a CSALÁDI rekordról
@@ -918,6 +946,19 @@ async function ensureFamilyForCouple(supabase: any, ferfiId: number, noId: numbe
     .eq('isaktiv', true).eq('id_no', noId).is('id_ferfi', null).limit(1)
   if (wifeSolo?.[0]) {
     await supabase.from('csalad').update({ id_ferfi: ferfiId }).eq('id', wifeSolo[0].id)
+    return
+  }
+
+  // 2026-08-01 (PR-18): dupla-tagsági őr — ha valamelyik fél MÁSIK aktív
+  // családban már felnőtt tag (pl. a korábbi családja nem lett lezárva), NEM
+  // hozunk létre némán második családot. A házassági anyakönyv ettől még
+  // rendben elmentődik; a családot a Családok fülön kell rendezni.
+  const { data: conflicting } = await supabase.from('csalad').select('id')
+    .eq('isaktiv', true)
+    .or(`id_ferfi.eq.${ferfiId},id_no.eq.${noId}`)
+    .limit(1)
+  if (conflicting?.length) {
+    console.warn('[ensureFamilyForCouple] a pár egyik tagja már másik aktív család felnőtt tagja — nem hozunk létre új családot (csalad.id=', conflicting[0].id, ')')
     return
   }
 

@@ -136,6 +136,8 @@ export const familySchema = z.object({
   c_utcaid: z.number().optional(),
   c_szam: z.string().optional().or(z.literal('')),
   id_csoport: z.number().nullable().optional(),
+  /** 2026-08-01 (PR-18): a máshol gyermekként nyilvántartott tagok explicit áthelyezése */
+  allowMoves: z.boolean().optional(),
 }).refine(
   (data) => data.id_ferfi !== null || data.id_no !== null,
   { message: 'Legalább egy felet (férj vagy feleség) meg kell adni', path: ['id_ferfi'] }

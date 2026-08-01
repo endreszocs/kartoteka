@@ -1,14 +1,14 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Sparkles } from 'lucide-react'
+import { Sparkles, TriangleAlert } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { saveFamily, searchFamilyMember } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
-import type { FamilyRow } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
+import type { AssignConflict, FamilyRow } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import { getDistricts, type DistrictRow } from '@/app/(dashboard)/tagnyilvantartas/presbyter-actions'
 import { toast } from 'sonner'
 import { FamilyCardModern, type FamilyCardModernData } from '@kartoteka/ui-app'
@@ -23,6 +23,8 @@ interface SearchResult {
   c_utcaid: number | null
   adrlocality: { name: string } | null
   adrstreet: { name: string } | null
+  /** 2026-08-01 (PR-18): a találat már EGY MÁSIK család tagja — figyelmeztető jelvény */
+  masikCsalad?: { id: number; name: string; role: 'felnott' | 'gyermek' } | null
 }
 
 type EditableFamilyRow = FamilyRow & { c_utcaid?: number | null }
@@ -50,6 +52,9 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
   const [cUtcaName, setCUtcaName] = useState('')
   const [idCsoport, setIdCsoport] = useState<string>('')
   const [districts, setDistricts] = useState<DistrictRow[]>([])
+  // 2026-08-01 (PR-18): a szerver dupla-tagsági figyelmeztetése — explicit
+  // áthelyezési megerősítést kér a mentés előtt.
+  const [pendingConflicts, setPendingConflicts] = useState<{ conflicts: AssignConflict[]; warning: string } | null>(null)
 
   // Keresők
   const [husbandQuery, setHusbandQuery] = useState('')
@@ -104,6 +109,7 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
       setHusbandResults([])
       setWifeResults([])
       setChildResults([])
+      setPendingConflicts(null)
     })
     return () => {
       cancelled = true
@@ -127,6 +133,14 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
   function selectPerson(r: SearchResult, type: 'husband' | 'wife' | 'child') {
     const name = `${r.csaladnev} ${r.k_nev}`
     const age = r.sz_datum ? new Date().getFullYear() - new Date(r.sz_datum).getFullYear() : null
+    // 2026-08-01 (PR-18): azonnali figyelmeztetés dupla tagságnál — a mentéskor
+    // a szerver úgyis megerősítést kér, de a felhasználó már itt lássa.
+    if (r.masikCsalad) {
+      toast.warning(
+        `${name} már a(z) ${r.masikCsalad.name} tagja (${r.masikCsalad.role === 'felnott' ? 'családfő/házastárs' : 'gyermek'}). Mentéskor a rendszer rákérdez az áthelyezésre.`,
+        { duration: 6000 },
+      )
+    }
     if (type === 'husband') {
       setHusband({ id: r.id, name, age }); setHusbandQuery(''); setShowHusband(false)
       // Cím auto-töltés a férj lakcíméből
@@ -148,7 +162,7 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
     setChildren(prev => prev.filter(c => c.id !== id))
   }
 
-  async function handleSubmit() {
+  async function handleSubmit(allowMoves = false) {
     if (!husband && !wife) { toast.error('Legalább egy felet (férj vagy feleség) meg kell adni.'); return }
     setLoading(true)
     try {
@@ -160,12 +174,23 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
         c_utcaid: cUtcaid,
         c_szam: cSzam || undefined,
         id_csoport: idCsoport ? parseInt(idCsoport) : null,
+        allowMoves,
       })
-      if (result.error) toast.error(result.error)
-      else {
+      if (result.error) {
+        toast.error(result.error)
+        setPendingConflicts(null)
+      } else if (result.conflicts && result.conflicts.length > 0) {
+        // 2026-08-01 (PR-18): dupla tagság — a mentés csak explicit
+        // áthelyezéssel mehet tovább.
+        setPendingConflicts({
+          conflicts: result.conflicts,
+          warning: result.warning ?? 'Egy kiválasztott személy már másik család tagja.',
+        })
+      } else {
         toast.success(editFamily ? 'Család frissítve!' : 'Család létrehozva!')
         // 2026-06-10 (Fázis 2): a háztartás-sync hibája nem néma többé
         if (result.warning) toast.warning(result.warning, { duration: 8000 })
+        setPendingConflicts(null)
         onOpenChange(false)
       }
     } catch (error) {
@@ -198,6 +223,12 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
             <span className="block text-xs text-muted-foreground">
               {r.sz_datum ? `${new Date().getFullYear() - new Date(r.sz_datum).getFullYear()} éves` : '?'} · {r.adrlocality?.name || ''} {r.adrstreet?.name || ''} {r.c_szam || ''}
             </span>
+            {r.masikCsalad && (
+              <span className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                <TriangleAlert className="size-3" />
+                már a(z) {r.masikCsalad.name} tagja
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -356,10 +387,42 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
           </aside>
         </div>
 
+        {/* ─── Dupla-tagsági figyelmeztetés (PR-18) ─── */}
+        {pendingConflicts && (
+          <div className="mx-4 mb-2 space-y-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/50 sm:mx-6">
+            <div className="flex items-start gap-2">
+              <TriangleAlert className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400" />
+              <div className="text-sm leading-6 text-amber-900 dark:text-amber-100">
+                <p className="font-semibold">Figyelem: dupla családtagság!</p>
+                <p className="mt-1 text-xs leading-5">{pendingConflicts.warning}</p>
+                <ul className="mt-1.5 space-y-0.5 text-xs">
+                  {pendingConflicts.conflicts.map((c) => (
+                    <li key={`${c.personId}-${c.familyId}`}>
+                      <strong>{c.personName}</strong> — jelenleg: {c.familyName}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2 min-[420px]:flex-row">
+              <Button
+                className="min-h-11 flex-1 rounded-xl bg-amber-600 text-white hover:bg-amber-700"
+                disabled={loading}
+                onClick={() => void handleSubmit(true)}
+              >
+                {loading ? 'Mentés…' : 'Áthelyezés és mentés'}
+              </Button>
+              <Button variant="outline" className="min-h-11 rounded-xl" disabled={loading} onClick={() => setPendingConflicts(null)}>
+                Mégse
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* ─── Alsó akciósor ─── */}
         <div className="sticky bottom-0 z-20 mt-1 flex gap-2 border-t border-border/70 bg-card/95 px-4 py-3 shadow-[0_-14px_30px_-26px_rgba(15,67,61,0.7)] backdrop-blur sm:justify-end sm:px-6">
           <Button variant="outline" className="h-11 flex-1 rounded-xl sm:flex-none sm:px-6" onClick={() => onOpenChange(false)}>Mégse</Button>
-          <Button className="h-11 flex-1 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 sm:flex-none sm:px-8" onClick={handleSubmit} disabled={loading}>
+          <Button className="h-11 flex-1 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 sm:flex-none sm:px-8" onClick={() => void handleSubmit(false)} disabled={loading}>
             {loading ? 'Mentés...' : 'Mentés'}
           </Button>
         </div>

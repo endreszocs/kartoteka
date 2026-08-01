@@ -690,16 +690,19 @@ export async function saveMember(data: MemberInput) {
   }
 
   // Automatikus család létrehozás (ha szülő CNP van)
+  let autoFamilyWarning: string | undefined
   if (savedId && (d.id_apja_cnp || d.id_anyja_cnp)) {
     let ferfiId: number | null = null
     let noId: number | null = null
 
+    // 2026-08-01 (PR-18): a CNP-lookup a SAJÁT gyülekezetre szűr — enélkül
+    // (azonos CNP-vel) más gyülekezet személye is bekerülhetett a családba.
     if (d.id_apja_cnp) {
-      const { data: a } = await supabase.from('szemely').select('id').eq('cnp', d.id_apja_cnp).limit(1)
+      const { data: a } = await supabase.from('szemely').select('id').eq('cnp', d.id_apja_cnp).eq('congregation_id', congregationId).limit(1)
       if (a?.[0]) ferfiId = a[0].id
     }
     if (d.id_anyja_cnp) {
-      const { data: m } = await supabase.from('szemely').select('id').eq('cnp', d.id_anyja_cnp).limit(1)
+      const { data: m } = await supabase.from('szemely').select('id').eq('cnp', d.id_anyja_cnp).eq('congregation_id', congregationId).limit(1)
       if (m?.[0]) noId = m[0].id
     }
 
@@ -719,15 +722,39 @@ export async function saveMember(data: MemberInput) {
         if (newFam?.[0]) famId = newFam[0].id
       }
 
+      // 2026-08-01 (PR-18): dupla-tagsági őr — ha a tag már EGY MÁSIK aktív
+      // család gyermeke, NEM szúrunk be második gyerek-sort némán, hanem
+      // figyelmeztetést adunk vissza (az áthelyezés a családi kartonról vagy
+      // a személyi karton „Családhoz rendelés" funkciójából végezhető el).
+      let alreadyElsewhere = false
       if (famId) {
+        const { data: otherRows } = await supabase
+          .from('gyerek')
+          .select('id_csalad, csalad:csalad!id_csalad(id, isaktiv)')
+          .eq('id_szemely', savedId)
+          .neq('id_csalad', famId)
+        alreadyElsewhere = ((otherRows || []) as Array<{ csalad: { isaktiv: boolean } | Array<{ isaktiv: boolean }> | null }>).some((r) => {
+          const cs = Array.isArray(r.csalad) ? r.csalad[0] : r.csalad
+          return !!cs?.isaktiv
+        })
+        if (alreadyElsewhere) {
+          autoFamilyWarning = 'A tag már egy másik család tagjaként szerepel, ezért a szülők CNP-je alapján NEM rendeltük hozzá automatikusan egy második családhoz. Áthelyezni a személyi karton „Családhoz rendelés" gombjával lehet.'
+        }
+      }
+
+      if (famId && !alreadyElsewhere) {
         const { data: check } = await supabase.from('gyerek').select('id').eq('id_szemely', savedId).eq('id_csalad', famId).limit(1)
         if (!check?.length) {
           await supabase.from('gyerek').insert([{ id_csalad: famId, id_szemely: savedId }])
         }
+      }
 
+      {
         // 2026-06-01 (hibrid család-modell Fázis 2): dual-write az új modellbe
         // — vér szerinti szülő-gyerek kapcsolatok + háztartás-tagság (mint a
-        // baptism-action checkAndCreateFamily helper-je).
+        // baptism-action checkAndCreateFamily helper-je). 2026-08-01 (PR-18):
+        // a vér szerinti kapcsolat a családtagságtól FÜGGETLENÜL rögzül — a
+        // háztartás-tagságot viszont a dupla-őr visszafogja.
         try {
           // szülő-gyerek kapcsolatok (idempotens — partial unique index)
           if (ferfiId) {
@@ -764,30 +791,33 @@ export async function saveMember(data: MemberInput) {
               }])
             }
           }
-          // háztartás-tagság (haztartas legacy_csalad_id = famId alapján)
-          const { data: haztartas } = await supabase
-            .from('haztartas')
-            .select('id')
-            .eq('legacy_csalad_id', famId)
-            .is('ervenyes_ig', null)
-            .limit(1)
-            .maybeSingle()
-          const haztartasId = (haztartas as { id: string } | null)?.id
-          if (haztartasId) {
-            const { data: existingTag } = await supabase
-              .from('haztartas_tag')
+          // háztartás-tagság (haztartas legacy_csalad_id = famId alapján) —
+          // csak ha a dupla-őr nem jelzett másik családot
+          if (famId && !alreadyElsewhere) {
+            const { data: haztartas } = await supabase
+              .from('haztartas')
               .select('id')
-              .eq('id_haztartas', haztartasId)
-              .eq('id_szemely', savedId)
+              .eq('legacy_csalad_id', famId)
               .is('ervenyes_ig', null)
               .limit(1)
-            if (!existingTag?.length) {
-              await supabase.from('haztartas_tag').insert([{
-                id_haztartas: haztartasId, id_szemely: savedId,
-                szerep: 'gyermek', is_primary: false,
-                ervenyes_tol: new Date().toISOString().slice(0, 10),
-                congregation_id: congregationId,
-              }])
+              .maybeSingle()
+            const haztartasId = (haztartas as { id: string } | null)?.id
+            if (haztartasId) {
+              const { data: existingTag } = await supabase
+                .from('haztartas_tag')
+                .select('id')
+                .eq('id_haztartas', haztartasId)
+                .eq('id_szemely', savedId)
+                .is('ervenyes_ig', null)
+                .limit(1)
+              if (!existingTag?.length) {
+                await supabase.from('haztartas_tag').insert([{
+                  id_haztartas: haztartasId, id_szemely: savedId,
+                  szerep: 'gyermek', is_primary: false,
+                  ervenyes_tol: new Date().toISOString().slice(0, 10),
+                  congregation_id: congregationId,
+                }])
+              }
             }
           }
         } catch (e) {
@@ -855,7 +885,7 @@ export async function saveMember(data: MemberInput) {
   }, supabase)
 
   revalidatePath('/tagnyilvantartas')
-  return { success: true, id: savedId }
+  return { success: true, id: savedId, warning: autoFamilyWarning }
 }
 
 // ── Tag kivezetés ────────────────────────────────────────────

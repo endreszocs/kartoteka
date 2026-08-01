@@ -23,6 +23,73 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-01] — Családhoz rendelés a személyi kartonról + dupla-tagsági figyelmeztetés + családi karton javítások
+<!-- key: 2026-08-01-tagnyilv-pr18-csalad-hozzarendeles -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.131 -->
+
+### ✨ Családhoz rendelés — végre a személyi kartonról is
+
+- **Új „Családhoz rendelés" gomb a személyi kartonon**: eddig a „Nincs családhoz
+  rendelve" felirat zsákutca volt — mostantól egy gombnyomással kereshetsz
+  meglévő családot (a családfő nevére), és a tagot **felnőttként vagy
+  gyermekként** hozzárendelheted. A felnőtt-szerepet a tag neme dönti el; ha a
+  családban már van férj/feleség, a rendszer automatikusan a gyermek-szerepet
+  ajánlja fel.
+- **Új család is nyitható a kartonról**: ha nincs még család, egy gombbal
+  létrehozható a taggal mint felnőtt féllel (a lakcíméből kiindulva).
+- **„Áthelyezés" gomb**: családhoz rendelt tagnál is elérhető — másik családba
+  mozgatás ugyanazzal a biztonságos folyamattal.
+
+### 🛡️ Figyelmeztetés a dupla családtagságra (minden úton)
+
+- **Egy személy egyszerre csak EGY család tagja lehet** — eddig ezt semmi nem
+  ellenőrizte, és a gyermek-kereső akár egy másik család gyermekét is szó
+  nélkül felvette (dupla tagság jött létre, ami a járulék-nyilvántartást is
+  megzavarhatta). Mostantól:
+  - a család-szerkesztő keresője **sárga jelvénnyel jelzi**, ha a találat már
+    egy másik család tagja, és kiválasztáskor azonnal figyelmeztet;
+  - **mentéskor a szerver is ellenőriz**: ha a kiválasztott személy máshol
+    gyermekként szerepel, a mentés csak az „Áthelyezés és mentés" gomb
+    megerősítésével megy tovább (a korábbi tagság ilyenkor szabályosan lezárul);
+  - máshol **felnőttként** (családfő/házastárs) nyilvántartott személy nem
+    rendelhető máshová — előbb a másik család kartonján kell rendezni;
+  - a máshol házas felnőtt **gyermekként sem** vehető fel sehová;
+  - a **tagmentés és a keresztelés CNP-alapú automatikus családba sorolása** sem
+    hoz létre többé második tagságot — ilyenkor figyelmeztető üzenet jelenik
+    meg, és a hozzárendelés a személyi kartonról végezhető el tudatosan;
+  - a **házassági anyakönyv** sem hoz létre némán második családot, ha
+    valamelyik fél régi családja még aktív.
+
+### 🐛 Családi karton és család-működés javítások
+
+- **Az „unoka" szerep beragadt a háztartásban**: unoka eltávolításakor a
+  háztartás-tagsága nem záródott le (örökre a kartonon maradt), megtartásakor
+  pedig duplán jelent meg (gyermek + unoka sorként). Javítva; a már duplázódott
+  megjelenítést a karton mostantól kiszűri.
+- **Címmódosítás után a Családok lista a régi címet mutatta**: a szerkesztett
+  cím eddig nem jutott el az új cím-nyilvántartásba, és a lista azt részesítette
+  előnyben. Javítva — a cím mindkét helyen frissül.
+- **A háztartás-szinkron hibái némák voltak**: adatbázis-hiba esetén eddig
+  sikeres mentésnek látszott, miközben a háztartás-nézet szétcsúszott. Mostantól
+  figyelmeztetés jelenik meg.
+- **Kisebb javítások**: a gyermekek életkora a családi kartonon mostantól
+  pontos (születésnap előtt nem mutat egy évvel többet); duplikált házassági
+  anyakönyvi sor esetén az esketés nem tűnik el a kartonról; a család-szerkesztő
+  bezárása utáni frissítés hibája nem ürítheti ki a kartont; a szülő-CNP alapú
+  családkeresés mostantól csak a saját gyülekezetben keres.
+
+### 🔎 Rendszergazdai teendő
+
+- Futtasd le a `migration-docs/sql/2026-08-01-pr18-dupla-csaladtagsag-diagnosztika.sql`
+  szkriptet: az 1–5. lekérdezés megmutatja a korábban létrejött dupla
+  tagságokat, a 6. blokk a veszélytelen (azonos családon belüli) duplákat
+  törli. A több-családos eseteket a személyi karton „Áthelyezés" gombjával
+  rendezd.
+
+---
+
 ## [2026-07-25] — Élő személyi karton-előnézet az űrlapban + nyomtatható karton hátoldalakkal + ág-igazított családfa
 <!-- key: 2026-07-25-tagnyilv-pr17-szemelyi-karton -->
 <!-- category: feature -->

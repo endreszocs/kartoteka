@@ -220,6 +220,9 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
       toast.error(result.error)
     } else {
       toast.success(editMember ? 'Tag adatai frissítve!' : 'Új tag sikeresen rögzítve!')
+      // 2026-08-01 (PR-18): dupla-tagsági figyelmeztetés a CNP-alapú auto-család
+      // őrtől — a mentés sikeres, de a második családhoz rendelés nem történt meg.
+      if ('warning' in result && result.warning) toast.warning(result.warning, { duration: 9000 })
       onOpenChange(false)
     }
     setLoading(false)
