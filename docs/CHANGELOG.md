@@ -23,6 +23,38 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-25] — Élő személyi karton-előnézet az űrlapban + nyomtatható karton hátoldalakkal + ág-igazított családfa
+<!-- key: 2026-07-25-tagnyilv-pr17-szemelyi-karton -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.130 -->
+
+### ✨ Új tag felvétele — élő karton-előnézettel
+
+- **Gépelés közben töltődik ki egy szép, nyomtatható SZEMÉLYI KARTON** — széles
+  képernyőn az űrlap mellett állandó oszlopban, kisebb kijelzőn a
+  „Karton-előnézet" gombbal. A kitöltetlen mezők pontozott vonalként
+  látszanak (üresen nyomtatva kézi kitöltésre is alkalmas).
+- Az előnézet mellől azonnal **nyomtatható** (a Cél listából „Mentés
+  PDF-ként" is választható).
+
+### ✨ Nyomtatható személyi karton a kartonról — választható hátoldalakkal
+
+- A személyi kartonon új **„Karton" gomb**: A4-es nyomtatvány élő
+  előnézettel, és ha kéred, **hátoldalként** a tag **befizetései** és/vagy a
+  **családfája nemzedékenként** (rokonsági címkékkel: nagyszülők, dédszülők,
+  unokatestvérek…), ágaztatott, jól olvasható listában.
+
+### 🎨 Családfa — ág-igazítás (nem keresztezik egymást a szálak)
+
+- A családfa-nézetben minden nemzedék-sor a **felette lévő szülők alá
+  rendeződik** (barycenter-igazítás) — a szülő-gyerek vonalak eddig a teljes
+  vásznon átívelve keresztezték egymást, mostantól az ágak tisztán,
+  érthetően követhetők a szépszülőktől az unokatestvéreken át a
+  dédunokákig.
+
+---
+
 ## [2026-07-25] — Megújult fejléc: külön profilváltó és széles, képes fiók-menü
 <!-- key: 2026-07-25-fejlec-ketto-legordulo -->
 <!-- category: improvement -->

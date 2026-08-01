@@ -699,15 +699,59 @@ function buildLayout(
     if (!spousePartner.has(e.to)) spousePartner.set(e.to, e.from)
   }
 
+  // 2026-07-25 (PR-18): ág-igazítás (barycenter) — a gyerek a MÁR ELHELYEZETT
+  // szülei átlagos x-e alá kerül (házastársnál a párja/annak szülei horgonyoznak).
+  // A korábbi nem-szerinti+névsoros rendezésnél a szülő-gyerek élek a teljes
+  // vásznon átívelve keresztezték egymást — így az ágak tisztán követhetők.
+  const parentsOf = new Map<number, number[]>()
+  for (const e of data.edges) {
+    if (e.type !== 'parent-child') continue
+    if (!parentsOf.has(e.to)) parentsOf.set(e.to, [])
+    parentsOf.get(e.to)!.push(e.from)
+  }
+
+  const positionsRef = () => positions // a lenti bary a felső sorok kész x-eit olvassa
+
   gens.forEach((gen, gIdx) => {
     const items = byGen.get(gen)!
-    items.sort((a, b) => {
+    const baseCompare = (a: FamilyTreeMember, b: FamilyTreeMember) => {
       if (a.ferfi && !b.ferfi) return -1
       if (!a.ferfi && b.ferfi) return 1
       const an = `${a.csaladnev || ''} ${a.k_nev || ''}`
       const bn = `${b.csaladnev || ''} ${b.k_nev || ''}`
       return an.localeCompare(bn, 'hu')
-    })
+    }
+    const bary = (m: FamilyTreeMember): number | null => {
+      const pos = positionsRef()
+      const xs = (parentsOf.get(m.id) ?? [])
+        .map((p) => pos.get(p)?.x)
+        .filter((x): x is number => x != null)
+      if (xs.length > 0) return xs.reduce((s, x) => s + x, 0) / xs.length
+      const partnerId = spousePartner.get(m.id)
+      if (partnerId != null) {
+        const px = pos.get(partnerId)?.x
+        if (px != null) return px
+        const pxs = (parentsOf.get(partnerId) ?? [])
+          .map((p) => pos.get(p)?.x)
+          .filter((x): x is number => x != null)
+        if (pxs.length > 0) return pxs.reduce((s, x) => s + x, 0) / pxs.length
+      }
+      return null
+    }
+    if (gIdx === 0) {
+      items.sort(baseCompare)
+    } else {
+      const anchor = new Map<number, number | null>()
+      for (const m of items) anchor.set(m.id, bary(m))
+      items.sort((a, b) => {
+        const ba = anchor.get(a.id) ?? null
+        const bb = anchor.get(b.id) ?? null
+        if (ba != null && bb != null && ba !== bb) return ba - bb
+        if (ba != null && bb == null) return -1
+        if (ba == null && bb != null) return 1
+        return baseCompare(a, b)
+      })
+    }
 
     // Pár-csoportosítás: a rendezett sorrendben haladva a személy után rögtön
     // a (még el nem helyezett) házastársa következik.

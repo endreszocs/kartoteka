@@ -43,6 +43,7 @@ import { cn } from '@/lib/utils'
 import type { EnrichedMember } from '@/lib/constants/members'
 import { toast } from 'sonner'
 import { MemberStatusBadge } from '@/components/members/member-status-badge'
+import { PersonCardPrintDialog } from '@/components/modals/person-card-print-dialog'
 
 // 2026-07-24 (W2): az „Igazolás kiállítása" gomb az F6-os iktató-oldali
 // kiállító-motort nyitja (a régi, iktatás nélküli MemberCertificateDialog
@@ -198,6 +199,8 @@ export function MemberDetailsDialogV2({
   // CertificateIssueDialogComponent kommentjét a fájl tetején.
   const [certOpen, setCertOpen] = useState(false)
   const [CertDialog, setCertDialog] = useState<CertificateIssueDialogComponent | null>(null)
+  // 2026-07-25 (PR-17): nyomtatható személyi karton (opcionális hátoldalakkal)
+  const [cardPrintOpen, setCardPrintOpen] = useState(false)
   const [certChunkLoading, setCertChunkLoading] = useState(false)
   // 2026-07-24 (PR-11 review): melyik tag adatai vannak betöltve — a
   // reloadToken-es CSENDES frissítés (pl. anyakönyv-mentés után) NEM dobja
@@ -952,6 +955,18 @@ export function MemberDetailsDialogV2({
             </div>
 
             <div className="ml-auto flex min-w-max gap-2">
+              {/* 2026-07-25 (PR-17): nyomtatható személyi karton (opcionális
+                  befizetés-/családfa-hátoldallal) */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="min-h-11 rounded-xl bg-background/80 text-primary hover:bg-primary/5"
+                title="Személyi karton nyomtatása"
+                onClick={() => setCardPrintOpen(true)}
+              >
+                <Printer className="mr-1.5 size-3.5" />
+                Karton
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -983,6 +998,7 @@ export function MemberDetailsDialogV2({
             initialPersonIds={[member.id]}
           />
         )}
+        <PersonCardPrintDialog open={cardPrintOpen} onOpenChange={setCardPrintOpen} member={member} details={details} />
       </>
     )
   }
@@ -1007,6 +1023,7 @@ export function MemberDetailsDialogV2({
           initialPersonIds={[member.id]}
         />
       )}
+      <PersonCardPrintDialog open={cardPrintOpen} onOpenChange={setCardPrintOpen} member={member} details={details} />
     </Sheet>
   )
 }

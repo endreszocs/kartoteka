@@ -9,6 +9,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { memberSchema, type MemberFormValues, type MemberInput } from '@/lib/validations/members'
 import { saveMember, searchParent } from '@/app/(dashboard)/tagnyilvantartas/actions'
+import { getVoterPrintContext } from '@/app/(dashboard)/tagnyilvantartas/voter-actions'
+import { buildPersonCardHtml, type PersonCardPrintData } from '@/lib/members/person-card-print'
+import { printToBrowser } from '@/lib/utils/print-engine-v2'
 import { AvatarEditorDialog } from '@/components/modals/avatar-editor-dialog'
 import { CrossCongregationMatchDialog, type CrossMatchAction } from '@/components/members/cross-congregation-match-dialog'
 import {
@@ -28,7 +31,9 @@ import {
   ChevronLeft,
   ChevronRight,
   CreditCard,
+  Eye,
   MapPin,
+  Printer,
   ShieldCheck,
   User,
   X,
@@ -100,6 +105,41 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
   const apjaCnpWatch = useWatch({ control, name: 'id_apja_cnp' })
   const anyjaCnpWatch = useWatch({ control, name: 'id_anyja_cnp' })
 
+  // ── 2026-07-25 (PR-17): ÉLŐ személyi karton-előnézet ────────────────────
+  // Gépelés közben a jobb oldali (2xl+) oszlopban / kisebb kijelzőn a
+  // „Karton-előnézet" gombbal nyíló rétegen töltődik ki a nyomtatható karton.
+  const allValues = useWatch({ control })
+  const [congName, setCongName] = useState('Gyülekezet')
+  const [previewHtml, setPreviewHtml] = useState('')
+  const [previewOverlayOpen, setPreviewOverlayOpen] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    void getVoterPrintContext()
+      .then((ctx) => { if (!cancelled) setCongName(ctx.congregationName) })
+      .catch(() => { /* fallback marad */ })
+    return () => { cancelled = true }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const t = setTimeout(() => {
+      const res = buildPersonCardHtml(
+        formValuesToCardData(allValues as Partial<MemberFormValues>, congName, editMember),
+      )
+      setPreviewHtml(res.html)
+    }, 350)
+    return () => clearTimeout(t)
+  }, [open, allValues, congName, editMember])
+
+  function handlePreviewPrint() {
+    const res = buildPersonCardHtml(
+      formValuesToCardData(allValues as Partial<MemberFormValues>, congName, editMember),
+    )
+    void printToBrowser(res.html)
+  }
+
   useEffect(() => {
     if (!open) {
       // A tag-űrlap bezárásakor a beágyazott dialógusokat is zárjuk — különben a
@@ -108,6 +148,7 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
       queueMicrotask(() => {
         setAvatarDialogOpen(false)
         setCrossMatch(null)
+        setPreviewOverlayOpen(false)
       })
       return
     }
@@ -273,7 +314,7 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
   return (
     <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="top-0 left-0 grid h-[100dvh] max-h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-none p-0 sm:top-1/2 sm:left-1/2 sm:h-[min(90dvh,56rem)] sm:max-h-[min(90dvh,56rem)] sm:w-[calc(100%-2rem)] sm:max-w-4xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[1.75rem] [&_[data-slot=dialog-close]]:top-3 [&_[data-slot=dialog-close]]:right-3 [&_[data-slot=dialog-close]]:size-11">
+      <DialogContent className="top-0 left-0 grid h-[100dvh] max-h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-none p-0 sm:top-1/2 sm:left-1/2 sm:h-[min(90dvh,56rem)] sm:max-h-[min(90dvh,56rem)] sm:w-[calc(100%-2rem)] sm:max-w-4xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[1.75rem] 2xl:max-w-[min(1420px,calc(100vw-2rem))] [&_[data-slot=dialog-close]]:top-3 [&_[data-slot=dialog-close]]:right-3 [&_[data-slot=dialog-close]]:size-11">
         <div className="border-b border-border bg-background/95 px-4 pt-[max(1rem,env(safe-area-inset-top))] pr-16 pb-4 sm:px-6 sm:pt-6 sm:pr-20">
           <DialogHeader>
             <div className="flex items-center gap-3">
@@ -290,6 +331,7 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
           </DialogHeader>
         </div>
 
+        <div className="relative grid min-h-0 grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_480px]">
         <div className="flex min-h-0 flex-col">
 
         {/* Pre-screen: belépés oka */}
@@ -329,6 +371,19 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
 
             {/* Görgethető tartalom — a gombok (footer) MINDIG az ablak alján maradnak */}
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 pt-4 pb-3 sm:px-6 sm:pt-5">
+
+            {/* 2026-07-25 (PR-17): kisebb kijelzőn az élő karton-előnézet gombbal nyílik */}
+            <div className="flex justify-end 2xl:hidden">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="min-h-9 rounded-lg"
+                onClick={() => setPreviewOverlayOpen(true)}
+              >
+                <Eye className="mr-1.5 size-3.5" /> Karton-előnézet
+              </Button>
+            </div>
 
             {/* Wizard-stepper indicator (kötelező lépés-sor) */}
             <div className="mb-1 flex items-center justify-between gap-2 sm:gap-4" aria-label="Rögzítési lépések">
@@ -761,6 +816,55 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
           </form>
         )}
         </div>
+
+        {/* ── 2026-07-25 (PR-17): élő karton-előnézet — 2xl+ állandó oszlop ── */}
+        <aside className="hidden min-h-0 flex-col border-l border-border bg-muted/40 2xl:flex">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Személyi karton — élő előnézet
+            </p>
+            <Button type="button" variant="outline" size="sm" className="min-h-9 rounded-lg" onClick={handlePreviewPrint}>
+              <Printer className="mr-1.5 size-3.5" /> Nyomtatás
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto p-3">
+            <CardPreviewFrame html={previewHtml} scale={0.55} />
+            <p className="mt-2 text-center text-[11px] leading-4 text-muted-foreground">
+              A karton gépelés közben töltődik ki. Nyomtatásnál a Cél listából a
+              &bdquo;Mentés PDF-ként&rdquo; is választható.
+            </p>
+          </div>
+        </aside>
+
+        {/* Kisebb kijelzőn: előnézet-réteg */}
+        {previewOverlayOpen && (
+          <div className="absolute inset-0 z-20 flex flex-col bg-background 2xl:hidden">
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Személyi karton — élő előnézet
+              </p>
+              <div className="flex items-center gap-1.5">
+                <Button type="button" variant="outline" size="sm" className="min-h-9 rounded-lg" onClick={handlePreviewPrint}>
+                  <Printer className="mr-1.5 size-3.5" /> Nyomtatás
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="size-9 rounded-lg p-0"
+                  onClick={() => setPreviewOverlayOpen(false)}
+                  aria-label="Előnézet bezárása"
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto p-3">
+              <CardPreviewFrame html={previewHtml} scale={0.42} />
+            </div>
+          </div>
+        )}
+        </div>
       </DialogContent>
     </Dialog>
     {editMember && (
@@ -793,6 +897,71 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
     )}
     </>
   )
+}
+
+// 2026-07-25 (PR-17): skálázott A4-előnézet keret — az iframe valós
+// lapméretben renderel, a keret kicsinyíti (nem interaktív, csak nézet).
+function CardPreviewFrame({ html, scale }: { html: string; scale: number }) {
+  const W = 830
+  const H = 1180
+  return (
+    <div
+      className="mx-auto overflow-hidden rounded-xl border border-border bg-white shadow-sm"
+      style={{ width: W * scale, height: H * scale }}
+    >
+      <iframe
+        title="Személyi karton előnézet"
+        srcDoc={html}
+        style={{
+          width: W,
+          height: H,
+          transform: `scale(${scale})`,
+          transformOrigin: 'top left',
+          border: 0,
+          pointerEvents: 'none',
+          background: 'white',
+        }}
+      />
+    </div>
+  )
+}
+
+// 2026-07-25 (PR-17): az űrlap-értékek → nyomtatható karton-adat leképezése.
+function formValuesToCardData(
+  v: Partial<MemberFormValues>,
+  congregationName: string,
+  editMember: EnrichedMember | null,
+): PersonCardPrintData {
+  const trim = (x: unknown) => (typeof x === 'string' ? x.trim() : '')
+  const address = [trim(v.c_helyseg_text), trim(v.c_utca_text), trim(v.c_szam)].filter(Boolean).join(', ')
+  return {
+    congregationName,
+    personName: [trim(v.csaladnev), trim(v.k_nev)].filter(Boolean).join(' '),
+    szcsNev: trim(v.szcs_nev) || null,
+    gender: v.ferfi === true ? 'ferfi' : v.ferfi === false ? 'no' : null,
+    birthDate: trim(v.sz_datum) || null,
+    birthPlace: trim(v.sz_hely_text) || null,
+    religion: trim(v.vallas) || null,
+    occupation: trim(v.foglalkozas) || null,
+    fatherName: trim(v.apjaneve) || null,
+    motherName: trim(v.anyjaneve) || null,
+    address: address || null,
+    phone: trim(v.telefon) || null,
+    email: trim(v.email) || null,
+    cnp: editMember?.cnp ?? null,
+    photoUrl: editMember?.photo_url ?? null,
+    baptism: {
+      date: trim(v.kereszteles_datum) || null,
+      place: trim(v.kereszteles_hely) || null,
+      pastor: trim(v.kereszteles_lelkesz) || null,
+    },
+    confirmation: {
+      date: trim(v.konfirmacio_datum) || null,
+      place: trim(v.konfirmacio_hely) || null,
+      pastor: trim(v.konfirmacio_lelkesz) || null,
+    },
+    note: trim(v.megjegyzes) || null,
+  }
 }
 
 // Szülő keresés eredmény típus
