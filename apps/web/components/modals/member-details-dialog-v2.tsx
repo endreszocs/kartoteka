@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Sparkles,
   User,
+  UserPlus,
   Users,
   X,
 } from 'lucide-react'
@@ -44,6 +45,7 @@ import type { EnrichedMember } from '@/lib/constants/members'
 import { toast } from 'sonner'
 import { MemberStatusBadge } from '@/components/members/member-status-badge'
 import { PersonCardPrintDialog } from '@/components/modals/person-card-print-dialog'
+import { FamilyAssignDialog } from '@/components/modals/family-assign-dialog'
 
 // 2026-07-24 (W2): az „Igazolás kiállítása" gomb az F6-os iktató-oldali
 // kiállító-motort nyitja (a régi, iktatás nélküli MemberCertificateDialog
@@ -202,13 +204,22 @@ export function MemberDetailsDialogV2({
   // 2026-07-25 (PR-17): nyomtatható személyi karton (opcionális hátoldalakkal)
   const [cardPrintOpen, setCardPrintOpen] = useState(false)
   const [certChunkLoading, setCertChunkLoading] = useState(false)
+  // 2026-08-01 (PR-18): családhoz rendelés a kartonról. A sikeres hozzárendelés
+  // után a friss család-id felülírja a (lista-sorból jövő, már elavult)
+  // familyId propot, amíg a lista újratölt.
+  const [assignOpen, setAssignOpen] = useState(false)
+  const [assignedFamilyId, setAssignedFamilyId] = useState<number | null>(null)
+  const effectiveFamilyId = assignedFamilyId ?? familyId ?? null
   // 2026-07-24 (PR-11 review): melyik tag adatai vannak betöltve — a
   // reloadToken-es CSENDES frissítés (pl. anyakönyv-mentés után) NEM dobja
   // vissza a felhasználót az Összefoglaló fülre és nem villant skeletont.
   const lastLoadedMemberIdRef = useRef<number | null>(null)
 
   useEffect(() => {
-    if (!open) lastLoadedMemberIdRef.current = null
+    if (!open) {
+      lastLoadedMemberIdRef.current = null
+      setAssignedFamilyId(null)
+    }
   }, [open])
 
   useEffect(() => {
@@ -223,16 +234,20 @@ export function MemberDetailsDialogV2({
       if (isNewIdentity) {
         setDetails(null)
         setFamilySummary(null)
+        setAssignedFamilyId(null)
         setLoading(true)
         setTab('personal')
       }
       setLoadError(false)
 
-      const familySummaryRequest = familyId
-        ? getMemberFamilySummary(familyId).catch(() => null)
+      // 2026-08-01 (PR-18): a friss hozzárendelés (assignedFamilyId) felülírja
+      // a lista-sorból örökölt familyId-t.
+      const loadFamilyId = isNewIdentity ? (familyId ?? null) : effectiveFamilyId
+      const familySummaryRequest = loadFamilyId
+        ? getMemberFamilySummary(loadFamilyId).catch(() => null)
         : Promise.resolve(null)
 
-      Promise.all([getMemberDetails(member.id, familyId), familySummaryRequest])
+      Promise.all([getMemberDetails(member.id, loadFamilyId), familySummaryRequest])
         .then(([data, nextFamilySummary]) => {
           if (cancelled) return
           setDetails(data)
@@ -249,7 +264,7 @@ export function MemberDetailsDialogV2({
     return () => {
       cancelled = true
     }
-  }, [open, member, familyId, reloadToken])
+  }, [open, member, familyId, effectiveFamilyId, reloadToken])
 
   useEffect(() => {
     if (!member) return
@@ -298,6 +313,14 @@ export function MemberDetailsDialogV2({
   const arrearsTotal = (details?.arrearsBreakdown || []).reduce((sum, row) => sum + row.debt, 0)
   const directionsUrl = buildDirectionsUrl(member)
   const currentIsFamilyAdult = familySummary?.adults.some((person) => person.id === member.id) ?? false
+
+  // 2026-08-01 (PR-18): sikeres családhoz rendelés — a karton csendben újratölt
+  // az új családdal, és a mögöttes lista is frissül.
+  function handleAssigned(newFamilyId: number) {
+    setAssignedFamilyId(newFamilyId > 0 ? newFamilyId : null)
+    setReloadToken((t) => t + 1)
+    onDataChanged?.()
+  }
 
   function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, currentTab: Tab) {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
@@ -540,12 +563,12 @@ export function MemberDetailsDialogV2({
                               <p className="truncate font-heading text-base font-semibold text-foreground">{familySummary.displayName}</p>
                               <p className="mt-0.5 text-xs text-muted-foreground">{familySummary.memberCount} fő · közös háztartás</p>
                             </div>
-                            {familyId && onOpenFamily && (
+                            {effectiveFamilyId && onOpenFamily && (
                               <Button
                                 type="button"
                                 variant="ghost"
                                 className="size-11 shrink-0 rounded-xl p-0 text-primary"
-                                onClick={() => onOpenFamily(familyId)}
+                                onClick={() => onOpenFamily(effectiveFamilyId)}
                                 aria-label={`${familySummary.displayName} családi kartonjának megnyitása`}
                               >
                                 <ChevronRight className="size-5" />
@@ -599,14 +622,25 @@ export function MemberDetailsDialogV2({
                             )}
                           </div>
                         </div>
-                      ) : familyId ? (
+                      ) : effectiveFamilyId ? (
                         <p className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground">
                           A család részletes kapcsolatai most nem elérhetők.
                         </p>
                       ) : (
-                        <p className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground">
-                          Nincs családhoz rendelve.
-                        </p>
+                        <div className="rounded-xl border border-dashed border-border px-3 py-3">
+                          {/* 2026-08-01 (PR-18): a „Nincs családhoz rendelve" eddig
+                              zsákutca volt — most innen indul a hozzárendelés. */}
+                          <p className="text-xs text-muted-foreground">Nincs családhoz rendelve.</p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="mt-2 min-h-11 w-full justify-center rounded-xl border-primary/30 bg-primary/5 text-primary hover:bg-primary/10"
+                            onClick={() => setAssignOpen(true)}
+                          >
+                            <UserPlus className="size-4" />
+                            Családhoz rendelés
+                          </Button>
+                        </div>
                       )}
 
                       <div className="mt-3 grid gap-x-6 border-t border-border/45 pt-1 sm:grid-cols-2">
@@ -614,21 +648,50 @@ export function MemberDetailsDialogV2({
                         <SummaryDefinitionRow label="Édesanya" value={member.anyjaneve || 'Nincs rögzítve'} />
                       </div>
                       <div className="mt-3 flex flex-col gap-2 border-t border-border/45 pt-3 min-[420px]:flex-row">
-                        {familyId && onOpenFamily ? (
+                        {effectiveFamilyId && onOpenFamily ? (
                           <Button
                             type="button"
                             variant="outline"
                             className="min-h-11 flex-1 justify-start rounded-xl bg-background/80"
-                            onClick={() => onOpenFamily(familyId)}
+                            onClick={() => onOpenFamily(effectiveFamilyId)}
                           >
                             <Users className="size-4" />
-                            Családi karton · #{familyId}
+                            Családi karton · #{effectiveFamilyId}
                           </Button>
                         ) : (
-                          <p className="flex min-h-11 flex-1 items-center rounded-xl border border-dashed border-border px-3 text-xs text-muted-foreground">
-                            Nincs családhoz rendelve
-                          </p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="min-h-11 flex-1 justify-start rounded-xl border-primary/30 bg-primary/5 text-primary hover:bg-primary/10"
+                            onClick={() => setAssignOpen(true)}
+                          >
+                            <UserPlus className="size-4" />
+                            Családhoz rendelés
+                          </Button>
                         )}
+                        {effectiveFamilyId ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="min-h-11 rounded-xl bg-background/80"
+                            title="Áthelyezés másik családba"
+                            onClick={() => {
+                              // 2026-08-01 (PR-18 review): a családfő/házastárs
+                              // áthelyezését a szerver úgyis tiltja (előbb a
+                              // családi kartonon kell kivenni a felnőtt tagok
+                              // közül) — zsákutca helyett odairányítjuk.
+                              if (currentIsFamilyAdult) {
+                                toast.info('Családfő/házastárs áthelyezéséhez előbb a jelenlegi család kartonján módosítsd a felnőtt tagokat — a gyermekek áthelyezése innen működik.')
+                                if (onOpenFamily && effectiveFamilyId) onOpenFamily(effectiveFamilyId)
+                                return
+                              }
+                              setAssignOpen(true)
+                            }}
+                          >
+                            <ArrowLeftRight className="size-4" />
+                            Áthelyezés
+                          </Button>
+                        ) : null}
                         {onShowFamilyTree && (
                           <Button
                             type="button"
@@ -930,17 +993,27 @@ export function MemberDetailsDialogV2({
 
           <footer className="sticky bottom-0 z-10 flex shrink-0 items-center gap-2 overflow-x-auto border-t border-border/60 bg-card/95 px-3 py-2.5 [padding-bottom:max(0.625rem,env(safe-area-inset-bottom))] backdrop-blur-sm sm:px-6 [@media(max-height:600px)]:px-2 [@media(max-height:600px)]:py-1 [@media(max-height:600px)]:[padding-bottom:max(0.25rem,env(safe-area-inset-bottom))]">
             <div className="flex min-w-max flex-1 gap-2">
-              {familyId && onOpenFamily && (
+              {effectiveFamilyId && onOpenFamily ? (
                 <Button
                   variant="outline"
                   size="sm"
                   className="min-h-11 rounded-xl bg-background/80"
-                  onClick={() => onOpenFamily(familyId)}
+                  onClick={() => onOpenFamily(effectiveFamilyId)}
                 >
                   <Users className="size-4" />
                   Családi karton
                 </Button>
-              )}
+              ) : !effectiveFamilyId ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="min-h-11 rounded-xl border-primary/30 bg-primary/5 text-primary hover:bg-primary/10"
+                  onClick={() => setAssignOpen(true)}
+                >
+                  <UserPlus className="size-4" />
+                  Családhoz rendelés
+                </Button>
+              ) : null}
               {onShowFamilyTree && (
                 <Button
                   variant="outline"
@@ -999,6 +1072,13 @@ export function MemberDetailsDialogV2({
           />
         )}
         <PersonCardPrintDialog open={cardPrintOpen} onOpenChange={setCardPrintOpen} member={member} details={details} />
+        <FamilyAssignDialog
+          open={assignOpen}
+          onOpenChange={setAssignOpen}
+          member={member}
+          currentFamilyId={effectiveFamilyId}
+          onAssigned={handleAssigned}
+        />
       </>
     )
   }
@@ -1024,6 +1104,13 @@ export function MemberDetailsDialogV2({
         />
       )}
       <PersonCardPrintDialog open={cardPrintOpen} onOpenChange={setCardPrintOpen} member={member} details={details} />
+      <FamilyAssignDialog
+        open={assignOpen}
+        onOpenChange={setAssignOpen}
+        member={member}
+        currentFamilyId={effectiveFamilyId}
+        onAssigned={handleAssigned}
+      />
     </Sheet>
   )
 }

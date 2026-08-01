@@ -1,6 +1,5 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { familySchema, type FamilyInput } from '@/lib/validations/members'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
@@ -9,6 +8,17 @@ import { getVisibleDistrictState, sanitizeDistrictReference } from '@/lib/member
 import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallback'
 import { logAuditEvent } from '@/lib/audit/log'
 import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
+import {
+  findMembershipConflicts,
+  foreignMembershipWarning,
+  getAllowedFamilyIds,
+  loadFamilyDisplayNames,
+  loadFamilyMemberships,
+  moveChildMemberships,
+  syncHouseholdFromCsalad,
+  type AssignConflict,
+  type FamilyMembershipInfo,
+} from '@/lib/family/family-membership'
 
 export interface FamilyRow {
   id: number
@@ -45,162 +55,266 @@ async function getFamilyAccessContext() {
   return { supabase, congregationId, userId }
 }
 
-/**
- * 2026-06-01 (hibrid család-modell Fázis 2): a régi `csalad` rekord aktuális
- * állapotát szinkronizálja az új `haztartas` + `cim` + `haztartas_tag`
- * táblákba. A `saveFamily` és a `checkAndCreateFamily` (anyakönyvi) is hívja,
- * hogy az új modell mindig naprakész legyen.
- *
- * Logika:
- *   1. csalad + gyerek olvasása
- *   2. haztartas keresése (legacy_csalad_id alapján); ha nincs → új cim + haztartas
- *      ha van → update isaktiv + id_csoport
- *   3. haztartas_tag-ok diff: a csalad/gyerek célállapotához igazítjuk —
- *      lezárjuk a már nem szereplő tagokat (ervenyes_ig = today), beszúrjuk az újakat
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function syncHouseholdFromCsalad(supabase: any, csaladId: number, congregationId: string) {
-  // 1. Olvas: csalad + gyerek
-  const { data: csaladRow } = await supabase
-    .from('csalad')
-    .select('id_ferfi, id_no, c_utcaid, c_szam, c_tombhaz, c_lepcsohaz, c_emelet, c_ajto, id_csoport, isaktiv')
-    .eq('id', csaladId)
-    .single()
-  if (!csaladRow) return
+// ── Család-tagsági őr + háztartás-szinkron (2026-08-01, PR-18) ──────────────
+//
+// Egy személy a rendszer szándéka szerint EGYSZERRE csak EGY aktív család
+// tagja lehet (felnőttként vagy gyermekként). A közös helperek (háztartás-
+// szinkron, tagsági lekérdezés, dupla-tagsági őr, áthelyezés) a
+// lib/family/family-membership.ts-ben élnek — innen és az anyakönyvi/tag-
+// mentési utakról is ugyanazok futnak.
 
-  const { data: gyerekRows } = await supabase
-    .from('gyerek')
-    .select('id_szemely')
-    .eq('id_csalad', csaladId)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const gyerekIds = ((gyerekRows || []) as any[]).map((g) => g.id_szemely as number)
-
-  // 2. Olvas vagy hoz létre: haztartas
-  const { data: existingHaztartas } = await supabase
-    .from('haztartas')
-    .select('id, id_cim')
-    .eq('legacy_csalad_id', csaladId)
-    .is('ervenyes_ig', null)
-    .limit(1)
+/** Egy tag aktív családtagságai — a személyi karton hozzárendelő dialógusához. */
+export async function getMemberFamilyMemberships(personId: number): Promise<FamilyMembershipInfo[]> {
+  if (!Number.isInteger(personId) || personId <= 0) return []
+  const { supabase, congregationId } = await getFamilyAccessContext()
+  if (!congregationId) return []
+  const { data: owned } = await supabase
+    .from('szemely')
+    .select('id')
+    .eq('id', personId)
+    .eq('congregation_id', congregationId)
     .maybeSingle()
+  if (!owned) return []
+  const map = await loadFamilyMemberships(supabase, [personId])
+  return map.get(personId) ?? []
+}
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let haztartasId: string | null = (existingHaztartas as any)?.id ?? null
-
-  if (!haztartasId) {
-    // Új cim
-    const { data: cimRow } = await supabase
-      .from('cim')
-      .insert([{
-        congregation_id: congregationId,
-        id_utca: csaladRow.c_utcaid,
-        szam: csaladRow.c_szam,
-        tombhaz: csaladRow.c_tombhaz,
-        lepcsohaz: csaladRow.c_lepcsohaz,
-        emelet: csaladRow.c_emelet,
-        ajto: csaladRow.c_ajto,
-        tipus: 'otthon',
-        megjegyzes: 'saveFamily-sync',
-      }])
-      .select('id')
-      .single()
-
-    // Új haztartas (legacy_csalad_id-vel)
-    const { data: haztartasRow } = await supabase
-      .from('haztartas')
-      .insert([{
-        congregation_id: congregationId,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        id_cim: (cimRow as any)?.id ?? null,
-        id_csoport: csaladRow.id_csoport,
-        isaktiv: csaladRow.isaktiv,
-        legacy_csalad_id: csaladId,
-        ervenyes_tol: new Date().toISOString().slice(0, 10),
-      }])
-      .select('id')
-      .single()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    haztartasId = (haztartasRow as any)?.id ?? null
-  } else {
-    await supabase
-      .from('haztartas')
-      .update({ isaktiv: csaladRow.isaktiv, id_csoport: csaladRow.id_csoport })
-      .eq('id', haztartasId)
-  }
-
-  if (!haztartasId) return
-
-  // 3. Tagok szinkronizálása (diff a célállapottal)
-  const { data: existingTags } = await supabase
-    .from('haztartas_tag')
-    .select('id, id_szemely, szerep')
-    .eq('id_haztartas', haztartasId)
-    .is('ervenyes_ig', null)
-    .in('szerep', ['csaladfo', 'hazastars', 'gyermek'])
-
-  // Célállapot: 1 csaladfo (id_ferfi), 1 hazastars (id_no), n gyermek
-  const desiredTags = new Map<number, string>()
-  if (csaladRow.id_ferfi) desiredTags.set(csaladRow.id_ferfi as number, 'csaladfo')
-  if (csaladRow.id_no) desiredTags.set(csaladRow.id_no as number, 'hazastars')
-  for (const gyerekId of gyerekIds) desiredTags.set(gyerekId, 'gyermek')
-
-  const today = new Date().toISOString().slice(0, 10)
-
-  // 3a. Lezárjuk a már nem szereplő tagokat
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const tag of (existingTags || []) as any[]) {
-    const desiredSzerep = desiredTags.get(tag.id_szemely as number)
-    if (!desiredSzerep) {
-      await supabase
-        .from('haztartas_tag')
-        .update({ ervenyes_ig: today })
-        .eq('id', tag.id)
-    } else {
-      // Már aktív tag a megfelelő szerepben → kihúzzuk a desired-ből
-      // (Ha más szerep van, NEM frissítjük: a backfill 'csaladfo'-t adott meg
-      // alapból, így a UI tartja a régi mintát.)
-      desiredTags.delete(tag.id_szemely as number)
-    }
-  }
-
-  // 3b. Új tagokat beszúrjuk
-  const newTags = Array.from(desiredTags.entries()).map(([id_szemely, szerep]) => ({
-    id_haztartas: haztartasId,
-    id_szemely,
-    szerep,
-    is_primary: szerep === 'csaladfo' || (szerep === 'hazastars' && !csaladRow.id_ferfi),
-    ervenyes_tol: today,
-    congregation_id: congregationId,
-  }))
-  if (newTags.length > 0) {
-    await supabase.from('haztartas_tag').insert(newTags)
-  }
+export interface AssignableFamily {
+  id: number
+  displayName: string
+  address: string | null
+  hasFerfi: boolean
+  hasNo: boolean
+  childrenCount: number
 }
 
 /**
- * 2026-06-01 (hibrid család-modell Fázis 2): a `csalad.id`-k halmaza, amelyhez
- * a felhasználónak hozzáférése van. Az új modellből számoljuk: a `haztartas`
- * tábla congregation_id-vel szűrve azonosítja a saját gyülekezetes
- * háztartásokat, a `legacy_csalad_id` a régi `csalad.id`-re mutat vissza.
- *
- * Ez egyszerűbb és gyorsabb, mint a régi 2x JOIN szemely-csalad-gyerek logika.
+ * Család-kereső a személyi karton „Családhoz rendelés" dialógusához: a felnőtt
+ * tagok neve alapján keres az aktuális gyülekezet AKTÍV családjai között.
  */
-async function getAllowedFamilyIds(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  congregationId: string,
-): Promise<Set<number>> {
-  const { data } = await supabase
-    .from('haztartas')
-    .select('legacy_csalad_id')
-    .eq('congregation_id', congregationId)
-    .not('legacy_csalad_id', 'is', null)
+export async function searchAssignableFamilies(query: string): Promise<AssignableFamily[]> {
+  // A PostgREST .or() szűrő a vesszőt/zárójelet szintaxisként értelmezné —
+  // az ilyen karaktereket szóközre cseréljük (különben néma „Nincs találat").
+  const q = query.trim().replace(/[,()"\\]/g, ' ').replace(/\s+/g, ' ').trim()
+  if (q.length < 2) return []
+  const { supabase, congregationId } = await getFamilyAccessContext()
+  if (!congregationId) return []
 
-  return new Set(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ((data || []) as any[])
-      .map((row) => row.legacy_csalad_id as number)
-      .filter((id): id is number => id != null),
-  )
+  const { data: persons } = await supabase
+    .from('szemely')
+    .select('id')
+    .eq('congregation_id', congregationId)
+    .or(`csaladnev.ilike.%${q}%,k_nev.ilike.%${q}%`)
+    .limit(40)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const personIds = ((persons || []) as any[]).map((p) => p.id as number)
+  if (personIds.length === 0) return []
+
+  const { data: familiesRaw } = await supabase
+    .from('csalad')
+    .select('id, id_ferfi, id_no, c_szam, utca:adrstreet!c_utcaid(name)')
+    .eq('isaktiv', true)
+    .or(`id_ferfi.in.(${personIds.join(',')}),id_no.in.(${personIds.join(',')})`)
+    .limit(12)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const families = (familiesRaw || []) as any[]
+  if (families.length === 0) return []
+
+  // Csak a saját gyülekezet családjai (a csalad táblán nincs congregation_id)
+  const allowedFamilyIds = await getAllowedFamilyIds(supabase, congregationId)
+  const scoped = families.filter((f) => allowedFamilyIds.has(f.id as number))
+  if (scoped.length === 0) return []
+
+  const familyIds = scoped.map((f) => f.id as number)
+  const [names, gyerekRes] = await Promise.all([
+    loadFamilyDisplayNames(supabase, familyIds),
+    supabase.from('gyerek').select('id_csalad').in('id_csalad', familyIds),
+  ])
+  const childCount = new Map<number, number>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const g of (gyerekRes.data || []) as any[]) {
+    childCount.set(g.id_csalad, (childCount.get(g.id_csalad) ?? 0) + 1)
+  }
+
+  return scoped.map((f) => {
+    const utca = Array.isArray(f.utca) ? f.utca[0] : f.utca
+    return {
+      id: f.id as number,
+      displayName: names.get(f.id) ?? `Család #${f.id}`,
+      address: [utca?.name, f.c_szam].filter(Boolean).join(' ') || null,
+      hasFerfi: f.id_ferfi != null,
+      hasNo: f.id_no != null,
+      childrenCount: childCount.get(f.id) ?? 0,
+    }
+  })
+}
+
+export interface AssignMemberInput {
+  memberId: number
+  familyId: number
+  mode: 'felnott' | 'gyermek'
+  /** true = a tag korábbi (gyermek-) tagságát áthelyezzük az új családba */
+  confirmMove?: boolean
+}
+
+export interface AssignMemberResult {
+  success?: boolean
+  familyId?: number
+  error?: string
+  /** Figyelmeztetés: a tag már máshol tag — megerősítés (confirmMove) kell */
+  conflicts?: AssignConflict[]
+  warning?: string
+}
+
+/**
+ * 2026-08-01 (PR-18): tag hozzárendelése meglévő családhoz a SZEMÉLYI KARTONRÓL.
+ * A kanonikus írási úton megy (tagnyilvantartas_csalad_mentes RPC + háztartás-
+ * szinkron), dupla-tagsági őrrel: felnőttként máshol szereplő tagot nem enged,
+ * gyermekként máshol szereplőt csak explicit áthelyezéssel.
+ */
+export async function assignMemberToFamily(input: AssignMemberInput): Promise<AssignMemberResult> {
+  const { memberId, familyId, mode } = input
+  if (!Number.isInteger(memberId) || memberId <= 0 || !Number.isInteger(familyId) || familyId <= 0) {
+    return { error: 'Érvénytelen azonosító.' }
+  }
+  const { supabase, congregationId, userId } = await getFamilyAccessContext()
+  if (!congregationId || !userId) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  const { data: person } = await supabase
+    .from('szemely')
+    .select('id, csaladnev, k_nev, ferfi')
+    .eq('id', memberId)
+    .eq('congregation_id', congregationId)
+    .maybeSingle()
+  if (!person) return { error: 'A tag nem található az aktív gyülekezetben.' }
+  const personName = `${person.csaladnev ?? ''} ${person.k_nev ?? ''}`.trim() || `#${memberId}`
+
+  const allowedFamilyIds = await getAllowedFamilyIds(supabase, congregationId)
+  if (!allowedFamilyIds.has(familyId)) return { error: 'Nincs jogosultsága ehhez a családhoz.' }
+
+  const { data: familyRow } = await supabase
+    .from('csalad')
+    .select('id, id_ferfi, id_no, c_utcaid, c_szam, id_csoport')
+    .eq('id', familyId)
+    .maybeSingle()
+  if (!familyRow) return { error: 'A család nem található.' }
+
+  // Már tagja ennek a családnak?
+  const ownMemberships = (await loadFamilyMemberships(supabase, [memberId])).get(memberId) ?? []
+  if (ownMemberships.some((m) => m.familyId === familyId)) {
+    return { error: `${personName} már tagja ennek a családnak.` }
+  }
+
+  // Dupla-tagsági őr (gyülekezet-hatókörrel: az idegen gyülekezetben maradt
+  // tagság — pl. átjelentkezés maradványa — nem blokkol és nem mutálódik).
+  // Fail-closed: olvasási hibánál nem rendelünk hozzá.
+  let guard: Awaited<ReturnType<typeof findMembershipConflicts>>
+  try {
+    guard = await findMembershipConflicts(supabase, congregationId, [memberId], familyId)
+  } catch (e) {
+    console.warn('[assignMemberToFamily] tagsági ellenőrzés sikertelen:', e instanceof Error ? e.message : e)
+    return { error: 'A családtagsági ellenőrzés nem sikerült — próbáld újra. Ha a hiba ismétlődik, jelezd a rendszergazdának.' }
+  }
+  const { blocked, movable, foreign, allowed } = guard
+  if (blocked.length > 0) {
+    const b = blocked[0]
+    return {
+      error: `${personName} már a(z) ${b.familyName} felnőtt tagja (családfő vagy házastárs). Egy személy egyszerre csak egy család tagja lehet — előbb a másik család kartonján módosítsd a felnőtt tagokat.`,
+    }
+  }
+  if (movable.length > 0 && !input.confirmMove) {
+    const m = movable[0]
+    return {
+      conflicts: movable,
+      warning: `${personName} jelenleg a(z) ${m.familyName} tagja (gyermekként). Egy személy egyszerre csak egy család tagja lehet. Áthelyezed az új családba? A korábbi tagsága lezárul.`,
+    }
+  }
+
+  // Cél-szerep ellenőrzés
+  let nextFerfi = familyRow.id_ferfi as number | null
+  let nextNo = familyRow.id_no as number | null
+  const { data: gyerekRows } = await supabase
+    .from('gyerek')
+    .select('id_szemely')
+    .eq('id_csalad', familyId)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const originalGyerekIds = [...new Set(((gyerekRows || []) as any[]).map((g) => g.id_szemely as number))]
+  let nextGyerekIds = originalGyerekIds
+
+  if (mode === 'felnott') {
+    if (person.ferfi === true) {
+      if (nextFerfi != null) return { error: 'Ebben a családban már van rögzített férj/családfő. Előbb a családi kartonon módosítsd a felnőtt tagokat.' }
+      nextFerfi = memberId
+    } else if (person.ferfi === false) {
+      if (nextNo != null) return { error: 'Ebben a családban már van rögzített feleség/házastárs. Előbb a családi kartonon módosítsd a felnőtt tagokat.' }
+      nextNo = memberId
+    } else {
+      return { error: 'A tag neme nincs rögzítve — felnőttként így nem rendelhető családhoz. Előbb add meg a nemét a tag szerkesztőjében.' }
+    }
+    nextGyerekIds = nextGyerekIds.filter((id) => id !== memberId)
+  } else {
+    if (nextFerfi === memberId || nextNo === memberId) {
+      return { error: `${personName} ennek a családnak már felnőtt tagja — gyermekként nem vehető fel ugyanoda.` }
+    }
+    nextGyerekIds = [...new Set([...nextGyerekIds, memberId])]
+  }
+
+  // 2026-08-01 (PR-18 review): ELŐBB a cél-család mentése, és csak SIKER után
+  // a korábbi gyermek-tagságok lezárása. Fordított sorrendnél egy elbukó RPC
+  // családtalanul hagyta volna a tagot (a régi tagság már törölve, az új nem
+  // jött létre); az átmeneti dupla tagság ezzel szemben látható és a következő
+  // mentésnél újra felajánlott áthelyezéssel javítható.
+  const { data: rpcData, error: rpcErr } = await supabase.rpc('tagnyilvantartas_csalad_mentes', {
+    p_id: familyId,
+    p_id_ferfi: nextFerfi,
+    p_id_no: nextNo,
+    p_gyerek_ids: nextGyerekIds,
+    p_c_utcaid: familyRow.c_utcaid ?? null,
+    p_c_szam: familyRow.c_szam ?? null,
+    p_id_csoport: familyRow.id_csoport ?? null,
+  })
+  if (rpcErr) return { error: `Hiba: ${rpcErr.message}` }
+  const rpcRes = rpcData as { status?: string; family_id?: number; message?: string } | null
+  if (rpcRes?.status !== 'ok') {
+    return { error: rpcRes?.message || 'A hozzárendelés mentése nem sikerült.' }
+  }
+
+  const warnings: string[] = []
+
+  // Áthelyezés: a korábbi gyermek-tagságok lezárása (csak saját gyülekezet)
+  if (movable.length > 0 && input.confirmMove) {
+    try {
+      await moveChildMemberships(supabase, congregationId, movable, allowed)
+    } catch (e) {
+      console.warn('[assignMemberToFamily] moveChildMemberships sikertelen:',
+        e instanceof Error ? e.message : e)
+      warnings.push('A hozzárendelés mentve, de a korábbi családtagság lezárása nem sikerült — nyisd meg a régi család kartonját, és távolítsd el onnan a tagot.')
+    }
+  }
+
+  try {
+    // A felnőtté váló tag korábbi gyerek-sorát a sync explicit eltávolításként
+    // kezeli (unoka-védelem miatt kell a lista)
+    const removedIds = mode === 'felnott' && originalGyerekIds.includes(memberId) ? [memberId] : []
+    await syncHouseholdFromCsalad(supabase, familyId, congregationId, removedIds)
+  } catch (e) {
+    console.warn('[assignMemberToFamily] syncHouseholdFromCsalad sikertelen:',
+      e instanceof Error ? e.message : e)
+    warnings.push('A hozzárendelés mentve, de a háztartás-nézet szinkronizálása nem sikerült — mentsd el újra a családot, vagy jelezd a rendszergazdának.')
+  }
+
+  const foreignNote = foreignMembershipWarning(foreign)
+  if (foreignNote) warnings.push(foreignNote)
+
+  await logAuditEvent({
+    action: 'family.assign_member',
+    targetTable: 'csalad',
+    targetId: String(familyId),
+    metadata: { memberId, mode, moved: movable.length > 0 && !!input.confirmMove },
+  }, supabase)
+
+  revalidatePath('/tagnyilvantartas')
+  return { success: true, familyId, warning: warnings.length > 0 ? warnings.join(' ') : undefined }
 }
 
 export async function getFamilies(): Promise<FamilyRow[]> {
@@ -486,6 +600,9 @@ export async function getFamilyDetails(id: number) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     children = (gyerekek || []).map((c: any) => c.szemely).filter(Boolean)
   }
+  // 2026-08-01 (PR-18): dedup id szerint — a korábban némán létrejött dupla
+  // tagságok (gyermek+unoka tag, dupla gyerek-sor) ne listázzák kétszer.
+  children = [...new Map(children.map((c) => [c.id, c])).values()]
 
   // 2. Tagok ID-k összegyűjtése az anyakönyvi lekérdezésekhez
   const memberIds = [family?.id_ferfi, family?.id_no, ...children.map(c => c.id)].filter(Boolean) as number[]
@@ -497,7 +614,10 @@ export async function getFamilyDetails(id: number) {
     memberIds.length > 0 ? supabase.from('keresztseg').select('id_szemely, datum, adrlocality!helyid(name), lelkeszneve').in('id_szemely', memberIds) : Promise.resolve({ data: [] }),
     memberIds.length > 0 ? supabase.from('konfirmalas').select('id_szemely, datum, adrlocality!helyid(name), lelkeszneve').in('id_szemely', memberIds) : Promise.resolve({ data: [] }),
     family?.id_ferfi && family?.id_no
-      ? supabase.from('hazassag').select('datum, adrlocality!helyid(name), lelkeszneve').eq('id_ferfi', family.id_ferfi).eq('id_no', family.id_no).maybeSingle()
+      // 2026-08-01 (PR-18 D8): duplikált anyakönyvi sor esetén a maybeSingle
+      // hibát adott → az esketés némán eltűnt a kartonról. limit(1)-gyel a
+      // legkorábbi (eredeti) rekord jelenik meg.
+      ? supabase.from('hazassag').select('datum, adrlocality!helyid(name), lelkeszneve').eq('id_ferfi', family.id_ferfi).eq('id_no', family.id_no).order('datum', { ascending: true }).limit(1).maybeSingle()
       : Promise.resolve({ data: null }),
     memberIds.length > 0 ? supabase.from('temetes').select('id_szemely, hdatum').in('id_szemely', memberIds) : Promise.resolve({ data: [] }),
   ])
@@ -523,7 +643,17 @@ export async function getFamilyDetails(id: number) {
   }
 }
 
-export async function saveFamily(data: FamilyInput) {
+export interface SaveFamilyResult {
+  success?: boolean
+  error?: string
+  warning?: string
+  /** 2026-08-01 (PR-18): a mentett/létrehozott család id-ja */
+  familyId?: number
+  /** 2026-08-01 (PR-18): dupla-tagsági ütközés — megerősítés (allowMoves) kell */
+  conflicts?: AssignConflict[]
+}
+
+export async function saveFamily(data: FamilyInput): Promise<SaveFamilyResult> {
   const parsed = familySchema.safeParse(data)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
@@ -534,6 +664,11 @@ export async function saveFamily(data: FamilyInput) {
   if (!user) return { error: 'Nincs bejelentkezett felhasználó.' }
 
   const d = parsed.data
+  // 2026-08-01 (PR-18): gyerekIds dedup + a felnőtt slotok kizárása a gyerek-
+  // listából — a mentő RPC (delete+unnest-insert) a duplikátumokat szó nélkül
+  // beszúrta volna, és egy személy ugyanabban a családban felnőtt ÉS gyermek
+  // sem lehet.
+  d.gyerekIds = [...new Set(d.gyerekIds)].filter((id) => id !== d.id_ferfi && id !== d.id_no)
   const selectedMemberIds = [d.id_ferfi, d.id_no, ...d.gyerekIds].filter(Boolean) as number[]
   if (selectedMemberIds.length > 0) {
     const { data: scopedMembers } = await supabase
@@ -547,14 +682,84 @@ export async function saveFamily(data: FamilyInput) {
     }
   }
 
-  // 2026-06-10 (Fázis 2, P1-5): a csalad-mentés és a gyerek-rekordok cseréje
-  // EGY tranzakcióban, RPC-ben fut (tagnyilvantartas_csalad_mentes) — korábban
-  // a delete+insert között elhasaló hiba a család gyermek-listáját elveszíthette.
+  // 2026-06-10 (Fázis 2, P1-5) + 2026-08-01 (PR-18 review): a jogosultság-
+  // ellenőrzés MINDEN más lépés (dupla-őr, áthelyezés) ELŐTT fut — korábban
+  // egy jogosulatlan/érvénytelen d.id mellett az allowMoves-ág már törölte a
+  // gyermek régi tagságát, mielőtt a hibát visszaadtuk volna.
   if (d.id) {
     const allowedFamilyIds = await getAllowedFamilyIds(supabase, congregationId)
     if (!allowedFamilyIds.has(d.id)) {
       return { error: 'Nincs jogosultsága ennek a családnak a szerkesztéséhez.' }
     }
+  }
+
+  // 2026-08-01 (PR-18): dupla-tagsági őr SZERVEROLDALON. Eddig csak a felnőtt-
+  // kereső szűrt kliensoldalon; a gyermek-ág egyáltalán nem — így ugyanaz a
+  // személy némán két család tagja lehetett. Az idegen gyülekezetben maradt
+  // tagság (foreign) nem blokkol és nem mutálódik, csak figyelmeztetünk rá.
+  let preexistingAdultWarning: string | undefined
+  let foreignWarning: string | undefined
+  let movesToApply: AssignConflict[] = []
+  let movesAllowed: Set<number> = new Set()
+  if (selectedMemberIds.length > 0) {
+    // Fail-closed: ha a tagsági ellenőrzés olvasása elbukik, NEM mentünk
+    // (elnyelt hibával az őr némán kikapcsolna).
+    let guard: Awaited<ReturnType<typeof findMembershipConflicts>>
+    try {
+      guard = await findMembershipConflicts(supabase, congregationId, selectedMemberIds, d.id ?? null)
+    } catch (e) {
+      console.warn('[saveFamily] tagsági ellenőrzés sikertelen:', e instanceof Error ? e.message : e)
+      return { error: 'A családtagsági ellenőrzés nem sikerült — próbáld újra. Ha a hiba ismétlődik, jelezd a rendszergazdának.' }
+    }
+    const { blocked, movable, foreign, allowed } = guard
+    foreignWarning = foreignMembershipWarning(foreign)
+    // A KORÁBBRÓL bennlévő felnőttek ütközése (régi, hibás adat) nem blokkol —
+    // különben a család kartonja menthetetlenné válna (mindkét érintett család
+    // szerkesztése hibára futna). Csak az ÚJONNAN hozzáadott felnőttre tiltunk.
+    let newlyBlocked = blocked
+    if (d.id) {
+      const { data: currentFam } = await supabase
+        .from('csalad')
+        .select('id_ferfi, id_no')
+        .eq('id', d.id)
+        .maybeSingle()
+      const preexisting = new Set([currentFam?.id_ferfi, currentFam?.id_no].filter(Boolean) as number[])
+      newlyBlocked = blocked.filter((c) => !preexisting.has(c.personId))
+      const kept = blocked.filter((c) => preexisting.has(c.personId))
+      if (kept.length > 0) {
+        preexistingAdultWarning = `Figyelem: ${kept.map((c) => `${c.personName} a(z) ${c.familyName} felnőtt tagjaként is szerepel`).join('; ')}. Ez korábbi dupla rögzítés — a másik család kartonján érdemes rendezni.`
+      }
+    }
+    if (newlyBlocked.length > 0) {
+      const b = newlyBlocked[0]
+      return {
+        error: `${b.personName} már a(z) ${b.familyName} felnőtt tagja (családfő vagy házastárs). Egy személy egyszerre csak egy család tagja lehet — előbb a másik család kartonján módosítsd a felnőtt tagokat.`,
+      }
+    }
+    if (movable.length > 0 && !d.allowMoves) {
+      return {
+        conflicts: movable,
+        warning: movable.length === 1
+          ? `${movable[0].personName} jelenleg a(z) ${movable[0].familyName} tagja (gyermekként). Egy személy egyszerre csak egy család tagja lehet — az „Áthelyezés és mentés" gombbal a korábbi tagsága lezárul.`
+          : `${movable.length} kiválasztott személy már egy másik család tagja (gyermekként). Egy személy egyszerre csak egy család tagja lehet — az „Áthelyezés és mentés" gombbal a korábbi tagságuk lezárul.`,
+      }
+    }
+    movesToApply = d.allowMoves ? movable : []
+    movesAllowed = allowed
+  }
+
+  // Az unoka-védelemhez: a mentés ELŐTTI gyermek-lista — az explicit
+  // eltávolítottak (removed) unoka-tagját a sync lezárhatja.
+  let removedChildIds: number[] = []
+  if (d.id) {
+    const { data: prevGyerek } = await supabase
+      .from('gyerek')
+      .select('id_szemely')
+      .eq('id_csalad', d.id)
+    const nextSet = new Set(d.gyerekIds)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    removedChildIds = [...new Set(((prevGyerek || []) as any[]).map((g) => g.id_szemely as number))]
+      .filter((id) => !nextSet.has(id))
   }
 
   const { data: rpcData, error: rpcErr } = await supabase.rpc('tagnyilvantartas_csalad_mentes', {
@@ -578,6 +783,21 @@ export async function saveFamily(data: FamilyInput) {
   }
   const familyId = rpcRes.family_id
 
+  // 2026-08-01 (PR-18 review): az áthelyezés (régi gyerek-sorok törlése) csak
+  // a SIKERES mentés UTÁN fut — fordítva egy elbukó RPC családtalanul hagyta
+  // volna az áthelyezett gyermeket. Ha itt bukik el, átmeneti dupla tagság
+  // marad, amit a következő mentés újra felajánl rendezésre.
+  let moveWarning: string | undefined
+  if (movesToApply.length > 0) {
+    try {
+      await moveChildMemberships(supabase, congregationId, movesToApply, movesAllowed)
+    } catch (e) {
+      console.warn('[saveFamily] moveChildMemberships sikertelen:',
+        e instanceof Error ? e.message : e)
+      moveWarning = 'A család mentve, de az áthelyezett tag korábbi családtagságának lezárása nem sikerült — nyisd meg a régi család kartonját, és távolítsd el onnan.'
+    }
+  }
+
   // 2026-06-01 (hibrid család-modell Fázis 2): az új modellt is naprakésszé
   // tesszük (haztartas + cim + haztartas_tag). Ha a saveFamily új csalad-ot
   // hozott létre vagy a meglévőt változtatta, a háztartás-szinkron lefut.
@@ -585,7 +805,7 @@ export async function saveFamily(data: FamilyInput) {
   // formájában visszajut a felületre (P2-10 részleges).
   let syncWarning: string | undefined
   try {
-    await syncHouseholdFromCsalad(supabase, familyId, congregationId)
+    await syncHouseholdFromCsalad(supabase, familyId, congregationId, removedChildIds)
   } catch (e) {
     console.warn('[saveFamily] syncHouseholdFromCsalad sikertelen:',
       e instanceof Error ? e.message : e)
@@ -596,11 +816,12 @@ export async function saveFamily(data: FamilyInput) {
     action: 'family.save',
     targetTable: 'csalad',
     targetId: String(familyId),
-    metadata: { mode: d.id ? 'update' : 'create', gyerekek: d.gyerekIds.length, sync_ok: !syncWarning },
+    metadata: { mode: d.id ? 'update' : 'create', gyerekek: d.gyerekIds.length, sync_ok: !syncWarning, moved: movesToApply.length },
   }, supabase)
 
   revalidatePath('/tagnyilvantartas')
-  return { success: true, warning: syncWarning }
+  const combinedWarning = [preexistingAdultWarning, moveWarning, syncWarning, foreignWarning].filter(Boolean).join(' ') || undefined
+  return { success: true, warning: combinedWarning, familyId }
 }
 
 // ── Szabad személy keresés (házasok kiszűrve) ────────────────
@@ -632,19 +853,48 @@ export async function searchFamilyMember(query: string, role: 'ferfi' | 'no' | '
   // (bármely más családban házas személy kiválasztható volt → dupla
   // családtagság). Mostantól csak a SZERKESZTETT család saját tagjai
   // engedélyezettek a házasok közül.
+  // 2026-08-01 (PR-18): a GYEREK-keresés is szűr — máshol felnőttként (családfő/
+  // házastárs) szereplő személy gyermekként sehová nem vehető fel. A máshol
+  // GYERMEKKÉNT szereplőket nem rejtjük el, hanem figyelmeztető jelvényt kapnak
+  // (masikCsalad) — kiválasztásuk a mentéskor áthelyezési megerősítést kér.
   const { data: allFamilies } = await supabase.from('csalad').select('id, id_ferfi, id_no').eq('isaktiv', true)
   const marriedIds = new Set<number>()
+  const anyAdultIds = new Set<number>()
   const currentFamilyMemberIds = new Set<number>()
   ;(allFamilies || []).forEach((f: { id: number; id_ferfi: number | null; id_no: number | null }) => {
     if (role === 'ferfi' && f.id_ferfi) marriedIds.add(f.id_ferfi)
     if (role === 'no' && f.id_no) marriedIds.add(f.id_no)
+    if (f.id_ferfi) anyAdultIds.add(f.id_ferfi)
+    if (f.id_no) anyAdultIds.add(f.id_no)
     if (editFamilyId !== undefined && f.id === editFamilyId) {
       if (f.id_ferfi) currentFamilyMemberIds.add(f.id_ferfi)
       if (f.id_no) currentFamilyMemberIds.add(f.id_no)
     }
   })
 
-  return members.filter(m => !marriedIds.has(m.id) || currentFamilyMemberIds.has(m.id))
+  const filtered = role === 'gyerek'
+    ? members.filter(m => !anyAdultIds.has(m.id))
+    : members.filter(m => !marriedIds.has(m.id) || currentFamilyMemberIds.has(m.id))
+  if (!filtered.length) return []
+
+  // Figyelmeztető annotáció: melyik MÁSIK (saját gyülekezeti) családnak tagja
+  // már a találat — az idegen gyülekezetben maradt tagságot nem jelvényezzük,
+  // mert arra az áthelyezés-folyamat úgysem tud (és nem is szabad) ráhatni.
+  const [memberships, allowedForBadge] = await Promise.all([
+    loadFamilyMemberships(supabase, filtered.map(m => m.id as number)),
+    getAllowedFamilyIds(supabase, congregationId),
+  ])
+  return filtered.map(m => {
+    const other = (memberships.get(m.id as number) ?? []).find(
+      (ms) => allowedForBadge.has(ms.familyId) && (editFamilyId === undefined || ms.familyId !== editFamilyId),
+    )
+    return {
+      ...m,
+      masikCsalad: other
+        ? { id: other.familyId, name: other.familyName, role: other.role }
+        : null,
+    }
+  })
 }
 
 /**

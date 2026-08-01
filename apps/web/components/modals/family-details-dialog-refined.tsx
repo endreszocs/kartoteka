@@ -214,7 +214,6 @@ export function FamilyDetailsDialogRefined({
   // Családnév — a férj/feleség családnevéből
   const familyName = family?.ferfi?.csaladnev || family?.no?.csaladnev || null
   const totalPayments = payments.reduce((sum, item) => sum + Number(item.osszeg || 0), 0)
-  const yearNow = new Date().getFullYear()
 
   const isLiving = family
     ? (family.ferfi && !family.ferfi.meghalt) || (family.no && !family.no.meghalt)
@@ -468,9 +467,9 @@ export function FamilyDetailsDialogRefined({
                         </div>
                         <div className="grid gap-1.5 sm:grid-cols-2">
                           {children.map((c) => {
-                            const age = c.sz_datum
-                              ? yearNow - new Date(c.sz_datum).getFullYear()
-                              : null
+                            // 2026-08-01 (PR-18 D7): pontos kor (születésnap előtt nem +1),
+                            // mint a felnőtteknél (ageFromDate)
+                            const age = ageFromDate(c.sz_datum)
                             return (
                               <button
                                 key={c.id}
@@ -716,8 +715,15 @@ export function FamilyDetailsDialogRefined({
         onOpenChange={(open) => {
           setEditFamilyOpen(open)
           if (!open && familyId) {
-            // Reload az adatokat — a felhasználó esetleg módosította
-            getFamilyDetails(familyId).then(setData)
+            // Reload az adatokat — a felhasználó esetleg módosította.
+            // 2026-08-01 (PR-18 D5): catch nélkül az átmeneti hiba unhandled
+            // rejection volt, és a null-eredmény némán „Nem található család"-ra
+            // váltotta a kartont — hibánál inkább a meglévő adat marad.
+            getFamilyDetails(familyId)
+              .then((next) => { if (next) setData(next) })
+              .catch(() => {
+                toast.error('A családi karton frissítése nem sikerült — a korábbi adatok láthatók.')
+              })
           }
         }}
         editFamily={

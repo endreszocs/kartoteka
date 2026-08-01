@@ -11,6 +11,7 @@ import { fetchFamilyPaymentsCompat, fetchPersonPaymentsCompat } from '@/lib/fina
 import { allocateFamilyPayments, computeBaseExpectedForMemberYear, computeJarulekForMemberYear, isJarulekExcludedMemberStatus, type JarulekDiscountRule, type JarulekExemption, type JarulekPaymentLike, type JarulekYearSetting } from '@/lib/finance/jarulek-calculation'
 import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallback'
 import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
+import { findMembershipConflicts, syncHouseholdFromCsalad } from '@/lib/family/family-membership'
 
 // ── Segéd: congregation_id a profilból ───────────────────────
 
@@ -690,16 +691,19 @@ export async function saveMember(data: MemberInput) {
   }
 
   // Automatikus család létrehozás (ha szülő CNP van)
+  let autoFamilyWarning: string | undefined
   if (savedId && (d.id_apja_cnp || d.id_anyja_cnp)) {
     let ferfiId: number | null = null
     let noId: number | null = null
 
+    // 2026-08-01 (PR-18): a CNP-lookup a SAJÁT gyülekezetre szűr — enélkül
+    // (azonos CNP-vel) más gyülekezet személye is bekerülhetett a családba.
     if (d.id_apja_cnp) {
-      const { data: a } = await supabase.from('szemely').select('id').eq('cnp', d.id_apja_cnp).limit(1)
+      const { data: a } = await supabase.from('szemely').select('id').eq('cnp', d.id_apja_cnp).eq('congregation_id', congregationId).limit(1)
       if (a?.[0]) ferfiId = a[0].id
     }
     if (d.id_anyja_cnp) {
-      const { data: m } = await supabase.from('szemely').select('id').eq('cnp', d.id_anyja_cnp).limit(1)
+      const { data: m } = await supabase.from('szemely').select('id').eq('cnp', d.id_anyja_cnp).eq('congregation_id', congregationId).limit(1)
       if (m?.[0]) noId = m[0].id
     }
 
@@ -719,15 +723,39 @@ export async function saveMember(data: MemberInput) {
         if (newFam?.[0]) famId = newFam[0].id
       }
 
+      // 2026-08-01 (PR-18): dupla-tagsági őr — ha a tag már EGY MÁSIK SAJÁT
+      // aktív család tagja (gyermekként VAGY felnőttként), NEM szúrunk be
+      // második gyerek-sort némán, hanem figyelmeztetést adunk vissza. Az
+      // idegen gyülekezetben maradt tagság (átjelentkezés-maradvány) nem
+      // akadály. Olvasási hibánál fail-closed: kihagyjuk az auto-hozzárendelést.
+      let alreadyElsewhere = false
       if (famId) {
+        try {
+          const guard = await findMembershipConflicts(supabase, congregationId, [savedId], famId)
+          alreadyElsewhere = guard.blocked.length > 0 || guard.movable.length > 0
+          if (alreadyElsewhere) {
+            autoFamilyWarning = 'A tag már egy másik család tagjaként szerepel, ezért a szülők CNP-je alapján NEM rendeltük hozzá automatikusan egy második családhoz. Áthelyezni a személyi karton „Családhoz rendelés" gombjával lehet.'
+          }
+        } catch (e) {
+          console.warn('[saveMember] tagsági ellenőrzés sikertelen:', e instanceof Error ? e.message : e)
+          alreadyElsewhere = true
+          autoFamilyWarning = 'A családtagsági ellenőrzés nem sikerült, ezért a tagot nem rendeltük hozzá automatikusan a családhoz — a személyi karton „Családhoz rendelés" gombjával végezhető el.'
+        }
+      }
+
+      if (famId && !alreadyElsewhere) {
         const { data: check } = await supabase.from('gyerek').select('id').eq('id_szemely', savedId).eq('id_csalad', famId).limit(1)
         if (!check?.length) {
           await supabase.from('gyerek').insert([{ id_csalad: famId, id_szemely: savedId }])
         }
+      }
 
+      {
         // 2026-06-01 (hibrid család-modell Fázis 2): dual-write az új modellbe
         // — vér szerinti szülő-gyerek kapcsolatok + háztartás-tagság (mint a
-        // baptism-action checkAndCreateFamily helper-je).
+        // baptism-action checkAndCreateFamily helper-je). 2026-08-01 (PR-18):
+        // a vér szerinti kapcsolat a családtagságtól FÜGGETLENÜL rögzül — a
+        // háztartás-tagságot viszont a dupla-őr visszafogja.
         try {
           // szülő-gyerek kapcsolatok (idempotens — partial unique index)
           if (ferfiId) {
@@ -764,31 +792,13 @@ export async function saveMember(data: MemberInput) {
               }])
             }
           }
-          // háztartás-tagság (haztartas legacy_csalad_id = famId alapján)
-          const { data: haztartas } = await supabase
-            .from('haztartas')
-            .select('id')
-            .eq('legacy_csalad_id', famId)
-            .is('ervenyes_ig', null)
-            .limit(1)
-            .maybeSingle()
-          const haztartasId = (haztartas as { id: string } | null)?.id
-          if (haztartasId) {
-            const { data: existingTag } = await supabase
-              .from('haztartas_tag')
-              .select('id')
-              .eq('id_haztartas', haztartasId)
-              .eq('id_szemely', savedId)
-              .is('ervenyes_ig', null)
-              .limit(1)
-            if (!existingTag?.length) {
-              await supabase.from('haztartas_tag').insert([{
-                id_haztartas: haztartasId, id_szemely: savedId,
-                szerep: 'gyermek', is_primary: false,
-                ervenyes_tol: new Date().toISOString().slice(0, 10),
-                congregation_id: congregationId,
-              }])
-            }
+          // Háztartás-szinkron — 2026-08-01 (PR-18 review): a korábbi kézi
+          // haztartas_tag-insert csak MÁR LÉTEZŐ háztartásnál futott, így az
+          // itt auto-létrejött családnak sosem lett haztartas-sora (a Családok
+          // lista és a „Családhoz rendelés" kereső sem látta). A közös sync a
+          // hiányzó cim+haztartas sorokat is pótolja.
+          if (famId && !alreadyElsewhere) {
+            await syncHouseholdFromCsalad(supabase, famId, congregationId)
           }
         } catch (e) {
           console.warn('[saveMember] hibrid-modell dual-write sikertelen (nem blokkoló):',
@@ -855,7 +865,7 @@ export async function saveMember(data: MemberInput) {
   }, supabase)
 
   revalidatePath('/tagnyilvantartas')
-  return { success: true, id: savedId }
+  return { success: true, id: savedId, warning: autoFamilyWarning }
 }
 
 // ── Tag kivezetés ────────────────────────────────────────────
