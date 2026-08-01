@@ -107,7 +107,10 @@ export default async function DashboardPage() {
           .eq('meghalt', false)
           .order('id', { ascending: true })
           .range(fromIdx, fromIdx + PAGE - 1)
-        if (error) return { data: all, error }
+        if (error) {
+          console.error('[dashboard] szemely lapozott lekérés hiba @', fromIdx, error.message)
+          return { data: all, error }
+        }
         const page = (data || []) as Member[]
         all.push(...page)
         if (page.length < PAGE) break
@@ -118,13 +121,18 @@ export default async function DashboardPage() {
       const all: { id_szemely: string }[] = []
       const PAGE = 1000
       for (let fromIdx = 0; ; fromIdx += PAGE) {
+        // 2026-08-02 (review-fix): a rendezés az EGYEDI id oszlopon — a nem
+        // egyedi id_szemely szerinti lapozás lapfordulónál sort veszthetett.
         const { data, error } = await supabase
           .from('elkoltozott')
-          .select('id_szemely')
+          .select('id, id_szemely')
           .eq('congregation_id', effectiveCongregationId)
-          .order('id_szemely', { ascending: true })
+          .order('id', { ascending: true })
           .range(fromIdx, fromIdx + PAGE - 1)
-        if (error) return { data: all, error }
+        if (error) {
+          console.error('[dashboard] elkoltozott lapozott lekérés hiba @', fromIdx, error.message)
+          return { data: all, error }
+        }
         const page = (data || []) as { id_szemely: string }[]
         all.push(...page)
         if (page.length < PAGE) break

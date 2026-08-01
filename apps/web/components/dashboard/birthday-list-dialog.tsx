@@ -164,9 +164,17 @@ export function BirthdayListDialog({
       return { from: new Date(year, 0, 1), to: new Date(year, 11, 31) }
     }
     // custom
+    // 2026-08-02 (PR-19 review-fix): a 'YYYY-MM-DD' formát a new Date() UTC
+    // éjfélként értelmezi (= hajnali 2-3 óra helyi időben), miközben a
+    // születésnap-jelöltek HELYI éjfélre esnek → a tartomány ELSŐ napjának
+    // ünnepeltjei kimaradtak volna. Helyi dátumként parsoljuk.
     if (!customFrom || !customTo) return null
-    const from = new Date(customFrom)
-    const to = new Date(customTo)
+    const parseLocal = (s: string) => {
+      const [y, m, d] = s.split('-').map(Number)
+      return new Date(y, (m || 1) - 1, d || 1)
+    }
+    const from = parseLocal(customFrom)
+    const to = parseLocal(customTo)
     if (isNaN(from.getTime()) || isNaN(to.getTime())) return null
     return { from, to }
   }, [preset, customFrom, customTo])
@@ -175,24 +183,32 @@ export function BirthdayListDialog({
   const filtered = useMemo(() => {
     if (!dateRange) return []
     const { from, to } = dateRange
-    return allEntries.filter((e) => {
-      // 2026-08-01 (PR-19 BUGFIX): a születésnap ÉVFORDULÓ — az egyéni
-      // tartománynál az évhatár-átnyúlást (pl. dec. 20. – jan. 10.) is
-      // kezeljük: a from évében ÉS a rákövetkező évben is megnézzük.
-      const yFrom = from.getFullYear()
-      const inRange = [yFrom, yFrom + 1].some((y) => {
-        const candidate = new Date(y, e.month, e.day)
-        return candidate >= from && candidate <= to
+    const yFrom = from.getFullYear()
+    return allEntries
+      .flatMap((e) => {
+        // 2026-08-01 (PR-19 BUGFIX): a születésnap ÉVFORDULÓ — az évhatár-
+        // átnyúlást (pl. dec. 20. – jan. 10.) is kezeljük: a from évében ÉS a
+        // rákövetkező évben is megnézzük. 2026-08-02 (review-fix): az életkor
+        // a TALÁLT évforduló évéből számítódik (különben a jövő januári
+        // ünnepelt 1 évvel fiatalabbként jelent volna meg a listán, a
+        // nyomtatáson ÉS az üdvözlőkártyán is).
+        const matchYear = [yFrom, yFrom + 1].find((y) => {
+          const candidate = new Date(y, e.month, e.day)
+          return candidate >= from && candidate <= to
+        })
+        if (matchYear === undefined) return []
+        const age = matchYear - e.birthDate.getFullYear()
+        // Életkor
+        if (ageMin && age < Number(ageMin)) return []
+        if (ageMax && age > Number(ageMax)) return []
+        // Nem
+        if (genderFilter === 'male' && e.isMale !== true) return []
+        if (genderFilter === 'female' && e.isMale !== false) return []
+        return [{ ...e, age, occursOn: new Date(matchYear, e.month, e.day) }]
       })
-      if (!inRange) return false
-      // Életkor
-      if (ageMin && e.age < Number(ageMin)) return false
-      if (ageMax && e.age > Number(ageMax)) return false
-      // Nem
-      if (genderFilter === 'male' && e.isMale !== true) return false
-      if (genderFilter === 'female' && e.isMale !== false) return false
-      return true
-    })
+      // Az előfordulás időrendjében (évhatár-átnyúlásnál a december a január
+      // ELŐTT — a hónap/nap sorrend itt fordítva mutatta volna)
+      .sort((a, b) => a.occursOn.getTime() - b.occursOn.getTime() || a.name.localeCompare(b.name, 'hu'))
   }, [allEntries, dateRange, ageMin, ageMax, genderFilter])
 
   // ──────────────────────────────────────────────────────────────

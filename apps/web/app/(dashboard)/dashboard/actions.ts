@@ -68,7 +68,13 @@ export async function getBirthdayListAddresses(): Promise<Record<string, string>
       .eq('meghalt', false)
       .order('id', { ascending: true })
       .range(fromIdx, fromIdx + PAGE - 1)
-    if (error) break
+    if (error) {
+      // 2026-08-02 (review-fix): a néma break FÉLIG kitöltött cím-térképet
+      // adott volna vissza (félrevezető, mintha a többieknek nem lenne címe) —
+      // hibánál inkább dobunk, a dialógus catch-e egységesen üresre esik vissza.
+      console.error('[getBirthdayListAddresses] lap-lekérés hiba, from=' + fromIdx, error.message)
+      throw new Error('A címek betöltése nem sikerült.')
+    }
     for (const row of (data || []) as AddressMemberRow[]) {
       const addr = composeAddress(row)
       if (addr) map[String(row.id)] = addr

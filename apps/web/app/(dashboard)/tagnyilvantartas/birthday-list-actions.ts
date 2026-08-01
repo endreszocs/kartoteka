@@ -53,10 +53,23 @@ export async function getBirthdayListData(): Promise<BirthdayListData> {
   }
 
   const [elkoltozottRes, congRes] = await Promise.all([
-    supabase
-      .from('elkoltozott')
-      .select('id_szemely')
-      .eq('congregation_id', congregationId),
+    // 2026-08-02 (review-fix): ez is lapozott — a kizáró forrás 1000 sor
+    // feletti néma csonkolása pont a javítani kívánt hibaosztály lett volna.
+    (async () => {
+      const all: { id_szemely: number | null }[] = []
+      for (let fromIdx = 0; ; fromIdx += PAGE) {
+        const { data, error } = await supabase
+          .from('elkoltozott')
+          .select('id, id_szemely')
+          .eq('congregation_id', congregationId)
+          .order('id', { ascending: true })
+          .range(fromIdx, fromIdx + PAGE - 1)
+        if (error) return { data: all, error }
+        all.push(...((data || []) as { id_szemely: number | null }[]))
+        if ((data || []).length < PAGE) break
+      }
+      return { data: all, error: null }
+    })(),
     supabase
       .from('congregations')
       .select('name, nev_hu, cimer_url')
@@ -66,6 +79,11 @@ export async function getBirthdayListData(): Promise<BirthdayListData> {
 
   if (membersError) {
     console.error('[tagnyilvantartas/birthday-list] tagok lekérdezése hiba:', membersError)
+  }
+  if (elkoltozottRes.error) {
+    // Elnyelve a lista túl bő lenne (elköltözöttek visszakerülnének) — legalább
+    // hangosan logoljuk.
+    console.error('[tagnyilvantartas/birthday-list] elkoltozott lekérdezése hiba:', elkoltozottRes.error.message)
   }
 
   const movedIds = new Set(

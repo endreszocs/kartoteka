@@ -165,7 +165,8 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
         k_nev: editMember.k_nev || '',
         szcs_nev: editMember.szcs_nev || '',
         // 2026-08-01 (PR-19): előtag — ha legacy (nem előtag-szerű) érték van
-        // bent, a select üresen indul, és a mentés kitisztítja (szándékos).
+        // bent, a select üresen mutatja; a szerveroldali mentés (saveMember)
+        // csak előtag-szerű értéket tárol, a maradványt kitisztítja.
         namepattern: editMember.namepattern || '',
         ferfi: editMember.ferfi ?? undefined,
         sz_datum: editMember.sz_datum || '',
