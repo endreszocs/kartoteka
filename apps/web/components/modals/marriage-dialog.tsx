@@ -278,6 +278,8 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
     setLoading(false)
     if (result.error) { toast.error(result.error); return false }
     toast.success('Házasság rögzítve!')
+    // 2026-08-01 (PR-18): dupla-tagsági figyelmeztetés az auto-család őrtől
+    if ('warning' in result && result.warning) toast.warning(result.warning, { duration: 9000 })
     return true
   }
 

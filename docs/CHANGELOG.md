@@ -60,7 +60,12 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
     hoz létre többé második tagságot — ilyenkor figyelmeztető üzenet jelenik
     meg, és a hozzárendelés a személyi kartonról végezhető el tudatosan;
   - a **házassági anyakönyv** sem hoz létre némán második családot, ha
-    valamelyik fél régi családja még aktív.
+    valamelyik fél még egy másik család tagja (akár gyermekként a szülei
+    családjában) — ilyenkor a mentés után figyelmeztető üzenet mondja el a
+    teendőt;
+  - a keresztelésnél/tagfelvételnél automatikusan létrejött családok mostantól
+    azonnal megjelennek a Családok listában és a család-keresőben is (eddig
+    csak egy kézi újramentés után váltak láthatóvá).
 
 ### 🐛 Családi karton és család-működés javítások
 

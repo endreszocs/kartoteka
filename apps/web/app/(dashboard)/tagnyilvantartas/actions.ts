@@ -11,6 +11,7 @@ import { fetchFamilyPaymentsCompat, fetchPersonPaymentsCompat } from '@/lib/fina
 import { allocateFamilyPayments, computeBaseExpectedForMemberYear, computeJarulekForMemberYear, isJarulekExcludedMemberStatus, type JarulekDiscountRule, type JarulekExemption, type JarulekPaymentLike, type JarulekYearSetting } from '@/lib/finance/jarulek-calculation'
 import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallback'
 import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
+import { syncHouseholdFromCsalad } from '@/lib/family/family-membership'
 
 // ── Segéd: congregation_id a profilból ───────────────────────
 
@@ -723,20 +724,29 @@ export async function saveMember(data: MemberInput) {
       }
 
       // 2026-08-01 (PR-18): dupla-tagsági őr — ha a tag már EGY MÁSIK aktív
-      // család gyermeke, NEM szúrunk be második gyerek-sort némán, hanem
-      // figyelmeztetést adunk vissza (az áthelyezés a családi kartonról vagy
-      // a személyi karton „Családhoz rendelés" funkciójából végezhető el).
+      // család tagja (gyermekként VAGY felnőttként), NEM szúrunk be második
+      // gyerek-sort némán, hanem figyelmeztetést adunk vissza (az áthelyezés a
+      // személyi karton „Családhoz rendelés" funkciójából végezhető el).
       let alreadyElsewhere = false
       if (famId) {
-        const { data: otherRows } = await supabase
-          .from('gyerek')
-          .select('id_csalad, csalad:csalad!id_csalad(id, isaktiv)')
-          .eq('id_szemely', savedId)
-          .neq('id_csalad', famId)
+        const [{ data: otherRows }, { data: adultRows }] = await Promise.all([
+          supabase
+            .from('gyerek')
+            .select('id_csalad, csalad:csalad!id_csalad(id, isaktiv)')
+            .eq('id_szemely', savedId)
+            .neq('id_csalad', famId),
+          supabase
+            .from('csalad')
+            .select('id')
+            .eq('isaktiv', true)
+            .neq('id', famId)
+            .or(`id_ferfi.eq.${savedId},id_no.eq.${savedId}`)
+            .limit(1),
+        ])
         alreadyElsewhere = ((otherRows || []) as Array<{ csalad: { isaktiv: boolean } | Array<{ isaktiv: boolean }> | null }>).some((r) => {
           const cs = Array.isArray(r.csalad) ? r.csalad[0] : r.csalad
           return !!cs?.isaktiv
-        })
+        }) || ((adultRows || []) as { id: number }[]).length > 0
         if (alreadyElsewhere) {
           autoFamilyWarning = 'A tag már egy másik család tagjaként szerepel, ezért a szülők CNP-je alapján NEM rendeltük hozzá automatikusan egy második családhoz. Áthelyezni a személyi karton „Családhoz rendelés" gombjával lehet.'
         }
@@ -791,34 +801,13 @@ export async function saveMember(data: MemberInput) {
               }])
             }
           }
-          // háztartás-tagság (haztartas legacy_csalad_id = famId alapján) —
-          // csak ha a dupla-őr nem jelzett másik családot
+          // Háztartás-szinkron — 2026-08-01 (PR-18 review): a korábbi kézi
+          // haztartas_tag-insert csak MÁR LÉTEZŐ háztartásnál futott, így az
+          // itt auto-létrejött családnak sosem lett haztartas-sora (a Családok
+          // lista és a „Családhoz rendelés" kereső sem látta). A közös sync a
+          // hiányzó cim+haztartas sorokat is pótolja.
           if (famId && !alreadyElsewhere) {
-            const { data: haztartas } = await supabase
-              .from('haztartas')
-              .select('id')
-              .eq('legacy_csalad_id', famId)
-              .is('ervenyes_ig', null)
-              .limit(1)
-              .maybeSingle()
-            const haztartasId = (haztartas as { id: string } | null)?.id
-            if (haztartasId) {
-              const { data: existingTag } = await supabase
-                .from('haztartas_tag')
-                .select('id')
-                .eq('id_haztartas', haztartasId)
-                .eq('id_szemely', savedId)
-                .is('ervenyes_ig', null)
-                .limit(1)
-              if (!existingTag?.length) {
-                await supabase.from('haztartas_tag').insert([{
-                  id_haztartas: haztartasId, id_szemely: savedId,
-                  szerep: 'gyermek', is_primary: false,
-                  ervenyes_tol: new Date().toISOString().slice(0, 10),
-                  congregation_id: congregationId,
-                }])
-              }
-            }
+            await syncHouseholdFromCsalad(supabase, famId, congregationId)
           }
         } catch (e) {
           console.warn('[saveMember] hibrid-modell dual-write sikertelen (nem blokkoló):',

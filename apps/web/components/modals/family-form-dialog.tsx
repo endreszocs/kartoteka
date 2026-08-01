@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Sparkles, TriangleAlert } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -8,7 +8,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { saveFamily, searchFamilyMember } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
-import type { AssignConflict, FamilyRow } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
+import type { FamilyRow } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
+import type { AssignConflict } from '@/lib/family/family-membership'
 import { getDistricts, type DistrictRow } from '@/app/(dashboard)/tagnyilvantartas/presbyter-actions'
 import { toast } from 'sonner'
 import { FamilyCardModern, type FamilyCardModernData } from '@kartoteka/ui-app'
@@ -55,6 +56,13 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
   // 2026-08-01 (PR-18): a szerver dupla-tagsági figyelmeztetése — explicit
   // áthelyezési megerősítést kér a mentés előtt.
   const [pendingConflicts, setPendingConflicts] = useState<{ conflicts: AssignConflict[]; warning: string } | null>(null)
+  const conflictRef = useRef<HTMLDivElement>(null)
+
+  // A figyelmeztető panel az űrlap alján van — hosszú űrlapon / mobilon a
+  // viewport alá esne, és a mentés „nem csinál semmit" érzést keltene.
+  useEffect(() => {
+    if (pendingConflicts) conflictRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [pendingConflicts])
 
   // Keresők
   const [husbandQuery, setHusbandQuery] = useState('')
@@ -181,11 +189,13 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
         setPendingConflicts(null)
       } else if (result.conflicts && result.conflicts.length > 0) {
         // 2026-08-01 (PR-18): dupla tagság — a mentés csak explicit
-        // áthelyezéssel mehet tovább.
+        // áthelyezéssel mehet tovább. Toast is szól, hogy a görgetés előtt is
+        // legyen látható visszajelzés.
         setPendingConflicts({
           conflicts: result.conflicts,
           warning: result.warning ?? 'Egy kiválasztott személy már másik család tagja.',
         })
+        toast.warning(result.warning ?? 'Egy kiválasztott személy már másik család tagja — erősítsd meg az áthelyezést a lap alján.', { duration: 8000 })
       } else {
         toast.success(editFamily ? 'Család frissítve!' : 'Család létrehozva!')
         // 2026-06-10 (Fázis 2): a háztartás-sync hibája nem néma többé
@@ -389,7 +399,7 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
 
         {/* ─── Dupla-tagsági figyelmeztetés (PR-18) ─── */}
         {pendingConflicts && (
-          <div className="mx-4 mb-2 space-y-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/50 sm:mx-6">
+          <div ref={conflictRef} className="mx-4 mb-2 space-y-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/50 sm:mx-6">
             <div className="flex items-start gap-2">
               <TriangleAlert className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400" />
               <div className="text-sm leading-6 text-amber-900 dark:text-amber-100">

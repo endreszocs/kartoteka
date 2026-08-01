@@ -675,7 +675,18 @@ export function MemberDetailsDialogV2({
                             variant="outline"
                             className="min-h-11 rounded-xl bg-background/80"
                             title="Áthelyezés másik családba"
-                            onClick={() => setAssignOpen(true)}
+                            onClick={() => {
+                              // 2026-08-01 (PR-18 review): a családfő/házastárs
+                              // áthelyezését a szerver úgyis tiltja (előbb a
+                              // családi kartonon kell kivenni a felnőtt tagok
+                              // közül) — zsákutca helyett odairányítjuk.
+                              if (currentIsFamilyAdult) {
+                                toast.info('Családfő/házastárs áthelyezéséhez előbb a jelenlegi család kartonján módosítsd a felnőtt tagokat — a gyermekek áthelyezése innen működik.')
+                                if (onOpenFamily && effectiveFamilyId) onOpenFamily(effectiveFamilyId)
+                                return
+                              }
+                              setAssignOpen(true)
+                            }}
                           >
                             <ArrowLeftRight className="size-4" />
                             Áthelyezés

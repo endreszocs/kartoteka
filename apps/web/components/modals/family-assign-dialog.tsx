@@ -24,10 +24,9 @@ import {
   getMemberFamilyMemberships,
   saveFamily,
   searchAssignableFamilies,
-  type AssignConflict,
   type AssignableFamily,
-  type FamilyMembershipInfo,
 } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
+import type { AssignConflict, FamilyMembershipInfo } from '@/lib/family/family-membership'
 import type { EnrichedMember } from '@/lib/constants/members'
 
 interface FamilyAssignDialogProps {
@@ -59,7 +58,9 @@ export function FamilyAssignDialog({ open, onOpenChange, member, currentFamilyId
     ? Math.floor((Date.now() - new Date(member.sz_datum).getTime()) / (365.25 * 24 * 3600 * 1000))
     : null
 
-  // Nyitáskor: állapot-reset + a tag meglévő tagságai (figyelmeztető sávhoz)
+  // Nyitáskor: állapot-reset + a tag meglévő tagságai (figyelmeztető sávhoz).
+  // A memberships-t SZINKRON ürítjük — különben az előző tag családja
+  // villanna fel az új tag neve alatt, amíg a lekérés fut.
   useEffect(() => {
     if (!open || !member) return
     let cancelled = false
@@ -70,6 +71,7 @@ export function FamilyAssignDialog({ open, onOpenChange, member, currentFamilyId
     setConflicts(null)
     setConflictWarning(null)
     setPendingNewFamily(false)
+    setMemberships([])
     getMemberFamilyMemberships(member.id)
       .then((list) => { if (!cancelled) setMemberships(list) })
       .catch(() => { if (!cancelled) setMemberships([]) })
@@ -77,8 +79,11 @@ export function FamilyAssignDialog({ open, onOpenChange, member, currentFamilyId
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, member?.id])
 
-  // Debounce-olt család-keresés
+  // Debounce-olt család-keresés. A token MINDEN futásnál lép — így a törölt
+  // kereséshez vagy a bezárt dialógushoz tartozó, még úton lévő válasz nem
+  // tölti újra a már kiürített listát.
   useEffect(() => {
+    const token = ++searchTokenRef.current
     if (!open) return
     const q = query.trim()
     if (q.length < 2) {
@@ -87,7 +92,6 @@ export function FamilyAssignDialog({ open, onOpenChange, member, currentFamilyId
       return
     }
     setSearching(true)
-    const token = ++searchTokenRef.current
     const t = setTimeout(() => {
       searchAssignableFamilies(q)
         .then((rows) => {
@@ -104,13 +108,18 @@ export function FamilyAssignDialog({ open, onOpenChange, member, currentFamilyId
     return () => clearTimeout(t)
   }, [query, open])
 
-  // A kiválasztott családban foglalt felnőtt-slot → automatikusan gyermek-mód
+  // A kiválasztott család dönti a szerep-alapértelmezést: foglalt felnőtt-slot
+  // → gyermek; szabad slot → kor szerinti alap. MINDEN családváltásnál újra-
+  // számoljuk (nem egyirányú kényszer — különben egy felnőtt beragadhatna a
+  // korábban rákényszerített gyermek-módba).
   const adultSlotTakenForSelected = selected && member
     ? (member.ferfi === true ? selected.hasFerfi : member.ferfi === false ? selected.hasNo : true)
     : false
   useEffect(() => {
-    if (selected && adultSlotTakenForSelected) setMode('gyermek')
-  }, [selected, adultSlotTakenForSelected])
+    if (!selected) return
+    setMode(adultSlotTakenForSelected ? 'gyermek' : (age != null && age < 18 ? 'gyermek' : 'felnott'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id])
 
   if (!member) return null
 
@@ -197,9 +206,7 @@ export function FamilyAssignDialog({ open, onOpenChange, member, currentFamilyId
       if (res.success) {
         toast.success(`Új család létrehozva ${memberName} taggal.`)
         if (res.warning) toast.warning(res.warning, { duration: 8000 })
-        // A saveFamily nem adja vissza az új család id-ját — a hívó teljes
-        // frissítést végez (onAssigned(-1) helyett zárás + adatfrissítés).
-        onAssigned(0)
+        onAssigned(res.familyId ?? 0)
         onOpenChange(false)
       }
     } catch {
