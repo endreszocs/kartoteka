@@ -11,7 +11,7 @@ import { fetchFamilyPaymentsCompat, fetchPersonPaymentsCompat } from '@/lib/fina
 import { allocateFamilyPayments, computeBaseExpectedForMemberYear, computeJarulekForMemberYear, isJarulekExcludedMemberStatus, type JarulekDiscountRule, type JarulekExemption, type JarulekPaymentLike, type JarulekYearSetting } from '@/lib/finance/jarulek-calculation'
 import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallback'
 import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
-import { syncHouseholdFromCsalad } from '@/lib/family/family-membership'
+import { findMembershipConflicts, syncHouseholdFromCsalad } from '@/lib/family/family-membership'
 
 // ── Segéd: congregation_id a profilból ───────────────────────
 
@@ -723,32 +723,23 @@ export async function saveMember(data: MemberInput) {
         if (newFam?.[0]) famId = newFam[0].id
       }
 
-      // 2026-08-01 (PR-18): dupla-tagsági őr — ha a tag már EGY MÁSIK aktív
-      // család tagja (gyermekként VAGY felnőttként), NEM szúrunk be második
-      // gyerek-sort némán, hanem figyelmeztetést adunk vissza (az áthelyezés a
-      // személyi karton „Családhoz rendelés" funkciójából végezhető el).
+      // 2026-08-01 (PR-18): dupla-tagsági őr — ha a tag már EGY MÁSIK SAJÁT
+      // aktív család tagja (gyermekként VAGY felnőttként), NEM szúrunk be
+      // második gyerek-sort némán, hanem figyelmeztetést adunk vissza. Az
+      // idegen gyülekezetben maradt tagság (átjelentkezés-maradvány) nem
+      // akadály. Olvasási hibánál fail-closed: kihagyjuk az auto-hozzárendelést.
       let alreadyElsewhere = false
       if (famId) {
-        const [{ data: otherRows }, { data: adultRows }] = await Promise.all([
-          supabase
-            .from('gyerek')
-            .select('id_csalad, csalad:csalad!id_csalad(id, isaktiv)')
-            .eq('id_szemely', savedId)
-            .neq('id_csalad', famId),
-          supabase
-            .from('csalad')
-            .select('id')
-            .eq('isaktiv', true)
-            .neq('id', famId)
-            .or(`id_ferfi.eq.${savedId},id_no.eq.${savedId}`)
-            .limit(1),
-        ])
-        alreadyElsewhere = ((otherRows || []) as Array<{ csalad: { isaktiv: boolean } | Array<{ isaktiv: boolean }> | null }>).some((r) => {
-          const cs = Array.isArray(r.csalad) ? r.csalad[0] : r.csalad
-          return !!cs?.isaktiv
-        }) || ((adultRows || []) as { id: number }[]).length > 0
-        if (alreadyElsewhere) {
-          autoFamilyWarning = 'A tag már egy másik család tagjaként szerepel, ezért a szülők CNP-je alapján NEM rendeltük hozzá automatikusan egy második családhoz. Áthelyezni a személyi karton „Családhoz rendelés" gombjával lehet.'
+        try {
+          const guard = await findMembershipConflicts(supabase, congregationId, [savedId], famId)
+          alreadyElsewhere = guard.blocked.length > 0 || guard.movable.length > 0
+          if (alreadyElsewhere) {
+            autoFamilyWarning = 'A tag már egy másik család tagjaként szerepel, ezért a szülők CNP-je alapján NEM rendeltük hozzá automatikusan egy második családhoz. Áthelyezni a személyi karton „Családhoz rendelés" gombjával lehet.'
+          }
+        } catch (e) {
+          console.warn('[saveMember] tagsági ellenőrzés sikertelen:', e instanceof Error ? e.message : e)
+          alreadyElsewhere = true
+          autoFamilyWarning = 'A családtagsági ellenőrzés nem sikerült, ezért a tagot nem rendeltük hozzá automatikusan a családhoz — a személyi karton „Családhoz rendelés" gombjával végezhető el.'
         }
       }
 

@@ -206,8 +206,16 @@ export async function assignMemberToFamily(input: AssignMemberInput): Promise<As
   }
 
   // Dupla-tagsági őr (gyülekezet-hatókörrel: az idegen gyülekezetben maradt
-  // tagság — pl. átjelentkezés maradványa — nem blokkol és nem mutálódik)
-  const { blocked, movable, foreign, allowed } = await findMembershipConflicts(supabase, congregationId, [memberId], familyId)
+  // tagság — pl. átjelentkezés maradványa — nem blokkol és nem mutálódik).
+  // Fail-closed: olvasási hibánál nem rendelünk hozzá.
+  let guard: Awaited<ReturnType<typeof findMembershipConflicts>>
+  try {
+    guard = await findMembershipConflicts(supabase, congregationId, [memberId], familyId)
+  } catch (e) {
+    console.warn('[assignMemberToFamily] tagsági ellenőrzés sikertelen:', e instanceof Error ? e.message : e)
+    return { error: 'A családtagsági ellenőrzés nem sikerült — próbáld újra. Ha a hiba ismétlődik, jelezd a rendszergazdának.' }
+  }
+  const { blocked, movable, foreign, allowed } = guard
   if (blocked.length > 0) {
     const b = blocked[0]
     return {
@@ -694,7 +702,16 @@ export async function saveFamily(data: FamilyInput): Promise<SaveFamilyResult> {
   let movesToApply: AssignConflict[] = []
   let movesAllowed: Set<number> = new Set()
   if (selectedMemberIds.length > 0) {
-    const { blocked, movable, foreign, allowed } = await findMembershipConflicts(supabase, congregationId, selectedMemberIds, d.id ?? null)
+    // Fail-closed: ha a tagsági ellenőrzés olvasása elbukik, NEM mentünk
+    // (elnyelt hibával az őr némán kikapcsolna).
+    let guard: Awaited<ReturnType<typeof findMembershipConflicts>>
+    try {
+      guard = await findMembershipConflicts(supabase, congregationId, selectedMemberIds, d.id ?? null)
+    } catch (e) {
+      console.warn('[saveFamily] tagsági ellenőrzés sikertelen:', e instanceof Error ? e.message : e)
+      return { error: 'A családtagsági ellenőrzés nem sikerült — próbáld újra. Ha a hiba ismétlődik, jelezd a rendszergazdának.' }
+    }
+    const { blocked, movable, foreign, allowed } = guard
     foreignWarning = foreignMembershipWarning(foreign)
     // A KORÁBBRÓL bennlévő felnőttek ütközése (régi, hibás adat) nem blokkol —
     // különben a család kartonja menthetetlenné válna (mindkét érintett család

@@ -53,13 +53,22 @@ function must(res: { data: any; error: { message: string } | null }, step: strin
 /**
  * A `csalad.id`-k halmaza, amelyhez az adott gyülekezetnek hozzáférése van
  * (haztartas.legacy_csalad_id alapján — a csalad táblán nincs congregation_id).
+ *
+ * throwOnError: ŐR-bemenetként hívva kötelező — az elnyelt olvasási hiba üres
+ * halmazt adna, amitől a dupla-tagsági őr fail-open módon MINDENT idegennek
+ * nézne (tiltás megkerülve, régi tagság lezáratlanul).
  */
-export async function getAllowedFamilyIds(supabase: Db, congregationId: string): Promise<Set<number>> {
-  const { data } = await supabase
+export async function getAllowedFamilyIds(
+  supabase: Db,
+  congregationId: string,
+  opts?: { throwOnError?: boolean },
+): Promise<Set<number>> {
+  const { data, error } = await supabase
     .from('haztartas')
     .select('legacy_csalad_id')
     .eq('congregation_id', congregationId)
     .not('legacy_csalad_id', 'is', null)
+  if (error && opts?.throwOnError) throw new Error(`haztartas-olvasas: ${error.message}`)
 
   return new Set(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -169,12 +178,13 @@ export async function syncHouseholdFromCsalad(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cimId = (existingHaztartas as any)?.id_cim as string | null
     if (cimId) {
+      // ARCHIVÁLT háztartás cim-hivatkozása is számít megosztásnak — különben
+      // az in-place update a lezárt háztartás történeti címét is átírná.
       const sharers = must(await supabase
         .from('haztartas')
         .select('id')
         .eq('id_cim', cimId)
         .neq('id', haztartasId)
-        .is('ervenyes_ig', null)
         .limit(1), 'cim-megosztas-olvasas')
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if (((sharers || []) as any[]).length > 0) {
@@ -276,8 +286,15 @@ export async function loadFamilyDisplayNames(supabase: Db, familyIds: number[]):
  * Több személy AKTÍV családtagságai egy menetben (mindkét szerep). A kulcs a
  * személy-id; az érték az összes aktív családja (jó esetben 0 vagy 1 elem).
  * NEM gyülekezet-szűrt — a hívó a MembershipConflicts.allowed halmazzal metsz.
+ *
+ * throwOnError: őr-bemenetként az elnyelt hiba üres tagság-térképet adna
+ * (= nincs ütközés), amivel a dupla-tagsági őr némán kikapcsolna.
  */
-export async function loadFamilyMemberships(supabase: Db, personIds: number[]): Promise<Map<number, FamilyMembershipInfo[]>> {
+export async function loadFamilyMemberships(
+  supabase: Db,
+  personIds: number[],
+  opts?: { throwOnError?: boolean },
+): Promise<Map<number, FamilyMembershipInfo[]>> {
   const result = new Map<number, FamilyMembershipInfo[]>()
   if (personIds.length === 0) return result
 
@@ -292,6 +309,10 @@ export async function loadFamilyMemberships(supabase: Db, personIds: number[]): 
       .select('id_csalad, id_szemely, csalad:csalad!id_csalad(id, isaktiv)')
       .in('id_szemely', personIds),
   ])
+  if (opts?.throwOnError) {
+    if (adultRes.error) throw new Error(`csalad-olvasas: ${adultRes.error.message}`)
+    if (childRes.error) throw new Error(`gyerek-olvasas: ${childRes.error.message}`)
+  }
 
   const entries: Array<{ personId: number; familyId: number; role: 'felnott' | 'gyermek' }> = []
   const personIdSet = new Set(personIds)
@@ -325,6 +346,14 @@ export async function loadFamilyMemberships(supabase: Db, personIds: number[]): 
  *  - movable: gyermekként MÁSIK saját családban (megerősítéssel áthelyezhető),
  *  - foreign: másik GYÜLEKEZET családjában maradt tagság (csak figyelmeztetés,
  *    sosem blokkolunk és sosem mutáljuk — pl. egyháztag-átadás maradványa).
+ *
+ * „Saját" család = van saját-gyülekezeti haztartas-sora (allowed), VAGY
+ * valamelyik felnőtt tagja a saját gyülekezet tagja — utóbbi fogja meg a
+ * korábban automatikusan (haztartas nélkül) létrejött saját családokat is.
+ *
+ * OLVASÁSI HIBÁNÁL DOB (fail-closed) — a hívó felelőssége barátságos hibává
+ * alakítani; elnyelt hibával az őr némán kikapcsolna (üres allowed → minden
+ * „idegen" → tiltás megkerülve, régi tagság lezáratlanul).
  */
 export async function findMembershipConflicts(
   supabase: Db,
@@ -335,19 +364,44 @@ export async function findMembershipConflicts(
   const blocked: AssignConflict[] = []
   const movable: AssignConflict[] = []
   const foreign: AssignConflict[] = []
-  const allowed = await getAllowedFamilyIds(supabase, congregationId)
+  const allowed = await getAllowedFamilyIds(supabase, congregationId, { throwOnError: true })
   if (personIds.length === 0) return { blocked, movable, foreign, allowed }
 
-  const memberships = await loadFamilyMemberships(supabase, personIds)
+  const memberships = await loadFamilyMemberships(supabase, personIds, { throwOnError: true })
 
-  const { data: personsRaw } = await supabase
+  const { data: personsRaw, error: personsError } = await supabase
     .from('szemely')
     .select('id, csaladnev, k_nev')
     .in('id', personIds)
+  if (personsError) throw new Error(`szemely-olvasas: ${personsError.message}`)
   const nameById = new Map<number, string>(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ((personsRaw || []) as any[]).map((p) => [p.id, `${p.csaladnev ?? ''} ${p.k_nev ?? ''}`.trim() || `#${p.id}`]),
   )
+
+  // Saját-ság kiegészítés: az allowed-ból kimaradó érintett családok közül az
+  // is sajátnak számít, amelynek valamelyik felnőttje a saját gyülekezet tagja
+  // (haztartas-sor nélküli, régebben auto-létrejött családok).
+  const candidateIds = [...new Set(
+    [...memberships.values()].flat()
+      .map((m) => m.familyId)
+      .filter((id) => id !== targetFamilyId && !allowed.has(id)),
+  )]
+  if (candidateIds.length > 0) {
+    const { data: famRows, error: famError } = await supabase
+      .from('csalad')
+      .select('id, ferfi:szemely!id_ferfi(congregation_id), no:szemely!id_no(congregation_id)')
+      .in('id', candidateIds)
+    if (famError) throw new Error(`csalad-tulajdon-olvasas: ${famError.message}`)
+    const congOf = (v: { congregation_id?: string | null } | Array<{ congregation_id?: string | null }> | null) =>
+      Array.isArray(v) ? v[0]?.congregation_id ?? null : v?.congregation_id ?? null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const row of (famRows || []) as any[]) {
+      if (congOf(row.ferfi) === congregationId || congOf(row.no) === congregationId) {
+        allowed.add(row.id as number)
+      }
+    }
+  }
 
   for (const personId of personIds) {
     for (const m of memberships.get(personId) ?? []) {
