@@ -13,6 +13,8 @@ interface Member {
   csaladnev: string | null
   k_nev: string | null
   namepattern: string | null
+  /** 2026-08-01 (PR-19): az özv./elv. előtaghoz */
+  allapot?: string | null
   sz_datum: string | null
   ferfi: boolean | null
 }

@@ -13,12 +13,15 @@ import { CongregationSetupAutoOpen } from '@/components/dashboard/congregation-s
 import { CongregationOnlyNotice } from '@/components/layout/congregation-only-notice'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { checkCongregationSetupStatus } from '@/app/(dashboard)/congregation/actions'
+import { formatNameWithPrefix } from '@/lib/utils/member-helpers'
 
 interface Member {
   id: string
   csaladnev: string | null
   k_nev: string | null
   namepattern: string | null
+  /** 2026-08-01 (PR-19): az özv./elv. előtaghoz */
+  allapot: string | null
   sz_datum: string | null
   ferfi: boolean | null
 }
@@ -91,8 +94,43 @@ export default async function DashboardPage() {
     // 2026-06-30 (perf): a cím-joinok (adrstreet/adrlocality) + c_szam/c_szcim
     // KIKERÜLTEK innen — azok csak a születésnap-lista modálban, a „Lakhely"
     // kapcsoló mögött kellenek, ezért kérésre töltődnek (getBirthdayListAddresses).
-    supabase.from('szemely').select('id, csaladnev, k_nev, namepattern, sz_datum, ferfi').eq('congregation_id', effectiveCongregationId).eq('meghalt', false),
-    supabase.from('elkoltozott').select('id_szemely').eq('congregation_id', effectiveCongregationId),
+    // 2026-08-01 (PR-19): LAPOZOTT lekérés — a Supabase alap 1000-es plafonja
+    // felett a lista (és a születésnaposok) némán csonkolódott volna.
+    (async () => {
+      const all: Member[] = []
+      const PAGE = 1000
+      for (let fromIdx = 0; ; fromIdx += PAGE) {
+        const { data, error } = await supabase
+          .from('szemely')
+          .select('id, csaladnev, k_nev, namepattern, allapot, sz_datum, ferfi')
+          .eq('congregation_id', effectiveCongregationId)
+          .eq('meghalt', false)
+          .order('id', { ascending: true })
+          .range(fromIdx, fromIdx + PAGE - 1)
+        if (error) return { data: all, error }
+        const page = (data || []) as Member[]
+        all.push(...page)
+        if (page.length < PAGE) break
+      }
+      return { data: all, error: null }
+    })(),
+    (async () => {
+      const all: { id_szemely: string }[] = []
+      const PAGE = 1000
+      for (let fromIdx = 0; ; fromIdx += PAGE) {
+        const { data, error } = await supabase
+          .from('elkoltozott')
+          .select('id_szemely')
+          .eq('congregation_id', effectiveCongregationId)
+          .order('id_szemely', { ascending: true })
+          .range(fromIdx, fromIdx + PAGE - 1)
+        if (error) return { data: all, error }
+        const page = (data || []) as { id_szemely: string }[]
+        all.push(...page)
+        if (page.length < PAGE) break
+      }
+      return { data: all, error: null }
+    })(),
     // 2026-06-01 (hibrid család-modell Fázis 2): az ÚJ `haztartas` táblát
     // olvassuk — congregation_id direkt szűr, és a tagság aktív tagjai a
     // `haztartas_tag`-ban élnek (csaladfo/hazastars szerepekkel).
@@ -178,10 +216,12 @@ export default async function DashboardPage() {
 
   // ── Születésnap / névnap ──────────────────────────────────
   const mmDd = today.toISOString().slice(5, 10)
+  // 2026-08-01 (PR-19): kanonikus név-formázás — a namepattern csak akkor
+  // előtag, ha tényleg az; az özv./elv. az allapot-ból jön.
   const todayBirthdays = activeMembers
     .filter(m => m.sz_datum && m.sz_datum.slice(5, 10) === mmDd)
     .map(m => ({
-      name: [m.namepattern, m.csaladnev, m.k_nev].filter(Boolean).join(' '),
+      name: formatNameWithPrefix(m),
       age: ageFromDate(m.sz_datum),
     }))
 
@@ -195,7 +235,7 @@ export default async function DashboardPage() {
   const todayNamedayMembers = todayNamedayNames.length > 0
     ? activeMembers
         .filter(m => m.k_nev && todayNamedayNames.includes(m.k_nev))
-        .map(m => [m.namepattern, m.csaladnev, m.k_nev].filter(Boolean).join(' '))
+        .map(m => formatNameWithPrefix(m))
     : []
 
   // ── Következő 14 nap születésnapok ────────────────────────
@@ -209,7 +249,7 @@ export default async function DashboardPage() {
       const diffDays = Math.round((nextBday.getTime() - todayMs) / 86400000)
       if (diffDays <= 0 || diffDays > 14) return null
       return {
-        name: [m.namepattern, m.csaladnev, m.k_nev].filter(Boolean).join(' '),
+        name: formatNameWithPrefix(m),
         age: nextBday.getFullYear() - b.getFullYear(),
         diffDays,
         month: nextBday.getMonth(),

@@ -26,6 +26,8 @@ export const memberSchema = z.object({
   csaladnev: z.string().trim().min(1, 'A családnév kötelező'),
   k_nev: z.string().trim().min(1, 'A keresztnév kötelező'),
   szcs_nev: z.string().optional().or(z.literal('')),
+  /** 2026-08-01 (PR-19): név-előtag (id./ifj./özv./Dr.) — a szemely.namepattern */
+  namepattern: z.string().trim().max(15).optional().or(z.literal('')),
   ferfi: z.boolean({ message: 'A nem megadása kötelező' }),
   sz_datum: z
     .string()

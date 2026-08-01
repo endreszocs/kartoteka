@@ -56,16 +56,24 @@ export async function getBirthdayListAddresses(): Promise<Record<string, string>
   const { supabase, congregationId } = await getEffectiveCongregationContext()
   if (!congregationId) return {}
 
-  const { data } = await supabase
-    .from('szemely')
-    .select('id, c_szam, c_szcim, adrstreet!c_utcaid(name, adrlocality!localityid(name)), adrlocality!c_helysegid(name)')
-    .eq('congregation_id', congregationId)
-    .eq('meghalt', false)
-
+  // 2026-08-01 (PR-19): lapozott lekérés — 1000 tag felett a címek egy része
+  // némán hiányzott volna.
+  const PAGE = 1000
   const map: Record<string, string> = {}
-  for (const row of (data || []) as AddressMemberRow[]) {
-    const addr = composeAddress(row)
-    if (addr) map[String(row.id)] = addr
+  for (let fromIdx = 0; ; fromIdx += PAGE) {
+    const { data, error } = await supabase
+      .from('szemely')
+      .select('id, c_szam, c_szcim, adrstreet!c_utcaid(name, adrlocality!localityid(name)), adrlocality!c_helysegid(name)')
+      .eq('congregation_id', congregationId)
+      .eq('meghalt', false)
+      .order('id', { ascending: true })
+      .range(fromIdx, fromIdx + PAGE - 1)
+    if (error) break
+    for (const row of (data || []) as AddressMemberRow[]) {
+      const addr = composeAddress(row)
+      if (addr) map[String(row.id)] = addr
+    }
+    if ((data || []).length < PAGE) break
   }
   return map
 }

@@ -23,6 +23,52 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-02] — Születésnaposok: névjavítás + megosztható üdvözlőkártya + előtag-rendszer rendbetétele
+<!-- key: 2026-08-02-tagnyilv-pr19-szuletesnapos-kartya -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.132 -->
+
+### 🐛 Javítás: név nélküli sorok a születésnaposoknál
+
+- **A születésnapos listán egyes tagoknál csak annyi látszott: „ifj." vagy
+  „id." — a név nélkül.** Az ok: a rendszer a név-előtagot tévedésből teljes
+  névként jelenítette meg. Javítva — az előtag mostantól mindenhol a név ELÉ
+  kerül (pl. „ifj. Bartók Szabolcs"), a képernyőn és a nyomtatott listán is.
+- Ugyanez a hiba élt az **éves jelentés** keresztelési/esketési/temetési
+  névlistáiban is — ott is javítva.
+- A dashboard ünnepek-kártyáján (mai születésnaposok, névnaposok, közelgő
+  születésnapok) és a születésnapos listán mostantól az **özv./elv.** előtag
+  is megjelenik a családi állapot alapján.
+
+### ✨ Megosztható születésnapi üdvözlőkártya
+
+- A születésnapos listában minden sor mellett **ajándék-ikon** 🎁: egy
+  kattintással elegáns, a gyülekezet arculatára szabott üdvözlőkártya készül
+  az ünnepeltnek (címerrel, áldás-igével, saját üzenettel kiegészíthető).
+- A lista tetején **„Üdvözlőkártya" gomb**: a teljes szűrt lista egyetlen
+  szép kártyán („Augusztusi születésnaposaink") — faliújságra vagy közösségi
+  médiába.
+- A kártya **képként letölthető (PNG)**, telefonon **közvetlenül megosztható**
+  (Facebook, WhatsApp stb.), és **nyomtatható** is. Az életkor megjelenítése
+  kikapcsolható, és rövid személyes üzenet is ráírható.
+
+### ✨ Név-előtag mostantól a felületről állítható
+
+- A tag-űrlap „Személyes" lépésében új **„Előtag" mező** (id., ifj., legid.,
+  legifj., özv., Dr.) — eddig ezt csak adatbázis-szinten lehetett beállítani.
+
+### 🐛 További születésnapos javítások
+
+- Az **„Egyéni" időszak** évhatár-átnyúlásnál (pl. december 20. – január 10.)
+  eddig üres listát adott — javítva.
+- **1000 fő feletti** gyülekezetnél a lista némán csonkolódott volna — a
+  betöltés mostantól lapozott, minden tag számít.
+- A tagnyilvántartás Áttekintés fülének születésnapos doboza eddig a már
+  **elköltözött** tagokat is listázta — mostantól kimaradnak (dashboard-paritás).
+
+---
+
 ## [2026-08-01] — Családhoz rendelés a személyi kartonról + dupla-tagsági figyelmeztetés + családi karton javítások
 <!-- key: 2026-08-01-tagnyilv-pr18-csalad-hozzarendeles -->
 <!-- category: feature -->

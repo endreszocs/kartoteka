@@ -609,6 +609,8 @@ export async function saveMember(data: MemberInput) {
     csaladnev: d.csaladnev,
     k_nev: d.k_nev,
     szcs_nev: d.szcs_nev || null,
+    // 2026-08-01 (PR-19): név-előtag (id./ifj./özv./Dr.) — az űrlapról állítható
+    namepattern: d.namepattern?.trim() || null,
     ferfi: d.ferfi,
     sz_datum: d.sz_datum || null,
     sz_helyid: szHelyId,

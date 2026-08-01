@@ -289,7 +289,10 @@ export function HomePage() {
       id: String(m.id),
       csaladnev: m.csaladnev,
       k_nev: m.k_nev,
+      // A desktop-cache nem szinkronizálja a namepattern-t (id./ifj. előtag) —
+      // az özv./elv. viszont az allapot-ból itt is kijön (PR-19).
       namepattern: null,
+      allapot: m.allapot ?? null,
       sz_datum: m.sz_datum,
       ferfi: m.ferfi === 1,
       c_szam: m.c_szam,

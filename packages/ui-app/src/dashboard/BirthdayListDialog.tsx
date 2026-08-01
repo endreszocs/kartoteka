@@ -33,6 +33,8 @@ import {
   Label,
 } from '@kartoteka/ui'
 
+import { formatNameWithPrefix } from '../members/name-format'
+
 /**
  * A szűrő-modalhoz szükséges tag-alak. A web a `szemely` táblából (join-okkal),
  * a desktop a lokális `szemely_local`-ból tölti — minden cím-mező opcionális.
@@ -42,6 +44,8 @@ export interface CelebrationsMember {
   csaladnev: string | null
   k_nev: string | null
   namepattern: string | null
+  /** 2026-08-01 (PR-19): az özv./elv. előtaghoz */
+  allapot?: string | null
   sz_datum: string | null
   ferfi: boolean | null
   /** Házszám a szemely táblából (c_szam) */
@@ -107,8 +111,14 @@ export function BirthdayListDialog({
       .map((m) => {
         const birthDate = new Date(m.sz_datum!)
         if (isNaN(birthDate.getTime())) return null
-        // Név összeállítása magyar sorrendben
-        const name = m.namepattern || `${m.csaladnev || ''} ${m.k_nev || ''}`.trim() || '(névtelen)'
+        // 2026-08-01 (PR-19 BUGFIX): a namepattern csak ELŐTAG (id./ifj./özv.)
+        // — korábban teljes névként jelent meg helyette („ifj." név nélkül).
+        const name = formatNameWithPrefix({
+          csaladnev: m.csaladnev,
+          k_nev: m.k_nev,
+          namepattern: m.namepattern,
+          allapot: m.allapot ?? null,
+        })
         // Az idei születésnap hónap/nap alapján
         const month = birthDate.getMonth()
         const day = birthDate.getDate()
@@ -202,11 +212,16 @@ export function BirthdayListDialog({
   const filtered = useMemo(() => {
     if (!dateRange) return []
     const { from, to } = dateRange
-    const currentYear = new Date().getFullYear()
     return allEntries.filter((e) => {
-      // Az "idei évi" születésnap benne van-e a tartományban
-      const thisYear = new Date(currentYear, e.month, e.day)
-      if (thisYear < from || thisYear > to) return false
+      // 2026-08-01 (PR-19 BUGFIX): a születésnap ÉVFORDULÓ — az egyéni
+      // tartománynál az évhatár-átnyúlást (pl. dec. 20. – jan. 10.) is
+      // kezeljük: a from évében ÉS a rákövetkező évben is megnézzük.
+      const yFrom = from.getFullYear()
+      const inRange = [yFrom, yFrom + 1].some((y) => {
+        const candidate = new Date(y, e.month, e.day)
+        return candidate >= from && candidate <= to
+      })
+      if (!inRange) return false
       // Életkor
       if (ageMin && e.age < Number(ageMin)) return false
       if (ageMax && e.age > Number(ageMax)) return false
