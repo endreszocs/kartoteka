@@ -175,7 +175,9 @@ BEGIN
      AND ((c.id_ferfi = k2.id_szemely_1 AND c.id_no = k2.id_szemely_2)
        OR (c.id_ferfi = k2.id_szemely_2 AND c.id_no = k2.id_szemely_1))
     JOIN public.haztartas h ON h.legacy_csalad_id = c.id AND h.congregation_id = p_congregation_id
+     AND h.ervenyes_ig IS NULL
     WHERE k2.tipus = 'hazastars'
+      AND k2.congregation_id = p_congregation_id
       AND k2.ervenyes_ig IS NOT NULL
       AND k2.megjegyzes = 'csalad-szerkesztes-eltavolitas'
       AND NOT EXISTS (
@@ -196,7 +198,9 @@ BEGIN
     JOIN public.csalad c ON c.id = g.id_csalad AND c.isaktiv = true
      AND (c.id_ferfi = k2.id_szemely_1 OR c.id_no = k2.id_szemely_1)
     JOIN public.haztartas h ON h.legacy_csalad_id = c.id AND h.congregation_id = p_congregation_id
+     AND h.ervenyes_ig IS NULL
     WHERE k2.tipus = 'szulo_gyermek'
+      AND k2.congregation_id = p_congregation_id
       AND k2.ervenyes_ig IS NOT NULL
       AND k2.megjegyzes = 'csalad-szerkesztes-eltavolitas'
       AND NOT EXISTS (
