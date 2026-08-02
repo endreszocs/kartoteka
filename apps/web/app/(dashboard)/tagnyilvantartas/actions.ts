@@ -11,7 +11,8 @@ import { fetchFamilyPaymentsCompat, fetchPersonPaymentsCompat } from '@/lib/fina
 import { allocateFamilyPayments, computeBaseExpectedForMemberYear, computeJarulekForMemberYear, isJarulekExcludedMemberStatus, type JarulekDiscountRule, type JarulekExemption, type JarulekPaymentLike, type JarulekYearSetting } from '@/lib/finance/jarulek-calculation'
 import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallback'
 import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
-import { findMembershipConflicts, syncHouseholdFromCsalad } from '@/lib/family/family-membership'
+import { ensureChildFamilyLink } from '@/lib/family/auto-family'
+import { getAllowedFamilyIds, syncHouseholdFromCsalad } from '@/lib/family/family-membership'
 
 // ── Segéd: congregation_id a profilból ───────────────────────
 
@@ -641,8 +642,23 @@ export async function saveMember(data: MemberInput) {
 
   let savedId = d.id
 
+  // 2026-08-02 (PR-20 review): a KORÁBBI szülő-nevek az update ELŐTT — a
+  // név-alapú szülő-párosítás csak MEGVÁLTOZOTT névre fut (különben minden
+  // mentésnél újra felugrana ugyanaz a választó).
+  let prevApjaneve: string | null = null
+  let prevAnyjaneve: string | null = null
+
   if (d.id) {
     // UPDATE
+    const { data: prevNames } = await supabase
+      .from('szemely')
+      .select('apjaneve, anyjaneve')
+      .eq('id', d.id)
+      .eq('congregation_id', congregationId)
+      .maybeSingle()
+    prevApjaneve = (prevNames as { apjaneve: string | null } | null)?.apjaneve ?? null
+    prevAnyjaneve = (prevNames as { anyjaneve: string | null } | null)?.anyjaneve ?? null
+
     const { error } = await supabase.from('szemely').update(memberData).eq('id', d.id).eq('congregation_id', congregationId)
     if (error) return { error: `Hiba: ${error.message}` }
 
@@ -697,9 +713,15 @@ export async function saveMember(data: MemberInput) {
     }
   }
 
-  // Automatikus család létrehozás (ha szülő CNP van)
+  // Automatikus család-bekötés — 2026-08-02 (PR-20): közös helperrel
+  // (lib/family/auto-family.ts). Két út:
+  //   a) CNP-vel összekötött szülő (legördülőből választva) → azonnali bekötés;
+  //   b) CSAK NÉVVEL beírt szülő → név-egyezés keresés a gyülekezetben:
+  //      egyértelmű találatnál automatikus bekötés, több találatnál a
+  //      felület felugró ablakban választat (parentLink eredmény-mező).
   let autoFamilyWarning: string | undefined
-  if (savedId && (d.id_apja_cnp || d.id_anyja_cnp)) {
+  let parentLink: SaveMemberParentLink | undefined
+  if (savedId && (d.id_apja_cnp || d.id_anyja_cnp || d.apjaneve?.trim() || d.anyjaneve?.trim())) {
     let ferfiId: number | null = null
     let noId: number | null = null
 
@@ -714,104 +736,55 @@ export async function saveMember(data: MemberInput) {
       if (m?.[0]) noId = m[0].id
     }
 
+    // b) NÉV-alapú párosítás, ha nincs SEMMILYEN CNP-hivatkozás (2026-08-02,
+    // PR-20): pontos (kis-nagybetű-független) családnév+keresztnév egyezés,
+    // nem szerint szűrve, kor-ésszerűségi ellenőrzéssel. Egy megbízható
+    // találat → automatikus; egyébként a felugró ablak választat/megerősíttet.
+    // FONTOS (review): megadott, de fel nem oldható CNP-nél NEM találgatunk
+    // név alapján (a tárolt CNP-t nem írjuk felül); változatlan névre nem
+    // futunk újra (ne ugorjon fel minden mentésnél ugyanaz a választó).
+    const sameName = (input: string | undefined, prev: string | null) =>
+      (input?.trim() || '').toLowerCase() === (prev ?? '').trim().toLowerCase()
+    const apa = (ferfiId || d.id_apja_cnp)
+      ? { input: d.apjaneve?.trim() || '', status: 'cnp' as const }
+      : (d.id && sameName(d.apjaneve, prevApjaneve))
+        ? { input: '', status: 'none' as const }
+        : await matchParentByName(supabase, congregationId, d.apjaneve, true, savedId, d.sz_datum || null)
+    const anya = (noId || d.id_anyja_cnp)
+      ? { input: d.anyjaneve?.trim() || '', status: 'cnp' as const }
+      : (d.id && sameName(d.anyjaneve, prevAnyjaneve))
+        ? { input: '', status: 'none' as const }
+        : await matchParentByName(supabase, congregationId, d.anyjaneve, false, savedId, d.sz_datum || null)
+
+    const cnpUpdates: Record<string, unknown> = {}
+    if (apa.status === 'linked' && apa.matched) {
+      ferfiId = apa.matched.id
+      if (apa.matched.cnp) cnpUpdates.id_apja = apa.matched.cnp
+    }
+    if (anya.status === 'linked' && anya.matched) {
+      noId = anya.matched.id
+      if (anya.matched.cnp) cnpUpdates.id_anyja = anya.matched.cnp
+    }
+    if (Object.keys(cnpUpdates).length > 0) {
+      await supabase.from('szemely').update(cnpUpdates).eq('id', savedId).eq('congregation_id', congregationId)
+    }
+
     if (ferfiId || noId) {
-      let query = supabase.from('csalad').select('id').eq('isaktiv', true)
-      if (ferfiId) query = query.eq('id_ferfi', ferfiId)
-      if (noId) query = query.eq('id_no', noId)
-      const { data: existingFam } = await query.limit(1)
+      const linkRes = await ensureChildFamilyLink(supabase, congregationId, savedId, ferfiId, noId, {
+        c_utcaid: utcaId, c_szam: d.c_szam || null,
+      })
+      autoFamilyWarning = linkRes.warning ?? undefined
+    }
 
-      let famId: number | null = null
-      if (existingFam?.[0]) {
-        famId = existingFam[0].id
-      } else {
-        const { data: newFam } = await supabase.from('csalad').insert([{
-          id_ferfi: ferfiId, id_no: noId, c_utcaid: utcaId, c_szam: d.c_szam || '1', isaktiv: true,
-        }]).select('id')
-        if (newFam?.[0]) famId = newFam[0].id
-      }
-
-      // 2026-08-01 (PR-18): dupla-tagsági őr — ha a tag már EGY MÁSIK SAJÁT
-      // aktív család tagja (gyermekként VAGY felnőttként), NEM szúrunk be
-      // második gyerek-sort némán, hanem figyelmeztetést adunk vissza. Az
-      // idegen gyülekezetben maradt tagság (átjelentkezés-maradvány) nem
-      // akadály. Olvasási hibánál fail-closed: kihagyjuk az auto-hozzárendelést.
-      let alreadyElsewhere = false
-      if (famId) {
-        try {
-          const guard = await findMembershipConflicts(supabase, congregationId, [savedId], famId)
-          alreadyElsewhere = guard.blocked.length > 0 || guard.movable.length > 0
-          if (alreadyElsewhere) {
-            autoFamilyWarning = 'A tag már egy másik család tagjaként szerepel, ezért a szülők CNP-je alapján NEM rendeltük hozzá automatikusan egy második családhoz. Áthelyezni a személyi karton „Családhoz rendelés" gombjával lehet.'
-          }
-        } catch (e) {
-          console.warn('[saveMember] tagsági ellenőrzés sikertelen:', e instanceof Error ? e.message : e)
-          alreadyElsewhere = true
-          autoFamilyWarning = 'A családtagsági ellenőrzés nem sikerült, ezért a tagot nem rendeltük hozzá automatikusan a családhoz — a személyi karton „Családhoz rendelés" gombjával végezhető el.'
-        }
-      }
-
-      if (famId && !alreadyElsewhere) {
-        const { data: check } = await supabase.from('gyerek').select('id').eq('id_szemely', savedId).eq('id_csalad', famId).limit(1)
-        if (!check?.length) {
-          await supabase.from('gyerek').insert([{ id_csalad: famId, id_szemely: savedId }])
-        }
-      }
-
-      {
-        // 2026-06-01 (hibrid család-modell Fázis 2): dual-write az új modellbe
-        // — vér szerinti szülő-gyerek kapcsolatok + háztartás-tagság (mint a
-        // baptism-action checkAndCreateFamily helper-je). 2026-08-01 (PR-18):
-        // a vér szerinti kapcsolat a családtagságtól FÜGGETLENÜL rögzül — a
-        // háztartás-tagságot viszont a dupla-őr visszafogja.
-        try {
-          // szülő-gyerek kapcsolatok (idempotens — partial unique index)
-          if (ferfiId) {
-            const { data: existingApa } = await supabase
-              .from('szemely_kapcsolat')
-              .select('id')
-              .eq('id_szemely_1', ferfiId)
-              .eq('id_szemely_2', savedId)
-              .eq('tipus', 'szulo_gyermek')
-              .is('ervenyes_ig', null)
-              .limit(1)
-            if (!existingApa?.length) {
-              await supabase.from('szemely_kapcsolat').insert([{
-                id_szemely_1: ferfiId, id_szemely_2: savedId,
-                tipus: 'szulo_gyermek', ver_szerinti: true,
-                congregation_id: congregationId,
-              }])
-            }
-          }
-          if (noId) {
-            const { data: existingAnya } = await supabase
-              .from('szemely_kapcsolat')
-              .select('id')
-              .eq('id_szemely_1', noId)
-              .eq('id_szemely_2', savedId)
-              .eq('tipus', 'szulo_gyermek')
-              .is('ervenyes_ig', null)
-              .limit(1)
-            if (!existingAnya?.length) {
-              await supabase.from('szemely_kapcsolat').insert([{
-                id_szemely_1: noId, id_szemely_2: savedId,
-                tipus: 'szulo_gyermek', ver_szerinti: true,
-                congregation_id: congregationId,
-              }])
-            }
-          }
-          // Háztartás-szinkron — 2026-08-01 (PR-18 review): a korábbi kézi
-          // haztartas_tag-insert csak MÁR LÉTEZŐ háztartásnál futott, így az
-          // itt auto-létrejött családnak sosem lett haztartas-sora (a Családok
-          // lista és a „Családhoz rendelés" kereső sem látta). A közös sync a
-          // hiányzó cim+haztartas sorokat is pótolja.
-          if (famId && !alreadyElsewhere) {
-            await syncHouseholdFromCsalad(supabase, famId, congregationId)
-          }
-        } catch (e) {
-          console.warn('[saveMember] hibrid-modell dual-write sikertelen (nem blokkoló):',
-            e instanceof Error ? e.message : e)
-        }
-      }
+    // Csak azt mutatjuk, amiről van mondanivaló: az üres-bemenetű 'none' és a
+    // CNP-s részek kimaradnak (különben „a beírt «» névhez nem találtunk" sor
+    // jelenne meg a meg-nem-adott szülőre).
+    const forUi = (p: SaveMemberParentPart): SaveMemberParentPart | undefined =>
+      (p.status === 'cnp' || (p.status === 'none' && !p.input)) ? undefined : p
+    const apaUi = forUi(apa)
+    const anyaUi = forUi(anya)
+    if (apaUi || anyaUi || autoFamilyWarning) {
+      parentLink = { apa: apaUi, anya: anyaUi, familyWarning: autoFamilyWarning ?? null }
     }
   }
 
@@ -872,7 +845,191 @@ export async function saveMember(data: MemberInput) {
   }, supabase)
 
   revalidatePath('/tagnyilvantartas')
-  return { success: true, id: savedId, warning: autoFamilyWarning }
+  return { success: true, id: savedId, warning: autoFamilyWarning, parentLink }
+}
+
+// ── Szülő-név párosítás + utólagos összekötés (2026-08-02, PR-20) ───────────
+
+export interface SaveMemberParentPart {
+  /** A kartonra beírt név */
+  input: string
+  /** cnp = legördülőből összekötve (régi út); linked = név alapján egyértelmű;
+   *  ambiguous = több találat VAGY megerősítendő találat (felugró ablak
+   *  választat); none = nincs találat */
+  status: 'linked' | 'ambiguous' | 'none' | 'cnp'
+  matched?: { id: number; cnp: string | null; name: string; birthYear: string | null }
+  candidates?: { id: number; name: string; birthYear: string | null }[]
+  /** true = a keresés átmeneti hiba miatt nem futott le (≠ nincs találat) */
+  lookupFailed?: boolean
+}
+
+export interface SaveMemberParentLink {
+  apa?: SaveMemberParentPart
+  anya?: SaveMemberParentPart
+  familyWarning: string | null
+}
+
+/**
+ * Szabadon beírt szülő-név párosítása gyülekezeti taghoz: PONTOS (kis-nagybetű-
+ * független) családnév+keresztnév egyezés, nem szerint szűrve. Az esetleges
+ * név-előtagot (id./ifj./özv./Dr.) a beírt szöveg elejéről levágjuk. Elhunyt
+ * szülő is párosítható — a családfához a kapcsolat akkor is érvényes.
+ *
+ * 2026-08-02 (review): egyetlen találat is csak akkor AUTOMATIKUS, ha
+ *  - a jelöltnek van születési dátuma ÉS legalább 15 évvel idősebb a
+ *    gyermeknél (nehogy az azonos nevű FIÚT kössük be apának), ÉS
+ *  - a beírt névben NEM volt nemzedék-előtag (id./ifj. — az önmagában jelzi,
+ *    hogy azonos nevű rokonok vannak).
+ * Minden más eset megerősítendő ('ambiguous' — a felugró ablak választat).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function matchParentByName(supabase: any, congregationId: string, rawName: string | undefined, isFather: boolean, childId: number, childBirthDate: string | null): Promise<SaveMemberParentPart> {
+  const input = rawName?.trim() || ''
+  if (!input) return { input, status: 'none' }
+  const hadGenerationalPrefix = /^((id|ifj|legid|legifj)\.?\s+)/i.test(input)
+  const cleaned = input.replace(/^((id|ifj|legid|legifj|özv|ozv|dr)\.?\s+)+/i, '').trim()
+  const parts = cleaned.split(/\s+/)
+  if (parts.length < 2) return { input, status: 'none' }
+
+  const { data, error } = await supabase
+    .from('szemely')
+    .select('id, cnp, csaladnev, k_nev, sz_datum')
+    .eq('congregation_id', congregationId)
+    .eq('ferfi', isFather)
+    .ilike('csaladnev', parts[0])
+    .ilike('k_nev', parts.slice(1).join(' '))
+    .neq('id', childId)
+    .limit(6)
+  if (error) {
+    console.warn('[matchParentByName] keresés sikertelen:', error.message)
+    return { input, status: 'none', lookupFailed: true }
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = (data || []) as any[]
+  const toInfo = (r: { id: number; cnp: string | null; csaladnev: string | null; k_nev: string | null; sz_datum: string | null }) => ({
+    id: r.id,
+    cnp: r.cnp ?? null,
+    name: `${r.csaladnev ?? ''} ${r.k_nev ?? ''}`.trim(),
+    birthYear: r.sz_datum?.slice(0, 4) ?? null,
+  })
+  if (rows.length === 1) {
+    const candidate = rows[0] as { sz_datum: string | null }
+    const childYear = childBirthDate ? Number(childBirthDate.slice(0, 4)) : null
+    const candYear = candidate.sz_datum ? Number(candidate.sz_datum.slice(0, 4)) : null
+    const agePlausible = childYear != null && candYear != null && childYear - candYear >= 15
+    if (agePlausible && !hadGenerationalPrefix) {
+      return { input, status: 'linked', matched: toInfo(rows[0]) }
+    }
+    // Bizonytalan egyetlen találat → megerősítendő
+    return { input, status: 'ambiguous', candidates: rows.map(toInfo) }
+  }
+  if (rows.length > 1) return { input, status: 'ambiguous', candidates: rows.map(toInfo) }
+  return { input, status: 'none' }
+}
+
+/**
+ * Utólagos szülő-összekötés a felugró választóból: beírja a szülő-CNP-ket a
+ * tag kartonjára, és lefuttatja UGYANAZT az auto-család bekötést, mint a
+ * mentés (család + gyerek-sor + rokonsági élek + háztartás-szinkron).
+ */
+export async function linkMemberParents(input: { memberId: number; apaId?: number | null; anyaId?: number | null }) {
+  const { supabase, user, congregationId } = await getProfileCongregation()
+  if (!user || !congregationId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const { memberId } = input
+  if (!Number.isInteger(memberId) || memberId <= 0) return { error: 'Érvénytelen tag-azonosító.' }
+  if (!input.apaId && !input.anyaId) return { error: 'Nincs kiválasztott szülő.' }
+
+  const { data: member } = await supabase
+    .from('szemely')
+    .select('id, c_utcaid, c_szam')
+    .eq('id', memberId)
+    .eq('congregation_id', congregationId)
+    .maybeSingle()
+  if (!member) return { error: 'A tag nem található az aktív gyülekezetben.' }
+
+  async function resolveParent(id: number | null | undefined, expectedFerfi: boolean) {
+    if (!id) return null
+    const { data: p } = await supabase
+      .from('szemely')
+      .select('id, cnp, ferfi')
+      .eq('id', id)
+      .eq('congregation_id', congregationId)
+      .maybeSingle()
+    if (!p) return null
+    if (p.ferfi !== expectedFerfi) return null
+    if (p.id === memberId) return null
+    return p as { id: number; cnp: string | null; ferfi: boolean }
+  }
+  const apa = await resolveParent(input.apaId, true)
+  const anya = await resolveParent(input.anyaId, false)
+  if (!apa && !anya) return { error: 'A kiválasztott szülő nem található a gyülekezetben.' }
+
+  const cnpUpdates: Record<string, unknown> = {}
+  if (apa?.cnp) cnpUpdates.id_apja = apa.cnp
+  if (anya?.cnp) cnpUpdates.id_anyja = anya.cnp
+  if (Object.keys(cnpUpdates).length > 0) {
+    await supabase.from('szemely').update(cnpUpdates).eq('id', memberId).eq('congregation_id', congregationId)
+  }
+
+  // 2026-08-02 (review): ha a gyermek MÁR egy aktív család tagja (pl. az első
+  // szülő automatikus bekötése után), a MOST kiválasztott szülőt UGYANABBA a
+  // családba kötjük be (a hiányzó házastárs-helyre) — a korábbi út új (fél)
+  // családot keresett/hozott volna létre, és a dupla-tagsági őr blokkolt volna.
+  const [{ data: gyRows }, allowedFamilyIds] = await Promise.all([
+    supabase
+      .from('gyerek')
+      .select('id_csalad, csalad:csalad!id_csalad(id, id_ferfi, id_no, isaktiv)')
+      .eq('id_szemely', memberId),
+    // 2026-08-02 (review D2): csak a SAJÁT gyülekezet családja jöhet szóba —
+    // az átjelentkezés idegen-gyülekezeti maradványa se ne blokkoljon, se ne
+    // MUTÁLÓDJON (a foreign-elv PR-18 óta érvényes minden úton).
+    getAllowedFamilyIds(supabase, congregationId),
+  ])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const activeFam = ((gyRows || []) as any[])
+    .map((r) => (Array.isArray(r.csalad) ? r.csalad[0] : r.csalad))
+    .find((c) => c?.isaktiv && allowedFamilyIds.has(c.id as number)) as { id: number; id_ferfi: number | null; id_no: number | null } | undefined
+
+  let res: { linked: boolean; familyId: number | null; warning: string | null }
+  if (activeFam) {
+    if (apa && activeFam.id_ferfi != null && activeFam.id_ferfi !== apa.id) {
+      return { error: 'A tag családjában már egy MÁSIK édesapa szerepel — előbb a családi kartonon módosítsd a felnőtt tagokat.' }
+    }
+    if (anya && activeFam.id_no != null && activeFam.id_no !== anya.id) {
+      return { error: 'A tag családjában már egy MÁSIK édesanya szerepel — előbb a családi kartonon módosítsd a felnőtt tagokat.' }
+    }
+    const updates: Record<string, unknown> = {}
+    if (apa && activeFam.id_ferfi == null) updates.id_ferfi = apa.id
+    if (anya && activeFam.id_no == null) updates.id_no = anya.id
+    if (Object.keys(updates).length > 0) {
+      const { error: famErr } = await supabase.from('csalad').update(updates).eq('id', activeFam.id)
+      if (famErr) return { error: `A család frissítése nem sikerült: ${famErr.message}` }
+    }
+    let warning: string | null = null
+    try {
+      // a rokonsági éleket és a háztartást is a sync hozza rendbe
+      await syncHouseholdFromCsalad(supabase, activeFam.id, congregationId)
+    } catch (e) {
+      console.warn('[linkMemberParents] háztartás-szinkron sikertelen:', e instanceof Error ? e.message : e)
+      warning = 'A szülő összekötve, de a háztartás-nézet szinkronizálása nem sikerült — mentsd el újra a családot.'
+    }
+    res = { linked: true, familyId: activeFam.id, warning }
+  } else {
+    res = await ensureChildFamilyLink(supabase, congregationId, memberId, apa?.id ?? null, anya?.id ?? null, {
+      c_utcaid: member.c_utcaid ?? null,
+      c_szam: member.c_szam ?? null,
+    })
+  }
+
+  await logAuditEvent({
+    action: 'member.link_parents',
+    targetTable: 'szemely',
+    targetId: String(memberId),
+    metadata: { apaId: apa?.id ?? null, anyaId: anya?.id ?? null, linked: res.linked },
+  }, supabase)
+
+  revalidatePath('/tagnyilvantartas')
+  return { success: true, linked: res.linked, warning: res.warning ?? undefined }
 }
 
 // ── Tag kivezetés ────────────────────────────────────────────

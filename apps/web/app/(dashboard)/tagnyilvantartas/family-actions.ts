@@ -9,6 +9,7 @@ import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallb
 import { logAuditEvent } from '@/lib/audit/log'
 import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
 import {
+  closeSyncKinshipEdges,
   findMembershipConflicts,
   foreignMembershipWarning,
   getAllowedFamilyIds,
@@ -748,18 +749,24 @@ export async function saveFamily(data: FamilyInput): Promise<SaveFamilyResult> {
     movesAllowed = allowed
   }
 
-  // Az unoka-védelemhez: a mentés ELŐTTI gyermek-lista — az explicit
-  // eltávolítottak (removed) unoka-tagját a sync lezárhatja.
+  // Az unoka-védelemhez + a rokonsági él-lezáráshoz: a mentés ELŐTTI
+  // gyermek-lista és házaspár — az explicit eltávolítottak unoka-tagját a
+  // sync lezárja, a sync-eredetű rokonsági éleiket pedig mi (lásd lentebb).
   let removedChildIds: number[] = []
+  let prevChildIds: number[] = []
+  let prevFerfi: number | null = null
+  let prevNo: number | null = null
   if (d.id) {
-    const { data: prevGyerek } = await supabase
-      .from('gyerek')
-      .select('id_szemely')
-      .eq('id_csalad', d.id)
+    const [{ data: prevGyerek }, { data: prevFam }] = await Promise.all([
+      supabase.from('gyerek').select('id_szemely').eq('id_csalad', d.id),
+      supabase.from('csalad').select('id_ferfi, id_no').eq('id', d.id).maybeSingle(),
+    ])
+    prevFerfi = (prevFam as { id_ferfi: number | null } | null)?.id_ferfi ?? null
+    prevNo = (prevFam as { id_no: number | null } | null)?.id_no ?? null
     const nextSet = new Set(d.gyerekIds)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    removedChildIds = [...new Set(((prevGyerek || []) as any[]).map((g) => g.id_szemely as number))]
-      .filter((id) => !nextSet.has(id))
+    prevChildIds = [...new Set(((prevGyerek || []) as any[]).map((g) => g.id_szemely as number))]
+    removedChildIds = prevChildIds.filter((id) => !nextSet.has(id))
   }
 
   const { data: rpcData, error: rpcErr } = await supabase.rpc('tagnyilvantartas_csalad_mentes', {
@@ -810,6 +817,42 @@ export async function saveFamily(data: FamilyInput): Promise<SaveFamilyResult> {
     console.warn('[saveFamily] syncHouseholdFromCsalad sikertelen:',
       e instanceof Error ? e.message : e)
     syncWarning = 'A család mentve, de a háztartás-nézet szinkronizálása nem sikerült — mentsd el újra a családot, vagy jelezd a rendszergazdának.'
+  }
+
+  // 2026-08-02 (PR-20): a szerkesztéssel ELTÁVOLÍTOTT tagok sync-eredetű
+  // rokonsági éleit lezárjuk — a CSALÁDFA így követi a szerkesztést (user-
+  // észrevétel: „szerkesztettem a családokat, de a családfák nem frissültek").
+  // A kereszteléses/szülő-választásos vér szerinti élek érintetlenek; az
+  // Áthelyezés útvonal nem zár (ott a rokonság megmarad); visszatételkor a
+  // sync újranyitja a lezárt élt.
+  try {
+    const closePairs: Array<{ id1: number; id2: number; tipus: 'szulo_gyermek' | 'hazastars' }> = []
+    const nextAdults = new Set([d.id_ferfi, d.id_no].filter(Boolean) as number[])
+    // a) eltávolított GYERMEK: a korábbi pár mindkét tagjához fűző él zárul
+    for (const childId of removedChildIds) {
+      if (prevFerfi) closePairs.push({ id1: prevFerfi, id2: childId, tipus: 'szulo_gyermek' })
+      if (prevNo) closePairs.push({ id1: prevNo, id2: childId, tipus: 'szulo_gyermek' })
+    }
+    // b) lecserélt FELNŐTT (review D3): aki kikerült a párból, annak a
+    //    megmaradt gyermekekhez fűző sync-élei is zárulnak — különben a fa
+    //    a régi ÉS az új szülőt is mutatná
+    const keptChildIds = prevChildIds.filter((id) => d.gyerekIds.includes(id))
+    for (const removedAdult of [prevFerfi, prevNo]) {
+      if (removedAdult && !nextAdults.has(removedAdult)) {
+        for (const childId of keptChildIds) {
+          closePairs.push({ id1: removedAdult, id2: childId, tipus: 'szulo_gyermek' })
+        }
+      }
+    }
+    // c) megváltozott pár: a régi házastársi él zárul — de csak ha tényleg
+    //    más a páros (halmaz-összevetés: az esetleges slot-csere nem zárás)
+    if (prevFerfi && prevNo && !(nextAdults.has(prevFerfi) && nextAdults.has(prevNo))) {
+      closePairs.push({ id1: prevFerfi, id2: prevNo, tipus: 'hazastars' })
+    }
+    await closeSyncKinshipEdges(supabase, closePairs)
+  } catch (e) {
+    console.warn('[saveFamily] rokonsági él-lezárás sikertelen (nem blokkoló):',
+      e instanceof Error ? e.message : e)
   }
 
   await logAuditEvent({

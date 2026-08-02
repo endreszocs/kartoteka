@@ -13,6 +13,7 @@ import { getVoterPrintContext } from '@/app/(dashboard)/tagnyilvantartas/voter-a
 import { buildPersonCardHtml, type PersonCardPrintData } from '@/lib/members/person-card-print'
 import { printToBrowser } from '@/lib/utils/print-engine-v2'
 import { AvatarEditorDialog } from '@/components/modals/avatar-editor-dialog'
+import { ParentLinkResultDialog, type ParentLinkResultData } from '@/components/modals/parent-link-result-dialog'
 import { CrossCongregationMatchDialog, type CrossMatchAction } from '@/components/members/cross-congregation-match-dialog'
 import {
   findPotentialCrossMatch,
@@ -43,6 +44,9 @@ interface MemberFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   editMember: EnrichedMember | null
+  /** 2026-08-02 (PR-20): a szülő-összekötő felugró sikeres mentése után —
+   *  a mögöttes lista frissítéséhez (a fő űrlap ilyenkor már zárva van) */
+  onDataChanged?: () => void
 }
 
 // 2026-06-02: a user kérése — input mezők JOBBAN láthatóak legyenek.
@@ -69,7 +73,7 @@ const STEP1_FIELDS: readonly (keyof MemberFormValues)[] = ['csaladnev', 'k_nev',
 // Anyakönyv → Esketés modulban történik.
 const STEP2_FIELDS: readonly (keyof MemberFormValues)[] = ['kereszteles_datum', 'kereszteles_hely', 'kereszteles_lelkesz', 'konfirmacio_datum', 'konfirmacio_hely', 'konfirmacio_lelkesz']
 
-export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormDialogProps) {
+export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged }: MemberFormDialogProps) {
   const [loading, setLoading] = useState(false)
   const [step, setStep] = useState<'choose' | 'form'>('choose')
   // 2026-06-02: wizard step + tetejétől átment lépések (visszamenni szabad)
@@ -112,6 +116,8 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
   const [congName, setCongName] = useState('Gyülekezet')
   const [previewHtml, setPreviewHtml] = useState('')
   const [previewOverlayOpen, setPreviewOverlayOpen] = useState(false)
+  // 2026-08-02 (PR-20): szülő-név párosítás eredménye a mentés után
+  const [parentLinkResult, setParentLinkResult] = useState<ParentLinkResultData | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -224,9 +230,26 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
       toast.error(result.error)
     } else {
       toast.success(editMember ? 'Tag adatai frissítve!' : 'Új tag sikeresen rögzítve!')
-      // 2026-08-01 (PR-18): dupla-tagsági figyelmeztetés a CNP-alapú auto-család
-      // őrtől — a mentés sikeres, de a második családhoz rendelés nem történt meg.
-      if ('warning' in result && result.warning) toast.warning(result.warning, { duration: 9000 })
+      // 2026-08-02 (PR-20): szülő-név párosítás eredménye — egyértelmű
+      // összekötésnél/választásnál/ütközésnél FELUGRÓ ablak (a felhasználó
+      // explicit kérése), különben marad a csendes viselkedés.
+      const pl = 'parentLink' in result ? result.parentLink : undefined
+      const plWorthShowing = !!pl && (
+        pl.apa?.status === 'linked' || pl.apa?.status === 'ambiguous' ||
+        pl.anya?.status === 'linked' || pl.anya?.status === 'ambiguous' ||
+        !!pl.familyWarning
+      )
+      if (plWorthShowing && pl && result.id != null) {
+        setParentLinkResult({
+          ...pl,
+          memberId: result.id,
+          memberName: [data.csaladnev, data.k_nev].filter(Boolean).join(' '),
+        })
+      } else if ('warning' in result && result.warning) {
+        // 2026-08-01 (PR-18): dupla-tagsági figyelmeztetés a CNP-alapú
+        // auto-család őrtől
+        toast.warning(result.warning, { duration: 9000 })
+      }
       onOpenChange(false)
     }
     setLoading(false)
@@ -920,6 +943,14 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
         isPending={loading}
       />
     )}
+    {/* 2026-08-02 (PR-20): szülő-név párosítás eredménye — a fő űrlap zárása
+        UTÁN is nyitva marad (testvér-dialógus) */}
+    <ParentLinkResultDialog
+      open={parentLinkResult !== null}
+      onOpenChange={(o) => { if (!o) setParentLinkResult(null) }}
+      data={parentLinkResult}
+      onLinked={onDataChanged}
+    />
     </>
   )
 }

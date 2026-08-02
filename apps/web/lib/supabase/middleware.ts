@@ -51,6 +51,13 @@ function isPublicCongregationRoute(pathname: string): boolean {
   return pathname.startsWith('/gy/') || pathname === '/gy'
 }
 
+// Nyilvános naptár-feed (ICS) — tokenes URL, a Google/Apple/Outlook naptár
+// szervere auth nélkül tölti le; a hozzáférést maga a kitalálhatatlan token
+// kapuzza (2026-08-02, PR-20).
+function isPublicCalendarRoute(pathname: string): boolean {
+  return pathname.startsWith('/api/calendar/')
+}
+
 // Éves beszámoló kivetítő/prezenter oldalak — más eszközről (telefon/tablet/
 // okos-TV) is elérhetők, a tartalmat a valós idejű csatornán kapják, ezért
 // auth nélkül átengedjük (2026-06-08).
@@ -95,6 +102,11 @@ export async function updateSession(request: NextRequest) {
 
   // Publikus gyülekezeti oldalak → mindig átengedünk
   if (isPublicCongregationRoute(pathname)) {
+    return supabaseResponse
+  }
+
+  // Nyilvános naptár-feed (ICS) → mindig átengedünk (token kapuzza)
+  if (isPublicCalendarRoute(pathname)) {
     return supabaseResponse
   }
 

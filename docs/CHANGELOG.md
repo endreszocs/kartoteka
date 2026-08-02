@@ -23,6 +23,61 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-02] — Teljesebb családfa + szülő-összekötés felugró ablakkal + programok-doboz + Google Naptár
+<!-- key: 2026-08-02-tagnyilv-pr20-csaladfa-programok-naptar -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.133 -->
+
+### 🌳 Családfa: nagyszülők, nagybácsik, unokatestvérek
+
+- **Miért állt meg a fa a szülőknél?** A családfa a rokonsági kapcsolatokból
+  épül, de a Családok fülről (vagy a „Családhoz rendelés" gombbal) mentett
+  tagságok eddig **nem hozták létre** ezeket a kapcsolatokat — csak a
+  szülő-legördülős tagmentés, a keresztelés és az importok. Mostantól
+  **minden** családmentés automatikusan rögzíti a szülő–gyermek és házastársi
+  kapcsolatokat is, így a fa tovább tud építkezni felfelé és oldalra
+  (nagybácsi, unokatestvér).
+- Fontos: a fa csak azt tudja mutatni, ami rögzítve van — ha a nagyszülők
+  nincsenek a nyilvántartásban (vagy a szülő nincs a saját szülei családjában
+  gyermekként), ott a fa továbbra is megáll.
+
+### 👨‍👩‍👧 Szülők neve a kartonon → automatikus családba sorolás
+
+- Ha a tag kartonjára **csak beírod** a szülő nevét (nem a legördülőből
+  választod), a mentés mostantól **megkeresi** a gyülekezetben: egyértelmű
+  találatnál automatikusan összeköti (család + családfa frissül), több
+  találatnál **felugró ablak** választat, ütközésnél (a tag már másik család
+  tagja) az ablak elmagyarázza, **mit és hogyan** kell javítani.
+
+### 📅 Gyülekezeti programok
+
+- A dashboard programok-dobozában **nincs többé belső görgetés** — a doboz
+  együtt nő a tartalommal.
+- **Ismétlődő programok javítása**: az előző évben indult heti/kétheti/havi
+  sorozat az új évre lapozva is megjelenik (eddig eltűnt); a havi ismétlődés
+  hónap végén nem „csúszott el" többé (a jan. 31-i kezdés március 31-re áll
+  vissza, nem ragad 28-án).
+
+### 🔗 Google Naptár összekötés (új)
+
+- A programok dobozában új **„Google Naptár"** gomb: a gyülekezet titkos
+  naptár-hivatkozását adja, amit a Google Naptárban „URL alapján" egyszer
+  felveszel — onnantól **minden rögzített program és a református ünnepek**
+  (húsvét, pünkösd, reformáció napja…) automatikusan megjelennek és frissülnek,
+  helyszínnel, időponttal, típussal. Apple Naptárral és Outlookkal is működik.
+  Nem igényel Google-fiók összekötést, és személyes adat nem kerül ki.
+
+### 🔎 Rendszergazdai teendő (2 SQL)
+
+1. `migration-docs/sql/2026-08-02-pr20-rokonsagi-kapcsolatok-potlas.sql` —
+   a korábban létrejött családok hiányzó rokonsági kapcsolatainak pótlása
+   (ettől „nő meg" a családfa a meglévő adatokon).
+2. `migration-docs/sql/2026-08-02-pr20-naptar-feed.sql` — a naptár-hivatkozás
+   tokenje és adatforrása (enélkül a „Google Naptár" gomb hibát jelez).
+
+---
+
 ## [2026-08-02] — Születésnaposok: névjavítás + megosztható üdvözlőkártya + előtag-rendszer rendbetétele
 <!-- key: 2026-08-02-tagnyilv-pr19-szuletesnapos-kartya -->
 <!-- category: feature -->

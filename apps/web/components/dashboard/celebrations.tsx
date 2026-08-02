@@ -48,7 +48,7 @@ export function Celebrations({
   const limitedUpcoming = upcomingBirthdays.slice(0, 5)
 
   return (
-    <div className="card-raised flex h-full max-h-[500px] flex-col overflow-hidden lg:max-h-none">
+    <div className="card-raised flex h-full max-h-[500px] flex-col overflow-hidden lg:max-h-none xl:h-auto xl:max-h-[760px]">
       <div className="px-5 pt-5 pb-3 flex items-center gap-3">
         <div className="icon-raised w-9 h-9 bg-gradient-to-br from-amber-400 to-orange-500">
           <Cake className="w-4 h-4 text-white" />

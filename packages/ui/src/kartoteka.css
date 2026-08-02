@@ -1965,6 +1965,12 @@
 
 .kt-scroll { overflow-y: auto; padding: 14px 16px 4px; flex: 1; min-height: 0; }
 
+/* 2026-08-02 (PR-20): a dashboard Gyulekezeti programok doboza BELSO gorgetes
+   NELKUL no egyutt a tartalommal (user-keres: "ne kelljen benne scrollolni").
+   Csak a modositoval jelolt widgetre hat - a tobbi kt-widget valtozatlan. */
+.kt-widget--flow { max-height: none; }
+.kt-widget--flow .kt-scroll { overflow-y: visible; }
+
 /* ── Naptár ── */
 .kt-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
 .kt-cal-head {

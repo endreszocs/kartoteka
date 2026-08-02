@@ -184,8 +184,10 @@ export function AnnualPlanPrint({ allPrograms, year, congregationName: rawCongNa
     const todayStr = ymdE(today)
     const printDate = `${today.getFullYear()}. ${HU_MO[today.getMonth()].toLowerCase()} ${today.getDate()}.`
 
-    // Naptári pontok: ismétlődés feloldva, többnapos kezeléssel
-    const occurrences = expandProgramOccurrences(progs)
+    // Naptári pontok: ismétlődés feloldva, többnapos kezeléssel — 2026-08-02
+    // (PR-20 review): a horizont a NYOMTATOTT év — az előző évben indult
+    // sorozat is megjelenik a rácsokban.
+    const occurrences = expandProgramOccurrences(progs, yr)
     const eventsByDate: Record<string, Program[]> = {}
     occurrences.forEach((e) => {
       const sd = new Date(e.datum + 'T00:00:00')
@@ -198,8 +200,14 @@ export function AnnualPlanPrint({ allPrograms, year, congregationName: rawCongNa
     })
     const holidayMap = reformedHolidays(yr)
 
-    // Kiemelt alkalmak — a sorozatot egyszer (nyers programok), istentisztelet nélkül
-    const highlights = progs
+    // Kiemelt alkalmak — sorozatonként EGYSZER, az adott évi ELSŐ alkalommal
+    // (2026-08-02, PR-20 review: az előző évi ismétlődő sor nyers dátuma
+    // különben tavalyi dátummal szivárgott volna a listába)
+    const firstInYear = new Map<string, Program>()
+    for (const o of occurrences) {
+      if (o.datum.slice(0, 4) === String(yr) && !firstInYear.has(o.id)) firstInYear.set(o.id, o)
+    }
+    const highlights = [...firstInYear.values()]
       .filter((p) => (p.prioritas === 'kiemelt' || p.prioritas === 'fontos') && p.tipus !== 'istentisztelet')
       .sort((a, b) => (a.datum < b.datum ? -1 : a.datum > b.datum ? 1 : 0))
 
