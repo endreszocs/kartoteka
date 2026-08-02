@@ -256,6 +256,73 @@ async function buildTreeFromCenters(
     },
   })
 
+  // 7. KERESZTHIBA-DETEKTÁLÁS (2026-08-02, PR-21) — az ellentmondó rokonsági
+  // adatot NEM rajzoljuk némán: érthető magyar üzenet mondja meg, kinél és mit
+  // kell javítani (a fa attól még kirajzolódik, ahogy tud).
+  const conflicts: string[] = []
+  {
+    const personById = new Map<number, { csaladnev: string | null; k_nev: string | null; sz_datum: string | null }>(
+      personsRaw.map((p) => [p.id as number, p]),
+    )
+    const nameOf = (id: number) => {
+      const p = personById.get(id)
+      if (!p) return `#${id}`
+      const nev = `${p.csaladnev ?? ''} ${p.k_nev ?? ''}`.trim() || `#${id}`
+      const ev = p.sz_datum?.slice(0, 4)
+      return ev ? `${nev} (${ev})` : nev
+    }
+
+    // a) Több aktív házastárs-kapcsolat ugyanazon a személyen
+    const partnersOf = new Map<number, number[]>()
+    for (const s of spouseEdges) {
+      partnersOf.set(s.a, [...(partnersOf.get(s.a) ?? []), s.b])
+      partnersOf.set(s.b, [...(partnersOf.get(s.b) ?? []), s.a])
+    }
+    for (const [id, partners] of partnersOf) {
+      if (partners.length > 1) {
+        conflicts.push(
+          `${nameOf(id)} személynek ${partners.length} aktív házastárs-kapcsolata van (${partners.map(nameOf).join(', ')}). ` +
+          'Az érintett család kartonjának újramentése lezárja az elavultat; ha a hiba a házassági anyakönyvből ered, ott javítsd.',
+        )
+      }
+    }
+
+    // b) Gyermek több azonos nemű szülővel (két „édesapa" / két „édesanya")
+    const parentsByChild = new Map<number, number[]>()
+    for (const pe of parentEdges) {
+      parentsByChild.set(pe.child, [...(parentsByChild.get(pe.child) ?? []), pe.parent])
+    }
+    for (const [child, parents] of parentsByChild) {
+      const fathers = parents.filter((p) => genderOf.get(p) === true)
+      const mothers = parents.filter((p) => genderOf.get(p) === false)
+      if (fathers.length > 1) {
+        conflicts.push(
+          `${nameOf(child)} gyermeknek több rögzített édesapja van (${fathers.map(nameOf).join(', ')}) — ` +
+          'a családi kartonokon vagy a személyi karton szülő-mezőiben javítható.',
+        )
+      }
+      if (mothers.length > 1) {
+        conflicts.push(
+          `${nameOf(child)} gyermeknek több rögzített édesanyja van (${mothers.map(nameOf).join(', ')}) — ` +
+          'a családi kartonokon vagy a személyi karton szülő-mezőiben javítható.',
+        )
+      }
+    }
+
+    // c) Szülő, aki az évszámok szerint nem lehet szülő (fiatalabb / <12 év korkülönbség)
+    for (const pe of parentEdges) {
+      const p = personById.get(pe.parent)
+      const c = personById.get(pe.child)
+      const py = p?.sz_datum ? Number(p.sz_datum.slice(0, 4)) : null
+      const cy = c?.sz_datum ? Number(c.sz_datum.slice(0, 4)) : null
+      if (py != null && cy != null && cy - py < 12) {
+        conflicts.push(
+          `${nameOf(pe.parent)} szülőként van rögzítve ${nameOf(pe.child)} személynél — a születési évek alapján ez valószínűleg téves kapcsolat.`,
+        )
+      }
+    }
+  }
+
   const centerIdSet = new Set(centerIds)
   const members: FamilyTreeMember[] = personsRaw.map((p) => {
     const id = p.id as number
@@ -281,7 +348,7 @@ async function buildTreeFromCenters(
     }
   })
 
-  return { members, edges, centerIds }
+  return { members, edges, centerIds, conflicts }
 }
 
 /**
@@ -326,22 +393,38 @@ export async function getFamilyTreeDataByMemberId(
   const { supabase, congregationId } = await getEffectiveCongregationContext()
   if (!congregationId) return { members: [], edges: [], centerIds: [] }
 
-  // 1. Megkeresem a member aktív háztartását (legacy_csalad_id-val)
-  const { data: tag, error: tagError } = await supabase
+  // 1. Megkeresem a member aktív háztartását (legacy_csalad_id-val).
+  // 2026-08-02 (PR-21): DETERMINISZTIKUS választás — a korábbi limit(1)
+  // rendezés és aktív-szűrés nélkül TETSZŐLEGES tagságot fogott meg; több
+  // nyitott tagságnál (dupla-tagsági hibaosztály) akár a RÉGI/rossz család
+  // köré épült a fa. Most: csak AKTÍV háztartás számít, előnyben az
+  // is_primary, majd a felnőtt-szerep, végül a legkisebb család-id.
+  const { data: tagRows, error: tagError } = await supabase
     .from('haztartas_tag')
-    .select('haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)')
+    .select('is_primary, szerep, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)')
     .eq('id_szemely', memberId)
     .eq('congregation_id', congregationId)
     .is('ervenyes_ig', null)
-    .limit(1)
-    .maybeSingle()
+    .limit(10)
   if (tagError) throw new Error(`A háztartás-kapcsolat nem tölthető be: ${tagError.message}`)
 
+  interface TagPick { is_primary: boolean | null; szerep: string | null; legacy: number | null }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const haztartasRaw = (tag as any)?.haztartas
-  const haztartas = Array.isArray(haztartasRaw) ? haztartasRaw[0] : haztartasRaw
-  const legacyCsaladId = haztartas?.legacy_csalad_id as number | null
-  const haztartasAktiv = haztartas?.isaktiv === true && haztartas?.ervenyes_ig == null
+  const candidates: TagPick[] = ((tagRows || []) as any[])
+    .map((t) => {
+      const h = Array.isArray(t.haztartas) ? t.haztartas[0] : t.haztartas
+      if (!h || h.isaktiv !== true || h.ervenyes_ig != null) return null
+      return { is_primary: t.is_primary ?? null, szerep: t.szerep ?? null, legacy: (h.legacy_csalad_id as number | null) ?? null }
+    })
+    .filter((v): v is TagPick => v !== null && v.legacy != null)
+  const szerepRank = (s: string | null) => (s === 'csaladfo' ? 0 : s === 'hazastars' ? 1 : 2)
+  candidates.sort((a, b) =>
+    (Number(b.is_primary === true) - Number(a.is_primary === true))
+    || (szerepRank(a.szerep) - szerepRank(b.szerep))
+    || ((a.legacy ?? 0) - (b.legacy ?? 0)),
+  )
+  const legacyCsaladId = candidates[0]?.legacy ?? null
+  const haztartasAktiv = candidates.length > 0
 
   // 2. Ha van aktív háztartás → a házaspár köré építünk; egyébként saját maga köré
   if (legacyCsaladId && haztartasAktiv) {

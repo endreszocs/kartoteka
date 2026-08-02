@@ -353,14 +353,160 @@ export async function syncHouseholdFromCsalad(
         must(await supabase.from('szemely_kapcsolat').insert(toInsert), 'szemely_kapcsolat-insert')
       }
     }
+
+    // 5. EGYEZTETŐ (PR-21): az érintett személyek MÁSHOL lévő, tagság-eredetű,
+    // már nem igazolt élei is záruljanak — így a javítás akkor is átvezetődik,
+    // ha a másik család oldaláról (vagy régi backfill-élből) maradt szemét.
+    const affected = [
+      ...(csaladRow.id_ferfi ? [csaladRow.id_ferfi as number] : []),
+      ...(csaladRow.id_no ? [csaladRow.id_no as number] : []),
+      ...gyerekIds,
+    ]
+    await reconcileKinshipForPersons(supabase, congregationId, affected)
   } catch (e) {
     console.warn('[syncHouseholdFromCsalad] rokonsági élek frissítése sikertelen (nem blokkoló):',
       e instanceof Error ? e.message : e)
   }
 }
 
-/** A sync/család-szerkesztés által írt/zárt rokonsági élek megjegyzés-jelölői */
-const KINSHIP_SYNC_MARKERS = ['haztartas-sync', 'sync_households_from_csalad', 'csalad-szerkesztes-eltavolitas']
+/**
+ * A TAGSÁG-EREDETŰ (csalad/gyerek-ből származtatott) rokonsági élek
+ * megjegyzés-jelölői — ezeket a család-szerkesztés zárhatja/rendezheti.
+ * 2026-08-02 (PR-21): a 'fazis1-backfill' is ide tartozik — a júniusi
+ * egyszeri átvezetés élei ugyanúgy a csalad-állapotból származnak, kihagyásuk
+ * miatt a családkártya-javítás nem zárta a régi (rossz) házastárs-élt.
+ * A NULL megjegyzésű él (házassági anyakönyv / keresztelés / CNP-szülő) a
+ * felhasználó által állított VÉR SZERINTI igazság — azt SOSEM zárjuk innen.
+ */
+const KINSHIP_SYNC_MARKERS = ['haztartas-sync', 'sync_households_from_csalad', 'fazis1-backfill', 'csalad-szerkesztes-eltavolitas']
+
+/** A tagság-eredetű, még AKTÍV élek jelölői (a lezárás-jelölő nélkül) */
+const MEMBERSHIP_DERIVED_MARKERS = ['haztartas-sync', 'sync_households_from_csalad', 'fazis1-backfill']
+
+/**
+ * ROKONSÁGI EGYEZTETŐ (2026-08-02, PR-21) — „minden érintett helyen".
+ *
+ * A megadott személyek ÖSSZES aktív, TAGSÁG-EREDETŰ (haztartas-sync /
+ * sync_households_from_csalad / fazis1-backfill) házastárs- és szülő-gyerek
+ * élét összeveti a JELENLEGI csalad/gyerek állapottal, és a már nem igazolt
+ * éleket lezárja — akkor is, ha az él egy MÁSIK család korábbi állapotából
+ * származik. Ez szünteti meg az aszimmetriát: akárMELYIK oldalról történik a
+ * javítás (A-család szerkesztése, B-hez hozzáadás, anyakönyv), az érintett
+ * személyek elavult élei rendeződnek.
+ *
+ * A NULL megjegyzésű él (anyakönyv/keresztelés/CNP) SOSEM záródik itt — az a
+ * felhasználó által állított vér szerinti igazság.
+ *
+ * Visszatérés: a lezárt élek száma. OLVASÁSI/ÍRÁSI HIBÁNÁL DOB — a hívó
+ * best-effort try/catch-ben futtatja.
+ */
+export async function reconcileKinshipForPersons(
+  supabase: Db,
+  congregationId: string,
+  personIds: number[],
+): Promise<number> {
+  const ids = [...new Set(personIds.filter((id) => Number.isInteger(id) && id > 0))]
+  if (ids.length === 0) return 0
+
+  interface EdgeRow { id: string; id_szemely_1: number; id_szemely_2: number; tipus: string; megjegyzes: string | null }
+  const [res1, res2] = await Promise.all([
+    supabase
+      .from('szemely_kapcsolat')
+      .select('id, id_szemely_1, id_szemely_2, tipus, megjegyzes')
+      .in('id_szemely_1', ids)
+      .in('tipus', ['hazastars', 'szulo_gyermek'])
+      .is('ervenyes_ig', null),
+    supabase
+      .from('szemely_kapcsolat')
+      .select('id, id_szemely_1, id_szemely_2, tipus, megjegyzes')
+      .in('id_szemely_2', ids)
+      .in('tipus', ['hazastars', 'szulo_gyermek'])
+      .is('ervenyes_ig', null),
+  ])
+  if (res1.error) throw new Error(`szemely_kapcsolat-olvasas: ${res1.error.message}`)
+  if (res2.error) throw new Error(`szemely_kapcsolat-olvasas: ${res2.error.message}`)
+  const edgeById = new Map<string, EdgeRow>()
+  for (const r of ([...(res1.data || []), ...(res2.data || [])] as EdgeRow[])) {
+    if (MEMBERSHIP_DERIVED_MARKERS.includes(r.megjegyzes ?? '')) edgeById.set(r.id, r)
+  }
+  const edges = [...edgeById.values()]
+  if (edges.length === 0) return 0
+
+  // Igazolt-e az él a JELENLEGI (aktív) csalad/gyerek állapotból?
+  const allPersonIds = [...new Set(edges.flatMap((e) => [e.id_szemely_1, e.id_szemely_2]))]
+  const childIds = [...new Set(edges.filter((e) => e.tipus === 'szulo_gyermek').map((e) => e.id_szemely_2))]
+
+  const [famRes, gyRes] = await Promise.all([
+    supabase
+      .from('csalad')
+      .select('id, id_ferfi, id_no')
+      .eq('isaktiv', true)
+      .or(`id_ferfi.in.(${allPersonIds.join(',')}),id_no.in.(${allPersonIds.join(',')})`),
+    childIds.length > 0
+      ? supabase
+          .from('gyerek')
+          .select('id_szemely, csalad:csalad!id_csalad(id, id_ferfi, id_no, isaktiv)')
+          .in('id_szemely', childIds)
+      : Promise.resolve({ data: [], error: null }),
+  ])
+  if (famRes.error) throw new Error(`csalad-olvasas: ${famRes.error.message}`)
+  if (gyRes.error) throw new Error(`gyerek-olvasas: ${gyRes.error.message}`)
+
+  // Irány-független házaspár-kulcsok az aktív családokból
+  const coupleKeys = new Set<string>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const f of (famRes.data || []) as any[]) {
+    if (f.id_ferfi != null && f.id_no != null) {
+      const [a, b] = [f.id_ferfi as number, f.id_no as number].sort((x, y) => x - y)
+      coupleKeys.add(`${a}|${b}`)
+    }
+  }
+  // Szülő→gyerek kulcsok az aktív családok gyerek-soraiból
+  const parentChildKeys = new Set<string>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const g of (gyRes.data || []) as any[]) {
+    const cs = Array.isArray(g.csalad) ? g.csalad[0] : g.csalad
+    if (!cs?.isaktiv) continue
+    if (cs.id_ferfi != null) parentChildKeys.add(`${cs.id_ferfi}|${g.id_szemely}`)
+    if (cs.id_no != null) parentChildKeys.add(`${cs.id_no}|${g.id_szemely}`)
+  }
+
+  const toClose = edges
+    .filter((e) => {
+      if (e.tipus === 'hazastars') {
+        const [a, b] = [e.id_szemely_1, e.id_szemely_2].sort((x, y) => x - y)
+        return !coupleKeys.has(`${a}|${b}`)
+      }
+      return !parentChildKeys.has(`${e.id_szemely_1}|${e.id_szemely_2}`)
+    })
+    .map((e) => e.id)
+
+  if (toClose.length > 0) {
+    const { error } = await supabase
+      .from('szemely_kapcsolat')
+      .update({ ervenyes_ig: new Date().toISOString().slice(0, 10), megjegyzes: 'csalad-szerkesztes-eltavolitas' })
+      .in('id', toClose)
+    if (error) throw new Error(`szemely_kapcsolat-egyezteto-lezaras: ${error.message}`)
+  }
+  return toClose.length
+}
+
+/**
+ * Egy KONKRÉT pár aktív házastárs-élének lezárása — bármilyen eredetű
+ * (a NULL megjegyzésű, anyakönyvi él is), mindkét irányban. A házassági
+ * anyakönyvi bejegyzés SZERKESZTÉSE/TÖRLÉSE hívja: ott maga a forrás-rekord
+ * változik, tehát a belőle származó él zárása jogos (2026-08-02, PR-21).
+ */
+export async function closeMarriageEdgeBetween(supabase: Db, a: number, b: number) {
+  if (!a || !b || a === b) return
+  const { error } = await supabase
+    .from('szemely_kapcsolat')
+    .update({ ervenyes_ig: new Date().toISOString().slice(0, 10) })
+    .eq('tipus', 'hazastars')
+    .is('ervenyes_ig', null)
+    .or(`and(id_szemely_1.eq.${a},id_szemely_2.eq.${b}),and(id_szemely_1.eq.${b},id_szemely_2.eq.${a})`)
+  if (error) throw new Error(`hazastars-el-lezaras: ${error.message}`)
+}
 
 /**
  * A CSALÁD-SZERKESZTÉSSEL eltávolított tagok SYNC-EREDETŰ rokonsági éleinek

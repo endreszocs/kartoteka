@@ -37,4 +37,10 @@ export interface FamilyTreeData {
   edges: FamilyTreeEdge[]
   /** A központi férj+feleség id-jei (a sortolás miatt is hasznos a UI-nak) */
   centerIds: number[]
+  /**
+   * 2026-08-02 (PR-21): kereszthiba-üzenetek — ellentmondó rokonsági adatok
+   * (két aktív házastárs-él, két „édesapa", évszám-képtelen szülő). A fa
+   * ettől még kirajzolódik; a UI figyelmeztető sávban mutatja.
+   */
+  conflicts?: string[]
 }

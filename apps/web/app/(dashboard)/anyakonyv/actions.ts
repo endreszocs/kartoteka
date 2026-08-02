@@ -6,7 +6,7 @@ import type { BaptismInput, MarriageInput, BurialInput, MovementInput, Confirmat
 import type { RegistryEntry } from '@/lib/constants/registry'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { softDeleteRegistryWorklog, syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
-import { findMembershipConflicts, syncHouseholdFromCsalad } from '@/lib/family/family-membership'
+import { closeMarriageEdgeBetween, findMembershipConflicts, reconcileKinshipForPersons, syncHouseholdFromCsalad } from '@/lib/family/family-membership'
 
 async function getCongregation() {
   const { supabase, congregationId } = await getEffectiveCongregationContext()
@@ -1049,11 +1049,36 @@ export async function saveMarriage(data: MarriageInput) {
   let marriageRowId: number | null = null
   let currentWorklogId: number | null = null
   if (d.id) {
+    // 2026-08-02 (PR-21, H2): a KORÁBBI pár megjegyzése az update ELŐTT — ha a
+    // szerkesztés a férjet/feleséget cseréli (pl. azonos nevű rossz személyről
+    // a jóra), a RÉGI pár házastárs-élét lezárjuk, különben a családfa két
+    // aktív házastársat mutatna.
+    const { data: prevMarriage } = await supabase
+      .from('hazassag')
+      .select('id_ferfi, id_no')
+      .eq('id', d.id)
+      .eq('congregation_id', congId)
+      .maybeSingle()
+
     const { error, data: updData } = await supabase.from('hazassag').update(record)
       .eq('id', d.id).eq('congregation_id', congId).select('id, munkanaplo_id')
     if (error) return { error: `Hiba: ${error.message}` }
     marriageRowId = d.id
     currentWorklogId = (updData?.[0]?.munkanaplo_id as number | null) ?? null
+
+    const prevFerfi = (prevMarriage as { id_ferfi: number | null } | null)?.id_ferfi ?? null
+    const prevNo = (prevMarriage as { id_no: number | null } | null)?.id_no ?? null
+    const coupleChanged = prevFerfi && prevNo && (prevFerfi !== d.id_ferfi || prevNo !== d.id_no)
+    if (coupleChanged) {
+      try {
+        await closeMarriageEdgeBetween(supabase, prevFerfi!, prevNo!)
+        // A régi pár egyéb tagság-eredetű maradvány-élei is rendeződnek
+        await reconcileKinshipForPersons(supabase, congId, [prevFerfi!, prevNo!])
+      } catch (e) {
+        console.warn('[saveMarriage] régi pár él-lezárása sikertelen (nem blokkoló):',
+          e instanceof Error ? e.message : e)
+      }
+    }
   } else {
     const { error, data: insData } = await supabase.from('hazassag').insert([record]).select('id')
     if (error) return { error: `Hiba: ${error.message}` }
@@ -1421,8 +1446,32 @@ export async function deleteRegistryEntry(tab: string, id: number) {
     linkedWorklogId = (data?.munkanaplo_id as number | null) ?? null
   }
 
+  // 2026-08-02 (PR-21): házassági bejegyzés törlésekor a pár megjegyzése —
+  // a belőle származó házastárs-élt is lezárjuk (eddig örökre aktív maradt a
+  // családfán). Ha a pár családja továbbra is él, a következő családmentés
+  // sync-e jogosan újraírja az élt.
+  let deletedCouple: { ferfi: number | null; no: number | null } | null = null
+  if (tab === 'hazassag') {
+    const { data: h } = await supabase.from('hazassag').select('id_ferfi, id_no')
+      .eq('id', id).eq('congregation_id', congId).maybeSingle()
+    deletedCouple = {
+      ferfi: (h as { id_ferfi: number | null } | null)?.id_ferfi ?? null,
+      no: (h as { id_no: number | null } | null)?.id_no ?? null,
+    }
+  }
+
   const { error } = await supabase.from(tab).delete().eq('id', id).eq('congregation_id', congId)
   if (error) return { error: `Hiba: ${error.message}` }
+
+  if (deletedCouple?.ferfi && deletedCouple?.no) {
+    try {
+      await closeMarriageEdgeBetween(supabase, deletedCouple.ferfi, deletedCouple.no)
+      await reconcileKinshipForPersons(supabase, congId, [deletedCouple.ferfi, deletedCouple.no])
+    } catch (e) {
+      console.warn('[deleteRegistryEntry] házastárs-él lezárása sikertelen (nem blokkoló):',
+        e instanceof Error ? e.message : e)
+    }
+  }
 
   if (linkedWorklogId) {
     let removable = true
