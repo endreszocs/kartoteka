@@ -39,6 +39,7 @@ import {
 import { getMemberDetails, updateMemberNote, updateRegistryEventDetails, updateMemberConsents, type NoteEventKind } from '@/app/(dashboard)/tagnyilvantartas/actions'
 import { getMemberFamilySummary } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import { getTransactionDocumentNumber } from '@/lib/constants/finance'
+import { isOzvegyAllapot, isPrefixLikeNamepattern } from '@/lib/utils/member-helpers'
 import { ageFromDate } from '@/lib/utils/date'
 import { cn } from '@/lib/utils'
 import type { EnrichedMember } from '@/lib/constants/members'
@@ -112,11 +113,17 @@ function getBaseName(member: EnrichedMember) {
 }
 
 function getMemberPrefix(member: Pick<EnrichedMember, 'allapot' | 'namepattern'>) {
+  // 2026-08-01 (PR-19): kanonikus szabályok — az „Özv."/"özv" import-formák is
+  // számítanak, a namepattern viszont CSAK akkor, ha tényleg előtag-szerű
+  // (a legacy teljes-név namepattern nem kerülhet a név elé).
   const prefixes: string[] = []
 
   if (member.allapot === 'elvált') prefixes.push('elv.')
-  if (member.allapot === 'özvegy') prefixes.push('özv.')
-  if (member.namepattern) prefixes.push(member.namepattern)
+  if (isOzvegyAllapot(member.allapot)) prefixes.push('özv.')
+  if (isPrefixLikeNamepattern(member.namepattern)) {
+    const np = member.namepattern!.trim()
+    if (!prefixes.some((p) => p.toLowerCase() === np.toLowerCase())) prefixes.push(np)
+  }
 
   return prefixes.length > 0 ? prefixes.join(' ') : null
 }

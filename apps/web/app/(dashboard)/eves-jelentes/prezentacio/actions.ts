@@ -523,7 +523,14 @@ export async function getPresentationData(year: number): Promise<{
   }
   function formatPersonName(p: JoinedPerson | null | undefined): string {
     if (!p) return '—'
-    return p.namepattern || `${p.csaladnev || ''} ${p.k_nev || ''}`.trim() || '—'
+    // 2026-08-01 (PR-19 BUGFIX): a namepattern csak ELŐTAG (id./ifj.) — a
+    // korábbi `namepattern || név` minta a nevet ELDOBTA, és csak az előtag
+    // jelent meg az éves jelentés névlistáiban.
+    const base = `${p.csaladnev || ''} ${p.k_nev || ''}`.trim()
+    if (!base) return '—'
+    const np = (p.namepattern || '').trim()
+    const isPrefix = np.length > 0 && np.length <= 6 && np.endsWith('.') && !/\s/.test(np)
+    return isPrefix ? `${np} ${base}` : base
   }
   function extractPerson(raw: unknown): JoinedPerson | null {
     if (!raw) return null

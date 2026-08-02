@@ -33,6 +33,8 @@ import {
   Label,
 } from '@kartoteka/ui'
 
+import { formatNameWithPrefix } from '../members/name-format'
+
 /**
  * A szűrő-modalhoz szükséges tag-alak. A web a `szemely` táblából (join-okkal),
  * a desktop a lokális `szemely_local`-ból tölti — minden cím-mező opcionális.
@@ -42,6 +44,8 @@ export interface CelebrationsMember {
   csaladnev: string | null
   k_nev: string | null
   namepattern: string | null
+  /** 2026-08-01 (PR-19): az özv./elv. előtaghoz */
+  allapot?: string | null
   sz_datum: string | null
   ferfi: boolean | null
   /** Házszám a szemely táblából (c_szam) */
@@ -107,8 +111,14 @@ export function BirthdayListDialog({
       .map((m) => {
         const birthDate = new Date(m.sz_datum!)
         if (isNaN(birthDate.getTime())) return null
-        // Név összeállítása magyar sorrendben
-        const name = m.namepattern || `${m.csaladnev || ''} ${m.k_nev || ''}`.trim() || '(névtelen)'
+        // 2026-08-01 (PR-19 BUGFIX): a namepattern csak ELŐTAG (id./ifj./özv.)
+        // — korábban teljes névként jelent meg helyette („ifj." név nélkül).
+        const name = formatNameWithPrefix({
+          csaladnev: m.csaladnev,
+          k_nev: m.k_nev,
+          namepattern: m.namepattern,
+          allapot: m.allapot ?? null,
+        })
         // Az idei születésnap hónap/nap alapján
         const month = birthDate.getMonth()
         const day = birthDate.getDate()
@@ -191,9 +201,17 @@ export function BirthdayListDialog({
       return { from: new Date(year, 0, 1), to: new Date(year, 11, 31) }
     }
     // custom
+    // 2026-08-02 (PR-19 review-fix): a 'YYYY-MM-DD' formát a new Date() UTC
+    // éjfélként értelmezi (= hajnali 2-3 óra helyi időben), miközben a
+    // születésnap-jelöltek HELYI éjfélre esnek → a tartomány ELSŐ napjának
+    // ünnepeltjei kimaradtak volna. Helyi dátumként parsoljuk.
     if (!customFrom || !customTo) return null
-    const from = new Date(customFrom)
-    const to = new Date(customTo)
+    const parseLocal = (s: string) => {
+      const [y, m, d] = s.split('-').map(Number)
+      return new Date(y, (m || 1) - 1, d || 1)
+    }
+    const from = parseLocal(customFrom)
+    const to = parseLocal(customTo)
     if (isNaN(from.getTime()) || isNaN(to.getTime())) return null
     return { from, to }
   }, [preset, customFrom, customTo])
@@ -202,19 +220,28 @@ export function BirthdayListDialog({
   const filtered = useMemo(() => {
     if (!dateRange) return []
     const { from, to } = dateRange
-    const currentYear = new Date().getFullYear()
-    return allEntries.filter((e) => {
-      // Az "idei évi" születésnap benne van-e a tartományban
-      const thisYear = new Date(currentYear, e.month, e.day)
-      if (thisYear < from || thisYear > to) return false
-      // Életkor
-      if (ageMin && e.age < Number(ageMin)) return false
-      if (ageMax && e.age > Number(ageMax)) return false
-      // Nem
-      if (genderFilter === 'male' && e.isMale !== true) return false
-      if (genderFilter === 'female' && e.isMale !== false) return false
-      return true
-    })
+    const yFrom = from.getFullYear()
+    return allEntries
+      .flatMap((e) => {
+        // 2026-08-01 (PR-19 BUGFIX): a születésnap ÉVFORDULÓ — az évhatár-
+        // átnyúlást (pl. dec. 20. – jan. 10.) is kezeljük. 2026-08-02
+        // (review-fix): az életkor a TALÁLT évforduló évéből számítódik.
+        const matchYear = [yFrom, yFrom + 1].find((y) => {
+          const candidate = new Date(y, e.month, e.day)
+          return candidate >= from && candidate <= to
+        })
+        if (matchYear === undefined) return []
+        const age = matchYear - e.birthDate.getFullYear()
+        // Életkor
+        if (ageMin && age < Number(ageMin)) return []
+        if (ageMax && age > Number(ageMax)) return []
+        // Nem
+        if (genderFilter === 'male' && e.isMale !== true) return []
+        if (genderFilter === 'female' && e.isMale !== false) return []
+        return [{ ...e, age, occursOn: new Date(matchYear, e.month, e.day) }]
+      })
+      // Az előfordulás időrendjében (évhatár-átnyúlásnál a december a január előtt)
+      .sort((a, b) => a.occursOn.getTime() - b.occursOn.getTime() || a.name.localeCompare(b.name, 'hu'))
   }, [allEntries, dateRange, ageMin, ageMax, genderFilter])
 
   // ──────────────────────────────────────────────────────────────

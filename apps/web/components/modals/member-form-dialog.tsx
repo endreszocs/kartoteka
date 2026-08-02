@@ -63,7 +63,7 @@ const WIZARD_STEPS: { id: WizardStep; label: string; icon: typeof User }[] = [
 // 2026-06-10: melyik mező melyik wizard-lépésen van — validációs hibánál
 // erre a lépésre ugrunk vissza, különben a hibajelzés láthatatlan maradna
 // (a „nem történik semmi a mentésre" bug oka).
-const STEP1_FIELDS: readonly (keyof MemberFormValues)[] = ['csaladnev', 'k_nev', 'szcs_nev', 'ferfi', 'sz_datum', 'sz_hely_text', 'foglalkozas', 'vallas', 'c_helyseg_text', 'c_utca_text', 'c_szam', 'c_tombhaz', 'c_lepcsohaz', 'c_emelet', 'c_ajto', 'telefon', 'email', 'megjegyzes', 'apjaneve', 'anyjaneve', 'id_apja_cnp', 'id_anyja_cnp', 'bek_datum', 'bek_honnan', 'bek_igazolas', 'att_datum', 'att_felekezet', 'att_honnan', 'belepes_oka']
+const STEP1_FIELDS: readonly (keyof MemberFormValues)[] = ['csaladnev', 'k_nev', 'szcs_nev', 'namepattern', 'ferfi', 'sz_datum', 'sz_hely_text', 'foglalkozas', 'vallas', 'c_helyseg_text', 'c_utca_text', 'c_szam', 'c_tombhaz', 'c_lepcsohaz', 'c_emelet', 'c_ajto', 'telefon', 'email', 'megjegyzes', 'apjaneve', 'anyjaneve', 'id_apja_cnp', 'id_anyja_cnp', 'bek_datum', 'bek_honnan', 'bek_igazolas', 'att_datum', 'att_felekezet', 'att_honnan', 'belepes_oka']
 // 2026-07-24 (PR-4, D4 döntés): az esketés-mezők KIKERÜLTEK — a saveMember soha
 // nem mentette őket (néma adatvesztés volt), az esketés rögzítése kizárólag az
 // Anyakönyv → Esketés modulban történik.
@@ -164,6 +164,10 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
         csaladnev: editMember.csaladnev || '',
         k_nev: editMember.k_nev || '',
         szcs_nev: editMember.szcs_nev || '',
+        // 2026-08-01 (PR-19): előtag — ha legacy (nem előtag-szerű) érték van
+        // bent, a select üresen mutatja; a szerveroldali mentés (saveMember)
+        // csak előtag-szerű értéket tárol, a maradványt kitisztítja.
+        namepattern: editMember.namepattern || '',
         ferfi: editMember.ferfi ?? undefined,
         sz_datum: editMember.sz_datum || '',
         sz_hely_text: editMember.birthLocality?.name || '',
@@ -448,7 +452,25 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                     </div>
                   </div>
 
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+                  {/* 2026-08-01 (PR-19): név-előtag — eddig CSAK SQL-ből volt
+                      állítható, a felületről sehol */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="member-namepattern">Előtag</Label>
+                    <select
+                      id="member-namepattern"
+                      {...register('namepattern')}
+                      className={'w-full border px-3 py-2 text-sm ' + FIELD_CLASS}
+                    >
+                      <option value="">— nincs —</option>
+                      <option value="id.">id. (idősebb)</option>
+                      <option value="ifj.">ifj. (ifjabb)</option>
+                      <option value="legid.">legid.</option>
+                      <option value="legifj.">legifj.</option>
+                      <option value="özv.">özv.</option>
+                      <option value="Dr.">Dr.</option>
+                    </select>
+                  </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="member-csaladnev">Családnév *</Label>
                     <Input id="member-csaladnev" {...register('csaladnev')} placeholder="Kovács" className={FIELD_CLASS} aria-invalid={!!errors.csaladnev} />

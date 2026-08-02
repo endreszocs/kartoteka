@@ -37,3 +37,12 @@ export {
   type VoterRow as VoterPrintRow,
   type VoterPrintResult,
 } from './voter-reporting'
+// 2026-08-01 (PR-19): kanonikus név-formázás előtagokkal (id./ifj./özv./elv.)
+// — web és desktop MINDEN név-megjelenítése ezt használja; a `namepattern||nev`
+// minta tilos (előtagot mutatna név helyett).
+export {
+  formatNameWithPrefix,
+  isPrefixLikeNamepattern,
+  isOzvegyAllapot,
+  type NameWithPrefixInput,
+} from './name-format'

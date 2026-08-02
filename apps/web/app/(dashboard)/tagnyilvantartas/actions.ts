@@ -609,6 +609,13 @@ export async function saveMember(data: MemberInput) {
     csaladnev: d.csaladnev,
     k_nev: d.k_nev,
     szcs_nev: d.szcs_nev || null,
+    // 2026-08-01 (PR-19): név-előtag (id./ifj./özv./Dr.) — az űrlapról
+    // állítható. Csak ELŐTAG-SZERŰ érték tárolható (max 6 karakter, ponttal
+    // végződik, nincs szóköz) — a legacy teljes-név maradványok itt tisztulnak.
+    namepattern: (() => {
+      const np = d.namepattern?.trim() || null
+      return np && np.length <= 6 && np.endsWith('.') && !/\s/.test(np) ? np : null
+    })(),
     ferfi: d.ferfi,
     sz_datum: d.sz_datum || null,
     sz_helyid: szHelyId,

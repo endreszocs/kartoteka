@@ -13,19 +13,23 @@
  */
 
 import { useMemo, useState } from 'react'
-import { Cake, Filter, Printer, X } from 'lucide-react'
+import { Cake, Filter, Gift, Printer, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getBirthdayListAddresses } from '@/app/(dashboard)/dashboard/actions'
+import { formatNameWithPrefix } from '@/lib/utils/member-helpers'
+import { BirthdayCardDialog, type BirthdayCardPerson } from '@/components/dashboard/birthday-card-dialog'
 
 interface Member {
   id: string
   csaladnev: string | null
   k_nev: string | null
   namepattern: string | null
+  /** 2026-08-01 (PR-19): az özv./elv. előtaghoz */
+  allapot?: string | null
   sz_datum: string | null
   ferfi: boolean | null
 }
@@ -66,6 +70,9 @@ export function BirthdayListDialog({
   const [ageMax, setAgeMax] = useState('')
   const [genderFilter, setGenderFilter] = useState<'all' | 'male' | 'female'>('all')
   const [showAddress, setShowAddress] = useState(false)
+  // 2026-08-01 (PR-19): megosztható üdvözlőkártya (egyéni / lista mód)
+  const [cardOpen, setCardOpen] = useState(false)
+  const [cardPersonId, setCardPersonId] = useState<string | null>(null)
 
   // 2026-06-30 (perf): a lakcímek KÉRÉSRE töltődnek — a dashboard fő lekérdezése
   // már nem hozza a cím-joinokat. Csak akkor kérjük le, ha a felhasználó a
@@ -94,8 +101,14 @@ export function BirthdayListDialog({
       .map((m) => {
         const birthDate = new Date(m.sz_datum!)
         if (isNaN(birthDate.getTime())) return null
-        // Név összeállítása magyar sorrendben
-        const name = m.namepattern || `${m.csaladnev || ''} ${m.k_nev || ''}`.trim() || '(névtelen)'
+        // 2026-08-01 (PR-19 BUGFIX): a namepattern csak ELŐTAG (id./ifj./özv.) —
+        // korábban teljes névként jelent meg helyette („ifj." név nélkül).
+        const name = formatNameWithPrefix({
+          csaladnev: m.csaladnev,
+          k_nev: m.k_nev,
+          namepattern: m.namepattern,
+          allapot: m.allapot ?? null,
+        })
         // Az idei születésnap hónap/nap alapján
         const month = birthDate.getMonth()
         const day = birthDate.getDate()
@@ -151,9 +164,17 @@ export function BirthdayListDialog({
       return { from: new Date(year, 0, 1), to: new Date(year, 11, 31) }
     }
     // custom
+    // 2026-08-02 (PR-19 review-fix): a 'YYYY-MM-DD' formát a new Date() UTC
+    // éjfélként értelmezi (= hajnali 2-3 óra helyi időben), miközben a
+    // születésnap-jelöltek HELYI éjfélre esnek → a tartomány ELSŐ napjának
+    // ünnepeltjei kimaradtak volna. Helyi dátumként parsoljuk.
     if (!customFrom || !customTo) return null
-    const from = new Date(customFrom)
-    const to = new Date(customTo)
+    const parseLocal = (s: string) => {
+      const [y, m, d] = s.split('-').map(Number)
+      return new Date(y, (m || 1) - 1, d || 1)
+    }
+    const from = parseLocal(customFrom)
+    const to = parseLocal(customTo)
     if (isNaN(from.getTime()) || isNaN(to.getTime())) return null
     return { from, to }
   }, [preset, customFrom, customTo])
@@ -162,19 +183,32 @@ export function BirthdayListDialog({
   const filtered = useMemo(() => {
     if (!dateRange) return []
     const { from, to } = dateRange
-    const currentYear = new Date().getFullYear()
-    return allEntries.filter((e) => {
-      // Az "idei évi" születésnap benne van-e a tartományban
-      const thisYear = new Date(currentYear, e.month, e.day)
-      if (thisYear < from || thisYear > to) return false
-      // Életkor
-      if (ageMin && e.age < Number(ageMin)) return false
-      if (ageMax && e.age > Number(ageMax)) return false
-      // Nem
-      if (genderFilter === 'male' && e.isMale !== true) return false
-      if (genderFilter === 'female' && e.isMale !== false) return false
-      return true
-    })
+    const yFrom = from.getFullYear()
+    return allEntries
+      .flatMap((e) => {
+        // 2026-08-01 (PR-19 BUGFIX): a születésnap ÉVFORDULÓ — az évhatár-
+        // átnyúlást (pl. dec. 20. – jan. 10.) is kezeljük: a from évében ÉS a
+        // rákövetkező évben is megnézzük. 2026-08-02 (review-fix): az életkor
+        // a TALÁLT évforduló évéből számítódik (különben a jövő januári
+        // ünnepelt 1 évvel fiatalabbként jelent volna meg a listán, a
+        // nyomtatáson ÉS az üdvözlőkártyán is).
+        const matchYear = [yFrom, yFrom + 1].find((y) => {
+          const candidate = new Date(y, e.month, e.day)
+          return candidate >= from && candidate <= to
+        })
+        if (matchYear === undefined) return []
+        const age = matchYear - e.birthDate.getFullYear()
+        // Életkor
+        if (ageMin && age < Number(ageMin)) return []
+        if (ageMax && age > Number(ageMax)) return []
+        // Nem
+        if (genderFilter === 'male' && e.isMale !== true) return []
+        if (genderFilter === 'female' && e.isMale !== false) return []
+        return [{ ...e, age, occursOn: new Date(matchYear, e.month, e.day) }]
+      })
+      // Az előfordulás időrendjében (évhatár-átnyúlásnál a december a január
+      // ELŐTT — a hónap/nap sorrend itt fordítva mutatta volna)
+      .sort((a, b) => a.occursOn.getTime() - b.occursOn.getTime() || a.name.localeCompare(b.name, 'hu'))
   }, [allEntries, dateRange, ageMin, ageMax, genderFilter])
 
   // ──────────────────────────────────────────────────────────────
@@ -437,15 +471,29 @@ export function BirthdayListDialog({
                   {filtered.length} fő
                 </span>
               </h3>
-              <Button
-                type="button"
-                size="sm"
-                onClick={handlePrint}
-                disabled={filtered.length === 0}
-              >
-                <Printer className="mr-2 size-4" />
-                Nyomtatás
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"
+                  onClick={() => { setCardPersonId(null); setCardOpen(true) }}
+                  disabled={filtered.length === 0}
+                  title="Megosztható üdvözlőkártya a listáról"
+                >
+                  <Gift className="mr-2 size-4" />
+                  Üdvözlőkártya
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handlePrint}
+                  disabled={filtered.length === 0}
+                >
+                  <Printer className="mr-2 size-4" />
+                  Nyomtatás
+                </Button>
+              </div>
             </div>
             {filtered.length === 0 ? (
               <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
@@ -470,6 +518,7 @@ export function BirthdayListDialog({
                       <th className="px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                         Kor
                       </th>
+                      <th className="w-10" aria-label="Üdvözlőkártya" />
                     </tr>
                   </thead>
                   <tbody>
@@ -492,6 +541,17 @@ export function BirthdayListDialog({
                         <td className="px-2 py-2 text-right text-xs text-slate-500">
                           {e.age} éves
                         </td>
+                        <td className="w-10 px-1 py-1 text-right">
+                          <button
+                            type="button"
+                            className="inline-flex size-8 items-center justify-center rounded-lg text-amber-600 transition hover:bg-amber-50 hover:text-amber-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                            title={`Üdvözlőkártya: ${e.name}`}
+                            aria-label={`Üdvözlőkártya készítése — ${e.name}`}
+                            onClick={() => { setCardPersonId(e.id); setCardOpen(true) }}
+                          >
+                            <Gift className="size-4" />
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -500,6 +560,22 @@ export function BirthdayListDialog({
             )}
           </div>
         </div>
+
+        {/* 2026-08-01 (PR-19): megosztható születésnapi üdvözlőkártya */}
+        <BirthdayCardDialog
+          open={cardOpen}
+          onOpenChange={setCardOpen}
+          people={filtered.map((e): BirthdayCardPerson => ({
+            id: e.id,
+            name: e.name,
+            month: e.month,
+            day: e.day,
+            age: e.age,
+          }))}
+          initialPersonId={cardPersonId}
+          congregationName={congregationName}
+          congregationLogo={congregationLogo ?? null}
+        />
 
         <div className="flex justify-end gap-2 border-t pt-3">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>

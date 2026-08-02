@@ -5,6 +5,7 @@ import { AGE_GROUPS } from '@/lib/constants/members'
 import { ageFromDate } from '@/lib/utils/date'
 import type { MemberOverviewSnapshot } from '@/lib/members/member-overview'
 import { Users, Heart, TrendingUp, MapPin, Crown, Baby, UserCheck, GraduationCap, Calendar, ChevronRight } from 'lucide-react'
+import { toast } from 'sonner'
 import { BirthdayListDialog } from '@/components/dashboard/birthday-list-dialog'
 import { getBirthdayListData, type BirthdayListData } from '@/app/(dashboard)/tagnyilvantartas/birthday-list-actions'
 
@@ -27,6 +28,11 @@ export function OverviewTab({ snapshot }: OverviewTabProps) {
       setBirthdayLoading(true)
       try {
         setBirthdayData(await getBirthdayListData())
+      } catch {
+        // 2026-08-02 (PR-19 review-fix): a betöltő hibánál dob (részleges lista
+        // helyett) — itt zárjuk a dialógust és szólunk, ne ragadjon üresen.
+        setBirthdayDialogOpen(false)
+        toast.error('A születésnaposok betöltése nem sikerült — próbáld újra.')
       } finally {
         setBirthdayLoading(false)
       }
