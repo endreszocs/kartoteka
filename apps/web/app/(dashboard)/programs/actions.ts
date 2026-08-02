@@ -8,18 +8,57 @@ import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 export async function getProgramsForYear(year: number): Promise<Program[]> {
   const { supabase, congregationId } = await getEffectiveCongregationContext()
   if (!congregationId) return []
-  const { data, error } = await supabase
-    .from('gyulekezeti_programok')
-    .select('*')
-    .eq('congregation_id', congregationId)
-    .gte('datum', `${year}-01-01`)
-    .lte('datum', `${year}-12-31`)
-    .order('datum')
-    .order('ido_kezdes')
+  const [{ data, error }, recurringRes] = await Promise.all([
+    supabase
+      .from('gyulekezeti_programok')
+      .select('*')
+      .eq('congregation_id', congregationId)
+      .gte('datum', `${year}-01-01`)
+      .lte('datum', `${year}-12-31`)
+      .order('datum')
+      .order('ido_kezdes'),
+    // 2026-08-02 (PR-20): a KORÁBBI években indult ISMÉTLŐDŐ sorozatok is
+    // kellenek — a heti bibliaóra eddig az új évre lapozva egyszerűen eltűnt
+    // (a kibontás horizontja + a betöltés év-szűrése együtt vágta el).
+    // Legfeljebb 5 évre visszamenőleg (a kibontás-plafon így is bőven fedi).
+    supabase
+      .from('gyulekezeti_programok')
+      .select('*')
+      .eq('congregation_id', congregationId)
+      .not('ismetlodes_tipus', 'is', null)
+      .gte('datum', `${year - 5}-01-01`)
+      .lt('datum', `${year}-01-01`)
+      .order('datum'),
+  ])
   // 2026-06-07: a hibát nem nyeljük el csendben — feldobjuk, hogy a kliens
   // egyértelmű üzenetet adhasson és a „Betöltés…" ne ragadjon be.
   if (error) throw new Error(error.message)
-  return (data || []) as Program[]
+  if (recurringRes.error) throw new Error(recurringRes.error.message)
+  return [...((recurringRes.data || []) as Program[]), ...((data || []) as Program[])]
+}
+
+/**
+ * A gyülekezet naptár-feed tokenje (Google Naptár összekötéshez) —
+ * 2026-08-02 (PR-20). A token a congregations.calendar_feed_token oszlopban
+ * él (2026-08-02-pr20-naptar-feed.sql hozza létre).
+ */
+export async function getCalendarFeedToken(): Promise<{ token: string | null; error?: string }> {
+  const { supabase, congregationId } = await getEffectiveCongregationContext()
+  if (!congregationId) return { token: null, error: 'Nincs aktív gyülekezet kiválasztva.' }
+  const { data, error } = await supabase
+    .from('congregations')
+    .select('calendar_feed_token')
+    .eq('id', congregationId)
+    .maybeSingle()
+  if (error) {
+    // Tipikusan: az oszlop még nem létezik → hangos, cselekvésre mutató hiba
+    return { token: null, error: 'A naptár-hivatkozás nem érhető el. (Lefutott már a 2026-08-02-es naptár-feed adatbázis-migráció?)' }
+  }
+  const token = (data as { calendar_feed_token?: string | null } | null)?.calendar_feed_token ?? null
+  if (!token) {
+    return { token: null, error: 'A gyülekezetnek még nincs naptár-hivatkozása — futtasd le a 2026-08-02-es naptár-feed migrációt.' }
+  }
+  return { token }
 }
 
 /**

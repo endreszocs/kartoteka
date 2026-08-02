@@ -263,6 +263,52 @@ export async function syncHouseholdFromCsalad(
   if (newTags.length > 0) {
     must(await supabase.from('haztartas_tag').insert(newTags), 'haztartas_tag-insert')
   }
+
+  // 4. Rokonsági kapcsolatok (szemely_kapcsolat) — 2026-08-02 (PR-20).
+  // A CSALÁDFA KIZÁRÓLAG ebből a táblából épül; eddig csak a CNP-s tagmentés,
+  // a keresztelés és az importok írták, a Családok fülről / hozzárendelésből
+  // mentett tagság NEM → a fa a nagyszülőknél megállt. A DB-oldali
+  // sync_households_from_csalad RPC (2026-07-18) ugyanezt írja — ez a TS-
+  // párja, hogy MINDEN felületi mentés után azonnal meglegyenek az élek.
+  // Csak HOZZÁADUNK: a vér szerinti kapcsolat a tagság-mozgástól független,
+  // áthelyezésnél sem záródik le.
+  const kinshipPairs: Array<{ id1: number; id2: number; tipus: string; ver: boolean }> = []
+  if (csaladRow.id_ferfi && csaladRow.id_no) {
+    kinshipPairs.push({ id1: csaladRow.id_ferfi as number, id2: csaladRow.id_no as number, tipus: 'hazastars', ver: false })
+  }
+  for (const gyerekId of gyerekIds) {
+    if (csaladRow.id_ferfi) kinshipPairs.push({ id1: csaladRow.id_ferfi as number, id2: gyerekId, tipus: 'szulo_gyermek', ver: true })
+    if (csaladRow.id_no) kinshipPairs.push({ id1: csaladRow.id_no as number, id2: gyerekId, tipus: 'szulo_gyermek', ver: true })
+  }
+  if (kinshipPairs.length > 0) {
+    const ids = [...new Set(kinshipPairs.flatMap((p) => [p.id1, p.id2]))]
+    const existing = must(await supabase
+      .from('szemely_kapcsolat')
+      .select('id_szemely_1, id_szemely_2, tipus')
+      .in('id_szemely_1', ids)
+      .is('ervenyes_ig', null), 'szemely_kapcsolat-olvasas')
+    const have = new Set(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ((existing || []) as any[]).map((r) => `${r.id_szemely_1}|${r.id_szemely_2}|${r.tipus}`),
+    )
+    const toInsert = kinshipPairs
+      .filter((p) =>
+        !have.has(`${p.id1}|${p.id2}|${p.tipus}`) &&
+        // a házastársi él iránytól függetlenül csak egyszer
+        !(p.tipus === 'hazastars' && have.has(`${p.id2}|${p.id1}|hazastars`)),
+      )
+      .map((p) => ({
+        id_szemely_1: p.id1,
+        id_szemely_2: p.id2,
+        tipus: p.tipus,
+        ver_szerinti: p.ver,
+        congregation_id: congregationId,
+        megjegyzes: 'haztartas-sync',
+      }))
+    if (toInsert.length > 0) {
+      must(await supabase.from('szemely_kapcsolat').insert(toInsert), 'szemely_kapcsolat-insert')
+    }
+  }
 }
 
 export async function loadFamilyDisplayNames(supabase: Db, familyIds: number[]): Promise<Map<number, string>> {

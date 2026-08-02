@@ -23,8 +23,10 @@ import type { Program } from '@/lib/constants/dashboard'
 
 const STEP_DAYS: Record<string, number> = { heti: 7, ketheti: 14 }
 
-/** Védőkorlát elszabadult ciklus ellen (heti × 1 év ≈ 53). */
-const MAX_OCCURRENCES = 120
+/** Védőkorlát elszabadult ciklus ellen — 2026-08-02 (PR-20): 400-ra emelve,
+ *  mert a horizont már a NÉZETT év vége is lehet (előző évben indult heti
+ *  sorozat ≈ 105 alkalom két évre; 400 ≈ 7,5 év heti ritmusban). */
+const MAX_OCCURRENCES = 400
 
 /** 'YYYY-MM-DD' → n nappal eltolva, 'YYYY-MM-DD' (UTC-matek, TZ-független). */
 function addDays(dateStr: string, n: number): string {
@@ -50,10 +52,18 @@ function dayDiff(start: string, end: string): number {
 
 /**
  * A programlista kibontása: a nem ismétlődő sorok változatlanul kerülnek
- * vissza, az ismétlődők pedig a tényleges alkalmaikra bontva (a kezdő év
- * végéig). Az eredmény dátum szerint rendezett.
+ * vissza, az ismétlődők pedig a tényleges alkalmaikra bontva. Az eredmény
+ * dátum szerint rendezett.
+ *
+ * 2026-08-02 (PR-20):
+ *  - `horizonYear` (opcionális): a kibontás a megadott év végéig fut (alap:
+ *    a kezdő év vége — visszafelé kompatibilis). Így az előző évben indult
+ *    heti sorozat az idei nézetben is megjelenik.
+ *  - HAVI csúszás-javítás: minden alkalom az EREDETI hónapnaptól számítódik
+ *    (index-alapú), nem az előző alkalomtól — a jan. 31-i kezdés így
+ *    febr. 28. UTÁN márc. 31-re áll vissza (eddig 28-án ragadt).
  */
-export function expandProgramOccurrences(programs: Program[]): Program[] {
+export function expandProgramOccurrences(programs: Program[], horizonYear?: number): Program[] {
   const result: Program[] = []
 
   for (const p of programs) {
@@ -66,18 +76,18 @@ export function expandProgramOccurrences(programs: Program[]): Program[] {
     }
 
     const spanDays = p.datum_vege ? Math.max(0, dayDiff(p.datum, p.datum_vege)) : 0
-    const horizon = `${p.datum.slice(0, 4)}-12-31`
+    const baseYear = Number(p.datum.slice(0, 4))
+    const endYear = Math.max(baseYear, horizonYear ?? baseYear)
+    const horizon = `${endYear}-12-31`
 
-    let cur = p.datum
-    let count = 0
-    while (cur <= horizon && count < MAX_OCCURRENCES) {
+    for (let i = 0; i < MAX_OCCURRENCES; i++) {
+      const cur = rec === 'havi' ? addMonths(p.datum, i) : addDays(p.datum, i * STEP_DAYS[rec])
+      if (cur > horizon) break
       result.push({
         ...p,
         datum: cur,
         datum_vege: spanDays > 0 ? addDays(cur, spanDays) : null,
       })
-      cur = rec === 'havi' ? addMonths(cur, 1) : addDays(cur, STEP_DAYS[rec])
-      count++
     }
   }
 

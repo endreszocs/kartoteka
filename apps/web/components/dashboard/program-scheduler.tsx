@@ -5,7 +5,7 @@
 // adatokkal és szerver-action-ökkel. A napra kattintás SZŰRI az agendát.
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import {
-  CalendarDays, ChevronLeft, ChevronRight, ChevronDown, Sparkles,
+  CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, ChevronDown, Sparkles,
   Calendar as CalendarIcon, List as ListIcon, Plus, Rows3, Smile, Inbox,
 } from 'lucide-react'
 import { getProgramsForYear, deleteProgram, toggleProgramDone } from '@/app/(dashboard)/programs/actions'
@@ -15,6 +15,7 @@ import { AdminConfirmDialog } from '@/components/admin/admin-confirm-dialog'
 import { ProgramCalendar } from './program-calendar'
 import { AgendaCard } from './program-agenda-card'
 import { AnnualPlanPrint } from './annual-plan-print'
+import { GoogleCalendarDialog } from './google-calendar-dialog'
 import { HU_MONTHS, HU_MONTHS_SHORT, HU_DAYS } from '@/lib/constants/dashboard'
 import type { Program } from '@/lib/constants/dashboard'
 import { expandProgramOccurrences } from '@/lib/utils/program-recurrence'
@@ -95,6 +96,8 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
   const [defaultDate, setDefaultDate] = useState<string | null>(null)
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  // 2026-08-02 (PR-20): Google Naptár összekötés dialógus
+  const [gcalOpen, setGcalOpen] = useState(false)
 
   const isCurrentMonth = year === today.getFullYear() && month === today.getMonth()
 
@@ -119,8 +122,10 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
 
   const refreshPrograms = useCallback(() => { void loadPrograms(year) }, [year, loadPrograms])
 
-  // Ismétlődő programok feloldása a tényleges alkalmakra
-  const occurrences = useMemo(() => expandProgramOccurrences(programs), [programs])
+  // Ismétlődő programok feloldása a tényleges alkalmakra — 2026-08-02 (PR-20):
+  // a horizont a NÉZETT év vége, így az előző évben indult heti/havi sorozat
+  // az új évben is megjelenik (eddig a kezdő év végén elhalt).
+  const occurrences = useMemo(() => expandProgramOccurrences(programs, year), [programs, year])
 
   // Hó eseményei (a hónapot bármely napon érintők)
   const daysInMonth = new Date(year, month + 1, 0).getDate()
@@ -202,7 +207,7 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
   }
 
   return (
-    <div className="card-raised kt-widget">
+    <div className="card-raised kt-widget kt-widget--flow">
       <div className="kt-glow" />
 
       {/* Fejléc */}
@@ -357,6 +362,10 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
           <button type="button" className="kt-btn kt-btn-outline" onClick={() => setBatchDialogOpen(true)}>
             <Rows3 size={16} /> Tömeges bevitel
           </button>
+          {/* 2026-08-02 (PR-20): naptár-feed összekötés (Google/Apple/Outlook) */}
+          <button type="button" className="kt-btn kt-btn-outline" onClick={() => setGcalOpen(true)}>
+            <CalendarPlus size={16} /> Google Naptár
+          </button>
           <AnnualPlanPrint
             allPrograms={programs}
             year={year}
@@ -388,6 +397,7 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
         loading={deleting}
         onConfirm={confirmDelete}
       />
+      <GoogleCalendarDialog open={gcalOpen} onOpenChange={setGcalOpen} />
     </div>
   )
 }
