@@ -70,8 +70,10 @@ BEGIN
   FROM public.gyulekezeti_programok p
   WHERE p.congregation_id = v_cong.id
     -- az idei év eleje előtt legfeljebb 5 évvel indult sorok (az ismétlődők
-    -- kibontásához a régebbi sorozat-kezdetek is kellenek)
-    AND p.datum >= to_char(now() - interval '5 years', 'YYYY') || '-01-01';
+    -- kibontásához a régebbi sorozat-kezdetek is kellenek).
+    -- v2 (review-fix): DATE-típusú összevetés — a szöveg-összehasonlítás a
+    -- date oszloppal futásidejű hibát adott volna (az egész feed 503).
+    AND p.datum >= make_date(EXTRACT(year FROM now())::int - 5, 1, 1);
 
   RETURN jsonb_build_object(
     'status', 'ok',

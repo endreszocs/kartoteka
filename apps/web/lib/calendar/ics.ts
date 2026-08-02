@@ -31,18 +31,35 @@ function esc(value: string): string {
     .replace(/\r?\n/g, '\\n')
 }
 
-/** RFC 5545 sor-hajtás: max ~74 karakter, folytatás szóközzel. */
+/** Egy Unicode kódpont UTF-8 hossza oktettekben. */
+function utf8Len(cp: number): number {
+  return cp <= 0x7f ? 1 : cp <= 0x7ff ? 2 : cp <= 0xffff ? 3 : 4
+}
+
+/**
+ * RFC 5545 sor-hajtás: max 75 OKTETT soronként (nem karakter!), folytatás
+ * szóközzel. Kódpontonként lépünk (for..of), így az ékezetes magyar szöveg és
+ * az emoji surrogate-párja sosem törik ketté (2026-08-02, review-fix).
+ */
 function fold(line: string): string {
-  if (line.length <= 74) return line
   const parts: string[] = []
-  let rest = line
+  let cur = ''
+  let bytes = 0
   let first = true
-  while (rest.length > 0) {
-    const take = first ? 74 : 73
-    parts.push((first ? '' : ' ') + rest.slice(0, take))
-    rest = rest.slice(take)
-    first = false
+  for (const ch of line) {
+    const len = utf8Len(ch.codePointAt(0)!)
+    const limit = first ? 75 : 74 // a folytatás-sor 1 oktettet veszít a vezető szóközre
+    if (bytes + len > limit) {
+      parts.push((first ? '' : ' ') + cur)
+      first = false
+      cur = ch
+      bytes = len
+    } else {
+      cur += ch
+      bytes += len
+    }
   }
+  if (cur.length > 0 || parts.length === 0) parts.push((first ? '' : ' ') + cur)
   return parts.join(CRLF)
 }
 
@@ -57,10 +74,17 @@ function icsDateTime(d: string, t: string): string {
   return `${icsDate(d)}T${time.replace(/:/g, '')}`
 }
 
-/** 'YYYY-MM-DD' → a KÖVETKEZŐ nap 'YYYYMMDD' (egész napos DTEND exkluzív) */
-function icsNextDay(d: string): string {
+/** 'YYYY-MM-DD' + n nap → 'YYYYMMDD' (egész napos DTEND exkluzív végéhez) */
+function icsAddDays(d: string, days: number): string {
   const [y, m, day] = d.split('-').map(Number)
-  return new Date(Date.UTC(y, m - 1, day + 1)).toISOString().slice(0, 10).replace(/-/g, '')
+  return new Date(Date.UTC(y, m - 1, day + days)).toISOString().slice(0, 10).replace(/-/g, '')
+}
+const icsNextDay = (d: string) => icsAddDays(d, 1)
+
+/** 'YYYY-MM-DD' → a következő nap 'YYYY-MM-DD' (kötőjeles) */
+function nextDayIso(d: string): string {
+  const [y, m, day] = d.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, day + 1)).toISOString().slice(0, 10)
 }
 
 // Európa/Bukarest VTIMEZONE (EET +02 / EEST +03, EU-s DST-szabályok)
@@ -146,12 +170,26 @@ export function buildCalendarIcs(input: BuildIcsInput): string {
     lines.push(fold(`SUMMARY:${esc(`${emoji} ${p.cim}`)}`))
     if (p.ido_kezdes) {
       lines.push(`DTSTART;TZID=Europe/Bucharest:${icsDateTime(p.datum, p.ido_kezdes)}`)
-      const endDate = p.datum_vege && p.datum_vege > p.datum ? p.datum_vege : p.datum
-      // Ha nincs záró idő: 1 óra alapértelmezett hossz
-      const endTime = p.ido_befejezes || (() => {
-        const [h, m] = p.ido_kezdes!.split(':').map(Number)
-        return `${String(Math.min(h + 1, 23)).padStart(2, '0')}:${String(m).padStart(2, '0')}`
-      })()
+      // 2026-08-02 (review-fixek): (a) záróidő nélkül 1 óra alapértelmezett
+      // hossz ÉJFÉL-ÁTFORDULÁSSAL (23:30 → másnap 00:30, nem 23:30); (b) ha a
+      // záróidő KORÁBBI a kezdésnél és nincs külön záró nap → éjszakába nyúló
+      // alkalom, a vége másnapra esik.
+      let endDate = p.datum_vege && p.datum_vege > p.datum ? p.datum_vege : p.datum
+      let endTime: string
+      if (p.ido_befejezes) {
+        endTime = p.ido_befejezes
+        if (endDate === p.datum && endTime.slice(0, 5) <= p.ido_kezdes.slice(0, 5)) {
+          endDate = nextDayIso(endDate)
+        }
+      } else {
+        const [h, m] = p.ido_kezdes.split(':').map(Number)
+        if (h + 1 >= 24) {
+          endDate = nextDayIso(endDate)
+          endTime = `00:${String(m).padStart(2, '0')}`
+        } else {
+          endTime = `${String(h + 1).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+        }
+      }
       lines.push(`DTEND;TZID=Europe/Bucharest:${icsDateTime(endDate, endTime)}`)
     } else {
       lines.push(`DTSTART;VALUE=DATE:${icsDate(p.datum)}`)
@@ -173,7 +211,9 @@ export function buildCalendarIcs(input: BuildIcsInput): string {
         lines.push(`DTSTAMP:${dtstamp}`)
         lines.push(fold(`SUMMARY:${esc(`✝ ${h.name}`)}`))
         lines.push(`DTSTART;VALUE=DATE:${icsDate(h.date)}`)
-        lines.push(`DTEND;VALUE=DATE:${icsNextDay(h.date)}`)
+        // 2026-08-02 (review): a kétnapos ünnepek (húsvét/pünkösd/karácsony)
+        // mindkét napja — a durationDays a DTEND exkluzív végét tolja
+        lines.push(`DTEND;VALUE=DATE:${icsAddDays(h.date, h.durationDays ?? 1)}`)
         lines.push('TRANSP:TRANSPARENT')
         lines.push(fold(`DESCRIPTION:${esc(`Református ünnep — Kartotéka naptár (${congregationName})`)}`))
         lines.push('CATEGORIES:Ünnep')

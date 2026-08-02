@@ -384,7 +384,9 @@ export default async function DashboardPage() {
         publicSiteStatus={publicSiteResult.data ? { isPublished: !!publicSiteResult.data.is_published, postCount: publicPostsResult.count ?? 0 } : null}
       />
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.08fr_1fr_0.94fr]">
+      {/* 2026-08-02 (PR-20): items-start — a programok-doboz (kt-widget--flow)
+          teljes magasságú, a szomszédok nem nyúlnak vele együtt */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.08fr_1fr_0.94fr] xl:items-start">
         <Celebrations
           todayBirthdays={todayBirthdays}
           todayNamedayMembers={todayNamedayMembers}

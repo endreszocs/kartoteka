@@ -20,6 +20,22 @@ SELECT c.name, public.sync_households_from_csalad(c.id) AS eredmeny
 FROM public.congregations c
 ORDER BY c.name;
 
+-- 1/b) UTÓ-TAKARÍTÁS: ha egy MOST beszúrt sync-él egy korábban TUDATOSAN
+--      LEZÁRT él párja (kézi javítás / lezárt kapcsolat), zárjuk vissza —
+--      a lezárás döntését a pótlás nem írhatja felül.
+UPDATE public.szemely_kapcsolat k
+SET ervenyes_ig = CURRENT_DATE
+WHERE k.ervenyes_ig IS NULL
+  AND k.megjegyzes = 'sync_households_from_csalad'
+  AND EXISTS (
+    SELECT 1 FROM public.szemely_kapcsolat z
+    WHERE z.id_szemely_1 = k.id_szemely_1
+      AND z.id_szemely_2 = k.id_szemely_2
+      AND z.tipus = k.tipus
+      AND z.ervenyes_ig IS NOT NULL
+      AND z.id <> k.id
+  );
+
 -- 2) VERIFIKÁCIÓ — hiányzó szülő-gyerek élek száma (várt: 0 minden sorban)
 SELECT h.congregation_id,
        COUNT(*) AS hianyzo_szulo_gyerek_el

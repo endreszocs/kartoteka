@@ -112,8 +112,9 @@ export async function syncHouseholdFromCsalad(
     .from('gyerek')
     .select('id_szemely')
     .eq('id_csalad', csaladId), 'gyerek-olvasas')
+  // Dedup — a gyerek táblán nincs UNIQUE, a dupla sor ne duplázza az éleket
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const gyerekIds = ((gyerekRows || []) as any[]).map((g) => g.id_szemely as number)
+  const gyerekIds = [...new Set(((gyerekRows || []) as any[]).map((g) => g.id_szemely as number))]
 
   // 2. Olvas vagy hoz létre: haztartas
   const existingHaztartas = must(await supabase
@@ -270,44 +271,130 @@ export async function syncHouseholdFromCsalad(
   // mentett tagság NEM → a fa a nagyszülőknél megállt. A DB-oldali
   // sync_households_from_csalad RPC (2026-07-18) ugyanezt írja — ez a TS-
   // párja, hogy MINDEN felületi mentés után azonnal meglegyenek az élek.
-  // Csak HOZZÁADUNK: a vér szerinti kapcsolat a tagság-mozgástól független,
-  // áthelyezésnél sem záródik le.
-  const kinshipPairs: Array<{ id1: number; id2: number; tipus: string; ver: boolean }> = []
-  if (csaladRow.id_ferfi && csaladRow.id_no) {
-    kinshipPairs.push({ id1: csaladRow.id_ferfi as number, id2: csaladRow.id_no as number, tipus: 'hazastars', ver: false })
-  }
-  for (const gyerekId of gyerekIds) {
-    if (csaladRow.id_ferfi) kinshipPairs.push({ id1: csaladRow.id_ferfi as number, id2: gyerekId, tipus: 'szulo_gyermek', ver: true })
-    if (csaladRow.id_no) kinshipPairs.push({ id1: csaladRow.id_no as number, id2: gyerekId, tipus: 'szulo_gyermek', ver: true })
-  }
-  if (kinshipPairs.length > 0) {
-    const ids = [...new Set(kinshipPairs.flatMap((p) => [p.id1, p.id2]))]
-    const existing = must(await supabase
-      .from('szemely_kapcsolat')
-      .select('id_szemely_1, id_szemely_2, tipus')
-      .in('id_szemely_1', ids)
-      .is('ervenyes_ig', null), 'szemely_kapcsolat-olvasas')
-    const have = new Set(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ((existing || []) as any[]).map((r) => `${r.id_szemely_1}|${r.id_szemely_2}|${r.tipus}`),
-    )
-    const toInsert = kinshipPairs
-      .filter((p) =>
-        !have.has(`${p.id1}|${p.id2}|${p.tipus}`) &&
-        // a házastársi él iránytól függetlenül csak egyszer
-        !(p.tipus === 'hazastars' && have.has(`${p.id2}|${p.id1}|hazastars`)),
-      )
-      .map((p) => ({
-        id_szemely_1: p.id1,
-        id_szemely_2: p.id2,
-        tipus: p.tipus,
-        ver_szerinti: p.ver,
-        congregation_id: congregationId,
-        megjegyzes: 'haztartas-sync',
-      }))
-    if (toInsert.length > 0) {
-      must(await supabase.from('szemely_kapcsolat').insert(toInsert), 'szemely_kapcsolat-insert')
+  //
+  // Szabályok (PR-20 review után):
+  //  - LEZÁRT élt nem támasztunk fel (haláleset/kézi javítás tudatos döntés),
+  //    KIVÉVE a sync/eltávolítás által zárt élt — azt újranyitjuk, ha a tagság
+  //    újra fennáll (a gyermeket visszatették a családba).
+  //  - Best-effort: a rokonsági élek hibája nem minősíti át a már sikeres
+  //    háztartás-szinkront (párhuzamos mentések ütközését is elnyeli).
+  try {
+    const kinshipPairs: Array<{ id1: number; id2: number; tipus: string; ver: boolean }> = []
+    if (csaladRow.id_ferfi && csaladRow.id_no && csaladRow.id_ferfi !== csaladRow.id_no) {
+      kinshipPairs.push({ id1: csaladRow.id_ferfi as number, id2: csaladRow.id_no as number, tipus: 'hazastars', ver: false })
     }
+    for (const gyerekId of gyerekIds) {
+      if (csaladRow.id_ferfi && csaladRow.id_ferfi !== gyerekId) {
+        kinshipPairs.push({ id1: csaladRow.id_ferfi as number, id2: gyerekId, tipus: 'szulo_gyermek', ver: true })
+      }
+      if (csaladRow.id_no && csaladRow.id_no !== gyerekId) {
+        kinshipPairs.push({ id1: csaladRow.id_no as number, id2: gyerekId, tipus: 'szulo_gyermek', ver: true })
+      }
+    }
+    if (kinshipPairs.length > 0) {
+      const ids = [...new Set(kinshipPairs.flatMap((p) => [p.id1, p.id2]))]
+      // MINDEN (aktív ÉS lezárt) él kell a döntéshez
+      const existing = must(await supabase
+        .from('szemely_kapcsolat')
+        .select('id, id_szemely_1, id_szemely_2, tipus, ervenyes_ig, megjegyzes')
+        .in('id_szemely_1', ids), 'szemely_kapcsolat-olvasas')
+      interface EdgeRow { id: number; id_szemely_1: number; id_szemely_2: number; tipus: string; ervenyes_ig: string | null; megjegyzes: string | null }
+      const edgeByKey = new Map<string, EdgeRow[]>()
+      for (const r of (existing || []) as EdgeRow[]) {
+        const k = `${r.id_szemely_1}|${r.id_szemely_2}|${r.tipus}`
+        const list = edgeByKey.get(k) ?? []
+        list.push(r)
+        edgeByKey.set(k, list)
+      }
+      const lookupRows = (p: { id1: number; id2: number; tipus: string }): EdgeRow[] => {
+        const direct = edgeByKey.get(`${p.id1}|${p.id2}|${p.tipus}`) ?? []
+        // a házastársi él iránytól függetlenül számít
+        const reverse = p.tipus === 'hazastars' ? edgeByKey.get(`${p.id2}|${p.id1}|hazastars`) ?? [] : []
+        return [...direct, ...reverse]
+      }
+
+      const toInsert: Record<string, unknown>[] = []
+      const toReopen: number[] = []
+      const seenBatch = new Set<string>()
+      for (const p of kinshipPairs) {
+        const key = `${p.id1}|${p.id2}|${p.tipus}`
+        const revKey = p.tipus === 'hazastars' ? `${p.id2}|${p.id1}|${p.tipus}` : null
+        // batch-en belüli dupla (pl. dupla gyerek-sor) csak egyszer
+        if (seenBatch.has(key) || (revKey && seenBatch.has(revKey))) continue
+        seenBatch.add(key)
+        const rows = lookupRows(p)
+        if (rows.some((r) => r.ervenyes_ig === null)) continue // van aktív él
+        const reopenable = rows.find((r) => r.ervenyes_ig !== null && KINSHIP_SYNC_MARKERS.includes(r.megjegyzes ?? ''))
+        if (reopenable) {
+          toReopen.push(reopenable.id)
+          continue
+        }
+        if (rows.length > 0) continue // más okból lezárt él — nem támasztjuk fel
+        toInsert.push({
+          id_szemely_1: p.id1,
+          id_szemely_2: p.id2,
+          tipus: p.tipus,
+          ver_szerinti: p.ver,
+          congregation_id: congregationId,
+          megjegyzes: 'haztartas-sync',
+        })
+      }
+      if (toReopen.length > 0) {
+        must(await supabase
+          .from('szemely_kapcsolat')
+          .update({ ervenyes_ig: null, megjegyzes: 'haztartas-sync' })
+          .in('id', toReopen), 'szemely_kapcsolat-ujranyitas')
+      }
+      if (toInsert.length > 0) {
+        must(await supabase.from('szemely_kapcsolat').insert(toInsert), 'szemely_kapcsolat-insert')
+      }
+    }
+  } catch (e) {
+    console.warn('[syncHouseholdFromCsalad] rokonsági élek frissítése sikertelen (nem blokkoló):',
+      e instanceof Error ? e.message : e)
+  }
+}
+
+/** A sync/család-szerkesztés által írt/zárt rokonsági élek megjegyzés-jelölői */
+const KINSHIP_SYNC_MARKERS = ['haztartas-sync', 'sync_households_from_csalad', 'csalad-szerkesztes-eltavolitas']
+
+/**
+ * A CSALÁD-SZERKESZTÉSSEL eltávolított tagok SYNC-EREDETŰ rokonsági éleinek
+ * lezárása (2026-08-02, PR-20 — „a családfa kövesse a szerkesztést").
+ * CSAK a haztartas-sync eredetű éleket zárja — a kereszteléskor / szülő-
+ * választással rögzített vér szerinti kapcsolat érintetlen marad. Az
+ * Áthelyezés útvonal szándékosan NEM hívja (ott a rokonság megmarad).
+ * A lezárt él megjegyzése 'csalad-szerkesztes-eltavolitas' lesz — így ha a
+ * tagot később visszateszik a családba, a sync újranyitja.
+ */
+export async function closeSyncKinshipEdges(
+  supabase: Db,
+  pairs: Array<{ id1: number; id2: number; tipus: 'szulo_gyermek' | 'hazastars' }>,
+) {
+  if (pairs.length === 0) return
+  const ids = [...new Set(pairs.flatMap((p) => [p.id1, p.id2]))]
+  const { data, error } = await supabase
+    .from('szemely_kapcsolat')
+    .select('id, id_szemely_1, id_szemely_2, tipus, megjegyzes')
+    .in('id_szemely_1', ids)
+    .is('ervenyes_ig', null)
+  if (error) throw new Error(`szemely_kapcsolat-olvasas: ${error.message}`)
+  const wanted = new Set(pairs.flatMap((p) =>
+    p.tipus === 'hazastars'
+      ? [`${p.id1}|${p.id2}|hazastars`, `${p.id2}|${p.id1}|hazastars`]
+      : [`${p.id1}|${p.id2}|${p.tipus}`],
+  ))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const toClose = ((data || []) as any[])
+    .filter((r) => wanted.has(`${r.id_szemely_1}|${r.id_szemely_2}|${r.tipus}`)
+      && KINSHIP_SYNC_MARKERS.includes((r.megjegyzes as string | null) ?? ''))
+    .map((r) => r.id as number)
+  if (toClose.length > 0) {
+    const { error: closeError } = await supabase
+      .from('szemely_kapcsolat')
+      .update({ ervenyes_ig: new Date().toISOString().slice(0, 10), megjegyzes: 'csalad-szerkesztes-eltavolitas' })
+      .in('id', toClose)
+    if (closeError) throw new Error(`szemely_kapcsolat-lezaras: ${closeError.message}`)
   }
 }
 

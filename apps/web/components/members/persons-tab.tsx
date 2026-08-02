@@ -1199,7 +1199,12 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
           setTreeOpen(true)
         }}
       />
-      <MemberFormDialog open={formOpen} onOpenChange={handleFormClose} editMember={editingMember} />
+      <MemberFormDialog
+        open={formOpen}
+        onOpenChange={handleFormClose}
+        editMember={editingMember}
+        onDataChanged={() => void fetchFirstPage({ preserveMembers: true })}
+      />
       <MemberRemoveDialog open={removeOpen} onOpenChange={handleRemoveClose} member={removingMember} />
       <FamilyTreeDialog
         open={treeOpen}

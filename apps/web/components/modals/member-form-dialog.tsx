@@ -44,6 +44,9 @@ interface MemberFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   editMember: EnrichedMember | null
+  /** 2026-08-02 (PR-20): a szülő-összekötő felugró sikeres mentése után —
+   *  a mögöttes lista frissítéséhez (a fő űrlap ilyenkor már zárva van) */
+  onDataChanged?: () => void
 }
 
 // 2026-06-02: a user kérése — input mezők JOBBAN láthatóak legyenek.
@@ -70,7 +73,7 @@ const STEP1_FIELDS: readonly (keyof MemberFormValues)[] = ['csaladnev', 'k_nev',
 // Anyakönyv → Esketés modulban történik.
 const STEP2_FIELDS: readonly (keyof MemberFormValues)[] = ['kereszteles_datum', 'kereszteles_hely', 'kereszteles_lelkesz', 'konfirmacio_datum', 'konfirmacio_hely', 'konfirmacio_lelkesz']
 
-export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormDialogProps) {
+export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged }: MemberFormDialogProps) {
   const [loading, setLoading] = useState(false)
   const [step, setStep] = useState<'choose' | 'form'>('choose')
   // 2026-06-02: wizard step + tetejétől átment lépések (visszamenni szabad)
@@ -946,6 +949,7 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
       open={parentLinkResult !== null}
       onOpenChange={(o) => { if (!o) setParentLinkResult(null) }}
       data={parentLinkResult}
+      onLinked={onDataChanged}
     />
     </>
   )

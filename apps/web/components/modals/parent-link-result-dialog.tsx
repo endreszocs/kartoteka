@@ -100,7 +100,16 @@ function PartRow({ label, part, selected, onSelect }: {
       </div>
     )
   }
-  // 'none' — nincs találat: csendes információ
+  // 'none' — nincs találat / átmeneti kereső-hiba: csendes információ
+  if (part.lookupFailed) {
+    return (
+      <div className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground">
+        {label}: a tag-keresés átmeneti hiba miatt nem futott le — a beírt
+        „{part.input}” név szövegként elmentve. A tag szerkesztőjéből később
+        újra összekötheted.
+      </div>
+    )
+  }
   return (
     <div className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground">
       {label}: a beírt „{part.input}” névhez nem találtunk gyülekezeti tagot — a név
@@ -140,8 +149,14 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
         toast.error(res.error)
         return
       }
-      toast.success('Szülő összekötve — a családfa és a családi karton frissült.')
+      // 2026-08-02 (review): a siker-üzenet a TÉNYLEGES eredményt tükrözi —
+      // ha a dupla-tagsági őr a családba sorolást visszafogta, azt mondjuk.
       if ('warning' in res && res.warning) toast.warning(res.warning, { duration: 9000 })
+      if (!('linked' in res) || res.linked) {
+        toast.success('Szülő összekötve — a családfa és a családi karton frissült.')
+      } else {
+        toast.info('A rokonsági kapcsolat rögzült a családfán, de a családi kartonhoz nem rendeltük hozzá a tagot — lásd a figyelmeztetést.')
+      }
       onLinked?.()
       onOpenChange(false)
     } catch {

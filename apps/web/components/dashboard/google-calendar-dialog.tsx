@@ -35,22 +35,22 @@ export function GoogleCalendarDialog({ open, onOpenChange }: GoogleCalendarDialo
     if (!open) return
     let cancelled = false
     setCopied(false)
-    if (!token) {
-      setLoading(true)
-      getCalendarFeedToken()
-        .then((res) => {
-          if (cancelled) return
-          setToken(res.token)
-          setError(res.error ?? null)
-        })
-        .catch(() => { if (!cancelled) setError('A naptár-hivatkozás betöltése nem sikerült.') })
-        .finally(() => { if (!cancelled) setLoading(false) })
-    }
+    // 2026-08-02 (review): MINDEN nyitáskor frissen kérjük — profil/gyülekezet-
+    // váltás után a cache-elt token a MÁSIK gyülekezet titkos feedje lenne.
+    // (A régi URL-t a betöltés alatt a !loading render-kapu rejti el.)
+    setLoading(true)
+    getCalendarFeedToken()
+      .then((res) => {
+        if (cancelled) return
+        setToken(res.token)
+        setError(res.error ?? null)
+      })
+      .catch(() => { if (!cancelled) setError('A naptár-hivatkozás betöltése nem sikerült.') })
+      .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  const feedUrl = token
+  const feedUrl = token && !loading
     ? `${typeof window !== 'undefined' ? window.location.origin : 'https://kartoteka.app'}/api/calendar/${token}${includeHolidays ? '' : '?unnepek=0'}`
     : null
 

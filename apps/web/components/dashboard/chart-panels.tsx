@@ -103,7 +103,7 @@ export function AgeDistributionCard({ ageGroups, detailedAgeGroups, stats }: Age
     : 1
 
   return (
-    <div className="card-raised flex h-full flex-col p-5">
+    <div className="card-raised flex h-full flex-col p-5 xl:h-auto">
       <div className="mb-3 flex items-start justify-between gap-2">
         <div className="flex items-center gap-3">
           <div className="icon-raised h-9 w-9 bg-gradient-to-br from-violet-500 to-purple-600">
