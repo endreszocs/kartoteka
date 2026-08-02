@@ -1053,12 +1053,15 @@ export async function saveMarriage(data: MarriageInput) {
     // szerkesztés a férjet/feleséget cseréli (pl. azonos nevű rossz személyről
     // a jóra), a RÉGI pár házastárs-élét lezárjuk, különben a családfa két
     // aktív házastársat mutatna.
-    const { data: prevMarriage } = await supabase
+    const { data: prevMarriage, error: prevErr } = await supabase
       .from('hazassag')
       .select('id_ferfi, id_no')
       .eq('id', d.id)
       .eq('congregation_id', congId)
       .maybeSingle()
+    // 2026-08-02 (review-fix): fail-closed — a korábbi pár ismerete nélkül a
+    // mentés régi élt hagyna hátra; inkább megállunk, újrapróbálható.
+    if (prevErr) return { error: `A korábbi házassági adatok beolvasása nem sikerült: ${prevErr.message}` }
 
     const { error, data: updData } = await supabase.from('hazassag').update(record)
       .eq('id', d.id).eq('congregation_id', congId).select('id, munkanaplo_id')
@@ -1068,7 +1071,10 @@ export async function saveMarriage(data: MarriageInput) {
 
     const prevFerfi = (prevMarriage as { id_ferfi: number | null } | null)?.id_ferfi ?? null
     const prevNo = (prevMarriage as { id_no: number | null } | null)?.id_no ?? null
-    const coupleChanged = prevFerfi && prevNo && (prevFerfi !== d.id_ferfi || prevNo !== d.id_no)
+    // Halmaz-összevetés (review-fix): a férj/feleség HELYCSERÉJE ugyanazon a
+    // páron nem pár-változás — az anyakönyvi él nem záródik miatta.
+    const coupleChanged = !!prevFerfi && !!prevNo
+      && !((prevFerfi === d.id_ferfi && prevNo === d.id_no) || (prevFerfi === d.id_no && prevNo === d.id_ferfi))
     if (coupleChanged) {
       try {
         await closeMarriageEdgeBetween(supabase, prevFerfi!, prevNo!)
@@ -1452,8 +1458,11 @@ export async function deleteRegistryEntry(tab: string, id: number) {
   // sync-e jogosan újraírja az élt.
   let deletedCouple: { ferfi: number | null; no: number | null } | null = null
   if (tab === 'hazassag') {
-    const { data: h } = await supabase.from('hazassag').select('id_ferfi, id_no')
+    const { data: h, error: hErr } = await supabase.from('hazassag').select('id_ferfi, id_no')
       .eq('id', id).eq('congregation_id', congId).maybeSingle()
+    // 2026-08-02 (review-fix): fail-closed — a pár ismerete nélkül a törlés
+    // örökre aktív élt hagyna; a törlés újrapróbálható.
+    if (hErr) return { error: `A házassági adatok beolvasása nem sikerült: ${hErr.message}` }
     deletedCouple = {
       ferfi: (h as { id_ferfi: number | null } | null)?.id_ferfi ?? null,
       no: (h as { id_no: number | null } | null)?.id_no ?? null,

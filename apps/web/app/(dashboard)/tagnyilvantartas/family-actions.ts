@@ -1038,14 +1038,20 @@ export async function deleteFamily(id: number) {
   // 2026-08-02 (PR-21): a törlés ELŐTT megjegyezzük az érintetteket, hogy a
   // tagság-eredetű rokonsági éleiket az egyeztető lezárhassa (eddig a törölt
   // család házaspár/szülő-gyerek élei örökre aktívak maradtak a családfán).
-  const [{ data: delFam }, { data: delGyerek }] = await Promise.all([
+  const [delFamRes, delGyerekRes] = await Promise.all([
     supabase.from('csalad').select('id_ferfi, id_no').eq('id', id).maybeSingle(),
     supabase.from('gyerek').select('id_szemely').eq('id_csalad', id),
   ])
+  if (delFamRes.error || delGyerekRes.error) {
+    // A törlés elsődleges — de a kimaradó egyeztetés ne legyen néma
+    console.warn('[deleteFamily] érintettek kiolvasása sikertelen — a rokonsági egyeztetés kimarad:',
+      delFamRes.error?.message || delGyerekRes.error?.message)
+  }
+  const delFam = delFamRes.data as { id_ferfi: number | null; id_no: number | null } | null
   const affectedIds = [
-    ...([(delFam as { id_ferfi: number | null } | null)?.id_ferfi, (delFam as { id_no: number | null } | null)?.id_no].filter(Boolean) as number[]),
+    ...([delFam?.id_ferfi, delFam?.id_no].filter(Boolean) as number[]),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ...((delGyerek || []) as any[]).map((g) => g.id_szemely as number),
+    ...(((delGyerekRes.data || []) as any[]).map((g) => g.id_szemely as number)),
   ]
   await supabase.from('gyerek').delete().eq('id_csalad', id)
   const { error } = await supabase.from('csalad').delete().eq('id', id)

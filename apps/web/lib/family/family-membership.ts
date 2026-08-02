@@ -380,8 +380,10 @@ export async function syncHouseholdFromCsalad(
  */
 const KINSHIP_SYNC_MARKERS = ['haztartas-sync', 'sync_households_from_csalad', 'fazis1-backfill', 'csalad-szerkesztes-eltavolitas']
 
-/** A tagság-eredetű, még AKTÍV élek jelölői (a lezárás-jelölő nélkül) */
-const MEMBERSHIP_DERIVED_MARKERS = ['haztartas-sync', 'sync_households_from_csalad', 'fazis1-backfill']
+/** A tagság-eredetű, még AKTÍV élek jelölői (a lezárás-jelölő nélkül).
+ *  Exportált: a családfa kereszthiba-üzenetei az él eredete szerint adnak
+ *  eltérő javítási tanácsot. */
+export const MEMBERSHIP_DERIVED_MARKERS = ['haztartas-sync', 'sync_households_from_csalad', 'fazis1-backfill']
 
 /**
  * ROKONSÁGI EGYEZTETŐ (2026-08-02, PR-21) — „minden érintett helyen".
@@ -409,16 +411,20 @@ export async function reconcileKinshipForPersons(
   if (ids.length === 0) return 0
 
   interface EdgeRow { id: string; id_szemely_1: number; id_szemely_2: number; tipus: string; megjegyzes: string | null }
+  // 2026-08-02 (review-fix): tenant-szűrt olvasás — globális szerepkörrel se
+  // olvassunk/zárjunk MÁS gyülekezet éleit.
   const [res1, res2] = await Promise.all([
     supabase
       .from('szemely_kapcsolat')
       .select('id, id_szemely_1, id_szemely_2, tipus, megjegyzes')
+      .eq('congregation_id', congregationId)
       .in('id_szemely_1', ids)
       .in('tipus', ['hazastars', 'szulo_gyermek'])
       .is('ervenyes_ig', null),
     supabase
       .from('szemely_kapcsolat')
       .select('id, id_szemely_1, id_szemely_2, tipus, megjegyzes')
+      .eq('congregation_id', congregationId)
       .in('id_szemely_2', ids)
       .in('tipus', ['hazastars', 'szulo_gyermek'])
       .is('ervenyes_ig', null),
@@ -436,7 +442,7 @@ export async function reconcileKinshipForPersons(
   const allPersonIds = [...new Set(edges.flatMap((e) => [e.id_szemely_1, e.id_szemely_2]))]
   const childIds = [...new Set(edges.filter((e) => e.tipus === 'szulo_gyermek').map((e) => e.id_szemely_2))]
 
-  const [famRes, gyRes] = await Promise.all([
+  const [famRes, gyRes, visRes] = await Promise.all([
     supabase
       .from('csalad')
       .select('id, id_ferfi, id_no')
@@ -448,9 +454,27 @@ export async function reconcileKinshipForPersons(
           .select('id_szemely, csalad:csalad!id_csalad(id, id_ferfi, id_no, isaktiv)')
           .in('id_szemely', childIds)
       : Promise.resolve({ data: [], error: null }),
+    // 2026-08-02 (review-fix): láthatósági őr — az igazoló csalad/gyerek sor
+    // RLS-rejtett lehet (pl. a szülő átjelentkezett). Csak akkor merünk zárni,
+    // ha az érintett fél a SAJÁT gyülekezet olvasható tagja (fail-closed).
+    supabase
+      .from('szemely')
+      .select('id')
+      .eq('congregation_id', congregationId)
+      .in('id', allPersonIds),
   ])
   if (famRes.error) throw new Error(`csalad-olvasas: ${famRes.error.message}`)
   if (gyRes.error) throw new Error(`gyerek-olvasas: ${gyRes.error.message}`)
+  if (visRes.error) throw new Error(`szemely-olvasas: ${visRes.error.message}`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const readableIds = new Set(((visRes.data || []) as any[]).map((r) => r.id as number))
+  // Gyerek-sor RLS-rejtett csalad-embeddel → a gyermek élei "ismeretlenek"
+  const unknownChildIds = new Set<number>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const g of (gyRes.data || []) as any[]) {
+    const cs = Array.isArray(g.csalad) ? g.csalad[0] : g.csalad
+    if (!cs) unknownChildIds.add(g.id_szemely as number)
+  }
 
   // Irány-független házaspár-kulcsok az aktív családokból
   const coupleKeys = new Set<string>()
@@ -474,9 +498,15 @@ export async function reconcileKinshipForPersons(
   const toClose = edges
     .filter((e) => {
       if (e.tipus === 'hazastars') {
+        // Láthatósági őr: legalább az egyik fél legyen olvasható saját tag
+        if (!readableIds.has(e.id_szemely_1) && !readableIds.has(e.id_szemely_2)) return false
         const [a, b] = [e.id_szemely_1, e.id_szemely_2].sort((x, y) => x - y)
         return !coupleKeys.has(`${a}|${b}`)
       }
+      // szulo_gyermek: a SZÜLŐ legyen olvasható saját tag, és a gyermek
+      // igazolása ne legyen RLS-rejtett
+      if (!readableIds.has(e.id_szemely_1)) return false
+      if (unknownChildIds.has(e.id_szemely_2)) return false
       return !parentChildKeys.has(`${e.id_szemely_1}|${e.id_szemely_2}`)
     })
     .map((e) => e.id)
@@ -485,6 +515,7 @@ export async function reconcileKinshipForPersons(
     const { error } = await supabase
       .from('szemely_kapcsolat')
       .update({ ervenyes_ig: new Date().toISOString().slice(0, 10), megjegyzes: 'csalad-szerkesztes-eltavolitas' })
+      .eq('congregation_id', congregationId)
       .in('id', toClose)
     if (error) throw new Error(`szemely_kapcsolat-egyezteto-lezaras: ${error.message}`)
   }
@@ -496,16 +527,41 @@ export async function reconcileKinshipForPersons(
  * (a NULL megjegyzésű, anyakönyvi él is), mindkét irányban. A házassági
  * anyakönyvi bejegyzés SZERKESZTÉSE/TÖRLÉSE hívja: ott maga a forrás-rekord
  * változik, tehát a belőle származó él zárása jogos (2026-08-02, PR-21).
+ *
+ * Review-fix (P1): a TAGSÁG-EREDETŰ élt az újranyitható
+ * 'csalad-szerkesztes-eltavolitas' jelöléssel zárjuk — ha a pár családja
+ * továbbra is aktív, a következő sync jogosan visszanyitja. A NULL/anyakönyvi
+ * eredetű él zárása végleges (a forrás-rekord szűnt meg/változott).
  */
 export async function closeMarriageEdgeBetween(supabase: Db, a: number, b: number) {
   if (!a || !b || a === b) return
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('szemely_kapcsolat')
-    .update({ ervenyes_ig: new Date().toISOString().slice(0, 10) })
+    .select('id, megjegyzes')
     .eq('tipus', 'hazastars')
     .is('ervenyes_ig', null)
     .or(`and(id_szemely_1.eq.${a},id_szemely_2.eq.${b}),and(id_szemely_1.eq.${b},id_szemely_2.eq.${a})`)
-  if (error) throw new Error(`hazastars-el-lezaras: ${error.message}`)
+  if (error) throw new Error(`hazastars-el-olvasas: ${error.message}`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = (data || []) as any[]
+  if (rows.length === 0) return
+  const today = new Date().toISOString().slice(0, 10)
+  const syncIds = rows.filter((r) => MEMBERSHIP_DERIVED_MARKERS.includes((r.megjegyzes as string | null) ?? '')).map((r) => r.id)
+  const otherIds = rows.filter((r) => !MEMBERSHIP_DERIVED_MARKERS.includes((r.megjegyzes as string | null) ?? '')).map((r) => r.id)
+  if (syncIds.length > 0) {
+    const { error: e1 } = await supabase
+      .from('szemely_kapcsolat')
+      .update({ ervenyes_ig: today, megjegyzes: 'csalad-szerkesztes-eltavolitas' })
+      .in('id', syncIds)
+    if (e1) throw new Error(`hazastars-el-lezaras: ${e1.message}`)
+  }
+  if (otherIds.length > 0) {
+    const { error: e2 } = await supabase
+      .from('szemely_kapcsolat')
+      .update({ ervenyes_ig: today })
+      .in('id', otherIds)
+    if (e2) throw new Error(`hazastars-el-lezaras: ${e2.message}`)
+  }
 }
 
 /**

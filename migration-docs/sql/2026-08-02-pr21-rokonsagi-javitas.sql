@@ -120,14 +120,16 @@ BEGIN
     v_created_haztartas := v_created_haztartas + 1;
   END LOOP;
 
-  -- 2/b) haztartas_tag — férj (v3: csak AKTÍV csalad + NYITOTT haztartas)
+  -- 2/b) haztartas_tag — férj (v3.1: NYITOTT haztartas; a csalad-isaktiv
+  --      szűrő ITT NEM kell — a TS-sync sem szűri, az inaktív család tagsága
+  --      a haztartas.isaktiv=false-szal együtt archívumként él)
   WITH ins AS (
     INSERT INTO public.haztartas_tag (id_haztartas, id_szemely, szerep, is_primary, ervenyes_tol, congregation_id)
     SELECT h.id, c.id_ferfi, 'csaladfo', true, CURRENT_DATE, h.congregation_id
     FROM public.haztartas h
     JOIN public.csalad c ON c.id = h.legacy_csalad_id
     WHERE h.congregation_id = p_congregation_id AND h.ervenyes_ig IS NULL
-      AND c.isaktiv = true AND c.id_ferfi IS NOT NULL
+      AND c.id_ferfi IS NOT NULL
     ON CONFLICT (id_haztartas, id_szemely) WHERE ervenyes_ig IS NULL DO NOTHING
     RETURNING 1
   ) SELECT count(*) INTO v_cnt FROM ins;
@@ -142,7 +144,7 @@ BEGIN
     FROM public.haztartas h
     JOIN public.csalad c ON c.id = h.legacy_csalad_id
     WHERE h.congregation_id = p_congregation_id AND h.ervenyes_ig IS NULL
-      AND c.isaktiv = true AND c.id_no IS NOT NULL
+      AND c.id_no IS NOT NULL
     ON CONFLICT (id_haztartas, id_szemely) WHERE ervenyes_ig IS NULL DO NOTHING
     RETURNING 1
   ) SELECT count(*) INTO v_cnt FROM ins;
@@ -153,7 +155,7 @@ BEGIN
     INSERT INTO public.haztartas_tag (id_haztartas, id_szemely, szerep, is_primary, ervenyes_tol, congregation_id)
     SELECT h.id, g.id_szemely, 'gyermek', false, CURRENT_DATE, h.congregation_id
     FROM public.gyerek g
-    JOIN public.csalad c ON c.id = g.id_csalad AND c.isaktiv = true
+    JOIN public.csalad c ON c.id = g.id_csalad
     JOIN public.haztartas h ON h.legacy_csalad_id = c.id
     WHERE h.congregation_id = p_congregation_id AND h.ervenyes_ig IS NULL
     ON CONFLICT (id_haztartas, id_szemely) WHERE ervenyes_ig IS NULL DO NOTHING
@@ -161,23 +163,70 @@ BEGIN
   ) SELECT count(*) INTO v_cnt FROM ins;
   v_created_tag := v_created_tag + v_cnt;
 
-  -- 2/e) szemely_kapcsolat — házastársi él (v3: csak aktív csalad; SEMMILYEN
+  -- 2/e-0) ÚJRANYITÁS (v3.1): a 'csalad-szerkesztes-eltavolitas' zárású él
+  --        visszanyílik, ha a párt a JELENLEGI aktív csalad újra igazolja és
+  --        nincs aktív ikre — a TS-sync azonos szabályának RPC-párja.
+  UPDATE public.szemely_kapcsolat k
+  SET ervenyes_ig = NULL, megjegyzes = 'sync_households_from_csalad'
+  WHERE k.id IN (
+    SELECT DISTINCT ON (LEAST(k2.id_szemely_1, k2.id_szemely_2), GREATEST(k2.id_szemely_1, k2.id_szemely_2)) k2.id
+    FROM public.szemely_kapcsolat k2
+    JOIN public.csalad c ON c.isaktiv = true
+     AND ((c.id_ferfi = k2.id_szemely_1 AND c.id_no = k2.id_szemely_2)
+       OR (c.id_ferfi = k2.id_szemely_2 AND c.id_no = k2.id_szemely_1))
+    JOIN public.haztartas h ON h.legacy_csalad_id = c.id AND h.congregation_id = p_congregation_id
+    WHERE k2.tipus = 'hazastars'
+      AND k2.ervenyes_ig IS NOT NULL
+      AND k2.megjegyzes = 'csalad-szerkesztes-eltavolitas'
+      AND NOT EXISTS (
+        SELECT 1 FROM public.szemely_kapcsolat ka
+        WHERE ka.tipus = 'hazastars' AND ka.ervenyes_ig IS NULL
+          AND ((ka.id_szemely_1 = k2.id_szemely_1 AND ka.id_szemely_2 = k2.id_szemely_2)
+            OR (ka.id_szemely_1 = k2.id_szemely_2 AND ka.id_szemely_2 = k2.id_szemely_1))
+      )
+    ORDER BY LEAST(k2.id_szemely_1, k2.id_szemely_2), GREATEST(k2.id_szemely_1, k2.id_szemely_2), k2.id
+  );
+
+  UPDATE public.szemely_kapcsolat k
+  SET ervenyes_ig = NULL, megjegyzes = 'sync_households_from_csalad'
+  WHERE k.id IN (
+    SELECT DISTINCT ON (k2.id_szemely_1, k2.id_szemely_2) k2.id
+    FROM public.szemely_kapcsolat k2
+    JOIN public.gyerek g ON g.id_szemely = k2.id_szemely_2
+    JOIN public.csalad c ON c.id = g.id_csalad AND c.isaktiv = true
+     AND (c.id_ferfi = k2.id_szemely_1 OR c.id_no = k2.id_szemely_1)
+    JOIN public.haztartas h ON h.legacy_csalad_id = c.id AND h.congregation_id = p_congregation_id
+    WHERE k2.tipus = 'szulo_gyermek'
+      AND k2.ervenyes_ig IS NOT NULL
+      AND k2.megjegyzes = 'csalad-szerkesztes-eltavolitas'
+      AND NOT EXISTS (
+        SELECT 1 FROM public.szemely_kapcsolat ka
+        WHERE ka.tipus = 'szulo_gyermek' AND ka.ervenyes_ig IS NULL
+          AND ka.id_szemely_1 = k2.id_szemely_1 AND ka.id_szemely_2 = k2.id_szemely_2
+      )
+    ORDER BY k2.id_szemely_1, k2.id_szemely_2, k2.id
+  );
+
+  -- 2/e) szemely_kapcsolat — házastársi él (v3.1: csak aktív csalad + NYITOTT
+  --      haztartas, DISTINCT + önpár-őr + ON CONFLICT védőháló; SEMMILYEN
   --      meglévő él — aktív VAGY lezárt, bármely irányban — mellé nem szúrunk
-  --      újat: a lezárás tudatos döntés, nem támasztjuk fel)
+  --      újat: a lezárás tudatos döntés, az újranyitást a 2/e-0 kezeli)
   WITH ins AS (
     INSERT INTO public.szemely_kapcsolat (id_szemely_1, id_szemely_2, tipus, ver_szerinti, ervenyes_tol, congregation_id, megjegyzes)
-    SELECT c.id_ferfi, c.id_no, 'hazastars', false, NULL::date, h.congregation_id, 'sync_households_from_csalad'
+    SELECT DISTINCT c.id_ferfi, c.id_no, 'hazastars', false, NULL::date, h.congregation_id, 'sync_households_from_csalad'
     FROM public.haztartas h
     JOIN public.csalad c ON c.id = h.legacy_csalad_id
-    WHERE h.congregation_id = p_congregation_id
+    WHERE h.congregation_id = p_congregation_id AND h.ervenyes_ig IS NULL
       AND c.isaktiv = true
       AND c.id_ferfi IS NOT NULL AND c.id_no IS NOT NULL
+      AND c.id_ferfi <> c.id_no
       AND NOT EXISTS (
         SELECT 1 FROM public.szemely_kapcsolat k
         WHERE k.tipus = 'hazastars'
           AND ((k.id_szemely_1 = c.id_ferfi AND k.id_szemely_2 = c.id_no)
             OR (k.id_szemely_1 = c.id_no AND k.id_szemely_2 = c.id_ferfi))
       )
+    ON CONFLICT (id_szemely_1, id_szemely_2, tipus) WHERE ervenyes_ig IS NULL DO NOTHING
     RETURNING 1
   ) SELECT count(*) INTO v_cnt FROM ins;
   v_created_kapcsolat := v_created_kapcsolat + v_cnt;
@@ -189,13 +238,15 @@ BEGIN
     FROM public.gyerek g
     JOIN public.csalad c ON c.id = g.id_csalad AND c.isaktiv = true
     JOIN public.haztartas h ON h.legacy_csalad_id = c.id
-    WHERE h.congregation_id = p_congregation_id AND c.id_ferfi IS NOT NULL
+    WHERE h.congregation_id = p_congregation_id AND h.ervenyes_ig IS NULL
+      AND c.id_ferfi IS NOT NULL
       AND c.id_ferfi <> g.id_szemely
       AND NOT EXISTS (
         SELECT 1 FROM public.szemely_kapcsolat k
         WHERE k.tipus = 'szulo_gyermek'
           AND k.id_szemely_1 = c.id_ferfi AND k.id_szemely_2 = g.id_szemely
       )
+    ON CONFLICT (id_szemely_1, id_szemely_2, tipus) WHERE ervenyes_ig IS NULL DO NOTHING
     RETURNING 1
   ) SELECT count(*) INTO v_cnt FROM ins;
   v_created_kapcsolat := v_created_kapcsolat + v_cnt;
@@ -207,13 +258,15 @@ BEGIN
     FROM public.gyerek g
     JOIN public.csalad c ON c.id = g.id_csalad AND c.isaktiv = true
     JOIN public.haztartas h ON h.legacy_csalad_id = c.id
-    WHERE h.congregation_id = p_congregation_id AND c.id_no IS NOT NULL
+    WHERE h.congregation_id = p_congregation_id AND h.ervenyes_ig IS NULL
+      AND c.id_no IS NOT NULL
       AND c.id_no <> g.id_szemely
       AND NOT EXISTS (
         SELECT 1 FROM public.szemely_kapcsolat k
         WHERE k.tipus = 'szulo_gyermek'
           AND k.id_szemely_1 = c.id_no AND k.id_szemely_2 = g.id_szemely
       )
+    ON CONFLICT (id_szemely_1, id_szemely_2, tipus) WHERE ervenyes_ig IS NULL DO NOTHING
     RETURNING 1
   ) SELECT count(*) INTO v_cnt FROM ins;
   v_created_kapcsolat := v_created_kapcsolat + v_cnt;
@@ -228,7 +281,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.sync_households_from_csalad(uuid) IS
-  'Idempotens csalad→haztartas szinkron v3 (2026-08-02, PR-21): csak AKTÍV családból dolgozik, lezárt rokonsági élt nem szúr be újra (a lezárás tudatos döntés). v1-v2: 2026-07-18 (PR-3).';
+  'Idempotens csalad→haztartas szinkron v3.1 (2026-08-02, PR-21): kinship csak AKTÍV családból; lezárt él nem támad fel, KIVÉVE a család-szerkesztéses eltávolítás zárását (azt a 2/e-0 újranyitja, ha a tagság újra fennáll). v1-v2: 2026-07-18 (PR-3).';
 
 -- Telepítés-ellenőrző: várt v3_telepitve = true
 SELECT position('c.isaktiv = true' IN pg_get_functiondef('public.sync_households_from_csalad(uuid)'::regprocedure)) > 0

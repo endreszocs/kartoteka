@@ -1,6 +1,7 @@
 'use server'
 
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
+import { MEMBERSHIP_DERIVED_MARKERS } from '@/lib/family/family-membership'
 import { computeKinshipLabels } from '@/lib/family-tree/kinship'
 import type {
   FamilyTreeData,
@@ -48,7 +49,7 @@ function* chunks<T>(items: T[], size: number): Generator<T[]> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Supa = any
 
-type KapcsRow = { id_szemely_1: number; id_szemely_2: number; tipus?: string }
+type KapcsRow = { id_szemely_1: number; id_szemely_2: number; tipus?: string; megjegyzes?: string | null }
 
 /** Chunkolt, hibát DOBÓ szemely_kapcsolat-lekérdezés. */
 async function fetchKapcs(
@@ -203,12 +204,14 @@ async function buildTreeFromCenters(
   const finalIdsSet = new Set<number>(personsRaw.map((p) => p.id as number))
   const finalIds = Array.from(finalIdsSet)
 
-  // 5. Élek — chunkolt lekérdezés (mindkét végpont a fában kell legyen)
+  // 5. Élek — chunkolt lekérdezés (mindkét végpont a fában kell legyen).
+  // 2026-08-02 (PR-21): a megjegyzes is jön — a kereszthiba-üzenet az él
+  // EREDETE szerint ad javítási tanácsot (sync-eredetű ⇄ anyakönyvi).
   const allKapcs: KapcsRow[] = []
   for (const part of chunks(finalIds, CHUNK_SIZE)) {
     const { data, error } = await supabase
       .from('szemely_kapcsolat')
-      .select('id_szemely_1, id_szemely_2, tipus')
+      .select('id_szemely_1, id_szemely_2, tipus, megjegyzes')
       .eq('congregation_id', congregationId)
       .in('id_szemely_1', part)
       .is('ervenyes_ig', null)
@@ -219,7 +222,7 @@ async function buildTreeFromCenters(
   const edges: FamilyTreeEdge[] = []
   const seenEdges = new Set<string>()
   const parentEdges: Array<{ parent: number; child: number }> = []
-  const spouseEdges: Array<{ a: number; b: number }> = []
+  const spouseEdges: Array<{ a: number; b: number; syncDerived?: boolean }> = []
   for (const k of allKapcs) {
     const a = k.id_szemely_1
     const b = k.id_szemely_2
@@ -230,7 +233,7 @@ async function buildTreeFromCenters(
       if (seenEdges.has(key)) continue
       seenEdges.add(key)
       edges.push({ type: 'spouse', from: a, to: b })
-      spouseEdges.push({ a, b })
+      spouseEdges.push({ a, b, syncDerived: MEMBERSHIP_DERIVED_MARKERS.includes(k.megjegyzes ?? '') })
     } else if (k.tipus === 'szulo_gyermek') {
       const key = `pc:${a}-${b}`
       if (seenEdges.has(key)) continue
@@ -272,17 +275,23 @@ async function buildTreeFromCenters(
       return ev ? `${nev} (${ev})` : nev
     }
 
-    // a) Több aktív házastárs-kapcsolat ugyanazon a személyen
-    const partnersOf = new Map<number, number[]>()
+    // a) Több aktív házastárs-kapcsolat ugyanazon a személyen — a tanács az
+    //    ÉL EREDETE szerint: a sync-eredetű a család újramentésével rendeződik,
+    //    az anyakönyvi/CNP-s eredetű CSAK a házassági anyakönyvben javítható.
+    const partnersOf = new Map<number, Array<{ partner: number; syncDerived: boolean }>>()
     for (const s of spouseEdges) {
-      partnersOf.set(s.a, [...(partnersOf.get(s.a) ?? []), s.b])
-      partnersOf.set(s.b, [...(partnersOf.get(s.b) ?? []), s.a])
+      const sd = s.syncDerived === true
+      partnersOf.set(s.a, [...(partnersOf.get(s.a) ?? []), { partner: s.b, syncDerived: sd }])
+      partnersOf.set(s.b, [...(partnersOf.get(s.b) ?? []), { partner: s.a, syncDerived: sd }])
     }
     for (const [id, partners] of partnersOf) {
       if (partners.length > 1) {
+        const anySync = partners.some((p) => p.syncDerived)
+        const advice = anySync
+          ? 'Az érintett család kartonjának újramentése lezárja az elavultat.'
+          : 'A felesleges kapcsolat a házassági anyakönyvből ered — ott javítsd (a bejegyzés szerkesztése/törlése lezárja).'
         conflicts.push(
-          `${nameOf(id)} személynek ${partners.length} aktív házastárs-kapcsolata van (${partners.map(nameOf).join(', ')}). ` +
-          'Az érintett család kartonjának újramentése lezárja az elavultat; ha a hiba a házassági anyakönyvből ered, ott javítsd.',
+          `${nameOf(id)} személynek ${partners.length} aktív házastárs-kapcsolata van (${partners.map((p) => nameOf(p.partner)).join(', ')}). ${advice}`,
         )
       }
     }
@@ -401,10 +410,13 @@ export async function getFamilyTreeDataByMemberId(
   // is_primary, majd a felnőtt-szerep, végül a legkisebb család-id.
   const { data: tagRows, error: tagError } = await supabase
     .from('haztartas_tag')
-    .select('is_primary, szerep, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)')
+    .select('id, is_primary, szerep, haztartas:haztartas!id_haztartas!inner(legacy_csalad_id, isaktiv, ervenyes_ig)')
     .eq('id_szemely', memberId)
     .eq('congregation_id', congregationId)
     .is('ervenyes_ig', null)
+    .eq('haztartas.isaktiv', true)
+    .is('haztartas.ervenyes_ig', null)
+    .order('id', { ascending: true })
     .limit(10)
   if (tagError) throw new Error(`A háztartás-kapcsolat nem tölthető be: ${tagError.message}`)
 
