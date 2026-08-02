@@ -324,7 +324,11 @@ export async function syncHouseholdFromCsalad(
         seenBatch.add(key)
         const rows = lookupRows(p)
         if (rows.some((r) => r.ervenyes_ig === null)) continue // van aktív él
-        const reopenable = rows.find((r) => r.ervenyes_ig !== null && KINSHIP_SYNC_MARKERS.includes(r.megjegyzes ?? ''))
+        // CSAK a család-szerkesztéses eltávolítás zárása nyitható újra — a
+        // 'haztartas-sync' megjegyzésű, de LEZÁRT él tipikusan HALÁLESETTEL
+        // záródott (a lezárás csak az ervenyes_ig-et állítja), azt feltámasztani
+        // tilos (review D1).
+        const reopenable = rows.find((r) => r.ervenyes_ig !== null && r.megjegyzes === 'csalad-szerkesztes-eltavolitas')
         if (reopenable) {
           toReopen.push(reopenable.id)
           continue

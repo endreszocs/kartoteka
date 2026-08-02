@@ -12,7 +12,7 @@ import { allocateFamilyPayments, computeBaseExpectedForMemberYear, computeJarule
 import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallback'
 import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
 import { ensureChildFamilyLink } from '@/lib/family/auto-family'
-import { syncHouseholdFromCsalad } from '@/lib/family/family-membership'
+import { getAllowedFamilyIds, syncHouseholdFromCsalad } from '@/lib/family/family-membership'
 
 // ── Segéd: congregation_id a profilból ───────────────────────
 
@@ -975,14 +975,20 @@ export async function linkMemberParents(input: { memberId: number; apaId?: numbe
   // szülő automatikus bekötése után), a MOST kiválasztott szülőt UGYANABBA a
   // családba kötjük be (a hiányzó házastárs-helyre) — a korábbi út új (fél)
   // családot keresett/hozott volna létre, és a dupla-tagsági őr blokkolt volna.
-  const { data: gyRows } = await supabase
-    .from('gyerek')
-    .select('id_csalad, csalad:csalad!id_csalad(id, id_ferfi, id_no, isaktiv)')
-    .eq('id_szemely', memberId)
+  const [{ data: gyRows }, allowedFamilyIds] = await Promise.all([
+    supabase
+      .from('gyerek')
+      .select('id_csalad, csalad:csalad!id_csalad(id, id_ferfi, id_no, isaktiv)')
+      .eq('id_szemely', memberId),
+    // 2026-08-02 (review D2): csak a SAJÁT gyülekezet családja jöhet szóba —
+    // az átjelentkezés idegen-gyülekezeti maradványa se ne blokkoljon, se ne
+    // MUTÁLÓDJON (a foreign-elv PR-18 óta érvényes minden úton).
+    getAllowedFamilyIds(supabase, congregationId),
+  ])
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const activeFam = ((gyRows || []) as any[])
     .map((r) => (Array.isArray(r.csalad) ? r.csalad[0] : r.csalad))
-    .find((c) => c?.isaktiv) as { id: number; id_ferfi: number | null; id_no: number | null } | undefined
+    .find((c) => c?.isaktiv && allowedFamilyIds.has(c.id as number)) as { id: number; id_ferfi: number | null; id_no: number | null } | undefined
 
   let res: { linked: boolean; familyId: number | null; warning: string | null }
   if (activeFam) {

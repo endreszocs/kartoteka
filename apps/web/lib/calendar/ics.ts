@@ -178,7 +178,9 @@ export function buildCalendarIcs(input: BuildIcsInput): string {
       let endTime: string
       if (p.ido_befejezes) {
         endTime = p.ido_befejezes
-        if (endDate === p.datum && endTime.slice(0, 5) <= p.ido_kezdes.slice(0, 5)) {
+        // szigorúan KISEBB: az egyenlő kezdés/zárás (elütés) maradjon nulla
+        // hosszú, ne 24 órás esemény
+        if (endDate === p.datum && endTime.slice(0, 5) < p.ido_kezdes.slice(0, 5)) {
           endDate = nextDayIso(endDate)
         }
       } else {

@@ -753,6 +753,7 @@ export async function saveFamily(data: FamilyInput): Promise<SaveFamilyResult> {
   // gyermek-lista és házaspár — az explicit eltávolítottak unoka-tagját a
   // sync lezárja, a sync-eredetű rokonsági éleiket pedig mi (lásd lentebb).
   let removedChildIds: number[] = []
+  let prevChildIds: number[] = []
   let prevFerfi: number | null = null
   let prevNo: number | null = null
   if (d.id) {
@@ -764,8 +765,8 @@ export async function saveFamily(data: FamilyInput): Promise<SaveFamilyResult> {
     prevNo = (prevFam as { id_no: number | null } | null)?.id_no ?? null
     const nextSet = new Set(d.gyerekIds)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    removedChildIds = [...new Set(((prevGyerek || []) as any[]).map((g) => g.id_szemely as number))]
-      .filter((id) => !nextSet.has(id))
+    prevChildIds = [...new Set(((prevGyerek || []) as any[]).map((g) => g.id_szemely as number))]
+    removedChildIds = prevChildIds.filter((id) => !nextSet.has(id))
   }
 
   const { data: rpcData, error: rpcErr } = await supabase.rpc('tagnyilvantartas_csalad_mentes', {
@@ -826,11 +827,26 @@ export async function saveFamily(data: FamilyInput): Promise<SaveFamilyResult> {
   // sync újranyitja a lezárt élt.
   try {
     const closePairs: Array<{ id1: number; id2: number; tipus: 'szulo_gyermek' | 'hazastars' }> = []
+    const nextAdults = new Set([d.id_ferfi, d.id_no].filter(Boolean) as number[])
+    // a) eltávolított GYERMEK: a korábbi pár mindkét tagjához fűző él zárul
     for (const childId of removedChildIds) {
       if (prevFerfi) closePairs.push({ id1: prevFerfi, id2: childId, tipus: 'szulo_gyermek' })
       if (prevNo) closePairs.push({ id1: prevNo, id2: childId, tipus: 'szulo_gyermek' })
     }
-    if (prevFerfi && prevNo && (prevFerfi !== d.id_ferfi || prevNo !== d.id_no)) {
+    // b) lecserélt FELNŐTT (review D3): aki kikerült a párból, annak a
+    //    megmaradt gyermekekhez fűző sync-élei is zárulnak — különben a fa
+    //    a régi ÉS az új szülőt is mutatná
+    const keptChildIds = prevChildIds.filter((id) => d.gyerekIds.includes(id))
+    for (const removedAdult of [prevFerfi, prevNo]) {
+      if (removedAdult && !nextAdults.has(removedAdult)) {
+        for (const childId of keptChildIds) {
+          closePairs.push({ id1: removedAdult, id2: childId, tipus: 'szulo_gyermek' })
+        }
+      }
+    }
+    // c) megváltozott pár: a régi házastársi él zárul — de csak ha tényleg
+    //    más a páros (halmaz-összevetés: az esetleges slot-csere nem zárás)
+    if (prevFerfi && prevNo && !(nextAdults.has(prevFerfi) && nextAdults.has(prevNo))) {
       closePairs.push({ id1: prevFerfi, id2: prevNo, tipus: 'hazastars' })
     }
     await closeSyncKinshipEdges(supabase, closePairs)
