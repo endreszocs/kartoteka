@@ -173,6 +173,12 @@ export default async function DashboardPage() {
   )?.walkthrough_completed
 
   // ── Shared adatobjektum ───────────────────────────────────
+  // 2026-08-02 (PR-19 review-fix): a lapozott lekérés RÉSZLEGES hibája nem
+  // mehet át némán — az N×1000 tagnál elvágott lista hihető KPI-kat mutatna.
+  // Hibánál inkább a Next hibahatárra dobunk (újratöltéssel helyreáll).
+  if (szemResult.error || elkoltozottResult.error) {
+    throw new Error('A tagsági adatok betöltése nem sikerült — töltsd újra az oldalt.')
+  }
   const allMembers: Member[] = (szemResult.data || []) as Member[]
   const elkoltozottIds = new Set((elkoltozottResult.data || []).map((e: { id_szemely: string }) => e.id_szemely))
   const activeMembers = allMembers.filter(m => !elkoltozottIds.has(m.id))

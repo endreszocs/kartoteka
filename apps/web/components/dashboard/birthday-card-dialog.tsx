@@ -219,6 +219,9 @@ export function BirthdayCardDialog({
   const [logoLoading, setLogoLoading] = useState(false)
   const [busy, setBusy] = useState<null | 'png' | 'share' | 'print'>(null)
   const captureRef = useRef<HTMLDivElement>(null)
+  // 2026-08-02 (review-fix): az előnézet-skála a keret szélességét követi —
+  // forgatásnál/átméretezésnél is (a ref-callback önmagában csak mountkor futna)
+  const scaleObserverRef = useRef<ResizeObserver | null>(null)
 
   // Nyitáskor: mód + kiválasztott tag + üzenet reset; címer → data-URL.
   // Amíg a címer konvertálása fut, az akciógombok tiltottak — különben a
@@ -495,11 +498,15 @@ export function BirthdayCardDialog({
                     transform: 'scale(var(--bc-scale, 0.4))',
                   }}
                   ref={(el) => {
+                    scaleObserverRef.current?.disconnect()
+                    scaleObserverRef.current = null
                     if (!el) return
                     const parent = el.parentElement
                     if (!parent) return
-                    const scale = parent.clientWidth / 1080
-                    el.style.setProperty('--bc-scale', String(scale))
+                    const apply = () => el.style.setProperty('--bc-scale', String(parent.clientWidth / 1080))
+                    apply()
+                    scaleObserverRef.current = new ResizeObserver(apply)
+                    scaleObserverRef.current.observe(parent)
                   }}
                 >
                   <CardArt {...cardProps} />

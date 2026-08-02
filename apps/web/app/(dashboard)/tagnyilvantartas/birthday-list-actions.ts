@@ -37,7 +37,6 @@ export async function getBirthdayListData(): Promise<BirthdayListData> {
   const PAGE = 1000
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows: any[] = []
-  let membersError: string | null = null
   for (let fromIdx = 0; ; fromIdx += PAGE) {
     const { data, error } = await supabase
       .from('szemely')
@@ -47,7 +46,12 @@ export async function getBirthdayListData(): Promise<BirthdayListData> {
       .eq('meghalt', false)
       .order('id', { ascending: true })
       .range(fromIdx, fromIdx + PAGE - 1)
-    if (error) { membersError = error.message; break }
+    if (error) {
+      // 2026-08-02 (review-fix): a részleges lista hihetőnek látszana — inkább
+      // dobunk, a hívó dialógus hibát jelez az üresnek tűnő lista helyett.
+      console.error('[tagnyilvantartas/birthday-list] tagok lekérdezése hiba:', error.message)
+      throw new Error('A születésnaposok betöltése nem sikerült — próbáld újra.')
+    }
     rows.push(...(data || []))
     if ((data || []).length < PAGE) break
   }
@@ -77,9 +81,6 @@ export async function getBirthdayListData(): Promise<BirthdayListData> {
       .maybeSingle(),
   ])
 
-  if (membersError) {
-    console.error('[tagnyilvantartas/birthday-list] tagok lekérdezése hiba:', membersError)
-  }
   if (elkoltozottRes.error) {
     // Elnyelve a lista túl bő lenne (elköltözöttek visszakerülnének) — legalább
     // hangosan logoljuk.
