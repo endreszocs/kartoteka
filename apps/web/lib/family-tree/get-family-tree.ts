@@ -1,6 +1,7 @@
 'use server'
 
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
+import { MEMBERSHIP_DERIVED_MARKERS } from '@/lib/family/family-membership'
 import { computeKinshipLabels } from '@/lib/family-tree/kinship'
 import type {
   FamilyTreeData,
@@ -48,7 +49,7 @@ function* chunks<T>(items: T[], size: number): Generator<T[]> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Supa = any
 
-type KapcsRow = { id_szemely_1: number; id_szemely_2: number; tipus?: string }
+type KapcsRow = { id_szemely_1: number; id_szemely_2: number; tipus?: string; megjegyzes?: string | null }
 
 /** Chunkolt, hibát DOBÓ szemely_kapcsolat-lekérdezés. */
 async function fetchKapcs(
@@ -203,12 +204,14 @@ async function buildTreeFromCenters(
   const finalIdsSet = new Set<number>(personsRaw.map((p) => p.id as number))
   const finalIds = Array.from(finalIdsSet)
 
-  // 5. Élek — chunkolt lekérdezés (mindkét végpont a fában kell legyen)
+  // 5. Élek — chunkolt lekérdezés (mindkét végpont a fában kell legyen).
+  // 2026-08-02 (PR-21): a megjegyzes is jön — a kereszthiba-üzenet az él
+  // EREDETE szerint ad javítási tanácsot (sync-eredetű ⇄ anyakönyvi).
   const allKapcs: KapcsRow[] = []
   for (const part of chunks(finalIds, CHUNK_SIZE)) {
     const { data, error } = await supabase
       .from('szemely_kapcsolat')
-      .select('id_szemely_1, id_szemely_2, tipus')
+      .select('id_szemely_1, id_szemely_2, tipus, megjegyzes')
       .eq('congregation_id', congregationId)
       .in('id_szemely_1', part)
       .is('ervenyes_ig', null)
@@ -219,7 +222,7 @@ async function buildTreeFromCenters(
   const edges: FamilyTreeEdge[] = []
   const seenEdges = new Set<string>()
   const parentEdges: Array<{ parent: number; child: number }> = []
-  const spouseEdges: Array<{ a: number; b: number }> = []
+  const spouseEdges: Array<{ a: number; b: number; syncDerived?: boolean }> = []
   for (const k of allKapcs) {
     const a = k.id_szemely_1
     const b = k.id_szemely_2
@@ -230,7 +233,7 @@ async function buildTreeFromCenters(
       if (seenEdges.has(key)) continue
       seenEdges.add(key)
       edges.push({ type: 'spouse', from: a, to: b })
-      spouseEdges.push({ a, b })
+      spouseEdges.push({ a, b, syncDerived: MEMBERSHIP_DERIVED_MARKERS.includes(k.megjegyzes ?? '') })
     } else if (k.tipus === 'szulo_gyermek') {
       const key = `pc:${a}-${b}`
       if (seenEdges.has(key)) continue
@@ -255,6 +258,79 @@ async function buildTreeFromCenters(
       ),
     },
   })
+
+  // 7. KERESZTHIBA-DETEKTÁLÁS (2026-08-02, PR-21) — az ellentmondó rokonsági
+  // adatot NEM rajzoljuk némán: érthető magyar üzenet mondja meg, kinél és mit
+  // kell javítani (a fa attól még kirajzolódik, ahogy tud).
+  const conflicts: string[] = []
+  {
+    const personById = new Map<number, { csaladnev: string | null; k_nev: string | null; sz_datum: string | null }>(
+      personsRaw.map((p) => [p.id as number, p]),
+    )
+    const nameOf = (id: number) => {
+      const p = personById.get(id)
+      if (!p) return `#${id}`
+      const nev = `${p.csaladnev ?? ''} ${p.k_nev ?? ''}`.trim() || `#${id}`
+      const ev = p.sz_datum?.slice(0, 4)
+      return ev ? `${nev} (${ev})` : nev
+    }
+
+    // a) Több aktív házastárs-kapcsolat ugyanazon a személyen — a tanács az
+    //    ÉL EREDETE szerint: a sync-eredetű a család újramentésével rendeződik,
+    //    az anyakönyvi/CNP-s eredetű CSAK a házassági anyakönyvben javítható.
+    const partnersOf = new Map<number, Array<{ partner: number; syncDerived: boolean }>>()
+    for (const s of spouseEdges) {
+      const sd = s.syncDerived === true
+      partnersOf.set(s.a, [...(partnersOf.get(s.a) ?? []), { partner: s.b, syncDerived: sd }])
+      partnersOf.set(s.b, [...(partnersOf.get(s.b) ?? []), { partner: s.a, syncDerived: sd }])
+    }
+    for (const [id, partners] of partnersOf) {
+      if (partners.length > 1) {
+        const anySync = partners.some((p) => p.syncDerived)
+        const advice = anySync
+          ? 'Az érintett család kartonjának újramentése lezárja az elavultat.'
+          : 'A felesleges kapcsolat a házassági anyakönyvből ered — ott javítsd (a bejegyzés szerkesztése/törlése lezárja).'
+        conflicts.push(
+          `${nameOf(id)} személynek ${partners.length} aktív házastárs-kapcsolata van (${partners.map((p) => nameOf(p.partner)).join(', ')}). ${advice}`,
+        )
+      }
+    }
+
+    // b) Gyermek több azonos nemű szülővel (két „édesapa" / két „édesanya")
+    const parentsByChild = new Map<number, number[]>()
+    for (const pe of parentEdges) {
+      parentsByChild.set(pe.child, [...(parentsByChild.get(pe.child) ?? []), pe.parent])
+    }
+    for (const [child, parents] of parentsByChild) {
+      const fathers = parents.filter((p) => genderOf.get(p) === true)
+      const mothers = parents.filter((p) => genderOf.get(p) === false)
+      if (fathers.length > 1) {
+        conflicts.push(
+          `${nameOf(child)} gyermeknek több rögzített édesapja van (${fathers.map(nameOf).join(', ')}) — ` +
+          'a családi kartonokon vagy a személyi karton szülő-mezőiben javítható.',
+        )
+      }
+      if (mothers.length > 1) {
+        conflicts.push(
+          `${nameOf(child)} gyermeknek több rögzített édesanyja van (${mothers.map(nameOf).join(', ')}) — ` +
+          'a családi kartonokon vagy a személyi karton szülő-mezőiben javítható.',
+        )
+      }
+    }
+
+    // c) Szülő, aki az évszámok szerint nem lehet szülő (fiatalabb / <12 év korkülönbség)
+    for (const pe of parentEdges) {
+      const p = personById.get(pe.parent)
+      const c = personById.get(pe.child)
+      const py = p?.sz_datum ? Number(p.sz_datum.slice(0, 4)) : null
+      const cy = c?.sz_datum ? Number(c.sz_datum.slice(0, 4)) : null
+      if (py != null && cy != null && cy - py < 12) {
+        conflicts.push(
+          `${nameOf(pe.parent)} szülőként van rögzítve ${nameOf(pe.child)} személynél — a születési évek alapján ez valószínűleg téves kapcsolat.`,
+        )
+      }
+    }
+  }
 
   const centerIdSet = new Set(centerIds)
   const members: FamilyTreeMember[] = personsRaw.map((p) => {
@@ -281,7 +357,7 @@ async function buildTreeFromCenters(
     }
   })
 
-  return { members, edges, centerIds }
+  return { members, edges, centerIds, conflicts }
 }
 
 /**
@@ -326,22 +402,41 @@ export async function getFamilyTreeDataByMemberId(
   const { supabase, congregationId } = await getEffectiveCongregationContext()
   if (!congregationId) return { members: [], edges: [], centerIds: [] }
 
-  // 1. Megkeresem a member aktív háztartását (legacy_csalad_id-val)
-  const { data: tag, error: tagError } = await supabase
+  // 1. Megkeresem a member aktív háztartását (legacy_csalad_id-val).
+  // 2026-08-02 (PR-21): DETERMINISZTIKUS választás — a korábbi limit(1)
+  // rendezés és aktív-szűrés nélkül TETSZŐLEGES tagságot fogott meg; több
+  // nyitott tagságnál (dupla-tagsági hibaosztály) akár a RÉGI/rossz család
+  // köré épült a fa. Most: csak AKTÍV háztartás számít, előnyben az
+  // is_primary, majd a felnőtt-szerep, végül a legkisebb család-id.
+  const { data: tagRows, error: tagError } = await supabase
     .from('haztartas_tag')
-    .select('haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)')
+    .select('id, is_primary, szerep, haztartas:haztartas!id_haztartas!inner(legacy_csalad_id, isaktiv, ervenyes_ig)')
     .eq('id_szemely', memberId)
     .eq('congregation_id', congregationId)
     .is('ervenyes_ig', null)
-    .limit(1)
-    .maybeSingle()
+    .eq('haztartas.isaktiv', true)
+    .is('haztartas.ervenyes_ig', null)
+    .order('id', { ascending: true })
+    .limit(10)
   if (tagError) throw new Error(`A háztartás-kapcsolat nem tölthető be: ${tagError.message}`)
 
+  interface TagPick { is_primary: boolean | null; szerep: string | null; legacy: number | null }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const haztartasRaw = (tag as any)?.haztartas
-  const haztartas = Array.isArray(haztartasRaw) ? haztartasRaw[0] : haztartasRaw
-  const legacyCsaladId = haztartas?.legacy_csalad_id as number | null
-  const haztartasAktiv = haztartas?.isaktiv === true && haztartas?.ervenyes_ig == null
+  const candidates: TagPick[] = ((tagRows || []) as any[])
+    .map((t) => {
+      const h = Array.isArray(t.haztartas) ? t.haztartas[0] : t.haztartas
+      if (!h || h.isaktiv !== true || h.ervenyes_ig != null) return null
+      return { is_primary: t.is_primary ?? null, szerep: t.szerep ?? null, legacy: (h.legacy_csalad_id as number | null) ?? null }
+    })
+    .filter((v): v is TagPick => v !== null && v.legacy != null)
+  const szerepRank = (s: string | null) => (s === 'csaladfo' ? 0 : s === 'hazastars' ? 1 : 2)
+  candidates.sort((a, b) =>
+    (Number(b.is_primary === true) - Number(a.is_primary === true))
+    || (szerepRank(a.szerep) - szerepRank(b.szerep))
+    || ((a.legacy ?? 0) - (b.legacy ?? 0)),
+  )
+  const legacyCsaladId = candidates[0]?.legacy ?? null
+  const haztartasAktiv = candidates.length > 0
 
   // 2. Ha van aktív háztartás → a házaspár köré építünk; egyébként saját maga köré
   if (legacyCsaladId && haztartasAktiv) {

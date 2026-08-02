@@ -13,6 +13,7 @@ import {
   Maximize2,
   Phone,
   Printer,
+  TriangleAlert,
   User,
   UserMinus,
   ZoomIn,
@@ -275,6 +276,28 @@ export function FamilyTreeView({
 
   return (
     <div className="family-tree-root space-y-3">
+      {/* 2026-08-02 (PR-21): KERESZTHIBA-SÁV — az ellentmondó rokonsági adatot
+          nem rajzoljuk némán: érthetően megmondjuk, kinél és mit kell javítani */}
+      {(data.conflicts?.length ?? 0) > 0 && (
+        <div className="rounded-2xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/50">
+          <div className="flex items-start gap-2.5">
+            <TriangleAlert className="mt-0.5 size-5 shrink-0 text-amber-600" />
+            <div className="min-w-0 text-sm leading-5 text-amber-900 dark:text-amber-100">
+              <p className="font-semibold">
+                Ellentmondó rokonsági adatok ({data.conflicts!.length}) — a fa emiatt hibásan mutathat kapcsolatokat
+              </p>
+              <ul className="mt-1.5 list-disc space-y-1 pl-4 text-xs leading-5">
+                {data.conflicts!.slice(0, 6).map((c, i) => (
+                  <li key={i}>{c}</li>
+                ))}
+                {data.conflicts!.length > 6 && (
+                  <li>… és további {data.conflicts!.length - 6} ellentmondás.</li>
+                )}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Vezérlősor */}
       <div className="family-tree-toolbar flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200/70 bg-gradient-to-br from-white to-slate-50/50 px-3 py-2 shadow-sm sm:px-4 sm:py-2.5">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-slate-600">

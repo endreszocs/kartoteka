@@ -23,6 +23,49 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-02] — Családfa: a javítás mindenhol érvényesül + kereszthiba-figyelmeztetés
+<!-- key: 2026-08-02-tagnyilv-pr21-rokonsagi-konzisztencia -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.134 -->
+
+### 🐛 A bejelentett hiba: „javítottam a családokat, de a fa összebolondult"
+
+- **Gyökérok**: a júniusi adat-átvezetésből származó rokonsági kapcsolatokat
+  („fazis1-backfill") a családkártya-javítás nem tudta lezárni — ezért a régi
+  (rossz) házastárs-kapcsolat aktív maradt az új mellett, és a fa mindkét
+  feleséget + hármas gyerek-sávot rajzolt. Javítva: mostantól **minden**
+  tagság-eredetű kapcsolatot kezel a lezárás.
+- **Új egyeztető**: minden családmentés/törlés után a rendszer az érintett
+  személyek ÖSSZES tagság-eredetű kapcsolatát összeveti a tényleges családi
+  állapottal, és a már nem érvényeset lezárja — **akármelyik oldalról történt
+  a szerkesztés** (a másik család kartonján, hozzárendeléssel, anyakönyvben).
+  A keresztelésből/szülő-választásból származó vér szerinti kapcsolat
+  érintetlen marad.
+- A **házassági anyakönyv** szerkesztése (férj/feleség csere) és törlése is
+  lezárja a régi pár kapcsolatát; **család törlésekor** sem maradnak többé
+  „örök" kapcsolatok.
+
+### ⚠️ Kereszthiba-figyelmeztetés a családfán (új)
+
+- Ha ellentmondó adat marad (valakinek két aktív házastárs-kapcsolata van,
+  egy gyermeknek két „édesapja", vagy a szülő az évszámok szerint nem lehet
+  szülő), a családfa tetején **érthető figyelmeztető sáv** sorolja fel, kinél
+  és mit kell javítani — a fa nem rajzol többé némán zagyvaságot.
+- A fa **horgonya** is determinisztikus lett: több háztartás-tagságnál eddig
+  véletlenszerűen akár a régi család köré épült a fa — mostantól mindig az
+  aktív, elsődleges családot választja.
+
+### 🔎 Rendszergazdai teendő (1 SQL)
+
+- `migration-docs/sql/2026-08-02-pr21-rokonsagi-javitas.sql` — egyszeri
+  javítás: a mostani árva kapcsolatok lezárása (a Szőcs-család esetét azonnal
+  rendbe teszi) + az import-szinkron befoltozása, hogy ne termelje újra őket.
+  A futás végén két lista: a megmaradt (anyakönyvi eredetű) ellentmondások és
+  a duplikált személyek (azonos név + születési dátum).
+
+---
+
 ## [2026-08-02] — Teljesebb családfa + szülő-összekötés felugró ablakkal + programok-doboz + Google Naptár
 <!-- key: 2026-08-02-tagnyilv-pr20-csaladfa-programok-naptar -->
 <!-- category: feature -->

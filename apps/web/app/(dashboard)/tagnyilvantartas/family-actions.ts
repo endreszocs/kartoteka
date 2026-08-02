@@ -16,6 +16,7 @@ import {
   loadFamilyDisplayNames,
   loadFamilyMemberships,
   moveChildMemberships,
+  reconcileKinshipForPersons,
   syncHouseholdFromCsalad,
   type AssignConflict,
   type FamilyMembershipInfo,
@@ -1034,9 +1035,34 @@ export async function deleteFamily(id: number) {
   if (!congregationId) return { error: 'Nincs aktív gyülekezet kiválasztva.' }
   const allowedFamilyIds = await getAllowedFamilyIds(supabase, congregationId)
   if (!allowedFamilyIds.has(id)) return { error: 'Nincs jogosultsága ennek a családnak a törléséhez.' }
+  // 2026-08-02 (PR-21): a törlés ELŐTT megjegyezzük az érintetteket, hogy a
+  // tagság-eredetű rokonsági éleiket az egyeztető lezárhassa (eddig a törölt
+  // család házaspár/szülő-gyerek élei örökre aktívak maradtak a családfán).
+  const [delFamRes, delGyerekRes] = await Promise.all([
+    supabase.from('csalad').select('id_ferfi, id_no').eq('id', id).maybeSingle(),
+    supabase.from('gyerek').select('id_szemely').eq('id_csalad', id),
+  ])
+  if (delFamRes.error || delGyerekRes.error) {
+    // A törlés elsődleges — de a kimaradó egyeztetés ne legyen néma
+    console.warn('[deleteFamily] érintettek kiolvasása sikertelen — a rokonsági egyeztetés kimarad:',
+      delFamRes.error?.message || delGyerekRes.error?.message)
+  }
+  const delFam = delFamRes.data as { id_ferfi: number | null; id_no: number | null } | null
+  const affectedIds = [
+    ...([delFam?.id_ferfi, delFam?.id_no].filter(Boolean) as number[]),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...(((delGyerekRes.data || []) as any[]).map((g) => g.id_szemely as number)),
+  ]
   await supabase.from('gyerek').delete().eq('id_csalad', id)
   const { error } = await supabase.from('csalad').delete().eq('id', id)
   if (error) return { error: `Hiba: ${error.message}` }
+
+  try {
+    await reconcileKinshipForPersons(supabase, congregationId, affectedIds)
+  } catch (e) {
+    console.warn('[deleteFamily] rokonsági egyeztetés sikertelen (nem blokkoló):',
+      e instanceof Error ? e.message : e)
+  }
 
   // 2026-06-01 (hibrid család-modell Fázis 2): a hozzátartozó haztartas-t
   // NEM töröljük (mert anyakönyvi rekordok, családlátogatási naplók
