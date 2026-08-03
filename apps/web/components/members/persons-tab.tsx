@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
-import { MemberAvatar } from '@kartoteka/ui-app'
+import { MemberAvatar, CalvinSpinner } from '@kartoteka/ui-app'
 import {
   ArrowDown,
   ArrowUp,
@@ -763,7 +763,21 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
       )}
 
       {isLoading ? (
-        <PersonListSkeleton />
+        /* 2026-08-04 (PR-37): a csontváz önmagában félrevezető volt — úgy nézett
+           ki, mintha tartalom lenne. Most EGYÉRTELMŰ, feliratos betöltés-jelző
+           kerül fölé, hogy a felhasználó tudja: várnia kell. */
+        <div className="space-y-3">
+          <div
+            className="flex items-center justify-center gap-3 rounded-2xl border border-border/60 bg-card/70 px-4 py-5 text-sm text-muted-foreground"
+            role="status"
+            aria-live="polite"
+          >
+            <CalvinSpinner size={28} />
+            <span className="font-medium text-foreground">Adatok betöltése…</span>
+            <span className="hidden sm:inline">— egy pillanat, a nyilvántartás frissül</span>
+          </div>
+          <PersonListSkeleton />
+        </div>
       ) : listError && members.length === 0 ? null : members.length === 0 ? (
         pageState.totalCount === 0 ? (
           <EmptyFirstRecord
