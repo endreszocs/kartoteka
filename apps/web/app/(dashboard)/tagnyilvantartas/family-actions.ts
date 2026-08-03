@@ -820,6 +820,60 @@ export async function saveFamily(data: FamilyInput): Promise<SaveFamilyResult> {
     syncWarning = 'A család mentve, de a háztartás-nézet szinkronizálása nem sikerült — mentsd el újra a családot, vagy jelezd a rendszergazdának.'
   }
 
+  // 2026-08-04 (PR-27): PÁRKAPCSOLAT jellege és kezdete. A szinkron alapból
+  // 'hazastars' élt ír a felnőtt párra; ha a lelkész élettársi kapcsolatot
+  // jelölt, azt itt vezetjük át (a típus és a dátum a rokonsági élen él, mert
+  // a családfa is abból épül). Best-effort: a mentést nem buktatja el.
+  if (d.parkapcsolat && d.id_ferfi && d.id_no && d.id_ferfi !== d.id_no) {
+    try {
+      const { data: parRows, error: parErr } = await supabase
+        .from('szemely_kapcsolat')
+        .select('id, tipus, ervenyes_tol')
+        .in('tipus', ['hazastars', 'elettars'])
+        .is('ervenyes_ig', null)
+        .eq('congregation_id', congregationId)
+        .or(`and(id_szemely_1.eq.${d.id_ferfi},id_szemely_2.eq.${d.id_no}),and(id_szemely_1.eq.${d.id_no},id_szemely_2.eq.${d.id_ferfi})`)
+      if (parErr) throw new Error(parErr.message)
+      const datum = d.parkapcsolat_datum?.trim() ? d.parkapcsolat_datum.trim() : null
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rows = (parRows || []) as any[]
+      if (rows.length > 0) {
+        const target = rows[0]
+        const patch: Record<string, unknown> = {}
+        if (target.tipus !== d.parkapcsolat) patch.tipus = d.parkapcsolat
+        // A meglévő (pl. anyakönyvből származó) dátumot csak akkor írjuk felül,
+        // ha a felületen tényleg megadtak egyet.
+        if (datum && target.ervenyes_tol !== datum) patch.ervenyes_tol = datum
+        if (Object.keys(patch).length > 0) {
+          const { error } = await supabase.from('szemely_kapcsolat').update(patch).eq('id', target.id)
+          if (error) throw new Error(error.message)
+        }
+        // Ha valamiért több aktív pár-él van, a többit lezárjuk (egy pár = egy él)
+        for (const extra of rows.slice(1)) {
+          await supabase.from('szemely_kapcsolat')
+            .update({ ervenyes_ig: new Date().toISOString().slice(0, 10), megjegyzes: 'csalad-szerkesztes-eltavolitas' })
+            .eq('id', extra.id)
+        }
+      } else {
+        const { error } = await supabase.from('szemely_kapcsolat').insert([{
+          id_szemely_1: d.id_ferfi,
+          id_szemely_2: d.id_no,
+          tipus: d.parkapcsolat,
+          ver_szerinti: false,
+          ervenyes_tol: datum,
+          congregation_id: congregationId,
+          megjegyzes: 'haztartas-sync',
+        }])
+        if (error) throw new Error(error.message)
+      }
+    } catch (e) {
+      console.warn('[saveFamily] párkapcsolat-jelölés sikertelen (nem blokkoló):',
+        e instanceof Error ? e.message : e)
+      syncWarning = (syncWarning ? syncWarning + ' ' : '')
+        + 'A párkapcsolat jellegét (házastárs/élettárs) nem sikerült elmenteni — próbáld újra.'
+    }
+  }
+
   // 2026-08-02 (PR-20): a szerkesztéssel ELTÁVOLÍTOTT tagok sync-eredetű
   // rokonsági éleit lezárjuk — a CSALÁDFA így követi a szerkesztést (user-
   // észrevétel: „szerkesztettem a családokat, de a családfák nem frissültek").
@@ -1319,5 +1373,33 @@ export async function getFamilyCardPrintData(familyId: number) {
       lelkesz: v.lelkesz,
       megjegyzes: v.megjegyzes,
     })),
+  }
+}
+
+/**
+ * A felnőtt pár AKTUÁLIS párkapcsolat-jelölése (2026-08-04, PR-27) — a családi
+ * karton szerkesztője ezzel tölti fel a „Házasság / Élettársi kapcsolat"
+ * választót, hogy a mentés ne írja felül a meglévő (pl. anyakönyvi) adatot.
+ */
+export async function getFamilyPartnership(input: { ferfiId: number; noId: number }) {
+  const { supabase, congregationId } = await getFamilyAccessContext()
+  if (!congregationId) return { tipus: null as 'hazastars' | 'elettars' | null, datum: null as string | null }
+  const { ferfiId, noId } = input
+  if (!Number.isInteger(ferfiId) || !Number.isInteger(noId) || ferfiId === noId) {
+    return { tipus: null as 'hazastars' | 'elettars' | null, datum: null as string | null }
+  }
+  const { data } = await supabase
+    .from('szemely_kapcsolat')
+    .select('tipus, ervenyes_tol')
+    .in('tipus', ['hazastars', 'elettars'])
+    .is('ervenyes_ig', null)
+    .eq('congregation_id', congregationId)
+    .or(`and(id_szemely_1.eq.${ferfiId},id_szemely_2.eq.${noId}),and(id_szemely_1.eq.${noId},id_szemely_2.eq.${ferfiId})`)
+    .limit(1)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const row = ((data || []) as any[])[0]
+  return {
+    tipus: (row?.tipus as 'hazastars' | 'elettars' | undefined) ?? null,
+    datum: (row?.ervenyes_tol as string | null | undefined) ?? null,
   }
 }

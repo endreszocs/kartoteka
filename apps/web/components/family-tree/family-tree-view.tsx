@@ -437,6 +437,7 @@ export function FamilyTreeView({
                   const y = a.y + NODE_H / 2
                   return (
                     <g key={`sp-${e.from}-${e.to}`}>
+                      {/* 2026-08-04 (PR-27): élettársi kapcsolat = szaggatott vonal */}
                       <line
                         x1={a.x + NODE_W}
                         y1={y}
@@ -445,7 +446,10 @@ export function FamilyTreeView({
                         stroke="rgb(244 114 182)"
                         strokeWidth={2}
                         strokeLinecap="round"
-                      />
+                        strokeDasharray={e.partnership === 'elettars' ? '6 4' : undefined}
+                      >
+                        <title>{e.partnership === 'elettars' ? 'Élettársi kapcsolat' : 'Házastársak'}</title>
+                      </line>
                       <circle
                         cx={(a.x + NODE_W + b.x) / 2}
                         cy={y}

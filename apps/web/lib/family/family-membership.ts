@@ -297,7 +297,8 @@ export async function syncHouseholdFromCsalad(
       const existing = must(await supabase
         .from('szemely_kapcsolat')
         .select('id, id_szemely_1, id_szemely_2, tipus, ervenyes_ig, megjegyzes')
-        .in('id_szemely_1', ids), 'szemely_kapcsolat-olvasas')
+        .or(`id_szemely_1.in.(${ids.join(',')}),id_szemely_2.in.(${ids.join(',')})`),
+        'szemely_kapcsolat-olvasas')
       interface EdgeRow { id: number; id_szemely_1: number; id_szemely_2: number; tipus: string; ervenyes_ig: string | null; megjegyzes: string | null }
       const edgeByKey = new Map<string, EdgeRow[]>()
       for (const r of (existing || []) as EdgeRow[]) {
@@ -308,9 +309,16 @@ export async function syncHouseholdFromCsalad(
       }
       const lookupRows = (p: { id1: number; id2: number; tipus: string }): EdgeRow[] => {
         const direct = edgeByKey.get(`${p.id1}|${p.id2}|${p.tipus}`) ?? []
-        // a házastársi él iránytól függetlenül számít
-        const reverse = p.tipus === 'hazastars' ? edgeByKey.get(`${p.id2}|${p.id1}|hazastars`) ?? [] : []
-        return [...direct, ...reverse]
+        // A pár-él iránytól függetlenül számít, ÉS a két párkapcsolat-típus
+        // (házastárs / élettárs — PR-27) egymást kizárja: ha a lelkész
+        // élettársira állította, a szinkron NE írjon mellé házastársi élt.
+        if (p.tipus !== 'hazastars') return direct
+        return [
+          ...direct,
+          ...(edgeByKey.get(`${p.id2}|${p.id1}|hazastars`) ?? []),
+          ...(edgeByKey.get(`${p.id1}|${p.id2}|elettars`) ?? []),
+          ...(edgeByKey.get(`${p.id2}|${p.id1}|elettars`) ?? []),
+        ]
       }
 
       const toInsert: Record<string, unknown>[] = []

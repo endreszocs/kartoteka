@@ -140,6 +140,10 @@ export const familySchema = z.object({
   id_csoport: z.number().nullable().optional(),
   /** 2026-08-01 (PR-18): a máshol gyermekként nyilvántartott tagok explicit áthelyezése */
   allowMoves: z.boolean().optional(),
+  /** 2026-08-04 (PR-27): a felnőtt pár kapcsolatának jellege */
+  parkapcsolat: z.enum(['hazastars', 'elettars']).nullable().optional(),
+  /** A kapcsolat kezdete: házasságnál az esküvő, élettársnál az együttélés dátuma */
+  parkapcsolat_datum: z.string().nullable().optional(),
 }).refine(
   (data) => data.id_ferfi !== null || data.id_no !== null,
   { message: 'Legalább egy felet (férj vagy feleség) meg kell adni', path: ['id_ferfi'] }
