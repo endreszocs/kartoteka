@@ -480,11 +480,12 @@ async function planAdultConflict(
  * kartonnál pedig új, üres háztartás keletkezne) — fantom háztartás lenne a
  * lélekszám- és körzet-számításokban.
  */
-async function archiveFamilyHousehold(supabase: Db, familyId: number) {
+async function archiveFamilyHousehold(supabase: Db, congregationId: string, familyId: number) {
   const today = new Date().toISOString().slice(0, 10)
   const { data: rows, error } = await supabase
     .from('haztartas')
     .select('id')
+    .eq('congregation_id', congregationId)
     .eq('legacy_csalad_id', familyId)
     .is('ervenyes_ig', null)
   if (error) throw new Error(`haztartas-olvasas (archivalas): ${error.message}`)
@@ -642,8 +643,14 @@ export async function ensureChildFamilyLink(
       // kartonon (blocked) és gyermek egy másikon (movable). Ha a felnőtt-
       // ütközést feloldottuk, a gyermek-tagságot is rendezni KELL — különben
       // két aktív háztartásban maradna (a járulék-alap „egy aktív háztartás").
-      if (!blockMembership && guard.movable.length > 0) {
-        plan = await planAutoMove(supabase, congregationId, famId, guard.movable, guard.allowed, { allowMerge })
+      // A felnőtt-ágon már rendezett (lezárandó) kartont NEM adjuk át a
+      // gyermek-ágnak: azt az adultRelease teljes egészében kezeli (gyerek-sor
+      // törlés + karton lezárás + háztartás archiválás). Különben a
+      // moveChildMemberships szinkronja újra megnyitná a háztartást.
+      const releasedIds = new Set(adultRelease?.releaseFamilyIds ?? [])
+      const movableForPlan = guard.movable.filter((m) => !releasedIds.has(m.familyId))
+      if (!blockMembership && movableForPlan.length > 0) {
+        plan = await planAutoMove(supabase, congregationId, famId, movableForPlan, guard.allowed, { allowMerge })
         // Az írástól FÜGGETLEN észrevételek azonnal jelenthetők; a múlt idejű
         // mondatok csak a sikeres írás után (lentebb).
         notes.push(...plan.notes)
@@ -689,6 +696,13 @@ export async function ensureChildFamilyLink(
         const famNames = await loadFamilyDisplayNames(supabase, adultRelease.releaseFamilyIds)
         for (const oldFamId of adultRelease.releaseFamilyIds) {
           const oldName = famNames.get(oldFamId) ?? `Család #${oldFamId}`
+          // Az „egyszerre szülő ÉS gyermek ugyanazon a kartonon" adathibánál a
+          // tagnak gyerek-sora is lehet rajta — az is szűnjön meg
+          const { error: gyDelErr } = await supabase
+            .from('gyerek').delete().eq('id_csalad', oldFamId).eq('id_szemely', childId)
+          if (gyDelErr) {
+            notes.push(`A(z) ${oldName} kartonról a tag gyermek-sorát nem sikerült törölni — nyisd meg és távolítsd el kézzel.`)
+          }
           const { error: deErr } = await supabase.from('csalad').update({ isaktiv: false }).eq('id', oldFamId)
           if (deErr) {
             notes.push(`A tag a szülei kartonjára került, de a korábbi, üres saját kartonját (${oldName}) nem sikerült lezárni — nyisd meg és zárd le kézzel, különben két helyen szerepel.`)
@@ -700,7 +714,7 @@ export async function ensureChildFamilyLink(
           try {
             // Review-fix: EXPLICIT archiválás (a sync itt nyitva hagyná a
             // tag háztartás-sorát, mert a csalad felnőtt-mezője rá mutat)
-            await archiveFamilyHousehold(supabase, oldFamId)
+            await archiveFamilyHousehold(supabase, congregationId, oldFamId)
           } catch (e) {
             console.warn('[ensureChildFamilyLink] lezárt felnőtt-karton archiválása sikertelen:',
               e instanceof Error ? e.message : e)
@@ -744,10 +758,16 @@ export async function ensureChildFamilyLink(
             const mergeNote = plan.mergeNoteByFamily.get(oldFamId)
             if (mergeNote) notes.push(mergeNote)
             try {
-              await syncHouseholdFromCsalad(supabase, oldFamId, congregationId)
+              // A kiürült karton háztartását EXPLICIT archiváljuk (a sync itt a
+              // felnőtt-mezők miatt nyitva hagyná a tagságokat — fantom
+              // háztartás lenne a lélekszám- és körzet-számításban). A
+              // rokonsági éleket a moveChildMemberships szinkronja már
+              // rendezte, a cél-családét pedig a 4. lépés.
+              await archiveFamilyHousehold(supabase, congregationId, oldFamId)
             } catch (e) {
-              console.warn('[ensureChildFamilyLink] lezárt család szinkronja sikertelen:',
+              console.warn('[ensureChildFamilyLink] lezárt család archiválása sikertelen:',
                 e instanceof Error ? e.message : e)
+              notes.push(`A(z) ${oldName} karton lezárult, de a hozzá tartozó háztartás archiválása nem sikerült — nyisd meg a Családok fülön és ellenőrizd.`)
             }
           }
           // Körzet-öröklés: a lezárt kartonról, ha a célon nincs körzet
