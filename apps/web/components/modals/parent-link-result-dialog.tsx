@@ -176,6 +176,8 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
       }
       if (!('linked' in res) || res.linked) {
         toast.success('Szülő összekötve — a családfa és a családi karton frissült.')
+      } else if (nextOutcome.notes.length === 0 && nextOutcome.infos.length > 0) {
+        toast.info('A rokonsági kapcsolat rögzült — a családi kartont nem kellett módosítani, lásd a magyarázatot.')
       } else {
         toast.info('A rokonsági kapcsolat rögzült a családfán, de a családi kartonhoz nem rendeltük hozzá a tagot — lásd az észrevételeket.')
       }
@@ -190,7 +192,12 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
       // ablak NYITVA marad, hogy a lelkész el tudja olvasni, mi hová került.
       const stillPending =
         (!submittedApa && pendingApa) || (!submittedAnya && pendingAnya)
-      if (nextOutcome.moves.length > 0 || nextOutcome.notes.length > 0 || stillPending) {
+      if (
+        nextOutcome.moves.length > 0
+        || nextOutcome.notes.length > 0
+        || nextOutcome.infos.length > 0
+        || stillPending
+      ) {
         setOutcome(nextOutcome)
       } else {
         onOpenChange(false)
@@ -241,7 +248,7 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
               <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
               <div className="min-w-0 text-sm leading-5">
                 <p className="font-semibold">Ez így rendben van — nincs teendő</p>
-                <ul className="mt-1 space-y-1.5 text-xs leading-5 text-muted-foreground">
+                <ul className="mt-1 space-y-1.5 text-xs leading-5 text-foreground/80">
                   {infoLines.map((line, i) => (
                     <li key={`info-${i}`} className="break-words">• {line}</li>
                   ))}
