@@ -850,7 +850,7 @@ export async function saveFamily(data: FamilyInput): Promise<SaveFamilyResult> {
     if (prevFerfi && prevNo && !(nextAdults.has(prevFerfi) && nextAdults.has(prevNo))) {
       closePairs.push({ id1: prevFerfi, id2: prevNo, tipus: 'hazastars' })
     }
-    await closeSyncKinshipEdges(supabase, closePairs)
+    await closeSyncKinshipEdges(supabase, congregationId, closePairs)
   } catch (e) {
     console.warn('[saveFamily] rokonsági él-lezárás sikertelen (nem blokkoló):',
       e instanceof Error ? e.message : e)
