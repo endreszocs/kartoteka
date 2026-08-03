@@ -159,28 +159,39 @@ export function FamilyTreeView({
   }
 
   function handlePrint() {
-    // 2026-06-02 v3: külön ablakos nyomtatás. A Radix Dialog Portal +
-    // `@media print` body-szelektor kombinációval a window.print() nem
-    // mindig fedte le a fa-tartalmat. Most a tree-konténer HTML-jét
-    // egy új ablakba másoljuk az aktív stylesheet-ekkel együtt, és
-    // ott nyomtatjuk.
+    // 2026-08-04 (PR-28) ÁTÍRVA — a nyomtatás ÜRES lapot adott. Ok: a fa
+    // natív méretében (gyakran több ezer px széles) került a lapra, a belső
+    // elemek pedig abszolút pozicionáltak, ezért a böngésző nem tördelte és
+    // nem is kicsinyítette — a lapra a rajz melletti üres terület esett.
+    // Most: a tartalmat a lap méretére SKÁLÁZZUK, a témát világosra
+    // kényszerítjük (a sötét téma fehér lapon olvashatatlan), és a nyomtatást
+    // a stíluslapok betöltése UTÁN indítjuk.
     if (typeof window === 'undefined') return
-    const canvas = containerRef.current?.querySelector('.family-tree-canvas-inner')
+    const canvas = containerRef.current?.querySelector('.family-tree-canvas-inner') as HTMLElement | null
     if (!canvas) return
 
-    // CSS gyűjtés
+    const contentW = Math.max(1, layout.width + 16)
+    const contentH = Math.max(1, layout.height + 16)
+    // A3 fekvő nyomtatható terület 96 dpi-n, 1,2 cm margóval
+    const PAGE_W = Math.round((42.0 - 2.4) / 2.54 * 96)
+    const PAGE_H = Math.round((29.7 - 2.4) / 2.54 * 96) - 90 // fejléc helye
+    const scale = Math.min(1, PAGE_W / contentW, PAGE_H / contentH)
+
+    // CSS gyűjtés (a saját origin stíluslapjai olvashatók)
     const cssParts: string[] = []
     for (const sheet of Array.from(document.styleSheets)) {
       try {
         if (sheet.cssRules) {
-          for (const rule of Array.from(sheet.cssRules)) {
-            cssParts.push(rule.cssText)
-          }
+          for (const rule of Array.from(sheet.cssRules)) cssParts.push(rule.cssText)
         }
       } catch {
-        // CORS védett stylesheet (külső) — átugorjuk
+        // CORS-védett (külső) stíluslap — átugorjuk
       }
     }
+
+    // A téma-osztályok kellenek a színváltozókhoz, de a sötét mód nem
+    const htmlClass = document.documentElement.className
+      .split(/\s+/).filter((c) => c && c !== 'dark').join(' ')
 
     const printWin = window.open('', '_blank', 'width=1280,height=900')
     if (!printWin) {
@@ -188,65 +199,50 @@ export function FamilyTreeView({
       return
     }
 
-    printWin.document.write(`<!DOCTYPE html>
-<html lang="hu">
+    const html = `<!DOCTYPE html>
+<html lang="hu" class="${htmlClass}" data-theme="light" style="color-scheme:light">
 <head>
 <meta charset="utf-8">
 <title>Családfa</title>
 <style>
-  ${cssParts.join('\n')}
-  body {
-    margin: 0;
-    padding: 20px;
-    background: white;
-    font-family: Inter, system-ui, sans-serif;
-  }
-  .print-header {
-    margin-bottom: 16px;
-    padding-bottom: 12px;
-    border-bottom: 2px solid #e2e8f0;
-  }
-  .print-header h1 {
-    margin: 0;
-    font-size: 20px;
-    color: #1e293b;
-  }
-  .print-header p {
-    margin: 4px 0 0;
-    font-size: 12px;
-    color: #64748b;
-  }
-  .print-canvas {
-    position: relative;
-    transform-origin: top left;
-  }
-  @page {
-    size: A3 landscape;
-    margin: 1.2cm;
-  }
+${cssParts.join('\n')}
+  html, body { background: #fff !important; }
+  body { margin: 0; padding: 18px; font-family: Inter, system-ui, sans-serif; color: #0f172a; }
+  .print-header { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 2px solid #e2e8f0; }
+  .print-header h1 { margin: 0; font-size: 20px; color: #1e293b; }
+  .print-header p { margin: 4px 0 0; font-size: 12px; color: #64748b; }
+  /* A külső doboz a KICSINYÍTETT méretet foglalja, a belső skálázódik */
+  .print-frame { width: ${Math.ceil(contentW * scale)}px; height: ${Math.ceil(contentH * scale)}px; overflow: visible; }
+  .print-scale { transform: scale(${scale}); transform-origin: top left; width: ${contentW}px; height: ${contentH}px; }
+  .print-scale .family-tree-canvas-inner { transform: none !important; }
+  @page { size: A3 landscape; margin: 1.2cm; }
+  @media print { body { padding: 0; } }
 </style>
 </head>
 <body>
   <div class="print-header">
     <h1>Családfa</h1>
-    <p>Nyomtatva: ${new Date().toLocaleDateString('hu-HU')} · ${data.members.length} személy · ${summary.gens} generáció</p>
+    <p>Nyomtatva: ${new Date().toLocaleDateString('hu-HU')} · ${data.members.length} személy · ${summary.gens} generáció${scale < 1 ? ` · ${Math.round(scale * 100)}%-ra kicsinyítve` : ''}</p>
   </div>
-  <div class="print-canvas">${canvas.outerHTML}</div>
-  <script>
-    window.onload = function() {
-      // A scale a print-pillanatban van kiértékelve. Reset-eljük 1-re a
-      // canvas-divon, hogy ne fejen a zoom.
-      var c = document.querySelector('.print-canvas > div');
-      if (c) c.style.transform = 'none';
-      setTimeout(function() {
-        window.print();
-        setTimeout(function() { window.close(); }, 400);
-      }, 200);
-    };
-  </script>
+  <div class="print-frame"><div class="print-scale">${canvas.outerHTML}</div></div>
 </body>
-</html>`)
+</html>`
+
+    printWin.document.open()
+    printWin.document.write(html)
     printWin.document.close()
+    // A stíluslapok/betűk betöltése után nyomtatunk. A load esemény a
+    // document.close() UTÁN is elsülhet, ezért mindkét utat lefedjük.
+    const startPrint = () => {
+      // dupla indítás ellen
+      if ((printWin as unknown as { __printed?: boolean }).__printed) return
+      ;(printWin as unknown as { __printed?: boolean }).__printed = true
+      printWin.focus()
+      printWin.print()
+      setTimeout(() => { try { printWin.close() } catch { /* a felhasználó bezárhatta */ } }, 500)
+    }
+    if (printWin.document.readyState === 'complete') setTimeout(startPrint, 350)
+    else printWin.addEventListener('load', () => setTimeout(startPrint, 350))
   }
 
   function handleResetView() {

@@ -23,6 +23,20 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-04] — Javítás: a családfa nyomtatása üres lapot adott
+<!-- key: 2026-08-04-tagnyilv-pr28-fa-nyomtatas -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.141 -->
+
+### 🐛 Javítások
+
+- **A családfa nyomtatása újra működik**: eddig a rajz a saját, eredeti méretében került a lapra (egy nagyobb családfa több ezer képpont széles), ezért a nyomtatott oldalra a rajz melletti üres terület esett. Mostantól a rendszer a lap méretére kicsinyíti a fát, és a fejlécben ki is írja, hány százalékra.
+- **Világos nyomtatás sötét témában is**: ha sötét témában dolgozol, a nyomtatvány mostantól fehér alapon, olvasható színekkel készül.
+- **Megbízhatóbb indítás**: a nyomtatási párbeszéd csak a stílusok betöltése után nyílik meg, és nem indul el kétszer.
+
+---
+
 ## [2026-08-04] — Házasság vagy élettársi kapcsolat a családi kartonon
 <!-- key: 2026-08-04-tagnyilv-pr27-parkapcsolat -->
 <!-- category: feature -->
