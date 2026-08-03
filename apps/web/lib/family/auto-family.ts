@@ -68,6 +68,10 @@ export interface EnsureChildFamilyResult {
   notes: string[]
   /** „Ez így rendben van" — nincs teendő, csak tájékoztatás (PR-24) */
   infos: string[]
+  /** 2026-08-04 (PR-32): rögzült-e MINDEN kért vér szerinti szülő-kapcsolat.
+   *  Eddig a felület vakon állította, hogy „rögzült" — az INSERT hibája némán
+   *  elveszett, és a családfán mégsem jelent meg a szülő. */
+  parentLinked: boolean
   /** Az összevonás során lezárt (kiürült) családi kartonok nevei */
   closedFamilies: string[]
 }
@@ -538,6 +542,8 @@ export async function ensureChildFamilyLink(
   const notes: string[] = []
   const infos: string[] = []
   const closedFamilies: string[] = []
+  /** false = valamelyik szülő-él rögzítése elbukott (a fán nem fog látszani) */
+  let parentEdgesOk = true
   const done = (linked: boolean, familyId: number | null): EnsureChildFamilyResult => ({
     linked,
     familyId,
@@ -546,6 +552,7 @@ export async function ensureChildFamilyLink(
     notes,
     infos,
     closedFamilies,
+    parentLinked: parentEdgesOk && !!(ferfiId || noId),
   })
 
   if (!ferfiId && !noId) return done(false, null)
@@ -930,8 +937,12 @@ export async function ensureChildFamilyLink(
   // 4) Vér szerinti kapcsolatok — a tagságtól FÜGGETLENÜL (a családfa ebből
   //    épül); + háztartás-szinkron, ha a tagság létrejött
   try {
-    async function ensureSzuloKapcsolat(szuloId: number) {
-      const { data: existing } = await supabase
+    // 2026-08-04 (PR-32): a hibák NEM veszhetnek el némán — eddig egy elbukó
+    // beszúrás után a felület azt állította, hogy „a szülő-kapcsolat rögzült",
+    // a családfán viszont nem jelent meg semmi.
+    const elHibak: string[] = []
+    async function ensureSzuloKapcsolat(szuloId: number, cimke: string) {
+      const { data: existing, error: readErr } = await supabase
         .from('szemely_kapcsolat')
         .select('id')
         .eq('id_szemely_1', szuloId)
@@ -939,15 +950,23 @@ export async function ensureChildFamilyLink(
         .eq('tipus', 'szulo_gyermek')
         .is('ervenyes_ig', null)
         .limit(1)
+      if (readErr) { elHibak.push(`${cimke}: ${readErr.message}`); return }
       if (existing?.length) return
-      await supabase.from('szemely_kapcsolat').insert([{
+      const { error: insErr } = await supabase.from('szemely_kapcsolat').insert([{
         id_szemely_1: szuloId, id_szemely_2: childId,
         tipus: 'szulo_gyermek', ver_szerinti: true,
         congregation_id: congregationId,
       }])
+      if (insErr) elHibak.push(`${cimke}: ${insErr.message}`)
     }
-    if (ferfiId) await ensureSzuloKapcsolat(ferfiId)
-    if (noId) await ensureSzuloKapcsolat(noId)
+    if (ferfiId) await ensureSzuloKapcsolat(ferfiId, 'édesapa')
+    if (noId) await ensureSzuloKapcsolat(noId, 'édesanya')
+    if (elHibak.length > 0) {
+      parentEdgesOk = false
+      notes.push(
+        `A szülő-kapcsolat rögzítése NEM sikerült (${elHibak.join('; ')}), ezért a családfán most nem jelenik meg. Mentsd el újra a tagot; ha a hiba ismétlődik, jelezd ezt az üzenetet.`,
+      )
+    }
 
     // A fél karton kiegészítése után AKKOR is szinkronizálni kell, ha a tag
     // tagsága végül nem jött létre — különben a csalad-on már ott a másik
@@ -956,8 +975,12 @@ export async function ensureChildFamilyLink(
       await syncHouseholdFromCsalad(supabase, famId, congregationId)
     }
   } catch (e) {
+    parentEdgesOk = false
     console.warn('[ensureChildFamilyLink] dual-write sikertelen (nem blokkoló):',
       e instanceof Error ? e.message : e)
+    notes.push(
+      `A szülő-kapcsolat rögzítése közben hiba történt (${e instanceof Error ? e.message : 'ismeretlen hiba'}) — mentsd el újra a tagot, és ellenőrizd a családfán.`,
+    )
   }
 
   // 5) TAKARÍTÁS (2026-08-03, PR-25): ha MOST hoztunk létre kartont, de a tag

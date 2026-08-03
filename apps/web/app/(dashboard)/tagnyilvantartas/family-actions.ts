@@ -671,6 +671,31 @@ export async function saveFamily(data: FamilyInput): Promise<SaveFamilyResult> {
   // beszúrta volna, és egy személy ugyanabban a családban felnőtt ÉS gyermek
   // sem lehet.
   d.gyerekIds = [...new Set(d.gyerekIds)].filter((id) => id !== d.id_ferfi && id !== d.id_no)
+  // 2026-08-04 (PR-32): a FELNŐTT gyermek (aki már saját családi karton
+  // családfője/házastársa) NEM kerülhet be a háztartásba gyermekként — az
+  // „egy aktív háztartás" szabály a járulék-számítás alapja. A ROKONI
+  // kapcsolatot viszont rögzítjük: a családfán megjelenik a szüleinél.
+  const felnottGyermekIds: number[] = []
+  if (d.gyerekIds.length > 0) {
+    const { data: adultRows, error: adultErr } = await supabase
+      .from('csalad')
+      .select('id, id_ferfi, id_no')
+      .eq('isaktiv', true)
+      .or(`id_ferfi.in.(${d.gyerekIds.join(',')}),id_no.in.(${d.gyerekIds.join(',')})`)
+    if (adultErr) return { error: `A családtagsági ellenőrzés nem sikerült: ${adultErr.message}` }
+    const adultElsewhere = new Set<number>()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const f of (adultRows || []) as any[]) {
+      if (f.id === d.id) continue
+      for (const pid of [f.id_ferfi, f.id_no]) {
+        if (pid != null && d.gyerekIds.includes(pid as number)) adultElsewhere.add(pid as number)
+      }
+    }
+    if (adultElsewhere.size > 0) {
+      felnottGyermekIds.push(...adultElsewhere)
+      d.gyerekIds = d.gyerekIds.filter((id) => !adultElsewhere.has(id))
+    }
+  }
   const selectedMemberIds = [d.id_ferfi, d.id_no, ...d.gyerekIds].filter(Boolean) as number[]
   if (selectedMemberIds.length > 0) {
     const { data: scopedMembers } = await supabase
@@ -818,6 +843,42 @@ export async function saveFamily(data: FamilyInput): Promise<SaveFamilyResult> {
     console.warn('[saveFamily] syncHouseholdFromCsalad sikertelen:',
       e instanceof Error ? e.message : e)
     syncWarning = 'A család mentve, de a háztartás-nézet szinkronizálása nem sikerült — mentsd el újra a családot, vagy jelezd a rendszergazdának.'
+  }
+
+  // 2026-08-04 (PR-32): FELNŐTT GYERMEK — a háztartásba nem került be, de a
+  // vér szerinti kapcsolatot rögzítjük, hogy a családfán a szüleinél lássuk.
+  if (felnottGyermekIds.length > 0) {
+    const szulok = [d.id_ferfi, d.id_no].filter((v): v is number => v != null)
+    const nevek: string[] = []
+    try {
+      const { data: nevRows } = await supabase
+        .from('szemely').select('id, csaladnev, k_nev').in('id', felnottGyermekIds)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const r of (nevRows || []) as any[]) {
+        nevek.push(`${r.csaladnev ?? ''} ${r.k_nev ?? ''}`.trim() || `#${r.id}`)
+      }
+      for (const gyermekId of felnottGyermekIds) {
+        for (const szuloId of szulok) {
+          if (szuloId === gyermekId) continue
+          const { data: van } = await supabase
+            .from('szemely_kapcsolat').select('id')
+            .eq('id_szemely_1', szuloId).eq('id_szemely_2', gyermekId)
+            .eq('tipus', 'szulo_gyermek').is('ervenyes_ig', null).limit(1)
+          if (van?.length) continue
+          const { error: insErr } = await supabase.from('szemely_kapcsolat').insert([{
+            id_szemely_1: szuloId, id_szemely_2: gyermekId,
+            tipus: 'szulo_gyermek', ver_szerinti: true,
+            congregation_id: congregationId,
+          }])
+          if (insErr) throw new Error(insErr.message)
+        }
+      }
+      syncWarning = (syncWarning ? syncWarning + ' ' : '')
+        + `${nevek.join(', ')} saját családot alapított, ezért a háztartáshoz nem adtuk hozzá — a szülő–gyermek kapcsolatot viszont rögzítettük, így a családfán a szülőknél megjelenik.`
+    } catch (e) {
+      syncWarning = (syncWarning ? syncWarning + ' ' : '')
+        + `A felnőtt gyermek rokoni kapcsolatának rögzítése nem sikerült (${e instanceof Error ? e.message : 'ismeretlen hiba'}) — próbáld újra.`
+    }
   }
 
   // 2026-08-04 (PR-27): PÁRKAPCSOLAT jellege és kezdete. A szinkron alapból
@@ -975,8 +1036,14 @@ export async function searchFamilyMember(query: string, role: 'ferfi' | 'no' | '
     }
   })
 
+  // 2026-08-04 (PR-32): a máshol FELNŐTT (saját családot alapított) személyt
+  // eddig teljesen ELREJTETTÜK a gyermek-keresőből — így a lelkész a felnőtt
+  // gyermekét sehogy nem tudta a szülei kartonjához kapcsolni. Most megjelenik,
+  // `felnottMashol` jelöléssel: kiválasztva CSAK a rokoni kapcsolat (családfa)
+  // jön létre, a háztartáshoz NEM adjuk hozzá — az „egy aktív háztartás"
+  // szabály (a járulék-számítás alapja) így sértetlen marad.
   const filtered = role === 'gyerek'
-    ? members.filter(m => !anyAdultIds.has(m.id))
+    ? members
     : members.filter(m => !marriedIds.has(m.id) || currentFamilyMemberIds.has(m.id))
   if (!filtered.length) return []
 
@@ -988,11 +1055,13 @@ export async function searchFamilyMember(query: string, role: 'ferfi' | 'no' | '
     getAllowedFamilyIds(supabase, congregationId),
   ])
   return filtered.map(m => {
+    const felnottMashol = role === 'gyerek' && anyAdultIds.has(m.id as number)
     const other = (memberships.get(m.id as number) ?? []).find(
       (ms) => allowedForBadge.has(ms.familyId) && (editFamilyId === undefined || ms.familyId !== editFamilyId),
     )
     return {
       ...m,
+      felnottMashol,
       masikCsalad: other
         ? { id: other.familyId, name: other.familyName, role: other.role }
         : null,

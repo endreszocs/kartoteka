@@ -776,7 +776,6 @@ export async function saveMember(data: MemberInput) {
       await supabase.from('szemely').update(cnpUpdates).eq('id', savedId).eq('congregation_id', congregationId)
     }
 
-    autoParentLinked = !!(ferfiId || noId)
     if (ferfiId || noId) {
       const linkRes = await ensureChildFamilyLink(supabase, congregationId, savedId, ferfiId, noId, {
         c_utcaid: utcaId, c_szam: d.c_szam || null,
@@ -790,6 +789,7 @@ export async function saveMember(data: MemberInput) {
         personId: m.personId, fromFamilyId: m.fromFamilyId, toFamilyId: m.toFamilyId, sibling: m.sibling,
       }))
       autoFamilyLinked = linkRes.linked
+      autoParentLinked = linkRes.parentLinked
     }
 
     // Csak azt mutatjuk, amiről van mondanivaló: az üres-bemenetű 'none' és a
