@@ -286,7 +286,7 @@ export function FamilyTreeView({
 <title>Családfa</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { background: #ffffff; }
+  html, body { background: #ffffff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { font-family: system-ui, -apple-system, 'Segoe UI', Arial, sans-serif; color: #0f172a; padding: 16px; }
   @page { size: A3 landscape; margin: 1.2cm; }
   @media print { body { padding: 0; } .toolbar { display: none !important; } }
@@ -589,7 +589,7 @@ export function FamilyTreeView({
 
         {/* 2026-08-04 (PR-33): JELMAGYARÁZAT — a vászon alján, diszkrét pill-sor.
             A zoom-rétegen KÍVÜL van, ezért nagyításnál is olvasható marad. */}
-        <div className="pointer-events-none absolute bottom-2 left-3 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
+        <div className="pointer-events-none absolute bottom-2 left-3 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
           <LegendPill color={COLOR_PARENT_LINE} label="szülő–gyermek" />
           <LegendPill color={COLOR_SPOUSE_LINE} label="házastárs" />
           <LegendPill color={COLOR_SPOUSE_LINE} label="élettárs" dashed />
@@ -909,6 +909,8 @@ function computeTreeGeometry(
     parentEdgeY: number
     /** A gyerek-kártya azon éle, ahová a függőleges érkezik */
     childEdgeY: number
+    /** true = a gyermekek a szülők ALATT vannak (normál irány) */
+    childBelow: boolean
     gapStart: number
     gapEnd: number
     anchorX: number
@@ -945,6 +947,7 @@ function computeTreeGeometry(
       children: g.children,
       parentEdgeY,
       childEdgeY,
+      childBelow,
       gapStart,
       gapEnd,
       anchorX,
@@ -1002,12 +1005,19 @@ function computeTreeGeometry(
     // Elfajult rés (a két sor gyakorlatilag egymáson) → egyszerű egyenes
     const degenerate = bus.gapEnd - bus.gapStart < 2
     for (const p of bus.parents) {
-      const x = positions.get(p)!.x + NODE_W / 2
+      const pp = positions.get(p)
+      if (!pp) continue
+      const x = pp.x + NODE_W / 2
+      // 2026-08-04 (review-fix): a vonal MINDIG a saját kártya éléből induljon.
+      // Korábban a sibship EGYETLEN parentEdgeY-át használtuk minden szülőre —
+      // ha a két szülő eltérő sorban van (adathiba), a közelebbi szülő vonala a
+      // levegőben kezdődött, és a saját kártyáján át fordult.
+      const startY = bus.childBelow ? pp.y + nodeH : pp.y
       parentLines.push({
         key: `bus-p-${bus.key}-${p}`,
-        d: degenerate
-          ? `M ${nr(x)} ${nr(bus.parentEdgeY)} L ${nr(bus.anchorX)} ${nr(bus.y)}`
-          : elbowPath(x, bus.parentEdgeY, bus.anchorX, bus.y),
+        d: Math.abs(x - bus.anchorX) < 0.5
+          ? `M ${nr(x)} ${nr(startY)} L ${nr(bus.anchorX)} ${nr(bus.y)}`
+          : elbowPath(x, startY, bus.anchorX, bus.y),
       })
     }
     for (const c of bus.children) {
