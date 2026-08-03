@@ -23,6 +23,18 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-04] — Egyértelmű betöltés-jelző a személyek keresésénél
+<!-- key: 2026-08-04-tagnyilv-pr37-betoltes-jelzo -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.147 -->
+
+### 🎨 UX javítások
+
+- **Látszik, hogy a rendszer dolgozik**: a személy-listában keresés vagy szűrés közben eddig csak halvány „csontváz" jelent meg, ami könnyen összetéveszthető volt a tényleges tartalommal. Mostantól a lista fölött ott a Kartotéka pörgő jelzője és az **„Adatok betöltése…"** felirat, így egyértelmű, hogy meg kell várni a találatokat.
+
+---
+
 ## [2026-08-04] — A felnőtt gyermekek is látszanak a családi kartonon
 <!-- key: 2026-08-04-tagnyilv-pr35-felnott-gyermek-karton -->
 <!-- category: improvement -->
