@@ -132,12 +132,15 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
   const [saving, setSaving] = useState(false)
   /** Az utólagos összekötés (gomb) eredménye — felülírja a mentéskori állapotot */
   const [outcome, setOutcome] = useState<FamilyOutcome | null>(null)
+  /** Már beküldött szülő-oldalak — a MÁSIK oldal összeköthető marad (PR-23 review) */
+  const [doneParts, setDoneParts] = useState<{ apa: boolean; anya: boolean }>({ apa: false, anya: false })
 
   useEffect(() => {
     if (!open) return
     setApaPick(null)
     setAnyaPick(null)
     setOutcome(null)
+    setDoneParts({ apa: false, anya: false })
   }, [open, data?.memberId])
 
   if (!data) return null
@@ -146,9 +149,9 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
   const noteLines = outcome?.notes ?? data.familyNotes ?? []
   const closedLines = outcome?.closed ?? data.familyClosed ?? []
 
-  const needsPick =
-    (data.apa?.status === 'ambiguous' && (data.apa.candidates?.length ?? 0) > 0) ||
-    (data.anya?.status === 'ambiguous' && (data.anya.candidates?.length ?? 0) > 0)
+  const pendingApa = !doneParts.apa && data.apa?.status === 'ambiguous' && (data.apa.candidates?.length ?? 0) > 0
+  const pendingAnya = !doneParts.anya && data.anya?.status === 'ambiguous' && (data.anya.candidates?.length ?? 0) > 0
+  const needsPick = pendingApa || pendingAnya
 
   async function handleLink() {
     if (!data) return
@@ -174,9 +177,17 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
         toast.info('A rokonsági kapcsolat rögzült a családfán, de a családi kartonhoz nem rendeltük hozzá a tagot — lásd az észrevételeket.')
       }
       onLinked?.()
+      // A beküldött oldal(ak) lezárva — a másik oldal gombja megmarad
+      const submittedApa = apaPick != null
+      const submittedAnya = anyaPick != null
+      setDoneParts((prev) => ({ apa: prev.apa || submittedApa, anya: prev.anya || submittedAnya }))
+      setApaPick(null)
+      setAnyaPick(null)
       // 2026-08-03 (PR-23): ha volt tényleges áthelyezés vagy észrevétel, az
       // ablak NYITVA marad, hogy a lelkész el tudja olvasni, mi hová került.
-      if (nextOutcome.moves.length > 0 || nextOutcome.notes.length > 0) {
+      const stillPending =
+        (!submittedApa && pendingApa) || (!submittedAnya && pendingAnya)
+      if (nextOutcome.moves.length > 0 || nextOutcome.notes.length > 0 || stillPending) {
         setOutcome(nextOutcome)
       } else {
         onOpenChange(false)
@@ -196,8 +207,12 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
         </DialogHeader>
 
         <div className="space-y-3">
-          {data.apa && <PartRow label="Édesapa" part={data.apa} selected={apaPick} onSelect={setApaPick} />}
-          {data.anya && <PartRow label="Édesanya" part={data.anya} selected={anyaPick} onSelect={setAnyaPick} />}
+          {data.apa && (doneParts.apa
+            ? <p className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2.5 text-xs text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">Édesapa: összekötve.</p>
+            : <PartRow label="Édesapa" part={data.apa} selected={apaPick} onSelect={setApaPick} />)}
+          {data.anya && (doneParts.anya
+            ? <p className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2.5 text-xs text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">Édesanya: összekötve.</p>
+            : <PartRow label="Édesanya" part={data.anya} selected={anyaPick} onSelect={setAnyaPick} />)}
 
           {moveLines.length > 0 && (
             <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 dark:border-emerald-900 dark:bg-emerald-950/40">
@@ -241,7 +256,7 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
           ) : null}
 
           <div className="flex flex-col gap-2 border-t border-border/60 pt-3 min-[420px]:flex-row min-[420px]:justify-end">
-            {needsPick && !outcome && (
+            {needsPick && (
               <Button className="min-h-11 rounded-xl" disabled={saving || (!apaPick && !anyaPick)} onClick={() => void handleLink()}>
                 {saving ? 'Összekötés…' : 'Kiválasztott szülő összekötése'}
               </Button>

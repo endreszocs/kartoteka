@@ -723,6 +723,7 @@ export async function saveMember(data: MemberInput) {
   let autoFamilyMoves: string[] = []
   let autoFamilyNotes: string[] = []
   let autoFamilyClosed: string[] = []
+  let autoFamilyMoveRows: { personId: number; fromFamilyId: number | null; toFamilyId: number; sibling: boolean }[] = []
   let parentLink: SaveMemberParentLink | undefined
   if (savedId && (d.id_apja_cnp || d.id_anyja_cnp || d.apjaneve?.trim() || d.anyjaneve?.trim())) {
     let ferfiId: number | null = null
@@ -780,6 +781,9 @@ export async function saveMember(data: MemberInput) {
       autoFamilyMoves = describeMoves(linkRes.moves)
       autoFamilyNotes = linkRes.notes
       autoFamilyClosed = linkRes.closedFamilies
+      autoFamilyMoveRows = linkRes.moves.map((m) => ({
+        personId: m.personId, fromFamilyId: m.fromFamilyId, toFamilyId: m.toFamilyId, sibling: m.sibling,
+      }))
     }
 
     // Csak azt mutatjuk, amiről van mondanivaló: az üres-bemenetű 'none' és a
@@ -854,7 +858,14 @@ export async function saveMember(data: MemberInput) {
     action: 'member.save',
     targetTable: 'szemely',
     targetId: savedId != null ? String(savedId) : null,
-    metadata: { mode: d.id ? 'update' : 'create' },
+    metadata: {
+      mode: d.id ? 'update' : 'create',
+      // 2026-08-03 (PR-23): az automatikus családi áthelyezés/összevonás a
+      // mentés útján is történhet — a naplóban is nyomon követhető legyen
+      ...(autoFamilyMoveRows.length > 0 ? { familyMoves: autoFamilyMoveRows } : {}),
+      ...(autoFamilyClosed.length > 0 ? { familyClosed: autoFamilyClosed } : {}),
+      ...(autoFamilyNotes.length > 0 ? { familyNotes: autoFamilyNotes } : {}),
+    },
   }, supabase)
 
   revalidatePath('/tagnyilvantartas')
@@ -1034,6 +1045,9 @@ export async function linkMemberParents(input: { memberId: number; apaId?: numbe
     } catch (e) {
       console.warn('[linkMemberParents] háztartás-szinkron sikertelen:', e instanceof Error ? e.message : e)
       warning = 'A szülő összekötve, de a háztartás-nézet szinkronizálása nem sikerült — mentsd el újra a családot.'
+      // 2026-08-03 (PR-23 review): a felugró ablak a `notes` tömböt jeleníti
+      // meg — e nélkül a szinkron-hiba némán elveszne.
+      noteLines.push(warning)
     }
     if (Object.keys(updates).length > 0) {
       const famNames = await loadFamilyDisplayNames(supabase, [activeFam.id])

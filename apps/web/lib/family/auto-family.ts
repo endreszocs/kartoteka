@@ -12,13 +12,21 @@
  *   - GYERMEKKÉNTI kettős tagság már nem blokkol: a tagot a szülők családjába
  *     soroljuk, a korábbi (saját gyülekezeti) tagságát lezárjuk, és a lépést
  *     tételesen jelentjük (moves).
- *   - KARTON-ÖSSZEVONÁS: ha a korábbi család felnőttjei a cél-család
- *     felnőttjeinek részhalmaza (ugyanaz a szülőpár két kartonon, a testvérek
- *     szétszórva), a régi karton ÖSSZES gyermekét átvisszük — így egyik testvér
- *     sem marad le —, a kiürült kartont pedig lezárjuk.
- *   - ÖSSZEFÉRHETETLENSÉG (felnőtt szerep máshol, idegen gyülekezet, eltérő
- *     felnőttek) esetén NEM nyúlunk az adathoz, hanem tételes észrevételt írunk
- *     (notes) — a vér szerinti kapcsolat ilyenkor is rögzül, a fa mutatja.
+ *   - KARTON-ÖSSZEVONÁS: ha a két karton UGYANAZT a szülő-párost jelöli (a
+ *     testvérek két kartonra szóródtak), a régi karton ÖSSZES gyermekét
+ *     átvisszük, a kiürült kartont pedig lezárjuk.
+ *   - ÖSSZEFÉRHETETLENSÉG esetén NEM nyúlunk az adathoz, hanem tételes
+ *     észrevételt írunk (notes) — a vér szerinti kapcsolat ilyenkor is rögzül.
+ *
+ * 2026-08-03 (PR-23 review) — 23 megerősített találat javítása. A legfontosabb
+ * (P0): az összevonás feltétele HALMAZ-EGYEZÉS, nem részhalmaz. Egy egy-szülős
+ * karton ({anya, —}) NEM duplikátuma a párosnak ({apa, anya}): a testvérek
+ * lehetnek egy korábbi kapcsolatból, és az áthozatal után a háztartás-szinkron
+ * a MOSTOHASZÜLŐTŐL is vér szerinti szülő-élt írna be — amit az egyeztető
+ * (a tagság „igazolja") soha nem zárna le. További őrök: több aktív szülő-
+ * karton esetén nincs összevonás; idegen gyülekezeti / máshol felnőtt testvér
+ * nem mozdul; a lezárás előtt pénzügyi-látogatási hivatkozás-ellenőrzés; a
+ * múlt idejű mondatok CSAK sikeres írás után kerülnek a jelentésbe.
  *
  * NEM 'use server' fájl — a server actionök importálják.
  */
@@ -27,6 +35,7 @@ import {
   findMembershipConflicts,
   foreignMembershipWarning,
   loadFamilyDisplayNames,
+  loadFamilyMemberships,
   moveChildMemberships,
   syncHouseholdFromCsalad,
   type AssignConflict,
@@ -73,13 +82,20 @@ export function describeMoves(moves: FamilyLinkMove[]): string[] {
 
 interface AutoMovePlan {
   moves: FamilyLinkMove[]
+  /** Írástól FÜGGETLEN észrevétel (idegen gyülekezet, kihagyott testverek) */
   notes: string[]
+  /** MÚLT IDEJŰ mondatok — CSAK sikeres tagság-írás után jelenthetők */
+  doneNotes: string[]
+  /** Kartononkénti összevonás-mondat — CSAK sikeres lezárás után jelenthető */
+  mergeNoteByFamily: Map<number, string>
   /** Az összevonással áthozott testvérek (a cél-családba felveendők) */
   siblingIds: number[]
   /** A lezárandó korábbi gyermek-tagságok (a cél-mentés UTÁN futnak) */
   closes: AssignConflict[]
   /** A kiürülő, lezárandó családi kartonok */
   deactivate: number[]
+  /** A lezárt kartonról a célra átveendő körzet (ha a célon hiányzik) */
+  inheritCsoport: number | null
 }
 
 /**
@@ -93,12 +109,16 @@ async function planAutoMove(
   targetFamilyId: number,
   movable: AssignConflict[],
   allowed: Set<number>,
+  opts: { allowMerge: boolean },
 ): Promise<AutoMovePlan> {
   const moves: FamilyLinkMove[] = []
   const notes: string[] = []
+  const doneNotes: string[] = []
+  const mergeNoteByFamily = new Map<number, string>()
   const siblingIds: number[] = []
   const closes: AssignConflict[] = []
   const deactivate: number[] = []
+  let inheritCsoport: number | null = null
 
   const ownMovable = movable.filter((m) => allowed.has(m.familyId))
   for (const m of movable) {
@@ -108,26 +128,34 @@ async function planAutoMove(
       )
     }
   }
-  if (ownMovable.length === 0) return { moves, notes, siblingIds, closes, deactivate }
+  const emptyPlan: AutoMovePlan = {
+    moves, notes, doneNotes, mergeNoteByFamily, siblingIds, closes, deactivate, inheritCsoport,
+  }
+  if (ownMovable.length === 0) return emptyPlan
 
   const oldFamilyIds = [...new Set(ownMovable.map((m) => m.familyId))]
+  const CSALAD_COLS = 'id, id_ferfi, id_no, id_csoport'
 
   const [targetRes, oldFamRes, gyRes] = await Promise.all([
-    supabase.from('csalad').select('id, id_ferfi, id_no').eq('id', targetFamilyId).maybeSingle(),
-    supabase.from('csalad').select('id, id_ferfi, id_no').in('id', oldFamilyIds),
+    supabase.from('csalad').select(CSALAD_COLS).eq('id', targetFamilyId).maybeSingle(),
+    supabase.from('csalad').select(CSALAD_COLS).in('id', oldFamilyIds),
     supabase.from('gyerek').select('id_csalad, id_szemely').in('id_csalad', oldFamilyIds),
   ])
   if (targetRes.error) throw new Error(`cel-csalad-olvasas: ${targetRes.error.message}`)
   if (oldFamRes.error) throw new Error(`regi-csalad-olvasas: ${oldFamRes.error.message}`)
   if (gyRes.error) throw new Error(`gyerek-olvasas: ${gyRes.error.message}`)
 
+  const targetCsoport = (targetRes.data?.id_csoport as number | null) ?? null
   const targetAdults = new Set<number>(
     [targetRes.data?.id_ferfi as number | null, targetRes.data?.id_no as number | null]
       .filter((v): v is number => v != null),
   )
-  const oldFamilies = new Map<number, { id_ferfi: number | null; id_no: number | null }>(
+  interface OldFam { id_ferfi: number | null; id_no: number | null; id_csoport: number | null }
+  const oldFamilies = new Map<number, OldFam>(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ((oldFamRes.data || []) as any[]).map((f) => [f.id as number, { id_ferfi: f.id_ferfi ?? null, id_no: f.id_no ?? null }]),
+    ((oldFamRes.data || []) as any[]).map((f) => [f.id as number, {
+      id_ferfi: f.id_ferfi ?? null, id_no: f.id_no ?? null, id_csoport: f.id_csoport ?? null,
+    }]),
   )
   const childrenByFamily = new Map<number, number[]>()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -137,23 +165,28 @@ async function planAutoMove(
     childrenByFamily.set(g.id_csalad as number, list)
   }
 
-  // Nevek: a testvérek + a régi kartonok „idegen" felnőttjei
+  // Nevek + SAJÁT-gyülekezeti szűrés (a testvér lehet idegen gyülekezeti tag,
+  // az RLS-rejtett sor pedig fail-closed módon idegennek számít)
   const nameNeedIds = [...new Set([
     ...[...childrenByFamily.values()].flat(),
     ...[...oldFamilies.values()].flatMap((f) => [f.id_ferfi, f.id_no]).filter((v): v is number => v != null),
+    ...targetAdults,
   ])]
   const nameById = new Map<number, string>()
+  const ownPersonIds = new Set<number>()
   if (nameNeedIds.length > 0) {
     const { data, error } = await supabase
       .from('szemely')
-      .select('id, csaladnev, k_nev')
+      .select('id, csaladnev, k_nev, congregation_id')
       .in('id', nameNeedIds)
     if (error) throw new Error(`szemely-olvasas (athelyezes-terv): ${error.message}`)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const p of (data || []) as any[]) {
       nameById.set(p.id as number, `${p.csaladnev ?? ''} ${p.k_nev ?? ''}`.trim() || `#${p.id}`)
+      if (p.congregation_id === congregationId) ownPersonIds.add(p.id as number)
     }
   }
+  const nev = (id: number) => nameById.get(id) ?? `#${id}`
 
   const famNames = await loadFamilyDisplayNames(supabase, [targetFamilyId, ...oldFamilyIds])
   const famName = (id: number) => famNames.get(id) ?? `Család #${id}`
@@ -175,33 +208,68 @@ async function planAutoMove(
     const old = oldFamilies.get(m.familyId)
     const oldAdults = [old?.id_ferfi ?? null, old?.id_no ?? null].filter((v): v is number => v != null)
     const idegenFelnottek = oldAdults.filter((a) => !targetAdults.has(a))
-    const osszevonhato = oldAdults.length > 0 && idegenFelnottek.length === 0
+    const hianyzoFelnottek = [...targetAdults].filter((a) => !oldAdults.includes(a))
+    // P0 review-fix: CSAK a valódi duplikátum (AZONOS szülő-páros) vonható
+    // össze. A részhalmaz (egy-szülős karton a párossal szemben) nem az: a
+    // mellé kerülő felnőtt a testvéreknek MOSTOHASZÜLŐJE lehet, és a
+    // háztartás-szinkron tőle is vér szerinti szülő-élt írna be.
+    const azonosSzulopar = oldAdults.length > 0
+      && idegenFelnottek.length === 0
+      && hianyzoFelnottek.length === 0
 
-    if (!osszevonhato) {
-      notes.push(
-        oldAdults.length === 0
-          ? `A korábbi kartonon (${fromName}) nincs rögzített szülő, ezért csak a gyermeket helyeztük át — a régi karton megmaradt, ha felesleges, töröld.`
-          : `A korábbi kartonon (${fromName}) más szülő is szerepel (${idegenFelnottek.map((a) => nameById.get(a) ?? `#${a}`).join(', ')}), ezért CSAK a gyermeket helyeztük át — a régi karton érintetlen maradt. Ellenőrizd, melyik a helyes.`,
+    if (!azonosSzulopar) {
+      if (oldAdults.length === 0) {
+        doneNotes.push(
+          `A korábbi kartonon (${fromName}) nincs rögzített szülő, ezért csak a gyermeket helyeztük át — a régi karton megmaradt, ha felesleges, töröld.`,
+        )
+      } else if (idegenFelnottek.length > 0) {
+        doneNotes.push(
+          `A korábbi kartonon (${fromName}) más szülő is szerepel (${idegenFelnottek.map(nev).join(', ')}), ezért CSAK a gyermeket helyeztük át — a régi karton és a testvérek érintetlenek maradtak. Ellenőrizd, melyik a helyes.`,
+        )
+        // A régi karton MÁSIK szülőjének vér szerinti éle a tagság megszűnésével
+        // lezárul — kivéve, ha a gyermek kartonja név szerint igazolja (PR-22).
+        doneNotes.push(
+          `Ha ${idegenFelnottek.map(nev).join(', ')} valóban ${m.personName} szülője, írd be a nevét a személyi kartonjára (Édesapa/Édesanya mező) — akkor a családfán a kapcsolat megmarad; e nélkül a régi kapcsolat lezárul.`,
+        )
+      } else {
+        doneNotes.push(
+          `A korábbi kartonon (${fromName}) csak ${oldAdults.map(nev).join(', ')} szerepel szülőként, a(z) ${toName} kartonon viszont ${hianyzoFelnottek.map(nev).join(', ')} is. Ez lehet ugyanannak a családnak a hiányos kartonja, de az is, hogy a testvéreknek MÁS a másik szülőjük — ezért CSAK ${m.personName} került át, a testvérek és a régi karton érintetlenek maradtak. Ha a testvérek is ide tartoznak, vedd fel őket a(z) ${toName} kartonján.`,
+        )
+      }
+      continue
+    }
+
+    if (!opts.allowMerge) {
+      doneNotes.push(
+        `A(z) ${fromName} ugyanazt a szülő-párost jelöli, mint a(z) ${toName}, de a szülőnek több aktív családi kartonja van, ezért az összevonást nem végeztük el automatikusan — nézd át a kartonokat.`,
       )
       continue
     }
 
-    // ÖSSZEVONÁS: a régi karton ugyanazt a szülőpárt jelöli → minden gyermeke átjön
+    // ÖSSZEVONÁS: a két karton ugyanazt a szülő-párost jelöli → a testvérek is
     const others = (childrenByFamily.get(m.familyId) ?? []).filter((id) => id !== m.personId)
     const utkozo = others.filter((id) => targetAdults.has(id))
-    const athozhato = others.filter((id) => !targetAdults.has(id))
-    for (const sid of athozhato) {
+    const idegen = others.filter((id) => !targetAdults.has(id) && !ownPersonIds.has(id))
+    let jeloltek = others.filter((id) => !targetAdults.has(id) && ownPersonIds.has(id))
+
+    // A testvér se veszítse el a SAJÁT családját: akinek máshol felnőtt
+    // (családfő/házastárs) szerepe van, nem mozdítjuk.
+    const felnottMashol: number[] = []
+    if (jeloltek.length > 0) {
+      const memberships = await loadFamilyMemberships(supabase, jeloltek, { throwOnError: true })
+      for (const sid of jeloltek) {
+        const roles = memberships.get(sid) ?? []
+        if (roles.some((r) => r.role === 'felnott' && r.familyId !== targetFamilyId)) felnottMashol.push(sid)
+      }
+      jeloltek = jeloltek.filter((sid) => !felnottMashol.includes(sid))
+    }
+
+    for (const sid of jeloltek) {
       if (!siblingIds.includes(sid)) siblingIds.push(sid)
-      closes.push({
-        personId: sid,
-        personName: nameById.get(sid) ?? `#${sid}`,
-        familyId: m.familyId,
-        familyName: fromName,
-        role: 'gyermek',
-      })
+      closes.push({ personId: sid, personName: nev(sid), familyId: m.familyId, familyName: fromName, role: 'gyermek' })
       moves.push({
         personId: sid,
-        personName: nameById.get(sid) ?? `#${sid}`,
+        personName: nev(sid),
         fromFamilyId: m.familyId,
         fromFamilyName: fromName,
         toFamilyId: targetFamilyId,
@@ -209,21 +277,57 @@ async function planAutoMove(
         sibling: true,
       })
     }
+
+    const maradok = [...utkozo, ...idegen, ...felnottMashol]
     if (utkozo.length > 0) {
       notes.push(
-        `A(z) ${fromName} kartonon ${utkozo.map((id) => nameById.get(id) ?? `#${id}`).join(', ')} egyszerre szülőként és gyermekként is szerepel — ezt nem tudtuk automatikusan rendezni, ezért a régi kartont nem zártuk le. Nyisd meg és javítsd.`,
+        `A(z) ${fromName} kartonon ${utkozo.map(nev).join(', ')} egyszerre szülőként és gyermekként is szerepel — ezt nem tudtuk automatikusan rendezni. Nyisd meg és javítsd.`,
+      )
+    }
+    if (idegen.length > 0) {
+      notes.push(
+        `A(z) ${fromName} kartonon ${idegen.map(nev).join(', ')} másik gyülekezet tagja (vagy nem látható innen), ezért nem mozgattuk.`,
+      )
+    }
+    if (felnottMashol.length > 0) {
+      notes.push(
+        `${felnottMashol.map(nev).join(', ')} már saját családi karton felnőtt tagja, ezért nem hoztuk át gyermekként — a saját családja érintetlen maradt.`,
+      )
+    }
+
+    if (maradok.length > 0) {
+      doneNotes.push(
+        `A(z) ${fromName} kartonról ${[m.personName, ...jeloltek.map(nev)].join(', ')} átkerült a(z) ${toName} kartonra, de a régi kartont NEM zártuk le, mert maradt rajta tag.`,
       )
     } else {
       deactivate.push(m.familyId)
-      notes.push(
-        athozhato.length > 0
-          ? `A(z) ${fromName} és a(z) ${toName} ugyanazt a szülőpárt jelölte, ezért összevontuk őket: a testvérek (${athozhato.map((id) => nameById.get(id) ?? `#${id}`).join(', ')}) is átkerültek, a kiürült régi kartont lezártuk.`
-          : `A(z) ${fromName} ugyanazt a szülőpárt jelölte, mint a(z) ${toName}, ezért a kiürült régi kartont lezártuk.`,
+      if (inheritCsoport == null && targetCsoport == null) inheritCsoport = old?.id_csoport ?? null
+      mergeNoteByFamily.set(
+        m.familyId,
+        jeloltek.length > 0
+          ? `A(z) ${fromName} és a(z) ${toName} ugyanazt a szülő-párost jelölte, ezért összevontuk őket: a testvérek (${jeloltek.map(nev).join(', ')}) is átkerültek, a kiürült régi kartont lezártuk.`
+          : `A(z) ${fromName} ugyanazt a szülő-párost jelölte, mint a(z) ${toName}, ezért a kiürült régi kartont lezártuk.`,
       )
     }
   }
 
-  return { moves, notes, siblingIds, closes, deactivate }
+  return { moves, notes, doneNotes, mergeNoteByFamily, siblingIds, closes, deactivate, inheritCsoport }
+}
+
+/**
+ * A karton lezárása előtti fék: ha a régi családhoz pénzügyi vagy látogatási
+ * előzmény kötődik (befizetés, felmentés, családlátogatás), NEM zárjuk le —
+ * inkább maradjon a duplikátum, mint hogy egy hivatkozás inaktív kartonra
+ * mutasson. Olvasási hibánál is fail-closed (nem zárunk).
+ */
+async function hasFamilyReferences(supabase: Db, familyId: number): Promise<boolean> {
+  for (const table of ['befizetes', 'felmentes', 'csaladlatogatas']) {
+    const { data, error } = await supabase.from(table).select('id').eq('id_csalad', familyId).limit(1)
+    if (error) return true
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (((data || []) as any[]).length > 0) return true
+  }
+  return false
 }
 
 /**
@@ -253,15 +357,26 @@ export async function ensureChildFamilyLink(
 
   if (!ferfiId && !noId) return done(false, null)
 
-  // 1) A szülő(k) aktív családja — vagy új család
+  // 1) A szülő(k) aktív családja — vagy új család.
+  // Review-fix: DETERMINISZTIKUS választás (order) + több-találat-őr: ha a
+  // szülőnek több aktív kartonja van (pl. csak az egyik szülő oldódott fel),
+  // a tagot a legrégebbibe soroljuk, de összevonást NEM végzünk.
   let query = supabase.from('csalad').select('id').eq('isaktiv', true)
   if (ferfiId) query = query.eq('id_ferfi', ferfiId)
   if (noId) query = query.eq('id_no', noId)
-  const { data: existingFam } = await query.limit(1)
+  const { data: existingFam } = await query.order('id', { ascending: true }).limit(10)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const famCandidates = ((existingFam || []) as any[]).length
+  const allowMerge = famCandidates <= 1
 
   let famId: number | null = null
-  if (existingFam?.[0]) {
-    famId = existingFam[0].id as number
+  if (famCandidates > 0) {
+    famId = existingFam![0].id as number
+    if (famCandidates > 1) {
+      notes.push(
+        `A szülőnek ${famCandidates} aktív családi kartonja van a nyilvántartásban — a tagot a legrégebbibe soroltuk. Nézd át a kartonokat, és ha felesleges duplikátum van köztük, zárd le.`,
+      )
+    }
   } else {
     // Cím: a hívó adja (tag-űrlap címe), vagy a szülő lakcíme
     let cUtcaid = address?.c_utcaid ?? null
@@ -307,7 +422,9 @@ export async function ensureChildFamilyLink(
           )
         }
       } else if (guard.movable.length > 0) {
-        plan = await planAutoMove(supabase, congregationId, famId, guard.movable, guard.allowed)
+        plan = await planAutoMove(supabase, congregationId, famId, guard.movable, guard.allowed, { allowMerge })
+        // Az írástól FÜGGETLEN észrevételek azonnal jelenthetők; a múlt idejű
+        // mondatok csak a sikeres írás után (lentebb).
         notes.push(...plan.notes)
       }
     } catch (e) {
@@ -346,17 +463,40 @@ export async function ensureChildFamilyLink(
       linked = insertOk && (have.has(childId) || toInsert.includes(childId))
 
       if (insertOk && plan) {
-        // 3/b) A korábbi tagságok lezárása (csak saját gyülekezeti kartonok)
+        // 3/b) A korábbi tagságok lezárása (csak saját gyülekezeti kartonok).
+        // A gyermek(ek) MÁR a cél-családban vannak, ezért a mozgatást akkor is
+        // jelentjük, ha a régi tagság zárása hibára fut — de akkor kiírjuk.
+        moves.push(...plan.moves)
+        let closesOk = true
         try {
           await moveChildMemberships(supabase, congregationId, plan.closes, allowedFamilies)
+        } catch (e) {
+          closesOk = false
+          console.warn('[ensureChildFamilyLink] korábbi tagság lezárása sikertelen:',
+            e instanceof Error ? e.message : e)
+          notes.push('A tag az új családba került, de a korábbi családtagsága nem zárult le — nyisd meg a régi családi kartont, és távolítsd el onnan a tagot.')
+        }
+        notes.push(...plan.doneNotes)
+
+        if (closesOk && plan.deactivate.length > 0) {
           const famNames = await loadFamilyDisplayNames(supabase, plan.deactivate)
           for (const oldFamId of plan.deactivate) {
-            const { error: deErr } = await supabase.from('csalad').update({ isaktiv: false }).eq('id', oldFamId)
-            if (deErr) {
-              notes.push(`A kiürült ${famNames.get(oldFamId) ?? `#${oldFamId}`} karton lezárása nem sikerült — nyisd meg és zárd le kézzel.`)
+            const oldName = famNames.get(oldFamId) ?? `Család #${oldFamId}`
+            // Fék: pénzügyi/látogatási előzményhez kötött kartont nem zárunk le
+            if (await hasFamilyReferences(supabase, oldFamId)) {
+              notes.push(
+                `A(z) ${oldName} kartonhoz befizetés / felmentés / családlátogatás kötődik, ezért NEM zártuk le — a gyermekek átkerültek, a régi kartont a pénzügyi előzmény átnézése után zárhatod le kézzel.`,
+              )
               continue
             }
-            closedFamilies.push(famNames.get(oldFamId) ?? `Család #${oldFamId}`)
+            const { error: deErr } = await supabase.from('csalad').update({ isaktiv: false }).eq('id', oldFamId)
+            if (deErr) {
+              notes.push(`A kiürült ${oldName} karton lezárása nem sikerült — nyisd meg és zárd le kézzel.`)
+              continue
+            }
+            closedFamilies.push(oldName)
+            const mergeNote = plan.mergeNoteByFamily.get(oldFamId)
+            if (mergeNote) notes.push(mergeNote)
             try {
               await syncHouseholdFromCsalad(supabase, oldFamId, congregationId)
             } catch (e) {
@@ -364,13 +504,21 @@ export async function ensureChildFamilyLink(
                 e instanceof Error ? e.message : e)
             }
           }
-          moves.push(...plan.moves)
-        } catch (e) {
-          console.warn('[ensureChildFamilyLink] korábbi tagság lezárása sikertelen:',
-            e instanceof Error ? e.message : e)
-          notes.push('A tag az új családba került, de a korábbi családtagsága nem zárult le — nyisd meg a régi családi kartont, és távolítsd el onnan a tagot.')
+          // Körzet-öröklés: a lezárt kartonról, ha a célon nincs körzet
+          if (closedFamilies.length > 0 && plan.inheritCsoport != null) {
+            const { error: csErr } = await supabase
+              .from('csalad')
+              .update({ id_csoport: plan.inheritCsoport })
+              .eq('id', famId)
+              .is('id_csoport', null)
+            if (csErr) {
+              console.warn('[ensureChildFamilyLink] körzet-öröklés sikertelen:', csErr.message)
+            }
+          }
         }
-      } else if (insertOk) {
+      } else if (insertOk && toInsert.includes(childId)) {
+        // Csak TÉNYLEGES új tagságot jelentünk (ha a gyerek-sor már megvolt,
+        // nem történt mozgatás — különben minden mentésnél felugrana az ablak).
         moves.push({
           personId: childId,
           personName: '',
