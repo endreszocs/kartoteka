@@ -652,7 +652,20 @@ export async function ensureChildFamilyLink(
           if (!rpcErr && rpcRes?.status === 'ok' && rpcRes.family_id) {
             famId = rpcRes.family_id
             filledHalf = true
-            notes.push(`A szülőnek már volt családi kartonja, amelyen a(z) ${hianyzo} helye üresen állt — új karton helyett azt egészítettük ki, így nem jött létre duplikátum.`)
+            // KONKRÉT jelentés: melyik karton, ki volt rajta, kit írtunk be
+            const beirtId = half.id_ferfi == null ? ferfiId : noId
+            const meglevoId = half.id_ferfi == null ? noId : ferfiId
+            const [{ data: nevRows }, famNev] = await Promise.all([
+              supabase.from('szemely').select('id, csaladnev, k_nev').in('id', [beirtId, meglevoId]),
+              loadFamilyDisplayNames(supabase, [half.id as number]),
+            ])
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const nevOf = (id: number | null) => ((nevRows || []) as any[])
+              .filter((r) => r.id === id)
+              .map((r) => `${r.csaladnev ?? ''} ${r.k_nev ?? ''}`.trim())[0] || `#${id}`
+            infos.push(
+              `${famNev.get(half.id as number) ?? `Család #${half.id}`}: a kartonon eddig csak ${nevOf(meglevoId)} szerepelt, a(z) ${hianyzo} helye üres volt — oda ${nevOf(beirtId)} került. Új kartont szándékosan nem hoztunk létre, így nincs duplikátum. Nincs teendő.`,
+            )
           } else {
             const ok = rpcErr?.message || rpcRes?.message || 'ismeretlen hiba'
             notes.push(`A meglévő (hiányos) családi karton kiegészítése nem sikerült (${ok}) — a tagot nem soroltuk családba; a szülő-kapcsolat a családfán rögzül. Nyisd meg a családi kartont, és vedd fel rá a hiányzó ${hianyzo}t.`)
