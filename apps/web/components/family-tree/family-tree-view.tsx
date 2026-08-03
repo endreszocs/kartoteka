@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Briefcase,
-  ChevronDown,
   Church,
   Crown,
   Eye,
@@ -43,6 +42,25 @@ const GAP_Y_DETAIL = 110
 const MIN_ZOOM = 0.3
 const MAX_ZOOM = 2
 
+// ─── 2026-08-04 (PR-33): vonalvezetés ────────────────────────────────────────
+/** Egységes törésponti sugár az ortogonális leágazásokon. */
+const CORNER_R = 8
+/**
+ * A csatorna nem tapadhat a kártya-élhez: ennyi hely marad alatta/fölötte.
+ * Legalább 2×CORNER_R, hogy a törésponti sugár MINDIG a teljes 8px legyen.
+ */
+const LANE_MARGIN = 16
+/** Egy generáció-résben ennyi külön vízszintes sáv van; azon túl körbefordul. */
+const MAX_LANES = 5
+/** Két gerinc csak akkor kerülhet egy sávba, ha vízszintesen ennyire elválik. */
+const LANE_PAD = 18
+/** Vér szerinti szülő–gyermek: semleges szürke, folytonos. */
+const COLOR_PARENT_LINE = 'rgb(148 163 184)'
+const WIDTH_PARENT_LINE = 1.6
+/** Pár-kapcsolat: rózsaszín (élettársnál szaggatott). */
+const COLOR_SPOUSE_LINE = 'rgb(244 114 182)'
+const WIDTH_SPOUSE_LINE = 2
+
 /**
  * 2026-06-02 v3 — Családfa komponens.
  *
@@ -56,8 +74,10 @@ const MAX_ZOOM = 2
  * Funkciók:
  *  - Pan & zoom: drag-gel mozgatás, wheel/pinch nagyítás 30–200%
  *  - "Több info" toggle: telefon, foglalkozás, vallás megjelenítése
- *  - Nyomtatás: `window.print()` print-only CSS-szel
- *  - Role-labels a kártyán (szülő, testvér, nagyszülő stb.) — nem jelmagyarázat
+ *  - Nyomtatás: ÖNÁLLÓ (self-contained) nyomtatvány külön ablakban — lásd
+ *    `handlePrint`. Az élő DOM-ot NEM másoljuk, app-CSS-t NEM gyűjtünk.
+ *  - Role-labels a kártyán (szülő, testvér, nagyszülő stb.)
+ *  - Jelmagyarázat a vászon alján (szülő–gyermek / házastárs / élettárs)
  *  - Kattintás → onMemberClick callback
  */
 export function FamilyTreeView({
@@ -82,6 +102,13 @@ export function FamilyTreeView({
     [data, layoutMode, showDetails],
   )
   const summary = useMemo(() => summarize(data.members), [data])
+  const NODE_H = showDetails ? NODE_H_DETAIL : NODE_H_BASE
+  // 2026-08-04 (PR-33): a vonal-geometria KÖZÖS forrás — ugyanezt rajzolja a
+  // képernyő és a nyomtatvány is (nincs duplikált geometria-logika).
+  const geometry = useMemo(
+    () => computeTreeGeometry(layout.positions, layout.edges, NODE_H),
+    [layout, NODE_H],
+  )
 
   // Tartalom közepre-fit a betöltéskor + mode/details váltáskor
   useEffect(() => {
@@ -159,90 +186,180 @@ export function FamilyTreeView({
   }
 
   function handlePrint() {
-    // 2026-08-04 (PR-28) ÁTÍRVA — a nyomtatás ÜRES lapot adott. Ok: a fa
-    // natív méretében (gyakran több ezer px széles) került a lapra, a belső
-    // elemek pedig abszolút pozicionáltak, ezért a böngésző nem tördelte és
-    // nem is kicsinyítette — a lapra a rajz melletti üres terület esett.
-    // Most: a tartalmat a lap méretére SKÁLÁZZUK, a témát világosra
-    // kényszerítjük (a sötét téma fehér lapon olvashatatlan), és a nyomtatást
-    // a stíluslapok betöltése UTÁN indítjuk.
+    // 2026-08-04 (PR-33) ÚJRAÍRVA — a korábbi nyomtatás ÜRES lapot adott.
+    // Gyökérok: az élő DOM-ot másoltuk át, és mellé a `document.styleSheets`
+    // TELJES alkalmazás-CSS-ét (Tailwind v4 @layer + téma-változók). Az app-CSS
+    // felülírta a saját print-szabályokat, a kártyák natív méretben szétszórva
+    // rendereltek, a lapra a rajz melletti üres terület esett.
+    // Most: ÖNÁLLÓ nyomtatvány a MÁR KISZÁMOLT layoutból — saját HTML, saját
+    // inline CSS, semmilyen külső stíluslap/betű/CSS-változó. A vonalak
+    // geometriája ugyanaz a `computeTreeGeometry`, amit a képernyő is használ.
     if (typeof window === 'undefined') return
-    const canvas = containerRef.current?.querySelector('.family-tree-canvas-inner') as HTMLElement | null
-    if (!canvas) return
+    if (data.members.length === 0) return
 
-    const contentW = Math.max(1, layout.width + 16)
-    const contentH = Math.max(1, layout.height + 16)
-    // A3 fekvő nyomtatható terület 96 dpi-n, 1,2 cm margóval
-    const PAGE_W = Math.round((42.0 - 2.4) / 2.54 * 96)
-    const PAGE_H = Math.round((29.7 - 2.4) / 2.54 * 96) - 90 // fejléc helye
+    // 1) A tartalom VALÓDI határai. (A layout.width nem mindig fedi le a
+    //    testvér-sort az ego-top módban, ezért a pozíciókból számolunk.)
+    let minX = 0
+    let minY = 0
+    let maxX = layout.width
+    let maxY = layout.height
+    for (const p of layout.positions.values()) {
+      if (p.x < minX) minX = p.x
+      if (p.y < minY) minY = p.y
+      if (p.x + NODE_W > maxX) maxX = p.x + NODE_W
+      if (p.y + NODE_H > maxY) maxY = p.y + NODE_H
+    }
+    const PAD = 20
+    const offX = PAD - minX
+    const offY = PAD - minY
+    const contentW = Math.max(1, maxX - minX + PAD * 2)
+    const contentH = Math.max(1, maxY - minY + PAD * 2)
+
+    // 2) A3 fekvő nyomtatható terület 96 dpi-n, 1,2 cm margóval
+    const PAGE_W = Math.round(((42.0 - 2.4) / 2.54) * 96)
+    const PAGE_H = Math.round(((29.7 - 2.4) / 2.54) * 96) - 104 // fejléc + jelmagyarázat
     const scale = Math.min(1, PAGE_W / contentW, PAGE_H / contentH)
 
-    // CSS gyűjtés (a saját origin stíluslapjai olvashatók)
-    const cssParts: string[] = []
-    for (const sheet of Array.from(document.styleSheets)) {
-      try {
-        if (sheet.cssRules) {
-          for (const rule of Array.from(sheet.cssRules)) cssParts.push(rule.cssText)
-        }
-      } catch {
-        // CORS-védett (külső) stíluslap — átugorjuk
-      }
-    }
+    const esc = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
-    // A téma-osztályok kellenek a színváltozókhoz, de a sötét mód nem
-    const htmlClass = document.documentElement.className
-      .split(/\s+/).filter((c) => c && c !== 'dark').join(' ')
+    // 3) Vonalak — pontosan a képernyőn látható geometria
+    const parentPaths = geometry.parentLines
+      .map(
+        (l) =>
+          `<path d="${l.d}" fill="none" stroke="${COLOR_PARENT_LINE}" stroke-width="${WIDTH_PARENT_LINE}" stroke-linecap="round" stroke-linejoin="round"/>`,
+      )
+      .join('')
+    // A pár-élek SZÁNDÉKOSAN a gerincek után — semmi nem takarhatja őket
+    const spousePaths = geometry.spouseLines
+      .map(
+        (s) =>
+          `<line x1="${nr(s.x1)}" y1="${nr(s.y1)}" x2="${nr(s.x2)}" y2="${nr(s.y2)}" stroke="${COLOR_SPOUSE_LINE}" stroke-width="${WIDTH_SPOUSE_LINE}" stroke-linecap="round"${s.dashed ? ' stroke-dasharray="6 4"' : ''}/>` +
+          `<circle cx="${nr(s.cx)}" cy="${nr(s.cy)}" r="5" fill="#ffffff" stroke="${COLOR_SPOUSE_LINE}" stroke-width="1.5"/>`,
+      )
+      .join('')
+    const svg =
+      `<svg class="lines" width="${contentW}" height="${contentH}" viewBox="0 0 ${contentW} ${contentH}" xmlns="http://www.w3.org/2000/svg">` +
+      `<g transform="translate(${nr(offX)} ${nr(offY)})">${parentPaths}${spousePaths}</g></svg>`
+
+    // 4) Kártyák — abszolút pozicionált div-ek, TISZTÁN inline stílussal
+    const cards = data.members
+      .map((m) => {
+        const pos = layout.positions.get(m.id)
+        if (!pos) return ''
+        const isFemale = m.ferfi === false
+        const isDead = !!m.meghalt
+        const bg = m.isCenter ? '#fef3c7' : isFemale ? '#fff1f2' : '#f0f9ff'
+        const bd = m.isCenter ? '#f59e0b' : isFemale ? '#fda4af' : '#7dd3fc'
+        const roleColor = m.isCenter ? '#92400e' : isFemale ? '#9f1239' : '#075985'
+        const name = `${m.csaladnev || ''} ${m.k_nev || ''}`.trim() || '—'
+        const role = m.isCenter ? 'Központ' : m.roleLabel || ''
+        const birth = birthNameLabel(m)
+        const year = parseYear(m.sz_datum)
+        const extras: string[] = []
+        if (showDetails) {
+          if (m.foglalkozas) extras.push(esc(m.foglalkozas))
+          if (m.vallas) extras.push(esc(m.vallas))
+          if (m.telefon) extras.push(esc(m.telefon))
+        }
+        const yearText = year
+          ? `★ ${year}${isDead ? ' †' : ''}`
+          : isDead
+            ? 'elhunyt'
+            : '—'
+        return (
+          `<div class="card${isDead ? ' dead' : ''}" style="left:${nr(pos.x + offX)}px;top:${nr(pos.y + offY)}px;width:${NODE_W}px;height:${NODE_H}px;background:${bg};border-color:${bd}">` +
+          (role ? `<div class="role" style="color:${roleColor}">${esc(role)}</div>` : '') +
+          `<div class="nm${isDead ? ' strike' : ''}">${esc(name)}</div>` +
+          (birth ? `<div class="bn">${esc(birth)}</div>` : '') +
+          `<div class="yr">${yearText}</div>` +
+          (extras.length ? `<div class="ex">${extras.join(' · ')}</div>` : '') +
+          `</div>`
+        )
+      })
+      .join('')
+
+    const swatch = (color: string, dashed: boolean) =>
+      `<svg width="20" height="8" viewBox="0 0 20 8" xmlns="http://www.w3.org/2000/svg"><line x1="1" y1="4" x2="19" y2="4" stroke="${color}" stroke-width="2" stroke-linecap="round"${dashed ? ' stroke-dasharray="5 3"' : ''}/></svg>`
+
+    const html = `<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8">
+<title>Családfa</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { background: #ffffff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: system-ui, -apple-system, 'Segoe UI', Arial, sans-serif; color: #0f172a; padding: 16px; }
+  @page { size: A3 landscape; margin: 1.2cm; }
+  @media print { body { padding: 0; } .toolbar { display: none !important; } }
+  .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #1e3a5f; color: #ffffff; padding: 8px 16px; border-radius: 8px; margin-bottom: 14px; }
+  .toolbar span { font-size: 13px; font-weight: 600; }
+  .tb-btn { border: 0; cursor: pointer; border-radius: 6px; padding: 6px 14px; font-size: 12px; font-weight: 600; }
+  .tb-print { background: #ffffff; color: #1e3a5f; }
+  .tb-close { background: rgba(255,255,255,.18); color: #ffffff; margin-left: 6px; }
+  .head { border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; margin-bottom: 8px; }
+  .head h1 { font-size: 18px; font-weight: 700; color: #1e293b; }
+  .head p { font-size: 11px; color: #64748b; margin-top: 3px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 10px; color: #64748b; margin-bottom: 10px; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .frame { width: ${Math.ceil(contentW * scale)}px; height: ${Math.ceil(contentH * scale)}px; }
+  .scale { position: relative; width: ${contentW}px; height: ${contentH}px; transform: scale(${scale}); transform-origin: top left; }
+  .lines { position: absolute; left: 0; top: 0; }
+  .card { position: absolute; border: 1px solid #cbd5e1; border-radius: 10px; padding: 5px 8px; overflow: hidden; }
+  .card.dead { opacity: .72; }
+  .role { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 2px; }
+  .nm { font-size: 12px; font-weight: 700; color: #0f172a; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nm.strike { text-decoration: line-through; text-decoration-color: #94a3b8; }
+  .bn { font-size: 9px; font-style: italic; color: #64748b; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .yr { font-size: 10px; color: #475569; margin-top: 2px; }
+  .ex { font-size: 9px; color: #64748b; line-height: 1.3; margin-top: 3px; padding-top: 3px; border-top: 1px solid #e2e8f0; }
+</style></head><body>
+<div class="toolbar">
+  <span>Családfa — nyomtatási nézet</span>
+  <span>
+    <button type="button" class="tb-btn tb-print" onclick="window.print()">Nyomtatás</button>
+    <button type="button" class="tb-btn tb-close" onclick="window.close()">Bezárás</button>
+  </span>
+</div>
+<div class="head">
+  <h1>Családfa</h1>
+  <p>Nyomtatva: ${esc(new Date().toLocaleDateString('hu-HU'))} · ${data.members.length} személy · ${summary.gens} generáció${scale < 1 ? ` · ${Math.round(scale * 100)}%-ra kicsinyítve` : ''}</p>
+</div>
+<div class="legend">
+  <span>${swatch(COLOR_PARENT_LINE, false)} szülő–gyermek</span>
+  <span>${swatch(COLOR_SPOUSE_LINE, false)} házastárs</span>
+  <span>${swatch(COLOR_SPOUSE_LINE, true)} élettárs</span>
+</div>
+<div class="frame"><div class="scale">${svg}${cards}</div></div>
+</body></html>`
 
     const printWin = window.open('', '_blank', 'width=1280,height=900')
     if (!printWin) {
       alert('Engedélyezd a felugró ablakokat a nyomtatáshoz!')
       return
     }
-
-    const html = `<!DOCTYPE html>
-<html lang="hu" class="${htmlClass}" data-theme="light" style="color-scheme:light">
-<head>
-<meta charset="utf-8">
-<title>Családfa</title>
-<style>
-${cssParts.join('\n')}
-  html, body { background: #fff !important; }
-  body { margin: 0; padding: 18px; font-family: Inter, system-ui, sans-serif; color: #0f172a; }
-  .print-header { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 2px solid #e2e8f0; }
-  .print-header h1 { margin: 0; font-size: 20px; color: #1e293b; }
-  .print-header p { margin: 4px 0 0; font-size: 12px; color: #64748b; }
-  /* A külső doboz a KICSINYÍTETT méretet foglalja, a belső skálázódik */
-  .print-frame { width: ${Math.ceil(contentW * scale)}px; height: ${Math.ceil(contentH * scale)}px; overflow: visible; }
-  .print-scale { transform: scale(${scale}); transform-origin: top left; width: ${contentW}px; height: ${contentH}px; }
-  .print-scale .family-tree-canvas-inner { transform: none !important; }
-  @page { size: A3 landscape; margin: 1.2cm; }
-  @media print { body { padding: 0; } }
-</style>
-</head>
-<body>
-  <div class="print-header">
-    <h1>Családfa</h1>
-    <p>Nyomtatva: ${new Date().toLocaleDateString('hu-HU')} · ${data.members.length} személy · ${summary.gens} generáció${scale < 1 ? ` · ${Math.round(scale * 100)}%-ra kicsinyítve` : ''}</p>
-  </div>
-  <div class="print-frame"><div class="print-scale">${canvas.outerHTML}</div></div>
-</body>
-</html>`
-
     printWin.document.open()
     printWin.document.write(html)
     printWin.document.close()
-    // A stíluslapok/betűk betöltése után nyomtatunk. A load esemény a
-    // document.close() UTÁN is elsülhet, ezért mindkét utat lefedjük.
+
+    // A nyomtatás a betöltés UTÁN indul, dupla indítás ellen védve. (Nincs
+    // külső erőforrás, ezért rövid késleltetés is elég.)
     const startPrint = () => {
-      // dupla indítás ellen
-      if ((printWin as unknown as { __printed?: boolean }).__printed) return
-      ;(printWin as unknown as { __printed?: boolean }).__printed = true
+      const flag = printWin as unknown as { __printed?: boolean }
+      if (flag.__printed) return
+      flag.__printed = true
       printWin.focus()
       printWin.print()
-      setTimeout(() => { try { printWin.close() } catch { /* a felhasználó bezárhatta */ } }, 500)
     }
-    if (printWin.document.readyState === 'complete') setTimeout(startPrint, 350)
-    else printWin.addEventListener('load', () => setTimeout(startPrint, 350))
+    // Ha az `afterprint` megjön, magától bezárjuk; ha nem (blokkolt nyomtatás),
+    // az ablak nyitva marad a fenti eszközsorral — így sosem ragad üresen.
+    printWin.addEventListener('afterprint', () => {
+      try {
+        printWin.close()
+      } catch {
+        /* a felhasználó közben bezárhatta */
+      }
+    })
+    if (printWin.document.readyState === 'complete') setTimeout(startPrint, 150)
+    else printWin.addEventListener('load', () => setTimeout(startPrint, 150))
   }
 
   function handleResetView() {
@@ -267,8 +384,6 @@ ${cssParts.join('\n')}
       </div>
     )
   }
-
-  const NODE_H = showDetails ? NODE_H_DETAIL : NODE_H_BASE
 
   return (
     <div className="family-tree-root space-y-3">
@@ -391,72 +506,52 @@ ${cssParts.join('\n')}
             className="family-tree-canvas-inner relative"
             style={{ width: layout.width + 16, height: layout.height + 16 }}
           >
-            {/* SVG vonalak */}
+            {/* SVG vonalak — a geometria a computeTreeGeometry-ből jön (közös a
+                nyomtatvánnyal). Sorrend SZÁMÍT: előbb a szülő-gerincek, utána
+                a pár-élek, hogy azokat semmi ne takarja. */}
             <svg
               width={layout.width}
               height={layout.height}
               className="pointer-events-none absolute inset-0"
               style={{ overflow: 'visible' }}
             >
-              {/* Szülő-gyermek vonalak */}
-              {layout.edges
-                .filter((e) => e.type === 'parent-child')
-                .map((e) => {
-                  const from = layout.positions.get(e.from)
-                  const to = layout.positions.get(e.to)
-                  if (!from || !to) return null
-                  const x1 = from.x + NODE_W / 2
-                  const y1 = from.y + NODE_H
-                  const x2 = to.x + NODE_W / 2
-                  const y2 = to.y
-                  const midY = (y1 + y2) / 2
-                  return (
-                    <path
-                      key={`pc-${e.from}-${e.to}`}
-                      d={`M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`}
-                      stroke="rgb(148 163 184)"
-                      strokeWidth={1.5}
-                      fill="none"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  )
-                })}
-              {/* Házastárs vonalak */}
-              {layout.edges
-                .filter((e) => e.type === 'spouse')
-                .map((e) => {
-                  const fromPos = layout.positions.get(e.from)
-                  const toPos = layout.positions.get(e.to)
-                  if (!fromPos || !toPos) return null
-                  const [a, b] = fromPos.x < toPos.x ? [fromPos, toPos] : [toPos, fromPos]
-                  const y = a.y + NODE_H / 2
-                  return (
-                    <g key={`sp-${e.from}-${e.to}`}>
-                      {/* 2026-08-04 (PR-27): élettársi kapcsolat = szaggatott vonal */}
-                      <line
-                        x1={a.x + NODE_W}
-                        y1={y}
-                        x2={b.x}
-                        y2={y}
-                        stroke="rgb(244 114 182)"
-                        strokeWidth={2}
-                        strokeLinecap="round"
-                        strokeDasharray={e.partnership === 'elettars' ? '6 4' : undefined}
-                      >
-                        <title>{e.partnership === 'elettars' ? 'Élettársi kapcsolat' : 'Házastársak'}</title>
-                      </line>
-                      <circle
-                        cx={(a.x + NODE_W + b.x) / 2}
-                        cy={y}
-                        r={5}
-                        fill="white"
-                        stroke="rgb(244 114 182)"
-                        strokeWidth={1.5}
-                      />
-                    </g>
-                  )
-                })}
+              {/* Vér szerinti szülő–gyermek: szülő-páronként külön csatorna */}
+              {geometry.parentLines.map((l) => (
+                <path
+                  key={l.key}
+                  d={l.d}
+                  fill="none"
+                  stroke={COLOR_PARENT_LINE}
+                  strokeWidth={WIDTH_PARENT_LINE}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              ))}
+              {/* Pár-élek — 2026-08-04 (PR-27): élettárs = szaggatott vonal */}
+              {geometry.spouseLines.map((s) => (
+                <g key={s.key}>
+                  <line
+                    x1={s.x1}
+                    y1={s.y1}
+                    x2={s.x2}
+                    y2={s.y2}
+                    stroke={COLOR_SPOUSE_LINE}
+                    strokeWidth={WIDTH_SPOUSE_LINE}
+                    strokeLinecap="round"
+                    strokeDasharray={s.dashed ? '6 4' : undefined}
+                  >
+                    <title>{s.title}</title>
+                  </line>
+                  <circle
+                    cx={s.cx}
+                    cy={s.cy}
+                    r={5}
+                    fill="white"
+                    stroke={COLOR_SPOUSE_LINE}
+                    strokeWidth={1.5}
+                  />
+                </g>
+              ))}
             </svg>
 
             {/* Person card-ok */}
@@ -492,39 +587,49 @@ ${cssParts.join('\n')}
           </div>
         </div>
 
+        {/* 2026-08-04 (PR-33): JELMAGYARÁZAT — a vászon alján, diszkrét pill-sor.
+            A zoom-rétegen KÍVÜL van, ezért nagyításnál is olvasható marad. */}
+        <div className="pointer-events-none absolute bottom-2 left-3 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
+          <LegendPill color={COLOR_PARENT_LINE} label="szülő–gyermek" />
+          <LegendPill color={COLOR_SPOUSE_LINE} label="házastárs" />
+          <LegendPill color={COLOR_SPOUSE_LINE} label="élettárs" dashed />
+        </div>
+
         {/* Subtle floating help text bottom-right */}
         <div className="pointer-events-none absolute bottom-2 right-3 hidden text-[10px] text-slate-400 sm:block">
           Ctrl+görgő = zoom
         </div>
       </div>
-
-      {/* Print CSS — csak a fa-tartalmat mutatja, vezérlők elrejtve */}
-      <style jsx global>{`
-        @media print {
-          /* Mindent elrejtünk amit nem a fa */
-          body * { visibility: hidden !important; }
-          .family-tree-root, .family-tree-root * { visibility: visible !important; }
-          .family-tree-toolbar { display: none !important; }
-          .family-tree-canvas {
-            position: absolute !important;
-            top: 0 !important;
-            left: 0 !important;
-            width: 100% !important;
-            height: auto !important;
-            border: 0 !important;
-            box-shadow: none !important;
-            background: white !important;
-            overflow: visible !important;
-          }
-          .family-tree-canvas > div {
-            transform: scale(0.7) !important;
-            transform-origin: top left !important;
-            position: relative !important;
-            transition: none !important;
-          }
-        }
-      `}</style>
     </div>
+  )
+}
+
+/** 2026-08-04 (PR-33): egy jelmagyarázat-elem (vonal-minta + felirat). */
+function LegendPill({
+  color,
+  label,
+  dashed,
+}: {
+  color: string
+  label: string
+  dashed?: boolean
+}) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-white/85 px-2 py-0.5 shadow-sm ring-1 ring-slate-200/70">
+      <svg width="18" height="8" viewBox="0 0 18 8" aria-hidden="true">
+        <line
+          x1="1"
+          y1="4"
+          x2="17"
+          y2="4"
+          stroke={color}
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeDasharray={dashed ? '5 3' : undefined}
+        />
+      </svg>
+      {label}
+    </span>
   )
 }
 
@@ -539,15 +644,7 @@ function PersonCard({
   const isDead = member.meghalt
   const year = parseYear(member.sz_datum)
   const displayName = `${member.csaladnev || ''} ${member.k_nev || ''}`.trim() || '—'
-  // 2026-08-04 (PR-31): leánykori név — csak ha van, és tényleg ELTÉR a viselt
-  // családnévtől (különben felesleges ismétlés lenne)
-  const szuletesiNev = (() => {
-    const szcs = (member.szcs_nev || '').trim()
-    if (!szcs) return null
-    const viselt = (member.csaladnev || '').trim()
-    if (szcs.localeCompare(viselt, 'hu', { sensitivity: 'base' }) === 0) return null
-    return `szül. ${szcs} ${member.k_nev || ''}`.trim()
-  })()
+  const szuletesiNev = birthNameLabel(member)
 
   return (
     <div
@@ -676,6 +773,19 @@ function parseYear(sz_datum: string | null): string | null {
   return m ? m[1] : null
 }
 
+/**
+ * 2026-08-04 (PR-31): leánykori (születési) név felirat — csak ha van, és
+ * tényleg ELTÉR a viselt családnévtől (különben felesleges ismétlés lenne).
+ * 2026-08-04 (PR-33): kiemelve, mert a nyomtatvány is ezt használja.
+ */
+function birthNameLabel(member: FamilyTreeMember): string | null {
+  const szcs = (member.szcs_nev || '').trim()
+  if (!szcs) return null
+  const viselt = (member.csaladnev || '').trim()
+  if (szcs.localeCompare(viselt, 'hu', { sensitivity: 'base' }) === 0) return null
+  return `szül. ${szcs} ${member.k_nev || ''}`.trim()
+}
+
 function summarize(members: FamilyTreeMember[]) {
   const gens = new Set(members.map((m) => m.generation))
   return { total: members.length, gens: gens.size }
@@ -683,6 +793,269 @@ function summarize(members: FamilyTreeMember[]) {
 
 function clamp(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v))
+}
+
+// ─── VONAL-GEOMETRIA (2026-08-04, PR-33) ─────────────────────────────────────
+
+/** Egy kirajzolható szülő–gyermek szakasz (kész SVG path-adat). */
+interface TreeLine {
+  key: string
+  d: string
+}
+
+/** Egy pár-él (házastárs / élettárs) a közepén ülő kis körrel. */
+interface TreeSpouseLine {
+  key: string
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  /** A közepén ülő kör középpontja */
+  cx: number
+  cy: number
+  dashed: boolean
+  title: string
+}
+
+interface TreeGeometry {
+  parentLines: TreeLine[]
+  spouseLines: TreeSpouseLine[]
+}
+
+/** Kerekítés 2 tizedesre — rövidebb path-adat, azonos képernyőn és papíron. */
+function nr(v: number): number {
+  return Math.round(v * 100) / 100
+}
+
+/**
+ * Ortogonális leágazás egységes, ~8px-es lekerekített sarokkal:
+ * függőleges (x, startY) → (x, endY), majd vízszintes (endX, endY).
+ * A törésponton negyedkör-szerű quadratic ív ül.
+ */
+function elbowPath(x: number, startY: number, endX: number, endY: number): string {
+  const dx = endX - x
+  const dy = endY - startY
+  // Ha a vízszintes szakasz elhanyagolható, sima függőleges vonal
+  if (Math.abs(dx) < 0.75) return `M ${nr(x)} ${nr(startY)} L ${nr(x)} ${nr(endY)}`
+  const r = Math.max(0, Math.min(CORNER_R, Math.abs(dy) / 2, Math.abs(dx)))
+  const sy = Math.sign(dy) || 1
+  const sx = Math.sign(dx)
+  return (
+    `M ${nr(x)} ${nr(startY)} ` +
+    `L ${nr(x)} ${nr(endY - sy * r)} ` +
+    `Q ${nr(x)} ${nr(endY)} ${nr(x + sx * r)} ${nr(endY)} ` +
+    `L ${nr(endX)} ${nr(endY)}`
+  )
+}
+
+/**
+ * 2026-08-04 (PR-33) — A KAPCSOLATI VONALAK ÚJRATERVEZÉSE.
+ *
+ * Régi baj: generációnként EGYETLEN hosszú vízszintes gerincsín futott a
+ * generációk közti rés közepén, amiből minden leágazás átfutott a szomszédos
+ * kártyák mögött; a 2. és 3. generáció vonalai ugyanabba a sávba estek.
+ *
+ * Új algoritmus:
+ *  1. A gyerekeket a SZÜLŐ-HALMAZUK szerint csoportosítjuk („sibship"). Minden
+ *     csoport SAJÁT vízszintes csatornát (gerincet) kap — nem egy közöset.
+ *  2. A gerinc horgonya (`anchorX`) a szülők vízszintes közepeinek átlaga, azaz
+ *     pontosan a pár-él alatt/fölött van. Minden szülő és minden gyerek a saját
+ *     kártyája KÖZEPÉBŐL indít egy függőlegest a gerinc y-jáig, majd egyetlen
+ *     ~8px-es lekerekített sarokkal fordul a horgony felé.
+ *  3. Sávkiosztás: az ugyanabban a generáció-résben futó gerinceket a vízszintes
+ *     kiterjedésük (min x, max x) szerint rendezzük, és greedy módon sávokba
+ *     osztjuk — átfedő intervallum SOSEM kerül azonos y-ra. Legfeljebb MAX_LANES
+ *     sáv van, azon túl körbefordul.
+ *
+ * Tiszta függvény (nem hook): a képernyő ÉS a nyomtatvány is ezt hívja.
+ */
+function computeTreeGeometry(
+  positions: Map<number, { x: number; y: number }>,
+  edges: FamilyTreeEdge[],
+  nodeH: number,
+): TreeGeometry {
+  const parentLines: TreeLine[] = []
+  const spouseLines: TreeSpouseLine[] = []
+
+  // 1) Kinek kik a (kirajzolható) szülei?
+  const parentsOf = new Map<number, number[]>()
+  for (const e of edges) {
+    if (e.type !== 'parent-child') continue
+    if (!positions.has(e.from) || !positions.has(e.to)) continue
+    const arr = parentsOf.get(e.to)
+    if (arr) {
+      if (!arr.includes(e.from)) arr.push(e.from)
+    } else {
+      parentsOf.set(e.to, [e.from])
+    }
+  }
+
+  // 2) Csoportosítás szülő-halmaz + gyerek-sor szerint (egy csoport = egy gerinc)
+  const groups = new Map<string, { parents: number[]; children: number[] }>()
+  for (const [childId, pids] of parentsOf) {
+    const childY = Math.round(positions.get(childId)!.y)
+    const sorted = [...pids].sort((a, b) => a - b)
+    const key = `${sorted.join('.')}@${childY}`
+    const g = groups.get(key)
+    if (g) g.children.push(childId)
+    else groups.set(key, { parents: sorted, children: [childId] })
+  }
+
+  interface Bus {
+    key: string
+    parents: number[]
+    children: number[]
+    /** A szülő-kártya azon éle, ahonnan a függőleges indul */
+    parentEdgeY: number
+    /** A gyerek-kártya azon éle, ahová a függőleges érkezik */
+    childEdgeY: number
+    /** true = a gyermekek a szülők ALATT vannak (normál irány) */
+    childBelow: boolean
+    gapStart: number
+    gapEnd: number
+    anchorX: number
+    minX: number
+    maxX: number
+    y: number
+  }
+
+  const buses: Bus[] = []
+  for (const [key, g] of groups) {
+    const childY = positions.get(g.children[0])!.y
+    // Adathiba esetén (több sorban lévő szülők) a gyerektől LEGTÁVOLABBI
+    // szülő-sor a mérvadó — így a rés biztosan a két sor közé esik.
+    let parentY = positions.get(g.parents[0])!.y
+    for (const p of g.parents) {
+      const py = positions.get(p)!.y
+      if (Math.abs(py - childY) > Math.abs(parentY - childY)) parentY = py
+    }
+    // Ego-top módban a felmenők a központ ALATT vannak → a gyerek FÖLÜL van
+    const childBelow = childY >= parentY
+    const parentEdgeY = childBelow ? parentY + nodeH : parentY
+    const childEdgeY = childBelow ? childY : childY + nodeH
+    const gapStart = Math.min(parentEdgeY, childEdgeY)
+    const gapEnd = Math.max(parentEdgeY, childEdgeY)
+
+    const parentXs = g.parents.map((p) => positions.get(p)!.x + NODE_W / 2)
+    const childXs = g.children.map((c) => positions.get(c)!.x + NODE_W / 2)
+    const anchorX = parentXs.reduce((s, x) => s + x, 0) / parentXs.length
+    const allXs = [...parentXs, ...childXs, anchorX]
+
+    buses.push({
+      key,
+      parents: g.parents,
+      children: g.children,
+      parentEdgeY,
+      childEdgeY,
+      childBelow,
+      gapStart,
+      gapEnd,
+      anchorX,
+      minX: Math.min(...allXs),
+      maxX: Math.max(...allXs),
+      y: (gapStart + gapEnd) / 2,
+    })
+  }
+
+  // 3) Sávkiosztás generáció-résenként (greedy intervallum-színezés)
+  const byGap = new Map<string, Bus[]>()
+  for (const b of buses) {
+    const k = `${Math.round(b.gapStart)}:${Math.round(b.gapEnd)}`
+    const list = byGap.get(k)
+    if (list) list.push(b)
+    else byGap.set(k, [b])
+  }
+  for (const list of byGap.values()) {
+    list.sort((a, b) => a.minX - b.minX || a.maxX - b.maxX)
+    /** Sávonként az eddigi legnagyobb x — ide már nem fér be átfedő gerinc. */
+    const laneEnd: number[] = []
+    const laneOf: number[] = []
+    let overflow = 0
+    for (const bus of list) {
+      let lane = laneEnd.findIndex((end) => bus.minX > end + LANE_PAD)
+      if (lane === -1) {
+        if (laneEnd.length < MAX_LANES) {
+          lane = laneEnd.length
+          laneEnd.push(bus.maxX)
+        } else {
+          // Elfogytak a sávok → körbefordulunk (nagyon sűrű fa)
+          lane = overflow % MAX_LANES
+          overflow += 1
+          laneEnd[lane] = Math.max(laneEnd[lane], bus.maxX)
+        }
+      } else {
+        laneEnd[lane] = Math.max(laneEnd[lane], bus.maxX)
+      }
+      laneOf.push(lane)
+    }
+    const laneCount = Math.max(1, laneEnd.length)
+    const gapSize = list[0].gapEnd - list[0].gapStart
+    const usable = Math.max(0, gapSize - 2 * LANE_MARGIN)
+    const step = laneCount > 1 ? usable / (laneCount - 1) : 0
+    list.forEach((bus, i) => {
+      bus.y =
+        laneCount > 1
+          ? bus.gapStart + LANE_MARGIN + laneOf[i] * step
+          : bus.gapStart + gapSize / 2
+    })
+  }
+
+  // 4) Path-ok: minden szülő és minden gyerek a KÁRTYA KÖZEPÉBŐL a gerincre
+  for (const bus of buses) {
+    // Elfajult rés (a két sor gyakorlatilag egymáson) → egyszerű egyenes
+    const degenerate = bus.gapEnd - bus.gapStart < 2
+    for (const p of bus.parents) {
+      const pp = positions.get(p)
+      if (!pp) continue
+      const x = pp.x + NODE_W / 2
+      // 2026-08-04 (review-fix): a vonal MINDIG a saját kártya éléből induljon.
+      // Korábban a sibship EGYETLEN parentEdgeY-át használtuk minden szülőre —
+      // ha a két szülő eltérő sorban van (adathiba), a közelebbi szülő vonala a
+      // levegőben kezdődött, és a saját kártyáján át fordult.
+      const startY = bus.childBelow ? pp.y + nodeH : pp.y
+      parentLines.push({
+        key: `bus-p-${bus.key}-${p}`,
+        d: Math.abs(x - bus.anchorX) < 0.5
+          ? `M ${nr(x)} ${nr(startY)} L ${nr(bus.anchorX)} ${nr(bus.y)}`
+          : elbowPath(x, startY, bus.anchorX, bus.y),
+      })
+    }
+    for (const c of bus.children) {
+      const x = positions.get(c)!.x + NODE_W / 2
+      parentLines.push({
+        key: `bus-c-${bus.key}-${c}`,
+        d: degenerate
+          ? `M ${nr(x)} ${nr(bus.childEdgeY)} L ${nr(bus.anchorX)} ${nr(bus.y)}`
+          : elbowPath(x, bus.childEdgeY, bus.anchorX, bus.y),
+      })
+    }
+  }
+
+  // 5) Pár-élek (a hívó KÉSŐBB rajzolja őket, hogy semmi ne takarja)
+  for (const e of edges) {
+    if (e.type !== 'spouse') continue
+    const fromPos = positions.get(e.from)
+    const toPos = positions.get(e.to)
+    if (!fromPos || !toPos) continue
+    const [a, b] = fromPos.x <= toPos.x ? [fromPos, toPos] : [toPos, fromPos]
+    const x1 = a.x + NODE_W
+    const y1 = a.y + nodeH / 2
+    const x2 = b.x
+    const y2 = b.y + nodeH / 2
+    spouseLines.push({
+      key: `sp-${e.from}-${e.to}`,
+      x1: nr(x1),
+      y1: nr(y1),
+      x2: nr(x2),
+      y2: nr(y2),
+      cx: nr((x1 + x2) / 2),
+      cy: nr((y1 + y2) / 2),
+      dashed: e.partnership === 'elettars',
+      title: e.partnership === 'elettars' ? 'Élettársi kapcsolat' : 'Házastársak',
+    })
+  }
+
+  return { parentLines, spouseLines }
 }
 
 /**
