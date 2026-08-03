@@ -23,6 +23,20 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-03] — Javítás: „Az új családi karton létrehozása nem sikerült"
+<!-- key: 2026-08-03-tagnyilv-pr25-csalad-letrehozas -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.138 -->
+
+### 🐛 Javítások
+
+- **A hibaüzenet megmondja az okot**: ha a családi karton létrehozása vagy a gyermek besorolása elakad, a felugró ablak mostantól kiírja az adatbázis pontos válaszát is — így egy pillanat alatt kiderül, mi az akadály (jogosultság, hiányzó lakcím, hiányos adat), nem kell találgatni.
+- **A családi karton létrehozása ugyanazon az úton megy, mint a Családok fül mentése**: a korábbi közvetlen írás bizonyos hozzáférési szinteken (pl. egyházkerületi admin) elakadhatott.
+- **Nem marad árva, üres családi karton**: ha a karton létrejött, de a tag végül mégsem került bele (ütközés vagy hiba miatt), a rendszer lezárja a frissen létrehozott üres kartont — eddig minden sikertelen próbálkozás egy újabb üres kartont hagyott maga után.
+
+---
+
 ## [2026-08-03] — Szülő-összekötés: a felnőtt tagok esete is magától rendeződik
 <!-- key: 2026-08-03-tagnyilv-pr24-felnott-auto -->
 <!-- category: improvement -->

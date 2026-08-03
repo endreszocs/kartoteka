@@ -576,6 +576,8 @@ export async function ensureChildFamilyLink(
   const allowMerge = famCandidates <= 1
 
   let famId: number | null = null
+  /** true = a kartont MOST hoztuk létre — ha üresen marad, takarítjuk */
+  let createdNow = false
   if (famCandidates > 0) {
     famId = existingFam![0].id as number
     if (ambiguousTarget) {
@@ -602,13 +604,33 @@ export async function ensureChildFamilyLink(
       cSzam = cSzam ?? parentAddr?.c_szam ?? null
     }
     if (cUtcaid) {
-      const { data: newFam, error: newFamErr } = await supabase.from('csalad').insert([{
-        id_ferfi: ferfiId, id_no: noId, c_utcaid: cUtcaid, c_szam: cSzam || '1', isaktiv: true,
-      }]).select('id')
-      if (newFamErr) {
-        notes.push('Az új családi karton létrehozása nem sikerült, ezért a tagot nem soroltuk családba — a szülő-kapcsolat rögzült; a családhoz rendelést próbáld újra a személyi karton „Családhoz rendelés" gombjával.')
-      } else if (newFam?.[0]) {
-        famId = newFam[0].id as number
+      // 2026-08-03 (PR-25): a családi kartont UGYANAZZAL az RPC-vel hozzuk
+      // létre, mint a Családok fül mentése. A közvetlen INSERT a `csalad`
+      // RLS-szabályán bukhat: az még a RÉGI, szűk ellenőrzést használja
+      // (profiles.congregation_id skalár), és nem ismeri az egyházkerületi
+      // admin hatókört sem — az RPC viszont
+      // SECURITY DEFINER, és a bővített current_user_can_access_congregation()
+      // szerint dönt. Hibánál a TÉNYLEGES okot is kiírjuk.
+      const { data: rpcData, error: rpcErr } = await supabase.rpc('tagnyilvantartas_csalad_mentes', {
+        p_id: null,
+        p_id_ferfi: ferfiId,
+        p_id_no: noId,
+        p_gyerek_ids: [],
+        p_c_utcaid: cUtcaid,
+        p_c_szam: cSzam || '1',
+        p_id_csoport: null,
+      })
+      const rpcRes = rpcData as { status?: string; family_id?: number; message?: string } | null
+      if (!rpcErr && rpcRes?.status === 'ok' && rpcRes.family_id) {
+        famId = rpcRes.family_id
+        createdNow = true
+      } else {
+        const ok = rpcErr?.message
+          || rpcRes?.message
+          || (rpcRes?.status === 'forbidden'
+            ? 'nincs jogosultságod ehhez a gyülekezethez (jelentkezz be újra, vagy válts profilt a fejlécben)'
+            : 'ismeretlen hiba')
+        notes.push(`Az új családi karton létrehozása nem sikerült (${ok}), ezért a tagot nem soroltuk családba — a szülő-kapcsolat rögzült. A családhoz rendelést a személyi karton „Családhoz rendelés" gombjával végezd el; ha ott is hibát kapsz, jelezd ezt az üzenetet.`)
       }
     } else {
       notes.push('A család nem hozható létre automatikusan, mert sem a taghoz, sem a szülőhöz nincs rögzített utca — add meg a lakcímet, majd használd a személyi karton „Családhoz rendelés" gombját.')
@@ -685,7 +707,7 @@ export async function ensureChildFamilyLink(
           .insert(toInsert.map((id) => ({ id_csalad: famId, id_szemely: id })))
         if (error) {
           insertOk = false
-          notes.push('A gyermek családhoz sorolása nem sikerült — próbáld újra a személyi karton „Családhoz rendelés" gombjával.')
+          notes.push(`A gyermek családhoz sorolása nem sikerült (${error.message}) — próbáld újra a személyi karton „Családhoz rendelés" gombjával; ha ott is hibát kapsz, jelezd ezt az üzenetet.`)
         }
       }
       linked = insertOk && (have.has(childId) || toInsert.includes(childId))
@@ -827,6 +849,22 @@ export async function ensureChildFamilyLink(
   } catch (e) {
     console.warn('[ensureChildFamilyLink] dual-write sikertelen (nem blokkoló):',
       e instanceof Error ? e.message : e)
+  }
+
+  // 5) TAKARÍTÁS (2026-08-03, PR-25): ha MOST hoztunk létre kartont, de a tag
+  //    végül nem került bele (ütközés vagy hiba), ne maradjon árva üres karton
+  //    — különben minden sikertelen mentés szaporítaná a duplikátumokat.
+  if (createdNow && !linked && famId) {
+    const { error: cleanErr } = await supabase.from('csalad').update({ isaktiv: false }).eq('id', famId)
+    if (!cleanErr) {
+      try {
+        await archiveFamilyHousehold(supabase, congregationId, famId)
+      } catch (e) {
+        console.warn('[ensureChildFamilyLink] üres karton archiválása sikertelen:',
+          e instanceof Error ? e.message : e)
+      }
+      famId = null
+    }
   }
 
   // A név nélkül felvett „új tagság" bejegyzés kiegészítése olvasható névvel
