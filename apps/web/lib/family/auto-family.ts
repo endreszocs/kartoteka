@@ -554,19 +554,23 @@ export async function ensureChildFamilyLink(
   // Review-fix: DETERMINISZTIKUS választás (order) + több-találat-őr: ha a
   // szülőnek több aktív kartonja van (pl. csak az egyik szülő oldódott fel),
   // a tagot a legrégebbibe soroljuk, de összevonást NEM végzünk.
-  let query = supabase.from('csalad').select('id').eq('isaktiv', true)
+  let query = supabase.from('csalad').select('id, id_ferfi, id_no').eq('isaktiv', true)
   if (ferfiId) query = query.eq('id_ferfi', ferfiId)
   if (noId) query = query.eq('id_no', noId)
   const { data: existingFam, error: famLookupErr } = await query.order('id', { ascending: true }).limit(10)
+  /** true = nem hozunk létre új kartont (de a vér szerinti él rögzül) */
+  let skipCreate = false
+  /** true = meglévő „fél" kartont egészítettünk ki → a háztartást szinkronizálni kell */
+  let filledHalf = false
   if (famLookupErr) {
     // Review-fix: FAIL-CLOSED. Az elnyelt olvasási hiba korábban 0 találatnak
     // látszott → új (duplikált) kartont hoztunk volna létre, és a VALÓDI
     // kartont vontuk volna össze bele.
-    notes.push('A szülő családi kartonjának lekérdezése nem sikerült, ezért a családba sorolás most elmaradt — a szülő-kapcsolat rögzült, a családhoz rendelést próbáld újra a személyi karton „Családhoz rendelés" gombjával.')
-    return done(false, null)
+    notes.push('A szülő családi kartonjának lekérdezése nem sikerült, ezért a családba sorolás most elmaradt — a szülő-kapcsolat a családfán rögzül; a családhoz rendelést próbáld újra a személyi karton „Családhoz rendelés" gombjával.')
+    skipCreate = true
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const famCandidates = ((existingFam || []) as any[]).length
+  const famCandidates = skipCreate ? 0 : ((existingFam || []) as any[]).length
   const bothParentsKnown = !!ferfiId && !!noId
   // Több aktív karton EGY ismert szülőnél = jellemzően ÚJRAHÁZASODÁS: nem
   // tudjuk eldönteni, melyik házasságból való a gyermek, és a rossz kartonra
@@ -589,7 +593,77 @@ export async function ensureChildFamilyLink(
         `A szülő-párosnak ${famCandidates} aktív családi kartonja van a nyilvántartásban — a tagot a legrégebbibe soroltuk, és a kartonokat NEM vontuk össze. Nézd át őket, és a felesleges duplikátumot zárd le.`,
       )
     }
-  } else {
+  } else if (bothParentsKnown && !skipCreate) {
+    // 2026-08-04 (PR-26): FÉL KARTON KIEGÉSZÍTÉSE. A fenti keresés MINDKÉT
+    // szülőre szűr, ezért a „csak apával" (vagy csak anyával) rögzített, üres
+    // másik hellyel élő kartont nem találja meg — eddig ilyenkor ÚJ, duplikált
+    // kartont hozott létre a már meglévő mellé. Most a hiányzó helyet töltjük
+    // ki (ugyanazon az RPC-n, mint a Családok fül mentése), és csak akkor
+    // készül új karton, ha ilyen fél karton sincs.
+    const { data: halfRows, error: halfErr } = await supabase
+      .from('csalad')
+      .select('id, id_ferfi, id_no, id_csoport')
+      .eq('isaktiv', true)
+      .or(`and(id_ferfi.eq.${ferfiId},id_no.is.null),and(id_no.eq.${noId},id_ferfi.is.null)`)
+      .order('id', { ascending: true })
+      .limit(5)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const halves = (halfRows || []) as any[]
+    if (halfErr) {
+      notes.push('A meglévő (hiányos) családi kartonok lekérdezése nem sikerült, ezért a családba sorolás most elmaradt — a szülő-kapcsolat a családfán rögzül; próbáld újra a személyi karton „Családhoz rendelés" gombjával.')
+      skipCreate = true
+    } else if (halves.length > 1) {
+      notes.push('A szülőknek több, hiányosan kitöltött családi kartonja is van — nem tudtuk eldönteni, melyiket egészítsük ki, ezért a tagot nem soroltuk be (új kartont sem hoztunk létre). Nézd át a Családok fülön, és zárd le a feleslegeseket.')
+      skipCreate = true
+    } else if (halves.length === 1) {
+      const half = halves[0]
+      const hianyzo = half.id_ferfi == null ? 'édesapa' : 'édesanya'
+      // A meglévő gyermek-lista FAIL-CLOSED olvasása: az RPC a p_id-s ágon
+      // ÚJRAÍRJA a gyerek-sorokat, ezért egy elnyelt olvasási hiba az összes
+      // gyermeket törölné a kartonról.
+      const { data: gRows, error: gErr } = await supabase
+        .from('gyerek').select('id_szemely').eq('id_csalad', half.id)
+      if (gErr) {
+        notes.push(`A(z) meglévő családi karton gyermeklistája nem olvasható (${gErr.message}), ezért biztonságból nem nyúltunk hozzá — a szülő-kapcsolat a családfán rögzül. Vedd fel a hiányzó ${hianyzo}t a családi kartonon.`)
+        skipCreate = true
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const existingKids = [...new Set(((gRows || []) as any[]).map((r) => r.id_szemely as number))]
+        const masGyerekek = existingKids.filter((id) => id !== childId)
+        if (masGyerekek.length > 0) {
+          // PR-23 P0-elv: a hiányzó szülő beírása a kartonon MÁR SZEREPLŐ
+          // gyermekeknek is vér szerinti szülőjévé tenné (a háztartás-szinkron
+          // mindkét felnőttől ír szülő-élt MINDEN gyermekre) — lehet, hogy
+          // azoknak más az édesanyjuk/édesapjuk. Ezt nem tesszük automatikusan.
+          notes.push(`A szülőnek van már családi kartonja, de azon a(z) ${hianyzo} helye üres, és már szerepel rajta ${masGyerekek.length} gyermek. Ha automatikusan beírnánk a hiányzó szülőt, a rendszer őt az ott lévő gyermekek vér szerinti szülőjének is tekintené — ezért ezt rád bízzuk: nyisd meg a családi kartont, és vedd fel a hiányzó ${hianyzo}t, ha valóban ő az. (Új kartont szándékosan nem hoztunk létre, hogy ne legyen duplikátum.)`)
+          skipCreate = true
+        } else {
+          const { data: rpcData, error: rpcErr } = await supabase.rpc('tagnyilvantartas_csalad_mentes', {
+            p_id: half.id as number,
+            p_id_ferfi: ferfiId,
+            p_id_no: noId,
+            p_gyerek_ids: existingKids,
+            p_c_utcaid: null,
+            p_c_szam: null,
+            // az RPC a körzetet FELTÉTEL NÉLKÜL felülírja — a meglévőt adjuk vissza
+            p_id_csoport: (half.id_csoport as number | null) ?? null,
+          })
+          const rpcRes = rpcData as { status?: string; family_id?: number; message?: string } | null
+          if (!rpcErr && rpcRes?.status === 'ok' && rpcRes.family_id) {
+            famId = rpcRes.family_id
+            filledHalf = true
+            notes.push(`A szülőnek már volt családi kartonja, amelyen a(z) ${hianyzo} helye üresen állt — új karton helyett azt egészítettük ki, így nem jött létre duplikátum.`)
+          } else {
+            const ok = rpcErr?.message || rpcRes?.message || 'ismeretlen hiba'
+            notes.push(`A meglévő (hiányos) családi karton kiegészítése nem sikerült (${ok}) — a tagot nem soroltuk családba; a szülő-kapcsolat a családfán rögzül. Nyisd meg a családi kartont, és vedd fel rá a hiányzó ${hianyzo}t.`)
+            skipCreate = true
+          }
+        }
+      }
+    }
+  }
+
+  if (!famId && famCandidates === 0 && !skipCreate) {
     // Cím: a hívó adja (tag-űrlap címe), vagy a szülő lakcíme
     let cUtcaid = address?.c_utcaid ?? null
     let cSzam = address?.c_szam ?? null
@@ -843,7 +917,10 @@ export async function ensureChildFamilyLink(
     if (ferfiId) await ensureSzuloKapcsolat(ferfiId)
     if (noId) await ensureSzuloKapcsolat(noId)
 
-    if (famId && linked) {
+    // A fél karton kiegészítése után AKKOR is szinkronizálni kell, ha a tag
+    // tagsága végül nem jött létre — különben a csalad-on már ott a másik
+    // szülő, a háztartásban viszont nem.
+    if (famId && (linked || filledHalf)) {
       await syncHouseholdFromCsalad(supabase, famId, congregationId)
     }
   } catch (e) {
