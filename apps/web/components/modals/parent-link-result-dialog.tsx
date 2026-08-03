@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { CheckCircle2, HelpCircle, TriangleAlert, UserRound } from 'lucide-react'
+import { ArrowRightLeft, CheckCircle2, HelpCircle, TriangleAlert, UserRound } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -119,18 +119,32 @@ function PartRow({ label, part, selected, onSelect }: {
   )
 }
 
+/** Az automatikus rendezés eredménye — a mentésből vagy az utólagos összekötésből. */
+interface FamilyOutcome {
+  moves: string[]
+  notes: string[]
+  closed: string[]
+}
+
 export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: ParentLinkResultDialogProps) {
   const [apaPick, setApaPick] = useState<number | null>(null)
   const [anyaPick, setAnyaPick] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
+  /** Az utólagos összekötés (gomb) eredménye — felülírja a mentéskori állapotot */
+  const [outcome, setOutcome] = useState<FamilyOutcome | null>(null)
 
   useEffect(() => {
     if (!open) return
     setApaPick(null)
     setAnyaPick(null)
+    setOutcome(null)
   }, [open, data?.memberId])
 
   if (!data) return null
+
+  const moveLines = outcome?.moves ?? data.familyMoves ?? []
+  const noteLines = outcome?.notes ?? data.familyNotes ?? []
+  const closedLines = outcome?.closed ?? data.familyClosed ?? []
 
   const needsPick =
     (data.apa?.status === 'ambiguous' && (data.apa.candidates?.length ?? 0) > 0) ||
@@ -149,16 +163,24 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
         toast.error(res.error)
         return
       }
-      // 2026-08-02 (review): a siker-üzenet a TÉNYLEGES eredményt tükrözi —
-      // ha a dupla-tagsági őr a családba sorolást visszafogta, azt mondjuk.
-      if ('warning' in res && res.warning) toast.warning(res.warning, { duration: 9000 })
+      const nextOutcome: FamilyOutcome = {
+        moves: ('moves' in res && res.moves) || [],
+        notes: ('notes' in res && res.notes) || [],
+        closed: ('closed' in res && res.closed) || [],
+      }
       if (!('linked' in res) || res.linked) {
         toast.success('Szülő összekötve — a családfa és a családi karton frissült.')
       } else {
-        toast.info('A rokonsági kapcsolat rögzült a családfán, de a családi kartonhoz nem rendeltük hozzá a tagot — lásd a figyelmeztetést.')
+        toast.info('A rokonsági kapcsolat rögzült a családfán, de a családi kartonhoz nem rendeltük hozzá a tagot — lásd az észrevételeket.')
       }
       onLinked?.()
-      onOpenChange(false)
+      // 2026-08-03 (PR-23): ha volt tényleges áthelyezés vagy észrevétel, az
+      // ablak NYITVA marad, hogy a lelkész el tudja olvasni, mi hová került.
+      if (nextOutcome.moves.length > 0 || nextOutcome.notes.length > 0) {
+        setOutcome(nextOutcome)
+      } else {
+        onOpenChange(false)
+      }
     } catch {
       toast.error('Az összekötés nem sikerült. Próbáld újra.')
     } finally {
@@ -177,7 +199,38 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
           {data.apa && <PartRow label="Édesapa" part={data.apa} selected={apaPick} onSelect={setApaPick} />}
           {data.anya && <PartRow label="Édesanya" part={data.anya} selected={anyaPick} onSelect={setAnyaPick} />}
 
-          {data.familyWarning && (
+          {moveLines.length > 0 && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 dark:border-emerald-900 dark:bg-emerald-950/40">
+              <ArrowRightLeft className="mt-0.5 size-5 shrink-0 text-emerald-600" />
+              <div className="min-w-0 text-sm leading-5 text-emerald-900 dark:text-emerald-100">
+                <p className="font-semibold">Ezt rendeztük automatikusan</p>
+                <ul className="mt-1 space-y-1 text-xs leading-5">
+                  {moveLines.map((line) => (
+                    <li key={line} className="break-words">• {line}</li>
+                  ))}
+                </ul>
+                {closedLines.length > 0 && (
+                  <p className="mt-1.5 text-xs leading-5 text-emerald-800/90 dark:text-emerald-300/90">
+                    Lezárt (kiürült) családi karton: {closedLines.join(', ')}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {noteLines.length > 0 ? (
+            <div className="flex items-start gap-2.5 rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/50">
+              <TriangleAlert className="mt-0.5 size-5 shrink-0 text-amber-600" />
+              <div className="min-w-0 text-sm leading-5 text-amber-900 dark:text-amber-100">
+                <p className="font-semibold">Észrevételek — ezt nézd át</p>
+                <ul className="mt-1 space-y-1.5 text-xs leading-5">
+                  {noteLines.map((line) => (
+                    <li key={line} className="break-words">• {line}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ) : data.familyWarning ? (
             <div className="flex items-start gap-2.5 rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/50">
               <TriangleAlert className="mt-0.5 size-5 shrink-0 text-amber-600" />
               <div className="text-sm leading-5 text-amber-900 dark:text-amber-100">
@@ -185,10 +238,10 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
                 <p className="mt-1 text-xs leading-5">{data.familyWarning}</p>
               </div>
             </div>
-          )}
+          ) : null}
 
           <div className="flex flex-col gap-2 border-t border-border/60 pt-3 min-[420px]:flex-row min-[420px]:justify-end">
-            {needsPick && (
+            {needsPick && !outcome && (
               <Button className="min-h-11 rounded-xl" disabled={saving || (!apaPick && !anyaPick)} onClick={() => void handleLink()}>
                 {saving ? 'Összekötés…' : 'Kiválasztott szülő összekötése'}
               </Button>
