@@ -386,6 +386,66 @@ const KINSHIP_SYNC_MARKERS = ['haztartas-sync', 'sync_households_from_csalad', '
 export const MEMBERSHIP_DERIVED_MARKERS = ['haztartas-sync', 'sync_households_from_csalad', 'fazis1-backfill']
 
 /**
+ * TARTÓS él-jelölő (2026-08-03, PR-22): a személyi karton apja-/anyja-neve
+ * mezője igazolja a szülő-gyerek élt. NEM tagság-eredetű — a családkartonról
+ * való kivétel (felnőtt gyermek kiköltözése) és az egyeztető NEM zárja le;
+ * a vér szerinti kapcsolat a háztartás-tagságtól függetlenül megmarad.
+ */
+export const PARENT_NAME_MATCH_MARKER = 'szulonev-egyezes'
+
+/** Név-kulcs a szülőnév-egyeztetéshez: kisbetű, nemzedék-előtag (ifj./id./
+ *  özv./dr.) levágva, minden nem betű/szám (szóköz, kötőjel, pont) kidobva —
+ *  így az „ifj. Szőcs Gábor" ⇄ „Szőcs Gábor" és a kötőjel-variánsok egyeznek. */
+function parentNameKey(raw: string | null | undefined): string {
+  const lowered = (raw ?? '').toLowerCase().trim()
+  const noPrefix = lowered.replace(/^(ifjabb|ifj|idős|idos|id|özv|ozv|dr)\.?\s+/, '')
+  return noPrefix.replace(/[^a-z0-9áéíóöőúüűâîășț]+/g, '')
+}
+
+/**
+ * SZÜLŐNÉV-KORROBORÁCIÓ (2026-08-03, PR-22): a lezárásra jelölt élek közül a
+ * szulo_gyermek típusúakat kettéválasztja — ha a GYERMEK személyi kartonján az
+ * apja-/anyja-neve mező (nem-helyes oldalon) név szerint igazolja a szülőt, az
+ * él NEM zárandó, hanem tartós 'szulonev-egyezes' jelölést kap. Így a felnőtt,
+ * saját családot alapító gyermek szülő-kapcsolata nem vész el a családkarton
+ * frissítésekor. Hibánál DOB (a hívó kezeli).
+ */
+async function partitionParentEdgeClosures(
+  supabase: Db,
+  rows: Array<{ id: number | string; id_szemely_1: number; id_szemely_2: number; tipus: string }>,
+): Promise<{ retagIds: Array<number | string>; closeIds: Array<number | string> }> {
+  const retagIds: Array<number | string> = []
+  const closeIds: Array<number | string> = []
+  const pcRows = rows.filter((r) => r.tipus === 'szulo_gyermek')
+  for (const r of rows) if (r.tipus !== 'szulo_gyermek') closeIds.push(r.id)
+  if (pcRows.length === 0) return { retagIds, closeIds }
+
+  const personIds = [...new Set(pcRows.flatMap((r) => [r.id_szemely_1, r.id_szemely_2]))]
+  const { data, error } = await supabase
+    .from('szemely')
+    .select('id, csaladnev, k_nev, ferfi, apjaneve, anyjaneve')
+    .in('id', personIds)
+  if (error) throw new Error(`szemely-olvasas (szulonev-korroboracio): ${error.message}`)
+  interface PersonRow { id: number; csaladnev: string | null; k_nev: string | null; ferfi: boolean | null; apjaneve: string | null; anyjaneve: string | null }
+  const byId = new Map<number, PersonRow>(((data || []) as PersonRow[]).map((p) => [p.id, p]))
+
+  for (const r of pcRows) {
+    const parent = byId.get(r.id_szemely_1)
+    const child = byId.get(r.id_szemely_2)
+    let corroborated = false
+    if (parent && child) {
+      const pKey = parentNameKey(`${parent.csaladnev ?? ''} ${parent.k_nev ?? ''}`)
+      if (pKey) {
+        const asserted = parent.ferfi === true ? child.apjaneve : parent.ferfi === false ? child.anyjaneve : null
+        corroborated = !!asserted && parentNameKey(asserted) === pKey
+      }
+    }
+    ;(corroborated ? retagIds : closeIds).push(r.id)
+  }
+  return { retagIds, closeIds }
+}
+
+/**
  * ROKONSÁGI EGYEZTETŐ (2026-08-02, PR-21) — „minden érintett helyen".
  *
  * A megadott személyek ÖSSZES aktív, TAGSÁG-EREDETŰ (haztartas-sync /
@@ -495,31 +555,42 @@ export async function reconcileKinshipForPersons(
     if (cs.id_no != null) parentChildKeys.add(`${cs.id_no}|${g.id_szemely}`)
   }
 
-  const toClose = edges
-    .filter((e) => {
-      if (e.tipus === 'hazastars') {
-        // Láthatósági őr: legalább az egyik fél legyen olvasható saját tag
-        if (!readableIds.has(e.id_szemely_1) && !readableIds.has(e.id_szemely_2)) return false
-        const [a, b] = [e.id_szemely_1, e.id_szemely_2].sort((x, y) => x - y)
-        return !coupleKeys.has(`${a}|${b}`)
-      }
-      // szulo_gyermek: a SZÜLŐ legyen olvasható saját tag, és a gyermek
-      // igazolása ne legyen RLS-rejtett
-      if (!readableIds.has(e.id_szemely_1)) return false
-      if (unknownChildIds.has(e.id_szemely_2)) return false
-      return !parentChildKeys.has(`${e.id_szemely_1}|${e.id_szemely_2}`)
-    })
-    .map((e) => e.id)
+  const closureCandidates = edges.filter((e) => {
+    if (e.tipus === 'hazastars') {
+      // Láthatósági őr: legalább az egyik fél legyen olvasható saját tag
+      if (!readableIds.has(e.id_szemely_1) && !readableIds.has(e.id_szemely_2)) return false
+      const [a, b] = [e.id_szemely_1, e.id_szemely_2].sort((x, y) => x - y)
+      return !coupleKeys.has(`${a}|${b}`)
+    }
+    // szulo_gyermek: a SZÜLŐ legyen olvasható saját tag, és a gyermek
+    // igazolása ne legyen RLS-rejtett
+    if (!readableIds.has(e.id_szemely_1)) return false
+    if (unknownChildIds.has(e.id_szemely_2)) return false
+    return !parentChildKeys.has(`${e.id_szemely_1}|${e.id_szemely_2}`)
+  })
 
-  if (toClose.length > 0) {
+  // 2026-08-03 (PR-22): szülőnév-korroboráció — ha a gyermek kartonja név
+  // szerint igazolja a szülőt, az él tartós jelölést kap zárás helyett
+  // (a felnőtt gyermek kiköltözése nem törli a vér szerinti kapcsolatot).
+  const { retagIds, closeIds } = await partitionParentEdgeClosures(supabase, closureCandidates)
+
+  if (retagIds.length > 0) {
+    const { error } = await supabase
+      .from('szemely_kapcsolat')
+      .update({ megjegyzes: PARENT_NAME_MATCH_MARKER })
+      .eq('congregation_id', congregationId)
+      .in('id', retagIds)
+    if (error) throw new Error(`szemely_kapcsolat-egyezteto-atjeloles: ${error.message}`)
+  }
+  if (closeIds.length > 0) {
     const { error } = await supabase
       .from('szemely_kapcsolat')
       .update({ ervenyes_ig: new Date().toISOString().slice(0, 10), megjegyzes: 'csalad-szerkesztes-eltavolitas' })
       .eq('congregation_id', congregationId)
-      .in('id', toClose)
+      .in('id', closeIds)
     if (error) throw new Error(`szemely_kapcsolat-egyezteto-lezaras: ${error.message}`)
   }
-  return toClose.length
+  return closeIds.length
 }
 
 /**
@@ -591,15 +662,26 @@ export async function closeSyncKinshipEdges(
       : [`${p.id1}|${p.id2}|${p.tipus}`],
   ))
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const toClose = ((data || []) as any[])
+  const toCloseRows = ((data || []) as any[])
     .filter((r) => wanted.has(`${r.id_szemely_1}|${r.id_szemely_2}|${r.tipus}`)
       && KINSHIP_SYNC_MARKERS.includes((r.megjegyzes as string | null) ?? ''))
-    .map((r) => r.id as number)
-  if (toClose.length > 0) {
+
+  // 2026-08-03 (PR-22): szülőnév-korroboráció — a kartonon igazolt szülő-él
+  // a családból való kivételkor sem záródik, tartós jelölést kap.
+  const { retagIds, closeIds } = await partitionParentEdgeClosures(supabase, toCloseRows)
+
+  if (retagIds.length > 0) {
+    const { error: retagError } = await supabase
+      .from('szemely_kapcsolat')
+      .update({ megjegyzes: PARENT_NAME_MATCH_MARKER })
+      .in('id', retagIds)
+    if (retagError) throw new Error(`szemely_kapcsolat-atjeloles: ${retagError.message}`)
+  }
+  if (closeIds.length > 0) {
     const { error: closeError } = await supabase
       .from('szemely_kapcsolat')
       .update({ ervenyes_ig: new Date().toISOString().slice(0, 10), megjegyzes: 'csalad-szerkesztes-eltavolitas' })
-      .in('id', toClose)
+      .in('id', closeIds)
     if (closeError) throw new Error(`szemely_kapcsolat-lezaras: ${closeError.message}`)
   }
 }
