@@ -217,6 +217,23 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
         </DialogHeader>
 
         <div className="space-y-3">
+          {/* 2026-08-04 (PR-30): ÁLLAPOT-SÁV — egyértelműen látszik, mi történt
+              meg és mi nem (a figyelmeztetés ellenére a mentés lefutott-e) */}
+          <div className="rounded-xl border border-border bg-muted/30 p-3 text-xs leading-5">
+            <p className="mb-1 font-semibold text-foreground">Mi történt a mentéskor?</p>
+            <ul className="space-y-0.5 text-foreground/80">
+              <li>✔ A tag adatai <strong>elmentve</strong>.</li>
+              {data.parentLinked !== false && (
+                <li>✔ A szülő-kapcsolat <strong>rögzült</strong> — a családfán megjelenik.</li>
+              )}
+              {data.familyLinked === false ? (
+                <li>✖ A <strong>családi kartonhoz nem</strong> rendeltük hozzá — lásd az észrevételt alább.</li>
+              ) : data.familyLinked === true ? (
+                <li>✔ A <strong>családi kartonra</strong> is felkerült.</li>
+              ) : null}
+            </ul>
+          </div>
+
           {data.apa && (doneParts.apa
             ? <p className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2.5 text-xs text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">Édesapa: összekötve.</p>
             : <PartRow label="Édesapa" part={data.apa} selected={apaPick} onSelect={setApaPick} />)}

@@ -23,6 +23,19 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-04] — Érthetőbb visszajelzés a szülő-összekötésnél
+<!-- key: 2026-08-04-tagnyilv-pr30-allapot-sav -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.142 -->
+
+### 🎨 UX javítások
+
+- **Egyértelmű állapot-összefoglaló**: a felugró ablak tetején mostantól három sorban látszik, mi történt a mentéskor — a tag adatai elmentve, a szülő-kapcsolat rögzült-e (megjelenik-e a családfán), és felkerült-e a családi kartonra. Így akkor sem marad kérdés, ha figyelmeztetés is érkezett.
+- **Az észrevételek konkrétak**: az általános „a szülőnek van már családi kartonja…" helyett a rendszer megnevezi a kartont, a rajta szereplő szülőt, a beírandó másik szülőt és a kartonon lévő gyermekeket — így egy pillantásból eldönthető, mit kell tenni.
+
+---
+
 ## [2026-08-04] — Javítás: a családfa nyomtatása üres lapot adott
 <!-- key: 2026-08-04-tagnyilv-pr28-fa-nyomtatas -->
 <!-- category: bugfix -->

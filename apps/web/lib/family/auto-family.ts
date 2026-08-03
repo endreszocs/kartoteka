@@ -635,7 +635,26 @@ export async function ensureChildFamilyLink(
           // gyermekeknek is vér szerinti szülőjévé tenné (a háztartás-szinkron
           // mindkét felnőttől ír szülő-élt MINDEN gyermekre) — lehet, hogy
           // azoknak más az édesanyjuk/édesapjuk. Ezt nem tesszük automatikusan.
-          notes.push(`A szülőnek van már családi kartonja, de azon a(z) ${hianyzo} helye üres, és már szerepel rajta ${masGyerekek.length} gyermek. Ha automatikusan beírnánk a hiányzó szülőt, a rendszer őt az ott lévő gyermekek vér szerinti szülőjének is tekintené — ezért ezt rád bízzuk: nyisd meg a családi kartont, és vedd fel a hiányzó ${hianyzo}t, ha valóban ő az. (Új kartont szándékosan nem hoztunk létre, hogy ne legyen duplikátum.)`)
+          // KONKRÉT jelentés (PR-30): melyik karton, ki van rajta, kit írnánk
+          // be, és kik a rajta lévő gyermekek.
+          const beirandoId = half.id_ferfi == null ? ferfiId : noId
+          const meglevoId = half.id_ferfi == null ? noId : ferfiId
+          const [{ data: nevRows }, famNev] = await Promise.all([
+            supabase.from('szemely').select('id, csaladnev, k_nev')
+              .in('id', [beirandoId, meglevoId, ...masGyerekek].filter((v): v is number => v != null)),
+            loadFamilyDisplayNames(supabase, [half.id as number]),
+          ])
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const nevOf = (id: number | null) => ((nevRows || []) as any[])
+            .filter((r) => r.id === id)
+            .map((r) => `${r.csaladnev ?? ''} ${r.k_nev ?? ''}`.trim())[0] || `#${id}`
+          const kartonNev = famNev.get(half.id as number) ?? `Család #${half.id}`
+          notes.push(
+            `${kartonNev}: a kartonon ${nevOf(meglevoId)} szerepel, a(z) ${hianyzo} helye üres, és már rajta van ${masGyerekek.map(nevOf).join(', ')}. `
+            + `Ha automatikusan beírnánk ${nevOf(beirandoId)} nevét, a rendszer őt ${masGyerekek.length > 1 ? 'ezeknek a gyermekeknek' : 'ennek a gyermeknek'} a VÉR SZERINTI szülőjévé is tenné — `
+            + `ezért NEM írtuk be, a döntést rád bízzuk. Ha valóban ${nevOf(beirandoId)} a másik szülő, nyisd meg a(z) ${kartonNev} kartont, és vedd fel rá. `
+            + `(Új kartont szándékosan nem hoztunk létre, hogy ne legyen duplikátum.)`,
+          )
           skipCreate = true
         } else {
           const { data: rpcData, error: rpcErr } = await supabase.rpc('tagnyilvantartas_csalad_mentes', {

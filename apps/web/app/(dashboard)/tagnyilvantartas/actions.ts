@@ -725,6 +725,8 @@ export async function saveMember(data: MemberInput) {
   let autoFamilyClosed: string[] = []
   let autoFamilyInfos: string[] = []
   let autoFamilyMoveRows: { personId: number; fromFamilyId: number | null; toFamilyId: number; sibling: boolean }[] = []
+  let autoFamilyLinked = false
+  let autoParentLinked = false
   let parentLink: SaveMemberParentLink | undefined
   if (savedId && (d.id_apja_cnp || d.id_anyja_cnp || d.apjaneve?.trim() || d.anyjaneve?.trim())) {
     let ferfiId: number | null = null
@@ -774,6 +776,7 @@ export async function saveMember(data: MemberInput) {
       await supabase.from('szemely').update(cnpUpdates).eq('id', savedId).eq('congregation_id', congregationId)
     }
 
+    autoParentLinked = !!(ferfiId || noId)
     if (ferfiId || noId) {
       const linkRes = await ensureChildFamilyLink(supabase, congregationId, savedId, ferfiId, noId, {
         c_utcaid: utcaId, c_szam: d.c_szam || null,
@@ -786,6 +789,7 @@ export async function saveMember(data: MemberInput) {
       autoFamilyMoveRows = linkRes.moves.map((m) => ({
         personId: m.personId, fromFamilyId: m.fromFamilyId, toFamilyId: m.toFamilyId, sibling: m.sibling,
       }))
+      autoFamilyLinked = linkRes.linked
     }
 
     // Csak azt mutatjuk, amiről van mondanivaló: az üres-bemenetű 'none' és a
@@ -804,6 +808,8 @@ export async function saveMember(data: MemberInput) {
         familyNotes: autoFamilyNotes,
         familyClosed: autoFamilyClosed,
         familyInfos: autoFamilyInfos,
+        familyLinked: autoFamilyLinked,
+        parentLinked: autoParentLinked,
       }
     }
   }
@@ -902,6 +908,10 @@ export interface SaveMemberParentLink {
   familyClosed?: string[]
   /** „Ez így rendben van" — nincs teendő, csak tájékoztatás (PR-24) */
   familyInfos?: string[]
+  /** 2026-08-04 (PR-30): a tag bekerült-e a családi kartonra */
+  familyLinked?: boolean
+  /** Rögzült-e legalább egy szülő-kapcsolat (a családfán látszik) */
+  parentLinked?: boolean
 }
 
 /**
