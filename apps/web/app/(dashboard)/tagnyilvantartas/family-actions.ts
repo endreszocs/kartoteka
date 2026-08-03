@@ -634,9 +634,75 @@ export async function getFamilyDetails(id: number) {
     String(right.datum || '').localeCompare(String(left.datum || '')),
   )
 
+  // 2026-08-04 (PR-35): KÜLÖN HÁZTARTÁSBAN ÉLŐ FELNŐTT GYERMEKEK. A karton
+  // gyermek-listája (haztartas_tag) szándékosan csak az együtt élőket mutatja —
+  // a saját családot alapított gyermek eddig NÉMÁN hiányzott róla. Most a vér
+  // szerinti kapcsolatból (szemely_kapcsolat) kigyűjtjük őket, jelöléssel.
+  interface FelnottGyermek {
+    id: number
+    csaladnev: string | null
+    k_nev: string | null
+    ferfi: boolean | null
+    sz_datum: string | null
+    namepattern: string | null
+    /** A saját családi kartonja (ahol felnőtt tag) — ha van */
+    sajatCsalad: { id: number; name: string } | null
+  }
+  let felnottGyermekek: FelnottGyermek[] = []
+  try {
+    const szulok = [family?.id_ferfi, family?.id_no].filter((v): v is number => v != null)
+    if (szulok.length > 0) {
+      const { data: elek } = await supabase
+        .from('szemely_kapcsolat')
+        .select('id_szemely_2')
+        .eq('tipus', 'szulo_gyermek')
+        .is('ervenyes_ig', null)
+        .in('id_szemely_1', szulok)
+      const haztartasbanLevok = new Set(children.map((c) => c.id as number))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const kulsoIds = [...new Set(((elek || []) as any[]).map((e) => e.id_szemely_2 as number))]
+        .filter((cid) => !haztartasbanLevok.has(cid) && cid !== family?.id_ferfi && cid !== family?.id_no)
+      if (kulsoIds.length > 0) {
+        const [{ data: szemelyek }, { data: sajatCsaladok }] = await Promise.all([
+          supabase.from('szemely')
+            .select('id, csaladnev, k_nev, ferfi, sz_datum, namepattern')
+            .eq('congregation_id', congregationId)
+            .in('id', kulsoIds),
+          supabase.from('csalad').select('id, id_ferfi, id_no').eq('isaktiv', true)
+            .or(`id_ferfi.in.(${kulsoIds.join(',')}),id_no.in.(${kulsoIds.join(',')})`),
+        ])
+        const csaladIdk = new Map<number, number>()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        for (const f of (sajatCsaladok || []) as any[]) {
+          for (const pid of [f.id_ferfi, f.id_no]) {
+            if (pid != null && kulsoIds.includes(pid as number)) csaladIdk.set(pid as number, f.id as number)
+          }
+        }
+        const nevek = await loadFamilyDisplayNames(supabase, [...new Set(csaladIdk.values())])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        felnottGyermekek = ((szemelyek || []) as any[]).map((sz) => {
+          const cid = csaladIdk.get(sz.id as number) ?? null
+          return {
+            id: sz.id as number,
+            csaladnev: sz.csaladnev ?? null,
+            k_nev: sz.k_nev ?? null,
+            ferfi: sz.ferfi ?? null,
+            sz_datum: sz.sz_datum ?? null,
+            namepattern: sz.namepattern ?? null,
+            sajatCsalad: cid ? { id: cid, name: nevek.get(cid) ?? `Család #${cid}` } : null,
+          }
+        })
+      }
+    }
+  } catch (e) {
+    console.warn('[getFamilyDetails] felnőtt gyermekek lekérdezése sikertelen:',
+      e instanceof Error ? e.message : e)
+  }
+
   return {
     family,
     children,
+    felnottGyermekek,
     payments: payments,
     keresztelesek: (keresztRes.data || []) as unknown as { id_szemely: number; datum: string; adrlocality?: { name: string } | null; lelkeszneve?: string }[],
     konfirmaciok: (konfirmRes.data || []) as unknown as { id_szemely: number; datum: string; adrlocality?: { name: string } | null; lelkeszneve?: string }[],

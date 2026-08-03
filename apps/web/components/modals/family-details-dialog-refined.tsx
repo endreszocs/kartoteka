@@ -205,6 +205,9 @@ export function FamilyDetailsDialogRefined({
 
   const family = data?.family
   const children = data?.children || []
+  // 2026-08-04 (PR-35): a saját háztartásban élő FELNŐTT gyermekek — a kartonon
+  // eddig NÉMÁN hiányoztak, pedig a rokoni kapcsolat rögzítve van
+  const felnottGyermekek = data?.felnottGyermekek || []
   const payments = data?.payments || []
   const keresztelesek = data?.keresztelesek || []
   const konfirmaciok = data?.konfirmaciok || []
@@ -505,6 +508,48 @@ export function FamilyDetailsDialogRefined({
                         Nincs felnőtt tag rögzítve ehhez a családhoz.
                       </div>
                     )}
+                    {/* Külön háztartásban élő felnőtt gyermekek (PR-35) */}
+                    {felnottGyermekek.length > 0 && (
+                      <div className="mt-4 rounded-2xl border border-dashed border-border bg-muted/30 p-4">
+                        <div className="mb-2 flex items-center gap-2">
+                          <span className="inline-flex size-7 items-center justify-center rounded-lg bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                            <Users className="size-4" />
+                          </span>
+                          <h4 className="text-sm font-semibold text-foreground">
+                            Felnőtt gyermekek ({felnottGyermekek.length})
+                          </h4>
+                          <span className="text-xs text-muted-foreground">— saját háztartásban élnek</span>
+                        </div>
+                        <div className="grid gap-1.5 sm:grid-cols-2">
+                          {felnottGyermekek.map((fg) => {
+                            const kor = ageFromDate(fg.sz_datum)
+                            const nev = `${fg.csaladnev ?? ''} ${fg.k_nev ?? ''}`.trim() || `#${fg.id}`
+                            return (
+                              <button
+                                key={`fg-${fg.id}`}
+                                type="button"
+                                onClick={() => openMemberCard(fg.id)}
+                                className="flex min-h-11 flex-col items-start gap-0.5 rounded-xl border border-transparent px-2 py-1.5 text-left text-sm hover:border-primary/10 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              >
+                                <span className="font-medium text-foreground">
+                                  {nev}
+                                  {kor != null && <span className="ml-1 text-xs font-normal text-muted-foreground">{kor} éves</span>}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  {fg.ferfi === false ? 'Lánya' : fg.ferfi === true ? 'Fia' : 'Gyermeke'}
+                                  {fg.sajatCsalad ? ` · saját családja: ${fg.sajatCsalad.name}` : ' · külön háztartásban'}
+                                </span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                        <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                          Ők a rokoni kapcsolat szerint ennek a családnak a gyermekei, de saját háztartásuk van —
+                          ezért a járulék és a lélekszám a saját kartonjukon számít. A családfán itt is megjelennek.
+                        </p>
+                      </div>
+                    )}
+
                   </Section>
                   )}
 
