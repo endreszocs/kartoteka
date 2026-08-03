@@ -1060,7 +1060,12 @@ export async function searchFamilyMember(query: string, role: 'ferfi' | 'no' | '
   if (query.trim().length < 2) return []
   const { supabase, congregationId } = await getFamilyAccessContext()
   if (!congregationId) return []
-  const parts = query.trim().split(/\s+/)
+  // 2026-08-04 (PR-34): a PostgREST szűrő-szintaxist törő karakterek kiszűrése
+  // (vessző/zárójel/idézőjel/backslash) — enélkül egy „Kovács, Béla" alakú
+  // beírás PARSE-hibát adott, ami NÉMÁN üres listaként jelent meg.
+  const sanitize = (v: string) => v.replace(/[,()"\%]/g, ' ').trim()
+  const parts = query.trim().split(/\s+/).map(sanitize).filter(Boolean)
+  if (parts.length === 0) return []
 
   let q = supabase.from('szemely')
     .select('id, csaladnev, k_nev, ferfi, sz_datum, c_szam, c_utcaid, c_helysegid, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name, adrlocality!localityid(name))')
@@ -1072,7 +1077,12 @@ export async function searchFamilyMember(query: string, role: 'ferfi' | 'no' | '
   if (parts.length === 1) q = q.or(`csaladnev.ilike.%${parts[0]}%,k_nev.ilike.%${parts[0]}%`)
   else q = q.ilike('csaladnev', `%${parts[0]}%`).ilike('k_nev', `%${parts.slice(1).join(' ')}%`)
 
-  const { data: membersRaw } = await q.limit(10)
+  // A limit a szűrés ELŐTT hat, ezért tágabb merítés kell (a házas-szűrés után
+  // maradó találatokat a hívó úgyis 10-ig mutatja).
+  const { data: membersRaw, error: membersError } = await q.limit(30)
+  // FAIL-LOUD: az elnyelt hiba eddig „nincs találat"-nak látszott — ez az egyik
+  // forrása volt a bejelentett „eltűnik, amit keresek" tünetnek.
+  if (membersError) throw new Error(`A tag-keresés nem sikerült: ${membersError.message}`)
   // 2026-07-17 (PR-1): település-fallback az utca-láncból a kereső-találatokban is.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const members = ((membersRaw || []) as any[]).map((row) => applyStreetLocalityFallback(row))
@@ -1087,7 +1097,26 @@ export async function searchFamilyMember(query: string, role: 'ferfi' | 'no' | '
   // házastárs) szereplő személy gyermekként sehová nem vehető fel. A máshol
   // GYERMEKKÉNT szereplőket nem rejtjük el, hanem figyelmeztető jelvényt kapnak
   // (masikCsalad) — kiválasztásuk a mentéskor áthelyezési megerősítést kér.
-  const { data: allFamilies } = await supabase.from('csalad').select('id, id_ferfi, id_no').eq('isaktiv', true)
+  // 2026-08-04 (PR-34): eddig az ÖSSZES aktív családot behúztuk limit nélkül —
+  // a PostgREST 1000-soros plafonja némán levágta, így a „házas" és a „máshol
+  // felnőtt" halmaz hiányos lett (dupla tagságot engedett át). Most csak az
+  // érintett személyek családjait kérdezzük le, plusz a szerkesztett családot.
+  const talalatIds = members.map((m) => m.id as number)
+  const [relFamRes, editFamRes] = await Promise.all([
+    talalatIds.length > 0
+      ? supabase.from('csalad').select('id, id_ferfi, id_no').eq('isaktiv', true)
+          .or(`id_ferfi.in.(${talalatIds.join(',')}),id_no.in.(${talalatIds.join(',')})`)
+      : Promise.resolve({ data: [], error: null }),
+    editFamilyId !== undefined
+      ? supabase.from('csalad').select('id, id_ferfi, id_no').eq('id', editFamilyId).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ])
+  if (relFamRes.error) throw new Error(`A családtagsági ellenőrzés nem sikerült: ${relFamRes.error.message}`)
+  type CsaladSor = { id: number; id_ferfi: number | null; id_no: number | null }
+  const allFamilies: CsaladSor[] = [
+    ...((relFamRes.data || []) as CsaladSor[]),
+    ...(editFamRes.data ? [editFamRes.data as CsaladSor] : []),
+  ]
   const marriedIds = new Set<number>()
   const anyAdultIds = new Set<number>()
   const currentFamilyMemberIds = new Set<number>()
