@@ -294,7 +294,7 @@ async function buildTreeFromCenters(
           ? 'Az érintett család kartonjának újramentése lezárja az elavultat.'
           : 'A felesleges kapcsolat a házassági anyakönyvből ered — ott javítsd (a bejegyzés szerkesztése/törlése lezárja).'
         conflicts.push(
-          `${nameOf(id)} személynek ${partners.length} aktív házastárs-kapcsolata van (${partners.map((p) => nameOf(p.partner)).join(', ')}). ${advice}`,
+          `${nameOf(id)} személynek ${partners.length} aktív párkapcsolata van (${partners.map((p) => nameOf(p.partner)).join(', ')}). ${advice}`,
         )
       }
     }

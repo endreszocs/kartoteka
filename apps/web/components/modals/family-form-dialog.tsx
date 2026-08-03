@@ -169,11 +169,15 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
       )
     }
     if (type === 'husband') {
+      // 2026-08-04 (PR-27): MÁSIK személy → a korábbi pár jelölése (házasság/
+      // élettárs + dátum) nem ragadhat át az új párra
+      if (husband && husband.id !== r.id) { setParkapcsolat(null); setParDatum('') }
       setHusband({ id: r.id, name, age }); setHusbandQuery(''); setShowHusband(false)
       // Cím auto-töltés a férj lakcíméből
       if (r.adrstreet?.name) { setCUtcaName(r.adrstreet.name); setCUtcaid(r.c_utcaid ?? undefined) }
       if (r.c_szam) setCSzam(r.c_szam)
     } else if (type === 'wife') {
+      if (wife && wife.id !== r.id) { setParkapcsolat(null); setParDatum('') }
       setWife({ id: r.id, name, age }); setWifeQuery(''); setShowWife(false)
       // Ha nincs még cím → a feleség lakcíméből tölt
       if (!cUtcaName && r.adrstreet?.name) { setCUtcaName(r.adrstreet.name); setCUtcaid(r.c_utcaid ?? undefined) }

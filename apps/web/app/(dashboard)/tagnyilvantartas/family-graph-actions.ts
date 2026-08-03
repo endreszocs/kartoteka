@@ -303,6 +303,7 @@ function birthYear(value: string | null) {
 
 const RELATIONSHIP_KIND = {
   hazastars: 'spouse',
+  elettars: 'spouse',
   szulo_gyermek: 'parent-child',
   testver: 'sibling',
   felteszver: 'sibling',
@@ -314,7 +315,7 @@ const RELATIONSHIP_KIND = {
 } satisfies Record<FamilyGraphRelationshipType, FamilyGraphEdgeKind>
 
 function isSymmetricRelationship(type: FamilyGraphRelationshipType) {
-  return type === 'hazastars' || type === 'testver' || type === 'felteszver'
+  return type === 'hazastars' || type === 'elettars' || type === 'testver' || type === 'felteszver'
 }
 
 function deduplicateHouseholds(households: HouseholdRow[], tags: HouseholdTagRow[]) {

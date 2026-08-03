@@ -6,6 +6,7 @@ export type FamilyGraphGender = 'male' | 'female' | 'unknown'
 
 export type FamilyGraphRelationshipType =
   | 'hazastars'
+  | 'elettars'
   | 'szulo_gyermek'
   | 'testver'
   | 'felteszver'

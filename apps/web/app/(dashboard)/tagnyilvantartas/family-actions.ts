@@ -833,12 +833,23 @@ export async function saveFamily(data: FamilyInput): Promise<SaveFamilyResult> {
         .is('ervenyes_ig', null)
         .eq('congregation_id', congregationId)
         .or(`and(id_szemely_1.eq.${d.id_ferfi},id_szemely_2.eq.${d.id_no}),and(id_szemely_1.eq.${d.id_no},id_szemely_2.eq.${d.id_ferfi})`)
+        // Determinisztikus sorrend: az ANYAKÖNYVI eredetű él (megjegyzes NULL,
+        // rajta a valódi esküvői dátummal) legyen a megtartott
+        .order('megjegyzes', { nullsFirst: true })
+        .order('id')
       if (parErr) throw new Error(parErr.message)
       const datum = d.parkapcsolat_datum?.trim() ? d.parkapcsolat_datum.trim() : null
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const rows = (parRows || []) as any[]
       if (rows.length > 0) {
         const target = rows[0]
+        // A felesleges pár-éleket ELŐBB zárjuk le — különben a target típus-
+        // váltása az aktív-pár egyediségi indexbe ütközne (egy pár = egy él)
+        for (const extra of rows.slice(1)) {
+          await supabase.from('szemely_kapcsolat')
+            .update({ ervenyes_ig: new Date().toISOString().slice(0, 10), megjegyzes: 'csalad-szerkesztes-eltavolitas' })
+            .eq('id', extra.id)
+        }
         const patch: Record<string, unknown> = {}
         if (target.tipus !== d.parkapcsolat) patch.tipus = d.parkapcsolat
         // A meglévő (pl. anyakönyvből származó) dátumot csak akkor írjuk felül,
@@ -847,12 +858,6 @@ export async function saveFamily(data: FamilyInput): Promise<SaveFamilyResult> {
         if (Object.keys(patch).length > 0) {
           const { error } = await supabase.from('szemely_kapcsolat').update(patch).eq('id', target.id)
           if (error) throw new Error(error.message)
-        }
-        // Ha valamiért több aktív pár-él van, a többit lezárjuk (egy pár = egy él)
-        for (const extra of rows.slice(1)) {
-          await supabase.from('szemely_kapcsolat')
-            .update({ ervenyes_ig: new Date().toISOString().slice(0, 10), megjegyzes: 'csalad-szerkesztes-eltavolitas' })
-            .eq('id', extra.id)
         }
       } else {
         const { error } = await supabase.from('szemely_kapcsolat').insert([{
@@ -1395,6 +1400,8 @@ export async function getFamilyPartnership(input: { ferfiId: number; noId: numbe
     .is('ervenyes_ig', null)
     .eq('congregation_id', congregationId)
     .or(`and(id_szemely_1.eq.${ferfiId},id_szemely_2.eq.${noId}),and(id_szemely_1.eq.${noId},id_szemely_2.eq.${ferfiId})`)
+    .order('megjegyzes', { nullsFirst: true })
+    .order('id')
     .limit(1)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const row = ((data || []) as any[])[0]

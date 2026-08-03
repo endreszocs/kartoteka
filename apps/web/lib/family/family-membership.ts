@@ -542,14 +542,14 @@ export async function reconcileKinshipForPersons(
       .select('id, id_szemely_1, id_szemely_2, tipus, megjegyzes')
       .eq('congregation_id', congregationId)
       .in('id_szemely_1', ids)
-      .in('tipus', ['hazastars', 'szulo_gyermek'])
+      .in('tipus', ['hazastars', 'elettars', 'szulo_gyermek'])
       .is('ervenyes_ig', null),
     supabase
       .from('szemely_kapcsolat')
       .select('id, id_szemely_1, id_szemely_2, tipus, megjegyzes')
       .eq('congregation_id', congregationId)
       .in('id_szemely_2', ids)
-      .in('tipus', ['hazastars', 'szulo_gyermek'])
+      .in('tipus', ['hazastars', 'elettars', 'szulo_gyermek'])
       .is('ervenyes_ig', null),
   ])
   if (res1.error) throw new Error(`szemely_kapcsolat-olvasas: ${res1.error.message}`)
@@ -625,7 +625,7 @@ export async function reconcileKinshipForPersons(
   }
 
   const closureCandidates = edges.filter((e) => {
-    if (e.tipus === 'hazastars') {
+    if (e.tipus === 'hazastars' || e.tipus === 'elettars') {
       // Láthatósági őr: legalább az egyik fél legyen olvasható saját tag
       if (!readableIds.has(e.id_szemely_1) && !readableIds.has(e.id_szemely_2)) return false
       const [a, b] = [e.id_szemely_1, e.id_szemely_2].sort((x, y) => x - y)
@@ -731,7 +731,9 @@ export async function closeSyncKinshipEdges(
   if (error) throw new Error(`szemely_kapcsolat-olvasas: ${error.message}`)
   const wanted = new Set(pairs.flatMap((p) =>
     p.tipus === 'hazastars'
-      ? [`${p.id1}|${p.id2}|hazastars`, `${p.id2}|${p.id1}|hazastars`]
+      // 2026-08-04 (PR-27): az élettársi él ugyanúgy pár-él — enélkül a
+      // partner-csere után örökre aktív maradna (fantom pár a családfán)
+      ? ['hazastars', 'elettars'].flatMap((t) => [`${p.id1}|${p.id2}|${t}`, `${p.id2}|${p.id1}|${t}`])
       : [`${p.id1}|${p.id2}|${p.tipus}`],
   ))
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

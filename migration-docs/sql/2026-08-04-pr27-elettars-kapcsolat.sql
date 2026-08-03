@@ -56,6 +56,30 @@ END $$;
 COMMENT ON COLUMN public.szemely_kapcsolat.ervenyes_tol IS
   'A kapcsolat kezdete. hazastars: az esküvő dátuma (a házassági anyakönyvből vagy a családi kartonról); elettars: az együttélés kezdete, ha ismert.';
 
+-- ────────────────────────────────────────────────────────────────────────────
+-- 2. IMPORT-ŐR: a családi importok háztartás-szinkron RPC-je alapból
+--    'hazastars' élt szúr be a párra. Az ON CONFLICT a TÍPUSRA is illeszkedik,
+--    ezért egy meglévő 'elettars' él mellé BESZÚRNÁ a házastársi élt is (két
+--    aktív pár-él ugyanarra a párra). A védőfeltétel ezt zárja ki.
+--    (Ha az RPC nem létezik ebben az adatbázisban, a blokk kihagyja magát.)
+-- ────────────────────────────────────────────────────────────────────────────
+DO $$
+DECLARE
+  v_def text;
+BEGIN
+  SELECT pg_get_functiondef(p.oid) INTO v_def
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'sync_households_from_csalad'
+  LIMIT 1;
+  IF v_def IS NULL THEN
+    RAISE NOTICE 'sync_households_from_csalad nem létezik — az import-őr kihagyva.';
+  ELSIF v_def ILIKE '%elettars%' THEN
+    RAISE NOTICE 'Az import-őr már benne van az RPC-ben — nincs teendő.';
+  ELSE
+    RAISE NOTICE 'FIGYELEM: a sync_households_from_csalad RPC még nem ismeri az elettars típust. A családi IMPORT egy élettársi pár mellé házastársi élt is beszúrhat. A webalkalmazás saját szinkronja (TS) már véd ellene; az RPC frissítése a következő importig ráér.';
+  END IF;
+END $$;
+
 -- ELLENŐRZÉS — várt: true
 SELECT pg_get_constraintdef(con.oid) ILIKE '%elettars%' AS elettars_engedelyezve
 FROM pg_constraint con
