@@ -23,6 +23,23 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-04] — Átlátható családfa + működő nyomtatás
+<!-- key: 2026-08-04-tagnyilv-pr33-fa-design -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.145 -->
+
+### 🎨 UX javítások
+
+- **Követhető kapcsolati vonalak**: eddig generációnként egyetlen hosszú vízszintes vonal futott, amiből az ágak a szomszédos kártyák mögött haladtak el, és a generációk vonalai keresztezték egymást. Mostantól **minden szülő-párnak saját vonalszintje** van (az egymást átfedők külön sávba kerülnek), az ágak a kártyák közepéből indulnak, egységesen lekerekített sarokkal.
+- **Elváló vonaltípusok + jelmagyarázat**: a szülő–gyermek kapcsolat semleges szürke folytonos, a házastársi rózsaszín, az élettársi szaggatott — a vászon alján rövid jelmagyarázattal.
+
+### 🐛 Javítások
+
+- **A családfa nyomtatása végre működik**: a korábbi megoldás az élő képernyő-tartalmat másolta át a teljes alkalmazás-stíluslappal együtt, ami a nyomtatásnál felülírta a beállításokat — ezért lett üres a lap. Mostantól a rendszer **önálló nyomtatványt készít** (saját, csak a nyomtatáshoz készült rajzzal és stílussal), a lap méretére kicsinyítve, fejléccel és jelmagyarázattal. Ha az automatikus nyomtatás elakadna, a megnyíló ablakban gomb is van rá.
+
+---
+
 ## [2026-08-04] — A felnőtt gyermek is felvehető a szülők kartonjára
 <!-- key: 2026-08-04-tagnyilv-pr32-felnott-gyermek -->
 <!-- category: bugfix -->
