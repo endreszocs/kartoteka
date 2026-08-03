@@ -66,6 +66,8 @@ export interface EnsureChildFamilyResult {
   moves: FamilyLinkMove[]
   /** Összeférhetetlenségi / tájékoztató észrevételek */
   notes: string[]
+  /** „Ez így rendben van" — nincs teendő, csak tájékoztatás (PR-24) */
+  infos: string[]
   /** Az összevonás során lezárt (kiürült) családi kartonok nevei */
   closedFamilies: string[]
 }
@@ -78,6 +80,31 @@ export function describeMoves(moves: FamilyLinkMove[]): string[] {
       ? `${who}: ${m.fromFamilyName} → ${m.toFamilyName}`
       : `${who} → ${m.toFamilyName} (új családtagság)`
   })
+}
+
+/**
+ * A FELNŐTT-szerepű ütközés terve (2026-08-03, PR-24 — „ez is legyen
+ * automatikus"). A naiv áthelyezés itt TILOS: ha a tag a saját családi
+ * kartonján családfő/házastárs, gyermekké tétele szétbontaná a saját családját
+ * (a házastársa és a gyermekei elveszítenék), és a pénzügyi (járulék)
+ * számítás alapját adó „egy aktív háztartás" szabályt is megsértené.
+ * Ezért csak azt automatizáljuk, ami bizonyíthatóan ADATHIBA:
+ *   - a tag KISKORÚ, EGYEDÜL áll egy kartonon (nincs házastárs, nincs gyermek)
+ *     és nincs hozzá pénzügyi/látogatási előzmény → a téves felnőtt-karton
+ *     lezárul, a tag a szülei kartonjára kerül.
+ * Minden más eset HELYES adat (felnőtt saját családja / egyszemélyes
+ * háztartása) — ott nincs teendő, csak megnyugtató visszajelzés.
+ */
+interface AdultConflictPlan {
+  /** Lezárandó (téves, üres) felnőtt-kartonok */
+  releaseFamilyIds: number[]
+  moves: FamilyLinkMove[]
+  /** Valódi anomália — átnézendő */
+  notes: string[]
+  /** „Így helyes" — nincs teendő */
+  infos: string[]
+  /** true = marad a tiltás (nem nyúlunk a tagsághoz) */
+  block: boolean
 }
 
 interface AutoMovePlan {
@@ -315,6 +342,170 @@ async function planAutoMove(
 }
 
 /**
+ * A FELNŐTT-szerepű ütközés feldolgozása (PR-24). Lásd az AdultConflictPlan
+ * doc-kommentjét: csak a bizonyítható adathibát (kiskorú, egyedül álló,
+ * hivatkozás nélküli karton) rendezzük automatikusan.
+ * Olvasási hibánál DOB — a hívó fail-closed módon kezeli.
+ */
+async function planAdultConflict(
+  supabase: Db,
+  childId: number,
+  targetFamilyId: number,
+  blocked: AssignConflict[],
+  allowed: Set<number>,
+): Promise<AdultConflictPlan> {
+  const releaseFamilyIds: number[] = []
+  const moves: FamilyLinkMove[] = []
+  const notes: string[] = []
+  const infos: string[] = []
+  /** A tévesnek felismert kartonok neve — vegyes esetben ezt is ki kell írni */
+  const releasableNames: string[] = []
+  let block = false
+
+  const famIds = [...new Set(blocked.map((b) => b.familyId))]
+  const [famRes, gyRes, personRes] = await Promise.all([
+    supabase.from('csalad').select('id, id_ferfi, id_no').in('id', famIds),
+    supabase.from('gyerek').select('id_csalad, id_szemely').in('id_csalad', famIds),
+    supabase.from('szemely').select('id, sz_datum').eq('id', childId).maybeSingle(),
+  ])
+  if (famRes.error) throw new Error(`felnott-karton-olvasas: ${famRes.error.message}`)
+  if (gyRes.error) throw new Error(`gyerek-olvasas (felnott-karton): ${gyRes.error.message}`)
+  if (personRes.error) throw new Error(`szemely-olvasas (felnott-karton): ${personRes.error.message}`)
+
+  const szDatum = (personRes.data?.sz_datum as string | null) ?? null
+  const eletkor = szDatum
+    ? Math.floor((Date.now() - new Date(`${szDatum}T00:00:00Z`).getTime()) / (365.2425 * 24 * 3600 * 1000))
+    : null
+  const kiskoru = eletkor != null && eletkor < 18
+
+  // Review-fix: a szerkesztett tag SAJÁT gyerek-sora (felnőtt ÉS gyermek
+  // ugyanazon a kartonon — PR-18 előtti adathiba) nem számít „gyermeknek",
+  // különben a téves karton „saját családot alapított" nyugtázást kapna.
+  // A gyerek táblán nincs UNIQUE, ezért (karton, személy) szerint dedupálunk.
+  const childCount = new Map<number, number>()
+  const seenChild = new Set<string>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const g of (gyRes.data || []) as any[]) {
+    const fid = g.id_csalad as number
+    const pid = g.id_szemely as number
+    if (pid === childId) continue
+    const key = `${fid}|${pid}`
+    if (seenChild.has(key)) continue
+    seenChild.add(key)
+    childCount.set(fid, (childCount.get(fid) ?? 0) + 1)
+  }
+
+  const famNames = await loadFamilyDisplayNames(supabase, [targetFamilyId, ...famIds])
+  const toName = famNames.get(targetFamilyId) ?? `Család #${targetFamilyId}`
+
+  for (const b of blocked) {
+    const fromName = b.familyName || famNames.get(b.familyId) || `Család #${b.familyId}`
+    if (!allowed.has(b.familyId)) {
+      block = true
+      notes.push(
+        `${b.personName} egy másik gyülekezet családi kartonján (${fromName}) felnőtt tag — ahhoz nem nyúlunk, ezért a családba sorolás elmaradt. A szülő-kapcsolat rögzült, a családfán látszik.`,
+      )
+      continue
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fam = ((famRes.data || []) as any[]).find((f) => f.id === b.familyId)
+    const masikFelnott = fam
+      ? [fam.id_ferfi as number | null, fam.id_no as number | null].find((v) => v != null && v !== childId) ?? null
+      : null
+    const gyermekek = childCount.get(b.familyId) ?? 0
+    const egyedulAll = masikFelnott == null && gyermekek === 0
+
+    if (egyedulAll && kiskoru) {
+      // ADATHIBA: kiskorú saját, üres kartonon „felnőttként" — ezt rendezzük
+      if (await hasFamilyReferences(supabase, b.familyId)) {
+        block = true
+        notes.push(
+          `${b.personName} (${eletkor} éves) egy külön, üres kartonon (${fromName}) szerepel felnőttként, de ahhoz pénzügyi vagy látogatási előzmény kötődik, ezért nem zártuk le és nem is soroltuk át. Nézd át a kartont.`,
+        )
+        continue
+      }
+      releaseFamilyIds.push(b.familyId)
+      releasableNames.push(fromName)
+      moves.push({
+        personId: childId,
+        personName: b.personName,
+        fromFamilyId: b.familyId,
+        fromFamilyName: fromName,
+        toFamilyId: targetFamilyId,
+        toFamilyName: toName,
+        sibling: false,
+      })
+      continue
+    }
+
+    // Nem adathiba → a tagságot NEM bántjuk
+    block = true
+    if (kiskoru && !egyedulAll) {
+      notes.push(
+        `${b.personName} ${eletkor} évesen felnőtt tagként (családfő vagy házastárs) szerepel a(z) ${fromName} kartonon — ez valószínűleg téves szerep. Nézd át a kartont; amíg így van, a szülei kartonjára nem soroltuk át.`,
+      )
+    } else if (egyedulAll) {
+      infos.push(
+        `${b.personName} saját, egyszemélyes háztartásként szerepel a nyilvántartásban (${fromName}), ezért ott hagytuk — a szülőkkel a rokoni kapcsolat rögzült, a családfán megjelenik. Ha mégis a szülei háztartásához tartozik, a személyi karton „Családhoz rendelés" gombjával helyezheted át.`,
+      )
+    } else {
+      const reszek = [
+        masikFelnott != null ? 'házastárssal' : null,
+        gyermekek > 0 ? `${gyermekek} gyermekkel` : null,
+      ].filter(Boolean).join(' és ')
+      infos.push(
+        `${b.personName} saját családot alapított (${fromName}${reszek ? `, ${reszek}` : ''}), ezért ott maradt felnőtt tagként — így helyes, nincs teendő. A szülőkkel a rokoni kapcsolat rögzült, a családfán megjelenik.`,
+      )
+    }
+  }
+
+  // Vegyes eset (review-fix): ha BÁRMELYIK karton blokkol, a tagságot nem
+  // írjuk át, ezért a felismert téves kartont sem zárjuk le — de ez ne
+  // vesszen el némán.
+  if (block && releasableNames.length > 0) {
+    const tobb = releasableNames.length > 1
+    notes.push(
+      `${releasableNames.join(', ')} — ${tobb ? 'ezeket a kartonokat' : 'ezt a kartont'} tévesnek ismertük fel (üres, egyszemélyes karton), de a fenti akadály miatt most nem zártuk le. Az akadály rendezése után mentsd újra a tagot, akkor automatikusan rendeződik.`,
+    )
+  }
+
+  return { releaseFamilyIds, moves, notes, infos, block }
+}
+
+/**
+ * Egy családi karton háztartásának ARCHIVÁLÁSA (a deleteFamily mintája):
+ * isaktiv=false + ervenyes_ig, és minden nyitott tagság lezárása. A
+ * syncHouseholdFromCsalad itt NEM jó: a célállapotot a csalad id_ferfi/id_no
+ * mezői adják, ezért a tag háztartás-sora nyitva maradna (haztartas nélküli
+ * kartonnál pedig új, üres háztartás keletkezne) — fantom háztartás lenne a
+ * lélekszám- és körzet-számításokban.
+ */
+async function archiveFamilyHousehold(supabase: Db, congregationId: string, familyId: number) {
+  const today = new Date().toISOString().slice(0, 10)
+  const { data: rows, error } = await supabase
+    .from('haztartas')
+    .select('id')
+    .eq('congregation_id', congregationId)
+    .eq('legacy_csalad_id', familyId)
+    .is('ervenyes_ig', null)
+  if (error) throw new Error(`haztartas-olvasas (archivalas): ${error.message}`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const h of (rows || []) as any[]) {
+    const { error: hErr } = await supabase
+      .from('haztartas')
+      .update({ isaktiv: false, ervenyes_ig: today })
+      .eq('id', h.id)
+    if (hErr) throw new Error(`haztartas-archivalas: ${hErr.message}`)
+    const { error: tErr } = await supabase
+      .from('haztartas_tag')
+      .update({ ervenyes_ig: today })
+      .eq('id_haztartas', h.id)
+      .is('ervenyes_ig', null)
+    if (tErr) throw new Error(`haztartas_tag-lezaras: ${tErr.message}`)
+  }
+}
+
+/**
  * A karton lezárása előtti fék: ha a régi családhoz pénzügyi vagy látogatási
  * előzmény kötődik (befizetés, felmentés, családlátogatás), NEM zárjuk le —
  * inkább maradjon a duplikátum, mint hogy egy hivatkozás inaktív kartonra
@@ -345,6 +536,7 @@ export async function ensureChildFamilyLink(
 ): Promise<EnsureChildFamilyResult> {
   const moves: FamilyLinkMove[] = []
   const notes: string[] = []
+  const infos: string[] = []
   const closedFamilies: string[] = []
   const done = (linked: boolean, familyId: number | null): EnsureChildFamilyResult => ({
     linked,
@@ -352,6 +544,7 @@ export async function ensureChildFamilyLink(
     warning: notes.length > 0 ? notes.join(' ') : null,
     moves,
     notes,
+    infos,
     closedFamilies,
   })
 
@@ -426,6 +619,7 @@ export async function ensureChildFamilyLink(
   // Bizonytalan cél-karton (újraházasodás) → nem nyúlunk a tagsághoz
   let blockMembership = ambiguousTarget
   let plan: AutoMovePlan | null = null
+  let adultRelease: AdultConflictPlan | null = null
   let allowedFamilies = new Set<number>()
   if (famId && !blockMembership) {
     try {
@@ -435,16 +629,28 @@ export async function ensureChildFamilyLink(
       if (fw) notes.push(fw)
 
       if (guard.blocked.length > 0) {
-        // ÖSSZEFÉRHETETLENSÉG: felnőttként (házastárs/családfő) máshol tag —
-        // a saját családját nem bontjuk meg.
-        blockMembership = true
-        for (const b of guard.blocked) {
-          notes.push(
-            `${b.personName} a(z) ${b.familyName} FELNŐTT tagja (családfő vagy házastárs), ezért gyermekként nem soroltuk át — a saját családja érintetlen maradt. A szülőkkel a vér szerinti kapcsolat így is rögzült, a családfán megjelenik. Ha mégis a szüleihez tartozik, előbb a(z) ${b.familyName} kartonján kell módosítani a felnőtt tagokat.`,
-          )
+        // FELNŐTT-szerepű ütközés (PR-24): a saját családot NEM bontjuk meg —
+        // csak a bizonyítható adathibát (kiskorú, üres saját karton) rendezzük.
+        const adultPlan = await planAdultConflict(supabase, childId, famId, guard.blocked, guard.allowed)
+        notes.push(...adultPlan.notes)
+        infos.push(...adultPlan.infos)
+        blockMembership = adultPlan.block
+        if (!adultPlan.block && adultPlan.releaseFamilyIds.length > 0) {
+          adultRelease = adultPlan
         }
-      } else if (guard.movable.length > 0) {
-        plan = await planAutoMove(supabase, congregationId, famId, guard.movable, guard.allowed, { allowMerge })
+      }
+      // Review-fix (P1): UGYANAZ a tag lehet EGYSZERRE felnőtt az egyik
+      // kartonon (blocked) és gyermek egy másikon (movable). Ha a felnőtt-
+      // ütközést feloldottuk, a gyermek-tagságot is rendezni KELL — különben
+      // két aktív háztartásban maradna (a járulék-alap „egy aktív háztartás").
+      // A felnőtt-ágon már rendezett (lezárandó) kartont NEM adjuk át a
+      // gyermek-ágnak: azt az adultRelease teljes egészében kezeli (gyerek-sor
+      // törlés + karton lezárás + háztartás archiválás). Különben a
+      // moveChildMemberships szinkronja újra megnyitná a háztartást.
+      const releasedIds = new Set(adultRelease?.releaseFamilyIds ?? [])
+      const movableForPlan = guard.movable.filter((m) => !releasedIds.has(m.familyId))
+      if (!blockMembership && movableForPlan.length > 0) {
+        plan = await planAutoMove(supabase, congregationId, famId, movableForPlan, guard.allowed, { allowMerge })
         // Az írástól FÜGGETLEN észrevételek azonnal jelenthetők; a múlt idejű
         // mondatok csak a sikeres írás után (lentebb).
         notes.push(...plan.notes)
@@ -484,6 +690,38 @@ export async function ensureChildFamilyLink(
       }
       linked = insertOk && (have.has(childId) || toInsert.includes(childId))
 
+      if (insertOk && adultRelease) {
+        // PR-24: a téves, üres felnőtt-karton lezárása a beszúrás UTÁN
+        moves.push(...adultRelease.moves)
+        const famNames = await loadFamilyDisplayNames(supabase, adultRelease.releaseFamilyIds)
+        for (const oldFamId of adultRelease.releaseFamilyIds) {
+          const oldName = famNames.get(oldFamId) ?? `Család #${oldFamId}`
+          // Az „egyszerre szülő ÉS gyermek ugyanazon a kartonon" adathibánál a
+          // tagnak gyerek-sora is lehet rajta — az is szűnjön meg
+          const { error: gyDelErr } = await supabase
+            .from('gyerek').delete().eq('id_csalad', oldFamId).eq('id_szemely', childId)
+          if (gyDelErr) {
+            notes.push(`A(z) ${oldName} kartonról a tag gyermek-sorát nem sikerült törölni — nyisd meg és távolítsd el kézzel.`)
+          }
+          const { error: deErr } = await supabase.from('csalad').update({ isaktiv: false }).eq('id', oldFamId)
+          if (deErr) {
+            notes.push(`A tag a szülei kartonjára került, de a korábbi, üres saját kartonját (${oldName}) nem sikerült lezárni — nyisd meg és zárd le kézzel, különben két helyen szerepel.`)
+            continue
+          }
+          closedFamilies.push(oldName)
+          // Sikeres automatikus rendezés → semleges „nincs teendő" csatorna
+          infos.push(`A tag külön, üres saját kartonja (${oldName}) tévesen mutatta felnőttnek, ezért lezártuk, és a szülei kartonjára soroltuk — nincs további teendő.`)
+          try {
+            // Review-fix: EXPLICIT archiválás (a sync itt nyitva hagyná a
+            // tag háztartás-sorát, mert a csalad felnőtt-mezője rá mutat)
+            await archiveFamilyHousehold(supabase, congregationId, oldFamId)
+          } catch (e) {
+            console.warn('[ensureChildFamilyLink] lezárt felnőtt-karton archiválása sikertelen:',
+              e instanceof Error ? e.message : e)
+            notes.push(`A(z) ${oldName} karton lezárult, de a hozzá tartozó háztartás archiválása nem sikerült — nyisd meg a Családok fülön és ellenőrizd.`)
+          }
+        }
+      }
       if (insertOk && plan) {
         // 3/b) A korábbi tagságok lezárása (csak saját gyülekezeti kartonok).
         // A gyermek(ek) MÁR a cél-családban vannak, ezért a mozgatást akkor is
@@ -520,10 +758,16 @@ export async function ensureChildFamilyLink(
             const mergeNote = plan.mergeNoteByFamily.get(oldFamId)
             if (mergeNote) notes.push(mergeNote)
             try {
-              await syncHouseholdFromCsalad(supabase, oldFamId, congregationId)
+              // A kiürült karton háztartását EXPLICIT archiváljuk (a sync itt a
+              // felnőtt-mezők miatt nyitva hagyná a tagságokat — fantom
+              // háztartás lenne a lélekszám- és körzet-számításban). A
+              // rokonsági éleket a moveChildMemberships szinkronja már
+              // rendezte, a cél-családét pedig a 4. lépés.
+              await archiveFamilyHousehold(supabase, congregationId, oldFamId)
             } catch (e) {
-              console.warn('[ensureChildFamilyLink] lezárt család szinkronja sikertelen:',
+              console.warn('[ensureChildFamilyLink] lezárt család archiválása sikertelen:',
                 e instanceof Error ? e.message : e)
+              notes.push(`A(z) ${oldName} karton lezárult, de a hozzá tartozó háztartás archiválása nem sikerült — nyisd meg a Családok fülön és ellenőrizd.`)
             }
           }
           // Körzet-öröklés: a lezárt kartonról, ha a célon nincs körzet
@@ -538,7 +782,8 @@ export async function ensureChildFamilyLink(
             }
           }
         }
-      } else if (insertOk && toInsert.includes(childId)) {
+      }
+      if (insertOk && !adultRelease && !plan && toInsert.includes(childId)) {
         // Csak TÉNYLEGES új tagságot jelentünk (ha a gyerek-sor már megvolt,
         // nem történt mozgatás — különben minden mentésnél felugrana az ablak).
         moves.push({

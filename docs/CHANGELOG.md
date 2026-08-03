@@ -23,6 +23,23 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-03] — Szülő-összekötés: a felnőtt tagok esete is magától rendeződik
+<!-- key: 2026-08-03-tagnyilv-pr24-felnott-auto -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.137 -->
+
+### ✨ Új funkciók
+
+- **A saját családot alapított tagoknál nincs többé teendő-üzenet**: ha a szülők összekötésekor a tag már a saját családi kartonján családfő vagy házastárs, a rendszer eddig figyelmeztetést adott. Mostantól felismeri, hogy ez a **helyes állapot**, és nyugtázza: „ez így rendben van, nincs teendő" — a szülőkkel a rokoni kapcsolat rögzül, és a családfán meg is jelenik.
+- **A téves felnőtt-karton magától rendeződik**: ha egy **kiskorú** tag tévesen külön, üres kartonon szerepelt felnőttként (nincs házastársa, nincs gyermeke), a rendszer lezárja azt a kartont, és a tagot a szülei kartonjára sorolja — a lépést tételesen kiírja.
+
+### 🎨 UX javítások
+
+- **Valódi ellentmondásnál marad a figyelmeztetés**: ha egy kiskorú házastársként/családfőként szerepel egy másik tag mellett, vagy a kartonhoz pénzügyi előzmény kötődik, a rendszer nem nyúl az adathoz, hanem pontosan leírja, mit talált. A felugró ablak három szintet különböztet meg: elvégzett rendezés (zöld), „így rendben van" (semleges) és átnézendő észrevétel (borostyán).
+
+---
+
 ## [2026-08-03] — Szülő-összekötés: a családba sorolás automatikus lett
 <!-- key: 2026-08-03-tagnyilv-pr23-auto-athelyezes -->
 <!-- category: improvement -->

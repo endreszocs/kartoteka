@@ -124,6 +124,7 @@ interface FamilyOutcome {
   moves: string[]
   notes: string[]
   closed: string[]
+  infos: string[]
 }
 
 export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: ParentLinkResultDialogProps) {
@@ -148,6 +149,7 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
   const moveLines = outcome?.moves ?? data.familyMoves ?? []
   const noteLines = outcome?.notes ?? data.familyNotes ?? []
   const closedLines = outcome?.closed ?? data.familyClosed ?? []
+  const infoLines = outcome?.infos ?? data.familyInfos ?? []
 
   const pendingApa = !doneParts.apa && data.apa?.status === 'ambiguous' && (data.apa.candidates?.length ?? 0) > 0
   const pendingAnya = !doneParts.anya && data.anya?.status === 'ambiguous' && (data.anya.candidates?.length ?? 0) > 0
@@ -170,9 +172,12 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
         moves: ('moves' in res && res.moves) || [],
         notes: ('notes' in res && res.notes) || [],
         closed: ('closed' in res && res.closed) || [],
+        infos: ('infos' in res && res.infos) || [],
       }
       if (!('linked' in res) || res.linked) {
         toast.success('Szülő összekötve — a családfa és a családi karton frissült.')
+      } else if (nextOutcome.notes.length === 0 && nextOutcome.infos.length > 0) {
+        toast.info('A rokonsági kapcsolat rögzült — a családi kartont nem kellett módosítani, lásd a magyarázatot.')
       } else {
         toast.info('A rokonsági kapcsolat rögzült a családfán, de a családi kartonhoz nem rendeltük hozzá a tagot — lásd az észrevételeket.')
       }
@@ -187,7 +192,12 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
       // ablak NYITVA marad, hogy a lelkész el tudja olvasni, mi hová került.
       const stillPending =
         (!submittedApa && pendingApa) || (!submittedAnya && pendingAnya)
-      if (nextOutcome.moves.length > 0 || nextOutcome.notes.length > 0 || stillPending) {
+      if (
+        nextOutcome.moves.length > 0
+        || nextOutcome.notes.length > 0
+        || nextOutcome.infos.length > 0
+        || stillPending
+      ) {
         setOutcome(nextOutcome)
       } else {
         onOpenChange(false)
@@ -220,8 +230,8 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
               <div className="min-w-0 text-sm leading-5 text-emerald-900 dark:text-emerald-100">
                 <p className="font-semibold">Ezt rendeztük automatikusan</p>
                 <ul className="mt-1 space-y-1 text-xs leading-5">
-                  {moveLines.map((line) => (
-                    <li key={line} className="break-words">• {line}</li>
+                  {moveLines.map((line, i) => (
+                    <li key={`move-${i}`} className="break-words">• {line}</li>
                   ))}
                 </ul>
                 {closedLines.length > 0 && (
@@ -233,14 +243,28 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
             </div>
           )}
 
+          {infoLines.length > 0 && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/40 p-3">
+              <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 text-sm leading-5">
+                <p className="font-semibold">Ez így rendben van — nincs teendő</p>
+                <ul className="mt-1 space-y-1.5 text-xs leading-5 text-foreground/80">
+                  {infoLines.map((line, i) => (
+                    <li key={`info-${i}`} className="break-words">• {line}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
           {noteLines.length > 0 ? (
             <div className="flex items-start gap-2.5 rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/50">
               <TriangleAlert className="mt-0.5 size-5 shrink-0 text-amber-600" />
               <div className="min-w-0 text-sm leading-5 text-amber-900 dark:text-amber-100">
                 <p className="font-semibold">Észrevételek — ezt nézd át</p>
                 <ul className="mt-1 space-y-1.5 text-xs leading-5">
-                  {noteLines.map((line) => (
-                    <li key={line} className="break-words">• {line}</li>
+                  {noteLines.map((line, i) => (
+                    <li key={`note-${i}`} className="break-words">• {line}</li>
                   ))}
                 </ul>
               </div>

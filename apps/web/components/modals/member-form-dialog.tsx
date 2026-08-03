@@ -241,7 +241,8 @@ export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged
         // 2026-08-03 (PR-23): automatikus áthelyezés/összevonás történt — a
         // „honnan hová" jelentést mindig meg kell mutatni
         (pl.familyMoves?.length ?? 0) > 0 ||
-        (pl.familyNotes?.length ?? 0) > 0
+        (pl.familyNotes?.length ?? 0) > 0 ||
+        (pl.familyInfos?.length ?? 0) > 0
       )
       if (plWorthShowing && pl && result.id != null) {
         setParentLinkResult({

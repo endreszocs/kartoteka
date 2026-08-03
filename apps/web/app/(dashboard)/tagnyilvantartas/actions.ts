@@ -723,6 +723,7 @@ export async function saveMember(data: MemberInput) {
   let autoFamilyMoves: string[] = []
   let autoFamilyNotes: string[] = []
   let autoFamilyClosed: string[] = []
+  let autoFamilyInfos: string[] = []
   let autoFamilyMoveRows: { personId: number; fromFamilyId: number | null; toFamilyId: number; sibling: boolean }[] = []
   let parentLink: SaveMemberParentLink | undefined
   if (savedId && (d.id_apja_cnp || d.id_anyja_cnp || d.apjaneve?.trim() || d.anyjaneve?.trim())) {
@@ -780,6 +781,7 @@ export async function saveMember(data: MemberInput) {
       autoFamilyWarning = linkRes.warning ?? undefined
       autoFamilyMoves = describeMoves(linkRes.moves)
       autoFamilyNotes = linkRes.notes
+      autoFamilyInfos = linkRes.infos
       autoFamilyClosed = linkRes.closedFamilies
       autoFamilyMoveRows = linkRes.moves.map((m) => ({
         personId: m.personId, fromFamilyId: m.fromFamilyId, toFamilyId: m.toFamilyId, sibling: m.sibling,
@@ -793,7 +795,7 @@ export async function saveMember(data: MemberInput) {
       (p.status === 'cnp' || (p.status === 'none' && !p.input)) ? undefined : p
     const apaUi = forUi(apa)
     const anyaUi = forUi(anya)
-    if (apaUi || anyaUi || autoFamilyWarning || autoFamilyMoves.length > 0) {
+    if (apaUi || anyaUi || autoFamilyWarning || autoFamilyMoves.length > 0 || autoFamilyInfos.length > 0) {
       parentLink = {
         apa: apaUi,
         anya: anyaUi,
@@ -801,6 +803,7 @@ export async function saveMember(data: MemberInput) {
         familyMoves: autoFamilyMoves,
         familyNotes: autoFamilyNotes,
         familyClosed: autoFamilyClosed,
+        familyInfos: autoFamilyInfos,
       }
     }
   }
@@ -897,6 +900,8 @@ export interface SaveMemberParentLink {
   familyNotes?: string[]
   /** Az összevonás során lezárt (kiürült) családi kartonok (PR-23) */
   familyClosed?: string[]
+  /** „Ez így rendben van" — nincs teendő, csak tájékoztatás (PR-24) */
+  familyInfos?: string[]
 }
 
 /**
@@ -1024,6 +1029,7 @@ export async function linkMemberParents(input: { memberId: number; apaId?: numbe
   let moveLines: string[] = []
   let noteLines: string[] = []
   let closedLines: string[] = []
+  let infoLines: string[] = []
   if (activeFam) {
     if (apa && activeFam.id_ferfi != null && activeFam.id_ferfi !== apa.id) {
       return { error: 'A tag családjában már egy MÁSIK édesapa szerepel — előbb a családi kartonon módosítsd a felnőtt tagokat.' }
@@ -1063,6 +1069,7 @@ export async function linkMemberParents(input: { memberId: number; apaId?: numbe
     moveLines = describeMoves(linkRes.moves)
     noteLines = linkRes.notes
     closedLines = linkRes.closedFamilies
+    infoLines = linkRes.infos
   }
 
   await logAuditEvent({
@@ -1088,6 +1095,7 @@ export async function linkMemberParents(input: { memberId: number; apaId?: numbe
     moves: moveLines,
     notes: noteLines,
     closed: closedLines,
+    infos: infoLines,
   }
 }
 
