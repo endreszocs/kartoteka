@@ -23,6 +23,23 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-03] — Szülő-összekötés: a családba sorolás automatikus lett
+<!-- key: 2026-08-03-tagnyilv-pr23-auto-athelyezes -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.136 -->
+
+### ✨ Új funkciók
+
+- **Nincs több „NEM rendeltük hozzá" üzenet**: ha a szülők összekötésekor a tag még egy másik családi kartonon szerepel gyermekként, a rendszer mostantól **magától áthelyezi** a szülei családjához, a korábbi tagságot pedig lezárja. A felugró ablak tételesen kiírja, **mi hová került** (például „Márk Ildikó: Kovács család → Márk család"), és ez a napló (audit) bejegyzésbe is bekerül.
+- **Kettéesett családi kartonok összevonása**: ha a régi karton ugyanazt a szülőpárt jelöli, mint az új (csak a testvérek voltak szétszórva két kartonra), a rendszer **az összes testvért átviszi**, a kiürült kartont pedig lezárja — így egyetlen családi karton marad, hiánytalan gyereklistával.
+
+### 🎨 UX javítások
+
+- **Összeférhetetlenség esetén tételes észrevétel**: ha az automatikus rendezés nem biztonságos (a tag máshol felnőtt — családfő vagy házastárs; a régi kartonon más szülő szerepel; a tagság másik gyülekezethez tartozik), a rendszer nem nyúl az adathoz, hanem pontosan leírja, mit talált és mit kell tenni. Ilyenkor is elmondja, hogy a **vér szerinti kapcsolat rögzült**, tehát a családfán a szülők megjelennek.
+
+---
+
 ## [2026-08-03] — Családfa: nagyszülők és a teljes rokonság a szülő-nevekből
 <!-- key: 2026-08-03-tagnyilv-pr22-tobbgeneracios-csaladfa -->
 <!-- category: improvement -->

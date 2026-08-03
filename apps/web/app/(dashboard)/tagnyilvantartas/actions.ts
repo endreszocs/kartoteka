@@ -11,8 +11,8 @@ import { fetchFamilyPaymentsCompat, fetchPersonPaymentsCompat } from '@/lib/fina
 import { allocateFamilyPayments, computeBaseExpectedForMemberYear, computeJarulekForMemberYear, isJarulekExcludedMemberStatus, type JarulekDiscountRule, type JarulekExemption, type JarulekPaymentLike, type JarulekYearSetting } from '@/lib/finance/jarulek-calculation'
 import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallback'
 import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
-import { ensureChildFamilyLink } from '@/lib/family/auto-family'
-import { getAllowedFamilyIds, syncHouseholdFromCsalad } from '@/lib/family/family-membership'
+import { describeMoves, ensureChildFamilyLink } from '@/lib/family/auto-family'
+import { getAllowedFamilyIds, loadFamilyDisplayNames, syncHouseholdFromCsalad } from '@/lib/family/family-membership'
 
 // ── Segéd: congregation_id a profilból ───────────────────────
 
@@ -720,6 +720,10 @@ export async function saveMember(data: MemberInput) {
   //      egyértelmű találatnál automatikus bekötés, több találatnál a
   //      felület felugró ablakban választat (parentLink eredmény-mező).
   let autoFamilyWarning: string | undefined
+  let autoFamilyMoves: string[] = []
+  let autoFamilyNotes: string[] = []
+  let autoFamilyClosed: string[] = []
+  let autoFamilyMoveRows: { personId: number; fromFamilyId: number | null; toFamilyId: number; sibling: boolean }[] = []
   let parentLink: SaveMemberParentLink | undefined
   if (savedId && (d.id_apja_cnp || d.id_anyja_cnp || d.apjaneve?.trim() || d.anyjaneve?.trim())) {
     let ferfiId: number | null = null
@@ -774,6 +778,12 @@ export async function saveMember(data: MemberInput) {
         c_utcaid: utcaId, c_szam: d.c_szam || null,
       })
       autoFamilyWarning = linkRes.warning ?? undefined
+      autoFamilyMoves = describeMoves(linkRes.moves)
+      autoFamilyNotes = linkRes.notes
+      autoFamilyClosed = linkRes.closedFamilies
+      autoFamilyMoveRows = linkRes.moves.map((m) => ({
+        personId: m.personId, fromFamilyId: m.fromFamilyId, toFamilyId: m.toFamilyId, sibling: m.sibling,
+      }))
     }
 
     // Csak azt mutatjuk, amiről van mondanivaló: az üres-bemenetű 'none' és a
@@ -783,8 +793,15 @@ export async function saveMember(data: MemberInput) {
       (p.status === 'cnp' || (p.status === 'none' && !p.input)) ? undefined : p
     const apaUi = forUi(apa)
     const anyaUi = forUi(anya)
-    if (apaUi || anyaUi || autoFamilyWarning) {
-      parentLink = { apa: apaUi, anya: anyaUi, familyWarning: autoFamilyWarning ?? null }
+    if (apaUi || anyaUi || autoFamilyWarning || autoFamilyMoves.length > 0) {
+      parentLink = {
+        apa: apaUi,
+        anya: anyaUi,
+        familyWarning: autoFamilyWarning ?? null,
+        familyMoves: autoFamilyMoves,
+        familyNotes: autoFamilyNotes,
+        familyClosed: autoFamilyClosed,
+      }
     }
   }
 
@@ -841,7 +858,14 @@ export async function saveMember(data: MemberInput) {
     action: 'member.save',
     targetTable: 'szemely',
     targetId: savedId != null ? String(savedId) : null,
-    metadata: { mode: d.id ? 'update' : 'create' },
+    metadata: {
+      mode: d.id ? 'update' : 'create',
+      // 2026-08-03 (PR-23): az automatikus családi áthelyezés/összevonás a
+      // mentés útján is történhet — a naplóban is nyomon követhető legyen
+      ...(autoFamilyMoveRows.length > 0 ? { familyMoves: autoFamilyMoveRows } : {}),
+      ...(autoFamilyClosed.length > 0 ? { familyClosed: autoFamilyClosed } : {}),
+      ...(autoFamilyNotes.length > 0 ? { familyNotes: autoFamilyNotes } : {}),
+    },
   }, supabase)
 
   revalidatePath('/tagnyilvantartas')
@@ -867,6 +891,12 @@ export interface SaveMemberParentLink {
   apa?: SaveMemberParentPart
   anya?: SaveMemberParentPart
   familyWarning: string | null
+  /** „Márk Ildikó: Kovács család → Márk család" — tételes áthelyezés-napló (PR-23) */
+  familyMoves?: string[]
+  /** Összeférhetetlenségi / tájékoztató észrevételek (PR-23) */
+  familyNotes?: string[]
+  /** Az összevonás során lezárt (kiürült) családi kartonok (PR-23) */
+  familyClosed?: string[]
 }
 
 /**
@@ -991,6 +1021,9 @@ export async function linkMemberParents(input: { memberId: number; apaId?: numbe
     .find((c) => c?.isaktiv && allowedFamilyIds.has(c.id as number)) as { id: number; id_ferfi: number | null; id_no: number | null } | undefined
 
   let res: { linked: boolean; familyId: number | null; warning: string | null }
+  let moveLines: string[] = []
+  let noteLines: string[] = []
+  let closedLines: string[] = []
   if (activeFam) {
     if (apa && activeFam.id_ferfi != null && activeFam.id_ferfi !== apa.id) {
       return { error: 'A tag családjában már egy MÁSIK édesapa szerepel — előbb a családi kartonon módosítsd a felnőtt tagokat.' }
@@ -1012,24 +1045,50 @@ export async function linkMemberParents(input: { memberId: number; apaId?: numbe
     } catch (e) {
       console.warn('[linkMemberParents] háztartás-szinkron sikertelen:', e instanceof Error ? e.message : e)
       warning = 'A szülő összekötve, de a háztartás-nézet szinkronizálása nem sikerült — mentsd el újra a családot.'
+      // 2026-08-03 (PR-23 review): a felugró ablak a `notes` tömböt jeleníti
+      // meg — e nélkül a szinkron-hiba némán elveszne.
+      noteLines.push(warning)
+    }
+    if (Object.keys(updates).length > 0) {
+      const famNames = await loadFamilyDisplayNames(supabase, [activeFam.id])
+      moveLines = [`A szülő a tag meglévő családi kartonjára került: ${famNames.get(activeFam.id) ?? `Család #${activeFam.id}`}`]
     }
     res = { linked: true, familyId: activeFam.id, warning }
   } else {
-    res = await ensureChildFamilyLink(supabase, congregationId, memberId, apa?.id ?? null, anya?.id ?? null, {
+    const linkRes = await ensureChildFamilyLink(supabase, congregationId, memberId, apa?.id ?? null, anya?.id ?? null, {
       c_utcaid: member.c_utcaid ?? null,
       c_szam: member.c_szam ?? null,
     })
+    res = linkRes
+    moveLines = describeMoves(linkRes.moves)
+    noteLines = linkRes.notes
+    closedLines = linkRes.closedFamilies
   }
 
   await logAuditEvent({
     action: 'member.link_parents',
     targetTable: 'szemely',
     targetId: String(memberId),
-    metadata: { apaId: apa?.id ?? null, anyaId: anya?.id ?? null, linked: res.linked },
+    metadata: {
+      apaId: apa?.id ?? null,
+      anyaId: anya?.id ?? null,
+      linked: res.linked,
+      // 2026-08-03 (PR-23): a tagság-mozgatás naplóban is nyomon követhető
+      moves: moveLines,
+      notes: noteLines,
+      closedFamilies: closedLines,
+    },
   }, supabase)
 
   revalidatePath('/tagnyilvantartas')
-  return { success: true, linked: res.linked, warning: res.warning ?? undefined }
+  return {
+    success: true,
+    linked: res.linked,
+    warning: res.warning ?? undefined,
+    moves: moveLines,
+    notes: noteLines,
+    closed: closedLines,
+  }
 }
 
 // ── Tag kivezetés ────────────────────────────────────────────

@@ -237,7 +237,11 @@ export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged
       const plWorthShowing = !!pl && (
         pl.apa?.status === 'linked' || pl.apa?.status === 'ambiguous' ||
         pl.anya?.status === 'linked' || pl.anya?.status === 'ambiguous' ||
-        !!pl.familyWarning
+        !!pl.familyWarning ||
+        // 2026-08-03 (PR-23): automatikus áthelyezés/összevonás történt — a
+        // „honnan hová" jelentést mindig meg kell mutatni
+        (pl.familyMoves?.length ?? 0) > 0 ||
+        (pl.familyNotes?.length ?? 0) > 0
       )
       if (plWorthShowing && pl && result.id != null) {
         setParentLinkResult({
