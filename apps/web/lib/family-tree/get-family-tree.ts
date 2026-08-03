@@ -194,7 +194,7 @@ async function buildTreeFromCenters(
   for (const part of chunks(collectedIds, CHUNK_SIZE)) {
     const { data, error } = await supabase
       .from('szemely')
-      .select('id, csaladnev, k_nev, ferfi, sz_datum, meghalt, telefon, foglalkozas, vallas, kep')
+      .select('id, csaladnev, k_nev, szcs_nev, ferfi, sz_datum, meghalt, telefon, foglalkozas, vallas, kep')
       .eq('congregation_id', congregationId)
       .in('id', part)
     if (error) throw new Error(`A családfa személy-lekérdezése sikertelen: ${error.message}`)
@@ -348,6 +348,7 @@ async function buildTreeFromCenters(
       kep: (p.kep as string | null) ?? null,
       csaladnev: (p.csaladnev as string | null) ?? '',
       k_nev: (p.k_nev as string | null) ?? '',
+      szcs_nev: (p.szcs_nev as string | null) ?? null,
       ferfi: p.ferfi as boolean,
       sz_datum: (p.sz_datum as string | null) ?? null,
       meghalt: !!p.meghalt,

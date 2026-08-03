@@ -23,6 +23,18 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-04] — Leánykori név a családfán
+<!-- key: 2026-08-04-tagnyilv-pr31-lanykori-nev -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.143 -->
+
+### 🎨 UX javítások
+
+- **A családfa kártyáin megjelenik a leánykori név**: a viselt név alatt, dőlt betűvel („szül. Kovács Márta") — így a férjezett nevet viselő tagok az anyakönyvi és a rokonsági nyilvántartásban is egyértelműen azonosíthatók. Csak akkor jelenik meg, ha a születési családnév ténylegesen eltér a viselttől, és a nyomtatott családfán is ott van.
+
+---
+
 ## [2026-08-04] — Érthetőbb visszajelzés a szülő-összekötésnél
 <!-- key: 2026-08-04-tagnyilv-pr30-allapot-sav -->
 <!-- category: improvement -->
