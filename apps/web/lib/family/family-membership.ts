@@ -386,6 +386,121 @@ const KINSHIP_SYNC_MARKERS = ['haztartas-sync', 'sync_households_from_csalad', '
 export const MEMBERSHIP_DERIVED_MARKERS = ['haztartas-sync', 'sync_households_from_csalad', 'fazis1-backfill']
 
 /**
+ * TARTÓS él-jelölő (2026-08-03, PR-22): a személyi karton apja-/anyja-neve
+ * mezője igazolja a szülő-gyerek élt. NEM tagság-eredetű — a családkartonról
+ * való kivétel (felnőtt gyermek kiköltözése) és az egyeztető NEM zárja le;
+ * a vér szerinti kapcsolat a háztartás-tagságtól függetlenül megmarad.
+ */
+export const PARENT_NAME_MATCH_MARKER = 'szulonev-egyezes'
+
+/** Név-kulcs a szülőnév-egyeztetéshez: NFC-normalizálás, kisbetű, román
+ *  cedilla→vessző-ékezet (ş→ș, ţ→ț), LÁNCOLT nemzedék-előtagok (ifj./id./
+ *  idősb/özv./dr., ponttal vagy szóközzel) levágva, minden nem betű/szám
+ *  (szóköz, kötőjel, pont) kidobva — így az „ifj. Szőcs Gábor" ⇄ „Szőcs
+ *  Gábor" és a kötőjel-variánsok egyeznek, az „Ida …" kezdetű valódi név nem
+ *  sérül (az előtag után kötelező a pont vagy szóköz). */
+function parentNameKey(raw: string | null | undefined): string {
+  const lowered = (raw ?? '').normalize('NFC').toLowerCase().replace(/ş/g, 'ș').replace(/ţ/g, 'ț').trim()
+  const noPrefix = lowered.replace(/^(?:(?:ifjabb|ifj|idősb|idős|idos|id|özv|ozv|dr)(?:\.\s*|\s+))+/, '')
+  return noPrefix.replace(/[^a-z0-9áéíóöőúüűâîășț]+/g, '')
+}
+
+/**
+ * SZÜLŐNÉV-KORROBORÁCIÓ (2026-08-03, PR-22): a lezárásra jelölt élek közül a
+ * szulo_gyermek típusúakat kettéválasztja — ha a GYERMEK személyi kartonján az
+ * apja-/anyja-neve mező (nem-helyes oldalon) név szerint igazolja a szülőt, az
+ * él NEM zárandó, hanem tartós 'szulonev-egyezes' jelölést kap. Így a felnőtt,
+ * saját családot alapító gyermek szülő-kapcsolata nem vész el a családkarton
+ * frissítésekor.
+ *
+ * Review-erősítések (2026-08-03):
+ *  - KÉT-ÉDESAPA-ŐR: ha a gyermeknek MÁSIK aktív, azonos nemű szülő-éle van
+ *    (pl. azonos nevű nagyapa-él a valódi apa-él mellett), NEM tartjuk meg —
+ *    zárás (újranyitható), a backfill-SQL őrének tükre.
+ *  - KOR-ÉSSZERŰSÉG: ha mindkét születési dátum megvan, a szülő 15–70 évvel
+ *    idősebb kell legyen; hiányzó dátumnál nem zárunk emiatt.
+ *  - ANYA-ÁG: a leánykori név (szcs_nev) IS elfogadott kulcs, és mindkét
+ *    névsorrend (családnév+keresztnév / fordítva) egyezhet.
+ *  - RLS-rejtett személy-sor: az egyeztetőből hívva NEM zárunk (fail-closed,
+ *    szimmetria a láthatósági őrökkel); explicit család-szerkesztéses
+ *    eltávolításnál (closeOnUnreadable) marad a PR-21-es zárás.
+ * Hibánál DOB (a hívó kezeli).
+ */
+async function partitionParentEdgeClosures(
+  supabase: Db,
+  rows: Array<{ id: number | string; id_szemely_1: number; id_szemely_2: number; tipus: string }>,
+  opts?: { closeOnUnreadable?: boolean },
+): Promise<{ retagIds: Array<number | string>; closeIds: Array<number | string> }> {
+  const retagIds: Array<number | string> = []
+  const closeIds: Array<number | string> = []
+  const pcRows = rows.filter((r) => r.tipus === 'szulo_gyermek')
+  for (const r of rows) if (r.tipus !== 'szulo_gyermek') closeIds.push(r.id)
+  if (pcRows.length === 0) return { retagIds, closeIds }
+
+  // A gyermekek ÖSSZES aktív szülő-éle a két-édesapa-őrhöz
+  const childIds = [...new Set(pcRows.map((r) => r.id_szemely_2))]
+  const { data: coParentData, error: coErr } = await supabase
+    .from('szemely_kapcsolat')
+    .select('id_szemely_1, id_szemely_2')
+    .eq('tipus', 'szulo_gyermek')
+    .in('id_szemely_2', childIds)
+    .is('ervenyes_ig', null)
+  if (coErr) throw new Error(`szemely_kapcsolat-tars-szulo-olvasas: ${coErr.message}`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const coParentEdges = (coParentData || []) as any[]
+
+  const personIds = [...new Set([
+    ...pcRows.flatMap((r) => [r.id_szemely_1, r.id_szemely_2]),
+    ...coParentEdges.map((e) => e.id_szemely_1 as number),
+  ])]
+  const { data, error } = await supabase
+    .from('szemely')
+    .select('id, csaladnev, k_nev, szcs_nev, ferfi, sz_datum, apjaneve, anyjaneve')
+    .in('id', personIds)
+  if (error) throw new Error(`szemely-olvasas (szulonev-korroboracio): ${error.message}`)
+  interface PersonRow { id: number; csaladnev: string | null; k_nev: string | null; szcs_nev: string | null; ferfi: boolean | null; sz_datum: string | null; apjaneve: string | null; anyjaneve: string | null }
+  const byId = new Map<number, PersonRow>(((data || []) as PersonRow[]).map((p) => [p.id, p]))
+
+  for (const r of pcRows) {
+    const parent = byId.get(r.id_szemely_1)
+    const child = byId.get(r.id_szemely_2)
+    if (!parent || !child) {
+      if (opts?.closeOnUnreadable) closeIds.push(r.id)
+      continue
+    }
+
+    const keys = new Set<string>([
+      parentNameKey(`${parent.csaladnev ?? ''} ${parent.k_nev ?? ''}`),
+      parentNameKey(`${parent.k_nev ?? ''} ${parent.csaladnev ?? ''}`),
+    ])
+    if (parent.ferfi === false && (parent.szcs_nev ?? '').trim()) {
+      keys.add(parentNameKey(`${parent.szcs_nev} ${parent.k_nev ?? ''}`))
+      keys.add(parentNameKey(`${parent.k_nev ?? ''} ${parent.szcs_nev}`))
+    }
+    keys.delete('')
+    const asserted = parent.ferfi === true ? child.apjaneve : parent.ferfi === false ? child.anyjaneve : null
+    const aKey = asserted ? parentNameKey(asserted) : ''
+    let corroborated = !!aKey && keys.has(aKey)
+
+    if (corroborated && parent.sz_datum && child.sz_datum) {
+      const diff = Number(child.sz_datum.slice(0, 4)) - Number(parent.sz_datum.slice(0, 4))
+      if (!(diff >= 15 && diff <= 70)) corroborated = false
+    }
+
+    if (corroborated) {
+      const otherSameSexParent = coParentEdges.some((e) =>
+        e.id_szemely_2 === r.id_szemely_2
+        && e.id_szemely_1 !== r.id_szemely_1
+        && byId.get(e.id_szemely_1 as number)?.ferfi === parent.ferfi)
+      if (otherSameSexParent) corroborated = false
+    }
+
+    ;(corroborated ? retagIds : closeIds).push(r.id)
+  }
+  return { retagIds, closeIds }
+}
+
+/**
  * ROKONSÁGI EGYEZTETŐ (2026-08-02, PR-21) — „minden érintett helyen".
  *
  * A megadott személyek ÖSSZES aktív, TAGSÁG-EREDETŰ (haztartas-sync /
@@ -433,7 +548,13 @@ export async function reconcileKinshipForPersons(
   if (res2.error) throw new Error(`szemely_kapcsolat-olvasas: ${res2.error.message}`)
   const edgeById = new Map<string, EdgeRow>()
   for (const r of ([...(res1.data || []), ...(res2.data || [])] as EdgeRow[])) {
-    if (MEMBERSHIP_DERIVED_MARKERS.includes(r.megjegyzes ?? '')) edgeById.set(r.id, r)
+    // 2026-08-03 (PR-22 review-fix): a 'szulonev-egyezes' él is jelölt — a
+    // partition ÚJRA-ellenőrzi a név-korroborációt: ha a kartonon a név még
+    // igazolja, no-op retag; ha a user időközben javította a névmezőt (vagy
+    // másik azonos nemű szülő-él jelent meg), az él záródik. Így a jelölés
+    // nem "örök", hanem minden egyeztetésnél újraértékelődik.
+    if (MEMBERSHIP_DERIVED_MARKERS.includes(r.megjegyzes ?? '')
+      || (r.tipus === 'szulo_gyermek' && r.megjegyzes === PARENT_NAME_MATCH_MARKER)) edgeById.set(r.id, r)
   }
   const edges = [...edgeById.values()]
   if (edges.length === 0) return 0
@@ -495,31 +616,42 @@ export async function reconcileKinshipForPersons(
     if (cs.id_no != null) parentChildKeys.add(`${cs.id_no}|${g.id_szemely}`)
   }
 
-  const toClose = edges
-    .filter((e) => {
-      if (e.tipus === 'hazastars') {
-        // Láthatósági őr: legalább az egyik fél legyen olvasható saját tag
-        if (!readableIds.has(e.id_szemely_1) && !readableIds.has(e.id_szemely_2)) return false
-        const [a, b] = [e.id_szemely_1, e.id_szemely_2].sort((x, y) => x - y)
-        return !coupleKeys.has(`${a}|${b}`)
-      }
-      // szulo_gyermek: a SZÜLŐ legyen olvasható saját tag, és a gyermek
-      // igazolása ne legyen RLS-rejtett
-      if (!readableIds.has(e.id_szemely_1)) return false
-      if (unknownChildIds.has(e.id_szemely_2)) return false
-      return !parentChildKeys.has(`${e.id_szemely_1}|${e.id_szemely_2}`)
-    })
-    .map((e) => e.id)
+  const closureCandidates = edges.filter((e) => {
+    if (e.tipus === 'hazastars') {
+      // Láthatósági őr: legalább az egyik fél legyen olvasható saját tag
+      if (!readableIds.has(e.id_szemely_1) && !readableIds.has(e.id_szemely_2)) return false
+      const [a, b] = [e.id_szemely_1, e.id_szemely_2].sort((x, y) => x - y)
+      return !coupleKeys.has(`${a}|${b}`)
+    }
+    // szulo_gyermek: a SZÜLŐ legyen olvasható saját tag, és a gyermek
+    // igazolása ne legyen RLS-rejtett
+    if (!readableIds.has(e.id_szemely_1)) return false
+    if (unknownChildIds.has(e.id_szemely_2)) return false
+    return !parentChildKeys.has(`${e.id_szemely_1}|${e.id_szemely_2}`)
+  })
 
-  if (toClose.length > 0) {
+  // 2026-08-03 (PR-22): szülőnév-korroboráció — ha a gyermek kartonja név
+  // szerint igazolja a szülőt, az él tartós jelölést kap zárás helyett
+  // (a felnőtt gyermek kiköltözése nem törli a vér szerinti kapcsolatot).
+  const { retagIds, closeIds } = await partitionParentEdgeClosures(supabase, closureCandidates)
+
+  if (retagIds.length > 0) {
+    const { error } = await supabase
+      .from('szemely_kapcsolat')
+      .update({ megjegyzes: PARENT_NAME_MATCH_MARKER })
+      .eq('congregation_id', congregationId)
+      .in('id', retagIds)
+    if (error) throw new Error(`szemely_kapcsolat-egyezteto-atjeloles: ${error.message}`)
+  }
+  if (closeIds.length > 0) {
     const { error } = await supabase
       .from('szemely_kapcsolat')
       .update({ ervenyes_ig: new Date().toISOString().slice(0, 10), megjegyzes: 'csalad-szerkesztes-eltavolitas' })
       .eq('congregation_id', congregationId)
-      .in('id', toClose)
+      .in('id', closeIds)
     if (error) throw new Error(`szemely_kapcsolat-egyezteto-lezaras: ${error.message}`)
   }
-  return toClose.length
+  return closeIds.length
 }
 
 /**
@@ -575,13 +707,17 @@ export async function closeMarriageEdgeBetween(supabase: Db, a: number, b: numbe
  */
 export async function closeSyncKinshipEdges(
   supabase: Db,
+  congregationId: string,
   pairs: Array<{ id1: number; id2: number; tipus: 'szulo_gyermek' | 'hazastars' }>,
 ) {
   if (pairs.length === 0) return
   const ids = [...new Set(pairs.flatMap((p) => [p.id1, p.id2]))]
+  // 2026-08-03 (PR-22 review-fix): tenant-szűrt olvasás/írás — a reconcile-lal
+  // azonos defense-in-depth (globális szerepkörrel se nyúljunk idegen élhez).
   const { data, error } = await supabase
     .from('szemely_kapcsolat')
     .select('id, id_szemely_1, id_szemely_2, tipus, megjegyzes')
+    .eq('congregation_id', congregationId)
     .in('id_szemely_1', ids)
     .is('ervenyes_ig', null)
   if (error) throw new Error(`szemely_kapcsolat-olvasas: ${error.message}`)
@@ -591,15 +727,30 @@ export async function closeSyncKinshipEdges(
       : [`${p.id1}|${p.id2}|${p.tipus}`],
   ))
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const toClose = ((data || []) as any[])
+  const toCloseRows = ((data || []) as any[])
     .filter((r) => wanted.has(`${r.id_szemely_1}|${r.id_szemely_2}|${r.tipus}`)
-      && KINSHIP_SYNC_MARKERS.includes((r.megjegyzes as string | null) ?? ''))
-    .map((r) => r.id as number)
-  if (toClose.length > 0) {
+      && (KINSHIP_SYNC_MARKERS.includes((r.megjegyzes as string | null) ?? '')
+        || (r.tipus === 'szulo_gyermek' && r.megjegyzes === PARENT_NAME_MATCH_MARKER)))
+
+  // 2026-08-03 (PR-22): szülőnév-korroboráció — a kartonon igazolt szülő-él
+  // a családból való kivételkor sem záródik, tartós jelölést kap. Explicit
+  // eltávolításnál az RLS-rejtett személy-sor zárást jelent (PR-21 viselkedés).
+  const { retagIds, closeIds } = await partitionParentEdgeClosures(supabase, toCloseRows, { closeOnUnreadable: true })
+
+  if (retagIds.length > 0) {
+    const { error: retagError } = await supabase
+      .from('szemely_kapcsolat')
+      .update({ megjegyzes: PARENT_NAME_MATCH_MARKER })
+      .eq('congregation_id', congregationId)
+      .in('id', retagIds)
+    if (retagError) throw new Error(`szemely_kapcsolat-atjeloles: ${retagError.message}`)
+  }
+  if (closeIds.length > 0) {
     const { error: closeError } = await supabase
       .from('szemely_kapcsolat')
       .update({ ervenyes_ig: new Date().toISOString().slice(0, 10), megjegyzes: 'csalad-szerkesztes-eltavolitas' })
-      .in('id', toClose)
+      .eq('congregation_id', congregationId)
+      .in('id', closeIds)
     if (closeError) throw new Error(`szemely_kapcsolat-lezaras: ${closeError.message}`)
   }
 }

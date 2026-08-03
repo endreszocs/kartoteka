@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-03] — Családfa: nagyszülők és a teljes rokonság a szülő-nevekből
+<!-- key: 2026-08-03-tagnyilv-pr22-tobbgeneracios-csaladfa -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.135 -->
+
+### ✨ Új funkciók
+
+- **A személyi karton „Édesapa/Édesanya" nevéből rokonsági kapcsolat lesz**: egy egyszeri pótlás a meglévő tagok szülő-névmezőiből felépíti a hiányzó szülő–gyerek kapcsolatokat — így a családfán megjelennek a nagyszülők, dédszülők, testvérek, nagybácsik és unokatestvérek is, ha a nevek alapján egyértelműen azonosíthatók. Biztonsági szabályok: csak pontosan egy névre illő, megfelelő nemű és korban ésszerű (15–70 évvel idősebb) jelölt esetén jön létre kapcsolat; többértelmű névnél a rendszer inkább kihagyja, és listában jelzi.
+
+### 🐛 Javítások
+
+- **A felnőtt gyermek szülő-kapcsolata nem vész el**: ha egy gyermeket kivesznek a szülei családi kartonjáról (mert felnőtt, és saját családot alapított), a vér szerinti szülő–gyerek kapcsolat mostantól megmarad, amennyiben a személyi karton szülő-névmezője igazolja — korábban a családfa ilyenkor „elfelejtette" a szülőket.
+
+---
+
 ## [2026-08-02] — Családfa: a javítás mindenhol érvényesül + kereszthiba-figyelmeztetés
 <!-- key: 2026-08-02-tagnyilv-pr21-rokonsagi-konzisztencia -->
 <!-- category: bugfix -->
