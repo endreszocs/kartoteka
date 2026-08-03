@@ -23,6 +23,25 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-04] — Család szerkesztése: eltűnő keresés és 8 további hiba javítva
+<!-- key: 2026-08-04-tagnyilv-pr34-csalad-szerkeszto -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.148 -->
+
+### 🐛 Javítások
+
+- **Nem tűnik el többé, amit kerestél vagy kiválasztottál**: a szerkesztő-ablak eddig minden háttérben történő frissítéskor újraindította magát, és ilyenkor elvesztek a kiválasztott személyek és a beírt keresés. Mostantól csak akkor tölt újra, ha tényleg másik családot nyitsz meg. (Ugyanez okozhatta azt is, hogy egy módosításból véletlenül új család jött volna létre.)
+- **Megbízható keresés**: a gépelés végét megvárja a rendszer, a lassabban megérkező régi találat már nem írja felül a frisset, és ha a keresés hibára fut, azt meg is mondja — eddig csendben „nincs találat" látszott.
+- **Vesszőt vagy zárójelet tartalmazó név is kereshető**: az ilyen beírás korábban némán üres listát adott.
+- **A találatok nem hiányoznak nagy nyilvántartásnál**: a családtagsági ellenőrzés eddig egy 1000 soros korlátba ütközött, ami miatt a „már máshol családtag" jelölés megbízhatatlan lehetett.
+- **Nem lehet ugyanaz a személy férj és gyermek is**: a rendszer eddig némán kiszűrte mentéskor, most beszédesen jelzi.
+- **Találatlista bezárása**: kívülre kattintással és Escape-pel is (az Escape korábban az egész ablakot bezárta, elveszítve a beírt adatokat).
+- **Dupla mentés kizárva**, és a „Mégse" gomb mentés közben nem kattintható.
+- **Billentyűzetes kezelés**: a találatok között ↓/↑ nyíllal lehet lépkedni, Enterrel választani.
+
+---
+
 ## [2026-08-04] — Egyértelmű betöltés-jelző a személyek keresésénél
 <!-- key: 2026-08-04-tagnyilv-pr37-betoltes-jelzo -->
 <!-- category: improvement -->

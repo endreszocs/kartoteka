@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Sparkles, TriangleAlert } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -46,6 +46,56 @@ const FIELD_INPUT_CLASS = 'h-11 rounded-xl border-input bg-card shadow-sm focus-
 
 type PersonRef = { id: number; name: string; age?: number | null }
 
+// ── Keresőmezők közös állapota (2026-08-04, PR-34) ─────────────────────────
+//
+// A három kereső (férj / feleség / gyermek) eddig 9 külön state-ben élt, és
+// mindhárom ugyanazokat a hibákat hordozta: nem volt késleltetés (minden
+// leütésre szerver-hívás), nem volt kérés-sorszám (a LASSABB, korábbi válasz
+// felülírta a frissebbet), és a lista nem záródott be kívülre kattintásra.
+// Egy közös alakzattal mindhárom mező egyszerre javul.
+type SearchType = 'husband' | 'wife' | 'child'
+
+interface SearchFieldState {
+  query: string
+  results: SearchResult[]
+  /** nyitva van-e a találatlista */
+  open: boolean
+  /** billentyűzettel kijelölt sor indexe (-1 = nincs kijelölés) */
+  active: number
+  loading: boolean
+  /** lefutott-e már keresés — az üres lista így megkülönböztethető a „még nem kerestünk" állapottól */
+  searched: boolean
+}
+
+const EMPTY_SEARCH_FIELD: SearchFieldState = {
+  query: '',
+  results: [],
+  open: false,
+  active: -1,
+  loading: false,
+  searched: false,
+}
+
+const EMPTY_SEARCH_STATE: Record<SearchType, SearchFieldState> = {
+  husband: EMPTY_SEARCH_FIELD,
+  wife: EMPTY_SEARCH_FIELD,
+  child: EMPTY_SEARCH_FIELD,
+}
+
+const SEARCH_TYPES: SearchType[] = ['husband', 'wife', 'child']
+
+const SEARCH_LABELS: Record<SearchType, string> = {
+  husband: 'Férj',
+  wife: 'Feleség',
+  child: 'Gyermek',
+}
+
+/** A keresés késleltetése (ms) — enélkül minden leütés külön szerver-hívás volt. */
+const SEARCH_DEBOUNCE_MS = 250
+
+const DROPDOWN_BOX_CLASS =
+  'absolute left-0 right-0 top-full z-30 mt-1 max-h-60 overflow-y-auto overscroll-contain rounded-xl border border-border bg-popover p-1 shadow-xl'
+
 export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormDialogProps) {
   const [loading, setLoading] = useState(false)
   const [husband, setHusband] = useState<PersonRef | null>(null)
@@ -63,6 +113,11 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
   // 2026-08-04 (PR-27): a felnőtt pár kapcsolatának jellege és kezdete
   const [parkapcsolat, setParkapcsolat] = useState<'hazastars' | 'elettars' | null>(null)
   const [parDatum, setParDatum] = useState('')
+  // 2026-08-04 (PR-34): melyik PÁROSHOZ tartozik a fenti jelölés. Eddig csak a
+  // „férj cseréje másik személyre" ág törölte a jelölést, a férj/feleség
+  // ELTÁVOLÍTÁSA nem — így a házasság+dátum átragadhatott a következő félre.
+  // Származtatva ellenőrizzük: ha a páros már nem ugyanaz, a jelölés nem él.
+  const [parPair, setParPair] = useState<{ ferfiId: number | null; noId: number | null } | null>(null)
 
   // A figyelmeztető panel az űrlap alján van — hosszú űrlapon / mobilon a
   // viewport alá esne, és a mentés „nem csinál semmit" érzést keltene.
@@ -70,99 +125,306 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
     if (pendingConflicts) conflictRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [pendingConflicts])
 
-  // Keresők
-  const [husbandQuery, setHusbandQuery] = useState('')
-  const [wifeQuery, setWifeQuery] = useState('')
-  const [childQuery, setChildQuery] = useState('')
-  const [husbandResults, setHusbandResults] = useState<SearchResult[]>([])
-  const [wifeResults, setWifeResults] = useState<SearchResult[]>([])
-  const [childResults, setChildResults] = useState<SearchResult[]>([])
-  const [showHusband, setShowHusband] = useState(false)
-  const [showWife, setShowWife] = useState(false)
-  const [showChild, setShowChild] = useState(false)
+  // Keresők — közös állapot (lásd a SearchFieldState kommentjét)
+  const [search, setSearch] = useState<Record<SearchType, SearchFieldState>>(EMPTY_SEARCH_STATE)
+  /** A keresők állapotának tükre a natív (nem React) eseménykezelőkhöz. */
+  const searchRef = useRef(search)
+  /** A mezők konténer-elemei — a „kívülre kattintás zárja a listát" logikához. */
+  const fieldRefs = useRef<Record<SearchType, HTMLDivElement | null>>({ husband: null, wife: null, child: null })
+  /** Késleltető időzítők mezőnként. */
+  const searchTimersRef = useRef<Record<SearchType, ReturnType<typeof setTimeout> | null>>({
+    husband: null, wife: null, child: null,
+  })
+  /** Kérés-sorszám mezőnként: csak a LEGUTÓBB indított keresés válasza számít. */
+  const searchSeqRef = useRef<Record<SearchType, number>>({ husband: 0, wife: 0, child: 0 })
 
+  // 2026-08-04 (PR-34): az inicializálás kulcsa a szerkesztett család
+  // AZONOSÍTÓJA — nem az `editFamily` objektum-referencia.
+  //
+  // Miért: a hívó helyek egy része inline objektum-literált ad át (pl. a családi
+  // karton „Szerkesztés" gombja a family-details-dialog-refined.tsx-ben), ezért
+  // MINDEN szülő-újrarenderelésnél új referencia keletkezik. A korábbi
+  // `[open, editFamily]` függőség emiatt NYITOTT ablaknál is újra lefuttatta a
+  // teljes resetet: a felhasználó elvesztette a kiválasztott férjet/feleséget/
+  // gyermekeket és a beírt keresőszöveget („egyszer csak eltűnik, amit
+  // kiválasztottam"). Most csak az ablak nyitása / másik család betöltése
+  // inicializál újra.
+  const editFamilyId = editFamily?.id ?? null
+  const editFamilyRef = useRef(editFamily)
+  const initializedKeyRef = useRef<string | null>(null)
+  /**
+   * A ténylegesen szerkesztett család azonosítója — az inicializáláskor rögzítjük.
+   * A mentés és a kereső EZT használja: ha a szülő nyitott ablaknál átmenetileg
+   * null-t adna, a mentés attól még NEM válhat „új család létrehozásává".
+   */
+  const activeFamilyIdRef = useRef<number | null>(null)
+
+  // A legfrissebb prop-érték olvasásra — a referencia-változás nem indíthat
+  // újra-inicializálást, ezért nem függősége az inicializáló effektnek.
+  useEffect(() => {
+    editFamilyRef.current = editFamily
+  })
+
+  useEffect(() => {
+    searchRef.current = search
+  }, [search])
+
+  // Körzetek: az ablak megnyitásakor egyszer. (Korábban az inicializáló
+  // effektben volt, catch nélkül — a hálózati hiba kezeletlen promise-t dobott.)
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    queueMicrotask(() => {
-      if (cancelled) return
-      // Körzetek mindig betöltődnek (csak a saját gyülekezeté)
-      getDistricts().then(data => {
-        if (!cancelled) setDistricts(data)
+    getDistricts()
+      .then((data) => { if (!cancelled) setDistricts(data) })
+      .catch((error) => {
+        console.warn('[FamilyFormDialog] A körzetek betöltése sikertelen:', error)
       })
-      if (editFamily) {
-        const ageOf = (d: string | null | undefined) =>
-          d ? new Date().getFullYear() - new Date(d).getFullYear() : null
-        setHusband(editFamily.ferfi
-          ? { id: editFamily.ferfi.id, name: `${editFamily.ferfi.csaladnev} ${editFamily.ferfi.k_nev}`, age: ageOf(editFamily.ferfi.sz_datum) }
-          : null)
-        setWife(editFamily.no
-          ? { id: editFamily.no.id, name: `${editFamily.no.csaladnev} ${editFamily.no.k_nev}`, age: ageOf(editFamily.no.sz_datum) }
-          : null)
-        setCSzam(editFamily.c_szam || '')
-        setCUtcaName(editFamily.utca?.name || '')
-        setCUtcaid(editFamily.c_utcaid ?? undefined)
-        setIdCsoport(editFamily.id_csoport ? String(editFamily.id_csoport) : '')
-        setChildren((editFamily.gyerekek ?? []).map((child) => ({
+    return () => { cancelled = true }
+  }, [open])
+
+  // Az űrlap feltöltése / ürítése
+  useEffect(() => {
+    if (!open) {
+      // Záráskor takarítunk: a következő megnyitás mindig friss állapotból indul.
+      initializedKeyRef.current = null
+      activeFamilyIdRef.current = null
+      for (const type of SEARCH_TYPES) {
+        const timer = searchTimersRef.current[type]
+        if (timer) { clearTimeout(timer); searchTimersRef.current[type] = null }
+        searchSeqRef.current[type] += 1
+      }
+      setSearch(EMPTY_SEARCH_STATE)
+      setPendingConflicts(null)
+      return
+    }
+    // Ha a szülő NYITOTT ablaknál átmenetileg null-t ad (pl. épp újratölti a
+    // karton adatait), nem váltunk „új család" módba — az űrlap tartalma marad.
+    if (editFamilyId == null && initializedKeyRef.current !== null) return
+
+    const key = editFamilyId != null ? `csalad:${editFamilyId}` : 'uj-csalad'
+    if (initializedKeyRef.current === key) return
+    initializedKeyRef.current = key
+    activeFamilyIdRef.current = editFamilyId
+
+    const current = editFamilyRef.current
+    if (current && current.id === editFamilyId) {
+      const ageOf = (d: string | null | undefined) =>
+        d ? new Date().getFullYear() - new Date(d).getFullYear() : null
+      const ferfiId = current.ferfi?.id ?? null
+      const noId = current.no?.id ?? null
+      setHusband(current.ferfi
+        ? { id: current.ferfi.id, name: `${current.ferfi.csaladnev} ${current.ferfi.k_nev}`, age: ageOf(current.ferfi.sz_datum) }
+        : null)
+      setWife(current.no
+        ? { id: current.no.id, name: `${current.no.csaladnev} ${current.no.k_nev}`, age: ageOf(current.no.sz_datum) }
+        : null)
+      setCSzam(current.c_szam || '')
+      setCUtcaName(current.utca?.name || '')
+      setCUtcaid(current.c_utcaid ?? undefined)
+      setIdCsoport(current.id_csoport ? String(current.id_csoport) : '')
+      // A felnőtt slotokban ülő személy nem lehet egyben gyermek is (a szerver
+      // amúgy is kiszűrné) — a hibás korábbi adat így nem jelenik meg duplán.
+      const seenChildIds = new Set<number>()
+      setChildren((current.gyerekek ?? [])
+        .filter((child) => {
+          if (child.id === ferfiId || child.id === noId) return false
+          if (seenChildIds.has(child.id)) return false
+          seenChildIds.add(child.id)
+          return true
+        })
+        .map((child) => ({
           id: child.id,
           name: `${child.csaladnev ?? ''} ${child.k_nev ?? ''}`.trim() || 'Névtelen gyermek',
           age: ageOf(child.sz_datum),
         })))
-        // A meglévő párkapcsolat-jelölés betöltése (PR-27) — enélkül a mentés
-        // felülírná a már rögzített (pl. anyakönyvi) adatot
-        if (editFamily.ferfi?.id && editFamily.no?.id) {
-          getFamilyPartnership({ ferfiId: editFamily.ferfi.id, noId: editFamily.no.id })
-            .then((p) => {
-              if (cancelled) return
-              setParkapcsolat(p.tipus)
-              setParDatum(p.datum ?? '')
-            })
-            .catch(() => { /* nem blokkoló */ })
-        } else {
-          setParkapcsolat(null)
-          setParDatum('')
-        }
-      } else {
-        setHusband(null)
-        setWife(null)
-        setChildren([])
-        setCSzam('')
-        setCUtcaName('')
-        setCUtcaid(undefined)
-        setIdCsoport('')
-        setParkapcsolat(null)
-        setParDatum('')
+      // A meglévő párkapcsolat-jelölés betöltése (PR-27) — enélkül a mentés
+      // felülírná a már rögzített (pl. anyakönyvi) adatot
+      setParkapcsolat(null)
+      setParDatum('')
+      setParPair(null)
+      if (ferfiId && noId) {
+        getFamilyPartnership({ ferfiId, noId })
+          .then((p) => {
+            // Közben másik családra / új családra váltottunk → eldobjuk
+            if (initializedKeyRef.current !== key) return
+            setParkapcsolat(p.tipus)
+            setParDatum(p.datum ?? '')
+            setParPair({ ferfiId, noId })
+          })
+          .catch((error) => {
+            console.warn('[FamilyFormDialog] A párkapcsolat betöltése sikertelen:', error)
+          })
       }
-      setHusbandQuery('')
-      setWifeQuery('')
-      setChildQuery('')
-      setHusbandResults([])
-      setWifeResults([])
-      setChildResults([])
-      setPendingConflicts(null)
-    })
-    return () => {
-      cancelled = true
+    } else {
+      setHusband(null)
+      setWife(null)
+      setChildren([])
+      setCSzam('')
+      setCUtcaName('')
+      setCUtcaid(undefined)
+      setIdCsoport('')
+      setParkapcsolat(null)
+      setParDatum('')
+      setParPair(null)
     }
-  }, [open, editFamily])
+    setSearch(EMPTY_SEARCH_STATE)
+    setPendingConflicts(null)
+  }, [open, editFamilyId])
 
-  async function handleSearch(val: string, type: 'husband' | 'wife' | 'child') {
-    if (val.length < 2) {
-      if (type === 'husband') { setShowHusband(false) }
-      else if (type === 'wife') { setShowWife(false) }
-      else { setShowChild(false) }
-      return
+  // Az időzítők takarítása lecsatoláskor (különben egy már eltűnt ablak
+  // keresése futna le a háttérben).
+  useEffect(() => {
+    const timers = searchTimersRef.current
+    return () => {
+      for (const type of SEARCH_TYPES) {
+        const timer = timers[type]
+        if (timer) clearTimeout(timer)
+      }
     }
-    const role = type === 'husband' ? 'ferfi' as const : type === 'wife' ? 'no' as const : 'gyerek' as const
-    const results = await searchFamilyMember(val, role, editFamily?.id)
-    if (type === 'husband') { setHusbandResults(results as unknown as SearchResult[]); setShowHusband(true) }
-    else if (type === 'wife') { setWifeResults(results as unknown as SearchResult[]); setShowWife(true) }
-    else { setChildResults(results as unknown as SearchResult[]); setShowChild(true) }
+  }, [])
+
+  // Kívülre kattintás zárja a találatlistát (eddig nyitva ragadt, és eltakarta
+  // az alatta lévő mezőket).
+  useEffect(() => {
+    if (!open) return
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target as Node | null
+      if (!target) return
+      const closing = SEARCH_TYPES.filter((type) => {
+        if (!searchRef.current[type].open) return false
+        const container = fieldRefs.current[type]
+        return !(container && container.contains(target))
+      })
+      if (closing.length === 0) return
+      for (const type of closing) {
+        const timer = searchTimersRef.current[type]
+        if (timer) { clearTimeout(timer); searchTimersRef.current[type] = null }
+        // A folyamatban lévő kérés válasza ne nyissa vissza a bezárt listát.
+        searchSeqRef.current[type] += 1
+      }
+      setSearch((prev) => {
+        const next = { ...prev }
+        for (const type of closing) {
+          next[type] = { ...prev[type], open: false, active: -1, loading: false }
+        }
+        return next
+      })
+    }
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    return () => document.removeEventListener('pointerdown', handlePointerDown, true)
+  }, [open])
+
+  // Escape: ha nyitva van egy találatlista, CSAK azt zárjuk be.
+  //
+  // Miért capture fázisban, natív figyelővel: a dialógus-primitív (Base UI) az
+  // Escape-et a `document` BUBORÉK fázisában figyeli, ezért a React-es
+  // onKeyDown + stopPropagation már elkésne — az Esc bezárta volna a teljes
+  // ablakot, és a felhasználó minden beírt adatot elveszített volna.
+  useEffect(() => {
+    if (!open) return
+    function handleEscape(event: globalThis.KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      const openType = SEARCH_TYPES.find((type) => searchRef.current[type].open)
+      if (!openType) return
+      event.preventDefault()
+      event.stopPropagation()
+      const timer = searchTimersRef.current[openType]
+      if (timer) { clearTimeout(timer); searchTimersRef.current[openType] = null }
+      searchSeqRef.current[openType] += 1
+      setSearch((prev) => ({ ...prev, [openType]: { ...prev[openType], open: false, active: -1, loading: false } }))
+    }
+    document.addEventListener('keydown', handleEscape, true)
+    return () => document.removeEventListener('keydown', handleEscape, true)
+  }, [open])
+
+  function patchSearch(type: SearchType, patch: Partial<SearchFieldState>) {
+    setSearch((prev) => ({ ...prev, [type]: { ...prev[type], ...patch } }))
   }
 
-  function selectPerson(r: SearchResult, type: 'husband' | 'wife' | 'child') {
-    const name = `${r.csaladnev} ${r.k_nev}`
+  /** Késleltetés törlése + a folyamatban lévő kérés eredményének eldobása. */
+  function cancelPendingSearch(type: SearchType) {
+    const timer = searchTimersRef.current[type]
+    if (timer) { clearTimeout(timer); searchTimersRef.current[type] = null }
+    searchSeqRef.current[type] += 1
+  }
+
+  async function runSearch(type: SearchType, query: string, seq: number) {
+    const role = type === 'husband' ? 'ferfi' as const : type === 'wife' ? 'no' as const : 'gyerek' as const
+    try {
+      const results = await searchFamilyMember(query, role, activeFamilyIdRef.current ?? undefined)
+      // Elavult válasz (közben újabb keresés indult vagy választottunk) — eldobjuk.
+      if (searchSeqRef.current[type] !== seq) return
+      patchSearch(type, {
+        results: results as unknown as SearchResult[],
+        open: true,
+        loading: false,
+        searched: true,
+        active: -1,
+      })
+    } catch (error) {
+      if (searchSeqRef.current[type] !== seq) return
+      // Eddig a hívó nem várta meg a promise-t → a hiba kezeletlen maradt, és a
+      // felhasználó csak annyit látott, hogy „nem történik semmi".
+      console.error('[FamilyFormDialog] A tagkeresés sikertelen:', error)
+      patchSearch(type, { results: [], open: false, loading: false, searched: false, active: -1 })
+      toast.error('A keresés nem sikerült. Ellenőrizd a kapcsolatot, majd próbáld újra.')
+    }
+  }
+
+  function handleQueryChange(type: SearchType, value: string) {
+    cancelPendingSearch(type)
+    const trimmed = value.trim()
+    if (trimmed.length < 2) {
+      patchSearch(type, { query: value, results: [], open: false, loading: false, searched: false, active: -1 })
+      return
+    }
+    patchSearch(type, { query: value, open: true, loading: true, active: -1 })
+    const seq = searchSeqRef.current[type]
+    searchTimersRef.current[type] = setTimeout(() => {
+      searchTimersRef.current[type] = null
+      void runSearch(type, trimmed, seq)
+    }, SEARCH_DEBOUNCE_MS)
+  }
+
+  function handleSearchKeyDown(event: ReactKeyboardEvent<HTMLInputElement>, type: SearchType) {
+    const state = search[type]
+    // Az Escape-et a fenti capture-fázisú natív figyelő kezeli (lásd ott a
+    // magyarázatot) — ide már el sem jut, ha nyitva van a találatlista.
+    if (!state.open || state.results.length === 0) return
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      patchSearch(type, { active: (state.active + 1) % state.results.length })
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      patchSearch(type, { active: state.active <= 0 ? state.results.length - 1 : state.active - 1 })
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+      const picked = state.results[state.active >= 0 ? state.active : 0]
+      if (picked) selectPerson(picked, type)
+    }
+  }
+
+  function selectPerson(r: SearchResult, type: SearchType) {
+    const name = `${r.csaladnev ?? ''} ${r.k_nev ?? ''}`.trim() || `#${r.id}`
     const age = r.sz_datum ? new Date().getFullYear() - new Date(r.sz_datum).getFullYear() : null
+
+    // 2026-08-04 (PR-34): SZEREP-ÜTKÖZÉS. Ugyanaz a személy nem lehet egyszerre
+    // férj és feleség, és felnőttként sem szerepelhet a saját gyermekei között.
+    // A szerver a gyerek-listából némán kiszűri az ilyet (saveFamily), így a
+    // lelkész azt hitte, elmentette — most a kiválasztáskor szólunk.
+    if (type === 'husband' && wife?.id === r.id) {
+      toast.error(`${name} már a feleség helyén szerepel — egy személy nem lehet egyszerre mindkét fél.`)
+      return
+    }
+    if (type === 'wife' && husband?.id === r.id) {
+      toast.error(`${name} már a férj helyén szerepel — egy személy nem lehet egyszerre mindkét fél.`)
+      return
+    }
+    if (type === 'child' && (husband?.id === r.id || wife?.id === r.id)) {
+      toast.error(`${name} ennek a családnak felnőtt tagja — gyermekként nem vehető fel ugyanide.`)
+      return
+    }
+
     // 2026-08-01 (PR-18): azonnali figyelmeztetés dupla tagságnál — a mentéskor
     // a szerver úgyis megerősítést kér, de a felhasználó már itt lássa.
     if (r.felnottMashol && type === 'child') {
@@ -176,48 +438,87 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
         { duration: 6000 },
       )
     }
+
+    // A folyamatban lévő (elavult) keresés válasza ne nyissa vissza a listát.
+    cancelPendingSearch(type)
+    patchSearch(type, { ...EMPTY_SEARCH_FIELD })
+
+    if (type === 'husband' || type === 'wife') {
+      // Ha eddig gyermekként szerepelt, felnőttként vesszük fel — a szerver is
+      // így jár el, de eddig szó nélkül tette, itt viszont látszik a listán.
+      if (children.some((c) => c.id === r.id)) {
+        setChildren((prev) => prev.filter((c) => c.id !== r.id))
+        toast.info(`${name} eddig a gyermekek között szerepelt — felnőttként vettük fel, ezért onnan kikerült.`)
+      }
+    }
+
+    // 2026-08-04 (PR-27 + PR-34): a pár jelölése (házasság/élettárs + dátum)
+    // NEM ragadhat át egy másik párosra — ezt már a `parPair` összevetése
+    // intézi (lásd `parkapcsolatErvenyes`), itt nincs külön törlés.
     if (type === 'husband') {
-      // 2026-08-04 (PR-27): MÁSIK személy → a korábbi pár jelölése (házasság/
-      // élettárs + dátum) nem ragadhat át az új párra
-      if (husband && husband.id !== r.id) { setParkapcsolat(null); setParDatum('') }
-      setHusband({ id: r.id, name, age }); setHusbandQuery(''); setShowHusband(false)
+      setHusband({ id: r.id, name, age })
       // Cím auto-töltés a férj lakcíméből
       if (r.adrstreet?.name) { setCUtcaName(r.adrstreet.name); setCUtcaid(r.c_utcaid ?? undefined) }
       if (r.c_szam) setCSzam(r.c_szam)
     } else if (type === 'wife') {
-      if (wife && wife.id !== r.id) { setParkapcsolat(null); setParDatum('') }
-      setWife({ id: r.id, name, age }); setWifeQuery(''); setShowWife(false)
+      setWife({ id: r.id, name, age })
       // Ha nincs még cím → a feleség lakcíméből tölt
       if (!cUtcaName && r.adrstreet?.name) { setCUtcaName(r.adrstreet.name); setCUtcaid(r.c_utcaid ?? undefined) }
       if (!cSzam && r.c_szam) setCSzam(r.c_szam)
     } else {
-      if (!children.find(c => c.id === r.id)) setChildren(prev => [...prev, { id: r.id, name, age }])
-      setChildQuery('')
-      setShowChild(false)
+      // Funkcionális frissítés + duplikátum-szűrés: két gyors kiválasztás sem
+      // tud kétszer beszúrni ugyanazt.
+      setChildren((prev) => (prev.some((c) => c.id === r.id) ? prev : [...prev, { id: r.id, name, age }]))
     }
+  }
+
+  // 2026-08-04 (PR-34): a pár jelölése CSAK arra a párosra érvényes, amelyikre
+  // rögzítettük. Ha bármelyik fél kicserélődött vagy kikerült, a jelölés nem él
+  // (és mentéskor sem küldjük) — így nem öröklődik át a következő félre.
+  const parkapcsolatErvenyes =
+    parPair !== null
+    && parPair.ferfiId === (husband?.id ?? null)
+    && parPair.noId === (wife?.id ?? null)
+  const aktivParkapcsolat = parkapcsolatErvenyes ? parkapcsolat : null
+  const aktivParDatum = parkapcsolatErvenyes ? parDatum : ''
+
+  /** A pár jelölése mindig az ÉPPEN kiválasztott párosra vonatkozik. */
+  function chooseParkapcsolat(value: 'hazastars' | 'elettars') {
+    setParkapcsolat(value)
+    setParPair({ ferfiId: husband?.id ?? null, noId: wife?.id ?? null })
+    if (!parkapcsolatErvenyes) setParDatum('')
   }
 
   function removeChild(id: number) {
     setChildren(prev => prev.filter(c => c.id !== id))
   }
 
+  /** Dupla mentés elleni őr — a `loading` state a két gyors kattintás közt még nem ért át. */
+  const submitInFlightRef = useRef(false)
+
   async function handleSubmit(allowMoves = false) {
+    if (submitInFlightRef.current) return
     if (!husband && !wife) { toast.error('Legalább egy felet (férj vagy feleség) meg kell adni.'); return }
+    submitInFlightRef.current = true
     setLoading(true)
     try {
+      // Biztonsági háló: dedup + a felnőtt slotok kizárása (a szerver is ezt
+      // teszi, de így a felület és a küldött adat mindig egyezik).
+      const gyerekIds = [...new Set(children.map(c => c.id))]
+        .filter((id) => id !== husband?.id && id !== wife?.id)
       const result = await saveFamily({
-        id: editFamily?.id,
+        id: activeFamilyIdRef.current ?? undefined,
         id_ferfi: husband?.id ?? null,
         id_no: wife?.id ?? null,
-        gyerekIds: children.map(c => c.id),
+        gyerekIds,
         c_utcaid: cUtcaid,
         c_szam: cSzam || undefined,
         id_csoport: idCsoport ? parseInt(idCsoport) : null,
         allowMoves,
         // Csak akkor küldjük, ha van pár ÉS a felhasználó jelölt is valamit —
         // különben nem nyúlunk a meglévő (pl. anyakönyvi) kapcsolathoz
-        parkapcsolat: husband && wife ? parkapcsolat : null,
-        parkapcsolat_datum: husband && wife && parkapcsolat ? (parDatum || null) : null,
+        parkapcsolat: husband && wife ? aktivParkapcsolat : null,
+        parkapcsolat_datum: husband && wife && aktivParkapcsolat ? (aktivParDatum || null) : null,
       })
       if (result.error) {
         toast.error(result.error)
@@ -232,7 +533,7 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
         })
         toast.warning(result.warning ?? 'Egy kiválasztott személy már másik család tagja — erősítsd meg az áthelyezést a lap alján.', { duration: 8000 })
       } else {
-        toast.success(editFamily ? 'Család frissítve!' : 'Család létrehozva!')
+        toast.success(activeFamilyIdRef.current ? 'Család frissítve!' : 'Család létrehozva!')
         // 2026-06-10 (Fázis 2): a háztartás-sync hibája nem néma többé
         if (result.warning) toast.warning(result.warning, { duration: 8000 })
         setPendingConflicts(null)
@@ -242,26 +543,51 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
       console.error('[FamilyFormDialog] A család mentése sikertelen:', error)
       toast.error('A család mentése nem sikerült. Próbáld újra.')
     } finally {
+      submitInFlightRef.current = false
       setLoading(false)
     }
   }
 
-  function renderSearchDropdown(results: SearchResult[], visible: boolean, type: 'husband' | 'wife' | 'child') {
-    if (!visible || results.length === 0) return null
+  function renderSearchDropdown(type: SearchType) {
+    const state = search[type]
+    if (!state.open) return null
+    const label = SEARCH_LABELS[type]
+
+    if (state.results.length === 0) {
+      // Eddig üres válasznál egyszerűen NEM jelent meg semmi — a felhasználó
+      // nem tudta eldönteni, hogy fut-e még a keresés, vagy nincs találat.
+      if (state.loading) {
+        return (
+          <div id={`family-${type}-results`} role="status" className={`${DROPDOWN_BOX_CLASS} px-3 py-2 text-sm text-muted-foreground`}>
+            Keresés…
+          </div>
+        )
+      }
+      if (!state.searched) return null
+      return (
+        <div id={`family-${type}-results`} role="status" className={`${DROPDOWN_BOX_CLASS} px-3 py-2 text-sm text-muted-foreground`}>
+          Nincs találat erre a névre.
+          {type !== 'child' && ' A más családban már bejegyzett felnőttek nem jelennek meg ebben a listában.'}
+        </div>
+      )
+    }
+
     return (
       <div
         id={`family-${type}-results`}
         role="listbox"
-        aria-label={`${type === 'husband' ? 'Férj' : type === 'wife' ? 'Feleség' : 'Gyermek'} keresési találatok`}
-        className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto overscroll-contain rounded-xl border border-border bg-popover p-1 shadow-xl"
+        aria-label={`${label} keresési találatok`}
+        className={DROPDOWN_BOX_CLASS}
       >
-        {results.map(r => (
+        {state.results.map((r, index) => (
           <button
             key={r.id}
+            id={`family-${type}-option-${r.id}`}
             type="button"
             role="option"
-            aria-selected="false"
-            className="block min-h-11 w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-primary/5 focus-visible:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+            aria-selected={index === state.active}
+            ref={index === state.active ? (el) => { el?.scrollIntoView({ block: 'nearest' }) } : undefined}
+            className={`block min-h-11 w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-primary/5 focus-visible:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${index === state.active ? 'bg-primary/10' : ''}`}
             onClick={() => selectPerson(r, type)}
           >
             <span className="block font-semibold text-foreground">{r.csaladnev} {r.k_nev}</span>
@@ -280,6 +606,28 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
     )
   }
 
+  /** Közös kereső-input a három mezőhöz (combobox-attribútumokkal). */
+  function renderSearchInput(type: SearchType, id: string, placeholder: string) {
+    const state = search[type]
+    const activeOption = state.active >= 0 ? state.results[state.active] : undefined
+    return (
+      <Input
+        id={id}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={state.open}
+        aria-controls={`family-${type}-results`}
+        aria-activedescendant={activeOption ? `family-${type}-option-${activeOption.id}` : undefined}
+        autoComplete="off"
+        placeholder={placeholder}
+        value={state.query}
+        onChange={(e) => handleQueryChange(type, e.target.value)}
+        onKeyDown={(e) => handleSearchKeyDown(e, type)}
+        className={FIELD_INPUT_CLASS}
+      />
+    )
+  }
+
   // 2026-06-02: élő kártya-előnézet — minden state-frissítésre újraszámol.
   // A „familyName" a férj családnevéből vesszük (vagy a feleségéből, ha nincs férj).
   const previewData: FamilyCardModernData = useMemo(() => {
@@ -290,7 +638,7 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
       ? districts.find((d) => String(d.id) === idCsoport)?.nev ?? null
       : null
     return {
-      familyId: editFamily?.id ?? 0,
+      familyId: editFamilyId ?? 0,
       familyName,
       members: [
         ...(husband ? [{ id: husband.id, name: husband.name, age: husband.age ?? null, role: 'csaladfo' as const }] : []),
@@ -303,14 +651,14 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
       isActive: true,
       paymentStatus: 'unknown',
     }
-  }, [husband, wife, children, cUtcaName, cSzam, idCsoport, districts, editFamily?.id])
+  }, [husband, wife, children, cUtcaName, cSzam, idCsoport, districts, editFamilyId])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain rounded-[1.75rem] border-border bg-card p-0 sm:w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-5xl lg:max-w-6xl [&_[data-slot=dialog-close]]:z-30 [&_[data-slot=dialog-close]]:size-11">
         <DialogHeader className="sticky top-0 z-20 border-b border-border/70 bg-gradient-to-br from-primary/10 via-card to-amber-50/45 px-5 py-5 pr-14 backdrop-blur dark:to-card sm:px-6">
           <DialogTitle className="flex flex-wrap items-center gap-2 font-heading text-xl text-foreground sm:text-2xl">
-            {editFamily ? 'Család szerkesztése' : 'Új család létrehozása'}
+            {editFamilyId ? 'Család szerkesztése' : 'Új család létrehozása'}
             <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-300">
               <Sparkles className="size-3.5" />
               élő karton-előnézet
@@ -321,7 +669,10 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
         <div className="grid grid-cols-1 gap-5 px-4 py-5 sm:px-6 md:grid-cols-[minmax(0,1fr)_minmax(300px,360px)]">
           <div className="space-y-4">
           {/* Férj */}
-          <div className="relative space-y-2 rounded-2xl border border-border/60 bg-background/50 p-4">
+          <div
+            ref={(el) => { fieldRefs.current.husband = el }}
+            className="relative space-y-2 rounded-2xl border border-border/60 bg-background/50 p-4"
+          >
             <Label htmlFor={husband ? undefined : 'family-husband-search'} className="font-semibold text-foreground">Férj</Label>
             {husband ? (
               <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/10 bg-primary/5 p-2">
@@ -329,15 +680,16 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
                 <Button variant="ghost" size="icon" className="size-11 shrink-0 rounded-xl text-destructive" onClick={() => setHusband(null)} aria-label="Férj eltávolítása">✕</Button>
               </div>
             ) : (
-              <Input id="family-husband-search" role="combobox" aria-autocomplete="list" aria-expanded={showHusband && husbandResults.length > 0} aria-controls="family-husband-results" placeholder="Keresés név alapján (2+ karakter)…" value={husbandQuery}
-                onChange={e => { setHusbandQuery(e.target.value); handleSearch(e.target.value, 'husband') }}
-                className={FIELD_INPUT_CLASS} />
+              renderSearchInput('husband', 'family-husband-search', 'Keresés név alapján (2+ karakter)…')
             )}
-            {renderSearchDropdown(husbandResults, showHusband, 'husband')}
+            {!husband && renderSearchDropdown('husband')}
           </div>
 
           {/* Feleség */}
-          <div className="relative space-y-2 rounded-2xl border border-border/60 bg-background/50 p-4">
+          <div
+            ref={(el) => { fieldRefs.current.wife = el }}
+            className="relative space-y-2 rounded-2xl border border-border/60 bg-background/50 p-4"
+          >
             <Label htmlFor={wife ? undefined : 'family-wife-search'} className="font-semibold text-foreground">Feleség</Label>
             {wife ? (
               <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/10 bg-primary/5 p-2">
@@ -345,11 +697,9 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
                 <Button variant="ghost" size="icon" className="size-11 shrink-0 rounded-xl text-destructive" onClick={() => setWife(null)} aria-label="Feleség eltávolítása">✕</Button>
               </div>
             ) : (
-              <Input id="family-wife-search" role="combobox" aria-autocomplete="list" aria-expanded={showWife && wifeResults.length > 0} aria-controls="family-wife-results" placeholder="Keresés név alapján (2+ karakter)…" value={wifeQuery}
-                onChange={e => { setWifeQuery(e.target.value); handleSearch(e.target.value, 'wife') }}
-                className={FIELD_INPUT_CLASS} />
+              renderSearchInput('wife', 'family-wife-search', 'Keresés név alapján (2+ karakter)…')
             )}
-            {renderSearchDropdown(wifeResults, showWife, 'wife')}
+            {!wife && renderSearchDropdown('wife')}
           </div>
 
           {/* Párkapcsolat (2026-08-04, PR-27) — csak ha mindkét fél megvan */}
@@ -364,7 +714,7 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
                   <label
                     key={opt.value}
                     className={`flex min-h-11 flex-1 cursor-pointer items-center gap-2 rounded-xl border px-3 text-sm transition-colors ${
-                      parkapcsolat === opt.value
+                      aktivParkapcsolat === opt.value
                         ? 'border-primary/40 bg-primary/10 text-primary'
                         : 'border-border/60 bg-background/70'
                     }`}
@@ -373,8 +723,8 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
                       type="radio"
                       name="family-parkapcsolat"
                       className="size-4"
-                      checked={parkapcsolat === opt.value}
-                      onChange={() => setParkapcsolat(opt.value)}
+                      checked={aktivParkapcsolat === opt.value}
+                      onChange={() => chooseParkapcsolat(opt.value)}
                     />
                     <span className="font-medium">{opt.label}</span>
                     <span className="text-xs text-muted-foreground">({opt.hint})</span>
@@ -383,13 +733,13 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="family-par-datum" className="text-xs font-medium text-muted-foreground">
-                  {parkapcsolat === 'elettars' ? 'Az együttélés kezdete (ha ismert)' : 'Házasságkötés dátuma (ha ismert)'}
+                  {aktivParkapcsolat === 'elettars' ? 'Az együttélés kezdete (ha ismert)' : 'Házasságkötés dátuma (ha ismert)'}
                 </Label>
                 <Input
                   id="family-par-datum"
                   type="date"
-                  value={parDatum}
-                  disabled={!parkapcsolat}
+                  value={aktivParDatum}
+                  disabled={!aktivParkapcsolat}
                   onChange={(e) => setParDatum(e.target.value)}
                   className={FIELD_INPUT_CLASS}
                 />
@@ -402,7 +752,10 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
           )}
 
           {/* Gyerekek */}
-          <div className="relative space-y-2 rounded-2xl border border-border/60 bg-background/50 p-4">
+          <div
+            ref={(el) => { fieldRefs.current.child = el }}
+            className="relative space-y-2 rounded-2xl border border-border/60 bg-background/50 p-4"
+          >
             <Label htmlFor="family-child-search" className="font-semibold text-foreground">Gyermekek</Label>
             {children.length > 0 && (
               <div className="mb-1 flex flex-wrap gap-2">
@@ -421,10 +774,8 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
                 ))}
               </div>
             )}
-            <Input id="family-child-search" role="combobox" aria-autocomplete="list" aria-expanded={showChild && childResults.length > 0} aria-controls="family-child-results" placeholder="Gyermek hozzáadása (keresés)..." value={childQuery}
-              onChange={e => { setChildQuery(e.target.value); handleSearch(e.target.value, 'child') }}
-              className={FIELD_INPUT_CLASS} />
-            {renderSearchDropdown(childResults, showChild, 'child')}
+            {renderSearchInput('child', 'family-child-search', 'Gyermek hozzáadása (keresés)…')}
+            {renderSearchDropdown('child')}
           </div>
 
           {/* Cím */}
@@ -515,7 +866,7 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
 
         {/* ─── Alsó akciósor ─── */}
         <div className="sticky bottom-0 z-20 mt-1 flex gap-2 border-t border-border/70 bg-card/95 px-4 py-3 shadow-[0_-14px_30px_-26px_rgba(15,67,61,0.7)] backdrop-blur sm:justify-end sm:px-6">
-          <Button variant="outline" className="h-11 flex-1 rounded-xl sm:flex-none sm:px-6" onClick={() => onOpenChange(false)}>Mégse</Button>
+          <Button variant="outline" className="h-11 flex-1 rounded-xl sm:flex-none sm:px-6" disabled={loading} onClick={() => onOpenChange(false)}>Mégse</Button>
           <Button className="h-11 flex-1 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 sm:flex-none sm:px-8" onClick={() => void handleSubmit(false)} disabled={loading}>
             {loading ? 'Mentés...' : 'Mentés'}
           </Button>
