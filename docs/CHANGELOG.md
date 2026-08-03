@@ -23,6 +23,20 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-04] — Javítás: nem jön létre duplikált családi karton
+<!-- key: 2026-08-04-tagnyilv-pr26-fel-karton -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.139 -->
+
+### 🐛 Javítások
+
+- **A hiányos családi kartont kiegészíti a rendszer, új helyett**: ha a szülőnek már volt kartonja, de azon a másik szülő helye üresen állt, a rendszer eddig egy MÁSODIK, duplikált kartont próbált létrehozni (ez volt a „nem sikerült" üzenet valódi oka). Mostantól a meglévő kartont egészíti ki, és ezt ki is írja.
+- **Biztonsági fék a mostohaszülő-esetre**: ha a hiányos kartonon már szerepelnek gyermekek, a rendszer NEM írja be automatikusan a hiányzó szülőt — mert azzal az ott lévő gyermekek vér szerinti szülőjévé tenné, pedig lehet, hogy nekik más a szülőjük. Ilyenkor pontos magyarázatot ad, és a döntést a lelkészre bízza.
+- **Elakadás esetén sem vész el a rokoni kapcsolat**: ha a családba sorolás bármiért nem megy végbe, a szülő–gyermek kapcsolat akkor is rögzül, és a családfán megjelenik.
+
+---
+
 ## [2026-08-03] — Javítás: „Az új családi karton létrehozása nem sikerült"
 <!-- key: 2026-08-03-tagnyilv-pr25-csalad-letrehozas -->
 <!-- category: bugfix -->
