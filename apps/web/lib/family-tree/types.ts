@@ -30,6 +30,8 @@ export interface FamilyTreeEdge {
   type: 'spouse' | 'parent-child'
   from: number
   to: number
+  /** 2026-08-04 (PR-27): a pár-kapcsolat jellege (spouse élnél) */
+  partnership?: 'hazastars' | 'elettars'
 }
 
 export interface FamilyTreeData {

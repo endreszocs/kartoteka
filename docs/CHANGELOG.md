@@ -23,6 +23,20 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-04] — Házasság vagy élettársi kapcsolat a családi kartonon
+<!-- key: 2026-08-04-tagnyilv-pr27-parkapcsolat -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.140 -->
+
+### ✨ Új funkciók
+
+- **A pár kapcsolata megkülönböztethető**: a családi karton szerkesztőjében — ha férj és feleség is meg van adva — mostantól megjelölhető, hogy **házasságról** vagy **élettársi kapcsolatról** van szó, és megadható a kapcsolat kezdete (esküvő, illetve az együttélés kezdete).
+- **A családfán is látszik a különbség**: a házastársakat folytonos, az élettársakat szaggatott vonal köti össze (a vonalra mutatva ki is írja, melyikről van szó).
+- **Az anyakönyvi adat elsőbbséget élvez**: ha a házasság szerepel a házassági anyakönyvben, a dátum onnan automatikusan rögzül; a kartonon csak akkor kell megadni, ha pontosabbat tudsz. A rendszer a meglévő jelölést betölti, tehát egy mentés soha nem írja felül véletlenül.
+
+---
+
 ## [2026-08-04] — Javítás: nem jön létre duplikált családi karton
 <!-- key: 2026-08-04-tagnyilv-pr26-fel-karton -->
 <!-- category: bugfix -->

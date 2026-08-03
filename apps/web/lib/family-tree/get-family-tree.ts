@@ -164,11 +164,14 @@ async function buildTreeFromCenters(
   // 3. Házastársak (ugyanaz a generáció)
   const allIds = Array.from(generationOf.keys())
   if (allIds.length > 0) {
-    const [hazA, hazB] = await Promise.all([
+    // 2026-08-04 (PR-27): az ÉLETTÁRSI kapcsolat ugyanúgy pár-él a fán
+    const [hazA, hazB, eltA, eltB] = await Promise.all([
       fetchKapcs(supabase, congregationId, 'hazastars', 'id_szemely_1', allIds),
       fetchKapcs(supabase, congregationId, 'hazastars', 'id_szemely_2', allIds),
+      fetchKapcs(supabase, congregationId, 'elettars', 'id_szemely_1', allIds),
+      fetchKapcs(supabase, congregationId, 'elettars', 'id_szemely_2', allIds),
     ])
-    for (const k of [...hazA, ...hazB]) {
+    for (const k of [...hazA, ...hazB, ...eltA, ...eltB]) {
       if (capReached()) break
       if (generationOf.has(k.id_szemely_1) && !generationOf.has(k.id_szemely_2)) {
         generationOf.set(k.id_szemely_2, generationOf.get(k.id_szemely_1)!)
@@ -228,11 +231,11 @@ async function buildTreeFromCenters(
     const b = k.id_szemely_2
     if (!finalIdsSet.has(a) || !finalIdsSet.has(b)) continue
 
-    if (k.tipus === 'hazastars') {
+    if (k.tipus === 'hazastars' || k.tipus === 'elettars') {
       const key = `s:${Math.min(a, b)}-${Math.max(a, b)}`
       if (seenEdges.has(key)) continue
       seenEdges.add(key)
-      edges.push({ type: 'spouse', from: a, to: b })
+      edges.push({ type: 'spouse', from: a, to: b, partnership: k.tipus as 'hazastars' | 'elettars' })
       spouseEdges.push({ a, b, syncDerived: MEMBERSHIP_DERIVED_MARKERS.includes(k.megjegyzes ?? '') })
     } else if (k.tipus === 'szulo_gyermek') {
       const key = `pc:${a}-${b}`
@@ -291,7 +294,7 @@ async function buildTreeFromCenters(
           ? 'Az érintett család kartonjának újramentése lezárja az elavultat.'
           : 'A felesleges kapcsolat a házassági anyakönyvből ered — ott javítsd (a bejegyzés szerkesztése/törlése lezárja).'
         conflicts.push(
-          `${nameOf(id)} személynek ${partners.length} aktív házastárs-kapcsolata van (${partners.map((p) => nameOf(p.partner)).join(', ')}). ${advice}`,
+          `${nameOf(id)} személynek ${partners.length} aktív párkapcsolata van (${partners.map((p) => nameOf(p.partner)).join(', ')}). ${advice}`,
         )
       }
     }

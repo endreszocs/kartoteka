@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { saveFamily, searchFamilyMember } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
+import { getFamilyPartnership, saveFamily, searchFamilyMember } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import type { FamilyRow } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import type { AssignConflict } from '@/lib/family/family-membership'
 import { getDistricts, type DistrictRow } from '@/app/(dashboard)/tagnyilvantartas/presbyter-actions'
@@ -57,6 +57,9 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
   // áthelyezési megerősítést kér a mentés előtt.
   const [pendingConflicts, setPendingConflicts] = useState<{ conflicts: AssignConflict[]; warning: string } | null>(null)
   const conflictRef = useRef<HTMLDivElement>(null)
+  // 2026-08-04 (PR-27): a felnőtt pár kapcsolatának jellege és kezdete
+  const [parkapcsolat, setParkapcsolat] = useState<'hazastars' | 'elettars' | null>(null)
+  const [parDatum, setParDatum] = useState('')
 
   // A figyelmeztető panel az űrlap alján van — hosszú űrlapon / mobilon a
   // viewport alá esne, és a mentés „nem csinál semmit" érzést keltene.
@@ -102,6 +105,20 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
           name: `${child.csaladnev ?? ''} ${child.k_nev ?? ''}`.trim() || 'Névtelen gyermek',
           age: ageOf(child.sz_datum),
         })))
+        // A meglévő párkapcsolat-jelölés betöltése (PR-27) — enélkül a mentés
+        // felülírná a már rögzített (pl. anyakönyvi) adatot
+        if (editFamily.ferfi?.id && editFamily.no?.id) {
+          getFamilyPartnership({ ferfiId: editFamily.ferfi.id, noId: editFamily.no.id })
+            .then((p) => {
+              if (cancelled) return
+              setParkapcsolat(p.tipus)
+              setParDatum(p.datum ?? '')
+            })
+            .catch(() => { /* nem blokkoló */ })
+        } else {
+          setParkapcsolat(null)
+          setParDatum('')
+        }
       } else {
         setHusband(null)
         setWife(null)
@@ -110,6 +127,8 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
         setCUtcaName('')
         setCUtcaid(undefined)
         setIdCsoport('')
+        setParkapcsolat(null)
+        setParDatum('')
       }
       setHusbandQuery('')
       setWifeQuery('')
@@ -150,11 +169,15 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
       )
     }
     if (type === 'husband') {
+      // 2026-08-04 (PR-27): MÁSIK személy → a korábbi pár jelölése (házasság/
+      // élettárs + dátum) nem ragadhat át az új párra
+      if (husband && husband.id !== r.id) { setParkapcsolat(null); setParDatum('') }
       setHusband({ id: r.id, name, age }); setHusbandQuery(''); setShowHusband(false)
       // Cím auto-töltés a férj lakcíméből
       if (r.adrstreet?.name) { setCUtcaName(r.adrstreet.name); setCUtcaid(r.c_utcaid ?? undefined) }
       if (r.c_szam) setCSzam(r.c_szam)
     } else if (type === 'wife') {
+      if (wife && wife.id !== r.id) { setParkapcsolat(null); setParDatum('') }
       setWife({ id: r.id, name, age }); setWifeQuery(''); setShowWife(false)
       // Ha nincs még cím → a feleség lakcíméből tölt
       if (!cUtcaName && r.adrstreet?.name) { setCUtcaName(r.adrstreet.name); setCUtcaid(r.c_utcaid ?? undefined) }
@@ -183,6 +206,10 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
         c_szam: cSzam || undefined,
         id_csoport: idCsoport ? parseInt(idCsoport) : null,
         allowMoves,
+        // Csak akkor küldjük, ha van pár ÉS a felhasználó jelölt is valamit —
+        // különben nem nyúlunk a meglévő (pl. anyakönyvi) kapcsolathoz
+        parkapcsolat: husband && wife ? parkapcsolat : null,
+        parkapcsolat_datum: husband && wife && parkapcsolat ? (parDatum || null) : null,
       })
       if (result.error) {
         toast.error(result.error)
@@ -316,6 +343,55 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
             )}
             {renderSearchDropdown(wifeResults, showWife, 'wife')}
           </div>
+
+          {/* Párkapcsolat (2026-08-04, PR-27) — csak ha mindkét fél megvan */}
+          {husband && wife && (
+            <div className="space-y-3 rounded-2xl border border-border/60 bg-background/50 p-4">
+              <Label className="font-semibold text-foreground">A pár kapcsolata</Label>
+              <div className="flex flex-col gap-2 min-[420px]:flex-row">
+                {([
+                  { value: 'hazastars' as const, label: 'Házasság', hint: 'anyakönyvezett' },
+                  { value: 'elettars' as const, label: 'Élettársi kapcsolat', hint: 'nem anyakönyvezett' },
+                ]).map((opt) => (
+                  <label
+                    key={opt.value}
+                    className={`flex min-h-11 flex-1 cursor-pointer items-center gap-2 rounded-xl border px-3 text-sm transition-colors ${
+                      parkapcsolat === opt.value
+                        ? 'border-primary/40 bg-primary/10 text-primary'
+                        : 'border-border/60 bg-background/70'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="family-parkapcsolat"
+                      className="size-4"
+                      checked={parkapcsolat === opt.value}
+                      onChange={() => setParkapcsolat(opt.value)}
+                    />
+                    <span className="font-medium">{opt.label}</span>
+                    <span className="text-xs text-muted-foreground">({opt.hint})</span>
+                  </label>
+                ))}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="family-par-datum" className="text-xs font-medium text-muted-foreground">
+                  {parkapcsolat === 'elettars' ? 'Az együttélés kezdete (ha ismert)' : 'Házasságkötés dátuma (ha ismert)'}
+                </Label>
+                <Input
+                  id="family-par-datum"
+                  type="date"
+                  value={parDatum}
+                  disabled={!parkapcsolat}
+                  onChange={(e) => setParDatum(e.target.value)}
+                  className={FIELD_INPUT_CLASS}
+                />
+                <p className="text-xs leading-5 text-muted-foreground">
+                  A jelölés a családfán is megjelenik. Ha a házasság szerepel az anyakönyvben, a dátum onnan is
+                  automatikusan rögzül — itt csak akkor írd felül, ha pontosabbat tudsz.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Gyerekek */}
           <div className="relative space-y-2 rounded-2xl border border-border/60 bg-background/50 p-4">
