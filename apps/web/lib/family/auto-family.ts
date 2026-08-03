@@ -364,17 +364,34 @@ export async function ensureChildFamilyLink(
   let query = supabase.from('csalad').select('id').eq('isaktiv', true)
   if (ferfiId) query = query.eq('id_ferfi', ferfiId)
   if (noId) query = query.eq('id_no', noId)
-  const { data: existingFam } = await query.order('id', { ascending: true }).limit(10)
+  const { data: existingFam, error: famLookupErr } = await query.order('id', { ascending: true }).limit(10)
+  if (famLookupErr) {
+    // Review-fix: FAIL-CLOSED. Az elnyelt olvasási hiba korábban 0 találatnak
+    // látszott → új (duplikált) kartont hoztunk volna létre, és a VALÓDI
+    // kartont vontuk volna össze bele.
+    notes.push('A szülő családi kartonjának lekérdezése nem sikerült, ezért a családba sorolás most elmaradt — a szülő-kapcsolat rögzült, a családhoz rendelést próbáld újra a személyi karton „Családhoz rendelés" gombjával.')
+    return done(false, null)
+  }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const famCandidates = ((existingFam || []) as any[]).length
+  const bothParentsKnown = !!ferfiId && !!noId
+  // Több aktív karton EGY ismert szülőnél = jellemzően ÚJRAHÁZASODÁS: nem
+  // tudjuk eldönteni, melyik házasságból való a gyermek, és a rossz kartonra
+  // sorolás a MÁSIK felnőttet tenné vér szerinti szülővé. Ilyenkor nem
+  // rendezünk tagságot, csak jelezünk.
+  const ambiguousTarget = famCandidates > 1 && !bothParentsKnown
   const allowMerge = famCandidates <= 1
 
   let famId: number | null = null
   if (famCandidates > 0) {
     famId = existingFam![0].id as number
-    if (famCandidates > 1) {
+    if (ambiguousTarget) {
       notes.push(
-        `A szülőnek ${famCandidates} aktív családi kartonja van a nyilvántartásban — a tagot a legrégebbibe soroltuk. Nézd át a kartonokat, és ha felesleges duplikátum van köztük, zárd le.`,
+        `A megtalált szülőnek ${famCandidates} aktív családi kartonja van (jellemzően újabb házasság vagy duplikátum), és a másik szülőt nem sikerült beazonosítani. Ezért a tagot NEM soroltuk automatikusan egyik kartonhoz sem — a szülő-kapcsolat rögzült (a családfán látszik), a családhoz rendelést a személyi karton „Családhoz rendelés" gombjával végezd el, hogy biztosan a jó kartonra kerüljön.`,
+      )
+    } else if (famCandidates > 1) {
+      notes.push(
+        `A szülő-párosnak ${famCandidates} aktív családi kartonja van a nyilvántartásban — a tagot a legrégebbibe soroltuk, és a kartonokat NEM vontuk össze. Nézd át őket, és a felesleges duplikátumot zárd le.`,
       )
     }
   } else {
@@ -392,20 +409,25 @@ export async function ensureChildFamilyLink(
       cSzam = cSzam ?? parentAddr?.c_szam ?? null
     }
     if (cUtcaid) {
-      const { data: newFam } = await supabase.from('csalad').insert([{
+      const { data: newFam, error: newFamErr } = await supabase.from('csalad').insert([{
         id_ferfi: ferfiId, id_no: noId, c_utcaid: cUtcaid, c_szam: cSzam || '1', isaktiv: true,
       }]).select('id')
-      if (newFam?.[0]) famId = newFam[0].id as number
+      if (newFamErr) {
+        notes.push('Az új családi karton létrehozása nem sikerült, ezért a tagot nem soroltuk családba — a szülő-kapcsolat rögzült; a családhoz rendelést próbáld újra a személyi karton „Családhoz rendelés" gombjával.')
+      } else if (newFam?.[0]) {
+        famId = newFam[0].id as number
+      }
     } else {
       notes.push('A család nem hozható létre automatikusan, mert sem a taghoz, sem a szülőhöz nincs rögzített utca — add meg a lakcímet, majd használd a személyi karton „Családhoz rendelés" gombját.')
     }
   }
 
   // 2) Tagsági rendezés: automatikus áthelyezés / összevonás vagy észrevétel
-  let blockMembership = false
+  // Bizonytalan cél-karton (újraházasodás) → nem nyúlunk a tagsághoz
+  let blockMembership = ambiguousTarget
   let plan: AutoMovePlan | null = null
   let allowedFamilies = new Set<number>()
-  if (famId) {
+  if (famId && !blockMembership) {
     try {
       const guard = await findMembershipConflicts(supabase, congregationId, [childId], famId)
       allowedFamilies = guard.allowed
