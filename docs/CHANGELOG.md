@@ -23,6 +23,20 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-04] — A felnőtt gyermek is felvehető a szülők kartonjára
+<!-- key: 2026-08-04-tagnyilv-pr32-felnott-gyermek -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.144 -->
+
+### 🐛 Javítások
+
+- **A gyermek-keresőben újra megtalálhatók a felnőtt gyermekek**: eddig, aki már saját családi kartont alapított (családfő vagy házastárs), egyáltalán nem jelent meg a családi karton „Gyermekek" keresőjében — így a lelkész sehogy nem tudta a szülei kartonjához kapcsolni. Mostantól megjelenik.
+- **A kapcsolat rögzül, a járulék nem romlik el**: ha ilyen felnőtt gyermeket veszel fel, a rendszer a **szülő–gyermek kapcsolatot rögzíti** (a családfán megjelenik a szüleinél), de a **háztartáshoz nem** adja hozzá — mert egy tag csak egy háztartáshoz tartozhat, és ez a járulék-számítás alapja. A mentés után ezt szövegesen is kiírja.
+- **Nem vész el némán a szülő-kapcsolat**: ha a szülő-összekötéskor a kapcsolat rögzítése bármiért elakad, a felugró ablak ezt mostantól megmondja (az adatbázis üzenetével együtt) — eddig azt állította, hogy „rögzült", miközben a családfán nem jelent meg semmi.
+
+---
+
 ## [2026-08-04] — Leánykori név a családfán
 <!-- key: 2026-08-04-tagnyilv-pr31-lanykori-nev -->
 <!-- category: improvement -->

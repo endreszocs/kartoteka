@@ -26,6 +26,9 @@ interface SearchResult {
   adrstreet: { name: string } | null
   /** 2026-08-01 (PR-18): a találat már EGY MÁSIK család tagja — figyelmeztető jelvény */
   masikCsalad?: { id: number; name: string; role: 'felnott' | 'gyermek' } | null
+  /** 2026-08-04 (PR-32): felnőtt (saját családot alapított) — gyermekként csak
+   *  rokoni kapcsolatként vehető fel, a háztartásba nem kerül be */
+  felnottMashol?: boolean
 }
 
 type EditableFamilyRow = FamilyRow & { c_utcaid?: number | null }
@@ -162,7 +165,12 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
     const age = r.sz_datum ? new Date().getFullYear() - new Date(r.sz_datum).getFullYear() : null
     // 2026-08-01 (PR-18): azonnali figyelmeztetés dupla tagságnál — a mentéskor
     // a szerver úgyis megerősítést kér, de a felhasználó már itt lássa.
-    if (r.masikCsalad) {
+    if (r.felnottMashol && type === 'child') {
+      toast.info(
+        `${name} saját családot alapított — a háztartáshoz nem adjuk hozzá, de a szülő–gyermek kapcsolatot rögzítjük, így a családfán itt is megjelenik.`,
+        { duration: 8000 },
+      )
+    } else if (r.masikCsalad) {
       toast.warning(
         `${name} már a(z) ${r.masikCsalad.name} tagja (${r.masikCsalad.role === 'felnott' ? 'családfő/házastárs' : 'gyermek'}). Mentéskor a rendszer rákérdez az áthelyezésre.`,
         { duration: 6000 },
