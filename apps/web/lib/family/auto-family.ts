@@ -554,7 +554,7 @@ export async function ensureChildFamilyLink(
   // Review-fix: DETERMINISZTIKUS választás (order) + több-találat-őr: ha a
   // szülőnek több aktív kartonja van (pl. csak az egyik szülő oldódott fel),
   // a tagot a legrégebbibe soroljuk, de összevonást NEM végzünk.
-  let query = supabase.from('csalad').select('id').eq('isaktiv', true)
+  let query = supabase.from('csalad').select('id, id_ferfi, id_no').eq('isaktiv', true)
   if (ferfiId) query = query.eq('id_ferfi', ferfiId)
   if (noId) query = query.eq('id_no', noId)
   const { data: existingFam, error: famLookupErr } = await query.order('id', { ascending: true }).limit(10)
@@ -589,7 +589,59 @@ export async function ensureChildFamilyLink(
         `A szülő-párosnak ${famCandidates} aktív családi kartonja van a nyilvántartásban — a tagot a legrégebbibe soroltuk, és a kartonokat NEM vontuk össze. Nézd át őket, és a felesleges duplikátumot zárd le.`,
       )
     }
-  } else {
+  } else if (bothParentsKnown) {
+    // 2026-08-04 (PR-26): FÉL KARTON KIEGÉSZÍTÉSE. A fenti keresés MINDKÉT
+    // szülőre szűr, ezért a „csak apával" (vagy csak anyával) rögzített, üres
+    // másik hellyel élő kartont nem találja meg — eddig ilyenkor ÚJ, duplikált
+    // kartont hozott létre a már meglévő mellé. Most a hiányzó helyet töltjük
+    // ki (ugyanazon az RPC-n, mint a Családok fül mentése), és csak akkor
+    // készül új karton, ha ilyen fél karton sincs.
+    const { data: halfRows, error: halfErr } = await supabase
+      .from('csalad')
+      .select('id, id_ferfi, id_no')
+      .eq('isaktiv', true)
+      .or(`and(id_ferfi.eq.${ferfiId},id_no.is.null),and(id_no.eq.${noId},id_ferfi.is.null)`)
+      .order('id', { ascending: true })
+      .limit(5)
+    if (halfErr) {
+      notes.push('A szülő családi kartonjának lekérdezése nem sikerült, ezért a családba sorolás most elmaradt — a szülő-kapcsolat rögzült, a családhoz rendelést próbáld újra a személyi karton „Családhoz rendelés" gombjával.')
+      return done(false, null)
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const halves = (halfRows || []) as any[]
+    if (halves.length === 1) {
+      const half = halves[0]
+      const { data: rpcData, error: rpcErr } = await supabase.rpc('tagnyilvantartas_csalad_mentes', {
+        p_id: half.id as number,
+        p_id_ferfi: ferfiId,
+        p_id_no: noId,
+        // az RPC a p_id-s ágon ÚJRAÍRJA a gyerek-listát — a meglévőt adjuk vissza
+        p_gyerek_ids: await (async () => {
+          const { data: g } = await supabase.from('gyerek').select('id_szemely').eq('id_csalad', half.id)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          return [...new Set(((g || []) as any[]).map((r) => r.id_szemely as number))]
+        })(),
+        p_c_utcaid: null,
+        p_c_szam: null,
+        p_id_csoport: null,
+      })
+      const rpcRes = rpcData as { status?: string; family_id?: number; message?: string } | null
+      if (!rpcErr && rpcRes?.status === 'ok' && rpcRes.family_id) {
+        famId = rpcRes.family_id
+        const hianyzo = half.id_ferfi == null ? 'édesapa' : 'édesanya'
+        notes.push(`A szülőnek már volt családi kartonja, amelyen a(z) ${hianyzo} helye üresen állt — új karton helyett azt egészítettük ki, így nem jött létre duplikátum.`)
+      } else {
+        const ok = rpcErr?.message || rpcRes?.message || 'ismeretlen hiba'
+        notes.push(`A meglévő (hiányos) családi karton kiegészítése nem sikerült (${ok}) — a tagot nem soroltuk családba; a szülő-kapcsolat rögzült. Nyisd meg a családi kartont, és vedd fel rá a hiányzó szülőt.`)
+        return done(false, null)
+      }
+    } else if (halves.length > 1) {
+      notes.push('A szülőknek több, hiányosan kitöltött családi kartonja is van — nem tudtuk eldönteni, melyiket egészítsük ki, ezért a tagot nem soroltuk be. Nézd át a Családok fülön, és zárd le a feleslegeseket.')
+      return done(false, null)
+    }
+  }
+
+  if (!famId && famCandidates === 0) {
     // Cím: a hívó adja (tag-űrlap címe), vagy a szülő lakcíme
     let cUtcaid = address?.c_utcaid ?? null
     let cSzam = address?.c_szam ?? null
