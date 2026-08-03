@@ -7,6 +7,8 @@ export interface FamilyTreeMember {
   id: number
   csaladnev: string
   k_nev: string
+  /** 2026-08-04 (PR-31): leánykori (születési) családnév — a kártyán „szül. …" */
+  szcs_nev?: string | null
   ferfi: boolean
   sz_datum: string | null
   meghalt: boolean

@@ -539,6 +539,15 @@ function PersonCard({
   const isDead = member.meghalt
   const year = parseYear(member.sz_datum)
   const displayName = `${member.csaladnev || ''} ${member.k_nev || ''}`.trim() || '—'
+  // 2026-08-04 (PR-31): leánykori név — csak ha van, és tényleg ELTÉR a viselt
+  // családnévtől (különben felesleges ismétlés lenne)
+  const szuletesiNev = (() => {
+    const szcs = (member.szcs_nev || '').trim()
+    if (!szcs) return null
+    const viselt = (member.csaladnev || '').trim()
+    if (szcs.localeCompare(viselt, 'hu', { sensitivity: 'base' }) === 0) return null
+    return `szül. ${szcs} ${member.k_nev || ''}`.trim()
+  })()
 
   return (
     <div
@@ -601,12 +610,19 @@ function PersonCard({
               member.isCenter ? 'text-amber-900' : 'text-slate-800',
               isDead && 'line-through decoration-slate-400/60',
             )}
-            title={displayName}
+            title={szuletesiNev ? `${displayName} (${szuletesiNev})` : displayName}
           >
             {displayName}
           </div>
         </div>
       </div>
+
+      {/* Leánykori név (PR-31) — a viselt név alatt, halványabban */}
+      {szuletesiNev && (
+        <div className="truncate text-[9.5px] italic leading-tight text-slate-500" title={szuletesiNev}>
+          {szuletesiNev}
+        </div>
+      )}
 
       {/* Alsó sor: év */}
       <div className="mt-1 flex items-center text-[10.5px] text-slate-500">
