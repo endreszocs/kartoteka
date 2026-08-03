@@ -23,6 +23,18 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-04] — A felnőtt gyermekek is látszanak a családi kartonon
+<!-- key: 2026-08-04-tagnyilv-pr35-felnott-gyermek-karton -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.146 -->
+
+### ✨ Új funkciók
+
+- **„Felnőtt gyermekek" blokk a családi kartonon**: aki már saját háztartásban él, eddig némán hiányzott a szülei kartonjáról — pedig a rokoni kapcsolat rögzítve van. Mostantól külön, szaggatott keretű részben megjelenik, „Lánya / Fia" jelöléssel és a **saját családja nevével**, egy kattintással megnyitható. A blokk azt is elmagyarázza, hogy ők a járulék és a lélekszám szempontjából a saját kartonjukon számítanak.
+
+---
+
 ## [2026-08-04] — Átlátható családfa + működő nyomtatás
 <!-- key: 2026-08-04-tagnyilv-pr33-fa-design -->
 <!-- category: improvement -->
