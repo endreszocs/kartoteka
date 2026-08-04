@@ -93,6 +93,16 @@ export async function getAllowedFamilyIds(
  *  - D1: az 'unoka' szerep is a diff része, DE unoka-tagot csak akkor zárunk
  *    le, ha az explicit el lett távolítva (removedPersonIds) — a csak-adatjavításból
  *    származó unoka-tagságot (nincs gyerek-sora) a sync nem birtokolja.
+ *
+ * 2026-08-04 (PR-42) — AZ ELHUNYT NEM KERÜL VISSZA A HÁZTARTÁSBA. A temetés
+ * lezárja a haztartas_tag sort, de a `csalad.id_ferfi`/`id_no` mezőt nem
+ * takarítja (nem is teheti: a tagnyilvantartas_csalad_mentes RPC COALESCE-szal
+ * őrzi a régi értéket, tehát NULL-t nem lehet vele írni). Ezért a következő
+ * szinkron — bármelyik család-mentés, keresztelő vagy tag-mentés — a
+ * célállapotot a `csalad`-ból építve ÚJRA felvette az elhunytat élő
+ * háztartás-tagként. Mostantól a célállapotból kimaradnak az elhunytak, sőt a
+ * náluk nyitva maradt tagság is lezárul. A VÉR SZERINTI szülő-gyermek élek
+ * ÉRINTETLENEK — az elhunyt szülőnek látszania kell a családfán.
  */
 export async function syncHouseholdFromCsalad(
   supabase: Db,
@@ -115,6 +125,37 @@ export async function syncHouseholdFromCsalad(
   // Dedup — a gyerek táblán nincs UNIQUE, a dupla sor ne duplázza az éleket
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const gyerekIds = [...new Set(((gyerekRows || []) as any[]).map((g) => g.id_szemely as number))]
+
+  // 1/b. ELHUNYTAK (2026-08-04, PR-42) — lásd a fájl fejlécét. Az elhunyt
+  // személy a `csalad` kartonján továbbra is ott marad (a történeti adat nem
+  // vész el), de ÉLŐ háztartás-tagként nem szerepelhet.
+  //
+  // FAIL-CLOSED a mai működés felé: ha a lekérdezés hibára fut (vagy egy sor
+  // RLS-rejtett), NEM szűrünk — inkább maradjon a korábbi viselkedés, mint
+  // hogy egy olvasási hiba miatt élő tagok tűnjenek el a háztartásból. A hibát
+  // viszont naplózzuk.
+  const eloJeloltek = [
+    ...(csaladRow.id_ferfi ? [csaladRow.id_ferfi as number] : []),
+    ...(csaladRow.id_no ? [csaladRow.id_no as number] : []),
+    ...gyerekIds,
+  ]
+  const elhunytak = new Set<number>()
+  if (eloJeloltek.length > 0) {
+    const { data: eletRows, error: eletErr } = await supabase
+      .from('szemely')
+      .select('id, meghalt, member_status')
+      .in('id', [...new Set(eloJeloltek)])
+    if (eletErr) {
+      console.warn('[syncHouseholdFromCsalad] az elhunyt-állapot nem olvasható, ezért nem szűrünk (a régi viselkedés marad):',
+        eletErr.message)
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const p of (eletRows || []) as any[]) {
+        if (p.meghalt === true || p.member_status === 'elhunyt') elhunytak.add(p.id as number)
+      }
+    }
+  }
+  const elhunyt = (id: number | null | undefined) => id != null && elhunytak.has(id)
 
   // 2. Olvas vagy hoz létre: haztartas
   const existingHaztartas = must(await supabase
@@ -223,11 +264,17 @@ export async function syncHouseholdFromCsalad(
     .is('ervenyes_ig', null)
     .in('szerep', ['csaladfo', 'hazastars', 'gyermek', 'unoka']), 'haztartas_tag-olvasas')
 
-  // Célállapot: 1 csaladfo (id_ferfi), 1 hazastars (id_no), n gyermek
+  // Célállapot: 1 csaladfo (id_ferfi), 1 hazastars (id_no), n gyermek —
+  // ELHUNYT nélkül (PR-42). Aki elhunyt, annak a nyitva maradt tagsága a 3a.
+  // lépésben le is zárul (a temetés utáni „visszakerülés" így megszűnik).
   const desiredTags = new Map<number, string>()
-  if (csaladRow.id_ferfi) desiredTags.set(csaladRow.id_ferfi as number, 'csaladfo')
-  if (csaladRow.id_no) desiredTags.set(csaladRow.id_no as number, 'hazastars')
-  for (const gyerekId of gyerekIds) desiredTags.set(gyerekId, 'gyermek')
+  if (csaladRow.id_ferfi && !elhunyt(csaladRow.id_ferfi)) desiredTags.set(csaladRow.id_ferfi as number, 'csaladfo')
+  if (csaladRow.id_no && !elhunyt(csaladRow.id_no)) desiredTags.set(csaladRow.id_no as number, 'hazastars')
+  for (const gyerekId of gyerekIds) {
+    if (!elhunyt(gyerekId)) desiredTags.set(gyerekId, 'gyermek')
+  }
+  // Ha a családfő elhunyt, a háztartás elsődleges tagja az özvegy legyen
+  const eloCsaladfo = !!csaladRow.id_ferfi && !elhunyt(csaladRow.id_ferfi)
 
   const today = new Date().toISOString().slice(0, 10)
   const removedSet = new Set(removedPersonIds)
@@ -239,7 +286,10 @@ export async function syncHouseholdFromCsalad(
     if (!desiredSzerep) {
       // Unoka-tagot csak explicit eltávolításnál zárunk le — a gyerek-sor
       // nélküli (adatjavításból származó) unoka-tagságot a sync nem birtokolja.
-      if (tag.szerep === 'unoka' && !removedSet.has(tag.id_szemely as number)) continue
+      // Kivétel (PR-42): az ELHUNYT tagsága szerep-től függetlenül lezárul.
+      if (tag.szerep === 'unoka'
+        && !removedSet.has(tag.id_szemely as number)
+        && !elhunyt(tag.id_szemely as number)) continue
       must(await supabase
         .from('haztartas_tag')
         .update({ ervenyes_ig: today })
@@ -257,7 +307,7 @@ export async function syncHouseholdFromCsalad(
     id_haztartas: haztartasId,
     id_szemely,
     szerep,
-    is_primary: szerep === 'csaladfo' || (szerep === 'hazastars' && !csaladRow.id_ferfi),
+    is_primary: szerep === 'csaladfo' || (szerep === 'hazastars' && !eloCsaladfo),
     ervenyes_tol: today,
     congregation_id: congregationId,
   }))
@@ -280,7 +330,13 @@ export async function syncHouseholdFromCsalad(
   //    háztartás-szinkront (párhuzamos mentések ütközését is elnyeli).
   try {
     const kinshipPairs: Array<{ id1: number; id2: number; tipus: string; ver: boolean }> = []
-    if (csaladRow.id_ferfi && csaladRow.id_no && csaladRow.id_ferfi !== csaladRow.id_no) {
+    // 2026-08-04 (PR-42): elhunyt félhez NEM nyitunk ÚJ, aktív párkapcsolati
+    // élt — a haláleset lezárja a házastársi/élettársi kapcsolatot, ezért egy
+    // frissen beszúrt aktív él fantom párt mutatna a családfán. A VÉR SZERINTI
+    // szülő-gyermek él ellenben az elhunytnál is rögzül (lentebb): a családfán
+    // az elhunyt szülőnek látszania kell.
+    if (csaladRow.id_ferfi && csaladRow.id_no && csaladRow.id_ferfi !== csaladRow.id_no
+      && !elhunyt(csaladRow.id_ferfi) && !elhunyt(csaladRow.id_no)) {
       kinshipPairs.push({ id1: csaladRow.id_ferfi as number, id2: csaladRow.id_no as number, tipus: 'hazastars', ver: false })
     }
     for (const gyerekId of gyerekIds) {

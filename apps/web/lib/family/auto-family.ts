@@ -628,8 +628,29 @@ export async function ensureChildFamilyLink(
   let famId: number | null = null
   /** true = a kartont MOST hoztuk létre — ha üresen marad, takarítjuk */
   let createdNow = false
+  /**
+   * 2026-08-04 (PR-42): a MEGLÉVŐ, TELJES kartonon szereplő MÁSIK felnőtt.
+   *
+   * Ha csak az egyik szülőt sikerült beazonosítani, a fenti keresés csak arra
+   * szűr, ezért a gyermek a szülő már meglévő, MÁSSAL közös kartonjára kerül —
+   * a háztartás-szinkron pedig a kartonon lévő másik felnőttől is VÉR SZERINTI
+   * szülő-élt húz a gyermekre. A FÉL kartonos ágon ezt a kód már tiltja/
+   * felajánlja (PR-26/PR-38), a TELJES kartonos ágon viszont eddig NÉMA volt.
+   *
+   * NEM blokkolunk: a leggyakoribb eset legitim (a lelkész csak az apát írta
+   * be, de a kartonon lévő feleség tényleg az anya). Csak TÁJÉKOZTATUNK — és
+   * csak akkor, ha a besorolás ténylegesen létre is jött (lásd lentebb).
+   */
+  let masikFelnottId: number | null = null
   if (famCandidates > 0) {
     famId = existingFam![0].id as number
+    if (!bothParentsKnown) {
+      const megadottSzulo = ferfiId ?? noId
+      const masik = ferfiId
+        ? ((existingFam![0].id_no as number | null) ?? null)
+        : ((existingFam![0].id_ferfi as number | null) ?? null)
+      if (masik != null && masik !== megadottSzulo && masik !== childId) masikFelnottId = masik
+    }
     if (ambiguousTarget) {
       notes.push(
         `A megtalált szülőnek ${famCandidates} aktív családi kartonja van (jellemzően újabb házasság vagy duplikátum), és a másik szülőt nem sikerült beazonosítani. Ezért a tagot NEM soroltuk automatikusan egyik kartonhoz sem — a szülő-kapcsolat rögzült (a családfán látszik), a családhoz rendelést a személyi karton „Családhoz rendelés" gombjával végezd el, hogy biztosan a jó kartonra kerüljön.`,
@@ -1158,6 +1179,29 @@ export async function ensureChildFamilyLink(
           e instanceof Error ? e.message : e)
       }
       famId = null
+    }
+  }
+
+  // 6) MOSTOHASZÜLŐ-TÁJÉKOZTATÓ (2026-08-04, PR-42) — lásd a masikFelnottId
+  //    doc-kommentjét. Csak SIKERES besorolás után van értelme: ha a gyermek
+  //    nem került a kartonra, a szinkron sem húz élt a másik felnőttől.
+  if (linked && famId && masikFelnottId != null) {
+    try {
+      const [famNevek, nevRes] = await Promise.all([
+        loadFamilyDisplayNames(supabase, [famId]),
+        supabase.from('szemely').select('csaladnev, k_nev').eq('id', masikFelnottId).maybeSingle(),
+      ])
+      const kartonNev = famNevek.get(famId) ?? `Család #${famId}`
+      const masikNev = `${nevRes?.data?.csaladnev ?? ''} ${nevRes?.data?.k_nev ?? ''}`.trim()
+        || `#${masikFelnottId}`
+      infos.push(
+        `A(z) ${kartonNev} kartonon ${masikNev} is szerepel felnőttként, ezért a rendszer őt is a gyermek szülőjeként fogja nyilvántartani (csak az egyik szülőt sikerült beazonosítani). `
+        + `Ha ez így helyes, nincs teendő. Ha viszont nem ő a másik szülő (pl. nevelőszülő, vagy a gyermek egy korábbi kapcsolatból való), `
+        + `nyisd meg a(z) ${kartonNev} kartont a Családok fülön, és rendezd a felnőtt tagokat — a családfán a kapcsolatot a személyi kartonon is ellenőrizheted.`,
+      )
+    } catch (e) {
+      console.warn('[ensureChildFamilyLink] a másik felnőtt nevének olvasása sikertelen:',
+        e instanceof Error ? e.message : e)
     }
   }
 

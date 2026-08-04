@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-04] — Haláleset és keresztelő: pontosabb kapcsolat-kezelés
+<!-- key: 2026-08-04-anyakonyv-pr42-halaleset-kereszteles -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.153 -->
+
+### 🐛 Javítások
+
+- **Haláleset: az élettársi kapcsolat is lezárul.** Eddig csak a házastársi kapcsolatot zárta le a rendszer, ezért élettársi kapcsolatban élt elhunytnál a pár örökre „élőként" maradt a családfán.
+- **Az elhunyt nem kerül vissza a családi kartonra.** A temetés eddig is kivette a háztartásból, de a következő család- vagy tagmentés visszatette. Ez megszűnt — a gyermekekhez fűződő **szülő-kapcsolatok viszont változatlanul megmaradnak**, ahogy kell.
+- **Látszik, ha az „elhunyt" jelölés nem sikerült.** Eddig ez a hiba némán elveszett, és a tag élőként maradt a nyilvántartásban.
+- **Keresztelő: szól a rendszer, ha az egyik szülő nincs a tagok között.** Eddig csak akkor figyelmeztetett, ha egyik szülőt sem találta — most megnevezi, melyik hiányzik és mi a következménye.
+- **Keresztelő: átlátható a másik szülő kérdése.** Ha csak az egyik szülőt adod meg, és a kartonon van másik felnőtt, a rendszer kiírja, hogy őt is a gyermek szülőjeként fogja nyilvántartani — így a nevelőszülős esetek nem maradnak észrevétlenül.
+
+---
+
 ## [2026-08-04] — Érthető üzenet, ha a szülő már másik családi kartonon szerepel
 <!-- key: 2026-08-04-tagnyilv-pr41-csalad-egyediseg -->
 <!-- category: bugfix -->
