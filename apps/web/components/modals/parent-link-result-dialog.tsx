@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { ArrowRightLeft, CheckCircle2, HelpCircle, TriangleAlert, UserRound } from 'lucide-react'
+import { ArrowRightLeft, CheckCircle2, HelpCircle, TriangleAlert, UserRound, UserRoundPlus } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -22,6 +22,9 @@ import {
   type SaveMemberParentLink,
   type SaveMemberParentPart,
 } from '@/app/(dashboard)/tagnyilvantartas/actions'
+import { completeFamilyParent } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
+// Csak TÍPUS-import (a szerveroldali modul futásidőben nem kerül a kliensbe)
+import type { FamilyCompletionOffer } from '@/lib/family/auto-family'
 
 export interface ParentLinkResultData extends SaveMemberParentLink {
   memberId: number
@@ -125,7 +128,18 @@ interface FamilyOutcome {
   notes: string[]
   closed: string[]
   infos: string[]
+  /** 2026-08-04 (PR-38): jóváhagyandó karton-kiegészítések */
+  offers: FamilyCompletionOffer[]
 }
+
+/** Egy ajánlat felületi állapota (2026-08-04, PR-38). */
+type OfferState =
+  | { status: 'saving' }
+  | { status: 'done'; message: string }
+  | { status: 'hidden' }
+
+const offerKey = (offer: FamilyCompletionOffer) => `${offer.familyId}-${offer.slot}`
+const slotLabel = (slot: FamilyCompletionOffer['slot']) => (slot === 'apa' ? 'édesapaként' : 'édesanyaként')
 
 export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: ParentLinkResultDialogProps) {
   const [apaPick, setApaPick] = useState<number | null>(null)
@@ -135,6 +149,8 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
   const [outcome, setOutcome] = useState<FamilyOutcome | null>(null)
   /** Már beküldött szülő-oldalak — a MÁSIK oldal összeköthető marad (PR-23 review) */
   const [doneParts, setDoneParts] = useState<{ apa: boolean; anya: boolean }>({ apa: false, anya: false })
+  /** 2026-08-04 (PR-38): ajánlatonkénti állapot (mentés / kész / elrejtve) */
+  const [offerStates, setOfferStates] = useState<Record<string, OfferState>>({})
 
   useEffect(() => {
     if (!open) return
@@ -142,7 +158,45 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
     setAnyaPick(null)
     setOutcome(null)
     setDoneParts({ apa: false, anya: false })
+    setOfferStates({})
   }, [open, data?.memberId])
+
+  const offerBusy = Object.values(offerStates).some((s) => s.status === 'saving')
+
+  async function handleOffer(offer: FamilyCompletionOffer) {
+    const key = offerKey(offer)
+    setOfferStates((prev) => ({ ...prev, [key]: { status: 'saving' } }))
+    try {
+      const res = await completeFamilyParent({
+        familyId: offer.familyId,
+        parentId: offer.parentId,
+        slot: offer.slot,
+      })
+      if (res.error) {
+        toast.error(res.error)
+        // Az ajánlat MARAD — a lelkész a hiba rendezése után újra megpróbálhatja
+        setOfferStates((prev) => {
+          const next = { ...prev }
+          delete next[key]
+          return next
+        })
+        return
+      }
+      const message = res.message
+        ?? `${offer.parentName} felkerült a(z) ${offer.familyName} kartonra ${slotLabel(offer.slot)}.`
+      if (res.warning) toast.warning(res.warning, { duration: 9000 })
+      toast.success(message)
+      setOfferStates((prev) => ({ ...prev, [key]: { status: 'done', message } }))
+      onLinked?.()
+    } catch {
+      toast.error('A karton kiegészítése nem sikerült. Próbáld újra.')
+      setOfferStates((prev) => {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+    }
+  }
 
   if (!data) return null
 
@@ -150,6 +204,7 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
   const noteLines = outcome?.notes ?? data.familyNotes ?? []
   const closedLines = outcome?.closed ?? data.familyClosed ?? []
   const infoLines = outcome?.infos ?? data.familyInfos ?? []
+  const offerRows = outcome?.offers ?? data.familyOffers ?? []
 
   const pendingApa = !doneParts.apa && data.apa?.status === 'ambiguous' && (data.apa.candidates?.length ?? 0) > 0
   const pendingAnya = !doneParts.anya && data.anya?.status === 'ambiguous' && (data.anya.candidates?.length ?? 0) > 0
@@ -173,6 +228,7 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
         notes: ('notes' in res && res.notes) || [],
         closed: ('closed' in res && res.closed) || [],
         infos: ('infos' in res && res.infos) || [],
+        offers: ('offers' in res && res.offers) || [],
       }
       if (!('linked' in res) || res.linked) {
         toast.success('Szülő összekötve — a családfa és a családi karton frissült.')
@@ -196,6 +252,8 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
         nextOutcome.moves.length > 0
         || nextOutcome.notes.length > 0
         || nextOutcome.infos.length > 0
+        // 2026-08-04 (PR-38): a jóváhagyandó ajánlat is nyitva tartja az ablakot
+        || nextOutcome.offers.length > 0
         || stillPending
       ) {
         setOutcome(nextOutcome)
@@ -210,7 +268,7 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
   }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!saving) onOpenChange(next) }}>
+    <Dialog open={open} onOpenChange={(next) => { if (!saving && !offerBusy) onOpenChange(next) }}>
       <DialogContent className="max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain rounded-[1.5rem] sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="font-heading">Szülők összekötése — {data.memberName}</DialogTitle>
@@ -296,13 +354,75 @@ export function ParentLinkResultDialog({ open, onOpenChange, data, onLinked }: P
             </div>
           ) : null}
 
+          {/* 2026-08-04 (PR-38): FELAJÁNLOTT KARTON-KIEGÉSZÍTÉS. A rendszer a
+              mostohaszülő-hazárd miatt nem írta be automatikusan a hiányzó
+              szülőt — itt a lelkész egy kattintással jóváhagyhatja. */}
+          {offerRows.map((offer) => {
+            const key = offerKey(offer)
+            const state = offerStates[key]
+            if (state?.status === 'hidden') return null
+            if (state?.status === 'done') {
+              return (
+                <div
+                  key={key}
+                  className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 dark:border-emerald-900 dark:bg-emerald-950/40"
+                >
+                  <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" />
+                  <div className="min-w-0 text-sm leading-5 text-emerald-900 dark:text-emerald-100">
+                    <p className="font-semibold">Kész — a karton kiegészült</p>
+                    <p className="mt-1 break-words text-xs leading-5">{state.message}</p>
+                  </div>
+                </div>
+              )
+            }
+            const busy = state?.status === 'saving'
+            return (
+              <div
+                key={key}
+                className="rounded-xl border border-sky-300 bg-sky-50/70 p-3 dark:border-sky-800 dark:bg-sky-950/40"
+              >
+                <div className="flex items-start gap-2.5">
+                  <UserRoundPlus className="mt-0.5 size-5 shrink-0 text-sky-600 dark:text-sky-400" />
+                  <div className="min-w-0 text-sm leading-5 text-sky-900 dark:text-sky-100">
+                    <p className="font-semibold">Kiegészíted a kartont?</p>
+                    <p className="mt-1 break-words text-xs leading-5">
+                      <strong>{offer.parentName}</strong> felvétele a(z) <strong>{offer.familyName}</strong>{' '}
+                      kartonjára {slotLabel(offer.slot)}. Ezzel a kartonon szereplő gyermekek
+                      {offer.erintettGyermekek.length > 0 ? ` (${offer.erintettGyermekek.join(', ')})` : ''} is
+                      az ő gyermekeként fognak szerepelni a családfán.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-2.5 flex flex-col gap-2 pl-7 min-[420px]:flex-row">
+                  <Button
+                    type="button"
+                    className="min-h-11 rounded-xl"
+                    disabled={busy || saving}
+                    onClick={() => void handleOffer(offer)}
+                  >
+                    {busy ? 'Mentés…' : `Igen, vedd fel ${offer.parentName}-t`}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11 rounded-xl"
+                    disabled={busy || saving}
+                    onClick={() => setOfferStates((prev) => ({ ...prev, [key]: { status: 'hidden' } }))}
+                  >
+                    Most nem
+                  </Button>
+                </div>
+              </div>
+            )
+          })}
+
           <div className="flex flex-col gap-2 border-t border-border/60 pt-3 min-[420px]:flex-row min-[420px]:justify-end">
             {needsPick && (
-              <Button className="min-h-11 rounded-xl" disabled={saving || (!apaPick && !anyaPick)} onClick={() => void handleLink()}>
+              <Button className="min-h-11 rounded-xl" disabled={saving || offerBusy || (!apaPick && !anyaPick)} onClick={() => void handleLink()}>
                 {saving ? 'Összekötés…' : 'Kiválasztott szülő összekötése'}
               </Button>
             )}
-            <Button variant="outline" className="min-h-11 rounded-xl" disabled={saving} onClick={() => onOpenChange(false)}>
+            <Button variant="outline" className="min-h-11 rounded-xl" disabled={saving || offerBusy} onClick={() => onOpenChange(false)}>
               Bezárás
             </Button>
           </div>

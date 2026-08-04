@@ -1574,3 +1574,207 @@ export async function getFamilyPartnership(input: { ferfiId: number; noId: numbe
     datum: (row?.ervenyes_tol as string | null | undefined) ?? null,
   }
 }
+
+/**
+ * 2026-08-04 (PR-38): A HIÁNYZÓ SZÜLŐ FELVÉTELE a fél családi kartonra —
+ * a lelkész EGY KATTINTÁSSAL jóváhagyja azt, amit a rendszer szándékosan nem
+ * végzett el automatikusan.
+ *
+ * Miért nem automatikus? A háztartás-szinkron a kartonon lévő MINDKÉT felnőttől
+ * VÉR SZERINTI szülő-élt húz a kartonon szereplő ÖSSZES gyermekre. Ha a már
+ * fent lévő gyermekek egy korábbi kapcsolatból valók, a beírt felnőtt
+ * mostohaszülő lenne — az egyeztető pedig ezt az élt soha nem zárná le
+ * (PR-23 P0). Ezért a döntés a lelkészé; ez az action csak VÉGREHAJTJA.
+ *
+ * FAIL-CLOSED őrök: saját gyülekezeti szülő + nem-egyezés tiltása, aktív és
+ * hozzáférhető karton, a megcélzott hely TÉNYLEGESEN üres (közben kitölthették),
+ * a szülő máshol nem felnőtt tag, és a gyermek-lista olvasási hibája MEGÁLLÍTJA
+ * a mentést (az RPC a p_id-s ágon újraírja a gyerek-sorokat).
+ */
+export async function completeFamilyParent(input: {
+  familyId: number
+  parentId: number
+  slot: 'apa' | 'anya'
+}): Promise<{ success?: true; error?: string; warning?: string; message?: string }> {
+  const { familyId, parentId, slot } = input
+  if (!Number.isInteger(familyId) || familyId <= 0 || !Number.isInteger(parentId) || parentId <= 0) {
+    return { error: 'Érvénytelen azonosító.' }
+  }
+  if (slot !== 'apa' && slot !== 'anya') return { error: 'Érvénytelen szülői hely.' }
+
+  const { supabase, congregationId, userId } = await getFamilyAccessContext()
+  if (!congregationId) return { error: 'Nincs aktív gyülekezet kiválasztva.' }
+  if (!userId) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  const slotLabel = slot === 'apa' ? 'édesapa' : 'édesanya'
+
+  // 1) A szülő a SAJÁT gyülekezet tagja legyen, és a neme egyezzen a hellyel
+  const { data: parent, error: parentErr } = await supabase
+    .from('szemely')
+    .select('id, csaladnev, k_nev, ferfi')
+    .eq('id', parentId)
+    .eq('congregation_id', congregationId)
+    .maybeSingle()
+  if (parentErr) {
+    return { error: `A szülő adatainak lekérdezése nem sikerült (${parentErr.message}) — próbáld újra.` }
+  }
+  if (!parent) return { error: 'A megadott szülő nem található az aktív gyülekezetben.' }
+  const parentName = `${parent.csaladnev ?? ''} ${parent.k_nev ?? ''}`.trim() || `#${parentId}`
+  const expectedFerfi = slot === 'apa'
+  if (parent.ferfi !== expectedFerfi) {
+    return {
+      error: parent.ferfi == null
+        ? `${parentName} neme nincs rögzítve, ezért ${slotLabel}ként nem vehető fel — előbb add meg a nemét a tag szerkesztőjében.`
+        : `${parentName} neme nem egyezik a(z) ${slotLabel} hellyel — ellenőrizd a tag adatlapját.`,
+    }
+  }
+
+  // 2) A karton legyen a saját gyülekezeté (a csalad táblán nincs congregation_id)
+  let allowedFamilyIds: Set<number>
+  try {
+    allowedFamilyIds = await getAllowedFamilyIds(supabase, congregationId, { throwOnError: true })
+  } catch (e) {
+    console.warn('[completeFamilyParent] getAllowedFamilyIds sikertelen:', e instanceof Error ? e.message : e)
+    return { error: 'A családi kartonok jogosultság-ellenőrzése nem sikerült — próbáld újra.' }
+  }
+  if (!allowedFamilyIds.has(familyId)) {
+    return {
+      error: 'Nincs jogosultsága ehhez a családi kartonhoz (vagy a kartonhoz még nem tartozik háztartás-bejegyzés). Nyisd meg a Családok fülön, és mentsd el egyszer.',
+    }
+  }
+
+  const { data: family, error: familyErr } = await supabase
+    .from('csalad')
+    .select('id, id_ferfi, id_no, id_csoport, isaktiv')
+    .eq('id', familyId)
+    .maybeSingle()
+  if (familyErr) {
+    return { error: `A családi karton lekérdezése nem sikerült (${familyErr.message}) — próbáld újra.` }
+  }
+  if (!family) return { error: 'A családi karton nem található.' }
+  if (family.isaktiv === false) {
+    return { error: 'Ez a családi karton már le van zárva, ezért nem egészíthető ki. Nyisd meg a Családok fülön, és ellenőrizd.' }
+  }
+
+  // 3) A megcélzott hely TÉNYLEGESEN üres-e (közben kitölthették egy másik gépen)
+  const currentFerfi = (family.id_ferfi as number | null) ?? null
+  const currentNo = (family.id_no as number | null) ?? null
+  const occupied = slot === 'apa' ? currentFerfi : currentNo
+  if (occupied != null) {
+    if (occupied === parentId) {
+      return { error: `${parentName} már szerepel a kartonon ${slotLabel}ként — nincs teendő.` }
+    }
+    const { data: other } = await supabase
+      .from('szemely').select('csaladnev, k_nev').eq('id', occupied).maybeSingle()
+    const otherName = `${other?.csaladnev ?? ''} ${other?.k_nev ?? ''}`.trim() || `#${occupied}`
+    return {
+      error: `A(z) ${slotLabel} helyére időközben ${otherName} került, ezért ${parentName} felvételét nem hajtottuk végre. Nyisd meg a családi kartont, és nézd át.`,
+    }
+  }
+
+  // 4) A szülő ne legyen MÁSIK aktív karton felnőtt tagja — az „egy aktív
+  //    háztartás" szabály a járulék-számítás alapja (fail-closed olvasás).
+  const { data: adultRows, error: adultErr } = await supabase
+    .from('csalad')
+    .select('id, id_ferfi, id_no')
+    .eq('isaktiv', true)
+    .or(`id_ferfi.eq.${parentId},id_no.eq.${parentId}`)
+  if (adultErr) {
+    return { error: `A családtagsági ellenőrzés nem sikerült (${adultErr.message}) — próbáld újra.` }
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const masikKarton = ((adultRows || []) as any[])
+    .find((f) => (f.id as number) !== familyId && allowedFamilyIds.has(f.id as number))
+  if (masikKarton) {
+    const names = await loadFamilyDisplayNames(supabase, [masikKarton.id as number])
+    const masikNev = names.get(masikKarton.id as number) ?? `Család #${masikKarton.id}`
+    return {
+      error: `${parentName} már a(z) ${masikNev} felnőtt tagja (családfő vagy házastárs). Egy személy egyszerre csak egy család felnőtt tagja lehet — előbb a másik karton felnőtt tagjait rendezd.`,
+    }
+  }
+
+  // 5) A JELENLEGI gyermek-lista FAIL-CLOSED olvasása: az RPC a p_id-s ágon
+  //    TÖRLI és újraírja a gyerek-sorokat, ezért egy elnyelt olvasási hiba az
+  //    összes gyermeket levinné a kartonról.
+  const { data: gyerekRows, error: gyerekErr } = await supabase
+    .from('gyerek')
+    .select('id_szemely')
+    .eq('id_csalad', familyId)
+  if (gyerekErr) {
+    return {
+      error: `A karton gyermeklistája nem olvasható (${gyerekErr.message}), ezért biztonságból nem módosítottuk a kartont — próbáld újra.`,
+    }
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const gyerekIds = [...new Set(((gyerekRows || []) as any[]).map((r) => r.id_szemely as number))]
+  // Ugyanaz a személy nem lehet EGYSZERRE felnőtt és gyermek a kartonon
+  const nextGyerekIds = gyerekIds.filter((id) => id !== parentId && id !== currentFerfi && id !== currentNo)
+
+  const warnings: string[] = []
+  if (gyerekIds.includes(parentId)) {
+    warnings.push(`${parentName} gyermekként is szerepelt ezen a kartonon — ezt a téves sort eltávolítottuk.`)
+  }
+
+  // 6) Mentés a kanonikus úton (ugyanaz az RPC, mint a Családok fül mentése).
+  //    A cím NULL-ként megy: az RPC COALESCE-szal megőrzi a meglévőt. A körzetet
+  //    viszont FELTÉTEL NÉLKÜL felülírja, ezért a jelenlegi értéket adjuk vissza.
+  const { data: rpcData, error: rpcErr } = await supabase.rpc('tagnyilvantartas_csalad_mentes', {
+    p_id: familyId,
+    p_id_ferfi: slot === 'apa' ? parentId : currentFerfi,
+    p_id_no: slot === 'anya' ? parentId : currentNo,
+    p_gyerek_ids: nextGyerekIds,
+    p_c_utcaid: null,
+    p_c_szam: null,
+    p_id_csoport: (family.id_csoport as number | null) ?? null,
+  })
+  if (rpcErr) return { error: `A karton kiegészítése nem sikerült: ${rpcErr.message}` }
+  const rpcRes = rpcData as { status?: string; family_id?: number; message?: string } | null
+  if (rpcRes?.status === 'forbidden') {
+    return { error: 'Nincs jogosultsága ennek a családi kartonnak a szerkesztéséhez (jelentkezz be újra, vagy válts profilt a fejlécben).' }
+  }
+  if (rpcRes?.status !== 'ok' || !rpcRes.family_id) {
+    return { error: rpcRes?.message || 'A karton kiegészítése nem sikerült.' }
+  }
+
+  // 7) Háztartás-szinkron (innen jönnek a vér szerinti szülő-élek is) —
+  //    best-effort: a mentés már megtörtént, a hibát figyelmeztetésként visszük.
+  try {
+    await syncHouseholdFromCsalad(supabase, familyId, congregationId)
+  } catch (e) {
+    console.warn('[completeFamilyParent] syncHouseholdFromCsalad sikertelen:',
+      e instanceof Error ? e.message : e)
+    warnings.push('A szülő felkerült a kartonra, de a háztartás- és családfa-szinkron nem sikerült — nyisd meg a családi kartont, és mentsd el újra.')
+  }
+
+  // 8) Visszaigazolás: ki, hova, milyen szerepben — és kiket érint még
+  const [famNames, { data: gyerekNevRows }] = await Promise.all([
+    loadFamilyDisplayNames(supabase, [familyId]),
+    nextGyerekIds.length > 0
+      ? supabase.from('szemely').select('id, csaladnev, k_nev').in('id', nextGyerekIds)
+      : Promise.resolve({ data: [] }),
+  ])
+  const familyName = famNames.get(familyId) ?? `Család #${familyId}`
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const gyerekNevek = ((gyerekNevRows || []) as any[])
+    .map((r) => `${r.csaladnev ?? ''} ${r.k_nev ?? ''}`.trim() || `#${r.id}`)
+  const tobbGyerek = gyerekNevek.length > 1
+  const message = `${parentName} felkerült a(z) ${familyName} kartonra ${slotLabel}ként.`
+    + (gyerekNevek.length > 0
+      ? ` A kartonon szereplő ${tobbGyerek ? 'gyermekek' : 'gyermek'} (${gyerekNevek.join(', ')})`
+        + ` mostantól az ő gyermekeként is ${tobbGyerek ? 'szerepelnek' : 'szerepel'} a családfán.`
+      : '')
+
+  await logAuditEvent({
+    action: 'family.complete_parent',
+    targetTable: 'csalad',
+    targetId: String(familyId),
+    metadata: { parentId, slot, gyerekIds: nextGyerekIds },
+  }, supabase)
+
+  revalidatePath('/tagnyilvantartas')
+  return {
+    success: true,
+    message,
+    warning: warnings.length > 0 ? warnings.join(' ') : undefined,
+  }
+}

@@ -242,7 +242,10 @@ export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged
         // „honnan hová" jelentést mindig meg kell mutatni
         (pl.familyMoves?.length ?? 0) > 0 ||
         (pl.familyNotes?.length ?? 0) > 0 ||
-        (pl.familyInfos?.length ?? 0) > 0
+        (pl.familyInfos?.length ?? 0) > 0 ||
+        // 2026-08-04 (PR-38): jóváhagyandó karton-kiegészítés — csak itt tudja
+        // a lelkész egy kattintással engedélyezni, ezért mindig meg kell mutatni
+        (pl.familyOffers?.length ?? 0) > 0
       )
       if (plWorthShowing && pl && result.id != null) {
         setParentLinkResult({
