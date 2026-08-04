@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-04] — Az anyakönyvi rögzítés ugyanúgy építi a családot, mint a tagnyilvántartás
+<!-- key: 2026-08-04-anyakonyv-pr40-csalad-egyseges-ut -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.151 -->
+
+### 🐛 Javítások
+
+- **Keresztelés: a szülők rögzítése ugyanazon a megbízható úton fut, mint a tagnyilvántartásban**: az anyakönyv eddig saját, gyengébb család-logikát használt. Ha a családi karton létrehozása elakadt (jogosultság, korábban lezárt karton, hiányzó adat), a hiba **némán elveszett** — a felületen semmi nem jelezte, hogy a család valójában nem jött létre. Mostantól a keresztelés is a tagnyilvántartás megkeményített útját hívja: felismeri és **újranyitja a korábban lezárt kartont**, **kiegészíti a hiányos** (csak apát vagy csak anyát tartalmazó) kartont duplikátum helyett, szükség esetén **automatikusan átsorolja** a gyermeket a szülei kartonjára (és kiírja, honnan hová), a hibát pedig mindig kiírja.
+- **Keresztelés: a személyi szám nélkül nyilvántartott szülő sem esik ki**: eddig a rendszer csak a személyi szám (CNP) alapján kereste meg a szülőt, ezért a CNP nélkül nyilvántartott — de a keresőből kiválasztott — szülőnél sem családi karton, sem az anya leánykori neve, sem a vallás nem rögzült. Mostantól a kiválasztott személy azonosítója számít, a CNP csak tartalék.
+- **Esketés: nem íródik be némán rossz szülő a gyermekek mellé**: ha az egyik félnek volt már családi kartonja gyermekekkel, a rendszer eddig automatikusan beírta mellé az új házastársat — ezzel őt a kartonon lévő **minden gyermek vér szerinti szülőjévé** tette (újraházasodásnál ez hibás anyakönyvi adat). Mostantól ilyenkor nem nyúl a kartonhoz, hanem érthetően elmagyarázza a teendőt.
+- **Esketés: a családi karton hibái is láthatóvá váltak**: a közös karton létrehozása/kiegészítése mostantól ugyanazon a védett (jogosultság-helyes) úton történik, mint a Családok fülön; a korábban lezárt kartont a rendszer újranyitja, és minden akadályt (hiányzó lakcím, korábbi karton, jogosultsági hiba) kiír a mentés után.
+- **Esketés: azonos vőlegény és menyasszony**: a rendszer figyelmeztet, és nem rögzíti (eddig hibás rokoni kapcsolat keletkezhetett belőle).
+
+---
+
 ## [2026-08-04] — Javítás: a lezárt családi kartont újranyitja a rendszer
 <!-- key: 2026-08-04-tagnyilv-pr39-lezart-karton -->
 <!-- category: bugfix -->

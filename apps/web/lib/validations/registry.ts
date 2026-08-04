@@ -15,6 +15,11 @@ export const baptismSchema = z.object({
   anyjaneve: z.string().nullable().optional(),
   id_apja_cnp: z.string().nullable().optional(),
   id_anyja_cnp: z.string().nullable().optional(),
+  // 2026-08-04 (PR-40): a keresőből KIVÁLASZTOTT szülő személy-azonosítója.
+  // A CNP önmagában kevés volt: a CNP nélkül nyilvántartott (de a keresőben
+  // kiválasztott) szülő némán kiesett, ezért a családi karton sem jött létre.
+  id_apja_szemely: z.number().nullable().optional(),
+  id_anyja_szemely: z.number().nullable().optional(),
   apa_vallas: z.string().nullable().optional(),
   anya_vallas: z.string().nullable().optional(),
   anya_leanyneve: z.string().nullable().optional(),

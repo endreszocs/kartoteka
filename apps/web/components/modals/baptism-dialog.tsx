@@ -380,6 +380,10 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
       anyjaneve: motherName || null,
       id_apja_cnp: fatherCnp || null,
       id_anyja_cnp: motherCnp || null,
+      // 2026-08-04 (PR-40): a kiválasztott szülő azonosítója is megy — CNP
+      // nélkül nyilvántartott szülőnél eddig elmaradt a család-bekötés.
+      id_apja_szemely: father?.id ?? null,
+      id_anyja_szemely: mother?.id ?? null,
       apa_vallas: apavallas || null,
       anya_vallas: anyavallas || null,
       anya_leanyneve: anyaLeanykori || null,
