@@ -23,6 +23,18 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-04] — Javítás: a lezárt családi kartont újranyitja a rendszer
+<!-- key: 2026-08-04-tagnyilv-pr39-lezart-karton -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.150 -->
+
+### 🐛 Javítások
+
+- **Nem akad el a szülő-összekötés, ha a családnak volt már kartonja**: a rendszer eddig csak az aktív kartonok között keresett, ezért egy korábban **lezárt** (pl. összevonáskor vagy takarításkor inaktivált) kartonnál új létrehozásába kezdett — amit az adatbázis elutasított, és a tag család nélkül maradt. Mostantól a rendszer felismeri a lezárt kartont, **újranyitja azt** a benne lévő gyermekekkel és körzettel együtt, és ezt ki is írja. Ha több ilyen lezárt karton van, nem választ helyetted, hanem szól.
+
+---
+
 ## [2026-08-04] — Egy kattintással kiegészíthető a hiányos családi karton
 <!-- key: 2026-08-04-tagnyilv-pr38-hianyzo-szulo-ajanlat -->
 <!-- category: feature -->

@@ -745,6 +745,58 @@ export async function ensureChildFamilyLink(
     }
   }
 
+  // 2026-08-04 (PR-39): LEZÁRT KARTON ÚJRANYITÁSA. A fenti keresések mind
+  // `isaktiv = true`-ra szűrnek, az adatbázis egyediségi indexe viszont NEM —
+  // ezért egy korábban LEZÁRT (pl. a takarítás vagy az összevonás által
+  // inaktivált) kartonnál az „új karton" beszúrása
+  // `duplicate key ... csalad_id_ferf_no_idx` hibára futott, és a tag család
+  // nélkül maradt. Most: ha van ilyen lezárt karton, azt nyitjuk meg újra.
+  if (!famId && !skipCreate && (ferfiId || noId)) {
+    let zartQ = supabase.from('csalad').select('id, id_ferfi, id_no, id_csoport').eq('isaktiv', false)
+    zartQ = ferfiId ? zartQ.eq('id_ferfi', ferfiId) : zartQ.is('id_ferfi', null)
+    zartQ = noId ? zartQ.eq('id_no', noId) : zartQ.is('id_no', null)
+    const { data: zartRows, error: zartErr } = await zartQ.order('id', { ascending: true }).limit(2)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const zartak = (zartRows || []) as any[]
+    if (zartErr) {
+      notes.push(`A korábban lezárt családi kartonok ellenőrzése nem sikerült (${zartErr.message}) — a tagot most nem soroltuk családba; a szülő-kapcsolat a családfán rögzül.`)
+      skipCreate = true
+    } else if (zartak.length === 1) {
+      const zart = zartak[0]
+      const { data: gRows, error: gErr } = await supabase
+        .from('gyerek').select('id_szemely').eq('id_csalad', zart.id)
+      if (gErr) {
+        notes.push(`A lezárt családi karton gyermeklistája nem olvasható (${gErr.message}), ezért biztonságból nem nyitottuk újra.`)
+        skipCreate = true
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const megLevoGyerekek = [...new Set(((gRows || []) as any[]).map((r) => r.id_szemely as number))]
+        const { data: rpcData, error: rpcErr } = await supabase.rpc('tagnyilvantartas_csalad_mentes', {
+          p_id: zart.id as number,
+          p_id_ferfi: ferfiId,
+          p_id_no: noId,
+          p_gyerek_ids: megLevoGyerekek,
+          p_c_utcaid: null,
+          p_c_szam: null,
+          p_id_csoport: (zart.id_csoport as number | null) ?? null,
+        })
+        const rpcRes = rpcData as { status?: string; family_id?: number; message?: string } | null
+        if (!rpcErr && rpcRes?.status === 'ok' && rpcRes.family_id) {
+          famId = rpcRes.family_id
+          const famNev = await loadFamilyDisplayNames(supabase, [famId])
+          notes.push(`A szülőknek volt egy korábban LEZÁRT családi kartonja (${famNev.get(famId) ?? `#${famId}`}) — új karton helyett azt nyitottuk meg újra, így nem jött létre duplikátum.`)
+        } else {
+          const ok = rpcErr?.message || rpcRes?.message || 'ismeretlen hiba'
+          notes.push(`A korábban lezárt családi karton újranyitása nem sikerült (${ok}) — a tagot nem soroltuk családba; a szülő-kapcsolat a családfán rögzül.`)
+          skipCreate = true
+        }
+      }
+    } else if (zartak.length > 1) {
+      notes.push('A szülőknek több, korábban lezárt családi kartonja is van — nem tudtuk eldönteni, melyiket nyissuk meg újra, ezért a tagot nem soroltuk be. Nézd át a Családok fülön.')
+      skipCreate = true
+    }
+  }
+
   if (!famId && famCandidates === 0 && !skipCreate) {
     // Cím: a hívó adja (tag-űrlap címe), vagy a szülő lakcíme
     let cUtcaid = address?.c_utcaid ?? null
