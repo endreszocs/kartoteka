@@ -78,6 +78,11 @@ export function MemberRemoveDialog({ open, onOpenChange, member }: MemberRemoveD
       toast.error(result.error)
     } else {
       toast.success(result.message || 'Művelet sikeresen végrehajtva.')
+      // 2026-08-04 (PR-42): a háztartás/párkapcsolat lezárásának hibája eddig
+      // némán elveszett — most a lelkész is látja, hogy van teendője.
+      if ('warning' in result && result.warning) {
+        toast.warning(result.warning, { duration: 12000 })
+      }
       resetForm()
       onOpenChange(false)
     }

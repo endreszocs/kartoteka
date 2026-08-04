@@ -723,13 +723,30 @@ export async function saveBaptism(data: BaptismInput) {
     motherCnp: d.id_anyja_cnp ?? null,
   })
 
+  const apaMegadva = !!(d.id_apja_szemely || d.id_apja_cnp)
+  const anyaMegadva = !!(d.id_anyja_szemely || d.id_anyja_cnp)
+
   let familyWarning: string | null = null
   if (apaId || anyaId) {
     familyWarning = await linkBaptizedChildToFamily(supabase, congId, d.id_szemely, apaId, anyaId)
-  } else if (d.id_apja_cnp || d.id_anyja_cnp || d.id_apja_szemely || d.id_anyja_szemely) {
+  } else if (apaMegadva || anyaMegadva) {
     // A megadott szülő NEM oldható fel a gyülekezetben — eddig ez is némán
     // elveszett (a lelkész azt hitte, a család rögzült).
     familyWarning = 'A keresztelési bejegyzés elmentődött, de a megadott szülő(k) nem található(k) a gyülekezet tagjai között, ezért a családi karton nem jött létre. Ellenőrizd a szülők tagkartonját, majd a személyi karton „Családhoz rendelés" gombjával rendezd a családot.'
+  }
+
+  // 2026-08-04 (PR-42): RÉSZLEGESEN feloldott szülők. Ha a lelkész MINDKÉT
+  // szülőt megadta, de csak az EGYIK található meg a gyülekezetben, eddig
+  // SEMMILYEN üzenet nem ment ki (a fenti „nem található szülő" ág csak akkor
+  // fut, ha EGYIK sem oldható fel) — a hiányzó szülő tehát némán kimaradt a
+  // családfáról.
+  const hianyzoSzulok: string[] = []
+  if (apaMegadva && !apaId) hianyzoSzulok.push('édesapa')
+  if (anyaMegadva && !anyaId) hianyzoSzulok.push('édesanya')
+  if ((apaId || anyaId) && hianyzoSzulok.length > 0) {
+    const kik = hianyzoSzulok.join(' és az ')
+    const reszlet = `A megadott ${kik} nem található a gyülekezet tagjai között, ezért hozzá NEM jött létre szülő-kapcsolat — a családfán nem fog megjelenni a gyermek szüleként. Ha ő is gyülekezeti tag, vedd fel a tagnyilvántartásba, majd a gyermek személyi kartonján a „Családhoz rendelés" gombbal pótold a kapcsolatot.`
+    familyWarning = familyWarning ? `${familyWarning} ${reszlet}` : reszlet
   }
 
   // 2026-05-29: ha a felhasználó megadta az anya leánykori nevét
@@ -1391,50 +1408,80 @@ export async function saveBurial(data: BurialInput) {
   // action `reason='meghalt'` ágában mindkettőt csinálja — itt is meg kell.)
   //
   // Az `id_szemely`-re a meghalt+member_status frissítése (idempotens — szerkesztéskor
-  // sem ártalmas, ha már true):
+  // sem ártalmas, ha már true).
+  //
+  // 2026-08-04 (PR-42): a hiba NEM veszhet el némán. Eddig ez egy ÜRES
+  // `catch {}`-ben futott, és az `{error}` sem volt kicsomagolva — a
+  // supabase-js viszont nem dob kivételt, ezért a hiba TELJESEN elveszett: a
+  // lelkész azt hitte, az elhunyt jelölés megtörtént, a tag pedig élőként
+  // maradt a nyilvántartásban (és a választói névjegyzéken). A temetési
+  // bejegyzés maga továbbra is elmentődik — az az elsődleges funkció —, de
+  // most a felület megkapja a figyelmeztetést.
+  const figyelmeztetesek: string[] = []
   try {
-    await supabase
+    const { error: elhunytErr } = await supabase
       .from('szemely')
       .update({ meghalt: true, member_status: 'elhunyt' })
       .eq('id', d.id_szemely)
       .eq('congregation_id', congId)
-  } catch {
-    // Ha a szemely-re nincs jogosultság vagy más hiba — a temetés-rögzítést NEM
-    // blokkoljuk emiatt. A user explicit hibát látna a tag-frissítésről, de a
-    // temetés már rögzítve van a temetes táblában.
+    if (elhunytErr) {
+      console.error('[saveBurial] az elhunyt-jelölés nem sikerült:', elhunytErr.message)
+      figyelmeztetesek.push(
+        `A temetés rögzült, de a tag „elhunyt" jelölése NEM sikerült (${elhunytErr.message}) — a tagnyilvántartásban egyelőre élő tagként szerepel. Nyisd meg újra a temetési bejegyzést és mentsd el ismét; ha a hiba megmarad, a Tagnyilvántartás → „Tag kivezetése" → „Elhunyt" úton is elvégezhető.`,
+      )
+    }
+  } catch (e) {
+    console.error('[saveBurial] az elhunyt-jelölés kivétellel állt le:', e instanceof Error ? e.message : e)
+    figyelmeztetesek.push(
+      'A temetés rögzült, de a tag „elhunyt" jelölése NEM sikerült — a tagnyilvántartásban egyelőre élő tagként szerepel. Nyisd meg újra a temetési bejegyzést és mentsd el ismét.',
+    )
   }
 
   // 2026-06-01 (hibrid család-modell Fázis 2): az új modell lezárása.
   // Halálozáskor:
   //   - a háztartás-tagság érvényes_ig dátumot kap (a tag már nem él itt)
-  //   - a házastársi kapcsolat lezárul (özveggyé válik a másik fél)
+  //   - a PÁRKAPCSOLAT lezárul (özveggyé válik a másik fél)
   //   - a szülő-gyerek vér szerinti kapcsolatok ÉRINTETLENEK (a vér szerinti
   //     kötelék nem szűnik meg halállal — a leszármazottak anyakönyvi
   //     rekordjai továbbra is hivatkoznak rá)
+  //
+  // 2026-08-04 (PR-42): az ÉLETTÁRSI kapcsolat is lezárul. A PR-27 óta létezik
+  // az 'elettars' típus, de a lezárás csak a 'hazastars'-ra futott, ezért az
+  // élettársi él ÖRÖKRE aktív maradt — fantom pár az elhunyt mellett a
+  // családfán. A hibákat sem nyeljük el (a supabase-js nem dob).
   try {
-    await supabase
+    const { error: haztErr } = await supabase
       .from('haztartas_tag')
       .update({ ervenyes_ig: d.hdatum })
       .eq('id_szemely', d.id_szemely)
       .is('ervenyes_ig', null)
       .eq('congregation_id', congId)
+    if (haztErr) {
+      console.error('[saveBurial] háztartás-tagság lezárása sikertelen:', haztErr.message)
+      figyelmeztetesek.push('A temetés rögzült, de az elhunyt háztartási tagsága nem zárult le — nyisd meg a Családok fülön a kartont, és ellenőrizd.')
+    }
 
-    await supabase
+    const { error: parErr } = await supabase
       .from('szemely_kapcsolat')
       .update({ ervenyes_ig: d.hdatum })
-      .eq('tipus', 'hazastars')
+      .in('tipus', ['hazastars', 'elettars'])
       .or(`id_szemely_1.eq.${d.id_szemely},id_szemely_2.eq.${d.id_szemely}`)
       .is('ervenyes_ig', null)
       .eq('congregation_id', congId)
+    if (parErr) {
+      console.error('[saveBurial] párkapcsolat lezárása sikertelen:', parErr.message)
+      figyelmeztetesek.push('A temetés rögzült, de a házastársi/élettársi kapcsolat lezárása nem sikerült — a családfán a pár egyelőre együtt jelenik meg. Mentsd el újra a temetési bejegyzést.')
+    }
   } catch (e) {
     console.warn('[saveBurial] hibrid-modell lezárás sikertelen (nem blokkoló):',
       e instanceof Error ? e.message : e)
+    figyelmeztetesek.push('A temetés rögzült, de a háztartási tagság és a párkapcsolat lezárása nem sikerült — nyisd meg a Családok fülön a kartont, és ellenőrizd.')
   }
 
   revalidatePath('/anyakonyv')
   revalidatePath('/tagnyilvantartas')
   revalidatePath('/munkanaplo')
-  return { success: true }
+  return { success: true, warning: figyelmeztetesek.length > 0 ? figyelmeztetesek.join(' ') : undefined }
 }
 
 // ── Tagmozgás mentés (4 típus) ──────────────────────────────

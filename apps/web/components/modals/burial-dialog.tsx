@@ -226,7 +226,14 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
     })
     setLoading(false)
     if (result.error) { toast.error(result.error); return false }
-    toast.success('Temetés rögzítve! A tag státusza „elhunyt"-ra változott.', { duration: 4000 })
+    // 2026-08-04 (PR-42): ha a tag „elhunyt" jelölése vagy a családi/háztartási
+    // lezárás nem sikerült, azt eddig SEMMI nem mutatta — a lelkész azt hitte,
+    // minden rendben. Most külön figyelmeztetés jelenik meg.
+    if ('warning' in result && result.warning) {
+      toast.warning(result.warning, { duration: 12000 })
+    } else {
+      toast.success('Temetés rögzítve! A tag státusza „elhunyt"-ra változott.', { duration: 4000 })
+    }
     return true
   }
 

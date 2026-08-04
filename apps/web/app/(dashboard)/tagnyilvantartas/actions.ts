@@ -1160,29 +1160,47 @@ export async function removeMember(data: RemoveInput) {
 
     // 2026-06-10 (Fázis 3, P1-7b): halál-utak egységesítése — az anyakönyvi
     // saveBurial-lal azonos módon az új modellben lezárjuk a háztartás-tagságot
-    // és a házastársi kapcsolatot (a vér szerinti kapcsolatok érintetlenek).
+    // és a párkapcsolatot (a vér szerinti kapcsolatok érintetlenek).
+    //
+    // 2026-08-04 (PR-42): az ÉLETTÁRSI kapcsolat is lezárul (a PR-27 óta létező
+    // 'elettars' típus eddig kimaradt, ezért örökre aktív maradt — fantom pár a
+    // családfán), és a lezárás hibája sem vész el némán.
+    const figyelmeztetesek: string[] = []
     try {
-      await supabase
+      const { error: haztErr } = await supabase
         .from('haztartas_tag')
         .update({ ervenyes_ig: parsed.data.hdatum })
         .eq('id_szemely', id)
         .is('ervenyes_ig', null)
         .eq('congregation_id', congregationId)
-      await supabase
+      if (haztErr) {
+        console.error('[removeMember] háztartás-tagság lezárása sikertelen:', haztErr.message)
+        figyelmeztetesek.push('Az elhunyt háztartási tagsága nem zárult le — nyisd meg a Családok fülön a kartont, és ellenőrizd.')
+      }
+      const { error: parErr } = await supabase
         .from('szemely_kapcsolat')
         .update({ ervenyes_ig: parsed.data.hdatum })
-        .eq('tipus', 'hazastars')
+        .in('tipus', ['hazastars', 'elettars'])
         .or(`id_szemely_1.eq.${id},id_szemely_2.eq.${id}`)
         .is('ervenyes_ig', null)
         .eq('congregation_id', congregationId)
+      if (parErr) {
+        console.error('[removeMember] párkapcsolat lezárása sikertelen:', parErr.message)
+        figyelmeztetesek.push('A házastársi/élettársi kapcsolat lezárása nem sikerült — a családfán a pár egyelőre együtt jelenik meg. Végezd el újra a kivezetést.')
+      }
     } catch (e) {
       console.warn('[removeMember] hibrid-modell lezárás sikertelen (nem blokkoló):',
         e instanceof Error ? e.message : e)
+      figyelmeztetesek.push('A háztartási tagság és a párkapcsolat lezárása nem sikerült — nyisd meg a Családok fülön a kartont, és ellenőrizd.')
     }
 
     await logAuditEvent({ action: 'member.remove', targetTable: 'szemely', targetId: String(id), metadata: { reason: 'meghalt' } }, supabase)
     revalidatePath('/tagnyilvantartas')
-    return { success: true, message: 'A haláleset sikeresen adminisztrálva.' }
+    return {
+      success: true,
+      message: 'A haláleset sikeresen adminisztrálva.',
+      warning: figyelmeztetesek.length > 0 ? figyelmeztetesek.join(' ') : undefined,
+    }
   }
 
   if (reason === 'elkoltozott') {
