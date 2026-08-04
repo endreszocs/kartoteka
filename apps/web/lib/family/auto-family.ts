@@ -762,15 +762,71 @@ export async function ensureChildFamilyLink(
   // inaktivált) kartonnál az „új karton" beszúrása
   // `duplicate key ... csalad_id_ferf_no_idx` hibára futott, és a tag család
   // nélkül maradt. Most: ha van ilyen lezárt karton, azt nyitjuk meg újra.
+  //
+  // 2026-08-04 (PR-41): az adatbázisban HÁROM egyediségi index van a
+  // `csalad` táblán — UNIQUE(id_ferfi, id_no), UNIQUE(id_ferfi) ÉS
+  // UNIQUE(id_no) —, vagyis egy személy a nyilvántartás EGÉSZÉBEN legfeljebb
+  // EGY kartonon lehet férj, illetve feleség (a LEZÁRT kartonokat is
+  // beleértve). Ezért nem elég a pontos szülő-párosra keresni: ha a szülő
+  // „helye" bármelyik másik kartonon foglalt, az új karton beszúrása
+  // menthetetlenül `duplicate key` hibára fut. Ilyenkor meg sem próbáljuk,
+  // hanem elmondjuk, mi a helyzet.
   if (!famId && !skipCreate && (ferfiId || noId)) {
-    let zartQ = supabase.from('csalad').select('id, id_ferfi, id_no, id_csoport').eq('isaktiv', false)
-    zartQ = ferfiId ? zartQ.eq('id_ferfi', ferfiId) : zartQ.is('id_ferfi', null)
-    zartQ = noId ? zartQ.eq('id_no', noId) : zartQ.is('id_no', null)
-    const { data: zartRows, error: zartErr } = await zartQ.order('id', { ascending: true }).limit(2)
+    const orParts: string[] = []
+    if (ferfiId) orParts.push(`id_ferfi.eq.${ferfiId}`)
+    if (noId) orParts.push(`id_no.eq.${noId}`)
+    const { data: foglaltRows, error: zartErr } = await supabase
+      .from('csalad')
+      .select('id, id_ferfi, id_no, id_csoport, isaktiv')
+      .or(orParts.join(','))
+      .order('id', { ascending: true })
+      .limit(10)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const zartak = (zartRows || []) as any[]
+    const foglaltak = (foglaltRows || []) as any[]
+    // Pontos egyezés = mindkét „hely" ugyanaz, mint amit most rögzítenénk.
+    const pontos = foglaltak.filter(
+      (r) => ((r.id_ferfi as number | null) ?? null) === (ferfiId ?? null)
+        && ((r.id_no as number | null) ?? null) === (noId ?? null),
+    )
+    // Ütköző = a szülő helye MÁS párosítással foglalt (más házastárs, vagy
+    // épp fordítva: a keresett fél kartonján más szerepel).
+    const utkozok = foglaltak.filter((r) => !pontos.includes(r))
+    const zartak = pontos.filter((r) => r.isaktiv === false)
     if (zartErr) {
       notes.push(`A korábban lezárt családi kartonok ellenőrzése nem sikerült (${zartErr.message}) — a tagot most nem soroltuk családba; a szülő-kapcsolat a családfán rögzül.`)
+      skipCreate = true
+    } else if (pontos.length === 0 && utkozok.length > 0) {
+      // A leggyakoribb valós eset: az egyik szülő korábbi/másik kapcsolatból
+      // származó kartonon szerepel (újraházasodás, mostohacsalád, vagy egy
+      // korábban rosszul rögzített páros).
+      const utk = utkozok[0]
+      const [famNev, nevRows] = await Promise.all([
+        loadFamilyDisplayNames(supabase, [utk.id as number]),
+        supabase.from('szemely').select('id, nev, vezeteknev, keresztnev')
+          .in('id', [ferfiId, noId].filter((v): v is number => v != null)),
+      ])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const nevSor = ((nevRows?.data || []) as any[])
+      const nevOfId = (id: number | null) => {
+        const r = nevSor.find((x) => x.id === id)
+        return r ? (r.nev || [r.vezeteknev, r.keresztnev].filter(Boolean).join(' ')) : `#${id}`
+      }
+      const erintett = (utk.id_ferfi as number | null) === ferfiId ? ferfiId : noId
+      notes.push(
+        `${nevOfId(erintett)} már szerepel egy másik családi kartonon (${famNev.get(utk.id as number) ?? `#${utk.id}`}`
+        + `${utk.isaktiv === false ? ', lezárt karton' : ''}), más házastárssal. A nyilvántartás szabálya szerint egy személy `
+        + `csak EGY kartonon lehet férj, illetve feleség — ezért ehhez a taghoz nem hozhattunk létre új kartont. `
+        + `A szülő-kapcsolatot rögzítettük, a családfán látszik. Ha a tag valóban ehhez a családhoz tartozik, nyisd meg a `
+        + `kartont a Családok fülön, és vedd fel rá gyermekként; ha újabb házasságról van szó, előbb a meglévő kartont kell rendezni.`,
+      )
+      skipCreate = true
+    } else if (pontos.length > 1) {
+      notes.push('A szülő-párosnak több családi kartonja is van a nyilvántartásban — nem tudtuk eldönteni, melyikbe soroljuk a tagot. Nézd át a Családok fülön.')
+      skipCreate = true
+    } else if (pontos.length === 1 && zartak.length === 0) {
+      // Pontos, de AKTÍV karton, amit a fenti (hatókör-szűrt) keresés nem
+      // adott vissza → jellemzően más gyülekezet kartonja. Nem nyúlunk hozzá.
+      notes.push('A szülő-párosnak van családi kartonja, de az ehhez a gyülekezethez nem érhető el, ezért a tagot nem soroltuk be. A szülő-kapcsolat a családfán rögzül.')
       skipCreate = true
     } else if (zartak.length === 1) {
       const zart = zartak[0]

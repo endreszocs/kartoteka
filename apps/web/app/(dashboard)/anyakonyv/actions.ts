@@ -1071,11 +1071,12 @@ async function ensureFamilyForCouple(supabase: any, ferfiId: number, noId: numbe
     return finish()
   }
   const zartak = (zartRows || []) as { id: number; id_ferfi: number | null; id_no: number | null; id_csoport: number | null }[]
-  // Ha van lezárt karton, de nem nyitható újra biztonságosan, akkor sem
-  // állunk le: az új karton létrehozását MEGPRÓBÁLJUK (nem tudhatjuk előre,
-  // hogy az adatbázis egyedisége érinti-e ezt az esetet), és csak akkor
-  // magyarázzuk el a lezárt kartont, ha a létrehozás tényleg elakadt.
-  let zartMagyarazat: string | null = null
+  // 2026-08-04 (PR-41): a `csalad` táblán HÁROM egyediségi index van —
+  // UNIQUE(id_ferfi, id_no), UNIQUE(id_ferfi) ÉS UNIQUE(id_no) —, vagyis egy
+  // személy a nyilvántartás EGÉSZÉBEN legfeljebb EGY kartonon lehet férj,
+  // illetve feleség, a LEZÁRT kartonokat is beleértve. Ezért ha a lezárt
+  // karton nem nyitható újra biztonságosan, az új karton beszúrása
+  // menthetetlenül `duplicate key` hibára futna — meg sem próbáljuk.
   if (zartak.length > 0) {
     // Csak az EGYETLEN, a párral összeegyeztethető karton nyitható újra:
     // a másik hely legyen üres vagy épp a mostani házastárs. (Egy korábbi
@@ -1086,7 +1087,8 @@ async function ensureFamilyForCouple(supabase: any, ferfiId: number, noId: numbe
     )
     const zart = zartak.length === 1 && kompatibilis.length === 1 ? kompatibilis[0] : null
     if (!zart) {
-      zartMagyarazat = 'Az egyik félnek van egy korábbi, LEZÁRT családi kartonja (más házastárssal vagy több ilyen is) — azt szándékosan NEM nyitottuk újra, mert felülírná a volt házastárs és a rajta lévő gyermekek adatait. A közös kartont a Családok fülön hozhatod létre, miután a régit rendezted.'
+      notes.push('A házassági anyakönyv elmentődött, de a közös családi kartont nem hoztuk létre: az egyik félnek van egy korábbi, LEZÁRT családi kartonja más házastárssal (vagy több ilyen is). Azt szándékosan nem nyitottuk újra, mert felülírná a volt házastárs és a rajta lévő gyermekek adatait — a nyilvántartás szabálya szerint pedig egy személy csak EGY kartonon lehet férj, illetve feleség, ezért új kartont sem lehet mellé létrehozni. Rendezd a régi kartont a Családok fülön, utána jöhet a közös karton.')
+      return finish()
     } else {
       const gyerekIds = await gyerekIdsOf(zart.id)
       if (gyerekIds === null) return finish()
@@ -1122,7 +1124,6 @@ async function ensureFamilyForCouple(supabase: any, ferfiId: number, noId: numbe
   const famId = await mentesRpc(null, [], addr[0].c_utcaid as number, (addr[0].c_szam as string | null) || '1', null,
     'Az új családi karton létrehozása nem sikerült')
   if (famId) await syncAfter(famId)
-  else if (zartMagyarazat) notes.push(zartMagyarazat)
   return finish()
 }
 
