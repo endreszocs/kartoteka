@@ -23,6 +23,18 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-04] — Érthető üzenet, ha a szülő már másik családi kartonon szerepel
+<!-- key: 2026-08-04-tagnyilv-pr41-csalad-egyediseg -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.152 -->
+
+### 🐛 Javítások
+
+- **Nincs több érthetetlen adatbázis-hibaüzenet a családi kartonnál**: a nyilvántartás szabálya szerint egy személy **összesen egy** családi kartonon lehet férj, illetve feleség — a lezárt kartonokat is beleértve. Eddig, ha valakinek a „helye" már foglalt volt (pl. korábbi házasság, mostohacsalád vagy egy régi téves páros miatt), a rendszer mégis megpróbált új kartont nyitni, és egy nyers adatbázis-hibát dobott. Mostantól **előre felismeri** a helyzetet, és megnevezi a kartont meg az érintett személyt, illetve elmondja, mit tehetsz: vedd fel a tagot a meglévő kartonra, vagy előbb rendezd a régit.
+
+---
+
 ## [2026-08-04] — Az anyakönyvi rögzítés ugyanúgy építi a családot, mint a tagnyilvántartás
 <!-- key: 2026-08-04-anyakonyv-pr40-csalad-egyseges-ut -->
 <!-- category: bugfix -->
