@@ -56,6 +56,30 @@ export interface FamilyLinkMove {
   sibling: boolean
 }
 
+/**
+ * 2026-08-04 (PR-38): FELAJÁNLOTT KARTON-KIEGÉSZÍTÉS.
+ *
+ * Ha a szülőknek van egy „fél" családi kartonja (csak az egyik szülő van
+ * beírva), és azon MÁR VANNAK gyermekek, a hiányzó szülőt szándékosan NEM
+ * írjuk be automatikusan: a háztartás-szinkron a beírt felnőttől is VÉR
+ * SZERINTI szülő-élt húzna a kartonon lévő ÖSSZES gyermekre — lehet, hogy
+ * azoknak más az édesanyjuk/édesapjuk (mostohaszülő-hazárd, PR-23/PR-26).
+ *
+ * A döntés a lelkészé, de egy kattintással jóváhagyhatja: ez a struktúra
+ * hordozza a felülethez a „mit írnánk be, hová, kiket érint" adatokat.
+ */
+export interface FamilyCompletionOffer {
+  familyId: number
+  familyName: string
+  /** A beírandó szülő */
+  parentId: number
+  parentName: string
+  /** 'apa' | 'anya' — melyik hely üres */
+  slot: 'apa' | 'anya'
+  /** A kartonon MÁR szereplő gyermekek neve (őket is érintené) */
+  erintettGyermekek: string[]
+}
+
 export interface EnsureChildFamilyResult {
   /** Létrejött-e (vagy megvolt-e) a családi tagság-bekötés */
   linked: boolean
@@ -74,6 +98,10 @@ export interface EnsureChildFamilyResult {
   parentLinked: boolean
   /** Az összevonás során lezárt (kiürült) családi kartonok nevei */
   closedFamilies: string[]
+  /** 2026-08-04 (PR-38): egy kattintással jóváhagyható karton-kiegészítések.
+   *  A rendszer szándékosan NEM végezte el őket automatikusan (lásd a
+   *  FamilyCompletionOffer doc-kommentjét) — a döntés a lelkészé. */
+  offers: FamilyCompletionOffer[]
 }
 
 /** „Márk Ildikó: Kovács család → Márk család" alakú, olvasható mondatok. */
@@ -542,6 +570,7 @@ export async function ensureChildFamilyLink(
   const notes: string[] = []
   const infos: string[] = []
   const closedFamilies: string[] = []
+  const offers: FamilyCompletionOffer[] = []
   /** false = valamelyik szülő-él rögzítése elbukott (a fán nem fog látszani) */
   let parentEdgesOk = true
   const done = (linked: boolean, familyId: number | null): EnsureChildFamilyResult => ({
@@ -552,6 +581,7 @@ export async function ensureChildFamilyLink(
     notes,
     infos,
     closedFamilies,
+    offers,
     parentLinked: parentEdgesOk && !!(ferfiId || noId),
   })
 
@@ -660,8 +690,21 @@ export async function ensureChildFamilyLink(
             `${kartonNev}: a kartonon ${nevOf(meglevoId)} szerepel, a(z) ${hianyzo} helye üres, és már rajta van ${masGyerekek.map(nevOf).join(', ')}. `
             + `Ha automatikusan beírnánk ${nevOf(beirandoId)} nevét, a rendszer őt ${masGyerekek.length > 1 ? 'ezeknek a gyermekeknek' : 'ennek a gyermeknek'} a VÉR SZERINTI szülőjévé is tenné — `
             + `ezért NEM írtuk be, a döntést rád bízzuk. Ha valóban ${nevOf(beirandoId)} a másik szülő, nyisd meg a(z) ${kartonNev} kartont, és vedd fel rá. `
-            + `(Új kartont szándékosan nem hoztunk létre, hogy ne legyen duplikátum.)`,
+            + `(Új kartont szándékosan nem hoztunk létre, hogy ne legyen duplikátum.) `
+            + `Alább egy gombbal jóváhagyhatod.`,
           )
+          // 2026-08-04 (PR-38): STRUKTURÁLT AJÁNLAT a felületnek — a lelkész
+          // egy kattintással jóváhagyhatja a kiegészítést (completeFamilyParent).
+          if (beirandoId != null) {
+            offers.push({
+              familyId: half.id as number,
+              familyName: kartonNev,
+              parentId: beirandoId,
+              parentName: nevOf(beirandoId),
+              slot: half.id_ferfi == null ? 'apa' : 'anya',
+              erintettGyermekek: masGyerekek.map(nevOf),
+            })
+          }
           skipCreate = true
         } else {
           const { data: rpcData, error: rpcErr } = await supabase.rpc('tagnyilvantartas_csalad_mentes', {

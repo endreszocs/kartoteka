@@ -11,7 +11,7 @@ import { fetchFamilyPaymentsCompat, fetchPersonPaymentsCompat } from '@/lib/fina
 import { allocateFamilyPayments, computeBaseExpectedForMemberYear, computeJarulekForMemberYear, isJarulekExcludedMemberStatus, type JarulekDiscountRule, type JarulekExemption, type JarulekPaymentLike, type JarulekYearSetting } from '@/lib/finance/jarulek-calculation'
 import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallback'
 import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
-import { describeMoves, ensureChildFamilyLink } from '@/lib/family/auto-family'
+import { describeMoves, ensureChildFamilyLink, type FamilyCompletionOffer } from '@/lib/family/auto-family'
 import { getAllowedFamilyIds, loadFamilyDisplayNames, syncHouseholdFromCsalad } from '@/lib/family/family-membership'
 
 // ── Segéd: congregation_id a profilból ───────────────────────
@@ -727,6 +727,8 @@ export async function saveMember(data: MemberInput) {
   let autoFamilyMoveRows: { personId: number; fromFamilyId: number | null; toFamilyId: number; sibling: boolean }[] = []
   let autoFamilyLinked = false
   let autoParentLinked = false
+  /** 2026-08-04 (PR-38): felajánlott (jóváhagyandó) karton-kiegészítések */
+  let autoFamilyOffers: FamilyCompletionOffer[] = []
   let parentLink: SaveMemberParentLink | undefined
   if (savedId && (d.id_apja_cnp || d.id_anyja_cnp || d.apjaneve?.trim() || d.anyjaneve?.trim())) {
     let ferfiId: number | null = null
@@ -790,6 +792,7 @@ export async function saveMember(data: MemberInput) {
       }))
       autoFamilyLinked = linkRes.linked
       autoParentLinked = linkRes.parentLinked
+      autoFamilyOffers = linkRes.offers
     }
 
     // Csak azt mutatjuk, amiről van mondanivaló: az üres-bemenetű 'none' és a
@@ -799,7 +802,10 @@ export async function saveMember(data: MemberInput) {
       (p.status === 'cnp' || (p.status === 'none' && !p.input)) ? undefined : p
     const apaUi = forUi(apa)
     const anyaUi = forUi(anya)
-    if (apaUi || anyaUi || autoFamilyWarning || autoFamilyMoves.length > 0 || autoFamilyInfos.length > 0) {
+    // 2026-08-04 (PR-38): az ajánlat ÖNMAGÁBAN is felugró ablakot érdemel —
+    // a lelkész csak így tudja egy kattintással jóváhagyni a kiegészítést.
+    if (apaUi || anyaUi || autoFamilyWarning || autoFamilyMoves.length > 0
+      || autoFamilyInfos.length > 0 || autoFamilyOffers.length > 0) {
       parentLink = {
         apa: apaUi,
         anya: anyaUi,
@@ -810,6 +816,7 @@ export async function saveMember(data: MemberInput) {
         familyInfos: autoFamilyInfos,
         familyLinked: autoFamilyLinked,
         parentLinked: autoParentLinked,
+        familyOffers: autoFamilyOffers,
       }
     }
   }
@@ -912,6 +919,9 @@ export interface SaveMemberParentLink {
   familyLinked?: boolean
   /** Rögzült-e legalább egy szülő-kapcsolat (a családfán látszik) */
   parentLinked?: boolean
+  /** 2026-08-04 (PR-38): egy kattintással jóváhagyható karton-kiegészítések —
+   *  amit a rendszer a mostohaszülő-hazárd miatt NEM végzett el automatikusan */
+  familyOffers?: FamilyCompletionOffer[]
 }
 
 /**
@@ -1040,6 +1050,8 @@ export async function linkMemberParents(input: { memberId: number; apaId?: numbe
   let noteLines: string[] = []
   let closedLines: string[] = []
   let infoLines: string[] = []
+  /** 2026-08-04 (PR-38): jóváhagyandó karton-kiegészítés(ek) */
+  let offerRows: FamilyCompletionOffer[] = []
   if (activeFam) {
     if (apa && activeFam.id_ferfi != null && activeFam.id_ferfi !== apa.id) {
       return { error: 'A tag családjában már egy MÁSIK édesapa szerepel — előbb a családi kartonon módosítsd a felnőtt tagokat.' }
@@ -1080,6 +1092,7 @@ export async function linkMemberParents(input: { memberId: number; apaId?: numbe
     noteLines = linkRes.notes
     closedLines = linkRes.closedFamilies
     infoLines = linkRes.infos
+    offerRows = linkRes.offers
   }
 
   await logAuditEvent({
@@ -1106,6 +1119,7 @@ export async function linkMemberParents(input: { memberId: number; apaId?: numbe
     notes: noteLines,
     closed: closedLines,
     infos: infoLines,
+    offers: offerRows,
   }
 }
 

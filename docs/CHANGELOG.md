@@ -23,6 +23,19 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-04] — Egy kattintással kiegészíthető a hiányos családi karton
+<!-- key: 2026-08-04-tagnyilv-pr38-hianyzo-szulo-ajanlat -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.149 -->
+
+### ✨ Új funkciók
+
+- **„Kiegészíted a kartont?" — jóváhagyó gomb**: ha a szülők összekötésekor a rendszer biztonsági okból nem írta be magától a hiányzó szülőt (mert a kartonon már vannak gyermekek, akiknek így ő is a vér szerinti szülőjükké válna), mostantól **egy gombbal jóváhagyhatod**. A felugró megmutatja, kit venne fel, melyik kartonra, és kiket érint — a döntés a lelkészé, de nem kell hozzá külön kartont nyitogatni.
+- **Szigorú ellenőrzések a jóváhagyás mögött**: a rendszer csak akkor írja be a szülőt, ha a hely tényleg üres, a személy a saját gyülekezet megfelelő nemű tagja, és nem tagja felnőttként másik aktív családnak — minden más esetben beszédes hibaüzenetet ad, és nem módosít semmit.
+
+---
+
 ## [2026-08-04] — Család szerkesztése: eltűnő keresés és 8 további hiba javítva
 <!-- key: 2026-08-04-tagnyilv-pr34-csalad-szerkeszto -->
 <!-- category: bugfix -->
