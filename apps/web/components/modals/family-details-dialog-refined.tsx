@@ -216,7 +216,14 @@ export function FamilyDetailsDialogRefined({
 
   // Családnév — a férj/feleség családnevéből
   const familyName = family?.ferfi?.csaladnev || family?.no?.csaladnev || null
-  const totalPayments = payments.reduce((sum, item) => sum + Number(item.osszeg || 0), 0)
+  // 2026-08-04 (PR-43): a STORNÓZOTT tételek eddig beleszámítottak az összegbe,
+  // és semmi nem jelölte őket — a lelkész a valóságosnál nagyobb összeget látott.
+  // (A személyi kartonon ez már helyesen működött.)
+  const totalPayments = payments.reduce(
+    (sum, item) => sum + (item.stornozott ? 0 : Number(item.osszeg || 0)),
+    0,
+  )
+  const stornozottDb = payments.filter((p) => p.stornozott).length
 
   const isLiving = family
     ? (family.ferfi && !family.ferfi.meghalt) || (family.no && !family.no.meghalt)
@@ -640,7 +647,7 @@ export function FamilyDetailsDialogRefined({
                   {/* BEFIZETÉSEK — külön tab */}
                   {activeTab === 'payments' && (
                   <Section
-                    title={`Befizetések (${payments.length} tétel · ${totalPayments.toFixed(0)} RON)`}
+                    title={`Befizetések (${payments.length} tétel · ${totalPayments.toFixed(0)} RON${stornozottDb > 0 ? ` · ebből ${stornozottDb} stornózott` : ''})`}
                     icon={<CreditCard className="size-4" />}
                     accent="emerald"
                   >
@@ -658,6 +665,11 @@ export function FamilyDetailsDialogRefined({
                                 {/* 2026-07-24 (PR-11, 7. észrevétel): látszódjon, MELYIK tag fizetett */}
                                 <th className="px-3 py-2">Befizető</th>
                                 <th className="px-3 py-2">Cél</th>
+                                {/* 2026-08-04 (PR-43): MELYIK ÉVRE szól a befizetés. Az adat
+                                    eddig is megérkezett (befizetes.fizetettev), csak nem
+                                    látszott — a NYOMTATOTT családi karton viszont már mutatta,
+                                    ezért a képernyő és a nyomtatvány eltért egymástól. */}
+                                <th className="px-3 py-2 whitespace-nowrap" title="Melyik évre szól a befizetés">Évre</th>
                                 <th className="px-3 py-2 text-right">Összeg</th>
                                 <th className="hidden px-3 py-2 sm:table-cell">Bizonylat</th>
                               </tr>
@@ -668,7 +680,11 @@ export function FamilyDetailsDialogRefined({
                                   ? `${p.szemely.csaladnev ?? ''} ${p.szemely.k_nev ?? ''}`.trim()
                                   : ''
                                 return (
-                                <tr key={p.id} className="transition-colors hover:bg-primary/5 motion-reduce:transition-none">
+                                <tr
+                                  key={p.id}
+                                  className={`transition-colors hover:bg-primary/5 motion-reduce:transition-none${p.stornozott ? ' text-muted-foreground line-through opacity-70' : ''}`}
+                                  title={p.stornozott ? 'Stornózott tétel — nem számít bele az összegbe' : undefined}
+                                >
                                   <td className="px-3 py-2 text-muted-foreground">
                                     {formatShortDate(p.datum)}
                                   </td>
@@ -677,6 +693,9 @@ export function FamilyDetailsDialogRefined({
                                   </td>
                                   <td className="px-3 py-2 text-foreground">
                                     {p.befizetescel?.nev || '—'}
+                                  </td>
+                                  <td className="px-3 py-2 tabular-nums text-muted-foreground whitespace-nowrap">
+                                    {p.fizetettev ? `${p.fizetettev}. év` : '—'}
                                   </td>
                                   <td className="px-3 py-2 text-right font-semibold tabular-nums text-foreground">
                                     {Number(p.osszeg || 0).toFixed(0)} RON
