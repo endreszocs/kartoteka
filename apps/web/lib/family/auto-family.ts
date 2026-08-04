@@ -565,7 +565,16 @@ export async function ensureChildFamilyLink(
   ferfiId: number | null,
   noId: number | null,
   address?: { c_utcaid?: number | null; c_szam?: string | null },
+  /**
+   * 2026-08-04 (PR-40): `offerApprovalUi: false` esetén a felajánlott
+   * karton-kiegészítés szövege NEM ígér jóváhagyó gombot — az anyakönyvi
+   * felületeken (keresztelés) csak buborék-üzenet jelenik meg, ott a
+   * személyi kartonra irányítjuk a lelkészt. Alapértelmezés: true
+   * (tagnyilvántartás — ott van gombos felugró ablak).
+   */
+  opts?: { offerApprovalUi?: boolean },
 ): Promise<EnsureChildFamilyResult> {
+  const offerApprovalUi = opts?.offerApprovalUi !== false
   const moves: FamilyLinkMove[] = []
   const notes: string[] = []
   const infos: string[] = []
@@ -691,7 +700,9 @@ export async function ensureChildFamilyLink(
             + `Ha automatikusan beírnánk ${nevOf(beirandoId)} nevét, a rendszer őt ${masGyerekek.length > 1 ? 'ezeknek a gyermekeknek' : 'ennek a gyermeknek'} a VÉR SZERINTI szülőjévé is tenné — `
             + `ezért NEM írtuk be, a döntést rád bízzuk. Ha valóban ${nevOf(beirandoId)} a másik szülő, nyisd meg a(z) ${kartonNev} kartont, és vedd fel rá. `
             + `(Új kartont szándékosan nem hoztunk létre, hogy ne legyen duplikátum.) `
-            + `Alább egy gombbal jóváhagyhatod.`,
+            + (offerApprovalUi
+              ? `Alább egy gombbal jóváhagyhatod.`
+              : `A jóváhagyást a tag személyi kartonján (Tagnyilvántartás → mentés) egy gombbal is elvégezheted.`),
           )
           // 2026-08-04 (PR-38): STRUKTURÁLT AJÁNLAT a felületnek — a lelkész
           // egy kattintással jóváhagyhatja a kiegészítést (completeFamilyParent).
