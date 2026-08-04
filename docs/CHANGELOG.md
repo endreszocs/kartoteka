@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-04] — Családi befizetések: melyik évre szól + stornó jelölés
+<!-- key: 2026-08-04-tagnyilv-pr43-befizetes-ev -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web v0.9.154 -->
+
+### ✨ Újdonságok
+
+- **A családi karton Befizetések fülén látszik, melyik évre szól a befizetés.** Az „Évre" oszlop a Cél és az Összeg között jelenik meg. (Az adat eddig is megvolt, és a *nyomtatott* családi karton már mutatta is — így a képernyő és a nyomtatvány végre ugyanazt írja.)
+
+### 🐛 Javítások
+
+- **A stornózott tételek nem növelik többé az összeget.** Eddig beleszámítottak a fejlécben látható végösszegbe, és semmi nem jelölte őket — a valóságosnál nagyobb összeg látszott. Mostantól áthúzva jelennek meg, kimaradnak az összegzésből, és a fejléc kiírja, hány ilyen tétel van.
+
+---
+
 ## [2026-08-04] — Haláleset és keresztelő: pontosabb kapcsolat-kezelés
 <!-- key: 2026-08-04-anyakonyv-pr42-halaleset-kereszteles -->
 <!-- category: bugfix -->
