@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { familySchema, type FamilyInput } from '@/lib/validations/members'
+import { divorceSchema, familySchema, type DivorceInput, type FamilyInput } from '@/lib/validations/members'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { fetchFamilyPaymentsCompat, fetchPaymentsByMemberIdsCompat } from '@/lib/finance/payment-compat'
 import { getVisibleDistrictState, sanitizeDistrictReference } from '@/lib/members/district-visibility'
@@ -9,6 +9,7 @@ import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallb
 import { logAuditEvent } from '@/lib/audit/log'
 import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
 import {
+  closePartnershipForDivorce,
   closeSyncKinshipEdges,
   findMembershipConflicts,
   foreignMembershipWarning,
@@ -16,8 +17,10 @@ import {
   loadFamilyDisplayNames,
   loadFamilyMemberships,
   moveChildMemberships,
+  protectParentEdgesAfterDivorce,
   reconcileKinshipForPersons,
   syncHouseholdFromCsalad,
+  DIVORCE_EDGE_MARKER,
   type AssignConflict,
   type FamilyMembershipInfo,
 } from '@/lib/family/family-membership'
@@ -763,15 +766,21 @@ export async function saveFamily(data: FamilyInput): Promise<SaveFamilyResult> {
     }
   }
   const selectedMemberIds = [d.id_ferfi, d.id_no, ...d.gyerekIds].filter(Boolean) as number[]
+  // A nevek a hibaüzenetekhez kellenek (lásd humanizeFamilyRpcError)
+  const nameOfSelected = new Map<number, string>()
   if (selectedMemberIds.length > 0) {
     const { data: scopedMembers } = await supabase
       .from('szemely')
-      .select('id')
+      .select('id, csaladnev, k_nev')
       .eq('congregation_id', congregationId)
       .in('id', selectedMemberIds)
 
     if ((scopedMembers || []).length !== selectedMemberIds.length) {
       return { error: 'A család csak az aktuális gyülekezet tagjaiból állhat.' }
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const p of (scopedMembers || []) as any[]) {
+      nameOfSelected.set(p.id as number, `${p.csaladnev ?? ''} ${p.k_nev ?? ''}`.trim() || `#${p.id}`)
     }
   }
 
@@ -870,15 +879,22 @@ export async function saveFamily(data: FamilyInput): Promise<SaveFamilyResult> {
     p_c_szam: d.c_szam || null,
     p_id_csoport: d.id_csoport || null,
   })
+  // 2026-08-04 (PR-44): a nyers Postgres-üzenet (pl. „duplicate key value
+  // violates unique constraint csalad_id_ferfi_idx") helyett emberi mondat —
+  // eddig a lelkész ebből nem tudta kitalálni, hogy a válást kell rögzítenie.
+  const rpcNames = {
+    ferfi: d.id_ferfi ? nameOfSelected.get(d.id_ferfi) ?? null : null,
+    no: d.id_no ? nameOfSelected.get(d.id_no) ?? null : null,
+  }
   if (rpcErr) {
-    return { error: `Hiba: ${rpcErr.message} (Lefutott már a 2026-06-10-es Fázis 2-3 adatbázis-migráció?)` }
+    return { error: `Hiba: ${humanizeFamilyRpcError(rpcErr.message, rpcNames)}` }
   }
   const rpcRes = rpcData as { status?: string; family_id?: number; message?: string } | null
   if (rpcRes?.status === 'forbidden') {
     return { error: 'Nincs jogosultsága ennek a családnak a szerkesztéséhez.' }
   }
   if (rpcRes?.status !== 'ok' || !rpcRes.family_id) {
-    return { error: rpcRes?.message || 'A család mentése nem sikerült.' }
+    return { error: humanizeFamilyRpcError(rpcRes?.message, rpcNames) || 'A család mentése nem sikerült.' }
   }
   const familyId = rpcRes.family_id
 
@@ -1101,18 +1117,23 @@ export async function searchFamilyMember(query: string, role: 'ferfi' | 'no' | '
   // a PostgREST 1000-soros plafonja némán levágta, így a „házas" és a „máshol
   // felnőtt" halmaz hiányos lett (dupla tagságot engedett át). Most csak az
   // érintett személyek családjait kérdezzük le, plusz a szerkesztett családot.
+  // 2026-08-04 (PR-44): a LEZÁRT kartonok is jönnek. A három egyediségi index
+  // (csalad_id_ferfi_idx / csalad_id_no_idx) a lezárt kartonokra IS érvényes,
+  // ezért a rajtuk férjként/feleségként ragadt személy kiválasztása eddig nyers
+  // „duplicate key" hibába futott. A szűrőt nem lazítjuk (a lezárt kartonos
+  // személy továbbra sem választható), de MEGMONDJUK, miért — és mi a teendő.
   const talalatIds = members.map((m) => m.id as number)
   const [relFamRes, editFamRes] = await Promise.all([
     talalatIds.length > 0
-      ? supabase.from('csalad').select('id, id_ferfi, id_no').eq('isaktiv', true)
+      ? supabase.from('csalad').select('id, id_ferfi, id_no, isaktiv')
           .or(`id_ferfi.in.(${talalatIds.join(',')}),id_no.in.(${talalatIds.join(',')})`)
       : Promise.resolve({ data: [], error: null }),
     editFamilyId !== undefined
-      ? supabase.from('csalad').select('id, id_ferfi, id_no').eq('id', editFamilyId).maybeSingle()
+      ? supabase.from('csalad').select('id, id_ferfi, id_no, isaktiv').eq('id', editFamilyId).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
   ])
   if (relFamRes.error) throw new Error(`A családtagsági ellenőrzés nem sikerült: ${relFamRes.error.message}`)
-  type CsaladSor = { id: number; id_ferfi: number | null; id_no: number | null }
+  type CsaladSor = { id: number; id_ferfi: number | null; id_no: number | null; isaktiv: boolean | null }
   const allFamilies: CsaladSor[] = [
     ...((relFamRes.data || []) as CsaladSor[]),
     ...(editFamRes.data ? [editFamRes.data as CsaladSor] : []),
@@ -1120,11 +1141,24 @@ export async function searchFamilyMember(query: string, role: 'ferfi' | 'no' | '
   const marriedIds = new Set<number>()
   const anyAdultIds = new Set<number>()
   const currentFamilyMemberIds = new Set<number>()
-  ;(allFamilies || []).forEach((f: { id: number; id_ferfi: number | null; id_no: number | null }) => {
-    if (role === 'ferfi' && f.id_ferfi) marriedIds.add(f.id_ferfi)
-    if (role === 'no' && f.id_no) marriedIds.add(f.id_no)
-    if (f.id_ferfi) anyAdultIds.add(f.id_ferfi)
-    if (f.id_no) anyAdultIds.add(f.id_no)
+  /** Aki egy LEZÁRT kartonon foglalja a férj/feleség helyet — az index miatt
+   *  ő sem választható, de eddig ezt csak a mentés hibája árulta el. */
+  const lezartKartonIds = new Set<number>()
+  ;(allFamilies || []).forEach((f: CsaladSor) => {
+    const aktiv = f.isaktiv !== false
+    if (!aktiv) {
+      if (role === 'ferfi' && f.id_ferfi) lezartKartonIds.add(f.id_ferfi)
+      if (role === 'no' && f.id_no) lezartKartonIds.add(f.id_no)
+      // A lezárt karton NEM számít aktív tagságnak — a régi viselkedést
+      // (marriedIds / anyAdultIds csak aktív kartonokból) megőrizzük.
+      if (!(editFamilyId !== undefined && f.id === editFamilyId)) return
+    }
+    if (aktiv) {
+      if (role === 'ferfi' && f.id_ferfi) marriedIds.add(f.id_ferfi)
+      if (role === 'no' && f.id_no) marriedIds.add(f.id_no)
+      if (f.id_ferfi) anyAdultIds.add(f.id_ferfi)
+      if (f.id_no) anyAdultIds.add(f.id_no)
+    }
     if (editFamilyId !== undefined && f.id === editFamilyId) {
       if (f.id_ferfi) currentFamilyMemberIds.add(f.id_ferfi)
       if (f.id_no) currentFamilyMemberIds.add(f.id_no)
@@ -1157,6 +1191,8 @@ export async function searchFamilyMember(query: string, role: 'ferfi' | 'no' | '
     return {
       ...m,
       felnottMashol,
+      /** 2026-08-04 (PR-44): lezárt kartonon foglalja a férj/feleség helyet */
+      lezartKartonon: lezartKartonIds.has(m.id as number) && !currentFamilyMemberIds.has(m.id as number),
       masikCsalad: other
         ? { id: other.familyId, name: other.familyName, role: other.role }
         : null,
@@ -1321,6 +1357,592 @@ export async function deleteFamily(id: number) {
   await logAuditEvent({ action: 'family.delete', targetTable: 'csalad', targetId: String(id) }, supabase)
   revalidatePath('/tagnyilvantartas')
   return { success: true }
+}
+
+// ── VÁLÁS / kapcsolat felbontása (2026-08-04, PR-44) ────────
+//
+// A válás életesemény, nem adatjavítás. Amit a rendszer csinál:
+//   1. lezárja a pár kapcsolatát a válás napjával (a családfán „elvált"),
+//   2. MEGVÉDI a gyermekek vér szerinti szülő-kapcsolatát MINDKÉT szülővel,
+//   3. lezárja a távozó fél háztartás-tagságát,
+//   4. felszabadítja a helyét a családi kartonon (így ÚJRAHÁZASODHAT),
+//   5. (házasságnál) mindkét félre ráírja az „elvált" családi állapotot.
+//
+// Amit SOHA nem csinál: nem töröl és nem ír át EGYETLEN befizetést sem, nem
+// törli és nem zárja le a családi kartont.
+
+/**
+ * A KARTONHOZ (és nem személyhez) könyvelt, élő befizetések összesítése —
+ * LAPOZVA, mert a PostgREST 1000-soros plafonja némán levágná a listát, és a
+ * lelkész a valóságosnál kevesebb tételt látna a figyelmeztető dobozban.
+ * Hibánál DOB (fail-closed) — a hívó `error`-ré alakítja.
+ */
+async function countFamilyOnlyPayments(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  congregationId: string,
+  familyId: number,
+): Promise<{ db: number; osszeg: number; evek: number[]; csonkolt: boolean }> {
+  const PAGE = 1000
+  const MAX_PAGES = 20
+  let db = 0
+  let osszeg = 0
+  const evek = new Set<number>()
+  let csonkolt = false
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const { data: rows, error } = await supabase
+      .from('befizetes')
+      .select('osszeg, fizetettev')
+      .eq('congregation_id', congregationId)
+      .eq('id_csalad', familyId)
+      .is('id_szemely', null)
+      .eq('deleted', false)
+      .eq('stornozott', false)
+      .order('id')
+      .range(page * PAGE, page * PAGE + PAGE - 1)
+    if (error) throw new Error(error.message)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const list = (rows || []) as any[]
+    for (const r of list) {
+      db += 1
+      osszeg += Number(r.osszeg || 0)
+      const ev = Number(r.fizetettev)
+      if (Number.isFinite(ev) && ev > 0) evek.add(ev)
+    }
+    if (list.length < PAGE) break
+    if (page === MAX_PAGES - 1) csonkolt = true
+  }
+  return { db, osszeg, evek: [...evek].sort((a, b) => a - b), csonkolt }
+}
+
+/** A nyers Postgres-hibaüzenetet lelkész-barát mondattá fordítja. */
+function humanizeFamilyRpcError(
+  raw: string | null | undefined,
+  names: { ferfi?: string | null; no?: string | null },
+): string {
+  const msg = (raw ?? '').toString()
+  const lower = msg.toLowerCase()
+  const ferfiUtkozes = lower.includes('csalad_id_ferfi_idx')
+  const noUtkozes = lower.includes('csalad_id_no_idx')
+  if (ferfiUtkozes || noUtkozes || lower.includes('duplicate key')) {
+    const nev = ferfiUtkozes ? (names.ferfi || 'A férj') : noUtkozes ? (names.no || 'A feleség') : 'A kiválasztott személy'
+    const szerep = ferfiUtkozes ? 'férjként' : noUtkozes ? 'feleségként' : 'felnőtt tagként'
+    return `${nev} már szerepel egy másik családi kartonon ${szerep}. A nyilvántartásban egy személy csak EGY kartonon lehet felnőtt — akkor is, ha az a karton már le van zárva. Rögzítsd előbb a válást a másik kartonon, vagy vedd le róla a felnőtt tagok közül.`
+  }
+  return msg || 'A művelet nem sikerült.'
+}
+
+/**
+ * A dialógus előszámlálása: mennyi CSALÁDI befizetés van a kartonon (ezek a
+ * válás után a maradó fél és a gyermekek járulék-jóváírásában számítanak), és
+ * milyen kapcsolat áll fenn a pár között. Az adat a figyelmeztető dobozba megy.
+ *
+ * FAIL-CLOSED: bármelyik olvasás hibája `error`-t ad — a felület ilyenkor
+ * letiltja a mentést (a néma üres lista a projekt ismert hibaosztálya).
+ */
+export async function getDivorceImpact(familyId: number): Promise<{
+  error?: string
+  /** 'hazastars' | 'elettars' | null (nincs rögzített kapcsolat) */
+  partnership?: 'hazastars' | 'elettars' | null
+  /** A pár-él kezdete — a válás dátuma ennél korábbi nem lehet */
+  parKezdet?: string | null
+  /** Tisztán CSALÁDI (személyhez nem kötött) befizetések */
+  penzugy?: { db: number; osszeg: number; evek: number[]; csonkolt: boolean }
+  /** A két fél saját lakcíme — az új karton előtöltéséhez */
+  cimek?: Record<number, { utca: string | null; c_utcaid: number | null; c_szam: string | null }>
+}> {
+  if (!Number.isInteger(familyId) || familyId <= 0) return { error: 'Érvénytelen családazonosító.' }
+  const { supabase, congregationId } = await getFamilyAccessContext()
+  if (!congregationId) return { error: 'Nincs aktív gyülekezet kiválasztva.' }
+
+  let allowedFamilyIds: Set<number>
+  try {
+    allowedFamilyIds = await getAllowedFamilyIds(supabase, congregationId, { throwOnError: true })
+  } catch (e) {
+    console.warn('[getDivorceImpact] getAllowedFamilyIds sikertelen:', e instanceof Error ? e.message : e)
+    return { error: 'A családi kartonok jogosultság-ellenőrzése nem sikerült — próbáld újra.' }
+  }
+  if (!allowedFamilyIds.has(familyId)) return { error: 'Nincs jogosultsága ehhez a családi kartonhoz.' }
+
+  const { data: family, error: familyErr } = await supabase
+    .from('csalad')
+    .select('id, id_ferfi, id_no')
+    .eq('id', familyId)
+    .maybeSingle()
+  if (familyErr) return { error: `A családi karton lekérdezése nem sikerült (${familyErr.message}) — próbáld újra.` }
+  if (!family) return { error: 'A családi karton nem található.' }
+
+  const ferfiId = (family.id_ferfi as number | null) ?? null
+  const noId = (family.id_no as number | null) ?? null
+
+  // 1) Párkapcsolat jellege + kezdete (az aktív élből)
+  let partnership: 'hazastars' | 'elettars' | null = null
+  let parKezdet: string | null = null
+  if (ferfiId && noId) {
+    const { data: parRows, error: parErr } = await supabase
+      .from('szemely_kapcsolat')
+      .select('tipus, ervenyes_tol')
+      .eq('congregation_id', congregationId)
+      .in('tipus', ['hazastars', 'elettars'])
+      .is('ervenyes_ig', null)
+      .or(`and(id_szemely_1.eq.${ferfiId},id_szemely_2.eq.${noId}),and(id_szemely_1.eq.${noId},id_szemely_2.eq.${ferfiId})`)
+      .order('megjegyzes', { nullsFirst: true })
+      .order('id')
+      .limit(1)
+    if (parErr) return { error: `A pár kapcsolatának lekérdezése nem sikerült (${parErr.message}) — próbáld újra.` }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const row = ((parRows || []) as any[])[0]
+    partnership = (row?.tipus as 'hazastars' | 'elettars' | undefined) ?? null
+    parKezdet = (row?.ervenyes_tol as string | null | undefined) ?? null
+  }
+
+  // 2) Tisztán CSALÁDI befizetések (fail-closed)
+  let penzugy: { db: number; osszeg: number; evek: number[]; csonkolt: boolean }
+  try {
+    penzugy = await countFamilyOnlyPayments(supabase, congregationId, familyId)
+  } catch (e) {
+    return {
+      error: `A karton befizetéseinek összesítése nem sikerült (${e instanceof Error ? e.message : 'ismeretlen hiba'}), ezért a válást biztonságból nem indítjuk el — próbáld újra.`,
+    }
+  }
+
+  // 3) A két fél saját lakcíme (az új karton előtöltéséhez)
+  const cimek: Record<number, { utca: string | null; c_utcaid: number | null; c_szam: string | null }> = {}
+  const adultIds = [ferfiId, noId].filter((v): v is number => v != null)
+  if (adultIds.length > 0) {
+    const { data: personRows, error: personErr } = await supabase
+      .from('szemely')
+      .select('id, c_utcaid, c_szam, adrstreet:adrstreet!c_utcaid(name)')
+      .eq('congregation_id', congregationId)
+      .in('id', adultIds)
+    if (personErr) return { error: `A felek lakcímének lekérdezése nem sikerült (${personErr.message}) — próbáld újra.` }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const p of (personRows || []) as any[]) {
+      const utca = Array.isArray(p.adrstreet) ? p.adrstreet[0] : p.adrstreet
+      cimek[p.id as number] = {
+        utca: (utca?.name as string | null | undefined) ?? null,
+        c_utcaid: (p.c_utcaid as number | null) ?? null,
+        c_szam: (p.c_szam as string | null) ?? null,
+      }
+    }
+  }
+
+  return { partnership, parKezdet, penzugy, cimek }
+}
+
+export interface FormerPartner {
+  id: number
+  name: string
+  /** A kapcsolat lezárásának napja */
+  datum: string | null
+  /** 'valas' = válás, 'elhunyt' = a másik fél elhunyt */
+  ok: 'valas' | 'elhunyt'
+  /** 'hazastars' | 'elettars' */
+  tipus: string
+  /** A volt házastárs jelenlegi (aktív) családi kartonja, ha van */
+  csaladId: number | null
+}
+
+/**
+ * KORÁBBI HÁZASTÁRS(AK) egy személyhez — a személyi karton „Családi háttér"
+ * paneljébe. A LEZÁRT pár-élekből olvas.
+ *
+ * Csak ÉLETESEMÉNY jelenik meg: válás ('valas' jelölő) vagy a másik fél
+ * elhunyta. Az adatjavításból származó lezárások (pl.
+ * 'csalad-szerkesztes-eltavolitas') SZÁNDÉKOSAN kimaradnak — különben a régi
+ * szinkron-zárások zajként öntenék el a kartont.
+ */
+export async function getFormerPartners(memberId: number): Promise<FormerPartner[]> {
+  if (!Number.isInteger(memberId) || memberId <= 0) return []
+  const { supabase, congregationId } = await getFamilyAccessContext()
+  if (!congregationId) return []
+
+  const { data: edges, error: edgeErr } = await supabase
+    .from('szemely_kapcsolat')
+    .select('id_szemely_1, id_szemely_2, tipus, ervenyes_ig, megjegyzes')
+    .eq('congregation_id', congregationId)
+    .in('tipus', ['hazastars', 'elettars'])
+    .not('ervenyes_ig', 'is', null)
+    .or(`id_szemely_1.eq.${memberId},id_szemely_2.eq.${memberId}`)
+    .order('ervenyes_ig', { ascending: false })
+    .limit(20)
+  if (edgeErr) {
+    console.warn('[getFormerPartners] a lezárt pár-élek olvasása sikertelen:', edgeErr.message)
+    return []
+  }
+  interface EdgeRow { id_szemely_1: number; id_szemely_2: number; tipus: string; ervenyes_ig: string | null; megjegyzes: string | null }
+  const rows = (edges || []) as EdgeRow[]
+  if (rows.length === 0) return []
+
+  const otherIds = [...new Set(rows.map((r) => (r.id_szemely_1 === memberId ? r.id_szemely_2 : r.id_szemely_1)))]
+  const [{ data: persons, error: personErr }, { data: families }] = await Promise.all([
+    supabase
+      .from('szemely')
+      .select('id, csaladnev, k_nev, meghalt')
+      .eq('congregation_id', congregationId)
+      .in('id', otherIds),
+    supabase
+      .from('csalad')
+      .select('id, id_ferfi, id_no')
+      .eq('isaktiv', true)
+      .or(`id_ferfi.in.(${otherIds.join(',')}),id_no.in.(${otherIds.join(',')})`),
+  ])
+  if (personErr) {
+    console.warn('[getFormerPartners] a volt házastársak lekérdezése sikertelen:', personErr.message)
+    return []
+  }
+  interface PersonRow { id: number; csaladnev: string | null; k_nev: string | null; meghalt: boolean | null }
+  const byId = new Map<number, PersonRow>(((persons || []) as PersonRow[]).map((p) => [p.id, p]))
+  const csaladByPerson = new Map<number, number>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const f of (families || []) as any[]) {
+    for (const pid of [f.id_ferfi, f.id_no]) {
+      if (pid != null && otherIds.includes(pid as number)) csaladByPerson.set(pid as number, f.id as number)
+    }
+  }
+
+  const result: FormerPartner[] = []
+  const seen = new Set<number>()
+  for (const r of rows) {
+    const otherId = r.id_szemely_1 === memberId ? r.id_szemely_2 : r.id_szemely_1
+    const person = byId.get(otherId)
+    if (!person) continue // más gyülekezet tagja / RLS-rejtett — nem mutatjuk
+    const valas = (r.megjegyzes ?? '') === DIVORCE_EDGE_MARKER
+    const elhunyt = person.meghalt === true
+    if (!valas && !elhunyt) continue // adatjavítás-eredetű zárás — nem életesemény
+    if (seen.has(otherId)) continue
+    seen.add(otherId)
+    result.push({
+      id: otherId,
+      name: `${person.csaladnev ?? ''} ${person.k_nev ?? ''}`.trim() || `#${otherId}`,
+      datum: r.ervenyes_ig,
+      ok: valas ? 'valas' : 'elhunyt',
+      tipus: r.tipus,
+      csaladId: csaladByPerson.get(otherId) ?? null,
+    })
+  }
+  return result
+}
+
+export interface RecordDivorceResult {
+  success?: boolean
+  error?: string
+  warning?: string
+  message?: string
+  /** A távozó félnek létrehozott új, egyszemélyes karton id-ja (ha kérték) */
+  ujFamilyId?: number
+}
+
+/**
+ * VÁLÁS RÖGZÍTÉSE — a lépések sorrendje KÖTÖTT (lásd a szekció fejlécét).
+ *
+ * A `saveFamily`-t SZÁNDÉKOSAN NEM hívjuk: annak `closeSyncKinshipEdges` ága a
+ * kikerült felnőtt × megmaradt gyermek éleit is lezárná, azaz elvágná a
+ * gyermekek vér szerinti szülő-kapcsolatát. Helyette közvetlenül a kanonikus
+ * mentő RPC-t hívjuk (az NULL-t tud írni az id_ferfi/id_no mezőbe, így
+ * felszabadul az egyediségi index helye → a távozó fél újraházasodhat).
+ */
+export async function recordDivorce(input: DivorceInput): Promise<RecordDivorceResult> {
+  const parsed = divorceSchema.safeParse(input)
+  if (!parsed.success) return { error: parsed.error.issues[0].message }
+  const d = parsed.data
+
+  const { supabase, congregationId, userId } = await getFamilyAccessContext()
+  if (!congregationId) return { error: 'Nincs aktív gyülekezet kiválasztva.' }
+  if (!userId) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  // ── 0. lépés — FAIL-CLOSED előellenőrzések ───────────────────────────────
+  let allowedFamilyIds: Set<number>
+  try {
+    allowedFamilyIds = await getAllowedFamilyIds(supabase, congregationId, { throwOnError: true })
+  } catch (e) {
+    console.warn('[recordDivorce] getAllowedFamilyIds sikertelen:', e instanceof Error ? e.message : e)
+    return { error: 'A családi kartonok jogosultság-ellenőrzése nem sikerült — próbáld újra.' }
+  }
+  if (!allowedFamilyIds.has(d.familyId)) return { error: 'Nincs jogosultsága ehhez a családi kartonhoz.' }
+
+  const [famRes, gyerekRes] = await Promise.all([
+    supabase.from('csalad').select('id, id_ferfi, id_no, c_utcaid, c_szam, id_csoport, isaktiv').eq('id', d.familyId).maybeSingle(),
+    supabase.from('gyerek').select('id_szemely').eq('id_csalad', d.familyId),
+  ])
+  if (famRes.error) return { error: `A családi karton lekérdezése nem sikerült (${famRes.error.message}) — próbáld újra.` }
+  if (gyerekRes.error) {
+    // A mentő RPC a gyerek-sorokat TÖRLI és újraírja — egy elnyelt olvasási
+    // hiba az összes gyermeket levinné a kartonról.
+    return { error: `A karton gyermeklistája nem olvasható (${gyerekRes.error.message}), ezért biztonságból semmit nem módosítottunk — próbáld újra.` }
+  }
+  const csalad = famRes.data
+  if (!csalad) return { error: 'A családi karton nem található.' }
+  if (csalad.isaktiv === false) {
+    return { error: 'Ez a családi karton már le van zárva, ezért válás nem rögzíthető rajta. Nyisd meg a Családok fülön, és ellenőrizd.' }
+  }
+
+  const ferfiId = (csalad.id_ferfi as number | null) ?? null
+  const noId = (csalad.id_no as number | null) ?? null
+  if (!ferfiId || !noId) {
+    return { error: 'Ehhez a kartonhoz csak egy felnőtt tartozik — válás nem rögzíthető. (Ha a másik fél hiányzik, előbb a családi karton szerkesztőjében vedd fel.)' }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const prevGyerekIds = [...new Set(((gyerekRes.data || []) as any[]).map((g) => g.id_szemely as number))]
+    .filter((id) => id !== ferfiId && id !== noId)
+
+  const { data: adultRows, error: adultErr } = await supabase
+    .from('szemely')
+    .select('id, csaladnev, k_nev, meghalt, allapot, congregation_id')
+    .in('id', [ferfiId, noId])
+  if (adultErr) return { error: `A felek adatainak lekérdezése nem sikerült (${adultErr.message}) — próbáld újra.` }
+  interface AdultRow { id: number; csaladnev: string | null; k_nev: string | null; meghalt: boolean | null; allapot: string | null; congregation_id: string | null }
+  const adultById = new Map<number, AdultRow>(((adultRows || []) as AdultRow[]).map((p) => [p.id, p]))
+  const ferfi = adultById.get(ferfiId)
+  const no = adultById.get(noId)
+  if (!ferfi || !no) return { error: 'A karton valamelyik felének adatai nem olvashatók — biztonságból nem módosítottunk semmit.' }
+  if (ferfi.congregation_id !== congregationId || no.congregation_id !== congregationId) {
+    return { error: 'A karton felei nem az aktuális gyülekezet tagjai — a válást ott kell rögzíteni, ahol a tagságuk van.' }
+  }
+  if (ferfi.meghalt === true || no.meghalt === true) {
+    return { error: 'Elhunyt házastárs esetén nem válást kell rögzíteni: használd az Anyakönyv → Temetés, vagy a Tag kivezetése → Elhunyt útvonalat. Az a kapcsolatot magától lezárja.' }
+  }
+
+  const nameOf = (p: AdultRow) => `${p.csaladnev ?? ''} ${p.k_nev ?? ''}`.trim() || `#${p.id}`
+  const ferfiNev = nameOf(ferfi)
+  const noNev = nameOf(no)
+
+  // A pár AKTÍV kapcsolata — a típusból dől el, jár-e az „elvált" jelző, a
+  // kezdete pedig a dátum alsó korlátja.
+  const { data: parRows, error: parErr } = await supabase
+    .from('szemely_kapcsolat')
+    .select('tipus, ervenyes_tol')
+    .eq('congregation_id', congregationId)
+    .in('tipus', ['hazastars', 'elettars'])
+    .is('ervenyes_ig', null)
+    .or(`and(id_szemely_1.eq.${ferfiId},id_szemely_2.eq.${noId}),and(id_szemely_1.eq.${noId},id_szemely_2.eq.${ferfiId})`)
+    .order('megjegyzes', { nullsFirst: true })
+    .order('id')
+  if (parErr) return { error: `A pár kapcsolatának lekérdezése nem sikerült (${parErr.message}) — próbáld újra.` }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const parList = (parRows || []) as any[]
+  const partnership = (parList[0]?.tipus as 'hazastars' | 'elettars' | undefined) ?? null
+  const parKezdet = parList
+    .map((r) => (r.ervenyes_tol as string | null) ?? null)
+    .filter((v): v is string => !!v)
+    .sort()[0] ?? null
+  if (parKezdet && d.datum < parKezdet) {
+    return { error: `A válás dátuma (${d.datum}) nem lehet korábbi, mint a kapcsolat kezdete (${parKezdet}).` }
+  }
+
+  // A pénzügyi előszámlálás olvasási hibája is BLOKKOL (fail-closed) — a
+  // lelkész csak akkor dönthet, ha a hatás számokkal is látszik.
+  let penzugy: { db: number; osszeg: number; evek: number[]; csonkolt: boolean }
+  try {
+    penzugy = await countFamilyOnlyPayments(supabase, congregationId, d.familyId)
+  } catch (e) {
+    return {
+      error: `A karton befizetéseinek összesítése nem sikerült (${e instanceof Error ? e.message : 'ismeretlen hiba'}), ezért a válást biztonságból nem rögzítettük — próbáld újra.`,
+    }
+  }
+
+  // A karton HÁZTARTÁSA — a 3. lépéshez, és a védendő gyermekek halmazához
+  // (a kartonon lehet olyan gyermek, aki csak a háztartás-tagok közt szerepel).
+  const { data: haztRows, error: haztErr } = await supabase
+    .from('haztartas')
+    .select('id')
+    .eq('congregation_id', congregationId)
+    .eq('legacy_csalad_id', d.familyId)
+    .is('ervenyes_ig', null)
+  if (haztErr) {
+    return { error: `A háztartás lekérdezése nem sikerült (${haztErr.message}) — biztonságból semmit nem módosítottunk. Próbáld újra.` }
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const haztartasIds = ((haztRows || []) as any[]).map((h) => h.id as string)
+  const vedendoGyermekIds = new Set<number>(prevGyerekIds)
+  if (haztartasIds.length > 0) {
+    const { data: tagRows, error: tagReadErr } = await supabase
+      .from('haztartas_tag')
+      .select('id_szemely')
+      .in('id_haztartas', haztartasIds)
+      .in('szerep', ['gyermek', 'unoka'])
+      .is('ervenyes_ig', null)
+    if (tagReadErr) {
+      return { error: `A háztartás tagjainak lekérdezése nem sikerült (${tagReadErr.message}) — biztonságból semmit nem módosítottunk. Próbáld újra.` }
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const t of (tagRows || []) as any[]) {
+      const pid = t.id_szemely as number
+      if (pid !== ferfiId && pid !== noId) vedendoGyermekIds.add(pid)
+    }
+  }
+
+  const tavozoId = d.marad === 'ferfi' ? noId : ferfiId
+  const maradoId = d.marad === 'ferfi' ? ferfiId : noId
+  const tavozoNev = d.marad === 'ferfi' ? noNev : ferfiNev
+  const maradoNev = d.marad === 'ferfi' ? ferfiNev : noNev
+  const tavozoFerfi = tavozoId === ferfiId
+
+  // ── 1. lépés — a PÁR-ÉL lezárása a válás dátumával (hazastars ÉS elettars) ─
+  try {
+    await closePartnershipForDivorce(supabase, congregationId, ferfiId, noId, d.datum)
+  } catch (e) {
+    return {
+      error: `A pár kapcsolatának lezárása nem sikerült (${e instanceof Error ? e.message : 'ismeretlen hiba'}) — a válást nem rögzítettük. Próbáld újra.`,
+    }
+  }
+
+  // ── 2. lépés — a GYERMEK-ÉLEK MEGVÉDÉSE (P0) ─────────────────────────────
+  try {
+    await protectParentEdgesAfterDivorce(supabase, congregationId, tavozoId, [...vedendoGyermekIds])
+  } catch (e) {
+    return {
+      error: `A gyermekek szülő-kapcsolatának védelme nem sikerült (${e instanceof Error ? e.message : 'ismeretlen hiba'}), ezért a válás rögzítését megszakítottuk. A pár kapcsolata már lezárult — indítsd újra a rögzítést ugyanezzel a dátummal.`,
+    }
+  }
+
+  // ── 3. lépés — a TÁVOZÓ fél háztartás-tagságának lezárása ────────────────
+  // Ez KÖTELEZŐEN a 4. lépés ELŐTT van: (a) a háztartás-szinkron a MAI nappal
+  // zárna, nem a válás napjával; (b) ha a távozó új kartont kap, két nyitott
+  // háztartás-tagsága lenne, amitől a járulék-számítás nemdeterminisztikussá
+  // válik („egy aktív háztartás" invariáns).
+  if (haztartasIds.length > 0) {
+    const { error: tagErr } = await supabase
+      .from('haztartas_tag')
+      .update({ ervenyes_ig: d.datum })
+      .in('id_haztartas', haztartasIds)
+      .eq('id_szemely', tavozoId)
+      .is('ervenyes_ig', null)
+    if (tagErr) {
+      return { error: `${tavozoNev} háztartás-tagságának lezárása nem sikerült (${tagErr.message}) — a válás rögzítését megszakítottuk. Próbáld újra.` }
+    }
+  }
+
+  // ── 4/a. lépés — a HELY FELSZABADÍTÁSA a meglévő kartonon ────────────────
+  // Az RPC az id_ferfi/id_no mezőt COALESCE NÉLKÜL írja, tehát a NULL átmegy.
+  // A körzetet viszont FELTÉTEL NÉLKÜL felülírja, a gyerek-sorokat pedig
+  // törli+újraírja → mindkettőt kötelező átadni.
+  const { data: rpcData, error: rpcErr } = await supabase.rpc('tagnyilvantartas_csalad_mentes', {
+    p_id: d.familyId,
+    p_id_ferfi: d.marad === 'ferfi' ? ferfiId : null,
+    p_id_no: d.marad === 'no' ? noId : null,
+    p_gyerek_ids: prevGyerekIds,
+    p_c_utcaid: null,
+    p_c_szam: null,
+    p_id_csoport: (csalad.id_csoport as number | null) ?? null,
+  })
+  if (rpcErr) {
+    return { error: `A karton frissítése nem sikerült: ${humanizeFamilyRpcError(rpcErr.message, { ferfi: ferfiNev, no: noNev })}` }
+  }
+  const rpcRes = rpcData as { status?: string; family_id?: number; message?: string } | null
+  if (rpcRes?.status === 'forbidden') {
+    return { error: 'Nincs jogosultsága ennek a családi kartonnak a szerkesztéséhez (jelentkezz be újra, vagy válts profilt a fejlécben).' }
+  }
+  if (rpcRes?.status !== 'ok' || !rpcRes.family_id) {
+    return { error: `A karton frissítése nem sikerült: ${humanizeFamilyRpcError(rpcRes?.message, { ferfi: ferfiNev, no: noNev })}` }
+  }
+
+  const warnings: string[] = []
+
+  // ── 4/b. lépés — ÚJ, egyszemélyes karton a távozónak (csak ha kérték) ─────
+  let ujFamilyId: number | undefined
+  if (d.ujKartonATavozonak) {
+    const { data: ujData, error: ujErr } = await supabase.rpc('tagnyilvantartas_csalad_mentes', {
+      p_id: null,
+      p_id_ferfi: tavozoFerfi ? tavozoId : null,
+      p_id_no: tavozoFerfi ? null : tavozoId,
+      p_gyerek_ids: [],
+      // A csalad.c_utcaid NOT NULL — ha a távozó fél utcája nem olvasható,
+      // az eredeti karton utcája a tartalék (a lelkész utólag átírhatja).
+      p_c_utcaid: d.ujKarton?.c_utcaid ?? (csalad.c_utcaid as number | null) ?? null,
+      p_c_szam: d.ujKarton?.c_szam?.trim() || null,
+      p_id_csoport: (csalad.id_csoport as number | null) ?? null,
+    })
+    const ujRes = ujData as { status?: string; family_id?: number; message?: string } | null
+    if (ujErr || ujRes?.status !== 'ok' || !ujRes.family_id) {
+      warnings.push(
+        `A válás rögzült, de ${tavozoNev} új családi kartonja nem jött létre (${humanizeFamilyRpcError(ujErr?.message ?? ujRes?.message, { ferfi: ferfiNev, no: noNev })}). A Családok fülön az „Új család" gombbal pótolható.`,
+      )
+    } else {
+      ujFamilyId = ujRes.family_id
+      try {
+        await syncHouseholdFromCsalad(supabase, ujFamilyId, congregationId)
+      } catch (e) {
+        console.warn('[recordDivorce] az új karton háztartás-szinkronja sikertelen:', e instanceof Error ? e.message : e)
+        warnings.push(`${tavozoNev} új kartonja létrejött, de a háztartás-nézet szinkronizálása nem sikerült — nyisd meg a kartont, és mentsd el egyszer.`)
+      }
+    }
+  }
+
+  // ── 4/c. lépés — a meglévő karton háztartás-szinkronja (best-effort) ─────
+  try {
+    await syncHouseholdFromCsalad(supabase, d.familyId, congregationId, [tavozoId])
+  } catch (e) {
+    console.warn('[recordDivorce] syncHouseholdFromCsalad sikertelen:', e instanceof Error ? e.message : e)
+    warnings.push('A válás rögzült, de a háztartás-nézet szinkronizálása nem sikerült — nyisd meg a családi kartont, és mentsd el újra.')
+  }
+
+  // ── 5. lépés — az „elvált" családi állapot (best-effort) ─────────────────
+  // A jelölő PONTOSAN 'elvált' (kisbetű, ékezettel, pont nélkül) — a
+  // névformázó szigorú egyezést vizsgál, ebből lesz az „elv." előtag.
+  const elvaltIrva = d.elvaltJelzo && partnership !== 'elettars'
+  if (elvaltIrva) {
+    const { error: allapotErr } = await supabase
+      .from('szemely')
+      .update({ allapot: 'elvált' })
+      .eq('congregation_id', congregationId)
+      .in('id', [ferfiId, noId])
+    if (allapotErr) {
+      console.warn('[recordDivorce] az „elvált" jelző írása sikertelen:', allapotErr.message)
+      warnings.push('A válás rögzült, de az „elvált" jelző nem került rá a két félre — a tag szerkesztőjében pótolható.')
+    }
+  }
+
+  // ── Ellenőrző olvasás: „egy aktív háztartás" invariáns a távozó félnél ───
+  const { data: nyitottTagok, error: nyitottErr } = await supabase
+    .from('haztartas_tag')
+    .select('id')
+    .eq('congregation_id', congregationId)
+    .eq('id_szemely', tavozoId)
+    .is('ervenyes_ig', null)
+  if (nyitottErr) {
+    console.warn('[recordDivorce] az ellenőrző olvasás sikertelen:', nyitottErr.message)
+  } else if (((nyitottTagok || []) as unknown[]).length > 1) {
+    warnings.push(`${tavozoNev} egyszerre több háztartásban szerepel nyitott tagsággal — nyisd meg az érintett kartonokat, és rendezd (a járulék-számítás ezt egyértelműnek várja).`)
+  }
+
+  // ── 6. lépés — audit + revalidate ───────────────────────────────────────
+  await logAuditEvent({
+    action: 'family.divorce',
+    targetTable: 'csalad',
+    targetId: String(d.familyId),
+    metadata: {
+      datum: d.datum,
+      marad: d.marad,
+      tavozo_id: tavozoId,
+      marado_id: maradoId,
+      partnership,
+      uj_karton_id: ujFamilyId ?? null,
+      gyermekek: prevGyerekIds.length,
+      megjegyzes: d.megjegyzes || null,
+      elvalt_jelzo: elvaltIrva,
+      elozo_allapot_ferfi: ferfi.allapot ?? null,
+      elozo_allapot_no: no.allapot ?? null,
+      penzugyi_tetelek: penzugy.db,
+      penzugyi_osszeg: penzugy.osszeg,
+    },
+  }, supabase)
+
+  revalidatePath('/tagnyilvantartas')
+
+  const fejlec = partnership === 'elettars' ? 'A kapcsolat felbontása rögzítve.' : 'A válás rögzítve.'
+  const message = `${fejlec} ${tavozoNev} lekerült a(z) #${d.familyId} kartonról`
+    + (ujFamilyId ? ` és megkapta a saját kartonját (#${ujFamilyId})` : '')
+    + `; ${maradoNev}${prevGyerekIds.length > 0 ? ` és a gyermekek (${prevGyerekIds.length} fő)` : ''} a kartonon maradtak.`
+    + ' A gyermekek szülő–gyermek kapcsolata MINDKÉT szülővel megmaradt, és egyetlen befizetés sem módosult.'
+
+  return {
+    success: true,
+    message,
+    ujFamilyId,
+    warning: warnings.length > 0 ? warnings.join(' ') : undefined,
+  }
 }
 
 // ── Családlátogatás ─────────────────────────────────────────

@@ -60,6 +60,10 @@ const WIDTH_PARENT_LINE = 1.6
 /** Pár-kapcsolat: rózsaszín (élettársnál szaggatott). */
 const COLOR_SPOUSE_LINE = 'rgb(244 114 182)'
 const WIDTH_SPOUSE_LINE = 2
+/** 2026-08-04 (PR-44): VÁLÁSSAL lezárt pár-kapcsolat — halvány szürke,
+ *  szaggatott. Nem elég a vonaltípus (az élettárs is szaggatott), ezért a
+ *  SZÍN különbözteti meg. */
+const COLOR_DIVORCED_LINE = 'rgb(148 163 184)'
 
 /**
  * 2026-06-02 v3 — Családfa komponens.
@@ -232,11 +236,15 @@ export function FamilyTreeView({
       .join('')
     // A pár-élek SZÁNDÉKOSAN a gerincek után — semmi nem takarhatja őket
     const spousePaths = geometry.spouseLines
-      .map(
-        (s) =>
-          `<line x1="${nr(s.x1)}" y1="${nr(s.y1)}" x2="${nr(s.x2)}" y2="${nr(s.y2)}" stroke="${COLOR_SPOUSE_LINE}" stroke-width="${WIDTH_SPOUSE_LINE}" stroke-linecap="round"${s.dashed ? ' stroke-dasharray="6 4"' : ''}/>` +
-          `<circle cx="${nr(s.cx)}" cy="${nr(s.cy)}" r="5" fill="#ffffff" stroke="${COLOR_SPOUSE_LINE}" stroke-width="1.5"/>`,
-      )
+      .map((s) => {
+        // 2026-08-04 (PR-44): a válás-él papíron is halvány szürke, szaggatott
+        const color = s.divorced ? COLOR_DIVORCED_LINE : COLOR_SPOUSE_LINE
+        const op = s.divorced ? ' opacity="0.55"' : ''
+        return (
+          `<line x1="${nr(s.x1)}" y1="${nr(s.y1)}" x2="${nr(s.x2)}" y2="${nr(s.y2)}" stroke="${color}" stroke-width="${WIDTH_SPOUSE_LINE}" stroke-linecap="round"${s.dashed ? ' stroke-dasharray="6 4"' : ''}${op}/>` +
+          `<circle cx="${nr(s.cx)}" cy="${nr(s.cy)}" r="5" fill="#ffffff" stroke="${color}" stroke-width="1.5"${op}/>`
+        )
+      })
       .join('')
     const svg =
       `<svg class="lines" width="${contentW}" height="${contentH}" viewBox="0 0 ${contentW} ${contentH}" xmlns="http://www.w3.org/2000/svg">` +
@@ -327,6 +335,7 @@ export function FamilyTreeView({
   <span>${swatch(COLOR_PARENT_LINE, false)} szülő–gyermek</span>
   <span>${swatch(COLOR_SPOUSE_LINE, false)} házastárs</span>
   <span>${swatch(COLOR_SPOUSE_LINE, true)} élettárs</span>
+  <span>${swatch(COLOR_DIVORCED_LINE, true)} elvált</span>
 </div>
 <div class="frame"><div class="scale">${svg}${cards}</div></div>
 </body></html>`
@@ -529,13 +538,13 @@ export function FamilyTreeView({
               ))}
               {/* Pár-élek — 2026-08-04 (PR-27): élettárs = szaggatott vonal */}
               {geometry.spouseLines.map((s) => (
-                <g key={s.key}>
+                <g key={s.key} opacity={s.divorced ? 0.55 : 1}>
                   <line
                     x1={s.x1}
                     y1={s.y1}
                     x2={s.x2}
                     y2={s.y2}
-                    stroke={COLOR_SPOUSE_LINE}
+                    stroke={s.divorced ? COLOR_DIVORCED_LINE : COLOR_SPOUSE_LINE}
                     strokeWidth={WIDTH_SPOUSE_LINE}
                     strokeLinecap="round"
                     strokeDasharray={s.dashed ? '6 4' : undefined}
@@ -547,9 +556,11 @@ export function FamilyTreeView({
                     cy={s.cy}
                     r={5}
                     fill="white"
-                    stroke={COLOR_SPOUSE_LINE}
+                    stroke={s.divorced ? COLOR_DIVORCED_LINE : COLOR_SPOUSE_LINE}
                     strokeWidth={1.5}
-                  />
+                  >
+                    <title>{s.title}</title>
+                  </circle>
                 </g>
               ))}
             </svg>
@@ -593,6 +604,10 @@ export function FamilyTreeView({
           <LegendPill color={COLOR_PARENT_LINE} label="szülő–gyermek" />
           <LegendPill color={COLOR_SPOUSE_LINE} label="házastárs" />
           <LegendPill color={COLOR_SPOUSE_LINE} label="élettárs" dashed />
+          {/* 2026-08-04 (PR-44): csak akkor, ha van válás-él a fán */}
+          {geometry.spouseLines.some((s) => s.divorced) && (
+            <LegendPill color={COLOR_DIVORCED_LINE} label="elvált" dashed />
+          )}
         </div>
 
         {/* Subtle floating help text bottom-right */}
@@ -814,6 +829,8 @@ interface TreeSpouseLine {
   cx: number
   cy: number
   dashed: boolean
+  /** 2026-08-04 (PR-44): VÁLÁSSAL lezárt kapcsolat — halvány, szürke vonal */
+  divorced: boolean
   title: string
 }
 
@@ -1042,6 +1059,9 @@ function computeTreeGeometry(
     const y1 = a.y + nodeH / 2
     const x2 = b.x
     const y2 = b.y + nodeH / 2
+    // 2026-08-04 (PR-44): a válással lezárt kapcsolat halvány, szürke, szaggatott
+    const divorced = e.status === 'valas'
+    const zarasEv = e.zaras_datum ? e.zaras_datum.slice(0, 4) : null
     spouseLines.push({
       key: `sp-${e.from}-${e.to}`,
       x1: nr(x1),
@@ -1050,8 +1070,13 @@ function computeTreeGeometry(
       y2: nr(y2),
       cx: nr((x1 + x2) / 2),
       cy: nr((y1 + y2) / 2),
-      dashed: e.partnership === 'elettars',
-      title: e.partnership === 'elettars' ? 'Élettársi kapcsolat' : 'Házastársak',
+      dashed: divorced || e.partnership === 'elettars',
+      divorced,
+      title: divorced
+        ? (e.partnership === 'elettars'
+            ? `Élettársi kapcsolat felbontva${zarasEv ? ` (${zarasEv})` : ''}`
+            : `Elvált${zarasEv ? ` (${zarasEv})` : ''}`)
+        : e.partnership === 'elettars' ? 'Élettársi kapcsolat' : 'Házastársak',
     })
   }
 
@@ -1104,11 +1129,17 @@ function buildLayout(
   // házastársak EGYMÁS MELLÉ kerülnek. A korábbi „férfiak balra, aztán
   // névsor" rendezésnél a házaspár-vonal az egész soron átívelt, és több
   // generációnál (az új 5 szintes mélységgel) olvashatatlanná vált.
+  // 2026-08-04 (PR-44): az ÉLŐ kapcsolat mindig erősebb a válással lezártnál —
+  // aki újraházasodott, a MOSTANI párja mellé kerüljön, ne a volt házastársa
+  // mellé. Ezért két menet: előbb az aktív, utána a válás-élek.
   const spousePartner = new Map<number, number>()
-  for (const e of data.edges) {
-    if (e.type !== 'spouse') continue
-    if (!spousePartner.has(e.from)) spousePartner.set(e.from, e.to)
-    if (!spousePartner.has(e.to)) spousePartner.set(e.to, e.from)
+  for (const valasMenet of [false, true]) {
+    for (const e of data.edges) {
+      if (e.type !== 'spouse') continue
+      if ((e.status === 'valas') !== valasMenet) continue
+      if (!spousePartner.has(e.from)) spousePartner.set(e.from, e.to)
+      if (!spousePartner.has(e.to)) spousePartner.set(e.to, e.from)
+    }
   }
 
   // 2026-07-25 (PR-18): ág-igazítás (barycenter) — a gyerek a MÁR ELHELYEZETT

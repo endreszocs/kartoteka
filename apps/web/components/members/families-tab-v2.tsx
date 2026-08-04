@@ -467,7 +467,13 @@ export function FamiliesTab() {
   }
 
   async function handleDelete(id: number) {
-    if (!confirm('Biztosan törlöd vagy felbontod ezt a családot?')) return
+    // 2026-08-04 (PR-44): a régi szöveg („vagy felbontod") FÉLREVEZETŐ volt —
+    // ez a gomb valóban TÖRLI a kartont. A válás külön, adatmegőrző út.
+    if (!confirm(
+      'Biztosan TÖRLÖD ezt a családi kartont?\n\n'
+      + 'Váláshoz ne ezt használd: nyisd meg a családi kartont, és ott a „Válás / kapcsolat felbontása” gombot — '
+      + 'az megőrzi a gyermekek szülő-kapcsolatát és a befizetéseket.',
+    )) return
 
     const result = await deleteFamily(id)
     if (result.error) {
@@ -1217,7 +1223,7 @@ function FamilyActions({
         size="sm"
         className="h-11 rounded-xl px-3 text-muted-foreground hover:bg-destructive/8 hover:text-destructive"
         onClick={onDelete}
-        title="Családi kapcsolat törlése"
+        title="Családi karton törlése (váláshoz a kartonon a „Válás / kapcsolat felbontása” gomb való)"
       >
         <Trash2 className="size-3.5" />
         <span className={inline ? 'hidden xl:inline' : 'hidden sm:inline'}>Törlés</span>

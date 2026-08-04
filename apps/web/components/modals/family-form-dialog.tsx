@@ -29,6 +29,10 @@ interface SearchResult {
   /** 2026-08-04 (PR-32): felnőtt (saját családot alapított) — gyermekként csak
    *  rokoni kapcsolatként vehető fel, a háztartásba nem kerül be */
   felnottMashol?: boolean
+  /** 2026-08-04 (PR-44): egy LEZÁRT kartonon foglalja a férj/feleség helyet.
+   *  Az adatbázis egyediségi indexe a lezárt kartonokra is érvényes, ezért a
+   *  kiválasztása „duplicate key" hibába futna — előbb a válást kell rögzíteni. */
+  lezartKartonon?: boolean
 }
 
 type EditableFamilyRow = FamilyRow & { c_utcaid?: number | null }
@@ -567,7 +571,7 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
       return (
         <div id={`family-${type}-results`} role="status" className={`${DROPDOWN_BOX_CLASS} px-3 py-2 text-sm text-muted-foreground`}>
           Nincs találat erre a névre.
-          {type !== 'child' && ' A más családban már bejegyzett felnőttek nem jelennek meg ebben a listában.'}
+          {type !== 'child' && ' A más családban már bejegyzett felnőttek nem jelennek meg ebben a listában — ha valaki elvált, előbb a régi kartonján a „Válás / kapcsolat felbontása” gombbal rögzítsd a válást, utána itt kereshető lesz.'}
         </div>
       )
     }
@@ -598,6 +602,15 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
               <span className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
                 <TriangleAlert className="size-3" />
                 már a(z) {r.masikCsalad.name} tagja
+              </span>
+            )}
+            {/* 2026-08-04 (PR-44): eddig ez a találat NÉMÁN „duplicate key"
+                hibába futott a mentésnél — most a lelkész előre látja, mi a teendő. */}
+            {r.lezartKartonon && (
+              <span className="mt-0.5 block text-[11px] font-semibold leading-4 text-amber-800 dark:text-amber-300">
+                <TriangleAlert className="mr-1 inline size-3" />
+                Lezárt családi kartonon szerepel férjként/feleségként — előbb ott a válást kell rögzíteni,
+                különben a mentés nem sikerül.
               </span>
             )}
           </button>
