@@ -1,7 +1,7 @@
 'use server'
 
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
-import { MEMBERSHIP_DERIVED_MARKERS } from '@/lib/family/family-membership'
+import { DIVORCE_EDGE_MARKER, MEMBERSHIP_DERIVED_MARKERS } from '@/lib/family/family-membership'
 import { computeKinshipLabels } from '@/lib/family-tree/kinship'
 import type {
   FamilyTreeData,
@@ -243,6 +243,46 @@ async function buildTreeFromCenters(
       seenEdges.add(key)
       edges.push({ type: 'parent-child', from: a, to: b })
       parentEdges.push({ parent: a, child: b })
+    }
+  }
+
+  // 5/b. VÁLÁS-ÉLEK (2026-08-04, PR-44). A fa alapból KIZÁRÓLAG aktív éleket
+  // olvas, a válás viszont látható tény kell legyen: a két volt házastárs közt
+  // halvány, szaggatott vonal fusson, „Elvált (ÉV)" tooltippel.
+  //
+  // CSAK olyan él kerül be, amelynek MINDKÉT vége MÁR a fában van — így nem
+  // növeli a csomópontszámot, és a MAX_TREE_NODES plafon sem sérül. Ha a párnak
+  // van AKTÍV éle is (újraházasodtak egymással), az a mérvadó (seenEdges).
+  //
+  // SZÁNDÉKOSAN nem kerül a `spouseEdges`-be: a rokonsági címkéket (sógor,
+  // após…) és a „több aktív párkapcsolat" kereszthibát a LEZÁRT kapcsolat nem
+  // befolyásolhatja.
+  interface ZartElRow { id_szemely_1: number; id_szemely_2: number; tipus: string; ervenyes_ig: string | null }
+  for (const part of chunks(finalIds, CHUNK_SIZE)) {
+    const { data, error } = await supabase
+      .from('szemely_kapcsolat')
+      .select('id_szemely_1, id_szemely_2, tipus, ervenyes_ig')
+      .eq('congregation_id', congregationId)
+      .in('tipus', ['hazastars', 'elettars'])
+      .eq('megjegyzes', DIVORCE_EDGE_MARKER)
+      .not('ervenyes_ig', 'is', null)
+      .in('id_szemely_1', part)
+    if (error) throw new Error(`A családfa válás-éleinek lekérdezése sikertelen: ${error.message}`)
+    for (const k of ((data || []) as ZartElRow[])) {
+      const a = k.id_szemely_1
+      const b = k.id_szemely_2
+      if (!finalIdsSet.has(a) || !finalIdsSet.has(b)) continue
+      const key = `s:${Math.min(a, b)}-${Math.max(a, b)}`
+      if (seenEdges.has(key)) continue
+      seenEdges.add(key)
+      edges.push({
+        type: 'spouse',
+        from: a,
+        to: b,
+        partnership: k.tipus as 'hazastars' | 'elettars',
+        status: 'valas',
+        zaras_datum: k.ervenyes_ig,
+      })
     }
   }
 

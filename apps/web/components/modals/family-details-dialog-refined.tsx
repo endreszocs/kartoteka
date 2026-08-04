@@ -11,6 +11,7 @@ import { Camera,
   Cross,
   DoorOpen,
   Heart,
+  HeartCrack,
   Home,
   MapPin,
   Pencil,
@@ -33,6 +34,7 @@ import { MemberDetailsDialogV2 } from '@/components/modals/member-details-dialog
 import { AvatarEditorDialog } from '@/components/modals/avatar-editor-dialog'
 import { MemberAvatar } from '@kartoteka/ui-app'
 import { FamilyFormDialog } from '@/components/modals/family-form-dialog'
+import { FamilyDivorceDialog } from '@/components/modals/family-divorce-dialog'
 import { FamilyVisitFormDialog } from '@/components/modals/family-visit-form-dialog'
 import { getTransactionDocumentNumber } from '@/lib/constants/finance'
 import { ageFromDate } from '@/lib/utils/date'
@@ -109,6 +111,8 @@ export function FamilyDetailsDialogRefined({
   // 2026-06-02: család szerkesztés + új családlátogatás
   const [editFamilyOpen, setEditFamilyOpen] = useState(false)
   const [visitFormOpen, setVisitFormOpen] = useState(false)
+  // 2026-08-04 (PR-44): válás / kapcsolat felbontása
+  const [divorceOpen, setDivorceOpen] = useState(false)
 
   async function openMemberCard(memberId: number) {
     if (!familyId) return
@@ -722,7 +726,20 @@ export function FamilyDetailsDialogRefined({
                   <p className="hidden text-xs text-muted-foreground sm:block">
                     {children.length + Number(Boolean(family.ferfi)) + Number(Boolean(family.no))} családtag · {payments.length} befizetés
                   </p>
-                  <div className="ml-auto flex items-center gap-2">
+                  <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                    {/* 2026-08-04 (PR-44): VÁLÁS — csak élő párnál, aktív kartonon.
+                        Haláleset esetén az Anyakönyv → Temetés / Tag kivezetése
+                        a helyes út (az magától lezárja a kapcsolatot). */}
+                    {family.ferfi && family.no && !family.ferfi.meghalt && !family.no.meghalt && family.isaktiv !== false && (
+                      <button
+                        type="button"
+                        onClick={() => setDivorceOpen(true)}
+                        className="inline-flex h-11 items-center gap-2 rounded-xl border border-amber-300 bg-card px-3 text-xs font-semibold text-amber-800 shadow-sm transition-colors hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/50 motion-reduce:transition-none"
+                      >
+                        <HeartCrack className="size-3.5" />
+                        Válás / kapcsolat felbontása
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setEditFamilyOpen(true)}
@@ -836,6 +853,34 @@ export function FamilyDetailsDialogRefined({
               }
             : null
         }
+      />
+
+      {/* 2026-08-04 (PR-44): Válás / kapcsolat felbontása.
+          A gyermekek vér szerinti szülő-kapcsolata NEM szűnik meg — ezért nem a
+          család-szerkesztőn keresztül megy. */}
+      <FamilyDivorceDialog
+        open={divorceOpen}
+        onOpenChange={setDivorceOpen}
+        family={
+          family?.ferfi && family?.no
+            ? {
+                id: family.id,
+                ferfi: { id: family.ferfi.id, name: `${family.ferfi.csaladnev ?? ''} ${family.ferfi.k_nev ?? ''}`.trim() || `#${family.ferfi.id}` },
+                no: { id: family.no.id, name: `${family.no.csaladnev ?? ''} ${family.no.k_nev ?? ''}`.trim() || `#${family.no.id}` },
+                childrenCount: children.length,
+              }
+            : null
+        }
+        onDone={() => {
+          if (!familyId) return
+          // A PR-18 D5 minta: hibánál inkább a meglévő adat marad, mint hogy a
+          // null-eredmény „Nem található család"-ra váltsa a kartont.
+          getFamilyDetails(familyId)
+            .then((next) => { if (next) setData(next) })
+            .catch(() => {
+              toast.error('A családi karton frissítése nem sikerült — nyisd meg újra a kartont.')
+            })
+        }}
       />
 
       {/* 2026-06-02: Új családlátogatás rögzítése — közös form a munkanaplóval */}

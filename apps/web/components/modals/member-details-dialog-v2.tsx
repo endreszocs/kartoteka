@@ -13,6 +13,7 @@ import {
   DoorOpen,
   GitBranch,
   Heart,
+  HeartCrack,
   IdCard,
   Mail,
   MapPin,
@@ -37,7 +38,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { getMemberDetails, updateMemberNote, updateRegistryEventDetails, updateMemberConsents, type NoteEventKind } from '@/app/(dashboard)/tagnyilvantartas/actions'
-import { getMemberFamilySummary } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
+import { getFormerPartners, getMemberFamilySummary, type FormerPartner } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import { getTransactionDocumentNumber } from '@/lib/constants/finance'
 import { isOzvegyAllapot, isPrefixLikeNamepattern } from '@/lib/utils/member-helpers'
 import { ageFromDate } from '@/lib/utils/date'
@@ -195,6 +196,8 @@ export function MemberDetailsDialogV2({
 }: MemberDetailsDialogProps) {
   const [details, setDetails] = useState<MemberDetailsData | null>(null)
   const [familySummary, setFamilySummary] = useState<FamilySummaryData>(null)
+  // 2026-08-04 (PR-44): korábbi házastárs(ak) — válás vagy a másik fél elhunyta
+  const [formerPartners, setFormerPartners] = useState<FormerPartner[]>([])
   const [consentSnapshot, setConsentSnapshot] = useState<ConsentSnapshot>({
     gdprConsentAt: null,
     photoConsent: false,
@@ -241,6 +244,7 @@ export function MemberDetailsDialogV2({
       if (isNewIdentity) {
         setDetails(null)
         setFamilySummary(null)
+        setFormerPartners([])
         setAssignedFamilyId(null)
         setLoading(true)
         setTab('personal')
@@ -253,12 +257,16 @@ export function MemberDetailsDialogV2({
       const familySummaryRequest = loadFamilyId
         ? getMemberFamilySummary(loadFamilyId).catch(() => null)
         : Promise.resolve(null)
+      // 2026-08-04 (PR-44): a korábbi házastárs kiegészítő adat — a hibája NE
+      // buktassa el a karton betöltését.
+      const formerPartnersRequest = getFormerPartners(member.id).catch(() => [] as FormerPartner[])
 
-      Promise.all([getMemberDetails(member.id, loadFamilyId), familySummaryRequest])
-        .then(([data, nextFamilySummary]) => {
+      Promise.all([getMemberDetails(member.id, loadFamilyId), familySummaryRequest, formerPartnersRequest])
+        .then(([data, nextFamilySummary, nextFormerPartners]) => {
           if (cancelled) return
           setDetails(data)
           setFamilySummary(nextFamilySummary)
+          setFormerPartners(nextFormerPartners)
           setLoading(false)
         })
         .catch(() => {
@@ -650,6 +658,43 @@ export function MemberDetailsDialogV2({
                         </div>
                       )}
 
+                      {/* 2026-08-04 (PR-44): KORÁBBI HÁZASTÁRS — a lezárt pár-élekből.
+                          Csak életesemény (válás / a másik fél elhunyta) jelenik meg;
+                          az adatjavításból származó lezárások nem. */}
+                      {formerPartners.length > 0 && (
+                        <div className="mt-3 border-t border-border/45 pt-3">
+                          <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                            <HeartCrack className="size-3.5" />
+                            {formerPartners.length > 1 ? 'Korábbi házastársak' : 'Korábbi házastárs'}
+                          </p>
+                          <ul className="mt-1.5 divide-y divide-border/45">
+                            {formerPartners.map((partner) => (
+                              <li key={partner.id} className="flex items-center justify-between gap-2 py-2">
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-medium text-foreground">{partner.name}</p>
+                                  <p className="mt-0.5 text-xs text-muted-foreground">
+                                    {partner.ok === 'valas'
+                                      ? `${partner.tipus === 'elettars' ? 'kapcsolat felbontva' : 'elvált'}${partner.datum ? ` · ${formatDisplayDate(partner.datum)}` : ''}`
+                                      : `elhunyt házastárs${partner.datum ? ` · ${formatDisplayDate(partner.datum)}` : ''}`}
+                                  </p>
+                                </div>
+                                {partner.csaladId && onOpenFamily && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    className="size-11 shrink-0 rounded-xl p-0 text-primary"
+                                    onClick={() => onOpenFamily(partner.csaladId!)}
+                                    aria-label={`${partner.name} családi kartonjának megnyitása`}
+                                  >
+                                    <ChevronRight className="size-5" />
+                                  </Button>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
                       <div className="mt-3 grid gap-x-6 border-t border-border/45 pt-1 sm:grid-cols-2">
                         <SummaryDefinitionRow label="Édesapa" value={member.apjaneve || 'Nincs rögzítve'} />
                         <SummaryDefinitionRow label="Édesanya" value={member.anyjaneve || 'Nincs rögzítve'} />
@@ -688,7 +733,8 @@ export function MemberDetailsDialogV2({
                               // családi kartonon kell kivenni a felnőtt tagok
                               // közül) — zsákutca helyett odairányítjuk.
                               if (currentIsFamilyAdult) {
-                                toast.info('Családfő/házastárs áthelyezéséhez előbb a jelenlegi család kartonján módosítsd a felnőtt tagokat — a gyermekek áthelyezése innen működik.')
+                                // 2026-08-04 (PR-44): a válás külön, adatmegőrző út — odairányítunk.
+                                toast.info('Családfő/házastárs áthelyezéséhez előbb a jelenlegi család kartonján módosítsd a felnőtt tagokat — a gyermekek áthelyezése innen működik. Váláshoz a családi kartonon a „Válás / kapcsolat felbontása” gombot használd.', { duration: 10000 })
                                 if (onOpenFamily && effectiveFamilyId) onOpenFamily(effectiveFamilyId)
                                 return
                               }

@@ -760,6 +760,119 @@ export async function closeMarriageEdgeBetween(supabase: Db, a: number, b: numbe
   }
 }
 
+// ── VÁLÁS (2026-08-04, PR-44) ───────────────────────────────────────────────
+//
+// A válás NEM adatjavítás, hanem életesemény: a pár kapcsolata megszűnik, a
+// gyermekek vér szerinti szülő-kapcsolata viszont MEGMARAD. Ezért két, TARTÓS
+// (a rendszer egyetlen automatizmusa által sem újranyitható, nem felülírható)
+// jelölőt vezetünk be.
+//
+// FONTOS: egyik jelölő SEM szerepel a KINSHIP_SYNC_MARKERS, a
+// MEMBERSHIP_DERIVED_MARKERS listában, és nem egyezik a háztartás-szinkron
+// újranyitási feltételével ('csalad-szerkesztes-eltavolitas') sem. Ez a
+// védelem lényege: a három lista bővítése TILOS, mert azzal a család-
+// szerkesztés vagy az egyeztető visszabontaná a válást.
+
+/** A VÁLÁSSAL lezárt pár-él (házastárs/élettárs) tartós jelölője. */
+export const DIVORCE_EDGE_MARKER = 'valas'
+
+/** A válás UTÁN is élő szülő–gyermek él tartós jelölője (a távozó fél élei). */
+export const DIVORCE_PARENT_MARKER = 'valas-utani-szulo'
+
+/**
+ * A PÁR aktív kapcsolatának (házastárs ÉS élettárs) lezárása a VÁLÁS napjával.
+ *
+ * Miért nem a closeMarriageEdgeBetween: az (a) a mai napot írja, nem a válás
+ * dátumát, (b) csak a 'hazastars' típust zárja (az élettársi él aktív maradna
+ * → fantom pár a családfán), (c) a tagság-eredetű élt az ÚJRANYITHATÓ
+ * 'csalad-szerkesztes-eltavolitas' jelöléssel zárja — a következő háztartás-
+ * szinkron ezt visszanyitná, azaz a válás „visszaállna".
+ *
+ * Minden találatot lezárunk, EREDETTŐL FÜGGETLENÜL (a NULL megjegyzésű,
+ * anyakönyvi élt is): a válás pontosan azt a kapcsolatot szünteti meg.
+ * Tenant-szűrt. Hibánál DOB — a hívó a mentést megszakítja.
+ *
+ * Visszatérés: a lezárt élek száma.
+ */
+export async function closePartnershipForDivorce(
+  supabase: Db,
+  congregationId: string,
+  a: number,
+  b: number,
+  datum: string,
+): Promise<number> {
+  if (!a || !b || a === b) return 0
+  const { data, error } = await supabase
+    .from('szemely_kapcsolat')
+    .select('id')
+    .eq('congregation_id', congregationId)
+    .in('tipus', ['hazastars', 'elettars'])
+    .is('ervenyes_ig', null)
+    .or(`and(id_szemely_1.eq.${a},id_szemely_2.eq.${b}),and(id_szemely_1.eq.${b},id_szemely_2.eq.${a})`)
+  if (error) throw new Error(`parkapcsolat-el-olvasas: ${error.message}`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ids = ((data || []) as any[]).map((r) => r.id)
+  if (ids.length === 0) return 0
+  const { error: updateError } = await supabase
+    .from('szemely_kapcsolat')
+    .update({ ervenyes_ig: datum, megjegyzes: DIVORCE_EDGE_MARKER })
+    .eq('congregation_id', congregationId)
+    .in('id', ids)
+  if (updateError) throw new Error(`parkapcsolat-el-lezaras: ${updateError.message}`)
+  return ids.length
+}
+
+/**
+ * A TÁVOZÓ fél szülő–gyermek éleinek MEGVÉDÉSE a válás után (P0).
+ *
+ * A távozó szülő lekerül a családi kartonról, ezért a tagság-eredetű
+ * (haztartas-sync / sync_households_from_csalad / fazis1-backfill) szülő-élei
+ * „igazolatlanná" válnak: a következő egyeztetés (reconcileKinshipForPersons)
+ * vagy egy későbbi család-szerkesztés (closeSyncKinshipEdges) NÉMÁN lezárná
+ * őket, és a gyermekek eltűnnének az apa/anya családfájáról.
+ *
+ * Megoldás: átjelöljük őket a DIVORCE_PARENT_MARKER-re. Mivel mindkét szűrő
+ * NÉV SZERINTI marker-listát használ, az új jelölés kódmódosítás nélkül
+ * sérthetetlen.
+ *
+ * NEM nyúlunk: a NULL megjegyzésű (anyakönyvi/keresztelési) élekhez — azokat
+ * eleve senki nem zárja —, és a 'szulonev-egyezes' jelölésűekhez sem (azokat a
+ * gyermek kartonján lévő szülőnév korroborálja).
+ *
+ * Hibánál DOB — ez az a pont, ahol adat veszne, ezért a hívó megszakít.
+ * Visszatérés: az átjelölt élek száma.
+ */
+export async function protectParentEdgesAfterDivorce(
+  supabase: Db,
+  congregationId: string,
+  parentId: number,
+  childIds: number[],
+): Promise<number> {
+  const children = [...new Set(childIds.filter((id) => Number.isInteger(id) && id > 0 && id !== parentId))]
+  if (!parentId || children.length === 0) return 0
+  const { data, error } = await supabase
+    .from('szemely_kapcsolat')
+    .select('id, megjegyzes')
+    .eq('congregation_id', congregationId)
+    .eq('tipus', 'szulo_gyermek')
+    .eq('id_szemely_1', parentId)
+    .in('id_szemely_2', children)
+    .is('ervenyes_ig', null)
+  if (error) throw new Error(`szulo-gyermek-el-olvasas: ${error.message}`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ids = ((data || []) as any[])
+    .filter((r) => MEMBERSHIP_DERIVED_MARKERS.includes((r.megjegyzes as string | null) ?? ''))
+    .map((r) => r.id)
+  if (ids.length === 0) return 0
+  const { error: updateError } = await supabase
+    .from('szemely_kapcsolat')
+    .update({ megjegyzes: DIVORCE_PARENT_MARKER })
+    .eq('congregation_id', congregationId)
+    .in('id', ids)
+  if (updateError) throw new Error(`szulo-gyermek-el-atjeloles: ${updateError.message}`)
+  return ids.length
+}
+
 /**
  * A CSALÁD-SZERKESZTÉSSEL eltávolított tagok SYNC-EREDETŰ rokonsági éleinek
  * lezárása (2026-08-02, PR-20 — „a családfa kövesse a szerkesztést").

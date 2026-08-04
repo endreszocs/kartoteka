@@ -34,6 +34,12 @@ export interface FamilyTreeEdge {
   to: number
   /** 2026-08-04 (PR-27): a pár-kapcsolat jellege (spouse élnél) */
   partnership?: 'hazastars' | 'elettars'
+  /** 2026-08-04 (PR-44): 'valas' = a kapcsolat VÁLÁSSAL zárult. A fa alapból
+   *  csak aktív éleket mutat, de a válás látható tény kell legyen — halvány,
+   *  szaggatott vonallal jelenik meg. */
+  status?: 'aktiv' | 'valas'
+  /** A kapcsolat lezárásának napja (csak status='valas' esetén) */
+  zaras_datum?: string | null
 }
 
 export interface FamilyTreeData {

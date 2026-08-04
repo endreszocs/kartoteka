@@ -23,6 +23,27 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-04] — Válás rögzítése: az elváltak újra házasodhatnak
+<!-- key: 2026-08-04-tagnyilv-pr44-valas -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.155 -->
+
+### ✨ Újdonságok
+
+- **Rögzíthető a válás.** A családi karton alján megjelent a **„Válás / kapcsolat felbontása"** gomb (élettársaknál a szöveg ehhez igazodik). A párbeszédablakban megadod a válás dátumát, és kiválasztod, **melyik fél marad a kartonon a gyermekekkel** — a rendszer a másik felet leveszi róla. A mentés előtt tételesen kiírja, mi fog történni, és azt is, hány befizetés érinti a kartont.
+- **Az elváltak újra házasodhatnak.** A nyilvántartás szabálya szerint egy személy csak egy kartonon lehet férj, illetve feleség — a válással a távozó fél „helye" felszabadul, így új házastárs mellé felvehető. A kartonon maradó fél is új házastársat vehet fel ugyanoda.
+- **Megmarad, ki volt az előző házastárs.** A kapcsolat nem törlődik, hanem lezárul a válás dátumával. A személyi kartonon megjelenik a **„Korábbi házastárs"** sor a dátummal, a családfán pedig halvány, szaggatott vonal jelzi az elvált kapcsolatot (a jelmagyarázatban is szerepel, nyomtatásban is).
+- **Az „elvált" jelző** felkerül mindkét félre, így a neveik előtt megjelenik az **elv.** rövidítés a listákban.
+- **A gyermekek szülő–gyermek kapcsolata mindkét szülővel megmarad** — a válás nem szünteti meg a szülőséget, és a gyermekek a távozó szülő családfáján is ott maradnak. **Egyetlen befizetés sem módosul.**
+
+### 🐛 Javítások
+
+- **Nincs több érthetetlen hiba a lezárt kartonon ragadt személyeknél.** A családi karton szerkesztőjében a férj/feleség keresője mostantól jelzi, ha valaki egy lezárt kartonon szerepel (eddig felajánlotta, majd a mentés nyers adatbázis-hibával elszállt).
+- A családlista törlés-megerősítője félrevezetően „törlöd vagy felbontod"-ot írt, holott valóban törölt. A szöveg pontosítva, és a váláshoz irányít.
+
+---
+
 ## [2026-08-04] — Családi befizetések: melyik évre szól + stornó jelölés
 <!-- key: 2026-08-04-tagnyilv-pr43-befizetes-ev -->
 <!-- category: improvement -->

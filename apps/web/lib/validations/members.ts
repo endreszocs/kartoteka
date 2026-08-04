@@ -151,6 +151,43 @@ export const familySchema = z.object({
 
 export type FamilyInput = z.infer<typeof familySchema>
 
+// ── Válás / kapcsolat felbontása (2026-08-04, PR-44) ─────────
+
+export const divorceSchema = z.object({
+  /** A családi karton, amelyen a pár jelenleg szerepel */
+  familyId: z.number(),
+  /** A válás (jogerő) dátuma — ÉÉÉÉ-HH-NN. Ez lesz a kapcsolat és a
+   *  háztartás-tagság lezárásának napja (nem a mai nap). */
+  datum: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'A válás dátumának formátuma ÉÉÉÉ-HH-NN legyen')
+    .refine((value) => {
+      const parsed = new Date(`${value}T00:00:00.000Z`)
+      return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+    }, 'A válás dátuma nem létező naptári nap')
+    .refine(
+      (value) => value <= getCurrentBucharestDate(),
+      'A válás dátuma nem lehet jövőbeli',
+    ),
+  /** Ki marad a jelenlegi kartonon (a gyermekekkel) */
+  marad: z.enum(['ferfi', 'no']),
+  /** Kapjon-e a távozó fél saját, egyszemélyes családi kartont */
+  ujKartonATavozonak: z.boolean().default(false),
+  ujKarton: z
+    .object({
+      c_utcaid: z.number().nullable().optional(),
+      c_szam: z.string().optional().or(z.literal('')),
+    })
+    .optional(),
+  /** Mindkét fél megkapja-e az „elvált" családi állapotot (csak házasságnál) */
+  elvaltJelzo: z.boolean().default(true),
+  /** Csak az audit-naplóba kerül */
+  megjegyzes: z.string().max(500).optional().or(z.literal('')),
+})
+
+export type DivorceInput = z.infer<typeof divorceSchema>
+
 // ── Körzet ───────────────────────────────────────────────────
 
 export const districtSchema = z.object({
