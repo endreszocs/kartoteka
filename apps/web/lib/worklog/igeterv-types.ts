@@ -48,29 +48,6 @@ export interface SermonPlanListResult {
   error?: string
 }
 
-// ── Konkordancia (szentiras.eu) ─────────────────────────────────────────────
-
-export interface KonkordanciaHit {
-  /** Igehely (pl. 'Jn 3,16'). */
-  ref: string
-  /** A vers szövege. */
-  text: string
-  /** A fordítás rövidítése (pl. 'RUF', 'KG'). */
-  translation: string | null
-}
-
-export interface KonkordanciaResult {
-  hits?: KonkordanciaHit[]
-  totalCount?: number | null
-  /** true = nincs beállítva a SZENTIRAS_API_KEY környezeti változó. */
-  needsKey?: boolean
-  error?: string
-}
-
-export interface IgehelyResult {
-  ref?: string
-  verses?: Array<{ ref: string; text: string }>
-  translation?: string | null
-  needsKey?: boolean
-  error?: string
-}
+// A Konkordancia 2026-08-09-től NATÍV (beépített Károli-korpusz, kliens-oldali
+// kereséssel — konkordancia-dialog.tsx); a korábbi szentiras.eu proxy-típusok
+// kivezetve.
