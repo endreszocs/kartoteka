@@ -45,6 +45,24 @@ export function isInventoryCategory(categoryName: string): boolean {
   return INVENTORY_KEYWORDS.some((kw) => lower.includes(kw))
 }
 
+/**
+ * 2026-08-09: kiadás-jogcím → leltári kategória, PONTOS kod-lista alapján.
+ *
+ * A kulcsszavas isInventoryCategory itt szándékosan NEM használható: a
+ * 201.05 „Szállítóeszközök üzemeltetési költségei" (üzemanyag, javítás!) is
+ * tartalmazza az „eszköz" szót — hamis találat lenne. A hivatalos számadási
+ * jogcímek közül kettő jelent tényleges leltárba veendő beszerzést:
+ *   205.01 „Új beruházások" (Investiţii noi)            → alapeszköz (≥2500 RON)
+ *   201.12 „Kis értékű leltári tárgyak beszerzése"      → csekély értékű
+ */
+export function inventoryKategoriaForExpenseKod(
+  kod: string | null | undefined,
+): 'alapeszkoz' | 'csekely' | null {
+  if (kod === '205.01') return 'alapeszkoz'
+  if (kod === '201.12') return 'csekely'
+  return null
+}
+
 // ── Tartozás-számítási mód normalizálás ──────────────────────
 
 export function normalizeDebtCalcMode(value: unknown): DebtCalcMode {

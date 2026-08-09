@@ -14,6 +14,7 @@ import {
   Inbox,
   LayoutDashboard,
   LifeBuoy,
+  Link2,
   PiggyBank,
   ShieldAlert,
   UserCog,
@@ -148,6 +149,12 @@ const MODULES: ReadonlyArray<{
     icon: UserCog,
     label: 'Felhasználók és szerepkörök',
     description: 'Felhasználók, várakozó kérelmek, szerepkörök kiosztása egy helyen.',
+  },
+  {
+    href: '/admin/egyeztetesek',
+    icon: Link2,
+    label: 'Tag-egyeztetések',
+    description: 'Kereszt-gyülekezeti duplikátum-párok: átvizsgálás és lelkész-értesítés.',
   },
   {
     href: '/admin/eszkozok',

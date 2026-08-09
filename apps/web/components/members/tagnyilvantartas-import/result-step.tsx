@@ -115,9 +115,12 @@ export function ResultStep({ result, onNewImport, onClose, extraAction }: Result
               Lehetséges kereszt-gyülekezeti egyezés: {result.crossMatchCount}
             </p>
             <p className="mt-0.5 text-sm leading-relaxed text-amber-800">
+              {/* 2026-08-09: a korábbi szöveg a harang ikonra mutatott, de a harang egy másik
+                  értesítés-listát mutat — a kereszt-egyezés a taglistában sárga ikonnal látszik. */}
               A tagok között {result.crossMatchCount} olyan lehet, aki már szerepel egy másik
-              gyülekezetben is. Nézd át őket az <strong>értesítőknél</strong> (felső harang ikon) — ott
-              a másik gyülekezet lelkészének elérhetősége is látszik a kapcsolatfelvételhez.
+              gyülekezetben is. A <strong>tagnyilvántartás listájában</strong> sárga lánc-ikon jelöli
+              őket; az egyeztetést a rendszergazda is követi az admin felületen, és szükség esetén
+              értesíti a két lelkészt.
             </p>
           </div>
         </div>

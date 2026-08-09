@@ -85,12 +85,28 @@ export async function generateNextLeltariSzam(category: InventoryCategory): Prom
   const { supabase, congId } = await getCongId()
   if (!congId) return `${INVENTORY_CATEGORY_PREFIXES[category]}-001`
   const prefix = INVENTORY_CATEGORY_PREFIXES[category]
-  const { data } = await supabase.from('leltar_tetelek').select('leltari_szam').eq('congregation_id', congId).ilike('leltari_szam', `${prefix}-%`)
+  // 2026-08-09 (review-fix): LAPOZVA olvassuk az összes számot — a PostgREST 1000
+  // soros néma plafonja miatt 1000+ tételnél (pl. könyvtár, 'K-%') már kiadott
+  // szám ismétlődne (a nyugtaszám-P0 hibaosztálya). Szöveges szám miatt
+  // order+limit(1) sem lenne jó ('K-999' > 'K-1000' szövegként).
   let max = 0
-  ;(data || []).forEach((r: { leltari_szam: string | null }) => {
-    const m = String(r.leltari_szam || '').match(/-(\d+)$/)
-    if (m) { const n = parseInt(m[1]); if (n > max) max = n }
-  })
+  const PAGE = 1000
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from('leltar_tetelek')
+      .select('leltari_szam')
+      .eq('congregation_id', congId)
+      .ilike('leltari_szam', `${prefix}-%`)
+      .order('id', { ascending: true })
+      .range(from, from + PAGE - 1)
+    if (error) break
+    const rows = (data || []) as Array<{ leltari_szam: string | null }>
+    rows.forEach((r) => {
+      const m = String(r.leltari_szam || '').match(/-(\d+)$/)
+      if (m) { const n = parseInt(m[1]); if (n > max) max = n }
+    })
+    if (rows.length < PAGE) break
+  }
   return `${prefix}-${String(max + 1).padStart(3, '0')}`
 }
 
@@ -138,12 +154,26 @@ export async function saveInventoryItem(data: InventoryItemInput) {
     if (error) return { error: `Hiba: ${error.message}` }
   }
   else {
-    let { error } = await supabase.from('leltar_tetelek').insert([record])
-    if (error?.message?.match(/beszerzes_erteke|deleted|felelos_nev|hasznalati_ido/)) {
-      const retry = await supabase.from('leltar_tetelek').insert([modernFallback])
-      error = retry.error
+    // 2026-08-09 (review-fix): párhuzamos rögzítésnél két hívó ugyanazt a következő
+    // számot kaphatja — az egyediségi index (2026-08-09-leltari-szam-unique-index.sql)
+    // 23505-tel utasítja el a másodikat; ilyenkor ÚJ számmal (max 3x) újrapróbálunk.
+    let lastError: { code?: string; message: string } | null = null
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (attempt > 0) {
+        const freshSzam = await generateNextLeltariSzam(d.kategoria)
+        record.leltari_szam = freshSzam
+        modernFallback.leltari_szam = freshSzam
+      }
+      let { error } = await supabase.from('leltar_tetelek').insert([record])
+      if (error?.message?.match(/beszerzes_erteke|deleted|felelos_nev|hasznalati_ido/)) {
+        const retry = await supabase.from('leltar_tetelek').insert([modernFallback])
+        error = retry.error
+      }
+      if (!error) { lastError = null; break }
+      lastError = error
+      if (error.code !== '23505') break
     }
-    if (error) return { error: `Hiba: ${error.message}` }
+    if (lastError) return { error: `Hiba: ${lastError.message}` }
   }
   revalidatePath('/leltar')
   return { success: true }

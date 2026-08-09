@@ -47,7 +47,7 @@ import type {
 } from '@/lib/constants/finance'
 import { getEffectiveCongregationContext, getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { inventoryItemSchema } from '@/lib/validations/inventory'
-import { INVENTORY_CATEGORY_PREFIXES, serializeInventoryCategory } from '@/lib/constants/inventory.next'
+import { INVENTORY_CATEGORY_PREFIXES, normalizeInventoryCategory, serializeInventoryCategory } from '@/lib/constants/inventory.next'
 import {
   allocateFamilyPayments,
   computeBaseExpectedForMemberYear,
@@ -672,10 +672,13 @@ async function insertExpenseRecord(params: {
     congregation_id: congregationId,
   }
 
+  // 2026-08-09: az xkey-t kiemelve tartjuk számon — a pénzügy→leltár híd a
+  // leltar_tetelek.penzugy_xkey mezőbe ezt írja (legacy-kompatibilis kapcsolat).
+  const referenceXkey = randomUUID().replace(/-/g, '').slice(0, 20)
   const referencePayload = {
     ...canonicalPayload,
     nyugta: documentNumber,
-    xkey: randomUUID().replace(/-/g, '').slice(0, 20),
+    xkey: referenceXkey,
     atvevo: input.kedvezmenyzett || 'Kézi rögzítés',
     atvevoid: 'id_szemely' in input ? input.id_szemely || null : null,
     userid: userId,
@@ -686,8 +689,10 @@ async function insertExpenseRecord(params: {
     bizonylatszam: documentNumber,
   }
 
+  let usedXkey: string | null = referenceXkey
   let insertResult = await supabase.from('kiadas').insert([referencePayload]).select('id')
   if (insertResult.error && isMissingColumnError(insertResult.error.message)) {
+    usedXkey = null
     insertResult = await supabase.from('kiadas').insert([canonicalPayload]).select('id')
   }
   if (insertResult.error && isMissingColumnError(insertResult.error.message)) {
@@ -702,6 +707,7 @@ async function insertExpenseRecord(params: {
   return {
     id: Number(data?.[0]?.id),
     documentNumber,
+    xkey: usedXkey,
   }
 }
 
@@ -849,20 +855,33 @@ async function generateNextInventoryNumberForCategory(
   category: string,
 ) {
   const prefix = INVENTORY_CATEGORY_PREFIXES[category as keyof typeof INVENTORY_CATEGORY_PREFIXES] || category.toUpperCase().slice(0, 3)
-  const { data } = await supabase
-    .from('leltar_tetelek')
-    .select('leltari_szam')
-    .eq('congregation_id', congregationId)
-    .ilike('leltari_szam', `${prefix}-%`)
 
+  // 2026-08-09 (review-fix): LAPOZVA olvassuk az összes számot — a PostgREST
+  // 1000 soros néma plafonja miatt limit nélkül 1000+ tételnél (pl. könyvtár,
+  // 'K-%') már kiadott leltári szám ismétlődne (ugyanaz a hibaosztály, mint a
+  // korábbi nyugtaszám-P0). Szöveges szám miatt order+limit(1) sem lenne jó
+  // ('K-999' > 'K-1000' szövegként).
   let max = 0
-  ;(data || []).forEach((row: { leltari_szam?: string | null }) => {
-    const match = String(row.leltari_szam || '').match(/-(\d+)$/)
-    if (match) {
-      const parsed = Number.parseInt(match[1], 10)
-      if (parsed > max) max = parsed
-    }
-  })
+  const PAGE = 1000
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from('leltar_tetelek')
+      .select('leltari_szam')
+      .eq('congregation_id', congregationId)
+      .ilike('leltari_szam', `${prefix}-%`)
+      .order('id', { ascending: true })
+      .range(from, from + PAGE - 1)
+    if (error) break
+    const rows = (data || []) as Array<{ leltari_szam?: string | null }>
+    rows.forEach((row) => {
+      const match = String(row.leltari_szam || '').match(/-(\d+)$/)
+      if (match) {
+        const parsed = Number.parseInt(match[1], 10)
+        if (parsed > max) max = parsed
+      }
+    })
+    if (rows.length < PAGE) break
+  }
 
   return `${prefix}-${String(max + 1).padStart(3, '0')}`
 }
@@ -945,6 +964,114 @@ async function insertLinkedInventoryFromIncome(params: {
   }
 
   return { success: true }
+}
+
+/**
+ * 2026-08-09: a Tétel rögzítő (CombinedEntryBody) kiadás-sorához kapcsolt
+ * leltári tétel beszúrása — a pénzügy→leltár híd szerver-oldala.
+ *
+ * A KANONIKUS oszlopnevekkel ír (beszerzesi_ertek, hasznalati_ido_ev,
+ * felelos_neve, is_deleted) és hibánál a régi nevekre esik vissza — a korábbi
+ * (soha be nem kötött) saveExpenseWithLinkedInventory csak a régi neveket írta,
+ * ami a mai sémán elbukott volna. Újdonság: penzugy_xkey = a kiadás xkey-e +
+ * userid — így a kiadás és a leltári tétel az adatbázisban is összekapcsolódik
+ * (a legacy alkalmazás is így kötötte össze a kettőt).
+ */
+async function insertLinkedInventoryFromExpenseRow(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>
+  congregationId: string
+  userId: string
+  expense: ExpenseBatchRowInput
+  inventory: LinkedInventoryFromExpenseInput
+  documentNumber: string
+  expenseXkey: string | null
+}): Promise<{ error?: string }> {
+  const { supabase, congregationId, userId, expense, inventory, documentNumber, expenseXkey } = params
+
+  const kategoriaKey = normalizeInventoryCategory(inventory.kategoria)
+  if (!kategoriaKey) {
+    return { error: `Ismeretlen leltári kategória: ${inventory.kategoria}` }
+  }
+
+  const parsed = inventoryItemSchema.safeParse({
+    megnevezes: inventory.megnevezes,
+    kategoria: kategoriaKey,
+    beszerzes_erteke: expense.osszeg,
+    beszerzes_datuma: expense.datum,
+    beszerzes_bizonylat: documentNumber,
+    katalogus_kod: inventory.katalogus_kod || null,
+    hasznalati_ido: inventory.hasznalati_ido ?? null,
+    helyszin: inventory.helyszin || null,
+    felelos_nev: inventory.felelos_nev || null,
+    megjegyzes: inventory.megjegyzes || null,
+    mennyiseg: 1,
+    mertekegyseg: 'db',
+  })
+  if (!parsed.success) return { error: parsed.error.issues[0].message }
+
+  const d = parsed.data
+  const serializedCategory = serializeInventoryCategory(kategoriaKey)
+
+  // 2026-08-09 (review-fix): párhuzamos mentésnél két hívó ugyanazt a következő
+  // számot kaphatja — az egyediségi index (2026-08-09-leltari-szam-unique-index.sql)
+  // 23505-tel utasítja el a másodikat, ilyenkor ÚJ számmal (max 3x) újrapróbálunk.
+  let lastError: { code?: string; message: string } | null = null
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const leltariSzam = await generateNextInventoryNumberForCategory(supabase, congregationId, kategoriaKey)
+
+    const shared = {
+      megnevezes: d.megnevezes,
+      kategoria: serializedCategory,
+      beszerzes_datuma: d.beszerzes_datuma || null,
+      katalogus_kod: d.katalogus_kod || null,
+      helyszin: d.helyszin || null,
+      megjegyzes: d.megjegyzes || null,
+      congregation_id: congregationId,
+      mennyiseg: 1,
+      mertekegyseg: 'db',
+      beszerzes_bizonylat: d.beszerzes_bizonylat || null,
+      leltari_szam: leltariSzam,
+      penzugy_xkey: expenseXkey,
+      userid: userId,
+    }
+    const canonicalRecord = {
+      ...shared,
+      beszerzesi_ertek: d.beszerzes_erteke,
+      hasznalati_ido_ev: d.hasznalati_ido || null,
+      felelos_neve: d.felelos_nev || null,
+      is_deleted: false,
+    }
+    const modernFallback = {
+      ...shared,
+      beszerzes_erteke: d.beszerzes_erteke,
+      hasznalati_ido: d.hasznalati_ido || null,
+      felelos_nev: d.felelos_nev || null,
+      deleted: false,
+    }
+    // Végső fallback: penzugy_xkey/userid nélkül (ha egy régebbi séma nem ismerné őket).
+    const minimalFallback = (() => {
+      const rest = { ...modernFallback } as Record<string, unknown>
+      delete rest.penzugy_xkey
+      delete rest.userid
+      return rest
+    })()
+
+    let { error } = await supabase.from('leltar_tetelek').insert([canonicalRecord])
+    if (error && isMissingColumnError(error.message)) {
+      const retry = await supabase.from('leltar_tetelek').insert([modernFallback])
+      error = retry.error
+    }
+    if (error && isMissingColumnError(error.message)) {
+      const retry = await supabase.from('leltar_tetelek').insert([minimalFallback])
+      error = retry.error
+    }
+
+    if (!error) return {}
+    lastError = error
+    if (error.code !== '23505') break
+  }
+
+  return { error: `Hiba: ${lastError?.message || 'ismeretlen'}` }
 }
 
 // ── Inicializálás (page.tsx-ből hívva) ───────────────────────
@@ -2011,27 +2138,85 @@ export async function saveExpenseBatch(rows: ExpenseBatchRowInput[]) {
   const lockError = await assertYearsNotFinalizedForCreate(scope, parsed.data.map((r) => r.datum))
   if (lockError) return { error: lockError }
 
+  // 2026-08-09: pénzügy→leltár híd — a leltár-köteles sorokhoz (row.inventory)
+  // a kiadással EGYÜTT leltári tétel is készül. Review-fix: a köteg gyülekezeti
+  // ága MINDEN-VAGY-SEMMI — bármely sor hibájánál az addig beszúrt kiadások is
+  // visszavonódnak, különben az újrapróbálkozás duplikálná a már mentett sorokat.
+  let anyInventory = false
+  const insertedExpenses: Array<{ id: number | null; xkey: string | null }> = []
+
+  const rollbackInsertedExpenses = async () => {
+    for (const rec of insertedExpenses) {
+      try {
+        if (Number.isFinite(rec.id) && (rec.id as number) > 0) {
+          await scope.supabase.from('kiadas').update({ deleted: true }).eq('id', rec.id).eq('congregation_id', scope.scopeId)
+        } else if (rec.xkey) {
+          await scope.supabase.from('kiadas').update({ deleted: true }).eq('xkey', rec.xkey).eq('congregation_id', scope.scopeId)
+        }
+      } catch {
+        /* best-effort — a többi sort ettől még visszavonjuk */
+      }
+    }
+  }
+
   for (let index = 0; index < parsed.data.length; index += 1) {
     const row = parsed.data[index]
-    const result = scope.scope === 'diocese'
-      ? await insertDioceseExpenseRecord({
-          supabase: scope.supabase,
-          dioceseId: scope.scopeId,
-          userId: user.id,
-          input: row,
-        })
-      : await insertExpenseRecord({
-          supabase: scope.supabase,
-          congregationId: scope.scopeId,
-          userId: user.id,
-          input: row,
-        })
+
+    if (scope.scope === 'diocese') {
+      if (row.inventory) {
+        return { error: `${index + 1}. sor: a leltárba vétel egyházmegyei módban nem elérhető — külön rögzítsd a kiadást és a leltári tételt.` }
+      }
+      const result = await insertDioceseExpenseRecord({
+        supabase: scope.supabase,
+        dioceseId: scope.scopeId,
+        userId: user.id,
+        input: row,
+      })
+      if ('error' in result) {
+        return { error: `${index + 1}. sor: ${result.error}` }
+      }
+      continue
+    }
+
+    const result = await insertExpenseRecord({
+      supabase: scope.supabase,
+      congregationId: scope.scopeId,
+      userId: user.id,
+      input: row,
+    })
     if ('error' in result) {
-      return { error: `${index + 1}. sor: ${result.error}` }
+      await rollbackInsertedExpenses()
+      return {
+        error: insertedExpenses.length
+          ? `${index + 1}. sor: ${result.error} — a köteg minden kiadása visszavonva; javítsd a hibát és mentsd újra.`
+          : `${index + 1}. sor: ${result.error}`,
+      }
+    }
+    insertedExpenses.push({
+      id: Number.isFinite(result.id) ? result.id : null,
+      xkey: result.xkey ?? null,
+    })
+
+    if (row.inventory) {
+      const invResult = await insertLinkedInventoryFromExpenseRow({
+        supabase: scope.supabase,
+        congregationId: scope.scopeId,
+        userId: user.id,
+        expense: row,
+        inventory: row.inventory,
+        documentNumber: result.documentNumber,
+        expenseXkey: result.xkey ?? null,
+      })
+      if (invResult.error) {
+        await rollbackInsertedExpenses()
+        return { error: `${index + 1}. sor: a kapcsolt leltári tétel mentése nem sikerült, ezért a köteg minden kiadása visszavonva. ${invResult.error}` }
+      }
+      anyInventory = true
     }
   }
 
   revalidatePath('/penzugy')
+  if (anyInventory) revalidatePath('/leltar')
   return { success: true }
 }
 

@@ -24,6 +24,7 @@ import {
   Landmark,
   Layers,
   LifeBuoy,
+  Link2,
   LogIn,
   LogOut,
   PiggyBank,
@@ -103,6 +104,8 @@ const WEB_ADMIN_SUBMENU = [
   // („Könyvelői hozzárendelések") kerültek. Az /admin/konyvelok útvonal a
   // Felhasználók oldalra irányít át (visszafordíthatóság + régi könyvjelzők).
   { label: 'Felhasználók', href: '/admin/felhasznalok', icon: UserCog, gradient: 'from-violet-500 to-indigo-600' },
+  // 2026-08-09: kereszt-gyülekezeti tag-egyeztetések (duplikátum-párok) admin felülete.
+  { label: 'Tag-egyeztetések', href: '/admin/egyeztetesek', icon: Link2, gradient: 'from-amber-400 to-orange-500' },
   { label: 'Eszközök és napló', href: '/admin/eszkozok', icon: Database, gradient: 'from-cyan-400 to-sky-500' },
   { label: 'Frissítések', href: '/admin/frissitesek', icon: Bell, gradient: 'from-orange-400 to-amber-500' },
   { label: 'Támogatás', href: '/admin/tamogatas', icon: LifeBuoy, gradient: 'from-yellow-400 to-amber-500' },

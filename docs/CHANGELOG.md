@@ -23,6 +23,27 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-09] — Tag-egyeztetés admin felület, leltári fişă élő előnézettel, pénzügy→leltár híd
+<!-- key: 2026-08-09-admin-egyeztetes-leltar-fisa-hid -->
+<!-- category: feature -->
+<!-- targets: admin, lelkesz, gondnok, penztaros -->
+<!-- version: web v0.9.156 -->
+
+### ✨ Újdonságok
+
+- **Tag-egyeztetések admin felület.** Az admin oldalon új **„Tag-egyeztetések"** menüpont mutatja az összes kereszt-gyülekezeti egyezést: amikor ugyanaz a személy két gyülekezetben is szerepel (név + születési dátum vagy név + telefon alapján). Eddig a rendszer csak az ÚJ rögzítéseknél jelzett — a **„Teljes állomány átvizsgálása"** gombbal mostantól a **már bent lévő adatok** is ellenőrizhetők. Az admin tételenként **értesítheti mindkét érintett lelkészt** (hivatalos e-mail + app-on belüli értesítés, a másik lelkész elérhetőségével), és rögzítheti a döntést (azonos / két külön személy / elvetés). Az egyházkerületi admin a saját kerületét látja. *(Ehhez egyszer le kell futtatni a 2026-08-09-admin-kereszt-egyeztetes.sql migrációt.)*
+- **Leltári tárgy fişája — élő előnézettel.** Az „Új tétel / Szerkesztés" ablakban gépelés közben, azonnal kitöltődve látszik a tárgy nyomtatható, kétnyelvű (magyar–román) fişája: leltári szám, kategória, beszerzési adatok, amortizáció (katalóguskód, használati idő, aktuális érték), helyszín, felelős. Nagy képernyőn állandó oldalsó előnézet, telefonon a **„Fişă előnézet"** gombbal nyílik. A kitöltetlen mezők pontozott vonalként jelennek meg, így üresen nyomtatva kézi kitöltésre is jó. A leltár-listában minden sor mellett új **„Fişă"** gomb nyomtatja a kész tárgy fişáját.
+- **A pénzügyi rögzítő mostantól tényleg felajánlja a leltárba vételt.** Ha a „+ Tétel rögzítése" ablakban leltár-köteles kiadás-jogcímet választasz (**205.01 Új beruházások** vagy **201.12 Kis értékű leltári tárgyak beszerzése**), a sor alatt megjelenik a **„Leltárba vétel"** panel (alapból bepipálva): megadod a tárgy megnevezését (kategória, katalóguskód, helyszín, felelős opcionális), és a mentés a kiadással **együtt a leltárba is beírja** a tételt — az összeg, a dátum és az irat száma automatikusan átkerül, a leltári szám magától generálódik. Ha nem kell, egy pipával kikapcsolható. *(A funkció kód szinten eddig is létezett, de a felületre soha nem volt bekötve — mostantól működik; a kiadás és a leltári tétel az adatbázisban is összekapcsolódik.)*
+
+### 🐛 Javítások
+
+- **Az import utáni kereszt-egyezés összefoglaló** eddig a felső harang ikonhoz irányított, ahol ezek az egyezések nem látszanak — a szöveg most a tagnyilvántartás sárga lánc-ikonjára és az admin egyeztetési felületre mutat.
+- A régi, felületről elérhetetlen kiadás–leltár összekötő kód a mai adatbázis-sémán már el is bukott volna (régi oszlopneveket írt) — az új híd a helyes oszlopnevekkel ír, és hiba esetén a kiadást is visszavonja, hogy ne maradjon fél állapot.
+- **Leltári szám: nincs többé kétszer kiadott szám.** A szám-generátor eddig legfeljebb 1000 tételt olvasott vissza (1000-nél több tételnél — pl. nagy könyvtár — már használt számot adott volna ki újra), és két egyszerre mentő felhasználó is ugyanazt a számot kaphatta. Mostantól a teljes állományból számol, ütközésnél pedig automatikusan új számmal próbálkozik. *(A DB-szintű védelemhez futtasd le a 2026-08-09-leltari-szam-unique-index.sql fájlt is.)*
+- **A Tétel rögzítő nem duplikál újra-mentéskor.** Ha egy köteg mentése félúton hibázott (pl. a leltári tétel mentése nem sikerült), az újra-mentés eddig a már elmentett bevételeket/kiadásokat még egyszer rögzítette volna. Mostantól a sikeresen mentett sorok azonnal kikerülnek az űrlapról, a kiadás-köteg pedig hiba esetén teljes egészében visszavonódik — csak a hibás (megmaradt) sorokat kell javítani és újra menteni.
+
+---
+
 ## [2026-08-04] — Válás rögzítése: az elváltak újra házasodhatnak
 <!-- key: 2026-08-04-tagnyilv-pr44-valas -->
 <!-- category: feature -->
