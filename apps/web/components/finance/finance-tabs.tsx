@@ -749,6 +749,9 @@ export function FinanceTabs({
         bankAccounts={bankAccounts}
         currentYear={currentYear}
         congregationId={congregationId}
+        // 2026-08-09: pénzügy→leltár híd — csak gyülekezeti módban (az egyházmegyei
+        // könyvelésnek nincs leltár-integrációja).
+        offerExpenseInventory={scope !== 'diocese'}
       />
 
       {/* Decont (elszámolás) dialog — a hivatalos Elszamolas sablonnal */}

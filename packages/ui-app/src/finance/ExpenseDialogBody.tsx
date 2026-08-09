@@ -59,6 +59,21 @@ export interface SaveExpensePayload {
   is_inventory: boolean
 }
 
+/**
+ * 2026-08-09: a kiadás-sorhoz kapcsolt leltári tétel adatai (a Tétel rögzítő
+ * „Leltárba vétel" al-űrlapja). A kiadás összege/dátuma/iratszáma a szerveren
+ * kerül át a leltári tételbe — itt csak a leltár-specifikus mezők utaznak.
+ */
+export interface ExpenseInventoryIntake {
+  megnevezes: string
+  kategoria: string
+  katalogus_kod?: string | null
+  hasznalati_ido?: number | null
+  helyszin?: string | null
+  felelos_nev?: string | null
+  megjegyzes?: string | null
+}
+
 export interface SaveExpenseBatchRow {
   datum: string
   id_kiadascel: number
@@ -68,6 +83,8 @@ export interface SaveExpenseBatchRow {
   irattipus: string // #5: szabad szöveges bizonylattípus (Chitanță/Factură/Készpénz/…)
   megjegyzes: string | null
   is_inventory: boolean
+  /** 2026-08-09: ha megadva, a mentés a kiadással EGYÜTT leltári tételt is rögzít. */
+  inventory?: ExpenseInventoryIntake | null
 }
 
 export interface SaveInternalTransferPayload {

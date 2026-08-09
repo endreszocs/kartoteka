@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import {
   ArrowRight,
+  BadgeCheck,
   Building2,
   Church,
   Globe,
@@ -28,64 +29,43 @@ const SCOPE_ICONS: Record<ProfileRoleScope, React.ComponentType<{ className?: st
   congregation: Church,
 }
 
-const SCOPE_THEME: Record<
-  ProfileRoleScope,
-  {
-    chip: string
-    iconBg: string
-    iconText: string
-    iconBgHover: string
-    iconTextHover: string
-    accentBar: string
-    activeRing: string
-    activeBadge: string
-    activeBorder: string
-  }
-> = {
-  system: {
-    chip: 'bg-indigo-50 text-indigo-700 ring-indigo-100',
-    iconBg: 'bg-indigo-50',
-    iconText: 'text-indigo-600',
-    iconBgHover: 'group-hover:bg-indigo-100',
-    iconTextHover: 'group-hover:text-indigo-700',
-    accentBar: 'bg-gradient-to-r from-indigo-400 via-indigo-500 to-purple-500',
-    activeRing: 'ring-indigo-200',
-    activeBadge: 'bg-indigo-600',
-    activeBorder: 'border-indigo-300',
-  },
-  district: {
-    chip: 'bg-violet-50 text-violet-700 ring-violet-100',
-    iconBg: 'bg-violet-50',
-    iconText: 'text-violet-600',
-    iconBgHover: 'group-hover:bg-violet-100',
-    iconTextHover: 'group-hover:text-violet-700',
-    accentBar: 'bg-gradient-to-r from-violet-400 via-purple-500 to-fuchsia-500',
-    activeRing: 'ring-violet-200',
-    activeBadge: 'bg-violet-600',
-    activeBorder: 'border-violet-300',
-  },
-  diocese: {
-    chip: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
-    iconBg: 'bg-emerald-50',
-    iconText: 'text-emerald-600',
-    iconBgHover: 'group-hover:bg-emerald-100',
-    iconTextHover: 'group-hover:text-emerald-700',
-    accentBar: 'bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-500',
-    activeRing: 'ring-emerald-200',
-    activeBadge: 'bg-emerald-600',
-    activeBorder: 'border-emerald-300',
-  },
-  congregation: {
-    chip: 'bg-amber-50 text-amber-800 ring-amber-100',
-    iconBg: 'bg-amber-50',
-    iconText: 'text-amber-700',
-    iconBgHover: 'group-hover:bg-amber-100',
-    iconTextHover: 'group-hover:text-amber-800',
-    accentBar: 'bg-gradient-to-r from-amber-400 via-orange-500 to-rose-500',
-    activeRing: 'ring-amber-200',
-    activeBadge: 'bg-amber-600',
-    activeBorder: 'border-amber-300',
-  },
+/** Szekció-sorrend: a legszűkebb hatókörtől a legtágabbig. */
+const SCOPE_ORDER: ProfileRoleScope[] = ['congregation', 'diocese', 'district', 'system']
+
+/** Szekció-címkék a csoportosított nézethez (2026-08-09 redesign). */
+const SCOPE_SECTION_LABELS: Record<ProfileRoleScope, string> = {
+  congregation: 'Gyülekezeti szolgálat',
+  diocese: 'Egyházmegyei',
+  district: 'Egyházkerületi',
+  system: 'Rendszergazdai',
+}
+
+/**
+ * Hatókörönkénti azonosító-szín (2026-08-09 token-redesign).
+ *
+ * A gyülekezeti szint az élő téma accent-jét örökli (kert témában olíva),
+ * a tágabb szintek fix azonosító-árnyalatot kapnak. Minden MEGJELENÍTETT
+ * szín color-mix-szel származik ebből + a téma tokenjeiből (--card,
+ * --foreground, --border), így a dark mód és mindhárom téma automatikusan
+ * követve van.
+ *
+ * ⚠️ AA-kontraszt: tömör accent-háttér + fehér szöveg TILOS (az élő kert
+ * témában mérve 3,75:1 — lásd profile-switcher NEUTRAL_FOCUS) — ezért
+ * mindenhol tónusos felület + foreground-kevert szöveg megy.
+ */
+const SCOPE_COLOR: Record<ProfileRoleScope, string> = {
+  congregation: 'var(--accent)',
+  diocese: '#10b981',
+  district: '#8b5cf6',
+  system: '#6366f1',
+}
+
+/** 2 soros név-levágás tooltippel (a hosszú gyülekezetnevekhez). */
+const LINE_CLAMP_2: React.CSSProperties = {
+  display: '-webkit-box',
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: 'vertical',
+  overflow: 'hidden',
 }
 
 export interface ProfileChooserProps {
@@ -102,7 +82,15 @@ function getInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
+function resolveScopeName(row: ProfileRoleRow, scopeNames: Record<string, string>): string {
+  if (row.scope === 'system') return 'Teljes rendszer'
+  if (!row.scope_id) return '—'
+  return scopeNames[row.scope_id] || '—'
+}
 
+function roleLabelOf(row: ProfileRoleRow): string {
+  return row.role === 'custom' ? row.custom_label || 'Egyedi szerepkör' : ROLE_LABELS[row.role]
+}
 
 export function ProfileChooser({
   profileRoles,
@@ -114,29 +102,21 @@ export function ProfileChooser({
   const [isPending, startTransition] = useTransition()
   const [pendingId, setPendingId] = useState<string | null>(null)
 
-  const SCOPE_ORDER: Record<ProfileRoleScope, number> = {
-    congregation: 0,
-    diocese: 1,
-    district: 2,
-    system: 3,
-  }
-  const sortedRoles = [...profileRoles].sort((a, b) => {
-    const so = SCOPE_ORDER[a.scope] - SCOPE_ORDER[b.scope]
-    if (so !== 0) return so
-    const an =
-      a.scope === 'system'
-        ? 'Teljes rendszer'
-        : a.scope_id
-          ? scopeNames[a.scope_id] || ''
-          : ''
-    const bn =
-      b.scope === 'system'
-        ? 'Teljes rendszer'
-        : b.scope_id
-          ? scopeNames[b.scope_id] || ''
-          : ''
-    return an.localeCompare(bn, 'hu')
-  })
+  // Csoportosítás hatókör szerint; szekción belül név (hu), másodlagosan
+  // szerepkör-név szerint rendezve. Üres szekció nem renderelődik.
+  const sections = SCOPE_ORDER.map((scope) => ({
+    scope,
+    rows: profileRoles
+      .filter((r) => r.scope === scope)
+      .sort((a, b) => {
+        const byName = resolveScopeName(a, scopeNames).localeCompare(
+          resolveScopeName(b, scopeNames),
+          'hu',
+        )
+        if (byName !== 0) return byName
+        return roleLabelOf(a).localeCompare(roleLabelOf(b), 'hu')
+      }),
+  })).filter((s) => s.rows.length > 0)
 
   function handleChoose(roleId: string) {
     if (isPending) return
@@ -164,134 +144,222 @@ export function ProfileChooser({
   }
 
   return (
-    <div className="space-y-8 md:space-y-12">
-      <div className="text-center">
-        <div className="mx-auto mb-5 flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-lg font-semibold text-white shadow-lg shadow-indigo-200/50 sm:size-20 sm:text-xl">
-          {getInitials(fullName || '?')}
-        </div>
-        <h2 className="font-heading text-2xl text-slate-800 sm:text-3xl md:text-4xl">
-          Üdvözöljük{fullName ? `, ${fullName}` : ''}!
-        </h2>
-        <p className="mx-auto mt-3 max-w-xl text-sm text-slate-600 sm:text-base">
-          A nevéhez{' '}
-          <span className="font-semibold text-slate-800">
-            {profileRoles.length} profil
-          </span>{' '}
-          van hozzárendelve. Válassza ki, melyikben szeretne most dolgozni — a
-          fejléc menüjében később bármikor átválthat.
-        </p>
-      </div>
+    <div className="space-y-8 md:space-y-10">
+      {/* Üdvözlő hero — card-raised + token-blobok (AdminPageHeader-minta) */}
+      <section className="card-raised relative overflow-hidden p-6 sm:p-8">
+        <div
+          aria-hidden
+          className="absolute -right-14 -top-14 size-48 rounded-full blur-3xl"
+          style={{ background: 'color-mix(in oklab, var(--accent2) 30%, transparent)' }}
+        />
+        <div
+          aria-hidden
+          className="absolute -bottom-12 -left-12 size-40 rounded-full blur-3xl"
+          style={{ background: 'color-mix(in oklab, var(--primary) 25%, transparent)' }}
+        />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
-        {sortedRoles.map((row) => {
-          const Icon = SCOPE_ICONS[row.scope]
-          const theme = SCOPE_THEME[row.scope]
-          const scopeName =
-            row.scope === 'system'
-              ? 'Teljes rendszer'
-              : row.scope_id
-                ? scopeNames[row.scope_id] || '—'
-                : '—'
-          const roleLabel =
-            row.role === 'custom'
-              ? row.custom_label || 'Egyedi szerepkör'
-              : ROLE_LABELS[row.role]
-          const isActive = row.id === activeProfileRoleId
-          const isThisPending = pendingId === row.id
-          const isOtherPending = pendingId !== null && pendingId !== row.id
-
-          return (
-            <button
-              key={row.id}
-              type="button"
-              onClick={() => handleChoose(row.id)}
-              onMouseEnter={() => handleHover(row.scope, row.role)}
-              onFocus={() => handleHover(row.scope, row.role)}
-              disabled={isPending}
-              aria-label={`${scopeName} — ${roleLabel}`}
-              className={`group relative flex min-h-[200px] flex-col overflow-hidden rounded-2xl border bg-white text-left shadow-sm outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 ${
-                isThisPending
-                  ? 'scale-[1.02] border-indigo-400 shadow-xl ring-2 ring-indigo-200'
-                  : isOtherPending
-                    ? 'pointer-events-none opacity-40'
-                    : 'hover:-translate-y-1 hover:shadow-xl'
-              } ${
-                isActive && !isThisPending
-                  ? `${theme.activeBorder} ring-2 ${theme.activeRing}`
-                  : !isThisPending && !isOtherPending
-                    ? 'border-slate-200 hover:border-slate-300'
-                    : ''
-              }`}
+        <div className="relative flex flex-col items-center gap-4 text-center sm:flex-row sm:gap-6 sm:text-left">
+          <div
+            className="flex size-16 shrink-0 items-center justify-center rounded-2xl text-lg font-semibold text-[var(--primary-foreground)] shadow-md sm:size-20 sm:text-xl"
+            style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))' }}
+          >
+            {getInitials(fullName || '?')}
+          </div>
+          <div className="min-w-0">
+            <p
+              className="text-[11px] font-semibold uppercase tracking-[0.22em]"
+              style={{
+                color: 'color-mix(in oklab, var(--primary) 65%, var(--muted-foreground))',
+              }}
             >
-              <div className={`h-1.5 w-full ${theme.accentBar}`} />
+              Profilválasztás
+            </p>
+            <h2 className="mt-1 font-heading text-2xl text-foreground sm:text-3xl md:text-4xl">
+              Üdvözöljük{fullName ? `, ${fullName}` : ''}!
+            </h2>
+            <p className="mx-auto mt-2 max-w-xl text-sm text-muted-foreground sm:mx-0 sm:text-base">
+              A nevéhez{' '}
+              <span className="font-semibold text-foreground">
+                {profileRoles.length} profil
+              </span>{' '}
+              van hozzárendelve. Válassza ki, melyikben szeretne most dolgozni — a
+              fejléc menüjében később bármikor átválthat.
+            </p>
+          </div>
+        </div>
+      </section>
 
-              <div className="flex flex-1 flex-col gap-4 p-5 sm:p-6">
-                <div className="flex items-start justify-between gap-2">
-                  <div
-                    className={`flex size-12 items-center justify-center rounded-xl transition-colors ${theme.iconBg} ${theme.iconText} ${theme.iconBgHover} ${theme.iconTextHover}`}
-                  >
-                    <Icon className="size-6" />
-                  </div>
-                  <span
-                    className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ring-1 ring-inset ${theme.chip}`}
-                  >
-                    {SCOPE_LABELS[row.scope]}
-                  </span>
-                </div>
+      {/* Hatókör-szekciók: gyülekezeti → egyházmegyei → egyházkerületi → rendszer */}
+      {sections.map(({ scope, rows }) => {
+        const Icon = SCOPE_ICONS[scope]
+        const scopeColor = SCOPE_COLOR[scope]
+        const headingId = `profil-szekcio-${scope}`
 
-                <div className="min-w-0 flex-1">
-                  <p
-                    className="font-heading text-lg font-semibold text-slate-800 sm:text-xl"
-                    style={{
-                      display: '-webkit-box',
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                    }}
-                    title={scopeName}
-                  >
-                    {scopeName}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500 truncate" title={roleLabel}>
-                    {roleLabel}
-                  </p>
-                </div>
+        return (
+          <section key={scope} aria-labelledby={headingId} className="space-y-4">
+            {/* Szekció-fejléc: ikon + eyebrow + darabszám + finom elválasztó */}
+            <div
+              className="flex items-center gap-2.5"
+              style={{ '--scope-c': scopeColor } as React.CSSProperties}
+            >
+              <span
+                aria-hidden
+                className="flex size-7 shrink-0 items-center justify-center rounded-lg"
+                style={{
+                  background: 'color-mix(in oklab, var(--scope-c) 14%, var(--card))',
+                  color: 'color-mix(in oklab, var(--scope-c) 60%, var(--foreground))',
+                  boxShadow:
+                    'inset 0 0 0 1px color-mix(in oklab, var(--scope-c) 25%, transparent)',
+                }}
+              >
+                <Icon className="size-4" />
+              </span>
+              <h3
+                id={headingId}
+                className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+                style={{
+                  color: 'color-mix(in oklab, var(--scope-c) 50%, var(--foreground))',
+                }}
+              >
+                {SCOPE_SECTION_LABELS[scope]}
+              </h3>
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+                {rows.length}
+              </span>
+              <div aria-hidden className="h-px flex-1 bg-border" />
+            </div>
 
-                <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-xs">
-                  {isThisPending ? (
-                    <span className="inline-flex items-center gap-1.5 font-medium text-indigo-600">
-                      <Loader2 className="size-3.5 animate-spin" />
-                      Belépés folyamatban…
-                    </span>
-                  ) : (
-                    <span className="font-medium text-slate-400">
-                      Belépés ebbe a profilba
-                    </span>
-                  )}
-                  <ArrowRight
-                    className={`size-4 transition-all ${
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
+              {rows.map((row) => {
+                const scopeName = resolveScopeName(row, scopeNames)
+                const roleLabel = roleLabelOf(row)
+                const isActive = row.id === activeProfileRoleId
+                const isThisPending = pendingId === row.id
+                const isOtherPending = pendingId !== null && pendingId !== row.id
+
+                return (
+                  <button
+                    key={row.id}
+                    type="button"
+                    onClick={() => handleChoose(row.id)}
+                    onMouseEnter={() => handleHover(row.scope, row.role)}
+                    onFocus={() => handleHover(row.scope, row.role)}
+                    disabled={isPending}
+                    aria-label={`${scopeName} — ${roleLabel}`}
+                    style={{ '--scope-c': scopeColor } as React.CSSProperties}
+                    className={`group relative flex min-h-44 flex-col overflow-hidden rounded-2xl border bg-card text-left shadow-sm outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring ${
                       isThisPending
-                        ? 'translate-x-1 text-indigo-600'
-                        : 'text-slate-300 group-hover:translate-x-0.5 group-hover:text-slate-600'
+                        ? 'scale-[1.02] border-[color-mix(in_oklab,var(--scope-c)_45%,var(--border))] shadow-xl ring-2 ring-[color-mix(in_oklab,var(--scope-c)_35%,transparent)]'
+                        : isOtherPending
+                          ? 'pointer-events-none border-border opacity-40'
+                          : 'hover:-translate-y-1 hover:shadow-xl hover:ring-2 hover:ring-[color-mix(in_oklab,var(--scope-c)_25%,transparent)]'
+                    } ${
+                      isActive && !isThisPending
+                        ? 'border-[color-mix(in_oklab,var(--scope-c)_45%,var(--border))] ring-2 ring-[color-mix(in_oklab,var(--scope-c)_28%,transparent)]'
+                        : !isThisPending && !isOtherPending
+                          ? 'border-border hover:border-[color-mix(in_oklab,var(--scope-c)_40%,var(--border))]'
+                          : ''
                     }`}
-                  />
-                </div>
-              </div>
+                  >
+                    {/* Felső accent-csík — hatókör-színből halványuló gradiens */}
+                    <div
+                      aria-hidden
+                      className="h-1.5 w-full"
+                      style={{
+                        background:
+                          'linear-gradient(90deg, var(--scope-c), color-mix(in oklab, var(--scope-c) 40%, var(--card)))',
+                      }}
+                    />
 
-              {isActive && !isThisPending && (
-                <span
-                  className={`absolute right-3 top-3.5 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow-sm ${theme.activeBadge}`}
-                  title="Legutóbb ezt használtad"
-                >
-                  Legutóbbi
-                </span>
-              )}
-            </button>
-          )
-        })}
-      </div>
+                    <div className="flex flex-1 flex-col gap-4 p-5 sm:p-6">
+                      <div className="flex items-start justify-between gap-2">
+                        <div
+                          className="flex size-12 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-105"
+                          style={{
+                            background:
+                              'color-mix(in oklab, var(--scope-c) 14%, var(--card))',
+                            color:
+                              'color-mix(in oklab, var(--scope-c) 65%, var(--foreground))',
+                            boxShadow:
+                              'inset 0 0 0 1px color-mix(in oklab, var(--scope-c) 22%, transparent)',
+                          }}
+                        >
+                          <Icon className="size-6" />
+                        </div>
 
-      <p className="text-center text-xs text-slate-400">
+                        {isActive && !isThisPending ? (
+                          /* Aktív jelölés — tónusos felület, NEM fehér-accenten (AA) */
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                            style={{
+                              background:
+                                'color-mix(in oklab, var(--scope-c) 16%, var(--card))',
+                              color:
+                                'color-mix(in oklab, var(--scope-c) 50%, var(--foreground))',
+                              boxShadow:
+                                'inset 0 0 0 1px color-mix(in oklab, var(--scope-c) 30%, transparent)',
+                            }}
+                            title="Legutóbb ebben a profilban dolgozott"
+                          >
+                            <BadgeCheck className="size-3" />
+                            Jelenlegi profil
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ring-1 ring-inset ring-border">
+                            {SCOPE_LABELS[row.scope]}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className="font-heading text-lg font-semibold text-foreground sm:text-xl"
+                          style={LINE_CLAMP_2}
+                          title={scopeName}
+                        >
+                          {scopeName}
+                        </p>
+                        <p
+                          className="mt-1 truncate text-sm font-medium"
+                          style={{
+                            color:
+                              'color-mix(in oklab, var(--scope-c) 45%, var(--foreground))',
+                          }}
+                          title={roleLabel}
+                        >
+                          {roleLabel}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-between border-t border-border pt-3 text-xs">
+                        {isThisPending ? (
+                          <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+                            <Loader2 className="size-3.5 animate-spin" />
+                            Belépés folyamatban…
+                          </span>
+                        ) : (
+                          <span className="font-medium text-muted-foreground transition-colors group-hover:text-foreground">
+                            Belépés ebbe a profilba
+                          </span>
+                        )}
+                        <ArrowRight
+                          className={`size-4 transition-all ${
+                            isThisPending
+                              ? 'translate-x-1 text-foreground'
+                              : 'text-muted-foreground/50 group-hover:translate-x-0.5 group-hover:text-foreground'
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+        )
+      })}
+
+      <p className="text-center text-xs text-muted-foreground">
         Tipp: a fejlécben az avatarra kattintva később is válthat profilt.
       </p>
     </div>

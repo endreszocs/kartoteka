@@ -90,7 +90,21 @@ const WorklogStatistics = dynamic(
 type LelkesziJelentesDialogComponent =
   typeof import('@/components/worklog/lelkeszi-jelentes-dialog').LelkesziJelentesDialog
 
-type WorklogTab = WorklogCategory | 'jelentes' | 'help' | 'admin-import'
+// 2026-08-09: Igehirdetési terv fül — lazy chunk (naptár + szerkesztő + eszközök),
+// csak a fülre kattintva töltődik.
+const SermonPlanTab = dynamic(
+  () => import('@/components/worklog/sermon-plan-tab').then((m) => m.SermonPlanTab),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-2xl border border-border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
+        Az igehirdetési terv betöltése…
+      </div>
+    ),
+  },
+)
+
+type WorklogTab = WorklogCategory | 'igeterv' | 'jelentes' | 'help' | 'admin-import'
 
 interface WorklogTabsProps {
   congregationName?: string
@@ -332,6 +346,7 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
     { value: 'szolgalat', label: WORKLOG_CATEGORY_LABELS.szolgalat, count: counts.szolgalat },
     { value: 'katekezis', label: WORKLOG_CATEGORY_LABELS.katekezis, count: counts.katekezis },
     { value: 'latogatas', label: WORKLOG_CATEGORY_LABELS.latogatas, count: counts.latogatas },
+    { value: 'igeterv', label: 'Igehirdetési terv' },
     { value: 'jelentes', label: 'Lelkészi jelentés' },
     { value: 'help', label: 'Súgó' },
     ...(showAdminImport
@@ -440,6 +455,9 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
         <MunkanaploHelp />
       ) : activeTab === 'admin-import' && showAdminImport ? (
         adminImportContent
+      ) : activeTab === 'igeterv' ? (
+        // Az igehirdetési terv a saját adatait tölti — a munkanapló loading-ja nem gátolja.
+        <SermonPlanTab year={year} />
       ) : loading ? (
         <div className="py-8 text-center text-sm text-muted-foreground">Betöltés…</div>
       ) : activeTab === 'jelentes' ? (

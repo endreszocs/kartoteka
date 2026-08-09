@@ -60,9 +60,12 @@ interface Props {
   currentYear: number
   /** Az aktív gyülekezet — az auto-vázlatmentés kulcsához (gyülekezet-specifikus). */
   congregationId?: string
+  /** 2026-08-09: pénzügy→leltár híd — a leltár-köteles kiadás-jogcímeknél
+   *  (205.01 / 201.12) „Leltárba vétel" al-űrlap; csak gyülekezeti módban. */
+  offerExpenseInventory?: boolean
 }
 
-export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expenseCategories, bankAccounts, currentYear, congregationId }: Props) {
+export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expenseCategories, bankAccounts, currentYear, congregationId, offerExpenseInventory }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[94vh] overflow-y-auto p-0 w-[calc(100%-1rem)] sm:max-w-5xl xl:max-w-[90vw] 2xl:max-w-[84vw]">
@@ -137,6 +140,7 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
             onGetNextReceiptNumbers={async (year) => await getNextReceiptNumbers(year)}
             onCheckReceiptDuplicate={async (iratszam) => await checkReceiptDuplicate(iratszam)}
             onGetLastRecordedDate={async () => await getLastRecordedDate()}
+            offerExpenseInventory={offerExpenseInventory}
             onClose={() => onOpenChange(false)}
             onToast={(type, message) => {
               if (type === 'success') toast.success(message)

@@ -14,11 +14,13 @@
  * Mobil-barát: kis/közepes képernyőn kártyák (nincs oldalirányú görgetés).
  */
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight, TrendingUp, TrendingDown } from 'lucide-react'
+import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight, TrendingUp, TrendingDown, Boxes } from 'lucide-react'
 import { formatRon } from './ron-in-words'
 import { parseFlexibleDate } from './date-parse'
+import { inventoryKategoriaForExpenseKod } from './helpers'
+import { INVENTORY_AMORTIZATION_CATALOG, getInventoryAmortizationCatalogEntry } from './inventory'
 import { SearchableSelect } from './SearchableSelect'
 import {
   FamilyReceiptModal,
@@ -26,7 +28,7 @@ import {
   type CombinedFamilyMember,
 } from './FamilyReceiptModal'
 import type { IncomeCategory, SaveIncomeBatchRow } from './IncomeDialogBody'
-import type { ExpenseCategory, SaveExpenseBatchRow } from './ExpenseDialogBody'
+import type { ExpenseCategory, ExpenseInventoryIntake, SaveExpenseBatchRow } from './ExpenseDialogBody'
 
 export type CombinedToastFn = (type: 'success' | 'error' | 'warning', message: string) => void
 
@@ -152,6 +154,15 @@ export interface CombinedEntryBodyProps {
    * Sikeres mentéskor vagy a vázlat elvetésekor törlődik. Ha nincs megadva, nincs mentés.
    */
   draftStorageKey?: string
+  /**
+   * 2026-08-09 (Endre): pénzügy→leltár híd. Ha true, a KIADÁS fülön a
+   * leltár-köteles jogcímeknél (205.01 Új beruházások / 201.12 Kis értékű
+   * leltári tárgyak) automatikusan felajánljuk a „Leltárba vétel" al-űrlapot,
+   * és a mentés a kiadással együtt leltári tételt is rögzít. Csak gyülekezeti
+   * módban kapcsolható be (a wrapper dönti el); desktopon egyelőre nincs
+   * bekötve (a leltár ott csak olvasható tükör).
+   */
+  offerExpenseInventory?: boolean
 }
 
 type EntryRow = {
@@ -180,7 +191,42 @@ type EntryRow = {
   /** Legacy (B1) — már a people[] váltja ki; csak régi vázlat visszaállításához tartjuk meg. */
   szemelyId?: number | null
   csaladId?: number | null
+  /** 2026-08-09: a kiadás-sor „Leltárba vétel" al-űrlapjának állapota (csak kiadás-fül,
+   *  leltár-köteles jogcímnél; undefined = még nem nyúlt hozzá → alapból BEKAPCSOLVA). */
+  inventory?: RowInventoryState
 }
+
+/** 2026-08-09: a „Leltárba vétel" al-űrlap sor-szintű állapota. */
+type RowInventoryState = {
+  enabled: boolean
+  megnevezes: string
+  kategoria: string
+  katalogusKod: string
+  hasznalatiIdo: string
+  helyszin: string
+  felelos: string
+}
+
+const defaultRowInventory = (suggested: 'alapeszkoz' | 'csekely'): RowInventoryState => ({
+  enabled: true,
+  megnevezes: '',
+  kategoria: suggested,
+  katalogusKod: '',
+  hasznalatiIdo: '',
+  helyszin: '',
+  felelos: '',
+})
+
+/** A leltári kategória-választó opciói (a webes inventory.next címkéivel egyezően). */
+const INTAKE_CATEGORY_OPTIONS = [
+  { value: 'alapeszkoz', label: 'Alapeszközök' },
+  { value: 'csekely', label: 'Csekély értékű leltári tárgyak' },
+  { value: 'konyv', label: 'Könyvek' },
+  { value: 'kegyszer', label: 'Kegyszerek' },
+  { value: 'telek', label: 'Telkek, földek, erdők' },
+  { value: 'karpotlasi', label: 'Kárpótlási jegyek és részvények' },
+  { value: 'bizomanyi', label: 'Bizományi' },
+] as const
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
 const newRow = (year?: number): EntryRow => ({
@@ -220,7 +266,7 @@ export function CombinedEntryBody({
   onSaveIncomeBatch, onSaveExpenseBatch, onSaveInternalTransfer, onClose, onToast,
   onSearchMembers, onSearchExpensePartners,
   onSearchFamilies, onGetFamilyMembers, onGetFamilyMembersForPerson, onGetExpectedJarulek, onGetNextReceiptNumbers,
-  onCheckReceiptDuplicate, onGetLastRecordedDate, draftStorageKey,
+  onCheckReceiptDuplicate, onGetLastRecordedDate, draftStorageKey, offerExpenseInventory,
 }: CombinedEntryBodyProps) {
   const [tab, setTab] = useState<'income' | 'expense'>('income')
   const [incomeRows, setIncomeRows] = useState<EntryRow[]>(() => [newRow(currentYear)])
@@ -350,6 +396,115 @@ export function CombinedEntryBody({
   const dirFor = (tabName: 'income' | 'expense', r: EntryRow): 'deposit' | 'withdraw' | null => {
     if (r.categoryId === '') return null
     return dirOfKod((tabName === 'income' ? incomeKod : expenseKod).get(Number(r.categoryId)))
+  }
+
+  // ── 2026-08-09: pénzügy→leltár híd — leltár-köteles kiadás-jogcím felismerése ──
+  const invKategoriaForRow = (r: EntryRow): 'alapeszkoz' | 'csekely' | null => {
+    if (!offerExpenseInventory || r.categoryId === '') return null
+    return inventoryKategoriaForExpenseKod(expenseKod.get(Number(r.categoryId)))
+  }
+  const invOf = (r: EntryRow, suggested: 'alapeszkoz' | 'csekely'): RowInventoryState =>
+    r.inventory ?? defaultRowInventory(suggested)
+
+  /** A kiadás-sor alatti „Leltárba vétel" panel (asztali táblázat + mobil kártya közös). */
+  function renderInventoryPanel(r: EntryRow, suggested: 'alapeszkoz' | 'csekely') {
+    const inv = invOf(r, suggested)
+    const kategoria = inv.kategoria || suggested
+    const setInv = (patch: Partial<RowInventoryState>) =>
+      updateRow(r.id, { inventory: { ...inv, ...patch } })
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+        <label className="flex items-start gap-2 text-sm font-medium text-amber-900">
+          <input
+            type="checkbox"
+            className="mt-0.5 size-4 rounded border-amber-300"
+            checked={inv.enabled}
+            onChange={(e) => setInv({ enabled: e.target.checked })}
+          />
+          <span>
+            <Boxes className="mr-1 inline size-4 align-text-bottom" aria-hidden />
+            Leltárba vétel — a mentés a kiadással együtt leltári tételt is rögzít
+            <span className="block text-xs font-normal text-amber-700">
+              Ez a jogcím ({suggested === 'alapeszkoz' ? '205.01 Új beruházások' : '201.12 Kis értékű leltári tárgyak'})
+              leltár-köteles beszerzés — az összeg, a dátum és az irat száma automatikusan átkerül.
+              Ha most nem szeretnéd, vedd ki a pipát.
+            </span>
+          </span>
+        </label>
+        {inv.enabled && (
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <label className="text-xs text-amber-900">
+              Tárgy megnevezése *
+              <input
+                className={inputClass}
+                value={inv.megnevezes}
+                placeholder={r.megjegyzes.trim() || 'pl. Laptop, irodai szék…'}
+                onChange={(e) => setInv({ megnevezes: e.target.value })}
+              />
+            </label>
+            <label className="text-xs text-amber-900">
+              Leltári kategória
+              <select
+                className={inputClass}
+                value={kategoria}
+                onChange={(e) =>
+                  setInv({
+                    kategoria: e.target.value,
+                    ...(e.target.value !== 'alapeszkoz' ? { katalogusKod: '', hasznalatiIdo: '' } : {}),
+                  })
+                }
+              >
+                {INTAKE_CATEGORY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </label>
+            {kategoria === 'alapeszkoz' && (
+              <>
+                <label className="text-xs text-amber-900">
+                  Amortizációs katalóguskód
+                  <select
+                    className={inputClass}
+                    value={inv.katalogusKod}
+                    onChange={(e) => {
+                      const entry = getInventoryAmortizationCatalogEntry(e.target.value)
+                      setInv({
+                        katalogusKod: e.target.value,
+                        ...(entry ? { hasznalatiIdo: String(entry.defEv) } : {}),
+                      })
+                    }}
+                  >
+                    <option value="">Kézi beállítás</option>
+                    {INVENTORY_AMORTIZATION_CATALOG.map((entry) => (
+                      <option key={entry.kod} value={entry.kod}>{entry.kod} – {entry.nev}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-xs text-amber-900">
+                  Használati idő (év)
+                  <input
+                    className={inputClass}
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={inv.hasznalatiIdo}
+                    onChange={(e) => setInv({ hasznalatiIdo: e.target.value })}
+                  />
+                </label>
+              </>
+            )}
+            <label className="text-xs text-amber-900">
+              Helyszín
+              <input className={inputClass} value={inv.helyszin} onChange={(e) => setInv({ helyszin: e.target.value })} />
+            </label>
+            <label className="text-xs text-amber-900">
+              Felelős személy
+              <input className={inputClass} value={inv.felelos} onChange={(e) => setInv({ felelos: e.target.value })} />
+            </label>
+          </div>
+        )}
+      </div>
+    )
   }
   const belsoDir = (r: EntryRow) => dirFor(tab, r) // aktuális fül — a megjelenítéshez
   // (B) egyházfenntartói járulék jogcím-e (kód 101.01*) — az auto-összeghez (a szerveroldali
@@ -861,16 +1016,31 @@ export function CombinedEntryBody({
       return
     }
 
-    // Belső mozgás sorok kigyűjtése (mindkét fülről)
-    const transfers: CombinedInternalTransferPayload[] = []
+    // Belső mozgás sorok kigyűjtése (mindkét fülről). 2026-08-09 (review-fix):
+    // minden mentett tételhez megjegyezzük a FORRÁS-SOR id-ját, és a sikeresen
+    // mentett fázis sorait AZONNAL kivesszük az űrlapból — így egy későbbi fázis
+    // hibája utáni ÚJRA-mentés nem rögzíti duplán a már elmentett tételeket.
+    const transfers: Array<{ payload: CombinedInternalTransferPayload; rowId: string; tab: 'income' | 'expense' }> = []
     const incomeBatch: SaveIncomeBatchRow[] = []
     const expenseBatch: SaveExpenseBatchRow[] = []
+    const savedIncomeRowIds: string[] = []
+    const savedExpenseRowIds: string[] = []
 
-    function pushTransfer(dir: 'deposit' | 'withdraw', datum: string, r: EntryRow) {
+    const removeRowsFromTab = (tabName: 'income' | 'expense', ids: string[]) => {
+      if (ids.length === 0) return
+      const idSet = new Set(ids)
+      const setter = tabName === 'income' ? setIncomeRows : setExpenseRows
+      setter((cur) => {
+        const kept = cur.filter((row) => !idSet.has(row.id))
+        return kept.length ? kept : [newRow(currentYear)]
+      })
+    }
+
+    function pushTransfer(dir: 'deposit' | 'withdraw', datum: string, r: EntryRow, tabName: 'income' | 'expense') {
       if (dir === 'deposit') {
-        transfers.push({ tipus: 'kassza_bank', datum, forras: 'kassza', cel: String(r.bankId), osszeg: Number(r.amount), megjegyzes: r.megjegyzes.trim() || 'Készpénzletétel a bankba' })
+        transfers.push({ payload: { tipus: 'kassza_bank', datum, forras: 'kassza', cel: String(r.bankId), osszeg: Number(r.amount), megjegyzes: r.megjegyzes.trim() || 'Készpénzletétel a bankba' }, rowId: r.id, tab: tabName })
       } else {
-        transfers.push({ tipus: 'bank_kassza', datum, forras: String(r.bankId), cel: 'kassza', osszeg: Number(r.amount), megjegyzes: r.megjegyzes.trim() || 'Készpénzfelvétel a bankból' })
+        transfers.push({ payload: { tipus: 'bank_kassza', datum, forras: String(r.bankId), cel: 'kassza', osszeg: Number(r.amount), megjegyzes: r.megjegyzes.trim() || 'Készpénzfelvétel a bankból' }, rowId: r.id, tab: tabName })
       }
     }
 
@@ -878,7 +1048,8 @@ export function CombinedEntryBody({
       if (!rowValidIn('income', r)) continue
       const datum = parseFlexibleDate(r.datum)!
       const dir = dirFor('income', r)
-      if (dir) { pushTransfer(dir, datum, r); continue }
+      if (dir) { pushTransfer(dir, datum, r, 'income'); continue }
+      savedIncomeRowIds.push(r.id)
       // #4: EGY nyugta, több befizető. Ha vannak befizetők (people[]), tagonként KÜLÖN
       // befizetés keletkezik — KÖZÖS nyugtaszámmal (gyülekezeti = nyugta), közös irattípussal +
       // jogcímmel, de PER-TAG összeggel + évvel + személlyel. A kerületi iratszám csak több
@@ -923,11 +1094,37 @@ export function CombinedEntryBody({
       if (!rowValidIn('expense', r)) continue
       const datum = parseFlexibleDate(r.datum)!
       const dir = dirFor('expense', r)
-      if (dir) { pushTransfer(dir, datum, r); continue }
+      if (dir) { pushTransfer(dir, datum, r, 'expense'); continue }
+      savedExpenseRowIds.push(r.id)
+      // 2026-08-09: leltár-köteles jogcím (205.01 / 201.12) → kapcsolt leltári tétel.
+      let inventory: ExpenseInventoryIntake | null = null
+      const invKat = invKategoriaForRow(r)
+      if (invKat) {
+        const inv = invOf(r, invKat)
+        if (inv.enabled) {
+          // Ha a megnevezés üres, a sor megjegyzése lép a helyébe (a placeholder is ezt mutatja).
+          const megnevezes = inv.megnevezes.trim() || r.megjegyzes.trim()
+          if (!megnevezes) {
+            onToast('error', 'Leltárba vétel: add meg a tárgy megnevezését a kiadás-sor leltár-paneljén (vagy vedd ki a „Leltárba vétel" pipát).')
+            return
+          }
+          const kategoria = inv.kategoria || invKat
+          inventory = {
+            megnevezes,
+            kategoria,
+            katalogus_kod: kategoria === 'alapeszkoz' && inv.katalogusKod ? inv.katalogusKod : null,
+            hasznalati_ido: kategoria === 'alapeszkoz' && inv.hasznalatiIdo ? Number(inv.hasznalatiIdo) || null : null,
+            helyszin: inv.helyszin.trim() || null,
+            felelos_nev: inv.felelos.trim() || null,
+            megjegyzes: r.partner.trim() ? `Szállító: ${r.partner.trim()}` : null,
+          }
+        }
+      }
       expenseBatch.push({
         datum, id_kiadascel: Number(r.categoryId), kedvezmenyzett: r.partner.trim() || null,
         osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: docTypeForSave(r),
-        megjegyzes: r.megjegyzes.trim() || null, is_inventory: false,
+        megjegyzes: r.megjegyzes.trim() || null, is_inventory: !!inventory,
+        inventory,
       })
     }
 
@@ -939,18 +1136,25 @@ export function CombinedEntryBody({
       if (incomeBatch.length) {
         const res = await onSaveIncomeBatch(incomeBatch)
         if (res.error) { onToast('error', `Bevétel: ${res.error}`); return }
+        // A bevételek elmentve — kivesszük őket, hogy egy későbbi hiba utáni
+        // újra-mentés ne rögzítse duplán ugyanazokat a sorokat.
+        removeRowsFromTab('income', savedIncomeRowIds)
       }
       if (expenseBatch.length) {
         const res = await onSaveExpenseBatch(expenseBatch)
         if (res.error) { onToast('error', `Kiadás: ${res.error}`); return }
+        removeRowsFromTab('expense', savedExpenseRowIds)
       }
       for (const t of transfers) {
-        const res = await onSaveInternalTransfer(t)
+        const res = await onSaveInternalTransfer(t.payload)
         if (res.error) { onToast('error', `Belső mozgás: ${res.error}`); return }
+        removeRowsFromTab(t.tab, [t.rowId])
       }
       const parts = []
       if (incomeBatch.length) parts.push(`${incomeBatch.length} bevétel`)
       if (expenseBatch.length) parts.push(`${expenseBatch.length} kiadás`)
+      const invCount = expenseBatch.filter((b) => b.inventory).length
+      if (invCount) parts.push(`${invCount} leltári tétel`)
       if (transfers.length) parts.push(`${transfers.length} belső mozgás`)
       onToast('success', `Mentve: ${parts.join(', ')} — dátum szerint rendezve.`)
       clearDraft() // #3: sikeres mentés után a vázlat törlődik
@@ -1169,8 +1373,11 @@ export function CombinedEntryBody({
               const rWarn = receiptWarning(r)
               // #1: a kerületi + gyülekezeti szám-mező CSAK Chitanță (nyugta) esetén jelenik meg.
               const isChitanta = r.docType === 'Chitanță'
+              // 2026-08-09: leltár-köteles kiadás-jogcím → „Leltárba vétel" panel a sor alatt.
+              const invKat = tab === 'expense' && !dir ? invKategoriaForRow(r) : null
               return (
-                <tr key={r.id} className="border-t border-slate-100 align-top" onKeyDown={focusNextField}>
+                <Fragment key={r.id}>
+                <tr className="border-t border-slate-100 align-top" onKeyDown={focusNextField}>
                   <td className="px-2 py-1.5 w-[160px]">
                     {renderDateField(r)}
                     {dWarn && <div className="mt-0.5 text-[10px] leading-tight text-amber-600">⚠ {dWarn}</div>}
@@ -1288,6 +1495,14 @@ export function CombinedEntryBody({
                     </button>
                   </td>
                 </tr>
+                {invKat && (
+                  <tr>
+                    <td colSpan={9} className="px-2 pb-2 pt-0">
+                      {renderInventoryPanel(r, invKat)}
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               )
             })}
           </tbody>
@@ -1395,6 +1610,11 @@ export function CombinedEntryBody({
                 <label className="col-span-2 text-xs text-slate-500">Megjegyzés
                   <input className={inputClass} value={r.megjegyzes} onChange={(e) => updateRow(r.id, { megjegyzes: e.target.value })} />
                 </label>
+                {/* 2026-08-09: leltár-köteles jogcím → „Leltárba vétel" panel a kártyán is */}
+                {tab === 'expense' && !dir && (() => {
+                  const invKat = invKategoriaForRow(r)
+                  return invKat ? <div className="col-span-2">{renderInventoryPanel(r, invKat)}</div> : null
+                })()}
               </div>
             </div>
           )

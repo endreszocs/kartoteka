@@ -23,6 +23,51 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-09] — Igehirdetési terv énekkeresővel és konkordanciával, meghívók, megújult profilválasztó
+<!-- key: 2026-08-09-igeterv-meghivo-profil-teszt -->
+<!-- category: feature -->
+<!-- targets: admin, lelkesz, gondnok -->
+<!-- version: web v0.9.157 -->
+
+### ✨ Újdonságok
+
+- **Igehirdetési terv a munkanaplóban.** Új fül: előre tervezheted az alkalmakat naptár- vagy lista-nézetben — dátum + napszak, alkalom (ünnepnapokra a református liturgikus naptár javasol nevet), cím/téma, textus és lekció (igehely-ellenőrzéssel), énekek, szolgálattevő. Kérhetsz **emlékeztetőt** (app-értesítés 1–7 nappal előtte), az alkalom megjelenhet a **gyülekezeti naptárban és a Google Naptár-feedben** is, megtartás után pedig egy kattintással **munkanapló-bejegyzés** készül belőle. *(Ehhez egyszer le kell futtatni a 2026-08-09-igehirdetesi-terv.sql migrációt.)*
+- **Énekkereső — teljes szövegű keresés.** Az Erdélyi Református Énekeskönyv mind a 513 énekének teljes szövegében kereshetsz (ékezetek nélkül is): a találatnál látszik az egyező versszak, megnyitható a teljes ének, és egy gombbal a tervbe emelhető.
+- **Konkordancia — beépítve, kulcs nélkül.** Bibliai szó-keresés és igehely-kigyűjtés a **beépített Károli-szövegben** (1908-as revízió, közkincs): ékezet-független keresés a teljes Bibliában, szövetségre és könyvre szűkítéssel — a kereső teljesen helyben fut, internetkapcsolat és API-kulcs nélkül. A talált igehely egy kattintással textusként beemelhető.
+- **Meghívó küldése az admin felületről.** A Felhasználók oldalon új „Meghívó küldése" gomb: e-mail-cím (+ opcionális név és személyes üzenet) alapján igényes, arculatos meghívólevél megy ki, élő előnézettel a dialógusban. A meghívott a hivatalos hozzáférés-kérési oldalra érkezik.
+- **Megújult profilválasztó.** A bejelentkezés utáni profilválasztó szintek szerint csoportosít (Gyülekezeti / Egyházmegyei / Egyházkerületi / Rendszergazdai), a rendszer témáját követi (sötét módban is), és mobilon is kényelmes.
+- **Leltár: „Kikeresés a könyvelésből".** Az új leltári tétel ablakban a már rögzített kiadások közül választhatsz (elöl a leltár-köteles 205.01/201.12 jogcíműek): az összeg, dátum és iratszám előtöltődik, és a mentés a két tételt össze is kapcsolja. A már leltárba vett kiadások jelölve.
+- **Teszt gyülekezet valósághű próba-adatokkal.** Három új SQL (ellenőrzés → ürítés → fiktív feltöltés: 48 kitalált tag 15 családban, két évnyi pénzügy, leltár, munkanapló, programok) + kész **import-tesztfájlok** a tagnyilvántartás- és pénzügy-importerekhez (`migration-docs/teszt-adatok/`, magyar útmutatóval) — ezekkel a lelkészek biztonságosan kipróbálhatják a rendszert.
+
+### 🐛 Javítások (importerek)
+
+- **Iktató-import más gyülekezetbe:** a sorszám-pointer eddig a saját gyülekezetre szinkronizált a cél helyett — a következő kézi iktatás ütköző iktatószámot kaphatott volna.
+- **Iktató-import:** a „Küldő keltezése" és „Hivatkozás címe" oszlopok eddig némán elvesztek — mostantól a megjegyzésbe kerülnek, ahogy a sablon-súgó ígéri.
+- **Import „Meghalt: F" csapda:** az önálló F betű eddig minden igen/nem oszlopban „igen"-t jelentett (a Férfi-oszlop kedvéért) — így a Meghalt: F elhunytnak jelölte a tagot. A F/N mostantól csak a Nem-oszlopban jelent férfit/nőt.
+
+---
+
+## [2026-08-09] — Tag-egyeztetés admin felület, leltári fişă élő előnézettel, pénzügy→leltár híd
+<!-- key: 2026-08-09-admin-egyeztetes-leltar-fisa-hid -->
+<!-- category: feature -->
+<!-- targets: admin, lelkesz, gondnok, penztaros -->
+<!-- version: web v0.9.156 -->
+
+### ✨ Újdonságok
+
+- **Tag-egyeztetések admin felület.** Az admin oldalon új **„Tag-egyeztetések"** menüpont mutatja az összes kereszt-gyülekezeti egyezést: amikor ugyanaz a személy két gyülekezetben is szerepel (név + születési dátum vagy név + telefon alapján). Eddig a rendszer csak az ÚJ rögzítéseknél jelzett — a **„Teljes állomány átvizsgálása"** gombbal mostantól a **már bent lévő adatok** is ellenőrizhetők. Az admin tételenként **értesítheti mindkét érintett lelkészt** (hivatalos e-mail + app-on belüli értesítés, a másik lelkész elérhetőségével), és rögzítheti a döntést (azonos / két külön személy / elvetés). Az egyházkerületi admin a saját kerületét látja. *(Ehhez egyszer le kell futtatni a 2026-08-09-admin-kereszt-egyeztetes.sql migrációt.)*
+- **Leltári tárgy fişája — élő előnézettel.** Az „Új tétel / Szerkesztés" ablakban gépelés közben, azonnal kitöltődve látszik a tárgy nyomtatható, kétnyelvű (magyar–román) fişája: leltári szám, kategória, beszerzési adatok, amortizáció (katalóguskód, használati idő, aktuális érték), helyszín, felelős. Nagy képernyőn állandó oldalsó előnézet, telefonon a **„Fişă előnézet"** gombbal nyílik. A kitöltetlen mezők pontozott vonalként jelennek meg, így üresen nyomtatva kézi kitöltésre is jó. A leltár-listában minden sor mellett új **„Fişă"** gomb nyomtatja a kész tárgy fişáját.
+- **A pénzügyi rögzítő mostantól tényleg felajánlja a leltárba vételt.** Ha a „+ Tétel rögzítése" ablakban leltár-köteles kiadás-jogcímet választasz (**205.01 Új beruházások** vagy **201.12 Kis értékű leltári tárgyak beszerzése**), a sor alatt megjelenik a **„Leltárba vétel"** panel (alapból bepipálva): megadod a tárgy megnevezését (kategória, katalóguskód, helyszín, felelős opcionális), és a mentés a kiadással **együtt a leltárba is beírja** a tételt — az összeg, a dátum és az irat száma automatikusan átkerül, a leltári szám magától generálódik. Ha nem kell, egy pipával kikapcsolható. *(A funkció kód szinten eddig is létezett, de a felületre soha nem volt bekötve — mostantól működik; a kiadás és a leltári tétel az adatbázisban is összekapcsolódik.)*
+
+### 🐛 Javítások
+
+- **Az import utáni kereszt-egyezés összefoglaló** eddig a felső harang ikonhoz irányított, ahol ezek az egyezések nem látszanak — a szöveg most a tagnyilvántartás sárga lánc-ikonjára és az admin egyeztetési felületre mutat.
+- A régi, felületről elérhetetlen kiadás–leltár összekötő kód a mai adatbázis-sémán már el is bukott volna (régi oszlopneveket írt) — az új híd a helyes oszlopnevekkel ír, és hiba esetén a kiadást is visszavonja, hogy ne maradjon fél állapot.
+- **Leltári szám: nincs többé kétszer kiadott szám.** A szám-generátor eddig legfeljebb 1000 tételt olvasott vissza (1000-nél több tételnél — pl. nagy könyvtár — már használt számot adott volna ki újra), és két egyszerre mentő felhasználó is ugyanazt a számot kaphatta. Mostantól a teljes állományból számol, ütközésnél pedig automatikusan új számmal próbálkozik. *(A DB-szintű védelemhez futtasd le a 2026-08-09-leltari-szam-unique-index.sql fájlt is.)*
+- **A Tétel rögzítő nem duplikál újra-mentéskor.** Ha egy köteg mentése félúton hibázott (pl. a leltári tétel mentése nem sikerült), az újra-mentés eddig a már elmentett bevételeket/kiadásokat még egyszer rögzítette volna. Mostantól a sikeresen mentett sorok azonnal kikerülnek az űrlapról, a kiadás-köteg pedig hiba esetén teljes egészében visszavonódik — csak a hibás (megmaradt) sorokat kell javítani és újra menteni.
+
+---
+
 ## [2026-08-04] — Válás rögzítése: az elváltak újra házasodhatnak
 <!-- key: 2026-08-04-tagnyilv-pr44-valas -->
 <!-- category: feature -->

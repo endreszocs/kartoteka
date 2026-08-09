@@ -294,10 +294,34 @@ export async function executeBatchImport(
         }
       }
 
+      // 2026-08-09 (review-fix): az iktató-profil „Küldő keltezése" és
+      // „Hivatkozás címe" mezői virtuális (_ prefixű) oszlopok — az insert előtt
+      // eddig NÉMÁN elvesztek, pedig a sablon-súgó a megjegyzésbe ígéri őket.
+      // Itt fűzzük őket a megjegyzéshez.
+      const recordsForInsert =
+        profile.targetTable === 'iktato'
+          ? resolvedRecords.map((rec) => {
+              const extras = [
+                rec['_kuldo_keltezese'] ? `Küldő keltezése: ${rec['_kuldo_keltezese']}` : null,
+                rec['_hivatkozas'] ? `Hivatkozás: ${rec['_hivatkozas']}` : null,
+              ].filter(Boolean)
+              const base = typeof rec['megjegyzes'] === 'string' && rec['megjegyzes'] ? `${rec['megjegyzes']} · ` : ''
+              const merged = extras.length === 0 ? rec : { ...rec, megjegyzes: `${base}${extras.join(' · ')}` }
+              // Üres iktatószámnál a kulcsot is elhagyjuk — explicit null-lal a
+              // NOT NULL DEFAULT nextval(...) nem érvényesülne (NOT NULL hiba).
+              if (merged['sequence_number'] == null) {
+                const rest = { ...merged }
+                delete rest['sequence_number']
+                return rest
+              }
+              return merged
+            })
+          : resolvedRecords
+
       const insertResult = await batchInsertRecords(
         supabase,
         profile,
-        resolvedRecords,
+        recordsForInsert,
         config.sheetName,
         allErrors,
       )
@@ -320,8 +344,12 @@ export async function executeBatchImport(
         // archívum-importnál a soros változat éveként egy kört várna).
         await Promise.allSettled(
           [...affectedYears].map(async (y) => {
+            // 2026-08-09 (review-fix): a pointer-szinkron a TÉNYLEGES cél-gyülekezetre
+            // fusson (admin import-hub más gyülekezetbe is importálhat) — korábban a
+            // hívó saját effectiveCongregationId-jára ment, és a cél-gyülekezet
+            // pointere lemaradt → ütköző iktatószám a következő kézi iktatásnál.
             const { error: syncError } = await supabase.rpc('sync_iktato_sequence_pointer', {
-              p_congregation_id: access.effectiveCongregationId,
+              p_congregation_id: congregationId,
               p_year: y,
             })
             if (syncError) {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Boxes, CircleHelp, Scale } from 'lucide-react'
+import { Boxes, CircleHelp, FileSearch, FileText, Link2, Printer, Scale, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import { Button } from '@/components/ui/button'
@@ -24,20 +24,25 @@ import {
   finalizeLeltar,
   getInventoryItems,
   getLeltarFinalizationStatus,
+  listExpensesForInventoryPicker,
   requestLeltarUnlock,
   saveInventoryItem,
 } from '@/app/(dashboard)/leltar/actions'
+import type { ExpensePickerRow } from '@/lib/inventory/expense-picker-types'
 import { submitDocument } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
 import {
   INVENTORY_AMORTIZATION_CATALOG,
   INVENTORY_CATEGORIES,
   INVENTORY_CATEGORY_LABELS,
+  INVENTORY_CATEGORY_ROMANIAN_LABELS,
   getInventoryAmortizationCatalogEntry,
   getInventoryCategoryLabel,
   type InventoryCategory,
   type InventoryItem,
 } from '@/lib/constants/inventory.next'
 import { calculateInventoryCurrentValue } from '@/lib/inventory/reporting'
+import { buildInventoryItemCardHtml, type InventoryItemCardData } from '@/lib/inventory/item-card-print'
+import { printToBrowser } from '@/lib/utils/print-engine-v2'
 import { formatCurrency } from '@/lib/constants/finance'
 import { toast } from 'sonner'
 
@@ -84,6 +89,20 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
   const [fKatalogusKod, setFKatalogusKod] = useState('')
   const [fHasznalatiIdo, setFHasznalatiIdo] = useState<number | ''>('')
   const [saving, setSaving] = useState(false)
+  // 2026-08-09: élő fişă-előnézet a tétel-űrlaphoz (xl+ oldalsó oszlop /
+  // kisebb kijelzőn gombbal nyíló réteg) — a person-card-print (PR-17) mintája.
+  const [previewHtml, setPreviewHtml] = useState('')
+  const [previewOverlayOpen, setPreviewOverlayOpen] = useState(false)
+  // 2026-08-09: „Kikeresés a könyvelésből" — kapcsolt kiadás (penzugy_xkey) +
+  // a kiadás-választó állapota.
+  const [fPenzugyXkey, setFPenzugyXkey] = useState('')
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerRows, setPickerRows] = useState<ExpensePickerRow[]>([])
+  const [pickerYears, setPickerYears] = useState<number[]>([])
+  const [pickerYear, setPickerYear] = useState<number>(() => new Date().getFullYear())
+  const [pickerLoading, setPickerLoading] = useState(false)
+  const [pickerQuery, setPickerQuery] = useState('')
+  const [pickerShowLinked, setPickerShowLinked] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -161,6 +180,91 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
     [fKatalogusKod],
   )
 
+  // ── 2026-08-09: élő fişă-előnézet — az űrlap pillanatnyi értékeiből ──────
+  const formCardData = useCallback((): InventoryItemCardData => {
+    const catalogEntry = getInventoryAmortizationCatalogEntry(fKatalogusKod || null)
+    // Szintetikus tétel az amortizáció-számításhoz (csak a használt mezőkkel).
+    const syntheticItem = {
+      kategoria_key: fKategoria,
+      beszerzes_erteke: fErtek || 0,
+      mennyiseg: fMennyiseg || 1,
+      hasznalati_ido: fKategoria === 'alapeszkoz' && fHasznalatiIdo !== '' ? Number(fHasznalatiIdo) : null,
+      beszerzes_datuma: fDatum || null,
+    } as InventoryItem
+    return {
+      congregationName: congregationName || 'Gyülekezet',
+      leltariSzam: editItem?.leltari_szam ?? null,
+      regiLeltariSzam: editItem?.regi_leltari_szam ?? null,
+      megnevezes: fMegnevezes,
+      kategoriaLabel: INVENTORY_CATEGORY_LABELS[fKategoria],
+      kategoriaLabelRo: INVENTORY_CATEGORY_ROMANIAN_LABELS[fKategoria],
+      isAlapeszkoz: fKategoria === 'alapeszkoz',
+      mennyiseg: fMennyiseg || 1,
+      mertekegyseg: fMertekegyseg || 'db',
+      beszerzesDatuma: fDatum || null,
+      beszerzesBizonylat: fBizonylat || null,
+      beszerzesErteke: fErtek > 0 ? fErtek : null,
+      katalogusKod: fKategoria === 'alapeszkoz' ? fKatalogusKod || null : null,
+      katalogusNev: fKategoria === 'alapeszkoz' ? catalogEntry?.nev ?? null : null,
+      hasznalatiIdoEv: fKategoria === 'alapeszkoz' && fHasznalatiIdo !== '' ? Number(fHasznalatiIdo) : null,
+      aktualisErtek: fErtek > 0 ? calculateInventoryCurrentValue(syntheticItem) : null,
+      helyszin: fHelyszin || null,
+      felelosNev: fFelelos || null,
+      megjegyzes: fMegj || null,
+      szerzo: editItem?.szerzo ?? null,
+      konyvIsbn: editItem?.konyv_isbn ?? null,
+    }
+  }, [congregationName, editItem, fBizonylat, fDatum, fErtek, fFelelos, fHasznalatiIdo, fHelyszin, fKategoria, fKatalogusKod, fMegj, fMegnevezes, fMennyiseg, fMertekegyseg])
+
+  // Gépelés közben (300 ms késleltetéssel) frissül a fişă-előnézet.
+  useEffect(() => {
+    if (!dialogOpen) {
+      setPreviewOverlayOpen(false)
+      // Ürítjük az előnézetet, hogy újranyitáskor ne az előző tétel fişája villanjon fel.
+      setPreviewHtml('')
+      return
+    }
+    const t = window.setTimeout(() => {
+      setPreviewHtml(buildInventoryItemCardHtml(formCardData()).html)
+    }, 300)
+    return () => window.clearTimeout(t)
+  }, [dialogOpen, formCardData])
+
+  function handlePreviewPrint() {
+    void printToBrowser(buildInventoryItemCardHtml(formCardData()).html)
+  }
+
+  const itemToCardData = useCallback((item: InventoryItem): InventoryItemCardData => {
+    const entry = getInventoryAmortizationCatalogEntry(item.katalogus_kod)
+    return {
+      congregationName: congregationName || 'Gyülekezet',
+      leltariSzam: item.leltari_szam,
+      regiLeltariSzam: item.regi_leltari_szam,
+      megnevezes: item.megnevezes,
+      kategoriaLabel: getInventoryCategoryLabel(item.kategoria),
+      kategoriaLabelRo: item.kategoria_key ? INVENTORY_CATEGORY_ROMANIAN_LABELS[item.kategoria_key] : null,
+      isAlapeszkoz: item.kategoria_key === 'alapeszkoz',
+      mennyiseg: item.mennyiseg,
+      mertekegyseg: item.mertekegyseg,
+      beszerzesDatuma: item.beszerzes_datuma,
+      beszerzesBizonylat: item.beszerzes_bizonylat,
+      beszerzesErteke: item.beszerzes_erteke || null,
+      katalogusKod: item.katalogus_kod,
+      katalogusNev: entry?.nev ?? null,
+      hasznalatiIdoEv: item.hasznalati_ido,
+      aktualisErtek: calculateInventoryCurrentValue(item),
+      helyszin: item.helyszin,
+      felelosNev: item.felelos_nev,
+      megjegyzes: item.megjegyzes,
+      szerzo: item.szerzo,
+      konyvIsbn: item.konyv_isbn,
+    }
+  }, [congregationName])
+
+  function handleRowFisaPrint(item: InventoryItem) {
+    void printToBrowser(buildInventoryItemCardHtml(itemToCardData(item)).html)
+  }
+
   async function handleFinalize() {
     if (!window.confirm('A vagyonleltári jelentés véglegesítése után új jelentést nem lehet lezárni, amíg az egyházmegye feloldást nem ad. A leltári tételek ettől még tovább szerkeszthetők. Folytatja?')) {
       return
@@ -205,6 +309,7 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
       setFBizonylat(item.beszerzes_bizonylat || '')
       setFKatalogusKod(item.katalogus_kod || '')
       setFHasznalatiIdo(item.hasznalati_ido || '')
+      setFPenzugyXkey(item.penzugy_xkey || '')
     } else {
       setEditItem(null)
       setFMegnevezes('')
@@ -219,10 +324,66 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
       setFBizonylat('')
       setFKatalogusKod('')
       setFHasznalatiIdo('')
+      setFPenzugyXkey('')
     }
 
     setDialogOpen(true)
   }
+
+  // ── 2026-08-09: „Kikeresés a könyvelésből" ────────────────────────────────
+  async function loadPickerRows(year: number) {
+    setPickerLoading(true)
+    const res = await listExpensesForInventoryPicker(year)
+    if (res.error) {
+      toast.error(res.error)
+    } else {
+      setPickerRows(res.rows || [])
+      if (res.years?.length) setPickerYears(res.years)
+    }
+    setPickerLoading(false)
+  }
+
+  function openExpensePicker() {
+    setPickerQuery('')
+    setPickerOpen(true)
+    void loadPickerRows(pickerYear)
+  }
+
+  function applyPickedExpense(row: ExpensePickerRow) {
+    setFErtek(row.osszeg)
+    if (row.datum) setFDatum(row.datum)
+    setFBizonylat(row.iratszam || row.nyugta || '')
+    setFPenzugyXkey(row.xkey)
+    // Kategória-javaslat csak akkor, ha a jogcím leltár-köteles.
+    if (row.invKategoria) {
+      setFKategoria(row.invKategoria)
+      if (row.invKategoria !== 'alapeszkoz') {
+        setFKatalogusKod('')
+        setFHasznalatiIdo('')
+      }
+    }
+    if (!fMegnevezes.trim() && row.megjegyzes?.trim()) setFMegnevezes(row.megjegyzes.trim())
+    if (!fMegj.trim() && row.atvevo?.trim()) setFMegj(`Szállító: ${row.atvevo.trim()}`)
+    setPickerOpen(false)
+    toast.success('A kiadás adatai betöltve — a mentés össze is kapcsolja a két tételt.')
+  }
+
+  const filteredPickerRows = useMemo(() => {
+    const q = pickerQuery
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .trim()
+    return pickerRows.filter(row => {
+      if (!pickerShowLinked && row.linked) return false
+      if (!q) return true
+      return `${row.atvevo || ''} ${row.iratszam || ''} ${row.nyugta || ''} ${row.megjegyzes || ''} ${row.kodNev || ''} ${row.kod || ''} ${row.osszeg}`
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .toLowerCase()
+        .includes(q)
+    })
+  }, [pickerRows, pickerQuery, pickerShowLinked])
 
   function openAmortizationDialog(item: InventoryItem) {
     setAmortizationItem(item)
@@ -255,6 +416,7 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
       beszerzes_bizonylat: fBizonylat || null,
       katalogus_kod: fKategoria === 'alapeszkoz' ? fKatalogusKod || null : null,
       hasznalati_ido: fKategoria === 'alapeszkoz' && fHasznalatiIdo !== '' ? Number(fHasznalatiIdo) : null,
+      penzugy_xkey: fPenzugyXkey || null,
     })
 
     if (result.error) {
@@ -560,6 +722,15 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
                       </td>
                       <td className="p-3 align-top">
                         <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 rounded-lg px-2 text-xs text-teal-700"
+                            onClick={() => handleRowFisaPrint(item)}
+                            title="A tétel fişájának nyomtatása"
+                          >
+                            <FileText className="mr-1 size-3.5" /> Fişă
+                          </Button>
                           <Button variant="ghost" size="sm" className="h-8 rounded-lg px-2 text-xs text-blue-600" onClick={() => openDialog(item)}>
                             Szerk.
                           </Button>
@@ -605,12 +776,19 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
       />
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl">
+        {/* 2026-08-09: xl+ szélességen a fişă élő előnézete külön oszlopban
+            (a member-form-dialog PR-17-es mintája); kisebb kijelzőn gombbal
+            nyíló előnézet-réteg. */}
+        <DialogContent className="grid h-[min(90vh,56rem)] max-h-[90vh] grid-rows-[minmax(0,1fr)] overflow-hidden p-0 sm:max-w-2xl xl:max-w-6xl [&_[data-slot=dialog-close]]:z-30">
+          {/* Fix keretmagasság + oszlopon belüli görgetés — így a mobil előnézet-réteg
+              a LÁTHATÓ keretre feszül (nem a görgethető tartalom teljes magasságára). */}
+          <div className="relative grid min-h-0 xl:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="min-h-0 overflow-y-auto p-6">
           <DialogHeader>
             <DialogTitle>{editItem ? 'Leltári tétel szerkesztése' : 'Új leltári tétel'}</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="mt-4 space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5 sm:col-span-2">
                 <Label>Megnevezés *</Label>
@@ -662,6 +840,33 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
               <div className="space-y-1.5">
                 <Label>Beszerzési irat száma</Label>
                 <Input value={fBizonylat} onChange={event => setFBizonylat(event.target.value)} placeholder="Számla / jegyzőkönyv / határozat" />
+                {/* 2026-08-09: kikeresés a könyvelésből — a kiadás adatai előtöltődnek,
+                    mentéskor a két tétel össze is kapcsolódik (penzugy_xkey). */}
+                {fPenzugyXkey ? (
+                  <div className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50/80 px-2 py-1 text-xs text-amber-800">
+                    <Link2 className="size-3.5 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">Könyvelési tételhez kapcsolva</span>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded p-0.5 text-amber-600 hover:bg-amber-100"
+                      onClick={() => setFPenzugyXkey('')}
+                      title="Kapcsolat bontása (a mezők értékei megmaradnak)"
+                      aria-label="Kapcsolat bontása"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full rounded-lg text-xs"
+                    onClick={openExpensePicker}
+                  >
+                    <FileSearch className="mr-1.5 size-3.5" /> Kikeresés a könyvelésből
+                  </Button>
+                )}
               </div>
 
               {fKategoria === 'alapeszkoz' ? (
@@ -738,7 +943,15 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 border-t pt-3">
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="mr-auto rounded-xl xl:hidden"
+                onClick={() => setPreviewOverlayOpen(true)}
+              >
+                <FileText className="mr-1.5 size-4" /> Fişă előnézet
+              </Button>
               <Button variant="ghost" onClick={() => setDialogOpen(false)}>
                 Mégse
               </Button>
@@ -747,9 +960,185 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
               </Button>
             </div>
           </div>
+          </div>
+
+          {/* xl+: állandó élő fişă-előnézet oszlop (saját görgetéssel) */}
+          <aside className="hidden min-h-0 border-l border-border bg-muted/40 xl:block xl:overflow-y-auto">
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-border bg-muted/70 py-2.5 pl-4 pr-12 backdrop-blur">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Fişă — élő előnézet
+              </p>
+              <Button type="button" variant="outline" size="sm" className="min-h-9 rounded-lg" onClick={handlePreviewPrint}>
+                <Printer className="mr-1.5 size-3.5" /> Nyomtatás
+              </Button>
+            </div>
+            <div className="p-3">
+              <ItemCardPreviewFrame html={previewHtml} scale={0.42} />
+              <p className="mt-2 text-center text-[11px] leading-4 text-muted-foreground">
+                A fişă gépelés közben töltődik ki. Nyomtatásnál a Cél listából a
+                &bdquo;Mentés PDF-ként&rdquo; is választható.
+              </p>
+            </div>
+          </aside>
+
+          {/* Kisebb kijelzőn: előnézet-réteg */}
+          {previewOverlayOpen && (
+            <div className="absolute inset-0 z-20 flex flex-col bg-background xl:hidden">
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Fişă — élő előnézet
+                </p>
+                <div className="flex items-center gap-1.5">
+                  <Button type="button" variant="outline" size="sm" className="min-h-9 rounded-lg" onClick={handlePreviewPrint}>
+                    <Printer className="mr-1.5 size-3.5" /> Nyomtatás
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="size-9 rounded-lg p-0"
+                    onClick={() => setPreviewOverlayOpen(false)}
+                    aria-label="Előnézet bezárása"
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-auto p-3">
+                <ItemCardPreviewFrame html={previewHtml} scale={0.42} />
+              </div>
+            </div>
+          )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 2026-08-09: „Kikeresés a könyvelésből" — kiadás-választó (testvér-dialógus,
+          hogy a transformált DialogContent ne vágja le). A leltár-köteles jogcímek
+          (205.01 / 201.12) a lista elején, borostyán jelöléssel. */}
+      <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
+        <DialogContent className="flex max-h-[85vh] flex-col gap-3 sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Kikeresés a könyvelésből</DialogTitle>
+          </DialogHeader>
+
+          <div className="grid gap-2 sm:grid-cols-[110px_minmax(0,1fr)_auto]">
+            <select
+              value={pickerYear}
+              onChange={event => {
+                const year = Number(event.target.value)
+                setPickerYear(year)
+                void loadPickerRows(year)
+              }}
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              aria-label="Év"
+            >
+              {(pickerYears.length ? pickerYears : [pickerYear]).map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+            <Input
+              value={pickerQuery}
+              onChange={event => setPickerQuery(event.target.value)}
+              placeholder="Keresés: szállító, iratszám, megjegyzés, jogcím…"
+            />
+            <label className="flex items-center gap-1.5 whitespace-nowrap text-xs text-slate-600">
+              <input
+                type="checkbox"
+                className="size-4 rounded border-input"
+                checked={pickerShowLinked}
+                onChange={event => setPickerShowLinked(event.target.checked)}
+              />
+              Már leltárba vettek is
+            </label>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-slate-200">
+            {pickerLoading ? (
+              <p className="p-6 text-center text-sm text-muted-foreground">A kiadások betöltése…</p>
+            ) : filteredPickerRows.length === 0 ? (
+              <p className="p-6 text-center text-sm text-muted-foreground">
+                Nincs megjeleníthető kiadás ebben az évben.
+                {!pickerShowLinked ? ' (A már leltárba vett tételeket a jelölővel tudod megmutatni.)' : ''}
+              </p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {filteredPickerRows.map(row => (
+                  <li key={row.id}>
+                    <button
+                      type="button"
+                      disabled={row.linked}
+                      onClick={() => applyPickedExpense(row)}
+                      className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-left text-sm transition hover:bg-amber-50/60 disabled:cursor-not-allowed disabled:opacity-50"
+                      title={row.linked ? 'Ehhez a kiadáshoz már tartozik leltári tétel' : 'Adatok betöltése és összekapcsolás'}
+                    >
+                      <span className="w-[92px] shrink-0 font-mono text-xs text-slate-500">{row.datum}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium text-slate-800">
+                          {row.megjegyzes || row.atvevo || 'Kiadás'}
+                        </span>
+                        <span className="block truncate text-xs text-slate-500">
+                          {[row.atvevo, row.iratszam ? `Irat: ${row.iratszam}` : null, row.kodNev ? `${row.kod} ${row.kodNev}` : row.kod]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
+                      </span>
+                      {row.invKategoria ? (
+                        <Badge variant="outline" className="shrink-0 rounded-full border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800">
+                          leltár-köteles
+                        </Badge>
+                      ) : null}
+                      {row.linked ? (
+                        <Badge variant="outline" className="shrink-0 rounded-full px-2 py-0.5 text-[11px] text-slate-500">
+                          már leltárban
+                        </Badge>
+                      ) : null}
+                      <span className="shrink-0 font-semibold tabular-nums text-slate-800">
+                        {formatCurrency(row.osszeg)} RON
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            A kiválasztott kiadás összege, dátuma és iratszáma előtöltődik, és a mentés a
+            kiadást a leltári tétellel össze is kapcsolja — a leltár-köteles jogcíműek
+            (205.01 Új beruházások, 201.12 Kis értékű leltári tárgyak) a lista elején.
+          </p>
         </DialogContent>
       </Dialog>
     </>
+  )
+}
+
+// 2026-08-09: skálázott A4-előnézet keret — az iframe valós lapméretben
+// renderel, a keret kicsinyíti (nem interaktív, csak nézet). A member-form
+// CardPreviewFrame (PR-17) mintája.
+function ItemCardPreviewFrame({ html, scale }: { html: string; scale: number }) {
+  const W = 830
+  const H = 1180
+  return (
+    <div
+      className="mx-auto overflow-hidden rounded-xl border border-border bg-white shadow-sm"
+      style={{ width: W * scale, height: H * scale }}
+    >
+      <iframe
+        title="Leltári fişă előnézet"
+        srcDoc={html}
+        style={{
+          width: W,
+          height: H,
+          transform: `scale(${scale})`,
+          transformOrigin: 'top left',
+          border: 0,
+          pointerEvents: 'none',
+          background: 'white',
+        }}
+      />
+    </div>
   )
 }
 

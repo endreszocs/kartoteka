@@ -25,6 +25,7 @@ import {
   Filter,
   LayoutGrid,
   List,
+  MailPlus,
   Search,
   Sparkles,
 } from 'lucide-react'
@@ -58,6 +59,7 @@ import { ActivationWizardDialog } from './activation-wizard-dialog'
 import { AdvancedRoleDialog } from './advanced-role-dialog'
 import { DeleteUserDialog } from './delete-user-dialog'
 import { EmptyState } from './empty-state'
+import { InviteUserDialog } from './invite-user-dialog'
 import { RejectPendingDialog } from './reject-pending-dialog'
 import { RevokeRoleDialog } from './revoke-role-dialog'
 import { UserCard } from './user-card'
@@ -149,6 +151,8 @@ export function UnifiedUsersTab() {
   const [advancedTarget, setAdvancedTarget] = useState<UserWithScope | null>(null)
   // 2026-07-11 (2. kör): a kétlépéses aktiváló wizard célfelhasználója.
   const [elbiralTarget, setElbiralTarget] = useState<UserWithScope | null>(null)
+  // 2026-08-09: meghívó-küldő dialógus (e-mail-alapú meghívás a Kartotékába).
+  const [inviteOpen, setInviteOpen] = useState(false)
 
   const [isPending, startTransition] = useTransition()
 
@@ -626,6 +630,12 @@ export function UnifiedUsersTab() {
               <Download className="size-3.5" />
               Excel export
             </Button>
+
+            {/* Meghívó — kiemelt (primary) gomb: e-mail-alapú meghívás */}
+            <Button size="sm" onClick={() => setInviteOpen(true)} className="min-h-9 gap-2">
+              <MailPlus className="size-3.5" />
+              Meghívó küldése
+            </Button>
           </div>
         </div>
 
@@ -748,6 +758,8 @@ export function UnifiedUsersTab() {
       )}
 
       {/* Modálok */}
+      <InviteUserDialog open={inviteOpen} onOpenChange={setInviteOpen} />
+
       {elbiralTarget && (
         <ActivationWizardDialog
           open={!!elbiralTarget}

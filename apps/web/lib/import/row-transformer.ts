@@ -128,6 +128,7 @@ export function matchHeadersExplicit(
 function convertCell(
   value: string | number | null,
   type: ColumnMapping['type'],
+  dbColumn?: string,
 ): string | number | boolean | null {
   if (value === null || value === undefined) return null
 
@@ -142,8 +143,20 @@ function convertCell(
       if (typeof value === 'number') return value !== 0
       if (typeof value === 'string') {
         const lower = value.toLowerCase().trim()
-        if (['igen', 'yes', 'true', '1', 'x', 'i', 'f', 'férfi', 'ferfi'].includes(lower)) return true
-        if (['nem', 'no', 'false', '0', '', 'n', 'nő', 'no'].includes(lower)) return false
+        // 2026-08-09 (review-fix): az 'F'/'Férfi' → true és 'N'/'Nő' → false
+        // leképezés CSAK a nem-oszlopokra ('ferfi' dbColumn) érvényes — korábban
+        // minden logikai oszlopra élt, így a „Meghalt: F" (=false szándékkal)
+        // ELHUNYTNAK jelölte a személyt.
+        const genderColumn = /ferfi/i.test(dbColumn ?? '')
+        if (['igen', 'yes', 'true', '1', 'x', 'i'].includes(lower)) return true
+        if (['nem', 'no', 'false', '0', '', 'n'].includes(lower)) return false
+        if (genderColumn) {
+          if (['f', 'férfi', 'ferfi'].includes(lower)) return true
+          if (lower === 'nő') return false
+        } else if (lower === 'f') {
+          // Nem-nem oszlopon az önálló 'F' = false rövidítés (pl. „Meghalt: F").
+          return false
+        }
         // Ha nem ismerjük fel → null
         return null
       }
@@ -309,7 +322,7 @@ export function transformRow(
   // 1. Mappelt oszlopok konvertálása
   for (const [excelHeader, mapping] of headerMatch.matched) {
     const rawValue = row[excelHeader] ?? null
-    const converted = convertCell(rawValue, mapping.type)
+    const converted = convertCell(rawValue, mapping.type, mapping.dbColumn)
     record[mapping.dbColumn] = converted
   }
 

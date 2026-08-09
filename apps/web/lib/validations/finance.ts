@@ -118,6 +118,8 @@ export const expenseBatchRowSchema = z.object({
   irattipus: irattipusSchema,
   megjegyzes: z.string().nullable().optional(),
   is_inventory: z.boolean().optional(),
+  // 2026-08-09: pénzügy→leltár híd — a sorhoz kapcsolt leltári tétel adatai.
+  inventory: linkedInventoryFromExpenseSchema.nullable().optional(),
 }).refine(
   data => data.datum <= today(),
   { message: 'Jövőbeli dátum nem engedélyezett', path: ['datum'] }
