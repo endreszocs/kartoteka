@@ -1,64 +1,82 @@
 import Image from 'next/image'
 import Link from 'next/link'
-import {
-  ArrowRight,
-  BookOpenText,
-  CalendarDays,
-  HeartHandshake,
-  Mail,
-  MapPin,
-  Phone,
-  UsersRound,
-} from 'lucide-react'
+import { ArrowRight, BookOpenText, CalendarDays, HeartHandshake, UsersRound } from 'lucide-react'
 
 import type { PublicSiteData } from '@/lib/public-site/site-loader'
-import { getPublicVisualTheme } from '@/lib/public-site/visual-theme-registry'
+import { shouldBypassPublicImageOptimization } from '@/lib/public-site/public-image'
 
+import { PublicCrest } from './public-crest'
 import styles from './public-home-visual-story.module.css'
 
+/**
+ * Kezdőlapi történet-blokk (Közösség → Örökség).
+ *
+ * 2026-08-10-i átdolgozás, három javítással:
+ *  - KÉP NÉLKÜL IS RENDERELŐDIK. Korábban `if (!community || !heritage ||
+ *    !invitation) return null` volt, és ezeket az assetseket csak két téma
+ *    kapta meg — a másik két témát választó gyülekezet kezdőlapjának a fele
+ *    egyszerűen eltűnt. Most a gyülekezet SAJÁT hero-képe kerül ide, ha van;
+ *    ha nincs, tervezett, címer-vízjeles felület, nem idegen fénykép.
+ *  - a blokk többé nem tölt be Barátosi-specifikus generált fotókat minden
+ *    gyülekezet oldalán;
+ *  - a CSS bedrótozott sötétzöld/arany értékei helyett `--public-*` tokenek,
+ *    így az egyedi primary/accent színt beállító gyülekezetnél is átszíneződik.
+ */
 export function PublicHomeVisualStory({ site }: { site: PublicSiteData }) {
-  const visualTheme = getPublicVisualTheme(site.theme.preset_key)
-  const { community, heritage, invitation } = visualTheme?.assets ?? {}
-
-  if (!community || !heritage || !invitation) return null
-
+  const ownPhoto = site.hero_image_url
   const nextService = site.service_times[0]
-  const phoneHref = site.contact_phone
-    ? `tel:${site.contact_phone.replace(/\s/g, '')}`
-    : null
 
   return (
     <section className={styles.section} aria-label="Közösségünk bemutatása">
-      <div className={`public-container ${styles.container}`}>
+      <div className="public-container">
         <div className={styles.communityGrid} id="kozosseg">
-          <div className={`${styles.communityMedia} ${styles.reveal}`}>
-            <Image
-              src={community}
-              alt="Hangulati illusztráció több nemzedék gyülekezeti találkozásáról"
-              fill
-              sizes="(min-width: 64rem) 58vw, 100vw"
-              className={styles.storyImage}
-            />
-            <div className={styles.imageVeil} aria-hidden="true" />
-            <div className={styles.imageCaption}>
+          <div className={styles.media}>
+            {ownPhoto ? (
+              <>
+                <Image
+                  src={ownPhoto}
+                  alt=""
+                  fill
+                  sizes="(min-width: 64rem) 46vw, 100vw"
+                  unoptimized={shouldBypassPublicImageOptimization(ownPhoto)}
+                  className={styles.mediaImage}
+                />
+                <span className={styles.mediaWash} aria-hidden="true" />
+              </>
+            ) : (
+              <span className={styles.mediaPlaceholder} aria-hidden="true">
+                <PublicCrest
+                  src={site.crest_image_url}
+                  name={site.display_name}
+                  size={112}
+                  shape="shield"
+                  tone="onDark"
+                />
+              </span>
+            )}
+
+            <span className={styles.mediaCaption}>
               <HeartHandshake aria-hidden="true" />
               <span>
                 <small>Nem csak vasárnap</small>
                 <strong>Közösség a hétköznapokban is.</strong>
               </span>
-            </div>
+            </span>
           </div>
 
-          <div className={`${styles.communityCopy} ${styles.reveal}`}>
-            <p className={styles.eyebrow}>Közösség</p>
-            <h2>Ahol minden történet helyet kap.</h2>
+          <div className={styles.copy}>
+            <p className="public-eyebrow">01 · Közösség</p>
+            <h2>
+              Ahol minden történet <em>helyet kap.</em>
+            </h2>
+            <span aria-hidden="true" className="public-rule-start public-rule" />
             <p className={styles.lead}>
               Fiatalok és idősek, családok és egyedül érkezők: együtt formáljuk
               azt a közösséget, ahol a figyelem, a hit és a szolgálat valódi
               kapcsolattá válik.
             </p>
 
-            <div className={styles.communityPoints}>
+            <div className={styles.points}>
               <article>
                 <UsersRound aria-hidden="true" />
                 <span>
@@ -89,77 +107,30 @@ export function PublicHomeVisualStory({ site }: { site: PublicSiteData }) {
             )}
           </div>
         </div>
+      </div>
 
-        <div className={styles.heritagePanel} id="orokseg">
-          <div className={styles.heritageMedia}>
-            <Image
-              src={heritage}
-              alt="Hangulati illusztráció nyitott Bibliáról egy református templom padján"
-              fill
-              sizes="(min-width: 64rem) 50vw, 100vw"
-              className={styles.heritageImage}
-            />
-            <div className={styles.heritageVeil} aria-hidden="true" />
-          </div>
-
-          <div className={`${styles.heritageCopy} ${styles.reveal}`}>
-            <BookOpenText aria-hidden="true" />
-            <p className={styles.eyebrow}>Élő örökség</p>
-            <h2>Ami megtartott, ma is utat mutat.</h2>
+      {/* 02 · Örökség — teljes szélességű tinta-sáv */}
+      <div className={`public-band ${styles.heritage}`} id="orokseg">
+        <span aria-hidden="true" className="public-band-hairline top-0" />
+        <div className="public-container">
+          <div className={styles.heritageInner}>
+            <BookOpenText className={styles.heritageIcon} aria-hidden="true" />
+            <p className="public-eyebrow public-eyebrow-on-dark">02 · Élő örökség</p>
+            <h2>
+              Ami megtartott, <em>ma is utat mutat.</em>
+            </h2>
             <p>
               Az Ige, az ének és az előttünk járók hűsége nem lezárt emlék,
               hanem olyan alap, amelyből ma is reménységet és bátorságot
               meríthetünk.
             </p>
-            <Link href={`/gy/${site.slug}/rolunk`}>
+            <Link className="public-btn public-btn-on-dark" href={`/gy/${site.slug}/rolunk`}>
               Ismerd meg történetünket
-              <ArrowRight aria-hidden="true" />
+              <ArrowRight className="size-4" aria-hidden="true" />
             </Link>
           </div>
         </div>
-
-        <div className={`${styles.invitation} ${styles.reveal}`}>
-          <Image
-            src={invitation}
-            alt="Hangulati illusztráció templomhoz érkező gyülekezeti tagokról"
-            fill
-            sizes="100vw"
-            className={styles.invitationImage}
-          />
-          <div className={styles.invitationVeil} aria-hidden="true" />
-
-          <div className={styles.invitationCopy}>
-            <p className={styles.eyebrow}>Találkozzunk</p>
-            <h2>{site.display_name}</h2>
-            {site.tagline && <p>{site.tagline}</p>}
-
-            <div className={styles.contactList}>
-              {site.address && (
-                <span>
-                  <MapPin aria-hidden="true" />
-                  {site.address}
-                </span>
-              )}
-              {site.contact_phone && phoneHref && (
-                <a href={phoneHref}>
-                  <Phone aria-hidden="true" />
-                  {site.contact_phone}
-                </a>
-              )}
-              {site.contact_email && (
-                <a href={`mailto:${site.contact_email}`}>
-                  <Mail aria-hidden="true" />
-                  {site.contact_email}
-                </a>
-              )}
-            </div>
-
-            <a className={styles.invitationAction} href="#alkalmak">
-              Alkalmaink megtekintése
-              <ArrowRight aria-hidden="true" />
-            </a>
-          </div>
-        </div>
+        <span aria-hidden="true" className="public-band-hairline bottom-0" />
       </div>
     </section>
   )

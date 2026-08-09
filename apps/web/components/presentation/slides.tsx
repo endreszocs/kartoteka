@@ -41,7 +41,12 @@ import {
 } from 'lucide-react'
 
 import type { PresentationData } from '@/app/(dashboard)/eves-jelentes/prezentacio/actions'
-import { buildConclusions, buildForecast } from './analytics'
+import {
+  buildCategoryConclusions, conclusionCategoriesOfPillar,
+  ALL_CONCLUSION_CATEGORIES, ALL_CONCLUSION_HORIZONS,
+  type CategoryConclusion, type ConclusionCategory, type ConclusionHorizon, type ConclusionItem,
+} from '@/lib/annual-report/conclusions'
+import { buildForecast } from './analytics'
 import { metricByKey, formatGoalValue } from './goal-metrics'
 import { cn } from '@/lib/utils'
 import {
@@ -56,6 +61,7 @@ import {
   scaleIn,
   slideStagger,
   slideStaggerFast,
+  useStaticRender,
 } from './motion-primitives'
 
 interface SlideProps {
@@ -64,6 +70,9 @@ interface SlideProps {
   subtitle?: string
   commentary?: string
   projection?: boolean
+  /** 2026-08-10: a Studio-ban kipipált következtetés-kategóriák / horizontok. */
+  conclusionCategories?: ConclusionCategory[]
+  conclusionHorizons?: ConclusionHorizon[]
 }
 
 export interface SlideDefinition {
@@ -82,6 +91,60 @@ export interface SlideDefinition {
 
 type OrbVariant = 'violet' | 'teal' | 'amber' | 'emerald' | 'rose' | 'sky'
 
+/**
+ * 2026-08-10 (P1 JAVÍTÁS — sötét mód): a diák szándékosan VILÁGOS felületek
+ * (vetítés + A4 nyomtatás), de a hátterüket egyedi, hard-kódolt gradiensek
+ * adják, amiket a globális `.dark` felülírások nem érintenek — a szövegeket
+ * viszont igen (`.dark .text-slate-800 { color: var(--foreground) }`), így
+ * sötét témában FEHÉR SZÖVEG került FEHÉR HÁTTÉRRE: a gyülekezet neve, minden
+ * dia-cím és a „Soli Deo Gloria" olvashatatlan volt a kivetítőn.
+ *
+ * Megoldás: a dia gyökerére kerülő `.kt-slide-surface` alatt visszaállítjuk a
+ * világos értékeket. A szabályok CSAK `.dark` alatt élnek (világos témában
+ * semmi nem változik), és a `.dark .kt-slide-surface X` (0,3,0) specificitása
+ * felülírja a globális `.dark X` (0,2,0) szabályokat — a betöltési sorrendtől
+ * függetlenül. (A packages/ui/src/kartoteka.css nem módosítható innen.)
+ */
+const SLIDE_SURFACE_CSS = `
+.dark .kt-slide-surface .bg-white,
+.dark .kt-slide-surface [class*="bg-white/"] { background-color: rgba(255,255,255,0.95) !important; }
+.dark .kt-slide-surface .bg-slate-50,
+.dark .kt-slide-surface .bg-slate-100,
+.dark .kt-slide-surface [class*="bg-slate-50/"] { background-color: #f8fafc !important; }
+.dark .kt-slide-surface [class*="bg-emerald-50"] { background-color: #ecfdf5 !important; }
+.dark .kt-slide-surface [class*="bg-teal-50"] { background-color: #f0fdfa !important; }
+.dark .kt-slide-surface [class*="bg-amber-50"] { background-color: #fffbeb !important; }
+.dark .kt-slide-surface [class*="bg-orange-50"] { background-color: #fff7ed !important; }
+.dark .kt-slide-surface [class*="bg-rose-50"] { background-color: #fff1f2 !important; }
+.dark .kt-slide-surface [class*="bg-pink-50"] { background-color: #fdf2f8 !important; }
+.dark .kt-slide-surface [class*="bg-violet-50"] { background-color: #f5f3ff !important; }
+.dark .kt-slide-surface [class*="bg-purple-50"] { background-color: #faf5ff !important; }
+.dark .kt-slide-surface [class*="bg-indigo-50"] { background-color: #eef2ff !important; }
+.dark .kt-slide-surface [class*="bg-sky-50"] { background-color: #f0f9ff !important; }
+.dark .kt-slide-surface .text-slate-900 { color: #0f172a !important; }
+.dark .kt-slide-surface .text-slate-800 { color: #1e293b !important; }
+.dark .kt-slide-surface .text-slate-700 { color: #334155 !important; }
+.dark .kt-slide-surface .text-slate-600 { color: #475569 !important; }
+.dark .kt-slide-surface .text-slate-500 { color: #64748b !important; }
+.dark .kt-slide-surface .text-slate-400 { color: #94a3b8 !important; }
+.dark .kt-slide-surface .text-emerald-900 { color: #064e3b !important; }
+.dark .kt-slide-surface .text-emerald-800 { color: #065f46 !important; }
+.dark .kt-slide-surface .text-amber-900 { color: #78350f !important; }
+.dark .kt-slide-surface .text-amber-800 { color: #92400e !important; }
+.dark .kt-slide-surface .text-amber-700 { color: #b45309 !important; }
+.dark .kt-slide-surface .text-rose-900 { color: #881337 !important; }
+.dark .kt-slide-surface .text-rose-800 { color: #9f1239 !important; }
+.dark .kt-slide-surface .text-rose-700 { color: #be123c !important; }
+.dark .kt-slide-surface .text-sky-900 { color: #0c4a6e !important; }
+.dark .kt-slide-surface .text-sky-800 { color: #075985 !important; }
+.dark .kt-slide-surface .text-violet-900 { color: #4c1d95 !important; }
+.dark .kt-slide-surface .text-violet-800 { color: #5b21b6 !important; }
+.dark .kt-slide-surface .text-indigo-900 { color: #312e81 !important; }
+.dark .kt-slide-surface .border-slate-100 { border-color: #f1f5f9 !important; }
+.dark .kt-slide-surface [class*="border-slate-200"] { border-color: #e2e8f0 !important; }
+.dark .kt-slide-surface [class*="border-white"] { border-color: rgba(255,255,255,0.7) !important; }
+`
+
 function SlideFrame({
   children,
   className,
@@ -96,25 +159,43 @@ function SlideFrame({
   /** Ha egyedi hátteret akarunk (pl. pillér-intro vagy záró slide) */
   backgroundClass?: string
 }) {
+  const staticRender = useStaticRender()
   return (
     <motion.div
       variants={slideStagger}
-      initial="hidden"
+      // Nyomtatáskor nincs belépő animáció: a tartalomnak az első képkockán
+      // a végleges állapotában kell állnia (a window.print() nem vár rá).
+      initial={staticRender ? 'visible' : 'hidden'}
       animate="visible"
       className={cn(
-        'relative h-full w-full overflow-hidden p-6 md:p-8',
+        'kt-slide-surface relative h-full w-full overflow-hidden p-6 md:p-8',
         // Meleg, „templomi" ivory alap finom teal-árnyalattal (márka-konzisztens)
         backgroundClass ?? 'bg-gradient-to-br from-[#fbfdfb] via-white to-[#edf7f1]',
         projection && 'p-10 md:p-14',
         className,
       )}
     >
+      {/* A dia-felület témasemlegesítő stílusai (React 19 hoistolja a <head>-be,
+          az azonos href miatt csak EGYSZER kerül be, hiába 25 dia van). */}
+      <style href="kt-slide-surface" precedence="high">{SLIDE_SURFACE_CSS}</style>
       {/* Felső accent-hajszálvonal — teal→arany→teal, a márka aláírása minden dián */}
       <div aria-hidden className="absolute inset-x-0 top-0 z-20 h-[3px] bg-gradient-to-r from-teal-500/70 via-amber-300/80 to-teal-500/70" />
       <GradientOrbs variant={orbVariant} />
       <div className="relative z-10 flex h-full w-full flex-col">{children}</div>
     </motion.div>
   )
+}
+
+/**
+ * 2026-08-10 (P1 JAVÍTÁS — nyomtatási adatvesztés): a hosszú listák (bevétel-,
+ * kiadás-tételek, névlisták, következtetések) `overflow-y-auto` dobozban ülnek
+ * egy fix magasságú dián. Képernyőn görgethető, PAPÍRON viszont a 12. sor után
+ * MINDEN NÉMÁN LEVÁGÓDOTT, miközben a fejlécben a teljes összeg szerepelt —
+ * a kinyomtatott Számadás nem jött ki. Nyomtatási módban a doboz nem vág, a
+ * tartalom pedig (a Studio print-CSS-ével együtt) új lapra folyik.
+ */
+function useScrollBoxClass(): string {
+  return useStaticRender() ? 'overflow-visible' : 'overflow-y-auto'
 }
 
 function SlideHeader({
@@ -259,19 +340,27 @@ function TitleSlide({ data, title, subtitle, commentary, projection }: SlideProp
 
 function OverviewSlide({ data, title, subtitle, commentary, projection }: SlideProps) {
   const ron = (n: number) => n.toLocaleString('hu', { maximumFractionDigits: 0 })
-  const naturalSum = data.members.flowByYear.reduce((s, f) => s + f.natural, 0)
+  // 2026-08-10 (P2 #27 JAVÍTÁS): a „természetes változás" az ÖT ÉV összege volt,
+  // de évesnek látszott („−34 fő" az idei veszteségnek olvasva). Itt a TÁRGYÉV
+  // értéke szerepel, az 5 éves összeg pedig a Lélekszám-dián, megnevezve.
+  const flowThisYear = data.members.flowByYear.find((f) => f.year === data.year)
+  const naturalThisYear = flowThisYear ? flowThisYear.natural : 0
   const surplus = data.finance.surplus
   const attendanceMain = data.attendance.hasData ? data.attendance.worshipAvg : data.programs.total
   const attendanceUnit = data.attendance.hasData ? 'fő/alkalom' : 'program'
+  // Munkanapló-adat nélkül a program-szám kétszer jelent meg („12 program /
+  // 12 alkalom"); most a teljesítési arány kerül alá.
   const attendanceSub = data.attendance.hasData
-    ? `${data.attendance.worshipOccasions} istentisztelet`
-    : `${data.programs.total} alkalom`
+    ? `${data.attendance.worshipOccasions} istentiszteleti alkalom`
+    : data.programs.total > 0
+      ? `ebből ${data.programs.completed} teljesült`
+      : 'nincs rögzített alkalom'
 
   const pillars = [
     {
       n: 1, name: 'Lélekszámbeli', q: 'Hányan vagyunk?',
-      value: data.members.totalActive, unit: 'fő', valueColor: 'text-teal-900',
-      sub: `természetes változás: ${naturalSum >= 0 ? '+' : ''}${naturalSum} fő`,
+      value: data.members.totalAtYear, unit: 'fő', valueColor: 'text-teal-900',
+      sub: `keresztelés − temetés ${data.year}-ben: ${naturalThisYear >= 0 ? '+' : ''}${naturalThisYear} fő`,
       grad: 'from-teal-500 to-emerald-600', tint: 'from-teal-50 to-emerald-50/40', ring: 'ring-teal-200/70', accent: 'text-teal-700',
       icon: <Users className="size-5" />,
     },
@@ -283,9 +372,11 @@ function OverviewSlide({ data, title, subtitle, commentary, projection }: SlideP
       icon: <Sparkles className="size-5" />,
     },
     {
+      // A kérdés („Miből gazdálkodunk?") a BEVÉTELRE kérdez — korábban az
+      // egyenleg állt kiemelt számként, ami félrevezető volt.
       n: 3, name: 'Anyagi', q: 'Miből gazdálkodunk?',
-      value: surplus, unit: 'RON', valueColor: surplus >= 0 ? 'text-emerald-800' : 'text-rose-800', showPlus: true,
-      sub: `bevétel: ${ron(data.finance.totalIncome)} RON`,
+      value: data.finance.totalIncome, unit: 'RON', valueColor: 'text-amber-900',
+      sub: `egyenleg: ${surplus >= 0 ? '+' : '−'}${ron(Math.abs(surplus))} RON`,
       grad: 'from-amber-500 to-orange-500', tint: 'from-amber-50 to-orange-50/40', ring: 'ring-amber-200/70', accent: 'text-amber-700',
       icon: <Coins className="size-5" />,
     },
@@ -315,7 +406,7 @@ function OverviewSlide({ data, title, subtitle, commentary, projection }: SlideP
             </div>
             <div className="mt-auto pt-6">
               <p className={cn('font-heading font-bold tabular-nums leading-none', p.valueColor, projection ? 'text-7xl' : 'text-5xl')}>
-                <AnimatedNumber value={p.value} formatter={p.unit === 'RON' ? ron : undefined} showPlus={p.showPlus} />
+                <AnimatedNumber value={p.value} formatter={p.unit === 'RON' ? ron : undefined} />
                 <span className={cn('ml-2 font-sans font-semibold text-slate-400', projection ? 'text-2xl' : 'text-lg')}>{p.unit}</span>
               </p>
               <p className={cn('mt-2 font-medium text-slate-500', projection ? 'text-lg' : 'text-sm')}>{p.sub}</p>
@@ -342,6 +433,7 @@ function OverviewSlide({ data, title, subtitle, commentary, projection }: SlideP
 // ──────────────────────────────────────────────────────────────
 
 function DemographicsSlide({ data, title, subtitle, commentary, projection }: SlideProps) {
+  const staticRender = useStaticRender()
   const chartData = [
     { name: 'Férfi', value: data.members.male },
     { name: 'Nő', value: data.members.female },
@@ -350,14 +442,17 @@ function DemographicsSlide({ data, title, subtitle, commentary, projection }: Sl
   const total = data.members.totalActive || 1
   const malePct = Math.round((data.members.male / total) * 100)
   const femalePct = Math.round((data.members.female / total) * 100)
+  // 2026-08-10: a nemek szerinti bontás mindig a nyilvántartás MAI állapota —
+  // múltbeli évet vetítve ezt ki kell mondani, nehogy az adott év képének tűnjön.
+  const noteSubtitle = data.isCurrentYear ? subtitle : `${subtitle || 'Férfiak és nők aránya'} · a nyilvántartás mai állapota szerint`
   return (
     <SlideFrame projection={projection} orbVariant="teal">
-      <SlideHeader title={title} subtitle={subtitle} icon={<Users className="size-5" />} projection={projection} accentClass="from-teal-500 to-cyan-600" />
+      <SlideHeader title={title} subtitle={noteSubtitle} icon={<Users className="size-5" />} projection={projection} accentClass="from-teal-500 to-cyan-600" />
       <motion.div variants={slideStagger} className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-2">
         <MotionItem variants={scaleIn} className="flex items-center justify-center rounded-2xl bg-white/90 p-4 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
           <ResponsiveContainer width="100%" height={projection ? 400 : 240}>
             <PieChart>
-              <Pie data={chartData} dataKey="value" nameKey="name" outerRadius={projection ? 150 : 90} label animationDuration={1200}>
+              <Pie data={chartData} dataKey="value" nameKey="name" outerRadius={projection ? 150 : 90} label animationDuration={1200} isAnimationActive={!staticRender}>
                 {chartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
               </Pie>
               <Tooltip />
@@ -414,9 +509,18 @@ function DemographicsSlide({ data, title, subtitle, commentary, projection }: Sl
 // ──────────────────────────────────────────────────────────────
 
 function AgeDistributionSlide({ data, title, subtitle, commentary, projection }: SlideProps) {
+  const staticRender = useStaticRender()
   return (
     <SlideFrame projection={projection} orbVariant="sky">
-      <SlideHeader title={title} subtitle={subtitle} icon={<Cake className="size-5" />} projection={projection} accentClass="from-sky-500 to-indigo-600" />
+      <SlideHeader
+        title={title}
+        // 2026-08-10: a korcsoportok a JELENTÉS ÉVÉNEK végére számolnak — ezt
+        // ki is írjuk, mert korábban a mai dátummal készült a bontás.
+        subtitle={subtitle ? `${subtitle} · ${data.year}. december 31-i életkor szerint` : `${data.year}. december 31-i életkor szerint`}
+        icon={<Cake className="size-5" />}
+        projection={projection}
+        accentClass="from-sky-500 to-indigo-600"
+      />
       <MotionItem variants={scaleIn} className="flex-1 rounded-2xl bg-white/90 p-4 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
         <ResponsiveContainer width="100%" height={projection ? 500 : 320}>
           <BarChart data={data.members.ageGroups}>
@@ -424,7 +528,7 @@ function AgeDistributionSlide({ data, title, subtitle, commentary, projection }:
             <XAxis dataKey="label" stroke="#64748b" />
             <YAxis stroke="#64748b" />
             <Tooltip />
-            <Bar dataKey="count" fill="#217c72" radius={[8, 8, 0, 0]} animationDuration={1200} animationBegin={300} />
+            <Bar dataKey="count" fill="#217c72" radius={[8, 8, 0, 0]} animationDuration={1200} animationBegin={300} isAnimationActive={!staticRender} />
           </BarChart>
         </ResponsiveContainer>
       </MotionItem>
@@ -479,6 +583,7 @@ function AnyakonyvSlide({ data, title, subtitle, commentary, projection }: Slide
 // ──────────────────────────────────────────────────────────────
 
 function AnyakonyvHistorySlide({ data, title, subtitle, commentary, projection }: SlideProps) {
+  const staticRender = useStaticRender()
   return (
     <SlideFrame projection={projection} orbVariant="sky">
       <SlideHeader title={title} subtitle={subtitle} icon={<BookOpen className="size-5" />} projection={projection} accentClass="from-sky-500 to-blue-600" />
@@ -490,10 +595,10 @@ function AnyakonyvHistorySlide({ data, title, subtitle, commentary, projection }
             <YAxis stroke="#64748b" />
             <Tooltip />
             <Legend />
-            <Bar dataKey="keresztelo" name="Keresztelések" fill="#3b82f6" animationDuration={1200} animationBegin={200} />
-            <Bar dataKey="konfirmacio" name="Konfirmációk" fill="#10b981" animationDuration={1200} animationBegin={350} />
-            <Bar dataKey="esketes" name="Esketések" fill="#ec4899" animationDuration={1200} animationBegin={500} />
-            <Bar dataKey="temetes" name="Temetések" fill="#64748b" animationDuration={1200} animationBegin={650} />
+            <Bar dataKey="keresztelo" name="Keresztelések" fill="#3b82f6" animationDuration={1200} animationBegin={200} isAnimationActive={!staticRender} />
+            <Bar dataKey="konfirmacio" name="Konfirmációk" fill="#10b981" animationDuration={1200} animationBegin={350} isAnimationActive={!staticRender} />
+            <Bar dataKey="esketes" name="Esketések" fill="#ec4899" animationDuration={1200} animationBegin={500} isAnimationActive={!staticRender} />
+            <Bar dataKey="temetes" name="Temetések" fill="#64748b" animationDuration={1200} animationBegin={650} isAnimationActive={!staticRender} />
           </BarChart>
         </ResponsiveContainer>
       </MotionItem>
@@ -612,8 +717,11 @@ function FinanceSummarySlide({ data, title, subtitle, commentary, projection }: 
  * a legkisebbig rendezve. Kompakt layout: sok tétel elfér A4-en is.
  */
 function IncomeDetailSlide({ data, title, subtitle, commentary, projection }: SlideProps) {
+  const scrollBox = useScrollBoxClass()
   const items = data.finance.incomeByCategory
-  const maxAmount = Math.max(...items.map((i) => i.amount), 1)
+  // 2026-08-10 (P2 #28): a negatív (korrekciós) tételek is látszanak — a sáv
+  // hosszát az abszolút érték adja, a szám elé mínusz kerül.
+  const maxAmount = Math.max(...items.map((i) => Math.abs(i.amount)), 1)
   const COLORS = ['#10b981', '#14b8a6', '#06b6d4', '#8b5cf6', '#a855f7', '#ec4899', '#f59e0b', '#f97316', '#84cc16', '#22c55e', '#64748b', '#3b82f6']
   const totalIncome = data.finance.totalIncome
   const ronFormatter = (n: number) => n.toLocaleString('hu', { maximumFractionDigits: 0 })
@@ -659,11 +767,12 @@ function IncomeDetailSlide({ data, title, subtitle, commentary, projection }: Sl
       </MotionItem>
 
       {/* Részletes tétel-lista animált bar-okkal */}
-      <motion.div variants={slideStaggerFast} className="flex-1 overflow-y-auto pr-2">
+      <motion.div variants={slideStaggerFast} className={cn('flex-1 pr-2', scrollBox)}>
         <div className="space-y-1.5">
           {items.map((item, i) => {
-            const pct = (item.amount / maxAmount) * 100
-            const color = COLORS[i % COLORS.length]
+            const pct = (Math.abs(item.amount) / maxAmount) * 100
+            const negative = item.amount < 0
+            const color = negative ? '#f43f5e' : COLORS[i % COLORS.length]
             return (
               <MotionItem key={item.name} variants={fadeUp} className="flex items-center gap-3">
                 <div className={cn('min-w-0 flex-shrink-0 truncate text-right font-medium text-slate-700', projection ? 'w-[28%] text-base' : 'w-[30%] text-xs')}>
@@ -677,7 +786,7 @@ function IncomeDetailSlide({ data, title, subtitle, commentary, projection }: Sl
                     heightClass={projection ? 'h-7' : 'h-5'}
                   />
                 </div>
-                <div className={cn('flex-shrink-0 text-right font-mono font-semibold text-slate-900 tabular-nums', projection ? 'w-36 text-base' : 'w-28 text-xs')}>
+                <div className={cn('flex-shrink-0 text-right font-mono font-semibold tabular-nums', negative ? 'text-rose-700' : 'text-slate-900', projection ? 'w-36 text-base' : 'w-28 text-xs')}>
                   {item.amount.toLocaleString('hu', { maximumFractionDigits: 2 })}
                 </div>
               </MotionItem>
@@ -695,8 +804,9 @@ function IncomeDetailSlide({ data, title, subtitle, commentary, projection }: Sl
 // ──────────────────────────────────────────────────────────────
 
 function ExpenseDetailSlide({ data, title, subtitle, commentary, projection }: SlideProps) {
+  const scrollBox = useScrollBoxClass()
   const items = data.finance.expenseByCategory
-  const maxAmount = Math.max(...items.map((i) => i.amount), 1)
+  const maxAmount = Math.max(...items.map((i) => Math.abs(i.amount)), 1)
   const COLORS = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#64748b']
   const totalExpense = data.finance.totalExpense
   const ronFormatter = (n: number) => n.toLocaleString('hu', { maximumFractionDigits: 0 })
@@ -734,11 +844,12 @@ function ExpenseDetailSlide({ data, title, subtitle, commentary, projection }: S
         </div>
       </MotionItem>
 
-      <motion.div variants={slideStaggerFast} className="flex-1 overflow-y-auto pr-2">
+      <motion.div variants={slideStaggerFast} className={cn('flex-1 pr-2', scrollBox)}>
         <div className="space-y-1.5">
           {items.map((item, i) => {
-            const pct = (item.amount / maxAmount) * 100
-            const color = COLORS[i % COLORS.length]
+            const pct = (Math.abs(item.amount) / maxAmount) * 100
+            const negative = item.amount < 0
+            const color = negative ? '#64748b' : COLORS[i % COLORS.length]
             return (
               <MotionItem key={item.name} variants={fadeUp} className="flex items-center gap-3">
                 <div className={cn('min-w-0 flex-shrink-0 truncate text-right font-medium text-slate-700', projection ? 'w-[28%] text-base' : 'w-[30%] text-xs')}>
@@ -752,7 +863,7 @@ function ExpenseDetailSlide({ data, title, subtitle, commentary, projection }: S
                     heightClass={projection ? 'h-7' : 'h-5'}
                   />
                 </div>
-                <div className={cn('flex-shrink-0 text-right font-mono font-semibold text-slate-900 tabular-nums', projection ? 'w-36 text-base' : 'w-28 text-xs')}>
+                <div className={cn('flex-shrink-0 text-right font-mono font-semibold tabular-nums', negative ? 'text-slate-500' : 'text-slate-900', projection ? 'w-36 text-base' : 'w-28 text-xs')}>
                   {item.amount.toLocaleString('hu', { maximumFractionDigits: 2 })}
                 </div>
               </MotionItem>
@@ -770,6 +881,7 @@ function ExpenseDetailSlide({ data, title, subtitle, commentary, projection }: S
 // ──────────────────────────────────────────────────────────────
 
 function FinanceTrendSlide({ data, title, subtitle, commentary, projection }: SlideProps) {
+  const staticRender = useStaticRender()
   return (
     <SlideFrame projection={projection} orbVariant="amber">
       <SlideHeader title={title} subtitle={subtitle} icon={<Coins className="size-5" />} projection={projection} accentClass="from-amber-500 to-orange-500" />
@@ -781,8 +893,8 @@ function FinanceTrendSlide({ data, title, subtitle, commentary, projection }: Sl
             <YAxis stroke="#64748b" />
             <Tooltip formatter={(v) => (typeof v === 'number' ? `${v.toLocaleString('hu')} RON` : String(v))} />
             <Legend />
-            <Line type="monotone" dataKey="income" name="Bevétel" stroke="#10b981" strokeWidth={3} animationDuration={1500} animationBegin={200} />
-            <Line type="monotone" dataKey="expense" name="Kiadás" stroke="#ef4444" strokeWidth={3} animationDuration={1500} animationBegin={500} />
+            <Line type="monotone" dataKey="income" name="Bevétel" stroke="#10b981" strokeWidth={3} animationDuration={1500} animationBegin={200} isAnimationActive={!staticRender} />
+            <Line type="monotone" dataKey="expense" name="Kiadás" stroke="#ef4444" strokeWidth={3} animationDuration={1500} animationBegin={500} isAnimationActive={!staticRender} />
           </LineChart>
         </ResponsiveContainer>
       </MotionItem>
@@ -826,7 +938,7 @@ function EgyhazfenntartasSlide({ data, title, subtitle, commentary, projection }
         {/* Jobb: két KPI egymás alatt — a nevező a felnőtt (18+) tagok */}
         <div className="grid grid-rows-2 gap-4">
           <KpiBlock
-            label="Felnőtt tagok (18+)"
+            label={`Felnőtt tagok (18+) · ${data.year}`}
             value={data.finance.egyhazfenntartas.activeAdults}
             color="from-blue-500 to-indigo-600"
             projection={projection}
@@ -839,6 +951,15 @@ function EgyhazfenntartasSlide({ data, title, subtitle, commentary, projection }
           />
         </div>
       </motion.div>
+      {/* 2026-08-10 (P2 JAVÍTÁS): az arány korábban 100% fölé mehetett („110%
+          teljesítés"), mert a nevező csak a felnőtteket számolja, a számláló
+          viszont bárkit, akinek a nevére befizetés érkezett. A megjelenített
+          érték most vágva van, az eltérést pedig kimondjuk. */}
+      {data.finance.egyhazfenntartas.paymentRateRaw > 100 && (
+        <MotionItem variants={fadeUp} className={cn('mt-3 rounded-xl bg-amber-50 px-4 py-2 text-amber-800 ring-1 ring-amber-200', projection ? 'text-base' : 'text-xs')}>
+          Több személy nevére érkezett befizetés ({data.finance.egyhazfenntartas.paidMembers}), mint ahány felnőtt tagot nyilvántartunk ({data.finance.egyhazfenntartas.activeAdults}) — érdemes a tagnyilvántartást és a befizetői listát egyeztetni.
+        </MotionItem>
+      )}
       <SlideCommentary commentary={commentary} projection={projection} />
     </SlideFrame>
   )
@@ -875,8 +996,40 @@ function KpiBlock({
 // 11. PROGRAMOK
 // ──────────────────────────────────────────────────────────────
 
+/**
+ * 2026-08-10 (P1 #12 JAVÍTÁS): a program-típusok NYERS adatbázis-kódként
+ * jelentek meg a vetítőn („bibliaora", „ifjusagi", „unnep", „gyerekprogram").
+ * A korábbi térkép kulcsai (`biblia_ora`, `ifi`, `unnepi_alkalom`) nem is
+ * léteznek — a `gyulekezeti_programok.tipus` CHECK-listája a mérvadó
+ * (Database_schema.sql), az alábbi lista pontosan azt fedi le.
+ */
+const PROGRAM_TYPE_LABELS: Record<string, string> = {
+  istentisztelet: 'Istentisztelet',
+  bibliaora: 'Bibliaóra',
+  imaora: 'Imaóra',
+  ifjusagi: 'Ifjúsági alkalom',
+  gyerekprogram: 'Gyermekprogram',
+  konferencia: 'Konferencia',
+  hangverseny: 'Hangverseny',
+  kozossegi: 'Közösségi alkalom',
+  presbiteri: 'Presbiteri gyűlés',
+  latogatas: 'Látogatás',
+  unnep: 'Ünnepi alkalom',
+  tabor: 'Tábor',
+  evangelizacio: 'Evangelizáció',
+  diakoniai: 'Diakóniai alkalom',
+  noszovetseg: 'Nőszövetségi alkalom',
+  egyeb: 'Egyéb',
+}
+
+export function programTypeLabel(type: string): string {
+  return PROGRAM_TYPE_LABELS[type] || type
+}
+
 function ProgramsSlide({ data, title, subtitle, commentary, projection }: SlideProps) {
+  const staticRender = useStaticRender()
   const rate = Math.round(data.programs.completionRate)
+  const chartData = data.programs.byType.map((t) => ({ ...t, label: programTypeLabel(t.type) }))
   return (
     <SlideFrame projection={projection} orbVariant="violet">
       <SlideHeader title={title} subtitle={subtitle} icon={<Heart className="size-5" />} projection={projection} accentClass="from-violet-500 to-purple-600" />
@@ -889,12 +1042,12 @@ function ProgramsSlide({ data, title, subtitle, commentary, projection }: SlideP
         <MotionItem variants={scaleIn} className="rounded-2xl bg-white/90 p-4 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
           <h4 className={cn('mb-2 font-semibold text-slate-700', projection ? 'text-xl' : 'text-sm')}>Típus szerint</h4>
           <ResponsiveContainer width="100%" height={projection ? 420 : 260}>
-            <BarChart data={data.programs.byType} layout="vertical">
+            <BarChart data={chartData} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis type="number" stroke="#64748b" />
-              <YAxis type="category" dataKey="type" stroke="#64748b" width={projection ? 140 : 90} />
+              <XAxis type="number" stroke="#64748b" allowDecimals={false} />
+              <YAxis type="category" dataKey="label" stroke="#64748b" width={projection ? 180 : 110} />
               <Tooltip />
-              <Bar dataKey="count" fill="#8b5cf6" radius={[0, 8, 8, 0]} animationDuration={1200} animationBegin={300} />
+              <Bar dataKey="count" name="Alkalom" fill="#8b5cf6" radius={[0, 8, 8, 0]} animationDuration={1200} animationBegin={300} isAnimationActive={!staticRender} />
             </BarChart>
           </ResponsiveContainer>
         </MotionItem>
@@ -1055,6 +1208,7 @@ function formatYearOnly(iso: string | null | undefined): string {
 }
 
 function BaptismsListSlide({ data, title, subtitle, commentary, projection }: SlideProps) {
+  const scrollBox = useScrollBoxClass()
   const items = data.anyakonyv.nameLists.keresztelesek
   const boys = items.filter((i) => i.isMale === true).length
   const girls = items.filter((i) => i.isMale === false).length
@@ -1072,7 +1226,7 @@ function BaptismsListSlide({ data, title, subtitle, commentary, projection }: Sl
           <p className={projection ? 'text-xl' : 'text-base'}>Ebben az évben nem volt keresztelés.</p>
         </MotionItem>
       ) : (
-        <MotionItem variants={scaleIn} className="flex-1 overflow-y-auto rounded-2xl bg-white/90 p-5 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
+        <MotionItem variants={scaleIn} className={cn('flex-1 rounded-2xl bg-white/90 p-5 shadow-lg ring-1 ring-slate-200/60 backdrop-blur', scrollBox)}>
           <motion.div variants={slideStaggerFast} className={cn('grid gap-2', items.length > 10 ? 'grid-cols-2' : 'grid-cols-1')}>
             {items.map((item, i) => (
               <MotionItem key={i} variants={fadeUp} className="flex items-center gap-3 border-b border-slate-100 pb-2 last:border-b-0">
@@ -1100,6 +1254,7 @@ function BaptismsListSlide({ data, title, subtitle, commentary, projection }: Sl
 }
 
 function ConfirmationsListSlide({ data, title, subtitle, commentary, projection }: SlideProps) {
+  const scrollBox = useScrollBoxClass()
   const items = data.anyakonyv.nameLists.konfirmaciok
   return (
     <SlideFrame projection={projection} orbVariant="emerald">
@@ -1115,7 +1270,7 @@ function ConfirmationsListSlide({ data, title, subtitle, commentary, projection 
           <p className={projection ? 'text-xl' : 'text-base'}>Ebben az évben nem volt konfirmáció.</p>
         </MotionItem>
       ) : (
-        <MotionItem variants={scaleIn} className="flex-1 overflow-y-auto rounded-2xl bg-white/90 p-5 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
+        <MotionItem variants={scaleIn} className={cn('flex-1 rounded-2xl bg-white/90 p-5 shadow-lg ring-1 ring-slate-200/60 backdrop-blur', scrollBox)}>
           <motion.div variants={slideStaggerFast} className={cn('grid gap-2', items.length > 10 ? 'grid-cols-2' : 'grid-cols-1')}>
             {items.map((item, i) => (
               <MotionItem key={i} variants={fadeUp} className="flex items-center gap-3 border-b border-slate-100 pb-2 last:border-b-0">
@@ -1143,6 +1298,7 @@ function ConfirmationsListSlide({ data, title, subtitle, commentary, projection 
 }
 
 function MarriagesListSlide({ data, title, subtitle, commentary, projection }: SlideProps) {
+  const scrollBox = useScrollBoxClass()
   const items = data.anyakonyv.nameLists.esketesek
   return (
     <SlideFrame projection={projection} orbVariant="rose">
@@ -1158,7 +1314,7 @@ function MarriagesListSlide({ data, title, subtitle, commentary, projection }: S
           <p className={projection ? 'text-xl' : 'text-base'}>Ebben az évben nem volt esketés.</p>
         </MotionItem>
       ) : (
-        <MotionItem variants={scaleIn} className="flex-1 overflow-y-auto rounded-2xl bg-white/90 p-5 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
+        <MotionItem variants={scaleIn} className={cn('flex-1 rounded-2xl bg-white/90 p-5 shadow-lg ring-1 ring-slate-200/60 backdrop-blur', scrollBox)}>
           <motion.div variants={slideStaggerFast} className="space-y-2">
             {items.map((item, i) => (
               <MotionItem key={i} variants={fadeUp} className="grid grid-cols-[auto_1fr_auto_1fr_auto] items-center gap-3 border-b border-slate-100 pb-2 last:border-b-0">
@@ -1196,6 +1352,7 @@ function MarriagesListSlide({ data, title, subtitle, commentary, projection }: S
 }
 
 function FuneralsListSlide({ data, title, subtitle, commentary, projection }: SlideProps) {
+  const scrollBox = useScrollBoxClass()
   const items = data.anyakonyv.nameLists.temetesek
   const men = items.filter((i) => i.isMale === true).length
   const women = items.filter((i) => i.isMale === false).length
@@ -1213,7 +1370,7 @@ function FuneralsListSlide({ data, title, subtitle, commentary, projection }: Sl
           <p className={projection ? 'text-xl' : 'text-base'}>Ebben az évben nem volt temetés.</p>
         </MotionItem>
       ) : (
-        <MotionItem variants={scaleIn} className="flex-1 overflow-y-auto rounded-2xl bg-white/90 p-5 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
+        <MotionItem variants={scaleIn} className={cn('flex-1 rounded-2xl bg-white/90 p-5 shadow-lg ring-1 ring-slate-200/60 backdrop-blur', scrollBox)}>
           <motion.div variants={slideStaggerFast} className={cn('grid gap-2', items.length > 8 ? 'grid-cols-2' : 'grid-cols-1')}>
             {items.map((item, i) => (
               <MotionItem key={i} variants={fadeUp} className="flex items-start gap-3 border-b border-slate-100 pb-2 last:border-b-0">
@@ -1246,33 +1403,18 @@ function FuneralsListSlide({ data, title, subtitle, commentary, projection }: Sl
 // ISTENTISZTELETEK — a 2. pillér központi slide-ja
 // ──────────────────────────────────────────────────────────────
 
+/**
+ * 2026-08-10 (P1 #9 + #12 JAVÍTÁS): a dia forrása a MUNKANAPLÓ lett (korábban a
+ * `gyulekezeti_programok` widget-tábla, ami a legtöbb gyülekezetnél üres — a
+ * vetítőn „Istentiszteletek száma: 0" jelent meg, miközben a következő dia 52
+ * alkalmat mutatott). Így a típus-címkék is emberi szövegek (a munkanapló
+ * `jellege` mezője), nem adatbázis-kódok, tehát fordító-térkép sem kell.
+ */
 function WorshipServicesSlide({ data, title, subtitle, commentary, projection }: SlideProps) {
+  const scrollBox = useScrollBoxClass()
   const total = data.worship.totalServices
   const allTypes = Object.entries(data.worship.byType).sort((a, b) => b[1] - a[1])
-  const TYPE_LABELS: Record<string, string> = {
-    istentisztelet: 'Istentiszteletek',
-    biblia_ora: 'Biblia-órák',
-    konferencia: 'Konferenciák',
-    evangelizacio: 'Evangelizációk',
-    imaora: 'Imaórák',
-    ifi: 'Ifjúsági alkalmak',
-    noszovetseg: 'Nőszövetségi alkalmak',
-    tabor: 'Táborok',
-    unnepi_alkalom: 'Ünnepi alkalmak',
-    presbiteri: 'Presbiteri gyűlések',
-  }
-  const TYPE_COLORS: Record<string, string> = {
-    istentisztelet: '#0f766e',
-    biblia_ora: '#7c3aed',
-    konferencia: '#d97706',
-    evangelizacio: '#dc2626',
-    imaora: '#0891b2',
-    ifi: '#16a34a',
-    noszovetseg: '#db2777',
-    tabor: '#ea580c',
-    unnepi_alkalom: '#ca8a04',
-    presbiteri: '#475569',
-  }
+  const TYPE_PALETTE = ['#0f766e', '#7c3aed', '#d97706', '#0891b2', '#16a34a', '#db2777', '#ea580c', '#475569', '#2563eb', '#ca8a04']
   return (
     <SlideFrame projection={projection} orbVariant="teal">
       <SlideHeader title={title} subtitle={subtitle} icon={<BookOpen className="size-5" />} projection={projection} accentClass="from-teal-500 to-emerald-600" />
@@ -1286,24 +1428,24 @@ function WorshipServicesSlide({ data, title, subtitle, commentary, projection }:
             <AnimatedNumber value={total} />
           </p>
           <p className={cn('mt-2 text-teal-700/70', projection ? 'text-xl' : 'text-sm')}>a {data.year}. évben</p>
+          <p className={cn('mt-1 text-center text-teal-700/60', projection ? 'text-sm' : 'text-[11px]')}>a munkanapló bejegyzései alapján</p>
         </MotionItem>
 
         {/* Jobb: alkalmak típus szerint — horizontális bar-ok */}
-        <MotionItem variants={scaleIn} className="rounded-2xl bg-white/90 p-5 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
+        <MotionItem variants={scaleIn} className={cn('rounded-2xl bg-white/90 p-5 shadow-lg ring-1 ring-slate-200/60 backdrop-blur', scrollBox)}>
           <h4 className={cn('mb-3 font-semibold text-slate-700', projection ? 'text-xl' : 'text-sm')}>
-            Minden alkalom típus szerint
+            Istentiszteleti alkalmak jelleg szerint
           </h4>
           {allTypes.length === 0 ? (
-            <p className="text-center text-sm text-slate-400">Nincs rögzített alkalom.</p>
+            <p className="text-center text-sm text-slate-400">Nincs rögzített alkalom a munkanaplóban.</p>
           ) : (
             <motion.div variants={slideStaggerFast} className="space-y-2">
-              {allTypes.map(([type, count], i) => {
+              {allTypes.map(([label, count], i) => {
                 const maxCount = Math.max(...allTypes.map((t) => t[1]), 1)
                 const pct = (count / maxCount) * 100
-                const label = TYPE_LABELS[type] || type
-                const color = TYPE_COLORS[type] || '#64748b'
+                const color = TYPE_PALETTE[i % TYPE_PALETTE.length]
                 return (
-                  <MotionItem key={type} variants={fadeUp} className="flex items-center gap-3">
+                  <MotionItem key={label} variants={fadeUp} className="flex items-center gap-3">
                     <div className={cn('flex-shrink-0 truncate font-medium text-slate-700', projection ? 'w-48 text-base' : 'w-32 text-xs')}>
                       {label}
                     </div>
@@ -1337,10 +1479,20 @@ function WorshipServicesSlide({ data, title, subtitle, commentary, projection }:
 
 function AttendanceSlide({ data, title, subtitle, commentary, projection }: SlideProps) {
   const a = data.attendance
-  const topTypes = a.byType.slice(0, 7)
+  // 2026-08-10 (P2 #24 JAVÍTÁS): a lista az ÖSSZLÉTSZÁM szerint vágta a top 7-et,
+  // de az ÁTLAG szerint rajzolta a sávokat — a heti bibliaóra (780 összes, 15
+  // átlag) elöl állt rövid sávval, a 300 fős karácsonyi alkalmi istentisztelet
+  // pedig egyáltalán ki sem került. Most ugyanaz a mérőszám rendez és rajzol.
+  const topTypes = [...a.byType].sort((x, y) => y.avg - x.avg).slice(0, 7)
   const maxAvg = Math.max(...topTypes.map((t) => t.avg), 1)
   const prevAvg = a.byYear.length >= 2 ? a.byYear[a.byYear.length - 2].worshipAvg : 0
   const delta = prevAvg > 0 ? Math.round(((a.worshipAvg - prevAvg) / prevAvg) * 100) : null
+  const miniStats = [
+    { label: 'Alkalom', value: a.worshipOccasions },
+    { label: 'Összes fő', value: a.worshipTotal },
+    { label: 'Gyermek', value: a.childrenTotal },
+    ...(a.hasUvData ? [{ label: 'Úrvacsora', value: a.uvTotal }] : []),
+  ]
   return (
     <SlideFrame projection={projection} orbVariant="violet">
       <SlideHeader title={title} subtitle={subtitle} icon={<Users className="size-5" />} projection={projection} accentClass="from-violet-500 to-purple-600" />
@@ -1372,12 +1524,8 @@ function AttendanceSlide({ data, title, subtitle, commentary, projection }: Slid
                 </p>
               )}
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { label: 'Alkalom', value: a.worshipOccasions },
-                { label: 'Összes fő', value: a.worshipTotal },
-                { label: 'Gyermek', value: a.childrenTotal },
-              ].map((s) => (
+            <div className={cn('grid gap-2', miniStats.length > 3 ? 'grid-cols-4' : 'grid-cols-3')}>
+              {miniStats.map((s) => (
                 <div key={s.label} className="rounded-xl bg-white/70 p-2 text-center ring-1 ring-violet-100">
                   <p className={cn('font-bold text-violet-900 tabular-nums', projection ? 'text-2xl' : 'text-lg')}>
                     <AnimatedNumber value={s.value} />
@@ -1426,6 +1574,7 @@ function AttendanceSlide({ data, title, subtitle, commentary, projection }: Slid
 // ──────────────────────────────────────────────────────────────
 
 function MembershipTrendSlide({ data, title, subtitle, commentary, projection }: SlideProps) {
+  const staticRender = useStaticRender()
   const merged = data.members.yearOverYear.map((p, i) => ({
     year: p.year,
     count: p.count,
@@ -1444,7 +1593,9 @@ function MembershipTrendSlide({ data, title, subtitle, commentary, projection }:
         <MotionItem variants={scaleIn} className="flex flex-col justify-center gap-4 rounded-2xl bg-gradient-to-br from-teal-50 to-emerald-50 p-5 shadow-lg ring-1 ring-teal-200/60 backdrop-blur">
           <div className="text-center">
             <p className={cn('font-semibold uppercase tracking-wider text-teal-700/80', projection ? 'text-base' : 'text-xs')}>
-              Jelenlegi lélekszám
+              {/* 2026-08-10: múltbeli év vetítésekor a „jelenlegi" szó félrevezető
+                  volt — a görbe utolsó pontja a jelentés évének létszáma. */}
+              {data.isCurrentYear ? 'Jelenlegi lélekszám' : `Lélekszám ${data.year} végén`}
             </p>
             <p className={cn('mt-1 font-bold text-teal-900 tabular-nums', projection ? 'text-8xl' : 'text-6xl')}>
               <AnimatedNumber value={cur} />
@@ -1476,9 +1627,9 @@ function MembershipTrendSlide({ data, title, subtitle, commentary, projection }:
               <YAxis stroke="#64748b" />
               <Tooltip />
               <Legend />
-              <Bar dataKey="births" name="Keresztelés" fill="#10b981" animationDuration={1000} animationBegin={200} />
-              <Bar dataKey="deaths" name="Temetés" fill="#94a3b8" animationDuration={1000} animationBegin={350} />
-              <Line dataKey="count" name="Lélekszám" stroke="#0d9488" strokeWidth={3} dot={{ r: 4 }} animationDuration={1200} />
+              <Bar dataKey="births" name="Keresztelés" fill="#10b981" animationDuration={1000} animationBegin={200} isAnimationActive={!staticRender} />
+              <Bar dataKey="deaths" name="Temetés" fill="#94a3b8" animationDuration={1000} animationBegin={350} isAnimationActive={!staticRender} />
+              <Line dataKey="count" name="Lélekszám" stroke="#0d9488" strokeWidth={3} dot={{ r: 4 }} animationDuration={1200} isAnimationActive={!staticRender} />
             </ComposedChart>
           </ResponsiveContainer>
         </MotionItem>
@@ -1489,71 +1640,123 @@ function MembershipTrendSlide({ data, title, subtitle, commentary, projection }:
 }
 
 // ──────────────────────────────────────────────────────────────
-// INSIGHTS — következtetések az előző évi adatok alapján (opcionális)
+// KÖVETKEZTETÉSEK — kategóriánként, rövid és hosszú távra (2026-08-10)
+//
+// A korábbi egyetlen dia 8 fix „megállapítást" öntött egymás mellé, kategória-
+// választás és időtáv-bontás nélkül, és egyetlen év adatából is trendet mondott.
+// Mostantól PILLÉRENKÉNT egy-egy dia áll elő, rajta CSAK azok a kategóriák,
+// amelyeket a lelkész kipipált a Studio „Prezentáció kiegészítők" ablakában —
+// mindegyiknél külön a rövid és a hosszú távú következtetés, alatta azzal a
+// számsorral, amiből született.
 // ──────────────────────────────────────────────────────────────
 
-function ConclusionsSlide({ data, title, subtitle, commentary, projection }: SlideProps) {
-  const insights = buildConclusions(data)
+const HORIZON_META: Record<ConclusionHorizon, { label: string; chip: string }> = {
+  short: { label: 'Rövid táv', chip: 'bg-teal-100 text-teal-800 ring-teal-200' },
+  long: { label: 'Hosszú táv', chip: 'bg-indigo-100 text-indigo-800 ring-indigo-200' },
+}
+
+const DIRECTION_META = {
+  up: { icon: '↗', color: 'text-emerald-600', tint: 'bg-emerald-50/70' },
+  down: { icon: '↘', color: 'text-rose-600', tint: 'bg-rose-50/70' },
+  stable: { icon: '→', color: 'text-slate-500', tint: 'bg-slate-50/70' },
+  unknown: { icon: '·', color: 'text-slate-400', tint: 'bg-slate-50/50' },
+} as const
+
+function ConclusionBlock({ item, projection }: { item: ConclusionItem; projection?: boolean }) {
+  const h = HORIZON_META[item.horizon]
+  const dir = DIRECTION_META[item.direction]
   return (
-    <SlideFrame projection={projection} orbVariant="teal">
+    <div className={cn('rounded-xl p-3', dir.tint)}>
+      <div className="flex items-center gap-2">
+        <span className={cn('inline-flex shrink-0 items-center rounded-full px-2 py-0.5 font-bold uppercase tracking-wider ring-1', h.chip, projection ? 'text-[13px]' : 'text-[9px]')}>
+          {h.label}
+        </span>
+        <span className={cn('shrink-0 font-bold', dir.color, projection ? 'text-xl' : 'text-base')}>{dir.icon}</span>
+        <h5 className={cn('min-w-0 flex-1 font-semibold text-slate-900', projection ? 'text-xl' : 'text-[13px]')}>{item.headline}</h5>
+      </div>
+      <p className={cn('mt-1.5 leading-relaxed text-slate-700', projection ? 'text-lg' : 'text-[11px]')}>{item.detail}</p>
+      <p className={cn('mt-1.5 font-mono text-slate-500', projection ? 'text-sm' : 'text-[9px]')}>
+        {item.quality === 'insufficient' ? '⚠ ' : item.quality === 'estimated' ? '≈ ' : ''}{item.basis}
+      </p>
+    </div>
+  )
+}
+
+function ConclusionsPillarSlide({
+  data, title, subtitle, commentary, projection, conclusionCategories, conclusionHorizons, pillar,
+}: SlideProps & { pillar: 1 | 2 | 3 }) {
+  const scrollBox = useScrollBoxClass()
+  const selected = conclusionCategories ?? ALL_CONCLUSION_CATEGORIES
+  const horizons = conclusionHorizons ?? ALL_CONCLUSION_HORIZONS
+  const wanted = conclusionCategoriesOfPillar(pillar).filter((c) => selected.includes(c))
+  const results: CategoryConclusion[] = buildCategoryConclusions(data, {
+    categories: wanted,
+    horizons,
+    goalActual: (metrika) => metricByKey(metrika)?.actual(data) ?? null,
+  }).filter((c) => c.available)
+
+  const accent = pillar === 1 ? 'from-teal-500 to-emerald-600' : pillar === 2 ? 'from-violet-500 to-purple-600' : 'from-amber-500 to-orange-500'
+  const orb: OrbVariant = pillar === 1 ? 'teal' : pillar === 2 ? 'violet' : 'amber'
+
+  return (
+    <SlideFrame projection={projection} orbVariant={orb}>
       <SlideHeader
         title={title}
-        subtitle={subtitle || 'Mit tanultunk ebből az évből?'}
+        subtitle={subtitle || `${PILLAR_LABELS[pillar as PillarId]} — rövid és hosszú távú tanulságok`}
         icon={<Sparkles className="size-5" />}
         projection={projection}
-        accentClass="from-teal-500 to-emerald-600"
+        accentClass={accent}
       />
-      <MotionItem variants={scaleIn} className="flex-1 overflow-y-auto rounded-2xl bg-white/90 p-5 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
-        <motion.div variants={slideStaggerFast} className={cn('grid gap-3', insights.length > 4 ? 'md:grid-cols-2' : 'grid-cols-1')}>
-          {insights.map((ins, i) => {
-            const colorMap = {
-              up: { bg: 'from-emerald-50 to-teal-50', text: 'text-emerald-900', icon: '↗', iconColor: 'text-emerald-600' },
-              down: { bg: 'from-rose-50 to-orange-50', text: 'text-rose-900', icon: '↘', iconColor: 'text-rose-600' },
-              stable: { bg: 'from-slate-50 to-white', text: 'text-slate-900', icon: '→', iconColor: 'text-slate-500' },
-            }
-            const c = colorMap[ins.direction]
-            return (
-              <MotionItem key={i} variants={fadeUp} className={cn('rounded-xl bg-gradient-to-br p-3 ring-1 ring-slate-100', c.bg)}>
-                <div className="flex items-start gap-2">
-                  <motion.span
-                    className={cn('flex-shrink-0 text-2xl font-bold', c.iconColor)}
-                    initial={{ scale: 0, rotate: -90 }}
-                    animate={{ scale: 1, rotate: 0 }}
-                    transition={{ delay: 0.2 + i * 0.05, type: 'spring', stiffness: 260 }}
-                  >
-                    {c.icon}
-                  </motion.span>
-                  <div className="min-w-0 flex-1">
-                    <h4 className={cn('font-semibold', c.text, projection ? 'text-lg' : 'text-sm')}>{ins.headline}</h4>
-                    <p className={cn('mt-1 leading-relaxed text-slate-700', projection ? 'text-sm' : 'text-xs')}>
-                      {ins.detail}
-                    </p>
-                    <div className={cn('mt-1.5 flex items-center justify-between text-slate-500', projection ? 'text-xs' : 'text-[10px]')}>
-                      <span>{ins.metricLabel}</span>
-                      <span className={cn('font-mono font-semibold', c.text)}>{ins.metricValue}</span>
-                    </div>
-                  </div>
+      {results.length === 0 ? (
+        <MotionItem variants={scaleIn} className="flex flex-1 flex-col items-center justify-center rounded-2xl bg-white/90 p-8 text-center shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
+          <p className={cn('font-medium text-slate-500', projection ? 'text-xl' : 'text-sm')}>
+            Ehhez a pillérhez nincs kipipált kategória, vagy nincs elég rögzített adat.
+          </p>
+          <p className={cn('mt-1 text-slate-400', projection ? 'text-base' : 'text-xs')}>
+            A „Beállítások” ablakban választhatod ki, mely területekhez kérsz következtetést.
+          </p>
+        </MotionItem>
+      ) : (
+        <motion.div variants={slideStaggerFast} className={cn('flex-1 pr-1', scrollBox)}>
+          <div className={cn('grid gap-3', results.length > 2 ? 'md:grid-cols-2' : 'grid-cols-1')}>
+            {results.map((c) => (
+              <MotionItem key={c.category} variants={fadeUp} className="rounded-2xl bg-white/90 p-3 shadow-sm ring-1 ring-slate-200/60 backdrop-blur">
+                <h4 className={cn('mb-2 border-b border-slate-100 pb-1.5 font-heading font-bold text-slate-800', projection ? 'text-2xl' : 'text-sm')}>
+                  {c.label}
+                </h4>
+                <div className="space-y-2">
+                  {c.short && <ConclusionBlock item={c.short} projection={projection} />}
+                  {c.long && <ConclusionBlock item={c.long} projection={projection} />}
                 </div>
               </MotionItem>
-            )
-          })}
+            ))}
+          </div>
         </motion.div>
-      </MotionItem>
+      )}
       <SlideCommentary commentary={commentary} projection={projection} />
     </SlideFrame>
   )
 }
 
+function Conclusions1Slide(props: SlideProps) { return <ConclusionsPillarSlide {...props} pillar={1} /> }
+function Conclusions2Slide(props: SlideProps) { return <ConclusionsPillarSlide {...props} pillar={2} /> }
+function Conclusions3Slide(props: SlideProps) { return <ConclusionsPillarSlide {...props} pillar={3} /> }
+
 function ForecastSlide({ data, title, subtitle, commentary, projection }: SlideProps) {
+  const staticRender = useStaticRender()
   const series = buildForecast(data, 5)
+  const anyReliable = series.some((s) => s.reliable)
   // Chart adat: év-szerint, bevétel + kiadás (és jelezzük, hol kezdődik a forecast)
   const lastActualYear = data.finance.byYear.length > 0
     ? Math.max(...data.finance.byYear.map((y) => y.year))
     : data.year
-  const chartData = series[0].data.map((p, i) => ({
-    year: p.year,
-    income: p.predicted,
-    expense: series[1].data[i]?.predicted || 0,
+  // A leghosszabb sor adja a tengelyt (ha az egyik sornál nincs előrejelzés,
+  // az egyszerűen rövidebb — nem rajzolunk hozzá kitalált pontokat).
+  const axisYears = Array.from(new Set(series.flatMap((s) => s.data.map((p) => p.year)))).sort((a, b) => a - b)
+  const chartData = axisYears.map((year) => ({
+    year,
+    income: series[0].data.find((p) => p.year === year)?.predicted ?? null,
+    expense: series[1].data.find((p) => p.year === year)?.predicted ?? null,
   }))
   return (
     <SlideFrame projection={projection} orbVariant="amber">
@@ -1573,12 +1776,14 @@ function ForecastSlide({ data, title, subtitle, commentary, projection }: SlideP
                 labelFormatter={(y) => (y as number) > lastActualYear ? `${y} (előrejelzés)` : `${y}`}
               />
               <Legend />
-              <Line type="monotone" dataKey="income" name="Bevétel" stroke="#10b981" strokeWidth={3} animationDuration={1500} animationBegin={200} />
-              <Line type="monotone" dataKey="expense" name="Kiadás" stroke="#ef4444" strokeWidth={3} animationDuration={1500} animationBegin={500} />
+              <Line type="monotone" dataKey="income" name="Bevétel" stroke="#10b981" strokeWidth={3} animationDuration={1500} animationBegin={200} isAnimationActive={!staticRender} connectNulls />
+              <Line type="monotone" dataKey="expense" name="Kiadás" stroke="#ef4444" strokeWidth={3} animationDuration={1500} animationBegin={500} isAnimationActive={!staticRender} connectNulls />
             </LineChart>
           </ResponsiveContainer>
-          <p className="mt-2 text-center text-[11px] italic text-slate-500">
-            A vonal {lastActualYear} évig történeti adat, utána lineáris trend-alapú előrejelzés.
+          <p className={cn('mt-2 text-center italic text-slate-500', projection ? 'text-base' : 'text-[11px]')}>
+            {anyReliable
+              ? `A vonal ${lastActualYear} évig történeti adat, utána lineáris trend-alapú előrejelzés.`
+              : 'Egyelőre csak történeti adat látszik — az előrejelzéshez legalább három könyvelt év szükséges.'}
           </p>
         </MotionItem>
         <motion.div variants={slideStaggerFast} className="grid grid-cols-2 gap-3">
@@ -1830,11 +2035,26 @@ export const SLIDES: SlideDefinition[] = [
   },
 
   // ─── KIEGÉSZÍTŐK (opcionálisak — a Studio toggle-olható) ───
+  // 2026-08-10: az egyetlen „Következtetések" dia helyett PILLÉRENKÉNT egy —
+  // így nem zsúfolódik egy lapra 12 kategória (a régi dia görgetett, nyomtatva
+  // pedig levágta a felét), és külön-külön is elrejthető.
   {
-    key: 'conclusions',
-    defaultTitle: 'Következtetések',
-    defaultSubtitle: 'Mit tanultunk ebből az évből',
-    component: ConclusionsSlide,
+    key: 'conclusions-1',
+    defaultTitle: 'Következtetések — Lélekszámbeli',
+    defaultSubtitle: 'Rövid és hosszú távú tanulságok',
+    component: Conclusions1Slide,
+  },
+  {
+    key: 'conclusions-2',
+    defaultTitle: 'Következtetések — Lelki',
+    defaultSubtitle: 'Rövid és hosszú távú tanulságok',
+    component: Conclusions2Slide,
+  },
+  {
+    key: 'conclusions-3',
+    defaultTitle: 'Következtetések — Anyagi',
+    defaultSubtitle: 'Rövid és hosszú távú tanulságok',
+    component: Conclusions3Slide,
   },
   {
     key: 'forecast',
@@ -1856,8 +2076,15 @@ export const SLIDES: SlideDefinition[] = [
 // Az opcionális slide-kulcsok — a Studio-ban a user be/ki kapcsolhatja
 // ──────────────────────────────────────────────────────────────
 
-export const OPTIONAL_SLIDE_KEYS = ['conclusions', 'forecast'] as const
+export const OPTIONAL_SLIDE_KEYS = ['conclusions-1', 'conclusions-2', 'conclusions-3', 'forecast'] as const
 export type OptionalSlideKey = typeof OPTIONAL_SLIDE_KEYS[number]
+
+/** Következtetés-dia → pillér. A deck ez alapján dönti el, kell-e a dia. */
+export const CONCLUSION_SLIDE_KEYS: Record<string, 1 | 2 | 3 | undefined> = {
+  'conclusions-1': 1,
+  'conclusions-2': 2,
+  'conclusions-3': 3,
+}
 
 // ──────────────────────────────────────────────────────────────
 // Pillér-besorolás (a Studio bal oldali, behúzott csoportosításához)
@@ -1881,7 +2108,10 @@ export const SLIDE_PILLARS: Record<string, PillarId> = {
   'pillar-2-intro': 2, 'worship-services': 2, attendance: 2, programs: 2,
   'pillar-3-intro': 3, 'finance-summary': 3, 'income-detail': 3, 'expense-detail': 3,
   egyhazfenntartas: 3, 'finance-trend': 3,
-  conclusions: 0, forecast: 0, closing: 0,
+  // A következtetés-diák a „Kiegészítők" szekcióba tartoznak (pillér: 0), hogy
+  // a saját diák elhelyezését ne befolyásolják — a tartalmuk pillérenként szól.
+  'conclusions-1': 0, 'conclusions-2': 0, 'conclusions-3': 0,
+  forecast: 0, closing: 0,
 }
 
 export function slidePillar(key: string): PillarId {
@@ -1907,11 +2137,18 @@ export function slideMissingInfo(key: string, data: PresentationData): string | 
       return (data.anyakonyv.keresztelo + data.anyakonyv.konfirmacio + data.anyakonyv.esketes + data.anyakonyv.temetes) === 0
         ? 'Nincs anyakönyvi esemény erre az évre.' : null
     case 'worship-services':
-      return data.worship.totalServices === 0 ? 'Nincs istentisztelet-adat a programokból.' : null
+      // 2026-08-10: a forrás a munkanapló lett (nem a programok widget-tábla).
+      return data.worship.totalServices === 0 ? 'Nincs istentiszteleti bejegyzés a munkanaplóban erre az évre.' : null
     case 'programs':
       return data.programs.total === 0 ? 'Nincs rögzített program erre az évre.' : null
     case 'membership-trend':
       return data.members.totalActive === 0 ? 'Nincs tagsági adat.' : null
+    case 'age-distribution':
+      return data.members.ageGroups.every((g) => g.count === 0)
+        ? 'Egyetlen tagnál sincs rögzített születési dátum — a korfa nem számolható.' : null
+    case 'egyhazfenntartas':
+      return data.finance.egyhazfenntartas.paidMembers === 0
+        ? 'Nincs kötelezettségi évhez rendelt befizetés — a fizetési arány nem számolható.' : null
     default:
       return null
   }

@@ -15,7 +15,15 @@ export default async function PresentationPage({ searchParams }: PageProps) {
 
   const params = (await searchParams) || {}
   const currentYear = new Date().getFullYear()
-  const year = params.year ? parseInt(params.year, 10) : currentYear
+  // 2026-08-10 (P1 JAVÍTÁS): a `?year=abc` eddig NaN-t adott, abból
+  // 'NaN-01-01' dátum-literálok lettek, a PostgREST 400-zal elszállt és az
+  // egész oldal 500-as hibára futott. A testvér-oldal (/eves-jelentes) már
+  // őrizte ezt — most itt is: érvénytelen vagy tartományon kívüli év esetén
+  // az aktuális évre esünk vissza.
+  const parsedYear = params.year ? Number.parseInt(params.year, 10) : currentYear
+  const year = Number.isFinite(parsedYear) && parsedYear >= 1900 && parsedYear <= 2999
+    ? parsedYear
+    : currentYear
 
   const result = await getPresentationData(year)
   if (!result.data) {
@@ -26,5 +34,13 @@ export default async function PresentationPage({ searchParams }: PageProps) {
     )
   }
 
-  return <PresentationStudio initialData={result.data} />
+  // 2026-08-10: a `key` az év + gyülekezet párra — így az Év mező átállításakor
+  // a Studio ÚJRA MOUNTOL: friss adatot kap, és az adott évhez tartozó mentett
+  // szövegeket/beállításokat tölti be (a kliens-állapot nem ragad be a régi évnél).
+  return (
+    <PresentationStudio
+      key={`${result.data.congregation.id}:${result.data.year}`}
+      initialData={result.data}
+    />
+  )
 }

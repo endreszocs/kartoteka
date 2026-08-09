@@ -206,7 +206,10 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
     if ('error' in discountResult && discountResult.error) toast.error(discountResult.error)
     if ('error' in customFeeResult && customFeeResult.error) toast.error(customFeeResult.error)
 
-    setDioceses(dioceseList)
+    // 2026-08-10 (K4 regisztráció-diagnosztika #7): a getDioceses mostantól
+    // { data, error }-t ad — a hiba nem tűnhet el némán egy üres listában.
+    setDioceses(dioceseList.data)
+    if (dioceseList.error) toast.error(dioceseList.error)
     setBankAccounts((bankResult.rows || []) as BankAccountRow[])
     setBankSchemaReady(bankResult.schemaReady !== false)
     setBankWarning('warning' in bankResult ? bankResult.warning || null : null)
@@ -894,12 +897,25 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
                       </div>
                     </Field>
                     <Field label="Egyházmegye">
+                      {/* 2026-08-10 (K4 regisztráció-diagnosztika #1/#2): a helyőrző
+                          opció disabled, és csak akkor látszik, ha még nincs beállított
+                          egyházmegye — üres értéket nem lehet visszamenteni. A szerver
+                          (updateCongregation) is védve van: üres érték esetén a
+                          diocese_id kulcs ki sem kerül a payloadba. */}
                       <select
-                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-muted"
                         value={form.dioceseId}
-                        onChange={(event) => update('dioceseId', event.target.value)}
+                        disabled={dioceses.length === 0}
+                        onChange={(event) => {
+                          if (!event.target.value) return
+                          update('dioceseId', event.target.value)
+                        }}
                       >
-                        <option value="">— Válasszon egyházmegyét —</option>
+                        {!form.dioceseId && (
+                          <option value="" disabled>
+                            — Válasszon egyházmegyét —
+                          </option>
+                        )}
                         {dioceses.map((diocese) => (
                           <option key={diocese.id} value={diocese.id}>
                             {diocese.name}
@@ -907,6 +923,12 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
                           </option>
                         ))}
                       </select>
+                      {!form.dioceseId && (
+                        <p className="mt-1 text-xs text-amber-700">
+                          A gyülekezet még egyetlen egyházmegyéhez sem tartozik — enélkül nem
+                          jelenik meg az egyházmegyei és egyházkerületi felületeken.
+                        </p>
+                      )}
                     </Field>
                   </div>
                   <div className="mt-3 rounded-[1rem] border border-slate-100 bg-slate-50/60 px-4 py-2.5 text-[11px] leading-5 text-slate-500">

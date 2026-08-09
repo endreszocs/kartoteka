@@ -2,8 +2,6 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
-import { shouldBypassPublicImageOptimization } from '@/lib/public-site/public-image'
 import { usePathname } from 'next/navigation'
 import {
   Menu,
@@ -23,6 +21,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet'
+import { PublicCrest } from './public-crest'
 
 interface Props {
   slug: string
@@ -32,6 +31,11 @@ interface Props {
   primaryOnSurfaceColor: string
   inkColor: string
   memberPortalEnabled?: boolean
+  /**
+   * 2026-08-10 — sötét (fotós) fejlécen világos trigger. A filmszerű téma
+   * fejléce a hero fölött lebeg, ott a `--public-ink` sötét-sötéten volt.
+   */
+  tone?: 'surface' | 'onDark'
 }
 
 function normalizePathname(pathname: string): string {
@@ -53,6 +57,7 @@ export function PublicMobileNav({
   primaryOnSurfaceColor,
   inkColor,
   memberPortalEnabled = false,
+  tone = 'surface',
 }: Props) {
   const [open, setOpen] = useState(false)
   const pathname = usePathname()
@@ -124,8 +129,16 @@ export function PublicMobileNav({
             <button
               ref={triggerRef}
               type="button"
-              className="inline-flex h-11 w-11 min-h-11 min-w-11 items-center justify-center rounded-xl transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--public-primary-on-surface)] focus-visible:ring-offset-2 motion-reduce:transition-none"
-              style={{ color: 'var(--public-ink, #1e293b)' }}
+              className={
+                tone === 'onDark'
+                  ? 'inline-flex h-11 w-11 min-h-11 min-w-11 items-center justify-center rounded-full border border-white/35 bg-white/10 text-white backdrop-blur-md transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-transparent motion-reduce:transition-none'
+                  : 'inline-flex h-11 w-11 min-h-11 min-w-11 items-center justify-center rounded-xl transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--public-accent-ink)] focus-visible:ring-offset-2 motion-reduce:transition-none'
+              }
+              style={
+                tone === 'onDark'
+                  ? undefined
+                  : { color: 'var(--public-ink, #1e293b)' }
+              }
               aria-label="Navigációs menü megnyitása"
             />
           }
@@ -158,24 +171,15 @@ export function PublicMobileNav({
             }}
           >
             <div className="flex min-w-0 items-center gap-3">
-              {crestImageUrl ? (
-                <Image
-                  src={crestImageUrl}
-                  alt=""
-                  width={44}
-                  height={44}
-                  sizes="44px"
-                  unoptimized={shouldBypassPublicImageOptimization(crestImageUrl)}
-                  className="h-11 w-11 shrink-0 rounded-xl border-2 border-white/30 object-cover"
-                />
-              ) : (
-                <div
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/15 text-xl font-bold"
-                  aria-hidden="true"
-                >
-                  {displayName.charAt(0)}
-                </div>
-              )}
+              {/* 2026-08-10: object-contain pajzs-keret — a magas arányú
+                  református címereket az object-cover levágta. */}
+              <PublicCrest
+                src={crestImageUrl}
+                name={displayName}
+                size={44}
+                shape="shield"
+                tone="onDark"
+              />
               <div className="min-w-0">
                 <SheetTitle className="truncate font-heading text-base font-semibold leading-tight text-white">
                   {displayName}

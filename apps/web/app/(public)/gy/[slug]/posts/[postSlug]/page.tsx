@@ -8,9 +8,10 @@ import {
   loadPublishedPosts,
 } from '@/lib/public-site/site-loader'
 import { PublicPostCard } from '@/components/public/public-post-card'
+import { PublicSectionHeader } from '@/components/public/public-section-header'
 import { sanitizePostBody } from '@/lib/public-site/sanitize'
 import { shouldBypassPublicImageOptimization } from '@/lib/public-site/public-image'
-import { ArrowLeft, Calendar } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 
 export async function generateMetadata({
   params,
@@ -23,10 +24,18 @@ export async function generateMetadata({
   const post = await loadPublishedPostBySlug(site.congregation_id, postSlug)
   if (!post) return { title: 'Nincs ilyen poszt' }
 
+  // 2026-08-10: a gyülekezet nevét a layout `title.template`-je fűzi hozzá,
+  // ezért itt már NEM ismételjük meg (különben kétszer jelenne meg).
   return {
-    title: `${post.title} — ${site.display_name}`,
+    title: post.title,
     description: post.excerpt || undefined,
     robots: site.robots_index ? 'index, follow' : 'noindex, nofollow',
+    openGraph: {
+      type: 'article',
+      title: post.title,
+      description: post.excerpt || undefined,
+      publishedTime: post.published_at || undefined,
+    },
   }
 }
 
@@ -87,22 +96,13 @@ export default async function PostDetailPage({
           <div
             className="absolute inset-0 z-0"
             style={{
-              background: `linear-gradient(140deg, var(--public-primary) 0%, color-mix(in srgb, var(--public-primary) 60%, var(--public-accent)) 100%)`,
+              background: `linear-gradient(150deg, var(--public-primary) 0%, var(--public-primary-deep) 100%)`,
             }}
           />
         )}
 
-        {/* Floating circles */}
-        <div
-          className="absolute z-10 rounded-full blur-3xl opacity-30 public-anim-float pointer-events-none"
-          style={{
-            backgroundColor: 'var(--public-accent)',
-            width: '30rem',
-            height: '30rem',
-            top: '-10%',
-            right: '-10%',
-          }}
-        />
+        {/* 2026-08-10: az elmosott lebegő arany kör kikerült — helyette arany
+            hajszálvonal zárja a szekciót (lásd lentebb). */}
 
         <div className="relative z-20 public-container pt-20 pb-16 sm:pt-28 sm:pb-20 lg:pt-36 lg:pb-24">
           {/* Vissza link */}
@@ -116,10 +116,11 @@ export default async function PostDetailPage({
 
           <div className="max-w-3xl">
             {post.published_at && (
-              <div className="inline-flex items-center gap-2 text-xs sm:text-sm font-semibold text-white/90 mb-5 public-anim-fade-up public-delay-100">
-                <Calendar className="w-4 h-4" />
-                <time>{formatDate(post.published_at)}</time>
-              </div>
+              <p className="public-eyebrow public-eyebrow-on-dark public-anim-fade-up public-delay-100 mb-4">
+                <time dateTime={post.published_at}>
+                  {formatDate(post.published_at)}
+                </time>
+              </p>
             )}
 
             <h1 className="text-white drop-shadow-xl public-anim-fade-up public-delay-200">
@@ -133,6 +134,15 @@ export default async function PostDetailPage({
             )}
           </div>
         </div>
+
+        <span
+          aria-hidden="true"
+          className="absolute inset-x-0 bottom-0 z-20 block h-px"
+          style={{
+            background:
+              'linear-gradient(90deg, transparent, color-mix(in srgb, var(--public-accent) 85%, transparent), transparent)',
+          }}
+        />
       </section>
 
       {/* Body */}
@@ -175,25 +185,14 @@ export default async function PostDetailPage({
           }}
         >
           <div className="public-container">
-            <div className="mb-8 text-center">
-              <div
-                className="text-xs sm:text-sm font-semibold tracking-widest uppercase mb-3"
-                style={{ color: 'var(--public-accent-on-surface)' }}
-              >
-                Folytasd az olvasást
-              </div>
-              <h2 style={{ color: 'var(--public-ink)' }}>
-                További bejegyzések
-              </h2>
-            </div>
+            <PublicSectionHeader
+              eyebrow="Folytasd az olvasást"
+              title="További bejegyzések"
+              center
+            />
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {related.map((p) => (
-                <PublicPostCard
-                  key={p.id}
-                  post={p}
-                  slug={site.slug}
-                  themeKey={site.theme.preset_key}
-                />
+                <PublicPostCard key={p.id} post={p} slug={site.slug} />
               ))}
             </div>
           </div>

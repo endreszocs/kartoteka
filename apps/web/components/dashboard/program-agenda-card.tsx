@@ -30,12 +30,14 @@ interface AgendaCardProps {
   isToday?: boolean
   /** A dátumot is mutassa (lista-nézet helyett a nap-agenda elrejti). */
   showDate?: boolean
+  /** 2026-08-10: sűrűbb változat az irányítópult-csempéhez (kisebb ikonlap). */
+  compact?: boolean
   onEdit: (p: Program) => void
   onToggleDone: (p: Program) => void
   onDelete: (p: Program) => void
 }
 
-export function AgendaCard({ p, isToday, showDate, onEdit, onToggleDone, onDelete }: AgendaCardProps) {
+export function AgendaCard({ p, isToday, showDate, compact, onEdit, onToggleDone, onDelete }: AgendaCardProps) {
   const color = progColor(p)
   const time = fmtTime(p)
   const multi = !!(p.datum_vege && p.datum_vege !== p.datum)
@@ -59,7 +61,7 @@ export function AgendaCard({ p, isToday, showDate, onEdit, onToggleDone, onDelet
       }}
     >
       <span className="kt-agenda-bar" style={{ background: color }} />
-      <GlyphTile p={p} />
+      <GlyphTile p={p} size={compact ? 'sm' : 'md'} />
       <div className="kt-agenda-body">
         <div className="kt-agenda-titlerow">
           <span className="kt-agenda-title">{p.cim}</span>

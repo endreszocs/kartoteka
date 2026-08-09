@@ -47,6 +47,9 @@ export function FilingTemplateGenerator({
   const [values, setValues] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
   const [isPending, startTransition] = useTransition()
+  // 2026-08-10 (K4 iktatószám-diagnosztika #3): a VÁRHATÓ szám csak HINT-ként
+  // jelenik meg; a nyomtatványba nem sütjük bele (lásd az effektus doksiját).
+  const [previewIratszam, setPreviewIratszam] = useState('')
 
   const placeholders = useMemo(
     () => (template ? extractPlaceholders(template.tartalom) : []),
@@ -76,13 +79,22 @@ export function FilingTemplateGenerator({
 
         if (cancelled) return
 
+        // 2026-08-10 (K4 iktatószám-diagnosztika #3): a sablon-generátor CSAK
+        // nyomtat/PDF-be ment — NEM iktat. Korábban mégis beleírta a
+        // nem-foglalt előnézeti számot a `{{iratszam}}` helyére, így a
+        // kinyomtatott, hivatalos külsejű irat olyan számot viselt, amit a
+        // rendszer később MÁSIK iratnak osztott ki (két dokumentum ugyanazzal
+        // a hivatalos számmal). Mostantól kitöltő-vonal kerül a helyére — a
+        // várható szám csak tájékoztató hintként látszik, és a mező kézzel
+        // felülírható (ha a lelkész az iktatókönyvből tudja a valódi számot).
         const auto = buildAutoValues({
           gyulekezet: ctxRes.data?.gyulekezet,
           lelkipasztor: ctxRes.data?.lelkipasztor,
           helyseg: ctxRes.data?.helyseg,
-          iratszam: iratszamRes.iratszam || '',
+          iratszam: '__________',
         })
 
+        setPreviewIratszam(iratszamRes.iratszam || '')
         setValues(auto)
         setLoading(false)
       })()
@@ -190,11 +202,20 @@ export function FilingTemplateGenerator({
                 </p>
                 {placeholders.map(key => {
                   const isAuto = autoKeys.has(key)
+                  // 2026-08-10: az iratszám itt SZÁNDÉKOSAN kitöltő-vonal — ez a
+                  // generátor nem iktat, tehát nem oszthat ki hivatalos számot.
+                  const isIratszam = key === 'iratszam'
                   return (
                     <ModalField
                       key={key}
                       label={getPlaceholderLabel(key)}
-                      hint={isAuto ? 'Automatikusan előtöltve — szerkeszthető' : undefined}
+                      hint={
+                        isIratszam
+                          ? 'Ez az ablak NEM iktat — a szám nincs lefoglalva'
+                          : isAuto
+                            ? 'Automatikusan előtöltve — szerkeszthető'
+                            : undefined
+                      }
                     >
                       <input
                         type="text"
@@ -203,6 +224,16 @@ export function FilingTemplateGenerator({
                         placeholder={isAuto ? '' : `(${key})`}
                         className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
                       />
+                      {isIratszam && (
+                        <p className="mt-1 text-[11px] leading-snug text-amber-700">
+                          {previewIratszam
+                            ? `Várható szám a következő iktatáskor: ${previewIratszam}.`
+                            : 'A várható számot nem sikerült lekérni.'}{' '}
+                          Ez az ablak csak nyomtat/PDF-be ment — hivatalos iktatószámot az
+                          „Igazolás / levél kiállítása” ablakban kap az irat. Csak akkor írj
+                          ide számot, ha az irat MÁR szerepel az iktatókönyvben.
+                        </p>
+                      )}
                     </ModalField>
                   )
                 })}

@@ -289,6 +289,13 @@ const SIRHELY_TABLES: TableRegistryEntry[] = [
     label: 'Temetők',
     priority: 80,
   },
+  // ⚠️ 2026-08-10 (biztonsági tanulság): a `scopeFilter: 'none'` azt jelenti,
+  // hogy a kliens SZŰRETLEN SELECT-et küld, és a gyülekezet-hatókört KIZÁRÓLAG
+  // az adatbázis-oldali RLS adja. Ha ott bármelyik táblán nyitott
+  // (`USING (true)`) policy van, a szinkron MINDEN gyülekezet adatát letölti a
+  // böngésző helyi tárolójába — pontosan ez történt az alábbi három temetői
+  // táblával. ÚJ tábla felvételekor: vagy legyen `congregation_id` szűrés,
+  // vagy előbb ELLENŐRIZD a tábla RLS-policy-jét (nincs-e `USING (true)`).
   {
     // sirhely-nek NINCS congregation_id mezője — a temetoid FK-n keresztül
     // szűrhető az ahhoz tartozó sirhelytemeto.congregation_id alapján

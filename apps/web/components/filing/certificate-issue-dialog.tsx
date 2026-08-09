@@ -840,7 +840,11 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   const [esemenyValasztas, setEsemenyValasztas] = useState<
     Partial<Record<EsemenyKulcs, boolean>>
   >({})
+  // 2026-08-10 (K4 iktatószám): a VÁRHATÓ (nem foglalt) iktatószám. Az ablak
+  // megnyitásakor töltődik, és MINDEN kiállítási úton (dokumentum-család,
+  // életút, saját sablon) látszik — eddig csak a legacy sablon-ágon.
   const [previewIratszam, setPreviewIratszam] = useState('')
+  const [previewError, setPreviewError] = useState<string | null>(null)
   const [loadingCtx, setLoadingCtx] = useState(false)
 
   // iktatás
@@ -1043,10 +1047,12 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
       setHeaderNyers(headerRes.header)
       setHeaderError(headerRes.error)
 
-      // Az előnézeti szám (nem-atomikus MAX+1 becslés) szándékosan NEM kerül
-      // az autoValues közé — a dokumentumban csak az iktatáskor kiosztott
-      // valódi szám jelenhet meg (lásd iratszamValue), a preview csak hint.
+      // Az előnézeti szám (nem foglaló becslés) szándékosan NEM kerül az
+      // autoValues közé — a dokumentumban csak az iktatáskor kiosztott valódi
+      // szám jelenhet meg (lásd iratszamValue), a preview csak hint.
+      // 2026-08-10: a hibát sem nyeljük el — ha nincs becslés, kiírjuk, miért.
       setPreviewIratszam(iratszamRes.iratszam || '')
+      setPreviewError(iratszamRes.error || null)
       setAutoValues(
         buildAutoValues({
           gyulekezet: ctxRes.data?.gyulekezet,
@@ -2669,6 +2675,62 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                   <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                     {numIktatas}. Kiállítás és iktatás
                   </h3>
+
+                  {/* ── 2026-08-10 (K4 iktatószám, user-kérés): a KÖVETKEZŐ iktatószám
+                      automatikusan itt jelenik meg, MINDEN kiállítási úton (igazolás-
+                      családok, életút-igazolás, saját sablon) — eddig csak a legacy
+                      sablon-ág mutatta. A jelvény az iktató-varázsló mintáját követi
+                      (filing-main.tsx). FONTOS: ez ELŐNÉZET, nem foglalás — a szám
+                      csak az iktatáskor véglegesedik, és a dokumentumba is CSAK a
+                      ténylegesen kiosztott szám kerül (lásd iratszamValue). */}
+                  <div className="space-y-1.5 rounded-xl border border-border bg-muted/30 p-3">
+                    {issued && issuedIratszam ? (
+                      <p className="inline-flex w-fit max-w-full flex-wrap items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
+                        <Stamp className="size-3.5 shrink-0" aria-hidden />
+                        <span>
+                          Iktatva:{' '}
+                          <b className="font-mono tabular-nums">{issuedIratszam}</b>
+                        </span>
+                      </p>
+                    ) : (
+                      <p className="inline-flex w-fit max-w-full flex-wrap items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
+                        <Stamp className="size-3.5 shrink-0" aria-hidden />
+                        <span>
+                          Következő iktatószám:{' '}
+                          <b className="font-mono tabular-nums">
+                            {previewIratszam || (loadingCtx ? '…' : '—')}
+                          </b>{' '}
+                          (automatikus)
+                        </span>
+                      </p>
+                    )}
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      {issued && issuedIratszam ? (
+                        <>
+                          Ez a VÉGLEGES, kiosztott iktatószám — a dokumentumba is ez került be.
+                          {previewIratszam && previewIratszam !== issuedIratszam ? (
+                            <>
+                              {' '}
+                              (A megnyitáskor mutatott előnézet {previewIratszam} volt: időközben
+                              másik irat is iktatásra került, ezért a kiosztott szám a mérvadó.)
+                            </>
+                          ) : null}
+                        </>
+                      ) : previewError ? (
+                        <span className="text-amber-700 dark:text-amber-400">
+                          A várható szám nem kérhető le: {previewError} — az iktatás ettől még
+                          működhet, a végleges számot a mentés adja.
+                        </span>
+                      ) : (
+                        <>
+                          Előnézet: a szám még <b>nincs lefoglalva</b>, és csak a
+                          „Kiállítás és iktatás” gombra véglegesedik. A dokumentumra addig
+                          kitöltő-vonal kerül; ha időközben más irat is iktatásra kerül, a
+                          véglegesen kiosztott szám itt frissül.
+                        </>
+                      )}
+                    </p>
+                  </div>
 
                   <div className="space-y-1">
                     <label htmlFor="cert-subject" className="text-sm font-medium text-foreground">

@@ -6,15 +6,14 @@ import {
   ArrowRight,
   BookOpenText,
   CalendarDays,
-  Church,
   Clock3,
+  DoorOpen,
   HeartHandshake,
   Mail,
   MapPin,
   Newspaper,
   Phone,
   Quote,
-  Sparkles,
   UsersRound,
 } from 'lucide-react'
 
@@ -29,7 +28,12 @@ import {
   PUBLIC_VISUAL_THEMES,
 } from '@/lib/public-site/visual-theme-registry'
 
+import { resolveThemeColors } from '@/lib/public-site/theme-presets'
+
 import { PublicAgeDistribution } from './public-age-distribution'
+import { PublicCrest } from './public-crest'
+import { PublicEmptyState } from './public-empty-state'
+import { PublicMobileNav } from './public-mobile-nav'
 import styles from './public-site-cinematic-preview.module.css'
 
 interface PublicCinematicStats {
@@ -81,9 +85,19 @@ export function PublicCinematicHome({
 }: PublicCinematicHomeProps) {
   const nextService = site.service_times[0]
   const latestIssue = magazine?.issues[0] ?? null
+  // 2026-08-10: a három nagy képhely a gyülekezet SAJÁT feltöltött képét
+  // használja; ha nincs, a téma dekoratív textúrája jön (mindig `alt=""`,
+  // erős fátyol alatt). A korábbi, Barátosi-specifikus generált fotókat
+  // („Hangulati illusztráció a mi közösségünkről") kivezettük — minden más
+  // gyülekezet oldalán hitelesség-rombolók voltak.
   const heroImage = site.hero_image_url || CINEMATIC_ASSETS.hero
-  const communityImage = CINEMATIC_ASSETS.community || CINEMATIC_ASSETS.hero
-  const heritageImage = CINEMATIC_ASSETS.heritage || CINEMATIC_ASSETS.hero
+  const communityImage = heroImage
+  const heritageImage = heroImage
+  const resolvedColors = resolveThemeColors(
+    site.theme,
+    site.custom_primary_color,
+    site.custom_accent_color,
+  )
   const contactHref = site.contact_email
     ? `mailto:${site.contact_email}`
     : site.contact_phone
@@ -136,21 +150,13 @@ export function PublicCinematicHome({
           href={`/gy/${site.slug}`}
           aria-label={`${site.display_name} kezdőlap`}
         >
-          <span className={styles.brandMark} aria-hidden="true">
-            {site.crest_image_url ? (
-              <Image
-                src={site.crest_image_url}
-                alt=""
-                width={44}
-                height={44}
-                sizes="44px"
-                unoptimized={shouldBypassPublicImageOptimization(site.crest_image_url)}
-                className={styles.brandCrest}
-              />
-            ) : (
-              <Church />
-            )}
-          </span>
+          <PublicCrest
+            src={site.crest_image_url}
+            name={site.display_name}
+            size={44}
+            shape="shield"
+            tone="onDark"
+          />
           <span className={styles.brandCopy}>
             <strong>{site.display_name}</strong>
             <small>{site.tagline || 'Hitben · reménységben · közösségben'}</small>
@@ -172,18 +178,20 @@ export function PublicCinematicHome({
           <ArrowRight aria-hidden="true" />
         </a>
 
-        <a className={styles.mobileMenu} href="#alkalmak" aria-label="Ugrás az alkalmakhoz">
-          <CalendarDays aria-hidden="true" />
-        </a>
-
-        <nav className={styles.mobileNav} aria-label="Mobil fő navigáció">
-          <Link href={`/gy/${site.slug}/posts`}>Hírek</Link>
-          <Link href={`/gy/${site.slug}/magazin`}>Magazin</Link>
-          <Link href={`/gy/${site.slug}/rolunk`}>Rólunk</Link>
-          {memberPortalEnabled && (
-            <Link href={`/gy/${site.slug}/tagi-portal`}>Tagi portál</Link>
-          )}
-        </nav>
+        {/* 2026-08-10: valódi mobil menü a korábbi „hamburger helyén álló
+            naptár-ikon + vízszintesen görgethető chip-sor" helyett. Ugyanaz a
+            fókuszcsapdás, Escape-kezelő, aria-current-es komponens fut, mint a
+            többi témán — nincs többé két külön navigáció-implementáció. */}
+        <PublicMobileNav
+          slug={site.slug}
+          displayName={site.display_name}
+          crestImageUrl={site.crest_image_url}
+          primaryColor={resolvedColors.primary}
+          primaryOnSurfaceColor={resolvedColors.primaryOnSurface}
+          inkColor={resolvedColors.ink}
+          memberPortalEnabled={memberPortalEnabled}
+          tone="onDark"
+        />
       </header>
 
       <main id="public-main-content" tabIndex={-1}>
@@ -207,13 +215,13 @@ export function PublicCinematicHome({
               <span aria-hidden="true" />
               {site.address || 'Hit · reménység · közösség'}
             </p>
-            <h1 id="cinematic-title">
-              Hazaérkezni{' '}
-              <em>a közösségbe.</em>
-            </h1>
+            {/* 2026-08-10: a h1 a GYÜLEKEZET NEVE. Korábban minden ezt a
+                témát választó gyülekezet ugyanazzal a bedrótozott h1-gyel
+                („Hazaérkezni a közösségbe.") indexelődött, és a látogató a
+                hero-ból nem tudta meg, melyik gyülekezet oldalán jár. */}
+            <h1 id="cinematic-title">{site.display_name}</h1>
             <p className={styles.heroLead}>
-              {site.tagline ||
-                'Egy hely, ahol az örökség szeretetté, szolgálattá és közös jövővé válik.'}
+              {site.tagline ? `„${site.tagline}”` : 'Hazaérkezni a közösségbe.'}
             </p>
             <div className={styles.heroActions}>
               <a className={styles.primaryAction} href="#kozosseg">
@@ -300,7 +308,7 @@ export function PublicCinematicHome({
             )}
             <div className={styles.communityPoints}>
               <article>
-                <Sparkles aria-hidden="true" />
+                <DoorOpen aria-hidden="true" />
                 <div>
                   <strong>Kapcsolódás</strong>
                   <p>Olyan alkalmak, ahol ismerőssé válik az idegenből érkező is.</p>
@@ -366,23 +374,45 @@ export function PublicCinematicHome({
 
           {recentPosts.length > 0 ? (
             <div className={styles.newsGrid}>
-              {recentPosts.map((post, index) => {
-                const fallbackImage = [communityImage, heritageImage, CINEMATIC_ASSETS.hero][index % 3]
-                const image = post.cover_image_url || fallbackImage
+              {recentPosts.map((post) => {
+                // 2026-08-10: borítókép hiányában NEM töltjük fel a kártyát a
+                // téma fotójával — az idegen gyülekezet fényképét sugallta.
                 const publishedDate = formatPublishedDate(post.published_at)
 
                 return (
                   <article key={post.id} className={`${styles.newsCard} ${styles.scrollReveal}`}>
                     <Link href={`/gy/${site.slug}/posts/${post.slug}`}>
                       <span className={styles.newsMedia}>
-                        <Image
-                          src={image}
-                          alt=""
-                          fill
-                          sizes="(min-width: 960px) 33vw, (min-width: 640px) 50vw, 100vw"
-                          unoptimized={shouldBypassPublicImageOptimization(image)}
-                          className={styles.newsImage}
-                        />
+                        {post.cover_image_url ? (
+                          <Image
+                            src={post.cover_image_url}
+                            alt=""
+                            fill
+                            sizes="(min-width: 960px) 33vw, (min-width: 640px) 50vw, 100vw"
+                            unoptimized={shouldBypassPublicImageOptimization(
+                              post.cover_image_url,
+                            )}
+                            className={styles.newsImage}
+                          />
+                        ) : (
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              position: 'absolute',
+                              inset: 0,
+                              display: 'grid',
+                              placeItems: 'center',
+                              background:
+                                'linear-gradient(155deg, var(--public-primary), var(--public-primary-deep))',
+                              color: 'rgba(255,255,255,0.28)',
+                              fontFamily: 'var(--public-heading-font)',
+                              fontSize: '4.5rem',
+                              lineHeight: 1,
+                            }}
+                          >
+                            {post.title.charAt(0)}
+                          </span>
+                        )}
                         <span aria-hidden="true" />
                       </span>
                       <span className={styles.newsCopy}>
@@ -399,7 +429,12 @@ export function PublicCinematicHome({
               })}
             </div>
           ) : (
-            <p className={styles.newsEmpty}>Hamarosan itt jelennek meg közösségünk első hírei.</p>
+            <PublicEmptyState
+              title="Hamarosan itt jelennek meg közösségünk első hírei."
+              description="Addig is szeretettel várunk a rendszeres alkalmainkon."
+              actionHref="#alkalmak"
+              actionLabel="Alkalmaink megtekintése"
+            />
           )}
         </section>
 
@@ -496,9 +531,14 @@ export function PublicCinematicHome({
 
       <footer className={styles.siteFooter}>
         <div className={styles.footerBrand}>
-          <span className={styles.brandMark} aria-hidden="true">
-            <Church />
-          </span>
+          {/* 2026-08-10: a lábléc is a gyülekezet címerét mutatja — korábban
+              itt mindig templom-ikon volt, miközben a fejléc a címert. */}
+          <PublicCrest
+            src={site.crest_image_url}
+            name={site.display_name}
+            size={44}
+            shape="shield"
+          />
           <span>
             <strong>{site.display_name}</strong>
             <small>{site.tagline || 'Hitben · reménységben · közösségben'}</small>

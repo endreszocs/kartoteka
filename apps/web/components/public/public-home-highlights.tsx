@@ -45,11 +45,19 @@ function buildHighlights(site: PublicSiteData): HighlightItem[] {
 }
 
 /**
- * A hero ele lebego, gyorsan attekintheto informacios sav.
+ * A hero alatti, gyorsan áttekinthető információs sáv.
  *
- * Az alkalom es a kapcsolati adat mindig az adott publikus oldal mentett
- * adataibol jon. Ures alkalomlistanal nem jelenitunk meg feltetelezett
- * vasarnapi idopontot.
+ * 2026-08-10 két javítás:
+ *  - a három kártya NEM `<h2>`-vel rendereli a metaadatot. Korábban a hero
+ *    h1-je után rögtön három tartalmatlan h2 jött (értelmezhetetlen
+ *    dokumentum-vázlat), amit a CSS `!important`-tal vissza is tört
+ *    body-fontra — vagyis vizuálisan sem címsornak szánták.
+ *  - megszűnt a hero-ra lógó `margin-top: -7.25rem`, ami eltakarta a hero
+ *    saját záró elemeit. Helyette hajszálvonalakkal tagolt, sík sáv.
+ *
+ * Az alkalom és a kapcsolati adat mindig az adott publikus oldal mentett
+ * adataiból jön; üres alkalomlistánál nem jelenítünk meg feltételezett
+ * vasárnapi időpontot.
  */
 export function PublicHomeHighlights({ site }: { site: PublicSiteData }) {
   const highlights = buildHighlights(site)
@@ -58,20 +66,19 @@ export function PublicHomeHighlights({ site }: { site: PublicSiteData }) {
     <section className={styles.section} aria-label="Gyors információk">
       <div className="public-container">
         <div className={styles.grid}>
-          {highlights.map((item, index) => {
+          {highlights.map((item) => {
             const Icon = item.icon
 
             return (
-              <article
-                key={item.eyebrow}
-                className={`public-card public-anim-fade-up public-delay-${index + 1}00 ${styles.card}`}
-              >
+              <article key={item.eyebrow} className={styles.card}>
                 <span className={styles.icon} aria-hidden="true">
                   <Icon />
                 </span>
                 <div className={styles.copy}>
-                  <p className={styles.eyebrow}>{item.eyebrow}</p>
-                  <h2 className={styles.title}>{item.title}</h2>
+                  <p className={`public-eyebrow ${styles.eyebrow}`}>
+                    {item.eyebrow}
+                  </p>
+                  <p className={styles.title}>{item.title}</p>
                   <p className={styles.detail}>{item.detail}</p>
                 </div>
               </article>

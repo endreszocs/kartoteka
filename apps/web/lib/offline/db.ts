@@ -717,6 +717,48 @@ export async function wipeDb(): Promise<void> {
 }
 
 /**
+ * 2026-08-10 (biztonsági takarítás): EGYSZERI helyi cache-ürítés a korábban
+ * IDEGEN gyülekezetektől letöltött soroknak.
+ *
+ * Háttér: a temetői táblák (`sirhely`, `sirhelyberles`, `sirhelyelhunyt`) a
+ * registry-ben `scopeFilter: 'none'`-nal szerepelnek — vagyis a szűrésüket
+ * KIZÁRÓLAG az adatbázis-oldali RLS végezte. Mivel ezeken a táblákon nyitott
+ * (`USING (true)`) policy volt, a szinkron MINDEN gyülekezet sírhely-, bérlet-
+ * és elhunyt-adatát letöltötte a böngésző helyi tárolójába. Az RLS-javítás
+ * (2026-08-10-nyitott-rls-policyk-takaritas.sql) a jövőbeli letöltést
+ * megszünteti, de a MÁR letöltött sorok a felhasználók gépén maradnának —
+ * ezért ez az egyszeri, jelölővel védett törlés.
+ *
+ * A törölt táblák a következő szinkronnál újratöltődnek, immár helyesen szűrve.
+ */
+const LEAKED_CACHE_PURGE_KEY = 'kartoteka:offline-purge:2026-08-10-sirhely'
+const LEAKED_CACHE_TABLES = ['sirhely', 'sirhelyberles', 'sirhelyelhunyt'] as const
+
+export async function purgeLeakedOfflineCaches(): Promise<void> {
+  if (typeof window === 'undefined') return
+  try {
+    if (window.localStorage.getItem(LEAKED_CACHE_PURGE_KEY)) return
+  } catch {
+    return // letiltott localStorage — ne fussunk körbe-körbe
+  }
+
+  try {
+    const db = getDb()
+    for (const table of LEAKED_CACHE_TABLES) {
+      if (!db.tables.some((t) => t.name === table)) continue
+      await db.table(table).clear()
+      // A pull-kurzort is nullázzuk, hogy a teljes (immár szűrt) állomány
+      // újratöltődjön, ne csak az azóta módosult sorok.
+      const meta = await db._sync_meta.get(table)
+      if (meta) await db._sync_meta.put({ ...meta, lastPullAt: null })
+    }
+    window.localStorage.setItem(LEAKED_CACHE_PURGE_KEY, new Date().toISOString())
+  } catch (e) {
+    console.warn('[offline] A helyi temetői cache ürítése nem sikerült:', e)
+  }
+}
+
+/**
  * Sync meta lekérés egy táblára — ha nincs, default-tal tér vissza.
  */
 export async function getSyncMeta(

@@ -311,7 +311,18 @@ export async function updateCongregation(data: z.infer<typeof congregationSchema
     jarulek_hatarid: parsed.data.jarulekHatarid,
     iban: parsed.data.iban || null,
     bank: parsed.data.bank || null,
-    diocese_id: parsed.data.dioceseId || null,
+    // 2026-08-10 (K4 regisztráció-diagnosztika #2): a `diocese_id` MÁR NEM
+    // íródik NULL-ra üres/hiányzó értéknél. Korábban `parsed.data.dioceseId || null`
+    // állt itt: egy elavult vagy hiányosan kitöltött kliens-payload némán
+    // levágta a gyülekezet egyházmegye-kötését — a gyülekezet ettől eltűnt
+    // minden egyházmegyei/kerületi felületről, az irat-beküldései senkit nem
+    // értesítettek, és a regisztrációs választóban (diocese_id IS NOT NULL
+    // szűrő) sem látszott, tehát a felületről javíthatatlan állapotba került.
+    // Új szabály: undefined/'' = „ne nyúlj hozzá" (a kulcs ki sem kerül a
+    // payloadba), és CSAK egy explicit, érvényes uuid cserélheti le.
+    // A kötés törlésére nincs UI — a javítás az admin Gyülekezetek felületén
+    // (assignCongregationDiocese) történik.
+    ...(parsed.data.dioceseId ? { diocese_id: parsed.data.dioceseId } : {}),
     // 2026-07-17 (F5, Q6): a mód kivezetve — mindig 'akkori' íródik (a régi
     // kliensből érkező 'aktualis' sem kerülhet vissza a DB-be).
     tartozas_szamitas_mod: 'akkori',
@@ -344,16 +355,37 @@ export async function updateCongregation(data: z.infer<typeof congregationSchema
   }
 }
 
-export async function getDioceses() {
+export interface DioceseOption {
+  id: string
+  name: string
+  district_id: string | null
+  district_name: string | null
+}
+
+/**
+ * Az egyházmegye-lista a választókhoz.
+ *
+ * 2026-08-10 (K4 regisztráció-diagnosztika #7): a hibát eddig a destrukturálás
+ * eldobta (`const { data } = …`), és üres listát adtunk vissza. Egy átmeneti
+ * PostgREST-hiba vagy RLS/GRANT-regresszió így ÜRES egyházmegye-választót
+ * eredményezett, magyarázat nélkül — a lelkész pedig a maradék (üres értékű)
+ * opciót választva kinullázta a gyülekezet egyházmegyéjét. Mostantól a hiba
+ * felmegy a hívóig, ami toastol és letiltja a választót.
+ */
+export async function getDioceses(): Promise<{ data: DioceseOption[]; error: string | null }> {
   const supabase = await createClient()
   // A districts JOIN-nal együtt — a CongregationDialog-ban az egyházkerület
   // nevét is meg tudjuk jeleníteni (2026-04-21j).
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('dioceses')
     .select('id, name, district_id, districts(name)')
     .order('name')
-  if (!data) return []
-  return data.map((d) => {
+  if (error) {
+    console.error('[getDioceses] az egyházmegye-lista lekérése hibázott:', error)
+    return { data: [], error: `Az egyházmegyék betöltése sikertelen: ${error.message}` }
+  }
+  if (!data) return { data: [], error: null }
+  const rows = data.map((d) => {
     const raw = d as unknown as {
       id: string
       name: string
@@ -368,6 +400,7 @@ export async function getDioceses() {
       district_name: dist?.name ?? null,
     }
   })
+  return { data: rows, error: null }
 }
 
 export async function getCongregation(id: string) {
@@ -1253,7 +1286,7 @@ export type CongregationSetupInput = z.infer<typeof congregationSetupSchema>
 
 export async function saveCongregationSetup(
   input: CongregationSetupInput,
-): Promise<{ ok?: true; error?: string; fieldErrors?: Record<string, string> }> {
+): Promise<{ ok?: true; error?: string; warning?: string; fieldErrors?: Record<string, string> }> {
   const parsed = congregationSetupSchema.safeParse(input)
   if (!parsed.success) {
     const fieldErrors: Record<string, string> = {}
@@ -1272,6 +1305,26 @@ export async function saveCongregationSetup(
     access.profile?.congregation_id === parsed.data.id
 
   if (!canManage) return { error: 'Nincs jogosultság a gyülekezet szerkesztéséhez.' }
+
+  // ── 2026-08-10 (K4 regisztráció-diagnosztika #1/#2): egyházmegye-kötés védelme ──
+  // A `diocese_id` zod-ban továbbra is opcionális (a régi kliensek payloadja is
+  // átmegy), de az undefined/'' MÁS, mint a NULL: „ne nyúlj hozzá", nem „töröld".
+  // Ha viszont a gyülekezetnek MÉG NINCS egyházmegyéje, a mentés kötelezővé teszi —
+  // különben a varázsló zöldre vált („Gyülekezet beállítva! 🎉") egy olyan
+  // gyülekezetnél, amely valójában egyetlen egyházmegyéhez sem tartozik.
+  const { data: currentRow } = await access.supabase
+    .from('congregations')
+    .select('diocese_id')
+    .eq('id', parsed.data.id)
+    .maybeSingle()
+  const currentDioceseId = (currentRow as { diocese_id: string | null } | null)?.diocese_id ?? null
+  const incomingDioceseId = parsed.data.diocese_id?.trim() || null
+  if (!currentDioceseId && !incomingDioceseId) {
+    return {
+      error: 'Válassza ki a gyülekezet egyházmegyéjét — enélkül a gyülekezet nem jelenik meg az egyházmegyei és egyházkerületi felületeken.',
+      fieldErrors: { diocese_id: 'Az egyházmegye kötelező.' },
+    }
+  }
 
   const payload = {
     // A hivatalos `name` a dedikált „Hivatalos név" mezőből; ha üres VAGY csak whitespace, a magyar
@@ -1298,7 +1351,9 @@ export async function saveCongregationSetup(
     adrlocality_id: parsed.data.adrlocality_id ?? null,
     adrstreet_id: parsed.data.adrstreet_id ?? null,
     // #Endre 2026-07-02: egyházmegye + pénzügyi alap (átmigrálva a „Gyülekezetünk adatai" ablakból)
-    diocese_id: parsed.data.diocese_id || null,
+    // 2026-08-10: üres/hiányzó érték esetén a kulcs KI SEM KERÜL a payloadba —
+    // így a meglévő kötés megmarad (lásd a fenti blokk magyarázatát).
+    ...(incomingDioceseId ? { diocese_id: incomingDioceseId } : {}),
     eves_jarulek: parsed.data.eves_jarulek,
     jarulek_kedvezmenyes: parsed.data.jarulek_kedvezmenyes,
     jarulek_hatarid: parsed.data.jarulek_hatarid,
@@ -1312,10 +1367,30 @@ export async function saveCongregationSetup(
 
   // Régi DB-ken hiányozhat pl. a tartozas_szamitas_mod oszlop → az új mezők nélkül újrapróbáljuk,
   // hogy a mag-adatok akkor is elmentődjenek (a setup-mentés ne bukjon el egy hiányzó oszlopon).
-  if (updateError && /column|does not exist|schema cache|could not find|violates/i.test(updateError.message)) {
+  //
+  // 2026-08-10 (K4 regisztráció-diagnosztika #8): a mintából KIVETTÜK a `violates`-t.
+  // Az minden idegenkulcs- és check-constraint-hibára illeszkedett, nem csak a
+  // hiányzó-oszlop sodródásra: egy érvénytelen diocese_id (FK-hiba) esetén a kód
+  // NÉMÁN eldobta az egyházmegyét ÉS az összes díjmezőt, majd `ok: true`-val tért
+  // vissza — a lelkész „Gyülekezet beállítva! 🎉"-et látott, miközben az
+  // egyházmegye és a most beírt éves járulék el sem mentődött.
+  // Új viselkedés: FK/constraint-hiba HANGOSAN elbukik; oszlop-sodródásnál pedig
+  // az újrapróbálás után `warning`-ot adunk vissza (nem néma siker).
+  let strippedWarning: string | null = null
+  if (updateError && /column|does not exist|schema cache|could not find/i.test(updateError.message)) {
     const safe = { ...payload } as Record<string, unknown>
-    for (const k of ['diocese_id', 'eves_jarulek', 'jarulek_kedvezmenyes', 'jarulek_hatarid', 'tartozas_szamitas_mod']) delete safe[k]
-    updateError = (await access.supabase.from('congregations').update(safe).eq('id', parsed.data.id)).error
+    const stripped: string[] = []
+    for (const k of ['diocese_id', 'eves_jarulek', 'jarulek_kedvezmenyes', 'jarulek_hatarid', 'tartozas_szamitas_mod']) {
+      if (k in safe) stripped.push(k)
+      delete safe[k]
+    }
+    const retry = await access.supabase.from('congregations').update(safe).eq('id', parsed.data.id)
+    updateError = retry.error
+    if (!retry.error && stripped.length > 0) {
+      strippedWarning =
+        `Figyelem: az adatbázis nem ismeri a következő mezőket, ezért NEM mentődtek el: ${stripped.join(', ')}. ` +
+        'Futtassa le a hiányzó adatbázis-migrációt, majd mentse újra.'
+    }
   }
 
   if (updateError) return { error: updateError.message }
@@ -1332,7 +1407,7 @@ export async function saveCongregationSetup(
   revalidatePath('/dashboard')
   revalidatePath('/penzugy')
   revalidatePath('/', 'layout')
-  return { ok: true }
+  return strippedWarning ? { ok: true, warning: strippedWarning } : { ok: true }
 }
 
 // ────────────────────────────────────────────────────────────────────

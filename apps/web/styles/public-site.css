@@ -1,0 +1,553 @@
+/*
+ * Publikus gyülekezeti oldal — statikus design-rendszer.
+ *
+ * 2026-08-10: korábban ez a ~220 sor minden HTML-dokumentumba beágyazott
+ * inline <style>-ként ment ki (nem cache-elhető, ~6 kB/oldal). Innentől a
+ * layout inline stílusa CSAK a gyülekezetfüggő CSS-változókat tartalmazza,
+ * minden szabály itt van, egy cache-elhető, minifikálható fájlban.
+ *
+ * Vizuális irány: „Templomi fény" — szerkesztőségi ritmus, egy erős
+ * display-serif, hajszálvékony arany vonalak, mély tinta-zöld sávok,
+ * dekoratív körök és lebegő animációk NÉLKÜL.
+ */
+
+.public-site-root {
+  background-color: var(--public-surface);
+  color: var(--public-ink);
+  font-family: var(--public-body-font);
+  line-height: 1.65;
+  color-scheme: light;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: clip;
+}
+
+/* ── Tipográfia ─────────────────────────────────────────────── */
+/*
+  A `:where()` 0-ra viszi a szelektor specificitását, így bármelyik
+  Tailwind- vagy CSS-modul-osztály felül tudja írni a méretet. A korábbi
+  `.public-site-root p { font-size: … }` (0,1,1) csendben legyőzte az összes
+  utility-osztályt — emiatt egy `text-lg`-vel jelölt bekezdés is body-méretű
+  maradt. Mintája a kartoteka.css `:where([data-theme]) h1` szabálya.
+*/
+:where(.public-site-root) h1,
+:where(.public-site-root) h2,
+:where(.public-site-root) h3,
+:where(.public-site-root) h4 {
+  font-family: var(--public-heading-font);
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+:where(.public-site-root) h1 {
+  line-height: 1.03;
+  letter-spacing: -0.018em;
+  font-size: clamp(2.4rem, 1.5rem + 4.1vw, 4.75rem);
+}
+
+:where(.public-site-root) h2 {
+  line-height: 1.12;
+  letter-spacing: -0.012em;
+  font-size: clamp(1.75rem, 1.35rem + 1.9vw, 2.85rem);
+}
+
+:where(.public-site-root) h3 {
+  line-height: 1.24;
+  font-size: clamp(1.25rem, 1.08rem + 0.85vw, 1.6rem);
+}
+
+:where(.public-site-root) h4 {
+  line-height: 1.3;
+  font-size: clamp(1.05rem, 0.95rem + 0.5vw, 1.25rem);
+}
+
+:where(.public-site-root) p {
+  font-size: clamp(0.97rem, 0.9rem + 0.28vw, 1.09rem);
+}
+
+/* Kurzív kiemelés a display-sorokban — a hero „második hangja". */
+:where(.public-site-root) h1 em,
+:where(.public-site-root) h2 em {
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* Egységes „eyebrow" — mindig az olvasható arany árnyalattal. */
+.public-eyebrow {
+  display: inline-block;
+  color: var(--public-accent-ink);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+
+.public-eyebrow-on-dark {
+  color: color-mix(in srgb, var(--public-accent) 78%, white);
+}
+
+/* Arany hajszálvonal — a dekoratív körök helyett ez tagolja a szekciókat. */
+.public-rule {
+  display: block;
+  height: 1px;
+  border: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--public-accent) 65%, transparent) 50%,
+    transparent 100%
+  );
+}
+
+.public-rule-start {
+  width: 3.5rem;
+  background: var(--public-accent);
+}
+
+/* ── Ritmus és rács ─────────────────────────────────────────── */
+.public-section {
+  padding: clamp(3.25rem, 2.2rem + 3.6vw, 6.5rem) 0;
+}
+
+.public-section-tight {
+  padding: clamp(2.25rem, 1.6rem + 2.4vw, 4rem) 0;
+}
+
+.public-container {
+  width: 100%;
+  max-width: 72rem;
+  margin: 0 auto;
+  padding-left: clamp(1.15rem, 0.6rem + 2vw, 2rem);
+  padding-right: clamp(1.15rem, 0.6rem + 2vw, 2rem);
+}
+
+.public-container-narrow {
+  max-width: 52rem;
+}
+
+/* Teljes szélességű, mély tinta-sáv — a szekció-váltás fő eszköze. */
+.public-band {
+  position: relative;
+  isolation: isolate;
+  color: #fff;
+  background:
+    radial-gradient(
+      120% 120% at 12% 0%,
+      color-mix(in srgb, var(--public-primary) 82%, transparent) 0%,
+      transparent 62%
+    ),
+    linear-gradient(
+      160deg,
+      var(--public-primary-deep) 0%,
+      color-mix(in srgb, var(--public-primary-deep) 78%, #000) 100%
+    );
+}
+
+.public-band h1,
+.public-band h2,
+.public-band h3,
+.public-band h4,
+.public-band p,
+.public-band li {
+  color: #fff;
+}
+
+.public-band-hairline {
+  position: absolute;
+  inset-inline: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--public-accent) 55%, transparent),
+    transparent
+  );
+}
+
+/* ── Kártyák ────────────────────────────────────────────────── */
+/* `.public-card` = interakció (a témánkénti radius/shadow felülírja);
+   `.public-panel` = a kész felület, hogy ne kelljen minden hívási helyen
+   ugyanazt a 4 inline stílust megismételni. */
+.public-card {
+  transition:
+    transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.3s ease;
+}
+
+.public-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--public-elev-2);
+}
+
+.public-panel {
+  border-radius: var(--public-radius-lg);
+  background: color-mix(in srgb, var(--public-surface) 96%, white);
+  border: 1px solid var(--public-line);
+  box-shadow: var(--public-elev-1);
+}
+
+.public-panel.public-card:hover {
+  border-color: color-mix(in srgb, var(--public-accent) 42%, transparent);
+}
+
+/* ── Gombok ─────────────────────────────────────────────────── */
+.public-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.8rem 1.6rem;
+  border-radius: 9999px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  min-height: 44px;
+  text-align: center;
+  transition:
+    transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.3s ease,
+    background-color 0.25s ease,
+    border-color 0.25s ease,
+    color 0.25s ease;
+}
+
+.public-btn-primary {
+  background: var(--public-primary);
+  color: #fff;
+  box-shadow: 0 12px 28px -16px
+    color-mix(in srgb, var(--public-primary) 80%, transparent);
+}
+
+.public-btn-primary:hover {
+  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--public-primary) 88%, #000);
+  box-shadow: 0 18px 34px -16px
+    color-mix(in srgb, var(--public-primary) 85%, transparent);
+}
+
+.public-btn-primary:active {
+  transform: translateY(0);
+}
+
+.public-btn-outline {
+  background: transparent;
+  color: var(--public-ink);
+  border: 1.5px solid var(--public-line-strong);
+}
+
+.public-btn-outline:hover {
+  border-color: var(--public-accent);
+  color: var(--public-accent-ink);
+  background: color-mix(in srgb, var(--public-accent) 8%, transparent);
+}
+
+/* Sötét sávon / fotón álló gomb. */
+.public-btn-on-dark {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border: 1.5px solid rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(6px);
+}
+
+.public-btn-on-dark:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: #fff;
+}
+
+.public-link-arrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  font-weight: 600;
+  color: var(--public-primary-on-surface);
+  text-underline-offset: 4px;
+}
+
+.public-link-arrow:hover {
+  text-decoration: underline;
+}
+
+.public-link-arrow svg {
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.public-link-arrow:hover svg {
+  transform: translateX(3px);
+}
+
+/* ── Menetrend-lista (alkalmak) ─────────────────────────────── */
+.public-schedule {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.public-schedule-item {
+  display: grid;
+  grid-template-columns: 3.25rem 1fr;
+  align-items: start;
+  gap: 1rem;
+  padding: 1.05rem 0;
+  border-top: 1px solid var(--public-line);
+}
+
+.public-schedule-item:first-child {
+  border-top: 0;
+}
+
+.public-schedule-day {
+  font-family: var(--public-heading-font);
+  font-size: 1.65rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: var(--public-accent-ink);
+  text-transform: uppercase;
+}
+
+.public-schedule-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--public-ink);
+}
+
+@media (min-width: 40rem) {
+  .public-schedule-item {
+    grid-template-columns: 4rem 1fr;
+    gap: 1.5rem;
+  }
+
+  .public-schedule-day {
+    font-size: 2rem;
+  }
+}
+
+/* ── Üres állapot ───────────────────────────────────────────── */
+.public-empty {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px dashed var(--public-line-strong);
+  border-radius: var(--public-radius-lg);
+  background: color-mix(in srgb, var(--public-soft) 45%, transparent);
+  padding: clamp(2.25rem, 1.6rem + 3vw, 4rem) 1.5rem;
+  text-align: center;
+}
+
+.public-empty-mark {
+  color: color-mix(in srgb, var(--public-accent) 60%, transparent);
+}
+
+/* ── Prose ──────────────────────────────────────────────────── */
+.public-prose {
+  max-width: 65ch;
+  line-height: 1.78;
+}
+
+.public-prose p {
+  margin: 1.15em 0;
+}
+
+.public-prose h2 {
+  margin: 1.8em 0 0.6em;
+}
+
+.public-prose h3 {
+  margin: 1.5em 0 0.5em;
+}
+
+.public-prose h4 {
+  margin: 1.3em 0 0.4em;
+}
+
+.public-prose ul,
+.public-prose ol {
+  margin: 1em 0;
+  padding-left: 1.5em;
+}
+
+.public-prose ul {
+  list-style: disc;
+}
+
+.public-prose ol {
+  list-style: decimal;
+}
+
+.public-prose li {
+  margin: 0.4em 0;
+}
+
+.public-prose a {
+  color: var(--public-primary-on-surface);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1.5px;
+}
+
+.public-prose a:hover {
+  color: color-mix(in srgb, var(--public-primary-on-surface) 80%, black);
+}
+
+.public-prose blockquote {
+  border-left: 2px solid var(--public-accent);
+  padding-left: 1.25em;
+  font-family: var(--public-heading-font);
+  font-size: 1.2em;
+  font-style: italic;
+  color: color-mix(in srgb, var(--public-ink) 84%, transparent);
+  margin: 1.6em 0;
+}
+
+.public-prose strong {
+  font-weight: 700;
+}
+
+.public-prose img {
+  border-radius: var(--public-radius);
+  margin: 1.5em 0;
+}
+
+.public-prose-on-dark,
+.public-prose-on-dark * {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.public-prose-on-dark a {
+  color: #fff;
+}
+
+.public-prose-on-dark blockquote {
+  border-left-color: color-mix(in srgb, var(--public-accent) 70%, white);
+}
+
+/* Mobil tap-target minimum. A szövegközi linkeket nem méretezzük át. */
+.public-site-root button {
+  min-height: 44px;
+}
+
+/* ── Mozgás — kevesebb, de szándékosabb ─────────────────────── */
+@keyframes public-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes public-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes public-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes public-ken-burns {
+  from {
+    transform: scale(1.02);
+  }
+  to {
+    transform: scale(1.1);
+  }
+}
+
+@keyframes public-splash-beam {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+.public-anim-fade-up {
+  animation: public-fade-up 0.75s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.public-anim-fade-in {
+  animation: public-fade-in 0.85s ease-out both;
+}
+
+.public-anim-scale-in {
+  animation: public-scale-in 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Lassú ken-burns a hero-fotón — a régi „drift" + blur-körök helyett. */
+.public-anim-ken-burns {
+  animation: public-ken-burns 26s ease-in-out infinite alternate;
+}
+
+.public-delay-100 {
+  animation-delay: 0.08s;
+}
+.public-delay-200 {
+  animation-delay: 0.16s;
+}
+.public-delay-300 {
+  animation-delay: 0.24s;
+}
+.public-delay-400 {
+  animation-delay: 0.32s;
+}
+.public-delay-500 {
+  animation-delay: 0.4s;
+}
+
+.public-splash-beam {
+  border-radius: 9999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--public-accent, #d4a04a),
+    transparent
+  );
+  animation: public-splash-beam 1.4s ease-in-out infinite;
+}
+
+/* Régi osztálynevek — a maradék hivatkozások ne törjenek el, de már
+   NE animáljanak végtelenül (a lebegő körök ki lettek vezetve). */
+.public-anim-float,
+.public-anim-drift {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .public-anim-fade-up,
+  .public-anim-fade-in,
+  .public-anim-scale-in,
+  .public-anim-ken-burns,
+  .public-splash-beam {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .public-card,
+  .public-btn,
+  .public-link-arrow svg {
+    transition: none !important;
+  }
+}

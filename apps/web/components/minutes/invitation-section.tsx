@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Mail, Plus, Trash2, Printer, MessageCircle, FileText, ChevronDown, ChevronUp } from 'lucide-react'
 import { getPresbyterNames, createInvitation } from '@/app/(dashboard)/jegyzokonyvek/actions'
+import { getNextFilingNumberPreview } from '@/app/(dashboard)/iktato/actions'
 import { toast } from 'sonner'
 
 type JkTipus = 'presbiteri' | 'kozgyulesi'
@@ -25,7 +26,20 @@ export function InvitationSection({ congregationName = 'Református Egyházközs
   const [kezdes, setKezdes] = useState('18:00')
   const [napirendPontok, setNapirendPontok] = useState<string[]>([''])
   const [presbyters, setPresbyters] = useState<Array<{ nev: string; telefon: string | null }>>([])
-  const [nextIktatoszam, setNextIktatoszam] = useState(1)
+  // 2026-08-10 (K4 iktatószám-diagnosztika #2): ELŐNÉZET (nem foglalt) és a
+  // ténylegesen KIOSZTOTT szám külön állapotban. Eddig egyetlen, szerkeszthető
+  // mező volt, amelynek az értékét a szerver figyelmen kívül hagyta — a
+  // kinyomtatott meghívón így olyan szám szerepelhetett, ami MÁSIK irathoz
+  // tartozott (vagy két meghívón ugyanaz).
+  const [previewIktatoszam, setPreviewIktatoszam] = useState<string | null>(null)
+  const [issuedIktatoszam, setIssuedIktatoszam] = useState<string | null>(null)
+
+  // Az iktatás mindig a KELT dátum évébe történik (createInvitation) — az
+  // előnézetet is arra az évre kérjük, nem a mai évre.
+  const targetYear = useMemo(() => {
+    const y = Number((datum || '').slice(0, 4))
+    return Number.isFinite(y) && y >= 1800 && y <= 2200 ? y : new Date().getFullYear()
+  }, [datum])
 
   useEffect(() => {
     if (!expanded) return
@@ -33,24 +47,33 @@ export function InvitationSection({ congregationName = 'Református Egyházközs
     void getPresbyterNames().then((data) => {
       if (!cancelled) setPresbyters(data)
     })
-    // Következő iktatószám lekérése
-    void import('@/app/(dashboard)/iktato/actions').then(({ getNextSequenceNumber }) => {
-      void getNextSequenceNumber(new Date().getFullYear()).then((num) => {
-        if (!cancelled) setNextIktatoszam(num)
-      })
-    })
     return () => { cancelled = true }
   }, [expanded])
 
-  const iktatoszamLabel = useMemo(() => {
-    const year = datum ? new Date(datum).getFullYear() : new Date().getFullYear()
-    return `${nextIktatoszam}-${year}.`
-  }, [nextIktatoszam, datum])
+  // A következő iktatószám előnézete — a panel kinyitásakor ÉS évváltáskor.
+  // (A setState csak a promise-callbackben fut: az effektus-testből hívott
+  // szinkron setState kaszkádolt renderelést okozna — react-hooks szabály.)
+  useEffect(() => {
+    if (!expanded) return
+    let cancelled = false
+    void getNextFilingNumberPreview(targetYear).then((res) => {
+      if (cancelled) return
+      setPreviewIktatoszam(res.error ? null : res.iratszam)
+    })
+    return () => { cancelled = true }
+  }, [expanded, targetYear])
+
+  // A nyomtatványra kerülő szám: a VÉGLEGES, kiosztott iktatószám — iktatás
+  // előtt kitöltő-vonal (az igazolás-kiállító dialógus bevett mintája).
+  const iktatoszamNyomtatasra = issuedIktatoszam || '__________'
 
   function addNapirend() { setNapirendPontok((p) => [...p, '']) }
   function removeNapirend(i: number) { setNapirendPontok((p) => p.filter((_, idx) => idx !== i)) }
 
-  function handlePrint() {
+  function handlePrint(iktatoszamOverride?: string) {
+    // Az iktatás UTÁN a friss, kiosztott számmal nyomtatunk — a React state
+    // ekkor még nem biztos, hogy frissült, ezért explicit paraméter.
+    const szamSor = iktatoszamOverride || iktatoszamNyomtatasra
     const tipusLabel = tipus === 'presbiteri' ? 'Presbitérium tagjait' : 'gyülekezet tagjait'
     const napLabel = tipus === 'presbiteri' ? 'presbiteri' : 'közgyűlési'
     const napirendHtml = napirendPontok.filter((n) => n.trim()).map((n) => `<div style="margin-bottom:3px;padding-left:16px;">- ${n}</div>`).join('')
@@ -91,7 +114,7 @@ export function InvitationSection({ congregationName = 'Református Egyházközs
         <div class="office">Lelkipásztori Hivatala.</div>
       </div>
 
-      <div class="iktato">Szám: ${iktatoszamLabel}</div>
+      <div class="iktato">Szám: ${szamSor}</div>
 
       <div class="title">M e g h í v ó</div>
 
@@ -122,9 +145,19 @@ export function InvitationSection({ congregationName = 'Református Egyházközs
         datum, hely, kezdes, tipus,
         napirendi_pontok: napirendPontok.filter((n) => n.trim()),
       })
-      if ('error' in result && result.error) toast.error(result.error)
-      else {
-        toast.success('Meghívó iktatva!')
+      if ('error' in result && result.error) {
+        toast.error(result.error)
+        return
+      }
+      // 2026-08-10: a nyomtatásra a szerver által ATOMIKUSAN kiosztott szám
+      // kerül — nem az előnézet (az két meghívónál ugyanaz lehetett).
+      const kiosztott = result.iktatoszam || null
+      setIssuedIktatoszam(kiosztott)
+      if (kiosztott) {
+        toast.success(`Meghívó iktatva: ${kiosztott}`)
+        handlePrint(kiosztott)
+      } else {
+        toast.warning('A meghívó iktatva, de a kiosztott iktatószámot nem sikerült visszaolvasni — ellenőrizd az iktatókönyvben.')
         handlePrint()
       }
     })
@@ -186,12 +219,20 @@ export function InvitationSection({ congregationName = 'Református Egyházközs
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">Iktatószám</label>
-              <Input value={iktatoszamLabel} onChange={(e) => {
-                // Szerkeszthető iktatószám
-                const val = e.target.value
-                const match = val.match(/^(\d+)/)
-                if (match) setNextIktatoszam(parseInt(match[1], 10))
-              }} className="rounded-xl font-semibold text-indigo-700" />
+              {/* 2026-08-10: READ-ONLY. Korábban szerkeszthető volt, de a
+                  createInvitation a beírt értéket figyelmen kívül hagyta (saját
+                  számot osztott) — a papíron így MÁSIK irat száma szerepelhetett. */}
+              <Input
+                value={issuedIktatoszam || previewIktatoszam || '…'}
+                readOnly
+                aria-readonly
+                className="rounded-xl font-semibold text-indigo-700 bg-slate-50"
+              />
+              <p className="mt-1 text-[11px] leading-snug text-slate-500">
+                {issuedIktatoszam
+                  ? 'Iktatva — ez a végleges szám került a nyomtatványra.'
+                  : 'Várható szám — csak az „Iktatás + nyomtatás" gombra véglegesedik. Iktatás előtti nyomtatásnál a szám helyére kitöltő-vonal kerül.'}
+              </p>
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">Dátum *</label>
@@ -247,7 +288,7 @@ export function InvitationSection({ congregationName = 'Református Egyházközs
 
           {/* Akció gombok */}
           <div className="flex flex-wrap gap-2 pt-2">
-            <Button variant="outline" className="rounded-xl" onClick={handlePrint}>
+            <Button variant="outline" className="rounded-xl" onClick={() => handlePrint()}>
               <Printer className="size-4 mr-1" /> Meghívó nyomtatása
             </Button>
             <Button variant="outline" className="rounded-xl border-indigo-200 text-indigo-700" onClick={handleIktatas} disabled={isPending}>

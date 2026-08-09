@@ -384,9 +384,13 @@ export default async function DashboardPage() {
         publicSiteStatus={publicSiteResult.data ? { isPublished: !!publicSiteResult.data.is_published, postCount: publicPostsResult.count ?? 0 } : null}
       />
 
-      {/* 2026-08-02 (PR-20): items-start — a programok-doboz (kt-widget--flow)
-          teljes magasságú, a szomszédok nem nyúlnak vele együtt */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.08fr_1fr_0.94fr] xl:items-start">
+      {/* 2026-08-10 (user-kérés): a három csempe („Ma köszöntjük", „Gyülekezeti
+          programok", „Koreloszlás") EGY MÉRETŰ sort alkot. A `.kt-dash-trio`
+          rács `align-items: stretch` + közös minimum sormagasság, a csempék
+          `h-full` + flex-oszlop felépítésűek, és egyikben SINCS belső görgetés
+          (a túlcsordulást „+N további" gombok kezelik). Mobilon egymás alá
+          rendeződnek, változatlan szabályokkal. */}
+      <div className="kt-dash-trio">
         <Celebrations
           todayBirthdays={todayBirthdays}
           todayNamedayMembers={todayNamedayMembers}

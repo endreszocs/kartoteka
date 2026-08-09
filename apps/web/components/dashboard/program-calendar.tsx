@@ -14,13 +14,26 @@ interface ProgramCalendarProps {
   today: Date
   selectedDay: number | null
   onSelectDay: (day: number) => void
+  /**
+   * 2026-08-10: kompakt („kis kockás") rács az irányítópult-csempéhez.
+   * Kisebb cellák + FIX 6 hetes rács, hogy a csempe magassága hónapváltáskor
+   * se ugráljon, és a három csempe egy magasságú maradjon.
+   */
+  compact?: boolean
 }
 
-export function ProgramCalendar({ programs, month, year, today, selectedDay, onSelectDay }: ProgramCalendarProps) {
+/** Egy teljes hónapnézet 6 hét × 7 nap = 42 cellából áll. */
+const COMPACT_CELLS = 42
+
+export function ProgramCalendar({
+  programs, month, year, today, selectedDay, onSelectDay, compact = false,
+}: ProgramCalendarProps) {
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   let startDow = new Date(year, month, 1).getDay() - 1 // hétfő-kezdés
   if (startDow < 0) startDow = 6
   const todayStr = ymd(today.getFullYear(), today.getMonth(), today.getDate())
+  // 2026-08-10: a kis kockába csak 2 pötty fér el olvashatóan, a többi „+N"
+  const maxDots = compact ? 2 : 3
 
   const cells: React.ReactNode[] = []
 
@@ -41,7 +54,7 @@ export function ProgramCalendar({ programs, month, year, today, selectedDay, onS
     const selected = selectedDay === d
 
     const colors: string[] = []
-    for (const e of evts) { if (colors.length < 3) colors.push(progColor(e)) }
+    for (const e of evts) { if (colors.length < maxDots) colors.push(progColor(e)) }
     const extra = evts.length - colors.length
 
     let cls = 'kt-cal-day'
@@ -74,5 +87,13 @@ export function ProgramCalendar({ programs, month, year, today, selectedDay, onS
     )
   }
 
-  return <div className="kt-cal-grid">{cells}</div>
+  // 2026-08-10: kompakt módban a hónap végét üres cellákkal töltjük ki teljes
+  // 6 hétre — így a rács magassága minden hónapban azonos (nincs ugrálás).
+  if (compact) {
+    for (let i = startDow + daysInMonth; i < COMPACT_CELLS; i++) {
+      cells.push(<div key={`t${i}`} className="kt-cal-empty" />)
+    }
+  }
+
+  return <div className={`kt-cal-grid${compact ? ' kt-cal--compact' : ''}`}>{cells}</div>
 }

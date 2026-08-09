@@ -12,7 +12,7 @@
  * vezérelhető (prezenter ablak, QR-párosítás).
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -31,17 +31,73 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import type { PresentationData } from '@/app/(dashboard)/eves-jelentes/prezentacio/actions'
 import { saveGoals, type GoalRow } from '@/app/(dashboard)/eves-jelentes/prezentacio/goals-actions'
+import {
+  buildCategoryConclusions, CONCLUSION_CATEGORIES,
+  type ConclusionCategory, type ConclusionHorizon,
+} from '@/lib/annual-report/conclusions'
 import { SLIDES, slideMissingInfo, PILLAR_LABELS, type PillarId } from './slides'
-import { GOAL_METRICS, metricsForPillar, formatGoalValue } from './goal-metrics'
+import { GOAL_METRICS, metricsForPillar, formatGoalValue, metricByKey } from './goal-metrics'
+import { StaticRenderProvider } from './motion-primitives'
 import {
   buildDeck, sectionOf, DeckRenderer, loadOptions, saveOptions, loadOverrides, saveOverrides,
   DEFAULT_OPTIONS, type DeckItem, type PresentationOptions, type TextOverrides, type CustomSlide,
 } from './deck'
 import {
-  createPresentationSync, generateSessionCode, type PresentationSync,
+  createPresentationSync, generateSessionCode, isSessionCodeFresh, type PresentationSync,
 } from '@/lib/presentation/sync'
 
 const SESSION_STORAGE_KEY = 'kartoteka-presentation-session'
+
+/**
+ * 2026-08-10 (P0 JAVÍTÁS — nyomtatás): a nyomtatási portál a kartoteka.css
+ * szerint `display:none` a képernyőn. Emiatt
+ *   (a) a recharts `ResponsiveContainer` 0×0-t mért → MINDEN diagram ÜRESEN
+ *       nyomtatódott ki („Kor szerinti eloszlás" = fehér doboz), és
+ *   (b) a `useInView`-ra váró számlálók sosem indultak el.
+ * A `window.print()` szinkron, az IntersectionObserver/ResizeObserver viszont
+ * aszinkron, ezért a @media print-beli `display:block` már késő volt.
+ *
+ * Megoldás: a portál nyomtatás előtt KÉPERNYŐN KÍVÜL, de MEGSZERKESZTVE
+ * (`left:-20000px`, valós 297mm szélesség) jelenik meg — így a recharts mér és
+ * rajzol —, nyomtatáskor pedig visszakerül a lap bal felső sarkába. A számokat
+ * a StaticRenderProvider azonnal a végleges értékükre teszi.
+ */
+const PRINT_STAGE_CSS = `
+.kartoteka-print-root.kt-print-stage {
+  display: block !important;
+  position: fixed !important;
+  left: -20000px !important;
+  top: 0 !important;
+  width: 297mm !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  z-index: -1 !important;
+}
+@media print {
+  body.kt-presentation-print .kartoteka-print-root.kt-print-stage {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    right: 0 !important;
+    opacity: 1 !important;
+    z-index: auto !important;
+  }
+  /* A hosszú listák (bevétel-tételek, névsorok, következtetések) ne vágódjanak
+     le: a dia legalább egy teljes A4 lap, de ha kell, továbbfolyik a következőre.
+     A flex-konténer gondoskodik róla, hogy a rövid diák továbbra is KITÖLTSÉK
+     a lapot (a h-full önmagában auto-magasságú szülőnél összeesne). */
+  body.kt-presentation-print .kartoteka-print-slide.kartoteka-print-slide {
+    height: auto !important;
+    min-height: 210mm !important;
+    overflow: visible !important;
+    display: flex !important;
+  }
+  body.kt-presentation-print .kartoteka-print-slide.kartoteka-print-slide > * {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+  }
+}
+`
 
 /**
  * 2026-07-17 (F2-1): a prezentáció-nyomtatás print-CSS-e (kartoteka.css) mostantól
@@ -50,7 +106,7 @@ const SESSION_STORAGE_KEY = 'kartoteka-presentation-session'
  * (pl. nyugta) üres lapra vitte. Az @page A4 landscape szelektorral nem
  * scope-olható, ezért ideiglenes <style>-ként injektáljuk print idejére.
  */
-function printPresentation() {
+function runBrowserPrint(onDone: () => void) {
   const PAGE_STYLE_ID = 'kt-presentation-page-style'
   document.body.classList.add('kt-presentation-print')
   let pageStyle = document.getElementById(PAGE_STYLE_ID)
@@ -60,10 +116,14 @@ function printPresentation() {
     pageStyle.textContent = '@media print { @page { size: A4 landscape; margin: 0; } }'
     document.head.appendChild(pageStyle)
   }
+  let cleaned = false
   const cleanup = () => {
+    if (cleaned) return
+    cleaned = true
     document.body.classList.remove('kt-presentation-print')
     document.getElementById(PAGE_STYLE_ID)?.remove()
     window.removeEventListener('afterprint', cleanup)
+    onDone()
   }
   window.addEventListener('afterprint', cleanup)
   // Tartalék: ha az afterprint nem érkezne meg (egyes webview-k), késleltetett takarítás.
@@ -89,29 +149,64 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
   const [editKey, setEditKey] = useState<string | null>(null)
   const [addPillar, setAddPillar] = useState<PillarId | null>(null)
   const [mounted, setMounted] = useState(false)
+  const [printing, setPrinting] = useState(false)
   const [session, setSession] = useState('')
   const fullscreenContainerRef = useRef<HTMLDivElement>(null)
   const syncRef = useRef<PresentationSync | null>(null)
 
+  // 2026-08-10: a mentések (szövegek, rejtett diák, saját diák) ÉV + GYÜLEKEZET
+  // szerint különülnek el — korábban egyetlen globális kulcs volt, ezért a 2025-re
+  // írt kommentárok a 2024-es számok fölött jelentek meg.
+  const storageScope = useMemo(
+    () => ({ congregationId: initialData.congregation.id, year: initialData.year }),
+    [initialData.congregation.id, initialData.year],
+  )
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setMounted(true)
-      setOverrides(loadOverrides())
-      const loadedOpts = loadOptions()
+      setOverrides(loadOverrides(storageScope))
+      const loadedOpts = loadOptions(storageScope)
       setOptions(loadedOpts)
       if (!loadedOpts.configuredAt) setOptionsDialogOpen(true)
-      // Session-kód (a kivetítő/prezenter csatlakozáshoz)
+      // Session-kód (a kivetítő/prezenter csatlakozáshoz).
+      // 2026-08-10 (biztonsági javítás): a kód mostantól LEJÁR (12 óra) — eddig
+      // egyszer generálódott és örökre megmaradt, így egy régen megosztott
+      // kivetítő-link hónapok múlva is élő csatornát adott (a /eloadas útvonal
+      // nem kér bejelentkezést, és a csatornán a teljes beszámoló megy át).
       let s = ''
-      try { s = localStorage.getItem(SESSION_STORAGE_KEY) || '' } catch { /* ignore */ }
-      if (!s) { s = generateSessionCode(); try { localStorage.setItem(SESSION_STORAGE_KEY, s) } catch { /* ignore */ } }
+      try {
+        const raw = localStorage.getItem(SESSION_STORAGE_KEY) || ''
+        if (raw.startsWith('{')) {
+          const parsed = JSON.parse(raw) as { code?: string; createdAt?: string }
+          if (parsed.code && isSessionCodeFresh(parsed.createdAt)) s = parsed.code
+        }
+        // A régi (időbélyeg nélküli) formátum lejártnak számít → új kód generálódik.
+      } catch { /* ignore */ }
+      if (!s) {
+        s = generateSessionCode()
+        try {
+          localStorage.setItem(
+            SESSION_STORAGE_KEY,
+            JSON.stringify({ code: s, createdAt: new Date().toISOString() }),
+          )
+        } catch { /* ignore */ }
+      }
       setSession(s)
     }, 0)
     return () => clearTimeout(timer)
-  }, [])
+    // A `storageScope` a komponens élettartama alatt állandó (a page.tsx az
+    // év + gyülekezet párra kulcsolja a Studiót, tehát évváltásnál újramountol).
+  }, [storageScope])
 
-  const deck = buildDeck(options)
+  // A deck felépítése az adatot is figyelembe veszi (üres következtetés-dia nem
+  // kerül bele); memoizálva, hogy a szerkesztés közbeni gépelés ne számolja újra.
+  const deck = useMemo(() => buildDeck(options, data), [options, data])
   const deckCount = deck.length
-  const current = deck[Math.min(currentIndex, deckCount - 1)]
+  // 2026-08-10 (P2 JAVÍTÁS): ha MINDEN dia rejtve van, a `deck[Math.min(0,-1)]`
+  // undefined lett — a fejléc „1 / 0"-t írt, a Vetítés gomb pedig némán
+  // visszaesett tervező módba, miközben a böngésző teljes képernyőn maradt.
+  const current = deckCount > 0 ? deck[Math.min(currentIndex, deckCount - 1)] : null
 
   // ── Vezérlő-szinkron: friss értékek ref-ben (a sync-handlerek ezt olvassák) ──
   const liveRef = useRef({ data, overrides, options, index: currentIndex, blackout })
@@ -151,7 +246,7 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
     publishState()
   }, [currentIndex, blackout, session, mounted])
 
-  function persistOptions(next: PresentationOptions) { setOptions(next); saveOptions(next) }
+  function persistOptions(next: PresentationOptions) { setOptions(next); saveOptions(next, storageScope) }
   function updateOptions(next: Partial<PresentationOptions>) {
     persistOptions({ ...options, ...next, configuredAt: new Date().toISOString() })
   }
@@ -180,8 +275,28 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
   function updateOverride(slideKey: string, field: 'title' | 'subtitle' | 'commentary', value: string) {
     const next = { ...overrides, [slideKey]: { ...(overrides[slideKey] || {}), [field]: value } }
     setOverrides(next)
-    saveOverrides(next)
+    saveOverrides(next, storageScope)
   }
+
+  // ── Nyomtatás: előbb kirendereljük a (statikus) diákat, csak utána print ──
+  function startPrint() {
+    if (printing) return
+    setPrinting(true)
+  }
+  useEffect(() => {
+    if (!printing) return
+    // Két képkocka + rövid türelmi idő: ennyi kell, hogy a recharts
+    // ResizeObserver-e lefusson és a diagramok (animáció nélkül) kirajzolódjanak.
+    let cancelled = false
+    const raf = requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (cancelled) return
+      window.setTimeout(() => {
+        if (cancelled) return
+        runBrowserPrint(() => setPrinting(false))
+      }, 400)
+    }))
+    return () => { cancelled = true; cancelAnimationFrame(raf) }
+  }, [printing])
 
   async function handleSaveGoals(rows: GoalRow[]) {
     const result = await saveGoals(data.year, rows)
@@ -240,6 +355,18 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
   if (!mounted) return <div className="p-8 text-center text-sm text-slate-500">Betöltés…</div>
 
   // ─── VETÍTÉS MÓD (helyi fullscreen) ───
+  // 2026-08-10 (P2 JAVÍTÁS): ha MINDEN dia rejtve van, eddig némán visszaesett
+  // tervező módba, miközben a böngésző teljes képernyőn maradt. Most kimondjuk,
+  // mi történt, és van kilépő gomb.
+  if (fullscreen && !current) {
+    return (
+      <div ref={fullscreenContainerRef} className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-slate-950 p-8 text-center text-white">
+        <p className="text-lg font-semibold">Minden dia el van rejtve — nincs mit vetíteni.</p>
+        <p className="max-w-md text-sm text-white/60">Lépj vissza a szerkesztőbe, és a bal oldali lista „Elrejtett” szakaszából hozd vissza a diákat.</p>
+        <Button variant="secondary" onClick={() => void exitFullscreen()}>Vissza a szerkesztőbe</Button>
+      </div>
+    )
+  }
   if (fullscreen && current) {
     return (
       <div ref={fullscreenContainerRef} className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950">
@@ -265,7 +392,7 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
           <AnimatePresence mode="wait" initial={false}>
             <motion.div key={current.key} initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }}
               transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }} className="h-full w-full">
-              <DeckRenderer item={current} data={data} overrides={overrides} projection />
+              <DeckRenderer item={current} data={data} overrides={overrides} options={options} projection />
             </motion.div>
           </AnimatePresence>
         </div>
@@ -308,9 +435,12 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
                     <span className="truncate">{title}</span>
                     {itemMissing && <Info className="size-2.5 shrink-0 text-amber-500" aria-label="Hiányzó adat" />}
                   </button>
-                  <button type="button" onClick={() => toggleHidden(item.key)} title="Elrejtés"
-                    className="shrink-0 rounded p-0.5 text-slate-400 opacity-0 hover:bg-slate-200/60 hover:text-slate-700 group-hover:opacity-100">
-                    <Eye className="size-3" />
+                  {/* 2026-08-10: az ikonok fordítva voltak — az „Elrejtés" gombon
+                      nyitott szem állt. Most a szokásos jelentés: áthúzott szem =
+                      elrejtés, nyitott szem = megjelenítés. */}
+                  <button type="button" onClick={() => toggleHidden(item.key)} title="Elrejtés" aria-label={`${title} elrejtése`}
+                    className="shrink-0 rounded p-0.5 text-slate-400 opacity-0 hover:bg-slate-200/60 hover:text-slate-700 focus-visible:opacity-100 group-hover:opacity-100">
+                    <EyeOff className="size-3" />
                   </button>
                   {item.kind === 'custom' && (
                     <button type="button" onClick={() => deleteCustomSlide(item.key)} title="Törlés"
@@ -333,7 +463,7 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
                 return (
                   <div key={key} className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-slate-400">
                     <span className="flex-1 truncate line-through">{label}</span>
-                    <button type="button" onClick={() => toggleHidden(key)} title="Megjelenítés" className="rounded p-0.5 hover:bg-slate-100 hover:text-slate-700"><EyeOff className="size-3" /></button>
+                    <button type="button" onClick={() => toggleHidden(key)} title="Megjelenítés" aria-label={`${label} megjelenítése`} className="rounded p-0.5 hover:bg-slate-100 hover:text-slate-700"><Eye className="size-3" /></button>
                   </div>
                 )
               })}
@@ -359,51 +489,73 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
         <div className="flex items-center justify-between rounded-[1.2rem] bg-white p-3 shadow-sm">
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={goPrev} disabled={currentIndex === 0}><ChevronLeft className="size-4" /></Button>
-            <span className="text-xs font-medium text-slate-600">{currentIndex + 1} / {deckCount}</span>
-            <Button variant="outline" size="sm" onClick={goNext} disabled={currentIndex === deckCount - 1}><ChevronRight className="size-4" /></Button>
+            <span className="text-xs font-medium text-slate-600 tabular-nums">{deckCount === 0 ? 0 : currentIndex + 1} / {deckCount}</span>
+            <Button variant="outline" size="sm" onClick={goNext} disabled={currentIndex >= deckCount - 1}><ChevronRight className="size-4" /></Button>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={() => setGoalsDialogOpen(true)}><Target className="mr-2 size-4" />Célok</Button>
             <Button variant="outline" size="sm" onClick={() => setOptionsDialogOpen(true)}><Sparkles className="mr-2 size-4" />Beállítások</Button>
-            <Button variant="outline" size="sm" onClick={printPresentation}><Printer className="mr-2 size-4" />Nyomtatás</Button>
+            <Button variant="outline" size="sm" onClick={startPrint} disabled={printing || deckCount === 0}>
+              <Printer className="mr-2 size-4" />{printing ? 'Előkészítés…' : 'Nyomtatás'}
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setCastDialogOpen(true)}><MonitorPlay className="mr-2 size-4" />Kivetítő</Button>
-            <Button size="sm" onClick={() => void enterFullscreen()}><Maximize2 className="mr-2 size-4" />Vetítés</Button>
+            <Button size="sm" onClick={() => void enterFullscreen()} disabled={deckCount === 0}><Maximize2 className="mr-2 size-4" />Vetítés</Button>
           </div>
         </div>
 
-        <div
-          className="group relative aspect-[16/9] w-full cursor-pointer overflow-hidden rounded-[1.4rem] shadow-lg"
-          onClick={() => current && setEditKey(current.key)}
-          title="Kattints a dia szerkesztéséhez"
+        {/* 2026-08-10 (P1 JAVÍTÁS — mobil): az előnézet eddig a dia természetes
+            méretében renderelt egy 16:9-es dobozba, ezért telefonon (375 px) a
+            címek és a diagramok LEVÁGVA látszottak. Most — a kivetítő-fogadóval
+            azonos módon — 1280×720-on rendereljük, és a dobozhoz skálázzuk. */}
+        <ScaledSlidePreview
+          disabled={!current}
+          onOpen={() => current && setEditKey(current.key)}
+          label={current ? 'Dia szerkesztése' : 'Nincs látható dia'}
         >
           <AnimatePresence mode="wait" initial={false}>
             <motion.div key={current?.key} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -14 }}
               transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }} className="h-full w-full">
-              {current && <DeckRenderer item={current} data={data} overrides={overrides} />}
+              {current
+                ? <DeckRenderer item={current} data={data} overrides={overrides} options={options} projection />
+                : (
+                  <div className="flex h-full w-full items-center justify-center bg-slate-50 text-center text-slate-400">
+                    Minden dia el van rejtve — a bal oldali listában hozhatod vissza őket.
+                  </div>
+                )}
             </motion.div>
           </AnimatePresence>
-
-          {current && (
-            <span
-              className="pointer-events-none absolute right-3 top-3 z-20 inline-flex items-center gap-1.5 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 opacity-0 shadow ring-1 ring-slate-200 transition group-hover:opacity-100">
-              <Pencil className="size-3.5" /> Szerkesztés
-            </span>
-          )}
-          {missing && (
-            <button type="button" onClick={() => setEditKey(current!.key)}
-              className="absolute bottom-3 left-1/2 z-20 inline-flex -translate-x-1/2 items-center gap-2 rounded-full bg-amber-500 px-4 py-2 text-xs font-semibold text-white shadow-lg ring-2 ring-amber-200 transition hover:bg-amber-600">
-              <Info className="size-4" /> {missing} — kattints a kézi kitöltéshez
+        </ScaledSlidePreview>
+        {current && (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <button type="button" onClick={() => setEditKey(current.key)}
+              className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
+              <Pencil className="size-3.5" /> Dia szerkesztése
             </button>
-          )}
-        </div>
+            {missing && (
+              <button type="button" onClick={() => setEditKey(current.key)}
+                className="inline-flex items-center gap-2 rounded-full bg-amber-500 px-4 py-2 text-xs font-semibold text-white shadow ring-2 ring-amber-200 transition hover:bg-amber-600">
+                <Info className="size-4" /> {missing} — kattints a kézi kitöltéshez
+              </button>
+            )}
+          </div>
+        )}
 
-        {mounted && typeof window !== 'undefined' && createPortal(
-          <div className="kartoteka-print-root">
-            {deck.map((item, idx) => (
-              <div key={item.key} className="kartoteka-print-slide" style={{ pageBreakAfter: idx < deckCount - 1 ? 'always' : 'auto' }}>
-                <DeckRenderer item={item} data={data} overrides={overrides} projection />
-              </div>
-            ))}
+        {/* 2026-08-10: a nyomtatási portál CSAK nyomtatáskor él. Korábban végig a
+            DOM-ban volt, ezért a szerkesztő ablakban minden billentyűleütés
+            újrarajzolt 25 diát (benne ~7 recharts-fát) — érezhetően akadt a
+            gépelés. Ráadásul a `display:none` miatt a diagramok üresen és a
+            számok 0-val nyomtatódtak; ezt a kt-print-stage + StaticRenderProvider
+            párosa oldja meg. */}
+        {printing && typeof window !== 'undefined' && createPortal(
+          <div className="kartoteka-print-root kt-print-stage">
+            <style href="kt-print-stage" precedence="high">{PRINT_STAGE_CSS}</style>
+            <StaticRenderProvider>
+              {deck.map((item, idx) => (
+                <div key={item.key} className="kartoteka-print-slide" style={{ pageBreakAfter: idx < deckCount - 1 ? 'always' : 'auto' }}>
+                  <DeckRenderer item={item} data={data} overrides={overrides} options={options} projection />
+                </div>
+              ))}
+            </StaticRenderProvider>
           </div>, document.body,
         )}
       </main>
@@ -414,14 +566,20 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
         <div className="space-y-3">
           <div className="space-y-1">
             <Label htmlFor="year-selector">Év</Label>
+            {/* 2026-08-10: az érték ellenőrzötten kerül az URL-be — eddig bármi
+                (pl. „abc”) átment rajta, és a szerveren 500-as hibát okozott. */}
             <Input id="year-selector" type="number" min={2000} max={2999} defaultValue={data.year}
-              onBlur={(e) => { const y = Number(e.target.value); if (y && y !== data.year) router.push(`/eves-jelentes/prezentacio?year=${y}`) }} />
+              onBlur={(e) => {
+                const y = Number.parseInt(e.target.value, 10)
+                if (!Number.isFinite(y) || y < 1900 || y > 2999) { e.target.value = String(data.year); return }
+                if (y !== data.year) router.push(`/eves-jelentes/prezentacio?year=${y}`)
+              }} />
           </div>
           <button type="button" onClick={() => setCastDialogOpen(true)} className="flex w-full items-center gap-2 rounded-[0.8rem] bg-violet-600 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-violet-700">
             <MonitorPlay className="size-4" /> Kivetítő / Prezenter
           </button>
           <div className="rounded-[0.8rem] bg-violet-50 p-3 text-[11px] text-violet-900">
-            <strong>💡 Tipp:</strong> a diára húzva megjelenik a „Szerkesztés” gomb; a szemre kattintva elrejtheted. A „Kivetítő” gombbal másik képernyőre vagy telefonról is vezérelheted.
+            <strong>💡 Tipp:</strong> a diára kattintva szerkesztheted; az áthúzott szem ikonnal elrejtheted. A „Kivetítő” gombbal másik képernyőre vagy telefonról is vezérelheted.
           </div>
         </div>
       </aside>
@@ -433,34 +591,206 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
       <GoalsDialog key={goalsDialogOpen ? 'goals-open' : 'goals-closed'} open={goalsDialogOpen} onClose={() => setGoalsDialogOpen(false)} data={data} onSave={handleSaveGoals} />
 
       {/* Opciók dialog */}
-      <Dialog open={optionsDialogOpen} onOpenChange={setOptionsDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2.5 font-heading text-2xl">
-              <span className="flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-sm"><Sparkles className="size-5" /></span>
-              Prezentáció kiegészítők
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <p className="text-sm text-slate-600">Válaszd ki, melyik automatikus elemző slide-ok kerüljenek be.</p>
-            <label className="flex cursor-pointer items-start gap-3 rounded-[1rem] border border-slate-200 bg-slate-50/50 p-3 hover:bg-slate-50">
-              <input type="checkbox" checked={options.includeConclusions} onChange={(e) => updateOptions({ includeConclusions: e.target.checked })} className="mt-0.5 size-4" />
-              <div className="flex-1">
-                <div className="flex items-center gap-2"><Sparkles className="size-4 text-violet-600" /><span className="font-semibold text-slate-800">Következtetések</span></div>
-                <p className="mt-0.5 text-xs text-slate-600">Automatikus év/év elemzés — pénzügy, anyakönyv, egyházfenntartás.</p>
+      <ConclusionOptionsDialog
+        open={optionsDialogOpen}
+        onOpenChange={setOptionsDialogOpen}
+        data={data}
+        options={options}
+        onChange={updateOptions}
+      />
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────
+// Prezentáció kiegészítők — KATEGÓRIÁNKÉNT kipipálható következtetések
+// (2026-08-10, a lelkészi kérés szerint)
+//
+// Korábban egyetlen „Következtetések" kapcsoló volt: mindent vagy semmit.
+// Mostantól kategóriánként (12 terület) és időtávonként (rövid/hosszú) lehet
+// kérni, és minden sor MEGMUTATJA, van-e hozzá elég adat — ahol nincs, a
+// jelölőnégyzet le van tiltva, az okával együtt („Ehhez több év adata
+// szükséges" / „A leltár még üres").
+// ──────────────────────────────────────────────────────────────
+
+function ConclusionOptionsDialog({
+  open, onOpenChange, data, options, onChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  data: PresentationData
+  options: PresentationOptions
+  onChange: (patch: Partial<PresentationOptions>) => void
+}) {
+  // A teljes katalógus kiértékelése — így látszik soronként, mi áll rendelkezésre.
+  const status = useMemo(() => {
+    const all = buildCategoryConclusions(data, {
+      goalActual: (metrika) => metricByKey(metrika)?.actual(data) ?? null,
+    })
+    return new Map(all.map((c) => [c.category, c]))
+  }, [data])
+
+  const selected = options.conclusionCategories
+  const horizons = options.conclusionHorizons
+
+  function toggleCategory(key: ConclusionCategory, on: boolean) {
+    onChange({
+      conclusionCategories: on ? [...new Set([...selected, key])] : selected.filter((c) => c !== key),
+    })
+  }
+  function toggleHorizon(key: ConclusionHorizon, on: boolean) {
+    onChange({ conclusionHorizons: on ? [...new Set([...horizons, key])] : horizons.filter((h) => h !== key) })
+  }
+  const availableKeys = CONCLUSION_CATEGORIES.filter((c) => status.get(c.key)?.available).map((c) => c.key)
+  const allOn = availableKeys.every((k) => selected.includes(k))
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2.5 font-heading text-2xl">
+            <span className="flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-sm"><Sparkles className="size-5" /></span>
+            Prezentáció kiegészítők
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">Válaszd ki, mely automatikus elemző diák kerüljenek a beszámolóba.</p>
+
+          {/* Mester-kapcsolók */}
+          <label className="flex cursor-pointer items-start gap-3 rounded-[1rem] border border-slate-200 bg-slate-50/50 p-3 hover:bg-slate-50">
+            <input type="checkbox" checked={options.includeConclusions} onChange={(e) => onChange({ includeConclusions: e.target.checked })} className="mt-0.5 size-4" />
+            <div className="flex-1">
+              <div className="flex items-center gap-2"><Sparkles className="size-4 text-violet-600" /><span className="font-semibold text-slate-800">Következtetések</span></div>
+              <p className="mt-0.5 text-xs text-slate-600">Pillérenként egy dia: kategóriánként rövid és hosszú távú tanulság, mindig a mögötte lévő számokkal.</p>
+            </div>
+          </label>
+
+          {options.includeConclusions && (
+            <div className="space-y-3 rounded-[1rem] border border-violet-200 bg-violet-50/40 p-3">
+              {/* Időtáv */}
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs font-bold uppercase tracking-wider text-violet-700">Időtáv</span>
+                <label className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-slate-700">
+                  <input type="checkbox" className="size-4" checked={horizons.includes('short')} onChange={(e) => toggleHorizon('short', e.target.checked)} />
+                  Rövid táv <span className="text-xs text-slate-500">(mit jelent most)</span>
+                </label>
+                <label className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-slate-700">
+                  <input type="checkbox" className="size-4" checked={horizons.includes('long')} onChange={(e) => toggleHorizon('long', e.target.checked)} />
+                  Hosszú táv <span className="text-xs text-slate-500">(mit vetít előre)</span>
+                </label>
               </div>
-            </label>
-            <label className="flex cursor-pointer items-start gap-3 rounded-[1rem] border border-slate-200 bg-slate-50/50 p-3 hover:bg-slate-50">
-              <input type="checkbox" checked={options.includeForecast} onChange={(e) => updateOptions({ includeForecast: e.target.checked })} className="mt-0.5 size-4" />
-              <div className="flex-1">
-                <div className="flex items-center gap-2"><TrendingUp className="size-4 text-emerald-600" /><span className="font-semibold text-slate-800">5 éves előrejelzés</span></div>
-                <p className="mt-0.5 text-xs text-slate-600">Lineáris trend-becslés a következő 5 évre (bevétel, kiadás).</p>
+
+              <div className="flex items-center justify-between border-t border-violet-200/70 pt-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-violet-700">Kategóriák</span>
+                <button
+                  type="button"
+                  onClick={() => onChange({ conclusionCategories: allOn ? [] : availableKeys })}
+                  className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-violet-700 ring-1 ring-violet-200 hover:bg-violet-100"
+                >
+                  {allOn ? 'Egyik sem' : 'Mind kijelöl'}
+                </button>
               </div>
-            </label>
-          </div>
-          <div className="flex justify-end gap-2 border-t pt-3"><Button onClick={() => setOptionsDialogOpen(false)}>Rendben</Button></div>
-        </DialogContent>
-      </Dialog>
+
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                {CONCLUSION_CATEGORIES.map((cat) => {
+                  const st = status.get(cat.key)
+                  const disabled = !st?.available
+                  return (
+                    <label
+                      key={cat.key}
+                      className={cn(
+                        'flex items-start gap-2 rounded-[0.8rem] border bg-white p-2.5',
+                        disabled ? 'cursor-not-allowed border-slate-100 opacity-60' : 'cursor-pointer border-slate-200 hover:bg-slate-50',
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 size-4 shrink-0"
+                        disabled={disabled}
+                        checked={!disabled && selected.includes(cat.key)}
+                        onChange={(e) => toggleCategory(cat.key, e.target.checked)}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[13px] font-semibold text-slate-800">{cat.label}</span>
+                          <span className="rounded-full bg-slate-100 px-1.5 py-px text-[9px] font-bold uppercase tracking-wider text-slate-500">
+                            {PILLAR_LABELS[cat.pillar as PillarId]}
+                          </span>
+                        </span>
+                        <span className="mt-0.5 block text-[11px] leading-snug text-slate-500">
+                          {disabled ? (st?.note || 'Ehhez nincs elég rögzített adat.') : cat.hint}
+                        </span>
+                        {!disabled && st?.long?.quality === 'insufficient' && (
+                          <span className="mt-0.5 block text-[11px] leading-snug text-amber-700">
+                            Hosszú távú trendhez több év adata szükséges — csak a rövid távú tanulság jelenik meg.
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-[1rem] border border-slate-200 bg-slate-50/50 p-3 hover:bg-slate-50">
+            <input type="checkbox" checked={options.includeForecast} onChange={(e) => onChange({ includeForecast: e.target.checked })} className="mt-0.5 size-4" />
+            <div className="flex-1">
+              <div className="flex items-center gap-2"><TrendingUp className="size-4 text-emerald-600" /><span className="font-semibold text-slate-800">5 éves előrejelzés</span></div>
+              <p className="mt-0.5 text-xs text-slate-600">Lineáris trend-becslés a következő 5 évre (bevétel, kiadás). Legalább 3 könyvelt év kell hozzá.</p>
+            </div>
+          </label>
+        </div>
+        <div className="flex justify-end gap-2 border-t pt-3"><Button onClick={() => onOpenChange(false)}>Rendben</Button></div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────
+// Dia-előnézet — valós 1280×720-as render, a dobozhoz skálázva (2026-08-10)
+// ──────────────────────────────────────────────────────────────
+
+function ScaledSlidePreview({
+  children, onOpen, disabled, label,
+}: {
+  children: React.ReactNode
+  onOpen: () => void
+  disabled?: boolean
+  label: string
+}) {
+  const boxRef = useRef<HTMLDivElement>(null)
+  const [scale, setScale] = useState(0)
+  useEffect(() => {
+    const el = boxRef.current
+    if (!el) return
+    const update = () => setScale(el.clientWidth / 1280)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  return (
+    <div ref={boxRef} className="group relative aspect-[16/9] w-full overflow-hidden rounded-[1.4rem] bg-white shadow-lg">
+      <div
+        aria-hidden
+        style={{ position: 'absolute', top: 0, left: 0, width: 1280, height: 720, transform: `scale(${scale})`, transformOrigin: 'top left' }}
+      >
+        {children}
+      </div>
+      {/* Billentyűzetről is elérhető szerkesztés (korábban sima div onClick volt,
+          fókusz és aria-felirat nélkül). */}
+      <button
+        type="button"
+        onClick={onOpen}
+        disabled={disabled}
+        aria-label={label}
+        title="Kattints a dia szerkesztéséhez"
+        className="absolute inset-0 z-10 cursor-pointer rounded-[1.4rem] focus:outline-none focus-visible:ring-4 focus-visible:ring-violet-400/70 disabled:cursor-default"
+      />
+      <span className="pointer-events-none absolute right-3 top-3 z-20 inline-flex items-center gap-1.5 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 opacity-0 shadow ring-1 ring-slate-200 transition group-hover:opacity-100">
+        <Pencil className="size-3.5" /> Szerkesztés
+      </span>
     </div>
   )
 }
@@ -702,12 +1032,18 @@ function GoalsDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2.5 font-heading text-2xl">
             <span className="flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 to-emerald-600 text-white shadow-sm"><Target className="size-5" /></span>
-            Jövőbeli célok — {data.year}
+            Célok — {data.year}
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
+          {/* 2026-08-10 (P2 JAVÍTÁS): a szöveg „a következő évre" kért célt, a
+              mentés viszont a TÁRGYÉVHEZ (data.year) írta, és a pillér-diák a
+              tárgyév TÉNYÉVEL vetették össze — a lelkész jövő évi célja azonnal
+              „nem teljesült"-ként jelent meg. A tárolás szemantikája a helyes
+              (év szerinti cél); most a szöveg mondja ezt. */}
           <p className="text-sm text-slate-600">
-            Adj meg <strong>számszerű célokat</strong> a következő évre. A rendszer a pillér-bevezető diákon a <strong>cél melletti tényadatot</strong> is megjeleníti. (A szöveges célokat a pillér diáján a „Szerkesztés” gombbal írhatod.)
+            Adj meg <strong>számszerű célokat a(z) {data.year}. évre</strong> — a pillér-bevezető diákon a cél mellett a tényadat is megjelenik.
+            A következő év céljaihoz állítsd át az <strong>Év</strong> mezőt, és ott töltsd ki. (A szöveges célokat a pillér diáján a „Szerkesztés” gombbal írhatod.)
           </p>
           {([1, 2, 3] as const).map((p) => (
             <div key={p} className="rounded-2xl border border-slate-200 p-3">

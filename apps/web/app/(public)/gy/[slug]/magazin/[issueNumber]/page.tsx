@@ -4,6 +4,7 @@ import Image from 'next/image'
 import { loadPublicSiteBySlug } from '@/lib/public-site/site-loader'
 import { loadPublishedMagazine, loadPublishedIssue } from '@/lib/public-site/magazine-loader'
 import { shouldBypassMagazineImageOptimization } from '@/lib/public-site/magazine-image'
+import { PublicPageHero } from '@/components/public/public-page-hero'
 import { Download, ArrowLeft, Newspaper } from 'lucide-react'
 
 function formatDate(dateStr: string | null): string {
@@ -39,18 +40,28 @@ export default async function IssueDetailPage({
   if (!issue) notFound()
 
   return (
-    <section className="public-section">
-      <div className="public-container">
-        {/* Back link */}
+    <>
+      {/* 2026-08-10: ez volt az EGYETLEN aloldal page hero nélkül — a
+          látogató egy fejléc nélküli, „kopár" oldalra érkezett. */}
+      <PublicPageHero
+        eyebrow={`${magazineData.magazine.title} · ${issue.issue_number}`}
+        title={issue.title || `Lapszám ${issue.issue_number}`}
+        lead={issue.published_at ? `Megjelent: ${formatDate(issue.published_at)}` : null}
+      >
         <Link
           href={`/gy/${site.slug}/magazin`}
-          className="group mb-8 inline-flex min-h-11 items-center gap-1.5 text-sm font-medium public-anim-fade-up"
-          style={{ color: 'var(--public-primary-on-surface)' }}
+          className="group mt-7 inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-white/85 hover:text-white"
         >
-          <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" />
+          <ArrowLeft
+            className="size-4 transition-transform group-hover:-translate-x-0.5"
+            aria-hidden="true"
+          />
           Vissza a magazin archívumhoz
         </Link>
+      </PublicPageHero>
 
+      <section className="public-section">
+        <div className="public-container">
         <article className="grid gap-10 lg:gap-16 md:grid-cols-[minmax(240px,360px)_1fr] items-start max-w-5xl mx-auto">
           {/* Cover */}
           <div className="mx-auto w-full public-anim-fade-up">
@@ -104,29 +115,15 @@ export default async function IssueDetailPage({
 
           {/* Tartalom */}
           <div className="public-anim-fade-up public-delay-100">
-            <div
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-widest mb-5"
-              style={{
-                backgroundColor: 'color-mix(in srgb, var(--public-accent) 15%, transparent)',
-                color: 'var(--public-accent-on-surface)',
-              }}
-            >
-              <Newspaper className="w-3.5 h-3.5" />
+            <p className="public-eyebrow mb-3">
               {magazineData.magazine.title} · {issue.issue_number}
-            </div>
+            </p>
 
-            <h1 className="mb-4" style={{ color: 'var(--public-ink)' }}>
+            <h2 className="mb-4" style={{ color: 'var(--public-ink)' }}>
               {issue.title || `Lapszám ${issue.issue_number}`}
-            </h1>
+            </h2>
 
-            {issue.published_at && (
-              <div
-                className="mb-6 text-sm font-medium"
-                style={{ color: 'var(--public-muted)' }}
-              >
-                Megjelent: {formatDate(issue.published_at)}
-              </div>
-            )}
+            <span aria-hidden="true" className="public-rule-start public-rule mb-6" />
 
             {issue.notes && (
               <div
@@ -154,7 +151,8 @@ export default async function IssueDetailPage({
             )}
           </div>
         </article>
-      </div>
-    </section>
+        </div>
+      </section>
+    </>
   )
 }

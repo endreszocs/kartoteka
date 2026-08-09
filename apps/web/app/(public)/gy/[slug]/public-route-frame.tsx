@@ -1,6 +1,6 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import { Suspense, type ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
 
 import { PublicThemeRoot } from '@/components/public/public-theme-root'
@@ -14,6 +14,11 @@ interface PublicRouteFrameProps {
   publicFooter: ReactNode
   publicHeader: ReactNode
   publicThemeBase: ReactNode
+  /**
+   * 2026-08-10 — betöltés közben megjelenő, gyülekezeti címeres képernyő.
+   * A layout adja át, mert csak ott ismerjük a `crest_image_url`-t.
+   */
+  publicFallback?: ReactNode
 }
 
 export function PublicRouteFrame({
@@ -24,6 +29,7 @@ export function PublicRouteFrame({
   publicFooter,
   publicHeader,
   publicThemeBase,
+  publicFallback = null,
 }: PublicRouteFrameProps) {
   const pathname = usePathname()
   const isMemberDashboard =
@@ -38,7 +44,7 @@ export function PublicRouteFrame({
     return (
       <PublicThemeRoot presetKey={presetKey}>
         {publicThemeBase}
-        {children}
+        <Suspense fallback={publicFallback}>{children}</Suspense>
       </PublicThemeRoot>
     )
   }
@@ -52,7 +58,7 @@ export function PublicRouteFrame({
         tabIndex={-1}
         className="flex-1 focus:outline-none"
       >
-        {children}
+        <Suspense fallback={publicFallback}>{children}</Suspense>
       </main>
       {publicFooter}
     </PublicThemeRoot>

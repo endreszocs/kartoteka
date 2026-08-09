@@ -14,7 +14,7 @@
  *   - Sosem animálunk color-t (GPU-nem-barát) — transform + opacity
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import {
   motion,
   useInView,
@@ -27,6 +27,32 @@ import {
 } from 'framer-motion'
 
 import { cn } from '@/lib/utils'
+
+// ──────────────────────────────────────────────────────────────
+// Statikus (nyomtatási) render — 2026-08-10, P0 JAVÍTÁS
+// ──────────────────────────────────────────────────────────────
+
+/**
+ * A nyomtatási portál diáit ezzel a kontextussal rendereljük.
+ *
+ * MIÉRT: az `AnimatedNumber` és a `ProgressRing` `useInView`-ra (Intersection-
+ * Observer) várt, mielőtt a 0-ról a célértékre pörgött volna. A nyomtatási
+ * portál viszont a képernyőn KÍVÜL van, oda soha nem érkezik „intersection",
+ * ezért a kinyomtatott A4 lapokon MINDEN kiemelt szám 0 maradt („Bevételek
+ * 0 RON", „Lélekszám 0"). Statikus módban nincs animáció: az első rendernél
+ * a végleges érték jelenik meg — a diagramokat pedig a slides.tsx kapcsolja
+ * `isAnimationActive={false}`-ra ugyanezen kontextus alapján.
+ */
+const StaticRenderContext = createContext(false)
+
+export function StaticRenderProvider({ children }: { children: React.ReactNode }) {
+  return <StaticRenderContext.Provider value>{children}</StaticRenderContext.Provider>
+}
+
+/** true → animáció nélkül, azonnal a végleges állapotot rendereljük. */
+export function useStaticRender(): boolean {
+  return useContext(StaticRenderContext)
+}
 
 // ──────────────────────────────────────────────────────────────
 // Animation variants — újrafelhasználható belépések
@@ -134,7 +160,10 @@ export function AnimatedNumber({
 }: AnimatedNumberProps) {
   const ref = useRef<HTMLSpanElement>(null)
   const inView = useInView(ref, { once: true, margin: '-10% 0%' })
-  const reducedMotion = useReducedMotion()
+  const staticRender = useStaticRender()
+  // 2026-08-10: statikus (nyomtatási) módban ugyanaz az ág fut, mint reduced
+  // motion esetén — enélkül a nyomtatott lapokon minden szám 0 maradt.
+  const reducedMotion = useReducedMotion() || staticRender
   const motionValue = useMotionValue(0)
   const spring = useSpring(motionValue, { stiffness, damping })
 
@@ -188,7 +217,9 @@ interface AnimatedBarProps {
 }
 
 export function AnimatedBar({ percent, color, className, delay = 0, heightClass = 'h-5' }: AnimatedBarProps) {
-  const reducedMotion = useReducedMotion()
+  const prefersReduced = useReducedMotion()
+  const staticRender = useStaticRender()
+  const reducedMotion = prefersReduced || staticRender
   return (
     <div className={cn('h-full overflow-hidden rounded-md bg-slate-100', className)}>
       <motion.div
@@ -250,7 +281,9 @@ export function GradientOrbs({
     sky: { a: 'bg-sky-300/18', b: 'bg-indigo-200/14' },
   }
   const c = orbColors[variant]
-  const reducedMotion = useReducedMotion()
+  const prefersReduced = useReducedMotion()
+  const staticRender = useStaticRender()
+  const reducedMotion = prefersReduced || staticRender
 
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -296,7 +329,10 @@ export function ProgressRing({
   trackColor = '#e2e8f0',
   children,
 }: ProgressRingProps) {
-  const reducedMotion = useReducedMotion()
+  const prefersReduced = useReducedMotion()
+  const staticRender = useStaticRender()
+  // 2026-08-10 (P0): nyomtatásban a kör „0%"-on maradt (nincs intersection).
+  const reducedMotion = prefersReduced || staticRender
   const ref = useRef<SVGSVGElement>(null)
   const inView = useInView(ref, { once: true, margin: '-10%' })
   const radius = (size - strokeWidth) / 2
