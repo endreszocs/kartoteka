@@ -2,7 +2,9 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
-import { initFinance } from '@/app/(dashboard)/penzugy/actions'
+import { initFinance, listFinanceYears } from '@/app/(dashboard)/penzugy/actions'
+import { inventoryKategoriaForExpenseKod } from '@/lib/constants/finance'
+import type { ExpensePickerResult, ExpensePickerRow } from '@/lib/inventory/expense-picker-types'
 import { inventoryItemSchema, type InventoryItemInput } from '@/lib/validations/inventory'
 import {
   INVENTORY_CATEGORY_PREFIXES,
@@ -46,6 +48,7 @@ function normalizeInventoryRow(row: InventoryRow): InventoryItem {
     torles_datuma: (row.torles_datuma as string | null) || null,
     torles_bizonylat: (row.torles_bizonylat as string | null) || null,
     torles_indoklasa: (row.torles_indoklasa as string | null) || null,
+    penzugy_xkey: (row.penzugy_xkey as string | null) || null,
     szerzo: (row.szerzo as string | null) || null,
     konyv_isbn: (row.konyv_isbn as string | null) || null,
     konyv_kiado: (row.konyv_kiado as string | null) || null,
@@ -119,6 +122,10 @@ export async function saveInventoryItem(data: InventoryItemInput) {
   const d = parsed.data
   const leltariSzam = d.id ? undefined : await generateNextLeltariSzam(d.kategoria)
   const serializedCategory = serializeInventoryCategory(d.kategoria)
+  // 2026-08-09: kapcsolt kiadás (penzugy_xkey) — CSAK akkor nyúlunk hozzá, ha a
+  // hívó ténylegesen küldte a mezőt (undefined = régi hívó → a meglévő link marad).
+  const penzugyXkeyPatch =
+    d.penzugy_xkey !== undefined ? { penzugy_xkey: d.penzugy_xkey || null } : {}
   // Az új (kanonikus DB séma) szerinti mezőnevek. A `vonalkod` mező NEM létezik
   // a `leltar_tetelek` táblában — ezért nem tesszük be a payload-ba.
   const record: Record<string, unknown> = {
@@ -130,6 +137,7 @@ export async function saveInventoryItem(data: InventoryItemInput) {
     mennyiseg: d.mennyiseg ?? 1,
     mertekegyseg: d.mertekegyseg || 'db',
     beszerzes_bizonylat: d.beszerzes_bizonylat || null,
+    ...penzugyXkeyPatch,
   }
   // Backward-compat fallback (régi mezőnevek), ha az új séma még nincs migrálva.
   const modernFallback: Record<string, unknown> = {
@@ -141,6 +149,7 @@ export async function saveInventoryItem(data: InventoryItemInput) {
     mennyiseg: d.mennyiseg ?? 1,
     mertekegyseg: d.mertekegyseg || 'db',
     beszerzes_bizonylat: d.beszerzes_bizonylat || null,
+    ...penzugyXkeyPatch,
   }
   if (!d.id) record.leltari_szam = leltariSzam
   if (!d.id) modernFallback.leltari_szam = leltariSzam
@@ -177,6 +186,107 @@ export async function saveInventoryItem(data: InventoryItemInput) {
   }
   revalidatePath('/leltar')
   return { success: true }
+}
+
+/**
+ * 2026-08-09: „Kikeresés a könyvelésből" — a leltár-dialógus kiadás-választója.
+ *
+ * A gyülekezet adott évi kiadásait adja vissza (stornó és belső mozgás nélkül),
+ * megjelölve (1) a leltár-köteles jogcíműeket (205.01 → alapeszköz, 201.12 →
+ * csekély; ezek kerülnek a lista elejére) és (2) hogy van-e már hozzájuk
+ * kapcsolt leltári tétel (leltar_tetelek.penzugy_xkey egyezés). Minden olvasás
+ * LAPOZOTT (a PostgREST 1000 soros néma plafonja ismert hibaosztály).
+ */
+export async function listExpensesForInventoryPicker(year: number): Promise<ExpensePickerResult> {
+  const { supabase, congId } = await getCongId()
+  if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  const PAGE = 1000
+  const fetchPaged = async <T,>(build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>) => {
+    const all: T[] = []
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await build(from, from + PAGE - 1)
+      if (error) throw new Error(error.message)
+      const rows = data || []
+      all.push(...rows)
+      if (rows.length < PAGE) break
+    }
+    return all
+  }
+
+  try {
+    const [kiadasRows, kiaCelRes, celRes, linkedRows, years] = await Promise.all([
+      fetchPaged<Record<string, unknown>>((from, to) =>
+        supabase
+          .from('kiadas')
+          .select('id, xkey, datum, osszeg, atvevo, iratszam, nyugta, irattipus, megjegyzes, id_kiadascel, stornozott, belso_mozgas_xkey')
+          .eq('congregation_id', congId)
+          .eq('deleted', false)
+          .gte('datum', `${year}-01-01`)
+          .lte('datum', `${year}-12-31`)
+          .order('datum', { ascending: false })
+          .order('id', { ascending: false })
+          .range(from, to),
+      ),
+      supabase.from('kiadascel').select('id, id_szamadasicel'),
+      supabase.from('szamadasicel').select('id, nev'),
+      fetchPaged<{ penzugy_xkey: string | null }>((from, to) =>
+        supabase
+          .from('leltar_tetelek')
+          .select('penzugy_xkey')
+          .eq('congregation_id', congId)
+          // A törölt leltári tétel NEM foglalja a kiadást (újra kikereshető);
+          // determinisztikus lapozáshoz order kötelező (range önmagában instabil).
+          .eq('is_deleted', false)
+          .not('penzugy_xkey', 'is', null)
+          .order('id', { ascending: true })
+          .range(from, to),
+      ),
+      listFinanceYears(),
+    ])
+
+    const kodById = new Map<number, string>()
+    ;((kiaCelRes.data || []) as Array<{ id: number; id_szamadasicel: string | null }>).forEach((c) => {
+      if (c.id_szamadasicel) kodById.set(Number(c.id), String(c.id_szamadasicel))
+    })
+    const nevByKod = new Map<string, string>()
+    ;((celRes.data || []) as Array<{ id: string; nev: string | null }>).forEach((c) => {
+      if (c.nev) nevByKod.set(String(c.id), c.nev)
+    })
+    const linkedXkeys = new Set(linkedRows.map((r) => String(r.penzugy_xkey)))
+
+    const rows: ExpensePickerRow[] = kiadasRows
+      .filter((r) => !r.stornozott && !r.belso_mozgas_xkey && r.xkey)
+      .map((r) => {
+        const kod = kodById.get(Number(r.id_kiadascel)) ?? null
+        return {
+          id: Number(r.id),
+          xkey: String(r.xkey),
+          datum: String(r.datum || '').slice(0, 10),
+          osszeg: Number(r.osszeg) || 0,
+          atvevo: (r.atvevo as string | null) || null,
+          iratszam: (r.iratszam as string | null) || null,
+          nyugta: (r.nyugta as string | null) || null,
+          irattipus: (r.irattipus as string | null) || null,
+          megjegyzes: (r.megjegyzes as string | null) || null,
+          kod,
+          kodNev: kod ? nevByKod.get(kod) ?? null : null,
+          invKategoria: inventoryKategoriaForExpenseKod(kod),
+          linked: linkedXkeys.has(String(r.xkey)),
+        }
+      })
+      // Leltár-köteles jogcíműek elöl, azon belül dátum szerint csökkenő.
+      .sort((a, b) => {
+        const ai = a.invKategoria ? 0 : 1
+        const bi = b.invKategoria ? 0 : 1
+        if (ai !== bi) return ai - bi
+        return b.datum.localeCompare(a.datum)
+      })
+
+    return { rows, years }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'A kiadások betöltése nem sikerült.' }
+  }
 }
 
 export async function deleteInventoryItem(id: string) {

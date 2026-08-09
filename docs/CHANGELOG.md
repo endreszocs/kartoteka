@@ -23,6 +23,30 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-09] — Igehirdetési terv énekkeresővel és konkordanciával, meghívók, megújult profilválasztó
+<!-- key: 2026-08-09-igeterv-meghivo-profil-teszt -->
+<!-- category: feature -->
+<!-- targets: admin, lelkesz, gondnok -->
+<!-- version: web v0.9.157 -->
+
+### ✨ Újdonságok
+
+- **Igehirdetési terv a munkanaplóban.** Új fül: előre tervezheted az alkalmakat naptár- vagy lista-nézetben — dátum + napszak, alkalom (ünnepnapokra a református liturgikus naptár javasol nevet), cím/téma, textus és lekció (igehely-ellenőrzéssel), énekek, szolgálattevő. Kérhetsz **emlékeztetőt** (app-értesítés 1–7 nappal előtte), az alkalom megjelenhet a **gyülekezeti naptárban és a Google Naptár-feedben** is, megtartás után pedig egy kattintással **munkanapló-bejegyzés** készül belőle. *(Ehhez egyszer le kell futtatni a 2026-08-09-igehirdetesi-terv.sql migrációt.)*
+- **Énekkereső — teljes szövegű keresés.** Az Erdélyi Református Énekeskönyv mind a 513 énekének teljes szövegében kereshetsz (ékezetek nélkül is): a találatnál látszik az egyező versszak, megnyitható a teljes ének, és egy gombbal a tervbe emelhető.
+- **Konkordancia.** Bibliai szó-keresés és igehely-lekérés a szentiras.eu-n keresztül (RÚF 2014 / Károli), szövetségre szűkítéssel — a talált igehely egy kattintással textusként beemelhető. *(Ingyenes szentiras.eu API-kulcs kell hozzá: SZENTIRAS_API_KEY környezeti változó — nélküle a kereső útmutatót mutat.)*
+- **Meghívó küldése az admin felületről.** A Felhasználók oldalon új „Meghívó küldése" gomb: e-mail-cím (+ opcionális név és személyes üzenet) alapján igényes, arculatos meghívólevél megy ki, élő előnézettel a dialógusban. A meghívott a hivatalos hozzáférés-kérési oldalra érkezik.
+- **Megújult profilválasztó.** A bejelentkezés utáni profilválasztó szintek szerint csoportosít (Gyülekezeti / Egyházmegyei / Egyházkerületi / Rendszergazdai), a rendszer témáját követi (sötét módban is), és mobilon is kényelmes.
+- **Leltár: „Kikeresés a könyvelésből".** Az új leltári tétel ablakban a már rögzített kiadások közül választhatsz (elöl a leltár-köteles 205.01/201.12 jogcíműek): az összeg, dátum és iratszám előtöltődik, és a mentés a két tételt össze is kapcsolja. A már leltárba vett kiadások jelölve.
+- **Teszt gyülekezet valósághű próba-adatokkal.** Három új SQL (ellenőrzés → ürítés → fiktív feltöltés: 48 kitalált tag 15 családban, két évnyi pénzügy, leltár, munkanapló, programok) + kész **import-tesztfájlok** a tagnyilvántartás- és pénzügy-importerekhez (`migration-docs/teszt-adatok/`, magyar útmutatóval) — ezekkel a lelkészek biztonságosan kipróbálhatják a rendszert.
+
+### 🐛 Javítások (importerek)
+
+- **Iktató-import más gyülekezetbe:** a sorszám-pointer eddig a saját gyülekezetre szinkronizált a cél helyett — a következő kézi iktatás ütköző iktatószámot kaphatott volna.
+- **Iktató-import:** a „Küldő keltezése" és „Hivatkozás címe" oszlopok eddig némán elvesztek — mostantól a megjegyzésbe kerülnek, ahogy a sablon-súgó ígéri.
+- **Import „Meghalt: F" csapda:** az önálló F betű eddig minden igen/nem oszlopban „igen"-t jelentett (a Férfi-oszlop kedvéért) — így a Meghalt: F elhunytnak jelölte a tagot. A F/N mostantól csak a Nem-oszlopban jelent férfit/nőt.
+
+---
+
 ## [2026-08-09] — Tag-egyeztetés admin felület, leltári fişă élő előnézettel, pénzügy→leltár híd
 <!-- key: 2026-08-09-admin-egyeztetes-leltar-fisa-hid -->
 <!-- category: feature -->

@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Boxes, CircleHelp, FileText, Printer, Scale, X } from 'lucide-react'
+import { Boxes, CircleHelp, FileSearch, FileText, Link2, Printer, Scale, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import { Button } from '@/components/ui/button'
@@ -24,9 +24,11 @@ import {
   finalizeLeltar,
   getInventoryItems,
   getLeltarFinalizationStatus,
+  listExpensesForInventoryPicker,
   requestLeltarUnlock,
   saveInventoryItem,
 } from '@/app/(dashboard)/leltar/actions'
+import type { ExpensePickerRow } from '@/lib/inventory/expense-picker-types'
 import { submitDocument } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
 import {
   INVENTORY_AMORTIZATION_CATALOG,
@@ -91,6 +93,16 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
   // kisebb kijelzőn gombbal nyíló réteg) — a person-card-print (PR-17) mintája.
   const [previewHtml, setPreviewHtml] = useState('')
   const [previewOverlayOpen, setPreviewOverlayOpen] = useState(false)
+  // 2026-08-09: „Kikeresés a könyvelésből" — kapcsolt kiadás (penzugy_xkey) +
+  // a kiadás-választó állapota.
+  const [fPenzugyXkey, setFPenzugyXkey] = useState('')
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerRows, setPickerRows] = useState<ExpensePickerRow[]>([])
+  const [pickerYears, setPickerYears] = useState<number[]>([])
+  const [pickerYear, setPickerYear] = useState<number>(() => new Date().getFullYear())
+  const [pickerLoading, setPickerLoading] = useState(false)
+  const [pickerQuery, setPickerQuery] = useState('')
+  const [pickerShowLinked, setPickerShowLinked] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -297,6 +309,7 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
       setFBizonylat(item.beszerzes_bizonylat || '')
       setFKatalogusKod(item.katalogus_kod || '')
       setFHasznalatiIdo(item.hasznalati_ido || '')
+      setFPenzugyXkey(item.penzugy_xkey || '')
     } else {
       setEditItem(null)
       setFMegnevezes('')
@@ -311,10 +324,66 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
       setFBizonylat('')
       setFKatalogusKod('')
       setFHasznalatiIdo('')
+      setFPenzugyXkey('')
     }
 
     setDialogOpen(true)
   }
+
+  // ── 2026-08-09: „Kikeresés a könyvelésből" ────────────────────────────────
+  async function loadPickerRows(year: number) {
+    setPickerLoading(true)
+    const res = await listExpensesForInventoryPicker(year)
+    if (res.error) {
+      toast.error(res.error)
+    } else {
+      setPickerRows(res.rows || [])
+      if (res.years?.length) setPickerYears(res.years)
+    }
+    setPickerLoading(false)
+  }
+
+  function openExpensePicker() {
+    setPickerQuery('')
+    setPickerOpen(true)
+    void loadPickerRows(pickerYear)
+  }
+
+  function applyPickedExpense(row: ExpensePickerRow) {
+    setFErtek(row.osszeg)
+    if (row.datum) setFDatum(row.datum)
+    setFBizonylat(row.iratszam || row.nyugta || '')
+    setFPenzugyXkey(row.xkey)
+    // Kategória-javaslat csak akkor, ha a jogcím leltár-köteles.
+    if (row.invKategoria) {
+      setFKategoria(row.invKategoria)
+      if (row.invKategoria !== 'alapeszkoz') {
+        setFKatalogusKod('')
+        setFHasznalatiIdo('')
+      }
+    }
+    if (!fMegnevezes.trim() && row.megjegyzes?.trim()) setFMegnevezes(row.megjegyzes.trim())
+    if (!fMegj.trim() && row.atvevo?.trim()) setFMegj(`Szállító: ${row.atvevo.trim()}`)
+    setPickerOpen(false)
+    toast.success('A kiadás adatai betöltve — a mentés össze is kapcsolja a két tételt.')
+  }
+
+  const filteredPickerRows = useMemo(() => {
+    const q = pickerQuery
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .trim()
+    return pickerRows.filter(row => {
+      if (!pickerShowLinked && row.linked) return false
+      if (!q) return true
+      return `${row.atvevo || ''} ${row.iratszam || ''} ${row.nyugta || ''} ${row.megjegyzes || ''} ${row.kodNev || ''} ${row.kod || ''} ${row.osszeg}`
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .toLowerCase()
+        .includes(q)
+    })
+  }, [pickerRows, pickerQuery, pickerShowLinked])
 
   function openAmortizationDialog(item: InventoryItem) {
     setAmortizationItem(item)
@@ -347,6 +416,7 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
       beszerzes_bizonylat: fBizonylat || null,
       katalogus_kod: fKategoria === 'alapeszkoz' ? fKatalogusKod || null : null,
       hasznalati_ido: fKategoria === 'alapeszkoz' && fHasznalatiIdo !== '' ? Number(fHasznalatiIdo) : null,
+      penzugy_xkey: fPenzugyXkey || null,
     })
 
     if (result.error) {
@@ -770,6 +840,33 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
               <div className="space-y-1.5">
                 <Label>Beszerzési irat száma</Label>
                 <Input value={fBizonylat} onChange={event => setFBizonylat(event.target.value)} placeholder="Számla / jegyzőkönyv / határozat" />
+                {/* 2026-08-09: kikeresés a könyvelésből — a kiadás adatai előtöltődnek,
+                    mentéskor a két tétel össze is kapcsolódik (penzugy_xkey). */}
+                {fPenzugyXkey ? (
+                  <div className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50/80 px-2 py-1 text-xs text-amber-800">
+                    <Link2 className="size-3.5 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">Könyvelési tételhez kapcsolva</span>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded p-0.5 text-amber-600 hover:bg-amber-100"
+                      onClick={() => setFPenzugyXkey('')}
+                      title="Kapcsolat bontása (a mezők értékei megmaradnak)"
+                      aria-label="Kapcsolat bontása"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full rounded-lg text-xs"
+                    onClick={openExpensePicker}
+                  >
+                    <FileSearch className="mr-1.5 size-3.5" /> Kikeresés a könyvelésből
+                  </Button>
+                )}
               </div>
 
               {fKategoria === 'alapeszkoz' ? (
@@ -913,6 +1010,104 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
             </div>
           )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 2026-08-09: „Kikeresés a könyvelésből" — kiadás-választó (testvér-dialógus,
+          hogy a transformált DialogContent ne vágja le). A leltár-köteles jogcímek
+          (205.01 / 201.12) a lista elején, borostyán jelöléssel. */}
+      <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
+        <DialogContent className="flex max-h-[85vh] flex-col gap-3 sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Kikeresés a könyvelésből</DialogTitle>
+          </DialogHeader>
+
+          <div className="grid gap-2 sm:grid-cols-[110px_minmax(0,1fr)_auto]">
+            <select
+              value={pickerYear}
+              onChange={event => {
+                const year = Number(event.target.value)
+                setPickerYear(year)
+                void loadPickerRows(year)
+              }}
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              aria-label="Év"
+            >
+              {(pickerYears.length ? pickerYears : [pickerYear]).map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+            <Input
+              value={pickerQuery}
+              onChange={event => setPickerQuery(event.target.value)}
+              placeholder="Keresés: szállító, iratszám, megjegyzés, jogcím…"
+            />
+            <label className="flex items-center gap-1.5 whitespace-nowrap text-xs text-slate-600">
+              <input
+                type="checkbox"
+                className="size-4 rounded border-input"
+                checked={pickerShowLinked}
+                onChange={event => setPickerShowLinked(event.target.checked)}
+              />
+              Már leltárba vettek is
+            </label>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-slate-200">
+            {pickerLoading ? (
+              <p className="p-6 text-center text-sm text-muted-foreground">A kiadások betöltése…</p>
+            ) : filteredPickerRows.length === 0 ? (
+              <p className="p-6 text-center text-sm text-muted-foreground">
+                Nincs megjeleníthető kiadás ebben az évben.
+                {!pickerShowLinked ? ' (A már leltárba vett tételeket a jelölővel tudod megmutatni.)' : ''}
+              </p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {filteredPickerRows.map(row => (
+                  <li key={row.id}>
+                    <button
+                      type="button"
+                      disabled={row.linked}
+                      onClick={() => applyPickedExpense(row)}
+                      className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-left text-sm transition hover:bg-amber-50/60 disabled:cursor-not-allowed disabled:opacity-50"
+                      title={row.linked ? 'Ehhez a kiadáshoz már tartozik leltári tétel' : 'Adatok betöltése és összekapcsolás'}
+                    >
+                      <span className="w-[92px] shrink-0 font-mono text-xs text-slate-500">{row.datum}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium text-slate-800">
+                          {row.megjegyzes || row.atvevo || 'Kiadás'}
+                        </span>
+                        <span className="block truncate text-xs text-slate-500">
+                          {[row.atvevo, row.iratszam ? `Irat: ${row.iratszam}` : null, row.kodNev ? `${row.kod} ${row.kodNev}` : row.kod]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
+                      </span>
+                      {row.invKategoria ? (
+                        <Badge variant="outline" className="shrink-0 rounded-full border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800">
+                          leltár-köteles
+                        </Badge>
+                      ) : null}
+                      {row.linked ? (
+                        <Badge variant="outline" className="shrink-0 rounded-full px-2 py-0.5 text-[11px] text-slate-500">
+                          már leltárban
+                        </Badge>
+                      ) : null}
+                      <span className="shrink-0 font-semibold tabular-nums text-slate-800">
+                        {formatCurrency(row.osszeg)} RON
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            A kiválasztott kiadás összege, dátuma és iratszáma előtöltődik, és a mentés a
+            kiadást a leltári tétellel össze is kapcsolja — a leltár-köteles jogcíműek
+            (205.01 Új beruházások, 201.12 Kis értékű leltári tárgyak) a lista elején.
+          </p>
         </DialogContent>
       </Dialog>
     </>

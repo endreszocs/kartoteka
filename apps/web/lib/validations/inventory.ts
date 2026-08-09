@@ -14,6 +14,9 @@ export const inventoryItemSchema = z.object({
   felelos_nev: z.string().nullable().optional(),
   vonalkod: z.string().nullable().optional(),
   megjegyzes: z.string().nullable().optional(),
+  // 2026-08-09: a kapcsolt kiadás xkey-e (leltar_tetelek.penzugy_xkey) — a
+  // „Kikeresés a könyvelésből" tölti; üres string = kapcsolat bontása.
+  penzugy_xkey: z.string().nullable().optional(),
   mennyiseg: z.number().positive().default(1).optional(),
   mertekegyseg: z.string().nullable().optional(),
 })

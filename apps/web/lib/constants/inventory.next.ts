@@ -136,6 +136,8 @@ export interface InventoryItem {
   torles_datuma: string | null
   torles_bizonylat: string | null
   torles_indoklasa: string | null
+  /** 2026-08-09: a kapcsolt kiadás xkey-e (pénzügy→leltár / leltár→pénzügy híd). */
+  penzugy_xkey: string | null
   szerzo: string | null
   konyv_isbn: string | null
   konyv_kiado: string | null
