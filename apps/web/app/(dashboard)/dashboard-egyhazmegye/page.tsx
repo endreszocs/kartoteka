@@ -1,12 +1,14 @@
 import { redirect } from 'next/navigation'
+import { AlertCircle } from 'lucide-react'
 
 import { ScopeHero } from '@/components/dashboard/scope-dashboard-sections'
 import { DioceseDashboardTabs } from '@/components/dashboard/diocese/diocese-dashboard-tabs'
 import { DioceseSetupAutoOpen } from '@/components/dashboard/diocese/diocese-setup-auto-open'
 import { getHomePathForScope } from '@/lib/auth/active-ui-scope'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { resolveDioceseScopeId } from '@/lib/auth/level-scope'
 import { getCongregationOverviewData } from './actions'
-import { getDioceseSubmissions } from './document-actions'
+import { getSubmissionMatrix } from './document-actions'
 import { checkDioceseSetupStatus } from './diocese-actions'
 import { getDioceseAnnualReports } from '@/app/(dashboard)/eves-jelentes/actions'
 import { listAssignments } from '@/app/(dashboard)/admin/profile-congregations-actions'
@@ -22,10 +24,18 @@ import { listAssignments } from '@/app/(dashboard)/admin/profile-congregations-a
  *
  *   Ezért NEM hívjuk a `getScopeDashboardData`, `getScopeFinancialData`,
  *   `getScopeVitalStats` függvényeket — azok megsértenék az alapelvet.
+ *
+ * SCOPE (2026-08-09 diagnosztika):
+ *   A hatókör az AKTÍV profile_role scope_id-jából oldódik fel (a skalár
+ *   profiles.diocese_id csak fallback) — lásd lib/auth/level-scope.ts.
+ *   FAIL-CLOSED: NULL-scope egyházmegyei felhasználó magyarázó kártyát kap,
+ *   NEM szűretlen (egész egyházas) nézetet. Kerületi admin diocese-scope
+ *   nélkül a kerületi irányítópultra kerül. A szűretlen, összesített nézet
+ *   KIZÁRÓLAG a rendszergazdáé/masteré (explicit ág).
  */
 export default async function EgyhazmegyeDashboardPage() {
   const access = await getEffectiveAccessContext()
-  const { supabase, user, esperes, admin, master, profile, egyhazkeruletiAdmin, activeProfileRole } = access
+  const { supabase, user, esperes, admin, master, egyhazkeruletiAdmin, activeProfileRole } = access
 
   if (!user) redirect('/login')
   if (!esperes && !admin && !master) redirect('/dashboard')
@@ -33,7 +43,24 @@ export default async function EgyhazmegyeDashboardPage() {
     redirect(getHomePathForScope(activeProfileRole.scope))
   }
 
-  const dioceseId = profile?.diocese_id || null
+  // 2026-08-09: aktív szerep → profile_roles → profiles.diocese_id sorrendű feloldás
+  const dioceseId = resolveDioceseScopeId(access)
+  const isSystemAdmin = !!admin || !!master
+
+  if (!dioceseId && !isSystemAdmin) {
+    // 2026-08-09: kerületi admin (tipikusan legacy-role, profile_roles nélkül —
+    // ekkor activeProfileRole=null) diocese-scope híján NE lásson globális
+    // egyházmegyei nézetet — a saját kerületi irányítópultjára kerül. Az
+    // activeProfileRole-feltétel a redirect-hurkot zárja ki (aktív diocese-szerep
+    // scope_id nélkül → alább a fail-closed kártya, nem oda-vissza redirect).
+    if (egyhazkeruletiAdmin && !activeProfileRole) {
+      redirect('/dashboard-kerulet')
+    }
+    // Egyházmegyei szintű felhasználó feloldható egyházmegye nélkül:
+    // magyarázó üres állapot (fail-closed), NEM szűretlen adat.
+    return <MissingDioceseScopeNotice />
+  }
+
   const currentYear = new Date().getFullYear()
   // Januárban-februárban inkább az előző év jelentéseit kell nézni
   const annualReportYear = new Date().getMonth() < 3 ? currentYear - 1 : currentYear
@@ -59,21 +86,26 @@ export default async function EgyhazmegyeDashboardPage() {
     districtName = dr?.name ?? null
   }
 
-  // Gyülekezetek darabszáma — csak az alapadatok lekérdezése (nev, id), NEM tagstatisztika
+  // Gyülekezetek darabszáma — csak az alapadatok lekérdezése (nev, id), NEM tagstatisztika.
+  // 2026-08-09: a szűretlen (egész egyházas) számláló KIZÁRÓLAG a rendszergazdai/master
+  // összesített ágon fut — ide NULL dioceseId-vel csak isSystemAdmin juthat el.
   const congregationsQuery = dioceseId
     ? supabase.from('congregations').select('id', { count: 'exact', head: true }).eq('diocese_id', dioceseId)
     : supabase.from('congregations').select('id', { count: 'exact', head: true })
   const { count: congregationCount } = await congregationsQuery
 
-  // Engedélyezett adatforrások (gyülekezet-szintű részletek nélkül)
+  // Engedélyezett adatforrások (gyülekezet-szintű részletek nélkül).
+  // 2026-08-09: a dokumentumközpont-adatcsomag MINDEN évet hoz (a vagyonleltár
+  // year-1 kulcsú, a januári számadás az előző évhez tartozik) + a hatókör
+  // TELJES gyülekezet-listáját a teljességi mátrixhoz.
   const [
     congregationOverview,
-    docSubmissions,
+    documentCenter,
     annualReportsRes,
     pendingAssignmentsRes,
   ] = await Promise.all([
     getCongregationOverviewData(),
-    getDioceseSubmissions(currentYear),
+    getSubmissionMatrix('diocese'),
     getDioceseAnnualReports(annualReportYear),
     listAssignments({ status: 'pending' }),
   ])
@@ -95,12 +127,12 @@ export default async function EgyhazmegyeDashboardPage() {
         description={
           dioceseRow?.name
             ? 'A gyülekezetek leadott dokumentumai, kérelmei és az egyházmegyei élet összefoglalása. A gyülekezet pénzügyi részletei a lelkészi felületen érhetők el — egyházmegyei szinten csak a kötelező évi dokumentumok láthatók.'
-            : 'Ehhez a felhasználóhoz nincs konkrét egyházmegye hozzárendelve, összesített áttekintés látszik.'
+            : 'Rendszergazdai összesített nézet: nincs konkrét egyházmegye kiválasztva, minden egyházmegye adatai látszanak.'
         }
         chips={[
           districtName ? `Egyházkerület: ${districtName}` : 'Kerületi kapcsolat nélkül',
           `${(congregationCount ?? 0).toLocaleString('hu-HU')} gyülekezet`,
-          `${docSubmissions.length.toLocaleString('hu-HU')} beküldött dokumentum`,
+          `${documentCenter.submissions.length.toLocaleString('hu-HU')} beküldött dokumentum (archívum)`,
           totalRequests > 0 ? `${totalRequests} aktív kérelem` : undefined,
         ].filter(Boolean) as string[]}
       />
@@ -109,7 +141,7 @@ export default async function EgyhazmegyeDashboardPage() {
         dioceseId={dioceseId}
         congregationCount={congregationCount ?? 0}
         congregationOverview={congregationOverview}
-        docSubmissions={docSubmissions}
+        documentCenter={documentCenter}
         annualReports={annualReports}
         pendingAssignments={pendingAssignments}
         currentYear={currentYear}
@@ -123,6 +155,42 @@ export default async function EgyhazmegyeDashboardPage() {
         dioceseId={dioceseSetupStatus.dioceseId}
         needsSetup={dioceseSetupStatus.needsSetup}
       />
+    </div>
+  )
+}
+
+/**
+ * 2026-08-09: fail-closed üres állapot — egyházmegyei szintű felhasználó,
+ * akinek NEM oldható fel az egyházmegye-hatóköre (se aktív szerep, se
+ * profile_roles diocese sor, se profiles.diocese_id). Korábban ez az eset
+ * némán a TELJES egyház gyülekezet-listáját mutatta.
+ */
+function MissingDioceseScopeNotice() {
+  return (
+    <div className="mx-auto max-w-xl px-4 py-8">
+      <div className="card-raised p-6 bg-gradient-to-br from-amber-50/40 via-white to-orange-50/30 border-amber-200">
+        <div className="flex items-start gap-3">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+            <AlertCircle className="size-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-heading text-lg text-slate-800">
+              Nincs egyházmegye rendelve a fiókjához
+            </h2>
+            <p className="mt-2 text-sm text-slate-600 leading-relaxed">
+              Az egyházmegyei irányítópult csak akkor tud adatot mutatni, ha a
+              szerepköréhez konkrét egyházmegye tartozik. Jelenleg a fiókjához
+              nem sikerült egyházmegyét feloldani, ezért — az egyházmegyei
+              adatok védelme érdekében — nem jelenítünk meg gyülekezeti listát.
+            </p>
+            <p className="mt-2 text-sm text-slate-600 leading-relaxed">
+              Kérjük, jelezze a rendszergazdának, hogy rendelje hozzá a
+              szerepköréhez a megfelelő egyházmegyét, vagy — ha több profilja
+              van — váltson profilt a fejlécben.
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

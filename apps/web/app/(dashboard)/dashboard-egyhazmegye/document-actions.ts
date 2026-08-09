@@ -1,26 +1,268 @@
 'use server'
 
 /**
- * Egyházmegyei dokumentum workflow szerver akciók.
- * A típusok és konstansok a lib/constants/documents.ts-ben vannak
- * ('use server' fájlból nem exportálható const/type).
+ * Hivatalos dokumentum-workflow szerver akciók (2026-08-09 ÚJRAÍRÁS).
+ *
+ * A 2026-08-09-i scope-audit szerint a régi verzió a teljes hibaosztályt
+ * hordozta: skalár profiles.diocese_id-alapú „ha van id, szűrünk" minta
+ * (NULL → szűretlen), néma 0 soros UPDATE-ek sikerként jelentve, kizárólag
+ * naptári évre szűrt lekérdezések (a year-1 kulcsú vagyonleltár és a januári
+ * számadás láthatatlan volt), véglegesített/továbbított dokumentum
+ * felülírhatósága, és országos szórású értesítés NULL diocese_id esetén.
+ *
+ * ELVEK (2026-08-09):
+ *   - Hatókör KIZÁRÓLAG a lib/auth/level-scope.ts feloldóival (aktív szerep →
+ *     profile_roles → skalár fallback), FAIL-CLOSED: nincs scope → üres lista /
+ *     hiba, SOHA nem szűretlen lekérdezés. A szűretlen ág csak a
+ *     rendszergazdáé/masteré, feliratozva.
+ *   - A hovatartozást a gyülekezet VALÓDI megyéjén át oldjuk fel
+ *     (congregations.diocese_id), nem a sor nullable diocese_id oszlopán —
+ *     összhangban a 2026-08-09-megye-kerulet-rls-fix.sql kerületi policy-jével.
+ *   - Nincs congregations(name) embed (a FK léte nem igazolt, diagnosztika
+ *     #11) — a gyülekezet-neveket a hatókör gyülekezet-listájából párosítjuk.
+ *   - Minden UPDATE .select('id')-del ellenőrzött: 0 érintett sor = hangos
+ *     magyar hiba, nem hamis siker (diagnosztika #6).
+ *   - PostgREST 1000 soros plafon: lapozott olvasás (range) + darabolt .in().
+ *   - Kerületi láthatóság a RLS-sel azonos szabállyal:
+ *     forwarded_to_kerulet=true VAGY status='finalized'; kerületi UPDATE csak
+ *     továbbított soron (2026-08-09-megye-kerulet-rls-fix.sql 1a/1b).
+ *
+ * A típusok a lib/constants/documents.ts-ben és a ./document-shared.ts-ben
+ * vannak ('use server' fájl csak async függvényt exportálhat).
  */
 
 import { revalidatePath } from 'next/cache'
-import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { getEffectiveAccessContext, type EffectiveAccessContext } from '@/lib/auth/effective-access'
+import {
+  getDioceseScopeContext,
+  getDistrictScopeContext,
+  resolveDioceseScopeIds,
+  resolveDistrictScopeIds,
+} from '@/lib/auth/level-scope'
 import type { DocumentType, DocumentStatus, DocumentSubmission } from '@/lib/constants/documents'
 import { DOCUMENT_TYPE_LABELS } from '@/lib/constants/documents'
+import type {
+  DocumentActionResult,
+  DocumentCenterCongregation,
+  DocumentCenterData,
+} from './document-shared'
+
+// ---------------------------------------------------------------------------
+// Belső (nem exportált) segédek
+// ---------------------------------------------------------------------------
+
+type Supa = EffectiveAccessContext['supabase']
+
+const PAGE_SIZE = 1000
+/** Az .in() lista darabolása — a PostgREST URL-hossz plafonja miatt. */
+const IN_CHUNK = 120
+
+const SUBMISSION_COLUMNS =
+  'id, congregation_id, diocese_id, year, document_type, modification_number, status, ' +
+  'submitted_at, received_at, reviewed_at, finalized_at, forwarded_to_kerulet, forwarded_at, ' +
+  'snapshot_data, notes'
+
+/** Visszaküldött dokumentum javítási felülete dokumentum-típusonként. */
+const RETURN_LINKS: Record<DocumentType, string> = {
+  szamadas: '/penzugy',
+  koltsegvetes: '/penzugy',
+  koltsegvetes_modositas: '/penzugy',
+  vagyonleltar: '/leltar',
+  valasztok_nevjegyzeke: '/tagnyilvantartas',
+  lelkeszi_jelentes: '/munkanaplo',
+}
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+  return out
+}
+
+/**
+ * Notes-napló: időbélyeges sor hozzáfűzése. A notes oszlop VÁLTOZÁS-TÖRTÉNET
+ * (visszaküldés indoklása, újra-beküldés, kerületi átvétel) — sosem írjuk
+ * felül, csak hozzáfűzünk, így a hivatalos irat teljes útja visszaolvasható.
+ */
+function appendNoteLine(prev: string | null | undefined, line: string): string {
+  const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ')
+  const entry = `[${stamp}] ${line}`
+  const base = (prev || '').trim()
+  return base ? `${base}\n${entry}` : entry
+}
+
+/** Gyülekezet megjelenítési neve — hivatalos név elsőbbséggel. */
+function congDisplayName(row: { name?: string | null; nev_hu?: string | null }): string {
+  return row.name || row.nev_hu || 'Ismeretlen gyülekezet'
+}
+
+/**
+ * A hatókör gyülekezet-listája lapozva. dioceseIds=null → ORSZÁGOS lista —
+ * ezt KIZÁRÓLAG a feliratozott rendszergazdai ág hívhatja!
+ */
+async function fetchCongregations(
+  supabase: Supa,
+  dioceseIds: string[] | null,
+): Promise<Array<{ id: string; name: string; diocese_id: string | null }>> {
+  const all: Array<{ id: string; name: string; diocese_id: string | null }> = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    let q = supabase
+      .from('congregations')
+      .select('id, name, nev_hu, diocese_id')
+      .order('name')
+      .range(from, from + PAGE_SIZE - 1)
+    if (dioceseIds) q = q.in('diocese_id', dioceseIds)
+    const { data, error } = await q
+    if (error || !data) break
+    for (const r of data as Array<Record<string, unknown>>) {
+      all.push({
+        id: String(r.id),
+        name: congDisplayName(r as { name?: string | null; nev_hu?: string | null }),
+        diocese_id: (r.diocese_id as string | null) ?? null,
+      })
+    }
+    if (data.length < PAGE_SIZE) break
+  }
+  return all
+}
+
+/**
+ * Beküldések lekérdezése gyülekezet-lista alapján (darabolt .in() + lapozás).
+ * congIds=null → szűretlen (CSAK a feliratozott rendszergazdai ágon).
+ */
+async function fetchSubmissions(
+  supabase: Supa,
+  congIds: string[] | null,
+  opts: { year?: number | null; districtVisibleOnly?: boolean },
+): Promise<Array<Record<string, unknown>>> {
+  const rows: Array<Record<string, unknown>> = []
+  const idChunks = congIds ? chunk(congIds, IN_CHUNK) : [null]
+  for (const ids of idChunks) {
+    if (ids && ids.length === 0) continue
+    for (let from = 0; ; from += PAGE_SIZE) {
+      let q = supabase
+        .from('document_submissions')
+        .select(SUBMISSION_COLUMNS)
+        .order('submitted_at', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1)
+      if (ids) q = q.in('congregation_id', ids)
+      if (opts.year != null) q = q.eq('year', opts.year)
+      // A kerületi láthatósági szabály — BYTE-ra a RLS 1a) policy-vel azonos.
+      if (opts.districtVisibleOnly) q = q.or('forwarded_to_kerulet.eq.true,status.eq.finalized')
+      const { data, error } = await q
+      if (error || !data) break
+      rows.push(...(data as unknown as Array<Record<string, unknown>>))
+      if (data.length < PAGE_SIZE) break
+    }
+  }
+  return rows
+}
+
+/**
+ * Globális rendezés beküldési idő szerint (csökkenő) — a darabolt .in()
+ * lekérdezések laponként rendezettek, de az összefűzött eredmény nem.
+ */
+function sortBySubmittedDesc(subs: DocumentSubmission[]): DocumentSubmission[] {
+  return subs.sort((a, b) => (b.submitted_at || '').localeCompare(a.submitted_at || ''))
+}
+
+/** Nyers sor → DocumentSubmission, gyülekezet-/megyenév hozzárendeléssel. */
+function toSubmission(
+  row: Record<string, unknown>,
+  congNames: Map<string, string>,
+  dioceseNameByCong?: Map<string, string | null>,
+): DocumentSubmission {
+  const congId = String(row.congregation_id)
+  return {
+    ...(row as unknown as DocumentSubmission),
+    congregation_id: congId,
+    congregation_name: congNames.get(congId) || 'Ismeretlen',
+    diocese_name: dioceseNameByCong?.get(congId) ?? null,
+  }
+}
+
+/**
+ * Egyházmegyei tulajdon-ellenőrzés egy beküldéshez (app-oldali assert a RLS
+ * mellé): a dokumentum gyülekezetének VALÓDI megyéje benne van-e a hívó
+ * feloldott megye-hatókörében. Admin/master átmegy. null = rendben.
+ */
+async function assertDioceseOwnership(
+  access: EffectiveAccessContext,
+  congregationId: string,
+): Promise<string | null> {
+  if (access.admin || access.master) return null
+  const scopeIds = resolveDioceseScopeIds(access)
+  if (scopeIds.length === 0) {
+    return 'Nincs feloldható egyházmegye-hatóköre — a művelet nem engedélyezett.'
+  }
+  const { data: cong } = await access.supabase
+    .from('congregations')
+    .select('diocese_id')
+    .eq('id', congregationId)
+    .maybeSingle()
+  const dioceseId = (cong?.diocese_id as string | null) || null
+  if (!dioceseId || !scopeIds.includes(dioceseId)) {
+    return 'A dokumentum nem az Ön egyházmegyéjének gyülekezetéhez tartozik.'
+  }
+  return null
+}
+
+/** Kerületi tulajdon-ellenőrzés: gyülekezet → megye → kerület ∈ hatókör. */
+async function assertDistrictOwnership(
+  access: EffectiveAccessContext,
+  congregationId: string,
+): Promise<string | null> {
+  if (access.admin || access.master) return null
+  const districtIds = resolveDistrictScopeIds(access)
+  if (districtIds.length === 0) {
+    return 'Nincs feloldható egyházkerület-hatóköre — a művelet nem engedélyezett.'
+  }
+  const { data: cong } = await access.supabase
+    .from('congregations')
+    .select('diocese_id')
+    .eq('id', congregationId)
+    .maybeSingle()
+  const dioceseId = (cong?.diocese_id as string | null) || null
+  if (!dioceseId) return 'A dokumentum gyülekezetének nincs egyházmegye-besorolása.'
+  const { data: dio } = await access.supabase
+    .from('dioceses')
+    .select('district_id')
+    .eq('id', dioceseId)
+    .maybeSingle()
+  const districtId = (dio?.district_id as string | null) || null
+  if (!districtId || !districtIds.includes(districtId)) {
+    return 'A dokumentum nem az Ön egyházkerületéhez tartozik.'
+  }
+  return null
+}
+
+function revalidateDashboards() {
+  revalidatePath('/dashboard-egyhazmegye')
+  revalidatePath('/dashboard-kerulet')
+}
 
 // ---------------------------------------------------------------------------
 // Gyülekezeti szintű: dokumentum beküldése
 // ---------------------------------------------------------------------------
 
+/**
+ * Dokumentum beküldése az egyházmegyének (upsert a (cong, year, type, mod)
+ * kulcson).
+ *
+ * FELÜLÍRÁS-VÉDELEM (2026-08-09, diagnosztika #4): véglegesített
+ * (status='finalized') VAGY kerületnek továbbított sor NEM írható felül a
+ * gyülekezetről — a hivatalos archívum megőrzése érdekében a lelkésznek az
+ * egyházmegyétől kell visszaküldést kérnie. A 'returned' (visszaküldött)
+ * státuszú sor ÚJRA BEKÜLDHETŐ: a státusz visszaáll 'submitted'-re, a
+ * workflow-mezők nullázódnak, a visszaküldési indoklás pedig MEGMARAD a
+ * notes-naplóban (időbélyeges sorként), és egy „újra beküldve" bejegyzés
+ * kerül mellé — így az irat teljes útja visszaolvasható.
+ */
 export async function submitDocument(
   documentType: DocumentType,
   year: number,
   snapshotData: Record<string, unknown>,
   modificationNumber?: number | null,
-): Promise<{ success?: boolean; error?: string }> {
+): Promise<DocumentActionResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!access.effectiveCongregationId) return { error: 'Nincs aktív gyülekezet.' }
@@ -28,78 +270,136 @@ export async function submitDocument(
   const { supabase, profile } = access
   const congregationId = access.effectiveCongregationId
 
-  // 2026-07-10 (#4/8): a diocese_id a GYÜLEKEZET tényleges egyházmegyéjéből jön
-  // (congregations.diocese_id), ne a beküldő profiljából — dual-role (pl. esperes
-  // aki más gyülekezet nevében jár el) esetén a kettő eltérhet, és a dokumentum
-  // rossz egyházmegyéhez került volna. A profil-beli érték csak fallback.
-  let dioceseId: string | null = null
+  // 2026-07-10 (#4/8): a sor diocese_id-je a GYÜLEKEZET tényleges megyéjéből
+  // jön (congregations.diocese_id); a profil-beli érték csak a SOR-mező
+  // fallbackje. Az ÉRTESÍTÉS címzettjeit viszont KIZÁRÓLAG a gyülekezet
+  // megyéje határozza meg (2026-08-09, diagnosztika #9) — profil-fallback és
+  // szűretlen országos szórás nélkül.
   const { data: congRow } = await supabase
     .from('congregations')
-    .select('diocese_id')
+    .select('diocese_id, name, nev_hu')
     .eq('id', congregationId)
     .maybeSingle()
-  dioceseId = (congRow?.diocese_id as string | null) || profile?.diocese_id || null
+  const congDioceseId = (congRow?.diocese_id as string | null) || null
+  const rowDioceseId = congDioceseId || profile?.diocese_id || null
 
-  const { error } = await supabase.from('document_submissions').upsert({
-    congregation_id: congregationId,
-    diocese_id: dioceseId,
-    year,
-    document_type: documentType,
-    modification_number: modificationNumber || null,
-    status: 'submitted' as DocumentStatus,
-    submitted_at: new Date().toISOString(),
-    snapshot_data: snapshotData,
-  }, {
-    onConflict: 'congregation_id,year,document_type,modification_number',
-  })
+  // Felülírás-védelem: a meglévő sor státusza dönt.
+  let existingQ = supabase
+    .from('document_submissions')
+    .select('id, status, forwarded_to_kerulet, notes')
+    .eq('congregation_id', congregationId)
+    .eq('year', year)
+    .eq('document_type', documentType)
+  existingQ = modificationNumber
+    ? existingQ.eq('modification_number', modificationNumber)
+    : existingQ.is('modification_number', null)
+  const { data: existing, error: existingError } = await existingQ.maybeSingle()
+
+  // 2026-08-09 (review-fix): a védő-olvasás hibáját NEM nyeljük el — különben
+  // átmeneti hiba esetén a felülírás-védelem némán kimaradna, és a beküldés
+  // felülírná a már véglegesített/továbbított hivatalos archívum-sort.
+  if (existingError) {
+    return {
+      error:
+        'A korábbi beküldés állapota most nem ellenőrizhető, ezért a beküldés biztonsági okból elmaradt. Próbálja újra néhány másodperc múlva.',
+    }
+  }
+
+  if (existing && (existing.forwarded_to_kerulet === true || existing.status === 'finalized')) {
+    return {
+      error:
+        `A(z) ${year}. évi ${DOCUMENT_TYPE_LABELS[documentType].toLowerCase()} már ` +
+        `${existing.forwarded_to_kerulet ? 'továbbítva lett az egyházkerületnek' : 'véglegesítve lett az egyházmegyénél'}, ` +
+        'ezért nem küldhető be újra. Ha javítani szeretné, kérje az egyházmegyétől a dokumentum visszaküldését.',
+    }
+  }
+
+  // Notes-napló: visszaküldött dokumentum újra-beküldésekor az indoklás
+  // megmarad, és bejegyezzük az újra-beküldés tényét.
+  let notes: string | null = (existing?.notes as string | null) ?? null
+  if (existing && existing.status === 'returned') {
+    notes = appendNoteLine(notes, 'A gyülekezet javítás után újra beküldte a dokumentumot.')
+  }
+
+  const { error } = await supabase.from('document_submissions').upsert(
+    {
+      congregation_id: congregationId,
+      diocese_id: rowDioceseId,
+      year,
+      document_type: documentType,
+      modification_number: modificationNumber || null,
+      status: 'submitted' as DocumentStatus,
+      submitted_at: new Date().toISOString(),
+      snapshot_data: snapshotData,
+      notes,
+      // Újra-beküldésnél a workflow-idővonal tiszta lappal indul.
+      received_at: null,
+      received_by: null,
+      reviewed_at: null,
+      reviewed_by: null,
+      finalized_at: null,
+      finalized_by: null,
+      forwarded_to_kerulet: false,
+      forwarded_at: null,
+    },
+    { onConflict: 'congregation_id,year,document_type,modification_number' },
+  )
 
   if (error) return { error: `Hiba: ${error.message}` }
 
-  // Értesítés az egyházmegyei címzetteknek (esperes, egyházmegyei admin).
+  // Értesítés az egyházmegyei címzetteknek — CSAK ha a gyülekezet megyéje
+  // feloldható (különben nincs címzett; országos szórás SOHA). A címzettek a
+  // skalár (profiles) ÉS a profile_roles szerinti megyei vezetők uniója —
+  // a skalár⇄profile_roles divergencia egyik irányban se nyeljen el értesítést.
   // Hiba esetén csendes — a beküldés már sikeres, ne blokkoljuk a flow-t.
-  try {
-    const { data: cong } = await supabase
-      .from('congregations')
-      .select('name')
-      .eq('id', congregationId)
-      .maybeSingle()
-    const congName = cong?.name || 'Ismeretlen gyülekezet'
+  if (congDioceseId) {
+    try {
+      const congName = congDisplayName(congRow || {})
+      const recipientIds = new Set<string>()
 
-    let recipientsQuery = supabase
-      .from('profiles')
-      .select('id')
-      .eq('status', 'active')
-      .in('role', ['esperes', 'egyhazmegyei_admin'])
-    if (dioceseId) {
-      recipientsQuery = recipientsQuery.eq('diocese_id', dioceseId)
+      const { data: scalarRecipients } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('status', 'active')
+        .in('role', ['esperes', 'egyhazmegyei_admin'])
+        .eq('diocese_id', congDioceseId)
+      for (const r of scalarRecipients || []) recipientIds.add(String(r.id))
+
+      const { data: roleRecipients } = await supabase
+        .from('profile_roles')
+        .select('profile_id')
+        .eq('scope', 'diocese')
+        .eq('scope_id', congDioceseId)
+        .in('role', ['esperes', 'egyhazmegyei_admin'])
+        .eq('active', true)
+        .eq('approval_status', 'approved')
+      for (const r of roleRecipients || []) recipientIds.add(String(r.profile_id))
+
+      if (recipientIds.size > 0) {
+        const docLabel = DOCUMENT_TYPE_LABELS[documentType]
+        const modSuffix = modificationNumber ? ` (${modificationNumber}. módosítás)` : ''
+        const cim = `Új beküldés: ${docLabel}${modSuffix} — ${congName}`
+        const uzenet =
+          `${congName} beküldte a(z) ${year}. évi ${docLabel.toLowerCase()}${modSuffix} ` +
+          `dokumentumot az egyházmegyének. Részletek: Egyházmegyei áttekintő.`
+
+        const rows = [...recipientIds].map((userId) => ({
+          user_id: userId,
+          congregation_id: congregationId,
+          cim,
+          uzenet,
+          tipus: 'info',
+          hivatkozas: '/dashboard-egyhazmegye',
+        }))
+        await supabase.from('ertesitesek').insert(rows)
+      }
+    } catch {
+      // Nem kritikus — a beküldés megtörtént.
     }
-    const { data: recipients } = await recipientsQuery
-
-    if (recipients && recipients.length > 0) {
-      const docLabel = DOCUMENT_TYPE_LABELS[documentType]
-      const modSuffix = modificationNumber ? ` (${modificationNumber}. módosítás)` : ''
-      const cim = `Új beküldés: ${docLabel}${modSuffix} — ${congName}`
-      const uzenet =
-        `${congName} beküldte a(z) ${year}. évi ${docLabel.toLowerCase()}${modSuffix} ` +
-        `dokumentumot az egyházmegyének. Részletek: Egyházmegyei áttekintő.`
-
-      const rows = recipients.map((r) => ({
-        user_id: r.id,
-        congregation_id: congregationId,
-        cim,
-        uzenet,
-        tipus: 'info',
-        hivatkozas: '/dashboard-egyhazmegye',
-      }))
-
-      await supabase.from('ertesitesek').insert(rows)
-    }
-  } catch {
-    // Nem kritikus — a beküldés megtörtént.
   }
 
   revalidatePath('/penzugy')
-  revalidatePath('/dashboard-egyhazmegye')
+  revalidateDashboards()
   return { success: true }
 }
 
@@ -107,50 +407,86 @@ export async function submitDocument(
 // Egyházmegyei szintű: dokumentumok lekérdezése
 // ---------------------------------------------------------------------------
 
+/**
+ * A hatókör-egyházmegye beküldései. year nélkül (vagy null) MINDEN év —
+ * ez az alapértelmezett használat (év-kulcsolási hiba, diagnosztika #5:
+ * a vagyonleltár year-1 kulcsú, a januári számadás az előző évhez tartozik).
+ * FAIL-CLOSED: feloldhatatlan hatókör → üres lista (SOHA nem szűretlen);
+ * a szűretlen ág csak a rendszergazdáé/masteré.
+ */
 export async function getDioceseSubmissions(
-  year: number,
+  year?: number | null,
 ): Promise<DocumentSubmission[]> {
-  const access = await getEffectiveAccessContext()
-  if (!access.user) return []
-  if (!access.esperes && !access.admin && !access.master) return []
+  const ctx = await getDioceseScopeContext()
+  if (!ctx.user) return []
+  if (!ctx.access.esperes && !ctx.isAdmin && !ctx.isMaster) return []
 
-  const { supabase, profile } = access
-
-  let query = supabase
-    .from('document_submissions')
-    .select('*, congregations(name)')
-    .eq('year', year)
-    .order('submitted_at', { ascending: false })
-
-  if (profile?.diocese_id && !access.master) {
-    query = query.eq('diocese_id', profile.diocese_id)
+  let congs: Array<{ id: string; name: string; diocese_id: string | null }>
+  if (ctx.scopeId) {
+    congs = await fetchCongregations(ctx.supabase, [ctx.scopeId])
+  } else if (ctx.isMaster || ctx.isAdmin) {
+    // Feliratozott rendszergazdai összesített ág (a hívó felület jelzi).
+    congs = await fetchCongregations(ctx.supabase, null)
+  } else {
+    return [] // fail-closed
   }
 
-  const { data } = await query
-
-  return (data || []).map((row: Record<string, unknown>) => ({
-    ...row,
-    congregation_name: (row.congregations as { name: string } | null)?.name || 'Ismeretlen',
-  })) as DocumentSubmission[]
+  const congNames = new Map(congs.map((c) => [c.id, c.name]))
+  const rows = await fetchSubmissions(ctx.supabase, ctx.scopeId ? congs.map((c) => c.id) : null, {
+    year: year ?? null,
+  })
+  return sortBySubmittedDesc(rows.map((r) => toSubmission(r, congNames)))
 }
 
 // ---------------------------------------------------------------------------
-// Egyházmegyei szintű: státusz frissítés
+// Egyházmegyei szintű: státusz frissítés (+ visszaküldés)
 // ---------------------------------------------------------------------------
 
+/**
+ * Státusz-léptetés: received / reviewed / finalized / returned.
+ *
+ * 'returned' (2026-08-09, ÚJ): visszaküldés a gyülekezetnek javításra —
+ * KÖTELEZŐ indoklással, ami a notes-naplóba kerül (időbélyeggel), és a
+ * beküldő gyülekezet lelkésze(i) értesítést kapnak. Már továbbított
+ * dokumentum nem küldhető vissza.
+ *
+ * App-oldali tulajdon-ellenőrzés + 0 soros UPDATE-detektálás (diagnosztika
+ * #6): a néma no-op többé nem jelent hamis sikert.
+ */
 export async function updateSubmissionStatus(
   submissionId: string,
   newStatus: DocumentStatus,
-): Promise<{ success?: boolean; error?: string }> {
+  note?: string | null,
+): Promise<DocumentActionResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!access.esperes && !access.admin && !access.master) {
     return { error: 'Nincs jogosultsága.' }
   }
+  if (!['received', 'reviewed', 'finalized', 'returned'].includes(newStatus)) {
+    return { error: 'Érvénytelen célstátusz.' }
+  }
 
   const { supabase } = access
-  const now = new Date().toISOString()
+  const { data: sub } = await supabase
+    .from('document_submissions')
+    .select('id, congregation_id, year, document_type, status, forwarded_to_kerulet, notes')
+    .eq('id', submissionId)
+    .maybeSingle()
+  if (!sub) return { error: 'A dokumentum nem található, vagy nincs hozzáférése.' }
 
+  const ownershipError = await assertDioceseOwnership(access, String(sub.congregation_id))
+  if (ownershipError) return { error: ownershipError }
+
+  // 2026-08-09 (review-fix): a továbbított irat státusza zárolt — DE a
+  // VISSZAKÜLDÉS kivétel, különben javítási zsákutca keletkezne (a hibás,
+  // már továbbított dokumentumot senki nem tudná korrigáltatni). A
+  // visszaküldés egyben visszavonja a továbbítást is (lásd lentebb).
+  if (sub.forwarded_to_kerulet === true && newStatus !== 'returned') {
+    return { error: 'A dokumentum már továbbítva lett az egyházkerületnek — a státusza nem módosítható. Ha javítás kell, küldje vissza a gyülekezetnek.' }
+  }
+
+  const now = new Date().toISOString()
   const updates: Record<string, unknown> = { status: newStatus }
   if (newStatus === 'received') {
     updates.received_at = now
@@ -161,27 +497,82 @@ export async function updateSubmissionStatus(
   } else if (newStatus === 'finalized') {
     updates.finalized_at = now
     updates.finalized_by = access.user.id
+  } else if (newStatus === 'returned') {
+    const trimmedNote = (note || '').trim()
+    if (!trimmedNote) {
+      return { error: 'A visszaküldéshez kötelező indoklást írni a gyülekezetnek.' }
+    }
+    updates.notes = appendNoteLine(
+      sub.notes as string | null,
+      sub.forwarded_to_kerulet === true
+        ? `Visszaküldve javításra az egyházmegyétől (a kerületi továbbítás visszavonva) — ${trimmedNote}`
+        : `Visszaküldve javításra az egyházmegyétől — ${trimmedNote}`,
+    )
+    // A korábbi véglegesítés érvényét veszti (a visszaküldött irat nem végleges).
+    updates.finalized_at = null
+    updates.finalized_by = null
+    // 2026-08-09 (review-fix): a visszaküldés a továbbítást is visszavonja —
+    // így a gyülekezet javíthat, és a javított irat újra végigmehet a soron.
+    // (A kerület nézetéből ilyenkor eltűnik, amíg újra be nem küldik.)
+    if (sub.forwarded_to_kerulet === true) {
+      updates.forwarded_to_kerulet = false
+      updates.forwarded_at = null
+    }
   }
 
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from('document_submissions')
     .update(updates)
     .eq('id', submissionId)
+    .select('id')
 
   if (error) return { error: `Hiba: ${error.message}` }
+  if (!updated || updated.length === 0) {
+    // RLS által elnyelt no-op — hangos hiba a néma "siker" helyett.
+    return { error: 'A módosítás nem történt meg (nincs írási jogosultsága ehhez a dokumentumhoz).' }
+  }
 
-  revalidatePath('/dashboard-egyhazmegye')
-  revalidatePath('/dashboard-kerulet')
+  // Visszaküldésnél best-effort értesítés a beküldő gyülekezet lelkészeinek.
+  if (newStatus === 'returned') {
+    try {
+      const docType = sub.document_type as DocumentType
+      const docLabel = DOCUMENT_TYPE_LABELS[docType] || String(sub.document_type)
+      const { data: pastors } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('status', 'active')
+        .eq('role', 'lelkesz')
+        .eq('congregation_id', sub.congregation_id)
+      if (pastors && pastors.length > 0) {
+        const rows = pastors.map((p) => ({
+          user_id: p.id,
+          congregation_id: sub.congregation_id,
+          cim: `Visszaküldött dokumentum: ${docLabel} (${sub.year}.)`,
+          uzenet:
+            `Az egyházmegye javításra visszaküldte a(z) ${sub.year}. évi ` +
+            `${docLabel.toLowerCase()} dokumentumot. Indoklás: ${(note || '').trim()} ` +
+            `A javítás után a dokumentum újra beküldhető.`,
+          tipus: 'warning',
+          hivatkozas: RETURN_LINKS[docType] || '/dashboard',
+        }))
+        await supabase.from('ertesitesek').insert(rows)
+      }
+    } catch {
+      // Nem kritikus — a visszaküldés megtörtént.
+    }
+  }
+
+  revalidateDashboards()
   return { success: true }
 }
 
 // ---------------------------------------------------------------------------
-// Egyházmegyei szintű: továbbítás kerületnek
+// Egyházmegyei szintű: továbbítás a kerületnek
 // ---------------------------------------------------------------------------
 
 export async function forwardToKerulet(
   submissionId: string,
-): Promise<{ success?: boolean; error?: string }> {
+): Promise<DocumentActionResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!access.esperes && !access.admin && !access.master) {
@@ -189,8 +580,24 @@ export async function forwardToKerulet(
   }
 
   const { supabase } = access
+  const { data: sub } = await supabase
+    .from('document_submissions')
+    .select('id, congregation_id, status, forwarded_to_kerulet')
+    .eq('id', submissionId)
+    .maybeSingle()
+  if (!sub) return { error: 'A dokumentum nem található, vagy nincs hozzáférése.' }
 
-  const { error } = await supabase
+  const ownershipError = await assertDioceseOwnership(access, String(sub.congregation_id))
+  if (ownershipError) return { error: ownershipError }
+
+  if (sub.forwarded_to_kerulet === true) {
+    return { error: 'A dokumentum már továbbítva lett az egyházkerületnek.' }
+  }
+  if (sub.status !== 'finalized') {
+    return { error: 'Csak véglegesített dokumentum továbbítható az egyházkerületnek.' }
+  }
+
+  const { data: updated, error } = await supabase
     .from('document_submissions')
     .update({
       forwarded_to_kerulet: true,
@@ -198,34 +605,253 @@ export async function forwardToKerulet(
     })
     .eq('id', submissionId)
     .eq('status', 'finalized')
+    .select('id')
 
   if (error) return { error: `Hiba: ${error.message}` }
+  if (!updated || updated.length === 0) {
+    return { error: 'A továbbítás nem történt meg (nincs írási jogosultsága ehhez a dokumentumhoz).' }
+  }
 
-  revalidatePath('/dashboard-egyhazmegye')
-  revalidatePath('/dashboard-kerulet')
+  revalidateDashboards()
   return { success: true }
 }
 
 // ---------------------------------------------------------------------------
-// Kerületi szintű: csak véglegesített + továbbított dokumentumok
+// Kerületi szintű: dokumentumok lekérdezése
 // ---------------------------------------------------------------------------
 
-export async function getKeruletSubmissions(year: number): Promise<DocumentSubmission[]> {
+/**
+ * A kerülethez tartozó dokumentumok. Láthatóság a 2026-08-09-es RLS-sel
+ * azonosan: forwarded_to_kerulet=true VAGY status='finalized' (a munkaközi
+ * submitted/received/reviewed a megye belső ügye). year nélkül MINDEN év.
+ *
+ * Hatókör app-oldalon is: a beküldés gyülekezete → megye → kerület útvonalon
+ * (a sor nullable diocese_id oszlopa helyett), a hívó districtIds-ébe szűrve.
+ * FAIL-CLOSED; a szűretlen ág csak a rendszergazdáé/masteré.
+ */
+export async function getKeruletSubmissions(
+  year?: number | null,
+): Promise<DocumentSubmission[]> {
+  const ctx = await getDistrictScopeContext()
+  if (!ctx.user) return []
+  // Szerep-kapu (2026-08-09, diagnosztika #10): korábban bármely bejelentkezett
+  // felhasználó hívhatta. egyhazkeruletiAdmin magában foglalja az admin/mastert.
+  if (!ctx.access.egyhazkeruletiAdmin && !ctx.isAdmin && !ctx.isMaster) return []
+
+  let congs: Array<{ id: string; name: string; diocese_id: string | null }>
+  let dioceseNames = new Map<string, string>()
+
+  if (ctx.districtIds.length > 0) {
+    const { data: dioceses } = await ctx.supabase
+      .from('dioceses')
+      .select('id, name')
+      .in('district_id', ctx.districtIds)
+    const dioIds = (dioceses || []).map((d) => String(d.id))
+    dioceseNames = new Map((dioceses || []).map((d) => [String(d.id), String(d.name || '')]))
+    if (dioIds.length === 0) return []
+    congs = await fetchCongregations(ctx.supabase, dioIds)
+  } else if (ctx.isMaster || ctx.isAdmin) {
+    const { data: dioceses } = await ctx.supabase.from('dioceses').select('id, name')
+    dioceseNames = new Map((dioceses || []).map((d) => [String(d.id), String(d.name || '')]))
+    congs = await fetchCongregations(ctx.supabase, null)
+  } else {
+    return [] // fail-closed
+  }
+
+  const congNames = new Map(congs.map((c) => [c.id, c.name]))
+  const dioceseNameByCong = new Map(
+    congs.map((c) => [c.id, c.diocese_id ? dioceseNames.get(c.diocese_id) ?? null : null]),
+  )
+  const rows = await fetchSubmissions(
+    ctx.supabase,
+    ctx.districtIds.length > 0 ? congs.map((c) => c.id) : null,
+    { year: year ?? null, districtVisibleOnly: true },
+  )
+  return sortBySubmittedDesc(rows.map((r) => toSubmission(r, congNames, dioceseNameByCong)))
+}
+
+// ---------------------------------------------------------------------------
+// Kerületi szintű: átvétel visszaigazolása (notes-napló)
+// ---------------------------------------------------------------------------
+
+/**
+ * „Átvéve a kerületben" — a kerület a hozzá TOVÁBBÍTOTT dokumentumon
+ * visszaigazolja az átvételt (opcionális megjegyzéssel), a notes-naplóba
+ * időbélyeges bejegyzésként. A RLS (2026-08-09 1b) is csak továbbított soron
+ * enged kerületi UPDATE-et — az app-oldali assert + 0 soros detektálás a
+ * néma no-opot hangos hibává teszi.
+ */
+export async function acknowledgeKeruletReceipt(
+  submissionId: string,
+  note?: string | null,
+): Promise<DocumentActionResult> {
   const access = await getEffectiveAccessContext()
-  if (!access.user) return []
+  if (!access.user) return { error: 'Nincs bejelentkezve.' }
+  if (!access.egyhazkeruletiAdmin && !access.admin && !access.master) {
+    return { error: 'Nincs jogosultsága.' }
+  }
 
   const { supabase } = access
-
-  const { data } = await supabase
+  const { data: sub } = await supabase
     .from('document_submissions')
-    .select('*, congregations(name)')
-    .eq('year', year)
-    .eq('forwarded_to_kerulet', true)
-    .eq('status', 'finalized')
-    .order('congregation_id')
+    .select('id, congregation_id, forwarded_to_kerulet, notes')
+    .eq('id', submissionId)
+    .maybeSingle()
+  if (!sub) return { error: 'A dokumentum nem található, vagy nincs hozzáférése.' }
 
-  return (data || []).map((row: Record<string, unknown>) => ({
-    ...row,
-    congregation_name: (row.congregations as { name: string } | null)?.name || 'Ismeretlen',
-  })) as DocumentSubmission[]
+  if (sub.forwarded_to_kerulet !== true) {
+    return { error: 'Csak a kerületnek már továbbított dokumentum átvételét lehet visszaigazolni.' }
+  }
+
+  const ownershipError = await assertDistrictOwnership(access, String(sub.congregation_id))
+  if (ownershipError) return { error: ownershipError }
+
+  const trimmedNote = (note || '').trim()
+  const notes = appendNoteLine(
+    sub.notes as string | null,
+    `Az egyházkerület visszaigazolta az átvételt${trimmedNote ? ` — ${trimmedNote}` : '.'}`,
+  )
+
+  const { data: updated, error } = await supabase
+    .from('document_submissions')
+    .update({ notes })
+    .eq('id', submissionId)
+    .eq('forwarded_to_kerulet', true)
+    .select('id')
+
+  if (error) return { error: `Hiba: ${error.message}` }
+  if (!updated || updated.length === 0) {
+    return { error: 'A visszaigazolás nem történt meg (nincs írási jogosultsága ehhez a dokumentumhoz).' }
+  }
+
+  revalidateDashboards()
+  return { success: true }
+}
+
+// ---------------------------------------------------------------------------
+// Dokumentumközpont: teljességi mátrix + teljes adatcsomag
+// ---------------------------------------------------------------------------
+
+/**
+ * A dokumentumközpont adatcsomagja: a hatókör TELJES gyülekezet-listája
+ * (nem a beküldésekből! — így a „ki nem adta be" megválaszolható,
+ * diagnosztika #7) + MINDEN év beküldései + évlista.
+ *
+ * scope='diocese': a feloldott egyházmegye gyülekezetei, minden státusz.
+ * scope='district': a kerület megyéinek gyülekezetei, kerületi láthatósággal
+ * (forwarded VAGY finalized — a RLS-sel azonos szabály).
+ * FAIL-CLOSED: feloldhatatlan hatókör → error + üres tömbök; a szűretlen ág
+ * csak a rendszergazdáé/masteré (scopeNotice felirattal).
+ */
+export async function getSubmissionMatrix(
+  scope: 'diocese' | 'district',
+): Promise<DocumentCenterData> {
+  const empty: DocumentCenterData = {
+    congregations: [],
+    submissions: [],
+    years: [],
+    scopeNotice: null,
+  }
+
+  if (scope === 'diocese') {
+    const ctx = await getDioceseScopeContext()
+    if (!ctx.user) return { ...empty, error: 'Nincs bejelentkezve.' }
+    if (!ctx.access.esperes && !ctx.isAdmin && !ctx.isMaster) {
+      return { ...empty, error: 'Nincs jogosultsága az egyházmegyei dokumentumokhoz.' }
+    }
+
+    let congs: Array<{ id: string; name: string; diocese_id: string | null }>
+    let scopeNotice: string | null = null
+    if (ctx.scopeId) {
+      congs = await fetchCongregations(ctx.supabase, [ctx.scopeId])
+    } else if (ctx.isMaster || ctx.isAdmin) {
+      congs = await fetchCongregations(ctx.supabase, null)
+      scopeNotice = 'Rendszergazdai nézet: minden egyházmegye gyülekezetei látszanak.'
+    } else {
+      return { ...empty, error: 'Nincs feloldható egyházmegye-hatóköre — az adatok védelme érdekében nem jelenítünk meg listát.' }
+    }
+
+    const congNames = new Map(congs.map((c) => [c.id, c.name]))
+    const rows = await fetchSubmissions(ctx.supabase, ctx.scopeId ? congs.map((c) => c.id) : null, {
+      year: null,
+    })
+    const submissions = sortBySubmittedDesc(rows.map((r) => toSubmission(r, congNames)))
+    return {
+      congregations: congs.map(
+        (c): DocumentCenterCongregation => ({
+          id: c.id,
+          name: c.name,
+          dioceseId: c.diocese_id,
+          dioceseName: null,
+        }),
+      ),
+      submissions,
+      years: collectYears(submissions),
+      scopeNotice,
+    }
+  }
+
+  // scope === 'district'
+  const ctx = await getDistrictScopeContext()
+  if (!ctx.user) return { ...empty, error: 'Nincs bejelentkezve.' }
+  if (!ctx.access.egyhazkeruletiAdmin && !ctx.isAdmin && !ctx.isMaster) {
+    return { ...empty, error: 'Nincs jogosultsága az egyházkerületi dokumentumokhoz.' }
+  }
+
+  let dioceseNames = new Map<string, string>()
+  let congs: Array<{ id: string; name: string; diocese_id: string | null }>
+  let scopeNotice: string | null = null
+
+  if (ctx.districtIds.length > 0) {
+    const { data: dioceses } = await ctx.supabase
+      .from('dioceses')
+      .select('id, name')
+      .in('district_id', ctx.districtIds)
+    const dioIds = (dioceses || []).map((d) => String(d.id))
+    dioceseNames = new Map((dioceses || []).map((d) => [String(d.id), String(d.name || '')]))
+    congs = dioIds.length > 0 ? await fetchCongregations(ctx.supabase, dioIds) : []
+  } else if (ctx.isMaster || ctx.isAdmin) {
+    const { data: dioceses } = await ctx.supabase.from('dioceses').select('id, name')
+    dioceseNames = new Map((dioceses || []).map((d) => [String(d.id), String(d.name || '')]))
+    congs = await fetchCongregations(ctx.supabase, null)
+    scopeNotice = 'Rendszergazdai nézet: minden egyházkerület dokumentumai látszanak.'
+  } else {
+    return { ...empty, error: 'Nincs feloldható egyházkerület-hatóköre — az adatok védelme érdekében nem jelenítünk meg listát.' }
+  }
+
+  const congNames = new Map(congs.map((c) => [c.id, c.name]))
+  const dioceseNameByCong = new Map(
+    congs.map((c) => [c.id, c.diocese_id ? dioceseNames.get(c.diocese_id) ?? null : null]),
+  )
+  const rows = await fetchSubmissions(
+    ctx.supabase,
+    ctx.districtIds.length > 0 ? congs.map((c) => c.id) : null,
+    { year: null, districtVisibleOnly: true },
+  )
+  const submissions = sortBySubmittedDesc(
+    rows.map((r) => toSubmission(r, congNames, dioceseNameByCong)),
+  )
+  return {
+    congregations: congs.map(
+      (c): DocumentCenterCongregation => ({
+        id: c.id,
+        name: c.name,
+        dioceseId: c.diocese_id,
+        dioceseName: c.diocese_id ? dioceseNames.get(c.diocese_id) ?? null : null,
+      }),
+    ),
+    submissions,
+    years: collectYears(submissions),
+    scopeNotice,
+  }
+}
+
+/** Évlista a beküldésekből + aktuális és előző év, csökkenő sorrendben. */
+function collectYears(submissions: DocumentSubmission[]): number[] {
+  const current = new Date().getFullYear()
+  const years = new Set<number>([current, current - 1])
+  for (const s of submissions) {
+    if (typeof s.year === 'number' && Number.isFinite(s.year)) years.add(s.year)
+  }
+  return [...years].sort((a, b) => b - a)
 }

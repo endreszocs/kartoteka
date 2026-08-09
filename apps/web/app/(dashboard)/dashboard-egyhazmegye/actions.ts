@@ -8,6 +8,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { resolveDioceseScopeId, resolveDioceseScopeIds } from '@/lib/auth/level-scope'
 import type { UnlockRequest } from '@/lib/constants/documents'
 
 // ---------------------------------------------------------------------------
@@ -19,8 +20,14 @@ export async function getUnlockRequests(): Promise<UnlockRequest[]> {
   if (!access.user) return []
   if (!access.esperes && !access.admin && !access.master) return []
 
-  const { supabase, profile } = access
-  const dioceseId = profile?.diocese_id
+  const { supabase } = access
+  // 2026-08-09: a hatókör az aktív profile_role-ból oldódik fel (a skalár
+  // profiles.diocese_id csak fallback) — lásd lib/auth/level-scope.ts.
+  const dioceseId = resolveDioceseScopeId(access)
+  // FAIL-CLOSED: feloldható egyházmegye nélkül csak a rendszergazda/master
+  // láthat szűretlen listát — korábban a NULL diocese_id némán ejtette a szűrőt.
+  const unrestricted = access.master || (access.admin && !dioceseId)
+  if (!dioceseId && !unrestricted) return []
 
   // Lekérdezés: bealitas join congregations, ahol van aktív unlock kérelem
   let query = supabase
@@ -126,6 +133,45 @@ const TYPE_LABELS: Record<UnlockRequest['type'], string> = {
   jelentes: 'lelkészi jelentés',
 }
 
+/**
+ * 2026-08-09: tulajdon-ellenőrzés a feloldási mutációk előtt.
+ *
+ * A kliens által küldött congregationId-t NEM fogadjuk el vakon: a cél-gyülekezet
+ * diocese_id-jának egyeznie kell a hívó feloldott egyházmegye-hatókörével
+ * (master/rendszergazda kivétel). Enélkül — az RLS állapotától függően — egy
+ * esperes IDEGEN egyházmegye gyülekezetének költségvetését/számadását is
+ * fel tudta oldani (cross-diocese un-finalization).
+ *
+ * @returns null, ha rendben; különben magyar hibaüzenet.
+ */
+async function assertCongregationInCallerDiocese(
+  access: Awaited<ReturnType<typeof getEffectiveAccessContext>>,
+  congregationId: string,
+): Promise<string | null> {
+  if (access.master || access.admin) return null
+
+  // 2026-08-09 (review-fix): a TELJES hatókör-unió számít (két egyházmegyét is
+  // vihet ugyanaz a tisztségviselő) — a document-actions assert-jével azonosan.
+  const dioceseIds = resolveDioceseScopeIds(access)
+  if (dioceseIds.length === 0) {
+    return 'Nincs egyházmegye rendelve a fiókjához — a kérelem nem bírálható el.'
+  }
+
+  const { data: cong, error } = await access.supabase
+    .from('congregations')
+    .select('diocese_id')
+    .eq('id', congregationId)
+    .maybeSingle()
+
+  if (error) return `Hiba a gyülekezet ellenőrzésekor: ${error.message}`
+  if (!cong) return 'A gyülekezet nem található.'
+  const congDioceseId = (cong as { diocese_id: string | null }).diocese_id
+  if (!congDioceseId || !dioceseIds.includes(congDioceseId)) {
+    return 'Ez a gyülekezet nem az Ön egyházmegyéjéhez tartozik.'
+  }
+  return null
+}
+
 export async function approveUnlockRequest(
   congregationId: string,
   year: string,
@@ -137,6 +183,10 @@ export async function approveUnlockRequest(
     return { error: 'Nincs jogosultsága a feloldáshoz.' }
   }
 
+  // 2026-08-09: a cél-gyülekezetnek a hívó egyházmegyéjébe kell tartoznia
+  const ownershipError = await assertCongregationInCallerDiocese(access, congregationId)
+  if (ownershipError) return { error: ownershipError }
+
   const { supabase } = access
 
   if (type === 'jelentes') {
@@ -144,7 +194,9 @@ export async function approveUnlockRequest(
     // (lelkeszi_jelentes, kulcs: congregation_id + ev). A feloldás
     // visszaállítja szerkeszthetőre és törli a véglegesítés nyomait —
     // a snapshot is nullázódik, mert az a véglegesített állapot fagyasztása.
-    const { error } = await supabase
+    // 2026-08-09: .select()-tel a 0-soros (RLS által elnyelt) update-et is
+    // hibaként jelezzük, nem hamis sikerként.
+    const { data: updated, error } = await supabase
       .from('lelkeszi_jelentes')
       .update({
         statusz: 'szerkesztes',
@@ -156,8 +208,12 @@ export async function approveUnlockRequest(
       })
       .eq('ev', Number(year))
       .eq('congregation_id', congregationId)
+      .select('congregation_id')
 
     if (error) return { error: `Hiba: ${error.message}` }
+    if (!updated || updated.length === 0) {
+      return { error: 'A feloldás nem történt meg — a jelentés nem található, vagy nincs jogosultsága hozzá.' }
+    }
   } else {
     const updates: Record<string, unknown> = {}
     if (type === 'budget') {
@@ -174,13 +230,59 @@ export async function approveUnlockRequest(
       // A leltár véglegesítési flag más logikával működik (leltar_tetelek szintjén)
     }
 
-    const { error } = await supabase
+    // 2026-08-09: 0-soros update (RLS-elnyelés / rossz kulcs) = hiba, nem siker
+    const { data: updated, error } = await supabase
       .from('bealitas')
       .update(updates)
       .eq('id', year)
       .eq('congregation_id', congregationId)
+      .select('congregation_id')
 
     if (error) return { error: `Hiba: ${error.message}` }
+    if (!updated || updated.length === 0) {
+      return { error: 'A feloldás nem történt meg — a beállítás-sor nem található, vagy nincs jogosultsága hozzá.' }
+    }
+  }
+
+  // 2026-08-09 (review-fix): a feloldás a BEKÜLDÖTT dokumentum sorát is
+  // nyitja. Enélkül a lelkész feloldás után sem tudná újra beküldeni az
+  // iratot: a dokumentumközpont felülírás-védelme a 'finalized' sort blokkolja
+  // ('returned' viszont újra beküldhető). Best-effort: ha nincs ilyen sor
+  // (még nem küldték be), az nem hiba.
+  const unlockedDocType: string | null =
+    type === 'accounting' ? 'szamadas'
+      : type === 'budget' ? 'koltsegvetes'
+        : type === 'jelentes' ? 'lelkeszi_jelentes'
+          : type === 'inventory' ? 'vagyonleltar'
+            : null
+  if (unlockedDocType) {
+    try {
+      const { data: subRow } = await supabase
+        .from('document_submissions')
+        .select('id, status, notes')
+        .eq('congregation_id', congregationId)
+        .eq('document_type', unlockedDocType)
+        .eq('year', Number(year))
+        .in('status', ['submitted', 'received', 'reviewed', 'finalized'])
+        .maybeSingle()
+      if (subRow?.id) {
+        const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ')
+        const prev = (subRow.notes as string | null) || ''
+        await supabase
+          .from('document_submissions')
+          .update({
+            status: 'returned',
+            finalized_at: null,
+            finalized_by: null,
+            forwarded_to_kerulet: false,
+            forwarded_at: null,
+            notes: `${prev ? `${prev}\n` : ''}[${stamp}] Szerkesztésre feloldva az egyházmegye jóváhagyásával — a javítás után újra beküldhető.`,
+          })
+          .eq('id', subRow.id)
+      }
+    } catch {
+      // Nem kritikus — a feloldás maga megtörtént.
+    }
   }
 
   // Csengő értesítés a gyülekezet aktív lelkészei + könyvelői részére
@@ -193,6 +295,7 @@ export async function approveUnlockRequest(
 
   revalidatePath('/dashboard-egyhazmegye')
   revalidatePath('/penzugy')
+  revalidatePath('/leltar')
   if (type === 'jelentes') revalidatePath('/munkanaplo')
   return { success: true }
 }
@@ -208,18 +311,27 @@ export async function rejectUnlockRequest(
     return { error: 'Nincs jogosultsága az elutasításhoz.' }
   }
 
+  // 2026-08-09: a cél-gyülekezetnek a hívó egyházmegyéjébe kell tartoznia
+  const ownershipError = await assertCongregationInCallerDiocese(access, congregationId)
+  if (ownershipError) return { error: ownershipError }
+
   const { supabase } = access
 
   if (type === 'jelentes') {
     // 2026-07-17 (F5): elutasításkor CSAK a kérelem-mezők nullázódnak —
     // a jelentés véglegesített marad (statusz/snapshot érintetlen).
-    const { error } = await supabase
+    // 2026-08-09: 0-soros update = hiba, nem hamis siker.
+    const { data: updated, error } = await supabase
       .from('lelkeszi_jelentes')
       .update({ unlock_requested: false, unlock_reason: null })
       .eq('ev', Number(year))
       .eq('congregation_id', congregationId)
+      .select('congregation_id')
 
     if (error) return { error: `Hiba: ${error.message}` }
+    if (!updated || updated.length === 0) {
+      return { error: 'Az elutasítás nem történt meg — a jelentés nem található, vagy nincs jogosultsága hozzá.' }
+    }
   } else {
     const updates: Record<string, unknown> = {}
     if (type === 'budget') {
@@ -233,13 +345,18 @@ export async function rejectUnlockRequest(
       updates.leltar_unlock_reason = null
     }
 
-    const { error } = await supabase
+    // 2026-08-09: 0-soros update = hiba, nem hamis siker
+    const { data: updated, error } = await supabase
       .from('bealitas')
       .update(updates)
       .eq('id', year)
       .eq('congregation_id', congregationId)
+      .select('congregation_id')
 
     if (error) return { error: `Hiba: ${error.message}` }
+    if (!updated || updated.length === 0) {
+      return { error: 'Az elutasítás nem történt meg — a beállítás-sor nem található, vagy nincs jogosultsága hozzá.' }
+    }
   }
 
   // Csengő értesítés a gyülekezet aktív lelkészei + könyvelői részére
@@ -363,11 +480,15 @@ export async function getCongregationOverviewData(): Promise<Array<{
   if (!access.user) return []
   if (!access.esperes && !access.admin && !access.master) return []
 
-  const { supabase, profile } = access
-  const dioceseId = profile?.diocese_id
+  const { supabase } = access
+  // 2026-08-09: feloldott hatókör (aktív szerep → profile_roles → skalár) +
+  // FAIL-CLOSED: NULL-scope diocese-felhasználó ÜRES listát kap, nem az egész
+  // egyház gyülekezeteit (a congregations SELECT RLS USING(true), nincs backstop).
+  const dioceseId = resolveDioceseScopeId(access)
+  if (!dioceseId && !access.master && !access.admin) return []
   const currentYear = new Date().getFullYear()
 
-  // Gyülekezetek lekérdezése
+  // Gyülekezetek lekérdezése — szűretlenül CSAK a rendszergazdai/master ág futhat
   let congQuery = supabase
     .from('congregations')
     .select('id, name')

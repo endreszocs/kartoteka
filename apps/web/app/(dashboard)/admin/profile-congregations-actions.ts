@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
-import { assertCongregationInScope, getScopedCongregationIds } from '@/lib/auth/admin-scope'
+import { assertCongregationInScope, getAdminDistrictScope, getScopedCongregationIds } from '@/lib/auth/admin-scope'
+import { resolveDioceseScopeId } from '@/lib/auth/level-scope'
 
 /**
  * profile_congregations hozzárendelések kezelése — admin / kerületi admin oldali actions.
@@ -81,6 +82,21 @@ export async function listAssignments(options?: {
   if (access.egyhazkeruletiAdmin && !access.admin) {
     const scopedCongIds = await getScopedCongregationIds(access)
     if (scopedCongIds) query = query.in('congregation_id', scopedCongIds)
+  } else if (isDioceseLevel && !access.admin) {
+    // 2026-08-09: az esperes / egyházmegyei admin ág eddig SZŰRETLENÜL futott
+    // (csak az RLS korlátozta, ami bármikor elcsúszhat) — mostantól explicit
+    // a feloldott egyházmegye gyülekezeteire szűrünk. FAIL-CLOSED: feloldható
+    // egyházmegye nélkül üres lista, nem szűretlen lekérdezés.
+    const dioceseId = resolveDioceseScopeId(access)
+    if (!dioceseId) return { data: [] }
+    const { data: congs, error: congErr } = await supabase
+      .from('congregations')
+      .select('id')
+      .eq('diocese_id', dioceseId)
+    if (congErr) return { error: congErr.message }
+    const congIds = (congs ?? []).map((c) => c.id as string)
+    if (congIds.length === 0) return { data: [] }
+    query = query.in('congregation_id', congIds)
   }
 
   const { data, error } = await query
@@ -363,12 +379,19 @@ export async function listCongregationsForAssignment(): Promise<{
     return { error: 'Nincs jogosultsága.' }
   }
 
-  // Egyházkerületi admin: csak a saját kerülete alatti gyülekezetek
-  if (access.egyhazkeruletiAdmin && !access.admin && access.profile?.district_id) {
+  // Egyházkerületi admin: csak a saját kerülete alatti gyülekezetek.
+  // 2026-08-09 FIX: a hatókör a feloldott district-scope (profile_roles +
+  // profiles.district_id fallback, getAdminDistrictScope) — korábban a NULL
+  // profiles.district_id-s kerületi admin átcsúszott a korlátlan admin ágra
+  // és a TELJES gyülekezet-listát kapta. FAIL-CLOSED: hatókör nélkül üres lista.
+  if (access.egyhazkeruletiAdmin && !access.admin) {
+    const { districtIds } = getAdminDistrictScope(access)
+    if (districtIds.length === 0) return { data: [] }
+
     const { data, error } = await access.supabase
       .from('congregations')
       .select('id, nev_hu, name, diocese_id, dioceses!inner(district_id)')
-      .eq('dioceses.district_id', access.profile.district_id)
+      .in('dioceses.district_id', districtIds)
       .order('nev_hu')
 
     if (error) return { error: error.message }

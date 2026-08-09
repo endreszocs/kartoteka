@@ -1152,8 +1152,12 @@ export async function submitLelkesziJelentes(ev: number): Promise<{ success?: bo
 
   // Ha az egyházmegye a korábbi beküldést már feldolgozta (received/reviewed/
   // finalized), az ismételt beküldés némán felülírná a feldolgozott sort.
+  //
+  // 2026-08-09 (review-fix): a VISSZAKÜLDÖTT ('returned') jelentés KIVÉTEL —
+  // azt az egyházmegye épp javításra küldte vissza, tehát újra beküldhető
+  // (különben a visszaküldés-értesítés ígérete zsákutcába vinne).
   const submission = await loadSubmission(supabase, congregationId, ev)
-  if (submission && submission.status !== 'submitted') {
+  if (submission && submission.status !== 'submitted' && submission.status !== 'returned') {
     return {
       error:
         'A korábban beküldött jelentést az egyházmegye már feldolgozta — ismételt beküldés előtt egyeztessen az egyházmegyei hivatallal.',

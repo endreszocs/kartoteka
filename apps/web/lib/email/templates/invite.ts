@@ -14,11 +14,17 @@ import 'server-only'
  */
 
 import type { EmailSendArgs } from '../types'
+import { INVITE_FEATURE_CATEGORIES } from '@/app/(dashboard)/admin/meghivo-shared'
 
 const APP_URL = 'https://kartoteka.app'
 const LOGO_URL = `${APP_URL}/kartoteka-logo.png`
 const ICON_URL = `${APP_URL}/EREK.png`
 const CTA_URL = `${APP_URL}/hozzaferes-kerese`
+
+/** A levél a fejlesztő-lelkipásztor nevében szól (2026-08-09, Endre kérése). */
+const DEVELOPER_NAME = 'Szőcs Endre'
+const DEVELOPER_TITLE = 'barátosi lelkipásztor, a Kartotéka fejlesztője'
+const DEVELOPER_EMAIL = 'endreszocs@gmail.com'
 
 function escHtml(s: string): string {
   return s
@@ -28,14 +34,6 @@ function escHtml(s: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
 }
-
-/** A rendszer főbb moduljai — a levélben rövid „mit kap" felsorolásként. */
-const FEATURES: Array<{ title: string; desc: string }> = [
-  { title: 'Tagnyilvántartás', desc: 'családi kartonok, választói névjegyzék, családfa' },
-  { title: 'Pénzügy', desc: 'járulékok, nyugták, számadás, költségvetés' },
-  { title: 'Anyakönyvek', desc: 'keresztelés, konfirmáció, esketés, temetés' },
-  { title: 'Leltár és iktató', desc: 'hivatalos iratok, jegyzőkönyvek egy helyen' },
-]
 
 export function inviteEmail(args: {
   email: string
@@ -49,37 +47,56 @@ export function inviteEmail(args: {
   const name = args.name?.trim() || ''
   const personalMessage = args.personalMessage?.trim() || ''
   const inviterName = args.inviterName.trim() || 'A Kartotéka rendszergazdája'
+  // Ha nem maga a fejlesztő küldi, a levél alján jelezzük, ki továbbította.
+  // Ékezet- és sorrend-tűrő összevetés (Szőcs/Szocs, „Szőcs Endre"/„Endre Szőcs").
+  const normalizeName = (s: string) =>
+    s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  const inviterNorm = normalizeName(inviterName)
+  const inviterDiffers = !(inviterNorm.includes('szocs') && inviterNorm.includes('endre'))
 
-  const greeting = name ? `Kedves ${name}!` : 'Kedves Testvérünk!'
-  const subject = `${inviterName} meghívja Önt a Kartotéka rendszerbe`
+  const greeting = name ? `Békesség Istentől, kedves ${name}!` : 'Békesség Istentől!'
+  const subject = 'Békesség Istentől! — Meghívó a Kartotéka rendszerbe'
 
   // ── Plain-text változat ────────────────────────────────────────────────
   const text = `${greeting}
 
-${inviterName} szeretettel meghívja Önt a Kartotéka rendszerbe — az Erdélyi
-Református Egyházkerület gyülekezeti nyilvántartó alkalmazásába.
+${DEVELOPER_NAME} vagyok, a barátosi református gyülekezet lelkipásztora.
+A Kartotéka az én fejlesztésem: lelkészként pontosan tudom, mennyi időt
+visznek el a nyilvántartások, a könyvelés és a hivatalos nyomtatványok —
+ezért készítettem el ezt a rendszert, hogy mindez EGY helyen, egyszerűen
+és magyarul intézhető legyen. Szeretettel hívlak, hogy a gyülekezeted is
+használja!
 ${personalMessage ? `
-Személyes üzenete:
+${inviterDiffers ? `${inviterName} személyes üzenete:` : 'Személyes üzenetem:'}
 „${personalMessage}"
 ` : ''}
-A Kartotékában egy helyen kezelheti gyülekezete életét:
-${FEATURES.map((f) => `  • ${f.title} — ${f.desc}`).join('\n')}
+MIT TUD A KARTOTÉKA?
 
-Csatlakozáshoz nyissa meg az alábbi oldalt, és töltse ki a rövid
-hozzáférés-kérelmet (néhány perc):
+${INVITE_FEATURE_CATEGORIES.map(
+  (c) => `${c.emoji} ${c.title.toUpperCase()}
+${c.items.map((i) => `   • ${i}`).join('\n')}`,
+).join('\n\n')}
+
+CSATLAKOZÁS — néhány perc az egész:
 ${CTA_URL}
 
 Hogyan tovább?
-  1. Kitölti a hozzáférés-kérelmet a fenti linken.
-  2. A rendszergazda jóváhagyja a kérelmét — erről e-mailt kap.
-  3. Beléphet, és használatba veheti gyülekezete Kartotékáját.
+  1. A fenti címen kitöltöd a rövid hozzáférés-kérelmet.
+  2. A kérelmet jóváhagyjuk — erről e-mailt kapsz.
+  3. Belépsz, és használatba veheted a gyülekezeted Kartotékáját.
+${inviterDiffers ? `
+Ezt a meghívót ${inviterName} küldte Neked a Kartotéka rendszeren keresztül.
+` : ''}
+Ha a meghívót nem vártad, vagy nem Neked szól, kérlek, hagyd figyelmen
+kívül — fiók nem jön létre automatikusan.
 
-Ha a meghívót nem várta, vagy nem Önnek szól, kérjük, hagyja figyelmen kívül —
-fiók nem jön létre automatikusan.
+Kérdésed van? Írj bátran: ${DEVELOPER_EMAIL}
 
-Áldott napot kíván:
-A Kartotéka rendszer
-Erdélyi Református Egyházkerület`
+Áldás, békesség!
+
+${DEVELOPER_NAME}
+${DEVELOPER_TITLE}
+${APP_URL}`
 
   // ── HTML változat — a broadcast-levelek vizuális nyelvén ───────────────
   const personalMessageBlock = personalMessage
@@ -89,28 +106,37 @@ Erdélyi Református Egyházkerület`
                         <td style="background:#f0fdfa;border-left:3px solid #0f766e;border-radius:0 12px 12px 0;padding:14px 18px">
                           <p style="margin:0 0 6px 0;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#115e59">Személyes üzenet</p>
                           <p style="margin:0;font-size:15px;line-height:1.65;color:#134e4a;font-style:italic;white-space:pre-wrap">„${escHtml(personalMessage)}"</p>
-                          <p style="margin:8px 0 0 0;font-size:13px;color:#0f766e;font-weight:600">— ${escHtml(inviterName)}</p>
+                          <p style="margin:8px 0 0 0;font-size:13px;color:#0f766e;font-weight:600">— ${escHtml(inviterDiffers ? inviterName : DEVELOPER_NAME)}</p>
                         </td>
                       </tr>
                     </table>`
     : ''
 
-  const featureRows = FEATURES.map(
-    (f) => `
+  // Kategorizált rendszerbemutató — emoji + cím + pontokba szedett lista.
+  const featureRows = INVITE_FEATURE_CATEGORIES.map(
+    (c) => `
                       <tr>
-                        <td valign="top" style="padding:6px 0;width:22px">
-                          <span style="display:inline-block;width:8px;height:8px;border-radius:999px;background:#0f766e;margin-top:6px"></span>
+                        <td colspan="2" style="padding:12px 0 3px 0;font-size:15px;color:#0f172a;font-weight:700">
+                          <span style="font-size:17px;vertical-align:middle">${c.emoji}</span>&nbsp; ${escHtml(c.title)}
                         </td>
-                        <td style="padding:6px 0;font-size:14px;line-height:1.55;color:#334155">
-                          <strong style="color:#0f172a">${escHtml(f.title)}</strong> — ${escHtml(f.desc)}
+                      </tr>
+${c.items
+  .map(
+    (i) => `
+                      <tr>
+                        <td valign="top" style="padding:2px 0 2px 8px;width:22px">
+                          <span style="display:inline-block;width:6px;height:6px;border-radius:999px;background:#0f766e;margin-top:7px"></span>
                         </td>
+                        <td style="padding:2px 0;font-size:13.5px;line-height:1.55;color:#334155">${escHtml(i)}</td>
                       </tr>`,
+  )
+  .join('')}`,
   ).join('')
 
   const steps: string[] = [
-    'Kitölti a rövid hozzáférés-kérelmet a fenti gombbal (néhány perc).',
-    'A rendszergazda jóváhagyja a kérelmét — erről e-mailt kap.',
-    'Beléphet, és használatba veheti gyülekezete Kartotékáját.',
+    'A fenti gombbal kitöltöd a rövid hozzáférés-kérelmet (néhány perc).',
+    'A kérelmet jóváhagyjuk — erről e-mailt kapsz.',
+    'Belépsz, és használatba veheted a gyülekezeted Kartotékáját.',
   ]
   const stepRows = steps
     .map(
@@ -144,7 +170,7 @@ Erdélyi Református Egyházkerület`
 <body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Arial,sans-serif;color:#1e293b;-webkit-font-smoothing:antialiased">
   <!-- Előnézeti szöveg (inbox-preview) — a levélben nem látszik -->
   <div style="display:none;max-height:0;overflow:hidden;mso-hide:all">
-    Szeretettel meghívjuk a Kartotékába — az erdélyi gyülekezetek közös nyilvántartó rendszerébe.
+    Békesség Istentől! Szőcs Endre barátosi lelkipásztor vagyok — szeretettel hívlak a Kartotékába, az erdélyi gyülekezetek nyilvántartó rendszerébe.
   </div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f1f5f9;padding:0;margin:0">
     <tr>
@@ -185,23 +211,25 @@ Erdélyi Református Egyházkerület`
                     <p style="margin:0 0 12px 0;display:inline-block;padding:5px 14px;background:#f0fdfa;color:#115e59;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase">Személyes meghívó</p>
 
                     <!-- Cím -->
-                    <h1 style="margin:8px 0 0 0;font-family:'Georgia',serif;font-size:26px;line-height:1.25;color:#0f172a;font-weight:600">Szeretettel meghívjuk a Kartotékába</h1>
+                    <h1 style="margin:8px 0 0 0;font-family:'Georgia',serif;font-size:26px;line-height:1.25;color:#0f172a;font-weight:600">Szeretettel hívlak a Kartotékába</h1>
 
                     <!-- Elválasztó -->
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:18px 0">
                       <tr><td style="border-top:1px solid #e2e8f0;line-height:0;height:0">&nbsp;</td></tr>
                     </table>
 
-                    <p style="margin:0 0 14px 0;font-size:15px;color:#0f172a;font-weight:600">${escHtml(greeting)}</p>
+                    <p style="margin:0 0 14px 0;font-size:16px;color:#0f172a;font-weight:700">${escHtml(greeting)}</p>
 
-                    <p style="margin:0 0 10px 0;font-size:15px;line-height:1.65;color:#334155">
-                      <strong style="color:#0f172a">${escHtml(inviterName)}</strong> szeretettel meghívja Önt a
-                      <strong style="color:#0f172a">Kartotéka</strong> rendszerbe — az Erdélyi Református Egyházkerület
-                      gyülekezeti nyilvántartó alkalmazásába, amelyet lelkipásztorok és gyülekezeti
-                      munkatársak használnak nap mint nap.
+                    <p style="margin:0 0 10px 0;font-size:15px;line-height:1.7;color:#334155">
+                      <strong style="color:#0f172a">${DEVELOPER_NAME}</strong> vagyok, a barátosi református
+                      gyülekezet lelkipásztora. A <strong style="color:#0f172a">Kartotéka</strong> az én
+                      fejlesztésem: lelkészként pontosan tudom, mennyi időt visznek el a nyilvántartások,
+                      a könyvelés és a hivatalos nyomtatványok — ezért készítettem el ezt a rendszert,
+                      hogy mindez <strong style="color:#0f172a">egy helyen, egyszerűen és magyarul</strong>
+                      intézhető legyen. Szeretettel hívlak, hogy a gyülekezeted is használja!
                     </p>
 ${personalMessageBlock}
-                    <p style="margin:16px 0 6px 0;font-size:15px;line-height:1.65;color:#334155">A Kartotékában egy helyen kezelheti gyülekezete életét:</p>
+                    <p style="margin:18px 0 2px 0;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#64748b">Mit tud a Kartotéka?</p>
 
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 8px 0">
 ${featureRows}
@@ -232,11 +260,16 @@ ${stepRows}
                     </table>
 
                     <p style="margin:18px 0 0 0;font-size:12px;line-height:1.6;color:#94a3b8">
-                      Ha a meghívót nem várta, vagy nem Önnek szól, kérjük, hagyja figyelmen kívül —
-                      fiók nem jön létre automatikusan.
+                      Ha a meghívót nem vártad, vagy nem Neked szól, kérlek, hagyd figyelmen kívül —
+                      fiók nem jön létre automatikusan. Kérdésed van? Írj bátran:
+                      <a href="mailto:${DEVELOPER_EMAIL}" style="color:#0f766e;text-decoration:underline">${DEVELOPER_EMAIL}</a>
                     </p>
 
-                    <p style="margin:20px 0 0 0;font-size:14px;font-style:italic;color:#64748b">Áldott napot kíván:<br/>A Kartotéka rendszer</p>
+                    <p style="margin:22px 0 0 0;font-size:15px;line-height:1.6;color:#334155">
+                      Áldás, békesség!<br/>
+                      <strong style="color:#0f172a">${DEVELOPER_NAME}</strong><br/>
+                      <span style="font-size:13px;color:#64748b">${DEVELOPER_TITLE}</span>
+                    </p>
                   </td>
                 </tr>
               </table>

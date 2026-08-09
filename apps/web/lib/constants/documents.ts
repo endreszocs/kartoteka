@@ -14,20 +14,31 @@ export type DocumentType =
   // a migráció (2026-07-16-f5-lelkeszi-jelentes.sql) dokumentálja az értéket.
   | 'lelkeszi_jelentes'
 
-export type DocumentStatus = 'submitted' | 'received' | 'reviewed' | 'finalized'
+// 2026-08-09: + 'returned' — az egyházmegye visszaküldheti a dokumentumot a
+// gyülekezetnek javításra (kötelező indoklással, a notes oszlopba naplózva).
+// A táblán nincs CHECK a status oszlopon — az érték app-oldali konvenció.
+export type DocumentStatus = 'submitted' | 'received' | 'reviewed' | 'finalized' | 'returned'
 
 export interface DocumentSubmission {
   id: string
   congregation_id: string
   congregation_name?: string
+  /** 2026-08-09: kerületi nézetben a gyülekezet egyházmegyéjének neve. */
+  diocese_name?: string | null
   diocese_id: string | null
   year: number
   document_type: DocumentType
   modification_number: number | null
   status: DocumentStatus
   submitted_at: string
+  // 2026-08-09: a teljes workflow-idővonal a dokumentumközpontban látszik
+  received_at?: string | null
+  reviewed_at?: string | null
   finalized_at: string | null
   forwarded_to_kerulet: boolean
+  forwarded_at?: string | null
+  /** A beküldött fagyasztott pillanatkép (a snapshot-nézőben jelenik meg). */
+  snapshot_data?: Record<string, unknown> | null
   notes: string | null
 }
 
@@ -38,6 +49,40 @@ export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   vagyonleltar: 'Vagyonleltári jelentés',
   valasztok_nevjegyzeke: 'Választók névjegyzéke',
   lelkeszi_jelentes: 'Lelkészi jelentés',
+}
+
+// 2026-08-09: magyar státusz-címkék a dokumentumközponthoz (mindkét szint).
+export const DOCUMENT_STATUS_LABELS: Record<DocumentStatus, string> = {
+  submitted: 'Beküldve',
+  received: 'Átvéve',
+  reviewed: 'Ellenőrizve',
+  finalized: 'Véglegesítve',
+  returned: 'Visszaküldve',
+}
+
+/**
+ * 2026-08-09: a teljességi mátrix oszlopai — az ÖT kötelező évi dokumentum.
+ * A koltsegvetes_modositas szándékosan nincs köztük (opcionális, év közbeni).
+ * Az értékek a tényleges submitDocument-hívókkal egyeznek (voters-tab,
+ * inventory-main-v3, BudgetTab, penzugy/actions, lelkeszi-jelentes-actions).
+ */
+export const REQUIRED_DOCUMENT_TYPES: DocumentType[] = [
+  'szamadas',
+  'koltsegvetes',
+  'vagyonleltar',
+  'valasztok_nevjegyzeke',
+  'lelkeszi_jelentes',
+]
+
+/**
+ * 2026-08-09 (diagnosztika #5 — év-kulcsolási hiba): az „aktuális beszámolási
+ * szezon" éve. A számadás/lelkészi jelentés a TÁRGYÉV kulcsával, de a KÖVETKEZŐ
+ * év januárjában érkezik; a vagyonleltár mindig year-1 kulccsal kerül be.
+ * Január–márciusban ezért az előző év a releváns alapértelmezés — a naptári
+ * évre szűrő régi nézetben ezek a dokumentumok láthatatlanok voltak.
+ */
+export function documentSeasonYear(date: Date = new Date()): number {
+  return date.getMonth() < 3 ? date.getFullYear() - 1 : date.getFullYear()
 }
 
 // Feloldási kérelem típus (az egyházmegyei actions.ts-ből kiemelve)

@@ -1,15 +1,18 @@
 'use client'
 
-// 2026-07-11 (F2 — W6 integráció): a munkanapló-főoldal token-alapú
-// újraszerkesztése. A korábbi ModuleHero + ColorTabs (hardkódolt-színes)
-// szerkezet helyett:
+// 2026-08-09: a munkanapló-főoldal újraszerkesztése a többi modul mintájára —
+// ModuleHero fejléc + közös ColorTabs menüsáv (mint a Leltár / Pénzügy /
+// Tagnyilvántartás oldalakon). Az oldal szerkezete:
 //
-//   fejléc (cím + év/hónap-választó) → év-összkép (WorklogOverview) →
-//   token-stílusú fülek → kategória-tartalom.
+//   ModuleHero (cím + jelvények) → időszak-eszközsor (év/hónap-választó) →
+//   év-összkép (WorklogOverview) → ColorTabs menüsáv → eszköz-csempék
+//   (csak a kezdő Szolgálatok nézeten: igehirdetési terv / énekkereső /
+//   konkordancia) → fül-tartalom.
 //
-// ADATFOLYAM: mindig a TELJES év töltődik be (getWorklogs('YYYY')), a
-// hónap-szűrés kliens-oldalon történik — így az év-összkép, a táblázatos
-// rögzítő (éven belüli folyamatos Ssz.) és a havi lista egyetlen fetch-ből él.
+// ADATFOLYAM (F2 kontraktus, változatlan): mindig a TELJES év töltődik be
+// (getWorklogs('YYYY')), a hónap-szűrés kliens-oldalon történik — így az
+// év-összkép, a táblázatos rögzítő (éven belüli folyamatos Ssz.) és a havi
+// lista egyetlen fetch-ből él.
 //
 // MOBILE-FIRST: md alatt a kártyás lista + dialógusos rögzítés az elsődleges
 // (a táblázat ott nem is renderelődik — teljesítmény), md-től a soron belül
@@ -17,10 +20,25 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
-import { Download, FileText, NotebookPen, Pencil, Plus, Printer, Trash2 } from 'lucide-react'
+import {
+  BookOpenText,
+  CalendarDays,
+  ChevronRight,
+  Download,
+  FileText,
+  Music,
+  NotebookPen,
+  Pencil,
+  Plus,
+  Printer,
+  Trash2,
+} from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import { ColorTabs } from '@/components/ui/color-tabs'
+import { ModuleHero } from '@/components/shared/module-hero'
 import { cn } from '@/lib/utils'
 import { getWorklogs, deleteWorklog } from '@/app/(dashboard)/munkanaplo/actions'
 import { WorklogDialog } from '@/components/modals/worklog-dialog'
@@ -89,6 +107,19 @@ const WorklogStatistics = dynamic(
 // zárás után is mountolva marad, a szerkesztő állapota nem veszik el).
 type LelkesziJelentesDialogComponent =
   typeof import('@/components/worklog/lelkeszi-jelentes-dialog').LelkesziJelentesDialog
+
+// 2026-08-09 (redesign): az énekkereső és a konkordancia a főoldali
+// eszköz-csempékről is nyitható — ugyanazzal a KATTINTÁSKORI lazy-import
+// mintával, mint a lelkészi jelentés (lásd fent, miért nem dynamic().catch).
+// Itt böngésző-módban mountolódnak (onInsert/onInsertRef nélkül); a
+// SermonPlanTab-on belüli példányok változatlanul a terv-űrlapba illesztenek.
+// A nagy korpuszok (énekeskönyv ~608 KB, Károli ~4,2 MB) továbbra is csak a
+// dialóguson BELÜL, igény szerint töltődnek — a csempe-kattintás csak a
+// dialógus-chunkot húzza le.
+type EnekKeresoDialogComponent =
+  typeof import('@/components/worklog/enek-kereso-dialog').EnekKeresoDialog
+type KonkordanciaDialogComponent =
+  typeof import('@/components/worklog/konkordancia-dialog').KonkordanciaDialog
 
 // 2026-08-09: Igehirdetési terv fül — lazy chunk (naptár + szerkesztő + eszközök),
 // csak a fülre kattintva töltődik.
@@ -178,7 +209,7 @@ function useIsMdUp(): boolean {
   return isMdUp
 }
 
-// Token-stílusú, kompakt select (fejléc év/hónap-választó).
+// Token-stílusú, kompakt select (időszak-eszközsor év/hónap-választója).
 const SELECT_CLS =
   'h-9 rounded-lg border border-input bg-background px-2.5 text-sm text-foreground shadow-sm ' +
   'outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring'
@@ -202,6 +233,15 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
   const [jelentesDialogOpen, setJelentesDialogOpen] = useState(false)
   const [JelentesDialog, setJelentesDialog] = useState<LelkesziJelentesDialogComponent | null>(null)
   const [jelentesChunkLoading, setJelentesChunkLoading] = useState(false)
+  // 2026-08-09: a főoldali eszköz-csempék dialógusai (énekkereső +
+  // konkordancia) — kattintáskori lazy-import, state-ben tárolt komponens
+  // (a jelentés-dialógus mintája). Az első sikeres betöltés után mountolva
+  // maradnak, így a keresési állapot zárás után sem veszik el.
+  const [enekKeresoOpen, setEnekKeresoOpen] = useState(false)
+  const [EnekKereso, setEnekKereso] = useState<EnekKeresoDialogComponent | null>(null)
+  const [konkordanciaOpen, setKonkordanciaOpen] = useState(false)
+  const [Konkordancia, setKonkordancia] = useState<KonkordanciaDialogComponent | null>(null)
+  const [toolChunkLoading, setToolChunkLoading] = useState<'enek' | 'konkordancia' | null>(null)
   const isMdUp = useIsMdUp()
   // A mindenkori aktuális év — a csendes újratöltés stale-year őre ezt
   // hasonlítja össze a híváskor rögzített évvel (lásd refreshEntries).
@@ -337,20 +377,68 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
     }
   }
 
+  // 2026-08-09: a főoldali énekkereső megnyitása (eszköz-csempéről) —
+  // kattintáskori import; hibánál toast, és a KÖVETKEZŐ kattintás újra
+  // próbálkozik (nincs beégett hibakomponens).
+  async function openEnekKereso() {
+    if (EnekKereso) {
+      setEnekKeresoOpen(true)
+      return
+    }
+    if (toolChunkLoading) return
+    setToolChunkLoading('enek')
+    try {
+      const mod = await import('@/components/worklog/enek-kereso-dialog')
+      // Függvény-formájú setState kell (lásd a jelentés-dialógus megjegyzését).
+      setEnekKereso(() => mod.EnekKeresoDialog)
+      setEnekKeresoOpen(true)
+    } catch (err) {
+      console.warn('[worklog] énekkereső chunk-betöltési hiba:', err)
+      toast.error('Az énekkereső most nem tölthető be — próbálja újra.')
+    } finally {
+      setToolChunkLoading(null)
+    }
+  }
+
+  // 2026-08-09: a főoldali konkordancia megnyitása (eszköz-csempéről) —
+  // ugyanaz a kattintáskori minta, mint az énekkeresőnél.
+  async function openKonkordancia() {
+    if (Konkordancia) {
+      setKonkordanciaOpen(true)
+      return
+    }
+    if (toolChunkLoading) return
+    setToolChunkLoading('konkordancia')
+    try {
+      const mod = await import('@/components/worklog/konkordancia-dialog')
+      setKonkordancia(() => mod.KonkordanciaDialog)
+      setKonkordanciaOpen(true)
+    } catch (err) {
+      console.warn('[worklog] konkordancia chunk-betöltési hiba:', err)
+      toast.error('A konkordancia most nem tölthető be — próbálja újra.')
+    } finally {
+      setToolChunkLoading(null)
+    }
+  }
+
   // Év-választó (8 évre vissza) + hónap-választó ("Egész év" opcióval).
   const yearOptions: number[] = []
   for (let i = 0; i < 8; i++) yearOptions.push(now.getFullYear() - i)
   const activeMonthLabel = monthNum === 0 ? `${year} — egész év` : `${HU_MONTHS[monthNum - 1]} ${year}`
 
-  const tabs: { value: WorklogTab; label: string; count?: number; danger?: boolean }[] = [
-    { value: 'szolgalat', label: WORKLOG_CATEGORY_LABELS.szolgalat, count: counts.szolgalat },
-    { value: 'katekezis', label: WORKLOG_CATEGORY_LABELS.katekezis, count: counts.katekezis },
-    { value: 'latogatas', label: WORKLOG_CATEGORY_LABELS.latogatas, count: counts.latogatas },
-    { value: 'igeterv', label: 'Igehirdetési terv' },
-    { value: 'jelentes', label: 'Lelkészi jelentés' },
-    { value: 'help', label: 'Súgó' },
+  // 2026-08-09: a közös ColorTabs menüsáv fülei — színkiosztás a többi modul
+  // mintájára: kategóriák = teal / emerald / amber (darabszám-jelvénnyel),
+  // igeterv = violet, jelentés = blue, súgó = slate, rendszergazdai
+  // importáló = red-prominent (figyelmeztető jelleg, mint a Leltár oldalon).
+  const tabs: { value: WorklogTab; label: string; color: string; count?: number }[] = [
+    { value: 'szolgalat', label: WORKLOG_CATEGORY_LABELS.szolgalat, color: 'teal', count: counts.szolgalat },
+    { value: 'katekezis', label: WORKLOG_CATEGORY_LABELS.katekezis, color: 'emerald', count: counts.katekezis },
+    { value: 'latogatas', label: WORKLOG_CATEGORY_LABELS.latogatas, color: 'amber', count: counts.latogatas },
+    { value: 'igeterv', label: 'Igehirdetési terv', color: 'violet' },
+    { value: 'jelentes', label: 'Lelkészi jelentés', color: 'blue' },
+    { value: 'help', label: 'Súgó', color: 'slate' },
     ...(showAdminImport
-      ? [{ value: 'admin-import' as const, label: 'Rendszergazdai importáló', danger: true }]
+      ? [{ value: 'admin-import' as const, label: 'Rendszergazdai importáló', color: 'red-prominent' }]
       : []),
   ]
 
@@ -358,26 +446,24 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
 
   return (
     <div className="space-y-4">
-      {/* ── Fejléc: cím + időszak-jelzők + év/hónap-választó ─────────────── */}
-      <header className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Munkanapló</p>
-          <h1 className="mt-0.5 font-heading text-2xl text-foreground sm:text-3xl">
-            Munkanapló és lelkészi jelentés
-          </h1>
-          <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-            {congregationName ? (
-              <span className="rounded-full border border-border bg-muted px-2.5 py-0.5 font-medium text-foreground">
-                {congregationName}
-              </span>
-            ) : null}
-            <span className="tabular-nums">{entries.length} bejegyzés az évben</span>
-            <span aria-hidden>·</span>
-            <span>{activeMonthLabel}</span>
-          </p>
-        </div>
+      {/* ── ModuleHero fejléc — a többi modullal azonos megjelenés (2026-08-09) ── */}
+      <ModuleHero
+        eyebrow="Munkanapló"
+        title="Munkanapló és lelkészi jelentés"
+        description="Szolgálatok, katekézis-alkalmak és látogatások naplója, igehirdetési tervezés énekkeresővel és konkordanciával, valamint a hivatalos lelkészi jelentés — egy helyen."
+        pills={[
+          ...(congregationName ? [{ label: congregationName, tone: 'neutral' as const }] : []),
+          { label: `${entries.length} bejegyzés az évben`, tone: 'emerald' as const },
+          { label: activeMonthLabel, tone: 'sky' as const },
+        ]}
+      />
 
-        <div className="flex items-center gap-2">
+      {/* ── Időszak-eszközsor: az év/hónap-választó az EGÉSZ oldal adatait
+          vezérli (év-összkép, fülek, jelentés) — id-k és handlerek a korábbi
+          fejlécből változatlanul átvéve. ─────────────────────────────────── */}
+      <div className="card-raised flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Időszak</p>
+        <div className="ml-auto flex items-center gap-2">
           <label className="sr-only" htmlFor="worklog-year">Év</label>
           <select
             id="worklog-year"
@@ -398,7 +484,7 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
             {HU_MONTHS.map((name, i) => <option key={i + 1} value={i + 1}>{name}</option>)}
           </select>
         </div>
-      </header>
+      </div>
 
       {/* ── Év-összkép (mindig a teljes évből számol) ─────────────────────── */}
       {loading ? (
@@ -409,46 +495,44 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
         <WorklogOverview yearEntries={entries} year={year} />
       )}
 
-      {/* ── Token-stílusú fülek ───────────────────────────────────────────── */}
-      <div className="-mx-1 overflow-x-auto px-1">
-        <div role="tablist" aria-label="Munkanapló nézetek" className="flex min-w-max items-center gap-0.5 border-b border-border">
-          {tabs.map((tab) => {
-            const active = activeTab === tab.value
-            return (
-              <button
-                key={tab.value}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => setActiveTab(tab.value)}
-                className={cn(
-                  '-mb-px inline-flex items-center gap-1.5 whitespace-nowrap rounded-t-lg border-b-2 px-3 py-2 text-sm font-medium transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  tab.danger
-                    ? active
-                      ? 'border-destructive text-destructive'
-                      : 'border-transparent text-destructive/75 hover:bg-destructive/5 hover:text-destructive'
-                    : active
-                      ? 'border-primary text-foreground'
-                      : 'border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-                )}
-              >
-                {tab.label}
-                {typeof tab.count === 'number' && (
-                  <span
-                    className={cn(
-                      'rounded-full px-1.5 py-0.5 text-[11px] leading-none tabular-nums',
-                      active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
-                    )}
-                  >
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
-      </div>
+      {/* ── Közös ColorTabs menüsáv — mint a Leltár / Pénzügy / Tagnyilvántartás
+          oldalakon (2026-08-09). Az activeTab állapotgép változatlan. ─────── */}
+      <ColorTabs
+        tabs={tabs}
+        active={activeTab}
+        onChange={(value) => setActiveTab(value as WorklogTab)}
+      />
+
+      {/* ── Eszköz-csempék — csak a kezdő (Szolgálatok) nézeten (2026-08-09):
+          színes, kattintható belépők az igehirdetési tervhez, az énekkeresőhöz
+          és a konkordanciához. Mobilon 1, md-től 3 oszlop. ─────────────────── */}
+      {activeTab === 'szolgalat' && (
+        <section aria-label="Tervezési eszközök" className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <ToolTile
+            icon={CalendarDays}
+            tone="violet"
+            title="Igehirdetési terv"
+            description="Alkalmak tervezése naptárban — textussal, lekcióval, énekekkel és emlékeztetővel."
+            onClick={() => setActiveTab('igeterv')}
+          />
+          <ToolTile
+            icon={Music}
+            tone="emerald"
+            title="Énekkereső"
+            description="Teljes szövegű keresés az énekeskönyvben — szám, cím vagy versszak alapján."
+            onClick={() => void openEnekKereso()}
+            disabled={toolChunkLoading !== null}
+          />
+          <ToolTile
+            icon={BookOpenText}
+            tone="amber"
+            title="Konkordancia"
+            description="Bibliai kereső a beépített Károli-szöveggel — szóra vagy igehelyre."
+            onClick={() => void openKonkordancia()}
+            disabled={toolChunkLoading !== null}
+          />
+        </section>
+      )}
 
       {/* ── Fül-tartalom ──────────────────────────────────────────────────── */}
       {activeTab === 'help' ? (
@@ -640,7 +724,109 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
           congregationName={congregationName}
         />
       )}
+
+      {/* 2026-08-09: a főoldali eszköz-csempék chunk-betöltési visszajelzése —
+          a pointer-events-none itt is KÖTELEZŐ (lásd a jelentés-overlay
+          megjegyzését: chunk-hiba esetén sem ragadhat blokkoló overlay). */}
+      {toolChunkLoading && (
+        <div className="pointer-events-none fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-4">
+          <div className="rounded-2xl border border-border bg-card px-6 py-4 text-sm text-muted-foreground shadow-lg">
+            {toolChunkLoading === 'enek' ? 'Énekkereső betöltése…' : 'Konkordancia betöltése…'}
+          </div>
+        </div>
+      )}
+
+      {/* 2026-08-09: főoldali énekkereső + konkordancia — böngésző-mód
+          (nincs onInsert/onInsertRef callback); a korpuszok a dialóguson
+          belül, igény szerint töltődnek. A SermonPlanTab saját példányai
+          érintetlenek — ott a találat a terv-űrlapba illeszthető. Az első
+          sikeres chunk-betöltés után zárás után is mountolva maradnak. */}
+      {EnekKereso && <EnekKereso open={enekKeresoOpen} onOpenChange={setEnekKeresoOpen} />}
+      {Konkordancia && <Konkordancia open={konkordanciaOpen} onOpenChange={setKonkordanciaOpen} />}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Eszköz-csempék (2026-08-09) — színes, kattintható belépők a kezdőnézeten:
+// igehirdetési terv / énekkereső / konkordancia. Tailwind-palettás tónusok
+// explicit dark-variánsokkal (AA-kontraszt; nincs fehér szöveg az olíva
+// accent-színen — a csempék saját palettájukat hozzák).
+// ---------------------------------------------------------------------------
+
+type ToolTileTone = 'violet' | 'emerald' | 'amber'
+
+const TOOL_TILE_TONES: Record<
+  ToolTileTone,
+  { card: string; icon: string; title: string; desc: string; chevron: string }
+> = {
+  violet: {
+    card: 'border-violet-200/80 bg-gradient-to-br from-violet-50 to-indigo-100/70 hover:border-violet-300 hover:shadow-md dark:border-violet-900/70 dark:from-violet-950/50 dark:to-indigo-950/35 dark:hover:border-violet-700',
+    icon: 'bg-violet-600 text-white dark:bg-violet-500',
+    title: 'text-violet-950 dark:text-violet-100',
+    desc: 'text-violet-900/75 dark:text-violet-200/80',
+    chevron: 'text-violet-500 dark:text-violet-400',
+  },
+  emerald: {
+    card: 'border-emerald-200/80 bg-gradient-to-br from-emerald-50 to-teal-100/70 hover:border-emerald-300 hover:shadow-md dark:border-emerald-900/70 dark:from-emerald-950/50 dark:to-teal-950/35 dark:hover:border-emerald-700',
+    icon: 'bg-emerald-600 text-white dark:bg-emerald-500',
+    title: 'text-emerald-950 dark:text-emerald-100',
+    desc: 'text-emerald-900/75 dark:text-emerald-200/80',
+    chevron: 'text-emerald-500 dark:text-emerald-400',
+  },
+  amber: {
+    card: 'border-amber-200/80 bg-gradient-to-br from-amber-50 to-orange-100/70 hover:border-amber-300 hover:shadow-md dark:border-amber-900/70 dark:from-amber-950/50 dark:to-orange-950/35 dark:hover:border-amber-700',
+    icon: 'bg-amber-700 text-white dark:bg-amber-600',
+    title: 'text-amber-950 dark:text-amber-100',
+    desc: 'text-amber-900/75 dark:text-amber-200/80',
+    chevron: 'text-amber-600 dark:text-amber-400',
+  },
+}
+
+function ToolTile({
+  icon: Icon,
+  tone,
+  title,
+  description,
+  onClick,
+  disabled,
+}: {
+  icon: LucideIcon
+  tone: ToolTileTone
+  title: string
+  description: string
+  onClick: () => void
+  disabled?: boolean
+}) {
+  const t = TOOL_TILE_TONES[tone]
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        // min-h-11: érintésbarát célfelület (mobile-first követelmény)
+        'group flex min-h-11 items-center gap-3 rounded-2xl border p-4 text-left shadow-sm transition-all duration-200',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        'disabled:cursor-wait disabled:opacity-70',
+        t.card,
+      )}
+    >
+      <span
+        className={cn('flex size-10 shrink-0 items-center justify-center rounded-xl shadow-sm', t.icon)}
+        aria-hidden
+      >
+        <Icon className="size-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className={cn('block font-heading text-base font-semibold leading-tight', t.title)}>{title}</span>
+        <span className={cn('mt-0.5 block text-xs leading-5', t.desc)}>{description}</span>
+      </span>
+      <ChevronRight
+        className={cn('size-4 shrink-0 transition-transform duration-200 group-hover:translate-x-0.5', t.chevron)}
+        aria-hidden
+      />
+    </button>
   )
 }
 
