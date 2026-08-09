@@ -1,5 +1,6 @@
 import { MemberTabsV4 } from '@/components/members/member-tabs-v4'
 import { AdminImportLazy } from '@/components/members/admin-import-lazy'
+import { CongregationOnlyNotice } from '@/components/layout/congregation-only-notice'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
@@ -10,6 +11,16 @@ import { getMembersPage } from './registry-list-actions'
 export default async function TagnyilvantartasPage() {
   const access = await getEffectiveAccessContext()
   const master = access.master
+
+  // 2026-08-09: azonos guard, mint az anyakonyv/leltar/munkanaplo oldalakon —
+  // egyházmegyei/kerületi/admin scope-ból deep-linkelve nem üres tabokat,
+  // hanem magyarázó kártyát kap a felhasználó (effectiveCongregationId=null).
+  if (!access.effectiveCongregationId) {
+    const scope = access.activeProfileRole?.scope === 'diocese' ? 'diocese'
+      : access.activeProfileRole?.scope === 'district' ? 'district'
+      : (access.admin || access.master) ? 'admin' : 'other'
+    return <CongregationOnlyNotice module="A Tagnyilvántartás modul" currentScope={scope} />
+  }
 
   // A jogosultsági státuszok, az áttekintési snapshot és az első 50 személy
   // egymástól függetlenül tölthetők. A teljes személylista nem kerül a kliensre.

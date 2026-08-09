@@ -18,7 +18,6 @@ import {
   Building2,
   CalendarClock,
   ClipboardCheck,
-  Coins,
   FileCheck,
   HandHeart,
   Inbox,
@@ -31,13 +30,14 @@ import {
 import { Input } from '@/components/ui/input'
 import { ColorTabs } from '@/components/ui/color-tabs'
 
-import { DocumentWorkflowPanel } from '@/components/dashboard/document-workflow-panel'
+// 2026-08-09: a DocumentWorkflowPanel + FinalizedDocumentsList helyett a közös
+// dokumentumközpont (teljességi mátrix + snapshot-néző + visszaküldés-flow).
+import { DocumentCenter } from '@/components/dashboard/document-center'
 import { DioceseAnnualReportsPanel } from '@/components/annual-report/diocese-annual-reports-panel'
 import { ProfileCongregationsTab } from '@/components/admin/profile-congregations-tab'
 
 import { CongregationDetailModal, type CongregationDetail } from './congregation-detail-modal'
 import { RequestsSection } from './requests-section'
-import { FinalizedDocumentsList } from './finalized-documents-list'
 import { OurDioceseSection } from './our-diocese-section'
 import { DioceseChitantaTombokSection } from './diocese-chitanta-tombok-section'
 // 2026-04-18 REFAKTOR: a DioceseFinanceSection eltávolítva — az esperes a
@@ -46,7 +46,8 @@ import { DioceseChitantaTombokSection } from './diocese-chitanta-tombok-section'
 // adatokat (diocese_* táblákra ír).
 
 import type { DocumentSubmission, DocumentType } from '@/lib/constants/documents'
-import { DOCUMENT_TYPE_LABELS, DOCUMENT_DEADLINES } from '@/lib/constants/documents'
+import { DOCUMENT_TYPE_LABELS, DOCUMENT_DEADLINES, documentSeasonYear } from '@/lib/constants/documents'
+import type { DocumentCenterData } from '@/app/(dashboard)/dashboard-egyhazmegye/document-shared'
 import type { AssignmentRow } from '@/app/(dashboard)/admin/profile-congregations-actions'
 import type { ComponentProps } from 'react'
 
@@ -59,7 +60,9 @@ interface DioceseDashboardTabsProps {
   dioceseId: string | null
   congregationCount: number
   congregationOverview: CongregationDetail[]
-  docSubmissions: DocumentSubmission[]
+  /** 2026-08-09: a dokumentumközpont teljes adatcsomagja (minden év beküldései
+   *  + a hatókör TELJES gyülekezet-listája a teljességi mátrixhoz). */
+  documentCenter: DocumentCenterData
   annualReports: AnnualReportPanelRow[]
   pendingAssignments: AssignmentRow[]
   currentYear: number
@@ -74,7 +77,7 @@ export function DioceseDashboardTabs({
   dioceseId,
   congregationCount,
   congregationOverview,
-  docSubmissions,
+  documentCenter,
   annualReports,
   pendingAssignments,
   currentYear,
@@ -91,8 +94,18 @@ export function DioceseDashboardTabs({
     () => congregationOverview.flatMap((c) => c.unlockRequests),
     [congregationOverview],
   )
-  const finalizedDocs = docSubmissions.filter((d) => d.status === 'finalized').length
-  const pendingDocs = docSubmissions.length - finalizedDocs
+  // 2026-08-09: a documentCenter MINDEN év beküldését hozza (év-kulcsolási
+  // hiba javítása) — az áttekintő KPI-k és a határidő-kártya a beszámolási
+  // SZEZON évére szűrnek (jan–márc: előző év), különben évről évre felfújt
+  // vagy nulla számok jelennének meg.
+  const docSubmissions = documentCenter.submissions
+  const seasonYear = documentSeasonYear()
+  const seasonSubs = useMemo(
+    () => docSubmissions.filter((d) => d.year === seasonYear),
+    [docSubmissions, seasonYear],
+  )
+  const finalizedDocs = seasonSubs.filter((d) => d.status === 'finalized').length
+  const pendingDocs = seasonSubs.length - finalizedDocs
 
   const filteredCongregations = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -113,7 +126,9 @@ export function DioceseDashboardTabs({
     }
     list.push(
       { value: 'congregations', label: '⛪ Gyülekezetek', color: 'violet', count: congregationOverview.length },
-      { value: 'documents', label: '📂 Dokumentumok', color: 'amber', count: docSubmissions.length },
+      // 2026-08-09: a fül-számláló a szezon-év beküldéseit mutatja (nem a
+      // teljes, évről évre növekvő archívumot).
+      { value: 'documents', label: '📂 Dokumentumok', color: 'amber', count: seasonSubs.length },
       { value: 'requests', label: '🔔 Kérelmek', color: 'red', count: totalUnlockRequests + pendingAssignments.length },
       // 2026-04-18 REFAKTOR: a saját egyházmegyei pénzügyet a profilváltás utáni
       // /penzugy oldalon éri el az esperes. A 'finance' fül eltávolítva.
@@ -128,7 +143,7 @@ export function DioceseDashboardTabs({
       list.push({ value: 'roles', label: '👥 Szerepkörök', color: 'indigo' })
     }
     return list
-  }, [dioceseId, congregationOverview.length, docSubmissions.length, totalUnlockRequests, pendingAssignments.length, canManageRoles])
+  }, [dioceseId, congregationOverview.length, seasonSubs.length, totalUnlockRequests, pendingAssignments.length, canManageRoles])
 
   // Beérkezések időrendben (max 5)
   const recentSubmissions = useMemo(() => {
@@ -160,9 +175,9 @@ export function DioceseDashboardTabs({
             <KpiCard
               icon={<FileCheck className="size-5 text-sky-600" />}
               label="Beküldött dok."
-              value={docSubmissions.length.toLocaleString('hu-HU')}
+              value={seasonSubs.length.toLocaleString('hu-HU')}
               tone="sky"
-              hint={`${finalizedDocs} véglegesítve, ${pendingDocs} folyamatban`}
+              hint={`${seasonYear}. év: ${finalizedDocs} véglegesítve, ${pendingDocs} folyamatban`}
             />
             <KpiCard
               icon={<HandHeart className="size-5 text-rose-600" />}
@@ -180,8 +195,10 @@ export function DioceseDashboardTabs({
             />
           </div>
 
-          {/* Dokumentum határidő figyelmeztetők */}
-          <DeadlineCard year={currentYear} submissions={docSubmissions} congregationCount={congregationCount} />
+          {/* Dokumentum határidő figyelmeztetők — a szezon-évre szűrve
+              (2026-08-09: a vagyonleltár year-1 kulcsú, a januári számadás az
+              előző évhez tartozik — a naptári évre szűrés nullát mutatott). */}
+          <DeadlineCard year={seasonYear} submissions={seasonSubs} congregationCount={congregationCount} />
 
           {/* Bírálatra váró banner */}
           {totalUnlockRequests > 0 && (
@@ -205,12 +222,8 @@ export function DioceseDashboardTabs({
             </button>
           )}
 
-          {/* Véglegesített dokumentumok — ugyanolyan kiemelt megjelenés, mint a kerületi dashboardon */}
-          <FinalizedDocumentsList
-            docs={docSubmissions}
-            year={currentYear}
-            emptyHint="A gyülekezetek véglegesítése után itt listázva jelennek meg."
-          />
+          {/* 2026-08-09: a FinalizedDocumentsList helyét a Dokumentumok fül
+              dokumentumközpontja vette át (teljességi mátrix + archívum). */}
 
           {/* Legutóbb beérkezett */}
           <RecentSubmissionsCard items={recentSubmissions} onOpenDocuments={() => setTab('documents')} />
@@ -285,7 +298,10 @@ export function DioceseDashboardTabs({
       {/* === DOKUMENTUMOK === */}
       {tab === 'documents' && (
         <div className="space-y-5">
-          <DocumentWorkflowPanel submissions={docSubmissions} year={currentYear} />
+          {/* 2026-08-09: közös dokumentumközpont — teljességi mátrix (minden
+              gyülekezet), év/típus-szűrés, snapshot-néző + nyomtatás,
+              visszaküldés-flow. Az éves jelentések külön panelje marad. */}
+          <DocumentCenter level="diocese" data={documentCenter} />
           <DioceseAnnualReportsPanel reports={annualReports} year={annualReportYear} />
         </div>
       )}

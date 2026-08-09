@@ -17,6 +17,8 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { assertDioceseInScope } from '@/lib/auth/admin-scope'
+import { resolveDioceseScopeIds } from '@/lib/auth/level-scope'
 
 // ─────────────────────────────────────────────────────────────────────────
 // Típusok
@@ -99,15 +101,33 @@ async function requireDioceseAccess(dioceseId?: string) {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' as const }
 
-  // Ha nincs megadva dioceseId, a profil alapján vesszük
-  const targetId = dioceseId || access.profile?.diocese_id || null
+  // 2026-08-09: a hatókör az aktív profile_role-ból oldódik fel (a skalár
+  // profiles.diocese_id csak fallback) — lásd lib/auth/level-scope.ts.
+  const resolvedIds = resolveDioceseScopeIds(access)
+
+  // Ha nincs megadva dioceseId, a feloldott hatókör elsődleges egyházmegyéje
+  const targetId = dioceseId || resolvedIds[0] || null
   if (!targetId) return { error: 'Nincs egyházmegye megadva.' as const }
 
-  const canManage =
-    !!access.admin ||
-    !!access.master ||
-    !!access.egyhazkeruletiAdmin ||
-    (!!access.esperes && access.profile?.diocese_id === targetId)
+  let canManage = !!access.admin || !!access.master
+
+  // Esperes / egyházmegyei admin: csak a SAJÁT (feloldott) egyházmegyéje
+  if (!canManage && !!access.esperes && resolvedIds.includes(targetId)) {
+    canManage = true
+  }
+
+  // 2026-08-09 FIX: a kerületi admin ág korábban FELTÉTEL NÉLKÜL átengedett —
+  // egy A kerületi admin B kerület egyházmegyéjének törzsadatait (IBAN, CIF,
+  // címer, kapcsolat) is szerkeszthette. Mostantól a cél egyházmegye
+  // district_id-jának a hívó kerület-hatókörébe kell esnie.
+  if (!canManage && !!access.egyhazkeruletiAdmin) {
+    try {
+      await assertDioceseInScope(access, targetId)
+      canManage = true
+    } catch {
+      canManage = false
+    }
+  }
 
   if (!canManage) return { error: 'Nincs jogosultság az egyházmegye szerkesztéséhez.' as const }
 
@@ -125,8 +145,50 @@ export async function getDiocese(dioceseId?: string): Promise<{
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
 
-  const targetId = dioceseId || access.profile?.diocese_id || null
+  const resolvedIds = resolveDioceseScopeIds(access)
+  const targetId = dioceseId || resolvedIds[0] || null
   if (!targetId) return { error: 'Nincs egyházmegye megadva.' }
+
+  // 2026-08-09: tagsági ellenőrzés — korábban BÁRMELY bejelentkezett felhasználó
+  // lekérhette BÁRMELY egyházmegye teljes rekordját (IBAN, CIF, esperes-cím),
+  // mert a dioceses SELECT RLS USING(true), és itt nem volt app-oldali szűrés.
+  // Jogosult:
+  //   - master / rendszergazda,
+  //   - akinek a feloldott diocese-hatókörében van (esperes / egyházmegyei
+  //     admin / számvevő szerepkör az adott egyházmegyére),
+  //   - kerületi admin, HA az egyházmegye a saját kerületébe tartozik,
+  //   - akinek a (fő vagy hozzárendelt) gyülekezete ebbe az egyházmegyébe tartozik.
+  let allowed = !!access.admin || !!access.master || resolvedIds.includes(targetId)
+
+  if (!allowed && !!access.egyhazkeruletiAdmin) {
+    try {
+      await assertDioceseInScope(access, targetId)
+      allowed = true
+    } catch {
+      // marad false — a gyülekezeti tagsági ág még ellenőrzésre kerül
+    }
+  }
+
+  if (!allowed) {
+    const congIds = [
+      access.profileCongregationId,
+      access.effectiveCongregationId,
+      ...access.assignedCongregations.map((c) => c.id),
+    ].filter((id): id is string => !!id)
+    if (congIds.length > 0) {
+      const { data: own } = await access.supabase
+        .from('congregations')
+        .select('id')
+        .in('id', congIds)
+        .eq('diocese_id', targetId)
+        .limit(1)
+      allowed = !!own && own.length > 0
+    }
+  }
+
+  if (!allowed) {
+    return { error: 'Nincs jogosultsága az egyházmegye adatainak megtekintéséhez.' }
+  }
 
   const { data, error } = await access.supabase
     .from('dioceses')
@@ -258,7 +320,9 @@ export async function checkDioceseSetupStatus(dioceseId?: string): Promise<Dioce
   const access = await getEffectiveAccessContext()
   if (!access.user) return { needsSetup: false, missingFields: [], dioceseId: null }
 
-  const targetId = dioceseId || access.profile?.diocese_id || null
+  // 2026-08-09: a fallback is a feloldott hatókör (aktív szerep → profile_roles
+  // → profiles.diocese_id), nem a nyers skalár.
+  const targetId = dioceseId || resolveDioceseScopeIds(access)[0] || null
   if (!targetId) return { needsSetup: false, missingFields: [], dioceseId: null }
 
   const { data } = await access.supabase

@@ -15,6 +15,8 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { assertDioceseInScope } from '@/lib/auth/admin-scope'
+import { resolveDioceseScopeIds } from '@/lib/auth/level-scope'
 
 export interface DioceseChitantaTomb {
   id: string
@@ -42,14 +44,29 @@ async function requireDioceseAccess(dioceseIdFromInput?: string) {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' as const }
 
-  const targetId = dioceseIdFromInput || access.profile?.diocese_id || null
+  // 2026-08-09: a hatókör az aktív profile_role-ból oldódik fel (a skalár
+  // profiles.diocese_id csak fallback) — lásd lib/auth/level-scope.ts.
+  const resolvedIds = resolveDioceseScopeIds(access)
+  const targetId = dioceseIdFromInput || resolvedIds[0] || null
   if (!targetId) return { error: 'Nincs egyházmegye megadva.' as const }
 
-  const canManage =
-    !!access.admin ||
-    !!access.master ||
-    !!access.egyhazkeruletiAdmin ||
-    (!!access.esperes && access.profile?.diocese_id === targetId)
+  let canManage = !!access.admin || !!access.master
+
+  // Esperes / egyházmegyei admin: csak a SAJÁT (feloldott) egyházmegyéje
+  if (!canManage && !!access.esperes && resolvedIds.includes(targetId)) {
+    canManage = true
+  }
+
+  // 2026-08-09 FIX: a kerületi admin korábban BÁRMELY egyházmegye nyugtatömbjeit
+  // kezelhette — mostantól csak a saját kerületébe tartozó egyházmegyéét.
+  if (!canManage && !!access.egyhazkeruletiAdmin) {
+    try {
+      await assertDioceseInScope(access, targetId)
+      canManage = true
+    } catch {
+      canManage = false
+    }
+  }
 
   if (!canManage) return { error: 'Nincs jogosultság.' as const }
   return { supabase: access.supabase, userId: access.user.id, dioceseId: targetId }

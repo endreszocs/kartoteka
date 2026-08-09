@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import {
+  AlertCircle,
   Building2,
   CalendarClock,
   FileCheck,
@@ -8,16 +9,14 @@ import {
 } from 'lucide-react'
 
 import { ScopeHero } from '@/components/dashboard/scope-dashboard-sections'
-import { FinalizedDocumentsList } from '@/components/dashboard/diocese/finalized-documents-list'
+// 2026-08-09: a FinalizedDocumentsList + DeadlineCard helyett a közös
+// dokumentumközpont (teljességi mátrix + snapshot-néző + átvétel-igazolás).
+import { DocumentCenter } from '@/components/dashboard/document-center'
 import { getHomePathForScope } from '@/lib/auth/active-ui-scope'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
-import { getKeruletSubmissions } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
-import {
-  DOCUMENT_TYPE_LABELS,
-  DOCUMENT_DEADLINES,
-  type DocumentSubmission,
-  type DocumentType,
-} from '@/lib/constants/documents'
+import { resolveDistrictScopeIds } from '@/lib/auth/level-scope'
+import { getSubmissionMatrix } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
+import { documentSeasonYear } from '@/lib/constants/documents'
 
 /**
  * Egyházkerületi dashboard.
@@ -30,10 +29,19 @@ import {
  *
  *   Ezért NEM hívjuk a `getScopeDashboardData`, `getScopeFinancialData`,
  *   `getScopeVitalStats` függvényeket — azok megsértenék az alapelvet.
+ *
+ * SCOPE (2026-08-09 diagnosztika):
+ *   A kerület-hatókör az aktív profile_role-ból oldódik fel (a skalár
+ *   profiles.district_id csak fallback) — lásd lib/auth/level-scope.ts.
+ *   Korábban a dioceses/congregations lekérdezés SZŰRETLEN volt (a RLS
+ *   USING(true) miatt az egész ország látszott), és a districtId az ábécé
+ *   szerinti ELSŐ egyházmegye sorából lett kitalálva — a hero akár a MÁSIK
+ *   kerület nevét mutatta. FAIL-CLOSED: hatókör nélkül magyarázó kártya;
+ *   a mindent-látó ág KIZÁRÓLAG a masteré/rendszergazdáé (explicit, feliratozva).
  */
 export default async function KeruletDashboardPage() {
   const access = await getEffectiveAccessContext()
-  const { supabase, user, egyhazkeruletiAdmin, activeProfileRole } = access
+  const { supabase, user, egyhazkeruletiAdmin, admin, master, activeProfileRole } = access
 
   if (!user) redirect('/login')
   if (!egyhazkeruletiAdmin) redirect('/dashboard')
@@ -41,15 +49,34 @@ export default async function KeruletDashboardPage() {
     redirect(getHomePathForScope(activeProfileRole.scope))
   }
 
+  // 2026-08-09: aktív szerep → profile_roles district sorok → profiles.district_id
+  const districtIds = resolveDistrictScopeIds(access)
+  const isSystemAdmin = !!admin || !!master
+  // Explicit, feliratozott "minden kerület" ág — CSAK master/rendszergazda,
+  // akinek nincs saját kerület-hatóköre.
+  const showAllDistricts = isSystemAdmin && districtIds.length === 0
+
+  if (districtIds.length === 0 && !isSystemAdmin) {
+    // FAIL-CLOSED: kerületi admin feloldható kerület nélkül — magyarázó üres
+    // állapot, NEM országos lista.
+    return <MissingDistrictScopeNotice />
+  }
+
   const currentYear = new Date().getFullYear()
 
-  // Egyházmegyék lekérdezése (csak metaadatok)
-  const { data: dioceses } = await supabase
+  // Egyházmegyék lekérdezése (csak metaadatok) — a saját kerület(ek)re szűrve
+  let dioQuery = supabase
     .from('dioceses')
     .select('id, name, district_id')
     .order('name')
+  if (!showAllDistricts) {
+    dioQuery = dioQuery.in('district_id', districtIds)
+  }
+  const { data: dioceses } = await dioQuery
 
-  const districtId = dioceses?.[0]?.district_id || null
+  // Hero-név: a SAJÁT hatókör elsődleges kerülete a districts táblából —
+  // NEM az első egyházmegye sorából kitalálva.
+  const districtId = districtIds[0] ?? null
   let districtName: string | null = null
   if (districtId) {
     const { data: dr } = await supabase
@@ -60,33 +87,52 @@ export default async function KeruletDashboardPage() {
     districtName = dr?.name || null
   }
 
-  // Gyülekezetek darabszáma egyházmegyénként
-  const { data: congRows } = await supabase
-    .from('congregations')
-    .select('id, name, nev_hu, diocese_id')
+  // Gyülekezetek darabszáma egyházmegyénként — a kerület egyházmegyéire szűrve
+  const dioceseIds = (dioceses || []).map((d) => d.id)
+  let congRows: Array<{ id: string; diocese_id: string | null }> = []
+  if (showAllDistricts) {
+    const { data } = await supabase
+      .from('congregations')
+      .select('id, diocese_id')
+    congRows = data || []
+  } else if (dioceseIds.length > 0) {
+    const { data } = await supabase
+      .from('congregations')
+      .select('id, diocese_id')
+      .in('diocese_id', dioceseIds)
+    congRows = data || []
+  }
 
   const congByDiocese = new Map<string, number>()
-  for (const c of congRows || []) {
+  for (const c of congRows) {
     if (c.diocese_id) {
       congByDiocese.set(c.diocese_id, (congByDiocese.get(c.diocese_id) || 0) + 1)
     }
   }
-  const totalCongregations = congRows?.length ?? 0
+  const totalCongregations = congRows.length
 
-  // Véglegesített dokumentumok (engedélyezett adatforrás)
-  const keruletDocs = await getKeruletSubmissions(currentYear)
+  // Dokumentumközpont-adatcsomag (engedélyezett adatforrás): MINDEN év
+  // véglegesített/továbbított dokumentumai + a kerület TELJES gyülekezet-
+  // listája a teljességi mátrixhoz (2026-08-09).
+  const documentCenter = await getSubmissionMatrix('district')
+  const seasonYear = documentSeasonYear()
+  const seasonDocs = documentCenter.submissions.filter((d) => d.year === seasonYear)
 
   return (
     <div className="space-y-5">
       <ScopeHero
         eyebrow="Egyházkerületi irányítópult"
-        title={districtName || 'Erdélyi Református Egyházkerület'}
+        title={
+          districtName ||
+          (showAllDistricts ? 'Egyházkerületi áttekintés' : 'Erdélyi Református Egyházkerület')
+        }
         description="A kerület kizárólag a véglegesített és továbbított hivatalos dokumentumokat látja. Az egyházmegyék és gyülekezetek belső adataihoz a kerület — a gyülekezeti és egyházmegyei autonómia jegyében — nem fér hozzá."
         chips={[
+          showAllDistricts ? 'Rendszergazdai nézet: minden egyházkerület' : undefined,
           `${(dioceses?.length ?? 0).toLocaleString('hu-HU')} egyházmegye`,
           `${totalCongregations.toLocaleString('hu-HU')} gyülekezet`,
-          keruletDocs.length > 0
-            ? `${keruletDocs.length} véglegesített dokumentum (${currentYear}.)`
+          documentCenter.submissions.length > 0
+            ? `${documentCenter.submissions.length.toLocaleString('hu-HU')} hivatalos dokumentum (archívum)`
             : 'nincs még véglegesített dokumentum',
         ].filter(Boolean) as string[]}
       />
@@ -107,10 +153,10 @@ export default async function KeruletDashboardPage() {
         />
         <KpiCard
           icon={<FileCheck className="size-5 text-emerald-600" />}
-          label="Véglegesített dok."
-          value={keruletDocs.length.toLocaleString('hu-HU')}
+          label="Beérkezett dok."
+          value={seasonDocs.length.toLocaleString('hu-HU')}
           tone="emerald"
-          hint={`${currentYear}. évre`}
+          hint={`${seasonYear}. beszámolási évre`}
         />
         <KpiCard
           icon={<CalendarClock className="size-5 text-amber-600" />}
@@ -124,15 +170,10 @@ export default async function KeruletDashboardPage() {
       {/* Egyházmegyei bontás — csak alapadatok */}
       <DioceseBreakdown dioceses={dioceses || []} congByDiocese={congByDiocese} />
 
-      {/* Dokumentum határidők összesítő */}
-      <DeadlineCard year={currentYear} submissions={keruletDocs} totalCongregations={totalCongregations} />
-
-      {/* Véglegesített dokumentumok listája */}
-      <FinalizedDocumentsList
-        docs={keruletDocs}
-        year={currentYear}
-        emptyHint="Az egyházmegyék a bírálat után továbbítják a kerületnek."
-      />
+      {/* 2026-08-09: dokumentumközpont — teljességi mátrix (a kerület MINDEN
+          gyülekezete), év/típus-szűrés, snapshot-néző + nyomtatás, kerületi
+          átvétel-igazolás. A régi DeadlineCard + FinalizedDocumentsList helyett. */}
+      <DocumentCenter level="district" data={documentCenter} />
 
       {/* Autonómia tájékoztató */}
       <div className="rounded-2xl border border-slate-100 bg-slate-50/40 p-5">
@@ -156,6 +197,42 @@ export default async function KeruletDashboardPage() {
 // ---------------------------------------------------------------------------
 // Belső komponensek
 // ---------------------------------------------------------------------------
+
+/**
+ * 2026-08-09: fail-closed üres állapot — kerületi admin, akinek NEM oldható
+ * fel az egyházkerület-hatóköre (se aktív szerep, se profile_roles district
+ * sor, se profiles.district_id). Korábban ez az eset némán az ORSZÁGOS
+ * egyházmegye- és gyülekezet-listát mutatta.
+ */
+function MissingDistrictScopeNotice() {
+  return (
+    <div className="mx-auto max-w-xl px-4 py-8">
+      <div className="card-raised p-6 bg-gradient-to-br from-amber-50/40 via-white to-orange-50/30 border-amber-200">
+        <div className="flex items-start gap-3">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+            <AlertCircle className="size-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-heading text-lg text-slate-800">
+              Nincs egyházkerület rendelve a fiókjához
+            </h2>
+            <p className="mt-2 text-sm text-slate-600 leading-relaxed">
+              Az egyházkerületi irányítópult csak akkor tud adatot mutatni, ha a
+              szerepköréhez konkrét egyházkerület tartozik. Jelenleg a fiókjához
+              nem sikerült egyházkerületet feloldani, ezért — az egyházmegyei és
+              gyülekezeti adatok védelme érdekében — nem jelenítünk meg listát.
+            </p>
+            <p className="mt-2 text-sm text-slate-600 leading-relaxed">
+              Kérjük, jelezze a rendszergazdának, hogy rendelje hozzá a
+              szerepköréhez a megfelelő egyházkerületet, vagy — ha több profilja
+              van — váltson profilt a fejlécben.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function KpiCard({
   icon,
@@ -219,50 +296,6 @@ function DioceseBreakdown({
   )
 }
 
-function DeadlineCard({
-  year,
-  submissions,
-  totalCongregations,
-}: {
-  year: number
-  submissions: DocumentSubmission[]
-  totalCongregations: number
-}) {
-  // 2026-07-17 (F5): + lelkeszi_jelentes — az éves hivatalos lelkészi jelentés
-  // is a közös dokumentum-workflow-ban érkezik.
-  const types: DocumentType[] = ['koltsegvetes', 'szamadas', 'vagyonleltar', 'valasztok_nevjegyzeke', 'lelkeszi_jelentes']
-  const counts = new Map<DocumentType, number>()
-  for (const s of submissions) {
-    if (types.includes(s.document_type as DocumentType)) {
-      counts.set(s.document_type as DocumentType, (counts.get(s.document_type as DocumentType) || 0) + 1)
-    }
-  }
-
-  return (
-    <div className="card-raised p-5">
-      <div className="flex items-center gap-2 mb-3">
-        <CalendarClock className="size-4 text-amber-700" />
-        <h3 className="font-heading text-base text-slate-800">{year}. évi határidők és véglegesítések</h3>
-      </div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {types.map((t) => {
-          const count = counts.get(t) || 0
-          const pct = totalCongregations > 0 ? Math.round((count / totalCongregations) * 100) : 0
-          return (
-            <div key={t} className="rounded-xl border border-slate-100 bg-slate-50/30 p-3 flex items-center justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-slate-800 truncate">{DOCUMENT_TYPE_LABELS[t]}</p>
-                <p className="text-xs text-slate-500">Határidő: {DOCUMENT_DEADLINES[t]}</p>
-              </div>
-              <div className="text-right shrink-0">
-                <p className="text-sm font-bold text-slate-700">{count} / {totalCongregations}</p>
-                <p className="text-xs text-slate-500">{pct}% véglegesítve</p>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
+// 2026-08-09: a DeadlineCard kikerült — a határidő/teljesség-áttekintést a
+// DocumentCenter teljességi mátrixa adja (minden gyülekezettel, hiányzókkal).
 

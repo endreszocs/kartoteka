@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 
 import { getEffectiveAccessContext, getEffectiveCongregationContext } from '@/lib/auth/effective-access'
+import { resolveDioceseScopeId, resolveDioceseScopeIds } from '@/lib/auth/level-scope'
 import {
   buildAnnualReportData,
   type AnnualReportSnapshot,
@@ -210,11 +211,21 @@ export async function saveAnnualReport(input: {
 export async function getDioceseAnnualReports(
   year: number,
 ): Promise<{ data?: Array<AnnualReportRow & { congregation_name: string | null }>; error?: string }> {
-  // A teljes access context kell, mert a profile.diocese_id-re is szükségünk van
-  const { supabase, profile, esperes, admin, master } = await getEffectiveAccessContext()
+  // A teljes access context kell a hatókör-feloldáshoz
+  const access = await getEffectiveAccessContext()
+  const { supabase, esperes, admin, master } = access
 
   if (!esperes && !admin && !master) {
     return { error: 'Nincs jogosultsága az egyházmegyei jelentések megtekintéséhez.' }
+  }
+
+  // 2026-08-09: feloldott hatókör (aktív szerep → profile_roles → skalár) +
+  // FAIL-CLOSED: NULL-scope esperes ÜRES listát kap, nem az egész egyház
+  // jelentéseit (korábban a `if (profile?.diocese_id)` NULL esetén némán
+  // eldobta a szűrőt). Szűretlenül csak a master/rendszergazda láthat.
+  const dioceseId = resolveDioceseScopeId(access)
+  if (!dioceseId && !master && !admin) {
+    return { data: [] }
   }
 
   let query = supabase
@@ -225,12 +236,12 @@ export async function getDioceseAnnualReports(
     .neq('status', 'draft') // esperes csak a beküldött, fogadott, ellenőrzött, véglegesített jelentéseket látja
     .order('submitted_at', { ascending: false })
 
-  // Nem master: csak a saját egyházmegye gyülekezetei
-  if (!master && profile?.diocese_id) {
+  // Nem master: csak a saját (feloldott) egyházmegye gyülekezetei
+  if (!master && dioceseId) {
     const { data: congs } = await supabase
       .from('congregations')
       .select('id')
-      .eq('diocese_id', profile.diocese_id)
+      .eq('diocese_id', dioceseId)
     const congIds = (congs || []).map(c => c.id)
     if (congIds.length === 0) return { data: [] }
     query = query.in('congregation_id', congIds)
@@ -263,7 +274,8 @@ export async function updateAnnualReportStatus(input: {
   newStatus: 'received' | 'reviewed' | 'finalized'
   reviewNotes?: string | null
 }): Promise<{ success?: true; error?: string }> {
-  const { supabase, esperes, admin, master } = await getEffectiveCongregationContext()
+  const access = await getEffectiveAccessContext()
+  const { supabase, esperes, admin, master } = access
   if (!esperes && !admin && !master) {
     return { error: 'Nincs jogosultsága a státusz módosításához.' }
   }
@@ -272,6 +284,32 @@ export async function updateAnnualReportStatus(input: {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  // 2026-08-09: tulajdon-ellenőrzés — a kliens által küldött jelentés-id
+  // gyülekezetének a hívó (feloldott) egyházmegyéjébe kell tartoznia
+  // (master/rendszergazda kivétel). Korábban bármely esperes bármely
+  // gyülekezet jelentésének státuszát átállíthatta (az RLS állapotától függően).
+  if (!master && !admin) {
+    // 2026-08-09 (review-fix): a teljes hatókör-unió (két egyházmegyés tisztségviselő)
+    const dioceseIds = resolveDioceseScopeIds(access)
+    if (dioceseIds.length === 0) {
+      return { error: 'Nincs egyházmegye rendelve a fiókjához — a státusz nem módosítható.' }
+    }
+    const { data: report, error: reportErr } = await supabase
+      .from('annual_reports')
+      .select('congregation_id, congregations!inner(diocese_id)')
+      .eq('id', input.id)
+      .maybeSingle()
+    if (reportErr) return { error: `Hiba a jelentés ellenőrzésekor: ${reportErr.message}` }
+    if (!report) return { error: 'A jelentés nem található.' }
+    const congRel = (report as { congregations?: { diocese_id: string | null } | { diocese_id: string | null }[] | null }).congregations
+    const reportDioceseId = Array.isArray(congRel)
+      ? congRel[0]?.diocese_id ?? null
+      : congRel?.diocese_id ?? null
+    if (!reportDioceseId || !dioceseIds.includes(reportDioceseId)) {
+      return { error: 'Ez a jelentés nem az Ön egyházmegyéjének gyülekezetéhez tartozik.' }
+    }
+  }
 
   const now = new Date().toISOString()
   const payload: Record<string, unknown> = {
@@ -292,12 +330,17 @@ export async function updateAnnualReportStatus(input: {
     payload.finalized_by = user.id
   }
 
-  const { error } = await supabase
+  // 2026-08-09: 0-soros update (RLS-elnyelés) = hiba, nem hamis siker
+  const { data: updated, error } = await supabase
     .from('annual_reports')
     .update(payload)
     .eq('id', input.id)
+    .select('id')
 
   if (error) return { error: `Státusz módosítás sikertelen: ${error.message}` }
+  if (!updated || updated.length === 0) {
+    return { error: 'A státusz módosítás nem történt meg — a jelentés nem található, vagy nincs jogosultsága hozzá.' }
+  }
 
   revalidatePath('/eves-jelentes')
   revalidatePath('/dashboard-egyhazmegye')

@@ -23,6 +23,27 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-09] — Egyházmegyei és kerületi szint rendbetéve + hivatalos dokumentumközpont + megújult munkanapló
+<!-- key: 2026-08-09-megye-kerulet-scope-dokumentumkozpont -->
+<!-- category: security -->
+<!-- targets: esperes, egyhazmegyei_admin, egyhazkeruleti_admin, lelkesz, admin -->
+<!-- version: web v0.9.158 -->
+
+### 🔒 Biztonsági javítások
+
+- **Az egyházmegyei felület mostantól kizárólag a saját egyházmegye gyülekezeteit mutatja.** Eddig ha a fiók megye-hozzárendelése hiányzott vagy eltért az aktív szerepkörtől, a felület némán az EGÉSZ egyház gyülekezeteit listázta (KPI-számokkal, kérelmekkel együtt). Mostantól a hatókör az aktív szerepkörből oldódik fel, és hatókör nélkül a felület barátságos magyarázatot mutat — soha többé szűretlen listát. A feloldás-jóváhagyások és a jelentés-státusz-műveletek előtt a rendszer ellenőrzi, hogy a gyülekezet valóban a jóváhagyó megyéjéhez tartozik.
+- **Az egyházkerületi felület csak a saját kerület egyházmegyéit és gyülekezeteit mutatja.** Eddig az összes megye/gyülekezet látszott, és a kerület nevét a betűrendben első egyházmegyéből „tippelte" a rendszer. A rendszergazdai összesített nézet külön jelölést kapott.
+- **Szerepkör-kiosztásnál a megye/kerület-hozzárendelés is szinkronizálódik** — ez volt a hibát termelő gyökérok; a visszavonás is rendezi a mezőket, és a már aktív fiókok nem kapnak többé téves „Üdvözöljük!" értesítést.
+- **RLS-javítások (SQL):** a kerületi admin eddig BÁRMELY kerület egyházmegyei pénzügyeit olvashatta-írhatta közvetlen adatbázis-hívással — mostantól csak a sajátját; a beküldött dokumentumok archívuma nem törölhető a beküldő által; a kerületi admin végre látja a hozzá továbbított dokumentumokat (eddig üres listát kapott). *(Futtatandó: ELŐSZÖR a 2026-08-09-megye-kerulet-scope-diagnosztika.sql, utána a 2026-08-09-megye-kerulet-rls-fix.sql.)*
+
+### ✨ Újdonságok
+
+- **Hivatalos dokumentumközpont** az egyházmegyei ÉS a kerületi felületen: **teljességi mátrix** (minden gyülekezet × minden kötelező dokumentum — végre látszik, ki NEM adta be), év-választó okos szezon-kezeléssel (a januárban beküldött előző évi számadás és a vagyonleltár is a helyére kerül), **visszaküldés indoklással** (a lelkész app-értesítést kap, és újra beküldhet), snapshot-megtekintő nyomtatással, és a véglegesített/továbbított dokumentum **nem írható felül** véletlenül. A kerület a továbbított iratokra átvétel-igazolást tehet.
+- **Megújult munkanapló-főoldal**: a menüsáv mostantól a többi modul színes fülsorát használja, a fejléc az egységes modul-hero, és a kezdőlapon három színes eszköz-csempe nyílik: 📖 Igehirdetési terv · 🎵 Énekkereső · 📚 Konkordancia (az utóbbi kettő közvetlenül a főoldalról).
+- **Szebb, részletesebb meghívólevél**: „Békesség Istentől!" köszöntéssel, Szőcs Endre barátosi lelkipásztor — a fejlesztő — nevében, a rendszer 8 emojis kategóriában, pontokba szedve bemutatva; a küldő-ablak kétoszlopos lett, a teljes levél élő előnézetével (mobilon egymás alatt).
+
+---
+
 ## [2026-08-09] — Igehirdetési terv énekkeresővel és konkordanciával, meghívók, megújult profilválasztó
 <!-- key: 2026-08-09-igeterv-meghivo-profil-teszt -->
 <!-- category: feature -->

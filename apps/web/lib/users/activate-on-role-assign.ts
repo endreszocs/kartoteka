@@ -107,6 +107,23 @@ export async function activateAccountOnRoleAssign(
     return { activated: false, previousStatus: result?.previous_status ?? null, setFields: {} }
   }
 
+  const setFields: ActivationResult['setFields'] = {}
+  if (p_congregation_id) setFields.congregation_id = p_congregation_id
+  if (p_diocese_id) setFields.diocese_id = p_diocese_id
+  if (p_district_id) setFields.district_id = p_district_id
+
+  // 2026-08-09 (scope-divergencia diagnosztika): a 2026-07-01-es
+  // admin_activate_user már AKTÍV fióknál is beírja a megadott org-mezőket
+  // (profiles.diocese_id / district_id skalár-szinkron) — ez zárja a
+  // "szerepkör kiosztva, de a skalár NULL/régi maradt" hibaosztályt, ami a
+  // diocese/district felületeken szűretlen lekérdezéshez vezetett (lásd
+  // lib/auth/level-scope.ts). Ilyenkor was_updated=true, de NEM történt
+  // aktiválás — üdvözlő értesítést NEM küldünk, csak a setFields-et
+  // jelentjük vissza.
+  if (result.previous_status !== 'pending') {
+    return { activated: false, previousStatus: result.previous_status, setFields }
+  }
+
   // Sikeres aktiválás — pasztorális, személyre szabott értesítés (best-effort).
   // Tartalmazza: a felhasználó nevét + üdvözlést, a kiosztott szerepkört és a
   // helyet, és ha több profilja van, a profilváltás helyét (header).
@@ -160,11 +177,6 @@ export async function activateAccountOnRoleAssign(
   } catch {
     // ertesitesek best-effort — a fő aktiválás sikeres
   }
-
-  const setFields: ActivationResult['setFields'] = {}
-  if (p_congregation_id) setFields.congregation_id = p_congregation_id
-  if (p_diocese_id) setFields.diocese_id = p_diocese_id
-  if (p_district_id) setFields.district_id = p_district_id
 
   return { activated: true, previousStatus: result.previous_status, setFields }
 }
