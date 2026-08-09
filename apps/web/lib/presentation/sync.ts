@@ -108,8 +108,54 @@ export function createPresentationSync(session: string | null, handlers: SyncHan
   }
 }
 
-/** Rövid, ember-barát session-kód a párosításhoz. */
-export function generateSessionCode(): string {
-  const n = Math.floor(100000 + Math.random() * 900000)
-  return String(n)
+/**
+ * Session-kód a kivetítő párosításához.
+ *
+ * ⚠️ 2026-08-10 (biztonsági javítás): a korábbi 6 JEGYŰ, `Math.random()`-mal
+ * generált kód mindössze 900 000 lehetőség volt — és a `/eloadas/<kód>` útvonal
+ * NEM kér bejelentkezést, a csatornán pedig a TELJES beszámoló-tartalom megy át
+ * (nevek, pénzügyi adatok). Egy egyszerű végigpróbálás percek alatt idegen
+ * gyülekezet adatait tárhatta fel.
+ *
+ * Mostantól: kriptográfiailag biztonságos véletlen + 12 karakteres, félreérthető
+ * jeleket (0/O/1/I) nem tartalmazó ábécé → ~32^12 ≈ 1,2·10^18 lehetőség.
+ * A vevő az URL-ből olvassa a kódot (a lelkész linket/QR-t oszt meg, nem gépel),
+ * ezért a hosszabb kód a használatot nem nehezíti. A régi, rövid kódok
+ * változatlanul működnek (a csatorna neve tetszőleges szöveg lehet).
+ */
+const SESSION_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+
+export function generateSessionCode(length = 12): string {
+  const alphabet = SESSION_CODE_ALPHABET
+  const out: string[] = []
+
+  const cryptoObj = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined
+  if (cryptoObj?.getRandomValues) {
+    const bytes = new Uint8Array(length)
+    cryptoObj.getRandomValues(bytes)
+    for (let i = 0; i < length; i += 1) {
+      out.push(alphabet[bytes[i] % alphabet.length])
+    }
+    return out.join('')
+  }
+
+  // Végső tartalék (nagyon régi böngésző): gyengébb, de legalább hosszú.
+  for (let i = 0; i < length; i += 1) {
+    out.push(alphabet[Math.floor(Math.random() * alphabet.length)])
+  }
+  return out.join('')
+}
+
+/**
+ * 2026-08-10: a párosító kód ÉLETTARTAMA. A stúdió eddig egyszer generált
+ * kódot, és azt a localStorage-ban ŐRÖKRE megtartotta — egy régen megosztott
+ * link hónapok múlva is élő maradt. Ezzel a kód 12 óránként megújul.
+ */
+export const SESSION_CODE_TTL_MS = 12 * 60 * 60 * 1000
+
+export function isSessionCodeFresh(createdAtIso: string | null | undefined): boolean {
+  if (!createdAtIso) return false
+  const t = Date.parse(createdAtIso)
+  if (Number.isNaN(t)) return false
+  return Date.now() - t < SESSION_CODE_TTL_MS
 }

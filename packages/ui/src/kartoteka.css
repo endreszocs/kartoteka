@@ -2150,6 +2150,160 @@
 .card-raised.kt-widget:hover { transform: none; }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   2026-08-10 — Irányítópult: „Ma köszöntjük" + „Gyülekezeti programok" +
+   „Koreloszlás" EGY MÉRETŰ csempesora (felhasználói kérés).
+
+   Három szabály tartja együtt a sort:
+     1) `.kt-dash-trio` — a rács `align-items: stretch` + közös minimum
+        sormagasság, így mindhárom csempe PONTOSAN egyforma magas.
+     2) `.kt-cal--compact` — kis kockás hónapnaptár (mobilon 38px, xl-en 32px
+        cella), fix 6 hetes ráccsal, hogy a magasság hónapváltáskor se ugráljon.
+     3) `.kt-widget--tile` — a programok-widget csempe-változata: sűrűbb
+        fejléc/navigáció/agenda + egysoros akciósáv, BELSŐ GÖRGETÉS NÉLKÜL.
+   A `.kt-widget` alapváltozat (desktop `UpcomingPrograms`) érintetlen marad.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Egy magasságú csempesor ── */
+.kt-dash-trio {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+.kt-dash-trio > * { min-width: 0; }
+@media (min-width: 1280px) {
+  .kt-dash-trio {
+    /* a középső (naptáras) csempe kap egy hajszállal több szélességet */
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr);
+    /* közös MINIMUM sormagasság — ha bármelyik tartalom magasabb, a sor
+       együtt nő, de a három csempe akkor is azonos magas marad */
+    grid-auto-rows: minmax(var(--kt-trio-h, 35rem), auto);
+  }
+}
+@media (min-width: 1536px) {
+  .kt-dash-trio { --kt-trio-h: 37rem; }
+}
+
+/* „+N további" sor — a levágott listaelemek helyett (görgetés helyett) */
+.kt-more-line {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  align-self: center; margin-top: 6px; padding: 5px 12px; border-radius: 999px;
+  font-family: var(--font-sans); font-size: 11.5px; font-weight: 600; line-height: 1.2;
+  color: var(--primary); background: color-mix(in oklab, var(--primary) 8%, var(--card));
+  border: 1px solid color-mix(in oklab, var(--primary) 22%, transparent);
+  cursor: pointer; transition: all 0.15s ease;
+}
+.kt-more-line:hover { background: color-mix(in oklab, var(--primary) 16%, var(--card)); }
+.kt-more-line:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+/* ── 2. Kompakt (kis kockás) hónapnaptár ──
+   A cellák NÉGYZETESEK (aspect-ratio: 1) és rugalmasak, de a rács szélessége
+   `--kt-cell`-re van maximálva → keskeny oszlopban zsugorodnak, széles
+   oszlopban nem nőnek nagyra. Mobilon így is >=36px az érintőfelület. */
+.kt-cal--compact {
+  --kt-cell: 38px;
+  --kt-cal-gap: 4px;
+  gap: var(--kt-cal-gap);
+  max-width: calc(var(--kt-cell) * 7 + var(--kt-cal-gap) * 6);
+  margin-inline: auto;
+  width: 100%;
+}
+.kt-cal--compact .kt-cal-day,
+.kt-cal--compact .kt-cal-empty {
+  aspect-ratio: 1;
+  height: auto;
+  min-height: 0;
+}
+.kt-cal--compact .kt-cal-day { border-radius: 9px; gap: 1px; padding: 0; }
+.kt-cal--compact .kt-cal-num { font-size: 12.5px; }
+.kt-cal--compact .kt-cal-head { font-size: 9.5px; padding: 0 0 4px; letter-spacing: 0.03em; }
+.kt-cal--compact .kt-cal-dots { height: 5px; gap: 2px; }
+.kt-cal--compact .kt-cal-dot { width: 4.5px; height: 4.5px; }
+.kt-cal--compact .kt-cal-more { font-size: 8px; margin-left: 0; }
+.kt-cal--compact .kt-cal-day.is-today { border-width: 1.5px; }
+/* Nagy képernyőn még kisebb kocka — a csempe így nem lóg ki a sorból.
+   Mobilon marad a 38px (>=36px érintőfelület). */
+@media (min-width: 1280px) {
+  .kt-cal--compact { --kt-cell: 32px; --kt-cal-gap: 3px; }
+  .kt-cal--compact .kt-cal-num { font-size: 12px; }
+  .kt-cal--compact .kt-cal-day { border-radius: 8px; }
+}
+
+/* ── 3. A programok-widget csempe-változata ── */
+.kt-widget--tile { max-height: none; height: 100%; }
+.kt-widget--tile .kt-scroll {
+  overflow: visible;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 8px 14px 2px;
+  display: flex;
+  flex-direction: column;
+}
+.kt-widget--tile .kt-head { padding: 12px 14px 6px; }
+.kt-widget--tile .kt-head h3 { font-size: 16.5px; overflow: hidden; text-overflow: ellipsis; }
+.kt-widget--tile .kt-head-ico { width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0; }
+.kt-widget--tile .kt-head-eyebrow {
+  display: block; font-size: 10px; font-weight: 700; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--muted-foreground); line-height: 1.2; margin-bottom: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* A naptár-rács ne préselődjön össze, ha a sor szűkös */
+.kt-widget--tile .kt-cal-grid { flex: 0 0 auto; }
+.kt-widget--tile .kt-today-btn { padding: 4px 10px; font-size: 11.5px; }
+.kt-widget--tile .kt-nav { padding: 0 10px 4px; }
+.kt-widget--tile .kt-nav-arrow { width: 30px; height: 30px; border-radius: 9px; }
+.kt-widget--tile .kt-nav-month { font-size: 16.5px; }
+.kt-widget--tile .kt-nav-year { font-size: 13.5px; }
+.kt-widget--tile .kt-nav-label { padding: 3px 10px; }
+.kt-widget--tile .kt-subbar { padding: 0 14px 6px; }
+.kt-widget--tile .kt-month-summary { font-size: 11.5px; }
+.kt-widget--tile .kt-viewtoggle { padding: 2px; }
+.kt-widget--tile .kt-viewtoggle button { font-size: 11px; padding: 4px 8px; }
+.kt-widget--tile .kt-dayagenda {
+  margin-top: 10px; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+}
+.kt-widget--tile .kt-dayagenda-head { margin-bottom: 6px; }
+.kt-widget--tile .kt-dayagenda-num { font-size: 19px; min-width: 22px; }
+.kt-widget--tile .kt-dayagenda-dow { font-size: 12.5px; }
+.kt-widget--tile .kt-day-add { width: 30px; height: 30px; border-radius: 9px; }
+.kt-widget--tile .kt-listview { flex: 1 1 auto; gap: 10px; }
+.kt-widget--tile .kt-agenda-list { gap: 6px; }
+.kt-widget--tile .kt-agenda-card { padding: 7px 8px 7px 13px; border-radius: 11px; gap: 8px; }
+.kt-widget--tile .kt-agenda-bar { top: 7px; bottom: 7px; }
+.kt-widget--tile .kt-agenda-title { font-size: 13px; }
+.kt-widget--tile .kt-agenda-meta { margin-top: 2px; gap: 2px 9px; }
+.kt-widget--tile .kt-meta-item { font-size: 11px; }
+.kt-widget--tile .kt-agenda-tags { margin-top: 4px; gap: 5px; }
+.kt-widget--tile .kt-type-chip,
+.kt-widget--tile .kt-recur-chip { font-size: 10px; padding: 2px 7px; }
+.kt-widget--tile .kt-prio { font-size: 9.5px; padding: 2px 7px; }
+.kt-widget--tile .kt-done-toggle { width: 28px; height: 28px; }
+.kt-widget--tile .kt-empty-day { padding: 14px 12px; }
+.kt-widget--tile .kt-empty-ico.sm { width: 38px; height: 38px; border-radius: 11px; margin-bottom: 8px; }
+.kt-widget--tile .kt-empty-sub { font-size: 12px; margin-top: 4px; }
+.kt-widget--tile .kt-empty-cta { margin-top: 10px; padding: 6px 12px; font-size: 12px; }
+.kt-widget--tile .kt-listgroup-num { font-size: 16px; }
+
+/* Egysoros akciósáv: elsődleges gomb + ikonos másodlagos műveletek.
+   A műveletek NEM tűnnek el, csak helytakarékos ikon-formát kapnak. */
+.kt-actions--compact {
+  flex-direction: row; align-items: center; gap: 8px; padding: 9px 12px;
+}
+.kt-actions--compact .kt-btn-primary {
+  flex: 1 1 auto; min-height: 36px; padding: 7px 12px; font-size: 13px;
+}
+.kt-actions-icons { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.kt-iconbtn {
+  width: 36px; height: 36px; flex: 0 0 auto; border-radius: 10px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--foreground); background: var(--card);
+  border: 1px solid var(--kt-border-strong, var(--border));
+  transition: all 0.16s ease;
+}
+.kt-iconbtn:hover { background: var(--muted); border-color: var(--primary); color: var(--primary); }
+.kt-iconbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+/* ══════════════════════════════════════════════════════════════════════════
    Program-modálok (Claude Design — 2026-06-08): új/szerkesztő program ablak
    és a tömeges bevitel. Portálolva a <body>-ba, ezért a 3 származtatott
    tokent a modál-gyökéren is definiáljuk (téma-aware marad).

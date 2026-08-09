@@ -43,7 +43,9 @@ function ScaledSlide({ item, payload }: { item: DeckItem; payload: DeckPayload }
   return (
     <div ref={ref} style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', overflow: 'hidden', background: '#0a0f1a' }}>
       <div style={{ position: 'absolute', top: 0, left: 0, width: 1280, height: 720, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
-        <DeckRenderer item={item} data={payload.data} overrides={payload.overrides} projection />
+        {/* 2026-08-10: `options` átadva — a következtetés-diák a kipipált
+            kategóriákat a vezérlő beállításaiból veszik. */}
+        <DeckRenderer item={item} data={payload.data} overrides={payload.overrides} options={payload.options} projection />
       </div>
     </div>
   )
@@ -79,7 +81,7 @@ export function PresenterRemote({ session }: { session: string }) {
     return () => { clearInterval(hb); clearInterval(timer); sync.close() }
   }, [session])
 
-  const deck: DeckItem[] = payload ? buildDeck(payload.options) : []
+  const deck: DeckItem[] = payload ? buildDeck(payload.options, payload.data) : []
   const count = deck.length
   const idx = Math.min(state.index, Math.max(0, count - 1))
   const current = deck[idx] || null

@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
 import { getEffectiveAccessContext, getEffectiveCongregationContext } from '@/lib/auth/effective-access'
+// 2026-08-10: közös, pointer-tudatos iktatószám-előnézet (lásd a modul doksiját).
+import { computeSequencePreview } from '@/lib/filing/sequence-preview'
 import {
   SEED_TEMPLATES,
   TEMPLATE_TYPES,
@@ -260,25 +262,27 @@ export async function seedDefaultFilingTemplates(): Promise<{
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Következő iratszám generálása pl. "2025/152" formában, az iktató
- * tábla jelenlegi max sequence_number + 1 alapján.
+ * A következő iratszám ELŐNÉZETE, pl. "2026/152".
+ *
+ * 2026-08-10 (K4 iktatószám-diagnosztika #5): eddig ez volt a MÁSODIK, önálló
+ * `MAX(sequence_number) + 1` implementáció (a másik az iktato/actions.ts-ben),
+ * és mindkettő a SOROKAT olvasta, miközben a tényleges kiosztás a
+ * `iktato_sequence_pointers` POINTER-ből dolgozik — egy sikertelen INSERT után
+ * az előnézet tartósan alábecsülte a számot. Mostantól mindkettő ugyanazt a
+ * pointer-tudatos, megosztott implementációt hívja
+ * (lib/filing/sequence-preview → `GREATEST(pointer, MAX) + 1`).
+ *
+ * ⚠️ ELŐNÉZET, nem foglalás: a végleges számot mindig a `saveFilingEntry`
+ * adja vissza (`sequenceNumber`), és eltérés esetén AZ a mérvadó.
  */
 export async function generateNextIratszam(
   year: number,
-): Promise<{ iratszam?: string; error?: string }> {
+): Promise<{ iratszam?: string; sequenceNumber?: number; error?: string }> {
   const { supabase, congregationId } = await getEffectiveCongregationContext()
   if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
 
-  const { data } = await supabase
-    .from('iktato')
-    .select('sequence_number')
-    .eq('congregation_id', congregationId)
-    .eq('year', year)
-    .order('sequence_number', { ascending: false })
-    .limit(1)
-
-  const next = (data?.[0]?.sequence_number || 0) + 1
-  return { iratszam: `${year}/${next}` }
+  const preview = await computeSequencePreview(supabase, congregationId, year)
+  return { iratszam: preview.iratszam, sequenceNumber: preview.sequenceNumber }
 }
 
 // ─────────────────────────────────────────────────────────────────

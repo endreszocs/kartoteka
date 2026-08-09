@@ -30,6 +30,18 @@ interface CelebrationsProps {
   congregationLogo?: string | null
 }
 
+/**
+ * 2026-08-10 — görgetésmentes keretek.
+ *
+ * A csempe fix magasságú sorban ül (`.kt-dash-trio`), ezért NEM görgethető:
+ * csak korlátozott számú sor fér el, a többi a „+N további" gombbal nyíló
+ * teljes listában (BirthdayListDialog) érhető el.
+ */
+const TODAY_CAP = 4
+const UPCOMING_CAP = 4
+const UPCOMING_MAX = 6
+const UPCOMING_MIN = 3
+
 export function Celebrations({
   todayBirthdays,
   todayNamedayMembers,
@@ -41,27 +53,47 @@ export function Celebrations({
 }: CelebrationsProps) {
   const [filterOpen, setFilterOpen] = useState(false)
   const hasTodayEvents = todayBirthdays.length > 0 || todayNamedayMembers.length > 0
+  const hasList = allMembers.length > 0
 
-  // Max 5 születésnap + max 5 upcoming = max 10 összesen
-  const limitedBirthdays = todayBirthdays.slice(0, 5)
-  const limitedNamedays = todayNamedayMembers.slice(0, 5)
-  const limitedUpcoming = upcomingBirthdays.slice(0, 5)
+  // ── Sor-keret (2026-08-10) ────────────────────────────────────────────────
+  // A mai köszöntések kapják az első TODAY_CAP helyet; a fel nem használt
+  // helyeket a „Következő 14 nap" blokk kapja meg, hogy a csempe kitöltse a
+  // közös sormagasságot — de sose lógjon ki belőle.
+  const shownBirthdays = todayBirthdays.slice(0, TODAY_CAP)
+  const namedaySlots = Math.max(1, TODAY_CAP - shownBirthdays.length)
+  const shownNamedays = todayNamedayMembers.slice(0, namedaySlots)
+  const usedToday = shownBirthdays.length + shownNamedays.length
+  const hiddenToday =
+    (todayBirthdays.length - shownBirthdays.length) +
+    (todayNamedayMembers.length - shownNamedays.length)
+
+  const upcomingSlots = Math.min(
+    UPCOMING_MAX,
+    Math.max(UPCOMING_MIN, UPCOMING_CAP + (TODAY_CAP - usedToday))
+  )
+  const shownUpcoming = upcomingBirthdays.slice(0, upcomingSlots)
+  const hiddenUpcoming = upcomingBirthdays.length - shownUpcoming.length
 
   return (
-    <div className="card-raised flex h-full max-h-[500px] flex-col overflow-hidden lg:max-h-none xl:h-auto xl:max-h-[760px]">
-      <div className="px-5 pt-5 pb-3 flex items-center gap-3">
-        <div className="icon-raised w-9 h-9 bg-gradient-to-br from-amber-400 to-orange-500">
-          <Cake className="w-4 h-4 text-white" />
+    <div className="card-raised flex h-full flex-col overflow-hidden">
+      {/* Fejléc — eyebrow + cím + „Lista" akció-chip */}
+      <div className="flex items-center gap-3 px-4 pt-4 pb-3 sm:px-5 sm:pt-5">
+        <div className="icon-raised size-9 shrink-0 bg-gradient-to-br from-amber-400 to-orange-500">
+          <Cake className="size-4 text-white" />
         </div>
-        <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-slate-800 text-sm">Ma köszöntjük</h3>
-          <p className="text-[11px] text-slate-400">Születésnapok és névnapok</p>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-bold uppercase tracking-[0.09em] text-muted-foreground">
+            Születésnapok és névnapok
+          </p>
+          <h3 className="truncate text-[15px] font-semibold leading-tight text-foreground">
+            Ma köszöntjük
+          </h3>
         </div>
-        {allMembers.length > 0 && (
+        {hasList && (
           <button
             type="button"
             onClick={() => setFilterOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800 transition hover:bg-amber-100"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1 text-[11px] font-semibold text-foreground transition hover:border-primary hover:text-primary"
             title="Szűrés + nyomtatás"
           >
             <List className="size-3" />
@@ -70,21 +102,23 @@ export function Celebrations({
         )}
       </div>
 
-      <div className="flex-1 space-y-3 overflow-y-auto px-5 pb-5">
+      {/* Tartalom — NINCS belső görgetés (2026-08-10) */}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-4 sm:px-5 sm:pb-5">
         {/* Születésnaposok */}
-        {limitedBirthdays.length > 0 && (
+        {shownBirthdays.length > 0 && (
           <div className="space-y-1.5">
-            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Születésnap</p>
-            {limitedBirthdays.map((b, i) => (
-              <div key={i} className="flex items-center gap-3 rounded-xl border border-border bg-muted px-3 py-2.5"
-                style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.04)' }}>
-                <div className="icon-raised w-8 h-8 bg-gradient-to-br from-amber-400 to-amber-500 shrink-0">
-                  <Cake className="w-3.5 h-3.5 text-white" />
+            <p className="text-[10px] font-bold uppercase tracking-[0.09em] text-muted-foreground">Születésnap</p>
+            {shownBirthdays.map((b, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-2.5 rounded-xl border border-border bg-muted px-2.5 py-2"
+              >
+                <div className="icon-raised size-7 shrink-0 bg-gradient-to-br from-amber-400 to-amber-500">
+                  <Cake className="size-3.5 text-white" />
                 </div>
-                <span className="flex-1 text-sm font-medium text-slate-700 truncate">{b.name}</span>
-                {b.age && (
-                  <span className="text-xs font-semibold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full"
-                    style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6)' }}>
+                <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">{b.name}</span>
+                {b.age !== null && b.age > 0 && (
+                  <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900 dark:bg-amber-400/20 dark:text-amber-200">
                     {b.age} éves
                   </span>
                 )}
@@ -94,65 +128,93 @@ export function Celebrations({
         )}
 
         {/* Névnaposok */}
-        {limitedNamedays.length > 0 && (
+        {shownNamedays.length > 0 && (
           <div className="space-y-1.5">
-            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Névnap</p>
-            {limitedNamedays.map((name, i) => (
-              <div key={i} className="flex items-center gap-3 rounded-xl border border-border bg-muted px-3 py-2.5"
-                style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.04)' }}>
-                <div className="icon-raised w-8 h-8 bg-gradient-to-br from-pink-400 to-rose-500 shrink-0">
-                  <Flower2 className="w-3.5 h-3.5 text-white" />
+            <p className="text-[10px] font-bold uppercase tracking-[0.09em] text-muted-foreground">Névnap</p>
+            {shownNamedays.map((name, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-2.5 rounded-xl border border-border bg-muted px-2.5 py-2"
+              >
+                <div className="icon-raised size-7 shrink-0 bg-gradient-to-br from-pink-400 to-rose-500">
+                  <Flower2 className="size-3.5 text-white" />
                 </div>
-                <span className="text-sm font-medium text-slate-700 truncate">{name}</span>
+                <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">{name}</span>
               </div>
             ))}
           </div>
         )}
 
-        {!hasTodayEvents && todayNamedayNames.length > 0 && (
-          <p className="text-sm text-slate-400 py-2">
-            Ma: <em className="text-slate-500">{todayNamedayNames.join(', ')}</em> — nincs érintett tag.
-          </p>
-        )}
-        {!hasTodayEvents && todayNamedayNames.length === 0 && (
-          <p className="text-sm text-slate-400 py-3">Ma nincs köszöntés.</p>
+        {/* Levágott mai sorok → a teljes lista a modálban érhető el */}
+        {hiddenToday > 0 && hasList && (
+          <button type="button" className="kt-more-line" onClick={() => setFilterOpen(true)}>
+            +{hiddenToday} további köszöntés
+          </button>
         )}
 
-        {/* Következő 14 nap */}
-        {limitedUpcoming.length > 0 && (
-          <div className="space-y-1.5 border-t border-white/60 pt-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CalendarClock className="w-3.5 h-3.5 text-slate-400" />
-                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Következő 14 nap</p>
+        {!hasTodayEvents && (
+          <div className="rounded-xl border border-dashed border-border bg-muted/60 px-3 py-3 text-center">
+            <p className="text-[13px] text-muted-foreground">
+              {todayNamedayNames.length > 0 ? (
+                <>
+                  Ma <em className="not-italic font-semibold text-foreground">{todayNamedayNames.join(', ')}</em> napja
+                  van — nincs érintett tag.
+                </>
+              ) : (
+                'Ma nincs köszöntés.'
+              )}
+            </p>
+          </div>
+        )}
+
+        {/* Következő 14 nap — a csempe aljára horgonyozva (mt-auto), így a
+            kártya szépen kitölti a közös sormagasságot */}
+        {shownUpcoming.length > 0 && (
+          <div className="mt-auto space-y-1.5 border-t border-border pt-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
+                <CalendarClock className="size-3.5 text-muted-foreground" />
+                <p className="text-[10px] font-bold uppercase tracking-[0.09em] text-muted-foreground">
+                  Következő 14 nap
+                </p>
               </div>
-              <span className="text-[10px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{upcomingBirthdays.length} fő</span>
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                {upcomingBirthdays.length} fő
+              </span>
             </div>
-            {limitedUpcoming.map((b, i) => (
-              <div key={i} className="flex items-center gap-3 py-1.5">
-                <div className="w-10 h-10 rounded-xl bg-slate-50 flex flex-col items-center justify-center shrink-0"
-                  style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.06), 0 1px 0 rgba(255,255,255,0.8)' }}>
-                  <span className="text-sm font-bold text-slate-700 leading-none">{b.day}</span>
-                  <span className="text-[9px] text-slate-400 font-medium">{HU_MONTHS_SHORT[b.month]}</span>
+            {shownUpcoming.map((b, i) => (
+              <div key={i} className="flex items-center gap-2.5 py-0.5">
+                <div className="flex size-9 shrink-0 flex-col items-center justify-center rounded-lg border border-border bg-muted">
+                  <span className="text-[13px] font-bold leading-none text-foreground">{b.day}</span>
+                  <span className="text-[9px] font-medium text-muted-foreground">{HU_MONTHS_SHORT[b.month]}</span>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-700 truncate">{b.name}</p>
-                  <p className="text-[11px] text-slate-400">{b.age} éves lesz</p>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-medium text-foreground">{b.name}</p>
+                  <p className="text-[11px] text-muted-foreground">{b.age} éves lesz</p>
                 </div>
-                <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${
-                  b.diffDays <= 3
-                    ? 'bg-red-50 text-red-600'
-                    : 'bg-slate-100 text-slate-500'
-                }`} style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.5)' }}>
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                    b.diffDays <= 3
+                      ? 'bg-red-100 text-red-800 dark:bg-red-400/20 dark:text-red-200'
+                      : 'bg-muted text-muted-foreground'
+                  }`}
+                >
                   {b.diffDays === 1 ? 'holnap' : `${b.diffDays} nap`}
                 </span>
               </div>
             ))}
+            {hiddenUpcoming > 0 && hasList && (
+              <div className="flex justify-center">
+                <button type="button" className="kt-more-line" onClick={() => setFilterOpen(true)}>
+                  +{hiddenUpcoming} további a 14 napban
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {allMembers.length > 0 && (
+      {hasList && (
         <BirthdayListDialog
           open={filterOpen}
           onOpenChange={setFilterOpen}

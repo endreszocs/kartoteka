@@ -1,71 +1,94 @@
+import { ExternalLink, Mail, MapPin, Phone } from 'lucide-react'
+
 import type { PublicSiteData } from '@/lib/public-site/site-loader'
-import { Calendar, Clock, MapPin, Mail, Phone } from 'lucide-react'
+import { buildMapSearchUrl } from '@/lib/public-site/map-link'
+
+import { PublicEmptyState } from './public-empty-state'
+import { PublicSectionHeader } from './public-section-header'
 
 /**
- * Istentiszteleti időpontok + elérhetőség blokk.
- * Az alkalmak kizárólag a gyülekezet által mentett, validált adatokból jönnek.
- * Üres listánál nem jelenítünk meg feltételezett időpontot.
+ * A nap nevéből tipográfiai horgony: „Vasárnap" → V, „Szerda" → SZE.
+ * A mező szabad szöveg (pl. „Minden hónap 1. vasárnapja"), ezért ismeretlen
+ * értéknél az első két betű marad.
+ */
+const DAY_ANCHORS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^vas/i, 'V'],
+  [/^hét|^het/i, 'H'],
+  [/^kedd/i, 'K'],
+  [/^szer/i, 'SZE'],
+  [/^csüt|^csut/i, 'CS'],
+  [/^pén|^pen/i, 'P'],
+  [/^szom/i, 'SZO'],
+]
+
+function dayAnchor(day: string): string {
+  const trimmed = day.trim()
+  const match = DAY_ANCHORS.find(([pattern]) => pattern.test(trimmed))
+  if (match) return match[1]
+  return trimmed.slice(0, 2).toUpperCase()
+}
+
+/**
+ * Istentiszteleti rend + elérhetőség.
+ *
+ * 2026-08-10 — a két gradienssel töltött ikoncsempés kártya helyett valódi
+ * menetrend-lista: bal oldalon a nap nagybetűs rövidítése tipográfiai
+ * horgonyként, mellette idő + megnevezés + helyszín, hajszálvonalakkal
+ * elválasztva. Az alkalmak kizárólag a gyülekezet által mentett, validált
+ * adatokból jönnek; üres listánál nem jelenítünk meg feltételezett időpontot.
  */
 export function PublicServiceTimes({ site }: { site: PublicSiteData }) {
+  const mapUrl = buildMapSearchUrl(site.address)
+  const hasContact = Boolean(
+    site.address || site.contact_phone || site.contact_email,
+  )
+
   return (
     <section className="public-section" id="alkalmak">
       <div className="public-container">
-        <div className="grid gap-6 md:grid-cols-2 lg:gap-10">
-          {/* Istentiszteletek */}
-          <div
-            className="public-card rounded-[var(--public-radius)] p-8 lg:p-10 border public-anim-fade-up"
-            style={{
-              backgroundColor: 'color-mix(in srgb, var(--public-surface) 96%, white)',
-              borderColor: 'color-mix(in srgb, var(--public-ink) 8%, transparent)',
-            }}
-          >
-            <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center mb-6"
-              style={{
-                background: `linear-gradient(135deg, var(--public-primary), color-mix(in srgb, var(--public-primary) 70%, var(--public-accent)))`,
-              }}
-            >
-              <Calendar className="w-7 h-7 text-white" />
-            </div>
-            <h3 className="mb-3" style={{ color: 'var(--public-ink)' }}>
-              Istentiszteleteink
-            </h3>
-            <p className="mb-5 text-base" style={{ color: 'var(--public-muted)' }}>
-              Közösségünk állandó alkalmai — szeretettel várunk mindenkit.
-            </p>
+        <PublicSectionHeader
+          eyebrow="Istentiszteleti rend"
+          title="Alkalmaink"
+          subtitle="Rendszeres alkalmaink és elérhetőségünk — szeretettel várunk mindenkit."
+        />
 
+        <div className="grid gap-10 lg:grid-cols-[1.35fr_1fr] lg:gap-16">
+          {/* Menetrend */}
+          <div>
             {site.service_times.length > 0 ? (
-              <ul className="space-y-3">
-                {site.service_times.map((serviceTime, index) => (
-                  <li
-                    key={serviceTime.id}
-                    className={
-                      index < site.service_times.length - 1
-                        ? 'flex items-start gap-3 border-b pb-3'
-                        : 'flex items-start gap-3'
-                    }
-                    style={{ borderColor: 'color-mix(in srgb, var(--public-ink) 6%, transparent)' }}
-                  >
-                    <Clock
-                      className="mt-0.5 size-5 shrink-0"
-                      style={{ color: 'var(--public-accent-on-surface)' }}
-                      aria-hidden="true"
-                    />
+              <ul className="public-schedule">
+                {site.service_times.map((serviceTime) => (
+                  <li key={serviceTime.id} className="public-schedule-item">
+                    <span className="public-schedule-day" aria-hidden="true">
+                      {dayAnchor(serviceTime.day)}
+                    </span>
                     <div className="min-w-0">
-                      <div className="font-semibold" style={{ color: 'var(--public-ink)' }}>
-                        {serviceTime.day} · {serviceTime.time}
-                      </div>
-                      <div className="text-sm" style={{ color: 'var(--public-muted)' }}>
+                      <p
+                        className="text-[1.05rem] leading-snug"
+                        style={{
+                          color: 'var(--public-ink)',
+                          fontFamily: 'var(--public-heading-font)',
+                          fontSize: '1.3rem',
+                        }}
+                      >
                         {serviceTime.title}
-                      </div>
-                      {serviceTime.location && (
-                        <div className="mt-1 flex items-start gap-1.5 text-sm" style={{ color: 'var(--public-muted)' }}>
-                          <MapPin className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-                          <span>{serviceTime.location}</span>
-                        </div>
-                      )}
+                      </p>
+                      <p className="mt-1 text-sm" style={{ color: 'var(--public-muted)' }}>
+                        <span className="public-schedule-time">
+                          {serviceTime.day} {serviceTime.time}
+                        </span>
+                        {serviceTime.location && (
+                          <>
+                            {' · '}
+                            {serviceTime.location}
+                          </>
+                        )}
+                      </p>
                       {serviceTime.note && (
-                        <p className="mt-1 text-sm italic" style={{ color: 'var(--public-muted)' }}>
+                        <p
+                          className="mt-1 text-sm italic"
+                          style={{ color: 'var(--public-muted)' }}
+                        >
                           {serviceTime.note}
                         </p>
                       )}
@@ -74,90 +97,89 @@ export function PublicServiceTimes({ site }: { site: PublicSiteData }) {
                 ))}
               </ul>
             ) : (
-              <div
-                className="rounded-xl border border-dashed p-4 text-sm leading-6"
-                style={{
-                  borderColor: 'color-mix(in srgb, var(--public-ink) 14%, transparent)',
-                  backgroundColor: 'color-mix(in srgb, var(--public-soft) 55%, transparent)',
-                  color: 'var(--public-muted)',
-                }}
-              >
-                A rendszeres alkalmak időpontjai még nincsenek közzétéve.
-                Az aktuális időpontokról érdeklődj az elérhetőségeinken.
-              </div>
+              <PublicEmptyState
+                title="A rendszeres alkalmak időpontjai még nincsenek közzétéve."
+                description="Az aktuális időpontokról szívesen adunk felvilágosítást az elérhetőségeinken."
+              />
             )}
           </div>
 
           {/* Elérhetőség */}
-          <div
-            className="public-card rounded-[var(--public-radius)] p-8 lg:p-10 border public-anim-fade-up public-delay-100"
-            style={{
-              backgroundColor: 'color-mix(in srgb, var(--public-surface) 96%, white)',
-              borderColor: 'color-mix(in srgb, var(--public-ink) 8%, transparent)',
-            }}
+          <aside
+            className="public-panel h-fit p-7 sm:p-8"
+            aria-label="Elérhetőségeink"
           >
-            <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center mb-6"
-              style={{
-                background: `linear-gradient(135deg, var(--public-accent-strong), color-mix(in srgb, var(--public-accent-strong) 70%, var(--public-primary)))`,
-              }}
-            >
-              <MapPin className="w-7 h-7 text-white" />
-            </div>
-            <h3 className="mb-3" style={{ color: 'var(--public-ink)' }}>
-              Látogass meg
+            <p className="public-eyebrow">Látogass meg</p>
+            <h3 className="mt-3" style={{ color: 'var(--public-ink)' }}>
+              Hol találsz minket
             </h3>
-            <p className="mb-5 text-base" style={{ color: 'var(--public-muted)' }}>
-              Bármikor szívesen fogadunk, ha kérdésed van vagy kapcsolatba szeretnél lépni velünk.
-            </p>
+            <span aria-hidden="true" className="public-rule-start public-rule my-5" />
 
-            <ul className="space-y-3">
-              {site.address && (
-                <li className="flex items-start gap-3">
-                  <MapPin
-                    className="w-5 h-5 mt-0.5 shrink-0"
-                    style={{ color: 'var(--public-accent-on-surface)' }}
-                  />
-                  <span style={{ color: 'var(--public-ink)' }}>{site.address}</span>
-                </li>
-              )}
-              {site.contact_phone && (
-                <li className="flex items-start gap-3">
-                  <Phone
-                    className="w-5 h-5 mt-0.5 shrink-0"
-                    style={{ color: 'var(--public-accent-on-surface)' }}
-                  />
-                  <a
-                    href={`tel:${site.contact_phone.replace(/\s/g, '')}`}
-                    className="hover:underline"
-                    style={{ color: 'var(--public-ink)' }}
-                  >
-                    {site.contact_phone}
-                  </a>
-                </li>
-              )}
-              {site.contact_email && (
-                <li className="flex items-start gap-3">
-                  <Mail
-                    className="w-5 h-5 mt-0.5 shrink-0"
-                    style={{ color: 'var(--public-accent-on-surface)' }}
-                  />
-                  <a
-                    href={`mailto:${site.contact_email}`}
-                    className="hover:underline break-all"
-                    style={{ color: 'var(--public-ink)' }}
-                  >
-                    {site.contact_email}
-                  </a>
-                </li>
-              )}
-              {!site.address && !site.contact_phone && !site.contact_email && (
-                <li className="text-sm italic" style={{ color: 'var(--public-muted)' }}>
-                  Az elérhetőségi adatok hamarosan elérhetőek lesznek.
-                </li>
-              )}
-            </ul>
-          </div>
+            {hasContact ? (
+              <ul className="space-y-4">
+                {site.address && (
+                  <li className="flex items-start gap-3">
+                    <MapPin
+                      className="mt-0.5 size-5 shrink-0"
+                      style={{ color: 'var(--public-accent-ink)' }}
+                      aria-hidden="true"
+                    />
+                    <span style={{ color: 'var(--public-ink)' }}>
+                      {site.address}
+                      {mapUrl && (
+                        <a
+                          href={mapUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-2 flex min-h-11 items-center gap-1.5 text-sm font-semibold underline underline-offset-4"
+                          style={{ color: 'var(--public-primary-on-surface)' }}
+                        >
+                          Megnyitás térképen
+                          <ExternalLink className="size-3.5" aria-hidden="true" />
+                        </a>
+                      )}
+                    </span>
+                  </li>
+                )}
+                {site.contact_phone && (
+                  <li className="flex items-start gap-3">
+                    <Phone
+                      className="mt-0.5 size-5 shrink-0"
+                      style={{ color: 'var(--public-accent-ink)' }}
+                      aria-hidden="true"
+                    />
+                    <a
+                      href={`tel:${site.contact_phone.replace(/\s/g, '')}`}
+                      className="inline-flex min-h-11 items-center hover:underline"
+                      style={{ color: 'var(--public-ink)' }}
+                    >
+                      {site.contact_phone}
+                    </a>
+                  </li>
+                )}
+                {site.contact_email && (
+                  <li className="flex items-start gap-3">
+                    <Mail
+                      className="mt-0.5 size-5 shrink-0"
+                      style={{ color: 'var(--public-accent-ink)' }}
+                      aria-hidden="true"
+                    />
+                    <a
+                      href={`mailto:${site.contact_email}`}
+                      className="inline-flex min-h-11 items-center break-all hover:underline"
+                      style={{ color: 'var(--public-ink)' }}
+                    >
+                      {site.contact_email}
+                    </a>
+                  </li>
+                )}
+              </ul>
+            ) : (
+              <p className="text-sm italic" style={{ color: 'var(--public-muted)' }}>
+                Az elérhetőségi adatok hamarosan felkerülnek erre az oldalra.
+              </p>
+            )}
+          </aside>
         </div>
       </div>
     </section>

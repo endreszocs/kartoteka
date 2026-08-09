@@ -168,39 +168,9 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-.themeBoundary :global(.public-site-root h1),
-.themeBoundary :global(.public-site-root h2),
-.themeBoundary :global(.public-site-root h3),
-.themeBoundary :global(.public-site-root h4) {
-  font-family: var(--public-heading-font);
-  font-weight: 600;
-}
-
-.themeBoundary :global(.public-site-root h1) {
-  font-size: clamp(2.25rem, 1.6rem + 3.2vw, 4.25rem);
-  line-height: 1.08;
-  letter-spacing: -0.01em;
-}
-
-.themeBoundary :global(.public-site-root h2) {
-  font-size: clamp(1.85rem, 1.4rem + 2.2vw, 3rem);
-  line-height: 1.15;
-  letter-spacing: -0.005em;
-}
-
-.themeBoundary :global(.public-site-root h3) {
-  font-size: clamp(1.35rem, 1.1rem + 1.2vw, 1.875rem);
-  line-height: 1.25;
-}
-
-.themeBoundary :global(.public-site-root h4) {
-  font-size: clamp(1.1rem, 0.95rem + 0.7vw, 1.35rem);
-  line-height: 1.3;
-}
-
-.themeBoundary :global(.public-site-root p) {
-  font-size: clamp(0.95rem, 0.85rem + 0.3vw, 1.08rem);
-}
+/* 2026-08-10: a tipografiai alapszabalyok a kozos @/styles/public-site.css-bol
+   jonnek (a preview is importalja). A korabbi masolat itt (0,2,1)
+   specificitassal csendben legyozte az utility-osztalyokat. */
 
 .themeBoundary :global(.public-section) {
   padding: clamp(3rem, 2rem + 3.5vw, 6rem) 0;
@@ -212,6 +182,51 @@
   margin: 0 auto;
   padding-right: clamp(1rem, 0.5rem + 2vw, 2rem);
   padding-left: clamp(1rem, 0.5rem + 2vw, 2rem);
+}
+
+/* 2026-08-10: az éles publikus oldalról átvett közös segédosztályok, hogy az
+   admin témagaléria ne essen szét a PublicSectionHeader átdolgozása után. */
+.themeBoundary :global(.public-eyebrow) {
+  display: inline-block;
+  color: var(--public-accent-ink);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.themeBoundary :global(.public-rule) {
+  display: block;
+  height: 1px;
+  border: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--public-accent) 65%, transparent) 50%,
+    transparent 100%
+  );
+}
+
+.themeBoundary :global(.public-rule-start) {
+  width: 3.5rem;
+  background: var(--public-accent);
+}
+
+.themeBoundary :global(.public-panel) {
+  border-radius: var(--public-radius-lg);
+  border: 1px solid var(--public-line);
+  background: color-mix(in srgb, var(--public-surface) 96%, white);
+  box-shadow: var(--public-elev-1);
+}
+
+.themeBoundary :global(.public-link-arrow) {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--public-primary-on-surface);
+  font-weight: 600;
 }
 
 .themeBoundary :global(.public-card) {

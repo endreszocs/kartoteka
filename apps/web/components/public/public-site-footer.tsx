@@ -1,64 +1,62 @@
 import Link from 'next/link'
 import Image from 'next/image'
-import { shouldBypassPublicImageOptimization } from '@/lib/public-site/public-image'
-import { Mail, Phone, MapPin, Heart } from 'lucide-react'
+import { Mail, Phone, MapPin, ExternalLink } from 'lucide-react'
 import type { PublicSiteData } from '@/lib/public-site/site-loader'
+import { PublicCrest } from './public-crest'
+import { buildMapSearchUrl } from '@/lib/public-site/map-link'
 
+/**
+ * 2026-08-10 — Szerkesztőségi lábléc.
+ *
+ * Változások: pajzs-keretes címer (object-contain), arany „eyebrow"-k a
+ * valóban olvasható `--public-accent-ink` tokennel, térkép-hivatkozás a
+ * címhez, és korrekt kettős kredit (EREK + Kartotéka).
+ */
 export function PublicSiteFooter({ site }: { site: PublicSiteData }) {
   const year = new Date().getFullYear()
+  const mapUrl = buildMapSearchUrl(site.address)
 
   return (
     <footer
-      className="mt-20 border-t relative overflow-hidden"
+      className="relative mt-24 border-t"
       style={{
-        backgroundColor: 'color-mix(in srgb, var(--public-soft) 55%, transparent)',
-        borderColor: 'color-mix(in srgb, var(--public-ink) 10%, transparent)',
+        backgroundColor: 'color-mix(in srgb, var(--public-soft) 62%, transparent)',
+        borderColor: 'var(--public-line)',
       }}
     >
-      {/* Dekoratív gradient vonal a tetején */}
       <div
-        className="absolute top-0 left-0 right-0 h-px"
-        style={{
-          background: `linear-gradient(90deg, transparent 0%, var(--public-accent) 50%, transparent 100%)`,
-        }}
+        aria-hidden="true"
+        className="public-rule absolute inset-x-0 top-0"
       />
 
       <div className="public-container py-14 sm:py-16">
-        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-3">
-          {/* Brand */}
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr]">
+          {/* Márkajel */}
           <div>
-            <div className="flex items-center gap-3 mb-4">
-              {site.crest_image_url ? (
-                <Image
-                  src={site.crest_image_url}
-                  alt={site.display_name}
-                  width={48}
-                  height={48}
-                  sizes="48px"
-                  unoptimized={shouldBypassPublicImageOptimization(site.crest_image_url)}
-                  className="w-12 h-12 rounded-xl object-cover shrink-0"
-                />
-              ) : (
-                <div
-                  className="w-12 h-12 rounded-xl shrink-0 flex items-center justify-center text-white font-bold text-lg shadow-md"
-                  style={{
-                    background: `linear-gradient(135deg, var(--public-primary), color-mix(in srgb, var(--public-primary) 70%, var(--public-accent)))`,
-                  }}
-                >
-                  {site.display_name.charAt(0)}
-                </div>
-              )}
+            <div className="mb-4 flex items-center gap-3">
+              <PublicCrest
+                src={site.crest_image_url}
+                name={site.display_name}
+                size={52}
+                shape="shield"
+              />
               <div
-                className="font-serif text-xl leading-tight"
-                style={{ color: 'var(--public-ink)' }}
+                className="text-[1.15rem] leading-tight"
+                style={{
+                  color: 'var(--public-ink)',
+                  fontFamily: 'var(--public-heading-font)',
+                }}
               >
                 {site.display_name}
               </div>
             </div>
             {site.tagline && (
               <p
-                className="text-sm italic font-serif"
-                style={{ color: 'var(--public-muted)' }}
+                className="max-w-sm text-[0.95rem] italic"
+                style={{
+                  color: 'var(--public-muted)',
+                  fontFamily: 'var(--public-heading-font)',
+                }}
               >
                 &bdquo;{site.tagline}&rdquo;
               </p>
@@ -67,66 +65,79 @@ export function PublicSiteFooter({ site }: { site: PublicSiteData }) {
 
           {/* Elérhetőség */}
           <div>
-            <h4
-              className="mb-4 text-sm font-semibold uppercase tracking-widest"
-              style={{ color: 'var(--public-accent-on-surface)' }}
-            >
-              Elérhetőség
-            </h4>
+            <h2 className="public-eyebrow mb-4">Elérhetőség</h2>
             <ul className="space-y-3">
-              {site.contact_email && (
+              {site.address && (
                 <li className="flex items-start gap-2.5">
-                  <Mail
-                    className="w-4 h-4 mt-1 shrink-0"
-                    style={{ color: 'var(--public-muted)' }}
+                  <MapPin
+                    className="mt-1 size-4 shrink-0"
+                    style={{ color: 'var(--public-accent-ink)' }}
+                    aria-hidden="true"
                   />
-                  <a
-                    href={`mailto:${site.contact_email}`}
-                    className="hover:underline text-sm break-all"
-                    style={{ color: 'var(--public-ink)' }}
-                  >
-                    {site.contact_email}
-                  </a>
+                  <span className="text-sm" style={{ color: 'var(--public-ink)' }}>
+                    {site.address}
+                    {mapUrl && (
+                      <>
+                        {' '}
+                        <a
+                          href={mapUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 underline underline-offset-4"
+                          style={{ color: 'var(--public-primary-on-surface)' }}
+                        >
+                          Térkép
+                          <ExternalLink className="size-3" aria-hidden="true" />
+                        </a>
+                      </>
+                    )}
+                  </span>
                 </li>
               )}
               {site.contact_phone && (
                 <li className="flex items-start gap-2.5">
                   <Phone
-                    className="w-4 h-4 mt-1 shrink-0"
-                    style={{ color: 'var(--public-muted)' }}
+                    className="mt-1 size-4 shrink-0"
+                    style={{ color: 'var(--public-accent-ink)' }}
+                    aria-hidden="true"
                   />
                   <a
                     href={`tel:${site.contact_phone.replace(/\s/g, '')}`}
-                    className="hover:underline text-sm"
+                    className="text-sm hover:underline"
                     style={{ color: 'var(--public-ink)' }}
                   >
                     {site.contact_phone}
                   </a>
                 </li>
               )}
-              {site.address && (
+              {site.contact_email && (
                 <li className="flex items-start gap-2.5">
-                  <MapPin
-                    className="w-4 h-4 mt-1 shrink-0"
-                    style={{ color: 'var(--public-muted)' }}
+                  <Mail
+                    className="mt-1 size-4 shrink-0"
+                    style={{ color: 'var(--public-accent-ink)' }}
+                    aria-hidden="true"
                   />
-                  <span className="text-sm" style={{ color: 'var(--public-ink)' }}>
-                    {site.address}
-                  </span>
+                  <a
+                    href={`mailto:${site.contact_email}`}
+                    className="break-all text-sm hover:underline"
+                    style={{ color: 'var(--public-ink)' }}
+                  >
+                    {site.contact_email}
+                  </a>
+                </li>
+              )}
+              {!site.address && !site.contact_phone && !site.contact_email && (
+                <li className="text-sm italic" style={{ color: 'var(--public-muted)' }}>
+                  Az elérhetőségek hamarosan felkerülnek.
                 </li>
               )}
             </ul>
           </div>
 
-          {/* Hasznos linkek */}
+          {/* Menü */}
           <div>
-            <h4
-              className="mb-4 text-sm font-semibold uppercase tracking-widest"
-              style={{ color: 'var(--public-accent-on-surface)' }}
-            >
-              Menü
-            </h4>
-            <ul className="space-y-2.5 text-sm">
+            <h2 className="public-eyebrow mb-4">Menü</h2>
+            <ul className="space-y-1 text-sm">
               {[
                 { href: `/gy/${site.slug}`, label: 'Kezdőlap' },
                 { href: `/gy/${site.slug}/posts`, label: 'Hírek' },
@@ -136,7 +147,7 @@ export function PublicSiteFooter({ site }: { site: PublicSiteData }) {
                 <li key={item.href}>
                   <Link
                     href={item.href}
-                    className="hover:underline"
+                    className="inline-flex min-h-11 items-center hover:underline"
                     style={{ color: 'var(--public-ink)' }}
                   >
                     {item.label}
@@ -147,31 +158,43 @@ export function PublicSiteFooter({ site }: { site: PublicSiteData }) {
           </div>
         </div>
 
-        {/* Alsó sáv */}
+        {/* Alsó sáv — EREK + Kartotéka kettős kredit */}
         <div
-          className="mt-12 pt-6 border-t flex flex-col sm:flex-row items-center justify-between gap-3 text-xs"
+          className="mt-12 flex flex-col items-center justify-between gap-4 border-t pt-6 text-xs sm:flex-row"
           style={{
-            borderColor: 'color-mix(in srgb, var(--public-ink) 8%, transparent)',
+            borderColor: 'var(--public-line)',
             color: 'var(--public-muted)',
           }}
         >
-          <div>
+          <div className="text-center sm:text-left">
             © {year} {site.display_name}. Minden jog fenntartva.
           </div>
-          <div className="flex items-center gap-1.5">
-            <span>Működik a</span>
-            <span
-              className="font-semibold"
-              style={{ color: 'var(--public-primary-on-surface)' }}
-            >
-              Kartotéka
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+            <span className="inline-flex items-center gap-2">
+              <Image
+                src="/EREK.png"
+                alt=""
+                width={18}
+                height={29}
+                className="h-6 w-auto opacity-80"
+              />
+              Erdélyi Református Egyházkerület
             </span>
-            <span>rendszerrel</span>
-            <Heart
-              className="w-3.5 h-3.5 ml-1"
-              style={{ color: 'var(--public-accent-on-surface)' }}
-              fill="currentColor"
+            <span
+              aria-hidden="true"
+              className="hidden h-3 w-px sm:block"
+              style={{ backgroundColor: 'var(--public-line-strong)' }}
             />
+            <span>
+              Működik a{' '}
+              <span
+                className="font-semibold"
+                style={{ color: 'var(--public-primary-on-surface)' }}
+              >
+                Kartotéka
+              </span>{' '}
+              rendszerrel
+            </span>
           </div>
         </div>
       </div>

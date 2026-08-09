@@ -183,6 +183,9 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
     diocese_id: '', eves_jarulek: 100, jarulek_kedvezmenyes: 0, jarulek_hatarid: '07-01', tartozas_szamitas_mod: 'akkori',
   })
   const [dioceses, setDioceses] = useState<Array<{ id: string; name: string; district_id: string | null; district_name: string | null }>>([])
+  // 2026-08-10: ha az egyházmegye-lista betöltése hibázik, a választó NEM
+  // maradhat néma és üres (lásd getDioceses).
+  const [diocesesError, setDiocesesError] = useState<string | null>(null)
 
   // Több bankszámla + a törlésre jelölt (meglévő) számlák id-jei.
   const [bankAccounts, setBankAccounts] = useState<BankSlot[]>([])
@@ -203,7 +206,19 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
     queueMicrotask(() => {
       if (cancelled) return
       setLoading(true)
-      void getDioceses().then((list) => { if (!cancelled) setDioceses(list) }).catch(() => {})
+      void getDioceses()
+        .then((res) => {
+          if (cancelled) return
+          setDioceses(res.data)
+          setDiocesesError(res.error)
+          if (res.error) toast.error(res.error)
+        })
+        .catch((e) => {
+          if (cancelled) return
+          const msg = e instanceof Error ? e.message : 'Az egyházmegyék betöltése sikertelen.'
+          setDiocesesError(msg)
+          toast.error(msg)
+        })
       void Promise.all([
         getCongregationForSetup(congregationId),
         getCongregationBankAccounts(congregationId),
@@ -310,6 +325,11 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
   // `cimer_url` is itt van — különben a gomb aktív lenne, de a szerver-mentés elbukna.
   const paneMissing: Record<'attekintes' | 'cim' | 'bank' | 'penzugy' | 'kedvezmenyek' | 'lelkesz', string[]> = { attekintes: [], cim: [], bank: [], penzugy: [], kedvezmenyek: [], lelkesz: [] }
   if (form.nev_hu.trim().length < 2) paneMissing.attekintes.push('magyar név')
+  // 2026-08-10 (K4 regisztráció-diagnosztika #2): az egyházmegye KÖTELEZŐ.
+  // Enélkül a gyülekezet egyetlen egyházmegyei/kerületi felületen sem látszik,
+  // az irat-beküldése senkit nem értesít, és a regisztrációs választóban sem
+  // jelenik meg — a mentés-kapu ezért most blokkol, ha nincs kiválasztva.
+  if (!form.diocese_id.trim()) paneMissing.attekintes.push('egyházmegye')
   if (!form.adoszam.trim()) paneMissing.attekintes.push('adószám')
   if (!form.cimer_url.trim()) paneMissing.attekintes.push('címer')
   if (!form.megye.trim()) paneMissing.cim.push('megye')
@@ -359,6 +379,9 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
         if (res.fieldErrors) setFieldErrors(res.fieldErrors)
         return
       }
+      // 2026-08-10: a szerver oszlop-sodródásnál kihagyhat mezőket — ez eddig
+      // néma volt („ok: true"), most figyelmeztetést kapunk róla.
+      if (res.warning) toast.warning(res.warning, { duration: 8000 })
 
       // 2) Bankszámlák mentése (meglévő → update, új → insert; a fő számla
       //    a congregations.bank/iban-t is szinkronizálja).
@@ -495,6 +518,7 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
                       dioceseName={context.dioceseName}
                       districtName={context.districtName}
                       dioceses={dioceses}
+                      diocesesError={diocesesError}
                     />
                   </>
                 )}
@@ -632,7 +656,7 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
 // ─────────────────────────────────────────────────────────────────────────
 
 function SectionBasics({
-  form, setForm, onCimerUpload, uploading, fieldErrors, dioceseName, districtName, dioceses,
+  form, setForm, onCimerUpload, uploading, fieldErrors, dioceseName, districtName, dioceses, diocesesError,
 }: {
   form: SetupFormState
   setForm: SetForm
@@ -642,6 +666,8 @@ function SectionBasics({
   dioceseName: string | null
   districtName: string | null
   dioceses: Array<{ id: string; name: string; district_id: string | null; district_name: string | null }>
+  /** 2026-08-10: az egyházmegye-lista betöltési hibája (ha volt) — a select alatt jelenik meg. */
+  diocesesError: string | null
 }) {
   // A kiválasztott egyházmegye kerülete (a select alatt read-only megjelenítéshez).
   const selectedDistrictName = form.diocese_id
@@ -679,17 +705,54 @@ function SectionBasics({
                 </p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wide text-slate-500">Egyházmegye</p>
+                <p className="text-[10px] uppercase tracking-wide text-slate-500">Egyházmegye *</p>
+                {/* 2026-08-10 (K4 regisztráció-diagnosztika #1): CSAPDA-JAVÍTÁS.
+                    Korábban az első opció CÍMKÉJE a jelenlegi egyházmegye neve volt
+                    („… (jelenlegi)"), az ÉRTÉKE viszont üres — aki rákattintott, hogy
+                    „megerősítse" a jelenlegit, az valójában kinullázta a kötést.
+                    Mostantól a jelenlegi egyházmegye VALÓDI, kiválasztott értékként
+                    jelenik meg a listában, a helyőrző pedig disabled (nem választható),
+                    és csak akkor látszik, ha még nincs beállított egyházmegye. */}
                 <select
                   value={form.diocese_id}
-                  onChange={(e) => setForm({ ...form, diocese_id: e.target.value })}
-                  className="mt-0.5 h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-teal-500/25"
+                  onChange={(e) => {
+                    // Védelem elavult/hibás DOM-esemény ellen: üres értéket sosem írunk vissza.
+                    if (!e.target.value) return
+                    setForm({ ...form, diocese_id: e.target.value })
+                  }}
+                  disabled={dioceses.length === 0}
+                  aria-invalid={!form.diocese_id}
+                  className="mt-0.5 h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-teal-500/25 disabled:cursor-not-allowed disabled:bg-slate-100"
                 >
-                  <option value="">{dioceseName ? `${dioceseName} (jelenlegi)` : '— válassz egyházmegyét —'}</option>
+                  {!form.diocese_id && (
+                    <option value="" disabled>
+                      — válassz egyházmegyét —
+                    </option>
+                  )}
                   {dioceses.map((d) => (
-                    <option key={d.id} value={d.id}>{d.name}</option>
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                      {d.district_name ? ` (${d.district_name})` : ''}
+                    </option>
                   ))}
                 </select>
+                {diocesesError ? (
+                  <p className="mt-1 text-xs text-rose-600">
+                    {diocesesError} — a mentés előtt töltsd újra az ablakot.
+                  </p>
+                ) : !form.diocese_id ? (
+                  <p className="mt-1 text-xs text-amber-700">
+                    A gyülekezet még egyetlen egyházmegyéhez sem tartozik — enélkül nem jelenik meg
+                    az egyházmegyei és egyházkerületi felületeken.
+                  </p>
+                ) : dioceseName && dioceseName !== dioceses.find((d) => d.id === form.diocese_id)?.name ? (
+                  <p className="mt-1 text-xs text-amber-700">
+                    Jelenleg mentett: <b>{dioceseName}</b> — a mentés ezt írja felül.
+                  </p>
+                ) : null}
+                {fieldErrors.diocese_id && (
+                  <p className="mt-1 text-xs text-rose-600">{fieldErrors.diocese_id}</p>
+                )}
               </div>
             </div>
           </div>

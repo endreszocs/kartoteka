@@ -123,6 +123,16 @@ class SyncOrchestrator {
       this.emit({ type: 'scope_changed', timestamp: Date.now() })
     }
 
+    // 2026-08-10 (biztonsági takarítás): a korábbi nyitott RLS-policy-k miatt a
+    // temetői táblák MINDEN gyülekezet sorát letöltötték a helyi cache-be —
+    // ezt egyszeri, jelölővel védett ürítéssel takarítjuk (lásd db.ts).
+    try {
+      const { purgeLeakedOfflineCaches } = await import('./db')
+      await purgeLeakedOfflineCaches()
+    } catch {
+      /* nem kritikus — a szinkron induljon el akkor is */
+    }
+
     this.state.congregationId = congregationId
     this.state.active = true
 

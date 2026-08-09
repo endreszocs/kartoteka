@@ -254,36 +254,69 @@ export async function getPresbyterNames(): Promise<Array<{ nev: string; telefon:
 
 // ── Meghívó létrehozása és iktatóba rögzítése ──
 
+/**
+ * Meghívó iktatása.
+ *
+ * 2026-08-10 (K4 iktatószám-diagnosztika #1 — P0): ez a függvény volt az
+ * `iktato/actions.ts`-en KÍVÜLI egyetlen `iktato`-beszúrás, és a 2026-05-17
+ * előtti, NEM atomikus `MAX(sequence_number) + 1` mintát használta:
+ *   • soha nem léptette a sorszám-számlálót (`iktato_sequence_pointers`),
+ *     ezért a KÖVETKEZŐ automatikus iktatás pont a most kiadott számot kapta,
+ *     és kőkeményen elbukott az `iktato_unique_active_cong_year_seq` parciális
+ *     unique indexen (nyers „duplicate key" hiba a lelkésznél),
+ *   • két párhuzamos meghívó ugyanazt a számot kapta,
+ *   • a MAX nem szűrt `deleted = false`-ra (minden más olvasó igen),
+ *   • nem volt évzárás-ellenőrzés (lezárt évbe is iktatott),
+ *   • nem állított ügykör-kódot.
+ * Mostantól ugyanazt az atomikus `next_iktato_sequence` RPC-t hívja, mint az
+ * összes többi iktatás, és VISSZAADJA a ténylegesen kiosztott iktatószámot,
+ * hogy a nyomtatott meghívóra a valódi szám kerüljön.
+ */
 export async function createInvitation(input: {
   datum: string
   hely: string
   kezdes: string
   tipus: 'presbiteri' | 'kozgyulesi'
   napirendi_pontok: string[]
-}): Promise<{ success?: boolean; error?: string }> {
+}): Promise<{ success?: boolean; iktatoszam?: string; year?: number; sequenceNumber?: number; error?: string }> {
   const access = await getEffectiveAccessContext()
   if (!access.user || !access.effectiveCongregationId) return { error: 'Nincs bejelentkezve.' }
 
   const { supabase } = access
+  const congId = access.effectiveCongregationId
   const year = new Date(input.datum).getFullYear()
+  if (!Number.isFinite(year)) return { error: 'Érvénytelen dátum.' }
   const tipusLabel = input.tipus === 'presbiteri' ? 'presbiteri gyűlésre' : 'közgyűlésre'
 
-  // Iktatóba rögzítés
-  // Következő iktatószám lekérése
-  const { data: lastSeq } = await supabase
-    .from('iktato')
-    .select('sequence_number')
-    .eq('congregation_id', access.effectiveCongregationId)
+  // Évzárás-ellenőrzés — ugyanaz a kapu, mint a saveFilingEntry-ben.
+  const { data: closure } = await supabase
+    .from('iktato_yearly_closures')
+    .select('closed_at')
+    .eq('congregation_id', congId)
     .eq('year', year)
-    .order('sequence_number', { ascending: false })
-    .limit(1)
+    .maybeSingle()
+  if (closure) {
+    return {
+      error: `A ${year}-es iktatókönyv ${(closure as { closed_at: string | null }).closed_at?.slice(0, 10)} óta lezárt — nem lehet bele meghívót iktatni.`,
+    }
+  }
 
-  const nextSeq = (lastSeq?.[0]?.sequence_number || 0) + 1
+  // Atomikus sorszám-kiosztás (row-lock, a számlálót is lépteti).
+  const { data: nextSeq, error: rpcErr } = await supabase.rpc('next_iktato_sequence', {
+    p_congregation_id: congId,
+    p_year: year,
+  })
+  if (rpcErr || nextSeq === null || nextSeq === undefined) {
+    return {
+      error: `Sorszám lekérése sikertelen: ${rpcErr?.message ?? 'a next_iktato_sequence RPC nem adott vissza értéket'}`,
+    }
+  }
+  const sequenceNumber = nextSeq as number
 
   const { error } = await supabase.from('iktato').insert({
-    congregation_id: access.effectiveCongregationId,
+    congregation_id: congId,
     year,
-    sequence_number: nextSeq,
+    sequence_number: sequenceNumber,
     direction: 'outgoing',
     kelt: input.datum,
     subject: `Meghívó ${tipusLabel}`,
@@ -294,11 +327,19 @@ export async function createInvitation(input: {
     userid: access.user.id,
   })
 
-  if (error) return { error: `Iktatási hiba: ${error.message}` }
+  if (error) {
+    if (error.code === '23505') {
+      return {
+        error: `A ${year}/${sequenceNumber} iktatószám már foglalt — a sorszám-számláló elcsúszott. Próbáld újra: a számláló közben továbblépett.`,
+      }
+    }
+    return { error: `Iktatási hiba: ${error.message}` }
+  }
 
   revalidatePath('/iktato')
   revalidatePath('/jegyzokonyvek')
-  return { success: true }
+  // A kanonikus formátum az egész alkalmazásban `${year}/${sequence_number}`.
+  return { success: true, iktatoszam: `${year}/${sequenceNumber}`, year, sequenceNumber }
 }
 
 // ── Véglegesített pénzügyi adatok lekérdezése (csatoláshoz) ──

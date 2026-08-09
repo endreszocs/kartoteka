@@ -862,6 +862,48 @@ export async function completeWizard(): Promise<
       if (primary?.bank_neve) congUpdate.bank = primary.bank_neve
     }
 
+    // 2026-08-10: a gyülekezet ↔ egyházmegye kapcsolat PÓTLÁSA a bejelentkezés
+    // utáni első beállításnál. A varázsló eddig csak a SZÖVEGES cím-mezőket írta
+    // (megye = romániai megye!), a `diocese_id`-t soha — így a regisztráció után
+    // a gyülekezet sora egyházmegye NÉLKÜL maradhatott, és az új, fail-closed
+    // hatókör-logikával eltűnt minden egyházmegyei/kerületi felületről (a
+    // beküldött dokumentumairól sem értesült senki).
+    //
+    // Csak akkor írunk, ha a soron MÉG NINCS érték (meglévő kapcsolatot SOHA nem
+    // írunk felül), és a forrás a lelkész saját profilja, illetve annak hiányában
+    // a jóváhagyott hozzáférés-kérelemben kiválasztott egyházmegye.
+    try {
+      const { data: congRow } = await writeClient
+        .from('congregations')
+        .select('diocese_id')
+        .eq('id', profile.congregation_id)
+        .maybeSingle()
+
+      if (congRow && !congRow.diocese_id) {
+        let resolvedDioceseId: string | null =
+          (profile as { diocese_id?: string | null }).diocese_id || null
+
+        if (!resolvedDioceseId) {
+          const { data: reqRow } = await writeClient
+            .from('access_requests')
+            .select('requested_diocese_id')
+            .eq('congregation_id', profile.congregation_id)
+            .not('requested_diocese_id', 'is', null)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          resolvedDioceseId = (reqRow?.requested_diocese_id as string | null) || null
+        }
+
+        if (resolvedDioceseId) {
+          congUpdate.diocese_id = resolvedDioceseId
+        }
+      }
+    } catch (e) {
+      // Nem blokkoló — a varázsló záró lépése ettől még fusson le.
+      console.warn('[completeWizard] diocese_id pótlása kihagyva:', e)
+    }
+
     if (Object.keys(congUpdate).length > 0) {
       const { error } = await writeClient
         .from('congregations')

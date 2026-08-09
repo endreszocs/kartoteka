@@ -1,3 +1,4 @@
+import type { LucideIcon } from 'lucide-react'
 import { Bell, Inbox, Send } from 'lucide-react'
 
 import { PageHero } from '@kartoteka/ui-app'
@@ -16,6 +17,10 @@ import { TransferRequestCard } from '@/components/notifications/transfer-request
  * 2 szekció:
  *   - Bejövő (inbound): a saját gyülekezet a célgyülekezet
  *   - Elküldött (outbound): a saját gyülekezet a forrás
+ *
+ * 2026-08-10 — a header értesítés-paneljével közös formanyelv: ikon-chip a
+ * szekciófejlécekben, darabszám-pill, token-alapú (dark-mode-helyes) üres
+ * állapotok. A kérelem-kártyák logikája és megjelenése változatlan.
  */
 
 export default async function NotificationsPage() {
@@ -33,7 +38,7 @@ export default async function NotificationsPage() {
           description="Hibás betöltés."
           Icon={Bell}
         />
-        <div className="rounded-2xl bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded-2xl border border-rose-500/25 bg-rose-500/10 p-4 text-sm text-rose-700 dark:text-rose-300">
           {inbound.error || outbound.error}
         </div>
       </div>
@@ -59,16 +64,9 @@ export default async function NotificationsPage() {
 
       {/* Bejövő — válasz vár */}
       <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <Inbox className="size-5 text-violet-600" />
-          <h2 className="text-base font-semibold text-slate-800">
-            Bejövő — válasz vár ({inboundPending.length})
-          </h2>
-        </div>
+        <SectionHeading Icon={Inbox} title="Bejövő — válasz vár" count={inboundPending.length} />
         {inboundPending.length === 0 ? (
-          <div className="rounded-2xl bg-slate-50 p-6 text-center text-sm text-slate-500">
-            Nincs új átjelentkezési kérelem.
-          </div>
+          <EmptyNote>Nincs új átjelentkezési kérelem.</EmptyNote>
         ) : (
           <div className="space-y-3">
             {inboundPending.map(n => (
@@ -81,7 +79,7 @@ export default async function NotificationsPage() {
       {/* Bejövő — már megválaszoltak */}
       {inboundList.length > inboundPending.length && (
         <section className="space-y-3 pt-4">
-          <h2 className="text-sm font-semibold text-slate-600">
+          <h2 className="text-sm font-semibold text-muted-foreground">
             Bejövő — már megválaszolt ({inboundList.length - inboundPending.length})
           </h2>
           <div className="space-y-3">
@@ -96,16 +94,9 @@ export default async function NotificationsPage() {
 
       {/* Elküldött */}
       <section className="space-y-3 pt-4">
-        <div className="flex items-center gap-2">
-          <Send className="size-5 text-violet-600" />
-          <h2 className="text-base font-semibold text-slate-800">
-            Elküldött ({outboundList.length})
-          </h2>
-        </div>
+        <SectionHeading Icon={Send} title="Elküldött" count={outboundList.length} />
         {outboundList.length === 0 ? (
-          <div className="rounded-2xl bg-slate-50 p-6 text-center text-sm text-slate-500">
-            Nincs még elküldött átjelentkezési kérelem.
-          </div>
+          <EmptyNote>Nincs még elküldött átjelentkezési kérelem.</EmptyNote>
         ) : (
           <div className="space-y-3">
             {outboundList.map(n => (
@@ -114,6 +105,41 @@ export default async function NotificationsPage() {
           </div>
         )}
       </section>
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Közös apró elemek (2026-08-10) — a header értesítés-paneljével azonos
+// formanyelv: ikon-chip + darabszám-pill, illetve token-alapú üres állapot.
+// ──────────────────────────────────────────────────────────────────────────
+
+function SectionHeading({
+  Icon,
+  title,
+  count,
+}: {
+  Icon: LucideIcon
+  title: string
+  count: number
+}) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-violet-500/12 text-violet-700 ring-1 ring-violet-500/20 dark:text-violet-300 dark:ring-violet-400/25">
+        <Icon className="size-4" />
+      </span>
+      <h2 className="text-base font-semibold text-foreground">{title}</h2>
+      <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+        {count}
+      </span>
+    </div>
+  )
+}
+
+function EmptyNote({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-border/70 bg-secondary/40 p-6 text-center text-sm text-muted-foreground">
+      {children}
     </div>
   )
 }

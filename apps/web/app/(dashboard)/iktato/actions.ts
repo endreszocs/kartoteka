@@ -4,6 +4,10 @@ import { revalidatePath } from 'next/cache'
 import { filingEntrySchema, type FilingEntryInput } from '@/lib/validations/filing'
 import type { FilingEntry, IktatoYearlyClosure } from '@/lib/constants/filing'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
+// 2026-08-10 (K4 iktatószám-diagnosztika #5): egyetlen, pointer-tudatos
+// előnézet-implementáció — a korábbi két külön MAX+1 másolat helyett.
+import { computeSequencePreview, readSequencePointer } from '@/lib/filing/sequence-preview'
+import type { SequencePreview } from '@/lib/filing/sequence-preview'
 
 async function getCongId() {
   const { supabase, congregationId, userId } = await getEffectiveCongregationContext()
@@ -47,51 +51,43 @@ export async function getFilingEntries(year: number, direction: string): Promise
  * hívás ugyanazt a számot adhatja. Csak UI-előnézethez használható, az
  * INSERT-nél a `next_iktato_sequence` SECURITY DEFINER RPC-t kell hívni
  * (lásd `saveFilingEntry`, DIAGNOSTICS P3-5).
+ *
+ * 2026-08-10 (K4 iktatószám-diagnosztika #5): a becslés mostantól POINTER-TUDATOS
+ * — `GREATEST(pointer, MAX) + 1` —, mert a kiosztás a pointerből dolgozik, a
+ * régi `MAX+1` pedig egy sikertelen INSERT után TARTÓSAN alábecsülte a számot.
  */
 export async function getNextSequenceNumber(year: number): Promise<number> {
   const { supabase, congId } = await getCongId()
   if (!congId) return 1
-  const { data } = await supabase.from('iktato').select('sequence_number').eq('congregation_id', congId).eq('year', year).order('sequence_number', { ascending: false }).limit(1)
-  return (data?.[0]?.sequence_number || 0) + 1
+  const preview = await computeSequencePreview(supabase, congId, year)
+  return preview.sequenceNumber
+}
+
+/**
+ * A következő iktatószám ELŐNÉZETE, kanonikus `${year}/${n}` alakban is.
+ *
+ * Ez a KÖZÖS előnézet-akció: az iktató-varázsló, az „Igazolás / levél
+ * kiállítása" dialógus és a sablon-generátor is ezt hívja — így ugyanazt a
+ * számot látják. NEM foglal számot (nem hívja a `next_iktato_sequence` RPC-t);
+ * a végleges szám mindig a `saveFilingEntry` által visszaadott
+ * `sequenceNumber`, és eltérés esetén AZ a mérvadó.
+ */
+export async function getNextFilingNumberPreview(
+  year: number,
+): Promise<SequencePreview & { error: string | null }> {
+  const { supabase, congId } = await getCongId()
+  if (!congId) {
+    return { year, sequenceNumber: 0, iratszam: '', pointerVisible: false, error: 'Nincs aktív gyülekezet.' }
+  }
+  const preview = await computeSequencePreview(supabase, congId, year)
+  return { ...preview, error: null }
 }
 
 // ─── 2026-07-25: Visszamenőleges iktatás (kézi sorszám a számláló alatt) ───
-
-type EffectiveSupabase = Awaited<ReturnType<typeof getEffectiveCongregationContext>>['supabase']
-
-/**
- * A sorszám-számláló (pointer) aktuális állása egy (gyülekezet, év) párra.
- * Elsődleges forrás az `iktato_sequence_pointers.last_sequence` (van rá
- * SELECT-policy, lásd 2026-05-17-iktato-sequence-pointer-rpc.sql); ha a
- * pointer-sor hiányzik vagy nem olvasható, fallback a MAX(sequence_number)
- * az iktato-ból — TÖRÖLTEKKEL EGYÜTT, mert a törölt sor száma is a
- * számlálótól származik, a pointer nem lehet alatta.
- * ⚠️ RLS-megjegyzés: a pointer-tábla select-policyja a profiles.congregation_id
- * SKALÁRT nézi — kerületi adminnak más gyülekezetet nézve a pointer-sor némán
- * nem látszik; ilyenkor a MAX-fallback él (az iktato saját policyja szerint).
- */
-async function getSequencePointer(
-  supabase: EffectiveSupabase,
-  congId: string,
-  year: number,
-): Promise<number> {
-  const { data: pointerRow } = await supabase
-    .from('iktato_sequence_pointers')
-    .select('last_sequence')
-    .eq('congregation_id', congId)
-    .eq('year', year)
-    .maybeSingle()
-  const fromPointer = (pointerRow as { last_sequence: number } | null)?.last_sequence
-  if (typeof fromPointer === 'number' && fromPointer > 0) return fromPointer
-  const { data: maxRow } = await supabase
-    .from('iktato')
-    .select('sequence_number')
-    .eq('congregation_id', congId)
-    .eq('year', year)
-    .order('sequence_number', { ascending: false })
-    .limit(1)
-  return maxRow?.[0]?.sequence_number || 0
-}
+//
+// A pointer-olvasás 2026-08-10 óta a megosztott lib/filing/sequence-preview
+// modulban él (readSequencePointer) — a visszamenőleges kapu SZÁNDÉKOSAN a
+// NYERS pointert használja, nem a GREATEST-előnézetet (lásd az ottani doksit).
 
 /**
  * Visszamenőleges iktatáshoz: a jelenlegi sorszám-számláló (pointer) állása és
@@ -111,7 +107,7 @@ export async function getRetroactiveInfo(year: number): Promise<{
   if (!congId) {
     return { pointer: 0, szabadSzamok: [], osszesSzabad: 0, error: 'Nincs bejelentkezett felhasználó.' }
   }
-  const pointer = await getSequencePointer(supabase, congId, year)
+  const pointer = await readSequencePointer(supabase, congId, year)
   if (pointer <= 0) {
     return {
       pointer: 0,
@@ -211,7 +207,7 @@ export async function saveFilingEntry(data: FilingEntryInput) {
     // felfelé lépked, így az alatta lévő szabad számokat sosem osztja ki újra
     // → nincs jövőbeli ütközés. A pointer ITT NEM változik (nincs RPC-hívás)!
     const manualSeq = d.manualSequenceNumber
-    const pointer = await getSequencePointer(supabase, congId, year)
+    const pointer = await readSequencePointer(supabase, congId, year)
     if (pointer <= 0) {
       return { error: 'Visszamenőleges iktatáshoz előbb legyen legalább egy automatikus iktatás ebben az évben.' }
     }
@@ -250,7 +246,20 @@ export async function saveFilingEntry(data: FilingEntryInput) {
     }
     record.sequence_number = nextSeq as number
     const { error } = await supabase.from('iktato').insert([record])
-    if (error) return { error: `Hiba: ${error.message}` }
+    if (error) {
+      // 2026-08-10 (K4 iktatószám-diagnosztika #10): a 23505 eddig NYERS
+      // Postgres-szövegként ért a lelkészhez („duplicate key value violates
+      // unique constraint …"). Ez a hiba azt jelenti, hogy a számláló és a
+      // tényleges sorok elcsúsztak (pl. régi, RPC-t megkerülő beszúrás vagy
+      // import után elmaradt pointer-szinkron). A számláló KÖZBEN előrelépett,
+      // ezért az ismételt próbálkozás rendszerint sikerül.
+      if (error.code === '23505') {
+        return {
+          error: `A ${year}/${nextSeq} iktatószám már foglalt — a sorszám-számláló elcsúszott. Próbáld újra: a számláló közben továbblépett. Ha ismétlődik, jelezd a rendszergazdának (sorszám-számláló újraszinkronizálása szükséges).`,
+        }
+      }
+      return { error: `Hiba: ${error.message}` }
+    }
     revalidatePath('/iktato')
     // 2026-07-17 (F6 review): az insert-ág visszaadja a ténylegesen kiosztott
     // sorszámot — a kiállító dialógus (certificate-issue-dialog) ebből képzi
@@ -275,13 +284,29 @@ export async function deleteFilingEntry(id: string) {
 export async function getFilingStats(year: number) {
   const { supabase, congId } = await getCongId()
   if (!congId) return { total: 0, incoming: 0, outgoing: 0, pending: 0 }
-  const { data } = await supabase.from('iktato').select('direction, elintezes_ideje').eq('congregation_id', congId).eq('year', year).eq('deleted', false)
-  const entries = data || []
+  // 2026-08-10 (K4 iktatószám-diagnosztika): a korábbi implementáció EGY
+  // lapozatlan SELECT sorait számolta meg JS-ben — a PostgREST 1000-soros
+  // alapértelmezett limitje miatt egy 1000+ iratos évnél a statisztika némán
+  // 1000-nél megállt (a getFilingEntries ezt már 2026-07-17 óta lapozza).
+  // Szerver-oldali `count: 'exact', head: true` — nem lapozás-függő és olcsóbb.
+  const base = () =>
+    supabase
+      .from('iktato')
+      .select('id', { count: 'exact', head: true })
+      .eq('congregation_id', congId)
+      .eq('year', year)
+      .eq('deleted', false)
+  const [totalRes, incomingRes, outgoingRes, pendingRes] = await Promise.all([
+    base(),
+    base().eq('direction', 'incoming'),
+    base().eq('direction', 'outgoing'),
+    base().is('elintezes_ideje', null),
+  ])
   return {
-    total: entries.length,
-    incoming: entries.filter((e: { direction: string }) => e.direction === 'incoming').length,
-    outgoing: entries.filter((e: { direction: string }) => e.direction === 'outgoing').length,
-    pending: entries.filter((e: { elintezes_ideje: string | null }) => !e.elintezes_ideje).length,
+    total: totalRes.count ?? 0,
+    incoming: incomingRes.count ?? 0,
+    outgoing: outgoingRes.count ?? 0,
+    pending: pendingRes.count ?? 0,
   }
 }
 

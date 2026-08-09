@@ -23,6 +23,29 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-10] — Éves beszámoló következtetésekkel, megújult gyülekezeti weboldal, értesítések és irányítópult + biztonsági javítások
+<!-- key: 2026-08-10-beszamolo-weboldal-ertesitesek-biztonsag -->
+<!-- category: security -->
+<!-- targets: lelkesz, gondnok, admin, esperes -->
+<!-- version: web v0.9.159 -->
+
+### 🔒 Biztonsági javítások
+
+- **Több tábla „nyitva felejtett" hozzáférési szabálya.** A fejlesztés korai szakaszából ott maradt szabályok miatt bármely bejelentkezett felhasználó hozzáférhetett **minden gyülekezet** tagnyilvántartásához, leltárához, temetői nyilvántartásához, családlátogatásaihoz és beállításaihoz. Mindegyikhez elkészült a szűkítés — a saját gyülekezet hozzáférése változatlan. *(Futtatandó: 2026-08-10-nyitott-rls-policyk-takaritas.sql — előbb a 0. szakasz!)*
+- **A temetői adatok minden böngészőbe letöltődtek.** A háttérszinkron az összes gyülekezet sírhely-, bérlet- és elhunyt-adatát a helyi tárolóba mentette. A javítás mellé **egyszeri automatikus cache-ürítés** készült: a korábban letöltött idegen adatok a következő indításkor törlődnek a felhasználók gépéről.
+- **A kivetítő-kód megerősítve.** Az éves beszámoló kivetítéséhez használt 6 jegyű kód kitalálható volt (a kivetítő oldala nem kér bejelentkezést, a csatornán viszont a teljes beszámoló megy át — nevekkel, pénzügyi adatokkal). Mostantól hosszú, biztonságos véletlen kód készül, amely **12 óra után lejár**.
+
+### ✨ Újdonságok és javítások
+
+- **Éves beszámoló — következtetések.** Új, kipipálható kategóriánként (létszám, korosztály, anyakönyv, alkalmak, úrvacsora, katekézis, programok, pénzügy, egyházfenntartás, adományok, leltár, célok) **rövid és hosszú távú következtetés** készül a tényleges statisztikákból, mindig kiírva, mely számokból következik. Ahol nincs elég év, ott ezt őszintén jelzi. **A prezentáció súlyos hibái javítva**: a nyomtatásban minden szám 0-nak, minden diagram üresnek látszott; a lélekszám mindenkit beleszámolt (elhunytakat is); a devizás tételek lej-ként jelentek meg; a sztornózott kiadások duplán számítottak.
+- **Megújult gyülekezeti weboldal.** A betöltőképernyőn már a **gyülekezet címere** jelenik meg (ha nincs, a Kartotéka logója). Az arculat teljesen újratervezve: méltóságteljes, szerkesztőségi ritmusú megjelenés, valódi menetrend az alkalmaknak, rendes üres állapotok. *(A monokróm hatást egy színkezelési hiba okozta — javítva.)*
+- **Szebb értesítések.** A csengő üzenetei kártyás formában, típusonkénti ikonnal és színnel, magyar időjelzéssel („12 perce"), „Összes olvasottnak jelölése" gombbal. **Az értesítések hivatkozásai eddig nem működtek** — mostantól megnyithatók.
+- **Rendezett irányítópult.** A „Ma köszöntjük", „Gyülekezeti programok" és „Koreloszlás" csempe azonos magasságú, a naptár kisebb kockákkal, és **egyik csempében sincs görgetés** — ami nem fér ki, azt „+N további" jelzi.
+- **Iktatószám előre látszik.** Az Igazolás/levél kiállítása ablakban (és a személyi kartonról indított kiállításoknál) megjelenik a következő iktatószám. **Javítva egy hiba**, amely miatt a jegyzőkönyv-meghívó iktatása után a következő rendes iktatás ütköző számot kapott.
+- **Gyülekezet ↔ egyházmegye kapcsolat.** A beállító varázslóban volt egy csapda: a „(jelenlegi)" feliratú választás valójában **törölte** a gyülekezet egyházmegye-kapcsolatát — így a gyülekezet eltűnt az egyházmegyei és kerületi felületekről, és a beküldött dokumentumairól senki nem kapott értesítést. Javítva, a mentés most kötelezően kéri, és **új admin felület** készült a hiányzó kapcsolatok pótlására. *(Adat-javító SQL: 2026-08-10-gyulekezet-megye-kotes-javitas.sql)*
+
+---
+
 ## [2026-08-09] — Egyházmegyei és kerületi szint rendbetéve + hivatalos dokumentumközpont + megújult munkanapló
 <!-- key: 2026-08-09-megye-kerulet-scope-dokumentumkozpont -->
 <!-- category: security -->

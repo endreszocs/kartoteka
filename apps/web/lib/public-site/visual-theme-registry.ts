@@ -19,14 +19,19 @@ export const PUBLIC_VISUAL_THEME_KEYS = [
 export type PublicVisualThemeKey = (typeof PUBLIC_VISUAL_THEME_KEYS)[number]
 
 export interface PublicVisualThemeAssets {
-  /** Teljes szelessegu, 16:9-es vagy szelesebb generalt hero hatter. */
+  /**
+   * Teljes szelessegu, generalt hero hatter — kizarolag DEKORATIV textura
+   * (mindig eros sotet fatyol alatt, `alt=""`). Csak akkor kerul elo, ha a
+   * gyulekezet nem toltott fel sajat hero-kepet.
+   *
+   * 2026-08-10: a korabbi `community` / `heritage` / `invitation` mezok
+   * megszuntek. Azok Baratosi-specifikus, AI-generalt fotok voltak, amelyek
+   * MINDEN gyulekezet kezdolapjan „Hangulati illusztracio a mi kozossegunkrol"
+   * ertelemben jelentek meg — hitelesseg-rombolo egy egyhazi oldalon.
+   * Sajat fotok helyett a tortenet-blokk most tervezett, nem fotografikus
+   * felulettel dolgozik (lasd PublicHomeVisualStory).
+   */
   hero: string
-  /** Opcionális, generált közösségi életkép a kezdőlap történeti blokkjához. */
-  community?: string
-  /** Opcionális, generált örökségi kép a kezdőlap történeti blokkjához. */
-  heritage?: string
-  /** Opcionális, generált széles kép a találkozási felhíváshoz. */
-  invitation?: string
 }
 
 export interface PublicVisualThemeDefinition {
@@ -55,11 +60,10 @@ export const PUBLIC_VISUAL_THEMES: Readonly<
   [CINEMATIC_PUBLIC_THEME_KEY]: {
     key: CINEMATIC_PUBLIC_THEME_KEY,
     displayName: 'Filmszerű történet',
+    // A filmszeru temanak nincs sajat hero.png-je; a meglevo, sotet fatyol
+    // ala kerulo texturat hasznalja, amig sajat asset nem keszul.
     assets: {
       hero: '/public-site/themes/elo-kert/baratosi-hero-v2.png',
-      community: '/public-site/themes/elo-kert/baratosi-community-v2.png',
-      heritage: '/public-site/themes/elo-kert/baratosi-heritage-v2.png',
-      invitation: '/public-site/themes/elo-kert/baratosi-hero-v2.png',
     },
     adminPreview: {
       eyebrow: 'Nagyképes történetmesélés',
@@ -74,12 +78,7 @@ export const PUBLIC_VISUAL_THEMES: Readonly<
   'elo-kert': {
     key: 'elo-kert',
     displayName: 'Élő kert',
-    assets: {
-      ...themeAssets('elo-kert'),
-      community: '/public-site/themes/elo-kert/baratosi-community-v2.png',
-      heritage: '/public-site/themes/elo-kert/baratosi-heritage-v2.png',
-      invitation: '/public-site/themes/elo-kert/baratosi-hero-v2.png',
-    },
+    assets: themeAssets('elo-kert'),
     adminPreview: {
       eyebrow: 'Élő közösség',
       summary: 'Friss, közösségi és eseményközpontú megjelenés.',

@@ -93,6 +93,8 @@ export interface ResolvedThemeColors {
   muted: string
   mutedOnSurface: string
   soft: string
+  /** 2026-08-10: sotet tinta-valtozat a primary-bol (teljes szelessegu savok). */
+  primaryDeep: string
 }
 
 function safeHexColor(value: string | null | undefined, fallback: string): string {
@@ -139,6 +141,67 @@ function accessibleColor(
   ) ?? '#000000'
 }
 
+// ── 2026-08-10: arnyalat-kereses a binaris kontraszt-kapu helyett ──────────
+// Korabban az arany akcentus MINDEN temaban nemam a primary zoldre valtott
+// (4.5:1 bukas), ezert az egesz publikus oldal monokrom lett. A megoldas nem
+// szincsere, hanem ugyanannak a szinezetnek a sotetitese/vilagositasa addig,
+// amig olvashato lesz — igy az arany aranynak latszik, de olvashato is.
+
+function hexChannels(hex: string): [number, number, number] {
+  return [
+    Number.parseInt(hex.slice(1, 3), 16),
+    Number.parseInt(hex.slice(3, 5), 16),
+    Number.parseInt(hex.slice(5, 7), 16),
+  ]
+}
+
+function channelsToHex(channels: readonly number[]): string {
+  return `#${channels
+    .map((channel) => {
+      const clamped = Math.max(0, Math.min(255, Math.round(channel)))
+      return clamped.toString(16).padStart(2, '0')
+    })
+    .join('')}`
+}
+
+/**
+ * Ugyanazt a szinezetet adja vissza, csak annyira sotetitve (vilagos hatteren)
+ * vagy vilagositva (sotet hatteren), hogy elerje a kert kontrasztot.
+ * Ha 24 lepesben sem sikerul, a biztonsagos fekete/feher marad.
+ */
+function readableShade(
+  color: string,
+  background: string,
+  minimum = 4.5,
+): string {
+  if (!HEX_COLOR.test(color) || !HEX_COLOR.test(background)) return '#000000'
+  if (contrastRatio(color, background) >= minimum) return color.toLowerCase()
+
+  const darken = relativeLuminance(background) > 0.32
+  let channels = hexChannels(color)
+
+  for (let step = 0; step < 24; step += 1) {
+    channels = darken
+      ? channels.map((channel) => channel * 0.9) as [number, number, number]
+      : channels.map((channel) => channel + (255 - channel) * 0.12) as [
+          number,
+          number,
+          number,
+        ]
+
+    const candidate = channelsToHex(channels)
+    if (contrastRatio(candidate, background) >= minimum) return candidate
+  }
+
+  return darken ? '#000000' : '#ffffff'
+}
+
+/** Ugyanaz a szinezet, fix aranyban fekete fele tolva (savok, mely feluletek). */
+function deepen(color: string, amount: number): string {
+  if (!HEX_COLOR.test(color)) return color
+  return channelsToHex(hexChannels(color).map((channel) => channel * (1 - amount)))
+}
+
 /**
  * A DB-ből érkező színeket egyetlen renderelési határon oldja fel.
  * Minden visszaadott érték pontosan #RRGGBB formátumú; a szöveges
@@ -177,11 +240,12 @@ export function resolveThemeColors(
     primaryOnSurface,
     DEFAULT_MUTED,
   ])
-  const accentOnSurface = accessibleColor(accent, surface, [
-    primaryOnSurface,
-    ink,
-  ])
-  const accentStrong = accessibleColor(accent, '#ffffff', [primary, ink])
+  // 2026-08-10: a nyers `accent` marad a dekorativ kitoltesekhez (hajszalvonal,
+  // vizjel), a szoveges/gomb szerepu valtozat pedig ugyanannak az aranynak a
+  // sotetitett arnyalata — nem a primary. Ettol kap az oldal ket valodi szint.
+  const accentOnSurface = readableShade(accent, surface)
+  const accentStrong = readableShade(accent, '#ffffff')
+  const primaryDeep = deepen(primary, 0.42)
 
   return {
     primary,
@@ -194,6 +258,7 @@ export function resolveThemeColors(
     muted: mutedOnSurface,
     mutedOnSurface,
     soft,
+    primaryDeep,
   }
 }
 
@@ -221,16 +286,25 @@ export function buildThemeCssVariables(
   return `
     --public-primary: ${colors.primary};
     --public-primary-on-surface: ${colors.primaryOnSurface};
+    --public-primary-deep: ${colors.primaryDeep};
     --public-accent: ${colors.accent};
     --public-accent-on-surface: ${colors.accentOnSurface};
+    --public-accent-ink: ${colors.accentOnSurface};
     --public-accent-strong: ${colors.accentStrong};
     --public-surface: ${colors.surface};
     --public-ink: ${colors.ink};
     --public-muted: ${colors.muted};
     --public-muted-on-surface: ${colors.mutedOnSurface};
     --public-soft: ${colors.soft};
+    --public-line: color-mix(in srgb, ${colors.ink} 12%, transparent);
+    --public-line-strong: color-mix(in srgb, ${colors.ink} 22%, transparent);
+    --public-elev-1: 0 1px 2px color-mix(in srgb, ${colors.ink} 8%, transparent),
+      0 12px 32px -22px color-mix(in srgb, ${colors.ink} 40%, transparent);
+    --public-elev-2: 0 2px 4px color-mix(in srgb, ${colors.ink} 6%, transparent),
+      0 30px 62px -34px color-mix(in srgb, ${colors.ink} 46%, transparent);
     --public-heading-font: ${localFontStack(headingFont, 'heading')};
     --public-body-font: ${localFontStack(bodyFont, 'body')};
     --public-radius: ${radius};
+    --public-radius-lg: max(${radius}, 1.75rem);
   `.trim()
 }

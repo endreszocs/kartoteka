@@ -17,6 +17,8 @@ interface AnnualPlanPrintProps {
   year: number
   congregationName: string
   congregationLogo?: string | null
+  /** 2026-08-10: ikonos (felirat nélküli) indítógomb a kompakt akciósávhoz. */
+  compact?: boolean
 }
 
 // ── Az év vezérigéi (a gyülekezet a sajátját is beírhatja — szerkeszthető) ──
@@ -141,7 +143,7 @@ function buildMiniMonth(
   return `<div class="ep-month"><div class="ep-month-name">${HU_MO[month]}</div><div class="ep-cal">${heads}${cells}</div></div>`
 }
 
-export function AnnualPlanPrint({ allPrograms, year, congregationName: rawCongName, congregationLogo }: AnnualPlanPrintProps) {
+export function AnnualPlanPrint({ allPrograms, year, congregationName: rawCongName, congregationLogo, compact }: AnnualPlanPrintProps) {
   const [open, setOpen] = useState(false)
   const [vYear, setVYear] = useState(year)
   const [vPrograms, setVPrograms] = useState<Program[]>(allPrograms)
@@ -416,9 +418,23 @@ export function AnnualPlanPrint({ allPrograms, year, congregationName: rawCongNa
 
   return (
     <>
-      <button type="button" className="kt-btn kt-btn-outline" onClick={() => setOpen(true)}>
-        <Printer size={16} /> Éves terv
-      </button>
+      {/* 2026-08-10: `compact` = ikonos indítógomb az irányítópult-csempe
+          egysoros akciósávjához (a felirat a tooltipbe költözik). */}
+      {compact ? (
+        <button
+          type="button"
+          className="kt-iconbtn"
+          onClick={() => setOpen(true)}
+          title="Éves programterv"
+          aria-label="Éves programterv"
+        >
+          <Printer size={16} />
+        </button>
+      ) : (
+        <button type="button" className="kt-btn kt-btn-outline" onClick={() => setOpen(true)}>
+          <Printer size={16} /> Éves terv
+        </button>
+      )}
 
       {open && typeof document !== 'undefined' && createPortal(
         <div className="kt-modal-overlay kt-eves-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) setOpen(false) }}>

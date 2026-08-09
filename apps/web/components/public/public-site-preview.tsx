@@ -33,6 +33,9 @@ import { PublicSiteCinematicPreview } from './public-site-cinematic-preview'
 import { PublicSiteFooter } from './public-site-footer'
 import { PublicSiteHeader } from './public-site-header'
 import { PublicThemeRoot } from './public-theme-root'
+// 2026-08-10: az admin témagaléria ugyanazt a publikus design-rendszert
+// tölti be, mint az éles oldal — így a preview nem csúszhat el a valóságtól.
+import '../../styles/public-site.css'
 import styles from './public-site-preview.module.css'
 
 const PREVIEW_SLUG = 'dev-preview/public-site'
@@ -203,15 +206,24 @@ function buildPreviewThemeStyle(theme: PublicSiteTheme): PublicThemeStyle {
     '--public-primary-on-surface': colors.primaryOnSurface,
     '--public-accent': colors.accent,
     '--public-accent-on-surface': colors.accentOnSurface,
+    // 2026-08-10: az olvasható arany árnyalat és a hajszálvonal/árnyék
+    // tokenek az éles publikus oldallal szinkronban.
+    '--public-accent-ink': colors.accentOnSurface,
     '--public-accent-strong': colors.accentStrong,
+    '--public-primary-deep': colors.primaryDeep,
     '--public-surface': colors.surface,
     '--public-ink': colors.ink,
     '--public-muted': colors.muted,
     '--public-muted-on-surface': colors.mutedOnSurface,
     '--public-soft': colors.soft,
+    '--public-line': `color-mix(in srgb, ${colors.ink} 12%, transparent)`,
+    '--public-line-strong': `color-mix(in srgb, ${colors.ink} 22%, transparent)`,
+    '--public-elev-1': `0 1px 2px color-mix(in srgb, ${colors.ink} 8%, transparent), 0 12px 32px -22px color-mix(in srgb, ${colors.ink} 40%, transparent)`,
+    '--public-elev-2': `0 2px 4px color-mix(in srgb, ${colors.ink} 6%, transparent), 0 30px 62px -34px color-mix(in srgb, ${colors.ink} 46%, transparent)`,
     '--public-heading-font': headingFont,
     '--public-body-font': '"Inter", "Geist Variable", system-ui, sans-serif',
     '--public-radius': theme.border_radius,
+    '--public-radius-lg': `max(${theme.border_radius}, 1.75rem)`,
   }
 }
 

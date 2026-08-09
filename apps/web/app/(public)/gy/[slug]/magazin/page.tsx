@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import Image from 'next/image'
 import { loadPublicSiteBySlug } from '@/lib/public-site/site-loader'
@@ -7,7 +8,15 @@ import {
   PUBLIC_MAGAZINE_PAGE_SIZE,
 } from '@/lib/public-site/magazine-loader'
 import { shouldBypassMagazineImageOptimization } from '@/lib/public-site/magazine-image'
+import { PublicPageHero } from '@/components/public/public-page-hero'
+import { PublicEmptyState } from '@/components/public/public-empty-state'
 import { ChevronLeft, ChevronRight, Newspaper, Download } from 'lucide-react'
+
+// A gyülekezet nevét a layout `title.template`-je fűzi a cím mögé.
+export const metadata: Metadata = {
+  title: 'Magazin',
+  description: 'A gyülekezeti újság lapszámai és archívuma.',
+}
 
 function parsePage(value: string | string[] | undefined): number {
   const rawValue = Array.isArray(value) ? value[0] : value
@@ -54,89 +63,36 @@ export default async function MagazinePage({
 
   return (
     <>
-      {/* Hero */}
-      <section
-        className="relative overflow-hidden"
-        style={{
-          background: `linear-gradient(135deg, color-mix(in srgb, var(--public-primary) 95%, black) 0%, color-mix(in srgb, var(--public-primary) 80%, var(--public-accent)) 100%)`,
-        }}
-      >
-        <div
-          className="absolute top-0 right-0 w-[28rem] h-[28rem] rounded-full blur-3xl opacity-25 public-anim-float pointer-events-none"
-          style={{ backgroundColor: 'var(--public-accent)' }}
-        />
-
-        <div className="relative public-container py-16 sm:py-24 text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full mb-5 text-xs sm:text-sm font-medium text-white/90 bg-white/12 backdrop-blur-sm border border-white/20 public-anim-fade-up">
-            <Newspaper className="w-4 h-4" />
-            Gyülekezeti újság
-          </div>
-          <h1 className="text-white mb-4 public-anim-fade-up public-delay-100 drop-shadow-lg">
-            {data?.magazine.title || 'Gyülekezeti újság'}
-          </h1>
-          {data?.magazine.description && (
-            <p className="max-w-2xl mx-auto text-white/85 text-lg public-anim-fade-up public-delay-200 italic font-serif">
-              {data.magazine.description}
-            </p>
-          )}
-        </div>
-      </section>
+      <PublicPageHero
+        eyebrow="Gyülekezeti újság"
+        title={data?.magazine.title || 'Gyülekezeti újság'}
+        lead={data?.magazine.description || null}
+      />
 
       <section className="public-section">
         <div className="public-container">
           {!data || (currentPage === 1 && data.issues.length === 0) ? (
-            <div
-              className="rounded-[var(--public-radius)] p-12 sm:p-20 text-center max-w-2xl mx-auto public-anim-fade-up"
-              style={{
-                backgroundColor: 'color-mix(in srgb, var(--public-soft) 50%, transparent)',
-                color: 'var(--public-muted)',
-              }}
-            >
-              <Newspaper
-                className="w-16 h-16 mx-auto mb-6 opacity-40"
-                style={{ color: 'var(--public-accent-on-surface)' }}
-              />
-              <h3 className="mb-3" style={{ color: 'var(--public-ink)' }}>
-                Hamarosan elérhető lesz az első lapszám
-              </h3>
-              <p className="italic">
-                Dolgozunk rajta — nézz vissza hamarosan!
-              </p>
-            </div>
+            <PublicEmptyState
+              className="mx-auto max-w-2xl"
+              title="Hamarosan elérhető lesz az első lapszám."
+              description="Amíg a szerkesztés tart, a gyülekezet híreiben is beszámolunk a történtekről."
+              actionHref={`/gy/${site.slug}/posts`}
+              actionLabel="Híreink megtekintése"
+            />
           ) : data.issues.length === 0 ? (
-            <div
-              className="mx-auto max-w-2xl rounded-[var(--public-radius)] p-10 text-center public-anim-fade-up sm:p-14"
-              style={{
-                backgroundColor: 'color-mix(in srgb, var(--public-soft) 50%, transparent)',
-                color: 'var(--public-muted)',
-              }}
-            >
-              <Newspaper
-                className="mx-auto mb-5 h-14 w-14 opacity-40"
-                style={{ color: 'var(--public-accent-on-surface)' }}
-              />
-              <h3 className="mb-3" style={{ color: 'var(--public-ink)' }}>
-                Ezen az oldalon nincs több lapszám
-              </h3>
-              <Link
-                href={archivePageHref(site.slug, currentPage - 1)}
-                className="public-btn public-btn-outline mt-4 min-h-11"
-              >
-                <ChevronLeft className="h-4 w-4" />
-                Vissza az előző oldalra
-              </Link>
-            </div>
+            <PublicEmptyState
+              className="mx-auto max-w-2xl"
+              title="Ezen az oldalon nincs több lapszám."
+              actionHref={archivePageHref(site.slug, currentPage - 1)}
+              actionLabel="Vissza az előző oldalra"
+            />
           ) : (
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {data.issues.map((issue, idx) => (
                 <Link
                   key={issue.id}
                   href={`/gy/${site.slug}/magazin/${encodeURIComponent(issue.issue_number)}`}
-                  className={`public-card group block rounded-[var(--public-radius)] overflow-hidden border public-anim-fade-up public-delay-${((idx % 3) + 1) * 100}`}
-                  style={{
-                    backgroundColor: 'color-mix(in srgb, var(--public-surface) 94%, white)',
-                    borderColor: 'color-mix(in srgb, var(--public-ink) 8%, transparent)',
-                  }}
+                  className={`public-card public-panel group block overflow-hidden public-anim-fade-up public-delay-${((idx % 3) + 1) * 100}`}
                 >
                   {issue.cover_image_url ? (
                     <div className="relative aspect-[3/4] overflow-hidden">
@@ -172,15 +128,10 @@ export default async function MagazinePage({
                   )}
 
                   <div className="p-5 sm:p-6">
-                    <div
-                      className="text-xs font-semibold uppercase tracking-widest mb-2"
-                      style={{ color: 'var(--public-accent-on-surface)' }}
-                    >
-                      {issue.issue_number}
-                    </div>
+                    <p className="public-eyebrow mb-2">{issue.issue_number}</p>
                     {issue.title && (
                       <h3
-                        className="mb-2 transition-colors group-hover:[color:var(--public-primary-on-surface)] leading-tight"
+                        className="mb-2 leading-tight transition-colors group-hover:[color:var(--public-accent-ink)]"
                         style={{ color: 'var(--public-ink)' }}
                       >
                         {issue.title}
@@ -210,11 +161,7 @@ export default async function MagazinePage({
           {data && (data.issues.length > 0 || currentPage > 1) && (
             <nav
               aria-label="Magazin archívum lapozása"
-              className="mt-10 flex flex-col items-center justify-between gap-4 rounded-[var(--public-radius)] border px-4 py-4 sm:flex-row sm:px-5"
-              style={{
-                backgroundColor: 'color-mix(in srgb, var(--public-surface) 94%, white)',
-                borderColor: 'color-mix(in srgb, var(--public-ink) 8%, transparent)',
-              }}
+              className="public-panel mt-10 flex flex-col items-center justify-between gap-4 px-4 py-4 sm:flex-row sm:px-5"
             >
               <p className="text-center text-sm sm:text-left" style={{ color: 'var(--public-muted)' }}>
                 {currentPage}. oldal · oldalanként legfeljebb {data.pagination.pageSize} lapszám

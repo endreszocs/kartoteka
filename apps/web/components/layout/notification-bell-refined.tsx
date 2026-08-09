@@ -1,19 +1,50 @@
 'use client'
 
+/**
+ * Header — értesítés-csengő és üzenet-panel.
+ *
+ * 2026-08-10 (kör-4 dizájn): a panel teljes vizuális újratervezése. A logika
+ * (Supabase realtime, olvasatlan + 24 órán belül olvasott szekciók, megnyitáskori
+ * olvasottá jelölés, archiválás, admin hozzáférés-kérelem jóváhagyás/elutasítás,
+ * badge-szám, rázás-animáció) VÁLTOZATLAN — csak a megjelenés újult meg:
+ *
+ *   • típusonkénti vizuális identitás (ikon + halvány, típusszínű felület),
+ *     minden szín light/dark párban, AA-kontraszttal;
+ *   • kártya-alapú sorok: ikon-chip, cím (2 sor), üzenet (2 sor + „Tovább"),
+ *     magyar relatív idő, olvasatlan-pötty és bal oldali hangsúly-csík;
+ *   • letisztult panel-fejléc (számláló + „Összes olvasottnak jelölése"),
+ *     ragadós szekció-fejlécek („Új" / „Korábbi"), barátságos üres állapot;
+ *   • token-alapú felületek (bg-popover / border-border / text-foreground),
+ *     így a sötét téma is helyes — a korábbi hardkódolt fehér/slate helyett;
+ *   • mobilon a panel a képernyő szélességéhez igazodik, vízszintesen SOHA
+ *     nem lóg ki; a gomb és minden művelet legalább 44 px magas.
+ *
+ * A csengő gomb mostantól a header többi ikongombjának (segítség, avatár)
+ * formanyelvét követi; olvasatlan üzenetnél borostyán gyűrűt kap. A figyelem-
+ * felkeltő animáció (rázás + badge-pulzálás) CSAK valóban új üzenet érkezésekor
+ * fut le, nem folyamatosan.
+ */
+
 import { useCallback, useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import type { LucideIcon } from 'lucide-react'
 import {
-  Archive,
   AlertTriangle,
+  Archive,
+  ArrowUpRight,
   Bell,
   BellDot,
+  CheckCheck,
   CheckCircle2,
   Clock,
-  Headphones,
   Info,
+  Inbox,
+  LifeBuoy,
   ShieldAlert,
   Sparkles,
   UserRoundPlus,
+  X,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -35,61 +66,175 @@ interface Notification {
   hivatkozas?: string | null
 }
 
-const TYPE_CONFIG: Record<string, { icon: LucideIcon; color: string; surface: string }> = {
+// ──────────────────────────────────────────────────────────────────────────
+// Típusonkénti vizuális identitás (2026-08-10)
+//
+// Minden `ertesitesek.tipus` saját ikont, magyar címkét és halvány, színezett
+// felületet kap. A színek `-500/xx` alfás változatok, mert a `-50` osztályokat
+// a `kartoteka.css` sötét blokkja `!important`-tal felülírja — így a light és a
+// dark megjelenés is kiszámítható marad. A szövegszínek `-700` (light) és
+// `-300` (dark) párban futnak, mindkét irányban AA-kontraszttal.
+// ⚠️ Az olívazöld accent SOHA nem kap fehér szöveget (lásd projekt-memória).
+// ──────────────────────────────────────────────────────────────────────────
+
+interface TypeVisual {
+  icon: LucideIcon
+  /** Rövid, lelkész-barát magyar címke a kártya lábában. */
+  label: string
+  /** Ikon-chip: halvány felület + azonos színcsaládú ikon és gyűrű. */
+  chip: string
+  /** Bal oldali hangsúly-csík az olvasatlan kártyán. */
+  bar: string
+  /** Apró típuscímke a kártya lábában. */
+  pill: string
+}
+
+const TYPE_VISUALS: Record<string, TypeVisual> = {
+  info: {
+    icon: Info,
+    label: 'Tájékoztatás',
+    chip: 'bg-sky-500/12 text-sky-700 ring-sky-500/20 dark:text-sky-300 dark:ring-sky-400/25',
+    bar: 'bg-sky-500',
+    pill: 'bg-sky-500/10 text-sky-700 dark:text-sky-300',
+  },
   success: {
     icon: CheckCircle2,
-    color: 'text-emerald-600',
-    surface: 'bg-emerald-50',
-  },
-  danger: {
-    icon: ShieldAlert,
-    color: 'text-red-600',
-    surface: 'bg-red-50',
+    label: 'Sikeres',
+    chip: 'bg-emerald-500/12 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300 dark:ring-emerald-400/25',
+    bar: 'bg-emerald-500',
+    pill: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
   },
   warning: {
     icon: AlertTriangle,
-    color: 'text-amber-600',
-    surface: 'bg-amber-50',
+    label: 'Figyelem',
+    chip: 'bg-amber-500/14 text-amber-700 ring-amber-500/25 dark:text-amber-300 dark:ring-amber-400/25',
+    bar: 'bg-amber-500',
+    pill: 'bg-amber-500/12 text-amber-700 dark:text-amber-300',
+  },
+  danger: {
+    icon: ShieldAlert,
+    label: 'Fontos',
+    chip: 'bg-rose-500/12 text-rose-700 ring-rose-500/20 dark:text-rose-300 dark:ring-rose-400/25',
+    bar: 'bg-rose-500',
+    pill: 'bg-rose-500/10 text-rose-700 dark:text-rose-300',
   },
   support_reply: {
-    icon: Headphones,
-    color: 'text-violet-600',
-    surface: 'bg-violet-50',
+    icon: LifeBuoy,
+    label: 'Támogatás',
+    chip: 'bg-violet-500/12 text-violet-700 ring-violet-500/20 dark:text-violet-300 dark:ring-violet-400/25',
+    bar: 'bg-violet-500',
+    pill: 'bg-violet-500/10 text-violet-700 dark:text-violet-300',
   },
   registration: {
     icon: UserRoundPlus,
-    color: 'text-sky-600',
-    surface: 'bg-sky-50',
-  },
-  info: {
-    icon: Info,
-    color: 'text-primary',
-    surface: 'bg-secondary/75',
+    label: 'Regisztráció',
+    chip: 'bg-indigo-500/12 text-indigo-700 ring-indigo-500/20 dark:text-indigo-300 dark:ring-indigo-400/25',
+    bar: 'bg-indigo-500',
+    pill: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300',
   },
   release: {
     icon: Sparkles,
-    color: 'text-violet-600',
-    surface: 'bg-violet-50',
+    label: 'Újdonság',
+    chip: 'bg-teal-500/12 text-teal-700 ring-teal-500/20 dark:text-teal-300 dark:ring-teal-400/25',
+    bar: 'bg-teal-500',
+    pill: 'bg-teal-500/10 text-teal-700 dark:text-teal-300',
   },
 }
 
-function getTypeConfig(type: string) {
-  return TYPE_CONFIG[type] || TYPE_CONFIG.info
+function getTypeVisual(tipus?: string | null): TypeVisual {
+  return (tipus && TYPE_VISUALS[tipus]) || TYPE_VISUALS.info
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Magyar relatív idő (2026-08-10)
+//
+// „az imént" → „12 perce" → „3 órája" → „tegnap" → „4 napja" → „2 hete" →
+// azon túl konkrét dátum. Szándékosan helyi helper: a `components/admin/users/
+// user-visuals.ts` `formatRelativeTime` szövegei az admin felhasználó-listához
+// kötöttek („még nem lépett be"), és nem szeretnénk, ha a header az admin
+// modultól függene.
+// ──────────────────────────────────────────────────────────────────────────
+
+function relativHuIdo(iso?: string | null): string {
+  if (!iso) return ''
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return ''
+  const diff = Date.now() - t
+  if (diff < 0) return 'az imént'
+
+  const perc = Math.floor(diff / 60_000)
+  if (perc < 1) return 'az imént'
+  if (perc < 60) return `${perc} perce`
+
+  const ora = Math.floor(perc / 60)
+  if (ora < 24) return `${ora} órája`
+
+  const nap = Math.floor(ora / 24)
+  if (nap === 1) return 'tegnap'
+  if (nap < 7) return `${nap} napja`
+  if (nap < 30) {
+    const het = Math.floor(nap / 7)
+    return het === 1 ? 'egy hete' : `${het} hete`
+  }
+
+  const d = new Date(t)
+  const ideiEv = d.getFullYear() === new Date().getFullYear()
+  return d.toLocaleDateString('hu-HU', {
+    year: ideiEv ? undefined : 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+function teljesHuIdo(iso?: string | null): string {
+  if (!iso) return ''
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return ''
+  return new Date(t).toLocaleString('hu', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+/**
+ * Az értesítéshez tartozó megnyitható hivatkozás. Az `admin_access:<id>` alakú
+ * érték NEM link (az a jóváhagyás-kérelem azonosítója), a többi belső útvonal
+ * vagy külső http(s) cím lehet.
+ */
+function notificationLink(
+  notification?: Notification | null,
+): { href: string; external: boolean } | null {
+  const raw = notification?.hivatkozas?.trim()
+  if (!raw || raw.startsWith('admin_access:')) return null
+  if (raw.startsWith('/')) return { href: raw, external: false }
+  if (/^https?:\/\//i.test(raw)) return { href: raw, external: true }
+  return null
 }
 
 const READ_RETENTION_HOURS = 24
+/** Ennél hosszabb üzenetnél jelenik meg a „Tovább" kinyitó. */
+const LONG_MESSAGE_CHARS = 120
+/** Meddig fusson a badge figyelem-pulzálás egy új üzenet érkezése után. */
+const NEW_ARRIVAL_MS = 8_000
 
 export function NotificationBellRefined({ userId }: { userId: string }) {
+  const router = useRouter()
+
   const [unread, setUnread] = useState<Notification[]>([])
   const [recentRead, setRecentRead] = useState<Notification[]>([])
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
   const [selectedNotif, setSelectedNotif] = useState<Notification | null>(null)
   const [archivePending, setArchivePending] = useState<string | null>(null)
+  const [markAllPending, setMarkAllPending] = useState(false)
 
   const prevCountRef = useRef(0)
   const firstLoadRef = useRef(true)
   const [shake, setShake] = useState(false)
+  const [justArrived, setJustArrived] = useState(false)
 
   const loadNotifications = useCallback(async () => {
     const supabase = createClient()
@@ -159,7 +304,7 @@ export function NotificationBellRefined({ userId }: { userId: string }) {
     }
   }, [loadNotifications, userId])
 
-  // Shake animáció új értesítésnél
+  // Rázás + rövid badge-pulzálás — CSAK valóban új értesítésnél (2026-08-10)
   useEffect(() => {
     if (firstLoadRef.current) {
       firstLoadRef.current = false
@@ -168,12 +313,27 @@ export function NotificationBellRefined({ userId }: { userId: string }) {
     }
     if (unread.length > prevCountRef.current) {
       setShake(true)
-      const timer = setTimeout(() => setShake(false), 1500)
+      setJustArrived(true)
       prevCountRef.current = unread.length
-      return () => clearTimeout(timer)
+      const shakeTimer = setTimeout(() => setShake(false), 1500)
+      const pulseTimer = setTimeout(() => setJustArrived(false), NEW_ARRIVAL_MS)
+      return () => {
+        clearTimeout(shakeTimer)
+        clearTimeout(pulseTimer)
+      }
     }
     prevCountRef.current = unread.length
   }, [unread.length])
+
+  // Escape → panel bezárása (2026-08-10)
+  useEffect(() => {
+    if (!dropdownOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDropdownOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [dropdownOpen])
 
   async function markAsRead(notification: Notification) {
     const supabase = createClient()
@@ -203,6 +363,17 @@ export function NotificationBellRefined({ userId }: { userId: string }) {
       .update({ archived: true, archived_at: new Date().toISOString() })
       .eq('id', notification.id)
     setArchivePending(null)
+    loadNotifications()
+  }
+
+  /** Összes olvasatlan egy mozdulattal olvasottá (2026-08-10). */
+  async function markAllAsRead() {
+    const ids = unread.map((n) => n.id)
+    if (ids.length === 0) return
+    setMarkAllPending(true)
+    const supabase = createClient()
+    await supabase.from('ertesitesek').update({ olvasva: true }).in('id', ids)
+    setMarkAllPending(false)
     loadNotifications()
   }
 
@@ -236,179 +407,267 @@ export function NotificationBellRefined({ userId }: { userId: string }) {
 
   const hasUnread = unread.length > 0
   const totalCount = unread.length + recentRead.length
+  const badgeLabel = unread.length > 99 ? '99+' : String(unread.length)
+  const selectedVisual = getTypeVisual(selectedNotif?.tipus)
+  const SelectedIcon = selectedVisual.icon
+  const selectedLink = notificationLink(selectedNotif)
+
+  const headline = hasUnread
+    ? `${unread.length} olvasatlan üzenet`
+    : recentRead.length > 0
+      ? 'Minden üzenetet elolvastál'
+      : 'Nincs új értesítés'
 
   return (
     <>
       <div className="relative">
-        <Button
-          variant="outline"
-          size="icon-lg"
-          className={cn(
-            'relative size-10 rounded-2xl border-white/70 transition-all duration-300 hover:bg-white',
-            hasUnread
-              ? 'bell-btn-glow border-amber-200/70'
-              : 'bg-white/76 shadow-[0_14px_30px_-22px_rgba(16,70,63,0.38)]',
-          )}
+        {/* Csengő gomb — a header többi ikongombjának formanyelvét követi */}
+        <button
+          type="button"
           onClick={() => setDropdownOpen((open) => !open)}
           aria-label={hasUnread ? `${unread.length} olvasatlan értesítés` : 'Értesítések'}
+          aria-expanded={dropdownOpen}
+          aria-haspopup="dialog"
+          title="Értesítések"
+          className={cn(
+            'relative inline-flex size-10 items-center justify-center rounded-[10px] transition',
+            'focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
+            // Egyetlen ring-szélesség + ring-szín osztály állapotonként, hogy a
+            // Tailwind-osztályok ne ütközzenek egymással (2026-08-10).
+            hasUnread
+              ? cn(
+                  'bg-amber-500/12 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300',
+                  dropdownOpen
+                    ? 'ring-2 ring-amber-500/55'
+                    : 'ring-1 ring-amber-500/35 dark:ring-amber-400/35',
+                )
+              : cn(
+                  'bg-muted text-foreground hover:bg-muted/70',
+                  dropdownOpen && 'ring-2 ring-ring/45',
+                ),
+          )}
         >
           <span
             className={cn(
               'inline-flex size-[18px] items-center justify-center',
-              hasUnread && !shake && 'bell-active',
               shake && 'bell-shake',
             )}
           >
-            {hasUnread ? (
-              <BellDot className="size-[18px] text-amber-600" />
-            ) : (
-              <Bell className="size-[18px] text-primary" />
-            )}
+            {hasUnread ? <BellDot className="size-[18px]" /> : <Bell className="size-[17px]" />}
           </span>
           {hasUnread && (
-            <span className="badge-pulse absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-              {unread.length > 9 ? '9+' : unread.length}
+            <span
+              className={cn(
+                'absolute -right-1 -top-1 flex min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-[18px] text-white shadow-sm',
+                justArrived && 'badge-pulse',
+              )}
+            >
+              {badgeLabel}
             </span>
           )}
-        </Button>
+        </button>
 
         {dropdownOpen && (
-          <div className="absolute right-0 top-full z-50 mt-3 w-[min(95vw,28rem)] overflow-hidden rounded-[1.6rem] border border-border bg-popover shadow-lg backdrop-blur-xl">
-            {/* Header */}
-            <div className="relative overflow-hidden bg-gradient-to-br from-amber-50 via-white to-teal-50 px-4 py-3.5 border-b border-border/70">
-              <div className="absolute -right-4 -top-4 size-20 rounded-full bg-amber-200/30 blur-2xl" />
-              <div className="absolute -left-4 -bottom-4 size-16 rounded-full bg-teal-200/30 blur-2xl" />
-              <div className="relative flex items-center gap-3">
-                <div className="flex size-9 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-sm">
-                  <Sparkles className="size-4" />
+          <>
+            {/* Kívülre kattintás → bezárás. Mobilon finom sötétítés is, hogy a
+                panel „lapként" váljon el a háttértől.
+                ⚠️ A header `backdrop-blur`-t használ, ezért ő a containing block
+                a fixed pozíciójú gyerekeknek — az `inset-0` csak a 64 px magas
+                fejlécet fedné le. Explicit `h-screen w-screen` kell (2026-08-10). */}
+            <div
+              className="fixed left-0 top-0 z-40 h-screen w-screen bg-foreground/15 backdrop-blur-[1px] sm:bg-transparent sm:backdrop-blur-none"
+              onClick={() => setDropdownOpen(false)}
+              aria-hidden
+            />
+
+            <div
+              role="dialog"
+              aria-label="Értesítések"
+              className={cn(
+                'z-50 flex flex-col overflow-hidden',
+                // Mobil: a fejléc alatt teljes szélességű lap, 12-12 px margóval —
+                // így vízszintesen SOHA nem lóg ki (a csengő nem a jobb szélen ül,
+                // ezért a jobbra igazított popover kilógna a bal oldalon).
+                'fixed left-3 right-3 top-[4.5rem]',
+                // sm-től: a csengőhöz horgonyzott popover
+                'sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-3 sm:w-[26rem]',
+                'rounded-2xl border border-border bg-popover text-popover-foreground',
+                'shadow-[0_28px_70px_-32px_rgba(28,42,38,0.55)]',
+              )}
+            >
+              {/* ── Panel-fejléc ──────────────────────────────────────────── */}
+              <div className="shrink-0 border-b border-border/70 bg-gradient-to-b from-secondary/70 to-popover px-4 pb-3 pt-3.5">
+                <div className="flex items-start gap-3">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/15 dark:text-foreground">
+                    <Bell className="size-[17px]" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                      Értesítések
+                    </p>
+                    <h3 className="truncate font-heading text-[15px] leading-tight text-foreground">
+                      {headline}
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDropdownOpen(false)}
+                    aria-label="Panel bezárása"
+                    className="-mr-1 -mt-1 inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  >
+                    <X className="size-4" />
+                  </button>
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-primary/70">
-                    Értesítések
-                  </p>
-                  <h3 className="font-heading text-base leading-tight text-slate-800">
-                    {hasUnread
-                      ? `${unread.length} olvasatlan visszajelzés`
-                      : recentRead.length > 0
-                        ? `${recentRead.length} friss üzenet`
-                        : 'Minden elolvasva'}
-                  </h3>
+
+                {hasUnread && (
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={markAllAsRead}
+                      disabled={markAllPending}
+                      className="inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2 text-[11.5px] font-medium text-primary transition hover:bg-primary/10 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-foreground"
+                    >
+                      <CheckCheck className="size-3.5" />
+                      {markAllPending ? 'Jelölés…' : 'Összes olvasottnak jelölése'}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Görgethető lista ──────────────────────────────────────── */}
+              {totalCount === 0 ? (
+                <NotificationEmptyState />
+              ) : (
+                <div className="max-h-[min(28rem,56vh)] overflow-y-auto overscroll-contain px-2.5 pb-2.5">
+                  {unread.length > 0 && (
+                    <NotificationSection
+                      title="Új"
+                      count={unread.length}
+                      notifications={unread}
+                      onSelect={markAsRead}
+                    />
+                  )}
+
+                  {recentRead.length > 0 && (
+                    <NotificationSection
+                      title="Korábbi"
+                      hint="24 órán belül olvasva"
+                      count={recentRead.length}
+                      notifications={recentRead}
+                      onSelect={reopenNotification}
+                      onArchive={archiveNotification}
+                      archivePendingId={archivePending}
+                      isReadSection
+                    />
+                  )}
                 </div>
+              )}
+
+              {/* ── Panel-lábléc ──────────────────────────────────────────── */}
+              <div className="shrink-0 border-t border-border/70 bg-secondary/40 px-3 py-2">
+                <Link
+                  href="/notifications"
+                  onClick={() => setDropdownOpen(false)}
+                  className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg px-2 text-[12px] font-medium text-primary transition hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-foreground"
+                >
+                  <Inbox className="size-3.5" />
+                  Átjelentkezési kérelmek megnyitása
+                  <ArrowUpRight className="size-3.5" />
+                </Link>
               </div>
             </div>
-
-            {totalCount === 0 ? (
-              <div className="px-4 py-10 text-center">
-                <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-100 to-teal-100 text-emerald-700 shadow-inner">
-                  <CheckCircle2 className="size-6" />
-                </div>
-                <p className="mt-3 text-sm font-semibold text-slate-700">Nincs új értesítés</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Amikor új történik, itt rögtön megjelenik.
-                </p>
-              </div>
-            ) : (
-              <div className="max-h-[28rem] overflow-y-auto p-2.5 space-y-3">
-                {/* Olvasatlan szekció */}
-                {unread.length > 0 && (
-                  <NotificationSection
-                    title="Új"
-                    count={unread.length}
-                    accent="amber"
-                    notifications={unread}
-                    onSelect={markAsRead}
-                  />
-                )}
-
-                {/* Olvasott (24h) szekció */}
-                {recentRead.length > 0 && (
-                  <NotificationSection
-                    title="Friss (24 órán belül olvasva)"
-                    count={recentRead.length}
-                    accent="slate"
-                    notifications={recentRead}
-                    onSelect={reopenNotification}
-                    onArchive={archiveNotification}
-                    archivePendingId={archivePending}
-                    isReadSection
-                  />
-                )}
-              </div>
-            )}
-          </div>
+          </>
         )}
       </div>
 
-      {dropdownOpen && (
-        <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
-      )}
-
       {/* Részletes megjelenítés — reszponzív, scrollozható */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="bg-white p-0 overflow-hidden w-[min(96vw,720px)] sm:w-[min(94vw,720px)] max-w-none sm:max-w-none max-h-[90vh] flex flex-col">
-          <DialogHeader className="px-5 sm:px-6 py-4 border-b border-slate-100 bg-gradient-to-br from-amber-50/40 via-white to-teal-50/40 shrink-0">
-            <DialogTitle className="flex items-center gap-3">
-              {selectedNotif &&
-                (() => {
-                  const typeConfig = getTypeConfig(selectedNotif.tipus)
-                  const Icon = typeConfig.icon
-                  return (
-                    <span
-                      className={`flex size-11 items-center justify-center rounded-2xl ${typeConfig.surface} ${typeConfig.color} shadow-inner shrink-0`}
-                    >
-                      <Icon className="size-5" />
-                    </span>
-                  )
-                })()}
-              <span className="font-heading text-lg sm:text-xl leading-tight">
-                {selectedNotif?.cim}
+        <DialogContent className="flex max-h-[90vh] w-[min(96vw,720px)] max-w-none flex-col overflow-hidden bg-popover p-0 sm:w-[min(94vw,720px)] sm:max-w-none">
+          <DialogHeader className="shrink-0 gap-3 border-b border-border/70 bg-gradient-to-b from-secondary/60 to-popover px-5 py-4 sm:px-6">
+            <DialogTitle className="flex items-start gap-3 pr-8">
+              {selectedNotif && (
+                <span
+                  className={cn(
+                    'flex size-11 shrink-0 items-center justify-center rounded-2xl ring-1',
+                    selectedVisual.chip,
+                  )}
+                >
+                  <SelectedIcon className="size-5" />
+                </span>
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block font-heading text-lg leading-tight text-foreground sm:text-xl">
+                  {selectedNotif?.cim}
+                </span>
+                <span
+                  className={cn(
+                    'mt-1.5 inline-flex items-center rounded-full px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.12em]',
+                    selectedVisual.pill,
+                  )}
+                >
+                  {selectedVisual.label}
+                </span>
               </span>
             </DialogTitle>
           </DialogHeader>
 
-          <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-5 space-y-4">
-            <div className="rounded-[1.2rem] border border-slate-100 bg-slate-50/50 px-4 py-3">
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+          <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5 sm:px-6">
+            <div className="rounded-2xl border border-border/70 bg-secondary/40 px-4 py-3.5">
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
                 {selectedNotif?.uzenet}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
               {selectedNotif?.created_at && (
                 <span className="flex items-center gap-1.5">
                   <Clock className="size-3" />
-                  Érkezett:{' '}
-                  {new Date(selectedNotif.created_at).toLocaleString('hu', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+                  Érkezett: {teljesHuIdo(selectedNotif.created_at)} (
+                  {relativHuIdo(selectedNotif.created_at)})
                 </span>
               )}
               {selectedNotif?.read_at && (
                 <span className="flex items-center gap-1.5">
                   <CheckCircle2 className="size-3" />
-                  Olvasva:{' '}
-                  {new Date(selectedNotif.read_at).toLocaleString('hu', {
-                    month: 'long',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+                  Olvasva: {relativHuIdo(selectedNotif.read_at)}
                 </span>
               )}
             </div>
 
+            {/* Hivatkozás — belső útvonal vagy külső cím megnyitása */}
+            {selectedLink &&
+              (selectedLink.external ? (
+                <a
+                  href={selectedLink.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/92"
+                >
+                  Megnyitás
+                  <ArrowUpRight className="size-4" />
+                </a>
+              ) : (
+                <Button
+                  size="lg"
+                  onClick={() => {
+                    setDetailOpen(false)
+                    router.push(selectedLink.href)
+                  }}
+                  className="gap-1.5"
+                >
+                  Megnyitás
+                  <ArrowUpRight className="size-4" />
+                </Button>
+              ))}
+
             {selectedNotif?.admin_request_id && (
               <div className="flex gap-2 border-t border-border/70 pt-3">
-                <Button className="flex-1" size="sm" onClick={handleApproveAdminAccess}>
+                <Button className="h-10 flex-1" onClick={handleApproveAdminAccess}>
                   Jóváhagyás
                 </Button>
                 <Button
                   variant="destructive"
-                  className="flex-1"
-                  size="sm"
+                  className="h-10 flex-1"
                   onClick={handleDenyAdminAccess}
                 >
                   Elutasítás
@@ -419,7 +678,7 @@ export function NotificationBellRefined({ userId }: { userId: string }) {
 
           {/* Footer — archiválás opció (olvasottnál) */}
           {selectedNotif?.olvasva && !selectedNotif.archived && (
-            <div className="border-t border-slate-100 bg-slate-50/40 px-5 sm:px-6 py-3 flex items-center justify-between gap-3 shrink-0">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border/70 bg-secondary/40 px-5 py-3 sm:px-6">
               <p className="text-xs text-muted-foreground">
                 Az olvasott üzenetek 24 órán át maradnak elérhetők.
               </p>
@@ -431,7 +690,7 @@ export function NotificationBellRefined({ userId }: { userId: string }) {
                   setDetailOpen(false)
                 }}
                 disabled={archivePending === selectedNotif.id}
-                className="gap-1.5"
+                className="h-9 gap-1.5"
               >
                 <Archive className="size-3.5" />
                 Archiválás
@@ -445,13 +704,31 @@ export function NotificationBellRefined({ userId }: { userId: string }) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Section a dropdown-ban (Új / Friss)
+// Üres állapot
+// ──────────────────────────────────────────────────────────────────────────
+
+function NotificationEmptyState() {
+  return (
+    <div className="px-6 py-12 text-center">
+      <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-emerald-500/12 text-emerald-700 ring-1 ring-emerald-500/20 dark:text-emerald-300 dark:ring-emerald-400/25">
+        <CheckCircle2 className="size-6" />
+      </div>
+      <p className="mt-3.5 text-sm font-semibold text-foreground">Tiszta a postaláda</p>
+      <p className="mx-auto mt-1 max-w-[19rem] text-xs leading-relaxed text-muted-foreground">
+        Nincs olvasatlan üzeneted. Ha új történik a gyülekezet körül, itt jelezzük.
+      </p>
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Szekció a panelben („Új" / „Korábbi") — ragadós fejléccel
 // ──────────────────────────────────────────────────────────────────────────
 
 function NotificationSection({
   title,
+  hint,
   count,
-  accent,
   notifications,
   onSelect,
   onArchive,
@@ -459,114 +736,183 @@ function NotificationSection({
   isReadSection = false,
 }: {
   title: string
+  hint?: string
   count: number
-  accent: 'amber' | 'slate'
   notifications: Notification[]
   onSelect: (n: Notification) => void
   onArchive?: (n: Notification, e?: React.MouseEvent) => void
   archivePendingId?: string | null
   isReadSection?: boolean
 }) {
-  const accentText = accent === 'amber' ? 'text-amber-700' : 'text-slate-500'
-
   return (
-    <div>
-      <p
-        className={`px-2 mb-1.5 text-[10px] font-bold uppercase tracking-[0.18em] ${accentText}`}
-      >
-        {title} ({count})
-      </p>
-      <div className="space-y-1.5">
+    <section>
+      <div className="sticky top-0 z-10 -mx-2.5 flex items-baseline gap-2 bg-popover/95 px-4 pb-1.5 pt-2.5 backdrop-blur supports-backdrop-filter:bg-popover/85">
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-foreground/70">
+          {title}
+        </p>
+        <span className="rounded-full bg-secondary px-1.5 text-[10px] font-semibold leading-[15px] text-muted-foreground">
+          {count}
+        </span>
+        {hint && <span className="truncate text-[10px] text-muted-foreground">· {hint}</span>}
+      </div>
+      <div className="space-y-1.5 pt-0.5">
         {notifications.map((notification) => (
-          <NotificationRow
+          <NotificationCard
             key={notification.id}
             notification={notification}
             onSelect={() => onSelect(notification)}
             onArchive={onArchive ? (e) => onArchive(notification, e) : undefined}
             isArchivePending={archivePendingId === notification.id}
-            faded={isReadSection}
+            isRead={isReadSection}
           />
         ))}
       </div>
-    </div>
+    </section>
   )
 }
 
-function NotificationRow({
+// ──────────────────────────────────────────────────────────────────────────
+// Egy értesítés-kártya
+// ──────────────────────────────────────────────────────────────────────────
+
+function NotificationCard({
   notification,
   onSelect,
   onArchive,
   isArchivePending,
-  faded,
+  isRead,
 }: {
   notification: Notification
   onSelect: () => void
   onArchive?: (e: React.MouseEvent) => void
   isArchivePending: boolean
-  faded: boolean
+  isRead: boolean
 }) {
-  const typeConfig = getTypeConfig(notification.tipus)
-  const Icon = typeConfig.icon
-  const timestamp = new Date(notification.created_at)
-  const now = new Date()
-  const diffHours = (now.getTime() - timestamp.getTime()) / (1000 * 60 * 60)
-  const timeLabel =
-    diffHours < 1
-      ? 'most'
-      : diffHours < 24
-        ? `${Math.floor(diffHours)} órája`
-        : diffHours < 168
-          ? `${Math.floor(diffHours / 24)} napja`
-          : timestamp.toLocaleDateString('hu')
+  const [expanded, setExpanded] = useState(false)
+
+  const visual = getTypeVisual(notification.tipus)
+  const Icon = visual.icon
+  const message = notification.uzenet || ''
+  const isLong = message.length > LONG_MESSAGE_CHARS
+  const link = notificationLink(notification)
 
   return (
-    <button
-      type="button"
+    // A sor `div` + `role="button"` (nem `<button>`), hogy a benne lévő
+    // „Tovább" / „Archiválás" gombok érvényes HTML-t adjanak (2026-08-10).
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onSelect()
+        }
+      }}
       className={cn(
-        'group flex w-full items-start gap-3 rounded-2xl border border-transparent px-3 py-2.5 text-left transition-all hover:border-border/60 hover:bg-secondary/60 hover:shadow-sm',
-        faded && 'opacity-75 hover:opacity-100',
+        'group relative flex min-h-11 w-full cursor-pointer items-start gap-3 overflow-hidden rounded-xl border border-transparent py-2.5 pl-3.5 pr-2.5 text-left transition',
+        'hover:border-border hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+        isRead ? 'opacity-85 hover:opacity-100' : 'bg-secondary/35',
       )}
     >
-      <div
-        className={`mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-2xl ${typeConfig.surface} ${typeConfig.color} shadow-inner transition-transform group-hover:scale-110`}
+      {/* Bal oldali hangsúly-csík — csak olvasatlannál */}
+      {!isRead && (
+        <span
+          aria-hidden
+          className={cn('absolute inset-y-2 left-0 w-[3px] rounded-r-full', visual.bar)}
+        />
+      )}
+
+      <span
+        className={cn(
+          'mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl ring-1 transition-transform group-hover:scale-105',
+          visual.chip,
+        )}
       >
         <Icon className="size-[18px]" />
-      </div>
+      </span>
+
       <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <p className="truncate text-sm font-semibold text-slate-800">
+        <div className="flex items-start gap-2">
+          <p
+            className={cn(
+              'line-clamp-2 min-w-0 flex-1 text-[13px] leading-snug text-foreground',
+              isRead ? 'font-medium' : 'font-semibold',
+            )}
+          >
             {notification.cim}
           </p>
-          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
-            {timeLabel}
-          </span>
+          {!isRead && (
+            <span
+              aria-label="Olvasatlan"
+              className="mt-1 size-2 shrink-0 rounded-full bg-primary ring-2 ring-primary/20"
+            />
+          )}
         </div>
-        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-          {notification.uzenet}
-        </p>
+
+        {message && (
+          <p
+            className={cn(
+              'mt-1 text-xs leading-relaxed text-muted-foreground',
+              !expanded && 'line-clamp-2',
+            )}
+          >
+            {message}
+          </p>
+        )}
+
+        {isLong && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              setExpanded((v) => !v)
+            }}
+            className="mt-0.5 inline-flex min-h-6 items-center rounded text-[11px] font-medium text-primary transition hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-foreground"
+          >
+            {expanded ? 'Kevesebb' : 'Tovább'}
+          </button>
+        )}
+
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+          <span
+            className={cn(
+              'inline-flex items-center rounded-full px-1.5 py-0.5 font-medium',
+              visual.pill,
+            )}
+          >
+            {visual.label}
+          </span>
+          <time
+            dateTime={notification.created_at}
+            title={teljesHuIdo(notification.created_at)}
+            className="tabular-nums"
+          >
+            {relativHuIdo(notification.created_at)}
+          </time>
+          {link && (
+            <span className="inline-flex items-center gap-0.5 text-primary dark:text-foreground">
+              <ArrowUpRight className="size-3" />
+              Megnyitható
+            </span>
+          )}
+        </div>
       </div>
+
       {onArchive && (
-        <span
-          role="button"
-          tabIndex={0}
+        <button
+          type="button"
           onClick={onArchive}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              onArchive(e as unknown as React.MouseEvent)
-            }
-          }}
           aria-label="Archiválás"
           title="Archiválás"
           className={cn(
-            'shrink-0 inline-flex size-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition opacity-0 group-hover:opacity-100',
-            isArchivePending && 'opacity-100 animate-pulse',
+            'mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground opacity-0 transition hover:bg-secondary hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100',
+            isArchivePending && 'animate-pulse opacity-100',
           )}
         >
           <Archive className="size-3.5" />
-        </span>
+        </button>
       )}
-    </button>
+    </div>
   )
 }

@@ -1,482 +1,237 @@
-.section {
-  position: relative;
-  overflow: hidden;
-  padding: clamp(3.5rem, 2.5rem + 5vw, 8rem) 0;
-  background:
-    radial-gradient(
-      circle at 8% 12%,
-      color-mix(in srgb, var(--public-accent) 10%, transparent),
-      transparent 24rem
-    ),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--public-soft) 42%, var(--public-surface)),
-      var(--public-surface)
-    );
-}
+/* Kezdőlapi történet-blokk. 2026-08-10: minden szín `--public-*` tokenből
+   jön (korábban bedrótozott #0d251d / #e3bc75 / #f0c97d értékek voltak,
+   amelyek egyedi gyülekezeti színnél sem változtak). */
 
-.container {
-  display: grid;
-  gap: clamp(3.5rem, 2.5rem + 4vw, 7rem);
+.section {
+  padding-top: clamp(3.25rem, 2.2rem + 3.6vw, 6.5rem);
 }
 
 .communityGrid {
   display: grid;
-  gap: 2rem;
+  gap: clamp(2rem, 1.4rem + 2.4vw, 3.5rem);
   align-items: center;
 }
 
-.communityMedia,
-.heritagePanel,
-.invitation {
+/* ── Média ──────────────────────────────────────────────────── */
+.media {
   position: relative;
   overflow: hidden;
-  border-radius: max(var(--public-radius), 1.5rem);
-  box-shadow: 0 34px 80px -46px
-    color-mix(in srgb, var(--public-ink) 55%, transparent);
+  min-height: 17rem;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--public-radius-lg);
+  border: 1px solid var(--public-line);
+  box-shadow: var(--public-elev-2);
 }
 
-.communityMedia {
-  min-height: clamp(22rem, 82vw, 38rem);
-}
-
-.storyImage,
-.heritageImage,
-.invitationImage {
+.mediaImage {
   object-fit: cover;
-  transform: scale(1.025);
-  animation: public-story-breathe 18s ease-in-out infinite alternate;
 }
 
-.storyImage {
-  object-position: 58% center;
-}
-
-.imageVeil,
-.heritageVeil,
-.invitationVeil {
+.mediaWash {
   position: absolute;
   inset: 0;
-  pointer-events: none;
-}
-
-.imageVeil {
   background: linear-gradient(
     180deg,
-    transparent 34%,
-    rgba(7, 28, 21, 0.82) 100%
+    transparent 40%,
+    color-mix(in srgb, var(--public-primary-deep) 62%, transparent) 100%
   );
 }
 
-.imageCaption {
+/* Fotó nélküli, tervezett felület — nem idegen fénykép. */
+.mediaPlaceholder {
   position: absolute;
-  right: 1rem;
-  bottom: 1rem;
-  left: 1rem;
+  inset: 0;
   display: flex;
   align-items: center;
-  gap: 0.8rem;
+  justify-content: center;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      transparent 0 22px,
+      rgba(255, 255, 255, 0.045) 22px 23px
+    ),
+    linear-gradient(
+      152deg,
+      var(--public-primary) 0%,
+      var(--public-primary-deep) 100%
+    );
+}
+
+.mediaCaption {
+  position: absolute;
+  inset-inline: clamp(0.9rem, 0.5rem + 1.4vw, 1.5rem);
+  bottom: clamp(0.9rem, 0.5rem + 1.4vw, 1.5rem);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: max(var(--public-radius), 1rem);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: color-mix(in srgb, var(--public-primary-deep) 72%, transparent);
+  backdrop-filter: blur(10px);
   color: #fff;
 }
 
-.imageCaption > svg {
-  width: 2.6rem;
-  height: 2.6rem;
+.mediaCaption svg {
+  width: 1.25rem;
+  height: 1.25rem;
   flex: 0 0 auto;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 1rem;
-  background: rgba(255, 255, 255, 0.12);
-  padding: 0.62rem;
-  backdrop-filter: blur(12px);
+  color: color-mix(in srgb, var(--public-accent) 78%, white);
 }
 
-.imageCaption span {
-  display: grid;
-}
-
-.imageCaption small,
-.eyebrow {
-  font-size: 0.7rem !important;
-  font-weight: 750;
-  letter-spacing: 0.11em;
+.mediaCaption small {
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
+  color: color-mix(in srgb, var(--public-accent) 72%, white);
 }
 
-.imageCaption small {
-  color: rgba(255, 255, 255, 0.72);
+.mediaCaption strong {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
-.imageCaption strong {
-  font-family: var(--public-heading-font);
-  font-size: clamp(1.05rem, 0.9rem + 0.7vw, 1.45rem);
-  line-height: 1.2;
+/* ── Szöveg ─────────────────────────────────────────────────── */
+.copy h2 {
+  margin-top: 0.75rem;
+  color: var(--public-ink);
 }
 
-.communityCopy {
-  padding: 0 0.25rem;
-}
-
-.eyebrow {
-  margin: 0 0 0.85rem;
-  color: var(--public-primary-on-surface);
-}
-
-.communityCopy h2,
-.heritageCopy h2,
-.invitationCopy h2 {
-  margin: 0;
+.copy > :global(.public-rule-start) {
+  margin: 1.25rem 0;
 }
 
 .lead {
-  max-width: 38rem;
-  margin: 1.2rem 0 0;
   color: var(--public-muted);
-  font-size: clamp(1rem, 0.94rem + 0.24vw, 1.14rem);
-  line-height: 1.8;
-}
-
-.communityPoints {
-  display: grid;
-  gap: 0.8rem;
-  margin-top: 1.6rem;
-}
-
-.communityPoints article {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.8rem;
-  border-top: 1px solid
-    color-mix(in srgb, var(--public-ink) 10%, transparent);
-  padding-top: 0.9rem;
-}
-
-.communityPoints svg {
-  width: 1.3rem;
-  height: 1.3rem;
-  flex: 0 0 auto;
-  margin-top: 0.15rem;
-  color: var(--public-accent-on-surface);
-}
-
-.communityPoints span {
-  display: grid;
-  gap: 0.1rem;
-}
-
-.communityPoints strong {
-  color: var(--public-ink);
-}
-
-.communityPoints small {
-  color: var(--public-muted);
-  font-size: 0.82rem;
-  line-height: 1.55;
-}
-
-.nextService {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.75rem;
-  min-height: 4.5rem;
-  margin-top: 1.5rem;
-  border: 1px solid
-    color-mix(in srgb, var(--public-primary) 16%, transparent);
-  border-radius: 1rem;
-  background: color-mix(in srgb, var(--public-primary) 7%, transparent);
-  padding: 0.8rem;
-  color: var(--public-ink);
-  transition:
-    transform 220ms ease,
-    background-color 220ms ease;
-}
-
-.nextService:hover {
-  transform: translateY(-2px);
-  background: color-mix(in srgb, var(--public-primary) 11%, transparent);
-}
-
-.nextService > svg:first-child {
-  width: 2.7rem;
-  height: 2.7rem;
-  border-radius: 0.85rem;
-  background: var(--public-primary);
-  padding: 0.68rem;
-  color: #fff;
-}
-
-.nextService > svg:last-child {
-  width: 1.05rem;
-  height: 1.05rem;
-  color: var(--public-primary-on-surface);
-}
-
-.nextService span {
-  display: grid;
-  min-width: 0;
-}
-
-.nextService small {
-  color: var(--public-muted);
-  font-size: 0.7rem;
-}
-
-.nextService strong {
-  overflow-wrap: anywhere;
-  font-size: 0.84rem;
-  line-height: 1.45;
-}
-
-.heritagePanel {
-  display: grid;
-  min-height: 38rem;
-  background: #0d251d;
-  color: #fff;
-}
-
-.heritageMedia {
-  position: absolute;
-  inset: 0;
-}
-
-.heritageImage {
-  object-position: 62% center;
-}
-
-.heritageVeil {
-  background:
-    linear-gradient(180deg, rgba(7, 22, 17, 0.1), rgba(7, 22, 17, 0.92)),
-    linear-gradient(90deg, rgba(7, 22, 17, 0.55), transparent);
-}
-
-.heritageCopy {
-  position: relative;
-  z-index: 2;
-  align-self: end;
-  max-width: 38rem;
-  padding: clamp(1.5rem, 1rem + 3vw, 3rem);
-}
-
-.heritageCopy > svg {
-  width: 2.2rem;
-  height: 2.2rem;
-  margin-bottom: 1rem;
-  color: #e3bc75;
-}
-
-.heritageCopy .eyebrow {
-  color: #e3bc75;
-}
-
-.heritageCopy h2 {
-  color: #fff;
-}
-
-.heritageCopy > p:not(.eyebrow) {
-  margin: 1rem 0 0;
-  color: rgba(255, 255, 255, 0.8);
   line-height: 1.75;
 }
 
-.heritageCopy a,
-.invitationAction {
-  display: inline-flex;
-  min-height: 44px;
-  align-items: center;
-  gap: 0.55rem;
-  margin-top: 1.5rem;
-  border-radius: 0.9rem;
-  background: rgba(255, 255, 255, 0.13);
-  padding: 0.7rem 1rem;
-  color: #fff;
-  font-size: 0.84rem;
-  font-weight: 700;
-  backdrop-filter: blur(12px);
-  transition:
-    transform 220ms ease,
-    background-color 220ms ease;
-}
-
-.heritageCopy a:hover,
-.invitationAction:hover {
-  transform: translateY(-2px);
-  background: rgba(255, 255, 255, 0.22);
-}
-
-.heritageCopy a svg,
-.invitationAction svg {
-  width: 1rem;
-  height: 1rem;
-}
-
-.invitation {
-  min-height: clamp(31rem, 105vw, 43rem);
-  color: #fff;
-}
-
-.invitationImage {
-  object-position: 70% center;
-}
-
-.invitationVeil {
-  background:
-    linear-gradient(180deg, rgba(3, 15, 11, 0.1), rgba(3, 16, 12, 0.9)),
-    linear-gradient(90deg, rgba(3, 19, 14, 0.78), transparent 78%);
-}
-
-.invitationCopy {
-  position: relative;
-  z-index: 2;
-  max-width: 44rem;
-  padding: clamp(1.5rem, 1rem + 3vw, 3.5rem);
-}
-
-.invitationCopy .eyebrow {
-  color: #f0c97d;
-}
-
-.invitationCopy h2 {
-  color: #fff;
-}
-
-.invitationCopy > p:not(.eyebrow) {
-  margin: 0.8rem 0 0;
-  color: rgba(255, 255, 255, 0.78);
-  font-size: clamp(1rem, 0.92rem + 0.4vw, 1.2rem);
-}
-
-.contactList {
+.points {
   display: grid;
-  gap: 0.55rem;
-  margin-top: 1.4rem;
+  gap: 1rem;
+  margin-top: 1.75rem;
 }
 
-.contactList span,
-.contactList a {
+.points article {
   display: flex;
   align-items: flex-start;
-  gap: 0.55rem;
-  overflow-wrap: anywhere;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 0.82rem;
+  gap: 0.85rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--public-line);
 }
 
-.contactList svg {
-  width: 1rem;
-  height: 1rem;
+.points svg {
+  width: 1.25rem;
+  height: 1.25rem;
   flex: 0 0 auto;
   margin-top: 0.15rem;
-  color: #f0c97d;
+  color: var(--public-accent-ink);
 }
 
-.reveal {
-  opacity: 1;
+.points strong {
+  display: block;
+  color: var(--public-ink);
+  font-weight: 650;
 }
 
-@keyframes public-story-breathe {
-  from {
-    transform: scale(1.025);
-  }
-  to {
-    transform: scale(1.075) translate3d(-0.6%, -0.4%, 0);
-  }
+.points small {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--public-muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
 }
 
-@keyframes public-story-reveal {
-  from {
-    opacity: 0;
-    transform: translateY(2.2rem);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.nextService {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-top: 1.75rem;
+  padding: 0.9rem 1.1rem;
+  min-height: 44px;
+  border-radius: max(var(--public-radius), 1rem);
+  border: 1px solid color-mix(in srgb, var(--public-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--public-accent) 8%, transparent);
+  color: var(--public-ink);
+  transition: border-color 0.25s ease, background-color 0.25s ease;
 }
 
-@supports (animation-timeline: view()) {
-  .reveal {
-    animation: public-story-reveal linear both;
-    animation-timeline: view();
-    animation-range: entry 5% cover 28%;
-  }
+.nextService:hover {
+  border-color: var(--public-accent);
+  background: color-mix(in srgb, var(--public-accent) 14%, transparent);
 }
 
-@media (min-width: 48rem) {
-  .communityPoints {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.nextService svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: 0 0 auto;
+  color: var(--public-accent-ink);
+}
 
-  .invitation {
-    min-height: 35rem;
-  }
+.nextService span {
+  min-width: 0;
+  flex: 1;
+}
 
-  .invitationCopy {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-  }
+.nextService small {
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--public-accent-ink);
+}
+
+.nextService strong {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* ── Örökség-sáv ────────────────────────────────────────────── */
+.heritage {
+  position: relative;
+  margin-top: clamp(3rem, 2rem + 3vw, 5.5rem);
+  padding: clamp(3.25rem, 2.2rem + 3.6vw, 6rem) 0;
+}
+
+.heritageInner {
+  max-width: 44rem;
+}
+
+.heritageIcon {
+  width: 2rem;
+  height: 2rem;
+  margin-bottom: 1.25rem;
+  color: color-mix(in srgb, var(--public-accent) 80%, white);
+}
+
+.heritageInner h2 {
+  margin: 0.75rem 0 1.25rem;
+}
+
+.heritageInner p {
+  max-width: 38rem;
+  margin-bottom: 2rem;
+  color: rgba(255, 255, 255, 0.84);
+  line-height: 1.75;
 }
 
 @media (min-width: 64rem) {
   .communityGrid {
-    grid-template-columns: minmax(0, 1.18fr) minmax(19rem, 0.82fr);
-    gap: clamp(2.5rem, 2rem + 2vw, 4.5rem);
-  }
-
-  .communityMedia {
-    min-height: 42rem;
-  }
-
-  .imageCaption {
-    right: 1.5rem;
-    bottom: 1.5rem;
-    left: 1.5rem;
-  }
-
-  .heritagePanel {
-    min-height: 42rem;
-  }
-
-  .heritageVeil {
-    background:
-      linear-gradient(90deg, rgba(7, 22, 17, 0.92) 0%, rgba(7, 22, 17, 0.5) 48%, transparent 78%),
-      linear-gradient(180deg, rgba(7, 22, 17, 0.08), rgba(7, 22, 17, 0.5));
-  }
-
-  .heritageCopy {
-    align-self: center;
-  }
-
-  .invitation {
-    min-height: 38rem;
-  }
-
-  .invitationVeil {
-    background:
-      linear-gradient(90deg, rgba(3, 19, 14, 0.9) 0%, rgba(3, 19, 14, 0.45) 48%, transparent 78%),
-      linear-gradient(180deg, rgba(3, 15, 11, 0.08), rgba(3, 16, 12, 0.56));
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .storyImage,
-  .heritageImage,
-  .invitationImage,
-  .reveal {
-    animation: none !important;
-    opacity: 1 !important;
-    transform: none !important;
-  }
-
-  .nextService,
-  .heritageCopy a,
-  .invitationAction {
+  .nextService {
     transition: none;
-  }
-
-  .nextService:hover,
-  .heritageCopy a:hover,
-  .invitationAction:hover {
-    transform: none;
   }
 }

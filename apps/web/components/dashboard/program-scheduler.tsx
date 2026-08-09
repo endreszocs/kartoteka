@@ -28,6 +28,14 @@ interface ProgramSchedulerProps {
   congregationLogo?: string | null
 }
 
+/**
+ * 2026-08-10 — görgetésmentes csempe-korlátok.
+ * A widget az irányítópult három-csempés (egy magasságú) sorában ül, ezért
+ * alapból csak ennyi tétel látszik; a többi a „+N további" gombbal bontható ki.
+ */
+const DAY_CAP = 2
+const LIST_CAP = 4
+
 // ── Hónap-választó popover ──
 function MonthPicker({
   year, month, today, onPick, onClose,
@@ -89,6 +97,9 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
   )
   const [view, setView] = useState<'honap' | 'lista'>('honap')
   const [pickerOpen, setPickerOpen] = useState(false)
+  // 2026-08-10: a csempében NINCS belső görgetés — alapból csak néhány tétel
+  // látszik, a „+N további" gomb kérésre bontja ki a teljes listát.
+  const [expanded, setExpanded] = useState(false)
 
   const [programDialogOpen, setProgramDialogOpen] = useState(false)
   const [batchDialogOpen, setBatchDialogOpen] = useState(false)
@@ -154,6 +165,34 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
   const selectedEvents = selectedDay ? eventsForDay(occurrences, year, month, selectedDay) : []
   const selectedIsToday = !!selectedDay && isCurrentMonth && selectedDay === today.getDate()
 
+  // ── Görgetésmentes korlátok (2026-08-10) ─────────────────────────────────
+  // A csempe fix magasságú sorban ül, ezért alapból csak DAY_CAP nap-esemény,
+  // illetve LIST_CAP lista-tétel látszik. A többi a „+N további" gombbal
+  // bontható ki — így semmi nem válik elérhetetlenné, de nincs scrollbar sem.
+  const shownDayEvents = expanded ? selectedEvents : selectedEvents.slice(0, DAY_CAP)
+  const hiddenDayEvents = selectedEvents.length - shownDayEvents.length
+
+  const listTotal = useMemo(
+    () => listGroups.reduce((sum, g) => sum + g.events.length, 0),
+    [listGroups]
+  )
+  const shownListGroups = useMemo(() => {
+    if (expanded) return listGroups
+    const out: { day: number; date: Date; events: Program[] }[] = []
+    let used = 0
+    for (const g of listGroups) {
+      if (used >= LIST_CAP) break
+      const take = g.events.slice(0, LIST_CAP - used)
+      out.push({ ...g, events: take })
+      used += take.length
+    }
+    return out
+  }, [listGroups, expanded])
+  const hiddenListEvents = listTotal - shownListGroups.reduce((sum, g) => sum + g.events.length, 0)
+
+  // Napváltás / hónapváltás / nézetváltás után újra a kompakt állapot az alap
+  useEffect(() => { setExpanded(false) }, [selectedDay, month, year, view])
+
   // ── Navigáció ──
   function goMonth(delta: number) {
     let m = month + delta, y = year
@@ -206,15 +245,20 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
     setBatchDialogOpen(false); refreshPrograms()
   }
 
+  // 2026-08-10: `kt-widget--tile` — kompakt csempe-változat az irányítópult
+  // három-csempés sorához (egy magasság, belső görgetés nélkül).
   return (
-    <div className="card-raised kt-widget kt-widget--flow">
+    <div className="card-raised kt-widget kt-widget--flow kt-widget--tile">
       <div className="kt-glow" />
 
       {/* Fejléc */}
       <header className="kt-head">
         <div className="kt-head-title">
-          <span className="kt-head-ico"><CalendarDays size={18} /></span>
-          <h3>Gyülekezeti programok</h3>
+          <span className="kt-head-ico"><CalendarDays size={17} /></span>
+          <div className="min-w-0">
+            <span className="kt-head-eyebrow">Naptár</span>
+            <h3>Gyülekezeti programok</h3>
+          </div>
         </div>
         <button
           type="button"
@@ -268,9 +312,11 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
           <div className="kt-empty"><p className="kt-empty-sub">Betöltés…</p></div>
         ) : view === 'honap' ? (
           <>
+            {/* 2026-08-10: kis kockás, fix 6 hetes rács — a csempe magassága
+                hónapváltáskor sem változik */}
             <ProgramCalendar
               programs={occurrences} year={year} month={month} today={today}
-              selectedDay={selectedDay} onSelectDay={setSelectedDay}
+              selectedDay={selectedDay} onSelectDay={setSelectedDay} compact
             />
             {/* Kiválasztott nap agendája */}
             <section className="kt-dayagenda">
@@ -304,12 +350,23 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
                 </div>
               ) : (
                 <div className="kt-agenda-list">
-                  {selectedEvents.map((p) => (
+                  {shownDayEvents.map((p) => (
                     <AgendaCard
-                      key={`${p.id}-${p.datum}`} p={p} isToday={selectedIsToday}
+                      key={`${p.id}-${p.datum}`} p={p} isToday={selectedIsToday} compact
                       onEdit={openEdit} onToggleDone={onToggleDone} onDelete={(x) => setDeleteTargetId(x.id)}
                     />
                   ))}
+                  {/* 2026-08-10: görgetés helyett kibontható „+N további" */}
+                  {hiddenDayEvents > 0 && (
+                    <button type="button" className="kt-more-line" onClick={() => setExpanded(true)}>
+                      +{hiddenDayEvents} további program
+                    </button>
+                  )}
+                  {expanded && selectedEvents.length > DAY_CAP && (
+                    <button type="button" className="kt-more-line" onClick={() => setExpanded(false)}>
+                      Kevesebb
+                    </button>
+                  )}
                 </div>
               )}
             </section>
@@ -327,50 +384,72 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
                 </button>
               </div>
             ) : (
-              listGroups.map((g) => {
-                const gToday = isCurrentMonth && g.day === today.getDate()
-                return (
-                  <div key={g.day} className={`kt-listgroup${gToday ? ' is-today' : ''}`}>
-                    <div className="kt-listgroup-head">
-                      <span className="kt-listgroup-num">{g.day}</span>
-                      <span className="kt-listgroup-dow">{HU_MONTHS_SHORT[month]}</span>
-                      {gToday && <span className="kt-listgroup-today">Ma</span>}
-                      <span className="kt-listgroup-line" />
+              <>
+                {shownListGroups.map((g) => {
+                  const gToday = isCurrentMonth && g.day === today.getDate()
+                  return (
+                    <div key={g.day} className={`kt-listgroup${gToday ? ' is-today' : ''}`}>
+                      <div className="kt-listgroup-head">
+                        <span className="kt-listgroup-num">{g.day}</span>
+                        <span className="kt-listgroup-dow">{HU_MONTHS_SHORT[month]}</span>
+                        {gToday && <span className="kt-listgroup-today">Ma</span>}
+                        <span className="kt-listgroup-line" />
+                      </div>
+                      <div className="kt-agenda-list">
+                        {g.events.map((p) => (
+                          <AgendaCard
+                            key={`${p.id}-${g.day}`} p={p} isToday={gToday} compact
+                            onEdit={openEdit} onToggleDone={onToggleDone} onDelete={(x) => setDeleteTargetId(x.id)}
+                          />
+                        ))}
+                      </div>
                     </div>
-                    <div className="kt-agenda-list">
-                      {g.events.map((p) => (
-                        <AgendaCard
-                          key={`${p.id}-${g.day}`} p={p} isToday={gToday}
-                          onEdit={openEdit} onToggleDone={onToggleDone} onDelete={(x) => setDeleteTargetId(x.id)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )
-              })
+                  )
+                })}
+                {/* 2026-08-10: görgetés helyett kibontható „+N további" */}
+                {hiddenListEvents > 0 && (
+                  <button type="button" className="kt-more-line" onClick={() => setExpanded(true)}>
+                    +{hiddenListEvents} további program a hónapban
+                  </button>
+                )}
+                {expanded && listTotal > LIST_CAP && (
+                  <button type="button" className="kt-more-line" onClick={() => setExpanded(false)}>
+                    Kevesebb
+                  </button>
+                )}
+              </>
             )}
           </section>
         )}
       </div>
 
-      {/* Akciógombok */}
-      <footer className="kt-actions">
+      {/* Akciógombok — 2026-08-10: EGYSOROS sáv (elsődleges gomb + ikonos
+          másodlagos műveletek), hogy a csempe beférjen a közös sormagasságba.
+          Egyik művelet sem tűnt el, csak ikon-formát kapott tooltippel. */}
+      <footer className="kt-actions kt-actions--compact">
         <button type="button" className="kt-btn kt-btn-primary" onClick={() => openNew(null)}>
-          <Plus size={17} /> Új program
+          <Plus size={16} /> Új program
         </button>
-        <div className="kt-actions-row">
-          <button type="button" className="kt-btn kt-btn-outline" onClick={() => setBatchDialogOpen(true)}>
-            <Rows3 size={16} /> Tömeges bevitel
+        <div className="kt-actions-icons">
+          <button
+            type="button" className="kt-iconbtn" onClick={() => setBatchDialogOpen(true)}
+            title="Tömeges bevitel" aria-label="Tömeges bevitel"
+          >
+            <Rows3 size={16} />
           </button>
           {/* 2026-08-02 (PR-20): naptár-feed összekötés (Google/Apple/Outlook) */}
-          <button type="button" className="kt-btn kt-btn-outline" onClick={() => setGcalOpen(true)}>
-            <CalendarPlus size={16} /> Google Naptár
+          <button
+            type="button" className="kt-iconbtn" onClick={() => setGcalOpen(true)}
+            title="Google Naptár összekötése" aria-label="Google Naptár összekötése"
+          >
+            <CalendarPlus size={16} />
           </button>
           <AnnualPlanPrint
             allPrograms={programs}
             year={year}
             congregationLogo={congregationLogo}
             congregationName={congregationName}
+            compact
           />
         </div>
       </footer>

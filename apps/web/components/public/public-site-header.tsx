@@ -1,11 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
-import { shouldBypassPublicImageOptimization } from "@/lib/public-site/public-image";
 import { resolveThemeColors } from "@/lib/public-site/theme-presets";
 import { usePathname } from "next/navigation";
 import type { PublicSiteData } from "@/lib/public-site/site-loader";
+import { PublicCrest } from "./public-crest";
 import { PublicMobileNav } from "./public-mobile-nav";
 
 function normalizePathname(pathname: string): string {
@@ -47,55 +46,34 @@ export function PublicSiteHeader({
       className="public-site-header sticky top-0 z-40 border-b backdrop-blur-xl"
       style={{
         backgroundColor:
-          "color-mix(in srgb, var(--public-surface) 85%, transparent)",
-        borderColor: "color-mix(in srgb, var(--public-ink) 8%, transparent)",
+          "color-mix(in srgb, var(--public-surface) 88%, transparent)",
+        borderColor: "var(--public-line)",
       }}
     >
-      <div className="public-container flex items-center justify-between gap-4 py-3 sm:py-4">
+      <div className="public-container flex items-center justify-between gap-4 py-2.5 sm:py-3.5">
+        {/* 2026-08-10: címer + EGYSOROS wordmark. A régi „serif név + apró
+            tagline" kettős a mobilon két sorba tört és zsúfolt volt. */}
         <Link
           href={`/gy/${site.slug}`}
-          className="group flex min-h-11 min-w-0 items-center gap-3 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--public-primary-on-surface)] focus-visible:ring-offset-2"
+          className="group flex min-h-11 min-w-0 items-center gap-3 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--public-accent-ink)] focus-visible:ring-offset-2"
           aria-label={`${site.display_name} kezdőlapja`}
         >
-          {site.crest_image_url ? (
-            <Image
-              src={site.crest_image_url}
-              alt=""
-              width={48}
-              height={48}
-              sizes="(min-width: 640px) 48px, 44px"
-              unoptimized={shouldBypassPublicImageOptimization(
-                site.crest_image_url,
-              )}
-              className="h-11 w-11 shrink-0 rounded-xl object-cover transition-transform group-hover:scale-105 motion-reduce:transform-none motion-reduce:transition-none sm:h-12 sm:w-12"
-            />
-          ) : (
-            <span
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-lg font-bold text-white shadow-lg transition-transform group-hover:scale-105 motion-reduce:transform-none motion-reduce:transition-none sm:h-12 sm:w-12 sm:text-xl"
-              style={{
-                background:
-                  "linear-gradient(135deg, var(--public-primary), color-mix(in srgb, var(--public-primary) 70%, var(--public-accent-strong)))",
-              }}
-              aria-hidden="true"
-            >
-              {site.display_name.charAt(0)}
-            </span>
-          )}
-          <span className="min-w-0">
-            <span
-              className="block truncate font-serif text-xl leading-[1.05] sm:text-[1.6rem]"
-              style={{ color: "var(--public-ink)" }}
-            >
-              {site.display_name}
-            </span>
-            {site.tagline && (
-              <span
-                className="mt-0.5 hidden truncate text-xs sm:block sm:text-[0.78rem]"
-                style={{ color: "var(--public-muted)" }}
-              >
-                {site.tagline}
-              </span>
-            )}
+          <PublicCrest
+            src={site.crest_image_url}
+            name={site.display_name}
+            size={44}
+            shape="shield"
+            className="transition-transform group-hover:scale-[1.04] motion-reduce:transform-none motion-reduce:transition-none"
+          />
+          <span
+            className="min-w-0 truncate text-[1.06rem] leading-tight sm:text-[1.32rem]"
+            style={{
+              color: "var(--public-ink)",
+              fontFamily: "var(--public-heading-font)",
+              letterSpacing: "-0.01em",
+            }}
+          >
+            {site.display_name}
           </span>
         </Link>
 
@@ -111,13 +89,14 @@ export function PublicSiteHeader({
                 key={item.href}
                 href={item.href}
                 aria-current={isActive ? "page" : undefined}
-                className="inline-flex min-h-11 items-center rounded-full px-4 py-2 font-medium transition-colors hover:bg-[color-mix(in_srgb,var(--public-primary)_8%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--public-primary-on-surface)] focus-visible:ring-offset-2 motion-reduce:transition-none"
+                className="relative inline-flex min-h-11 items-center px-3.5 py-2 font-medium transition-colors hover:[color:var(--public-accent-ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--public-accent-ink)] focus-visible:ring-offset-2 motion-reduce:transition-none"
                 style={{
                   color: isActive
-                    ? "var(--public-primary-on-surface)"
+                    ? "var(--public-accent-ink)"
                     : "var(--public-ink)",
-                  backgroundColor: isActive
-                    ? "color-mix(in srgb, var(--public-primary) 10%, transparent)"
+                  // Az aktív oldalt arany hajszálvonal jelzi a pirula helyett.
+                  boxShadow: isActive
+                    ? "inset 0 -2px 0 0 var(--public-accent)"
                     : undefined,
                 }}
               >

@@ -31,7 +31,9 @@ function ScaledSlide({ item, payload, dim }: { item: DeckItem; payload: DeckPayl
   return (
     <div ref={ref} style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: '#0a0f1a' }}>
       <div style={{ position: 'absolute', top: 0, left: 0, width: 1280, height: 720, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
-        <DeckRenderer item={item} data={payload.data} overrides={payload.overrides} projection />
+        {/* 2026-08-10: az `options` is átadva — a következtetés-diák innen tudják,
+            mely kategóriák vannak kipipálva a vezérlőn. */}
+        <DeckRenderer item={item} data={payload.data} overrides={payload.overrides} options={payload.options} projection />
       </div>
       {dim && <div style={{ position: 'absolute', inset: 0, background: 'rgba(5,8,14,0.55)' }} />}
     </div>
@@ -81,7 +83,7 @@ export function ProjectionReceiver({ session }: { session: string }) {
     }
   }, [session])
 
-  const deck: DeckItem[] = payload ? buildDeck(payload.options) : []
+  const deck: DeckItem[] = payload ? buildDeck(payload.options, payload.data) : []
   const count = deck.length
   const item = count ? deck[Math.min(state.index, count - 1)] : null
   const connection: 'connecting' | 'connected' | 'disconnected' =
