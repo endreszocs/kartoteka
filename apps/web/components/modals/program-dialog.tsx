@@ -4,7 +4,7 @@
 // Pixelhű a design-modálhoz: típus-választó ikonráccsal, szegmentált
 // prioritás/ismétlődés, „többnapos"/„egész napos" kapcsolók. RHF + zod
 // validáció, valós mentés (saveProgram).
-import { useEffect, useState, useRef } from 'react'
+import { useCallback, useEffect, useId, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -20,6 +20,7 @@ import {
 } from '@/lib/constants/dashboard'
 import type { Program, ProgramTipus } from '@/lib/constants/dashboard'
 import { PROG_TIPUS_ICON } from '@/components/dashboard/program-icons'
+import { useModalFocusTrap } from '@/components/modals/use-modal-focus-trap'
 import { toast } from 'sonner'
 
 interface ProgramDialogProps {
@@ -38,6 +39,9 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
   const [multiDay, setMultiDay] = useState(false)
   const [allDay, setAllDay] = useState(false)
   const emojiRef = useRef<HTMLDivElement>(null)
+  const modalRef = useRef<HTMLDivElement>(null)
+  const titleId = useId()
+  const close = useCallback(() => onOpenChange(false), [onOpenChange])
 
   const { register, handleSubmit, reset, control, setValue, formState: { errors } } =
     useForm<ProgramInput>({
@@ -91,23 +95,21 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
     return () => { cancelled = true }
   }, [open, editProgram, defaultDate, reset])
 
-  // ESC + görgetés-zár + emoji kívülre kattintás
+  // Emoji-választó kívülre kattintás
   useEffect(() => {
     if (!open) return
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onOpenChange(false) }
     function onClick(e: MouseEvent) {
       if (emojiRef.current && !emojiRef.current.contains(e.target as Node)) setEmojiOpen(false)
     }
-    document.addEventListener('keydown', onKey)
     document.addEventListener('mousedown', onClick)
-    const prevOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      document.removeEventListener('mousedown', onClick)
-      document.body.style.overflow = prevOverflow
-    }
-  }, [open, onOpenChange])
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [open])
+
+  // 2026-08-11 (P2 #26): Esc + görgetés-zár + FÓKUSZCSAPDA + fókusz-visszaadás +
+  // háttér-inert. Eddig csak Esc és görgetés-zár volt, miközben a modál
+  // `aria-modal="true"`-t állított — a Tab azonnal kivándorolt a modál mögé.
+  // Részletek: `use-modal-focus-trap.ts`.
+  useModalFocusTrap(open, modalRef, close)
 
   if (!open || typeof document === 'undefined') return null
 
@@ -136,16 +138,27 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
   const selectedColor = PROG_TIPUS_COLOR[tipus]
 
   return createPortal(
-    <div
-      className="kt-modal-overlay"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onOpenChange(false) }}
-    >
-      <div className="kt-modal" role="dialog" aria-modal="true" aria-label={editProgram ? 'Program szerkesztése' : 'Új program'}>
+    /* 2026-08-11 (P2 #26): a háttérre kattintás TÖBBÉ NEM zár be. Eddig
+       `onMouseDown`-ra azonnal bezárt, megerősítés nélkül — egy félrekoppintás
+       elvitte a kitöltött program-űrlapot (cím, típus, dátum, ismétlődés,
+       megjegyzés). Ugyanezt a döntést hozta meg ma a közös `Dialog` primitív is
+       (`packages/ui/src/components/dialog.tsx`, `disablePointerDismissal`
+       alapból `true`) — a két program-modál most már ugyanúgy viselkedik.
+       Bezárni az X-szel, az Esc-cel és a Mégse gombbal lehet. */
+    <div className="kt-modal-overlay">
+      <div
+        ref={modalRef}
+        className="kt-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+      >
         <div className="kt-modal-head">
           <div className="kt-modal-title">
             <span className="kt-modal-ico"><CalendarDays size={18} /></span>
             <div>
-              <h3>{editProgram ? 'Program szerkesztése' : 'Új program'}</h3>
+              <h3 id={titleId}>{editProgram ? 'Program szerkesztése' : 'Új program'}</h3>
               <div className="kt-modal-sub">Gyülekezeti alkalom rögzítése</div>
             </div>
           </div>

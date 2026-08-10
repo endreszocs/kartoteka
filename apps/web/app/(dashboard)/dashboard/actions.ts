@@ -1,5 +1,7 @@
 'use server'
 
+import { selectAllPaged } from '@kartoteka/supabase-client'
+
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 
 // FONTOS: ez egy 'use server' fájl — csak ASYNC FÜGGVÉNYT exportálhat.
@@ -58,28 +60,28 @@ export async function getBirthdayListAddresses(): Promise<Record<string, string>
 
   // 2026-08-01 (PR-19): lapozott lekérés — 1000 tag felett a címek egy része
   // némán hiányzott volna.
-  const PAGE = 1000
-  const map: Record<string, string> = {}
-  for (let fromIdx = 0; ; fromIdx += PAGE) {
-    const { data, error } = await supabase
+  // 2026-08-11 (5. kör, P3 #15): a kézi ciklus helyett a KÖZÖS `selectAllPaged`
+  // (a `page.length < PAGE` stop-feltétel leszállított szerver-plafonnál az első
+  // lap után kilépett volna). A rendezést + dedupot a helper adja.
+  const { data, error } = await selectAllPaged<AddressMemberRow>(
+    supabase
       .from('szemely')
       .select('id, c_szam, c_szcim, adrstreet!c_utcaid(name, adrlocality!localityid(name)), adrlocality!c_helysegid(name)')
       .eq('congregation_id', congregationId)
-      .eq('meghalt', false)
-      .order('id', { ascending: true })
-      .range(fromIdx, fromIdx + PAGE - 1)
-    if (error) {
-      // 2026-08-02 (review-fix): a néma break FÉLIG kitöltött cím-térképet
-      // adott volna vissza (félrevezető, mintha a többieknek nem lenne címe) —
-      // hibánál inkább dobunk, a dialógus catch-e egységesen üresre esik vissza.
-      console.error('[getBirthdayListAddresses] lap-lekérés hiba, from=' + fromIdx, error.message)
-      throw new Error('A címek betöltése nem sikerült.')
-    }
-    for (const row of (data || []) as AddressMemberRow[]) {
-      const addr = composeAddress(row)
-      if (addr) map[String(row.id)] = addr
-    }
-    if ((data || []).length < PAGE) break
+      .eq('meghalt', false),
+  )
+  if (error) {
+    // 2026-08-02 (review-fix): a néma break FÉLIG kitöltött cím-térképet
+    // adott volna vissza (félrevezető, mintha a többieknek nem lenne címe) —
+    // hibánál inkább dobunk, a dialógus catch-e egységesen üresre esik vissza.
+    console.error('[getBirthdayListAddresses] lap-lekérés hiba', error.message)
+    throw new Error('A címek betöltése nem sikerült.')
+  }
+
+  const map: Record<string, string> = {}
+  for (const row of data) {
+    const addr = composeAddress(row)
+    if (addr) map[String(row.id)] = addr
   }
   return map
 }

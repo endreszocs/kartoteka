@@ -17,7 +17,11 @@
 
 import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
-import { getFinanceScopeContext, isYearFinalized } from '@/lib/auth/finance-scope'
+import {
+  getFinanceScopeContext,
+  isYearFinalized,
+  yearFinalizedCheckErrorMessage,
+} from '@/lib/auth/finance-scope'
 
 export type DispozitieTipus = 'plata' | 'incasare'
 
@@ -321,8 +325,19 @@ export async function saveDispozitie(input: SaveDispozitieInput): Promise<
   }
 
   const year = Number(input.date.slice(0, 4))
-  if (await isYearFinalized(ctx, year)) {
-    return { error: `A ${year}. év számadása már le van zárva — dispoziție nem rögzíthető.` }
+  // 2026-08-11 (K5-#32, 2. lépés): az `isYearFinalized` fail-closed DOB, ha a
+  // zár-állapotot nem tudja lekérdezni (elnyelt hiba sosem nyithat ki egy már
+  // véglegesített és beküldött évet). Try/catch nélkül ez nyers szerver-action
+  // hibaként bukott el; itt a modul szokásos `{ error: '…' }` alakjára fordítjuk,
+  // hogy a lelkész magyar, cselekvésre váltható üzenetet lásson.
+  let finalized: boolean
+  try {
+    finalized = await isYearFinalized(ctx, year)
+  } catch (err) {
+    return { error: yearFinalizedCheckErrorMessage(err, year) }
+  }
+  if (finalized) {
+    return { error: `A ${year}. év számadása már le van zárva — dispoziție nem rögzíthető. Kérj feloldást (javítási engedélyt) az egyházmegyétől.` }
   }
 
   // 1) Sorszám lefoglalása

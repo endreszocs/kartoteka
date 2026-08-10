@@ -47,6 +47,9 @@ type DesktopBankTabProps = Pick<
   | 'onTransactionChanged'
   | 'onBankAccountSaved'
   | 'onToast'
+  // 2026-08-11 (5. kör, P0-követő): véglegesített (beküldött) évben a Bank
+  // fülön se legyen szerkesztés — a web-fülön ugyanez a zár.
+  | 'accountingFinalized'
 > & {
   congregationId: string
   userId: string

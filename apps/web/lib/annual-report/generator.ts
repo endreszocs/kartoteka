@@ -28,6 +28,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { calculateRentalDebts } from '@/lib/finance/rental-calculation'
 import { getScopeFinancialData } from '@/lib/dashboard/scope-financial'
 import { getScopeVitalStats } from '@/lib/dashboard/scope-vital'
+import { getCongregationOfficials, getDioceseOfficials } from '@/lib/profiles/officials'
 
 // ─────────────────────────────────────────────────────────────────────
 // Snapshot típus — ez kerül a annual_reports.snapshot_data jsonb mezőbe
@@ -134,15 +135,57 @@ interface MunkanaploRow {
   persely: number | null
 }
 
+type PresbiterSzemelyEmbed = {
+  csaladnev: string | null
+  k_nev: string | null
+  congregation_id?: string | null
+}
+
 interface PresbiterJoinRow {
   tisztseg: string
-  szemely: { csaladnev: string | null; k_nev: string | null } | { csaladnev: string | null; k_nev: string | null }[] | null
+  szemely: PresbiterSzemelyEmbed | PresbiterSzemelyEmbed[] | null
 }
 
 interface LeltarRow {
   kategoria: string
   beszerzesi_ertek: number | null
   mennyiseg: number | null
+  /** Soft-delete jelölő a `leltar_tetelek`-en (a `deleted` NEM létező oszlop!). */
+  is_deleted: boolean | null
+  /** Selejtezés/kivezetés dátuma — ha ki van töltve, a tétel már nem vagyon. */
+  torles_datuma: string | null
+}
+
+/**
+ * 2026-08-11 (K5-#8/#31): LAPOZÓ segéd — a PostgREST NÉMÁN 1000 sorra vágja a
+ * választ. Az itteni táblák mind NÖVEKVŐK (`szemely` = tagnyilvántartás,
+ * `leltar_tetelek` = könyvtárral együtt simán 1000+ tétel, `munkanaplo` =
+ * évi több száz sor), és mind KÖZVETLENÜL a hivatalos, nyomtatott Éves
+ * jelentés rubrikáiba kerülnek. A hívónak KÖTELEZŐ determinisztikus
+ * rendezést (`.order('id')`) adnia.
+ * Minta: `lib/dashboard/scope-financial.ts` (2026-08-11, K5-#10).
+ */
+async function fetchAllPagedRows<T>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  pageSize = 1000,
+): Promise<{ data: T[]; error: { message: string } | null }> {
+  const out: T[] = []
+  for (let from = 0; ; ) {
+    const { data, error } = await query.range(from, from + pageSize - 1)
+    if (error) return { data: out, error }
+    const page = (data ?? []) as T[]
+    out.push(...page)
+    if (page.length === 0) break
+    from += page.length
+  }
+  return { data: out, error: null }
+}
+
+/** Lélekszám-számoláshoz lekért minimális `szemely` mezők. */
+interface SzemelyLite {
+  meghalt: boolean | null
+  member_status: string | null
 }
 
 interface CongregationFullRow {
@@ -157,12 +200,6 @@ interface CongregationFullRow {
   diocese_id: string | null
 }
 
-interface ProfileLite {
-  full_name: string | null
-  role: string | null
-  congregation_id: string | null
-  diocese_id: string | null
-}
 
 // ─────────────────────────────────────────────────────────────────────
 // Fő aggregátor függvény
@@ -184,7 +221,7 @@ export async function buildAnnualReportData(
   // 1) Párhuzamos lekérdezések
   const [
     congregationRes,
-    profilesRes,
+    lelkeszek,
     munkanaploRes,
     presbiterRes,
     leltarRes,
@@ -198,39 +235,72 @@ export async function buildAnnualReportData(
       .select('id, name, nev_hu, nev_ro, cim, email, telefon, egyhazmegye, diocese_id')
       .eq('id', congregationId)
       .maybeSingle(),
-    // Profilok (lelkipásztor + esperes)
-    supabase
-      .from('profiles')
-      .select('full_name, role, congregation_id, diocese_id')
-      .or(`congregation_id.eq.${congregationId},role.in.(esperes,egyhazmegyei_admin)`),
+    // Lelkipásztor (a jelentés gyülekezetéé).
+    // 2026-08-11: KORÁBBAN ez egy `.or(congregation_id.eq.X,
+    // role.in.(esperes,egyhazmegyei_admin))` lekérdezés volt, ami az ORSZÁG
+    // MINDEN esperesét és megyei adminját behúzta — kizárólag a nyitott
+    // `profiles_read` policy tette lehetővé. Most szétvált: a lelkipásztor a
+    // gyülekezet-hatókörű RPC-ből jön, az esperes pedig a megyei RPC-ből
+    // (lásd lentebb, a diocese_id feloldása után). Egyik sem kér e-mailt.
+    getCongregationOfficials(supabase, congregationId, ['lelkesz']),
     // Munkanapló (szolgalat + katekezis)
     // 2026-06-12 (Endre #3 munkanapló): a soft-delete-elt sorok kizárása —
     // korábban a törölt bejegyzések is beszámítottak az éves jelentésbe.
     // Fallback: ha a `deleted` oszlop még nem létezik (2026-06-12c SQL előtt),
     // szűrő nélkül kérdezünk.
+    // 2026-08-11 (K5-#8 kísérő): LAPOZVA — évi több száz sor, több gyülekezetnél
+    // (és pótlólagos rögzítéskor) a néma 1000-es plafon közelébe ér.
     (async () => {
-      const base = () => supabase
-        .from('munkanaplo')
-        .select('idopont, jellege, kategoria, jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, jelenlet_osszesen, persely')
-        .eq('congregation_id', congregationId)
-        .gte('idopont', yearStart)
-        .lt('idopont', yearEndExclusive)
-      const res = await base().eq('deleted', false)
+      const base = (withDeletedFilter: boolean) => {
+        const q = supabase
+          .from('munkanaplo')
+          .select('id, idopont, jellege, kategoria, jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, jelenlet_osszesen, persely')
+          .eq('congregation_id', congregationId)
+          .gte('idopont', yearStart)
+          .lt('idopont', yearEndExclusive)
+        return (withDeletedFilter ? q.eq('deleted', false) : q).order('id', { ascending: true })
+      }
+      const res = await fetchAllPagedRows<MunkanaploRow>(base(true))
       if (res.error && (res.error.message || '').toLowerCase().includes('deleted')) {
-        return base()
+        return fetchAllPagedRows<MunkanaploRow>(base(false))
       }
       return res
     })(),
     // Presbitérium
-    supabase
-      .from('presbiter')
-      .select('tisztseg, szemely:szemely!presbiter_id_szemely_fk(csaladnev, k_nev)')
-      .eq('szemely.congregation_id', congregationId),
+    // 2026-08-11 (K5-#8 kísérő): `!inner` a beágyazott `szemely`-re. A hint
+    // NÉLKÜLI (bal oldali) join miatt a PostgREST MINDEN presbiter-sort
+    // visszaadott, csak a nem illeszkedő `szemely` embedet nullázta ki — a
+    // gyülekezetre szűrés app-oldalon (`if (!sz) continue`) történt. Ez egyrészt
+    // az EGÉSZ presbiter táblát lehúzta (ugyanaz a hiba, amit a
+    // `dashboard/page.tsx:210` már javított), másrészt lapozva végtelenül drága
+    // lenne. `!inner`-rel a szűrés a szerveren történik; a végeredmény
+    // változatlan, mert a nem illeszkedő sorokat eddig is eldobtuk.
+    fetchAllPagedRows<PresbiterJoinRow>(
+      supabase
+        .from('presbiter')
+        .select('id, tisztseg, szemely:szemely!presbiter_id_szemely_fk!inner(csaladnev, k_nev, congregation_id)')
+        .eq('szemely.congregation_id', congregationId)
+        .order('id', { ascending: true }),
+    ),
     // Leltár (jelenlegi állapot, nem évhez kötött)
-    supabase
-      .from('leltar_tetelek')
-      .select('kategoria, beszerzesi_ertek, mennyiseg')
-      .eq('congregation_id', congregationId),
+    // 2026-08-11 (K5-#8) JAVÍTÁS: a lekérdezés sem `is_deleted`-re, sem
+    // `torles_datuma`-ra NEM szűrt, ezért a VIII. „Egyházi vagyon" szekció a
+    // SELEJTEZETT / kivezetett eszközöket is beleszámolta. 40 selejtezett,
+    // 85 000 lej beszerzési értékű tételnél a NYOMTATOTT jelentés 85 000 lejjel
+    // magasabb vagyont mutatott, mint az ugyanarra az évre készült prezentáció
+    // (`eves-jelentes/prezentacio/actions.ts`) és a Leltár képernyő — a szűrést
+    // most azokkal AZONOSRA hozzuk.
+    // ⚠️ A `leltar_tetelek`-en NINCS `deleted` oszlop (csak `is_deleted` +
+    // `torles_datuma`); a `leltar/actions.ts` normalizálója olvas `deleted`-et,
+    // de az csak a desktop/offline sorokra vonatkozó kompatibilitási alias.
+    // A nem létező oszlop selectbe tétele az EGÉSZ lekérdezést hibára vinné.
+    fetchAllPagedRows<LeltarRow>(
+      supabase
+        .from('leltar_tetelek')
+        .select('id, kategoria, beszerzesi_ertek, mennyiseg, is_deleted, torles_datuma')
+        .eq('congregation_id', congregationId)
+        .order('id', { ascending: true }),
+    ),
     // Pénzügyi (a B4.5-ös aggregátorral)
     getScopeFinancialData(supabase, [congregationId], year),
     // Kazuáliák (a B4.5-ös aggregátorral)
@@ -241,43 +311,70 @@ export async function buildAnnualReportData(
     // költözés a `member_status`-ban van kódolva. A hibás select miatt a lekérdezés
     // hibára futott, a `szemelyRes.data` null lett, a lenti `|| []` pedig üres tömbre
     // esett vissza → AZ ÉVES JELENTÉS LÉLEKSZÁMA MINDIG 0 VOLT.
-    supabase
-      .from('szemely')
-      .select('meghalt, member_status')
-      .eq('congregation_id', congregationId)
-      .eq('isvisible', true),
+    // 2026-08-11 (K5-#8 kísérő): LAPOZVA — a `szemely` a tagnyilvántartás fő
+    // táblája, 1000+ tag egyáltalán nem ritka; lapozás nélkül a hivatalos
+    // lélekszám-rubrika NÉMÁN 1000-nél megállt volna.
+    fetchAllPagedRows<SzemelyLite>(
+      supabase
+        .from('szemely')
+        .select('id, meghalt, member_status')
+        .eq('congregation_id', congregationId)
+        .eq('isvisible', true)
+        .order('id', { ascending: true }),
+    ),
   ])
 
-  // 2) Diocese név (ha van diocese_id)
+  // 1b) 2026-08-11 (K5-#8) NÉMA NULLA HELYETT HANGOS HIBA.
+  // Eddig minden lekérdezés hibáját elnyeltük (`|| []`), és az Éves jelentés
+  // szépen legenerálódott — csak épp 0 istentisztelettel, 0 presbiterrel,
+  // 0 lej vagyonnal vagy 0 lélekszámmal. Ez egy ALÁÍRT, ESPERESHEZ BEKÜLDÖTT
+  // hivatalos dokumentum: a hihető, de hamis nulla rosszabb, mint a
+  // meghiúsuló generálás. A hívó (`generateAnnualReportPreview`) try/catch-ben
+  // van, tehát a lelkész ezt a magyar szöveget kapja hibaüzenetként.
+  const hianyzoAdatok: string[] = []
+  if (congregationRes.error) hianyzoAdatok.push(`gyülekezet alapadatai (${congregationRes.error.message})`)
+  if (munkanaploRes.error) hianyzoAdatok.push(`munkanapló (${munkanaploRes.error.message})`)
+  if (presbiterRes.error) hianyzoAdatok.push(`presbitérium (${presbiterRes.error.message})`)
+  if (leltarRes.error) hianyzoAdatok.push(`leltár (${leltarRes.error.message})`)
+  if (szemelyRes.error) hianyzoAdatok.push(`lélekszám (${szemelyRes.error.message})`)
+  if (hianyzoAdatok.length > 0) {
+    console.error('[annual-report] Az Éves jelentés adatgyűjtése hibára futott:', hianyzoAdatok)
+    throw new Error(
+      `Az Éves jelentés nem készíthető el, mert néhány adat lekérdezése hibára futott: ${hianyzoAdatok.join('; ')}. ` +
+        'Üres (nullás) jelentést szándékosan nem állítunk elő. Próbáld újra néhány perc múlva; ' +
+        'ha újra hibázik, jelezd a rendszergazdának.',
+    )
+  }
+
+  // 2) Diocese név + az egyházmegye esperese (ha van diocese_id)
+  // 2026-08-11: az esperes neve a `get_diocese_officials` SECURITY DEFINER
+  // RPC-ből jön — a gyülekezet SAJÁT egyházmegyéjére szűrve. Korábban a fenti
+  // profil-lekérdezés országosan húzta be az összes esperest, és app-oldalon
+  // szűrtünk `diocese_id`-ra; ez a nyitott `profiles_read` policy nélkül
+  // némán üres esperes-nevet adott volna.
   let dioceseName: string | null = null
+  let esperesNev: string | null = null
   if (congregationRes.data?.diocese_id) {
-    const { data: dio } = await supabase
-      .from('dioceses')
-      .select('name')
-      .eq('id', congregationRes.data.diocese_id)
-      .maybeSingle()
-    dioceseName = dio?.name || null
+    const dioceseId = congregationRes.data.diocese_id as string
+    const [dioRes, megyeiTisztsegviselok] = await Promise.all([
+      supabase.from('dioceses').select('name').eq('id', dioceseId).maybeSingle(),
+      getDioceseOfficials(supabase, dioceseId, ['esperes']),
+    ])
+    dioceseName = dioRes.data?.name || null
+    esperesNev = megyeiTisztsegviselok.find(o => o.role === 'esperes')?.fullName || null
   }
 
   const congregation = (congregationRes.data || null) as CongregationFullRow | null
-  const profiles = (profilesRes.data || []) as ProfileLite[]
 
   // I. Gyülekezet adatai
-  const lelkipasztor = profiles.find(
-    p => p.congregation_id === congregationId && p.role === 'lelkesz',
-  )
-  const esperes = profiles.find(
-    p => p.role === 'esperes' && p.diocese_id === congregation?.diocese_id,
-  )
+  const lelkipasztorNev = lelkeszek.find(o => o.role === 'lelkesz')?.fullName
+    ?? lelkeszek[0]?.fullName
+    ?? null
 
   // Lélekszám (2026-06-10, átvilágítás P2-1): élő, el nem költözött, ki nem
   // tért, nem törölt látható tagok száma — az I. szekció hivatalos rubrikája.
-  type SzemelyLite = { meghalt: boolean | null; member_status: string | null }
-  if (szemelyRes.error) {
-    // Némán 0 lélekszámot jelenteni rosszabb, mint hangosan hibázni — a rubrika
-    // hivatalos adat. Legalább a szerver-logban legyen nyoma.
-    console.error('[annual-report] A lélekszám lekérdezése HIBÁRA FUTOTT — 0-t fog jelenteni!', szemelyRes.error)
-  }
+  // (A lekérdezés hibáját már az 1b) blokk elkapta és dobta — itt biztosan
+  // teljes, lapozott adat van.)
   const lelekszam = ((szemelyRes.data || []) as SzemelyLite[]).filter(s =>
     !s.meghalt
     && !['elhunyt', 'elköltözött', 'elkoltozott', 'kitért', 'törölt'].includes(s.member_status || ''),
@@ -292,8 +389,8 @@ export async function buildAnnualReportData(
     telefon: congregation?.telefon || null,
     egyhazmegye: congregation?.egyhazmegye || dioceseName,
     diocese_name: dioceseName,
-    lelkipasztor: lelkipasztor?.full_name || null,
-    esperes: esperes?.full_name || null,
+    lelkipasztor: lelkipasztorNev,
+    esperes: esperesNev,
     lelekszam,
   }
 
@@ -361,7 +458,14 @@ export async function buildAnnualReportData(
   }
 
   // VIII. Leltár
-  const leltarRows = (leltarRes.data || []) as LeltarRow[]
+  // 2026-08-11 (K5-#8): a SELEJTEZETT / kivezetett tételek kiszűrése — pontosan
+  // ugyanaz a feltétel, mint a prezentációban
+  // (`eves-jelentes/prezentacio/actions.ts`) és a Leltár képernyőn
+  // (`components/inventory/inventory-main-v3.tsx`). Enélkül a három felület
+  // három különböző vagyonértéket mutatott ugyanarra az évre.
+  const leltarRows = ((leltarRes.data || []) as LeltarRow[]).filter(
+    (r) => !r.is_deleted && !r.torles_datuma,
+  )
   const kategoriaMap = new Map<string, { tetel: number; ertek: number }>()
   let leltarOsszesertek = 0
   for (const item of leltarRows) {

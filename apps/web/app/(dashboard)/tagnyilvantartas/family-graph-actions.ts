@@ -67,19 +67,31 @@ function chunksOf<T>(items: T[], size = IN_FILTER_BATCH_SIZE): T[][] {
   return chunks
 }
 
+/**
+ * 2026-08-11 (5. kör, P3 #15): a `page.length < DB_PAGE_SIZE` stop-feltétel és a
+ * FIX lépésköz javítva — ugyanaz a hibapár, mint a registry-list `collectBatched`
+ * helyeré. Leszállított szerver-plafonnál (Max Rows < lapméret) az első kilépett
+ * az első lap után, a második pedig sorokat ugrott át: a családfa-gráfból
+ * családok és rokoni kapcsolatok tűntek volna el, némán. Csak az ÜRES lap a
+ * biztos stop, és a lépésköz a TÉNYLEGESEN kapott sorszám.
+ *
+ * HÁTRALÉVŐ: a közös `selectAllPaged`-re (@kartoteka/supabase-client) cserét az
+ * 5 hívási hely callback-alakja miatt külön menetre hagytuk.
+ */
 async function collectPaged<T>(
   label: string,
   fetchPage: (from: number, to: number) => Promise<QueryPage<T>>,
 ): Promise<T[]> {
   const rows: T[] = []
 
-  for (let from = 0; from < MAX_GRAPH_ROWS; from += DB_PAGE_SIZE) {
+  for (let from = 0; from < MAX_GRAPH_ROWS; ) {
     const result = await fetchPage(from, from + DB_PAGE_SIZE - 1)
     if (result.error) throw new Error(`${label}: ${result.error.message}`)
 
     const page = result.data ?? []
     rows.push(...page)
-    if (page.length < DB_PAGE_SIZE) return rows
+    if (page.length === 0) return rows
+    from += page.length
   }
 
   throw new Error(`${label}: a biztonsági sorlimit (${MAX_GRAPH_ROWS}) elfogyott.`)

@@ -8,11 +8,42 @@
  *  - temetés (`temetes.tdatum` — temetés dátuma, NEM a halálozás)
  *  - konfirmáció (`konfirmalas.datum`)
  *
- * Az aggregáció JS-oldalon történik (egy táblából max. néhány száz sor évente).
- * A meglévő `lib/dashboard/scope-overview.ts` mintát követjük.
+ * Az aggregáció JS-oldalon történik. A meglévő `lib/dashboard/scope-overview.ts`
+ * mintát követjük.
+ *
+ * ⚠️ 2026-08-11 (K5-#31) — HOL HASZNÁLJUK VALÓJÁBAN
+ * A fenti „dashboardokhoz" felirat ELAVULT: az egyházmegyei és a kerületi
+ * irányítópult 2026-04-17 óta SZÁNDÉKOSAN nem hívja ezt (nem kérdezhetnek
+ * közvetlenül az anyakönyvi táblákból — lásd `dashboard-egyhazmegye/page.tsx`
+ * és `dashboard-kerulet/page.tsx` fejléc-kommentjét). Az EGYETLEN élő hívó ma
+ * a `lib/annual-report/generator.ts` — vagyis ezek a számok a HIVATALOS,
+ * NYOMTATOTT Éves jelentés III. „Kazuáliák" szekciójába kerülnek. Ezért lett
+ * a hibakezelés hangos (lásd lentebb), és ezért lapozunk.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+
+/**
+ * 2026-08-11 (K5-#31): LAPOZÓ segéd — a PostgREST NÉMÁN 1000 sorra vágja a
+ * választ. A hívónak KÖTELEZŐ determinisztikus rendezést (`.order('id')`)
+ * adnia. Minta: `lib/dashboard/scope-financial.ts` (2026-08-11, K5-#10).
+ */
+async function fetchAllPagedRows<T>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  pageSize = 1000,
+): Promise<{ data: T[]; error: { message: string } | null }> {
+  const out: T[] = []
+  for (let from = 0; ; ) {
+    const { data, error } = await query.range(from, from + pageSize - 1)
+    if (error) return { data: out, error }
+    const page = (data ?? []) as T[]
+    out.push(...page)
+    if (page.length === 0) break
+    from += page.length
+  }
+  return { data: out, error: null }
+}
 
 export interface ScopeVitalCongregationRow {
   congregationId: string
@@ -64,6 +95,8 @@ interface DioceseLite {
 }
 
 interface VitalEventRow {
+  /** Csak a determinisztikus lapozó rendezéshez kérjük le. */
+  id?: number
   congregation_id: string | null
 }
 
@@ -90,32 +123,47 @@ export async function getScopeVitalStats(
   const yearStart = `${year}-01-01`
   const yearEndExclusive = `${year + 1}-01-01`
 
-  // 4 párhuzamos lekérdezés a 4 anyakönyvi tábla
+  // 4 párhuzamos lekérdezés a 4 anyakönyvi táblára — LAPOZVA és determinisztikus
+  // rendezéssel (2026-08-11, K5-#31): a `temetes`/`keresztseg` sorszám egy nagyobb
+  // hatókörben átlépheti a PostgREST 1000-es néma plafonját, és a hivatalos
+  // jelentés kevesebb keresztelést/temetést mutatna, mint amennyi történt.
   const [keresztsegRes, hazassagRes, temetesRes, konfirmalasRes, congRes, dioRes] = await Promise.all([
-    supabase
-      .from('keresztseg')
-      .select('congregation_id')
-      .in('congregation_id', congregationIds)
-      .gte('datum', yearStart)
-      .lt('datum', yearEndExclusive),
-    supabase
-      .from('hazassag')
-      .select('congregation_id')
-      .in('congregation_id', congregationIds)
-      .gte('datum', yearStart)
-      .lt('datum', yearEndExclusive),
-    supabase
-      .from('temetes')
-      .select('congregation_id')
-      .in('congregation_id', congregationIds)
-      .gte('tdatum', yearStart)
-      .lt('tdatum', yearEndExclusive),
-    supabase
-      .from('konfirmalas')
-      .select('congregation_id')
-      .in('congregation_id', congregationIds)
-      .gte('datum', yearStart)
-      .lt('datum', yearEndExclusive),
+    fetchAllPagedRows<VitalEventRow>(
+      supabase
+        .from('keresztseg')
+        .select('id, congregation_id')
+        .in('congregation_id', congregationIds)
+        .gte('datum', yearStart)
+        .lt('datum', yearEndExclusive)
+        .order('id', { ascending: true }),
+    ),
+    fetchAllPagedRows<VitalEventRow>(
+      supabase
+        .from('hazassag')
+        .select('id, congregation_id')
+        .in('congregation_id', congregationIds)
+        .gte('datum', yearStart)
+        .lt('datum', yearEndExclusive)
+        .order('id', { ascending: true }),
+    ),
+    fetchAllPagedRows<VitalEventRow>(
+      supabase
+        .from('temetes')
+        .select('id, congregation_id')
+        .in('congregation_id', congregationIds)
+        .gte('tdatum', yearStart)
+        .lt('tdatum', yearEndExclusive)
+        .order('id', { ascending: true }),
+    ),
+    fetchAllPagedRows<VitalEventRow>(
+      supabase
+        .from('konfirmalas')
+        .select('id, congregation_id')
+        .in('congregation_id', congregationIds)
+        .gte('datum', yearStart)
+        .lt('datum', yearEndExclusive)
+        .order('id', { ascending: true }),
+    ),
     congregations
       ? Promise.resolve({ data: congregations, error: null })
       : supabase
@@ -127,15 +175,37 @@ export async function getScopeVitalStats(
       : supabase.from('dioceses').select('id, name'),
   ])
 
+  // 2026-08-11 (K5-#31): NÉMA NULLA HELYETT HANGOS HIBA.
+  // Korábban BÁRMELYIK lekérdezés hibája `emptyStats(year)`-t adott: az Éves
+  // jelentés III. „Kazuáliák" szekciója „0 keresztelés / 0 temetés"-t írt volna —
+  // hihető, de HAMIS adat egy aláírt, hivatalos dokumentumban. Egy RLS-változás
+  // vagy oszlop-átnevezés pontosan így nézne ki. A hívó
+  // (`generateAnnualReportPreview`) try/catch-ben van, tehát a lelkész ezt a
+  // magyar szöveget kapja hibaüzenetként.
   if (
     keresztsegRes.error ||
     hazassagRes.error ||
     temetesRes.error ||
     konfirmalasRes.error ||
-    congRes.error ||
-    dioRes.error
+    congRes.error
   ) {
-    return emptyStats(year)
+    const detail =
+      keresztsegRes.error?.message ||
+      hazassagRes.error?.message ||
+      temetesRes.error?.message ||
+      konfirmalasRes.error?.message ||
+      congRes.error?.message ||
+      ''
+    throw new Error(
+      'Az anyakönyvi adatok (keresztelés, esketés, temetés, konfirmáció) összesítése nem sikerült, ' +
+        'ezért az Éves jelentés III. szekciója nem készíthető el — nullát nem írunk be helyette. ' +
+        `Próbáld újra néhány perc múlva; ha újra hibázik, jelezd a rendszergazdának${detail ? ` (részlet: ${detail})` : ''}.`,
+    )
+  }
+  if (dioRes.error) {
+    // Az egyházmegye-nevek csak CÍMKÉK — a hiányuk nem torzít darabszámot,
+    // ezért ettől nem buktatjuk el a jelentést („Egyházmegye nélkül" marad).
+    console.warn('[scope-vital] az egyházmegye-nevek lekérdezése hibázott:', dioRes.error.message)
   }
 
   const keresztsegByCong = countByCongregation(keresztsegRes.data as VitalEventRow[])

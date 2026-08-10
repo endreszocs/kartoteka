@@ -149,15 +149,24 @@ function generateBelsoMozgasXkey(): string {
  *
  * A heurisztika: ha ugyanazon a napon, ugyanazon a bankszámlán, ugyanazon az
  * összeggel (±1 cent) van rekord, az nagy valószínűséggel ugyanaz a tétel.
+ *
+ * 2026-08-11 (5. kör): FAIL-CLOSED JAVÍTÁS. Korábban `const { data } = await …`
+ * volt (az `error` eldobva), majd `return !!(data && data.length > 0)` — vagyis
+ * a lekérdezés BÁRMILYEN hibája (RLS, hálózat, séma-drift) `false`-t adott,
+ * ami azt jelenti: „nincs ilyen tétel" → az import NÉMÁN BESZÚRTA a sort
+ * MÉGEGYSZER. Egy banki kivonat újraimportálásakor így az egész hónap
+ * megduplázódhatott a könyvben, és a duplikátumok csak az egyenleg-eltérésből
+ * derültek volna ki. Duplikáció-védelemnél a fail-OPEN ugyanolyan rossz
+ * alapértelmezés, mint az év-zárnál: ha nem tudjuk ellenőrizni, NEM szúrunk be.
  */
 async function hasExistingBankTransaction(
   supabase: SupabaseClient,
   congregationId: string,
   params: { date: string; amount: number; bankszamlaId: number; side: 'income' | 'expense' },
-): Promise<boolean> {
+): Promise<{ exists: boolean } | { error: string }> {
   const absAmount = Math.abs(params.amount)
   const table = params.side === 'income' ? 'befizetes' : 'kiadas'
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from(table)
     .select('id')
     .eq('congregation_id', congregationId)
@@ -171,7 +180,17 @@ async function hasExistingBankTransaction(
     .lte('osszeg', absAmount + 0.01)
     .eq('deleted', false)
     .limit(1)
-  return !!(data && data.length > 0)
+  if (error) return { error: error.message }
+  return { exists: !!(data && data.length > 0) }
+}
+
+/** A duplikáció-ellenőrzés hibájának egységes, lelkész-barát magyar üzenete. */
+function duplicateCheckFailedMessage(detail: string): string {
+  return (
+    `Nem sikerült ellenőrizni, hogy ez a tétel már szerepel-e a könyvben (${detail}), ` +
+    'ezért a sort biztonságból KIHAGYTUK — így nem kerülhet be kétszer. ' +
+    'Ellenőrizd az internetkapcsolatot, és indítsd újra az importot ezekre a sorokra.'
+  )
 }
 
 /** ISO dátum (YYYY-MM-DD) ± N nap, időzóna-biztosan (UTC). */
@@ -192,14 +211,21 @@ function dateProximityDays(a: string, b: string): number {
 /**
  * Egy `belso_mozgas_xkey` PÁROSÍTOTT-e már a bank-oldalon? (Van-e olyan befizetés/kiadás
  * ugyanazzal az xkey-vel, aminek `bankszamla_id` ki van töltve.) Ha igen, a mozgás teljes.
+ *
+ * 2026-08-11 (5. kör): FAIL-CLOSED JAVÍTÁS — korábban `const { data } = await …`
+ * (az `error` eldobva) + `return false` a végén. A `false` jelentése „még NINCS
+ * bank-oldali párja", vagyis egy elnyelt lekérdezési hiba miatt a hívó egy MÁR
+ * PÁROSÍTOTT kassza-sort választott volna párnak: a banki sor egy olyan
+ * `belso_mozgas_xkey`-t kapott volna, amihez már tartozik bank-oldal → három
+ * sor egy kulcson, felborult belső-mozgás egyeztetés. Hibánál nem tippelünk.
  */
 async function isXkeyPairedOnBankSide(
   supabase: SupabaseClient,
   congregationId: string,
   xkey: string,
-): Promise<boolean> {
+): Promise<{ paired: boolean } | { error: string }> {
   for (const table of ['befizetes', 'kiadas'] as const) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from(table)
       .select('id')
       .eq('congregation_id', congregationId)
@@ -207,9 +233,10 @@ async function isXkeyPairedOnBankSide(
       .not('bankszamla_id', 'is', null)
       .eq('deleted', false)
       .limit(1)
-    if (data && data.length > 0) return true
+    if (error) return { error: error.message }
+    if (data && data.length > 0) return { paired: true }
   }
-  return false
+  return { paired: false }
 }
 
 /**
@@ -223,15 +250,23 @@ async function isXkeyPairedOnBankSide(
  * a közös-xkey párosítás egyszer sem jött létre; a ±7 az internal-movement-health
  * PAIRING_WINDOW_DAYS-szel konzisztens), NEM törölt, és az xkey-je még NINCS bank-oldalon párosítva.
  *
- * @returns A megtalált kassza-oldali sor id-je + xkey-je (ezt használjuk a banki sorhoz), vagy null.
+ * @returns `{ match }` — a megtalált kassza-oldali sor (vagy `null`, ha nincs) — vagy `{ error }`.
+ *
+ * 2026-08-11 (5. kör): FAIL-CLOSED JAVÍTÁS — a jelöltek lekérdezése is
+ * `const { data: candidates } = await …` volt (az `error` eldobva), és a
+ * `if (!candidates …) return null` a hibát „nincs párosítatlan kassza-oldal"-nak
+ * hazudta. Következmény: az import ÚJ kassza-oldalt hozott létre egy olyan
+ * mozgáshoz, aminek már volt kassza-oldala → duplikált kassza-tétel + örökre
+ * párosítatlan (piros) belső mozgás. Ha az ellenőrzés nem fut le, a sort
+ * inkább kihagyjuk, mint hogy rossz párt vagy duplikátumot gyártsunk.
  */
 async function findUnpairedCashCounterpart(
   supabase: SupabaseClient,
   congregationId: string,
   params: { side: 'income' | 'expense'; amount: number; date: string },
-): Promise<{ id: number; xkey: string } | null> {
+): Promise<{ match: { id: number; xkey: string } | null } | { error: string }> {
   const table = params.side === 'income' ? 'befizetes' : 'kiadas'
-  const { data: candidates } = await supabase
+  const { data: candidates, error: candidatesErr } = await supabase
     .from(table)
     .select('id, belso_mozgas_xkey, datum')
     .eq('congregation_id', congregationId)
@@ -243,7 +278,8 @@ async function findUnpairedCashCounterpart(
     .gte('datum', addDaysIso(params.date, -7))
     .lte('datum', addDaysIso(params.date, 7))
 
-  if (!candidates || candidates.length === 0) return null
+  if (candidatesErr) return { error: candidatesErr.message }
+  if (!candidates || candidates.length === 0) return { match: null }
 
   // Dátum-közelség szerint (legközelebbi elöl)
   const sorted = [...candidates].sort(
@@ -256,9 +292,10 @@ async function findUnpairedCashCounterpart(
     const xkey = c.belso_mozgas_xkey as string | null
     if (!xkey) continue
     const paired = await isXkeyPairedOnBankSide(supabase, congregationId, xkey)
-    if (!paired) return { id: c.id as number, xkey }
+    if ('error' in paired) return { error: paired.error }
+    if (!paired.paired) return { match: { id: c.id as number, xkey } }
   }
-  return null
+  return { match: null }
 }
 
 /**
@@ -461,39 +498,33 @@ export async function importBankTransactionsUseCase(
     // A (dátum, bankszámla, összeg) hármas ha már létezik, ne duplikáljunk.
     // A belső mozgás speciális — mindkét oldalt együttesen ellenőrizzük
     // (ha az egyik oldal megvan, feltehetően a párja is)
-    if (item.action === 'income') {
+    // 2026-08-11 (5. kör): a `hasExistingBankTransaction` mostantól FAIL-CLOSED —
+    // ha a duplikáció-lekérdezés hibára fut, NEM „nincs duplikátum" a válasz,
+    // hanem hiba, és a sort kihagyjuk (a modul szokásos `result.errors` +
+    // `continue` konvenciójával). Így egy pillanatnyi RLS-/hálózati hiba nem
+    // duplikálhatja be az egész banki kivonatot a könyvbe.
+    if (item.action === 'income' || item.action === 'expense' || item.action === 'internal-transfer') {
+      // Belső mozgásnál az amount előjele adja a bank-oldal irányát.
+      const dupSide: 'income' | 'expense' =
+        item.action === 'internal-transfer'
+          ? item.amount < 0
+            ? 'expense'
+            : 'income'
+          : item.action
       const dup = await hasExistingBankTransaction(supabase, congregationId, {
         date: item.date,
         amount: item.amount,
         bankszamlaId: item.bankszamlaId,
-        side: 'income',
+        side: dupSide,
       })
-      if (dup) {
-        result.duplicates++
+      if ('error' in dup) {
+        result.errors.push({
+          rowIndex: item.rowIndex,
+          error: duplicateCheckFailedMessage(dup.error),
+        })
         continue
       }
-    } else if (item.action === 'expense') {
-      const dup = await hasExistingBankTransaction(supabase, congregationId, {
-        date: item.date,
-        amount: item.amount,
-        bankszamlaId: item.bankszamlaId,
-        side: 'expense',
-      })
-      if (dup) {
-        result.duplicates++
-        continue
-      }
-    } else if (item.action === 'internal-transfer') {
-      // Belső mozgás: nézzük meg, van-e már ilyen a bank oldalon (az amount
-      // előjele alapján income vagy expense)
-      const bankSide = item.amount < 0 ? 'expense' : 'income'
-      const dup = await hasExistingBankTransaction(supabase, congregationId, {
-        date: item.date,
-        amount: item.amount,
-        bankszamlaId: item.bankszamlaId,
-        side: bankSide,
-      })
-      if (dup) {
+      if (dup.exists) {
         result.duplicates++
         continue
       }
@@ -658,11 +689,26 @@ export async function importBankTransactionsUseCase(
         let xkey: string = generateBelsoMozgasXkey()
         let counterpartAlreadyExists = false
         if (isKasszaTarget) {
-          const existing = await findUnpairedCashCounterpart(supabase, congregationId, {
+          const counterpart = await findUnpairedCashCounterpart(supabase, congregationId, {
             side: counterpartSide,
             amount: absAmount,
             date: item.date,
           })
+          // 2026-08-11 (5. kör): FAIL-CLOSED — ha a párosítás-keresés hibára fut,
+          // NEM tippelünk „nincs pár"-ra (az új kassza-oldalt gyártana egy már
+          // meglévő mellé), hanem kihagyjuk a sort a szokásos error-konvencióval.
+          if ('error' in counterpart) {
+            result.errors.push({
+              rowIndex: item.rowIndex,
+              error:
+                `Nem sikerült megkeresni ennek a belső mozgásnak a kassza-oldali párját ` +
+                `(${counterpart.error}), ezért a sort biztonságból KIHAGYTUK — így nem jön ` +
+                'létre fölösleges második kassza-tétel. Ellenőrizd az internetkapcsolatot, ' +
+                'és indítsd újra az importot ezekre a sorokra.',
+            })
+            continue
+          }
+          const existing = counterpart.match
           if (existing) {
             xkey = existing.xkey
             counterpartAlreadyExists = true

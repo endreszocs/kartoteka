@@ -12,115 +12,15 @@ import { resolveDioceseScopeId, resolveDioceseScopeIds } from '@/lib/auth/level-
 import type { UnlockRequest } from '@/lib/constants/documents'
 
 // ---------------------------------------------------------------------------
-// Feloldási kérelmek lekérdezése
+// 2026-08-11 (K5 P2 #6) — TÖRÖLVE: `getUnlockRequests` (106 sor).
+// Egyetlen fogyasztója a `components/dashboard/unlock-requests-card.tsx` volt,
+// amit egyetlen útvonal sem mountolt (helyette a
+// `components/dashboard/diocese/requests-section.tsx` fut). A feloldási
+// kérelmeket ugyanebben a fájlban a LENTEBBI `getCongregationOverviewData`
+// állítja elő ugyanabból a két táblából — vagyis ugyanaz a lekérdezés élt itt
+// kétszer, és a két másolat már el is kezdett szétcsúszni. Az elbíráló akciók
+// (`approveUnlockRequest` / `rejectUnlockRequest`) ÉLNEK, azokhoz nem nyúltam.
 // ---------------------------------------------------------------------------
-
-export async function getUnlockRequests(): Promise<UnlockRequest[]> {
-  const access = await getEffectiveAccessContext()
-  if (!access.user) return []
-  if (!access.esperes && !access.admin && !access.master) return []
-
-  const { supabase } = access
-  // 2026-08-09: a hatókör az aktív profile_role-ból oldódik fel (a skalár
-  // profiles.diocese_id csak fallback) — lásd lib/auth/level-scope.ts.
-  const dioceseId = resolveDioceseScopeId(access)
-  // FAIL-CLOSED: feloldható egyházmegye nélkül csak a rendszergazda/master
-  // láthat szűretlen listát — korábban a NULL diocese_id némán ejtette a szűrőt.
-  const unrestricted = access.master || (access.admin && !dioceseId)
-  if (!dioceseId && !unrestricted) return []
-
-  // Lekérdezés: bealitas join congregations, ahol van aktív unlock kérelem
-  let query = supabase
-    .from('bealitas')
-    .select(`
-      id,
-      congregation_id,
-      unlock_requested,
-      unlock_reason,
-      accounting_unlock_requested,
-      accounting_unlock_reason,
-      leltar_unlock_requested,
-      leltar_unlock_reason,
-      congregations!inner(name, diocese_id)
-    `)
-    .or('unlock_requested.eq.true,accounting_unlock_requested.eq.true,leltar_unlock_requested.eq.true')
-
-  // Ha nem master admin, csak a saját egyházmegye gyülekezeteit látjuk
-  if (dioceseId && !access.master) {
-    query = query.eq('congregations.diocese_id', dioceseId)
-  }
-
-  const { data } = await query
-
-  if (!data) return []
-
-  const requests: UnlockRequest[] = []
-
-  for (const row of data) {
-    const cong = (row as Record<string, unknown>).congregations as { name: string } | null
-    const congName = cong?.name || 'Ismeretlen gyülekezet'
-
-    if (row.unlock_requested) {
-      requests.push({
-        congregationId: row.congregation_id,
-        congregationName: congName,
-        year: row.id,
-        type: 'budget',
-        reason: row.unlock_reason || null,
-        requestedAt: null,
-      })
-    }
-    if (row.accounting_unlock_requested) {
-      requests.push({
-        congregationId: row.congregation_id,
-        congregationName: congName,
-        year: row.id,
-        type: 'accounting',
-        reason: row.accounting_unlock_reason || null,
-        requestedAt: null,
-      })
-    }
-    if (row.leltar_unlock_requested) {
-      requests.push({
-        congregationId: row.congregation_id,
-        congregationName: congName,
-        year: row.id,
-        type: 'inventory',
-        reason: row.leltar_unlock_reason || null,
-        requestedAt: null,
-      })
-    }
-  }
-
-  // 2026-07-17 (F5): a hivatalos lelkészi jelentés feloldás-kérelmei — külön
-  // táblából (lelkeszi_jelentes), a bealitas-mintára illesztve. Év-szűrés
-  // szándékosan nincs: egy korábbi évi jelentés feloldása is legitim kérés,
-  // az év soronként a row.ev-ből jön.
-  let jelentesQuery = supabase
-    .from('lelkeszi_jelentes')
-    .select('congregation_id, ev, unlock_reason, congregations!inner(name, diocese_id)')
-    .eq('unlock_requested', true)
-
-  if (dioceseId && !access.master) {
-    jelentesQuery = jelentesQuery.eq('congregations.diocese_id', dioceseId)
-  }
-
-  const { data: jelentesData } = await jelentesQuery
-
-  for (const row of jelentesData || []) {
-    const cong = (row as Record<string, unknown>).congregations as { name: string } | null
-    requests.push({
-      congregationId: row.congregation_id,
-      congregationName: cong?.name || 'Ismeretlen gyülekezet',
-      year: String(row.ev),
-      type: 'jelentes',
-      reason: row.unlock_reason || null,
-      requestedAt: null,
-    })
-  }
-
-  return requests
-}
 
 // ---------------------------------------------------------------------------
 // Feloldási kérelmek elbírálása

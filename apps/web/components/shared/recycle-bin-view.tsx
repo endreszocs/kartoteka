@@ -65,23 +65,40 @@ export function RecycleBinView({
 }) {
   const [isPending, startTransition] = useTransition()
 
-  // Minden tábla soft-deleted rekordjai, reaktívan a Dexie-ből
-  const allDeleted = useLiveQuery(async () => {
-    if (!congregationId) return [] as DeletedRecordSummary[]
-    const result: DeletedRecordSummary[] = []
+  // Minden tábla soft-deleted rekordjai, reaktívan a Dexie-ből.
+  //
+  // 2026-08-11 (P1 #26): a táblánkénti hibát korábban CSAK egy `console.error`
+  // kapta el. Ha egy (vagy minden) tábla olvasása elbukott — Dexie séma-eltérés
+  // verzióváltás után, blokkolt IndexedDB privát ablakban, korrupt store —, a
+  // lista üresen jött vissza, és a komponens a megnyugtató „A kuka üres"
+  // üres-állapotot rajzolta ki. A lelkész ebből azt olvasta ki, hogy a véletlenül
+  // törölt adat VÉGLEG elveszett, pedig csak nem volt kiolvasható — miközben a
+  // 30 napos megőrzés a háttérben lejárt. Ezért a hibás táblákat gyűjtjük, és a
+  // hívó fél (lásd lentebb) figyelmeztető sávot mutat + letiltja az ürítést.
+  const binState = useLiveQuery(async () => {
+    const records: DeletedRecordSummary[] = []
+    const failedTables: string[] = []
+    if (!congregationId) return { records, failedTables }
     for (const t of tables) {
       try {
         const rows = await listDeletedRecords(t.dexieTable, congregationId, {
           labelBuilder: t.labelBuilder,
           limit: 500,
         })
-        result.push(...rows)
+        records.push(...rows)
       } catch (e) {
         console.error('[kuka listDeletedRecords]', t.dexieTable, e)
+        failedTables.push(t.label)
       }
     }
-    return result
+    return { records, failedTables }
   }, [congregationId, tables])
+
+  const allDeleted = binState?.records
+  const failedTables = binState?.failedTables ?? []
+  // Amíg BÁRMELYIK tábla olvashatatlan, a lista hiányos: ürítni tilos (az
+  // ürítés végleges), és üres-állapotot sem szabad ígérni.
+  const hasReadError = failedTables.length > 0
 
   // Csoportosítás tábla szerint
   const groupedByTable = useMemo(() => {
@@ -136,6 +153,14 @@ export function RecycleBinView({
   }
 
   function handleEmptyBin(olderThanDays: number | null) {
+    // 2026-08-11 (P1 #26): a gomb ilyenkor le van tiltva, de a kattintás-út
+    // védelme itt is kell — hiányos listából soha ne induljon végleges törlés.
+    if (hasReadError) {
+      toast.error(
+        'A kuka most nem üríthető: van olyan modul, amelynek a tartalma nem olvasható ki. Frissítsd az oldalt, és próbáld újra.',
+      )
+      return
+    }
     const modifier = olderThanDays === null ? 'MINDENT' : `a 30+ napos sorokat`
     if (
       !confirm(
@@ -195,6 +220,8 @@ export function RecycleBinView({
             </div>
             {totalCount > 0 && (
               <div className="flex flex-wrap gap-2">
+                {/* 2026-08-11 (P1 #26): amíg egy modul tartalma nem olvasható,
+                    az ürítés TILOS — a lista hiányos, az ürítés viszont végleges. */}
                 <Button
                   variant="outline"
                   size="sm"
@@ -202,7 +229,8 @@ export function RecycleBinView({
                   onClick={() =>
                     handleEmptyBin(RECYCLE_BIN_RETENTION_DAYS)
                   }
-                  disabled={isPending}
+                  disabled={isPending || hasReadError}
+                  title={hasReadError ? 'Amíg egy modul tartalma nem olvasható, az ürítés le van tiltva.' : undefined}
                 >
                   <Clock className="mr-1 h-3.5 w-3.5" />
                   {RECYCLE_BIN_RETENTION_DAYS}+ napos sorok ürítése
@@ -212,7 +240,8 @@ export function RecycleBinView({
                   size="sm"
                   className="rounded-lg border-red-300 text-red-700 hover:bg-red-50"
                   onClick={() => handleEmptyBin(null)}
-                  disabled={isPending}
+                  disabled={isPending || hasReadError}
+                  title={hasReadError ? 'Amíg egy modul tartalma nem olvasható, az ürítés le van tiltva.' : undefined}
                 >
                   <Trash2 className="mr-1 h-3.5 w-3.5" />
                   Teljes kuka ürítése
@@ -220,6 +249,30 @@ export function RecycleBinView({
               </div>
             )}
           </div>
+
+          {/* 2026-08-11 (P1 #26): figyelmeztető sáv az olvashatatlan modulokról.
+              A lelkész sose gondolja azt, hogy a törölt adat elveszett, ha csak a
+              helyi olvasás bukott el. */}
+          {hasReadError && (
+            <div
+              role="alert"
+              className="flex flex-col gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 sm:flex-row sm:items-start sm:gap-3 sm:text-sm"
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 sm:mt-0.5" />
+              <div className="min-w-0 space-y-1">
+                <p className="font-semibold">
+                  {failedTables.length} adatcsoport tartalma most nem olvasható ki:{' '}
+                  {failedTables.join(', ')}
+                </p>
+                <p className="leading-relaxed">
+                  A törölt rekordok <strong>NEM vesztek el</strong> — csak ez a lista
+                  hiányos. Frissítsd az oldalt; ha újra ez jelenik meg, zárd be és nyisd
+                  meg újra az alkalmazást, vagy jelezd a rendszergazdának. Amíg ez a
+                  figyelmeztetés látszik, a kuka ürítése le van tiltva.
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3 text-xs text-slate-700">
             <Info className="mr-1 inline h-3.5 w-3.5 text-slate-500" />
@@ -231,8 +284,9 @@ export function RecycleBinView({
         </div>
       </div>
 
-      {/* Üres állapot */}
-      {totalCount === 0 && allDeleted !== undefined && (
+      {/* Üres állapot — csak akkor, ha MINDEN tábla olvasása sikerült
+          (2026-08-11, P1 #26: enélkül az olvasási hiba „a kuka üres"-ként hazudott). */}
+      {totalCount === 0 && allDeleted !== undefined && !hasReadError && (
         <div className="card-raised p-10 text-center">
           <TrashIcon className="mx-auto h-12 w-12 text-slate-300" />
           <p className="mt-3 font-heading text-lg text-slate-600">

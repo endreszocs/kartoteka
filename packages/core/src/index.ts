@@ -252,6 +252,17 @@ export {
   type UndoStornoType,
 } from './finance/undo-storno'
 
+// Év-zár (számadás-véglegesítés) őr — 2026-08-11 (5. kör, P1): a befizetés /
+// kiadás / belső mozgás mentés-use-case-ek közös védelme, hogy a desktop se
+// könyvelhessen egy már véglegesített és beküldött évbe.
+export {
+  assertYearNotFinalizedOffline,
+  assertYearsNotFinalizedForCreate,
+  readYearFinalized,
+  yearFinalizedCreateError,
+  type YearLockError,
+} from './finance/year-lock'
+
 // Tétel-szerkesztés (befizetes + kiadas alapmezők) + dátum-utolsó check — C1c
 export {
   updateTransactionUseCase,

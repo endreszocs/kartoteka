@@ -22,7 +22,7 @@
  *     (printToBrowser, A4 .sheet).
  */
 
-import { useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import {
   Archive,
   Building2,
@@ -32,6 +32,7 @@ import {
   FileCheck,
   FileText,
   Inbox,
+  Loader2,
   MailCheck,
   Printer,
   Search,
@@ -56,6 +57,8 @@ import {
 import {
   acknowledgeKeruletReceipt,
   forwardToKerulet,
+  getSubmissionSnapshot,
+  getSubmissionsForYear,
   updateSubmissionStatus,
 } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
 import type {
@@ -139,7 +142,17 @@ function typeLabel(sub: DocumentSubmission): string {
 // ---------------------------------------------------------------------------
 
 export function DocumentCenter({ level, data }: DocumentCenterProps) {
-  const [yearFilter, setYearFilter] = useState<number | 'all'>('all')
+  const seasonYear = documentSeasonYear()
+  // 2026-08-11 (5. kör, P2-#19): a szerver alapból csak egy ÉV-ABLAKOT tölt be
+  // (szezon-év + előző év + naptári év), ezért az induló szűrő is konkrét év —
+  // a „Minden év" kérésre tölti be a teljes archívumot.
+  const serverLoadedYears = useMemo(
+    () => data.loadedYears ?? data.years,
+    [data.loadedYears, data.years],
+  )
+  const [yearFilter, setYearFilter] = useState<number | 'all'>(() =>
+    (data.loadedYears ?? []).includes(seasonYear) ? seasonYear : 'all',
+  )
   const [typeFilter, setTypeFilter] = useState<DocumentType | 'all'>('all')
   const [search, setSearch] = useState('')
   const [viewer, setViewer] = useState<DocumentSubmission | null>(null)
@@ -149,8 +162,56 @@ export function DocumentCenter({ level, data }: DocumentCenterProps) {
   const [ackNote, setAckNote] = useState('')
   const [isPending, startTransition] = useTransition()
   const [processingId, setProcessingId] = useState<string | null>(null)
+  // Kérésre betöltött évek (P2-#19)
+  const [extraByYear, setExtraByYear] = useState<Record<number, DocumentSubmission[]>>({})
+  const [allYearsSubs, setAllYearsSubs] = useState<DocumentSubmission[] | null>(null)
+  const [loadingYear, setLoadingYear] = useState<number | 'all' | null>(null)
 
-  const seasonYear = documentSeasonYear()
+  const loadedYears = useMemo(
+    () => new Set<number>([...serverLoadedYears, ...Object.keys(extraByYear).map(Number)]),
+    [serverLoadedYears, extraByYear],
+  )
+
+  /** A jelenleg rendelkezésre álló beküldések (alap-ablak + kérésre töltött évek). */
+  const availableSubs = useMemo(() => {
+    if (allYearsSubs) return allYearsSubs
+    const extra = Object.values(extraByYear).flat()
+    if (extra.length === 0) return data.submissions
+    return [...data.submissions, ...extra].sort((a, b) =>
+      (b.submitted_at || '').localeCompare(a.submitted_at || ''),
+    )
+  }, [data.submissions, extraByYear, allYearsSubs])
+
+  /** Igaz, ha a KIVÁLASZTOTT év sorai még nincsenek a kliensen. */
+  const yearPending =
+    loadingYear !== null ||
+    (!allYearsSubs && yearFilter !== 'all' && !loadedYears.has(yearFilter))
+
+  async function selectYear(y: number | 'all') {
+    const previous = yearFilter
+    setYearFilter(y)
+    if (allYearsSubs || loadingYear !== null) return
+    if (y !== 'all' && loadedYears.has(y)) return
+    setLoadingYear(y)
+    try {
+      const res = await getSubmissionsForYear(level, y === 'all' ? null : y)
+      if (res.error) {
+        // Hangos hiba + visszaállás az előző évre: a néma „nincs beküldés"
+        // azt sugallná, hogy a gyülekezetek nem adtak le semmit abban az évben.
+        toast.error(res.error)
+        setYearFilter(previous)
+        return
+      }
+      if (y === 'all') setAllYearsSubs(res.submissions)
+      else setExtraByYear((prev) => ({ ...prev, [y]: res.submissions }))
+    } catch {
+      toast.error('A választott év dokumentumai most nem tölthetők be — próbálja újra.')
+      setYearFilter(previous)
+    } finally {
+      setLoadingYear(null)
+    }
+  }
+
   // A mátrixnak konkrét év kell — „Minden év" mellett a beszámolási szezon éve.
   const matrixYear = yearFilter === 'all' ? seasonYear : yearFilter
 
@@ -166,7 +227,7 @@ export function DocumentCenter({ level, data }: DocumentCenterProps) {
   }, [data.congregations, q])
 
   const filteredSubs = useMemo(() => {
-    return data.submissions.filter((s) => {
+    return availableSubs.filter((s) => {
       if (yearFilter !== 'all' && s.year !== yearFilter) return false
       if (typeFilter !== 'all' && s.document_type !== typeFilter) return false
       if (q) {
@@ -176,12 +237,12 @@ export function DocumentCenter({ level, data }: DocumentCenterProps) {
       }
       return true
     })
-  }, [data.submissions, yearFilter, typeFilter, q])
+  }, [availableSubs, yearFilter, typeFilter, q])
 
   // KPI-k a kiválasztott évre (típus-szűrő és kereső NÉLKÜL — az összképet mutatják).
   const kpiSubs = useMemo(
-    () => data.submissions.filter((s) => yearFilter === 'all' || s.year === yearFilter),
-    [data.submissions, yearFilter],
+    () => availableSubs.filter((s) => yearFilter === 'all' || s.year === yearFilter),
+    [availableSubs, yearFilter],
   )
   const kpi = useMemo(() => {
     let inProgress = 0
@@ -200,13 +261,13 @@ export function DocumentCenter({ level, data }: DocumentCenterProps) {
   // Mátrix-cellák: (gyülekezet, típus) → alap-beküldés a mátrix-évre.
   const matrixCell = useMemo(() => {
     const map = new Map<string, DocumentSubmission>()
-    for (const s of data.submissions) {
+    for (const s of availableSubs) {
       if (s.year !== matrixYear) continue
       if (s.modification_number) continue // a mátrix az alapdokumentumot mutatja
       map.set(`${s.congregation_id}::${s.document_type}`, s)
     }
     return map
-  }, [data.submissions, matrixYear])
+  }, [availableSubs, matrixYear])
 
   // Év-szerinti csoportosított lista („Minden év" nézethez).
   const listGroups = useMemo(() => {
@@ -323,14 +384,22 @@ export function DocumentCenter({ level, data }: DocumentCenterProps) {
           <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Év
           </span>
-          <FilterChip active={yearFilter === 'all'} onClick={() => setYearFilter('all')}>
+          <FilterChip active={yearFilter === 'all'} onClick={() => void selectYear('all')}>
             Minden év
           </FilterChip>
           {data.years.map((y) => (
-            <FilterChip key={y} active={yearFilter === y} onClick={() => setYearFilter(y)}>
+            <FilterChip key={y} active={yearFilter === y} onClick={() => void selectYear(y)}>
               {y}.
             </FilterChip>
           ))}
+          {/* 2026-08-11 (P2-#19): a régebbi évek kérésre töltődnek — jelezzük,
+              hogy a lista épp érkezik (a 0 találat félrevezető lenne). */}
+          {loadingYear !== null && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+              <Loader2 className="size-3.5 animate-spin" />
+              {loadingYear === 'all' ? 'Teljes archívum betöltése…' : `${loadingYear}. év betöltése…`}
+            </span>
+          )}
         </div>
 
         {/* Típus-szűrő chipek */}
@@ -354,7 +423,7 @@ export function DocumentCenter({ level, data }: DocumentCenterProps) {
         <MiniKpiCard
           icon={<Inbox className="size-4 text-sky-600 dark:text-sky-400" />}
           label="Beérkezett"
-          value={kpi.total}
+          value={yearPending ? '…' : kpi.total}
           hint={yearFilter === 'all' ? 'minden évből' : `${yearFilter}. évre`}
           tone="sky"
         />
@@ -362,7 +431,7 @@ export function DocumentCenter({ level, data }: DocumentCenterProps) {
           <MiniKpiCard
             icon={<MailCheck className="size-4 text-amber-600 dark:text-amber-400" />}
             label="Folyamatban"
-            value={kpi.inProgress}
+            value={yearPending ? '…' : kpi.inProgress}
             hint="beküldve / átvéve / ellenőrizve"
             tone="amber"
           />
@@ -370,7 +439,7 @@ export function DocumentCenter({ level, data }: DocumentCenterProps) {
           <MiniKpiCard
             icon={<Send className="size-4 text-amber-600 dark:text-amber-400" />}
             label="Továbbítva"
-            value={kpi.forwarded}
+            value={yearPending ? '…' : kpi.forwarded}
             hint="a kerülethez érkezett"
             tone="amber"
           />
@@ -378,14 +447,14 @@ export function DocumentCenter({ level, data }: DocumentCenterProps) {
         <MiniKpiCard
           icon={<FileCheck className="size-4 text-emerald-600 dark:text-emerald-400" />}
           label="Véglegesített"
-          value={kpi.finalized}
+          value={yearPending ? '…' : kpi.finalized}
           hint={level === 'diocese' ? 'lezárt hivatalos irat' : 'a megyénél lezárva'}
           tone="emerald"
         />
         <MiniKpiCard
           icon={<Undo2 className="size-4 text-rose-600 dark:text-rose-400" />}
           label="Visszaküldött"
-          value={kpi.returned}
+          value={yearPending ? '…' : kpi.returned}
           hint="javításra visszaadva"
           tone="rose"
         />
@@ -397,6 +466,11 @@ export function DocumentCenter({ level, data }: DocumentCenterProps) {
         congregations={filteredCongs}
         matrixCell={matrixCell}
         matrixYear={matrixYear}
+        /* 2026-08-11 (P2-#19): amíg a választott év sorai töltődnek, a mátrix
+           MINDEN cellája „Hiányzik" lenne — ez a legveszélyesebb néma hiba
+           ezen a felületen (azt sugallná, hogy egyetlen gyülekezet sem adta
+           le az iratait). Ezért ilyenkor betöltés-jelzést mutatunk. */
+        loading={yearPending}
         onOpen={(sub) => setViewer(sub)}
       />
 
@@ -410,12 +484,22 @@ export function DocumentCenter({ level, data }: DocumentCenterProps) {
             </h4>
           </div>
           <span className="text-xs text-slate-500 dark:text-slate-400">
-            {filteredSubs.length} találat
+            {yearPending ? 'betöltés…' : `${filteredSubs.length} találat`}
             {yearFilter !== 'all' ? ` · ${yearFilter}. év` : ' · minden év'}
+            {/* A teljes archívum darabszáma akkor is látszik, ha csak az
+                alap év-ablak van betöltve (2026-08-11, P2-#19). */}
+            {typeof data.totalCount === 'number' ? ` · archívum: ${data.totalCount.toLocaleString('hu-HU')}` : ''}
           </span>
         </div>
 
-        {filteredSubs.length === 0 ? (
+        {yearPending ? (
+          <div className="p-10 text-center">
+            <Loader2 className="mx-auto size-8 animate-spin text-slate-300 dark:text-slate-600" />
+            <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
+              A dokumentumok betöltése folyamatban…
+            </p>
+          </div>
+        ) : filteredSubs.length === 0 ? (
           <div className="p-10 text-center">
             <Inbox className="mx-auto size-10 text-slate-300 dark:text-slate-600" />
             <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
@@ -474,7 +558,7 @@ export function DocumentCenter({ level, data }: DocumentCenterProps) {
       </div>
 
       {/* ── Snapshot-néző dialógus ────────────────────────────────────── */}
-      <SnapshotDialog sub={viewer} onClose={() => setViewer(null)} />
+      <SnapshotDialog sub={viewer} level={level} onClose={() => setViewer(null)} />
 
       {/* ── Visszaküldés dialógus (kötelező indoklás) ─────────────────── */}
       <Dialog open={!!returnTarget} onOpenChange={(o) => { if (!o) setReturnTarget(null) }}>
@@ -610,7 +694,8 @@ function MiniKpiCard({
 }: {
   icon: React.ReactNode
   label: string
-  value: number
+  /** 2026-08-11 (P2-#19): string is lehet („…"), amíg az adott év sorai töltődnek. */
+  value: number | string
   hint?: string
   tone: 'sky' | 'amber' | 'emerald' | 'rose'
 }) {
@@ -629,7 +714,7 @@ function MiniKpiCard({
         </span>
       </div>
       <p className="mt-2 text-2xl font-bold leading-tight text-slate-800 dark:text-slate-100">
-        {value.toLocaleString('hu-HU')}
+        {typeof value === 'number' ? value.toLocaleString('hu-HU') : value}
       </p>
       {hint && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{hint}</p>}
     </div>
@@ -645,12 +730,15 @@ function CompletenessMatrix({
   congregations,
   matrixCell,
   matrixYear,
+  loading,
   onOpen,
 }: {
   level: 'diocese' | 'district'
   congregations: DocumentCenterData['congregations']
   matrixCell: Map<string, DocumentSubmission>
   matrixYear: number
+  /** Az adott év beküldései még töltődnek — ne mutassunk hamis „Hiányzik"-ot. */
+  loading?: boolean
   onOpen: (sub: DocumentSubmission) => void
 }) {
   const perTypeCounts = useMemo(() => {
@@ -684,7 +772,14 @@ function CompletenessMatrix({
         </p>
       </div>
 
-      {congregations.length === 0 ? (
+      {loading ? (
+        <div className="p-10 text-center">
+          <Loader2 className="mx-auto size-8 animate-spin text-slate-300 dark:text-slate-600" />
+          <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
+            A(z) {matrixYear}. év beküldései töltődnek — egy pillanat.
+          </p>
+        </div>
+      ) : congregations.length === 0 ? (
         <div className="p-10 text-center">
           <Building2 className="mx-auto size-10 text-slate-300 dark:text-slate-600" />
           <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
@@ -1051,11 +1146,58 @@ function StatusTimeline({ sub, compact }: { sub: DocumentSubmission; compact?: b
 // Snapshot-néző dialógus + nyomtatás
 // ---------------------------------------------------------------------------
 
-function SnapshotDialog({ sub, onClose }: { sub: DocumentSubmission | null; onClose: () => void }) {
+/**
+ * 2026-08-11 (5. kör, P2-#19): a fagyasztott pillanatkép (`snapshot_data`) MÁR
+ * NEM utazik a listával — ez a dialógus kéri le, a megnyitás pillanatában,
+ * darabonként. Így az évi több MB-os jsonb-tömeg eltűnt az oldal
+ * RSC-csomagjából, viszont a részletkártya tartalma változatlan.
+ */
+function SnapshotDialog({
+  sub,
+  level,
+  onClose,
+}: {
+  sub: DocumentSubmission | null
+  level: 'diocese' | 'district'
+  onClose: () => void
+}) {
+  // A pillanatképeket beküldés-azonosító szerint gyűjtjük, így a dialógus
+  // állapota SZÁRMAZTATHATÓ — az effect csak a szerver-akcióval szinkronizál,
+  // nem állít be state-et a törzsében (cascading render).
+  const [snapById, setSnapById] = useState<Record<string, Record<string, unknown>>>({})
+  const [errorById, setErrorById] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    if (!sub || sub.snapshot_data) return
+    if (snapById[sub.id] !== undefined || errorById[sub.id] !== undefined) return
+    const id = sub.id
+    let cancelled = false
+    getSubmissionSnapshot(id, level)
+      .then((res) => {
+        if (cancelled) return
+        if (res.error) setErrorById((prev) => ({ ...prev, [id]: res.error as string }))
+        else setSnapById((prev) => ({ ...prev, [id]: res.snapshot ?? {} }))
+      })
+      .catch(() => {
+        if (cancelled) return
+        setErrorById((prev) => ({
+          ...prev,
+          [id]: 'A beküldött adatok most nem tölthetők be — próbálja újra.',
+        }))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [sub, level, snapById, errorById])
+
+  const snapshot = sub ? sub.snapshot_data ?? snapById[sub.id] ?? null : null
+  const snapError = sub ? errorById[sub.id] ?? null : null
+  const snapLoading = !!sub && snapshot === null && snapError === null
+
   async function handlePrint() {
-    if (!sub) return
+    if (!sub || snapshot === null) return
     try {
-      await printToBrowser(buildSubmissionPrintHtml(sub))
+      await printToBrowser(buildSubmissionPrintHtml(sub, snapshot))
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'A nyomtatás nem indítható el.')
     }
@@ -1095,12 +1237,24 @@ function SnapshotDialog({ sub, onClose }: { sub: DocumentSubmission | null; onCl
                 </div>
               )}
 
-              {/* Snapshot tartalom */}
+              {/* Snapshot tartalom — kérésre töltve (P2-#19) */}
               <div>
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Beküldött adatok (fagyasztott pillanatkép)
                 </p>
-                <SnapshotView sub={sub} />
+                {snapLoading ? (
+                  <p className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                    <Loader2 className="size-4 animate-spin" />
+                    A beküldött adatok betöltése…
+                  </p>
+                ) : snapError ? (
+                  <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+                    <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+                    <span>{snapError}</span>
+                  </div>
+                ) : (
+                  <SnapshotView sub={sub} snap={snapshot ?? {}} />
+                )}
               </div>
             </div>
 
@@ -1108,7 +1262,16 @@ function SnapshotDialog({ sub, onClose }: { sub: DocumentSubmission | null; onCl
               <Button variant="outline" className="rounded-lg" onClick={onClose}>
                 Bezárás
               </Button>
-              <Button className="rounded-lg" onClick={handlePrint}>
+              <Button
+                className="rounded-lg"
+                onClick={handlePrint}
+                disabled={snapLoading || snapshot === null}
+                title={
+                  snapshot === null
+                    ? 'A nyomtatáshoz előbb be kell töltődnie a beküldött adatoknak.'
+                    : undefined
+                }
+              >
                 <Printer className="mr-1 size-3.5" />
                 Nyomtatás
               </Button>
@@ -1121,8 +1284,7 @@ function SnapshotDialog({ sub, onClose }: { sub: DocumentSubmission | null; onCl
 }
 
 /** Strukturált snapshot-megjelenítés az ismert alakokra, JSON-fallbackkel. */
-function SnapshotView({ sub }: { sub: DocumentSubmission }) {
-  const snap = (sub.snapshot_data || {}) as Record<string, unknown>
+function SnapshotView({ sub, snap }: { sub: DocumentSubmission; snap: Record<string, unknown> }) {
   const type = sub.document_type as DocumentType
 
   if (type === 'vagyonleltar') {
@@ -1386,8 +1548,11 @@ function escHtml(v: string): string {
   return v.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
-function buildSubmissionPrintHtml(sub: DocumentSubmission): string {
-  const snap = (sub.snapshot_data || {}) as Record<string, unknown>
+function buildSubmissionPrintHtml(
+  sub: DocumentSubmission,
+  /** 2026-08-11 (P2-#19): a pillanatkép külön érkezik (nincs a listában). */
+  snap: Record<string, unknown>,
+): string {
   const type = sub.document_type as DocumentType
   const label = typeLabel(sub)
 

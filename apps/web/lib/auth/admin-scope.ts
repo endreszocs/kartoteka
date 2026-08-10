@@ -232,16 +232,46 @@ export async function assertUserInScope(
   // Pending (gyülekezet nélküli) felhasználó: a regisztrációs kérelem KÉRT
   // egyházkerülete dönt — a kerületi admin csak a saját kerületébe jelentkezőt
   // hagyhatja jóvá / utasíthatja el.
-  const email = ((data as { email?: string | null }).email || '').toLowerCase()
+  //
+  // BIZTONSÁGI FIX 2026-08-11 (#13): a korábbi ág a cél profil e-mail-címét NYERSEN
+  // adta át az `ilike`-nak. A PostgREST `ilike`-ban az `_` és a `%` JOKER, ráadásul
+  // `order(created_at desc) + limit 1` miatt a LEGÚJABB illeszkedő sor nyert. Egy „A"
+  // kerületi admin tehát a publikus /hozzaferes-kerese űrlapon beküldhetett egy
+  // `nagyXpeter@ref.ro` kérelmet `requested_district_id = A`-val, és ezzel hatókört
+  // szerzett a „B" kerületi `nagy_peter@ref.ro` fölé — onnan pedig nyílt a deleteUser
+  // (anonimizálás + belépés-tiltás), a rejectPendingUser, az updateUserRole és a
+  // quickApproveUser. Ez pontosan a fájl fejlécében rögzített döntést („más kerületet
+  // NE is lásson") ütötte ki.
+  //
+  // Elsődlegesen ezért a SZÖVEGES e-mail helyett a `resulting_user_id` FK-n
+  // párosítunk (a publikus kérelem-beszúrás óta minden sorban ki van töltve —
+  // hozzaferes-kerese/actions.ts, oauth-complete/actions.ts, access-requests-actions.ts),
+  // és csak ha az nem hoz találatot (régi, még nem visszatöltött sorok), esünk vissza
+  // az e-mailes keresésre — ott is escape-elt mintával ÉS pontos, kisbetűs
+  // egyenlőség-újraellenőrzéssel.
+  const { data: reqById } = await access.supabase
+    .from('access_requests')
+    .select('requested_district_id')
+    .eq('resulting_user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const reqDistById =
+    (reqById as { requested_district_id?: string | null } | null)?.requested_district_id ?? null
+  if (reqDistById && scope.districtIds.includes(reqDistById)) return
+
+  const email = ((data as { email?: string | null }).email || '').trim().toLowerCase()
   if (email) {
-    const { data: req } = await access.supabase
+    const pattern = email.replace(/[\\%_]/g, (m) => `\\${m}`)
+    const { data: reqRows } = await access.supabase
       .from('access_requests')
-      .select('requested_district_id')
-      .ilike('email', email)
+      .select('email, requested_district_id')
+      .ilike('email', pattern)
       .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-    const reqDist = (req as { requested_district_id?: string | null } | null)?.requested_district_id ?? null
+      .limit(20)
+    const exact = ((reqRows || []) as Array<{ email?: string | null; requested_district_id?: string | null }>)
+      .find((r) => (r.email || '').trim().toLowerCase() === email)
+    const reqDist = exact?.requested_district_id ?? null
     if (reqDist && scope.districtIds.includes(reqDist)) return
   }
 

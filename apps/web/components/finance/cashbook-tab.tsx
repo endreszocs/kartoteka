@@ -36,6 +36,9 @@ type WebCashbookTabProps = Pick<
   | 'congregationName'
   | 'incomeCategories'
   | 'expenseCategories'
+  // 2026-08-11 (5. kör, P0): a véglegesített (beküldött) év zárja a szerkesztést —
+  // eddig a fül nem is ismerte a `bealitas.accounting_finalized` flaget.
+  | 'accountingFinalized'
   | 'onTransactionChanged'
   | 'onOpenOpeningBalances'
 >

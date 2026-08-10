@@ -1,10 +1,10 @@
 ﻿'use server'
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { selectAllPaged } from '@kartoteka/supabase-client'
 import { requireAdminAccess } from '@/lib/auth/admin-access'
 import {
   assertCongregationInScope,
-  assertDioceseInScope,
   assertUserInScope,
   getAdminDistrictScope,
   getScopedCongregationIds,
@@ -77,7 +77,7 @@ async function findApprovalTarget(supabase: SupabaseClient, congregationId: stri
   return data?.[0] || null
 }
 
-// â”€â”€â”€ ĂttekintĂ©s â”€â”€â”€
+// ─── Áttekintés ───
 
 export async function getAdminOverview() {
   const { supabase, access } = await requireMasterAdmin()
@@ -174,7 +174,7 @@ export async function getAdminOverview() {
   }
 }
 
-// â”€â”€â”€ GyĂĽlekezetek â”€â”€â”€
+// ─── Gyülekezetek ───
 
 export async function getCongregations() {
   const { supabase, access } = await requireMasterAdmin()
@@ -358,56 +358,6 @@ export async function getCongregationsByDiocese(): Promise<{
   return { data: result }
 }
 
-export async function getCongregationDetails(congId: string) {
-  const { supabase, access } = await requireMasterAdmin()
-  // #2: kerületi admin csak a saját kerülete gyülekezetének részleteit nézheti.
-  await assertCongregationInScope(access, congId)
-  const yearStart = `${new Date().getFullYear()}-01-01`
-
-  const [
-    { data: members },
-    totalMemberCount,
-    { data: users },
-    { data: incomeAgg },
-    { data: expenseAgg },
-  ] = await Promise.all([
-    supabase
-      .from('szemely')
-      .select('id, csaladnev, k_nev, ferfi, sz_datum')
-      .eq('congregation_id', congId)
-      .eq('isvisible', true)
-      .eq('meghalt', false)
-      .order('csaladnev')
-      .limit(100),
-    countActiveMembers(supabase, [congId]),
-    supabase
-      .from('profiles')
-      .select('id, full_name, email, role, status')
-      .eq('congregation_id', congId),
-    supabase
-      .from('befizetes')
-      .select('osszeg')
-      .eq('congregation_id', congId)
-      .or('deleted.eq.false,deleted.is.null')
-      .gte('datum', yearStart),
-    supabase
-      .from('kiadas')
-      .select('osszeg')
-      .eq('congregation_id', congId)
-      .or('deleted.eq.false,deleted.is.null')
-      .gte('datum', yearStart),
-  ])
-
-  const totalIncome = (incomeAgg || []).reduce((s, r) => s + (r.osszeg || 0), 0)
-  const totalExpense = (expenseAgg || []).reduce((s, r) => s + (r.osszeg || 0), 0)
-
-  return {
-    members: members || [],
-    memberCount: totalMemberCount || 0,
-    users: users || [],
-    finance: { income: totalIncome, expense: totalExpense, balance: totalIncome - totalExpense },
-  }
-}
 
 export async function enterCongregation(congId: string, reason?: string) {
   const { supabase, user, access } = await requireMasterAdmin()
@@ -510,49 +460,21 @@ export async function enterCongregation(congId: string, reason?: string) {
   return { success: true, mode: 'pending', message: 'A hozzáférési kérelem elküldve a gyülekezet felelős felhasználójának.' }
 }
 
-// â”€â”€â”€ FelhasznĂˇlĂłk â”€â”€â”€
+// ─── Felhasználók ───
 
-export async function getPendingUsers() {
-  const { supabase } = await requireMasterAdmin()
-
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, full_name, email, status, created_at, congregation_name_input')
-    .eq('status', 'pending')
-    .order('created_at', { ascending: false })
-
-  if (error) return { error: error.message }
-  return { data: data || [] }
-}
-
-export async function getActiveUsers() {
-  const { supabase } = await requireMasterAdmin()
-
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, full_name, email, role, status, congregation_id, congregations(nev_hu, name)')
-    .eq('status', 'active')
-    .order('full_name')
-
-  if (error) return { error: error.message }
-  return { data: data || [] }
-}
-
-// 2026-05-02 (v0.9.41) — Új action: minden user, status-tól függetlenül.
-// Felhasználó panasza alapján — az új signUp-os user-ek 'pending'-ben
-// vannak, és az "Aktív" lista nem mutatja őket. Ez az action vissza-
-// adja az ÖSSZESET, és a UI szűr/csoportosít státusz szerint.
-export async function getAllUsers() {
-  const { supabase } = await requireMasterAdmin()
-
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, full_name, email, role, status, congregation_id, created_at, congregations(nev_hu, name)')
-    .order('created_at', { ascending: false })
-
-  if (error) return { error: error.message }
-  return { data: data || [] }
-}
+// BIZTONSÁGI FIX 2026-08-11 (#15): a `getPendingUsers`, `getActiveUsers` és
+// `getAllUsers` exportok TÖRÖLVE. Mindhárom a `profiles` táblát kérdezte le
+// BÁRMILYEN hatókör-szűrő NÉLKÜL, miközben a fájl minden más listázója
+// `getAdminDistrictScope` / `getScopedDioceseIds` / `getScopedCongregationIds`
+// szűrést fűz hozzá (getCongregations, getDioceses, getAllUsersWithScope).
+// Hívójuk sehol nem volt az apps/ alatt — DE egy `'use server'` export akkor is
+// ÉLŐ POST-végpont: egy `egyhazkeruleti_admin` a saját kerületén kívüli összes
+// felhasználó nevét, e-mail-címét, szerepkörét és gyülekezetét lekérhette volna
+// vele (admin-scope.ts fejléce: „más kerületet NE is lásson"), és az RLS sem
+// fogta volna meg (a `profil_lathato_e` 8. ága minden hozzárendeletlen pending
+// profilt megmutat bármely kerületi adminnak).
+// A felület a hatókörös `getAllUsersWithScope()`-ot használja — ha ezekre a
+// listákra valaha újra szükség lenne, ONNAN kell származtatni őket.
 
 // 2026-05-02 (v0.9.45) — Új action: a teljes user-listához a teljes hierarchikus
 // kontextust is JOIN-oljuk — gyülekezet + egyházmegye + egyházkerület. A profile_roles
@@ -1004,32 +926,61 @@ export async function quickApproveUser(userId: string) {
   // CongregationOnlyNotice holtpontra jutna. A profiles.congregation_id elég a
   // dashboardhoz (az effectiveCongregationId arra esik vissza). Best-effort: ha
   // nincs access_request, marad a sima aktiválás.
+  //
+  // BIZTONSÁGI FIX 2026-08-11 (#13 rokon-eset): a kérelem korábban a cél profil
+  // e-mail-címével, NYERSEN `ilike`-olva került elő. A PostgREST `ilike`-ban az `_`
+  // és a `%` JOKER, és `order(created_at desc) + limit 1` miatt a LEGÚJABB illeszkedő
+  // sor nyert — így egy támadó a publikus űrlapon beküldött `ujXlelkesz@…` kérelemmel
+  // eldönthette volna, MELYIK gyülekezethez rendelődik a jóváhagyott lelkész.
+  // Elsődlegesen a `resulting_user_id` FK-n párosítunk, és csak régi (visszatöltetlen)
+  // soroknál esünk vissza escape-elt mintára + pontos e-mail-egyenlőségre.
   let congId: string | null = null
   let dioceseId: string | null = null
   try {
-    const { data: prof } = await supabase
-      .from('profiles')
-      .select('email')
-      .eq('id', userId)
+    type AccessRequestLite = {
+      email?: string | null
+      requested_congregation_id?: string | null
+      requested_diocese_id?: string | null
+    }
+    const AR_COLUMNS = 'email, requested_congregation_id, requested_diocese_id'
+
+    const { data: arById } = await supabase
+      .from('access_requests')
+      .select(AR_COLUMNS)
+      .eq('resulting_user_id', userId)
+      .not('requested_congregation_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle()
-    const email = (prof as { email?: string | null } | null)?.email
-    if (email) {
-      const { data: ar } = await supabase
-        .from('access_requests')
-        .select('requested_congregation_id, requested_diocese_id')
-        .ilike('email', email)
-        .not('requested_congregation_id', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
+
+    let match = (arById as AccessRequestLite | null) ?? null
+
+    if (!match) {
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('email')
+        .eq('id', userId)
         .maybeSingle()
-      if (ar) {
-        const row = ar as {
-          requested_congregation_id?: string | null
-          requested_diocese_id?: string | null
-        }
-        congId = row.requested_congregation_id ?? null
-        dioceseId = row.requested_diocese_id ?? null
+      const email = ((prof as { email?: string | null } | null)?.email || '').trim().toLowerCase()
+      if (email) {
+        const pattern = email.replace(/[\\%_]/g, (m) => `\\${m}`)
+        const { data: arRows } = await supabase
+          .from('access_requests')
+          .select(AR_COLUMNS)
+          .ilike('email', pattern)
+          .not('requested_congregation_id', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(20)
+        match =
+          ((arRows || []) as AccessRequestLite[]).find(
+            (r) => (r.email || '').trim().toLowerCase() === email,
+          ) ?? null
       }
+    }
+
+    if (match) {
+      congId = match.requested_congregation_id ?? null
+      dioceseId = match.requested_diocese_id ?? null
     }
   } catch {
     // best-effort — gyülekezet nélkül is aktiválható
@@ -1156,175 +1107,22 @@ export async function getDioceses() {
   return data || []
 }
 
-export async function approveUser(userId: string, dioceseId: string, congregationName: string) {
-  const { supabase, user: adminUser, access } = await requireMasterAdmin()
+// 2026-08-11 (K5 P2 #6) — TÖRÖLVE: `approveUser` (122 sor) és `updateUserRole`.
+// Egyik exportnak sem volt hívója sehol a repóban, DE egy `use server` export
+// akkor is ÉLŐ POST-végpont, nem csak holt forráskód.
+//   • `approveUser` a felhasználó-aktiválás MÁSODIK, párhuzamosan sodródó
+//     változata volt: gyülekezetet is LÉTREHOZOTT puszta név alapján. A felület
+//     2026-05-03 óta a `quickApproveUser` + `createProfileRole` úton megy
+//     (components/admin/users/unified-users-tab.tsx). Két aktiválási ág =
+//     ugyanaz a hibaosztály, amit a memória „a második felület a régi
+//     implementációt őrzi" néven rögzít.
+//   • `updateUserRole` a SAJÁT @deprecated blokkja szerint sem írhatta volna
+//     többé a legacy `profiles.role` oszlopot — mégis pontosan azt tette
+//     (`.from('profiles').update({ role })`), megkerülve a profile_roles
+//     rendszert és a `syncProfileRoleToLegacy` helpert.
+// Ha valaha újra kellenek: a profile_roles ágból kell származtatni őket.
 
-  if (!dioceseId || !congregationName.trim()) {
-    return { error: 'Egyházmegye és gyülekezet megadása kötelező.' }
-  }
-  // #2: kerületi admin csak a saját kerületébe jelentkezőt, és csak a saját
-  // kerülete egyházmegyéjébe hagyhatja jóvá.
-  try {
-    await assertUserInScope(access, userId)
-    await assertDioceseInScope(access, dioceseId)
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Nincs jogosultsága.' }
-  }
-
-  // Gyülekezet keresés vagy létrehozás
-  const normalizedName = congregationName.trim()
-  const { data: existingCong } = await supabase
-    .from('congregations')
-    .select('id')
-    .ilike('nev_hu', normalizedName)
-    .maybeSingle()
-
-  let congId: string
-  let congregationWasCreated = false
-
-  if (existingCong) {
-    congId = existingCong.id
-  } else {
-    const { data: newCong, error: insertErr } = await supabase
-      .from('congregations')
-      .insert({ nev_hu: normalizedName, name: normalizedName, diocese_id: dioceseId })
-      .select('id')
-      .single()
-
-    if (insertErr || !newCong) return { error: `Gyülekezet létrehozási hiba: ${insertErr?.message}` }
-    congId = newCong.id
-    congregationWasCreated = true
-  }
-
-  // Profil frissítés — SECURITY DEFINER RPC, megkerüli az RLS-t és a GRANT-okat.
-  const { data: rpcRes, error: rpcErr } = await supabase
-    .rpc('admin_activate_user', {
-      p_user_id: userId,
-      p_congregation_id: congId,
-      p_diocese_id: dioceseId,
-    })
-    .single()
-
-  if (rpcErr) return { error: `Profil frissítési hiba: ${rpcErr.message}` }
-  const result = rpcRes as
-    | { user_id: string; previous_status: string; new_status: string; was_updated: boolean }
-    | null
-
-  if (!result || !result.was_updated) {
-    return { error: `A felhasználó már nem várakozó (jelenlegi: ${result?.new_status || 'ismeretlen'}).` }
-  }
-
-  // Lelkipásztor profile_role automatikus beillesztése (ha még nincs ilyen sora)
-  // Ezzel a multi-role rendszer is "lát" a frissen jóváhagyott lelkészről.
-  let createdProfileRoleId: string | null = null
-  try {
-    const { data: existingPastorRole } = await supabase
-      .from('profile_roles')
-      .select('id')
-      .eq('profile_id', userId)
-      .eq('scope', 'congregation')
-      .eq('scope_id', congId)
-      .eq('role', 'lelkesz')
-      .maybeSingle()
-
-    if (!existingPastorRole) {
-      const { data: insertedRole } = await supabase
-        .from('profile_roles')
-        .insert({
-          profile_id: userId,
-          scope: 'congregation',
-          scope_id: congId,
-          role: 'lelkesz',
-          approval_status: 'approved',
-          granted_by: adminUser?.id ?? null,
-          approved_by: adminUser?.id ?? null,
-          approved_at: new Date().toISOString(),
-          active: true,
-        })
-        .select('id')
-        .single()
-      createdProfileRoleId = insertedRole?.id ?? null
-    }
-  } catch {
-    // best-effort — a fő aktiválás sikeres
-  }
-
-  // Értesítés (javított mezőnevek: cim/uzenet/tipus/olvasva)
-  try {
-    await supabase.from('ertesitesek').insert({
-      user_id: userId,
-      tipus: 'success',
-      cim: 'Fiókja jóváhagyva',
-      uzenet:
-        'Fiókja jóváhagyásra került! Mostantól bejelentkezhet és használhatja a Kartotéka rendszert.',
-      olvasva: false,
-    })
-  } catch {
-    // ertesitesek best-effort
-  }
-
-  await logAuditEvent({
-    action: 'user.approve',
-    targetTable: 'profiles',
-    targetId: userId,
-    metadata: {
-      congregation_id: congId,
-      diocese_id: dioceseId,
-      congregation_was_created: congregationWasCreated,
-      auto_created_profile_role_id: createdProfileRoleId,
-    },
-  })
-
-  revalidatePath('/admin')
-  revalidatePath('/admin/felhasznalok')
-  return { success: true }
-}
-
-/**
- * @deprecated Sprint U.5 (2026-05-03): a `profiles.role` legacy mezőt többé nem
- * írjuk közvetlenül a UI-ból. Helyette a `profile_roles` táblába írunk
- * (`createProfileRole` action), és a `syncProfileRoleToLegacy` szerver-helper
- * automatikusan szinkronizálja a `profiles.role` mezőt. Ez a function backwards-
- * compat-célból megmarad, de a UI nem hívja.
- */
-export async function updateUserRole(userId: string, role: string) {
-  const { supabase, access } = await requireMasterAdmin()
-  // #2: kerületi admin csak a saját kerülete felhasználójának szerepét állíthatja.
-  try {
-    await assertUserInScope(access, userId)
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Nincs jogosultsága.' }
-  }
-
-  // Sprint U.5: kibővített validRoles — az összes ismert role (a memory feedback szerint).
-  const validRoles = [
-    'lelkesz',
-    'esperes',
-    'egyhazmegyei_admin',
-    'egyhazkeruleti_admin',
-    'admin',
-    'konyvelo',
-    'egyhazmegyei_szamvevo',
-  ]
-  if (!validRoles.includes(role)) return { error: 'Érvénytelen szerepkör.' }
-
-  console.warn(
-    '[DEPRECATED] updateUserRole — használja a createProfileRole action-t a multi-role rendszerben.',
-  )
-
-  const { error } = await supabase
-    .from('profiles')
-    .update({ role })
-    .eq('id', userId)
-    .eq('status', 'active')
-
-  if (error) return { error: error.message }
-
-  revalidatePath('/admin')
-  return { success: true }
-}
-
-// â”€â”€â”€ TĂˇmogatĂˇs â”€â”€â”€
+// ─── Támogatás ───
 
 export async function getSupportTickets() {
   const { supabase } = await requireMasterAdmin()
@@ -1333,7 +1131,9 @@ export async function getSupportTickets() {
     const { data } = await getAdminSupportTicketsCompat(supabase)
     return { data: data.filter(ticket => ticket.type === 'request') }
   } catch (error) {
-    return { error: error instanceof Error ? error.message : 'A support jegyek lekerese sikertelen.' }
+    // 2026-08-11 (P2 #29): ékezetesítve és cselekvésre fordítva (volt:
+    // „A support jegyek lekerese sikertelen.").
+    return { error: error instanceof Error ? error.message : 'A támogatási jegyeket nem sikerült lekérni. Frissítsd az oldalt, és próbáld újra.' }
   }
 }
 
@@ -1357,7 +1157,11 @@ export async function replySupportTicket(ticketId: string, replyContent: string)
         status: 'read',
       }
     } catch (error) {
-      replyError = error instanceof Error ? error.message : 'A support valasz nem mentheto.'
+      // 2026-08-11 (P2 #29): ékezetesítve és cselekvésre fordítva (volt:
+      // „A support valasz nem mentheto."). A „másold ki a szöveget" tanács
+      // azért kell, mert a beírt válasz a hiba után is a mezőben marad, de egy
+      // navigáció elviszi.
+      replyError = error instanceof Error ? error.message : 'A választ nem sikerült elmenteni. Másold ki a szöveget, mielőtt elnavigálsz, majd próbáld újra.'
       return null
     }
   })()
@@ -1400,8 +1204,46 @@ export async function closeSupportTicket(ticketId: string) {
   return { success: true }
 }
 
-// â”€â”€â”€ AdatminĹ‘sĂ©g â”€â”€â”€
+// ─── Adatminőség ───
 
+// Egy PostgREST válasz maximuma (a Supabase alapértelmezett `max-rows` értéke).
+// Enélkül a lekérdezés NÉMÁN 1000 sornál elvágódik.
+const QUALITY_PAGE_SIZE = 1000
+// Hány gyülekezet-azonosító mehet egyetlen `.in()` szűrőbe. A szűrő a
+// query-stringben utazik, ezért nem tolhatjuk bele több száz uuid-t egyszerre.
+const QUALITY_CONG_CHUNK = 40
+// Egyszerre futó köteg-lekérdezések száma: korlátozott párhuzamosság, hogy a
+// szerver-akció ne fusson bele a platform kérés-időtúllépésébe.
+const QUALITY_CONCURRENCY = 4
+
+interface QualityCounter {
+  missingCnp: number
+  missingGender: number
+  missingBirthdate: number
+}
+
+/**
+ * TELJESÍTMÉNY- ÉS ADATHŰSÉG-FIX 2026-08-11 (#17).
+ *
+ * Ami rossz volt:
+ *  1. N+1 — gyülekezetenként EGY külön `szemely` lekérdezés futott, egymás
+ *     után. Egy kerületi/master admin esetén ez több száz soros kör-út egyetlen
+ *     szerver-akcióban: a művelet időtúllépésbe fut, és a lelkész/adminisztrátor
+ *     semmit nem kap vissza.
+ *  2. Lapozás nélkül — a PostgREST 1000 sornál NÉMÁN elvágja a választ, tehát
+ *     az 1000 főnél nagyobb gyülekezetek hiányzó CNP / nem / születési dátum
+ *     darabszáma alulmért volt, hibaüzenet nélkül.
+ *  3. Néma nulla — a `if (!congs) return { data: [] ... }` ág lekérdezési hiba
+ *     esetén is „nincs hibás adat" eredményt adott.
+ *
+ * Miért jó a mostani megoldás: a gyülekezet-azonosítókat kötegeljük
+ * (`.in('congregation_id', chunk)`), kötegenként determinisztikus rendezéssel
+ * (`.order('id')`) végiglapozunk, és JS-ben összegzünk gyülekezetenként. Bármely
+ * részlekérdezés hibája HANGOS hibát dob — a felület hibát mutat, nem nullát.
+ *
+ * Hosszú távon ezt egyetlen `group by congregation_id` SECURITY DEFINER RPC
+ * váltja ki (a pontos SQL a 2026-08-11-es diagnosztikai jelentésben).
+ */
 export async function runQualityCheck() {
   const { supabase, access } = await requireMasterAdmin()
 
@@ -1412,36 +1254,90 @@ export async function runQualityCheck() {
     .select('id, nev_hu, name')
     .order('nev_hu')
   if (scopedDioceseIds) congQ.in('diocese_id', scopedDioceseIds)
-  const { data: congs } = await congQ
+  const { data: congs, error: congError } = await congQ
 
-  if (!congs) return { data: [], totals: { missingCnp: 0, missingGender: 0, missingBirthdate: 0 } }
+  if (congError) {
+    throw new Error(
+      `A gyülekezetek listája nem tölthető be, ezért az adatminőség-ellenőrzés nem futtatható: ${congError.message}`,
+    )
+  }
+
+  if (!congs || congs.length === 0) {
+    return { data: [], totals: { missingCnp: 0, missingGender: 0, missingBirthdate: 0 } }
+  }
+
+  const perCongregation = new Map<string, QualityCounter>()
+
+  const chunks: string[][] = []
+  for (let i = 0; i < congs.length; i += QUALITY_CONG_CHUNK) {
+    chunks.push(congs.slice(i, i + QUALITY_CONG_CHUNK).map((c) => String(c.id)))
+  }
+
+  async function countChunk(congregationIds: string[]) {
+    // 2026-08-11 (5. kör, P3 #15): KÖZÖS `selectAllPaged` a kézi ciklus helyett.
+    // A régi `rows.length < QUALITY_PAGE_SIZE` stop-feltétel + FIX lépésköz
+    // leszállított szerver-plafonnál (Max Rows < lapméret) az első lap után
+    // kilépett, illetve sorokat ugrott át — az adatminőség-jelentés így KEVESEBB
+    // hiányzó CNP-t / nemet / születési dátumot mutatott volna, mint a valóság:
+    // pont a fordítottja annak, amiért az esperes ezt a listát nézi.
+    // A determinisztikus `id` ASC rendezést a helper adja.
+    const { data: rows, error } = await selectAllPaged<{
+      congregation_id: string | null
+      cnp: string | null
+      ferfi: boolean | null
+      sz_datum: string | null
+    }>(
+      supabase
+        .from('szemely')
+        .select('congregation_id, cnp, ferfi, sz_datum')
+        .in('congregation_id', congregationIds)
+        .eq('isvisible', true)
+        .eq('meghalt', false),
+      { pageSize: QUALITY_PAGE_SIZE, dedupeBy: null },
+    )
+
+    if (error) {
+      throw new Error(
+        `A tagnyilvántartás beolvasása megszakadt az adatminőség-ellenőrzés közben: ${error.message}`,
+      )
+    }
+
+    for (const m of rows) {
+      const key = m.congregation_id ? String(m.congregation_id) : ''
+      if (!key) continue
+      let counter = perCongregation.get(key)
+      if (!counter) {
+        counter = { missingCnp: 0, missingGender: 0, missingBirthdate: 0 }
+        perCongregation.set(key, counter)
+      }
+      if (!m.cnp) counter.missingCnp += 1
+      if (m.ferfi === null || m.ferfi === undefined) counter.missingGender += 1
+      if (!m.sz_datum) counter.missingBirthdate += 1
+    }
+  }
+
+  for (let i = 0; i < chunks.length; i += QUALITY_CONCURRENCY) {
+    await Promise.all(chunks.slice(i, i + QUALITY_CONCURRENCY).map(countChunk))
+  }
 
   const results: { congName: string; missingCnp: number; missingGender: number; missingBirthdate: number }[] = []
   let totalCnp = 0, totalGender = 0, totalBirth = 0
 
+  // A `congs` sorrendjét megtartjuk (nev_hu szerint rendezve jött le).
   for (const c of congs) {
-    const { data: members } = await supabase
-      .from('szemely')
-      .select('cnp, ferfi, sz_datum')
-      .eq('congregation_id', c.id)
-      .eq('isvisible', true)
-      .eq('meghalt', false)
+    const counter = perCongregation.get(String(c.id))
+    if (!counter) continue
+    if (counter.missingCnp === 0 && counter.missingGender === 0 && counter.missingBirthdate === 0) continue
 
-    if (!members || members.length === 0) continue
-
-    let cnp = 0, gender = 0, birth = 0
-    for (const m of members) {
-      if (!m.cnp) cnp++
-      if (m.ferfi === null || m.ferfi === undefined) gender++
-      if (!m.sz_datum) birth++
-    }
-
-    if (cnp > 0 || gender > 0 || birth > 0) {
-      results.push({ congName: c.nev_hu || c.name || 'Ismeretlen', missingCnp: cnp, missingGender: gender, missingBirthdate: birth })
-      totalCnp += cnp
-      totalGender += gender
-      totalBirth += birth
-    }
+    results.push({
+      congName: c.nev_hu || c.name || 'Ismeretlen',
+      missingCnp: counter.missingCnp,
+      missingGender: counter.missingGender,
+      missingBirthdate: counter.missingBirthdate,
+    })
+    totalCnp += counter.missingCnp
+    totalGender += counter.missingGender
+    totalBirth += counter.missingBirthdate
   }
 
   return {

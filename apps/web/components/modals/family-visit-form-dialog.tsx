@@ -91,20 +91,30 @@ export function FamilyVisitFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
+      {/*
+        2026-08-11 (K5 #27): a dialógus telefonon KILÓGOTT a képernyőből.
+        Mi volt a hiba: a DialogContent `overflow-hidden`-t kapott max-magasság
+        NÉLKÜL, a belső fehér doboz szintén — mivel a modális dialógus az oldal
+        görgetését zárolja, egy iPhone SE-n (~560px látható magasság) a ~650px-es
+        tartalom alja (köztük a mentés gomb) SEMMILYEN módon nem volt elérhető.
+        Javítás: a belső doboz kapja a max-magasságot + a függőleges görgetést,
+        a bezáró X pedig kikerült a görgethető dobozból (a DialogContent-re),
+        hogy görgetés közben is a helyén maradjon.
+      */}
       <DialogContent
-        className="!w-[min(560px,calc(100vw-2rem))] !max-w-[min(560px,calc(100vw-2rem))] p-0 overflow-hidden rounded-2xl border-0 bg-transparent shadow-none"
+        className="!w-[min(560px,calc(100vw-2rem))] !max-w-[min(560px,calc(100vw-2rem))] max-h-[calc(100dvh-2rem)] p-0 overflow-hidden rounded-2xl border-0 bg-transparent shadow-none"
         showCloseButton={false}
       >
-        <div className="relative overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200">
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="absolute right-3 top-3 z-10 inline-flex size-8 items-center justify-center rounded-full bg-white/95 text-slate-500 shadow-md transition hover:text-slate-700 hover:bg-white"
-            aria-label="Bezárás"
-          >
-            <X className="size-4" />
-          </button>
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          className="absolute right-3 top-3 z-20 inline-flex size-8 items-center justify-center rounded-full bg-white/95 text-slate-500 shadow-md transition hover:text-slate-700 hover:bg-white"
+          aria-label="Bezárás"
+        >
+          <X className="size-4" />
+        </button>
 
+        <div className="relative max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200">
           {/* Header — rose theme (mint a Visits-fülnek) */}
           <header className="border-b border-slate-100 bg-gradient-to-br from-rose-50/70 via-white to-pink-50/40 px-5 py-4 sm:px-6 sm:py-5">
             <div className="flex items-start gap-3">

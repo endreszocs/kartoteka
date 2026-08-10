@@ -6,6 +6,28 @@ import { Menu as MenuPrimitive } from "@base-ui/react/menu"
 import { cn } from "../lib/utils"
 import { ChevronRightIcon, CheckIcon } from "lucide-react"
 
+/**
+ * 2026-08-11 (P2 #23) — semleges fókusz-kiemelés a menüsorokon.
+ *
+ * Eddig `focus:bg-accent focus:text-accent-foreground` volt, és a
+ * `**:text-accent-foreground` MINDEN leszármazottat átfestett. Az élő `kert`
+ * témában `--accent: #6b8e4e` (olívazöld) + `--accent-foreground: #ffffff`
+ * → mérve 3,75:1 = AA-bukás normál méretű szövegen; a base-ui ezt az állapotot
+ * egérre is beállítja, tehát nem csak billentyűzetnél látszott.
+ *
+ * A minta a `layout/profile-switcher.tsx` és a `layout/header-refined-v3.tsx`
+ * NEUTRAL_FOCUS-ából jön — eddig CSAK abban a két fájlban volt meg, most az
+ * alap primitívben van, így minden legördülő megkapja.
+ *
+ * Mérés (kert): `--foreground` a `--secondary`-n 13,68:1 világos módban,
+ * 10,10:1 sötétben. A `bg-secondary` viszont alig üt el a `bg-popover`-tól
+ * (1,09:1), ezért a fókusz LÁTHATÓSÁGÁT egy 2px-es belső akcentus-gyűrű adja:
+ * az olívazöld a fehér popup-háttéren 3,75:1 = a nem-szöveges elemekre előírt
+ * 3:1 teljesül. A `destructive` variáns saját piros fókuszát nem bántjuk.
+ */
+const NEUTRAL_FOCUS =
+  "focus:bg-secondary focus:text-foreground focus:inset-ring-2 focus:inset-ring-accent not-data-[variant=destructive]:focus:**:text-inherit"
+
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {
   return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
 }
@@ -88,7 +110,7 @@ function DropdownMenuItem({
       data-inset={inset}
       data-variant={variant}
       className={cn(
-        "group/dropdown-menu-item relative flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-inset:pl-7 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-[variant=destructive]:*:[svg]:text-destructive",
+        `group/dropdown-menu-item relative flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-hidden select-none ${NEUTRAL_FOCUS} data-inset:pl-7 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:focus:inset-ring-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-[variant=destructive]:*:[svg]:text-destructive`,
         className
       )}
       {...props}
@@ -113,7 +135,7 @@ function DropdownMenuSubTrigger({
       data-slot="dropdown-menu-sub-trigger"
       data-inset={inset}
       className={cn(
-        "flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-inset:pl-7 data-popup-open:bg-accent data-popup-open:text-accent-foreground data-open:bg-accent data-open:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        `flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-hidden select-none ${NEUTRAL_FOCUS} data-inset:pl-7 data-popup-open:bg-secondary data-popup-open:text-foreground data-open:bg-secondary data-open:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4`,
         className
       )}
       {...props}
@@ -159,7 +181,7 @@ function DropdownMenuCheckboxItem({
       data-slot="dropdown-menu-checkbox-item"
       data-inset={inset}
       className={cn(
-        "relative flex cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground focus:**:text-accent-foreground data-inset:pl-7 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        `relative flex cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none ${NEUTRAL_FOCUS} data-inset:pl-7 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4`,
         className
       )}
       checked={checked}
@@ -201,7 +223,7 @@ function DropdownMenuRadioItem({
       data-slot="dropdown-menu-radio-item"
       data-inset={inset}
       className={cn(
-        "relative flex cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground focus:**:text-accent-foreground data-inset:pl-7 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        `relative flex cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none ${NEUTRAL_FOCUS} data-inset:pl-7 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4`,
         className
       )}
       {...props}
@@ -241,7 +263,10 @@ function DropdownMenuShortcut({
     <span
       data-slot="dropdown-menu-shortcut"
       className={cn(
-        "ml-auto text-xs tracking-widest text-muted-foreground group-focus/dropdown-menu-item:text-accent-foreground",
+        // 2026-08-11 (P2 #23): fókuszban eddig `text-accent-foreground` (fehér)
+        // lett — a semleges `bg-secondary` háttéren olvashatatlan volt. Most a
+        // sor saját szövegszínét veszi fel (13,68:1 a kert témában).
+        "ml-auto text-xs tracking-widest text-muted-foreground group-focus/dropdown-menu-item:text-foreground",
         className
       )}
       {...props}

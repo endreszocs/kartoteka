@@ -64,14 +64,30 @@ export async function saveCemetery(data: CemeteryInput) {
   return { success: true }
 }
 
+// 2026-08-11 (P1 #22): mind a 4 törlő-akció DESTRUKTURÁLÁS NÉLKÜL hívta az
+// update-et, tehát a Supabase hibáját (RLS-megtagadás, hálózati hiba, séma-drift)
+// eldobta, és feltétel nélkül `{ success: true }`-t adott vissza. A lelkész zöld
+// „… törölve." visszajelzést kapott, a sor viszont ott maradt a listán — a néma
+// siker a legrosszabb fajta hiba. A mentő-akciók (saveCemetery/savePlot/…) ezt
+// mindig is helyesen ellenőrizték; a törlők most ugyanazt a mintát követik.
 export async function deleteCemetery(id: number) {
   const { supabase, congId } = await getCongId()
   if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
-  await supabase
+  // A `.select('id')` azért kell, mert a PostgREST a 0 sort érintő UPDATE-re is
+  // hibátlan választ ad (pl. RLS-megtagadás vagy már törölt sor) — enélkül a
+  // „semmi sem történt" eset megint sikernek látszana.
+  const { data, error } = await supabase
     .from('sirhelytemeto')
     .update({ deleted: true })
     .eq('id', id)
     .eq('congregation_id', congId)
+    .select('id')
+  if (error) {
+    return { error: `A temető törlése nem sikerült: ${error.message}. Frissítsd az oldalt és próbáld újra — ha újra elmarad, jelezd a rendszergazdának.` }
+  }
+  if (!data || data.length === 0) {
+    return { error: 'A temetőt nem sikerült törölni — lehet, hogy közben más már törölte, vagy nincs hozzá jogosultságod. Frissítsd az oldalt.' }
+  }
   revalidatePath('/sirhelyek')
   return { success: true }
 }
@@ -188,9 +204,22 @@ export async function savePlot(data: PlotInput) {
   return { success: true }
 }
 
+// 2026-08-11 (P1 #22): lásd a deleteCemetery feletti megjegyzést — eddig a hiba
+// eldobódott, és a kliens zöld „Sírhely törölve." toastot mutatott akkor is, ha
+// a sor a helyén maradt.
 export async function deletePlot(id: number) {
   const { supabase } = await getCongId()
-  await supabase.from('sirhely').update({ deleted: true }).eq('id', id)
+  const { data, error } = await supabase
+    .from('sirhely')
+    .update({ deleted: true })
+    .eq('id', id)
+    .select('id')
+  if (error) {
+    return { error: `A sírhely törlése nem sikerült: ${error.message}. Frissítsd az oldalt és próbáld újra.` }
+  }
+  if (!data || data.length === 0) {
+    return { error: 'A sírhelyet nem sikerült törölni — lehet, hogy közben más már törölte, vagy nincs hozzá jogosultságod. Frissítsd az oldalt.' }
+  }
   revalidatePath('/sirhelyek')
   return { success: true }
 }
@@ -229,10 +258,21 @@ export async function saveRental(data: RentalInput) {
   return { success: true }
 }
 
+// 2026-08-11 (P1 #22): lásd a deleteCemetery feletti megjegyzést.
 export async function deleteRental(id: number) {
   const { supabase } = await getCongId()
   // Soft delete (a 2026-04-15-recycle-bin-cleanup.sql cron rendezi 30 nap után)
-  await supabase.from('sirhelyberles').update({ deleted: true }).eq('id', id)
+  const { data, error } = await supabase
+    .from('sirhelyberles')
+    .update({ deleted: true })
+    .eq('id', id)
+    .select('id')
+  if (error) {
+    return { error: `A bérlet törlése nem sikerült: ${error.message}. Frissítsd az oldalt és próbáld újra.` }
+  }
+  if (!data || data.length === 0) {
+    return { error: 'A bérletet nem sikerült törölni — lehet, hogy közben más már törölte, vagy nincs hozzá jogosultságod. Frissítsd az oldalt.' }
+  }
   revalidatePath('/sirhelyek')
   return { success: true }
 }
@@ -277,9 +317,20 @@ export async function saveDeceased(data: DeceasedInput) {
   return { success: true }
 }
 
+// 2026-08-11 (P1 #22): lásd a deleteCemetery feletti megjegyzést.
 export async function deleteDeceased(id: number) {
   const { supabase } = await getCongId()
-  await supabase.from('sirhelyelhunyt').update({ deleted: true }).eq('id', id)
+  const { data, error } = await supabase
+    .from('sirhelyelhunyt')
+    .update({ deleted: true })
+    .eq('id', id)
+    .select('id')
+  if (error) {
+    return { error: `Az elhunyt-bejegyzés törlése nem sikerült: ${error.message}. Frissítsd az oldalt és próbáld újra.` }
+  }
+  if (!data || data.length === 0) {
+    return { error: 'Az elhunyt-bejegyzést nem sikerült törölni — lehet, hogy közben más már törölte, vagy nincs hozzá jogosultságod. Frissítsd az oldalt.' }
+  }
   revalidatePath('/sirhelyek')
   return { success: true }
 }

@@ -1,7 +1,7 @@
 ﻿'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { MapPin } from 'lucide-react'
+import { MapPin, Pencil, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import { Button } from '@/components/ui/button'
@@ -130,14 +130,44 @@ export function CemeteryMain({ congregationName, showAdminImport = false, adminI
     setSaving(false)
   }
 
-  async function handleDeleteCem(id: number) {
-    if (!confirm('Biztosan törli?')) return
-    await deleteCemetery(id)
-    toast.success('Temető törölve.')
+  // 2026-08-11 (P1 #22): eddig a szerver-akció eredményét meg sem néztük, így
+  // sikertelen törlésnél is zöld „Temető törölve." toast jelent meg, miközben a
+  // sor a listán maradt — a lelkész azt hitte, csak a képernyő nem frissült.
+  //
+  // 2026-08-11 (P2 #24): a megerősítő kérdés csak annyi volt, hogy „Biztosan
+  // törli?" — nem mondta meg, MELYIK temetőt, és azt sem, hogy a benne lévő
+  // sírhelyek is eltűnnek a listáról. Pedig eltűnnek: a `getPlots` a nem törölt
+  // temetők ID-jai szerint szűr (sirhelyek/actions.ts:110-116), tehát a temető
+  // törlésével az összes sírhelye, bérlete és elhunyt-bejegyzése kikerül a
+  // nyilvántartásból. Ezt most kimondjuk, darabszámmal együtt.
+  async function handleDeleteCem(cemetery: Cemetery) {
+    const plotCount = plots.filter((plot) => plot.temetoid === cemetery.id).length
+    const question = plotCount > 0
+      ? `Biztosan törli a(z) „${cemetery.nev}" temetőt?\n\nA benne nyilvántartott ${plotCount} sírhely (a hozzájuk tartozó bérletekkel és elhunytakkal együtt) ezzel eltűnik a listáról.`
+      : `Biztosan törli a(z) „${cemetery.nev}" temetőt?`
+    if (!confirm(question)) return
+    const result = await deleteCemetery(cemetery.id)
+    if ('error' in result && result.error) {
+      toast.error(result.error)
+      return
+    }
+    toast.success(`A(z) „${cemetery.nev}" temető törölve.`)
     refreshData()
   }
 
+  // 2026-08-11 (P2 #25): temető nélkül ez a dialógus zsákutca volt — a „Temető"
+  // select NULLA opcióval renderelődött (se placeholder, se magyarázat), a
+  // lelkész kitöltötte a parcellát/sort/számot, mentett, és ezt kapta:
+  // „A megadott temető nem található vagy nem hozzáférhető."
+  // (sirhelyek/actions.ts:180) — ami jogosultsági gondot sugall, holott csak
+  // temetőt kellett volna előbb létrehoznia. Most minden belépési pontról
+  // (üres-állapot CTA, „+ Sírhely" gomb) a temető-dialógus nyílik meg.
   function openPlotDialog(plot?: Plot) {
+    if (!plot && cemeteries.length === 0) {
+      toast.error('Előbb hozz létre egy temetőt — a sírhely mindig egy temetőhöz tartozik.')
+      openCemDialog()
+      return
+    }
     setEditPlot(plot || null)
     setFPlotTemeto(plot?.temetoid || cemeteries[0]?.id || 0)
     setFPlotParcella(plot?.parcella || '')
@@ -148,6 +178,12 @@ export function CemeteryMain({ congregationName, showAdminImport = false, adminI
   }
 
   async function handleSavePlot() {
+    // 2026-08-11 (P2 #25): fail-closed a szerver félrevezető jogosultsági
+    // hibaüzenete ELŐTT — így a lelkész azt olvassa, amit tennie kell.
+    if (!fPlotTemeto) {
+      toast.error('Válassz temetőt — ha még nincs egy sem, előbb hozz létre egyet a „+ Temető" gombbal.')
+      return
+    }
     if (!fPlotParcella || !fPlotSzam || fPlotSor < 0) {
       toast.error('A parcella, sor és szám mind kötelezőek.')
       return
@@ -170,9 +206,16 @@ export function CemeteryMain({ congregationName, showAdminImport = false, adminI
     setSaving(false)
   }
 
-  async function handleDeletePlot(id: number) {
-    if (!confirm('Biztosan törli?')) return
-    await deletePlot(id)
+  // 2026-08-11 (P1 #22): lásd a handleDeleteCem feletti megjegyzést.
+  // 2026-08-11 (P2 #24): a kérdés itt sem mondta meg, MELYIK sírhelyről van szó.
+  async function handleDeletePlot(plot: Plot) {
+    const label = [plot.parcella, plot.sor, plot.szam].filter((v) => v !== null && v !== undefined && v !== '').join('/') || '—'
+    if (!confirm(`Biztosan törli a(z) ${getCemName(plot.temetoid)} temető ${label} jelű sírhelyét?\n\nA hozzá rögzített bérletek és elhunytak is eltűnnek a listáról.`)) return
+    const result = await deletePlot(plot.id)
+    if ('error' in result && result.error) {
+      toast.error(result.error)
+      return
+    }
     toast.success('Sírhely törölve.')
     refreshData()
   }
@@ -303,16 +346,43 @@ export function CemeteryMain({ congregationName, showAdminImport = false, adminI
         </div>
       </div>
 
+      {/* 2026-08-11 (P2 #24): a temető-chipek eddig `Badge`-ek voltak `onClick`-kel
+          — se `role`, se `tabIndex`, tehát billentyűzettel és képernyőolvasóval a
+          temetők EGYÁLTALÁN nem voltak szerkeszthetők. A beágyazott törlő gomb
+          szövege maga a „×" karakter volt: `aria-label` nélkül (a felolvasó csak
+          annyit mondott: „szorzás"), `type="button"` nélkül, és a `text-xs`
+          méretből adódóan ~12×16px tapintható felülettel — közvetlenül a
+          szerkesztés-kattintózóna mellett. Telefonon egy elcsúszott koppintás a
+          TELJES temetőt törölte. Mostantól két külön, valódi gomb: a szerkesztés
+          `min-h-11`, a törlés `size-11` (a projekt saját mércéje —
+          `muhely/project/task-list.tsx:275-297`), mindkettő beszédes
+          `aria-label`-lel. */}
       {cemeteries.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {cemeteries.map((cemetery) => (
-            <Badge key={cemetery.id} variant="outline" className="cursor-pointer text-xs" onClick={() => openCemDialog(cemetery)}>
-              {cemetery.nev} {cemetery.cim ? `(${cemetery.cim})` : ''}
-              <button className="ml-1 text-red-400 hover:text-red-600" onClick={(event) => {
-                event.stopPropagation()
-                void handleDeleteCem(cemetery.id)
-              }}>×</button>
-            </Badge>
+            <div
+              key={cemetery.id}
+              className="inline-flex items-center gap-0.5 rounded-full border border-input bg-background pl-1 pr-0.5"
+            >
+              <button
+                type="button"
+                onClick={() => openCemDialog(cemetery)}
+                aria-label={`${cemetery.nev} temető szerkesztése`}
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              >
+                <Pencil className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                <span>{cemetery.nev}{cemetery.cim ? ` (${cemetery.cim})` : ''}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeleteCem(cemetery)}
+                aria-label={`${cemetery.nev} temető törlése`}
+                title={`${cemetery.nev} törlése`}
+                className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              >
+                <Trash2 className="size-4" aria-hidden />
+              </button>
+            </div>
           ))}
         </div>
       )}
@@ -320,16 +390,39 @@ export function CemeteryMain({ congregationName, showAdminImport = false, adminI
       {loading ? (
         <div className="py-8 text-center text-sm text-muted-foreground">Betöltés...</div>
       ) : filtered.length === 0 ? (
-        <EmptyFirstRecord
-          accent="emerald"
-          icon={MapPin}
-          title="Még nincs sírhely rögzítve"
-          description="Kezdd el a temetői nyilvántartást — rögzítsd az első sírhelyet (parcella, sor, szám, megváltás). Ha még nincs temető, előbb hozz létre egyet."
-          ctaLabel="Rögzítsd az első sírhelyet"
-          onCta={() => openPlotDialog()}
-          secondaryLabel="Temető létrehozása"
-          onSecondary={() => openCemDialog()}
-        />
+        /* 2026-08-11 (P2 #25): három külön eset — eddig mindhármat ugyanaz a
+           „Még nincs sírhely rögzítve" üres-állapot fedte, a SZŰRT lista alapján.
+           Emiatt 200 meglévő sírhely mellett is ez jelent meg, ha egy szűrő nem
+           adott találatot, a CTA pedig temető nélkül is a sírhely-űrlapot nyitotta.
+           A leltár modul ezt már helyesen megkülönbözteti
+           (inventory-main-v3.tsx:706-723) — most a sírhelyek is. */
+        cemeteries.length === 0 ? (
+          <EmptyFirstRecord
+            accent="emerald"
+            icon={MapPin}
+            title="Még nincs temető rögzítve"
+            description="A sírhelyek mindig egy temetőhöz tartoznak, ezért az első lépés a temető felvétele — elég a neve, a cím később is pótolható. Utána jöhetnek a parcellák és a sírhelyek."
+            ctaLabel="Hozd létre az első temetőt"
+            onCta={() => openCemDialog()}
+          />
+        ) : plots.length === 0 ? (
+          <EmptyFirstRecord
+            accent="emerald"
+            icon={MapPin}
+            title="Még nincs sírhely rögzítve"
+            description="Kezdd el a temetői nyilvántartást — rögzítsd az első sírhelyet (parcella, sor, szám, állapot). A bérlet és az elhunytak utólag is felvehetők."
+            ctaLabel="Rögzítsd az első sírhelyet"
+            onCta={() => openPlotDialog()}
+            secondaryLabel="Újabb temető létrehozása"
+            onSecondary={() => openCemDialog()}
+          />
+        ) : (
+          <Card>
+            <CardContent className="py-10 text-center text-sm text-muted-foreground">
+              A megadott szűrés mellett nincs megjeleníthető sírhely. Válassz másik temetőt vagy állapotot a fenti legördülőkben.
+            </CardContent>
+          </Card>
+        )
       ) : viewMode === 'table' ? (
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full text-sm">
@@ -359,7 +452,7 @@ export function CemeteryMain({ congregationName, showAdminImport = false, adminI
                         <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={() => openRentalDialog(plot.id)}>+ Bérlet</Button>
                         <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={() => openDeceasedDialog(plot.id)}>+ Elhunyt</Button>
                         <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px] text-blue-600" onClick={() => openPlotDialog(plot)}>Szerk.</Button>
-                        <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px] text-red-500" onClick={() => handleDeletePlot(plot.id)}>Törlés</Button>
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px] text-red-500" onClick={() => void handleDeletePlot(plot)}>Törlés</Button>
                       </div>
                     </td>
                   </tr>
@@ -413,11 +506,22 @@ export function CemeteryMain({ congregationName, showAdminImport = false, adminI
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label>Temető *</Label>
+              {/* 2026-08-11 (P2 #25): temető nélkül ez a select NULLA opcióval
+                  renderelődött — üres, néma mező. Most van beszédes, letiltott
+                  placeholder-opciója, és a Mentés is tiltva marad. */}
               <select value={fPlotTemeto} onChange={(event) => setFPlotTemeto(Number(event.target.value))} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                {cemeteries.length === 0 && (
+                  <option value={0} disabled>Előbb hozz létre egy temetőt</option>
+                )}
                 {cemeteries.map((cemetery) => (
                   <option key={cemetery.id} value={cemetery.id}>{cemetery.nev}</option>
                 ))}
               </select>
+              {cemeteries.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {'Zárd be ezt az ablakot, és a „+ Temető" gombbal vedd fel az első temetőt — a sírhely mindig egy temetőhöz tartozik.'}
+                </p>
+              )}
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <div className="space-y-1.5"><Label>Parcella *</Label><Input value={fPlotParcella} onChange={(event) => setFPlotParcella(event.target.value)} /></div>
@@ -432,7 +536,7 @@ export function CemeteryMain({ congregationName, showAdminImport = false, adminI
                 ))}
               </select>
             </div>
-            <div className="flex justify-end gap-2 border-t pt-2"><Button variant="ghost" onClick={() => setPlotDialogOpen(false)}>Mégse</Button><Button onClick={handleSavePlot} disabled={saving}>{saving ? 'Mentés...' : 'Mentés'}</Button></div>
+            <div className="flex justify-end gap-2 border-t pt-2"><Button variant="ghost" onClick={() => setPlotDialogOpen(false)}>Mégse</Button><Button onClick={handleSavePlot} disabled={saving || !fPlotTemeto}>{saving ? 'Mentés...' : 'Mentés'}</Button></div>
           </div>
         </DialogContent>
       </Dialog>

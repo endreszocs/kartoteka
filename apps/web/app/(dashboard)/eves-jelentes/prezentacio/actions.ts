@@ -13,6 +13,8 @@
  *   - Programok száma / teljesülés
  */
 
+import { selectAllPaged } from '@kartoteka/supabase-client'
+
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { categorizeWorklogEntry } from '@/lib/constants/worklog'
 import type { GoalRow } from './goals-actions'
@@ -22,6 +24,11 @@ import type { GoalRow } from './goals-actions'
  * 2026-07-25 (F6.3): LAPOZOTT lekérés — a többéves összesítők (5 év × több száz
  * tétel) rég túlnőttek a szerver implicit sor-plafonján, ami NÉMÁN levágta a
  * bevétel/kiadás összegeket az éves jelentésben. Csak az ÜRES lap a biztos stop.
+ *
+ * 2026-08-11 (5. kör, P3 #15): a saját ciklus KIVEZETVE — a törzs a KÖZÖS
+ * `selectAllPaged` (@kartoteka/supabase-client). A helper vékony burkolóként
+ * marad (21 hívása van a fájlban); a szerződés — a hívó `.order('id')`-t ad —
+ * változatlan, ezért `orderColumn: null`.
  */
 async function fetchAllPagedRows(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -29,17 +36,7 @@ async function fetchAllPagedRows(
   pageSize = 1000,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<{ data: any[]; error: { message: string } | null }> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const out: any[] = []
-  for (let from = 0; ; ) {
-    const { data, error } = await query.range(from, from + pageSize - 1)
-    if (error) return { data: out, error }
-    const page = data ?? []
-    out.push(...page)
-    if (page.length === 0) break
-    from += page.length
-  }
-  return { data: out, error: null }
+  return selectAllPaged(query, { pageSize, orderColumn: null, dedupeBy: 'id' })
 }
 
 // 2026-08-10 (P1 #11 JAVÍTÁS): eddig CSAK a befizetés/kiadás volt lapozva — a

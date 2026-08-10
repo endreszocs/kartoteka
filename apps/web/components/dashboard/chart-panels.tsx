@@ -7,24 +7,27 @@ import {
 } from 'recharts'
 import { BarChart3, PieChart as PieChartIcon, Users } from 'lucide-react'
 
-interface MonthlyRow {
+// 2026-08-11 (5. kör, P2-#21): a prop-típusok EXPORTÁLTAK, hogy a lazy wrapper
+// (chart-panels-lazy.tsx) csak típusként hivatkozhasson rájuk — a típus-import
+// fordításkor eltűnik, így a recharts-köteg NEM kerül be a kezdeti bundle-be.
+export interface MonthlyRow {
   month: string
   income: number
   expense: number
 }
 
-interface FinanceOverviewChartProps {
+export interface FinanceOverviewChartProps {
   monthlyData: MonthlyRow[]
 }
 
-interface DetailedAgeRow {
+export interface DetailedAgeRow {
   range: string
   male: number
   female: number
   total: number
 }
 
-interface AgeStats {
+export interface AgeStats {
   youngest: number
   oldest: number
   average: number
@@ -32,7 +35,7 @@ interface AgeStats {
   count: number
 }
 
-interface AgeDistributionCardProps {
+export interface AgeDistributionCardProps {
   ageGroups: Record<string, number>
   detailedAgeGroups?: DetailedAgeRow[]
   stats?: AgeStats

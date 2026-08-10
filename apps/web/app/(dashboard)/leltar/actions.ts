@@ -2,7 +2,9 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
+import { selectAllPaged } from '@kartoteka/supabase-client'
 import { initFinance, listFinanceYears } from '@/app/(dashboard)/penzugy/actions'
+import { documentSeasonYear } from '@/lib/constants/documents'
 import { inventoryKategoriaForExpenseKod } from '@/lib/constants/finance'
 import type { ExpensePickerResult, ExpensePickerRow } from '@/lib/inventory/expense-picker-types'
 import { inventoryItemSchema, type InventoryItemInput } from '@/lib/validations/inventory'
@@ -92,23 +94,33 @@ export async function generateNextLeltariSzam(category: InventoryCategory): Prom
   // soros néma plafonja miatt 1000+ tételnél (pl. könyvtár, 'K-%') már kiadott
   // szám ismétlődne (a nyugtaszám-P0 hibaosztálya). Szöveges szám miatt
   // order+limit(1) sem lenne jó ('K-999' > 'K-1000' szövegként).
-  let max = 0
-  const PAGE = 1000
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase
+  //
+  // 2026-08-11 (5. kör, P3 #15): KÖZÖS `selectAllPaged` + FAIL-CLOSED hiba.
+  // Két baj volt itt: (1) a `rows.length < PAGE` stop-feltétel leszállított
+  // szerver-plafonnál az első lap után kilépett, (2) az `if (error) break` a
+  // lekérdezés hibáját ELNYELTE, és a függvény `max = 0`-val „PREFIX-001"-et
+  // adott vissza — vagyis egy hálózati hiba után a rendszer egy MÁR HASZNÁLT
+  // leltári számot javasolt. Számot generáló kapunál nincs olyan hiba, ami után
+  // a „tippeljünk egyet" lenne a jó válasz, ezért most hangosan dobunk.
+  const { data: rows, error } = await selectAllPaged<{ leltari_szam: string | null }>(
+    supabase
       .from('leltar_tetelek')
       .select('leltari_szam')
       .eq('congregation_id', congId)
-      .ilike('leltari_szam', `${prefix}-%`)
-      .order('id', { ascending: true })
-      .range(from, from + PAGE - 1)
-    if (error) break
-    const rows = (data || []) as Array<{ leltari_szam: string | null }>
-    rows.forEach((r) => {
-      const m = String(r.leltari_szam || '').match(/-(\d+)$/)
-      if (m) { const n = parseInt(m[1]); if (n > max) max = n }
-    })
-    if (rows.length < PAGE) break
+      .ilike('leltari_szam', `${prefix}-%`),
+  )
+  if (error) {
+    throw new Error(
+      'Nem sikerült lekérdezni a már kiadott leltári számokat ' +
+        `(${error.message}), ezért új számot sem adhatunk ki — különben egy már ` +
+        'használt leltári szám ismétlődne. Ellenőrizd az internetkapcsolatot, és ' +
+        'próbáld újra; ha újra hibázik, jelezd a rendszergazdának.',
+    )
+  }
+  let max = 0
+  for (const r of rows) {
+    const m = String(r.leltari_szam || '').match(/-(\d+)$/)
+    if (m) { const n = parseInt(m[1]); if (n > max) max = n }
   }
   return `${prefix}-${String(max + 1).padStart(3, '0')}`
 }
@@ -120,7 +132,17 @@ export async function saveInventoryItem(data: InventoryItemInput) {
   if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
 
   const d = parsed.data
-  const leltariSzam = d.id ? undefined : await generateNextLeltariSzam(d.kategoria)
+  // 2026-08-11 (5. kör, P3 #15): a `generateNextLeltariSzam` mostantól DOB, ha nem
+  // tudja hitelesen megállapítani a következő számot (korábban némán „PREFIX-001"-re
+  // esett vissza) — a hibát itt fordítjuk a lelkésznek megjeleníthető válasszá.
+  let leltariSzam: string | undefined
+  if (!d.id) {
+    try {
+      leltariSzam = await generateNextLeltariSzam(d.kategoria)
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : 'A leltári szám generálása nem sikerült.' }
+    }
+  }
   const serializedCategory = serializeInventoryCategory(d.kategoria)
   // 2026-08-09: kapcsolt kiadás (penzugy_xkey) — CSAK akkor nyúlunk hozzá, ha a
   // hívó ténylegesen küldte a mezőt (undefined = régi hívó → a meglévő link marad).
@@ -169,7 +191,12 @@ export async function saveInventoryItem(data: InventoryItemInput) {
     let lastError: { code?: string; message: string } | null = null
     for (let attempt = 0; attempt < 3; attempt += 1) {
       if (attempt > 0) {
-        const freshSzam = await generateNextLeltariSzam(d.kategoria)
+        let freshSzam: string
+        try {
+          freshSzam = await generateNextLeltariSzam(d.kategoria)
+        } catch (e) {
+          return { error: e instanceof Error ? e.message : 'A leltári szám generálása nem sikerült.' }
+        }
         record.leltari_szam = freshSzam
         modernFallback.leltari_szam = freshSzam
       }
@@ -201,22 +228,19 @@ export async function listExpensesForInventoryPicker(year: number): Promise<Expe
   const { supabase, congId } = await getCongId()
   if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
 
-  const PAGE = 1000
-  const fetchPaged = async <T,>(build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>) => {
-    const all: T[] = []
-    for (let from = 0; ; from += PAGE) {
-      const { data, error } = await build(from, from + PAGE - 1)
-      if (error) throw new Error(error.message)
-      const rows = data || []
-      all.push(...rows)
-      if (rows.length < PAGE) break
-    }
-    return all
+  // 2026-08-11 (5. kör, P3 #15): a lokális `fetchPaged` helyett a KÖZÖS
+  // `selectAllPaged`. A régi változat a `rows.length < PAGE` stop-feltételt
+  // használta — leszállított szerver-plafonnál a kikeresőben a kiadások fele
+  // egyszerűen nem jelent volna meg, és a lelkész „nincs ilyen tétel" alapon
+  // rögzített volna újat.
+  const throwOnError = <T,>(res: { data: T[]; error: { message: string } | null }): T[] => {
+    if (res.error) throw new Error(res.error.message)
+    return res.data
   }
 
   try {
-    const [kiadasRows, kiaCelRes, celRes, linkedRows, years] = await Promise.all([
-      fetchPaged<Record<string, unknown>>((from, to) =>
+    const [kiadasRes, kiaCelRes, celRes, linkedRes, years] = await Promise.all([
+      selectAllPaged<Record<string, unknown>>(
         supabase
           .from('kiadas')
           .select('id, xkey, datum, osszeg, atvevo, iratszam, nyugta, irattipus, megjegyzes, id_kiadascel, stornozott, belso_mozgas_xkey')
@@ -225,25 +249,27 @@ export async function listExpensesForInventoryPicker(year: number): Promise<Expe
           .gte('datum', `${year}-01-01`)
           .lte('datum', `${year}-12-31`)
           .order('datum', { ascending: false })
-          .order('id', { ascending: false })
-          .range(from, to),
+          .order('id', { ascending: false }),
+        // A rendezés DIREKT fordított (dátum szerint csökkenő, `id` a döntetlen-bontó),
+        // ezért a helper ne fűzzön hozzá saját növekvő `id`-t — de a lapok közti
+        // dedup az `id`-n továbbra is kell.
+        { orderColumn: null, dedupeBy: 'id' },
       ),
       supabase.from('kiadascel').select('id, id_szamadasicel'),
       supabase.from('szamadasicel').select('id, nev'),
-      fetchPaged<{ penzugy_xkey: string | null }>((from, to) =>
+      selectAllPaged<{ penzugy_xkey: string | null }>(
         supabase
           .from('leltar_tetelek')
           .select('penzugy_xkey')
           .eq('congregation_id', congId)
-          // A törölt leltári tétel NEM foglalja a kiadást (újra kikereshető);
-          // determinisztikus lapozáshoz order kötelező (range önmagában instabil).
+          // A törölt leltári tétel NEM foglalja a kiadást (újra kikereshető).
           .eq('is_deleted', false)
-          .not('penzugy_xkey', 'is', null)
-          .order('id', { ascending: true })
-          .range(from, to),
+          .not('penzugy_xkey', 'is', null),
       ),
       listFinanceYears(),
     ])
+    const kiadasRows = throwOnError(kiadasRes)
+    const linkedRows = throwOnError(linkedRes)
 
     const kodById = new Map<number, string>()
     ;((kiaCelRes.data || []) as Array<{ id: number; id_szamadasicel: string | null }>).forEach((c) => {
@@ -305,20 +331,82 @@ export async function deleteInventoryItem(id: string) {
 
 // ── H9: Véglegesítés + feloldás ──────────────────────────────
 
+/**
+ * 2026-08-11 (P1 #24): a vagyonleltári jelentés KANONIKUS év-kulcsa.
+ *
+ * Eddig három különböző kulcs élt egymás mellett ugyanarra a jelentésre:
+ *   - `finalizeLeltar` / `getLeltarFinalizationStatus`: `getFullYear()`
+ *   - a beküldés (inventory-main-v3.tsx): `getFullYear() - 1`
+ *   - az egyházmegyei teljességi mátrix: `documentSeasonYear()`
+ * Emiatt a lelkész az egyik évet véglegesítette és egy MÁSIKAT küldött be:
+ * az esperes „Hiányzik"-ot látott, vagy a felülírás-védelem az előző évi,
+ * már véglegesített sorra hivatkozva utasította el a beküldést — kiút nélkül.
+ *
+ * Egy forrás maradt: a `documentSeasonYear()` (lib/constants/documents.ts),
+ * vagyis a beszámolási szezon éve (január–március = az előző, tárgyév).
+ * Ez azonos azzal, amit a számadás és a lelkészi jelentés is használ a
+ * beküldéskor, és amivel a mátrix az oszlopokat kulcsolja — így a véglegesítés,
+ * a beküldés és az egyházmegyei nézet egyszerre ugyanarról az évről beszél.
+ * Ráadásul januárban a MÚLT évi `bealitas` sorra írunk, ami már létezik
+ * (az idei évi gyakran még nem — lásd a P1 #23-at alább).
+ */
+function leltarReportYear(): number {
+  return documentSeasonYear()
+}
+
+/**
+ * A „nincs év-sor" eset egyetlen, cselekvésre váltható üzenete (P1 #23).
+ * Szándékosan megmondja, HOL hozza létre a lelkész a hiányzó évet.
+ */
+function missingYearSettingsMessage(year: number): string {
+  return (
+    `A(z) ${year}. évhez még nincs éves beállítás a rendszerben, ezért a művelet NEM mentődött el. ` +
+    `Nyisd meg a Pénzügy modult, és válaszd ki fent a(z) ${year}. évet — a rendszer ilyenkor létrehozza az évet ` +
+    `(ha éves járulékot kér, add meg). Utána térj vissza ide, és próbáld újra.`
+  )
+}
+
+/** A kliens (inventory-main-v3.tsx) is ezt kéri le, hogy a beküldés év-kulcsa
+ *  bit-azonos legyen a véglegesítésével. */
+export async function getLeltarReportYear(): Promise<number> {
+  return leltarReportYear()
+}
+
 export async function getLeltarFinalizationStatus(): Promise<{ finalized: boolean; unlockRequested: boolean }> {
   const { supabase, congId } = await getCongId()
   if (!congId) return { finalized: false, unlockRequested: false }
-  const year = new Date().getFullYear()
+  const year = leltarReportYear()
   const { data } = await supabase.from('bealitas').select('leltar_finalized, leltar_unlock_requested').eq('id', String(year)).eq('congregation_id', congId).maybeSingle()
   return { finalized: !!data?.leltar_finalized, unlockRequested: !!data?.leltar_unlock_requested }
 }
 
+/**
+ * 2026-08-11 (P1 #23): a `bealitas` UPDATE 0 sort érinthet — ilyenkor a
+ * PostgREST NEM ad hibát, tehát a régi kód `{ success: true }`-t adott vissza,
+ * a UI zöld „A vagyonleltári jelentés véglegesítve lett." toastot mutatott, a
+ * gomb pedig ott maradt „Jelentés véglegesítése" felirattal, mert a
+ * visszaolvasott állapot változatlanul `false` volt. Ez az ÚJ gyülekezet és
+ * minden januári eset: az év-sor csak akkor jön létre, ha a Pénzügy modult
+ * megnyitották az adott évre (a pénzügy ugyanezt `upsert … ignoreDuplicates`
+ * mintával kezeli — penzugy/actions.ts `createYearlySettings`).
+ *
+ * A `.select('id')` visszakéri az érintett sorokat, így a „semmi sem történt"
+ * eset már NEM néma siker, hanem konkrét, cselekvésre váltható magyar üzenet.
+ * (Szándékosan nem hozunk létre itt év-sort: a `bealitas` a pénzügyi modul
+ * rekordja, kötelező járulék-mezőkkel — azt ott, a helyén kell kitölteni.)
+ */
 export async function finalizeLeltar() {
   const { supabase, congId } = await getCongId()
   if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
-  const year = new Date().getFullYear()
-  const { error } = await supabase.from('bealitas').update({ leltar_finalized: true }).eq('id', String(year)).eq('congregation_id', congId)
+  const year = leltarReportYear()
+  const { data, error } = await supabase
+    .from('bealitas')
+    .update({ leltar_finalized: true })
+    .eq('id', String(year))
+    .eq('congregation_id', congId)
+    .select('id')
   if (error) return { error: `Hiba: ${error.message}` }
+  if (!data || data.length === 0) return { error: missingYearSettingsMessage(year) }
   revalidatePath('/leltar')
   return { success: true }
 }
@@ -326,13 +414,30 @@ export async function finalizeLeltar() {
 export async function requestLeltarUnlock(reason?: string | null) {
   const { supabase, congId } = await getCongId()
   if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
-  const year = new Date().getFullYear()
-  const { error } = await supabase
+  // 2026-08-11 (K5-#12): AZ INDOKLÁS KÖTELEZŐ. Eddig az üres sztring is átment
+  // (`reason?.trim() || null`), így az esperes indoklás nélküli feloldási
+  // kérelmet kapott — nem tudta elbírálni —, a lelkész viszont sikeres
+  // visszajelzést látott. Fail-closed: inkább hangos hiba, mint néma, üres
+  // kérelem. (A kliens-oldali dialógus megkerülhető, ezért a szerver is ellenőrzi.)
+  const trimmedReason = (reason || '').trim()
+  if (trimmedReason.length < 10) {
+    return {
+      error:
+        'Írja le legalább egy mondatban, miért kéri a jelentés feloldását — enélkül az egyházmegye nem tudja elbírálni a kérelmet.',
+    }
+  }
+  const year = leltarReportYear()
+  // 2026-08-11 (P1 #23): ugyanaz a néma 0-soros update-csapda, mint a
+  // finalizeLeltar-nál — a feloldási kérelem is „elküldve" visszajelzést adott,
+  // miközben az egyházmegye sosem látta meg.
+  const { data, error } = await supabase
     .from('bealitas')
-    .update({ leltar_unlock_requested: true, leltar_unlock_reason: reason?.trim() || null })
+    .update({ leltar_unlock_requested: true, leltar_unlock_reason: trimmedReason })
     .eq('id', String(year))
     .eq('congregation_id', congId)
+    .select('id')
   if (error) return { error: `Hiba: ${error.message}` }
+  if (!data || data.length === 0) return { error: missingYearSettingsMessage(year) }
   revalidatePath('/leltar')
   return { success: true }
 }

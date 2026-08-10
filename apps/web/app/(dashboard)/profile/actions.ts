@@ -70,7 +70,11 @@ export async function eraseMyAccount(
             cim: `Gyülekezet megürült: ${congName}`,
             uzenet: `Egy lelkész törölte a fiókját — a(z) ${congName} gyülekezet felelős lelkész nélkül maradt. Kérjük, rendelj hozzá új lelkészt.`,
             tipus: 'warning',
-            hivatkozas: '/admin?tab=users',
+            // 2026-08-11 (#3): a `/admin?tab=users` mélylink halott — az admin panel
+            // 13-fülű oldala önálló `/admin/<slug>` route-okra bomlott, a `?tab=`
+            // paramétert senki nem olvassa, így az értesítés az admin nyitóoldalára
+            // vitt, felhasználó-lista nélkül.
+            hivatkozas: '/admin/felhasznalok',
           },
         ])
       }

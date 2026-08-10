@@ -139,6 +139,8 @@ export function FilingTemplatesTab() {
             Hivatalos dokumentum-sablonok — placeholderekkel, PDF letöltéssel.
           </p>
         </div>
+        {/* 2026-08-11 (K5-#13): a fejléc-gombok is 32px magasak voltak — a
+            koppintási minimum alatt. `min-h-11` telefonon is biztosan eltalálható. */}
         <div className="flex flex-wrap gap-2">
           {/* 2026-07 (W1): a pótlás-gomb MINDIG látszik — meglévő sablonok
               mellett is behúzza a később hozzáadott új alapsablonokat
@@ -146,7 +148,7 @@ export function FilingTemplatesTab() {
           {!loading && (
             <Button
               variant="outline"
-              className="rounded-xl border-teal-200 text-teal-700 hover:bg-teal-50"
+              className="min-h-11 rounded-xl border-teal-200 text-teal-700 hover:bg-teal-50"
               onClick={handleSeed}
               disabled={isPending}
             >
@@ -156,7 +158,7 @@ export function FilingTemplatesTab() {
           )}
           <Button
             variant="outline"
-            className="rounded-xl"
+            className="min-h-11 rounded-xl"
             onClick={() => setShowInactive(s => !s)}
           >
             {showInactive ? (
@@ -172,7 +174,7 @@ export function FilingTemplatesTab() {
             )}
           </Button>
           <Button
-            className="rounded-xl bg-teal-600 hover:bg-teal-700"
+            className="min-h-11 rounded-xl bg-teal-600 hover:bg-teal-700"
             onClick={openNew}
           >
             <Plus className="mr-1.5 h-4 w-4" />
@@ -340,12 +342,22 @@ function TemplateCard({
         </div>
       )}
 
+      {/* ── 2026-08-11 (K5-#13): sablon-műveletek ────────────────────────────
+          MI VOLT A HIBA: a három ikon-gomb (szerkesztés, aktiválás, TÖRLÉS)
+          32×32px volt — a 44px-es koppintási minimum alatt —, és a nevüket
+          KIZÁRÓLAG a `title` attribútum hordozta. A `title` érintőképernyőn
+          egyáltalán nem jelenik meg (nincs egérmutató, ami föléálljon), a
+          képernyőolvasók egy része pedig nem használja gombnév-forrásként:
+          a felhasználó három névtelen gombot talált, az egyik törölt. Mostantól
+          `size-11` + a sablon nevét is kimondó magyar `aria-label`
+          (a muhely/project/task-list.tsx mintája). */}
       <div className="mt-auto flex flex-wrap items-center gap-1 border-t border-slate-100 pt-3">
         <Button
           size="sm"
-          className="flex-1 rounded-lg bg-indigo-600 hover:bg-indigo-700"
+          className="min-h-11 flex-1 rounded-lg bg-indigo-600 hover:bg-indigo-700"
           onClick={onGenerate}
           disabled={disabled || !template.aktiv}
+          aria-label={`${template.nev} sablon kitöltése és generálása`}
         >
           <Wand2 className="mr-1 h-3.5 w-3.5" />
           Generálás
@@ -353,30 +365,37 @@ function TemplateCard({
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 text-slate-500 hover:text-teal-600"
+          className="size-11 text-slate-500 hover:text-teal-600"
           onClick={onEdit}
           disabled={disabled}
           title="Szerkesztés"
+          aria-label={`${template.nev} sablon szerkesztése`}
         >
           <Pencil className="h-3.5 w-3.5" />
         </Button>
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 text-slate-500 hover:text-amber-600"
+          className="size-11 text-slate-500 hover:text-amber-600"
           onClick={onToggle}
           disabled={disabled}
           title={template.aktiv ? 'Inaktiválás' : 'Aktiválás'}
+          aria-label={
+            template.aktiv
+              ? `${template.nev} sablon inaktiválása`
+              : `${template.nev} sablon aktiválása`
+          }
         >
           {template.aktiv ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
         </Button>
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 text-slate-500 hover:text-red-600"
+          className="size-11 text-slate-500 hover:text-red-600"
           onClick={onDelete}
           disabled={disabled}
           title="Törlés"
+          aria-label={`${template.nev} sablon törlése`}
         >
           <Trash2 className="h-3.5 w-3.5" />
         </Button>

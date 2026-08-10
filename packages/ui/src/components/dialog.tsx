@@ -7,8 +7,34 @@ import { cn } from "../lib/utils"
 import { Button } from "./button"
 import { XIcon } from "lucide-react"
 
-function Dialog({ ...props }: DialogPrimitive.Root.Props) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />
+/**
+ * 2026-08-11 (K5 #25): ADATVESZTÉS-VÉDELEM — a háttérre koppintás többé NEM zár be.
+ *
+ * Mi volt a hiba: a `@base-ui/react` (1.3.0) `Dialog.Root` `disablePointerDismissal`
+ * propja alapértelmezetten `false`, azaz a dialóguson KÍVÜLI kattintás/koppintás
+ * azonnal bezárta az ablakot. Ez a wrapper ezt sosem állította át, és a repóban
+ * egyetlen hívó sem adta meg — így a teljes tagfelvételi űrlap, az igazolás-kiállító,
+ * a leltári tétel-űrlap és az igehirdetési terv is ELVESZETT egy félrekoppintástól,
+ * mindenféle figyelmeztetés nélkül.
+ *
+ * Mostantól a bezárás az X gombon, az Esc billentyűn és a saját Mégse/Bezárás
+ * gombokon át történik. Az Esc-et a base-ui külön nem szabályozza — továbbra is zár.
+ * A `modal` (fókusz-csapda + oldal-görgetés zárolása) érintetlen.
+ *
+ * OPT-OUT: ahol a háttérkattintásos bezárás tényleg kívánatos (pl. egy tartalom
+ * nélküli előnézet), a hívó explicit `disablePointerDismissal={false}`-t adhat.
+ */
+function Dialog({
+  disablePointerDismissal = true,
+  ...props
+}: DialogPrimitive.Root.Props) {
+  return (
+    <DialogPrimitive.Root
+      data-slot="dialog"
+      disablePointerDismissal={disablePointerDismissal}
+      {...props}
+    />
+  )
 }
 
 function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
@@ -52,8 +78,18 @@ function DialogContent({
       <DialogOverlay />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
+        // 2026-08-11 (K5 #27): MOBIL-ELÉRHETŐSÉG — alapból van max-magasság + görgetés.
+        // Mi volt a hiba: az alap popup csak `top-1/2 -translate-y-1/2`-t kapott, sem
+        // `max-h`-t, sem görgetést. Mivel a `modal` alapból true (az oldal görgetése
+        // zárolva van), egy magasabb dialógus (pl. családlátogatás-rögzítő) kis
+        // telefonon fölül-alul kilógott a képernyőből, és a Mentés gomb FIZIKAILAG
+        // elérhetetlen volt. A `calc(100dvh-2rem)` a dinamikus viewport-magasságot
+        // használja (a mobil böngésző címsora is bele van számolva), 1-1 rem
+        // levegővel. Rövid dialógusnál nem jelenik meg görgetősáv (auto).
+        // Felülírható: a hívó saját `max-h-*` / `overflow-*` osztálya a
+        // tailwind-merge miatt győz (az `overflow` csoport kiüti az `overflow-y`-t).
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}

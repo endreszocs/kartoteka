@@ -161,11 +161,32 @@ export async function importBcrTransactions(
     ),
   )
   if (activeYears.length > 0) {
-    const { data: lockRows } = await access.supabase
+    const { data: lockRows, error: lockErr } = await access.supabase
       .from('bealitas')
       .select('id, accounting_finalized')
       .eq('congregation_id', access.effectiveCongregationId)
       .in('id', activeYears.map(String))
+    // 2026-08-11 (5. kör, K5-#32 hibaosztály-lezárás): FAIL-CLOSED. Korábban az
+    // `error` el lett dobva, és a `(lockRows || [])` üres tömb miatt a
+    // `closedYears` üres lett — vagyis a zár-lekérdezés BÁRMILYEN hibája (RLS,
+    // hálózat, séma-drift) NÉMÁN átengedte a teljes banki kivonat importját egy
+    // már véglegesített ÉS az egyházmegyének beküldött évbe. Ha a zárat nem
+    // tudjuk ellenőrizni, NEM importálunk.
+    if (lockErr) {
+      return {
+        totalItems: items.length,
+        imported: 0,
+        skipped: 0,
+        duplicates: 0,
+        errors: [],
+        importedRows: [],
+        error:
+          `Nem sikerült ellenőrizni, hogy az importban szereplő év(ek) számadása véglegesítve ` +
+          `van-e (${lockErr.message}), ezért az importot biztonságból megszakítottuk — egy már ` +
+          'lezárt évet nem nyithatunk ki véletlenül. Ellenőrizd az internetkapcsolatot, és ' +
+          'próbáld újra; ha újra hibázik, jelezd a rendszergazdának.',
+      }
+    }
     const closedYears = ((lockRows || []) as Array<{ id: string; accounting_finalized: boolean | null }>)
       .filter((r) => r.accounting_finalized)
       .map((r) => Number(r.id))

@@ -10,6 +10,7 @@ import {
   type MissionUserStats,
 } from '@/lib/missions/gamification'
 import { awardMissionEvent } from '@/lib/missions/reward-server'
+import { getProfileDisplayNames } from '@/lib/profiles/officials'
 
 /**
  * Biztonsági helper: csak https:// vagy http:// protokollú URL-t enged.
@@ -430,27 +431,14 @@ export async function loadHomePageData() {
   const myStats = await ensureStats(userId)
 
   // Resolve leaderboard profiles
+  // 2026-08-11: a nevek feloldása a `get_profile_display_names` SECURITY
+  // DEFINER RPC-n megy (lib/profiles/officials.ts). Korábban ez közvetlen,
+  // ORSZÁGOS `profiles`-olvasás volt — a Missziós Műhely szándékosan országos
+  // közösségi modul, de emiatt a `profiles_read` policy sem volt szűkíthető.
+  // Az RPC csak nevet + gyülekezet-nevet ad vissza, e-mailt nem.
   const leaderboardStats = (leaderboardRes.data || []) as MissionUserStats[]
   const leaderboardUserIds = leaderboardStats.map((e) => e.user_id)
-  const { data: leaderboardProfiles } = leaderboardUserIds.length
-    ? await supabase.from('profiles').select('id, full_name, congregation_id').in('id', leaderboardUserIds)
-    : { data: [] as Array<{ id: string; full_name: string | null; congregation_id: string | null }> }
-
-  const congregationIds = Array.from(
-    new Set(
-      (leaderboardProfiles || []).map((p) => p.congregation_id).filter((id): id is string => Boolean(id)),
-    ),
-  )
-  const { data: congregations } = congregationIds.length
-    ? await supabase.from('congregations').select('id, nev_hu, name').in('id', congregationIds)
-    : { data: [] as Array<{ id: string; nev_hu: string | null; name: string | null }> }
-
-  const profileMap = new Map(
-    (leaderboardProfiles || []).map((p) => [p.id, { fullName: p.full_name || 'Ismeretlen', congregationId: p.congregation_id }]),
-  )
-  const congMap = new Map(
-    (congregations || []).map((c) => [c.id, c.nev_hu || c.name || 'Ismeretlen']),
-  )
+  const profileMap = await getProfileDisplayNames(supabase, leaderboardUserIds)
 
   // Get user's votes for ideas
   const votesRes = await supabase
@@ -483,7 +471,7 @@ export async function loadHomePageData() {
       return {
         userId: entry.user_id,
         fullName: profile?.fullName || 'Ismeretlen',
-        congregationName: profile?.congregationId ? congMap.get(profile.congregationId) || '' : '',
+        congregationName: profile?.congregationName || '',
         score: entry.osszpontszam || 0,
         level: entry.szint || getMissionLevel(entry.osszpontszam || 0).name,
         ideas: entry.otletek_szama || 0,
@@ -699,17 +687,10 @@ export async function loadRewardsPage() {
   const myStats = await ensureStats(userId)
 
   // Resolve leaderboard profiles
+  // 2026-08-11: SECURITY DEFINER RPC-n (lásd a fenti magyarázatot).
   const leaderboardStats = (leaderboardRes.data || []) as MissionUserStats[]
   const userIds = leaderboardStats.map((e) => e.user_id)
-  const { data: profiles } = userIds.length
-    ? await supabase.from('profiles').select('id, full_name, congregation_id').in('id', userIds)
-    : { data: [] as Array<{ id: string; full_name: string | null; congregation_id: string | null }> }
-  const congIds = Array.from(new Set((profiles || []).map((p) => p.congregation_id).filter(Boolean) as string[]))
-  const { data: congs } = congIds.length
-    ? await supabase.from('congregations').select('id, nev_hu, name').in('id', congIds)
-    : { data: [] as Array<{ id: string; nev_hu: string | null; name: string | null }> }
-  const pMap = new Map((profiles || []).map((p) => [p.id, { fn: p.full_name || 'Ismeretlen', cid: p.congregation_id }]))
-  const cMap = new Map((congs || []).map((c) => [c.id, c.nev_hu || c.name || '']))
+  const pMap = await getProfileDisplayNames(supabase, userIds)
 
   return {
     myStats,
@@ -719,8 +700,8 @@ export async function loadRewardsPage() {
       const p = pMap.get(entry.user_id)
       return {
         userId: entry.user_id,
-        fullName: p?.fn || 'Ismeretlen',
-        congregationName: p?.cid ? cMap.get(p.cid) || '' : '',
+        fullName: p?.fullName || 'Ismeretlen',
+        congregationName: p?.congregationName || '',
         score: entry.osszpontszam || 0,
         level: entry.szint || getMissionLevel(entry.osszpontszam || 0).name,
         ideas: entry.otletek_szama || 0,
@@ -924,46 +905,10 @@ export async function loadWorkshopExperience(): Promise<WorkshopExperience | { e
       .map((vote: { otlet_id: string }) => vote.otlet_id),
   )
 
+  // 2026-08-11: SECURITY DEFINER RPC-n (lásd a fenti magyarázatot).
   const leaderboardStats = (leaderboardRes.data || []) as MissionUserStats[]
   const leaderboardUserIds = leaderboardStats.map((entry) => entry.user_id)
-  const { data: leaderboardProfiles } = leaderboardUserIds.length
-    ? await supabase
-        .from('profiles')
-        .select('id, full_name, congregation_id')
-        .in('id', leaderboardUserIds)
-    : { data: [] as Array<{ id: string; full_name: string | null; congregation_id: string | null }> }
-
-  const congregationIds = Array.from(
-    new Set(
-      (leaderboardProfiles || [])
-        .map((profile) => profile.congregation_id)
-        .filter((id): id is string => Boolean(id)),
-    ),
-  )
-
-  const { data: congregations } = congregationIds.length
-    ? await supabase
-        .from('congregations')
-        .select('id, nev_hu, name')
-        .in('id', congregationIds)
-    : { data: [] as Array<{ id: string; nev_hu: string | null; name: string | null }> }
-
-  const profileMap = new Map(
-    (leaderboardProfiles || []).map((profile) => [
-      profile.id,
-      {
-        fullName: profile.full_name || 'Ismeretlen felhasználó',
-        congregationId: profile.congregation_id,
-      },
-    ]),
-  )
-
-  const congregationMap = new Map(
-    (congregations || []).map((congregation) => [
-      congregation.id,
-      congregation.nev_hu || congregation.name || 'Ismeretlen gyülekezet',
-    ]),
-  )
+  const profileMap = await getProfileDisplayNames(supabase, leaderboardUserIds)
 
   return {
     viewer: {
@@ -985,7 +930,7 @@ export async function loadWorkshopExperience(): Promise<WorkshopExperience | { e
     leaderboard: leaderboardStats.map((entry) => {
       const profile = profileMap.get(entry.user_id)
       const congregationLabel = profile?.congregationId
-        ? congregationMap.get(profile.congregationId) || 'Ismeretlen gyülekezet'
+        ? profile.congregationName || 'Ismeretlen gyülekezet'
         : 'Közösségi tér'
 
       return {

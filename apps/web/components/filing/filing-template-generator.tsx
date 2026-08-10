@@ -161,7 +161,12 @@ export function FilingTemplateGenerator({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-4xl max-h-[92vh] overflow-y-auto p-0">
+      {/* 2026-08-11 (K5-#13): `showCloseButton={false}` — a DialogContent alapból
+          renderel egy saját, 28px-es „Close" (angol!) bezáró gombot, ami a
+          színes fejléc fölé csúszott, tehát a felhasználó KÉT bezáró gombot
+          kapott, az egyiket angol névvel. Marad a fejléc saját gombja, immár
+          44px-es koppintási felülettel és magyar aria-label-lel. */}
+      <DialogContent showCloseButton={false} className="sm:max-w-4xl max-h-[92vh] overflow-y-auto p-0">
         <DialogHeader className="flex flex-row items-center gap-3 border-b border-slate-100 bg-gradient-to-br from-indigo-500 to-violet-600 px-5 py-4 text-white">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/20">
             <Wand2 className="h-5 w-5 text-white" />
@@ -177,8 +182,10 @@ export function FilingTemplateGenerator({
           <Button
             variant="ghost"
             size="icon"
-            className="text-white hover:bg-white/20"
+            className="size-11 shrink-0 text-white hover:bg-white/20"
             onClick={() => onOpenChange(false)}
+            title="Bezárás"
+            aria-label={`${template.nev} sablon generálójának bezárása`}
           >
             <X className="h-5 w-5" />
           </Button>

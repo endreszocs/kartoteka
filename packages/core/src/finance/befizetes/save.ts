@@ -41,6 +41,10 @@ import {
 
 import { getNextReceiptNumberUseCase } from './next-receipt-number'
 import { checkReceiptDuplicateUseCase } from './check-receipt-duplicate'
+import {
+  assertYearNotFinalizedOffline,
+  assertYearsNotFinalizedForCreate,
+} from '../year-lock'
 
 /**
  * A core SZÁNDÉKOSAN nem importál az `@kartoteka/offline-sync`-ből — minimal
@@ -79,6 +83,13 @@ export interface LocalBefizetesRow {
 }
 
 export interface OfflineIncomeBackend {
+  /**
+   * 2026-08-11 (5. kör, P1): OPCIONÁLIS év-zár olvasás a lokális tükörből
+   * (`bealitas_local.accounting_finalized`). Ha implementálva van és true-t ad,
+   * offline sem engedünk új tételt a lezárt évbe. Ha nincs implementálva, a
+   * mentés átmegy (lásd `finance/year-lock.ts` fail-open indoklása).
+   */
+  isYearFinalizedLocal?(congregationId: string, year: number): Promise<boolean>
   /** Atomikusan vesz egy szabad iratszámot a walletből + `used=1`. Null → üres. */
   claimNextIratszamNumber(
     congregationId: string,
@@ -128,6 +139,8 @@ export type SaveIncomeResultOrError =
       offlineNotSupported?: boolean
       /** Ha true, üres a wallet — a UI javasolja a feltöltést. */
       walletEmpty?: boolean
+      /** 2026-08-11 (5. kör, P1): a tétel éve véglegesítve — a rögzítés blokkolva. */
+      yearFinalized?: boolean
     }
 
 /** UUID generáló — `globalThis.crypto` mindkét platformon elérhető. */
@@ -218,7 +231,34 @@ export async function saveIncomeUseCase(
           'Offline módban nem adhatsz meg kézzel iratszámot — a szám-tárcából kerül ki a következő szabad szám.',
       }
     }
+    // 2026-08-11 (5. kör, P1): offline év-zár a lokális `bealitas_local` tükörből.
+    // Ha a backend nem implementálja a hookot, átengedjük (lásd year-lock.ts).
+    const offlineLock = await assertYearNotFinalizedOffline(
+      ctx.offlineBackend.isYearFinalizedLocal?.bind(ctx.offlineBackend),
+      clean.congregationId,
+      new Date(clean.datum).getFullYear(),
+    )
+    if (offlineLock) {
+      return { success: false, error: offlineLock, yearFinalized: true }
+    }
     return saveIncomeOfflineBranch(clean, year, ctx, ctx.offlineBackend)
+  }
+
+  // 2026-08-11 (5. kör, P1 adat-integritás): ÉV-ZÁR — a webnek 2026-07-10 óta van
+  // `assertYearsNotFinalizedForCreate`-je minden befizetés-insert előtt, a core
+  // use-case-nek (= a desktop útvonalnak) SOHA nem lett bekötve. Így egy már
+  // véglegesített és beküldött évbe a desktopról továbbra is lehetett új nyugtát
+  // rögzíteni, és az egyházmegyének elküldött snapshot némán elavult.
+  // A számítás ALAP a `datum` éve (nem a `fizetettev`) — a könyvelési év dönt.
+  // Az ellenőrzés a nyugtaszám-generálás ELŐTT fut, hogy zárt évben ne égjen el
+  // egy sorszám a hivatalos, hézagmentes sorozatból.
+  const createLock = await assertYearsNotFinalizedForCreate(
+    ctx.supabase,
+    clean.congregationId,
+    [clean.datum],
+  )
+  if (createLock) {
+    return { success: false, error: createLock, yearFinalized: true }
   }
 
   // 2) Iratszám-eldöntés (online)

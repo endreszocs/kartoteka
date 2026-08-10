@@ -20,6 +20,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { readYearFinalized } from './year-lock'
+
 export type UpdateTransactionType = 'befizetes' | 'kiadas'
 
 export interface UpdateTransactionInput {
@@ -56,24 +58,22 @@ export type UpdateTransactionResult =
       noChange?: boolean
     }
 
-/**
- * Év-véglegesítés check a `bealitas` táblán (id = év stringként). Megegyezik a
- * `befizetes/storno.ts` és az `undo-storno.ts` helperével.
- */
-async function isYearFinalized(
-  supabase: SupabaseClient,
-  congregationId: string,
-  year: number,
-): Promise<boolean> {
-  const { data } = await supabase
-    .from('bealitas')
-    .select('accounting_finalized')
-    .eq('congregation_id', congregationId)
-    .eq('id', String(year))
-    .maybeSingle()
-  if (!data) return false
-  return Boolean((data as { accounting_finalized?: boolean }).accounting_finalized)
-}
+// 2026-08-11 (5. kör, P0 zárás-integritás): itt egy SAJÁT `isYearFinalized`
+// helper állt, ugyanazzal a fail-OPEN hibával, mint a testvér-fájlokban:
+//   const { data } = await supabase.from('bealitas')…;  if (!data) return false
+// Az `error` EL LETT DOBVA, a `false` viszont azt jelenti, hogy „az év NINCS
+// véglegesítve" — vagyis a lekérdezés BÁRMILYEN hibája (RLS-szigorítás,
+// oszlop-átnevezés, kettőzött `bealitas` sor → maybeSingle-hiba, hálózati hiba)
+// NÉMÁN ENGEDÉLYEZTE a már véglegesített ÉS az egyházmegyének beküldött év
+// tételeinek átírását. Zárás-integritási kapunál a fail-OPEN a lehető
+// legrosszabb alapértelmezés: a beküldött, aláírt számadás és az adatbázis
+// csendben széthúz, és ezt senki nem veszi észre.
+//
+// Javítás: a közös, FAIL-CLOSED `readYearFinalized` (./year-lock) használata.
+// Az „nincs `bealitas` sor erre az évre" NEM hiba (`maybeSingle` ilyenkor
+// `data: null, error: null`) — az évet még nem konfigurálták, tehát tényleg
+// nincs véglegesítve → `finalized: false`. Csak a VALÓDI lekérdezési hiba jön
+// vissza `unknown: true`-val, és azt elutasításként kezeljük.
 
 // ─────────────────────────────────────────────────────────────────────────
 // isLastTransactionOfTypeUseCase — a dátum-szerkeszthetőség eldöntéséhez
@@ -107,12 +107,19 @@ export async function isLastTransactionOfTypeUseCase(
   const table = input.type === 'befizetes' ? 'befizetes' : 'kiadas'
 
   try {
-    const { data: current } = await ctx.supabase
+    const { data: current, error: currentErr } = await ctx.supabase
       .from(table)
       .select('datum')
       .eq('id', input.id)
       .eq('congregation_id', input.congregationId)
       .maybeSingle()
+
+    // 2026-08-11 (5. kör, K5-#32 testvér-vizsgálat): a hiba korábban elveszett
+    // (`const { data: current } = …`); a `!datum` ág `isLast: false`-t adott, ami
+    // a szigorúbb irány, de némán. Most kimondjuk.
+    if (currentErr) {
+      return { isLast: false, error: `A tétel dátumát nem sikerült lekérdezni: ${currentErr.message}` }
+    }
 
     const datum = (current as { datum?: string } | null)?.datum
     if (!datum) return { isLast: false }
@@ -121,7 +128,7 @@ export async function isLastTransactionOfTypeUseCase(
     const yearStart = `${year}-01-01`
     const yearEnd = `${year}-12-31`
 
-    const { data: later } = await ctx.supabase
+    const { data: later, error: laterErr } = await ctx.supabase
       .from(table)
       .select('id')
       .eq('congregation_id', input.congregationId)
@@ -130,6 +137,22 @@ export async function isLastTransactionOfTypeUseCase(
       .lte('datum', yearEnd)
       .gte('datum', yearStart)
       .limit(1)
+
+    // 2026-08-11 (5. kör): FAIL-OPEN VOLT — az `error` eldobva, és egy hibás
+    // lekérdezésre (`later === null`) a `!later || later.length === 0` kifejezés
+    // `isLast: true`-t adott, vagyis a UI pont akkor engedte volna a DÁTUM
+    // átírását, amikor nem tudtuk ellenőrizni, van-e későbbi tétel az évben.
+    // Köztes dátum átírása pont a védett dolgot rontja el: a kronológiát és a
+    // nyugtaszám-sorrendet. Fail-closed: ha nem tudjuk, nem engedjük.
+    if (laterErr) {
+      return {
+        isLast: false,
+        error:
+          `Nem sikerült ellenőrizni, hogy ez a tétel az év utolsó tétele-e ` +
+          `(${laterErr.message}), ezért a dátum most biztonságból nem módosítható. ` +
+          'Próbáld újra néhány perc múlva; a többi mező szerkesztése ettől független.',
+      }
+    }
 
     return { isLast: !later || later.length === 0 }
   } catch (err) {
@@ -163,14 +186,55 @@ export async function updateTransactionUseCase(
   const table = input.type === 'befizetes' ? 'befizetes' : 'kiadas'
   const nowIso = new Date().toISOString()
 
-  // Véglegesített év védelme (ha a dátum változik)
+  // 2026-08-11 (5. kör, P0 adat-integritás): HIBA VOLT — ez az ellenőrzés csak
+  // az `if (input.datum)` ágon belül futott, a Kassza-fül szerkesztője viszont
+  // SZÁNDÉKOSAN nem küld dátumot, ha a tétel nem az év utolsó tétele. Vagyis
+  // véglegesített évben az összeg / jogcím / iratszám némán átírható volt.
+  // (Ugyanaz a hiba, mint a web `updateTransactionBasic`-ben — ott is javítva.)
+  // Javítás: a tétel JELENLEGI dátumát mindig kiolvassuk, és MINDEN update-nél
+  // ellenőrzünk; ha új dátum is jön, a régi ÉS az új évre is.
+  const { data: currentRow, error: currentErr } = await ctx.supabase
+    .from(table)
+    .select('datum')
+    .eq('id', input.id)
+    .eq('congregation_id', input.congregationId)
+    .maybeSingle()
+
+  if (currentErr) {
+    return { success: false, error: `A tétel ellenőrzése nem sikerült: ${currentErr.message}` }
+  }
+  if (!currentRow) {
+    return { success: false, error: 'A tétel nem található.' }
+  }
+
+  const yearsToCheck = new Set<number>()
+  const currentDatum = (currentRow as { datum?: string | null }).datum
+  if (currentDatum) {
+    const y = new Date(currentDatum).getFullYear()
+    if (Number.isFinite(y)) yearsToCheck.add(y)
+  }
   if (input.datum) {
-    const year = new Date(input.datum).getFullYear()
-    const finalized = await isYearFinalized(ctx.supabase, input.congregationId, year)
-    if (finalized) {
+    const y = new Date(input.datum).getFullYear()
+    if (Number.isFinite(y)) yearsToCheck.add(y)
+  }
+
+  for (const year of yearsToCheck) {
+    const lock = await readYearFinalized(ctx.supabase, input.congregationId, year)
+    // 2026-08-11: fail-CLOSED — ha a zár-állapot NEM olvasható, nem módosítunk.
+    if (lock.unknown) {
       return {
         success: false,
-        error: `A ${year}. évi számadás már véglegesítve van. Először kérj javítási engedélyt az egyházmegyétől.`,
+        error:
+          `A ${year}. évi számadás zárás-állapotát most nem sikerült ellenőrizni ` +
+          `(${lock.errorMessage || 'ismeretlen hiba'}), ezért a módosítást biztonságból ` +
+          'megszakítottuk — egy már lezárt évet nem nyithatunk ki véletlenül. Ellenőrizd ' +
+          'az internetkapcsolatot, és próbáld újra; ha újra hibázik, jelezd a rendszergazdának.',
+      }
+    }
+    if (lock.finalized) {
+      return {
+        success: false,
+        error: `A ${year}. évi számadás már véglegesítve (és beküldve) van, ezért ez a tétel nem módosítható. Kérj feloldást (javítási engedélyt) az egyházmegyétől.`,
         yearFinalized: true,
       }
     }

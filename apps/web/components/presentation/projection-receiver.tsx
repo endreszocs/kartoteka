@@ -40,12 +40,58 @@ function ScaledSlide({ item, payload, dim }: { item: DeckItem; payload: DeckPayl
   )
 }
 
+/**
+ * BIZTONSÁGI FIX 2026-08-11 (#12): a párosító URL SOHA nem mehet ki külső
+ * szolgáltatóhoz.
+ *
+ * Ami rossz volt: a QR-kódot az `api.qrserver.com` rajzolta, és a teljes
+ * `/eloadas/<kód>/vezerlo` cím a GET query-stringben ment ki. Ez az útvonal
+ * hitelesítés NÉLKÜLI (lib/supabase/middleware.ts), a munkamenet-kód pedig az
+ * EGYETLEN kulcs ahhoz az adáshoz, amely a gyülekezet taglétszám- és
+ * pénzügyi adatait viszi. Így a külső szolgáltató (és minden útközbeni napló,
+ * proxy, CDN) megkapta az élő kulcsot, amivel a 12 órás élettartam alatt
+ * bárki vezérlőként rácsatlakozhatott volna.
+ *
+ * Miért jó a javítás: a kódot helyben, a böngészőben rajzoljuk (`uqr`), pont
+ * úgy, ahogy a components/filing/csatolmany-panel.tsx teszi a telefonos
+ * feltöltő tokennel. Semmilyen hálózati kérés nem keletkezik.
+ */
 function DecorQR({ url }: { url: string }) {
-  const src = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&data=${encodeURIComponent(url)}`
-  const [ok, setOk] = useState(true)
-  if (!ok) return null
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={src} alt="QR-kód a vezérlőhöz" width={150} height={150} onError={() => setOk(false)} style={{ borderRadius: 14, background: '#fff', padding: 10 }} />
+  const [svg, setSvg] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const { renderSVG } = await import('uqr')
+        const markup = renderSVG(url, {
+          ecc: 'M',
+          border: 2,
+          pixelSize: 8,
+          whiteColor: '#ffffff',
+          blackColor: '#111827',
+        })
+        if (!cancelled) setSvg(markup)
+      } catch {
+        // A QR csak kényelmi funkció — a nagy párosító kód mellette olvasható.
+        if (!cancelled) setSvg(null)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [url])
+
+  if (!svg) return null
+
+  return (
+    <div
+      role="img"
+      aria-label="QR-kód a vezérlőhöz"
+      className="[&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
+      style={{ width: 150, maxWidth: '40vw', borderRadius: 14, background: '#fff', padding: 10 }}
+      /* A QR-SVG a saját, épp legenerált kódunk (uqr) — nem külső tartalom. */
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  )
 }
 
 export function ProjectionReceiver({ session }: { session: string }) {

@@ -207,15 +207,22 @@ export function FinancePrintDialog({
               const actualExpense: Record<string, number> = {}
               // 2026-07-10 (S3 audit KRITIKUS #1): stornózott tétel a hivatalos
               // költségvetés/számadás nyomtatvány tényadatába sem számít.
+              // 2026-08-11 (K5-#6): a tény-oszlop a NYERS deviza-összeget (`osszeg`)
+              // adta össze, miközben a Registru Casa/Banca/Jurnal a RON-ekvivalenst
+              // (`osszeg_ron`) használja (reporting.ts `ronOf`, helpers.ts
+              // calculateBalances). Devizás banki tételnél (pl. 1000 EUR = 4970 lej)
+              // a Számadás 1000 lejt, a Registru 4970 lejt írt — két hivatalos,
+              // ALÁÍRT papír ugyanarra az évre, egymásnak ellentmondó összeggel.
+              // A könyvelés RON-ban folyik, ezért mindenhol `osszeg_ron ?? osszeg`.
               for (const r of incomeUse) {
                 if (r.deleted || r.stornozott) continue
                 const code = r.id_befizetescel ? bevCelMap[r.id_befizetescel] : undefined
-                if (code) actualIncome[code] = (actualIncome[code] || 0) + Number(r.osszeg || 0)
+                if (code) actualIncome[code] = (actualIncome[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
               }
               for (const r of expenseUse) {
                 if (r.deleted || r.stornozott) continue
                 const code = r.id_kiadascel ? kiaCelMap[r.id_kiadascel] : undefined
-                if (code) actualExpense[code] = (actualExpense[code] || 0) + Number(r.osszeg || 0)
+                if (code) actualExpense[code] = (actualExpense[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
               }
               const printData: BudgetPrintData = {
                 cellek,

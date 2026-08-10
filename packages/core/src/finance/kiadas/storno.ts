@@ -17,6 +17,8 @@ import {
   type StornoExpenseInput,
 } from '@kartoteka/validations'
 
+import { readYearFinalized } from '../year-lock'
+
 export interface StornoExpenseCtx {
   supabase: SupabaseClient
   runtime: 'web' | 'desktop'
@@ -37,20 +39,20 @@ export type StornoExpenseResult =
       yearFinalized?: boolean
     }
 
-async function isYearFinalized(
-  supabase: SupabaseClient,
-  congregationId: string,
-  year: number,
-): Promise<boolean> {
-  const { data } = await supabase
-    .from('bealitas')
-    .select('accounting_finalized')
-    .eq('congregation_id', congregationId)
-    .eq('id', String(year))
-    .maybeSingle()
-  if (!data) return false
-  return Boolean((data as { accounting_finalized?: boolean }).accounting_finalized)
-}
+// 2026-08-11 (5. kör, P0 zárás-integritás): itt egy SAJÁT `isYearFinalized`
+// helper állt — `const { data } = await …` + `if (!data) return false` —, ami az
+// `error`-t ELDOBTA. A `false` jelentése „az év NINCS véglegesítve", tehát a
+// `bealitas` olvasásának bármilyen hibája (RLS-szigorítás, oszlop-átnevezés,
+// kettőzött `bealitas` sor → maybeSingle-hiba, hálózati hiba) NÉMÁN
+// ENGEDÉLYEZTE a már véglegesített ÉS az egyházmegyének beküldött év kiadásának
+// sztornózását: a beküldött, aláírt számadás és az adatbázis csendben
+// széthúzott. Zárás-integritási kapunál a fail-CLOSED az egyetlen helyes
+// alapértelmezés — inkább meghiúsuló művelet, mint hamis „nyitva az év".
+//
+// Javítás: a közös, FAIL-CLOSED `readYearFinalized` (../year-lock). A „nincs
+// `bealitas` sor erre az évre" NEM hibaág (`maybeSingle` → `data: null,
+// error: null`) → `finalized: false`; csak a VALÓDI lekérdezési hiba jön vissza
+// `unknown: true`-val, azt elutasításként kezeljük.
 
 export async function stornoExpenseUseCase(
   input: StornoExpenseInput,
@@ -103,11 +105,21 @@ export async function stornoExpenseUseCase(
       }
     }
 
-    // 2) Év-véglegesítés check
+    // 2) Év-véglegesítés check (fail-CLOSED, lásd a fenti 2026-08-11 megjegyzést)
     if (!clean.skipYearFinalizedCheck && r.datum) {
       const year = new Date(r.datum).getFullYear()
-      const finalized = await isYearFinalized(ctx.supabase, clean.congregationId, year)
-      if (finalized) {
+      const lock = await readYearFinalized(ctx.supabase, clean.congregationId, year)
+      if (lock.unknown) {
+        return {
+          success: false,
+          error:
+            `A ${year}. évi számadás zárás-állapotát most nem sikerült ellenőrizni ` +
+            `(${lock.errorMessage || 'ismeretlen hiba'}), ezért a sztornót biztonságból ` +
+            'megszakítottuk — egy már lezárt évet nem nyithatunk ki véletlenül. Ellenőrizd ' +
+            'az internetkapcsolatot, és próbáld újra; ha újra hibázik, jelezd a rendszergazdának.',
+        }
+      }
+      if (lock.finalized) {
         return {
           success: false,
           error: `A ${year}. évi számadás már véglegesítve van. Kérj javítási engedélyt az egyházmegyétől, mielőtt sztornózol.`,

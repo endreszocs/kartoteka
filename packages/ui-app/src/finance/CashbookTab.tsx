@@ -132,6 +132,17 @@ export interface CashbookTabProps {
   incomeCategories?: { id: number; kod: string; nev: string }[]
   expenseCategories?: { id: number; kod: string; nev: string }[]
 
+  /**
+   * 2026-08-11 (5. kör, P0): a NÉZETT év számadása véglegesítve van-e
+   * (`bealitas.accounting_finalized`). Eddig a fül EGYÁLTALÁN nem ismerte ezt a
+   * flaget (`canEdit={!!transactionEditDialogSlot}` — mindig igaz), így egy már
+   * beküldött év tétele mellett is ott volt a ceruza-ikon, és a szerver-oldali
+   * zár is kilyukadt (lásd edit-storno-actions.ts). Ha true: a szerkesztés-gomb
+   * letiltva + magyarázó sáv a lista felett.
+   * OPCIONÁLIS — ha nincs megadva, a régi (nem-zárt) viselkedés marad.
+   */
+  accountingFinalized?: boolean
+
   onTransactionChanged?: () => void | Promise<void>
   /** 2026-07-17 (F4): az Induló (nyitó) egyenlegek szerkesztőjének megnyitása. */
   onOpenOpeningBalances?: () => void
@@ -211,6 +222,7 @@ export function CashbookTab({
   congregationName,
   incomeCategories = [],
   expenseCategories = [],
+  accountingFinalized = false,
   onTransactionChanged,
   onOpenOpeningBalances,
   onAutoIssueChitanta,
@@ -274,6 +286,16 @@ export function CashbookTab({
   >({})
 
   function handleOpenEdit(r: CashRow) {
+    // 2026-08-11 (5. kör, P0): véglegesített évben a szerkesztő meg sem nyílhat.
+    // (A gomb is le van tiltva — ez a második védvonal, pl. billentyűzetes
+    // aktiválás vagy jövőbeli hívó ellen.)
+    if (accountingFinalized) {
+      onToast?.(
+        'Ennek az évnek a számadása véglegesítve és beküldve van — a tételek nem szerkeszthetők. Kérj feloldást (javítási engedélyt) az egyházmegyétől.',
+        'warning',
+      )
+      return
+    }
     setEditDialog({
       open: true,
       type: r.type === 'income' ? 'befizetes' : 'kiadas',
@@ -672,6 +694,21 @@ export function CashbookTab({
         </div>
       )}
 
+      {/* 2026-08-11 (5. kör, P0): zárt év — magyarázó sáv. Eddig SEMMI nem jelezte
+          a kasszanaplón, hogy az év számadása véglegesítve és beküldve van, és a
+          szerkesztés-gomb is aktív maradt. */}
+      {accountingFinalized && (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-relaxed text-amber-900">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+          <span>
+            <strong>Ennek az évnek a számadása véglegesítve és beküldve van.</strong> A tételek
+            ezért nem szerkeszthetők — így marad egyezésben a kinyomtatott, aláírt számadás és a
+            képernyőn látható adat. Ha javítani kell, a Számadás fülön kérj feloldást (javítási
+            engedélyt) az egyházmegyétől, és csak a jóváhagyás után módosíts.
+          </span>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-3">
         {/* 2026-07-10 (S4-mobil): min-h-10 — 40px-es érintőfelület telefonon is. */}
         <select
@@ -855,6 +892,8 @@ export function CashbookTab({
                           // callback/slot át van adva. A web mindet átadja (változatlan);
                           // a desktop a részhalmazt adja (a többi gomb rejtve marad).
                           canEdit={!!transactionEditDialogSlot}
+                          // 2026-08-11 (5. kör, P0): zárt évben a ceruza letiltva.
+                          yearFinalized={accountingFinalized}
                           canStorno={!!stornoConfirmDialogSlot}
                           canUndoStorno={!!onUndoStorno}
                           canChitanta={!!onAutoIssueChitanta}
@@ -936,6 +975,8 @@ interface CashRowProps {
   onReprintChitanta: (chitantaId: string) => void
   /** Akció-gomb láthatóság — a szülő a callback/slot megléte alapján adja. */
   canEdit: boolean
+  /** 2026-08-11 (5. kör, P0): a nézett év számadása véglegesítve — szerkesztés tiltva. */
+  yearFinalized?: boolean
   canStorno: boolean
   canUndoStorno: boolean
   canChitanta: boolean
@@ -951,6 +992,7 @@ function CashRow({
   onIssueChitanta,
   onReprintChitanta,
   canEdit,
+  yearFinalized = false,
   canStorno,
   canUndoStorno,
   canChitanta,
@@ -1074,11 +1116,19 @@ function CashRow({
       <td className="p-2.5">
         <div className="flex items-center justify-end gap-1">
           {canEdit && !r.stornozott && !r.isBm && (
+            // 2026-08-11 (5. kör, P0): véglegesített évben a ceruza LETILTVA —
+            // korábban a fül nem ismerte az `accounting_finalized` flaget, így a
+            // beküldött év tétele is szabadon szerkeszthetőnek látszott.
             <button
               type="button"
-              title="Szerkesztés"
+              title={
+                yearFinalized
+                  ? 'A számadás véglegesítve és beküldve — a tétel nem szerkeszthető. Kérj feloldást az egyházmegyétől.'
+                  : 'Szerkesztés'
+              }
+              disabled={yearFinalized}
               onClick={() => onEdit(r)}
-              className="inline-flex items-center justify-center rounded-md max-sm:min-h-10 max-sm:min-w-10 border border-slate-200 p-1.5 text-slate-400 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+              className="inline-flex items-center justify-center rounded-md max-sm:min-h-10 max-sm:min-w-10 border border-slate-200 p-1.5 text-slate-400 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-colors disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-slate-200 disabled:hover:bg-transparent disabled:hover:text-slate-400"
             >
               <Pencil className="size-3.5" />
             </button>

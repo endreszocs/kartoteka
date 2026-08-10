@@ -47,6 +47,9 @@ type WebBankTabProps = Pick<
   | 'onBankAccountSaved'
   | 'onTransactionChanged'
   | 'onOpenOpeningBalances'
+  // 2026-08-11 (5. kör, P0-követő): zárt év — a Kasszakönyv fül után a Bank
+  // fülön is le kell tiltani a szerkesztést, mert ugyanazt a dialógust nyitja.
+  | 'accountingFinalized'
 >
 
 export function BankTab(props: WebBankTabProps) {

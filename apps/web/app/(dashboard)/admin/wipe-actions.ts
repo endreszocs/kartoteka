@@ -1,8 +1,8 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { requireAdminAccess } from '@/lib/auth/admin-access'
+import { getScopedCongregationIds } from '@/lib/auth/admin-scope'
 
 /**
  * Admin: gyülekezeti adatok törlése (wipe).
@@ -154,17 +154,94 @@ function translateRpcError(msg: string): string {
 
 /**
  * Admin: utolsó wipe-bejegyzések listája a `data_wipe_log`-ból (history).
+ *
+ * BIZTONSÁGI FIX 2026-08-11 (5. kör, P3 #6): ez a függvény nyers `createClient()`-tel
+ * dolgozott, `requireAdminAccess()` NÉLKÜL — szemben a fájl két testvérével (a
+ * `wipeCongregationDataAction` és a `wipeFinanceDataAction` mindkettő guardolt).
+ * Egy `'use server'` export ÉLŐ POST-végpont, így bárki meghívhatta; az egyetlen
+ * védelem az RLS `data_wipe_log_admin_read` policy volt, ami viszont
+ * `role IN ('admin','master','egyhazkeruleti_admin')`-t néz `status='active'` és
+ * kerület-feltétel NÉLKÜL. Emiatt egy „A" kerületi admin (vagy egy már
+ * felfüggesztett, de még 'admin' szerepű profil) végig tudta olvasni az ORSZÁG
+ * ÖSSZES adattörlését — gyülekezet-név, ki indította, hány sor tűnt el —, ami
+ * pontosan az a kerületközi információ, amit a #2 hatókör-döntés megtagad tőle
+ * („más kerületet NE is lásson", admin-scope.ts fejléce).
+ *
+ * Most: (1) `requireAdminAccess({ allowDistrictAdmin: true })` — a kerületi admin
+ * LÁTHATJA a saját kerülete törléseit, csak nem indíthat újat; (2) a hatókörön
+ * kívüli sorok kiszűrése `getScopedCongregationIds` alapján, MÁR A LEKÉRDEZÉSBEN
+ * (hogy a `limit` a szűkített halmazon érvényesüljön), plusz egy védő utószűrés.
+ * FAIL-CLOSED: ha a hatókör üres (nincs beállított kerület, vagy a hatókör-lekérdezés
+ * hibázott), üres listát adunk vissza — nem az egészet.
+ *
+ * A gyülekezet-lista DARABOLVA megy az `.in()`-be: egy egyházkerület több száz
+ * gyülekezetet tarthat, és 500+ UUID egyetlen query-stringben átlépné a PostgREST
+ * URL-hossz plafonját (a `dashboard-egyhazmegye/document-actions.ts` ugyanezért
+ * darabol). Darabonként kérünk `limit` sort, majd a UNIÓT rendezzük és vágjuk —
+ * a globális „legutóbbi N" mindig benne van a darabonkénti „legutóbbi N" uniójában.
  */
-export async function listRecentWipesAction(limit: number = 10) {
-  const supabase = await createClient()
-  const { data, error } = await supabase
-    .from('data_wipe_log')
-    .select('id, congregation_id, congregation_name, initiated_by, initiated_at, total_rows_deleted')
-    .order('initiated_at', { ascending: false })
-    .limit(limit)
+const WIPE_LOG_IN_CHUNK = 120
 
-  if (error) {
-    return { success: false as const, error: error.message, rows: [] }
+export async function listRecentWipesAction(limit: number = 10) {
+  let access
+  try {
+    access = await requireAdminAccess({ allowDistrictAdmin: true })
+  } catch (e) {
+    return {
+      success: false as const,
+      error: e instanceof Error ? e.message : 'Ehhez a művelethez nincs jogosultsága.',
+      rows: [],
+    }
   }
-  return { success: true as const, rows: data ?? [] }
+
+  // null = korlátlan (master / teljes admin); tömb = a kerületi admin gyülekezetei
+  const scopedCongIds = await getScopedCongregationIds(access)
+  if (scopedCongIds !== null && scopedCongIds.length === 0) {
+    // Nincs egyetlen hatókörbe eső gyülekezet sem → nem mutatunk semmit.
+    return { success: true as const, rows: [] }
+  }
+
+  const columns =
+    'id, congregation_id, congregation_name, initiated_by, initiated_at, total_rows_deleted'
+  type WipeLogRow = {
+    id: string
+    congregation_id: string | null
+    congregation_name: string | null
+    initiated_by: string | null
+    initiated_at: string | null
+    total_rows_deleted: number | null
+  }
+
+  const idChunks: Array<string[] | null> = scopedCongIds === null ? [null] : []
+  if (scopedCongIds !== null) {
+    for (let i = 0; i < scopedCongIds.length; i += WIPE_LOG_IN_CHUNK) {
+      idChunks.push(scopedCongIds.slice(i, i + WIPE_LOG_IN_CHUNK))
+    }
+  }
+
+  const collected: WipeLogRow[] = []
+  for (const ids of idChunks) {
+    let query = access.supabase
+      .from('data_wipe_log')
+      .select(columns)
+      .order('initiated_at', { ascending: false })
+      .limit(limit)
+    if (ids) query = query.in('congregation_id', ids)
+
+    const { data, error } = await query
+    if (error) {
+      return { success: false as const, error: error.message, rows: [] }
+    }
+    collected.push(...((data ?? []) as unknown as WipeLogRow[]))
+  }
+
+  // Védő utószűrés: ha a szerver-oldali `.in(...)` valaha kiesne (PostgREST-hiba,
+  // átírt lekérdezés), a kerületen kívüli sor akkor se juthasson ki a UI-ra.
+  const scopedSet = scopedCongIds === null ? null : new Set(scopedCongIds)
+  const rows = collected
+    .filter((r) => scopedSet === null || (r.congregation_id != null && scopedSet.has(r.congregation_id)))
+    .sort((a, b) => String(b.initiated_at ?? '').localeCompare(String(a.initiated_at ?? '')))
+    .slice(0, limit)
+
+  return { success: true as const, rows }
 }

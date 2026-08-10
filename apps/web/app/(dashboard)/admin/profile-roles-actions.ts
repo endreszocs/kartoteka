@@ -83,34 +83,15 @@ export async function listProfileRoles(): Promise<{ data?: ProfileRoleRow[]; err
   return { data: filtered }
 }
 
-export async function listAssignableProfiles(): Promise<{
-  data?: Array<{ id: string; full_name: string | null; email: string | null; role: string; status?: string }>
-  error?: string
-}> {
-  let access: Awaited<ReturnType<typeof requireAdminAccess>>
-  try {
-    access = await requireAdminAccess()
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Nincs jogosultsága.' }
-  }
-
-  // 2026-05-02 (v0.9.41) — Felhasználó panasza: az új regisztrált+elfogadott
-  // user nem jelenik meg a Szerepkörök fülön. Az ok: az `eq('status', 'active')`
-  // szűrő kizárja a 'pending' user-eket — még akkor is, ha őket az admin az
-  // /admin/hozzaferes-kerelmek-ben elfogadta (mert ott csak az access_request
-  // státusz változik, nem feltétlenül a profile.status).
-  //
-  // Most engedjük át a 'pending' és 'active' user-eket egyaránt — az UI
-  // jelölje meg melyik a pending. A 'denied'/'rejected' továbbra is kihagyva.
-  const { data, error } = await access.supabase
-    .from('profiles')
-    .select('id, full_name, email, role, status')
-    .in('status', ['active', 'pending'])
-    .order('full_name', { nullsFirst: false })
-
-  if (error) return { error: error.message }
-  return { data: data || [] }
-}
+// BIZTONSÁGI FIX 2026-08-11 (#15): a `listAssignableProfiles` export TÖRÖLVE.
+// A `profiles` táblát `.in('status', ['active','pending'])` szűréssel kérdezte le,
+// hatókör-szűrés NÉLKÜL — miközben a fájl minden más listázója (listProfileRoles,
+// listScopeOptions) `getAdminDistrictScope`-pal szűkít. Hívója nem volt (a
+// components/admin/users/unified-users-tab.tsx fejléce is „eltávolítottként"
+// említi), de egy `'use server'` export akkor is ÉLŐ POST-végpont: egy
+// `egyhazkeruleti_admin` így az ORSZÁG ÖSSZES felhasználójának — köztük minden
+// függőben lévő regisztrálónak — a nevét és e-mail-címét lekérhette volna, a
+// saját kerületén kívülről is (admin-scope.ts: „más kerületet NE is lásson").
 
 export async function listScopeOptions(): Promise<{
   data?: {
@@ -417,55 +398,9 @@ export async function revokeProfileRole(args: {
   return { success: true }
 }
 
-// ---------------------------------------------------------------------------
-// Permissions frissítés (x-elés)
-// ---------------------------------------------------------------------------
-
-export async function updateProfileRolePermissions(args: {
-  profileRoleId: string
-  permissions: Permissions
-}): Promise<{ success?: boolean; error?: string }> {
-  let access: Awaited<ReturnType<typeof requireAdminAccess>>
-  try {
-    access = await requireAdminAccess()
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Nincs jogosultsága.' }
-  }
-
-  // #2: kerületi admin csak a saját egyházkerületébe eső szerepkör engedélyeit
-  // módosíthatja.
-  const { data: roleSnapshot } = await access.supabase
-    .from('profile_roles')
-    .select('scope, scope_id')
-    .eq('id', args.profileRoleId)
-    .maybeSingle()
-  if (!roleSnapshot) return { error: 'A szerepkör nem található.' }
-  try {
-    await assertScopeTargetInScope(
-      access,
-      roleSnapshot.scope as ProfileRoleScope,
-      (roleSnapshot.scope_id as string | null) ?? null,
-    )
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Nincs jogosultsága ehhez a szerepkörhöz.' }
-  }
-
-  const { error } = await access.supabase
-    .from('profile_roles')
-    .update({ permissions: args.permissions })
-    .eq('id', args.profileRoleId)
-
-  if (error) return { error: `Hiba: ${error.message}` }
-
-  await logAuditEvent({
-    action: 'profile_role.permissions_update',
-    targetTable: 'profile_roles',
-    targetId: args.profileRoleId,
-    metadata: { permissions: args.permissions },
-  })
-
-  revalidatePath('/admin')
-  revalidatePath('/admin/felhasznalok')
-  revalidatePath('/', 'layout')
-  return { success: true }
-}
+// 2026-08-11 (K5 P2 #6) — TÖRÖLVE: `updateProfileRolePermissions`. Hívója sehol
+// nem volt a repóban; a jogosultság-mátrix szerkesztője
+// (components/admin/users/role-permissions-dialog.tsx) NEM ezt hívja. Egy
+// `use server` export hívó nélkül is ÉLŐ POST-végpont: ez konkrétan a
+// `profile_roles.permissions` mezőt írta felül tetszőleges tartalommal, ezért a
+// törlése nem csak takarítás.

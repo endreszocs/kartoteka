@@ -144,7 +144,11 @@ export async function getFinanceScopeContext(): Promise<
 
     if (!allowed) return { error: 'Nincs jogosultság az egyházmegyei pénzügyhez.' }
 
-    // Név lekérdezés (opcionális, csak logra és UI-ra kell)
+    // Név lekérdezés (opcionális, csak logra és UI-ra kell).
+    // 2026-08-11 (K5-#32 testvér-ellenőrzés): ez az EGYETLEN hiba-elnyelés a
+    // fájlban, és tudatosan az marad — a `scopeName` KIZÁRÓLAG felirat, nem
+    // dönt jogosultságról vagy zárásról. A jogosultsági ág fentebb (`allowed`)
+    // eleve fail-closed: elnyelt hiba nem adhat hozzáférést.
     let scopeName: string | null = null
     try {
       const { data } = await access.supabase
@@ -184,21 +188,86 @@ export async function getFinanceScopeContext(): Promise<
 
 /**
  * Ellenőrzi, hogy az adott év számadása véglegesítve van-e a megfelelő
- * scope-on. Egységes helper — szerkesztés/storno blokkoláshoz.
+ * scope-on. Egységes helper — szerkesztés/storno/új tétel blokkoláshoz.
+ *
+ * 2026-08-11 (K5-#32) FAIL-CLOSED JAVÍTÁS
+ * ───────────────────────────────────────
+ * MI VOLT A HIBA: a függvény `const { data } = await …`-tal hívott, vagyis az
+ * `error`-t EL IS DOBTA, majd `if (!data) return false`-szal tért vissza. A
+ * `false` jelentése itt „az év NINCS véglegesítve", ami a hívó oldalon
+ * ENGEDÉLYEZI a szerkesztést, a stornót és az új tétel rögzítését. Tehát a
+ * lekérdezés bármilyen hibája (RLS-szigorítás, oszlop-átnevezés, kettőzött
+ * `bealitas` sor → maybeSingle-hiba, hálózati hiba) NÉMÁN KINYITOTTA a már
+ * lezárt és beadott számadás évét. Ez pénzügyi zárás-integritási kapu: itt a
+ * fail-OPEN a lehető legrosszabb alapértelmezés.
+ *
+ * MIÉRT HELYES A JAVÍTÁS: hibánál dobunk, tehát a hívó művelet MEGHIÚSUL —
+ * a zárt év semmilyen körülmények között nem nyílik ki egy elnyelt hiba
+ * miatt. A „nincs `bealitas` sor erre az évre" NEM hiba (`maybeSingle` ilyenkor
+ * `data: null, error: null`): az azt jelenti, hogy az évet még nem is
+ * konfigurálták, tehát valóban nincs véglegesítve → `false`.
+ *
+ * ✅ HÍVÓ OLDAL (2026-08-11, ugyanaznap, 2. lépés): mind az öt hívó
+ * (`penzugy/actions.ts`, `edit-storno-actions.ts` ×3, `dispozitie-actions.ts`,
+ * `decont-actions.ts`) try/catch-be lett csomagolva, és a lenti magyar szöveget
+ * a saját modulja szokásos `{ error: '…' }` alakjában adja vissza — így a
+ * művelet továbbra is fail-closed MEGHIÚSUL, de a lelkész actionable magyar
+ * üzenetet lát nyers szerver-action hiba helyett. A normalizáláshoz lásd:
+ * `yearFinalizedCheckErrorMessage`.
  */
 export async function isYearFinalized(
   ctx: FinanceScopeContext,
   year: number,
 ): Promise<boolean> {
   const T = tablesFor(ctx.scope)
-  const { data } = await ctx.supabase
+  const { data, error } = await ctx.supabase
     .from(T.bealitas)
     .select(T.finalizedCol)
     .eq(T.scopeCol, ctx.scopeId)
     .eq(T.yearColBealitas, yearValueFor(ctx.scope, year))
     .maybeSingle()
 
+  if (error) {
+    console.error(
+      `[finance-scope] A(z) ${year}. évi zárás-állapot lekérdezése HIBÁRA FUTOTT ` +
+        `(${T.bealitas}.${T.finalizedCol}, ${T.scopeCol}=${ctx.scopeId}) — fail-closed, a művelet nem futhat le.`,
+      error,
+    )
+    throw new Error(
+      `A ${year}. évi számadás zárás-állapotát most nem sikerült ellenőrizni, ezért biztonsági okból ` +
+        `nem engedjük a módosítást (egy már lezárt évet nem nyithatunk ki véletlenül). ` +
+        `Próbáld újra néhány perc múlva; ha újra hibázik, jelezd a rendszergazdának ` +
+        `(részlet: ${error.message}).`,
+    )
+  }
+
+  // Nincs `bealitas` sor erre az évre → az évet még nem konfigurálták, tehát
+  // nincs is véglegesítve. Ez NEM hibaág.
   if (!data) return false
   const row = data as Record<string, unknown>
   return Boolean(row[T.finalizedCol])
+}
+
+/**
+ * 2026-08-11 (K5-#32, 2. lépés): az `isYearFinalized` által DOBOTT hiba
+ * lelkész-barát magyar szöveggé alakítása, hogy a hívó szerver-action a saját
+ * `{ error: '…' }` alakjában adhassa vissza.
+ *
+ * MIÉRT KELL: az `isYearFinalized` fail-closed dobása helyes (zárt évet elnyelt
+ * hiba miatt sosem nyitunk ki), de try/catch nélkül a Next.js szerver-action
+ * nyers hibaként bukott el — a lelkész csak annyit látott, hogy „valami
+ * elromlott", és nem tudta, mit tegyen. A művelet TOVÁBBRA IS meghiúsul; csak
+ * az üzenet lesz értelmezhető és cselekvésre váltható.
+ *
+ * Az `isYearFinalized` dobása már tartalmazza a teljes magyar szöveget (mit
+ * tegyen a lelkész + a részlet-hibaüzenet), ezért azt változatlanul átvesszük;
+ * a fallback csak a nem-Error / üres üzenetű esetekre való.
+ */
+export function yearFinalizedCheckErrorMessage(err: unknown, year: number): string {
+  if (err instanceof Error && err.message) return err.message
+  return (
+    `A ${year}. évi számadás zárás-állapotát most nem sikerült ellenőrizni, ezért biztonsági ` +
+    'okból nem engedjük a műveletet (egy már lezárt évet nem nyithatunk ki véletlenül). ' +
+    'Próbáld újra néhány perc múlva; ha újra hibázik, jelezd a rendszergazdának.'
+  )
 }

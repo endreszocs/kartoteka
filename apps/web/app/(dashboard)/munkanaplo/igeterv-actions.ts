@@ -19,6 +19,8 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
+import { selectAllPaged } from '@kartoteka/supabase-client'
+
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import type {
   SermonPlan,
@@ -76,10 +78,12 @@ export async function listSermonPlans(year: number): Promise<SermonPlanListResul
   if (!user) return { error: 'Nincs bejelentkezett felhasználó.' }
   if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
 
-  const PAGE = 1000
-  const all: Record<string, unknown>[] = []
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase
+  // 2026-08-11 (5. kör, P3 #15): KÖZÖS `selectAllPaged` a kézi ciklus helyett —
+  // a `page.length < PAGE` stop-feltétel leszállított szerver-plafonnál az első
+  // lap után kilépett volna, és az igehirdetési terv némán az év egy részét
+  // mutatta volna (a hiányzó alkalmakra emlékeztető sem ment volna ki).
+  const { data: all, error } = await selectAllPaged<Record<string, unknown>>(
+    supabase
       .from('igehirdetesi_terv')
       .select('*')
       .eq('congregation_id', congregationId)
@@ -87,14 +91,14 @@ export async function listSermonPlans(year: number): Promise<SermonPlanListResul
       .gte('datum', `${year}-01-01`)
       .lte('datum', `${year}-12-31`)
       .order('datum', { ascending: true })
-      .order('napszak', { ascending: true })
-      .range(from, from + PAGE - 1)
-    if (error) {
-      if (isMissingTableError(error)) return { needsSql: true, plans: [] }
-      return { error: `A terv betöltése sikertelen: ${error.message}` }
-    }
-    all.push(...(data || []))
-    if ((data || []).length < PAGE) break
+      .order('napszak', { ascending: true }),
+    // A `datum + napszak` NEM egyedi (egy napon több alkalom is lehet ugyanabban
+    // a napszakban), ezért a helper alapértelmezett `id` ASC döntetlen-bontója
+    // KELL — nélküle a laphatáron sor csúszhatna ki vagy duplázódhatna.
+  )
+  if (error) {
+    if (isMissingTableError(error)) return { needsSql: true, plans: [] }
+    return { error: `A terv betöltése sikertelen: ${error.message}` }
   }
 
   const plans = all.map(mapRow)

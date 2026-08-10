@@ -2,6 +2,7 @@
 
 import { cookies } from 'next/headers'
 
+import { logAuditEvent } from '@/lib/audit/log'
 import { isMasterAdmin } from '@/lib/auth/roles'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
@@ -9,6 +10,21 @@ import { createClient } from '@/lib/supabase/server'
 const SETTINGS_TABLE = 'system_settings'
 const GOD_MODE_SETTINGS_KEY = 'god_mode_pin'
 const GOD_MODE_DURATION_MS = 2 * 60 * 60 * 1000
+
+// BIZTONSÁGI FIX 2026-08-11 (#11): brute-force védelem a god mode PIN-re.
+//
+// Ami rossz volt: a delegált import útvonalán (delegated-import/actions.ts) MÁR
+// volt audit-log alapú sebességkorlát, a god mode aktiválásán viszont SEMMI —
+// pedig ez a magasabb jogosultságú kapu. Egy 6 jegyű PIN korlátlan
+// próbálkozással percek alatt kitalálható.
+//
+// Miért jó így: ugyanaz az audit-log alapú számláló, mint a delegált importnál
+// (nem kell új tábla), és a sikeres/sikertelen aktiválás is naplózódik, tehát a
+// támadási kísérlet láthatóvá válik az /admin/naplo felületen.
+const MAX_FAILED_ATTEMPTS = 5
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000 // 10 perc
+const AUDIT_ACTION_SUCCESS = 'god_mode_activate_success'
+const AUDIT_ACTION_FAILED = 'god_mode_activate_failed'
 
 // BIZTONSÁGI MEGJEGYZÉS: a rendszer NEM tartalmaz alapértelmezett PIN-t.
 // A god mode aktiválásához kötelezően be kell állítani vagy a GOD_MODE_PIN
@@ -41,7 +57,7 @@ async function requireMasterAdmin() {
   } = await supabase.auth.getUser()
 
   if (!user || !isMasterAdmin(user.email)) {
-    return { error: 'Nincs jogosultsaga ehhez a muvelethez.' as const }
+    return { error: 'Nincs jogosultságod ehhez a művelethez.' as const }
   }
 
   return { supabase, user }
@@ -70,7 +86,7 @@ async function readStoredPin(): Promise<StoredPinResult> {
       source: 'none',
       schemaReady: true,
       warning:
-        'A rendszergazdai PIN nincs beallitva. Allitsd be a GOD_MODE_PIN kornyezeti valtozot, vagy konfigurald a system_settings tablat.',
+        'A rendszergazdai PIN nincs beállítva. Állítsd be a GOD_MODE_PIN környezeti változót, vagy vedd fel a system_settings tábla `god_mode_pin` sorát.',
     }
   }
 
@@ -88,7 +104,7 @@ async function readStoredPin(): Promise<StoredPinResult> {
           source: 'env',
           schemaReady: false,
           warning:
-            'A tartos rendszergazdai PIN tarolasahoz meg futtatni kell a kiegeszito SQL-bovitest. A rendszer jelenleg az env valtozot hasznalja.',
+            'A tartós rendszergazdai PIN tárolásához még le kell futtatni a kiegészítő SQL-t. Addig a rendszer a GOD_MODE_PIN környezeti változót használja.',
         }
       }
       return {
@@ -96,7 +112,7 @@ async function readStoredPin(): Promise<StoredPinResult> {
         source: 'none',
         schemaReady: false,
         warning:
-          'A system_settings tabla meg nem letezik es a GOD_MODE_PIN env valtozo sincs beallitva. A god mode letiltva.',
+          'A system_settings tábla még nem létezik, és a GOD_MODE_PIN környezeti változó sincs beállítva — a god mode addig le van tiltva.',
       }
     }
 
@@ -107,7 +123,7 @@ async function readStoredPin(): Promise<StoredPinResult> {
           source: 'env',
           schemaReady: true,
           warning:
-            'A rendszergazdai PIN tablaja letezik, de az olvasas nem sikerult. Az env valtozora esik vissza.',
+            'A rendszergazdai PIN táblája létezik, de az olvasás nem sikerült. A rendszer a GOD_MODE_PIN környezeti változóra esik vissza.',
         }
       }
       return {
@@ -115,7 +131,7 @@ async function readStoredPin(): Promise<StoredPinResult> {
         source: 'none',
         schemaReady: true,
         warning:
-          'A rendszergazdai PIN tablaja letezik, de az olvasas nem sikerult, es nincs env fallback.',
+          'A rendszergazdai PIN táblája létezik, de az olvasás nem sikerült, és nincs környezeti változós tartalék — a god mode addig le van tiltva.',
       }
     }
 
@@ -144,17 +160,67 @@ async function readStoredPin(): Promise<StoredPinResult> {
     pin: null,
     source: 'none',
     schemaReady: true,
-    warning: 'A rendszergazdai PIN nincs beallitva sem az adatbazisban, sem a GOD_MODE_PIN env valtozoban.',
+    warning: 'A rendszergazdai PIN nincs beállítva sem az adatbázisban, sem a GOD_MODE_PIN környezeti változóban.',
   }
+}
+
+/**
+ * 2026-08-11 (#11): sebességkorlát-ellenőrzés az audit_log alapján.
+ *
+ * A service-role klienssel olvassuk a user `god_mode_activate_failed`
+ * eseményeit az utolsó RATE_LIMIT_WINDOW_MS-ben. Ha elérte a limitet,
+ * cooldown-t adunk vissza (a legrégebbi hiba + ablak = mikor lehet újra).
+ *
+ * Ha nincs service-role kliens (fejlesztői gép), nem blokkolunk — ott a
+ * PIN úgyis env-ből jön, és nincs éles adat.
+ */
+async function checkGodModeRateLimit(
+  userId: string,
+): Promise<{ allowed: true } | { allowed: false; retryAfterMin: number }> {
+  const adminSupabase = createAdminClient()
+  if (!adminSupabase) return { allowed: true }
+
+  const since = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString()
+  const { data } = await adminSupabase
+    .from('audit_log')
+    .select('created_at')
+    .eq('user_id', userId)
+    .eq('action', AUDIT_ACTION_FAILED)
+    .gte('created_at', since)
+    .order('created_at', { ascending: true })
+    .limit(MAX_FAILED_ATTEMPTS + 1)
+
+  if (!data || data.length < MAX_FAILED_ATTEMPTS) return { allowed: true }
+
+  const oldestMs = new Date(data[0].created_at).getTime()
+  const retryAfterMs = Math.max(0, oldestMs + RATE_LIMIT_WINDOW_MS - Date.now())
+  const retryAfterMin = Math.max(1, Math.ceil(retryAfterMs / 60_000))
+  return { allowed: false, retryAfterMin }
 }
 
 export async function activateGodMode(pin: string) {
   const auth = await requireMasterAdmin()
   if ('error' in auth) return { error: auth.error }
 
+  // 2026-08-11 (#11): a sebességkorlát MINDEN PIN-összevetés ELŐTT fut.
+  const rateLimit = await checkGodModeRateLimit(auth.user.id)
+  if (!rateLimit.allowed) {
+    return {
+      error: `Túl sok hibás PIN-próbálkozás. Próbáld újra ${rateLimit.retryAfterMin} perc múlva.`,
+    }
+  }
+
   const cleanedPin = normalizePin(pin)
   if (!isValidPin(cleanedPin)) {
-    return { error: 'A rendszergazdai PIN pontosan 6 szamjegybol kell alljon.' }
+    await logAuditEvent(
+      {
+        action: AUDIT_ACTION_FAILED,
+        targetTable: 'god_mode',
+        metadata: { reason: 'invalid_format' },
+      },
+      auth.supabase,
+    )
+    return { error: 'A rendszergazdai PIN pontosan 6 számjegyből áll — írd be szóköz nélkül.' }
   }
 
   const storedPin = await readStoredPin()
@@ -164,12 +230,20 @@ export async function activateGodMode(pin: string) {
     return {
       error:
         storedPin.warning ||
-        'A rendszergazdai PIN nincs konfiguralva. Allitsd be a GOD_MODE_PIN kornyezeti valtozot, vagy konfigurald a system_settings tablat.',
+        'A rendszergazdai PIN nincs beállítva. Állítsd be a GOD_MODE_PIN környezeti változót, vagy vedd fel a system_settings tábla `god_mode_pin` sorát.',
     }
   }
 
   if (cleanedPin !== storedPin.pin) {
-    return { error: 'Hibas PIN kod.' }
+    await logAuditEvent(
+      {
+        action: AUDIT_ACTION_FAILED,
+        targetTable: 'god_mode',
+        metadata: { reason: 'wrong_pin' },
+      },
+      auth.supabase,
+    )
+    return { error: 'Hibás PIN-kód. Ellenőrizd a 6 számjegyet, majd próbáld újra.' }
   }
 
   const expiresAt = Date.now() + GOD_MODE_DURATION_MS
@@ -181,6 +255,19 @@ export async function activateGodMode(pin: string) {
     path: '/',
     maxAge: GOD_MODE_DURATION_MS / 1000,
   })
+
+  await logAuditEvent(
+    {
+      action: AUDIT_ACTION_SUCCESS,
+      targetTable: 'god_mode',
+      metadata: {
+        expires_at: new Date(expiresAt).toISOString(),
+        session_duration_ms: GOD_MODE_DURATION_MS,
+        pin_source: storedPin.source,
+      },
+    },
+    auth.supabase,
+  )
 
   return { success: true, expiresAt }
 }
@@ -250,6 +337,13 @@ export async function getGodModePinSettings() {
   }
 }
 
+/**
+ * 2026-08-11 (#11): ez a függvény KIZÁRÓLAG a `god_mode_pin` sort írja.
+ * A delegált import saját kulcsot használ (`system_settings.delegated_import_pin`),
+ * amit külön kell felvenni/forgatni — lásd app/(dashboard)/delegated-import/actions.ts.
+ * Amíg a dedikált sor nincs feltöltve, a delegált import átmenetileg még ezt a
+ * PIN-t fogadja el, ezért ennek a forgatása a delegált importra is kihat.
+ */
 export async function updateGodModePin(pin: string) {
   const auth = await requireMasterAdmin()
   if ('error' in auth) return { error: auth.error }
@@ -258,13 +352,13 @@ export async function updateGodModePin(pin: string) {
   const cleanedPin = normalizePin(pin)
 
   if (!isValidPin(cleanedPin)) {
-    return { error: 'A rendszergazdai PIN pontosan 6 szamjegybol kell alljon.' }
+    return { error: 'A rendszergazdai PIN pontosan 6 számjegyből áll — írd be szóköz nélkül.' }
   }
 
   if (!adminSupabase) {
     return {
       error:
-        'A rendszergazdai PIN biztonsagos adatbazisos mentesehez add hozza a SUPABASE_SERVICE_ROLE_KEY erteket a .env.local fajlhoz, majd inditsd ujra a szervert.',
+        'A rendszergazdai PIN biztonságos, adatbázisos mentéséhez add hozzá a SUPABASE_SERVICE_ROLE_KEY értéket a .env.local fájlhoz, majd indítsd újra a szervert.',
     }
   }
 
@@ -282,18 +376,18 @@ export async function updateGodModePin(pin: string) {
     if (isMissingRelationError(result.error)) {
       return {
         error:
-          'A PIN tartos mentesehez meg futtatni kell a `migration-docs/sql/2026-04-09-god-mode-and-congregation-finance.sql` fajlt.',
+          'A PIN tartós mentéséhez még le kell futtatni a `migration-docs/sql/2026-04-09-god-mode-and-congregation-finance.sql` fájlt.',
       }
     }
 
     if (isPermissionError(result.error)) {
       return {
-        error: 'Az adatbazis-jogosultsag jelenleg nem engedi a rendszergazdai PIN menteset.',
+        error: 'Az adatbázis-jogosultság jelenleg nem engedi a rendszergazdai PIN mentését.',
       }
     }
 
     return { error: result.error.message }
   }
 
-  return { success: 'A rendszergazdai PIN sikeresen frissult.' }
+  return { success: 'A rendszergazdai PIN sikeresen frissült.' }
 }

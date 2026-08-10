@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { selectAllPaged } from '@kartoteka/supabase-client'
 import { worklogSchema, type WorklogInput } from '@/lib/validations/worklog'
 import type { WorklogEntry } from '@/lib/constants/worklog'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
@@ -66,23 +67,22 @@ async function queryWorklogs(period: string): Promise<{ entries: WorklogEntry[];
   // rövid oldal nem érkezik. A másodlagos .order('id') a determinisztikus
   // lapozáshoz kell: azonos idopont-ú sorok stabil sorrendje nélkül az
   // oldalhatáron sor maradhatna ki vagy duplázódhatna.
-  const PAGE_SIZE = 1000
+  // 2026-08-11 (5. kör, P3 #15): KÖZÖS `selectAllPaged` a kézi ciklus helyett.
+  // A régi `page.length < PAGE_SIZE` stop-feltétel HIBÁS: ha a Supabase „Max Rows"
+  // 1000 alá kerül, a szerver a kért 1000-es lapra kevesebbet ad, és a munkanapló
+  // az ELSŐ lap után megállt volna — némán a szolgálatok felét mutatva a lelkészi
+  // jelentésben is. `orderColumn: null`, mert a rendezés itt DIREKT fordított.
   const fetchAllPages = async (withDeletedFilter: boolean) => {
-    const all: WorklogEntry[] = []
-    for (let from = 0; ; from += PAGE_SIZE) {
-      let q = supabase.from('munkanaplo').select('*')
-        .eq('congregation_id', congId)
-        .gte('idopont', startDate).lt('idopont', endExclusive)
-      if (withDeletedFilter) q = q.eq('deleted', false)
-      const res = await q
-        .order('idopont', { ascending: false })
-        .order('id', { ascending: false })
-        .range(from, from + PAGE_SIZE - 1)
-      if (res.error) return { data: null, error: res.error }
-      const page = (res.data || []) as unknown as WorklogEntry[]
-      all.push(...page)
-      if (page.length < PAGE_SIZE) return { data: all, error: null }
-    }
+    let q = supabase.from('munkanaplo').select('*')
+      .eq('congregation_id', congId)
+      .gte('idopont', startDate).lt('idopont', endExclusive)
+    if (withDeletedFilter) q = q.eq('deleted', false)
+    const res = await selectAllPaged<WorklogEntry>(
+      q.order('idopont', { ascending: false }).order('id', { ascending: false }),
+      { orderColumn: null, dedupeBy: 'id' },
+    )
+    if (res.error) return { data: null, error: res.error }
+    return { data: res.data, error: null }
   }
 
   // A `deleted`-oszlop fallback változatlan: ha az oszlop még nem létezik a

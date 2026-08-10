@@ -9,6 +9,10 @@ import type { MemberRow, EnrichedMember } from '@/lib/constants/members'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { fetchFamilyPaymentsCompat, fetchPersonPaymentsCompat } from '@/lib/finance/payment-compat'
 import { allocateFamilyPayments, computeBaseExpectedForMemberYear, computeJarulekForMemberYear, isJarulekExcludedMemberStatus, type JarulekDiscountRule, type JarulekExemption, type JarulekPaymentLike, type JarulekYearSetting } from '@/lib/finance/jarulek-calculation'
+// 2026-08-11 (5. kör, P3 #4): a járulék-besoroló pár közös forrása (web ⇄ desktop).
+import { getPaymentGoalCode, isChurchMaintenanceCode, type PaymentGoalCodeRef } from '@kartoteka/ui-app'
+// 2026-08-11 (5. kör, P3 #15): a lapozott „hozd le a TELJES halmazt" helper közös forrása.
+import { selectAllPaged } from '@kartoteka/supabase-client'
 import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallback'
 import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
 import { describeMoves, ensureChildFamilyLink, type FamilyCompletionOffer } from '@/lib/family/auto-family'
@@ -26,23 +30,33 @@ async function getProfileCongregation() {
   }
 }
 
-type PaymentGoalCodeRef = {
-  id_szamadasicel?: string | null
-  szamadasicel?:
-    | { id?: string | null; kod?: string | null }
-    | { id?: string | null; kod?: string | null }[]
-    | null
-} | null
+// 2026-08-11 (5. kör, P3 #4): a `PaymentGoalCodeRef` + `getPaymentGoalCode` +
+// `isChurchMaintenanceCode` hármas itteni MÁSOLATA törölve — a közös forrás a
+// `@kartoteka/ui-app` (packages/ui-app/src/finance/payment-goal-code.ts). Négy
+// kézzel karbantartott példány volt belőle, egyikük eltérő (`??`) fallback-kel.
 
-function getPaymentGoalCode(goal?: PaymentGoalCodeRef | PaymentGoalCodeRef[]) {
-  const normalizedGoal = Array.isArray(goal) ? goal[0] || null : goal || null
-  const goalCodeRef = normalizedGoal?.szamadasicel
-  const normalizedCodeRef = Array.isArray(goalCodeRef) ? goalCodeRef[0] || null : goalCodeRef || null
-  return normalizedGoal?.id_szamadasicel || normalizedCodeRef?.id || normalizedCodeRef?.kod || null
-}
-
-function isChurchMaintenanceCode(code?: string | null) {
-  return typeof code === 'string' && code.startsWith('101.01')
+/**
+ * 2026-08-11 (K5-#21): LAPOZÓ segéd. A PostgREST/Supabase alapértelmezett 1000
+ * soros plafonja NÉMÁN levágja a nagy lekérdezéseket — ugyanaz a hibaosztály,
+ * amit a `dashboard/page.tsx` (2026-08-01, PR-19) és a `penzugy/actions.ts`
+ * `fetchAllPaged`-je (2026-07-25, F6.1) már javított. A hívónak KÖTELEZŐ
+ * determinisztikus rendezést (`.order('id')`) adnia, különben a `.range()`
+ * ablakok átfedhetnek vagy sorokat hagyhatnak ki.
+ *
+ * Csak az ÜRES lap a biztos stop: leszállított szerver-plafonnál a rövid lap még
+ * nem feltétlenül a sorozat vége.
+ *
+ * 2026-08-11 (5. kör, P3 #15): a saját ciklus KIVEZETVE — a törzs mostantól a
+ * KÖZÖS `selectAllPaged` (@kartoteka/supabase-client). A helper vékony
+ * burkolóként marad, a szerződés (a hívó rendez) változatlan.
+ */
+async function fetchAllPagedRows<T>(
+  // A lekérdezés sor-típusa a hívónál dől el; a builder típusa itt nem kifejezhető.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  pageSize = 1000,
+): Promise<{ data: T[]; error: { message: string } | null }> {
+  return selectAllPaged<T>(query, { pageSize, orderColumn: null, dedupeBy: 'id' })
 }
 
 // ── Település / utca getOrCreate ─────────────────────────────
@@ -113,24 +127,40 @@ export async function getMembers(): Promise<{
     // néma adatvesztést okozna.
     // 2026-07-17 (PR-1): az adrstreet-embed a település-fallbackhoz az utca
     // adrlocality-ját is lehozza (ha a c_helysegid üres — import-hiba öröksége).
-    supabase.from('szemely').select('id, cnp, csaladnev, k_nev, szcs_nev, namepattern, allapot, ferfi, sz_datum, foglalkozas, vallas, telefon, email, meghalt, member_status, gdpr_consent_at, photo_consent, mailing_consent, social_profil_url, apjaneve, anyjaneve, megjegyzes, c_szam, c_tombhaz, c_lepcsohaz, c_emelet, c_ajto, adrstreet!c_utcaid(name, adrlocality!localityid(name)), adrlocality!c_helysegid(name)').eq('congregation_id', congregationId).eq('isvisible', true).order('id', { ascending: false }),
+    // 2026-08-11 (K5-#21): LAPOZOTT — eddig a PostgREST 1000-es plafonja némán
+    // levágta a listát: 1400 tagú gyülekezetnél az Áttekintés 1000 tagot jelentett,
+    // és a kor-/nem-bontás egy ÖNKÉNYES 1000-es szeleten állt (id DESC → a 400
+    // legrégebbi id esett ki). A rendezés SZÁNDÉKOSAN marad `id` DESC — a lapozás
+    // így is determinisztikus, a lista sorrendje pedig változatlan.
+    fetchAllPagedRows(supabase.from('szemely').select('id, cnp, csaladnev, k_nev, szcs_nev, namepattern, allapot, ferfi, sz_datum, foglalkozas, vallas, telefon, email, meghalt, member_status, gdpr_consent_at, photo_consent, mailing_consent, social_profil_url, apjaneve, anyjaneve, megjegyzes, c_szam, c_tombhaz, c_lepcsohaz, c_emelet, c_ajto, adrstreet!c_utcaid(name, adrlocality!localityid(name)), adrlocality!c_helysegid(name)').eq('congregation_id', congregationId).eq('isvisible', true).order('id', { ascending: false })),
     // 2026-07-17 (F1-4): a stornózott befizetés nem számít fizetettnek (bit-azonos a Tartozásokkal).
-    supabase.from('befizetes').select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(id_szamadasicel)').eq('congregation_id', congregationId).eq('fizetettev', currentYear).or('deleted.eq.false,deleted.is.null').or('stornozott.eq.false,stornozott.is.null'),
+    // 2026-08-11 (K5-#21): LAPOZOTT — 1000+ befizetés-sornál a plafon feletti
+    // tételek eltűntek, és a hozzájuk tartozó tagok fizetetlennek látszottak.
+    fetchAllPagedRows(supabase.from('befizetes').select('id, id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(id_szamadasicel)').eq('congregation_id', congregationId).eq('fizetettev', currentYear).or('deleted.eq.false,deleted.is.null').or('stornozott.eq.false,stornozott.is.null').order('id', { ascending: true })),
     // 2026-04-30 (Endre kérése): "Aktív tag = református VAGY bármikor fizetett
     // egyházfenntartást." Ez a query MINDEN évre kéri a befizetéseket (csak az
     // egyházfenntartási kódra), hogy a "valaha fizetett" Set-et fel tudjuk építeni.
     // 2026-06-30 (perf): a 101.01* kód-szűrés a DB-be került (beágyazott inner-join),
     // korábban MINDEN befizetést lehúzott; a JS-szűrő alább forrás-igazságként marad,
     // és hiba esetén a szűretlen lekérdezésre esünk vissza.
-    supabase.from('befizetes').select('id_szemely, id_csalad, befizetescel!inner(id_szamadasicel)').eq('congregation_id', congregationId).like('befizetescel.id_szamadasicel', '101.01%').or('deleted.eq.false,deleted.is.null'),
+    // 2026-08-11 (K5-#21): LAPOZOTT — ez a lekérdezés MINDEN évre kér, ezért ért
+    // a plafonra a leghamarabb: a levágott sorok miatt régóta fizető tagok
+    // „sosem fizetett"-ként jelentek meg, ami az „aktív tag" szabályt is rontotta.
+    fetchAllPagedRows(supabase.from('befizetes').select('id, id_szemely, id_csalad, befizetescel!inner(id_szamadasicel)').eq('congregation_id', congregationId).like('befizetescel.id_szamadasicel', '101.01%').or('deleted.eq.false,deleted.is.null').order('id', { ascending: true })),
     supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('congregation_id', congregationId),
     // 2026-06-01 (hibrid család-modell Fázis 2): az ÚJ haztartas_tag-ból
     // szedjük ki a személy → csalad mapping-et. A `haztartas.legacy_csalad_id`
     // visszafelé kompatibilis a régi `csalad.id`-vel.
-    supabase.from('haztartas_tag')
-      .select('id_szemely, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)')
-      .eq('congregation_id', congregationId)
-      .is('ervenyes_ig', null),
+    // 2026-08-11 (K5-#21): LAPOZOTT — a csonkolt család-mapping az
+    // `allocateFamilyPayments` családi felosztását is elrontotta volna (a
+    // mapping-ből kimaradt tagok nem kapnak részt a családi befizetésből).
+    fetchAllPagedRows(
+      supabase.from('haztartas_tag')
+        .select('id, id_szemely, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)')
+        .eq('congregation_id', congregationId)
+        .is('ervenyes_ig', null)
+        .order('id', { ascending: true }),
+    ),
     supabase.from('bealitas').select('id, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid').eq('congregation_id', congregationId).eq('id', String(currentYear)),
     supabase.from('jarulek_kedvezmeny').select('id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras').eq('congregation_id', congregationId).eq('ev', currentYear).eq('aktiv', true).order('sorrend', { ascending: true }),
     // 2026-07-17 (F5, Q6): a congregations.tartozas_szamitas_mod lekérdezés törölve —
@@ -177,14 +207,25 @@ export async function getMembers(): Promise<{
     })
   }
 
+  // 2026-08-11 (K5-#21): a tag-lekérdezés hibája NEM adhat rész-listát. Egy
+  // csonka lista hihető, de HAMIS Áttekintés-KPI-t (tagszám, kor-/nem-bontás)
+  // mutatna — inkább hangos hiba, ahogy a `dashboard/page.tsx` is teszi.
+  if (membersRes.error) {
+    console.error('[tagnyilvantartas/lista] A tagok lapozott lekérdezése HIBÁRA FUTOTT:', membersRes.error.message)
+    throw new Error('A tagsági adatok betöltése nem sikerült — töltsd újra az oldalt.')
+  }
+
   // Fizetők
   // 2026-07-17 (F1-1 hibaosztály): a fizetett-státusz lekérdezés hibája ne legyen
   // néma — különben minden tag fizetetlennek látszana a listán.
+  // 2026-08-11 (K5-#21): a néma log helyett hangos hiba — a „mindenki hátralékos"
+  // lista alapján a lelkész alaptalan fizetési felszólítást küldene.
   if (paymentsRes.error) {
     console.error(
       '[tagnyilvantartas/lista] A fizetett-státusz befizetés-lekérdezése HIBÁRA FUTOTT — minden tag fizetetlennek látszana!',
       paymentsRes.error,
     )
+    throw new Error('A befizetési adatok betöltése nem sikerült — töltsd újra az oldalt.')
   }
   const paidPersonIds: number[] = []
   const paidFamilyIds: number[] = []
@@ -221,9 +262,15 @@ export async function getMembers(): Promise<{
   }
   let everPaidData = (everPaidRes.data || []) as EverPaidRow[]
   if (everPaidRes.error) {
-    const retry = await supabase.from('befizetes')
-      .select('id_szemely, id_csalad, befizetescel(id_szamadasicel)')
-      .eq('congregation_id', congregationId).or('deleted.eq.false,deleted.is.null')
+    // 2026-08-11 (K5-#21): a fallback-lekérdezés is LAPOZOTT — enélkül a
+    // visszaesési ág maga vágta volna le a sorokat 1000-nél.
+    const retry = await fetchAllPagedRows<EverPaidRow>(
+      supabase.from('befizetes')
+        .select('id, id_szemely, id_csalad, befizetescel(id_szamadasicel)')
+        .eq('congregation_id', congregationId)
+        .or('deleted.eq.false,deleted.is.null')
+        .order('id', { ascending: true }),
+    )
     if (retry.error) console.warn('[tagnyilvantartas/lista] everPaid retry (szűretlen) is hibázott:', retry.error.message)
     everPaidData = (retry.data || []) as EverPaidRow[]
   }

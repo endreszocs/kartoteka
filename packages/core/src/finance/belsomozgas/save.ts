@@ -18,6 +18,8 @@ import {
   type SaveInternalTransferResult,
 } from '@kartoteka/validations'
 
+import { assertYearsNotFinalizedForCreate } from '../year-lock'
+
 export interface SaveInternalTransferCtx {
   supabase: SupabaseClient
   runtime: 'web' | 'desktop'
@@ -27,7 +29,12 @@ export interface SaveInternalTransferCtx {
 
 export type SaveInternalTransferResultOrError =
   | { success: true; data: SaveInternalTransferResult }
-  | { success: false; error: string }
+  | {
+      success: false
+      error: string
+      /** 2026-08-11 (5. kör, P1): a tétel éve véglegesítve — a rögzítés blokkolva. */
+      yearFinalized?: boolean
+    }
 
 export async function saveInternalTransferUseCase(
   input: SaveInternalTransferInput,
@@ -41,6 +48,19 @@ export async function saveInternalTransferUseCase(
     }
   }
   const clean = parsed.data
+
+  // 2026-08-11 (5. kör, P1 adat-integritás): ÉV-ZÁR — a web ugyanezt a műveletet
+  // `assertYearsNotFinalizedDirect`-tel védi (penzugy/actions.ts), a core-ba viszont
+  // sosem került be, így a desktopról egy már véglegesített és beküldött évbe is
+  // lehetett kassza↔bank átvezetést könyvelni.
+  const createLock = await assertYearsNotFinalizedForCreate(
+    ctx.supabase,
+    clean.congregationId,
+    [clean.datum],
+  )
+  if (createLock) {
+    return { success: false, error: createLock, yearFinalized: true }
+  }
 
   try {
     const { data, error } = await ctx.supabase

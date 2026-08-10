@@ -2,10 +2,11 @@
 
 // ── Tömeges program-bevitel (Claude Design — 2026-06-08) ──
 // Több program egyszerre, kártyás sorokban. 5 sorral indul, bővíthető.
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useId, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Rows3, X, Plus, Trash2, Check } from 'lucide-react'
 import { saveBatchPrograms } from '@/app/(dashboard)/programs/actions'
+import { useModalFocusTrap } from '@/components/modals/use-modal-focus-trap'
 import {
   PROGRAM_TYPES, PROG_TIPUS_LABELS,
   PROGRAM_PRIORITIES, PROG_PRIORITAS_LABELS,
@@ -44,6 +45,9 @@ export function BatchProgramDialog({ open, onOpenChange, year }: BatchProgramDia
   const [loading, setLoading] = useState(false)
   const [, setNextKey] = useState(0)
   const firstInputRef = useRef<HTMLInputElement>(null)
+  const modalRef = useRef<HTMLDivElement>(null)
+  const titleId = useId()
+  const close = useCallback(() => onOpenChange(false), [onOpenChange])
 
   useEffect(() => {
     if (!open) return
@@ -58,15 +62,12 @@ export function BatchProgramDialog({ open, onOpenChange, year }: BatchProgramDia
     return () => { cancelled = true; if (focusTimer) clearTimeout(focusTimer) }
   }, [open])
 
-  // ESC + görgetés-zár
-  useEffect(() => {
-    if (!open) return
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onOpenChange(false) }
-    document.addEventListener('keydown', onKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev }
-  }, [open, onOpenChange])
+  // 2026-08-11 (P2 #26): Esc + görgetés-zár + FÓKUSZCSAPDA + fókusz-visszaadás +
+  // háttér-inert. Eddig csak Esc és görgetés-zár volt, miközben a modál
+  // `aria-modal="true"`-t állított — a Tab azonnal kivándorolt a modál mögé,
+  // pont ebben az ablakban, ahol 5–15 sornyi mező van egymás alatt.
+  // Részletek: `use-modal-focus-trap.ts`.
+  useModalFocusTrap(open, modalRef, close)
 
   function updateRow(key: number, field: keyof BatchRow, value: string) {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, [field]: value } : r)))
@@ -132,13 +133,26 @@ export function BatchProgramDialog({ open, onOpenChange, year }: BatchProgramDia
   if (!open || typeof document === 'undefined') return null
 
   return createPortal(
-    <div className="kt-modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onOpenChange(false) }}>
-      <div className="kt-modal kt-modal-wide" role="dialog" aria-modal="true" aria-label="Tömeges bevitel">
+    /* 2026-08-11 (P2 #26): a háttérre kattintás TÖBBÉ NEM zár be. Eddig
+       `onMouseDown`-ra azonnal bezárt, megerősítés nélkül — és itt egyszerre
+       AKÁR 15 kitöltött programsor veszett el egy félrekoppintástól. Ugyanezt a
+       döntést hozta meg ma a közös `Dialog` primitív is
+       (`packages/ui/src/components/dialog.tsx`, `disablePointerDismissal`).
+       Bezárni az X-szel, az Esc-cel és a Mégse gombbal lehet. */
+    <div className="kt-modal-overlay">
+      <div
+        ref={modalRef}
+        className="kt-modal kt-modal-wide"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+      >
         <div className="kt-modal-head">
           <div className="kt-modal-title">
             <span className="kt-modal-ico"><Rows3 size={18} /></span>
             <div>
-              <h3>Tömeges bevitel</h3>
+              <h3 id={titleId}>Tömeges bevitel</h3>
               <div className="kt-modal-sub">{year}. évi programok rögzítése — több egyszerre</div>
             </div>
           </div>

@@ -10,16 +10,24 @@
  *   - Férfi / nő (opcionális)
  *
  * A lista nyomtatható — A4 portrait, gyülekezeti logóval.
+ *
+ * 2026-08-11 (5. kör, P2-#18): a taglista MEGADHATÓ (`allMembers`), de ha a
+ * hívó nem adja meg, a dialógus az első megnyitáskor MAGA tölti be
+ * (getBirthdayListData). Így az irányítópult szerver-komponensének nem kell a
+ * teljes aktív taglistát belesütnie az oldal RSC-csomagjába egy modálért,
+ * amit a lelkész többnyire ki sem nyit.
  */
 
-import { useMemo, useState } from 'react'
-import { Cake, Filter, Gift, Printer, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, Cake, Filter, Gift, Printer, X } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getBirthdayListAddresses } from '@/app/(dashboard)/dashboard/actions'
+import { getBirthdayListData } from '@/app/(dashboard)/tagnyilvantartas/birthday-list-actions'
 import { formatNameWithPrefix } from '@/lib/utils/member-helpers'
 import { BirthdayCardDialog, type BirthdayCardPerson } from '@/components/dashboard/birthday-card-dialog'
 
@@ -49,8 +57,13 @@ interface BirthdayEntry {
 interface BirthdayListDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  allMembers: Member[]
-  congregationName: string
+  /**
+   * A tagok listája. Ha NINCS megadva, a dialógus az első megnyitáskor maga
+   * tölti be (2026-08-11, P2-#18) — a hívó oldalnak nem kell átadnia.
+   */
+  allMembers?: Member[]
+  /** Ha nincs megadva, a betöltött adatcsomagból jön. */
+  congregationName?: string
   congregationLogo?: string | null
 }
 
@@ -63,6 +76,47 @@ export function BirthdayListDialog({
   congregationName,
   congregationLogo,
 }: BirthdayListDialogProps) {
+  // ── Kérésre töltött taglista (2026-08-11, P2-#18) ────────────────────────
+  // Ha a hívó nem ad `allMembers`-t, az első megnyitáskor lekérjük. A hiba
+  // NEM néma üres lista: külön hibaállapotot mutatunk, újrapróbálkozással —
+  // különben a lelkész azt hinné, nincs egyetlen születésnapos sem.
+  const [fetched, setFetched] = useState<{
+    members: Member[]
+    congregationName: string
+    congregationLogo: string | null
+  } | null>(null)
+  const [membersError, setMembersError] = useState(false)
+  const selfLoading = allMembers === undefined
+
+  useEffect(() => {
+    if (!open || !selfLoading || fetched !== null || membersError) return
+    let cancelled = false
+    getBirthdayListData()
+      .then((data) => {
+        if (cancelled) return
+        setFetched({
+          members: data.members,
+          congregationName: data.congregationName,
+          congregationLogo: data.congregationLogo,
+        })
+      })
+      .catch(() => {
+        if (cancelled) return
+        setMembersError(true)
+        toast.error('A születésnaposok betöltése nem sikerült — próbáld újra.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, selfLoading, fetched, membersError])
+
+  // A betöltés-állapot SZÁRMAZTATOTT (nincs külön state) — így az effect
+  // kizárólag a külső rendszerrel (szerver-akció) szinkronizál.
+  const membersLoading = selfLoading && open && fetched === null && !membersError
+  const members = useMemo(() => allMembers ?? fetched?.members ?? [], [allMembers, fetched])
+  const headerName = congregationName ?? fetched?.congregationName ?? 'Gyülekezet'
+  const headerLogo = congregationLogo ?? fetched?.congregationLogo ?? null
+
   const [preset, setPreset] = useState<DatePreset>('month')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
@@ -96,7 +150,7 @@ export function BirthdayListDialog({
   const allEntries: BirthdayEntry[] = useMemo(() => {
     const today = new Date()
     const currentYear = today.getFullYear()
-    return allMembers
+    return members
       .filter((m) => m.sz_datum)
       .map((m) => {
         const birthDate = new Date(m.sz_datum!)
@@ -133,7 +187,7 @@ export function BirthdayListDialog({
         if (a.day !== b.day) return a.day - b.day
         return a.name.localeCompare(b.name, 'hu')
       })
-  }, [allMembers, addressMap])
+  }, [members, addressMap])
 
   // 2. lépés: dátum-tartomány meghatározása a preset alapján
   const dateRange = useMemo((): { from: Date; to: Date } | null => {
@@ -244,7 +298,7 @@ export function BirthdayListDialog({
       .join('')
 
     const html = `<!DOCTYPE html><html lang="hu"><head><meta charset="UTF-8">
-      <title>${esc(congregationName)} — Születésnaposok</title>
+      <title>${esc(headerName)} — Születésnaposok</title>
       <style>
         @page { size: A4 portrait; margin: 16mm; }
         @media print { .toolbar { display: none !important; } }
@@ -280,7 +334,7 @@ export function BirthdayListDialog({
       </head><body>
         <div class="toolbar">
           <div>
-            <span class="title">${esc(congregationName)} — Születésnaposok</span>
+            <span class="title">${esc(headerName)} — Születésnaposok</span>
           </div>
           <div>
             <button class="tb-btn tb-btn-print" onclick="window.print()">🖨 Nyomtatás</button>
@@ -289,11 +343,11 @@ export function BirthdayListDialog({
         </div>
         <div class="page">
           <div class="header">
-            ${congregationLogo
-              ? `<div class="logo"><img src="${esc(congregationLogo)}" alt="Címer"/></div>`
+            ${headerLogo
+              ? `<div class="logo"><img src="${esc(headerLogo)}" alt="Címer"/></div>`
               : `<div class="logo" style="font-size: 28px;">⛪</div>`}
             <div class="header-text">
-              <div class="church">${esc(congregationName)}</div>
+              <div class="church">${esc(headerName)}</div>
               <div class="title">Születésnaposok listája</div>
               <div class="meta">Időszak: ${esc(rangeLabel)} · Összesen: ${filtered.length} fő · Nyomtatva: ${esc(todayLabel)}</div>
             </div>
@@ -495,7 +549,32 @@ export function BirthdayListDialog({
                 </Button>
               </div>
             </div>
-            {filtered.length === 0 ? (
+            {/* 2026-08-11 (P2-#18): a kérésre töltött lista három állapota külön
+                látszik. Betöltés és HIBA esetén SOHA nem írjuk ki, hogy „nincs
+                találat" — az azt a hamis képet keltené, hogy nincs egyetlen
+                születésnapos sem. */}
+            {membersLoading ? (
+              <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
+                Születésnaposok betöltése…
+              </div>
+            ) : membersError ? (
+              <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+                <AlertTriangle className="size-4 shrink-0" />
+                <span className="min-w-0 flex-1">
+                  A születésnaposok listáját most nem sikerült betölteni, ezért nem mutatunk
+                  hiányos listát. Ellenőrizd az internetkapcsolatot, és próbáld újra.
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="border-amber-400 bg-white text-amber-900 hover:bg-amber-100"
+                  onClick={() => setMembersError(false)}
+                >
+                  Újrapróbálom
+                </Button>
+              </div>
+            ) : filtered.length === 0 ? (
               <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
                 Nincs találat a megadott szűrőkhöz.
               </div>
@@ -573,8 +652,8 @@ export function BirthdayListDialog({
             age: e.age,
           }))}
           initialPersonId={cardPersonId}
-          congregationName={congregationName}
-          congregationLogo={congregationLogo ?? null}
+          congregationName={headerName}
+          congregationLogo={headerLogo}
         />
 
         <div className="flex justify-end gap-2 border-t pt-3">

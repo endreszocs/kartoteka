@@ -27,14 +27,32 @@ interface AccentStyle {
   btn: string
 }
 
+/**
+ * 2026-08-11 (P2 #22) — a CTA-háttér 600-ról 700-ra váltott.
+ *
+ * A gomb felirata `text-white`, 14px, font-semibold — ez a WCAG szerint NEM
+ * „large text", tehát 4,5:1 kell. A Tailwind 4 alap-palettáján mérve fehér
+ * szöveggel a 600-as árnyalatok megbuktak: amber-600 3,19:1, teal-600 3,66:1,
+ * emerald-600 3,67:1, sky-600 4,02:1 (csak rose 4,51, violet 5,88 és
+ * indigo 6,44 felelt meg). A 700-as árnyalatokkal mind megfelel:
+ * amber-700 5,05:1, teal-700 5,39:1, emerald-700 5,37:1, sky-700 5,85:1,
+ * rose-700 6,06:1, violet-700 7,29:1, indigo-700 8,07:1. A hover 800-as lett
+ * (7,13–10,09:1), így a lenyomott állapot is olvasható marad.
+ *
+ * Miért fontos: ez az a gomb, amit egy új gyülekezet a leltárban, a
+ * sírhelyeknél, a pénzügyben, a tagnyilvántartásban és az iktatóban legelőször
+ * lát — idősebb lelkész, gyakran telefonon, változó fényviszonyok között.
+ * Az ikon-badge (`bg-*-50` + `text-*-600`) maradhat: 32px-es grafikus elem,
+ * ott a 3:1 az elvárás, és a leggyengébb (amber) is 3,08:1.
+ */
 const ACCENTS: Record<EmptyAccent, AccentStyle> = {
-  teal: { badge: 'bg-teal-50 text-teal-600', glow: 'from-teal-200/50', btn: 'bg-teal-600 hover:bg-teal-700' },
-  indigo: { badge: 'bg-indigo-50 text-indigo-600', glow: 'from-indigo-200/50', btn: 'bg-indigo-600 hover:bg-indigo-700' },
-  amber: { badge: 'bg-amber-50 text-amber-600', glow: 'from-amber-200/50', btn: 'bg-amber-600 hover:bg-amber-700' },
-  emerald: { badge: 'bg-emerald-50 text-emerald-600', glow: 'from-emerald-200/50', btn: 'bg-emerald-600 hover:bg-emerald-700' },
-  rose: { badge: 'bg-rose-50 text-rose-600', glow: 'from-rose-200/50', btn: 'bg-rose-600 hover:bg-rose-700' },
-  sky: { badge: 'bg-sky-50 text-sky-600', glow: 'from-sky-200/50', btn: 'bg-sky-600 hover:bg-sky-700' },
-  violet: { badge: 'bg-violet-50 text-violet-600', glow: 'from-violet-200/50', btn: 'bg-violet-600 hover:bg-violet-700' },
+  teal: { badge: 'bg-teal-50 text-teal-600', glow: 'from-teal-200/50', btn: 'bg-teal-700 hover:bg-teal-800' },
+  indigo: { badge: 'bg-indigo-50 text-indigo-600', glow: 'from-indigo-200/50', btn: 'bg-indigo-700 hover:bg-indigo-800' },
+  amber: { badge: 'bg-amber-50 text-amber-600', glow: 'from-amber-200/50', btn: 'bg-amber-700 hover:bg-amber-800' },
+  emerald: { badge: 'bg-emerald-50 text-emerald-600', glow: 'from-emerald-200/50', btn: 'bg-emerald-700 hover:bg-emerald-800' },
+  rose: { badge: 'bg-rose-50 text-rose-600', glow: 'from-rose-200/50', btn: 'bg-rose-700 hover:bg-rose-800' },
+  sky: { badge: 'bg-sky-50 text-sky-600', glow: 'from-sky-200/50', btn: 'bg-sky-700 hover:bg-sky-800' },
+  violet: { badge: 'bg-violet-50 text-violet-600', glow: 'from-violet-200/50', btn: 'bg-violet-700 hover:bg-violet-800' },
 }
 
 interface EmptyFirstRecordProps {

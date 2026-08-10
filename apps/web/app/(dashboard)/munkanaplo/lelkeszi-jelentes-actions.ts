@@ -29,6 +29,7 @@
 // is visszamennek a hívónak (getLelkesziJelentes).
 
 import { revalidatePath } from 'next/cache'
+import { selectAllPaged } from '@kartoteka/supabase-client'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { categorizeWorklogEntry, type WorklogEntry } from '@/lib/constants/worklog'
 import { classifyForOfficialJournal, getUnnepInfo } from '@/lib/worklog/print-columns'
@@ -101,23 +102,24 @@ function isMissingBefizetesCompatColumn(error: PgError): boolean {
 
 /**
  * Lapozás-tudatos lekérdezés: a PostgREST kérésenként legfeljebb 1000 sort ad
- * vissza — 1000-es range-oldalakban megyünk, amíg rövid oldal nem érkezik
- * (a getWorklogs friss lapozó-mintája). A hívó builderének determinisztikus
- * .order() kell (pl. id) a stabil oldalhatárokhoz.
+ * vissza. A hívó builderének determinisztikus `.order('id')` kell a stabil
+ * oldalhatárokhoz.
+ *
+ * 2026-08-11 (5. kör, P3 #15): a saját ciklus helyett a KÖZÖS `selectAllPaged`.
+ * A régi `page.length < PAGE_SIZE` stop-feltétel leszállított szerver-plafonnál
+ * (Max Rows < 1000) az ELSŐ lap után kilépett volna — a lelkészi jelentés
+ * anyakönyvi és lélekszám-rubrikái ilyenkor HIVATALOS nyomtatványon mutattak
+ * volna a valóságnál kisebb, de hihető számokat. Hiba esetén a kontraktus
+ * változatlan: ÜRES lista + a hiba továbbadva (részleges adat sosem megy ki).
  */
-const PAGE_SIZE = 1000
-
 async function fetchAllRows<T>(
-  makePage: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: PgError }>,
+  // A lekérdezés sor-típusa a hívónál dől el; a builder típusa itt nem kifejezhető.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
 ): Promise<{ rows: T[]; error: PgError }> {
-  const rows: T[] = []
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const res = await makePage(from, from + PAGE_SIZE - 1)
-    if (res.error) return { rows: [], error: res.error }
-    const page = (res.data || []) as T[]
-    rows.push(...page)
-    if (page.length < PAGE_SIZE) return { rows, error: null }
-  }
+  const res = await selectAllPaged<T>(query, { orderColumn: null, dedupeBy: 'id' })
+  if (res.error) return { rows: [], error: res.error }
+  return { rows: res.data, error: null }
 }
 
 function round1(n: number): number {
@@ -330,17 +332,16 @@ async function computeAuto(
     // üres lista hivatalos rubrikában tilos — v0.9.78 hibaosztály)
     getWorklogsForYearChecked(ev),
     // Anyakönyvek — a scope-vital.ts működő év-tartomány mintája
-    fetchAllRows<{ id: number; id_szemely: number | null }>((from, to) =>
+    fetchAllRows<{ id: number; id_szemely: number | null }>(
       supabase
         .from('keresztseg')
         .select('id, id_szemely')
         .eq('congregation_id', congId)
         .gte('datum', yearStart)
         .lt('datum', yearEndExclusive)
-        .order('id')
-        .range(from, to),
+        .order('id'),
     ),
-    fetchAllRows<{ id: number; id_szemely: number | null }>((from, to) =>
+    fetchAllRows<{ id: number; id_szemely: number | null }>(
       supabase
         .from('temetes')
         .select('id, id_szemely')
@@ -348,40 +349,36 @@ async function computeAuto(
         // FIGYELEM: a temetésnél a TDATUM (temetés napja) számít, nem a hdatum!
         .gte('tdatum', yearStart)
         .lt('tdatum', yearEndExclusive)
-        .order('id')
-        .range(from, to),
+        .order('id'),
     ),
-    fetchAllRows<{ id: number; vegyes: boolean | null }>((from, to) =>
+    fetchAllRows<{ id: number; vegyes: boolean | null }>(
       supabase
         .from('hazassag')
         .select('id, vegyes')
         .eq('congregation_id', congId)
         .gte('datum', yearStart)
         .lt('datum', yearEndExclusive)
-        .order('id')
-        .range(from, to),
+        .order('id'),
     ),
-    fetchAllRows<{ id: number; id_szemely: number | null }>((from, to) =>
+    fetchAllRows<{ id: number; id_szemely: number | null }>(
       supabase
         .from('konfirmalas')
         .select('id, id_szemely')
         .eq('congregation_id', congId)
         .gte('datum', yearStart)
         .lt('datum', yearEndExclusive)
-        .order('id')
-        .range(from, to),
+        .order('id'),
     ),
     // Lélekszám — az annual-report generator.ts MŰKÖDŐ mintája (v0.9.78 után):
     // CSAK verifikált oszlopok (meghalt, member_status, isvisible).
     // 2026-07-17 (PR-2 F1.7): + voter_eligible az I.11 auto-számításhoz.
-    fetchAllRows<{ id: number; meghalt: boolean | null; member_status: string | null; voter_eligible: boolean | null }>((from, to) =>
+    fetchAllRows<{ id: number; meghalt: boolean | null; member_status: string | null; voter_eligible: boolean | null }>(
       supabase
         .from('szemely')
         .select('id, meghalt, member_status, voter_eligible')
         .eq('congregation_id', congId)
         .eq('isvisible', true)
-        .order('id')
-        .range(from, to),
+        .order('id'),
     ),
     // Előző évi jelentés (I.1-hez) — csak véglegesítettből olvasunk
     supabase
@@ -668,28 +665,27 @@ async function computeAuto(
   // Járulék + persely: az évben TÉNYLEGESEN beérkezett (datum szerinti) tételek,
   // törölt/stornózott/belső mozgás nélkül — a finalizeAccounting kanonikus
   // szűrésével; a cél-kód a befizetescel(szamadasicel(kod)) beágyazásból.
-  const befizetesQ = (legacy: boolean) =>
-    fetchAllRows<{ id: number; osszeg: number | null; befizetescel?: unknown }>((from, to) => {
-      let q = supabase
-        .from('befizetes')
-        .select('id, osszeg, befizetescel(szamadasicel(kod))')
-        .eq('congregation_id', congId)
-        .gte('datum', `${ev}-01-01`)
-        .lte('datum', `${ev}-12-31`)
-      if (legacy) {
-        // Régi séma-fallback: stornozott/belso_mozgas_xkey oszlop nélkül
-        q = q.or('deleted.eq.false,deleted.is.null')
-      } else {
-        // FIGYELEM: a régi (storno-funkció előtti) sorokban a deleted/stornozott
-        // NULL — az .eq(false) ezeket némán KIZÁRNÁ (a penzugy/actions.ts
-        // S3-#12 or-mintája a mérvadó; a láncolt .or()-ok ÉS-kapcsolatban állnak).
-        q = q
-          .or('deleted.eq.false,deleted.is.null')
-          .or('stornozott.eq.false,stornozott.is.null')
-          .is('belso_mozgas_xkey', null)
-      }
-      return q.order('id').range(from, to)
-    })
+  const befizetesQ = (legacy: boolean) => {
+    let q = supabase
+      .from('befizetes')
+      .select('id, osszeg, befizetescel(szamadasicel(kod))')
+      .eq('congregation_id', congId)
+      .gte('datum', `${ev}-01-01`)
+      .lte('datum', `${ev}-12-31`)
+    if (legacy) {
+      // Régi séma-fallback: stornozott/belso_mozgas_xkey oszlop nélkül
+      q = q.or('deleted.eq.false,deleted.is.null')
+    } else {
+      // FIGYELEM: a régi (storno-funkció előtti) sorokban a deleted/stornozott
+      // NULL — az .eq(false) ezeket némán KIZÁRNÁ (a penzugy/actions.ts
+      // S3-#12 or-mintája a mérvadó; a láncolt .or()-ok ÉS-kapcsolatban állnak).
+      q = q
+        .or('deleted.eq.false,deleted.is.null')
+        .or('stornozott.eq.false,stornozott.is.null')
+        .is('belso_mozgas_xkey', null)
+    }
+    return fetchAllRows<{ id: number; osszeg: number | null; befizetescel?: unknown }>(q.order('id'))
+  }
 
   let befRes = await befizetesQ(false)
   // Legacy-fallback CSAK a kompatibilitási oszlopok (stornozott /

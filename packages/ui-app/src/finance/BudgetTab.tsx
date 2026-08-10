@@ -22,6 +22,9 @@ import { ArrowDownCircle, ArrowUpCircle, Check, Lock, Scale } from 'lucide-react
 
 import { Badge, Button } from '@kartoteka/ui'
 
+// 2026-08-11 (K5-#12): a javítási kérelem indoklása eddig `window.prompt`-tal
+// kérdezett (mobilon egysoros, Firefoxban letiltható → néma elérhetetlenség).
+import { ReasonPromptDialog } from '../form/ReasonPromptDialog'
 import { FinanceLoadingState } from './FinanceLoadingState'
 import { formatCurrency, sortCellsHierarchically } from './helpers'
 import type { BealitasRow, BudgetCompatRow, SzamadasiCel } from './types'
@@ -130,6 +133,9 @@ export function BudgetTab({
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [mode, setMode] = useState<BudgetMode>('base')
+  // 2026-08-11 (K5-#12): a javítási kérelem indoklás-dialógusának állapota.
+  const [unlockDialogOpen, setUnlockDialogOpen] = useState(false)
+  const [unlockSending, setUnlockSending] = useState(false)
   // 2026-07-10 (#2): előző évi (currentYear-1) TÉNY kódonként — szürke referencia.
   const [prevActuals, setPrevActuals] = useState<{
     income: Record<string, number>
@@ -303,42 +309,71 @@ export function BudgetTab({
     .reduce((s, c) => s + getValue(c.id), 0)
   const balance = totalIncome - totalExpense
 
-  async function handleSave() {
+  /**
+   * 2026-08-11 (5. kör, P0 adat-integritás): a tényleges mentés — a `saving`
+   * flaget SZÁNDÉKOSAN nem állítja/nem engedi el, azt a hívó kezeli.
+   *
+   * HIBA VOLT: a régi `handleSave()` semmit nem adott vissza (hiba esetén csak
+   * toastolt és `return`-ölt), a `handleFinalizeAndSubmit` pedig a visszatérési
+   * érték ismerete NÉLKÜL zárta le az évet és küldte be az egyházmegyének a
+   * kliens-oldali snapshotot — vagyis egy elbukott mentés után is. Ráadásul a
+   * `finally { setSaving(false) }` a külső flow KÖZEPÉN visszaengedte a
+   * gombokat (dupla beküldés lassú mobilhálózaton).
+   *
+   * @returns true, ha a mentés sikeres volt; false minden hiba esetén.
+   */
+  async function saveInner(): Promise<boolean> {
+    if (mode === 'base') {
+      const result = await saveBudgetRows(
+        currentYear,
+        settings.congregation_id,
+        Object.values(budgetData),
+      )
+      if (result.error) {
+        onToast?.('Mentési hiba: ' + result.error, 'error')
+        return false
+      }
+      // A callback `success: false`-t is adhat error-szöveg nélkül — az sem siker.
+      if (result.success === false) {
+        onToast?.('A költségvetés mentése nem sikerült.', 'error')
+        return false
+      }
+    } else {
+      const modNum = (mode === 'mod1' ? 1 : mode === 'mod2' ? 2 : 3) as 1 | 2 | 3
+      const rows = Object.values(budgetData).map((r) => ({
+        szamadasicelid: r.szamadasicelid,
+        value:
+          modNum === 1
+            ? r.modositott ?? r.tervezett ?? 0
+            : modNum === 2
+              ? r.mod2 ?? 0
+              : r.mod3 ?? 0,
+      }))
+      const result = await saveBudgetModification(
+        currentYear,
+        settings.congregation_id,
+        modNum,
+        rows,
+      )
+      if (result.error) {
+        onToast?.('Mentési hiba: ' + result.error, 'error')
+        return false
+      }
+      if (result.success === false) {
+        onToast?.('A módosítás mentése nem sikerült.', 'error')
+        return false
+      }
+    }
+    return true
+  }
+
+  /** Önálló „Mentés" gomb — a saving-flaget itt kezeljük. */
+  async function handleSave(): Promise<boolean> {
     setSaving(true)
     try {
-      if (mode === 'base') {
-        const result = await saveBudgetRows(
-          currentYear,
-          settings.congregation_id,
-          Object.values(budgetData),
-        )
-        if (result.error) {
-          onToast?.('Mentési hiba: ' + result.error, 'error')
-          return
-        }
-      } else {
-        const modNum = (mode === 'mod1' ? 1 : mode === 'mod2' ? 2 : 3) as 1 | 2 | 3
-        const rows = Object.values(budgetData).map((r) => ({
-          szamadasicelid: r.szamadasicelid,
-          value:
-            modNum === 1
-              ? r.modositott ?? r.tervezett ?? 0
-              : modNum === 2
-                ? r.mod2 ?? 0
-                : r.mod3 ?? 0,
-        }))
-        const result = await saveBudgetModification(
-          currentYear,
-          settings.congregation_id,
-          modNum,
-          rows,
-        )
-        if (result.error) {
-          onToast?.('Mentési hiba: ' + result.error, 'error')
-          return
-        }
-      }
-      onToast?.('Költségvetés mentve!', 'success')
+      const ok = await saveInner()
+      if (ok) onToast?.('Költségvetés mentve!', 'success')
+      return ok
     } finally {
       setSaving(false)
     }
@@ -357,9 +392,28 @@ export function BudgetTab({
 
     if (!window.confirm(confirmMsg)) return
 
+    // 2026-08-11 (5. kör, P0): dupla-koppintás védelem — ha már fut egy mentés
+    // vagy beküldés, ne induljon egy második flow.
+    if (saving) return
+
     setSaving(true)
     try {
-      await handleSave()
+      // 2026-08-11 (5. kör, P0): HIBA VOLT — itt `await handleSave()` állt, a
+      // visszatérési érték vizsgálata NÉLKÜL. Ha a szerver-mentés elbukott
+      // (RLS/hálózat), a rendszer akkor is LEZÁRTA az évet és beküldte az
+      // egyházmegyének a kliens-oldali snapshotot, ami a szerveren soha nem
+      // került mentésre — a végén még zöld „véglegesítve és beküldve" toasttal.
+      // A `saveInner()` a `saving` flaget végig true-n hagyja (nincs közbenső
+      // feloldás → nincs dupla beküldés).
+      const saved = await saveInner()
+      if (!saved) {
+        onToast?.(
+          'A mentés nem sikerült, ezért a véglegesítés és a beküldés ELMARADT. ' +
+            'Ellenőrizd az internetkapcsolatot, és próbáld újra — az adataid a képernyőn megmaradtak.',
+          'error',
+        )
+        return
+      }
 
       const snapshot: Record<string, unknown> = { budgetData, year: currentYear, mode }
 
@@ -367,10 +421,16 @@ export function BudgetTab({
       // utána a beküldés. Korábban fordítva volt: ha a zárás elbukott, a
       // dokumentum beküldött-de-nyitott maradt, és a beküldött snapshot csendben
       // elévülhetett (a szerkesztés tovább élt).
+      // 2026-08-11 (5. kör, P0): a `success === false` ág is elutasítás — a
+      // callback hibaszöveg nélkül is jelezhet kudarcot, és ilyenkor SEM
+      // szabad beküldeni a snapshotot.
       if (mode === 'base') {
         const result = await finalizeBudget(currentYear)
-        if (result.error) {
-          onToast?.(`Véglegesítés sikertelen: ${result.error}`, 'error')
+        if (result.error || result.success === false) {
+          onToast?.(
+            `Véglegesítés sikertelen: ${result.error || 'ismeretlen hiba'} — a beküldés elmaradt.`,
+            'error',
+          )
           return
         }
       } else {
@@ -378,16 +438,19 @@ export function BudgetTab({
           currentYear,
           modNum as 1 | 2 | 3,
         )
-        if (result.error) {
-          onToast?.(`Véglegesítés sikertelen: ${result.error}`, 'error')
+        if (result.error || result.success === false) {
+          onToast?.(
+            `Véglegesítés sikertelen: ${result.error || 'ismeretlen hiba'} — a beküldés elmaradt.`,
+            'error',
+          )
           return
         }
       }
 
       const submitResult = await submitDocument(docType, currentYear, snapshot, modNum)
-      if (submitResult.error) {
+      if (submitResult.error || submitResult.success === false) {
         onToast?.(
-          `Véglegesítve, de a beküldés sikertelen: ${submitResult.error} — ` +
+          `Véglegesítve, de a beküldés sikertelen: ${submitResult.error || 'ismeretlen hiba'} — ` +
             'próbáld újra a beküldést, vagy kérj javítási engedélyt.',
           'error',
         )
@@ -406,37 +469,44 @@ export function BudgetTab({
     }
   }
 
-  async function handleUnlockRequest() {
-    if (typeof window === 'undefined') return
-    const lastFinalizedLabel = isMod3Finalized
-      ? '3. módosítás'
-      : isMod2Finalized
-        ? '2. módosítás'
-        : isMod1Finalized
-          ? '1. módosítás'
-          : isBaseFinalized
-            ? 'alap költségvetés'
-            : null
+  // 2026-08-11 (K5-#12): melyik véglegesített szintre kérünk feloldást. Kiemelve,
+  // mert a gomb megjelenítése, a dialógus címe és a beküldött indoklás előtagja
+  // is ebből él — így nem tud széthúzni a három.
+  const lastFinalizedLabel = isMod3Finalized
+    ? '3. módosítás'
+    : isMod2Finalized
+      ? '2. módosítás'
+      : isMod1Finalized
+        ? '1. módosítás'
+        : isBaseFinalized
+          ? 'alap költségvetés'
+          : null
 
+  // ── 2026-08-11 (K5-#12): javítási kérelem indoklással ─────────────────────
+  // MI VOLT A HIBA: az indoklást `window.prompt` kérdezte. Az üres szöveget itt
+  // legalább elutasította a kód, de a natív prompt telefonon egysoros és nem
+  // méretezhető, Firefoxban pedig a felhasználó ismételt megjelenés után
+  // letilthatja a további dialógusokat — onnantól a javítási kérelem NÉMÁN
+  // elérhetetlen. Helyette rendes dialógus (textarea + kötelező-jelölés +
+  // Mégse/Elküldöm), a leltár feloldás-kérésével azonos mintára.
+  async function submitUnlockRequest(reason: string) {
     if (!lastFinalizedLabel) return
-
-    const reason = window.prompt(
-      `Feloldási kérelem — ${lastFinalizedLabel}\n\nKérjük, fogalmazza meg röviden, miért szükséges a javítás. Az egyházmegye bírálja el a kérelmet.`,
-      '',
-    )
-    if (reason === null) return
     const trimmed = reason.trim()
     if (!trimmed) {
       onToast?.('Kérjük, adja meg a javítás okát.', 'error')
       return
     }
 
+    setUnlockSending(true)
     const fullReason = `[${lastFinalizedLabel}] ${trimmed}`
     const result = await requestBudgetUnlock(currentYear, fullReason)
+    setUnlockSending(false)
+
     if (result.error) {
       onToast?.(result.error, 'error')
       return
     }
+    setUnlockDialogOpen(false)
     onToast?.('Feloldási kérelem elküldve az egyházmegyének!', 'success')
     onRefresh?.()
   }
@@ -541,17 +611,32 @@ export function BudgetTab({
               </Button>
             </>
           )}
-          {isBaseFinalized && !settings.unlock_requested && (
+          {isBaseFinalized && !settings.unlock_requested && lastFinalizedLabel && (
             <Button
               size="sm"
               variant="outline"
               className="rounded-xl max-sm:min-h-10 text-amber-700 border-amber-200 hover:bg-amber-50"
-              onClick={() => void handleUnlockRequest()}
+              onClick={() => setUnlockDialogOpen(true)}
             >
               Javítási kérelem
             </Button>
           )}
         </div>
+
+        {/* 2026-08-11 (K5-#12): a `window.prompt` kiváltása — kötelező indoklás,
+            e nélkül a kérelem el sem küldhető. */}
+        <ReasonPromptDialog
+          open={unlockDialogOpen}
+          onOpenChange={setUnlockDialogOpen}
+          title={`Javítási kérelem — ${lastFinalizedLabel ?? 'költségvetés'}`}
+          description="A kérelmet az egyházmegye bírálja el. Írja le röviden, mit kell javítania a már véglegesített költségvetésen — ebből tudja az esperes eldönteni, hogy feloldja-e."
+          reasonLabel="A javítás indoklása"
+          reasonPlaceholder="Pl. A 101.01 egyházfenntartói járulék tervezett összege elírás miatt 1000 lejjel kevesebb."
+          reasonMinLength={10}
+          confirmLabel="Kérelem elküldése"
+          loading={unlockSending}
+          onConfirm={reason => void submitUnlockRequest(reason)}
+        />
 
         {settings.unlock_requested && settings.unlock_reason && (
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-3">

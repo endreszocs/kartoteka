@@ -40,8 +40,15 @@ export default async function IktatoPage() {
       : (access.admin || access.master) ? 'admin' : 'other'
     return <CongregationOnlyNotice module="Az Iktató modul" currentScope={scope} />
   }
-  const godMode = access.master ? await getGodModeStatus() : { active: false }
-  const delegatedImport = await getDelegatedImportStatus('filing')
+  // 2026-08-11 (K5 P3 #8) — JAVÍTVA: a két, egymástól teljesen független
+  // jogosultság-lekérés eddig egymás UTÁN futott, így az /iktato minden
+  // megnyitása egy fölösleges soros DB-körfordulót (~100-200 ms) fizetett,
+  // mielőtt az oldal elkezdhetett volna renderelni. Most egy hullámban megy —
+  // ugyanaz a minta, mint a penzugy/page.tsx:51 Promise.all-jában.
+  const [godMode, delegatedImport] = await Promise.all([
+    access.master ? getGodModeStatus() : Promise.resolve({ active: false }),
+    getDelegatedImportStatus('filing'),
+  ])
 
   // 2026-05-25: a tabok a FilingMain Hero-ja ALATT jelennek meg
   // (Tagnyilvántartás minta — ModuleAdminWorkspace wrapper eltávolítva).

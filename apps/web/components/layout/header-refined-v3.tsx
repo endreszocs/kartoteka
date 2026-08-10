@@ -99,6 +99,11 @@ const MEGA_PANEL_WIDTH = 'w-[min(56rem,calc(100vw-1.5rem))]'
  * és a `**:text-accent-foreground` minden leszármazottat átfest. Az élő `kert`
  * témában ez tömör olívazöld lap fehér szöveggel (3,75:1 — AA-bukás normál
  * szövegen), és a base-ui egérre is ezt az állapotot állítja. Semlegesítjük.
+ *
+ * 2026-08-11 (P2 #23): ez a minta AZÓTA bekerült magába az alap primitívbe
+ * (`packages/ui/src/components/dropdown-menu.tsx`), a látható fókuszt ott egy
+ * 2px-es belső akcentus-gyűrű adja. Az itteni konstans ezzel megegyezik, csak
+ * a mega menü egyedi sorain marad explicit — a `cn()` merge miatt nem ütközik.
  */
 const NEUTRAL_FOCUS =
   'focus:bg-secondary focus:text-foreground not-data-[variant=destructive]:focus:**:text-inherit'
@@ -299,9 +304,14 @@ export function HeaderRefinedV3({
                     monogram renderelődött, a fotó soha. Ha a kép nem tölt be,
                     az AvatarFallback (monogram) automatikusan visszajön. */}
                 {avatarUrl && <AvatarImage src={avatarUrl} alt={fullName} />}
+                {/* 2026-08-11 (P2 #23): a monogram eddig hardkódolt `text-white`
+                    volt a `var(--accent)` olívazöld körön — mérve 3,75:1, AA-bukás.
+                    Most a téma saját `--accent-foreground` tokenjét használja, amit
+                    ugyanezen a napon sötétítettünk (kert: 4,72:1). Hardkódolt szín
+                    helyett token — így a téma-váltás is helyesen viszi tovább. */}
                 <AvatarFallback
-                  className="text-[13px] font-semibold text-white"
-                  style={{ background: 'var(--accent)' }}
+                  className="text-[13px] font-semibold"
+                  style={{ background: 'var(--accent)', color: 'var(--accent-foreground)' }}
                 >
                   {initials}
                 </AvatarFallback>

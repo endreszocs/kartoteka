@@ -20,6 +20,7 @@ import {
   Sparkles,
   Users,
   Wallet,
+  X,
   Zap,
 } from 'lucide-react'
 
@@ -471,6 +472,7 @@ function SidebarNav({
   allowCollapse,
   onToggleCollapsed,
   onNavigate,
+  onClose,
   activeScope = null,
   financeSubmenu,
   tagnyilvantartasSubmenu,
@@ -491,6 +493,14 @@ function SidebarNav({
   allowCollapse: boolean
   onToggleCollapsed?: () => void
   onNavigate?: () => void
+  /**
+   * 2026-08-11 (P2 #27): a mobil menüfiók bezárása. A `SheetContent`
+   * `showCloseButton={false}`-t kap, a fiók pedig `w-[88vw]` — a menü
+   * bezárásának EGYETLEN érintéses módja a maradék ~12vw (telefonon ~45px)
+   * széles háttércsík eltalálása volt. Ha ez a prop meg van adva, a fejlécben
+   * megjelenik egy `size-11`-es „Menü bezárása" gomb.
+   */
+  onClose?: () => void
   /** 2026-04-18 SCOPE-AWARE: az aktív profile_role scope-ja.
    *  Diocese esetén az "Irányítópult" menüpont "Egyházmegyei irányítópult"-ra
    *  változik és csak a Pénzügy látható. */
@@ -710,31 +720,67 @@ function SidebarNav({
       <SidebarDecor />
 
       <div className="relative flex h-full min-h-0 flex-col">
-        <button
-          type="button"
-          onClick={allowCollapse ? onToggleCollapsed : undefined}
-          aria-label={collapsed ? 'Oldalsáv kinyitása' : 'Oldalsáv összecsukása'}
-          className={cn(
-            'group flex w-full flex-col items-center gap-2 transition-[padding] duration-300',
+        {/* 2026-08-11 (P2 #27): a logó eddig MINDIG `<button>`-ként renderelődött,
+            de `onClick={allowCollapse ? onToggleCollapsed : undefined}` — a mobil
+            fiókban `allowCollapse={false}`, tehát a gomb semmit nem csinált,
+            viszont fókuszálható volt, és az `aria-label`-je azt ígérte:
+            „Oldalsáv összecsukása". Képernyőolvasós felhasználó rátabbolt,
+            aktiválta, és nem történt semmi. Ha nincs összecsukás, most sima
+            `<div>`, aria-label nélkül — a logó ott dekoráció, nem vezérlő.
+            Helyette a fiók megkapja a valódi, `size-11`-es bezáró gombját. */}
+        {(() => {
+          const logoShell = cn(
+            'flex w-full flex-col items-center gap-2 transition-[padding] duration-300',
             collapsed
               ? 'px-2 pb-2.5 pt-3.5'
               : 'px-5 pb-4 pt-6 [@media(max-height:980px)]:pb-3 [@media(max-height:980px)]:pt-4 [@media(max-height:820px)]:pb-2 [@media(max-height:820px)]:pt-3'
-          )}
-        >
-          <Image
-            src="/kartoteka-logo.png"
-            alt="Kartotéka"
-            width={collapsed ? 40 : 108}
-            height={collapsed ? 40 : 108}
-            className={cn(
-              'object-contain transition-[width,height] duration-300 drop-shadow-[0_12px_22px_rgba(0,0,0,0.28)]',
-              collapsed
-                ? 'size-10'
-                : 'size-[108px] [@media(max-height:980px)]:size-[88px] [@media(max-height:820px)]:size-[72px]'
-            )}
-            priority
-          />
-        </button>
+          )
+          const logo = (
+            <Image
+              src="/kartoteka-logo.png"
+              alt="Kartotéka"
+              width={collapsed ? 40 : 108}
+              height={collapsed ? 40 : 108}
+              className={cn(
+                'object-contain transition-[width,height] duration-300 drop-shadow-[0_12px_22px_rgba(0,0,0,0.28)]',
+                collapsed
+                  ? 'size-10'
+                  : 'size-[108px] [@media(max-height:980px)]:size-[88px] [@media(max-height:820px)]:size-[72px]'
+              )}
+              priority
+            />
+          )
+
+          if (allowCollapse) {
+            return (
+              <button
+                type="button"
+                onClick={onToggleCollapsed}
+                aria-label={collapsed ? 'Oldalsáv kinyitása' : 'Oldalsáv összecsukása'}
+                className={cn('group', logoShell)}
+              >
+                {logo}
+              </button>
+            )
+          }
+
+          return (
+            <div className={cn('relative', logoShell)}>
+              {logo}
+              {onClose && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Menü bezárása"
+                  title="Menü bezárása"
+                  className="absolute right-2 top-2 inline-flex size-11 items-center justify-center rounded-full text-[var(--sidebar-foreground)] transition-colors hover:bg-white/12 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--sidebar-ring)]"
+                >
+                  <X className="size-5" aria-hidden />
+                </button>
+              )}
+            </div>
+          )
+        })()}
 
         <nav
           className={cn(
@@ -852,6 +898,7 @@ export function SidebarAdaptiveV4({
             collapsed={false}
             allowCollapse={false}
             onNavigate={onMobileClose}
+            onClose={onMobileClose}
           />
         </SheetContent>
       </Sheet>
