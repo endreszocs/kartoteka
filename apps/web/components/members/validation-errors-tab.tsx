@@ -121,9 +121,14 @@ function IgnoreDialog({
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
 
-  useEffect(() => {
-    if (open) setReason('')
-  }, [open])
+  // 2026-08-11: az indoklás ürítése korábban `useEffect`-ben történt a `open`
+  // váltásakor (effect-ben hívott setState → kaszkádoló újrarender). Most
+  // ESEMÉNYKEZELŐBEN ürítünk, BEZÁRÁSKOR — a kezdőérték amúgy is üres string,
+  // így a legközelebbi nyitáskor ugyanaz a látvány, egy renderrel kevesebbért.
+  function handleOpenChange(next: boolean) {
+    if (!next) setReason('')
+    onOpenChange(next)
+  }
 
   async function handle() {
     if (!errorRow) return
@@ -137,14 +142,14 @@ function IgnoreDialog({
     if (res.ok) {
       toast.success('A hiba figyelmen kívül lett helyezve.')
       onSuccess()
-      onOpenChange(false)
+      handleOpenChange(false)
     } else {
       toast.error(res.error || 'Hiba történt.')
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="font-heading text-xl">Hiba figyelmen kívül hagyása</DialogTitle>
@@ -165,7 +170,7 @@ function IgnoreDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+          <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={busy}>
             Mégse
           </Button>
           <Button onClick={handle} disabled={busy}>

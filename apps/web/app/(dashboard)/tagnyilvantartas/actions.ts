@@ -13,7 +13,9 @@ import { allocateFamilyPayments, computeBaseExpectedForMemberYear, computeJarule
 import { getPaymentGoalCode, isChurchMaintenanceCode, type PaymentGoalCodeRef } from '@kartoteka/ui-app'
 // 2026-08-11 (5. kör, P3 #15): a lapozott „hozd le a TELJES halmazt" helper közös forrása.
 import { selectAllPaged } from '@kartoteka/supabase-client'
-import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallback'
+import { applyStreetLocalityFallback, firstRel } from '@/lib/members/street-locality-fallback'
+// 2026-08-11: az „Útvonal" célpont-építőjének típusai (a hivatalos román cím).
+import type { DirectionsCounty, DirectionsLocality, DirectionsStreet, MemberDirectionsAddress } from '@/lib/members/directions'
 import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
 import { describeMoves, ensureChildFamilyLink, type FamilyCompletionOffer } from '@/lib/family/auto-family'
 import { getAllowedFamilyIds, loadFamilyDisplayNames, syncHouseholdFromCsalad } from '@/lib/family/family-membership'
@@ -404,11 +406,87 @@ export async function getMembers(): Promise<{
   return { members, paidPersonIds, paidFamilyIds, exemptPersonIds, exemptFamilyIds, personToFamilyMap }
 }
 
+// ── Tag lakcíme a TÉRKÉPHEZ (2026-08-11) ─────────────────────
+// A karton „Útvonal" gombja eddig a MAGYAR település-/utcanévből épített
+// Google Maps linket („Barátos, Főút, 144, România"), amit a térkép nem talál
+// meg — hivatalosan Brateș / Strada Principală. A hivatalos alakhoz szükséges
+// `_ro` oszlopok 2026-04-21 óta megvannak, csak SENKI nem kérte le őket.
+//
+// A lista-lekérdezés (`getMembers`) SZÁNDÉKOSAN nem bővül: ott 1400 soron
+// futna a plusz join, és a listának elég a magyar név. A térkép-adat a karton
+// megnyitásakor, EGY sorra jön le.
+//
+// ⚠️ A `geo_*` oszlopok a 2026-08-11-cim-geokodolas.sql-lel születnek. Amíg az
+//    nem futott le, a bővített SELECT 42703-mal elhalna és a karton NÉMÁN cím
+//    nélkül maradna — ezért hiba esetén megismételjük a lekérdezést a geo-
+//    oszlopok NÉLKÜL (ugyanaz az ellenállósági minta, mint a
+//    `jarulek_kedvezmeny.kezdet` oszlopnál).
+const CIM_COUNTY_FIELDS = 'name, name_hu, name_ro'
+const CIM_LOCALITY_FIELDS = 'id, name, name_hu, name_ro, default_postalcode, siruta_code, needs_review'
+const CIM_STREET_FIELDS = 'id, name, name_hu, name_ro, street_type_ro, street_type_hu, postalcode'
+const CIM_GEO_FIELDS = ', geo_lat, geo_lng, geo_verified_at'
+
+function buildCimSelect(withGeo: boolean): string {
+  const loc = `${CIM_LOCALITY_FIELDS}${withGeo ? CIM_GEO_FIELDS : ''}, adrcounty:countyid(${CIM_COUNTY_FIELDS})`
+  const street = `${CIM_STREET_FIELDS}${withGeo ? CIM_GEO_FIELDS : ''}`
+  // Az utcán KERESZTÜL is lehozzuk a települést: sok import-örökség sorban a
+  // `c_helysegid` NULL, miközben a `c_utcaid` pontosan tudja a települést
+  // (lásd `lib/members/street-locality-fallback.ts`).
+  return `c_szam, adrlocality!c_helysegid(${loc}), adrstreet!c_utcaid(${street}, adrlocality!localityid(${loc}))`
+}
+
+type CimLocalityRow = Omit<DirectionsLocality, 'county'> & {
+  adrcounty?: DirectionsCounty | DirectionsCounty[] | null
+}
+type CimStreetRow = DirectionsStreet & {
+  adrlocality?: CimLocalityRow | CimLocalityRow[] | null
+}
+type CimRow = {
+  c_szam: string | null
+  adrlocality: CimLocalityRow | CimLocalityRow[] | null
+  adrstreet: CimStreetRow | CimStreetRow[] | null
+}
+
+async function fetchMemberMapAddress(
+  // A Supabase kliens típusa itt nem kifejezhető a helper-szinten.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  id: number,
+  congregationId: string,
+): Promise<MemberDirectionsAddress | null> {
+  const run = (withGeo: boolean) =>
+    supabase.from('szemely').select(buildCimSelect(withGeo)).eq('id', id).eq('congregation_id', congregationId).maybeSingle()
+
+  let res = await run(true)
+  if (res.error) {
+    console.warn(
+      '[tagnyilvantartas/cim] a geo-oszlopos cím-lekérdezés hibázott — újra a geo-oszlopok nélkül (lefutott már a 2026-08-11-cim-geokodolas.sql?):',
+      res.error.message,
+    )
+    res = await run(false)
+  }
+  if (res.error || !res.data) {
+    if (res.error) console.error('[tagnyilvantartas/cim] a cím-lekérdezés nem sikerült:', res.error.message)
+    return null
+  }
+
+  const row = res.data as CimRow
+  const street = firstRel(row.adrstreet)
+  const locality = firstRel(row.adrlocality) ?? (street ? firstRel(street.adrlocality) : null)
+  if (!locality && !street) return null
+
+  return {
+    locality: locality ? { ...locality, county: firstRel(locality.adrcounty) } : null,
+    street: street ?? null,
+    houseNumber: row.c_szam,
+  }
+}
+
 // ── Tag kartoték részletek ────────────────────────────────────
 
 export async function getMemberDetails(id: number, familyId?: number | null) {
   const { supabase, congregationId } = await getProfileCongregation()
-  const [memberRes, kereszt, konfirm, hazassagRes, temetesRes, bekolt, attert, payments, familyPayments, yearlySettingsRes, exemptionsRes, discountsRes, arrearsPaymentsRes] = await Promise.all([
+  const [memberRes, kereszt, konfirm, hazassagRes, temetesRes, bekolt, attert, payments, familyPayments, yearlySettingsRes, exemptionsRes, discountsRes, arrearsPaymentsRes, cimRes] = await Promise.all([
     congregationId
       ? supabase.from('szemely').select('sz_datum, foglalkozas').eq('id', id).eq('congregation_id', congregationId).maybeSingle()
       : Promise.resolve({ data: null }),
@@ -446,6 +524,15 @@ export async function getMemberDetails(id: number, familyId?: number | null) {
       .select('id, id_szemely, id_csalad, datum, fizetettev, osszeg, stornozott, befizetescel!id_befizetescel(id_szamadasicel)')
       .or(familyId ? `id_szemely.eq.${id},id_csalad.eq.${familyId}` : `id_szemely.eq.${id}`)
       .or('deleted.eq.false,deleted.is.null'),
+    // 2026-08-11: a térkép-célponthoz szükséges cím (hivatalos román nevek,
+    // megye, irányítószám, egyeztetett pont). A hibája NEM buktathatja el a
+    // karton betöltését — ilyenkor `null`, és a karton a magyar névre esik vissza.
+    congregationId
+      ? fetchMemberMapAddress(supabase, id, congregationId).catch((err) => {
+          console.error('[tagnyilvantartas/cim] váratlan hiba a cím lekérésekor:', err)
+          return null
+        })
+      : Promise.resolve(null),
   ])
 
   const currentYear = new Date().getFullYear()
@@ -630,6 +717,8 @@ export async function getMemberDetails(id: number, familyId?: number | null) {
     attert: attert.data,
     befizetesek: allPayments,
     arrearsBreakdown,
+    /** 2026-08-11: a térkép-célpont nyersanyaga (`lib/members/directions.ts`). */
+    cim: cimRes,
   }
 }
 

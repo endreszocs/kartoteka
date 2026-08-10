@@ -228,20 +228,29 @@ export default async function DashboardLayout({
   //     jellegű felhasználók normál betöltését nem lassítja, és SOHA nem is
   //     blokkolja. A lekérés BÁRMILYEN hibája engedélyező (try/catch → tovább).
   //     Kizárólag explicit 'suspended' DB-státusz vezet a leállított képernyőhöz.
+  //     2026-08-11: a JSX MÁR NEM a try/catch-en BELÜL épül (react-hooks/
+  //     error-boundaries). A React nem a JSX létrehozásakor rendereli a
+  //     komponenst, így a renderelés közben dobott hibát ez a catch úgysem
+  //     kapná el — viszont a látszat megtévesztő. Ezért a try/catch CSAK a
+  //     DB-lekérést fogja körül, és a képernyő a blokkon KÍVÜL tér vissza.
+  let subscriptionBlocked = false
+  let subscriptionBlockReason: string | null = null
   if (shouldGateUser({ master, admin, egyhazkeruletiAdmin, activeScope: activeProfileRole?.scope })) {
     try {
       const subscriptionAccess = await getCongregationAccessStatus(access.effectiveCongregationId)
-      if (subscriptionAccess.isBlocked) {
-        return (
-          <SubscriptionSuspendedScreen
-            congregationName={congregationName}
-            reason={subscriptionAccess.reason}
-          />
-        )
-      }
+      subscriptionBlocked = subscriptionAccess.isBlocked
+      subscriptionBlockReason = subscriptionAccess.reason
     } catch {
       // A gating-lekérés hibája SOHA nem törheti el a layoutot → engedünk tovább.
     }
+  }
+  if (subscriptionBlocked) {
+    return (
+      <SubscriptionSuspendedScreen
+        congregationName={congregationName}
+        reason={subscriptionBlockReason}
+      />
+    )
   }
 
   // 5. AI widget

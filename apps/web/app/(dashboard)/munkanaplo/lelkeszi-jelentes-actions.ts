@@ -427,16 +427,24 @@ async function computeAuto(
   if (szemelyRes.error) {
     console.error('[lelkeszi-jelentes] Lélekszám-lekérdezés HIBA — I.10 null lesz:', szemelyRes.error.message)
   } else {
-    lelekszam = szemelyRes.rows.filter(
-      (s) =>
-        !s.meghalt &&
-        !['elhunyt', 'elköltözött', 'elkoltozott', 'kitért', 'törölt'].includes(s.member_status || ''),
-    ).length
+    // 2026-08-11 (6. kör): a KANONIKUS „aktív tag" szűrő — az I.10 és az I.11
+    // MOSTANTÓL UGYANEZT használja (eddig az I.11 csak a `meghalt`-at nézte).
+    const aktivTag = (s: (typeof szemelyRes.rows)[number]) =>
+      !s.meghalt &&
+      !['elhunyt', 'elköltözött', 'elkoltozott', 'kitért', 'törölt'].includes(s.member_status || '')
+
+    lelekszam = szemelyRes.rows.filter(aktivTag).length
     auto['I.10'] = lelekszam
     // I.11 — választói névjegyzékben szereplők (2026-07-17, PR-2 F1.7): a
     // perzisztált voter_eligible flagből (a „Jogosultság frissítése" gomb / RPC
     // tartja karban); a lelkész felülírhatja, mint minden auto-mezőt.
-    auto['I.11'] = szemelyRes.rows.filter((s) => s.voter_eligible === true && !s.meghalt).length
+    //
+    // 2026-08-11 (6. kör): eddig az I.11 CSAK a `meghalt` jelzőt nézte, a
+    // member_statust nem. Egy elköltözött (vagy kitért/törölt) tag, akinek a
+    // `voter_eligible` flagje nem lett letisztítva, felhizlalta a választók
+    // számát — miközben az I.10 lélekszámban már NEM szerepelt. A hivatalos
+    // nyomtatványon így több választó látszott, mint amennyi gyülekezeti tag.
+    auto['I.11'] = szemelyRes.rows.filter((s) => s.voter_eligible === true && aktivTag(s)).length
   }
 
   // I.1 — előző évi véglegesített jelentés I.10-e
@@ -668,7 +676,8 @@ async function computeAuto(
   const befizetesQ = (legacy: boolean) => {
     let q = supabase
       .from('befizetes')
-      .select('id, osszeg, befizetescel(szamadasicel(kod))')
+      // 2026-08-11 (6. kör): `osszeg_ron` is kell — lásd a lenti összegzésnél.
+      .select('id, osszeg, osszeg_ron, befizetescel(szamadasicel(kod))')
       .eq('congregation_id', congId)
       .gte('datum', `${ev}-01-01`)
       .lte('datum', `${ev}-12-31`)
@@ -684,7 +693,12 @@ async function computeAuto(
         .or('stornozott.eq.false,stornozott.is.null')
         .is('belso_mozgas_xkey', null)
     }
-    return fetchAllRows<{ id: number; osszeg: number | null; befizetescel?: unknown }>(q.order('id'))
+    return fetchAllRows<{
+      id: number
+      osszeg: number | null
+      osszeg_ron?: number | null
+      befizetescel?: unknown
+    }>(q.order('id'))
   }
 
   let befRes = await befizetesQ(false)
@@ -707,7 +721,14 @@ async function computeAuto(
     for (const r of befRes.rows) {
       const kod = befizetesKod(r)
       if (!kod) continue
-      const osszeg = Number(r.osszeg) || 0
+      // 2026-08-11 (6. kör, P0): a RON-ekvivalens a hivatalos érték, nem a nyers
+      // deviza-összeg. Eddig `Number(r.osszeg)` volt: egy 100 EUR-s befizetés
+      // 100 lejként került a VII.1 (egyházfenntartói járulék) és a VII.3
+      // (perselypénz) rubrikába — ALÁÍRT, BEKÜLDÖTT nyomtatványon —, és a
+      // VII.2/VII.4 egy lélekre eső értékek is ezzel csúsztak el.
+      // A kanonikus szabály (`osszeg_ron ?? osszeg`) már él a penzugy/actions.ts
+      // és az eves-jelentes/prezentacio/actions.ts kódjában; ez a hely kimaradt.
+      const osszeg = Number(r.osszeg_ron ?? r.osszeg) || 0
       if (kod.startsWith('101.01')) jarulekOssz += osszeg
       else if (kod.startsWith('101.03')) perselyOssz += osszeg
     }

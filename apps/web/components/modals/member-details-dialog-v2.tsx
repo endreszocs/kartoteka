@@ -41,6 +41,7 @@ import {
   CalendarDays,
   Check,
   Church,
+  Compass,
   CreditCard,
   Cross,
   Crown,
@@ -79,6 +80,10 @@ import { ageFromDate } from '@/lib/utils/date'
 import type { EnrichedMember } from '@/lib/constants/members'
 import { PersonCardPrintDialog } from '@/components/modals/person-card-print-dialog'
 import { FamilyAssignDialog } from '@/components/modals/family-assign-dialog'
+// 2026-08-11: az útvonal-célpont a HIVATALOS román alakból épül, és a lelkész
+// egyszer meg is erősítheti a helyet (lásd a két modul fejlécét).
+import { AddressVerifyDialog } from '@/components/modals/address-verify-dialog'
+import { buildDirectionsTarget, type MemberDirectionsAddress } from '@/lib/members/directions'
 import {
   BTN,
   CardFooter,
@@ -206,17 +211,25 @@ function formatAddressLine(member: EnrichedMember): string | null {
 }
 
 /**
- * Az „Útvonal" célpontja SZÁNDÉKOSAN a régi, egyszerű alak (település + utca +
- * házszám): a Google Maps lakás-ajtóra úgysem navigál, a tömbház/lépcsőház
- * töredékek viszont elronthatnák a geokódolást. A megjelenített cím ettől
- * függetlenül teljes (lásd `formatAddressLine`).
+ * ⚑ 2026-08-11 (a tulajdonos hibabejelentése): az „Útvonal" a MAGYAR nevekből
+ * épült („Barátos, Főút, 144, România"), amire a Google Térkép szó szerint ezt
+ * felelte: „A Google Térkép nem találja a következőt…". A hivatalos román alak
+ * (Brateș / Strada Principală + megye + irányítószám) a `lib/members/directions.ts`
+ * dolga — a célpont-építés ONNAN jön, itt csak a nyersanyagot állítjuk össze.
+ *
+ * A célpontból a lakás-töredékek (tömbház/lépcsőház/emelet/ajtó) továbbra is
+ * KIMARADNAK: a térkép az ajtóig úgysem navigál, viszont elrontanák a
+ * párosítást. A megjelenített cím ettől függetlenül teljes (`formatAddressLine`).
+ *
+ * Amíg a részletek töltődnek (`details === null`), a régi, magyar nevű alakra
+ * esünk vissza — ez nem rosszabb a korábbi állapotnál, és egy pillanatig tart.
  */
-function buildDirectionsUrl(member: EnrichedMember) {
-  const parts = [member.adrlocality?.name, member.adrstreet?.name, member.c_szam].filter(Boolean)
-  if (parts.length === 0) return null
-  // 2026-07-17 (PR-1): ország-kontexus a query-ben — település nélküli/azonos nevű
-  // utcáknál a Google különben a világ bármely pontjára irányíthat.
-  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${parts.join(', ')}, România`)}`
+function buildFallbackDirectionsAddress(member: EnrichedMember): MemberDirectionsAddress {
+  return {
+    locality: member.adrlocality?.name ? { name: member.adrlocality.name } : null,
+    street: member.adrstreet?.name ? { name: member.adrstreet.name } : null,
+    houseNumber: member.c_szam,
+  }
 }
 
 interface MembershipPresentation {
@@ -419,6 +432,8 @@ export function MemberDetailsDialogV2({
   // után a friss család-id felülírja a (lista-sorból jövő, már elavult)
   // familyId propot, amíg a lista újratölt.
   const [assignOpen, setAssignOpen] = useState(false)
+  // 2026-08-11: „egyeztetés és lekérés" — a térkép-pont egyszeri megerősítése.
+  const [geoVerifyOpen, setGeoVerifyOpen] = useState(false)
   const [assignedFamilyId, setAssignedFamilyId] = useState<number | null>(null)
   const effectiveFamilyId = assignedFamilyId ?? familyId ?? null
   // 2026-07-24 (PR-11 review): melyik tag adatai vannak betöltve — a
@@ -557,7 +572,14 @@ export function MemberDetailsDialogV2({
   const membership = getMembershipPresentation(member)
   const arrearsTotal = (details?.arrearsBreakdown || []).reduce((sum, row) => sum + row.debt, 0)
   const addressLine = formatAddressLine(member)
-  const directionsUrl = buildDirectionsUrl(member)
+  // 2026-08-11: a betöltött cím (hivatalos román nevek + egyeztetett pont) az
+  // elsődleges; amíg tölt, a magyar nevű tartalék megy — lásd a fenti kommentet.
+  const directionsAddress = details?.cim ?? buildFallbackDirectionsAddress(member)
+  const directionsTarget = buildDirectionsTarget(directionsAddress)
+  const directionsUrl = directionsTarget?.url ?? null
+  // Az egyeztetés csak akkor menthető, ha a cím a CÍMTÖRZSBŐL választott sorra
+  // mutat (van id) — szabad szöveges címnél nincs mire ráírni a pontot.
+  const canVerifyAddress = Boolean(details?.cim?.locality?.id || details?.cim?.street?.id)
   const currentIsFamilyAdult = familySummary?.adults.some((person) => person.id === member.id) ?? false
   const payments = details?.befizetesek || []
   const stornozottDb = payments.filter((p) => p.stornozott).length
@@ -923,6 +945,68 @@ export function MemberDetailsDialogV2({
           />
           <LinkRow icon={<MapPin className="size-4" />} label="Lakcím" value={addressLine} href={directionsUrl} external />
         </div>
+
+        {/* ⚑ 2026-08-11 — TÉRKÉP-EGYEZTETÉS.
+            A tulajdonos bejelentése: „nem tökéletes, mert nem találja! Legyen
+            valamilyen egyeztetés és lekérés, hogy biztosan jól működjön!"
+            Ez a sáv az „egyeztetés" LÁTHATÓ fele: megmutatja, mit kap a térkép,
+            és ha az bizonytalan, egy koppintással megnyílik a megerősítő ablak.
+            Sosem blokkol: az „Útvonal" gomb közben végig működik. */}
+        {addressLine && directionsTarget && (
+          <div className="mt-3 space-y-2 rounded-xl border border-border/60 bg-background/40 p-3">
+            <p className="break-words text-xs leading-5 text-muted-foreground">
+              <span className="font-semibold text-foreground">A térkép ezt keresi:</span>{' '}
+              {directionsTarget.kind === 'koordinata'
+                ? `egyeztetett pont (${directionsTarget.destination})`
+                : directionsTarget.destination}
+            </p>
+
+            {directionsTarget.verified ? (
+              <p className="flex items-start gap-1.5 text-xs leading-5 text-emerald-700 dark:text-emerald-300">
+                <Check className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                <span>
+                  Ez a cím egyeztetve van a térképpel.
+                  {directionsTarget.precision === 'telepules' && directionsTarget.kind === 'koordinata'
+                    ? ' A pont a településre mutat — a házszámot a helyszínen keresse.'
+                    : ''}
+                </span>
+              </p>
+            ) : (
+              <p className="flex items-start gap-1.5 text-xs leading-5 text-amber-700 dark:text-amber-300">
+                <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                <span>
+                  Ez a cím még nincs egyeztetve a térképpel.
+                  {directionsTarget.warnings.length > 0 ? ` ${directionsTarget.warnings[0]}` : ''}
+                </span>
+              </p>
+            )}
+
+            <button
+              type="button"
+              className={BTN.outline}
+              onClick={() => {
+                // A `details` a cím-adatok forrása. Amíg tölt, a gomb NEM hazudik
+                // hiányzó címtörzset — csak megkér, hogy várj egy pillanatot.
+                if (!details) {
+                  toast.info('A cím adatai még töltődnek — egy pillanat, és próbáld újra.')
+                  return
+                }
+                if (!canVerifyAddress) {
+                  toast.info(
+                    'Ehhez a taghoz nincs a címtörzsből választott település vagy utca, ezért az egyeztetés nem menthető. Nyisd meg a tag szerkesztőjét, és válaszd ki a települést a listából.',
+                    { duration: 9000 },
+                  )
+                  return
+                }
+                setGeoVerifyOpen(true)
+              }}
+              aria-label="A lakcím egyeztetése a térképpel"
+            >
+              <Compass className="size-3.5" aria-hidden />
+              {directionsTarget.verified ? 'Egyeztetés módosítása' : 'Cím egyeztetése'}
+            </button>
+          </div>
+        )}
       </Section>
 
       <Section
@@ -1522,6 +1606,17 @@ export function MemberDetailsDialogV2({
         member={member}
         currentFamilyId={effectiveFamilyId}
         onAssigned={handleAssigned}
+      />
+      {/* 2026-08-11: a térkép-egyeztetés a CÍMTÖRZSRE ment (település/utca),
+          nem a személyre — ezért egy egyeztetés az ott lakó MINDEN tagot javítja.
+          Siker után csendben újratöltjük a részleteket, hogy a sáv azonnal
+          „egyeztetett"-re váltson. */}
+      <AddressVerifyDialog
+        open={geoVerifyOpen}
+        onOpenChange={setGeoVerifyOpen}
+        address={details?.cim ?? null}
+        memberName={baseName}
+        onSaved={() => setReloadToken((token) => token + 1)}
       />
     </>
   )

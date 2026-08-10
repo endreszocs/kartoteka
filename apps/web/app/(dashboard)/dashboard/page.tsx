@@ -11,6 +11,10 @@ import { AgeDistributionCardLazy, FinanceOverviewChartLazy } from '@/components/
 import { ProgramScheduler } from '@/components/dashboard/program-scheduler'
 import { RecentActivity } from '@/components/dashboard/recent-activity'
 import { BottomStats } from '@/components/dashboard/bottom-stats'
+// 2026-08-11: lejárat-radar — sírhely-bérletek és bérleti szerződések, amiket
+// a rendszer eddig TÁROLT, de soha nem számolt ki („hamarosan lejár").
+import { ExpiryRadarCard } from '@/components/dashboard/expiry-radar-card'
+import { getExpiryRadar } from '@/lib/dashboard/expiry-radar'
 // PublicSiteWidget eltávolítva (2026-04-21o) — a publikus oldal státusz a KPI-kártyán látszik, külön dobozra nincs szükség
 import { CongregationSetupAutoOpen } from '@/components/dashboard/congregation-setup-auto-open'
 import { CongregationOnlyNotice } from '@/components/layout/congregation-only-notice'
@@ -88,6 +92,7 @@ export default async function DashboardPage() {
     recentResult,
     congregationFeeResult,
     annualFeeCurrentYearResult,
+    expiryRadarResult,
   ] = await Promise.all([
     // Gyülekezeti setup status — ha hiányosak az adatok, auto-open wizard
     checkCongregationSetupStatus(effectiveCongregationId),
@@ -168,6 +173,11 @@ export default async function DashboardPage() {
     // Januári banner-hez (2026-04-21k): van-e aktuális évi díj?
     supabase.from('congregations').select('eves_jarulek').eq('id', effectiveCongregationId).maybeSingle(),
     supabase.from('congregation_annual_fees').select('year').eq('congregation_id', effectiveCongregationId).eq('year', curYear).maybeSingle(),
+    // 2026-08-11: lejárat-radar. A hibát a függvény MAGA fogja el és
+    // hibaüzenetként adja vissza — ha kibukna, a Promise.all az egész
+    // irányítópultot ledöntené egy másodlagos doboz miatt. A kártya a hibát
+    // LÁTHATÓAN mutatja, tehát nem néma degradáció.
+    getExpiryRadar(),
   ])
 
   const deferSetupForWalkthrough = !(
@@ -431,6 +441,11 @@ export default async function DashboardPage() {
         <FinanceOverviewChartLazy monthlyData={monthlyData} />
         <RecentActivity activities={(recentResult.data || []) as ActivityRow[]} />
       </div>
+
+      {/* 2026-08-11: Lejárat-figyelő — egy lejáró sírhely-bérlet egyszerre
+          bevétel (megújítás) és pasztorális alkalom; egy lejáró bérleti
+          szerződés jogi kockázat. Eddig mindkettő papíron/fejből élt. */}
+      <ExpiryRadarCard result={expiryRadarResult} />
 
       <BottomStats
         men={men}

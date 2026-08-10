@@ -18,6 +18,7 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { assertDelegatedImportAllowed } from '@/app/(dashboard)/delegated-import/guard'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { createClient } from '@/lib/supabase/server'
 
@@ -169,6 +170,25 @@ export async function executeRegistryImport(
   }
   const profileKey = profileKeyRaw as RegistryProfileKey
   if (!targetCongregationId) return { error: 'Nincs cél gyülekezet kiválasztva.' }
+
+  // BIZTONSÁGI FIX 2026-08-11: ez volt az EGYETLEN import-szerverakció, amely
+  // NEM hívta a `assertDelegatedImportAllowed()` kapuőrt (a batch-import-
+  // actions.ts két helyen is hívja, #16 óta). A „Rendszergazdai importáló"
+  // PIN-kapuja így itt CSAK a felületen létezett: az anyakonyv/page.tsx
+  // elrejtette a fület, de egy `'use server'` export ÉLŐ POST-végpont —
+  // bármelyik bejelentkezett felhasználó elküldhette az akció azonosítóját egy
+  // preparált munkafüzettel, és tömegesen szúrhatott anyakönyvi sorokat
+  // (keresztseg / konfirmalas / hazassag / temetes / mozgások) PIN nélkül.
+  // Ráadásul a `targetCongregationId` NYERSEN a kliens FormData-jából jön —
+  // hatókör-ellenőrzés nélkül. A kapuőr mindkettőt lezárja (fail-closed):
+  // delegált süti VAGY aktív god mode VAGY rendszergazda + hatókör kell.
+  const importGuard = await assertDelegatedImportAllowed(
+    'registry',
+    targetCongregationId,
+    access,
+  )
+  if (!importGuard.ok) return { error: importGuard.error }
+
   if (!file) return { error: 'Nincs fájl kiválasztva.' }
   if (file.size > 10 * 1024 * 1024) {
     return { error: 'A fájl mérete meghaladja a 10 MB-os limitet.' }

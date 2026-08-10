@@ -87,10 +87,19 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
   // 2026-05-30: a tag-rekord szerinti születési helység (szemely.sz_helyid →
   // adrlocality.name). Csak hint-ként mutatjuk, hogy a user tudja melyiket
   // kell ragozni. null = még nem lekérdezve / nincs rögzítve.
-  const [groomBirthPlaceRaw, setGroomBirthPlaceRaw] = useState<string | null>(null)
-  const [brideBirthPlaceRaw, setBrideBirthPlaceRaw] = useState<string | null>(null)
-  const [groomBirthPlaceLoaded, setGroomBirthPlaceLoaded] = useState(false)
-  const [brideBirthPlaceLoaded, setBrideBirthPlaceLoaded] = useState(false)
+  //
+  // 2026-08-11: a lekérdezés eredményét a SZEMÉLY AZONOSÍTÓJÁHOZ KÖTVE
+  // tároljuk, és a `…Raw` / `…Loaded` értéket RENDER KÖZBEN származtatjuk.
+  // Korábban két effect törzse hívott szinkron setState-et
+  // (react-hooks/set-state-in-effect → kaszkádoló újrarender). Így ha a
+  // vőlegény/menyasszony változik vagy törlődik, a régi találat magától
+  // érvénytelen — betű szerint ugyanaz a hint, plusz render-kör nélkül.
+  const [groomBirthPlaceState, setGroomBirthPlaceState] = useState<{ memberId: number; place: string | null } | null>(null)
+  const [brideBirthPlaceState, setBrideBirthPlaceState] = useState<{ memberId: number; place: string | null } | null>(null)
+  const groomBirthPlaceLoaded = !!groom && groomBirthPlaceState?.memberId === groom.id
+  const brideBirthPlaceLoaded = !!bride && brideBirthPlaceState?.memberId === bride.id
+  const groomBirthPlaceRaw = groomBirthPlaceLoaded ? groomBirthPlaceState?.place ?? null : null
+  const brideBirthPlaceRaw = brideBirthPlaceLoaded ? brideBirthPlaceState?.place ?? null : null
   const printRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -179,21 +188,21 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
   // tag-rekord szerinti születési helységet — hintként mutatjuk a UI-n,
   // hogy a user tudja melyiket kell ragozni („Kovászna" → „Kovásznán").
   useEffect(() => {
-    if (!groom) { setGroomBirthPlaceRaw(null); setGroomBirthPlaceLoaded(false); return }
+    if (!groom) return
     let cancelled = false
-    setGroomBirthPlaceLoaded(false)
-    getMemberBirthPlace(groom.id).then(place => {
-      if (!cancelled) { setGroomBirthPlaceRaw(place); setGroomBirthPlaceLoaded(true) }
+    const memberId = groom.id
+    getMemberBirthPlace(memberId).then(place => {
+      if (!cancelled) setGroomBirthPlaceState({ memberId, place })
     })
     return () => { cancelled = true }
   }, [groom])
 
   useEffect(() => {
-    if (!bride) { setBrideBirthPlaceRaw(null); setBrideBirthPlaceLoaded(false); return }
+    if (!bride) return
     let cancelled = false
-    setBrideBirthPlaceLoaded(false)
-    getMemberBirthPlace(bride.id).then(place => {
-      if (!cancelled) { setBrideBirthPlaceRaw(place); setBrideBirthPlaceLoaded(true) }
+    const memberId = bride.id
+    getMemberBirthPlace(memberId).then(place => {
+      if (!cancelled) setBrideBirthPlaceState({ memberId, place })
     })
     return () => { cancelled = true }
   }, [bride])

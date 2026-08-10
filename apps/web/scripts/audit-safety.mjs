@@ -118,6 +118,51 @@ function extractSchemaTables(schemaText) {
   return tables
 }
 
+// 2026-08-11 (K6) — MÁSODIK forrás a táblanevekre: a lefuttatott migrációs
+// SQL-ek. Miért kell?
+//
+// A `Database_schema.sql` egy KÉZZEL exportált pillanatkép. A 0-táblás eset
+// már fail-closed (lásd lentebb), de a NÉMÁN ELAVULT dump ugyanaz a hibaosztály
+// egy fokkal halkabban: a dump 100 táblát ismer, a migrációk viszont 180+
+// táblát hoznak létre, így a `haztartas`, `szemely_kapcsolat`, `cim`,
+// `access_requests` és társaik „séma-drift"-ként jelentek meg. 89 hamis
+// pozitív között egy VALÓDI elgépelt táblanév ugyanúgy észrevehetetlen, mint
+// a 613 között volt.
+//
+// Ezért a drift-lista mostantól HÁROM vödörbe oszlik:
+//   1. valóban ismeretlen név (sem a dumpban, sem migrációban nincs) → gyanús,
+//   2. migrációban létrehozott, de a dumpból hiányzó név → a DUMP ELAVULT,
+//   3. minden más → rendben.
+//
+// KORLÁT (szándékos): ha egy táblát létrehoztak, majd később eldobtak, a neve
+// itt „ismert" marad. Cserébe egyetlen elgépelés sem tűnik el a zajban.
+function extractSqlObjectNames(sqlText) {
+  const tables = new Set()
+  const views = new Set()
+  for (const match of sqlText.matchAll(
+    /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?([a-zA-Z0-9_]+)/gi,
+  )) {
+    tables.add(match[1].toLowerCase())
+  }
+  for (const match of sqlText.matchAll(
+    /CREATE\s+(?:OR\s+REPLACE\s+)?(?:MATERIALIZED\s+)?VIEW\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?([a-zA-Z0-9_]+)/gi,
+  )) {
+    views.add(match[1].toLowerCase())
+  }
+  return { tables, views }
+}
+
+function collectMigrationObjectNames(migrationDir) {
+  const names = new Set()
+  for (const file of walk(migrationDir)) {
+    if (extname(file).toLowerCase() !== '.sql') continue
+    const { tables, views } = extractSqlObjectNames(safeReadText(file))
+    for (const name of tables) names.add(name)
+    for (const name of views) names.add(name)
+  }
+  return names
+}
+
 function extractFromReferences(codeText) {
   const results = []
   const regex = /(?:\.storage\s*\.\s*from|\.from)\((['"])([a-zA-Z0-9_\-]+)\1\)/g
@@ -231,15 +276,35 @@ function analyze() {
     fromReferences.push(...refs)
   }
 
+  // A migrációs SQL-ekben létrehozott tábla-/nézetnevek (a dump elavulásának
+  // kiszűréséhez — lásd a `collectMigrationObjectNames` melletti megjegyzést).
+  const migrationObjects = collectMigrationObjectNames(join(REPO_ROOT, 'migration-docs'))
+
+  const isKnown = (name) => schemaTables.has(name) || migrationObjects.has(name)
+
   const runtimeMissingTableRefs = uniqueSorted(
     fromReferences
-      .filter((ref) => !ref.isStorage && !ref.excludedFromPrimaryScan && !schemaTables.has(ref.name))
+      .filter((ref) => !ref.isStorage && !ref.excludedFromPrimaryScan && !isKnown(ref.name))
       .map((ref) => `${ref.name}\t${ref.file}`)
+  )
+
+  // Ismert a migrációkból, de HIÁNYZIK a dumpból → a `Database_schema.sql`
+  // elavult. Nem kódhiba: a dumpot kell újraexportálni a Supabase Studióból.
+  const staleSchemaDumpTables = uniqueSorted(
+    fromReferences
+      .filter(
+        (ref) =>
+          !ref.isStorage &&
+          !ref.excludedFromPrimaryScan &&
+          !schemaTables.has(ref.name) &&
+          migrationObjects.has(ref.name),
+      )
+      .map((ref) => ref.name)
   )
 
   const legacyOnlyMissingTableRefs = uniqueSorted(
     fromReferences
-      .filter((ref) => !ref.isStorage && ref.excludedFromPrimaryScan && !schemaTables.has(ref.name))
+      .filter((ref) => !ref.isStorage && ref.excludedFromPrimaryScan && !isKnown(ref.name))
       .map((ref) => `${ref.name}\t${ref.file}`)
   )
 
@@ -307,13 +372,16 @@ function analyze() {
     generatedAt: new Date().toISOString(),
     summary: {
       schemaTables: schemaTables.size,
+      migrationObjects: migrationObjects.size,
       fromReferences: fromReferences.length,
       runtimeMissingTableRefs: runtimeMissingTableRefs.length,
+      staleSchemaDumpTables: staleSchemaDumpTables.length,
       legacyOnlyMissingTableRefs: legacyOnlyMissingTableRefs.length,
       orphanComponentCandidates: orphanCandidates.length,
       orphanPublicAssetCandidates: orphanPublicAssetCandidates.length,
     },
     specialFrameworkFiles: SPECIAL_APP_FILES,
+    staleSchemaDumpTables,
     runtimeMissingTableRefs,
     legacyOnlyMissingTableRefs,
     orphanComponentCandidates: orphanCandidates,
@@ -331,9 +399,11 @@ function printHuman(result) {
   console.log('Ez a script csak olvas, nem módosít és nem töröl.')
   console.log('')
   console.log('Összegzés:')
-  console.log(`- séma táblák: ${result.summary.schemaTables}`)
+  console.log(`- séma táblák (Database_schema.sql): ${result.summary.schemaTables}`)
+  console.log(`- migrációs SQL-ben létrehozott objektumok: ${result.summary.migrationObjects}`)
   console.log(`- .from() hivatkozások: ${result.summary.fromReferences}`)
   console.log(`- futó kódban hiányzó táblahivatkozások: ${result.summary.runtimeMissingTableRefs}`)
+  console.log(`- csak az elavult sémadumpból hiányzó táblák: ${result.summary.staleSchemaDumpTables}`)
   console.log(`- csak legacy/source-links hiányzó táblahivatkozások: ${result.summary.legacyOnlyMissingTableRefs}`)
   console.log(`- árva komponens-jelöltek: ${result.summary.orphanComponentCandidates}`)
   console.log(`- árva publikus asset-jelöltek: ${result.summary.orphanPublicAssetCandidates}`)
@@ -351,6 +421,18 @@ function printHuman(result) {
       const [name, file] = item.split('\t')
       console.log(`- ${name}: ${file}`)
     }
+  }
+  console.log('')
+
+  console.log('A sémadump elavultsága (a migrációk ismerik, a dump nem):')
+  if (result.staleSchemaDumpTables.length === 0) {
+    console.log('- nincs találat — a dump naprakész')
+  } else {
+    console.log(
+      `- ${result.staleSchemaDumpTables.length} tábla hiányzik a migration-docs/Database_schema.sql fájlból.`,
+    )
+    console.log('  Ezek NEM kódhibák: exportáld újra a sémát a Supabase Studióból.')
+    console.log(`  ${result.staleSchemaDumpTables.join(', ')}`)
   }
   console.log('')
 
@@ -402,4 +484,17 @@ if (wantsStrict && result.summary.orphanComponentCandidates > 0) {
   console.error('  Ezekre egyetlen fájl sem hivatkozik. Vagy kösd be őket, vagy töröld a fájlt.')
   console.error('')
   process.exit(2)
+}
+
+// 2026-08-11 (K6) — `--strict` mellett a VALÓDI séma-drift is kapu. A migrációs
+// SQL-ekkel való keresztellenőrzés után ez a szám ma 0, tehát bármi, ami itt
+// megjelenik, tényleg ismeretlen táblanév (elgépelés vagy lefuttatatlan SQL).
+if (wantsStrict && result.summary.runtimeMissingTableRefs > 0) {
+  console.error('')
+  console.error(
+    `HIBA (--strict) — ${result.summary.runtimeMissingTableRefs} olyan .from('...') hivatkozás van, amelynek a tábláját sem a sémadump, sem egyetlen migrációs SQL nem ismeri.`,
+  )
+  console.error('  Ez elgépelt táblanév vagy le nem futtatott migráció — a lekérés némán ÜRES listát adna.')
+  console.error('')
+  process.exit(3)
 }

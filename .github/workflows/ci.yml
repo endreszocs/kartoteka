@@ -1,0 +1,78 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# KARTOTÉKA — CI (2026-08-11, az első CI-folyamat a projektben)
+#
+# Mit véd?
+#   Eddig minden ellenőrzés KÉZI volt, ezért egyik sem futott le rendszeresen.
+#   A lintet a magyar idézőjelekre elsülő szabály zaja tette használhatatlanná,
+#   a négy `scripts/selftest-*.mjs` „teszt" pedig soha nem volt bekötve npm
+#   scriptbe — létezett, de senki nem futtatta.
+#
+# Alapelv: LEGYEN GYORS ÉS OLVASHATÓ. Egyetlen job, sorban futó lépések, hogy a
+#   hibás lépés neve azonnal megmondja, mi romlott el. Nincs mátrix, nincs
+#   build (a deploy amúgy is push után, automatikusan fut).
+# ═══════════════════════════════════════════════════════════════════════════
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Ha egy ágra gyorsan érkezik több push, a régebbi futás felesleges — leállítjuk.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Csak olvasás kell: a CI nem ír vissza a repóba.
+permissions:
+  contents: read
+
+jobs:
+  ellenorzes:
+    name: Lint · típusok · önellenőrzések
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Forrás letöltése
+        uses: actions/checkout@v4
+
+      # A lockfile lockfileVersion 3 → npm 9+ kell. A Node 22 LTS-hez npm 10 jön.
+      - name: Node.js beállítása
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # `npm ci` (nem `npm install`): pontosan a lockfile szerint telepít, és
+      # elbukik, ha a package.json és a lockfile széthúzott.
+      - name: Függőségek telepítése
+        run: npm ci
+
+      # ESLint az apps/web-en. A `react/no-unescaped-entities` 2026-08-11 óta ki
+      # van kapcsolva (magyar tipográfiai idézőjelek) — lásd apps/web/eslint.config.mjs.
+      - name: Lint (apps/web)
+        run: npm run lint
+
+      # Minden workspace `typecheck` scriptje (`--if-present`): apps/web,
+      # apps/desktop és a packages/* csomagok.
+      - name: Típusellenőrzés (minden workspace)
+        run: npm run typecheck
+
+      # A négy kézzel írt önellenőrzés: Biblia-parser, énekeskönyv-katalógus,
+      # munkanapló nyomtatási oszlopok + ünnepnaptár, munkanapló-statisztika.
+      # 2026-08-11 óta npm scriptekbe kötve (`scripts/selftest-*.mjs`).
+      - name: Önellenőrzések (selftest-*.mjs)
+        run: npm run selftest
+
+      # Séma-drift + árva komponens/asset riport. A script 2026-08-11 óta
+      # elbukik (exit 1), ha nulla táblát olvasott be a sémából — így a néma
+      # elromlás (rossz útvonal → 613 hamis pozitív) nem térhet vissza.
+      - name: Biztonsági audit (séma-drift)
+        run: npm run audit:safety
+
+      # A desktop kliens nem használhat Dexie/IndexedDB importot (Rust/SQLCipher
+      # backend van helyette). Ez eddig csak a Tauri-buildben futott le.
+      - name: Desktop — tiltott importok
+        run: npm run lint:desktop-imports
