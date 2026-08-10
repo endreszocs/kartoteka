@@ -111,6 +111,32 @@ export default async function KeruletDashboardPage() {
   }
   const totalCongregations = congRows.length
 
+  // 2026-08-11 (Endre döntése): TAGLÉTSZÁM-ÖSSZESÍTŐ a kerületnek.
+  //
+  // ⚠️ FONTOS: NEM a `szemely` táblát kérdezzük — az sértené a fenti alapelvet.
+  // A `district_member_counts()` SECURITY DEFINER függvény KIZÁRÓLAG darabszámot
+  // ad vissza (gyülekezetenként), személyes adat nélkül.
+  // Amíg a 2026-08-11-kerulet-letszam-osszesito.sql nincs lefuttatva, a hívás
+  // hibázik — ilyenkor NEM mutatunk hamis nullát, hanem elhagyjuk a számokat.
+  const memberByDiocese = new Map<string, number>()
+  let totalMembers: number | null = null
+  {
+    const { data: countRows, error: countErr } = await supabase.rpc('district_member_counts', {
+      p_district_id: showAllDistricts ? null : districtId,
+    })
+    if (!countErr && Array.isArray(countRows)) {
+      let sum = 0
+      for (const row of countRows as Array<{ diocese_id: string | null; member_count: number | string }>) {
+        const n = Number(row.member_count) || 0
+        sum += n
+        if (row.diocese_id) {
+          memberByDiocese.set(row.diocese_id, (memberByDiocese.get(row.diocese_id) || 0) + n)
+        }
+      }
+      totalMembers = sum
+    }
+  }
+
   // Dokumentumközpont-adatcsomag (engedélyezett adatforrás): MINDEN év
   // véglegesített/továbbított dokumentumai + a kerület TELJES gyülekezet-
   // listája a teljességi mátrixhoz (2026-08-09).
@@ -167,8 +193,13 @@ export default async function KeruletDashboardPage() {
         />
       </div>
 
-      {/* Egyházmegyei bontás — csak alapadatok */}
-      <DioceseBreakdown dioceses={dioceses || []} congByDiocese={congByDiocese} />
+      {/* Egyházmegyei bontás — gyülekezet-darabszám + (2026-08-11) taglétszám */}
+      <DioceseBreakdown
+        dioceses={dioceses || []}
+        congByDiocese={congByDiocese}
+        memberByDiocese={memberByDiocese}
+        totalMembers={totalMembers}
+      />
 
       {/* 2026-08-09: dokumentumközpont — teljességi mátrix (a kerület MINDEN
           gyülekezete), év/típus-szűrés, snapshot-néző + nyomtatás, kerületi
@@ -268,30 +299,73 @@ function KpiCard({
 function DioceseBreakdown({
   dioceses,
   congByDiocese,
+  memberByDiocese,
+  totalMembers,
 }: {
   dioceses: { id: string; name: string }[]
   congByDiocese: Map<string, number>
+  /** 2026-08-11: egyházmegyénkénti taglétszám (üres, ha a migráció még nem futott). */
+  memberByDiocese: Map<string, number>
+  /** Kerületi összlétszám — null, ha nem elérhető (migráció hiánya). */
+  totalMembers: number | null
 }) {
+  const hasMemberCounts = totalMembers !== null
   return (
     <div className="card-raised overflow-hidden">
       <div className="bg-slate-50 px-5 py-4 border-b border-slate-200/60">
-        <h3 className="font-heading text-lg text-slate-800">Egyházmegyei bontás</h3>
-        <p className="mt-0.5 text-xs text-slate-500">Felügyelt egyházmegyék és gyülekezeteik darabszáma.</p>
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h3 className="font-heading text-lg text-slate-800">Egyházmegyei bontás</h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Felügyelt egyházmegyék, gyülekezeteik és taglétszámuk.
+            </p>
+          </div>
+          {hasMemberCounts ? (
+            <p className="text-right">
+              <span className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                Kerületi összlétszám
+              </span>
+              <span className="font-heading text-xl tabular-nums text-slate-800">
+                {totalMembers.toLocaleString('hu-HU')} fő
+              </span>
+            </p>
+          ) : null}
+        </div>
       </div>
       {dioceses.length === 0 ? (
         <p className="p-6 text-sm text-slate-500 text-center italic">Nincs felügyelt egyházmegye.</p>
       ) : (
         <ul className="divide-y divide-slate-100">
-          {dioceses.map((d) => (
-            <li key={d.id} className="px-5 py-3 flex items-center justify-between gap-3">
-              <p className="text-sm font-medium text-slate-800">{d.name}</p>
-              <p className="text-sm text-slate-600">
-                {(congByDiocese.get(d.id) ?? 0).toLocaleString('hu-HU')} gyülekezet
-              </p>
-            </li>
-          ))}
+          {dioceses.map((d) => {
+            const congCount = congByDiocese.get(d.id) ?? 0
+            const memberCount = memberByDiocese.get(d.id)
+            return (
+              <li key={d.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-5 py-3">
+                <p className="text-sm font-medium text-slate-800">{d.name}</p>
+                <p className="flex items-center gap-2 text-sm text-slate-600">
+                  <span className="tabular-nums">{congCount.toLocaleString('hu-HU')} gyülekezet</span>
+                  {hasMemberCounts ? (
+                    <>
+                      <span aria-hidden className="text-slate-300">·</span>
+                      <span className="rounded-full bg-teal-50 px-2 py-0.5 text-xs font-medium tabular-nums text-teal-800">
+                        {(memberCount ?? 0).toLocaleString('hu-HU')} fő
+                      </span>
+                    </>
+                  ) : null}
+                </p>
+              </li>
+            )
+          })}
         </ul>
       )}
+      {!hasMemberCounts ? (
+        <p className="border-t border-slate-100 bg-slate-50/60 px-5 py-3 text-xs leading-relaxed text-slate-500">
+          A taglétszám-összesítő megjelenítéséhez futtatni kell a{' '}
+          <code className="rounded bg-slate-100 px-1 py-0.5">2026-08-11-kerulet-letszam-osszesito.sql</code>{' '}
+          migrációt. A kerület ekkor is CSAK összesített darabszámot lát — a tagnyilvántartás
+          sorai zárva maradnak.
+        </p>
+      ) : null}
     </div>
   )
 }
