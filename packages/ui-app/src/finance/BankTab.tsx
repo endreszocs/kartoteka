@@ -240,6 +240,16 @@ export interface BankTabProps {
     isInternalTransfer?: boolean
     onStornoed: () => void | Promise<void>
   }) => ReactNode
+
+  /**
+   * 2026-08-11 (5. kör, P0-követő): az adott év számadása véglegesítve és
+   * beküldve van-e. A Kasszakönyv fül már megkapta ezt a zárat — a Bank fül
+   * ugyanazt a szerkesztő-dialógust nyitja, ezért ott is jeleznünk kell,
+   * különben a lelkész zárt évben is ceruzát lát, rákattint, és csak a
+   * szerver hibaüzenetéből tudja meg, hogy nem lehet.
+   * OPCIONÁLIS — ha nincs megadva, a régi (nem-zárt) viselkedés marad.
+   */
+  accountingFinalized?: boolean
 }
 
 export function BankTab({
@@ -269,6 +279,7 @@ export function BankTab({
   bankAccountDialogSlot,
   transactionEditDialogSlot,
   stornoConfirmDialogSlot,
+  accountingFinalized = false,
 }: BankTabProps) {
   const currentYear = currentYearProp ?? new Date().getFullYear()
 
@@ -351,6 +362,15 @@ export function BankTab({
   }>({ open: false, type: 'befizetes', id: null })
 
   function handleOpenEdit(r: BankTransactionRow) {
+    // 2026-08-11 (5. kör, P0-követő): véglegesített évben a szerkesztő meg sem
+    // nyílhat. A gomb is le van tiltva — ez a második védvonal.
+    if (accountingFinalized) {
+      onToast?.(
+        'Ennek az évnek a számadása véglegesítve és beküldve van — a tételek nem szerkeszthetők. Kérj feloldást (javítási engedélyt) az egyházmegyétől.',
+        'warning',
+      )
+      return
+    }
     setEditDialog({
       open: true,
       type: r.type === 'income' ? 'befizetes' : 'kiadas',
@@ -686,6 +706,21 @@ export function BankTab({
 
   return (
     <div className="space-y-4">
+      {/* 2026-08-11 (5. kör, P0-követő): zárt év — ugyanaz a magyarázó sáv, mint
+          a Kasszakönyv fülön. Eddig a Bank fülön SEMMI nem jelezte, hogy az év
+          számadása véglegesítve és beküldve van. */}
+      {accountingFinalized && (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-relaxed text-amber-900">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+          <span>
+            <strong>Ennek az évnek a számadása véglegesítve és beküldve van.</strong> A tételek
+            ezért nem szerkeszthetők — így marad egyezésben a kinyomtatott, aláírt számadás és a
+            képernyőn látható adat. Ha javítani kell, a Számadás fülön kérj feloldást (javítási
+            engedélyt) az egyházmegyétől, és csak a jóváhagyás után módosíts.
+          </span>
+        </div>
+      )}
+
       {bankAccounts.length === 0 && congregationId && (
         <div className="card-raised p-6 sm:p-8 text-center border-2 border-dashed border-slate-200 bg-gradient-to-br from-white to-emerald-50/30">
           <div className="inline-flex size-12 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 mb-3">
@@ -1194,11 +1229,18 @@ export function BankTab({
                             <td className="p-2.5">
                               <div className="flex items-center justify-end gap-1">
                                 {!row.stornozott && !row.isBm && (
+                                  /* 2026-08-11 (5. kör, P0-követő): zárt évben a
+                                     ceruza letiltva, magyarázó tooltippel. */
                                   <button
                                     type="button"
-                                    title="Szerkesztés"
+                                    disabled={accountingFinalized}
+                                    title={
+                                      accountingFinalized
+                                        ? 'Az év számadása véglegesítve és beküldve van — a tétel nem szerkeszthető. Kérj feloldást az egyházmegyétől.'
+                                        : 'Szerkesztés'
+                                    }
                                     onClick={() => handleOpenEdit(row)}
-                                    className="inline-flex items-center justify-center rounded-md max-sm:min-h-10 max-sm:min-w-10 border border-slate-200 p-1.5 text-slate-400 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                    className="inline-flex items-center justify-center rounded-md max-sm:min-h-10 max-sm:min-w-10 border border-slate-200 p-1.5 text-slate-400 transition-colors enabled:hover:border-blue-300 enabled:hover:text-blue-600 enabled:hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40"
                                   >
                                     <Pencil className="size-3.5" />
                                   </button>

@@ -84,6 +84,26 @@ export async function getOpeningBalancesSettings(
   const availableYears: number[] = []
   for (let y = earliestYear; y <= currentYear; y += 1) availableYears.push(y)
 
+  // 2026-08-11 (5. kör, K5-#32 hibaosztály-lezárás): FAIL-CLOSED. A
+  // `(bealitasRes.data || [])` korábban elnyelte a lekérdezési hibát, és üres
+  // `finalizedYears` listát adott — a panel ilyenkor MINDEN évet szerkeszthetőnek
+  // mutatott, köztük a már véglegesítetteket is. A zár-állapotot vagy tudjuk,
+  // vagy nem nyitjuk ki a felületet: hibánál inkább nem töltjük be a panelt.
+  if (bealitasRes.error) {
+    console.error(
+      '[nyito-egyenleg] A zárás-állapot (bealitas) lekérdezése HIBÁRA FUTOTT — a panel ' +
+        'fail-closed nem tölt be, hogy ne mutasson lezárt évet szerkeszthetőnek.',
+      bealitasRes.error,
+    )
+    return {
+      error:
+        `Nem sikerült lekérdezni, mely évek vannak véglegesítve (${bealitasRes.error.message}), ` +
+        'ezért a nyitó egyenlegek panelt biztonságból nem nyitjuk meg — különben egy már lezárt ' +
+        'év is szerkeszthetőnek látszana. Próbáld újra néhány perc múlva; ha újra hibázik, ' +
+        'jelezd a rendszergazdának.',
+    }
+  }
+
   const finalizedYears = ((bealitasRes.data || []) as Array<{
     id: string
     accounting_finalized: boolean | null
@@ -152,12 +172,34 @@ export async function saveOpeningBalancesSettings(
 
   // Zárt-év védelem: a nyitó egyenleg a beküldött számadás része — zárt évre
   // csak javítási engedéllyel módosítható.
-  const { data: bealitas } = await supabase
+  const { data: bealitas, error: bealitasErr } = await supabase
     .from('bealitas')
     .select('accounting_finalized, budget_finalized')
     .eq('congregation_id', congregationId)
     .eq('id', String(input.eve))
     .maybeSingle()
+  // 2026-08-11 (5. kör, K5-#32 hibaosztály-lezárás): FAIL-CLOSED. Korábban az
+  // `error` el lett dobva, és a `bealitas?.accounting_finalized === true` egy
+  // hibás lekérdezésre (`bealitas === null`) `false` lett — vagyis a zár-olvasás
+  // bármilyen hibája NÉMÁN engedte felülírni egy már véglegesített és beküldött
+  // év NYITÓ EGYENLEGÉT, ami a beküldött számadás kiindulópontja: az egész év
+  // egyenlege elcsúszott volna a papíron leadotthoz képest. A „nincs `bealitas`
+  // sor" NEM hiba (`maybeSingle` → `data: null, error: null`) — az évet még nem
+  // konfigurálták, tehát nincs is véglegesítve.
+  if (bealitasErr) {
+    console.error(
+      `[nyito-egyenleg] A(z) ${input.eve}. évi zárás-állapot lekérdezése HIBÁRA FUTOTT ` +
+        '— fail-closed, a mentés nem futhat le.',
+      bealitasErr,
+    )
+    return {
+      error:
+        `Nem sikerült ellenőrizni, hogy a(z) ${input.eve}. év véglegesítve van-e ` +
+        `(${bealitasErr.message}), ezért a nyitó egyenleg mentését biztonságból megszakítottuk ` +
+        '— egy már lezárt év nyitóját nem írhatjuk felül véletlenül. Próbáld újra néhány perc ' +
+        'múlva; ha újra hibázik, jelezd a rendszergazdának.',
+    }
+  }
   if (bealitas?.accounting_finalized === true || bealitas?.budget_finalized === true) {
     return {
       error: `A(z) ${input.eve}. év véglegesítve van — a nyitó egyenlege a beküldött számadás része. Módosításhoz kérj javítási engedélyt az egyházmegyétől.`,

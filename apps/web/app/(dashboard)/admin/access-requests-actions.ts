@@ -15,16 +15,12 @@ import { revalidatePath } from 'next/cache'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
 import { sendEmail } from '@/lib/email/send'
-import { approvedEmail, rejectedEmail } from '@/lib/email/templates/access-request'
+import { approvedEmail } from '@/lib/email/templates/access-request'
 import { logAuditEvent } from '@/lib/audit/log'
 
 import type {
-  AccessRequest,
   AccessRequestStats,
-  AccessRequestStatus,
   ApproveInput,
-  ListFilter,
-  RejectInput,
 } from './access-requests-shared'
 import { ROLE_LABELS } from './access-requests-shared'
 
@@ -41,64 +37,23 @@ async function requireAdmin() {
   return { supabase: access.supabase, userId: access.user.id }
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// 1) Listázás szűrővel
-// ─────────────────────────────────────────────────────────────────────────
-
-export async function listAccessRequests(
-  filter: ListFilter = {},
-): Promise<{ data?: AccessRequest[]; error?: string }> {
-  const ctx = await requireAdmin()
-  if ('error' in ctx) return { error: ctx.error }
-
-  let query = ctx.supabase
-    .from('access_requests')
-    .select(
-      '*, district:districts!requested_district_id(name), diocese:dioceses!requested_diocese_id(name), congregation:congregations!requested_congregation_id(name, nev_hu)',
-    )
-    .order('created_at', { ascending: false })
-
-  if (filter.status && filter.status !== 'all') {
-    query = query.eq('status', filter.status)
-  }
-
-  if (filter.search && filter.search.trim()) {
-    const s = `%${filter.search.trim().toLowerCase()}%`
-    query = query.or(`email.ilike.${s},full_name.ilike.${s}`)
-  }
-
-  const { data, error } = await query
-  if (error) return { error: error.message }
-
-  return { data: (data || []) as AccessRequest[] }
-}
+// 2026-08-11 (K5 P2 #6) — TÖRÖLVE innen NÉGY hívó nélküli `use server` export:
+// `listAccessRequests`, `getAccessRequest`, `rejectAccessRequest`,
+// `revertToPending`. Egyetlen felületük a `components/admin/access-requests-tab.tsx`
+// + a két hozzá tartozó dialógus volt, amiket egyetlen útvonal sem mountolt
+// (a kezelés a /admin/felhasznalok → unified-users-tab.tsx-re költözött). Egy
+// `use server` export akkor is ÉLŐ POST-végpont, ha nincs gombja a felületen,
+// ezért a törlésük a támadási felületet is csökkenti.
+//
+// FIGYELEM, NYITOTT KÉRDÉS a törlés kapcsán: az ÉLŐ elutasítás
+// (`admin/actions.ts` → `rejectPendingUser` → `admin_reject_user` RPC) a
+// `profiles` sort állítja át, az `access_requests` sorhoz NEM nyúl. A jóváhagyás
+// viszont igen (`approveAccessRequest`, lentebb, az aktiválási varázslóból).
+// Vagyis egy elutasított kérelem `access_requests.status` mezője „pending"
+// marad. Ezt a törlés nem okozta és nem is javítja — külön döntés kell róla.
 
 // ─────────────────────────────────────────────────────────────────────────
-// 2) Egyedi kérelem lekérése
-// ─────────────────────────────────────────────────────────────────────────
-
-export async function getAccessRequest(
-  id: string,
-): Promise<{ data?: AccessRequest; error?: string }> {
-  const ctx = await requireAdmin()
-  if ('error' in ctx) return { error: ctx.error }
-
-  const { data, error } = await ctx.supabase
-    .from('access_requests')
-    .select(
-      '*, district:districts!requested_district_id(name), diocese:dioceses!requested_diocese_id(name), congregation:congregations!requested_congregation_id(name, nev_hu)',
-    )
-    .eq('id', id)
-    .maybeSingle()
-
-  if (error) return { error: error.message }
-  if (!data) return { error: 'A kérelem nem található.' }
-
-  return { data: data as AccessRequest }
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// 2/b) Feltöltött igazolás aláírt URL-je (privát bucket, csak admin)
+// 1) Feltöltött igazolás aláírt URL-je (privát bucket, csak admin)
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
@@ -402,98 +357,7 @@ export async function approveAccessRequest(
   return inviteWarning ? { info: inviteWarning } : {}
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// 4) Elutasítás
-// ─────────────────────────────────────────────────────────────────────────
 
-export async function rejectAccessRequest(
-  input: RejectInput,
-): Promise<{ error?: string }> {
-  const ctx = await requireAdmin()
-  if ('error' in ctx) return { error: ctx.error }
-
-  if (!input.rejection_reason || !input.rejection_reason.trim()) {
-    return { error: 'Elutasításhoz kötelező indoklás megadása.' }
-  }
-
-  const { data: current, error: readErr } = await ctx.supabase
-    .from('access_requests')
-    .select('status, email, full_name')
-    .eq('id', input.id)
-    .maybeSingle()
-
-  if (readErr) return { error: readErr.message }
-  if (!current) return { error: 'A kérelem nem található.' }
-  if (current.status !== 'pending') {
-    return { error: `Csak pending állapotú kérelem utasítható el (most: ${current.status}).` }
-  }
-
-  const reason = input.rejection_reason.trim()
-  const { error } = await ctx.supabase
-    .from('access_requests')
-    .update({
-      status: 'rejected',
-      reviewed_by: ctx.userId,
-      reviewed_at: new Date().toISOString(),
-      rejection_reason: reason,
-      admin_notes: input.admin_notes ?? null,
-    })
-    .eq('id', input.id)
-
-  if (error) return { error: error.message }
-
-  // M0.2: értesítő email a kérelmezőnek
-  const emailRow = current as { email: string; full_name: string }
-  const emailRes = await sendEmail(
-    rejectedEmail({
-      email: emailRow.email,
-      fullName: emailRow.full_name,
-      rejectionReason: reason,
-    }),
-  )
-  if (!emailRes.success) {
-    console.error('[reject-access-request] email hiba:', emailRes.error)
-    // Nem bukunk el — a státusz már rögzített. Admin kézzel értesítheti.
-  }
-
-  // Audit: ki, mikor utasította el + az indok.
-  await logAuditEvent(
-    {
-      action: 'access_request.reject',
-      targetTable: 'access_requests',
-      targetId: input.id,
-      metadata: { email: emailRow.email, reason },
-    },
-    ctx.supabase,
-  )
-
-  revalidatePath('/admin')
-  return {}
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// 5) Újra-pending (ritka, admin visszavonás)
-// ─────────────────────────────────────────────────────────────────────────
-
-export async function revertToPending(id: string): Promise<{ error?: string }> {
-  const ctx = await requireAdmin()
-  if ('error' in ctx) return { error: ctx.error }
-
-  const { error } = await ctx.supabase
-    .from('access_requests')
-    .update({
-      status: 'pending' as AccessRequestStatus,
-      reviewed_by: null,
-      reviewed_at: null,
-      rejection_reason: null,
-    })
-    .eq('id', id)
-
-  if (error) return { error: error.message }
-
-  revalidatePath('/admin')
-  return {}
-}
 
 // ─────────────────────────────────────────────────────────────────────────
 // 6) Statisztikák (KPI-kártyához)

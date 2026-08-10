@@ -8,6 +8,8 @@
  * dialóguson belül, „Lakhely megjelenítése" kapcsoló mögött töltődnek.)
  */
 
+import { selectAllPaged } from '@kartoteka/supabase-client'
+
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 
 export interface BirthdayListMember {
@@ -34,46 +36,35 @@ export async function getBirthdayListData(): Promise<BirthdayListData> {
   // 2026-08-01 (PR-19): lapozott lekérés (1000-es Supabase-plafon felett eddig
   // némán csonkolt) + elköltözöttek kizárása (dashboard-paritás — eddig itt
   // a már elköltözött tag is születésnaposként jelent meg).
-  const PAGE = 1000
+  // 2026-08-11 (5. kör, P3 #15): KÖZÖS `selectAllPaged` a két kézi ciklus helyett.
+  // A régi `page.length < PAGE` stop-feltétel leszállított szerver-plafonnál az
+  // ELSŐ lap után kilépett volna, és a születésnap-lista némán a tagság felét
+  // mutatta — a lelkész a kimaradtakat nem köszöntötte volna fel.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rows: any[] = []
-  for (let fromIdx = 0; ; fromIdx += PAGE) {
-    const { data, error } = await supabase
+  const { data: rows, error: rowsError } = await selectAllPaged<any>(
+    supabase
       .from('szemely')
       .select('id, csaladnev, k_nev, namepattern, allapot, sz_datum, ferfi')
       .eq('congregation_id', congregationId)
       .eq('isvisible', true)
-      .eq('meghalt', false)
-      .order('id', { ascending: true })
-      .range(fromIdx, fromIdx + PAGE - 1)
-    if (error) {
-      // 2026-08-02 (review-fix): a részleges lista hihetőnek látszana — inkább
-      // dobunk, a hívó dialógus hibát jelez az üresnek tűnő lista helyett.
-      console.error('[tagnyilvantartas/birthday-list] tagok lekérdezése hiba:', error.message)
-      throw new Error('A születésnaposok betöltése nem sikerült — próbáld újra.')
-    }
-    rows.push(...(data || []))
-    if ((data || []).length < PAGE) break
+      .eq('meghalt', false),
+  )
+  if (rowsError) {
+    // 2026-08-02 (review-fix): a részleges lista hihetőnek látszana — inkább
+    // dobunk, a hívó dialógus hibát jelez az üresnek tűnő lista helyett.
+    console.error('[tagnyilvantartas/birthday-list] tagok lekérdezése hiba:', rowsError.message)
+    throw new Error('A születésnaposok betöltése nem sikerült — próbáld újra.')
   }
 
   const [elkoltozottRes, congRes] = await Promise.all([
     // 2026-08-02 (review-fix): ez is lapozott — a kizáró forrás 1000 sor
     // feletti néma csonkolása pont a javítani kívánt hibaosztály lett volna.
-    (async () => {
-      const all: { id_szemely: number | null }[] = []
-      for (let fromIdx = 0; ; fromIdx += PAGE) {
-        const { data, error } = await supabase
-          .from('elkoltozott')
-          .select('id, id_szemely')
-          .eq('congregation_id', congregationId)
-          .order('id', { ascending: true })
-          .range(fromIdx, fromIdx + PAGE - 1)
-        if (error) return { data: all, error }
-        all.push(...((data || []) as { id_szemely: number | null }[]))
-        if ((data || []).length < PAGE) break
-      }
-      return { data: all, error: null }
-    })(),
+    selectAllPaged<{ id_szemely: number | null }>(
+      supabase
+        .from('elkoltozott')
+        .select('id, id_szemely')
+        .eq('congregation_id', congregationId),
+    ),
     supabase
       .from('congregations')
       .select('name, nev_hu, cimer_url')

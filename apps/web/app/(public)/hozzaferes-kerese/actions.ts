@@ -394,7 +394,12 @@ export async function submitAccessRequest(
     .eq('role', 'admin')
     .not('email', 'is', null)
 
-  const adminPortalUrl = new URL('/admin?tab=access-requests', appUrl).toString()
+  // 2026-08-11 (#3): a levél CTA-ja eddig a `/admin?tab=access-requests` mélylinkre
+  // mutatott. Az admin panel 13-fülű oldala önálló `/admin/<slug>` route-okra bomlott,
+  // a `?tab=` paramétert MÁR SENKI nem olvassa — a rendszergazda az admin nyitóoldalára
+  // esett, kérelem-lista nélkül, és a kérelem észrevétlen maradt. A pending kérelmek
+  // elbírálása a Felhasználók oldal kérelem-bannerében történik.
+  const adminPortalUrl = new URL('/admin/felhasznalok', appUrl).toString()
 
   if (admins && admins.length > 0) {
     for (const admin of admins as Array<{ email: string; full_name: string | null }>) {

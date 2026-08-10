@@ -508,7 +508,11 @@ function ProgressBar({
                 transition={{ type: 'spring', damping: 16, stiffness: 220 }}
                 className={`flex size-11 items-center justify-center rounded-xl border-2 shadow-sm transition-colors ${
                   isActive
-                    ? 'border-primary bg-primary text-white'
+                    // 2026-08-11: `text-white` → `text-primary-foreground`. A
+                    // sötét témák `--primary-foreground`-ja mostantól sötét
+                    // tinta (AA a világosabb primaryn); a hardkódolt fehér itt
+                    // 2,43:1-re esett volna vissza.
+                    ? 'border-primary bg-primary text-primary-foreground'
                     : isDone
                       ? 'border-emerald-500 bg-emerald-50 text-emerald-600'
                       : 'border-slate-200 bg-white text-slate-400'

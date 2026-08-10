@@ -37,7 +37,13 @@ const DebtTabV2 = dynamic(() => import('./debt-tab-v2').then((m) => m.DebtTabV2)
 const TransactionsTab = dynamic(() => import('./transactions-tab').then((m) => m.TransactionsTab), { ssr: false, loading: tabLoading })
 const RentalTab = dynamic(() => import('./rental-tab').then((m) => m.RentalTab), { ssr: false, loading: tabLoading })
 const OblioEllenorzesTab = dynamic(() => import('./oblio-ellenorzes-tab').then((m) => m.OblioEllenorzesTab), { ssr: false, loading: tabLoading })
-const PenzugyHelp = dynamic(() => import('./penzugy-help').then((m) => m.PenzugyHelp), { ssr: false, loading: tabLoading })
+// 2026-08-11 (K5 #5): a Súgó fül a KÖZÖS `FinanceSugoTab` wrappert mountolja
+// (`finance-sugo-tab.tsx`) a korábbi, csak-webes `PenzugyHelp` helyett. Az eddigi
+// állapotban a wrapper halott kód volt, a web pedig egy külön fejlődő súgó-doksit
+// mutatott — így a webről HIÁNYZOTT az élő év végi zárási checklist, amit a desktop
+// már mutatott. A webes EREK-szabálykönyv nem veszett el: a wrapperen belüli
+// nézetválasztó „EREK szabályok" fülén változatlanul elérhető.
+const FinanceSugoTab = dynamic(() => import('./finance-sugo-tab').then((m) => m.FinanceSugoTab), { ssr: false, loading: tabLoading })
 const FinanceImportTabs = dynamic(() => import('./finance-import/finance-import-tabs').then((m) => m.FinanceImportTabs), { ssr: false, loading: tabLoading })
 import { CombinedEntryDialog } from '@/components/modals/combined-entry-dialog'
 import { DecontDialog } from '@/components/modals/decont-dialog'
@@ -628,6 +634,9 @@ export function FinanceTabs({
             congregationName={congregationName}
             incomeCategories={incomeCategories}
             expenseCategories={expenseCategories}
+            // 2026-08-11 (5. kör, P0): a nézett év számadás-zárja — véglegesített
+            // évben a Kassza fül nem kínálja fel a tétel-szerkesztést.
+            accountingFinalized={!!settings.accounting_finalized}
             onTransactionChanged={refreshData}
             onOpenOpeningBalances={scope === 'congregation' ? () => setOpeningBalancesOpen(true) : undefined}
           />
@@ -650,6 +659,9 @@ export function FinanceTabs({
             onBankImported={refreshData}
             congregationId={congregationId}
             onBankAccountSaved={refreshData}
+            // 2026-08-11 (5. kör, P0-követő): a Bank fül ugyanazt a szerkesztő-
+            // dialógust nyitja, mint a Kassza — zárt évben itt is le kell tiltani.
+            accountingFinalized={!!settings.accounting_finalized}
             onTransactionChanged={refreshData}
             onOpenOpeningBalances={scope === 'congregation' ? () => setOpeningBalancesOpen(true) : undefined}
           />
@@ -722,7 +734,7 @@ export function FinanceTabs({
         )}
 
         <TabsContent value="sugo" className="mt-4">
-          <PenzugyHelp />
+          <FinanceSugoTab />
         </TabsContent>
 
         {/* Rendszergazdai importáló — a tab-lista végén (Súgó után), red-prominent

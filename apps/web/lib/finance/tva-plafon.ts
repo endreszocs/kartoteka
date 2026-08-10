@@ -24,6 +24,32 @@ import {
 } from './tva-plafon-constants'
 
 /**
+ * 2026-08-11 (K5-#9): LAPOZÓ segéd. A PostgREST NÉMÁN 1000 sorra vágja a
+ * választ — egy nagyobb gyülekezetnél a plafonba számító befizetések éves
+ * sorszáma ezt átlépheti, és a küszöb ALULMÉRŐDNE (a jogszabályi
+ * bejelentési kötelezettséget pont a magas érték váltaná ki). A hívónak
+ * KÖTELEZŐ determinisztikus rendezést (`.order('id')`) adnia, különben a
+ * lapok átfedhetnek vagy kihagyhatnak sorokat.
+ * Minta: lib/dashboard/scope-financial.ts (2026-08-11, K5-#10).
+ */
+async function fetchAllPagedRows<T>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  pageSize = 1000,
+): Promise<{ data: T[]; error: { message: string } | null }> {
+  const out: T[] = []
+  for (let from = 0; ; ) {
+    const { data, error } = await query.range(from, from + pageSize - 1)
+    if (error) return { data: out, error }
+    const page = (data ?? []) as T[]
+    out.push(...page)
+    if (page.length === 0) break
+    from += page.length
+  }
+  return { data: out, error: null }
+}
+
+/**
  * Kiszámítja a TVA-plafon felé történő gyülekezeti forgalmat egy adott évre.
  *
  * @param supabase Server-side Supabase kliens
@@ -40,11 +66,22 @@ export async function calculateTvaPlafon(
   const yearEndExclusive = `${year + 1}-01-01`
 
   // 1. Lekérdezés a gyülekezetről — már TVA-alany-e?
-  const { data: congregationRow } = await supabase
+  // 2026-08-11 (K5-#9): az `error` eddig el volt dobva, így egy hibás lekérdezés
+  // némán „még nem TVA-alany"-t adott, és a figyelő fölöslegesen riasztott volna
+  // egy már bejelentkezett gyülekezetnél. A modul többi lekérdezése is dob —
+  // a hívó (`penzugy/tva-actions.ts`) try/catch-ben van, és magyar hibaszöveget mutat.
+  const { data: congregationRow, error: congError } = await supabase
     .from('congregations')
     .select('tva_alany')
     .eq('id', congregationId)
     .maybeSingle()
+
+  if (congError) {
+    throw new Error(
+      `A gyülekezet TVA-státuszát nem sikerült lekérdezni, ezért a plafon-figyelő adata félrevezető lenne. ` +
+        `Próbáld újra néhány perc múlva; ha újra hibázik, jelezd a rendszergazdának (részlet: ${congError.message}).`,
+    )
+  }
 
   const maris_tva_alany = Boolean(congregationRow?.tva_alany)
 
@@ -102,25 +139,46 @@ export async function calculateTvaPlafon(
   // 3. Befizetések lekérdezése az adott évre, congregation-ra, csak a plafonba
   //    számító célkódokon. A `datum` mezőt használjuk (naptári év), nem a
   //    `fizetettev` mezőt — a Codul fiscal a teljesítés éve alapján számol.
-  const { data: befizetesek, error: befError } = await supabase
-    .from('befizetes')
-    .select('id_befizetescel, osszeg')
-    .eq('congregation_id', congregationId)
-    .eq('deleted', false)
-    .gte('datum', yearStart)
-    .lt('datum', yearEndExclusive)
-    .in('id_befizetescel', befizetescelIds)
+  //
+  // 2026-08-11 (K5-#9) HÁROM JAVÍTÁS EGY LEKÉRDEZÉSBEN:
+  //  (a) STORNÓ: eddig csak a `deleted`-re szűrt, ezért az érvénytelenített
+  //      (stornózott) tétel is beleszámított a 300 000 lejes küszöbbe. Egy
+  //      stornózott 60 000 lejes bérleti számla „kritikus" szintre vitte a
+  //      jelzést, és HAMIS TVA-regisztrációs riasztást adott.
+  //  (b) DEVIZA: a nyers `osszeg` olvasása devizás számlánál ALULMÉRT —
+  //      3 000 EUR/hó bérleti díj 36 000-ként számolódott ~179 000 lej helyett,
+  //      vagyis a gyülekezet 12%-ot látott 60% helyett, és elmulaszthatta a
+  //      jogszabályi bejelentést. A hivatalos lej-érték az `osszeg_ron`
+  //      (RON-számlán a kettő azonos → a fallback bit-azonos a régi értékkel).
+  //  (c) LAPOZÁS: a lekérdezés lapozatlan volt (lásd `fetchAllPagedRows`).
+  type BefRow = {
+    id_befizetescel: number
+    osszeg: number | string
+    /** RON-ekvivalens: devizás tételnél az átváltott (hivatalos) lej-érték. */
+    osszeg_ron?: number | string | null
+  }
+
+  const { data: befizetesek, error: befError } = await fetchAllPagedRows<BefRow>(
+    supabase
+      .from('befizetes')
+      .select('id, id_befizetescel, osszeg, osszeg_ron')
+      .eq('congregation_id', congregationId)
+      .eq('deleted', false)
+      .eq('stornozott', false)
+      .gte('datum', yearStart)
+      .lt('datum', yearEndExclusive)
+      .in('id_befizetescel', befizetescelIds)
+      .order('id', { ascending: true }),
+  )
 
   if (befError) {
     throw new Error(`Hiba a befizetes lekérdezésekor: ${befError.message}`)
   }
 
-  type BefRow = { id_befizetescel: number; osszeg: number | string }
-
   // 4. Összesítés kategóriánként
   const osszesitoMap = new Map<number, number>()
-  for (const row of (befizetesek ?? []) as BefRow[]) {
-    const ossz = Number(row.osszeg) || 0
+  for (const row of befizetesek) {
+    const ossz = Number(row.osszeg_ron ?? row.osszeg) || 0
     const prev = osszesitoMap.get(row.id_befizetescel) ?? 0
     osszesitoMap.set(row.id_befizetescel, prev + ossz)
   }

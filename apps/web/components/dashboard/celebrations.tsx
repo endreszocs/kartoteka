@@ -1,31 +1,46 @@
 'use client'
 
 import { useState } from 'react'
+import dynamic from 'next/dynamic'
 import { Cake, Flower2, CalendarClock, List } from 'lucide-react'
 import { HU_MONTHS_SHORT } from '@/lib/constants/dashboard'
-import { BirthdayListDialog } from './birthday-list-dialog'
+
+/**
+ * 2026-08-11 (5. kör, P2-#18): a szűrő/nyomtató modál — az üdvözlőkártya-
+ * készítővel együtt ~54 KB forrás — LAZY töltődik. Az irányítópult a
+ * leggyakrabban megnyitott képernyő, a modált viszont a lelkész többnyire ki
+ * sem nyitja. A minta a repóban bevált (AiChatWidgetLazy, AdminImportLazy).
+ */
+const BirthdayListDialog = dynamic(
+  () => import('./birthday-list-dialog').then((m) => m.BirthdayListDialog),
+  {
+    ssr: false,
+    // A dialógus portálba renderel, ezért a betöltés-jelző lebegő „pirula"
+    // (mobilon is jól látszik), nem a kártyába szúrt üres sor.
+    loading: () => (
+      <span className="fixed inset-x-0 bottom-6 z-50 mx-auto w-fit rounded-full border border-border bg-card px-4 py-2 text-sm text-muted-foreground shadow-lg">
+        Születésnapos lista betöltése…
+      </span>
+    ),
+  },
+)
 
 interface Birthday { name: string; age: number | null }
 interface UpcomingBirthday { name: string; age: number; diffDays: number; month: number; day: number }
-
-interface Member {
-  id: string
-  csaladnev: string | null
-  k_nev: string | null
-  namepattern: string | null
-  /** 2026-08-01 (PR-19): az özv./elv. előtaghoz */
-  allapot?: string | null
-  sz_datum: string | null
-  ferfi: boolean | null
-}
 
 interface CelebrationsProps {
   todayBirthdays: Birthday[]
   todayNamedayMembers: string[]
   todayNamedayNames: string[]
   upcomingBirthdays: UpcomingBirthday[]
-  /** Az összes aktív tag — a szűrő-modalhoz */
-  allMembers?: Member[]
+  /**
+   * Az aktív tagok DARABSZÁMA — ettől jelenik meg a „Lista" és a „+N további"
+   * gomb. 2026-08-11 (5. kör, P2-#18): korábban a TELJES taglista utazott ide
+   * (id, név, születési dátum, nem — tagonként ~130 bájt a Flight-csomagban),
+   * pusztán azért, hogy továbbadjuk a modálnak, ami első festéskor zárva van.
+   * A lista most a modál első megnyitásakor töltődik szerver-akcióval.
+   */
+  memberCount?: number
   congregationName?: string
   congregationLogo?: string | null
 }
@@ -47,13 +62,21 @@ export function Celebrations({
   todayNamedayMembers,
   todayNamedayNames,
   upcomingBirthdays,
-  allMembers = [],
+  memberCount = 0,
   congregationName = 'Gyülekezet',
   congregationLogo,
 }: CelebrationsProps) {
   const [filterOpen, setFilterOpen] = useState(false)
+  // 2026-08-11 (P2-#18): a modált csak az ELSŐ megnyitás után rendereljük —
+  // így a szűrő/nyomtató felület kódja és adata sem terheli az első festést.
+  const [listRequested, setListRequested] = useState(false)
   const hasTodayEvents = todayBirthdays.length > 0 || todayNamedayMembers.length > 0
-  const hasList = allMembers.length > 0
+  const hasList = memberCount > 0
+
+  function openList() {
+    setListRequested(true)
+    setFilterOpen(true)
+  }
 
   // ── Sor-keret (2026-08-10) ────────────────────────────────────────────────
   // A mai köszöntések kapják az első TODAY_CAP helyet; a fel nem használt
@@ -92,7 +115,7 @@ export function Celebrations({
         {hasList && (
           <button
             type="button"
-            onClick={() => setFilterOpen(true)}
+            onClick={openList}
             className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1 text-[11px] font-semibold text-foreground transition hover:border-primary hover:text-primary"
             title="Szűrés + nyomtatás"
           >
@@ -147,7 +170,7 @@ export function Celebrations({
 
         {/* Levágott mai sorok → a teljes lista a modálban érhető el */}
         {hiddenToday > 0 && hasList && (
-          <button type="button" className="kt-more-line" onClick={() => setFilterOpen(true)}>
+          <button type="button" className="kt-more-line" onClick={openList}>
             +{hiddenToday} további köszöntés
           </button>
         )}
@@ -205,7 +228,7 @@ export function Celebrations({
             ))}
             {hiddenUpcoming > 0 && hasList && (
               <div className="flex justify-center">
-                <button type="button" className="kt-more-line" onClick={() => setFilterOpen(true)}>
+                <button type="button" className="kt-more-line" onClick={openList}>
                   +{hiddenUpcoming} további a 14 napban
                 </button>
               </div>
@@ -214,11 +237,12 @@ export function Celebrations({
         )}
       </div>
 
-      {hasList && (
+      {/* A modál csak az első megnyitás után kerül a fába; a taglistát ő maga
+          kéri le (getBirthdayListData) — lásd BirthdayListDialog. */}
+      {hasList && listRequested && (
         <BirthdayListDialog
           open={filterOpen}
           onOpenChange={setFilterOpen}
-          allMembers={allMembers}
           congregationName={congregationName}
           congregationLogo={congregationLogo}
         />

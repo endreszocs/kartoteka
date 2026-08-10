@@ -14,6 +14,56 @@ import withSerwistInit from "@serwist/next";
 const withSerwist = withSerwistInit({
   swSrc: "app/sw.ts",
   swDest: "public/sw.js",
+  // 2026-08-11 (P1-perf): a precache-manifest KURÁLT listája.
+  //
+  // Alapértelmezésben a @serwist/next a `public/` TELJES fáját beglobolja
+  // (`globPublicPatterns` default: ["**/*"]) és `additionalPrecacheEntries`-ként
+  // a `self.__SW_MANIFEST`-be teszi. Mérve: 64 bejegyzés / 73 449 566 bájt
+  // (70,05 MB) — köztük a 19,6 MB-os `tutorials/BANK_IMPORT_TUTORIAL.mp4`, a
+  // 4,05 MB-os `bibles/karoli.json`, a `public-site/` téma-hero PNG-k (8,5 MB),
+  // a `misszios-muhely/` illusztrációk (18,3 MB) és a `templates/emleklap/`
+  // háttérképek (12,4 MB). Egyik sem kell egyetlen irányítópult-képernyőhöz sem.
+  //
+  // A Serwist precache-install ALL-OR-NOTHING: ha az install közben elfogy a
+  // Cache Storage kvóta (iOS Safariban historikusan ~50 MB/origin), a SW
+  // egyáltalán NEM aktiválódik, és a hirdetett offline működés csendben
+  // elmarad. Mobilneten ez ráadásul a felhasználó adatkeretét is felégeti,
+  // és minden deploynál újra lefut a változott revíziójú fájlokra.
+  //
+  // FONTOS: az `exclude` opció ERRE NEM JÓ — az csak a webpack-compilation
+  // asseteket szűri, a `public/` fájlok `additionalPrecacheEntries`-ként
+  // KÉSŐBB kerülnek a manifestbe (lásd @serwist/build transform-manifest.ts:
+  // az additionalPrecacheEntriesTransform fut utolsóként). Ezért a
+  // `globPublicPatterns` az egyetlen működő kapcsoló, és mivel a `glob`
+  // (v10) NEM támogatja a `!` tagadó mintát, ez POZITÍV lista.
+  //
+  // A kihagyott fájlok NEM vesznek el: az `app/sw.ts` `defaultCache`-e
+  // futásidőben elkapja őket — a képeket StaleWhileRevalidate
+  // („static-image-assets"), az MP4-et CacheFirst („static-video-assets"),
+  // a JSON-t NetworkFirst („static-data-assets"). Utóbbi fedi a
+  // `/bibles/karoli.json`-t is: azt a natív konkordancia és az igehely-mező
+  // (components/worklog/konkordancia-dialog.tsx:54, igehely-field.tsx:44)
+  // ÚGYIS lusta, modul-szintű `fetch()`-csel tölti be első használatkor —
+  // tehát nem az installnál kell letölteni, és az első megnyitás után
+  // offline is elérhető marad a runtime cache-ből.
+  //
+  // ÚJ asset-mappa esetén: ha offline is kell, ide kell felvenni; ha nem,
+  // nem kell tenni semmit (a futásidejű cache elkapja). A biztonságos
+  // alapértelmezés így a „nem precache-eljük".
+  globPublicPatterns: [
+    "manifest.json",
+    // A PWA-manifest ikonja + az alkalmazás-héj logói (splash-screen,
+    // oldalsáv, nyomtatási fejlécek). Együtt ~2,0 MB.
+    "kartoteka-icon.png",
+    "kartoteka-logo.png",
+    "KARTOTEKA_V3.png",
+    "KEREK.png",
+    "EREK.png",
+    "dicshub-logo.png",
+    // Jövőbeli ikon-/font-mappák (a headers() már számol velük).
+    "icons/**/*",
+    "fonts/**/*",
+  ],
   disable:
     process.env.DISABLE_PWA === "true" ||
     process.env.NODE_ENV !== "production",

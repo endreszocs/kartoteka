@@ -11,6 +11,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ModuleHero } from '@/components/shared/module-hero'
 import { ColorTabs } from '@/components/ui/color-tabs'
+// 2026-08-11 (K5-#12): a feloldási kérelem indoklása eddig `window.prompt`-tal
+// kérdezett. Ez a már meglévő, indok-mezős megerősítő dialógus váltja ki
+// (ugyanaz, amit az admin-felületek és a programtervező is használ).
+import { AdminConfirmDialog } from '@/components/admin/admin-confirm-dialog'
 import { InventoryAmortizationDialog } from '@/components/inventory/inventory-amortization-dialog'
 import { InventoryGuideTab } from '@/components/inventory/inventory-guide-tab'
 import { MaterialWarehouseTab } from '@/components/inventory/material-warehouse-tab'
@@ -24,6 +28,7 @@ import {
   finalizeLeltar,
   getInventoryItems,
   getLeltarFinalizationStatus,
+  getLeltarReportYear,
   listExpensesForInventoryPicker,
   requestLeltarUnlock,
   saveInventoryItem,
@@ -74,6 +79,14 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
   const [amortizationItem, setAmortizationItem] = useState<InventoryItem | null>(null)
   const [isFinalized, setIsFinalized] = useState(false)
   const [unlockRequested, setUnlockRequested] = useState(false)
+  // 2026-08-11 (K5-#12): a feloldási kérelem indoklásának állapota (a
+  // `window.prompt` helyett rendes dialógus, kötelező indoklással).
+  const [unlockDialogOpen, setUnlockDialogOpen] = useState(false)
+  const [unlockSending, setUnlockSending] = useState(false)
+  // 2026-08-11 (P1 #24): melyik ÉV vagyonleltári jelentéséről van szó. A szerver
+  // adja (documentSeasonYear) — ugyanaz a kulcs, mint a véglegesítésé és a
+  // beküldésé, így a lelkész is látja, mit zár le éppen.
+  const [reportYear, setReportYear] = useState<number | null>(null)
   const [anyagraktarStats, setAnyagraktarStats] = useState<AnyagraktarStats | null>(null)
 
   const [fMegnevezes, setFMegnevezes] = useState('')
@@ -106,14 +119,18 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [data, status, araktar] = await Promise.all([
+    const [data, status, araktar, year] = await Promise.all([
       getInventoryItems(),
       getLeltarFinalizationStatus(),
       getAnyagraktarStats(),
+      // 2026-08-11 (P1 #24): a jelentés év-kulcsa a szerverről jön, hogy a
+      // képernyőn megjelenő év, a véglegesítés és a beküldés ne csúszhasson szét.
+      getLeltarReportYear(),
     ])
     setItems(data)
     setIsFinalized(status.finalized)
     setUnlockRequested(status.unlockRequested)
+    setReportYear(year)
     if (araktar.data) setAnyagraktarStats(araktar.data)
     setLoading(false)
   }, [])
@@ -175,6 +192,28 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
   )
 
   const deletedCount = useMemo(() => items.filter(item => item.deleted).length, [items])
+
+  // ── 2026-08-11 (K5-#30): az egyházmegyének beküldött KANONIKUS vagyonleltár ──
+  // A beküldés eddig `items.length`-et küldött, vagyis a TÖRÖLT tételeket is
+  // beleszámolta: a lelkész 40 tételből 8-at kidobott, a képernyőn 32-t látott,
+  // az esperes viszont 40-et kapott a hivatalos beküldésben. A képernyő másik
+  // száma (`filtered`) sem jó forrás, mert azt a kereső/kategória/időszak szűrő
+  // is befolyásolja. A választók névjegyzéke ezt tudatosan jól oldja meg
+  // (members/voters-tab.tsx:171-174): a KANONIKUS definíciót küldi, nem a
+  // képernyő pillanatnyi szűrőit. A leltár kanonikus definíciója: minden NEM
+  // TÖRÖLT tétel — ugyanaz az `activeItems`, amiből a lista is épül.
+  const canonItemCount = activeItems.length
+  // A vagyonleltár lényege az ÉRTÉK, nem a darabszám — a beszerzési és az
+  // amortizált (aktuális) értéket is beletesszük a snapshotba, hogy az esperes
+  // utólag is vissza tudja keresni, mit fogadott be.
+  const canonTotalBookValue = useMemo(
+    () => activeItems.reduce((sum, item) => sum + (Number(item.beszerzes_erteke || 0) || 0) * (Number(item.mennyiseg || 1) || 1), 0),
+    [activeItems],
+  )
+  const canonTotalCurrentValue = useMemo(
+    () => activeItems.reduce((sum, item) => sum + calculateInventoryCurrentValue(item), 0),
+    [activeItems],
+  )
   const selectedCatalogEntry = useMemo(
     () => getInventoryAmortizationCatalogEntry(fKatalogusKod || null),
     [fKatalogusKod],
@@ -266,7 +305,10 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
   }
 
   async function handleFinalize() {
-    if (!window.confirm('A vagyonleltári jelentés véglegesítése után új jelentést nem lehet lezárni, amíg az egyházmegye feloldást nem ad. A leltári tételek ettől még tovább szerkeszthetők. Folytatja?')) {
+    // 2026-08-11 (P1 #24): a megerősítő szöveg is megnevezi az évet — így derül
+    // ki azonnal, ha a lelkész nem arra az évre gondolt.
+    const yearLabel = reportYear ? `A(z) ${reportYear}. évi vagyonleltári jelentés` : 'A vagyonleltári jelentés'
+    if (!window.confirm(`${yearLabel} véglegesítése után új jelentést nem lehet lezárni, amíg az egyházmegye feloldást nem ad. A leltári tételek ettől még tovább szerkeszthetők. Folytatja?`)) {
       return
     }
 
@@ -276,21 +318,40 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
       return
     }
 
-    toast.success('A vagyonleltári jelentés véglegesítve lett.')
+    toast.success(
+      reportYear
+        ? `A(z) ${reportYear}. évi vagyonleltári jelentés véglegesítve lett.`
+        : 'A vagyonleltári jelentés véglegesítve lett.',
+    )
     await load()
   }
 
-  async function handleUnlockRequest() {
-    const reason = window.prompt('Miért kér feloldást a leltárhoz?', '')
-    if (reason === null) return
+  // ── 2026-08-11 (K5-#12): feloldási kérelem indoklással ────────────────────
+  // MI VOLT A HIBA: az indoklást `window.prompt` kérdezte, és a kód csak a
+  // `null`-t (Mégse) szűrte — az ÜRES sztring átment, a szerver `|| null`-ként
+  // mentette, így az esperes indoklás NÉLKÜLI feloldási kérelmet kapott, amit
+  // nem tudott elbírálni, a lelkész viszont „elküldve" visszajelzést látott.
+  // Ráadásul a `window.prompt` telefonon egysoros és nem méretezhető, Firefox
+  // pedig ismételt használat után letiltatja a további dialógusokat — ekkor a
+  // funkció NÉMÁN elérhetetlenné vált.
+  async function submitUnlockRequest(reason?: string) {
+    const trimmed = (reason || '').trim()
+    if (!trimmed) {
+      toast.error('Kérjük, írja le, miért kéri a jelentés feloldását — enélkül az esperes nem tudja elbírálni a kérelmet.')
+      return
+    }
 
-    const result = await requestLeltarUnlock(reason)
+    setUnlockSending(true)
+    const result = await requestLeltarUnlock(trimmed)
+    setUnlockSending(false)
+
     if (result.error) {
       toast.error(result.error)
       return
     }
 
-    toast.success('Feloldási kérelem elküldve.')
+    setUnlockDialogOpen(false)
+    toast.success('Feloldási kérelem elküldve az egyházmegyének.')
     await load()
   }
 
@@ -583,32 +644,35 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
                 </label>
               </div>
 
+              {/* 2026-08-11 (K5-#13/#14): a modul fő műveletei `size="sm"` (28px)
+                  magasak voltak — a 44px-es koppintási minimum alatt. A `min-h-11`
+                  telefonon is biztonságosan eltalálható gombot ad. */}
               <div className="flex flex-wrap gap-2 xl:justify-end">
-                <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setPrintDialogOpen(true)}>
+                <Button size="sm" variant="outline" className="min-h-11 rounded-xl" onClick={() => setPrintDialogOpen(true)}>
                   Nyomtatási központ
                 </Button>
-                <Button size="sm" variant="outline" className="rounded-xl" onClick={() => openDialog()}>
+                <Button size="sm" variant="outline" className="min-h-11 rounded-xl" onClick={() => openDialog()}>
                   Új tétel
                 </Button>
                 {!isFinalized ? (
                   <Button
                     size="sm"
                     variant="outline"
-                    className="rounded-xl border-green-300 text-green-700"
+                    className="min-h-11 rounded-xl border-green-300 text-green-700"
                     onClick={() => void handleFinalize()}
                   >
-                    Jelentés véglegesítése
+                    {reportYear ? `${reportYear}. évi jelentés véglegesítése` : 'Jelentés véglegesítése'}
                   </Button>
                 ) : unlockRequested ? (
-                  <Button size="sm" variant="outline" disabled className="rounded-xl">
+                  <Button size="sm" variant="outline" disabled className="min-h-11 rounded-xl">
                     Jelentés-feloldási kérelem elbírálás alatt
                   </Button>
                 ) : (
                   <Button
                     size="sm"
                     variant="outline"
-                    className="rounded-xl border-amber-300 text-amber-700"
-                    onClick={() => void handleUnlockRequest()}
+                    className="min-h-11 rounded-xl border-amber-300 text-amber-700"
+                    onClick={() => setUnlockDialogOpen(true)}
                   >
                     Jelentés feloldásának kérése
                   </Button>
@@ -617,17 +681,36 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
                   <Button
                     size="sm"
                     variant="outline"
-                    className="rounded-xl border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                    className="min-h-11 rounded-xl border-emerald-200 text-emerald-700 hover:bg-emerald-50"
                     onClick={async () => {
-                      if (!confirm('Beküldöd a vagyonleltári jelentést az egyházmegyének?')) return
-                      const year = new Date().getFullYear() - 1
-                      const snapshot = { itemCount: items.length, year }
+                      // 2026-08-11 (P1 #24): itt korábban `new Date().getFullYear() - 1`
+                      // állt, miközben a véglegesítés (finalizeLeltar) és az
+                      // egyházmegyei teljességi mátrix más évvel dolgozott — a lelkész
+                      // az egyik évet zárta le és egy MÁSIKAT küldött be. Emiatt az
+                      // esperes „Hiányzik"-ot látott, vagy a felülírás-védelem az előző
+                      // évi, már véglegesített sorra hivatkozva utasította el a
+                      // beküldést. Mostantól a szerver adja a kanonikus év-kulcsot
+                      // (documentSeasonYear), ugyanazt, amivel a véglegesítés is dolgozik.
+                      const year = await getLeltarReportYear()
+                      // 2026-08-11 (K5-#30): a beküldött darabszám a KANONIKUS
+                      // definíció (minden nem törölt tétel), NEM a nyers lista és
+                      // nem is a képernyő szűrői — a `rule` kulcs magát a definíciót
+                      // is elmenti a snapshotba (a voters-tab mintája). A lelkész
+                      // már a megerősítő kérdésben látja a beküldendő számot.
+                      if (!confirm(`Beküldöd a(z) ${year}. évi vagyonleltári jelentést az egyházmegyének? (${canonItemCount} tétel)`)) return
+                      const snapshot = {
+                        itemCount: canonItemCount,
+                        totalBookValue: canonTotalBookValue,
+                        totalCurrentValue: canonTotalCurrentValue,
+                        year,
+                        rule: 'not_deleted',
+                      }
                       const result = await submitDocument('vagyonleltar', year, snapshot)
                       if ('error' in result && result.error) toast.error(result.error)
-                      else toast.success('Vagyonleltári jelentés beküldve az egyházmegyének!')
+                      else toast.success(`A(z) ${year}. évi vagyonleltári jelentés beküldve az egyházmegyének (${canonItemCount} tétel)!`)
                     }}
                   >
-                    Beküldés egyházmegyének
+                    {reportYear ? `${reportYear}. évi beküldés egyházmegyének` : 'Beküldés egyházmegyének'}
                   </Button>
                 )}
               </div>
@@ -665,7 +748,30 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
               </Card>
             )
           ) : (
-            <div className="overflow-x-auto rounded-[28px] border border-slate-200 bg-white shadow-sm">
+            // 2026-08-11 (K5-#14): MI VOLT A HIBA — a leltári lista telefonon is
+            // egyetlen, vízszintesen görgethető táblázat volt. 375px-es kijelzőn a
+            // művelet-oszlop (Fişă / Szerk. / Törlés) a látható területen KÍVÜLRE
+            // került, tehát a lelkész csak akkor talált rá a Szerkesztés gombra, ha
+            // rájött, hogy a táblázatot oldalra kell húzni. A tagnyilvántartás ezt
+            // már megoldotta (members/persons-tab.tsx): `md:hidden` kártya-sáv +
+            // `hidden md:block` táblázat — ugyanazt az elrendezést követjük itt is.
+            <div className="rounded-[28px] border border-slate-200 bg-white shadow-sm">
+              <div className="space-y-2 rounded-[28px] bg-muted/20 p-2 md:hidden">
+                {filtered.map(item => (
+                  <MobileInventoryCard
+                    key={item.id}
+                    item={item}
+                    onFisa={() => handleRowFisaPrint(item)}
+                    onEdit={() => openDialog(item)}
+                    onDelete={() => void handleDelete(item.id)}
+                    onAmortization={() => openAmortizationDialog(item)}
+                  />
+                ))}
+              </div>
+
+              {/* A kerekítést a görgető-doboz viszi, hogy a fejléc-háttér ne
+                  lógjon ki a 28px-es sarkokon. */}
+              <div className="hidden overflow-x-auto rounded-[28px] md:block">
               <table className="w-full text-sm">
                 <thead className="border-b bg-slate-50/90">
                   <tr>
@@ -675,7 +781,9 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
                     <th className="hidden p-3 text-left xl:table-cell">Helyszín / felelős</th>
                     <th className="p-3 text-right">Könyv szerinti érték</th>
                     <th className="p-3 text-right">Leltári érték</th>
-                    <th className="w-28 p-3" />
+                    {/* 2026-08-11 (K5-#13): a művelet-oszlopnak eddig NEM volt neve —
+                        a képernyőolvasó néma cellát olvasott a gombok fölött. */}
+                    <th className="w-40 p-3"><span className="sr-only">Műveletek</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -701,9 +809,9 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
                             <button
                               type="button"
                               onClick={() => openAmortizationDialog(item)}
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-teal-200 bg-teal-50 text-teal-700 transition hover:bg-teal-100"
+                              className="inline-flex size-11 shrink-0 items-center justify-center rounded-full border border-teal-200 bg-teal-50 text-teal-700 transition hover:bg-teal-100"
                               title="Amortizációs információk"
-                              aria-label="Amortizációs információk"
+                              aria-label={`${item.megnevezes} amortizációs információi`}
                             >
                               <CircleHelp className="h-4 w-4" />
                             </button>
@@ -721,24 +829,38 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
                         {formatCurrency(calculateInventoryCurrentValue(item))} RON
                       </td>
                       <td className="p-3 align-top">
+                        {/* 2026-08-11 (K5-#13/#14): a sor-gombok 32px magasak voltak
+                            (a 44px-es koppintási minimum alatt), és a szövegük
+                            önmagában nem mondta meg, MELYIK tételre vonatkozik —
+                            a képernyőolvasó csak annyit olvasott: „Törlés". */}
                         <div className="flex justify-end gap-1">
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-8 rounded-lg px-2 text-xs text-teal-700"
+                            className="min-h-11 rounded-lg px-2 text-xs text-teal-700"
                             onClick={() => handleRowFisaPrint(item)}
                             title="A tétel fişájának nyomtatása"
+                            aria-label={`${item.megnevezes} fişájának nyomtatása`}
                           >
                             <FileText className="mr-1 size-3.5" /> Fişă
                           </Button>
-                          <Button variant="ghost" size="sm" className="h-8 rounded-lg px-2 text-xs text-blue-600" onClick={() => openDialog(item)}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="min-h-11 rounded-lg px-2 text-xs text-blue-600"
+                            onClick={() => openDialog(item)}
+                            title="Tétel szerkesztése"
+                            aria-label={`${item.megnevezes} szerkesztése`}
+                          >
                             Szerk.
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-8 rounded-lg px-2 text-xs text-red-500"
+                            className="min-h-11 rounded-lg px-2 text-xs text-red-500"
                             onClick={() => void handleDelete(item.id)}
+                            title="Tétel törlése"
+                            aria-label={`${item.megnevezes} törlése`}
                           >
                             Törlés
                           </Button>
@@ -748,6 +870,7 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
         </>
@@ -773,6 +896,26 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
         item={amortizationItem}
         open={amortizationDialogOpen}
         onOpenChange={setAmortizationDialogOpen}
+      />
+
+      {/* 2026-08-11 (K5-#12): a `window.prompt` helyett rendes dialógus —
+          kötelező, legalább 10 karakteres indoklással. Enélkül a kérelem
+          el sem küldhető, tehát az esperes mindig kap mire alapozni. */}
+      <AdminConfirmDialog
+        open={unlockDialogOpen}
+        onOpenChange={open => {
+          if (!unlockSending) setUnlockDialogOpen(open)
+        }}
+        title={reportYear ? `A(z) ${reportYear}. évi vagyonleltári jelentés feloldása` : 'A vagyonleltári jelentés feloldása'}
+        description="A kérelmet az egyházmegye bírálja el. Írja le röviden, mit kell javítania a már véglegesített jelentésen — ebből tudja az esperes eldönteni, hogy feloldja-e."
+        confirmLabel="Kérelem elküldése"
+        cancelLabel="Mégse"
+        loading={unlockSending}
+        reasonLabel="A feloldás indoklása"
+        reasonPlaceholder="Pl. Kimaradt a februárban vásárolt hangosítás, pótolni szeretném."
+        reasonRequired
+        reasonMinLength={10}
+        onConfirm={reason => void submitUnlockRequest(reason)}
       />
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -1111,6 +1254,115 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
         </DialogContent>
       </Dialog>
     </>
+  )
+}
+
+// ── 2026-08-11 (K5-#14): mobil leltári kártya ──────────────────────────────
+// A táblázat 375px-en használhatatlan volt: a művelet-gombok a látható területen
+// kívülre kerültek. Ez a kártya minden fontos adatot egymás alá tesz (megnevezés,
+// leltári szám, mennyiség, kategória, helyszín/felelős, könyv szerinti + leltári
+// érték), a három műveletet pedig 44px magas, saját aria-label-lel ellátott
+// gombsorba. A members/persons-tab.tsx MobilePersonCard mintája.
+function MobileInventoryCard({
+  item,
+  onFisa,
+  onEdit,
+  onDelete,
+  onAmortization,
+}: {
+  item: InventoryItem
+  onFisa: () => void
+  onEdit: () => void
+  onDelete: () => void
+  onAmortization: () => void
+}) {
+  const bookValue = (Number(item.beszerzes_erteke || 0) || 0) * (Number(item.mennyiseg || 1) || 1)
+
+  return (
+    <article className="rounded-2xl border border-border/60 bg-card px-3 py-3 shadow-sm">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <h3 className="font-heading text-base font-semibold text-foreground">{item.megnevezes}</h3>
+          <p className="mt-1 font-mono text-xs text-muted-foreground">
+            {item.leltari_szam || 'Nincs leltári szám'}
+            {item.regi_leltari_szam ? ` · régi: ${item.regi_leltari_szam}` : ''}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {item.mennyiseg} {item.mertekegyseg || 'db'}
+            {item.beszerzes_datuma ? ` · ${item.beszerzes_datuma}` : ''}
+          </p>
+        </div>
+        {item.kategoria_key === 'alapeszkoz' ? (
+          <button
+            type="button"
+            onClick={onAmortization}
+            className="inline-flex size-11 shrink-0 items-center justify-center rounded-full border border-teal-200 bg-teal-50 text-teal-700 transition hover:bg-teal-100"
+            aria-label={`${item.megnevezes} amortizációs információi`}
+          >
+            <CircleHelp className="size-4" />
+          </button>
+        ) : null}
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <Badge variant="outline" className="rounded-full px-2.5 py-0.5 text-[11px]">
+          {getInventoryCategoryLabel(item.kategoria)}
+        </Badge>
+        {item.helyszin ? (
+          <Badge variant="outline" className="rounded-full px-2.5 py-0.5 text-[11px] text-muted-foreground">
+            {item.helyszin}
+          </Badge>
+        ) : null}
+        {item.felelos_nev ? (
+          <Badge variant="outline" className="rounded-full px-2.5 py-0.5 text-[11px] text-muted-foreground">
+            Felelős: {item.felelos_nev}
+          </Badge>
+        ) : null}
+      </div>
+
+      <dl className="mt-2.5 grid grid-cols-2 gap-2 rounded-xl bg-muted/40 px-3 py-2 text-xs">
+        <div>
+          <dt className="text-muted-foreground">Könyv szerinti érték</dt>
+          <dd className="mt-0.5 font-semibold tabular-nums text-foreground">{formatCurrency(bookValue)} RON</dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Leltári érték</dt>
+          <dd className="mt-0.5 font-semibold tabular-nums text-emerald-700">
+            {formatCurrency(calculateInventoryCurrentValue(item))} RON
+          </dd>
+        </div>
+      </dl>
+
+      <div className="mt-2.5 flex gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          className="min-h-11 flex-1 rounded-xl text-xs text-teal-700"
+          onClick={onFisa}
+          aria-label={`${item.megnevezes} fişájának nyomtatása`}
+        >
+          <FileText className="mr-1 size-3.5" /> Fişă
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="min-h-11 flex-1 rounded-xl text-xs text-blue-600"
+          onClick={onEdit}
+          aria-label={`${item.megnevezes} szerkesztése`}
+        >
+          Szerkesztés
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="min-h-11 flex-1 rounded-xl text-xs text-red-600"
+          onClick={onDelete}
+          aria-label={`${item.megnevezes} törlése`}
+        >
+          Törlés
+        </Button>
+      </div>
+    </article>
   )
 }
 

@@ -30,7 +30,19 @@ export interface CheckItem {
   detail?: string
   /** Ha error: blokkolja a továbblépést. Ha warning: figyelmeztet de engedi tovább. */
   blocking: boolean
-  /** Cél URL, ha a lelkész elkezdené javítani (pl. "/penzugy?tab=cashbook"). */
+  /**
+   * Cél URL, ha a lelkész elkezdené javítani (pl. "/penzugy#cashbook").
+   *
+   * 2026-08-11 (P1 #2): KÖTELEZŐEN `#hash` alakú, NEM `?tab=`. A /penzugy oldal
+   * fül-váltása kizárólag az URL hash-ből dolgozik (finance-tabs.tsx
+   * `applyHashToTab`, Sprint Q F1.6 óta); a régi `?tab=` paramétert SENKI nem
+   * olvassa, így mind a 8 „Javítás" gomb néma zsákutca volt: a wizard bezárult,
+   * az oldal viszont a Dashboard fülön maradt.
+   * Érvényes értékek (finance-tabs.tsx `validTabs` + a két speciális eset):
+   * dashboard, cashbook, bank, transactions, budget, accounting, debt, rental,
+   * sugo, admin_import, valamint `monetary` (lebegő widget) és
+   * `oblio_ellenorzes` (teljes képernyős modál).
+   */
   fixUrl?: string
   fixLabel?: string
 }
@@ -176,7 +188,7 @@ export async function runFinalizationChecks(year: number): Promise<{
         ? `Mind a ${banks.length} aktív bankszámlához van ${year} januári nyitó egyenleg.`
         : `${banksWithoutNyito.length} bankszámlán hiányzik: ${banksWithoutNyito.map((b) => b.bank_neve).join(', ')}`,
     blocking: false,
-    fixUrl: '/penzugy?tab=bank',
+    fixUrl: '/penzugy#bank',
     fixLabel: banksWithoutNyito.length > 0 ? 'Bank fülön rögzíts nyitót' : undefined,
   })
 
@@ -197,7 +209,7 @@ export async function runFinalizationChecks(year: number): Promise<{
           ? `Mind a ${devBanks.length} valutás számlán meg van az ${year}. év végi FX revaluation.`
           : `${banksWithoutFx.length} valutás bankszámlán hiányzik: ${banksWithoutFx.map((b) => `${b.bank_neve} (${b.valuta})`).join(', ')}. FONTOS: az árfolyam-nyereség/veszteség december 31-i dátummal kerül könyvelésre.`,
     blocking: banksWithoutFx.length > 0,
-    fixUrl: '/penzugy?tab=bank',
+    fixUrl: '/penzugy#bank',
     fixLabel: banksWithoutFx.length > 0 ? 'FX átértékelés elvégzése' : undefined,
   })
 
@@ -215,7 +227,7 @@ export async function runFinalizationChecks(year: number): Promise<{
         ? `Mind a ${befizetesek.length} bevételhez van kategória.`
         : `${befMissingCategory.length} bevételből hiányzik a kategória. Javítsd őket a Tranzakciók vagy Kassza/Bank fülön.`,
     blocking: befMissingCategory.length > 0,
-    fixUrl: '/penzugy?tab=transactions',
+    fixUrl: '/penzugy#transactions',
     fixLabel: befMissingCategory.length > 0 ? 'Javítás a Tranzakciók fülön' : undefined,
   })
 
@@ -231,7 +243,7 @@ export async function runFinalizationChecks(year: number): Promise<{
         ? `Mind a ${kiadasok.length} kiadáshoz van kategória.`
         : `${kiaMissingCategory.length} kiadásból hiányzik a kategória.`,
     blocking: kiaMissingCategory.length > 0,
-    fixUrl: '/penzugy?tab=transactions',
+    fixUrl: '/penzugy#transactions',
     fixLabel: kiaMissingCategory.length > 0 ? 'Javítás a Tranzakciók fülön' : undefined,
   })
 
@@ -257,7 +269,7 @@ export async function runFinalizationChecks(year: number): Promise<{
         ? 'Minden járulék-befizető azonosítva van.'
         : `${befMissingPersonJarulek.length} járulék-bevételnél hiányzik a személy. Ez befolyásolhatja a választók névjegyzékét.`,
     blocking: false,
-    fixUrl: '/penzugy?tab=cashbook',
+    fixUrl: '/penzugy#cashbook',
     fixLabel: befMissingPersonJarulek.length > 0 ? 'Pótlás a Kasszán' : undefined,
   })
 
@@ -275,7 +287,7 @@ export async function runFinalizationChecks(year: number): Promise<{
           ? `Mind a ${oblioXmls.length} Oblio számla bevezetve.`
           : `${oblioUnentered.length} / ${oblioXmls.length} Oblio számla még nincs kiadásként rögzítve.`,
     blocking: false,
-    fixUrl: '/penzugy?tab=oblio_ellenorzes',
+    fixUrl: '/penzugy#oblio_ellenorzes',
     fixLabel: oblioUnentered.length > 0 ? 'Oblio ellenőrzés fülön' : undefined,
   })
 
@@ -452,7 +464,7 @@ async function runDioceseFinalizationChecks(
         ? `Mind a ${befizetesek.length} bevételhez van kategória.`
         : `${befMissing.length} bevételből hiányzik a kategória.`,
     blocking: befMissing.length > 0,
-    fixUrl: '/penzugy?tab=transactions',
+    fixUrl: '/penzugy#transactions',
     fixLabel: befMissing.length > 0 ? 'Javítás a Tranzakciók fülön' : undefined,
   })
 
@@ -468,7 +480,7 @@ async function runDioceseFinalizationChecks(
         ? `Mind a ${kiadasok.length} kiadáshoz van kategória.`
         : `${kiaMissing.length} kiadásból hiányzik a kategória.`,
     blocking: kiaMissing.length > 0,
-    fixUrl: '/penzugy?tab=transactions',
+    fixUrl: '/penzugy#transactions',
     fixLabel: kiaMissing.length > 0 ? 'Javítás a Tranzakciók fülön' : undefined,
   })
 

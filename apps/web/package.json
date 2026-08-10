@@ -1,6 +1,6 @@
 {
   "name": "@kartoteka/web",
-  "version": "0.9.159",
+  "version": "0.9.160",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
@@ -8,7 +8,8 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint app components lib proxy.ts next.config.ts eslint.config.mjs",
-    "audit:safety": "node scripts/audit-safety.mjs"
+    "audit:safety": "node scripts/audit-safety.mjs",
+    "audit:safety:strict": "node scripts/audit-safety.mjs --strict"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",

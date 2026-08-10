@@ -37,6 +37,23 @@ export interface PushResult {
   success: boolean
   conflict?: boolean
   error?: string
+  /**
+   * TELJESÍTMÉNY-FIX 2026-08-11 (#16): a szerver által visszaadott sor.
+   *
+   * Ami rossz volt: az insert/update már `.select()`-tel futott, tehát a friss
+   * sor (új id, új revision, updated_at) ott volt a válaszban — de eldobtuk,
+   * és a `pushBatch` egy MÁSODIK lekérdezéssel (`fetchServerRow`) kérte le
+   * ugyanazt a sort. 20 offline szerkesztés így 40 egymás utáni kör-utat
+   * jelentett, dupla annyi ideig pörgött a szinkron-jelző. Ráadásul ha az id-t
+   * az adatbázis generálta, a `fetchServerRow` `null`-t adott vissza, tehát a
+   * kör-út tiszta pazarlás volt, és a Dexie-sor a szerver-oldali id nélkül
+   * maradt.
+   *
+   * Miért jó így: a már meglévő választ adjuk tovább, a `fetchServerRow` csak
+   * tartalék marad arra az esetre, ha a válasz üres (pl. RLS miatt a RETURNING
+   * nem ad vissza sort).
+   */
+  serverRow?: Record<string, unknown>
 }
 
 export interface PushBatchResult {
@@ -106,7 +123,7 @@ async function processInsert(
   // Strip: a `_` prefixes és a client-only mezők ne menjenek fel
   const payload = stripClientFields(envelope.payload)
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from(supabaseTable)
     .insert(payload)
     .select()
@@ -116,9 +133,14 @@ async function processInsert(
     return { mutationId: envelope.id, success: false, error: error.message }
   }
 
-  // A markSuccess()-ben a fetchServerRow() újra lekéri a rekordot,
-  // tehát itt nem kell explicit data-t visszaadnunk
-  return { mutationId: envelope.id, success: true }
+  // 2026-08-11 (#16): a beszúrt sort MÁR megkaptuk — továbbadjuk, hogy a
+  // pushBatch ne kérje le még egyszer. Így az adatbázis által generált id is
+  // visszakerül a Dexie-rekordra.
+  return {
+    mutationId: envelope.id,
+    success: true,
+    ...(data ? { serverRow: data as Record<string, unknown> } : {}),
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -179,7 +201,12 @@ async function processUpdate(
     } as PushResult & { serverPayload?: Record<string, unknown> }
   }
 
-  return { mutationId: envelope.id, success: true }
+  // 2026-08-11 (#16): a frissített sor már itt van — nem kérjük le újra.
+  return {
+    mutationId: envelope.id,
+    success: true,
+    ...(data[0] ? { serverRow: data[0] as Record<string, unknown> } : {}),
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -276,8 +303,13 @@ export async function pushBatch(batchSize = 10): Promise<PushBatchResult> {
 
     if (pushResult.success) {
       result.successful += 1
-      // Szerver-válasz a Dexie rekord frissítéséhez
-      const serverData = await fetchServerRow(envelope)
+      // 2026-08-11 (#16): elsődlegesen az insert/update `.select()` válaszát
+      // használjuk — csak ha az üres (és nem törlésről van szó, mert a
+      // markSuccess a delete-nél úgyis eldobja), esünk vissza a külön
+      // lekérdezésre. Így megfeleződik a kör-utak száma.
+      const serverData =
+        pushResult.serverRow
+        ?? (envelope.op === 'delete' ? null : await fetchServerRow(envelope))
       await markSuccess(envelope.id, serverData ?? undefined)
     } else if (pushResult.conflict) {
       result.conflicts += 1
@@ -301,7 +333,11 @@ export async function pushBatch(batchSize = 10): Promise<PushBatchResult> {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Segéd: szerver-rekord lekérése success után
+// Segéd: szerver-rekord lekérése success után — CSAK TARTALÉK
+//
+// 2026-08-11 (#16): normál esetben az insert/update `.select()` válasza már
+// tartalmazza a sort (`PushResult.serverRow`), ezért ez a függvény csak akkor
+// fut le, ha a válasz üres volt.
 // ─────────────────────────────────────────────────────────────────
 
 async function fetchServerRow(

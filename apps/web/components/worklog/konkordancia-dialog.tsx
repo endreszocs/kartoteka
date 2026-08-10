@@ -6,7 +6,13 @@
  * A repóban lévő teljes Károli-szövegre épül (public/bibles/karoli.json,
  * 1908-as revízió — közkincs; ugyanazt a fájlt használja, mint az
  * igehely-előnézet). A 4,2 MB-os korpusz IGÉNY SZERINT töltődik
- * (module-cache), az első kereséskor ékezet-független index épül (~31k vers).
+ * (module-cache), az első megnyitáskor ékezet-független index épül (~31k vers).
+ *
+ * 2026-08-11 (5. kör, P2-#20): az index-építés DARABOLT és aszinkron
+ * (fejezetenként egy normalize(), ~1500 versenként visszaadott vezérlés), a
+ * hivatkozás→vers térkép egyszer épül, és versenként EGY szövegpéldányt
+ * tartunk. Korábban a dialógus megnyitása másodpercekre lefagyasztotta a
+ * telefont, és minden igehely-keresés újrafagyott.
  *
  * Két mód:
  *   - Szó-keresés: szó/szórészlet a teljes Bibliában (szövetségre/könyvre szűkíthető);
@@ -31,16 +37,35 @@ import { KONYVEK, getBook, parseReference, formatReference } from '@kartoteka/bi
 /** karoli.json alakja: könyvkód → fejezetek → versek szövege. */
 type KaroliData = Record<string, string[][]>
 
+/**
+ * Egy indexelt vers.
+ *
+ * 2026-08-11 (5. kör, P2-#20): a sor MÁR NEM tárolja a vers megjelenítendő
+ * szövegét, csak a kereséshez használt ékezet-független (normalizált) alakot.
+ * Korábban `text` + `textNorm` KÉT teljes példányt jelentett versenként (~31 100
+ * vers, ~4 MB szöveg), a korpusz mellett, amit amúgy is memóriában tartunk.
+ * A megjelenítendő szöveget most a korpuszból olvassuk ki (`verseText`).
+ */
 interface IndexedVerse {
   code: string
   chapter: number
   verse: number
-  text: string
-  textNorm: string
+  norm: string
 }
 
 let karoliPromise: Promise<KaroliData> | null = null
+/** A betöltött korpusz — ebből származik a TALÁLATOK megjelenítendő szövege. */
+let karoliCache: KaroliData | null = null
 let verseIndex: IndexedVerse[] | null = null
+/**
+ * 2026-08-11 (5. kör, P2-#20): a hivatkozás→vers térkép EGYSZER épül, az
+ * indexszel együtt. Korábban MINDEN igehely-keresés újraépítette (31 ezer
+ * sablon-string + 31 ezer Map-beszúrás keresésenként), ami a telefonon
+ * minden egyes lekérdezésnél újabb fagyást okozott.
+ */
+let verseByRef: Map<string, IndexedVerse> | null = null
+/** Az éppen futó index-építés — a párhuzamos megnyitások ne indítsanak újat. */
+let indexPromise: Promise<void> | null = null
 
 function normalize(s: string): string {
   return s
@@ -49,12 +74,26 @@ function normalize(s: string): string {
     .toLowerCase()
 }
 
+function refKey(code: string, chapter: number, verse: number): string {
+  return `${code}_${chapter}_${verse}`
+}
+
+/** A vers megjelenítendő (eredeti) szövege a korpuszból. */
+function verseText(row: IndexedVerse): string {
+  return karoliCache?.[row.code]?.[row.chapter - 1]?.[row.verse - 1] ?? ''
+}
+
 function loadKaroli(): Promise<KaroliData> {
   if (!karoliPromise) {
-    karoliPromise = fetch('/bibles/karoli.json').then((res) => {
-      if (!res.ok) throw new Error(`karoli.json betöltési hiba: HTTP ${res.status}`)
-      return res.json() as Promise<KaroliData>
-    })
+    karoliPromise = fetch('/bibles/karoli.json')
+      .then((res) => {
+        if (!res.ok) throw new Error(`karoli.json betöltési hiba: HTTP ${res.status}`)
+        return res.json() as Promise<KaroliData>
+      })
+      .then((data) => {
+        karoliCache = data
+        return data
+      })
     // Hiba esetén a következő megnyitás újrapróbálhassa
     void karoliPromise.catch(() => {
       karoliPromise = null
@@ -63,24 +102,90 @@ function loadKaroli(): Promise<KaroliData> {
   return karoliPromise
 }
 
-/** A kereső-index a KÖNYVEK kanonikus sorrendjében épül (Ó→Új). */
-function buildIndex(karoli: KaroliData): IndexedVerse[] {
-  if (verseIndex) return verseIndex
-  const idx: IndexedVerse[] = []
-  for (const book of KONYVEK) {
-    const chapters = karoli[book.code]
-    if (!chapters) continue
-    for (let ch = 0; ch < chapters.length; ch++) {
-      const verses = chapters[ch] ?? []
-      for (let v = 0; v < verses.length; v++) {
-        const text = verses[v] ?? ''
-        if (!text) continue
-        idx.push({ code: book.code, chapter: ch + 1, verse: v + 1, text, textNorm: normalize(text) })
-      }
-    }
+/**
+ * Versek elválasztója a FEJEZET-szintű normalizáláshoz. Sortörés: a Károli
+ * versszövegekben nem fordul elő, és sem az NFD-bontás, sem a kisbetűsítés,
+ * sem a kombináló-jel szűrő nem érinti — így a darabolás vers-hű marad.
+ */
+const VERSE_SEP = '\n'
+/** Ennyi vers után visszaadjuk a vezérlést a böngészőnek (festés/érintés). */
+const YIELD_EVERY = 1500
+
+function yieldToBrowser(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+/**
+ * A kereső-index a KÖNYVEK kanonikus sorrendjében épül (Ó→Új).
+ *
+ * 2026-08-11 (5. kör, P2-#20) — HÁROM javítás egy helyen:
+ *   1. ASZINKRON, darabolt építés: ~1500 versenként visszaadjuk a vezérlést,
+ *      így a dialógus betöltés-jelzője TÉNYLEG megjelenik és mozog. Korábban
+ *      az egész (~31 100 verses) menet egy blokkban futott a fő szálon —
+ *      közepes Androidon több másodpercig fagyott az egész alkalmazás, épp
+ *      amikor a lelkész az igehirdetést tervezi.
+ *   2. FEJEZETENKÉNT egyetlen normalize(): versenként hívva ~31 100 NFD-menet
+ *      indult; fejezetenként (~1189 menet) ugyanaz az eredmény, töredék idő
+ *      alatt. Az eredmény vers-hűségét a darabszám-ellenőrzés őrzi.
+ *   3. A hivatkozás→vers térkép (`verseByRef`) itt épül, egyszer.
+ *
+ * A keresés VISELKEDÉSE változatlan: ugyanaz a `normalize()` fut (NFD →
+ * kombináló jelek törlése → kisbetű), tehát az ékezet-független találatok
+ * pontosan ugyanazok maradnak.
+ */
+function ensureIndex(karoli: KaroliData, onProgress?: (ratio: number) => void): Promise<void> {
+  if (verseIndex && verseByRef) {
+    onProgress?.(1)
+    return Promise.resolve()
   }
-  verseIndex = idx
-  return idx
+  if (indexPromise) return indexPromise
+
+  indexPromise = (async () => {
+    const idx: IndexedVerse[] = []
+    const byRef = new Map<string, IndexedVerse>()
+    let sinceYield = 0
+    for (let b = 0; b < KONYVEK.length; b++) {
+      const book = KONYVEK[b]
+      const chapters = karoli[book.code]
+      if (!chapters) continue
+      for (let ch = 0; ch < chapters.length; ch++) {
+        const verses = chapters[ch] ?? []
+        if (verses.length === 0) continue
+        let normVerses = normalize(verses.join(VERSE_SEP)).split(VERSE_SEP)
+        if (normVerses.length !== verses.length) {
+          // Biztonsági tartalék: ha egy vers maga is sortörést tartalmazna, a
+          // fejezet-szintű darabolás elcsúszna — ilyenkor versenként normalizálunk.
+          normVerses = verses.map((t) => normalize(t ?? ''))
+        }
+        for (let v = 0; v < verses.length; v++) {
+          if (!verses[v]) continue
+          const row: IndexedVerse = {
+            code: book.code,
+            chapter: ch + 1,
+            verse: v + 1,
+            norm: normVerses[v] ?? '',
+          }
+          idx.push(row)
+          byRef.set(refKey(row.code, row.chapter, row.verse), row)
+        }
+        sinceYield += verses.length
+        if (sinceYield >= YIELD_EVERY) {
+          sinceYield = 0
+          await yieldToBrowser()
+        }
+      }
+      onProgress?.((b + 1) / KONYVEK.length)
+    }
+    verseIndex = idx
+    verseByRef = byRef
+    onProgress?.(1)
+  })()
+
+  // Hiba esetén a következő megnyitás újrapróbálhassa (a hívó a hibát megkapja).
+  void indexPromise.catch(() => {
+    indexPromise = null
+  })
+  return indexPromise
 }
 
 /** Az Újszövetség első könyvének indexe a kanonikus sorrendben (Máté). */
@@ -117,20 +222,29 @@ export function KonkordanciaDialog({ open, onOpenChange, onInsertRef }: Konkorda
   const [query, setQuery] = useState('')
   const [testament, setTestament] = useState<string>('')
   const [bookCode, setBookCode] = useState<string>('')
-  const [corpusReady, setCorpusReady] = useState(verseIndex !== null)
+  const [corpusReady, setCorpusReady] = useState(verseIndex !== null && verseByRef !== null)
   const [corpusError, setCorpusError] = useState(false)
+  /** 0–1: az index-építés előrehaladása (2026-08-11, P2-#20). */
+  const [corpusProgress, setCorpusProgress] = useState(0)
   const [hits, setHits] = useState<Hit[]>([])
   const [totalCount, setTotalCount] = useState<number | null>(null)
   const [searched, setSearched] = useState(false)
 
   // A korpusz a dialógus megnyitásakor töltődik (module-cache — csak egyszer).
+  // 2026-08-11 (P2-#20): az indexelés darabolt és aszinkron, ezért a lenti
+  // folyamatjelző valóban kirajzolódik és mozog — a dialógus nem „fagy le".
+  // Az effect CSAK a külső rendszerrel (fetch + indexelés) szinkronizál: a
+  // törzsében nincs setState, az állapotot a visszahívások állítják.
   useEffect(() => {
-    if (!open || corpusReady) return
+    if (!open || corpusReady || corpusError) return
     let cancelled = false
-    setCorpusError(false)
     loadKaroli()
-      .then((data) => {
-        buildIndex(data)
+      .then((data) =>
+        ensureIndex(data, (ratio) => {
+          if (!cancelled) setCorpusProgress(ratio)
+        }),
+      )
+      .then(() => {
         if (!cancelled) setCorpusReady(true)
       })
       .catch(() => {
@@ -139,7 +253,13 @@ export function KonkordanciaDialog({ open, onOpenChange, onInsertRef }: Konkorda
     return () => {
       cancelled = true
     }
-  }, [open, corpusReady])
+  }, [open, corpusReady, corpusError])
+
+  /** Újrapróbálkozás betöltési hiba után (a korábbi automatikus retry helyett). */
+  function retryCorpus() {
+    setCorpusProgress(0)
+    setCorpusError(false)
+  }
 
   const bookOptions = useMemo(() => {
     if (testament === 'ot') return KONYVEK.slice(0, NT_START)
@@ -153,7 +273,7 @@ export function KonkordanciaDialog({ open, onOpenChange, onInsertRef }: Konkorda
       toast.error(mode === 'kereses' ? 'Írj be legalább 2 karaktert.' : 'Add meg az igehelyet (pl. Jn 3,16).')
       return
     }
-    if (!verseIndex) return
+    if (!verseIndex || !verseByRef) return
     setSearched(true)
 
     if (mode === 'kereses') {
@@ -165,10 +285,10 @@ export function KonkordanciaDialog({ open, onOpenChange, onInsertRef }: Konkorda
         if (testament === 'ot' && order >= NT_START) continue
         if (testament === 'nt' && order < NT_START) continue
         if (bookCode && row.code !== bookCode) continue
-        if (!row.textNorm.includes(qNorm)) continue
+        if (!row.norm.includes(qNorm)) continue
         total += 1
         if (found.length < MAX_HITS) {
-          found.push({ ref: refLabel(row.code, row.chapter, row.verse), text: row.text })
+          found.push({ ref: refLabel(row.code, row.chapter, row.verse), text: verseText(row) })
         }
       }
       setHits(found)
@@ -184,8 +304,9 @@ export function KonkordanciaDialog({ open, onOpenChange, onInsertRef }: Konkorda
       setTotalCount(null)
       return
     }
-    const byRef = new Map<string, IndexedVerse>()
-    for (const row of verseIndex) byRef.set(`${row.code}_${row.chapter}_${row.verse}`, row)
+    // 2026-08-11 (P2-#20): a térkép az indexszel EGYÜTT épült — keresésenként
+    // nem építjük újra (korábban 31 ezer beszúrás futott minden lekérdezésnél).
+    const byRef = verseByRef
     const collected: Hit[] = []
     for (const seg of parsed.segments) {
       // Egyetlen vers (pl. Jn 3,16): nincs vég-jelölés → csak a kezdővers.
@@ -197,10 +318,10 @@ export function KonkordanciaDialog({ open, onOpenChange, onInsertRef }: Konkorda
         let sawAny = false
         for (let v = fromV; collected.length < 40; v++) {
           if (ch === ec && seg.endVerse !== null && v > seg.endVerse) break
-          const row = byRef.get(`${seg.book}_${ch}_${v}`)
+          const row = byRef.get(refKey(seg.book, ch, v))
           if (!row) break
           sawAny = true
-          collected.push({ ref: refLabel(row.code, row.chapter, row.verse), text: row.text })
+          collected.push({ ref: refLabel(row.code, row.chapter, row.verse), text: verseText(row) })
           if (singleVerse) break
         }
         if (singleVerse) break
@@ -295,11 +416,39 @@ export function KonkordanciaDialog({ open, onOpenChange, onInsertRef }: Konkorda
 
         <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border">
           {corpusError ? (
-            <p className="p-6 text-center text-sm text-muted-foreground">
-              A bibliai szöveg betöltése nem sikerült — ellenőrizd a kapcsolatot, és nyisd meg újra.
-            </p>
+            <div className="p-6 text-center">
+              <p className="text-sm text-muted-foreground">
+                A bibliai szöveg betöltése nem sikerült — ellenőrizd az internetkapcsolatot, majd
+                próbáld újra.
+              </p>
+              <Button type="button" variant="outline" className="mt-3 rounded-xl" onClick={retryCorpus}>
+                Újrapróbálom
+              </Button>
+            </div>
           ) : !corpusReady ? (
-            <p className="p-6 text-center text-sm text-muted-foreground">A Károli-szöveg betöltése… (első alkalommal pár másodperc)</p>
+            /* 2026-08-11 (P2-#20): valódi folyamatjelző — az indexelés darabolt,
+               ezért ez a sáv tényleg mozog, nem egy lefagyott képernyő. */
+            <div className="p-6 text-center">
+              <p className="text-sm text-muted-foreground">
+                A Károli-szöveg előkészítése… {Math.round(corpusProgress * 100)}%
+              </p>
+              <div
+                className="mx-auto mt-3 h-1.5 w-40 overflow-hidden rounded-full bg-muted sm:w-56"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(corpusProgress * 100)}
+                aria-label="A bibliai szöveg előkészítése"
+              >
+                <div
+                  className="h-full rounded-full bg-primary transition-[width] duration-200"
+                  style={{ width: `${Math.max(4, Math.round(corpusProgress * 100))}%` }}
+                />
+              </div>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Csak az első megnyitáskor tart pár másodpercig — utána azonnal keres.
+              </p>
+            </div>
           ) : hits.length === 0 ? (
             <p className="p-6 text-center text-sm text-muted-foreground">
               {searched ? 'Nincs találat.' : 'A találatok itt jelennek meg — a kereső a gépeden fut, internetkapcsolat nélkül is.'}

@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { selectAllPaged } from '@kartoteka/supabase-client'
 import { divorceSchema, familySchema, type DivorceInput, type FamilyInput } from '@/lib/validations/members'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { fetchFamilyPaymentsCompat, fetchPaymentsByMemberIdsCompat } from '@/lib/finance/payment-compat'
@@ -1383,36 +1384,38 @@ async function countFamilyOnlyPayments(
   congregationId: string,
   familyId: number,
 ): Promise<{ db: number; osszeg: number; evek: number[]; csonkolt: boolean }> {
-  const PAGE = 1000
-  const MAX_PAGES = 20
-  let db = 0
-  let osszeg = 0
-  const evek = new Set<number>()
-  let csonkolt = false
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const { data: rows, error } = await supabase
+  // 2026-08-11 (5. kör, P3 #15): KÖZÖS `selectAllPaged` a kézi ciklus helyett.
+  // KÉT baja volt a réginek, és a második súlyosabb: (1) a `list.length < PAGE`
+  // stop-feltétel, (2) a FIX lépésköz (`page * PAGE`). Ha a Supabase „Max Rows"
+  // 1000 alá kerül (mondjuk 500-ra), az első lap 0–499-et hoz, a második viszont
+  // az 1000–1999 ablakot kéri — az 500–999 közti befizetések ÁTUGRANAK. A helper
+  // a TÉNYLEGESEN kapott sorszámmal lép, így ez nem fordulhat elő.
+  // A `csonkolt` jelző megmarad: a `maxRows` szelepnél a helper `truncated`-et ad.
+  const MAX_ROWS = 20_000
+  const res = await selectAllPaged<{ osszeg: number | null; fizetettev: number | null }>(
+    supabase
       .from('befizetes')
       .select('osszeg, fizetettev')
       .eq('congregation_id', congregationId)
       .eq('id_csalad', familyId)
       .is('id_szemely', null)
       .eq('deleted', false)
-      .eq('stornozott', false)
-      .order('id')
-      .range(page * PAGE, page * PAGE + PAGE - 1)
-    if (error) throw new Error(error.message)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const list = (rows || []) as any[]
-    for (const r of list) {
-      db += 1
-      osszeg += Number(r.osszeg || 0)
-      const ev = Number(r.fizetettev)
-      if (Number.isFinite(ev) && ev > 0) evek.add(ev)
-    }
-    if (list.length < PAGE) break
-    if (page === MAX_PAGES - 1) csonkolt = true
+      .eq('stornozott', false),
+    { maxRows: MAX_ROWS },
+  )
+  // A `truncated` NEM hiba (a régi kód is csak jelzett) — minden MÁS hiba dob.
+  if (res.error && !res.truncated) throw new Error(res.error.message)
+
+  let db = 0
+  let osszeg = 0
+  const evek = new Set<number>()
+  for (const r of res.data) {
+    db += 1
+    osszeg += Number(r.osszeg || 0)
+    const ev = Number(r.fizetettev)
+    if (Number.isFinite(ev) && ev > 0) evek.add(ev)
   }
-  return { db, osszeg, evek: [...evek].sort((a, b) => a - b), csonkolt }
+  return { db, osszeg, evek: [...evek].sort((a, b) => a - b), csonkolt: res.truncated }
 }
 
 /** A nyers Postgres-hibaüzenetet lelkész-barát mondattá fordítja. */

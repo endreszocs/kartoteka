@@ -6,6 +6,7 @@ import {
   getTvaPlafonbaSzamitoCelok,
 } from '@/lib/finance/tva-plafon'
 import type { TvaPlafonResult } from '@/lib/finance/tva-plafon-constants'
+import { getCongregationOfficials, getDioceseOfficials } from '@/lib/profiles/officials'
 
 /**
  * TVA-plafon figyelő — server actions.
@@ -142,26 +143,39 @@ export async function notifyTvaPlafonOverflow(year: number): Promise<{
 
   const hivatkozas = `tva-plafon-atlepes-${year}`
 
-  // 2. A gyülekezet lelkészének (és esperesének) lekérdezése
-  const { data: pastors } = await supabase
-    .from('profiles')
-    .select('id, role, diocese_id')
-    .eq('status', 'active')
-    .or(`congregation_id.eq.${congregationId},and(role.eq.esperes,diocese_id.not.is.null)`)
+  // 2. A gyülekezet lelkészének (és a SAJÁT egyházmegyéje esperesének) lekérdezése
+  //
+  // 2026-08-11: átírva SECURITY DEFINER RPC-kre (lib/profiles/officials.ts).
+  // KORÁBBAN így szólt:
+  //   .or('congregation_id.eq.X, and(role.eq.esperes, diocese_id.not.is.null)')
+  // — a második tag AZ ORSZÁG MINDEN esperesét bevette, akinek volt
+  // egyházmegyéje, tehát a TVA-riasztás minden esperesnek kiment. Ez csak a
+  // nyitott `profiles_read` policy miatt működött (és akkor is hibásan).
+  // Mostantól a címzett-kör: a gyülekezet saját lelkészei + a gyülekezet
+  // SAJÁT egyházmegyéjének esperese / megyei adminja.
+  const { data: congRow } = await supabase
+    .from('congregations')
+    .select('diocese_id')
+    .eq('id', congregationId)
+    .maybeSingle()
+  const dioceseId = (congRow as { diocese_id?: string | null } | null)?.diocese_id || null
 
-  if (!pastors || pastors.length === 0) {
-    return { success: true, notified: false }
-  }
+  const [gyulekezetiek, megyeiek] = await Promise.all([
+    getCongregationOfficials(supabase, congregationId, [
+      'lelkesz',
+      'esperes',
+      'egyhazmegyei_admin',
+    ]),
+    dioceseId
+      ? getDioceseOfficials(supabase, dioceseId, ['esperes', 'egyhazmegyei_admin'])
+      : Promise.resolve([]),
+  ])
 
-  // Csak a releváns címzetteket tartjuk meg
-  const recipients = pastors.filter((p) => {
-    if (p.role === 'lelkesz') return true
-    if (p.role === 'esperes') return true
-    if (p.role === 'egyhazmegyei_admin') return true
-    return false
-  })
+  const recipientIds = Array.from(
+    new Set([...gyulekezetiek, ...megyeiek].map((o) => o.userId)),
+  )
 
-  if (recipients.length === 0) {
+  if (recipientIds.length === 0) {
     return { success: true, notified: false }
   }
 
@@ -187,8 +201,8 @@ export async function notifyTvaPlafonOverflow(year: number): Promise<{
     `A következő hónap elsejétől a gyülekezet TVA-alannyá válik. ` +
     `Részletek: Pénzügy → Áttekintés → TVA-plafon figyelő.`
 
-  const rows = recipients.map((p) => ({
-    user_id: p.id,
+  const rows = recipientIds.map((rid) => ({
+    user_id: rid,
     congregation_id: congregationId,
     cim,
     uzenet,

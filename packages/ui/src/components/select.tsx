@@ -8,6 +8,30 @@ import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react"
 
 const Select = SelectPrimitive.Root
 
+/**
+ * 2026-08-11 (P2 #23) — semleges fókusz-kiemelés a menü-sorokon.
+ *
+ * Eddig `focus:bg-accent focus:text-accent-foreground` volt, és a
+ * `**:text-accent-foreground` MINDEN leszármazottat átfestett. Az élő `kert`
+ * témában `--accent: #6b8e4e` (olívazöld) + `--accent-foreground: #ffffff`
+ * → mérve 3,75:1, ami AA-bukás normál méretű szövegen. A base-ui ezt az
+ * állapotot egérre is beállítja, tehát nem csak billentyűzetnél látszott.
+ *
+ * A repó ezt már felismerte és a `layout/profile-switcher.tsx` +
+ * `layout/header-refined-v3.tsx` fájlokban NEUTRAL_FOCUS-szal semlegesítette —
+ * de csak ott. Most az ALAP primitívbe emeljük, hogy minden legördülő
+ * megkapja.
+ *
+ * Mérés a kert témában: `--foreground: #1c2a26` a `--secondary: #f7f5f0`
+ * háttéren 13,68:1 (sötét módban #e8e1d2 a #2a3230-on 10,10:1) — bőven AA/AAA.
+ * A `bg-secondary` viszont alig üt el a `bg-popover`-tól (1,09:1), ezért a
+ * fókusz LÁTHATÓSÁGÁT egy 2px-es belső akcentus-gyűrű adja: az olívazöld a
+ * fehér popup-háttéren 3,75:1, ami megfelel a nem-szöveges elemekre előírt
+ * 3:1-nek. Így a szöveg is olvasható, és a fókusz is jól látszik telefonon.
+ */
+const NEUTRAL_FOCUS =
+  "focus:bg-secondary focus:text-foreground focus:inset-ring-2 focus:inset-ring-accent not-data-[variant=destructive]:focus:**:text-inherit"
+
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   return (
     <SelectPrimitive.Group
@@ -117,7 +141,7 @@ function SelectItem({
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+        `relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none ${NEUTRAL_FOCUS} data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2`,
         className
       )}
       {...props}

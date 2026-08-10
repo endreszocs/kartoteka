@@ -275,7 +275,15 @@ export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged
       })
       if (match.data && match.data.length > 0) {
         const congIds = match.data.map((c) => c.matched_congregation_id)
-        const contactsRes = await getCrossMatchPastorContacts(congIds)
+        // 2026-08-11 (P0 RPC-hardening): a lelkész-elérhetőséghez „bizonyítékot"
+        // is küldünk — a szerver csak akkor adja ki, ha a megadott név +
+        // telefon / szül. dátum tényleg ERŐS egyezést ad az adott gyülekezetben.
+        const contactsRes = await getCrossMatchPastorContacts(congIds, {
+          csaladnev: data.csaladnev,
+          k_nev: data.k_nev,
+          telefon: data.telefon ?? null,
+          szDatum: data.sz_datum ?? null,
+        })
         setLoading(false)
         setCrossMatch({
           candidates: match.data,
@@ -285,6 +293,8 @@ export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged
         return // várunk a felhasználó döntésére (ugyanaz / nem ugyanaz)
       }
       // Ha a keresés hibázna, NEM blokkolunk — a mentés menjen tovább (a DB-trigger amúgy is rögzíti).
+      // 2026-08-11: jogosultsági elutasításnál barátságos tájékoztatás, nem hiba.
+      if (match.notice) toast.info(match.notice, { duration: 6000 })
     }
     await persistMember(data)
   }

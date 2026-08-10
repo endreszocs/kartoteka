@@ -29,6 +29,9 @@ export * from './layout/PageHero'
 // 2026-06-10 (B-hullám): közös színes tab-sor (web ⇄ desktop azonos tab-bar)
 export * from './layout/ColorTabs'
 export * from './form/ModalField'
+// 2026-08-11 (K5-#12): közös indoklás-bekérő dialógus a `window.prompt` helyett
+// (a natív prompt mobilon egysoros, Firefoxban letiltható → néma elérhetetlenség).
+export * from './form/ReasonPromptDialog'
 // Sprint R · Vizuális megújulás (v0.8.1) — téma-választó réteg
 export * from './theme'
 // Sprint R · Vizuális megújulás (v0.8.2) — Missziós Műhely home

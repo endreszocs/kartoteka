@@ -416,12 +416,29 @@ export async function executeGeneralImport(payload: {
   }
   if (importYears.size === 0) importYears.add(year)
   for (const y of importYears) {
-    const { data: beal } = await supabase
+    const { data: beal, error: bealErr } = await supabase
       .from('bealitas')
       .select('accounting_finalized')
       .eq('congregation_id', auth.congregationId)
       .eq('id', String(y))
       .maybeSingle()
+    // 2026-08-11 (5. kör, K5-#32 hibaosztály-lezárás): FAIL-CLOSED. Korábban az
+    // `error` el lett dobva, és a `beal?.accounting_finalized` egy hibás
+    // lekérdezésre (`beal === null`) hamis-értékű lett — vagyis a zár-olvasás
+    // bármilyen hibája NÉMÁN átengedte az importot egy már véglegesített és az
+    // egyházmegyének beküldött évbe. A „nincs `bealitas` sor" viszont NEM hiba
+    // (`maybeSingle` → `data: null, error: null`): az évet még nem
+    // konfigurálták, tehát tényleg nincs véglegesítve.
+    if (bealErr) {
+      return {
+        ...base,
+        error:
+          `Nem sikerült ellenőrizni, hogy a ${y}. évi számadás véglegesítve van-e ` +
+          `(${bealErr.message}), ezért az importot biztonságból megszakítottuk — egy már lezárt ` +
+          'évet nem nyithatunk ki véletlenül. Ellenőrizd az internetkapcsolatot, és próbáld újra; ' +
+          'ha újra hibázik, jelezd a rendszergazdának.',
+      }
+    }
     if (beal?.accounting_finalized) {
       return {
         ...base,

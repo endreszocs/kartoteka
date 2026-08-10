@@ -15,6 +15,10 @@ export * from './types'
 export * from './helpers'
 // 2026-06-10: tartozás-számító motor (web↔desktop közös — determinizmus garancia)
 export * from './jarulek-calculation'
+// 2026-08-11 (5. kör, P3 #4): a befizetés-cél kód kibontása + a 101.01
+// (egyházfenntartói járulék) felismerése — eddig NÉGY kézzel karbantartott
+// másolatban élt, egyikük eltérő (`??`) fallback-szemantikával.
+export * from './payment-goal-code'
 export * from './rental-calculation'
 // 2026-06-10 (B-hullám): közös Pénzügy-hero (web ⇄ desktop azonos fejléc)
 export * from './FinanceHero'

@@ -64,7 +64,36 @@ export interface CrossMatchNotification {
   created_at: string
 }
 
+// ─── 0. Hiba-fordítás (2026-08-11, P0 RPC-hardening) ─────────────────────
+//
+// A megkeményített RPC-k (2026-08-11-cross-match-rpc-hardening.sql) magyar
+// nyelvű `RAISE EXCEPTION`-nel utasítják el a jogosulatlan hívást. Ezek NEM
+// összeomlást érdemelnek, hanem barátságos üzenetet: a tag-felvitel sose
+// akadjon el egy elérhetőség-lekérdezés miatt.
+
+/** Igaz, ha az RPC jogosultsági/korlát-hibát adott (nem technikai hiba). */
+function isRpcPermissionError(message: string | null | undefined): boolean {
+  if (!message) return false
+  return /Nincs jogosultság|Nincs bejelentkezett felhaszn|legfeljebb 20 gy/i.test(message)
+}
+
+/** Igaz, ha a függvény (vagy a paraméter-készlete) még nem létezik a DB-ben. */
+function isMissingRpcSignature(
+  error: { code?: string | null; message?: string | null } | null | undefined,
+): boolean {
+  if (!error) return false
+  if (error.code === 'PGRST202') return true
+  return /Could not find the function|schema cache|does not exist/i.test(error.message || '')
+}
+
 // ─── 1. find_potential_cross_congregation_match wrapper ──────────────────
+//
+// 2026-08-11: a `excludeCongregationId` bemenet MEGSZŰNT. A kizárandó
+// gyülekezet MINDIG a szerveroldalon feloldott hatókör (`effectiveCongregationId`),
+// a kliens nem tudja kikapcsolni a saját-gyülekezet kizárását. A megkeményített
+// RPC egyébként is felülírja a paramétert a saját gyülekezettel — ezt itt csak
+// azért küldjük tovább, hogy a felület a SQL LEFUTÁSA ELŐTT is helyesen
+// működjön (a régi függvény még ebből dolgozik).
 
 export async function findPotentialCrossMatch(input: {
   csaladnev: string
@@ -72,8 +101,7 @@ export async function findPotentialCrossMatch(input: {
   telefon?: string | null
   szDatum?: string | null  // YYYY-MM-DD
   excludeSzemelyId?: number | null
-  excludeCongregationId?: string | null
-}): Promise<{ data?: CrossMatchCandidate[]; error?: string }> {
+}): Promise<{ data?: CrossMatchCandidate[]; error?: string; notice?: string }> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
 
@@ -88,10 +116,19 @@ export async function findPotentialCrossMatch(input: {
     p_telefon: input.telefon ?? null,
     p_sz_datum: input.szDatum ?? null,
     p_exclude_szemely_id: input.excludeSzemelyId ?? null,
-    p_exclude_congregation_id: input.excludeCongregationId ?? access.effectiveCongregationId,
+    // SZERVEROLDALI hatókör — a kliens értéke ide sosem jut el.
+    p_exclude_congregation_id: access.effectiveCongregationId,
   })
 
   if (error) {
+    if (isRpcPermissionError(error.message)) {
+      // Jogosulatlan/korlátozott hívás — a mentés menjen tovább, ne omoljon össze.
+      return {
+        data: [],
+        notice:
+          'A kereszt-gyülekezeti ellenőrzés ehhez a fiókhoz nem érhető el — a tag mentése ettől még folytatható.',
+      }
+    }
     return { error: `A cross-congregation keresés sikertelen: ${error.message}` }
   }
 
@@ -99,22 +136,72 @@ export async function findPotentialCrossMatch(input: {
 }
 
 // ─── 1b. Lelkész-elérhetőség a talált gyülekezet(ek)hez ───────────────────
+//
+// 2026-08-11: a megkeményített RPC CSAK olyan gyülekezet elérhetőségét adja ki,
+// amelyhez a hívónak valódi köze van. Új tag felvitelekor még NINCS rögzített
+// egyezés-sor, ezért a hívás mellé „bizonyítékot" küldünk: a felvitt személy
+// neve + telefonja / születési dátuma. A szerver ezzel ellenőrzi, hogy az adott
+// gyülekezetben tényleg van ERŐS egyezés — csak akkor adja ki a lelkész
+// hivatalos elérhetőségét.
+//
+// Visszafelé kompatibilitás: ha a hardening-SQL még NEM futott le, a bővített
+// paraméterkészletű hívás PGRST202-vel elbukik → automatikusan újrapróbáljuk a
+// régi, egy paraméteres formával. Így a felület a SQL előtt és után is működik.
+
+/** A keresés alanya — az új/módosított tag azonosító adatai (bizonyíték). */
+export interface CrossMatchSubject {
+  csaladnev: string
+  k_nev: string
+  telefon?: string | null
+  szDatum?: string | null  // YYYY-MM-DD
+}
 
 export async function getCrossMatchPastorContacts(
   congregationIds: string[],
-): Promise<{ data?: CrossMatchPastorContact[]; error?: string }> {
+  subject?: CrossMatchSubject,
+): Promise<{ data?: CrossMatchPastorContact[]; error?: string; notice?: string }> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
 
   const ids = Array.from(new Set(congregationIds.filter(Boolean)))
   if (ids.length === 0) return { data: [] }
 
+  // A szerveroldali korlát 20 gyülekezet/hívás — a felesleget itt vágjuk le,
+  // hogy a felület sose kapjon korlát-hibát.
+  const cappedIds = ids.slice(0, 20)
+
   const supabase = await createClient()
-  const { data, error } = await supabase.rpc('get_cross_match_pastor_contacts', {
-    p_congregation_ids: ids,
-  })
+
+  const callRpc = async (withSubject: boolean) =>
+    supabase.rpc(
+      'get_cross_match_pastor_contacts',
+      withSubject && subject
+        ? {
+            p_congregation_ids: cappedIds,
+            p_csaladnev: subject.csaladnev,
+            p_k_nev: subject.k_nev,
+            p_telefon: subject.telefon ?? null,
+            p_sz_datum: subject.szDatum ?? null,
+          }
+        : { p_congregation_ids: cappedIds },
+    )
+
+  let { data, error } = await callRpc(Boolean(subject))
+
+  // A hardening-SQL még nem futott le → visszaesünk a régi hívási formára.
+  if (error && subject && isMissingRpcSignature(error)) {
+    ;({ data, error } = await callRpc(false))
+  }
 
   if (error) {
+    if (isRpcPermissionError(error.message)) {
+      // A dialógus ilyenkor a beépített „nincs rögzítve" szöveget mutatja.
+      return {
+        data: [],
+        notice:
+          'A másik gyülekezet lelkészének elérhetősége ehhez a fiókhoz nem kérhető le — egyeztess az egyházmegyei hivatallal.',
+      }
+    }
     return { error: `A lelkész-elérhetőség lekérdezése sikertelen: ${error.message}` }
   }
 

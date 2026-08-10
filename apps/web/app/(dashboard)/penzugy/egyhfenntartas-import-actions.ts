@@ -469,11 +469,25 @@ export async function executeEgyhfImport(
     ),
   )
   if (importYears.length > 0) {
-    const { data: lockRows } = await supabase
+    const { data: lockRows, error: lockErr } = await supabase
       .from('bealitas')
       .select('id, accounting_finalized')
       .eq('congregation_id', profile.congregation_id)
       .in('id', importYears.map(String))
+    // 2026-08-11 (5. kör, K5-#32 hibaosztály-lezárás): FAIL-CLOSED. Az `error`
+    // korábban el lett dobva, és a `(lockRows || [])` üres tömbje miatt a
+    // `closedYears` üres lett — vagyis a zár-lekérdezés bármilyen hibája NÉMÁN
+    // átengedte az egyházfenntartás-importot egy már véglegesített és beküldött
+    // évbe. Ha a zárat nem tudjuk ellenőrizni, NEM importálunk.
+    if (lockErr) {
+      result.errors.push(
+        `Nem sikerült ellenőrizni, hogy az importban szereplő év(ek) számadása véglegesítve ` +
+          `van-e (${lockErr.message}), ezért az importot biztonságból megszakítottuk — egy már ` +
+          'lezárt évet nem nyithatunk ki véletlenül. Ellenőrizd az internetkapcsolatot, és ' +
+          'próbáld újra; ha újra hibázik, jelezd a rendszergazdának.',
+      )
+      return result
+    }
     const closedYears = ((lockRows || []) as Array<{ id: string; accounting_finalized: boolean | null }>)
       .filter((r) => r.accounting_finalized)
       .map((r) => Number(r.id))

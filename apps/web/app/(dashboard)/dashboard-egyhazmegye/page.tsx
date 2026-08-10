@@ -95,9 +95,13 @@ export default async function EgyhazmegyeDashboardPage() {
   const { count: congregationCount } = await congregationsQuery
 
   // Engedélyezett adatforrások (gyülekezet-szintű részletek nélkül).
-  // 2026-08-09: a dokumentumközpont-adatcsomag MINDEN évet hoz (a vagyonleltár
-  // year-1 kulcsú, a januári számadás az előző évhez tartozik) + a hatókör
-  // TELJES gyülekezet-listáját a teljességi mátrixhoz.
+  // 2026-08-09: a dokumentumközpont-adatcsomag a hatókör TELJES gyülekezet-
+  // listáját hozza a teljességi mátrixhoz.
+  // 2026-08-11 (5. kör, P2-#19): a beküldés-sorok alapból a RELEVÁNS év-ablakra
+  // korlátozódnak (beszámolási szezon éve + előző év + naptári év — így a
+  // year-1 kulcsú vagyonleltár és a januári számadás továbbra is látszik), és
+  // a jsonb-pillanatkép nem utazik velük. A régebbi éveket az év-választó, a
+  // pillanatképet a snapshot-néző kéri le.
   const [
     congregationOverview,
     documentCenter,
@@ -132,7 +136,9 @@ export default async function EgyhazmegyeDashboardPage() {
         chips={[
           districtName ? `Egyházkerület: ${districtName}` : 'Kerületi kapcsolat nélkül',
           `${(congregationCount ?? 0).toLocaleString('hu-HU')} gyülekezet`,
-          `${documentCenter.submissions.length.toLocaleString('hu-HU')} beküldött dokumentum (archívum)`,
+          // 2026-08-11 (P2-#19): a TELJES archívum darabszáma (olcsó
+          // darabszám-lekérdezésből), nem a betöltött év-ablak mérete.
+          `${(documentCenter.totalCount ?? documentCenter.submissions.length).toLocaleString('hu-HU')} beküldött dokumentum (archívum)`,
           totalRequests > 0 ? `${totalRequests} aktív kérelem` : undefined,
         ].filter(Boolean) as string[]}
       />

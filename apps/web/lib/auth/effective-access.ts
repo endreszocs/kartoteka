@@ -57,6 +57,16 @@ type RedirectProfile = {
   congregation_id?: string | null
 } | null
 
+/**
+ * A `getActiveOverride` hatókör-újraellenőrzéséhez szükséges minimális kontextus
+ * (az `admin-scope.ts` ScopeAccess-ének megfelelő részhalmaz). Külön típus, hogy
+ * ne kelljen a még össze nem állított `EffectiveAccessContext`-et átadni.
+ */
+type OverrideScopeAccess = Pick<
+  EffectiveAccessContext,
+  'supabase' | 'master' | 'admin' | 'egyhazkeruletiAdmin' | 'profileRoles' | 'profile'
+>
+
 export interface EffectiveOverrideInfo {
   active: boolean
   congregationId?: string
@@ -209,6 +219,7 @@ async function getAssignedCongregations(
 async function getActiveOverride(
   supabase: SupabaseServerClient,
   userId: string,
+  scopeAccess: OverrideScopeAccess,
 ): Promise<EffectiveOverrideInfo> {
   const { data } = await supabase
     .from('admin_access_requests')
@@ -222,6 +233,19 @@ async function getActiveOverride(
 
   const overrideRow = data as OverrideRow | null
   if (!overrideRow?.congregation_id) {
+    return { active: false }
+  }
+
+  // 2026-08-11 (#14): a hatókört a sor FELHASZNÁLÁSAKOR is újra kikényszerítjük.
+  // Az `enterCongregation` ugyan ellenőriz belépéskor, de az `admin_access_requests`
+  // sor 2 óráig él, és a kerületi admin hatóköre közben elveszhet (szerepkör-
+  // visszavonás, kerület-átsorolás) — vagy a sor a lelkészi jóváhagyó ágon
+  // keletkezett. Fail-closed: ha a gyülekezet nem esik az admin hatókörébe,
+  // az override egyszerűen nem aktív.
+  try {
+    const { assertCongregationInScope } = await import('@/lib/auth/admin-scope')
+    await assertCongregationInScope(scopeAccess, overrideRow.congregation_id)
+  } catch {
     return { active: false }
   }
 
@@ -300,13 +324,6 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
   const szamvevo = isSzamvevoRole(role)
   const profileCongregationId = profile?.congregation_id || null
 
-  // BIZTONSÁGI: override csak aktív god mode sessionnel érvényes
-  const godModeActive = master ? await hasActiveGodModeSession() : false
-  const override =
-    !missingPrimaryRole && godModeActive
-      ? await getActiveOverride(supabase, user.id)
-      : { active: false }
-
   // FÁZIS 3 (2026-04-17): multi-role és aktív kontextus feloldás — ELSŐ a scope döntéshez
   const profileRoles = missingPrimaryRole ? [] : await loadProfileRoles(supabase, user.id)
   const activeProfileRole = missingPrimaryRole
@@ -319,6 +336,32 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
         profile?.district_id || null,
       )
 
+  // BIZTONSÁGI: a master admin override-ja továbbra is CSAK aktív god mode
+  // sessionnel érvényes (lásd a hasActiveGodModeSession docblockját).
+  //
+  // 2026-08-11 (#14) FIX: eddig ez volt az EGYETLEN feltétel, ezért a
+  // `admin_access_requests` táblát a master+god mode páron kívül SENKI nem
+  // fogyasztotta. Következmény: a kerületi admin „Belépés a gyülekezetbe" gombja
+  // `{success:true}`-t és „2 órás hozzáférés jött létre" üzenetet adott, de az
+  // `effectiveCongregationId` sosem változott; a lelkészi jóváhagyáson alapuló
+  // (consent) hozzáférés-kérés teljes folyamata — értesítés, jóváhagyás, e-mail —
+  // szintén hatástalan volt. Mostantól a teljes (system) admin és az egyházkerületi
+  // admin override-ja is érvényes, a hatókört pedig a `getActiveOverride`
+  // gyülekezetenként ÚJRA ellenőrzi (fail-closed).
+  const godModeActive = master ? await hasActiveGodModeSession() : false
+  const overrideAllowed =
+    !missingPrimaryRole && (master ? godModeActive : admin || egyhazkeruletiAdmin)
+  const override = overrideAllowed
+    ? await getActiveOverride(supabase, user.id, {
+        supabase,
+        master,
+        admin,
+        egyhazkeruletiAdmin,
+        profileRoles,
+        profile: profile ?? null,
+      })
+    : { active: false }
+
   // 2026-04-19 BUGFIX (Endre): ha az aktív profile_role scope-ja NEM 'congregation'
   // (pl. system=admin, diocese=esperes, district=kerületi admin), akkor a gyülekezet
   // kontextust NE propagáljuk — különben az admin/esperes látná a saját
@@ -329,6 +372,14 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
   let effectiveCongregationId: string | null
   if (missingPrimaryRole) {
     effectiveCongregationId = null
+  } else if (override.active && override.congregationId) {
+    // 2026-08-11 (#14): az AKTÍV admin-override MINDEN más szabályt megelőz.
+    // Enélkül a kerületi/teljes admin belépése akkor is hatástalan maradt volna,
+    // ha az override-sor létrejön: az aktív profile_role scope-ja ugyanis
+    // 'district'/'system', amire a következő ág `null`-t adna — pontosan ezért
+    // tűnt „sikeresnek, de semmit nem csinálónak" a Belépés a gyülekezetbe.
+    // A sor hatókörét a getActiveOverride már újraellenőrizte.
+    effectiveCongregationId = override.congregationId
   } else if (activeProfileRole && activeProfileRole.scope !== 'congregation') {
     // Admin/diocese/district scope — nincs saját gyülekezet kontextus
     effectiveCongregationId = null

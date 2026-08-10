@@ -56,6 +56,34 @@ import { formatCurrency } from '@/lib/constants/finance'
 
 type WizardStep = 'overview' | 'checks' | 'jegyzokonyv' | 'confirm' | 'done'
 
+/**
+ * 2026-08-11 (P1 #2): a check-lista „Javítás" gombjainak navigációja.
+ *
+ * Két hiba volt egyszerre, ezért maradt a lelkész mind a 8 gombnál a Pénzügy
+ * Dashboard fülön:
+ *  1. a szerver `/penzugy?tab=…` URL-t adott, amit a /penzugy oldal SOHA nem
+ *     olvasott — a fül-váltás kizárólag `#hash` alapú (finance-tabs.tsx
+ *     `applyHashToTab`). Ez a finalization-actions.ts-ben javítva.
+ *  2. a wizard UGYANAZON az oldalon fut, tehát a `router.push('/penzugy#bank')`
+ *     azonos útvonalra mutat: a Next.js ilyenkor `history.pushState`-et hív,
+ *     ami NEM vált ki `hashchange` eseményt → a fül-figyelő némán kimaradna.
+ *     (Ugyanezt a csapdát kerüli meg a sidebar-adaptive-v4.tsx is.)
+ *
+ * Ezért azonos útvonalnál a FinanceTabs már meglévő `finance-tab-switch`
+ * CustomEvent-jét küldjük: az a valódi füleket átváltja (és a saját effektje
+ * frissíti utána az URL hash-t), az `oblio_ellenorzes` a teljes képernyős
+ * modált, a `monetary` a lebegő widgetet nyitja. Más útvonalról (védelmi ág)
+ * marad a sima `router.push`, ott a lapváltás úgyis kiolvassa a hash-t.
+ */
+function navigateToFixTarget(router: ReturnType<typeof useRouter>, url: string) {
+  const [path, hash] = url.split('#')
+  if (typeof window !== 'undefined' && hash && window.location.pathname === path) {
+    window.dispatchEvent(new CustomEvent('finance-tab-switch', { detail: hash }))
+    return
+  }
+  router.push(url)
+}
+
 type JkvMode = 'kartoteka' | 'manual'
 
 type Props = {
@@ -442,7 +470,7 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
                   {checks.items.map((item) => (
                     <CheckItemCard key={item.key} item={item} onFix={(url) => {
                       onOpenChange(false)
-                      router.push(url)
+                      navigateToFixTarget(router, url)
                     }} />
                   ))}
 

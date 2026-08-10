@@ -32,6 +32,7 @@
  */
 
 import { revalidatePath } from 'next/cache'
+import { selectAllPaged } from '@kartoteka/supabase-client'
 import { getEffectiveAccessContext, type EffectiveAccessContext } from '@/lib/auth/effective-access'
 import {
   getDioceseScopeContext,
@@ -40,7 +41,7 @@ import {
   resolveDistrictScopeIds,
 } from '@/lib/auth/level-scope'
 import type { DocumentType, DocumentStatus, DocumentSubmission } from '@/lib/constants/documents'
-import { DOCUMENT_TYPE_LABELS } from '@/lib/constants/documents'
+import { DOCUMENT_TYPE_LABELS, documentSeasonYear } from '@/lib/constants/documents'
 import type {
   DocumentActionResult,
   DocumentCenterCongregation,
@@ -57,10 +58,22 @@ const PAGE_SIZE = 1000
 /** Az .in() lista darabolása — a PostgREST URL-hossz plafonja miatt. */
 const IN_CHUNK = 120
 
+/**
+ * A LISTA/mátrix oszlopai.
+ *
+ * 2026-08-11 (5. kör, P2-#19): a `snapshot_data` KIKERÜLT innen. Az a
+ * fagyasztott jsonb pillanatkép beküldésenként 1–3 KB (a számadásnál a teljes
+ * bevétel/kiadás térkép számadási kódonként); ~500 gyülekezet × 6 dokumentum
+ * mellett ez évi ~6 MB, amit a szerver kiolvasott, az RSC-csomagba
+ * sorosított, és a böngésző minden egyes /dashboard-kerulet és
+ * /dashboard-egyhazmegye megnyitáskor újra beparsolt — egyetlen, ritkán
+ * kinyitott részletkártya kedvéért, ÉVRŐL ÉVRE növekedve. A pillanatképet
+ * most a snapshot-néző kéri le, darabonként (getSubmissionSnapshot).
+ */
 const SUBMISSION_COLUMNS =
   'id, congregation_id, diocese_id, year, document_type, modification_number, status, ' +
   'submitted_at, received_at, reviewed_at, finalized_at, forwarded_to_kerulet, forwarded_at, ' +
-  'snapshot_data, notes'
+  'notes'
 
 /** Visszaküldött dokumentum javítási felülete dokumentum-típusonként. */
 const RETURN_LINKS: Record<DocumentType, string> = {
@@ -103,26 +116,26 @@ async function fetchCongregations(
   supabase: Supa,
   dioceseIds: string[] | null,
 ): Promise<Array<{ id: string; name: string; diocese_id: string | null }>> {
-  const all: Array<{ id: string; name: string; diocese_id: string | null }> = []
-  for (let from = 0; ; from += PAGE_SIZE) {
-    let q = supabase
-      .from('congregations')
-      .select('id, name, nev_hu, diocese_id')
-      .order('name')
-      .range(from, from + PAGE_SIZE - 1)
-    if (dioceseIds) q = q.in('diocese_id', dioceseIds)
-    const { data, error } = await q
-    if (error || !data) break
-    for (const r of data as Array<Record<string, unknown>>) {
-      all.push({
-        id: String(r.id),
-        name: congDisplayName(r as { name?: string | null; nev_hu?: string | null }),
-        diocese_id: (r.diocese_id as string | null) ?? null,
-      })
-    }
-    if (data.length < PAGE_SIZE) break
+  // 2026-08-11 (5. kör, P3 #15): KÖZÖS `selectAllPaged`. A régi ciklus a
+  // `data.length < PAGE_SIZE` stop-feltételt használta, és `name` szerint
+  // rendezett — ami NEM egyedi, tehát a laphatáron amúgy is csúszhatott. A
+  // helper `id` ASC döntetlen-bontót fűz hozzá, és csak ÜRES lapnál áll meg.
+  let q = supabase
+    .from('congregations')
+    .select('id, name, nev_hu, diocese_id')
+    .order('name')
+  if (dioceseIds) q = q.in('diocese_id', dioceseIds)
+  const { data, error } = await selectAllPaged<Record<string, unknown>>(q)
+  if (error) {
+    // A hívó tömböt vár; a rövid lista némán kevesebb beküldést mutatna, ezért
+    // legalább a szerver-naplóban hangosan jelezzük.
+    console.error('[document-actions] gyülekezet-lista lekérdezése hiba:', error.message)
   }
-  return all
+  return data.map((r) => ({
+    id: String(r.id),
+    name: congDisplayName(r as { name?: string | null; nev_hu?: string | null }),
+    diocese_id: (r.diocese_id as string | null) ?? null,
+  }))
 }
 
 /**
@@ -132,29 +145,84 @@ async function fetchCongregations(
 async function fetchSubmissions(
   supabase: Supa,
   congIds: string[] | null,
-  opts: { year?: number | null; districtVisibleOnly?: boolean },
+  opts: { year?: number | null; years?: number[] | null; districtVisibleOnly?: boolean },
 ): Promise<Array<Record<string, unknown>>> {
+  // 2026-08-11 (5. kör, P3 #15): KÖZÖS `selectAllPaged` a belső ciklus helyett.
+  // A `submitted_at` NEM egyedi (egy szezonban több gyülekezet is beküldhet
+  // ugyanabban a másodpercben), ezért a helper `id` ASC döntetlen-bontója KELL
+  // — enélkül a laphatáron beküldés csúszhatott ki a listából. A rövid lapra
+  // kilépő stop-feltétel ugyanitt a beküldések felét tüntette volna el.
   const rows: Array<Record<string, unknown>> = []
   const idChunks = congIds ? chunk(congIds, IN_CHUNK) : [null]
   for (const ids of idChunks) {
     if (ids && ids.length === 0) continue
-    for (let from = 0; ; from += PAGE_SIZE) {
-      let q = supabase
-        .from('document_submissions')
-        .select(SUBMISSION_COLUMNS)
-        .order('submitted_at', { ascending: false })
-        .range(from, from + PAGE_SIZE - 1)
-      if (ids) q = q.in('congregation_id', ids)
-      if (opts.year != null) q = q.eq('year', opts.year)
-      // A kerületi láthatósági szabály — BYTE-ra a RLS 1a) policy-vel azonos.
-      if (opts.districtVisibleOnly) q = q.or('forwarded_to_kerulet.eq.true,status.eq.finalized')
-      const { data, error } = await q
-      if (error || !data) break
-      rows.push(...(data as unknown as Array<Record<string, unknown>>))
-      if (data.length < PAGE_SIZE) break
+    let q = supabase
+      .from('document_submissions')
+      .select(SUBMISSION_COLUMNS)
+      .order('submitted_at', { ascending: false })
+    if (ids) q = q.in('congregation_id', ids)
+    if (opts.year != null) q = q.eq('year', opts.year)
+    // 2026-08-11 (P2-#19): év-ABLAK — alapból csak a releváns évek utaznak.
+    else if (opts.years && opts.years.length > 0) q = q.in('year', opts.years)
+    // A kerületi láthatósági szabály — BYTE-ra a RLS 1a) policy-vel azonos.
+    if (opts.districtVisibleOnly) q = q.or('forwarded_to_kerulet.eq.true,status.eq.finalized')
+    const { data, error } = await selectAllPaged<Record<string, unknown>>(q)
+    if (error) {
+      console.error('[document-actions] beküldések lekérdezése hiba:', error.message)
     }
+    rows.push(...data)
   }
   return rows
+}
+
+/**
+ * 2026-08-11 (5. kör, P2-#19): az ÉVLISTA és a teljes darabszám külön, OLCSÓ
+ * lekérdezésből jön (csak a `year` oszlop, sor/4 bájt). Így az év-választó
+ * chipek és az „archívum" felirat továbbra is a TELJES archívumot tükrözik,
+ * miközben a részletes sorok csak a betöltött év-ablakra korlátozódnak.
+ */
+async function fetchSubmissionYearStats(
+  supabase: Supa,
+  congIds: string[] | null,
+  opts: { districtVisibleOnly?: boolean },
+): Promise<{ years: number[]; totalCount: number }> {
+  // 2026-08-11 (5. kör, P3 #15): KÖZÖS `selectAllPaged`. A `year` szerinti
+  // rendezés önmagában ERŐSEN nem egyedi (évente több száz azonos érték), a
+  // `data.length < PAGE_SIZE` stop pedig leszállított szerver-plafonnál az első
+  // lap után kilépett — az „archívum" darabszám és az év-választó chipek így
+  // hihető, de hiányos képet adtak volna. Az `id` döntetlen-bontót a helper adja.
+  const years = new Set<number>()
+  let totalCount = 0
+  const idChunks = congIds ? chunk(congIds, IN_CHUNK) : [null]
+  for (const ids of idChunks) {
+    if (ids && ids.length === 0) continue
+    let q = supabase
+      .from('document_submissions')
+      .select('id, year')
+      .order('year', { ascending: false })
+    if (ids) q = q.in('congregation_id', ids)
+    if (opts.districtVisibleOnly) q = q.or('forwarded_to_kerulet.eq.true,status.eq.finalized')
+    const { data, error } = await selectAllPaged<{ year: number | null }>(q)
+    if (error) {
+      console.error('[document-actions] év-statisztika lekérdezése hiba:', error.message)
+    }
+    for (const r of data) {
+      totalCount += 1
+      if (typeof r.year === 'number' && Number.isFinite(r.year)) years.add(r.year)
+    }
+  }
+  return { years: [...years].sort((a, b) => b - a), totalCount }
+}
+
+/**
+ * Az alapból betöltött év-ablak: a beszámolási szezon éve, az azt megelőző év,
+ * és a naptári év. Január–márciusban a szezon-év az ELŐZŐ év, ezért a naptári
+ * évet is beletesszük — így a frissen beküldött (year-kulcsolású) iratok
+ * egyike sem tűnhet el a nézetből.
+ */
+function defaultLoadedYears(): number[] {
+  const season = documentSeasonYear()
+  return [...new Set([new Date().getFullYear(), season, season - 1])].sort((a, b) => b - a)
 }
 
 /**
@@ -733,31 +801,30 @@ export async function acknowledgeKeruletReceipt(
 // ---------------------------------------------------------------------------
 
 /**
- * A dokumentumközpont adatcsomagja: a hatókör TELJES gyülekezet-listája
- * (nem a beküldésekből! — így a „ki nem adta be" megválaszolható,
- * diagnosztika #7) + MINDEN év beküldései + évlista.
- *
- * scope='diocese': a feloldott egyházmegye gyülekezetei, minden státusz.
- * scope='district': a kerület megyéinek gyülekezetei, kerületi láthatósággal
- * (forwarded VAGY finalized — a RLS-sel azonos szabály).
- * FAIL-CLOSED: feloldhatatlan hatókör → error + üres tömbök; a szűretlen ág
- * csak a rendszergazdáé/masteré (scopeNotice felirattal).
+ * A hatókör feloldva EGY helyen (2026-08-11, 5. kör, P2-#19), hogy a
+ * teljességi mátrix, az év-utántöltés és a pillanatkép-lekérés BIZTOSAN
+ * ugyanazt a fail-closed szabályt alkalmazza. `congIds = null` → szűretlen,
+ * ami KIZÁRÓLAG a feliratozott rendszergazdai/master ágon fordulhat elő.
  */
-export async function getSubmissionMatrix(
-  scope: 'diocese' | 'district',
-): Promise<DocumentCenterData> {
-  const empty: DocumentCenterData = {
-    congregations: [],
-    submissions: [],
-    years: [],
-    scopeNotice: null,
-  }
+interface ResolvedDocScope {
+  supabase: Supa
+  congs: Array<{ id: string; name: string; diocese_id: string | null }>
+  congIds: string[] | null
+  congNames: Map<string, string>
+  dioceseNames: Map<string, string>
+  dioceseNameByCong: Map<string, string | null>
+  scopeNotice: string | null
+  districtVisibleOnly: boolean
+}
 
+async function resolveDocumentScope(
+  scope: 'diocese' | 'district',
+): Promise<{ ok: true; value: ResolvedDocScope } | { ok: false; error: string }> {
   if (scope === 'diocese') {
     const ctx = await getDioceseScopeContext()
-    if (!ctx.user) return { ...empty, error: 'Nincs bejelentkezve.' }
+    if (!ctx.user) return { ok: false, error: 'Nincs bejelentkezve.' }
     if (!ctx.access.esperes && !ctx.isAdmin && !ctx.isMaster) {
-      return { ...empty, error: 'Nincs jogosultsága az egyházmegyei dokumentumokhoz.' }
+      return { ok: false, error: 'Nincs jogosultsága az egyházmegyei dokumentumokhoz.' }
     }
 
     let congs: Array<{ id: string; name: string; diocese_id: string | null }>
@@ -768,34 +835,33 @@ export async function getSubmissionMatrix(
       congs = await fetchCongregations(ctx.supabase, null)
       scopeNotice = 'Rendszergazdai nézet: minden egyházmegye gyülekezetei látszanak.'
     } else {
-      return { ...empty, error: 'Nincs feloldható egyházmegye-hatóköre — az adatok védelme érdekében nem jelenítünk meg listát.' }
+      return {
+        ok: false,
+        error:
+          'Nincs feloldható egyházmegye-hatóköre — az adatok védelme érdekében nem jelenítünk meg listát.',
+      }
     }
 
-    const congNames = new Map(congs.map((c) => [c.id, c.name]))
-    const rows = await fetchSubmissions(ctx.supabase, ctx.scopeId ? congs.map((c) => c.id) : null, {
-      year: null,
-    })
-    const submissions = sortBySubmittedDesc(rows.map((r) => toSubmission(r, congNames)))
     return {
-      congregations: congs.map(
-        (c): DocumentCenterCongregation => ({
-          id: c.id,
-          name: c.name,
-          dioceseId: c.diocese_id,
-          dioceseName: null,
-        }),
-      ),
-      submissions,
-      years: collectYears(submissions),
-      scopeNotice,
+      ok: true,
+      value: {
+        supabase: ctx.supabase,
+        congs,
+        congIds: ctx.scopeId ? congs.map((c) => c.id) : null,
+        congNames: new Map(congs.map((c) => [c.id, c.name])),
+        dioceseNames: new Map(),
+        dioceseNameByCong: new Map(),
+        scopeNotice,
+        districtVisibleOnly: false,
+      },
     }
   }
 
   // scope === 'district'
   const ctx = await getDistrictScopeContext()
-  if (!ctx.user) return { ...empty, error: 'Nincs bejelentkezve.' }
+  if (!ctx.user) return { ok: false, error: 'Nincs bejelentkezve.' }
   if (!ctx.access.egyhazkeruletiAdmin && !ctx.isAdmin && !ctx.isMaster) {
-    return { ...empty, error: 'Nincs jogosultsága az egyházkerületi dokumentumokhoz.' }
+    return { ok: false, error: 'Nincs jogosultsága az egyházkerületi dokumentumokhoz.' }
   }
 
   let dioceseNames = new Map<string, string>()
@@ -816,18 +882,84 @@ export async function getSubmissionMatrix(
     congs = await fetchCongregations(ctx.supabase, null)
     scopeNotice = 'Rendszergazdai nézet: minden egyházkerület dokumentumai látszanak.'
   } else {
-    return { ...empty, error: 'Nincs feloldható egyházkerület-hatóköre — az adatok védelme érdekében nem jelenítünk meg listát.' }
+    return {
+      ok: false,
+      error:
+        'Nincs feloldható egyházkerület-hatóköre — az adatok védelme érdekében nem jelenítünk meg listát.',
+    }
   }
 
-  const congNames = new Map(congs.map((c) => [c.id, c.name]))
-  const dioceseNameByCong = new Map(
-    congs.map((c) => [c.id, c.diocese_id ? dioceseNames.get(c.diocese_id) ?? null : null]),
-  )
-  const rows = await fetchSubmissions(
-    ctx.supabase,
-    ctx.districtIds.length > 0 ? congs.map((c) => c.id) : null,
-    { year: null, districtVisibleOnly: true },
-  )
+  return {
+    ok: true,
+    value: {
+      supabase: ctx.supabase,
+      congs,
+      congIds: ctx.districtIds.length > 0 ? congs.map((c) => c.id) : null,
+      congNames: new Map(congs.map((c) => [c.id, c.name])),
+      dioceseNames,
+      dioceseNameByCong: new Map(
+        congs.map((c) => [c.id, c.diocese_id ? dioceseNames.get(c.diocese_id) ?? null : null]),
+      ),
+      scopeNotice,
+      districtVisibleOnly: true,
+    },
+  }
+}
+
+/**
+ * A dokumentumközpont adatcsomagja: a hatókör TELJES gyülekezet-listája
+ * (nem a beküldésekből! — így a „ki nem adta be" megválaszolható,
+ * diagnosztika #7) + a BETÖLTÖTT évek beküldései + a teljes évlista.
+ *
+ * 2026-08-11 (5. kör, P2-#19) — ÉV-ABLAK: korábban `year: null`-lal MINDEN
+ * év MINDEN beküldése (a teljes jsonb pillanatképekkel együtt) bekerült a
+ * kliens-csomagba, és ez évente ~6 MB-tal nőtt, örökre. Alapból most csak a
+ * beszámolási szezon éve + az előző év + a naptári év töltődik; a
+ * régebbi éveket az év-választó kéri le (getSubmissionsForYear). Az
+ * év-chipek és az archívum-darabszám továbbra is a TELJES archívumot
+ * tükrözik (olcsó, csak a `year` oszlopot olvasó lekérdezésből).
+ *
+ * scope='diocese': a feloldott egyházmegye gyülekezetei, minden státusz.
+ * scope='district': a kerület megyéinek gyülekezetei, kerületi láthatósággal
+ * (forwarded VAGY finalized — a RLS-sel azonos szabály).
+ * FAIL-CLOSED: feloldhatatlan hatókör → error + üres tömbök; a szűretlen ág
+ * csak a rendszergazdáé/masteré (scopeNotice felirattal).
+ */
+export async function getSubmissionMatrix(
+  scope: 'diocese' | 'district',
+  /** `years: null` → explicit „minden év" (a felhasználó kérte). */
+  opts?: { years?: number[] | null },
+): Promise<DocumentCenterData> {
+  const empty: DocumentCenterData = {
+    congregations: [],
+    submissions: [],
+    years: [],
+    loadedYears: [],
+    totalCount: 0,
+    scopeNotice: null,
+  }
+
+  const resolved = await resolveDocumentScope(scope)
+  if (!resolved.ok) return { ...empty, error: resolved.error }
+  const {
+    supabase,
+    congs,
+    congIds,
+    congNames,
+    dioceseNames,
+    dioceseNameByCong,
+    scopeNotice,
+    districtVisibleOnly,
+  } = resolved.value
+
+  const loadedYears =
+    opts?.years === null ? null : opts?.years?.length ? [...opts.years] : defaultLoadedYears()
+
+  const [rows, stats] = await Promise.all([
+    fetchSubmissions(supabase, congIds, { years: loadedYears, districtVisibleOnly }),
+    fetchSubmissionYearStats(supabase, congIds, { districtVisibleOnly }),
+  ])
+
   const submissions = sortBySubmittedDesc(
     rows.map((r) => toSubmission(r, congNames, dioceseNameByCong)),
   )
@@ -841,17 +973,92 @@ export async function getSubmissionMatrix(
       }),
     ),
     submissions,
-    years: collectYears(submissions),
+    years: mergeYears(stats.years, loadedYears ?? []),
+    loadedYears: loadedYears ?? stats.years,
+    totalCount: stats.totalCount,
     scopeNotice,
   }
 }
 
-/** Évlista a beküldésekből + aktuális és előző év, csökkenő sorrendben. */
-function collectYears(submissions: DocumentSubmission[]): number[] {
-  const current = new Date().getFullYear()
-  const years = new Set<number>([current, current - 1])
-  for (const s of submissions) {
-    if (typeof s.year === 'number' && Number.isFinite(s.year)) years.add(s.year)
+/**
+ * Egyetlen év (vagy `year=null` esetén MINDEN év) beküldései — a
+ * dokumentumközpont év-választója hívja, amikor az esperes/kerületi admin
+ * olyan évet választ, ami nem volt az alap év-ablakban (2026-08-11, P2-#19).
+ * Ugyanaz a fail-closed hatókör-feloldás, mint a mátrixnál.
+ */
+export async function getSubmissionsForYear(
+  scope: 'diocese' | 'district',
+  year: number | null,
+): Promise<{ submissions: DocumentSubmission[]; error?: string }> {
+  const resolved = await resolveDocumentScope(scope)
+  if (!resolved.ok) return { submissions: [], error: resolved.error }
+  const { supabase, congIds, congNames, dioceseNameByCong, districtVisibleOnly } = resolved.value
+
+  const rows = await fetchSubmissions(supabase, congIds, {
+    year: year ?? null,
+    districtVisibleOnly,
+  })
+  return {
+    submissions: sortBySubmittedDesc(rows.map((r) => toSubmission(r, congNames, dioceseNameByCong))),
   }
+}
+
+/**
+ * Egyetlen beküldés fagyasztott pillanatképe — IGÉNY SZERINT (2026-08-11,
+ * P2-#19). A jogosultság-ellenőrzés fail-closed és szint-függő: a megye a
+ * saját gyülekezeteit, a kerület a saját megyéinek gyülekezeteit láthatja
+ * — és a kerület CSAK a hozzá továbbított vagy véglegesített iratot.
+ */
+export async function getSubmissionSnapshot(
+  submissionId: string,
+  scope: 'diocese' | 'district',
+): Promise<{ snapshot: Record<string, unknown> | null; error?: string }> {
+  const access = await getEffectiveAccessContext()
+  if (!access.user) return { snapshot: null, error: 'Nincs bejelentkezve.' }
+  if (scope === 'diocese') {
+    if (!access.esperes && !access.admin && !access.master) {
+      return { snapshot: null, error: 'Nincs jogosultsága.' }
+    }
+  } else if (!access.egyhazkeruletiAdmin && !access.admin && !access.master) {
+    return { snapshot: null, error: 'Nincs jogosultsága.' }
+  }
+
+  const { data: sub, error } = await access.supabase
+    .from('document_submissions')
+    .select('id, congregation_id, status, forwarded_to_kerulet, snapshot_data')
+    .eq('id', submissionId)
+    .maybeSingle()
+  if (error) {
+    return {
+      snapshot: null,
+      error:
+        'A beküldött adatok most nem tölthetők be. Próbálja újra néhány másodperc múlva.',
+    }
+  }
+  if (!sub) {
+    return { snapshot: null, error: 'A dokumentum nem található, vagy nincs hozzáférése.' }
+  }
+
+  const ownershipError =
+    scope === 'diocese'
+      ? await assertDioceseOwnership(access, String(sub.congregation_id))
+      : await assertDistrictOwnership(access, String(sub.congregation_id))
+  if (ownershipError) return { snapshot: null, error: ownershipError }
+
+  if (scope === 'district' && sub.forwarded_to_kerulet !== true && sub.status !== 'finalized') {
+    return { snapshot: null, error: 'Ez a dokumentum még nem érkezett meg az egyházkerülethez.' }
+  }
+
+  return { snapshot: (sub.snapshot_data as Record<string, unknown> | null) ?? null }
+}
+
+/**
+ * Évlista: a TELJES archívum évei + a betöltött évek + az aktuális és
+ * előző év, csökkenő sorrendben. Így az év-chipek akkor is teljesek, ha az
+ * adott év sorai még nincsenek betöltve.
+ */
+function mergeYears(archiveYears: number[], loadedYears: number[]): number[] {
+  const current = new Date().getFullYear()
+  const years = new Set<number>([current, current - 1, ...archiveYears, ...loadedYears])
   return [...years].sort((a, b) => b - a)
 }

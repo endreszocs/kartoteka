@@ -30,6 +30,7 @@ import { z } from 'zod'
 import { saveFilingEntry } from '@/app/(dashboard)/iktato/actions'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { buildAtadasValaszlevelHtml } from '@/lib/iktato/atadas-valaszlevel'
+import { getCongregationOfficials } from '@/lib/profiles/officials'
 import { createClient } from '@/lib/supabase/server'
 
 // ─── Típusok ─────────────────────────────────────────────────────────────
@@ -366,26 +367,20 @@ export async function respondToTransferNotification(input: {
       // gyülekezet lelkészeinek (címzett-kör az atadas-actions mintája
       // szerint; az INSERT sima lelkésznél az ertesitesek RLS-én elbukhat —
       // ilyenkor warning, a fenti általános visszaigazoló értesítés már él).
+      // 2026-08-11: a KÜLDŐ (idegen) gyülekezet lelkészeinek feloldása átkerült
+      // a `get_congregation_officials` SECURITY DEFINER RPC mögé
+      // (lib/profiles/officials.ts). Korábban ez közvetlen, kereszt-gyülekezeti
+      // `profiles`-olvasás volt, ami CSAK a nyitott olvasási policy miatt
+      // működött. Az RPC nem ad vissza e-mailt, és amíg a
+      // 2026-08-11-profiles-szukites-rpc.sql nem futott le, a helper
+      // automatikusan visszaesik a korábbi közvetlen lekérdezésre.
       try {
-        const [profRes, roleRes] = await Promise.all([
-          supabase
-            .from('profiles')
-            .select('id')
-            .eq('congregation_id', result.data.source_congregation_id)
-            .eq('role', 'lelkesz')
-            .eq('status', 'active'),
-          supabase
-            .from('profile_roles')
-            .select('profile_id')
-            .eq('scope', 'congregation')
-            .eq('scope_id', result.data.source_congregation_id)
-            .eq('role', 'lelkesz')
-            .eq('approval_status', 'approved')
-            .eq('active', true),
-        ])
-        const recipientIds = new Set<string>()
-        for (const r of (profRes.data || []) as Array<{ id: string }>) recipientIds.add(r.id)
-        for (const r of (roleRes.data || []) as Array<{ profile_id: string }>) recipientIds.add(r.profile_id)
+        const officials = await getCongregationOfficials(
+          supabase,
+          result.data.source_congregation_id,
+          ['lelkesz'],
+        )
+        const recipientIds = new Set<string>(officials.map((o) => o.userId))
 
         if (recipientIds.size === 0) {
           warnings.push('A küldő gyülekezethez nem található aktív lelkész-profil — a válaszlevél szövege in-app üzenetként nem ment ki (az általános visszaigazoló értesítés így is megjelenik).')

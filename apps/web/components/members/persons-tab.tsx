@@ -34,6 +34,7 @@ import { toast } from 'sonner'
 import {
   getMemberFilterOptions,
   getMemberRegistrySnapshot,
+  getMembersForExport,
   getMembersPage,
 } from '@/app/(dashboard)/tagnyilvantartas/registry-list-actions'
 import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
@@ -609,19 +610,11 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
     setIsExporting(true)
     try {
       const xlsxPromise = import('xlsx')
-      const exportMembers: MemberListItem[] = []
-      const seenCursors = new Set<string>()
-      let cursor: string | null = null
-
-      do {
-        const page = await getMembersPage({ ...serverQuery, cursor })
-        exportMembers.push(...page.members)
-        cursor = page.nextCursor
-        if (cursor) {
-          if (seenCursors.has(cursor)) throw new Error('Az export kurzora ismétlődött.')
-          seenCursors.add(cursor)
-        }
-      } while (cursor)
+      // 2026-08-11 (P1-perf): EGYETLEN szerverhívás a korábbi 50-esével lapozó
+      // ciklus helyett. A régi megoldás minden lapnál újra betöltötte a teljes
+      // tag-univerzumot (személyek + háztartások + befizetések), így egy 2000
+      // fős gyülekezet exportja 40 teljes újraolvasást jelentett.
+      const { members: exportMembers, truncated } = await getMembersForExport(serverQuery)
 
       const XLSX = await xlsxPromise
       const rows = exportMembers.map((member) => ({
@@ -643,7 +636,14 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Tagok')
       XLSX.writeFile(workbook, `tagnyilvantartas-${new Date().toISOString().slice(0, 10)}.xlsx`)
-      toast.success(`${exportMembers.length} személy exportálva.`)
+      if (truncated) {
+        toast.warning(
+          `${exportMembers.length} személy exportálva — a lista ennél hosszabb, `
+          + 'szűkítsd a szűrést a teljes exporthoz.',
+        )
+      } else {
+        toast.success(`${exportMembers.length} személy exportálva.`)
+      }
     } catch (error) {
       toast.error(getErrorMessage(error))
     } finally {

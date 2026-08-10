@@ -14,6 +14,7 @@ import {
   type ProjectMilestone,
   type ProjectTask,
 } from '@/lib/missions/project'
+import { getProfileDisplayNames } from '@/lib/profiles/officials'
 
 /**
  * Missziós Műhely — "Közös Munka" projekt server actions.
@@ -174,22 +175,17 @@ export async function getProjectData(
   let profileMap: Record<string, { full_name: string | null; congregation_name: string | null }> = {}
 
   if (allUserIds.length > 0) {
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, full_name, congregations(nev_hu, name)')
-      .in('id', allUserIds)
-
-    type ProfileRow = {
-      id: string
-      full_name: string | null
-      congregations: { nev_hu: string | null; name: string | null } | { nev_hu: string | null; name: string | null }[] | null
-    }
-
+    // 2026-08-11: a csapattagok nevének feloldása a `get_profile_display_names`
+    // SECURITY DEFINER RPC-n megy (lib/profiles/officials.ts). Korábban ez
+    // közvetlen, ORSZÁGOS `profiles`-olvasás volt (congregations-embeddel) —
+    // emiatt nem lehetett a `profiles_read` policy-t szűkíteni. Az RPC csak
+    // nevet + gyülekezet-nevet ad vissza, e-mailt nem.
+    const nevek = await getProfileDisplayNames(supabase, allUserIds)
     profileMap = Object.fromEntries(
-      ((profiles || []) as ProfileRow[]).map(p => {
-        const cong = Array.isArray(p.congregations) ? p.congregations[0] : p.congregations
-        return [p.id, { full_name: p.full_name, congregation_name: cong?.nev_hu || cong?.name || null }]
-      }),
+      Array.from(nevek.values()).map(n => [
+        n.userId,
+        { full_name: n.fullName, congregation_name: n.congregationName },
+      ]),
     )
   }
 
@@ -304,12 +300,11 @@ export async function saveTask(raw: unknown): Promise<{ success?: true; taskId?:
       }
     }
 
-    const { data: assigneeProfile } = await supabase
-      .from('profiles')
-      .select('full_name')
-      .eq('id', input.felelos_id)
-      .maybeSingle()
-    assigneeName = assigneeProfile?.full_name || null
+    // 2026-08-11: a felelős neve is a `get_profile_display_names` RPC-ből jön —
+    // a felelős egy MÁSIK gyülekezetbeli csapattag is lehet, amit korábban
+    // csak a nyitott `profiles_read` policy engedett.
+    const nevek = await getProfileDisplayNames(supabase, [input.felelos_id])
+    assigneeName = nevek.get(input.felelos_id)?.fullName || null
   }
 
   const payload = {

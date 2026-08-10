@@ -1,10 +1,13 @@
+import { selectAllPaged } from '@kartoteka/supabase-client'
 import { ageFromDate } from '@/lib/utils/date'
 import { HU_MONTHS_SHORT } from '@/lib/constants/dashboard'
 import { HeroBannerScriptureV2 } from '@/components/dashboard/hero-banner-scripture-v2'
 import { KpiCards } from '@/components/dashboard/kpi-cards'
 import { Celebrations } from '@/components/dashboard/celebrations'
 import { CurrentYearFeeBanner } from '@/components/dashboard/current-year-fee-banner'
-import { AgeDistributionCard, FinanceOverviewChart } from '@/components/dashboard/chart-panels'
+// 2026-08-11 (5. kör, P2-#21): a két recharts-panel LAZY töltődik — a ~381 KB-os
+// charting-köteg többé nem blokkolja az irányítópult első megjelenítését.
+import { AgeDistributionCardLazy, FinanceOverviewChartLazy } from '@/components/dashboard/chart-panels-lazy'
 import { ProgramScheduler } from '@/components/dashboard/program-scheduler'
 import { RecentActivity } from '@/components/dashboard/recent-activity'
 import { BottomStats } from '@/components/dashboard/bottom-stats'
@@ -96,49 +99,26 @@ export default async function DashboardPage() {
     // kapcsoló mögött kellenek, ezért kérésre töltődnek (getBirthdayListAddresses).
     // 2026-08-01 (PR-19): LAPOZOTT lekérés — a Supabase alap 1000-es plafonja
     // felett a lista (és a születésnaposok) némán csonkolódott volna.
-    (async () => {
-      const all: Member[] = []
-      const PAGE = 1000
-      for (let fromIdx = 0; ; fromIdx += PAGE) {
-        const { data, error } = await supabase
-          .from('szemely')
-          .select('id, csaladnev, k_nev, namepattern, allapot, sz_datum, ferfi')
-          .eq('congregation_id', effectiveCongregationId)
-          .eq('meghalt', false)
-          .order('id', { ascending: true })
-          .range(fromIdx, fromIdx + PAGE - 1)
-        if (error) {
-          console.error('[dashboard] szemely lapozott lekérés hiba @', fromIdx, error.message)
-          return { data: all, error }
-        }
-        const page = (data || []) as Member[]
-        all.push(...page)
-        if (page.length < PAGE) break
-      }
-      return { data: all, error: null }
-    })(),
-    (async () => {
-      const all: { id_szemely: string }[] = []
-      const PAGE = 1000
-      for (let fromIdx = 0; ; fromIdx += PAGE) {
-        // 2026-08-02 (review-fix): a rendezés az EGYEDI id oszlopon — a nem
-        // egyedi id_szemely szerinti lapozás lapfordulónál sort veszthetett.
-        const { data, error } = await supabase
-          .from('elkoltozott')
-          .select('id, id_szemely')
-          .eq('congregation_id', effectiveCongregationId)
-          .order('id', { ascending: true })
-          .range(fromIdx, fromIdx + PAGE - 1)
-        if (error) {
-          console.error('[dashboard] elkoltozott lapozott lekérés hiba @', fromIdx, error.message)
-          return { data: all, error }
-        }
-        const page = (data || []) as { id_szemely: string }[]
-        all.push(...page)
-        if (page.length < PAGE) break
-      }
-      return { data: all, error: null }
-    })(),
+    // 2026-08-11 (5. kör, P3 #15): a kézzel írt ciklus helyett a KÖZÖS
+    // `selectAllPaged`. A régi `page.length < PAGE` stop-feltétel HIBÁS volt:
+    // leszállított szerver-plafonnál (Max Rows < 1000) az ELSŐ lap után kilépett,
+    // és a taglista némán a felét mutatta. A rendezést (`id` ASC) és a lapok
+    // közti dedupot a helper adja.
+    selectAllPaged<Member>(
+      supabase
+        .from('szemely')
+        .select('id, csaladnev, k_nev, namepattern, allapot, sz_datum, ferfi')
+        .eq('congregation_id', effectiveCongregationId)
+        .eq('meghalt', false),
+    ),
+    // A rendezés az EGYEDI id oszlopon — a nem egyedi id_szemely szerinti
+    // lapozás lapfordulónál sort veszthetett (2026-08-02 review-fix).
+    selectAllPaged<{ id_szemely: string }>(
+      supabase
+        .from('elkoltozott')
+        .select('id, id_szemely')
+        .eq('congregation_id', effectiveCongregationId),
+    ),
     // 2026-06-01 (hibrid család-modell Fázis 2): az ÚJ `haztartas` táblát
     // olvassuk — congregation_id direkt szűr, és a tagság aktív tagjai a
     // `haztartas_tag`-ban élnek (csaladfo/hazastars szerepekkel).
@@ -148,8 +128,30 @@ export default async function DashboardPage() {
       .eq('isaktiv', true)
       .is('ervenyes_ig', null),
     // deleted/stornozott törölt tételek kizárva — 2026-04-21t
-    supabase.from('befizetes').select('osszeg, datum').eq('congregation_id', effectiveCongregationId).eq('deleted', false).eq('stornozott', false).gte('datum', chartStartDate),
-    supabase.from('kiadas').select('osszeg, datum').eq('congregation_id', effectiveCongregationId).eq('deleted', false).gte('datum', chartStartDate),
+    // 2026-08-11 (K5-#30): LAPOZOTT lekérés. A `szemely`/`elkoltozott` ág már
+    // lapozott volt, ez a kettő viszont nem: 2 év adata, `.range()` és `.limit()`
+    // nélkül, ezért a PostgREST 1000-es plafonja némán levágta. Évi ~470 tételnél
+    // a 24 hónapos ablak ~940 sor — egy közepes gyülekezet már idén átlépi, és
+    // onnantól a Havi/Éves bevétel-kiadás KPI és a pénzügyi grafikon TÚL ALACSONY
+    // számot mutatott, hibaüzenet nélkül. Rendezés (`id` ASC) nélkül ráadásul az
+    // sem volt determinisztikus, MELYIK hónapok esnek ki.
+    selectAllPaged<{ osszeg: number; datum: string }>(
+      supabase
+        .from('befizetes')
+        .select('osszeg, datum')
+        .eq('congregation_id', effectiveCongregationId)
+        .eq('deleted', false)
+        .eq('stornozott', false)
+        .gte('datum', chartStartDate),
+    ),
+    selectAllPaged<{ osszeg: number; datum: string }>(
+      supabase
+        .from('kiadas')
+        .select('osszeg, datum')
+        .eq('congregation_id', effectiveCongregationId)
+        .eq('deleted', false)
+        .gte('datum', chartStartDate),
+    ),
     // 2026-06-30 (perf): csak a sorszám kell (head:true) — korábban az összes
     // id_szemely-t lehúzta pusztán a .length-hez.
     supabase.from('befizetes').select('*', { count: 'exact', head: true }).eq('congregation_id', effectiveCongregationId).eq('fizetettev', curYear),
@@ -178,6 +180,12 @@ export default async function DashboardPage() {
   // Hibánál inkább a Next hibahatárra dobunk (újratöltéssel helyreáll).
   if (szemResult.error || elkoltozottResult.error) {
     throw new Error('A tagsági adatok betöltése nem sikerült — töltsd újra az oldalt.')
+  }
+  // 2026-08-11 (K5-#30): ugyanez a szabály a pénzügyi soroknál — egy részlegesen
+  // betöltött (vagy hibára futott) lekérésből számolt bevétel/kiadás KPI hihető,
+  // de HAMIS számot mutatna a lelkésznek. Inkább hangos hiba.
+  if (befizetesResult.error || kiadasResult.error) {
+    throw new Error('A pénzügyi adatok betöltése nem sikerült — töltsd újra az oldalt.')
   }
   const allMembers: Member[] = (szemResult.data || []) as Member[]
   const elkoltozottIds = new Set((elkoltozottResult.data || []).map((e: { id_szemely: string }) => e.id_szemely))
@@ -391,12 +399,17 @@ export default async function DashboardPage() {
           (a túlcsordulást „+N további" gombok kezelik). Mobilon egymás alá
           rendeződnek, változatlan szabályokkal. */}
       <div className="kt-dash-trio">
+        {/* 2026-08-11 (5. kör, P2-#18): a TELJES aktív taglista már NEM kerül bele
+            az oldal RSC-csomagjába. 2500 tagnál ez ~325 KB volt MINDEN
+            irányítópult-megnyitáskor — egy modálhoz, amit a lelkész többnyire ki
+            sem nyit. Csak a darabszám megy át (ettől látszik a „Lista" és a
+            „+N további" gomb); a lista a modál első megnyitásakor töltődik. */}
         <Celebrations
           todayBirthdays={todayBirthdays}
           todayNamedayMembers={todayNamedayMembers}
           todayNamedayNames={todayNamedayNames}
           upcomingBirthdays={upcomingBirthdays}
-          allMembers={activeMembers}
+          memberCount={activeMembers.length}
           congregationName={congregationName || 'Gyülekezet'}
           congregationLogo={congregationLogo}
         />
@@ -407,7 +420,7 @@ export default async function DashboardPage() {
           congregationLogo={congregationLogo}
         />
 
-        <AgeDistributionCard
+        <AgeDistributionCardLazy
           ageGroups={ageGroups}
           detailedAgeGroups={detailedAgeGroups}
           stats={ageStats}
@@ -415,7 +428,7 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.35fr_0.95fr]">
-        <FinanceOverviewChart monthlyData={monthlyData} />
+        <FinanceOverviewChartLazy monthlyData={monthlyData} />
         <RecentActivity activities={(recentResult.data || []) as ActivityRow[]} />
       </div>
 

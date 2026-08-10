@@ -17,7 +17,24 @@
 
 import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
-import { getFinanceScopeContext, isYearFinalized } from '@/lib/auth/finance-scope'
+import {
+  getFinanceScopeContext,
+  isYearFinalized,
+  yearFinalizedCheckErrorMessage,
+} from '@/lib/auth/finance-scope'
+
+/**
+ * 2026-08-11 (K5-#11): a kapott előleg VISSZAVÉTELÉNEK kanonikus jogcíme.
+ *
+ * A modul saját hivatalos útmutatója (components/finance/penzugy-help.tsx,
+ * „Hitelek (107 / 207)" fejezet) így rendelkezik:
+ *   - 207.02 „Kiadott hitelek": „Elszámolásra előlegként kifizetett összeget ide
+ *     könyvelünk." (az előleg KIADÁSAKOR — a gyakorlatban Dispoziție de plată-val)
+ *   - 107.02 „Visszakapott hitelek": „…ha elszámolásra előleget ad ki,
+ *     elszámoláskor itt vesszük vissza és a kiadásokat a megfelelő helyre
+ *     könyveljük." (az elszámoláskor, azaz a decontnál)
+ */
+const DECONT_ELOLEG_VISSZAVET_KOD = '107.02'
 
 export interface DecontItemInput {
   actNr: string
@@ -234,13 +251,57 @@ export async function saveDecont(input: SaveDecontInput): Promise<
   if (items.length === 0) return { error: 'Legalább egy érvényes tétel szükséges.' }
 
   const year = Number(input.date.slice(0, 4))
-  if (await isYearFinalized(ctx, year)) {
-    return { error: `A ${year}. év számadása már le van zárva — decont nem rögzíthető.` }
+  // 2026-08-11 (K5-#32, 2. lépés): az `isYearFinalized` fail-closed DOB, ha a
+  // zár-állapotot nem tudja lekérdezni (elnyelt hiba sosem nyithat ki egy már
+  // véglegesített és beküldött évet). Try/catch nélkül ez nyers szerver-action
+  // hibaként bukott el; itt a modul szokásos `{ error: '…' }` alakjára fordítjuk,
+  // hogy a lelkész magyar, cselekvésre váltható üzenetet lásson.
+  let finalized: boolean
+  try {
+    finalized = await isYearFinalized(ctx, year)
+  } catch (err) {
+    return { error: yearFinalizedCheckErrorMessage(err, year) }
+  }
+  if (finalized) {
+    return { error: `A ${year}. év számadása már le van zárva — decont nem rögzíthető. Kérj feloldást (javítási engedélyt) az egyházmegyétől.` }
   }
 
   const total = items.reduce((s, r) => s + (Number(r.amount) || 0), 0)
   const advance = Number(input.advance) || 0
   const kulonbozet = total - advance
+
+  // 0) 2026-08-11 (K5-#11): a KAPOTT ELŐLEG visszavezetésének jogcíme.
+  //
+  // HIBA VOLT: a `kapott_eloleg` csak a decont FEJLÉCÉBE került, a 3) lépés pedig
+  // a tételek TELJES összegét (`total`) könyvelte új készpénz-kiadásként — a
+  // `kulonbozet` sehol nem jelent meg, ellentételező bevétel pedig nem keletkezett.
+  // Következmény: 1000 lej előleg kiadva (207.02, kassza −1000), majd 1000 lejnyi
+  // számláról decont → a rendszer MÉG EGYSZER −1000 lejt könyvelt. A Registru Casa
+  // könyv szerinti egyenlege MINDEN decontnál az előleg összegével kevesebb lett,
+  // mint a fizikai pénztár.
+  //
+  // A jogcím-feloldás SZÁNDÉKOSAN a sorszám-foglalás ELŐTT fut: így egy hiányzó
+  // 107.02 kategória nem éget el egy decont-sorszámot a hivatalos sorozatból.
+  let elolegCelId: number | null = null
+  if (advance > 0) {
+    const { data: celRow, error: celErr } = await ctx.supabase
+      .from('befizetescel')
+      .select('id')
+      .eq('id_szamadasicel', DECONT_ELOLEG_VISSZAVET_KOD)
+      .maybeSingle()
+    if (celErr) {
+      return { error: `A(z) ${DECONT_ELOLEG_VISSZAVET_KOD} bevételi jogcím lekérése sikertelen: ${celErr.message}` }
+    }
+    if (!celRow) {
+      return {
+        error:
+          `Hiányzik a(z) ${DECONT_ELOLEG_VISSZAVET_KOD} („Visszakapott hitelek") bevételi kategória, ` +
+          'ezért a kapott előleget nem tudjuk visszavezetni — a kassza egyenlege hibás lenne. ' +
+          'Vedd fel a kategóriát a Pénzügy → Beállítások menüben, vagy írj 0-t a „Kapott előleg" mezőbe, ha nem volt előleg.',
+      }
+    }
+    elolegCelId = Number((celRow as { id: number }).id)
+  }
 
   // 1) Sorszám lefoglalása (atomikus RPC)
   const { data: szamData, error: szamErr } = await ctx.supabase.rpc('next_bizonylat_szam', {
@@ -311,6 +372,57 @@ export async function saveDecont(input: SaveDecontInput): Promise<
       await ctx.supabase.from('kiadas').update({ deleted: true }).eq('decont_id', decontId)
       await ctx.supabase.from('decont').update({ deleted: true }).eq('id', decontId)
       return { error: `${i + 1}. tétel könyvelése sikertelen: ${kErr.message}` }
+    }
+  }
+
+  // 4) 2026-08-11 (K5-#11): a KAPOTT ELŐLEG visszavezetése a 107.02 jogcímre.
+  //
+  // Az előleg kiadásakor a kassza már csökkent (207.02 „Kiadott hitelek"), a 3)
+  // lépés pedig a tételek teljes összegével MÉG EGYSZER csökkenti. Ez a
+  // készpénz-bevétel veszi vissza az előleget, így a kassza NETTÓ változása
+  // −(total − advance) = −kulonbozet lesz, ami pontosan a fizikai pénzmozgás
+  // (a különbözetet a pénztáros fizeti ki, illetve negatív különbözetnél az
+  // elszámoló adja vissza).
+  //
+  // A `befizetes` táblában NINCS `decont_id` oszlop (csak a `kiadas`-ban), ezért
+  // a kapcsolat a megjegyzésen + a lentebb elkapott soron át él. Ha valaha
+  // bekerül a `befizetes.decont_id`, ide is be kell tenni.
+  //
+  // iratszam === nyugta SZÁNDÉKOS: a nyugtafigyelő (extractNumberedReceiptRows)
+  // és a gyülekezeti nyugtaszám-generátor is kihagyja a „tükrözött" sorokat, így
+  // ez a technikai bevétel nem tolja el a hivatalos nyugta-sorozatot.
+  if (advance > 0 && elolegCelId) {
+    const docNum = `DEC-${sorszam}/${year}`
+    const { error: bErr } = await ctx.supabase.from('befizetes').insert([
+      {
+        osszeg: advance,
+        datum: input.date,
+        id_befizetescel: elolegCelId,
+        id_szemely: null,
+        id_csalad: null,
+        csalad: false,
+        forrasa: input.personName.trim(),
+        iratszam: docNum,
+        nyugta: docNum,
+        irattipus: 'Készpénz',
+        fizetettev: year,
+        megjegyzes: `Decont #${sorszam}/${year} — kapott előleg visszavezetése (${DECONT_ELOLEG_VISSZAVET_KOD})`,
+        deleted: false,
+        congregation_id: ctx.scopeId,
+        xkey: randomUUID(),
+        userid: ctx.userId,
+      },
+    ])
+    if (bErr) {
+      // Visszagörgetés: fél elszámolás NEM maradhat — a kassza egyenlege
+      // különben pont az előleg összegével csúszna el.
+      await ctx.supabase.from('kiadas').update({ deleted: true }).eq('decont_id', decontId)
+      await ctx.supabase.from('decont').update({ deleted: true }).eq('id', decontId)
+      return {
+        error:
+          `A kapott előleg visszavezetése (${DECONT_ELOLEG_VISSZAVET_KOD}) nem sikerült, ezért az egész ` +
+          `elszámolást visszavontuk — így a kassza egyenlege helyes marad. Próbáld újra (részlet: ${bErr.message}).`,
+      }
     }
   }
 

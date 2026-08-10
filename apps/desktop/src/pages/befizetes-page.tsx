@@ -326,6 +326,16 @@ function IncomeForm({
   const [successInfo, setSuccessInfo] = useState<string | null>(null)
 
   // Auto-load next iratszám amikor Készpénz + ha üres a mező
+  //
+  // 2026-08-11 (P1 #28): itt egy hardkódolt csupa-nulla UUID ment le
+  // („placeholder, valójában a ctx-ben lesz"), miközben a komponens MEGKAPJA a
+  // valódi `congregationId` propot, és mentéskor helyesen azt is használja. A
+  // `getNextReceiptNumberUseCase` `.eq('congregation_id', …)`-vel szűr, tehát a
+  // placeholderre MINDIG 0 sort talált → mindig „1"-et ajánlott. A lelkész 4711
+  // meglévő nyugta mellett is 1-est kapott: mentéskor a duplikáció-ellenőrzés
+  // (ami a VALÓDI congregationId-t kapja) elutasította, vagy — ha az 1-es szám
+  // import-hézag miatt szabad volt — visszalépő sorszám került a hivatalos,
+  // hézagmentes nyugta-sorozatba.
   useEffect(() => {
     if (!isOnline || irattipus !== 'Készpénz' || iratszam.trim() !== '') return
     let cancelled = false
@@ -334,7 +344,7 @@ function IncomeForm({
         const supabase = getDesktopSupabase()
         const res = await getNextReceiptNumberUseCase(
           {
-            congregationId: '00000000-0000-0000-0000-000000000000', // placeholder, valójában a ctx-ben lesz
+            congregationId,
             year: fizetettev,
           },
           { supabase, runtime: 'desktop' },
@@ -349,9 +359,10 @@ function IncomeForm({
     return () => {
       cancelled = true
     }
-    // Szándékosan `irattipus` + `fizetettev` triggerli; a `iratszam` NEM, mert akkor körkörös
+    // Szándékosan `irattipus` + `fizetettev` + `congregationId` triggerli; a
+    // `iratszam` NEM, mert akkor körkörös
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [irattipus, fizetettev, isOnline])
+  }, [irattipus, fizetettev, isOnline, congregationId])
 
   // Amikor tag kiválasztódik, lekérdezzük a családját
   // (hogy a család-befizetés checkbox meg tudjon jelenni)

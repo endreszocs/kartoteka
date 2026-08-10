@@ -786,11 +786,25 @@ export async function executeFinanceImport(
     ),
   )
   if (importYears.length > 0) {
-    const { data: lockRows } = await auth.access.supabase
+    const { data: lockRows, error: lockErr } = await auth.access.supabase
       .from('bealitas')
       .select('id, accounting_finalized')
       .eq('congregation_id', auth.congregationId)
       .in('id', importYears.map(String))
+    // 2026-08-11 (5. kör, K5-#32 hibaosztály-lezárás): FAIL-CLOSED. Az `error`
+    // korábban el lett dobva, és a `(lockRows || [])` üres tömbje miatt a
+    // `closedYears` üres lett — vagyis a zár-lekérdezés bármilyen hibája NÉMÁN
+    // átengedte a teljes import beszúrását egy már véglegesített és beküldött
+    // évbe. Ha a zárat nem tudjuk ellenőrizni, NEM importálunk.
+    if (lockErr) {
+      return {
+        error:
+          `Nem sikerült ellenőrizni, hogy az importban szereplő év(ek) számadása véglegesítve ` +
+          `van-e (${lockErr.message}), ezért az importot biztonságból megszakítottuk — egy már ` +
+          'lezárt évet nem nyithatunk ki véletlenül. Ellenőrizd az internetkapcsolatot, és ' +
+          'próbáld újra; ha újra hibázik, jelezd a rendszergazdának.',
+      }
+    }
     const closedYears = ((lockRows || []) as Array<{ id: string; accounting_finalized: boolean | null }>)
       .filter((r) => r.accounting_finalized)
       .map((r) => Number(r.id))

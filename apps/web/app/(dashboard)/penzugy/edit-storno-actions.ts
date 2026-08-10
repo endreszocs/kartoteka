@@ -23,6 +23,7 @@ import {
   getFinanceScopeContext,
   tablesFor,
   isYearFinalized,
+  yearFinalizedCheckErrorMessage,
   type FinanceScopeContext,
 } from '@/lib/auth/finance-scope'
 
@@ -45,13 +46,19 @@ export async function isLastTransactionOfType(args: {
   const table = args.type === 'befizetes' ? T.befizetes : T.kiadas
 
   // Lekérjük a tétel dátumát
-  const { data: current } = await ctx.supabase
+  const { data: current, error: currentErr } = await ctx.supabase
     .from(table)
     .select('datum')
     .eq('id', args.id)
     .eq(T.scopeCol, ctx.scopeId)
     .maybeSingle()
 
+  // 2026-08-11 (5. kör, K5-#32 testvér-vizsgálat): a hiba korábban elveszett
+  // (`const { data: current } = …`), és a `!current?.datum` ág `isLast: false`-t
+  // adott — az még a szigorúbb irány, de némán. Most kimondjuk a hibát.
+  if (currentErr) {
+    return { error: `A tétel dátumát nem sikerült lekérdezni: ${currentErr.message}` }
+  }
   if (!current?.datum) return { isLast: false }
 
   // Van-e ugyanabban az évben és a jelen tételnél későbbi dátumú tétel?
@@ -59,7 +66,7 @@ export async function isLastTransactionOfType(args: {
   const yearStart = `${year}-01-01`
   const yearEnd = `${year}-12-31`
 
-  const { data: later } = await ctx.supabase
+  const { data: later, error: laterErr } = await ctx.supabase
     .from(table)
     .select('id')
     .eq(T.scopeCol, ctx.scopeId)
@@ -68,6 +75,22 @@ export async function isLastTransactionOfType(args: {
     .lte('datum', yearEnd)
     .gte('datum', yearStart)
     .limit(1)
+
+  // 2026-08-11 (5. kör): FAIL-OPEN VOLT. A `const { data: later } = …` eldobta az
+  // `error`-t, és a `return { isLast: !later || later.length === 0 }` egy HIBÁS
+  // lekérdezésre (later === null) `isLast: true`-t adott — vagyis a UI éppen
+  // akkor engedte volna a DÁTUM átírását, amikor nem tudtuk ellenőrizni, hogy
+  // van-e későbbi tétel az évben. Egy köztes dátum átírása pont azt rontja el,
+  // amit ez a guard véd: a kronológiát és a nyugtaszám-sorrendet. Fail-closed:
+  // ha nem tudjuk, NEM engedjük.
+  if (laterErr) {
+    return {
+      error:
+        `Nem sikerült ellenőrizni, hogy ez a tétel az év utolsó tétele-e ` +
+        `(${laterErr.message}), ezért a dátum most biztonságból nem módosítható. ` +
+        'Próbáld újra néhány perc múlva; a többi mező szerkesztése ettől független.',
+    }
+  }
 
   return { isLast: !later || later.length === 0 }
 }
@@ -139,13 +162,58 @@ export async function updateTransactionBasic(
   const T = tablesFor(ctx.scope)
   const table = input.type === 'befizetes' ? T.befizetes : T.kiadas
 
-  // Véglegesített év védelme
+  // 2026-08-11 (5. kör, P0 adat-integritás): HIBA VOLT — a véglegesített-év
+  // ellenőrzés az `if (input.datum)` ágon BELÜL futott, a hívó szerkesztő
+  // dialógus (components/modals/transaction-edit-dialog.tsx) viszont
+  // SZÁNDÉKOSAN `datum: undefined`-et küld minden tételre, ami nem az év
+  // utolsó tétele — vagyis gyakorlatilag MINDEN korábbi sorra. Így egy már
+  // véglegesített ÉS beküldött évben az összeg, a jogcím, az iratszám és a
+  // befizető tag NÉMÁN átírható volt: a kinyomtatott/beküldött számadás és a
+  // képernyőn látszó adat széthúzott.
+  //
+  // Javítás: a tétel JELENLEGI dátumát mindig kiolvassuk a DB-ből (ahogy a
+  // stornoTransaction is teszi lentebb), és MINDEN update-nél ellenőrzünk.
+  // Ha új dátum is érkezik, a RÉGI és az ÚJ évre is (átmozgatás egy zárt évbe
+  // ugyanolyan súlyos, mint egy zárt évből kimozgatás).
+  const { data: currentRow, error: currentErr } = await ctx.supabase
+    .from(table)
+    .select('datum')
+    .eq('id', input.id)
+    .eq(T.scopeCol, ctx.scopeId)
+    .maybeSingle()
+
+  if (currentErr) {
+    return { error: `A tétel ellenőrzése nem sikerült: ${currentErr.message}` }
+  }
+  if (!currentRow) return { error: 'A tétel nem található.' }
+
+  const yearsToCheck = new Set<number>()
+  const currentDatum = (currentRow as { datum?: string | null }).datum
+  if (currentDatum) {
+    const y = new Date(currentDatum).getFullYear()
+    if (Number.isFinite(y)) yearsToCheck.add(y)
+  }
   if (input.datum) {
-    const year = new Date(input.datum).getFullYear()
-    const finalized = await isYearFinalized(ctx, year)
+    const y = new Date(input.datum).getFullYear()
+    if (Number.isFinite(y)) yearsToCheck.add(y)
+  }
+
+  // 2026-08-11 (K5-#32, 2. lépés): az `isYearFinalized` fail-closed DOB, ha a
+  // zár-állapotot nem tudja lekérdezni. Try/catch nélkül ez nyers szerver-action
+  // hibaként bukott el, és a lelkész nem tudta, mit tegyen. A művelet továbbra is
+  // meghiúsul (ez a helyes: zárt évet elnyelt hiba miatt sosem nyitunk ki), de a
+  // modul szokásos `{ error: '…' }` alakjában, magyar, cselekvésre váltható
+  // üzenettel.
+  for (const year of yearsToCheck) {
+    let finalized: boolean
+    try {
+      finalized = await isYearFinalized(ctx, year)
+    } catch (err) {
+      return { error: yearFinalizedCheckErrorMessage(err, year) }
+    }
     if (finalized) {
       return {
-        error: `A ${year}. évi számadás már véglegesítve van. Először kérj javítási engedélyt az egyházmegyétől.`,
+        error: `A ${year}. évi számadás már véglegesítve (és beküldve) van, ezért ez a tétel nem módosítható. Kérj feloldást (javítási engedélyt) az egyházmegyétől, és a jóváhagyás után javítsd.`,
       }
     }
   }
@@ -259,7 +327,13 @@ export async function stornoTransaction(args: {
 
   if (r.datum) {
     const year = new Date(r.datum).getFullYear()
-    const finalized = await isYearFinalized(ctx, year)
+    // 2026-08-11 (K5-#32, 2. lépés): fail-closed dobás → magyar `{ error }` alak.
+    let finalized: boolean
+    try {
+      finalized = await isYearFinalized(ctx, year)
+    } catch (err) {
+      return { error: yearFinalizedCheckErrorMessage(err, year) }
+    }
     if (finalized) {
       return {
         error: `A ${year}. évi számadás már véglegesítve van. Először kérj javítási engedélyt az egyházmegyétől.`,
@@ -341,7 +415,13 @@ export async function undoStornoTransaction(args: {
 
   if (r.datum) {
     const year = new Date(r.datum).getFullYear()
-    const finalized = await isYearFinalized(ctx, year)
+    // 2026-08-11 (K5-#32, 2. lépés): fail-closed dobás → magyar `{ error }` alak.
+    let finalized: boolean
+    try {
+      finalized = await isYearFinalized(ctx, year)
+    } catch (err) {
+      return { error: yearFinalizedCheckErrorMessage(err, year) }
+    }
     if (finalized) {
       return { error: `A ${year}. évi számadás véglegesítve van — a stornó nem vonható vissza.` }
     }

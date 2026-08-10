@@ -35,9 +35,23 @@
   --secondary: #f7f5f0;
   --secondary-foreground: #1c2a26;
   --muted: #f7f5f0;
-  --muted-foreground: #6e7a72;
+  /* 2026-08-11 (P2 #24): volt #6e7a72 — kártyán 4,48:1, oldalháttéren 3,97:1,
+     MINDKETTŐ AA-bukás normál méretű szövegen. A `text-muted-foreground` a
+     termék legsűrűbben használt másodlagos szövegszíne (label, hint,
+     táblázat-fejléc, inaktív fül), a célközönség 55+ éves lelkészek, gyakran
+     telefonon, változó fényben. #616b64: kártya 5,53 · háttér 4,90 ·
+     muted/70 5,21 ✅. A színezet (hűvös zöldes-szürke) VÁLTOZATLAN, csak a
+     világosság csökken — a vizuális hierarchia megmarad. */
+  --muted-foreground: #616b64;
   --accent: #6b8e4e;
-  --accent-foreground: #ffffff;
+  /* 2026-08-11 (P2 #23): volt #ffffff — az olívazöld akcentuson mérve 3,75:1,
+     AA-bukás normál méretű szövegen. A mély zöld-fekete 4,72:1-et ad ugyanazon
+     a háttéren. Ennél is fontosabb a KEVERT hátterek javulása: a
+     `kartoteka.css` `.kt-cal-day.is-today .kt-cal-num` (accent 22% + card) és a
+     `.kt-prio-kiemelt` (accent 60% + card) fehér szöveggel 1,27:1 és 2,07:1 volt
+     — gyakorlatilag olvashatatlan; most 13,93:1 és 8,56:1. Az akcentus-színt
+     (a gyülekezeti arculat olívazöldjét) szándékosan NEM nyúltuk hozzá. */
+  --accent-foreground: #0f1b15;
   --accent2: #9bbf6e;
   --destructive: #c44a3a;
   --border: rgba(28, 42, 38, 0.08);
@@ -80,12 +94,28 @@
   --card-foreground: #e8e1d2;
   --popover: #22282a;
   --popover-foreground: #e8e1d2;
-  --primary: #6b8e4e;
-  --primary-foreground: #ffffff;
+  /* ⚑ 2026-08-11 (P2 #25 — SÖTÉT MÓD AA, mindhárom témában):
+     volt `--primary: #6b8e4e` + `--primary-foreground: #ffffff`.
+     Két, egymást erősítő bukás volt egyszerre:
+       (a) SZÖVEGKÉNT: `text-primary` a kártyán 3,99:1, a `bg-primary/10`
+           tintán 3,52:1 — a kartotékok szemöldöke, szekció-címe, aktív
+           fülcímkéje, idézet-blokkja mind ezen a szinten élt.
+       (b) FELÜLETKÉNT: `bg-primary` + fehér `--primary-foreground` = 3,75:1 —
+           a „Mentés", „Bezárás", „Hozzájárulások mentése" gombok szövege.
+     Az (a) világosabb primaryt, a (b) sötét tintát kíván; a kettő EGYÜTT
+     oldja meg. A színezet (olívazöld, 92°) VÁLTOZATLAN, csak a világosság nő.
+     MÉRT (kert-dark): text-primary kártyán 6,15 · /5 5,65 · /8 5,35 · /10 5,16 ·
+     /15 4,69 · oldalháttéren 6,87 ✅; primary-foreground a bg-primary-n 6,87 ✅.
+     A világos blokkok ÉRINTETLENEK (ott 9,25 és 9,25 — eddig is megfeleltek).
+     Precedens ugyanebben a fájlban: `--accent-foreground` #ffffff → #0f1b15. */
+  --primary: #8ab266;
+  --primary-foreground: #1a1f1d;
   --secondary: #2a3230;
   --secondary-foreground: #e8e1d2;
   --muted: #2a3230;
-  --muted-foreground: #8a8474;
+  /* 2026-08-11 (P2 #24): volt #8a8474 — kártyán 4,01:1 (AA-bukás).
+     #9e998c: kártya 5,26 · háttér 5,88 · muted/70 4,81 ✅ */
+  --muted-foreground: #9e998c;
   --accent: #9bbf6e;
   --accent-foreground: #1a1f1d;
   --accent2: #b6cf8c;
@@ -124,9 +154,14 @@
   --secondary: rgba(31, 58, 58, 0.05);
   --secondary-foreground: #22332e;
   --muted: rgba(31, 58, 58, 0.05);
-  --muted-foreground: #6b7669;
+  /* 2026-08-11 (P2 #24): volt #6b7669 — oldalháttéren 4,40:1 (AA-bukás).
+     #656f63: kártya 5,15 · háttér 4,86 · muted/70 4,86 ✅ */
+  --muted-foreground: #656f63;
   --accent: #5a8a48;
-  --accent-foreground: #faf6ed;
+  /* 2026-08-11 (P2 #23): volt #faf6ed (pergamen) — a zöld akcentuson 4,07:1,
+     szintén AA-bukás. Sötét tintával 4,71:1. (A `zsoltaros` téma marad
+     #f6efe1: ott az akcentus terrakotta, a mért érték 4,74:1, megfelel.) */
+  --accent-foreground: #08110d;
   --accent2: #a4c98a;
   --destructive: #a3551c;
   --border: rgba(31, 58, 58, 0.08);
@@ -171,12 +206,18 @@
   --card-foreground: #e8e1d2;
   --popover: #22282a;
   --popover-foreground: #e8e1d2;
-  --primary: #5a8a48;
-  --primary-foreground: #faf6ed;
+  /* ⚑ 2026-08-11 (P2 #25): lásd a kert-dark blokk indoklását.
+     Volt #5a8a48 + #faf6ed: text-primary kártyán 3,68:1, primary-foreground a
+     bg-primary-n 3,77:1 — mindkettő AA-bukás.
+     MÉRT (parokia-dark): text-primary kártyán 6,19 · /8 5,38 · /10 5,18 ·
+     háttéren 6,91 ✅; primary-foreground a bg-primary-n 6,91 ✅. */
+  --primary: #86b370;
+  --primary-foreground: #1a1f1d;
   --secondary: #2a3230;
   --secondary-foreground: #e8e1d2;
   --muted: #2a3230;
-  --muted-foreground: #8a8474;
+  /* 2026-08-11 (P2 #24): volt #8a8474 — kártyán 4,01:1 (AA-bukás). */
+  --muted-foreground: #9e998c;
   --accent: #a4c98a;
   --accent-foreground: #1a1f1d;
   --accent2: #c0dfa6;
@@ -214,7 +255,9 @@
   --secondary: #f6efe1;
   --secondary-foreground: #2a2218;
   --muted: #f6efe1;
-  --muted-foreground: #7a6e58;
+  /* 2026-08-11 (P2 #24): volt #7a6e58 — oldalháttéren 4,37:1 (AA-bukás).
+     #736753: kártya 5,26 · háttér 4,84 · muted/70 4,96 ✅ */
+  --muted-foreground: #736753;
   --accent: #a3551c;
   --accent-foreground: #f6efe1;
   --accent2: #c97a3f;
@@ -259,11 +302,21 @@
   --card-foreground: #e8e1d2;
   --popover: #2a2218;
   --popover-foreground: #e8e1d2;
-  --primary: #5a8a48;
-  --primary-foreground: #f6efe1;
+  /* ⚑ 2026-08-11 (P2 #25): lásd a kert-dark blokk indoklását.
+     Volt #5a8a48 + #f6efe1: text-primary kártyán 3,85:1, primary-foreground a
+     bg-primary-n 3,55:1 (a három téma közül a legrosszabb) — AA-bukás.
+     ⚠️ Ebben a témában az `--accent` TERRAKOTTA (#c97a3f), tehát a korábbi
+     „sötétben essünk vissza az accentre" komponens-trükk itt nem árnyalat-,
+     hanem SZÍNEZET-váltás lett volna (zöld → narancs) — ezért oldódik a
+     probléma itt, a token-rétegben, és nem a kartonokban.
+     MÉRT (zsoltaros-dark): text-primary kártyán 6,49 · /8 5,66 · /10 5,45 ·
+     háttéren 7,25 ✅; primary-foreground a bg-primary-n 7,25 ✅. */
+  --primary: #86b370;
+  --primary-foreground: #1f1814;
   --secondary: #2f2722;
   --secondary-foreground: #e8e1d2;
   --muted: #2f2722;
+  /* 2026-08-11 (P2 #24): #a59881 marad — kártyán 5,53:1, háttéren 6,18:1 ✅ */
   --muted-foreground: #a59881;
   --accent: #c97a3f;
   --accent-foreground: #1f1814;

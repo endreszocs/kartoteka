@@ -39,10 +39,12 @@
  */
 
 import { revalidatePath } from 'next/cache'
+import { selectAllPaged } from '@kartoteka/supabase-client'
 
 import { logAuditEvent } from '@/lib/audit/log'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { personSearchScore, tokenize } from '@/lib/import/person-search-match'
+import { getCongregationOfficials } from '@/lib/profiles/officials'
 import type {
   CongregationSearchHit,
   RegisterAtadasInput,
@@ -89,20 +91,17 @@ export async function searchCongregations(
     return (row?.name || '').trim() || null
   }
 
-  const PAGE_SIZE = 1000
-  const rows: CongRow[] = []
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await supabase
+  // 2026-08-11 (5. kör, P3 #15): KÖZÖS `selectAllPaged` a kézi ciklus helyett —
+  // a `page.length < PAGE_SIZE` stop-feltétel leszállított szerver-plafonnál az
+  // első lap után kilépett volna, és az irat-átadás cél-gyülekezet keresője
+  // némán csak a gyülekezetek egy részét találta volna meg.
+  const { data: rows, error } = await selectAllPaged<CongRow>(
+    supabase
       .from('congregations')
       .select('id, name, nev_hu, nev_ro, megye:dioceses!diocese_id(name)')
-      .neq('id', congId)
-      .order('id', { ascending: true })
-      .range(from, from + PAGE_SIZE - 1)
-    if (error) return { results: [], error: `Gyülekezet-keresési hiba: ${error.message}` }
-    const page = (data || []) as unknown as CongRow[]
-    rows.push(...page)
-    if (page.length < PAGE_SIZE) break
-  }
+      .neq('id', congId),
+  )
+  if (error) return { results: [], error: `Gyülekezet-keresési hiba: ${error.message}` }
 
   // JS-szűrés: MINDEN token szerepeljen a nevek valamelyikében (magyar,
   // hivatalos vagy román név) — a pontozás a szó-eleji egyezést jutalmazza.
@@ -279,31 +278,21 @@ export async function registerAtadas(input: RegisterAtadasInput): Promise<Regist
   }
 
   // ── Best-effort in-app értesítés a cél-gyülekezet lelkészeinek ────
-  // Címzett-kör a submitDocument (document-actions.ts) + profile_roles
-  // scope-minta (system-finance-actions.ts) szerint; a profiles SELECT
-  // mindenkinek nyitott (profiles_read_all), a profile_roles-lekérés RLS-hibája
-  // nem blokkol. Az INSERT sima lelkésznél az ertesitesek RLS-én elbukhat —
+  // 2026-08-11: a címzett-kör feloldása átkerült a `get_congregation_officials`
+  // SECURITY DEFINER RPC mögé (lib/profiles/officials.ts). ELŐTTE ez egy
+  // közvetlen, KERESZT-GYÜLEKEZETI `profiles`-olvasás volt, amit kizárólag a
+  // nyitott olvasási policy tett lehetővé (a régi komment: „a profiles SELECT
+  // mindenkinek nyitott") — ezért nem lehetett a policy-t szűkíteni.
+  // Az RPC ugyanazt a két lábat gyűjti (profiles.congregation_id skalár +
+  // profile_roles(scope='congregation')), de RLS-től függetlenül, és CSAK az
+  // azonosítót/nevet/szerepkört adja vissza — e-mailt nem.
+  // Amíg az SQL (2026-08-11-profiles-szukites-rpc.sql) nem futott le, a helper
+  // automatikusan visszaesik a korábbi közvetlen lekérdezésre.
+  // Az INSERT sima lelkésznél az ertesitesek RLS-én továbbra is elbukhat —
   // ilyenkor warning, a garantált csatorna (átjelentkezési kérelem) már él.
   try {
-    const [profRes, roleRes] = await Promise.all([
-      supabase
-        .from('profiles')
-        .select('id')
-        .eq('congregation_id', celCongregationId)
-        .eq('role', 'lelkesz')
-        .eq('status', 'active'),
-      supabase
-        .from('profile_roles')
-        .select('profile_id')
-        .eq('scope', 'congregation')
-        .eq('scope_id', celCongregationId)
-        .eq('role', 'lelkesz')
-        .eq('approval_status', 'approved')
-        .eq('active', true),
-    ])
-    const recipientIds = new Set<string>()
-    for (const r of (profRes.data || []) as Array<{ id: string }>) recipientIds.add(r.id)
-    for (const r of (roleRes.data || []) as Array<{ profile_id: string }>) recipientIds.add(r.profile_id)
+    const officials = await getCongregationOfficials(supabase, celCongregationId, ['lelkesz'])
+    const recipientIds = new Set<string>(officials.map((o) => o.userId))
 
     if (recipientIds.size === 0) {
       warnings.push('A cél-gyülekezethez nem található aktív lelkész-profil — részletes in-app üzenet nem ment ki (az átjelentkezési kérelmet a beépített workflow így is kézbesíti).')

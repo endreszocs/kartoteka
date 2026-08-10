@@ -799,6 +799,56 @@ function ScaledSlidePreview({
 // Kivetítő / prezenter csatlakozás dialog
 // ──────────────────────────────────────────────────────────────
 
+/**
+ * BIZTONSÁGI FIX 2026-08-11 (#12): helyben rajzolt QR-kód a prezenter-linkhez.
+ *
+ * Ami rossz volt: a `remoteUrl` (`/eloadas/<kód>/vezerlo`) az `api.qrserver.com`
+ * GET query-stringjében ment ki egy külső szolgáltatóhoz. Ez az útvonal
+ * hitelesítés NÉLKÜLI, és a benne lévő munkamenet-kód az EGYETLEN kulcs ahhoz
+ * a Realtime-adáshoz, amely a gyülekezet taglétszám- és pénzügyi számait viszi.
+ * A külső szolgáltató és minden útközbeni napló megkapta ezt az élő kulcsot.
+ *
+ * Miért jó a javítás: a QR-t a böngésző rajzolja meg (`uqr`), hálózati kérés
+ * nélkül — ugyanaz a minta, mint a components/filing/csatolmany-panel.tsx-ben.
+ */
+function LocalQr({ url }: { url: string }) {
+  const [svg, setSvg] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!url) { setSvg(null); return }
+    let cancelled = false
+    void (async () => {
+      try {
+        const { renderSVG } = await import('uqr')
+        const markup = renderSVG(url, {
+          ecc: 'M',
+          border: 2,
+          pixelSize: 8,
+          whiteColor: '#ffffff',
+          blackColor: '#111827',
+        })
+        if (!cancelled) setSvg(markup)
+      } catch {
+        // A QR csak kényelmi funkció — a link és a csatlakozási kód mellette olvasható.
+        if (!cancelled) setSvg(null)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [url])
+
+  if (!svg) return null
+
+  return (
+    <div
+      role="img"
+      aria-label="QR-kód a prezenter ablakhoz"
+      className="w-[120px] max-w-full shrink-0 rounded-xl bg-white p-1 ring-1 ring-slate-200 [&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
+      /* A QR-SVG a saját, épp legenerált kódunk (uqr) — nem külső tartalom. */
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  )
+}
+
 function CastDialog({
   open, onClose, session, remoteUrl, onSecondWindow, onCast, onLocal,
 }: {
@@ -811,7 +861,6 @@ function CastDialog({
   onLocal: () => void
 }) {
   const hasPresentationApi = typeof window !== 'undefined' && 'PresentationRequest' in window
-  const qrSrc = remoteUrl ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=${encodeURIComponent(remoteUrl)}` : ''
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="sm:max-w-xl">
@@ -846,10 +895,8 @@ function CastDialog({
             <div className="flex items-center gap-2"><Smartphone className="size-4 text-violet-600" /><span className="font-semibold text-slate-800">Vezérlés telefonról / tabletről</span></div>
             <p className="mt-1 text-xs text-slate-600">Olvasd be a QR-kódot, vagy nyisd meg a linket a telefonon — a diákat onnan is lapozhatod.</p>
             <div className="mt-3 flex flex-col items-center gap-3 sm:flex-row sm:items-center">
-              {qrSrc && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={qrSrc} alt="QR-kód a prezenter ablakhoz" width={120} height={120} className="rounded-xl bg-white p-1 ring-1 ring-slate-200" />
-              )}
+              <LocalQr url={remoteUrl} />
+
               <div className="min-w-0 flex-1 space-y-2">
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Csatlakozási kód</p>

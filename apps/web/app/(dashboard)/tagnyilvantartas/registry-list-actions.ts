@@ -2,6 +2,8 @@
 
 import { createHash } from 'node:crypto'
 
+import { cache } from 'react'
+
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
@@ -16,6 +18,12 @@ import {
   type JarulekPaymentLike,
   type JarulekYearSetting,
 } from '@/lib/finance/jarulek-calculation'
+// 2026-08-11 (5. kör, P3 #4): a járulék-besoroló pár közös forrása (web ⇄ desktop).
+import {
+  getPaymentGoalCode,
+  isChurchMaintenanceCode,
+  type PaymentGoalCodeRef,
+} from '@kartoteka/ui-app'
 import {
   familyListQuerySchema,
   memberListQuerySchema,
@@ -35,7 +43,13 @@ import {
 } from '@/lib/members/registry-list-types'
 import { ageFromDate, currentRegistryMonth, monthFromIsoDate } from '@/lib/utils/date'
 
-const DB_BATCH_SIZE = 500
+/**
+ * 2026-08-11 (P1-perf): 500 → 1000. A PostgREST/Supabase `db-max-rows` plafonja
+ * 1000, tehát ez a legnagyobb oldal, amit egy körfordulóval le lehet kérni —
+ * ugyanaz az érték, amit a `dashboard/page.tsx` lapozói is használnak. Ezzel a
+ * szerveroldali körfordulók száma feleződik minden batchelt lekérdezésnél.
+ */
+const DB_BATCH_SIZE = 1000
 const IN_FILTER_BATCH_SIZE = 100
 const MAX_SERVER_SCAN_ROWS = 100_000
 const CURSOR_VERSION = 1
@@ -62,14 +76,6 @@ type MemberHouseholdState = {
   familyId: number | null
   roles: Set<HouseholdRole>
 }
-
-type PaymentGoalCodeRef = {
-  id_szamadasicel?: string | null
-  szamadasicel?:
-    | { id?: string | null; kod?: string | null }
-    | Array<{ id?: string | null; kod?: string | null }>
-    | null
-} | null
 
 type PaymentRow = JarulekPaymentLike & {
   id: number
@@ -123,13 +129,34 @@ function pickRelation<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value
 }
 
+/**
+ * 2026-08-11 (5. kör, P3 #15): KÉT hibát javítottunk ebben a ciklusban.
+ *
+ *  (1) STOP-FELTÉTEL. A `page.length < DB_BATCH_SIZE` HIBÁS: ha a Supabase
+ *      „Max Rows" beállítása a lapméret alá kerül, a szerver a kért lapra
+ *      kevesebbet ad, és a ciklus az ELSŐ lap után kilépett volna — a teljes
+ *      taglista, a járulék-befizetések és a felmentések NÉMÁN a felükre
+ *      csökkennek, a lelkész pedig hihető, de hamis hátralék-listát lát.
+ *      Csak az ÜRES lap a biztos stop.
+ *
+ *  (2) FIX LÉPÉSKÖZ. A `from += DB_BATCH_SIZE` ugyanebben az esetben ÁT IS
+ *      UGROTT sorokat: 500-as szerver-plafonnál az első lap 0–499, a második
+ *      kérés viszont az 500-as (helyesen) helyett a `DB_BATCH_SIZE`-nyival
+ *      eltolt ablakot kérné. A lépésköz mostantól a TÉNYLEGESEN kapott sorszám.
+ *
+ * A biztonsági sorlimit (`MAX_SERVER_SCAN_ROWS`) változatlanul HANGOS hiba.
+ *
+ * HÁTRALÉVŐ: ez a helper `fetchPage(from, to)` callback-et vár, ezért a közös
+ * `selectAllPaged`-re (@kartoteka/supabase-client) még nem cseréltük — az a 7
+ * hívási hely átírását jelentené. Külön menetben érdemes.
+ */
 async function collectBatched<T>(
   label: string,
   fetchPage: (from: number, to: number) => Promise<QueryPage<T>>,
 ): Promise<T[]> {
   const rows: T[] = []
 
-  for (let from = 0; from < MAX_SERVER_SCAN_ROWS; from += DB_BATCH_SIZE) {
+  for (let from = 0; from < MAX_SERVER_SCAN_ROWS; ) {
     const result = await fetchPage(from, from + DB_BATCH_SIZE - 1)
     if (result.error) {
       throw new Error(`${label}: ${result.error.message}`)
@@ -137,7 +164,8 @@ async function collectBatched<T>(
 
     const page = result.data ?? []
     rows.push(...page)
-    if (page.length < DB_BATCH_SIZE) return rows
+    if (page.length === 0) return rows
+    from += page.length
   }
 
   throw new Error(`${label}: a szerveroldali biztonsági sorlimit (${MAX_SERVER_SCAN_ROWS}) elfogyott.`)
@@ -186,15 +214,12 @@ function isActiveMember(member: EnrichedMember) {
   return isReformed(member) || member.hasEverPaid
 }
 
-function getPaymentGoalCode(goal?: PaymentGoalCodeRef | PaymentGoalCodeRef[]) {
-  const normalizedGoal = pickRelation(goal)
-  const codeRef = pickRelation(normalizedGoal?.szamadasicel)
-  return normalizedGoal?.id_szamadasicel ?? codeRef?.id ?? codeRef?.kod ?? null
-}
-
-function isChurchMaintenanceCode(code?: string | null) {
-  return typeof code === 'string' && code.startsWith('101.01')
-}
+// 2026-08-11 (5. kör, P3 #4): a `getPaymentGoalCode` / `isChurchMaintenanceCode` pár
+// itteni MÁSOLATA törölve. Ez volt a négy példány közül az EGYETLEN, amelyik `??`-lal
+// fűzte a fallback-láncot (`id_szamadasicel ?? szamadasicel.id ?? .kod`), a másik három
+// `||`-lal. Egy üres sztring `id_szamadasicel` esetén emiatt a tagnyilvántartási karton
+// „nem fizetett"-et mutatott volna arra a befizetésre, amit a Pénzügy modul járuléknak
+// számol. A közös forrás — `@kartoteka/ui-app` — a megengedőbb `||` szemantikát viszi.
 
 function cursorFingerprint(kind: 'members' | 'families', filters: unknown) {
   return createHash('sha256')
@@ -249,7 +274,16 @@ function normalizeMemberRow(row: unknown): MemberRow {
   }
 }
 
-async function loadMemberRows(supabase: SupabaseClient, congregationId: string) {
+/**
+ * 2026-08-11 (P1-perf): React `cache()` — a `getEffectiveAccessContext` maga is
+ * `cache()`-elt, ezért ugyanazon a szerver-körfordulón belül MINDIG ugyanazt a
+ * supabase-példányt adja vissza; így a (supabase, congregationId) kulcs
+ * megbízhatóan találatot ad. Ettől egy SSR-renderen belül a több hívó
+ * (`getMembersPage`, `getMemberRegistrySnapshot`) EGYETLEN olvasáson osztozik.
+ * Kliens-oldali szerver-akciók külön kérések, azokra ez nem hat — lásd a
+ * `getMembersPage` fejlécében a lapozásról szóló megjegyzést.
+ */
+const loadMemberRows = cache(async (supabase: SupabaseClient, congregationId: string) => {
   return collectBatched<MemberRow>('Személyek lekérdezése sikertelen', async (from, to) => {
     const result = await supabase
       .from('szemely')
@@ -273,9 +307,9 @@ async function loadMemberRows(supabase: SupabaseClient, congregationId: string) 
       error: result.error,
     }
   })
-}
+})
 
-async function loadHouseholdTags(supabase: SupabaseClient, congregationId: string) {
+const loadHouseholdTags = cache(async (supabase: SupabaseClient, congregationId: string) => {
   return collectBatched<HouseholdTagRow>('Családi kapcsolatok lekérdezése sikertelen', async (from, to) => {
     const result = await supabase
       .from('haztartas_tag')
@@ -287,7 +321,7 @@ async function loadHouseholdTags(supabase: SupabaseClient, congregationId: strin
 
     return { data: (result.data ?? []) as unknown as HouseholdTagRow[], error: result.error }
   })
-}
+})
 
 function buildMemberHouseholdMap(tags: HouseholdTagRow[]) {
   const map = new Map<number, MemberHouseholdState>()
@@ -313,31 +347,75 @@ function buildMemberHouseholdMap(tags: HouseholdTagRow[]) {
   return map
 }
 
-async function loadMaintenancePayments(supabase: SupabaseClient, congregationId: string) {
+/**
+ * 2026-08-11 (P1-perf): a korábbi `loadMaintenancePayments` MINDEN év MINDEN
+ * egyházfenntartási befizetését lehozta, a teljes oszlopkészlettel — pedig a
+ * kettős szerepéből csak az egyik igényli a bő sorokat:
+ *
+ *  - az ÖSSZEG-alapú számítás (fizetett-státusz, családi felosztás, járulék)
+ *    KIZÁRÓLAG a `fizetettev === currentYear` sorokat használja
+ *    (lásd `loadFinancialContext` → `currentPayments`, `enrichMembers`),
+ *  - az everPaid / aktív-tag besorolásnak viszont MINDEN év kell, de abból
+ *    csak a fizető azonosítója (`id_szemely` / `id_csalad`).
+ *
+ * Ezért két lekérdezésre bontva: bő sorok CSAK a tárgyévre, és egy szűk
+ * (3 oszlopos) azonosító-vetítés a teljes történelemre. Egy 10 éves,
+ * évi ~1500 befizetéses gyülekezetnél ez ~15 000 bő sor helyett ~1 500 bő +
+ * ~15 000 szűk sor — nagyjából a JSON-forgalom fele-harmada.
+ *
+ * A SZEMANTIKA VÁLTOZATLAN: ugyanaz a `deleted` szűrés, ugyanaz a 101.01%
+ * jogcím-szűrés, és az everPaid továbbra is SZÁNDÉKOSAN tartalmazza a
+ * stornózott befizetéseket is (bit-azonosan a tagnyilvantartas/actions.ts
+ * everPaid-döntésével — a stornó könyvelési javítás, nem a történelmi
+ * kapcsolódás törlése).
+ */
+type MaintenanceQueryShape = 'full' | 'payer-ids'
+
+function buildMaintenanceQuery(
+  supabase: SupabaseClient,
+  congregationId: string,
+  shape: MaintenanceQueryShape,
+  databaseFiltered: boolean,
+) {
+  const columns = shape === 'full'
+    ? 'id, id_szemely, id_csalad, datum, fizetettev, osszeg, stornozott'
+    : 'id, id_szemely, id_csalad'
+
+  // A beágyazott jogcím-tábla azért kell a select-be, mert a
+  // `befizetescel.id_szamadasicel` szűrő csak így alkalmazható.
+  const query = databaseFiltered
+    ? supabase
+        .from('befizetes')
+        .select(`${columns}, befizetescel!inner(id_szamadasicel)`)
+        .like('befizetescel.id_szamadasicel', '101.01%')
+    : supabase
+        .from('befizetes')
+        .select(`${columns}, befizetescel(id_szamadasicel)`)
+
+  return query
+    .eq('congregation_id', congregationId)
+    .or('deleted.eq.false,deleted.is.null')
+}
+
+async function loadMaintenancePayments(
+  supabase: SupabaseClient,
+  congregationId: string,
+  options: { shape: MaintenanceQueryShape; year?: number },
+) {
+  const label = options.shape === 'full'
+    ? 'Egyházfenntartási befizetések lekérdezése sikertelen'
+    : 'Korábbi egyházfenntartási befizetők lekérdezése sikertelen'
+
   const load = (databaseFiltered: boolean) => collectBatched<PaymentRow>(
-    'Egyházfenntartási befizetések lekérdezése sikertelen',
+    label,
     async (from, to) => {
-      // 2026-07-17 (F1-4): a stornozott mezőt LEKÉRJÜK, de itt NEM szűrünk rá — ez a
-      // lekérdezés kettős szerepű: a fizetett-státuszhoz (stornó nélkül kell) ÉS az
-      // everPaid/aktív-tag besoroláshoz (SZÁNDÉKOSAN stornóval együtt, bit-azonosan a
-      // tagnyilvantartas/actions.ts everPaid-döntésével). A szétválasztás a
-      // loadFinancialContext-ben, JS-oldalon történik.
-      let query = databaseFiltered
-        ? supabase
-            .from('befizetes')
-            .select('id, id_szemely, id_csalad, datum, fizetettev, osszeg, stornozott, befizetescel!inner(id_szamadasicel)')
-            .like('befizetescel.id_szamadasicel', '101.01%')
-        : supabase
-            .from('befizetes')
-            .select('id, id_szemely, id_csalad, datum, fizetettev, osszeg, stornozott, befizetescel(id_szamadasicel)')
+      let query = buildMaintenanceQuery(supabase, congregationId, options.shape, databaseFiltered)
+      if (options.year != null) query = query.eq('fizetettev', options.year)
 
-      query = query
-        .eq('congregation_id', congregationId)
-        .or('deleted.eq.false,deleted.is.null')
-        .order('id', { ascending: true })
-        .range(from, to)
-
-      const result = await query
+      // FIGYELEM: `shape: 'payer-ids'` esetén a sorokon CSAK az
+      // id / id_szemely / id_csalad mező van kitöltve — a `PaymentRow` típus
+      // közös, de az összeg-alapú mezőket ilyenkor TILOS olvasni.
+      const result = await query.order('id', { ascending: true }).range(from, to)
       return { data: (result.data ?? []) as unknown as PaymentRow[], error: result.error }
     },
   )
@@ -404,10 +482,16 @@ async function loadDiscounts(supabase: SupabaseClient, congregationId: string, c
   }))
 }
 
-async function loadFinancialContext(supabase: SupabaseClient, congregationId: string): Promise<FinancialContext> {
+const loadFinancialContext = cache(async (
+  supabase: SupabaseClient,
+  congregationId: string,
+): Promise<FinancialContext> => {
   const currentYear = new Date().getFullYear()
-  const [payments, exemptionRows, settingsResult, discounts] = await Promise.all([
-    loadMaintenancePayments(supabase, congregationId),
+  const [yearPayments, everPaidRows, exemptionRows, settingsResult, discounts] = await Promise.all([
+    // Bő sorok — CSAK a tárgyév (összeg-alapú számításokhoz).
+    loadMaintenancePayments(supabase, congregationId, { shape: 'full', year: currentYear }),
+    // Szűk azonosító-vetítés — MINDEN év (everPaid / aktív-tag besorolás).
+    loadMaintenancePayments(supabase, congregationId, { shape: 'payer-ids' }),
     loadExemptions(supabase, congregationId),
     supabase
       .from('bealitas')
@@ -426,16 +510,20 @@ async function loadFinancialContext(supabase: SupabaseClient, congregationId: st
   // számít bele, de az everPaid (aktív-tag besorolás) SZÁNDÉKOSAN stornóval együtt épül —
   // a stornó könyvelési javítás, nem a történelmi kapcsolódás törlése (a tagnyilvantartas
   // oldal everPaid-szemantikájával bit-azonosan).
-  const currentPayments = payments.filter((payment) => payment.fizetettev === currentYear && !payment.stornozott)
+  // 2026-08-11: a `fizetettev === currentYear` szűrés már a szerveren megtörtént,
+  // itt csak a stornó-kizárás marad (a feltétel eredménye változatlan).
+  const currentPayments = yearPayments.filter((payment) => !payment.stornozott)
   const paidPersonIds = new Set<number>()
   const paidFamilyIds = new Set<number>()
   const everPaidPersonIds = new Set<number>()
   const everPaidFamilyIds = new Set<number>()
 
-  for (const payment of payments) {
+  for (const payment of everPaidRows) {
     if (payment.id_szemely != null) everPaidPersonIds.add(payment.id_szemely)
     if (payment.id_csalad != null) everPaidFamilyIds.add(payment.id_csalad)
-    if (payment.fizetettev !== currentYear || payment.stornozott) continue
+  }
+
+  for (const payment of currentPayments) {
     if (payment.id_szemely != null) paidPersonIds.add(payment.id_szemely)
     if (payment.id_csalad != null) paidFamilyIds.add(payment.id_csalad)
   }
@@ -474,7 +562,7 @@ async function loadFinancialContext(supabase: SupabaseClient, congregationId: st
     // 2026-07-17 (F5, Q6): a tartozas_szamitas_mod kivezetve — mindig 'akkori'.
     debtCalcMode: 'akkori',
   }
-}
+})
 
 function enrichMembers(
   members: MemberRow[],
@@ -547,7 +635,7 @@ function enrichMembers(
   })
 }
 
-async function loadMemberUniverse(supabase: SupabaseClient, congregationId: string) {
+const loadMemberUniverse = cache(async (supabase: SupabaseClient, congregationId: string) => {
   const [members, householdTags, financial] = await Promise.all([
     loadMemberRows(supabase, congregationId),
     loadHouseholdTags(supabase, congregationId),
@@ -555,7 +643,7 @@ async function loadMemberUniverse(supabase: SupabaseClient, congregationId: stri
   ])
   const householdByMember = buildMemberHouseholdMap(householdTags)
   return { members: enrichMembers(members, householdByMember, financial), householdByMember }
-}
+})
 
 function memberMatchesStatus(member: EnrichedMember, status: ParsedMemberListQuery['status']) {
   switch (status) {
@@ -792,6 +880,48 @@ async function hydratePendingTransfers(
  * A paymentStatus, aktív tagság és háztartási szerep több táblából
  * számított mező. Migráció/RPC nélkül ezeket a szerver batchelt,
  * determinisztikus olvasással értékeli ki; a teljes lista sosem kerül a kliensre.
+ *
+ * ─────────────────────────────────────────────────────────────────
+ * 2026-08-11 — MIÉRT MARAD a szűrés/rendezés JS-ben (P1-perf vizsgálat)
+ * ─────────────────────────────────────────────────────────────────
+ * A kézenfekvő javítás az lenne, hogy a szűrés + rendezés + LIMIT/OFFSET
+ * átkerül Postgresbe. Végignézve MINDEN szűrőt, ez a jelenlegi sémán NEM
+ * tehető meg úgy, hogy az eredmény bit-azonos maradjon:
+ *
+ *  1. KERESÉS — a `normalizeForSearch` NFD-vel leszedi az ékezeteket, majd
+ *     `hu-HU` kisbetűsít, és a tokenek AND-kapcsolatban illeszkednek 10 mezőre
+ *     (köztük a joinolt település- és utcanévre). A PostgREST `ilike`/`or`
+ *     NEM tud ékezet-érzéketlen illesztést (ahhoz `unaccent`-es generált
+ *     oszlop vagy `search_vector` kellene) — „Szocs" ma megtalálja a
+ *     „Szőcs"-öt, szerveroldalon nem találná.
+ *  2. RENDEZÉS — `Intl.Collator('hu', { sensitivity: 'base' })`. A PostgREST
+ *     `.order()` nem tud COLLATE-et megadni, az adatbázis alapértelmezett
+ *     (C/en_US) rendezése pedig a magyar ábécétől eltérő sorrendet ad.
+ *  3. PÉNZÜGYI ÁLLAPOT (`payment` szűrő + a Pénzügy oszlop) — az
+ *     `allocateFamilyPayments` a tisztán családi befizetéseket a TELJES
+ *     gyülekezeti roszteren osztja szét, tehát egyetlen tag állapota is a
+ *     többi tag adatától függ. Bármilyen szerveroldali elő-szűrés megváltoztatná
+ *     a rosztert, és ezzel a kiszámolt állapotot is.
+ *  4. AKTÍV TAG (az ALAPÉRTELMEZETT szűrő) — `reformatus || hasEverPaid`,
+ *     ahol a `hasEverPaid` a `befizetes` tábla + a családi kapcsolat együttese.
+ *  5. KPI-ÖSSZESÍTŐ — a `summary` a teljes SZŰRT halmazra vonatkozik, tehát a
+ *     50 elemű oldal önmagában akkor sem lenne elég, ha a lapozás szerveroldali
+ *     lenne.
+ *  6. ÉLETKOR / SZÜLETÉSNAP-HÓNAP — `ageFromDate` és `monthFromIsoDate`
+ *     szemantikáját dátum-tartománnyá alakítani év-fordulón hibázik.
+ *
+ * Amit HELYETTE megtettünk (mérhető, viselkedés-semleges):
+ *  - a befizetés-olvasás tárgyévre szűkítve, a történelmi rész 3 oszlopos
+ *    azonosító-vetítésre fogyva (lásd `loadMaintenancePayments`),
+ *  - `DB_BATCH_SIZE` 500 → 1000 (feleannyi körfordulás),
+ *  - `cache()` a betöltőkön (egy SSR-render = egy olvasás),
+ *  - a szűrő-legördülők külön, 2 mezős lekérdezést kaptak,
+ *  - az Excel-export egyetlen hívássá vonva (`getMembersForExport`) a korábbi
+ *    50-esével lapozó, hívásonként teljes univerzumot olvasó ciklus helyett.
+ *
+ * A TELJES megoldáshoz migráció kell: `unaccent`-es `search_vector` oszlop +
+ * magyar COLLATE-es rendezőkulcs + a pénzügyi állapotot előszámoló nézet/RPC.
+ * Amíg ez nincs meg, a szűrés SZÁNDÉKOSAN marad JS-ben.
  */
 export async function getMembersPage(input: MemberListQuery = {}): Promise<MemberListPage> {
   const parsed = memberListQuerySchema.safeParse(input)
@@ -840,6 +970,49 @@ export async function getMembersPage(input: MemberListQuery = {}): Promise<Membe
     nextCursor: hasMore ? encodeCursor(candidateNextOffset, fingerprint) : null,
     nextOffset: hasMore ? candidateNextOffset : null,
     summary: summarizeMembers(filtered, parsed.data.birthdayMonth ?? currentRegistryMonth()),
+  }
+}
+
+/** Az Excel-exportban egyszerre visszaadható személyek felső korlátja. */
+const MAX_EXPORT_ROWS = 20_000
+
+/**
+ * 2026-08-11 (P1-perf): a szűrt lista EGYETLEN hívásban, az Excel-exporthoz.
+ *
+ * A `persons-tab.tsx` exportja korábban a `getMembersPage`-et hívta körbe-körbe
+ * 50-es lapokkal. Mivel a `pageSize` a séma szerint fix 50 (`z.literal(50)`),
+ * egy 2000 fős gyülekezet exportja 40 szerver-akciót jelentett, és MINDEGYIK
+ * újra betöltötte a teljes tag-univerzumot (személyek + háztartások +
+ * befizetések) — nagyságrendileg 40 × ~20 adatbázis-körfordulás.
+ *
+ * Ez a művelet ugyanazt a validált szűrést és rendezést használja, mint a
+ * lista (bit-azonos eredmény), csak lapozás nélkül. A folyamatban lévő
+ * átjelentkezéseket NEM tölti be (`hydratePendingTransfers`): az export
+ * oszlopai között nem szerepel, az `enrichMembers` pedig eleve `null`-t ad.
+ */
+export async function getMembersForExport(input: MemberListQuery = {}): Promise<{
+  members: MemberListItem[]
+  truncated: boolean
+}> {
+  const parsed = memberListQuerySchema.safeParse({ ...input, cursor: null })
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message || 'Érvénytelen személyszűrés.')
+  }
+
+  const { supabase, congregationId, user } = await getEffectiveCongregationContext()
+  if (!user || !congregationId) return { members: [], truncated: false }
+
+  const universe = await loadMemberUniverse(supabase, congregationId)
+  const filtered = sortMembers(
+    filterMembers(universe.members, universe.householdByMember, parsed.data),
+    parsed.data.sort,
+    parsed.data.direction,
+  )
+
+  const truncated = filtered.length > MAX_EXPORT_ROWS
+  return {
+    members: filtered.slice(0, MAX_EXPORT_ROWS).map(toMemberListItem),
+    truncated,
   }
 }
 
@@ -1244,6 +1417,52 @@ export async function getFamiliesPage(input: FamilyListQuery = {}): Promise<Fami
   }
 }
 
+type FilterOptionRow = {
+  vallas: string | null
+  localityName: string | null
+}
+
+/**
+ * 2026-08-11 (P1-perf): a szűrő-legördülők KIZÁRÓLAG a `vallas`-t és a
+ * település nevét használják, korábban mégis a teljes `loadMemberRows`-t
+ * hívták (40 oszlop + 3 beágyazott join MINDEN látható személyre) — ez volt a
+ * /tagnyilvantartas megnyitásának HARMADIK teljes személy-letöltése.
+ * Ez a lekérdezés csak a két szükséges mezőt hozza le.
+ *
+ * A település feloldása bit-azonos a `normalizeMemberRow`-éval: elsődlegesen a
+ * `c_helysegid` join, és ha az üres (import-hiba öröksége), az utca
+ * (`c_utcaid` → `adrstreet.localityid`) településéből pótlódik.
+ */
+async function loadFilterOptionRows(supabase: SupabaseClient, congregationId: string) {
+  return collectBatched<FilterOptionRow>('Szűrőbeállítások lekérdezése sikertelen', async (from, to) => {
+    const result = await supabase
+      .from('szemely')
+      .select(`
+        vallas,
+        adrstreet!c_utcaid(adrlocality!localityid(name)),
+        adrlocality!c_helysegid(name)
+      `)
+      .eq('congregation_id', congregationId)
+      .eq('isvisible', true)
+      .order('id', { ascending: true })
+      .range(from, to)
+
+    const rows = ((result.data ?? []) as unknown[]).map((raw): FilterOptionRow => {
+      const row = raw as {
+        vallas?: string | null
+        adrstreet?: { adrlocality?: NameRelation | NameRelation[] | null } | Array<{ adrlocality?: NameRelation | NameRelation[] | null }> | null
+        adrlocality?: NameRelation | NameRelation[] | null
+      }
+      const street = pickRelation(row.adrstreet)
+      const streetLocality = street ? pickRelation(street.adrlocality) : null
+      const locality = pickRelation(row.adrlocality) ?? streetLocality
+      return { vallas: row.vallas ?? null, localityName: locality?.name ?? null }
+    })
+
+    return { data: rows, error: result.error }
+  })
+}
+
 export async function getMemberFilterOptions(): Promise<MemberFilterOptions> {
   const { supabase, congregationId, user } = await getEffectiveCongregationContext()
   if (!user || !congregationId) {
@@ -1260,12 +1479,28 @@ export async function getMemberFilterOptions(): Promise<MemberFilterOptions> {
     }
   }
 
-  const members = await loadMemberRows(supabase, congregationId)
+  // Ha a szűk lekérdezés bármiért elbukna (séma-sodródás a beágyazott
+  // join-okban), inkább a régi, teljes olvasásra esünk vissza, mint hogy a
+  // legördülők üresen maradjanak.
+  let optionRows: FilterOptionRow[]
+  try {
+    optionRows = await loadFilterOptionRows(supabase, congregationId)
+  } catch (error) {
+    console.warn(
+      '[registry-list] A szűk szűrő-lekérdezés nem elérhető; teljes személy-olvasásra váltunk.',
+      error instanceof Error ? error.message : error,
+    )
+    optionRows = (await loadMemberRows(supabase, congregationId)).map((member) => ({
+      vallas: member.vallas ?? null,
+      localityName: member.adrlocality?.name ?? null,
+    }))
+  }
+
   const localityMap = new Map<string, { value: string; count: number }>()
   const religionMap = new Map<string, { value: string; count: number }>()
 
-  for (const member of members) {
-    const locality = member.adrlocality?.name?.trim()
+  for (const member of optionRows) {
+    const locality = member.localityName?.trim()
     if (locality) {
       const key = normalizeForSearch(locality)
       const current = localityMap.get(key) ?? { value: locality, count: 0 }

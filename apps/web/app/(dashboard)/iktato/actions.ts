@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { selectAllPaged } from '@kartoteka/supabase-client'
 import { filingEntrySchema, type FilingEntryInput } from '@/lib/validations/filing'
 import type { FilingEntry, IktatoYearlyClosure } from '@/lib/constants/filing'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
@@ -24,26 +25,25 @@ export async function getFilingEntries(year: number, direction: string): Promise
   // lapozunk, amíg rövid oldal nem érkezik (F4-minta: munkanaplo/actions.ts
   // getWorklogs). A másodlagos .order('id') a determinisztikus lapozáshoz
   // kell: nélküle az oldalhatáron sor maradhatna ki vagy duplázódhatna.
-  const PAGE_SIZE = 1000
-  const all: FilingEntry[] = []
-  for (let from = 0; ; from += PAGE_SIZE) {
-    let query = supabase.from('iktato').select('*').eq('congregation_id', congId).eq('year', year).eq('deleted', false)
-    if (direction === 'incoming' || direction === 'outgoing') query = query.eq('direction', direction)
-    const { data, error } = await query
-      .order('sequence_number', { ascending: false })
-      .order('id', { ascending: false })
-      .range(from, from + PAGE_SIZE - 1)
-    if (error) {
-      // A meglévő kontraktus szerint hiba esetén üres lista megy vissza —
-      // részleges (csonka) listát viszont NEM adunk, az lenne a néma csonkulás.
-      console.warn('[getFilingEntries] lekérdezés hiba:', error.message)
-      return []
-    }
-    const page = (data || []) as unknown as FilingEntry[]
-    all.push(...page)
-    if (page.length < PAGE_SIZE) break
+  // 2026-08-11 (5. kör, P3 #15): a kézi ciklus helyett a KÖZÖS `selectAllPaged`.
+  // A régi stop-feltétel (`page.length < PAGE_SIZE`) HIBÁS volt: ha a Supabase
+  // „Max Rows" 1000 alá kerül, a szerver a kért 1000-es lapra kevesebbet ad, és
+  // az iktatókönyv az ELSŐ lap után megállt volna — némán a felét listázva és
+  // nyomtatva. `orderColumn: null`, mert a rendezés itt DIREKT fordított
+  // (sequence_number DESC, id DESC) és az `id` már egyedi döntetlen-bontó.
+  let query = supabase.from('iktato').select('*').eq('congregation_id', congId).eq('year', year).eq('deleted', false)
+  if (direction === 'incoming' || direction === 'outgoing') query = query.eq('direction', direction)
+  const { data, error } = await selectAllPaged<FilingEntry>(
+    query.order('sequence_number', { ascending: false }).order('id', { ascending: false }),
+    { orderColumn: null, dedupeBy: 'id' },
+  )
+  if (error) {
+    // A meglévő kontraktus szerint hiba esetén üres lista megy vissza —
+    // részleges (csonka) listát viszont NEM adunk, az lenne a néma csonkulás.
+    console.warn('[getFilingEntries] lekérdezés hiba:', error.message)
+    return []
   }
-  return all
+  return data
 }
 
 /**
@@ -119,31 +119,32 @@ export async function getRetroactiveInfo(year: number): Promise<{
   // Foglaltnak CSAK a nem törölt sorok számítanak: a partial unique index
   // (iktato_unique_active_cong_year_seq, WHERE deleted = false — lásd a
   // 2026-05-17-es SQL-t) a törölt sor számát újra kiadhatóvá teszi.
-  // 1000-es lapozás a getFilingEntries mintájára (PostgREST-limit).
-  const PAGE_SIZE = 1000
-  const occupied = new Set<number>()
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await supabase
+  // 2026-08-11 (5. kör, P3 #15): KÖZÖS `selectAllPaged` a kézi ciklus helyett.
+  // A régi `page.length < PAGE_SIZE` stop-feltétel leszállított szerver-plafonnál
+  // az első lap után kilépett volna — a foglalt sorszámok fele „szabadnak"
+  // látszott volna, és a lelkész egy MÁR KIADOTT iktatószámot kapott volna
+  // felajánlva. A rendezés a hívónál marad (`orderColumn: null`).
+  const { data: occupiedRows, error } = await selectAllPaged<{ sequence_number: number }>(
+    supabase
       .from('iktato')
       .select('sequence_number')
       .eq('congregation_id', congId)
       .eq('year', year)
       .eq('deleted', false)
       .order('sequence_number', { ascending: true })
-      .order('id', { ascending: true })
-      .range(from, from + PAGE_SIZE - 1)
-    if (error) {
-      return {
-        pointer,
-        szabadSzamok: [],
-        osszesSzabad: 0,
-        error: `A foglalt sorszámok lekérése sikertelen: ${error.message}`,
-      }
+      .order('id', { ascending: true }),
+    { orderColumn: null },
+  )
+  if (error) {
+    return {
+      pointer,
+      szabadSzamok: [],
+      osszesSzabad: 0,
+      error: `A foglalt sorszámok lekérése sikertelen: ${error.message}`,
     }
-    const page = (data || []) as { sequence_number: number }[]
-    for (const row of page) occupied.add(row.sequence_number)
-    if (page.length < PAGE_SIZE) break
   }
+  const occupied = new Set<number>()
+  for (const row of occupiedRows) occupied.add(row.sequence_number)
   // Szabad = az 1..pointer tartomány nem foglalt számai. Az első 30 növekvően
   // (a chip-lista ebből mutat ~15-öt), a teljes darabszám számítással.
   const szabadSzamok: number[] = []

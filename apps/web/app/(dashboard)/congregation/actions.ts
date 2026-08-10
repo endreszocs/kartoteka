@@ -527,8 +527,19 @@ export async function initiateCongregationTransfer(input: {
     }
     auditorsNotified = auditors.length
 
-    const portalUrl =
-      (process.env.NEXT_PUBLIC_APP_URL || 'https://kartoteka.app') + '/admin?tab=access-requests'
+    // 2026-08-11 (#3): a levél CTA-ja és az értesítés hivatkozása a megszűnt
+    // `/admin?tab=access-requests` mélylinkre mutatott. Két hiba volt benne:
+    //   (1) az admin panel 13-fülű oldala önálló `/admin/<slug>` route-okra bomlott,
+    //       a `?tab=` paramétert MÁR SENKI nem olvassa → a címzett az admin
+    //       nyitóoldalán kötött ki, minden kontextus nélkül;
+    //   (2) a hozzáférés-kérelmek listája SOSEM volt a lelkészcsere-átadás helye.
+    // Az átadás felülvizsgálati panelje a gyülekezet kontextusában, a Gyülekezet-
+    // beállítás varázslóban él, ezért a rendszergazdát a Gyülekezetek oldalra
+    // küldjük (onnan tud belépni az érintett gyülekezetbe). A számvevő NEM léphet
+    // az /admin alá (az admin layout kidobja), ezért ő az irányítópultot kapja.
+    const appBaseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://kartoteka.app'
+    const ADMIN_PORTAL_PATH = '/admin/gyulekezetek'
+    const AUDITOR_PORTAL_PATH = '/dashboard'
 
     const recipients: Array<{ id: string; email: string; full_name: string | null; role: 'rendszergazda' | 'számvevő' }> = [
       ...((admins || []) as Array<{ id: string; email: string; full_name: string | null }>).map((a) => ({
@@ -543,6 +554,9 @@ export async function initiateCongregationTransfer(input: {
       if (!r.email || seen.has(r.id) || r.id === user?.id) continue
       seen.add(r.id)
 
+      const targetPath = r.role === 'rendszergazda' ? ADMIN_PORTAL_PATH : AUDITOR_PORTAL_PATH
+      const portalUrl = appBaseUrl + targetPath
+
       await admin.from('ertesitesek').insert([
         {
           congregation_id: input.congregationId,
@@ -550,7 +564,7 @@ export async function initiateCongregationTransfer(input: {
           cim: `Lelkészcsere-átadás indult: ${congName}`,
           uzenet: `${fromName} elindította a(z) ${congName} gyülekezet átadását. Kérjük, nézd át a gyülekezet adatait, és hagyd jóvá vagy rögzíts meghagyásokat.`,
           tipus: 'warning',
-          hivatkozas: '/admin?tab=access-requests',
+          hivatkozas: targetPath,
         },
       ])
 
@@ -683,12 +697,32 @@ export async function completeTransfer(input: {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://kartoteka.app'
 
   // Létezik-e a bejövő lelkész?
-  const { data: existing } = await admin
+  //
+  // BIZTONSÁGI FIX 2026-08-11 (#12): a lekérdezés SERVICE-ROLE klienssel fut (nincs
+  // RLS), és a címet nyersen adta át az `ilike`-nak. A PostgREST `ilike`-ban az `_`
+  // és a `%` JOKER — a magyar címekben gyakori `uj_lelkesz@parokia.hu` mintára egy
+  // támadó `ujXlelkesz@parokia.hu` címmel regisztrálhatott (a handle_new_user trigger
+  // azonnal létrehozza a profiles sort, a postafiókot nem is kell birtokolnia), és a
+  // találat rá illeszkedett → a `complete_congregation_transfer` RPC az EGÉSZ
+  // gyülekezetet (tagság, pénzügy, anyakönyv) az ő fiókjára írta volna át.
+  // Ártalmatlan változat: két hasonló cím → `maybeSingle()` hibázik, `found` null lesz,
+  // és a rendszer NÉMÁN meghívót küld egy sikeresnek hitt átadás helyett.
+  // Ezért: (1) escape-eljük a jokereket (ugyanaz a minta, mint az admin/meghivo-actions.ts-ben),
+  // (2) a lekérdezés után PONTOS, kisbetűs egyenlőséget is megkövetelünk (öv + nadrágszíj,
+  // lásd admin/access-requests-actions.ts).
+  const emailPattern = email.replace(/[\\%_]/g, (m) => `\\${m}`)
+  const { data: existingRows, error: existingErr } = await admin
     .from('profiles')
     .select('id, full_name, email')
-    .ilike('email', email)
-    .maybeSingle()
-  const found = existing as { id: string; full_name: string | null; email: string | null } | null
+    .ilike('email', emailPattern)
+    .limit(20)
+  if (existingErr) {
+    return { error: 'A bejövő lelkész keresése nem sikerült. Kérjük, próbálja meg újra.' }
+  }
+  const found =
+    ((existingRows || []) as Array<{ id: string; full_name: string | null; email: string | null }>).find(
+      (p) => (p.email || '').trim().toLowerCase() === email,
+    ) ?? null
 
   if (!found) {
     // Nincs a rendszerben → meghívó email + to_email rögzítése

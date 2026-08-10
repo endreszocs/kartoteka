@@ -475,14 +475,11 @@ export async function upsertCongregationSubscription(
   return { id: res.id }
 }
 
-export async function deleteSubscription(id: number): Promise<{ error?: string }> {
-  const ctx = await requireAdmin()
-  if ('error' in ctx) return { error: ctx.error }
-  const { error } = await ctx.supabase.from('congregation_subscriptions').delete().eq('id', id)
-  if (error) return { error: error.message }
-  revalidatePath('/admin')
-  return {}
-}
+// 2026-08-11 (K5 P2 #6) — TÖRÖLVE: `deleteSubscription`. Nem volt hívója; az
+// előfizetés-kezelő (components/admin/finance/subscription-manager.tsx) csak
+// upsertel. Ez volt a fájl EGYETLEN valódi DELETE-je: hívó nélkül is ÉLŐ
+// POST-végpontként bárki törölhetett egy `congregation_subscriptions` sort
+// puszta id-vel, visszavonhatatlanul (nincs soft-delete ezen a táblán).
 
 // ─────────────────────────────────────────────────────────────────────────
 // 4) Aggregált pénzügyi összefoglaló

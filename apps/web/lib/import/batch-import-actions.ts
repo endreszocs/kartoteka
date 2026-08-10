@@ -28,6 +28,7 @@ import {
   type AutoColumnContext,
 } from './row-transformer'
 import { createClient } from '@/lib/supabase/server'
+import { assertDelegatedImportAllowed } from '@/app/(dashboard)/delegated-import/guard'
 import { resolveImportTargetCongregationId } from './import-target'
 import { resolveLookups, type ResolveStats } from './lookup-resolver'
 import type {
@@ -66,6 +67,14 @@ export async function parseAndPreview(
 
   if (!file) return { error: 'Nincs fájl kiválasztva.' }
   if (!moduleStr) return { error: 'Modul nem megadva.' }
+
+  // BIZTONSÁGI FIX 2026-08-11 (#16): a rendszergazdai importáló PIN-kapuja eddig
+  // CSAK a felületen létezett (a modul-oldalak elrejtették a fület), a szerver
+  // viszont bárkinek válaszolt. Ez az elemző ág nem ír adatot, de a delegált
+  // munkamenet nélküli hívás semmi jóra nem szolgál — ezért ugyanaz a kapuőr
+  // védi, mint az importot.
+  const parseGuard = await assertDelegatedImportAllowed(moduleStr, target.congregationId, access)
+  if (!parseGuard.ok) return { error: parseGuard.error }
 
   const importModule = moduleStr as ImportModule
 
@@ -162,6 +171,18 @@ export async function executeBatchImport(
   if (!file || !configJson || !moduleStr) {
     return { error: 'Hiányzó paraméterek (fájl, konfiguráció, modul).' }
   }
+
+  // BIZTONSÁGI FIX 2026-08-11 (#16): a PIN-kapu eddig KIZÁRÓLAG a felületen volt.
+  // A modul-oldalak csak elrejtették a „Rendszergazdai importáló" fület
+  // (`showAdminImport = godMode.active || delegatedImport.active`), maga az akció
+  // viszont csak a bejelentkezést nézte — így BÁRMELY hitelesített felhasználó
+  // elküldhette az akció azonosítóját egy preparált munkafüzettel, és tömegesen
+  // szúrhatott sorokat a saját gyülekezete szemely/befizetes/kiadas/iktato/
+  // leltar_tetelek tábláiba: PIN nélkül, a 2 órás munkamenet, a brute-force
+  // korlátozó és az aktiválási audit-nyom megkerülésével. A kapuőr fail-closed:
+  // delegált süti VAGY aktív god mode VAGY rendszergazda + hatókör kell hozzá.
+  const importGuard = await assertDelegatedImportAllowed(moduleStr, congregationId, access)
+  if (!importGuard.ok) return { error: importGuard.error }
 
   let sheetConfigs: ImportSheetConfig[]
   try {

@@ -9,6 +9,13 @@
  *
  * Véglegesített évre a szerver akció elutasítja a változtatást —
  * akkor a felhasználó javítási kérelmet kell, hogy adjon.
+ *
+ * 2026-08-11 (5. kör, P0): FONTOS a lenti `datum: dateEditable ? datum : undefined`
+ * miatt — a szerver zár-ellenőrzése KORÁBBAN csak akkor futott, ha érkezett dátum,
+ * így ez a dialógus egy véglegesített évben némán átírhatta az összeget, a jogcímet,
+ * az iratszámot és a befizetőt. A szerver (`updateTransactionBasic`) azóta a tétel
+ * DB-ben tárolt dátumából állapítja meg az évet, és MINDEN mentésnél ellenőriz; a
+ * Kassza fül pedig zárt évben már a ceruza-gombot sem engedi.
  */
 
 import { useEffect, useState } from 'react'

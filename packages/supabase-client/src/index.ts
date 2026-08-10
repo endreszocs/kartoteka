@@ -24,3 +24,13 @@ export {
 } from './browser'
 
 export type { Database } from './types'
+
+// 2026-08-11 (5. kör, P3 #15): a TELJES halmaz lapozott letöltése — egyetlen
+// közös implementáció a web és a desktop számára. A `page.length < PAGE_SIZE`
+// stop-feltétel HIBÁS (leszállított szerver-plafonnál némán megfelezi a listát),
+// csak az ÜRES lap a biztos stop. Részletes indoklás a modul fejlécében.
+export {
+  selectAllPaged,
+  type SelectAllPagedOptions,
+  type SelectAllPagedResult,
+} from './select-all-paged'

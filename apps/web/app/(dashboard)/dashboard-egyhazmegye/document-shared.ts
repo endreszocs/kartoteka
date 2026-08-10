@@ -22,15 +22,28 @@ export interface DocumentCenterCongregation {
  * A `congregations` a hatókör TELJES gyülekezet-listája (nem a beküldésekből
  * származtatva!) — így a „ki nem adta be" kérdés megválaszolható (a régi
  * mátrix csak a beküldőket mutatta, diagnosztika #7).
- * A `submissions` MINDEN évet tartalmaz (év-kulcsolási hiba, diagnosztika #5:
- * a vagyonleltár year-1 kulcsú, a januári számadás az előző évhez tartozik) —
- * az év-szűrés a felületen történik.
+ * A `submissions` a BETÖLTÖTT évek beküldéseit tartalmazza — 2026-08-11
+ * (5. kör, P2-#19) óta ez alapból a beszámolási szezon éve + az azt megelőző
+ * év + a naptári év (lásd `loadedYears`), nem pedig az EGÉSZ archívum. Az
+ * év-kulcsolási hiba (diagnosztika #5: a vagyonleltár year-1 kulcsú, a
+ * januári számadás az előző évhez tartozik) így is kezelve marad, mert a
+ * releváns évek mind benne vannak; a régebbi évek a felületen, kérésre
+ * töltődnek (getSubmissionsForYear).
+ *
+ * A beküldések `snapshot_data` mezője a LISTA-lekérdezésben NINCS benne
+ * (évente több MB jsonb utazott a böngészőbe egy ritkán kinyitott
+ * részletkártyáért) — a pillanatképet a snapshot-néző kéri le külön
+ * (getSubmissionSnapshot).
  */
 export interface DocumentCenterData {
   congregations: DocumentCenterCongregation[]
   submissions: DocumentSubmission[]
-  /** A beküldésekben előforduló évek (csökkenő) + az aktuális és előző év. */
+  /** A beküldésekben előforduló ÖSSZES év (csökkenő) + az aktuális és előző év. */
   years: number[]
+  /** Mely évek beküldései utaztak ténylegesen a `submissions`-ben. */
+  loadedYears?: number[]
+  /** A hatókör beküldéseinek TELJES darabszáma (minden évből) — az archívum-felirathoz. */
+  totalCount?: number
   /** Feliratozott rendszergazdai (szűretlen) nézet jelzése — null = saját hatókör. */
   scopeNotice: string | null
   /** Fail-closed hibaüzenet (nincs feloldható hatókör / lekérdezési hiba). */

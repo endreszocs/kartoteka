@@ -143,12 +143,17 @@ export function AccountingTab({
   // 2026-07-10 (S3 audit KRITIKUS #1): a stornózott (érvénytelenített) tétel a
   // számadás tény-összegeibe SEM számíthat bele — eddig felfújta a totálokat és
   // a beküldött snapshotot is (a wizard summary innen táplálkozik).
+  // 2026-08-11 (5. kör, P1): `osszeg_ron ?? osszeg` — a NYERS deviza-összeg
+  // helyett a RON-ekvivalens. Eddig a hivatalos Számadás a nyers összeget adta
+  // össze, a Registru Casa/Banca viszont a RON-értéket (reporting.ts `ronOf`),
+  // így egy 1000 EUR-s banki tétel a Registru-ban 4 970 lej, a Számadáson
+  // 1 000 lej volt: ugyanarra az évre két, egymásnak ellentmondó aláírt papír.
   const actualIncome = useMemo(() => {
     const map: Record<string, number> = {}
     incomeRecords.forEach((row) => {
       if (row.stornozott) return
       const code = bevCelMap[row.id_befizetescel || 0]
-      if (code) map[code] = (map[code] || 0) + row.osszeg
+      if (code) map[code] = (map[code] || 0) + (Number(row.osszeg_ron ?? row.osszeg) || 0)
     })
     return map
   }, [incomeRecords, bevCelMap])
@@ -158,7 +163,7 @@ export function AccountingTab({
     expenseRecords.forEach((row) => {
       if (row.stornozott) return
       const code = kiaCelMap[row.id_kiadascel || 0]
-      if (code) map[code] = (map[code] || 0) + row.osszeg
+      if (code) map[code] = (map[code] || 0) + (Number(row.osszeg_ron ?? row.osszeg) || 0)
     })
     return map
   }, [expenseRecords, kiaCelMap])

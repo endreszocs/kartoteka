@@ -21,33 +21,27 @@ import {
   computeBaseExpectedForMemberYear,
   computeJarulekForMemberYear,
   isJarulekExcludedMemberStatus,
+  getPaymentGoalCode,
+  isChurchMaintenanceCode,
   type DebtCalcMode,
   type JarulekDiscountRule,
   type JarulekExemption,
   type JarulekPaymentLike,
   type JarulekYearSetting,
+  type PaymentGoalCodeRef,
 } from '@kartoteka/ui-app'
 
 import { getDesktopSupabase } from './supabase'
 import { isOnlineWithSession } from './use-session-online'
 import { selectAllPaged } from './sync'
 
-// ── Web-azonos helperek (a befizetés-cél kódjának kibontása + egyházfenntartás-szűrő) ──
+// ── A befizetés-cél kódjának kibontása + egyházfenntartás-szűrő ──
 // 2026-07-17 (F1-1 P0, web-azonos): a szamadasicel-nek NINCS `kod` oszlopa (az `id`
 // maga a kód) — a befizetescel.id_szamadasicel-t olvassuk közvetlenül.
-type PaymentGoalCodeRef = {
-  id_szamadasicel?: string | null
-  szamadasicel?: { id?: string | null; kod?: string | null } | { id?: string | null; kod?: string | null }[] | null
-} | null
-function getPaymentGoalCode(goal?: PaymentGoalCodeRef | PaymentGoalCodeRef[]): string | null {
-  const g = Array.isArray(goal) ? goal[0] || null : goal || null
-  const ref = g?.szamadasicel
-  const c = Array.isArray(ref) ? ref[0] || null : ref || null
-  return g?.id_szamadasicel || c?.id || c?.kod || null
-}
-function isChurchMaintenanceCode(code?: string | null): boolean {
-  return typeof code === 'string' && code.startsWith('101.01')
-}
+//
+// 2026-08-11 (5. kör, P3 #4): a fenti fejléc „ha a webes változik, ITT IS frissíteni
+// KELL" ígéretét most már a SZERKEZET tartja be, nem a figyelem: a pár átkerült a
+// `@kartoteka/ui-app`-ba, és a web mindhárom hívási helye ugyanonnan importál.
 
 function maxNumOf(values: Array<string | null>): { num: number; width: number } {
   let num = 0

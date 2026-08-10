@@ -14,9 +14,16 @@
  * - nem töröl semmit
  * - nem próbál "okosból" automatikus javítást végezni
  *
- * Futatás:
+ * Futtatás:
  *   node scripts/audit-safety.mjs
  *   node scripts/audit-safety.mjs --json
+ *   node scripts/audit-safety.mjs --strict   (CI-kapu: nem 0 kilépőkód, ha van
+ *                                             árva komponens-jelölt)
+ *
+ * Kilépőkódok:
+ *   0 — lefutott
+ *   1 — a DB-séma nem olvasható be (a drift-összehasonlítás értelmetlen lenne)
+ *   2 — csak `--strict` mellett: van árva komponens-jelölt
  */
 
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
@@ -25,7 +32,22 @@ import { fileURLToPath } from 'node:url'
 
 const __filename = fileURLToPath(import.meta.url)
 const ROOT = resolve(dirname(__filename), '..')
+
+// 2026-08-11 (K5 P2 #33) — JAVÍTVA: a séma-drift ág a monorepo-átállás
+// (c365c09f, npm workspaces) óta némán halott volt. A `ROOT` az `apps/web`,
+// és a script a `apps/web/migration-docs/Database_schema.sql` fájlt kereste,
+// ami SOHA nem létezett — a séma a REPO GYÖKERÉBEN van. A `safeReadText`
+// üres stringet adott vissza, így 0 táblát ismert, és emiatt MINDEN élő
+// `.from('...')` hivatkozás drift-ként jelent meg: 613 hamis pozitív, közte a
+// `profiles`, `congregations`, `access_requests`. Egy VALÓDI elgépelt táblanév
+// ebben a zajban észrevehetetlen — pontosan az a hibaosztály, amit a projekt
+// „rossz select → némán ÜRES lista" néven tart nyilván.
+const REPO_ROOT = resolve(ROOT, '..', '..')
+
 const wantsJson = process.argv.includes('--json')
+// 2026-08-11 (K5 P2 #34) — a halott-kód takarítás után az árva komponensek
+// száma 0. Ezzel a kapcsolóval a szám CI-ben őrizhető, hogy ne csússzon vissza.
+const wantsStrict = process.argv.includes('--strict')
 
 const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx'])
 const IGNORE_DIR_NAMES = new Set(['node_modules', '.next', '.git'])
@@ -174,9 +196,29 @@ function analyze() {
     repo: toRepoPath(file),
   }))
 
-  const schemaPath = join(ROOT, 'migration-docs', 'Database_schema.sql')
+  // A séma a repó GYÖKERÉBEN van, nem az apps/web alatt (lásd a REPO_ROOT
+  // melletti 2026-08-11-es megjegyzést).
+  const schemaPath = join(REPO_ROOT, 'migration-docs', 'Database_schema.sql')
   const schemaText = safeReadText(schemaPath)
   const schemaTables = extractSchemaTables(schemaText)
+
+  // FAIL-LOUD kapu: ha nulla táblát olvastunk be, a séma-drift ÖSSZEHASONLÍTÁS
+  // értelmetlen — minden `.from()` hívás drift-nek látszana. Inkább szóljunk,
+  // mintsem hogy a script megint évekig hamis pozitívokat gyártson csendben.
+  if (schemaTables.size === 0) {
+    console.error('')
+    console.error('HIBA — az audit:safety nem tudta beolvasni a DB-sémát.')
+    console.error(`  Várt fájl: ${schemaPath}`)
+    console.error(
+      schemaText.length === 0
+        ? '  A fájl nem olvasható vagy nem létezik ezen az útvonalon.'
+        : '  A fájl olvasható, de nincs benne egyetlen "CREATE TABLE public.<név>" sor sem.',
+    )
+    console.error('  Séma nélkül a "séma-drift" lista MINDEN táblahivatkozást hibásan jelezne,')
+    console.error('  ezért a script most kilép. Javítsd az útvonalat (REPO_ROOT), majd futtasd újra.')
+    console.error('')
+    process.exit(1)
+  }
 
   const fromReferences = []
   for (const file of repoCodeFiles) {
@@ -347,4 +389,17 @@ if (wantsJson) {
   console.log(JSON.stringify(result, null, 2))
 } else {
   printHuman(result)
+}
+
+// CI-kapu — csak `--strict` mellett. Az árva komponens-jelöltek száma a
+// 2026-08-11-i takarítás után 0; ha ez újra nő, a build essen el, ne pedig
+// egy senki által nem olvasott log-sorban jelenjen meg.
+if (wantsStrict && result.summary.orphanComponentCandidates > 0) {
+  console.error('')
+  console.error(
+    `HIBA (--strict) — ${result.summary.orphanComponentCandidates} árva komponens-jelölt van a components/ alatt.`,
+  )
+  console.error('  Ezekre egyetlen fájl sem hivatkozik. Vagy kösd be őket, vagy töröld a fájlt.')
+  console.error('')
+  process.exit(2)
 }

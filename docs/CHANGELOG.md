@@ -23,6 +23,70 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-11] — Nagy biztonsági kör, megújult személyi karton és sok néma hiba javítása
+<!-- key: 2026-08-11-biztonsagi-kor-szemelyi-karton -->
+<!-- category: security -->
+<!-- targets: lelkesz, gondnok, konyvelo, admin, esperes, egyhazkeruleti_admin -->
+<!-- version: web v0.9.160 -->
+
+Ez a kör egy alapos átvizsgálásból indult, és nagyobb lett, mint terveztük. A legfontosabb, amit tudni érdemes: **több olyan hiba is kiderült, amelyek némán, hibaüzenet nélkül dolgoztak** — rossz számot írtak a hivatalos nyomtatványra, vagy több adatot engedtek látni, mint kellett volna. Ezek most mind javítva vannak. Az alább felsoroltakhoz **semmit nem kell tenned**, az adatbázis-oldali szigorítások már élesek.
+
+### 🔒 Biztonsági javítások
+
+- **Az ország összes lelkészének elérhetősége lekérdezhető volt.** Egy önmagát regisztráló fiók egyetlen kéréssel megkaphatta minden gyülekezet lelkészének nevét, magán-e-mail-címét és telefonszámát. Ugyanígy név vagy telefonszám alapján kereshetővé vált országosan az **egyházi személyi szám** is. Mindkét keresés mostantól csak a saját gyülekezet tagjaira és valódi egyeztetési ügyekre működik.
+- **A családi és gyermek-adatok országosan olvashatók voltak.** Bármely bejelentkezett fiók lekérdezhette bármelyik gyülekezet családi kartonjait — mindkét házastárssal és a **teljes lakcímmel** —, valamint a gyermekek adatait, köztük kiskorúakét. Lezárva.
+- **Az esperes és az egyházmegyei adminisztrátor az egész ország tagnyilvántartását és pénzügyét olvashatta.** A felület helyesen szűrt, de a mögöttes hozzáférés nem — aki tudta, hogyan kérdezze, mindent látott. Mostantól mindenki csak a saját egyházmegyéjét éri el. A saját megyén belül semmi nem változott.
+- **Egy elavult adatköltöztető függvény bárki számára futtatható volt**, és országosan átírhatta a házastársi kapcsolatokat. A védelme szerkezetileg hatástalan volt. Eltávolítva.
+- **A gyülekezet-átadás rossz fiókra kerülhetett.** Az új lelkész keresésekor az e-mail-cím mintaként, nem pontos egyezésként működött — egy hasonló című, szándékosan létrehozott fiók megkaphatta volna az egész gyülekezetet (tagok, pénzügy, anyakönyv). Ugyanez a hiba a jóváhagyásnál eldönthette, melyik gyülekezethez kerül egy új lelkész.
+- **A delegált import PIN-kódja csak látszatvédelem volt.** A hatjegyű kód bekérése kizárólag a felületen történt; a háttérben bármely bejelentkezett felhasználó importálhatott a saját gyülekezetébe PIN nélkül. Emellett a delegált import ugyanazt a PIN-t használta, mint a rendszergazdai mód — így minden lelkész, aki valaha importált, megismerte azt is.
+- **A kivetítés párosító kódja külső szolgáltatóhoz került.** A QR-kódot eddig egy amerikai oldal állította elő, ami azt jelenti, hogy a párosító cím — az egyetlen védelem a beszámoló élő adatfolyamán — kiment a rendszerből. A QR mostantól helyben készül.
+- **Az adattörlési napló, a nyugtatömbök és az anyakönyvi számok** kiadása is hatókörhöz lett kötve; korábban más gyülekezet sorszámát is el lehetett használni.
+- Az anyakönyvi, iratszám- és családlekérdező függvények **kijelentkezett látogató számára is elérhetők voltak** — ez a rendszer alapbeállításából eredt, és minden érintett függvénynél lezártuk.
+
+### 🐛 Javítások — pénzügy és hivatalos nyomtatványok
+
+- **Lezárt év tételei utólag átírhatók voltak.** Egy véglegesített és az egyházmegyéhez már beküldött év bármelyik tételének **összege, jogcíme, iratszáma** módosítható volt, ha nem az év utolsó tételéről volt szó. Ilyenkor a kinyomtatott, aláírt számadás és a képernyőn látható adat csendben szétvált. A zár most három rétegben véd, és a Kassza- meg a Bank fülön magyarázó sáv jelzi, ha zárt évben vagy.
+- **A költségvetés akkor is beküldődött, ha a mentés elbukott.** A rendszer véglegesítette az évet és elküldte az egyházmegyének azt az adatot, ami sosem került az adatbázisba — zöld sikerüzenettel.
+- **Devizás tételnél két, egymásnak ellentmondó hivatalos papír készült.** A Registru a lej-értéket, a Számadás a nyers devizaösszeget adta össze: egy 1000 eurós banki bevétel az egyiken 4 970 lej, a másikon 1 000 lej volt.
+- **Az év végi árfolyam-átértékelés a kasszába könyvelt.** A nyereség vagy veszteség készpénzként jelent meg a kasszakönyvben, miközben a bankszámla egyenlege nem változott — pedig épp azt kellett volna átértékelni.
+- **A leltári szám generátora hiba esetén elölről kezdte a számozást**, és egy már kiadott számot ajánlott fel. Ugyanez a nyugtaszámoknál is javítva.
+- **A Decont nem vezette vissza a kiadott előleget**, így a kasszakönyv minden elszámolásnál az előleg összegével eltért a fizikai pénztártól.
+- **A TVA-plafon figyelő tévesen mért.** A stornózott bevételt is beleszámolta, a devizás bérleti díjat pedig lej helyett a nyers összegen — egy 3 000 eurós havi bérleti díjnál 12%-ot mutatott 60% helyett, ami bejelentési kötelezettség elmulasztásához vezethetett volna.
+- **Az éves jelentés vagyon-szekciója a selejtezett tételeket is beszámolta**, az anyakönyvi statisztika pedig hiba esetén némán nullát írt — így a nyomtatott jelentésben „0 keresztelés" szerepelhetett.
+- **A vagyonleltár beküldése rossz évvel és rossz darabszámmal ment.** Az esperes „Hiányzik" jelzést látott, a darabszám pedig a törölt tételeket is tartalmazta.
+
+### 🐛 Javítások — néma hibák
+
+- **Ezer sor fölött több lista is csendben csonkult.** A tartozás-lista, az irányítópult bevétel/kiadás mutatói, a tagnyilvántartás áttekintője és a véglegesítési pillanatkép mind megállt az első ezer sornál. Egy 1200 tagú gyülekezetnél ez azt jelentette, hogy **200 tag egyszerűen nem jelent meg** — sem hátralékosként, sem rendezettként. Ahol a befizetések csonkultak, ott a rendszer alaptalanul mutatott hátralékot.
+- **A kapcsolat nélküli (offline) mód ezer sor fölött végleg hiányos maradt.** A letöltés megállt, de a jelző továbblépett, így a hiányzó sorokat soha többé nem kérte le. Egy 2500 tagú gyülekezetnél 1500 tag hiányzott az offline nézetből.
+- **A temető-törlés mindig sikert jelzett**, akkor is, ha nem történt semmi — a lelkész zöld visszajelzést kapott, majd a temető ott maradt a listában.
+- **A leltári jelentés véglegesítése némán semmit nem csinált**, ha az adott évre még nem volt pénzügyi alapbeállítás. Ez pontosan az új gyülekezetek és minden január esete volt.
+- **A Kuka „A kuka üres" üzenetet mutatott**, ha a törölt rekordok olvasása elbukott — a lelkész azt hihette, az adat végleg elveszett, miközben ott volt.
+- **Az év végi varázsló „Javítás" gombjai sehová nem vittek**, és a hozzáférési kérelmekről szóló admin-levelek egy megszűnt oldalra mutattak.
+- **A desktop alkalmazás mindig „1"-et ajánlott iratszámnak**, függetlenül attól, hány nyugta volt már a gyülekezetben.
+
+### 🎨 Megújult személyi karton
+
+- **A személyi karton teljesen újratervezve**, a mellette megnyíló családi karton nyelvén: azonos fejléc, azonos szakaszcímek, azonos jelölések. Színes, kategóriákra bontott, és minden szín jelent is valamit — nem díszítés.
+- **A dialógusok többé nem záródnak be a háttérre koppintva.** Eddig egy elcsúszott érintés a képernyő szélén nyomtalanul elvitte a féloldalnyi kitöltött tagfelvételi űrlapot.
+- **Telefonon a hosszú dialógusok végre görgethetők.** A családlátogatás-rögzítőnél a „Mentés" gomb kis kijelzőn fizikailag elérhetetlen volt.
+- **Olvashatóság.** Több helyen a szöveg és a háttér közti különbség a szabvány alatt volt. A naptárban a **mai nap száma gyakorlatilag láthatatlan volt** (a legrosszabb arány 1,27:1 volt a szükséges 4,5 helyett), a „kiemelt" jelölés szintén. Javítva — az arculati olívazöld változatlan.
+- **A leltári lista telefonon kártya-nézetet kapott.** Eddig oldalra kellett húzni a táblázatot ahhoz, hogy a „Szerkesztés" és „Törlés" gomb egyáltalán látszódjon.
+- **A leltár feloldási kérelme rendes ablakot kapott**, és nem fogad el üres indoklást — eddig az esperes indoklás nélküli kérelmet kapott, amit nem tudott elbírálni.
+
+### ⚡ Sebesség
+
+- **A megnyitáskor letöltött adatmennyiség 70 MB-ról 2 MB-ra csökkent.** A rendszer eddig minden első látogatónál letöltötte az összes oktatóvideót, sablont és háttérképet — mobilneten ez az adatkeret elfogyasztása mellett azt is okozhatta, hogy a kapcsolat nélküli mód sosem kapcsolt be.
+- **A tagnyilvántartás exportja negyven kérésből egy lett**, a szűrők pedig lényegesen kevesebb adatot mozgatnak.
+- **A konkordancia nem fagyasztja le a telefont.** A megnyitáskor másodpercekig nem reagált semmi.
+- Az irányítópult és a diagramok csak akkor töltik be a nehéz részeiket, amikor tényleg kellenek.
+
+### 🧹 Takarítás
+
+- **54 fájl, mintegy 12 000 sornyi kód törölve**, amely már semmilyen úton nem volt elérhető a rendszerben. Ezek nem futottak, de kereséskor előjöttek — így egy jövőbeli javítás bármikor a rossz, elárvult változatba kerülhetett volna, késznek tűnve.
+
+---
+
 ## [2026-08-10] — Éves beszámoló következtetésekkel, megújult gyülekezeti weboldal, értesítések és irányítópult + biztonsági javítások
 <!-- key: 2026-08-10-beszamolo-weboldal-ertesitesek-biztonsag -->
 <!-- category: security -->

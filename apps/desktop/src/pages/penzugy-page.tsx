@@ -706,6 +706,10 @@ export function PenzugyPage() {
               congregationName={congregationName}
               incomeCategories={incomeCategories}
               expenseCategories={expenseCategories}
+              // 2026-08-11 (5. kör, P0-követő): véglegesített (beküldött) évben
+              // a desktopon se kínáljuk fel a tétel-szerkesztést. A szerver-oldali
+              // zár már megvan (core/update-transaction.ts) — ez a UI-visszajelzés.
+              accountingFinalized={!!settings.accounting_finalized}
               onTransactionChanged={() => void load()}
               onToast={(msg, kind) => setPageToast({ kind, msg })}
               // C1c: sztornó-visszavonás bekötve a core undoStornoUseCase-re
@@ -805,6 +809,8 @@ export function PenzugyPage() {
               expenseRecords={expense}
               carryoverBank={carryoverBank}
               derivedNyitoRon={bankNyitoMap}
+              // 2026-08-11 (5. kör, P0-követő): zárt év — a Bank fülön is.
+              accountingFinalized={!!settings.accounting_finalized}
               bankAccounts={bankAccounts}
               bevCelMap={bevCelMap}
               kiaCelMap={kiaCelMap}

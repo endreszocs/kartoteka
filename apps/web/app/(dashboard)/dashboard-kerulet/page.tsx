@@ -137,9 +137,14 @@ export default async function KeruletDashboardPage() {
     }
   }
 
-  // Dokumentumközpont-adatcsomag (engedélyezett adatforrás): MINDEN év
-  // véglegesített/továbbított dokumentumai + a kerület TELJES gyülekezet-
-  // listája a teljességi mátrixhoz (2026-08-09).
+  // Dokumentumközpont-adatcsomag (engedélyezett adatforrás): a kerület TELJES
+  // gyülekezet-listája a teljességi mátrixhoz + a véglegesített/továbbított
+  // dokumentumok (2026-08-09).
+  // 2026-08-11 (5. kör, P2-#19): a sorok alapból csak a RELEVÁNS év-ablakra
+  // (beszámolási szezon éve + előző év + naptári év) töltődnek, és a
+  // jsonb-pillanatkép sem utazik velük. Korábban minden év minden beküldése
+  // teljes pillanatképpel átment a kliensre — ~6 MB/év, örökre növekedve. A
+  // régebbi éveket az év-választó kéri le, a pillanatképet a snapshot-néző.
   const documentCenter = await getSubmissionMatrix('district')
   const seasonYear = documentSeasonYear()
   const seasonDocs = documentCenter.submissions.filter((d) => d.year === seasonYear)
@@ -157,8 +162,10 @@ export default async function KeruletDashboardPage() {
           showAllDistricts ? 'Rendszergazdai nézet: minden egyházkerület' : undefined,
           `${(dioceses?.length ?? 0).toLocaleString('hu-HU')} egyházmegye`,
           `${totalCongregations.toLocaleString('hu-HU')} gyülekezet`,
-          documentCenter.submissions.length > 0
-            ? `${documentCenter.submissions.length.toLocaleString('hu-HU')} hivatalos dokumentum (archívum)`
+          // 2026-08-11 (P2-#19): a felirat a TELJES archívumot mutatja (olcsó
+          // darabszám-lekérdezésből), nem a betöltött év-ablak méretét.
+          (documentCenter.totalCount ?? documentCenter.submissions.length) > 0
+            ? `${(documentCenter.totalCount ?? documentCenter.submissions.length).toLocaleString('hu-HU')} hivatalos dokumentum (archívum)`
             : 'nincs még véglegesített dokumentum',
         ].filter(Boolean) as string[]}
       />

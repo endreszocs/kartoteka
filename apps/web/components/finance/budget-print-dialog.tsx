@@ -78,13 +78,18 @@ export function BudgetPrintDialog({
 
       // 2026-07-10 (S3 audit KRITIKUS #1): a stornózott tétel a hivatalos
       // költségvetés/számadás nyomtatvány tény-oszlopába SEM számíthat.
+      // 2026-08-11 (K5-#6): a tény-oszlop a NYERS deviza-összeget (`osszeg`) adta
+      // össze, a Registru Casa/Banca/Jurnal viszont a RON-ekvivalenst
+      // (`osszeg_ron`) — egy devizás banki tétel így két ELTÉRŐ hivatalos
+      // nyomtatványt eredményezett ugyanarra az évre. A könyvelés RON-ban folyik:
+      // mindenhol `osszeg_ron ?? osszeg` (RON-számlán a kettő azonos).
       for (const r of incomeRecords) {
         if (r.stornozott) continue
         if (!inPeriod(r.datum)) continue
         if (r.id_befizetescel) {
           const code = bevCelMap[r.id_befizetescel]
           if (code) {
-            actualIncome[code] = (actualIncome[code] || 0) + Number(r.osszeg || 0)
+            actualIncome[code] = (actualIncome[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
           }
         }
       }
@@ -94,7 +99,7 @@ export function BudgetPrintDialog({
         if (r.id_kiadascel) {
           const code = kiaCelMap[r.id_kiadascel]
           if (code) {
-            actualExpense[code] = (actualExpense[code] || 0) + Number(r.osszeg || 0)
+            actualExpense[code] = (actualExpense[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
           }
         }
       }
