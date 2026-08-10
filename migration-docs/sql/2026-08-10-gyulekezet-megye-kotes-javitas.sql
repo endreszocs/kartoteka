@@ -170,7 +170,10 @@ WHERE c.diocese_id IS NULL
 UPDATE public.congregations c
 SET diocese_id = sub.diocese_id
 FROM (
-  SELECT p.congregation_id, min(p.diocese_id) AS diocese_id
+  -- 2026-08-10 (hibajavítás): a PostgreSQL-ben NINCS min(uuid) — a HAVING
+  -- amúgy is garantálja, hogy pontosan EGY érték van, ezért a szöveges
+  -- aggregálás és visszaalakítás a legegyszerűbb, típushelyes megoldás.
+  SELECT p.congregation_id, min(p.diocese_id::text)::uuid AS diocese_id
   FROM public.profiles p
   WHERE p.congregation_id IS NOT NULL
     AND p.diocese_id IS NOT NULL
