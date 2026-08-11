@@ -42,6 +42,7 @@ import { Label } from '@/components/ui/label'
 import { AdminConfirmDialog } from '@/components/admin/admin-confirm-dialog'
 import { AdminSkeleton } from '@/components/admin/_shared/admin-skeleton'
 import { StatusBadge } from '@/components/admin/_shared/status-badge'
+import { huIdopontBukarest } from '@/lib/utils/idopont-bukarest'
 
 import {
   listRestorableBackupsAction,
@@ -59,17 +60,14 @@ import {
 
 import { RestorePreviewPanel } from './restore-preview'
 
+/**
+ * ⚠️ 2026-08-11 JAVÍTÁS: `timeZone` nélkül a BÖNGÉSZŐ zónájában formázott.
+ *    A visszaállító panelen a felhasználó ezekből az időpontokból választja ki,
+ *    MELYIK mentést tölti vissza — ez a lehető legrosszabb hely egy elcsúszott
+ *    órára. Mostantól mindig romániai idő.
+ */
 function datumIdo(iso: string | null | undefined): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString('hu-HU', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return huIdopontBukarest(iso, 'short')
 }
 
 const FAJTA_FELIRAT: Record<string, string> = {

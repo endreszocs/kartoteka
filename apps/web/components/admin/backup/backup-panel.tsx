@@ -34,13 +34,16 @@ import { Label } from '@/components/ui/label'
 import {
   checkBackupReadinessAction,
   getBackupOverviewAction,
+  getBackupRunStatusAction,
   listBackupsAction,
-  runBackupNowAction,
+  startBackupRunAction,
+  stopBackupRunAction,
 } from '@/app/(dashboard)/admin/biztonsagi-mentes/actions'
 import {
   GOOGLE_VISSZATERES_UZENETEK,
   type BackupLogRow,
   type BackupOverview,
+  type MentesFutasAllapot,
   type MentesFutasEredmeny,
 } from '@/app/(dashboard)/admin/biztonsagi-mentes/shared'
 
@@ -53,14 +56,38 @@ import { BackupRunReport } from './backup-run-report'
 import { GoogleDriveCard } from './google-drive-card'
 
 /**
- * Ennyi szeletnél tovább egy kattintás nem megy.
+ * Milyen sűrűn kérdezzük meg a szervertől, hol tart a mentés.
  *
- * ⚠️ MIÉRT KELL FELSŐ KORLÁT. A folytatás addig hívja újra a motort, amíg van
- *    hátralévő hatókör. Ha egy hatókör TARTÓSAN bukik, a hátralévők száma nem
- *    csökkenne, és a böngésző a végtelenségig hívogatná a szervert. A korlát
- *    inkább bevallja: „ennyit vitt el, a többihez nyomd meg újra."
+ * ⚠️ EZ NEM VEZÉRLÉS, HANEM NÉZÉS. A felület már nem „hajtja" a mentést
+ *    szeletenkénti hívásokkal — a futás a szerveren él. Ez a lekérdezés csak
+ *    megmutatja, hol tart; ha elmarad (bezárt fül, halott hálózat), a mentés
+ *    AKKOR IS megy tovább.
+ *
+ * 4 másodperc: egy hatókör ~18 másodpercig tart, tehát ennél sűrűbben kérdezni
+ * fölösleges terhelés lenne az adatbázison — épp a mentés alatt.
  */
-const MAX_SZELET = 40
+const ALLAPOT_LEKERDEZES_MS = 4_000
+
+/**
+ * A MEGSZAKADT FUTÁS JELENTÉSE (2026-08-11).
+ *
+ * ⚠️ MIÉRT KELL EZ KÜLÖN. A futás a szerver-folyamat memóriájában él. Egy
+ *    TELEPÍTÉS (deploy) vagy egy folyamat-újraindulás megöli a ciklust, és a
+ *    felügyelő üres állapotra áll: onnantól `fut: false` ÉS `indultAt: null`,
+ *    tehát a szerver `jelentes: null`-t ad. Korábban a panel ilyenkor az ELŐZŐ
+ *    jelentést hagyta a képernyőn — vagyis a doboz ezen a mondaton fagyott be:
+ *    „A mentés FUT a szerveren… nyugodtan bezárhatod ezt az oldalt". Közben
+ *    senki nem folytatta. A tulajdonos órákig várt volna egy halott futásra.
+ */
+const MEGSZAKADT_JELENTES: MentesFutasEredmeny = {
+  success: false,
+  error:
+    'A futás MEGSZAKADT: a szerver közben újraindult (telepítés vagy újraindulás). Az addig ' +
+    'elkészült mentések MEGMARADTAK — a maradékkal viszont senki nem foglalkozik tovább.',
+  teendo:
+    'Nyomd meg újra a „Mentés most" gombot — a folytatás a ma már kész hatóköröket kihagyja, ' +
+    'és onnan viszi tovább, ahol abbamaradt.',
+}
 
 interface Props {
   /** A Google-visszatérés kódja (`?google=ok|hiba` + `?ok=<kód>`). */
@@ -75,10 +102,21 @@ export function BackupPanel({ googleAllapot, googleKod }: Props) {
   const [listaHiba, setListaHiba] = useState<string | null>(null)
   const [betolt, setBetolt] = useState(true)
   const [listaBetolt, setListaBetolt] = useState(true)
-  const [futtat, setFuttat] = useState(false)
+  /** Egy GOMBKATTINTÁS kérése van úton (indítás/leállítás/próba) — nem a mentés. */
+  const [muvelet, setMuvelet] = useState(false)
+  /** A szerveren futó mentés állapota. `fut` = MOST is dolgozik. */
+  const [futAllapot, setFutAllapot] = useState<MentesFutasAllapot | null>(null)
   const [futasEredmeny, setFutasEredmeny] = useState<MentesFutasEredmeny | null>(null)
-  /** A „Leállítás" gomb jelzése. `ref`, mert a futó ciklusnak AZONNAL látnia kell. */
-  const megallitasRef = useRef(false)
+  /**
+   * A LEKÉRDEZÉS hibája — SZÁNDÉKOSAN külön a mentés hibájától.
+   *
+   * ⚠️ Ha az állapot-lekérdezés nem ér célba, az a hálózatról szól, NEM a
+   *    mentésről. A mentés a szerveren fut tovább. Ezt a kettőt korábban
+   *    összemostuk, és a felület egy működő mentésre írt ki bukást.
+   */
+  const [lekerdezesHiba, setLekerdezesHiba] = useState<string | null>(null)
+  /** Az előző `fut` érték — ebből vesszük észre, hogy a futás MOST fejeződött be. */
+  const elozoFutRef = useRef(false)
 
   const [szuroCong, setSzuroCong] = useState<string>('')
   const [csakHibas, setCsakHibas] = useState(false)
@@ -133,173 +171,152 @@ export function BackupPanel({ googleAllapot, googleKod }: Props) {
   }, [attekintotTolt, listatTolt])
 
   /**
-   * A TELJES országos mentés — SZELETEKBEN.
+   * Megkérdezi a szervertől, hol tart a mentés.
+   *
+   * ⚠️ A HIBAÁGA A LEGFONTOSABB RÉSZE. Ha ez a lekérdezés nem ér célba, az a
+   *    HÁLÓZATRÓL szól, nem feltétlenül a mentésről. Ezért NEM írunk bukást a
+   *    mentés jelentésébe — külön, halk sorban jelezzük, hogy az állapotot nem
+   *    tudtuk frissíteni.
+   *
+   * ⚠️ DE CSAK AZT MONDJUK KI, AMIT TUDUNK (2026-08-11). „A mentés a szerveren
+   *    fut tovább" kizárólag akkor igaz, ha a MEGELŐZŐ, SIKERES lekérdezés
+   *    `fut: true`-t adott. Ez a függvény BELÉPÉSKOR is lefut — nulla futás
+   *    mellett ugyanez a mondat sima hazugság lenne.
+   */
+  const allapototKerdez = useCallback(async (): Promise<MentesFutasAllapot | null> => {
+    // Az ELŐZŐ, SIKERES lekérdezés szerint futott-e mentés. Csak ebből mondhatunk
+    // bármit arról, hogy „a mentés a szerveren fut tovább".
+    const elozoFut = elozoFutRef.current
+    try {
+      const a = await getBackupRunStatusAction()
+      setFutAllapot(a)
+      if (a.jelentes) {
+        setFutasEredmeny(a.jelentes)
+      } else if (a.error) {
+        // Az állapot-lekérdezés maga bukott el (lejárt munkamenet, adatbázis-hiba).
+        // Ilyenkor NEM tudjuk, fut-e a mentés — a régi jelentést ezért levesszük,
+        // és a hibát a maga nevén mondjuk ki (lásd lentebb, `futAllapot.error`).
+        setFutasEredmeny(null)
+      } else if (elozoFut) {
+        // Az imént még FUTOTT, most viszont a szerver azt mondja, semmiről nem
+        // tud: a folyamat újraindult (telepítés). NEM hagyjuk ott a „FUT" mondatot.
+        setFutasEredmeny(MEGSZAKADT_JELENTES)
+      }
+      setLekerdezesHiba(null)
+      return a
+    } catch {
+      // ⚠️ ITT NEM TIPPELÜNK (2026-08-11). Ez a hibaág BELÉPÉSKOR is lefut, akkor
+      //    is, ha soha egyetlen mentés sem indult. Korábban feltétel nélkül azt
+      //    írta ki, hogy „a mentés a szerveren fut tovább" — egy hálózati zökkenő
+      //    a lap megnyitásakor tehát egy NEM LÉTEZŐ futásról állított valótlant.
+      setLekerdezesHiba(
+        elozoFut
+          ? 'Az állapot frissítése nem sikerült (hálózati hiba). A mentés a szerveren fut tovább — ' +
+              'a lenti számok csak nem frissülnek addig, amíg a kapcsolat helyre nem áll.'
+          : 'Az állapotot nem tudtuk lekérdezni (hálózati hiba). Nyomd meg a „Frissítés" gombot, ' +
+              'ha helyreállt a kapcsolat.',
+      )
+      return null
+    }
+  }, [])
+
+  /**
+   * BELÉPÉSKOR IS MEGKÉRDEZZÜK, fut-e mentés.
+   *
+   * ⚠️ EZ NEM KÉNYELMI FUNKCIÓ. A futás a szerveren él, nem ebben az ablakban:
+   *    ha a tulajdonos bezárta a fület és később visszajön (vagy a telefonján
+   *    nyitja meg), MEG KELL LÁTNIA, hogy a mentése azóta is dolgozik. Enélkül
+   *    azt hinné, semmi nem történik, és fölöslegesen újraindítaná.
+   */
+  useEffect(() => {
+    void allapototKerdez()
+  }, [allapototKerdez])
+
+  /** Amíg fut, másodpercenként nézzük. Ha nem fut, nem terheljük a szervert. */
+  useEffect(() => {
+    if (futAllapot?.fut !== true) return
+    const id = setInterval(() => {
+      void allapototKerdez()
+    }, ALLAPOT_LEKERDEZES_MS)
+    return () => clearInterval(id)
+  }, [futAllapot?.fut, allapototKerdez])
+
+  /**
+   * Amikor a futás BEFEJEZŐDÖTT, frissítjük az áttekintőt és az előzmény-listát.
+   *
+   * ⚠️ A `frissit()` nem kerülhet a lekérdező ciklusba: a 14 napos lefedettség
+   *    kiszámítása 783 gyülekezetet és több ezer napló-sort lapoz — négy
+   *    másodpercenként lefuttatva épp a mentés alól venné el az adatbázist.
+   */
+  useEffect(() => {
+    const most = futAllapot?.fut === true
+    if (elozoFutRef.current && !most) frissit()
+    elozoFutRef.current = most
+  }, [futAllapot?.fut, frissit])
+
+  /**
+   * A TELJES ORSZÁGOS MENTÉS — EGY KATTINTÁS.
    *
    * ════════════════════════════════════════════════════════════════════════════
-   * MIÉRT NEM EGY HÍVÁS (2026-08-11)
+   * MIÉRT NEM A BÖNGÉSZŐ HAJTJA (2026-08-11)
    * ════════════════════════════════════════════════════════════════════════════
-   * 784 hatókör (783 aktív gyülekezet + a rendszerszintű) egyetlen HTTP-kérésbe
-   * nem fér bele: nagyságrendileg 150 000 adatbázis-körfordulás, órákban mérve.
-   * A régi kód mégis ezt tette, 15 perces időkorláttal — és amikor a kapcsolat
-   * elhalt, a felhasználó SEMMIT nem látott (a `mentesMost()`-ban `catch` sem
-   * volt, a hiba „Uncaught (in promise)"-ként végezte a konzolban).
+   * Korábban ez a függvény egy ciklusban hívogatta a szervert, szeletenként, és
+   * a böngésző végig nyitva tartotta a kérést. Élesben 15 hatókör után ezt kapta
+   * a tulajdonos: „An unexpected response was received from the server." — nem a
+   * mi hibánk volt, hanem a Railway edge-proxyja, ami 300 másodperc után elvágja
+   * azt a kérést, amiben nem mozog adat. Egy szerver-akció a munka teljes ideje
+   * alatt nulla bájtot küld, tehát ránk MINDIG ez a 300 másodperc vonatkozik.
+   * 784 hatókör ≈ 4 óra — ez semmilyen kérésbe nem fér bele.
    *
-   * Mostantól minden hívás egy ~4 perces SZELET. A haladás LÁTHATÓ, bármikor
-   * megállítható, és A MÁR ELKÉSZÜLT MENTÉSEK MEGMARADNAK: a napi kulcs miatt a
-   * következő szelet pontosan ott folytatja, ahol az előző abbahagyta.
-   *
-   * ════════════════════════════════════════════════════════════════════════════
-   * EGY BUKOTT GYÜLEKEZET NEM ÁLLÍTJA MEG A TÖBBIT (2026-08-11 JAVÍTÁS)
-   * ════════════════════════════════════════════════════════════════════════════
-   * A ciklus korábban `return`-ölt, ha a válasz nem volt `success` — a szerver
-   * pedig `success: false`-t adott, ha BÁRMELYIK hatókör elbukott. A kettő együtt
-   * azt jelentette, hogy egy tartósan bukó gyülekezet miatt a tulajdonosnak
-   * 24-szer kellett volna újrakattintania, hogy a maradék ~700 gyülekezet
-   * mentése egyáltalán elinduljon.
-   *
-   * Mostantól a hatökör-hiba MEGJELENIK a jelentésben, de a következő szelet
-   * ELINDUL. Megállunk, ha (a) maga a szelet bukott el, (b) a tulajdonos a
-   * „Leállítás" gombot nyomta, vagy (c) egy szelet NULLA sikerrel és legalább
-   * egy bukással zárult — az utóbbi rendszerszintű baj (halott tároló), amit a
-   * továbbpróbálkozás csak sokszorozna.
+   * Mostantól a gomb ELINDÍT egy szerver-oldali futást, és a kérés azonnal
+   * lezárul. A tulajdonos bezárhatja a fület, elveszítheti a hálózatot,
+   * lezárhatja a telefonját: a mentés megy tovább. Ez az oldal csak NÉZI.
    */
   async function mentesMost() {
-    setFuttat(true)
-    megallitasRef.current = false
+    setMuvelet(true)
     setFutasEredmeny(null)
-
-    // ⚠️ MIÉRT NEM ADJUK ÖSSZE A SZELETEK SZÁMAIT.
-    //    Minden szelet a MAI NAP EGÉSZÉT látja: a `kihagyva` mezőjében ott van
-    //    MINDEN, amit korábbi szeletek (vagy az éjszakai cron) már elkészítettek.
-    //    Ha a `kihagyva`-t szeletenként összeadnánk, a 2. szelettől kezdve
-    //    ÚJRA MEGSZÁMOLNÁNK a saját korábbi sikereinket — a haladás-sáv 100%
-    //    fölé szaladna, és a felület TÖBB kész mentést mutatna, mint amennyi van.
-    //    Ezért: `sikeres` = amit MI készítettünk ebben a futásban (összeadva),
-    //           `kihagyva` = ami MÁR AZELŐTT kész volt, hogy elindultunk (az
-    //                        ELSŐ szelet értéke, rögzítve).
-    let osszSikeres = 0
-    let korabbanKesz: number | null = null
-    /**
-     * Volt-e BÁRMELYIK korábbi szeletben bukott hatókör?
-     *
-     * ⚠️ NEM ez adja a doboz színét — azt az AKTUÁLIS szelet hibaszáma adja. Egy
-     *    korábban elbukott hatökört a következő szelet ÚJRA megpróbál (a napi
-     *    kulcs csak az IGAZOLTAT hagyja ki), tehát ha a végén 0 a hibaszám,
-     *    akkor a mentés TÉNYLEG teljes — pirosat mutatni rá hazugság lenne
-     *    visszafelé. De az átmeneti bukást KIMONDJUK, nem tüntetjük el.
-     */
-    let voltAtmenetiBukas = false
-
+    setLekerdezesHiba(null)
     try {
-      for (let szelet = 0; szelet < MAX_SZELET; szelet++) {
-        const r = await runBackupNowAction()
-
-        // ── (1) MAGA A SZELET bukott el (jogosultság, előkészítő fázis, elterelt
-        //        kérés, vagy „a szelet semmit nem vitt el"). Ilyenkor tényleg
-        //        nincs értelme folytatni — a következő szelet ugyanide futna.
-        if (!r.success) {
-          setFutasEredmeny({
-            ...r,
-            sikeres: osszSikeres + (r.sikeres ?? 0),
-            kihagyva: korabbanKesz ?? r.kihagyva,
-          })
-          return
-        }
-
-        if (korabbanKesz === null) korabbanKesz = r.kihagyva ?? 0
-        osszSikeres += r.sikeres ?? 0
-
-        const hatralevo = r.hatralevo ?? 0
-        // Az UTOLSÓ szelet hibaszáma a mérvadó: egy korábban elbukott hatökört a
-        // következő szelet ÚJRA megpróbál (a napi kulcs csak az IGAZOLTAT hagyja
-        // ki), tehát a szeletenkénti hibaszámok összege sokszorosan számolna.
-        const sikertelen = r.sikertelen ?? 0
-        const megallitva = megallitasRef.current
-        const utolsoSzelet = szelet === MAX_SZELET - 1
-
-        // ⛔ RENDSZERSZINTŰ BAJ: nulla siker + volt bukás = nem egy gyülekezet
-        //    gondja, hanem a tárolóé, a hálózaté vagy az adatbázisé. A folytatás
-        //    csak sokszorozná a hibát és a riasztásokat.
-        const rendszerszintu = sikertelen > 0 && (r.sikeres ?? 0) === 0
-
-        // ⚠️ Az „egyszer elbukott, aztán sikerült" TÉNY, de nem baj — kimondjuk,
-        //    és nem festjük pirosra miatta a kész mentést.
-        const atmenetiMondat =
-          voltAtmenetiBukas && sikertelen === 0
-            ? ' Közben volt átmeneti hiba, de az újrapróbálás sikerült — a részletek a ' +
-              '„Mentési előzmény" listában.'
-            : ''
-        if (sikertelen > 0) voltAtmenetiBukas = true
-
+      const a = await startBackupRunAction()
+      setFutAllapot(a)
+      if (a.jelentes) setFutasEredmeny(a.jelentes)
+    } catch {
+      // ⚠️ ITT NEM TIPPELÜNK. Az indító kérés elveszett — de az, hogy elveszett,
+      //    NEM mondja meg, elindult-e a futás a szerveren. Ahelyett hogy egy
+      //    „lehet, hogy fut, lehet, hogy nem" mondatot írnánk ki (ezt kapta a
+      //    tulajdonos 2026-08-11-én), MEGKÉRDEZZÜK a szervert.
+      const a = await allapototKerdez()
+      if (!a) {
+        // ⚠️ EGY BAJ = EGY MONDAT. A lekérdezés hibasora ugyanezt a hálózati
+        //    zökkenőt írná le, más szavakkal — két, egymás mellett álló doboz
+        //    ugyanarról a bajról csak ijesztget. Az alábbi jelentés a beszédesebb.
+        setLekerdezesHiba(null)
         setFutasEredmeny({
-          ...r,
-          // ⚠️ A JELENTÉS PIROS, ha EBBEN a szeletben maradt bukott hatókör. A
-          //    `success` itt NEM „a szelet lefutott" (az `r.success` volt az),
-          //    hanem „nincs bukott hatókör" — a felület ebből színez. A kettőt
-          //    azért kell szétválasztani, mert a folytatásról a SZELET sikere
-          //    dönt: egyetlen bukott gyülekezet nem foszthatja meg a maradék
-          //    ~700-at a mentéstől.
-          success: sikertelen === 0,
-          mindenSikeres: sikertelen === 0,
-          sikeres: osszSikeres,
-          sikertelen,
-          kihagyva: korabbanKesz,
-          hatralevo,
-          futottVegig: hatralevo === 0,
-          uzenet:
-            sikertelen > 0
-              ? undefined
-              : (hatralevo === 0
-                  ? `KÉSZ: ${osszSikeres} hatókör mentése készült el most` +
-                    (korabbanKesz > 0 ? `, ${korabbanKesz} már korábban kész volt` : '') +
-                    `. A futás végigment mind a ${r.osszes ?? '?'} hatókörön.`
-                  : megallitva
-                    ? `LEÁLLÍTVA: ${osszSikeres} hatókör mentése készült el. MÉG ${hatralevo} ` +
-                      'HÁTRAVAN — az elkészült mentések MEGMARADTAK, a folytatás onnan veszi fel ' +
-                      'a fonalat, ahol abbahagytuk.'
-                    : utolsoSzelet
-                      ? `${osszSikeres} hatókör kész. MÉG ${hatralevo} HÁTRAVAN — nyomd meg újra a ` +
-                        '„Mentés most" gombot a folytatáshoz.'
-                      : `${osszSikeres} hatókör kész — ${hatralevo} hátravan…`) + atmenetiMondat,
+          success: false,
           error:
-            sikertelen > 0
-              ? `${sikertelen} hatókör mentése ELBUKOTT — nézd meg alább, melyik. ` +
-                `${osszSikeres} hatókör mentése ettől függetlenül elkészült` +
-                ((korabbanKesz ?? 0) > 0 ? `, ${korabbanKesz} már korábban kész volt` : '') +
-                (rendszerszintu
-                  ? '. EBBEN A SZELETBEN EGYETLEN MENTÉS SEM SIKERÜLT: ez nem egy gyülekezet ' +
-                    'gondja, hanem a tárolóé, a hálózaté vagy az adatbázisé — ezért MEGÁLLTUNK. ' +
-                    `${hatralevo} hatókör mentése EBBEN A FUTÁSBAN ELMARADT.`
-                  : hatralevo > 0
-                    ? `. Még ${hatralevo} hatókör hátravan — a futás FOLYTATÓDIK, a bukott ` +
-                      'hatóköröket a következő szelet újrapróbálja.'
-                    : '. A futás minden hatókörhöz hozzáért.')
-              : undefined,
+            'Az indítási kérés nem ért célba, és az állapotot sem tudtuk lekérdezni — ' +
+            'valószínűleg megszakadt a hálózat.',
+          teendo:
+            'Ellenőrizd a hálózatot, majd nyomd meg a „Frissítés" gombot. Az oldal megmutatja, ' +
+            'elindult-e a mentés; ha nem, indítsd újra — a ma már kész hatóköröket kihagyja.',
         })
-
-        if (hatralevo === 0 || megallitva || rendszerszintu) break
       }
-    } catch (e: unknown) {
-      // ⚠️ EZ A `catch` HIÁNYZOTT. Enélkül egy elszállt hívás után a gomb
-      //    visszaállt, és a felhasználó SEMMILYEN üzenetet nem kapott — a hiba
-      //    „Uncaught (in promise)"-ként végezte a böngésző konzoljában.
-      setFutasEredmeny({
-        success: false,
-        error:
-          'A kérés nem ért célba (hálózati hiba vagy időtúllépés). A mentés állapota ' +
-          'ISMERETLEN — lehet, hogy a szerveren tovább fut.',
-        teendo:
-          'Nyomd meg a „Frissítés" gombot, és nézd meg a „Mentési előzmény" listát: ami ' +
-          'elkészült, ott IGAZOLTKÉNT látszik. Utána nyugodtan indítsd újra a mentést — a ' +
-          'kész hatóköröket kihagyja.',
-        reszlet: e instanceof Error ? e.message : String(e),
-        sikeres: osszSikeres,
-        kihagyva: korabbanKesz ?? undefined,
-      })
     } finally {
-      megallitasRef.current = false
-      setFuttat(false)
-      frissit()
+      setMuvelet(false)
+    }
+  }
+
+  /** Leállítást kér. A FUTÓ hatókör befejeződik — félbehagyott munka nem marad. */
+  async function leallit() {
+    setMuvelet(true)
+    try {
+      const a = await stopBackupRunAction()
+      setFutAllapot(a)
+      if (a.jelentes) setFutasEredmeny(a.jelentes)
+    } catch {
+      await allapototKerdez()
+    } finally {
+      setMuvelet(false)
     }
   }
 
@@ -311,7 +328,7 @@ export function BackupPanel({ googleAllapot, googleKod }: Props) {
    * gyülekezethez hozzáértünk volna.
    */
   async function keszEnnek() {
-    setFuttat(true)
+    setMuvelet(true)
     setFutasEredmeny(null)
     try {
       setFutasEredmeny(await checkBackupReadinessAction())
@@ -323,7 +340,7 @@ export function BackupPanel({ googleAllapot, googleKod }: Props) {
         reszlet: e instanceof Error ? e.message : String(e),
       })
     } finally {
-      setFuttat(false)
+      setMuvelet(false)
     }
   }
 
@@ -335,7 +352,12 @@ export function BackupPanel({ googleAllapot, googleKod }: Props) {
     )
   }
 
-  const needsSql = overview?.needsSql === true
+  /**
+   * ⚠️ KÉT FORRÁS, EGY SÁV. Az SQL hiányát az áttekintő ÉS az állapot-lekérdezés
+   *    is jelezheti. Ha csak az egyiket néznénk, a másik némán elveszne — és a
+   *    „Mentés most" gomb tiltása magyarázat nélkül maradna.
+   */
+  const needsSql = overview?.needsSql === true || futAllapot?.needsSql === true
   const master = overview?.master === true
   /**
    * Indíthat-e mentést? A szerver-akció a kerületi admint (esperest) kizárja
@@ -344,6 +366,8 @@ export function BackupPanel({ googleAllapot, googleKod }: Props) {
    * nem gomb, hanem csapda.
    */
   const indithat = overview?.accessLevel !== 'district_admin'
+  /** FUT-e MOST mentés a SZERVEREN (nem ebben az ablakban). */
+  const futASzerveren = futAllapot?.fut === true
 
   return (
     <div className="space-y-4">
@@ -411,32 +435,34 @@ export function BackupPanel({ googleAllapot, googleKod }: Props) {
           <Button
             type="button"
             onClick={() => void mentesMost()}
-            disabled={futtat || needsSql}
+            disabled={futASzerveren || muvelet || needsSql}
             className="min-h-11 w-full gap-2 sm:w-auto"
             aria-label="A teljes biztonsági mentés indítása most"
           >
-            {futtat ? (
+            {futASzerveren || muvelet ? (
               <Loader2 className="size-4 animate-spin" aria-hidden />
             ) : (
               <PlayCircle className="size-4" aria-hidden />
             )}
-            {futtat ? 'Mentés folyamatban…' : 'Mentés most'}
+            {futASzerveren ? 'A mentés fut a szerveren…' : muvelet ? 'Indítás…' : 'Mentés most'}
           </Button>
         ) : null}
 
-        {/* LEÁLLÍTÁS — a futó szelet befejeződik, a kész mentések MEGMARADNAK. */}
-        {futtat ? (
+        {/* LEÁLLÍTÁS — a FUTÓ hatókör befejeződik, a kész mentések MEGMARADNAK.
+            ⚠️ Egy gyülekezet mentését nem szakítjuk félbe: az „fut" állapotban
+               ragadt napló-sort hagyna maga után, ami sem késznek, sem hibásnak
+               nem látszik — pontosan az a homály, amit ez a rendszer kerül. */}
+        {futASzerveren ? (
           <Button
             type="button"
             variant="outline"
-            onClick={() => {
-              megallitasRef.current = true
-            }}
+            onClick={() => void leallit()}
+            disabled={muvelet || futAllapot?.megallitasKerve === true}
             className="min-h-11 w-full gap-2 sm:w-auto"
-            aria-label="A mentés leállítása a futó szelet után"
+            aria-label="A mentés leállítása a most futó gyülekezet után"
           >
             <Square className="size-4" aria-hidden />
-            Leállítás
+            {futAllapot?.megallitasKerve ? 'Leállítás kérve…' : 'Leállítás'}
           </Button>
         ) : null}
 
@@ -445,7 +471,7 @@ export function BackupPanel({ googleAllapot, googleKod }: Props) {
             type="button"
             variant="outline"
             onClick={() => void keszEnnek()}
-            disabled={futtat}
+            disabled={futASzerveren || muvelet}
             className="min-h-11 w-full gap-2 sm:w-auto"
             aria-label="Ellenőrzés: kész-e a rendszer a mentésre (mentés nélkül)"
           >
@@ -467,8 +493,59 @@ export function BackupPanel({ googleAllapot, googleKod }: Props) {
         </Button>
       </div>
 
+      {/* ⚠️ A GOMB SOHA NEM LEHET NÉMA (2026-08-11). A három szerver-akció
+          (indítás / állapot / leállítás) jogosultsági bukásnál — lejárt
+          munkamenet, szerepkör-változás — `error` mezőt ad vissza, jelentés
+          nélkül. A panel korábban EZT A MEZŐT SOHA NEM RENDERELTE: a tulajdonos
+          megnyomta a „Mentés most"-ot, és SEMMI nem történt a képernyőn. Egy
+          néma gomb rosszabb a hibaüzenetnél, mert a felhasználó magát hibáztatja. */}
+      {futAllapot?.error ? (
+        <div
+          role="status"
+          className="flex items-start gap-2 rounded-2xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-foreground"
+        >
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
+          <p className="min-w-0 flex-1">
+            {futAllapot.error} Ha közben lejárt a munkameneted, lépj be újra, és próbáld meg
+            ismét — a ma már kész mentéseket ez nem érinti.
+          </p>
+        </div>
+      ) : null}
+
       {/* A BESZÉDES JELENTÉS: meddig jutott, mi a baj, mit tegyél, mennyi van hátra. */}
-      {futasEredmeny ? <BackupRunReport eredmeny={futasEredmeny} fut={futtat} /> : null}
+      {futasEredmeny ? <BackupRunReport eredmeny={futasEredmeny} fut={futASzerveren} /> : null}
+
+      {/* ⚠️ A MEGSZAKADT FUTÁS NYOMA (2026-08-11). Ha EBBEN a szerver-folyamatban
+          nem futott mentés (`voltFutas === false`), de a mai lefedettség hiányos,
+          annak két oka lehet: még senki nem indított mentést, VAGY egy korábbi
+          futást megölt egy telepítés. A második eset korábban TELJESEN néma volt:
+          a tulajdonos elindította, bezárta a fület, és visszatérve semmit nem
+          látott — sem azt, hogy megszakadt, sem azt, hogy újra kell indítani. */}
+      {!futASzerveren &&
+      !futasEredmeny &&
+      futAllapot?.voltFutas === false &&
+      !futAllapot?.error &&
+      (overview?.ma.hianyzik ?? 0) > 0 ? (
+        <p className="rounded-2xl border border-border bg-muted/40 p-3 text-sm leading-relaxed text-muted-foreground">
+          Ma <strong className="text-foreground">{overview?.ma.hianyzik}</strong> hatókörnek nincs
+          még mentése. Ha korábban elindítottad, a futást megszakíthatta egy időközbeni telepítés
+          vagy egy szerver-újraindulás — az elkészült mentések ilyenkor is megmaradnak. Nyomd meg
+          újra a „Mentés most" gombot: a folytatás a ma már kész hatóköröket kihagyja.
+        </p>
+      ) : null}
+
+      {/* ⚠️ A LEKÉRDEZÉS HIBÁJA KÜLÖN SORBAN ÁLL, ÉS NEM PIROSAN. Ez a hálózatról
+          szól, nem a mentésről: a futás a szerveren megy tovább. Ha a mentés
+          hibájaként írnánk ki, egy MŰKÖDŐ mentésre mondanánk bukást. */}
+      {lekerdezesHiba ? (
+        <p
+          role="status"
+          className="flex items-start gap-2 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm leading-relaxed text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-100"
+        >
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span className="min-w-0 flex-1">{lekerdezesHiba}</span>
+        </p>
+      ) : null}
 
       {/* Mit ment és mit NEM — kimondva, nem sugallva */}
       <section

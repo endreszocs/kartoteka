@@ -2,8 +2,14 @@
  * NAPI BIZTONSÁGI MENTÉS — cron-indító (2026-08-11).
  *
  * A `run-member-newsletter-worker.mjs` mintájára. Railway → Settings →
- * Cron Schedule: `0 23 * * *` (= 02:00 Europe/Bucharest nyáron, 01:00 télen),
- * parancs: `node apps/web/scripts/run-backup-worker.mjs`.
+ * Cron Schedule: `17 2 * * *`, parancs: `node apps/web/scripts/run-backup-worker.mjs`.
+ *
+ * ⚠️ A RAILWAY CRON UTC-BEN JÁR („schedules are based on UTC"), nem romániai
+ *    időben. A `17 2 * * *` tehát NYÁRON 05:17, TÉLEN 04:17 Bukarestben — a
+ *    Railway nem ismer időzónát, így a futás évente kétszer egy órát vándorol.
+ *    A mentésnek ez nem számít; a félrevezető dokumentáció viszont igen, ezért
+ *    áll itt a valós érték. (A repóban korábban HÁROM, egymásnak ellentmondó
+ *    cron-állítás volt — ez a fájl, a telepítési útmutató és a selftest.)
  *
  * ════════════════════════════════════════════════════════════════════════════
  * SZELETEKBEN FUT — MERT 784 HATÓKÖR EGY KÉRÉSBE NEM FÉR BELE (2026-08-11)
@@ -199,6 +205,9 @@ for (let szelet = 1; szelet <= MAX_SZELET; szelet++) {
     sikeres: payload.sikeres,
     kihagyva: payload.kihagyva,
     sikertelen: payload.sikertelen,
+    // Ennyi hatókört egy MÁSIK futás tartott a kezében (pl. a tulajdonos épp a
+    // felületről indított mentést). Nem hiba — a következő szelet újrapróbálja.
+    foglalt: payload.foglalt,
     hatralevo,
     osszes: payload.osszes,
   });
@@ -236,15 +245,30 @@ for (let szelet = 1; szelet <= MAX_SZELET; szelet++) {
     break;
   }
 
-  // ⚠️ HALADÁS-FELTÉTEL: ha egy szelet SEMMIT nem vitt el (se munkát, se
-  //    kihagyást), a következő sem fog — akkor inkább bevalljuk a féleredményt,
-  //    mint hogy a végtelenségig hívogassuk a szervert.
-  const haladt = Number(payload.feldolgozva || 0) + Number(payload.kihagyva || 0);
-  if (haladt === 0) {
+  // ⚠️ HALADÁS-FELTÉTEL — A `sikeres` A MÉRVADÓ (2026-08-11, 2. menet).
+  //    Először `feldolgozva + kihagyva` volt, aztán `feldolgozva`. Egyik sem a
+  //    haladást mérte:
+  //      · a `kihagyva` egy FOLYTATÁSNÁL mindig nagy (a mai már kész hatókörök),
+  //      · a `feldolgozva` a BUKOTT hatókört is számolja.
+  //    A KÖVETKEZŐ SZELET LISTÁJÁT viszont KIZÁRÓLAG a siker szűkíti: a
+  //    folytatási pont csak az `ok` + `drive_verified_at` sorokból épül. Egy
+  //    csupa-bukás szelet tehát ugyanazt a listát kezdené elölről, a
+  //    végtelenségig. Ugyanez a feltétel áll a `batch.ts` `kellMegSzelet`
+  //    függvényében és a felületi felügyelőben — a három út SOHA nem sodródhat
+  //    szét. A `hatralevo > 0` kikötés kell hozzá: a „minden kész" eset is 0
+  //    sikerrel zárul, de az nem megállás, hanem BEFEJEZÉS (azt a fenti ág már
+  //    elkapta).
+  if (Number(payload.sikeres || 0) === 0 && hatralevo > 0) {
     console.error(
-      "[backup-cron] A szelet NEM HALADT (0 feldolgozott, 0 kihagyott). Megállunk, " +
-        "hogy ne pörögjön végtelen ciklusban.",
-      { szelet, hatralevo },
+      "[backup-cron] A szelet NEM HALADT: egyetlen hatókör mentése sem KÉSZÜLT EL. " +
+        "Megállunk, hogy ne pörögjön végtelen ciklusban ugyanazon a listán.",
+      {
+        szelet,
+        hatralevo,
+        feldolgozva: payload.feldolgozva,
+        sikertelen: payload.sikertelen,
+        foglalt: payload.foglalt,
+      },
     );
     process.exitCode = 1;
     break;

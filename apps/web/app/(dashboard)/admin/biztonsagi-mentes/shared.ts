@@ -127,6 +127,83 @@ export interface MentesFutasEredmeny extends EgyszeruEredmeny {
   }>
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// A HÁTTÉRBEN FUTÓ MENTÉS ÁLLAPOTA (2026-08-11)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Miért ért véget a futás.
+ *
+ * ⚠️ MIÉRT NEM ELÉG EGY `boolean`. A tulajdonos 2026-08-11-én egy olyan mondatot
+ *    kapott, hogy „a mentés állapota ISMERETLEN — lehet, hogy a szerveren tovább
+ *    fut". Egy mentés-felület nem tippelhet. Ez az öt érték MEGMONDJA, mi
+ *    történt, és mindegyikhez más teendő tartozik.
+ */
+export type MentesBefejezesOka =
+  /** Minden hatókörnek van mai, ellenőrzött mentése. */
+  | 'kesz'
+  /** A tulajdonos leállította. Az elkészült mentések megmaradtak. */
+  | 'leallitva'
+  /** A futás nem tudott továbblépni (tartós bukás vagy másik futás tartja a maradékot). */
+  | 'nem_halad'
+  /** Elfogyott a szelet- vagy idő-korlát, de maradt hátra. */
+  | 'korlat'
+  /** Az előkészítő fázis vagy a motor hibára futott. */
+  | 'hiba'
+
+/** A mai haladás a `backup_log`-ból — ez az EGYETLEN igazság-forrás. */
+export interface MentesHaladas {
+  /** A nap kulcsa (Europe/Bucharest). */
+  nap: string
+  varhato: number
+  /** Feltöltve, VISSZAOLVASVA, ellenőrző összeg egyezett. Csak ez a „kész". */
+  igazolt: number
+  hibas: number
+  /** Épp fut, vagy „ok" igazolás nélkül — NEM kész. */
+  fut: number
+  erintetlen: number
+}
+
+/**
+ * A „Mentés most" ÚJ szerződése (2026-08-11).
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * A KÉRÉS CSAK ELINDÍTJA — A FUTÁS A SZERVEREN ÉL
+ * ════════════════════════════════════════════════════════════════════════════
+ * Korábban a gomb egy olyan szerver-akciót hívott, ami a MUNKÁT is elvégezte, és
+ * a böngésző végig nyitva tartotta a kérést. A Railway edge-proxyja viszont
+ * 300 másodperc után elvágja azt a kérést, amiben nem mozog adat — 15 hatókör
+ * után a futás elvágódott, és a maradék 768-hoz ~52 kézi kattintás kellett volna.
+ *
+ * Mostantól az indítás EZREDMÁSODPERCEK alatt visszatér, a futás pedig a
+ * szerveren folytatódik. A felület csak NÉZI: másodpercenként lekérdezi ezt az
+ * állapotot. A böngésző bezárása, a hálózat megszakadása, a telefon lezárása
+ * NEM állítja meg a mentést.
+ */
+export interface MentesFutasAllapot {
+  /** Fut-e MOST mentés a szerveren. */
+  fut: boolean
+  /** Indított-e ez a folyamat egyáltalán futást (ebből tudja a felület, van-e mit mutatni). */
+  voltFutas: boolean
+  /** Mikor indult (ISO). */
+  indultAt?: string | null
+  /** Mikor ért véget (ISO). */
+  vegzettAt?: string | null
+  /** Hányadik szeletnél tart. */
+  szelet?: number
+  /** Kérték-e a leállítást (a futó hatókör még befejeződik). */
+  megallitasKerve?: boolean
+  befejezesOka?: MentesBefejezesOka | null
+  /** A mai haladás a naplóból. */
+  haladas?: MentesHaladas
+  /** A mentés adatbázis-része nincs telepítve. */
+  needsSql?: boolean
+  /** A felületnek szánt, kész jelentés (szöveg + haladás + lépések + hibák). */
+  jelentes?: MentesFutasEredmeny | null
+  /** Ha maga az állapot-lekérdezés bukott el. */
+  error?: string
+}
+
 /**
  * A FIGYELMEZTETŐ SÁV állapota (2026-08-11).
  *

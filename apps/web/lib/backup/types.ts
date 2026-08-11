@@ -391,6 +391,20 @@ export interface BackupWorkerResult {
    *    zöldet mutatna 300 kész mentésre, miközben 484 hatókör érintetlen maradt.
    */
   hatralevo: number
+  /**
+   * Ennyi hatókört EGY MÁSIK, ÉPPEN FUTÓ mentés tartott a kezében (bérlet).
+   *
+   * ⚠️ 2026-08-11. A felület és a cron egyszerre indulhat. Bérlet nélkül
+   *    mindkettő ugyanazt a gyülekezetet mentette volna le — két fájl kerülne a
+   *    Drive-ra ugyanarról a napról, és a `backup_log` csak az UTOLSÓ
+   *    `drive_file_id`-t őrzi meg: a másik ÁRVA fájl lesz, amit a nyesés nem
+   *    talál meg és soha nem töröl. A tele Drive pedig pont az, amitől az ÚJ
+   *    mentés bukik el.
+   *
+   * ⚠️ EZ NEM KÉSZ MUNKA. A `hatralevo` TARTALMAZZA — a következő szelet
+   *    újrapróbálja (addigra vagy igazolt lesz, vagy lejár a bérlet).
+   */
+  foglalt: number
   /** `true`, ha a futás MINDEN hatókörhöz hozzáért. */
   futottVegig: boolean
   /** A futás lépés-listája — ebből látja a tulajdonos, MEDDIG jutottunk. */

@@ -191,6 +191,11 @@ export async function POST(request: Request): Promise<Response> {
         osszes: result.osszes,
         feldolgozva: result.feldolgozva,
         hatralevo: result.hatralevo,
+        // ⚠️ Ennyi hatókört egy MÁSIK, éppen futó mentés tartott a kezében
+        //    (bérlet a napló-soron). Nem kész és nem hibás — a `hatralevo`
+        //    TARTALMAZZA. A hívó ebből tudja, hogy a megállás oka nem baj,
+        //    hanem párhuzamosság.
+        foglalt: result.foglalt,
         futottVegig: result.futottVegig,
         lepesek: result.lepesek,
         figyelmeztetesek: result.figyelmeztetesek,
