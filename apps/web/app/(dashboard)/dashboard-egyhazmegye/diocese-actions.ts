@@ -18,7 +18,11 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { assertDioceseInScope } from '@/lib/auth/admin-scope'
-import { resolveDioceseScopeIds } from '@/lib/auth/level-scope'
+import {
+  describeDioceseWriteBlock,
+  resolveDioceseReadScopeIds,
+  resolveDioceseScopeIds,
+} from '@/lib/auth/level-scope'
 
 // ─────────────────────────────────────────────────────────────────────────
 // Típusok
@@ -97,7 +101,16 @@ export type DioceseInput = z.infer<typeof dioceseSchema>
 // Jogosultság
 // ─────────────────────────────────────────────────────────────────────────
 
-async function requireDioceseAccess(dioceseId?: string) {
+/**
+ * @param mode `'write'` (alapértelmezés, fail-closed) = módosító művelet;
+ *   `'read'` = puszta lekérdezés. 2026-08-11 (számvevő-kör): az egyházmegyei
+ *   SZÁMVEVŐ `'read'`-re átmegy, `'write'`-ra beszédes magyar magyarázatot kap
+ *   (nem néma 0 soros mentést és nem nyers RLS-hibát).
+ */
+async function requireDioceseAccess(
+  dioceseId?: string,
+  mode: 'read' | 'write' = 'write',
+) {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' as const }
 
@@ -129,7 +142,22 @@ async function requireDioceseAccess(dioceseId?: string) {
     }
   }
 
-  if (!canManage) return { error: 'Nincs jogosultság az egyházmegye szerkesztéséhez.' as const }
+  // 2026-08-11 (számvevő-kör): OLVASÁSHOZ az ellenőri hatókör is elég.
+  // Az adatbázis ugyanezt engedi (current_user_diocese_olvaso_ids()).
+  const readIds = resolveDioceseReadScopeIds(access)
+  if (!canManage && mode === 'read' && readIds.includes(targetId)) {
+    return { supabase: access.supabase, userId: access.user.id, dioceseId: targetId }
+  }
+
+  if (!canManage) {
+    // Ha van OLVASÓ hatóköre, de írni akar: mondjuk meg, MIÉRT nem megy —
+    // a felület ugyanezt a szöveget mutatja a letiltott gombnál.
+    if (readIds.includes(targetId)) {
+      const reason = describeDioceseWriteBlock(access)
+      if (reason) return { error: reason as string }
+    }
+    return { error: 'Nincs jogosultság az egyházmegye szerkesztéséhez.' as const }
+  }
 
   return { supabase: access.supabase, userId: access.user.id, dioceseId: targetId }
 }
@@ -270,7 +298,8 @@ export async function getDioceseBankSummary(dioceseId?: string): Promise<{
   data?: { bank_nev: string | null; bank_fo_iban: string | null; bank_fo_iban_valuta: string | null }
   error?: string
 }> {
-  const ctx = await requireDioceseAccess(dioceseId)
+  // 2026-08-11 (számvevő-kör): puszta lekérdezés → az ellenőri hatókör is elég.
+  const ctx = await requireDioceseAccess(dioceseId, 'read')
   if ('error' in ctx) return { error: ctx.error }
 
   const { data, error } = await ctx.supabase

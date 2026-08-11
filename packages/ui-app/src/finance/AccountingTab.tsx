@@ -22,12 +22,17 @@
  */
 
 import { useMemo, useState, type ReactNode } from 'react'
-import { Landmark, Scale, Send, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
+import { AlertTriangle, Landmark, Scale, Send, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
 
 import { Badge, Button } from '@kartoteka/ui'
 
+import {
+  gyulekezetSzerkesztheti,
+  osszegezLevelek,
+  szamadasIvCellak,
+} from './budget-reporting'
 import { FinanceLoadingState } from './FinanceLoadingState'
-import { formatCurrency, sortCellsHierarchically } from './helpers'
+import { formatCurrency } from './helpers'
 import type { FinanceBalances } from './helpers'
 import type { BealitasRow, BefitetesRow, KiadasRow, SzamadasiCel } from './types'
 
@@ -117,6 +122,20 @@ export interface AccountingFinalizeSummary {
   actualExpense: Record<string, number>
 }
 
+/**
+ * 2026-08-11 (6. kör): a BELSŐ MOZGÁS (kassza⇄bank átvezetés) felismerése.
+ * Ez SOHA nem számadási tétel, tehát a hivatalos íven kívülre esése nem hiba —
+ * nem is figyelmeztetünk rá. Két jelből ismerjük fel:
+ *   - `belso_mozgas_xkey` (a kanonikus, párosított átvezetés jelölése), VAGY
+ *   - a kód fejezete: 100.xx (pénztármaradvány) és 3xx/4xx (átvezetés-kódok) —
+ *     a régi, xkey nélkül rögzített párok miatt kell (belso_mozgas_kanonikus_kodok).
+ */
+function isInternalMovement(xkey: string | null | undefined, code: string | undefined): boolean {
+  if (xkey) return true
+  if (!code) return false
+  return code.startsWith('100') || code.startsWith('3') || code.startsWith('4')
+}
+
 export function AccountingTab({
   szamadasiCellek,
   incomeRecords,
@@ -125,6 +144,7 @@ export function AccountingTab({
   kiaCelMap,
   settings,
   currentYear,
+  scope = 'congregation',
   budgetData,
   loading = false,
   carryoverCash,
@@ -140,6 +160,102 @@ export function AccountingTab({
 }: AccountingTabProps) {
   const [finalizeWizardOpen, setFinalizeWizardOpen] = useState(false)
 
+  /**
+   * 2026-07-10 (#3/A) + 2026-08-11 (6. kör, TULAJDONOSI DÖNTÉS): melyik cella
+   * kerül a fül táblájába?
+   *
+   * PONTOSAN a nyomtatvány sorai — MINDKÉT hatókörben, `szint` szerinti szűrés
+   * NÉLKÜL. Nincs is többé itteni másolat a szabályból: a `szamadasIvCellak` az
+   * a függvény, amiből a papír sorai (`collectBudgetRows`) is készülnek, a
+   * rendezéssel együtt. Így a képernyő és a papír nem tud széthúzni.
+   *
+   * 1) GYÜLEKEZETI ív: a hivatalos gyülekezeti Számadás-/Költségvetés-ív
+   *    TARTALMAZZA az egyházmegyei szintű kódokat is (201.15 Nettó fizetések,
+   *    201.17 CAS, 206.02 Biztosítások, 101.07, 105.03, 106.02–106.06 …) —
+   *    Endre, aki maga adja be ezeket az íveket, ezt kimondottan megerősítette.
+   *    Ezek a sorok látszanak, de a gyülekezet nem tölti ki őket (lásd lentebb
+   *    `dioceseOnlyCodes`, illetve a BudgetTab `zaroltKodok`-ja).
+   *
+   * 2) EGYHÁZMEGYEI ív (2026-08-11, MOST): „minden tétel szerepel rajta, nem
+   *    csak az egyházmegyeiek!" — tulajdonosi döntés. Eddig itt egy
+   *    `if (scope === 'diocese') return gyulekezetSzerkesztheti(cell.szint)` ág
+   *    állt, ami MEGFORDÍTVA szűrt: a megyei nézetből pont az a 18 SAJÁT kód
+   *    esett ki, amit az egyházmegye tölt ki, miközben a nyomtatvány
+   *    (`collectBudgetRows`) `szint` szerint SOSEM szűrt. Vagyis az egyházmegye
+   *    a képernyőn más ívet látott, mint amit kinyomtatott és aláírt — ugyanaz
+   *    a hibaosztály, mint a gyülekezeti oldalon, csak ellentétes előjellel.
+   *
+   * A régi `isGyulekezetSzint` szűrő a `2026-06-11l-felsobb-szint-jeloles.sql`
+   * nyomán került ide, csakhogy az a migráció a hivatalos Adatok_2026.xlsx
+   * RÖGZÍTŐ LEGÖRDÜLŐIT igazolta (bevétel 30 · kiadás 38 tétel) — a legördülő
+   * (mire KÖNYVELHET a gyülekezet) és a Számadás-ív (mely SOROKAT sorolja fel a
+   * nyomtatvány) KÉT KÜLÖN dolog. A szűrő tehát rossz felületen ült: ez a fül
+   * ŰRLAP-NÉZET, nem kategóriaválasztó. A valódi választók (finance-tabs.tsx
+   * `incomeCategories`/`expenseCategories`, desktop `penzugy-page.tsx`,
+   * `bank-import-page.tsx`) a befizetescel/kiadascel junction táblákon át,
+   * `isGyulekezetiKonyvelhetoKod`-dal szűrnek — ők TOVÁBBRA IS kizárják ezeket
+   * a kódokat GYÜLEKEZETI hatókörben, tehát ez a változtatás NEM tágítja, mire
+   * könyvelhet a gyülekezet.
+   *
+   * A 100-as fejezet (Pénztármaradvány / legacy belső mozgás: 100.01 / 100.02 /
+   * 100.51 / 100.52) továbbra is TELJESEN kizárva — a hivatalos EREK-formában a
+   * bevétel a 101-nél kezdődik, a belső mozgás sosem számadási tétel.
+   */
+  const incomeCells = useMemo(() => szamadasIvCellak(szamadasiCellek, 'B'), [szamadasiCellek])
+  const expenseCells = useMemo(() => szamadasIvCellak(szamadasiCellek, 'K'), [szamadasiCellek])
+
+  const leafIncome = useMemo(() => incomeCells.filter((c) => c.id.includes('.')), [incomeCells])
+  const leafExpense = useMemo(() => expenseCells.filter((c) => c.id.includes('.')), [expenseCells])
+
+  /**
+   * A HIVATALOS ív végpont-kódjai. Csak ezek szerepelhetnek a Számadás tény-
+   * oszlopában — és a BEKÜLDÖTT pillanatképben is (lásd lentebb).
+   *
+   * 2026-08-11 (6. kör, D3-csapda): ez a két készlet a FENTI, most kitágított
+   * listákból származik, tehát EGYÜTT tágul velük — MINDKÉT hatókörben. Ha nem
+   * így lenne, a beküldött pillanatkép megint elszakadna a kinyomtatott
+   * papírtól — pontosan az a hiba, amit a D3 javított, és ami ma reggel öt P0
+   * forrása volt. A származtatás szándékosan marad `leafIncome`/`leafExpense`-
+   * alapú, nem külön szűrés: egy második szűrő itt némán széthúzhatna a
+   * képernyőn látott ívvel.
+   */
+  const officialIncomeCodes = useMemo(
+    () => new Set(leafIncome.map((c) => c.id)),
+    [leafIncome],
+  )
+  const officialExpenseCodes = useMemo(
+    () => new Set(leafExpense.map((c) => c.id)),
+    [leafExpense],
+  )
+
+  /**
+   * 2026-08-11 (6. kör): kód → szint térkép. Az egyházmegyei szintű sorok RAJTA
+   * vannak az íven és a végösszegben is, de a GYÜLEKEZET nem könyvelhet rájuk —
+   * ha mégis van rajtuk pénz, az legacy/importált adat, amit érdemes átnézni.
+   *
+   * A `szint` azt mondja meg, hogy a GYÜLEKEZETI íven ki tölti ki az adott sort.
+   * Az egyházmegye SAJÁT ívén ennek nincs értelme: ott minden sor az övé, ezért
+   * `scope === 'diocese'` esetén sem jelölés, sem figyelmeztetés nincs.
+   */
+  const szintByCode = useMemo(() => {
+    const map: Record<string, SzamadasiCel['szint']> = {}
+    for (const cell of szamadasiCellek) map[cell.id] = cell.szint
+    return map
+  }, [szamadasiCellek])
+
+  const csakEgyhazmegyeKod = (code: string) =>
+    scope !== 'diocese' && !gyulekezetSzerkesztheti(szintByCode[code])
+
+  /** A táblában megjelölendő (egyházmegyei szintű) kódok — csak gyülekezeti nézetben. */
+  const dioceseOnlyCodes = useMemo(() => {
+    const set = new Set<string>()
+    if (scope === 'diocese') return set
+    for (const cell of szamadasiCellek) {
+      if (!gyulekezetSzerkesztheti(cell.szint)) set.add(cell.id)
+    }
+    return set
+  }, [szamadasiCellek, scope])
+
   // 2026-07-10 (S3 audit KRITIKUS #1): a stornózott (érvénytelenített) tétel a
   // számadás tény-összegeibe SEM számíthat bele — eddig felfújta a totálokat és
   // a beküldött snapshotot is (a wizard summary innen táplálkozik).
@@ -148,73 +264,116 @@ export function AccountingTab({
   // össze, a Registru Casa/Banca viszont a RON-értéket (reporting.ts `ronOf`),
   // így egy 1000 EUR-s banki tétel a Registru-ban 4 970 lej, a Számadáson
   // 1 000 lej volt: ugyanarra az évre két, egymásnak ellentmondó aláírt papír.
-  const actualIncome = useMemo(() => {
+  //
+  // 2026-08-11 (6. kör, P0 — BEKÜLDÖTT ≠ KINYOMTATOTT): a térkép eddig MINDEN
+  // kódra gyűjtött, amit a bevCelMap/kiaCelMap ismer — a belső mozgás 100.01 /
+  // 100.02 kódjaira és az egyházmegyei szintű (a gyülekezeti íven nem szereplő)
+  // tételekre is. A VÉGÖSSZEG viszont csak a hivatalos végpont-kódokat adta
+  // össze, és a kinyomtatott Számadás is csak azokat sorolta fel. Vagyis a
+  // wizard ezt a térképet küldte be az egyházmegyének: az esperes olyan
+  // sorokat kapott (pl. „100.02 — 45 000"), amelyek az aláírt papíron nem
+  // szerepelnek, és a sorok összege nem jött ki a fejlécben álló végösszegre.
+  // Mostantól a térkép PONTOSAN a hivatalos ív végpont-kódjaira szűkül —
+  // beküldött == kinyomtatott ==  végösszeg —, az ezen kívülre könyvelt pénzt
+  // pedig NEM nyeljük el némán: külön, hangos figyelmeztetésben jelenik meg
+  // (lásd `offFormIncome` / `offFormExpense` lentebb).
+  //
+  // 2026-08-11 (6. kör, TULAJDONOSI DÖNTÉS): az „ív végpont-kódjai" készlet most
+  // az egyházmegyei szintűeket IS tartalmazza (rajta vannak a papíron), tehát az
+  // ilyen kódra könyvelt pénz mostantól bekerül a tény-oszlopba, a végösszegbe és
+  // a beküldött pillanatképbe — pontosan úgy, ahogy a nyomtatványon. Külön
+  // gyűjtjük viszont (`dioceseOnly*`), mert a gyülekezet ezekre már NEM
+  // könyvelhet: ha mégis van rajtuk pénz, az legacy/importált sor.
+  const { actualIncome, offFormIncome, dioceseOnlyIncome } = useMemo(() => {
     const map: Record<string, number> = {}
+    const offForm: Record<string, number> = {}
+    const dioceseOnly: Record<string, number> = {}
     incomeRecords.forEach((row) => {
-      if (row.stornozott) return
+      // 2026-08-11 (6. kör): a `deleted` is szűrve — a hívó ma már szűrt sorokat
+      // ad, de ez KIMONDATLAN invariáns volt (a nyomtatvány mindkettőt nézi).
+      if (row.deleted || row.stornozott) return
+      const amount = Number(row.osszeg_ron ?? row.osszeg) || 0
       const code = bevCelMap[row.id_befizetescel || 0]
-      if (code) map[code] = (map[code] || 0) + (Number(row.osszeg_ron ?? row.osszeg) || 0)
+      if (code && officialIncomeCodes.has(code)) {
+        map[code] = (map[code] || 0) + amount
+        if (csakEgyhazmegyeKod(code)) dioceseOnly[code] = (dioceseOnly[code] || 0) + amount
+        return
+      }
+      if (isInternalMovement(row.belso_mozgas_xkey, code)) return
+      const key = code || '(nincs kategória)'
+      offForm[key] = (offForm[key] || 0) + amount
     })
-    return map
-  }, [incomeRecords, bevCelMap])
+    return { actualIncome: map, offFormIncome: offForm, dioceseOnlyIncome: dioceseOnly }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomeRecords, bevCelMap, officialIncomeCodes, szintByCode, scope])
 
-  const actualExpense = useMemo(() => {
+  const { actualExpense, offFormExpense, dioceseOnlyExpense } = useMemo(() => {
     const map: Record<string, number> = {}
+    const offForm: Record<string, number> = {}
+    const dioceseOnly: Record<string, number> = {}
     expenseRecords.forEach((row) => {
-      if (row.stornozott) return
+      if (row.deleted || row.stornozott) return
+      const amount = Number(row.osszeg_ron ?? row.osszeg) || 0
       const code = kiaCelMap[row.id_kiadascel || 0]
-      if (code) map[code] = (map[code] || 0) + (Number(row.osszeg_ron ?? row.osszeg) || 0)
+      if (code && officialExpenseCodes.has(code)) {
+        map[code] = (map[code] || 0) + amount
+        if (csakEgyhazmegyeKod(code)) dioceseOnly[code] = (dioceseOnly[code] || 0) + amount
+        return
+      }
+      if (isInternalMovement(row.belso_mozgas_xkey, code)) return
+      const key = code || '(nincs kategória)'
+      offForm[key] = (offForm[key] || 0) + amount
     })
-    return map
-  }, [expenseRecords, kiaCelMap])
+    return { actualExpense: map, offFormExpense: offForm, dioceseOnlyExpense: dioceseOnly }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expenseRecords, kiaCelMap, officialExpenseCodes, szintByCode, scope])
 
-  const isGyulekezetSzint = (cell: SzamadasiCel) =>
-    !cell.szint || cell.szint === 'gyulekezet'
+  /**
+   * 2026-08-11 (6. kör): a hivatalos íven KÍVÜLRE könyvelt (nem belső mozgás)
+   * pénz. Ha ez nem nulla, a Számadás kevesebbet mutat, mint amennyi tényleges
+   * forgalom volt — némán. Ezért a fül tetején hangos figyelmeztetést kap a
+   * lelkész, a véglegesítés-gomb MELLETT, még a beküldés előtt.
+   */
+  const offFormRows = useMemo(() => {
+    const rows: Array<{ code: string; amount: number; kind: 'bevétel' | 'kiadás' }> = []
+    for (const [code, amount] of Object.entries(offFormIncome)) {
+      if (amount !== 0) rows.push({ code, amount, kind: 'bevétel' })
+    }
+    for (const [code, amount] of Object.entries(offFormExpense)) {
+      if (amount !== 0) rows.push({ code, amount, kind: 'kiadás' })
+    }
+    return rows.sort((a, b) => a.code.localeCompare(b.code, 'hu'))
+  }, [offFormIncome, offFormExpense])
 
-  // 2026-07-10 (#3/A): KOMBINÁLT szűrő — type ÉS kód-tartomány (a nyomtatvány
-  // budget-reporting.ts collectBudgetRows mintája). A 100-as fejezet (Pénztármaradvány /
-  // legacy belső mozgás: 100.01/100.02/100.51/100.52) TELJESEN kizárva — a hivatalos
-  // EREK-formában a bevétel a 101-nél kezdődik, a belső mozgás sosem tétel.
-  const incomeCells = useMemo(
-    () =>
-      szamadasiCellek
-        .filter(
-          (cell) =>
-            cell.type === 'B' &&
-            cell.id.startsWith('1') &&
-            !cell.id.startsWith('100') &&
-            isGyulekezetSzint(cell),
-        )
-        .sort((left, right) => sortCellsHierarchically(left.id, right.id)),
-    [szamadasiCellek],
-  )
+  /**
+   * 2026-08-11 (6. kör, TULAJDONOSI DÖNTÉS): pénz EGYHÁZMEGYEI SZINTŰ kódon.
+   *
+   * Ez a sor RAJTA van a hivatalos íven, tehát benne is van a tény-oszlopban, a
+   * végösszegben és a beküldött adatban — nem hiányzik sehonnan. A gyülekezet
+   * viszont ma már nem tud ilyen kódot választani (a rögzítő legördülőkből ki van
+   * zárva), így ha mégis van rajta pénz, az régi vagy importált tétel. Ezért ez
+   * NEM „nem fér rá az ívre" figyelmeztetés, hanem egy átnézésre hívó jelzés.
+   */
+  const dioceseOnlyRows = useMemo(() => {
+    const rows: Array<{ code: string; amount: number; kind: 'bevétel' | 'kiadás' }> = []
+    for (const [code, amount] of Object.entries(dioceseOnlyIncome)) {
+      if (amount !== 0) rows.push({ code, amount, kind: 'bevétel' })
+    }
+    for (const [code, amount] of Object.entries(dioceseOnlyExpense)) {
+      if (amount !== 0) rows.push({ code, amount, kind: 'kiadás' })
+    }
+    return rows.sort((a, b) => a.code.localeCompare(b.code, 'hu'))
+  }, [dioceseOnlyIncome, dioceseOnlyExpense])
 
-  const expenseCells = useMemo(
-    () =>
-      szamadasiCellek
-        .filter((cell) => cell.type === 'K' && cell.id.startsWith('2') && isGyulekezetSzint(cell))
-        .sort((left, right) => sortCellsHierarchically(left.id, right.id)),
-    [szamadasiCellek],
-  )
+  // 2026-08-11 (6. kör): a végösszegek a KÖZÖS `osszegezLevelek` helperrel —
+  // ugyanaz a levél-készlet, ugyanaz az összeadás, mint a nyomtatványon.
+  const leafIncomeCodes = useMemo(() => leafIncome.map((c) => c.id), [leafIncome])
+  const leafExpenseCodes = useMemo(() => leafExpense.map((c) => c.id), [leafExpense])
 
-  const leafIncome = incomeCells.filter((c) => c.id.includes('.'))
-  const leafExpense = expenseCells.filter((c) => c.id.includes('.'))
-  const totalBudgetIncome = leafIncome.reduce(
-    (sum, cell) => sum + (budgetData[cell.id] || 0),
-    0,
-  )
-  const totalBudgetExpense = leafExpense.reduce(
-    (sum, cell) => sum + (budgetData[cell.id] || 0),
-    0,
-  )
-  const totalActualIncome = leafIncome.reduce(
-    (sum, cell) => sum + (actualIncome[cell.id] || 0),
-    0,
-  )
-  const totalActualExpense = leafExpense.reduce(
-    (sum, cell) => sum + (actualExpense[cell.id] || 0),
-    0,
-  )
+  const totalBudgetIncome = osszegezLevelek(leafIncomeCodes, budgetData)
+  const totalBudgetExpense = osszegezLevelek(leafExpenseCodes, budgetData)
+  const totalActualIncome = osszegezLevelek(leafIncomeCodes, actualIncome)
+  const totalActualExpense = osszegezLevelek(leafExpenseCodes, actualExpense)
 
   const incomeRealization =
     totalBudgetIncome > 0 ? Math.round((totalActualIncome / totalBudgetIncome) * 100) : 0
@@ -336,6 +495,89 @@ export function AccountingTab({
         </div>
       )}
 
+      {/* 2026-08-11 (6. kör, TULAJDONOSI DÖNTÉS UTÁN ÁTÍRVA): a régi szöveg azt
+          állította, hogy az egyházmegyei szintű kódra könyvelt pénz „nem fér rá a
+          hivatalos Számadás-ívre". Ez a premissza MEGDŐLT: a sor rajta van az
+          íven, tehát a pénz benne van a tény-oszlopban, a végösszegben és a
+          beküldött adatban is. Egy ilyen kódra könyvelt tétel viszont ma már nem
+          keletkezhet (a rögzítő legördülők kizárják), ezért átnézésre hívunk.
+          A valóban íven KÍVÜLI pénz (ismeretlen kód / nincs kategória) továbbra is
+          hangos figyelmeztetés — az tényleg hiányozna a papírról. */}
+      {(offFormRows.length > 0 || dioceseOnlyRows.length > 0) && (
+        <div className="card-raised border-amber-300 bg-amber-50/70 p-5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" />
+            <div className="min-w-0">
+              <p className="text-base font-semibold text-amber-900">
+                {offFormRows.length > 0
+                  ? 'Van pénz, ami nem fér rá a hivatalos Számadás-ívre'
+                  : 'Nézd át: egyházmegyei szintű kódon van pénz'}
+              </p>
+
+              {offFormRows.length > 0 && (
+                <>
+                  <p className="mt-1 text-sm leading-6 text-amber-900/90">
+                    Az alábbi tételek olyan számadási kódra vannak könyvelve, amelyik ezen
+                    az íven nem szerepel (ismeretlen kód, vagy nincs kategória kiválasztva).
+                    Ezek az összegek NEM számítanak bele a lenti terv–tény táblázatba, a
+                    végösszegekbe és az egyházmegyének beküldött adatba sem. Kérlek, a
+                    véglegesítés előtt könyveld át őket a megfelelő kódra a Tranzakciók
+                    fülön — különben a Számadás kevesebbet mutat, mint a tényleges forgalom.
+                  </p>
+                  <ul className="mt-3 space-y-1">
+                    {offFormRows.map((row) => (
+                      <li
+                        key={`off-${row.kind}-${row.code}`}
+                        className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg bg-white/70 px-3 py-1.5 text-sm"
+                      >
+                        <span className="font-mono text-xs text-amber-800">
+                          {row.code} · {row.kind}
+                        </span>
+                        <span className="font-semibold tabular-nums text-amber-900">
+                          {formatCurrency(row.amount)} RON
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+
+              {dioceseOnlyRows.length > 0 && (
+                <>
+                  <p
+                    className={`text-sm leading-6 text-amber-900/90 ${
+                      offFormRows.length > 0 ? 'mt-4 border-t border-amber-200 pt-3' : 'mt-1'
+                    }`}
+                  >
+                    Az alábbi kódok <strong>egyházmegyei szintűek</strong>: a hivatalos íven
+                    szerepelnek — ezért a pénz benne van a lenti táblázatban, a
+                    végösszegekben és a beküldött adatban is —, de ezeket az egyházmegye
+                    tölti ki, a gyülekezet nem könyvelhet rájuk. Ha mégis van rajtuk
+                    összeg, az régi vagy importált tétel. Nézd át a véglegesítés előtt,
+                    és ha nem ide való, könyveld át a Tranzakciók fülön.
+                  </p>
+                  <ul className="mt-3 space-y-1">
+                    {dioceseOnlyRows.map((row) => (
+                      <li
+                        key={`egyhm-${row.kind}-${row.code}`}
+                        className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg bg-white/70 px-3 py-1.5 text-sm"
+                      >
+                        <span className="font-mono text-xs text-amber-800">
+                          {row.code} · {row.kind} · egyházmegyei szintű
+                        </span>
+                        <span className="font-semibold tabular-nums text-amber-900">
+                          {formatCurrency(row.amount)} RON
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 2026-07-10 (S2 #10): a NYITÓ egyenlegek a hivatalos minta szerint a
           Bevételek tábla 1–3. sorai (lásd lent, openingRows) — a külön kártya megszűnt. */}
       <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
@@ -446,6 +688,7 @@ export function AccountingTab({
                 ]
               : undefined
           }
+          dioceseOnlyCodes={dioceseOnlyCodes}
         />
         <ComparisonTable
           title="Kiadások - terv és tény"
@@ -456,6 +699,7 @@ export function AccountingTab({
           actualData={actualExpense}
           prevActualData={prevActualExpense}
           positiveClassName="text-rose-500"
+          dioceseOnlyCodes={dioceseOnlyCodes}
         />
       </div>
 
@@ -616,6 +860,7 @@ function ComparisonTable({
   prevActualData,
   positiveClassName,
   openingRows,
+  dioceseOnlyCodes,
 }: {
   title: string
   icon: ReactNode
@@ -629,6 +874,10 @@ function ComparisonTable({
   /** 2026-07-10 (S2 #10): a hivatalos nyomtatvány 1–3. NYITÓ sora a tábla élén
    *  (Disponibil / Casa / Banca) — automatikus, nem szerkeszthető. */
   openingRows?: Array<{ nr: string; nev: string; value: number; group: boolean }>
+  /** 2026-08-11 (6. kör): egyházmegyei szintű kódok. A sor RAJTA van az íven és a
+   *  végösszegben, de a gyülekezet nem könyvelhet rá — ezt a soron is kimondjuk,
+   *  hogy az üres tény-oszlop ne tűnjön hiányzó adatnak. */
+  dioceseOnlyCodes?: Set<string>
 }) {
   const showPrevYear = prevActualData != null
   return (
@@ -724,6 +973,14 @@ function ComparisonTable({
                     }`}
                   >
                     {cell.nev}
+                    {dioceseOnlyCodes?.has(cell.id) && (
+                      <span
+                        className="ml-2 whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800"
+                        title="Egyházmegyei szintű tétel — a hivatalos íven szerepel, de az egyházmegye tölti ki; a gyülekezet nem könyvelhet rá."
+                      >
+                        egyházmegyei
+                      </span>
+                    )}
                   </td>
                   {showPrevYear && (
                     <td className="hidden md:table-cell p-2 text-right text-xs text-slate-400">

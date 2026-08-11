@@ -20,6 +20,7 @@
 
 import { revalidatePath } from 'next/cache'
 import {
+  financeWriteBlock,
   getFinanceScopeContext,
   tablesFor,
   isYearFinalized,
@@ -159,6 +160,10 @@ export async function updateTransactionBasic(
 ): Promise<{ success?: boolean; error?: string }> {
   const ctx = await getFinanceScopeContext()
   if ('error' in ctx) return { error: ctx.error }
+  // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU — ellenőri (számvevői) nézetben a
+  // művelet beszédes magyar üzenettel áll meg, nem nyers RLS-hibával.
+  const writeBlock = financeWriteBlock(ctx)
+  if (writeBlock) return writeBlock
   const T = tablesFor(ctx.scope)
   const table = input.type === 'befizetes' ? T.befizetes : T.kiadas
 
@@ -301,6 +306,10 @@ export async function stornoTransaction(args: {
 }): Promise<{ success?: boolean; error?: string }> {
   const ctx = await getFinanceScopeContext()
   if ('error' in ctx) return { error: ctx.error }
+  // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU — ellenőri (számvevői) nézetben a
+  // művelet beszédes magyar üzenettel áll meg, nem nyers RLS-hibával.
+  const writeBlock = financeWriteBlock(ctx)
+  if (writeBlock) return writeBlock
   const T = tablesFor(ctx.scope)
   const table = args.type === 'befizetes' ? T.befizetes : T.kiadas
 
@@ -397,6 +406,10 @@ export async function undoStornoTransaction(args: {
 }): Promise<{ success?: boolean; error?: string }> {
   const ctx = await getFinanceScopeContext()
   if ('error' in ctx) return { error: ctx.error }
+  // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU — ellenőri (számvevői) nézetben a
+  // művelet beszédes magyar üzenettel áll meg, nem nyers RLS-hibával.
+  const writeBlock = financeWriteBlock(ctx)
+  if (writeBlock) return writeBlock
   const T = tablesFor(ctx.scope)
   const table = args.type === 'befizetes' ? T.befizetes : T.kiadas
 

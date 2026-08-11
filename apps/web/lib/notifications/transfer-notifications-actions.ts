@@ -66,7 +66,62 @@ export interface TransferNotification {
 
 // ─── 1. listInbound — a célgyülekezet inboxa ─────────────────────────────
 
+/**
+ * 2026-08-11 (user-bejelentes: az /notifications oldal 500-as szerverhibat adott)
+ *
+ * MIERT KELL EZ A BURKOLO: a `/notifications` oldal SZERVER-komponens, amely
+ * ezt a ket listazot `await`-eli. Ha barmelyik DOB (nem `{ error }`-t ad
+ * vissza), a teljes oldal-render elszall, es a bongeszo csak ennyit mutat:
+ * „A server error occurred" — a valodi uzenetet a Next.js produkcios modban
+ * SZANDEKOSAN elrejti. A lelkesz szamara ez egy fekete kepernyo, nekunk pedig
+ * nincs mibol dolgozni.
+ *
+ * Az oldal MAR FEL VAN KESZULVE a hibara (`if (inbound.error || outbound.error)`
+ * agat rendel egy beszedes piros dobozzal) — csak a listazok nem tartottak be a
+ * sajat szerzodesuket: a `{ data?, error? }` alakot igertek, de egy dobas
+ * (halozat, Supabase-kliens, RLS-kivetel) kiszokott beloluk.
+ *
+ * Ez a burkolo betartatja a szerzodest: dobas eseten is `{ error }` jon vissza,
+ * es a lelkesz LATJA, mi a baj — a szerver-oldali `console.error` pedig
+ * megtartja a teljes vermet a Railway-logban.
+ */
+async function safeList(
+  cim: string,
+  fn: () => Promise<{ data?: TransferNotification[]; error?: string }>,
+): Promise<{ data?: TransferNotification[]; error?: string }> {
+  try {
+    return await fn()
+  } catch (e) {
+    // ⚠️ 2026-08-11 — A NEXT.JS VEZÉRLÉSI JELZÉSEIT TOVÁBB KELL DOBNI.
+    // A Next.js kivétel formájában jelzi a keretrendszernek, hogy az útvonal
+    // nem rendelhető statikusan (`DynamicServerError`, mert `cookies`-t olvas),
+    // illetve az átirányítást és a 404-et. Ezek NEM hibák, hanem vezérlés.
+    // Ha elnyeljük őket, a build „nem statikus" helyett hibás oldalt épít —
+    // ezt a burkoló első változata pontosan el is követte.
+    const kod = (e as { digest?: unknown } | null)?.digest
+    if (typeof kod === 'string' && (kod.startsWith('NEXT_') || kod.startsWith('DYNAMIC_SERVER_USAGE'))) {
+      throw e
+    }
+    if (e instanceof Error && e.message.includes('Dynamic server usage')) throw e
+
+    const uzenet = e instanceof Error ? e.message : String(e)
+    console.error(`[transfer-notifications] ${cim} — VARATLAN KIVETEL:`, e)
+    return {
+      error:
+        `Az átjelentkezési kérelmek betöltése nem sikerült (${cim}). ` +
+        `Töltsd újra az oldalt; ha újra előjön, ez a technikai üzenet segít: ${uzenet}`,
+    }
+  }
+}
+
 export async function listInboundTransferNotifications(options: {
+  status?: 'pending' | 'accepted' | 'rejected' | 'all'
+  limit?: number
+} = {}): Promise<{ data?: TransferNotification[]; error?: string }> {
+  return safeList('bejövő', () => listInboundImpl(options))
+}
+
+async function listInboundImpl(options: {
   status?: 'pending' | 'accepted' | 'rejected' | 'all'
   limit?: number
 } = {}): Promise<{ data?: TransferNotification[]; error?: string }> {
@@ -101,6 +156,13 @@ export async function listInboundTransferNotifications(options: {
 // ─── 2. listOutbound — a forrás-gyülekezet által küldött kérelmek ─────────
 
 export async function listOutboundTransferNotifications(options: {
+  status?: 'pending' | 'accepted' | 'rejected' | 'all'
+  limit?: number
+} = {}): Promise<{ data?: TransferNotification[]; error?: string }> {
+  return safeList('elküldött', () => listOutboundImpl(options))
+}
+
+async function listOutboundImpl(options: {
   status?: 'pending' | 'accepted' | 'rejected' | 'all'
   limit?: number
 } = {}): Promise<{ data?: TransferNotification[]; error?: string }> {

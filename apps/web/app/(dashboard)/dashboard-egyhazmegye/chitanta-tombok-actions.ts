@@ -6,7 +6,9 @@
  *
  * A táblán a 2026-04-18-i migráció bővítette a scope ('gyulekezet'/'egyhazmegye')
  * + diocese_id oszlopokat. Ezeket az action-okat az egyházmegyei dashboardon
- * használjuk — csak az esperes / egyházmegyei admin / rendszergazda férhet hozzá.
+ * használjuk. Nyitni / lezárni / törölni az esperes, az egyházmegyei admin és a
+ * rendszergazda tud; 2026-08-11 óta az egyházmegyei SZÁMVEVŐ is LÁTJA a tömböket
+ * (a nyugtatömb-tartomány a pénzügyi ellenőrzés része), de nem módosíthatja őket.
  *
  * A gyülekezeti oldal változatlanul működik a `penzugy/chitanta-tombok-actions.ts`
  * action-okkal.
@@ -16,7 +18,11 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { assertDioceseInScope } from '@/lib/auth/admin-scope'
-import { resolveDioceseScopeIds } from '@/lib/auth/level-scope'
+import {
+  describeDioceseWriteBlock,
+  resolveDioceseReadScopeIds,
+  resolveDioceseScopeIds,
+} from '@/lib/auth/level-scope'
 
 export interface DioceseChitantaTomb {
   id: string
@@ -40,7 +46,16 @@ export interface DioceseChitantaTomb {
 // ─────────────────────────────────────────────────────────────────────────
 // Jogosultság
 // ─────────────────────────────────────────────────────────────────────────
-async function requireDioceseAccess(dioceseIdFromInput?: string) {
+/**
+ * @param mode `'write'` (alapértelmezés, fail-closed) = tömb nyitása/lezárása/
+ *   törlése; `'read'` = listázás, státusz-lekérdezés. 2026-08-11 (számvevő-kör):
+ *   az egyházmegyei SZÁMVEVŐ `'read'`-re átmegy (a nyugtatömb-tartomány a
+ *   pénzügyi ellenőrzés része), `'write'`-ra beszédes magyarázatot kap.
+ */
+async function requireDioceseAccess(
+  dioceseIdFromInput?: string,
+  mode: 'read' | 'write' = 'write',
+) {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' as const }
 
@@ -68,7 +83,19 @@ async function requireDioceseAccess(dioceseIdFromInput?: string) {
     }
   }
 
-  if (!canManage) return { error: 'Nincs jogosultság.' as const }
+  // 2026-08-11 (számvevő-kör): OLVASÁSHOZ az ellenőri hatókör is elég.
+  const readIds = resolveDioceseReadScopeIds(access)
+  if (!canManage && mode === 'read' && readIds.includes(targetId)) {
+    return { supabase: access.supabase, userId: access.user.id, dioceseId: targetId }
+  }
+
+  if (!canManage) {
+    if (readIds.includes(targetId)) {
+      const reason = describeDioceseWriteBlock(access)
+      if (reason) return { error: reason as string }
+    }
+    return { error: 'Nincs jogosultság.' as const }
+  }
   return { supabase: access.supabase, userId: access.user.id, dioceseId: targetId }
 }
 
@@ -79,7 +106,8 @@ export async function listDioceseChitantaTombok(): Promise<{
   data?: DioceseChitantaTomb[]
   error?: string
 }> {
-  const ctx = await requireDioceseAccess()
+  // 2026-08-11 (számvevő-kör): puszta lekérdezés → az ellenőri hatókör is elég.
+  const ctx = await requireDioceseAccess(undefined, 'read')
   if ('error' in ctx) return { error: ctx.error }
 
   const { data, error } = await ctx.supabase
@@ -108,7 +136,8 @@ export async function getActiveDioceseChitantaTombStatus(): Promise<{
   } | null
   error?: string
 }> {
-  const ctx = await requireDioceseAccess()
+  // 2026-08-11 (számvevő-kör): puszta lekérdezés → az ellenőri hatókör is elég.
+  const ctx = await requireDioceseAccess(undefined, 'read')
   if ('error' in ctx) return { error: ctx.error }
 
   const { data, error } = await ctx.supabase

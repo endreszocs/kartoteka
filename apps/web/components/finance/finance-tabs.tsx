@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { AlertTriangle, Building2, FileCheck, FileText, Plus, Printer, Receipt, ShieldCheck, Wallet } from 'lucide-react'
+import { AlertTriangle, Building2, Eye, FileCheck, FileText, Plus, Printer, Receipt, ShieldCheck, Wallet } from 'lucide-react'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { ColorTabs } from '@/components/ui/color-tabs'
 import { Button } from '@/components/ui/button'
@@ -104,6 +104,18 @@ interface FinanceTabsProps {
    *  Oblio-modál (2026-07-10 S3 #2+#4 óta nem fülek) el vannak rejtve. */
   scope?: 'congregation' | 'diocese'
   /**
+   * 2026-08-11 (számvevő-kör): ELLENŐRI (csak olvasható) nézet.
+   *
+   * `true` az egyházmegyei számvevőnél: a megye könyveit megnézheti, de nem
+   * rögzíthet, nem javíthat, nem véglegesíthet. Ilyenkor a rögzítő gombok NEM
+   * jelennek meg, és a lap tetején magyarázó sáv áll — hogy ELŐRE tudja, mit
+   * nem tehet, ne pedig egy néma, 0 sort érintő mentés vagy nyers RLS-hiba
+   * után. A VALÓDI zár a szerver akciókban van (`financeWriteBlock`).
+   */
+  readOnly?: boolean
+  /** Lelkész-barát magyar magyarázat a `readOnly` sávhoz. */
+  readOnlyReason?: string | null
+  /**
    * 2026-05-25: ha true, a "Rendszergazdai importáló" fül megjelenik a tab-lista
    * VÉGÉN (Súgó után), piros (red-prominent) háttérrel. Jogosultság: god mode,
    * delegated import vagy aktív admin szerepkör — a page.tsx dönti el.
@@ -117,6 +129,8 @@ export function FinanceTabs({
   carryoverCash, carryoverBank, bankNyitoMap, congregationName, congregationNameRo, congregationId,
   currentYear, availableYears, yearlyFees, debtRows: initialDebtRows, receiptHealth: initialReceiptHealth, debtCalcMode, isGodMode,
   scope = 'congregation',
+  readOnly = false,
+  readOnlyReason = null,
   showAdminImport = false,
 }: FinanceTabsProps) {
   const [activeTab, setActiveTab] = useState('dashboard')
@@ -337,6 +351,29 @@ export function FinanceTabs({
 
   return (
     <>
+      {/* 2026-08-11 (számvevő-kör): ellenőri nézet magyarázó sávja — a
+          dashboard-egyhazmegye/page.tsx `ReadOnlyDioceseNotice` mintájára.
+          Enélkül a gombok kattinthatónak LÁTSZANÁNAK, a mentés pedig nyers
+          RLS-hibába futna. */}
+      {readOnly && (
+        <div className="card-raised mb-4 border-sky-200 bg-gradient-to-br from-sky-50/60 via-white to-slate-50/40 p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-sky-100 text-sky-700">
+              <Eye className="size-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="font-heading text-base text-slate-800 sm:text-lg">
+                Ellenőri nézet — mindent látsz, de nem módosíthatsz
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                {readOnlyReason ??
+                  'Számvevőként (ellenőrként) az egyházmegye pénzügyi könyveit megtekintheted és kinyomtathatod, de nem rögzíthetsz, nem javíthatsz és nem véglegesíthetsz. A rögzítés az esperes vagy az egyházmegyei adminisztrátor feladata.'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="card-raised relative mb-4 overflow-hidden p-5 sm:p-6">
         <div className="absolute right-0 top-0 h-32 w-32 rounded-full bg-amber-200/35 blur-3xl" />
         <div className="absolute bottom-0 left-0 h-24 w-24 rounded-full bg-teal-200/30 blur-3xl" />
@@ -361,32 +398,39 @@ export function FinanceTabs({
             {/* 2026-07-10 (S4-mobil): a gombok wrap-elnek, max-sm:min-h-10 —
                 40px-es érintőfelület telefonon. */}
             <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                className="rounded-xl max-sm:min-h-10 bg-gradient-to-r from-teal-600 to-emerald-600 px-4 font-semibold text-white shadow-md transition hover:from-teal-700 hover:to-emerald-700 hover:shadow-lg"
-                onClick={() => setCombinedOpen(true)}
-              >
-                <Plus className="mr-1 size-4" />
-                Tétel rögzítése
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="rounded-xl max-sm:min-h-10 border-violet-200 bg-violet-50 font-medium text-violet-700 shadow-sm transition hover:bg-violet-100 hover:shadow"
-                onClick={() => setDecontOpen(true)}
-              >
-                <Receipt className="mr-1 size-3.5" />
-                Decont
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="rounded-xl max-sm:min-h-10 border-amber-200 bg-amber-50 font-medium text-amber-700 shadow-sm transition hover:bg-amber-100 hover:shadow"
-                onClick={() => setDispozitieOpen(true)}
-              >
-                <FileText className="mr-1 size-3.5" />
-                Dispoziție
-              </Button>
+              {/* 2026-08-11 (számvevő-kör): a RÖGZÍTŐ gombok ellenőri nézetben
+                  nem jelennek meg — a nyomtatás/áttekintés viszont marad, mert
+                  éppen az az ellenőr dolga. */}
+              {!readOnly && (
+                <>
+                  <Button
+                    size="sm"
+                    className="rounded-xl max-sm:min-h-10 bg-gradient-to-r from-teal-600 to-emerald-600 px-4 font-semibold text-white shadow-md transition hover:from-teal-700 hover:to-emerald-700 hover:shadow-lg"
+                    onClick={() => setCombinedOpen(true)}
+                  >
+                    <Plus className="mr-1 size-4" />
+                    Tétel rögzítése
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-xl max-sm:min-h-10 border-violet-200 bg-violet-50 font-medium text-violet-700 shadow-sm transition hover:bg-violet-100 hover:shadow"
+                    onClick={() => setDecontOpen(true)}
+                  >
+                    <Receipt className="mr-1 size-3.5" />
+                    Decont
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-xl max-sm:min-h-10 border-amber-200 bg-amber-50 font-medium text-amber-700 shadow-sm transition hover:bg-amber-100 hover:shadow"
+                    onClick={() => setDispozitieOpen(true)}
+                  >
+                    <FileText className="mr-1 size-3.5" />
+                    Dispoziție
+                  </Button>
+                </>
+              )}
               <Button
                 size="sm"
                 variant="outline"
@@ -582,7 +626,9 @@ export function FinanceTabs({
         />
 
         <TabsContent value="dashboard" className="mt-4">
-          {incomeRecords.length === 0 && expenseRecords.length === 0 && (
+          {/* 2026-08-11 (számvevő-kör): ellenőri nézetben nem kínálunk „Rögzítsd
+              az első tételt" CTA-t — nem tudja megtenni. */}
+          {!readOnly && incomeRecords.length === 0 && expenseRecords.length === 0 && (
             <EmptyFirstRecord
               className="mb-4"
               accent="emerald"
@@ -680,11 +726,18 @@ export function FinanceTabs({
               Költségvetés nyomtatás
             </Button>
           </div>
-          {/* 2026-07-10 (#2): carryoverCash/Bank — nyitó egyenleg blokk a fülön. */}
+          {/* 2026-07-10 (#2): carryoverCash/Bank — nyitó egyenleg blokk a fülön.
+              2026-08-11 (6. kör): `scope`. A SOROK mindkét hatókörben ugyanazok:
+              a hivatalos ív MINDEN tétele, pontosan úgy, ahogy a nyomtatványon
+              (tulajdonosi döntés: „minden tétel szerepel rajta, nem csak az
+              egyházmegyeiek!"). A `scope` már csak a szerkeszthetőséget dönti el:
+              gyülekezeti hatókörben az egyházmegyei szintű sorok zárolva, megyei
+              hatókörben minden sor szerkeszthető. */}
           <BudgetTab
             szamadasiCellek={szamadasiCellek}
             settings={settings}
             currentYear={currentYear}
+            scope={scope}
             carryoverCash={carryoverCash}
             carryoverBank={carryoverBank}
           />

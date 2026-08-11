@@ -15,6 +15,7 @@
 import { getDb, setSyncMeta } from './db'
 import { pullAllTables, pullByTableName } from './pull'
 import { pushBatch } from './push'
+import { checkRestoreEpoch, quarantineAndResync } from './restore-epoch'
 
 // M6.3 (2026-04-22): a portable standalone kivezetésével együtt eltávolítva
 // a sync-orchestrator STANDALONE fast-path-e. Az eddig "no-op standalone
@@ -37,6 +38,8 @@ export type SyncEventType =
   | 'online'
   | 'offline'
   | 'scope_changed'
+  /** A rendszergazda visszaállította a gyülekezet adatait — teljes újratöltés. */
+  | 'restore_detected'
 
 export interface SyncEvent {
   type: SyncEventType
@@ -230,6 +233,12 @@ class SyncOrchestrator {
   async pullAll(): Promise<void> {
     if (!this.state.online || !this.state.congregationId) return
 
+    // ⚠️ A VISSZAÁLLÍTÁS-ŐR MINDIG A PULL ELŐTT FUT. Ha közben a rendszergazda
+    //    visszaállított egy korábbi mentést, a helyi másolatot EL KELL DOBNI —
+    //    különben a delta-pull (`updated_at > lastPullAt`) sosem venné észre a
+    //    régi időbélyegű, visszaállított sorokat.
+    await this.ensureRestoreEpoch()
+
     this.emit({ type: 'pull_started', timestamp: Date.now() })
 
     try {
@@ -294,6 +303,23 @@ class SyncOrchestrator {
   async pushAll(): Promise<void> {
     if (!this.state.online || !this.state.congregationId) return
 
+    // ⛔ FAIL CLOSED. A PUSH a veszélyes irány: a helyi, ÚJABB `updated_at`-tal
+    //    bíró sorok felülírnák a frissen visszaállított adatot, és a
+    //    visszaállítás némán részlegesen visszacsinálódna. Ha az epoch-ot nem
+    //    tudjuk ellenőrizni, INKÁBB NEM KÜLDÜNK — a helyi munka a mutációs
+    //    sorban megmarad, és a következő körben megy.
+    const orszem = await this.ensureRestoreEpoch()
+    if (!orszem) {
+      this.emit({
+        type: 'push_error',
+        error:
+          'A visszaállítás-állapot nem ellenőrizhető, ezért a helyi módosításokat nem küldjük fel. ' +
+          'A munkád megvan, a következő szinkron újrapróbálja.',
+        timestamp: Date.now(),
+      })
+      return
+    }
+
     const db = getDb()
     const pending = await db._mutation_queue
       .where('status')
@@ -325,6 +351,53 @@ class SyncOrchestrator {
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e)
       this.emit({ type: 'push_error', error, timestamp: Date.now() })
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Visszaállítás-őr (restore_epoch) — a 4. fázis
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Összeveti a szerver `restore_epoch`-ját a helyben ismerttel, és eltérésnél
+   * KARANTÉNBA teszi a helyi mutációkat + teljes újratöltést kényszerít.
+   *
+   * @returns `true`, ha az állapot IGAZOLTAN rendben van (a push mehet).
+   *          `false`, ha nem tudtuk ellenőrizni — ilyenkor a push TILOS.
+   */
+  private async ensureRestoreEpoch(): Promise<boolean> {
+    const congregationId = this.state.congregationId
+    if (!congregationId) return false
+
+    let ellenorzes
+    try {
+      ellenorzes = await checkRestoreEpoch(congregationId)
+    } catch (e) {
+      console.error('[sync-orchestrator] a visszaállítás-őr hibára futott:', e)
+      return false
+    }
+    if (!ellenorzes.ok) {
+      console.error('[sync-orchestrator] a visszaállítás-őr nem tudott dönteni:', ellenorzes.hiba)
+      return false
+    }
+    if (!ellenorzes.valtozott) return true
+
+    // VISSZAÁLLÍTÁS TÖRTÉNT. A helyi másolat ELAVULT és VESZÉLYES.
+    try {
+      const eredmeny = await quarantineAndResync(congregationId, ellenorzes.epoch)
+      this.emit({
+        type: 'restore_detected',
+        error:
+          `A rendszergazda visszaállította a gyülekezet adatait egy korábbi mentésből. ` +
+          `A helyi másolat teljesen újratöltődik (${eredmeny.uritettTablak} tábla), és ` +
+          `${eredmeny.karantenozott} el nem küldött helyi módosítás KARANTÉNBA került — ` +
+          'nem veszett el, de nem is került fel. Nézd át őket.',
+        timestamp: Date.now(),
+      })
+      return true
+    } catch (e) {
+      console.error('[sync-orchestrator] az újratöltés előkészítése nem sikerült:', e)
+      return false
     }
   }
 

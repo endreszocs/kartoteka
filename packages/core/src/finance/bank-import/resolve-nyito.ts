@@ -156,6 +156,14 @@ async function loadNetByYear(
         .eq('stornozott', false)
         .gte('datum', from)
         .lt('datum', to)
+        // 2026-08-11 (6. kör, P0 #2 — a K5-#7 hibaosztály): a lapozás MELLÉ
+        // determinisztikus rendezés is kell. Minden `.range()` lap KÜLÖN
+        // HTTP-kérés = külön DB-snapshot; ORDER BY nélkül a Postgres nem
+        // garantálja a lapok közti stabil sorrendet, így 1000+ tételes évnél egy
+        // tétel KÉTSZER is beeshet vagy kimaradhat. Ez a függvény MINDEN nyitó
+        // egyenleg forrása (Registru, Számadás, Részszámadás) — a néma hiba itt
+        // az összes hivatalos nyomtatványt elrontja.
+        .order('id', { ascending: true })
         .range(offset, offset + PAGE_SIZE - 1)
       if (error) return { error: error.message }
       const rows = (data || []) as Array<{

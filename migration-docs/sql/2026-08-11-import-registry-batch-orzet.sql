@@ -64,20 +64,59 @@
 --   2. Fail-closed előkapuk kerülnek a törzs elejére:
 --        · NULL cél-gyülekezet → kivétel,
 --        · `public.current_user_is_active_staff()` → a `pending` önregisztrált
---          fiók itt bukik el.
+--          fiók itt bukik el,
+--        · a záró jog-kapu MINDEN tagja `COALESCE(…, false)` — SQL-ben a NULL
+--          nem hamis, és a plpgsql a NULL feltételű `IF`-et úgy kezeli, mint a
+--          hamisat: egyetlen NULL a RAISE EXCEPTION-t ELNYELNÉ, és a
+--          jogosulatlan hívó végigfutna az importon. (Ez a hibaosztály rokona
+--          annak, ami ezt a fájlt szülte.)
 --
---   3. A hatókör-ág kiegészül a HARMADIK legitim úttal: `current_user_can_
---      access_congregation(p_target_congregation_id)`. Erre azért van szükség,
---      mert a PIN-nel feloldott „Rendszergazdai importáló" fület a LELKÉSZ is
---      megnyithatja a SAJÁT gyülekezetére (activateDelegatedImport bármelyik
---      bejelentkezett, gyülekezettel rendelkező fióknak működik), őrá viszont
---      sem a `profile_roles` (system admin), sem az `admin_access_requests`
---      feltétel nem illik — a régi kódban ez az út NÉMÁN „Nincs jogosultság"
---      hibára futott. Ez NEM tágítás: az érintett nyolc anyakönyvi táblán a
---      saját gyülekezetre `FOR ALL TO authenticated` RLS-policy van
---      (2026-04-13-rls-ALL-FIXED.sql), tehát a hívó ugyanezeket a sorokat
---      egyesével amúgy is beszúrhatja a felületről. A PIN-kapu helye a
+--   3. A hatókör-ág kiegészül a HARMADIK legitim úttal: a hívó SAJÁT
+--      gyülekezete. Erre azért van szükség, mert a PIN-nel feloldott
+--      „Rendszergazdai importáló" fület a LELKÉSZ is megnyithatja a SAJÁT
+--      gyülekezetére (activateDelegatedImport bármelyik bejelentkezett,
+--      gyülekezettel rendelkező fióknak működik), őrá viszont sem a
+--      `profile_roles` (system admin), sem az `admin_access_requests` feltétel
+--      nem illik — a régi kódban ez az út NÉMÁN „Nincs jogosultság" hibára
+--      futott.
+--
+--      ⚠️ A FELTÉTEL ALAKJA NEM MINDEGY — ITT EGY BUKTATÓ VAN.
+--         A kézenfekvő `current_user_can_access_congregation(...)` hívás
+--         2026-08-11 ÓTA TÁGABB, mint az érintett nyolc anyakönyvi tábla
+--         RLS-e. A `2026-08-11-globalis-hozzaferes-szukites.sql` ugyanis
+--         beletette a (3) `felettes_szint_hozzaferese(...)` ágat (esperes /
+--         egyházmegyei admin / egyházkerületi admin) és a (4) egyházmegyei
+--         számvevő ágat — a nyolc tábla policy-ja viszont VÁLTOZATLANUL
+--         `congregation_id = current_user_congregation_id()
+--          OR current_user_has_global_access()`
+--         (2026-04-13-rls-ALL-FIXED.sql; azt a fájl NEM írta újra).
+--         Mivel a `SECURITY DEFINER` törzsben az RLS NEM érvényesül, a tágabb
+--         feltétel egy esperesnek OLYAN ÍRÁSI JOGOT adna a saját egyházmegyéje
+--         IDEGEN gyülekezeteibe, amit a felületről egyesével NEM tud megtenni —
+--         és a PostgREST-en a saját JWT-jével közvetlenül hívható.
+--
+--      Ezért a feltétel BETŰRE a nyolc tábla RLS-ének a mása:
+--
+--          p_target_congregation_id = public.current_user_congregation_id()
+--          OR public.current_user_has_global_access()
+--
+--      Ez NEM tágítás: pontosan azokat a sorokat engedi tömegesen, amelyeket a
+--      hívó egyesével is beszúrhat a felületről. A PIN-kapu helye a
 --      szerver-akció (assertDelegatedImportAllowed), nem az RPC.
+--
+--      MELLÉKHOZADÉK: a `current_user_has_global_access()` KÉTLÁBÚ (skalár
+--      `profiles.role='admin'` VAGY `profile_roles` system-scope admin), a
+--      `v_is_master` viszont csak a `profile_roles`-lábat nézi. A skalár-admin
+--      így eddig „Nincs jogosultság"-ot kapott az idegen gyülekezetbe történő
+--      importra — mostantól nem.
+--
+--      ⛔ SZÁNDÉKOSAN NEM NYITJUK MEG az esperes / egyházmegyei admin /
+--         egyházkerületi admin útját. Az a mai állapot: ma is elbukik
+--         (`v_is_master` és `v_has_delegated` egyaránt hamis), tehát ez a fájl
+--         SEMMIT nem tör el. Ha a tulajdonos AZT AKARJA, hogy a kerületi admin
+--         az Import központból idegen gyülekezetbe importálhasson, akkor a
+--         helyes lépés a NYOLC TÁBLA RLS-ének tudatos tágítása külön fájlban —
+--         nem egy lyuk ebbe az egy RPC-be.
 --
 -- ─── SZIGNATÚRA ────────────────────────────────────────────────────────────
 --
@@ -94,15 +133,74 @@
 --
 -- ─── MI MARAD NYITVA ───────────────────────────────────────────────────────
 --
---   · `executeRegistryImport` (import-registry-actions.ts) az EGYETLEN import
---     szerver-akció, amely nem hívja az `assertDelegatedImportAllowed()`
---     kapuőrt (a batch-import-actions.ts két helyen is hívja). A PIN-kapu így
---     ma csak a felületen létezik. Ezt kódoldalon kell betömni — ez az SQL a
---     DB-oldali fail-closed alapot adja alá.
+--   · (LEZÁRVA 2026-08-11) `executeRegistryImport` (import-registry-actions.ts)
+--     korábban az EGYETLEN import szerver-akció volt, amely nem hívta az
+--     `assertDelegatedImportAllowed()` kapuőrt. MA MÁR HÍVJA
+--     (import-registry-actions.ts ~185), tehát a PIN-kapu nem csak a felületen
+--     él. Ez az SQL a DB-oldali fail-closed alapot adja alá — a két réteg
+--     egymástól függetlenül zár.
 --   · `congregations_for_registration()` továbbra is `anon`-nak GRANT-olt.
+--   · Az esperes / egyházmegyei admin / egyházkerületi admin NEM tud idegen
+--     gyülekezetbe importálni — se ma, se a fájl után. Ez TUDATOS (lásd a
+--     3. pont ⛔ bekezdését), nem hiba.
 --
 -- Idempotens: CREATE OR REPLACE + DO-blokkos jog-rendezés. Újrafuttatható.
 -- ════════════════════════════════════════════════════════════════════════════
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- === SZAKASZ 0 · ÁLLAPOTFELMÉRÉS — FUTTASD ELŐSZÖR, KÜLÖN ==================
+--
+-- ⚠️ A Supabase SQL Editor CSAK AZ UTOLSÓ statement eredményét mutatja, ezért
+--    ez EGYETLEN SELECT (UNION ALL). Jelöld ki EZT A BLOKKOT, futtasd le, és
+--    csak utána menj tovább a BEGIN-nel kezdődő részre.
+--
+-- Mit mérünk: a REPÓ és az ÉLES adatbázis némán széthúzhat. Ha bármelyik
+-- előfeltétel hiányzik, a tranzakció úgyis megáll (0. szakasz) — de akkor már
+-- csak egy nyers hibaüzenetet látsz. Ez a blokk ELŐRE megmondja, mi a helyzet.
+-- ════════════════════════════════════════════════════════════════════════════
+
+SELECT '00. import_registry_batch létezik-e MA'                       AS allapot,
+       (to_regprocedure('public.import_registry_batch(uuid,text,jsonb,boolean)') IS NOT NULL)::text AS eredmeny,
+       'true (ha false: ez a fájl most hozza létre)'                  AS ertelmezes
+UNION ALL SELECT '01. MA a HALOTT current_user-os bypass van benne?',
+       (SELECT COALESCE(bool_or(pg_get_functiondef(p.oid) LIKE '%current_user IN (%'), false)
+          FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'public' AND p.proname = 'import_registry_batch')::text,
+       'true = a lyuk MÉG NYITVA (ezért futtatod); false = már javítva'
+UNION ALL SELECT '02. MA hívhatja-e az anon?',
+       COALESCE(has_function_privilege('anon',
+           to_regprocedure('public.import_registry_batch(uuid,text,jsonb,boolean)')::oid, 'EXECUTE')::text,
+           '(nincs ilyen függvény)'),
+       'false a jó — ha true, a lyuk bejelentkezés nélkül is kihasználható'
+UNION ALL SELECT '03. ELŐFELTÉTEL — current_user_is_active_staff() létezik',
+       (to_regprocedure('public.current_user_is_active_staff()') IS NOT NULL)::text,
+       'true kell — különben előbb: 2026-08-11-cross-match-rpc-hardening.sql'
+UNION ALL SELECT '04. ELŐFELTÉTEL — current_user_congregation_id() létezik',
+       (to_regprocedure('public.current_user_congregation_id()') IS NOT NULL)::text,
+       'true kell — különben előbb: 2026-04-12-phase-0-rls-hardening.sql'
+UNION ALL SELECT '05. ELŐFELTÉTEL — current_user_has_global_access() létezik',
+       (to_regprocedure('public.current_user_has_global_access()') IS NOT NULL)::text,
+       'true kell — különben előbb: 2026-04-12-phase-0-rls-hardening.sql'
+UNION ALL SELECT '06. A szűkítés lefutott-e a global access-en?',
+       COALESCE((SELECT (pg_get_functiondef(oid) LIKE '%v2026-08-11-szukites%')::text
+                 FROM pg_proc WHERE pronamespace = 'public'::regnamespace
+                   AND proname = 'current_user_has_global_access' LIMIT 1), '(nincs)'),
+       'true = az esperes MÁR NEM globális (ez a fájl ezt feltételezi)'
+UNION ALL SELECT '07. A nyolc anyakönyvi tábla RLS-e a VÁRT alakú?',
+       (SELECT COUNT(*)::text FROM pg_policies
+         WHERE schemaname = 'public'
+           AND tablename IN ('keresztseg','konfirmalas','hazassag','temetes',
+                             'bekoltozott','elkoltozott','attert','kitert')
+           AND qual LIKE '%current_user_congregation_id%'
+           AND qual LIKE '%current_user_has_global_access%'),
+       '8 a várt — ha kevesebb, a törzs (6) ága ELTÉR a soronkénti RLS-től, NE FUTTASD'
+UNION ALL SELECT '08. Hány anyakönyvi sor van ÖSSZESEN most? (utólagos összevetéshez)',
+       ((SELECT COUNT(*) FROM public.keresztseg) + (SELECT COUNT(*) FROM public.konfirmalas)
+      + (SELECT COUNT(*) FROM public.hazassag)   + (SELECT COUNT(*) FROM public.temetes)
+      + (SELECT COUNT(*) FROM public.bekoltozott)+ (SELECT COUNT(*) FROM public.elkoltozott)
+      + (SELECT COUNT(*) FROM public.attert)     + (SELECT COUNT(*) FROM public.kitert))::text,
+       'CSAK feljegyzésre — ez a fájl EGYETLEN adatsort sem ír';
+-- Várt: 9 sor. A 07. sor a legfontosabb: ha nem 8, ÁLLJ MEG és jelezd.
 
 BEGIN;
 
@@ -116,19 +214,15 @@ BEGIN;
 
 DO $elofeltetel$
 DECLARE
-  v_staff      boolean;
-  v_can_access boolean;
-  v_fn         boolean;
+  v_staff    boolean;
+  v_cong_id  boolean;
+  v_global   boolean;
+  v_fn       boolean;
+  v_policyk  integer;
 BEGIN
-  SELECT EXISTS (
-    SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname = 'public' AND p.proname = 'current_user_is_active_staff'
-  ) INTO v_staff;
-
-  SELECT EXISTS (
-    SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname = 'public' AND p.proname = 'current_user_can_access_congregation'
-  ) INTO v_can_access;
+  v_staff   := to_regprocedure('public.current_user_is_active_staff()')  IS NOT NULL;
+  v_cong_id := to_regprocedure('public.current_user_congregation_id()')  IS NOT NULL;
+  v_global  := to_regprocedure('public.current_user_has_global_access()') IS NOT NULL;
 
   SELECT EXISTS (
     SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -139,8 +233,28 @@ BEGIN
     RAISE EXCEPTION 'MEGÁLLÍTVA — hiányzik a public.current_user_is_active_staff() segéd. Előbb futtasd a 2026-08-11-cross-match-rpc-hardening.sql fájlt.';
   END IF;
 
-  IF NOT v_can_access THEN
-    RAISE EXCEPTION 'MEGÁLLÍTVA — hiányzik a public.current_user_can_access_congregation() segéd. Előbb futtasd a 2026-04-12-phase-0-rls-hardening.sql fájlt.';
+  IF NOT v_cong_id THEN
+    RAISE EXCEPTION 'MEGÁLLÍTVA — hiányzik a public.current_user_congregation_id() segéd. Előbb futtasd a 2026-04-12-phase-0-rls-hardening.sql fájlt.';
+  END IF;
+
+  IF NOT v_global THEN
+    RAISE EXCEPTION 'MEGÁLLÍTVA — hiányzik a public.current_user_has_global_access() segéd. Előbb futtasd a 2026-04-12-phase-0-rls-hardening.sql fájlt.';
+  END IF;
+
+  -- A törzs (6) ága BETŰRE a nyolc anyakönyvi tábla RLS-ét másolja. Ha ez a
+  -- feltevés már nem igaz (valaki átírta a policy-kat), akkor az RPC és a
+  -- soronkénti út SZÉTHÚZ — pontosan az a hibaosztály, ami ezt a fájlt szülte.
+  -- Nem állítjuk meg a futást (a policy-k idővel jogosan változhatnak), de
+  -- HANGOSAN kiírjuk, hogy a döntés tudatos legyen.
+  SELECT COUNT(*) INTO v_policyk
+    FROM pg_policies
+   WHERE schemaname = 'public'
+     AND tablename IN ('keresztseg','konfirmalas','hazassag','temetes',
+                       'bekoltozott','elkoltozott','attert','kitert')
+     AND qual LIKE '%current_user_congregation_id%'
+     AND qual LIKE '%current_user_has_global_access%';
+  IF v_policyk <> 8 THEN
+    RAISE WARNING '2026-08-11: a nyolc anyakönyvi tábla közül csak %-on találtam a várt (current_user_congregation_id + current_user_has_global_access) RLS-alakot. Az RPC (6) hatókör-ága ettől ELTÉRHET — nézd át, mielőtt élesben importálsz.', v_policyk;
   END IF;
 
   IF NOT v_fn THEN
@@ -220,16 +334,49 @@ BEGIN
             WHERE admin_user_id = v_caller AND congregation_id = p_target_congregation_id
               AND status = 'approved' AND expires_at > now());
 
-        -- (6) Saját hatókör: a hívó amúgy is eléri a cél-gyülekezetet. Ez NEM
-        --     tágítás: az érintett táblákon (`keresztseg`, `konfirmalas`,
-        --     `hazassag`, `temetes`, `bekoltozott`, `elkoltozott`, `attert`,
-        --     `kitert`) a saját gyülekezetre `FOR ALL TO authenticated` RLS-
-        --     policy van, tehát a hívó ugyanezeket a sorokat egyesével amúgy is
-        --     beszúrhatja a felületről. A PIN-es „Rendszergazdai importáló"
-        --     kapuja a szerver-akcióban van (assertDelegatedImportAllowed).
-        v_in_scope := public.current_user_can_access_congregation(p_target_congregation_id);
+        -- (6) Saját hatókör. A feltétel BETŰRE a nyolc érintett anyakönyvi
+        --     tábla (`keresztseg`, `konfirmalas`, `hazassag`, `temetes`,
+        --     `bekoltozott`, `elkoltozott`, `attert`, `kitert`)
+        --     `FOR ALL TO authenticated` RLS-policy-jának a mása
+        --     (2026-04-13-rls-ALL-FIXED.sql):
+        --
+        --         congregation_id = current_user_congregation_id()
+        --         OR current_user_has_global_access()
+        --
+        --     Ez NEM tágítás: pontosan azokat a sorokat engedi tömegesen,
+        --     amelyeket a hívó egyesével is beszúrhat a felületről.
+        --
+        --     ⛔ ITT SZÁNDÉKOSAN NEM `current_user_can_access_congregation()`
+        --        ÁLL. Az a segéd 2026-08-11 óta TÁGABB ennél (megyei/kerületi
+        --        `felettes_szint_hozzaferese` + számvevő ág), a nyolc tábla
+        --        RLS-e viszont NEM követte. `SECURITY DEFINER` törzsben az RLS
+        --        nem érvényesül, tehát a tágabb segéddel egy esperes a saját
+        --        egyházmegyéje IDEGEN gyülekezeteibe tudna tömegesen írni —
+        --        miközben egyesével nem tudna. Lásd a fájl fejlécét.
+        --
+        --     A PIN-es „Rendszergazdai importáló" kapuja a szerver-akcióban van
+        --     (assertDelegatedImportAllowed), nem itt.
+        --
+        --     ⚠️ A COALESCE NEM KOZMETIKA — NÉLKÜLE FAIL-OPEN LENNE.
+        --        A `current_user_congregation_id()` NULL-t ad, ha a hívónak
+        --        nincs gyülekezete (pl. gyülekezet nélküli rendszergazda) vagy
+        --        a profilja nem `active`. Ilyenkor az `uuid = NULL` NEM hamis,
+        --        hanem NULL — és a lenti `IF NOT v_is_master AND NOT
+        --        v_has_delegated AND NOT v_in_scope` kifejezés NULL-ra
+        --        értékelődne, amit a plpgsql úgy kezel, mintha HAMIS volna:
+        --        a RAISE EXCEPTION ELMARADNA, és a jogosulatlan hívó
+        --        VÉGIGFUTNA az importon. Pontosan az a hibaosztály, ami ezt a
+        --        fájlt szülte (néma, szerkezetileg halott őr).
+        v_in_scope := COALESCE(
+                        p_target_congregation_id = public.current_user_congregation_id(),
+                        false)
+                      OR COALESCE(public.current_user_has_global_access(), false);
 
-        IF NOT v_is_master AND NOT v_has_delegated AND NOT v_in_scope THEN
+        -- Fail-closed: minden tag COALESCE-szal, hogy egyetlen NULL se tudja
+        -- „igaznak" hazudni a jogosultságot.
+        IF NOT COALESCE(v_is_master, false)
+           AND NOT COALESCE(v_has_delegated, false)
+           AND NOT COALESCE(v_in_scope, false) THEN
             RAISE EXCEPTION 'Nincs jogosultság a(z) % gyülekezethez.', p_target_congregation_id;
         END IF;
     END IF;
@@ -484,7 +631,10 @@ COMMENT ON FUNCTION public.import_registry_batch(uuid, text, jsonb, boolean) IS
   'current_user a TULAJDONOS, ezért a régi ellenőrzés sosem sült el, és minden bejelentkezés '
   'nélküli hívó master jogot kapott. Mostantól session_user dönt, plusz fail-closed előkapuk '
   '(aktív tisztségviselő) és három legitim út: system admin / jóváhagyott admin_access_requests / '
-  'saját hatókör (current_user_can_access_congregation).';
+  'saját hatókör. A saját-hatókör ág BETŰRE a nyolc anyakönyvi tábla RLS-e '
+  '(current_user_congregation_id() VAGY current_user_has_global_access()) — SZÁNDÉKOSAN NEM a '
+  'tágabb current_user_can_access_congregation(), mert az SECURITY DEFINER törzsben az esperesnek '
+  'olyan tömeges írási jogot adna, amit egyesével nem kapna meg.';
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 2. Jogosultságok rendezése (idempotens, minden szignatúrán)
@@ -548,8 +698,20 @@ UNION ALL SELECT '04. a törzsben ott az aktív-tisztségviselő kapu',
        (SELECT COALESCE(bool_and(pg_get_functiondef(p.oid) LIKE '%current_user_is_active_staff%'), false)
           FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
          WHERE n.nspname = 'public' AND p.proname = 'import_registry_batch')::text, 'true'
-UNION ALL SELECT '05. a törzsben ott a hatókör-kapu',
-       (SELECT COALESCE(bool_and(pg_get_functiondef(p.oid) LIKE '%current_user_can_access_congregation%'), false)
+UNION ALL SELECT '05. a törzsben ott a saját-gyülekezet hatókör-kapu',
+       (SELECT COALESCE(bool_and(pg_get_functiondef(p.oid) LIKE '%current_user_congregation_id%'), false)
+          FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'public' AND p.proname = 'import_registry_batch')::text, 'true'
+-- A TÁGABB segédnek NEM szabad a törzsben lennie (lásd a fejléc 3. pontját):
+-- az esperesnek olyan tömeges írási jogot adna, amit egyesével nem kapna meg.
+UNION ALL SELECT '05b. a TÁGABB can_access_congregation NINCS a törzsben',
+       (SELECT COALESCE(bool_and(pg_get_functiondef(p.oid) NOT LIKE '%current_user_can_access_congregation%'), false)
+          FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'public' AND p.proname = 'import_registry_batch')::text, 'true'
+-- A jog-kapu NULL-biztos: enélkül egy gyülekezet nélküli hívónál a feltétel
+-- NULL-ra értékelődne, és a kivétel ELMARADNA (fail-open).
+UNION ALL SELECT '05c. a jog-kapu NULL-biztos (COALESCE)',
+       (SELECT COALESCE(bool_and(pg_get_functiondef(p.oid) LIKE '%COALESCE(v_is_master, false)%'), false)
           FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
          WHERE n.nspname = 'public' AND p.proname = 'import_registry_batch')::text, 'true'
 UNION ALL SELECT '06. a szignatúra VÁLTOZATLAN',
@@ -582,12 +744,20 @@ UNION ALL SELECT '10. authenticated HÍVHATJA',
            '(nincs ilyen függvény)'), 'true'
 UNION ALL SELECT '11. current_user_is_active_staff() segéd létezik',
        (to_regprocedure('public.current_user_is_active_staff()') IS NOT NULL)::text, 'true'
-UNION ALL SELECT '12. current_user_can_access_congregation() segéd létezik',
-       (SELECT COUNT(*) > 0 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-         WHERE n.nspname = 'public' AND p.proname = 'current_user_can_access_congregation')::text, 'true'
+UNION ALL SELECT '12. current_user_congregation_id() segéd létezik',
+       (to_regprocedure('public.current_user_congregation_id()') IS NOT NULL)::text, 'true'
+UNION ALL SELECT '12b. current_user_has_global_access() segéd létezik',
+       (to_regprocedure('public.current_user_has_global_access()') IS NOT NULL)::text, 'true'
+UNION ALL SELECT '12c. az RPC hatóköre EGYEZIK a nyolc tábla RLS-ével (8 policy)',
+       (SELECT COUNT(*)::text FROM pg_policies
+         WHERE schemaname = 'public'
+           AND tablename IN ('keresztseg','konfirmalas','hazassag','temetes',
+                             'bekoltozott','elkoltozott','attert','kitert')
+           AND qual LIKE '%current_user_congregation_id%'
+           AND qual LIKE '%current_user_has_global_access%'), '8'
 UNION ALL SELECT '13. merge_spouses_bulk — továbbra is ELTŰNT (rokon hibaosztály)',
        (to_regprocedure('public.merge_spouses_bulk()') IS NULL)::text, 'true';
--- Várt: 13 sor, MINDEGYIKNÉL eredmeny = vart.
+-- Várt: 17 sor, MINDEGYIKNÉL eredmeny = vart.
 
 -- ─── TÁMADÁS-SZIMULÁCIÓ STUDIÓBÓL ──────────────────────────────────────────
 --
@@ -663,5 +833,55 @@ UNION ALL SELECT '13. merge_spouses_bulk — továbbra is ELTŰNT (rokon hibaosz
 --      Lelkészként hívd az RPC-t egy MÁSIK gyülekezet UUID-jével (a wizard
 --      `targetCongregationId` mezője a kliensről jön, tehát ez preparálható).
 --      VÁRT: ERROR — „Nincs jogosultság a(z) … gyülekezethez."
---      TILOS: sikeres beszúrás. Ha sikerül, a (6) hatókör-segéd túl bőven ad
---      jogot — akkor a `current_user_can_access_congregation()` a hibás.
+--      TILOS: sikeres beszúrás.
+--
+--   9. IDEGEN GYÜLEKEZET, ESPERESI / EGYHÁZMEGYEI ADMIN fiókkal
+--      Ugyanaz, de esperesi fiókkal, a SAJÁT egyházmegyéje egy MÁSIK
+--      gyülekezetének UUID-jével.
+--      VÁRT: ERROR — „Nincs jogosultság a(z) … gyülekezethez."
+--      TILOS: sikeres beszúrás. Ha SIKERÜL, akkor a törzs (6) ága mégis a
+--      TÁGABB `current_user_can_access_congregation()`-t hívja — nézd meg a
+--      fenti 05b. ellenőrző sort. (Ez a fájl épp ezt a hibát kerüli el:
+--      az esperes egyesével sem tud írni ezekbe a táblákba, tehát tömegesen
+--      sem szabad.)
+--
+-- ════════════════════════════════════════════════════════════════════════════
+-- === VISSZAÁLLÍTÁS =========================================================
+--
+-- Ez a fájl EGYETLEN adatsort sem ír és egyetlen sémaelemet sem dob el: csak
+-- egy függvény-törzset cserél (`CREATE OR REPLACE`) és jogot rendez. Az egész
+-- egy tranzakcióban van, tehát hiba esetén magától visszagördül.
+--
+-- HA MÁR LEFUTOTT, ÉS VISSZA KELL ÁLLNI (pl. mert egy legitim import elbukott):
+--
+--   A) A HELYES visszaállítás: futtasd újra a
+--        migration-docs/sql/2026-04-30e-import-batch-elkoltozott-target.sql
+--      fájlt. Az EREDETI (2026-04-30-i) törzset teszi vissza, változatlan
+--      szignatúrával. A beszúró ágak betűre azonosak, tehát az adat-viselkedés
+--      ugyanaz — CSAK a jog-ellenőrzés megy vissza a régire.
+--
+--   ⛔ FIGYELEM: a régi törzsben BENNE VAN a szerkezetileg halott
+--      `current_user IN (…)` bypass, vagyis a visszaállítással a LYUK IS
+--      VISSZAJÖN. Ezért utána AZONNAL futtasd le ezt a jog-visszavonást is
+--      (ugyanaz, mint a fenti 2. szakasz), hogy legalább az `anon` ne érje el:
+--
+--        DO $vissza$
+--        DECLARE v_sig text;
+--        BEGIN
+--          FOR v_sig IN
+--            SELECT p.oid::regprocedure::text
+--            FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--            WHERE n.nspname = 'public' AND p.proname = 'import_registry_batch'
+--          LOOP
+--            EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon', v_sig);
+--            EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated', v_sig);
+--          END LOOP;
+--        END
+--        $vissza$;
+--        NOTIFY pgrst, 'reload schema';
+--
+--   B) Ha CSAK a (6) hatókör-ág a gond (valakinek jogosan kellene idegen
+--      gyülekezetbe importálnia), akkor NE ezt a fájlt gördítsd vissza. A
+--      helyes lépés: külön fájlban, tudatosan tágítsd a nyolc anyakönyvi tábla
+--      RLS-ét — és utána ez a törzs magától követi, mert ugyanazt a két segédet
+--      hívja, amit a policy-k.

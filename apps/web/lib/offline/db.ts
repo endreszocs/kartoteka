@@ -497,6 +497,21 @@ export interface SyncMetaRecord {
   /** Dirty flag — ha valamely ebbe a táblába írás történt,
    *  Excel flush-nak újra kell íródnia */
   dirty: boolean
+  /**
+   * A `congregations.restore_epoch` utoljára ISMERT értéke (2026-08-11).
+   *
+   * ⚠️ CSAK a `__restore_epoch` pszeudo-soron van kitöltve (lásd
+   *    `lib/offline/restore-epoch.ts`). Nem indexelt mező, ezért NEM igényel
+   *    Dexie verzió-emelést.
+   *
+   *    MIÉRT KELL: a visszaállított sorok a RÉGI `updated_at`-tal jönnek vissza,
+   *    ezért a delta-pull (`updated_at > lastPullAt`) SOHA nem venné észre őket,
+   *    a törölt sorok pedig ottmaradnának a Dexie-ben — és a push visszaírná a
+   *    helyi, újabb verziókat. Vagyis a laptop NÉMÁN visszacsinálná a
+   *    visszaállítást. Az epoch változása = teljes újratöltés + a helyi
+   *    mutációs sor KARANTÉNBA (nem eldobás).
+   */
+  restoreEpoch?: number | null
 }
 
 export interface MutationEnvelope {

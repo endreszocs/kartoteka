@@ -19,6 +19,14 @@
 
 import type { createClient } from '@/lib/supabase/server'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+// 2026-08-11 (6. kör): a hatókör-feloldás KANONIKUS forrása. Lásd a lenti
+// `getFinanceScopeContext` kommentjét — ez a fájl eddig SAJÁT, szűkebb
+// feloldást használt, és ez néma adatvesztéshez vezetett.
+import {
+  canWriteDioceseScope,
+  describeDioceseWriteBlock,
+  resolveDioceseReadScopeIds,
+} from '@/lib/auth/level-scope'
 
 export type FinanceScope = 'congregation' | 'diocese'
 
@@ -34,6 +42,22 @@ export interface FinanceScopeContext {
   scopeName: string | null
   /** A szamadasicel.szint értéke, ami scope-ban releváns */
   szamadasicelSzint: 'gyulekezet' | 'egyhazmegye'
+  /**
+   * 2026-08-11 (számvevő-kör): CSAK OLVASHATÓ-e ez a pénzügyi kontextus?
+   *
+   * `true` az egyházmegyei számvevőnél (ellenőri szerep): a megye könyveit
+   * megnézheti, de nem rögzíthet, nem javíthat, nem véglegesíthet. Az adatbázis
+   * is ezt kényszeríti (RESTRICTIVE írás-tiltó policy a `diocese_*` táblákon,
+   * lásd migration-docs/sql/2026-08-11-szamvevo-megyei-hozzaferes.sql 1/C) —
+   * ez a mező azért van, hogy a FELÜLET ELŐRE letilthassa a mentő gombokat,
+   * és ne egy néma, 0 sort érintő mentés után derüljön ki a dolog.
+   */
+  readOnly: boolean
+  /**
+   * Beszédes magyar magyarázat, ha `readOnly === true` — tooltipre és
+   * `{ error }`-ra egyaránt. `null`, ha a hívó írhat.
+   */
+  readOnlyReason: string | null
 }
 
 export interface FinanceScopeTableMap {
@@ -123,51 +147,100 @@ export async function getFinanceScopeContext(): Promise<
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
 
-  const active = access.activeProfileRole
-
   // ── 1) Diocese scope ellenőrzés ──
-  if (active?.scope === 'diocese' && active.scopeId) {
-    // Jogosultság ellenőrzés: saját diocese esperes/egyházmegyei admin, kerületi
-    // admin, vagy globális admin
-    const allowed =
-      access.admin ||
-      access.master ||
-      access.egyhazkeruletiAdmin ||
-      (access.esperes && access.profile?.diocese_id === active.scopeId) ||
-      access.profileRoles.some(
-        (r) =>
-          r.active &&
-          r.approval_status === 'approved' &&
-          r.scope === 'diocese' &&
-          r.scope_id === active.scopeId,
-      )
+  //
+  // ⚠️ 2026-08-11 (6. kör) — NÉMA ADATVESZTÉS JAVÍTÁSA.
+  // Eddig a feltétel `active?.scope === 'diocese' && active.scopeId` volt, azaz
+  // KIZÁRÓLAG az aktív profil-szerepet nézte: nem pásztázta a `profile_roles`
+  // sorokat, és nem ismerte a `profiles.diocese_id` skalár tartalékot.
+  //
+  // KÖVETKEZMÉNY: egy „örökölt" esperes, akinek nincs `profile_roles` sora
+  // (a `resolveActiveProfileRole` ilyenkor `null`-t ad), NÉMÁN a GYÜLEKEZETI
+  // ágra esett — és miközben a megyei felületen állt, a SAJÁT gyülekezete
+  // könyveibe írt. Nem hibaüzenet, nem üres lista: rossz helyre könyvelt pénz.
+  //
+  // ⛔ 2026-08-11 (ugyanaznap, ELLENŐRZÉS UTÁNI JAVÍTÁS) — MIÉRT NEM A
+  //    SZEREP-FÜGGETLEN `resolveDioceseScopeId()` A DISZKRIMINÁTOR:
+  //    az a feloldó a skalár tartalékát SZEREP-SZŰRŐ NÉLKÜL tolja be
+  //    (`level-scope.ts`, `resolveDioceseScopeIds` — `if (!hasRoleScope)
+  //    push(profile.diocese_id)`). Márpedig a `profiles.diocese_id` egy
+  //    KÖZÖNSÉGES GYÜLEKEZETI LELKÉSZNÉL IS KI VAN TÖLTVE: a hozzáférés-kérés
+  //    kötelezően bekéri a megyét, az `admin_activate_user` COALESCE-szal
+  //    beírja, a 2026-08-10-gyulekezet-megye-kotes-javitas.sql B5 blokkja
+  //    pedig MINDEN gyülekezeti tagnak visszatölti a gyülekezet megyéjéből.
+  //    Vagyis a lelkésznél `dioceseId` NEM null → belépett volna a megyei
+  //    ágba → az `allowed` mind az öt tagja hamis → a függvény hibával tér
+  //    vissza, és a 2) gyülekezeti fallback SOHA nem fut le. Ez a TELJES
+  //    Pénzügy modult elvitte volna minden lelkésznél (initFinance = null,
+  //    minden mentés „Nincs bejelentkezett felhasználó.").
+  //
+  // ⚠️ ÉS A PROFILVÁLTÓ SEM SÉRÜLHET: ha a felhasználónak VAN `profile_roles`
+  //    sora, akkor az `activeProfileRole` SOHA nem null (a `resolveActiveProfileRole`
+  //    üres tömbnél ad csak `null`-t, egyébként a cookie-val választott vagy az
+  //    elsődleges sort). Egy esperes tipikusan a SAJÁT gyülekezetének is lelkésze:
+  //    ha épp gyülekezeti profilban áll, a Pénzügynek a GYÜLEKEZET könyveit kell
+  //    mutatnia. Ezért a szerep-szűrt feloldó teljes UNIÓJÁT csak akkor
+  //    használjuk, ha egyáltalán nincs profilváltó-sor.
+  //
+  // A SZABÁLY tehát:
+  //   · van aktív profil-szerep → AZ dönt (megyei hatókör csak akkor, ha az
+  //     aktív szerep megyei ÉS megyei OLVASÓ szerep — esperes / megyei admin /
+  //     számvevő; egy `custom` megyei szerep NEM, mert az adatbázis sem ismeri el);
+  //   · nincs egyetlen `profile_roles` sor sem („örökölt" felhasználó) → a
+  //     szerep-szűrt skalár tartalék dönt: az örökölt esperes megkapja a
+  //     megyéjét, a `lelkesz` SOHA.
+  const dioceseReadIds = resolveDioceseReadScopeIds(access)
+  const active = access.activeProfileRole
+  const dioceseId: string | null = active
+    ? active.scope === 'diocese' && active.scopeId && dioceseReadIds.includes(active.scopeId)
+      ? active.scopeId
+      : null
+    : (dioceseReadIds[0] ?? null)
 
-    if (!allowed) return { error: 'Nincs jogosultság az egyházmegyei pénzügyhez.' }
+  if (dioceseId) {
+    // Öv-és-nadrágtartó: a fenti ág konstrukció szerint már csak feloldott,
+    // szerep-szűrt megyét ad — de ha valaki egyszer átírja, itt fail-closed
+    // megállunk. (Az admin/master/kerületi admin ág SZÁNDÉKOSAN nincs itt: ők
+    // a saját megyei szerepükön keresztül jönnek, különben egy rendszergazda
+    // egy tetszőleges megye könyveibe könyvelne a Pénzügy felületről.)
+    if (!dioceseReadIds.includes(dioceseId)) {
+      return { error: 'Nincs jogosultság az egyházmegyei pénzügyhez.' }
+    }
 
     // Név lekérdezés (opcionális, csak logra és UI-ra kell).
     // 2026-08-11 (K5-#32 testvér-ellenőrzés): ez az EGYETLEN hiba-elnyelés a
     // fájlban, és tudatosan az marad — a `scopeName` KIZÁRÓLAG felirat, nem
-    // dönt jogosultságról vagy zárásról. A jogosultsági ág fentebb (`allowed`)
-    // eleve fail-closed: elnyelt hiba nem adhat hozzáférést.
+    // dönt jogosultságról vagy zárásról. A jogosultsági ág fentebb
+    // (`dioceseReadIds`) eleve fail-closed: elnyelt hiba nem adhat hozzáférést.
     let scopeName: string | null = null
     try {
       const { data } = await access.supabase
         .from('dioceses')
         .select('name')
-        .eq('id', active.scopeId)
+        .eq('id', dioceseId)
         .maybeSingle()
       scopeName = (data as { name?: string } | null)?.name ?? null
     } catch {
       scopeName = null
     }
 
+    // 2026-08-11 (számvevő-kör): az egyházmegyei SZÁMVEVŐ ellenőri szerep —
+    // a megye könyveit OLVASHATJA, de nem írhatja. Ezt az adatbázis is
+    // kikényszeríti (RESTRICTIVE írás-tiltó a `diocese_*` táblákon); itt azért
+    // jelezzük, hogy a felület ELŐRE letilthassa a mentő gombokat.
+    // A `dioceseId` átadása azért fontos, mert aki EGYSZERRE esperes az egyik
+    // és számvevő a másik megyében, az CSAK az elsőben írhat.
+    const canWrite = canWriteDioceseScope(access, dioceseId)
+
     return {
       supabase: access.supabase,
       userId: access.user.id,
       scope: 'diocese',
-      scopeId: active.scopeId,
+      scopeId: dioceseId,
       scopeName,
       szamadasicelSzint: 'egyhazmegye',
+      readOnly: !canWrite,
+      readOnlyReason: canWrite ? null : describeDioceseWriteBlock(access, dioceseId),
     }
   }
 
@@ -180,10 +253,49 @@ export async function getFinanceScopeContext(): Promise<
       scopeId: access.effectiveCongregationId,
       scopeName: access.congregationName,
       szamadasicelSzint: 'gyulekezet',
+      // A gyülekezeti szint írás/olvasás-korlátait a meglévő szerepkör-rétegek
+      // (konyvelo m2m, profile_congregations jóváhagyás) kezelik — ez a mező
+      // KIZÁRÓLAG a megyei ellenőri esetről szól.
+      readOnly: false,
+      readOnlyReason: null,
     }
   }
 
   return { error: 'Nincs aktív gyülekezet vagy egyházmegye a profilban.' }
+}
+
+/**
+ * 2026-08-11 (számvevő-kör, review-fix): ÍRÁSI KAPU a pénzügyi akciókhoz.
+ *
+ * MI VOLT A HIBA: a `FinanceScopeContext.readOnly` / `readOnlyReason` mező
+ * létrejött, de SENKI nem olvasta — sem a `getFinanceScope()` wrapper, sem a
+ * 15+ mutáló szerver akció. Két irányban ütött vissza:
+ *   (1) az SQL LEFUTÁSA ELŐTT a számvevő továbbra is ÍRHATTA a megye könyveit
+ *       (a `diocese_*_all` policy `pr.scope='diocese'` ága szerep-szűrő nélkül
+ *       enged), és a felület ezt se nem tiltotta, se nem jelezte;
+ *   (2) az SQL LEFUTÁSA UTÁN a RESTRICTIVE `_szamvevo_iras_tilos` policy NYERS
+ *       PostgREST-hibát ad („new row violates row-level security policy for
+ *       table \"diocese_befizetes\""), amit az action-ök `Hiba: …`-ként
+ *       továbbadnak. Pont az a néma/érthetetlen hiba, amit ez a mező hivatott
+ *       megelőzni.
+ *
+ * HASZNÁLAT — MINDEN mutáló pénzügyi action ELSŐ lépéseként:
+ *   const blocked = financeWriteBlock(ctx)
+ *   if (blocked) return blocked
+ *
+ * @returns `{ error }` ha a kontextus csak olvasható, különben `null`.
+ */
+export function financeWriteBlock(
+  ctx: FinanceScopeContext,
+): { error: string } | null {
+  if (!ctx.readOnly) return null
+  return {
+    error:
+      ctx.readOnlyReason ??
+      'Ellenőri (számvevői) nézetben vagy: az egyházmegye pénzügyi adatait ' +
+        'megtekintheted, de nem módosíthatod. A rögzítés és a véglegesítés az ' +
+        'esperes vagy az egyházmegyei adminisztrátor feladata.',
+  }
 }
 
 /**

@@ -73,6 +73,7 @@ import {
 } from '@/lib/finance/bank-balance'
 import { fetchBnrRates, type BnrFetchResult } from '@/lib/finance/bnr-exchange-rate'
 import {
+  financeWriteBlock,
   getFinanceScopeContext,
   isYearFinalized,
   tablesFor,
@@ -133,6 +134,25 @@ async function getFinanceScope(): Promise<
   if ('error' in ctx) return null
   return { ...ctx, T: tablesFor(ctx.scope) }
 }
+
+/**
+ * 2026-08-11 (számvevő-kör, review-fix): ÍRÁSI KAPU — MINDEN mutáló pénzügyi
+ * action-ben a `getFinanceScope()` után KÖTELEZŐ:
+ *
+ *   const scope = await getFinanceScope()
+ *   if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+ *   const writeBlock = financeWriteBlock(scope)      // ← EZ
+ *   if (writeBlock) return writeBlock
+ *
+ * MIÉRT NEM A KÖZÖS `getFinanceScope()`-BA TETTÜK: a wrappert TISZTÁN OLVASÓ
+ * action-ök is hívják (`initFinance`, `getNextReceiptNumbers`,
+ * `getLastRecordedDate`) — azokat az egyházmegyei számvevőnek JOGOSAN kell
+ * tudnia futtatni. Ha a kapu a wrapperben lenne, az ellenőr megint üres
+ * képernyőt kapna: pontosan az a tünet, amit ez a kör megszüntet.
+ *
+ * A kapu SZÁNDÉKOSAN a szerver oldalon is ott van, nem csak a felületen:
+ * a letiltott gomb kényelem, a szerver akció a valódi zár (fail-closed).
+ */
 
 /**
  * 2026-07-10 (#4/3): véglegesített évbe ÚJ tétel sem rögzíthető — eddig csak a
@@ -519,6 +539,13 @@ export async function getYearFinanceRecords(year: number): Promise<{
   carryoverCash?: number
   carryoverBank?: number
   bankNyitoMap?: Record<number, number>
+  /** 2026-08-11 (6. kör, P1 #7): sikerült-e a nyitók feloldása. `false` esetén
+   *  a nyitó a naiv fallbackből jön — a RÉSZSZÁMADÁS ilyenkor NEM nyomtatható
+   *  (minden száma a nyitóra épül). Eddig ez a hiba NÉMÁN esett vissza. */
+  nyitoOk?: boolean
+  /** true → a nyitó LEVEZETETT, rögzített bázis-sor nélkül (0-ról indult a
+   *  lánc). Nem hiba, de lábjegyzetet érdemel a nyomtatványon. */
+  nyitoBizonytalan?: boolean
   error?: string
 }> {
   const access = await getEffectiveAccessContext()
@@ -594,6 +621,23 @@ export async function getYearFinanceRecords(year: number): Promise<{
     for (const [id, r] of Object.entries(resolved.bank)) resolvedBankMap[Number(id)] = r.value
   }
 
+  // 2026-08-11 (6. kör, P1 #7): a feloldás állapotát HANGOSSÁ tesszük. Eddig a
+  // `resolved.success === false` némán a naiv (előző évi sor + forgalom)
+  // fallbackre esett vissza, és a hívó nem tudott róla. A Részszámadás MINDEN
+  // száma a nyitóra épül, ezért ott ez fail-closed kapu lesz.
+  // A `baseYear === null` azt jelenti, hogy nem volt rögzített bázis-sor a
+  // láncablakban → a nyitó 0-ról vezetve, tehát bizonytalan.
+  const nyitoBizonytalan =
+    resolved.success &&
+    (resolved.cash.baseYear === null ||
+      Object.values(resolved.bank).some((b) => b.baseYear === null))
+  if (!resolved.success) {
+    console.error(
+      `[getYearFinanceRecords] a(z) ${year}. évi nyitók feloldása NEM sikerült — a nyitó a naiv fallbackből jön:`,
+      resolved.error,
+    )
+  }
+
   return {
     income: (bevRes.data || []) as BefitetesRow[],
     expense: (kiaRes.data || []) as KiadasRow[],
@@ -608,6 +652,8 @@ export async function getYearFinanceRecords(year: number): Promise<{
         ? recBankCur
         : recBankPrev + carryoverBankNet,
     bankNyitoMap: resolvedBankMap,
+    nyitoOk: resolved.success,
+    nyitoBizonytalan,
   }
 }
 
@@ -1895,6 +1941,10 @@ export async function saveIncome(data: IncomeInput) {
 
   const scope = await getFinanceScope()
   if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU — ellenőri (számvevői) nézetben a
+  // művelet beszédes magyar üzenettel áll meg, nem nyers RLS-hibával.
+  const writeBlock = financeWriteBlock(scope)
+  if (writeBlock) return writeBlock
 
   const d = parsed.data
   const {
@@ -1937,6 +1987,10 @@ export async function saveExpense(data: ExpenseInput) {
 
   const scope = await getFinanceScope()
   if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU — ellenőri (számvevői) nézetben a
+  // művelet beszédes magyar üzenettel áll meg, nem nyers RLS-hibával.
+  const writeBlock = financeWriteBlock(scope)
+  if (writeBlock) return writeBlock
 
   const d = parsed.data
   const {
@@ -1984,6 +2038,10 @@ export async function saveIncomeBatch(rows: IncomeBatchRowInput[]) {
 
   const scope = await getFinanceScope()
   if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU — ellenőri (számvevői) nézetben a
+  // művelet beszédes magyar üzenettel áll meg, nem nyers RLS-hibával.
+  const writeBlock = financeWriteBlock(scope)
+  if (writeBlock) return writeBlock
 
   const {
     data: { user },
@@ -2028,6 +2086,10 @@ export async function saveExpenseBatch(rows: ExpenseBatchRowInput[]) {
 
   const scope = await getFinanceScope()
   if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU — ellenőri (számvevői) nézetben a
+  // művelet beszédes magyar üzenettel áll meg, nem nyers RLS-hibával.
+  const writeBlock = financeWriteBlock(scope)
+  if (writeBlock) return writeBlock
 
   const {
     data: { user },
@@ -2125,6 +2187,10 @@ export async function saveExpenseBatch(rows: ExpenseBatchRowInput[]) {
 export async function deleteTransaction(type: 'befizetes' | 'kiadas', id: number) {
   const scope = await getFinanceScope()
   if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU — ellenőri (számvevői) nézetben a
+  // művelet beszédes magyar üzenettel áll meg, nem nyers RLS-hibával.
+  const writeBlock = financeWriteBlock(scope)
+  if (writeBlock) return writeBlock
   const { supabase, T } = scope
 
   // Diocese path — egyszerűbb (nincs belsomozgas_xkey pairing MVP-ben)
@@ -2901,19 +2967,46 @@ type YearlyFinanceFlagUpdates = Partial<
   accounting_unlock_reason?: string | null
 }
 
-async function updateYearlyFinanceFlags(year: number, updates: YearlyFinanceFlagUpdates) {
+/**
+ * 2026-08-11 (6. kör, P0 néma no-op): az évi zár-/kérelem-zászlók írása.
+ *
+ * MI VOLT A HIBA: az UPDATE `.select()` nélkül futott, a PostgREST pedig 0
+ * érintett sornál sem ad hibát. Ha az évre nem volt `bealitas` sor (vagy az RLS
+ * elnyelte az írást), a `finalizeBudget` „siker"-t adott — a BudgetTab erre
+ * ZÖLD ÚTNAK vette, és beküldte az egyházmegyének a költségvetést egy olyan
+ * évre, amelyik közben NYITVA maradt. Ugyanez a `requestBudgetUnlock` /
+ * `requestAccountingUnlock` esetében: a lelkész „Elküldve!" visszajelzést kapott,
+ * az esperes viszont soha nem látta a kérelmet — javítási zsákutca fejlesztő
+ * nélkül. Mostantól a 0 soros írás HANGOS, magyar hibaüzenet.
+ *
+ * @param muvelet a hibaüzenetbe kerülő, lelkésznek is érthető művelet-név.
+ */
+async function updateYearlyFinanceFlags(
+  year: number,
+  updates: YearlyFinanceFlagUpdates,
+  muvelet = 'A művelet',
+) {
   const { supabase, congregationId } = await getProfileCongregation()
   // 2026-08-11 (P2 #29): ékezetesítve — a fájl 20+ másik pontján már helyesen
   // „Nincs bejelentkezett felhasználó." szerepel, ez az egy sor lógott ki.
   if (!congregationId) return { error: 'Nincs bejelentkezett felhasználó.' }
 
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from('bealitas')
     .update(updates)
     .eq('id', String(year))
     .eq('congregation_id', congregationId)
+    .select('id')
 
   if (error) return { error: `Hiba: ${error.message}` }
+  if (!updated || updated.length === 0) {
+    return {
+      error:
+        `${muvelet} nem történt meg: a ${year}. évhez nincs mentett évi pénzügyi ` +
+        'beállítás, vagy nincs írási jogosultságod hozzá. Nyisd meg a Pénzügy oldalon ' +
+        'ezt az évet, majd próbáld újra. Ha újra ezt írja, jelezd a rendszergazdának.',
+    }
+  }
   revalidatePath('/penzugy')
   return { success: true }
 }
@@ -2921,6 +3014,10 @@ async function updateYearlyFinanceFlags(year: number, updates: YearlyFinanceFlag
 export async function finalizeBudget(year: number) {
   const scope = await getFinanceScope()
   if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU — ellenőri (számvevői) nézetben a
+  // művelet beszédes magyar üzenettel áll meg, nem nyers RLS-hibával.
+  const writeBlock = financeWriteBlock(scope)
+  if (writeBlock) return writeBlock
 
   if (scope.scope === 'diocese') {
     // Diocese path: upsert diocese_bealitas
@@ -2941,21 +3038,29 @@ export async function finalizeBudget(year: number) {
     return { success: true }
   }
 
-  return updateYearlyFinanceFlags(year, { budget_finalized: true })
+  return updateYearlyFinanceFlags(year, { budget_finalized: true }, 'A költségvetés véglegesítése')
 }
 
 export async function requestBudgetUnlock(year: number, reason?: string | null) {
   const scope = await getFinanceScope()
   if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU — ellenőri (számvevői) nézetben a
+  // művelet beszédes magyar üzenettel áll meg, nem nyers RLS-hibával.
+  const writeBlock = financeWriteBlock(scope)
+  if (writeBlock) return writeBlock
 
   if (scope.scope === 'diocese') {
     return { error: 'A költségvetés feloldása egyházmegyei szinten jelenleg nem támogatott — kérlek egyeztess a kerülettel.' }
   }
 
-  return updateYearlyFinanceFlags(year, {
-    unlock_requested: true,
-    unlock_reason: reason?.trim() || null,
-  })
+  return updateYearlyFinanceFlags(
+    year,
+    {
+      unlock_requested: true,
+      unlock_reason: reason?.trim() || null,
+    },
+    'A költségvetés javítási kérelmének elküldése',
+  )
 }
 
 export async function finalizeAccounting(
@@ -2966,16 +3071,31 @@ export async function finalizeAccounting(
     alairok?: string[] | null
   },
   /**
-   * 2026-07-10 (#4/2): a wizard/AccountingTab KANONIKUS (kód-kulcsú, leaf-szűrt,
-   * belső mozgás nélküli) snapshotja — ugyanaz, ami a submitDocument-tel az
-   * egyházmegyének megy. A lokális szamadas_zaro_adatok-ba is eltároljuk
-   * (`kanonikus` kulcs alatt), így a helyi és a beküldött adat bit-azonos;
-   * a legacy INT-kulcsú income/expense mezők a régi fogyasztók miatt maradnak.
+   * A wizard/AccountingTab KANONIKUS (kód-kulcsú, a hivatalos ív végpont-
+   * kódjaira szűrt, belső mozgás és stornó nélküli) pillanatképe.
+   *
+   * 2026-08-11 (6. kör, P0 — KÉT PILLANATKÉP): ha ez meg van adva (gyülekezeti
+   * véglegesítés), akkor EZ — és KIZÁRÓLAG ez — a hivatalos záró-adat. Ugyanaz
+   * az objektum kerül a `bealitas.szamadas_zaro_adatok` mezőbe, amit a hívó a
+   * visszatérési érték `hivatalosPillanatkep` mezőjében visszakap és beküld az
+   * egyházmegyének — nincs két, egymással „szinkronban tartott" számítás.
    */
   canonicalSnapshot?: Record<string, unknown>,
-) {
+): Promise<{
+  success?: boolean
+  error?: string
+  /**
+   * A TÉNYLEGESEN eltárolt hivatalos pillanatkép (gyülekezeti ág). A hívónak
+   * EZT kell beküldenie — így a tárolt és a beküldött irat ugyanaz az objektum.
+   */
+  hivatalosPillanatkep?: Record<string, unknown>
+}> {
   const scope = await getFinanceScope()
   if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU — ellenőri (számvevői) nézetben a
+  // művelet beszédes magyar üzenettel áll meg, nem nyers RLS-hibával.
+  const writeBlock = financeWriteBlock(scope)
+  if (writeBlock) return writeBlock
   const { supabase, T } = scope
 
   // Aggregáljuk a tényleges adatokat
@@ -3030,7 +3150,13 @@ export async function finalizeAccounting(
   const incomeData = incomeRes.data
   const expenseData = expenseRes.data
 
-  const snapshot: Record<string, unknown> = {
+  // 2026-08-11 (6. kör, P0): SZÁNDÉKOSAN átnevezve `snapshot` → `szerverOsszesito`.
+  // Ez NEM a hivatalos záró-adat: nyers junction-FK-id-kkal kulcsolt, a hivatalos
+  // ív végpont-kódjaira NEM szűrt szerveroldali összesítés. Gyülekezeti ágon
+  // mostantól csak KERESZTELLENŐRZÉS (`szerverEllenorzes`), a hivatalos szám a
+  // kanonikus pillanatkép. Egyházmegyei ágon (ahol nincs kanonikus pillanatkép)
+  // továbbra is ez MAGA a hivatalos irat — ezért marad a hangos hiba fentebb.
+  const szerverOsszesito: Record<string, unknown> = {
     income: {},
     expense: {},
     totalIncome: 0,
@@ -3051,17 +3177,17 @@ export async function finalizeAccounting(
   for (const r of (incomeData || []) as Array<Record<string, unknown>>) {
     const key = String(r[categoryColBef] || 0)
     const amt = Number((r.osszeg_ron ?? r.osszeg) as number | string | null) || 0
-    ;(snapshot.income as Record<string, number>)[key] = ((snapshot.income as Record<string, number>)[key] || 0) + amt
+    ;(szerverOsszesito.income as Record<string, number>)[key] = ((szerverOsszesito.income as Record<string, number>)[key] || 0) + amt
     totalInc += amt
   }
   for (const r of (expenseData || []) as Array<Record<string, unknown>>) {
     const key = String(r[categoryColKia] || 0)
     const amt = Number((r.osszeg_ron ?? r.osszeg) as number | string | null) || 0
-    ;(snapshot.expense as Record<string, number>)[key] = ((snapshot.expense as Record<string, number>)[key] || 0) + amt
+    ;(szerverOsszesito.expense as Record<string, number>)[key] = ((szerverOsszesito.expense as Record<string, number>)[key] || 0) + amt
     totalExp += amt
   }
-  snapshot.totalIncome = totalInc
-  snapshot.totalExpense = totalExp
+  szerverOsszesito.totalIncome = totalInc
+  szerverOsszesito.totalExpense = totalExp
 
   // Scope-aware finalize
   if (scope.scope === 'diocese') {
@@ -3089,7 +3215,9 @@ export async function finalizeAccounting(
           diocese_id: scope.scopeId,
           year,
           status: 'finalized',
-          snapshot_data: snapshot,
+          // Egyházmegyei ágon a wizard NEM ad kanonikus pillanatképet, ezért itt
+          // a szerveroldali összesítés MAGA a hivatalos irat (változatlan viselkedés).
+          snapshot_data: szerverOsszesito,
           submitted_at: nowIso,
           submitted_by: scope.userId,
           finalized_at: nowIso,
@@ -3101,16 +3229,74 @@ export async function finalizeAccounting(
 
     revalidatePath('/penzugy')
     revalidatePath('/dashboard-egyhazmegye')
-    return { success: true }
+    // Itt is a TÉNYLEGESEN eltárolt objektumot adjuk vissza, hogy a szerződés
+    // egységes legyen: „amit ez a függvény visszaad, azt írta ki".
+    return { success: true, hivatalosPillanatkep: szerverOsszesito }
   }
 
-  // Congregation path (eredeti logika)
-  // 2026-07-10 (#4/2): a kanonikus (beküldött) snapshot is bekerül a lokális
-  // záró-adatokba — a legacy INT-kulcsú mezők mellett, kompatibilisen.
-  const storedSnapshot: Record<string, unknown> = canonicalSnapshot
-    ? { ...snapshot, kanonikus: canonicalSnapshot }
-    : snapshot
-  const { error } = await supabase
+  // ── Gyülekezeti ág ────────────────────────────────────────────────────────
+  //
+  // 2026-08-11 (6. kör, P0 — „a véglegesítéskor két különböző pillanatkép készül,
+  // és nem egyeznek"). TULAJDONOSI DÖNTÉS: „javítsd".
+  //
+  // MI VOLT A HIBA: a véglegesítés KÉT, egymástól független záró-adatot gyártott
+  // ugyanarra az évre.
+  //   (a) a fenti `szerverOsszesito`: nyers junction-FK-id kulcsokkal, a hivatalos
+  //       ív végpont-kódjaira NEM szűrve — tehát az íven kívülre könyvelt pénzt és
+  //       a nem-levél/kategória nélküli tételeket IS beleszámolva. Ez ment a
+  //       `bealitas.szamadas_zaro_adatok` mezőbe (`totalIncome`/`totalExpense`),
+  //   (b) a wizard kanonikus pillanatképe: kód-kulcsú, a hivatalos ív végpont-
+  //       kódjaira szűrve. Ez ment BE az egyházmegyének.
+  // A kettő minden olyan gyülekezetnél SZÉTHÚZOTT, ahol volt íven kívüli tétel —
+  // és mivel a Lelkészi jelentés VII.6/VII.7 rubrikája az (a)-ból olvas, a lelkész
+  // ALÁÍRT jelentése MÁS bevétel-/kiadás-végösszeget mutatott, mint az ugyanarra az
+  // évre BEKÜLDÖTT Számadás. Két hivatalos nyomtatvány, két különböző szám.
+  //
+  // MI A JAVÍTÁS: nem „szinkronban tartjuk" a kettőt (az egy éven belül újra
+  // széthúzna), hanem EGY forrás marad. Ha van kanonikus pillanatkép, AZ a
+  // hivatalos záró-adat; a hívó pontosan ezt az objektumot kapja vissza és küldi
+  // be — a tárolt és a beküldött irat így nem eltérhet, hanem UGYANAZ.
+  // A szerveroldali összesítés nem vész el: KERESZTELLENŐRZÉSKÉNT kerül a
+  // pillanatképbe (`szerverEllenorzes`), így utólag is látszik, mennyi pénz esett
+  // a hivatalos íven kívülre a zárás pillanatában.
+  let storedSnapshot: Record<string, unknown> = szerverOsszesito
+  if (canonicalSnapshot) {
+    // `withCanonicalAccountingKeys` idempotens: ha a hívó már normalizált
+    // objektumot ad (finalizeAndSubmitAccounting), ez érintetlenül hagyja.
+    const hivatalos = withCanonicalAccountingKeys(canonicalSnapshot)
+    const kerekit = (n: number) => Math.round(n * 100) / 100
+    const szam = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0)
+    storedSnapshot = {
+      ...hivatalos,
+      generatedAt: szerverOsszesito.generatedAt,
+      // A pillanatkép alakjának verziója. 2 = a felső szint MAGA a hivatalos
+      // (kanonikus) adat. A régi, 1-es alakban a felső szint a nyers
+      // szerver-összesítés volt, a hivatalos pedig a `kanonikus` alobjektum —
+      // az olvasóknak MINDKETTŐT ismerniük kell (lásd lelkeszi-jelentes-actions.ts).
+      alakVerzio: 2,
+      szerverEllenorzes: {
+        nyersBevetel: kerekit(totalInc),
+        nyersKiadas: kerekit(totalExp),
+        // Pozitív érték = ennyi pénz esett a hivatalos íven KÍVÜLRE (ugyanaz,
+        // amire az AccountingTab „nem fér rá az ívre" figyelmeztetése hívja fel
+        // a lelkész figyelmét MÉG a véglegesítés előtt).
+        ivenKivuliBevetel: kerekit(totalInc - szam(hivatalos.totalIncome)),
+        ivenKivuliKiadas: kerekit(totalExp - szam(hivatalos.totalExpense)),
+        kulcs: 'nyers junction-FK-id, ív-szűrés nélkül — NEM hivatalos összeg',
+      },
+    }
+  }
+
+  // 2026-08-11 (6. kör, P0 néma no-op): a zárás UPDATE-je eddig `.select()` NÉLKÜL
+  // futott. A PostgREST 0 érintett sornál NEM ad hibát — ha az évre nincs `bealitas`
+  // sor (desktopról indított zárás, vagy a lelkész még sosem nyitotta meg az évet a
+  // Pénzügy oldalon), vagy ha az RLS elnyeli az írást, ez a hívás `success: true`-val
+  // tért vissza. A `finalizeAndSubmitAccounting` ilyenkor VIDÁMAN TOVÁBBMENT a
+  // beküldésre: az egyházmegye megkapta a számadást, a gyülekezeti év viszont NYITVA
+  // maradt (és a `szamadas_zaro_adatok` sem íródott ki) — pontosan az a
+  // „beküldött-de-nyitott, némán elévülő snapshot" állapot, amit a zár-előszőr
+  // sorrend meg akart szüntetni. Mostantól a 0 soros zárás HANGOS hiba.
+  const { data: finalizedRows, error } = await supabase
     .from('bealitas')
     .update({
       accounting_finalized: true,
@@ -3120,10 +3306,85 @@ export async function finalizeAccounting(
     })
     .eq('id', String(year))
     .eq('congregation_id', scope.scopeId)
+    .select('id')
 
   if (error) return { error: `Hiba: ${error.message}` }
+  if (!finalizedRows || finalizedRows.length === 0) {
+    return {
+      error:
+        `A ${year}. évi számadás lezárása nem történt meg: nincs mentett évi pénzügyi ` +
+        'beállítás erre az évre, vagy nincs írási jogosultságod hozzá. Nyisd meg a Pénzügy ' +
+        'oldalon ezt az évet (ilyenkor a program létrehozza az évi beállítást), majd próbáld ' +
+        'újra a véglegesítést. Ha újra ezt írja, jelezd a rendszergazdának.',
+    }
+  }
   revalidatePath('/penzugy')
-  return { success: true }
+  // 2026-08-11 (6. kör, P0): a hívó a TÉNYLEGESEN eltárolt objektumot kapja vissza,
+  // és pontosan azt küldi be — így a `bealitas.szamadas_zaro_adatok` és a beküldött
+  // `document_submissions.snapshot_data` nem „egyezik", hanem UGYANAZ.
+  return { success: true, hivatalosPillanatkep: storedSnapshot }
+}
+
+/**
+ * 2026-08-11 (6. kör, P0 — „a beküldött papír 0 lejt mutatott").
+ *
+ * MI VOLT A HIBA: a véglegesítő wizard `actualIncome` / `actualExpense` /
+ * `totalActualIncome` / `totalActualExpense` kulcsokkal építi a pillanatképet, az
+ * egyházmegyei dokumentumközpont (components/dashboard/document-center.tsx)
+ * viszont `income` / `expense` / `totalIncome` / `totalExpense` kulcsokat olvas —
+ * ezek a `finalizeAccounting` BELSŐ (lokálisan tárolt, INT-kulcsú) snapshotjának a
+ * mezőnevei, nem a beküldöttéi. Következmény: MINDEN beküldött Számadásnál az
+ * esperes „Összes bevétel: 0 RON / Összes kiadás: 0 RON / Nincs tétel." képet
+ * látott, és a dokumentumközpontból nyomtatott hivatalos ív is 0 lejjel készült,
+ * miközben a gyülekezetnél aláírt papíron a valós összegek álltak.
+ *
+ * A javítás KÉT irányban zár: a viewer mostantól mindkét alakot elfogadja (a
+ * MÁR beküldött iratok kedvéért), ez a normalizáló pedig a beküldés PILLANATÁBAN
+ * odateszi a kanonikus kulcsokat is — így az új beküldések bármely olvasónak
+ * (mostani és jövőbeli) helyesek. Az eredeti kulcsokat MEGTARTJUK: a pillanatkép
+ * hivatalos irat, nem alakítjuk át, csak kiegészítjük.
+ *
+ * 2026-08-11 (6. kör, „két pillanatkép"): ezt a normalizálót MOSTANTÓL EGYETLEN
+ * helyen hívjuk — a `finalizeAccounting`-ban, a tárolás előtt. A beküldés a tárolt
+ * objektumot veszi át, tehát nem normalizál másodszor. A függvény idempotens
+ * (csak a hiányzó kulcsokat tölti ki), így az ismételt hívás sem árt.
+ */
+function withCanonicalAccountingKeys(
+  snapshot: Record<string, unknown>,
+): Record<string, unknown> {
+  const asMap = (v: unknown): Record<string, number> | null => {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return null
+    const out: Record<string, number> = {}
+    for (const [k, raw] of Object.entries(v as Record<string, unknown>)) {
+      const n = Number(raw)
+      if (Number.isFinite(n)) out[k] = n
+    }
+    return out
+  }
+  const asNum = (v: unknown): number | null => {
+    if (v == null) return null
+    const n = Number(v)
+    return Number.isFinite(n) ? n : null
+  }
+
+  const out = { ...snapshot }
+  if (out.income == null) {
+    const m = asMap(snapshot.actualIncome)
+    if (m) out.income = m
+  }
+  if (out.expense == null) {
+    const m = asMap(snapshot.actualExpense)
+    if (m) out.expense = m
+  }
+  if (out.totalIncome == null) {
+    const n = asNum(snapshot.totalActualIncome)
+    if (n != null) out.totalIncome = n
+  }
+  if (out.totalExpense == null) {
+    const n = asNum(snapshot.totalActualExpense)
+    if (n != null) out.totalExpense = n
+  }
+  return out
 }
 
 /**
@@ -3150,6 +3411,10 @@ export async function finalizeAndSubmitAccounting(
   // korábban másodszor is lekértük).
   const scope = await getFinanceScope()
   if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU — ellenőri (számvevői) nézetben a
+  // művelet beszédes magyar üzenettel áll meg, nem nyers RLS-hibával.
+  const writeBlock = financeWriteBlock(scope)
+  if (writeBlock) return writeBlock
   let previousZaroAdatok: { value: unknown } | null = null
   if (scope.scope === 'congregation') {
     const { data: prevRow, error: prevErr } = await scope.supabase
@@ -3163,18 +3428,37 @@ export async function finalizeAndSubmitAccounting(
     }
   }
 
-  // 1) Zár + lokális (kanonikus) snapshot
+  // 1) Zár + a hivatalos pillanatkép eltárolása
   const fin = await finalizeAccounting(year, meta, snapshot)
   if (fin.error) return { error: `Véglegesítés sikertelen: ${fin.error}` }
 
-  // 2) Beküldés az egyházmegyének
-  const sub = await submitDocument('szamadas', year, snapshot)
+  // 2) Beküldés az egyházmegyének — PONTOSAN azzal az objektummal, amit az
+  //    előbbi lépés a `bealitas.szamadas_zaro_adatok` mezőbe ÍRT.
+  //
+  // 2026-08-11 (6. kör, P0 — „két különböző pillanatkép"): itt korábban egy MÁSIK
+  // hívás állt (`withCanonicalAccountingKeys(snapshot)`), vagyis ugyanabból a
+  // nyersanyagból KÉTSZER, két helyen készült el a hivatalos adat. Amíg két
+  // számítás van, előbb-utóbb széthúznak — ezért most a tárolt objektumot vesszük
+  // át. Ha az bármiért hiányzik, NEM számoljuk újra (az hozná vissza a hibát),
+  // hanem hangosan megbukunk, és a lenti ág visszavonja a zárat.
+  const hivatalosPillanatkep = fin.hivatalosPillanatkep
+  const sub = hivatalosPillanatkep
+    ? await submitDocument('szamadas', year, hivatalosPillanatkep)
+    : {
+        error:
+          'a program nem kapta vissza az imént eltárolt záró-pillanatképet, ' +
+          'ezért a beküldést biztonsági okból nem indítottuk el',
+      }
   if (sub.error) {
     // Rollback: a zár visszavonása, hogy ne maradjon zárt-de-nem-beküldött állapot.
     // 2026-07-10 (S3-#10): a régi szamadas_zaro_adatok-ot IS visszaállítjuk (ha a
     // finalize előtti kiolvasás sikerült — különben csak a flaget, mint eddig).
+    // 2026-08-11 (6. kör): a rollback SIKERÉT is ellenőrizzük. Ha a visszavonás
+    // maga bukik el (RLS/hálózat), a lelkész zárt évvel, beküldés nélkül marad —
+    // és ha erről nem tud, hiába próbálkozik újra: a gomb el is tűnt a felületről.
+    // Ilyenkor kimondjuk, mi a helyzet, és megmondjuk a következő lépést.
     if (scope.scope === 'congregation') {
-      await scope.supabase
+      const { data: rolledBack, error: rollbackErr } = await scope.supabase
         .from('bealitas')
         .update({
           accounting_finalized: false,
@@ -3182,7 +3466,22 @@ export async function finalizeAndSubmitAccounting(
         })
         .eq('id', String(year))
         .eq('congregation_id', scope.scopeId)
+        .select('id')
       revalidatePath('/penzugy')
+      if (rollbackErr || !rolledBack || rolledBack.length === 0) {
+        console.error(
+          '[finalizeAndSubmitAccounting] a beküldés elbukott, ÉS a zár visszavonása sem sikerült — ' +
+            'a gyülekezet zárt évvel, beküldés nélkül maradt.',
+          rollbackErr?.message,
+        )
+        return {
+          error:
+            `A beküldés nem sikerült (${sub.error}), és a véglegesítést sem sikerült ` +
+            'visszavonni, ezért a(z) ' + year + '. év LEZÁRVA maradt, de az egyházmegye ' +
+            'nem kapta meg a számadást. Kérj javítási engedélyt az egyházmegyétől, majd a ' +
+            'feloldás után véglegesíts és küldd be újra. Ha sürgős, jelezd a rendszergazdának.',
+        }
+      }
     }
     return {
       error: `Beküldés sikertelen: ${sub.error} — a véglegesítés visszavonva, próbáld újra.`,
@@ -3195,6 +3494,10 @@ export async function finalizeAndSubmitAccounting(
 export async function requestAccountingUnlock(year: number, reason?: string | null) {
   const scope = await getFinanceScope()
   if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU — ellenőri (számvevői) nézetben a
+  // művelet beszédes magyar üzenettel áll meg, nem nyers RLS-hibával.
+  const writeBlock = financeWriteBlock(scope)
+  if (writeBlock) return writeBlock
 
   if (scope.scope === 'diocese') {
     // Diocese: diocese_bealitas.szamadas_unlock_requested
@@ -3215,10 +3518,14 @@ export async function requestAccountingUnlock(year: number, reason?: string | nu
     return { success: true }
   }
 
-  return updateYearlyFinanceFlags(year, {
-    accounting_unlock_requested: true,
-    accounting_unlock_reason: reason?.trim() || null,
-  })
+  return updateYearlyFinanceFlags(
+    year,
+    {
+      accounting_unlock_requested: true,
+      accounting_unlock_reason: reason?.trim() || null,
+    },
+    'A számadás javítási kérelmének elküldése',
+  )
 }
 
 // ── Költségvetés módosítás véglegesítés ──────────────────────
@@ -3230,7 +3537,10 @@ export async function finalizeBudgetModification(year: number, modNumber: 1 | 2 
   const flagKey = `budget_mod${modNumber}_finalized` as const
   const dateKey = `budget_mod${modNumber}_date` as const
 
-  const { error } = await supabase
+  // 2026-08-11 (6. kör, P0 néma no-op): `.select('id')` + 0 soros detektálás — a
+  // néma „siker" után a BudgetTab beküldte volna az egyházmegyének a módosítást
+  // egy le nem zárt körre. Lásd az `updateYearlyFinanceFlags` docblockját.
+  const { data: updated, error } = await supabase
     .from('bealitas')
     .update({
       [flagKey]: true,
@@ -3238,8 +3548,17 @@ export async function finalizeBudgetModification(year: number, modNumber: 1 | 2 
     })
     .eq('id', String(year))
     .eq('congregation_id', congregationId)
+    .select('id')
 
   if (error) return { error: `Hiba: ${error.message}` }
+  if (!updated || updated.length === 0) {
+    return {
+      error:
+        `A ${modNumber}. költségvetés-módosítás véglegesítése nem történt meg: a ${year}. ` +
+        'évhez nincs mentett évi pénzügyi beállítás, vagy nincs írási jogosultságod hozzá. ' +
+        'Nyisd meg a Pénzügy oldalon ezt az évet, majd próbáld újra.',
+    }
+  }
 
   revalidatePath('/penzugy')
   return { success: true }
@@ -3260,6 +3579,10 @@ export async function saveBudgetRowsAction(
 ): Promise<{ success?: boolean; error?: string }> {
   const scope = await getFinanceScope()
   if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU — ellenőri (számvevői) nézetben a
+  // művelet beszédes magyar üzenettel áll meg, nem nyers RLS-hibával.
+  const writeBlock = financeWriteBlock(scope)
+  if (writeBlock) return writeBlock
   const { supabase, T } = scope
 
   // Zár-ellenőrzés: véglegesített költségvetés nem írható felül (scope-aware flag).
@@ -3291,6 +3614,10 @@ export async function saveBudgetModificationAction(
 ): Promise<{ success?: boolean; error?: string }> {
   const scope = await getFinanceScope()
   if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU — ellenőri (számvevői) nézetben a
+  // művelet beszédes magyar üzenettel áll meg, nem nyers RLS-hibával.
+  const writeBlock = financeWriteBlock(scope)
+  if (writeBlock) return writeBlock
   if (scope.scope !== 'congregation') {
     return { error: 'A költségvetés-módosítás egyházmegyei szinten nem támogatott.' }
   }

@@ -25,12 +25,15 @@ import { Badge, Button } from '@kartoteka/ui'
 // 2026-08-11 (K5-#12): a javítási kérelem indoklása eddig `window.prompt`-tal
 // kérdezett (mobilon egysoros, Firefoxban letiltható → néma elérhetetlenség).
 import { ReasonPromptDialog } from '../form/ReasonPromptDialog'
+import { gyulekezetSzerkesztheti, szamadasIvCellak } from './budget-reporting'
 import { FinanceLoadingState } from './FinanceLoadingState'
-import { formatCurrency, sortCellsHierarchically } from './helpers'
+import { formatCurrency } from './helpers'
 import type { BealitasRow, BudgetCompatRow, SzamadasiCel } from './types'
 
 export type BudgetMode = 'base' | 'mod1' | 'mod2' | 'mod3'
 export type BudgetToastKind = 'success' | 'error' | 'info'
+/** 2026-08-11 (6. kör): a fül hatóköre — az `AccountingScope`-pal azonos szemantika. */
+export type BudgetScope = 'congregation' | 'diocese'
 
 const MODE_LABELS: Record<BudgetMode, string> = {
   base: 'Alap költségvetés',
@@ -43,6 +46,14 @@ export interface BudgetTabProps {
   szamadasiCellek: SzamadasiCel[]
   settings: BealitasRow
   currentYear: number
+
+  /**
+   * 2026-08-11 (6. kör): a fül hatóköre. Alapértelmezés: 'congregation'.
+   * Gyülekezeti hatókörben az egyházmegyei szintű ív-sorok LÁTSZANAK, de
+   * ZÁROLVA (azokat az egyházmegye tölti ki). Egyházmegyei hatókörben a
+   * viselkedés változatlan.
+   */
+  scope?: BudgetScope
 
   /**
    * 2026-07-10 (#2): NYITÓ egyenlegek (előző évi záró) — display-only blokk a
@@ -115,6 +126,7 @@ export function BudgetTab({
   szamadasiCellek,
   settings,
   currentYear,
+  scope = 'congregation',
   carryoverCash,
   carryoverBank,
   loadingLogoSrc,
@@ -162,26 +174,62 @@ export function BudgetTab({
           ? canEditMod2
           : canEditMod3
 
-  const isGyulekezetSzint = (c: SzamadasiCel) => !c.szint || c.szint === 'gyulekezet'
-  // 2026-07-10 (#3/A): a type-guard mellé kód-prefix guard is — a belső mozgás
-  // (100.xx pénztármaradvány + 3xx/4xx átvezetés) SOSEM költségvetési tétel.
-  const bevetelCellek = useMemo(
-    () =>
-      szamadasiCellek
-        .filter(
-          (c) =>
-            c.type === 'B' && c.id.startsWith('1') && !c.id.startsWith('100') && isGyulekezetSzint(c),
-        )
-        .sort((a, b) => sortCellsHierarchically(a.id, b.id)),
-    [szamadasiCellek],
-  )
-  const kiadasCellek = useMemo(
-    () =>
-      szamadasiCellek
-        .filter((c) => c.type === 'K' && c.id.startsWith('2') && isGyulekezetSzint(c))
-        .sort((a, b) => sortCellsHierarchically(a.id, b.id)),
-    [szamadasiCellek],
-  )
+  /**
+   * 2026-07-10 (#3/A) + 2026-08-11 (6. kör, TULAJDONOSI DÖNTÉS): a sor-tagságot
+   * a NYOMTATVÁNY szabálya adja — MINDKÉT hatókörben, `szint` szerinti szűrés
+   * NÉLKÜL. Nincs itteni másolat a szabályból: a `szamadasIvCellak` az a
+   * függvény, amiből a papír sorai (`collectBudgetRows`) is készülnek, a
+   * rendezéssel együtt.
+   *
+   * 1) GYÜLEKEZETI ív: a hivatalos ív TARTALMAZZA az egyházmegyei szintű
+   *    sorokat is (201.15, 201.17, 206.02, 101.07, 105.03, 106.02–106.06 …),
+   *    tehát a képernyőn is ott a helyük — különben a lelkész más sorokat lát,
+   *    mint amit kinyomtat és aláír. A gyülekezet viszont NEM tölti ki őket:
+   *    a beviteli mező zárolva (lásd `zaroltKodok` lentebb), és a rögzítő
+   *    legördülőkből is ki vannak zárva (`isGyulekezetiKonyvelhetoKod`,
+   *    `types.ts`) — az utóbbi VÁLTOZATLAN.
+   *
+   * 2) EGYHÁZMEGYEI ív (2026-08-11, MOST): „minden tétel szerepel rajta, nem
+   *    csak az egyházmegyeiek!" — tulajdonosi döntés. A régi
+   *    `if (scope === 'diocese') return gyulekezetSzerkesztheti(cell.szint)` ág
+   *    MEGFORDÍTVA szűrt: a megyei költségvetésből pont az a 18 SAJÁT kód esett
+   *    ki, amit az egyházmegye tölt ki, miközben a nyomtatvány `szint` szerint
+   *    sosem szűrt. Vagyis az egyházmegye is más ívet látott, mint amit aláírt.
+   */
+  const bevetelCellek = useMemo(() => szamadasIvCellak(szamadasiCellek, 'B'), [szamadasiCellek])
+  const kiadasCellek = useMemo(() => szamadasIvCellak(szamadasiCellek, 'K'), [szamadasiCellek])
+
+  /**
+   * 2026-08-11 (6. kör, TULAJDONOSI DÖNTÉS): ZÁROLT sorok.
+   *
+   * „az egyházmegyei kódok egyházmegyei szinten nem módosíthatóak és nem lehet
+   * gyülekezeteknek ezekre a kódokra pénzügyi tételt társítani."
+   *
+   * A sor tehát LÁTSZIK (rajta van a hivatalos íven), de GYÜLEKEZETI hatókörben
+   * nem szerkeszthető. A már TÁROLT értéket NEM dobjuk el — read-only módon
+   * megjelenítjük, és a mentés is változatlanul viszi tovább (a `budgetData`
+   * teljes tartalma megy fel), így egy régi/importált érték nem tűnik el némán.
+   *
+   * EGYHÁZMEGYEI hatókörben a készlet ÜRES — vagyis az egyházmegye a SAJÁT ívén
+   * MINDEN sort szerkeszthet, a 95 gyülekezeti szintűt is. Ez szándékos:
+   *   · a `szint` azt mondja meg, ki tölti ki a sort a GYÜLEKEZETI íven; az
+   *     egyházmegye saját ívén minden sor az övé,
+   *   · a rögzítő legördülők megyei hatókörben MA SEM szűrnek (finance-tabs.tsx
+   *     `incomeCategories`/`expenseCategories`: `scope !== 'congregation'`),
+   *     tehát az egyházmegye BÁRMELY kódra könyvelhet tényleges tételt. Ha a
+   *     tervet nem tudná ugyanoda beírni, a Számadás fülön terv nélküli tény
+   *     állna — a zárolás pont azt a divergenciát gyártaná, ami ellen szól.
+   */
+  const zaroltKodok = useMemo(() => {
+    const set = new Set<string>()
+    if (scope === 'diocese') return set
+    for (const c of szamadasiCellek) {
+      if (!gyulekezetSzerkesztheti(c.szint)) set.add(c.id)
+    }
+    return set
+  }, [szamadasiCellek, scope])
+
+  const zarolt = (celId: string) => zaroltKodok.has(celId)
 
   useEffect(() => {
     let cancelled = false
@@ -284,6 +332,11 @@ export function BudgetTab({
   }
 
   function setValue(celId: string, val: number) {
+    // 2026-08-11 (6. kör, TULAJDONOSI DÖNTÉS): fail-closed őr. A zárolt (egyházmegyei
+    // szintű) sorra a gyülekezet nem írhat összeget — a beviteli mező meg sem
+    // jelenik, de ez a második, adat-oldali kapu: egy jövőbeli hívó (batch-kitöltés,
+    // import, billentyűs navigáció) se tudja némán felülírni.
+    if (zarolt(celId)) return
     setBudgetData((prev) => {
       const existing = prev[celId] || {
         szamadasicelid: celId,
@@ -415,7 +468,21 @@ export function BudgetTab({
         return
       }
 
-      const snapshot: Record<string, unknown> = { budgetData, year: currentYear, mode }
+      // 2026-08-11 (6. kör, P1): a beküldött pillanatkép a VÉGÖSSZEGEKET is viszi.
+      // Eddig csak a kódonkénti sorok mentek be; az egyházmegyénél így senki nem
+      // látta azt az összbevétel/összkiadás/egyenleg hármast, ami a gyülekezetnél
+      // ALÁÍRT nyomtatvány végösszeg-sorában áll — és a sorok kézi összeadása sem
+      // adta ki (a képernyőn a végösszeg csak a hivatalos végpont-kódokat összegzi).
+      // A `modNumber` is bekerül, hogy a pillanatkép önmagában is azonosítható legyen.
+      const snapshot: Record<string, unknown> = {
+        budgetData,
+        year: currentYear,
+        mode,
+        modNumber: modNum,
+        totalIncome,
+        totalExpense,
+        balance,
+      }
 
       // 2026-07-10 (#4/4): ZÁR-ELŐSZÖR sorrend — előbb a véglegesítés (lock),
       // utána a beküldés. Korábban fordítva volt: ha a zárás elbukott, a
@@ -670,6 +737,7 @@ export function BudgetTab({
           getPrevYearActual={getPrevYearActualValue}
           canEdit={canEdit}
           setValue={setValue}
+          isLocked={zarolt}
           isIncome
           openingRows={
             carryoverCash != null && carryoverBank != null
@@ -701,9 +769,27 @@ export function BudgetTab({
           getPrevYearActual={getPrevYearActualValue}
           canEdit={canEdit}
           setValue={setValue}
+          isLocked={zarolt}
           isIncome={false}
         />
       </div>
+
+      {/* 2026-08-11 (6. kör, TULAJDONOSI DÖNTÉS): magyarázat a zárolt sorokhoz.
+          Enélkül a lelkész csak annyit látna, hogy egy sor „nem enged írni" —
+          és azt hinné, hibás a rendszer. */}
+      {zaroltKodok.size > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm leading-6 text-amber-900">
+          <span className="inline-flex items-center gap-1 font-semibold">
+            <Lock className="size-3.5" />
+            Egyházmegyei szintű sorok
+          </span>{' '}
+          — ezek a kódok (pl. 201.15 Nettó fizetések, 201.17 Társadalombiztosítás,
+          206.02 Biztosítások) rajta vannak a hivatalos íven, ezért itt is látod őket,
+          de <strong>az egyházmegye tölti ki</strong> őket: nem írhatsz beléjük összeget,
+          és tételt sem tudsz rájuk könyvelni. Ami esetleg már szerepel bennük, azt
+          változatlanul megőrizzük.
+        </div>
+      )}
 
       <div
         className={`card-raised p-5 ${
@@ -753,6 +839,9 @@ interface BudgetCellTableProps {
   canEdit: boolean
   setValue: (celId: string, val: number) => void
   isIncome: boolean
+  /** 2026-08-11 (6. kör): zárolt (egyházmegyei szintű) sor — látszik, de nem
+   *  szerkeszthető; a tárolt értéket read-only módon mutatjuk. */
+  isLocked: (celId: string) => boolean
   /** 2026-07-10 (S2 #8): a hivatalos nyomtatvány 1–3. NYITÓ sora a tábla élén —
    *  automatikus, nem szerkeszthető sorok (Disponibil / Casa / Banca). */
   openingRows?: Array<{ nr: string; nev: string; value: number; group: boolean }>
@@ -774,6 +863,7 @@ function BudgetCellTable({
   canEdit,
   setValue,
   isIncome,
+  isLocked,
   openingRows,
 }: BudgetCellTableProps) {
   return (
@@ -841,6 +931,9 @@ function BudgetCellTable({
             ))}
             {cells.map((c) => {
               const isGroup = !c.id.includes('.')
+              // 2026-08-11 (6. kör): a zárolt sor a hivatalos íven RAJTA van, de
+              // az egyházmegye tölti ki — csak megjelenítjük a tárolt értéket.
+              const locked = !isGroup && isLocked(c.id)
               const val = getValue(c.id)
               const prevVal = showModComparison ? getPreviousValue(c.id) : 0
               const diff = showModComparison ? val - prevVal : 0
@@ -863,6 +956,15 @@ function BudgetCellTable({
                     }`}
                   >
                     {c.nev}
+                    {locked && (
+                      <span
+                        className="ml-2 inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800"
+                        title="Egyházmegyei szintű tétel — az egyházmegye tölti ki. A hivatalos íven szerepel, de a gyülekezet nem írhat bele összeget, és nem is könyvelhet rá."
+                      >
+                        <Lock className="size-2.5" />
+                        egyházmegyei
+                      </span>
+                    )}
                   </td>
                   {showModComparison && (
                     <td className="hidden md:table-cell p-2 text-right text-xs text-slate-400">
@@ -877,6 +979,15 @@ function BudgetCellTable({
                   <td className="p-2 text-right">
                     {isGroup ? (
                       <span className={`font-semibold ${positiveColor}`}>
+                        {formatCurrency(val)}
+                      </span>
+                    ) : locked ? (
+                      // ZÁROLT sor: a tárolt érték read-only. NEM nullázzuk és nem
+                      // rejtjük el — a nulla itt is érvényes érték.
+                      <span
+                        className="text-slate-500"
+                        title="Egyházmegyei szintű tétel — az egyházmegye tölti ki"
+                      >
                         {formatCurrency(val)}
                       </span>
                     ) : canEdit ? (

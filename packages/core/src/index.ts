@@ -364,3 +364,13 @@ export {
   type ResolveNyitoInput,
   type ResolveNyitoResult,
 } from './finance/bank-import/resolve-nyito'
+
+// ── Részszámadás — időszaki nyitó/záró egyenlegek (2026-08-11, 6. kör) ──
+export {
+  KASSZA,
+  computePeriodBalances,
+  type AccountBalance,
+  type ComputePeriodBalancesInput,
+  type PeriodBalances,
+  type PeriodRow,
+} from './finance/reszszamadas/period-balances'

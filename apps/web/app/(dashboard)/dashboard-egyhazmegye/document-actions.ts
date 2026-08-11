@@ -35,6 +35,9 @@ import { revalidatePath } from 'next/cache'
 import { selectAllPaged } from '@kartoteka/supabase-client'
 import { getEffectiveAccessContext, type EffectiveAccessContext } from '@/lib/auth/effective-access'
 import {
+  canReadDioceseScope,
+  canWriteDioceseScope,
+  describeDioceseWriteBlock,
   getDioceseScopeContext,
   getDistrictScopeContext,
   resolveDioceseScopeIds,
@@ -487,7 +490,8 @@ export async function getDioceseSubmissions(
 ): Promise<DocumentSubmission[]> {
   const ctx = await getDioceseScopeContext()
   if (!ctx.user) return []
-  if (!ctx.access.esperes && !ctx.isAdmin && !ctx.isMaster) return []
+  // 2026-08-11 (számvevő-kör): OLVASÁSI kapu — a számvevő is beleesik.
+  if (!canReadDioceseScope(ctx.access)) return []
 
   let congs: Array<{ id: string; name: string; diocese_id: string | null }>
   if (ctx.scopeId) {
@@ -528,8 +532,11 @@ export async function updateSubmissionStatus(
 ): Promise<DocumentActionResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
-  if (!access.esperes && !access.admin && !access.master) {
-    return { error: 'Nincs jogosultsága.' }
+  // 2026-08-11 (számvevő-kör): az átvétel / ellenőrzés-jelölés / véglegesítés /
+  // visszaküldés ÍRÁS a hivatalos archívumon. A számvevő az iratot és a
+  // pillanatképét MEGNÉZHETI, de a státuszát nem lépteti.
+  if (!canWriteDioceseScope(access)) {
+    return { error: describeDioceseWriteBlock(access) ?? 'Nincs jogosultsága.' }
   }
   if (!['received', 'reviewed', 'finalized', 'returned'].includes(newStatus)) {
     return { error: 'Érvénytelen célstátusz.' }
@@ -643,8 +650,9 @@ export async function forwardToKerulet(
 ): Promise<DocumentActionResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
-  if (!access.esperes && !access.admin && !access.master) {
-    return { error: 'Nincs jogosultsága.' }
+  // 2026-08-11 (számvevő-kör): a kerületnek továbbítás ÍRÁS — nem az ellenőr dolga.
+  if (!canWriteDioceseScope(access)) {
+    return { error: describeDioceseWriteBlock(access) ?? 'Nincs jogosultsága.' }
   }
 
   const { supabase } = access
@@ -823,7 +831,11 @@ async function resolveDocumentScope(
   if (scope === 'diocese') {
     const ctx = await getDioceseScopeContext()
     if (!ctx.user) return { ok: false, error: 'Nincs bejelentkezve.' }
-    if (!ctx.access.esperes && !ctx.isAdmin && !ctx.isMaster) {
+    // 2026-08-11 (számvevő-kör): ez egy OLVASÓ feloldó (a dokumentumközpont
+    // adatcsomagját állítja elő) — az egyházmegyei számvevő is átmegy rajta.
+    // Az írási akciók (updateSubmissionStatus, forwardToKerulet) KÜLÖN
+    // ellenőriznek `canWriteDioceseScope`-pal.
+    if (!canReadDioceseScope(ctx.access)) {
       return { ok: false, error: 'Nincs jogosultsága az egyházmegyei dokumentumokhoz.' }
     }
 
@@ -1016,7 +1028,9 @@ export async function getSubmissionSnapshot(
   const access = await getEffectiveAccessContext()
   if (!access.user) return { snapshot: null, error: 'Nincs bejelentkezve.' }
   if (scope === 'diocese') {
-    if (!access.esperes && !access.admin && !access.master) {
+    // 2026-08-11 (számvevő-kör): a fagyasztott pillanatkép MEGTEKINTÉSE — épp
+    // ez a számvevő munkaeszköze („a beküldött snapshot-okon", ROLE_TEMPLATES).
+    if (!canReadDioceseScope(access)) {
       return { snapshot: null, error: 'Nincs jogosultsága.' }
     }
   } else if (!access.egyhazkeruletiAdmin && !access.admin && !access.master) {

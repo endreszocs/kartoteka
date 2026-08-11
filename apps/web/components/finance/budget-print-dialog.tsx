@@ -16,7 +16,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import {
   BudgetPrintDialogBody,
   type BudgetPrintFilters,
-  type BudgetPrintType,
 } from '@kartoteka/ui-app'
 import {
   buildBudgetPrintDocument,
@@ -59,22 +58,12 @@ export function BudgetPrintDialog({
   currentYear,
 }: BudgetPrintDialogProps) {
   // Tényleges adatok aggregálása szamadasicel kódonként.
-  // Részszámadásnál a wrapper kapja a periodFrom/periodTo-t, és szűr.
+  // 2026-08-11 (6. kör): a részszámadás INNEN KIKERÜLT (a FinancePrintDialogba
+  // költözött) — nincs többé időszak-szűrés ebben az ablakban.
   const computeActuals = useCallback(
-    (
-      printType: BudgetPrintType,
-      periodFrom: string | null,
-      periodTo: string | null,
-    ) => {
+    () => {
       const actualIncome: Record<string, number> = {}
       const actualExpense: Record<string, number> = {}
-
-      const inPeriod = (datum: string | null | undefined): boolean => {
-        if (printType !== 'reszszamadas') return true
-        if (!datum || !periodFrom || !periodTo) return false
-        const d = datum.slice(0, 10)
-        return d >= periodFrom && d <= periodTo
-      }
 
       // 2026-07-10 (S3 audit KRITIKUS #1): a stornózott tétel a hivatalos
       // költségvetés/számadás nyomtatvány tény-oszlopába SEM számíthat.
@@ -83,9 +72,13 @@ export function BudgetPrintDialog({
       // (`osszeg_ron`) — egy devizás banki tétel így két ELTÉRŐ hivatalos
       // nyomtatványt eredményezett ugyanarra az évre. A könyvelés RON-ban folyik:
       // mindenhol `osszeg_ron ?? osszeg` (RON-számlán a kettő azonos).
+      // 2026-08-11 (6. kör, P1 #6): a `deleted` is szűrve. Eddig csak a
+      // `stornozott` volt — ez ma véletlenül működött (a hívó már szűrt
+      // sorokat ad), de KIMONDATLAN hívói invariánsra épült; a
+      // finance-print-dialog mindkettőt nézi. Egy jövőbeli hívó némán
+      // beleszámíttatta volna a soft-törölt tételeket az ALÁÍRT Számadásba.
       for (const r of incomeRecords) {
-        if (r.stornozott) continue
-        if (!inPeriod(r.datum)) continue
+        if (r.deleted || r.stornozott) continue
         if (r.id_befizetescel) {
           const code = bevCelMap[r.id_befizetescel]
           if (code) {
@@ -94,8 +87,7 @@ export function BudgetPrintDialog({
         }
       }
       for (const r of expenseRecords) {
-        if (r.stornozott) continue
-        if (!inPeriod(r.datum)) continue
+        if (r.deleted || r.stornozott) continue
         if (r.id_kiadascel) {
           const code = kiaCelMap[r.id_kiadascel]
           if (code) {
@@ -139,14 +131,17 @@ export function BudgetPrintDialog({
 
         <BudgetPrintDialogBody
           open={open}
-          printableTypes={BUDGET_PRINT_TYPES}
+          // 2026-08-11 (6. kör): a Részszámadás INNEN KIVEZETVE — a „Pénzügyi
+          // nyomtatási központban" van, mert csak ott áll rendelkezésre az
+          // év-scope-olt tétel-betöltés és a SZÁMLÁNKÉNTI feloldott nyitó.
+          printableTypes={BUDGET_PRINT_TYPES.filter((t) => t.id !== 'reszszamadas')}
           currentYear={currentYear}
           budgetFinalized={!!settings.budget_finalized}
           accountingFinalized={!!settings.accounting_finalized}
           computeActuals={computeActuals}
           onLoadBudgetRows={onLoadBudgetRows}
           buildReport={(filters: BudgetPrintFilters) => {
-            const isSzamadas = filters.printType === 'szamadas' || filters.printType === 'reszszamadas'
+            const isSzamadas = filters.printType === 'szamadas'
             const finalized = isSzamadas ? !!settings.accounting_finalized : !!settings.budget_finalized
             const printData: BudgetPrintData = {
               cellek,
@@ -157,8 +152,6 @@ export function BudgetPrintDialog({
               year: filters.selectedYear,
               carryoverCash,
               carryoverBank,
-              periodFrom: filters.periodFrom ?? undefined,
-              periodTo: filters.periodTo ?? undefined,
               finalized,
             }
             return buildBudgetPrintDocument(filters.printType, printData)

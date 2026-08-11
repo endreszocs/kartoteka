@@ -1,4 +1,28 @@
-'use client'
+/**
+ * ⚠️ 2026-08-11 — A `'use client'` DIREKTÍVA SZÁNDÉKOSAN NINCS ITT.
+ *
+ * ELŐZMÉNY (user-bejelentés): a `/notifications` oldal élesben 500-as
+ * szerverhibát adott. Ok: ez a komponens `'use client'` volt, az oldal viszont
+ * SZERVER-komponens, és `Icon={Bell}` formában egy FÜGGVÉNYT ad át neki.
+ * A React szerver-komponensből nem enged függvényt átadni kliens-komponensnek:
+ *   „Functions cannot be passed directly to Client Components…"
+ * A böngésző ebből csak annyit mutatott: „A server error occurred" — a Next.js
+ * produkciós módban elrejti a valódi üzenetet.
+ *
+ * MIÉRT EZ A JAVÍTÁS, ÉS NEM AZ, HOGY A HÍVÓK KERÜLJÉK KI:
+ * ez a komponens TISZTA MEGJELENÍTÉS — nincs benne egyetlen hook, esemény-
+ * kezelő vagy böngésző-API sem (ellenőrizve: useState/useEffect/useRef/useMemo/
+ * onClick/onChange/useRouter — egyik sem szerepel). A `'use client'` tehát
+ * fölösleges volt, és EZ okozta a hibát. Az eltávolítás EGYSZERRE javítja mind
+ * az öt hívási helyet (/notifications és a négy publikus gyülekezeti oldal),
+ * ahelyett hogy mindegyikbe külön kerülő megoldás kerülne.
+ *
+ * ⚠️ HA VALAHA interaktivitás kerülne ide (gomb, hook), akkor NEM a direktívát
+ * kell visszatenni, hanem az interaktív részt kell külön, saját `'use client'`
+ * gyerek-komponensbe emelni — különben ez a hiba azonnal visszatér.
+ * Az `actions?: ReactNode` prop pont ezért ReactNode: a hívó adhat át KÉSZ,
+ * saját kliens-komponenst, az szabályos.
+ */
 
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'

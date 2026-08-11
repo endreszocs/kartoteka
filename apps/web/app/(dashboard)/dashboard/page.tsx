@@ -1,4 +1,13 @@
 import { selectAllPaged } from '@kartoteka/supabase-client'
+// 2026-08-11 (6. kör): a „Pénzkészlet" csempe a KANONIKUS nyitó-feloldásra
+// épül — ugyanarra, amiből a Pénzügy modul carryoverCash/carryoverBank értéke
+// származik. Nincs külön irányítópult-változat.
+//
+// MÉLY import, NEM a `@kartoteka/core` barrel: az a bank-import indexén át
+// statikusan behúzná az `xlsx` csomagot erre a legtöbbet látogatott útvonalra.
+// A `resolve-nyito.ts`-nek csak `import type` függősége van, tehát ez a
+// bekötés semmit nem visz magával.
+import { resolveNyitoEgyenlegekUseCase } from '@kartoteka/core/src/finance/bank-import/resolve-nyito'
 import { ageFromDate } from '@/lib/utils/date'
 import { HU_MONTHS_SHORT } from '@/lib/constants/dashboard'
 import { HeroBannerScriptureV2 } from '@/components/dashboard/hero-banner-scripture-v2'
@@ -15,6 +24,12 @@ import { BottomStats } from '@/components/dashboard/bottom-stats'
 // a rendszer eddig TÁROLT, de soha nem számolt ki („hamarosan lejár").
 import { ExpiryRadarCard } from '@/components/dashboard/expiry-radar-card'
 import { getExpiryRadar } from '@/lib/dashboard/expiry-radar'
+// 2026-08-11 (6. kör): az alsó „Egyenleg" csempe 24 havi nettó FORGALMAT
+// mutatott nyitó egyenleg nélkül. A levezetés a közös adapterbe került.
+import {
+  deriveCongregationBalance,
+  type BalanceLedgerRow,
+} from '@/lib/dashboard/congregation-balance'
 // PublicSiteWidget eltávolítva (2026-04-21o) — a publikus oldal státusz a KPI-kártyán látszik, külön dobozra nincs szükség
 import { CongregationSetupAutoOpen } from '@/components/dashboard/congregation-setup-auto-open'
 import { CongregationOnlyNotice } from '@/components/layout/congregation-only-notice'
@@ -48,6 +63,24 @@ interface ActivityRow {
   created_at: string
 }
 
+/**
+ * Egy befizetés/kiadás sor abban a MINIMÁLIS alakban, amit ez az oldal használ
+ * (2026-08-11, 6. kör). Szerkezetileg megfelel a `BalanceLedgerRow`-nak
+ * (= `@kartoteka/core` `PeriodRow`), ezért a kanonikus egyenleg-levezetésbe
+ * kasztolás nélkül átadható.
+ *
+ * FIGYELEM a `datum` típusára: a `befizetes.datum` DATE ('2026-08-11'), a
+ * `kiadas.datum` viszont TIMESTAMP ('2026-08-11T00:00:00'). Ezért ezen az
+ * oldalon dátumot NYERSEN összehasonlítani TILOS — mindig a napra vágott
+ * (`.slice(0, 10)`) alakkal dolgozunk. A régi kód emiatt ejtette ki a hónap
+ * UTOLSÓ napján kelt kiadásokat a grafikonból (`r.datum <= '2026-08-31'`
+ * hamis a '2026-08-31T00:00:00' értékre).
+ */
+interface LedgerRow extends BalanceLedgerRow {
+  id: number
+  belso_mozgas_xkey: string | null
+}
+
 export default async function DashboardPage() {
   const access = await getEffectiveAccessContext()
   const { supabase, effectiveCongregationId, congregationName, congregationLogo, fullName } = access
@@ -71,6 +104,10 @@ export default async function DashboardPage() {
   const curMonth = today.getMonth() + 1
   const curDay = today.getDate()
   const chartStartDate = `${curYear - 1}-${String(curMonth).padStart(2, '0')}-01`
+  // 2026-08-11 (6. kör): a mai nap HELYI idő szerint. A `toISOString()` UTC-re
+  // vált, ami a román (UTC+2/+3) időzónában a nap első óráiban EGY NAPPAL
+  // korábbi dátumot ad — a pénzkészlet így hajnalban „visszaugrana".
+  const todayIso = `${curYear}-${String(curMonth).padStart(2, '0')}-${String(curDay).padStart(2, '0')}`
 
   // ── Minden lekérdezés EGYETLEN párhuzamos hullámban ───────────────────────
   // 2026-06-30 (perf): a setup-status + walkthrough korábban SZEKVENCIÁLISAN
@@ -93,6 +130,7 @@ export default async function DashboardPage() {
     congregationFeeResult,
     annualFeeCurrentYearResult,
     expiryRadarResult,
+    nyitoResult,
   ] = await Promise.all([
     // Gyülekezeti setup status — ha hiányosak az adatok, auto-open wizard
     checkCongregationSetupStatus(effectiveCongregationId),
@@ -140,21 +178,40 @@ export default async function DashboardPage() {
     // onnantól a Havi/Éves bevétel-kiadás KPI és a pénzügyi grafikon TÚL ALACSONY
     // számot mutatott, hibaüzenet nélkül. Rendezés (`id` ASC) nélkül ráadásul az
     // sem volt determinisztikus, MELYIK hónapok esnek ki.
-    selectAllPaged<{ osszeg: number; datum: string }>(
+    // 2026-08-11 (6. kör): a lekérdezés SZÉLESEBB lett, de EGY maradt. Az alsó
+    // „Pénzkészlet" csempéhez nem új ledger-letöltés kell — az idei év sorai
+    // amúgy is részhalmaza ennek a 24 hónapos ablaknak —, csak az a négy
+    // oszlop, ami nélkül eddig HIBÁS volt minden itteni pénzügyi szám:
+    //   · `osszeg_ron` — a könyvelés RON-ban folyik; a nyers `osszeg` egy
+    //     1000 EUR-s banki tételt 1000 lejnek látott;
+    //   · `bankszamla_id` — enélkül nincs kassza/bank bontás (NULL = kassza;
+    //     SOHA nem az `irattipus` szövegmező alapján);
+    //   · `belso_mozgas_xkey` — a kassza→bank letét NEM bevétel és NEM kiadás,
+    //     csak átvezetés (lásd a FOLYAM-nézetet lentebb);
+    //   · `id` — enélkül a `selectAllPaged` lapok közti DEDUPJA kimarad (a
+    //     helper a kulcs-oszlop hiányában csendben átugorja), így egy lapfordulón
+    //     kétszer visszaadott sor duplán számított volna.
+    selectAllPaged<LedgerRow>(
       supabase
         .from('befizetes')
-        .select('osszeg, datum')
+        .select('id, osszeg, osszeg_ron, datum, bankszamla_id, belso_mozgas_xkey')
         .eq('congregation_id', effectiveCongregationId)
         .eq('deleted', false)
         .eq('stornozott', false)
         .gte('datum', chartStartDate),
     ),
-    selectAllPaged<{ osszeg: number; datum: string }>(
+    // 2026-08-11 (6. kör): a `.eq('stornozott', false)` a KIADÁS ágról hiányzott,
+    // pedig a bevétel ágon ott volt. Egy ÉRVÉNYTELENÍTETT kiadás így csökkentette
+    // az irányítópult kiadás-KPI-ját és egyenlegét, miközben a Pénzügy modulból,
+    // a Számadásból és a Registru-ból ki van zárva — két hivatalos szám ugyanarra
+    // az évre, egymásnak ellentmondva.
+    selectAllPaged<LedgerRow>(
       supabase
         .from('kiadas')
-        .select('osszeg, datum')
+        .select('id, osszeg, osszeg_ron, datum, bankszamla_id, belso_mozgas_xkey')
         .eq('congregation_id', effectiveCongregationId)
         .eq('deleted', false)
+        .eq('stornozott', false)
         .gte('datum', chartStartDate),
     ),
     // 2026-06-30 (perf): csak a sorszám kell (head:true) — korábban az összes
@@ -178,6 +235,22 @@ export default async function DashboardPage() {
     // irányítópultot ledöntené egy másodlagos doboz miatt. A kártya a hibát
     // LÁTHATÓAN mutatja, tehát nem néma degradáció.
     getExpiryRadar(),
+    // 2026-08-11 (6. kör): az idei NYITÓ egyenleg feloldása (kassza +
+    // számlánként a bank). Ez a hiányzó tétel a bejelentett hibában — nélküle
+    // a csempe pusztán forgalmat mutatott.
+    //
+    // TELJESÍTMÉNY: ugyanebbe az EGY párhuzamos hullámba kerül, tehát nem
+    // mélyíti a körutak számát. A tipikus esetben (van az idei évre rögzített
+    // vagy carryover nyitó-sor) három APRÓ, indexelt lekérdezés az egész
+    // (`bankszamlak`, `keszpenz_nyito_egyenleg`, `bankszamla_nyito_egyenleg`),
+    // és a use-case ilyenkor EGYETLEN forgalmi sort sem tölt le. Csak akkor
+    // olvas korábbi évek forgalmát, ha az idei nyitó nincs rögzítve — ott a
+    // láncolás az ára a helyes számnak. A use-case a hibát MAGA fogja el
+    // (`success: false`), így a Promise.all-t nem döntheti le.
+    resolveNyitoEgyenlegekUseCase(
+      { congregationId: effectiveCongregationId, eve: curYear },
+      { supabase, runtime: 'web' },
+    ),
   ])
 
   const deferSetupForWalkthrough = !(
@@ -221,30 +294,66 @@ export default async function DashboardPage() {
   // presbiterek száma — nincs szükség kliens-oldali szűrésre.
   const presbCount = (presbResult.data || []).length
 
-  const allBefizetes = (befizetesResult.data || []) as { osszeg: number; datum: string }[]
-  const allKiadas = (kiadasResult.data || []) as { osszeg: number; datum: string }[]
+  const allBefizetes = (befizetesResult.data || []) as LedgerRow[]
+  const allKiadas = (kiadasResult.data || []) as LedgerRow[]
   const allNevnapok = (nevnapResult.data || []) as NamedayRow[]
+
+  // ── A KÉT SZABÁLY, AMIT SOHA NEM SZABAD ÖSSZEKEVERNI ──────
+  // (2026-08-11, 6. kör — a `period-balances.ts` doktrínája, szó szerint
+  //  ugyanaz a megkülönböztetés, csak az irányítópultra alkalmazva.)
+  //
+  //  · FOLYAM-szabály (bevétel / kiadás KPI + grafikon): a BELSŐ MOZGÁS KINT
+  //    van. Egy 50 000 lejes kassza→bank letét egy kiadás- ÉS egy bevétel-sort
+  //    hoz létre; ha bent hagynánk, az irányítópult 50 000 lejjel több
+  //    bevételt ÉS kiadást mutatna, mint a Pénzügy modul és a Számadás
+  //    ugyanarra az évre. Ez ITT eddig pontosan így is volt.
+  //  · EGYENLEG-szabály (Pénzkészlet csempe): a belső mozgás BENNE VAN — a
+  //    letét valóban csökkenti a kasszát és növeli a bankot. Ezt a
+  //    `computePeriodBalances` intézi, lásd lentebb.
+  //
+  // Az összeg MINDIG a RON-ekvivalens (`osszeg_ron ?? osszeg`), a dátum MINDIG
+  // napra vágva (a `kiadas.datum` TIMESTAMP, a `befizetes.datum` DATE).
+  //
+  // MARADÉK (tudatosan, a `scope-financial.ts` már bevált kompromisszuma): a
+  // `calculateBalances` a belső mozgást az xkey MELLETT a belső CÉL-KÓD
+  // (3xx/4xx, legacy 100.xx) alapján is kizárja. Itt csak az xkey-t nézzük,
+  // mert a kód-szűréshez `befizetescel`/`kiadascel` join kellene — két további
+  // lekérdezés a legtöbbet látogatott útvonalon. A régi, IMPORTÁLT (xkey
+  // nélküli) belső sorok ezért még benne maradhatnak a FOLYAM-számokban.
+  interface FlowRow { day: string; ron: number }
+  const toFlowRows = (rows: LedgerRow[]): FlowRow[] => {
+    const out: FlowRow[] = []
+    for (const r of rows) {
+      if (r.belso_mozgas_xkey) continue
+      const day = (r.datum || '').slice(0, 10)
+      if (!day) continue
+      out.push({ day, ron: Number(r.osszeg_ron ?? r.osszeg) || 0 })
+    }
+    return out
+  }
+  const incomeFlow = toFlowRows(allBefizetes)
+  const expenseFlow = toFlowRows(allKiadas)
+  /** Összeg a [from, to] NAP-intervallumon (a `to` elhagyva = nyitott vég). */
+  const sumFlow = (rows: FlowRow[], from: string, to?: string): number => {
+    let sum = 0
+    for (const r of rows) {
+      if (r.day < from) continue
+      if (to !== undefined && r.day > to) continue
+      sum += r.ron
+    }
+    return sum
+  }
 
   // ── KPI számítások ────────────────────────────────────────
   const monthStart = `${curYear}-${String(curMonth).padStart(2, '0')}-01`
   const yearStart = `${curYear}-01-01`
-  const monthlyIncome = allBefizetes
-    .filter(r => r.datum >= monthStart)
-    .reduce((s, r) => s + (Number(r.osszeg) || 0), 0)
-
-  const monthlyExpense = allKiadas
-    .filter(r => r.datum >= monthStart)
-    .reduce((s, r) => s + (Number(r.osszeg) || 0), 0)
+  const monthlyIncome = sumFlow(incomeFlow, monthStart)
+  const monthlyExpense = sumFlow(expenseFlow, monthStart)
 
   // Éves bevétel/kiadás — az aktuális évtől (2026-04-21t: havi 0 gyakori,
   // éves sokkal informatívabb; a dashboard kártyán mindkettő látszódjon)
-  const yearlyIncome = allBefizetes
-    .filter(r => r.datum >= yearStart)
-    .reduce((s, r) => s + (Number(r.osszeg) || 0), 0)
-
-  const yearlyExpense = allKiadas
-    .filter(r => r.datum >= yearStart)
-    .reduce((s, r) => s + (Number(r.osszeg) || 0), 0)
+  const yearlyIncome = sumFlow(incomeFlow, yearStart)
+  const yearlyExpense = sumFlow(expenseFlow, yearStart)
 
   // ── Születésnap / névnap ──────────────────────────────────
   const mmDd = today.toISOString().slice(5, 10)
@@ -298,10 +407,16 @@ export default async function DashboardPage() {
   for (let i = 7; i >= 0; i--) {
     const d = new Date(curYear, today.getMonth() - i, 1)
     const start = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+    // 2026-08-11 (6. kör): a hónap utolsó napja HELYI idő szerint. A korábbi
+    // `endDate.toISOString().slice(0, 10)` UTC-re váltott, ami a román
+    // (UTC+2/+3) időzónában eggyel korábbi napot adott — a hónap UTOLSÓ napján
+    // kelt tételek kiestek a grafikonból. (A `.datum <= endStr` nyers
+    // összehasonlítás a TIMESTAMP típusú `kiadas.datum`-on ugyanezt a napot
+    // még egyszer kiejtette; a `sumFlow` már napra vágott értékkel dolgozik.)
     const endDate = new Date(d.getFullYear(), d.getMonth() + 1, 0)
-    const endStr = endDate.toISOString().slice(0, 10)
-    const income = allBefizetes.filter(r => r.datum >= start && r.datum <= endStr).reduce((s, r) => s + (Number(r.osszeg) || 0), 0)
-    const expense = allKiadas.filter(r => r.datum >= start && r.datum <= endStr).reduce((s, r) => s + (Number(r.osszeg) || 0), 0)
+    const endStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`
+    const income = sumFlow(incomeFlow, start, endStr)
+    const expense = sumFlow(expenseFlow, start, endStr)
     monthlyData.push({ month: `${HU_MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`, income: Math.round(income), expense: Math.round(expense) })
   }
 
@@ -369,8 +484,25 @@ export default async function DashboardPage() {
     else women++
   })
   const avgAge = ageCount > 0 ? Math.round(ageSum / ageCount) : 0
-  const balance = allBefizetes.reduce((s, r) => s + (Number(r.osszeg) || 0), 0)
-    - allKiadas.reduce((s, r) => s + (Number(r.osszeg) || 0), 0)
+
+  // ── Pénzkészlet (2026-08-11, 6. kör) ──────────────────────
+  // ELŐTTE (a bejelentett hiba):
+  //     const balance = Σ allBefizetes.osszeg − Σ allKiadas.osszeg
+  // vagyis a 24 hónapos GRAFIKON-ablak nettó forgalma, „Egyenleg" felirattal,
+  // nyitó egyenleg nélkül, RON-átváltás nélkül, a stornózott kiadásokkal
+  // együtt. A lelkész −25 665,24 RON-t látott ott, ahol pénzkészletet várt.
+  //
+  // MOST: a kanonikus `computePeriodBalances` (részszámadás-mag) vezeti le a
+  // MAI pénzkészletet az idei nyitóból, ugyanazokból a sorokból — MÁSODIK
+  // ledger-letöltés nélkül. Az évet megelőző sorok automatikusan kiesnek,
+  // mert a `periodFrom` az év első napja (lásd az adapter fejlécét).
+  const balance = deriveCongregationBalance({
+    nyito: nyitoResult,
+    income: allBefizetes,
+    expense: allKiadas,
+    year: curYear,
+    asOf: todayIso,
+  })
 
   // ── Januári banner adatok (2026-04-21k) ───────────────────
   const congregationYearAmount = (congregationFeeResult.data?.eves_jarulek as number | null) ?? null

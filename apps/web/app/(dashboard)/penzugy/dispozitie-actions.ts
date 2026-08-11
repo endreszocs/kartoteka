@@ -18,6 +18,7 @@
 import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import {
+  financeWriteBlock,
   getFinanceScopeContext,
   isYearFinalized,
   yearFinalizedCheckErrorMessage,
@@ -308,6 +309,10 @@ export async function saveDispozitie(input: SaveDispozitieInput): Promise<
 > {
   const ctx = await getFinanceScopeContext()
   if ('error' in ctx) return { error: ctx.error }
+  // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU — lásd a decont-actions.ts azonos
+  // pontján lévő indoklást (ma redundáns, de a helyén marad).
+  const writeBlock = financeWriteBlock(ctx)
+  if (writeBlock) return writeBlock
   if (ctx.scope !== 'congregation') {
     return { error: 'A dispoziție csak gyülekezeti módban érhető el.' }
   }
