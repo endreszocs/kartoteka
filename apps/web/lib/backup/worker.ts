@@ -37,6 +37,7 @@ import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
 import { sendBackupFailureAlert } from './alerts'
 import {
   ALAP_IDOKERET_MS,
+  berletHatarIso,
   ferBeleUjabbHatokor,
   korlatokBeolvasasa,
   scopeKulcs,
@@ -138,9 +139,17 @@ function aktivRiaszto(): BackupAlerter {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface ClaimResult {
-  backupLogId: number
+  backupLogId: number | null
   /** `true`, ha aznap MÁR VAN igazolt mentés — a hatókört kihagyjuk. */
   kihagyva: boolean
+  /**
+   * `true`, ha a hatókört EGY MÁSIK, ÉPPEN FUTÓ mentés tartja (élő bérlet).
+   *
+   * ⚠️ EZ NEM KÉSZ ÉS NEM HIBA. Ehhez a hatókörhöz MI nem nyúlunk hozzá, de
+   *    HÁTRALÉVŐNEK számít — különben a futás késznek mondaná magát, miközben
+   *    egy gyülekezetnek nincs mentése.
+   */
+  foglalt: boolean
 }
 
 interface PreviousRun {
@@ -203,6 +212,25 @@ async function loadPreviousRun(
  *
  * A `napi` futásnál az egyedi index a kapu; a `kezi` és `pre_restore` futásból
  * naponta több is indítható, ezért azok mindig ÚJ sort kapnak.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * 2026-08-11 JAVÍTÁS — A FOGLALÁS MOSTANTÓL FELTÉTELES (BÉRLET)
+ * ════════════════════════════════════════════════════════════════════════════
+ * Korábban itt egy feltétel NÉLKÜLI `SELECT` → `UPDATE status='fut'` állt. Az
+ * egyedi index csak azt garantálja, hogy naponta hatókörönként EGY SOR legyen —
+ * azt NEM, hogy egy FUTÁS. Vagyis ha a felület és az éjszakai cron egyszerre
+ * indult (vagy a tulajdonos a hibaüzenet tanácsára újrakattintott, miközben a
+ * szerver még dolgozott), két futás UGYANAZT a gyülekezetet mentette le
+ * párhuzamosan. A következmény nem adatvesztés, hanem ÁRVA FÁJL: minden futás
+ * új `kb-<uuid>.kbk` nevet kap (`export.ts`), a napló viszont csak az UTOLSÓ
+ * `drive_file_id`-t őrzi meg. Az árvát az egyeztetés „ismeretlen fájlként"
+ * jelenti, és a rendszer SOHA nem törli — a Drive pedig lassan megtelik.
+ *
+ * Mostantól a foglalás egyetlen FELTÉTELES `UPDATE`, és az ÉRINTETT SOROK
+ * SZÁMÁT is megnézzük:
+ *   · 1 sor  → miénk a hatókör,
+ *   · 0 sor  → valaki más MÁR dolgozik rajta, élő bérlettel → `foglalt`.
+ * Ugyanez a kapu fogja el az `INSERT` versenyt is (23505).
  */
 async function claimBackupLog(
   admin: SupabaseClient,
@@ -230,10 +258,13 @@ async function claimBackupLog(
     if (existing) {
       const row = existing as { id: number; status: string; drive_verified_at: string | null }
       if (row.status === 'ok' && row.drive_verified_at) {
-        return { backupLogId: row.id, kihagyva: true }
+        return { backupLogId: row.id, kihagyva: true, foglalt: false }
       }
-      // Korábban elhasalt (vagy félbeszakadt) — ÚJRAPRÓBÁLJUK ugyanabban a sorban.
-      const { error } = await admin
+      // Korábban elhasalt (vagy félbeszakadt) — ÚJRAPRÓBÁLJUK ugyanabban a sorban,
+      // DE CSAK akkor, ha nincs rajta ÉLŐ bérlet (nem `fut`, vagy a foglalás
+      // 15 percnél régebbi). A `select()` visszaadja az ÉRINTETT sorokat: nulla
+      // sor = valaki más éppen dolgozik rajta.
+      const { data: frissitett, error } = await admin
         .from('backup_log')
         .update({
           status: 'fut',
@@ -244,8 +275,13 @@ async function claimBackupLog(
           congregation_nev: args.congregationNev,
         })
         .eq('id', row.id)
+        .or(`status.neq.fut,started_at.is.null,started_at.lt.${berletHatarIso()}`)
+        .select('id')
       if (error) throw new Error(`A napló-sor újranyitása sikertelen: ${error.message}`)
-      return { backupLogId: row.id, kihagyva: false }
+      if (!frissitett || frissitett.length === 0) {
+        return { backupLogId: row.id, kihagyva: false, foglalt: true }
+      }
+      return { backupLogId: row.id, kihagyva: false, foglalt: false }
     }
   }
 
@@ -263,7 +299,9 @@ async function claimBackupLog(
     .single()
 
   if (error) {
-    // 23505 = az egyedi index fogott: egy másik futás közben lefoglalta.
+    // 23505 = az egyedi index fogott: egy másik futás EBBEN A MÁSODPERCBEN
+    // lefoglalta. ⚠️ EZ NEM „KÉSZ": a másik futás még csak most kezdte. Ha
+    // késznek jelentenénk, a napi lefedettség hazudna. `foglalt` → hátralévő.
     if (error.code === '23505') {
       const { data: raced } = await scopeFilter(
         admin
@@ -276,14 +314,16 @@ async function claimBackupLog(
       )
         .limit(1)
         .maybeSingle()
-      if (raced) {
-        return { backupLogId: (raced as { id: number }).id, kihagyva: true }
+      return {
+        backupLogId: raced ? (raced as { id: number }).id : null,
+        kihagyva: false,
+        foglalt: true,
       }
     }
     throw new Error(`A napló-sor létrehozása sikertelen: ${error.message}`)
   }
 
-  return { backupLogId: (data as { id: number }).id, kihagyva: false }
+  return { backupLogId: (data as { id: number }).id, kihagyva: false, foglalt: false }
 }
 
 /** Táblánkénti különbség az előző igazolt futáshoz képest. */
@@ -395,6 +435,20 @@ export interface RunBackupWorkerOptions {
   maxFutasiIdoMs?: number
   /** Ennyi hatökört dolgozunk fel EBBEN a szeletben. `0` = nincs darab-korlát. */
   maxHatokor?: number
+  /**
+   * „Álljunk meg?" — a hatókörök KÖZÖTT kérdezzük meg, minden kör elején.
+   *
+   * ⚠️ MIÉRT KÖZÖTTÜK, ÉS MIÉRT NEM KÖZBEN (2026-08-11). A FUTÓ hatókört SOHA
+   *    nem szakítjuk félbe: az „fut" állapotban ragadt napló-sort hagyna maga
+   *    után, ami a felületen sem késznek, sem hibásnak nem látszik — és a
+   *    tárolóban ott maradhatna egy fél fájl, amit soha senki nem takarít el.
+   *    Egy hatókör ~18 másodperc, tehát a leállítás így is azonnalinak érződik.
+   *
+   * ⚠️ MIÉRT NEM `AbortSignal`. A megállás itt RENDEZETT: a maradékot
+   *    HALASZTOTTNAK jelentjük, nem hibának, és a napló minden sora lezárt
+   *    marad. Egy megszakítás-jel ezt nem tudja garantálni.
+   */
+  megallj?: () => boolean
 }
 
 interface CongregationRow {
@@ -622,7 +676,9 @@ export async function runBackupWorker(
   let sikertelen = 0
   let kihagyva = 0
   let feldolgozva = 0
+  let foglalt = 0
   let idoMiattHalasztott = 0
+  let leallitasMiattHalasztott = 0
   const ciklusKezdet = Date.now()
 
   // A MA MÁR IGAZOLT hatókörök: nulla adatbázis-írás, nulla Drive-hívás. Egy
@@ -634,6 +690,14 @@ export async function runBackupWorker(
 
   for (let i = 0; i < terv.futtatando.length; i++) {
     const h = terv.futtatando[i]
+
+    // ── LEÁLLÍTÁS-KÉRÉS. Ugyanaz a rendezett megállás, mint az időkeretnél:
+    //    a maradék HALASZTOTT lesz, nem hibás, és minden napló-sor lezárva
+    //    marad. A most futó hatókört SOHA nem szakítjuk félbe (lásd `megallj`).
+    if (opts.megallj?.()) {
+      leallitasMiattHalasztott = terv.futtatando.length - i
+      break
+    }
 
     // ── IDŐKERET. Rendezett megállás: a maradék HALASZTOTT lesz, nem hibás.
     //    Az `atlagosHatokorMs` miatt nem indítunk el olyan hatökört, ami
@@ -689,6 +753,16 @@ export async function runBackupWorker(
       continue
     }
 
+    // ── ÉLŐ BÉRLET: egy MÁSIK futás dolgozik ezen a hatökörön.
+    //    NEM nyúlunk hozzá (különben két fájl kerülne fel ugyanarról a napról),
+    //    és NEM is jelentjük késznek — hátralévő marad, a következő szelet
+    //    újrapróbálja. Napló-sort SEM írunk: az a másik futásé.
+    if (claim.foglalt || claim.backupLogId === null) {
+      foglalt++
+      continue
+    }
+    const backupLogId = claim.backupLogId
+
     feldolgozva++
     const elozo = await loadPreviousRun(admin, h.scope, h.congregationId, runDate)
 
@@ -714,11 +788,11 @@ export async function runBackupWorker(
               }
             : null,
       })
-      result.backupLogId = claim.backupLogId
+      result.backupLogId = backupLogId
 
       await finishOk(
         admin,
-        claim.backupLogId,
+        backupLogId,
         result,
         semaUjjlenyomat,
         computeDelta(result.rowCounts, elozo?.rowCounts ?? {}),
@@ -741,7 +815,7 @@ export async function runBackupWorker(
         congregationId: h.congregationId,
         congregationNev: h.congregationNev,
         runDate,
-        backupLogId: claim.backupLogId,
+        backupLogId,
         stage,
         uzenet,
       }).catch((err: unknown) => ({
@@ -761,7 +835,7 @@ export async function runBackupWorker(
         `[backup] ${h.scope}/${h.congregationNev ?? 'globalis'} (${runDate}) SIKERTELEN:`,
         uzenet,
       )
-      await finishError(admin, claim.backupLogId, stage, uzenet, scopeFigyelmeztetesek)
+      await finishError(admin, backupLogId, stage, uzenet, scopeFigyelmeztetesek)
 
       eredmenyek.push({
         scope: h.scope,
@@ -771,7 +845,7 @@ export async function runBackupWorker(
         runDate,
         ok: false,
         kihagyva: false,
-        backupLogId: claim.backupLogId,
+        backupLogId,
         stage,
         hiba: uzenet,
         rowCounts: {},
@@ -789,7 +863,13 @@ export async function runBackupWorker(
     }
   }
 
-  const hatralevo = terv.halasztott.length + idoMiattHalasztott
+  // ⚠️ A FOGLALT HATÓKÖR IS HÁTRAVAN. Egy másik futás dolgozik rajta — lehet,
+  //    hogy sikerülni fog, lehet, hogy nem. Amíg nincs IGAZOLT mentése, addig
+  //    nem kész. Ha ezt kihagynánk a `hatralevo`-ból, a futás késznek mondaná
+  //    magát, miközben gyülekezetek maradtak mentés nélkül — pontosan az a
+  //    néma féligazság, ami ellen az egész napló-szerződés szól.
+  const hatralevo =
+    terv.halasztott.length + idoMiattHalasztott + leallitasMiattHalasztott + foglalt
   const futottVegig = hatralevo === 0
   jelolLepes(
     lepesek,
@@ -808,13 +888,21 @@ export async function runBackupWorker(
     //    A „még hátravan" tényt a `reszlet` és a `figyelmeztetesek` mondja ki —
     //    a felület tehát TOVÁBBRA SEM mutat zöldet egy félkész mentésre.
     sikertelen > 0 ? false : futottVegig ? true : 'folyamatban',
-    `${sikeres} igazolt, ${kihagyva} kihagyva, ${sikertelen} hibás, ${hatralevo} hátravan`,
+    `${sikeres} igazolt, ${kihagyva} kihagyva, ${sikertelen} hibás, ${hatralevo} hátravan` +
+      (foglalt > 0 ? ` (ebből ${foglalt} másik futásnál van)` : ''),
   )
   if (!futottVegig) {
     figyelmeztetesek.push(
       `Ez a futás NEM végzett mindennel: ${hatralevo} hatókör hátravan (idő- vagy darab-korlát). ` +
         'Az elkészült mentések MEGVANNAK — indítsd újra a futást, az onnan folytatja, ahol ' +
         'abbahagyta (a ma már igazolt hatóköröket kihagyja).',
+    )
+  }
+  if (foglalt > 0) {
+    figyelmeztetesek.push(
+      `${foglalt} hatókört EGY MÁSIK, éppen futó mentés tartott a kezében, ezért ez a futás ` +
+        'hozzájuk nem nyúlt (így nem kerül két fájl ugyanarról a napról a tárolóba). ' +
+        'A következő szelet újrapróbálja őket.',
     )
   }
 
@@ -836,7 +924,11 @@ export async function runBackupWorker(
   }
 
   return {
-    futott: terv.futtatando.length - idoMiattHalasztott + terv.kihagyando.length,
+    futott:
+      terv.futtatando.length -
+      idoMiattHalasztott -
+      leallitasMiattHalasztott +
+      terv.kihagyando.length,
     sikeres,
     sikertelen,
     kihagyva,
@@ -847,6 +939,7 @@ export async function runBackupWorker(
     osszes: hatokorok.length,
     feldolgozva,
     hatralevo,
+    foglalt,
     futottVegig,
     lepesek,
   }

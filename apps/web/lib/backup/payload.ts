@@ -63,8 +63,16 @@ export function bucharestRunDate(now: Date = new Date()): string {
       month: '2-digit',
       day: '2-digit',
     }).format(now)
-  } catch {
+  } catch (e: unknown) {
     // ICU nélküli Node: inkább UTC-dátum, mint semmi — de HANGOSAN jelezve.
+    // ⚠️ 2026-08-11: a „HANGOSAN" korábban CSAK a kommentben szerepelt, a kód
+    //    némán tért vissza. Egy néma zóna-visszaesés a napi kulcsot tolná el egy
+    //    nappal — pontosan az a hibaosztály, amit ez a projekt már megtapasztalt.
+    console.error(
+      '[backup] Nincs Europe/Bucharest zóna-adat (ICU nélküli Node?). A napi kulcs UTC-dátumra esik vissza, ' +
+        'ami éjfél és 03:00 között ELŐZŐ napra könyvelné a mentést.',
+      e instanceof Error ? e.message : e,
+    )
     return now.toISOString().slice(0, 10)
   }
 }

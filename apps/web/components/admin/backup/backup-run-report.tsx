@@ -239,12 +239,41 @@ export function BackupRunReport({ eredmeny, fut = false }: Props) {
     (eredmeny.figyelmeztetesek?.length ?? 0) > 0 ||
     (eredmeny.bukottak?.length ?? 0) > 0
 
+  /**
+   * ════════════════════════════════════════════════════════════════════════════
+   * KÉPERNYŐOLVASÓ: RITKÁN VÁLTOZÓ, RÖVID ÖSSZEFOGLALÓ (2026-08-11)
+   * ════════════════════════════════════════════════════════════════════════════
+   * ⚠️ MIÉRT NEM AZ EGÉSZ SZEKCIÓ ÉLŐ RÉGIÓ. Korábban a TELJES jelentés
+   *    `role="status"` volt (implicit `aria-live="polite"`): fő mondat +
+   *    haladás-sor + „Mit tegyél?" + a nyolc lépéses lista. Amíg a mentés a
+   *    böngészőből futott, ez négypercenként változott. Mostantól a panel négy
+   *    MÁSODPERCENKÉNT kérdezi az állapotot, és minden befejezett hatókörnél
+   *    (≈18 másodperc) új szöveget ír bele — egy négyórás futás alatt ez ~800
+   *    teljes bekezdés-felolvasás. A képernyőolvasót használó tulajdonos így
+   *    egyszerűen NEM TUDNÁ HASZNÁLNI az oldalt, amíg a mentése dolgozik.
+   *
+   * Ezért az élő régió egy KIS, önmagában is értelmes mondat, ami futás közben
+   * csak TÍZ SZÁZALÉKONKÉNT változik. A vizuális frissítés marad 4 másodperces:
+   * a szem elviseli, a fül nem.
+   */
+  const lepcsosSzazalek = Math.floor(szazalek / 10) * 10
+  const elhangzo = fut
+    ? vanHaladas
+      ? `A mentés fut: nagyjából ${lepcsosSzazalek} százalék kész, ${osszes} hatókörből.`
+      : 'A mentés fut a szerveren.'
+    : (sikeres ? eredmeny.uzenet : eredmeny.error) ?? 'A mentés futása véget ért.'
+
   return (
     <section
-      role="status"
       aria-label="A mentés futásának jelentése"
       className={['space-y-3 rounded-2xl border p-3 text-sm leading-relaxed sm:p-4', szin].join(' ')}
     >
+      {/* Az EGYETLEN élő régió ezen a jelentésen. Vizuálisan rejtett: a látó
+          felhasználó ugyanezt a lenti mondatban és a haladás-sávon olvassa. */}
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        {elhangzo}
+      </p>
+
       {/* A LÉNYEG — egy mondat. Hibánál PIROS HÁROMSZÖG kíséri: a rossz hírt
           nem csak a (kontraszt miatt már nem piros) szöveg hordozza. */}
       <p className="flex items-start gap-2 font-semibold">

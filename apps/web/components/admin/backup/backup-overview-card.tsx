@@ -21,6 +21,7 @@
 import { AlertTriangle, CheckCircle2, CircleSlash, Clock, ShieldAlert } from 'lucide-react'
 
 import { StatusBadge, type StatusIntent } from '@/components/admin/_shared/status-badge'
+import { BUKARESTI_ZONA_FELIRAT, huIdopontBukarest } from '@/lib/utils/idopont-bukarest'
 import type { BackupOverview, DailyCoverage, PulseDay } from '@/app/(dashboard)/admin/biztonsagi-mentes/shared'
 
 function huNap(nap: string): string {
@@ -34,15 +35,17 @@ function rovidNap(nap: string): string {
   return `${m}.${d}.`
 }
 
+/**
+ * ⚠️ 2026-08-11 JAVÍTÁS. Itt korábban egy saját `toLocaleString('hu-HU', …)`
+ *    állt `timeZone` NÉLKÜL — vagyis a BÖNGÉSZŐ zónájában formázott, miközben a
+ *    kártya fejlécében ugyanaz az esemény a SZERVER (UTC) zónájában jelent meg.
+ *    A tulajdonos két különböző időt látott egymás alatt: 15:32 és 18:32.
+ *    A közös, Europe/Bucharest-re szögezett formázó ezt kizárja — és külföldön
+ *    (vagy más zónára állított gépen) is a romániai időt mutatja, ami itt a
+ *    helyes: a mentés a romániai naptár szerint készül.
+ */
 function huIdopont(iso: string | null): string {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleString('hu-HU', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return huIdopontBukarest(iso, 'long')
 }
 
 interface Megjelenes {
@@ -187,8 +190,18 @@ export function BackupOverviewCard({ overview }: { overview: BackupOverview }) {
 
           <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
             <Clock className="size-3.5" aria-hidden />
+            {/* ⚠️ A ZÓNA KIÍRÁSA NEM DÍSZ. Egy visszaállítás előtti „melyik mentést
+                válasszam?" döntés ezeken az időpontokon múlik — ha nem mondjuk meg,
+                melyik órát mutatjuk, a lelkész tippelni kezd. */}
+            {/* ⚠️ A ZÓNA-FELIRATON NINCS `opacity-*` (2026-08-11). 12 px-es, normál
+                vastagságú szöveg küszöbe 4,5:1. A `text-muted-foreground` szín
+                `opacity-80`-nal halványítva a kártya `bg-emerald-50` hátterén
+                kert-világoson 3,49:1, zsoltárosan 3,36:1, parókián 3,50:1, sötét
+                témában 4,16:1 — MIND A NÉGY bukás. Halványítás nélkül 5,25:1.
+                A hierarchiát a zárójel és a pozíció adja, nem a láthatatlanság. */}
             <span>
-              Utolsó <strong>ellenőrzött</strong> mentés: {huIdopont(overview.health.utolsoIgazoltAt)}
+              Utolsó <strong>ellenőrzött</strong> mentés: {huIdopont(overview.health.utolsoIgazoltAt)}{' '}
+              <span className="whitespace-nowrap">({BUKARESTI_ZONA_FELIRAT})</span>
             </span>
           </p>
 

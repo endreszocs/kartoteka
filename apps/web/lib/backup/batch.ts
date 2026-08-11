@@ -98,6 +98,41 @@ export function korlatokBeolvasasa(args: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// BÉRLET — hogy két futás ne mentse le UGYANAZT (2026-08-11)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * MEDDIG ÉL EGY FOGLALÁS a `backup_log` során.
+ *
+ * Egy hatókör mentése ~15-30 másodperc (≈90 tábla × 2 RPC + titkosítás +
+ * feltöltés + VISSZAOLVASÁS). A 15 perc nagyságrendekkel több ennél: a bérlet
+ * CSAK azt a sort veszi vissza, amelyik mögül a futó folyamat eltűnt (telepítés,
+ * újraindulás, összeomlás).
+ *
+ * ⚠️ RÖVIDEBB nem lehet: a MÉG DOLGOZÓ futás alól venné el a sort — vagyis
+ *    pontosan azt a kettős mentést okozná, ami ellen íródott.
+ * ⚠️ HOSSZABB sem érdemes: egy összeomlás után ennyi ideig a hatókör
+ *    „foglaltnak" látszik, és a folytatás nem tudja újrapróbálni.
+ */
+export const BERLET_MS = 15 * 60_000
+
+/**
+ * A bérlet-határ időbélyege, PostgREST-BARÁT alakban.
+ *
+ * ⚠️ MIÉRT KELL A MÁSODPERCTÖRTET LEVÁGNI. Ez az érték egy `or=(…)` szűrőbe
+ *    kerül, ahol a PostgREST az `oszlop.operátor.érték` hármast a PONTOKON
+ *    hasítja. Egy `2026-08-11T15:32:00.000Z` alakú érték tizedespontja elrontaná
+ *    az elemzést — és egy elrontott szűrő itt NÉMÁN TÁGÍTANA: a feltételes
+ *    frissítés minden sorra illeszkedne, a bérlet nem védene semmit, és két
+ *    futás ugyanazt a gyülekezetet mentené le kétszer. A vessző ugyanígy tilos
+ *    (az a feltételeket választja el); ISO-időbélyegben egyik sem fordul elő,
+ *    de ezt a függvényt önteszt őrzi.
+ */
+export function berletHatarIso(most: number = Date.now()): string {
+  return new Date(most - BERLET_MS).toISOString().replace(/\.\d{3}Z$/, 'Z')
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Hatókör-kulcs
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -203,6 +238,8 @@ export interface SzeletAllapot {
   sikertelen: number
   kihagyva: number
   hatralevo: number
+  /** Ennyi hatókört egy MÁSIK, éppen futó mentés tartott a kezében. */
+  foglalt?: number
   /** `true`, ha a futás MINDEN hatókörhöz hozzáért (nem maradt halasztott). */
   futottVegig: boolean
 }
@@ -211,12 +248,41 @@ export interface SzeletAllapot {
  * Kell-e még egy szelet?
  *
  * ⚠️ HALADÁS-FELTÉTEL: csak akkor kérünk újabb szeletet, ha az előző TÉNYLEGESEN
- *    haladt (dolgozott vagy kihagyott legalább egyet). Enélkül egy tartósan
- *    bukó hatókör végtelen ciklusba vinné a cront — és a végtelen ciklus
- *    rosszabb, mint a bevallott féleredmény.
+ *    ELŐRE IS VITTE a mentést. Enélkül egy tartósan bukó hatókör végtelen
+ *    ciklusba vinné a futást — és a végtelen ciklus rosszabb, mint a bevallott
+ *    féleredmény.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * 2026-08-11 JAVÍTÁS (2. menet) — A `sikeres` A MÉRVADÓ, NEM A `feldolgozva`
+ * ════════════════════════════════════════════════════════════════════════════
+ * Először `feldolgozva + kihagyva > 0` állt itt. Az első javítás a `kihagyva`-t
+ * vette ki (egy FOLYTATÁSNÁL az mindig nagy, tehát „haladást" mutatott akkor is,
+ * ha egyetlen hatókörhöz sem nyúltunk hozzá). A `feldolgozva` viszont MÉG MINDIG
+ * nem a haladást méri, hanem a PRÓBÁLKOZÁST:
+ *
+ *   · a `feldolgozva` a BUKOTT hatókört is számolja (`worker.ts`: a számláló a
+ *     `try` ELŐTT nő, a `catch` csak a `sikertelen`-t emeli),
+ *   · a FOLYTATÁSI PONT viszont KIZÁRÓLAG a sikerből épül: a `keszKulcsok`
+ *     halmazba csak `status='ok' AND drive_verified_at IS NOT NULL` sor kerül.
+ *
+ * Vagyis ha egy szeletben MINDEN megpróbált hatókör elbukik (lejárt Drive-token,
+ * tele Drive, halott adatbázis — pont az a rendszerszintű baj, amitől MINDEN
+ * mentés bukik), akkor a `keszKulcsok` ÜRESEN marad, a következő szelet
+ * UGYANAZT a listát UGYANONNAN kezdi — miközben a `feldolgozva > 0` „haladást"
+ * jelentett. 60 szeleten át ez ~12 000 fölösleges hatókör-export (hatókörönként
+ * ~90 tábla dump + titkosítás + bukott feltöltés) az ÉLES web-folyamatban, a
+ * haladás-sáv pedig végig 0 / 784.
+ *
+ * A `sikeres > 0` PONTOSAN azt méri, ami a következő szelet listáját szűkíti.
+ * A „bukott hatókör nem állítja meg a futást" szerződés sértetlen: ott egy-két
+ * bukás mellett sok a siker, tehát `sikeres > 0` → megyünk tovább.
+ *
+ * A „minden kész" eset szintén 0 sikerrel zárul, de azt a `futottVegig` és a
+ * `hatralevo <= 0` ág már fentebb elkapja: ott a válasz „nem kell több szelet",
+ * nem pedig „elakadtunk".
  */
 export function kellMegSzelet(allapot: SzeletAllapot): boolean {
   if (allapot.futottVegig) return false
   if (allapot.hatralevo <= 0) return false
-  return allapot.feldolgozva + allapot.kihagyva > 0
+  return allapot.sikeres > 0
 }

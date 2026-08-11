@@ -24,6 +24,8 @@ import 'server-only'
 import { selectAllPaged } from '@kartoteka/supabase-client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { bukarestiNapKulcs, huIdopontBukarest } from '@/lib/utils/idopont-bukarest'
+
 import { isMissingTableError } from './settings'
 import {
   ELAVULT_ORA,
@@ -40,12 +42,7 @@ import {
 export function bukarestiNap(date: Date = new Date()): string {
   // 'en-CA' → YYYY-MM-DD. A napváltás a mentés naptári kulcsa, ezért a
   // szerver UTC-je NEM használható: 23:00 UTC-kor Bukarestben már holnap van.
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Bucharest',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date)
+  return bukarestiNapKulcs(date)
 }
 
 /** Naptári eltolás YYYY-MM-DD alakon (DST-független, mert nincs benne óra). */
@@ -63,15 +60,20 @@ export function huNap(nap: string): string {
   return `${y}. ${m}. ${d}.`
 }
 
+/**
+ * ⚠️ 2026-08-11 JAVÍTÁS — EZ A FÜGGVÉNY A SZERVER ZÓNÁJÁT HASZNÁLTA.
+ *
+ * A fájl `server-only`, tehát ez a formázás MINDIG a Railway-konténerben fut,
+ * ahol nincs `TZ` beállítva → UTC. A tulajdonos ezért a kártya fejlécében
+ * „15:32"-t látott, közvetlenül alatta viszont (a böngészőben formázott sorban)
+ * „18:32"-t — ugyanarról az eseményről. A helyes érték a 18:32.
+ *
+ * Mostantól a formázás a KÖZÖS, Europe/Bucharest-re szögezett modulból jön, amit
+ * a kliens-komponensek is ugyanígy használnak — így a két szám nem tud
+ * széthúzni. ⛔ Kézi óra-eltolás TILOS: a különbség télen 2 óra, nem 3.
+ */
 export function huIdopont(iso: string | null): string {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleString('hu-HU', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return huIdopontBukarest(iso, 'long')
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

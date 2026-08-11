@@ -28,17 +28,17 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { StatusBadge } from '@/components/admin/_shared/status-badge'
+import { huIdopontBukarest } from '@/lib/utils/idopont-bukarest'
 import { formatBajt, type BackupLogRow } from '@/app/(dashboard)/admin/biztonsagi-mentes/shared'
 
+/**
+ * ⚠️ 2026-08-11 JAVÍTÁS: `timeZone` nélkül ez a BÖNGÉSZŐ zónájában formázott.
+ *    Romániában véletlenül jó volt, de egy külföldön járó esperes (vagy egy más
+ *    zónára állított gép) más órát látott volna — épp azokon az időpontokon,
+ *    amelyek alapján a visszaállítandó mentést kiválasztja.
+ */
 function huIdopont(iso: string | null): string {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleString('hu-HU', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return huIdopontBukarest(iso, 'short')
 }
 
 interface Props {

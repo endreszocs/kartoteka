@@ -147,6 +147,13 @@ $b = New-Object byte[] 32; [System.Security.Cryptography.RandomNumberGenerator]:
 |---|---|
 | `BACKUP_ALERT_EMAIL` | A címed, ahová a hibajelzés menjen (ha nincs megadva, a rendszergazda címére megy) |
 | `EXPIRY_REMINDER_SECRET` | A heti lejárat-emlékeztetőhöz — ugyanazzal a paranccsal generálhatod |
+| `BACKUP_WORKER_ENDPOINT` | `https://kartoteka.app/api/internal/backup` — **az ütemezett futáshoz kell** (lásd a 3. részt) |
+| `BACKUP_MAX_SZELET` | Hány szeletet vigyen egy éjszakai futás. Ha nem adod meg: **24** (≈4 óra). |
+
+> ⚠️ **A `BACKUP_MAX_RUN_MS`-t NE állítsd be**, hacsak nem tudod pontosan, mit csinálsz.
+> Ez a szelet időkeretét írja felül, és **erősebb**, mint a felületről indított futás saját
+> beállítása. Egy elgépelt érték itt a mentést nem állítja meg, de fölöslegesen hosszú
+> szeleteket okoz.
 
 ---
 
@@ -154,10 +161,43 @@ $b = New-Object byte[] 32; [System.Security.Cryptography.RandomNumberGenerator]:
 
 A Railway-en a szolgáltatás beállításai *(Settings)* közt keresd a **Cron Schedule** *(ütemezés)* vagy **Scheduled jobs** *(ütemezett feladatok)* részt, és vegyél fel egy napi futást:
 
-- **Időpont:** `17 2 * * *` — ez hajnali 2:17. *(Szándékosan nem kerek óra: éjfélkor és egész órakor a világ összes ütemezett feladata egyszerre indul.)*
-- **Amit futtat:** `POST https://kartoteka.app/api/internal/backup`, `Authorization: Bearer <a BACKUP_WORKER_SECRET értéke>` fejléccel.
+- **Időpont:** `17 2 * * *`
+- **Amit futtat:** `node apps/web/scripts/run-backup-worker.mjs`
 
-Ha a Railway-változatod nem tud HTTP-hívást ütemezni, szólj — akkor GitHub Actions-szel oldjuk meg, az a `.github` mappában már ott van.
+### ⚠️ A `17 2 * * *` UTC-ben értendő — NEM romániai időben
+
+A Railway ütemezője **UTC** szerint jár *(„schedules are based on UTC")*. A `17 2 * * *` tehát:
+
+| | Romániai idő |
+|---|---|
+| **Nyáron** (márc. vége – okt. vége, UTC+3) | **05:17** |
+| **Télen** (okt. vége – márc. vége, UTC+2) | **04:17** |
+
+*(Az útmutató korábbi változata azt írta, hogy „ez hajnali 2:17". Ez tévedés volt. A Railway nem
+ismer időzónát, tehát választani kell: vagy elfogadjuk, hogy a futás évente kétszer egy órát
+vándorol, vagy évente kétszer átírjuk az időpontot. A mentésnek nem számít, hogy hajnali 4 vagy 5
+óra — a félrevezető dokumentáció viszont igen, ezért inkább az igazságot írjuk ki.)*
+
+*(A perc szándékosan nem kerek: egész órakor a világ összes ütemezett feladata egyszerre indul.)*
+
+### ⚠️ Miért a szkriptet futtatjuk, és nem egy sima HTTP-hívást
+
+Az útmutató korábbi változata egyetlen `POST https://kartoteka.app/api/internal/backup` hívást
+ütemezett. Ez **egyetlen szeletet** futtatna — 784 gyülekezethez pedig több tucat kell. Ráadásul egy
+ilyen kérést a Railway edge-proxyja **300 másodperc** után elvág, ha közben nem mozog adat: a futás
+15 gyülekezet után elhalna, és éjszakánként ugyanennyivel haladna.
+
+A `run-backup-worker.mjs` ezzel szemben **szeletekben** hívja a motort, egymás után, amíg el nem fogy
+a munka — és minden szelet ott folytatja, ahol az előző abbahagyta. Ehhez kell a
+`BACKUP_WORKER_ENDPOINT` változó (lásd az „Ajánlott" táblázatot).
+
+Ha a Railway-változatod nem tud parancsot ütemezni, szólj — akkor GitHub Actions-szel oldjuk meg.
+*(A `.github/workflows` mappában jelenleg **csak** a `ci.yml` van, ütemezés nélkül; azt előbb meg
+kell írni.)*
+
+> **Nem kell megvárnod az éjszakát.** Az **Admin → Biztonsági mentés → „Mentés most"** gomb ugyanezt
+> a munkát elvégzi: elindítja a teljes futást a szerveren, és a lap megmutatja, hol tart
+> (`N / 784`). Az oldalt nyugodtan bezárhatod — a mentés a szerveren fut tovább.
 
 ---
 

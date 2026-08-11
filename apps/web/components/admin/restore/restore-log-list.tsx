@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button'
 import { AdminEmptyState } from '@/components/admin/_shared/admin-empty-state'
 import { AdminTable } from '@/components/admin/_shared/admin-table'
 import { StatusBadge, type StatusIntent } from '@/components/admin/_shared/status-badge'
+import { huIdopontBukarest } from '@/lib/utils/idopont-bukarest'
 
 import { listRestoreLogAction } from '@/app/(dashboard)/admin/biztonsagi-mentes/restore-actions'
 import type { RestoreLogEntry } from '@/app/(dashboard)/admin/biztonsagi-mentes/restore-shared'
@@ -30,17 +31,9 @@ const TIPUS_FELIRAT: Record<string, string> = {
   passphrase_fail: 'hibás jelszó',
 }
 
+/** ⚠️ 2026-08-11: `timeZone` nélkül a böngésző zónáját vette — lásd a közös modult. */
 function datumIdo(iso: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString('hu-HU', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return huIdopontBukarest(iso, 'short')
 }
 
 function allapot(r: RestoreLogEntry): { intent: StatusIntent; felirat: string } {

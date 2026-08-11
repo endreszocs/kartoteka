@@ -23,6 +23,7 @@ import 'server-only'
 import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
 import { getCongregationOfficials } from '@/lib/profiles/officials'
 import { sendEmail } from '@/lib/email/send'
+import { bukarestiNapKulcs } from '@/lib/utils/idopont-bukarest'
 import { isMissingTableError, loadAlertRecipient } from './settings'
 
 const FELULET_UT = '/admin/biztonsagi-mentes'
@@ -127,7 +128,14 @@ export async function sendDriveFailureAlert(input: DriveAlertInput): Promise<Dri
     kihagyva: false,
   }
 
-  const napKulcs = new Date().toISOString().slice(0, 10)
+  // ⚠️ 2026-08-11 JAVÍTÁS — AZ ŐRSZEM PONT AKKOR HALLGATOTT EL, AMIKOR BESZÉLNIE
+  //    KELLETT VOLNA. Itt korábban `new Date().toISOString().slice(0, 10)` állt,
+  //    vagyis UTC-nap. Ettől a „naponta egy értesítés" ablak határa 03:00
+  //    bukaresti időkor volt (télen 02:00) — PONTOSAN az éjszakai mentési ablak
+  //    közepén. Egy 02:30-kor kelt riasztás így ugyanahhoz a kulcshoz tartozott,
+  //    mint az előző nap délutáni riasztása, és mivel a függvény „kihagyva"
+  //    esetén a LEVÉLKÜLDÉS ELŐTT visszatér, a hajnali riasztás elnémulhatott.
+  const napKulcs = bukarestiNapKulcs()
   const dedup = input.dedupKulcs ?? `${FELULET_UT}?riasztas=${input.kind}-${napKulcs}`
   const cim = CIMEK[input.kind]
   const uzenet =

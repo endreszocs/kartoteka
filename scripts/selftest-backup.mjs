@@ -47,6 +47,11 @@ const SOURCES = {
   // 2026-08-11: kötegelés/folytatás + a beszédes hibaüzenet tiszta magja.
   batch: path.join(BACKUP_DIR, 'batch.ts'),
   steps: path.join(BACKUP_DIR, 'steps.ts'),
+  // 2026-08-11: a KÖZÖS, Europe/Bucharest-re szögezett idő-formázó. Azért van
+  // itt, mert a mentés-felület KÉT oldalról (szerver + böngésző) használja, és
+  // pontosan a két külön másolat okozta, hogy ugyanarról az eseményről két
+  // különböző idő jelent meg egymás alatt.
+  idopont: path.join(REPO_ROOT, 'apps', 'web', 'lib', 'utils', 'idopont-bukarest.ts'),
 }
 
 let failed = false
@@ -118,7 +123,7 @@ function loadTs(srcFile, outName) {
   return require_(dest)
 }
 
-let container, keys, payload, inventory, batch, steps
+let container, keys, payload, inventory, batch, steps, idopont
 try {
   container = loadTs(SOURCES.container, 'container')
   keys = loadTs(SOURCES.keys, 'keys')
@@ -126,6 +131,7 @@ try {
   inventory = loadTs(SOURCES.inventory, 'inventory')
   batch = loadTs(SOURCES.batch, 'batch')
   steps = loadTs(SOURCES.steps, 'steps')
+  idopont = loadTs(SOURCES.idopont, 'idopont')
 } catch (e) {
   fail(`transpile/betöltés hiba: ${e?.message || e}`)
   fs.rmSync(tmp, { recursive: true, force: true })
@@ -709,7 +715,12 @@ const alapPayloadInput = (tablak) => ({
 
 // C8 — a napi kulcs Europe/Bucharest szerint
 {
-  // A cron 23:00 UTC-kor indul → helyi idő szerint MÁSNAP 02:00.
+  // ⚠️ 2026-08-11: a korábbi komment „a cron 23:00 UTC-kor indul → MÁSNAP 02:00"
+  //    volt, ami a repóban a HARMADIK, egymásnak ellentmondó cron-állítás volt.
+  //    Az ütemezés `17 2 * * *` UTC szerint (= nyáron 05:17, télen 04:17
+  //    Bukarestben). A teszt lényege ettől független: a NAPKULCS a bukaresti
+  //    naptárból jön, nem az UTC-ből — ezért használunk 23:30Z-t, ami már a
+  //    KÖVETKEZŐ bukaresti nap.
   const nyar = bucharestRunDate(new Date('2026-08-11T23:30:00Z')) // UTC+3
   const tel = bucharestRunDate(new Date('2026-01-15T23:30:00Z')) // UTC+2
   const nappal = bucharestRunDate(new Date('2026-08-11T09:00:00Z'))
@@ -717,6 +728,62 @@ const alapPayloadInput = (tablak) => ({
     ok('C8 ⭐ a futás napja HELYI idő szerint dől el (nyáron és télen is), nem UTC szerint')
   } else {
     fail(`C8: nyar=${nyar} (várt 2026-08-12), tel=${tel} (várt 2026-01-16), nappal=${nappal}`)
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// C9 — ⭐⭐ AZ IDŐPONT-KIÍRÁS FÜGGETLEN A FUTTATÓ GÉP ZÓNÁJÁTÓL (2026-08-11)
+// ═════════════════════════════════════════════════════════════════════════════
+// A MÉRT HIBA: a mentés-kártya ugyanarról az eseményről két különböző időt írt
+// ki — a fejlécben 15:32 (a SZERVEREN, UTC-ben formázva), alatta 18:32 (a
+// BÖNGÉSZŐBEN, Bukarest szerint). Mindkét helyen ugyanaz a mulasztás: hiányzott
+// a `timeZone` opció. Ez a teszt pontosan azt fogja meg: UGYANAZ a pillanat,
+// UGYANAZ a formázó, KÉT KÜLÖNBÖZŐ gép-zónában — az eredménynek egyeznie kell.
+{
+  const { huIdopontBukarest, bukarestiNapKulcs } = idopont
+  const pillanat = '2026-08-11T15:32:00Z'
+
+  // A Node a zónát az `Intl` hívás pillanatában olvassa a `process.env.TZ`-ből,
+  // ezért elég átállítani és visszaállítani.
+  const eredetiTz = process.env.TZ
+  const merj = (tz, fn) => {
+    process.env.TZ = tz
+    try {
+      return fn()
+    } finally {
+      if (eredetiTz === undefined) delete process.env.TZ
+      else process.env.TZ = eredetiTz
+    }
+  }
+
+  // ⚠️ A formázó gyorsítótárazza az `Intl.DateTimeFormat` példányt, ezért a
+  //    modult zónánként FRISSEN töltjük be — különben az első hívás zónája
+  //    ragadna be, és a teszt akkor is átmenne, ha a hiba visszatérne.
+  const utcSzoveg = merj('UTC', () => loadTs(SOURCES.idopont, 'idopont_utc').huIdopontBukarest(pillanat))
+  const buSzoveg = merj('Europe/Bucharest', () =>
+    loadTs(SOURCES.idopont, 'idopont_bu').huIdopontBukarest(pillanat),
+  )
+
+  if (utcSzoveg === buSzoveg && /18:32/.test(buSzoveg)) {
+    ok('C9 ⭐⭐ ugyanaz az időpont UTC-s és bukaresti gépen IS azonos szöveg (és 18:32, nem 15:32)')
+  } else {
+    fail(`C9: utc="${utcSzoveg}" bukarest="${buSzoveg}" — a kiírás a futtató gép zónájától függ`)
+  }
+
+  // C9b — a NAPKULCS is zóna-független, és a téli/nyári különbséget is bírja.
+  // ⚠️ EZ NEM KIJELZÉS: ez a `backup_log` napi egyedi indexének a kulcsa, a
+  //    „ma/tegnap" lefedettségé ÉS a riasztás-deduplikálásé. Ha UTC-ben számolna,
+  //    a nap 03:00-kor (télen 02:00-kor) váltana — PONT az éjszakai mentési
+  //    ablak közepén, vagyis a hajnali riasztás az előző nap kulcsához tartozna
+  //    és NÉMÁN kimaradna.
+  const napUtc = merj('UTC', () =>
+    loadTs(SOURCES.idopont, 'idopont_utc2').bukarestiNapKulcs(new Date('2026-08-11T21:30:00Z')),
+  )
+  const napTel = bukarestiNapKulcs(new Date('2026-01-15T22:30:00Z'))
+  if (napUtc === '2026-08-12' && napTel === '2026-01-16' && huIdopontBukarest(null) === '—') {
+    ok('C9b ⭐ a napkulcs bukaresti nap szerint vált (nyáron 21:00Z-kor, télen 22:00Z-kor)')
+  } else {
+    fail(`C9b: napUtc=${napUtc} (várt 2026-08-12), napTel=${napTel} (várt 2026-01-16)`)
   }
 }
 
@@ -1255,6 +1322,8 @@ function teljesCsovezetek({ varhatoFelulir = null, tarolotRongal = false } = {})
     ferBeleUjabbHatokor,
     kellMegSzelet,
     korlatokBeolvasasa,
+    berletHatarIso,
+    BERLET_MS,
     MAX_IDOKERET_MS,
     MIN_IDOKERET_MS,
     ALAP_IDOKERET_MS,
@@ -1383,8 +1452,8 @@ function teljesCsovezetek({ varhatoFelulir = null, tarolotRongal = false } = {})
   const alap = { osszes: 100, sikeres: 0, sikertelen: 0, kihagyva: 0, feldolgozva: 0, hatralevo: 40 }
   if (
     !kellMegSzelet({ ...alap, futottVegig: false }) &&
-    kellMegSzelet({ ...alap, feldolgozva: 5, futottVegig: false }) &&
-    !kellMegSzelet({ ...alap, feldolgozva: 5, hatralevo: 0, futottVegig: true })
+    kellMegSzelet({ ...alap, feldolgozva: 5, sikeres: 5, futottVegig: false }) &&
+    !kellMegSzelet({ ...alap, feldolgozva: 5, sikeres: 5, hatralevo: 0, futottVegig: true })
   ) {
     ok('H9 a nem haladó szelet NEM kér újabbat (nincs végtelen ciklus)')
   } else {
@@ -1411,6 +1480,110 @@ function teljesCsovezetek({ varhatoFelulir = null, tarolotRongal = false } = {})
     ok('H9b ⭐⭐ a bukott hatókör NEM állítja meg a futást (a maradék ~700 mentése elindul)')
   } else {
     fail('H9b: egy bukott hatókör megállította a folytatást — 700 gyülekezet maradna mentés nélkül')
+  }
+
+  // H9c — ⭐⭐ A `kihagyva` NEM HALADÁS (2026-08-11 javítás).
+  // A feltétel korábban `feldolgozva + kihagyva > 0` volt. Egy FOLYTATÁSNÁL a
+  // `kihagyva` mindig nagy (a mai már igazolt hatókörök), tehát ez akkor is
+  // „haladást" mutatott, ha valójában EGYETLEN hatókörhöz sem tudtunk
+  // hozzányúlni — például mert mindet egy párhuzamosan futó mentés tartotta a
+  // kezében. Az eredmény tucatnyi fölösleges, teljes körű szelet lett volna,
+  // mindegyik 784 hatókör végiglapozásával, ÉPP a mentés alól véve el az
+  // adatbázist.
+  const csakKihagyas = {
+    osszes: 784,
+    sikeres: 0,
+    sikertelen: 0,
+    kihagyva: 700,
+    feldolgozva: 0,
+    foglalt: 84,
+    hatralevo: 84,
+    futottVegig: false,
+  }
+  if (
+    !kellMegSzelet(csakKihagyas) &&
+    kellMegSzelet({ ...csakKihagyas, feldolgozva: 1, sikeres: 1 })
+  ) {
+    ok('H9c ⭐⭐ a puszta kihagyás NEM számít haladásnak (nincs fölösleges körözés a foglalt hatókörökön)')
+  } else {
+    fail('H9c: a kihagyás haladásnak számít — a futás a végtelenségig pörögne a foglalt hatókörökön')
+  }
+
+  // H9d — a „MINDEN KÉSZ" eset NEM elakadás. Ugyanúgy 0 feldolgozottal zárul,
+  // mint az elakadás, de a `hatralevo <= 0` ág elkapja, MIELŐTT a haladás-
+  // feltételhez érnénk. Ha ez felcserélődne, a kész mentés „elakadt"-nak
+  // látszana — és a tulajdonos hibát keresne ott, ahol nincs.
+  if (
+    !kellMegSzelet({
+      osszes: 784,
+      sikeres: 0,
+      sikertelen: 0,
+      kihagyva: 784,
+      feldolgozva: 0,
+      foglalt: 0,
+      hatralevo: 0,
+      futottVegig: true,
+    })
+  ) {
+    ok('H9d a „minden hatókör már kész" szelet nem kér újabbat, és nem is elakadás')
+  } else {
+    fail('H9d: a kész futás újabb szeletet kért')
+  }
+
+  // H9f — ⭐⭐⭐ A CSUPA-BUKÁS SZELET NEM KÉR ÚJABBAT (2026-08-11, blokkoló).
+  // A haladást a SIKER méri, nem a PRÓBÁLKOZÁS. A `feldolgozva` a bukott
+  // hatökört is számolja (a számláló a `try` ELŐTT nő), a FOLYTATÁSI PONT viszont
+  // kizárólag az igazolt (`ok` + `drive_verified_at`) napló-sorokból épül. Ha
+  // tehát egy szeletben MINDEN megpróbált hatókör elbukik — lejárt Drive-token,
+  // tele Drive, halott adatbázis; vagyis pont az a rendszerszintű baj, amitől
+  // minden mentés bukik —, akkor a következő szelet UGYANAZT a listát UGYANONNAN
+  // kezdené. A régi `feldolgozva > 0` feltétel mellett ez 60 szeleten (10 órán)
+  // át ismétlődött volna: ~12 000 fölösleges hatókör-export (hatókörönként ~90
+  // tábla dump + titkosítás + bukott feltöltés) ÉLESBEN, a webkiszolgáló
+  // folyamatában, 0 / 784 haladás-sáv mellett — miközben a tulajdonos a saját
+  // utasításunk szerint már bezárta a fület, tehát a „Leállítás" gombot senki
+  // nem nyomja meg.
+  if (
+    !kellMegSzelet({
+      osszes: 784,
+      feldolgozva: 200,
+      sikeres: 0,
+      sikertelen: 200,
+      kihagyva: 0,
+      foglalt: 0,
+      hatralevo: 584,
+      futottVegig: false,
+    })
+  ) {
+    ok('H9f ⭐⭐⭐ a csupa-bukás szelet NEM kér újabbat (nincs 10 órás körözés ugyanazon a listán)')
+  } else {
+    fail(
+      'H9f: a csupa-bukás szelet újabbat kért — a futás órákig ismételné ugyanazt a bukó listát',
+    )
+  }
+
+  // H9e — ⭐⭐ A BÉRLET-HATÁR PostgREST-BARÁT (2026-08-11).
+  // Ez az érték egy `or=(status.neq.fut,started_at.is.null,started_at.lt.<ITT>)`
+  // szűrőbe kerül, ahol a PostgREST az `oszlop.operátor.érték` hármast a
+  // PONTOKON hasítja, a feltételeket pedig VESSZŐVEL választja el. Ha az érték
+  // bármelyiket tartalmazná, a szűrő elemzése elromlana — és egy elromlott
+  // szűrő itt NÉMÁN TÁGÍTANA: a feltételes frissítés minden sorra illeszkedne,
+  // a bérlet nem védene semmit, és két párhuzamos futás UGYANAZT a gyülekezetet
+  // mentené le kétszer. A második fájl ÁRVA lenne a Drive-on (a napló csak az
+  // utolsó azonosítót őrzi), amit a nyesés soha nem talál meg.
+  {
+    const most = Date.parse('2026-08-11T15:32:07.412Z')
+    const hatar = berletHatarIso(most)
+    const vissza = Date.parse(hatar)
+    const tiszta = !hatar.includes('.') && !hatar.includes(',') && !hatar.includes('(')
+    // A vágás miatt legfeljebb egy másodperccel „régebbi" lehet a névleges
+    // határnál — ez a BIZTONSÁGOS irány (inkább későbbi lejárat, mint korábbi).
+    const eltolas = most - BERLET_MS - vissza
+    if (tiszta && eltolas >= 0 && eltolas < 1000) {
+      ok('H9e ⭐⭐ a bérlet-határ pont-/vesszőmentes (a PostgREST-szűrő nem tud némán tágítani)')
+    } else {
+      fail(`H9e: hatar="${hatar}" tiszta=${tiszta} eltolas=${eltolas}ms`)
+    }
   }
 
   // H10 — a korlátok VÁGVA jönnek be: egy elgépelt env-változó nem tudja
