@@ -13,12 +13,7 @@ import {
 } from 'lucide-react'
 
 import { getDb } from '@/lib/offline/db'
-import { useOnlineStatus } from '@/lib/offline/hooks/use-online-status'
-import { useSyncCount } from '@/lib/offline/hooks/use-sync-query'
-import {
-  getSyncOrchestrator,
-  type SyncEvent,
-} from '@/lib/offline/sync-orchestrator'
+import { useSyncStatus } from '@/lib/offline/hooks/use-sync-status'
 import { TABLE_REGISTRY } from '@/lib/offline/table-registry'
 
 /**
@@ -29,36 +24,22 @@ import { TABLE_REGISTRY } from '@/lib/offline/table-registry'
  *  2. Cache méret (összes rekord)
  *  3. Pending változások (offline queue)
  *  4. Konfliktusok (ha van)
+ *
+ * 2026-08-11: a saját `useState(syncing)` + két külön Dexie-számláló helyett a
+ * közös `useSyncStatus()` hookból olvas — ugyanaz a forrás, mint a fejléc
+ * szinkron-jelzőjéé. A „Várakozó változás" mostantól a TELJES sort számolja
+ * (a korábbi `pending + failed` kihagyta a beragadt és a véglegesen
+ * fentragadt mutációkat).
  */
 export function OfflineDashboardStats() {
-  // SSR safety
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => {
-    let cancelled = false
-    queueMicrotask(() => {
-      if (!cancelled) setMounted(true)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const allapot = useSyncStatus()
+  const mounted = allapot.mounted
+  const isOnline = allapot.online
+  const syncing = allapot.fut
+  const pendingCount = allapot.bontas.osszesVarakozo
+  const conflictCount = allapot.bontas.conflict
 
-  const isOnline = useOnlineStatus()
-  const [syncing, setSyncing] = useState(false)
   const [totalCache, setTotalCache] = useState(0)
-
-  const pendingCount = useSyncCount(
-    mounted ? '_mutation_queue' : '__noop__',
-    t =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (t as any).where('status').anyOf(['pending', 'failed']).count(),
-  )
-  const conflictCount = useSyncCount(
-    mounted ? '_conflicts' : '__noop__',
-    t =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (t as any).where('resolved').equals(0).count(),
-  )
 
   // Cache total — periodikusan frissítjük
   useEffect(() => {
@@ -82,25 +63,6 @@ export function OfflineDashboardStats() {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [mounted])
-
-  // Syncing állapot
-  useEffect(() => {
-    if (!mounted || typeof window === 'undefined') return
-    const orchestrator = getSyncOrchestrator()
-    const unsubscribe = orchestrator.subscribe((event: SyncEvent) => {
-      if (event.type === 'pull_started' || event.type === 'push_started') {
-        setSyncing(true)
-      } else if (
-        event.type === 'pull_completed' ||
-        event.type === 'push_completed' ||
-        event.type === 'pull_error' ||
-        event.type === 'push_error'
-      ) {
-        setSyncing(false)
-      }
-    })
-    return unsubscribe
   }, [mounted])
 
   return (

@@ -202,6 +202,42 @@ export async function markConflict(
 }
 
 /**
+ * BERAGADT „syncing" MUTÁCIÓK VISSZAÁLLÍTÁSA — indulási helyreállítás (2026-08-11).
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * MIÉRT KELL: NÉMA, VÉGLEGES ADATVESZTÉS VOLT
+ * ════════════════════════════════════════════════════════════════════════════
+ * A push a mutációt `markSyncing()`-gel 'syncing' állapotba teszi. Ha a fül
+ * eközben bezárul, a böngésző összeomlik, vagy a gép elalszik, SEMMI nem
+ * állította vissza: a `getNextBatch()` csak 'pending' és 'failed' sorokat vesz
+ * elő, a jelző pedig szintén csak ezt a kettőt számolta. A lelkész helyi
+ * módosítása így ÖRÖKRE ott ragadt, a felület meg zöldet mutatott.
+ *
+ * Ez a függvény KIZÁRÓLAG az orchestrator `start()`-jából fut. Ez a kulcs a
+ * biztonságához: indításkor definíció szerint EGYETLEN push sem lehet
+ * folyamatban ebben a fülben, tehát minden 'syncing' sor bizonyítottan
+ * árva. (Épp ezért NEM futtatjuk menet közben: ott egy időtúllépett, de a
+ * háttérben mégis sikerülő kérés visszaállítása duplikált beszúrást okozhatna.)
+ *
+ * @returns hány sort állítottunk vissza
+ */
+export async function resetStuckSyncing(): Promise<number> {
+  const db = getDb()
+  const beragadt = await db._mutation_queue.where('status').equals('syncing').toArray()
+  if (beragadt.length === 0) return 0
+  for (const m of beragadt) {
+    await db._mutation_queue.update(m.id, {
+      status: 'pending',
+      nextRetryAt: null,
+      errorMsg:
+        'Az előző feltöltés félbeszakadt (bezárt fül vagy megszakadt kapcsolat), ' +
+        'ezért a rendszer újra megpróbálja.',
+    })
+  }
+  return beragadt.length
+}
+
+/**
  * Dead letter — ember-olvasható ha a user látni akarja a feladható mutációkat.
  */
 export async function getDeadLetters(): Promise<MutationEnvelope[]> {

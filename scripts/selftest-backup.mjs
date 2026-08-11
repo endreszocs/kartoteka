@@ -44,6 +44,9 @@ const SOURCES = {
   keys: path.join(BACKUP_DIR, 'keys.ts'),
   payload: path.join(BACKUP_DIR, 'payload.ts'),
   inventory: path.join(BACKUP_DIR, 'inventory.ts'),
+  // 2026-08-11: kötegelés/folytatás + a beszédes hibaüzenet tiszta magja.
+  batch: path.join(BACKUP_DIR, 'batch.ts'),
+  steps: path.join(BACKUP_DIR, 'steps.ts'),
 }
 
 let failed = false
@@ -115,12 +118,14 @@ function loadTs(srcFile, outName) {
   return require_(dest)
 }
 
-let container, keys, payload, inventory
+let container, keys, payload, inventory, batch, steps
 try {
   container = loadTs(SOURCES.container, 'container')
   keys = loadTs(SOURCES.keys, 'keys')
   payload = loadTs(SOURCES.payload, 'payload')
   inventory = loadTs(SOURCES.inventory, 'inventory')
+  batch = loadTs(SOURCES.batch, 'batch')
+  steps = loadTs(SOURCES.steps, 'steps')
 } catch (e) {
   fail(`transpile/betöltés hiba: ${e?.message || e}`)
   fs.rmSync(tmp, { recursive: true, force: true })
@@ -1234,6 +1239,395 @@ function teljesCsovezetek({ varhatoFelulir = null, tarolotRongal = false } = {})
     }
   } catch (e) {
     fail(`G4: kivétel — ${e?.message || e}`)
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// H — KÖTEGELÉS ÉS FOLYTATÁS (batch.ts)
+// ═══════════════════════════════════════════════════════════════════════════
+// A 2026-08-11-i hiba második fele: a „Mentés most" mind a 784 hatókört EGY
+// HTTP-kérésben próbálta lementeni. Ezek az állítások azt védik, hogy a
+// szeletelés SOHA ne veszítsen el kész munkát, és SOHA ne ragadjon be.
+{
+  const {
+    scopeKulcs,
+    tervezFutas,
+    ferBeleUjabbHatokor,
+    kellMegSzelet,
+    korlatokBeolvasasa,
+    MAX_IDOKERET_MS,
+    MIN_IDOKERET_MS,
+    ALAP_IDOKERET_MS,
+  } = batch
+
+  const h = (id) => ({ scope: id === null ? 'globalis' : 'gyulekezet', congregationId: id })
+  const kulcs = (x) => scopeKulcs(x.scope, x.congregationId)
+  const lista = [h('a'), h('b'), h('c'), h('d'), h(null)]
+
+  // H1 — a globális hatókör kulcsa NEM keveredhet össze egy üres azonosítóval.
+  if (
+    scopeKulcs('globalis', null) === 'globalis:GLOBALIS' &&
+    scopeKulcs('gyulekezet', '') !== scopeKulcs('globalis', null) &&
+    scopeKulcs('gyulekezet', null) !== scopeKulcs('globalis', null)
+  ) {
+    ok('H1 a globális hatókör kulcsa egyedi (nem keveredik üres azonosítóval)')
+  } else {
+    fail(`H1: ${scopeKulcs('globalis', null)} / ${scopeKulcs('gyulekezet', '')}`)
+  }
+
+  // H2 — A LEGFONTOSABB ÁLLÍTÁS: a KIHAGYÁS NEM fogyasztja a darab-korlátot.
+  // Enélkül egy folytatás a keretét a MÁR KÉSZ hatókörök átlépésére költené, és
+  // SOHA nem jutna előre — a mentés örökre félkész maradna, némán.
+  {
+    const kesz = new Set([kulcs(h('a')), kulcs(h('b')), kulcs(h('c'))])
+    const t = tervezFutas({ hatokorok: lista, kulcs, keszKulcsok: kesz, maxHatokor: 2 })
+    if (t.kihagyando.length === 3 && t.futtatando.length === 2 && t.halasztott.length === 0) {
+      ok('H2 a kihagyás NEM fogyasztja a darab-korlátot (a folytatás tud haladni)')
+    } else {
+      fail(
+        `H2: kihagyando=${t.kihagyando.length} futtatando=${t.futtatando.length} halasztott=${t.halasztott.length}`,
+      )
+    }
+  }
+
+  // H3 — a darab-korlát fölötti maradék HALASZTOTT, nem elveszett és nem hibás.
+  {
+    const t = tervezFutas({ hatokorok: lista, kulcs, keszKulcsok: [], maxHatokor: 2 })
+    const osszesen = t.kihagyando.length + t.futtatando.length + t.halasztott.length
+    if (t.futtatando.length === 2 && t.halasztott.length === 3 && osszesen === lista.length) {
+      ok('H3 a darab-korlát fölötti maradék HALASZTOTT — egyetlen hatókör sem vész el')
+    } else {
+      fail(`H3: futtatando=${t.futtatando.length} halasztott=${t.halasztott.length} össz=${osszesen}`)
+    }
+  }
+
+  // H4 — `maxHatokor: 0` = nincs darab-korlát (a napi cron alapértelmezése).
+  {
+    const t = tervezFutas({ hatokorok: lista, kulcs, keszKulcsok: [], maxHatokor: 0 })
+    if (t.futtatando.length === lista.length && t.halasztott.length === 0) {
+      ok('H4 a 0 darab-korlát = korlátlan (nem pedig „egyet sem")')
+    } else {
+      fail(`H4: futtatando=${t.futtatando.length}`)
+    }
+  }
+
+  // H5 — a SORREND megmarad: egy folytatás determinisztikusan halad előre.
+  {
+    const t = tervezFutas({
+      hatokorok: lista,
+      kulcs,
+      keszKulcsok: [kulcs(h('b'))],
+      maxHatokor: 0,
+    })
+    const sorrend = t.futtatando.map((x) => x.congregationId).join(',')
+    if (sorrend === 'a,c,d,') {
+      ok('H5 a hatókörök sorrendje megmarad (a folytatás nem ugrál össze-vissza)')
+    } else {
+      fail(`H5: sorrend=${sorrend}`)
+    }
+  }
+
+  // H6 — HALADÁS-GARANCIA: egy szűkös keret is megpróbál LEGALÁBB egy hatókört.
+  // Enélkül egy rosszul beállított időkeret örökös tétlenséget okozna, ami
+  // kívülről pontosan úgy néz ki, mint egy működő rendszer.
+  if (
+    ferBeleUjabbHatokor({
+      elteltMs: 999_999,
+      maxFutasiIdoMs: 1000,
+      atlagosHatokorMs: 50_000,
+      feldolgozott: 0,
+    })
+  ) {
+    ok('H6 haladás-garancia: a legszűkösebb keret is megpróbál EGY hatókört')
+  } else {
+    fail('H6: a szűkös keret egyetlen hatökört sem indított el')
+  }
+
+  // H7 — a keret lejárta után NEM indul újabb hatókör.
+  if (
+    !ferBeleUjabbHatokor({
+      elteltMs: 5000,
+      maxFutasiIdoMs: 4000,
+      atlagosHatokorMs: 10,
+      feldolgozott: 3,
+    })
+  ) {
+    ok('H7 a lejárt időkeret után nem indul újabb hatókör')
+  } else {
+    fail('H7: lejárt keret mellett is indult volna újabb hatókör')
+  }
+
+  // H8 — ELŐRELÁTÁS: nem indítunk olyan hatökört, ami VÁRHATÓAN átlógna. Az
+  // átlógás nem rendezett megállás, hanem elvágódás — „fut" állapotban ragadt
+  // napló-sort hagyna maga után.
+  const belefer = ferBeleUjabbHatokor({
+    elteltMs: 8000,
+    maxFutasiIdoMs: 10_000,
+    atlagosHatokorMs: 1000,
+    feldolgozott: 8,
+  })
+  const nemFer = ferBeleUjabbHatokor({
+    elteltMs: 8000,
+    maxFutasiIdoMs: 10_000,
+    atlagosHatokorMs: 5000,
+    feldolgozott: 8,
+  })
+  if (belefer && !nemFer) {
+    ok('H8 az átlagos hatókör-idő alapján ELŐRE eldöntjük, belefér-e még egy')
+  } else {
+    fail(`H8: belefer=${belefer} nemFer=${nemFer}`)
+  }
+
+  // H9 — VÉGTELEN CIKLUS ELLEN: ha egy szelet SEMMIT nem vitt el, nem kérünk
+  // újabbat. A végtelen ciklus rosszabb, mint a bevallott féleredmény.
+  const alap = { osszes: 100, sikeres: 0, sikertelen: 0, kihagyva: 0, feldolgozva: 0, hatralevo: 40 }
+  if (
+    !kellMegSzelet({ ...alap, futottVegig: false }) &&
+    kellMegSzelet({ ...alap, feldolgozva: 5, futottVegig: false }) &&
+    !kellMegSzelet({ ...alap, feldolgozva: 5, hatralevo: 0, futottVegig: true })
+  ) {
+    ok('H9 a nem haladó szelet NEM kér újabbat (nincs végtelen ciklus)')
+  } else {
+    fail('H9: a szelet-folytatás feltétele hibás')
+  }
+
+  // H9b — ⭐⭐ A BUKOTT HATÓKÖR NEM ÁLLÍTJA MEG A FUTÁST (2026-08-11).
+  // Ez a 2026-08-11-i blokkoló pontos szerződése. A végpont korábban 500-at
+  // adott, ha BÁRMELYIK hatökör elbukott a szeletben; erre a cron `break`-elt és
+  // a felületi ciklus `return`-ölt — vagyis EGYETLEN tartósan bukó gyülekezet
+  // (túl nagy fájl, elrontott szűrő) miatt a maradék ~700 hatókör mentése minden
+  // éjjel ELMARADT. A folytatás feltétele KIZÁRÓLAG a haladás lehet, SOHA nem a
+  // hibátlanság.
+  if (
+    kellMegSzelet({
+      ...alap,
+      feldolgozva: 12,
+      sikeres: 11,
+      sikertelen: 1,
+      hatralevo: 700,
+      futottVegig: false,
+    })
+  ) {
+    ok('H9b ⭐⭐ a bukott hatókör NEM állítja meg a futást (a maradék ~700 mentése elindul)')
+  } else {
+    fail('H9b: egy bukott hatókör megállította a folytatást — 700 gyülekezet maradna mentés nélkül')
+  }
+
+  // H10 — a korlátok VÁGVA jönnek be: egy elgépelt env-változó nem tudja
+  // átvinni a futást a 15 perces HTTP-korláton, és nem is állítja meg.
+  const k1 = korlatokBeolvasasa({ nyersIdo: 99_999_999, nyersDarab: -5 })
+  const k2 = korlatokBeolvasasa({ nyersIdo: 'ez nem szám', nyersDarab: undefined })
+  const k3 = korlatokBeolvasasa({ nyersIdo: 5, nyersDarab: '3' })
+  if (
+    k1.maxFutasiIdoMs === MAX_IDOKERET_MS &&
+    k1.maxHatokor === 0 &&
+    k2.maxFutasiIdoMs === ALAP_IDOKERET_MS &&
+    k3.maxFutasiIdoMs === MIN_IDOKERET_MS &&
+    k3.maxHatokor === 3
+  ) {
+    ok('H10 a korlátok vágva jönnek be (elgépelt env sem borítja a mentést)')
+  } else {
+    fail(`H10: ${JSON.stringify({ k1, k2, k3 })}`)
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// I — A BESZÉDES HIBAÜZENET (steps.ts)
+// ═══════════════════════════════════════════════════════════════════════════
+// A 2026-08-11-i hiba első fele: a tulajdonos ennyit látott: „A biztonsági
+// mentés futása sikertelen." Ezek az állítások azt védik, hogy a lépés-lista és
+// a teendő SOHA ne csússzon el a valóságtól.
+{
+  const { ujFutasLepesek, jelolLepes, exportLepesek, elsoBukottLepes, mentesTeendo, vagd } = steps
+
+  // I1 — a HÁROM lépés-állapot különbözik. A `null` („idáig el sem jutottunk")
+  // és a `true` („kész") összemosása azt sugallná, hogy a feltöltés rendben
+  // volt, miközben el sem indult.
+  {
+    const l = exportLepesek('feltoltes')
+    const bukott = elsoBukottLepes(l)
+    const elotte = l.slice(0, l.findIndex((x) => x.id === 'feltoltes'))
+    const utana = l.slice(l.findIndex((x) => x.id === 'feltoltes') + 1)
+    if (
+      bukott?.id === 'feltoltes' &&
+      elotte.every((x) => x.ok === true) &&
+      utana.every((x) => x.ok === null) &&
+      utana.length > 0
+    ) {
+      ok('I1 a bukott lépés ELŐTTIEK pipát, UTÁNIAK „idáig el sem jutottunk"-ot kapnak')
+    } else {
+      fail(`I1: ${JSON.stringify(l.map((x) => [x.id, x.ok]))}`)
+    }
+  }
+
+  // I2 — ismeretlen bukási helynél NEM TALÁLGATUNK. Minden lépés `null` marad;
+  // egy kitalált diagnózis rosszabb, mint a bevallott bizonytalanság.
+  {
+    const l = exportLepesek(null)
+    if (l.every((x) => x.ok === null) && elsoBukottLepes(l) === null) {
+      ok('I2 ismeretlen bukási helynél egyetlen lépés sem kap keresztet (nincs találgatás)')
+    } else {
+      fail('I2: ismeretlen stage esetén is jelöltünk lépést')
+    }
+  }
+
+  // I3 — sikeres hatókörnél MINDEN lépés pipa.
+  {
+    const l = exportLepesek(null, true)
+    if (l.length === 6 && l.every((x) => x.ok === true)) {
+      ok('I3 a sikeres hatókör mind a hat lépése pipát kap')
+    } else {
+      fail(`I3: ${l.length} lépés, ${l.filter((x) => x.ok === true).length} pipa`)
+    }
+  }
+
+  // I4 — a futás-lépések kezdetben MIND jelöletlenek, és a `jelol` csak a
+  // megnevezett lépést írja át (elgépelt azonosító NEM hoz létre új lépést).
+  {
+    const l = ujFutasLepesek()
+    const hossz = l.length
+    jelolLepes(l, 'leltar', true, '157 tábla')
+    jelolLepes(l, 'nincs-ilyen-lepes', false)
+    const leltar = l.find((x) => x.id === 'leltar')
+    if (
+      l.length === hossz &&
+      leltar.ok === true &&
+      leltar.reszlet === '157 tábla' &&
+      l.filter((x) => x.ok !== null).length === 1
+    ) {
+      ok('I4 a jelölés csak a megnevezett lépést írja (ismeretlen azonosító nem hoz létre lépést)')
+    } else {
+      fail(`I4: ${JSON.stringify(l.map((x) => [x.id, x.ok]))}`)
+    }
+  }
+
+  // I4b — ⭐⭐ AZ ÖT LÉPÉS-ÁLLAPOT, ÉS AMI KÖZÜLÜK HIBA (2026-08-11).
+  // A háromértékű szerződés alatt az `ok: false` KÉT ártatlan dolgot is jelölt:
+  //   (a) „még nem végeztünk vele" — 784 hatókörnél MINDEN köztes szelet ilyen,
+  //   (b) „hiányzik, de nem végzetes" (nincs mentési jelszó, bukott takarítás).
+  // Emiatt a lelkész egy HIBÁTLAN, haladó futás közben piros keresztet látott,
+  // és a képernyőolvasó azt mondta: „ITT HIBÁZOTT" — nulla hiba mellett.
+  // Mostantól `false` KIZÁRÓLAG valódi bukást jelenthet.
+  {
+    const l = ujFutasLepesek()
+    jelolLepes(l, 'helyreallito', 'figyelmeztetes', 'nincs mentési jelszó')
+    jelolLepes(l, 'mentes', 'folyamatban', '120 igazolt, 0 hibás, 664 hátravan')
+    jelolLepes(l, 'takaritas', 'figyelmeztetes', 'a takarítás nem sikerült')
+
+    const allapotokMegmaradtak =
+      l.find((x) => x.id === 'helyreallito').ok === 'figyelmeztetes' &&
+      l.find((x) => x.id === 'mentes').ok === 'folyamatban' &&
+      l.find((x) => x.id === 'takaritas').ok === 'figyelmeztetes'
+
+    if (allapotokMegmaradtak && elsoBukottLepes(l) === null) {
+      ok('I4b ⭐⭐ a „folyamatban" és a „figyelmeztetés" NEM bukás — nincs piros kereszt hiba nélkül')
+    } else {
+      fail(
+        `I4b: allapotok=${allapotokMegmaradtak} elsoBukott=${elsoBukottLepes(l)?.id ?? 'null'} — ` +
+          'a normál működés hibának látszik',
+      )
+    }
+
+    // …de a VALÓDI bukás továbbra is megtalálható, és ő az ELSŐ ilyen.
+    jelolLepes(l, 'mentes', false, '3 hibás')
+    if (elsoBukottLepes(l)?.id === 'mentes') {
+      ok('I4c a valódi bukás (`false`) TOVÁBBRA IS megtalálható, és ő kapja a kiemelést')
+    } else {
+      fail(`I4c: elsoBukott=${elsoBukottLepes(l)?.id ?? 'null'}`)
+    }
+  }
+
+  // I5 — AZ ÉLES HIBA: a besorolatlan tábla üzenetéből a HELYES SQL-fájl jön.
+  // Ez a 2026-08-11-i bukás pontos szövege.
+  {
+    const eles =
+      'BESOROLATLAN ÉLŐ TÁBLA (17 db): _merge_run_log, event, logger, mm_bookmark. ' +
+      'A mentés NEM indul el, amíg ezek nincsenek felvéve a backup_table_policy táblába'
+    const t = mentesTeendo(eles)
+    if (t.id === 'besorolatlan_tabla' && t.sql?.includes('mentes-tabla-besorolas')) {
+      ok('I5 a besorolatlan tábla üzenetéből a helyes pótló SQL-fájl jön (éles szöveggel)')
+    } else {
+      fail(`I5: id=${t.id} sql=${t.sql}`)
+    }
+  }
+
+  // I6 — a SORREND számít: a „besorolatlan" szűkebb minta ELŐBB fogjon, mint a
+  // „leltár" — különben rossz (másik) SQL-fájlt neveznénk meg.
+  {
+    const kevert = 'A tábla-leltár szerint BESOROLATLAN ÉLŐ TÁBLA (3 db): a, b, c'
+    if (mentesTeendo(kevert).id === 'besorolatlan_tabla') {
+      ok('I6 a szűkebb minta nyer: a „besorolatlan" nem esik át a „leltár" ágra')
+    } else {
+      fail(`I6: ${mentesTeendo(kevert).id}`)
+    }
+  }
+
+  // I7 — a többi ismert hibafajta is a maga teendőjét kapja, az ismeretlen
+  // pedig BEVALLJA, hogy nem tudja — nem talál ki diagnózist.
+  {
+    const esetek = [
+      ['GYÜLEKEZETI TÁBLA ÉRVÉNYES SZŰRŐ NÉLKÜL (1 db): congregation_transfers', 'rossz_szuro'],
+      ['A tábla-leltár nem tölthető be (backup_live_tables): nincs ilyen függvény', 'nincs_sql'],
+      ['A mentés-rendszer SQL-migrációja még nem futott le.', 'nincs_sql'],
+      ['A napló-sor létrehozása sikertelen: duplicate key', 'naplo'],
+      ['A mentés titkosítási kulcsa nincs beállítva.', 'kulcs'],
+      ['Valami teljesen váratlan történt a 42. sorban', 'ismeretlen'],
+    ]
+    const rossz = esetek.filter(([szoveg, vart]) => mentesTeendo(szoveg).id !== vart)
+    if (rossz.length === 0) {
+      ok('I7 minden ismert hibafajta a saját teendőjét kapja, az ismeretlen bevallja magát')
+    } else {
+      fail(`I7: ${rossz.map(([s, v]) => `${v}≠${mentesTeendo(s).id}`).join(', ')}`)
+    }
+  }
+
+  // I8 — MINDEN teendő MONDAT, nem kód: van benne „Teendő" vagy tényleges
+  // utasítás, és elég hosszú ahhoz, hogy cselekedni lehessen belőle.
+  {
+    const mind = [
+      'BESOROLATLAN ÉLŐ TÁBLA (1 db): x',
+      'GYÜLEKEZETI TÁBLA ÉRVÉNYES SZŰRŐ NÉLKÜL (1 db): x',
+      'backup_live_tables hiányzik',
+      'A Google Drive token lejárt',
+      'ismeretlen',
+    ]
+    const rovid = mind.filter((s) => mentesTeendo(s).szoveg.length < 60)
+    if (rovid.length === 0) {
+      ok('I8 minden teendő teljes magyar mondat, amiből cselekedni lehet')
+    } else {
+      fail(`I8: túl rövid teendő — ${rovid.join(' | ')}`)
+    }
+  }
+
+  // I9 — a vágás nem tesz olvashatatlanná: rövid szöveget érintetlenül hagy,
+  // hosszút vág. Egy 50 kB-os driver-üzenet nem nyelheti el a felületet.
+  {
+    const hosszu = 'x'.repeat(5000)
+    const v = vagd(hosszu, 100)
+    if (vagd('rövid szöveg') === 'rövid szöveg' && v.length === 101 && v.endsWith('…')) {
+      ok('I9 a hibaszöveg vágása jelöli a csonkolást, és a rövidet érintetlenül hagyja')
+    } else {
+      fail(`I9: hossz=${v.length}`)
+    }
+  }
+
+  // I10 — ⛔ TITOK-SZŰRŐ: egyetlen teendő-mondat sem említhet tokent, kulcsot,
+  // jelszót — sem értékkel, sem előtaggal. (A BACKUP_ENCRYPTION_KEY *neve*
+  // szándékosan szerepel: azt a Railway-en kell beállítani, az nem titok.)
+  {
+    const tiltott = /(refresh[_ ]token|access[_ ]token|client[_ ]secret|Bearer |eyJ)/i
+    const mind = [
+      'BESOROLATLAN ÉLŐ TÁBLA (1 db): x',
+      'A Google Drive token lejárt',
+      'A napló-sor létrehozása sikertelen',
+      'ismeretlen hiba',
+    ].map((s) => mentesTeendo(s).szoveg)
+    const szennyezett = mind.filter((s) => tiltott.test(s))
+    if (szennyezett.length === 0) {
+      ok('I10 egyetlen teendő-mondat sem tartalmaz titkot (token, kulcs-érték, Bearer)')
+    } else {
+      fail(`I10: ${szennyezett.join(' | ')}`)
+    }
   }
 }
 

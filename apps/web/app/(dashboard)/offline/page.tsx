@@ -4,6 +4,7 @@ import { ArrowRight, BookOpen, Wrench } from 'lucide-react'
 
 import { BrowserOfflineCard } from '@/components/offline/browser-offline-card'
 import { DesktopDownloadCard } from '@/components/offline/desktop-download-card'
+import { PendingWorkCard } from '@/components/offline/pending-work-card'
 import { ModuleHero } from '@/components/shared/module-hero'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 
@@ -38,6 +39,13 @@ export default async function OfflinePage() {
           { label: 'Automatikus szinkron', tone: 'emerald' },
         ]}
       />
+
+      {/* 2026-08-11 — FELTÖLTÉSRE VÁRÓ MUNKA. Csak akkor jelenik meg, ha tényleg
+          van. A fejléc szinkron-jelzője ide küldi a lelkészt: a konfliktus-feloldó
+          eddig KIZÁRÓLAG az admin-only /offline/diagnostika oldalon volt elérhető,
+          vagyis a „felhasználói beavatkozás szükséges" felirat teljesíthetetlen
+          kérést fogalmazott meg. */}
+      <PendingWorkCard />
 
       {/* Elsődleges: desktop letöltés — hangsúlyos, teljes szélességű */}
       <DesktopDownloadCard />

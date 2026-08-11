@@ -129,6 +129,24 @@ export interface EffectiveAccessContext {
   missingPrimaryRole: boolean
   /** Minden approved profile_roles sor (multi-role, 2026-04-17) */
   profileRoles: ProfileRoleRow[]
+  /**
+   * SIKERÜLT-E EGYÁLTALÁN BEOLVASNI a `profile_roles` sorokat (2026-08-11).
+   *
+   * ⚠️ MIÉRT KELL KÜLÖN MEZŐ. A `profileRoles: []` és az `activeProfileRole: null`
+   * KÉT, GYÖKERESEN MÁS dolgot jelenthet:
+   *   (a) „bizonyítottan nincs sora" — a felhasználó még nem kapott multi-role
+   *       sorokat, tehát a jogosultsága MAGA az aktív kontextus,
+   *   (b) „nem tudtuk beolvasni" — tranziens Supabase/RLS-hiba a lekérdezésen.
+   * A `loadProfileRoles` korábban MINDKETTŐRE `[]`-t adott, és a hívók az (a)
+   * ágat feltételezték. Egy pillanatnyi olvasási hiba így NÉMÁN TÁGÍTOTT: a
+   * megjelenítési hatókör visszaesett a jogosultságira, vagyis a tulajdonos a
+   * barátosi profiljában újra 784 hatókört és idegen gyülekezet-neveket látott
+   * volna — pontosan az a „hiba esetén tágabb jog" hibaosztály, amit a projekt
+   * már megszenvedett.
+   *
+   * `false` = NEM TUDJUK. Aki hatókört számol belőle, fail-closed ágra menjen.
+   */
+  profileRolesFeloldhato: boolean
   /** Az éppen aktív kontextus (profile switcher-rel választható).
    *  Ha nincs cookie, az elsődleges (profiles.role) alapján kerül feloldásra. */
   activeProfileRole: ActiveProfileRoleContext | null
@@ -303,6 +321,8 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
       override: { active: false },
       missingPrimaryRole: false,
       profileRoles: [],
+      // Nincs bejelentkezett felhasználó — nem hiba, hanem bizonyítottan üres.
+      profileRolesFeloldhato: true,
       activeProfileRole: null,
     }
   }
@@ -325,7 +345,13 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
   const profileCongregationId = profile?.congregation_id || null
 
   // FÁZIS 3 (2026-04-17): multi-role és aktív kontextus feloldás — ELSŐ a scope döntéshez
-  const profileRoles = missingPrimaryRole ? [] : await loadProfileRoles(supabase, user.id)
+  //
+  // 2026-08-11: a betöltés `null`-t ad, ha a lekérdezés HIBÁZOTT (lásd
+  // `profileRolesFeloldhato` a kontextus-típusban). A `profileRoles` marad üres
+  // tömb a meglévő fogyasztóknak, de a „nem tudjuk" tényt külön mező hordozza.
+  const profileRolesBetoltve = missingPrimaryRole ? [] : await loadProfileRoles(supabase, user.id)
+  const profileRolesFeloldhato = profileRolesBetoltve !== null
+  const profileRoles = profileRolesBetoltve ?? []
   const activeProfileRole = missingPrimaryRole
     ? null
     : await resolveActiveProfileRole(
@@ -431,6 +457,7 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
     override,
     missingPrimaryRole,
     profileRoles,
+    profileRolesFeloldhato,
     activeProfileRole,
   }
 })
@@ -439,10 +466,17 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
 // Multi-role helperek (Fázis 3)
 // ---------------------------------------------------------------------------
 
+/**
+ * @returns a sorok listája, vagy `null`, ha a lekérdezés HIBÁZOTT.
+ *
+ * ⚠️ A `null` és a `[]` KÜLÖNBÖZŐ: az üres tömb bizonyíték („nincs sora"), a
+ * `null` a „nem tudjuk" jelzés. Korábban mindkettő `[]` volt, és aki hatókört
+ * számolt belőle, hiba esetén a TÁGABB (jogosultsági) ágra futott.
+ */
 async function loadProfileRoles(
   supabase: SupabaseServerClient,
   userId: string,
-): Promise<ProfileRoleRow[]> {
+): Promise<ProfileRoleRow[] | null> {
   const { data, error } = await supabase
     .from('profile_roles')
     .select('*')
@@ -451,7 +485,10 @@ async function loadProfileRoles(
     .eq('active', true)
     .order('granted_at', { ascending: false })
 
-  if (error) return []
+  if (error) {
+    console.error('[effective-access] a profile_roles nem olvasható:', error.message)
+    return null
+  }
   return (data || []) as ProfileRoleRow[]
 }
 

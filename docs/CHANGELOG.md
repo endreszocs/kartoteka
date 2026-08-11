@@ -23,6 +23,42 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-12] — A mentés élesítése, három néma adatvesztés megszüntetése, szinkron-jelző és cím-ellenőrzés
+<!-- key: 2026-08-12-mentes-elesites-nema-adatvesztes -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo, admin -->
+<!-- version: web v0.9.162 -->
+
+A napi biztonsági mentés beállítása közben három olyan hiba került elő, amely **némán, hibaüzenet nélkül** okozhatott adatvesztést. Mindhárom javítva. Ezekhez semmit nem kell tenned.
+
+### 🐛 Javítások
+
+- **Az offline munkád eltűnhetett — véglegesen.** Ha a templomban vagy úton, térerő nélkül rögzítettél valamit, az a telefonodon várakozott a feltöltésre. Ha a feltöltés megkezdése után bezárult a böngésző vagy lemerült a telefon, **a rendszer soha többé nem próbálta újra** — a bejegyzésed örökre ott ragadt, a felület pedig azt mutatta, hogy minden rendben. Mostantól az elakadt tételek induláskor visszakerülnek a sorba, és a várakozók számában is látszanak.
+- **A „Szinkronizálás folyamatban…" örökre beragadhatott.** Egyetlen megakadt hálózati kérés — alagút, halott Wi-Fi, gyenge térerő — elég volt hozzá, mert a folyamatnak nem volt időkorlátja. Most legfeljebb négy percig tart egy kör, azután újrapróbál.
+- **A szinkronizálás hibaüzenetei sosem jutottak el hozzád.** A rendszer előbb jelezte a hibát, majd azonnal utána a „kész" állapotot, ami letörölte azt. A hiányos letöltésről szóló figyelmeztetés így egyetlen pillanatra sem látszott.
+- **A biztonsági mentés némán elhasalt.** A „Mentés most" csak annyit mondott: „sikertelen". A valódi ok megérkezett a szerverről, de a felület eldobta. Mostantól látod a lépéseket, azt, hogy melyiknél akadt el, **mit kell tenned**, és a bukott gyülekezeteket névvel.
+- **Egy hibás gyülekezet megállította a többi mentését.** Ha egyetlen gyülekezet mentése elakadt, a maradék több mint hétszáz el sem készült. Mostantól a futás továbbmegy, és a már elkészült mentések megmaradnak.
+- **A „nincs mentés" figyelmeztetés nagy képernyőn nem jelent meg.** Öt különböző állapot — töltődik, nincs jogod, hiba történt, minden rendben — ugyanúgy nézett ki: sehogy.
+
+### 🔒 Biztonság és hatókör
+
+- **A mentés-figyelmeztetés mostantól a bekapcsolt profilodat követi.** Gyülekezeti profilban a saját gyülekezeted állapotát látod, akkor is, ha egyébként rendszergazdai jogod van. Bizonytalan esetben a rendszer a **szűkebb** kört választja, soha nem a tágabbat.
+- Jogosultsági szivárgás nem volt: a figyelmeztetést eddig sem láthatta lelkész vagy esperes.
+
+### ✨ Új funkciók
+
+- **Szinkron-jelző a fejlécben.** A korábbi lebegő felirat eltakarta a súgót, a harangot és a profilképet — sőt a rájuk való kattintást is elnyelte. Most a fejléc ikonsorában van, és rákattintva elmondja, **mi**, **hogyan** és **miért** szinkronizál, meg hogy épp mi az állapot.
+- **Térkép-jelzés a személyi kartonon.** Egy kis ikon mutatja, hogy a térkép megtalálja-e a címet: a házig visz, csak a faluig, vagy egyáltalán nem találja. Külföldi címre szándékosan hallgat — egy budapesti tag címe nem hibás.
+- **Cím-hiba a Hibák fülön.** Ha egy település nem található a térképen, ott jelenik meg, a javítás módjával együtt. Egy település egyszeri egyeztetése az összes ottani tag útvonalát rendbe teszi.
+- **„Kész-e a mentésre?" gomb.** Két másodperc, semmit nem ír, és egyszerre megmutatja, ha valami hiányzik a mentéshez.
+
+### 🎨 Apróságok
+
+- A pénzügy betöltő képernyője a többihez igazodik.
+- A hibalistából egy gombbal átugorhatsz az érintett személy kartonjára.
+
+---
+
 ## [2026-08-12] — Napi biztonsági mentés, részszámadás, lelkészi naptár és két hivatalos nyomtatvány javítása
 <!-- key: 2026-08-12-mentes-reszszamadas-naptar -->
 <!-- category: feature -->

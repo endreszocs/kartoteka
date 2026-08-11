@@ -44,6 +44,120 @@ export interface EgyszeruEredmeny {
   uzenet?: string
 }
 
+/**
+ * EGY LÉPÉS a mentés-futásban — a felület ebből rajzolja az állapot-listát.
+ *
+ * ⚠️ AZ ÖT ÁLLAPOT KÜLÖNBÖZIK, és ez nem kozmetika (2026-08-11):
+ *      `true`             = kész, rendben,
+ *      `'figyelmeztetes'` = megtörtént, de hiányosan — NEM állítja meg a futást,
+ *      `'folyamatban'`    = elkezdtük, még nem végeztünk vele (több szelet),
+ *      `false`            = ITT BUKOTT EL — ez és KIZÁRÓLAG ez a hiba,
+ *      `null`             = idáig EL SEM JUTOTTUNK.
+ *
+ *    Korábban az `false` a „még nem végeztünk" és a „hiányzik, de nem végzetes"
+ *    esetet is jelölte: a felület egy hibátlan, haladó futásra rajzolt piros
+ *    keresztet „ITT HIBÁZOTT" képernyőolvasó-szöveggel. Ez a kanonikus típus a
+ *    `lib/backup/types.ts` `BackupStepAllapot`-jával — a kettő EGYEZZEN.
+ */
+export type MentesLepesAllapot = boolean | null | 'figyelmeztetes' | 'folyamatban'
+
+export interface MentesLepes {
+  id: string
+  cimke: string
+  ok: MentesLepesAllapot
+  reszlet?: string
+}
+
+/**
+ * A „MENTÉS MOST" BESZÉDES EREDMÉNYE (2026-08-11).
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * MIÉRT NEM ELÉG AZ `EgyszeruEredmeny`
+ * ════════════════════════════════════════════════════════════════════════════
+ * A tulajdonos 2026-08-11-én ennyit látott: „A biztonsági mentés futása
+ * sikertelen." Se lépés, se ok, se teendő. A szerver közben PONTOSAN tudta a
+ * hibát, és a `reszlet` mezőben el is küldte — csak a szerver-akció típusa nem
+ * ismerte ezt a mezőt, ezért a `response.json()` után némán elveszett.
+ *
+ * Ez a típus az a hiányzó kapocs. Minden mezője TITOKMENTES: tábla-nevek,
+ * darabszámok, lépés-nevek, gyülekezet-NEVEK (nem azonosítók) — token, kulcs,
+ * jelszó, Google `code` SOHA.
+ */
+export interface MentesFutasEredmeny extends EgyszeruEredmeny {
+  /** Meddig jutott a futás. Az első `ok: false` a bukás helye. */
+  lepesek?: MentesLepes[]
+  /** EGY magyar mondat arról, MIT TEGYEN a tulajdonos. */
+  teendo?: string
+  /** A pontos technikai ok — összecsukható „Részletek" blokkban. */
+  reszlet?: string
+  /** Ha a megoldás egy SQL lefuttatása: a fájl útvonala. */
+  sqlFajl?: string | null
+
+  // ── HALADÁS ───────────────────────────────────────────────────────────────
+  /** Ennyi hatókörnek KELLENE mentés (aktív gyülekezetek + globális). */
+  osszes?: number
+  sikeres?: number
+  sikertelen?: number
+  kihagyva?: number
+  /** Ennyihez ez a szelet hozzá sem ért. `> 0` esetén FOLYTATNI kell. */
+  hatralevo?: number
+  /** `false` = a futás NEM végzett mindennel. */
+  futottVegig?: boolean
+  /**
+   * `false` = volt bukott hatókör.
+   *
+   * ⚠️ NEM ugyanaz, mint a `success`. A `success` azt mondja meg, hogy a SZELET
+   *    lefutott-e (ebből dönt a felület a folytatásról); a `mindenSikeres` azt,
+   *    hogy minden hatókör sikerült-e (ebből lesz a piros jelentés). A kettő
+   *    összemosása miatt állította meg korábban EGYETLEN bukott gyülekezet a
+   *    maradék ~700 mentését.
+   */
+  mindenSikeres?: boolean
+
+  /** Futás-szintű, nem végzetes, de kimondandó tények. */
+  figyelmeztetesek?: string[]
+  /** A bukott hatókörök NÉVVEL, lépés-listával. */
+  bukottak?: Array<{
+    scope: string
+    nev: string | null
+    stage: string | null
+    hiba: string | null
+    teendo: string | null
+    lepesek?: MentesLepes[]
+  }>
+}
+
+/**
+ * A FIGYELMEZTETŐ SÁV állapota (2026-08-11).
+ *
+ * ⚠️ MIÉRT NEM ELÉG A `null`. A sáv korábban ÖT, gyökeresen különböző esetre
+ * adott ugyanolyan `null`-t: nincs jogosultság, nincs telepítve az SQL, hiba a
+ * lekérdezésben, üres hatókör, minden rendben. A felület mindet ugyanúgy
+ * jelenítette meg: SEMMIKÉNT. Ezért nem lehetett eldönteni, hogy a hiányzó sáv
+ * jó hír vagy néma bukás — ez maga a hibaosztály („egy őrszem, ami hiba esetén
+ * elnémul, nem őrszem").
+ *
+ * Mostantól a `ok` mező MEGMONDJA, miért hallgat.
+ */
+export type BackupBannerOk =
+  /** Van mit mutatni — a `health` ki van töltve. */
+  | 'allapot'
+  /** Nem admin (vagy a bekapcsolt profil hatóköre üres) → nincs sáv, ez rendben van. */
+  | 'nincs_jog'
+  /** A mentés adatbázis-része nincs telepítve → külön teendő, nem napi riadó. */
+  | 'nincs_sql'
+  /** A lekérdezés elhasalt → a felület LÁTHATÓAN jelzi, hogy nem tudja. */
+  | 'hiba'
+
+export interface BackupBannerState {
+  ok: BackupBannerOk
+  health?: import('@/lib/google-drive/types').BackupHealth
+  /** Hova visz a „Megnézem, mi a baj" gomb. `null`, ha nincs elérhető felület. */
+  ut?: string | null
+  /** Csak `ok: 'hiba'` esetén — rövid, felhasználónak is mutatható indok. */
+  hibaUzenet?: string
+}
+
 export interface DriveTestEredmeny extends EgyszeruEredmeny {
   fiokEmail?: string | null
   szabadBajt?: number | null

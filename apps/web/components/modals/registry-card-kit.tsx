@@ -58,7 +58,11 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { Phone, X } from 'lucide-react'
+import { Globe, MapPinCheck, MapPinOff, MapPinSearch, Phone, X } from 'lucide-react'
+
+// Típus-import (futásidőben nulla): a térkép-állapot EGYETLEN forrása a
+// `lib/members/directions.ts`. A készlet csak MEGJELENÍTI, nem dönt róla.
+import type { AddressMapStatus } from '@/lib/members/directions'
 
 // ═════════════════════════════════════════════════════════════════════════
 // 1. TIPOGRÁFIA ÉS GOMB-ALAKOK
@@ -447,7 +451,25 @@ export type PillTone = 'slate' | 'primary' | 'amber' | 'emerald' | 'rose'
  * ⚠️ A `slate` tónus SZÁNDÉKOSAN token-alapú (`bg-card text-foreground`) —
  *    a csupasz slate-paletta dark-felülírását `!important` védi.
  */
-export function Pill({ icon, tone, children }: { icon?: ReactNode; tone: PillTone; children: ReactNode }) {
+export function Pill({
+  icon,
+  tone,
+  title,
+  ariaLabel,
+  children,
+}: {
+  icon?: ReactNode
+  tone: PillTone
+  /** Egérrel megjelenő teljes mondat. */
+  title?: string
+  /**
+   * Képernyőolvasónak KIMONDOTT teljes mondat. Ha megadod, a pirula
+   * `role="img"`-gé válik, és a felolvasó EZT mondja a rövid címke helyett —
+   * ezért az `ariaLabel` legyen önmagában érthető, ne csak a címke ismétlése.
+   */
+  ariaLabel?: string
+  children: ReactNode
+}) {
   const TONES: Record<PillTone, string> = {
     slate: 'border-border bg-card text-foreground',
     primary: 'border-primary/15 bg-primary/8 text-primary',
@@ -456,10 +478,85 @@ export function Pill({ icon, tone, children }: { icon?: ReactNode; tone: PillTon
     rose: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/50 dark:text-rose-300',
   }
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium shadow-sm ${TONES[tone]}`}>
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium shadow-sm ${TONES[tone]}`}
+      title={title}
+      role={ariaLabel ? 'img' : undefined}
+      aria-label={ariaLabel}
+    >
       {icon}
       {children}
     </span>
+  )
+}
+
+/**
+ * TÉRKÉP-ÁLLAPOT PIRULA (2026-08-11 — a tulajdonos kérése: „legyen egy kis
+ * ikon, ami mutatja, hogy ezt a címet a Maps tudja kezelni").
+ *
+ * ⛔ NEM CSAK SZÍN. A színvak felhasználó a zöld/borostyán/rózsaszín/szürke
+ *    négyesből SEMMIT nem lát, ezért mind a négy állapot KÜLÖN IKONALAKOT
+ *    kap (pipa a gombostűben · nagyító · áthúzott gombostű · földgömb) ÉS
+ *    külön feliratot is. A `title` (egér) és az `aria-label`
+ *    (képernyőolvasó) ugyanazt a teljes magyar mondatot mondja.
+ *
+ * ⚑ 2026-08-11 — A NEGYEDIK ÁLLAPOT (`nem-ellenorizheto`) SEMLEGES, és ez a
+ *   lényege. Ide esik minden külföldi (Budapest, Debrecen, Gödöllő, Győr,
+ *   Hollandia) és minden ismeretlen országú cím. Ezekre PIROSAT mutatni a
+ *   funkció legsúlyosabb bukási módja lenne: a lelkész tucatnyi hamis hibát
+ *   kapna egy eddig megbízható jelzésrendszertől, és onnantól az egészet
+ *   figyelmen kívül hagyná — az rosszabb, mint ha semmit nem jeleznénk.
+ *   A földgömb SZÁNDÉKOSAN nem gombostű-variáns: a másik három egy pillantásra
+ *   egy családba tartozik („a térkép hogy áll ezzel a ponttal"), ez pedig
+ *   más kérdésre válaszol („nem is a mi hatáskörünk").
+ *
+ * A `status`/`label`/`detail` a `lib/members/directions.ts`
+ * `assessAddressMap`-jéből jön — SEMMI üzleti döntés nincs itt, csak az
+ * állapot → ikon/tónus leképezés. Így ugyanaz az egyetlen forrás dönt a
+ * kartonon és a tagnyilvántartás Hibák fülén.
+ */
+export function AddressMapPill({
+  status,
+  label,
+  detail,
+}: {
+  status: AddressMapStatus
+  label: string
+  detail: string
+}) {
+  if (status === 'nincs-cim') return null
+  // ⚠️ `size-3.5` és nem a pirulák szokásos `size-3`-a: a többi pirulán az ikon
+  //    DÍSZ (a szöveg mondja el a jelentést), itt viszont az IKONALAK maga a
+  //    megkülönböztetés. 12px-en a pipa, a nagyító és az áthúzás egy 55+ éves
+  //    szemnek, telefonon, változó fényben összemosódik — 14px-en már nem.
+  const PRESENTATION: Record<
+    Exclude<AddressMapStatus, 'nincs-cim'>,
+    { tone: PillTone; icon: ReactNode }
+  > = {
+    megtalalhato: { tone: 'emerald', icon: <MapPinCheck className="size-3.5 shrink-0" aria-hidden /> },
+    bizonytalan: { tone: 'amber', icon: <MapPinSearch className="size-3.5 shrink-0" aria-hidden /> },
+    'nem-talalhato': { tone: 'rose', icon: <MapPinOff className="size-3.5 shrink-0" aria-hidden /> },
+    // `slate` = token-alapú (`bg-card` + `text-foreground`), 14,91 / 10,79 ✅
+    'nem-ellenorizheto': { tone: 'slate', icon: <Globe className="size-3.5 shrink-0" aria-hidden /> },
+  }
+  const { tone, icon } = PRESENTATION[status]
+  return (
+    <div className="space-y-1.5">
+      <Pill tone={tone} icon={icon} title={detail} ariaLabel={detail}>
+        {label}
+      </Pill>
+      {/* ⚠️ 2026-08-11 — A MAGYARÁZAT LÁTHATÓAN IS KI VAN RAJZOLVA.
+          Korábban a `detail` (a cselekvésre küldő 1–3 mondat) KIZÁRÓLAG a
+          `title`-ben és az `aria-label`-ben élt. A `title` érintőképernyőn
+          soha nem jelenik meg (nincs hover), a pirula pedig nem fókuszálható,
+          tehát billentyűzettel sem volt előhívható. Telefonon — ahol a lelkész
+          a kartont a leggyakrabban nézi — ennyi látszott: „Nem ellenőrizhető",
+          magyarázat és teendő nélkül. Egy 55+ éves, nem-informatikus olvasónak
+          ez semmit nem mond. A ház szabálya kifejezett: mobil-első.
+          A `title`/`aria-label` MEGMARAD kiegészítésként (egérre és
+          képernyőolvasóra), de már nem ez az EGYETLEN hordozója a jelentésnek. */}
+      <p className="text-xs leading-5 text-muted-foreground">{detail}</p>
+    </div>
   )
 }
 

@@ -50,6 +50,7 @@ import { MemberFormDialog } from '@/components/modals/member-form-dialog'
 import { MemberRemoveDialog } from '@/components/modals/member-remove-dialog'
 import { MEMBER_STATUS_FILTERS, PAYMENT_STATUS_CONFIG } from '@/lib/constants/members'
 import type { PaymentStatus } from '@/lib/constants/members'
+import { consumeMemberJump, type MemberJumpRequest } from '@/lib/members/registry-jump'
 import {
   REGISTRY_PAGE_SIZE,
   type MemberContactFilter,
@@ -239,8 +240,39 @@ const FALLBACK_CONTACT_OPTIONS: MemberFilterOptions['contacts'] = [
 export function PersonsTab({ initialPage }: PersonsTabProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const deferredSearchQuery = useDebouncedValue(searchQuery.trim(), 280)
+
   const [filters, setFilters] = useState<PersonFilters>(DEFAULT_FILTERS)
   const [draftFilters, setDraftFilters] = useState<PersonFilters>(DEFAULT_FILTERS)
+  const [jumpNotice, setJumpNotice] = useState<MemberJumpRequest | null>(null)
+
+  // 2026-08-11: a Hibák fülről érkező „nyisd meg ezt a tagot" kérés. A név
+  // `sessionStorage`-ban vár (lásd `lib/members/registry-jump.ts`), mert a két
+  // fül soha nincs egyszerre a DOM-ban.
+  // ⚠️ EFFEKTBEN, nem `useState` kezdőértékben: a `sessionStorage` a szerveren
+  //    nem létezik, és az eltérő kezdőérték hidratálási hibát okozna.
+  //
+  // ⚠️ AZ ÁLLAPOTSZŰRŐT IS OLDANI KELL, KÜLÖNBEN AZ UGRÁS ÜRES LISTÁRA VISZ.
+  //    A `DEFAULT_FILTERS.status` „aktív", az `isActiveMember` viszont kizárja
+  //    az elköltözött, kitért és törölt tagokat, ÉS mindenkit, aki nem
+  //    református és soha nem fizetett. A validáció ezzel szemben MINDEN
+  //    látható, nem elhunyt tagra fut — tehát pontosan ezekre a tagokra is
+  //    keletkezik hiba. Ha csak a keresőmezőt töltenénk ki, a lelkész a
+  //    „Karton" gomb után egy üres találati listát látna, és a legkézenfekvőbb
+  //    következtetése az volna, hogy a tag nem létezik, vagy elromlott a lista.
+  //
+  // ⚑ 2026-08-11 — KÉT IRÁNYBÓL JÖHET: „ezt a tagot keresd" (név) VAGY „mutasd
+  //    mindenkit ezen a településen" (a „hiányzik a település" tétel 70 tagja).
+  //    A második nélkül a lelkésznek nem volt semmilyen módja megnézni, KIK ezek
+  //    a tagok — egyesével, 70 teljes újraellenőrzéssel derült volna ki.
+  useEffect(() => {
+    const jump = consumeMemberJump()
+    if (!jump) return
+    const ugrasSzurok: PersonFilters = { ...EMPTY_FILTERS, locality: jump.telepules ?? '' }
+    setSearchQuery(jump.kereses ?? '')
+    setFilters(ugrasSzurok)
+    setDraftFilters(ugrasSzurok)
+    setJumpNotice(jump)
+  }, [])
   const [filterOpen, setFilterOpen] = useState(false)
   const [registryMonth, setRegistryMonth] = useState(() => currentRegistryMonth())
   const snapshotMonthRef = useRef(registryMonth)
@@ -749,6 +781,39 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
           )}
         </CardContent>
       </Card>
+
+      {/* ⚑ 2026-08-11 — A HIBALISTÁRÓL ÉRKEZŐ UGRÁS VISSZAJELZÉSE.
+          Az ugrás az állapotszűrőt „mind"-re oldja (lásd a fenti effektet), és
+          ezt KI IS MONDJUK: a lelkész látja, miért más a lista, mint amit
+          megszokott, és egy koppintással vissza tud állni. */}
+      {jumpNotice && (
+        <Card className="flex-col items-start justify-between gap-3 border-primary/20 bg-primary/[0.04] px-4 py-3 sm:flex-row sm:items-center">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-foreground">
+              {jumpNotice.telepules
+                ? `A hibalistáról érkeztél: minden tag, akinek a települése „${jumpNotice.telepules}"`
+                : `A hibalistáról érkeztél: „${jumpNotice.kereses}"`}
+            </p>
+            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+              {jumpNotice.telepules
+                ? 'Az állapotszűrőt „mind"-re állítottuk, hogy senki ne maradjon ki. Nyisd meg egyenként a kartonokat, és az Elérhetőségeknél pótold a tényleges települést — a lista minden mentés után rövidül.'
+                : 'Az állapotszűrőt „mind"-re állítottuk, hogy a nem aktív (elköltözött, kitért) tagot is megtaláld. Koppints a névre a karton megnyitásához.'}
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            className="min-h-11 shrink-0 rounded-xl bg-background"
+            onClick={() => {
+              setJumpNotice(null)
+              setSearchQuery('')
+              setFilters(DEFAULT_FILTERS)
+              setDraftFilters(DEFAULT_FILTERS)
+            }}
+          >
+            Vissza a szokásos listához
+          </Button>
+        </Card>
+      )}
 
       {listError && (
         <Card className="flex-row items-center justify-between gap-4 border-destructive/20 bg-destructive/[0.035] px-4 py-3">

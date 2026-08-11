@@ -35,6 +35,13 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
 
 import { sendBackupFailureAlert } from './alerts'
+import {
+  ALAP_IDOKERET_MS,
+  ferBeleUjabbHatokor,
+  korlatokBeolvasasa,
+  scopeKulcs,
+  tervezFutas,
+} from './batch'
 import { exportScope, type RecoveryEscrow } from './export'
 import {
   assertInventoryClassified,
@@ -43,16 +50,52 @@ import {
 } from './inventory'
 import { loadBackupKey } from './keys'
 import { bucharestRunDate } from './payload'
+import { jelolLepes, mentesTeendo, ujFutasLepesek, vagd } from './steps'
 import { STORAGE_DRIVE, resolveBackupStorage } from './storage'
 import type {
   BackupAlerter,
   BackupFailureStage,
   BackupKind,
+  BackupRunStep,
   BackupScope,
   BackupScopeResult,
   BackupStorage,
   BackupWorkerResult,
 } from './types'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A BESZÉDES HIBA — a futás lépés-listáját VISZI MAGÁVAL (2026-08-11)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Az előkészítő fázis hibája, a lépés-listával és a TEENDŐVEL együtt.
+ *
+ * ⚠️ MIÉRT KELL SAJÁT HIBAOSZTÁLY. 2026-08-11-én a tulajdonos ennyit látott:
+ *    „A biztonsági mentés futása sikertelen." — se lépés, se ok, se teendő.
+ *    Közben a szerver PONTOSAN tudta a hibát. A baj az volt, hogy a dobott
+ *    `Error` semmit nem hordozott a KONTEXTUSBÓL: a hívó nem tudta megmondani,
+ *    a hat előkészítő lépés MELYIKÉNÉL álltunk meg. Ez az osztály viszi.
+ *
+ * ⛔ A `message` és a `reszlet` továbbra is TITOKMENTES: a forrás-hibák már
+ *    tisztított szöveget adnak (`safeDbError` = üzenet + kód, `driveError` =
+ *    a Google szabványos üzenete 200 karakterre vágva).
+ */
+export class BackupWorkerError extends Error {
+  readonly lepesek: BackupRunStep[]
+  readonly teendo: string
+  readonly teendoId: string
+  readonly sqlFajl: string | null
+
+  constructor(uzenet: string, lepesek: BackupRunStep[]) {
+    super(uzenet)
+    this.name = 'BackupWorkerError'
+    this.lepesek = lepesek
+    const t = mentesTeendo(uzenet)
+    this.teendo = t.szoveg
+    this.teendoId = t.id
+    this.sqlFajl = t.sql
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Riasztó-port — az `alerts.ts` köti be magát
@@ -344,6 +387,14 @@ export interface RunBackupWorkerOptions {
   passphrase?: string | null
   storage?: BackupStorage
   runDate?: string
+  /**
+   * A hatókör-ciklus időkerete. Lejáratkor RENDEZETTEN megállunk, és a
+   * maradékot `hatralevo`-ként jelentjük — a következő indítás onnan folytatja.
+   * Alap: `ALAP_IDOKERET_MS` (10 perc), felső korlát 14 perc.
+   */
+  maxFutasiIdoMs?: number
+  /** Ennyi hatökört dolgozunk fel EBBEN a szeletben. `0` = nincs darab-korlát. */
+  maxHatokor?: number
 }
 
 interface CongregationRow {
@@ -368,94 +419,172 @@ export async function runBackupWorker(
   const runDate = opts.runDate ?? bucharestRunDate()
   const figyelmeztetesek: string[] = []
 
-  // ── 0) Kulcs — FAIL CLOSED, MINDEN más előtt.
-  loadBackupKey()
+  // ── LÉPÉS-LISTA. Minden előkészítő lépés CSAK a sikere után kap pipát, ezért
+  //    egy dobásnál az ELSŐ jelöletlen lépés PONTOSAN a bukás helye. Ez a
+  //    könyvelés így nem tud elcsúszni a valóságtól.
+  const lepesek = ujFutasLepesek()
 
-  // ── 1) LELTÁR — besorolatlan élő tábla → az EGÉSZ futás azonnal hiba.
-  const inventory = await loadTableInventory(admin)
-  const osztalyozas = assertInventoryClassified(inventory)
-  if (osztalyozas.retegNelkul.length > 0) {
-    figyelmeztetesek.push(
-      `${osztalyozas.retegNelkul.length} tábla MENTÉSRE kerül, de visszaállítani nem lehet ` +
-        `(nincs rétege): ${osztalyozas.retegNelkul.slice(0, 15).join(', ')}` +
-        (osztalyozas.retegNelkul.length > 15 ? ' …' : ''),
-    )
-  }
-  const semaUjjlenyomat = computeSchemaFingerprint(inventory)
+  const korlatok = korlatokBeolvasasa({
+    nyersIdo: opts.maxFutasiIdoMs ?? process.env.BACKUP_MAX_RUN_MS,
+    nyersDarab: opts.maxHatokor ?? process.env.BACKUP_MAX_SCOPES,
+    alapIdoMs: ALAP_IDOKERET_MS,
+  })
 
-  // ── 2) TÁROLÓ. A választás automatikus (Drive, ha össze van kötve), és a
-  //      TÉNYT kimondjuk: ha nem a Drive-ra megy, az nem „részletkérdés" —
-  //      a mentés fő értéke az, hogy MÁSHOL van, mint az adatbázis.
-  const storage = opts.storage ?? (await resolveBackupStorage())
-  if (storage.nev !== STORAGE_DRIVE) {
-    figyelmeztetesek.push(
-      `A mentés NEM a Google Drive-ra kerül, hanem ide: „${storage.nev}". ` +
-        'Ez ugyanabban a felhő-fiókban van, mint az adatbázis — egyetlen fiók-szintű baleset ' +
-        'mindkettőt viszi. Kösd össze a Google Drive-ot (Admin → Biztonsági mentés).',
-    )
-  }
-
-  // ── 2/b) HELYREÁLLÍTÓ KULCS-LETÉT. Enélkül a felügyelet nélküli futás
-  //      fájljait KIZÁRÓLAG a BACKUP_ENCRYPTION_KEY nyitja — vagyis a kulcs
-  //      elvesztése az egész archívumot olvashatatlanná tenné.
+  let inventory: Awaited<ReturnType<typeof loadTableInventory>>
+  let semaUjjlenyomat: string
+  let storage: BackupStorage
   let recovery: RecoveryEscrow | null = null
-  {
-    const { loadRecoveryKeyMaterial } = await import('@/lib/google-drive/backup-passphrase')
-    const anyag = await loadRecoveryKeyMaterial()
-    if (anyag.publicRaw && anyag.wrappedPrivate) {
-      recovery = { publicRaw: anyag.publicRaw, wrappedPrivate: anyag.wrappedPrivate }
-    } else {
-      figyelmeztetesek.push(
-        'NINCS HELYREÁLLÍTÓ KULCS: a ma készülő fájlokat KIZÁRÓLAG a szerver kulcsa ' +
-          '(BACKUP_ENCRYPTION_KEY) nyitja. Ha az a kulcs elveszik, minden mentés olvashatatlan ' +
-          'marad. Állíts be MENTÉSI JELSZÓT (Admin → Biztonsági mentés) — az hozza létre a ' +
-          'helyreállító kulcspárt.' +
-          (anyag.error ? ` (Részlet: ${anyag.error})` : ''),
-      )
-    }
-  }
-
-  // ── 3) HATÓKÖRÖK
   const hatokorok: Array<{
     scope: BackupScope
     congregationId: string | null
     congregationNev: string | null
   }> = []
+  const keszKulcsok = new Set<string>()
 
-  if (opts.congregationIds && opts.congregationIds.length > 0) {
-    const lista = await selectAllPaged<CongregationRow>(
-      admin.from('congregations').select('id, name, nev_hu').in('id', opts.congregationIds),
+  try {
+    // ── 0) Kulcs — FAIL CLOSED, MINDEN más előtt.
+    loadBackupKey()
+    jelolLepes(lepesek, 'kulcs', true)
+
+    // ── 1) LELTÁR — besorolatlan élő tábla → az EGÉSZ futás azonnal hiba.
+    inventory = await loadTableInventory(admin)
+    jelolLepes(lepesek, 'leltar', true, `${inventory.length} tábla`)
+
+    const osztalyozas = assertInventoryClassified(inventory)
+    jelolLepes(
+      lepesek,
+      'besorolas',
+      true,
+      `${osztalyozas.gyulekezet.length} gyülekezeti + ${osztalyozas.globalis.length} globális tábla`,
     )
-    if (lista.error) {
-      throw new Error(`A gyülekezetek listája nem tölthető be: ${lista.error.message}`)
+    if (osztalyozas.retegNelkul.length > 0) {
+      figyelmeztetesek.push(
+        `${osztalyozas.retegNelkul.length} tábla MENTÉSRE kerül, de visszaállítani nem lehet ` +
+          `(nincs rétege): ${osztalyozas.retegNelkul.slice(0, 15).join(', ')}` +
+          (osztalyozas.retegNelkul.length > 15 ? ' …' : ''),
+      )
     }
-    for (const c of lista.data) {
-      hatokorok.push({
-        scope: 'gyulekezet',
-        congregationId: c.id,
-        congregationNev: c.nev_hu || c.name || null,
-      })
+    semaUjjlenyomat = computeSchemaFingerprint(inventory)
+
+    // ── 2) TÁROLÓ. A választás automatikus (Drive, ha össze van kötve), és a
+    //      TÉNYT kimondjuk: ha nem a Drive-ra megy, az nem „részletkérdés" —
+    //      a mentés fő értéke az, hogy MÁSHOL van, mint az adatbázis.
+    storage = opts.storage ?? (await resolveBackupStorage())
+    jelolLepes(lepesek, 'tarolo', true, storage.nev)
+    if (storage.nev !== STORAGE_DRIVE) {
+      figyelmeztetesek.push(
+        `A mentés NEM a Google Drive-ra kerül, hanem ide: „${storage.nev}". ` +
+          'Ez ugyanabban a felhő-fiókban van, mint az adatbázis — egyetlen fiók-szintű baleset ' +
+          'mindkettőt viszi. Kösd össze a Google Drive-ot (Admin → Biztonsági mentés).',
+      )
     }
-    if (opts.includeGlobal) {
-      hatokorok.push({ scope: 'globalis', congregationId: null, congregationNev: null })
+
+    // ── 2/b) HELYREÁLLÍTÓ KULCS-LETÉT. Enélkül a felügyelet nélküli futás
+    //      fájljait KIZÁRÓLAG a BACKUP_ENCRYPTION_KEY nyitja — vagyis a kulcs
+    //      elvesztése az egész archívumot olvashatatlanná tenné.
+    {
+      const { loadRecoveryKeyMaterial } = await import('@/lib/google-drive/backup-passphrase')
+      const anyag = await loadRecoveryKeyMaterial()
+      if (anyag.publicRaw && anyag.wrappedPrivate) {
+        recovery = { publicRaw: anyag.publicRaw, wrappedPrivate: anyag.wrappedPrivate }
+        jelolLepes(lepesek, 'helyreallito', true, 'van kulcs-letét')
+      } else {
+        // ⚠️ 2026-08-11 JAVÍTÁS: ez `false` volt — vagyis a felület PIROS
+        //    KERESZTET rajzolt rá „ITT HIBÁZOTT" képernyőolvasó-szöveggel, egy
+        //    egyébként SIKERES, ZÖLD futás jelentésében. A hiányzó mentési
+        //    jelszó nem bukás: a mentés a szerver kulcsával elkészül. A súlyt a
+        //    `figyelmeztetesek` tömb viszi (külön, sárga blokkban látszik), a
+        //    lépés pedig a saját, egyértelmű állapotát kapja.
+        jelolLepes(lepesek, 'helyreallito', 'figyelmeztetes', 'nincs mentési jelszó')
+        figyelmeztetesek.push(
+          'NINCS HELYREÁLLÍTÓ KULCS: a ma készülő fájlokat KIZÁRÓLAG a szerver kulcsa ' +
+            '(BACKUP_ENCRYPTION_KEY) nyitja. Ha az a kulcs elveszik, minden mentés olvashatatlan ' +
+            'marad. Állíts be MENTÉSI JELSZÓT (Admin → Biztonsági mentés) — az hozza létre a ' +
+            'helyreállító kulcspárt.' +
+            (anyag.error ? ` (Részlet: ${anyag.error})` : ''),
+        )
+      }
     }
-  } else {
-    const lista = await selectAllPaged<CongregationRow>(
-      admin.from('congregations').select('id, name, nev_hu').eq('status', 'active'),
-    )
-    if (lista.error) {
-      throw new Error(`A gyülekezetek listája nem tölthető be: ${lista.error.message}`)
+
+    // ── 3) HATÓKÖRÖK
+    if (opts.congregationIds && opts.congregationIds.length > 0) {
+      const lista = await selectAllPaged<CongregationRow>(
+        admin.from('congregations').select('id, name, nev_hu').in('id', opts.congregationIds),
+      )
+      if (lista.error) {
+        throw new Error(`A gyülekezetek listája nem tölthető be: ${lista.error.message}`)
+      }
+      for (const c of lista.data) {
+        hatokorok.push({
+          scope: 'gyulekezet',
+          congregationId: c.id,
+          congregationNev: c.nev_hu || c.name || null,
+        })
+      }
+      if (opts.includeGlobal) {
+        hatokorok.push({ scope: 'globalis', congregationId: null, congregationNev: null })
+      }
+    } else {
+      const lista = await selectAllPaged<CongregationRow>(
+        admin.from('congregations').select('id, name, nev_hu').eq('status', 'active'),
+      )
+      if (lista.error) {
+        throw new Error(`A gyülekezetek listája nem tölthető be: ${lista.error.message}`)
+      }
+      for (const c of lista.data) {
+        hatokorok.push({
+          scope: 'gyulekezet',
+          congregationId: c.id,
+          congregationNev: c.nev_hu || c.name || null,
+        })
+      }
+      if (opts.includeGlobal !== false) {
+        hatokorok.push({ scope: 'globalis', congregationId: null, congregationNev: null })
+      }
     }
-    for (const c of lista.data) {
-      hatokorok.push({
-        scope: 'gyulekezet',
-        congregationId: c.id,
-        congregationNev: c.nev_hu || c.name || null,
-      })
+    jelolLepes(lepesek, 'hatokorok', true, `${hatokorok.length} hatókör`)
+
+    // ── 3/b) A FOLYTATÁSI PONT. Egyetlen lekérdezésből megtudjuk, MELYIK
+    //      hatókörről van MA már igazolt mentés — ezekhez hozzá sem nyúlunk.
+    //      Nem kell külön „folytatási token": a napi kulcs maga az.
+    if (kind === 'napi') {
+      const kesz = await selectAllPaged<{ scope: string; congregation_id: string | null }>(
+        admin
+          .from('backup_log')
+          .select('scope, congregation_id')
+          .eq('kind', 'napi')
+          .eq('run_date', runDate)
+          .eq('status', 'ok')
+          .not('drive_verified_at', 'is', null),
+      )
+      if (kesz.error) {
+        throw new Error(`A mai napló-sorok nem olvashatók: ${kesz.error.message}`)
+      }
+      for (const sor of kesz.data) keszKulcsok.add(scopeKulcs(sor.scope, sor.congregation_id))
     }
-    if (opts.includeGlobal !== false) {
-      hatokorok.push({ scope: 'globalis', congregationId: null, congregationNev: null })
-    }
+  } catch (e: unknown) {
+    // ── AZ ELŐKÉSZÍTŐ FÁZIS BUKÁSA ────────────────────────────────────────
+    // Itt EGYETLEN hatókör sem futott le, tehát NINCS napló-sor, amibe a hibát
+    // beleírhatnánk. Korábban emiatt ez a hibafajta TELJESEN néma volt: se
+    // napló, se riasztás, se érthető felületi üzenet. Mindhárom pótolva.
+    const uzenet = e instanceof Error ? e.message : 'ismeretlen hiba'
+    const bukott = lepesek.find((l) => l.ok === null)
+    if (bukott) bukott.ok = false
+
+    console.error('[backup] Az ELŐKÉSZÍTŐ fázis elhasalt.', uzenet)
+
+    // RIASZTÁS — a napi cron éjjel fut, és e nélkül reggelig senki nem tudná meg.
+    await aktivRiaszto()({
+      scope: 'globalis',
+      congregationId: null,
+      congregationNev: null,
+      runDate,
+      backupLogId: null,
+      stage: detectStage(uzenet),
+      uzenet: `A mentés EL SEM INDULT (előkészítő fázis): ${vagd(uzenet, 400)}`,
+    }).catch(() => undefined)
+
+    throw new BackupWorkerError(uzenet, lepesek)
   }
 
   // ── 4) A TEGNAPI ELLENŐRZÉS. Ha tegnap nem volt igazolt mentés, AZONNAL
@@ -479,49 +608,88 @@ export async function runBackupWorker(
     )
   }
 
-  // ── 5) FUTÁS, hatókörönként, sorosan
+  // ── 5) SZELET-TERV: mit hagyunk ki, mivel dolgozunk, mi marad későbbre.
+  const terv = tervezFutas({
+    hatokorok,
+    kulcs: (h) => scopeKulcs(h.scope, h.congregationId),
+    keszKulcsok,
+    maxHatokor: korlatok.maxHatokor,
+  })
+
+  // ── 6) FUTÁS, hatókörönként, sorosan
   const eredmenyek: BackupScopeResult[] = []
   let sikeres = 0
   let sikertelen = 0
   let kihagyva = 0
+  let feldolgozva = 0
+  let idoMiattHalasztott = 0
+  const ciklusKezdet = Date.now()
 
-  for (const h of hatokorok) {
-    const claim = await claimBackupLog(admin, {
-      scope: h.scope,
-      congregationId: h.congregationId,
-      congregationNev: h.congregationNev,
-      kind,
-      runDate,
-    })
+  // A MA MÁR IGAZOLT hatókörök: nulla adatbázis-írás, nulla Drive-hívás. Egy
+  // folytatásnál ez a 700+ hatókör másodpercek alatt átfut.
+  for (const h of terv.kihagyando) {
+    kihagyva++
+    eredmenyek.push(uresEredmeny(h, kind, runDate, { kihagyva: true }))
+  }
 
-    if (claim.kihagyva) {
-      kihagyva++
-      eredmenyek.push({
+  for (let i = 0; i < terv.futtatando.length; i++) {
+    const h = terv.futtatando[i]
+
+    // ── IDŐKERET. Rendezett megállás: a maradék HALASZTOTT lesz, nem hibás.
+    //    Az `atlagosHatokorMs` miatt nem indítunk el olyan hatökört, ami
+    //    várhatóan átlógna a HTTP-korláton — az átlógás nem megállás, hanem
+    //    elvágódás, és „fut" állapotban ragadt napló-sort hagy maga után.
+    const eltelt = Date.now() - ciklusKezdet
+    const atlag = feldolgozva > 0 ? eltelt / feldolgozva : null
+    if (
+      !ferBeleUjabbHatokor({
+        elteltMs: eltelt,
+        maxFutasiIdoMs: korlatok.maxFutasiIdoMs,
+        atlagosHatokorMs: atlag,
+        // 2026-08-11: a paraméter neve `feldolgozott` (lásd batch.ts). A helyi
+        // számláló `feldolgozva` — rövidítéssel átadva a mező NEM létező néven
+        // ment volna át, és a `feldolgozott === 0` haladás-garancia némán
+        // kimaradt volna.
+        feldolgozott: feldolgozva,
+      })
+    ) {
+      idoMiattHalasztott = terv.futtatando.length - i
+      break
+    }
+
+    // A napló-sor lefoglalása HATÓKÖRÖNKÉNT hibázhat — és NEM viheti magával az
+    // egész országos futást. (Korábban a `claim` a try-on KÍVÜL volt: egyetlen
+    // napló-írási hiba a legelső gyülekezetnél mind a 784-et megölte.)
+    let claim: ClaimResult
+    try {
+      claim = await claimBackupLog(admin, {
         scope: h.scope,
         congregationId: h.congregationId,
         congregationNev: h.congregationNev,
         kind,
         runDate,
-        ok: true,
-        kihagyva: true,
-        backupLogId: claim.backupLogId,
-        stage: null,
-        hiba: null,
-        rowCounts: {},
-        totalRows: 0,
-        ciphertextBytes: 0,
-        sha256: null,
-        fileId: null,
-        fileName: null,
-        mediaFileId: null,
-        mediaSha256: null,
-        mediaBytes: 0,
-        figyelmeztetesek: [],
-        durationMs: 0,
       })
+    } catch (e: unknown) {
+      sikertelen++
+      feldolgozva++
+      const uzenet = e instanceof Error ? e.message : 'ismeretlen hiba'
+      console.error(
+        `[backup] ${h.scope}/${h.congregationNev ?? 'globalis'} (${runDate}) napló-foglalás SIKERTELEN:`,
+        uzenet,
+      )
+      eredmenyek.push(uresEredmeny(h, kind, runDate, { ok: false, hiba: uzenet }))
       continue
     }
 
+    if (claim.kihagyva) {
+      kihagyva++
+      const sor = uresEredmeny(h, kind, runDate, { kihagyva: true })
+      sor.backupLogId = claim.backupLogId
+      eredmenyek.push(sor)
+      continue
+    }
+
+    feldolgozva++
     const elozo = await loadPreviousRun(admin, h.scope, h.congregationId, runDate)
 
     try {
@@ -621,19 +789,54 @@ export async function runBackupWorker(
     }
   }
 
-  // ── 6) TAKARÍTÁS: a 24 óránál régebbi visszaállítási staging sorok.
+  const hatralevo = terv.halasztott.length + idoMiattHalasztott
+  const futottVegig = hatralevo === 0
+  jelolLepes(
+    lepesek,
+    'mentes',
+    // ⚠️ 2026-08-11 JAVÍTÁS — A NORMÁL MŰKÖDÉS NEM KAPHAT PIROS KERESZTET.
+    //    Korábban itt `futottVegig && sikertelen === 0` állt, vagyis a lépés
+    //    `false`-t kapott MINDEN köztes szeletnél — ami 784 hatókörnél a
+    //    TERVEZETT, egészséges állapot (7+ szelet). A felület emiatt egy
+    //    hibátlan, haladó futásra rajzolt keresztet, „ITT HIBÁZOTT"
+    //    képernyőolvasó-szöveggel, nulla hiba mellett.
+    //
+    //    A helyes szerződés:
+    //      · van bukott hatókör            → `false`  (ez és csak ez a hiba),
+    //      · nincs bukás, de maradt hátra  → `'folyamatban'` (több szelet kell),
+    //      · nincs bukás és végigmentünk   → `true`.
+    //    A „még hátravan" tényt a `reszlet` és a `figyelmeztetesek` mondja ki —
+    //    a felület tehát TOVÁBBRA SEM mutat zöldet egy félkész mentésre.
+    sikertelen > 0 ? false : futottVegig ? true : 'folyamatban',
+    `${sikeres} igazolt, ${kihagyva} kihagyva, ${sikertelen} hibás, ${hatralevo} hátravan`,
+  )
+  if (!futottVegig) {
+    figyelmeztetesek.push(
+      `Ez a futás NEM végzett mindennel: ${hatralevo} hatókör hátravan (idő- vagy darab-korlát). ` +
+        'Az elkészült mentések MEGVANNAK — indítsd újra a futást, az onnan folytatja, ahol ' +
+        'abbahagyta (a ma már igazolt hatóköröket kihagyja).',
+    )
+  }
+
+  // ── 7) TAKARÍTÁS: a 24 óránál régebbi visszaállítási staging sorok.
   //      Személyes adatot tartalmaznak — nem maradhatnak ott a végtelenségig.
   const { error: cleanupError } = await admin.rpc('backup_restore_cleanup', {
     p_session: '00000000-0000-0000-0000-000000000000',
   })
   if (cleanupError) {
+    // ⚠️ 2026-08-11 JAVÍTÁS: ez `false` volt. A takarítás bukása csak
+    //    figyelmeztetés (a mentés elkészült, a staging sorok maradnak egy napig)
+    //    — mégis piros keresztet kapott egy sikeres futás jelentésében.
+    jelolLepes(lepesek, 'takaritas', 'figyelmeztetes', cleanupError.message)
     figyelmeztetesek.push(
       `A visszaállítási átmeneti tár takarítása sikertelen: ${cleanupError.message}`,
     )
+  } else {
+    jelolLepes(lepesek, 'takaritas', true)
   }
 
   return {
-    futott: hatokorok.length,
+    futott: terv.futtatando.length - idoMiattHalasztott + terv.kihagyando.length,
     sikeres,
     sikertelen,
     kihagyva,
@@ -641,6 +844,49 @@ export async function runBackupWorker(
     semaUjjlenyomat,
     figyelmeztetesek,
     hatokorok: eredmenyek,
+    osszes: hatokorok.length,
+    feldolgozva,
+    hatralevo,
+    futottVegig,
+    lepesek,
+  }
+}
+
+/**
+ * Üres (kihagyott vagy meg sem kezdett) hatókör-eredmény.
+ *
+ * Miért külön függvény: a `BackupScopeResult` húsz mezős, és háromszor kellene
+ * kézzel kitölteni. Egy elfelejtett mező itt csendes féligazságot jelentene a
+ * felületen — pont az a hibaosztály, ami ellen ez az egész kör szól.
+ */
+function uresEredmeny(
+  h: { scope: BackupScope; congregationId: string | null; congregationNev: string | null },
+  kind: BackupKind,
+  runDate: string,
+  allapot: { ok?: boolean; kihagyva?: boolean; hiba?: string },
+): BackupScopeResult {
+  return {
+    scope: h.scope,
+    congregationId: h.congregationId,
+    congregationNev: h.congregationNev,
+    kind,
+    runDate,
+    ok: allapot.ok ?? true,
+    kihagyva: allapot.kihagyva ?? false,
+    backupLogId: null,
+    stage: allapot.hiba ? detectStage(allapot.hiba) : null,
+    hiba: allapot.hiba ?? null,
+    rowCounts: {},
+    totalRows: 0,
+    ciphertextBytes: 0,
+    sha256: null,
+    fileId: null,
+    fileName: null,
+    mediaFileId: null,
+    mediaSha256: null,
+    mediaBytes: 0,
+    figyelmeztetesek: [],
+    durationMs: 0,
   }
 }
 
@@ -723,6 +969,9 @@ export async function runSingleCongregationBackup(args: {
           'A mentés nem lett igazolva (feltöltés + visszaolvasás + sorszám-egyeztetés).',
     }
   } catch (e: unknown) {
+    // A BESZÉDES HIBA ide is átjön: ha az előkészítő fázis bukott, a hívó
+    // (visszaállítás előtti mentés) megkapja a TEENDŐT is, nem csak a tényt.
+    const teendo = e instanceof BackupWorkerError ? ` ${e.teendo}` : ''
     return {
       ok: false,
       igazolt: false,
@@ -730,7 +979,7 @@ export async function runSingleCongregationBackup(args: {
       finishedAt: null,
       totalRows: 0,
       figyelmeztetesek: [],
-      error: e instanceof Error ? e.message : 'A mentés nem sikerült.',
+      error: (e instanceof Error ? e.message : 'A mentés nem sikerült.') + teendo,
     }
   }
 }

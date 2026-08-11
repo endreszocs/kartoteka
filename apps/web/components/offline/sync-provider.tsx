@@ -57,6 +57,32 @@ export function SyncProvider({
     const orchestrator = getSyncOrchestrator()
     void orchestrator.start(congregationId)
 
+    // ⚠️ 2026-08-11 — A VISSZAÁLLÍTÁS-ÜZENET EDDIG A SEMMIBE MENT.
+    //    A `restore_detected` eseményre az EGÉSZ kódbázisban SENKI nem
+    //    iratkozott fel, pedig ez a legfontosabb mondat, amit a lelkész
+    //    kaphat: a rendszergazda visszaállította a gyülekezet adatait, és az
+    //    el nem küldött helyi módosításai KARANTÉNBA kerültek. Ráadásul a
+    //    karanténozott mutációk `dead` státuszt kapnak, amit a régi jelző
+    //    szintén nem számolt — vagyis semmi nem szólt a lelkésznek.
+    //    A toast SZÁNDÉKOSAN nem tűnik el magától (`duration: Infinity`):
+    //    ezt az üzenetet nyugtázni kell.
+    const leiratkozasSzinkron = orchestrator.subscribe((event) => {
+      if (event.type !== 'restore_detected') return
+      toast.warning('A gyülekezet adatait visszaállították egy korábbi mentésből', {
+        description:
+          event.error ||
+          'A helyi másolat teljesen újratöltődik. Nézd át, mi került karanténba.',
+        duration: Infinity,
+        closeButton: true,
+        action: {
+          label: 'Megnézem',
+          onClick: () => {
+            window.location.href = '/offline'
+          },
+        },
+      })
+    })
+
     // Excel watcher a web PWA Excel-sync flow-jához
     const slug = slugify(
       congregationName || congregationId || 'ismeretlen',
@@ -105,6 +131,7 @@ export function SyncProvider({
       if (orchestrator) orchestrator.stop()
       watcher.stop()
       unsubscribe()
+      leiratkozasSzinkron()
       if (toastDebounceRef.current !== null) {
         window.clearTimeout(toastDebounceRef.current)
       }

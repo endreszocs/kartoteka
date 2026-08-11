@@ -108,7 +108,13 @@ export function LocalityMatchStep({
       return
     }
     startLoading(async () => {
-      const result = await findLocalityMatchBatch(uniqueLocalityInputs, 'RO', 0.6)
+      // ⚠️ 2026-08-11 — NINCS ORSZÁG-SZŰRÉS (`null`, a korábbi hardkódolt 'RO'
+      //    helyett). A címtörzsben immár Magyarország és Hollandia is szerepel
+      //    (2026-08-11-orszagok-es-kulfoldi-telepulesek.sql), és 'RO'-ra szűrve
+      //    a MÁR MEGLÉVŐ Budapest/Debrecen/Gödöllő/Győr/Hollandia sorok
+      //    `no_match`-re esnének — a lelkész az „Új helység" ágon egy MÁSODIK,
+      //    ugyanolyan nevű sort hozna létre, és a tagok kettéhasadnának.
+      const result = await findLocalityMatchBatch(uniqueLocalityInputs, null, 0.6)
       if (result.error || !result.data) {
         toast.error(result.error || 'Sikertelen helység-keresés.')
         return
@@ -726,8 +732,10 @@ function FreeLocalitySearch({
       return
     }
     startSearching(async () => {
-      // Alacsonyabb threshold (0.3) → több fuzzy találat
-      const res = await findLocalityMatch(q, 'RO', 0.3)
+      // Alacsonyabb threshold (0.3) → több fuzzy találat.
+      // Ország-szűrés NÉLKÜL (`null`) — lásd a batch-hívás melletti indoklást:
+      // a kézi kereső sem hagyhatja ki a külföldre kötött, meglévő sorokat.
+      const res = await findLocalityMatch(q, null, 0.3)
       if (res.error) {
         setError(res.error)
         setResults([])

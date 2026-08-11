@@ -83,8 +83,9 @@ import { FamilyAssignDialog } from '@/components/modals/family-assign-dialog'
 // 2026-08-11: az útvonal-célpont a HIVATALOS román alakból épül, és a lelkész
 // egyszer meg is erősítheti a helyet (lásd a két modul fejlécét).
 import { AddressVerifyDialog } from '@/components/modals/address-verify-dialog'
-import { buildDirectionsTarget, type MemberDirectionsAddress } from '@/lib/members/directions'
+import { assessAddressMap, isPlaceholderLocality, type MemberDirectionsAddress } from '@/lib/members/directions'
 import {
+  AddressMapPill,
   BTN,
   CardFooter,
   CardHeaderChrome,
@@ -575,11 +576,28 @@ export function MemberDetailsDialogV2({
   // 2026-08-11: a betöltött cím (hivatalos román nevek + egyeztetett pont) az
   // elsődleges; amíg tölt, a magyar nevű tartalék megy — lásd a fenti kommentet.
   const directionsAddress = details?.cim ?? buildFallbackDirectionsAddress(member)
-  const directionsTarget = buildDirectionsTarget(directionsAddress)
+  // 2026-08-11: EGY hívás adja a célpontot ÉS a térkép-állapotot (a kis ikon
+  // három állapota). Külön „feloldható-e" számolás itt TILOS — a
+  // `lib/members/directions.ts` az egyetlen forrás.
+  // 2026-08-11 (ÁTMENETI): a külföld-kapu az ORSZÁGTÖRZS méretét is megkapja.
+  // Amíg egyetlen ország van (Románia), az ország-mező nem bizonyít semmit, és a
+  // pirula szándékosan a semleges ágon marad — ugyanúgy, ahogy a Hibák fülön.
+  // Töltés közben (`details` még null) ez `undefined` → fail-closed, óvatos ág.
+  const mapAssessment = assessAddressMap(directionsAddress, details?.orszagtorzs)
+  const directionsTarget = mapAssessment.target
   const directionsUrl = directionsTarget?.url ?? null
   // Az egyeztetés csak akkor menthető, ha a cím a CÍMTÖRZSBŐL választott sorra
   // mutat (van id) — szabad szöveges címnél nincs mire ráírni a pontot.
   const canVerifyAddress = Boolean(details?.cim?.locality?.id || details?.cim?.street?.id)
+  // ⚠️ 2026-08-11 — A HELYKITÖLTŐ („?") SOR: ITT NEM AZ EGYEZTETÉS A TEENDŐ.
+  //    Élesben 70 élő tag címe mutat egy „?" nevű `adrlocality` sorra. A
+  //    „Cím egyeztetése" gomb EGYETLEN koordinátát írna a település sorára —
+  //    ezzel 70 különböző valódi lakcím kerülne egyetlen hamis pontra, a Hibák
+  //    fül `lakcim|logic` tétele pedig (NÉV-alapú lévén) akkor is nyitva
+  //    maradna. Ezért a gomb ilyenkor NEM az ablakot nyitja, hanem kimondja az
+  //    igazi teendőt. A pirula ugyanezt mondja (`assessAddressMap` 0. ága) —
+  //    egyetlen forrás, két felület.
+  const cimHelykitolto = isPlaceholderLocality(details?.cim?.locality)
   const currentIsFamilyAdult = familySummary?.adults.some((person) => person.id === member.id) ?? false
   const payments = details?.befizetesek || []
   const stornozottDb = payments.filter((p) => p.stornozott).length
@@ -954,6 +972,22 @@ export function MemberDetailsDialogV2({
             Sosem blokkol: az „Útvonal" gomb közben végig működik. */}
         {addressLine && directionsTarget && (
           <div className="mt-3 space-y-2 rounded-xl border border-border/60 bg-background/40 p-3">
+            {/* ⚑ 2026-08-11 — A KIS IKON (a tulajdonos kérése).
+                Egy pillantásra megmondja, kezeli-e a térkép ezt a címet:
+                pipás gombostű = megtalálja · nagyító = csak a faluig visz ·
+                áthúzott gombostű = a települést sem találja (ITT kell javítani).
+                ⚠️ CSAK a betöltött, hivatalos címadatból (`details.cim`)
+                rajzoljuk. A töltés alatti magyar nevű tartaléknak SOHA nincs
+                román neve, tehát a pirula egy pillanatra hamis riasztást
+                villantana minden kartonon — a hamis jelzés drágább, mint a
+                fél másodperces késés. */}
+            {details?.cim && (
+              <AddressMapPill
+                status={mapAssessment.status}
+                label={mapAssessment.label}
+                detail={mapAssessment.detail}
+              />
+            )}
             <p className="break-words text-xs leading-5 text-muted-foreground">
               <span className="font-semibold text-foreground">A térkép ezt keresi:</span>{' '}
               {directionsTarget.kind === 'koordinata'
@@ -961,13 +995,16 @@ export function MemberDetailsDialogV2({
                 : directionsTarget.destination}
             </p>
 
-            {directionsTarget.verified ? (
+            {/* ⚠️ A helykitöltő („?") soron SOHA nem mondjuk, hogy „egyeztetve van":
+                attól, hogy van egy mentett pont, még nem tudjuk, hol lakik a tag —
+                és a Hibák fülön a tétel (NÉV-alapú lévén) nyitva is marad. */}
+            {directionsTarget.verified && !cimHelykitolto ? (
               <p className="flex items-start gap-1.5 text-xs leading-5 text-emerald-700 dark:text-emerald-300">
                 <Check className="mt-0.5 size-3.5 shrink-0" aria-hidden />
                 <span>
                   Ez a cím egyeztetve van a térképpel.
                   {directionsTarget.precision === 'telepules' && directionsTarget.kind === 'koordinata'
-                    ? ' A pont a településre mutat — a házszámot a helyszínen keresse.'
+                    ? ' A pont a településre mutat — a házszámot a helyszínen keresd.'
                     : ''}
                 </span>
               </p>
@@ -975,8 +1012,16 @@ export function MemberDetailsDialogV2({
               <p className="flex items-start gap-1.5 text-xs leading-5 text-amber-700 dark:text-amber-300">
                 <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
                 <span>
-                  Ez a cím még nincs egyeztetve a térképpel.
-                  {directionsTarget.warnings.length > 0 ? ` ${directionsTarget.warnings[0]}` : ''}
+                  {/* ⚠️ A helykitöltő („?") soron az „egyeztesd a térképpel" mondat
+                      ROSSZ irányba terel: ott nem a térkép hibázik, hanem hiányzik
+                      a település. A pirula ugyanezt mondja — ez a sor nem mondhat
+                      mást egy centivel lejjebb. */}
+                  {cimHelykitolto
+                    ? 'Ehhez a címhez nincs valódi település rögzítve, ezért az egyeztetés nem segít — előbb az Elérhetőségeknél válaszd ki a tényleges települést.'
+                    : 'Ez a cím még nincs egyeztetve a térképpel.'}
+                  {!cimHelykitolto && directionsTarget.warnings.length > 0
+                    ? ` ${directionsTarget.warnings[0]}`
+                    : ''}
                 </span>
               </p>
             )}
@@ -995,6 +1040,15 @@ export function MemberDetailsDialogV2({
                   toast.info(
                     'Ehhez a taghoz nincs a címtörzsből választott település vagy utca, ezért az egyeztetés nem menthető. Nyisd meg a tag szerkesztőjét, és válaszd ki a települést a listából.',
                     { duration: 9000 },
+                  )
+                  return
+                }
+                // A helykitöltő („?") soron az egyeztetés ROMBOLNA (lásd a
+                // `cimHelykitolto` melletti indoklást) — a valódi teendőt mondjuk.
+                if (cimHelykitolto && !details?.cim?.street?.id) {
+                  toast.info(
+                    'Ehhez a címhez nincs valódi település rögzítve — a címtörzsben csak egy helykitöltő („?") áll. A térképpel ezt nem lehet egyeztetni: nyisd meg a tag szerkesztőjét, és válaszd ki a tényleges települést.',
+                    { duration: 12000 },
                   )
                   return
                 }

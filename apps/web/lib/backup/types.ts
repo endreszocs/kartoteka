@@ -378,4 +378,70 @@ export interface BackupWorkerResult {
   /** Nem hatókörhöz köthető, de jelzendő tények (pl. tegnap nem volt mentés). */
   figyelmeztetesek: string[]
   hatokorok: BackupScopeResult[]
+
+  // ── KÖTEGELÉS ÉS FOLYTATÁS (2026-08-11) ──────────────────────────────────
+  /** Ennyi hatókört KELLETT volna érinteni (aktív gyülekezetek + globális). */
+  osszes: number
+  /** Ennyivel dolgoztunk ténylegesen ebben a szeletben (kihagyás nem számít). */
+  feldolgozva: number
+  /**
+   * Ennyihez HOZZÁ SEM ÉRTÜNK az idő- vagy darab-korlát miatt.
+   *
+   * ⚠️ EZ NEM HIBA, de KIMONDANDÓ. A legrosszabb kimenet az lenne, ha a felület
+   *    zöldet mutatna 300 kész mentésre, miközben 484 hatókör érintetlen maradt.
+   */
+  hatralevo: number
+  /** `true`, ha a futás MINDEN hatókörhöz hozzáért. */
+  futottVegig: boolean
+  /** A futás lépés-listája — ebből látja a tulajdonos, MEDDIG jutottunk. */
+  lepesek: BackupRunStep[]
+}
+
+/**
+ * EGY LÉPÉS KIMENETELE — ÖT állapot, és egyik sem helyettesíti a másikat.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * 2026-08-11 BŐVÍTÉS — MIÉRT NEM ELÉG A `boolean | null`
+ * ════════════════════════════════════════════════════════════════════════════
+ * A háromértékű szerződés alatt az `ok: false` KÉT, teljesen különböző dolgot
+ * jelölt, és mindkettő HAZUDOTT a tulajdonosnak:
+ *
+ *   (a) „MÉG NEM VÉGEZTÜNK VELE". A 784 hatókörös futás TERVEZETTEN több
+ *       szeletben megy; minden köztes szelet után maradt hátra hatókör, és a
+ *       „Mentés hatókörönként" lépés emiatt `false`-t kapott. A felület PIROS
+ *       KERESZTET rajzolt egy hibátlan, haladó futásra, és a képernyőolvasónak
+ *       szó szerint azt mondta: „— ITT HIBÁZOTT" — nulla hiba mellett.
+ *
+ *   (b) „HIÁNYZIK, DE NEM VÉGZETES". A helyreállító kulcs-letét hiánya és a
+ *       takarítás bukása nem állítja meg a mentést, mégis piros keresztet
+ *       kapott egy egyébként SIKERES futás jelentésében — egy zöld dobozban.
+ *       Két, egymásnak ellentmondó állítás egy dobozban.
+ *
+ * Ezért az `false` mostantól KIZÁRÓLAG valódi bukást jelent:
+ *
+ *    `true`            = kész, rendben,
+ *    `'figyelmeztetes'`= megtörtént, de hiányosan — NEM állítja meg a futást,
+ *    `'folyamatban'`   = elkezdtük, még nem végeztünk vele (több szelet),
+ *    `false`           = ITT BUKOTT EL (ez és csak ez a hiba),
+ *    `null`            = idáig EL SEM JUTOTTUNK.
+ *
+ * ⚠️ A felület MINDEGYIKHEZ saját ikont ÉS saját LÁTHATÓ szöveget rendel — a
+ *    megkülönböztetés nem lehet pusztán szín- vagy alakbeli (WCAG 1.4.1).
+ */
+export type BackupStepAllapot = boolean | null | 'figyelmeztetes' | 'folyamatban'
+
+/**
+ * A FUTÁS EGY LÉPÉSE — ebből épül a felület állapot-listája (2026-08-11).
+ *
+ * ⛔ TITOK SOHA nem kerülhet a `reszlet` mezőbe (token, kulcs, jelszó, Google
+ *    `code`) — sem értékkel, sem hosszal, sem előtaggal.
+ */
+export interface BackupRunStep {
+  /** Gépi azonosító. A felület EZ alapján párosít — a címke szövege változhat. */
+  id: string
+  /** Amit a tulajdonos lát. Magyar, ékezetes, tegező. */
+  cimke: string
+  ok: BackupStepAllapot
+  /** Rövid, TITOKMENTES tény. Pl. „784 hatókör", „Google Drive", „157 tábla". */
+  reszlet?: string
 }

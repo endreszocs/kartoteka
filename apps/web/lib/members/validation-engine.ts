@@ -28,6 +28,70 @@ export interface ValidationError {
   duplicate_of_member_id?: number
 }
 
+/**
+ * EGY FELOLDHATATLAN TELEPÜLÉS — a Hibák fül EGYETLEN tétele (2026-08-11).
+ *
+ * ⚠️ MIÉRT NEM TAGONKÉNT (ez a mérés, nem ízlés): a defekt is, a javítás is
+ *    TELEPÜLÉS-szintű — egyetlen `adrlocality`-sorból hiányzik a hivatalos név.
+ *    Ha tagonként írnánk ki, Barátos léptékében 549 szó szerint AZONOS `medium`
+ *    sor születne (a mért adat: „Barátoson 549 tag él"), ami a `medium` KPI-t és
+ *    a listát is maga alá temetné — minden VALÓDI hibával együtt. A lelkésznek
+ *    egy teendője van, tehát egy sort lát; a sor megmondja, hány tagot érint.
+ */
+export interface TerkepTelepulesHiba {
+  /** A település nyilvántartásbeli (MAGYAR) neve — ezt ismeri fel a lelkész. */
+  nev: string
+  /** Ennek a tagnak a sorára kerül a tétel (a legkisebb érintett tag-id). */
+  gazdaTagId: number
+  /** Hány élő tag címét érinti ugyanez az egy hiányzó törzsadat. */
+  erintettTagok: number
+}
+
+/**
+ * KONTEXTUS (2026-08-11) — amit a motor önmagából NEM tudhat.
+ *
+ * A „megtalálja-e a térkép ezt a címet?" kérdés JOIN-t igényel
+ * (`adrlocality → adrcounty → adrcountry` + az egyeztetett pont oszlopai), a
+ * motor viszont SZÁNDÉKOSAN tiszta: nem olvas adatbázist, ezért önmagában
+ * tesztelhető marad. A hívó (`validation-actions.ts`) számolja ki, és ADJA ÁT.
+ *
+ * ⚠️ A `feloldhatatlanTelepulesek` KÉSZRE SZŰRVE érkezik: csak olyan település
+ *    kerülhet bele, amely (a) a térképen tényleg nem oldható fel, ÉS
+ *    (b) BIZONYÍTHATÓAN romániai. A külföldi települések (Budapest, Debrecen,
+ *    Gödöllő, Győr, Hollandia) SOHA nincsenek benne — azokat a térkép a saját
+ *    nevükön megtalálja, tehát a címük nem hibás. A szűrés egyetlen helyen, a
+ *    `lib/members/directions.ts` `shouldReportUnresolvableLocality`-jában él.
+ *    A `gazdaTagId` szintén készen érkezik: a hívó ott zárja ki azokat a
+ *    tagokat, akiknek az UTCÁJÁN már van egyeztetett pont (nekik az útvonal a
+ *    település hiánya ellenére is a házig visz).
+ */
+/**
+ * HELYKITÖLTŐ TELEPÜLÉS — ugyanaz az alak, MÁS jelentés (2026-08-11).
+ *
+ * A `nev` itt nem egy falu neve, hanem az, AMI A TÖRZSBEN ÁLL helyette („?").
+ * A `gazdaTagId` és az `erintettTagok` szerepe azonos: egyetlen sor áll a
+ * listában, és az megmondja, hányan érintettek.
+ */
+export type HelykitoltoTelepulesHiba = TerkepTelepulesHiba
+
+export interface ValidationContext {
+  /** Település-id → a hozzá tartozó EGYETLEN tétel leírása. */
+  feloldhatatlanTelepulesek?: Map<number, TerkepTelepulesHiba>
+  /**
+   * Település-id → helykitöltő („?") sor. A hívó KÉSZRE SZŰRVE adja át
+   * (`lib/members/directions.ts` → `isPlaceholderLocality`), és ugyanaz a
+   * szűrés zárja ki ezeket a `feloldhatatlanTelepulesek`-ből, hogy egyetlen
+   * tag se kapjon KÉT tételt ugyanarra a címre.
+   */
+  helykitoltoTelepulesek?: Map<number, HelykitoltoTelepulesHiba>
+  /**
+   * Utca-id → település-id. Sok import-örökség soron a `c_helysegid` NULL,
+   * miközben a `c_utcaid` pontosan tudja a települést — e nélkül azoknál a
+   * tagoknál némán elmaradna a jelzés.
+   */
+  utcaTelepulesId?: Map<number, number>
+}
+
 // ── Helper-ek ───────────────────────────────────────────────────────────────
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
@@ -56,7 +120,17 @@ function yearsAgo(dateStr: string): number {
 
 // ── Egyetlen tag validálása ─────────────────────────────────────────────────
 
-export function validateMember(member: MemberRow): ValidationError[] {
+/**
+ * A tag TÉNYLEGES települése: elsődlegesen a `c_helysegid`, tartalékként az
+ * utcán keresztül. (Ugyanaz a fallback, mint a karton cím-lekérdezésében.)
+ */
+function resolveMemberLocalityId(member: MemberRow, context: ValidationContext): number | null {
+  if (typeof member.c_helysegid === 'number') return member.c_helysegid
+  if (typeof member.c_utcaid === 'number') return context.utcaTelepulesId?.get(member.c_utcaid) ?? null
+  return null
+}
+
+export function validateMember(member: MemberRow, context: ValidationContext = {}): ValidationError[] {
   const errors: ValidationError[] = []
   const id = member.id
 
@@ -105,6 +179,105 @@ export function validateMember(member: MemberRow): ValidationError[] {
       field_name: 'lakcim',
       error_type: 'missing',
       error_message: 'Hiányzik a lakcím (helység vagy utca).',
+      severity: 'medium',
+    })
+  }
+
+  // ── A CÍMET A TÉRKÉP NEM TALÁLJA (2026-08-11) ──────────────────────────
+  //
+  // MIÉRT `medium` ÉS NEM `critical`: a `critical` a rekord ALAPVETŐ
+  // működését érinti (név, születési dátum) — anélkül a tag nem azonosítható,
+  // nem anyakönyvezhető. Egy nehezen megtalálható cím nem ilyen: a tag
+  // azonosítható, a járuléka könyvelhető, az anyakönyve vezethető. A `medium`
+  // saját definíciója viszont szó szerint ezt az esetet írja le: „az
+  // anyakönyvi/pasztorális munkát akadályozza (… lakcím …)" — a lelkész
+  // családlátogatáskor ténylegesen elakad tőle. Felfújni kártékony lenne: a
+  // `critical` szám a Hibák fül legfelső KPI-ja, amire azonnal reagálni kell.
+  //
+  // MIÉRT `format` ÉS NEM `missing`: a tag rekordjából SEMMI nem hiányzik —
+  // a település ki van választva. Ami hiányzik, az a címtörzs hivatalos
+  // (román) alakja, vagyis a rögzített cím nem hozható a térkép által
+  // értelmezhető FORMÁRA. Gyakorlati haszna is van: a `field_name` így
+  // maradhat `lakcim` (ezt látja és ezt javítja a lelkész a kartonon)
+  // ÜTKÖZÉS NÉLKÜL a fenti „Hiányzik a lakcím" tétellel — a
+  // `validation-actions` kulcsa `member_id|field_name|error_type|dup`.
+  //
+  // MIÉRT CSAK A „GAZDA" TAGNÁL: lásd a `TerkepTelepulesHiba` fejlécét. A tétel
+  // TELEPÜLÉSENKÉNT EGY, és a legkisebb id-jű ÉRINTETT tag sorára kerül — ő a
+  // fogantyú, amin keresztül a lelkész eljut a kartonra és az egyeztető ablakba.
+  const localityId = resolveMemberLocalityId(member, context)
+  const gond = localityId !== null ? context.feloldhatatlanTelepulesek?.get(localityId) : undefined
+  if (gond && gond.gazdaTagId === id) {
+    const tobbiek =
+      gond.erintettTagok > 1
+        ? `Ez a hiányzó törzsadat ${gond.erintettTagok} tag címét érinti, de EGYSZER kell javítani — ezért csak ez az egy sor áll itt. `
+        : ''
+    errors.push({
+      member_id: id,
+      field_name: 'lakcim',
+      error_type: 'format',
+      error_message:
+        `A térkép nem találja meg ezt a települést: „${gond.nev}". ` +
+        tobbiek +
+        'Nyisd meg a személyi kartont → Elérhetőségek → „Cím egyeztetése", és erősítsd meg a helyet a térképen. ' +
+        'Egyszer elég: onnantól a település minden tagjának jó lesz az útvonala.',
+      severity: 'medium',
+    })
+  }
+
+  // ── HIÁNYZIK A TELEPÜLÉS: „?" HELYKITÖLTŐ A CÍMBEN (2026-08-11) ─────────
+  //
+  // A MÉRT ESET: élesben 70 ÉLŐ TAG címe egy „?" NEVŰ `adrlocality` sorra
+  // mutat. Ez a gyülekezet LEGNAGYOBB egyetlen adathiba-csoportja.
+  //
+  // MIÉRT NEM FOGJA MEG A FENTI „Hiányzik a lakcím": az NULL-ra tesztel, nem
+  // ÉRTELMESSÉGRE — ezeknek a tagoknak KI VAN TÖLTVE a `c_helysegid`/
+  // `c_utcaid`, csak épp egy helykitöltőre. Látszólag van címük.
+  //
+  // MIÉRT NEM „a térkép nem találja": az a tétel a „Cím egyeztetése" gombra
+  // küld, ami EGYETLEN koordinátát ír a település sorára. A „?"-en elvégezve
+  // 70 különböző valódi lakcímet szegeznénk egy hamis pontra, és a probléma
+  // VÉGLEG elnémulna. Igaz mondat, romboló utasítással — az rosszabb, mint a
+  // hallgatás.
+  //
+  // MIÉRT `medium`: a `medium` saját definíciója szó szerint ezt írja le — „az
+  // anyakönyvi/pasztorális munkát akadályozza (… lakcím …)". A lelkész ezt a
+  // 70 tagot NEM TUDJA MEGLÁTOGATNI: nem tudja, melyik faluban laknak. Nem
+  // `critical`, mert a rekord alapvetően működik (a tag azonosítható,
+  // anyakönyvezhető, a járuléka könyvelhető) — a `critical` a Hibák fül
+  // legfelső KPI-ja, amire azonnal reagálni kell, és felfújva pont azt a
+  // számot rontanánk el, ami a valódi vészhelyzeteket jelzi. Nem is `warning`:
+  // ez nem adattisztasági finomság, hanem 70 hiányzó lakcím.
+  //
+  // MIÉRT EGY SOR ÉS NEM 70: a Hibák fül elárasztása ugyanaz a kár, mint a
+  // hamis jelzés — 70 azonos `medium` sor minden VALÓDI hibát maga alá temetne.
+  // ⚠️ DE A JAVÍTÁS ITT TAGONKÉNTI (a térkép-tétellel ELLENTÉTBEN, ahol egy
+  //    javítás mindenkit rendbe tesz) — ezért az üzenet ezt KIMONDJA, a
+  //    számláló pedig minden újraellenőrzésnél fogy, és mindig egy új „gazda"
+  //    tag kerül a sorba. Így a lelkész egy folyamatosan rövidülő munkasort
+  //    kap, nem egy megbénult listát.
+  // ⚑ 2026-08-11 — AZ ÜZENET KIJÁRATOT IS AD. Az egy-sor-per-futás forma
+  //    önmagában 70 teljes újraellenőrzést jelentene (gyülekezet + minden
+  //    település + minden utca), csak hogy kiderüljön, ki a következő. Ezért a
+  //    Hibák fülön a sor mellett ott a „Mutasd mindet" gomb, ami a Személyek
+  //    fülre visz, település-szűrővel — az üzenet erre hivatkozik.
+  const helykitolto =
+    localityId !== null ? context.helykitoltoTelepulesek?.get(localityId) : undefined
+  if (helykitolto && helykitolto.gazdaTagId === id) {
+    const tobbiek =
+      helykitolto.erintettTagok > 1
+        ? `Összesen ${helykitolto.erintettTagok} tagot érint, és — a térkép-hibákkal ellentétben — MINDEGYIKET külön kell pótolni: ők mind máshol laknak. A „Mutasd mindet" gombbal egyszerre kilistázhatod az összes érintettet a Személyek fülön. Ez a sor mindig a soron következő tagot mutatja, és a szám minden újraellenőrzés után fogy. `
+        : ''
+    errors.push({
+      member_id: id,
+      field_name: 'lakcim',
+      error_type: 'logic',
+      error_message:
+        'Ebből a lakcímből hiányzik a település: a címtörzsben csak egy helykitöltő ' +
+        `(„${helykitolto.nev}") áll, nem valódi helység. ` +
+        tobbiek +
+        'Nyisd meg a személyi kartont → Elérhetőségek, és válaszd ki a tényleges települést. ' +
+        'A térképpel ezt NEM lehet egyeztetni — előbb a település kell.',
       severity: 'medium',
     })
   }
@@ -273,11 +446,11 @@ export function findDuplicates(members: MemberRow[]): ValidationError[] {
 
 // ── Teljes validáció (egy gyülekezet összes tagjára) ────────────────────────
 
-export function validateAll(members: MemberRow[]): ValidationError[] {
+export function validateAll(members: MemberRow[], context: ValidationContext = {}): ValidationError[] {
   const all: ValidationError[] = []
   for (const m of members) {
     if (m.meghalt) continue // elhunyt tagokat nem validálunk
-    all.push(...validateMember(m))
+    all.push(...validateMember(m, context))
   }
   all.push(...findDuplicates(members.filter(m => !m.meghalt)))
   return all

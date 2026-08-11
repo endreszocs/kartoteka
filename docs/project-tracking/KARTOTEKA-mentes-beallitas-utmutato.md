@@ -20,59 +20,99 @@ Egyetlen jogosultságot kérünk: **`drive.file`**. Ez azt jelenti, hogy a Karto
 
 ## 1. rész — Google Cloud (kb. 15 perc)
 
-### 1. Projekt létrehozása
+> **A gombnevek angolul is ott vannak zárójelben.** A Google Cloud konzol nyelve fiókonként eltér —
+> ha nálad angolul jelenik meg (a legtöbb esetben így van), a **zárójeles** alakot keresd a képernyőn.
+> A menüpontok sorrendje néha átalakul, de a nevek évek óta ugyanazok.
+
+### 1. Projekt létrehozása *(Create a project)*
 
 1. Nyisd meg: **https://console.cloud.google.com**
 2. Jelentkezz be azzal a Google-fiókkal, **amelyiknek a Drive-jába a mentést szeretnéd**.
-3. Fent, a Google Cloud felirat mellett kattints a **projektválasztóra** → **ÚJ PROJEKT**.
-4. Név: `Kartoteka mentes` (bármi lehet). **LÉTREHOZÁS**.
+3. Fent, a Google Cloud felirat mellett kattints a **projektválasztóra** *(project selector)* → **ÚJ PROJEKT** *(NEW PROJECT)*.
+4. Név *(Project name)*: `Kartoteka mentes` (bármi lehet). **LÉTREHOZÁS** *(CREATE)*.
 5. Várj, amíg elkészül, majd **válaszd ki** a projektválasztóban.
 
-### 2. A Drive API bekapcsolása
+> **A „Free trial" / „$300 credit" sávot nyugodtan hagyd figyelmen kívül**, és **ne** kattints az
+> **Activate** gombra. Amit itt használunk (Drive API, saját fiók, napi egy mentés), az **ingyenes** —
+> nincs szükség fizetős fiókra. A sáv minden új projektnél megjelenik.
 
-6. Bal oldali menü → **API-k és szolgáltatások** → **Könyvtár**.
-7. Keresés: `Google Drive API` → kattints rá → **ENGEDÉLYEZÉS**.
+### 2. A Drive API bekapcsolása *(Enable the Drive API)*
 
-### 3. Hozzájárulási képernyő
+6. Bal oldali menü → **API-k és szolgáltatások** *(APIs & Services)* → **Könyvtár** *(Library)*.
+7. Keresés: `Google Drive API` → kattints rá → **ENGEDÉLYEZÉS** *(ENABLE)*.
+   - Ha már be van kapcsolva, a gomb helyén **Disable API** felirat áll, és a **Status** mezőben **Enabled** — ez a jó állapot, menj tovább.
 
-8. **API-k és szolgáltatások** → **OAuth hozzájárulási képernyő**.
-9. Felhasználótípus: **Külső** *(a Belső csak Google Workspace-fiókoknál választható; ha a fiókod Workspace-es, válaszd a Belsőt — az egyszerűbb)*.
-10. Alkalmazás neve: `Kartoteka`. Támogatási e-mail és fejlesztői e-mail: a saját címed. **MENTÉS ÉS FOLYTATÁS**.
-11. **Hatókörök**: itt ne adj hozzá semmit, csak **MENTÉS ÉS FOLYTATÁS**. *(A hatókört az alkalmazás kéri majd, nem itt kell felvenni.)*
-12. **Tesztfelhasználók**: **FELHASZNÁLÓK HOZZÁADÁSA** → írd be a **saját e-mail-címedet**. **MENTÉS ÉS FOLYTATÁS**.
+### 3. Hozzájárulási képernyő *(OAuth consent screen)*
 
-> ### ⚠️ Ezt olvasd el — enélkül 7 naponta elromlik
+> **A Google 2025-ben átnevezte ezt a részt.** Két felülettel találkozhatsz — a lépések tartalma
+> ugyanaz, csak máshol vannak. Nézd meg, melyiket látod, és azt az oszlopot kövesd.
 >
-> Ha az alkalmazás **„Tesztelés" állapotban** marad, a Google **7 nap után érvényteleníti** a hozzáférést, és a mentés némán leáll.
+> | Amit el kell intézni | **Új felület** *(Google Auth Platform)* | **Régi felület** |
+> |---|---|---|
+> | Alkalmazás neve, támogatási e-mail | **Branding** | OAuth consent screen → App information |
+> | Külső/Belső, tesztfelhasználók, közzététel | **Audience** | OAuth consent screen → User type / Test users |
+> | Jogosultságok *(scopes)* | **Data Access** | OAuth consent screen → Scopes |
+> | Ügyfél-azonosító (4. rész) | **Clients** | Credentials |
 >
-> Ezért a hozzájárulási képernyőn kattints a **KÖZZÉTÉTEL** (Publish app) gombra. Mivel csak a `drive.file` hatókört kérjük — ami nem „érzékeny" a Google besorolásában —, **nem kell átesned a hosszú felülvizsgálaton**; a közzététel azonnal érvényes.
+> **Ha az új felületet látod, jó eséllyel ezt már ki is töltötted:** a Google nem enged a „Create
+> client" oldalra addig, amíg a Branding és az Audience üres. Ha odáig eljutottál, ugorj a 4. részre —
+> **de a 12/b lépést akkor is végezd el**, mert az a 7 napos csapda.
+
+8. Bal oldali menü → **OAuth hozzájárulási képernyő** *(OAuth consent screen)*, új felületen: **Branding**.
+9. Felhasználótípus *(User type / Audience)*: **Külső** *(External)*.
+   *(A **Belső** *(Internal)* csak Google Workspace-fiókoknál választható; ha a fiókod Workspace-es, válaszd azt — egyszerűbb, és nem jár a lenti 7 napos csapdával.)*
+10. Alkalmazás neve *(App name)*: `Kartoteka`.
+    Felhasználói támogatás e-mail *(User support email)* és Fejlesztői kapcsolattartási adatok *(Developer contact information)*: a **saját címed**. → **MENTÉS** *(SAVE)*.
+11. **Hatókörök** *(Scopes / Data Access)*: itt **ne adj hozzá semmit**.
+    *(A jogosultságot maga az alkalmazás kéri majd a bejelentkezéskor, nem itt kell felvenni.)*
+12. **Tesztfelhasználók** *(Test users)* — az **Audience** oldalon: **ADD USERS** → írd be a **saját e-mail-címedet** → **SAVE**.
+
+> ### ⚠️ 12/b. Ezt olvasd el — enélkül 7 naponta elromlik
 >
-> Ha mégis „Tesztelés" állapotban hagyod: működni fog, de **hetente újra kell kapcsolnod**. A rendszer ezt észre is veszi, és a 48 órás figyelmeztetés szólni fog.
+> Az **Audience** oldalon (régi felületen: OAuth consent screen) nézd meg a **Publishing status**
+> mezőt. Ha **„Tesztelés"** *(Testing)* áll benne, a Google **7 nap után érvényteleníti** a
+> hozzáférést, és a mentés **némán** leáll.
+>
+> Ezért nyomd meg a **KÖZZÉTÉTEL** *(**PUBLISH APP**)* gombot — az állapot ekkor **Éles**
+> *(**In production**)* lesz. Mivel csak a `drive.file` hatókört kérjük — ami nem „érzékeny"
+> *(sensitive)* a Google besorolásában —, **nem kell átesned a hosszú felülvizsgálaton**
+> *(verification)*; a közzététel azonnal érvényes.
+>
+> Ha mégis „Tesztelés" állapotban hagyod: működni fog, de **hetente újra kell kapcsolnod**.
+> A rendszer ezt észre is veszi, és a 48 órás figyelmeztetés szólni fog.
 
-### 4. Azonosítók létrehozása
+### 4. Azonosítók létrehozása *(Create credentials)*
 
-13. **API-k és szolgáltatások** → **Hitelesítő adatok** → **HITELESÍTŐ ADATOK LÉTREHOZÁSA** → **OAuth-ügyfélazonosító**.
-14. Alkalmazás típusa: **Webalkalmazás**.
-15. Név: `Kartoteka szerver`.
-16. **Engedélyezett átirányítási URI-k** → **URI HOZZÁADÁSA**, és írd be pontosan ezt:
+13. **Hitelesítő adatok** *(Credentials)* → **CREATE CREDENTIALS** → **OAuth client ID**.
+    Új felületen: bal oldali menü → **Clients** → **Create client**.
+    - ⚠️ **Ne** a **Szolgáltatásfiók** *(Service account)* lehetőséget válaszd — az a te Drive-odhoz nem fér hozzá, és néma hibát okoz.
+14. Alkalmazás típusa *(Application type)*: **Webalkalmazás** *(Web application)*.
+15. Név *(Name)*: `Kartoteka szerver`. *(Ha `Web client 1` az alapértelmezés, nyugodtan írd át — csak a konzolban látszik.)*
+16. **Engedélyezett átirányítási URI-k** *(Authorized redirect URIs)* → **+ ADD URI**, és írd be pontosan ezt:
 
     ```
     https://kartoteka.app/api/auth/google-drive/callback
     ```
 
     > Egyetlen karakter eltérés is elég, hogy a Google elutasítsa. Nincs `/` a végén.
+    > ⚠️ Ez **nem** ugyanaz, mint az **Authorized JavaScript origins** mező — azt **hagyd teljesen üresen**.
+    > Két „+ Add URI" gomb van az oldalon; a **másodikat** használd, az „Authorized redirect URIs" felirat alattit.
 
-17. **LÉTREHOZÁS**. A felugró ablakban két érték jelenik meg — **másold ki mindkettőt**, ezek kellenek a következő részhez:
-    - **Ügyfél-azonosító** (Client ID) — valami ilyesmi: `1234...apps.googleusercontent.com`
-    - **Ügyfélkulcs** (Client secret)
+17. **LÉTREHOZÁS** *(CREATE)*. A felugró ablakban *(OAuth client created)* két érték jelenik meg — **másold ki mindkettőt**, ezek kellenek a következő részhez:
+    - **Ügyfél-azonosító** *(Client ID)* — valami ilyesmi: `1234...apps.googleusercontent.com`
+    - **Ügyfélkulcs** *(Client secret)*
 
     A kulcsot később is meg tudod nézni ugyanitt, de egyszerűbb most félretenni.
+
+    > **Ezt a két értéket senkinek ne küldd el** — nekem sem. A helyük a Railway beállításai közt van (2. rész).
 
 ---
 
 ## 2. rész — Railway (kb. 10 perc)
 
-Nyisd meg a Railway-en a Kartotéka projektet → a webes szolgáltatás → **Variables** fül. Itt add hozzá az alábbiakat.
+Nyisd meg a Railway-en a Kartotéka projektet → a webes szolgáltatás *(service)* → **Variables** fül *(Változók)*. Itt add hozzá az alábbiakat a **New Variable** *(Új változó)* gombbal.
+
+> A Railway felülete **csak angolul** van. A változónevek amúgy is angolok — azokat **betűre pontosan** másold, ahogy a táblázatban állnak.
 
 ### Kötelező
 
@@ -88,9 +128,16 @@ Nyisd meg a Railway-en a Kartotéka projektet → a webes szolgáltatás → **V
 
 Nyiss egy PowerShell-ablakot, és futtasd le **kétszer** ezt a parancsot — az első eredmény lesz a `BACKUP_ENCRYPTION_KEY`, a második a `BACKUP_WORKER_SECRET`:
 
-```bash
-[Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))
+```powershell
+$b = New-Object byte[] 32; [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)
 ```
+
+> **Miért pont ez a parancs?** Az útmutató első változatában `Get-Random` állt. Az egy hétköznapi
+> véletlenszám-generátor: gyors, de kiszámítható — nem titkok előállítására való. Ez a parancs a
+> Windows kriptográfiai generátorát használja. A `BACKUP_ENCRYPTION_KEY` a mentéseid zárja, ott ez
+> nem elméleti különbség. Ha az első változattal már generáltál kulcsot, generáld újra ezzel —
+> **amíg nem készült vele éles mentés, cserélni ingyenes**; utána a régi mentések már csak a régi
+> kulccsal nyithatók.
 
 > **A `BACKUP_ENCRYPTION_KEY`-t őrizd meg külön is** — például egy jelszókezelőben, vagy kinyomtatva egy borítékban. Ha a Railway-projekt elveszne, **ezzel a kulccsal lehet megnyitni a Drive-ban lévő mentéseket**. Enélkül azok visszafejthetetlenek.
 
@@ -105,7 +152,7 @@ Nyiss egy PowerShell-ablakot, és futtasd le **kétszer** ezt a parancsot — az
 
 ## 3. rész — Az ütemezés (Railway cron)
 
-A Railway-en a szolgáltatás beállításai közt keresd a **Cron Schedule** vagy **Scheduled jobs** részt, és vegyél fel egy napi futást:
+A Railway-en a szolgáltatás beállításai *(Settings)* közt keresd a **Cron Schedule** *(ütemezés)* vagy **Scheduled jobs** *(ütemezett feladatok)* részt, és vegyél fel egy napi futást:
 
 - **Időpont:** `17 2 * * *` — ez hajnali 2:17. *(Szándékosan nem kerek óra: éjfélkor és egész órakor a világ összes ütemezett feladata egyszerre indul.)*
 - **Amit futtat:** `POST https://kartoteka.app/api/internal/backup`, `Authorization: Bearer <a BACKUP_WORKER_SECRET értéke>` fejléccel.
@@ -133,10 +180,13 @@ Ha a Railway-változatod nem tud HTTP-hívást ütemezni, szólj — akkor GitHu
 
 | Tünet | Mi a teendő |
 |---|---|
-| „redirect_uri_mismatch" a Google-nál | Az átirányítási cím nem pontosan egyezik. Nézd meg a 16. lépést — nincs `/` a végén. |
-| A kártya azt írja, nincs beállítva a titok | A `BACKUP_ENCRYPTION_KEY` vagy a `BACKUP_WORKER_SECRET` hiányzik, vagy 32 karakternél rövidebb. Railway → Variables. |
-| 7 nap múlva megszakad a kapcsolat | Az alkalmazás „Tesztelés" állapotban maradt. Google Cloud → OAuth hozzájárulási képernyő → **KÖZZÉTÉTEL**. |
-| A mentés „sikertelen"-t ír, de nem tudod, miért | A részletek a Railway logban vannak, és e-mailben is megkapod. Küldd át, és megnézem. |
+| „redirect_uri_mismatch" a Google-nál | Az átirányítási cím nem pontosan egyezik. Nézd meg a 16. lépést — nincs `/` a végén, és az **Authorized redirect URIs** mezőben van, nem a JavaScript origins mezőben. **Ha biztosan jó, várj:** a Google maga írja ki a létrehozáskor, hogy a beállítás életbe lépése *5 perctől néhány óráig* tarthat. |
+| „Access blocked: … has not completed the Google verification process" | Az e-mail-címed nincs a **Test users** *(Tesztfelhasználók)* közt — 12. lépés —, vagy az app „Testing" állapotban van. |
+| „This app isn't verified" *(Ez az alkalmazás nincs ellenőrizve)* | Normális a saját alkalmazásodnál. **Advanced** *(Speciális)* → **Go to Kartoteka (unsafe)** *(Ugrás a Kartoteka oldalára)*. |
+| Az **OAuth client ID** lehetőség szürke / nem választható | A 3. rész (hozzájárulási képernyő) még nincs kitöltve. Előbb azt fejezd be. |
+| A kártya azt írja, nincs beállítva a titok | A `BACKUP_ENCRYPTION_KEY` vagy a `BACKUP_WORKER_SECRET` hiányzik, vagy 32 karakternél rövidebb. Railway → **Variables**. |
+| 7 nap múlva megszakad a kapcsolat | Az alkalmazás „Tesztelés" *(Testing)* állapotban maradt. Google Cloud → **OAuth consent screen** → **PUBLISH APP**. |
+| A mentés „sikertelen"-t ír, de nem tudod, miért | A részletek a Railway logban *(Deployments → View logs)* vannak, és e-mailben is megkapod. Küldd át, és megnézem. |
 
 ---
 

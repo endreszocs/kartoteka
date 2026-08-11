@@ -1,7 +1,9 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
+import { KEZI_IDOKERET_MS, korlatokBeolvasasa } from "@/lib/backup/batch";
 import { loadBackupKey } from "@/lib/backup/keys";
-import { runBackupWorker } from "@/lib/backup/worker";
+import { exportLepesek, mentesTeendo, ujFutasLepesek, vagd } from "@/lib/backup/steps";
+import { BackupWorkerError, runBackupWorker } from "@/lib/backup/worker";
 
 /**
  * NAPI BIZTONSÁGI MENTÉS worker — 2026-08-11.
@@ -101,42 +103,140 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  // ── A SZELET KORLÁTAI ──────────────────────────────────────────────────────
+  // A teljes országos futás (784 hatókör) EGY kérésbe nem fér bele. A hívó ezért
+  // szeletet kér: mennyi ideig dolgozzon, és legfeljebb hány hatökörrel. A
+  // korlátokat SZÁNDÉKOSAN itt is vágjuk (`korlatokBeolvasasa`) — a végpont
+  // hitelesített, de egy elgépelt érték se tudja átvinni a 15 perces HTTP-korlátot.
+  let torzs: Record<string, unknown> = {};
   try {
-    const result = await runBackupWorker();
+    const nyers: unknown = await request.json();
+    if (nyers && typeof nyers === "object") torzs = nyers as Record<string, unknown>;
+  } catch {
+    // Üres vagy hibás törzs = alapértelmezett szelet. A cron „{}"-t küld.
+  }
+  const kezi = torzs.forras === "admin-felulet";
+  const korlatok = korlatokBeolvasasa({
+    nyersIdo: torzs.maxFutasiIdoMs ?? process.env.BACKUP_MAX_RUN_MS,
+    nyersDarab: torzs.maxHatokor ?? process.env.BACKUP_MAX_SCOPES,
+    // A felületről indított szelet RÖVIDEBB: a böngésző nem vár negyed órát, és
+    // a haladás így láthatóan előre megy, ahelyett hogy egy pörgő ikon lenne.
+    alapIdoMs: kezi ? KEZI_IDOKERET_MS : undefined,
+  });
 
-    // Ha akár EGY hatókör is elhasalt, a válasz NEM ok — különben az ütemező
-    // „zöld" futást látna, miközben gyülekezetek maradtak mentés nélkül.
-    // A néma féleredmény a legrosszabb kimenet.
-    const ok = result.sikertelen === 0;
+  try {
+    const result = await runBackupWorker({
+      maxFutasiIdoMs: korlatok.maxFutasiIdoMs,
+      maxHatokor: korlatok.maxHatokor,
+    });
+
+    // ══════════════════════════════════════════════════════════════════════
+    // KÉT KÜLÖN KÉRDÉS — KÉT KÜLÖN MEZŐ (2026-08-11 JAVÍTÁS)
+    // ══════════════════════════════════════════════════════════════════════
+    // Korábban itt `const ok = result.sikertelen === 0` állt, és a HTTP-státusz
+    // is ebből lett. Vagyis EGYETLEN bukott gyülekezet 500-at adott, amire a
+    // cron `break`-elt és a felületi ciklus `return`-ölt — a maradék ~700
+    // hatókör mentése aznap ELMARADT. Mivel a napi kulcs csak az IGAZOLT
+    // hatóköröket hagyja ki, egy TARTÓSAN bukó gyülekezet (túl nagy fájl, rossz
+    // szűrő) minden éjjel ugyanott állította meg a futást: a cron 4 órányi
+    // szelet-kerete helyett 10 percet dolgozott, és a rendszer SOHA nem ért
+    // végig. Ez regresszió is volt: a szeletelés ELŐTT a hatökör-cikluson
+    // belüli try/catch továbblépett, most a szeletek KÖZÖTT állt meg.
+    //
+    //   `ok`            = A SZELET elvégezte a dolgát (haladt). Ebből dönt a
+    //                     hívó arról, kér-e még egy szeletet. HTTP 200.
+    //   `mindenSikeres` = MINDEN hatókör sikerült. Ebből lesz a piros felület
+    //                     és az 1-es cron kilépési kód — de NEM ebből lesz a
+    //                     megállás.
+    //
+    // ⚠️ 500 KIZÁRÓLAG akkor jár, ha a szelet SEMMIT nem vitt el: akkor a
+    //    következő szelet sem vinne, és a végtelen ciklus rosszabb a bevallott
+    //    féleredménynél.
+    const szeletHaladt = result.feldolgozva + result.kihagyva > 0;
+    const mindenSikeres = result.sikertelen === 0;
+    const ok = szeletHaladt;
+
+    // A bukott hatókörök NÉVVEL — ez kell a cron-naplóba és a felületre. A
+    // sikeres 780 sort SZÁNDÉKOSAN nem küldjük vissza: a részletek a
+    // `backup_log`-ban vannak, és egy 784 elemű tömb csak elfedné a lényeget.
+    const bukottak = result.hatokorok
+      .filter((h) => h.ok !== true)
+      .slice(0, 50)
+      .map((h) => ({
+        scope: h.scope,
+        nev: h.congregationNev,
+        ok: h.ok,
+        kihagyva: h.kihagyva,
+        sorok: h.totalRows,
+        stage: h.stage,
+        hiba: h.hiba ? vagd(h.hiba, 400) : null,
+        // A hat lépés pipával/kereszttel — a felület ezt jeleníti meg.
+        lepesek: exportLepesek(h.stage),
+        teendo: h.hiba ? mentesTeendo(h.hiba).szoveg : null,
+      }));
 
     return noStoreJson(
       {
         ok,
+        // ⚠️ A SZELET sikere ≠ minden hatókör sikere. A hívó a folytatásról az
+        //    `ok`/`hatralevo` alapján dönt, a piros jelentésről a
+        //    `mindenSikeres`/`sikertelen` alapján.
+        mindenSikeres,
+        szeletHaladt,
         runDate: result.runDate,
         futott: result.futott,
         sikeres: result.sikeres,
         sikertelen: result.sikertelen,
         kihagyva: result.kihagyva,
+        osszes: result.osszes,
+        feldolgozva: result.feldolgozva,
+        hatralevo: result.hatralevo,
+        futottVegig: result.futottVegig,
+        lepesek: result.lepesek,
         figyelmeztetesek: result.figyelmeztetesek,
-        // A részletek a `backup_log`-ban vannak; itt csak annyi, amiből a cron
-        // naplójában látszik, MELYIK gyülekezet maradt ki, NÉVVEL.
-        hatokorok: result.hatokorok.map((h) => ({
-          scope: h.scope,
-          nev: h.congregationNev,
-          ok: h.ok,
-          kihagyva: h.kihagyva,
-          sorok: h.totalRows,
-          stage: h.stage,
-          hiba: h.hiba,
-        })),
+        hatokorok: bukottak,
+        // A bukás TÉNYE a törzsben megy — és KIMONDJA a következményét is,
+        // hogy senki ne higgye késznek a mentést egy 200-as válasz láttán.
+        error: !szeletHaladt
+          ? "A szelet EGYETLEN hatókört sem vitt el (0 feldolgozott, 0 kihagyott). " +
+            "Nem folytatjuk, mert a következő szelet sem vinne el semmit."
+          : mindenSikeres
+            ? undefined
+            : `${result.sikertelen} hatókör mentése ELBUKOTT ebben a szeletben` +
+              (result.hatralevo > 0
+                ? `, és további ${result.hatralevo} hatókörhöz ez a szelet hozzá sem ért. ` +
+                  "A futás FOLYTATÓDIK — a bukott hatóköröket a következő szelet újrapróbálja."
+                : ". A futás minden más hatókörhöz hozzáért."),
       },
+      // ⚠️ A HTTP-státusz a SZELET kimenetelét jelzi, NEM a hatókör-hibákét.
+      //    500 csak akkor, ha a szelet semmit nem vitt el (különben a hívó
+      //    megállna, és a maradék ~700 hatókör mentése elmaradna).
       ok ? 200 : 500,
     );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "unknown";
+    // A TELJES technikai szöveg a szerver-naplóba megy — ott nincs hosszkorlát.
     console.error("[backup] A futás sikertelen.", message);
+
+    // ⚠️ 2026-08-11 JAVÍTÁS. Korábban innen CSAK az „A biztonsági mentés futása
+    //    sikertelen." mondat ment ki, és a `reszlet`-et a hívó szerver-akció
+    //    típusa nem is ismerte — vagyis a szerveren MEGLÉVŐ pontos diagnózist a
+    //    saját kódunk rejtette el a tulajdonos elől. Mostantól megy a lépés-lista
+    //    (meddig jutottunk), a teendő (mit tegyen) és a részlet (mi történt).
+    const beszedes = error instanceof BackupWorkerError ? error : null;
+    const teendo = beszedes ? beszedes.teendo : mentesTeendo(message).szoveg;
     return noStoreJson(
-      { ok: false, error: "A biztonsági mentés futása sikertelen.", reszlet: message },
+      {
+        ok: false,
+        mindenSikeres: false,
+        szeletHaladt: false,
+        futottVegig: false,
+        error: "A biztonsági mentés futása sikertelen.",
+        reszlet: vagd(message, 600),
+        teendo,
+        sqlFajl: beszedes ? beszedes.sqlFajl : mentesTeendo(message).sql,
+        lepesek: beszedes ? beszedes.lepesek : ujFutasLepesek(),
+      },
       500,
     );
   }

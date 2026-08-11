@@ -48,9 +48,28 @@ export interface LocalitySearchResult {
 
 // ─── 1. Egyetlen helység keresése ─────────────────────────────────────────
 
+/**
+ * ⚠️ 2026-08-11 — AZ ORSZÁGKÓD ALAPÉRTELMEZÉSE `null` LETT ('RO' HELYETT).
+ *
+ * MIÉRT: a `find_locality_match` RPC a `(v_country_id IS NULL OR co.id = v_country_id)`
+ * feltétellel szűr (2026-04-26-FIX-locality-name-ambiguity.sql), a hívók pedig
+ * MIND az alapértelmezett 'RO'-t küldték. Amíg az `adrcountry` egyetlen sorból
+ * állt, ez nem látszott. A 2026-08-11-orszagok-es-kulfoldi-telepulesek.sql
+ * viszont Budapestet, Debrecent, Gödöllőt, Győrt és „Hollandiát" átköti
+ * Magyarországra/Hollandiára — 'RO'-ra szűrve ezek a KÖVETKEZŐ importnál
+ * `no_match`-re esnének. A lelkész ilyenkor az „Új helység" ágon venné fel őket,
+ * ami az `add_locality_for_review`-n át EGY MÁSODIK, Kovászna megyei,
+ * `needs_review = true` sort hozna létre ugyanazzal a névvel: a tagok két sorra
+ * hasadnának, a migráció újrafuttatása pedig 23505-tel elhalna a
+ * (name, countyid) egyedi indexen.
+ *
+ * `null`-lal az RPC MINDEN országban keres — a párosítás tehát pontosan azt
+ * találja meg, ami már a törzsben van, függetlenül attól, melyik országhoz
+ * kötöttük. Ez a helyes viselkedés akkor is, ha a migráció soha nem fut le.
+ */
 export async function findLocalityMatch(
   input: string,
-  countryCode: string = 'RO',
+  countryCode: string | null = null,
   minSimilarity: number = 0.6,
 ): Promise<{ data?: LocalitySearchResult; error?: string }> {
   const access = await getEffectiveAccessContext()
@@ -92,9 +111,10 @@ export async function findLocalityMatch(
 
 // ─── 2. Batch keresés — wizardhoz több helység egy körben ─────────────────
 
+/** Az országkód alapértelmezése itt is `null` — lásd a `findLocalityMatch` fejlécét. */
 export async function findLocalityMatchBatch(
   inputs: string[],
-  countryCode: string = 'RO',
+  countryCode: string | null = null,
   minSimilarity: number = 0.6,
 ): Promise<{ data?: LocalitySearchResult[]; error?: string }> {
   const access = await getEffectiveAccessContext()
