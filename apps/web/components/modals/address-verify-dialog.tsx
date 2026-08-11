@@ -36,6 +36,8 @@ import {
   buildDirectionsTarget,
   buildLookupQuery,
   formatGeoPoint,
+  isLocalityMapResolvable,
+  isPlaceholderLocality,
   localityGeoPoint,
   parseGeoInput,
   resolveLocalityName,
@@ -66,16 +68,51 @@ export function AddressVerifyDialog({ open, onOpenChange, address, memberName, o
   const streetId = address?.street?.id ?? null
   const streetName = resolveStreetName(address?.street)
   const localityName = resolveLocalityName(address?.locality)
+  /** Feloldja-e a térkép magát a TELEPÜLÉST? (Boolean — stabil effect-függőség.) */
+  const localityResolvable = isLocalityMapResolvable(address?.locality)
+  /**
+   * ⛔ 2026-08-11 — A HELYKITÖLTŐ („?") SORT EGYEZTETNI TILOS.
+   *
+   * Élesben 70 ÉLŐ TAG címe mutat egy „?" nevű `adrlocality` sorra. Az
+   * egyeztetés EGYETLEN koordinátát ír a település sorára — a „?"-en elvégezve
+   * 70 különböző valódi lakcím kerülne egyetlen hamis pontra, és onnantól az
+   * `isLocalityMapResolvable` igazat mondana: a probléma VÉGLEG elnémulna.
+   *
+   * A régi kód ezt nem csak megengedte, hanem AJÁNLOTTA is: az alapértelmezett
+   * szint a `locality` lett (mert a „?" sor tényleg nem feloldható), a
+   * magyarázó doboz pedig azt ígérte, hogy „egyszerre rendbe jön mindenki
+   * útvonala, aki a faluban lakik, és a Hibák füléről is eltűnik a jelzés".
+   * A „?" soron MINDKÉT állítás hamis: nincs falu, és a Hibák fül tétele
+   * NÉV-alapú (`isPlaceholderLocality`), tehát a pont mentése után is nyitva
+   * marad. Ezért a település-ág itt ilyenkor TILTOTT — az utca viszont marad,
+   * mert az ennek az egy tagnak valóban a házig visz.
+   */
+  const localityPlaceholder = isPlaceholderLocality(address?.locality)
+  const localityUsable = Boolean(localityId) && !localityPlaceholder
 
-  // Alapértelmezés: az UTCA a pontosabb szint — de csak ha van utca-sor.
-  // Nyitáskor mindent nullázunk, hogy egy másik tag kartonjáról ne maradjon
-  // itt beillesztett koordináta (rossz címre menne el).
+  // ⚠️ 2026-08-11 — AZ ALAPÉRTELMEZETT SZINT A TÉNYLEGES HIÁNYBÓL KÖVETKEZIK,
+  //    NEM AZ UTCA PUSZTA LÉTÉBŐL.
+  //    A régi `streetId ? 'street' : 'locality'` azt jelentette, hogy MINDEN
+  //    utcával rendelkező tagnál az utca-fül nyílt meg. Ha viszont a hiányzó
+  //    láncszem maga a TELEPÜLÉS (a Hibák fül jelzése is arról szól), akkor a
+  //    lelkész a nyitóállapotban mentve az UTCÁRA írta a pontot: a saját
+  //    útvonala rendbe jött, a hibalista tétele viszont VÁLTOZATLANUL nyitva
+  //    maradt, és a többi ott lakó tag sem javult — miközben a toast azt
+  //    állította, hogy „mostantól mindenkinek jó lesz az útvonal". Elvégezte,
+  //    amit kértünk, sikerjelzést kapott, és a lista mégis pirosan tartotta.
+  //    Nyitáskor mindent nullázunk, hogy egy másik tag kartonjáról ne maradjon
+  //    itt beillesztett koordináta (rossz címre menne el).
+  //    ⛔ A HELYKITÖLTŐ SOR KIVÉTEL: ott a település-ág tiltott (lásd
+  //    `localityPlaceholder`), tehát az alapértelmezés az utca — vagy ha utca
+  //    sincs, a tiltott település-ág, ahol a doboz kimondja a valódi teendőt.
   useEffect(() => {
     if (!open) return
     setPasted('')
     setSaving(false)
-    setScope(streetId ? 'street' : 'locality')
-  }, [open, streetId, localityId])
+    if (localityPlaceholder) setScope(streetId ? 'street' : 'locality')
+    else if (localityId && !localityResolvable) setScope('locality')
+    else setScope(streetId ? 'street' : 'locality')
+  }, [open, streetId, localityId, localityResolvable, localityPlaceholder])
 
   const activeId = scope === 'street' ? streetId : localityId
   const existingNameRo = (scope === 'street' ? address?.street?.name_ro : address?.locality?.name_ro) || ''
@@ -96,12 +133,22 @@ export function AddressVerifyDialog({ open, onOpenChange, address, memberName, o
 
   const parsed = useMemo(() => parseGeoInput(pasted), [pasted])
   const nameChanged = nameRoDraft.trim().length > 0 && nameRoDraft.trim() !== existingNameRo.trim()
-  const canSave = Boolean(activeId) && !saving && (Boolean(parsed.point) || nameChanged)
+  /** A helykitöltő településre SEMMIT nem mentünk (lásd `localityPlaceholder`). */
+  const scopeTiltott = scope === 'locality' && localityPlaceholder
+  const canSave = Boolean(activeId) && !saving && !scopeTiltott && (Boolean(parsed.point) || nameChanged)
 
   if (!address) return null
 
   async function handleSave() {
     if (!activeId) return
+    // MÁSODIK VÉDŐVONAL a tiltott gomb mellé: a mentés maga is visszautasítja.
+    if (scope === 'locality' && localityPlaceholder) {
+      toast.info(
+        'Ehhez a címhez nincs valódi település rögzítve („?"), ezért erre a sorra nem menthetünk pontot — 70 különböző lakcím kerülne egyetlen helyre. Előbb az Elérhetőségeknél válaszd ki a tényleges települést.',
+        { duration: 12000 },
+      )
+      return
+    }
     setSaving(true)
     try {
       const res = await saveAddressGeo({
@@ -117,9 +164,23 @@ export function AddressVerifyDialog({ open, onOpenChange, address, memberName, o
       }
       toast.success(
         scope === 'street'
-          ? 'Az utca egyeztetve — mostantól mindenkinek jó lesz az útvonal, aki itt lakik.'
+          ? 'Az utca egyeztetve — mostantól mindenkinek jó lesz az útvonal, aki ebben az utcában lakik.'
           : 'A település egyeztetve — mostantól mindenkinek jó lesz az útvonal, aki itt lakik.',
       )
+      // ⚠️ Az utca egyeztetése NEM szünteti meg a település-szintű jelzést. Ha
+      //    hallgatnánk róla, a lelkész elvégzett munka után is pirosan találná a
+      //    Hibák fülön ugyanazt a tételt — és nem tudná, miért.
+      if (scope === 'street' && !localityResolvable) {
+        toast.warning(
+          // ⚠️ A helykitöltő soron NEM az egyeztetésre küldünk vissza (az ott
+          //    tiltott), hanem a valódi teendőre — különben egy elvégezhetetlen
+          //    utasítást adnánk, és a lelkész körbe-körbe járna.
+          localityPlaceholder
+            ? 'A tag települése viszont továbbra is hiányzik (a címtörzsben csak egy „?" helykitöltő áll), ezért a Hibák fülön a jelzés megmarad. Nyisd meg a tag szerkesztőjét, és válaszd ki a tényleges települést — a térképpel ezt nem lehet pótolni.'
+            : 'A települést viszont a térkép továbbra sem ismeri fel, ezért a Hibák fülön a jelzés megmarad, és a többi ott lakó tag útvonala sem javult. Nyisd meg újra ezt az ablakot, válaszd az „Ezt a települést" lehetőséget, és erősítsd meg a falut is — az egyszerre rendezi mindenkit.',
+          { duration: 14000 },
+        )
+      }
       if (res.warning) toast.warning(res.warning, { duration: 10000 })
       onSaved()
       onOpenChange(false)
@@ -200,18 +261,26 @@ export function AddressVerifyDialog({ open, onOpenChange, address, memberName, o
               </button>
               <button
                 type="button"
-                disabled={!localityId}
+                disabled={!localityUsable}
                 onClick={() => setScope('locality')}
-                aria-label="A település egyeztetése"
+                aria-label={
+                  localityPlaceholder
+                    ? 'A település egyeztetése — nem elérhető, mert nincs valódi település rögzítve'
+                    : 'A település egyeztetése'
+                }
                 className={`flex min-h-11 items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-55 motion-reduce:transition-none ${
-                  scope === 'locality' && localityId ? 'border-primary bg-primary/10' : 'border-border/60 bg-background/60'
+                  scope === 'locality' && localityUsable ? 'border-primary bg-primary/10' : 'border-border/60 bg-background/60'
                 }`}
               >
                 <MapPin className="size-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
                 <span className="min-w-0">
                   <span className="block font-semibold">Ezt a települést</span>
                   <span className="block truncate text-xs text-muted-foreground">
-                    {localityId ? localityName?.text ?? 'település' : 'nincs település rögzítve'}
+                    {localityPlaceholder
+                      ? 'nincs valódi település'
+                      : localityId
+                        ? localityName?.text ?? 'település'
+                        : 'nincs település rögzítve'}
                   </span>
                 </span>
               </button>
@@ -223,6 +292,33 @@ export function AddressVerifyDialog({ open, onOpenChange, address, memberName, o
                   Ehhez a taghoz nincs címtörzsből választott település vagy utca, ezért az egyeztetés
                   nem menthető. Nyissa meg a tag szerkesztőjét, és válassza ki a települést a listából.
                 </span>
+              </p>
+            )}
+            {/* ⛔ 2026-08-11 — A HELYKITÖLTŐ SOR SAJÁT, IGAZABB MONDATA.
+                Ez a doboz korábban FELTÉTEL NÉLKÜL a település egyeztetésére
+                bíztatott, a „?" soron is — két olyan ígérettel, amelyik ott
+                mindkettő hamis („mindenki, aki a faluban lakik", „eltűnik a
+                jelzés"). Élesben 70 élő tag. */}
+            {localityId && localityPlaceholder && (
+              <p className="rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs leading-5 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                Ehhez a címhez <strong>nincs valódi település rögzítve</strong> — a címtörzsben csak egy
+                helykitöltő („{localityName?.text ?? '?'}") áll. Ezt a sort nem lehet a térképpel
+                egyeztetni: egyetlen pont több tucat különböző lakcímre kerülne rá. Zárja be ezt az
+                ablakot, nyissa meg a tag szerkesztőjét az Elérhetőségeknél, és válassza ki a tényleges
+                települést.
+                {streetId ? ' Az utca ettől függetlenül most is egyeztethető — az ennek az egy tagnak a házáig visz.' : ''}
+              </p>
+            )}
+            {/* ⚑ 2026-08-11 — MIÉRT A TELEPÜLÉS AZ ALAPÉRTELMEZÉS.
+                Ha a térkép magát a falut sem ismeri fel, akkor AZ a hiányzó
+                láncszem: az utca egyeztetése csak ezt az egy tagot rendezné, a
+                Hibák fül tétele pedig nyitva maradna. */}
+            {localityId && !localityPlaceholder && !localityResolvable && (
+              <p className="rounded-xl border border-border/60 bg-primary/5 p-3 text-xs leading-5 text-foreground">
+                A térkép ezt a <strong>települést</strong> nem ismeri fel (nincs hivatalos román neve,
+                és még nincs megerősített pontja) — ezért itt a település a hiányzó láncszem. Ha ezt
+                egyezteti, egyszerre rendbe jön mindenki útvonala, aki a faluban lakik, és a
+                tagnyilvántartás Hibák füléről is eltűnik a jelzés. Az utca ezután külön pontosítható.
               </p>
             )}
             {existingPoint && (
@@ -250,6 +346,8 @@ export function AddressVerifyDialog({ open, onOpenChange, address, memberName, o
               placeholder="46.123456, 26.123456 — vagy a teljes térkép-link"
               inputMode="text"
               autoComplete="off"
+              /* A helykitöltő sorra semmit nem mentünk — a mező se csábítson rá. */
+              disabled={scopeTiltott}
               className="h-11 rounded-xl"
               aria-describedby="address-verify-point-hint"
             />
@@ -281,6 +379,7 @@ export function AddressVerifyDialog({ open, onOpenChange, address, memberName, o
               placeholder={scope === 'street' ? 'Például: Principală' : 'Például: Brateș'}
               autoComplete="off"
               maxLength={120}
+              disabled={scopeTiltott}
               className="h-11 rounded-xl"
             />
             <p className="text-xs leading-5 text-muted-foreground">

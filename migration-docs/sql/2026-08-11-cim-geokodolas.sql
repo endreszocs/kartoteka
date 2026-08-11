@@ -316,8 +316,25 @@ FROM (
           WHERE n.nspname = 'public'
             AND p.proname IN ('current_user_has_global_access', 'current_user_congregation_id')), '2'
 
-  UNION ALL SELECT 10, 'adrlocality iras tovabbra is CSAK RPC-n (nincs UPDATE-grant)',
+  -- ⚠️ 2026-08-11 JAVÍTVA — a régi felirat („…nincs UPDATE-grant") a KÍVÁNT
+  --    ÁLLAPOTOT írta le, az `ertek` viszont a MÉRTET adta („van-e UPDATE-joga"),
+  --    ezért a sor `false` várt értékkel önellentmondásnak látszott. Mostantól a
+  --    felirat AZT mondja, amit a lekérdezés MÉR. Az ellentmondásos ellenőrző sor
+  --    rosszabb, mint a semmilyen: elbizonytalanít abban, mit is látunk.
+  UNION ALL SELECT 10, 'Az authenticated szerepnek VAN UPDATE-grantja az adrlocality-n?',
          has_table_privilege('authenticated', 'public.adrlocality', 'UPDATE')::text, 'false'
+
+  UNION ALL SELECT 11, 'Az authenticated szerepnek VAN UPDATE-grantja az adrstreet-en?',
+         has_table_privilege('authenticated', 'public.adrstreet', 'UPDATE')::text, 'false'
+
+  -- Az iras HAROM ellenorzendo joga egyben — igy egy INSERT- vagy DELETE-grant
+  -- sem tud atcsuszni azon, hogy „csak" az UPDATE-et neztuk.
+  UNION ALL SELECT 12, 'Iro-jogok szama az adrlocality/adrstreet tablan (anon+authenticated) — 0 kell',
+         (SELECT count(*)::text
+            FROM (VALUES ('adrlocality'),('adrstreet')) v(t)
+            CROSS JOIN (VALUES ('INSERT'),('UPDATE'),('DELETE')) w(p)
+            CROSS JOIN (VALUES ('anon'),('authenticated')) r(g)
+           WHERE has_table_privilege(r.g::text, 'public.' || v.t::text, w.p::text)), '0'
 ) x
 ORDER BY x.sorrend;
 
@@ -337,6 +354,12 @@ ORDER BY x.sorrend;
 -- 5. Ha az „Egyeztetés mentése" azt írja, hogy „a gyülekezeted nem használja",
 --    akkor a tag címe nem a címtörzsből választott sorra mutat: nyisd meg a tag
 --    szerkesztőjét, és válaszd ki a települést/utcát a listából.
--- 6. Ha a 10. ellenőrző sor nem `false`: valaki UPDATE-grantot adott az
---    `adrlocality`-ra — küldd vissza az eredményt, mert akkor az országos
---    törzsadat RPC megkerülésével is írható.
+-- 6. Ha a 10–12. ellenőrző sor nem `false` / `0`: valaki (vagy a Supabase
+--    alapértelmezett `GRANT ALL ON TABLES` szabálya) írási grantot hagyott az
+--    `adrlocality`/`adrstreet` táblán — küldd vissza az eredményt, mert akkor
+--    az országos törzsadat elvben az RPC megkerülésével is írható.
+--    (2026-08-11: ez a 10. sor élesben `true`-t adott. A jog visszavonása a
+--     migration-docs/sql/2026-08-11-ellenorzes-javitasok.sql fájlban van.
+--     Tényleges kár nem keletkezett: a táblákon RLS van, és KIZÁRÓLAG
+--     SELECT-policy létezik rájuk, tehát a közvetlen írás 0 sort érintett — de
+--     a GRANT az 1. réteg, az RLS csak a 2., és a kettőnek EGYÜTT kell zárnia.)

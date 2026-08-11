@@ -263,19 +263,26 @@ export function DashboardLayoutClient({
           })()}
           onToggleMobileMenu={() => setMobileOpen(prev => !prev)}
           onToggleSidebar={() => setSidebarCollapsed(prev => !prev)}
-        >
-          {/* 2026-08-11 — BIZTONSÁGI MENTÉS ŐRSZEM.
-              Nem attól függ, hogy a mentő kód lefutott-e: a HIÁNYBÓL számol
-              (max(finished_at) az IGAZOLT mentésekre). Ha a cron törlődik, ha a
-              deploy elromlik, ha a mentő route 500-at ad — a sáv AKKOR IS
-              megjelenik. A riasztás nem lakhat abban, amit figyel.
-              Nem elrejthető, és csak akkor tűnik el, ha van friss igazolt mentés.
+          /* 2026-08-11 — BIZTONSÁGI MENTÉS ŐRSZEM.
+             Nem attól függ, hogy a mentő kód lefutott-e: a HIÁNYBÓL számol
+             (max(finished_at) az IGAZOLT mentésekre). Ha a cron törlődik, ha a
+             deploy elromlik, ha a mentő route 500-at ad — a sáv AKKOR IS
+             megjelenik. A riasztás nem lakhat abban, amit figyel.
+             Nem elrejthető, és csak akkor tűnik el, ha van friss igazolt mentés.
 
-              A feltétel itt CSAK teljesítmény-szűrő (ne induljon fölösleges
-              szerver-hívás minden lelkész minden oldalbetöltésénél). A VALÓDI
-              kapu a szerver-akcióban van: `requireAdminAccess`, ami nem-adminnak
-              `null`-t ad. Ha ez a feltétel valaha eltűnne, semmi nem szivárogna. */}
-          {(master || admin || egyhazkeruletiAdmin) && <BackupStaleBanner />}
+             ⚠️ 2026-08-11: az `alertSlot`-ba került, NEM a `children` közé. Így a
+             fejléc alatt, a görgethető területen KÍVÜL, saját sorban renderel —
+             se görgetés, se fedő elem nem viheti ki a képből. (Ez a „nagy
+             képernyőn nem látszik" bejelentés szerkezeti része.)
+
+             A feltétel itt CSAK teljesítmény-szűrő (ne induljon fölösleges
+             szerver-hívás minden lelkész minden oldalbetöltésénél). A VALÓDI
+             kapu a szerver-akcióban van: `requireAdminAccess`, ami nem-adminnak
+             `nincs_jog`-ot ad. Ha ez a feltétel valaha eltűnne, semmi nem szivárogna. */
+          alertSlot={
+            master || admin || egyhazkeruletiAdmin ? <BackupStaleBanner /> : null
+          }
+        >
           {/* Egyházmegyei setup banner — csak diocese scope-ban, ha hiányosak az adatok */}
           {dioceseSetupNeeded && dioceseSetupId && (
             <DioceseSetupBanner

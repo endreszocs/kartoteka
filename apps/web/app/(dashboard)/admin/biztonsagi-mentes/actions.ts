@@ -21,6 +21,7 @@ import { revalidatePath } from 'next/cache'
 
 import { requireAdminAccess } from '@/lib/auth/admin-access'
 import { getScopedCongregationIds } from '@/lib/auth/admin-scope'
+import { resolveMegjelenitesiHatokor } from '@/lib/auth/display-scope'
 import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
 import { sendDriveFailureAlert } from '@/lib/google-drive/alerts'
 import {
@@ -46,10 +47,13 @@ import {
 } from '@/lib/google-drive/settings'
 import { RETENTION_DEFAULT, type BackupLogRow } from '@/lib/google-drive/types'
 import type {
+  BackupBannerState,
   BackupListFilter,
   BackupListResult,
   DriveTestEredmeny,
   EgyszeruEredmeny,
+  MentesFutasEredmeny,
+  MentesLepes,
   RiasztasTesztEredmeny,
 } from './shared'
 import type { BackupOverview } from '@/lib/google-drive/types'
@@ -181,33 +185,97 @@ function ureAttekinto(error: string): BackupOverview {
 }
 
 /**
- * A FIGYELMEZTETŐ SÁV adata — ez fut MINDEN oldalbetöltésen, ezért a lehető
- * legolcsóbb: EGYETLEN sor a naplóból, plusz a Drive-kapcsolat állapota.
+ * A FIGYELMEZTETŐ SÁV adata — ez fut MINDEN oldalbetöltésen.
  *
  * ⚠️ EZ MAGA AZ ŐRSZEM. Nem attól függ, hogy a mentő kód lefutott-e — a
  * HIÁNYBÓL számol. Ha a cron törlődik, ha a deploy elromlik, ha a route
  * 500-at ad, a sáv AKKOR IS megjelenik.
  *
- * Nem-adminnak `null`-t ad (a sáv nem jelenik meg): a lelkész nem tudja
- * megjavítani a rendszerszintű mentést, és a saját gyülekezetéről külön
- * felület tájékoztatja.
+ * ════════════════════════════════════════════════════════════════════════════
+ * 2026-08-11 — HÁROM JAVÍTÁS EGYSZERRE
+ * ════════════════════════════════════════════════════════════════════════════
+ * 1) HATÓKÖR A BEKAPCSOLT PROFILBÓL (a tulajdonos kérése). A `scopeOf` a
+ *    mögöttes JOGOSULTSÁGOT nézi: a master mindig `null`-t (korlátlan) kap,
+ *    ezért a sáv a barátosi lelkészi profilban is 784 hatókört és idegen
+ *    gyülekezet-neveket sorolt fel. Mostantól a hatókör
+ *    `metszet(jogosultság, bekapcsolt profil)` — SOHA nem tágít, csak szűkít,
+ *    és a feloldás bármely hibája a SZŰKEBB (üres) ágra fut.
+ *    ⚠️ A biztonsági kapu (`requireAdminAccess`) VÁLTOZATLAN — ez megjelenítési
+ *    igazítás, nem jogosultság-módosítás.
+ *
+ * 2) NEM HALLGAT EL. Az öt korábbi `return null` ág megkülönböztethetetlen
+ *    volt; mostantól `ok: 'nincs_jog' | 'nincs_sql' | 'hiba' | 'allapot'`.
+ *
+ * 3) RÖVID GYORSÍTÓTÁR. Országos hatókörben ez a hívás ~783 gyülekezetet és
+ *    14 nap × ~784 napló-sort lapoz végig MINDEN oldalbetöltésen. Egy lassú
+ *    vagy időtúllépő hívás maga okozta a hiányzó sávot. 60 másodperces,
+ *    hatókörre kulcsolt memória-gyorsítótár — a napi riadó felbontásához bőven
+ *    elég, és a kulcsban benne van a teljes hatókör, tehát nem szivároghat át
+ *    egyik felhasználóról a másikra.
  */
-export async function getBackupBannerStateAction(): Promise<{
-  health: BackupOverview['health']
-  ut: string
-} | null> {
+export async function getBackupBannerStateAction(): Promise<BackupBannerState> {
   let access: Access
   try {
     access = await requireAdminAccess({ allowDistrictAdmin: true })
   } catch {
-    return null
+    return { ok: 'nincs_jog' }
   }
 
   try {
-    const congregationIds = await scopeOf(access)
+    // A JOGOSULTSÁGI hatókör (fail-closed) — ez marad a felső korlát.
+    const jogosultsagi = await scopeOf(access)
+
+    // A BEKAPCSOLT PROFIL scope-ja HÁROM ÁLLAPOTTAL.
+    // ⚠️ Ha a `profile_roles` lekérdezés HIBÁZOTT, az `activeProfileRole` `null`,
+    //    de az NEM azt jelenti, hogy nincs bekapcsolt profil — csak azt, hogy nem
+    //    tudjuk. A `null`-ra a metsző a jogosultsági (ORSZÁGOS) ágra futna, tehát
+    //    egy tranziens adatbázis-hiba némán visszahozná a 784 hatókört a barátosi
+    //    profilban. Az `'ismeretlen'` ezt fail-closed üres hatókörre viszi.
+    const aktivScope = access.profileRolesFeloldhato
+      ? (access.activeProfileRole?.scope ?? null)
+      : 'ismeretlen'
+
+    // …metszve a BEKAPCSOLT PROFIL hatókörével.
+    const hatokor = await resolveMegjelenitesiHatokor({
+      supabase: access.supabase,
+      jogosultsagi,
+      aktivScope,
+      aktivScopeId: access.activeProfileRole?.scopeId ?? null,
+      effectiveCongregationId: access.effectiveCongregationId,
+    })
+
+    const congregationIds = hatokor.congregationIds
+    // Üres hatókör → NINCS sáv. Szándékosan nem piros „nincs hatókör" riadó:
+    // az a felhasználónak megoldhatatlan, tehát csak zajt csinálna.
+    if (congregationIds !== null && congregationIds.length === 0) {
+      return { ok: 'nincs_jog' }
+    }
+
+    // A „Megnézem, mi a baj" gomb CSAK oda mutathat, ahová a felhasználó
+    // tényleg be is jut. Az `/admin` layout gyülekezeti/egyházmegyei profilban
+    // elteríti a /dashboard-ra (admin/layout.tsx) — ilyenkor a gomb elmarad,
+    // különben a sáv egy visszapattanó linket kínálna.
+    const adminFeluletElerheto =
+      aktivScope === null ||
+      aktivScope === 'system' ||
+      (aktivScope === 'district' && access.egyhazkeruletiAdmin)
+
+    const gyorsitoKulcs = JSON.stringify({
+      c: congregationIds === null ? null : [...congregationIds].sort(),
+      g: hatokor.globalisIsVarhato,
+    })
+    const gyorsitott = bannerGyorsitoOlvas(gyorsitoKulcs)
+    if (gyorsitott) {
+      return {
+        ...gyorsitott,
+        ut: gyorsitott.ok === 'allapot' && adminFeluletElerheto ? FELULET_UT : null,
+      }
+    }
+
     const supabase = getSupabaseAdminClient()
     const settings = await loadBackupSettingsView(supabase)
-    if (settings.needsSql) return null // A telepítés hiánya külön teendő, nem napi riadó.
+    // A telepítés hiánya külön teendő, nem napi riadó.
+    if (settings.needsSql) return bannerGyorsitoIr(gyorsitoKulcs, { ok: 'nincs_sql' })
 
     const driveHiba =
       settings.view?.drive.tokenAllapot === 'hiba'
@@ -220,19 +288,52 @@ export async function getBackupBannerStateAction(): Promise<{
     //    Enélkül EGYETLEN igazolt mentés (akár egy „Mentés most" kattintás)
     //    48 órán át zölden tartotta volna a sávot, miközben a napi cron halott,
     //    és gyülekezetek tucatjainak nincs mentése.
-    const globalisIsVarhato = congregationIds === null
     const { health, needsSql } = await computeBannerHealth(
       supabase,
       { congregationIds },
-      globalisIsVarhato,
+      hatokor.globalisIsVarhato,
       driveHiba,
     )
-    if (needsSql) return null
-    return { health, ut: FELULET_UT }
-  } catch {
-    // A sáv SOHA nem boríthatja az oldalt. Ha nem tudunk semmit, nem állítunk semmit.
+    if (needsSql) return bannerGyorsitoIr(gyorsitoKulcs, { ok: 'nincs_sql' })
+
+    const allapot = bannerGyorsitoIr(gyorsitoKulcs, { ok: 'allapot', health })
+    return { ...allapot, ut: adminFeluletElerheto ? FELULET_UT : null }
+  } catch (e: unknown) {
+    // A sáv SOHA nem boríthatja az oldalt — de NEM is hallgat el. A felület
+    // egy visszafogott „most nem ellenőrizhető" sort mutat, mert egy néma
+    // riasztórendszer rosszabb a semminél.
+    console.error('[mentes-sav] az állapot lekérdezése elbukott:', e)
+    return { ok: 'hiba', hibaUzenet: hibaUzenet(e, 'ismeretlen hiba') }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A sáv rövid életű memória-gyorsítótára
+//
+// Szándékosan folyamat-memóriában (nem `unstable_cache`): a sáv adata
+// felhasználó-hatókörhöz kötött, és nem szabad a Next.js adat-gyorsítótárába
+// perzisztálni. A kulcs a TELJES hatókör, ezért két különböző hatókörű
+// felhasználó SOHA nem kaphatja meg egymás eredményét.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BANNER_TTL_MS = 60_000
+const bannerGyorsito = new Map<string, { lejar: number; ertek: BackupBannerState }>()
+
+function bannerGyorsitoOlvas(kulcs: string): BackupBannerState | null {
+  const sor = bannerGyorsito.get(kulcs)
+  if (!sor) return null
+  if (sor.lejar < Date.now()) {
+    bannerGyorsito.delete(kulcs)
     return null
   }
+  return sor.ertek
+}
+
+function bannerGyorsitoIr(kulcs: string, ertek: BackupBannerState): BackupBannerState {
+  // Egyszerű felső korlát, hogy sok hatókör mellett se nőjön korlátlanul.
+  if (bannerGyorsito.size > 200) bannerGyorsito.clear()
+  bannerGyorsito.set(kulcs, { lejar: Date.now() + BANNER_TTL_MS, ertek })
+  return ertek
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -583,8 +684,23 @@ export async function reconcileDriveAction(): Promise<EgyszeruEredmeny> {
  *
  * Ha a motor még nincs telepítve, azt KIMONDJUK. A néma „elindítottuk" a
  * legrosszabb válasz: a felhasználó azt hinné, készül a mentés.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * EGY HÍVÁS = EGY SZELET (2026-08-11)
+ * ════════════════════════════════════════════════════════════════════════════
+ * 784 hatókör EGY kérésbe nem fér bele (nagyságrendileg 150 000 adatbázis-
+ * körfordulás, órákban mérve). Ez az akció ezért egy SZELETET futtat le, és
+ * megmondja, MENNYI MARADT (`hatralevo`). A felület addig hívja újra, amíg
+ * `futottVegig` nem lesz — a napi kulcs miatt minden újabb szelet pontosan ott
+ * folytatja, ahol az előző abbahagyta, és A MÁR ELKÉSZÜLT MENTÉSEK MEGMARADNAK.
+ *
+ * ⚠️ MIÉRT NEM EGY HOSSZÚ HÍVÁS. Egy 15 percig nyitva tartott szerver-akció
+ *    alatt a böngésző kapcsolata elhal, a service worker `no-response` hibát
+ *    dob, és a felhasználó SEMMILYEN visszajelzést nem kap — miközben a szerver
+ *    esetleg dolgozik tovább. Rövid szeletekkel a haladás LÁTHATÓ, és bármikor
+ *    megszakítható anélkül, hogy a kész munka elveszne.
  */
-export async function runBackupNowAction(): Promise<EgyszeruEredmeny> {
+export async function runBackupNowAction(): Promise<MentesFutasEredmeny> {
   try {
     await requireAdminAccess({ allowDistrictAdmin: false })
   } catch (e: unknown) {
@@ -627,7 +743,12 @@ export async function runBackupNowAction(): Promise<EgyszeruEredmeny> {
       //    `fetch` alapból KÖVETNÉ, a bejelentkező oldal 200-at adna HTML-lel,
       //    és ez az akció ZÖLDET jelentene egy le sem futott mentésre.
       redirect: 'manual',
-      signal: AbortSignal.timeout(900_000),
+      // A felületről indított szelet 4 percre van tervezve (`KEZI_IDOKERET_MS`);
+      // 6 perc bőven elég a rendezett megállásra és a válasz összeállítására.
+      // ⚠️ NEM emelendő 15 percre: egy negyed óráig nyitva tartott kapcsolat
+      //    alatt a böngésző oldali kérés elhal, és a service worker
+      //    `no-response` hibát dob — a felhasználó pedig SEMMIT nem lát.
+      signal: AbortSignal.timeout(360_000),
     })
 
     if (response.status === 404) {
@@ -661,12 +782,42 @@ export async function runBackupNowAction(): Promise<EgyszeruEredmeny> {
       }
     }
 
+    // ⚠️ 2026-08-11 JAVÍTÁS — ITT VESZETT EL A DIAGNÓZIS.
+    //    A korábbi `WorkerValasz` típus CSAK az `ok`/`sikeres`/`sikertelen`/
+    //    `kihagyva`/`error` mezőket ismerte. A végpont közben a `reszlet`
+    //    mezőben elküldte a VALÓDI hibát („BESOROLATLAN ÉLŐ TÁBLA (17 db): …"),
+    //    a `figyelmeztetesek`-et és a hatókörönkénti hibákat is — a
+    //    `response.json()` után mind némán a szemétbe ment, és a tulajdonos
+    //    csak ennyit látott: „A biztonsági mentés futása sikertelen."
+    //    Egy MENTÉS-funkciónál ez a legrosszabb hibaosztály.
     type WorkerValasz = {
+      /** A SZELET elvégezte a dolgát (haladt). NEM azt jelenti, hogy minden sikerült. */
       ok?: boolean
+      /** MINDEN hatókör sikerült ebben a szeletben. Ebből lesz a piros jelentés. */
+      mindenSikeres?: boolean
       sikeres?: number
       sikertelen?: number
       kihagyva?: number
+      osszes?: number
+      feldolgozva?: number
+      hatralevo?: number
+      futottVegig?: boolean
       error?: string
+      reszlet?: string
+      teendo?: string
+      sqlFajl?: string | null
+      lepesek?: MentesLepes[]
+      figyelmeztetesek?: string[]
+      hatokorok?: Array<{
+        scope?: string
+        nev?: string | null
+        ok?: boolean
+        kihagyva?: boolean
+        stage?: string | null
+        hiba?: string | null
+        teendo?: string | null
+        lepesek?: MentesLepes[]
+      }>
     }
     let torzs: WorkerValasz | null = null
     try {
@@ -685,28 +836,249 @@ export async function runBackupNowAction(): Promise<EgyszeruEredmeny> {
 
     revalidatePath(FELULET_UT)
 
+    // A bukott hatókörök NÉVVEL — nem UUID-vel. A gyülekezet azonosítója belső
+    // adat és a lelkésznek zaj; a NÉV az, amiből cselekedni lehet.
+    const bukottak = (torzs.hatokorok ?? [])
+      .filter((h) => h && h.ok !== true && h.kihagyva !== true)
+      .map((h) => ({
+        scope: String(h.scope ?? 'gyulekezet'),
+        nev: h.nev ?? null,
+        stage: h.stage ?? null,
+        hiba: h.hiba ?? null,
+        teendo: h.teendo ?? null,
+        lepesek: h.lepesek,
+      }))
+
+    const sikertelen = Number(torzs.sikertelen ?? 0)
+    const kozos = {
+      lepesek: torzs.lepesek,
+      reszlet: torzs.reszlet,
+      teendo: torzs.teendo,
+      sqlFajl: torzs.sqlFajl ?? null,
+      osszes: torzs.osszes,
+      sikeres: torzs.sikeres,
+      sikertelen: torzs.sikertelen,
+      kihagyva: torzs.kihagyva,
+      hatralevo: torzs.hatralevo,
+      futottVegig: torzs.futottVegig,
+      // ⚠️ 2026-08-11: a végpont KÉT külön kérdésre válaszol. Az `ok` = „a szelet
+      //    elvégezte a dolgát" (ebből dönt a felület a FOLYTATÁSRÓL), a
+      //    `mindenSikeres` = „minden hatókör sikerült" (ebből lesz a piros
+      //    jelentés). A régi kód a kettőt összemosta, és egyetlen bukott
+      //    gyülekezet megállította a maradék ~700 mentését.
+      mindenSikeres: torzs.mindenSikeres ?? sikertelen === 0,
+      figyelmeztetesek: torzs.figyelmeztetesek,
+      bukottak: bukottak.length > 0 ? bukottak : undefined,
+    }
+
+    // ⚠️ CSAK a SZELET bukása állítja meg a futást (hitelesítés, előkészítő fázis,
+    //    vagy „a szelet semmit nem vitt el"). A hatókör-hibák NEM: azokat a
+    //    jelentés mutatja, de a következő szelet elindul.
     if (!response.ok || torzs.ok === false) {
       return {
+        ...kozos,
         success: false,
         error:
           torzs.error ??
-          `A mentés futása nem sikerült (${torzs.sikertelen ?? '?'} hatókör bukott el). Nézd meg a lista hibás sorait.`,
+          `A mentés futása nem sikerült (${torzs.sikertelen ?? '?'} hatókör bukott el). Nézd meg alább, melyik.`,
       }
     }
+
     // ⚠️ A „kihagyva" IS KIMONDANDÓ. A napi kulcs miatt egy aznap már igazolt
     //    hatókör nem fut újra — enélkül a felhasználó egy „0 hatókör igazolva"
     //    üzenetet kapna, és azt hinné, semmi nem működik.
+    // ⚠️ A „hátravan" IS KIMONDANDÓ. Egy szelet a 784-ből csak részt visz el;
+    //    ha ezt elhallgatnánk, a tulajdonos késznek hinné a mentést.
+    // ⚠️ A „bukott" IS KIMONDANDÓ — a szelet attól még lefutott.
     const kihagyva = Number(torzs.kihagyva ?? 0)
+    const hatralevo = Number(torzs.hatralevo ?? 0)
     return {
+      ...kozos,
       success: true,
       uzenet:
-        `A mentés lefutott: ${torzs.sikeres ?? '?'} hatókör igazolva` +
-        (kihagyva > 0
-          ? `, ${kihagyva} hatókör kihagyva (ma már készült róluk igazolt mentés).`
-          : '.'),
+        `${torzs.sikeres ?? '?'} hatókör igazolva` +
+        (kihagyva > 0 ? `, ${kihagyva} kihagyva (ma már készült róluk igazolt mentés)` : '') +
+        (sikertelen > 0 ? `, ${sikertelen} ELBUKOTT` : '') +
+        (hatralevo > 0
+          ? `. MÉG ${hatralevo} HATÓKÖR HÁTRAVAN — a folytatás ott veszi fel a fonalat, ahol ez abbahagyta.`
+          : `. Ez a futás VÉGIGMENT mind a ${torzs.osszes ?? '?'} hatókörön.`),
     }
   } catch (e: unknown) {
-    return { success: false, error: `A mentés-motor nem érhető el: ${hibaUzenet(e, 'ismeretlen hiba')}` }
+    // Időtúllépés és hálózati bukás: a mentés állapota ISMERETLEN — a szerver
+    // esetleg dolgozik tovább. Ezt KIMONDJUK, nem hallgatjuk el.
+    const idotullepes = e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')
+    return {
+      success: false,
+      error: idotullepes
+        ? 'A mentés-motor nem válaszolt időben. A futás állapota ISMERETLEN — lehet, hogy a ' +
+          'szerveren tovább dolgozik. Frissítsd az oldalt, és nézd meg a „Mentési előzmény" ' +
+          'listát: ami elkészült, ott IGAZOLTKÉNT látszik.'
+        : `A mentés-motor nem érhető el: ${hibaUzenet(e, 'ismeretlen hiba')}`,
+      teendo: idotullepes
+        ? 'Várj egy percet, nyomd meg a „Frissítés" gombot, majd indítsd újra a mentést — a már ' +
+          'elkészült hatóköröket kihagyja.'
+        : undefined,
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// „KÉSZ-E A RENDSZER A MENTÉSRE?" — 2 másodperces próba, MENTÉS NÉLKÜL
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Végigméri a mentés ELŐFELTÉTELEIT anélkül, hogy egyetlen bájtot is írna.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * MIÉRT SZÜLETETT (2026-08-11)
+ * ════════════════════════════════════════════════════════════════════════════
+ * A tulajdonos aznap megnyomta a „Mentés most" gombot, és ennyit kapott:
+ * „A biztonsági mentés futása sikertelen." A hiba az ELŐKÉSZÍTŐ fázisban
+ * történt — vagyis pontosan az, amit ez a próba 2 másodperc alatt, NÉVVEL és
+ * TEENDŐVEL megmutatott volna, mielőtt bárki 784 hatókörre elindít bármit.
+ *
+ * ⚠️ SEMMIT NEM ÍR. Nem foglal napló-sort, nem tölt fel fájlt, nem nyes.
+ *    Ezért bármikor, bármennyiszer megnyomható — a mentés állapotát nem
+ *    változtatja meg.
+ */
+export async function checkBackupReadinessAction(): Promise<MentesFutasEredmeny> {
+  try {
+    await requireAdminAccess({ allowDistrictAdmin: false })
+  } catch (e: unknown) {
+    return { success: false, error: hibaUzenet(e, 'Nincs jogosultság.') }
+  }
+
+  const { loadBackupKey } = await import('@/lib/backup/keys')
+  const { classifyInventory, loadTableInventory } = await import('@/lib/backup/inventory')
+  const { STORAGE_DRIVE, resolveBackupStorage } = await import('@/lib/backup/storage')
+  const { jelolLepes, mentesTeendo, ujFutasLepesek, vagd } = await import('@/lib/backup/steps')
+
+  const lepesek = ujFutasLepesek()
+  const figyelmeztetesek: string[] = []
+
+  try {
+    loadBackupKey()
+    jelolLepes(lepesek, 'kulcs', true)
+
+    const inventory = await loadTableInventory(getSupabaseAdminClient())
+    jelolLepes(lepesek, 'leltar', true, `${inventory.length} élő tábla`)
+
+    // ⚠️ NEM az `assertInventoryClassified`-ot hívjuk, mert az az ELSŐ bajnál
+    //    dob — itt viszont MINDEN bajt egyszerre akarunk megmutatni. Egy próba,
+    //    ami csak az első hibáig lát, három körben derítené ki ugyanazt.
+    const c = classifyInventory(inventory)
+    const bajok: string[] = []
+    if (c.besorolatlan.length > 0) {
+      bajok.push(
+        `BESOROLATLAN ÉLŐ TÁBLA (${c.besorolatlan.length} db): ${c.besorolatlan.join(', ')}`,
+      )
+    }
+    if (c.szuroNelkul.length > 0) {
+      bajok.push(
+        `GYÜLEKEZETI TÁBLA ÉRVÉNYES SZŰRŐ NÉLKÜL (${c.szuroNelkul.length} db): ${c.szuroNelkul.join(', ')}`,
+      )
+    }
+    if (bajok.length > 0) {
+      jelolLepes(lepesek, 'besorolas', false, `${c.besorolatlan.length + c.szuroNelkul.length} tábla`)
+      const uzenet = bajok.join(' — ')
+      return {
+        success: false,
+        lepesek,
+        error: 'A rendszer JELENLEG NEM TUD MENTENI: a tábla-besorolás hiányos.',
+        reszlet: vagd(uzenet, 900),
+        teendo: mentesTeendo(uzenet).szoveg,
+        sqlFajl: mentesTeendo(uzenet).sql,
+      }
+    }
+    jelolLepes(
+      lepesek,
+      'besorolas',
+      true,
+      `${c.gyulekezet.length} gyülekezeti + ${c.globalis.length} globális + ${c.kizart.length} kizárt tábla`,
+    )
+    if (c.retegNelkul.length > 0) {
+      figyelmeztetesek.push(
+        `${c.retegNelkul.length} tábla MENTÉSRE kerülne, de visszaállítani nem lehetne ` +
+          `(nincs rétege): ${c.retegNelkul.slice(0, 15).join(', ')}` +
+          (c.retegNelkul.length > 15 ? ' …' : ''),
+      )
+    }
+
+    const storage = await resolveBackupStorage()
+    jelolLepes(lepesek, 'tarolo', true, storage.nev)
+    if (storage.nev !== STORAGE_DRIVE) {
+      figyelmeztetesek.push(
+        `A mentés NEM a Google Drive-ra menne, hanem ide: „${storage.nev}" — ugyanabba a ` +
+          'felhő-fiókba, ahol az adatbázis is van. Kösd össze a Google Drive-ot.',
+      )
+    }
+
+    const anyag = await loadRecoveryKeyMaterial()
+    const vanLetet = anyag.publicRaw !== null && anyag.wrappedPrivate !== null
+    // ⚠️ 2026-08-11 JAVÍTÁS: a hiányzó letét `false`-t kapott, vagyis a felület
+    //    PIROS KERESZTET rajzolt rá „ITT HIBÁZOTT" szöveggel — egy ZÖLD dobozban,
+    //    aminek a fejléce közben azt mondta: „A rendszer KÉSZ a mentésre".
+    //    Két, egymásnak ellentmondó állítás egy dobozban. A hiányzó mentési
+    //    jelszó nem akadálya a mentésnek, csak a jelszavas MEGNYITÁSNAK — ezért
+    //    figyelmeztetés, nem bukás. A súlyt a `figyelmeztetesek` tömb viszi.
+    jelolLepes(
+      lepesek,
+      'helyreallito',
+      vanLetet ? true : 'figyelmeztetes',
+      vanLetet ? 'van kulcs-letét' : 'nincs mentési jelszó',
+    )
+    if (!vanLetet) {
+      figyelmeztetesek.push(
+        'NINCS HELYREÁLLÍTÓ KULCS: a mentések KIZÁRÓLAG a szerver kulcsával nyílnának. ' +
+          'Állíts be MENTÉSI JELSZÓT — az hozza létre a helyreállító kulcspárt.',
+      )
+    }
+
+    const supabase = getSupabaseAdminClient()
+    const { count, error: congError } = await supabase
+      .from('congregations')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'active')
+    if (congError) {
+      jelolLepes(lepesek, 'hatokorok', false, congError.message)
+      return {
+        success: false,
+        lepesek,
+        figyelmeztetesek,
+        error: 'A gyülekezetek listája nem olvasható.',
+        reszlet: vagd(congError.message, 400),
+        teendo: mentesTeendo(`gyülekezetek listája: ${congError.message}`).szoveg,
+      }
+    }
+    const osszes = (count ?? 0) + 1 // + a rendszerszintű (globális) hatókör
+    jelolLepes(lepesek, 'hatokorok', true, `${osszes} hatókör`)
+
+    // A két utolsó lépés a VALÓDI futásé — itt szándékosan jelöletlen marad.
+    return {
+      success: true,
+      lepesek,
+      figyelmeztetesek: figyelmeztetesek.length > 0 ? figyelmeztetesek : undefined,
+      osszes,
+      uzenet:
+        `A rendszer KÉSZ a mentésre: ${osszes} hatókör, ${c.gyulekezet.length + c.globalis.length} ` +
+        `mentendő tábla, tároló: ${storage.nev}.` +
+        (figyelmeztetesek.length > 0
+          ? ` ${figyelmeztetesek.length} figyelmeztetés van — nézd meg őket.`
+          : ''),
+    }
+  } catch (e: unknown) {
+    const uzenet = hibaUzenet(e, 'ismeretlen hiba')
+    const bukott = lepesek.find((l) => l.ok === null)
+    if (bukott) bukott.ok = false
+    return {
+      success: false,
+      lepesek,
+      figyelmeztetesek: figyelmeztetesek.length > 0 ? figyelmeztetesek : undefined,
+      error: 'A rendszer JELENLEG NEM TUD MENTENI.',
+      reszlet: vagd(uzenet, 900),
+      teendo: mentesTeendo(uzenet).szoveg,
+      sqlFajl: mentesTeendo(uzenet).sql,
+    }
   }
 }
 

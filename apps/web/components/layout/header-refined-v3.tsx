@@ -36,6 +36,7 @@ import type { Profile } from '@/lib/types/auth'
 
 import { NotificationBellRefined } from './notification-bell-refined'
 import { OfflineMenuItemBadge } from '@/components/offline/offline-menu-item-badge'
+import { SyncStatusButton } from '@/components/offline/sync-status-button'
 import { ProfileSwitcher, SWITCHER_PANEL_WIDTH, switcherInitialColumns } from './profile-switcher'
 import type { ProfileRoleRow } from '@/lib/profile-roles/types'
 
@@ -235,8 +236,15 @@ export function HeaderRefinedV3({
     </>
   )
 
+  /**
+   * ⚠️ `overflow-hidden` (2026-08-11). A chipen `min-w-0` van, tehát a tartalma
+   * alá zsugorodhat — a `size-9` címer viszont `shrink-0`, ezért 320 px-es
+   * telefonon KILÓGOTT a chip keretéből és ráfeküdt a jobb oldali ikonsorra.
+   * A klip a szerkezeti garancia arra, hogy szélsőséges szélességnél se
+   * takarjon el semmit.
+   */
   const chipClass =
-    'flex min-w-0 items-center gap-3 rounded-[10px] border border-border bg-card px-3.5 py-1.5 text-left'
+    'flex min-w-0 items-center gap-3 overflow-hidden rounded-[10px] border border-border bg-card px-3.5 py-1.5 text-left'
 
   return (
     <header className="sticky top-0 z-30 h-16 shrink-0 border-b border-border bg-background/74 backdrop-blur-2xl">
@@ -292,11 +300,32 @@ export function HeaderRefinedV3({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* ⚠️ `shrink-0` (2026-08-11): a jobb oldali klaszter EXPLICITEN nem
+            zsugorodik — a szűkülést a bal oldali chip viseli, mert az tud
+            csonkolni (`truncate`), az ikonok nem. Eddig ez csak véletlenül volt
+            így (a `min-width: auto` = min-content miatt); most ki van mondva. */}
+        <div className="flex shrink-0 items-center gap-2">
+          {/* 2026-08-11 — SZINKRON-JELZŐ. Korábban egy `fixed top-2 right-2
+              z-50` lebegő pirula volt a fejlécen KÍVÜL, és pontosan EZT az
+              ikonsort takarta el (a kattintást is elnyelte, mert nem volt rajta
+              `pointer-events-none`). Most a normál flex-folyamban van, a
+              súgó-ikon előtt, azonos `size-10` formanyelvvel — így szerkezetileg
+              lehetetlen, hogy takarjon. */}
+          <SyncStatusButton />
+
+          {/* ⚠️ `hidden sm:inline-flex` — MOBILON A SÚGÓ-GOMB KIMARAD.
+              A szinkron-jelző beköltözésével a jobb klaszter 148 → 196 px-re nőtt,
+              és mivel nem zsugorodik, a teljes különbözetet a gyülekezet-chip
+              nyelte le: 375 px-en a chip szövegdoboza ~50 px-ről ~2 px-re esett
+              (a gyülekezet neve gyakorlatilag eltűnt), 320 px-en a címer kilógott
+              a chipből. A súgó megy, mert egyedül ő van MÁSHOL IS: az avatár-
+              mega menü „Súgó és támogatás" sora ugyanezt a dialógust nyitja,
+              tehát telefonon semmi nem vész el. Így a klaszter visszaáll 148 px-re,
+              vagyis pontosan a szinkron-jelző előtti szélességre. */}
           <button
             type="button"
             onClick={() => setSupportOpen(true)}
-            className="inline-flex size-10 items-center justify-center rounded-[10px] bg-muted text-foreground transition hover:bg-muted/70"
+            className="hidden size-10 items-center justify-center rounded-[10px] bg-muted text-foreground transition hover:bg-muted/70 sm:inline-flex"
             aria-label="Segítség és támogatás"
             title="Segítség és támogatás"
           >

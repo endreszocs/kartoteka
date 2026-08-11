@@ -85,6 +85,15 @@ const MAX_PULL_ROWS = 200_000
 export async function pullTable(
   entry: TableRegistryEntry,
   congregationId: string,
+  /**
+   * IDŐKORLÁT-JEL (2026-08-11). Az orchestrator körönként EGY
+   * `AbortController`-t ad; ha a kör túllépi az időkorlátot, minden még futó
+   * kérés megszakad. Enélkül egyetlen beragadt `fetch` (gyenge térerő, alagút,
+   * halott Wi-Fi) ÖRÖKRE „Szinkronizálás folyamatban…" állapotban hagyta a
+   * jelzőt — a `navigator.onLine` ilyenkor is `true`-t mond, mert az csak
+   * interfész-szintű.
+   */
+  signal?: AbortSignal,
 ): Promise<PullResult> {
   const db = getDb()
   const supabase = createBrowserSupabase()
@@ -115,9 +124,10 @@ export async function pullTable(
     // NEM szűrünk a deleted=false-ra — hagyjuk, hogy a Dexie-be kerüljön,
     // hogy a Kuka view is lássa őket
 
-    const { data, error } = await query
-      .order('id', { ascending: true })
-      .range(from, from + PULL_PAGE_SIZE - 1)
+    let lapozott = query.order('id', { ascending: true }).range(from, from + PULL_PAGE_SIZE - 1)
+    if (signal) lapozott = lapozott.abortSignal(signal)
+
+    const { data, error } = await lapozott
 
     if (error) {
       // HIBA: a kurzort NEM léptetjük — a következő szinkron ugyanonnan indul.
@@ -189,7 +199,10 @@ export interface PullAllResult {
   errors: Array<{ table: string; error: string }>
 }
 
-export async function pullAllTables(congregationId: string): Promise<PullAllResult> {
+export async function pullAllTables(
+  congregationId: string,
+  signal?: AbortSignal,
+): Promise<PullAllResult> {
   const byTable: PullResult[] = []
   const errors: Array<{ table: string; error: string }> = []
   let totalPulled = 0
@@ -198,7 +211,18 @@ export async function pullAllTables(congregationId: string): Promise<PullAllResu
   const sorted = [...TABLE_REGISTRY].sort((a, b) => a.priority - b.priority)
 
   for (const entry of sorted) {
-    const result = await pullTable(entry, congregationId)
+    // Ha a kör időkorlátja lejárt, NEM kezdünk új táblát, és NEM gyártunk
+    // 27 egyforma hibaüzenetet — egyetlen, emberi mondat megy a felületre.
+    if (signal?.aborted) {
+      errors.push({
+        table: entry.dexieTable,
+        error:
+          'A letöltés túllépte az időkorlátot, ezért megszakítottuk. ' +
+          'A már letöltött adatok megvannak, a többit a következő szinkron pótolja.',
+      })
+      break
+    }
+    const result = await pullTable(entry, congregationId, signal)
     byTable.push(result)
     if (result.error) {
       errors.push({ table: entry.dexieTable, error: result.error })
@@ -217,6 +241,7 @@ export async function pullAllTables(congregationId: string): Promise<PullAllResu
 export async function pullByTableName(
   tableName: string,
   congregationId: string,
+  signal?: AbortSignal,
 ): Promise<PullResult> {
   const entry = getTableEntry(tableName)
   if (!entry) {
@@ -228,5 +253,5 @@ export async function pullByTableName(
       error: `Ismeretlen tábla: ${tableName}`,
     }
   }
-  return await pullTable(entry, congregationId)
+  return await pullTable(entry, congregationId, signal)
 }

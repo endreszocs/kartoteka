@@ -15,7 +15,7 @@ import { getPaymentGoalCode, isChurchMaintenanceCode, type PaymentGoalCodeRef } 
 import { selectAllPaged } from '@kartoteka/supabase-client'
 import { applyStreetLocalityFallback, firstRel } from '@/lib/members/street-locality-fallback'
 // 2026-08-11: az „Útvonal" célpont-építőjének típusai (a hivatalos román cím).
-import type { DirectionsCounty, DirectionsLocality, DirectionsStreet, MemberDirectionsAddress } from '@/lib/members/directions'
+import type { DirectionsCountry, DirectionsCounty, DirectionsLocality, DirectionsStreet, MemberDirectionsAddress, OrszagtorzsAllapot } from '@/lib/members/directions'
 import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
 import { describeMoves, ensureChildFamilyLink, type FamilyCompletionOffer } from '@/lib/family/auto-family'
 import { getAllowedFamilyIds, loadFamilyDisplayNames, syncHouseholdFromCsalad } from '@/lib/family/family-membership'
@@ -421,7 +421,16 @@ export async function getMembers(): Promise<{
 //    nélkül maradna — ezért hiba esetén megismételjük a lekérdezést a geo-
 //    oszlopok NÉLKÜL (ugyanaz az ellenállósági minta, mint a
 //    `jarulek_kedvezmeny.kezdet` oszlopnál).
-const CIM_COUNTY_FIELDS = 'name, name_hu, name_ro'
+// ⚠️ 2026-08-11 — A MEGYE-ÁG AZ ORSZÁGOT IS LEHOZZA. E nélkül a kartonon a
+//    KÜLFÖLD-KAPU (`isProvablyRomanianLocality`) nem tud dönteni: Budapestnek,
+//    Debrecennek, Gödöllőnek, Győrnek, Hollandiának per definitionem nincs
+//    román neve, tehát a pirula GARANTÁLTAN a piros „A térkép nem találja"
+//    állapotra esne, és a karton egy tökéletesen jó cím javítását kérné. A
+//    mezőkészlet SZÁNDÉKOSAN azonos a Hibák fül `LOCALITY_MAP_SELECT`-jével
+//    (`validation-actions.ts`) — a két felület csak akkor nem mondhat ellent
+//    egymásnak, ha UGYANAZT az adatot kapja ugyanahhoz a döntéshez.
+const CIM_COUNTY_FIELDS =
+  'id, name, name_hu, name_ro, siruta_code, auto_code, adrcountry:countryid(id, name, sname, name_hu, name_ro)'
 const CIM_LOCALITY_FIELDS = 'id, name, name_hu, name_ro, default_postalcode, siruta_code, needs_review'
 const CIM_STREET_FIELDS = 'id, name, name_hu, name_ro, street_type_ro, street_type_hu, postalcode'
 const CIM_GEO_FIELDS = ', geo_lat, geo_lng, geo_verified_at'
@@ -435,11 +444,24 @@ function buildCimSelect(withGeo: boolean): string {
   return `c_szam, adrlocality!c_helysegid(${loc}), adrstreet!c_utcaid(${street}, adrlocality!localityid(${loc}))`
 }
 
+type CimCountyRow = Omit<DirectionsCounty, 'country'> & {
+  adrcountry?: DirectionsCountry | DirectionsCountry[] | null
+}
 type CimLocalityRow = Omit<DirectionsLocality, 'county'> & {
-  adrcounty?: DirectionsCounty | DirectionsCounty[] | null
+  adrcounty?: CimCountyRow | CimCountyRow[] | null
 }
 type CimStreetRow = DirectionsStreet & {
   adrlocality?: CimLocalityRow | CimLocalityRow[] | null
+}
+
+/** A PostgREST-sorból a `directions.ts` által várt alak (megye + ORSZÁG). */
+function toDirectionsLocality(row: CimLocalityRow | null): DirectionsLocality | null {
+  if (!row) return null
+  const county = firstRel(row.adrcounty)
+  return {
+    ...row,
+    county: county ? { ...county, country: firstRel(county.adrcountry) } : null,
+  }
 }
 type CimRow = {
   c_szam: string | null
@@ -476,7 +498,7 @@ async function fetchMemberMapAddress(
   if (!locality && !street) return null
 
   return {
-    locality: locality ? { ...locality, county: firstRel(locality.adrcounty) } : null,
+    locality: toDirectionsLocality(locality),
     street: street ?? null,
     houseNumber: row.c_szam,
   }
@@ -486,7 +508,7 @@ async function fetchMemberMapAddress(
 
 export async function getMemberDetails(id: number, familyId?: number | null) {
   const { supabase, congregationId } = await getProfileCongregation()
-  const [memberRes, kereszt, konfirm, hazassagRes, temetesRes, bekolt, attert, payments, familyPayments, yearlySettingsRes, exemptionsRes, discountsRes, arrearsPaymentsRes, cimRes] = await Promise.all([
+  const [memberRes, kereszt, konfirm, hazassagRes, temetesRes, bekolt, attert, payments, familyPayments, yearlySettingsRes, exemptionsRes, discountsRes, arrearsPaymentsRes, cimRes, orszagokRes] = await Promise.all([
     congregationId
       ? supabase.from('szemely').select('sz_datum, foglalkozas').eq('id', id).eq('congregation_id', congregationId).maybeSingle()
       : Promise.resolve({ data: null }),
@@ -533,6 +555,16 @@ export async function getMemberDetails(id: number, familyId?: number | null) {
           return null
         })
       : Promise.resolve(null),
+    // 2026-08-11 (ÁTMENETI): az országtörzs mérete. Amíg egyetlen ország van
+    // (Románia), az ország-mező NEM bizonyít semmit — Budapest, Debrecen,
+    // Gödöllő, Győr és „Hollandia" is „romániai" —, ezért a kartonon a
+    // külföld-kapu SZÁNDÉKOSAN néma marad. Lásd `directions.ts` →
+    // `isOrszagtorzsErtelmes`. A tábla parányi (ma 1, a
+    // 2026-08-11-orszagok-es-kulfoldi-telepulesek.sql után 3 sor).
+    // ⚠️ A Hibák fül UGYANEZT a számot kérdezi le
+    //    (`validation-actions.buildMapValidationContext`) — a két felület csak
+    //    akkor nem mondhat ellent egymásnak, ha ugyanabból dönt.
+    supabase.from('adrcountry').select('id'),
   ])
 
   const currentYear = new Date().getFullYear()
@@ -719,6 +751,12 @@ export async function getMemberDetails(id: number, familyId?: number | null) {
     arrearsBreakdown,
     /** 2026-08-11: a térkép-célpont nyersanyaga (`lib/members/directions.ts`). */
     cim: cimRes,
+    /**
+     * 2026-08-11 (ÁTMENETI): az országtörzs állapota a külföld-kapuhoz.
+     * Lekérdezési hibánál `0` — az `isOrszagtorzsErtelmes` fail-closed, tehát a
+     * karton ilyenkor a mai, óvatos ágon marad (semleges pirula, nulla riasztás).
+     */
+    orszagtorzs: { ismertOrszagok: (orszagokRes?.data || []).length } satisfies OrszagtorzsAllapot,
   }
 }
 

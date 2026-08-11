@@ -704,8 +704,26 @@ UNION ALL SELECT '05. a törzsben ott a saját-gyülekezet hatókör-kapu',
          WHERE n.nspname = 'public' AND p.proname = 'import_registry_batch')::text, 'true'
 -- A TÁGABB segédnek NEM szabad a törzsben lennie (lásd a fejléc 3. pontját):
 -- az esperesnek olyan tömeges írási jogot adna, amit egyesével nem kapna meg.
-UNION ALL SELECT '05b. a TÁGABB can_access_congregation NINCS a törzsben',
-       (SELECT COALESCE(bool_and(pg_get_functiondef(p.oid) NOT LIKE '%current_user_can_access_congregation%'), false)
+--
+-- ⚠️ 2026-08-11 JAVÍTVA — a korábbi változat élesben `false`-ot adott, és ez
+--    FALS POZITÍV volt. A `pg_get_functiondef()` a törzset BETŰRE adja vissza,
+--    KOMMENTESTÜL — a `current_user_can_access_congregation` sztring pedig
+--    ott van a törzsben, de CSAK abban a magyarázó kommentben, amelyik épp azt
+--    mondja ki: „⛔ ITT SZÁNDÉKOSAN NEM ez áll". Az ellenőrzés tehát a saját
+--    dokumentációján bukott el. Mostantól ELŐBB kivágjuk a `--` sorvégi
+--    kommenteket, és csak utána keresünk — így a sor a HÍVÁST méri, nem a
+--    szöveget. A 05d. sor külön ki is mondja, hogy az említés csak komment.
+UNION ALL SELECT '05b. a TÁGABB can_access_congregation NINCS a törzsben (komment nélkül)',
+       (SELECT COALESCE(bool_and(
+                 regexp_replace(pg_get_functiondef(p.oid), '--[^' || chr(10) || ']*', '', 'g')
+                 NOT LIKE '%current_user_can_access_congregation%'), false)
+          FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'public' AND p.proname = 'import_registry_batch')::text, 'true'
+UNION ALL SELECT '05d. …és a tágabb segéd EMLÍTÉSE kizárólag kommentben szerepel',
+       (SELECT COALESCE(bool_and(
+                 pg_get_functiondef(p.oid) LIKE '%current_user_can_access_congregation%'
+                 AND regexp_replace(pg_get_functiondef(p.oid), '--[^' || chr(10) || ']*', '', 'g')
+                     NOT LIKE '%current_user_can_access_congregation%'), false)
           FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
          WHERE n.nspname = 'public' AND p.proname = 'import_registry_batch')::text, 'true'
 -- A jog-kapu NULL-biztos: enélkül egy gyülekezet nélküli hívónál a feltétel
@@ -757,7 +775,7 @@ UNION ALL SELECT '12c. az RPC hatóköre EGYEZIK a nyolc tábla RLS-ével (8 pol
            AND qual LIKE '%current_user_has_global_access%'), '8'
 UNION ALL SELECT '13. merge_spouses_bulk — továbbra is ELTŰNT (rokon hibaosztály)',
        (to_regprocedure('public.merge_spouses_bulk()') IS NULL)::text, 'true';
--- Várt: 17 sor, MINDEGYIKNÉL eredmeny = vart.
+-- Várt: 18 sor, MINDEGYIKNÉL eredmeny = vart. (2026-08-11: +1 sor — 05d.)
 
 -- ─── TÁMADÁS-SZIMULÁCIÓ STUDIÓBÓL ──────────────────────────────────────────
 --

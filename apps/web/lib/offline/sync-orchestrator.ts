@@ -13,9 +13,62 @@
  */
 
 import { getDb, setSyncMeta } from './db'
+import { resetStuckSyncing } from './mutation-queue'
 import { pullAllTables, pullByTableName } from './pull'
 import { pushBatch } from './push'
 import { checkRestoreEpoch, quarantineAndResync } from './restore-epoch'
+
+/**
+ * A SZINKRON IDŐZÍTÉSE — EGYETLEN IGAZSÁGFORRÁS (2026-08-11).
+ *
+ * A fejléc szinkron-panelje ezeket a számokat írja ki a lelkésznek („2
+ * percenként frissül…"). Ha a panel saját, bemásolt konstansokból dolgozna,
+ * előbb-utóbb mást mondana, mint amit a rendszer tesz — pontosan az a néma
+ * széthúzás, amit ez a projekt már többször megszenvedett. Ezért a timer-ek ÉS
+ * a felület UGYANEBBŐL az objektumból olvasnak.
+ */
+export const SYNC_IDOZITES = {
+  /** Periodikus letöltés, ha a fül látható. */
+  aktivPullMs: 2 * 60 * 1000,
+  /** Periodikus letöltés, ha a fül háttérben van. */
+  hatterPullMs: 15 * 60 * 1000,
+  /** A helyi módosítások feltöltésének gyakorisága. */
+  pushMs: 30 * 1000,
+  /**
+   * EGY letöltési kör felső időkorlátja. Ennek letelte után a kör megszakad.
+   * ⚠️ Enélkül a „Szinkronizálás folyamatban…" ÖRÖKRE beragadhatott: a láncban
+   * sehol nem volt `AbortController` vagy időkorlát, és egyetlen soha nem
+   * rendeződő `fetch` (gyenge térerő) elég volt hozzá.
+   */
+  pullKorIdokorlatMs: 4 * 60 * 1000,
+  /** EGY feltöltési kör felső időkorlátja. */
+  pushKorIdokorlatMs: 90 * 1000,
+} as const
+
+/**
+ * „Vagy megjön, vagy időkorlát." Nem szakítja meg a mögöttes műveletet — csak
+ * garantálja, hogy a HÍVÓ nem vár rá örökké. Ott használjuk, ahol a megszakítás
+ * több kárt okozna, mint a várakozás (lásd `pushAll` kommentje).
+ */
+function ezVagyIdotullepes<T>(
+  muvelet: Promise<T>,
+  idokorlatMs: number,
+  uzenet: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const idozito = setTimeout(() => reject(new Error(uzenet)), idokorlatMs)
+    muvelet.then(
+      (ertek) => {
+        clearTimeout(idozito)
+        resolve(ertek)
+      },
+      (hiba) => {
+        clearTimeout(idozito)
+        reject(hiba)
+      },
+    )
+  })
+}
 
 // M6.3 (2026-04-22): a portable standalone kivezetésével együtt eltávolítva
 // a sync-orchestrator STANDALONE fast-path-e. Az eddig "no-op standalone
@@ -46,6 +99,17 @@ export interface SyncEvent {
   table?: string
   rowId?: string
   error?: string
+  /**
+   * A KÖR TÁBLA-SZINTŰ HIBÁI (2026-08-11).
+   *
+   * ⚠️ MIÉRT KELL: a `pullAll` korábban előbb kiemittelte az összes
+   * `pull_error`-t, majd KÖZVETLENÜL utána MINDIG `pull_completed`-et. A jelző
+   * a `completed` ágon `setLastError(null)`-t hívott, tehát a gondosan magyarul
+   * megfogalmazott hibaüzenetek EGYETLEN render-ciklust sem éltek meg — a
+   * lelkész sosem tudta meg, hogy a helyi másolata hiányos. Mostantól a
+   * `pull_completed` MAGÁVAL VISZI a hibákat, és a felület ez alapján dönt.
+   */
+  errors?: Array<{ table: string; error: string }>
   timestamp: number
 }
 
@@ -83,11 +147,27 @@ class SyncOrchestrator {
     pullTimer: null,
     pushTimer: null,
     congregationId: null,
-    activePullIntervalMs: 2 * 60 * 1000, // 2 perc
-    backgroundPullIntervalMs: 15 * 60 * 1000, // 15 perc
+    activePullIntervalMs: SYNC_IDOZITES.aktivPullMs,
+    backgroundPullIntervalMs: SYNC_IDOZITES.hatterPullMs,
   }
 
   private listeners = new Set<SyncEventListener>()
+
+  /**
+   * RE-ENTRANCIA-ŐRSZEM (2026-08-11).
+   *
+   * ⚠️ MIÉRT: egy teljes letöltési kör (27 tábla, lapozva) egy nagy
+   * gyülekezetnél vagy lassú hálózaton TOVÁBB tarthat 2 percnél. A timer
+   * ilyenkor egy MÁSODIK kört is elindított, és az elsőként befejeződő kör
+   * `pull_completed`-je lekapcsolta a jelzőt — miközben még futott egy másik.
+   * A jelző így MINDKÉT irányba tudott hazudni: késznek látszott futás közben,
+   * és futónak látszott, amikor már semmi nem futott.
+   */
+  private pullFut = false
+  private pushFut = false
+
+  /** Az utolsó letöltési kör INDULÁSA (ms). A fül-visszatérés dönt belőle. */
+  private utolsoPullKezdet = 0
 
   // ─────────────────────────────────────────────────────────────
   // Event bus
@@ -136,6 +216,21 @@ class SyncOrchestrator {
       /* nem kritikus — a szinkron induljon el akkor is */
     }
 
+    // BERAGADT FELTÖLTÉSEK HELYREÁLLÍTÁSA. Indításkor definíció szerint egyetlen
+    // push sem lehet folyamatban, tehát minden 'syncing' sor árva: egy korábbi
+    // fül bezárása / összeomlása hagyta ott. Enélkül a lelkész helyi módosítása
+    // ÖRÖKRE ott ragadt, és a felület zöldet mutatott (néma adatvesztés).
+    try {
+      const visszaallitva = await resetStuckSyncing()
+      if (visszaallitva > 0) {
+        console.warn(
+          `[sync-orchestrator] ${visszaallitva} félbeszakadt feltöltést visszaállítottunk.`,
+        )
+      }
+    } catch (e) {
+      console.error('[sync-orchestrator] a beragadt feltöltések visszaállítása nem sikerült:', e)
+    }
+
     this.state.congregationId = congregationId
     this.state.active = true
 
@@ -178,8 +273,12 @@ class SyncOrchestrator {
   private handleOnline = (): void => {
     this.state.online = true
     this.emit({ type: 'online', timestamp: Date.now() })
-    // Azonnal pumpáljuk a queue-t
+    // Azonnal pumpáljuk a queue-t…
     void this.pushAll()
+    // …és LE IS TÖLTÜNK. Korábban a visszatérés a hálózatra CSAK feltöltést
+    // indított: a lelkész visszaért a térerőbe, és a képernyőn továbbra is a
+    // kapcsolat előtti, elavult adat volt, amíg a 2 perces timer el nem sült.
+    void this.pullAll()
   }
 
   private handleOffline = (): void => {
@@ -188,8 +287,21 @@ class SyncOrchestrator {
   }
 
   private handleVisibilityChange = (): void => {
-    // Ha visszatér a user a tabra → újra schedule aktív intervallal
+    // Ha visszatér a user a tabra → újra schedule aktív intervallal.
     this.schedulePull()
+    // ⚠️ A `schedulePull` NULLÁZZA a visszaszámlálást. Egy sokat fülváltogató
+    //    felhasználónál emiatt a periodikus letöltés SOHA nem sült el. Ezért:
+    //    ha a fül láthatóvá válik és az utolsó kör régebbi az aktív
+    //    periódusnál, AZONNAL letöltünk.
+    if (
+      typeof document !== 'undefined' &&
+      document.visibilityState === 'visible' &&
+      this.state.online &&
+      this.state.active &&
+      Date.now() - this.utolsoPullKezdet > this.state.activePullIntervalMs
+    ) {
+      void this.pullAll()
+    }
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -232,34 +344,50 @@ class SyncOrchestrator {
    */
   async pullAll(): Promise<void> {
     if (!this.state.online || !this.state.congregationId) return
+    // Re-entrancia: ha még fut egy kör, NEM indítunk másodikat (lásd `pullFut`).
+    if (this.pullFut) return
+    this.pullFut = true
+    this.utolsoPullKezdet = Date.now()
 
-    // ⚠️ A VISSZAÁLLÍTÁS-ŐR MINDIG A PULL ELŐTT FUT. Ha közben a rendszergazda
-    //    visszaállított egy korábbi mentést, a helyi másolatot EL KELL DOBNI —
-    //    különben a delta-pull (`updated_at > lastPullAt`) sosem venné észre a
-    //    régi időbélyegű, visszaállított sorokat.
-    await this.ensureRestoreEpoch()
-
-    this.emit({ type: 'pull_started', timestamp: Date.now() })
+    // IDŐKORLÁT. A kör végén MINDIG törlődik — se szivárgó timer, se örökké
+    // pörgő jelző.
+    const vezerlo = new AbortController()
+    const idozito = setTimeout(() => vezerlo.abort(), SYNC_IDOZITES.pullKorIdokorlatMs)
 
     try {
-      const result = await pullAllTables(this.state.congregationId)
+      // ⚠️ A VISSZAÁLLÍTÁS-ŐR MINDIG A PULL ELŐTT FUT. Ha közben a rendszergazda
+      //    visszaállított egy korábbi mentést, a helyi másolatot EL KELL DOBNI —
+      //    különben a delta-pull (`updated_at > lastPullAt`) sosem venné észre a
+      //    régi időbélyegű, visszaállított sorokat.
+      await this.ensureRestoreEpoch()
+
+      this.emit({ type: 'pull_started', timestamp: Date.now() })
+
+      const result = await pullAllTables(this.state.congregationId, vezerlo.signal)
 
       // Ha volt hiba legalább egy táblán, event is mennie kell
-      if (result.errors.length > 0) {
-        for (const err of result.errors) {
-          this.emit({
-            type: 'pull_error',
-            table: err.table,
-            error: err.error,
-            timestamp: Date.now(),
-          })
-        }
+      for (const err of result.errors) {
+        this.emit({
+          type: 'pull_error',
+          table: err.table,
+          error: err.error,
+          timestamp: Date.now(),
+        })
       }
 
-      this.emit({ type: 'pull_completed', timestamp: Date.now() })
+      // ⚠️ A `pull_completed` MAGÁVAL VISZI a hibákat. Enélkül a felület a
+      //    „kész" jelzésre törölte a hibát, és a hibaüzenet sosem látszott.
+      this.emit({
+        type: 'pull_completed',
+        errors: result.errors.length > 0 ? result.errors : undefined,
+        timestamp: Date.now(),
+      })
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e)
       this.emit({ type: 'pull_error', error, timestamp: Date.now() })
+    } finally {
+      clearTimeout(idozito)
+      this.pullFut = false
     }
   }
 
@@ -302,36 +430,58 @@ class SyncOrchestrator {
    */
   async pushAll(): Promise<void> {
     if (!this.state.online || !this.state.congregationId) return
-
-    // ⛔ FAIL CLOSED. A PUSH a veszélyes irány: a helyi, ÚJABB `updated_at`-tal
-    //    bíró sorok felülírnák a frissen visszaállított adatot, és a
-    //    visszaállítás némán részlegesen visszacsinálódna. Ha az epoch-ot nem
-    //    tudjuk ellenőrizni, INKÁBB NEM KÜLDÜNK — a helyi munka a mutációs
-    //    sorban megmarad, és a következő körben megy.
-    const orszem = await this.ensureRestoreEpoch()
-    if (!orszem) {
-      this.emit({
-        type: 'push_error',
-        error:
-          'A visszaállítás-állapot nem ellenőrizhető, ezért a helyi módosításokat nem küldjük fel. ' +
-          'A munkád megvan, a következő szinkron újrapróbálja.',
-        timestamp: Date.now(),
-      })
-      return
-    }
-
-    const db = getDb()
-    const pending = await db._mutation_queue
-      .where('status')
-      .anyOf(['pending', 'failed'])
-      .toArray()
-
-    if (pending.length === 0) return
-
-    this.emit({ type: 'push_started', timestamp: Date.now() })
+    if (this.pushFut) return
+    this.pushFut = true
 
     try {
-      const result = await pushBatch(20) // egyszerre max 20 mutation
+      const db = getDb()
+      // ⚠️ A SORREND SZÁNDÉKOS: ELŐBB nézzük meg, van-e egyáltalán mit
+      //    feltölteni. A visszaállítás-őr hálózati kört jelent; korábban a
+      //    pending-ellenőrzés ELŐTT futott, ezért óránként ~120 fölösleges
+      //    lekérdezést küldött fülönként, nulla várakozó mutáció mellett is.
+      //
+      //    HOGY EZ NE VEGYEN EL SEMMIT: a visszaállítás ÉSZLELÉSE nem múlik a
+      //    push-on — a `pullAll` FELTÉTEL NÉLKÜL futtatja az őrt minden
+      //    letöltési kör elején (2 percenként). Vagyis üres mutációs sor mellett
+      //    is kiderül a visszaállítás, csak nem 30, hanem 2 percen belül.
+      const pending = await db._mutation_queue
+        .where('status')
+        .anyOf(['pending', 'failed'])
+        .toArray()
+
+      if (pending.length === 0) return
+
+      // ⛔ FAIL CLOSED. A PUSH a veszélyes irány: a helyi, ÚJABB `updated_at`-tal
+      //    bíró sorok felülírnák a frissen visszaállított adatot, és a
+      //    visszaállítás némán részlegesen visszacsinálódna. Ha az epoch-ot nem
+      //    tudjuk ellenőrizni, INKÁBB NEM KÜLDÜNK — a helyi munka a mutációs
+      //    sorban megmarad, és a következő körben megy.
+      const orszem = await this.ensureRestoreEpoch()
+      if (!orszem) {
+        this.emit({
+          type: 'push_error',
+          error:
+            'A visszaállítás-állapot nem ellenőrizhető, ezért a helyi módosításokat nem küldjük fel. ' +
+            'A munkád megvan, a következő szinkron újrapróbálja.',
+          timestamp: Date.now(),
+        })
+        return
+      }
+
+      this.emit({ type: 'push_started', timestamp: Date.now() })
+
+      // IDŐKORLÁT a feltöltési körre.
+      // ⚠️ BEVALLOTT KORLÁT: itt nincs `AbortController` (a push több, egymás
+      //    utáni kis kérésből áll), ezért az időkorlát a FELÜLET állapotát
+      //    szabadítja fel, nem magát a kérést szakítja meg. Ez SZÁNDÉKOS: egy
+      //    időtúllépett, de a háttérben mégis sikerülő beszúrás újraküldése
+      //    duplikált sort okozna. A 'syncing'-ben maradt mutációkat a panel
+      //    KIÍRJA, és a következő indításkor a `resetStuckSyncing` visszaállítja.
+      const result = await ezVagyIdotullepes(
+        pushBatch(20), // egyszerre max 20 mutation
+        SYNC_IDOZITES.pushKorIdokorlatMs,
+        'A feltöltés túllépte az időkorlátot. A módosításaid megvannak, a következő szinkron újrapróbálja.',
+      )
 
       // Konfliktusok event-re
       if (result.conflicts > 0) {
@@ -342,7 +492,7 @@ class SyncOrchestrator {
       if (result.failed > 0) {
         this.emit({
           type: 'push_error',
-          error: `${result.failed} mutation sikertelen (retry backoff-fal)`,
+          error: `${result.failed} helyi módosítás feltöltése nem sikerült — a rendszer újrapróbálja.`,
           timestamp: Date.now(),
         })
       }
@@ -351,6 +501,8 @@ class SyncOrchestrator {
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e)
       this.emit({ type: 'push_error', error, timestamp: Date.now() })
+    } finally {
+      this.pushFut = false
     }
   }
 
@@ -411,6 +563,18 @@ class SyncOrchestrator {
 
   isActive(): boolean {
     return this.state.active
+  }
+
+  /**
+   * Fut-e ÉPPEN letöltés vagy feltöltés.
+   *
+   * ⚠️ Ez a VALÓSÁG, nem egy esemény-visszhang. A felület komponensei korábban
+   * mind saját `useState(syncing)`-et vezettek az eseményekből, és ha egy
+   * komponens a kör KÖZBEN mountolt (pl. a panel megnyitásakor), hamisan
+   * „kész"-t mutatott. Innen le tudják kérdezni az igazi állapotot.
+   */
+  isSyncing(): boolean {
+    return this.pullFut || this.pushFut
   }
 
   getCongregationId(): string | null {

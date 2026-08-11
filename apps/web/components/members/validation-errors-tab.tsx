@@ -12,6 +12,8 @@ import {
   RefreshCw,
   Search,
   ShieldAlert,
+  UserSearch,
+  Users,
   XCircle,
 } from 'lucide-react'
 import { useEffect, useMemo, useState, useTransition } from 'react'
@@ -40,6 +42,55 @@ import {
   type MveRow,
   type MveStats,
 } from '@/app/(dashboard)/tagnyilvantartas/validation-actions'
+import { requestLocalityJump, requestMemberJump } from '@/lib/members/registry-jump'
+
+/** A fül-váltó hash-alapú (`member-tabs-v4`) — a `pushState` monkey-patch miatt
+ *  a `hashchange` akkor is elsül, ha a hash már `#persons` volt. */
+function switchToPersonsTab() {
+  if (window.location.hash === '#persons') {
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+  } else {
+    window.location.hash = '#persons'
+  }
+}
+
+/**
+ * UGRÁS A KARTONRA (2026-08-11).
+ * A hibaüzenetek azt kérik, hogy a lelkész a SZEMÉLYI KARTONON javítson —
+ * a karton viszont a „Személyek" fülön nyílik. Ez a gomb átviszi oda, a tag
+ * nevére szűrve; onnan egy koppintás a karton.
+ * ⛔ A név NEM kerül az URL-be (lásd `lib/members/registry-jump.ts`).
+ */
+function jumpToMemberCard(memberName: string | undefined) {
+  requestMemberJump(memberName)
+  switchToPersonsTab()
+}
+
+/**
+ * UGRÁS A TELJES ÉRINTETT NÉVSORRA (2026-08-11).
+ *
+ * ⚑ MIÉRT: a „hiányzik a település" tétel TELEPÜLÉSENKÉNT EGY sor, de a javítás
+ *   TAGONKÉNTI, és élesben 70 tagot érint. E gomb nélkül a lelkésznek 70-szer
+ *   kellett volna végigmennie a karton → mentés → „Hibák újraellenőrzése"
+ *   (teljes gyülekezet, minden település, minden utca) körön, csak hogy
+ *   megtudja, KI a következő. Egy javítási utasítás annyit ér, amennyire végig
+ *   lehet menni rajta — ez a kijárat.
+ */
+function jumpToLocalityList(localityName: string | null | undefined) {
+  requestLocalityJump(localityName)
+  switchToPersonsTab()
+}
+
+/**
+ * TAGONKÉNT JAVÍTANDÓ, TELEPÜLÉS-SZINTEN JELZETT TÉTEL?
+ * Ma egyetlen ilyen van: a „hiányzik a település" (`lakcim` + `logic`) — lásd
+ * `validation-engine.ts` → `helykitoltoTelepulesek`. A térkép-tétel
+ * (`lakcim` + `format`) SZÁNDÉKOSAN nem ilyen: azt egyetlen egyeztetés
+ * mindenkire megoldja, ott a névsor csak zaj lenne.
+ */
+function isTagonkentJavitando(row: MveRow): boolean {
+  return row.field_name === 'lakcim' && row.error_type === 'logic'
+}
 
 // ── KPI kártya ──────────────────────────────────────────────────────────────
 
@@ -233,7 +284,10 @@ export function ValidationErrorsTab() {
       const res = await runValidation()
       if (res.ok) {
         toast.success(
-          `Ellenőrzés kész. ${res.total_errors} hiba talált, ${res.inserted} új, ${res.resolved} javítva.`,
+          `Ellenőrzés kész. ${res.total_errors} hiba talált, ${res.inserted} új, ${res.resolved} javítva.`
+          // 2026-08-11: az „újranyitva" csak akkor jelenik meg, ha tényleg
+          // történt — egy állandó „0 újranyitva" csak zaj lenne.
+          + (res.reopened > 0 ? ` ${res.reopened} korábban lezárt hiba visszatért.` : ''),
         )
         load()
       } else {
@@ -432,21 +486,53 @@ export function ValidationErrorsTab() {
                       {new Date(r.detected_at).toLocaleString('hu-HU', { dateStyle: 'short', timeStyle: 'short' })}
                     </td>
                     <td className="px-4 py-3 text-right">
+                      {/* 2026-08-11: `min-h-11` MINDEN műveleti gombon — a lelkész
+                          gyakran telefonon, úton nézi a listát, és a 32px-es
+                          célpont ott menthetetlenül kicsi. */}
                       <div className="inline-flex items-center gap-1">
+                        {/* Ugrás a kartonra: a hibaüzenetek javítási utasítása a
+                            SZEMÉLYI KARTONRA mutat — enélkül a lelkésznek fejben
+                            kellene tartania a nevet, fület váltania, és kikeresnie. */}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="min-h-11"
+                          onClick={() => jumpToMemberCard(r.member_name)}
+                          aria-label={`${r.member_name || 'A tag'} megkeresése a Személyek fülön, a személyi karton megnyitásához`}
+                          title="Ugrás a tagra a Személyek fülön — ott nyílik a személyi karton"
+                        >
+                          <UserSearch className="mr-1 h-4 w-4 text-primary" />
+                          Karton
+                        </Button>
+                        {/* Tagonként javítandó tétel → a TELJES érintett névsor
+                            egy koppintással (lásd `jumpToLocalityList`). */}
+                        {isTagonkentJavitando(r) && r.member_locality_name && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="min-h-11"
+                            onClick={() => jumpToLocalityList(r.member_locality_name)}
+                            aria-label={`Az összes tag megjelenítése, akinek a települése „${r.member_locality_name}"`}
+                            title="Mutasd az összes érintett tagot a Személyek fülön, település szerint szűrve"
+                          >
+                            <Users className="mr-1 h-4 w-4 text-primary" />
+                            Mutasd mindet
+                          </Button>
+                        )}
                         {r.status === 'open' && (
                           <>
-                            <Button size="sm" variant="ghost" onClick={() => handleResolve(r.id)}>
+                            <Button size="sm" variant="ghost" className="min-h-11" onClick={() => handleResolve(r.id)}>
                               <CheckCircle2 className="mr-1 h-4 w-4 text-emerald-600" />
                               Javítva
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={() => setIgnoreTarget(r)}>
+                            <Button size="sm" variant="ghost" className="min-h-11" onClick={() => setIgnoreTarget(r)}>
                               <EyeOff className="mr-1 h-4 w-4 text-slate-500" />
                               Figyelmen kívül
                             </Button>
                           </>
                         )}
                         {(r.status === 'resolved' || r.status === 'ignored') && (
-                          <Button size="sm" variant="ghost" onClick={() => handleReopen(r.id)}>
+                          <Button size="sm" variant="ghost" className="min-h-11" onClick={() => handleReopen(r.id)}>
                             <Eye className="mr-1 h-4 w-4 text-sky-600" />
                             Újra megnyit
                           </Button>

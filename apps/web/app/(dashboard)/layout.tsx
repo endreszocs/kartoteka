@@ -2,7 +2,6 @@ import { redirect } from 'next/navigation'
 import { AiChatWidgetLazy } from '@/components/ai/ai-chat-widget-lazy'
 import { DashboardLayoutClient } from '@/components/layout/dashboard-layout-client'
 import { SyncProvider } from '@/components/offline/sync-provider'
-import { SyncStatusBar } from '@/components/offline/sync-status-bar'
 import { WalkthroughClient } from '@/components/onboarding/walkthrough/walkthrough-client'
 import { SubscriptionSuspendedScreen } from '@/components/layout/subscription-suspended-screen'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
@@ -265,7 +264,12 @@ export default async function DashboardLayout({
       congregationId={access.effectiveCongregationId}
       congregationName={congregationName}
     >
-      <SyncStatusBar />
+      {/* 2026-08-11: a lebegő szinkron-pirula MEGSZŰNT. `fixed top-2 right-2
+          z-50`-ként pontosan a fejléc jobb oldali ikonsorára került (súgó,
+          harang, avatár), és `pointer-events-none` híján a kattintást is
+          elnyelte — szinkron közben a lelkész nem érte el a kijelentkezést sem.
+          A jelző mostantól a fejléc ikonsorának RENDES tagja:
+          `components/offline/sync-status-button.tsx`. */}
       <DashboardLayoutClient
         profile={profile}
         avatarUrl={metadataAvatarUrl || fallbackPhotoUrl}

@@ -51,6 +51,18 @@ interface DashboardShellProps {
   activeScope?: 'system' | 'district' | 'diocese' | 'congregation' | null
   /** A scope_id-hez tartozó név (egyházmegye / egyházkerület esetén). */
   activeScopeName?: string | null
+  /**
+   * RÖGZÍTETT HELYŰ RIASZTÁS-SÁV (2026-08-11) — a fejléc ALATT, a görgethető
+   * `<main>`-en KÍVÜL.
+   *
+   * ⚠️ MIÉRT KÜLÖN SLOT, ÉS NEM `children`. A biztonsági mentés őrszem-sávja
+   * korábban a `<main>` első gyereke volt, tehát EGYÜTT GÖRGÜLT a tartalommal,
+   * és aszinkron beszúródva a görgetés-horgonyzás ki is tolhatta a látható
+   * terület fölé. Egy riasztás, amit el lehet görgetni (vagy ami néha egyszerűen
+   * nem látszik), nem riasztás. Itt saját, `shrink-0` sort kap a fejléc alatt:
+   * a hely SZERKEZETI, nem z-index-verseny kérdése.
+   */
+  alertSlot?: React.ReactNode
   children: React.ReactNode
   onToggleMobileMenu: () => void
   /** Sidebar collapse/expand toggle — a header Kartotéka-ikonjához kötve. */
@@ -73,6 +85,7 @@ export function DashboardShell({
   scopeNames = {},
   activeScope = null,
   activeScopeName = null,
+  alertSlot = null,
   children,
   onToggleMobileMenu,
   onToggleSidebar,
@@ -136,6 +149,12 @@ export function DashboardShell({
         onToggleMobileMenu={onToggleMobileMenu}
         onToggleSidebar={onToggleSidebar}
       />
+
+      {/* Riasztás-sor — a fejléc alatt, a görgethető területen KÍVÜL.
+          `shrink-0`: nem nyomódik össze, ha a tartalom hosszú.
+          A vízszintes/felső térközt maga a sáv hozza (lásd backup-stale-banner),
+          hogy rejtett állapotban NE maradjon üres függőleges hézag. */}
+      {alertSlot ? <div className="shrink-0">{alertSlot}</div> : null}
 
       <main className="flex-1 overflow-y-auto">
         <div className="page-shell kt-page-enter min-h-full p-4 md:p-6 lg:p-7">

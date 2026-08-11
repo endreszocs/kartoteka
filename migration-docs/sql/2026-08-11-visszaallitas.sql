@@ -1093,11 +1093,25 @@ FROM (
            WHERE n.nspname='public' AND p.proname IN
              ('backup_restore_row_label','backup_restore_live_fingerprint',
               'backup_restore_diff','backup_restore_stage','backup_restore_apply'))::text, '5'
-  UNION ALL SELECT 22, 'Mind SECURITY DEFINER',
+  -- ⚠️ 2026-08-11 JAVÍTVA — a korábbi változat 5-öt várt, és 4-et kapott.
+  --    AZ ELLENŐRZÉS TÉVEDETT, NEM A KÓD. Az ötből NÉGY SECURITY DEFINER; az
+  --    ötödik, a `backup_restore_row_label`, SZÁNDÉKOSAN SECURITY INVOKER:
+  --    tiszta szövegformázó (jsonb sor → olvasható címke), IMMUTABLE, és
+  --    EGYETLEN táblához sem nyúl. Jogosultság-emelésre nincs szüksége — ha
+  --    megkapná, az csak támadási felület volna (legkisebb jogosultság elve).
+  --    Hívója (`backup_restore_diff`) MAGA definer, és a definer törzsében egy
+  --    invoker függvény a definer jogaival fut, tehát a működés hibátlan.
+  --    Ezért mostantól KÉT sor méri, külön-külön, az IGAZAT.
+  UNION ALL SELECT 22, 'A NEGY erdemi visszaallitas-RPC mind SECURITY DEFINER',
          (SELECT count(DISTINCT p.proname) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='public' AND p.prosecdef AND p.proname IN
-             ('backup_restore_row_label','backup_restore_live_fingerprint',
-              'backup_restore_diff','backup_restore_stage','backup_restore_apply'))::text, '5'
+             ('backup_restore_live_fingerprint','backup_restore_diff',
+              'backup_restore_stage','backup_restore_apply'))::text, '4'
+  UNION ALL SELECT 22, 'A cimke-fuggveny SZANDEKOSAN NEM SECURITY DEFINER (tiszta formazo)',
+         COALESCE((SELECT (NOT p.prosecdef)::text
+                     FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+                    WHERE n.nspname='public' AND p.proname='backup_restore_row_label'
+                    LIMIT 1), 'nincs fuggveny'), 'true'
   UNION ALL SELECT 23, 'Mind ROGZITETT search_path-szal',
          (SELECT count(DISTINCT p.proname) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='public' AND p.proconfig IS NOT NULL AND p.proname IN
