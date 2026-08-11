@@ -74,14 +74,38 @@ function layout(cim: string, torzsHtml: string): string {
 </body></html>`
 }
 
+/**
+ * ⚠️ 2026-08-11 — MIÉRT KAPOTT KÉT ÚJ ÉRTÉKET EZ A TÍPUS.
+ *
+ * A tulajdonos harangjában ez állt:
+ *   CÍM:   „Régen készült ellenőrzött biztonsági mentés"
+ *   TÖRZS: „A(z) 2026-08-11 napi futásban a(z) »Biharvajda…« mentése SIKERTELEN."
+ *
+ * A kettő KÉT KÜLÖNBÖZŐ ESEMÉNYRŐL szólt. Nem sablonkeveredés volt: nem LÉTEZETT
+ * olyan riasztás-fajta, hogy „egy hatókör mai futása elbukott", ezért a motor
+ * riasztója kénytelen volt az `elavult` kulcsot választani — és a cím ehhez a
+ * kulcshoz fixen kötött. Ugyanezért érkezett a PRÓBA-értesítés is „Régen
+ * készült…" címmel.
+ *
+ * Mostantól mindkettőnek SAJÁT kulcsa és saját címe van, és a `cim` mezővel a
+ * hívó pontosíthat (pl. a gyülekezet nevével). ⛔ A cím SOHA nem mondhat mást,
+ * mint a törzs.
+ */
 export type DriveAlertKind =
   | 'drive_kapcsolat' // a Google-kapcsolat megszakadt
   | 'egyeztetes' // a napló és a Drive tartalma eltér
   | 'elavult' // >48 óra óta nincs igazolt mentés
   | 'nyeses' // a nyesés hibára futott
+  | 'futas_bukas' // EGY hatókör MAI futása elbukott (nem „régen készült")
+  | 'proba' // a tulajdonos saját kérésére küldött próba
 
 export interface DriveAlertInput {
   kind: DriveAlertKind
+  /**
+   * A CÍM felülírása. Ha megadod, a törzzsel EGY eseményről kell szólnia.
+   * Enélkül a `CIMEK` térkép alap-címe megy ki.
+   */
+  cim?: string
   /** Egy mondat, ami MEGNEVEZI a bajt. Adatot NEM tartalmazhat. */
   reszlet: string
   /** Ha gyülekezethez köthető, a lelkész is kap harangot. */
@@ -89,6 +113,13 @@ export interface DriveAlertInput {
   congregationNev?: string | null
   /** Dedup-kulcs: naponta egy értesítés hatókörönként. */
   dedupKulcs?: string
+  /**
+   * A „Teendő" sor. Alapértelmezés: „Admin → Biztonsági mentés".
+   * ⚠️ Csak OLYAN helyre mutasson, ahol a címzett tényleg tehet valamit.
+   */
+  teendo?: string
+  /** A harang-sor típusa. Alap: `warning`. A próbáé `info`. */
+  tipus?: 'info' | 'success' | 'warning' | 'danger'
 }
 
 const CIMEK: Record<DriveAlertKind, string> = {
@@ -96,6 +127,8 @@ const CIMEK: Record<DriveAlertKind, string> = {
   egyeztetes: 'A mentési napló és a Google Drive tartalma eltér',
   elavult: 'Régen készült ellenőrzött biztonsági mentés',
   nyeses: 'A régi mentések takarítása nem sikerült',
+  futas_bukas: 'Nem sikerült a mai biztonsági mentés',
+  proba: 'Próba-értesítés — a riasztás működik',
 }
 
 const TARGYAK: Record<DriveAlertKind, string> = {
@@ -103,6 +136,8 @@ const TARGYAK: Record<DriveAlertKind, string> = {
   egyeztetes: 'KARTOTÉKA — hiányzó mentés-fájlok a Google Drive-on',
   elavult: 'KARTOTÉKA — régen készült ellenőrzött biztonsági mentés',
   nyeses: 'KARTOTÉKA — a mentés-takarítás nem sikerült',
+  futas_bukas: 'KARTOTÉKA — nem sikerült a mai biztonsági mentés',
+  proba: 'KARTOTÉKA — próba-értesítés (nem hiba)',
 }
 
 export interface DriveAlertResult {
@@ -137,11 +172,14 @@ export async function sendDriveFailureAlert(input: DriveAlertInput): Promise<Dri
   //    esetén a LEVÉLKÜLDÉS ELŐTT visszatér, a hajnali riasztás elnémulhatott.
   const napKulcs = bukarestiNapKulcs()
   const dedup = input.dedupKulcs ?? `${FELULET_UT}?riasztas=${input.kind}-${napKulcs}`
-  const cim = CIMEK[input.kind]
+  // ⚠️ A CÍM ÉS A TÖRZS UGYANARRÓL SZÓL. Ha a hívó pontosabbat tud (pl. a
+  //    gyülekezet nevét), az övé az elsőbbség.
+  const cim = (input.cim ?? '').trim() || CIMEK[input.kind]
   const uzenet =
     `${input.reszlet}\n\n` +
     (input.congregationNev ? `Érintett gyülekezet: ${input.congregationNev}\n\n` : '') +
-    'Teendő: Admin → Biztonsági mentés. Ez az üzenet nem tartalmaz mentett adatot.'
+    `Teendő: ${input.teendo ?? 'Admin → Biztonsági mentés'}. ` +
+    'Ez az üzenet nem tartalmaz mentett adatot.'
 
   // ── 2) HARANG ────────────────────────────────────────────────────────────
   try {
@@ -168,16 +206,47 @@ export async function sendDriveFailureAlert(input: DriveAlertInput): Promise<Dri
       // ⚠️ A `hivatkozas` EGYSZERRE dedup-kulcs ÉS érvényes útvonal: a harang
       // csak `/`-sel vagy `http`-vel kezdődő linket tesz kattinthatóvá
       // (notification-bell-refined.tsx). Ezért kezdődik `/admin/…`-nal.
+      // ⚠️ `select('*')`, NEM oszlop-lista (2026-08-11). A dedup-vizsgálatnak
+      //    tudnia kell, hogy a meglévő sort azóta MEGOLDOTTNAK jelöltük-e —
+      //    de a `megoldva` oszlop csak akkor létezik, ha a tulajdonos lefuttatta
+      //    a migrációt. Egy `select('id, megoldva')` addig 42703-mal elhasalna,
+      //    és a riasztás NÉMÁN kimaradna. A csillag mindkét világban működik.
       const { data: meglevo, error: dedupHiba } = await supabase
         .from('ertesitesek')
-        .select('id')
+        .select('*')
         .eq('hivatkozas', dedup)
         .limit(1)
         .maybeSingle()
 
+      const meglevoSor = meglevo as {
+        id?: string
+        megoldva?: boolean | null
+        cim?: string | null
+      } | null
+      // MEGOLDOTT sor NEM némít: ha a baj visszatér ugyanazon a napon, arról
+      // szólni kell. (A dedup célja a 60 levél elkerülése, nem a hallgatás.)
+      //
+      // ⚠️ 2026-08-11 JAVÍTÁS — A MIGRÁCIÓ ELŐTT EZ A GARANCIA AZ ELLENKEZŐJÉRE
+      //    FORDULT. Itt korábban CSAK `meglevoSor.megoldva !== true` állt. Amíg a
+      //    `2026-08-11-ertesites-megoldva.sql` nem futott le, a `select('*')`
+      //    sorában NINCS `megoldva` kulcs → `undefined !== true` → IGAZ →
+      //    `kihagyva = true` → és mivel a függvény a `kihagyva` ágon a
+      //    LEVÉLKÜLDÉS ELŐTT visszatér, sem harang, sem e-mail nem ment ki.
+      //    Vagyis pont az a helyzet némult el, amit ez a szabály kizárni ígér.
+      //    Elérhető sorrend: (1) a napi futás bukik X-re → riasztás; (2) X-re
+      //    később készül igazolt mentés → a feloldó a migráció hiányában CSAK a
+      //    CÍMBE írja a „Megoldva — " előtagot; (3) X ÚJRA bukik ugyanazon a
+      //    napon → a dedup-sor létezik, `megoldva` undefined → NÉMA.
+      //    MOSTANTÓL ugyanaz a KÉT FORRÁSÚ szabály dönt, amit a feloldó
+      //    (`feloldErtesitesek`) és a felület (`uzenetek-actions.ts → alakit()`)
+      //    is használ: oszlop VAGY cím-előtag.
+      const megoldott =
+        meglevoSor?.megoldva === true || (meglevoSor?.cim ?? '').startsWith(MEGOLDVA_ELOTAG)
+      const elonemitoSor = Boolean(meglevoSor?.id) && !megoldott
+
       if (dedupHiba && !isMissingTableError(dedupHiba)) {
         result.harangHiba = dedupHiba.message
-      } else if (meglevo?.id) {
+      } else if (elonemitoSor) {
         result.kihagyva = true
       } else {
         const sorok = [...cimzettek].map((userId) => ({
@@ -185,7 +254,7 @@ export async function sendDriveFailureAlert(input: DriveAlertInput): Promise<Dri
           congregation_id: input.congregationId ?? null,
           cim,
           uzenet,
-          tipus: 'warning',
+          tipus: input.tipus ?? 'warning',
           hivatkozas: dedup,
         }))
         const { error: insertHiba } = await supabase.from('ertesitesek').insert(sorok)
@@ -236,4 +305,114 @@ export async function sendDriveFailureAlert(input: DriveAlertInput): Promise<Dri
   }
 
   return result
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ELAVULÁS — „A BAJ ELMÚLT" (2026-08-11)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A megoldott üzenetek cím-előtagja.
+ *
+ * ⚠️ NEM DÍSZ: ez az a jel, amiből a felület a MIGRÁCIÓ LEFUTÁSA ELŐTT is
+ * felismeri a megoldott sort (akkor ugyanis nincs `megoldva` oszlop). Ezért
+ * ellenőrizzük vele a kétszeres feloldást is.
+ */
+export const MEGOLDVA_ELOTAG = 'Megoldva — '
+
+/**
+ * MEGOLDOTTNAK JELÖLI a megadott hivatkozású harang-üzeneteket.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * MIÉRT LÉTEZIK
+ * ════════════════════════════════════════════════════════════════════════════
+ * A tulajdonos 21:09-kor kapott egy harangot arról, hogy egy gyülekezet mentése
+ * elbukott. 22:16-kor mind a 784 elkészült — az üzenet mégis változatlanul ott
+ * állt. Az `ertesitesek` táblán az egész kódbázisban KÉT mutató művelet volt:
+ * `olvasva: true` és `archived: true`, mindkettőt KÉZZEL indítja a felhasználó.
+ * A rendszer tehát tudott panaszkodni, de azt nem tudta mondani, hogy „azóta
+ * rendben" — és egy ilyen rendszer előbb-utóbb a panaszait is elveszti.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * ⚠️ FAIL-CLOSED: MŰKÖDIK A MIGRÁCIÓ LEFUTÁSA ELŐTT IS
+ * ════════════════════════════════════════════════════════════════════════════
+ * A `megoldva` / `megoldva_at` / `megoldas_uzenet` oszlopokat a
+ * `migration-docs/sql/2026-08-11-ertesites-megoldva.sql` hozza létre, és azt a
+ * tulajdonos futtatja. Amíg nem futott le:
+ *   · az oszlopos írás 42703/PGRST204-gyel elhasal,
+ *   · ezért AZONNAL újrapróbáljuk oszlopok NÉLKÜL: a `tipus` `success`-re vált,
+ *     a cím „Megoldva —" előtagot kap, az üzenet pedig egy záró mondatot.
+ * Mindkét úton LÁTHATÓ a felületen, hogy a baj elmúlt. A migráció csak
+ * szűrhetővé és visszakereshetővé teszi.
+ *
+ * SOHA NEM DOB.
+ */
+export async function feloldErtesitesek(input: {
+  /** A pontos `hivatkozas` értékek (dedup-kulcsok). Üres tömb → nem csinál semmit. */
+  hivatkozasok: string[]
+  /** Egy mondat arról, MIÉRT nincs már baj. Adatot NEM tartalmazhat. */
+  megoldasUzenet: string
+}): Promise<{ feloldva: number; hiba: string | null }> {
+  const kulcsok = input.hivatkozasok.filter((k) => typeof k === 'string' && k.length > 0)
+  if (kulcsok.length === 0) return { feloldva: 0, hiba: null }
+
+  try {
+    const supabase = getSupabaseAdminClient()
+    const { data, error } = await supabase
+      .from('ertesitesek')
+      .select('*')
+      .in('hivatkozas', kulcsok)
+      .limit(500)
+
+    if (error) return { feloldva: 0, hiba: isMissingTableError(error) ? null : error.message }
+
+    const sorok = (data ?? []) as Array<{
+      id: string
+      cim: string | null
+      uzenet: string | null
+      megoldva?: boolean | null
+    }>
+    const nyitottak = sorok.filter((s) => s.megoldva !== true && !(s.cim ?? '').startsWith(MEGOLDVA_ELOTAG))
+    if (nyitottak.length === 0) return { feloldva: 0, hiba: null }
+
+    const most = new Date().toISOString()
+    let feloldva = 0
+    let utolsoHiba: string | null = null
+
+    for (const sor of nyitottak) {
+      const ujCim = `${MEGOLDVA_ELOTAG}${(sor.cim ?? 'Biztonsági mentés').trim()}`
+      const ujUzenet = `${(sor.uzenet ?? '').trim()}\n\n✅ ${input.megoldasUzenet}`
+
+      // 1) ELSŐ PRÓBA — az életciklus-oszlopokkal.
+      const { error: ujHiba } = await supabase
+        .from('ertesitesek')
+        .update({
+          megoldva: true,
+          megoldva_at: most,
+          megoldas_uzenet: input.megoldasUzenet,
+          tipus: 'success',
+          cim: ujCim,
+          uzenet: ujUzenet,
+        })
+        .eq('id', sor.id)
+
+      if (!ujHiba) {
+        feloldva += 1
+        continue
+      }
+
+      // 2) TARTALÉK — a migráció még nem futott le. A felületen ATTÓL MÉG
+      //    látszani fog, hogy a baj elmúlt.
+      const { error: regiHiba } = await supabase
+        .from('ertesitesek')
+        .update({ tipus: 'success', cim: ujCim, uzenet: ujUzenet })
+        .eq('id', sor.id)
+      if (regiHiba) utolsoHiba = regiHiba.message
+      else feloldva += 1
+    }
+
+    return { feloldva, hiba: utolsoHiba }
+  } catch (e: unknown) {
+    return { feloldva: 0, hiba: e instanceof Error ? e.message : 'ismeretlen hiba' }
+  }
 }

@@ -381,13 +381,25 @@ export async function getAccessRequestStats(): Promise<{
   const d24h = now - 24 * 60 * 60 * 1000
   const d7d = now - 7 * 24 * 60 * 60 * 1000
 
+  // 2026-08-12: a legrégebbi függő kérelem — NULLA extra lekérdezés, a sorok
+  // már itt vannak. Az admin ÁTTEKINTÉS ebből írja ki, hány napja vár valaki.
+  const pendingRows = rows.filter((r) => r.status === 'pending')
+  let oldestPendingCreatedAt: string | null = null
+  for (const r of pendingRows) {
+    if (!r.created_at) continue
+    if (!oldestPendingCreatedAt || r.created_at < oldestPendingCreatedAt) {
+      oldestPendingCreatedAt = r.created_at
+    }
+  }
+
   const stats: AccessRequestStats = {
     total: rows.length,
-    pending: rows.filter((r) => r.status === 'pending').length,
+    pending: pendingRows.length,
     approved: rows.filter((r) => r.status === 'approved').length,
     rejected: rows.filter((r) => r.status === 'rejected').length,
     last24h: rows.filter((r) => new Date(r.created_at).getTime() > d24h).length,
     last7d: rows.filter((r) => new Date(r.created_at).getTime() > d7d).length,
+    oldestPendingCreatedAt,
   }
 
   return { data: stats }

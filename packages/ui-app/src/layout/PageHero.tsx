@@ -51,7 +51,14 @@ export function PageHero({ eyebrow, title, description, Icon, actions, stats }: 
           </div>
           <div className="min-w-0">
             {eyebrow && (
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-teal-700/70">
+              // ⚠️ 2026-08-11 (WCAG AA) — `text-teal-700/70` volt. Az alfa a
+              //    hátteret keverte bele: VILÁGOSBAN 3,03:1 a kártyán, SÖTÉTBEN
+              //    1,61:1 — utóbbi gyakorlatilag olvashatatlan. A `/70` miatt az
+              //    osztálynév `text-teal-700\/70`, amire a kartoteka.css sötét
+              //    rétegének `.text-teal-700` felülírása RÁ SEM ILLESZKEDIK,
+              //    ezért sötét témában semmi nem mentette meg.
+              //    A `text-primary` token mindkét témában átmegy: 4,93:1 / 5,17:1.
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">
                 {eyebrow}
               </p>
             )}
@@ -73,14 +80,28 @@ export function PageHero({ eyebrow, title, description, Icon, actions, stats }: 
       {stats && stats.length > 0 && (
         <div className="relative mt-4 grid grid-cols-2 gap-2 md:grid-cols-3">
           {stats.map((s) => (
+            // ⚠️ 2026-08-11 (WCAG AA + sötét téma) — HÁROM JAVÍTÁS EGY CSEMPÉN:
+            //    · `bg-white/85` → `bg-background/70`: token-alapú, tehát a
+            //      sötét témát nem a kartoteka.css „hardkódolt fehér" mentőöve
+            //      tartja életben;
+            //    · `ring-white/70` → `ring-border`: a fehér gyűrűre a sötét
+            //      réteg `border-white/70` szabálya NEM illeszkedik (az `ring-`,
+            //      nem `border-`), ezért sötét témában világító keret maradt;
+            //    · `text-slate-400` → `text-muted-foreground`: a címke 10 px,
+            //      tehát NORMÁL szöveg, küszöb 4,5:1. A slate-400 a csempén
+            //      2,47:1 volt (világos), a `muted-foreground` viszont MIND A
+            //      HÁROM élő témában átmegy — kert 5,08/5,68 · parókia 4,95/5,68
+            //      · zsoltáros 4,96/6,00 —, mert a P2 #24 kör pont ezért
+            //      sötétítette be. A hierarchia így megmarad (a címke halványabb
+            //      az értéknél), de olvasható.
             <div
               key={s.label}
-              className="rounded-[1rem] bg-white/85 px-3 py-2 shadow-[0_14px_28px_-22px_rgba(15,74,66,0.35)] ring-1 ring-white/70"
+              className="rounded-[1rem] bg-background/70 px-3 py-2 shadow-[0_14px_28px_-22px_rgba(15,74,66,0.35)] ring-1 ring-border"
             >
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 {s.label}
               </p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{s.value}</p>
+              <p className="mt-1 text-sm font-semibold text-foreground">{s.value}</p>
             </div>
           ))}
         </div>

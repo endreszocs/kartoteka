@@ -28,9 +28,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import type { LucideIcon } from 'lucide-react'
 import {
-  AlertTriangle,
   Archive,
   ArrowUpRight,
   Bell,
@@ -38,18 +36,20 @@ import {
   CheckCheck,
   CheckCircle2,
   Clock,
-  Info,
   Inbox,
-  LifeBuoy,
-  ShieldAlert,
-  Sparkles,
-  UserRoundPlus,
   X,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import {
+  getTypeVisual,
+  notificationLink as ertesitesLink,
+  relativHuIdo,
+} from '@/components/notifications/ertesites-vizualis'
+import { MEGOLDVA_CIM_ELOTAG } from '@/lib/notifications/uzenetek-shared'
 import { createClient } from '@/lib/supabase/client'
+import { BUKARESTI_ZONA_FELIRAT, huIdopontBukarest } from '@/lib/utils/idopont-bukarest'
 import { cn } from '@/lib/utils'
 
 interface Notification {
@@ -64,154 +64,53 @@ interface Notification {
   archived_at?: string | null
   admin_request_id?: string
   hivatkozas?: string | null
-}
-
-// ──────────────────────────────────────────────────────────────────────────
-// Típusonkénti vizuális identitás (2026-08-10)
-//
-// Minden `ertesitesek.tipus` saját ikont, magyar címkét és halvány, színezett
-// felületet kap. A színek `-500/xx` alfás változatok, mert a `-50` osztályokat
-// a `kartoteka.css` sötét blokkja `!important`-tal felülírja — így a light és a
-// dark megjelenés is kiszámítható marad. A szövegszínek `-700` (light) és
-// `-300` (dark) párban futnak, mindkét irányban AA-kontraszttal.
-// ⚠️ Az olívazöld accent SOHA nem kap fehér szöveget (lásd projekt-memória).
-// ──────────────────────────────────────────────────────────────────────────
-
-interface TypeVisual {
-  icon: LucideIcon
-  /** Rövid, lelkész-barát magyar címke a kártya lábában. */
-  label: string
-  /** Ikon-chip: halvány felület + azonos színcsaládú ikon és gyűrű. */
-  chip: string
-  /** Bal oldali hangsúly-csík az olvasatlan kártyán. */
-  bar: string
-  /** Apró típuscímke a kártya lábában. */
-  pill: string
-}
-
-const TYPE_VISUALS: Record<string, TypeVisual> = {
-  info: {
-    icon: Info,
-    label: 'Tájékoztatás',
-    chip: 'bg-sky-500/12 text-sky-700 ring-sky-500/20 dark:text-sky-300 dark:ring-sky-400/25',
-    bar: 'bg-sky-500',
-    pill: 'bg-sky-500/10 text-sky-700 dark:text-sky-300',
-  },
-  success: {
-    icon: CheckCircle2,
-    label: 'Sikeres',
-    chip: 'bg-emerald-500/12 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300 dark:ring-emerald-400/25',
-    bar: 'bg-emerald-500',
-    pill: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-  },
-  warning: {
-    icon: AlertTriangle,
-    label: 'Figyelem',
-    chip: 'bg-amber-500/14 text-amber-700 ring-amber-500/25 dark:text-amber-300 dark:ring-amber-400/25',
-    bar: 'bg-amber-500',
-    pill: 'bg-amber-500/12 text-amber-700 dark:text-amber-300',
-  },
-  danger: {
-    icon: ShieldAlert,
-    label: 'Fontos',
-    chip: 'bg-rose-500/12 text-rose-700 ring-rose-500/20 dark:text-rose-300 dark:ring-rose-400/25',
-    bar: 'bg-rose-500',
-    pill: 'bg-rose-500/10 text-rose-700 dark:text-rose-300',
-  },
-  support_reply: {
-    icon: LifeBuoy,
-    label: 'Támogatás',
-    chip: 'bg-violet-500/12 text-violet-700 ring-violet-500/20 dark:text-violet-300 dark:ring-violet-400/25',
-    bar: 'bg-violet-500',
-    pill: 'bg-violet-500/10 text-violet-700 dark:text-violet-300',
-  },
-  registration: {
-    icon: UserRoundPlus,
-    label: 'Regisztráció',
-    chip: 'bg-indigo-500/12 text-indigo-700 ring-indigo-500/20 dark:text-indigo-300 dark:ring-indigo-400/25',
-    bar: 'bg-indigo-500',
-    pill: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300',
-  },
-  release: {
-    icon: Sparkles,
-    label: 'Újdonság',
-    chip: 'bg-teal-500/12 text-teal-700 ring-teal-500/20 dark:text-teal-300 dark:ring-teal-400/25',
-    bar: 'bg-teal-500',
-    pill: 'bg-teal-500/10 text-teal-700 dark:text-teal-300',
-  },
-}
-
-function getTypeVisual(tipus?: string | null): TypeVisual {
-  return (tipus && TYPE_VISUALS[tipus]) || TYPE_VISUALS.info
-}
-
-// ──────────────────────────────────────────────────────────────────────────
-// Magyar relatív idő (2026-08-10)
-//
-// „az imént" → „12 perce" → „3 órája" → „tegnap" → „4 napja" → „2 hete" →
-// azon túl konkrét dátum. Szándékosan helyi helper: a `components/admin/users/
-// user-visuals.ts` `formatRelativeTime` szövegei az admin felhasználó-listához
-// kötöttek („még nem lépett be"), és nem szeretnénk, ha a header az admin
-// modultól függene.
-// ──────────────────────────────────────────────────────────────────────────
-
-function relativHuIdo(iso?: string | null): string {
-  if (!iso) return ''
-  const t = Date.parse(iso)
-  if (Number.isNaN(t)) return ''
-  const diff = Date.now() - t
-  if (diff < 0) return 'az imént'
-
-  const perc = Math.floor(diff / 60_000)
-  if (perc < 1) return 'az imént'
-  if (perc < 60) return `${perc} perce`
-
-  const ora = Math.floor(perc / 60)
-  if (ora < 24) return `${ora} órája`
-
-  const nap = Math.floor(ora / 24)
-  if (nap === 1) return 'tegnap'
-  if (nap < 7) return `${nap} napja`
-  if (nap < 30) {
-    const het = Math.floor(nap / 7)
-    return het === 1 ? 'egy hete' : `${het} hete`
-  }
-
-  const d = new Date(t)
-  const ideiEv = d.getFullYear() === new Date().getFullYear()
-  return d.toLocaleDateString('hu-HU', {
-    year: ideiEv ? undefined : 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
-}
-
-function teljesHuIdo(iso?: string | null): string {
-  if (!iso) return ''
-  const t = Date.parse(iso)
-  if (Number.isNaN(t)) return ''
-  return new Date(t).toLocaleString('hu', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  /** Csak a 2026-08-11-ertesites-megoldva.sql lefutása után létezik. */
+  megoldva?: boolean | null
+  megoldas_uzenet?: string | null
 }
 
 /**
- * Az értesítéshez tartozó megnyitható hivatkozás. Az `admin_access:<id>` alakú
- * érték NEM link (az a jóváhagyás-kérelem azonosítója), a többi belső útvonal
- * vagy külső http(s) cím lehet.
+ * A JELZETT BAJ AZÓTA ELMÚLT-E.
+ *
+ * ⚠️ KÉT FORRÁS, SZÁNDÉKOSAN. A `megoldva` oszlop csak a migráció után létezik;
+ * addig a feloldás a CÍMBE írja be a jelet („Megoldva — …"). Egyik úton sem
+ * hazudunk, és a felület mindkettőt érti.
  */
+function megoldott(n?: Notification | null): boolean {
+  if (!n) return false
+  return n.megoldva === true || (n.cim ?? '').startsWith(MEGOLDVA_CIM_ELOTAG)
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Típusonkénti vizuális identitás — KÖZÖS KÉSZLETBŐL (2026-08-11)
+//
+// ⚠️ 2026-08-11-ig a `TYPE_VISUALS` térkép, a `getTypeVisual`, a
+// `notificationLink` és a relatív idő EBBEN A FÁJLBAN élt. Amióta az
+// értesítéseknek SAJÁT OLDALUK is van (`/notifications`), két másolat ugyanarra
+// az üzenetre két különböző színt és címkét adhatna — ez a projekt visszatérő
+// hibaosztálya, csak épp látványban. A készlet ezért átköltözött ide:
+//     components/notifications/ertesites-vizualis.ts
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * ⚠️ 2026-08-11 JAVÍTÁS — A HARANG A KÉSZÜLÉK ZÓNÁJÁBAN FORMÁZOTT.
+ *
+ * Itt korábban egy saját `toLocaleString('hu', …)` állt, `timeZone` NÉLKÜL:
+ * vagyis a böngésző zónájában. Ugyanaz a hibaosztály, amit a mentés-felületen
+ * már javítottunk (ott a lelkész két különböző időt látott egymás alatt
+ * ugyanarról az eseményről). A mentés-riasztásoknál ez nem kozmetika: a
+ * „mikor bukott el a mentés" kérdésre a romániai idő a helyes válasz.
+ */
+function teljesHuIdo(iso?: string | null): string {
+  if (!iso) return ''
+  return huIdopontBukarest(iso, 'long')
+}
+
+/** A `hivatkozas` mezőt kapja meg (a közös bontó nem ismeri a `Notification` alakot). */
 function notificationLink(
   notification?: Notification | null,
 ): { href: string; external: boolean } | null {
-  const raw = notification?.hivatkozas?.trim()
-  if (!raw || raw.startsWith('admin_access:')) return null
-  if (raw.startsWith('/')) return { href: raw, external: false }
-  if (/^https?:\/\//i.test(raw)) return { href: raw, external: true }
-  return null
+  return ertesitesLink(notification?.hivatkozas)
 }
 
 const READ_RETENTION_HOURS = 24
@@ -513,7 +412,9 @@ export function NotificationBellRefined({ userId }: { userId: string }) {
                     type="button"
                     onClick={() => setDropdownOpen(false)}
                     aria-label="Panel bezárása"
-                    className="-mr-1 -mt-1 inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    /* 44 px érintőfelület (házi mobil-követelmény): a bezáró X a
+                       képernyő sarkában van, ott a mis-tap ára a legnagyobb. */
+                    className="-mr-1 -mt-1 inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                   >
                     <X className="size-4" />
                   </button>
@@ -525,7 +426,8 @@ export function NotificationBellRefined({ userId }: { userId: string }) {
                       type="button"
                       onClick={markAllAsRead}
                       disabled={markAllPending}
-                      className="inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2 text-[11.5px] font-medium text-primary transition hover:bg-primary/10 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-foreground"
+                      /* 44 px érintőfelület — mobil-első követelmény. */
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-[12px] font-medium text-primary transition hover:bg-primary/10 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-foreground"
                     >
                       <CheckCheck className="size-3.5" />
                       {markAllPending ? 'Jelölés…' : 'Összes olvasottnak jelölése'}
@@ -563,15 +465,21 @@ export function NotificationBellRefined({ userId }: { userId: string }) {
                 </div>
               )}
 
-              {/* ── Panel-lábléc ──────────────────────────────────────────── */}
+              {/* ── Panel-lábléc ──────────────────────────────────────────────
+                  ⚠️ 2026-08-11: a felirat korábban „Átjelentkezési kérelmek
+                  megnyitása" volt — és igazat mondott, mert a `/notifications`
+                  oldal TÉNYLEG csak azokat mutatta. A tulajdonos viszont az
+                  ÜZENETEIT kereste ott, és nem találta: a harang-üzeneteknek
+                  nem volt oldaluk. Most már van, ezért a link a valóságot írja.
+                  A magasság 44 px (házi mobil-követelmény). */}
               <div className="shrink-0 border-t border-border/70 bg-secondary/40 px-3 py-2">
                 <Link
                   href="/notifications"
                   onClick={() => setDropdownOpen(false)}
-                  className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg px-2 text-[12px] font-medium text-primary transition hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-foreground"
+                  className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg px-2 text-[12.5px] font-medium text-primary transition hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-foreground"
                 >
                   <Inbox className="size-3.5" />
-                  Átjelentkezési kérelmek megnyitása
+                  Összes értesítés megnyitása
                   <ArrowUpRight className="size-3.5" />
                 </Link>
               </div>
@@ -612,6 +520,19 @@ export function NotificationBellRefined({ userId }: { userId: string }) {
           </DialogHeader>
 
           <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5 sm:px-6">
+            {/* ⚠️ „A BAJ ELMÚLT" — 2026-08-11. A tulajdonos egy 21:09-es
+                hibaüzenetet nézett 23 órakor, miközben a gyülekezet mentése
+                22:16-kor elkészült. Az üzenet nem tudott róla. Most tud. */}
+            {megoldott(selectedNotif) && (
+              <p className="flex items-start gap-2 rounded-2xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm leading-relaxed text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+                <span className="min-w-0 flex-1">
+                  <strong>Ez a baj azóta elmúlt.</strong>
+                  {selectedNotif?.megoldas_uzenet ? ` ${selectedNotif.megoldas_uzenet}` : ''}
+                </span>
+              </p>
+            )}
+
             <div className="rounded-2xl border border-border/70 bg-secondary/40 px-4 py-3.5">
               <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
                 {selectedNotif?.uzenet}
@@ -623,7 +544,8 @@ export function NotificationBellRefined({ userId }: { userId: string }) {
                 <span className="flex items-center gap-1.5">
                   <Clock className="size-3" />
                   Érkezett: {teljesHuIdo(selectedNotif.created_at)} (
-                  {relativHuIdo(selectedNotif.created_at)})
+                  {relativHuIdo(selectedNotif.created_at)}) ·{' '}
+                  <span className="whitespace-nowrap">{BUKARESTI_ZONA_FELIRAT}</span>
                 </span>
               )}
               {selectedNotif?.read_at && (
@@ -660,6 +582,18 @@ export function NotificationBellRefined({ userId }: { userId: string }) {
                 </Button>
               ))}
 
+            {/* ⚠️ AZ ÜZENET NEM VESZHET EL. A panel csak az olvasatlanokat és a
+                24 óránál frissebben olvasottakat mutatja; enélkül a lelkésznek
+                nem volt útja a teljes előzményhez. */}
+            <Link
+              href="/notifications"
+              onClick={() => setDetailOpen(false)}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-border px-4 text-sm font-medium text-foreground transition hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              <Inbox className="size-4" />
+              Megnyitás az értesítések között
+            </Link>
+
             {selectedNotif?.admin_request_id && (
               <div className="flex gap-2 border-t border-border/70 pt-3">
                 <Button className="h-10 flex-1" onClick={handleApproveAdminAccess}>
@@ -678,9 +612,18 @@ export function NotificationBellRefined({ userId }: { userId: string }) {
 
           {/* Footer — archiválás opció (olvasottnál) */}
           {selectedNotif?.olvasva && !selectedNotif.archived && (
-            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border/70 bg-secondary/40 px-5 py-3 sm:px-6">
-              <p className="text-xs text-muted-foreground">
-                Az olvasott üzenetek 24 órán át maradnak elérhetők.
+            <div className="flex shrink-0 flex-col items-start justify-between gap-2 border-t border-border/70 bg-secondary/40 px-5 py-3 sm:flex-row sm:items-center sm:px-6">
+              {/* ⚠️ 2026-08-11: itt korábban ez állt: „Az olvasott üzenetek
+                  24 órán át maradnak elérhetők." Igaz volt — és pontosan ez volt
+                  a baj: 24 óra után az üzenet SEHONNAN nem volt előhívható,
+                  miközben a sor ott maradt az adatbázisban. Az értesítések oldal
+                  óta ez nem így van, ezért a mondat is más. */}
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                A panelen az olvasott üzenetek 24 órán át maradnak; utána az{' '}
+                <Link href="/notifications" className="underline underline-offset-2">
+                  értesítések oldalon
+                </Link>{' '}
+                találod meg őket. Az archiválás nem törlés.
               </p>
               <Button
                 variant="outline"
@@ -690,7 +633,7 @@ export function NotificationBellRefined({ userId }: { userId: string }) {
                   setDetailOpen(false)
                 }}
                 disabled={archivePending === selectedNotif.id}
-                className="h-9 gap-1.5"
+                className="min-h-11 shrink-0 gap-1.5"
               >
                 <Archive className="size-3.5" />
                 Archiválás
@@ -868,7 +811,9 @@ function NotificationCard({
               e.stopPropagation()
               setExpanded((v) => !v)
             }}
-            className="mt-0.5 inline-flex min-h-6 items-center rounded text-[11px] font-medium text-primary transition hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-foreground"
+            /* 44 px érintőfelület: a „Tovább" egy kattintható kártya BELSEJÉBEN
+               van, ezért a pontos találat itt a legfontosabb. */
+            className="-my-2 mt-0.5 inline-flex min-h-11 items-center rounded px-1 text-[11.5px] font-medium text-primary transition hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-foreground"
           >
             {expanded ? 'Kevesebb' : 'Tovább'}
           </button>
@@ -883,6 +828,13 @@ function NotificationCard({
           >
             {visual.label}
           </span>
+          {/* „A baj elmúlt" — a listában is látszik, nem csak megnyitva. */}
+          {megoldott(notification) && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/12 px-1.5 py-0.5 font-medium text-emerald-700 dark:text-emerald-300">
+              <CheckCircle2 className="size-3" />
+              Megoldva
+            </span>
+          )}
           <time
             dateTime={notification.created_at}
             title={teljesHuIdo(notification.created_at)}
@@ -906,7 +858,11 @@ function NotificationCard({
           aria-label="Archiválás"
           title="Archiválás"
           className={cn(
-            'mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground opacity-0 transition hover:bg-secondary hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100',
+            // ⚠️ 44 px + MINDIG LÁTHATÓ ÉRINTŐKÉPERNYŐN. Az `opacity-0` +
+            //    `group-hover:opacity-100` egérre készült: telefonon nincs
+            //    hover, tehát az archiválás gombja SOHA nem jelent meg.
+            'mt-0.5 inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+            'opacity-70 group-hover:opacity-100 sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover:opacity-100',
             isArchivePending && 'animate-pulse opacity-100',
           )}
         >

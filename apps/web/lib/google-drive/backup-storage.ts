@@ -129,6 +129,8 @@ export async function createDriveStorage(): Promise<BackupStorage> {
         fileId: f.id,
         fileName: f.name,
         bytes: f.size ?? 0,
+        // 2026-08-11: az „ismeretlen fájl" jelzésnek MIKOR-ra is szüksége van.
+        letrehozva: f.createdTime ?? f.modifiedTime ?? null,
       }))
     },
 

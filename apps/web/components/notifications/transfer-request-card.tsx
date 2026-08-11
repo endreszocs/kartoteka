@@ -10,7 +10,7 @@
  * 2026-04-30 — Endre kérése
  */
 
-import { useState, useTransition } from 'react'
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
 import { ArrowRight, Building2, Calendar, Check, Loader2, MapPin, User, X } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -20,6 +20,7 @@ import {
   markTransferNotificationRead,
   type TransferNotification,
 } from '@/lib/notifications/transfer-notifications-actions'
+import { BUKARESTI_ZONA_FELIRAT, huIdopontBukarest } from '@/lib/utils/idopont-bukarest'
 
 interface TransferRequestCardProps {
   notification: TransferNotification
@@ -86,10 +87,37 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
     })
   }
 
-  const handleMarkRead = () => {
+  const handleMarkRead = useCallback(() => {
     if (notification.read_at) return
     void markTransferNotificationRead(notification.id)
-  }
+  }, [notification.read_at, notification.id])
+
+  /**
+   * MEGJELENÉSKORI OLVASOTTNAK JELÖLÉS (2026-08-11).
+   *
+   * ⚠️ MIÉRT KELL. A kártya eddig KIZÁRÓLAG `onMouseEnter`-re jelölt olvasottnak.
+   * Érintőképernyőn nincs hover, tehát MOBILON SOHA nem futott le — miközben a
+   * lelkész jellemzően telefonon nézi. Az `IntersectionObserver` mindkét
+   * világban működik: ha a kártya legalább félig látszik, elolvasottnak
+   * számít. Egyszer fut le kártyánként.
+   */
+  const lathatoRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (mode !== 'inbound' || notification.read_at) return
+    const elem = lathatoRef.current
+    if (!elem || typeof IntersectionObserver === 'undefined') return
+    const figyelo = new IntersectionObserver(
+      (bejegyzesek) => {
+        if (bejegyzesek.some((b) => b.isIntersecting)) {
+          handleMarkRead()
+          figyelo.disconnect()
+        }
+      },
+      { threshold: 0.5 },
+    )
+    figyelo.observe(elem)
+    return () => figyelo.disconnect()
+  }, [mode, notification.read_at, handleMarkRead])
 
   // Státusz-jelölő
   const statusBadge =
@@ -109,8 +137,18 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
 
   return (
     <div
+      /**
+       * ⚠️ 2026-08-11 JAVÍTÁS — TELEFONON SOHA NEM FUTOTT LE.
+       *
+       * Itt korábban `onMouseEnter` állt. Érintőképernyőn nincs hover, tehát a
+       * bejövő kérelem MOBILON SOHA nem lett olvasottnak jelölve — miközben a
+       * lelkész épp telefonon nézi (házi mobil-első követelmény). A megjelenés
+       * (`IntersectionObserver`) az egyetlen esemény, ami mindkét világban
+       * megtörténik; a hover megmarad asztali gyorsításnak.
+       */
+      ref={mode === 'inbound' ? lathatoRef : undefined}
       onMouseEnter={mode === 'inbound' ? handleMarkRead : undefined}
-      className="overflow-hidden rounded-[1.5rem] bg-white/95 ring-1 ring-violet-100 shadow-[0_18px_40px_-30px_rgba(124,58,237,0.25)]"
+      className="overflow-hidden rounded-[1.5rem] bg-card ring-1 ring-border shadow-[0_18px_40px_-30px_rgba(124,58,237,0.25)]"
     >
       {/* Fejléc — forrás → cél */}
       <div className="border-b border-violet-100 bg-gradient-to-br from-violet-50/60 to-rose-50/60 px-5 py-3">
@@ -169,12 +207,17 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
           </div>
         </div>
 
-        <p className="mt-3 text-xs text-slate-400">
-          Beérkezett: {new Date(notification.created_at).toLocaleString('hu-HU')}
+        {/* ⚠️ 2026-08-11: a `toLocaleString('hu-HU')` `timeZone` NÉLKÜL a KÉSZÜLÉK
+            zónájában formázott — ugyanaz a hibaosztály, amit a mentés-felületen
+            már javítottunk. Külföldről nézve az átjelentkezés dátuma elcsúszott
+            volna. A közös, Europe/Bucharest-re szögezett formázó ezt kizárja. */}
+        <p className="mt-3 text-xs text-muted-foreground">
+          Beérkezett: {huIdopontBukarest(notification.created_at, 'short')} (
+          {BUKARESTI_ZONA_FELIRAT})
         </p>
         {notification.responded_at && (
-          <p className="mt-1 text-xs text-slate-500">
-            Válaszolt: {new Date(notification.responded_at).toLocaleString('hu-HU')}
+          <p className="mt-1 text-xs text-muted-foreground">
+            Válaszolt: {huIdopontBukarest(notification.responded_at, 'short')}
             {notification.response_note && (
               <span>
                 {' '}— megjegyzés: <em>{notification.response_note}</em>

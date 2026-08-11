@@ -40,6 +40,7 @@ import {
 } from '@/app/(dashboard)/admin/broadcasts-actions'
 
 import type { BroadcastRow, ChangelogEntry } from '@/lib/broadcasts/types'
+import { varKikuldesre } from '@/lib/broadcasts/changelog-status'
 
 import { NewsletterComposeDialog } from './newsletter-compose-dialog'
 import { BroadcastsSummaryNav, type BroadcastSectionId } from './broadcasts/broadcasts-overview'
@@ -72,6 +73,9 @@ export function BroadcastsTab() {
   })
 
   const [entries, setEntries] = useState<ChangelogEntry[]>([])
+  // true = a 2026-08-12-changelog-jelolesek.sql még nem futott le élesben.
+  // Nem hiba, hanem TEENDŐ — a szekció kiírja a futtatandó fájl nevét.
+  const [jelolesekNeedsSql, setJelolesekNeedsSql] = useState(false)
   const [broadcasts, setBroadcasts] = useState<BroadcastRow[]>([])
   const [congregations, setCongregations] = useState<CongLite[]>([])
   const [dioceses, setDioceses] = useState<DioceseLite[]>([])
@@ -93,6 +97,7 @@ export function BroadcastsTab() {
     ])
 
     if (e.data) setEntries(e.data)
+    setJelolesekNeedsSql(!!e.jelolesekNeedsSql)
     if (b.data) setBroadcasts(b.data)
     if (c.data) setCongregations(c.data)
     if (d.data) setDioceses(d.data)
@@ -151,10 +156,9 @@ export function BroadcastsTab() {
   // Memoizálva — a NewsletterComposeDialog reset-effektje ezekre hivatkozik,
   // stabil identitás nélkül minden szülő-render kiütné a dialógus állapotát.
   const activeEntries = useMemo(() => entries.filter((e) => !e.readMarked), [entries])
-  const unsentEntries = useMemo(
-    () => activeEntries.filter((e) => !e.alreadySent),
-    [activeEntries],
-  )
+  // A „kiküldésre vár" definíciója EGY helyen él (lib/broadcasts/changelog-status.ts):
+  // se valódi kiküldés, se kézi jelölés nincs rajta.
+  const unsentEntries = useMemo(() => activeEntries.filter(varKikuldesre), [activeEntries])
 
   if (loading) {
     // A szekciók maguk kártyák, ezért a betöltő is kap egy kártya-hátteret.
@@ -202,6 +206,7 @@ export function BroadcastsTab() {
           congregations={congregations}
           dioceses={dioceses}
           districts={districts}
+          jelolesekNeedsSql={jelolesekNeedsSql}
           onReload={reload}
           onOpenNewsletter={() => setNewsletterOpen(true)}
         />

@@ -22,13 +22,27 @@ import { AlertTriangle, CheckCircle2, CircleSlash, Clock, ShieldAlert } from 'lu
 
 import { StatusBadge, type StatusIntent } from '@/components/admin/_shared/status-badge'
 import { BUKARESTI_ZONA_FELIRAT, huIdopontBukarest } from '@/lib/utils/idopont-bukarest'
-import type { BackupOverview, DailyCoverage, PulseDay } from '@/app/(dashboard)/admin/biztonsagi-mentes/shared'
+import {
+  huNap,
+  type BackupOverview,
+  type DailyCoverage,
+  type PulseDay,
+} from '@/app/(dashboard)/admin/biztonsagi-mentes/shared'
 
-function huNap(nap: string): string {
-  if (!nap) return '—'
-  const [y, m, d] = nap.split('-')
-  return `${y}. ${m}. ${d}.`
-}
+import { BackupUnknownFiles } from './backup-unknown-files'
+
+/**
+ * ⚠️ A HORGONY NEM DÍSZ (2026-08-11). A figyelmeztető sáv „A részletek lentebb"
+ * gombja erre a szakaszra görget, és a harang-értesítés `hivatkozas` mezője is
+ * ide mutat (`…?mentes-hiba=…#mentes-allapot`). Ha ez az azonosító elcsúszik,
+ * mindkét gomb NÉMÁN a lap tetejére dob — ez volt a tulajdonos 3. bejelentése
+ * („nem jelenik meg semmi, csak frissül az oldal"). Ezért KÖZÖS konstans, nem
+ * beírt string: lásd `lib/google-drive/types.ts`.
+ */
+import {
+  MENTES_ALLAPOT_HORGONY,
+  MENTES_HIANYZOK_HORGONY,
+} from '@/lib/google-drive/types'
 
 function rovidNap(nap: string): string {
   const [, m, d] = nap.split('-')
@@ -100,6 +114,17 @@ function megjelenes(overview: BackupOverview): Megjelenes {
 
 /** A nap egyetlen, kimondott mondata — soha nem puszta szám. */
 function napMondat(cov: DailyCoverage, cimke: string): { szoveg: string; intent: StatusIntent } {
+  // ⚠️ 2026-08-11. A rendszer SZÜLETÉSE ELŐTTI napra ez a doboz „baj van"
+  //    címkét és „784 HIÁNYZIK" mondatot írt ki — olyan napról, amelyiken a
+  //    mentés-rendszer még nem is létezett. Ez ugyanaz a vakság, ami a felső
+  //    piros sávot is hajtotta; a javítás ezért EGY forrásból jön
+  //    (`DailyCoverage.letezett`, lásd `lib/backup/mentes-kora.ts`).
+  if (!cov.letezett) {
+    return {
+      szoveg: `${cimke}: ekkor a mentés-rendszer még nem működött — erre a napra nincs mit számonkérni.`,
+      intent: 'neutral',
+    }
+  }
   if (cov.varhato === 0) {
     return { szoveg: `${cimke}: nincs olyan gyülekezet, amire mentést várnánk.`, intent: 'neutral' }
   }
@@ -130,11 +155,17 @@ function PulzusCsik({ napok }: { napok: PulseDay[] }) {
         {napok.map((n) => {
           const teljes = n.varhato > 0 && n.igazolt === n.varhato
           const reszleges = n.igazolt > 0 && !teljes
-          const cim = teljes
-            ? `${huNap(n.nap)}: mind a(z) ${n.varhato} mentés igazolt`
-            : n.igazolt === 0
-              ? `${huNap(n.nap)}: NINCS igazolt mentés (${n.varhato} kellett volna)`
-              : `${huNap(n.nap)}: ${n.igazolt} igazolt a(z) ${n.varhato}-ból`
+          // ⚠️ 2026-08-11. A telepítés ELŐTTI napokra a csík 13 PIROS oszlopot
+          //    rajzolt „NINCS igazolt mentés (784 kellett volna)" felirattal —
+          //    kitalált múlt egy akkor még nem létező rendszerről. Semleges
+          //    szürke: „ekkor még nem volt mit menteni".
+          const cim = !n.letezett
+            ? `${huNap(n.nap)}: a mentés-rendszer ekkor még nem működött`
+            : teljes
+              ? `${huNap(n.nap)}: mind a(z) ${n.varhato} mentés igazolt`
+              : n.igazolt === 0
+                ? `${huNap(n.nap)}: NINCS igazolt mentés (${n.varhato} kellett volna)`
+                : `${huNap(n.nap)}: ${n.igazolt} igazolt a(z) ${n.varhato}-ból`
           return (
             <li key={n.nap} className="flex min-w-0 flex-1 flex-col items-center gap-1">
               {/* 44px-es érintőfelület: a 12px-es csík fölé láthatatlan sáv kerül. */}
@@ -146,12 +177,14 @@ function PulzusCsik({ napok }: { napok: PulseDay[] }) {
                 <span
                   aria-hidden
                   className={[
-                    'block h-3 w-full rounded-sm',
-                    teljes
-                      ? 'bg-emerald-500'
-                      : reszleges
-                        ? 'bg-amber-400'
-                        : 'bg-destructive/70',
+                    'block w-full rounded-sm',
+                    !n.letezett
+                      ? 'h-1.5 bg-muted-foreground/25'
+                      : teljes
+                        ? 'h-3 bg-emerald-500'
+                        : reszleges
+                          ? 'h-3 bg-amber-400'
+                          : 'h-3 bg-destructive/70',
                   ].join(' ')}
                 />
               </span>
@@ -166,15 +199,26 @@ function PulzusCsik({ napok }: { napok: PulseDay[] }) {
   )
 }
 
-export function BackupOverviewCard({ overview }: { overview: BackupOverview }) {
+export function BackupOverviewCard({
+  overview,
+  onValtozas,
+}: {
+  overview: BackupOverview
+  /** Az ismeretlen fájl törlése után az áttekintő újratöltése. */
+  onValtozas?: () => void
+}) {
   const m = megjelenes(overview)
   const tegnap = napMondat(overview.tegnap, `Tegnap (${huNap(overview.tegnap.nap)})`)
   const ma = napMondat(overview.ma, `Ma (${huNap(overview.ma.nap)})`)
+  const szuletes = overview.szuletes
 
   return (
     <section
+      id={MENTES_ALLAPOT_HORGONY}
+      // ⚠️ A HORGONY MIATT KELL A `scroll-mt-*`: a fejléc ragadós (sticky), enélkül
+      //    az ugrás pont a fejléc alá vinné a szakasz tetejét.
+      className={`scroll-mt-24 rounded-2xl border p-4 sm:p-5 ${m.keret} ${m.hatter}`}
       aria-label="A biztonsági mentés állapota"
-      className={`rounded-2xl border p-4 sm:p-5 ${m.keret} ${m.hatter}`}
     >
       <div className="flex items-start gap-3">
         <div className={`flex size-11 shrink-0 items-center justify-center rounded-2xl bg-background/60 ${m.szoveg}`}>
@@ -230,11 +274,14 @@ export function BackupOverviewCard({ overview }: { overview: BackupOverview }) {
         ))}
       </div>
 
-      {/* MEGNEVEZETT hiányzók — „37 sor törlődik" semmit nem jelent, a NÉV mindent. */}
+      {/* MEGNEVEZETT hiányzók — „37 sor törlődik" semmit nem jelent, a NÉV mindent.
+          ⚠️ 2026-08-11: a fejléc a TELJES darabszámot írja ki (`problemasOsszesen`),
+             nem a 20-nál csonkolt névlista hosszát. Korábban „(20)" állt itt 784
+             hiányzóra — a szám a saját csonkolását jelentette igazságnak. */}
       {overview.tegnap.problemasNevek.length > 0 && (
-        <details className="mt-3 rounded-xl border border-border bg-card px-3 py-2">
+        <details id={MENTES_HIANYZOK_HORGONY} className="mt-3 scroll-mt-24 rounded-xl border border-border bg-card px-3 py-2">
           <summary className="min-h-11 cursor-pointer list-none py-2 text-sm font-semibold text-foreground">
-            Melyik gyülekezetről nincs igazolt tegnapi mentés? ({overview.tegnap.problemasNevek.length})
+            Melyik gyülekezetről nincs igazolt tegnapi mentés? ({overview.tegnap.problemasOsszesen})
           </summary>
           <ul className="mt-1 grid grid-cols-1 gap-0.5 pb-2 text-xs text-muted-foreground sm:grid-cols-2">
             {overview.tegnap.problemasNevek.map((nev) => (
@@ -243,10 +290,44 @@ export function BackupOverviewCard({ overview }: { overview: BackupOverview }) {
               </li>
             ))}
           </ul>
+          {overview.tegnap.problemasOsszesen > overview.tegnap.problemasNevek.length && (
+            <p className="pb-2 text-xs text-muted-foreground">
+              …és még {overview.tegnap.problemasOsszesen - overview.tegnap.problemasNevek.length}. A
+              teljes lista a „Mentési előzmény" táblázatban, a „Csak ami nem igazolt" szűrővel
+              nézhető végig.
+            </p>
+          )}
         </details>
       )}
 
       <PulzusCsik napok={overview.pulzus} />
+
+      {/* MIÓTA MŰKÖDIK — enélkül a „tegnapot nem kérjük számon" varázslat lenne */}
+      {szuletes.telepitesNap && (
+        <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+          A napi mentés <strong className="text-foreground">{huNap(szuletes.telepitesNap)}</strong> óta
+          működik
+          {szuletes.forras === 'naplo'
+            ? ' (az első napló-sor dátuma)'
+            : szuletes.forras === 'drive-osszekotes'
+              ? ' (a Google Drive összekötésének napja)'
+              : szuletes.forras === 'mentesi-jelszo'
+                ? ' (a mentési jelszó beállításának napja)'
+                : ''}
+          . Az ennél korábbi napokat a rendszer nem kéri számon
+          {/* ⚠️ 2026-08-11 JAVÍTÁS — KÉT FELÜLET, KÉT DÁTUM UGYANARRA A SZABÁLYRA.
+              Itt korábban `elsoSzamonkertNap` állt, vagyis 2026-08-11-i telepítésnél
+              „2026. 08. 12.-tól". De 08-12-én a TEGNAP = 08-11 = a telepítés napja,
+              amit a `napEletkora` még 'bejaratas'-nak minősít — tehát NEM hiba. A
+              sáv ugyanerről helyesen „2026. 08. 13."-at mondott. Az
+              `elsoSzamonkertNap` a SZÁMONKÉRT nap, nem a számonkérés napja; a
+              kettőt a `MentesSzuletes.elsoSzigoruSavNap` választja szét, és MOST
+              MINDKÉT FELÜLET UGYANAZT A MEZŐT írja ki. */}
+          {szuletes.elsoSzigoruSavNap
+            ? `; ${huNap(szuletes.elsoSzigoruSavNap)}-tól viszont minden hiányzó előző nap hibának számít.`
+            : '.'}
+        </p>
+      )}
 
       {/*
         ⚠️ HOVA MEGY VALÓJÁBAN A MENTÉS.
@@ -317,6 +398,16 @@ export function BackupOverviewCard({ overview }: { overview: BackupOverview }) {
             </>
           )}
         </p>
+      )}
+
+      {/* AZ ISMERETLEN FÁJLOK NÉVVEL — és egy út, amin a tulajdonos tehet velük valamit */}
+      {overview.egyeztetes.futott && (overview.egyeztetes.ismeretlenFajlok?.length ?? 0) > 0 && (
+        <BackupUnknownFiles
+          fajlok={overview.egyeztetes.ismeretlenFajlok ?? []}
+          osszesen={overview.egyeztetes.ismeretlen}
+          master={overview.master}
+          onValtozas={onValtozas}
+        />
       )}
     </section>
   )

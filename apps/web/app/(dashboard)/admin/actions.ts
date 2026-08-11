@@ -132,8 +132,16 @@ export async function getAdminOverview() {
   // Gyülekezetenkénti aktív tagszám az RPC-ből (egy GROUP BY). Ha az RPC még
   // nincs létrehozva (az SQL nem futott le), üres marad → a KPI-k és az oldal
   // gyorsan betöltenek, a részletes bontás tagszáma ideiglenesen 0.
+  //
+  // ⚠️ 2026-08-12: a „sikerült-e" tényt MOST VISSZAADJUK (`memberCountsAvailable`).
+  //    Eddig a hiba némán 0 tagszámmá vált minden egyházmegyénél — a felület
+  //    ezt „nincs tag"-ként mutatta. A néma nulla rosszabb a semminél: az új
+  //    ÁTTEKINTÉS ebből LÁTHATÓ hiba-állapotot csinál („A bontás most nem
+  //    elérhető"), nem nullát.
   const memberCountByCong = new Map<string, number>()
-  if (!('error' in memberCountsRes && memberCountsRes.error) && Array.isArray(memberCountsRes.data)) {
+  const memberCountsAvailable =
+    !('error' in memberCountsRes && memberCountsRes.error) && Array.isArray(memberCountsRes.data)
+  if (memberCountsAvailable) {
     for (const row of memberCountsRes.data as Array<{ congregation_id: string; member_count: number }>) {
       if (row.congregation_id) memberCountByCong.set(row.congregation_id, Number(row.member_count) || 0)
     }
@@ -161,6 +169,11 @@ export async function getAdminOverview() {
     .sort((a, b) => b.members - a.members)
     .slice(0, 10)
 
+  // 2026-08-12: „árva" gyülekezet = nincs egyházmegyéje. INGYENES: a listát
+  // úgyis betöltöttük. Ezek NÉMÁN kimaradnak minden egyházmegyei összesítőből
+  // — a szám nem hibás, csak hiányos, és eddig semmi nem jelezte.
+  const orphanCongregations = congs.filter((c) => !c.diocese_id).length
+
   return {
     kpis: {
       congregations: congCount || 0,
@@ -169,6 +182,8 @@ export async function getAdminOverview() {
       pendingUsers: pendingUserCount || 0,
       pendingTickets: pendingTicketCount || 0,
     },
+    orphanCongregations,
+    memberCountsAvailable,
     dioceseStats,
     top10,
   }

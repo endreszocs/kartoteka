@@ -249,6 +249,22 @@ export function NewsletterComposeDialog({
         `Hírlevél elküldve: ${result.markedSent} frissítés, ${result.recipientCount} címzett${sendEmail ? ' · e-mail is ment' : ''}.`,
         { duration: 6000 },
       )
+      // ⚠️ 2026-08-12: a levél kiment, de a rendszer nem tudta MINDET
+      //    kiküldöttnek jelölni. Ezt eddig NÉMÁN elnyeltük, ezért azok a
+      //    bejegyzések örökre „Még nincs kiküldve"-n maradtak — pontosan a
+      //    bejelentett tünet. Most kimondjuk, és megmondjuk a kiutat is.
+      if (result.markFailed) {
+        toast.error(
+          `${result.markFailed} frissítést a levél kiküldése UTÁN nem sikerült elintézettnek jelölni, ezért továbbra is „kiküldésre vár”-ként fog látszani. NE küldd ki újra — használd rajtuk a „Kiküldöttnek jelölöm” gombot.`,
+          { duration: 15000 },
+        )
+      }
+      if (result.emailStatusError) {
+        toast.error(
+          `A levél kiment, de az e-mail-státusz visszaírása nem sikerült: ${result.emailStatusError}`,
+          { duration: 12000 },
+        )
+      }
       onOpenChange(false)
       if (onSent) await onSent()
     })

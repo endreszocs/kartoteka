@@ -262,6 +262,16 @@ export interface BackupStorageObject {
   fileId: string
   fileName: string
   bytes: number
+  /**
+   * A tároló szerinti KELETKEZÉS (ISO). `null`/hiányzik = a tároló nem adta meg.
+   *
+   * ⚠️ 2026-08-11: az „ismeretlen fájl" jelzés miatt került be. A tulajdonos
+   * annyit látott a felületen, hogy „1 ISMERETLEN fájl van a mappában" — se
+   * nevet, se időpontot, tehát semmit, amiből eldönthette volna, mi az. Az
+   * `uploadFile` és a `statFile` NEM köteles kitölteni: a `listFiles`-ban van
+   * jelentősége (ott derül ki, mikor árvult el a fájl).
+   */
+  letrehozva?: string | null
 }
 
 /**

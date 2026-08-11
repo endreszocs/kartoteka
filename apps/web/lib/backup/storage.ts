@@ -241,6 +241,8 @@ export async function createSupabaseStorage(): Promise<BackupStorage> {
             fileId: `${folder}/${f.name}`,
             fileName: f.name,
             bytes: typeof size === 'number' ? size : 0,
+            // 2026-08-11: az „ismeretlen fájl" jelzésnek MIKOR-ra is szüksége van.
+            letrehozva: (f as { created_at?: string | null }).created_at ?? null,
           })
         }
         // CSAK az ÜRES lap a biztos stop — a rövid lap még nem a lista vége.

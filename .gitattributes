@@ -1,0 +1,30 @@
+# ═══════════════════════════════════════════════════════════════════════════
+#  SORVÉGEK — 2026-08-12
+#
+#  MIÉRT LÉTEZIK EZ A FÁJL
+#  A `core.autocrlf=true` (Windows alapértelmezés) a munkapéldányban CRLF-re
+#  alakítja a szövegfájlokat. A JavaScript reguláris kifejezésekben a `$` —
+#  a Perl/Python szokással ELLENTÉTBEN — NEM illeszkedik a sorvégi `\r` elé:
+#
+#        /-->$/.test('-->\r')   →   false
+#
+#  Ezen bukott el a CHANGELOG-elemző: a `<!-- key: … -->` sorok SOHA nem
+#  parse-olódtak Windowson, ezért a kulcs a CÍMBŐL generálódott. Egy localhostról
+#  indított kiküldés így cím-alapú kulcsot írt az ÉLES adatbázisba, amit az éles
+#  (LF-es) futás soha nem talált meg — a frissítés örökre „nincs kiküldve" maradt.
+#
+#  A `text eol=lf` mindkét oldalon LF-et garantál, tehát a fejlesztői gép és az
+#  éles szerver UGYANAZT a fájlt látja. Ez nem stílus-kérdés: némán széthúzó
+#  adatot okozott.
+# ═══════════════════════════════════════════════════════════════════════════
+
+*.md    text eol=lf
+*.sql   text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.json  text eol=lf
+*.css   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf

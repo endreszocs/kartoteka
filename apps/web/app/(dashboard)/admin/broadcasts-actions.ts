@@ -16,6 +16,7 @@
  */
 
 import { revalidatePath } from 'next/cache'
+import { selectAllPaged } from '@kartoteka/supabase-client'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import {
   getScopedActiveUserIds,
@@ -25,6 +26,13 @@ import {
 import { resolveBroadcastRecipients } from '@/lib/broadcasts/recipients'
 import { sendBroadcastEmail } from '@/lib/broadcasts/email'
 import { parseChangelog } from '@/lib/broadcasts/changelog-parser'
+import { loadChangelogJelolesek } from '@/lib/broadcasts/jelolesek'
+import {
+  elemzoJavitasHoztaFelszinre,
+  rendez,
+  torzsTulNagy,
+  torzsMeretFelirat,
+} from '@/lib/broadcasts/changelog-status'
 import { BROADCAST_TIPUS_LABELS, NEWSLETTER_READ_CUTOFF } from '@/lib/broadcasts/types'
 import type {
   BroadcastComposeInput,
@@ -40,6 +48,44 @@ import type { BroadcastEmailPreview } from '@/components/admin/broadcasts/email-
 
 function canManage(access: Awaited<ReturnType<typeof getEffectiveAccessContext>>): boolean {
   return !!access.admin || !!access.master || !!access.egyhazkeruletiAdmin
+}
+
+/**
+ * Biztonsági szelep a kiküldési státusz beolvasásához (2026-08-12).
+ *
+ * ⚠️ MIÉRT NEM `.limit(...)`. A `.limit()` NEM véd a néma csonkolás ellen: a
+ * PostgREST `max-rows` plafonja (a projektben 1000 — lásd
+ * `apps/web/lib/offline/pull.ts` PULL_PAGE_SIZE) MINDIG erősebb nála. Egy
+ * `.limit(5000)` mellett a szerver csendben 1000 sort ad, tehát egy
+ * „beolvastunk-e 5000-et?" típusú őr SOHA nem tud elsülni — az `order sent_at
+ * desc` miatt pedig épp a LEGRÉGEBBI kiküldések esnek le, és pont azok a
+ * bejegyzések billennek vissza „Még nincs kiküldve"-be, amik miatt ez az egész
+ * javítás készült.
+ *
+ * MOST: a kanonikus `selectAllPaged` lapoz végig a TELJES állományon (üres lap
+ * a stop-feltétel), ez a szám pedig már valódi szelep: fölötte a helper HANGOS
+ * hibát ad, nem néma féllistát. 50 000 sor sok éves kiküldést fed (ma ~285
+ * kiküldhető bejegyzés van, hírlevelenként +1 jelölő sorral).
+ */
+const BROADCAST_STATUS_MAX_ROWS = 50_000
+
+/**
+ * Egy `system_broadcasts` sor a kiküldési státusz-párosításhoz.
+ *
+ * (Nem exportált típus — a `'use server'` fájl CSAK async függvényt exportálhat,
+ * lásd Next.js 16.)
+ */
+type ChangelogBroadcastRow = {
+  /** A `selectAllPaged` lapozás-dedupjához kell — a párosítás nem használja. */
+  id: string
+  release_changelog_key: string | null
+  sent_at: string
+  recipient_count: number
+  target_scope: BroadcastTargetScope
+  target_role: BroadcastTargetRole | null
+  send_email: boolean
+  email_sent_at: string | null
+  email_error: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -173,6 +219,11 @@ export async function sendNewsletter(args: NewsletterInput): Promise<{
   error?: string
   recipientCount?: number
   markedSent?: number
+  /** Hány bejegyzést NEM sikerült kiküldöttnek jelölni (a levél már kiment). */
+  markFailed?: number
+  markFailedKeys?: string[]
+  /** Az e-mail-státusz visszaírásának hibája (a levél már kiment). */
+  emailStatusError?: string
 }> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
@@ -182,17 +233,41 @@ export async function sendNewsletter(args: NewsletterInput): Promise<{
     return { error: 'Legalább egy frissítést válassz ki a hírlevélhez.' }
   }
 
+  let emailStatusError: string | null = null
+
   const allEntries = await parseChangelog()
   const selected = allEntries.filter((e) => args.changelogKeys.includes(e.key))
   if (selected.length === 0) {
     return { error: 'A kiválasztott kulcsokra nem találtunk CHANGELOG bejegyzést.' }
   }
 
-  // Ellenőrizzük, melyik már van kiküldve
-  const { data: already } = await access.supabase
+  // ⚠️ MÉRET-ŐR. A régi elemző hibája miatt egyetlen bejegyzés törzse
+  // 141 794 karakteresre hízott (58 kiadást nyelt el). Az elemző javítva van,
+  // de az őr marad: ekkora levél SOHA ne menjen ki ~495 gyülekezetnek némán.
+  const tulNagy = selected.filter(torzsTulNagy)
+  if (tulNagy.length > 0) {
+    const lista = tulNagy
+      .map((e) => `„${e.title}" (${torzsMeretFelirat(e)})`)
+      .join(', ')
+    return {
+      error: `MEGÁLLTAM — a kiválasztott bejegyzés(ek) törzse szokatlanul nagy: ${lista}. Ekkora levél olvashatatlan, és a levelezők levágják. Nézd meg a fejlesztési naplóban, nem csúszott-e össze több bejegyzés.`,
+    }
+  }
+
+  // Ellenőrizzük, melyik már van kiküldve.
+  // ⚠️ 2026-08-12: a hiba itt is elveszett. Egy elbukott lekérdezés ÜRES
+  //    halmazt adott, amiből az következett volna, hogy „még semmi nem ment
+  //    ki" — és a hírlevél NÉMÁN újraküldte volna a már kiküldött tételeket
+  //    ~495 gyülekezetnek. Inkább álljunk meg.
+  const { data: already, error: alreadyErr } = await access.supabase
     .from('system_broadcasts')
     .select('release_changelog_key')
     .in('release_changelog_key', args.changelogKeys)
+  if (alreadyErr) {
+    return {
+      error: `MEGÁLLTAM — nem tudtam ellenőrizni, mi ment már ki (${alreadyErr.message}). Enélkül a hírlevél duplán mehetne ki, amit nem lehet visszavonni.`,
+    }
+  }
   const alreadyKeys = new Set(
     ((already || []) as { release_changelog_key: string | null }[])
       .map((s) => s.release_changelog_key)
@@ -232,12 +307,18 @@ export async function sendNewsletter(args: NewsletterInput): Promise<{
   if ('error' in mainResult && mainResult.error) return { error: mainResult.error }
 
   // 2) A többi kulcsot marker-ként rögzítjük, hogy ne lehessen újraküldeni
+  //
+  // ⚠️ 2026-08-12: a beszúrás eredményét EDDIG SENKI NEM NÉZTE MEG. Ha elbukott,
+  //    a levél már kiment, de a bejegyzések örökre „Még nincs kiküldve"-n
+  //    maradtak — a felhasználó közben „Hírlevél elküldve" toastot látott.
+  //    Most számoljuk, és a hívó megkapja (`markFailed` + `markFailedKeys`).
   const userId = access.user.id
   const others = sorted.slice(1)
+  const markFailedKeys: string[] = []
   for (const e of others) {
     // Újraküldésnél a már rögzített marker-eket nem duplikáljuk.
     if (args.force && alreadyKeys.has(e.key)) continue
-    await access.supabase.from('system_broadcasts').insert({
+    const { error: markErr } = await access.supabase.from('system_broadcasts').insert({
       cim: `(Hírlevél része) ${e.title}`,
       uzenet: e.bodyMarkdown.slice(0, 500),
       tipus: 'release',
@@ -254,6 +335,10 @@ export async function sendNewsletter(args: NewsletterInput): Promise<{
       release_category: e.category,
       release_changelog_key: e.key,
     })
+    if (markErr) {
+      console.error('[sendNewsletter] marker-sor beszúrása sikertelen:', e.key, markErr.message)
+      markFailedKeys.push(e.key)
+    }
   }
 
   // 3) Email küldés (szép HTML template)
@@ -311,7 +396,9 @@ export async function sendNewsletter(args: NewsletterInput): Promise<{
       emailError = err instanceof Error ? err.message : 'ismeretlen email hiba'
     }
 
-    await access.supabase
+    // ⚠️ 2026-08-12: az eredmény EDDIG szintén elveszett. Ha ez elbukik, a
+    //    levél kiment, de a felület sosem mutatja az e-mail-státuszt.
+    const { error: statusErr } = await access.supabase
       .from('system_broadcasts')
       .update({
         send_email: true,
@@ -319,13 +406,20 @@ export async function sendNewsletter(args: NewsletterInput): Promise<{
         email_error: emailError,
       })
       .in('release_changelog_key', toSend.map((e) => e.key))
+    if (statusErr) {
+      console.error('[sendNewsletter] e-mail-státusz visszaírása sikertelen:', statusErr.message)
+      emailStatusError = statusErr.message
+    }
   }
 
   revalidatePath('/admin')
   return {
     success: true,
     recipientCount: mainResult.recipientCount || 0,
-    markedSent: toSend.length,
+    markedSent: toSend.length - markFailedKeys.length,
+    markFailed: markFailedKeys.length || undefined,
+    markFailedKeys: markFailedKeys.length ? markFailedKeys : undefined,
+    emailStatusError: emailStatusError ?? undefined,
   }
 }
 
@@ -409,16 +503,28 @@ export async function sendChangelogBroadcast(args: {
   const entry = entries.find((e) => e.key === args.changelogKey)
   if (!entry) return { error: 'A CHANGELOG bejegyzés nem található.' }
 
+  // ⚠️ MÉRET-ŐR — lásd a sendNewsletter-nél írt indoklást.
+  if (torzsTulNagy(entry)) {
+    return {
+      error: `MEGÁLLTAM — ennek a bejegyzésnek a törzse szokatlanul nagy (${torzsMeretFelirat(entry)}). Ekkora értesítés és e-mail olvashatatlan. Nézd meg a fejlesztési naplóban, nem csúszott-e össze több bejegyzés.`,
+    }
+  }
+
   // Már elküldve? Ha igen ÉS nincs force flag, akkor blokkolunk.
   // Force=true esetén egy új broadcast row jön létre — a régi marad archívumként.
   let isResend = false
-  const { data: existing } = await access.supabase
+  const { data: existing, error: existingErr } = await access.supabase
     .from('system_broadcasts')
     .select('id')
     .eq('release_changelog_key', args.changelogKey)
     .order('sent_at', { ascending: false })
     .limit(1)
     .maybeSingle()
+  if (existingErr) {
+    return {
+      error: `MEGÁLLTAM — nem tudtam ellenőrizni, kiment-e már ez a frissítés (${existingErr.message}). Enélkül duplán mehetne ki, amit nem lehet visszavonni.`,
+    }
+  }
   if (existing) {
     if (!args.force) {
       return { error: 'Ez a bejegyzés már ki lett broadcast-olva. Az "Újraküldés" gombbal újra kiküldhető.' }
@@ -464,7 +570,41 @@ export async function listBroadcasts(): Promise<{ data?: BroadcastRow[]; error?:
   return { data: (data || []) as BroadcastRow[] }
 }
 
-export async function listChangelogEntries(): Promise<{ data?: ChangelogEntry[]; error?: string }> {
+/**
+ * ⚠️ 2026-08-12 — MIÉRT VÁLTOZOTT MEG EZ A FÜGGVÉNY.
+ *
+ * Endre jelzése: „a FRISSÍTÉSEKNÉL azokat is mutatja hogy nem volt kikuldve
+ * amik mar voltak kikuldve!". A régi kód HÁROM módon tudott hazudni:
+ *
+ *  (1) A státusz-lekérdezés hibája NÉMÁN ELVESZETT (`const { data: sent } = …`,
+ *      az `error` sehol nem volt kiolvasva). Ha a lekérdezés bármiért elbukott
+ *      — RLS, hálózat, sor-plafon —, MINDEN bejegyzés „Még nincs kiküldve"-t
+ *      mutatott, és a felület egyetlen jelet sem adott róla. MOST: a hiba
+ *      visszajön, és a BroadcastsTab meglévő hiba-panelje kiírja.
+ *
+ *  (2) A szűrő 342 kulcsot fűzött egy `.in()`-be → 15,5 kB-os kérés-sor,
+ *      LAPOZÁS NÉLKÜL. A hossz a mérés szerint még átment, de a plafon minden
+ *      új bejegyzéssel közeledett, a lapozás hiánya pedig a PostgREST
+ *      sor-plafonjának tette ki a lekérdezést (`order sent_at desc` mellett a
+ *      LEGRÉGEBBI sorok esnek le → a régi frissítések billennek vissza
+ *      „nincs kiküldve"-be). MOST: nincs `.in()`, a beolvasás a kanonikus
+ *      `selectAllPaged`-en megy (üres lap a stop-feltétel), és a párosítás
+ *      JS-ben, `Map`-pel.
+ *      ⚠️ Egy `.limit(5000)` ERRE NEM MEGOLDÁS: a szerver `max-rows` plafonja
+ *      (1000) mindig erősebb nála, tehát a „beolvastunk-e 5000-et?" őr sosem
+ *      sülhet el — pontosan az a némaság maradna benne, ami ellen íródott.
+ *
+ *  (3) A kézi jelölés hiányzott: ha egy bejegyzés bizonyíthatóan kiment, de a
+ *      kulcs nem került vissza a DB-be, az EGYETLEN „megoldás" a valódi
+ *      újraküldés volt — ~495 gyülekezetnek, visszavonhatatlanul. MOST a
+ *      `changelog_jelolesek` tábla adja a kézi kiutat.
+ */
+export async function listChangelogEntries(): Promise<{
+  data?: ChangelogEntry[]
+  error?: string
+  /** true = a 2026-08-12-changelog-jelolesek.sql még nem futott le élesben. */
+  jelolesekNeedsSql?: boolean
+}> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!canManage(access)) return { error: 'Nincs jogosultsága.' }
@@ -476,25 +616,38 @@ export async function listChangelogEntries(): Promise<{ data?: ChangelogEntry[];
   // FIX 2026-05-04: a UNIQUE constraint drop-olva — ugyanazon kulcsra most már
   // több row is lehet (re-send miatt). ORDER BY sent_at DESC + Map-set csak
   // az ELSŐ találatra → mindig a legfrissebb broadcast jelenik meg.
-  const { data: sent } = await access.supabase
-    .from('system_broadcasts')
-    .select('release_changelog_key, sent_at, recipient_count, target_scope, target_role, send_email, email_sent_at, email_error')
-    .in('release_changelog_key', entries.map((e) => e.key))
-    .order('sent_at', { ascending: false })
+  const [sentRes, jelolesRes] = await Promise.all([
+    // ⚠️ selectAllPaged, NEM `.limit()` — lásd a BROADCAST_STATUS_MAX_ROWS
+    // magyarázatát. A `sent_at desc` a MI rendezésünk, az `id` növekvő pedig a
+    // helper döntetlen-bontása: enélkül a lapok között csúszhatna a sorrend.
+    // Az `id`-t azért is kérjük le, hogy a helper dedupálni tudjon.
+    selectAllPaged<ChangelogBroadcastRow>(
+      access.supabase
+        .from('system_broadcasts')
+        .select(
+          'id, release_changelog_key, sent_at, recipient_count, target_scope, target_role, send_email, email_sent_at, email_error',
+        )
+        .not('release_changelog_key', 'is', null)
+        .order('sent_at', { ascending: false }),
+      { maxRows: BROADCAST_STATUS_MAX_ROWS },
+    ),
+    loadChangelogJelolesek(access.supabase),
+  ])
 
-  type ChangelogBroadcastRow = {
-    release_changelog_key: string | null
-    sent_at: string
-    recipient_count: number
-    target_scope: BroadcastTargetScope
-    target_role: BroadcastTargetRole | null
-    send_email: boolean
-    email_sent_at: string | null
-    email_error: string | null
+  const { data: sent, error: sentErr } = sentRes
+  // A `truncated` NEM lekérdezési hiba: annyi sor van, hogy a szelep megállított
+  // minket. A státusz-kép ilyenkor is hiányos, tehát ugyanúgy nem hallgathatunk
+  // róla — de a listát kiadjuk, hogy a felület ne álljon meg teljesen.
+  if (sentErr && !sentRes.truncated) {
+    // ⚠️ EZ A LEGFONTOSABB SOR AZ EGÉSZ FÁJLBAN. A felület soha többé ne
+    //    állítsa csendben, hogy semmi nem ment ki.
+    return {
+      error: `A kiküldési állapot betöltése nem sikerült, ezért a „kiküldve / nincs kiküldve" jelzés MOST NEM MEGBÍZHATÓ: ${sentErr.message}`,
+    }
   }
 
   const sentByKey = new Map<string, ChangelogBroadcastRow>()
-  for (const row of (sent || []) as ChangelogBroadcastRow[]) {
+  for (const row of sent) {
     if (!row.release_changelog_key) continue
     if (!sentByKey.has(row.release_changelog_key)) {
       // Csak az első (legfrissebb sent_at szerint) maradjon — re-send esetén
@@ -505,14 +658,23 @@ export async function listChangelogEntries(): Promise<{ data?: ChangelogEntry[];
 
   // Legfrissebb dátum felül — Endre visszajelzés 2026-04-18
   // (Az azonos dátumú bejegyzések közül az utoljára beszúrt kerül elsőre)
-  const withSent = entries.map((e) => {
+  const withSent: ChangelogEntry[] = entries.map((e) => {
     const status = sentByKey.get(e.key)
+    const jeloles = jelolesRes.jelolesek.get(e.key) ?? null
+    const elintezve = !!status || !!jeloles?.kikuldottnekJelolveAt
     return {
       ...e,
       alreadySent: !!status,
-      // A küszöb előtti, még ki nem küldött bejegyzések "olvasott/archivált"
-      // állapotúak — nem kerülnek a hírlevélbe / "kiküldésre vár" listába.
-      readMarked: !status && e.date < NEWSLETTER_READ_CUTOFF,
+      jeloles,
+      // KÉT ok archiválhat egy még el nem intézett bejegyzést:
+      //  · a küszöb előtti („olvasottnak" tekintjük — Endre kérése 2026-06-05),
+      //  · az elemző-javítás hozta felszínre (2026-08-12): a törzse korábban egy
+      //    másik bejegyzésbe olvadt, külön bejegyzésként nem is létezett, tehát
+      //    saját kiküldése sem lehetett. Enélkül 63 régi tétel ugrana be egyszerre
+      //    a „kiküldésre vár" listába — lásd elemzoJavitasHoztaFelszinre().
+      // Egyik sem archivál olyat, ami TÉNYLEG kiment vagy kézzel jelölve van.
+      readMarked:
+        !elintezve && (e.date < NEWSLETTER_READ_CUTOFF || elemzoJavitasHoztaFelszinre(e)),
       broadcastStatus: status
         ? {
             sentAt: status.sent_at,
@@ -526,15 +688,31 @@ export async function listChangelogEntries(): Promise<{ data?: ChangelogEntry[];
         : null,
     }
   })
-  withSent.sort((a, b) => {
-    if (a.date !== b.date) return b.date.localeCompare(a.date)
-    // Azonos dátumnál a CHANGELOG sorrendjét megtartjuk fordítva:
-    // a legfelül írottak (amelyek valószínűleg frissebb részek) felülre
-    return 0
-  })
+
+  // A csonkolás NEM maradhat néma: ha a szelep állította meg a lapozást, a
+  // legrégebbi kiküldések lemaradtak, és pont azok billennének vissza „nincs
+  // kiküldve"-be. Inkább mondjuk ki, hogy a kép hiányos lehet.
+  //
+  // ⚠️ A jelző a helper `truncated` mezője, NEM egy sorszám-összehasonlítás. A
+  // korábbi `(sent||[]).length >= 5000` őr SOHA nem tudott elsülni, mert a
+  // PostgREST 1000 sornál úgyis elvágta a választ — épp az a némaság maradt
+  // benne, ami ellen íródott.
+  const figyelmeztetesek = [
+    sentRes.truncated
+      ? `A kiküldési előzmény meghaladta a ${BROADCAST_STATUS_MAX_ROWS} sort, ezért a beolvasást megszakítottuk — a legrégebbi frissítések állapota emiatt hiányos lehet.`
+      : null,
+    jelolesRes.error,
+  ].filter((x): x is string => !!x)
 
   return {
-    data: withSent,
+    // Rendezés: KIEMELT elöl, azon belül a legfrissebb felül. Egyetlen helyen
+    // dől el (lib/broadcasts/changelog-status.ts), hogy a felület, a hírlevél
+    // és az admin ÁTTEKINTÉS csempéje ne tudjon széthúzni.
+    data: rendez(withSent),
+    // A jelölés-tábla hibája NEM viszi el a listát, de nem is tűnik el:
+    // vagy „még nem futott le az SQL", vagy kiírjuk a hibát.
+    jelolesekNeedsSql: jelolesRes.needsSql || undefined,
+    error: figyelmeztetesek.length > 0 ? figyelmeztetesek.join(' · ') : undefined,
   }
 }
 

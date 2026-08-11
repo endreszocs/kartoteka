@@ -18,6 +18,12 @@ export type {
   RetentionConfig,
 } from '@/lib/google-drive/types'
 
+// A mentés-rendszer kora (telepítés napja + a bejáratás lejárata). A kliens-
+// oldali kártyák is kiírják, ezért innen is elérhető. ⚠️ A modul TISZTA
+// (nulla futásidejű import), tehát a böngészőbe is bekerülhet.
+export type { MentesSzuletes, NapEletkor, SzuletesForras } from '@/lib/backup/mentes-kora'
+export { huNap, napEletkora, napEltol } from '@/lib/backup/mentes-kora'
+
 /** A lista szűrője. */
 export interface BackupListFilter {
   /** Csak ehhez a gyülekezethez. `null` = mind (a hatókörön belül). */

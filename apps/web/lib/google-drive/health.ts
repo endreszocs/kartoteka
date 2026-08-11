@@ -24,6 +24,15 @@ import 'server-only'
 import { selectAllPaged } from '@kartoteka/supabase-client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import {
+  ISMERETLEN_SZULETES,
+  napEletkora,
+  napEltol,
+  huNap,
+  savDontes,
+  szuletesbol,
+  type MentesSzuletes,
+} from '@/lib/backup/mentes-kora'
 import { bukarestiNapKulcs, huIdopontBukarest } from '@/lib/utils/idopont-bukarest'
 
 import { isMissingTableError } from './settings'
@@ -45,20 +54,11 @@ export function bukarestiNap(date: Date = new Date()): string {
   return bukarestiNapKulcs(date)
 }
 
-/** Naptári eltolás YYYY-MM-DD alakon (DST-független, mert nincs benne óra). */
-export function napEltol(nap: string, napokkal: number): string {
-  const [y, m, d] = nap.split('-').map((s) => Number(s))
-  const t = Date.UTC(y, (m ?? 1) - 1, d ?? 1) + napokkal * 86_400_000
-  const dt = new Date(t)
-  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0')
-  const dd = String(dt.getUTCDate()).padStart(2, '0')
-  return `${dt.getUTCFullYear()}-${mm}-${dd}`
-}
-
-export function huNap(nap: string): string {
-  const [y, m, d] = nap.split('-')
-  return `${y}. ${m}. ${d}.`
-}
+// ⚠️ A `napEltol` és a `huNap` 2026-08-11 óta a `lib/backup/mentes-kora.ts`-ben
+//    lakik, mert a SÁV-DÖNTÉS is használja, azt pedig tiszta, önállóan
+//    fordítható (és így tesztelhető) modulban kellett tartani. A régi
+//    hívási helyek kedvéért innen is elérhetők — DE MÁSOLAT NINCS BELŐLÜK.
+export { napEltol, huNap }
 
 /**
  * ⚠️ 2026-08-11 JAVÍTÁS — EZ A FÜGGVÉNY A SZERVER ZÓNÁJÁT HASZNÁLTA.
@@ -267,10 +267,87 @@ export async function computeBackupHealth(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// A RENDSZER SZÜLETÉSNAPJA — a napló és a beállítások legkorábbi nyoma
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * MIKOR LÉTEZETT ELŐSZÖR A MENTÉS-RENDSZER.
+ *
+ * ⚠️ SZÁNDÉKOSAN HATÓKÖR NÉLKÜL kérdezzük le a napló legkorábbi sorát: a
+ * kérdés a RENDSZERRŐL szól, nem egy gyülekezetről. A hatókörre szűkített
+ * minimum KÉSŐBBI dátumot adna, vagyis HOSSZABB bejáratást és KEVESEBB riadót —
+ * ez a rossz irány. A globális minimum a legkorábbi, tehát a legszigorúbb.
+ *
+ * A döntési szabályt (miért a legkorábbi nyom nyer, mikor jár le a bejáratás)
+ * a `lib/backup/mentes-kora.ts` fejléce írja le.
+ */
+export async function loadMentesSzuletes(supabase: SupabaseClient): Promise<MentesSzuletes> {
+  let elsoNaploNap: string | null = null
+  let driveOsszekotveNap: string | null = null
+  let jelszoBeallitvaNap: string | null = null
+  // ⚠️ 2026-08-11 JAVÍTÁS — A BEJÁRATÁSI ABLAK NEM NYÍLHAT KI ÚJRA.
+  //
+  // Itt korábban `if (!error)` állt egy ÜRES `catch {}`-csel: a napló-lekérdezés
+  // hibája NÉMÁN „nincs nyom"-má vált, és a születés a KÉT FELÜLÍRHATÓ
+  // időbélyegre (`drive_connected_at`, `passphrase_set_at`) esett vissza.
+  // Konkrét út: a Drive-token lejár, a tulajdonos hónapokkal később
+  // újracsatlakoztat (a `drive_connected_at` FELÜLÍRÓDIK), és ugyanabban a
+  // percben a `backup_log` min-lekérdezés hibázik → a rendszer „ma telepítettük"
+  // állapotba kerül, a sáv pedig azt mondja a tegnapi napra, hogy „nincs mit
+  // számonkérni" — pont akkor, amikor a mentés esetleg tényleg áll.
+  // MOSTANTÓL: a napló-hiba NYOM-BIZONYTALANSÁG (`naploOlvashato: false`), abból
+  // pedig teljes szigor lesz, nem elnézés.
+  let naploOlvashato = true
+
+  try {
+    const { data, error } = await supabase
+      .from('backup_log')
+      .select('run_date')
+      .order('run_date', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    if (error) {
+      // A tábla hiánya NEM olvasási hiba: olyankor a rendszer nincs telepítve,
+      // és a `needsSql` ág mondja ki — a bejáratást ez nem befolyásolhatja.
+      if (!isMissingTableError(error)) {
+        naploOlvashato = false
+        console.error('[mentes-kora] a napló legkorábbi sora nem olvasható:', error.message)
+      }
+    } else {
+      const nap = (data as { run_date?: string } | null)?.run_date
+      if (typeof nap === 'string' && nap.length >= 10) elsoNaploNap = nap.slice(0, 10)
+    }
+  } catch (e: unknown) {
+    naploOlvashato = false
+    console.error(
+      '[mentes-kora] a napló legkorábbi sorának lekérdezése kivételt dobott:',
+      e instanceof Error ? e.message : e,
+    )
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('backup_settings')
+      .select('drive_connected_at, passphrase_set_at')
+      .eq('id', 1)
+      .maybeSingle()
+    if (!error && data) {
+      const sor = data as { drive_connected_at?: string | null; passphrase_set_at?: string | null }
+      if (sor.drive_connected_at) driveOsszekotveNap = bukarestiNap(new Date(sor.drive_connected_at))
+      if (sor.passphrase_set_at) jelszoBeallitvaNap = bukarestiNap(new Date(sor.passphrase_set_at))
+    }
+  } catch {
+    // lásd fent
+  }
+
+  return szuletesbol({ elsoNaploNap, driveOsszekotveNap, jelszoBeallitvaNap, naploOlvashato })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // „Tegnap valódi volt-e a mentés?"
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ureCoverage(nap: string, varhato: number): DailyCoverage {
+function ureCoverage(nap: string, varhato: number, letezett = true): DailyCoverage {
   return {
     nap,
     varhato,
@@ -279,6 +356,8 @@ function ureCoverage(nap: string, varhato: number): DailyCoverage {
     befejezetlen: 0,
     hianyzik: varhato,
     problemasNevek: [],
+    problemasOsszesen: varhato,
+    letezett,
   }
 }
 
@@ -286,13 +365,24 @@ function ureCoverage(nap: string, varhato: number): DailyCoverage {
  * A nap lefedettsége hatókörönként. Az EGYSÉG a GYÜLEKEZET: nincs egyetlen
  * óriási országos fájl, tehát a válasz sem lehet „az országos mentés talán jó".
  * Vagy „42 IGAZOLT és 18 HIÁNYZIK, névvel" — vagy semmi.
+ *
+ * ⚠️ 2026-08-11: a `szuletes` paraméter NEM opcionális kényelmi extra. Enélkül
+ * a függvény a TELEPÍTÉS ELŐTTI napokra is 784 hiányzót jelentene — pontosan ez
+ * festett 13 piros oszlopot a pulzus-csíkra egy olyan rendszer „múltjáról",
+ * ami akkor még nem létezett.
  */
 export function osszesitNap(
   nap: string,
   congregations: CongregationRow[],
   rows: LogSlice[],
   globalisIsVarhato: boolean,
+  szuletes: MentesSzuletes = ISMERETLEN_SZULETES,
 ): DailyCoverage {
+  // A rendszer SZÜLETÉSE ELŐTTI nap: nincs elvárás, tehát nincs hiány sem.
+  if (napEletkora(nap, szuletes) === 'elotte') {
+    return { ...ureCoverage(nap, 0, false), hianyzik: 0, problemasOsszesen: 0 }
+  }
+
   const napiSorok = rows.filter((r) => r.run_date === nap)
   const byCong = new Map<string, LogSlice>()
   let globalis: LogSlice | null = null
@@ -347,6 +437,10 @@ export function osszesitNap(
     }
   }
 
+  // ⚠️ A TELJES szám a `problemasOsszesen`-be megy, a NÉVLISTA pedig 20-nál
+  //    csonkolódik. A kettőt korábban ugyanaz a tömb-hossz képviselte, ezért a
+  //    felület „(20)"-at írt ki 784 hiányzóra.
+  coverage.problemasOsszesen = problemas.length
   coverage.problemasNevek = problemas.slice(0, 20)
   return coverage
 }
@@ -357,6 +451,8 @@ export interface CoverageReport {
   tegnap: DailyCoverage
   ma: DailyCoverage
   pulzus: PulseDay[]
+  /** Mikor született a rendszer — a felület ezt is kiírja. */
+  szuletes: MentesSzuletes
 }
 
 /** 14 napos pulzus + a tegnapi/mai lefedettség — EGY lekérdezésből. */
@@ -369,6 +465,9 @@ export async function computeCoverage(
   const tegnap = napEltol(ma, -1)
   const tol = napEltol(ma, -13)
 
+  // A rendszer kora ELŐBB kell, mint bármelyik nap kiértékelése.
+  const szuletes = await loadMentesSzuletes(supabase)
+
   let congregations: CongregationRow[] = []
   try {
     congregations = await loadScopedCongregations(supabase, scope)
@@ -379,32 +478,42 @@ export async function computeCoverage(
       tegnap: ureCoverage(tegnap, 0),
       ma: ureCoverage(ma, 0),
       pulzus: [],
+      szuletes,
     }
   }
 
+  const varhato = congregations.length + (globalisIsVarhato ? 1 : 0)
   const slice = await loadLogSlice(supabase, scope, tol, ma)
   if (slice.needsSql) {
     return {
       needsSql: true,
-      tegnap: ureCoverage(tegnap, congregations.length + (globalisIsVarhato ? 1 : 0)),
-      ma: ureCoverage(ma, congregations.length + (globalisIsVarhato ? 1 : 0)),
+      tegnap: ureCoverage(tegnap, varhato),
+      ma: ureCoverage(ma, varhato),
       pulzus: [],
+      szuletes,
     }
   }
 
   const pulzus: PulseDay[] = []
   for (let i = 13; i >= 0; i -= 1) {
     const nap = napEltol(ma, -i)
-    const cov = osszesitNap(nap, congregations, slice.rows, globalisIsVarhato)
-    pulzus.push({ nap, igazolt: cov.igazolt, hibas: cov.hibas + cov.befejezetlen, varhato: cov.varhato })
+    const cov = osszesitNap(nap, congregations, slice.rows, globalisIsVarhato, szuletes)
+    pulzus.push({
+      nap,
+      igazolt: cov.igazolt,
+      hibas: cov.hibas + cov.befejezetlen,
+      varhato: cov.varhato,
+      letezett: cov.letezett,
+    })
   }
 
   return {
     needsSql: false,
     error: slice.error,
-    tegnap: osszesitNap(tegnap, congregations, slice.rows, globalisIsVarhato),
-    ma: osszesitNap(ma, congregations, slice.rows, globalisIsVarhato),
+    tegnap: osszesitNap(tegnap, congregations, slice.rows, globalisIsVarhato, szuletes),
+    ma: osszesitNap(ma, congregations, slice.rows, globalisIsVarhato, szuletes),
     pulzus,
+    szuletes,
   }
 }
 
@@ -414,6 +523,19 @@ export async function computeCoverage(
 
 /**
  * A sáv állapota.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * ⚠️ 2026-08-11 (2. javítás) — A SÁV NEM KÉR SZÁMON NEM LÉTEZŐ MÚLTAT
+ * ════════════════════════════════════════════════════════════════════════════
+ * A mentés 2026-08-11-én futott végig ELŐSZÖR (784/784, 22:16), a lap tetején
+ * mégis piros vész állt: „TEGNAP (2026. 08. 10.) 784 hatókörnek NEM készült…".
+ * Tegnap a rendszer még nem létezett.
+ *
+ * A döntés MOSTANTÓL EGYETLEN, TISZTA FÜGGVÉNYBEN lakik:
+ * `lib/backup/mentes-kora.ts` → `savDontes()`. Ugyanabból a `MentesSzuletes`
+ * adatból dolgozik a MOTOR is (`worker.ts` „tegnapi ellenőrzés"), tehát a felső
+ * sáv és a futás-riport NEM tud széthúzni — korábban két külön lekérdezésből
+ * két külön mondatot mondtak ugyanarról.
  *
  * ════════════════════════════════════════════════════════════════════════════
  * ⚠️ 2026-08-11 JAVÍTÁS — MIÉRT NEM ELÉG A `max(finished_at)`
@@ -442,30 +564,50 @@ export async function computeBannerHealth(
   const lefedettseg = await computeCoverage(supabase, scope, globalisIsVarhato)
   if (lefedettseg.needsSql) return { health: alap.health, needsSql: true }
 
-  const tegnap = lefedettseg.tegnap
-  const bajos = tegnap.hianyzik + tegnap.hibas + tegnap.befejezetlen
+  // A teljes döntés EGY tiszta függvényben — se elágazás, se másolat itt.
+  return { needsSql: false, health: savAllapot(alap.health, lefedettseg) }
+}
 
-  // Ha tegnap MINDEN hatókör igazolt volt, a sáv nyugodt lehet — de az
-  // időbélyeg-alapú „elavult/kritikus" jelzést NEM írjuk felül: ha az utolsó
-  // igazolt mentés mégis régi, az továbbra is baj.
-  if (bajos === 0 || tegnap.varhato === 0) return { health: alap.health, needsSql: false }
-
-  const nevek = tegnap.problemasNevek.slice(0, 5).join(', ')
-  const tobb = tegnap.problemasNevek.length > 5 ? ` és még ${tegnap.problemasNevek.length - 5}` : ''
-
-  return {
-    needsSql: false,
-    health: {
-      ...alap.health,
-      // A hiány MÉRTÉKE dönt: ha minden hatókör kimaradt, az nem „elavult",
-      // hanem a mentés-rendszer leállása.
-      allapot: bajos >= tegnap.varhato ? 'kritikus' : 'elavult',
+/**
+ * A LEFEDETTSÉG + AZ IDŐBÉLYEG → EGYETLEN ÁLLAPOT.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * ⚠️ 2026-08-11 (3. javítás) — A SÁV NÉMÁN VISSZAESETT A RÉGI, ELÉGTELEN
+ *    ELLENŐRZÉSRE
+ * ════════════════════════════════════════════════════════════════════════════
+ * A `loadScopedCongregations` SZÁNDÉKOSAN dob, ha a gyülekezet-lista nem
+ * olvasható („néma nulla helyett hangos hiba") — a `computeCoverage` viszont
+ * elkapja, és `varhato: 0`-t ad vissza egy `error` mezővel. Ezt az `error`-t
+ * korábban SENKI nem nézte meg: a `savDontes` 3. lépése (`tegnap.varhato === 0`)
+ * az `alap`-ot adta vissza, vagyis pontosan azt a puszta `max(finished_at)`
+ * logikát, amiről a fenti fejléc kimondja, hogy ELÉGTELEN. Amíg a lekérdezés
+ * hibázott és volt bárhol 48 óránál frissebb igazolt sor, a lefedettség-alapú
+ * őrszem TELJESEN NÉMA volt — jelzés nélkül.
+ *
+ * MOSTANTÓL a hiba LÁTHATÓ állapot: nem „minden rendben", hanem „most nem
+ * ellenőrizhető". A „nem tudom" soha nem lehet zöld.
+ *
+ * ⚠️ Az `alap` erősebb kimondásait (nincs telepítve / SOHA nem volt igazolt
+ *    mentés) ez sem írja felül — azok pontosabbak ennél.
+ */
+export function savAllapot(alap: BackupHealth, lefedettseg: CoverageReport): BackupHealth {
+  if (lefedettseg.error) {
+    if (alap.allapot === 'sql_hianyzik' || alap.allapot === 'nincs_mentes') return alap
+    return {
+      ...alap,
+      allapot: 'elavult',
       mondat:
-        `TEGNAP (${huNap(tegnap.nap)}) ${bajos} hatókörnek NEM készült ellenőrzött mentése ` +
-        `(${tegnap.igazolt}/${tegnap.varhato} kész)` +
-        (nevek ? `: ${nevek}${tobb}.` : '.'),
-    },
+        'A mentés LEFEDETTSÉGE MOST NEM ELLENŐRIZHETŐ, ezért nem tudjuk igazolni, hogy tegnap ' +
+        `minden gyülekezetnek készült-e mentése. A hiba: ${lefedettseg.error} ` +
+        `(Amit tudunk: ${alap.mondat})`,
+    }
   }
+  return savDontes({
+    alap,
+    tegnap: lefedettseg.tegnap,
+    ma: lefedettseg.ma,
+    szuletes: lefedettseg.szuletes,
+  })
 }
 
 // A figyelmeztető sáv adatát a

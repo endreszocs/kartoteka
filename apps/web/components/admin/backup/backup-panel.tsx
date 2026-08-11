@@ -93,9 +93,17 @@ interface Props {
   /** A Google-visszatérés kódja (`?google=ok|hiba` + `?ok=<kód>`). */
   googleAllapot?: 'ok' | 'hiba' | null
   googleKod?: string | null
+  /**
+   * A harang-értesítésből érkező `?mentes-hiba=<nap>-<scope>-<id>` felbontva.
+   *
+   * ⚠️ 2026-08-11-ig ez a paraméter ÜRES ÍGÉRET volt: az értesítés „Megnyitás"
+   * gombja ide hozott, az oldal viszont EL SEM OLVASTA. A tulajdonos annyit
+   * látott, hogy semmi nem történik.
+   */
+  mentesHiba?: { runDate: string; scope: 'gyulekezet' | 'globalis'; congregationId: string | null } | null
 }
 
-export function BackupPanel({ googleAllapot, googleKod }: Props) {
+export function BackupPanel({ googleAllapot, googleKod, mentesHiba }: Props) {
   const [overview, setOverview] = useState<BackupOverview | null>(null)
   const [rows, setRows] = useState<BackupLogRow[]>([])
   const [gyulekezetek, setGyulekezetek] = useState<Array<{ id: string; nev: string }>>([])
@@ -118,9 +126,36 @@ export function BackupPanel({ googleAllapot, googleKod }: Props) {
   /** Az előző `fut` érték — ebből vesszük észre, hogy a futás MOST fejeződött be. */
   const elozoFutRef = useRef(false)
 
-  const [szuroCong, setSzuroCong] = useState<string>('')
+  /**
+   * A szűrő KEZDŐÉRTÉKE az értesítés hivatkozásából jön: aki a harangból érkezik,
+   * azonnal az ÉRINTETT gyülekezet sorait lássa, ne a 784 hatókör listáját.
+   */
+  const [szuroCong, setSzuroCong] = useState<string>(mentesHiba?.congregationId ?? '')
   const [csakHibas, setCsakHibas] = useState(false)
   const [reszlet, setReszlet] = useState<BackupLogRow | null>(null)
+
+  /**
+   * MEGOLDÓDOTT-E AZ A HIBA, AMIRŐL AZ ÉRTESÍTÉS SZÓLT?
+   *
+   * ⚠️ A VÁLASZ SOHA NEM AZ ÉRTESÍTÉS SZÖVEGÉBŐL JÖN. Az attól a pillanattól
+   *    fogva elavult, hogy megírtuk — a tulajdonos 2026-08-11-én pont ezt látta:
+   *    21:09-es hibaüzenet egy olyan gyülekezetről, amelyik 22:16-kor elkészült.
+   *    A forrás a NAPLÓ: van-e erre a napra és hatókörre `igazolt` sor.
+   *
+   * `null` = még töltjük a listát, tehát NEM állítunk semmit.
+   */
+  const hibaMegoldva = useMemo<boolean | null>(() => {
+    if (!mentesHiba) return null
+    if (listaBetolt) return null
+    return rows.some(
+      (r) =>
+        r.runDate === mentesHiba.runDate &&
+        r.scope === mentesHiba.scope &&
+        (mentesHiba.congregationId === null || r.congregationId === mentesHiba.congregationId) &&
+        r.status === 'ok' &&
+        r.driveVerifiedAt !== null,
+    )
+  }, [mentesHiba, listaBetolt, rows])
 
   const googleUzenet = useMemo(() => {
     if (!googleAllapot) return null
@@ -424,7 +459,50 @@ export function BackupPanel({ googleAllapot, googleKod }: Props) {
         </div>
       ) : null}
 
-      {overview ? <BackupOverviewCard overview={overview} /> : null}
+      {/* ══════════════════════════════════════════════════════════════════════
+          A HARANGBÓL ÉRKEZŐ ÚT VÉGE (2026-08-11)
+          ══════════════════════════════════════════════════════════════════════
+          Az értesítés „Megnyitás" gombja idáig hozza a lelkészt. Ez a doboz
+          mondja ki, MIÉRT van itt, és mi lett a sorsa annak a hibának — a
+          válasz a MAI lefedettségből jön, nem az értesítés szövegéből (az
+          ugyanis attól a pillanattól fogva elavult, hogy megírtuk). */}
+      {mentesHiba ? (
+        <div
+          role="status"
+          className={[
+            'rounded-2xl border p-3 text-sm leading-relaxed sm:p-4',
+            hibaMegoldva === true
+              ? 'border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200'
+              : hibaMegoldva === false
+                ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-100'
+                : 'border-border bg-muted/50 text-muted-foreground',
+          ].join(' ')}
+        >
+          {hibaMegoldva === null ? (
+            <>Betöltöm annak a futásnak az állapotát, amiről az értesítés szólt…</>
+          ) : hibaMegoldva ? (
+            <>
+              <strong>Ez a hiba azóta elmúlt.</strong> Az értesítés a(z) {mentesHiba.runDate} napi
+              futásról szólt; erre a hatókörre azóta elkészült az ellenőrzött mentés (feltöltve,
+              visszaolvasva, ellenőrző összeg egyezett). Nincs teendőd — az alábbi lista a hatókör
+              teljes előzményét mutatja.
+            </>
+          ) : (
+            <>
+              <strong>Ide a hiba-értesítésből érkeztél.</strong> Az érintett futás:{' '}
+              {mentesHiba.runDate},{' '}
+              {mentesHiba.scope === 'globalis'
+                ? 'rendszerszintű (globális) mentés'
+                : 'egy gyülekezet mentése'}
+              . Az alábbi lista már erre a hatókörre van szűrve, és erről a napról{' '}
+              <strong>még mindig nincs igazolt mentés</strong>. Nyomd meg a „Mentés most" gombot —
+              a folytatás a ma már kész hatóköröket kihagyja.
+            </>
+          )}
+        </div>
+      ) : null}
+
+      {overview ? <BackupOverviewCard overview={overview} onValtozas={frissit} /> : null}
 
       {/* Vezérlő gombsor */}
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">

@@ -482,8 +482,30 @@ export async function reconcileDrive(options: {
         hianyzoMedia.add(row.media_drive_file_id)
       }
     }
-    let ismeretlen = 0
-    for (const id of taroltIdk) if (!varhatoIdk.has(id)) ismeretlen += 1
+    // ── ISMERETLEN FÁJLOK: NÉVVEL, MÉRETTEL, KELETKEZÉSSEL ──────────────────
+    //
+    // ⚠️ 2026-08-11. Itt korábban csak SZÁMLÁLÁS volt (`ismeretlen++`), és a
+    //    felület ennyit mondott: „Ezen felül 1 ISMERETLEN fájl van a mappában".
+    //    A tulajdonos ebből nem tudhatta, MI az és MIKOR keletkezett — a nevek
+    //    pedig LÉTEZTEK, csak a nyesés oldalán (`pruneOldBackups`), ahonnan a
+    //    szerver-akció el is dobta őket. Egy néma emlegetés ugyanolyan rossz,
+    //    mint az automatikus törlés: cselekvésképtelenné tesz.
+    //
+    // ⛔ A LISTÁZÁS NEM TÖRLÉS. A retention.ts 2. szabálya változatlan: amit a
+    //    rendszer nem tud besorolni, azt SOHA nem törli magától — csak jelenti.
+    const ismeretlenFajlok: DriveReconciliation['ismeretlenFajlok'] = []
+    for (const f of tarolt) {
+      if (varhatoIdk.has(f.fileId)) continue
+      if (ismeretlenFajlok.length < 50) {
+        ismeretlenFajlok.push({
+          fileId: f.fileId,
+          fileName: f.fileName,
+          bytes: f.bytes,
+          letrehozva: f.letrehozva ?? null,
+        })
+      }
+    }
+    const ismeretlen = tarolt.reduce((n, f) => (varhatoIdk.has(f.fileId) ? n : n + 1), 0)
 
     return {
       futott: true,
@@ -493,9 +515,121 @@ export async function reconcileDrive(options: {
       hianyzoMedia: hianyzoMedia.size,
       masTaroloban: masTaroloban.size,
       ismeretlen,
+      ismeretlenFajlok,
       hiba: null,
     }
   } catch (e: unknown) {
     return { ...ures, hiba: e instanceof Error ? e.message : 'Ismeretlen hiba az egyeztetés közben.' }
+  }
+}
+
+/**
+ * EGY, NÉVVEL MEGJELÖLT ISMERETLEN FÁJL VÉGLEGES TÖRLÉSE — KÉZZEL KÉRVE.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * ⛔ AZ AUTOMATIKUS TÖRLÉS TOVÁBBRA IS TILOS
+ * ════════════════════════════════════════════════════════════════════════════
+ * A fájl fejlécének 2. szabálya változatlan: amit a rendszer nem tud besorolni,
+ * azt SOHA nem törli MAGÁTÓL. Ez a függvény nem ezt a szabályt lazítja, hanem
+ * a másik hibát javítja: az „1 ismeretlen fájl van a mappában" mondat eddig
+ * SEHOVÁ nem vezetett — nem volt egyetlen út sem, amin a tulajdonos
+ * megnevezhette és eltávolíthatta volna. A néma emlegetés is rossz.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * HÁROM ZÁR, MIELŐTT BÁRMIT TÖRLÜNK
+ * ════════════════════════════════════════════════════════════════════════════
+ *  1) A HÍVÓ megerősíti a fájl NEVÉT (a szerver-akció kéri be, ez ellenőrzi).
+ *  2) A fájlnak TÉNYLEG a tárolóban kell lennie, ezzel a névvel — ha a lista és
+ *     a kérés széthúz, MEGÁLLUNK.
+ *  3) ⚠️ A LEGFONTOSABB: friss `backup_log`-lekérdezéssel újra bizonyítjuk, hogy
+ *     a fájlra EGYETLEN napló-sor sem hivatkozik (sem `drive_file_id`, sem
+ *     `media_drive_file_id`). A felületen látott lista pillanatképe elavulhatott
+ *     — egy időközben feltöltött mentés fájlját törölni néma adatvesztés lenne.
+ */
+export async function deleteUnknownStorageFile(input: {
+  fileId: string
+  /** A felhasználó által BEGÉPELT név. Egyeznie kell a tárolóban lévővel. */
+  megerositoNev: string
+}): Promise<{ success: boolean; error?: string; uzenet?: string }> {
+  const fileId = (input.fileId ?? '').trim()
+  const megerosito = (input.megerositoNev ?? '').trim()
+  if (!fileId) return { success: false, error: 'Nincs megadva fájl.' }
+  if (!megerosito) {
+    return { success: false, error: 'A törléshez be kell gépelni a fájl nevét.' }
+  }
+
+  let tarolo
+  try {
+    tarolo = await resolveBackupStorage()
+  } catch (e: unknown) {
+    return {
+      success: false,
+      error: `A mentés-tároló nem érhető el: ${e instanceof Error ? e.message : 'ismeretlen hiba'}`,
+    }
+  }
+
+  // ── 2. ZÁR: ott van-e, ezzel a névvel? ──────────────────────────────────
+  let tarolt
+  try {
+    tarolt = await tarolo.listFiles()
+  } catch (e: unknown) {
+    return {
+      success: false,
+      error: `A mentési mappa nem listázható: ${e instanceof Error ? e.message : 'ismeretlen hiba'}`,
+    }
+  }
+  const fajl = tarolt.find((f) => f.fileId === fileId)
+  if (!fajl) {
+    return {
+      success: false,
+      error: 'Ez a fájl már nincs a mappában. Frissítsd az oldalt — lehet, hogy közben eltűnt.',
+    }
+  }
+  if (fajl.fileName !== megerosito) {
+    return {
+      success: false,
+      error: `A begépelt név nem egyezik. A fájl neve: „${fajl.fileName}".`,
+    }
+  }
+
+  // ── 3. ZÁR: FRISS bizonyíték arra, hogy tényleg ismeretlen ──────────────
+  const supabase = getSupabaseAdminClient()
+  const paged = await selectAllPaged<{ drive_file_id: string | null; media_drive_file_id: string | null }>(
+    supabase.from('backup_log').select('drive_file_id, media_drive_file_id'),
+    { maxRows: PRUNE_MAX_ROWS },
+  )
+  if (paged.error) {
+    // ⚠️ FAIL-CLOSED. Ha a naplót nem tudjuk végigolvasni, NEM törlünk: a nem
+    //    látott sorok hivatkozásait nem tudnánk megvédeni.
+    return {
+      success: false,
+      error:
+        'A mentési napló most nem olvasható végig, ezért NEM törlünk semmit. ' +
+        `Ok: ${paged.error.message}`,
+    }
+  }
+  for (const sor of paged.data) {
+    if (sor.drive_file_id === fileId || sor.media_drive_file_id === fileId) {
+      return {
+        success: false,
+        error:
+          'Ez a fájl MÉGSEM ismeretlen: a mentési napló egy sora hivatkozik rá. ' +
+          'Nem töröltük. Frissítsd az oldalt.',
+      }
+    }
+  }
+
+  try {
+    await tarolo.deleteFilePermanently(fileId)
+  } catch (e: unknown) {
+    return {
+      success: false,
+      error: `A törlés nem sikerült: ${e instanceof Error ? e.message : 'ismeretlen hiba'}`,
+    }
+  }
+
+  return {
+    success: true,
+    uzenet: `Véglegesen törölve: „${fajl.fileName}". A mentési napló egyetlen sorát sem érintette.`,
   }
 }

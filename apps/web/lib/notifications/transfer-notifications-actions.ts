@@ -32,6 +32,7 @@ import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { buildAtadasValaszlevelHtml } from '@/lib/iktato/atadas-valaszlevel'
 import { getCongregationOfficials } from '@/lib/profiles/officials'
 import { createClient } from '@/lib/supabase/server'
+import { huDatumBukarest } from '@/lib/utils/idopont-bukarest'
 
 // ─── Típusok ─────────────────────────────────────────────────────────────
 
@@ -341,7 +342,16 @@ export async function respondToTransferNotification(input: {
         }`,
         tipus: result.data.status === 'accepted' ? 'info' : 'warning',
         user_id: null,
-        hivatkozas: `/notifications/sent#${result.data.notification_id}`,
+        // ⚠️ 2026-08-11 JAVÍTÁS: itt korábban `/notifications/sent#…` állt —
+        //    ILYEN ÚTVONAL NINCS (a `notifications` mappában csak `page.tsx` és
+        //    `actions.ts` van), tehát a „Megnyitás" gomb 404-re vitt volna.
+        //    Az „Elküldött" szekció a `/notifications` oldal átjelentkezés-fülén
+        //    van, horgonyként a kérelem azonosítójával.
+        // ⚠️ BEVALLOTT KORLÁT: a `user_id: null` miatt ez a sor EGYETLEN harangban
+        //    sem jelenik meg (a lekérdezés `user_id`-ra szűr) — a forrás-
+        //    gyülekezet lelkészét más úton (átjelentkezés-fül) éri el a hír.
+        //    Ezt külön szeletben kell rendezni: címzett-feloldás kell hozzá.
+        hivatkozas: `/notifications#${result.data.notification_id}`,
       }])
     } catch {
       // Best effort: az RPC sikerét egy másodlagos értesítési hiba nem írhatja felül.
@@ -453,7 +463,13 @@ export async function respondToTransferNotification(input: {
             szemelyNev: memberName,
             eredetiIratszam,
             valaszIratszam: valaszIratszam || '—',
-            kelt: new Date().toLocaleDateString('hu-HU', { year: 'numeric', month: 'long', day: 'numeric' }),
+            // ⚠️ 2026-08-11 JAVÍTÁS — AZ IRAT KELTE A SZERVER (UTC) ZÓNÁJÁBAN
+            //    KÉSZÜLT. Itt `timeZone` NÉLKÜLI `toLocaleDateString` állt: a
+            //    Railway-konténer UTC-ben jár, tehát bukaresti 00:00 és
+            //    02:00/03:00 között az ALÁÍRT, IKTATOTT válaszlevélen az ELŐZŐ
+            //    NAP dátuma szerepelt. Egy irat kelte jogi tartalom, nem
+            //    megjelenítési részlet.
+            kelt: huDatumBukarest(new Date()),
             lelkipasztor: access.fullName || '',
           })
           const rows = Array.from(recipientIds).map((rid) => ({

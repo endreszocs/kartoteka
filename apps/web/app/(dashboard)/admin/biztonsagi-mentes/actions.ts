@@ -23,6 +23,8 @@ import { requireAdminAccess } from '@/lib/auth/admin-access'
 import { getScopedCongregationIds } from '@/lib/auth/admin-scope'
 import { resolveMegjelenitesiHatokor } from '@/lib/auth/display-scope'
 import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
+import { feloldMegoldottMentesRiasztasok } from '@/lib/backup/alerts'
+import { ISMERETLEN_SZULETES } from '@/lib/backup/mentes-kora'
 import { sendDriveFailureAlert } from '@/lib/google-drive/alerts'
 import {
   JELSZO_MIN_HOSSZ,
@@ -36,8 +38,9 @@ import {
   computeCoverage,
   loadScopedCongregations,
   congregationNev,
+  savAllapot,
 } from '@/lib/google-drive/health'
-import { pruneOldBackups, reconcileDrive } from '@/lib/google-drive/retention'
+import { deleteUnknownStorageFile, pruneOldBackups, reconcileDrive } from '@/lib/google-drive/retention'
 import {
   clearDriveConnection,
   isMissingTableError,
@@ -107,6 +110,31 @@ export async function getBackupOverviewAction(): Promise<BackupOverview> {
     computeCoverage(supabase, { congregationIds }, globalisIsVarhato),
   ])
 
+  // ⚠️ 2026-08-11 JAVÍTÁS — A SÁV ÉS A HORGONY, AHOVÁ MUTAT, EGYMÁSNAK
+  //    ELLENTMONDOTT. A felső figyelmeztető sáv a `computeBannerHealth` →
+  //    `savDontes` eredményét mutatja (lefedettség-alapú), az áttekintő KÁRTYA
+  //    fejléce viszont a NYERS `computeBackupHealth`-t (egyetlen
+  //    `max(finished_at)`). A tegnap 0/784 → ma reggel részlegesen pótolt
+  //    helyzetben a sáv PIROS vészt írt („TEGNAP 784 hatókörnek NEM készült…"),
+  //    a tulajdonos rákattintott a „A részletek lentebb" gombra, a lap odagörgetett
+  //    a `#mentes-allapot` horgonyra — és egy ZÖLD kártyát talált „Ellenőrzött
+  //    mentés van" jelvénnyel. Ugyanaz a hibaosztály, mint a harang címe/törzse,
+  //    csak egy szinttel feljebb.
+  //    MOSTANTÓL EGY FORRÁS: a kártya fejléce is a sáv-döntésből színez és
+  //    mondatoz. A nyers időbélyeg NEM veszett el — a `savAllapot` szétteríti az
+  //    `alap` mezőit, tehát a fejléc alatti „Utolsó ellenőrzött mentés: …" sor
+  //    változatlanul a valódi `utolsoIgazoltAt`-ból jön.
+  const savHealth = savAllapot(egeszseg.health, lefedettseg)
+
+  // ── „AZÓTA RENDBEN" SEPRÉS (2026-08-11) ──────────────────────────────────
+  // A beragadt mentés-hiba harangokat feloldjuk, ha a naplóban azóta született
+  // igazolt mentés arra a napra és hatókörre. Azért ITT, mert a felület
+  // megnyitása az egyetlen biztos pillanat, amikor valaki tényleg odanéz —
+  // és mert a 2026-08-11-i üzenetet SEMMILYEN jövőbeli futás nem érintené
+  // (annak már másnapi lenne a `run_date`-je).
+  // SOHA NEM BORÍTJA AZ OLDALT: a függvény maga sem dob, de a `catch` marad.
+  await feloldMegoldottMentesRiasztasok().catch(() => undefined)
+
   // ⚠️ A TÉNYLEGES TÁROLÓ NEVE, nem a Drive-token megléte. A felület korábban
   //    „Google Drive összekötve"-t mutatott, miközben minden fájl ugyanabba a
   //    Supabase-fiókba ment, ahol az adatbázis is van.
@@ -128,10 +156,11 @@ export async function getBackupOverviewAction(): Promise<BackupOverview> {
   return {
     needsSql,
     error: settings.error ?? egeszseg.error ?? lefedettseg.error,
-    health: egeszseg.health,
+    health: savHealth,
     tegnap: lefedettseg.tegnap,
     ma: lefedettseg.ma,
     pulzus: lefedettseg.pulzus,
+    szuletes: lefedettseg.szuletes,
     drive: settings.view?.drive ?? {
       osszekotve: false,
       fiokEmail: null,
@@ -153,6 +182,23 @@ export async function getBackupOverviewAction(): Promise<BackupOverview> {
   }
 }
 
+/**
+ * Az „nem tudjuk" nap. ⚠️ `letezett: true` — a hiány oka itt NEM az, hogy a
+ * rendszer nem létezett, hanem hogy a lekérdezés elbukott. A kettőt nem szabad
+ * összemosni: a „nem létezett" elnémítja a riadót, ez viszont nem némíthat el.
+ */
+const URES_NAP = {
+  nap: '',
+  varhato: 0,
+  igazolt: 0,
+  hibas: 0,
+  befejezetlen: 0,
+  hianyzik: 0,
+  problemasNevek: [] as string[],
+  problemasOsszesen: 0,
+  letezett: true,
+}
+
 function ureAttekinto(error: string): BackupOverview {
   return {
     error,
@@ -163,9 +209,10 @@ function ureAttekinto(error: string): BackupOverview {
       driveHiba: null,
       mondat: 'Az állapot nem állapítható meg.',
     },
-    tegnap: { nap: '', varhato: 0, igazolt: 0, hibas: 0, befejezetlen: 0, hianyzik: 0, problemasNevek: [] },
-    ma: { nap: '', varhato: 0, igazolt: 0, hibas: 0, befejezetlen: 0, hianyzik: 0, problemasNevek: [] },
+    tegnap: URES_NAP,
+    ma: URES_NAP,
     pulzus: [],
+    szuletes: ISMERETLEN_SZULETES,
     drive: {
       osszekotve: false,
       fiokEmail: null,
@@ -638,6 +685,33 @@ export async function pruneBackupsAction(szarazFutas: boolean): Promise<Egyszeru
   )
   if (!szarazFutas && eredmeny.megjegyzes) reszek.push(eredmeny.megjegyzes)
   return { success: true, uzenet: reszek.join(' ') }
+}
+
+/**
+ * EGY ISMERETLEN FÁJL VÉGLEGES TÖRLÉSE — a tulajdonos kézzel, névvel kéri.
+ *
+ * ⛔ Az AUTOMATIKUS törlés továbbra is TILOS (lásd `retention.ts` fejléc, 2. sz.
+ *    szabály). Ez az út azért létezik, mert az „1 ismeretlen fájl van a
+ *    mappában" mondat eddig SEHOVÁ nem vezetett: a tulajdonos nem tudta
+ *    megnevezni és nem tudta eltávolítani. A tényleges törlés három záron megy
+ *    át (név-egyezés, tárolóbeli létezés, FRISS napló-bizonyíték) — a
+ *    `deleteUnknownStorageFile` végzi.
+ *
+ * Kizárólag MASTER: a Drive-fiók és a tároló az övé.
+ */
+export async function deleteUnknownBackupFileAction(
+  fileId: string,
+  megerositoNev: string,
+): Promise<EgyszeruEredmeny> {
+  try {
+    await requireAdminAccess({ requireMaster: true })
+  } catch (e: unknown) {
+    return { success: false, error: hibaUzenet(e, 'Nincs jogosultság.') }
+  }
+
+  const eredmeny = await deleteUnknownStorageFile({ fileId, megerositoNev })
+  if (eredmeny.success) revalidatePath(FELULET_UT)
+  return eredmeny
 }
 
 export async function reconcileDriveAction(): Promise<EgyszeruEredmeny> {
@@ -1219,11 +1293,16 @@ export async function sendAlertTestAction(): Promise<RiasztasTesztEredmeny> {
     return { success: false, error: hibaUzenet(e, 'Nincs jogosultság.') }
   }
 
+  // ⚠️ 2026-08-11: itt korábban `kind: 'elavult'` állt, ezért a PRÓBA is
+  //    „Régen készült ellenőrzött biztonsági mentés" címmel érkezett — vagyis
+  //    maga a próba hazudott arról, hogy mi történt. Saját kulcs, saját cím.
   const eredmeny = await sendDriveFailureAlert({
-    kind: 'elavult',
+    kind: 'proba',
+    tipus: 'info',
     reszlet:
       'PRÓBA-ÉRTESÍTÉS — ezt te magad kérted a mentés-felületről. Nem történt hiba. ' +
       'Ha ezt a levelet megkaptad és a harangban is látod, a riasztási csatornák működnek.',
+    teendo: 'nincs teendőd — ez csak egy próba',
     dedupKulcs: `${FELULET_UT}?riasztas-proba=${Date.now()}`,
   })
 
