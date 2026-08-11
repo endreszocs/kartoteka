@@ -4,8 +4,15 @@
  * BudgetPrintDialogBody — Költségvetés / számadás nyomtatási központ
  * (Sprint Q F1, v0.7.5, 2026-04-25).
  *
- * 3 nyomtatványtípus: költségvetés (terv), számadás (tény vs terv), részszámadás
- * (időszak-szűrővel). Élő iframe-előnézet, PDF mentés + direkt nyomtatás.
+ * 3 nyomtatványtípus: költségvetés (terv), költségvetés-módosítás, számadás
+ * (tény vs terv). Élő iframe-előnézet, PDF mentés + direkt nyomtatás.
+ *
+ * 2026-08-11 (6. kör): a RÉSZSZÁMADÁS INNEN KIKERÜLT, és a „Pénzügyi nyomtatási
+ * központba" (FinancePrintDialog) költözött. Ebből a dialógusból hiányzott
+ * minden bemenet, amiből a részszámadás helyes számot tudna adni: nincs
+ * év-scope-olt tétel-betöltés (a props a MEGNYITÓ OLDAL évét hozza), nincs
+ * SZÁMLÁNKÉNTI feloldott nyitó, és a `deleted` sem volt szűrve. Mindegyik
+ * hiány külön hamis-szám generátor volt egy aláírható papíron.
  *
  * ─── Platform-függetlenség (web + Tauri desktop + jövőbeli iOS) ───
  *
@@ -38,8 +45,6 @@ export interface BudgetPrintCompatRow {
 export interface BudgetPrintFilters {
   printType: BudgetPrintType
   selectedYear: number
-  periodFrom: string | null
-  periodTo: string | null
   budgetRows: Record<string, BudgetPrintCompatRow>
   actualIncome: Record<string, number>
   actualExpense: Record<string, number>
@@ -59,12 +64,15 @@ export interface BudgetPrintDialogBodyProps {
   accountingFinalized?: boolean
 
   /** Tényleges bevétel/kiadás aggregálás callback-en — a wrapper a webes
-   *  income/expense rekordokon számol. */
-  computeActuals: (
-    printType: BudgetPrintType,
-    periodFrom: string | null,
-    periodTo: string | null,
-  ) => { actualIncome: Record<string, number>; actualExpense: Record<string, number> }
+   *  income/expense rekordokon számol.
+   *  2026-08-11 (6. kör): a `printType` / `periodFrom` / `periodTo` paraméterek
+   *  ELTŰNTEK — kizárólag a részszámadás időszak-szűréséhez kellettek, az pedig
+   *  átkerült a Pénzügyi nyomtatási központba. Itt minden típus a TELJES év
+   *  tényadatával dolgozik. */
+  computeActuals: () => {
+    actualIncome: Record<string, number>
+    actualExpense: Record<string, number>
+  }
 
   /** Költségvetési sorok lazy-load — a wrapper a Supabase klienssel hívja a
    *  `loadBudgetRowsCompat`-ot. */
@@ -95,6 +103,29 @@ export interface BudgetPrintDialogBodyProps {
   open: boolean
 }
 
+/** 2026-08-11 (6. kör, P0 #4): hiba-előnézet év-keveredés esetén. */
+function yearMismatchPreview(year: number): PrintReport {
+  return {
+    title: `Számadás ${year}`,
+    filename: `Szamadas_${year}.pdf`,
+    orientation: 'portrait',
+    blocked: true,
+    html: `<!doctype html><html lang="hu"><head><meta charset="utf-8"><style>
+      body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;padding:32px;color:#111;background:#fff}
+      .box{max-width:620px;margin:8vh auto;border:2px solid #111;border-radius:10px;padding:24px}
+      h1{font-size:17px;margin:0 0 10px}
+      p{font-size:14px;line-height:1.65;margin:0 0 10px}
+    </style></head><body><div class="box">
+      <h1>A ${year}. évi számadás itt nem nyomtatható</h1>
+      <p>Ez az ablak csak a folyó év tényadatait ismeri: a(z) ${year}. évi <strong>tervet</strong>
+      betöltötte, de a <strong>tényadatot és a nyitó egyenleget</strong> nem — a nyomtatvány így a
+      ${year}. évi tervet a folyó év tényeivel keverné.</p>
+      <p>A korábbi évek számadását a <strong>Pénzügy → Nyomtatási központban</strong> nyomtasd:
+      ott a rendszer az adott év tételeit is betölti.</p>
+    </div></body></html>`,
+  }
+}
+
 export function BudgetPrintDialogBody({
   printableTypes,
   currentYear,
@@ -115,9 +146,15 @@ export function BudgetPrintDialogBody({
   const [sendingToPrinter, setSendingToPrinter] = useState(false)
   const [budgetRows, setBudgetRows] = useState<Record<string, BudgetPrintCompatRow>>({})
   const [loading, setLoading] = useState(false)
-  // Részszámadás időszak — dátumintervallum (csak reszszamadas típushoz)
-  const [periodFrom, setPeriodFrom] = useState(`${currentYear}-01-01`)
-  const [periodTo, setPeriodTo] = useState(() => new Date().toISOString().slice(0, 10))
+
+  // ── 2026-08-11 (6. kör, P0 #4) — ÉV-KEVEREDÉS FAIL-CLOSED KAPU ──────────
+  // Az évválasztó 8 évet kínál, de CSAK a TERV sorok töltődnek újra: a
+  // tényadat és a nyitó a MEGNYITÓ OLDAL évéből jön propon. 2024-et választva
+  // a 2024-es terv a 2026-os TÉNNYEL nyomtatódott — aláírt éves Számadáson.
+  // Amíg ez a dialógus nem tölt év-scope-olt tételt, a korábbi évek számadása
+  // itt NEM nyomtatható; a Pénzügy → Nyomtatási központ tudja helyesen.
+  const isSzamadas = printType === 'szamadas'
+  const yearMismatch = isSzamadas && selectedYear !== currentYear
 
   // Budget adatok betöltése a kiválasztott évre
   useEffect(() => {
@@ -144,28 +181,23 @@ export function BudgetPrintDialogBody({
   }, [open, selectedYear, onLoadBudgetRows, onToast])
 
   // Tényleges adatok aggregálása szamadasicel kódonként — a wrapper számol
-  const actualData = useMemo(() => {
-    return computeActuals(
-      printType,
-      printType === 'reszszamadas' ? periodFrom : null,
-      printType === 'reszszamadas' ? periodTo : null,
-    )
-  }, [computeActuals, printType, periodFrom, periodTo])
+  const actualData = useMemo(() => computeActuals(), [computeActuals])
 
   const filters: BudgetPrintFilters = useMemo(
     () => ({
       printType,
       selectedYear,
-      periodFrom: printType === 'reszszamadas' ? periodFrom : null,
-      periodTo: printType === 'reszszamadas' ? periodTo : null,
       budgetRows,
       actualIncome: actualData.actualIncome,
       actualExpense: actualData.actualExpense,
     }),
-    [printType, selectedYear, periodFrom, periodTo, budgetRows, actualData],
+    [printType, selectedYear, budgetRows, actualData],
   )
 
-  const report = useMemo(() => buildReport(filters), [buildReport, filters])
+  const report = useMemo(
+    () => (yearMismatch ? yearMismatchPreview(selectedYear) : buildReport(filters)),
+    [buildReport, filters, yearMismatch, selectedYear],
+  )
 
   async function handlePdf() {
     if (!onPrintToPdf) {
@@ -242,15 +274,7 @@ export function BudgetPrintDialogBody({
             Év
             <select
               value={selectedYear}
-              onChange={(e) => {
-                const y = Number(e.target.value)
-                setSelectedYear(y)
-                // Részszámadás időszak default igazítás az évhez
-                setPeriodFrom(`${y}-01-01`)
-                setPeriodTo(
-                  y === currentYear ? new Date().toISOString().slice(0, 10) : `${y}-12-31`,
-                )
-              }}
+              onChange={(e) => setSelectedYear(Number(e.target.value))}
               className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
             >
               {Array.from({ length: 8 }, (_, i) => currentYear - i).map((y) => (
@@ -261,86 +285,17 @@ export function BudgetPrintDialogBody({
             </select>
           </label>
 
-          {/* Részszámadás időszak — csak akkor látszik, ha részszámadást választott */}
-          {printType === 'reszszamadas' && (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-3 space-y-2">
-              <p className="text-xs font-semibold text-amber-800 uppercase tracking-wide">
-                Részszámadás időszak
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="block text-xs font-medium text-slate-700">
-                  Kezdő dátum
-                  <input
-                    type="date"
-                    value={periodFrom}
-                    onChange={(e) => setPeriodFrom(e.target.value)}
-                    min={`${selectedYear}-01-01`}
-                    max={`${selectedYear}-12-31`}
-                    className="mt-1 w-full rounded-lg border border-input bg-background px-2 py-1.5 text-sm"
-                  />
-                </label>
-                <label className="block text-xs font-medium text-slate-700">
-                  Záró dátum
-                  <input
-                    type="date"
-                    value={periodTo}
-                    onChange={(e) => setPeriodTo(e.target.value)}
-                    min={periodFrom}
-                    max={`${selectedYear}-12-31`}
-                    className="mt-1 w-full rounded-lg border border-input bg-background px-2 py-1.5 text-sm"
-                  />
-                </label>
-              </div>
-              <p className="text-[11px] text-amber-700/90 leading-snug">
-                A tényleges bevételek és kiadások csak az adott időszakra szűrve jelennek
-                meg. Gyors beállítások:
-              </p>
-              <div className="flex flex-wrap gap-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPeriodFrom(`${selectedYear}-01-01`)
-                    setPeriodTo(`${selectedYear}-06-30`)
-                  }}
-                  className="rounded-full border border-amber-300 bg-white px-2 py-0.5 text-[11px] text-amber-800 hover:bg-amber-100"
-                >
-                  I. félév
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPeriodFrom(`${selectedYear}-07-01`)
-                    setPeriodTo(`${selectedYear}-12-31`)
-                  }}
-                  className="rounded-full border border-amber-300 bg-white px-2 py-0.5 text-[11px] text-amber-800 hover:bg-amber-100"
-                >
-                  II. félév
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPeriodFrom(`${selectedYear}-01-01`)
-                    setPeriodTo(`${selectedYear}-03-31`)
-                  }}
-                  className="rounded-full border border-amber-300 bg-white px-2 py-0.5 text-[11px] text-amber-800 hover:bg-amber-100"
-                >
-                  I. negyedév
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPeriodFrom(`${selectedYear}-01-01`)
-                    setPeriodTo(
-                      selectedYear === currentYear
-                        ? new Date().toISOString().slice(0, 10)
-                        : `${selectedYear}-12-31`,
-                    )
-                  }}
-                  className="rounded-full border border-amber-300 bg-white px-2 py-0.5 text-[11px] text-amber-800 hover:bg-amber-100"
-                >
-                  Év eleje → ma
-                </button>
-              </div>
+          {/* 2026-08-11 (6. kör, P0 #4): év-keveredés — hangos, blokkoló figyelmeztetés.
+              A számadás tényadata NEM töltődik újra évváltáskor ebben az ablakban. */}
+          {yearMismatch && (
+            <div
+              role="alert"
+              className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs leading-5 text-red-800"
+            >
+              A(z) <strong>{selectedYear}. évi számadás itt nem nyomtatható</strong>: ez az ablak
+              csak a folyó év tényadatait ismeri, így a régebbi év tervét a mostani év tényeivel
+              keverné. Nyomtasd a <strong>Pénzügy → Nyomtatási központból</strong> — ott a
+              rendszer az adott év tételeit is betölti.
             </div>
           )}
 
@@ -352,23 +307,17 @@ export function BudgetPrintDialogBody({
             <div>
               <span className="font-semibold text-slate-800">Év:</span> {selectedYear}
             </div>
-            {printType === 'reszszamadas' && (
-              <div>
-                <span className="font-semibold text-slate-800">Időszak:</span> {periodFrom} —{' '}
-                {periodTo}
-              </div>
-            )}
             <div>
               <span className="font-semibold text-slate-800">Tájolás:</span> A4 álló
             </div>
             <div>
               <span className="font-semibold text-slate-800">Véglegesítve:</span>{' '}
-              {(printType === 'szamadas' || printType === 'reszszamadas' ? accountingFinalized : budgetFinalized) ? 'Igen' : 'Nem'}
+              {(isSzamadas ? accountingFinalized : budgetFinalized) ? 'Igen' : 'Nem'}
             </div>
             {loading && <div className="text-xs text-amber-600">Adatok betöltése...</div>}
           </div>
 
-          {!(printType === 'szamadas' || printType === 'reszszamadas' ? accountingFinalized : budgetFinalized) && (
+          {!(isSzamadas ? accountingFinalized : budgetFinalized) && (
             <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
               Ez a dokumentum <strong>még nincs véglegesítve</strong>. A presbitériumi határozat
               (mikor, melyik ülésen, milyen szám alatt) és az <strong>egyházközségi iktatószám</strong>
@@ -387,7 +336,7 @@ export function BudgetPrintDialogBody({
             <button
               type="button"
               onClick={() => void handleDirectPrint()}
-              disabled={sendingToPrinter || loading}
+              disabled={sendingToPrinter || loading || yearMismatch}
               className="flex-1 inline-flex items-center justify-center whitespace-nowrap h-9 px-3 text-sm font-medium border bg-white rounded-md transition-colors disabled:opacity-50 hover:bg-slate-50"
             >
               {sendingToPrinter ? 'Nyomtatás...' : 'Direkt nyomtatás'}

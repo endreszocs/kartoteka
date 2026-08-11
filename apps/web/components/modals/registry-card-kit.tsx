@@ -17,11 +17,10 @@
  * ⚠️ A stringek a családi kartonból származnak, BETŰRE. Ha itt módosítasz,
  * MINDKÉT karton változik — ez a lényeg, nem mellékhatás.
  *
- * ÁLLAPOT (2026-08-11, review után): a személyi karton már innen importál. A
- * családi karton átdrótozása KÜLÖN, egysoros lépés
- * (`family-details-dialog-refined.tsx` most nem módosítható) — a készlet
- * szándékosan úgy készült, hogy az átdrótozás a családi karton renderelt
- * osztály-stringjeit ne mozdítsa el.
+ * ÁLLAPOT (2026-08-11, a rádrótozás után): MINDKÉT karton innen importál. A
+ * családi karton privát `Pill`/`Section`/`TabButton`/`MemberPanel`/
+ * `formatShortDate` másolatai törölve; a fülsáv, a görgető, a fejléc-króm, a
+ * lábléc, a táblázat-keretek, az üres állapotok és az esemény-chip is innen jön.
  *
  * ⚑ SZÍN-ELTÉRÉSEK: NINCSENEK. A review három olyan pontot talált, ahol a
  *   személyi karton komponens-szinten tért el a családitól (`dark:text-accent`,
@@ -32,10 +31,26 @@
  *   azonos színnel és AA-megfelelően renderel. Részletek a TXT.muted, a
  *   BTN.filled, a Pill és a REGISTRY_TONES kommentjében.
  *
- * ⚠️ EGYETLEN, DOKUMENTÁLT ELTÉRÉS marad: a `TabBar` görgetés-jelzése
- *   (élhalványítás + aktív fül képbe görgetése) — lásd a TabBar kommentjét.
- *   Nem szín és nem geometria, hanem MOBIL FELFEDEZHETŐSÉG; a családi karton
- *   átdrótozásakor magától megszűnik.
+ * ⚠️ A `TabBar` görgetés-jelzése (élhalványítás + aktív fül képbe görgetése)
+ *   korábban „dokumentált eltérés" volt, mert csak a személyi kartonon élt.
+ *   A rádrótozással MEGSZŰNT: a családi fülsáv is ez a komponens.
+ *
+ * ✅ 2026-08-11 — A rádrótozás által felszínre hozott KÉT ELTÉRÉS LEZÁRVA
+ *   (tulajdonosi döntés: „a döntéseket a kérdéses részeknél rád bízom"):
+ *   1. A családi befizetés-táblázat `max-h-72` beágyazott görgetője
+ *      ELTÁVOLÍTVA — mindkét karton táblázata az EGY görgetőben nő.
+ *      Indok: érintőképernyőn a dobozon belüli görgető csapda (a felhasználó
+ *      a kartont húzná, de az ujja a táblázatba esik), ami szembemegy a
+ *      projekt mobil-első elvével. A `thead` így a közös `TBL.thead`.
+ *   2. A fejléc-szemöldök színe egységesen `text-primary` (volt: családi
+ *      `text-primary/75`). Indok: 11px, NAGYBETŰS, ritkított — a karton
+ *      legnehezebben olvasható szövege; halványítani rossz irány egy 55+
+ *      éves, gyakran telefonon dolgozó felhasználónál.
+ *
+ * ⚠️ AMI SZÁNDÉKOSAN ELTÉR (és nem hiba):
+ *   · Betöltés: a személyi karton a fejlécét azonnal rendereli és a törzset
+ *     `SkeletonGrid`-eli; a családi fejléc a betöltött adatból ÉPÜL (név, cím,
+ *     körzet), tehát nincs mit korán mutatni — ott az embléma-pulzus marad.
  *
  * ⛔ SEMMI ÜZLETI LOGIKA. Csak prezentáció.
  * ⛔ SEMMI HARDKÓDOLT HEX. Csak téma-token (`--primary`, `--accent`, …) vagy
@@ -215,12 +230,9 @@ export function CardHeaderChrome() {
  *   ⚠️ A `mask-image` a görgető DOBOZÁHOZ tapad, nem a tartalomhoz — ezért a
  *      `pr-16` üres sávján akkor sem takar fület, amikor a sáv a végére ért.
  *
- * ⚠️ DOKUMENTÁLT ELTÉRÉS a családi kartontól: annak saját `nav`-ja van, ez a
- *    jelzés tehát csak a személyi kartonon él, amíg a családi karton át nem
- *    drótozódik erre a komponensre. Az `lg` alatt a `registry-cards-host`
- *    úgyis EGY oszlopot mutat (szegmens-váltóval), tehát a két sáv egymás
- *    mellett csak `lg` fölött látszik, ahol a legtöbb esetben nincs is
- *    túlcsordulás — és a maszk ilyenkor nem jelenik meg.
+ * ✅ 2026-08-11 (a rádrótozás után): a családi fülsáv is EZ a komponens, tehát
+ *    a korábban itt dokumentált eltérés megszűnt. A családi kartonon ez érdemi
+ *    nyereség: ott ÖT fül van, köztük a hosszú „Családlátogatás" felirat.
  */
 export function TabBar({
   ariaLabel,
@@ -554,15 +566,25 @@ export function SubBlock({
  * SZAGGATOTT BLOKK — „kapcsolódik, kontextusként mutatjuk, de NEM számít bele".
  * A családi karton „Felnőtt gyermekek" blokkja pontosan erre az esetre
  * született; a személyi kartonon a KORÁBBI HÁZASTÁRS ugyanez az eset.
+ *
+ * ⚑ 2026-08-11 (a családi karton rádrótozásakor): `titleNote` — a cím MELLETT
+ *   álló, halvány magyarázó félmondat. A családi karton „Felnőtt gyermekek"
+ *   blokkja ezt már a kiemelés előtt is viselte („— saját háztartásban élnek"),
+ *   csak a készletbe nem került át; nélküle a rádrótozás NÉMÁN elnyelte volna
+ *   azt a mondatot, ami megmagyarázza, MIÉRT külön blokk ez. A `footnote` nem
+ *   pótolja: az a blokk ALJÁN, teljes mondatban áll. Elhagyva 0 pixel változás.
  */
 export function DashedBlock({
   icon,
   title,
+  titleNote,
   footnote,
   children,
 }: {
   icon: ReactNode
   title: string
+  /** Halvány félmondat a cím mellett — pl. „— saját háztartásban élnek". */
+  titleNote?: ReactNode
   footnote?: ReactNode
   children: ReactNode
 }) {
@@ -572,6 +594,7 @@ export function DashedBlock({
         {/* ⚠️ slate chip — `dark:` TILOS (lásd a Section kommentjét). */}
         <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-700">{icon}</span>
         <h4 className="text-sm font-semibold text-foreground">{title}</h4>
+        {titleNote ? <span className={`text-xs ${TXT.muted}`}>{titleNote}</span> : null}
       </div>
       {children}
       {footnote ? <p className={`mt-2 text-xs leading-5 ${TXT.muted}`}>{footnote}</p> : null}
@@ -764,8 +787,9 @@ export const REGISTRY_LABELS: Record<RegistryKind, string> = {
  * STORNÓ-jelölés — a kartonon EGY írásmód: rose chip + áthúzott, halványított
  * összeg. ⛔ `opacity-60/70` NEM használható rá (2,62:1); a `text-foreground/70`
  * áthúzással ugyanazt mondja 5,60:1-nél.
- * (A családi karton befizetés-táblázata ma még `opacity-70`-nel jelöl — a
- * rádrótozásakor ez a konstans a helyes forma.)
+ * (2026-08-11: a családi befizetés-táblázat is erre állt át — ott korábban a
+ * TELJES sor `opacity-70`-es volt, tehát a stornó ténye pont azt tette
+ * olvashatatlanná, amit el kellett volna olvasni.)
  */
 export const STORNO_CHIP =
   'ml-2 inline-flex rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] font-medium text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300'
@@ -920,10 +944,18 @@ export function LinkTile({
 /**
  * IDÉZET-BLOKK — a családi karton legjellegzetesebb, azonnal felismerhető
  * eleme (ott az alapige, itt a lelkipásztori megjegyzés).
+ *
+ * ⚑ 2026-08-11 (a családi karton rádrótozásakor): `spaced` — felső levegő.
+ *   A személyi kartonon a blokk a szekció ELSŐ eleme, tehát margó nélkül ül;
+ *   a családi látogatás-kártyán viszont egy dátum-sor UTÁN jön, és ott eddig
+ *   `mt-1.5`-tel állt. Ez a doboz-KÖRNYEZET különbsége, nem az idézeté —
+ *   ezért prop, nem külön alak. Elhagyva 0 pixel változás.
  */
-export function QuoteBlock({ children }: { children: ReactNode }) {
+export function QuoteBlock({ children, spaced }: { children: ReactNode; spaced?: boolean }) {
   return (
-    <p className="whitespace-pre-line rounded-lg bg-primary/5 px-2.5 py-2 text-sm italic text-primary">
+    <p
+      className={`whitespace-pre-line rounded-lg bg-primary/5 px-2.5 py-2 text-sm italic text-primary${spaced ? ' mt-1.5' : ''}`}
+    >
       <span className="text-amber-500" aria-hidden>
         „
       </span>

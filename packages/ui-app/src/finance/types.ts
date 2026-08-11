@@ -437,6 +437,10 @@ export type FinancePrintType =
   | 'koltsegvetes'
   | 'koltsegvetes_modositas'
   | 'szamadas'
+  // 2026-08-11 (6. kör): a Részszámadás ÁTKERÜLT ide a BudgetPrintDialogból.
+  // Csak ez a dialógus tölti be az időszaki nyitóhoz szükséges év-scope-olt
+  // tételeket és a SZÁMLÁNKÉNTI feloldott nyitókat (`getYearFinanceRecords`).
+  | 'reszszamadas'
 
 /**
  * Egy korábban mentett bizonylat opció a nyomtatási központ újranyomtatás-
@@ -465,6 +469,10 @@ export interface PrintReport {
   title: string
   filename: string
   orientation: 'portrait' | 'landscape'
+  /** 2026-08-11 (6. kör): true → a nyomtatvány NEM adható ki (hiányzó vagy
+   *  ellentmondó bemenet). A dialógus letiltja a Nyomtatás / PDF gombot, és a
+   *  hiba-előnézetet mutatja. Fail-closed: hangos hiba > néma hamis szám. */
+  blocked?: boolean
 }
 
 /**

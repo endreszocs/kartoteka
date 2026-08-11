@@ -6,6 +6,7 @@
   "description": "Kartotéka desktop kliens (Tauri 2 + React + Vite) — M1 kezdő állapot",
   "scripts": {
     "lint:imports": "node ../../scripts/check-desktop-banned-imports.mjs",
+    "typecheck": "tsc --noEmit",
     "dev": "vite",
     "build": "npm run lint:imports && tsc && vite build",
     "preview": "vite preview",

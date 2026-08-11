@@ -5,6 +5,8 @@ import { ArrowRight, Handshake, Mail, Phone, Shield, User } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { DefaultDashboardSelector } from '@/components/profile/default-dashboard-selector'
+// 2026-08-11: lelkészi (privát) naptár-feed — a gyülekezet évfordulói a saját naptárban.
+import { PastoralCalendarCard } from '@/components/profile/pastoral-calendar-card'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 
 export const metadata = {
@@ -128,6 +130,16 @@ export default async function ProfilePage() {
           hasAdmin={!!access.admin || !!access.master}
         />
       </div>
+
+      {/* Lelkészi (privát) naptár — 2026-08-11.
+          Csak ott mutatjuk, ahol van értelme: gyülekezeti hatókörben. Az
+          esperesi/kerületi/admin munkatér nem egyetlen gyülekezethez kötött,
+          ott a feed amúgy is fail-closed módon megtagadná a kiszolgálást. */}
+      {access.effectiveCongregationId && (
+        <div className="mt-6">
+          <PastoralCalendarCard />
+        </div>
+      )}
 
       {/* Lelkészi kérések — csak lelkésznek */}
       {role === 'lelkesz' && (

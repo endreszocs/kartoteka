@@ -4,6 +4,7 @@ import { FinanceTabs } from '@/components/finance/finance-tabs'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { getFinanceScopeContext } from '@/lib/auth/finance-scope'
 import { ensureDioceseBealitasForYear } from '@/app/(dashboard)/dashboard-egyhazmegye/diocese-actions'
 import { YearlySettingsDialog } from '@/components/modals/yearly-settings-dialog'
 
@@ -15,16 +16,31 @@ export default async function PenzugyPage({
   const access = await getEffectiveAccessContext()
   if (!access.user) return null
 
-  // 2026-04-18 SCOPE-AWARE: diocese módban az activeProfileRole.scope_id a fontos.
-  // Congregation módban az effectiveCongregationId. Mindkettő hiányánál guard.
-  const isDioceseScope =
-    access.activeProfileRole?.scope === 'diocese' && access.activeProfileRole.scopeId
-  const scope: 'congregation' | 'diocese' = isDioceseScope ? 'diocese' : 'congregation'
-  const scopeId = isDioceseScope
-    ? (access.activeProfileRole!.scopeId as string)
-    : access.effectiveCongregationId
-
-  if (!scopeId) return null
+  // ⚠️ 2026-08-11 (számvevő-kör, review-fix) — RÉTEG-DIVERGENCIA MEGSZÜNTETÉSE.
+  //
+  // MI VOLT A HIBA: ez az oldal SAJÁT szabállyal döntött a hatókörről
+  // (`activeProfileRole?.scope === 'diocese' && …`), miközben az összes
+  // szerver akció a `getFinanceScopeContext()`-tel. A kettő SZÉTHÚZHAT: az
+  // oldal gyülekezeti nézetben renderelt, az action-ök viszont megyeinek
+  // hitték magukat (vagy fordítva) — a lelkész ilyenkor kitöltött képernyőt
+  // lát, és minden mentés elutasításba fut. Mostantól EGY forrás dönt.
+  //
+  // Ráadásul innen jön a `readOnly` is: az egyházmegyei SZÁMVEVŐ ugyanezt az
+  // oldalt nyitja meg, de nem írhat.
+  const financeCtx = await getFinanceScopeContext()
+  if ('error' in financeCtx) {
+    // HANGOS hiba, nem néma `null`: eddig üres képernyő jött, és a lelkész nem
+    // tudta, mit tegyen.
+    return (
+      <div className="bg-white rounded-xl border p-8 text-center text-muted-foreground">
+        <p className="text-lg">{financeCtx.error}</p>
+      </div>
+    )
+  }
+  const scope: 'congregation' | 'diocese' = financeCtx.scope
+  const scopeId = financeCtx.scopeId
+  const readOnly = financeCtx.readOnly
+  const readOnlyReason = financeCtx.readOnlyReason
 
   // ANAF SPV 60 napos határidő figyelő — csak congregation scope-ban releváns
   if (scope === 'congregation') {
@@ -67,6 +83,28 @@ export default async function PenzugyPage({
   // 2026-04-19: scope-aware settings kezelés
   if (!data.settings) {
     if (scope === 'diocese') {
+      // ⚠️ 2026-08-11 (számvevő-kör, review-fix): az `ensureDioceseBealitasForYear`
+      // ÍR (`requireDioceseAccess(..., 'write')`, és az adatbázisban a
+      // RESTRICTIVE `diocese_bealitas_szamvevo_iras_tilos` policy is blokkolja).
+      // A számvevő tehát MINDEN olyan évre, amit az esperes még nem nyitott meg,
+      // egy hibakártyát kapott a teljes tartalom helyett („… nem módosíthatod")
+      // — pont az a régi tünet, amit ez a kör megszüntet. Ellenőri nézetben
+      // ezért NEM hívjuk: magyarázó üres állapotot mutatunk.
+      if (readOnly) {
+        return (
+          <div className="bg-white rounded-xl border p-8 text-center text-muted-foreground">
+            <p className="text-lg">
+              Erre az évre ({selectedYear}) az egyházmegye még nem nyitotta meg a
+              könyvelést.
+            </p>
+            <p className="mt-2 text-sm">
+              Ellenőrként (számvevőként) nem tudod létrehozni az éves konfigurációt — ezt
+              az esperes vagy az egyházmegyei adminisztrátor teszi meg. Válassz olyan
+              évet, amelyikben már van könyvelés, vagy jelezd nekik.
+            </p>
+          </div>
+        )
+      }
       // Egyházmegyei módban NINCS éves egyházfenntartás beállítás!
       // Automatikusan létrehozunk egy üres `diocese_bealitas` sort az évre,
       // és azonnal újratöltünk — a lelkész nem lát külön dialógust.
@@ -156,6 +194,11 @@ export default async function PenzugyPage({
         availableYears={availableYears}
         isGodMode={godMode.active}
         scope={scope}
+        // 2026-08-11 (számvevő-kör): ellenőri nézet — a rögzítő gombok ELŐRE
+        // letiltva, magyarázó sávval. A valódi zár a szerver akciókban van
+        // (`financeWriteBlock`), ez a felhasználó kímélete.
+        readOnly={readOnly}
+        readOnlyReason={readOnlyReason}
         showAdminImport={showAdminImport}
       />
     </div>

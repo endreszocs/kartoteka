@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { DoorOpen, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -38,23 +38,18 @@ export function FamilyVisitFormDialog({
   familyLabel,
   onSaved,
 }: FamilyVisitFormDialogProps) {
-  const [datum, setDatum] = useState('')
+  // 2026-08-11: a „reset minden megnyitáskor" korábban `useEffect`-ben futott
+  // (öt setState az effect törzsében → react-hooks/set-state-in-effect,
+  // kaszkádoló újrarender). Most a KEZDŐÉRTÉKEK adják ugyanezt, a hívó oldal
+  // pedig `key`-jel újramountolja a párbeszédet minden megnyitáskor
+  // (family-details-dialog-refined.tsx, `visitFormNonce`). Az eredmény
+  // betű szerint ugyanaz az űrlap, egy renderrel kevesebbért.
+  const [datum, setDatum] = useState(() => new Date().toISOString().split('T')[0])
   const [lelkesz, setLelkesz] = useState('')
   const [alapige, setAlapige] = useState('')
   const [megjegyzes, setMegjegyzes] = useState('')
   const [toMunkanaplo, setToMunkanaplo] = useState(true)
   const [saving, setSaving] = useState(false)
-
-  // Reset minden megnyitáskor
-  useEffect(() => {
-    if (!open) return
-    const today = new Date().toISOString().split('T')[0]
-    setDatum(today)
-    setLelkesz('')
-    setAlapige('')
-    setMegjegyzes('')
-    setToMunkanaplo(true)
-  }, [open])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()

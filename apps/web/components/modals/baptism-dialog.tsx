@@ -78,8 +78,25 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
   // szülő ki van választva (hazassag tábla lekérdezés). Ettől függ az anya
   // neve az emléklapon: ha igen → „Kádár Zoltánné Tódor Enikő";
   // ha nem → csak a leánykori név („Tódor Enikő").
-  const [egyhaziHazassag, setEgyhaziHazassag] = useState(false)
-  const [egyhaziHazassagAuto, setEgyhaziHazassagAuto] = useState(false)
+  //
+  // 2026-08-11: a jelölést a SZÜLŐ-PÁRHOZ KÖTVE tároljuk, és RENDER KÖZBEN
+  // származtatjuk. Korábban egy effect törzse hívta szinkronban a
+  // `setEgyhaziHazassag(false)`-t, ha hiányzott valamelyik szülő
+  // (react-hooks/set-state-in-effect → kaszkádoló újrarender). Ha a pár nincs
+  // meg, vagy megváltozott, a származtatott érték magától `false` — a látvány
+  // betű szerint ugyanaz, csak nincs plusz render-kör.
+  const [egyhaziHazassagState, setEgyhaziHazassagState] = useState<{
+    pairKey: string
+    value: boolean
+    auto: boolean
+  } | null>(null)
+  const parentPairKey = father && mother ? `${father.id}|${mother.id}` : null
+  const egyhaziHazassagCurrent =
+    parentPairKey !== null && egyhaziHazassagState?.pairKey === parentPairKey
+      ? egyhaziHazassagState
+      : null
+  const egyhaziHazassag = egyhaziHazassagCurrent?.value ?? false
+  const egyhaziHazassagAuto = egyhaziHazassagCurrent?.auto ?? false
 
   // 2026-05-29: az emléklap-vászon ref-je a print-funkcióhoz
   const printRef = useRef<HTMLDivElement>(null)
@@ -244,19 +261,14 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
   // automatikusan beállítjuk az egyházi-házasság jelzőt. A felhasználó utólag
   // átírhatja a checkbox-szal.
   useEffect(() => {
-    if (!father || !mother) {
-      setEgyhaziHazassag(false)
-      setEgyhaziHazassagAuto(false)
-      return
-    }
+    if (!father || !mother || !parentPairKey) return
     let cancelled = false
     getMarriageBetween(father.id, mother.id).then((found) => {
       if (cancelled) return
-      setEgyhaziHazassag(found)
-      setEgyhaziHazassagAuto(found)
+      setEgyhaziHazassagState({ pairKey: parentPairKey, value: found, auto: found })
     })
     return () => { cancelled = true }
-  }, [father, mother])
+  }, [father, mother, parentPairKey])
 
   function handlePersonChange(p: MemberSearchResult | null) {
     setSelectedPerson(p)
@@ -592,7 +604,17 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
                     type="checkbox"
                     id="egyhaziHazassag"
                     checked={egyhaziHazassag}
-                    onChange={e => setEgyhaziHazassag(e.target.checked)}
+                    onChange={e => {
+                      if (!parentPairKey) return
+                      const checked = e.target.checked
+                      setEgyhaziHazassagState(prev => ({
+                        pairKey: parentPairKey,
+                        value: checked,
+                        // Az „automatikusan ellenőrizve" jelzés a kézi átállítás
+                        // után is megmarad — ugyanúgy, mint korábban.
+                        auto: prev?.pairKey === parentPairKey ? prev.auto : false,
+                      }))
+                    }}
                     className="mt-0.5 size-4"
                   />
                   <label htmlFor="egyhaziHazassag" className="flex-1 cursor-pointer leading-relaxed">

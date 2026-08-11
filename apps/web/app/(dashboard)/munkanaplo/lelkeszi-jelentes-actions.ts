@@ -20,7 +20,10 @@
 //  - VII. fejezet: befizetes a befizetescel(szamadasicel(kod)) beágyazással
 //    (getExpectedJarulek működő mintája; 101.01* = egyházfenntartói járulék,
 //    101.03* = perselypénz) + a bealitas.szamadas_zaro_adatok VÉGLEGESÍTETT
-//    snapshotja (finalizeAccounting írja; totalIncome/totalExpense).
+//    pillanatképe (finalizeAccounting írja). FIGYELEM: ennek KÉT alakja van
+//    forgalomban — a régiben a hivatalos végösszeg a `kanonikus` alobjektum
+//    `totalActualIncome`/`totalActualExpense` mezőjében ül, az újban a felső
+//    szinten. A VII.6/VII.7 olvasója mindkettőt ismeri (lásd ott).
 //
 // HIBA-FILOZÓFIA: ha egy rész-lekérdezés hibázik, a hozzá tartozó auto-mezők
 // NULL-ok lesznek (a UI „nincs adat"-ként jelzi, felülírható) + hangos
@@ -34,8 +37,13 @@ import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { categorizeWorklogEntry, type WorklogEntry } from '@/lib/constants/worklog'
 import { classifyForOfficialJournal, getUnnepInfo } from '@/lib/worklog/print-columns'
 import { isJournalEntry } from '@/lib/worklog/official-journal'
-import { JELENTES_MEZOK, deriveAutoMezok } from '@/lib/lelkeszi-jelentes/types'
-import type { HatarozatAdatok, LelkesziJelentesData } from '@/lib/lelkeszi-jelentes/types'
+import { JELENTES_MEZOK, MUNKANAPLO_JAVASLAT_MEZOK, deriveAutoMezok } from '@/lib/lelkeszi-jelentes/types'
+import type {
+  HatarozatAdatok,
+  JelentesJavaslatTetel,
+  JelentesJavaslatok,
+  LelkesziJelentesData,
+} from '@/lib/lelkeszi-jelentes/types'
 import { submitDocument } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
 import { getWorklogsForYearChecked } from './actions'
 
@@ -303,10 +311,17 @@ async function computeAuto(
   congregationName: string
   egyhazmegyeNev: string | null
   autoHibak: string[]
+  /**
+   * 2026-08-11 (6. kör): munkanapló-alapú JAVASLATOK KÉZI rubrikákhoz (III.17).
+   * SZÁNDÉKOSAN NEM része a LelkesziJelentesData-nak: így a véglegesítéskori
+   * snapshotba (a hivatalos, befagyasztott dokumentumba) SOHA nem kerülhet bele.
+   */
+  javaslatok: JelentesJavaslatok
 }> {
   const yearStart = `${ev}-01-01`
   const yearEndExclusive = `${ev + 1}-01-01`
   const autoHibak: string[] = []
+  const javaslatok: JelentesJavaslatok = {}
 
   // Minden auto-mező kulcsa előre null-lal — a UI így meg tudja különböztetni
   // a „nincs adat"-ot a 0-tól.
@@ -427,16 +442,24 @@ async function computeAuto(
   if (szemelyRes.error) {
     console.error('[lelkeszi-jelentes] Lélekszám-lekérdezés HIBA — I.10 null lesz:', szemelyRes.error.message)
   } else {
-    lelekszam = szemelyRes.rows.filter(
-      (s) =>
-        !s.meghalt &&
-        !['elhunyt', 'elköltözött', 'elkoltozott', 'kitért', 'törölt'].includes(s.member_status || ''),
-    ).length
+    // 2026-08-11 (6. kör): a KANONIKUS „aktív tag" szűrő — az I.10 és az I.11
+    // MOSTANTÓL UGYANEZT használja (eddig az I.11 csak a `meghalt`-at nézte).
+    const aktivTag = (s: (typeof szemelyRes.rows)[number]) =>
+      !s.meghalt &&
+      !['elhunyt', 'elköltözött', 'elkoltozott', 'kitért', 'törölt'].includes(s.member_status || '')
+
+    lelekszam = szemelyRes.rows.filter(aktivTag).length
     auto['I.10'] = lelekszam
     // I.11 — választói névjegyzékben szereplők (2026-07-17, PR-2 F1.7): a
     // perzisztált voter_eligible flagből (a „Jogosultság frissítése" gomb / RPC
     // tartja karban); a lelkész felülírhatja, mint minden auto-mezőt.
-    auto['I.11'] = szemelyRes.rows.filter((s) => s.voter_eligible === true && !s.meghalt).length
+    //
+    // 2026-08-11 (6. kör): eddig az I.11 CSAK a `meghalt` jelzőt nézte, a
+    // member_statust nem. Egy elköltözött (vagy kitért/törölt) tag, akinek a
+    // `voter_eligible` flagje nem lett letisztítva, felhizlalta a választók
+    // számát — miközben az I.10 lélekszámban már NEM szerepelt. A hivatalos
+    // nyomtatványon így több választó látszott, mint amennyi gyülekezeti tag.
+    auto['I.11'] = szemelyRes.rows.filter((s) => s.voter_eligible === true && aktivTag(s)).length
   }
 
   // I.1 — előző évi véglegesített jelentés I.10-e
@@ -528,6 +551,9 @@ async function computeAuto(
     let uvResztvevoOssz = 0
     let uvResztvevosDb = 0
     let uvBetegnelOssz = 0
+    // 2026-08-11 (6. kör): a hivatalos napló 15. oszlopa („Nőszövetségi
+    // összejövetel") — a III.17 KÉZI rubrika JAVASLATÁHOZ, tételesen.
+    const noszovetsegiTetelek: JelentesJavaslatTetel[] = []
 
     for (const e of worklogRes.entries) {
       if (e.deleted) continue
@@ -583,9 +609,21 @@ async function computeAuto(
           case 'unnepely':
             unnepelyDb += 1
             break
-          case 'noszovetsegi':
-            // Nincs hozzá auto-rubrika (a IV. Belmisszió kézi fejezet)
+          case 'noszovetsegi': {
+            // 2026-08-11 (6. kör): eddig ITT ÜRES volt az ág — a rendesen
+            // naplózott nőszövetségi alkalom SEHOL nem jelent meg a
+            // jelentésben. A III.17 rubrika KÉZI MARAD (az okokat lásd a
+            // types.ts MUNKANAPLO_JAVASLAT_MEZOK kommentjében), de mostantól
+            // JAVASLATOT adunk mellé — tételesen, hogy a lelkész ellenőrizni
+            // tudja, mit ír alá.
+            const nszJelenlet = jelenlet(e)
+            noszovetsegiTetelek.push({
+              datum: (e.idopont || '').slice(0, 10),
+              cim: (e.cim || '').trim() || (e.jellege || '').trim() || 'Nőszövetségi összejövetel',
+              jelenlet: nszJelenlet > 0 ? nszJelenlet : null,
+            })
             break
+          }
           case 'egyeb':
             egyebDb += 1
             break
@@ -641,6 +679,20 @@ async function computeAuto(
 
     // V.3 — katekézis-alkalmak (worklog-alapú, ezért ebben a blokkban)
     auto['V.3'] = katekezisDb
+
+    // III.17 — JAVASLAT (NEM auto-mező!) a nőszövetségi alkalmakból.
+    // Csak akkor tesszük be, ha van mit javasolni: a nulla nem javaslat,
+    // hanem zaj. Az `ertek` MINDIG a lista hossza — nincs két igazság.
+    // FIGYELEM: ez az ág a `worklogRes.error === null` blokkban van, tehát
+    // hibás munkanapló-lekérdezésnél NEM születik javaslat (a 0 hazugság
+    // lenne) — a hiba az autoHibak listán megy ki, hangosan.
+    if (MUNKANAPLO_JAVASLAT_MEZOK.has('III.17') && noszovetsegiTetelek.length > 0) {
+      noszovetsegiTetelek.sort((a, b) => a.datum.localeCompare(b.datum))
+      javaslatok['III.17'] = {
+        ertek: noszovetsegiTetelek.length,
+        tetelek: noszovetsegiTetelek,
+      }
+    }
   }
 
   // III.9 — presbiterek száma (NEM worklog-alapú — worklog-hibánál is számol)
@@ -668,7 +720,8 @@ async function computeAuto(
   const befizetesQ = (legacy: boolean) => {
     let q = supabase
       .from('befizetes')
-      .select('id, osszeg, befizetescel(szamadasicel(kod))')
+      // 2026-08-11 (6. kör): `osszeg_ron` is kell — lásd a lenti összegzésnél.
+      .select('id, osszeg, osszeg_ron, befizetescel(szamadasicel(kod))')
       .eq('congregation_id', congId)
       .gte('datum', `${ev}-01-01`)
       .lte('datum', `${ev}-12-31`)
@@ -684,7 +737,12 @@ async function computeAuto(
         .or('stornozott.eq.false,stornozott.is.null')
         .is('belso_mozgas_xkey', null)
     }
-    return fetchAllRows<{ id: number; osszeg: number | null; befizetescel?: unknown }>(q.order('id'))
+    return fetchAllRows<{
+      id: number
+      osszeg: number | null
+      osszeg_ron?: number | null
+      befizetescel?: unknown
+    }>(q.order('id'))
   }
 
   let befRes = await befizetesQ(false)
@@ -707,7 +765,14 @@ async function computeAuto(
     for (const r of befRes.rows) {
       const kod = befizetesKod(r)
       if (!kod) continue
-      const osszeg = Number(r.osszeg) || 0
+      // 2026-08-11 (6. kör, P0): a RON-ekvivalens a hivatalos érték, nem a nyers
+      // deviza-összeg. Eddig `Number(r.osszeg)` volt: egy 100 EUR-s befizetés
+      // 100 lejként került a VII.1 (egyházfenntartói járulék) és a VII.3
+      // (perselypénz) rubrikába — ALÁÍRT, BEKÜLDÖTT nyomtatványon —, és a
+      // VII.2/VII.4 egy lélekre eső értékek is ezzel csúsztak el.
+      // A kanonikus szabály (`osszeg_ron ?? osszeg`) már él a penzugy/actions.ts
+      // és az eves-jelentes/prezentacio/actions.ts kódjában; ez a hely kimaradt.
+      const osszeg = Number(r.osszeg_ron ?? r.osszeg) || 0
       if (kod.startsWith('101.01')) jarulekOssz += osszeg
       else if (kod.startsWith('101.03')) perselyOssz += osszeg
     }
@@ -719,9 +784,35 @@ async function computeAuto(
     }
   }
 
-  // Zárszámadás (VII.6/7) — CSAK a véglegesített számadás kanonikus
-  // snapshotjából (bealitas.szamadas_zaro_adatok, finalizeAccounting írja).
+  // Zárszámadás (VII.6/7) — CSAK a véglegesített számadás HIVATALOS
+  // pillanatképéből (bealitas.szamadas_zaro_adatok, finalizeAccounting írja).
   // Amíg nincs véglegesített számadás, a mezők null-ok — a UI jelzi.
+  //
+  // 2026-08-11 (6. kör, P0 — „két pillanatkép, és nem egyeznek"):
+  //
+  // MI VOLT A HIBA: ez a rubrika a `zaro.totalIncome` / `zaro.totalExpense`
+  // mezőket olvasta ELSŐKÉNT. A RÉGI (1-es) alakban viszont ezek NEM a hivatalos
+  // számadás végösszegei voltak, hanem a `finalizeAccounting` szerveroldali,
+  // junction-FK-id kulcsú, a hivatalos ív végpont-kódjaira NEM szűrt
+  // összesítése — az íven kívülre könyvelt pénzt is beleértve. A ténylegesen
+  // BEKÜLDÖTT Számadás ezzel szemben a kanonikus (ív-szűrt) összeget vitte.
+  // Vagyis a lelkész ALÁÍRT jelentése más bevétel-/kiadás-végösszeget mutatott,
+  // mint az ugyanarra az évre beküldött Számadás: eltérés két hivatalos
+  // nyomtatvány között. A meglévő `kanonikus.totalIncome` visszaesés ezen NEM
+  // segített, mert SZERKEZETILEG HALOTT volt: (a) a `zaro.totalIncome` mindig
+  // jelen volt, tehát a `??` sosem lépett tovább, és (b) a tárolt `kanonikus`
+  // alobjektum `totalActualIncome`/`totalActualExpense` néven hordozza az
+  // összegeket — `totalIncome` kulcs SOSEM volt benne.
+  //
+  // MOSTANTÓL a kettő ugyanaz az objektum (penzugy/actions.ts), de a MÁR
+  // tárolt sorok a régi alakot hordozzák, ezért ez az olvasó MINDKÉT alakot
+  // ismeri — a migrációs SQL (2026-08-11-zaro-pillanatkep-egyesites.sql)
+  // lefutásától függetlenül helyes marad:
+  //   · RÉGI (1-es) alak — van `kanonikus` alobjektum: a hivatalos szám OTT van
+  //     (`totalActualIncome`; a `totalIncome` a felső szinten a nyers összesítés),
+  //   · ÚJ (2-es) alak — nincs `kanonikus`: a felső szint MAGA a hivatalos adat,
+  //   · ŐS-alak — se `kanonikus`, se kanonikus kulcs (kanonikus pillanatkép nélkül
+  //     zárt év): marad a nyers `totalIncome`, mert más adat egyszerűen nincs.
   if (bealitasRes.error) {
     console.error('[lelkeszi-jelentes] bealitas lekérdezés hiba — VII.6–VII.8 null:', bealitasRes.error.message)
   } else {
@@ -731,11 +822,23 @@ async function computeAuto(
     } | null
     const zaro = b?.accounting_finalized ? b.szamadas_zaro_adatok : null
     if (zaro && typeof zaro === 'object') {
-      const kanonikus = (zaro.kanonikus && typeof zaro.kanonikus === 'object'
+      const kanonikus = (zaro.kanonikus && typeof zaro.kanonikus === 'object' && !Array.isArray(zaro.kanonikus)
         ? (zaro.kanonikus as Record<string, unknown>)
         : null)
-      const bevetel = toNum(zaro.totalIncome) ?? (kanonikus ? toNum(kanonikus.totalIncome) : null)
-      const kiadas = toNum(zaro.totalExpense) ?? (kanonikus ? toNum(kanonikus.totalExpense) : null)
+      // A sorrend SZÁNDÉKOS: a kanonikus (ív-szűrt, beküldött) érték MINDIG
+      // erősebb, mint a felső szintű nyers összesítés.
+      //   1. `kanonikus.totalActual*` — RÉGI alak, a hivatalos (beküldött) szám,
+      //   2. `kanonikus.total*`       — védőháló, ha a kanonikus alobjektum már
+      //                                 normalizált kulcsokkal került be,
+      //   3. `zaro.totalActual*`      — ÚJ alak: a felső szint a hivatalos adat,
+      //   4. `zaro.total*`            — ÚJ alak tükör-kulcsa, ill. ŐS-alaknál a
+      //                                 nyers összesítés (más adat nincs).
+      const hivatalosOsszeg = (kanonikusKulcs: string, nyersKulcs: string) =>
+        (kanonikus ? toNum(kanonikus[kanonikusKulcs]) ?? toNum(kanonikus[nyersKulcs]) : null) ??
+        toNum(zaro[kanonikusKulcs]) ??
+        toNum(zaro[nyersKulcs])
+      const bevetel = hivatalosOsszeg('totalActualIncome', 'totalIncome')
+      const kiadas = hivatalosOsszeg('totalActualExpense', 'totalExpense')
       auto['VII.6'] = bevetel === null ? null : round2(bevetel)
       auto['VII.7'] = kiadas === null ? null : round2(kiadas)
     }
@@ -748,7 +851,7 @@ async function computeAuto(
   // temetett számok is átfolynak az I.8/I.9-be.
   const derivedAuto = deriveAutoMezok(auto, kezi, felulirasok)
 
-  return { auto: derivedAuto, congregationName, egyhazmegyeNev, autoHibak }
+  return { auto: derivedAuto, congregationName, egyhazmegyeNev, autoHibak, javaslatok }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -783,13 +886,14 @@ async function buildJelentesData(
   congId: string,
   ev: number,
   row: JelentesRow | null,
-): Promise<{ data: LelkesziJelentesData; autoHibak: string[] }> {
+): Promise<{ data: LelkesziJelentesData; autoHibak: string[]; javaslatok: JelentesJavaslatok }> {
   const kezi = sanitizeErtekek(row?.kezi_adatok)
   const felulirasok = sanitizeErtekek(row?.felulirasok)
-  const { auto, congregationName, egyhazmegyeNev, autoHibak } = await computeAuto(
+  const { auto, congregationName, egyhazmegyeNev, autoHibak, javaslatok } = await computeAuto(
     supabase, congId, ev, kezi, felulirasok,
   )
   return {
+    javaslatok,
     data: {
       ev,
       congregationName,
@@ -854,6 +958,12 @@ export async function getLelkesziJelentes(ev: number): Promise<{
   unlockRequested?: boolean
   /** A hivatalos rubrikákat érintő rész-lekérdezési hibák magyar üzenetei. */
   autoHibak?: string[]
+  /**
+   * 2026-08-11 (6. kör): munkanapló-alapú JAVASLATOK KÉZI rubrikákhoz (III.17).
+   * VÉGLEGESÍTETT jelentésnél SZÁNDÉKOSAN hiányzik: ott a befagyasztott
+   * snapshot a hiteles adat, és javaslatot már nincs értelme kínálni.
+   */
+  javaslatok?: JelentesJavaslatok
   error?: string
 }> {
   const { supabase, congregationId } = await getEffectiveCongregationContext()
@@ -882,11 +992,12 @@ export async function getLelkesziJelentes(ev: number): Promise<{
     }
   }
 
-  const { data, autoHibak } = await buildJelentesData(supabase, congregationId, ev, row)
+  const { data, autoHibak, javaslatok } = await buildJelentesData(supabase, congregationId, ev, row)
   return {
     data: { ...data, submission },
     unlockRequested: row?.unlock_requested === true,
     autoHibak,
+    javaslatok,
   }
 }
 

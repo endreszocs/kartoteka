@@ -164,6 +164,10 @@ export const JELENTES_MEZOK: JelentesMezo[] = [
   { id: 'III.15', fejezet: 'III', label: 'Fegyelmi ügyek', tipus: 'szoveg', auto: false },
   // Rétegalkalmak — a munkanapló-típusokból nem szétválogathatók → kézi mezők.
   { id: 'III.16', fejezet: 'III', label: 'Presbiteri bibliaóra alkalmai', tipus: 'szam', auto: false, egyseg: 'alkalom' },
+  // 2026-08-11 (6. kör): a III.17 KÉZI MARAD, de már NEM néma — a munkanapló
+  // „Nőszövetségi összejövetel" sorai JAVASLATKÉNT megjelennek mellette
+  // (MUNKANAPLO_JAVASLAT_MEZOK + JelentesJavaslat). Az `auto: true`-ra váltás
+  // TILOS, az okát lásd a MUNKANAPLO_JAVASLAT_MEZOK kommentjében.
   { id: 'III.17', fejezet: 'III', label: 'Nőszövetségi bibliaóra alkalmai', tipus: 'szam', auto: false, egyseg: 'alkalom' },
   { id: 'III.18', fejezet: 'III', label: 'Házaspári bibliaóra alkalmai', tipus: 'szam', auto: false, egyseg: 'alkalom' },
 
@@ -223,6 +227,72 @@ export const JELENTES_MEZOK: JelentesMezo[] = [
   // ── X. Missziói terv ─────────────────────────────────────────────────────
   { id: 'X.1', fejezet: 'X', label: 'Missziói terv a következő évre', tipus: 'hosszu_szoveg', auto: false },
 ]
+
+// ─────────────────────────────────────────────────────────────────────────
+// MUNKANAPLÓ-ALAPÚ JAVASLAT egy KÉZI rubrikához (2026-08-11, 6. kör)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// MI A BAJ, AMIT MEGOLD
+//   A lelkész rendesen rögzíti a „Nőszövetségi összejövetel" alkalmat a
+//   munkanaplóba; a hivatalos nyomtatott napló 15. oszlopába be is kerül
+//   (print-columns.ts, `noszovetsegi` oszlop). A lelkészi jelentés III.17
+//   rubrikája („Nőszövetségi bibliaóra alkalmai") viszont sehol nem látta —
+//   a jelentés-aggregátor `case 'noszovetsegi'` ága ÜRES volt. A lelkész
+//   ugyanazt az adatot évente kétszer vitte fel, vagy egyszer sem.
+//
+// MIÉRT JAVASLAT ÉS NEM AUTO — HÁROM OK, mindhárom aláírt papíron üt vissza
+//   1) RÉSZLEGES ELSŐ ÉV. Aki a naplózást év közben kezdi, annak a munkanapló
+//      az év töredékét ismeri. Auto-mezőnél a rendszer LEFELÉ hamisítana egy
+//      aláírt, az egyházmegyének beküldött nyomtatványon.
+//   2) A KÉZI ÉRTÉK NÉMA ELVESZTÉSE. A `mezoErtek` prioritása
+//      `felulirasok > auto > kezi`: ha a III.17 auto lenne, a lelkész korábbi,
+//      KÉZZEL beírt száma azonnal láthatatlanná válna — ráadásul a
+//      `saveLelkesziJelentes` `keziMezok` szűrője a következő mentéskor
+//      KI IS DOBNÁ a `kezi_adatok`-ból (a szűrő az `auto: false` mezőkre jár).
+//      A véglegesítés pedig az így kapott számot FAGYASZTJA BE a snapshotba.
+//   3) NEM UGYANAZ A FOGALOM. A napló típusa „Nőszövetségi ÖSSZEJÖVETEL",
+//      a rubrika „Nőszövetségi BIBLIAÓRA alkalmai". Az egyenlőségjelet a
+//      lelkész teszi ki, nem a program.
+//
+// A megoldás ezért ugyanaz, mint a különleges alkalmaknál (kulonleges-alkalom-
+// shared.ts): a rubrika KÉZI marad, és a rendszer JAVASLATOT tesz mellé egy
+// koppintással beírható gombbal — tételes „mi számít bele?" listával, hogy a
+// lelkész ELLENŐRIZHESSE, mit ír alá.
+
+/** Egy beszámított munkanapló-alkalom a javaslat tételes listájához. */
+export interface JelentesJavaslatTetel {
+  /** 'YYYY-MM-DD' — az alkalom napja. */
+  datum: string
+  /** Az alkalom címe (a napló `cim` mezője), ennek hiányában a `jellege`. */
+  cim: string
+  /** Az alkalom jelenléte, ha rögzítve van (0 vagy hiányzó → null). */
+  jelenlet: number | null
+}
+
+/** Egy KÉZI rubrikához tartozó munkanapló-alapú javaslat. */
+export interface JelentesJavaslat {
+  /** A javasolt szám — MINDIG `tetelek.length` (nincs két igazság). */
+  ertek: number
+  tetelek: JelentesJavaslatTetel[]
+}
+
+/** mezoId → javaslat. Hiányzó kulcs = ehhez a mezőhöz nincs mit javasolni. */
+export type JelentesJavaslatok = Record<string, JelentesJavaslat>
+
+/**
+ * ALLOW-LISTA: mely KÉZI rubrikák mellé tesz a munkanapló javaslatot.
+ *
+ * Szándékosan szűk. A munkanapló-TULAJDONÚ rubrikák (II.*, III.1, III.2,
+ * III.3, III.5–III.8, III.10, V.3) már `auto: true`-k — oda javaslatot tenni
+ * kettős számolás lenne. Ide CSAK olyan mező kerülhet, amely
+ *  · `auto: false` (kézi), ÉS
+ *  · egy hivatalos munkanapló-oszlopnak felel meg, amely ma sehol nem
+ *    összegződik a jelentésben.
+ *
+ * ⛔ Az itt szereplő mezőt SOHA ne állítsd `auto: true`-ra — a fenti három ok
+ *    miatt. A javaslat-sor védőhálóból nem is jelenik meg auto-mező mellett.
+ */
+export const MUNKANAPLO_JAVASLAT_MEZOK: ReadonlySet<string> = new Set(['III.17'])
 
 /**
  * Címlap / határozati adatok: iktatószámok, tárgyalási szám+dátum, aláírók.

@@ -32,6 +32,39 @@ import { getEffectiveAccessContext, type EffectiveAccessContext } from '@/lib/au
  * magyarázó kártyát mutatni — SOHA nem futtathat szűretlen lekérdezést.
  * A master / rendszergazda (system admin) explicit, feliratozott ágon láthat
  * mindent — az soha nem lehet egy NULL-scope néma mellékhatása.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 2026-08-11 (számvevő-kör) — KÉT MEGYEI SZINT: OLVASÓ és ÍRÓ
+ * ─────────────────────────────────────────────────────────────────────────────
+ * TÜNET VOLT: az `egyhazmegyei_szamvevo` belépett a megyei felületre, és ÜRES
+ * képernyőt kapott. Az ok egy néma réteg-divergencia:
+ *   · az APP (`resolveDioceseScopeIds`, lentebb) BÁRMELY jóváhagyott,
+ *     aktív `diocese` hatókörű `profile_roles` sort elfogadott — a számvevőét is,
+ *   · az ADATBÁZIS (`current_user_diocese_ids()`) viszont CSAK az
+ *     `esperes` / `egyhazmegyei_admin` szerepűeket adta vissza.
+ * Az app tehát feloldott egy egyházmegyét, lefuttatta rá a lekérdezéseket, az
+ * RLS pedig 0 sort adott vissza — hibaüzenet nélkül.
+ *
+ * A TULAJDONOS DÖNTÉSE: „segítsük hogy tudja használni a felületet!" → az
+ * adatbázist tágítjuk (migration-docs/sql/2026-08-11-szamvevo-megyei-
+ * hozzaferes.sql). DE a számvevő dolga pénzügyi ELLENŐRZÉS, ezért CSAK
+ * OLVASÁST kap. Az SQL-oldalon ez két külön feloldó függvény:
+ *   · `current_user_diocese_ids()`        → ÍRÁSI hatókör (esperes, megyei admin)
+ *   · `current_user_diocese_olvaso_ids()` → OLVASÁSI hatókör (+ számvevő)
+ *
+ * EZ A MODUL UGYANEZT A KÉT SZINTET TÜKRÖZI, hogy a két réteg soha többé ne
+ * húzzon szét:
+ *   · `resolveDioceseReadScopeIds`  ⇄ current_user_diocese_olvaso_ids()
+ *   · `resolveDioceseWriteScopeIds` ⇄ current_user_diocese_ids()
+ * A `canWriteDioceseScope()` az a kapu, amivel a felület a MENTŐ gombokat
+ * letiltja — hogy a számvevő ELŐRE lássa, mit nem tehet, ne pedig egy néma
+ * 0-soros mentés után.
+ *
+ * ⚠️ A `custom` (és `konyvelo` / `lelkesz`) szerepű `diocese` sorok EGYIK
+ *    szintre sem kerülnek be — pontosan úgy, ahogy az SQL sem engedi be őket.
+ *    A `custom` jelentése a `permissions` JSONB-ben él, amit az RLS nem tud
+ *    értelmezni; beengedésük korlátlan tágítás lenne. Aki megyei rálátást kap,
+ *    kapjon NEVESÍTETT `egyhazmegyei_szamvevo` szerepkör-sort.
  */
 
 type LevelScopeAccess = Pick<
@@ -61,6 +94,19 @@ export interface DioceseScopeContext {
   scopeId: string | null
   isMaster: boolean
   isAdmin: boolean
+  /**
+   * 2026-08-11 (számvevő-kör): írhat-e a hívó ezen a megyei hatókörön?
+   * `false` = ellenőri (számvevői) nézet — az adatbázis is csak olvasást enged
+   * (lásd a modul fejlécét). A felület KÖTELES a mentő/elbíráló gombokat ELŐRE
+   * letiltani, magyarázattal — nem néma 0-soros mentés után hibázni.
+   */
+  canWrite: boolean
+  /**
+   * Beszédes magyar magyarázat, ha `canWrite === false` — tooltipre, letiltott
+   * gomb feliratára és szerver-oldali `{ error }`-ra egyaránt alkalmas.
+   * `null`, ha a hívó írhat.
+   */
+  readOnlyReason: string | null
 }
 
 export interface DistrictScopeContext {
@@ -113,6 +159,160 @@ export function resolveDioceseScopeId(access: LevelScopeAccess): string | null {
   return resolveDioceseScopeIds(access)[0] ?? null
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-08-11 (számvevő-kör): OLVASÓ és ÍRÓ megyei hatókör — az SQL tükörképe
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ÍRÁSI megyei szerepek — pontosan az a lista, amit a
+ * `current_user_diocese_ids()` szerep-szűrője használ (2026-08-11-globalis-
+ * hozzaferes-szukites.sql:824). Ha ez a két lista széthúz, visszatér a néma
+ * 0-soros mentés hibaosztálya.
+ */
+const DIOCESE_WRITE_ROLES: readonly string[] = ['esperes', 'egyhazmegyei_admin']
+
+/**
+ * OLVASÁSI megyei szerepek = az írók + a számvevő (ellenőr).
+ * Az SQL párja: `current_user_diocese_olvaso_ids()`.
+ */
+const DIOCESE_READ_ROLES: readonly string[] = [
+  ...DIOCESE_WRITE_ROLES,
+  'egyhazmegyei_szamvevo',
+]
+
+/**
+ * Közös feloldó a két szinthez. PONTOSAN azt a három szabályt követi, amit az
+ * SQL-oldali függvények:
+ *   (a) az AKTÍV szerep számít elsőként, ha `diocese` hatókörű ÉS a szerepe
+ *       benne van az engedélyezett listában;
+ *   (b) SZEREP-SZŰRT visszaadás a `profile_roles` sorokból;
+ *   (c) SZEREP-FÜGGETLEN skalár-elnyomás: ha van BÁRMILYEN érvényes `diocese`
+ *       sor, a (esetleg elavult) `profiles.diocese_id` NEM bővíti a hatókört —
+ *       különben egy visszavont szerep melletti régi skalár tovább nyitna.
+ */
+function resolveDioceseIdsForRoles(
+  access: LevelScopeAccess,
+  allowedRoles: readonly string[],
+): string[] {
+  const ids: string[] = []
+  const push = (id: string | null | undefined) => {
+    if (id && !ids.includes(id)) ids.push(id)
+  }
+
+  // (a) aktív szerep
+  if (
+    access.activeProfileRole?.scope === 'diocese' &&
+    allowedRoles.includes(access.activeProfileRole.role)
+  ) {
+    push(access.activeProfileRole.scopeId)
+  }
+
+  // (b) profile_roles sorok — és közben (c) a szerep-FÜGGETLEN elnyomás jelzése
+  let hasAnyDioceseRow = false
+  for (const r of access.profileRoles) {
+    if (!r.active || r.approval_status !== 'approved' || r.scope !== 'diocese') continue
+    if (r.scope_id) hasAnyDioceseRow = true
+    if (allowedRoles.includes(r.role)) push(r.scope_id)
+  }
+
+  // (c) skalár tartalék — csak ha EGYÁLTALÁN nincs megyei szerepkör-sor
+  if (!hasAnyDioceseRow && access.profile?.role && allowedRoles.includes(access.profile.role)) {
+    push(access.profile.diocese_id ?? null)
+  }
+
+  return ids
+}
+
+/**
+ * A hívó ÍRÁSI megyei hatóköre (esperes / egyházmegyei admin).
+ * Az SQL párja: `current_user_diocese_ids()`.
+ */
+export function resolveDioceseWriteScopeIds(access: LevelScopeAccess): string[] {
+  return resolveDioceseIdsForRoles(access, DIOCESE_WRITE_ROLES)
+}
+
+/**
+ * A hívó OLVASÁSI megyei hatóköre (írók + egyházmegyei számvevő).
+ * Az SQL párja: `current_user_diocese_olvaso_ids()`.
+ */
+export function resolveDioceseReadScopeIds(access: LevelScopeAccess): string[] {
+  return resolveDioceseIdsForRoles(access, DIOCESE_READ_ROLES)
+}
+
+/**
+ * Van-e a hívónak megyei OLVASÁSI jogosultsága? Ezt használja a megyei felület
+ * belépő-kapuja a korábbi `(!esperes && !admin && !master)` feltétel helyett.
+ *
+ * SZIGORÚAN BŐVÍTÉS a régihez képest: aki eddig beléphetett, ezután is belép
+ * (`access.esperes` az `isEsperesRole()` eredménye, ami lefedi az `esperes`,
+ * `egyhazmegyei_admin`, `egyhazkeruleti_admin`, `admin` és master eseteket) —
+ * ÚJ csak a `profile_roles`-alapú egyházmegyei számvevő.
+ */
+export function canReadDioceseScope(access: LevelScopeAccess): boolean {
+  if (access.master || access.admin || access.egyhazkeruletiAdmin || access.esperes) return true
+  return resolveDioceseReadScopeIds(access).length > 0
+}
+
+/**
+ * Írhat-e a hívó megyei szinten?
+ *
+ * `access.esperes` az `isEsperesRole()` eredménye: lefedi az `esperes`,
+ * `egyhazmegyei_admin`, `egyhazkeruleti_admin`, `admin` és master szerepeket
+ * (skalár láb). Mellé a `profile_roles` láb kell, mert egy „profile_roles-only"
+ * esperesnek a skalárja `lelkesz` is lehet.
+ *
+ * 2026-08-11 (számvevő-kör, review-fix): OPCIONÁLIS `dioceseId` paraméter.
+ * ─────────────────────────────────────────────────────────────────────────
+ * MIÉRT KELL: van, aki EGYSZERRE esperes az A megyében és SZÁMVEVŐ a B-ben.
+ * A hatókör-FÜGGETLEN változat rá `true`-t ad — vagyis a B megye felületén
+ * úgy tűnne, hogy írhat, pedig ott csak ellenőr. Ha a hívó megmondja, MELYIK
+ * megyéről van szó, a szerep-szűrt `profile_roles` láb arra a megyére szűr.
+ * A paraméter NÉLKÜLI hívás viselkedése VÁLTOZATLAN (a meglévő hívók —
+ * dashboard-egyhazmegye/page.tsx, document-actions.ts, actions.ts — nem
+ * változnak).
+ */
+export function canWriteDioceseScope(
+  access: LevelScopeAccess,
+  dioceseId?: string | null,
+): boolean {
+  // Szint-FÜGGETLEN írási jog (rendszergazda / kerületi admin) — nincs megyéhez kötve.
+  if (access.master || access.admin || access.egyhazkeruletiAdmin) return true
+  // Skalár esperes / megyei admin: a SAJÁT (profiles.diocese_id) megyéjére ír.
+  if (access.esperes && (!dioceseId || access.profile?.diocese_id === dioceseId)) return true
+  const ids = resolveDioceseWriteScopeIds(access)
+  return dioceseId ? ids.includes(dioceseId) : ids.length > 0
+}
+
+/**
+ * Miért nem írhat a hívó — LELKÉSZ-BARÁT magyar szöveg, tegezve.
+ * `null`, ha írhat.
+ *
+ * Ugyanez a szöveg megy a letiltott gomb tooltipjébe ÉS a szerver akció
+ * `{ error }`-ába, hogy a felhasználó ugyanazt olvassa mindkét helyen.
+ *
+ * 2026-08-11 (review-fix): a `dioceseId` opcionális — ha megadod, a
+ * `canWriteDioceseScope` ugyanarra a megyére szűrve dönt (lásd ott).
+ */
+export function describeDioceseWriteBlock(
+  access: LevelScopeAccess,
+  dioceseId?: string | null,
+): string | null {
+  if (canWriteDioceseScope(access, dioceseId)) return null
+  if (resolveDioceseReadScopeIds(access).length > 0) {
+    return (
+      'Számvevőként (ellenőrként) az egyházmegye adatait megtekintheted és kinyomtathatod, ' +
+      'de nem módosíthatod. Az iratok átvétele, véglegesítése, visszaküldése, a kérelmek ' +
+      'elbírálása és a pénzügyi rögzítés (bevétel, kiadás, költségvetés, számadás-zárás) az ' +
+      'esperes vagy az egyházmegyei adminisztrátor feladata. Ha úgy látod, hogy javítani kell ' +
+      'valamit, jelezd nekik — az ellenőrzés és a rögzítés szándékosan két külön kézben van.'
+    )
+  }
+  return (
+    'Ehhez a művelethez egyházmegyei (esperesi vagy egyházmegyei adminisztrátori) ' +
+    'jogosultság kell. Ha úgy gondolod, hogy neked járna, kérd a rendszergazdától.'
+  )
+}
+
 /**
  * Pure feloldó: a felhasználó egyházkerület-hatóköre (union, aktív szerep elöl).
  * Sorrend: aktív district-szerep scope_id → profile_roles district sorok →
@@ -152,9 +352,13 @@ export function resolveDistrictScopeId(access: LevelScopeAccess): string | null 
  *   else if (ctx.scopeId) { query = query.eq('diocese_id', ctx.scopeId) }
  *   else if (ctx.isAdmin) { … szűretlen, feliratozott admin-ág … }
  *   else return []   // ← SOHA nem szűretlen lekérdezés!
+ *
+ * ÍRÁS ELŐTT (2026-08-11, számvevő-kör):
+ *   if (!ctx.canWrite) return { error: ctx.readOnlyReason! }
  */
 export async function getDioceseScopeContext(): Promise<DioceseScopeContext> {
   const access = await getEffectiveAccessContext()
+  const canWrite = access.user ? canWriteDioceseScope(access) : false
   return {
     supabase: access.supabase,
     user: access.user,
@@ -162,6 +366,8 @@ export async function getDioceseScopeContext(): Promise<DioceseScopeContext> {
     scopeId: access.user ? resolveDioceseScopeId(access) : null,
     isMaster: access.master,
     isAdmin: access.admin,
+    canWrite,
+    readOnlyReason: canWrite ? null : describeDioceseWriteBlock(access),
   }
 }
 

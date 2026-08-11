@@ -54,11 +54,13 @@ import { cn } from '@/lib/utils'
 import {
   FEJEZET_CIMEK,
   JELENTES_MEZOK,
+  MUNKANAPLO_JAVASLAT_MEZOK,
   deriveAutoMezok,
   mezoErtek,
   parseHuSzam,
   type HatarozatAdatok,
   type JelentesFejezet,
+  type JelentesJavaslatok,
   type JelentesMezo,
   type LelkesziJelentesData,
 } from '@/lib/lelkeszi-jelentes/types'
@@ -71,6 +73,23 @@ import {
   submitLelkesziJelentes,
 } from '@/app/(dashboard)/munkanaplo/lelkeszi-jelentes-actions'
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
+// 2026-08-11 (6. kör): különleges gyülekezeti alkalmak + munkanapló-javaslatok.
+// A jelentés-modul szerkezete VÁLTOZATLAN — a nyilvántartás csak JAVASLATOT ad
+// a III.4 / II.10 mező mellé, a munkanapló a III.17 mellé, és mondatokat
+// kínálunk a IX.1-hez. Egyetlen rubrika sem lesz auto: mindkét forrás UGYANAZT
+// a javaslat-sort használja (renderJavaslatSor), nincs két párhuzamos megoldás.
+import {
+  KulonlegesAlkalomLista,
+  useKulonlegesAlkalmak,
+} from '@/components/worklog/kulonleges-alkalom-lista'
+import {
+  JAVASLAT_MEZOK,
+  huRovidDatum,
+  javaslatMezohoz,
+  javaslatTetelekMezohoz,
+  mondatAlkalomhoz,
+  nemIstentiszteletiJellegu,
+} from '@/lib/worklog/kulonleges-alkalom-shared'
 
 // ─────────────────────────────────────────────────────────────────────────
 // Statikus segédstruktúrák
@@ -127,6 +146,22 @@ const WIZARD_LEPES_CIM: Record<WizardLepes, string> = {
 }
 
 type Ertekek = Record<string, number | string | null>
+
+/**
+ * 2026-08-11 (6. kör) — egy javaslat-sor ADATA, forrástól függetlenül.
+ * A leírót a `javaslatLeiro` állítja elő (különleges alkalmak VAGY munkanapló),
+ * a megjelenítés pedig KÖZÖS (`renderJavaslatSor`) — így a két forrás nem tud
+ * két különböző kinézetű, külön karbantartandó javaslat-sort szülni.
+ */
+interface JavaslatLeiro {
+  javasolt: number
+  /** A javaslat mondata, a kiemelt számmal együtt. */
+  mondat: React.ReactNode
+  /** A beszámított alkalmak — a lelkész ELLENŐRIZHESSE, mit ír alá. */
+  tetelek: Array<{ kulcs: string; datum: string; cim: string; extra: string | null }>
+  /** Figyelmeztetés a tételes lista alatt (nem blokkoló). */
+  figyelmeztetes?: React.ReactNode
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // Érték-formázás + mentés-normalizálás
@@ -194,6 +229,9 @@ export function LelkesziJelentesDialog({
   const [loadError, setLoadError] = useState<string | null>(null)
   const [data, setData] = useState<LelkesziJelentesData | null>(null)
   const [unlockRequested, setUnlockRequested] = useState(false)
+  // 2026-08-11 (6. kör): munkanapló-alapú javaslatok a KÉZI rubrikákhoz (III.17).
+  // Véglegesített jelentésnél a szerver üresen hagyja — a snapshot a hiteles adat.
+  const [javaslatok, setJavaslatok] = useState<JelentesJavaslatok>({})
 
   // Szerkesztő-állapot (nyers értékek — mentéskor normalizálunk)
   const [kezi, setKezi] = useState<Ertekek>({})
@@ -204,6 +242,9 @@ export function LelkesziJelentesDialog({
   // Megnyitott (de még üres) felülírás-inputok
   const [overrideOpen, setOverrideOpen] = useState<Set<string>>(new Set())
   const [openChapters, setOpenChapters] = useState<Set<JelentesFejezet>>(new Set(['I']))
+  // 2026-08-11 (6. kör): a „Különleges alkalmak" panel nyitottsága a szerkesztőben.
+  // `null` = a lelkész még nem döntött → az alapállapot dönt (lásd lentebb).
+  const [kulonlegesNyitva, setKulonlegesNyitva] = useState<boolean | null>(null)
 
   // Nézetek
   const [mode, setMode] = useState<NezetMod>('szerkeszto')
@@ -224,6 +265,15 @@ export function LelkesziJelentesDialog({
 
   const readOnly = data?.statusz === 'veglegesitve'
 
+  // 2026-08-11 (6. kör): a különleges alkalmak EGYSZER töltődnek be a dialógus
+  // nyitásakor, és ugyanaz az adat táplálja a wizard 2. lépését ÉS a szerkesztő
+  // javaslat-sorait — így a két helyen látott szám soha nem tud széthúzni.
+  const kulonleges = useKulonlegesAlkalmak(year, open)
+  // Ha van megerősítésre váró alkalom, a panel ALAPBÓL nyitva van (az a teendő);
+  // különben csukva, hogy ne tolja le a fejezeteket. A lelkész döntése felülírja.
+  const kulonlegesAlapNyitva = kulonleges.osszesites.fuggoben > 0
+  const kulonlegesPanelNyitva = kulonlegesNyitva ?? kulonlegesAlapNyitva
+
   // ── Betöltés nyitáskor (queueMicrotask: nincs szinkron setState az effectben) ──
   useEffect(() => {
     if (!open) return
@@ -236,9 +286,11 @@ export function LelkesziJelentesDialog({
       setKezi({})
       setFelulirasok({})
       setHatarozat({})
+      setJavaslatok({})
       setDirty(false)
       setOverrideOpen(new Set())
       setOpenChapters(new Set(['I']))
+      setKulonlegesNyitva(null)
       setMode('szerkeszto')
       setWizardStep('attekintes')
       setMobileView('szerkesztes')
@@ -261,6 +313,7 @@ export function LelkesziJelentesDialog({
           setKezi({ ...res.data.kezi })
           setFelulirasok({ ...res.data.felulirasok })
           setHatarozat({ ...res.data.hatarozat })
+          setJavaslatok(res.javaslatok || {})
           setUnlockRequested(res.unlockRequested === true)
           // Beküldve-állapot a szerverről (korábban fixen false maradt)
           setSubmitted(Boolean(res.data.submission))
@@ -295,6 +348,7 @@ export function LelkesziJelentesDialog({
       setKezi({ ...res.data.kezi })
       setFelulirasok({ ...res.data.felulirasok })
       setHatarozat({ ...res.data.hatarozat })
+      setJavaslatok(res.javaslatok || {})
       setUnlockRequested(res.unlockRequested === true)
       setSubmitted(Boolean(res.data.submission))
       setDirty(false)
@@ -680,6 +734,198 @@ export function LelkesziJelentesDialog({
     )
   }
 
+  /**
+   * 2026-08-11 (6. kör) — a javaslat-sor ADATA egy KÉZI mezőhöz, forrástól
+   * függetlenül. KÉT forrás létezik, és MINDKETTŐ ugyanezt a leírót adja:
+   *
+   *   (1) a különleges alkalmak nyilvántartása  → III.4 / II.10
+   *   (2) a MUNKANAPLÓ                          → III.17 (nőszövetségi)
+   *
+   * A rubrika mindkét esetben KÉZI MARAD: a rendszer megmutatja, mit tud, és
+   * egy koppintással beírja. Ha a lelkész a bevezetés évében csak a felét vitte
+   * fel, a hivatalos szám akkor is az marad, amit ő tud — automatikus rubrikánál
+   * a rendszer LEFELÉ hamisítana egy aláírt, beküldött nyomtatványon.
+   */
+  function javaslatLeiro(mezo: JelentesMezo, opts?: { cimkevel?: boolean }): JavaslatLeiro | null {
+    // VÉDŐHÁLÓ: auto-mező mellé SOHA nem teszünk javaslatot — ott a felülírás
+    // az út, és a kettő egymás ellen dolgozna (felulirasok > auto > kezi).
+    if (mezo.auto) return null
+
+    // ── (1) Különleges alkalmak nyilvántartása — III.4 / II.10 ──
+    if (JAVASLAT_MEZOK.has(mezo.id)) {
+      if (kulonleges.needsSql) return null
+      const o = kulonleges.osszesites
+      const javasolt = javaslatMezohoz(o, mezo.id)
+      if (javasolt === null) return null
+      // Nincs mit mondani: nulla megtartott alkalom, és semmi függőben/elmaradt.
+      if (javasolt === 0 && o.fuggoben === 0 && o.elmaradt === 0) return null
+
+      const beszamitott = javaslatTetelekMezohoz(kulonleges.tetelek, mezo.id)
+      const nemIstentiszteleti = beszamitott.filter(nemIstentiszteletiJellegu)
+
+      return {
+        javasolt,
+        mondat: (
+          <>
+            A nyilvántartás szerint{' '}
+            <strong className="tabular-nums text-foreground">{javasolt}</strong> megtartott alkalom
+            {o.fuggoben > 0 ? ` · ${o.fuggoben} megerősítésre vár` : ''}
+            {o.elmaradt > 0 ? ` · ${o.elmaradt} elmaradt` : ''}
+            {o.fuggoben > 0 && !opts?.cimkevel && (
+              <>
+                {' — '}a függőben lévőket a{' '}
+                <strong className="text-foreground">Véglegesítés…</strong> gomb 2. lépésében
+                erősítheted meg.
+              </>
+            )}
+          </>
+        ),
+        tetelek: beszamitott.map((t) => ({
+          kulcs: t.id || `${t.programId || ''}|${t.tervezettDatum}`,
+          datum: huRovidDatum(t.tenylegesDatum || t.tervezettDatum),
+          cim: t.cim,
+          extra: t.resztvevok != null ? `${t.resztvevok} fő` : null,
+        })),
+        // A II. fejezet címe „Istentisztelet" — egy tábor vagy kirándulás nem
+        // istentiszteleti alkalom. NEM döntünk a lelkész helyett, de kimondjuk,
+        // mielőtt aláírja.
+        figyelmeztetes:
+          mezo.id === 'II.10' && nemIstentiszteleti.length > 0 ? (
+            <>
+              Ebből <strong className="tabular-nums">{nemIstentiszteleti.length}</strong> nem
+              istentiszteleti jellegű (tábor, kirándulás, diakóniai alkalom). A II. fejezet az
+              istentiszteleteké — fontold meg, hogy ezeket inkább a IX.1 szövegébe írod.
+            </>
+          ) : undefined,
+      }
+    }
+
+    // ── (2) Munkanapló-alapú javaslat — III.17 (nőszövetségi alkalmak) ──
+    //
+    // A napló 15. oszlopa („Nőszövetségi összejövetel") eddig SEHOL nem
+    // jelent meg a jelentésben. Most javaslatként megjelenik — de a rubrika
+    // szövege „Nőszövetségi BIBLIAÓRA alkalmai", a naplóé „ÖSSZEJÖVETEL":
+    // az egyenlőségjelet a lelkész teszi ki, ezért ezt kimondjuk a mondatban.
+    if (MUNKANAPLO_JAVASLAT_MEZOK.has(mezo.id)) {
+      const j = javaslatok[mezo.id]
+      // Hiányzó kulcs = nincs ilyen alkalom, VAGY a munkanapló-lekérdezés
+      // hibázott (a szerver ilyenkor SZÁNDÉKOSAN nem javasol 0-t).
+      if (!j || j.ertek === 0) return null
+      return {
+        javasolt: j.ertek,
+        mondat: (
+          <>
+            A munkanapló szerint{' '}
+            <strong className="tabular-nums text-foreground">{j.ertek}</strong> nőszövetségi
+            összejövetel — a rubrika a nőszövetségi <em>bibliaórákat</em> kéri, ezért nézd át,
+            mielőtt beírod.
+          </>
+        ),
+        tetelek: j.tetelek.map((t, i) => ({
+          kulcs: `${t.datum}|${i}`,
+          datum: huRovidDatum(t.datum),
+          cim: t.cim,
+          extra: t.jelenlet != null ? `${t.jelenlet} fő` : null,
+        })),
+      }
+    }
+
+    return null
+  }
+
+  /** A javaslat-sor megjelenítése — KÖZÖS mindkét forráshoz. */
+  function renderJavaslatSor(mezo: JelentesMezo, opts?: { cimkevel?: boolean }) {
+    const leiro = javaslatLeiro(mezo, opts)
+    if (!leiro) return null
+
+    const jelenlegi = parseHuSzam(kezi[mezo.id] ?? null)
+    const elter = jelenlegi !== leiro.javasolt
+
+    return (
+      <div className="mt-1.5 rounded-lg border border-dashed border-border bg-muted/40 px-2.5 py-1.5 text-[11px] leading-5 text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="min-w-0 flex-1">
+            {opts?.cimkevel && (
+              <strong className="tabular-nums text-foreground">
+                {mezo.id} — {mezo.label}:{' '}
+              </strong>
+            )}
+            {leiro.mondat}
+          </span>
+          {!readOnly && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-h-11 shrink-0"
+              disabled={!elter}
+              title={elter ? 'A javasolt érték beírása a mezőbe' : 'A mezőben már ez az érték áll'}
+              onClick={() => setKeziErtek(mezo.id, String(leiro.javasolt))}
+            >
+              Beírom
+            </Button>
+          )}
+        </div>
+
+        {leiro.tetelek.length > 0 && (
+          <details className="mt-1">
+            <summary className="cursor-pointer list-none py-1 underline-offset-2 hover:underline">
+              Mi számít bele? ({leiro.tetelek.length} alkalom)
+            </summary>
+            <ul className="mt-1 space-y-0.5 border-t border-border pt-1">
+              {leiro.tetelek.map((t) => (
+                <li key={t.kulcs} className="flex flex-wrap gap-x-1.5">
+                  <span className="tabular-nums">{t.datum}</span>
+                  <span className="text-foreground">{t.cim}</span>
+                  {t.extra && <span className="tabular-nums">· {t.extra}</span>}
+                </li>
+              ))}
+            </ul>
+            {leiro.figyelmeztetes && (
+              <p className="mt-1.5 rounded-md border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-foreground">
+                {leiro.figyelmeztetes}
+              </p>
+            )}
+          </details>
+        )}
+      </div>
+    )
+  }
+
+  /**
+   * 2026-08-11 (6. kör) — a IX.1 („A gyülekezet életének fontosabb eseményei")
+   * mezőhöz mondatokat kínálunk a megerősített alkalmakból. HOZZÁFŰZ, soha nem
+   * ír felül; a már beillesztett mondatokat kihagyja (nincs duplikálás).
+   */
+  function renderIX1Beszuras(mezo: JelentesMezo) {
+    if (mezo.id !== 'IX.1' || readOnly || kulonleges.needsSql) return null
+    const jelenlegi = String(kezi['IX.1'] ?? '')
+    const mondatok = kulonleges.tetelek
+      .filter((t) => t.allapot === 'megtartva' && !t.masEvbe)
+      .map(mondatAlkalomhoz)
+      .filter((s) => !jelenlegi.includes(s))
+    if (mondatok.length === 0) return null
+
+    return (
+      <div className="mt-1.5">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="min-h-11"
+          onClick={() => {
+            const alap = jelenlegi.replace(/\s+$/, '')
+            setKeziErtek('IX.1', alap ? `${alap}\n${mondatok.join('\n')}` : mondatok.join('\n'))
+            toast.success(`${mondatok.length} mondat hozzáfűzve — szerkeszd nyugodtan.`)
+          }}
+        >
+          <Sparkles className="size-3.5" />
+          Beillesztem a különleges alkalmak mondatait ({mondatok.length})
+        </Button>
+      </div>
+    )
+  }
+
   function renderKeziMezo(mezo: JelentesMezo) {
     const v = kezi[mezo.id]
     const value = v === undefined || v === null ? '' : String(v)
@@ -709,6 +955,8 @@ export function LelkesziJelentesDialog({
             className={cn('mt-1 h-9', mezo.tipus === 'szam' && 'tabular-nums')}
           />
         )}
+        {renderJavaslatSor(mezo)}
+        {renderIX1Beszuras(mezo)}
       </div>
     )
   }
@@ -872,6 +1120,64 @@ export function LelkesziJelentesDialog({
                     </p>
                   </div>
                 </div>
+
+                {/* 2026-08-11 (6. kör): különleges alkalmak megerősítése.
+                    HANGOS, de NEM BLOKKOLÓ — a wizardNext() érintetlen, mert a
+                    III.4 / II.10 kézi mező, tehát egy függő tétel nem tud
+                    hivatalos számot rontani. */}
+                {kulonleges.osszesites.fuggoben > 0 && (
+                  <div className="rounded-2xl border border-amber-400/40 bg-amber-500/10 p-4">
+                    <p className="text-sm font-semibold text-foreground">
+                      {kulonleges.osszesites.fuggoben} különleges alkalom megerősítésre vár
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Ezek egyelőre nem szerepelnek a jelentés javaslataiban. Egy koppintás
+                      alkalmanként — alább el is intézheted.
+                    </p>
+                  </div>
+                )}
+
+                <KulonlegesAlkalomLista ev={year} adat={kulonleges} zarolva={readOnly} kompakt />
+
+                {/* 2026-08-11 (6. kör, reviewer-major): a megerősített számok ITT
+                    is beírhatók. Korábban a [Beírom] gomb CSAK a szerkesztő
+                    összecsukott fejezet-akkordeonjában létezett, tehát a lelkész
+                    a wizard 2. lépéséből visszalépve, a II. fejezetben ~40 mezőn
+                    átgörgetve jutott el a II.10-ig — telefonon ~60 koppintás.
+                    Ugyanaz a `renderJavaslatSor`, tehát a két helyen mutatott
+                    szám nem tud széthúzni. */}
+                {(() => {
+                  // 2026-08-11 (6. kör): a III.17 (nőszövetségi) a MUNKANAPLÓBÓL
+                  // jön, nem a különleges alkalmak nyilvántartásából — ezért itt
+                  // NINCS `kulonleges.needsSql` kapu. A forrásonkénti feltételt a
+                  // `javaslatLeiro` intézi, soronként.
+                  const sorok = (['III.4', 'II.10', 'III.17'] as const)
+                    .map((id) => {
+                      const mezo = MEZO_BY_ID.get(id)
+                      const node = mezo ? renderJavaslatSor(mezo, { cimkevel: true }) : null
+                      return node ? <div key={id}>{node}</div> : null
+                    })
+                    .filter(Boolean)
+                  const ix1mezo = MEZO_BY_ID.get('IX.1')
+                  const ix1 = ix1mezo ? renderIX1Beszuras(ix1mezo) : null
+                  // Ha nincs mit felajánlani, NE tegyünk ide üres kártyát.
+                  if (sorok.length === 0 && !ix1) return null
+                  return (
+                    <div className="space-y-2 rounded-2xl border border-border bg-card p-4">
+                      <p className="text-sm font-semibold text-foreground">
+                        Javasolt számok beírása a jelentésbe
+                      </p>
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        A III.4, a II.10 és a III.17 rubrika{' '}
+                        <strong className="text-foreground">kézi</strong> — a nyilvántartás és a
+                        munkanapló csak javasol. Innen egy koppintással beírhatod, nem kell
+                        visszamenned a szerkesztőbe.
+                      </p>
+                      {sorok}
+                      {ix1}
+                    </div>
+                  )
+                })()}
 
                 {zarszamadasHianyzik && (
                   <div className="rounded-2xl border border-amber-400/40 bg-amber-500/10 p-4">
@@ -1096,6 +1402,57 @@ export function LelkesziJelentesDialog({
                 <h2 ref={editorHeadingRef} tabIndex={-1} className="sr-only outline-none">
                   A jelentés szerkesztése — fejezetek
                 </h2>
+
+                {/* 2026-08-11 (6. kör, reviewer-blocker) — KÜLÖNLEGES ALKALMAK
+                    a SZERKESZTŐBEN is.
+                    Korábban a lista KIZÁRÓLAG a véglegesítő wizard 2. lépésében
+                    létezett, a wizardba pedig az EGYETLEN belépő a „Véglegesítés…"
+                    gomb volt — ami véglegesített jelentésnél eltűnik. Így a
+                    teljes funkció elérhetetlenné vált, amint a lelkész aláírta a
+                    jelentést; a lista `zarolva` ága („…utólag is rögzítheted, hogy
+                    a nyilvántartás teljes legyen") HALOTT KÓD volt, mert pontosan
+                    akkor lett igaz, amikor a komponens sosem renderelődött.
+                    Itt a nézet readOnly állapotban is látszik. */}
+                {!kulonleges.needsSql && (
+                  <section className="rounded-2xl border border-border bg-card">
+                    <button
+                      type="button"
+                      onClick={() => setKulonlegesNyitva((v) => !(v ?? kulonlegesAlapNyitva))}
+                      aria-expanded={kulonlegesPanelNyitva}
+                      className="flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <span className="min-w-0 flex-1 font-heading text-sm text-foreground sm:text-base">
+                        Különleges alkalmak
+                      </span>
+                      {kulonleges.osszesites.fuggoben > 0 && (
+                        <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] tabular-nums text-amber-700 dark:text-amber-300">
+                          {kulonleges.osszesites.fuggoben} vár
+                        </span>
+                      )}
+                      <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground">
+                        {kulonleges.osszesites.szeretetvendegseg + kulonleges.osszesites.egyeb}{' '}
+                        megtartva
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          'size-4 shrink-0 text-muted-foreground transition-transform',
+                          kulonlegesPanelNyitva && 'rotate-180',
+                        )}
+                      />
+                    </button>
+                    {kulonlegesPanelNyitva && (
+                      <div className="border-t border-border px-4 py-3.5">
+                        <KulonlegesAlkalomLista
+                          ev={year}
+                          adat={kulonleges}
+                          zarolva={readOnly}
+                          kompakt
+                        />
+                      </div>
+                    )}
+                  </section>
+                )}
+
                 {FEJEZETEK.map((fejezet) => {
                   const nyitva = openChapters.has(fejezet)
                   const mezok = FEJEZET_MEZOK.get(fejezet) || []

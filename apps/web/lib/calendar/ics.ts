@@ -112,6 +112,32 @@ const VTIMEZONE = [
  *  azt csak a desktop írja/olvassa). */
 export type CalendarFeedProgram = Program & { leiras?: string | null }
 
+/**
+ * Egész napos, „kiegészítő" naptár-esemény (2026-08-11) — a lelkészi
+ * (privát) feed évfordulói ilyenek: születésnap, névnap, házassági és
+ * konfirmációi évforduló.
+ *
+ * MIÉRT KÉT MÓD (`yearly`)
+ * ────────────────────────
+ * Ha az esemény CÍME évről évre UGYANAZ (névnap), akkor egyetlen VEVENT +
+ * `RRULE:FREQ=YEARLY` a helyes szemantika: kevesebb sor, és a naptár maga
+ * kezeli az ismétlést. Ha viszont a cím SORSZÁMOT hordoz („80. születésnap"),
+ * az RRULE HAZUDNA — minden évben ugyanazt a számot mutatná. Ott évenként
+ * kibontott, önálló VEVENT-eket adunk ki (ugyanaz az elv, mint a programoknál).
+ */
+export interface CalendarAllDayEvent {
+  /** Stabil, ütközésmentes UID-mag (a `@kartoteka.app` utótagot mi tesszük rá). */
+  uid: string
+  /** A telefon zárolási képernyőjén olvasható cím (emoji + magyar szöveg). */
+  summary: string
+  /** Az esemény napja — 'YYYY-MM-DD'. */
+  date: string
+  /** `true` → egyetlen VEVENT `RRULE:FREQ=YEARLY`-vel (címben NINCS sorszám). */
+  yearly?: boolean
+  description?: string
+  category?: string
+}
+
 export interface BuildIcsInput {
   congregationName: string
   programs: CalendarFeedProgram[]
@@ -120,6 +146,17 @@ export interface BuildIcsInput {
   toYear: number
   /** Református ünnepek egész napos eseményként (alap: igen) */
   includeHolidays: boolean
+  /**
+   * Egész napos kiegészítő események (évfordulók). A nyilvános feed nem ad át
+   * ilyet — a lelkészi feed igen (2026-08-11).
+   */
+  events?: CalendarAllDayEvent[]
+  /**
+   * A naptár megjelenített neve (X-WR-CALNAME). Alap: „<gyülekezet> —
+   * gyülekezeti naptár". A lelkészi feed ezt írja felül, hogy a Google
+   * Naptárban a két előfizetés ELKÜLÖNÜLJÖN egymástól.
+   */
+  calendarName?: string
 }
 
 const PRIORITY_LABELS: Record<string, string> = {
@@ -131,13 +168,14 @@ const PRIORITY_LABELS: Record<string, string> = {
 
 export function buildCalendarIcs(input: BuildIcsInput): string {
   const { congregationName, programs, fromYear, toYear, includeHolidays } = input
+  const calendarName = input.calendarName?.trim() || `${congregationName} — gyülekezeti naptár`
   const lines: string[] = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//Kartoteka//Gyulekezeti naptar//HU',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
-    fold(`X-WR-CALNAME:${esc(congregationName)} — gyülekezeti naptár`),
+    fold(`X-WR-CALNAME:${esc(calendarName)}`),
     'X-WR-TIMEZONE:Europe/Bucharest',
     'REFRESH-INTERVAL;VALUE=DURATION:PT6H',
     'X-PUBLISHED-TTL:PT6H',
@@ -222,6 +260,25 @@ export function buildCalendarIcs(input: BuildIcsInput): string {
         lines.push('END:VEVENT')
       }
     }
+  }
+
+  // ── Kiegészítő, egész napos események (évfordulók) — 2026-08-11 ──
+  // A `TRANSP:TRANSPARENT` azért kell, hogy a köszöntők NE foglalják le a
+  // lelkész szabad/foglalt idejét: egy 80. születésnap emlékeztető nem
+  // jelentheti azt, hogy aznap nem hívható meg temetésre.
+  for (const ev of input.events ?? []) {
+    lines.push('BEGIN:VEVENT')
+    lines.push(fold(`UID:${ev.uid}@kartoteka.app`))
+    lines.push(`DTSTAMP:${dtstamp}`)
+    lines.push(fold(`SUMMARY:${esc(ev.summary)}`))
+    lines.push(`DTSTART;VALUE=DATE:${icsDate(ev.date)}`)
+    lines.push(`DTEND;VALUE=DATE:${icsNextDay(ev.date)}`)
+    if (ev.yearly) lines.push('RRULE:FREQ=YEARLY')
+    lines.push('TRANSP:TRANSPARENT')
+    lines.push('X-MICROSOFT-CDO-ALLDAYEVENT:TRUE')
+    if (ev.description) lines.push(fold(`DESCRIPTION:${esc(ev.description)}`))
+    if (ev.category) lines.push(fold(`CATEGORIES:${esc(ev.category)}`))
+    lines.push('END:VEVENT')
   }
 
   lines.push('END:VCALENDAR')

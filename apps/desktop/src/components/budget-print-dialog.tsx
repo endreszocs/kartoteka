@@ -20,7 +20,6 @@ import {
   type BefitetesRow,
   type BudgetPrintData,
   type BudgetPrintFilters,
-  type BudgetPrintType,
   type KiadasRow,
   type SzamadasiCel,
 } from '@kartoteka/ui-app'
@@ -62,32 +61,32 @@ export function DesktopBudgetPrintDialog({
   currentYear,
   onToast,
 }: DesktopBudgetPrintDialogProps) {
-  // Tényadatok aggregálása számadásicél-kódonként — részszámadásnál a kapott
-  // periodFrom/periodTo időszakra szűrve (a web computeActuals tükre).
+  // Tényadatok aggregálása számadásicél-kódonként (a web computeActuals tükre).
+  // 2026-08-11 (6. kör): a részszámadás INNEN KIKERÜLT — a „Pénzügyi nyomtatási
+  // központba" költözött, mert csak ott van év-scope-olt tétel-betöltés és
+  // számlánkénti feloldott nyitó.
   const computeActuals = useCallback(
-    (printType: BudgetPrintType, periodFrom: string | null, periodTo: string | null) => {
+    () => {
       const actualIncome: Record<string, number> = {}
       const actualExpense: Record<string, number> = {}
 
-      const inPeriod = (datum: string | null | undefined): boolean => {
-        if (printType !== 'reszszamadas') return true
-        if (!datum || !periodFrom || !periodTo) return false
-        const d = datum.slice(0, 10)
-        return d >= periodFrom && d <= periodTo
-      }
-
+      // 2026-08-11 (6. kör, web-paritás): a stornózott és a soft-törölt tétel a
+      // hivatalos tény-oszlopba NEM számít, és az összeg a RON-EKVIVALENS
+      // (`osszeg_ron ?? osszeg`). A desktop-tükörből mindkettő kimaradt:
+      // egy devizás banki tétel (1000 EUR) itt 1000 lejként szerepelt, a
+      // Registru viszont 4970 lejként — két aláírt papír, két összeg.
       for (const r of incomeRecords) {
-        if (!inPeriod(r.datum)) continue
+        if (r.deleted || r.stornozott) continue
         if (r.id_befizetescel) {
           const code = bevCelMap[r.id_befizetescel]
-          if (code) actualIncome[code] = (actualIncome[code] || 0) + Number(r.osszeg || 0)
+          if (code) actualIncome[code] = (actualIncome[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
         }
       }
       for (const r of expenseRecords) {
-        if (!inPeriod(r.datum)) continue
+        if (r.deleted || r.stornozott) continue
         if (r.id_kiadascel) {
           const code = kiaCelMap[r.id_kiadascel]
-          if (code) actualExpense[code] = (actualExpense[code] || 0) + Number(r.osszeg || 0)
+          if (code) actualExpense[code] = (actualExpense[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
         }
       }
 
@@ -128,14 +127,16 @@ export function DesktopBudgetPrintDialog({
 
         <BudgetPrintDialogBody
           open={open}
-          printableTypes={BUDGET_PRINT_TYPES}
+          // 2026-08-11 (6. kör, web-paritás): a Részszámadás a Pénzügyi
+          // nyomtatási központban van.
+          printableTypes={BUDGET_PRINT_TYPES.filter((t) => t.id !== 'reszszamadas')}
           currentYear={currentYear}
           budgetFinalized={!!settings.budget_finalized}
           accountingFinalized={!!settings.accounting_finalized}
           computeActuals={computeActuals}
           onLoadBudgetRows={onLoadBudgetRows}
           buildReport={(filters: BudgetPrintFilters) => {
-            const isSzamadas = filters.printType === 'szamadas' || filters.printType === 'reszszamadas'
+            const isSzamadas = filters.printType === 'szamadas'
             const finalized = isSzamadas ? !!settings.accounting_finalized : !!settings.budget_finalized
             const printData: BudgetPrintData = {
               cellek,
@@ -146,8 +147,6 @@ export function DesktopBudgetPrintDialog({
               year: filters.selectedYear,
               carryoverCash,
               carryoverBank,
-              periodFrom: filters.periodFrom ?? undefined,
-              periodTo: filters.periodTo ?? undefined,
               finalized,
             }
             return buildBudgetPrintDocument(filters.printType, printData)

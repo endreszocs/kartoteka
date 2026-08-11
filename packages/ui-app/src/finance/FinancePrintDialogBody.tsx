@@ -71,6 +71,11 @@ export interface FinancePrintFilters {
    *  undefined = az oldal éve (a wrapper a saját propjait használja);
    *  null = még töltődik. */
   yearRecords?: unknown | null
+  /** 2026-08-11 (6. kör): a részszámadás időszaka (ÉÉÉÉ-HH-NN). Minden más
+   *  nyomtatványtípusnál null. Az évhatáron SOHA nem nyúlhat át — a builder
+   *  fail-closed módon letiltja a nyomtatást. */
+  periodFrom: string | null
+  periodTo: string | null
 }
 
 export interface FinancePrintDialogBodyProps {
@@ -165,12 +170,25 @@ export function FinancePrintDialogBody({
   const [budgetRows, setBudgetRows] = useState<Record<string, unknown> | null>(null)
   /** Csoportnapló: a kiválasztott jogcím kódja ('' = mind). */
   const [selectedCategoryKod, setSelectedCategoryKod] = useState<string>('')
-  /** 2026-07-10 (S5-#3): a NEM-folyó évhez betöltött bevétel/kiadás sorok (opak). */
-  const [yearRecords, setYearRecords] = useState<unknown | null>(null)
+  /** 2026-07-10 (S5-#3): a NEM-folyó évhez betöltött bevétel/kiadás sorok (opak).
+   *  2026-08-11 (6. kör): a payload mellé az ÉV is eltárolódik. Enélkül egy
+   *  típus- vagy évváltás utáni ELSŐ renderben a MÁSIK év sorai kerültek volna
+   *  a nyomtatványba (a törlő effect csak render UTÁN fut) — egy ilyen frame-ben
+   *  a lelkész rossz számokkal ellátott előnézetet nyomtathatna ki. */
+  const [yearRecords, setYearRecords] = useState<{ year: number; data: unknown } | null>(null)
+  /** 2026-08-11 (6. kör): a részszámadás időszaka. */
+  const [periodFrom, setPeriodFrom] = useState(`${currentYear}-01-01`)
+  const [periodTo, setPeriodTo] = useState(() => new Date().toISOString().slice(0, 10))
 
   const isCsoportNaploMode = printType === 'csoport_naplo'
+  const isReszszamadasMode = printType === 'reszszamadas'
   const isBudgetMode =
-    printType === 'koltsegvetes' || printType === 'koltsegvetes_modositas' || printType === 'szamadas'
+    printType === 'koltsegvetes' ||
+    printType === 'koltsegvetes_modositas' ||
+    printType === 'szamadas' ||
+    // 2026-08-11 (6. kör): a részszámadásnak IS kellenek a költségvetési sorok
+    // (a „Prevederi anuale / ÉVES költségvetés" oszlophoz).
+    isReszszamadasMode
   const showBankSelector = printType === 'registru_banca'
   const isNyugtatombMode = printType === 'nyugtatomb_kimutatas'
   const reprintKind: 'decont' | 'dispozitie' | null =
@@ -213,16 +231,24 @@ export function FinancePrintDialogBody({
   // 2026-07-10 (S5-#3): ha a dialog évválasztója az oldal évétől ELTÉRŐ évre áll,
   // a bevétel/kiadás sorokat AHHOZ az évhez töltjük be — eddig a memóriában lévő
   // (az oldal évére szűrt) sorokat szűrtük, így múltbeli évre minden üres volt.
-  const needsYearRecords = selectedYear !== currentYear
+  // 2026-08-11 (6. kör): a RÉSZSZÁMADÁS a folyó évben IS ezt az utat járja. Az
+  // időszaki nyitó a SZÁMLÁNKÉNTI feloldott nyitóból vezetődik le, és csak a
+  // szerver-oldali `getYearFinanceRecords` adja vissza azt (a `nyitoOk`
+  // fail-closed jelzéssel együtt). A memóriában lévő props-nyitó nem elég.
+  const needsYearRecords = selectedYear !== currentYear || isReszszamadasMode
   useEffect(() => {
     if (!open || !needsYearRecords || !onLoadYearRecords) return
     let cancelled = false
     setYearRecords(null)
     void onLoadYearRecords(selectedYear).then((recs) => {
-      if (!cancelled) setYearRecords(recs)
+      if (!cancelled) setYearRecords({ year: selectedYear, data: recs })
     })
     return () => { cancelled = true }
   }, [open, needsYearRecords, selectedYear, onLoadYearRecords])
+
+  /** A betöltött sorok CSAK akkor használhatók, ha a KIVÁLASZTOTT évhez valók. */
+  const yearRecordsForSelected =
+    yearRecords && yearRecords.year === selectedYear ? yearRecords.data : null
 
   // Fit-to-width előnézet: a konténer szélességét mérjük, és a dokumentumot
   // (A4) lekicsinyítjük, hogy NE legyen oldalirányú görgetés.
@@ -281,12 +307,34 @@ export function FinancePrintDialogBody({
       selectedDoc: isReprintMode ? selectedDoc : null,
       budgetRows: isBudgetMode ? budgetRows : null,
       selectedCategoryKod: isCsoportNaploMode && selectedCategoryKod ? selectedCategoryKod : null,
-      yearRecords: needsYearRecords ? yearRecords : undefined,
+      yearRecords: needsYearRecords ? yearRecordsForSelected : undefined,
+      periodFrom: isReszszamadasMode ? periodFrom : null,
+      periodTo: isReszszamadasMode ? periodTo : null,
     }),
-    [printType, selectedYear, selectedMonth, selectedBankId, showBankSelector, isNyugtatombMode, nyugtatombok, isReprintMode, selectedDoc, isBudgetMode, budgetRows, isCsoportNaploMode, selectedCategoryKod, needsYearRecords, yearRecords],
+    [printType, selectedYear, selectedMonth, selectedBankId, showBankSelector, isNyugtatombMode, nyugtatombok, isReprintMode, selectedDoc, isBudgetMode, budgetRows, isCsoportNaploMode, selectedCategoryKod, needsYearRecords, yearRecordsForSelected, isReszszamadasMode, periodFrom, periodTo],
   )
 
   const report = useMemo(() => buildReport(filters), [buildReport, filters])
+  // 2026-08-11 (6. kör): fail-closed — ha a builder nem tud érvényes
+  // nyomtatványt adni, a Nyomtatás és a PDF gomb LETILTVA marad.
+  const blocked = report.blocked === true
+
+  // Az időszak-gyorsgombok. 44px-es érintőcél (min-h-11) — a régi ~22px-es
+  // pillek telefonon használhatatlanok voltak.
+  const periodPresets: { label: string; from: string; to: string }[] = useMemo(() => {
+    const y = selectedYear
+    const today = new Date().toISOString().slice(0, 10)
+    const evElejeTol = y === currentYear ? today : `${y}-12-31`
+    return [
+      { label: 'I. negyedév', from: `${y}-01-01`, to: `${y}-03-31` },
+      { label: 'II. negyedév', from: `${y}-04-01`, to: `${y}-06-30` },
+      { label: 'III. negyedév', from: `${y}-07-01`, to: `${y}-09-30` },
+      { label: 'IV. negyedév', from: `${y}-10-01`, to: `${y}-12-31` },
+      { label: 'I. félév', from: `${y}-01-01`, to: `${y}-06-30` },
+      { label: 'II. félév', from: `${y}-07-01`, to: `${y}-12-31` },
+      { label: 'Év eleje → ma', from: `${y}-01-01`, to: evElejeTol },
+    ]
+  }, [selectedYear, currentYear])
 
   const docW = report.orientation === 'portrait' ? A4_PORTRAIT_W : A4_LANDSCAPE_W
   // A dokumentumot a konténernél kicsivel keskenyebbre méretezzük, hogy
@@ -297,6 +345,11 @@ export function FinancePrintDialogBody({
   const scaledH = Math.round(contentH * scale)
 
   async function handlePdf() {
+    // Fail-closed, védőréteg a letiltott gomb MÖGÖTT is (2026-08-11).
+    if (blocked) {
+      onToast?.('Ez a nyomtatvány most nem adható ki — nézd meg az előnézetben, mi hiányzik.', 'error')
+      return
+    }
     if (!onPrintToPdf) {
       onToast?.('A PDF mentés nem érhető el ezen a felületen.', 'warning')
       return
@@ -319,6 +372,10 @@ export function FinancePrintDialogBody({
   }
 
   async function handleDirectPrint() {
+    if (blocked) {
+      onToast?.('Ez a nyomtatvány most nem adható ki — nézd meg az előnézetben, mi hiányzik.', 'error')
+      return
+    }
     if (!onPrintToBrowser) {
       onToast?.('A nyomtatás nem érhető el ezen a felületen.', 'warning')
       return
@@ -385,7 +442,17 @@ export function FinancePrintDialogBody({
               Év
               <select
                 value={selectedYear}
-                onChange={(e) => setSelectedYear(Number(e.target.value))}
+                onChange={(e) => {
+                  const y = Number(e.target.value)
+                  setSelectedYear(y)
+                  // 2026-08-11 (6. kör): a részszámadás időszaka KÖVETI az évet.
+                  // Enélkül a 2026-os időszak maradna a 2025-ös éven — a builder
+                  // ezt letiltja, de a lelkész csak egy hibát látna, ok nélkül.
+                  setPeriodFrom(`${y}-01-01`)
+                  setPeriodTo(
+                    y === currentYear ? new Date().toISOString().slice(0, 10) : `${y}-12-31`,
+                  )
+                }}
                 className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
               >
                 {Array.from({ length: 8 }, (_, i) => currentYear - i).map((y) => (
@@ -417,6 +484,71 @@ export function FinancePrintDialogBody({
               </select>
             </label>
           </div>
+
+          {/* ── Részszámadás: időszak (2026-08-11, 6. kör) ─────────────── */}
+          {isReszszamadasMode && (
+            <div className="space-y-2 rounded-2xl border border-amber-200 bg-amber-50/60 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                A részszámadás időszaka
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="block text-xs font-medium text-slate-700">
+                  Kezdő dátum
+                  <input
+                    type="date"
+                    value={periodFrom}
+                    onChange={(e) => setPeriodFrom(e.target.value)}
+                    min={`${selectedYear}-01-01`}
+                    max={`${selectedYear}-12-31`}
+                    className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-2 py-1.5 text-sm"
+                  />
+                </label>
+                <label className="block text-xs font-medium text-slate-700">
+                  Záró dátum
+                  <input
+                    type="date"
+                    value={periodTo}
+                    onChange={(e) => setPeriodTo(e.target.value)}
+                    min={periodFrom}
+                    max={`${selectedYear}-12-31`}
+                    className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-2 py-1.5 text-sm"
+                  />
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {periodPresets.map((p) => {
+                  const active = p.from === periodFrom && p.to === periodTo
+                  return (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => {
+                        setPeriodFrom(p.from)
+                        setPeriodTo(p.to)
+                      }}
+                      aria-pressed={active}
+                      className={`inline-flex min-h-11 items-center rounded-xl border px-3 text-xs font-medium transition ${
+                        active
+                          ? 'border-amber-500 bg-amber-100 text-amber-900'
+                          : 'border-amber-300 bg-white text-amber-800 hover:bg-amber-100'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-[11px] leading-snug text-amber-800/90">
+                A részszámadás <strong>egy naptári éven belüli</strong> időszakra készül. Ha az
+                elszámolás átnyúlik az évhatáron, nyomtass két részszámadást — a második nyitója
+                pontosan az első zárója lesz.
+              </p>
+              <p className="text-[11px] leading-snug text-amber-800/90">
+                Ez <strong>belső kimutatás</strong> (presbiteri ülés, vizitáció). Az éves
+                zárszámadás helyett <strong>nem küldhető be</strong> az egyházmegyének.
+              </p>
+            </div>
+          )}
 
           {/* Bank választó */}
           {showBankSelector && bankAccounts.length > 0 && (
@@ -502,11 +634,13 @@ export function FinancePrintDialogBody({
           <div className="rounded-2xl border border-slate-200 bg-white p-3 text-sm text-slate-600">
             <div>
               <span className="font-semibold text-slate-800">Időszak:</span>{' '}
-              {isNyugtatombMode || isReprintMode || isBudgetMode
-                ? `${selectedYear}. év`
-                : selectedMonth
-                  ? `${MONTHS_RO[selectedMonth - 1]} ${selectedYear}`
-                  : `${selectedYear}. teljes év`}
+              {isReszszamadasMode
+                ? `${periodFrom} — ${periodTo}`
+                : isNyugtatombMode || isReprintMode || isBudgetMode
+                  ? `${selectedYear}. év`
+                  : selectedMonth
+                    ? `${MONTHS_RO[selectedMonth - 1]} ${selectedYear}`
+                    : `${selectedYear}. teljes év`}
             </div>
             <div>
               <span className="font-semibold text-slate-800">Tájolás:</span>{' '}
@@ -536,6 +670,19 @@ export function FinancePrintDialogBody({
             )}
           </div>
 
+          {/* 2026-08-11 (6. kör): fail-closed — a letiltás OKÁT is kiírjuk,
+              különben a lelkész csak egy szürke gombot lát. */}
+          {blocked && (
+            <div
+              role="alert"
+              className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs leading-5 text-red-800"
+            >
+              Ez a nyomtatvány most <strong>nem adható ki</strong> — az előnézetben látod, mi
+              hiányzik. A rendszer inkább nem nyomtat, mint hogy hamis számot írjon aláírandó
+              papírra.
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -547,7 +694,7 @@ export function FinancePrintDialogBody({
             <button
               type="button"
               onClick={() => void handleDirectPrint()}
-              disabled={sendingToPrinter}
+              disabled={sendingToPrinter || blocked}
               className="flex-1 inline-flex items-center justify-center whitespace-nowrap h-9 px-3 text-sm font-medium border bg-white rounded-md transition-colors disabled:opacity-50 hover:bg-slate-50"
             >
               {sendingToPrinter ? 'Nyomtatás...' : 'Direkt nyomtatás'}
@@ -555,7 +702,7 @@ export function FinancePrintDialogBody({
             <button
               type="button"
               onClick={() => void handlePdf()}
-              disabled={printing}
+              disabled={printing || blocked}
               className="flex-1 inline-flex items-center justify-center whitespace-nowrap h-9 px-3 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50 shadow-sm"
             >
               {printing ? 'PDF készül...' : 'PDF-be mentés'}
@@ -572,7 +719,7 @@ export function FinancePrintDialogBody({
       >
         {/* 2026-07-11 (S6-#2): amíg a NEM-folyó év tételei töltődnek, a szép
             logós betöltő látszik az üres/fehér előnézet helyett. */}
-        {needsYearRecords && yearRecords == null && onLoadYearRecords ? (
+        {needsYearRecords && yearRecordsForSelected == null && onLoadYearRecords ? (
           <FinanceLoadingState
             label={`A(z) ${selectedYear}. évi adatok betöltése…`}
             logoSrc={loadingLogoSrc}

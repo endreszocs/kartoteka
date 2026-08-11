@@ -255,14 +255,22 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
     }
   }, [congregationName, editItem, fBizonylat, fDatum, fErtek, fFelelos, fHasznalatiIdo, fHelyszin, fKategoria, fKatalogusKod, fMegj, fMegnevezes, fMennyiseg, fMertekegyseg])
 
-  // Gépelés közben (300 ms késleltetéssel) frissül a fişă-előnézet.
-  useEffect(() => {
-    if (!dialogOpen) {
+  // 2026-08-11: a bezáráskori ürítés ÁTKERÜLT eseménykezelőbe
+  // (`handleDialogOpenChange`) — az effect törzsében hívott setState
+  // kaszkádoló újrarendert okozott (react-hooks/set-state-in-effect).
+  // A `setTimeout`-os ág marad, az nem szinkron setState.
+  function handleDialogOpenChange(next: boolean) {
+    if (!next) {
       setPreviewOverlayOpen(false)
       // Ürítjük az előnézetet, hogy újranyitáskor ne az előző tétel fişája villanjon fel.
       setPreviewHtml('')
-      return
     }
+    setDialogOpen(next)
+  }
+
+  // Gépelés közben (300 ms késleltetéssel) frissül a fişă-előnézet.
+  useEffect(() => {
+    if (!dialogOpen) return
     const t = window.setTimeout(() => {
       setPreviewHtml(buildInventoryItemCardHtml(formCardData()).html)
     }, 300)
@@ -484,7 +492,7 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
       toast.error(result.error)
     } else {
       toast.success(editItem ? 'A leltári tétel frissült.' : 'A leltári tétel rögzítve lett.')
-      setDialogOpen(false)
+      handleDialogOpenChange(false)
       await load()
     }
 
@@ -918,7 +926,7 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
         onConfirm={reason => void submitUnlockRequest(reason)}
       />
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
         {/* 2026-08-09: xl+ szélességen a fişă élő előnézete külön oszlopban
             (a member-form-dialog PR-17-es mintája); kisebb kijelzőn gombbal
             nyíló előnézet-réteg. */}
@@ -1095,7 +1103,7 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
               >
                 <FileText className="mr-1.5 size-4" /> Fişă előnézet
               </Button>
-              <Button variant="ghost" onClick={() => setDialogOpen(false)}>
+              <Button variant="ghost" onClick={() => handleDialogOpenChange(false)}>
                 Mégse
               </Button>
               <Button onClick={() => void handleSave()} disabled={saving}>

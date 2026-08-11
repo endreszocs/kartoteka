@@ -17,6 +17,7 @@ import {
   Link2,
   PiggyBank,
   ShieldAlert,
+  ShieldCheck,
   UserCog,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -197,6 +198,16 @@ const MODULES: ReadonlyArray<{
     icon: History,
     label: 'Tevékenység-napló',
     description: 'Rekord-szintű módosítás-történet (audit).',
+  },
+  // 2026-08-11: napi titkosított mentés Google Drive-ra. SZÁNDÉKOSAN nincs a
+  // SYSTEM_ONLY_HREFS listán: a kerületi admin is látja — de csak a SAJÁT
+  // kerülete gyülekezeteinek mentés-állapotát (a hatókört a szerver-akciók
+  // `getScopedCongregationIds`-szel, fail-closed módon szűkítik).
+  {
+    href: '/admin/biztonsagi-mentes',
+    icon: ShieldCheck,
+    label: 'Biztonsági mentés',
+    description: 'Napi titkosított mentés a Drive-ra — és a bizonyíték, hogy elkészült.',
   },
   {
     href: '/admin/veszelyes-zona',

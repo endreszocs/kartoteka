@@ -23,6 +23,10 @@ export interface BudgetPrintResult {
   filename: string
   orientation: 'portrait' | 'landscape'
   html: string
+  /** 2026-08-11 (6. kör): true → a nyomtatvány NEM adható ki (hiányzó/érvénytelen
+   *  bemenet). A dialógus ilyenkor letiltja a Nyomtatás / PDF gombot, és a
+   *  hiba-előnézetet mutatja. Fail-closed: hangos hiba > néma nulla. */
+  blocked?: boolean
 }
 
 export const BUDGET_PRINT_TYPES: Array<{
@@ -52,8 +56,9 @@ export const BUDGET_PRINT_TYPES: Array<{
   {
     id: 'reszszamadas',
     title: 'Részszámadás',
-    subtitle: 'Időszaki elszámolás',
-    description: 'Kiválasztott időszakra szűrt részleges számadás.',
+    subtitle: 'Időszaki kimutatás',
+    description:
+      'Egy választott időszak (negyedév, félév, dátumtól dátumig) pénzügyi kimutatása — presbiteri ülésre, vizitációra, belső ellenőrzésre. NEM az éves zárszámadás, és nem küldhető be helyette.',
   },
 ]
 
@@ -125,7 +130,20 @@ function budgetStyles() {
     .sig .line { border-top: 1px solid #111; margin-top: 32px; padding-top: 4px; font-weight: 600; }
     .page-footer { position: absolute; bottom: 8mm; left: 12mm; right: 12mm; display: flex; justify-content: space-between; font-size: 9px; color: #9aa3af; }
 
-    @media print { body { background: #fff; padding: 0; } .page { width: auto; min-height: auto; margin: 0; box-shadow: none; padding: 0; } }
+    /* Részszámadás — MINDEN oldal tetején (a borító leválhat, a 2+ oldal
+       különben megkülönböztethetetlen az éves Számadástól). */
+    .pband { border: 1px solid #111; padding: 1.2mm 2mm; margin-bottom: 2mm; font-size: 9px; font-weight: bold; text-align: center; letter-spacing: .2px; }
+    /* Egyeztető vonalak (rovancs) + lábjegyzetek */
+    .recon { margin-top: 8px; font-size: 10px; line-height: 1.9; }
+    .recon .ln { display: inline-block; min-width: 42mm; border-bottom: 1px solid #111; }
+    .fnote { margin-top: 6px; font-size: 9px; line-height: 1.5; color: #333; }
+    .fnote.warn { font-weight: bold; color: #111; border: 1px solid #111; padding: 1.2mm 2mm; }
+
+    /* 2026-08-11 (6. kör, P1 #5): a "padding: 0" KIVÉVE a nyomtatási ágból.
+       @page{margin:0} mellett a lap padding-je ADJA a margót — nullázva a keret
+       és a szélső oszlopok levágódtak a papírról. A reporting.ts szándékosan
+       megtartja a paddinget; a két fájl eddig ellentmondott egymásnak. */
+    @media print { body { background: #fff; padding: 0; } .page { width: auto; min-height: auto; margin: 0; box-shadow: none; } }
   `
 }
 
@@ -136,6 +154,29 @@ function wrapBudget(title: string, content: string) {
 // ---------------------------------------------------------------------------
 // Adatok
 // ---------------------------------------------------------------------------
+
+/**
+ * 2026-08-11 (6. kör): a `computePeriodBalances` (@kartoteka/core) eredményének
+ * SZERKEZETI mása. SZÁNDÉKOSAN nem import: ez a fájl futásidejű import nélkül
+ * transpile-olható kell maradjon (`scripts/selftest-reszszamadas.mjs` önállóan
+ * fordítja, hogy az évazonosságot bizonyítsa).
+ */
+export interface BudgetPeriodAccount {
+  opening: number
+  net: number
+  closing: number
+}
+export interface BudgetPeriodBalances {
+  year: number
+  periodFrom: string
+  periodTo: string
+  cash: BudgetPeriodAccount
+  bankById: Record<number, BudgetPeriodAccount>
+  bank: BudgetPeriodAccount
+  total: BudgetPeriodAccount
+  reconcileDelta: number
+  movementCount: number
+}
 
 export interface BudgetPrintData {
   cellek: SzamadasiCel[]
@@ -155,6 +196,118 @@ export interface BudgetPrintData {
   /** Véglegesítve van-e (költségvetés/számadás). Csak ekkor jelenik meg a
    *  presbitériumi határozat + egyházközségi iktatószám a nyomtatványon. */
   finalized?: boolean
+
+  // ── Részszámadás (2026-08-11, 6. kör) ──────────────────────────────────
+  /** Az IDŐSZAKRA levezetett nyitó/záró egyenlegek. Részszámadáshoz KÖTELEZŐ —
+   *  enélkül a nyomtatvány `blocked`. */
+  periodBalances?: BudgetPeriodBalances
+  /** true → részszámadás-alak (időszak-sáv, más fejléc, nincs Számvevő-oszlop). */
+  partial?: boolean
+  /** A nyitó egyenleg LEVEZETETT, rögzített bázis nélkül → lábjegyzet a papíron. */
+  nyitoBizonytalan?: boolean
+  /** Devizás számlák neve az időszakban → RON-ekvivalens lábjegyzet. */
+  devizaSzamlak?: string[]
+  /** „Készült" dátum a részszámadás borítóján (ISO vagy már formázott). */
+  keszult?: string
+}
+
+// ---------------------------------------------------------------------------
+// A HIVATALOS ÍV SORAI — EGYETLEN forrás a nyomtatványnak ÉS a képernyőnek
+// ---------------------------------------------------------------------------
+//
+// 2026-08-11 (6. kör, TULAJDONOSI DÖNTÉS — Endre, lelkipásztor, aki maga adja
+// be ezeket az íveket):
+//
+//   1) A hivatalos GYÜLEKEZETI Számadás- és Költségvetés-ív TARTALMAZZA az
+//      egyházmegyei szintűnek jelölt kódokat is (201.15 Nettó fizetések,
+//      201.17 CAS, 206.02 Biztosítások, 101.07, 105.03, 106.02–106.06 …).
+//      Ezek SOROKKÉNT rajta vannak a papíron.
+//   2) DE a gyülekezet ezekre nem könyvelhet és nem is módosíthatja őket —
+//      azokat az egyházmegye tölti ki.
+//
+// MI VOLT A HIBA: a nyomtatvány (ez a fájl) sosem szűrt `szint` szerint, az
+// `AccountingTab` és a `BudgetTab` viszont IGEN (`isGyulekezetSzint`). Ezért az
+// ilyen kódra könyvelt pénz a KINYOMTATOTT végösszegben benne volt, a KÉPERNYŐN
+// látható végösszegben nem — ugyanarra az évre két, egymásnak ellentmondó szám,
+// és az egyik alá is van írva. A szűrő rossz felületen ült: a
+// `penzugy/actions.ts` kommentárja szerint oda való, „ahol a lelkész ÚJ TÉTELT
+// VÁLASZT (pl. budget-tab, accounting-tab)" — csakhogy az a két fül ŰRLAP-NÉZET,
+// nem kategóriaválasztó. A valódi választók a befizetescel/kiadascel junction
+// táblákon át mennek (`isGyulekezetiKonyvelhetoKod`, lásd `types.ts`), és azok
+// TOVÁBBRA IS kizárják ezeket a kódokat — a 2) pont tehát sértetlen.
+//
+// Ezért a sor-tagság mostantól ITT, egy helyen dől el, és a képernyő ugyanezt
+// a függvényt hívja. Ha valaki valaha visszatenné a szint-szűrést az egyik
+// oldalra, a `scripts/selftest-reszszamadas.mjs` elbukik.
+
+/** A `szamadasicel.szint` lehetséges értékei (a hiány = gyülekezeti, kompat.). */
+export type SzamadasSzint = 'gyulekezet' | 'egyhazmegye' | 'kerulet' | null | undefined
+
+/**
+ * A hivatalos ív SORA-e ez a kód?
+ *   - bevétel: 1xx, DE a teljes 100-as fejezet nélkül (100 / 100.01 / 100.02 /
+ *     100.51 / 100.52 = nyitó pénztármaradvány és legacy belső mozgás — a nyitó
+ *     a táblázat 1–3. sorában, külön blokként szerepel, a belső átvezetés pedig
+ *     sosem számadási tétel),
+ *   - kiadás: 2xx.
+ * `szint` szerint SZÁNDÉKOSAN nem szűr — lásd a fenti tulajdonosi döntést.
+ *
+ * 2026-08-11 (6. kör): a bevételi ág korábban `c.id !== '100'`-at nézett, tehát
+ * a 100.01/100.02 LEVÉL-sorok kikerültek a papírra — összeggel —, miközben a
+ * végösszegbe nem számítottak bele (a `groupsOf` a '100' csoportot nem találta).
+ * Vagyis a nyomtatványon állt egy sor, aminek a pénze sehol nem jött ki az
+ * összesítésben. A képernyő már a szigorúbb (helyes) szabályt használta; most a
+ * kettő egy és ugyanaz.
+ */
+export function isSzamadasIvKod(kod: string, type: 'B' | 'K'): boolean {
+  if (!kod) return false
+  if (kod === '100' || kod.startsWith('100.')) return false
+  return type === 'B' ? kod.startsWith('1') : kod.startsWith('2')
+}
+
+/** A hivatalos ív cellái típusonként, a papír sorrendjében (csoport a levelei elé). */
+export function szamadasIvCellak<T extends { id: string; type: 'B' | 'K' }>(
+  cellek: T[],
+  type: 'B' | 'K',
+): T[] {
+  return cellek
+    .filter((c) => c.type === type && isSzamadasIvKod(c.id, type))
+    .sort((a, b) => cmpId(a.id, b.id))
+}
+
+/**
+ * A hivatalos ív VÉGPONT (levél) kódjai — ezekre lehet tényleges összeg.
+ * A csoport-sorok (101, 206 …) számított összegek, rájuk nem könyvelünk.
+ * Ez a készlet adja a Számadás tény-oszlopát ÉS a beküldött pillanatképet is.
+ */
+export function szamadasIvLevelKodok(
+  cellek: Array<{ id: string; type: 'B' | 'K' }>,
+  type: 'B' | 'K',
+): string[] {
+  return szamadasIvCellak(cellek, type)
+    .filter((c) => c.id.includes('.'))
+    .map((c) => c.id)
+}
+
+/** Kódonkénti tény-térkép összegzése a megadott levél-kódokra (hiányzó = 0). */
+export function osszegezLevelek(
+  leafKodok: string[],
+  byCode: Record<string, number> | undefined,
+): number {
+  if (!byCode) return 0
+  return leafKodok.reduce((sum, kod) => sum + (byCode[kod] || 0), 0)
+}
+
+/**
+ * Szerkesztheti-e a GYÜLEKEZET ezt az ív-sort?
+ *
+ * A sor RAJTA van a gyülekezeti íven (ezért látszik), de az egyházmegyei/
+ * kerületi szintűt az egyházmegye tölti ki: a gyülekezet nem írhat bele
+ * költségvetési összeget, és tételt sem társíthat rá. A már tárolt értéket
+ * viszont NEM dobjuk el — read-only módon megjelenítjük.
+ */
+export function gyulekezetSzerkesztheti(szint: SzamadasSzint): boolean {
+  return !szint || szint === 'gyulekezet'
 }
 
 /** Kódok hierarchikus rendezése: 101 < 101.01 < 101.02 < 102 (csoport a része elé). */
@@ -199,10 +352,10 @@ export function buildBudgetReport(data: BudgetPrintData): BudgetPrintResult {
   const { year } = data
   // 2026-07-10 (#2): a hivatalos forma 1–3. sora a nyitó egyenleg.
   const rows = collectBudgetRows(data, 'single', { openingRows: true })
-  const pages = tablePageCount(rows.length, true, false)
-  const total = 1 + pages
+  const terv = tervezOldalak(rows.length, true, false)
+  const total = 1 + terv.pages
   const coverPage = buildCoverPage(data, 'KÖLTSÉGVETÉS', 'BUGET DE VENITURI ȘI CHELTUIELI', null, total)
-  const tablePages = renderTablePages(data, 'single', rows, { startPage: 2, total, pages, withSignatures: true })
+  const tablePages = renderTablePages(data, 'single', rows, { startPage: 2, total, terv, withSignatures: true })
   return {
     title: `Költségvetés ${year}`,
     filename: `Koltsegvetes_${year}.pdf`,
@@ -215,10 +368,10 @@ export function buildBudgetModificationReport(data: BudgetPrintData): BudgetPrin
   const { year, modNumber } = data
   const modLabel = modNumber || 1
   const rows = collectBudgetRows(data, 'modification')
-  const pages = tablePageCount(rows.length, true, false)
-  const total = 1 + pages
+  const terv = tervezOldalak(rows.length, true, false)
+  const total = 1 + terv.pages
   const coverPage = buildCoverPage(data, `${modLabel}. KÖLTSÉGVETÉS-MÓDOSÍTÁS`, 'MODIFICARE BUGET DE VENITURI ȘI CHELTUIELI', modLabel, total)
-  const tablePages = renderTablePages(data, 'modification', rows, { startPage: 2, total, pages, withSignatures: true })
+  const tablePages = renderTablePages(data, 'modification', rows, { startPage: 2, total, terv, withSignatures: true })
   return {
     title: `${modLabel}. Költségvetés módosítás ${year}`,
     filename: `Koltsegvetes_modositas_${modLabel}_${year}.pdf`,
@@ -231,12 +384,12 @@ export function buildSzamadasReport(data: BudgetPrintData): BudgetPrintResult {
   const { year } = data
   // 2026-07-10 (#2): a hivatalos forma 1–3. sora a nyitó egyenleg.
   const rows = collectBudgetRows(data, 'szamadas', { openingRows: true })
-  const pages = tablePageCount(rows.length, true, true)
-  const total = 1 + pages
+  const terv = tervezOldalak(rows.length, true, true)
+  const total = 1 + terv.pages
   const coverPage = buildCoverPage(data, 'SZÁMADÁS', 'EXECUȚIA BUGETARĂ', null, total)
   const declaration = `<div class="decl">Alulírott lelkipásztor és főgondnok felelősségünk tudatában nyilatkozzuk, hogy a számadás adatai valósak és az egyházi rendelkezések szerint készült el.</div>`
   const lastExtraHtml = buildSzamadasExtraRows(data) + declaration
-  const tablePages = renderTablePages(data, 'szamadas', rows, { startPage: 2, total, pages, withSignatures: true, lastExtraHtml })
+  const tablePages = renderTablePages(data, 'szamadas', rows, { startPage: 2, total, terv, withSignatures: true, lastExtraHtml })
   return {
     title: `Számadás ${year}`,
     filename: `Szamadas_${year}.pdf`,
@@ -252,27 +405,116 @@ function formatHuDate(iso: string | undefined): string {
   return d.toLocaleDateString('hu-HU', { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
 
+const ISO_DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/** Hiba-„nyomtatvány": a Print/PDF gomb letiltásához (`blocked`). */
+function blockedReport(title: string, message: string): BudgetPrintResult {
+  return {
+    title,
+    filename: 'reszszamadas.pdf',
+    orientation: 'portrait',
+    blocked: true,
+    html: `<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8"><title>${esc(title)}</title><style>
+      body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;padding:32px;color:#111;background:#fff}
+      .box{max-width:640px;margin:8vh auto;border:2px solid #111;border-radius:10px;padding:24px}
+      h1{font-size:17px;margin:0 0 10px}
+      p{font-size:14px;line-height:1.65;margin:0 0 10px}
+      .small{font-size:12px;color:#444}
+    </style></head><body><div class="box">
+      <h1>A részszámadás így nem nyomtatható ki</h1>
+      <p>${esc(message)}</p>
+      <p class="small">Ez a nyomtatvány szándékosan nem készül el hiányos vagy ellentmondó adatból: egy hamis
+      záró egyenleg aláírt papíron rosszabb, mint a hiányzó nyomtatvány.</p>
+    </div></body></html>`,
+  }
+}
+
+/** Rövid, magyar időszak-címke a fejléc-oszlophoz: „01.01–06.30". */
+function shortPeriodLabel(from: string, to: string): string {
+  return `${from.slice(5).replace('-', '.')}–${to.slice(5).replace('-', '.')}`
+}
+
 export function buildReszszamadasReport(data: BudgetPrintData): BudgetPrintResult {
   const { year, periodFrom, periodTo } = data
+
+  // ── Fail-closed kapu ─────────────────────────────────────────────────────
+  // A részszámadás minden száma az IDŐSZAKI nyitóból vezetődik le. Ha az
+  // időszak érvénytelen vagy a levezetés hiányzik, NEM nyomtatunk „valamit".
+  if (!periodFrom || !periodTo || !ISO_DAY_RE.test(periodFrom) || !ISO_DAY_RE.test(periodTo)) {
+    return blockedReport(
+      'Részszámadás — hiányzó időszak',
+      'Add meg az időszak kezdő és záró dátumát (ÉÉÉÉ-HH-NN alakban).',
+    )
+  }
+  if (periodFrom.slice(0, 4) !== String(year) || periodTo.slice(0, 4) !== String(year)) {
+    return blockedReport(
+      'Részszámadás — érvénytelen időszak',
+      `A részszámadás időszaka nem nyúlhat át az évhatáron. Ha az elszámolás átnyúlik, nyomtass két részszámadást: a második nyitója pontosan az első zárója lesz.`,
+    )
+  }
+  if (periodFrom > periodTo) {
+    return blockedReport(
+      'Részszámadás — érvénytelen időszak',
+      'A kezdő dátum későbbi, mint a záró dátum.',
+    )
+  }
+  const pb = data.periodBalances
+  if (!pb) {
+    return blockedReport(
+      'Részszámadás — hiányzó egyenleg-levezetés',
+      'Az időszaki nyitó és záró egyenleg nem áll rendelkezésre (a nyitó egyenlegek feloldása nem sikerült). Nyisd meg a Pénzügy oldalt, ellenőrizd a nyitó egyenlegeket, majd próbáld újra.',
+    )
+  }
+
   const fromLabel = formatHuDate(periodFrom)
   const toLabel = formatHuDate(periodTo)
-  const rows = collectBudgetRows(data, 'szamadas')
-  const pages = tablePageCount(rows.length, true, true)
-  const total = 1 + pages
-  const coverPage = buildCoverPage(
-    data,
-    'RÉSZSZÁMADÁS',
-    'EXECUȚIA BUGETARĂ PARȚIALĂ',
-    null,
+  const partial = { fromLabel, toLabel, periodLabel: shortPeriodLabel(periodFrom, periodTo) }
+  // A `partial` jelzőt itt tesszük rá (nem a hívóra bízzuk): a lábléc és az
+  // időszak-sáv ettől függ, és egy elfelejtett prop néma éves-alakot adna.
+  data = { ...data, partial: true }
+
+  const rows = collectBudgetRows(data, 'szamadas', {
+    opening: {
+      total: pb.total.opening,
+      cash: pb.cash.opening,
+      bank: pb.bank.opening,
+      labelRo: 'Disponibil la începutul perioadei',
+      labelHu: 'Nyitó pénzkészlet az időszak elején',
+    },
+  })
+  // +6 sor-egyenérték az UTOLSÓ oldalra: a két egyeztető vonal + a lábjegyzetek
+  // + a nyilatkozat nem fér bele az éves nyomtatvány tartalékába.
+  // 2026-08-11 (6. kör, reviewer-major): a KÖZTES oldalakat a `partial = true`
+  // miatt csökkentett per-oldal büdzsé védi (időszak-sáv minden oldal tetején).
+  // A lapszám és a feltöltés innentől UGYANEBBŐL a tervből jön.
+  const terv = tervezOldalak(rows.length, true, true, 6, true)
+  const total = 1 + terv.pages
+  const coverPage = buildCoverPage(data, 'RÉSZSZÁMADÁS', 'SITUAȚIE FINANCIARĂ PARȚIALĂ', null, total, undefined, {
+    // Az egyházmegyei blokk és a presbitériumi határozat KIMARAD: mindkettő
+    // arra hívna, hogy ezt a papírt iktassák/beküldjék. Ez BELSŐ kimutatás.
+    skipDiocese: true,
+    skipHatarozat: true,
+    keszult: data.keszult,
+    titleOverride: {
+      hu: 'RÉSZSZÁMADÁS — időszaki kimutatás',
+      ro: 'SITUAȚIE FINANCIARĂ PARȚIALĂ',
+    },
+    subTitle: `a ${year}. év ${fromLabel} — ${toLabel} időszakára`,
+  })
+  const declaration = `<div class="decl">Alulírottak nyilatkozzuk, hogy a fenti időszak adatai a könyvelés mai állása szerint valósak. Ez a kimutatás <strong>NEM az éves zárszámadás</strong>, és az egyházmegyének nem küldhető be helyette.</div>`
+  const lastExtraHtml = buildReszszamadasExtraRows(data, partial) + declaration
+  const tablePages = renderTablePages(data, 'szamadas', rows, {
+    startPage: 2,
     total,
-    `Időszak / Perioada: ${fromLabel} — ${toLabel}`,
-  )
-  const declaration = `<div class="decl">Alulírott lelkipásztor és főgondnok felelősségünk tudatában nyilatkozzuk, hogy a részszámadás adatai a megjelölt időszakra valósak és az egyházi rendelkezések szerint készültek.</div>`
-  const lastExtraHtml = buildSzamadasExtraRows(data) + declaration
-  const tablePages = renderTablePages(data, 'szamadas', rows, { startPage: 2, total, pages, withSignatures: true, lastExtraHtml })
+    terv,
+    withSignatures: true,
+    withAuditor: false, // az ellenőrző bizottság az ÉVES számadást hitelesíti
+    lastExtraHtml,
+    partial,
+  })
   return {
     title: `Részszámadás ${year} (${fromLabel} – ${toLabel})`,
-    filename: `Reszszamadas_${year}_${periodFrom || 'kezdet'}_${periodTo || 'veg'}.pdf`,
+    filename: `Reszszamadas_${year}_${periodFrom}_${periodTo}.pdf`,
     orientation: 'portrait',
     html: wrapBudget(`Részszámadás ${year}`, coverPage + tablePages),
   }
@@ -283,7 +525,23 @@ export function buildReszszamadasReport(data: BudgetPrintData): BudgetPrintResul
 // ---------------------------------------------------------------------------
 
 function footer(data: BudgetPrintData, pageNo: number, total: number): string {
-  return `<div class="page-footer"><span>${esc(data.congregationName)}</span><span>oldal ${pageNo} / ${total}</span></div>`
+  // 2026-08-11 (6. kör): részszámadáson a lábléc is kimondja, mi ez a papír —
+  // a borító leválhat, a táblázatoldalak különben megkülönböztethetetlenek.
+  const kind = data.partial ? ' · Részszámadás — nem hivatalos zárszámadás' : ''
+  return `<div class="page-footer"><span>${esc(data.congregationName)}${kind}</span><span>oldal ${pageNo} / ${total}</span></div>`
+}
+
+interface CoverOpts {
+  /** Kihagyja az egyházmegyei iktató/esperes blokkot (belső kimutatásnál). */
+  skipDiocese?: boolean
+  /** Kihagyja a presbitériumi határozat sort + a „nincs véglegesítve" figyelmeztetést. */
+  skipHatarozat?: boolean
+  /** Semleges „Készült" sor a határozat helyett. */
+  keszult?: string
+  /** Teljesen lecseréli a két címsort (nem az „X A 2026. ÉVRE" mintát követi). */
+  titleOverride?: { hu: string; ro: string }
+  /** A cím alatti magyarázó sor (pl. az időszak). */
+  subTitle?: string
 }
 
 function buildCoverPage(
@@ -293,6 +551,7 @@ function buildCoverPage(
   modNumber: number | null,
   total: number,
   periodLine?: string,
+  opts?: CoverOpts,
 ): string {
   const { congregationName, year, iktatoszam, hatarozatSzam, hatarozatDatum } = data
   // A presbitériumi határozat + egyházközségi iktatószám CSAK véglegesítés után
@@ -301,14 +560,35 @@ function buildCoverPage(
   const iktato = fin ? esc(iktatoszam || '') : ''
   const hatDatum = fin ? esc(hatarozatDatum || '') : ''
   const hatSzam = fin ? esc(hatarozatSzam || '') : ''
-  return `<div class="page cover">
-    <div style="margin-top:8mm;">
+  const dioceseBlock = opts?.skipDiocese
+    ? ''
+    : `<div style="margin-top:8mm;">
       <div class="cv-entity">REFORMÁTUS EGYHÁZMEGYE</div>
       <div class="cv-row">
         <div>Egyházmegyei iktatószám: <span class="cv-line">&nbsp;</span></div>
         <div>Esperes aláírása: <span class="cv-line">&nbsp;</span></div>
       </div>
+    </div>`
+  const titleBlock = opts?.titleOverride
+    ? `<div class="cv-title">${esc(opts.titleOverride.hu)}</div>
+      <div class="cv-title-ro">${esc(opts.titleOverride.ro)}</div>`
+    : `<div class="cv-title">${esc(titleHu)} A ${year}. ÉVRE</div>
+      <div class="cv-title-ro">${esc(titleRo)} PE ANUL ${year}</div>`
+  const hatarozatBlock = opts?.skipHatarozat
+    ? `<div style="margin-top:40mm;text-align:center;font-size:11px;">
+      Készült: ${esc(opts.keszult || '')} · a könyvelés aznapi állása szerint.
     </div>
+    <div style="margin-top:6mm;text-align:center;font-size:11px;font-weight:bold;">
+      Belső használatra — az egyházmegyének NEM beküldendő.
+    </div>`
+    : `<div style="margin-top:40mm;text-align:center;font-size:12px;">
+      Tárgyalta és jóváhagyta a presbitérium a <span class="cv-line">&nbsp;${hatDatum}</span> tartott gyűlésén
+      <span class="cv-line" style="min-width:90px;">&nbsp;${hatSzam}</span> szám alatt.
+    </div>
+
+    ${fin ? '' : `<div style="margin-top:8mm;text-align:center;font-size:10px;font-style:italic;color:#9a3412;">Nincs véglegesítve — a presbitériumi határozat és az egyházközségi iktatószám a véglegesítés után kerül a nyomtatványra.</div>`}`
+  return `<div class="page cover">
+    ${dioceseBlock}
 
     <div style="margin-top:16mm;">
       <div class="cv-entity">REFORMÁTUS EGYHÁZKÖZSÉG &nbsp; ${esc(congregationName)}</div>
@@ -318,19 +598,14 @@ function buildCoverPage(
     </div>
 
     <div style="margin-top:46mm;">
-      <div class="cv-title">${esc(titleHu)} A ${year}. ÉVRE</div>
-      <div class="cv-title-ro">${esc(titleRo)} PE ANUL ${year}</div>
+      ${titleBlock}
     </div>
 
+    ${opts?.subTitle ? `<div style="text-align:center;font-size:14px;font-weight:bold;margin-top:6mm;">${esc(opts.subTitle)}</div>` : ''}
     ${periodLine ? `<div style="text-align:center;font-size:12px;font-weight:bold;margin-top:18mm;">${esc(periodLine)}</div>` : ''}
     ${modNumber ? `<div style="text-align:center;font-size:11px;margin-top:8mm;">A korábbi költségvetést módosító ${modNumber}. számú módosítás.</div>` : ''}
 
-    <div style="margin-top:40mm;text-align:center;font-size:12px;">
-      Tárgyalta és jóváhagyta a presbitérium a <span class="cv-line">&nbsp;${hatDatum}</span> tartott gyűlésén
-      <span class="cv-line" style="min-width:90px;">&nbsp;${hatSzam}</span> szám alatt.
-    </div>
-
-    ${fin ? '' : `<div style="margin-top:8mm;text-align:center;font-size:10px;font-style:italic;color:#9a3412;">Nincs véglegesítve — a presbitériumi határozat és az egyházközségi iktatószám a véglegesítés után kerül a nyomtatványra.</div>`}
+    ${hatarozatBlock}
 
     <div style="position:absolute;bottom:14mm;left:12mm;">
       <div class="cv-note">Kitöltendő lejben</div>
@@ -345,11 +620,17 @@ function buildCoverPage(
 // Fő adattábla
 // ---------------------------------------------------------------------------
 
-function valueHeads(mode: BudgetMode): string {
+/** 2026-08-11 (6. kör): részszámadásnál a fejléc KIMONDJA, hogy a tény-oszlop
+ *  csak az időszaké — az éves fejléccel bitre azonos oszlopcím volt az egyik
+ *  oka, hogy a részszámadás megkülönböztethetetlen volt az éves zárszámadástól. */
+function valueHeads(mode: BudgetMode, partial?: PartialInfo): string {
   if (mode === 'modification') {
     return `<th>Prevederi inițial<br>Előző</th><th>Modificare<br>Módosítás</th><th>Prevederi final<br>Végleges</th>`
   }
   if (mode === 'szamadas') {
+    if (partial) {
+      return `<th>Prevederi anuale<br>ÉVES költségvetés</th><th>Execuție parțială<br>Időszaki teljesítés<br>(${esc(partial.periodLabel)})</th>`
+    }
     return `<th>Prevederi<br>Költségvetés</th><th>Execuție<br>Számadás</th>`
   }
   return `<th>Prevederi<br>Költségvetés</th>`
@@ -394,59 +675,155 @@ function buildSectionRows(data: BudgetPrintData, cells: SzamadasiCel[], mode: Bu
 // fejléc ≈ 271mm hasznos magasság; 6.4mm/sor → ~42 sor biztonsággal elfér.
 const ROWS_PER_PAGE = 42
 
-/** Lefoglalt sor-egyenérték az utolsó oldal záró elemeinek (aláírás, számadás-extra). */
-function reservedSlots(withSignatures: boolean, hasExtra: boolean): number {
-  return (withSignatures ? 6 : 0) + (hasExtra ? 8 : 0)
+/**
+ * 2026-08-11 (6. kör, reviewer-major): a RÉSZSZÁMADÁS oldal-büdzséje KISEBB.
+ *
+ * A `.pband` időszak-sáv MINDEN táblázatoldal tetejére kerül (1px keret +
+ * 1.2mm padding + ~3.2mm szövegsor + 2mm margó ≈ 7.6–8.2mm), a sormagasság
+ * viszont csak 6.4mm — a sáv tehát több mint EGY sort eszik meg. A régi kód a
+ * `+6` tartalékot csak a `tablePageCount` OSZTÁSÁBA adta (ami az utolsó oldalt
+ * védte), a köztes oldalakat viszont továbbra is a nyers 42-vel töltötte fel.
+ * Böngészőben mérve: a részszámadás 2. oldalán a táblázat alja 294.4mm-nél volt
+ * egy 296mm-es lapon, aminek a tartalom-doboza 286mm-nél véget ér; a
+ * `.page-footer` (285.4–288mm) RÁNYOMTATOTT az utolsó ~1.5 sorra, és a `.page`
+ * `overflow:hidden` miatt a túllógás nem gördült, hanem levágódott.
+ *
+ * Ezért a sáv 2 sor-egyenértéket kap, és ugyanez a szám megy a lapszámlálóba
+ * IS — különben a kettő széthúzna, és a maradék az utolsó oldalra torlódna.
+ */
+const ROWS_PER_PAGE_PARTIAL = ROWS_PER_PAGE - 2
+
+/** Lefoglalt sor-egyenérték az utolsó oldal záró elemeinek (aláírás, számadás-extra).
+ *  2026-08-11 (6. kör): `extra` — a részszámadás záró blokkja MAGASABB (két
+ *  egyeztető vonal + lábjegyzetek), és a `.page` overflow:hidden, tehát a
+ *  túlcsordulás nem gördül, hanem LEVÁGÓDIK a papírról. Inkább új oldal. */
+function reservedSlots(withSignatures: boolean, hasExtra: boolean, extra = 0): number {
+  return (withSignatures ? 6 : 0) + (hasExtra ? 8 : 0) + extra
 }
 
-function tablePageCount(rowCount: number, withSignatures: boolean, hasExtra: boolean): number {
-  return Math.max(1, Math.ceil((rowCount + reservedSlots(withSignatures, hasExtra)) / ROWS_PER_PAGE))
+/**
+ * Oldalterv: a lapszám ÉS a feltöltés EGYETLEN forrásból.
+ *
+ * 2026-08-11 (6. kör, reviewer-major): korábban két külön hely számolt — a
+ * `tablePageCount` a tartalékkal, a `renderTablePages` a nyers `ROWS_PER_PAGE`
+ * konstanssal. Ezért a részszámadás köztes oldalain a táblázat túlnyúlt a lapon
+ * (a `.page-footer` ráíródott az utolsó sorokra, a `.page` overflow:hidden miatt
+ * pedig LEVÁGÓDOTT). Egy aláírt pénzügyi kimutatáson ez nem esztétikai kérdés.
+ * Mostantól ez a típus utazik együtt a sorokkal — nem tud széthúzni.
+ */
+interface OldalTerv {
+  /** Táblázatoldalak száma (a borító nélkül). */
+  pages: number
+  /** Egy oldalra kiírható sorok száma. */
+  perPage: number
+  /** Az UTOLSÓ oldalon a záró blokkoknak fenntartott sor-egyenérték. */
+  reserved: number
+}
+
+function tervezOldalak(
+  rowCount: number,
+  withSignatures: boolean,
+  hasExtra: boolean,
+  extra = 0,
+  partial = false,
+): OldalTerv {
+  const perPage = partial ? ROWS_PER_PAGE_PARTIAL : ROWS_PER_PAGE
+  const reserved = reservedSlots(withSignatures, hasExtra, extra)
+  const pages = Math.max(1, Math.ceil((rowCount + reserved) / perPage))
+  return { pages, perPage, reserved }
+}
+
+/**
+ * A sorok elosztása oldalanként — HÁTULRÓL ELŐRE.
+ *
+ * Az utolsó oldal annyit kap, amennyi a záró blokk (aláírás, egyeztető vonalak,
+ * lábjegyzetek) MELLETT még elfér; a maradék egyenletesen oszlik el az előtte
+ * lévő oldalakon. A régi, elölről mohó feltöltés két hibát is termelt:
+ *   · vagy TÚLTÖLTÖTTE a köztes oldalt (a mostani javítás előtti túlcsordulás),
+ *   · vagy ÜRESRE hagyta az utolsót — fejléc-sor egy üres táblázattal, alatta
+ *     az aláírásokkal. Egy hivatalos nyomtatványon mindkettő szemet szúr.
+ * A `tervezOldalak` képlete garantálja, hogy minden sor elfér:
+ *   pages * perPage − reserved ≥ rowCount.
+ */
+function oldalMeretek(rowCount: number, terv: OldalTerv): number[] {
+  const { pages, perPage, reserved } = terv
+  const sizes = new Array<number>(pages).fill(0)
+  const utolsoKapacitas = Math.max(0, perPage - reserved)
+  sizes[pages - 1] = Math.min(rowCount, utolsoKapacitas)
+  let marad = rowCount - sizes[pages - 1]
+  for (let p = pages - 2; p >= 0 && marad > 0; p--) {
+    const take = Math.min(perPage, Math.ceil(marad / (p + 1)))
+    sizes[p] = take
+    marad -= take
+  }
+  // Fail-safe: ha bármi miatt mégis maradna sor (nem fordulhat elő a fenti
+  // képlettel), az UTOLSÓ oldalra tesszük — a sor kiesése rosszabb a túllógásnál.
+  if (marad > 0) sizes[pages - 1] += marad
+  return sizes
 }
 
 /** Összegyűjti a táblázat összes sorát (szekciók, csoport-/végpont-sorok, záró összegek).
  *  2026-07-10 (#2): `opts.openingRows` — a hivatalos EREK-minta szerint az űrlap
  *  1–3. sora a NYITÓ egyenleg (Disponibil din anul precedent / Casa / Banca);
  *  ilyenkor a tétel-sorszámozás 4-től indul, hogy a Nr. rând ne csússzon szét. */
+interface OpeningBlock {
+  total: number
+  cash: number
+  bank: number
+  labelRo: string
+  labelHu: string
+}
+
 function collectBudgetRows(
   data: BudgetPrintData,
   mode: BudgetMode,
-  opts?: { openingRows?: boolean },
+  opts?: { openingRows?: boolean; opening?: OpeningBlock },
 ): string[] {
   const { cellek } = data
   // CSAK a hivatalos költségvetési kódok: bevétel 1xx (101–107), kiadás 2xx (201–207).
-  // A belső mozgás (3xx/4xx) NEM része a költségvetésnek. Hierarchikus rendezés:
-  // a csoport (pl. 101) MINDIG a saját végpont-sorai (101.01…) ELÉ kerül.
-  const incomeCells = cellek
-    .filter((c) => c.type === 'B' && c.id.startsWith('1') && c.id !== '100')
-    .sort((a, b) => cmpId(a.id, b.id))
-  const expenseCells = cellek
-    .filter((c) => c.type === 'K' && c.id.startsWith('2'))
-    .sort((a, b) => cmpId(a.id, b.id))
+  // A belső mozgás (100.xx / 3xx / 4xx) NEM része a költségvetésnek. Hierarchikus
+  // rendezés: a csoport (pl. 101) MINDIG a saját végpont-sorai (101.01…) ELÉ kerül.
+  // 2026-08-11 (6. kör): a szabály a `szamadasIvCellak`-ba költözött, mert a
+  // KÉPERNYŐ (AccountingTab/BudgetTab) is pontosan ezt kell használja — lásd az
+  // ottani tulajdonosi döntést. `szint` szerint továbbra sem szűrünk.
+  const incomeCells = szamadasIvCellak(cellek, 'B')
+  const expenseCells = szamadasIvCellak(cellek, 'K')
 
   const cols = totalCols(mode)
-  const labelCols = cols - 1
   const all: string[] = []
 
   // 2026-07-10 (#2): 3 nyitósor a bevétel-szekció ELÉ (1–3. sorszám). Az utolsó
   // értékoszlopba kerül az összeg, az előtte lévő oszlop(ok) „x"-et kapnak
   // (számadásnál: Prevederi=x, Execuție=érték). Csak akkor, ha van carryover adat.
+  // 2026-08-11 (6. kör): a nyitóblokk értékei/feliratai PARAMÉTERBŐL is jöhetnek
+  // (`opts.opening`) — a részszámadás az IDŐSZAK ELEJÉRE levezetett nyitót írja
+  // ide, nem a január 1-it. Az éves ág (`openingRows`) változatlan.
   let startNum = 1
-  if (opts?.openingRows && (data.carryoverCash != null || data.carryoverBank != null)) {
-    const cash = data.carryoverCash || 0
-    const bank = data.carryoverBank || 0
+  const openingBlock: OpeningBlock | null = opts?.opening
+    ? opts.opening
+    : opts?.openingRows && (data.carryoverCash != null || data.carryoverBank != null)
+      ? {
+          total: (data.carryoverCash || 0) + (data.carryoverBank || 0),
+          cash: data.carryoverCash || 0,
+          bank: data.carryoverBank || 0,
+          labelRo: 'Disponibil din anul precedent',
+          labelHu: 'Múlt évi pénztármaradvány',
+        }
+      : null
+  if (openingBlock) {
     const openingCells = (v: number) =>
       `${'<td class="r">x</td>'.repeat(valueColCount(mode) - 1)}<td class="r">${fmtNum(v)}</td>`
     all.push(`<tr class="grp">
-      <td class="ro">Disponibil din anul precedent</td><td>Múlt évi pénztármaradvány</td>
-      <td class="c">1</td><td class="c"></td>${openingCells(cash + bank)}
+      <td class="ro">${esc(openingBlock.labelRo)}</td><td>${esc(openingBlock.labelHu)}</td>
+      <td class="c">1</td><td class="c"></td>${openingCells(openingBlock.total)}
     </tr>`)
     all.push(`<tr>
       <td class="ro">Casa</td><td>Készpénz</td>
-      <td class="c">2</td><td class="c"></td>${openingCells(cash)}
+      <td class="c">2</td><td class="c"></td>${openingCells(openingBlock.cash)}
     </tr>`)
     all.push(`<tr>
       <td class="ro">Banca</td><td>Banki egyenleg</td>
-      <td class="c">3</td><td class="c"></td>${openingCells(bank)}
+      <td class="c">3</td><td class="c"></td>${openingCells(openingBlock.bank)}
     </tr>`)
     startNum = 4
   }
@@ -458,25 +835,102 @@ function collectBudgetRows(
   const exp = buildSectionRows(data, expenseCells, mode, inc.nextNum)
   all.push(...exp.rows)
 
-  const totalIncome = incomeCells.filter((c) => !c.id.includes('.')).reduce((s, c) => s + sumGroup(data, c.id, getVal), 0)
-  const totalExpense = expenseCells.filter((c) => !c.id.includes('.')).reduce((s, c) => s + sumGroup(data, c.id, getVal), 0)
+  const groupsOf = (cells: SzamadasiCel[]) => cells.filter((c) => !c.id.includes('.'))
+  const totalIncome = groupsOf(incomeCells).reduce((s, c) => s + sumGroup(data, c.id, getVal), 0)
+  const totalExpense = groupsOf(expenseCells).reduce((s, c) => s + sumGroup(data, c.id, getVal), 0)
   const balance = totalIncome - totalExpense
-  all.push(`<tr class="tot"><td colspan="${labelCols}" class="r">Összbevétel / Total venituri</td><td class="r">${fmtNum(totalIncome)}</td></tr>`)
-  all.push(`<tr class="tot"><td colspan="${labelCols}" class="r">Összkiadás / Total cheltuieli</td><td class="r">${fmtNum(totalExpense)}</td></tr>`)
-  all.push(`<tr class="tot"><td colspan="${labelCols}" class="r">${balance >= 0 ? 'Bevételi többlet / Excedent' : 'Kiadási többlet / Deficit'}</td><td class="r">${fmtNum(Math.abs(balance))}</td></tr>`)
+
+  // ── 2026-08-11 (6. kör, P0 #1) — HAMIS SZÁM AZ ALÁÍRT ÉVES SZÁMADÁSON ──
+  // A három végösszeg-sor MINDIG a TERV értéket írta ki, `colspan=labelCols` +
+  // EGY cellával. Számadás módban (6 oszlop, ebből 2 érték) ez az EGY cella az
+  // „Execuție / Számadás" (tény) oszlop alá esett: az aláírt, beküldött
+  // nyomtatványon a TERV végösszeg szerepelt TÉNYKÉNT, a valódi tény végösszeg
+  // pedig SEHOL nem jelent meg. Számadás módban ezért két cella kell.
+  const totalActualIncome = groupsOf(incomeCells).reduce((s, c) => s + sumGroup(data, c.id, getActual), 0)
+  const totalActualExpense = groupsOf(expenseCells).reduce((s, c) => s + sumGroup(data, c.id, getActual), 0)
+  const actualBalance = totalActualIncome - totalActualExpense
+
+  // ── 2026-08-11 (6. kör, P0 #2) — UGYANEZ A HIBA A KÖLTSÉGVETÉS-MÓDOSÍTÁSON ──
+  // A módosítás-nyomtatványnak HÁROM értékoszlopa van (Előző · Módosítás ·
+  // Végleges), a végösszeg-sor viszont — a fenti számadás-hibával azonos okból —
+  // EGYETLEN cellát írt ki, a TERV (Előző) végösszegével, és az a `colspan`
+  // miatt a „Prevederi final / Végleges" oszlop alá esett. Vagyis az aláírt és
+  // beküldött költségvetés-módosításon a VÉGLEGES összbevétel/összkiadás
+  // helyén a MÓDOSÍTÁS ELŐTTI szám állt, a valódi végleges végösszeg pedig
+  // sehol nem jelent meg — pontosan az a hiba, ami miatt a módosítást
+  // egyáltalán beadják. Módosítás módban ezért három cella kell.
+  const getFinalVal = (d: BudgetPrintData, celId: string): number =>
+    d.budgetRows[celId]?.modositott || d.budgetRows[celId]?.tervezett || 0
+  const totalIncomeFinal = groupsOf(incomeCells).reduce((s, c) => s + sumGroup(data, c.id, getFinalVal), 0)
+  const totalExpenseFinal = groupsOf(expenseCells).reduce((s, c) => s + sumGroup(data, c.id, getFinalVal), 0)
+  const finalBalance = totalIncomeFinal - totalExpenseFinal
+
+  const isSzamadasMode = mode === 'szamadas'
+  const isModificationMode = mode === 'modification'
+  // A felirat-cellák száma MINDIG a mód értékoszlopainak számából jön — így a
+  // végösszeg-sor nem tud elcsúszni, ha egy mód oszlopszáma valaha változik.
+  const totLabelCols = cols - valueColCount(mode)
+  // A harmadik sor FELIRATÁT továbbra is a TERV egyenlege adja (a hivatalos
+  // forma nem változik); a tény/végleges oszlopban ELŐJELESEN áll az érték,
+  // hogy egy tervezett többlet melletti tényleges hiány ne tűnjön el.
+  const totRow = (label: string, plan: number, second: number, third: number) => {
+    let valueCellsHtml = `<td class="r">${fmtNum(plan)}</td>`
+    if (isSzamadasMode) valueCellsHtml += `<td class="r">${fmtNum(second)}</td>`
+    else if (isModificationMode) {
+      valueCellsHtml += `<td class="r">${fmtNum(second)}</td><td class="r">${fmtNum(third)}</td>`
+    }
+    return `<tr class="tot"><td colspan="${totLabelCols}" class="r">${label}</td>${valueCellsHtml}</tr>`
+  }
+  all.push(
+    totRow(
+      'Összbevétel / Total venituri',
+      totalIncome,
+      isSzamadasMode ? totalActualIncome : totalIncomeFinal - totalIncome,
+      totalIncomeFinal,
+    ),
+  )
+  all.push(
+    totRow(
+      'Összkiadás / Total cheltuieli',
+      totalExpense,
+      isSzamadasMode ? totalActualExpense : totalExpenseFinal - totalExpense,
+      totalExpenseFinal,
+    ),
+  )
+  all.push(
+    totRow(
+      balance >= 0 ? 'Bevételi többlet / Excedent' : 'Kiadási többlet / Deficit',
+      Math.abs(balance),
+      isSzamadasMode ? actualBalance : finalBalance - balance,
+      finalBalance,
+    ),
+  )
   return all
+}
+
+/** Részszámadás-kontextus (időszak-feliratok). Jelenléte = részszámadás-alak. */
+interface PartialInfo {
+  fromLabel: string
+  toLabel: string
+  /** Rövid, oszlopfejlécbe való alak: „01.01–06.30". */
+  periodLabel: string
 }
 
 interface TableOpts {
   startPage: number
   total: number
-  pages: number
+  /** A lapszámot ÉS a feltöltést is ez adja — egyetlen forrás. */
+  terv: OldalTerv
   withSignatures: boolean
+  /** false → nincs Számvevő-oszlop (az ellenőrző bizottság az ÉVEST hitelesíti). */
+  withAuditor?: boolean
   lastExtraHtml?: string
+  partial?: PartialInfo
 }
 
-/** A sorokat `opts.pages` oldalra osztja: az első oldalak teltek, az utolsóra
- *  kerül a maradék + a záró elemek (számadás-extra, aláírás). */
+/** A sorokat az `opts.terv` szerinti oldalakra osztja (lásd `oldalMeretek`):
+ *  az utolsó oldal a záró elemek (számadás-extra, aláírás) mellé férő sorokat
+ *  kapja, a maradék egyenletesen oszlik el az előtte lévő oldalakon. */
 function colgroupFor(mode: BudgetMode): string {
   // Pontos oszlopszélességek (table-layout: fixed) — módonként eltér az értékoszlopok száma.
   let cols: number[]
@@ -492,19 +946,28 @@ function renderTablePages(data: BudgetPrintData, mode: BudgetMode, rows: string[
     <th colspan="2">Denumire — Megnevezés</th>
     <th>Nr. rând<br>Sorszám</th>
     <th>Capitol/subcap.<br>Fejezet</th>
-    ${valueHeads(mode)}
+    ${valueHeads(mode, opts.partial)}
   </tr>`
+  // Az időszak-sáv MINDEN oldal tetejére kell: a borító leválik/elveszik, és a
+  // 2. oldaltól a részszámadás különben megkülönböztethetetlen az évestől.
+  const band = opts.partial
+    ? `<div class="pband">RÉSZSZÁMADÁS · Időszak: ${esc(opts.partial.fromLabel)} — ${esc(opts.partial.toLabel)} · Belső használatra — az egyházmegyének NEM beküldendő.</div>`
+    : ''
+
+  // A feltöltés és a lapszám UGYANABBÓL a tervből jön (lásd `OldalTerv`).
+  const meretek = oldalMeretek(rows.length, opts.terv)
 
   let html = ''
   let idx = 0
-  for (let p = 0; p < opts.pages; p++) {
-    const isLast = p === opts.pages - 1
-    const take = isLast ? rows.length - idx : Math.min(ROWS_PER_PAGE, rows.length - idx)
-    const chunk = rows.slice(idx, idx + Math.max(0, take))
+  for (let p = 0; p < opts.terv.pages; p++) {
+    const isLast = p === opts.terv.pages - 1
+    const chunk = rows.slice(idx, idx + Math.max(0, meretek[p]))
     idx += chunk.length
-    const extras = isLast ? `${opts.lastExtraHtml || ''}${opts.withSignatures ? buildSignatureBlock() : ''}` : ''
+    const extras = isLast
+      ? `${opts.lastExtraHtml || ''}${opts.withSignatures ? buildSignatureBlock(opts.withAuditor !== false) : ''}`
+      : ''
     html += `<div class="page">
-      <table class="bt">${colgroup}<thead>${thead}</thead><tbody>${chunk.join('')}</tbody></table>
+      ${band}<table class="bt">${colgroup}<thead>${thead}</thead><tbody>${chunk.join('')}</tbody></table>
       ${extras}
       ${footer(data, opts.startPage + p, opts.total)}
     </div>`
@@ -516,6 +979,60 @@ function renderTablePages(data: BudgetPrintData, mode: BudgetMode, rows: string[
 // Számadás extra sorok (év végi egyenleg)
 // ---------------------------------------------------------------------------
 
+/**
+ * 2026-08-11 (6. kör): RÉSZSZÁMADÁS záró blokk — az IDŐSZAK végi egyenleggel.
+ *
+ * A régi kód a JANUÁR 1-i nyitóból számolt zárót, és „az év végén" felirattal
+ * írta ki: II. félévi papíron ez számtani képtelenség volt. Itt a nyitó és a
+ * záró is az IDŐSZAKÉ, és a Casa/Banca sorokban VALÓS szám áll (a levezetés
+ * számlánként megvan) — nem „—".
+ *
+ * A két egyeztető (rovancs) vonal az, ami ezt a papírt ellenőrizhetővé teszi:
+ * a lelkész a fordulónapon megszámolja a kasszát, a bankkivonatról leírja a
+ * záró egyenleget, és a kettő a nyomtatott számmal kell egyezzen.
+ */
+function buildReszszamadasExtraRows(data: BudgetPrintData, partial: PartialInfo): string {
+  const pb = data.periodBalances
+  if (!pb) return ''
+  const notes: string[] = []
+  if (pb.movementCount === 0) {
+    notes.push(
+      'Az időszakban NEM volt pénzmozgás — a záró egyenleg megegyezik a nyitóval.',
+    )
+  }
+  if (data.nyitoBizonytalan) {
+    notes.push(
+      'A nyitó egyenleg LEVEZETETT érték: nincs rögzített nyitó-sor a bázisévre. Nyomtatás előtt vesd össze a kassza- és bankegyenleggel.',
+    )
+  }
+  if (data.devizaSzamlak && data.devizaSzamlak.length > 0) {
+    notes.push(
+      `Devizás számla az időszakban: ${data.devizaSzamlak.join(', ')}. Minden összeg RON-ekvivalensben (a könyveléskori árfolyammal), ahogy a Registru és a Számadás is számol.`,
+    )
+  }
+  const deltaNote =
+    Math.abs(pb.reconcileDelta) >= 0.01
+      ? `<div class="fnote warn">⚠ Egyeztetési eltérés: ${fmtNum(pb.reconcileDelta)} lej. A pénzmozgásból számolt záró egyenleg és a jogcímenkénti (1xx/2xx) teljesítés összege nem egyezik. Leggyakoribb oka: jogcím nélkül rögzített tétel, vagy páratlan belső átvezetés. Nyomtatás előtt nézd át az időszak tételeit.</div>`
+      : ''
+  const noteHtml = notes.length > 0 ? `<div class="fnote">${notes.map((n) => esc(n)).join('<br>')}</div>` : ''
+  return `
+    <table class="bt" style="margin-top:6px;">
+      <thead><tr><th style="width:60%">Megnevezés / Denumire</th><th style="width:20%">ÉVES költségvetés</th><th style="width:20%">Időszak (${esc(partial.periodLabel)})</th></tr></thead>
+      <tbody>
+        <tr class="grp"><td>Pénzkészlet az időszak végén / Sold la sfârșitul perioadei</td><td class="r">x</td><td class="r">${fmtNum(pb.total.closing)}</td></tr>
+        <tr><td>Készpénz egyenleg / Casa</td><td class="r">x</td><td class="r">${fmtNum(pb.cash.closing)}</td></tr>
+        <tr><td>Banki egyenleg / Banca</td><td class="r">x</td><td class="r">${fmtNum(pb.bank.closing)}</td></tr>
+      </tbody>
+    </table>
+    <div class="recon">
+      A kasszában lévő tényleges készpénz: <span class="ln">&nbsp;</span> lej<br>
+      A bankkivonat záró egyenlege: <span class="ln">&nbsp;</span> lej
+    </div>
+    ${deltaNote}
+    ${noteHtml}
+  `
+}
+
 function buildSzamadasExtraRows(data: BudgetPrintData): string {
   // 2026-07-10 (#2): KORÁBBAN HIBÁS volt — a NYITÓ carryover került a
   // „Sold la finele anului / év végén" (ZÁRÓ) sorba, pedig nyitó ≠ záró.
@@ -526,14 +1043,16 @@ function buildSzamadasExtraRows(data: BudgetPrintData): string {
   // A kassza/bank ZÁRÓ BONTÁSHOZ itt nincs oldalankénti (kassza vs. bank)
   // tény-adat (a map-ek kódonként aggregáltak) → a Casa/Banca sorok „—"-t
   // mutatnak, hamis szám helyett.
+  // 2026-08-11 (6. kör): a kód-szűrés ugyanaz az `isSzamadasIvKod`, amit a
+  // táblázat-sorok és a képernyő is használ — nem tud széthúzni tőlük.
   const opening = (data.carryoverCash || 0) + (data.carryoverBank || 0)
   let totalActualIncome = 0
   for (const [code, v] of Object.entries(data.actualIncome || {})) {
-    if (code.startsWith('1') && !code.startsWith('100')) totalActualIncome += v || 0
+    if (isSzamadasIvKod(code, 'B')) totalActualIncome += v || 0
   }
   let totalActualExpense = 0
   for (const [code, v] of Object.entries(data.actualExpense || {})) {
-    if (code.startsWith('2')) totalActualExpense += v || 0
+    if (isSzamadasIvKod(code, 'K')) totalActualExpense += v || 0
   }
   const closing = opening + totalActualIncome - totalActualExpense
   return `
@@ -552,7 +1071,17 @@ function buildSzamadasExtraRows(data: BudgetPrintData): string {
 // Aláírási blokk — a minta szerint
 // ---------------------------------------------------------------------------
 
-function buildSignatureBlock(): string {
+function buildSignatureBlock(withAuditor = true): string {
+  // 2026-08-11 (6. kör): a részszámadáson NINCS Számvevő-oszlop — az ellenőrző
+  // bizottság az ÉVES zárszámadást hitelesíti. Egy üresen maradó „Számvevő"
+  // vonal azt a látszatot keltené, hogy ez a papír is hitelesítendő/beküldendő.
+  const auditor = withAuditor
+    ? `
+    <div class="col">
+      <div class="label">Ellenőrizte / Verificat</div>
+      <div class="line">Számvevő — aláírása</div>
+    </div>`
+    : ''
   return `<div class="sig">
     <div class="col">
       <div class="label">Egyházközség képviselői / Conducătorii unității</div>
@@ -561,11 +1090,7 @@ function buildSignatureBlock(): string {
     <div class="col">
       <div class="label">P.H.</div>
       <div class="line">Főgondnok — aláírása</div>
-    </div>
-    <div class="col">
-      <div class="label">Ellenőrizte / Verificat</div>
-      <div class="line">Számvevő — aláírása</div>
-    </div>
+    </div>${auditor}
   </div>`
 }
 

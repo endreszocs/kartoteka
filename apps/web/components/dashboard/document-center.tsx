@@ -1318,10 +1318,7 @@ function SnapshotView({ sub, snap }: { sub: DocumentSubmission; snap: Record<str
   }
 
   if (type === 'szamadas') {
-    const income = recordOfNumbers(snap.income)
-    const expense = recordOfNumbers(snap.expense)
-    const totalIncome = numOr(snap.totalIncome, sumValues(income))
-    const totalExpense = numOr(snap.totalExpense, sumValues(expense))
+    const { income, expense, totalIncome, totalExpense } = readSzamadasSnapshot(snap)
     return (
       <div className="space-y-3">
         <StatPair
@@ -1362,7 +1359,27 @@ function SnapshotView({ sub, snap }: { sub: DocumentSubmission; snap: Record<str
       .sort((a, b) => a.code.localeCompare(b.code, 'hu'))
     const hasMods = parsed.some((r) => r.mod1 != null || r.mod2 != null || r.mod3 != null)
     if (parsed.length === 0) return <JsonFallback snap={snap} />
+    // 2026-08-11 (6. kör, P1): a beküldött végösszegek — ezek állnak a
+    // gyülekezetnél ALÁÍRT nyomtatvány végösszeg-sorában. Régebbi (a javítás
+    // előtt beküldött) pillanatképben nincsenek: ilyenkor a blokk kimarad, a
+    // kódonkénti tábla viszont változatlanul látszik.
+    const totalIncome = numOrNull(snap.totalIncome)
+    const totalExpense = numOrNull(snap.totalExpense)
     return (
+      <div className="space-y-3">
+      {totalIncome != null && totalExpense != null && (
+        <StatPair
+          stats={[
+            { label: 'Tervezett bevétel', value: `${formatCurrency(totalIncome)} RON` },
+            { label: 'Tervezett kiadás', value: `${formatCurrency(totalExpense)} RON` },
+            {
+              label: 'Egyenleg',
+              value: `${formatCurrency(numOr(snap.balance, totalIncome - totalExpense))} RON`,
+            },
+          ]}
+          note="A gyülekezet által beküldött végösszegek — a hivatalos nyomtatvány végösszeg-sorával azonosak."
+        />
+      )}
       <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 dark:bg-slate-900/40">
@@ -1402,6 +1419,7 @@ function SnapshotView({ sub, snap }: { sub: DocumentSubmission; snap: Record<str
             ))}
           </tbody>
         </table>
+      </div>
       </div>
     )
   }
@@ -1539,6 +1557,41 @@ function sumValues(rec: Record<string, number>): number {
   return Object.values(rec).reduce((s, n) => s + n, 0)
 }
 
+/**
+ * 2026-08-11 (6. kör, P0 — „a beérkezett Számadás 0 lejt mutatott").
+ *
+ * MI VOLT A HIBA: ez a nézet (és a belőle nyomtatott hivatalos ív) KIZÁRÓLAG az
+ * `income` / `expense` / `totalIncome` / `totalExpense` kulcsokat olvasta. Ezek
+ * viszont a gyülekezeti oldal BELSŐ, lokálisan tárolt záró-adatának a mezőnevei
+ * (`bealitas.szamadas_zaro_adatok`) — a ténylegesen BEKÜLDÖTT pillanatképet a
+ * véglegesítő wizard `actualIncome` / `actualExpense` / `totalActualIncome` /
+ * `totalActualExpense` kulcsokkal építi. A két alak sosem találkozott, ezért az
+ * esperes MINDEN beküldött számadásnál „Összes bevétel: 0 RON", „Nincs tétel."
+ * képet kapott, és a dokumentumközpontból nyomtatott ív is 0 lejjel készült el —
+ * miközben a gyülekezetnél aláírt papíron a valós összegek álltak.
+ *
+ * A beküldő oldal mostantól a kanonikus kulcsokat is odateszi (penzugy/actions.ts
+ * `withCanonicalAccountingKeys`), ez az olvasó pedig MINDKÉT alakot elfogadja —
+ * így a JAVÍTÁS ELŐTT beküldött, már archivált iratok is helyesen jelennek meg.
+ * A végösszeg elsődlegesen a pillanatképben rögzített (aláírt) érték; csak ha az
+ * hiányzik, esik vissza a kódonkénti sorok összegére.
+ */
+function readSzamadasSnapshot(snap: Record<string, unknown>): {
+  income: Record<string, number>
+  expense: Record<string, number>
+  totalIncome: number
+  totalExpense: number
+} {
+  const income = recordOfNumbers(snap.income ?? snap.actualIncome)
+  const expense = recordOfNumbers(snap.expense ?? snap.actualExpense)
+  return {
+    income,
+    expense,
+    totalIncome: numOr(snap.totalIncome ?? snap.totalActualIncome, sumValues(income)),
+    totalExpense: numOr(snap.totalExpense ?? snap.totalActualExpense, sumValues(expense)),
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Nyomtatvány (A4 .sheet, printToBrowser) — a lib/inventory/item-card-print.ts
 // bevált sémájára építve, egyszerűsítve.
@@ -1571,10 +1624,8 @@ function buildSubmissionPrintHtml(
 
   let body = ''
   if (type === 'szamadas') {
-    const income = recordOfNumbers(snap.income)
-    const expense = recordOfNumbers(snap.expense)
-    const totalIncome = numOr(snap.totalIncome, sumValues(income))
-    const totalExpense = numOr(snap.totalExpense, sumValues(expense))
+    // 2026-08-11 (6. kör, P0): mindkét pillanatkép-alak — lásd readSzamadasSnapshot.
+    const { income, expense, totalIncome, totalExpense } = readSzamadasSnapshot(snap)
     const table = (title: string, rows: Record<string, number>) => `
       <h2>${escHtml(title)}</h2>
       <table>

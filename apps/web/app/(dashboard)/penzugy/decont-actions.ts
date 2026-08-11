@@ -18,6 +18,7 @@
 import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import {
+  financeWriteBlock,
   getFinanceScopeContext,
   isYearFinalized,
   yearFinalizedCheckErrorMessage,
@@ -231,6 +232,12 @@ export async function saveDecont(input: SaveDecontInput): Promise<
 > {
   const ctx = await getFinanceScopeContext()
   if ('error' in ctx) return { error: ctx.error }
+  // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU. Ma redundáns (a decont gyülekezeti
+  // funkció, ott a `readOnly` mindig false), de SZÁNDÉKOSAN itt marad: ha a
+  // decont valaha megyei hatókört is kap, a kapu már a helyén van, és nem egy
+  // néma 0-soros mentés hívja fel rá a figyelmet.
+  const writeBlock = financeWriteBlock(ctx)
+  if (writeBlock) return writeBlock
   if (ctx.scope !== 'congregation') {
     return { error: 'A decont csak gyülekezeti módban érhető el.' }
   }

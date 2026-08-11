@@ -8,8 +8,14 @@
 
 import { revalidatePath } from 'next/cache'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
-import { resolveDioceseScopeId, resolveDioceseScopeIds } from '@/lib/auth/level-scope'
-import type { UnlockRequest } from '@/lib/constants/documents'
+import {
+  canReadDioceseScope,
+  canWriteDioceseScope,
+  describeDioceseWriteBlock,
+  resolveDioceseScopeId,
+  resolveDioceseScopeIds,
+} from '@/lib/auth/level-scope'
+import { documentSeasonYear, type UnlockRequest } from '@/lib/constants/documents'
 
 // ---------------------------------------------------------------------------
 // 2026-08-11 (K5 P2 #6) — TÖRÖLVE: `getUnlockRequests` (106 sor).
@@ -79,8 +85,11 @@ export async function approveUnlockRequest(
 ): Promise<{ success?: boolean; error?: string }> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
-  if (!access.esperes && !access.admin && !access.master) {
-    return { error: 'Nincs jogosultsága a feloldáshoz.' }
+  // 2026-08-11 (számvevő-kör): a feloldás ÍRÁS. A számvevő (ellenőr) a kérelmet
+  // LÁTJA, de nem bírálja el — és ezt beszédes magyar szöveggel mondjuk meg,
+  // nem nyers RLS-hibával vagy néma 0-soros UPDATE-tel.
+  if (!canWriteDioceseScope(access)) {
+    return { error: describeDioceseWriteBlock(access) ?? 'Nincs jogosultsága a feloldáshoz.' }
   }
 
   // 2026-08-09: a cél-gyülekezetnek a hívó egyházmegyéjébe kell tartoznia
@@ -88,6 +97,8 @@ export async function approveUnlockRequest(
   if (ownershipError) return { error: ownershipError }
 
   const { supabase } = access
+  /** Melyik költségvetés-szint oldódott fel: null = alap, 1..3 = a módosítás. */
+  let unlockedBudgetModNumber: 1 | 2 | 3 | null = null
 
   if (type === 'jelentes') {
     // 2026-07-17 (F5): a hivatalos lelkészi jelentés külön táblában él
@@ -117,7 +128,41 @@ export async function approveUnlockRequest(
   } else {
     const updates: Record<string, unknown> = {}
     if (type === 'budget') {
-      updates.budget_finalized = false
+      // 2026-08-11 (6. kör, P1 — KÖLTSÉGVETÉS-MÓDOSÍTÁS ZSÁKUTCA): a feloldás
+      // eddig MINDIG az ALAP költségvetést nyitotta ki. Csakhogy a gyülekezeti
+      // BudgetTab a LEGUTOLSÓ véglegesített szintre kér feloldást (a gomb csak
+      // ahhoz jelenik meg, és az indoklás elé is azt írja: „[1. módosítás] …").
+      // Ha tehát a lelkész az 1. módosítást akarta javítani, a jóváhagyás után:
+      //   - a `budget_mod1_finalized` zárva maradt (a módosítás nem szerkeszthető),
+      //   - viszont a `budget_finalized` kinyílt, amitől a módosítás-fülek EL IS
+      //     TŰNTEK (azok csak véglegesített alap mellett látszanak).
+      // Vagyis a lelkész se javítani, se visszazárni nem tudott — fejlesztő
+      // nélkül nem volt kiút. Mostantól a LEGMAGASABB véglegesített szintet
+      // oldjuk fel, pontosan azt, amelyikre a kérelem szólt.
+      const { data: lockRow, error: lockErr } = await supabase
+        .from('bealitas')
+        .select('budget_finalized, budget_mod1_finalized, budget_mod2_finalized, budget_mod3_finalized')
+        .eq('id', year)
+        .eq('congregation_id', congregationId)
+        .maybeSingle()
+
+      if (lockErr) {
+        // Séma-drift (régi adatbázis a mod-oszlopok nélkül): a régi, alap-szintű
+        // viselkedés marad, hogy a feloldás egyáltalán működjön — de hangosan
+        // naplózzuk, mert a módosítás-feloldás ilyenkor nem elérhető.
+        console.error(
+          '[dashboard-egyhazmegye] a költségvetés zár-szintjeinek olvasása hibára futott, ' +
+            'ezért az ALAP költségvetést oldjuk fel:',
+          lockErr.message,
+        )
+        updates.budget_finalized = false
+      } else {
+        const row = (lockRow || {}) as Record<string, unknown>
+        if (row.budget_mod3_finalized) updates.budget_mod3_finalized = false
+        else if (row.budget_mod2_finalized) updates.budget_mod2_finalized = false
+        else if (row.budget_mod1_finalized) updates.budget_mod1_finalized = false
+        else updates.budget_finalized = false
+      }
       updates.unlock_requested = false
       updates.unlock_reason = null
     } else if (type === 'accounting') {
@@ -142,6 +187,15 @@ export async function approveUnlockRequest(
     if (!updated || updated.length === 0) {
       return { error: 'A feloldás nem történt meg — a beállítás-sor nem található, vagy nincs jogosultsága hozzá.' }
     }
+    // A ténylegesen feloldott költségvetés-szint — a beküldött dokumentum-sor
+    // kinyitásához (lentebb) tudni kell, alap vagy hányadik módosítás volt.
+    unlockedBudgetModNumber = updates.budget_mod3_finalized === false
+      ? 3
+      : updates.budget_mod2_finalized === false
+        ? 2
+        : updates.budget_mod1_finalized === false
+          ? 1
+          : null
   }
 
   // 2026-08-09 (review-fix): a feloldás a BEKÜLDÖTT dokumentum sorát is
@@ -149,22 +203,29 @@ export async function approveUnlockRequest(
   // iratot: a dokumentumközpont felülírás-védelme a 'finalized' sort blokkolja
   // ('returned' viszont újra beküldhető). Best-effort: ha nincs ilyen sor
   // (még nem küldték be), az nem hiba.
+  // 2026-08-11 (6. kör): ha a feloldás egy KÖLTSÉGVETÉS-MÓDOSÍTÁSRA szólt, nem
+  // az alap 'koltsegvetes' sort kell kinyitni, hanem a megfelelő
+  // 'koltsegvetes_modositas' sort a maga módosítás-sorszámával — különben a
+  // lelkész a javítás után a felülírás-védelembe futna bele.
   const unlockedDocType: string | null =
     type === 'accounting' ? 'szamadas'
-      : type === 'budget' ? 'koltsegvetes'
+      : type === 'budget' ? (unlockedBudgetModNumber ? 'koltsegvetes_modositas' : 'koltsegvetes')
         : type === 'jelentes' ? 'lelkeszi_jelentes'
           : type === 'inventory' ? 'vagyonleltar'
             : null
   if (unlockedDocType) {
     try {
-      const { data: subRow } = await supabase
+      let subQuery = supabase
         .from('document_submissions')
         .select('id, status, notes')
         .eq('congregation_id', congregationId)
         .eq('document_type', unlockedDocType)
         .eq('year', Number(year))
         .in('status', ['submitted', 'received', 'reviewed', 'finalized'])
-        .maybeSingle()
+      subQuery = unlockedBudgetModNumber
+        ? subQuery.eq('modification_number', unlockedBudgetModNumber)
+        : subQuery.is('modification_number', null)
+      const { data: subRow } = await subQuery.maybeSingle()
       if (subRow?.id) {
         const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ')
         const prev = (subRow.notes as string | null) || ''
@@ -207,8 +268,9 @@ export async function rejectUnlockRequest(
 ): Promise<{ success?: boolean; error?: string }> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
-  if (!access.esperes && !access.admin && !access.master) {
-    return { error: 'Nincs jogosultsága az elutasításhoz.' }
+  // 2026-08-11 (számvevő-kör): az elutasítás is ÍRÁS — lásd approveUnlockRequest.
+  if (!canWriteDioceseScope(access)) {
+    return { error: describeDioceseWriteBlock(access) ?? 'Nincs jogosultsága az elutasításhoz.' }
   }
 
   // 2026-08-09: a cél-gyülekezetnek a hívó egyházmegyéjébe kell tartoznia
@@ -378,7 +440,10 @@ export async function getCongregationOverviewData(): Promise<Array<{
 }>> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return []
-  if (!access.esperes && !access.admin && !access.master) return []
+  // 2026-08-11 (számvevő-kör): OLVASÁSI kapu — az esperes/megyei admin mellett
+  // az egyházmegyei számvevő is beleesik (az adatbázis ugyanezt engedi:
+  // current_user_diocese_olvaso_ids()).
+  if (!canReadDioceseScope(access)) return []
 
   const { supabase } = access
   // 2026-08-09: feloldott hatókör (aktív szerep → profile_roles → skalár) +
@@ -387,6 +452,29 @@ export async function getCongregationOverviewData(): Promise<Array<{
   const dioceseId = resolveDioceseScopeId(access)
   if (!dioceseId && !access.master && !access.admin) return []
   const currentYear = new Date().getFullYear()
+
+  /**
+   * 2026-08-11 (6. kör, P0 — JAVÍTÁSI ZSÁKUTCA): ez a lekérdezés a NAPTÁRI évre
+   * volt szegezve (`bealitas.id = String(currentYear)`), miközben a beszámolási
+   * szezon átnyúlik az évhatáron: a lelkész a TÁRGYÉV (N) számadását a KÖVETKEZŐ
+   * év (N+1) januárjában véglegesíti és küldi be, és a javítási kérelmét is az
+   * N-es `bealitas` sorra írja. A megye viszont az N+1-es sort kereste — vagyis a
+   * kérelem SOHA nem jelent meg az esperesnél. A lelkész oldalán közben a gomb
+   * „Javítási kérelem elbírálás alatt…" állapotba ragadt (a flag be volt írva),
+   * tehát újra sem tudta küldeni: fejlesztő nélkül nem volt kiút. Ugyanez a
+   * dokumentum-darabszámokra és a beküldött választói létszámra is állt.
+   *
+   * A javítás ugyanazt az ÉV-ABLAKOT használja, mint a dokumentumközpont
+   * (lib/constants/documents.ts `documentSeasonYear`): szezon-év + naptári év +
+   * az azt megelőző év. Az egyes kérelmek a SAJÁT évükkel mennek tovább, mert az
+   * `approveUnlockRequest` / `rejectUnlockRequest` ezt az évet írja a
+   * `bealitas.id`-ba — ha itt a naptári évet adnánk, a jóváhagyás egy MÁSIK év
+   * sorát oldaná fel (vagy 0 sort érintve hangosan elbukna).
+   */
+  const seasonYear = documentSeasonYear()
+  const relevantYears = [...new Set([currentYear, seasonYear, seasonYear - 1])].sort(
+    (a, b) => b - a,
+  )
 
   // Gyülekezetek lekérdezése — szűretlenül CSAK a rendszergazdai/master ág futhat
   let congQuery = supabase
@@ -408,7 +496,7 @@ export async function getCongregationOverviewData(): Promise<Array<{
     .from('bealitas')
     .select('id, congregation_id, unlock_requested, unlock_reason, accounting_unlock_requested, accounting_unlock_reason, leltar_unlock_requested, leltar_unlock_reason')
     .in('congregation_id', congIds)
-    .eq('id', String(currentYear))
+    .in('id', relevantYears.map(String))
 
   // 2026-07-17 (F5): lelkészi jelentés feloldás-kérelmek (lelkeszi_jelentes) —
   // itt is csak a kérelem-flageket kérdezzük, nem a jelentés tartalmát.
@@ -420,36 +508,62 @@ export async function getCongregationOverviewData(): Promise<Array<{
     .eq('unlock_requested', true)
 
   // Dokumentum beküldések — ez az engedélyezett adatforrás az egyházmegye számára
+  // 2026-08-11 (6. kör): ugyanaz az év-ablak, mint a kérelmeknél — a naptári évre
+  // szegezett régi szűrő januárban 0 dokumentumot mutatott minden gyülekezetnél
+  // (a szezon iratai az ELŐZŐ év kulcsán érkeznek), és a választói létszám is
+  // eltűnt a gyülekezet-kártyáról.
   const { data: docData } = await supabase
     .from('document_submissions')
-    .select('congregation_id, status, document_type, snapshot_data')
+    .select('congregation_id, status, document_type, snapshot_data, year')
     .in('congregation_id', congIds)
-    .eq('year', currentYear)
+    .in('year', relevantYears)
 
   // Választók száma — KIZÁRÓLAG a beküldött választók névjegyzékéből (nem szemely táblából!)
-  const voterCounts = new Map<string, number>()
-  for (const d of (docData || []) as Array<{ congregation_id: string; document_type: string; snapshot_data: Record<string, unknown> | null }>) {
+  // 2026-08-11 (6. kör): az év-ablak miatt egy gyülekezethez több év névjegyzéke
+  // is jöhet — a LEGFRISSEBB év számít (a régebbi nem írhatja felül).
+  const voterCounts = new Map<string, { year: number; count: number }>()
+  for (const d of (docData || []) as Array<{ congregation_id: string; document_type: string; snapshot_data: Record<string, unknown> | null; year: number | null }>) {
     if (d.document_type !== 'valasztok_nevjegyzeke' || !d.snapshot_data) continue
     const snap = d.snapshot_data as { totalCount?: number; voterCount?: number }
     const count = typeof snap.totalCount === 'number' ? snap.totalCount
       : typeof snap.voterCount === 'number' ? snap.voterCount
       : null
-    if (count !== null) voterCounts.set(d.congregation_id, count)
+    if (count === null) continue
+    const year = typeof d.year === 'number' ? d.year : 0
+    const prev = voterCounts.get(d.congregation_id)
+    if (!prev || year >= prev.year) voterCounts.set(d.congregation_id, { year, count })
+  }
+
+  // 2026-08-11 (6. kör): gyülekezetenként az ÖSSZES releváns év `bealitas` sora —
+  // a régi `.find(...)` az elsőt vette, tehát az év-ablak bővítése után némán
+  // elnyelte volna a többi év kérelmeit. A kérelem a SAJÁT évével megy tovább.
+  const bealitasByCong = new Map<string, Array<Record<string, unknown>>>()
+  for (const row of (bealitasData || []) as Array<Record<string, unknown>>) {
+    const congId = String(row.congregation_id)
+    const list = bealitasByCong.get(congId)
+    if (list) list.push(row)
+    else bealitasByCong.set(congId, [row])
   }
 
   // Összesítés
   return congregations.map((cong: { id: string; name: string }) => {
-    const bealitas = (bealitasData || []).find((b: { congregation_id: string }) => b.congregation_id === cong.id) as Record<string, unknown> | undefined
     const requests: UnlockRequest[] = []
 
-    if (bealitas?.unlock_requested) {
-      requests.push({ congregationId: cong.id, congregationName: cong.name, year: String(currentYear), type: 'budget', reason: (bealitas.unlock_reason as string) || null, requestedAt: null })
-    }
-    if (bealitas?.accounting_unlock_requested) {
-      requests.push({ congregationId: cong.id, congregationName: cong.name, year: String(currentYear), type: 'accounting', reason: (bealitas.accounting_unlock_reason as string) || null, requestedAt: null })
-    }
-    if (bealitas?.leltar_unlock_requested) {
-      requests.push({ congregationId: cong.id, congregationName: cong.name, year: String(currentYear), type: 'inventory', reason: (bealitas.leltar_unlock_reason as string) || null, requestedAt: null })
+    // Év szerint csökkenő sorrendben — a frissebb kérelem kerül a lista élére.
+    const bealitasRows = (bealitasByCong.get(cong.id) || []).sort(
+      (a, b) => Number(b.id) - Number(a.id),
+    )
+    for (const bealitas of bealitasRows) {
+      const rowYear = String(bealitas.id)
+      if (bealitas.unlock_requested) {
+        requests.push({ congregationId: cong.id, congregationName: cong.name, year: rowYear, type: 'budget', reason: (bealitas.unlock_reason as string) || null, requestedAt: null })
+      }
+      if (bealitas.accounting_unlock_requested) {
+        requests.push({ congregationId: cong.id, congregationName: cong.name, year: rowYear, type: 'accounting', reason: (bealitas.accounting_unlock_reason as string) || null, requestedAt: null })
+      }
+      if (bealitas.leltar_unlock_requested) {
+        requests.push({ congregationId: cong.id, congregationName: cong.name, year: rowYear, type: 'inventory', reason: (bealitas.leltar_unlock_reason as string) || null, requestedAt: null })
+      }
     }
     // 2026-07-17 (F5): lelkészi jelentés kérelmek — évenként külön sor lehet
     for (const j of (jelentesUnlockData || []).filter((row: { congregation_id: string }) => row.congregation_id === cong.id)) {
@@ -465,7 +579,7 @@ export async function getCongregationOverviewData(): Promise<Array<{
       unlockRequests: requests,
       documentCount: docs.length,
       pendingDocuments: pendingDocs,
-      voterCount: voterCounts.get(cong.id) ?? null,
+      voterCount: voterCounts.get(cong.id)?.count ?? null,
     }
   }).sort((a: { congregationName: string }, b: { congregationName: string }) => a.congregationName.localeCompare(b.congregationName))
 }

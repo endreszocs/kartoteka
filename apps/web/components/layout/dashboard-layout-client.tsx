@@ -32,6 +32,7 @@ import {
   PlaneTakeoff,
   ScrollText,
   ShieldAlert,
+  ShieldCheck,
   Sparkles,
   User,
   UserCheck,
@@ -45,6 +46,7 @@ import { DashboardShell } from './dashboard-shell'
 import { BottomVerse } from './bottom-verse'
 import { DioceseSetupBanner } from './diocese-setup-banner'
 import { CongregationSetupBanner } from './congregation-setup-banner'
+import { BackupStaleBanner } from '@/components/admin/backup/backup-stale-banner'
 import type { Profile } from '@/lib/types/auth'
 import type { Role } from '@/lib/types/auth'
 import type { ProfileRoleRow } from '@/lib/profile-roles/types'
@@ -114,6 +116,10 @@ const WEB_ADMIN_SUBMENU = [
   // 2026-07-11 (admin-redesign): a Tevékenység-napló (rekord-szintű audit) újra
   // elérhető — a halott AdminTabsV3-ból önálló /admin/naplo oldalra költözött.
   { label: 'Tevékenység-napló', href: '/admin/naplo', icon: History, gradient: 'from-slate-400 to-slate-600' },
+  // 2026-08-11: napi titkosított mentés a Google Drive-ra. A kerületi admin is
+  // látja (nincs a DISTRICT_ADMIN_HIDDEN listán) — de csak a SAJÁT kerülete
+  // gyülekezeteinek állapotát; a szűkítést a szerver-akciók végzik, fail-closed.
+  { label: 'Biztonsági mentés', href: '/admin/biztonsagi-mentes', icon: ShieldCheck, gradient: 'from-emerald-400 to-teal-600' },
   { label: 'Rendszer', href: '/admin/rendszer', icon: ShieldAlert, gradient: 'from-red-400 to-rose-500' },
   { label: 'Veszélyes zóna', href: '/admin/veszelyes-zona', icon: Flame, gradient: 'from-red-500 to-red-700' },
 ] as const
@@ -258,6 +264,18 @@ export function DashboardLayoutClient({
           onToggleMobileMenu={() => setMobileOpen(prev => !prev)}
           onToggleSidebar={() => setSidebarCollapsed(prev => !prev)}
         >
+          {/* 2026-08-11 — BIZTONSÁGI MENTÉS ŐRSZEM.
+              Nem attól függ, hogy a mentő kód lefutott-e: a HIÁNYBÓL számol
+              (max(finished_at) az IGAZOLT mentésekre). Ha a cron törlődik, ha a
+              deploy elromlik, ha a mentő route 500-at ad — a sáv AKKOR IS
+              megjelenik. A riasztás nem lakhat abban, amit figyel.
+              Nem elrejthető, és csak akkor tűnik el, ha van friss igazolt mentés.
+
+              A feltétel itt CSAK teljesítmény-szűrő (ne induljon fölösleges
+              szerver-hívás minden lelkész minden oldalbetöltésénél). A VALÓDI
+              kapu a szerver-akcióban van: `requireAdminAccess`, ami nem-adminnak
+              `null`-t ad. Ha ez a feltétel valaha eltűnne, semmi nem szivárogna. */}
+          {(master || admin || egyhazkeruletiAdmin) && <BackupStaleBanner />}
           {/* Egyházmegyei setup banner — csak diocese scope-ban, ha hiányosak az adatok */}
           {dioceseSetupNeeded && dioceseSetupId && (
             <DioceseSetupBanner

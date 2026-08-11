@@ -90,9 +90,18 @@ export function CrossMatchTab() {
   const [scanBusy, setScanBusy] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
 
-  const load = useCallback(async (withResolved: boolean) => {
-    setLoading(true)
-    const res = await listCrossMatchAdmin(withResolved)
+  // 2026-08-11: a betöltés SZÉTVÁLASZTVA. Korábban egyetlen `load()` futott az
+  // effect törzséből, és rögtön `setLoading(true)`-t hívott — szinkron setState
+  // az effectben (react-hooks/set-state-in-effect → kaszkádoló újrarender).
+  // Most:
+  //   · az effect maga indítja a lekérést, és CSAK a válasz megérkezésekor
+  //     (aszinkron callbackben) ír állapotot — ez a szabály szerinti helyes ág;
+  //   · a töltő-állapotot ott kapcsoljuk be, ahol a felhasználó KÉRI:
+  //     eseménykezelőben (`reload`, szűrő-kapcsoló);
+  //   · az első betöltés látványát a `useState(true)` kezdőérték adja.
+  // Ráadásul most már van lemondás (`cancelled`): a gyorsan egymás után váltott
+  // szűrő korábban felülírhatta az újabb választ a régivel.
+  const applyListResult = useCallback((res: Awaited<ReturnType<typeof listCrossMatchAdmin>>) => {
     if (res.error) {
       toast.error(res.error)
     } else {
@@ -103,9 +112,18 @@ export function CrossMatchTab() {
     setLoading(false)
   }, [])
 
+  const reload = useCallback(async (withResolved: boolean) => {
+    setLoading(true)
+    applyListResult(await listCrossMatchAdmin(withResolved))
+  }, [applyListResult])
+
   useEffect(() => {
-    void load(includeResolved)
-  }, [load, includeResolved])
+    let cancelled = false
+    listCrossMatchAdmin(includeResolved).then((res) => {
+      if (!cancelled) applyListResult(res)
+    })
+    return () => { cancelled = true }
+  }, [applyListResult, includeResolved])
 
   const openCount = useMemo(() => rows.filter((r) => !r.resolution).length, [rows])
   const notifiedCount = useMemo(
@@ -139,7 +157,7 @@ export function CrossMatchTab() {
         ? `Átvizsgálás kész — ${res.newMatches} új egyezés került a listába (összesen ${res.totalOpen} nyitott).`
         : `Átvizsgálás kész — új egyezés nem került elő (összesen ${res.totalOpen} nyitott).`,
     )
-    await load(includeResolved)
+    await reload(includeResolved)
   }
 
   async function handleNotify(row: CrossMatchAdminRow) {
@@ -165,7 +183,7 @@ export function CrossMatchTab() {
     if (res.inApp) parts.push(`${res.inApp} app-értesítés`)
     toast.success(`Értesítés kiküldve: ${parts.join(' + ') || 'rögzítve'}.`)
     for (const w of res.warnings || []) toast.warning(w)
-    await load(includeResolved)
+    await reload(includeResolved)
   }
 
   async function handleResolve(row: CrossMatchAdminRow, resolution: CrossMatchAdminResolution) {
@@ -185,7 +203,7 @@ export function CrossMatchTab() {
       return
     }
     toast.success('A döntés rögzítve.')
-    await load(includeResolved)
+    await reload(includeResolved)
   }
 
   if (needsSql) {
@@ -195,7 +213,7 @@ export function CrossMatchTab() {
         title="Az egyeztetési felülethez adatbázis-frissítés szükséges"
         hint="Futtasd le a migration-docs/sql/2026-08-09-admin-kereszt-egyeztetes.sql fájlt a Supabase SQL Editorban — ez hozza létre az átvizsgáló és lista-függvényeket. Utána frissítsd az oldalt."
         action={
-          <Button variant="outline" className="rounded-xl" onClick={() => void load(includeResolved)}>
+          <Button variant="outline" className="rounded-xl" onClick={() => void reload(includeResolved)}>
             <RefreshCcw className="mr-1.5 size-4" /> Újrapróbálás
           </Button>
         }
@@ -307,12 +325,17 @@ export function CrossMatchTab() {
             type="checkbox"
             className="size-4 rounded border-input"
             checked={includeResolved}
-            onChange={(e) => setIncludeResolved(e.target.checked)}
+            onChange={(e) => {
+              // A töltő-állapotot itt kapcsoljuk be (eseménykezelő), nem az
+              // effect törzsében — lásd a `load` melletti 2026-08-11 jegyzetet.
+              setLoading(true)
+              setIncludeResolved(e.target.checked)
+            }}
           />
           Elrendezett tételek is
         </label>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" className="rounded-xl" onClick={() => void load(includeResolved)} disabled={loading}>
+          <Button variant="outline" size="sm" className="rounded-xl" onClick={() => void reload(includeResolved)} disabled={loading}>
             <RefreshCcw className="mr-1.5 size-4" /> Frissítés
           </Button>
           {canScan && (

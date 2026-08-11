@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
@@ -120,6 +120,12 @@ function getRoleLabel(role: string) {
   return roleLabels[role] || role.replace(/_/g, ' ')
 }
 
+// 2026-08-11 — hidratálás-érzékelés `useSyncExternalStore`-ral (lásd lentebb).
+// Modul szintű konstansok, hogy a hook ne kapjon minden renderben új függvényt.
+const subscribeNoop = () => () => {}
+const getHydratedSnapshot = () => true
+const getServerSnapshot = () => false
+
 export function HeaderRefinedV3({
   profile,
   avatarUrl = null,
@@ -143,15 +149,19 @@ export function HeaderRefinedV3({
   const [signingOut, setSigningOut] = useState(false)
   const [supportOpen, setSupportOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [mounted, setMounted] = useState(false)
   const router = useRouter()
   const { resolvedTheme, setTheme } = useTheme()
 
-  // next-themes: a szerveren nincs téma — a gomb feliratát csak mountolás után
+  // next-themes: a szerveren nincs téma — a gomb feliratát csak hidratálás után
   // szabad kiírni, különben hydration-eltérés lenne.
-  useEffect(() => {
-    setMounted(true)
-  }, [])
+  //
+  // 2026-08-11: a korábbi `useState(false)` + `useEffect(() => setMounted(true))`
+  // páros effect-ben hívott setState volt (react-hooks/set-state-in-effect →
+  // kaszkádoló újrarender). A `useSyncExternalStore` pontosan erre való: a
+  // szerver-pillanatkép `false`, a kliens-pillanatkép `true`, feliratkozás
+  // nincs (a hidratáltság sosem változik vissza). Nem elnyomás, hanem a
+  // React 19 erre szánt API-ja.
+  const mounted = useSyncExternalStore(subscribeNoop, getHydratedSnapshot, getServerSnapshot)
 
   const isDark = mounted && resolvedTheme === 'dark'
 

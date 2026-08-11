@@ -23,6 +23,51 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-12] — Napi biztonsági mentés, részszámadás, lelkészi naptár és két hivatalos nyomtatvány javítása
+<!-- key: 2026-08-12-mentes-reszszamadas-naptar -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, konyvelo, admin, esperes, egyhazmegyei_szamvevo -->
+<!-- version: web v0.9.161 -->
+
+Ebben a körben új funkciók készültek — köztük a régóta hiányzó **napi biztonsági mentés** —, és javítottunk néhány olyan hibát, amely **hivatalos, beküldött nyomtatványon** adott rossz számot. A felsoroltakhoz semmit nem kell tenned, kivéve ahol külön jelezzük.
+
+### ✨ Új funkciók
+
+- **Napi automatikus biztonsági mentés a Google Drive-odba.** Minden éjjel elkészül, **titkosítva** — a Google csak értelmezhetetlen adatot lát. Az admin felületen látod, mikor készült az utolsó, és le is töltheted. Ha 48 óránál régebbi a legutóbbi sikeres mentés, figyelmeztetést kapsz e-mailben, az értesítések közt és az admin felületen is. A mentés **csak akkor számít sikeresnek, ha a rendszer visszaolvasta és a sorszámok egyeztek** — egy jónak látszó, de hiányos mentés rosszabb a semminél. Gyülekezeti szinten **visszaállítás** is van, szárazpróbával és kötelező elő-mentéssel. *(Beállítás szükséges — külön útmutatót kapsz hozzá.)*
+- **Részszámadás.** A számadást mostantól **tetszőleges időszakra** is kinyomtathatod, nem csak a teljes évre — presbiteri gyűlésre, esperesi vizsgálatra, félévi elszámoláshoz. A lapon félreérthetetlenül szerepel, hogy részszámadás, és hogy nem küldhető be. Ha a nyitó egyenleg nem vezethető le, a nyomtatvány **inkább letiltja magát**, mintsem rossz számot adjon.
+- **Privát lelkészi naptár.** A Profilom oldalon készíthetsz egy naptár-hivatkozást, amit felvehetsz a telefonodba: onnantól magától szól a születésnapokról, névnapokról, házassági és konfirmációi évfordulókról. Semmit nem kell rögzítened hozzá. A gyász és a kiskorúak adatai szándékosan **nem** kerülnek bele.
+- **Lejárat-figyelő.** Az irányítópulton megjelenik, mely sírhely-bérletek és bérleti szerződések járnak le a következő fél évben — és melyek jártak már le.
+- **Különleges gyülekezeti alkalmak.** A szeretetvendégséget, zenekari fellépést, kirándulást, tábort mostantól előre beírhatod, és a lelkészi jelentés összeállításakor a rendszer **csak ezekre** kérdez rá: megvolt-e, hányan voltak. A rendszeres alkalmakat (istentisztelet, bibliaóra) nem bolygatja. *(SQL futtatása szükséges.)*
+
+### 🐛 Javítások — hivatalos nyomtatványok
+
+- **A beküldött számadásod 0 lejt mutatott az esperesnél.** A véglegesítő varázsló és a megyei dokumentumközpont más néven kereste ugyanazt az adatot, ezért a megyénél „Összes bevétel: 0 RON" állt. Javítva; a már beküldött dokumentumaid **is helyesen jelennek meg**, nem kell újraküldeni semmit.
+- **A költségvetés-módosítás „Végleges" oszlopában a módosítás ELŐTTI végösszeg állt** — az aláírt papíron. A valódi végösszeg sehol nem szerepelt.
+- **A beküldött tételsor nem egyezett a kinyomtatottal**: belső mozgás és egyházmegyei kódok is bekerültek olyan összegekbe, amelyek a papíron nem szerepeltek.
+- **Öt véglegesítő és feloldó gomb „sikerült"-et mondott, miközben nem zárt le semmit.**
+- **Januárban az esperes nem látta a javítási kérelmedet** — a kérelem a rossz év sorára került. Ugyanez nullázta a dokumentum-számokat és a választói létszámot minden januárban.
+- **A lelkészi jelentés devizás befizetésnél a nyers összeget írta lejként** (100 EUR = 100 lej) az egyházfenntartói járulék és a perselypénz rubrikájába.
+- **A választói létszám több lehetett, mint a lélekszám** — az elköltözött tagokat az egyik rubrika kiszűrte, a másik nem.
+- **A nőszövetségi alkalom egyetlen rubrikába sem számított bele**, pedig rendesen rögzíted. Mostantól a rendszer javaslatot ad hozzá, egy koppintással beírhatóan — a végső szám továbbra is a tiéd.
+- **Az egyházmegyei kódok** (nettó fizetések, CAS, biztosítások) mostantól **megjelennek a gyülekezeti íven** is, ahogy a hivatalos nyomtatványon — de a gyülekezet nem tud rájuk könyvelni. Az egyházmegye saját ívén viszont **minden tétel** szerepel és szerkeszthető.
+
+### 🐛 Javítások — egyéb
+
+- **Az „Útvonal" gomb nem találta a címeket.** A rendszer a magyar nevet küldte a térképnek („Barátos, Főút"), az viszont a hivatalos román alakot ismeri. Mostantól azt küldi, irányítószámmal; ha valami mégsem stimmel, **egyszer egyeztetheted**, és onnantól az egész utcára jó lesz.
+- **Az Értesítések oldal szerverhibát adott.** Ugyanez a hiba érintette a nyilvános gyülekezeti oldalak közül a magazint, a bejegyzéseket és a „Rólunk" lapot is.
+- **Az irányítópult „Egyenleg" csempéje nem egyenleget mutatott**, hanem az elmúlt 24 hónap különbségét — nyitó egyenleg nélkül, a stornózott tételekkel együtt. Mostantól „Pénzkészlet ma" néven a tényleges pénzt mutatja, kassza és bank együtt.
+- **A havi grafikonból minden hónap utolsó napja kimaradt** (időzóna-hiba).
+- **Az automatikus háttérfeladatok soha nem futottak le** — a rendszer bejelentkezésre irányította őket. A kézzel indított hírlevél mindig működött; az ütemezett feladatok mostantól szintén.
+- **A pénzügyi modul betöltő-képernyője** most ugyanaz, mint a többi modulé.
+
+### 🔒 Biztonság
+
+- **Az egyházmegyei számvevő** mostantól tényleg használni tudja a megyei felületet — **olvasóként**. Menet közben kiderült, hogy eddig **írhatta is** az egyházmegye könyveit; ez lezárva.
+- **Egy örökölt esperes a saját gyülekezete könyveibe könyvelt**, miközben az egyházmegyei felületen dolgozott. Némán, hibaüzenet nélkül.
+- **Az egyházmegyei bankszámlák elérhetetlenné váltak** az augusztus 11-i szigorítás mellékhatásaként. Helyreállítva.
+
+---
+
 ## [2026-08-11] — Nagy biztonsági kör, megújult személyi karton és sok néma hiba javítása
 <!-- key: 2026-08-11-biztonsagi-kor-szemelyi-karton -->
 <!-- category: security -->

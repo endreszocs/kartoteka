@@ -1,12 +1,16 @@
 import { redirect } from 'next/navigation'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, Eye } from 'lucide-react'
 
 import { ScopeHero } from '@/components/dashboard/scope-dashboard-sections'
 import { DioceseDashboardTabs } from '@/components/dashboard/diocese/diocese-dashboard-tabs'
 import { DioceseSetupAutoOpen } from '@/components/dashboard/diocese/diocese-setup-auto-open'
 import { getHomePathForScope } from '@/lib/auth/active-ui-scope'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
-import { resolveDioceseScopeId } from '@/lib/auth/level-scope'
+import {
+  canReadDioceseScope,
+  canWriteDioceseScope,
+  resolveDioceseScopeId,
+} from '@/lib/auth/level-scope'
 import { getCongregationOverviewData } from './actions'
 import { getSubmissionMatrix } from './document-actions'
 import { checkDioceseSetupStatus } from './diocese-actions'
@@ -32,16 +36,33 @@ import { listAssignments } from '@/app/(dashboard)/admin/profile-congregations-a
  *   NEM szűretlen (egész egyházas) nézetet. Kerületi admin diocese-scope
  *   nélkül a kerületi irányítópultra kerül. A szűretlen, összesített nézet
  *   KIZÁRÓLAG a rendszergazdáé/masteré (explicit ág).
+ *
+ * SZÁMVEVŐ (2026-08-11):
+ *   Az `egyhazmegyei_szamvevo` eddig a `!esperes` kapun kiesett, pedig az
+ *   alkalmazás máshol (level-scope, finance-scope, profilváltó) elfogadta a
+ *   megyei szerepét — ezért kapott üres képernyőt, illetve pattant vissza.
+ *   Mostantól BELÉP, de OLVASÓ (ellenőri) nézetben: minden látszik, a
+ *   módosító műveletek viszont ELŐRE le vannak tiltva, magyarázattal — nem
+ *   egy néma, 0 sort érintő mentés után derül ki, hogy nem volt jogosultsága.
+ *   Az adatbázis-oldali párja: migration-docs/sql/2026-08-11-szamvevo-megyei-
+ *   hozzaferes.sql.
  */
 export default async function EgyhazmegyeDashboardPage() {
   const access = await getEffectiveAccessContext()
-  const { supabase, user, esperes, admin, master, egyhazkeruletiAdmin, activeProfileRole } = access
+  const { supabase, user, admin, master, egyhazkeruletiAdmin, activeProfileRole } = access
 
   if (!user) redirect('/login')
-  if (!esperes && !admin && !master) redirect('/dashboard')
+  // 2026-08-11: OLVASÁSI kapu — az esperes/megyei admin mellett a számvevőt is
+  // beengedi. A `custom` megyei szerepek SZÁNDÉKOSAN kimaradnak: az RLS a
+  // `permissions` JSONB-t nem tudja értelmezni, tehát ott az adatbázis úgyis
+  // üres listát adna (a mai tünet reprodukálódna).
+  if (!canReadDioceseScope(access)) redirect('/dashboard')
   if (activeProfileRole && activeProfileRole.scope !== 'diocese') {
     redirect(getHomePathForScope(activeProfileRole.scope))
   }
+
+  // Írhat-e a hívó? A számvevő nem — a felület ennek megfelelően viselkedik.
+  const canWrite = canWriteDioceseScope(access)
 
   // 2026-08-09: aktív szerep → profile_roles → profiles.diocese_id sorrendű feloldás
   const dioceseId = resolveDioceseScopeId(access)
@@ -66,9 +87,13 @@ export default async function EgyhazmegyeDashboardPage() {
   const annualReportYear = new Date().getMonth() < 3 ? currentYear - 1 : currentYear
 
   // Egyházmegye setup status (auto-open wizard-hoz)
-  const dioceseSetupStatus = dioceseId
-    ? await checkDioceseSetupStatus(dioceseId)
-    : { needsSetup: false, missingFields: [] as string[], dioceseId: null as string | null }
+  // 2026-08-11 (számvevő-kör): a wizard MENTENI akar — ellenőri nézetben ezért
+  // el sem indítjuk. Enélkül a számvevőnek automatikusan felugrana egy űrlap,
+  // amit kitölthet, de elmenteni sosem tudna.
+  const dioceseSetupStatus =
+    dioceseId && canWrite
+      ? await checkDioceseSetupStatus(dioceseId)
+      : { needsSetup: false, missingFields: [] as string[], dioceseId: null as string | null }
 
   // Egyházmegye metaadatok
   const { data: dioceseRow } = dioceseId
@@ -140,8 +165,11 @@ export default async function EgyhazmegyeDashboardPage() {
           // darabszám-lekérdezésből), nem a betöltött év-ablak mérete.
           `${(documentCenter.totalCount ?? documentCenter.submissions.length).toLocaleString('hu-HU')} beküldött dokumentum (archívum)`,
           totalRequests > 0 ? `${totalRequests} aktív kérelem` : undefined,
+          !canWrite ? 'Ellenőri (csak megtekintés) nézet' : undefined,
         ].filter(Boolean) as string[]}
       />
+
+      {!canWrite && <ReadOnlyDioceseNotice />}
 
       <DioceseDashboardTabs
         dioceseId={dioceseId}
@@ -161,6 +189,45 @@ export default async function EgyhazmegyeDashboardPage() {
         dioceseId={dioceseSetupStatus.dioceseId}
         needsSetup={dioceseSetupStatus.needsSetup}
       />
+    </div>
+  )
+}
+
+/**
+ * 2026-08-11 (számvevő-kör): ellenőri (csak megtekintés) sáv.
+ *
+ * MIÉRT VAN ITT, ÉS MIÉRT ELŐRE: a számvevő mostantól belép a megyei
+ * felületre, de az adatbázis csak olvasást enged neki. Enélkül a sáv nélkül a
+ * gombok kattinthatónak LÁTSZANÁNAK, a mentés pedig vagy néma 0 sort érintene,
+ * vagy nyers RLS-hibát dobna — mindkettő rossz. Ez a sáv és a szerver akciók
+ * beszédes `{ error }`-a ugyanazt mondja, hogy a felhasználó ne találgasson.
+ */
+function ReadOnlyDioceseNotice() {
+  return (
+    <div className="card-raised border-sky-200 bg-gradient-to-br from-sky-50/60 via-white to-slate-50/40 p-4 sm:p-5">
+      <div className="flex items-start gap-3">
+        <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-sky-100 text-sky-700">
+          <Eye className="size-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h2 className="font-heading text-base text-slate-800 sm:text-lg">
+            Ellenőri nézet — mindent látsz, de nem módosíthatsz
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-slate-600">
+            Egyházmegyei számvevőként az egyházmegye gyülekezeteinek beküldött
+            dokumentumait, éves jelentéseit és az egyházmegye saját pénzügyi
+            könyveit <strong>megtekintheted</strong>. Az iratok átvétele,
+            véglegesítése, visszaküldése, a feloldási kérelmek elbírálása és a
+            pénzügyi rögzítés az esperes, illetve az egyházmegyei
+            adminisztrátor feladata.
+          </p>
+          <p className="mt-2 text-sm leading-relaxed text-slate-600">
+            Ez szándékos: az ellenőrzés és a rögzítés két külön kézben van. Ha
+            hibát találsz, jelezd az esperesnek — a módosító gombok ezért
+            nem működnek nálad.
+          </p>
+        </div>
+      </div>
     </div>
   )
 }

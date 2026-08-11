@@ -27,9 +27,21 @@ import { loadBudgetRowsCompat } from '@/lib/finance/budget-compat'
 import { createClient } from '@/lib/supabase/client'
 
 // 2026-07-10 (#2): carryoverCash/carryoverBank (nyitó blokk) átengedése a shared tabnak.
+// 2026-08-11 (6. kör): `scope` — a hívó adja át. A SOROK hatókörtől függetlenül
+// ugyanazok (a hivatalos ív minden tétele, ahogy a nyomtatványon); a `scope`
+// már csak a SZERKESZTHETŐSÉGET dönti el: gyülekezeti hatókörben az egyházmegyei
+// szintű ív-sorok látszanak, de zárolva, megyei hatókörben MINDEN sor
+// szerkeszthető (az egyházmegye saját íve). A prop ELMARADÁSA 'congregation'-t
+// jelentene — vagyis fölösleges zárolást —, ezért a diocese-oldal KÖTELEZŐEN
+// átadja (lásd finance-tabs.tsx).
 type WebBudgetTabProps = Pick<
   BudgetTabProps,
-  'szamadasiCellek' | 'settings' | 'currentYear' | 'carryoverCash' | 'carryoverBank'
+  | 'szamadasiCellek'
+  | 'settings'
+  | 'currentYear'
+  | 'scope'
+  | 'carryoverCash'
+  | 'carryoverBank'
 >
 
 export function BudgetTab(props: WebBudgetTabProps) {

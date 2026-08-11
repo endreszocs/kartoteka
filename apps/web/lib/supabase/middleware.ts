@@ -65,9 +65,35 @@ function isEloadasRoute(pathname: string): boolean {
   return pathname.startsWith('/eloadas/')
 }
 
+// BELSŐ WORKER-ÚTVONALAK (2026-08-11) — gépi hívók, böngésző-session NÉLKÜL.
+//
+// ⚠️ MIÉRT KELL: a Railway cron (és bármely más ütemező) `Authorization: Bearer`
+// fejléccel POST-ol, de Supabase session-cookie-ja SOHA nincs. A proxy matcher
+// ezeket az útvonalakat illeszti (nincs fájl-kiterjesztésük), tehát enélkül a
+// lenti „nincs user → /login" ág 307-tel elterelné a kérést: a worker kódja EL
+// SEM INDULNA, a hívó pedig egy HTML bejelentkező oldalt kapna JSON helyett.
+// Ez a napi biztonsági mentést, a hírlevél- és a lejárat-emlékeztető workert
+// egyaránt NÉMÁN kikapcsolná.
+//
+// ⚠️ MIÉRT NEM GYENGÍT: ezek a route-ok SAJÁT kapuval védettek (Bearer +
+// SHA-256 + `timingSafeEqual`), és 32 karakternél rövidebb titoknál 503-mal
+// megtagadják a futást. A proxy-átengedés tehát nem nyit új felületet — csak
+// nem takarja el a route saját ellenőrzését egy átirányítással.
+function isInternalWorkerRoute(pathname: string): boolean {
+  return pathname.startsWith('/api/internal/')
+}
+
 export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname
   let supabaseResponse = NextResponse.next({ request })
+
+  // ⚠️ A BELSŐ WORKER-ÚTVONALAK A LEGELSŐ KAPU ELŐTT ÁTMENNEK.
+  // Szándékosan a Supabase-kliens LÉTREHOZÁSA ELŐTT: egy gépi hívónak nincs
+  // cookie-ja, tehát a `getUser()` hálózati kör is fölösleges lenne. A route
+  // saját Bearer + `timingSafeEqual` kapuja dönt.
+  if (isInternalWorkerRoute(pathname)) {
+    return supabaseResponse
+  }
 
   // ─────────────────────────────────────────────────────────────
   // SERVER MODE (web deploy, Railway EU Amsterdam) — Supabase auth flow
