@@ -174,6 +174,44 @@ export async function getAdminOverview() {
   // — a szám nem hibás, csak hiányos, és eddig semmi nem jelezte.
   const orphanCongregations = congs.filter((c) => !c.diocese_id).length
 
+  // ── GYÜLEKEZET-MÉRETEK — NULLA EXTRA LEKÉRDEZÉS (2026-08-12) ──────────────
+  //
+  // ⚠️ A HIÁNYZÓ SOR NEM NULLA, HANEM ÜRES GYÜLEKEZET. Az
+  //    `admin_overview_member_counts` GROUP BY-jal dolgozik, tehát a 0 élő tagú
+  //    gyülekezetre EGYÁLTALÁN NEM ad sort. Ezt „üres nyilvántartás"-ként
+  //    olvassuk — és a felület KI IS MONDJA, hogy így olvassuk.
+  //
+  // ⚠️ A SZÁMLÁLÁS A HATÓKÖRRE SZŰRT `congs` LISTÁBÓL megy, NEM az RPC
+  //    sorainak számából: az RPC országos, a lista viszont kerületi adminnál
+  //    szűkített. A kettő összekeverése némán országos számot adna neki.
+  //
+  // ⚠️ CSAK AKKOR IGAZ, HA `memberCountsAvailable`. Ha az RPC elbukott, minden
+  //    gyülekezet „üresnek" látszana — ezért a felület ilyenkor el sem kéri.
+  const nemUresMeretek = congs
+    .map((c) => memberCountByCong.get(c.id) || 0)
+    .filter((n) => n > 0)
+    .sort((a, b) => a - b)
+  const mediaan =
+    nemUresMeretek.length === 0
+      ? 0
+      : nemUresMeretek.length % 2 === 1
+        ? nemUresMeretek[(nemUresMeretek.length - 1) / 2]
+        : Math.round(
+            (nemUresMeretek[nemUresMeretek.length / 2 - 1] +
+              nemUresMeretek[nemUresMeretek.length / 2]) /
+              2,
+          )
+  const legkisebbNemUres =
+    nemUresMeretek.length === 0
+      ? null
+      : (congs
+          .map((c) => ({
+            name: c.nev_hu || c.name || 'Ismeretlen',
+            members: memberCountByCong.get(c.id) || 0,
+          }))
+          .filter((x) => x.members > 0)
+          .sort((a, b) => a.members - b.members)[0] ?? null)
+
   return {
     kpis: {
       congregations: congCount || 0,
@@ -186,6 +224,18 @@ export async function getAdminOverview() {
     memberCountsAvailable,
     dioceseStats,
     top10,
+    /** Egyházmegyék száma a hatókörben — a `dioceseStats` hossza, ingyen. */
+    dioceseCount: dioceseStats.length,
+    meretek: {
+      /** Ahány gyülekezetnek VAN legalább egy élő tagja. */
+      nyilvantartott: nemUresMeretek.length,
+      /** A hatókör gyülekezetei, amelyeknek NINCS élő tagja (üres héj). */
+      ures: Math.max(0, congs.length - nemUresMeretek.length),
+      /** A NEM ÜRES gyülekezetek tagszám-mediánja. */
+      mediaan,
+      legnagyobb: top10[0]?.members ? top10[0] : null,
+      legkisebbNemUres,
+    },
   }
 }
 

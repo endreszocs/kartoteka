@@ -52,6 +52,7 @@ import {
   WifiOff,
 } from 'lucide-react'
 
+import { huIdopontBukarest, huRelativIdo } from '@/lib/utils/idopont-bukarest'
 import { getDb, type SyncMetaRecord } from '@/lib/offline/db'
 import type { SyncAllapot } from '@/lib/offline/hooks/use-sync-status'
 import { SYNC_IDOZITES } from '@/lib/offline/sync-orchestrator'
@@ -506,18 +507,10 @@ function percTartam(ms: number): string {
 }
 
 function relativIdo(iso: string): string {
-  try {
-    const diff = Date.now() - new Date(iso).getTime()
-    if (diff < 60_000) return 'néhány másodperce'
-    if (diff < 3_600_000) return `${Math.round(diff / 60_000)} perce`
-    if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)} órája`
-    return new Date(iso).toLocaleDateString('hu-HU', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  } catch {
-    return iso
-  }
+  // 2026-08-12: a saját másolat helyett a KÖZÖS relatív idő. Ez volt a harmadik
+  // egyforma implementáció a kódbázisban; a negyedik írta volna ki az admin
+  // Áttekintésen a „10.650685 órája" szöveget. A pontos időpont formázója
+  // ugyanabban a modulban lakik, tehát a kettő nem tud széthúzni.
+  const szoveg = huRelativIdo(iso)
+  return szoveg || huIdopontBukarest(iso, 'short')
 }

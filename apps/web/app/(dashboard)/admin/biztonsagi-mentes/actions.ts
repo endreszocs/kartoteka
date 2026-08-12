@@ -48,9 +48,10 @@ import {
   saveAlertEmail,
   saveRetention,
 } from '@/lib/google-drive/settings'
-import { RETENTION_DEFAULT, type BackupLogRow } from '@/lib/google-drive/types'
+import { RETENTION_DEFAULT, type BackupLogRow, type DailyCoverage } from '@/lib/google-drive/types'
 import type {
   BackupBannerState,
+  BackupNapiLefedettseg,
   BackupListFilter,
   BackupListResult,
   DriveTestEredmeny,
@@ -65,6 +66,26 @@ import type {
 import type { BackupOverview } from '@/lib/google-drive/types'
 
 const FELULET_UT = '/admin/biztonsagi-mentes'
+
+/**
+ * `DailyCoverage` → a sáv-állapotba csomagolható SZÁM-kivonat (2026-08-12).
+ *
+ * ⚠️ Nem `export` — a `use server` fájl CSAK async függvényt exportálhat
+ *    (Next.js 16), és ennek szinkronnak kell maradnia.
+ *
+ * ⚠️ A `problemasOsszesen` a TELJES szám, a `problemasNevek` 20-as csonkolása
+ *    ELŐTT. A kettő összekeverése miatt írt egyszer a felület „20"-at 784 helyett.
+ */
+function lefedettsegKivonat(nap: DailyCoverage): BackupNapiLefedettseg {
+  return {
+    nap: nap.nap,
+    varhato: nap.varhato,
+    igazolt: nap.igazolt,
+    hibas: nap.hibas + nap.befejezetlen,
+    hianyzik: nap.hianyzik,
+    problemasOsszesen: nap.problemasOsszesen,
+  }
+}
 
 type Access = Awaited<ReturnType<typeof requireAdminAccess>>
 
@@ -338,7 +359,7 @@ export async function getBackupBannerStateAction(): Promise<BackupBannerState> {
     //    Enélkül EGYETLEN igazolt mentés (akár egy „Mentés most" kattintás)
     //    48 órán át zölden tartotta volna a sávot, miközben a napi cron halott,
     //    és gyülekezetek tucatjainak nincs mentése.
-    const { health, needsSql } = await computeBannerHealth(
+    const { health, needsSql, lefedettseg } = await computeBannerHealth(
       supabase,
       { congregationIds },
       hatokor.globalisIsVarhato,
@@ -346,7 +367,29 @@ export async function getBackupBannerStateAction(): Promise<BackupBannerState> {
     )
     if (needsSql) return bannerGyorsitoIr(gyorsitoKulcs, { ok: 'nincs_sql' })
 
-    const allapot = bannerGyorsitoIr(gyorsitoKulcs, { ok: 'allapot', health })
+    const allapot = bannerGyorsitoIr(gyorsitoKulcs, {
+      ok: 'allapot',
+      health,
+      // 2026-08-12: a MÁR KISZÁMOLT lefedettség kiadása — nulla extra körút.
+      // A `CoverageReport`-ból csak a SZÁMOK jönnek át: a `problemasNevek`
+      // 20 elemű névlistája szándékosan marad benn a mentés-oldalon.
+      lefedettseg: lefedettseg
+        ? {
+            tegnap: lefedettsegKivonat(lefedettseg.tegnap),
+            ma: lefedettsegKivonat(lefedettseg.ma),
+            pulzus: lefedettseg.pulzus.map((p) => ({
+              nap: p.nap,
+              igazolt: p.igazolt,
+              hibas: p.hibas,
+              varhato: p.varhato,
+              letezett: p.letezett,
+            })),
+            telepitesNap: lefedettseg.szuletes.telepitesNap,
+            szuletesMegbizhato: lefedettseg.szuletes.naploOlvashato,
+            hiba: lefedettseg.error,
+          }
+        : undefined,
+    })
     return { ...allapot, ut: adminFeluletElerheto ? FELULET_UT : null }
   } catch (e: unknown) {
     // A sáv SOHA nem boríthatja az oldalt — de NEM is hallgat el. A felület

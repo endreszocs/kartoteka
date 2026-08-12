@@ -17,16 +17,18 @@ import { RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { frissitAdminAttekintes } from '@/app/(dashboard)/admin/overview-actions'
+import { huOraPercBukarest } from '@/lib/utils/idopont-bukarest'
 
 export function FrissitesGomb({ mertAt }: { mertAt: string }) {
   const [pending, startTransition] = useTransition()
   const router = useRouter()
 
+  // 2026-08-12: a KÖZÖS, Europe/Bucharest-re szögezett formázó. Ez a felirat a
+  // csempéken szereplő „ma 08:12 (10 órája)" szövegek VONATKOZTATÁSI PONTJA —
+  // ha a kettő más zónában készülne, a lap önmagával kerülne ellentmondásba.
   const ido = (() => {
     const d = new Date(mertAt)
-    return Number.isNaN(d.getTime())
-      ? null
-      : d.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' })
+    return Number.isNaN(d.getTime()) ? null : huOraPercBukarest(d)
   })()
 
   return (
@@ -45,7 +47,7 @@ export function FrissitesGomb({ mertAt }: { mertAt: string }) {
           })
         }
         aria-label="Az áttekintés adatainak frissítése"
-        className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-muted px-4 text-sm font-semibold text-muted-foreground transition hover:bg-muted/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60"
+        className="kt-fokusz inline-flex min-h-11 items-center gap-1.5 rounded-full bg-muted px-4 text-sm font-semibold text-muted-foreground transition hover:bg-muted/70 hover:text-foreground disabled:opacity-60"
       >
         <RefreshCw className={`size-4 ${pending ? 'animate-spin' : ''}`} aria-hidden />
         {pending ? 'Frissítés…' : 'Frissítés'}

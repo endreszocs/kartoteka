@@ -52,6 +52,10 @@ const FORRASOK = {
   overview: path.join(WEB, 'app', '(dashboard)', 'admin', 'overview-shared.ts'),
   parser: path.join(WEB, 'lib', 'broadcasts', 'changelog-parse-core.ts'),
   status: path.join(WEB, 'lib', 'broadcasts', 'changelog-status.ts'),
+  // 2026-08-12: az idő-formázó KÖZÖS modulja. Szintén import-mentes, tehát
+  // ugyanígy betölthető — és mostantól ez az EGYETLEN relatív-idő
+  // implementáció a kódbázisban (korábban három másolat élt belőle).
+  ido: path.join(WEB, 'lib', 'utils', 'idopont-bukarest.ts'),
 }
 
 let failed = false
@@ -109,7 +113,8 @@ function loadTs(srcFile, outName) {
 const O = loadTs(FORRASOK.overview, 'overview.cjs')
 const P = loadTs(FORRASOK.parser, 'parser.cjs')
 const S = loadTs(FORRASOK.status, 'status.cjs')
-if (!O || !P || !S) {
+const T = loadTs(FORRASOK.ido, 'ido.cjs')
+if (!O || !P || !S || !T) {
   fs.rmSync(tmp, { recursive: true, force: true })
   process.exit(1)
 }
@@ -505,6 +510,66 @@ if (!O || !P || !S) {
   } else {
     fail('J3: rossz egyes számú mondat')
   }
+
+  // ── J4–J6: A FEJLÉC NEVEZŐJE — a csoporton BELÜLI hiány is számít ─────────
+  // A javított hiba: a `hibasAgak` KIZÁRÓLAG a `nemFutottLe` tömböt nézte, a
+  // téma-csoportok `hianyzo` tömbjeit NEM. Márpedig a legfontosabb bukások
+  // (mentés-lefedettség, tagszám-RPC, országos head-count-ok) PONT oda mennek:
+  // az ág maga „ok" volt, csak egy szám nem jött meg belőle. Ezért riadó
+  // nélküli napon a lap tetején „Ma nincs teendő." állt — közvetlenül egy piros
+  // „NEM nulla, hanem nem tudjuk" doboz fölött.
+  const csoport = (id, hianyzo) => ({
+    id,
+    cim: id,
+    megjegyzes: null,
+    sorok: [{ id: `${id}-1`, cimke: 'x', ertek: '1', alsor: null, ut: null }],
+    hianyzo,
+  })
+
+  const csakCsoportHiany = {
+    nemFutottLe: [],
+    szamCsoportok: [csoport('gyulekezetek', []), csoport('rendszer', ['a mentés lefedettsége'])],
+  }
+  if (O.hibasAgakSzama(csakCsoportHiany) === 1) {
+    ok('J4 a csoporton belüli bevallott hiány BELESZÁMÍT a hibás ágakba')
+  } else {
+    fail(`J4: ${O.hibasAgakSzama(csakCsoportHiany)} — a hianyzo tömbök megint kimaradtak`)
+  }
+
+  const m4 = O.fejlecMondat({
+    riadokSzama: 0,
+    hibasAgak: O.hibasAgakSzama(csakCsoportHiany),
+  })
+  if (m4 !== 'Ma nincs teendő.' && /hiányos/.test(m4)) {
+    ok('J5 bevallott csoport-hiány mellett a fejléc SOHA nem „Ma nincs teendő."')
+  } else {
+    fail(`J5: "${m4}" — hamis megnyugtatás egy piros „nem tudjuk" doboz fölött`)
+  }
+
+  const mindenRendben = {
+    nemFutottLe: [],
+    szamCsoportok: [csoport('gyulekezetek', []), csoport('rendszer', [])],
+  }
+  if (
+    O.hibasAgakSzama(mindenRendben) === 0 &&
+    O.fejlecMondat({ riadokSzama: 0, hibasAgak: 0 }) === 'Ma nincs teendő.'
+  ) {
+    ok('J6 hiánytalan méréssel viszont MEGMARAD a rövid, megnyugtató mondat (a csend elve)')
+  } else {
+    fail('J6: hiánytalan mérésre is „hiányos"-t mondott — a riasztás-infláció is hiba')
+  }
+
+  // Mindkét csatorna együtt adódik össze.
+  if (
+    O.hibasAgakSzama({
+      nemFutottLe: [{ mi: 'a', miert: 'b', fajta: 'hiba' }, { mi: 'c', miert: 'd', fajta: 'hiba' }],
+      szamCsoportok: [csoport('rendszer', ['x', 'y', 'z'])],
+    }) === 5
+  ) {
+    ok('J7 a két csatorna (nemFutottLe + hianyzo) összeadódik')
+  } else {
+    fail('J7: rossz összeg')
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -608,6 +673,341 @@ if (!O || !P || !S) {
     } else {
       fail('M3: nincs `truncated`-alapú csonkolás-jelzés')
     }
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// N) NYERS SZÁM SOHA NEM SZIVÁROGHAT A FELHASZNÁLÓI SZÖVEGBE
+// ────────────────────────────────────────────────────────────────────────────
+// A javított hiba: „Utolsó igazolt mentés: 10.650685 órája". A `BackupHealth`
+// `oraSzam` mezője NYERS lebegőpontos szám (ms / 3 600 000), és a csempe
+// formázás nélkül írta ki. Ez a blokk azt védi, hogy az emberi alak ne
+// csússzon vissza egy „logikusnak tűnő" egyszerűsítéssel.
+{
+  const most = Date.UTC(2026, 7, 12, 12, 0, 0) // 2026-08-12 12:00 UTC = 15:00 Bukarest
+  const oraval = (h) => new Date(most - h * 3_600_000).toISOString()
+
+  // A KONKRÉT hibás érték, ami a képernyőképen szerepelt.
+  const bugos = T.huRelativIdo(oraval(10.650685), most)
+  if (bugos === '10 órája') {
+    ok('N1 10,650685 óra → „10 órája" (nem „10.650685 órája")')
+  } else {
+    fail(`N1: "${bugos}" — a nyers lebegőpontos szám visszaszivárgott`)
+  }
+
+  // Határok. A 23,9 óra NEM lehet „24 órája": az már nap.
+  const hatarok = [
+    [0.004, 'az imént'],
+    [0.4, '24 perce'],
+    [10.650685, '10 órája'],
+    [23.9, '23 órája'],
+    [25, 'tegnap'],
+    [48, '2 napja'],
+    [24 * 6, '6 napja'],
+    [24 * 9, 'egy hete'],
+    [24 * 40, 'egy hónapja'],
+  ]
+  let hatarHiba = null
+  for (const [h, vart] of hatarok) {
+    const kapott = T.huRelativIdo(oraval(h), most)
+    if (kapott !== vart) hatarHiba = `${h} óra → "${kapott}" (várt: "${vart}")`
+  }
+  if (!hatarHiba) ok('N2 a relatív idő minden határon emberi alakot ad')
+  else fail(`N2: ${hatarHiba}`)
+
+  // ⛔ A LEGFONTOSABB ÁLLÍTÁS: SEHOL nem lehet tizedes tört a kimenetben.
+  let tizedes = null
+  for (let h = 0; h <= 24 * 40; h += 0.37) {
+    const s = T.huRelativIdo(oraval(h), most)
+    if (/\d+[.,]\d/.test(s)) {
+      tizedes = `${h} óra → "${s}"`
+      break
+    }
+  }
+  if (!tizedes) ok('N3 1600 mintavételen SEHOL nem jelenik meg tizedes tört a szövegben')
+  else fail(`N3: tizedes tört a felhasználói szövegben — ${tizedes}`)
+
+  // A relatív idő SOHA nem áll magában: a teljes alakban ott a pontos időpont.
+  const teljes = T.huIdopontRelativval(oraval(10.650685), most)
+  if (/\(10 órája\)$/.test(teljes) && /\d{1,2}:\d{2}/.test(teljes)) {
+    ok(`N4 a teljes alak a PONTOS időponttal kezd: "${teljes}"`)
+  } else {
+    fail(`N4: "${teljes}" — hiányzik a pontos időpont vagy a relatív alak`)
+  }
+
+  // Jövőbeli időbélyeg (két gép óraeltérése) — nem írunk ki negatív órát.
+  const jovo = T.huRelativIdo(new Date(most + 3_600_000).toISOString(), most)
+  if (jovo === 'az imént' && !/-/.test(jovo)) {
+    ok('N5 jövőbeli időbélyegre „az imént", nem negatív szám')
+  } else {
+    fail(`N5: "${jovo}"`)
+  }
+
+  // Hiányzó/érvénytelen bemenet: a felület nem kap „Invalid Date"-et.
+  if (T.huRelativIdo(null, most) === '' && T.huIdopontRelativval(null, most) === '—') {
+    ok('N6 hiányzó időpontra üres/„—", nem „NaN órája"')
+  } else {
+    fail('N6: hiányzó időpontra hibás kimenet')
+  }
+
+  // FORRÁS-SZINTŰ ŐR: a nyers `oraSzam` nem kerülhet vissza a csempe szövegébe.
+  const oaPath = path.join(WEB, 'app', '(dashboard)', 'admin', 'overview-actions.ts')
+  if (!fs.existsSync(oaPath)) {
+    fail(`N7: hiányzik a ${oaPath}`)
+  } else {
+    const src = fs.readFileSync(oaPath, 'utf8')
+    const kodOnly = src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*'))
+      .join('\n')
+    if (!/\$\{[^}]*oraSzam[^}]*\}/.test(kodOnly)) {
+      ok('N7 az `oraSzam` NINCS közvetlenül beleinterpolálva felhasználói szövegbe')
+    } else {
+      fail('N7: a nyers `oraSzam` visszakerült egy sablon-literálba')
+    }
+  }
+
+  // ── N9: JÖVŐBELI IDŐPONTRA NEM MEGY RELATÍV FORMÁZÓ ─────────────────────
+  // A God Mode lejárata a JÖVŐBEN van. A `huRelativIdo` negatív különbségre
+  // szándékosan „az imént"-et ad (lásd N5), ezért a csempe önmagával került
+  // ellentmondásba: fent „Magától 42 perc múlva jár le.", alatta
+  // „Lejárat: ma 15:12 (az imént)". A javítás: naptári alak, relatív nélkül.
+  {
+    const jovoIso = new Date(most + 42 * 60_000).toISOString()
+    const naptari = T.huNaptariIdopontBukarest(jovoIso, most)
+    if (/^ma \d{2}:\d{2}$/.test(naptari) && !/imént/.test(naptari)) {
+      ok(`N9 jövőbeli lejáratra tiszta naptári alak: "${naptari}"`)
+    } else {
+      fail(`N9: "${naptari}" — a jövőbeli időpont formázása rossz`)
+    }
+
+    // FORRÁS-SZINTŰ ŐR: a God Mode lejárat-alsora ne kapjon vissza relatív
+    // formázót egy „legyen egységes" refaktorban.
+    const oaPath2 = path.join(WEB, 'app', '(dashboard)', 'admin', 'overview-actions.ts')
+    const src2 = fs.readFileSync(oaPath2, 'utf8')
+    const kezd = src2.indexOf("id: 'god_mode'")
+    const godBlokk = kezd >= 0 ? src2.slice(kezd, src2.indexOf('})', src2.indexOf('alsorok:', kezd))) : ''
+    const godKod = godBlokk
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*'))
+      .join('\n')
+    if (kezd >= 0 && /huNaptariIdopontBukarest/.test(godKod) && !/huIdopontRelativval/.test(godKod)) {
+      ok('N10 a God Mode lejárata NAPTÁRI formázót hív, relatívat nem')
+    } else {
+      fail('N10: a God Mode lejáratára visszakerült a múltra tervezett relatív formázó')
+    }
+  }
+
+  // FORRÁS-SZINTŰ ŐR: nem születhet NEGYEDIK relatív-idő másolat.
+  const masolatok = [
+    path.join(WEB, 'components', 'notifications', 'ertesites-vizualis.ts'),
+    path.join(WEB, 'components', 'admin', 'attekintes', 'idovonal-panel.tsx'),
+    path.join(WEB, 'components', 'offline', 'sync-status-panel.tsx'),
+  ]
+  const sajatLogika = masolatok.filter((p) => {
+    if (!fs.existsSync(p)) return false
+    const src = fs.readFileSync(p, 'utf8')
+    // Saját implementációnak számít, ha kiírja a „perce"/„órája" alakot ANÉLKÜL,
+    // hogy a közös modult importálná.
+    return /`\$\{[^}]+\} (perce|órája|napja)`/.test(src) && !/idopont-bukarest/.test(src)
+  })
+  if (sajatLogika.length === 0) {
+    ok('N8 mind a három korábbi másolat a KÖZÖS relatív időt hívja (nincs negyedik)')
+  } else {
+    fail(`N8: saját relatív-idő logika maradt itt: ${sajatLogika.join(', ')}`)
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// O) HIBÁTLAN MENTÉS-SOROZAT — a „nem tudom" soha nem lehet zöld
+// ────────────────────────────────────────────────────────────────────────────
+{
+  const nap = (i, allapot) => {
+    const alap = { nap: `2026-08-${String(i).padStart(2, '0')}`, varhato: 10, letezett: true }
+    if (allapot === 'jo') return { ...alap, igazolt: 10, hibas: 0 }
+    if (allapot === 'hibas') return { ...alap, igazolt: 10, hibas: 2 }
+    if (allapot === 'hianyos') return { ...alap, igazolt: 7, hibas: 0 }
+    if (allapot === 'ismeretlen') return { ...alap, varhato: 0, igazolt: 0, hibas: 0 }
+    return { ...alap, letezett: false, igazolt: 0, hibas: 0 }
+  }
+
+  if (O.hibatlanSorozat([]) === null && O.hibatlanSorozat([nap(1, 'jo')]) === null) {
+    ok('O1 üres vagy egyelemű pulzusra null — nem állítunk sorozatot')
+  } else {
+    fail('O1: kiértékelhetetlen pulzusra is adott sorozatot')
+  }
+
+  // A MAI (utolsó) nap kimarad: a hajnali cron miatt reggel még nyitva van.
+  // 5 jó nap + egy még üres mai nap → 5, nem 0.
+  const maNyitva = [nap(1, 'jo'), nap(2, 'jo'), nap(3, 'jo'), nap(4, 'jo'), nap(5, 'jo'), nap(6, 'hianyos')]
+  const r1 = O.hibatlanSorozat(maNyitva)
+  if (r1 && r1.napok === 5) {
+    ok('O2 a MAI nap kimarad a sorozatból (különben minden reggel 0-ra esne)')
+  } else {
+    fail(`O2: ${JSON.stringify(r1)} — a mai, még nyitott nap beleszámított`)
+  }
+
+  const megszakad = [nap(1, 'jo'), nap(2, 'hibas'), nap(3, 'jo'), nap(4, 'jo'), nap(5, 'jo')]
+  const r2 = O.hibatlanSorozat(megszakad)
+  if (r2 && r2.napok === 2 && r2.teljesAblak === false) {
+    ok('O3 a hibás nap MEGSZAKÍTJA a sorozatot, és a teljesAblak false lesz')
+  } else {
+    fail(`O3: ${JSON.stringify(r2)}`)
+  }
+
+  // ⛔ A „nem tudjuk, mit vártunk" nap NEM sikeres nap.
+  // [jo, ISMERETLEN, jo, MA] → a mai kimarad, egy jó nap után az ismeretlen
+  // megállítja a számlálást: 1, NEM 3. Ha valaha 3 jönne ki, az azt jelentené,
+  // hogy a „nem tudjuk, mit vártunk" nap zöldnek számított.
+  const nemTudjuk = [nap(1, 'jo'), nap(2, 'ismeretlen'), nap(3, 'jo'), nap(4, 'jo')]
+  const r3 = O.hibatlanSorozat(nemTudjuk)
+  if (r3 && r3.napok === 1 && r3.teljesAblak === false) {
+    ok('O4 a `varhato: 0` nap ISMERETLEN, nem zöld — a sorozat ott megáll')
+  } else {
+    fail(`O4: ${JSON.stringify(r3)} — a „nem tudom" sikeresnek számított`)
+  }
+
+  // A rendszer születése előtti nap lezárja, de nem hibáztat.
+  const szuletesElott = [nap(1, 'nemvolt'), nap(2, 'jo'), nap(3, 'jo'), nap(4, 'jo')]
+  const r4 = O.hibatlanSorozat(szuletesElott)
+  if (r4 && r4.napok === 2 && r4.teljesAblak === false) {
+    ok('O5 a telepítés előtti nap LEZÁRJA a sorozatot, de nem számít hibának')
+  } else {
+    fail(`O5: ${JSON.stringify(r4)}`)
+  }
+
+  const mindJo = [nap(1, 'jo'), nap(2, 'jo'), nap(3, 'jo'), nap(4, 'jo')]
+  const r5 = O.hibatlanSorozat(mindJo)
+  if (r5 && r5.napok === 3 && r5.teljesAblak === true) {
+    ok('O6 hézagmentes ablaknál teljesAblak = true („N+ nap")')
+  } else {
+    fail(`O6: ${JSON.stringify(r5)}`)
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// P) NAP-KÜLÖNBSÉG + CSOPORT-SZŰRÉS
+// ────────────────────────────────────────────────────────────────────────────
+{
+  // Az óraátállítás napjait átívelő szakasz sem csúszhat el egy nappal.
+  if (O.napKulonbseg('2026-03-01', '2026-04-01') === 31) {
+    ok('P1 az óraátállításon átívelő napszám pontos (Date.UTC-alapú számítás)')
+  } else {
+    fail(`P1: ${O.napKulonbseg('2026-03-01', '2026-04-01')} — óraátállítás-csúszás`)
+  }
+  if (O.napKulonbseg('2026-08-11', '2026-08-12') === 1 && O.napKulonbseg('2026-08-12', '2026-08-12') === 0) {
+    ok('P2 a szomszédos és az azonos nap különbsége helyes')
+  } else {
+    fail('P2: rossz nap-különbség')
+  }
+  if (O.napKulonbseg('2026-8-1', '2026-08-12') === null && O.napKulonbseg('', 'x') === null) {
+    ok('P3 rossz alakú dátumra null (nem 0) — a 0 „ma indult"-nak látszana')
+  } else {
+    fail('P3: rossz alakú dátumra számot adott')
+  }
+
+  const csoportok = O.csoportokSorrendben([
+    { id: 'a', cim: 'A', megjegyzes: null, sorok: [{ id: 'x', cimke: 'x', ertek: '1', alsor: null, ut: null }], hianyzo: [] },
+    { id: 'b', cim: 'B', megjegyzes: null, sorok: [], hianyzo: [] },
+    { id: 'c', cim: 'C', megjegyzes: null, sorok: [], hianyzo: ['nem futott le'] },
+  ])
+  if (csoportok.length === 2 && csoportok[0].id === 'a' && csoportok[1].id === 'c') {
+    ok('P4 az üres csoport kiesik, a BEVALLOTT HIÁNNYAL rendelkező MARAD (a csend elve)')
+  } else {
+    fail(`P4: ${JSON.stringify(csoportok.map((c) => c.id))}`)
+  }
+
+  // A sorrend FIX: a szűrés nem rendezhet át.
+  const sorrend = O.csoportokSorrendben([
+    { id: 'rendszer', cim: 'R', megjegyzes: null, sorok: [{ id: '1', cimke: 'a', ertek: '1', alsor: null, ut: null }], hianyzo: [] },
+    { id: 'gyulekezetek', cim: 'GY', megjegyzes: null, sorok: [{ id: '2', cimke: 'b', ertek: '2', alsor: null, ut: null }], hianyzo: [] },
+  ])
+  if (sorrend[0].id === 'rendszer' && sorrend[1].id === 'gyulekezetek') {
+    ok('P5 a csoport-szűrés NEM rendez át — a sorrendet a hívó adja (izommemória)')
+  } else {
+    fail('P5: a szűrés átrendezte a csoportokat')
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Q) VERZIÓ-FELIRAT — a „vweb v0.9.162" SOHA többé, és a FUTÓ kiadás a futó
+// ────────────────────────────────────────────────────────────────────────────
+// A javított hiba KETTŐS volt:
+//   (1) FORMÁZÁS: a `version.replace(/^v/i,'')` elé tett `v` csak akkor helyes,
+//       ha a szöveg `v`-vel kezdődik. A `docs/CHANGELOG.md` MINDEN
+//       `<!-- version: ... -->` sora `web v0.9.1XX` alakú, tehát a `^v` nem
+//       illeszkedett, és a csempén szó szerint `vweb v0.9.162` állt.
+//   (2) IGAZSÁG: a csempe címkéje „Futó kiadás" volt, a forrás viszont a
+//       CHANGELOG — ami 2026-08-12-én KÉT kiadással elmaradt a valóságtól
+//       (changelog v0.9.162 ⇄ `apps/web/package.json` 0.9.164).
+{
+  const esetek = [
+    ['web v0.9.162', 'v0.9.162'],
+    ['desktop v0.9.5', 'v0.9.5'],
+    ['v0.9.164', 'v0.9.164'],
+    ['0.9.164', 'v0.9.164'],
+    ['  WEB   V1.0.0  ', 'v1.0.0'],
+  ]
+  let baj = null
+  for (const [be, vart] of esetek) {
+    const kapott = O.verzioFelirat(be)
+    if (kapott !== vart) baj = `"${be}" → "${kapott}" (várt: "${vart}")`
+  }
+  if (!baj) ok('Q1 a verzió-felirat minden bemeneti alakból tiszta „vX.Y.Z"-t ad')
+  else fail(`Q1: ${baj}`)
+
+  // ⛔ A LEGFONTOSABB ÁLLÍTÁS: a kimenet SOHA nem tartalmazhat `vweb`/`vdesktop`
+  //    mintát — ez volt a képernyőn látható konkrét hiba.
+  const gyanus = esetek
+    .map(([be]) => O.verzioFelirat(be))
+    .filter((s) => /v(web|desktop)/i.test(String(s)))
+  if (gyanus.length === 0) {
+    ok('Q2 SEHOL nem keletkezik „vweb"/„vdesktop" alak')
+  } else {
+    fail(`Q2: ${gyanus.join(', ')} — a nyers előtag visszaszivárgott`)
+  }
+
+  if (O.verzioFelirat(null) === null && O.verzioFelirat('') === null && O.verzioFelirat('v') === null) {
+    ok('Q3 üres/hiányzó verzióra null — csupasz „v"-t nem írunk ki')
+  } else {
+    fail('Q3: üres verzióra is feliratot adott')
+  }
+
+  // A FUTÓ kiadás forrása az `apps/web/package.json`, NEM a changelog.
+  const pkgPath = path.join(WEB, 'package.json')
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))
+  const verzioPath = path.join(WEB, 'lib', 'app-verzio.ts')
+  if (fs.existsSync(verzioPath) && /from '\.\.\/package\.json'/.test(fs.readFileSync(verzioPath, 'utf8'))) {
+    ok(`Q4 a futó kiadás a package.json-ból jön (most: ${pkg.version})`)
+  } else {
+    fail('Q4: a futó kiadás forrása nem az apps/web/package.json')
+  }
+
+  const oaSrc = fs.readFileSync(path.join(WEB, 'app', '(dashboard)', 'admin', 'overview-actions.ts'), 'utf8')
+  const oaKod = oaSrc
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*'))
+    .join('\n')
+  if (/cimke: 'Futó kiadás'/.test(oaKod) && /FUTO_WEB_VERZIO/.test(oaKod)) {
+    ok('Q5 a „Futó kiadás" csempe a FUTO_WEB_VERZIO-t írja ki')
+  } else {
+    fail('Q5: a „Futó kiadás" csempe megint nem a futó verzióból dolgozik')
+  }
+  // A changelogból származó szám MARADHAT — de akkor a címkéje nem állíthatja,
+  // hogy az a futó kiadás.
+  const jegyzetIdx = oaKod.indexOf("id: 'kiadasi_jegyzet'")
+  const jegyzetBlokk = jegyzetIdx >= 0 ? oaKod.slice(jegyzetIdx, jegyzetIdx + 400) : ''
+  if (jegyzetIdx >= 0 && /cimke: 'Utolsó kiadási jegyzet'/.test(jegyzetBlokk)) {
+    ok('Q6 a changelogból származó szám címkéje „Utolsó kiadási jegyzet", nem „Futó kiadás"')
+  } else {
+    fail('Q6: a changelog-verzió megint „Futó kiadás" néven szerepel')
+  }
+  if (!/\$\{?verzios[?.]*\.?version/.test(oaKod) && !/`v\$\{[^}]*version/.test(oaKod)) {
+    ok('Q7 nincs kézi „v" + nyers verziószám összefűzés (mindenütt a verzioFelirat fut)')
+  } else {
+    fail('Q7: kézi verzió-összefűzés került vissza a kódba')
   }
 }
 

@@ -32,6 +32,8 @@ import {
   UserRoundPlus,
 } from 'lucide-react'
 
+import { huRelativIdo } from '@/lib/utils/idopont-bukarest'
+
 export interface TypeVisual {
   icon: LucideIcon
   /** Rövid, lelkész-barát magyar címke. */
@@ -123,30 +125,9 @@ export function notificationLink(
  * a relatív idő sosem áll magában.
  */
 export function relativHuIdo(iso?: string | null): string {
-  if (!iso) return ''
-  const t = Date.parse(iso)
-  if (Number.isNaN(t)) return ''
-  const diff = Date.now() - t
-  if (diff < 0) return 'az imént'
-
-  const perc = Math.floor(diff / 60_000)
-  if (perc < 1) return 'az imént'
-  if (perc < 60) return `${perc} perce`
-
-  const ora = Math.floor(perc / 60)
-  if (ora < 24) return `${ora} órája`
-
-  const nap = Math.floor(ora / 24)
-  if (nap === 1) return 'tegnap'
-  if (nap < 7) return `${nap} napja`
-  if (nap < 30) {
-    const het = Math.floor(nap / 7)
-    return het === 1 ? 'egy hete' : `${het} hete`
-  }
-  if (nap < 365) {
-    const honap = Math.floor(nap / 30)
-    return honap === 1 ? 'egy hónapja' : `${honap} hónapja`
-  }
-  const ev = Math.floor(nap / 365)
-  return ev === 1 ? 'egy éve' : `${ev} éve`
+  // 2026-08-12: a TÖRZS átkerült a `lib/utils/idopont-bukarest.ts`-be, a pontos
+  // időpont-formázó MELLÉ. Addig három egyforma másolat élt belőle (itt, az
+  // admin idővonalon és a szinkron-panelen), és az admin Áttekintésen már meg is
+  // született volna a negyedik — az írta ki a „10.650685 órája" szöveget.
+  return huRelativIdo(iso)
 }

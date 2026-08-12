@@ -557,15 +557,22 @@ export async function computeBannerHealth(
   scope: ScopeInput,
   globalisIsVarhato: boolean,
   driveHiba: string | null,
-): Promise<{ health: BackupHealth; needsSql: boolean }> {
+): Promise<{ health: BackupHealth; needsSql: boolean; lefedettseg?: CoverageReport }> {
   const alap = await computeBackupHealth(supabase, scope, driveHiba)
   if (alap.needsSql) return { health: alap.health, needsSql: true }
 
   const lefedettseg = await computeCoverage(supabase, scope, globalisIsVarhato)
   if (lefedettseg.needsSql) return { health: alap.health, needsSql: true }
 
-  // A teljes döntés EGY tiszta függvényben — se elágazás, se másolat itt.
-  return { needsSql: false, health: savAllapot(alap.health, lefedettseg) }
+  // ⚠️ 2026-08-12: A LEFEDETTSÉGET MOSTANTÓL KI IS ADJUK.
+  //    A `computeCoverage` eddig is lefutott minden admin-oldalbetöltéskor
+  //    (60 mp-es gyorsítótárral), és a TEGNAPI/MAI lefedettséget, a 14 napos
+  //    pulzust és a rendszer születésnapját is kiszámolta — aztán a függvény
+  //    ELDOBTA mindet, és csak egyetlen `health` objektum jött ki. Az admin
+  //    Áttekintés ezekből most NULLA extra adatbázis-körút árán mutat számokat.
+  //    Az `error` mezőt SZÁNDÉKOSAN meghagyjuk a riportban: a felület abból
+  //    tudja, hogy „nem ellenőrizhető" — nem nullát ír ki.
+  return { needsSql: false, health: savAllapot(alap.health, lefedettseg), lefedettseg }
 }
 
 /**
