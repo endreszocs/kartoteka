@@ -114,7 +114,16 @@
   --secondary-foreground: #e8e1d2;
   --muted: #2a3230;
   /* 2026-08-11 (P2 #24): volt #8a8474 — kártyán 4,01:1 (AA-bukás).
-     #9e998c: kártya 5,26 · háttér 5,88 · muted/70 4,81 ✅ */
+     #9e998c: kártya 5,26 · háttér 5,88 · muted/70 4,81 ✅
+
+     ⚠️ 2026-08-12 — A „KÁRTYA" MÉRÉS A TOKENRE KÉSZÜLT, ÉS EDDIG NEM AZ VOLT
+     A KIRAJZOLT FELÜLET. A `kartoteka.css` `.dark .card-raised` szabálya
+     HARDKÓDOLT gradienssel írta felül a hátteret (rgba(40,65,72,.92)…), tehát
+     a kártya teteje #273f45 volt, nem a `--card` (#22282a) — ezen a valódi
+     felületen ez a szín 3,72:1, AA-bukás. A gradiens azóta a `--card` tokenre
+     épül, így az itt álló 5,26 MOST MÁR A TÉNYLEGESEN KIRAJZOLT FELÜLETRE
+     igaz. Ha valaki a `.dark .card-raised` hátterét megint elszakítja a
+     tokentől, EZ A MÉRÉS AZONNAL HAMISSÁ VÁLIK. */
   --muted-foreground: #9e998c;
   --accent: #9bbf6e;
   --accent-foreground: #1a1f1d;
@@ -216,7 +225,11 @@
   --secondary: #2a3230;
   --secondary-foreground: #e8e1d2;
   --muted: #2a3230;
-  /* 2026-08-11 (P2 #24): volt #8a8474 — kártyán 4,01:1 (AA-bukás). */
+  /* 2026-08-11 (P2 #24): volt #8a8474 — kártyán 4,01:1 (AA-bukás).
+     #9e998c: kártya (--card #22282a) 5,26 ✅
+     ⚠️ 2026-08-12: lásd a kert-dark blokk megjegyzését — a „kártya" mérés
+     csak azért igaz, mert a `.dark .card-raised` háttere azóta a `--card`
+     tokenből származik, nem hardkódolt gradiensből. */
   --muted-foreground: #9e998c;
   --accent: #a4c98a;
   --accent-foreground: #1a1f1d;
@@ -316,7 +329,12 @@
   --secondary: #2f2722;
   --secondary-foreground: #e8e1d2;
   --muted: #2f2722;
-  /* 2026-08-11 (P2 #24): #a59881 marad — kártyán 5,53:1, háttéren 6,18:1 ✅ */
+  /* 2026-08-11 (P2 #24): #a59881 marad — kártyán 5,53:1, háttéren 6,18:1 ✅
+     ⚠️ 2026-08-12: a „kártyán 5,53" a `--card` (#2a2218) BARNA tokenre igaz.
+     A `.dark .card-raised` korábbi hardkódolt gradiense ezt a témát is
+     kékeszöldre (#273f45) váltotta, ahol ugyanez a szín 3,76:1 — AA-bukás.
+     A gradiens azóta a `--card`-ból származik, tehát a Zsoltáros sötét
+     kártyája végre tényleg barna, és a mérés a valódi felületre vonatkozik. */
   --muted-foreground: #a59881;
   --accent: #c97a3f;
   --accent-foreground: #1f1814;

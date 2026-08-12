@@ -470,10 +470,18 @@
        (box-shadow), tehát egyetlen betű sem mozdul el,
      · a szívverés VÉGES: 3 ciklus után megáll.
 
-   `prefers-reduced-motion: reduce` mellett MINDEN áll — de INFORMÁCIÓ
-   NEM VÉSZ EL: a végállapot azonnal kirajzolódik, a kritikus csempe
-   pedig a felületen amúgy is kiírt „Sürgős" szót és a saját
-   ikonalakját viseli, nem a mozgás hordozza a jelentést.
+   `prefers-reduced-motion: reduce` mellett MINDEN MOZGÁS ÁLL, ami
+   szöveget mozdít el vagy magától indul — a belépő, a szívverés ÉS a
+   lap-belépő (`.kt-page-enter`). INFORMÁCIÓ NEM VÉSZ EL: a végállapot
+   azonnal kirajzolódik, a kritikus csempe pedig a felületen amúgy is
+   kiírt „Sürgős" szót és a saját ikonalakját viseli, nem a mozgás
+   hordozza a jelentést.
+
+   ⚠️ EGYETLEN KIVÉTEL, KIMONDVA: a töltésjelző (`.animate-spin`) nem
+   áll meg, csak LELASSUL (1 s → 3 s). Egy mozdulatlan töltésjelző
+   „megfagyottnak" látszik, és a felhasználó újra megnyomná a gombot —
+   ami itt egy 1-2 perces ellenőrzést indítana el másodszor is.
+   A pontos indoklás a `reduce` blokkban.
    ────────────────────────────────────────────────────────────── */
 @keyframes kt-attekintes-belepo {
   from { opacity: 0; transform: translateY(8px); }
@@ -518,6 +526,61 @@
     /* A jelentés megmarad, csak a mozgás tűnik el: statikus gyűrű. */
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--destructive) 45%, transparent);
   }
+
+  /* ⚠️ 2026-08-12 — A BLOKK EDDIG CSAK A LAP SAJÁT KÉT ANIMÁCIÓJÁT ÁLLÍTOTTA
+     MEG, a fenti „MINDEN áll" ígéret mégis az egész oldalra vonatkozott. Két
+     mozgás maradt ki, és épp a két legterhelőbb:
+
+       (a) `.kt-page-enter` — a `dashboard-shell` a TELJES lapot 0,42 s-ig
+           úsztatja, tolja ÉS elmosódásból élesíti MINDEN betöltéskor és minden
+           navigációnál. A `filter: blur()`-ből élesedő, közben elmozduló
+           szöveg pontosan az, amitől a vesztibulárisan érzékeny felhasználó
+           rosszul lesz. Itt a végállapot azonnal kirajzolódik — információ nem
+           vész el, csak az út odáig.
+
+       (b) `.animate-spin` — a „Frissítés" és a „Mélyebb ellenőrzés" gomb
+           töltésjelzője, ami saját felirata szerint 1-2 PERCIG pörög. Ezt NEM
+           állítjuk meg teljesen: egy mozdulatlan töltésjelző „megfagyottnak"
+           látszik, és a felhasználó megnyomná mégegyszer a gombot. Helyette
+           1 s → 3 s: a forgás lassú, alig érzékelhető, de bizonyítja, hogy a
+           rendszer dolgozik.
+
+     A `.kt-skeleton*` csillogás (szintén végtelen) SZÁNDÉKOSAN marad: az a
+     tartalom helyén álló, szöveget nem hordozó váz, és a mozgása jelzi, hogy
+     még tölt. Ha ez is zavarna, ott a helye — de nem hallgatólagosan. */
+  .kt-page-enter {
+    animation: none;
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+  .animate-spin {
+    animation-duration: 3s;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────
+   FÓKUSZ-GYŰRŰ — `.kt-fokusz` (2026-08-12)
+   ──────────────────────────────────────────────────────────────
+   ⚠️ MIÉRT NEM A HÁZON BELÜLI `focus-visible:ring-2 ring-ring/50` MINTA.
+   Az `/50` alfa a gyűrűt a háttérrel keveri: mérve 2,53:1 világosban
+   (#93a7a5 fehéren) és 2,52:1 sötétben (#617f5a a kártyán) — a WCAG
+   1.4.11 (Non-text Contrast) által előírt 3:1 ALATT. Ráadásul a minta
+   `outline-none`-nal indul, tehát a böngésző saját, jól látható
+   fókuszkeretét is leszedi: billentyűzettel navigálva nem látszik
+   biztonsággal, hol áll a fókusz.
+
+   Itt TELJES `--ring` fut, natív `outline`-nal:
+     · alfa nélkül mindhárom témában, világosban és sötétben is 4,7:1
+       fölött van a kártyán és az oldalháttéren egyaránt,
+     · a natív `outline` a Windows nagy kontrasztú (forced-colors) módban
+       is megmarad — a `box-shadow`-alapú gyűrűt az a mód eldobja,
+     · az `outline-offset` elválasztja a gyűrűt az elem szélétől, így a
+       kártyán ülő soroknál is látszik.
+   ────────────────────────────────────────────────────────────── */
+.kt-fokusz:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 /* ──────────────────────────────────────────────────────────────
@@ -531,9 +594,43 @@
    ────────────────────────────────────────────────────────────── */
 
 .dark {
-  /* card-raised felülírás — dark háttér + világos keret */
+  /* ══════════════════════════════════════════════════════════════════════
+     card-raised felülírás — dark háttér + világos keret
+
+     ⚠️ 2026-08-12 — A HÁTTÉR A `--card` TOKENRE ÁLLT VISSZA. MIÉRT.
+
+     Itt korábban HARDKÓDOLT gradiens állt:
+       linear-gradient(180deg, rgba(40,65,72,.92), rgba(33,52,58,.9))
+     Ennek a felső színe a lapháttérrel keveredve #273f45 — NEM a `--card`
+     (#22282a a kert/parókia, #2a2218 a zsoltáros sötét témában). Két baj
+     származott belőle:
+
+       (1) AA-BUKÁS. A `themes.css`-ben álló, gondosan kimért
+           `--muted-foreground` értékek (kert/parókia #9e998c „kártyán 5,26",
+           zsoltáros #a59881 „kártyán 5,53") a `--card` TOKENRE készültek. A
+           ténylegesen kirajzolt #273f45-ön ugyanezek 3,72 / 3,76 — normál
+           méretű szövegen AA-bukás. Márpedig a `text-muted-foreground` a
+           termék legsűrűbben használt másodlagos szövegszíne (minden
+           szám-alsor, szemöldök-cím, jelmagyarázat, rangsor-sorszám), és a
+           kártya FELSŐ felében áll, a gradiens rosszabbik végén.
+           A mérés tehát nem volt hibás — csak nem azt a felületet mérte,
+           amin a szöveg valójában ül. Mostantól a kettő ugyanaz.
+
+       (2) A HÁROM SÖTÉT TÉMA UGYANAZT A TEALT KAPTA. A hardkódolt szín
+           téma-független volt, tehát a „Zsoltáros" barna sötét kártyája
+           (#2a2218) is kékeszöldre váltott — a téma-választás sötétben
+           gyakorlatilag hatástalan maradt a kártyákon.
+
+     A gradiens KARAKTERE megmarad: a felső él PONTOSAN a `--card`, az alsó
+     ennél egy árnyalattal sötétebb. Sötétebb háttér + világos szöveg =
+     MAGASABB kontraszt, tehát a kártya alja sem ronthat a méréseken.
+     ══════════════════════════════════════════════════════════════════════ */
   .card-raised {
-    background: linear-gradient(180deg, rgba(40, 65, 72, 0.92), rgba(33, 52, 58, 0.9));
+    background: linear-gradient(
+      180deg,
+      var(--card),
+      color-mix(in oklab, var(--card) 88%, black)
+    );
     border: 1px solid rgba(171, 214, 206, 0.22);
     color: var(--foreground);
   }

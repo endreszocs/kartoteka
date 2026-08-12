@@ -241,21 +241,84 @@ export function napTeendoje(riadok: Riado[]): Riado | null {
  * ⚠️ Ha BÁRMELYIK ág elbukott, a mondat NEM állíthatja, hogy nincs teendő —
  * a kép hiányos, és ezt ki kell mondani. A hamis megnyugtatás rosszabb, mint
  * a hiányzó információ.
+ *
+ * ⚠️ A `hibasAgak` a `hibasAgakSzama()`-ból jön, NEM a `nemFutottLe.length`-ből.
+ *    A kettő nem ugyanaz, és a különbség pont a legfontosabb bukásokat rejtette
+ *    el — lásd a `hibasAgakSzama()` docstringjét.
  */
 export function fejlecMondat(args: {
   riadokSzama: number
   hibasAgak: number
 }): string {
   if (args.riadokSzama === 0 && args.hibasAgak > 0) {
-    return `Nem találtam teendőt, de ${args.hibasAgak} ellenőrzés most nem futott le — a kép hiányos.`
+    return `Nem találtam teendőt, de ${args.hibasAgak} ellenőrzés most nem adott választ — a kép hiányos.`
   }
   if (args.riadokSzama === 0) return 'Ma nincs teendő.'
   const alap =
     args.riadokSzama === 1 ? 'Ma 1 dolog vár rád.' : `Ma ${args.riadokSzama} dolog vár rád.`
   if (args.hibasAgak > 0) {
-    return `${alap} Ezen felül ${args.hibasAgak} ellenőrzés nem futott le.`
+    return `${alap} Ezen felül ${args.hibasAgak} ellenőrzés nem adott választ.`
   }
   return alap
+}
+
+/**
+ * HÁNY ELLENŐRZÉS NEM ADOTT VÁLASZT — a lap FŐ ÍTÉLETÉNEK egyetlen nevezője.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * ⚠️ MIÉRT NEM ELÉG A `nemFutottLe.length` (2026-08-12-i javítás)
+ * ════════════════════════════════════════════════════════════════════════════
+ * A bukások KÉT csatornán érkeznek, és a fejléc korábban csak az egyiket nézte:
+ *
+ *   (a) `nemFutottLe` — az ÁG egésze elhasalt (pl. a harang-üzenetek
+ *       lekérdezése). Ezt a lap külön, piros dobozban is felsorolja.
+ *   (b) a téma-csoportok `hianyzo` tömbjei — az ág lefutott, de EGY SZÁM nem
+ *       jött meg belőle. Ide esik a legfontosabb három eset:
+ *         · a mentés-lefedettség számítása hibázott (az ág maga „ok" volt),
+ *         · az `admin_overview_member_counts` RPC nem futott le élesben,
+ *         · az országos head-count-ok részleges bukásai.
+ *
+ * A régi kód a (b) csatornát figyelmen kívül hagyta, ezért riadó nélküli napon
+ * a lap tetején zöld kerettel az állt, hogy „Ma nincs teendő" + „Ezeket néztem
+ * meg: … biztonsági mentés …", KÖZVETLENÜL egy piros doboz fölött, ami
+ * kimondta: „NEM nulla, hanem nem tudjuk". Pontosan az a hamis megnyugtatás,
+ * amit a `fejlecMondat` docstringje megtilt.
+ */
+export function hibasAgakSzama(adat: {
+  nemFutottLe: ReadonlyArray<unknown>
+  szamCsoportok: ReadonlyArray<{ hianyzo: ReadonlyArray<unknown> }>
+}): number {
+  return (
+    adat.nemFutottLe.length +
+    adat.szamCsoportok.reduce((n, cs) => n + cs.hianyzo.length, 0)
+  )
+}
+
+/**
+ * VERZIÓ-FELIRAT — a kiírható alak EGYETLEN helyen (2026-08-12).
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * ⚠️ MIÉRT NEM ELÉG EGY `replace(/^v/i, '')`
+ * ════════════════════════════════════════════════════════════════════════════
+ * A verziószám KÉT, egymástól eltérő alakban érkezik:
+ *   · `apps/web/package.json` → `0.9.164`
+ *   · `docs/CHANGELOG.md`     → `web v0.9.162` (a `<!-- version: ... -->` metaadat
+ *                               MINDEN sora `web `/`desktop ` előtaggal áll)
+ * A régi kód a `.replace(/^v/i, '')` után elé tett egy `v`-t. A `^v` a
+ * `web v0.9.162`-re NEM illeszkedik, tehát a csempén szó szerint ez állt:
+ * `vweb v0.9.162`. Ugyanaz a hibaosztály, mint a „10.650685 órája": nyers,
+ * formázatlan érték a tulajdonos szeme előtt.
+ *
+ * @returns `null`, ha nincs mit kiírni — nullát/üres `v`-t nem írunk ki.
+ */
+export function verzioFelirat(nyers: string | null | undefined): string | null {
+  if (!nyers) return null
+  const tiszta = nyers
+    .trim()
+    .replace(/^(web|desktop)\s+/i, '')
+    .replace(/^v/i, '')
+    .trim()
+  return tiszta ? `v${tiszta}` : null
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -270,6 +333,131 @@ export interface PulzusCsempe {
   /** Halkabb alsor. `null`, ha nincs mit mondani — nullát nem írunk ki. */
   alsor: string | null
   ut: string | null
+}
+
+/**
+ * TÉMA SZERINTI SZÁM-CSOPORT (2026-08-12).
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * MIÉRT CSOPORTOK, ÉS NEM EGY HOSSZÚ SOR CSEMPE
+ * ════════════════════════════════════════════════════════════════════════════
+ * A tulajdonos kérése: „legyen MINÉL TÖBB statisztika és érdekesség a rendszerről
+ * a rendszergazda szeme előtt". Csakhogy 25 egyforma csempe egy rácsban nem
+ * információ, hanem tapéta: a szem nem tudja, hol keresse, amit keres.
+ *
+ * A csoport adja vissza azt, amit a sűrűség elvesz. A CSOPORTOK SORRENDJE FIX
+ * (Gyülekezetek → Emberek → Anyakönyv → Rendszer), és a csoporton BELÜLI
+ * sorrend is az — ugyanaz az izommemória-szabály, mint a riadóknál.
+ */
+export interface SzamCsoport {
+  id: string
+  cim: string
+  /**
+   * A csoport NEVEZŐJE vagy korlátja, ha van. Pl. „2 gyülekezet nyilvántartásából".
+   *
+   * ⚠️ EZ NEM DÍSZ. 783 gyülekezet van, de országosan 606 élő tag: minden
+   * „országos" összesítő valójában egy-két gyülekezet adata. Nevező nélkül az
+   * ilyen szám HAZUGSÁG — ugyanaz a hibaosztály, mint a néma nulla.
+   */
+  megjegyzes: string | null
+  sorok: PulzusCsempe[]
+  /**
+   * Amit ebben a csoportban NEM sikerült lekérdezni — a felület KIÍRJA a
+   * csoport alján. Nulla SOHA nem helyettesítheti a „nem tudjuk"-öt.
+   */
+  hianyzo: string[]
+}
+
+/** Egy nap a 14 napos mentés-pulzusban (a felület mini oszlopcsíkot rajzol). */
+export interface MentesPulzusNap {
+  nap: string
+  igazolt: number
+  hibas: number
+  varhato: number
+  /** ⚠️ `false` = a rendszer akkor még nem létezett: SEMLEGES, nem piros. */
+  letezett: boolean
+}
+
+/** Egy sor a „legnagyobb gyülekezetek" listában. */
+export interface GyulekezetMeret {
+  nev: string
+  tagok: number
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Tiszta számítások az új csempékhez — az önteszt EZEKET védi
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * HÁNY NAPJA MEGY HIBÁTLANUL A MENTÉS — a 14 napos pulzusból visszafelé.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * HÁROM DÖNTÉS, AMI NEM ÖNKÉNYES
+ * ════════════════════════════════════════════════════════════════════════════
+ * (1) A MAI NAP KIMARAD. A napi mentés hajnali cronból fut; ha valaki reggel
+ *     08:00-kor nézi meg, a mai nap még nyitva van. A mai napot beszámítva a
+ *     sorozat minden reggel 0-ra esne — vagyis a csempe MINDEN NAP hazudna.
+ * (2) A `letezett: false` nap NEM SZAKÍTJA MEG a sorozatot, hanem LEZÁRJA:
+ *     a rendszer telepítése előtti napokért nem hibáztatunk, de nem is
+ *     számoljuk bele. Ilyenkor a `teljesAblak` `false`, és a felület ezt
+ *     „legalább N napja" alakban mondja ki.
+ * (3) A `varhato === 0` nap ISMERETLEN, nem sikeres. Ha nem tudjuk, hány
+ *     hatókörnek KELLETT volna mentés, akkor azt sem tudjuk, hogy megvan-e —
+ *     a sorozat itt megáll. „Nem tudom" soha nem lehet zöld.
+ *
+ * @returns `null`, ha egyáltalán nincs kiértékelhető nap.
+ */
+export function hibatlanSorozat(
+  pulzus: MentesPulzusNap[],
+): { napok: number; teljesAblak: boolean } | null {
+  if (pulzus.length < 2) return null
+  let napok = 0
+  let teljesAblak = true
+  // A tömb a legrégebbitől a maiig tart; a MAI (utolsó) elem kimarad.
+  for (let i = pulzus.length - 2; i >= 0; i -= 1) {
+    const n = pulzus[i]
+    if (!n.letezett) {
+      // A rendszer még nem létezett — a sorozat itt véget ér, de nem hibából.
+      teljesAblak = false
+      break
+    }
+    if (n.varhato <= 0) {
+      teljesAblak = false
+      break
+    }
+    if (n.hibas > 0 || n.igazolt < n.varhato) break
+    napok += 1
+  }
+  return { napok, teljesAblak: teljesAblak && napok === pulzus.length - 1 }
+}
+
+/**
+ * KÉT `YYYY-MM-DD` NAP KÖZTI TELJES NAPOK SZÁMA.
+ *
+ * ⚠️ SZÁNDÉKOSAN `Date.UTC`-vel számol, NEM `new Date('2026-08-12')`
+ *    összehasonlítással: így az óraátállítás (Europe/Bucharest UTC+2/+3) nem
+ *    csúsztat el egy napot. A bemenet MÁR bukaresti naptári nap.
+ *
+ * @returns `null`, ha bármelyik bemenet nem `YYYY-MM-DD` alakú.
+ */
+export function napKulonbseg(korabbi: string, kesobbi: string): number | null {
+  const a = /^(\d{4})-(\d{2})-(\d{2})$/.exec(korabbi)
+  const b = /^(\d{4})-(\d{2})-(\d{2})$/.exec(kesobbi)
+  if (!a || !b) return null
+  const ta = Date.UTC(Number(a[1]), Number(a[2]) - 1, Number(a[3]))
+  const tb = Date.UTC(Number(b[1]), Number(b[2]) - 1, Number(b[3]))
+  if (Number.isNaN(ta) || Number.isNaN(tb)) return null
+  return Math.round((tb - ta) / NAP_MS)
+}
+
+/**
+ * ÜRES CSOPORTOK KISZŰRÉSE — a csend elve a szám-zónában is érvényes.
+ *
+ * Egy csoport akkor marad meg, ha van legalább egy KIÍRHATÓ száma, VAGY van
+ * bevallott hiánya. Ami se nem tud, se nem hiányzik, az nem foglal helyet.
+ */
+export function csoportokSorrendben(csoportok: SzamCsoport[]): SzamCsoport[] {
+  return csoportok.filter((cs) => cs.sorok.length > 0 || cs.hianyzo.length > 0)
 }
 
 export interface IdovonalSor {
@@ -318,10 +506,18 @@ export interface AttekintesAdat {
   /** A gyorsítótárból jött-e (a „Frissítés" gomb ezt üríti). */
   gyorsitotarbol: boolean
   riadok: Riado[]
-  pulzus: PulzusCsempe[]
+  /**
+   * A nyugodt számok, TÉMA SZERINT csoportosítva (2026-08-12-től; korábban egy
+   * lapos `pulzus` tömb volt 5 csempével).
+   */
+  szamCsoportok: SzamCsoport[]
   idovonal: Ag<IdovonalSor[]>
   uzenetek: Ag<UzenetSor[]>
   egyhazmegyek: Ag<EgyhazmegyeBontas>
+  /** A legnagyobb gyülekezetek — NULLA extra lekérdezés (`getAdminOverview.top10`). */
+  legnagyobbak: Ag<GyulekezetMeret[]>
+  /** 14 napos mentés-pulzus — NULLA extra lekérdezés (`computeCoverage`). */
+  mentesPulzus: Ag<MentesPulzusNap[]>
   modulPirulak: ModulPirula[]
   /** Mit ellenőriztünk sikeresen — az üres állapot ezt sorolja fel. */
   ellenorizve: string[]

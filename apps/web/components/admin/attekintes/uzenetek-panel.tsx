@@ -17,6 +17,7 @@ import Link from 'next/link'
 import { ArrowRight, Bell } from 'lucide-react'
 
 import type { Ag, UzenetSor } from '@/app/(dashboard)/admin/overview-shared'
+import { huIdopontBukarest } from '@/lib/utils/idopont-bukarest'
 
 export function UzenetekPanel({ ag }: { ag: Ag<UzenetSor[]> }) {
   if (!ag.ok && ag.fajta === 'nincs_jog') return null
@@ -61,12 +62,10 @@ export function UzenetekPanel({ ag }: { ag: Ag<UzenetSor[]> }) {
                 <p className="text-sm font-semibold leading-snug text-foreground">{u.cim}</p>
                 <p className="mt-0.5 text-sm text-muted-foreground">
                   {u.olvasatlan ? 'Még nem olvastad' : 'Olvasva'}
-                  {u.mikor
-                    ? ` · ${new Date(u.mikor).toLocaleString('hu-HU', {
-                        dateStyle: 'medium',
-                        timeStyle: 'short',
-                      })}`
-                    : ''}
+                  {/* 2026-08-12: `timeZone` NÉLKÜLI formázás volt itt, SZERVER-
+                      komponensben — a Railway-konténer UTC-jét vette, tehát
+                      nyáron 3 órával korábbi időt írt ki. */}
+                  {u.mikor ? ` · ${huIdopontBukarest(u.mikor, 'short')}` : ''}
                 </p>
               </div>
             </li>

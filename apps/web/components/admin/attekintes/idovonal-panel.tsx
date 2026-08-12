@@ -17,16 +17,23 @@ import { ArrowRight, History, ShieldAlert } from 'lucide-react'
 
 import type { Ag, IdovonalSor } from '@/app/(dashboard)/admin/overview-shared'
 import { ablakban } from '@/app/(dashboard)/admin/overview-shared'
+import { huIdopontBukarest, huRelativIdo } from '@/lib/utils/idopont-bukarest'
 
+/**
+ * 2026-08-12 — KÉT JAVÍTÁS EGY SORBAN.
+ *
+ * (1) A relatív idő innen KIKERÜLT a közös `lib/utils/idopont-bukarest.ts`-be:
+ *     ez volt a második egyforma másolat a háromból.
+ * (2) A 24 óránál régebbi sor eddig `toLocaleString('hu-HU', …)`-gal, `timeZone`
+ *     NÉLKÜL formázódott — ez SZERVER-komponens, tehát a Railway-konténer
+ *     UTC-jét vette, és nyáron 3 órát hazudott. Most a bukaresti formázó megy.
+ */
 function mikorSzoveg(iso: string, most: number): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return 'ismeretlen időpont'
-  const perc = Math.floor((most - d.getTime()) / 60000)
-  if (perc < 1) return 'az imént'
-  if (perc < 60) return `${perc} perce`
-  const ora = Math.floor(perc / 60)
-  if (ora < 24) return `${ora} órája`
-  return d.toLocaleString('hu-HU', { dateStyle: 'medium', timeStyle: 'short' })
+  const perc = Math.floor((most - d.getTime()) / 60_000)
+  if (perc < 24 * 60) return huRelativIdo(iso, most)
+  return huIdopontBukarest(iso, 'short')
 }
 
 export function IdovonalPanel({ ag, most }: { ag: Ag<IdovonalSor[]>; most: number }) {

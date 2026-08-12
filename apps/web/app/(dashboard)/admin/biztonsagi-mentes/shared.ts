@@ -232,6 +232,55 @@ export type BackupBannerOk =
   /** A lekérdezés elhasalt → a felület LÁTHATÓAN jelzi, hogy nem tudja. */
   | 'hiba'
 
+/**
+ * Egy nap mentés-lefedettsége, a SÁV-állapot mellé csomagolva (2026-08-12).
+ *
+ * ⚠️ MIÉRT VAN EZ ITT. A `computeCoverage()` MINDIG lefut a sáv-állapot
+ * számításakor — a tegnapi/mai lefedettséget, a 14 napos pulzust és a rendszer
+ * születésnapját is kiszámolja —, de eddig mindezt ELDOBTUK, és csak egyetlen
+ * `health` objektum jött ki. Az admin Áttekintés ebből NULLA extra
+ * adatbázis-körút árán mutat valódi számokat.
+ */
+export interface BackupNapiLefedettseg {
+  /** A vizsgált nap (Europe/Bucharest helyi dátum, `YYYY-MM-DD`). */
+  nap: string
+  /** Hány hatókörnek KELLETT volna mentés. `0` = nem tudjuk, mit vártunk. */
+  varhato: number
+  igazolt: number
+  hibas: number
+  hianyzik: number
+  /** ⚠️ A TELJES problémás szám, a névlista 20-as csonkolása ELŐTT. */
+  problemasOsszesen: number
+}
+
+export interface BackupPulzusNap {
+  nap: string
+  igazolt: number
+  hibas: number
+  varhato: number
+  /** ⚠️ `false` = a rendszer akkor még nem létezett — NEM hiba, nem is siker. */
+  letezett: boolean
+}
+
+export interface BackupLefedettsegKivonat {
+  tegnap: BackupNapiLefedettseg
+  ma: BackupNapiLefedettseg
+  /** 14 nap, a legrégebbitől a maiig. Üres, ha a napló-szelet nem olvasható. */
+  pulzus: BackupPulzusNap[]
+  /** A rendszer születésnapja (`YYYY-MM-DD`), vagy `null`, ha nincs rá nyom. */
+  telepitesNap: string | null
+  /**
+   * ⚠️ `false` = NYOM-BIZONYTALANSÁG: a napló legkorábbi sorát nem tudtuk
+   * kiolvasni. A felület ilyenkor NEM állít kort — kimondja, hogy nem tudja.
+   */
+  szuletesMegbizhato: boolean
+  /**
+   * A lefedettség-számítás hibája, ha volt. ⚠️ Ha ez ki van töltve, a fenti
+   * számok NEM valósak — a felület nem írhatja ki őket nullaként.
+   */
+  hiba?: string
+}
+
 export interface BackupBannerState {
   ok: BackupBannerOk
   health?: import('@/lib/google-drive/types').BackupHealth
@@ -239,6 +288,8 @@ export interface BackupBannerState {
   ut?: string | null
   /** Csak `ok: 'hiba'` esetén — rövid, felhasználónak is mutatható indok. */
   hibaUzenet?: string
+  /** Csak `ok: 'allapot'` esetén — NULLA extra lekérdezés, lásd fent. */
+  lefedettseg?: BackupLefedettsegKivonat
 }
 
 export interface DriveTestEredmeny extends EgyszeruEredmeny {

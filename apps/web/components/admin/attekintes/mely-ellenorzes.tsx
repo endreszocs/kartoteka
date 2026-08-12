@@ -14,6 +14,7 @@ import { useState, useTransition } from 'react'
 import { ClipboardCheck, Loader2 } from 'lucide-react'
 
 import { runQualityCheck } from '@/app/(dashboard)/admin/actions'
+import { huOraPercBukarest } from '@/lib/utils/idopont-bukarest'
 
 interface Sor {
   congName: string
@@ -40,7 +41,10 @@ export function MelyEllenorzes() {
           nem: r.totals.missingGender,
           szul: r.totals.missingBirthdate,
         })
-        setFutottAt(new Date().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }))
+        // 2026-08-12: a KÖZÖS, Europe/Bucharest-re szögezett formázó. A böngésző
+        // zónája a lelkész gépén rendszerint stimmel, de nem garantált — az
+        // egész rendszerben egyetlen zóna szerint írjuk ki az időt.
+        setFutottAt(huOraPercBukarest(new Date()))
       } catch (e) {
         // ⚠️ Időtúllépésnél SEM írunk „0 hibát" — kimondjuk, hogy nem futott le.
         setSorok(null)
@@ -55,27 +59,34 @@ export function MelyEllenorzes() {
   }
 
   return (
-    <section className="card-raised p-4 sm:p-5">
-      <h2 className="font-heading text-lg text-foreground">Mélyebb ellenőrzés</h2>
-      <p className="mt-1 max-w-prose text-sm leading-relaxed text-muted-foreground">
-        Ez az ellenőrzés a teljes tagnyilvántartást átnézi, ezért percekig is eltarthat. Nem indul
-        el magától — akkor futtasd, amikor van rá időd.
-      </p>
+    <section className="card-raised p-4">
+      {/* 2026-08-12: alacsony LÁBLÉC-SÁV lett belőle. A cím, a magyarázat és a
+          gomb széles képernyőn EGY sorban fut — korábban három sor magas,
+          teljes szélességű kártya volt a lap alján, ~170 px-ért. */}
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <h2 className="font-heading text-base text-foreground">Mélyebb ellenőrzés</h2>
+          <p className="mt-0.5 text-sm leading-snug text-muted-foreground">
+            A teljes tagnyilvántartást átnézi, ezért percekig is eltarthat. Nem indul el magától —
+            akkor futtasd, amikor van rá időd.
+          </p>
+        </div>
 
-      <button
-        type="button"
-        onClick={indit}
-        disabled={pending}
-        className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-full bg-[var(--primary)] px-5 text-sm font-semibold text-[var(--primary-foreground)] transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60"
-        aria-label="Tagnyilvántartási adatminőség ellenőrzésének indítása"
-      >
-        {pending ? (
-          <Loader2 className="size-4 animate-spin" aria-hidden />
-        ) : (
-          <ClipboardCheck className="size-4" aria-hidden />
-        )}
-        {pending ? 'Ellenőrzés folyamatban… (akár 1-2 perc)' : 'Adatminőség ellenőrzése'}
-      </button>
+        <button
+          type="button"
+          onClick={indit}
+          disabled={pending}
+          className="kt-fokusz inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-[var(--primary)] px-5 text-sm font-semibold text-[var(--primary-foreground)] transition hover:opacity-90 disabled:opacity-60"
+          aria-label="Tagnyilvántartási adatminőség ellenőrzésének indítása"
+        >
+          {pending ? (
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+          ) : (
+            <ClipboardCheck className="size-4" aria-hidden />
+          )}
+          {pending ? 'Ellenőrzés folyamatban… (akár 1-2 perc)' : 'Adatminőség ellenőrzése'}
+        </button>
+      </div>
 
       {hiba && (
         <p

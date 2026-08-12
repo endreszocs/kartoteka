@@ -143,7 +143,7 @@ export function RiadoCsempe({
 
           <Link
             href={riado.ut}
-            className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-[var(--primary)] px-5 text-sm font-semibold text-[var(--primary-foreground)] transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:w-auto"
+            className="kt-fokusz mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-[var(--primary)] px-5 text-sm font-semibold text-[var(--primary-foreground)] transition hover:opacity-90 sm:w-auto"
             aria-label={`${riado.gombFelirat} — ${riado.cim}`}
           >
             {riado.gombFelirat}
