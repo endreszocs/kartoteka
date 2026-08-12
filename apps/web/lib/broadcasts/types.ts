@@ -66,9 +66,38 @@ export interface ChangelogBroadcastStatus {
   emailError: string | null
 }
 
+/**
+ * KÉZI jelölés egy CHANGELOG-bejegyzésen (2026-08-12).
+ *
+ * KÖZÖS (nem személyes) — a `changelog_jelolesek` tábla egy sora. Az indoklás
+ * a `migration-docs/sql/2026-08-12-changelog-jelolesek.sql` fejlécében áll.
+ */
+export interface ChangelogJeloles {
+  /** Csillagozott („Kiemelt") bejegyzés. */
+  kiemelt: boolean
+  kiemelteNev: string | null
+  kiemelveAt: string | null
+  /**
+   * KÉZZEL kiküldöttnek jelölve. ⚠️ Ez NEM valódi kiküldés — a felületen
+   * SOHA nem szabad ugyanazzal a jelvénnyel mutatni, mint az `alreadySent`-et.
+   */
+  kikuldottnekJelolveAt: string | null
+  kikuldottnekJelolteNev: string | null
+  megjegyzes: string | null
+}
+
 export interface ChangelogEntry {
   key: string
+  /**
+   * True, ha a bejegyzésnek NINCS saját `<!-- key: -->` mezője, ezért a kulcs a
+   * CÍMBŐL generálódott. Néma csapda: egy elgépelés-javítás a címben új kulcsot
+   * csinál, és a korábbi kiküldés „elveszik". A felület ezt kiírja.
+   */
+  keyGenerated: boolean
+  /** A dátum sima része (ÉÉÉÉ-HH-NN) — rendezéshez és a küszöb-számításhoz. */
   date: string
+  /** A fejléc TELJES címkéje a betűtoldalékkal (pl. `2026-05-06c`). */
+  dateLabel: string
   title: string
   category: ReleaseCategory | null
   version: string | null
@@ -77,11 +106,17 @@ export interface ChangelogEntry {
   /** True, ha már broadcast-olva lett (meglévő release_changelog_key a DB-ben) */
   alreadySent: boolean
   broadcastStatus: ChangelogBroadcastStatus | null
+  /** Kézi jelölés (csillag / „kiküldöttnek jelölve"). `null` = nincs jelölve. */
+  jeloles: ChangelogJeloles | null
   /**
-   * True, ha a bejegyzés a "régi/archivált" küszöb (NEWSLETTER_READ_CUTOFF) előtti,
-   * és nem lett ténylegesen kiküldve — ezeket NEM küldjük ki hírlevélben, és nem
-   * számítanak "kiküldésre vár"-nak. (Endre kérése 2026-06-05: a május előtti
-   * bejegyzések legyenek olvasottnak tekintve.)
+   * True, ha a bejegyzés archivált: nem lett ténylegesen kiküldve, nincs kézi
+   * jelölése, ÉS a rendszer mégsem kínálja fel kiküldésre. KÉT ok lehet:
+   *  · a "régi/archivált" küszöb (NEWSLETTER_READ_CUTOFF) előtti — Endre kérése
+   *    2026-06-05: a május előtti bejegyzések legyenek olvasottnak tekintve;
+   *  · a 2026-08-12-es elemző-javítás hozta felszínre (betűvel toldott dátumú
+   *    fejléc a javítás előttről) — lásd `elemzoJavitasHoztaFelszinre()`.
+   * Az archivált bejegyzések a felületen az összecsukható „Archivált korábbi
+   * bejegyzések" csoportban végig megnézhetők; nem tűnnek el.
    */
   readMarked?: boolean
 }

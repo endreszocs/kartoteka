@@ -40,10 +40,31 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { AlertTriangle, ArrowRight, ShieldAlert, ShieldQuestion } from 'lucide-react'
+import { usePathname } from 'next/navigation'
+import { AlertTriangle, ArrowDown, ArrowRight, ShieldAlert, ShieldQuestion } from 'lucide-react'
 
 import { getBackupBannerStateAction } from '@/app/(dashboard)/admin/biztonsagi-mentes/actions'
 import type { BackupBannerState } from '@/app/(dashboard)/admin/biztonsagi-mentes/shared'
+// ⚠️ KÖZÖS KONSTANS, nem beírt string. Ugyanezt az azonosítót viseli az
+//    állapot-kártya `id`-je és a harang-értesítés hivatkozásának horgonya.
+//    Ha a három elcsúszik, a gomb némán a lap tetejére dob.
+import { MENTES_ALLAPOT_HORGONY } from '@/lib/google-drive/types'
+
+/**
+ * A HORGONYRA GÖRGETÉS + RÖVID KIEMELÉS.
+ *
+ * ⚠️ MIÉRT NEM ELÉG A GÖRGETÉS. Ha a szakasz már látszik a képernyőn, a
+ * görgetés SEMMIT nem csinál — a felhasználó megint azt látná, hogy „nem
+ * történik semmi". A kétszer felvillanó gyűrű megmutatja, HOVÁ néz a gomb.
+ */
+function ugorjAllapothoz(): void {
+  const cel = document.getElementById(MENTES_ALLAPOT_HORGONY)
+  if (!cel) return
+  const csendes = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  cel.scrollIntoView({ behavior: csendes ? 'auto' : 'smooth', block: 'start' })
+  cel.classList.add('mentes-horgony-villan')
+  window.setTimeout(() => cel.classList.remove('mentes-horgony-villan'), 2400)
+}
 
 /**
  * A sáv SAJÁT térköze. A `dashboard-shell` slotja szándékosan üres keret: így
@@ -55,6 +76,7 @@ const KERET = 'px-4 pt-4 md:px-6 md:pt-6 lg:px-7 lg:pt-7'
 
 export function BackupStaleBanner() {
   const [allapot, setAllapot] = useState<BackupBannerState | null>(null)
+  const utvonal = usePathname()
 
   useEffect(() => {
     let elo = true
@@ -172,24 +194,56 @@ export function BackupStaleBanner() {
           </div>
         </div>
 
-        {/* A gomb CSAK akkor jelenik meg, ha a felhasználó tényleg be is jut az
-            admin felületre. Gyülekezeti profilban az /admin layout visszatereli
-            a /dashboard-ra — egy visszapattanó gomb rosszabb a semminél. */}
+        {/* ══════════════════════════════════════════════════════════════════
+            A GOMB, AMI NEM TEHETETLEN (2026-08-11)
+            ══════════════════════════════════════════════════════════════════
+            A sáv MINDEN dashboard-oldalon ott van, a mentés-oldalon is. A gomb
+            viszont fixen a `/admin/biztonsagi-mentes` útvonalra mutatott,
+            horgony nélkül — vagyis ha a tulajdonos MÁR OTT VOLT, a Link
+            ugyanarra az útvonalra navigált, az oldal (`force-dynamic`) újra-
+            renderelt, és a képernyőn nem történt semmi. Szó szerint ezt
+            jelentette be: „nem jelenik meg semmi, csak frissül az oldal".
+
+            Mostantól:
+              · MÁS oldalon  → link a `#mentes-allapot` horgonyra,
+              · A CÉL-OLDALON → nem link, hanem gomb: odagörget és felvillantja
+                a szakaszt. Egy tehetetlen gomb bizalmat rombol; egy gomb, ami
+                megmutatja, HOL nézzen, tanít.
+
+            A gomb továbbra is CSAK akkor jelenik meg, ha a felhasználó tényleg
+            be is jut az admin felületre (`ut !== null`). */}
         {ut ? (
-          <Link
-            href={ut}
-            aria-label="Megnézem, mi a baj a biztonsági mentéssel"
-            className={[
-              // 44px érintőfelület — mobil-első követelmény.
-              'inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl px-4 text-sm font-semibold transition',
-              kritikus
-                ? 'bg-destructive text-[var(--destructive-foreground,#fff)] hover:opacity-90'
-                : 'bg-amber-900 text-white hover:opacity-90 dark:bg-amber-200 dark:text-amber-950',
-            ].join(' ')}
-          >
-            Megnézem, mi a baj
-            <ArrowRight className="size-4" aria-hidden />
-          </Link>
+          utvonal === ut ? (
+            <button
+              type="button"
+              onClick={ugorjAllapothoz}
+              aria-label="Ugrás a mentés állapotához ezen az oldalon"
+              className={[
+                // 44px érintőfelület — mobil-első követelmény.
+                'inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl px-4 text-sm font-semibold transition',
+                kritikus
+                  ? 'bg-destructive text-[var(--destructive-foreground,#fff)] hover:opacity-90'
+                  : 'bg-amber-900 text-white hover:opacity-90 dark:bg-amber-200 dark:text-amber-950',
+              ].join(' ')}
+            >
+              A részletek lentebb
+              <ArrowDown className="size-4" aria-hidden />
+            </button>
+          ) : (
+            <Link
+              href={`${ut}#${MENTES_ALLAPOT_HORGONY}`}
+              aria-label="Megnézem, mi a baj a biztonsági mentéssel"
+              className={[
+                'inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl px-4 text-sm font-semibold transition',
+                kritikus
+                  ? 'bg-destructive text-[var(--destructive-foreground,#fff)] hover:opacity-90'
+                  : 'bg-amber-900 text-white hover:opacity-90 dark:bg-amber-200 dark:text-amber-950',
+              ].join(' ')}
+            >
+              Megnézem, mi a baj
+              <ArrowRight className="size-4" aria-hidden />
+            </Link>
+          )
         ) : null}
       </div>
     </div>

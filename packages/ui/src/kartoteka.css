@@ -426,6 +426,101 @@
 }
 
 /* ──────────────────────────────────────────────────────────────
+   Horgony-kiemelés (2026-08-11)
+   ──────────────────────────────────────────────────────────────
+   A mentés-sáv „A részletek lentebb" gombja és a harang-értesítés
+   `#mentes-allapot` hivatkozása ide görget. ⚠️ A GÖRGETÉS ÖNMAGÁBAN
+   KEVÉS: ha a szakasz már látszik, semmi nem történik a képernyőn —
+   és pontosan ezt jelentette be a tulajdonos a régi gombról („nem
+   jelenik meg semmi, csak frissül az oldal"). A kétszer felvillanó
+   gyűrű MEGMUTATJA, hová néz a gomb.
+   Téma-tokenből színez (--ring), és tiszteletben tartja a
+   csökkentett mozgás beállítást.
+   ────────────────────────────────────────────────────────────── */
+@keyframes mentes-horgony-villan {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  20%, 60% { box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 55%, transparent); }
+  40%, 80% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.mentes-horgony-villan {
+  animation: mentes-horgony-villan 2.2s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mentes-horgony-villan {
+    animation: none;
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 55%, transparent);
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Admin ÁTTEKINTÉS — a NÉGY megengedett mozgás (2026-08-12)
+   ──────────────────────────────────────────────────────────────
+   VEZÉRELV: minden mozgás EGYSZERI, RÖVID és MUNKÁT VÉGEZ — vagy a
+   rangsort olvastatja el, vagy a legsúlyosabb tételre viszi a
+   tekintetet. Ami nem dolgozik, az kimarad: nincs parallax, nincs
+   végtelen csillogás, nincs körhinta, nincs magától átrendeződő lap.
+
+   ⚠️ A célközönség 55+ éves lelkészek. Az elmozduló szöveg
+   olvashatatlan, a végtelen lüktetés fél óra alatt vakfolttá válik
+   és vesztibulárisan is terhel. Ezért:
+     · a belépő NEM skáláz és NEM rugózik (tiszta ease-out),
+     · a szívverés KIZÁRÓLAG az ikonlap köré rajzolt gyűrűt mozgatja
+       (box-shadow), tehát egyetlen betű sem mozdul el,
+     · a szívverés VÉGES: 3 ciklus után megáll.
+
+   `prefers-reduced-motion: reduce` mellett MINDEN áll — de INFORMÁCIÓ
+   NEM VÉSZ EL: a végállapot azonnal kirajzolódik, a kritikus csempe
+   pedig a felületen amúgy is kiírt „Sürgős" szót és a saját
+   ikonalakját viseli, nem a mozgás hordozza a jelentést.
+   ────────────────────────────────────────────────────────────── */
+@keyframes kt-attekintes-belepo {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.kt-belepo {
+  animation: kt-attekintes-belepo 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--kt-belepo-keses, 0ms);
+}
+
+@keyframes kt-attekintes-sziv {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50%      { box-shadow: 0 0 0 6px color-mix(in oklab, var(--destructive) 45%, transparent); }
+}
+
+.kt-sziv {
+  /*
+   * 2 ciklus × 2,4 s = 4,8 s, majd VÉGLEG megáll.
+   *
+   * ⚠️ AZ 5 MÁSODPERC NEM ÍZLÉS KÉRDÉSE. A WCAG 2.2.2 (Pause, Stop, Hide — A
+   * szint) szerint minden magától induló, más tartalommal PÁRHUZAMOSAN futó
+   * mozgásnak, ami 5 másodpercnél tovább tart, KÖTELEZŐ szüneteltethető /
+   * leállítható / elrejthető vezérlőt adni. A szabály a HOSSZT méri, nem azt,
+   * hogy véges-e: a korábbi 3 ciklus (7,2 s) attól még bukó volt, hogy magától
+   * megállt. A `prefers-reduced-motion` NEM számít az előírt „mechanizmusnak" —
+   * az nem a tartalomban lévő vezérlő, és csak azon segít, aki már beállította.
+   * Ez a gyűrű ráadásul a legsúlyosabb, legtöbbet nézett csempén villog.
+   * 5 s alatt maradva vezérlő nélkül is megfelelünk.
+   */
+  animation: kt-attekintes-sziv 2.4s ease-in-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kt-belepo {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .kt-sziv {
+    animation: none;
+    /* A jelentés megmarad, csak a mozgás tűnik el: statikus gyűrű. */
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--destructive) 45%, transparent);
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────
    Dark mode compatibility — MVP fixek (2026-04-21o)
    ──────────────────────────────────────────────────────────────
    A komponensek nagy része hardkódolt Tailwind-színeket használ

@@ -114,6 +114,25 @@ export interface DailyCoverage {
   hianyzik: number
   /** A hiányzó/hibás gyülekezetek nevei (max 20, a felület kiírja). */
   problemasNevek: string[]
+  /**
+   * A problémás hatókörök TELJES száma — a max. 20-as csonkolás ELŐTT.
+   *
+   * ⚠️ MIÉRT KELL KÜLÖN MEZŐ (2026-08-11). A felület a CSONKOLT tömb hosszát
+   * írta ki: „Melyik gyülekezetről nincs igazolt tegnapi mentés? (20)" —
+   * miközben 784 hiányzott. A sáv ugyanebből számolta az „és még 15" toldalékot,
+   * tehát egyetlen mondaton belül mondott ellent önmagának. Egy szám, ami a
+   * saját csonkolását jelenti igazságnak, rosszabb a semminél.
+   */
+  problemasOsszesen: number
+  /**
+   * LÉTEZETT-E EGYÁLTALÁN a mentés-rendszer ezen a napon.
+   *
+   * ⚠️ `false` esetén a nap NEM „hiányzik", hanem NEM IS LÉTEZETT: ilyenkor a
+   * `varhato` szándékosan 0, és sem a sáv, sem a kártya, sem a pulzus-csík nem
+   * fest pirosat. A döntést a `lib/backup/mentes-kora.ts` hozza — EGY helyen,
+   * a telepítés napjához kötve, magától lejáró bejáratási kivétellel.
+   */
+  letezett: boolean
 }
 
 /** Egy nap a 14 napos pulzus-csíkon. */
@@ -122,6 +141,12 @@ export interface PulseDay {
   igazolt: number
   hibas: number
   varhato: number
+  /**
+   * `false` = a mentés-rendszer ezen a napon még nem létezett. A csík ilyenkor
+   * SEMLEGES szürke, nem piros: a telepítés előtti 13 napra piros oszlopot
+   * rajzolni („NINCS igazolt mentés — 784 kellett volna") kitalált múlt.
+   */
+  letezett: boolean
 }
 
 /** A Drive-egyeztetés: a napló szerint N fájl kell, a Drive-on M van. */
@@ -145,6 +170,26 @@ export interface DriveReconciliation {
   masTaroloban?: number
   /** A tárolóban lévő, de a naplóban ismeretlen fájlok száma (SOHA nem töröljük). */
   ismeretlen: number
+  /**
+   * AZ ISMERETLEN FÁJLOK NÉVVEL (max 50).
+   *
+   * ⚠️ MIÉRT NEM ELÉG A DARABSZÁM (2026-08-11). A felület ezt írta ki:
+   * „Ezen felül 1 ISMERETLEN fájl van a mappában — ezeket a rendszer soha nem
+   * törli automatikusan." A tulajdonos ebből nem tudta megállapítani, MI az,
+   * MIKOR keletkezett, és mit kezdjen vele. Egy néma emlegetés ugyanolyan
+   * rossz, mint az automatikus törlés — csak nem visszafordíthatatlan.
+   *
+   * A NÉV MOND MINDENT: `kb-<uuid>.kbk` = árva mentés-fájl (párhuzamos futás
+   * vagy megszakadt igazolás hagyta ott), `km-…` = árva média (fénykép) fájl,
+   * bármi más = nem a Kartotéka tette oda.
+   */
+  ismeretlenFajlok?: Array<{
+    fileId: string
+    fileName: string
+    bytes: number
+    /** A tároló szerinti keletkezés (ISO). `null`, ha a tároló nem adja meg. */
+    letrehozva: string | null
+  }>
   hiba: string | null
 }
 
@@ -156,6 +201,12 @@ export interface BackupOverview {
   tegnap: DailyCoverage
   ma: DailyCoverage
   pulzus: PulseDay[]
+  /**
+   * MIKOR SZÜLETETT A MENTÉS-RENDSZER, és mikor jár le a bejáratási kivétel.
+   * A felület KIÍRJA — enélkül a „tegnapot nem kérjük számon" mondat varázslat
+   * lenne, nem magyarázat. (Típus: `lib/backup/mentes-kora.ts`.)
+   */
+  szuletes: import('@/lib/backup/mentes-kora').MentesSzuletes
   drive: DriveConnectionStatus
   /**
    * A TÉNYLEGESEN használt tároló neve (`google-drive` / `supabase-storage`).
@@ -217,3 +268,25 @@ export const MINIMUM_MEGTARTOTT = 7
 export const ELAVULT_ORA = 48
 /** 96 óra: innen destruktív tónus. */
 export const KRITIKUS_ORA = 96
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A MENTÉS-FELÜLET ÚTVONALA ÉS HORGONYAI — EGY HELYEN (2026-08-11)
+//
+// ⚠️ MIÉRT KONSTANS, ÉS MIÉRT ITT. Négy különböző helyen kell UGYANAZ a
+// szöveg: a harang-értesítés `hivatkozas` mezőjében (`lib/backup/alerts.ts`),
+// a figyelmeztető sáv gombjában (`backup-stale-banner.tsx`), az áttekintő
+// kártya `id` attribútumában (`backup-overview-card.tsx`) és a görgető
+// függvényben. Ha ezek közül BÁRMELYIK elcsúszik, a gomb NÉMÁN a lap tetejére
+// dob — pontosan ez volt a tulajdonos bejelentése: „nem jelenik meg semmi,
+// csak frissül az oldal". Egy elgépelt horgony nem ad hibaüzenetet, csak
+// tehetetlen gombot.
+//
+// ⚠️ Ez a fájl SZÁNDÉKOSAN `server-only`-mentes: a kliens-oldali admin
+//    komponensek is importálják.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const MENTES_FELULET_UT = '/admin/biztonsagi-mentes'
+/** Az állapot-kártya — ide visz a sáv gombja és a hiba-értesítés. */
+export const MENTES_ALLAPOT_HORGONY = 'mentes-allapot'
+/** A „melyik gyülekezetről nincs mentés" nyitható lista. */
+export const MENTES_HIANYZOK_HORGONY = 'mentes-hianyzok'

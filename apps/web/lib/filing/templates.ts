@@ -17,6 +17,8 @@
  *  - {{nev}}, {{cim}}, {{szul_datum}}, {{lakcim}}, stb.
  */
 
+import { huDatumBukarest } from '@/lib/utils/idopont-bukarest'
+
 export const TEMPLATE_TYPES = [
   'igazolas',
   'level',
@@ -113,14 +115,16 @@ export function renderTemplate(
 
 /**
  * Az aktuális dátum magyar formátumban (pl. "2026. április 15.")
+ *
+ * ⚠️ 2026-08-11 JAVÍTÁS — EZ AZ IRAT KELTE. A `{{datum}}` placeholder ebből
+ * kerül a GENERÁLT, ALÁÍRT és IKTATOTT egyházi iratra. `timeZone` nélkül a
+ * formázás a futtató környezet zónáját vette: a Railway-konténer UTC-ben jár,
+ * tehát bukaresti 00:00 és 02:00/03:00 között az iraton az ELŐZŐ NAP dátuma
+ * állt volna. Az irat kelte jogi tartalom — a közös, Europe/Bucharest-re
+ * szögezett formázó ezt zárja ki.
  */
 export function formatHungarianDate(d?: Date): string {
-  const date = d || new Date()
-  return date.toLocaleDateString('hu-HU', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
+  return huDatumBukarest(d || new Date())
 }
 
 /**

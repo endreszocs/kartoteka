@@ -52,6 +52,11 @@ const SOURCES = {
   // pontosan a két külön másolat okozta, hogy ugyanarról az eseményről két
   // különböző idő jelent meg egymás alatt.
   idopont: path.join(REPO_ROOT, 'apps', 'web', 'lib', 'utils', 'idopont-bukarest.ts'),
+  // 2026-08-11: a figyelmeztető sáv DÖNTÉSE. Azért van külön, tiszta fájlban,
+  // mert ez az a logika, ami 2026-08-11-én egy 784/784-es napon piros vészt
+  // írt ki egy olyan tegnapra, amikor a mentés-rendszer még nem is létezett.
+  // Ha egy szabály tesztelhetetlen, előbb-utóbb hazudni fog.
+  kora: path.join(REPO_ROOT, 'apps', 'web', 'lib', 'backup', 'mentes-kora.ts'),
 }
 
 let failed = false
@@ -123,7 +128,7 @@ function loadTs(srcFile, outName) {
   return require_(dest)
 }
 
-let container, keys, payload, inventory, batch, steps, idopont
+let container, keys, payload, inventory, batch, steps, idopont, kora
 try {
   container = loadTs(SOURCES.container, 'container')
   keys = loadTs(SOURCES.keys, 'keys')
@@ -132,6 +137,7 @@ try {
   batch = loadTs(SOURCES.batch, 'batch')
   steps = loadTs(SOURCES.steps, 'steps')
   idopont = loadTs(SOURCES.idopont, 'idopont')
+  kora = loadTs(SOURCES.kora, 'kora')
 } catch (e) {
   fail(`transpile/betöltés hiba: ${e?.message || e}`)
   fs.rmSync(tmp, { recursive: true, force: true })
@@ -1800,6 +1806,294 @@ function teljesCsovezetek({ varhatoFelulir = null, tarolotRongal = false } = {})
       ok('I10 egyetlen teendő-mondat sem tartalmaz titkot (token, kulcs-érték, Bearer)')
     } else {
       fail(`I10: ${szennyezett.join(' | ')}`)
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// J) A FIGYELMEZTETŐ SÁV DÖNTÉSE — „mikor szólaljon meg, és mikor ne"
+//    (2026-08-11)
+//
+// A tulajdonos bejelentése: a mentés ELŐSZÖR futott végig (784/784, 22:16), a
+// lap tetején mégis piros vész állt arról, hogy TEGNAP 784 hatókörnek nem
+// készült mentése. Tegnap a rendszer még nem létezett.
+//
+// A veszély a javításban van, nem a hibában: egy „ne szólj az első napon"
+// kivétel könnyen válik örökös elnémítássá. Ezért itt MIND A KETTŐT
+// ellenőrizzük — hogy hallgat-e, amikor kell, ÉS hogy megszólal-e, amikor kell.
+// ════════════════════════════════════════════════════════════════════════════
+{
+  const { szuletesbol, napEletkora, savDontes, napEltol, huNap } = kora
+
+  const nap = (n) => ({
+    nap: n,
+    varhato: 784,
+    igazolt: 0,
+    hibas: 0,
+    befejezetlen: 0,
+    hianyzik: 784,
+    problemasNevek: ['Bibarcfalvi Református Egyházközség'],
+    problemasOsszesen: 784,
+    letezett: true,
+  })
+  const teljesNap = (n) => ({ ...nap(n), igazolt: 784, hianyzik: 0, problemasNevek: [], problemasOsszesen: 0 })
+  const nemLetezoNap = (n) => ({
+    ...nap(n),
+    varhato: 0,
+    hianyzik: 0,
+    problemasNevek: [],
+    problemasOsszesen: 0,
+    letezett: false,
+  })
+  const alapFriss = {
+    allapot: 'friss',
+    utolsoIgazoltAt: '2026-08-11T19:16:00.000Z',
+    oraSzam: 1,
+    driveHiba: null,
+    mondat: 'Az utolsó ellenőrzött mentés: 2026. augusztus 11. 22:16.',
+  }
+
+  // J1 — A LEGKORÁBBI NYOM NYER. Az újra-összekötés NEM tolhatja előre a
+  //      telepítés napját (különben egy karbantartó mozdulat elnémítaná az őrszemet).
+  {
+    const sz = szuletesbol({
+      elsoNaploNap: '2026-08-11',
+      driveOsszekotveNap: '2026-11-30', // fél évvel későbbi ÚJRA-összekötés
+      jelszoBeallitvaNap: '2026-08-11',
+    })
+    if (sz.telepitesNap === '2026-08-11' && sz.forras === 'naplo') {
+      ok('J1 a telepítés napja a LEGKORÁBBI nyomból jön (az újra-összekötés nem tolja előre)')
+    } else {
+      fail(`J1: ${JSON.stringify(sz)}`)
+    }
+  }
+
+  // J2 — HA EGYETLEN NYOM SINCS: fail-loud, teljes szigor.
+  {
+    const sz = szuletesbol({ elsoNaploNap: null, driveOsszekotveNap: null, jelszoBeallitvaNap: null })
+    if (sz.telepitesNap === null && napEletkora('2026-08-10', sz) === 'eles') {
+      ok('J2 nyom nélkül a válasz „eles" — a „nem tudom" SOHA nem indok a hallgatásra')
+    } else {
+      fail(`J2: ${JSON.stringify(sz)} / ${napEletkora('2026-08-10', sz)}`)
+    }
+  }
+
+  // J3 — A HÁROM ÉLETKOR pontosan a telepítés napjához igazodik.
+  {
+    const sz = szuletesbol({
+      elsoNaploNap: '2026-08-11',
+      driveOsszekotveNap: null,
+      jelszoBeallitvaNap: null,
+    })
+    const vart = [
+      ['2026-08-10', 'elotte'],
+      ['2026-08-11', 'bejaratas'],
+      ['2026-08-12', 'eles'],
+      ['2026-09-01', 'eles'],
+    ]
+    const rossz = vart.filter(([n, v]) => napEletkora(n, sz) !== v)
+    if (rossz.length === 0) {
+      ok('J3 a bejáratás CSAK a telepítés napja — másnaptól teljes szigor')
+    } else {
+      fail(`J3: ${rossz.map(([n, v]) => `${n} → ${napEletkora(n, sz)} (várt: ${v})`).join(', ')}`)
+    }
+  }
+
+  // J4 — A TULAJDONOS ESETE. 2026-08-12, tegnap (08-11) = a telepítés napja,
+  //      MA teljes → a sáv NEM vész, és nem is beszél nem létező múltról.
+  {
+    const sz = szuletesbol({
+      elsoNaploNap: '2026-08-11',
+      driveOsszekotveNap: '2026-08-11',
+      jelszoBeallitvaNap: '2026-08-11',
+    })
+    const h = savDontes({
+      alap: alapFriss,
+      tegnap: teljesNap('2026-08-11'),
+      ma: teljesNap('2026-08-12'),
+      szuletes: sz,
+    })
+    if (h.allapot === 'friss' && !/NEM készült/.test(h.mondat)) {
+      ok('J4 teljes tegnap + teljes ma → a sáv néma (nincs piros vész a jó napon)')
+    } else {
+      fail(`J4: ${h.allapot} / ${h.mondat}`)
+    }
+  }
+
+  // J5 — A BEJELENTETT HIBA. 2026-08-11-én maga a nap: tegnap (08-10) NEM
+  //      LÉTEZETT, ma 784/784 → tájékoztató mondat, NEM „784 hatókörnek nem készült".
+  {
+    const sz = szuletesbol({
+      elsoNaploNap: '2026-08-11',
+      driveOsszekotveNap: '2026-08-11',
+      jelszoBeallitvaNap: '2026-08-11',
+    })
+    const h = savDontes({
+      alap: alapFriss,
+      tegnap: nemLetezoNap('2026-08-10'),
+      ma: teljesNap('2026-08-11'),
+      szuletes: sz,
+    })
+    const jo =
+      h.allapot === 'friss' &&
+      !/NEM készült ellenőrzött mentése/.test(h.mondat) &&
+      /még nem működött|indult el/.test(h.mondat)
+    if (jo) ok('J5 a születés ELŐTTI napot nem kéri számon — a mondat tájékoztat, nem riaszt')
+    else fail(`J5: ${h.allapot} / ${h.mondat}`)
+  }
+
+  // J6 — ⚠️ A LEGFONTOSABB: A KIVÉTEL LEJÁR. Ugyanaz a telepítési dátum, de
+  //      három nappal később és üres tegnappal → a vésznek MEG KELL SZÓLALNIA.
+  {
+    const sz = szuletesbol({
+      elsoNaploNap: '2026-08-11',
+      driveOsszekotveNap: '2026-08-11',
+      jelszoBeallitvaNap: '2026-08-11',
+    })
+    const h = savDontes({
+      alap: alapFriss,
+      tegnap: nap('2026-08-14'),
+      ma: nap('2026-08-15'),
+      szuletes: sz,
+    })
+    if (h.allapot === 'kritikus' && /NEM készült ellenőrzött mentése/.test(h.mondat)) {
+      ok('J6 a bejáratási kivétel LEJÁR — napokkal később a vész megszólal')
+    } else {
+      fail(`J6: ${h.allapot} / ${h.mondat}`)
+    }
+  }
+
+  // J7 — A SÁV KIMONDJA A MAI ÁLLÁST IS. Egy őrszem, ami elhallgatja a jó hírt,
+  //      ugyanúgy félrevezet, mint amelyik elhallgatja a rosszat.
+  {
+    const sz = szuletesbol({ elsoNaploNap: '2026-01-01', driveOsszekotveNap: null, jelszoBeallitvaNap: null })
+    const h = savDontes({
+      alap: alapFriss,
+      tegnap: nap('2026-08-14'),
+      ma: teljesNap('2026-08-15'),
+      szuletes: sz,
+    })
+    if (/Ma mind a\(z\) 784/.test(h.mondat)) {
+      ok('J7 a sáv a TEGNAPI baj mellett a MAI állást is kimondja')
+    } else {
+      fail(`J7: ${h.mondat}`)
+    }
+  }
+
+  // J8 — A „(20)" ELLENTMONDÁS VÉGE. A toldalék a TELJES darabszámból számol,
+  //      nem a 20-ra csonkolt névlistából.
+  {
+    const sz = szuletesbol({ elsoNaploNap: '2026-01-01', driveOsszekotveNap: null, jelszoBeallitvaNap: null })
+    const tegnap = { ...nap('2026-08-14'), problemasNevek: Array.from({ length: 20 }, (_, i) => `Gy${i}`) }
+    const h = savDontes({ alap: alapFriss, tegnap, ma: nap('2026-08-15'), szuletes: sz })
+    if (/és még 779/.test(h.mondat)) {
+      ok('J8 a névlista-toldalék a TELJES számból számol (nincs „5 név és még 15" 784 mellett)')
+    } else {
+      fail(`J8: ${h.mondat}`)
+    }
+  }
+
+  // J9 — AZ ERŐSEBB IGAZSÁGOT NEM ÍRJUK FELÜL: ha SOHA nem volt igazolt mentés,
+  //      a „MÉG EGYETLEN … SEM KÉSZÜLT" mondat marad, bejáratás ide vagy oda.
+  {
+    const sz = szuletesbol({ elsoNaploNap: null, driveOsszekotveNap: '2026-08-11', jelszoBeallitvaNap: null })
+    const alap = {
+      allapot: 'nincs_mentes',
+      utolsoIgazoltAt: null,
+      oraSzam: null,
+      driveHiba: null,
+      mondat: 'MÉG EGYETLEN ELLENŐRZÖTT BIZTONSÁGI MENTÉS SEM KÉSZÜLT.',
+    }
+    const h = savDontes({
+      alap,
+      tegnap: nemLetezoNap('2026-08-10'),
+      ma: nap('2026-08-11'),
+      szuletes: sz,
+    })
+    if (h.allapot === 'nincs_mentes' && h.mondat === alap.mondat) {
+      ok('J9 a „még soha nem volt mentés" állítást a bejáratás NEM némítja el')
+    } else {
+      fail(`J9: ${h.allapot} / ${h.mondat}`)
+    }
+  }
+
+  // J10 — naptári segédek (a bejáratás lejárata ezen áll vagy bukik).
+  {
+    const bajok = []
+    if (napEltol('2026-02-28', 1) !== '2026-03-01') bajok.push('napEltol nem-szökőév')
+    if (napEltol('2026-01-01', -1) !== '2025-12-31') bajok.push('napEltol évforduló')
+    if (napEltol('2026-10-25', 1) !== '2026-10-26') bajok.push('napEltol óraátállítás napja')
+    if (huNap('2026-08-11') !== '2026. 08. 11.') bajok.push('huNap')
+    if (bajok.length === 0) ok('J10 naptári segédek (hónap-, év- és óraátállítás-határon is)')
+    else fail(`J10: ${bajok.join(', ')}`)
+  }
+
+  // J11 — ⚠️ KÉT FELÜLET, EGY DÁTUM. A sáv és az áttekintő KÁRTYA ugyanarról a
+  //      szabályról KÉT dátumot mondott: a sáv „2026. 08. 13.-tól ez már hibának
+  //      számít", a kártya „2026. 08. 12.-tól viszont minden hiányzó előző nap
+  //      hibának számít". A kártya az `elsoSzamonkertNap`-ot (a SZÁMONKÉRT napot)
+  //      összemosta a SZÁMONKÉRÉS napjával. A `elsoSzigoruSavNap` mező ezt
+  //      szerkezetileg zárja ki — de csak akkor, ha MINDKÉT felület azt olvassa.
+  {
+    const bajok = []
+    const sz = szuletesbol({
+      elsoNaploNap: '2026-08-11',
+      driveOsszekotveNap: null,
+      jelszoBeallitvaNap: null,
+    })
+    if (sz.elsoSzamonkertNap !== '2026-08-12') bajok.push(`elsoSzamonkertNap=${sz.elsoSzamonkertNap}`)
+    if (sz.elsoSzigoruSavNap !== '2026-08-13') bajok.push(`elsoSzigoruSavNap=${sz.elsoSzigoruSavNap}`)
+    if (sz.elsoSzigoruSavNap !== napEltol(sz.elsoSzamonkertNap, 1)) {
+      bajok.push('a két mező nem egy naptári nappal tér el')
+    }
+    // A SÁV mondata (bejáratási ág, 08-12-én nézve: tegnap = 08-11 = telepítés napja).
+    const h = savDontes({
+      alap: alapFriss,
+      tegnap: nap('2026-08-11'),
+      ma: nap('2026-08-12'),
+      szuletes: sz,
+    })
+    if (!h.mondat.includes(`${huNap(sz.elsoSzigoruSavNap)}-tól ez már hibának számít`)) {
+      bajok.push(`sáv-mondat: ${h.mondat}`)
+    }
+    // A KÁRTYA — forrásszöveg-őrszem. A komponens TSX, ezt a keret nem fordítja
+    // le; ezért azt ellenőrizzük, hogy a mondat a KÖZÖS mezőből épül, és hogy a
+    // régi, egy nappal korábbi számítás nem tért vissza.
+    const kartya = fs.readFileSync(
+      path.join(REPO_ROOT, 'apps', 'web', 'components', 'admin', 'backup', 'backup-overview-card.tsx'),
+      'utf8',
+    )
+    if (!kartya.includes('huNap(szuletes.elsoSzigoruSavNap)')) {
+      bajok.push('a kártya NEM az elsoSzigoruSavNap mezőt írja ki')
+    }
+    if (kartya.includes('${huNap(szuletes.elsoSzamonkertNap)}-tól viszont')) {
+      bajok.push('a kártya visszakapta a saját, egy nappal korábbi számítását')
+    }
+    if (bajok.length === 0) {
+      ok('J11 a sáv és az áttekintő kártya UGYANAZT a szigorodási dátumot mondja')
+    } else {
+      fail(`J11: ${bajok.join(' · ')}`)
+    }
+  }
+
+  // J12 — ⚠️ A BEJÁRATÁSI ABLAK NEM NYÍLHAT KI ÚJRA. Ha a napló-lekérdezés
+  //      HIBÁZOTT (nem: üres volt), a születés SOHA nem eshet vissza a
+  //      felülírható `drive_connected_at` / `passphrase_set_at` nyomokra —
+  //      különben egy fél évvel későbbi Drive-újracsatlakozás + egy tranziens
+  //      napló-hiba együtt „ma telepítettük" állapotba vinné a rendszert, és a
+  //      sáv elhallgatná a tegnapi hiányt.
+  {
+    const sz = szuletesbol({
+      elsoNaploNap: null,
+      driveOsszekotveNap: '2026-09-15', // ÚJRA-összekötés, felülírt időbélyeg
+      jelszoBeallitvaNap: '2026-09-15',
+      naploOlvashato: false,
+    })
+    const kor = napEletkora('2026-09-14', sz)
+    if (sz.telepitesNap === null && sz.naploOlvashato === false && kor === 'eles') {
+      ok('J12 olvashatatlan napló → teljes szigor (a felülírható nyomok NEM vehetik át)')
+    } else {
+      fail(`J12: ${JSON.stringify(sz)} / ${kor}`)
     }
   }
 }

@@ -2,6 +2,7 @@ import { ShieldCheck } from 'lucide-react'
 
 import { AdminPageHeader } from '@/components/admin/admin-page-header'
 import { BackupPanel } from '@/components/admin/backup/backup-panel'
+import { bontMentesHibaKulcs } from '@/lib/backup/alerts'
 
 /**
  * BIZTONSÁGI MENTÉS — ADMIN ALOLDAL (2026-08-11).
@@ -30,6 +31,25 @@ export default async function Page({ searchParams }: PageProps) {
   const google = egyErtek(params.google)
   const kod = egyErtek(params.ok)
 
+  /**
+   * ⚠️ A `mentes-hiba` PARAMÉTER 2026-08-11-ig ÜRES ÍGÉRET VOLT.
+   *
+   * A harang-értesítés `hivatkozas` mezője
+   * (`/admin/biztonsagi-mentes?mentes-hiba=<nap>-<scope>-<id>`) egyszerre
+   * dedup-kulcs ÉS link — de ez az oldal KIZÁRÓLAG a `google` és az `ok`
+   * paramétert olvasta. A „Megnyitás" gomb tehát ide hozott, és nem történt
+   * semmi: se kiemelés, se szűrés, se magyarázat.
+   *
+   * Mostantól a paraméter EL VAN OLVASVA, és a panel megnevezi az érintett
+   * hatókört + rászűr az előzmény-listára. Ugyanaz a bontó függvény olvassa,
+   * amelyik a kulcsot előállítja (`lib/backup/alerts.ts`) — külön parser előbb-
+   * utóbb széthúzna a kulcs-formátummal.
+   */
+  const mentesHibaKulcs = egyErtek(params['mentes-hiba'])
+  const mentesHiba = mentesHibaKulcs
+    ? bontMentesHibaKulcs(`?mentes-hiba=${mentesHibaKulcs}`)
+    : null
+
   return (
     <>
       <AdminPageHeader
@@ -41,6 +61,7 @@ export default async function Page({ searchParams }: PageProps) {
       <BackupPanel
         googleAllapot={google === 'ok' ? 'ok' : google === 'hiba' ? 'hiba' : null}
         googleKod={kod}
+        mentesHiba={mentesHiba}
       />
     </>
   )

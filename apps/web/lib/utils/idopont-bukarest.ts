@@ -69,6 +69,45 @@ export function huIdopontBukarest(
   return formazo(hosszusag).format(d)
 }
 
+const DATUM_FORMAZOK = new Map<Hosszusag, Intl.DateTimeFormat>()
+
+function datumFormazo(hosszusag: Hosszusag): Intl.DateTimeFormat {
+  const meglevo = DATUM_FORMAZOK.get(hosszusag)
+  if (meglevo) return meglevo
+  const uj = new Intl.DateTimeFormat('hu-HU', {
+    timeZone: BUKARESTI_ZONA,
+    year: 'numeric',
+    month: hosszusag,
+    day: 'numeric',
+  })
+  DATUM_FORMAZOK.set(hosszusag, uj)
+  return uj
+}
+
+/**
+ * ISO időbélyeg (vagy `Date`) → magyar dátum ÓRA NÉLKÜL, Europe/Bucharest szerint.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * ⚠️ MIÉRT KELL EZ KÜLÖN, AMIKOR VAN `toLocaleDateString('hu-HU', …)`
+ * ════════════════════════════════════════════════════════════════════════════
+ * Az átjelentkezési válaszlevél „Kelt" dátuma így készült — `timeZone` NÉLKÜL.
+ * A Railway-konténer UTC-ben jár, tehát bukaresti 00:00 és 02:00/03:00 között
+ * az ALÁÍRT, IKTATOTT egyházi iraton az ELŐZŐ NAP dátuma állt. Ez nem
+ * kozmetika: az irat kelte jogi tartalom.
+ *
+ * @param hosszusag `'long'` = „2026. augusztus 11." (irat, levél),
+ *                  `'short'` = „2026. aug. 11." (táblázat, lista).
+ */
+export function huDatumBukarest(
+  iso: string | Date | null | undefined,
+  hosszusag: Hosszusag = 'long',
+): string {
+  if (!iso) return '—'
+  const d = iso instanceof Date ? iso : new Date(iso)
+  if (Number.isNaN(d.getTime())) return typeof iso === 'string' ? iso : '—'
+  return datumFormazo(hosszusag).format(d)
+}
+
 /**
  * A MAI NAP Europe/Bucharest szerint, `YYYY-MM-DD` alakban.
  *

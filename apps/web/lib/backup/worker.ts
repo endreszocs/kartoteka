@@ -33,8 +33,19 @@ import { selectAllPaged } from '@kartoteka/supabase-client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
+// ⚠️ A `health.ts` NEM hív Google-API-t: napló- és beállítás-olvasás. Azért
+//    innen jön, mert a rendszer korát a SÁV és a MOTOR is UGYANABBÓL a
+//    forrásból kell hogy olvassa (lásd a 4) szakasz kommentjét).
+import { loadMentesSzuletes } from '@/lib/google-drive/health'
 
-import { sendBackupFailureAlert } from './alerts'
+import {
+  RIASZTAS_NEVESITETT_MAX,
+  feloldMentesOsszesito,
+  feloldMentesRiasztas,
+  sendBackupFailureAlert,
+  sendMentesOsszesitoRiasztas,
+} from './alerts'
+import { napEletkora } from './mentes-kora'
 import {
   ALAP_IDOKERET_MS,
   berletHatarIso,
@@ -644,6 +655,16 @@ export async function runBackupWorker(
   // ── 4) A TEGNAPI ELLENŐRZÉS. Ha tegnap nem volt igazolt mentés, AZONNAL
   //      jelezzük — nem várunk 48 órát a felületi sávra. (A sáv csak akkor
   //      látszik, ha valaki belép; ez a jelzés akkor is elmegy, ha senki.)
+  //
+  // ⚠️ 2026-08-11 JAVÍTÁS — A HEDGELÉS MEGSZŰNT, NEM ÁTKÖLTÖZÖTT.
+  //    Itt korábban ez állt: „…HA EZ NEM AZ ELSŐ FUTÁS, akkor a mentés napok
+  //    óta nem működik." A mondat helyes volt, mert a szerzője TUDTA, hogy nem
+  //    tudja eldönteni. Mostantól TUDJA: a `MentesSzuletes` (a napló legkorábbi
+  //    sora + a Drive-összekötés + a mentési jelszó közül a LEGKORÁBBI) megmondja,
+  //    létezett-e egyáltalán a rendszer tegnap. UGYANEZ az adat hajtja a felső
+  //    figyelmeztető sávot is (`lib/google-drive/health.ts` → `savDontes`), ezért
+  //    a kettő nem tud széthúzni — korábban két külön lekérdezésből két külön
+  //    mondatot mondtak ugyanarról a napról.
   const tegnap = new Date(`${runDate}T12:00:00Z`)
   tegnap.setUTCDate(tegnap.getUTCDate() - 1)
   const tegnapiDatum = tegnap.toISOString().slice(0, 10)
@@ -656,9 +677,15 @@ export async function runBackupWorker(
     .limit(1)
     .maybeSingle()
   if (!tegnapiSor && kind === 'napi') {
+    const szuletes = await loadMentesSzuletes(admin)
+    const kor = napEletkora(tegnapiDatum, szuletes)
     figyelmeztetesek.push(
-      `TEGNAP (${tegnapiDatum}) EGYETLEN igazolt mentés sem készült. Ha ez nem az első ` +
-        'futás, akkor a mentés napok óta nem működik.',
+      kor === 'eles'
+        ? `TEGNAP (${tegnapiDatum}) EGYETLEN igazolt mentés sem készült — a mentés napok óta ` +
+            'nem működik. Ez NEM az első futás.'
+        : `Tegnap (${tegnapiDatum}) még nem volt igazolt mentés, de nem is lehetett: a ` +
+            `mentés-rendszer ${szuletes.telepitesNap ?? runDate}-én indult. Ez a bejáratási ` +
+            `időszak — ${szuletes.elsoSzamonkertNap ?? runDate}-tól a hiányzó előző nap már hiba.`,
     )
   }
 
@@ -680,6 +707,14 @@ export async function runBackupWorker(
   let idoMiattHalasztott = 0
   let leallitasMiattHalasztott = 0
   const ciklusKezdet = Date.now()
+
+  // ── A RIASZTÁS-KORLÁT KÖNYVELÉSE (2026-08-11) ────────────────────────────
+  // Lásd `lib/backup/alerts.ts` → „A TÖMEGES BUKÁS ÖSSZESÍTŐJE". Az első
+  // `RIASZTAS_NEVESITETT_MAX` bukás NEVESÍTVE megy ki, a többi helyett a futás
+  // végén EGYETLEN összesítő. A napló-sorba MINDEN bukás bekerül.
+  let nevesitettRiasztas = 0
+  const bukottNevek: string[] = []
+  const bukottHibak: string[] = []
 
   // A MA MÁR IGAZOLT hatókörök: nulla adatbázis-írás, nulla Drive-hívás. Egy
   // folytatásnál ez a 700+ hatókör másodpercek alatt átfut.
@@ -799,6 +834,25 @@ export async function runBackupWorker(
         storage.nev,
       )
       sikeres++
+
+      // ── A BAJ ELMÚLT: A KORÁBBI RIASZTÁST VISSZAVONJUK ────────────────────
+      // ⚠️ 2026-08-11. A tulajdonos 21:09-kor kapott egy harangot arról, hogy a
+      //    „Biharvajda" mentése sikertelen. 22:16-kor mind a 784 elkészült — az
+      //    üzenet mégis változatlanul ott állt, mert SEMMI nem vonta vissza.
+      //    Egy rendszer, ami csak panaszkodni tud, de azt nem tudja mondani,
+      //    hogy „azóta rendben", előbb-utóbb hiteltelenné teszi a panaszait is.
+      //    SOHA NEM DOB: a visszavonás elmaradása nem boríthatja a mentést.
+      //    ⚠️ A `kind` ÁTADÁSA NEM FORMASÁG: csak a NAPI futás oldhat fel napi
+      //    hibát. Egy `pre_restore` siker korábban „azóta rendben"-nek jelölt egy
+      //    napi bukást, amit a sáv másnap változatlanul számonkért.
+      await feloldMentesRiasztas({
+        runDate,
+        kind,
+        scope: h.scope,
+        congregationId: h.congregationId,
+        congregationNev: h.congregationNev,
+      }).catch(() => undefined)
+
       eredmenyek.push(result)
     } catch (e: unknown) {
       sikertelen++
@@ -808,27 +862,51 @@ export async function runBackupWorker(
       const stage: BackupFailureStage | null = detectStage(uzenet)
       const scopeFigyelmeztetesek: string[] = []
 
-      // RIASZTÁS — MINDIG. A riasztó nem „bekötendő" többé (lásd a fenti
-      // magyarázatot): alapértelmezésben a valódi, e-mail + harang csatorna fut.
-      const alertResult = await aktivRiaszto()({
-        scope: h.scope,
-        congregationId: h.congregationId,
-        congregationNev: h.congregationNev,
-        runDate,
-        backupLogId,
-        stage,
-        uzenet,
-      }).catch((err: unknown) => ({
-        ok: false,
-        csatornak: [] as string[],
-        hiba: err instanceof Error ? err.message : 'ismeretlen',
-      }))
-      if (!alertResult.ok) {
-        scopeFigyelmeztetesek.push(
-          `A riasztás NEM ment ki: ${alertResult.hiba || 'ismeretlen ok'}.`,
-        )
+      bukottNevek.push(h.congregationNev ?? 'Rendszerszintű (globális) mentés')
+      bukottHibak.push(uzenet)
+
+      // ── RIASZTÁS — KORLÁTOZOTT KIMENŐ FORGALOMMAL (2026-08-11) ────────────
+      //
+      // ⚠️ MIÉRT NEM MINDEN BUKÁSRÓL MEGY KÜLÖN LEVÉL. A dedup-kulcs
+      //    HATÓKÖRÖNKÉNT egyedi, tehát a tömeges bukást NEM fogta meg: egy
+      //    lejárt Drive-token esetén mind a 784 hatókör ugyanott bukik, és a
+      //    motor 784 KÜLÖN e-mailt indított volna el ugyanabból a Brevo-fiókból,
+      //    amelyik a jelszó-visszaállítást és a meghívókat is viszi — plusz 784
+      //    harang-sort a master 200 elemű postaládájába. A riasztás maga vált
+      //    volna kieséssé.
+      //
+      //    Az első `RIASZTAS_NEVESITETT_MAX` bukás NEVESÍTVE megy ki (abból
+      //    lehet tanulni), a többiről a futás végén EGYETLEN összesítő szól.
+      //    ⛔ A NAPLÓ-SOR MINDEGYIKRŐL ELKÉSZÜL — a „minden bukásról tudni kell"
+      //    elv nem sérül, csak nem a postafiókon keresztül teljesül.
+      if (nevesitettRiasztas < RIASZTAS_NEVESITETT_MAX) {
+        nevesitettRiasztas += 1
+        const alertResult = await aktivRiaszto()({
+          scope: h.scope,
+          congregationId: h.congregationId,
+          congregationNev: h.congregationNev,
+          runDate,
+          backupLogId,
+          stage,
+          uzenet,
+        }).catch((err: unknown) => ({
+          ok: false,
+          csatornak: [] as string[],
+          hiba: err instanceof Error ? err.message : 'ismeretlen',
+        }))
+        if (!alertResult.ok) {
+          scopeFigyelmeztetesek.push(
+            `A riasztás NEM ment ki: ${alertResult.hiba || 'ismeretlen ok'}.`,
+          )
+        } else {
+          scopeFigyelmeztetesek.push(`Riasztás elküldve: ${alertResult.csatornak.join(', ')}.`)
+        }
       } else {
-        scopeFigyelmeztetesek.push(`Riasztás elküldve: ${alertResult.csatornak.join(', ')}.`)
+        scopeFigyelmeztetesek.push(
+          `Erről a hatókörről NEM ment külön riasztás: ez a futás már ${RIASZTAS_NEVESITETT_MAX} ` +
+            'bukást nevesítve jelentett, a többiről a futás végén EGY összesítő szól ' +
+            '(különben a levelezés maga válna a hiba részévé). A hiba ITT, a naplóban van.',
+        )
       }
 
       console.error(
@@ -906,6 +984,36 @@ export async function runBackupWorker(
     )
   }
 
+  // ── 6/b) A TÖMEGES BUKÁS ÖSSZESÍTŐJE (2026-08-11) ────────────────────────
+  //
+  // EGY levél és EGY harang-sor a futás egészéről, ha a nevesített keretnél
+  // több hatókör bukott. A dedup-kulcs NAPI (nem hatókörönkénti), tehát a
+  // további szeletek összesítője kihagyásra kerül — így egy teljesen elszállt
+  // éjszakából 784 levél helyett néhány darab lesz. SOHA NEM DOB.
+  if (sikertelen > nevesitettRiasztas) {
+    const gyakori = leggyakoribbHiba(bukottHibak)
+    const osszesito = await sendMentesOsszesitoRiasztas({
+      runDate,
+      bukottDarab: sikertelen,
+      elsoNevek: bukottNevek.slice(0, RIASZTAS_NEVESITETT_MAX),
+      gyakoriHiba: gyakori,
+    }).catch(() => ({ ok: false, csatornak: [] as string[], hiba: 'ismeretlen' }))
+    figyelmeztetesek.push(
+      osszesito.ok
+        ? `${sikertelen} bukott hatókörről ÖSSZESÍTŐ riasztás ment ki (${osszesito.csatornak.join(', ') || 'nincs csatorna'}) — ` +
+            `nevesítve csak az első ${nevesitettRiasztas}, hogy a levelezés maga ne váljon a hiba részévé.`
+        : `Az összesítő riasztás NEM ment ki: ${osszesito.hiba || 'ismeretlen ok'}. ` +
+            'A bukások a naplóban akkor is mind megvannak.',
+    )
+  }
+
+  // ── 6/c) „A NAP VÉGÜL RENDBE JÖTT" — az összesítő visszavonása.
+  //      Csak a NAPI futás oldhat fel napi riasztást, és csak akkor, ha ez a
+  //      szelet tényleg mindennel végzett, hiba nélkül.
+  if (kind === 'napi' && sikertelen === 0 && futottVegig) {
+    await feloldMentesOsszesito(runDate).catch(() => undefined)
+  }
+
   // ── 7) TAKARÍTÁS: a 24 óránál régebbi visszaállítási staging sorok.
   //      Személyes adatot tartalmaznak — nem maradhatnak ott a végtelenségig.
   const { error: cleanupError } = await admin.rpc('backup_restore_cleanup', {
@@ -943,6 +1051,36 @@ export async function runBackupWorker(
     futottVegig,
     lepesek,
   }
+}
+
+/**
+ * A LEGGYAKORIBB hibaüzenet a bukott hatókörök közül.
+ *
+ * Miért kell: ha 784 hatókör bukik, azoknak szinte biztosan EGY közös okuk van
+ * (lejárt Google-kapcsolat, tele tároló, hálózat). Az összesítő riasztás ezt az
+ * egy mondatot viszi ki — enélkül a tulajdonos csak egy darabszámot kapna, és a
+ * valódi ok a naplóban maradna.
+ *
+ * ⛔ NEM tartalmazhat mentett adatot: a bemenet a motor SAJÁT hibaüzenete.
+ */
+function leggyakoribbHiba(uzenetek: string[]): string | null {
+  if (uzenetek.length === 0) return null
+  const darab = new Map<string, number>()
+  for (const u of uzenetek) {
+    // Az első 120 karakter a „fajta"; a hosszú farok (azonosítók, méretek) nem
+    // számít bele, különben minden üzenet külön csoport lenne.
+    const kulcs = u.slice(0, 120)
+    darab.set(kulcs, (darab.get(kulcs) ?? 0) + 1)
+  }
+  let nyertes: string | null = null
+  let max = 0
+  for (const [kulcs, n] of darab) {
+    if (n > max) {
+      max = n
+      nyertes = kulcs
+    }
+  }
+  return nyertes
 }
 
 /**

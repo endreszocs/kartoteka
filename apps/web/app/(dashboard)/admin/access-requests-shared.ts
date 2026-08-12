@@ -61,6 +61,13 @@ export interface AccessRequestStats {
   rejected: number
   last24h: number
   last7d: number
+  /**
+   * 2026-08-12: a LEGRÉGEBBI még elbírálatlan kérelem beérkezése (ISO), vagy
+   * `null`, ha nincs ilyen. NULLA extra lekérdezés — a sorok úgyis be vannak
+   * töltve. Az admin ÁTTEKINTÉS ebből mondja meg, hogy „a legrégebbi 9 napja
+   * vár": a másik oldalon egy lelkész ül, aki addig nem tud belépni.
+   */
+  oldestPendingCreatedAt: string | null
 }
 
 export interface ListFilter {

@@ -11,6 +11,8 @@ import 'server-only'
  * (revoke = destructive/rose, restore = emerald).
  */
 
+import { huIdopontBukarest } from '@/lib/utils/idopont-bukarest'
+
 import type { EmailSendArgs } from '../types'
 
 function escHtml(s: string): string {
@@ -52,15 +54,18 @@ function layout(opts: {
 </body></html>`
 }
 
+/**
+ * ⚠️ 2026-08-11 JAVÍTÁS — A LEVÉLBEN A SZERVER (UTC) ÓRÁJA ÁLLT.
+ *
+ * Ez a fájl `server-only`, tehát MINDIG a Railway-konténerben fut, ahol nincs
+ * `TZ` beállítva → UTC. A `toLocaleString('hu-HU', …)` `timeZone` opció nélkül
+ * a FUTTATÓ KÖRNYEZET zónáját veszi, ezért a „visszavontuk az eszközödet"
+ * levélben 2-3 órával korábbi időpont szerepelt, mint amit a felhasználó a
+ * felületen látott ugyanarról az eseményről. Egy biztonsági levélnél az
+ * időpont az egyetlen fogódzó ahhoz, hogy „ez én voltam-e".
+ */
 function formatHungarianDateTime(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleString('hu-HU', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return huIdopontBukarest(iso, 'long')
 }
 
 // ─────────────────────────────────────────────────────────────────────────

@@ -25,10 +25,13 @@ import {
   ChevronDown,
   Clock,
   Eye,
+  Hand,
   Inbox,
   RotateCcw,
   Send,
   Sparkles,
+  Star,
+  Undo2,
   Users,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -42,9 +45,15 @@ import { EmailPreviewDialog } from './email-preview-dialog'
 
 import { sendChangelogBroadcast } from '@/app/(dashboard)/admin/broadcasts-actions'
 import {
+  markChangelogEntriesSent,
+  setChangelogKiemelt,
+  setChangelogKikuldottnekJelolve,
+} from '@/app/(dashboard)/admin/changelog-jelolesek-actions'
+import {
   RELEASE_CATEGORY_LABELS,
   type ChangelogEntry,
 } from '@/lib/broadcasts/types'
+import { kiemelt as isKiemelt, varKikuldesre } from '@/lib/broadcasts/changelog-status'
 
 import {
   DEFAULT_TARGET,
@@ -58,7 +67,14 @@ import {
   type TargetSelection,
 } from './broadcast-target-picker'
 import { EmailOptIn } from './email-opt-in'
-import { EmailStatusBadge, NotificationStatusBadge } from './delivery-badges'
+import {
+  EmailStatusBadge,
+  GeneraltKulcsBadge,
+  GeneraltKulcsMagyarazat,
+  JelolesReszletek,
+  KiemeltBadge,
+  NotificationStatusBadge,
+} from './delivery-badges'
 import { formatBroadcastScope, formatDateTime } from './format'
 
 export function ChangelogSendSection({
@@ -66,6 +82,7 @@ export function ChangelogSendSection({
   congregations,
   dioceses,
   districts,
+  jelolesekNeedsSql,
   onReload,
   onOpenNewsletter,
 }: {
@@ -73,6 +90,8 @@ export function ChangelogSendSection({
   congregations: CongLite[]
   dioceses: DioceseLite[]
   districts: DistrictLite[]
+  /** true = a 2026-08-12-changelog-jelolesek.sql még nem futott le élesben. */
+  jelolesekNeedsSql?: boolean
   onReload: () => void
   onOpenNewsletter: () => void
 }) {
@@ -96,10 +115,103 @@ export function ChangelogSendSection({
 
   const activeEntries = useMemo(() => entries.filter((e) => !e.readMarked), [entries])
   const archivedEntries = useMemo(() => entries.filter((e) => e.readMarked), [entries])
-  const unsentEntries = useMemo(
-    () => entries.filter((e) => !e.alreadySent && !e.readMarked),
-    [entries],
-  )
+  // „Kiküldésre vár": se valódi kiküldés, se KÉZI jelölés nincs rajta.
+  // Egyetlen helyen dől el (lib/broadcasts/changelog-status.ts).
+  const unsentEntries = useMemo(() => entries.filter(varKikuldesre), [entries])
+
+  /** Csillag be/ki — a hiba SOSEM néma, a lista mindig újratöltődik. */
+  function toggleKiemelt(entry: ChangelogEntry) {
+    startTransition(async () => {
+      const r = await setChangelogKiemelt(entry.key, !isKiemelt(entry))
+      if (r.error) {
+        toast.error(r.error)
+        return
+      }
+      toast.success(isKiemelt(entry) ? 'Kiemelés visszavonva.' : 'Kiemelve.')
+      onReload()
+    })
+  }
+
+  /** Kézi „kiküldöttnek jelölés" — és a visszavonása. */
+  function toggleKezi(entry: ChangelogEntry) {
+    const jelolve = !!entry.jeloles?.kikuldottnekJelolveAt
+    if (jelolve) {
+      startTransition(async () => {
+        const r = await setChangelogKikuldottnekJelolve({ kulcs: entry.key, jelolve: false })
+        if (r.error) {
+          toast.error(r.error)
+          return
+        }
+        toast.success('A kézi jelölés visszavonva — a bejegyzés újra kiküldésre vár.')
+        onReload()
+      })
+      return
+    }
+    setConfirmState({
+      title: 'Kiküldöttnek jelölöm',
+      description: (
+        <div className="space-y-2">
+          <p>
+            Az „<strong>{entry.title}</strong>” bejegyzést elintézettnek jelöljük, hogy ne
+            szerepeljen tovább a kiküldésre várók között.
+          </p>
+          <p className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+            Ez <strong>NEM küld ki semmit</strong>. A felületen külön felirattal jelenik meg
+            („Kézzel kiküldöttnek jelölve”), nem a valódi kiküldés zöld pipájával — és bármikor
+            visszavonható.
+          </p>
+        </div>
+      ),
+      confirmLabel: 'Kiküldöttnek jelölöm',
+      onYes: () =>
+        startTransition(async () => {
+          const r = await setChangelogKikuldottnekJelolve({ kulcs: entry.key, jelolve: true })
+          if (r.error) {
+            toast.error(r.error)
+            return
+          }
+          toast.success('Kiküldöttnek jelölve.')
+          onReload()
+        }),
+    })
+  }
+
+  /** A kijelöltek tömeges kiküldöttnek jelölése — küldés NÉLKÜL. */
+  function handleBulkMark() {
+    if (selectedKeys.size === 0) return
+    const kijelolt = entries.filter((e) => selectedKeys.has(e.key))
+    setConfirmState({
+      title: 'Kijelöltek kiküldöttnek jelölése',
+      description: (
+        <div className="space-y-2">
+          <p>
+            <strong>{kijelolt.length} bejegyzést</strong> elintézettnek jelölünk, hogy ne
+            szerepeljenek tovább a kiküldésre várók között.
+          </p>
+          <p className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+            Ez <strong>NEM küld ki semmit</strong> — sem értesítést, sem e-mailt. Akkor való ide,
+            ha ezek a frissítések annak idején már kimentek, csak a rendszer nem tud róla.
+            Bármikor visszavonható.
+          </p>
+        </div>
+      ),
+      confirmLabel: 'Jelölöm (küldés nélkül)',
+      onYes: () =>
+        startTransition(async () => {
+          const r = await markChangelogEntriesSent({
+            kulcsok: kijelolt.map((e) => e.key),
+            megjegyzes: 'Tömeges jelölés a Frissítések oldalról.',
+          })
+          if (r.error) {
+            toast.error(r.error)
+            return
+          }
+          toast.success(`${r.jelolve ?? 0} bejegyzés kiküldöttnek jelölve.`)
+          clearSelection()
+          onReload()
+        }),
+    })
+  }
 
   const scopeLabel = describeTarget(target)
   const incompleteTarget = targetIsIncomplete(target)
@@ -304,6 +416,18 @@ export function ChangelogSendSection({
         )}
       </div>
 
+      {/* A jelölés-tábla hiánya NEM néma: megmondjuk, mit kell futtatni. */}
+      {jelolesekNeedsSql && (
+        <p className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+          A csillagozás és a kézi „kiküldöttnek jelölés” tárolója még nincs telepítve az
+          adatbázisban. Futtasd le a{' '}
+          <code className="rounded bg-sky-100 px-1 py-0.5 font-mono text-xs dark:bg-sky-900/60">
+            migration-docs/sql/2026-08-12-changelog-jelolesek.sql
+          </code>{' '}
+          fájlt — addig a két gomb inaktív, minden más változatlanul működik.
+        </p>
+      )}
+
       {incompleteTarget && (
         <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
           A kiválasztott címzés-módhoz még nincs kijelölt{' '}
@@ -339,6 +463,21 @@ export function ChangelogSendSection({
             <Send className="size-3.5" aria-hidden />
             Kijelöltek küldése{sendEmail ? ' + e-mail' : ''}
             {selectedKeys.size > 0 ? ` (${selectedKeys.size})` : ''}
+          </Button>
+          {/* A kiút újraküldés NÉLKÜL: amit tudsz, hogy már kiment, azt jelöld. */}
+          <Button
+            variant="outline"
+            onClick={handleBulkMark}
+            disabled={isPending || selectedKeys.size === 0 || !!jelolesekNeedsSql}
+            className="min-h-9 gap-1.5"
+            title={
+              jelolesekNeedsSql
+                ? 'Ehhez előbb le kell futnia a 2026-08-12-changelog-jelolesek.sql fájlnak.'
+                : 'Elintézettnek jelöli a kijelölteket — küldés nélkül'
+            }
+          >
+            <Hand className="size-3.5" aria-hidden />
+            Kijelöltek kiküldöttnek jelölése
           </Button>
           {selectedResendCount > 0 && (
             <StatusBadge intent="warning" icon={RotateCcw}>
@@ -382,6 +521,9 @@ export function ChangelogSendSection({
               onSend={() => handleSingleSend(e)}
               onResend={() => handleSingleSend(e, { force: true })}
               onPreview={() => setPreviewKey(e.key)}
+              onToggleKiemelt={() => toggleKiemelt(e)}
+              onToggleKezi={() => toggleKezi(e)}
+              jelolesDisabled={!!jelolesekNeedsSql}
               isPending={isPending}
               sendDisabled={incompleteTarget}
               scopeLabel={scopeLabel}
@@ -435,6 +577,9 @@ function ChangelogEntryCard({
   onSend,
   onResend,
   onPreview,
+  onToggleKiemelt,
+  onToggleKezi,
+  jelolesDisabled,
   isPending,
   sendDisabled,
   scopeLabel,
@@ -448,6 +593,9 @@ function ChangelogEntryCard({
   onSend: () => void
   onResend: () => void
   onPreview: () => void
+  onToggleKiemelt: () => void
+  onToggleKezi: () => void
+  jelolesDisabled: boolean
   isPending: boolean
   sendDisabled: boolean
   scopeLabel: string
@@ -456,12 +604,15 @@ function ChangelogEntryCard({
   onToggle: () => void
 }) {
   const status = entry.broadcastStatus
+  const kiemeltE = isKiemelt(entry)
+  const keziJelolve = !!entry.jeloles?.kikuldottnekJelolveAt
+  const elintezve = entry.alreadySent || keziJelolve
   // Kijelölt + már elküldött = tudatos ÚJRAKÜLDÉS → borostyán jelzés
   const cardClass = selected
     ? entry.alreadySent
       ? 'border-amber-400/60 bg-amber-50/50 ring-2 ring-amber-300/50 dark:border-amber-700 dark:bg-amber-950/30 dark:ring-amber-800/40'
       : 'border-primary/40 bg-primary/5 ring-2 ring-primary/25'
-    : entry.alreadySent
+    : elintezve
       ? 'border-border bg-card'
       : 'border-primary/25 bg-primary/5'
 
@@ -498,10 +649,22 @@ function ChangelogEntryCard({
             >
               <span className="min-w-0 flex-1">
                 <span className="block text-[15px] font-semibold leading-snug text-foreground">
+                  {kiemeltE && (
+                    // ⚠️ amber-700, NEM amber-500. A csillag a kért ÁTFUTÁSI
+                    // jelzés: 55+ éves szemnek, változó fényviszonyok között,
+                    // telefonon kell azonnal látszania. Mérve fehér kártyán:
+                    // amber-500 = 2,15:1 (a 3:1-es nem-szöveges küszöb ALATT,
+                    // gyakorlatilag láthatatlan), amber-600 = 3,19:1 (épphogy),
+                    // amber-700 = 5,02:1. Sötét témában az amber-400 a párja.
+                    <Star
+                      className="mr-1.5 inline size-4 -translate-y-0.5 fill-current text-amber-700 dark:text-amber-400"
+                      aria-hidden
+                    />
+                  )}
                   {entry.title}
                 </span>
                 <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                  <span className="font-mono">{entry.date}</span>
+                  <span className="font-mono">{entry.dateLabel}</span>
                   {entry.version && (
                     <Badge variant="outline" className="border-border">
                       v{entry.version}
@@ -523,8 +686,12 @@ function ChangelogEntryCard({
               />
             </button>
 
+            {/* JELVÉNY-SOR — csak RÖVID állapotnevek. A hosszú adatok (ki,
+                mikor, miért) alatta, törhető sorokban: a StatusBadge
+                `whitespace-nowrap shrink-0`, tehát 320 px-en kifestene. */}
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <NotificationStatusBadge sent={entry.alreadySent} />
+              {kiemeltE && <KiemeltBadge />}
+              <NotificationStatusBadge sent={entry.alreadySent} jeloles={entry.jeloles} />
               <EmailStatusBadge
                 requested={!!status?.sendEmail}
                 sentAt={status?.emailSentAt ?? null}
@@ -533,6 +700,7 @@ function ChangelogEntryCard({
                   entry.alreadySent ? 'E-mail nem volt kérve' : 'E-mail nincs elküldve'
                 }
               />
+              {entry.keyGenerated && <GeneraltKulcsBadge />}
               {status && (
                 <span className="text-xs text-muted-foreground">
                   {formatBroadcastScope(status)} · {status.recipientCount} címzett ·{' '}
@@ -540,6 +708,9 @@ function ChangelogEntryCard({
                 </span>
               )}
             </div>
+
+            {entry.jeloles && <JelolesReszletek jeloles={entry.jeloles} />}
+            {entry.keyGenerated && <GeneraltKulcsMagyarazat />}
 
             {expanded && (
               <div className="mt-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
@@ -575,6 +746,65 @@ function ChangelogEntryCard({
               Újraküldés
             </Button>
           )}
+          {/* CSILLAG — 44px érintőfelület, aria-pressed, kiírt szöveg.
+              WCAG 1.4.1: nem csak a szín jelöli, hanem a kitöltött ikon és a felirat. */}
+          <Button
+            variant="ghost"
+            onClick={onToggleKiemelt}
+            disabled={isPending || jelolesDisabled}
+            aria-pressed={kiemeltE}
+            aria-label={
+              kiemeltE
+                ? `Kiemelés visszavonása: ${entry.title}`
+                : `Kiemelés (csillagozás): ${entry.title}`
+            }
+            className="min-h-11 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+            title={
+              jelolesDisabled
+                ? 'Ehhez előbb le kell futnia a 2026-08-12-changelog-jelolesek.sql fájlnak.'
+                : kiemeltE
+                  ? 'Kiemelés visszavonása'
+                  : 'Kiemelem a fontosabbak közé'
+            }
+          >
+            <Star
+              className={`size-3.5 ${kiemeltE ? 'fill-current text-amber-700 dark:text-amber-400' : ''}`}
+              aria-hidden
+            />
+            {kiemeltE ? 'Kiemelt' : 'Kiemelem'}
+          </Button>
+
+          {/* KÉZI JELÖLÉS — a kiút újraküldés nélkül. Csak akkor van értelme,
+              ha nem ment ki valódi kiküldés (ott az újraküldés a művelet). */}
+          {!entry.alreadySent && (
+            <Button
+              variant="ghost"
+              onClick={onToggleKezi}
+              disabled={isPending || jelolesDisabled}
+              aria-pressed={keziJelolve}
+              aria-label={
+                keziJelolve
+                  ? `Kézi jelölés visszavonása: ${entry.title}`
+                  : `Kiküldöttnek jelölöm (küldés nélkül): ${entry.title}`
+              }
+              className="min-h-11 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+              title={
+                jelolesDisabled
+                  ? 'Ehhez előbb le kell futnia a 2026-08-12-changelog-jelolesek.sql fájlnak.'
+                  : keziJelolve
+                    ? 'A kézi jelölés visszavonása — a bejegyzés újra kiküldésre vár'
+                    : 'Elintézettnek jelölöm — NEM küld ki semmit'
+              }
+            >
+              {keziJelolve ? (
+                <Undo2 className="size-3.5" aria-hidden />
+              ) : (
+                <Hand className="size-3.5" aria-hidden />
+              )}
+              {keziJelolve ? 'Jelölés visszavonása' : 'Kiküldöttnek jelölöm'}
+            </Button>
+          )}
+
           <Button
             variant="ghost"
             onClick={onPreview}
@@ -644,7 +874,7 @@ function ArchivedEntriesGroup({
                   className="flex min-h-11 w-full items-start gap-2.5 text-left"
                 >
                   <span className="shrink-0 pt-0.5 font-mono text-xs text-muted-foreground">
-                    {e.date}
+                    {e.dateLabel}
                   </span>
                   <span className="flex-1 text-sm leading-snug text-muted-foreground">
                     {e.title}
