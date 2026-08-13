@@ -414,5 +414,9 @@ Ezekre **nincs bizonyítékom**, a megvalósítás előtt tisztázandók:
 | [`docs/DONTESEK-2026-08-14.md`](./DONTESEK-2026-08-14.md) | A négy döntés kifejtve, megvalósítási következményekkel |
 | `migration-docs/sql/2026-08-14-mentes-mukodes-ellenorzes.sql` | A napi mentés működés-ellenőrzése (csak olvas) |
 
-> **A Könyvelés 2026 csomag (Adatok/Kimutatások/nyomtatványok) összevetése a rendszerrel
-> KÜLÖN dokumentumban készül** — az elemzés a jelen dokumentum írásakor még fut.
+| [`docs/KONYVELES-2026-OSSZEHASONLITAS-TERV-2026-08-14.md`](./KONYVELES-2026-OSSZEHASONLITAS-TERV-2026-08-14.md) | A hivatalos Könyvelés 2026 csomag ⇄ Kartotéka: **164 eltérés** (18 ⛔, 53 🔴), K1–K8 megvalósítási csomagok |
+| `migration-docs/sql/2026-08-14-konyveles-2026-ellenorzesek.sql` | **97 read-only ellenőrző SELECT** az élő adatbázisra (a felhasználó futtatja, az eredmények visszaérkeznek) |
+
+> ⚠️ **A K1–K8 csomagok megvalórítása CSAK a felhasználó (Endre) explicit jóváhagyása után
+> indulhat** — ő kérte, hogy a felmérés után álljunk meg. A 97 SQL eredménye a K-csomagok
+> pontos hatókörét is módosíthatja (mi tényleges adathiba élesben, mi csak kód-hiányosság).
