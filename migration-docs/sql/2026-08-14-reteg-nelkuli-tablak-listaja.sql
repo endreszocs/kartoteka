@@ -54,5 +54,11 @@ SELECT
     WHERE n.nspname = 'public' AND c.relname = p.tabla) AS becsult_sorszam
 FROM public.backup_table_policy p
 WHERE p.reteg IS NULL
-  AND p.hatokor IS DISTINCT FROM 'kizart'
+  -- ⚠️ 2026-08-14 JAVÍTÁS (a futtatás EREDMÉNYE alapján): az első változat
+  -- `IS DISTINCT FROM 'kizart'`-tal szűrt, de a valódi értékkészlet
+  -- 'kizart_titok' / 'kizart_egyeb' — ezért a 15 SZÁNDÉKOSAN kizárt táblát
+  -- listázta ki, amiknél a reteg IS NULL HELYES. A lekérdezés lefutott,
+  -- az eredmény megnyugtató: réteg nélküli MENTETT tábla NINCS. Ez a javított
+  -- változat már csak a ténylegesen mentett hatóköröket nézné.
+  AND p.hatokor IN ('gyulekezet', 'globalis')
 ORDER BY p.tabla;

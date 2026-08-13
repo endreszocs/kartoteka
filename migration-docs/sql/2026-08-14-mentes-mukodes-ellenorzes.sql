@@ -60,14 +60,21 @@ FROM (
          '0' AS vart,
          (SELECT count(*) FROM public.backup_live_tables() WHERE hatokor IS NULL) = 0 AS rendben
 
-  -- ── 2. Visszaállítás-kapu: van-e réteg nélküli tábla? ─────────────────────
+  -- ── 2. Visszaállítás-kapu: van-e réteg nélküli MENTETT tábla? ─────────────
+  -- ⚠️ 2026-08-14 JAVÍTÁS: az első változat `hatokor IS DISTINCT FROM 'kizart'`
+  -- feltétellel szűrt, de a valódi értékkészlet 'kizart_titok' / 'kizart_egyeb'
+  -- (sima 'kizart' NEM létezik — lásd a CHECK-et a biztonsagi-mentes.sql:88-ban).
+  -- Emiatt a 15 SZÁNDÉKOSAN kizárt táblát hibaként számolta — TÉVES RIASZTÁS
+  -- volt. A kizárt táblánál a reteg IS NULL helyes: amit nem mentünk, azt nem
+  -- is állítjuk vissza. A réteg CSAK a ténylegesen mentett (gyulekezet/globalis)
+  -- tábláknál kötelező.
   UNION ALL SELECT 2,
-         'RÉTEG NÉLKÜLI TÁBLA (mentés OK, de a VISSZAÁLLÍTÁS megtagadja)',
+         'RÉTEG NÉLKÜLI MENTETT TÁBLA (mentés OK, de a VISSZAÁLLÍTÁS megtagadja)',
          (SELECT count(*)::text FROM public.backup_table_policy
-           WHERE reteg IS NULL AND hatokor IS DISTINCT FROM 'kizart'),
+           WHERE reteg IS NULL AND hatokor IN ('gyulekezet', 'globalis')),
          '0',
          (SELECT count(*) FROM public.backup_table_policy
-           WHERE reteg IS NULL AND hatokor IS DISTINCT FROM 'kizart') = 0
+           WHERE reteg IS NULL AND hatokor IN ('gyulekezet', 'globalis')) = 0
 
   -- ── 3. Volt-e egyáltalán mentés az elmúlt 48 órában? ──────────────────────
   UNION ALL SELECT 3,
@@ -160,11 +167,12 @@ FROM (
          true
 
   -- ── 10. TÁJÉKOZTATÓ — mentésbe kerülő táblák megoszlása ──────────────────
+  -- (2026-08-14 javítás: a kizárt-számláló is a valódi 'kizart_%' értékekre szűr.)
   UNION ALL SELECT 10,
          'TÁJÉKOZTATÓ — élő táblák: gyülekezeti / globális / kizárt',
          (SELECT count(*) FROM public.backup_live_tables() WHERE hatokor = 'gyulekezet')::text
            || ' / ' || (SELECT count(*) FROM public.backup_live_tables() WHERE hatokor = 'globalis')::text
-           || ' / ' || (SELECT count(*) FROM public.backup_live_tables() WHERE hatokor = 'kizart')::text,
+           || ' / ' || (SELECT count(*) FROM public.backup_live_tables() WHERE hatokor LIKE 'kizart%')::text,
          '(csak tájékoztatás)',
          true
 ) t
