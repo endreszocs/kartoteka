@@ -384,9 +384,13 @@ function PrivacyContent() {
         word="Szerepkör-alapú jogosultság (RBAC)"
         def={'„Role-Based Access Control" — minden felhasználónak van egy szerepköre (pl. lelkész, esperes, könyvelő), és csak azt látja, amit a szerepköre megenged. Egy könyvelő nem látja a pasztorális jegyzeteket; egy gondnok nem látja a pénzügyi adatokat.'}
       />
+      {/* 2026-08-14: ŐSZINTE megfogalmazás — fiókszintű 2FA még NINCS a
+          rendszerben (bevezetés alatt), a mai védelem a rendszergazdai
+          műveletek külön megerősítő kódja. A jogi szöveg nem ígérhet többet,
+          mint ami él. */}
       <Term
-        word="Kétfaktoros hitelesítés (2FA)"
-        def={'„Two-Factor Authentication" — ahol érzékeny műveletet végzünk (pl. rendszergazdai módváltás), ott a jelszó mellett egy másik megerősítés is kell (pl. e-mailre küldött kód). Így ha egy jelszó valahogy mégis kiszivárogna, akkor sem lehet visszaélni vele.'}
+        word="Külön megerősítés érzékeny műveleteknél"
+        def={'a rendszergazdai műveletekhez (pl. rendszergazdai módváltás) a jelszó mellett egy külön megerősítő kód is szükséges. A fiókszintű kétlépcsős belépés (hitelesítő alkalmazással) bevezetés alatt áll — amint elérhető, itt és a beállításokban is jelezzük.'}
       />
       <Term
         word="Naplózás"
@@ -1267,7 +1271,7 @@ function PrivacyRO() {
         <li><strong>TLS 1.3</strong> — criptare a comunicării</li>
         <li><strong>RLS (Row Level Security)</strong> — verificare la nivel de înregistrare</li>
         <li><strong>RBAC</strong> — control bazat pe roluri</li>
-        <li><strong>2FA</strong> — autentificare în doi pași pentru operațiuni administrative</li>
+        <li><strong>Confirmare suplimentară</strong> — cod separat de confirmare pentru operațiuni administrative sensibile (autentificarea în doi pași la nivel de cont este în curs de introducere)</li>
         <li><strong>Jurnalizare</strong> — toate accesurile înregistrate</li>
       </ul>
 
@@ -1604,7 +1608,7 @@ function PrivacyEN() {
         <li><strong>TLS 1.3</strong> — communication encryption</li>
         <li><strong>RLS (Row Level Security)</strong> — record-level verification</li>
         <li><strong>RBAC</strong> — role-based access control</li>
-        <li><strong>2FA</strong> — two-factor authentication for sensitive operations</li>
+        <li><strong>Extra confirmation</strong> — a separate confirmation code for sensitive administrative operations (account-level two-factor sign-in is being introduced)</li>
         <li><strong>Logging</strong> — all access events recorded</li>
       </ul>
 

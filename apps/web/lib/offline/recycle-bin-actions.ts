@@ -31,6 +31,7 @@
 
 import { getDb } from './db'
 import { enqueue } from './mutation-queue'
+import { getTableEntry } from './table-registry'
 
 // ─────────────────────────────────────────────────────────────────
 // Típusok
@@ -40,8 +41,16 @@ export interface DeletedRecordSummary {
   table: string
   id: string | number
   displayLabel: string
-  deletedAt: string | null // updated_at a soft-delete időpontja
-  daysUntilPurge: number | null // hány nap múlva törlődik véglegesen (null ha nem soft)
+  /**
+   * ⚠️ 2026-08-14: ez NEM a törlés időpontja, hanem az `updated_at` — a
+   * tábláknak ma nincs `deleted_at` oszlopa. Mivel a soft-delete maga is egy
+   * update, az `updated_at` LEGFELJEBB a törlés időpontja lehet (annál
+   * korábbi nem) — a belőle számolt lejárat tehát ALSÓ becslés: a rekord
+   * legalább ennyi napig biztosan megvan. A UI ezért „legfeljebb N nap múlva"
+   * fogalmaz. A pontos naphoz `deleted_at` oszlop kell (külön migráció).
+   */
+  deletedAt: string | null
+  daysUntilPurge: number | null // hány nap múlva törlődhet véglegesen (null ha nem soft)
   record: Record<string, unknown>
 }
 
@@ -129,9 +138,10 @@ export async function restoreRecord(
 
   const baseRevision = (record as { revision?: number }).revision ?? 0
 
-  // leltar_tetelek tábla az `is_deleted` mezőt használja, nem a `deleted`-et
-  const usesIsDeleted = table === 'leltar_tetelek'
-  const deletedField = usesIsDeleted ? 'is_deleted' : 'deleted'
+  // 2026-08-14 (6. pont): a jelző-oszlop nevét a registry mondja meg — a
+  // korábbi, itt bedrótozott `table === 'leltar_tetelek'` feltétel és a push
+  // soft-delete ága széthúzhatott volna. Egy igazság-forrás van.
+  const deletedField = getTableEntry(table)?.softDeleteColumn ?? 'deleted'
 
   // Optimistic Dexie update
   await dexieTable.update(id, {

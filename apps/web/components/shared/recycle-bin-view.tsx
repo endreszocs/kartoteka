@@ -23,6 +23,7 @@ import {
   restoreRecord,
   type DeletedRecordSummary,
 } from '@/lib/offline/recycle-bin-actions'
+import { buildRecycleBinLabel } from '@/lib/offline/recycle-bin-labels'
 
 /**
  * Recycle Bin View — reusable Kuka oldal minden modulhoz.
@@ -44,10 +45,15 @@ import {
  *  - `accentColor`: header szín (Tailwind color név, pl. 'emerald' vagy 'teal')
  */
 
+// 2026-08-14 (6. pont, BLOKKOLÓ-javítás): a config SZÁNDÉKOSAN csak sima
+// adat (string mezők) — függvény NEM lehet benne. Korábban a Server Component
+// oldal (`kuka/page.tsx`) egy labelBuilder FÜGGVÉNYT adott át propként, amit a
+// Next.js nem tud szerializálni a Server→Client határon, ezért a Kuka oldal
+// MINDEN betöltésnél kivétellel elszállt. A címkézőt mostantól ITT, a kliens
+// oldalon állítjuk elő a tábla nevéből (buildRecycleBinLabel tiszta függvény).
 export interface RecycleBinTableConfig {
   dexieTable: string
   label: string
-  labelBuilder?: (r: Record<string, unknown>) => string
 }
 
 export function RecycleBinView({
@@ -82,7 +88,9 @@ export function RecycleBinView({
     for (const t of tables) {
       try {
         const rows = await listDeletedRecords(t.dexieTable, congregationId, {
-          labelBuilder: t.labelBuilder,
+          // A címkéző a KLIENSEN épül a tábla nevéből — függvény nem jöhet
+          // át a Server Component határon (lásd a RecycleBinTableConfig kommentjét).
+          labelBuilder: buildRecycleBinLabel(t.dexieTable),
           limit: 500,
         })
         records.push(...rows)
@@ -368,10 +376,15 @@ function RecycleBinRowItem({
         <p className="truncate text-sm font-medium text-slate-800">
           {row.displayLabel}
         </p>
+        {/* 2026-08-14: a dátum az updated_at — a tábláknak ma nincs deleted_at
+            oszlopa, ezért a törlés PONTOS időpontját nem ismerjük, csak a
+            legutolsó módosításét (ami legfeljebb a törlés napja). A felirat
+            ezért „legfeljebb N nap"-ot mond — nem ígérünk pontosságot, amink
+            nincs. */}
         <div className="mt-0.5 flex items-center gap-3 text-xs text-slate-500">
           <span>
             <Clock className="mr-0.5 inline h-3 w-3" />
-            Törölve: {deletedDate}
+            Törölve: {deletedDate} (a legutóbbi módosítás napja)
           </span>
           {row.daysUntilPurge !== null && (
             <span
@@ -382,8 +395,8 @@ function RecycleBinRowItem({
               }
             >
               {row.daysUntilPurge === 0
-                ? 'Ma törlődik véglegesen!'
-                : `${row.daysUntilPurge} nap múlva törlődik véglegesen`}
+                ? 'Bármikor törlődhet véglegesen!'
+                : `legfeljebb ${row.daysUntilPurge} nap múlva törlődik véglegesen`}
             </span>
           )}
         </div>
