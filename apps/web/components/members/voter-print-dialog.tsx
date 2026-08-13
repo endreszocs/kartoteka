@@ -159,7 +159,7 @@ export function VoterPrintDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[96vh] overflow-y-auto sm:max-w-7xl">
+      <DialogContent className="max-h-[96dvh] overflow-y-auto sm:max-w-7xl">
         <DialogHeader className="sticky top-0 z-10 bg-background pb-2">
           <DialogTitle>Választók névjegyzéke — Nyomtatási központ</DialogTitle>
         </DialogHeader>
@@ -385,7 +385,7 @@ export function VoterPrintDialog({
               <iframe
                 title={report.title}
                 srcDoc={report.html}
-                className="h-[74vh] min-h-[700px] w-full rounded-[22px] bg-white"
+                className="h-[74dvh] min-h-[700px] w-full rounded-[22px] bg-white"
               />
             </div>
           </div>

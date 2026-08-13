@@ -309,7 +309,7 @@ export function ActivationWizardDialog({
           <StepPill active={step === 2} done={false} index={2} label="Aktiválás" />
         </div>
 
-        <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
+        <div className="max-h-[60dvh] space-y-4 overflow-y-auto pr-1">
           {step === 1 ? (
             <>
               {req ? (

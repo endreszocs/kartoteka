@@ -500,7 +500,7 @@ export function CertificateGenerator({
         </main>
 
         {/* ─── Jobb oldal: pecsét + aláírás-feltöltések ─── */}
-        <aside className="space-y-2.5 lg:max-h-[78vh] lg:overflow-y-auto lg:pr-1">
+        <aside className="space-y-2.5 lg:max-h-[78dvh] lg:overflow-y-auto lg:pr-1">
           <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
             <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
               Képi rétegek

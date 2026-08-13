@@ -146,7 +146,7 @@ export function AdvancedRoleDialog({
             Részletes szerepkör — {user.full_name || user.email}
           </DialogTitle>
         </DialogHeader>
-        <div className="max-h-[65vh] space-y-4 overflow-y-auto">
+        <div className="max-h-[65dvh] space-y-4 overflow-y-auto">
           {/* D6 banner pending user-nél */}
           {isUserPending && !pastorApprovalNeeded && (
             <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">

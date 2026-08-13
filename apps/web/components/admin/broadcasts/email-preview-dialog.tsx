@@ -179,7 +179,7 @@ export function EmailPreviewDialog({
               <iframe
                 srcDoc={preview.html}
                 sandbox=""
-                className="h-[60vh] w-full rounded-xl border border-border bg-white"
+                className="h-[60dvh] w-full rounded-xl border border-border bg-white"
                 title="E-mail előnézet"
               />
             </>

@@ -135,7 +135,7 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg max-h-[85dvh] overflow-y-auto">
         <DialogHeader><DialogTitle>{editEntry ? 'Bejegyzés szerkesztése' : 'Új bejegyzés'}</DialogTitle></DialogHeader>
         <div className="space-y-3">
           {/* Kategória + típus */}

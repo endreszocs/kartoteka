@@ -985,7 +985,7 @@ export function LelkesziJelentesDialog({
       <DialogContent
         className="
           !w-[96vw] !max-w-[96vw] sm:!max-w-6xl
-          !h-[94vh] !max-h-[94vh]
+          !h-[94dvh] !max-h-[94dvh]
           flex flex-col gap-0 overflow-hidden rounded-2xl p-0
         "
       >

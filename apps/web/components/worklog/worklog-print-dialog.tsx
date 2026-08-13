@@ -196,7 +196,7 @@ export function WorklogPrintDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[96vh] overflow-y-auto sm:max-w-7xl">
+      <DialogContent className="max-h-[96dvh] overflow-y-auto sm:max-w-7xl">
         <DialogHeader className="sticky top-0 z-10 bg-background pb-2">
           <DialogTitle>Nyomtatási központ — Munkanapló és lelkészi jelentés</DialogTitle>
         </DialogHeader>
@@ -299,7 +299,7 @@ export function WorklogPrintDialog({
           {/* ── Jobb oldal: előnézet — fit-to-width, a fekvő A4 is skálázódik ── */}
           <div
             ref={previewRef}
-            className="max-h-[78vh] min-h-[320px] overflow-y-auto rounded-[28px] border border-slate-200 bg-slate-100/80 p-3 shadow-inner"
+            className="max-h-[78dvh] min-h-[320px] overflow-y-auto rounded-[28px] border border-slate-200 bg-slate-100/80 p-3 shadow-inner"
           >
             <div
               className="mx-auto overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"

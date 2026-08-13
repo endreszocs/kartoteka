@@ -162,7 +162,7 @@ export function PersonCardPrintDialog({ open, onOpenChange, member, details }: P
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[96vh] overflow-y-auto sm:max-w-5xl">
+      <DialogContent className="max-h-[96dvh] overflow-y-auto sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>Személyi karton nyomtatása</DialogTitle>
         </DialogHeader>
@@ -216,10 +216,10 @@ export function PersonCardPrintDialog({ open, onOpenChange, member, details }: P
               <iframe
                 title={report.title}
                 srcDoc={report.html}
-                className="h-[72vh] min-h-[480px] w-full rounded-[16px] bg-white"
+                className="h-[72dvh] min-h-[480px] w-full rounded-[16px] bg-white"
               />
             ) : (
-              <div className="flex h-[72vh] items-center justify-center text-sm text-muted-foreground">
+              <div className="flex h-[72dvh] items-center justify-center text-sm text-muted-foreground">
                 Nincs megjeleníthető adat.
               </div>
             )}

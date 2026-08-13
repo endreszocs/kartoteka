@@ -59,7 +59,7 @@ export function FamilyTreeDialog({ open, onOpenChange, memberId }: FamilyTreeDia
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex max-h-[92vh] !w-[min(1260px,calc(100vw-2rem))] !max-w-[min(1260px,calc(100vw-2rem))] flex-col overflow-hidden rounded-[1.75rem] border-0 bg-transparent p-0 shadow-none sm:!w-[min(1320px,calc(100vw-3rem))] sm:!max-w-[min(1320px,calc(100vw-3rem))]"
+        className="flex max-h-[92dvh] !w-[min(1260px,calc(100vw-2rem))] !max-w-[min(1260px,calc(100vw-2rem))] flex-col overflow-hidden rounded-[1.75rem] border-0 bg-transparent p-0 shadow-none sm:!w-[min(1320px,calc(100vw-3rem))] sm:!max-w-[min(1320px,calc(100vw-3rem))]"
         showCloseButton={false}
       >
         <div className="relative flex h-full flex-col overflow-hidden rounded-[1.75rem] bg-card shadow-[0_36px_90px_-40px_rgba(14,52,48,0.38)] ring-1 ring-border">

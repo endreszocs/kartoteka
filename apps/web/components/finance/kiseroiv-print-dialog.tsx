@@ -183,7 +183,7 @@ export function KiseroivPrintDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[96vh] overflow-y-auto sm:max-w-6xl">
+      <DialogContent className="max-h-[96dvh] overflow-y-auto sm:max-w-6xl">
         <DialogHeader className="sticky top-0 z-10 bg-background pb-2">
           <DialogTitle>Kiadási kísérőív — {formattedDate}</DialogTitle>
         </DialogHeader>
@@ -255,7 +255,7 @@ export function KiseroivPrintDialog({
           {/* Jobb oldal: előnézet — 2026-07-10 (ÚJ #7b): fit-to-width, scroll-mentes A4 kép */}
           <div
             ref={previewRef}
-            className="max-h-[80vh] overflow-y-auto rounded-[28px] border border-slate-200 bg-slate-100/80 p-3 shadow-inner"
+            className="max-h-[80dvh] overflow-y-auto rounded-[28px] border border-slate-200 bg-slate-100/80 p-3 shadow-inner"
           >
             <div
               className="mx-auto overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"

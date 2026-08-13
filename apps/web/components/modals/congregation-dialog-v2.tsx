@@ -506,7 +506,7 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* #Endre 2026-07-02: a read-only összefoglaló (view) keskenyebb — a 2 oszlopos kártyák nem
           igényelnek 94vw-t; a haladó szerkesztő (advanced-edit, táblázatok/tabok) marad széles. */}
-      <DialogContent className={`max-h-[92vh] overflow-y-auto w-[calc(100%-1rem)] ${variant === 'advanced-edit' ? 'sm:max-w-6xl xl:max-w-[94vw]' : 'sm:max-w-4xl'}`}>
+      <DialogContent className={`max-h-[92dvh] overflow-y-auto w-[calc(100%-1rem)] ${variant === 'advanced-edit' ? 'sm:max-w-6xl xl:max-w-[94vw]' : 'sm:max-w-4xl'}`}>
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-2">
             {variant === 'advanced-edit' ? 'Kedvezmények, díjak és lelkész-átadás' : 'Gyülekezetünk adatai'}

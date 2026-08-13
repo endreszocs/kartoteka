@@ -1977,7 +1977,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
       {/* F8c: overflow-x-hidden a dialóguson — az `overflow-y-auto` mellett az
           overflow-x különben `auto`-ra számítódik, és bármely túlszéles belső
           elem VÍZSZINTES scrollbart adna az egész ablaknak. */}
-      <DialogContent className="max-h-[96vh] overflow-y-auto overflow-x-hidden p-0 sm:max-w-6xl">
+      <DialogContent className="max-h-[96dvh] overflow-y-auto overflow-x-hidden p-0 sm:max-w-6xl">
         <DialogHeader className="sticky top-0 z-10 border-b border-border bg-background px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -2889,7 +2889,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
                 a mért szélesség így állandó. Vízszintes görgetés SOHA. */}
             <div
               ref={setPreviewHost}
-              className="max-h-[68vh] min-h-[280px] overflow-y-scroll overflow-x-hidden rounded-2xl border border-border bg-muted p-3 lg:max-h-[78vh]"
+              className="max-h-[68dvh] min-h-[280px] overflow-y-scroll overflow-x-hidden rounded-2xl border border-border bg-muted p-3 lg:max-h-[78dvh]"
               style={{ scrollbarGutter: 'stable' }}
             >
               {/* (2) FIT-WRAPPER — a transform NEM változtat layout-méretet,

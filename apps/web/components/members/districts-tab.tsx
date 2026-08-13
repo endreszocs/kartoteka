@@ -236,7 +236,7 @@ export function DistrictsTab() {
 
       {/* Családok hozzárendelés */}
       <Dialog open={familiesOpen} onOpenChange={setFamiliesOpen}>
-        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-2xl max-h-[85dvh] overflow-y-auto">
           <DialogHeader><DialogTitle>&bdquo;{currentDistrictName}&rdquo; körzet — Családok</DialogTitle></DialogHeader>
           <div className="space-y-1 max-h-96 overflow-y-auto">
             {allFamilies.map(f => {

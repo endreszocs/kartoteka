@@ -93,7 +93,7 @@ export function CrossCongregationMatchDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 font-serif text-xl text-slate-800">
             <AlertCircle className="size-5 text-amber-500" />

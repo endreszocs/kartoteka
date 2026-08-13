@@ -919,7 +919,7 @@ export function FinanceTabs({
           VÁLTOZATLANUL, dynamic importtal — csak az első nyitáskor töltődik le. */}
       {scope !== 'diocese' && (
         <Dialog open={oblioModalOpen} onOpenChange={setOblioModalOpen}>
-          <DialogContent className="flex max-h-[92vh] w-full flex-col overflow-hidden p-0 sm:max-w-7xl">
+          <DialogContent className="flex max-h-[92dvh] w-full flex-col overflow-hidden p-0 sm:max-w-7xl">
             {/* 2026-07-10 (S4-mobil): kisebb belső margó telefonon (px-4), sm-től px-6. */}
             <DialogHeader className="shrink-0 border-b border-slate-200 bg-white px-4 sm:px-6 py-4 pr-14">
               <DialogTitle className="flex items-center gap-2">

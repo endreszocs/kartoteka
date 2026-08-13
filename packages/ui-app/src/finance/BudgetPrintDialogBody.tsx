@@ -359,7 +359,7 @@ export function BudgetPrintDialogBody({
           <iframe
             title={report.title}
             srcDoc={report.html}
-            className="h-[78vh] min-h-[760px] w-full rounded-[22px] bg-white"
+            className="h-[78dvh] min-h-[760px] w-full rounded-[22px] bg-white"
           />
         </div>
       </div>

@@ -488,7 +488,7 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         {/* Szélesebb dialog hogy 2-oszlopos layout legyen (form + emléklap) */}
-        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-5xl lg:max-w-6xl xl:max-w-7xl max-h-[92vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-5xl lg:max-w-6xl xl:max-w-7xl max-h-[92dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {editEntry ? 'Keresztelés szerkesztése' : 'Keresztelés rögzítése'}
@@ -506,7 +506,7 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
           */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
             {/* ─── BAL OSZLOP: Adatbeviteli űrlap ─── */}
-            <div className="space-y-4 md:max-h-[78vh] md:overflow-y-auto md:pr-2">
+            <div className="space-y-4 md:max-h-[78dvh] md:overflow-y-auto md:pr-2">
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <Label>Megkeresztelt személy *</Label>

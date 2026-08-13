@@ -217,7 +217,12 @@ export function DashboardLayoutClient({
   }, [])
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    // 2026-08-14 (9. pont, BLOKKOLÓ-javítás): h-[100dvh], NEM h-screen.
+    // A 100vh telefonon a böngésző-címsáv MÖGÖTTI területet is beleszámolja,
+    // ezért a lap alja (és vele a lapozók, mentés-sávok) a címsáv alá
+    // csúszott, és az overflow-hidden miatt odagörgetni sem lehetett.
+    // A dvh a LÁTHATÓ viewportot méri; asztali gépen azonos a vh-val.
+    <div className="flex h-[100dvh] overflow-hidden">
       <SidebarAdaptiveV4
         isMasterAdmin={master}
         isAdmin={admin}

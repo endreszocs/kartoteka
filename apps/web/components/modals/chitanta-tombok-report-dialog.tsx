@@ -88,7 +88,7 @@ export function ChitantaTombokReportDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto p-0">
+      <DialogContent className="sm:max-w-4xl max-h-[90dvh] overflow-y-auto p-0">
         <style jsx global>{`
           @media print {
             @page {

@@ -103,7 +103,7 @@ export function InviteUserDialog({ open, onOpenChange }: InviteUserDialogProps) 
         onOpenChange(o)
       }}
     >
-      <DialogContent className="flex max-h-[92vh] w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl lg:max-w-5xl">
+      <DialogContent className="flex max-h-[92dvh] w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl lg:max-w-5xl">
         {/* ── Fejléc ──────────────────────────────────────────────────────── */}
         <div className="shrink-0 border-b border-border px-5 pb-4 pt-5 sm:px-6">
           <DialogHeader>

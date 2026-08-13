@@ -265,7 +265,7 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* 2026-05-30: a batch mód is széles dialog — preview-val a jobb oldalon */}
-      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-5xl lg:max-w-6xl xl:max-w-7xl max-h-[92vh] overflow-y-auto">
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-5xl lg:max-w-6xl xl:max-w-7xl max-h-[92dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {isEdit ? 'Konfirmáció szerkesztése' : 'Konfirmandusok rögzítése'}
@@ -280,7 +280,7 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
           // ─── SZERKESZTÉS MÓD — fúziós 2-oszlopos ─────────────────
           <>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
-              <div className="space-y-3 md:max-h-[78vh] md:overflow-y-auto md:pr-2">
+              <div className="space-y-3 md:max-h-[78dvh] md:overflow-y-auto md:pr-2">
                 <div className="space-y-1.5">
                   <Label>Konfirmandus *</Label>
                   <MemberSearchSelect value={editPerson} onChange={setEditPerson} placeholder="Keresés (családnév, keresztnév)…" />
@@ -350,7 +350,7 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
           // ─── BATCH MÓD (2026-05-30: 2-oszlopos fúzió + élő preview) ──────────
           <>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
-              <div className="space-y-3 md:max-h-[78vh] md:overflow-y-auto md:pr-2">
+              <div className="space-y-3 md:max-h-[78dvh] md:overflow-y-auto md:pr-2">
                 {egyhaziSzam && candidates.length === 0 && (
                   <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-2.5 text-xs text-violet-700">
                     <span className="font-medium">Automatikus egyházi anyakönyvi szám:</span>{' '}

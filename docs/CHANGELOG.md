@@ -23,6 +23,18 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-14] — Sötét mód: olvasható fülsorok · telefonon elérhető lap-alja
+<!-- key: 2026-08-14-sotet-mod-fulsor-dvh -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo, admin -->
+
+### 🎨 UX javítások
+
+- **A fülsorok sötét módban olvashatóvá váltak.** A 9 fő modul színes fülsora (Pénzügy, Tagnyilvántartás, Munkanapló…) sötét módban eddig világos pasztell pirulát mutatott világos szöveggel — az aktív fül gyakorlatilag olvashatatlan volt. Mind a 12 szín saját sötét változatot kapott: áttetsző színes háttér, világos szöveg.
+- **Telefonon a lap alja többé nem csúszik a böngésző címsávja alá.** Az alkalmazás kerete és 96 ablak a képernyő-magasságot úgy mérte, hogy abba a böngésző címsávja mögötti, nem látható terület is beleszámított — ezért a Mentés gombok és lapozók a képernyő alá kerülhettek, és odagörgetni sem lehetett. Mostantól a valóban látható terület számít; számítógépen semmi nem változik.
+
+---
+
 ## [2026-08-14] — A Számadás a hivatalos ív szerint: fix sorszámok, Tartozások és Kintlévőségek blokk
 <!-- key: 2026-08-14-szamadas-hivatalos-iv-k2 -->
 <!-- category: bugfix -->

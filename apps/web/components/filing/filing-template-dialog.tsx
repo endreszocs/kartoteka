@@ -101,7 +101,7 @@ export function FilingTemplateDialog({
           színes fejléc fölé csúszott, tehát a felhasználó KÉT bezáró gombot
           kapott, az egyiket angol névvel. Marad a fejléc saját gombja, immár
           44px-es koppintási felülettel és magyar aria-label-lel. */}
-      <DialogContent showCloseButton={false} className="sm:max-w-2xl max-h-[90vh] overflow-y-auto p-0">
+      <DialogContent showCloseButton={false} className="sm:max-w-2xl max-h-[90dvh] overflow-y-auto p-0">
         <DialogHeader className="flex flex-row items-center gap-3 border-b border-slate-100 bg-gradient-to-br from-teal-500 to-emerald-600 px-5 py-4 text-white">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/20">
             <FileText className="h-5 w-5 text-white" />

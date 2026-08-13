@@ -51,7 +51,7 @@ export function DeleteUserDialog({
             Felhasználó törlése
           </DialogTitle>
         </DialogHeader>
-        <div className="max-h-[65vh] space-y-4 overflow-y-auto">
+        <div className="max-h-[65dvh] space-y-4 overflow-y-auto">
           <div className="rounded-xl border border-rose-200 bg-rose-50/60 p-3 text-sm text-rose-900 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
             <p className="font-semibold">Ez a művelet visszafordíthatatlan!</p>
             <p className="mt-1">

@@ -356,7 +356,7 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={`max-h-[92vh] overflow-y-auto ${hasPreview ? 'w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-5xl lg:max-w-6xl xl:max-w-7xl' : 'sm:max-w-2xl'}`}>
+      <DialogContent className={`max-h-[92dvh] overflow-y-auto ${hasPreview ? 'w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-5xl lg:max-w-6xl xl:max-w-7xl' : 'sm:max-w-2xl'}`}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span>{title} — részletek</span>
@@ -375,7 +375,7 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
         </DialogHeader>
 
         <div className={hasPreview ? 'grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,400px)]' : 'space-y-4'}>
-          <div className="space-y-4 md:max-h-[78vh] md:overflow-y-auto md:pr-2">
+          <div className="space-y-4 md:max-h-[78dvh] md:overflow-y-auto md:pr-2">
           {/* ── KERESZTELÉS ────────────────────────────────────── */}
           {tab === 'keresztseg' && (
             <>

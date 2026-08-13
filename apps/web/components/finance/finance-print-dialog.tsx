@@ -163,7 +163,7 @@ export function FinancePrintDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[92vh] w-full flex-col overflow-hidden p-0 sm:max-w-7xl">
+      <DialogContent className="flex max-h-[92dvh] w-full flex-col overflow-hidden p-0 sm:max-w-7xl">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-white px-6 py-4 pr-14">
           <DialogTitle>Pénzügyi nyomtatási központ</DialogTitle>
         </DialogHeader>

@@ -314,7 +314,7 @@ export function AuditLogTab() {
 
       {/* Részlet-dialógus: régi → új értékek */}
       <Dialog open={detail !== null} onOpenChange={(open) => !open && setDetail(null)}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">
           {detail && (
             <>
               <DialogHeader>

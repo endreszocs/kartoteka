@@ -429,7 +429,7 @@ export function DispozitieIncasareWizard({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[94vh] overflow-y-auto p-0 w-[calc(100%-1rem)] sm:max-w-[96vw] xl:max-w-[1400px]">
+      <DialogContent className="max-h-[94dvh] overflow-y-auto p-0 w-[calc(100%-1rem)] sm:max-w-[96vw] xl:max-w-[1400px]">
         <div className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-white px-6 pb-4 pt-6">
           <DialogHeader>
             <div className="flex items-center gap-3">

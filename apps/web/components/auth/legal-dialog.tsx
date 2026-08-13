@@ -64,7 +64,7 @@ export function LegalDialog({ open, onOpenChange, kind }: LegalDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl max-h-[88vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-3xl max-h-[88dvh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center justify-between gap-3">
             <DialogTitle className="flex items-center gap-3">

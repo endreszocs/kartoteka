@@ -275,7 +275,7 @@ export function NewsletterComposeDialog({
       <DialogContent
         className="
           !w-[96vw] !max-w-[96vw] sm:!max-w-[min(1280px,96vw)]
-          !h-[94vh] !max-h-[94vh]
+          !h-[94dvh] !max-h-[94dvh]
           flex flex-col gap-0
           overflow-hidden rounded-2xl bg-card p-0
         "
@@ -505,7 +505,7 @@ export function NewsletterComposeDialog({
           </div>
 
           {/* JOBB: ELŐNÉZET */}
-          <div className="min-h-[50vh] min-w-0 overflow-y-auto bg-muted/30 px-4 py-4 lg:min-h-0">
+          <div className="min-h-[50dvh] min-w-0 overflow-y-auto bg-muted/30 px-4 py-4 lg:min-h-0">
             {!showPreview || !previewHtml ? (
               <div className="flex h-full items-center justify-center text-center">
                 <div className="max-w-md">

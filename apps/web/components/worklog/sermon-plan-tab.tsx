@@ -343,7 +343,7 @@ export function SermonPlanTab({ year }: { year: number }) {
 
       {/* ── Szerkesztő ─────────────────────────────────────────────────────── */}
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{form.id ? 'Alkalom szerkesztése' : 'Új alkalom a tervben'}</DialogTitle>
           </DialogHeader>

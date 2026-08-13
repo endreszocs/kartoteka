@@ -130,7 +130,7 @@ export function FamilyReceiptModal({
           </button>
         </div>
 
-        <div className="max-h-[70vh] space-y-4 overflow-y-auto px-5 py-4">
+        <div className="max-h-[70dvh] space-y-4 overflow-y-auto px-5 py-4">
           {contextInfo && (
             <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
               A sor adataival: <span className="font-medium text-slate-700">{contextInfo}</span> — az összegeket

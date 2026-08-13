@@ -930,7 +930,7 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
         {/* 2026-08-09: xl+ szélességen a fişă élő előnézete külön oszlopban
             (a member-form-dialog PR-17-es mintája); kisebb kijelzőn gombbal
             nyíló előnézet-réteg. */}
-        <DialogContent className="grid h-[min(90vh,56rem)] max-h-[90vh] grid-rows-[minmax(0,1fr)] overflow-hidden p-0 sm:max-w-2xl xl:max-w-6xl [&_[data-slot=dialog-close]]:z-30">
+        <DialogContent className="grid h-[min(90vh,56rem)] max-h-[90dvh] grid-rows-[minmax(0,1fr)] overflow-hidden p-0 sm:max-w-2xl xl:max-w-6xl [&_[data-slot=dialog-close]]:z-30">
           {/* Fix keretmagasság + oszlopon belüli görgetés — így a mobil előnézet-réteg
               a LÁTHATÓ keretre feszül (nem a görgethető tartalom teljes magasságára). */}
           <div className="relative grid min-h-0 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -1168,7 +1168,7 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
           hogy a transformált DialogContent ne vágja le). A leltár-köteles jogcímek
           (205.01 / 201.12) a lista elején, borostyán jelöléssel. */}
       <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
-        <DialogContent className="flex max-h-[85vh] flex-col gap-3 sm:max-w-3xl">
+        <DialogContent className="flex max-h-[85dvh] flex-col gap-3 sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>Kikeresés a könyvelésből</DialogTitle>
           </DialogHeader>

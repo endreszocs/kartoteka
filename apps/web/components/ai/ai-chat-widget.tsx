@@ -169,7 +169,7 @@ export function AiChatWidget({ hasApiKey = true }: { hasApiKey?: boolean }) {
       )}
 
       {isOpen && (
-        <div className="fixed bottom-0 right-0 z-50 flex h-[100dvh] w-full flex-col overflow-hidden border border-border bg-popover shadow-2xl backdrop-blur-2xl sm:bottom-6 sm:right-6 sm:h-[min(78vh,760px)] sm:max-h-[78vh] sm:w-[420px] sm:rounded-[2rem]">
+        <div className="fixed bottom-0 right-0 z-50 flex h-[100dvh] w-full flex-col overflow-hidden border border-border bg-popover shadow-2xl backdrop-blur-2xl sm:bottom-6 sm:right-6 sm:h-[min(78vh,760px)] sm:max-h-[78dvh] sm:w-[420px] sm:rounded-[2rem]">
           <div
             className="relative overflow-hidden border-b border-border px-5 py-4 text-white"
             style={{ background: 'linear-gradient(135deg, var(--primary) 0%, var(--accent) 60%, var(--accent2) 100%)' }}
