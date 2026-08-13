@@ -23,6 +23,26 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-14] — Nyomtatási központ: visszatér az előnézet, a csoportnapló lapokra bomlik
+<!-- key: 2026-08-14-nyomtatasi-kozpont-elonezet-csoportnaplo -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+
+A Pénzügy → Nyomtatási központ három régi bosszúsága megszűnt. Ezekhez semmit nem kell tenned.
+
+### 🐛 Javítások
+
+- **„Ennek a nyomtatványnak nincs is előnézete."** — pedig volt. Ha egy hosszú dokumentum (például egy tizenkét oldalas Registru) után egy rövidre, mondjuk egy egyoldalas Decontra kattintottál, az előnézet-doboz **megtartotta a hosszú dokumentum magasságát**, a görgetés pedig ott maradt, ahol az előbb abbahagytad. Vagyis a semmibe néztél: több ezer képpontnyi üres fehér területre. Mostantól dokumentumváltáskor az előnézet **visszaugrik a lap elejére**, és a doboz a **valódi** magasságra zsugorodik.
+- **Üres részek az ablakban.** Ugyanennek a hibának a másik arca volt: a fehér terület nem „hiányzó tartalom" volt, hanem a be nem húzott doboz alja. Ezzel együtt megszűnt.
+- **A csoportnapló egyetlen, végtelen lapra nyomtatódott.** Az előnézetben nem látszott lapokra osztva, papíron pedig a második laptól a táblázat **a lap széléig futott**, mert a margó csak az első lapon érvényesült. Mostantól a csoportnapló **rendes lapokra bomlik**: minden lapon ott a fejléc, a szakaszcím és a táblázat fejlécsora, a folytatólagos lapok pedig „folytatás" jelzést kapnak. Egy jogcím fejléce sem marad többé árván egy lap alján.
+- **A csoportnaplón nem volt oldalszám** — pedig a leírása azt ígérte. A korábbi megoldás olyan nyomdai CSS-szabályra épült, amit **egyetlen böngésző sem támogat**. Most valódi „pg. 3 / 8" számozás kerül minden lapra.
+
+### 🎨 UX javítások
+
+- **A részszámadásról lekerült a „Belső használatra — az egyházmegyének NEM beküldendő." felirat** — a borítóról és a lapok tetején futó sávból is. A nyomtatvány nem hivatalos jellegét továbbra is jelzi a nyilatkozat, a lábléc és a képernyős figyelmeztetés.
+
+---
+
 ## [2026-08-12] — A mentés élesítése, három néma adatvesztés megszüntetése, szinkron-jelző és cím-ellenőrzés
 <!-- key: 2026-08-12-mentes-elesites-nema-adatvesztes -->
 <!-- category: bugfix -->

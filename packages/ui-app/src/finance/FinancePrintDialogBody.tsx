@@ -270,10 +270,26 @@ export function FinancePrintDialogBody({
   // függőlegesen görgethető — pixelhűen ugyanaz, ami nyomtatáskor készül.
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [contentH, setContentH] = useState(PREVIEW_BOX_H)
+  // ⚠️ „RACSNI"-CSAPDA (2026-08-14, 14+17. pont közös gyökéroka).
+  //   Az iframe CSS-magassága ÉPPEN a contentH (lásd lentebb a style-t), a
+  //   documentElement.scrollHeight pedig SOSEM kisebb az iframe viewportjánál.
+  //   Naiv méréssel tehát h >= contentH MINDIG igaz, azaz a doboz csak nőni tud,
+  //   zsugorodni soha. Egy 12 oldalas Registru (~13000px) után egy egyoldalas
+  //   Decontra váltva a fehér lap-doboz 13000px magas maradt, a rövid dokumentum
+  //   alatt több ezer pixel ÜRES fehér területtel — ez okozta egyszerre a
+  //   „nincs előnézete" (17.) és az „üres részek az ablakban" (14.) panaszt.
+  //   Megoldás (a repóban már bevált minta, filing/certificate-issue-dialog.tsx):
+  //   a mérés ELŐTT nullázzuk az elem magasságát, így a scrollHeight a TARTALOM
+  //   valódi magasságát adja vissza, nem a viewportét.
   const measurePreview = () => {
-    const doc = iframeRef.current?.contentDocument
-    if (!doc) return
+    const el = iframeRef.current
+    const doc = el?.contentDocument
+    if (!el || !doc) return
+    const prevH = el.style.height
+    el.style.height = '0px'
+    // A scrollHeight olvasása kikényszeríti az újratördelést — a 0px már érvényes.
     const h = Math.max(doc.body?.scrollHeight || 0, doc.documentElement?.scrollHeight || 0)
+    el.style.height = prevH
     if (h > 0) setContentH(h)
   }
 
@@ -318,6 +334,16 @@ export function FinancePrintDialogBody({
   // 2026-08-11 (6. kör): fail-closed — ha a builder nem tud érvényes
   // nyomtatványt adni, a Nyomtatás és a PDF gomb LETILTVA marad.
   const blocked = report.blocked === true
+
+  // 2026-08-14 (17. pont): dokumentumváltáskor (típus, év, hónap, szűrő — bármi,
+  // ami új HTML-t ad) a doboz magassága alaphelyzetbe kerül (a friss mérést az
+  // iframe onLoad hozza), és az előnézet VISSZAGÖRDÜL a dokumentum elejére.
+  // E nélkül egy hosszú nyomtatvány aljáról egy egyoldalasra váltva a felhasználó
+  // a fehérségbe nézett, és azt hitte, a dokumentumnak nincs előnézete.
+  useEffect(() => {
+    setContentH(PREVIEW_BOX_H)
+    if (previewRef.current) previewRef.current.scrollTop = 0
+  }, [report.html])
 
   // Az időszak-gyorsgombok. 44px-es érintőcél (min-h-11) — a régi ~22px-es
   // pillek telefonon használhatatlanok voltak.

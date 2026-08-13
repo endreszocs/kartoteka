@@ -907,6 +907,33 @@ function buildCsoportNaplo(data: FinanceReportData, filters: FinanceReportFilter
   const bevGroups = catKod ? bevGroupsAll.filter((g) => g.kod === catKod) : bevGroupsAll
   const kiaGroups = catKod ? kiaGroupsAll.filter((g) => g.kod === catKod) : kiaGroupsAll
 
+  // ── 2026-08-14 (15. pont): a csoportnapló LAPOKRA BONTÁSA ────────────────
+  // Korábban a teljes bevétel+kiadás EGYETLEN <div class="page">-be került, ami
+  // korlátlanul nőtt: az előnézetben nem látszott lapokra osztva, nyomtatásban
+  // pedig a 2. laptól a .page 10mm-es paddingje nem érvényesült (a @page margó 0),
+  // így a táblázat a papír széléig futott, és sem a fejléc, sem az oldalszám nem
+  // ismétlődött. Mostantól a szakaszok sor-alapú lapozóval oszlanak lapokra —
+  // ugyanaz az elv, mint a részszámadásnál (budget-reporting.ts `oldalMeretek`).
+
+  /** Egy lapokra osztható sor a csoportnaplóban. */
+  interface NaploSor {
+    html: string
+    /** Jogcím-fejléc: nem maradhat árván egy lap alján (a következő lapra tolódik). */
+    keepWithNext?: boolean
+  }
+
+  /** Egy szakasz (Bevételek / Kiadások) lapozható tartalma. */
+  interface NaploSzakasz {
+    titleRo: string
+    titleHu: string
+    partnerRo: string
+    partnerHu: string
+    totalRo: string
+    totalHu: string
+    rows: NaploSor[]
+    total: number
+  }
+
   const renderSection = (
     titleRo: string,
     titleHu: string,
@@ -915,17 +942,21 @@ function buildCsoportNaplo(data: FinanceReportData, filters: FinanceReportFilter
     partnerHu: string,
     totalRo: string,
     totalHu: string,
-  ): { html: string; total: number } => {
-    if (groups.length === 0) return { html: '', total: 0 }
+  ): NaploSzakasz | null => {
+    if (groups.length === 0) return null
     let rowNo = 0
     let sectionTotal = 0
-    const blocks = groups
-      .map((g) => {
-        sectionTotal += g.total
-        const itemRows = g.items
-          .map((it) => {
-            rowNo += 1
-            return `<tr>
+    const rows: NaploSor[] = []
+    for (const g of groups) {
+      sectionTotal += g.total
+      rows.push({
+        html: `<tr class="cat-head"><td colspan="7"><strong>${esc(g.kod)}</strong> — ${esc(g.nev)} <span class="cat-count">(${g.items.length} tétel)</span></td></tr>`,
+        keepWithNext: true,
+      })
+      for (const it of g.items) {
+        rowNo += 1
+        rows.push({
+          html: `<tr class="item">
               <td class="text-center">${rowNo}</td>
               <td class="text-center">${it.datum}</td>
               <td class="text-center">${esc(it.docType)}</td>
@@ -933,51 +964,36 @@ function buildCsoportNaplo(data: FinanceReportData, filters: FinanceReportFilter
               <td>${esc(it.partner)}</td>
               <td>${esc(it.megjegyzes)}</td>
               <td class="text-right">${fmtNum(it.osszeg)}</td>
-            </tr>`
-          })
-          .join('')
-        return `<tbody class="cat-block">
-          <tr class="cat-head"><td colspan="7"><strong>${esc(g.kod)}</strong> — ${esc(g.nev)} <span class="cat-count">(${g.items.length} tétel)</span></td></tr>
-          ${itemRows}
-          <tr class="carry"><td colspan="6" class="text-right">Total capitol — Jogcím összesen:</td><td class="text-right">${fmtNum(g.total)}</td></tr>
-        </tbody>`
+            </tr>`,
+        })
+      }
+      rows.push({
+        html: `<tr class="carry"><td colspan="6" class="text-right">Total capitol — Jogcím összesen:</td><td class="text-right">${fmtNum(g.total)}</td></tr>`,
       })
-      .join('')
-
-    const html = `
-      <h2 class="section-title">${titleRo} — ${titleHu}</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Nr.<br>Sorsz.</th>
-            <th>Data<br>Dátum</th>
-            <th>Fel<br>Irat</th>
-            <th>Nr. doc.<br>Iratszám</th>
-            <th>${partnerRo}<br>${partnerHu}</th>
-            <th>Observații<br>Megjegyzés</th>
-            <th>Suma (lei)<br>Összeg</th>
-          </tr>
-        </thead>
-        ${blocks}
-        <tbody><tr class="totals"><td colspan="6" class="text-right">${totalRo} — ${totalHu}:</td><td class="text-right">${fmtNum(sectionTotal)}</td></tr></tbody>
-      </table>`
-    return { html, total: sectionTotal }
+    }
+    return { titleRo, titleHu, partnerRo, partnerHu, totalRo, totalHu, rows, total: sectionTotal }
   }
 
-  const bev = renderSection('I. VENITURI', 'BEVÉTELEK', bevGroups, 'Sursa / Partener', 'Forrás / Partner', 'TOTAL VENITURI', 'BEVÉTELEK ÖSSZESEN')
-  const kia = renderSection('II. CHELTUIELI', 'KIADÁSOK', kiaGroups, 'Beneficiar', 'Kedvezményezett', 'TOTAL CHELTUIELI', 'KIADÁSOK ÖSSZESEN')
+  const bevSec = renderSection('I. VENITURI', 'BEVÉTELEK', bevGroups, 'Sursa / Partener', 'Forrás / Partner', 'TOTAL VENITURI', 'BEVÉTELEK ÖSSZESEN')
+  const kiaSec = renderSection('II. CHELTUIELI', 'KIADÁSOK', kiaGroups, 'Beneficiar', 'Kedvezményezett', 'TOTAL CHELTUIELI', 'KIADÁSOK ÖSSZESEN')
+  const sections: NaploSzakasz[] = [bevSec, kiaSec].filter((s): s is NaploSzakasz => s !== null)
 
   const periodLabel = month ? `LUNA ${MONTH_NAMES_RO[month - 1]} ${year}` : `ANUL ${year}`
   const periodLabelHu = month ? `${year}. ${month}. hónap` : `${year}. teljes év`
-  const balance = bev.total - kia.total
-  const empty = bevGroups.length === 0 && kiaGroups.length === 0
+  const balance = (bevSec?.total ?? 0) - (kiaSec?.total ?? 0)
+  const empty = sections.length === 0
   // 2026-07-10 (S3 #1e): van-e besorolatlan tétel → figyelmeztető lábjegyzet.
   const hasUnclassified =
     bevGroups.some((g) => g.kod === CSOPORTNAPLO_BESOROLATLAN_KOD) ||
     kiaGroups.some((g) => g.kod === CSOPORTNAPLO_BESOROLATLAN_KOD)
 
+  // 2026-08-14 (15. pont): a korábbi `@page { @bottom-right { counter(page) } }`
+  // szabály CSS Paged Media margin-box — ezt EGYETLEN böngészőmotor sem támogatja
+  // (Chrome/Firefox/Safari mind figyelmen kívül hagyja), csak Prince/Paged.js.
+  // A nyomtatvány így oldalszám nélkül jött ki, holott a típusleírás azt ígéri:
+  // „Román + magyar, oldalszámozva". Helyette a többi register bevált idiómája:
+  // lapon belüli `.page-num` div, valódi „pg. N / M" számozással.
   const extra = `<style>
-    @page { @bottom-right { content: "pg. " counter(page) " / " counter(pages); font-size: 9px; color: #64748b; } }
     .section-title { font-size: 13px; font-weight: bold; margin: 16px 0 2px; text-transform: uppercase; border-bottom: 2px solid #334155; padding-bottom: 2px; }
     .cat-head td { font-weight: bold; font-size: 10.5px; border-top: 1.5px solid #334155; padding: 5px 5px 3px; }
     .cat-head .cat-count { font-weight: normal; font-style: italic; color: #64748b; font-size: 9px; }
@@ -988,44 +1004,161 @@ function buildCsoportNaplo(data: FinanceReportData, filters: FinanceReportFilter
     .warn-note { margin-top: 10px; font-size: 10px; color: #92400e; border: 1px solid #d97706; border-radius: 4px; padding: 6px 8px; }
   </style>`
 
-  const content = `<div class="page">
-    <div class="header">
+  // ── Lap-geometria (fekvő A4) ────────────────────────────────────────────
+  // A súlyok „sor-egyenértékben" értendők; 1 egység = egy tétel-sor magassága.
+  // Levezetés a fenti styles() méreteiből (1 egység ≈ 5,6mm):
+  //   · lap:            210mm − 2×10mm padding            = 190mm
+  //   · fejléc-blokk:   ~14mm                              →  marad 176mm
+  //   · tétel-sor:      10px betű + 2×4px padding + keret  ≈ 5,6mm  = 1 egység
+  //   · szakaszcím + táblázat-fejléc: 8,7 + 1,6 + 8,7mm    ≈ 19mm   ≈ 4 egység
+  //   · záró blokk (végösszeg ~9mm + aláírás-sáv ~16mm)    ≈ 25mm   ≈ 5 egység
+  // A kapacitás szándékosan 30 (a nyers 176/5,6 ≈ 31 helyett): a hosszú
+  // partner-nevek két sorba törhetnek, és a túlcsordulás rosszabb az üres helynél.
+  const CSN_SOR_PER_LAP = 30
+  const CSN_ZARO_TARTALEK = 5
+  /** A szakaszcím + a hozzá tartozó táblázat-fejlécsor együttes sor-egyenértéke. */
+  const CSN_CIM_SULY = 4
+
+  const fejlecBlokk = `<div class="header">
       <div class="header-left"><div class="entity">${esc(data.congregationNameRo || data.congregationName)}</div><div>Unitate</div></div>
       <div class="header-center"><div class="title">Registru grupat pe capitole</div><div style="font-size:12px;font-weight:normal">Csoportnapló — jogcímenkénti tétellista</div></div>
       <div class="header-right"><div>${periodLabel}</div><div>${periodLabelHu}</div></div>
-    </div>
-    ${
-      empty
-        ? /* 2026-07-10 (S3 #1e): az üres állapot nevezze meg az időszakot (és a
-             jogcímet), és mondja el, hogyan lehet másik időszakra váltani — így
-             a felhasználó nem hibának, hanem üres időszaknak látja. */
-          `<p style="text-align:center;margin-top:40px;color:#64748b;line-height:1.7">
-            Nincs könyvelt tétel a kiválasztott időszakban: <strong>${esc(periodLabelHu)}</strong>${catKod ? ` — jogcím: <strong>${esc(catKod)}</strong>` : ''}.<br>
-            Válassz másik évet vagy hónapot (vagy „Teljes év" nézetet${catKod ? ', illetve másik jogcímet' : ''}) a bal oldali szűrőkkel.<br>
-            <span style="font-size:11px">Nu există înregistrări în perioada selectată (${esc(periodLabel)}).</span>
-          </p>`
-        : bev.html + kia.html
-    }
-    ${
-      empty
-        ? ''
-        : `<div class="grand">
-      <div><span class="lbl">Total venituri / Bevétel:</span> ${fmtNum(bev.total)}</div>
-      <div><span class="lbl">Total cheltuieli / Kiadás:</span> ${fmtNum(kia.total)}</div>
-      <div><span class="lbl">Rezultat / Egyenleg:</span> ${fmtNum(balance)}</div>
     </div>`
-    }
-    ${
-      hasUnclassified
-        ? `<p class="warn-note">⚠ Notă / Megjegyzés: a „<strong>Fără capitol — Besorolatlan</strong>" csoport tételeihez nem tartozik érvényes költségvetési jogcím (számadási cél). Összegük a végösszegben szerepel, de fejezet-bontásuk hiányzik — javítsd a tételeket a Pénzügy fülön (jogcím kiválasztása), majd nyomtasd újra a naplót.</p>`
-        : ''
-    }
-    <div class="footer">
+
+  const alairasBlokk = `<div class="footer">
       <div class="footer-item"><div class="footer-line">Conducătorul unității — Lelkész/Gondnok</div></div>
       <div class="footer-item"><div class="footer-line">Întocmit — Készítette</div></div>
       <div class="footer-item"><div class="footer-line">Verificat — Ellenőrizte</div></div>
-    </div>
+    </div>`
+
+  const zaroBlokk = `<div class="grand">
+      <div><span class="lbl">Total venituri / Bevétel:</span> ${fmtNum(bevSec?.total ?? 0)}</div>
+      <div><span class="lbl">Total cheltuieli / Kiadás:</span> ${fmtNum(kiaSec?.total ?? 0)}</div>
+      <div><span class="lbl">Rezultat / Egyenleg:</span> ${fmtNum(balance)}</div>
+    </div>${
+      hasUnclassified
+        ? `<p class="warn-note">⚠ Notă / Megjegyzés: a „<strong>Fără capitol — Besorolatlan</strong>" csoport tételeihez nem tartozik érvényes költségvetési jogcím (számadási cél). Összegük a végösszegben szerepel, de fejezet-bontásuk hiányzik — javítsd a tételeket a Pénzügy fülön (jogcím kiválasztása), majd nyomtasd újra a naplót.</p>`
+        : ''
+    }`
+
+  let content: string
+  if (empty) {
+    // 2026-07-10 (S3 #1e): az üres állapot nevezze meg az időszakot (és a
+    // jogcímet), és mondja el, hogyan lehet másik időszakra váltani — így
+    // a felhasználó nem hibának, hanem üres időszaknak látja.
+    content = `<div class="page">
+    ${fejlecBlokk}
+    <p style="text-align:center;margin-top:40px;color:#64748b;line-height:1.7">
+      Nincs könyvelt tétel a kiválasztott időszakban: <strong>${esc(periodLabelHu)}</strong>${catKod ? ` — jogcím: <strong>${esc(catKod)}</strong>` : ''}.<br>
+      Válassz másik évet vagy hónapot (vagy „Teljes év" nézetet${catKod ? ', illetve másik jogcímet' : ''}) a bal oldali szűrőkkel.<br>
+      <span style="font-size:11px">Nu există înregistrări în perioada selectată (${esc(periodLabel)}).</span>
+    </p>
+    ${alairasBlokk}
+    <div class="page-num">pg. 1 / 1</div>
   </div>`
+  } else {
+    // A szakaszok EGYETLEN folyamatos sorfolyamot alkotnak, és ott törnek lapra,
+    // ahol a lap betelik — így nem keletkezik félig üres lap pusztán azért, mert
+    // új szakasz kezdődik. Egy lapra tehát kerülhet a Venituri vége ÉS a
+    // Cheltuieli eleje is (külön táblázatban, saját fejléccel).
+    type Egyseg =
+      | { tipus: 'cim'; sec: NaploSzakasz; suly: number }
+      | { tipus: 'sor'; sec: NaploSzakasz; html: string; keepWithNext?: boolean; suly: number }
+      | { tipus: 'osszeg'; sec: NaploSzakasz; suly: number }
+
+    const egysegek: Egyseg[] = []
+    for (const sec of sections) {
+      egysegek.push({ tipus: 'cim', sec, suly: CSN_CIM_SULY })
+      for (const r of sec.rows) {
+        egysegek.push({ tipus: 'sor', sec, html: r.html, keepWithNext: r.keepWithNext, suly: 1 })
+      }
+      egysegek.push({ tipus: 'osszeg', sec, suly: 1 })
+    }
+
+    // Súly szerinti lapokra osztás.
+    const lapok: Egyseg[][] = []
+    let aktualis: Egyseg[] = []
+    let suly = 0
+    for (const e of egysegek) {
+      if (suly + e.suly > CSN_SOR_PER_LAP && aktualis.length > 0) {
+        lapok.push(aktualis)
+        aktualis = []
+        suly = 0
+      }
+      aktualis.push(e)
+      suly += e.suly
+    }
+    if (aktualis.length > 0) lapok.push(aktualis)
+
+    // Árva blokkok a lap alján: a szakaszcím tételsor nélkül, illetve a
+    // jogcím-fejléc a saját tételei nélkül — mindkettő a következő lapra tolódik.
+    const arva = (e: Egyseg): boolean =>
+      e.tipus === 'cim' || (e.tipus === 'sor' && e.keepWithNext === true)
+    for (let i = 0; i < lapok.length - 1; i++) {
+      while (lapok[i].length > 1 && arva(lapok[i][lapok[i].length - 1])) {
+        lapok[i + 1].unshift(lapok[i].pop() as Egyseg)
+      }
+    }
+
+    // Ha az utolsó lapon már nem férne el a záró blokk (végösszeg + esetleges
+    // figyelmeztetés + aláírás-sáv), az külön lapra kerül.
+    const utolsoSuly = lapok[lapok.length - 1].reduce((a, e) => a + e.suly, 0)
+    if (utolsoSuly > CSN_SOR_PER_LAP - CSN_ZARO_TARTALEK) lapok.push([])
+
+    const osszLap = lapok.length
+    content = lapok
+      .map((lapEgysegek, idx) => {
+        const utolsoOsszesen = idx === osszLap - 1
+
+        // A lap egységeit szakaszonként FUTAMOKRA bontjuk: minden futam egy
+        // önálló táblázat, saját szakaszcímmel és fejlécsorral.
+        const futamok: Egyseg[][] = []
+        for (const e of lapEgysegek) {
+          const utolsoFutam = futamok[futamok.length - 1]
+          if (utolsoFutam && utolsoFutam[0].sec === e.sec) utolsoFutam.push(e)
+          else futamok.push([e])
+        }
+
+        const tablazatok = futamok
+          .map((futam) => {
+            const s = futam[0].sec
+            // Ha a futam NEM a szakasz címével kezdődik, akkor ez a szakasz az
+            // előző lapról folytatódik — a cím ezt jelzi.
+            const folytatas = futam[0].tipus !== 'cim'
+            const cimUtotag = folytatas
+              ? ' <span style="font-weight:normal;font-style:italic">· continuare — folytatás</span>'
+              : ''
+            const sorok = futam.filter((e): e is Extract<Egyseg, { tipus: 'sor' }> => e.tipus === 'sor')
+            const vanOsszeg = futam.some((e) => e.tipus === 'osszeg')
+            return `<h2 class="section-title">${s.titleRo} — ${s.titleHu}${cimUtotag}</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Nr.<br>Sorsz.</th>
+            <th>Data<br>Dátum</th>
+            <th>Fel<br>Irat</th>
+            <th>Nr. doc.<br>Iratszám</th>
+            <th>${s.partnerRo}<br>${s.partnerHu}</th>
+            <th>Observații<br>Megjegyzés</th>
+            <th>Suma (lei)<br>Összeg</th>
+          </tr>
+        </thead>
+        <tbody class="cat-block">${sorok.map((r) => r.html).join('')}</tbody>
+        ${vanOsszeg ? `<tbody><tr class="totals"><td colspan="6" class="text-right">${s.totalRo} — ${s.totalHu}:</td><td class="text-right">${fmtNum(s.total)}</td></tr></tbody>` : ''}
+      </table>`
+          })
+          .join('')
+
+        return `<div class="page">
+    ${fejlecBlokk}
+    ${tablazatok}
+    ${utolsoOsszesen ? zaroBlokk : ''}
+    ${utolsoOsszesen ? alairasBlokk : ''}
+    <div class="page-num">pg. ${idx + 1} / ${osszLap}</div>
+  </div>`
+      })
+      .join('')
+  }
 
   return {
     title: `Csoportnapló — ${periodLabelHu}`,

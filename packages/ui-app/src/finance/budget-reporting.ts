@@ -575,11 +575,13 @@ function buildCoverPage(
     : `<div class="cv-title">${esc(titleHu)} A ${year}. ÉVRE</div>
       <div class="cv-title-ro">${esc(titleRo)} PE ANUL ${year}</div>`
   const hatarozatBlock = opts?.skipHatarozat
+    // 2026-08-14 (14. pont): a „Belső használatra — az egyházmegyének NEM
+    // beküldendő." felirat a felhasználó kérésére eltávolítva a borítóról.
+    // A részszámadás nem-hivatalos jellegét továbbra is jelzi a nyilatkozat
+    // (:504), a lábléc („· Részszámadás — nem hivatalos zárszámadás") és a
+    // képernyős figyelmeztetés a nyomtatási központban.
     ? `<div style="margin-top:40mm;text-align:center;font-size:11px;">
       Készült: ${esc(opts.keszult || '')} · a könyvelés aznapi állása szerint.
-    </div>
-    <div style="margin-top:6mm;text-align:center;font-size:11px;font-weight:bold;">
-      Belső használatra — az egyházmegyének NEM beküldendő.
     </div>`
     : `<div style="margin-top:40mm;text-align:center;font-size:12px;">
       Tárgyalta és jóváhagyta a presbitérium a <span class="cv-line">&nbsp;${hatDatum}</span> tartott gyűlésén
@@ -950,8 +952,13 @@ function renderTablePages(data: BudgetPrintData, mode: BudgetMode, rows: string[
   </tr>`
   // Az időszak-sáv MINDEN oldal tetejére kell: a borító leválik/elveszik, és a
   // 2. oldaltól a részszámadás különben megkülönböztethetetlen az évestől.
+  // 2026-08-14 (14. pont): a „Belső használatra…" toldalék eltávolítva a sávból.
+  // A SÁV MAGA MARAD — az önellenőrzés (scripts/selftest-reszszamadas.mjs, Y1)
+  // azt állítja, hogy a .pband MINDEN táblázatoldalon ott van, és a sáv szerepe
+  // változatlan: a borító leválhat, és a 2. oldaltól a részszámadás különben
+  // megkülönböztethetetlen lenne az évestől.
   const band = opts.partial
-    ? `<div class="pband">RÉSZSZÁMADÁS · Időszak: ${esc(opts.partial.fromLabel)} — ${esc(opts.partial.toLabel)} · Belső használatra — az egyházmegyének NEM beküldendő.</div>`
+    ? `<div class="pband">RÉSZSZÁMADÁS · Időszak: ${esc(opts.partial.fromLabel)} — ${esc(opts.partial.toLabel)}</div>`
     : ''
 
   // A feltöltés és a lapszám UGYANABBÓL a tervből jön (lásd `OldalTerv`).
