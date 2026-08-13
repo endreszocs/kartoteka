@@ -713,6 +713,32 @@ function hivatalosNrRand(kod: string): string {
   return n === undefined ? '—' : String(n)
 }
 
+// ─── A hivatalos Tartozások/Kintlévőségek sor-katalógus (116–133) ──────────
+// EXPORTÁLT: a nyomtatvány (buildSzamadasExtraRows) ÉS a rögzítő felület is
+// ebből dolgozik — a feliratok nem tudnak széthúzni. Kulcs: a hivatalos
+// Nr. rând. A * a bérszámfejtéses (egyházmegye-függő) sorokat jelöli, ahogy
+// a hivatalos íven.
+export const SZAMADAS_DATORII_SOROK: ReadonlyArray<[number, string, string]> = [
+  [117, 'Contribuţii pentru susţinerea unităţii ierarhic superioare', 'Központi járulék'],
+  [118, 'Contribuţia centrală 10% din chirii', 'Bérjövedelmek 10%-a'],
+  [119, 'Contribuţii pentru prestări servicii efectuate către protopopiat', 'Egyházmegyei szolgáltatások díja'],
+  [120, 'Întreţinere (încălzire, iluminat, apă, etc.)', 'Közköltségek'],
+  [121, 'Retribuţii*', 'Javadalmak*'],
+  [122, 'Impozit asupra drepturilor de retribuire*', 'Jövedelemadó*'],
+  [123, 'Contribuţii pentru asigurări sociale*', 'Társadalombiztosítás*'],
+  [124, 'C.A.S.S.*', 'Egészségbiztosítás*'],
+  [125, 'Contribuția asiguratorie pentru muncă - 2,25%*', 'Munkabiztosítási járulék*'],
+  [126, 'Credite primite', 'Kapott hitelek'],
+  [127, 'Alte datorii', 'Más tartozások'],
+]
+export const SZAMADAS_CREANTE_SOROK: ReadonlyArray<[number, string, string]> = [
+  [129, 'Contribuţii pentru susţinerea unităţii ierarhic superioare*', 'Központi járulék*'],
+  [130, 'Contribuţii pentru prestări servicii la parohii*', 'Szolgáltatások díja*'],
+  [131, 'Închirieri', 'Bérleti díjak'],
+  [132, 'Acordări de credite', 'Kiadott hitelek'],
+  [133, 'Alte creanţe', 'Más kintlévőségek'],
+]
+
 function buildSectionRows(data: BudgetPrintData, cells: SzamadasiCel[], mode: BudgetMode): string[] {
   const rows: string[] = []
   for (const c of cells) {
@@ -1232,28 +1258,8 @@ function buildSzamadasExtraRows(data: BudgetPrintData): string {
   // `data.zaroCasa`/`data.zaroBanca` kitöltésével válik számmá.
   const t = (nr: number): number => data.tartozasok?.[nr] || 0
   const k = (nr: number): number => data.kintlevosegek?.[nr] || 0
-  const DATORII_SOROK: Array<[number, string, string]> = [
-    [117, 'Contribuţii pentru susţinerea unităţii ierarhic superioare', 'Központi járulék'],
-    [118, 'Contribuţia centrală 10% din chirii', 'Bérjövedelmek 10%-a'],
-    [119, 'Contribuţii pentru prestări servicii efectuate către protopopiat', 'Egyházmegyei szolgáltatások díja'],
-    [120, 'Întreţinere (încălzire, iluminat, apă, etc.)', 'Közköltségek'],
-    [121, 'Retribuţii*', 'Javadalmak*'],
-    [122, 'Impozit asupra drepturilor de retribuire*', 'Jövedelemadó*'],
-    [123, 'Contribuţii pentru asigurări sociale*', 'Társadalombiztosítás*'],
-    [124, 'C.A.S.S.*', 'Egészségbiztosítás*'],
-    [125, 'Contribuția asiguratorie pentru muncă - 2,25%*', 'Munkabiztosítási járulék*'],
-    [126, 'Credite primite', 'Kapott hitelek'],
-    [127, 'Alte datorii', 'Más tartozások'],
-  ]
-  const CREANTE_SOROK: Array<[number, string, string]> = [
-    [129, 'Contribuţii pentru susţinerea unităţii ierarhic superioare*', 'Központi járulék*'],
-    [130, 'Contribuţii pentru prestări servicii la parohii*', 'Szolgáltatások díja*'],
-    [131, 'Închirieri', 'Bérleti díjak'],
-    [132, 'Acordări de credite', 'Kiadott hitelek'],
-    [133, 'Alte creanţe', 'Más kintlévőségek'],
-  ]
-  const datoriiTotal = DATORII_SOROK.reduce((s, [nr]) => s + t(nr), 0)
-  const creanteTotal = CREANTE_SOROK.reduce((s, [nr]) => s + k(nr), 0)
+  const datoriiTotal = SZAMADAS_DATORII_SOROK.reduce((s, [nr]) => s + t(nr), 0)
+  const creanteTotal = SZAMADAS_CREANTE_SOROK.reduce((s, [nr]) => s + k(nr), 0)
   // 134. Záróegyenleg = 113 − 116 + 128
   const zaroegyenleg = closing - datoriiTotal + creanteTotal
 
@@ -1268,9 +1274,9 @@ function buildSzamadasExtraRows(data: BudgetPrintData): string {
         ${sor(114, 'Casa', 'Készpénz egyenleg', data.zaroCasa ?? null)}
         ${sor(115, 'Banca', 'Banki egyenleg', data.zaroBanca ?? null)}
         ${sor(116, 'Datorii', 'Tartozások (117 + … + 127)', datoriiTotal, true)}
-        ${DATORII_SOROK.map(([nr, ro, hu]) => sor(nr, ro, hu, t(nr))).join('')}
+        ${SZAMADAS_DATORII_SOROK.map(([nr, ro, hu]) => sor(nr, ro, hu, t(nr))).join('')}
         ${sor(128, 'Creanţe', 'Kintlevőségek (129 + … + 133)', creanteTotal, true)}
-        ${CREANTE_SOROK.map(([nr, ro, hu]) => sor(nr, ro, hu, k(nr))).join('')}
+        ${SZAMADAS_CREANTE_SOROK.map(([nr, ro, hu]) => sor(nr, ro, hu, k(nr))).join('')}
         ${sor(134, 'Sold', 'Záróegyenleg (113 − 116 + 128)', zaroegyenleg, true)}
       </tbody>
     </table>

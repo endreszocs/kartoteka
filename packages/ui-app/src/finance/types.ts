@@ -206,6 +206,16 @@ export interface BealitasRow {
   leltar_unlock_requested?: boolean
   leltar_unlock_reason?: string | null
   szamadas_zaro_adatok: Record<string, unknown> | null
+  /**
+   * 2026-08-14 (K2): a hivatalos Számadás 116–133. sorainak év végi adatai.
+   * Alak: { tartozasok: { "117": szám, … "127" }, kintlevosegek: { "129" … "133" } }
+   * — a kulcs a HIVATALOS Nr. rând. Opcionális: a migráció előtt/nélkül hiányzik,
+   * ilyenkor a nyomtatvány nullákat mutat (a tárolt valóság).
+   */
+  szamadas_tartozasok?: {
+    tartozasok?: Record<string, number>
+    kintlevosegek?: Record<string, number>
+  } | null
   // Költségvetés módosítás flagek (3 kör)
   budget_mod1_finalized?: boolean
   budget_mod2_finalized?: boolean

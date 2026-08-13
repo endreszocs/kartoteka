@@ -38,6 +38,11 @@ A nyomtatott Számadás, Költségvetés és Költségvetés-módosítás mostan
 - **A Költségvetés-módosításról eddig hiányzott az 1–3. nyitósor** (Múlt évi pénztármaradvány / Casa / Banca), ezért a számozása 3-mal csúszott a Költségvetéshez képest — pótolva.
 - **A lelkészi jelentés VII.9. rubrikájának felirata félrevezetett:** „Kintlévőség (járulék-hátralék)" — pedig az EREK Útmutató kifejezetten kimondja, hogy a kintlévő egyházfenntartói járulék NEM számít kintlévőségnek. Az új felirat ezt egyértelművé teszi.
 
+### ✨ Új funkciók
+
+- **Tartozások és kintlévőségek rögzítője** a Pénzügy → Könyvelés fülön: a hivatalos Számadás 117–127. (Tartozások) és 129–133. (Kintlévőségek) sorai év végén itt tölthetők ki — a nyomtatványra pontosan ezek a számok kerülnek, a 116. és 128. összesítő sorral és a 134. Záróegyenleggel együtt. Véglegesített évben csak megtekinthető. *(Ehhez egy adatbázis-bővítés szükséges: `2026-08-14-szamadas-tartozasok.sql`.)*
+- **A Számadás 114–115. sora (Casa / Banca) valódi számot mutat:** az év végi készpénz- és bankegyenleg ugyanazzal a levezetéssel áll elő, mint a részszámadásnál — eddig „—" állt ott. Ha a levezetés nem lehetséges, továbbra is „—" áll (nem hamis szám).
+
 ---
 
 ## [2026-08-14] — Készpénz-figyelmeztetések, a Kuka helyreállítása, a leltár néma csonkulásának megszüntetése
