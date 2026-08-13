@@ -303,10 +303,140 @@ const countRows = (html) => (html.match(/<tr class="item">/g) || []).length
   else fail(`C10 ${arva} lap alján ÁRVÁN maradt egy jogcím-fejléc (a tételei a következő lapra kerültek)`)
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  J-BLOKK: FŐKÖNYV (Registru Jurnal) LAPOZÁS (2026-08-14, K1)
+//  A Főkönyv az egyetlen KÖTELEZŐEN bekötendő nyomtatvány (5 évente / 200
+//  laponként kemény táblába) — a lapozásnak és a folytatólagos lapszámnak
+//  szabályosnak KELL lennie.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const buildJurnal = (data, month) =>
+  buildFinancePrintDocument('registru_jurnal', data, {
+    year: YEAR,
+    month,
+    bankId: null,
+    categoryKod: null,
+  })
+
+/** N tétel a megadott hónapra (fele kassza, fele bank — bankszamla_id-vel). */
+function jurnalData(perMonth) {
+  const income = []
+  const expense = []
+  let id = 1
+  for (const [month, n] of Object.entries(perMonth)) {
+    for (let i = 0; i < n; i++) {
+      const base = {
+        id: id++,
+        datum: `${YEAR}-${String(month).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}`,
+        deleted: false,
+        stornozott: false,
+        osszeg: 10 + i,
+        valuta: 'RON',
+        megjegyzes: i === 0 ? 'fűtés' : '',
+        iratszam: `${i + 1}`,
+        irattipus: i % 3 === 0 ? 'Fact.' : '',
+        bankszamla_id: i % 2 === 0 ? null : 7,
+      }
+      if (i % 2 === 0) income.push({ ...base, id_befizetescel: 1, forrasa: `Adakozó ${i}` })
+      else expense.push({ ...base, id_kiadascel: 1, atvevo: `Szállító ${i}` })
+    }
+  }
+  return {
+    income,
+    expense,
+    bankAccounts: [],
+    cellek: [
+      { kod: '101.01', nev: 'Egyházfenntartói járulék', nevro: 'Contribuția anuală', type: 'B' },
+      { kod: '201.01', nev: 'Közköltség', nevro: 'Cheltuieli comune', type: 'K' },
+    ],
+    bevCelMap: { 1: '101.01' },
+    kiaCelMap: { 1: '201.01' },
+    congregationName: 'Barátosi Református Egyházközség',
+    congregationNameRo: 'Parohia Reformată Brateș',
+    carryoverCash: 100,
+    carryoverBank: 200,
+  }
+}
+
+// ── J1: 100 tétel → több lap, folytatólagos „pg. N" számokkal ─────────────
+{
+  const res = buildJurnal(jurnalData({ 3: 100 }), 3)
+  const pages = countPages(res.html)
+  const nums = [...res.html.matchAll(/<div class="page-num">pg\. (\d+)<\/div>/g)].map((m) => Number(m[1]))
+  if (pages < 3) fail(`J1  100 tétel csak ${pages} lapra került (40/lap mellett legalább 3 kellene)`)
+  else if (nums.length !== pages) fail(`J1  ${pages} lap, de ${nums.length} lapszám`)
+  else if (nums.some((n, i) => i > 0 && n !== nums[i - 1] + 1)) fail(`J1  a lapszámok nem folytatólagosak: ${nums.join(', ')}`)
+  else ok(`J1  100 tétel → ${pages} lap, folytatólagos lapszámokkal (${nums[0]}..${nums[nums.length - 1]})`)
+}
+
+// ── J2: a MÁRCIUSI lapszám folytatja a januári + februári lapokat ─────────
+{
+  const data = jurnalData({ 1: 100, 2: 10, 3: 5 })
+  const jan = buildJurnal(data, 1)
+  const feb = buildJurnal(data, 2)
+  const mar = buildJurnal(data, 3)
+  const first = (r) => Number([...r.html.matchAll(/pg\. (\d+)</g)][0][1])
+  const last = (r) => { const a = [...r.html.matchAll(/pg\. (\d+)</g)]; return Number(a[a.length - 1][1]) }
+  if (first(jan) === 1 && first(feb) === last(jan) + 1 && first(mar) === last(feb) + 1) {
+    ok(`J2  a hónapok lapszámai folytatják egymást (jan ${first(jan)}..${last(jan)}, feb ${first(feb)}..${last(feb)}, már ${first(mar)}..)`)
+  } else {
+    fail(`J2  a hónapok lapszámai NEM folytatólagosak: jan ${first(jan)}..${last(jan)}, feb ${first(feb)}..${last(feb)}, már ${first(mar)}`)
+  }
+}
+
+// ── J3: lap-átvitel — minden nem-első lap tetején Report, alján De reportat ─
+{
+  const res = buildJurnal(jurnalData({ 3: 100 }), 3)
+  const pages = countPages(res.html)
+  const reportPagina = (res.html.match(/Report din pagina precedenta/g) || []).length
+  const deReportat = (res.html.match(/De reportat pagina urmatoare/g) || []).length
+  const reportLuna = (res.html.match(/Report din luna precedenta/g) || []).length
+  if (reportLuna === 1 && reportPagina === pages - 1 && deReportat === pages - 1) {
+    ok(`J3  lap-átvitel rendben: 1 havi report + ${reportPagina} lap-report + ${deReportat} továbbvitel`)
+  } else {
+    fail(`J3  átvitel-sorok: havi=${reportLuna} (várt 1), lap-report=${reportPagina} (várt ${pages - 1}), továbbvitel=${deReportat} (várt ${pages - 1})`)
+  }
+}
+
+// ── J4: a záró blokk (Total luna/rulaj/Sold) PONTOSAN egyszer, az utolsó lapon ─
+{
+  const res = buildJurnal(jurnalData({ 3: 100 }), 3)
+  const totalLuna = (res.html.match(/Total luna/g) || []).length
+  const sold = (res.html.match(/Sold numerar/g) || []).length
+  const footers = (res.html.match(/<div class="footer">/g) || []).length
+  if (totalLuna === 1 && sold === 1 && footers === 1) ok('J4  a záró blokk és az aláírás-sáv pontosan egyszer szerepel')
+  else fail(`J4  Total luna=${totalLuna}, Sold=${sold}, footer=${footers} — mindnek 1-nek kell lennie`)
+}
+
+// ── J5: a rögzített irattípus jelenik meg (nem fix „Chit.") ───────────────
+{
+  const res = buildJurnal(jurnalData({ 3: 10 }), 3)
+  if (/>Fact\.</.test(res.html)) ok('J5  a rögzített irattípus (Fact.) kikerül a nyomtatványra')
+  else fail('J5  az irattípus felülíródik — a Fact. nem jelenik meg')
+}
+
+// ── J6: a Megjegyzés bekerül az Explicatii oszlopba ───────────────────────
+{
+  const res = buildJurnal(jurnalData({ 3: 10 }), 3)
+  if (/fűtés/.test(res.html)) ok('J6  a Megjegyzés (altétel-bontás) bekerül az Explicatii oszlopba')
+  else fail('J6  a Megjegyzés NEM kerül be az Explicatii oszlopba')
+}
+
+// ── J7: egyetlen tétel sem vész el a lapozásnál ───────────────────────────
+{
+  const N = 100
+  const res = buildJurnal(jurnalData({ 3: N }), 3)
+  // A tétel-sorok első cellája a folyó sorszám — a legnagyobbnak N-nek kell lennie.
+  const sorszamok = [...res.html.matchAll(/<td class="text-center">(\d+)<\/td>\s*<td class="text-center">\d{4}\./g)].map((m) => Number(m[1]))
+  const max = sorszamok.length ? Math.max(...sorszamok) : 0
+  if (sorszamok.length === N && max === N) ok(`J7  mind a ${N} tétel-sor megvan, a sorszám ${max}-ig fut`)
+  else fail(`J7  tétel-sorok: ${sorszamok.length} (várt ${N}), max sorszám: ${max}`)
+}
+
 fs.rmSync(tmp, { recursive: true, force: true })
 
 if (failed) {
-  console.error('\nCsoportnapló önellenőrzés: BUKOTT')
+  console.error('\nCsoportnapló + Főkönyv önellenőrzés: BUKOTT')
   process.exit(1)
 }
-console.log('\nCsoportnapló önellenőrzés: minden zöld')
+console.log('\nCsoportnapló + Főkönyv önellenőrzés: minden zöld')

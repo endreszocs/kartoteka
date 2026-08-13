@@ -126,10 +126,16 @@ const MONTH_NAMES_RO = [
 ]
 
 
+// 2026-08-14 (K1): a RÖGZÍTETT irattípus kerül a nyomtatványra. Korábban
+// minden készpénzes sor „Chit."-ként ment ki — egy Factură vagy Dispoziţie
+// alapján fizetett tétel a hivatalos regiszteren ellentmondott a lefűzött
+// bizonylatnak. A hivatalos ív („Irattip.", Sugo: „nyugta (chitanta), számla
+// (factura) stb. rövidített megnevezését lehet beírni") szabad szöveget vár.
 function getDocType(row: BefitetesRow | KiadasRow): string {
-  const irattipus = row.irattipus || ''
-  if (irattipus === 'Banki') return 'Extr'
-  return 'Chit.'
+  const irattipus = (row.irattipus || '').trim()
+  if (irattipus === 'Banki') return 'Extr' // legacy tárolt érték
+  if (!irattipus || irattipus === 'Készpénz') return 'Chit.' // alapérték kasszára
+  return irattipus
 }
 
 function getDocNumber(row: BefitetesRow | KiadasRow): string {
@@ -155,7 +161,13 @@ function getDescription(row: BefitetesRow | KiadasRow, bevCelMap: Record<number,
   // 2026-07-10 (S3 #1c): a hivatalos ROMÁN nyomtatványokon (Registru Casa/Banca/
   // Jurnal) a jogcím ROMÁN neve az elsődleges (pl. „Contribuţia anuală a
   // credincioşilor" az „Egyházfenntartói járulék" helyett); magyar csak fallback.
-  const parts = [name, cel?.nevro || cel?.nev].filter(Boolean)
+  // 2026-08-14 (K1): a MEGJEGYZÉS is bekerül — a hivatalos ív Explicaţii oszlopa
+  // a Magyarázat + Név + MEGJEGYZÉS hármasból áll (Sugo: „Az ide beírt megjegyzés
+  // bekerül a Főkönyvbe, a banknaplóba és csoportnaplóba. Itt lehet
+  // megkülönböztetni az altételeket, pl. közköltségnél a fűtés, világítás…").
+  // Korábban a lelkész altétel-bontása mindhárom regiszterből eltűnt.
+  const megjegyzes = ('megjegyzes' in row ? (row as { megjegyzes?: string | null }).megjegyzes : null) || ''
+  const parts = [name, cel?.nevro || cel?.nev, megjegyzes.trim()].filter(Boolean)
   return parts.join(' — ')
 }
 
@@ -522,24 +534,6 @@ function buildRegistruJurnal(data: FinanceReportData, f: MonthFilters): FinanceP
   }
   rows.sort((a, b) => a.date.localeCompare(b.date))
 
-  let totCI = 0, totBI = 0, totCE = 0, totBE = 0
-  let tbody = ''
-  rows.forEach((r, i) => {
-    totCI += r.cashInc; totBI += r.bankInc; totCE += r.cashExp; totBE += r.bankExp
-    // 2026-07-10 (S3 #1b): "Simb. cont." oszlop eltávolítva.
-    tbody += `<tr>
-      <td class="text-center">${prevRowCount + i + 1}</td>
-      <td class="text-center">${r.date}</td>
-      <td class="text-center">${esc(r.docType)}</td>
-      <td class="text-center">${esc(r.docNum)}</td>
-      <td>${esc(r.desc)}</td>
-      <td class="text-right">${r.cashInc ? fmtNum(r.cashInc) : ''}</td>
-      <td class="text-right">${r.bankInc ? fmtNum(r.bankInc) : ''}</td>
-      <td class="text-right">${r.cashExp ? fmtNum(r.cashExp) : ''}</td>
-      <td class="text-right">${r.bankExp ? fmtNum(r.bankExp) : ''}</td>
-    </tr>`
-  })
-
   // Előző hónapok kumulatív összegei
   let prevCI = 0, prevBI = 0, prevCE = 0, prevBE = 0
   for (let m = 1; m < f.month; m++) {
@@ -555,38 +549,118 @@ function buildRegistruJurnal(data: FinanceReportData, f: MonthFilters): FinanceP
     }
   }
 
+  // ── 2026-08-14 (K1, BLOKKOLÓ-javítás): VALÓDI 40 SOROS LAPOZÁS ──────────
+  // A Főkönyv az EGYETLEN kötelezően BEKÖTENDŐ nyomtatvány (5 évente vagy 200
+  // laponként kemény táblába) — korábban egyetlen végtelen táblázat volt,
+  // bedrótozott „pg. 1"-gyel. A hivatalos ív 40 soros lapokkal dolgozik,
+  // laponkénti átvitellel („De reportat pagina" alul, „Report" felül), és a
+  // bekötéshez FOLYTATÓLAGOS lapszám kell az éven belül (a hónapok lapjai
+  // folytatják egymást).
+  const JURNAL_SOR_PER_LAP = 40
+  /** Az utolsó lapon a záró blokk (3 összegző sor + aláírás-sáv) helye. */
+  const JURNAL_ZARO_TARTALEK = 6
+
+  // Folytatólagos lapszám: az előző hónapok lapjainak száma ugyanezzel a
+  // képlettel (üres hónap is legalább 1 lap — kinyomtatva az is egy ív).
+  const lapszamHoz = (sorok: number): number => {
+    const lapok = Math.max(1, Math.ceil(sorok / JURNAL_SOR_PER_LAP))
+    const utolsoLapSorai = sorok - (lapok - 1) * JURNAL_SOR_PER_LAP
+    return utolsoLapSorai > JURNAL_SOR_PER_LAP - JURNAL_ZARO_TARTALEK ? lapok + 1 : lapok
+  }
+  let prevPages = 0
+  for (let m = 1; m < f.month; m++) {
+    prevPages += lapszamHoz(
+      filterByMonth(data.income, f.year, m).length + filterByMonth(data.expense, f.year, m).length,
+    )
+  }
+
+  // Sorok lapokra osztása.
+  const lapok: Row[][] = []
+  for (let i = 0; i < rows.length; i += JURNAL_SOR_PER_LAP) {
+    lapok.push(rows.slice(i, i + JURNAL_SOR_PER_LAP))
+  }
+  if (lapok.length === 0) lapok.push([])
+  // Ha az utolsó lapon nem fér el a záró blokk, külön lapra kerül.
+  if (lapok[lapok.length - 1].length > JURNAL_SOR_PER_LAP - JURNAL_ZARO_TARTALEK) {
+    lapok.push([])
+  }
+
+  const monthRo = MONTH_NAMES_RO[f.month - 1]
+  const fejlec = `<div class="header">
+      <div class="header-left"><div>Unitate:</div><div class="entity">${esc(data.congregationNameRo || data.congregationName)}</div></div>
+      <div class="header-center"><div class="title">REGISTRUL-JURNAL DE INCASARI SI PLATI</div></div>
+      <div class="header-right"><div>LUNA ${monthRo} ANUL ${f.year}</div></div>
+    </div>`
+  const thead = `<thead>
+        <tr><th rowspan="2">Nr.<br>crt.</th><th rowspan="2">Data<br>inreg.</th><th colspan="2">Document</th><th rowspan="2">Explicatii</th><th colspan="2">Incasari</th><th colspan="2">Plati</th></tr>
+        <tr><th>Fel</th><th>Numar</th><th>Numerar</th><th>Banca</th><th>Numerar</th><th>Banca</th></tr>
+        <tr style="font-size:8px"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td></tr>
+      </thead>`
+
+  // Göngyölt oszlop-összegek a lap-átvitelhez. A nyitó átvitel („Report din
+  // luna precedenta") a hó ELEJI állapot; minden további lap teteje az addigi
+  // göngyölt állást hozza át („Report din pagina precedenta").
+  let gCI = 0, gBI = 0, gCE = 0, gBE = 0
+  let sorszam = 0
+  let totCI = 0, totBI = 0, totCE = 0, totBE = 0
+  for (const r of rows) { totCI += r.cashInc; totBI += r.bankInc; totCE += r.cashExp; totBE += r.bankExp }
   const rulCI = prevCI + totCI, rulBI = prevBI + totBI, rulCE = prevCE + totCE, rulBE = prevBE + totBE
   const soldCash = carryCashInc + totCI - totCE
   const soldBank = carryBankInc + totBI - totBE
 
-  const monthRo = MONTH_NAMES_RO[f.month - 1]
-  const html = `<div class="page">
-    <div class="header">
-      <div class="header-left"><div>Unitate:</div><div class="entity">${esc(data.congregationNameRo || data.congregationName)}</div></div>
-      <div class="header-center"><div class="title">REGISTRUL-JURNAL DE INCASARI SI PLATI</div></div>
-      <div class="header-right"><div>LUNA ${monthRo} ANUL ${f.year}</div></div>
-    </div>
-    <table>
-      <thead>
-        <tr><th rowspan="2">Nr.<br>crt.</th><th rowspan="2">Data<br>inreg.</th><th colspan="2">Document</th><th rowspan="2">Explicatii</th><th colspan="2">Incasari</th><th colspan="2">Plati</th></tr>
-        <tr><th>Fel</th><th>Numar</th><th>Numerar</th><th>Banca</th><th>Numerar</th><th>Banca</th></tr>
-        <tr style="font-size:8px"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td></tr>
-      </thead>
-      <tbody>
-        <tr class="carry"><td colspan="5" class="text-right">Report din luna precedenta:</td><td class="text-right">${fmtNum(prevCI + data.carryoverCash)}</td><td class="text-right">${fmtNum(prevBI + data.carryoverBank)}</td><td class="text-right">${fmtNum(prevCE)}</td><td class="text-right">${fmtNum(prevBE)}</td></tr>
-        ${tbody}
-        <tr class="totals"><td colspan="5" class="text-right">Total luna</td><td class="text-right">${fmtNum(totCI)}</td><td class="text-right">${fmtNum(totBI)}</td><td class="text-right">${fmtNum(totCE)}</td><td class="text-right">${fmtNum(totBE)}</td></tr>
+  const html = lapok
+    .map((lapSorok, lapIdx) => {
+      const utolso = lapIdx === lapok.length - 1
+      // A lap tetején álló átvitel-sor.
+      const reportSor =
+        lapIdx === 0
+          ? `<tr class="carry"><td colspan="5" class="text-right">Report din luna precedenta:</td><td class="text-right">${fmtNum(prevCI + data.carryoverCash)}</td><td class="text-right">${fmtNum(prevBI + data.carryoverBank)}</td><td class="text-right">${fmtNum(prevCE)}</td><td class="text-right">${fmtNum(prevBE)}</td></tr>`
+          : `<tr class="carry"><td colspan="5" class="text-right">Report din pagina precedenta:</td><td class="text-right">${fmtNum(gCI)}</td><td class="text-right">${fmtNum(gBI)}</td><td class="text-right">${fmtNum(gCE)}</td><td class="text-right">${fmtNum(gBE)}</td></tr>`
+
+      let tbody = ''
+      for (const r of lapSorok) {
+        sorszam += 1
+        gCI += r.cashInc; gBI += r.bankInc; gCE += r.cashExp; gBE += r.bankExp
+        // 2026-07-10 (S3 #1b): "Simb. cont." oszlop eltávolítva.
+        tbody += `<tr>
+      <td class="text-center">${prevRowCount + sorszam}</td>
+      <td class="text-center">${r.date}</td>
+      <td class="text-center">${esc(r.docType)}</td>
+      <td class="text-center">${esc(r.docNum)}</td>
+      <td>${esc(r.desc)}</td>
+      <td class="text-right">${r.cashInc ? fmtNum(r.cashInc) : ''}</td>
+      <td class="text-right">${r.bankInc ? fmtNum(r.bankInc) : ''}</td>
+      <td class="text-right">${r.cashExp ? fmtNum(r.cashExp) : ''}</td>
+      <td class="text-right">${r.bankExp ? fmtNum(r.bankExp) : ''}</td>
+    </tr>`
+      }
+
+      // A lap alja: nem-utolsó lapon átvitel a következőre; az utolsón a záró blokk.
+      const zaras = utolso
+        ? `<tr class="totals"><td colspan="5" class="text-right">Total luna</td><td class="text-right">${fmtNum(totCI)}</td><td class="text-right">${fmtNum(totBI)}</td><td class="text-right">${fmtNum(totCE)}</td><td class="text-right">${fmtNum(totBE)}</td></tr>
         <tr class="totals"><td colspan="5" class="text-right">Total rulaj</td><td class="text-right">${fmtNum(rulCI + data.carryoverCash)}</td><td class="text-right">${fmtNum(rulBI + data.carryoverBank)}</td><td class="text-right">${fmtNum(rulCE)}</td><td class="text-right">${fmtNum(rulBE)}</td></tr>
-        <tr class="totals"><td colspan="5" class="text-right">Sold numerar (6-8) / Sold banca (7-9)</td><td class="text-right">${fmtNum(soldCash)}</td><td class="text-right">${fmtNum(soldBank)}</td><td colspan="2"></td></tr>
+        <tr class="totals"><td colspan="5" class="text-right">Sold numerar (6-8) / Sold banca (7-9)</td><td class="text-right">${fmtNum(soldCash)}</td><td class="text-right">${fmtNum(soldBank)}</td><td colspan="2"></td></tr>`
+        : `<tr class="carry"><td colspan="5" class="text-right">De reportat pagina urmatoare:</td><td class="text-right">${fmtNum(gCI)}</td><td class="text-right">${fmtNum(gBI)}</td><td class="text-right">${fmtNum(gCE)}</td><td class="text-right">${fmtNum(gBE)}</td></tr>`
+
+      return `<div class="page">
+    ${fejlec}
+    <table>
+      ${thead}
+      <tbody>
+        ${reportSor}
+        ${tbody}
+        ${zaras}
       </tbody>
     </table>
-    <div class="footer">
+    ${utolso ? `<div class="footer">
       <div class="footer-item"><div class="footer-line">Conducătorul unității — Lelkész/Gondnok</div></div>
       <div class="footer-item"><div class="footer-line">Întocmit — Készítette</div></div>
       <div class="footer-item"><div class="footer-line">Verificat — Ellenőrizte</div></div>
-    </div>
-    <div class="page-num">pg. 1</div>
+    </div>` : ''}
+    <div class="page-num">pg. ${prevPages + lapIdx + 1}</div>
   </div>`
+    })
+    .join('')
 
   return {
     title: 'Registrul-Jurnal',
