@@ -23,6 +23,23 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-14] — A Számadás a hivatalos ív szerint: fix sorszámok, Tartozások és Kintlévőségek blokk
+<!-- key: 2026-08-14-szamadas-hivatalos-iv-k2 -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+
+A nyomtatott Számadás, Költségvetés és Költségvetés-módosítás mostantól a hivatalos EREK-ív (Adatok_2026) szerkezetét követi. Ezekhez semmit nem kell tenned — a nyomtatványok maguktól lettek szabályosak.
+
+### 🐛 Javítások
+
+- **A sorszámok (Nr. rând) a hivatalos, rögzített 1–134-es számozást követik.** Eddig a rendszer egyszerűen végigszámozta a sorokat, ezért a 105-ös csoporttól kezdve **101 számozott sorból 69 rossz számot viselt** — például a Karbantartási kiadások a hivatalos 66. helyett a 63. számot kapta. A számvevő, aki a hivatalos ívvel soronként összeolvas, minden eltérésnél megakadt volna.
+- **A hivatalos összesítő sorok is rákerültek a nyomtatványra** a saját számukkal: Saját bevételek összesen (36.), Összesen (41.), Összbevétel (52.), Saját tevékenységek kiadásai (95.), Saját kiadások összesen (99.), EXCEDENT (100.), DEFICIT (101.), Kiadások összesen (112.) — eddig ezek egyáltalán nem szerepeltek.
+- **A Számadás záró blokkja teljes lett:** a Sold (113.) után most már ott a **Tartozások** blokk (116., részletezve 117–127.), a **Kintlévőségek** blokk (128., részletezve 129–133.) és a **Záróegyenleg** (134. = 113 − 116 + 128). Az Útmutató szerint „ha nincs tartozás, jegyzőkönyvezni kell azt is, hogy nincs" — a blokk tehát mindig nyomtatódik. (A tartozás-összegek rögzítő felülete külön lépésben érkezik; addig a sorok nullát mutatnak, ami a jelenleg tárolt valóság.)
+- **A Költségvetés-módosításról eddig hiányzott az 1–3. nyitósor** (Múlt évi pénztármaradvány / Casa / Banca), ezért a számozása 3-mal csúszott a Költségvetéshez képest — pótolva.
+- **A lelkészi jelentés VII.9. rubrikájának felirata félrevezetett:** „Kintlévőség (járulék-hátralék)" — pedig az EREK Útmutató kifejezetten kimondja, hogy a kintlévő egyházfenntartói járulék NEM számít kintlévőségnek. Az új felirat ezt egyértelművé teszi.
+
+---
+
 ## [2026-08-14] — Készpénz-figyelmeztetések, a Kuka helyreállítása, a leltár néma csonkulásának megszüntetése
 <!-- key: 2026-08-14-keszpenz-figyelmeztetesek-kuka-leltar -->
 <!-- category: bugfix -->
