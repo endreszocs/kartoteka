@@ -1,0 +1,155 @@
+# ═══════════════════════════════════════════════════════════════════════════
+#  NAPI BIZTONSÁGI MENTÉS — ütemezett indítás (2026-08-13)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+#  MIÉRT ITT, ÉS NEM A RAILWAY-EN
+#  A Railway „Cron Schedule" mezője NEM HTTP-hívást ütemez, hanem a szolgáltatás
+#  INDÍTÓPARANCSÁT futtatja az ütemezés szerint. A saját dokumentációjuk mondja ki:
+#  „When not to use railway's cron jobs? For long-running processes that don't
+#  exit, such as a web server." A kartoteka.app egy webszerver — ha arra tennénk
+#  cront, az oldal nem futna folyamatosan. Külön Railway-szolgáltatás megoldaná,
+#  de az plusz díj. Ez itt ingyenes.
+#
+#  MIT CSINÁL
+#  Meghívja a mentés-motort, majd SZELETEKBEN addig hívja újra, amíg van hátra.
+#  A napi kulcs (`backup_log` egyedi indexe) miatt minden szelet pontosan ott
+#  folytatja, ahol az előző abbahagyta — kész hatókört SOHA nem ment újra.
+#
+#  ⚠️ IDŐZÓNA: a GitHub Actions ütemezése UTC-ben jár, akárcsak a Railway-é.
+#  A `17 2 * * *` tehát Bukarestben NYÁRON 05:17, TÉLEN 04:17. Ez szándékos:
+#  hajnalban a legkisebb a terhelés. Nem kerek óra — éjfélkor és egész órakor a
+#  világ összes ütemezett feladata egyszerre indul, és a GitHub is torlódik.
+#
+#  ⚠️ A GitHub NEM garantálja a percre pontos indulást: terhelés esetén akár
+#  10-60 percet is késhet. Napi mentésnél ez nem baj — de ne lepődj meg rajta.
+#
+#  MI KELL HOZZÁ (EGYSZER, TŐLED)
+#  GitHub → a kartoteka repó → Settings → Secrets and variables → Actions →
+#  „New repository secret":
+#        Name:   BACKUP_WORKER_SECRET
+#        Secret: ugyanaz az érték, ami a Railway Variables közt van
+#  Amíg ezt nem veszed fel, ez a munkafolyamat CSENDBEN KILÉP (nem hibázik el,
+#  nem küld naponta hibajelző levelet). Vagyis nyugodtan itt maradhat addig is.
+# ═══════════════════════════════════════════════════════════════════════════
+
+name: Napi biztonsági mentés
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  # Kézi indítás a GitHub felületéről (Actions → Napi biztonsági mentés → Run workflow).
+  # Hasznos próbához: nem kell megvárni a hajnalt.
+  workflow_dispatch:
+
+# Két futás soha ne fedje egymást: ha a hajnali még megy, a kézi indítás megvárja.
+# (A `claimBackupLog` bérlete amúgy is véd a kettős mentéstől, de a torlódás
+#  fölösleges terhelés a szerveren.)
+concurrency:
+  group: napi-mentes
+  cancel-in-progress: false
+
+jobs:
+  mentes:
+    runs-on: ubuntu-latest
+    # Egy teljes kör 784 hatókörre bőven belefér; a felső korlát csak azért van,
+    # hogy egy elakadt futás ne pörögjön órákig.
+    timeout-minutes: 120
+
+    steps:
+      - name: A titok meglétének ellenőrzése
+        id: orszem
+        env:
+          TITOK: ${{ secrets.BACKUP_WORKER_SECRET }}
+        run: |
+          if [ -z "$TITOK" ]; then
+            echo "van=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::A BACKUP_WORKER_SECRET még nincs felvéve a repó titkai közé — a mentés nem indul el. Settings → Secrets and variables → Actions."
+          else
+            echo "van=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Mentés indítása és végigfuttatása szeletekben
+        if: steps.orszem.outputs.van == 'true'
+        env:
+          VEGPONT: https://kartoteka.app/api/internal/backup
+          TITOK: ${{ secrets.BACKUP_WORKER_SECRET }}
+        run: |
+          set -uo pipefail
+
+          # Legfeljebb ennyi szelet. 784 hatókörnél bőven elég; a korlát csak
+          # végtelen ciklus ellen véd.
+          MAX_SZELET=40
+          szelet=0
+          osszes_sikeres=0
+          volt_bukas=0
+
+          while [ "$szelet" -lt "$MAX_SZELET" ]; do
+            szelet=$((szelet + 1))
+            echo "── $szelet. szelet ─────────────────────────────────────────"
+
+            # A `-sS` csendes, de a hibát kiírja. A `--max-time` a szerver saját
+            # szelet-keretéhez igazodik (az bőven 10 perc alatt zár).
+            valasz=$(curl -sS -X POST "$VEGPONT" \
+              -H "Authorization: Bearer $TITOK" \
+              -H "Content-Type: application/json" \
+              -d '{"forras":"github-actions"}' \
+              --max-time 900 \
+              -w '\n%{http_code}') || {
+                echo "::error::A hívás nem ért célba (hálózati hiba vagy időtúllépés) a $szelet. szeletnél."
+                exit 1
+              }
+
+            kod=$(printf '%s' "$valasz" | tail -n1)
+            torzs=$(printf '%s' "$valasz" | sed '$d')
+
+            echo "HTTP $kod"
+            echo "$torzs"
+
+            # A válasz JSON. Kiolvassuk, mennyi maradt és mennyi sikerült.
+            hatralevo=$(printf '%s' "$torzs" | jq -r '.hatralevo // empty')
+            sikeres=$(printf '%s'  "$torzs" | jq -r '.sikeres   // 0')
+            sikertelen=$(printf '%s' "$torzs" | jq -r '.sikertelen // 0')
+
+            osszes_sikeres=$((osszes_sikeres + sikeres))
+            if [ "$sikertelen" -gt 0 ]; then volt_bukas=1; fi
+
+            if [ "$kod" -ge 500 ]; then
+              echo "::error::A mentés-motor hibát adott (HTTP $kod). Nézd meg az admin → Biztonsági mentés oldalt."
+              exit 1
+            fi
+
+            # Ha nincs több hátra, készen vagyunk.
+            if [ -z "$hatralevo" ] || [ "$hatralevo" -eq 0 ]; then
+              echo "✅ Nincs több hátralévő hatókör."
+              break
+            fi
+
+            # HALADÁS-FELTÉTEL: ha egy szelet NULLA sikerrel zárult, de van hátra,
+            # akkor rendszerszintű baj van — nincs értelme 40-szer nekifutni.
+            # (Ugyanez a szabály van a szerveroldali szelet-ciklusban is.)
+            if [ "$sikeres" -eq 0 ]; then
+              echo "::error::A szelet egyetlen hatókört sem tudott lementeni, pedig $hatralevo maradt. Ez rendszerszintű hiba — megállok."
+              exit 1
+            fi
+
+            echo "Hátralévő: $hatralevo — megyek tovább."
+          done
+
+          echo "──────────────────────────────────────────────────────────────"
+          echo "Összesen $osszes_sikeres hatókör mentése készült el $szelet szeletben."
+
+          if [ "$szelet" -ge "$MAX_SZELET" ]; then
+            echo "::error::Elértem a $MAX_SZELET szeletes korlátot, és még maradt hátra. Nézd meg az admin felületet."
+            exit 1
+          fi
+
+          if [ "$volt_bukas" -eq 1 ]; then
+            echo "::warning::Közben volt hatókör, amelyik elbukott — a részletek az admin → Biztonsági mentés oldalon, névvel."
+          fi
+
+      - name: Emlékeztető, ha a titok hiányzik
+        if: steps.orszem.outputs.van != 'true'
+        run: |
+          echo "A napi mentés NEM indult el, mert a BACKUP_WORKER_SECRET nincs felvéve."
+          echo "Ez nem hiba — a munkafolyamat szándékosan csendben kilép, amíg be nem állítod."
+          echo "GitHub → Settings → Secrets and variables → Actions → New repository secret"
