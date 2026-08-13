@@ -23,6 +23,34 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-14] — Készpénz-figyelmeztetések, a Kuka helyreállítása, a leltár néma csonkulásának megszüntetése
+<!-- key: 2026-08-14-keszpenz-figyelmeztetesek-kuka-leltar -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+
+### ✨ Új funkciók
+
+- **Készpénzhasználati figyelmeztetések** — a 2026-os hivatalos szabályok (Változások 2026) beépültek a rendszerbe. A rendszer mostantól **figyelmeztet** (de nem akadályoz), ha:
+  - a kassza záró egyenlege meghaladja az **50 000 lejes** törvényes plafont (a többletet 3 napon belül bankba kell tenni);
+  - egyetlen készpénzes kifizetés **5 000 lej** felett van (a különbözet kötelezően átutalással megy);
+  - ugyanannak a partnernek ugyanazon a napon több készpénzes kifizetés összesen lépi át az 5 000 lejt (**a kifizetés feldarabolása tilos**);
+  - egy napon a készpénzes kifizetések összege meghaladja a **10 000 lejt**;
+  - elszámolási előlegként (decont) **1 000 lejnél** több menne ki készpénzben naponta és személyenként;
+  - egy befizetőtől egy napon 5 000, illetve 10 000 lejnél több készpénz érkezne.
+  A figyelmeztetés kimondja a szabályt és a mért összeget — a döntés a tiéd marad.
+- A pénzügyi súgó **két helyen két különböző előleg-plafont írt** (1 000 és 5 000 lej) — most mindkét helyen a hivatalos 1 000 lej szerepel.
+
+### 🐛 Javítások
+
+- **A Kuka oldal megnyílik.** Eddig minden betöltésnél hibával elszállt egy technikai hiba miatt.
+- **A pénzügyi, munkanaplós és leltári törölt tételek végre megjelennek a Kukában.** Eddig a Kuka csak 7 táblát figyelt — a törölt befizetések, kiadások, munkanapló-bejegyzések és leltári tárgyak sosem látszottak benne, pedig ott voltak.
+- **A „Végleges törlés" mostantól tényleg véglegesen töröl.** Eddig a véglegesen törölt rekord a következő szinkronizálásnál **visszajött** — a rendszer csak újra a kukába tette a szerveren, ahonnan a letöltés visszahozta.
+- **Őszinte visszaszámláló a Kukában.** A „törölve" dátum valójában a legutóbbi módosítás napja (a törlés pontos időpontját a rendszer ma még nem tárolja) — a felirat mostantól ezt ki is mondja, és „legfeljebb N nap múlva" formában fogalmaz.
+- **A leltár nem csonkul többé némán.** 1000-nél több leltári tételnél a lista, a statisztikák és a nyomtatványok eddig **hibaüzenet nélkül** hiányos adatból dolgoztak — mostantól minden tétel letöltődik, a jegyzőkönyv-melléklet vagyonleltárával együtt.
+- **A jogi nyilatkozat nem állít többé nem létező kétlépcsős belépést.** Mindhárom nyelven az igazat mondja: az érzékeny rendszergazdai műveleteknek külön megerősítő kódja van, a fiókszintű kétlépcsős belépés pedig bevezetés alatt áll.
+
+---
+
 ## [2026-08-14] — Nyomtatási központ: visszatér az előnézet, a csoportnapló lapokra bomlik
 <!-- key: 2026-08-14-nyomtatasi-kozpont-elonezet-csoportnaplo -->
 <!-- category: bugfix -->

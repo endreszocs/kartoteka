@@ -16,7 +16,8 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight, TrendingUp, TrendingDown, Boxes } from 'lucide-react'
+import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight, TrendingUp, TrendingDown, Boxes, AlertTriangle } from 'lucide-react'
+import { keszpenzKorlatFigyelmeztetesek, type KeszpenzTetel } from '@kartoteka/core'
 import { formatRon } from './ron-in-words'
 import { parseFlexibleDate } from './date-parse'
 import { inventoryKategoriaForExpenseKod } from './helpers'
@@ -649,6 +650,39 @@ export function CombinedEntryBody({
   }
   const incomeValid = incomeRows.filter((r) => rowValidIn('income', r)).length
   const expenseValid = expenseRows.filter((r) => rowValidIn('expense', r)).length
+
+  // ── Készpénz-korlát figyelmeztetések (2026-08-14, Endre kérése) ──────────
+  // A „Változások 2026" törvényi korlátai a MOSTANI beviteli kötegre:
+  // 5 000 lej feletti készpénzes tétel · feldarabolás-gyanú (ugyanaz a partner,
+  // ugyanaz a nap, több tétel > 5 000) · napi összes kifizetés > 10 000 ·
+  // bevételi határok (5 000 / 10 000 partnerenként). FIGYELMEZTET, nem blokkol —
+  // a partner jogi státuszát a rendszer nem ismeri, a döntés a rögzítőé.
+  // A készpénz-azonosítás a bevett szabály szerint: bankId === '' (kassza).
+  // A közös szabály-mag a @kartoteka/core-ban él → a desktop is ugyanezt kapja.
+  const keszpenzFigyelmeztetesek = useMemo(() => {
+    const tetelek: KeszpenzTetel[] = []
+    const addRows = (tabName: 'income' | 'expense', rows: EntryRow[]) => {
+      for (const r of rows) {
+        if (!rowValidIn(tabName, r)) continue
+        if (dirFor(tabName, r)) continue // belső mozgás (letét/felvét) nem partner-forgalom
+        const iso = parseFlexibleDate(r.datum)
+        if (!iso) continue
+        const effAmount =
+          tabName === 'income' && (r.people?.length ?? 0) >= 1 ? payerSum(r) : Number(r.amount)
+        tetelek.push({
+          datum: iso,
+          osszeg: effAmount,
+          irany: tabName === 'income' ? 'bevetel' : 'kiadas',
+          partner: r.partner,
+          keszpenz: r.bankId === '',
+        })
+      }
+    }
+    addRows('income', incomeRows)
+    addRows('expense', expenseRows)
+    return keszpenzKorlatFigyelmeztetesek(tetelek)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomeRows, expenseRows])
 
   // A kategória-lista a bank-bank átutalást NEM tartalmazza (csak a Bank fülön).
   //
@@ -1630,6 +1664,25 @@ export function CombinedEntryBody({
           <strong className={tab === 'income' ? 'text-emerald-600' : 'text-red-500'}>{formatRon(tabTotal)} RON</strong>
         </div>
       </div>
+
+      {/* 2026-08-14 (Endre kérése): készpénz-korlát figyelmeztetések a mentés
+          előtt — kimondják a szabályt és a mért számot, de NEM blokkolnak. */}
+      {keszpenzFigyelmeztetesek.length > 0 && (
+        <div
+          role="alert"
+          className="space-y-1.5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-[13px] leading-relaxed text-amber-900"
+        >
+          <p className="flex items-center gap-1.5 font-semibold">
+            <AlertTriangle className="size-4 shrink-0 text-amber-600" />
+            Készpénzhasználati figyelmeztetés — a mentés lehetséges, de ellenőrizd:
+          </p>
+          <ul className="list-disc space-y-1 pl-6">
+            {keszpenzFigyelmeztetesek.map((f, i) => (
+              <li key={`${f.kod}-${i}`}>{f.uzenet}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-4">
         {draftStorageKey && (

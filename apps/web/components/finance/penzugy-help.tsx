@@ -630,7 +630,10 @@ function TransitCreditContent() {
           { code: '107.01', name: 'Kapott hitelek', desc: 'Ha az egyházközséget szükséges meghitelezni. FIGYELEM: 2023. novembere óta CSAK BANKI UTALÁSSAL lehet a hitelt be- és visszafizetni! A törvény tiltja a kassza direkt hitelezését. Mindig ellenőrizzük, hogy van-e elegendő készpénz a kasszában — ne kerüljön mínuszba.' },
           { code: '107.02', name: 'Visszakapott hitelek', desc: 'Ha az egyházközség hitelt adott ki, itt vesszük vissza az összeget. Vagy ha elszámolásra előleget ad ki, elszámoláskor itt vesszük vissza és a kiadásokat a megfelelő helyre könyveljük.' },
           { code: '207.01', name: 'Törlesztett hitelek', desc: 'Ha az egyházközséget meg kellett hitelezni, itt fizetjük vissza. FIGYELEM: csak banki utalással. Az év végéig vissza nem fizetett összeget fel kell tüntetni a tartozásoknál.' },
-          { code: '207.02', name: 'Kiadott hitelek', desc: 'AZ EGYHÁZKÖZSÉG NEM ADHAT HITELT MAGÁNSZEMÉLYEKNEK. Hitelt adhatunk MÁS EGYHÁZKÖZSÉGNEK, de csak presbiteri határozattal. Elszámolásra előlegként kifizetett összeget ide könyvelünk. Az előlegként kiadható összeg: 5000 lej/személy/nap.' },
+          // 2026-08-14: a korábbi 5000-es érték ELAVULT volt — a „Változások 2026"
+          // (Beke Tivadar, 2025-11-28) szerint az előleg-plafon 1 000 lej/nap/személy.
+          // A súgó két helyen két különböző számot írt; most mindkettő a hivatalosat mondja.
+          { code: '207.02', name: 'Kiadott hitelek', desc: 'AZ EGYHÁZKÖZSÉG NEM ADHAT HITELT MAGÁNSZEMÉLYEKNEK. Hitelt adhatunk MÁS EGYHÁZKÖZSÉGNEK, de csak presbiteri határozattal. Elszámolásra előlegként kifizetett összeget ide könyvelünk. Az előlegként készpénzben kiadható összeg: 1 000 lej/személy/nap (vásárlási célra).' },
         ]}
       />
     </>
@@ -1102,8 +1105,9 @@ function CashRulesContent() {
       <SectionTitle>Hitelek — 2023. novembere óta</SectionTitle>
       <CalloutWarning>
         Csak <strong>banki utalással</strong> lehet hitelt be- és visszafizetni. A törvény
-        tiltja a kassza direkt hitelezését. Az előlegként kiadható összeg{' '}
-        <strong>5000 lej/személy/nap</strong>. Hitelt MÁS EGYHÁZKÖZSÉGNEK adhatunk, de csak
+        tiltja a kassza direkt hitelezését. Az elszámolási előlegként készpénzben kiadható
+        összeg <strong>1 000 lej/személy/nap</strong> (a „Változások 2026" szerint — rendezvényre,
+        táborra is naponta és személyenként értendő). Hitelt MÁS EGYHÁZKÖZSÉGNEK adhatunk, de csak
         presbiteri határozattal — magánszemélynek SOSEM.
       </CalloutWarning>
 

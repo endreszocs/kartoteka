@@ -374,3 +374,20 @@ export {
   type PeriodBalances,
   type PeriodRow,
 } from './finance/reszszamadas/period-balances'
+
+// ── Készpénzhasználati törvényi korlátok (2026-08-14, Endre kérése) ──
+// Figyelmeztetések (nem blokkolók): 50 000 kassza-plafon · 1 000 decont-előleg ·
+// 5 000/partner/nap · 10 000/nap összes kifizetés · feldarabolás-tilalom.
+export {
+  KASSZAPLAFON_LEJ,
+  DECONT_ELOLEG_NAPI_SZEMELYENKENT_LEJ,
+  CEG_NAPI_KESZPENZ_LEJ,
+  NAPI_OSSZES_CEGKIFIZETES_LEJ,
+  MAGANSZEMELY_NAPI_KESZPENZ_LEJ,
+  kasszaplafonUzenet,
+  decontElolegUzenet,
+  keszpenzKorlatFigyelmeztetesek,
+  type KeszpenzTetel,
+  type KeszpenzFigyelmeztetes,
+  type KeszpenzFigyelmeztetesKod,
+} from './finance/keszpenz-korlatok'

@@ -36,6 +36,8 @@ import {
   Wallet,
 } from 'lucide-react'
 
+import { kasszaplafonUzenet } from '@kartoteka/core'
+
 import {
   formatCurrency,
   getExpensePartnerName,
@@ -672,6 +674,24 @@ export function CashbookTab({
           </button>
         )}
       </div>
+
+      {/* 2026-08-14 (Endre kérése, „Változások 2026"): 50 000 lejes törvényes
+          kassza-plafon — ÉLŐ figyelmeztetés, ahogy a hivatalos Excel is jelzi
+          (Adatok_2026 „Kassza" I2). Figyelmeztet, nem blokkol. A közös szabály
+          a @kartoteka/core-ban él, így a desktop is ugyanazt kapja. */}
+      {(() => {
+        const plafon = kasszaplafonUzenet(closingBalance)
+        if (!plafon) return null
+        return (
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+            <p className="leading-relaxed">{plafon.uzenet}</p>
+          </div>
+        )
+      })()}
 
       {/* 2026-07-17 (F4): átvezetés az Induló egyenlegek szerkesztőjére — a KPI-sor
           ALATT, saját sorban (abszolút overlay mobilon a KPI-feliratot takarta volna). */}
