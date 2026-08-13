@@ -40,6 +40,8 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   A figyelmeztetés kimondja a szabályt és a mért összeget — a döntés a tiéd marad.
 - A pénzügyi súgó **két helyen két különböző előleg-plafont írt** (1 000 és 5 000 lej) — most mindkét helyen a hivatalos 1 000 lej szerepel.
 
+- **Tervező az admin Rendszer pénzügyei → Tervezés fülön** — beírható, hány kis („B") és hány nagy („A") gyülekezettel számolsz, és a rendszer havi és éves bontásban számolja a bevételt, költséget, profitot és a margint. Több forgatókönyv tartható egymás mellett, a díjak forgatókönyvenként átírhatók, és a böngésző megjegyzi őket.
+
 ### 🐛 Javítások
 
 - **A Kuka oldal megnyílik.** Eddig minden betöltésnél hibával elszállt egy technikai hiba miatt.
