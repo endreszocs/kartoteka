@@ -44,6 +44,36 @@ export function AuthGate() {
   const [session, setSession] = useState<Session | null>(null)
   const [pinExists, setPinExists] = useState(false)
   const [offlineActive, setOfflineActive] = useState(isOfflineMode())
+  // 2026-08-15 (8. pont B): a session aal-szintje. true = a fióknak van
+  // ellenőrzött 2FA-faktora, de a munkamenet még aal1-es → a kód-lépcső
+  // (login-oldal) kell. null = még nem tudjuk (ellenőrzés fut).
+  const [mfaSzukseges, setMfaSzukseges] = useState<boolean | null>(null)
+
+  // Az aal-ellenőrzés a session változásakor fut (lokális, gyors — a JWT-ből
+  // és a session-ből olvas, nem hálózatról).
+  useEffect(() => {
+    if (!session) {
+      // Nincs session → nincs mit ellenőrizni; a többi kapu dönt.
+      setTimeout(() => setMfaSzukseges(null), 0)
+      return
+    }
+    let cancelled = false
+    const supabase = getDesktopSupabase()
+    supabase.auth.mfa
+      .getAuthenticatorAssuranceLevel()
+      .then(({ data: aal }) => {
+        if (cancelled) return
+        setMfaSzukseges(Boolean(aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2'))
+      })
+      .catch(() => {
+        // Fail-open ITT szándékos: az aal-kényszer valódi őre a szerver-oldali
+        // RLS — a kapu hibája ne zárja ki a lelkészt a lokális adataiból.
+        if (!cancelled) setMfaSzukseges(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [session])
 
   useEffect(() => {
     let mounted = true
@@ -138,8 +168,20 @@ export function AuthGate() {
     }
   }, [])
 
-  // 1. kapu: friss Supabase session
+  // 1. kapu: friss Supabase session — de ha a fiókon 2FA van és a session
+  // még aal1-es, előbb a kód-lépcső (2026-08-15, 8. pont B). Amíg az
+  // ellenőrzés fut (null), rövid betöltőt mutatunk — ez lokális, gyors.
   if (session) {
+    if (mfaSzukseges === true) {
+      return <Navigate to="/login" replace />
+    }
+    if (mfaSzukseges === null) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
+          <div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      )
+    }
     return <Outlet />
   }
 

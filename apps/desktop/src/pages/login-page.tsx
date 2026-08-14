@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import {
@@ -31,8 +31,51 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 2026-08-15 (8. pont B): a 2FA második lépcsője a desktopon.
+  // 'jelszo' = normál űrlap; 'mfa' = a hitelesítő app 6 jegyű kódja kell.
+  const [fazis, setFazis] = useState<'jelszo' | 'mfa'>('jelszo')
+  const [mfaKod, setMfaKod] = useState('')
 
   const navigate = useNavigate()
+
+  // Ha az AuthGate aal1-es (kódra váró) sessionnel küldött ide, egyből a
+  // kód-lépcsőt mutatjuk — nem kell újra jelszót írni.
+  useEffect(() => {
+    let cancelled = false
+    const supabase = getDesktopSupabase()
+    supabase.auth.mfa
+      .getAuthenticatorAssuranceLevel()
+      .then(({ data: aal }) => {
+        if (cancelled) return
+        if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') setFazis('mfa')
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  /** A sikeres (és aal-rendezett) hitelesítés utáni közös folytatás. */
+  async function belepesFolytatas() {
+    // A online-login érvényteleníti az esetleges korábbi offline-mode-ot:
+    // innentől a "rendes" Supabase session az auth-forrás.
+    setOfflineMode(false)
+
+    // Ha még nincs beállítva offline PIN, átirányítunk a setup-ra.
+    // A-M6.9: a lelkészt informáljuk az offline-védelemről (memory:
+    // feedback_lelkesz_informalas — "mindenről informálva legyen").
+    try {
+      const pinExists = await hasPin()
+      if (!pinExists) {
+        navigate('/pin-setup', { replace: true })
+        return
+      }
+    } catch {
+      // Ha a keyring nem válaszol, ne blokkoljuk az alap-login flow-t
+    }
+
+    navigate('/', { replace: true })
+  }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -51,30 +94,70 @@ export function LoginPage() {
         return
       }
 
-      // A online-login érvényteleníti az esetleges korábbi offline-mode-ot:
-      // innentől a "rendes" Supabase session az auth-forrás.
-      setOfflineMode(false)
-
-      // Ha még nincs beállítva offline PIN, átirányítunk a setup-ra.
-      // A-M6.9: a lelkészt informáljuk az offline-védelemről (memory:
-      // feedback_lelkesz_informalas — "mindenről informálva legyen").
-      try {
-        const pinExists = await hasPin()
-        if (!pinExists) {
-          navigate('/pin-setup', { replace: true })
-          return
-        }
-      } catch {
-        // Ha a keyring nem válaszol, ne blokkoljuk az alap-login flow-t
+      // 2026-08-15 (8. pont B): ha a fiókon kétlépcsős belépés van, a jelszó
+      // után a hitelesítő app kódja következik — e nélkül a session aal1-en
+      // maradna, és a webbel közös védelem (RLS aal2-kényszer) elutasítaná.
+      const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+      if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+        setMfaKod('')
+        setFazis('mfa')
+        return
       }
 
-      navigate('/', { replace: true })
+      await belepesFolytatas()
     } catch (err: unknown) {
       const msg = errorMessage(err)
       setError(`Nem sikerült csatlakozni a rendszerhez: ${msg}`)
     } finally {
       setLoading(false)
     }
+  }
+
+  async function handleMfaSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setError(null)
+    const tiszta = mfaKod.replace(/\D/g, '')
+    if (tiszta.length !== 6) {
+      setError('A hitelesítő alkalmazás 6 számjegyű kódját írd be.')
+      return
+    }
+    setLoading(true)
+    try {
+      const supabase = getDesktopSupabase()
+      const { data: f, error: fErr } = await supabase.auth.mfa.listFactors()
+      const totp = (f?.totp || []).find((x) => x.status === 'verified')
+      if (fErr || !totp) {
+        // Nincs (már) faktor → mehet tovább a normál úton.
+        await belepesFolytatas()
+        return
+      }
+      const { data: ch, error: chErr } = await supabase.auth.mfa.challenge({ factorId: totp.id })
+      if (chErr || !ch) {
+        setError(`Az ellenőrzés nem indult el: ${chErr?.message || 'ismeretlen hiba'}`)
+        return
+      }
+      const { error: vErr } = await supabase.auth.mfa.verify({
+        factorId: totp.id,
+        challengeId: ch.id,
+        code: tiszta,
+      })
+      if (vErr) {
+        setError('A kód nem stimmel — az appban 30 másodpercenként új szám jelenik meg, a frisset írd be.')
+        return
+      }
+      await belepesFolytatas()
+    } catch (err: unknown) {
+      setError(`Nem sikerült csatlakozni a rendszerhez: ${errorMessage(err)}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function mfaMegse() {
+    const supabase = getDesktopSupabase()
+    await supabase.auth.signOut()
+    setMfaKod('')
+    setFazis('jelszo')
   }
 
   return (
@@ -87,6 +170,55 @@ export function LoginPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {fazis === 'mfa' ? (
+            <form onSubmit={handleMfaSubmit} className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                A fiókodon <strong>kétlépcsős belépés</strong> van. Írd be a telefonod hitelesítő
+                alkalmazásában látható 6 számjegyű kódot:
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="mfa-kod">Hitelesítő kód</Label>
+                <Input
+                  id="mfa-kod"
+                  inputMode="numeric"
+                  maxLength={7}
+                  required
+                  autoFocus
+                  disabled={loading}
+                  value={mfaKod}
+                  onChange={(e) => setMfaKod(e.currentTarget.value)}
+                  placeholder="123 456"
+                  className="text-center text-xl tracking-widest"
+                />
+              </div>
+
+              {error && (
+                <div
+                  role="alert"
+                  className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                >
+                  {error}
+                </div>
+              )}
+
+              <Button type="submit" disabled={loading} className="w-full">
+                {loading ? 'Ellenőrzés…' : 'Belépés'}
+              </Button>
+
+              <p className="text-xs text-muted-foreground">
+                Nincs nálad a telefonod? A <strong>webes felületen</strong> a mentőkódjaid egyikével
+                be tudsz lépni — az a kétlépcsős belépést kikapcsolja, utána a desktop is beenged.
+              </p>
+
+              <button
+                type="button"
+                onClick={mfaMegse}
+                className="w-full text-center text-xs text-muted-foreground underline"
+              >
+                Mégse — vissza a bejelentkezéshez
+              </button>
+            </form>
+          ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">E-mail cím</Label>
@@ -134,6 +266,7 @@ export function LoginPage() {
               belépést a webes felületen.
             </p>
           </form>
+          )}
         </CardContent>
       </Card>
     </main>
