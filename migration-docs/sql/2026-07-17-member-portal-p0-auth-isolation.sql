@@ -168,6 +168,12 @@ VALUES
   ('restart_user_onboarding'),
   ('revert_family_link_batch'),
   ('sync_iktato_sequence_pointer'),
+  -- 2026-08-14: az előzetes kapcsolat-ellenőrző RPC (csak olvas) — a
+  -- 2026-08-14-szemely-torles-ket-utja.sql hozza létre, ezért AZ a fájl
+  -- fusson le ELŐBB (a lenti preflight különben hangosan elhasal ezen a
+  -- néven). A belső párja (szemely_kapcsolat_lista) SZÁNDÉKOSAN nincs itt:
+  -- azt csak a tulajdonos jogán futó SECURITY DEFINER hívók érik el.
+  ('szemely_kapcsolatok'),
   ('tagnyilvantartas_csalad_mentes'),
   ('tagnyilvantartas_tag_torles'),
   ('touch_last_seen'),

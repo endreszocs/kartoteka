@@ -18,6 +18,7 @@ import {
   Cake,
   CheckCircle2,
   Download,
+  EyeOff,
   FilterX,
   Link2,
   MapPin,
@@ -47,6 +48,7 @@ import { RegistryCardsHost } from '@/components/modals/registry-cards-host'
 import { getEnrichedMemberById } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import { FamilyTreeDialog } from '@/components/modals/family-tree-dialog'
 import { MemberFormDialog } from '@/components/modals/member-form-dialog'
+import { HiddenMembersDialog } from '@/components/modals/hidden-members-dialog'
 import { MemberRemoveDialog } from '@/components/modals/member-remove-dialog'
 import { MEMBER_STATUS_FILTERS, PAYMENT_STATUS_CONFIG } from '@/lib/constants/members'
 import type { PaymentStatus } from '@/lib/constants/members'
@@ -301,6 +303,9 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
   const [editingMember, setEditingMember] = useState<MemberListItem | null>(null)
   const [removeOpen, setRemoveOpen] = useState(false)
   const [removingMember, setRemovingMember] = useState<{ id: number; name: string } | null>(null)
+  // 2026-08-14 (1. döntés): a törlés-védelem által elrejtett személyek
+  // listája + visszahozás — eddig a weben nem volt visszaút.
+  const [hiddenOpen, setHiddenOpen] = useState(false)
 
   const [treeOpen, setTreeOpen] = useState(false)
   const [treeMemberId, setTreeMemberId] = useState<number | null>(null)
@@ -748,6 +753,15 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                 <span className="hidden sm:inline"> · {pageState.totalCount} személyből</span>
                 {isSearchPending && <span className="ml-2 text-primary">Keresés…</span>}
               </p>
+              <Button
+                variant="outline"
+                className="h-11 gap-2 rounded-xl bg-background/70"
+                onClick={() => setHiddenOpen(true)}
+                title="A törlés-védelem által elrejtett személyek listája és visszahozása"
+              >
+                <EyeOff className="size-4" />
+                <span className="hidden lg:inline">Rejtettek</span>
+              </Button>
               <Button
                 variant="outline"
                 className="h-11 gap-2 rounded-xl bg-background/70"
@@ -1285,6 +1299,14 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
         onDataChanged={() => void fetchFirstPage({ preserveMembers: true })}
       />
       <MemberRemoveDialog open={removeOpen} onOpenChange={handleRemoveClose} member={removingMember} />
+      <HiddenMembersDialog
+        open={hiddenOpen}
+        onOpenChange={setHiddenOpen}
+        onRestored={() => {
+          void fetchFirstPage({ preserveMembers: true })
+          if (!isDefaultRegistryScope) void refreshRegistrySnapshot()
+        }}
+      />
       <FamilyTreeDialog
         open={treeOpen}
         onOpenChange={(open) => {

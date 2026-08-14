@@ -19,6 +19,7 @@ import type { DirectionsCountry, DirectionsCounty, DirectionsLocality, Direction
 import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
 import { describeMoves, ensureChildFamilyLink, type FamilyCompletionOffer } from '@/lib/family/auto-family'
 import { getAllowedFamilyIds, loadFamilyDisplayNames, syncHouseholdFromCsalad } from '@/lib/family/family-membership'
+import type { HiddenMemberItem, PersonReferenceItem, PersonReferencesResult } from '@/lib/members/removal-types'
 
 // ── Segéd: congregation_id a profilból ───────────────────────
 
@@ -1420,7 +1421,15 @@ export async function removeMember(data: RemoveInput) {
     // elrejthető.
     const { data: rpcData, error: rpcErr } = await supabase.rpc('tagnyilvantartas_tag_torles', { p_szemely_id: id })
     if (rpcErr) {
-      return { error: `A törlés nem sikerült: ${rpcErr.message} (Lefutott már a 2026-06-10-es adatbázis-migráció?)` }
+      // 2026-08-14 bírálói javítás: a migrációs utótag CSAK hiányzó függvénynél
+      // jogos — más hibánál (pl. a tagi-portál életciklus-őre utasítja el az
+      // elrejtést) félrevezetett.
+      const hianyzoFuggveny = rpcErr.code === '42883' || rpcErr.message.includes('tagnyilvantartas_tag_torles')
+      return {
+        error: `A törlés nem sikerült: ${rpcErr.message}${
+          hianyzoFuggveny ? ' (Lefutott már a 2026-06-10-es adatbázis-migráció?)' : ''
+        }`,
+      }
     }
 
     const status = (rpcData as { status?: string } | null)?.status
@@ -1433,6 +1442,10 @@ export async function removeMember(data: RemoveInput) {
         return { success: true, message: 'A tag elrejtve a névsorból (pénzügyi tranzakció miatt nem törölhető véglegesen).' }
       case 'hidden_registry':
         return { success: true, message: 'A tag elrejtve a névsorból (anyakönyvi bejegyzései miatt nem törölhető véglegesen).' }
+      case 'hidden_kapcsolat':
+        // 2026-08-14 (1. döntés): a v2 RPC a teljes kapcsolat-katalógusból
+        // dönt — sírhely, leltár-felelős, család, CNP-szülőlánc stb. is véd.
+        return { success: true, message: 'A tag elrejtve a névsorból (védett kapcsolatai miatt nem törölhető véglegesen).' }
       case 'hidden_fk':
         return { success: true, message: 'A tag elrejtve a névsorból (kapcsolódó rekordok miatt nem törölhető véglegesen).' }
       case 'forbidden':
@@ -1445,6 +1458,132 @@ export async function removeMember(data: RemoveInput) {
   }
 
   return { error: 'Ismeretlen művelet.' }
+}
+
+// ── Személy-törlés két útja (2026-08-14, 1. döntés) ──────────
+
+/**
+ * ELŐZETES kapcsolat-ellenőrzés a törlés-dialógushoz: a lelkész a törlés
+ * ELŐTT látja, mi hivatkozik a személyre, és hogy a művelet végleges törlés
+ * vagy elrejtés lesz-e. Csak olvas (szemely_kapcsolatok RPC).
+ * Fail-soft: ha az RPC még nincs élesben, `available: false` — a dialógus a
+ * régi, általános figyelmeztetést mutatja.
+ */
+export async function checkPersonReferences(
+  personId: number,
+): Promise<PersonReferencesResult> {
+  const ures: PersonReferencesResult = { available: false, blokkolo: [], veleTorlodik: [] }
+  if (!Number.isInteger(personId)) return ures
+
+  const { supabase, user, congregationId } = await getProfileCongregation()
+  if (!user || !congregationId) return ures
+
+  const { data, error } = await supabase.rpc('szemely_kapcsolatok', { p_szemely_id: personId })
+  if (error) {
+    // 42883 = a 2026-08-14-szemely-torles-ket-utja.sql még nem futott le.
+    console.warn('[checkPersonReferences]', error.message)
+    return ures
+  }
+  const res = data as {
+    status?: string
+    blokkolo?: PersonReferenceItem[]
+    vele_torlodik?: PersonReferenceItem[]
+  } | null
+  if (!res || res.status !== 'ok') {
+    return {
+      ...ures,
+      error: res?.status === 'forbidden' ? 'Nincs jogosultság az ellenőrzéshez.' : undefined,
+    }
+  }
+  return {
+    available: true,
+    blokkolo: res.blokkolo ?? [],
+    veleTorlodik: res.vele_torlodik ?? [],
+  }
+}
+
+/**
+ * A rejtett (isvisible=false) személyek listája az aktív gyülekezetben.
+ * A láthatatlanná tétel eddig a weben fekete lyuk volt — csak a desktopon
+ * volt visszahozó út. A lista ad rálátást és visszautat.
+ */
+export async function listHiddenMembers(): Promise<{
+  members: HiddenMemberItem[]
+  /** true = a lista az 500-as plafonba ütközött — van még rejtett személy. */
+  truncated?: boolean
+  error?: string
+}> {
+  const { supabase, user, congregationId } = await getProfileCongregation()
+  if (!user || !congregationId) return { members: [], error: 'Nincs bejelentkezett felhasználó.' }
+
+  const LIMIT = 500
+  const { data, error } = await supabase
+    .from('szemely')
+    .select('id, csaladnev, k_nev, member_status')
+    .eq('congregation_id', congregationId)
+    .eq('isvisible', false)
+    .order('csaladnev')
+    .limit(LIMIT)
+  if (error) return { members: [], error: `A rejtett személyek listája nem tölthető be: ${error.message}` }
+
+  return {
+    members: (data ?? []).map(r => ({
+      id: r.id as number,
+      nev: [r.csaladnev, r.k_nev].filter(Boolean).join(' ') || `#${r.id}`,
+      memberStatus: (r.member_status as string | null) ?? null,
+    })),
+    // Néma csonkolás TILOS (K5-#21 hibaosztály): ha pont a plafonig ért a
+    // lista, azt KIMONDJUK — a dialógus jelzi, hogy nem látszik minden.
+    truncated: (data ?? []).length === LIMIT,
+  }
+}
+
+/**
+ * Rejtett személy visszahozása: isvisible=true, és ha a státusza a törlési
+ * elrejtésből jövő 'törölt', visszaáll 'aktív'-ra (más státuszt — elhunyt,
+ * elköltözött — NEM írunk át, az a kivezetési előzmény igazsága).
+ */
+export async function restoreHiddenMember(personId: number): Promise<{
+  success?: boolean
+  error?: string
+}> {
+  if (!Number.isInteger(personId)) return { error: 'Érvénytelen azonosító.' }
+
+  const { supabase, user, congregationId } = await getProfileCongregation()
+  if (!user || !congregationId) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  const { data: row } = await supabase
+    .from('szemely')
+    .select('id, member_status')
+    .eq('id', personId)
+    .eq('congregation_id', congregationId)
+    .eq('isvisible', false)
+    .maybeSingle()
+  if (!row) return { error: 'A rejtett személy nem található az aktív gyülekezetben.' }
+
+  const update: { isvisible: boolean; member_status?: string } =
+    row.member_status === 'törölt'
+      ? { isvisible: true, member_status: 'aktív' }
+      : { isvisible: true }
+
+  const { error } = await supabase
+    .from('szemely')
+    .update(update)
+    .eq('id', personId)
+    .eq('congregation_id', congregationId)
+  if (error) return { error: `A visszahozás nem sikerült: ${error.message}` }
+
+  await logAuditEvent(
+    {
+      action: 'member.restore',
+      targetTable: 'szemely',
+      targetId: String(personId),
+      metadata: { elozo_status: row.member_status },
+    },
+    supabase,
+  )
+  revalidatePath('/tagnyilvantartas')
+  return { success: true }
 }
 
 // ── Szülő keresés ────────────────────────────────────────────
