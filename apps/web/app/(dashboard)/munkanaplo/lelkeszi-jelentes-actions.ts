@@ -300,16 +300,25 @@ async function fetchFerfiMap(supabase: Supa, ids: number[]): Promise<Map<number,
  * Az előző évi VÉGLEGESÍTETT jelentés dec. 31-i lélekszáma (I.10) a
  * snapshotból, a mezoErtek prioritásával (felulirasok > auto > kezi).
  */
-function elozoEviLelekszam(snapshot: Record<string, unknown> | null): number | null {
+/**
+ * Egy mező feloldott értéke egy VÉGLEGESÍTETT jelentés-snapshotból, a bevett
+ * felülírás > auto > kézi prioritással (2026-08-14, 18. pont: általánosítva
+ * az I.10-es olvasóból — a VII.5 az előző évi VII.8-at olvassa így).
+ */
+function snapshotMezoErtek(snapshot: Record<string, unknown> | null, mezoId: string): number | null {
   if (!snapshot || typeof snapshot !== 'object') return null
   const felul = sanitizeErtekek(snapshot.felulirasok as Record<string, unknown> | null)
   const auto = sanitizeErtekek(snapshot.auto as Record<string, unknown> | null)
   const kezi = sanitizeErtekek(snapshot.kezi as Record<string, unknown> | null)
-  const f = felul['I.10']
+  const f = felul[mezoId]
   if (f !== undefined && f !== null && f !== '') return toNum(f)
-  const a = auto['I.10']
+  const a = auto[mezoId]
   if (a !== undefined && a !== null) return toNum(a)
-  return toNum(kezi['I.10'])
+  return toNum(kezi[mezoId])
+}
+
+function elozoEviLelekszam(snapshot: Record<string, unknown> | null): number | null {
+  return snapshotMezoErtek(snapshot, 'I.10')
 }
 
 /**
@@ -427,7 +436,7 @@ async function computeAuto(
     // Zárszámadás kanonikus snapshot (VII.6/7/8) — csak véglegesített számadásból
     supabase
       .from('bealitas')
-      .select('accounting_finalized, szamadas_zaro_adatok')
+      .select('accounting_finalized, szamadas_zaro_adatok, szamadas_tartozasok')
       .eq('id', String(ev))
       .eq('congregation_id', congId)
       .maybeSingle(),
@@ -491,7 +500,13 @@ async function computeAuto(
     }
   } else {
     const elozo = elozoJelentesRes.data as { statusz: string; snapshot: Record<string, unknown> | null } | null
-    if (elozo?.statusz === 'veglegesitve') auto['I.1'] = elozoEviLelekszam(elozo.snapshot)
+    if (elozo?.statusz === 'veglegesitve') {
+      auto['I.1'] = elozoEviLelekszam(elozo.snapshot)
+      // 2026-08-14 (18. pont 3D, spec VII): az előző évi maradvány (a
+      // Számadás 1. sora) = az ELŐZŐ ÉVI véglegesített jelentés egyenlege
+      // (VII.8 = a + b − c). Véglegesített előző jelentés nélkül null (kézi).
+      auto['VII.5'] = snapshotMezoErtek(elozo.snapshot, 'VII.8')
+    }
   }
 
   // I.2 / I.3 / V.7 — férfi/nő bontás közös szemely-lookuppal
@@ -972,7 +987,23 @@ async function computeAuto(
     const b = bealitasRes.data as {
       accounting_finalized: boolean | null
       szamadas_zaro_adatok: Record<string, unknown> | null
+      szamadas_tartozasok?: { tartozasok?: Record<string, unknown>; kintlevosegek?: Record<string, unknown> } | null
     } | null
+
+    // 2026-08-14 (18. pont 3D, spec VII): a kintlévőség (VII.9) és a
+    // kifizetési kötelezettségek (VII.10) a Számadás hivatalos 129–133. ill.
+    // 117–127. soraiból összegződnek (a K2-es Tartozások-rögzítő tárolja,
+    // bealitas.szamadas_tartozasok) — így a jelentés KÖTELEZŐEN egyezik a
+    // számadással. Rögzített sorok nélkül null (kézi töltés).
+    const tartozasSum = (m: Record<string, unknown> | undefined): number | null => {
+      if (!m || typeof m !== 'object') return null
+      const ertekek = Object.values(m).map((v) => toNum(v)).filter((n): n is number => n !== null)
+      if (ertekek.length === 0) return null
+      return round2(ertekek.reduce((s, n) => s + n, 0))
+    }
+    auto['VII.9'] = tartozasSum(b?.szamadas_tartozasok?.kintlevosegek)
+    auto['VII.10'] = tartozasSum(b?.szamadas_tartozasok?.tartozasok)
+
     const zaro = b?.accounting_finalized ? b.szamadas_zaro_adatok : null
     if (zaro && typeof zaro === 'object') {
       const kanonikus = (zaro.kanonikus && typeof zaro.kanonikus === 'object' && !Array.isArray(zaro.kanonikus)
