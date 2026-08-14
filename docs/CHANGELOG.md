@@ -34,7 +34,10 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - **8 nyomtatható mentőkód** készül bekapcsoláskor — ha a telefonod elveszne, ezek egyikével akkor is bejutsz (a kód egyszer használható, és utána a kétlépcsős belépés kikapcsol, hogy tiszta lappal, új telefonnal kapcsold vissza). A kódokat a rendszer csak titkosított ujjlenyomatként tárolja.
 - A belépés minden útja (jelszó, Google, nyitva felejtett fül) a **második lépcsőn keresztül** vezet, ha a fiókon be van kapcsolva — a védelmet nem lehet kerülőúton kihagyni.
 - **Az asztali alkalmazás is ismeri a második lépcsőt**: a jelszó után ott is a hitelesítő app kódja következik, és a program nem enged be megerősítetlen munkamenettel. Ezzel a 2FA a desktopot használó fiókokon is biztonságosan bekapcsolható.
-- **Adatbázis-szintű kényszer** (kerülőút-védelem): a legérzékenyebb adatokhoz 2FA-s fióknál csak kóddal megerősített munkamenet fér hozzá — akinek nincs bekapcsolva, arra nulla hatással van. *(Adatbázis-bővítés: `2026-08-15-mfa-optin-rls.sql`.)*
+- **Adatbázis-szintű kényszer** (kerülőút-védelem): a legérzékenyebb adatokhoz 2FA-s fióknál csak kóddal megerősített munkamenet fér hozzá — akinek nincs bekapcsolva, arra nulla hatással van. *(Adatbázis-bővítés: `2026-08-15-mfa-optin-rls.sql` + a hozzá tartozó jogosultság-javítás: `2026-08-15-mfa-rls-HOTFIX.sql`.)*
+- **Rendszergazdai kapu megerősítése**: a rendszergazdai PIN mostantól visszafejthetetlen formában tárolódik (a meglévő PIN az első sikeres belépéskor automatikusan átáll), a rendszergazdai munkamenet jelzése pedig hamisíthatatlan aláírást kapott. A következő rendszergazdai belépésnél a PIN-t egyszer újra be kell írni.
+- **Beszédesebb biztonsági napló**: a napló mostantól rögzíti, honnan (IP-cím) és milyen eszközről történt a művelet, és a **sikertelen belépési kísérlet** meg a **kijelentkezés** is megjelenik benne. *(Adatbázis-bővítés: `2026-08-15-audit-ip-useragent.sql` — enélkül a napló a régi módon, IP nélkül működik tovább.)*
+- **Biztonsági elemzés**: elkészült a rendszer védelmi rétegeit, a most javított hibákat és a maradék teendőket összefoglaló dokumentum (`docs/BIZTONSAGI-ELEMZES.md`).
 
 ---
 

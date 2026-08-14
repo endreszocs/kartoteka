@@ -11,6 +11,7 @@ import {
 import type { Profile, Role } from '@/lib/types/auth'
 import type { Permissions, ProfileRoleRow, ProfileRoleScope, ProfileRoleType } from '@/lib/profile-roles/types'
 import { ROLE_TEMPLATES, mergePermissions } from '@/lib/profile-roles/permissions'
+import { GOD_MODE_COOKIE, verifyGodModeCookieValue } from '@/lib/auth/god-mode-session'
 import { cache } from 'react'
 import { cookies } from 'next/headers'
 
@@ -22,14 +23,16 @@ const ACTIVE_PROFILE_ROLE_COOKIE = 'kartoteka_active_profile_role'
  * sessionben van. Ez megakadályozza, hogy egy deactivate után ott maradt
  * (expirálatlan) admin_access_requests sor automatikusan átléptessen egy
  * új sessionben.
+ *
+ * 2026-08-15 (8. pont D): a süti értéke HMAC-aláírt és a felhasználóhoz
+ * kötött (god-mode-session.ts) — a kliens által beírt nyers epoch többé nem
+ * elég. Örökölt/aláíratlan érték: érvénytelen (fail-closed).
  */
-async function hasActiveGodModeSession(): Promise<boolean> {
+async function hasActiveGodModeSession(userId: string): Promise<boolean> {
   try {
     const cookieStore = await cookies()
-    const cookie = cookieStore.get('god_mode_until')
-    if (!cookie?.value) return false
-    const expiresAt = Number(cookie.value)
-    return Number.isFinite(expiresAt) && Date.now() < expiresAt
+    const cookie = cookieStore.get(GOD_MODE_COOKIE)
+    return verifyGodModeCookieValue(cookie?.value, userId) !== null
   } catch {
     return false
   }
@@ -374,7 +377,7 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
   // szintén hatástalan volt. Mostantól a teljes (system) admin és az egyházkerületi
   // admin override-ja is érvényes, a hatókört pedig a `getActiveOverride`
   // gyülekezetenként ÚJRA ellenőrzi (fail-closed).
-  const godModeActive = master ? await hasActiveGodModeSession() : false
+  const godModeActive = master ? await hasActiveGodModeSession(user.id) : false
   const overrideAllowed =
     !missingPrimaryRole && (master ? godModeActive : admin || egyhazkeruletiAdmin)
   const override = overrideAllowed

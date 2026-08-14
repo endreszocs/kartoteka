@@ -3,6 +3,17 @@
 import { cookies } from 'next/headers'
 
 import { logAuditEvent } from '@/lib/audit/log'
+import {
+  GOD_MODE_COOKIE,
+  signGodModeCookieValue,
+  verifyGodModeCookieValue,
+} from '@/lib/auth/god-mode-session'
+import {
+  constantTimeStringEqual,
+  hashSecret,
+  isHashedSecret,
+  secretMatches,
+} from '@/lib/auth/pin-hash'
 import { isMasterAdmin } from '@/lib/auth/roles'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
@@ -146,7 +157,14 @@ async function readStoredPin(): Promise<StoredPinResult> {
     }
   }
 
-  const storedValue = typeof result.data?.value === 'string' ? normalizePin(result.data.value) : ''
+  // 2026-08-15 (8. pont D): a DB-ben tárolt érték már scrypt-hash
+  // (`scrypt$só$hash`). Az örökölt, nyersen tárolt 6 számjegyet is elfogadjuk
+  // még — az első sikeres aktiválás hash-re írja át (lusta felminősítés).
+  const rawStored = typeof result.data?.value === 'string' ? result.data.value.trim() : ''
+  if (isHashedSecret(rawStored)) {
+    return { pin: rawStored, source: 'database', schemaReady: true }
+  }
+  const storedValue = normalizePin(rawStored)
   if (isValidPin(storedValue)) {
     return { pin: storedValue, source: 'database', schemaReady: true }
   }
@@ -234,7 +252,14 @@ export async function activateGodMode(pin: string) {
     }
   }
 
-  if (cleanedPin !== storedPin.pin) {
+  // 2026-08-15 (8. pont D): az összevetés minden ágon konstans idejű — a
+  // hash-elt tárolásnál scrypt+timingSafeEqual, az örökölt nyers értéknél
+  // (DB-legacy vagy env) kulcs-derivált timingSafeEqual.
+  const pinAzonos = isHashedSecret(storedPin.pin)
+    ? secretMatches(cleanedPin, storedPin.pin)
+    : constantTimeStringEqual(cleanedPin, storedPin.pin)
+
+  if (!pinAzonos) {
     await logAuditEvent(
       {
         action: AUDIT_ACTION_FAILED,
@@ -246,9 +271,33 @@ export async function activateGodMode(pin: string) {
     return { error: 'Hibás PIN-kód. Ellenőrizd a 6 számjegyet, majd próbáld újra.' }
   }
 
+  // Lusta felminősítés: a még nyersen tárolt DB-PIN-t sikeres egyezés után
+  // azonnal hash-re írjuk át. Ha az írás nem sikerül, az aktiválást nem
+  // akadályozza — a következő sikeres belépés újra megpróbálja.
+  let pinStorage: 'hashed' | 'legacy_upgraded' | 'env' = 'hashed'
+  if (storedPin.source === 'env') {
+    pinStorage = 'env'
+  } else if (!isHashedSecret(storedPin.pin)) {
+    pinStorage = 'legacy_upgraded'
+    const adminSupabase = createAdminClient()
+    if (adminSupabase) {
+      await adminSupabase.from(SETTINGS_TABLE).upsert(
+        {
+          key: GOD_MODE_SETTINGS_KEY,
+          value: hashSecret(cleanedPin),
+          updated_at: new Date().toISOString(),
+          updated_by: auth.user.id,
+        },
+        { onConflict: 'key' },
+      )
+    }
+  }
+
   const expiresAt = Date.now() + GOD_MODE_DURATION_MS
   const cookieStore = await cookies()
-  cookieStore.set('god_mode_until', String(expiresAt), {
+  // 2026-08-15 (8. pont D): a süti értéke HMAC-aláírt és a felhasználóhoz
+  // kötött — kliens-oldalról nem hamisítható (god-mode-session.ts).
+  cookieStore.set(GOD_MODE_COOKIE, signGodModeCookieValue(auth.user.id, expiresAt), {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
@@ -264,6 +313,7 @@ export async function activateGodMode(pin: string) {
         expires_at: new Date(expiresAt).toISOString(),
         session_duration_ms: GOD_MODE_DURATION_MS,
         pin_source: storedPin.source,
+        pin_storage: pinStorage,
       },
     },
     auth.supabase,
@@ -277,7 +327,13 @@ export async function deactivateGodMode() {
   if ('error' in auth) return { error: auth.error }
 
   const cookieStore = await cookies()
-  cookieStore.delete('god_mode_until')
+  cookieStore.delete(GOD_MODE_COOKIE)
+
+  // 2026-08-15 (8. pont D): a ki-bekapcsolás is látszódjon a naplóban.
+  await logAuditEvent(
+    { action: 'god_mode_deactivate', targetTable: 'god_mode' },
+    auth.supabase,
+  )
 
   // BIZTONSÁGI FONTOS: a god mode kilépésekor minden aktív admin_access_requests
   // sort érvényteleníteni kell, ami ehhez a master admin userhez tartozik.
@@ -302,15 +358,22 @@ export async function deactivateGodMode() {
 
 export async function getGodModeStatus(): Promise<{ active: boolean; expiresAt: number | null }> {
   const cookieStore = await cookies()
-  const cookie = cookieStore.get('god_mode_until')
+  const cookie = cookieStore.get(GOD_MODE_COOKIE)
 
   if (!cookie?.value) {
     return { active: false, expiresAt: null }
   }
 
-  const expiresAt = Number(cookie.value)
-  if (Date.now() >= expiresAt) {
-    cookieStore.delete('god_mode_until')
+  // 2026-08-15 (8. pont D): az aláírás-ellenőrzéshez kell a felhasználó — a
+  // süti a userhez kötött, hamisított/örökölt érték érvénytelen (fail-closed).
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  const expiresAt = verifyGodModeCookieValue(cookie.value, user?.id)
+  if (expiresAt === null) {
+    cookieStore.delete(GOD_MODE_COOKIE)
     return { active: false, expiresAt: null }
   }
 
@@ -341,8 +404,9 @@ export async function getGodModePinSettings() {
  * 2026-08-11 (#11): ez a függvény KIZÁRÓLAG a `god_mode_pin` sort írja.
  * A delegált import saját kulcsot használ (`system_settings.delegated_import_pin`),
  * amit külön kell felvenni/forgatni — lásd app/(dashboard)/delegated-import/actions.ts.
- * Amíg a dedikált sor nincs feltöltve, a delegált import átmenetileg még ezt a
- * PIN-t fogadja el, ezért ennek a forgatása a delegált importra is kihat.
+ * 2026-08-15 (8. pont D): a PIN hash-elve tárolódik, ezért a delegált import
+ * örökölt god-mode-PIN tartaléka innentől NEM működik — a visszatérő üzenet
+ * figyelmeztet, ha a dedikált delegált-import kulcs még hiányzik.
  */
 export async function updateGodModePin(pin: string) {
   const auth = await requireMasterAdmin()
@@ -362,10 +426,11 @@ export async function updateGodModePin(pin: string) {
     }
   }
 
+  // 2026-08-15 (8. pont D): a PIN mostantól CSAK hash-elve kerül a DB-be.
   const result = await adminSupabase.from(SETTINGS_TABLE).upsert(
     {
       key: GOD_MODE_SETTINGS_KEY,
-      value: cleanedPin,
+      value: hashSecret(cleanedPin),
       updated_at: new Date().toISOString(),
       updated_by: auth.user.id,
     },
@@ -389,5 +454,25 @@ export async function updateGodModePin(pin: string) {
     return { error: result.error.message }
   }
 
-  return { success: 'A rendszergazdai PIN sikeresen frissült.' }
+  // A hash-elt tárolás mellékhatása: a delegált import ÖRÖKÖLT tartaléka (ami
+  // a nyers god-mode PIN-t olvasta) többé nem működik — ez szándékos, de ha
+  // még nincs dedikált delegált-import PIN, hangosan szólunk.
+  let delegaltFigyelmeztetes: string | null = null
+  if (!process.env.DELEGATED_IMPORT_PIN) {
+    const dedikalt = await adminSupabase
+      .from(SETTINGS_TABLE)
+      .select('key')
+      .eq('key', 'delegated_import_pin')
+      .maybeSingle()
+    if (!dedikalt.data) {
+      delegaltFigyelmeztetes =
+        'Figyelem: a delegált import mostantól NEM fogadja el a rendszergazdai PIN-t (a PIN már hash-elve tárolódik). Ha delegált importot akarsz engedni, vedd fel a system_settings tábla delegated_import_pin sorát egy külön 6 jegyű kóddal.'
+    }
+  }
+
+  return {
+    success: delegaltFigyelmeztetes
+      ? `A rendszergazdai PIN sikeresen frissült. ${delegaltFigyelmeztetes}`
+      : 'A rendszergazdai PIN sikeresen frissült.',
+  }
 }
