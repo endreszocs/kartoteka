@@ -325,8 +325,13 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
       discounts: discounts.filter((d) => d.aktiv !== false).map(fmtDiscount),
       pastors: pastors.map((p) => ({ full_name: p.full_name, started_at: p.started_at, ended_at: p.ended_at })),
       status: congStatus,
+      // 2026-08-14 (4. pont): a publikus oldal slugja EDDIG betöltődött ide a
+      // szülőbe, de nem jutott el az összefoglalóig — a Megosztás gombnak kell.
+      // Az abszolút URL-t az összefoglaló építi (window.location.origin), így
+      // staging/lokál környezetben is a helyes címet osztja meg.
+      publicSlug: publicSite.enabled && publicSite.slug ? publicSite.slug : undefined,
     }
-  }, [form, dioceses, districtName, bankAccounts, discounts, pastors, congStatus])
+  }, [form, dioceses, districtName, bankAccounts, discounts, pastors, congStatus, publicSite])
 
   if (!congregationId) return null
   const activeCongregationId = congregationId

@@ -23,6 +23,25 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-14] — Gyülekezetünk adatai: megosztás, másolás, sötét mód, mobil · profil-javítások
+<!-- key: 2026-08-14-gyulekezetunk-adatai-megosztas -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+
+### ✨ Új funkciók
+
+- **Megosztás és Másolás gomb a „Gyülekezetünk adatai" ablakban.** A Megosztás a telefon natív megosztójával küldi tovább a főbb adatokat (név, cím, elérhetőségek, adószám, bankszámlák) — és ha a gyülekezet publikus oldala be van kapcsolva, a linkjét is. A Másolás ugyanezt szövegként a vágólapra teszi, levélbe-üzenetbe illeszthetően.
+- **Mezőnkénti másolás**: az adószám, az IBAN-ok, az e-mail, a telefon, a cím és a hivatalos név mellett kis másoló-gomb áll — nem kell kijelölgetni.
+- **Az e-mail, telefon és weboldal kattintható** — telefonon azonnal hívást/levelet indít.
+
+### 🎨 UX javítások
+
+- **Sötét módban olvasható lett az ablak** — eddig a kártyafejlécek világos pasztell sávok maradtak világos szöveggel.
+- **Mobilon nem lóg ki az IBAN és az adószám**, és a fejléc gombjai több sorba törnek, ha nem férnek el.
+- **A profil ablakban az e-mail cím többé nem vágódik le**, és a Szolgálati háttér fülön **végre megjelennek a beléptetéskor rögzített szolgálati előzmények** (hely, szerep, évtől–évig) — eddig a rendszer tárolta, de sosem mutatta őket.
+
+---
+
 ## [2026-08-14] — Kassza fül: kiemelt rögzítő gomb, napi igevers, okos dátum-alapérték
 <!-- key: 2026-08-14-kassza-cta-igevers-datum -->
 <!-- category: improvement -->
