@@ -89,5 +89,65 @@ if (dGate && dGate.includes('mfaSzukseges') && dGate.includes('getAuthenticatorA
   ok('F10: az AuthGate aal-ellenorzessel enged be')
 } else fail('F10: az AuthGate barmilyen sessiont beenged — 2FA-kerulout!')
 
+// ── D szelet (2026-08-15): god-mode + audit kemenyites ──────────────────────
+
+const godMode = read('apps/web/app/(dashboard)/god-mode/actions-v4.ts')
+const godSession = read('apps/web/lib/auth/god-mode-session.ts')
+const pinHash = read('apps/web/lib/auth/pin-hash.ts')
+const auditLog = read('apps/web/lib/audit/log.ts')
+const dashActions = read('apps/web/app/(dashboard)/actions.ts')
+const effAccess = read('apps/web/lib/auth/effective-access.ts')
+const guard = read('apps/web/app/(dashboard)/delegated-import/guard.ts')
+const optinSql = read('migration-docs/sql/2026-08-15-mfa-optin-rls.sql')
+
+// F11: a god-mode PIN sose hasonlitodik `!==`-vel, es hash-elve tarolodik
+if (
+  godMode && pinHash &&
+  !godMode.includes('cleanedPin !== storedPin.pin') &&
+  godMode.includes('secretMatches') &&
+  godMode.includes('hashSecret') &&
+  pinHash.includes('timingSafeEqual')
+) {
+  ok('F11: god-mode PIN scrypt-hash + konstans ideju osszevetes')
+} else fail('F11: a god-mode PIN tarolasa/osszevetese nem biztonsagos!')
+
+// F12: a god_mode_until suti HMAC-alairt es a felhasznalohoz kotott
+if (
+  godSession && godMode &&
+  godSession.includes('createHmac') && godSession.includes('timingSafeEqual') &&
+  godMode.includes('signGodModeCookieValue') && godMode.includes('verifyGodModeCookieValue')
+) {
+  ok('F12: a god-mode suti alairt (nem hamisithato)')
+} else fail('F12: a god-mode suti nyers epoch — hamisithato!')
+
+// F13: MINDEN suti-olvaso az alairas-ellenorzon at megy (nincs nyers Number())
+if (
+  effAccess && guard &&
+  effAccess.includes('verifyGodModeCookieValue') && !effAccess.includes('Number(cookie.value)') &&
+  guard.includes('verifyGodModeCookieValue') && !guard.includes('Number(raw)')
+) {
+  ok('F13: effective-access + delegalt-import kapuor is alairast ellenoriz')
+} else fail('F13: maradt nyers god-mode-suti-olvaso — kerulout!')
+
+// F14: az audit tolti az ip/user_agent mezot, es a sikertelen login + logout is naplozott
+if (
+  auditLog && login && dashActions &&
+  auditLog.includes('x-forwarded-for') && auditLog.includes('p_user_agent') &&
+  login.includes("'login_failed'") && dashActions.includes("action: 'logout'")
+) {
+  ok('F14: audit ip+eszkoz + login_failed + logout esemenyek')
+} else fail('F14: az audit-lefedettseg hianyos (ip/user_agent/login_failed/logout)!')
+
+// F15: az opt-in RLS migracio tartalmazza az auth-sema GRANT-okat
+// (2026-08-15 eles leallas tanulsaga: e nelkul minden lekerdezes 403!)
+if (
+  optinSql &&
+  optinSql.includes('GRANT USAGE ON SCHEMA auth TO authenticated') &&
+  optinSql.includes('GRANT SELECT ON auth.mfa_factors TO authenticated') &&
+  optinSql.includes('has_table_privilege')
+) {
+  ok('F15: az RLS-migracio auth-GRANT-okkal + jog-ellenorzessel szallit')
+} else fail('F15: az RLS-migraciobol hianyzik az auth-GRANT — 403-leallast okozna!')
+
 if (failed) { console.error('\n2FA selftest: HIBA'); process.exit(1) }
 console.log('\n2FA selftest: minden rendben ✅')

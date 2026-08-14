@@ -1,7 +1,8 @@
 'use server'
 
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import { loginSchema, type LoginInput } from '@/lib/validations/auth'
 import { logAuditEvent } from '@/lib/audit/log'
@@ -25,6 +26,12 @@ export async function signIn(data: LoginInput) {
   })
 
   if (error) {
+    // 2026-08-15 (8. pont D): a SIKERTELEN belépés is naplózódik — eddig a
+    // jelszó-próbálgatás láthatatlan volt az /admin/naplo felületen. Session
+    // nincs, ezért a service-role klienssel írunk közvetlenül; a próbált
+    // e-mail a metadata-ban van, a user_id üres marad.
+    await logFailedLogin(parsed.data.email, error.message)
+
     // Hibakódok fordítása
     if (error.message.includes('Email not confirmed')) {
       return { error: 'Kérem, erősítse meg az e-mail címét a fiókjába küldött linkkel!' }
@@ -97,4 +104,41 @@ export async function signIn(data: LoginInput) {
   // a /valassz-profilt mutatja a választót. Egyébként automatikusan átküld
   // a megfelelő dashboardra (1 vagy 0 szerep → az aktív profil-scope szerint).
   redirect('/valassz-profilt')
+}
+
+/**
+ * Sikertelen belépési kísérlet naplózása (2026-08-15, 8. pont D).
+ * Best-effort: az audit-írás hibája SOHA nem akadályozhatja a login-folyamot.
+ */
+async function logFailedLogin(email: string, reason: string) {
+  try {
+    const admin = createAdminClient()
+    if (!admin) return
+
+    let ip: string | null = null
+    let userAgent: string | null = null
+    try {
+      const h = await headers()
+      const forwarded = h.get('x-forwarded-for')
+      const rawIp = (forwarded ? forwarded.split(',')[0].trim() : h.get('x-real-ip')) || ''
+      // Az oszlop inet típusú — torz fejléc ne buktassa el az insertet.
+      ip = /^[0-9a-fA-F:.]{3,45}$/.test(rawIp) ? rawIp : null
+      userAgent = h.get('user-agent')?.slice(0, 400) || null
+    } catch {
+      // headers() kérés-kontextuson kívül — mezők üresen maradnak
+    }
+
+    await admin.from('audit_log').insert({
+      action: 'login_failed',
+      target_table: 'auth',
+      metadata: { email, reason: reason.slice(0, 200), method: 'password' },
+      ip,
+      user_agent: userAgent,
+    })
+  } catch (err) {
+    console.warn(
+      '[AUDIT] login_failed naplózás sikertelen:',
+      err instanceof Error ? err.message : err,
+    )
+  }
 }

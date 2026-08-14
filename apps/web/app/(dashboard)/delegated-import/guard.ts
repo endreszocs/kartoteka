@@ -4,6 +4,9 @@ import { cookies } from 'next/headers'
 
 import { assertCongregationInScope } from '@/lib/auth/admin-scope'
 import type { EffectiveAccessContext } from '@/lib/auth/effective-access'
+// A god-mode munkamenet sütije 2026-08-15 (8. pont D) óta HMAC-aláírt,
+// felhasználóhoz kötött érték — az ellenőrzés a közös modulon át történik.
+import { GOD_MODE_COOKIE, verifyGodModeCookieValue } from '@/lib/auth/god-mode-session'
 
 /**
  * Delegált import — SZERVEROLDALI kapuőr (2026-08-11, #16).
@@ -32,9 +35,6 @@ import type { EffectiveAccessContext } from '@/lib/auth/effective-access'
  */
 
 export const DELEGATED_IMPORT_COOKIE_PREFIX = 'delegated_import_'
-
-/** A god-mode munkamenet lejáratát tároló süti (god-mode/actions-v4.ts). */
-const GOD_MODE_COOKIE = 'god_mode_until'
 
 export function sanitizeModuleKey(moduleKey: string) {
   return (moduleKey || '').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40)
@@ -106,11 +106,11 @@ export async function assertDelegatedImportAllowed(
     return { ok: true, grant: 'delegated' }
   }
 
-  // 2) Master admin aktív god-mode munkamenete.
+  // 2) Master admin aktív god-mode munkamenete — aláírás-ellenőrzéssel
+  //    (2026-08-15, 8. pont D: a nyers epoch-süti hamisítható volt).
   if (access.master) {
     const raw = cookieStore.get(GOD_MODE_COOKIE)?.value
-    const until = Number(raw)
-    if (raw && Number.isFinite(until) && Date.now() < until) {
+    if (verifyGodModeCookieValue(raw, access.user.id) !== null) {
       return { ok: true, grant: 'god_mode' }
     }
   }

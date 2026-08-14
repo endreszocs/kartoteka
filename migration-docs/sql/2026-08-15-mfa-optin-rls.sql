@@ -35,6 +35,14 @@
 
 BEGIN;
 
+-- ⚠️ KRITIKUS (2026-08-15 hotfix, élesben tanulva): a policy subquery-je a
+-- LEKÉRDEZŐ (authenticated) szerep nevében olvassa az auth.mfa_factors-t.
+-- E két GRANT nélkül a policy kiértékelése SQL-hibára fut, és a PostgREST
+-- MINDEN lekérdezésre 403-at ad → teljes app-leállás. A GRANT nem nyit
+-- REST-kaput: a PostgREST csak a public sémát szolgálja ki.
+GRANT USAGE ON SCHEMA auth TO authenticated;
+GRANT SELECT ON auth.mfa_factors TO authenticated;
+
 DO $$
 DECLARE
   -- A védett adat-táblák. A profiles/profile_roles SZÁNDÉKOSAN NINCS itt:
@@ -87,3 +95,11 @@ LEFT JOIN pg_policies p
        ON p.schemaname = 'public' AND p.tablename = t.tabla
       AND p.policyname = 'mfa_opt_in_aal2'
 ORDER BY t.tabla;
+
+-- A jogosultság-ellenőrzés — a policy-létezés önmagában HAMIS NYUGALOM
+-- (az editor postgresként fut, a jog-hiány ott nem jön elő):
+SELECT
+  CASE WHEN has_schema_privilege('authenticated', 'auth', 'USAGE')
+       THEN '✅' ELSE '❌ HIÁNYZIK — 403-leállás jön!' END AS auth_sema_usage,
+  CASE WHEN has_table_privilege('authenticated', 'auth.mfa_factors', 'SELECT')
+       THEN '✅' ELSE '❌ HIÁNYZIK — 403-leállás jön!' END AS mfa_factors_select;
