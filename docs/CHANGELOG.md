@@ -23,6 +23,19 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-14] — Lelkészi jelentés: számadás-egyezés, bibliaóra-bontás, többéves Adatlap grafikonokkal
+<!-- key: 2026-08-14-jelentes-vii-adatlap-grafikon -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+
+### ✨ Új funkciók
+
+- **A VII. fejezet (Anyagi helyzet) kötelezően egyezik a Számadással**: az előző évi maradvány az előző évi véglegesített jelentés egyenlegéből, a kintlévőség és a kifizetési kötelezettségek a Számadás hivatalos soraiból (a Tartozások-rögzítőből) számolódnak — kézi átírás és eltérés-lehetőség nélkül.
+- **Bibliaórák típusonként** (III. fejezet): a presbiteri, nőszövetségi, házasok és a Más bibliaóra 1–2 alkalmai külön sort kaptak, a hivatalos űrlap bontása szerint.
+- **Adatlap — többéves összehasonlítás**: a nyomtatott jelentés záró lapja a korábbi évek véglegesített jelentéseiből épülő táblázat (lélekszám, keresztelők/temetések, templomlátogatás, úrvacsora, katekézis, pénzügyek — legfeljebb 10 év) **és két áttekintő grafikon** (lélekszám, vasárnap délelőtti átlagjelenlét). Ahogy évről évre véglegesíted a jelentést, az összehasonlítás magától épül.
+
+---
+
 ## [2026-08-14] — Lelkészi jelentés: a II. fejezet hivatalos képletei
 <!-- key: 2026-08-14-jelentes-ii-fejezet-kepletek -->
 <!-- category: improvement -->

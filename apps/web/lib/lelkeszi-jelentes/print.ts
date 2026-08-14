@@ -21,6 +21,7 @@
 //  - HTML-escape MINDEN szabad szövegen (kézi mezők, hatarozat, gyülekezetnév).
 
 import {
+  ADATLAP_MEZO_IDS,
   FEJEZET_CIMEK,
   JELENTES_MEZOK,
   mezoErtek,
@@ -28,6 +29,7 @@ import {
   type JelentesMezo,
   type LelkesziJelentesData,
 } from './types'
+import { epitOszlopdiagram, type AdatlapPont } from './adatlap-svg'
 
 // ---------------------------------------------------------------------------
 // Segédfüggvények
@@ -174,6 +176,13 @@ const STYLES = `
     .fejezet { margin-bottom: 9mm; }
     .fejezet-cim { text-align: center; font-size: 12pt; font-weight: bold; margin: 0 0 5mm; page-break-after: avoid; break-after: avoid; }
     .fejezet + .fejezet .fejezet-cim { margin-top: 4mm; }
+    /* 2026-08-14 (18. pont 4): Adatlap — többéves tábla + grafikonok */
+    .adatlap-tabla { width: 100%; border-collapse: collapse; font-size: 9pt; margin: 4mm 0 6mm; }
+    .adatlap-tabla th, .adatlap-tabla td { border: 0.3mm solid #333; padding: 1mm 2mm; text-align: left; }
+    .adatlap-tabla th.szam, .adatlap-tabla td.szam { text-align: right; font-variant-numeric: tabular-nums; }
+    .adatlap-grafikon { margin: 5mm 0; page-break-inside: avoid; break-inside: avoid; }
+    .adatlap-jegyzet { font-size: 9pt; color: #555; margin: 0 0 3mm; }
+    .adatlap-tabla .ures { color: #999; }
     table.mezok { width: 100%; border-collapse: collapse; margin-bottom: 3mm; }
     table.mezok td { padding: 1.2mm 1mm; vertical-align: top; border-bottom: 0.4pt solid #e2e8f0; font-size: 9.5pt; }
     tr { page-break-inside: avoid; break-inside: avoid; }
@@ -335,6 +344,59 @@ const LAP_KIOSZTAS: JelentesFejezet[][] = [
  * A teljes hivatalos lelkészi jelentés önálló HTML-dokumentuma (címlap +
  * I–X. fejezet). Pure függvény — a hívó iframe srcDoc-ba tölti és nyomtatja.
  */
+// ---------------------------------------------------------------------------
+// Adatlap — többéves összehasonlítás (2026-08-14, 18. pont 4. szelet)
+// ---------------------------------------------------------------------------
+
+/** Egy mező számként feloldva (a mezoErtek szöveg-értéke számmá nem erőltethető → null). */
+function mezoSzam(data: LelkesziJelentesData, mezoId: string): number | null {
+  const v = mezoErtek(data, mezoId)
+  if (v === null || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+/**
+ * Az Adatlap-lap: a hivatalos munkafüzet többéves összehasonlító táblája
+ * (korábbi VÉGLEGESÍTETT évek + a tárgyév) és két áttekintő grafikon.
+ * Korábbi év adata nélkül is kirajzolódik (csak a tárgyév oszlopával).
+ */
+function adatlapHtml(data: LelkesziJelentesData, oldalszam: number): string {
+  const koradatok = data.tobbEvesAdatok ?? []
+  const evek = [...koradatok.map((k) => k.ev), data.ev]
+
+  const sorErtek = (mezoId: string, ev: number): number | null => {
+    if (ev === data.ev) return mezoSzam(data, mezoId)
+    return koradatok.find((k) => k.ev === ev)?.mezok[mezoId] ?? null
+  }
+  const fmtCell = (n: number | null): string =>
+    n === null ? '<span class="ures">–</span>' : String(Math.abs(n) >= 100 ? Math.round(n) : Math.round(n * 10) / 10)
+
+  const sorok = ADATLAP_MEZO_IDS.map((mezoId) => {
+    const mezo = JELENTES_MEZOK.find((m) => m.id === mezoId)
+    if (!mezo) return ''
+    const cellak = evek.map((ev) => `<td class="szam">${fmtCell(sorErtek(mezoId, ev))}</td>`).join('')
+    return `<tr><td>${esc(mezo.label)}${mezo.egyseg ? ` (${esc(mezo.egyseg)})` : ''}</td>${cellak}</tr>`
+  }).join('')
+
+  const pontok = (mezoId: string): AdatlapPont[] => evek.map((ev) => ({ ev, ertek: sorErtek(mezoId, ev) }))
+  const grafikonok = [
+    epitOszlopdiagram('Lélekszám alakulása', pontok('I.10'), 'fő'),
+    epitOszlopdiagram('Vasárnap délelőtti átlagjelenlét', pontok('II.1b'), 'fő'),
+  ].filter(Boolean)
+
+  return `<section class="sheet">
+    <div class="fejezet-cim">Adatlap — többéves összehasonlítás</div>
+    ${koradatok.length === 0 ? '<p class="adatlap-jegyzet">Korábbi véglegesített jelentés még nincs — a tábla a tárgyévet mutatja; a következő évektől az összehasonlítás magától épül.</p>' : ''}
+    <table class="adatlap-tabla">
+      <thead><tr><th>Mutató</th>${evek.map((ev) => `<th class="szam">${ev}</th>`).join('')}</tr></thead>
+      <tbody>${sorok}</tbody>
+    </table>
+    ${grafikonok.map((g) => `<div class="adatlap-grafikon">${g}</div>`).join('')}
+    <div class="oldalszam">${oldalszam}</div>
+  </section>`
+}
+
 export function buildLelkesziJelentesHtml(data: LelkesziJelentesData): string {
   const lapok = LAP_KIOSZTAS.map((fejezetek, idx) => {
     const tartalom = fejezetek.map((f) => fejezetHtml(data, f)).join('')
@@ -345,6 +407,9 @@ export function buildLelkesziJelentesHtml(data: LelkesziJelentesData): string {
       </section>`
   }).join('')
 
+  // 2026-08-14 (18. pont 4): záró Adatlap-lap — többéves tábla + grafikonok.
+  const adatlap = adatlapHtml(data, LAP_KIOSZTAS.length + 2)
+
   const title = `Lelkészi jelentés ${data.ev} — ${data.congregationName}`
-  return `<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8" /><title>${esc(title)}</title><style>${STYLES}</style></head><body>${cimlapHtml(data)}${lapok}</body></html>`
+  return `<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8" /><title>${esc(title)}</title><style>${STYLES}</style></head><body>${cimlapHtml(data)}${lapok}${adatlap}</body></html>`
 }

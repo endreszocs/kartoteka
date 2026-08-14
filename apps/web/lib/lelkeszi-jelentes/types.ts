@@ -153,6 +153,13 @@ export const JELENTES_MEZOK: JelentesMezo[] = [
   // ── III. Gyülekezetgondozás ──────────────────────────────────────────────
   { id: 'III.1', fejezet: 'III', label: 'Felnőtt bibliaórák száma', tipus: 'szam', auto: true, egyseg: 'alkalom' },
   { id: 'III.2', fejezet: 'III', label: 'Ifjúsági bibliaórák (IKE) száma', tipus: 'szam', auto: true, egyseg: 'alkalom' },
+  // 2026-08-14 (18. pont 3D — spec III.1: típusonkénti bontás): ÚJ,
+  // append-only mezők a hivatalos taxonómia bibliaóra-típusaira.
+  { id: 'III.2b', fejezet: 'III', label: 'Presbiteri bibliaórák száma', tipus: 'szam', auto: true, egyseg: 'alkalom' },
+  { id: 'III.2c', fejezet: 'III', label: 'Nőszövetségi bibliaórák száma', tipus: 'szam', auto: true, egyseg: 'alkalom' },
+  { id: 'III.2d', fejezet: 'III', label: 'Házasok bibliaórái — alkalmak', tipus: 'szam', auto: true, egyseg: 'alkalom' },
+  { id: 'III.2e', fejezet: 'III', label: 'Más bibliaóra 1 — alkalmak (megnevezés a megjegyzésben)', tipus: 'szam', auto: true, egyseg: 'alkalom' },
+  { id: 'III.2f', fejezet: 'III', label: 'Más bibliaóra 2 — alkalmak (megnevezés a megjegyzésben)', tipus: 'szam', auto: true, egyseg: 'alkalom' },
   { id: 'III.3', fejezet: 'III', label: 'Vallásos ünnepélyek száma', tipus: 'szam', auto: true, egyseg: 'alkalom' },
   { id: 'III.4', fejezet: 'III', label: 'Szeretetvendégségek száma', tipus: 'szam', auto: false, egyseg: 'alkalom' },
   { id: 'III.5', fejezet: 'III', label: 'Imaheti alkalmak száma', tipus: 'szam', auto: true, egyseg: 'alkalom' },
@@ -219,7 +226,9 @@ export const JELENTES_MEZOK: JelentesMezo[] = [
   // Zárszámadás: a VÉGLEGESÍTETT számadás kanonikus snapshotjából
   // (bealitas.szamadas_zaro_adatok). Amíg nincs véglegesített számadás,
   // a b/c mezők null-ok — a UI ezt jelzi.
-  { id: 'VII.5', fejezet: 'VII', label: 'Zárszámadás — előző évi maradvány (a)', tipus: 'szam', auto: false, egyseg: 'RON' },
+  // 2026-08-14 (18. pont 3D): AUTO — az előző évi VÉGLEGESÍTETT jelentés
+  // egyenlege (VII.8); anélkül null marad, kézzel tölthető.
+  { id: 'VII.5', fejezet: 'VII', label: 'Zárszámadás — előző évi maradvány (a)', tipus: 'szam', auto: true, egyseg: 'RON' },
   { id: 'VII.6', fejezet: 'VII', label: 'Zárszámadás — évi bevétel (b)', tipus: 'szam', auto: true, egyseg: 'RON' },
   { id: 'VII.7', fejezet: 'VII', label: 'Zárszámadás — évi kiadás (c)', tipus: 'szam', auto: true, egyseg: 'RON' },
   { id: 'VII.8', fejezet: 'VII', label: 'Zárszámadás — egyenleg (a + b − c)', tipus: 'szam', auto: true, egyseg: 'RON' },
@@ -228,8 +237,11 @@ export const JELENTES_MEZOK: JelentesMezo[] = [
   // a kintlevő egyházfenntartói járulék, mivel nem tervezhető és nem behajtható.
   // … Nem számíthatnak kinnlevőségnek a csak megígért adományok, perselypénz stb."
   // Az id NEM változhat (jsonb-kulcs) — csak a felirat mond mást.
-  { id: 'VII.9', fejezet: 'VII', label: 'Kintlévőség (bérleti díj, kiadott hitel stb. — az egyházfenntartói járulék-hátralék NEM számít bele)', tipus: 'szam', auto: false, egyseg: 'RON' },
-  { id: 'VII.10', fejezet: 'VII', label: 'Kifizetési kötelezettségek', tipus: 'szam', auto: false, egyseg: 'RON' },
+  // 2026-08-14 (18. pont 3D): AUTO — a Számadás hivatalos 129–133. ill.
+  // 117–127. sorainak összege (a Tartozások-rögzítőből, bealitas.
+  // szamadas_tartozasok) — a jelentés így KÖTELEZŐEN egyezik a számadással.
+  { id: 'VII.9', fejezet: 'VII', label: 'Kintlévőség (bérleti díj, kiadott hitel stb. — az egyházfenntartói járulék-hátralék NEM számít bele)', tipus: 'szam', auto: true, egyseg: 'RON' },
+  { id: 'VII.10', fejezet: 'VII', label: 'Kifizetési kötelezettségek', tipus: 'szam', auto: true, egyseg: 'RON' },
 
   // ── VIII. Ingatlanok (kézi fejezet) ──────────────────────────────────────
   { id: 'VIII.1', fejezet: 'VIII', label: 'Ingatlanok állapota, változások', tipus: 'hosszu_szoveg', auto: false },
@@ -323,6 +335,23 @@ export interface HatarozatAdatok {
   fogondnok: string
 }
 
+/** 2026-08-14 (18. pont 4): egy korábbi év kivonata az Adatlaphoz. */
+export interface TobbEvesEv {
+  ev: number
+  /** ADATLAP_MEZO_IDS szerinti feloldott értékek (felülírás > auto > kézi). */
+  mezok: Record<string, number | null>
+}
+
+/**
+ * Az Adatlap (többéves összehasonlítás) sorai — a hivatalos munkafüzet
+ * Adatlap-lapjának kulcs-mutatói. Bővíthető (append-only), a sorrend a
+ * nyomtatvány sor-sorrendje.
+ */
+export const ADATLAP_MEZO_IDS = [
+  'I.10', 'I.2c', 'I.3c', 'II.1a', 'II.1b', 'II.1c', 'II.12',
+  'V.3', 'III.7', 'VII.1', 'VII.3', 'VII.8',
+] as const
+
 export interface LelkesziJelentesData {
   ev: number
   congregationName: string
@@ -338,6 +367,13 @@ export interface LelkesziJelentesData {
   felulirasok: Record<string, number | string | null>
   hatarozat: Partial<HatarozatAdatok>
   statusz: 'szerkesztes' | 'veglegesitve'
+  /**
+   * 2026-08-14 (18. pont 4): a korábbi évek VÉGLEGESÍTETT jelentéseinek
+   * kivonata az Adatlaphoz (legfeljebb 9 előző év, növekvő sorrendben).
+   * A nyomtatvány többéves táblát + grafikonokat rajzol belőle; hiányában
+   * az Adatlap csak a tárgyévet mutatja.
+   */
+  tobbEvesAdatok?: TobbEvesEv[]
   veglegesitveAt: string | null
 }
 
