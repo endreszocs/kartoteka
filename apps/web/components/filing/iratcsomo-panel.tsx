@@ -61,6 +61,8 @@ import {
   setIratcsomoLezarva,
 } from '@/app/(dashboard)/iktato/csomo-actions'
 import { getFilingEntries } from '@/app/(dashboard)/iktato/actions'
+import { getCongregationHeader } from '@/app/(dashboard)/iktato/szemely-actions'
+import { iratKepekBeagyazva, type IratKepek } from '@/lib/iktato/irat-kepek'
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
 
 export interface IratcsomoPanelProps {
@@ -671,6 +673,33 @@ function CsomoLeltarDialog({
   const [printing, setPrinting] = useState(false)
   const [savingPdf, setSavingPdf] = useState(false)
 
+  // 24. pont: pecsét + aláírás kép a leltár-nyomtatványra — az ablak
+  // megnyitásakor töltjük be, data: URI-ként beágyazva (irat-kepek helper):
+  // az élő előnézet-iframe minden mód-váltásnál teljes srcDoc-újratöltést
+  // kap, a PDF-mentés (html2canvas) pedig a más-originű képet CORS miatt
+  // kihagyhatná. Hibánál némán kép nélkül készül a leltár (mai forma).
+  const [iratKepek, setIratKepek] = useState<IratKepek>({ pecsetUrl: null, alairasUrl: null })
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await getCongregationHeader()
+        if (cancelled || res.error || !res.header) return
+        const kepek = await iratKepekBeagyazva({
+          pecsetUrl: res.header.pecsetUrl,
+          alairasUrl: res.header.alairasUrl,
+        })
+        if (!cancelled) setIratKepek(kepek)
+      } catch {
+        // Néma: a leltár kép nélkül is teljes értékű.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
   const html = useMemo(
     () =>
       buildCsomoLeltarHtml({
@@ -678,8 +707,10 @@ function CsomoLeltarDialog({
         csomo,
         entries,
         grouped: mode === 'ugykor',
+        pecsetKepUrl: iratKepek.pecsetUrl,
+        alairasKepUrl: iratKepek.alairasUrl,
       }),
-    [congregationName, csomo, entries, mode],
+    [congregationName, csomo, entries, mode, iratKepek],
   )
 
   // Fit-to-width előnézet: a konténer szélességét mérjük, a lapot arányosan
@@ -893,8 +924,13 @@ function buildCsomoLeltarHtml(params: {
   csomo: Iratcsomo
   entries: FilingEntryWithCsomo[]
   grouped: boolean
+  /** 24. pont: a gyülekezet pecsét-képe (data: URI) — a két aláírás KÖZÉ,
+   *  halványan. Hiányában a leltár a mai formájában készül. */
+  pecsetKepUrl?: string | null
+  /** 24. pont: a lelkipásztori aláírás képe — az „Összeállította" vonal FÖLÉ. */
+  alairasKepUrl?: string | null
 }): string {
-  const { congregationName, csomo, entries, grouped } = params
+  const { congregationName, csomo, entries, grouped, pecsetKepUrl, alairasKepUrl } = params
 
   let body: string
   if (!grouped) {
@@ -947,9 +983,15 @@ function buildCsomoLeltarHtml(params: {
     td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
     td .sub { font-size: 8pt; color: #64748b; }
     .total { margin-top: 10px; font-size: 10pt; font-weight: 600; }
-    .signature-row { margin-top: 36px; display: flex; gap: 24px; justify-content: space-between; break-inside: avoid; }
+    .signature-row { margin-top: 36px; display: flex; gap: 24px; justify-content: space-between; align-items: flex-end; break-inside: avoid; }
     .signature-block { flex: 1; text-align: center; font-size: 10pt; }
     .signature-block .line { border-top: 1px solid #1f2937; margin: 36px 8px 4px 8px; }
+    /* 24. pont: feltöltött pecsét- és aláírás-kép — a pecsét halványan a két
+       aláírás KÖZÖTT, az aláírás-kép a vonal FÖLÉ, kissé rálógva. Kép híján
+       egyik sem jelenik meg (a leltár a mai formájában marad). */
+    .pecset-kep { width: 35mm; height: 35mm; object-fit: contain; opacity: .88; flex: 0 0 auto; align-self: center; }
+    .signature-block .kep-vonal { position: relative; margin: 36px 8px 4px 8px; border-top: 1px solid #1f2937; }
+    .signature-block .kep-vonal img { position: absolute; left: 50%; bottom: -1px; transform: translateX(-50%); max-height: 15mm; max-width: 55mm; object-fit: contain; }
     .printed { margin-top: 18px; text-align: right; font-size: 9pt; color: #64748b; }
     @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
   </style></head><body>
@@ -968,7 +1010,12 @@ function buildCsomoLeltarHtml(params: {
     <p class="total">Összesen: ${entries.length} irat</p>
 
     <div class="signature-row">
-      <div class="signature-block"><div class="line"></div>Összeállította</div>
+      <div class="signature-block">${
+        alairasKepUrl
+          ? `<div class="kep-vonal"><img src="${escapeHtml(alairasKepUrl)}" alt="" /></div>`
+          : '<div class="line"></div>'
+      }Összeállította</div>
+      ${pecsetKepUrl ? `<img class="pecset-kep" src="${escapeHtml(pecsetKepUrl)}" alt="" />` : ''}
       <div class="signature-block"><div class="line"></div>Ellenőrizte</div>
     </div>
 

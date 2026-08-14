@@ -71,9 +71,11 @@ type WizardStep = 'overview' | 'checks' | 'jegyzokonyv' | 'confirm' | 'done'
  *
  * Ezért azonos útvonalnál a FinanceTabs már meglévő `finance-tab-switch`
  * CustomEvent-jét küldjük: az a valódi füleket átváltja (és a saját effektje
- * frissíti utána az URL hash-t), az `oblio_ellenorzes` a teljes képernyős
- * modált, a `monetary` a lebegő widgetet nyitja. Más útvonalról (védelmi ág)
- * marad a sima `router.push`, ott a lapváltás úgyis kiolvassa a hash-t.
+ * frissíti utána az URL hash-t), a `monetary` a lebegő widgetet nyitja.
+ * (Az `oblio_ellenorzes` cél 2026-08-15, Endre óta MÁSIK OLDAL:
+ * `/dokumentumtar#oblio` — más útvonal, tehát a sima `router.push` ág viszi.)
+ * Más útvonalról (védelmi ág) marad a sima `router.push`, ott a lapváltás
+ * úgyis kiolvassa a hash-t.
  */
 function navigateToFixTarget(router: ReturnType<typeof useRouter>, url: string) {
   const [path, hash] = url.split('#')

@@ -66,6 +66,14 @@ export interface CongregationHeaderData {
   web: string | null
   /** congregations.cimer_url — a fejléc-címer (logó) képe. */
   cimerUrl: string | null
+  /** congregations.pecset_url — a hivatalos pecsét képe a nyomtatványokra
+   *  (24. pont). NULL, amíg nincs feltöltve VAGY a migráció még nem futott le
+   *  (2026-08-15-iktato-pecset-alairas.sql) — a nyomtatványok ilyenkor a mai
+   *  formájukban maradnak. */
+  pecsetUrl: string | null
+  /** congregations.alairas_url — a lelkipásztori aláírás képe: az aláíró
+   *  neve/vonala FÖLÉ kerül a nyomtatványokon (24. pont). NULL-nál üres vonal. */
+  alairasUrl: string | null
   /** A gyülekezet helységének MAGYAR neve (adrlocality.name_hu, fallback:
    *  a szabad szöveges varos mező) — a magyar keltezés-sorhoz (F8c). */
   helysegHu: string | null

@@ -71,7 +71,11 @@ const WEB_FINANCE_SUBMENU = [
   { label: 'Tartozások', href: '/penzugy#debt', icon: Coins, gradient: 'from-orange-400 to-red-500' },
   { label: 'Bérleti szerződések', href: '/penzugy#rental', icon: Building2, gradient: 'from-amber-400 to-yellow-500' },
   { label: 'Monetár', href: '/penzugy#monetary', icon: CreditCard, gradient: 'from-slate-400 to-slate-600' },
-  { label: 'Oblio ellenőrzés', href: '/penzugy#oblio_ellenorzes', icon: Inbox, gradient: 'from-cyan-400 to-blue-500' },
+  // Endre 2026-08-15: az „Oblio ellenőrzés" (modál) helyett a „Számlák
+  // egyeztetése" hub — /dokumentumtar oldal, három füllel (Oblio egyeztetés +
+  // Dokumentumtár + Kifizetetlen számlák). A régi /penzugy#oblio_ellenorzes
+  // hash-t a finance-tabs átirányítja ide (könyvjelző-kompatibilitás).
+  { label: 'Számlák egyeztetése', href: '/dokumentumtar', icon: Inbox, gradient: 'from-cyan-400 to-blue-500' },
   { label: 'Súgó', href: '/penzugy#sugo', icon: HelpCircle, gradient: 'from-teal-400 to-cyan-500' },
 ] as const
 

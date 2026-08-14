@@ -149,9 +149,16 @@ function datumSzoveg(iso: string | null): string {
 
 interface DokumentumtarMainProps {
   congregationName: string
+  /**
+   * Endre 2026-08-15: a „Számlák egyeztetése" hubba ágyazva a Kifizetetlen
+   * számlák belépő NE külön oldalra navigáljon, hanem a hub fülét váltsa
+   * (a felhasználó ne „essen ki" a hubból). Ha nincs megadva, marad a
+   * /dokumentumtar/kifizetetlen oldalra navigálás (önálló használat).
+   */
+  onOpenKifizetetlen?: () => void
 }
 
-export function DokumentumtarMain({ congregationName }: DokumentumtarMainProps) {
+export function DokumentumtarMain({ congregationName, onOpenKifizetetlen }: DokumentumtarMainProps) {
   // ── Nézet + szűrők ───────────────────────────────────────────
   const [nezet, setNezet] = useState<Nezet>('osszes')
   const [keresesInput, setKeresesInput] = useState('')
@@ -401,7 +408,7 @@ export function DokumentumtarMain({ congregationName }: DokumentumtarMainProps) 
 
       {/* ── 7C: jól látható belépés a Kifizetetlen számlák ablakba,
              élő szám-jelvénnyel (hány kifizetetlen + hány lejárt) ── */}
-      <KifizetetlenBelepo />
+      <KifizetetlenBelepo onOpen={onOpenKifizetetlen} />
 
       {/* ── Kategória-kártyák (élő darabszámmal, kattintva szűr) ── */}
       <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">

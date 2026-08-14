@@ -58,6 +58,8 @@ export const A4_H_PX = 1122.52
  *  - `.doc-torzs` · `p` · `p.doc-sor` · `p.doc-megszolitas` · `p.doc-udvarlas`
  *  - `.alairas-sor` · `.alairas-kelt` · `.alairas-blokk` · `.alairas-vonal`
  *    · `.alairas-nev` · `.alairas-szerep` · `.pecset-hely`
+ *  - `.pecset-kep` · `.alairas-vonal--keppel` · `.alairas-kep` — a feltöltött
+ *    pecsét-/aláírás-kép elhelyezése (24. pont; kép híján nem jelennek meg)
  */
 export function dokumentumStilus(): string {
   return `
@@ -173,6 +175,22 @@ export function dokumentumStilus(): string {
     .alairas-szerep { font-size: 10.5pt; }
     /* Pecsét-hely: a hivatalos gyakorlat szerint 35 × 35 mm. */
     .pecset-hely { width: 35mm; height: 35mm; flex: 0 0 auto; }
+
+    /* ── Feltöltött pecsét- és aláírás-kép (24. pont) ──
+       A pecsét az aláírás-sor KÖZEPÉN áll (a space-between középső eleme:
+       kelt · pecsét · aláírás-blokk), enyhén halványítva — mintha valóban
+       rá lenne ütve a papírra. Az aláírás-kép a vonal FÖLÉ kerül, kicsit
+       rálógva (mint egy valódi aláírás); kép híján egyik elem sem jelenik
+       meg, a nyomtatvány a mai formájában marad. */
+    .pecset-kep {
+      width: 35mm; height: 35mm; object-fit: contain;
+      opacity: .88; flex: 0 0 auto; align-self: center;
+    }
+    .alairas-vonal--keppel { display: flex; align-items: flex-end; justify-content: center; }
+    .alairas-kep {
+      max-height: 14mm; max-width: 58mm; object-fit: contain;
+      display: block; margin-bottom: -0.6mm;
+    }
 
     /* ── Nyomtatás ── */
     @media print {

@@ -292,6 +292,28 @@ export async function getCongregationHeader(): Promise<{
   if (error) return { header: null, error: `Gyülekezeti adatok lekérése sikertelen: ${error.message}` }
   if (!data) return { header: null, error: 'A gyülekezet nem található.' }
 
+  // ── Pecsét + aláírás kép (24. pont) — KÜLÖN, elnyelt hibájú lekérdezés ──
+  // A pecset_url/alairas_url oszlopokat a 2026-08-15-iktato-pecset-alairas.sql
+  // adja hozzá. SZÁNDÉKOSAN nem a fő selectben kérjük: amíg a migráció nem
+  // futott le élesben (MEMORY: a migration-fájl NEM bizonyíték), a fő select
+  // „column does not exist" hibával az EGÉSZ fejlécet (és vele a kiállítót)
+  // vinné el. A képek opcionális díszítés → hiányzó oszlopnál némán null,
+  // minden nyomtatvány a mai formájában marad.
+  let pecsetUrlNyers: string | null = null
+  let alairasUrlNyers: string | null = null
+  {
+    const { data: kepRow, error: kepError } = await supabase
+      .from('congregations')
+      .select('pecset_url, alairas_url')
+      .eq('id', congId)
+      .maybeSingle()
+    if (!kepError && kepRow) {
+      const k = kepRow as { pecset_url: string | null; alairas_url: string | null }
+      pecsetUrlNyers = clean(k.pecset_url) || null
+      alairasUrlNyers = clean(k.alairas_url) || null
+    }
+  }
+
   type NevPar = { name_hu: string | null; name_ro: string | null } | null
   const row = data as {
     name: string | null; nev_hu: string | null; nev_ro: string | null; nev_en: string | null
@@ -404,6 +426,8 @@ export async function getCongregationHeader(): Promise<{
       cif: clean(row.adoszam) || null,
       web: clean(row.web) || null,
       cimerUrl: clean(row.cimer_url) || null,
+      pecsetUrl: pecsetUrlNyers,
+      alairasUrl: alairasUrlNyers,
     },
     error: null,
   }
