@@ -46,6 +46,15 @@ interface ProfileDialogData {
     bio: string
     ministryNotes: string
   }
+  /** 2026-08-14 (1. pont, 2. fele): az AUTOMATIKUS szolgálati-hely napló
+   *  (szolgalati_hely_naplo — a profiles-trigger írja). */
+  helyNaplo?: Array<{
+    id: string
+    congregationNev: string | null
+    elozoCongregationNev: string | null
+    jelleg: 'kezdeti' | 'valtozas'
+    createdAt: string
+  }>
   /** 2026-08-14 (1. pont): strukturált szolgálati előzmények (pastor_service_history). */
   serviceHistory?: Array<{
     id: string
@@ -378,6 +387,40 @@ export function ProfileDialog({ open, onOpenChange, profile }: ProfileDialogProp
               </TabsContent>
 
               <TabsContent value="szolgalat" className="space-y-4 pt-4">
+                {/* 2026-08-14 (1. pont, 2. fele): az AUTOMATIKUS hely-napló —
+                    hol szolgál MOST, mióta, és a korábbi áthelyezések. A sorokat
+                    a rendszer írja (profiles-trigger), nem kézzel karbantartott. */}
+                {(data?.helyNaplo?.length ?? 0) > 0 && (
+                  <ProfileCard title="Szolgálati hely — automatikus napló" icon={<MapPin className="size-4" />}>
+                    <div className="space-y-2">
+                      {data!.helyNaplo!.map((n, i) => (
+                        <div key={n.id} className="min-w-0 rounded-[1rem] bg-slate-50/90 px-4 py-3">
+                          <p className="break-words text-sm font-semibold text-slate-700">
+                            {n.jelleg === 'kezdeti'
+                              ? n.congregationNev || '—'
+                              : n.congregationNev
+                                ? `${n.elozoCongregationNev || '(nincs korábbi)'} → ${n.congregationNev}`
+                                : `${n.elozoCongregationNev || '—'} → (megszűnt a hozzárendelés)`}
+                            {i === 0 && n.congregationNev && (
+                              <span className="ml-2 rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-medium text-teal-700">jelenlegi</span>
+                            )}
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {n.jelleg === 'kezdeti' ? 'Nyilvántartásba véve: ' : 'Áthelyezés: '}
+                            {new Date(n.createdAt).toLocaleDateString('hu-HU', { year: 'numeric', month: 'long', day: 'numeric' })}
+                          </p>
+                        </div>
+                      ))}
+                      {data?.createdAt && (
+                        <p className="px-1 text-[11px] text-slate-400">
+                          Kartotéka-regisztráció: {new Date(data.createdAt).toLocaleDateString('hu-HU', { year: 'numeric', month: 'long', day: 'numeric' })}
+                          {' '}· áthelyezéskor a rendszer automatikusan naplóz és értesítést küld.
+                        </p>
+                      )}
+                    </div>
+                  </ProfileCard>
+                )}
+
                 <div className="grid gap-4 lg:grid-cols-2">
                   <ProfileCard title="Szolgálati idő és megjegyzések" icon={<Church className="size-4" />}>
                     <ProfileRow label="Szolgálat kezdete" value={data?.pastorProfile.serviceStartedAt ? new Date(data.pastorProfile.serviceStartedAt).toLocaleDateString('hu-HU') : 'Nincs rögzítve'} />

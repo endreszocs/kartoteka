@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-14] — Szolgálati hely: automatikus napló és értesítés áthelyezéskor · fekvő PDF-ek javítása
+<!-- key: 2026-08-14-szolgalati-hely-naplo-fekvo-pdf -->
+<!-- category: feature -->
+<!-- targets: lelkesz, admin -->
+
+### ✨ Új funkciók
+
+- **A szolgálati hely mostantól automatikusan naplózódik.** Ha egy lelkészt másik gyülekezethez rendelnek (vagy először kap gyülekezetet), a rendszer magától rögzíti a változást — ki, honnan, hová, mikor —, és **azonnal értesítést küld az érintettnek**. A napló a rendszer szintjén készül, tehát akkor is működik, ha a változást az admin felület, egy szinkron vagy bármely jövőbeli funkció végzi. A profil „Szolgálati háttér" fülén látszik: hol szolgálsz most és mióta, a korábbi áthelyezések, és a Kartotéka-regisztráció dátuma. *(Ehhez egy adatbázis-bővítés szükséges: `2026-08-14-szolgalati-hely-naplo.sql`.)*
+
+### 🐛 Javítások
+
+- **A fekvő nyomtatványok PDF-je mostantól egyezik az előnézettel.** A Registru Casă/Bancă, a Főkönyv és a Csoportnapló (fekvő A4) PDF-mentése eddig álló lapméretű vászonra renderelődött, ezért a margók és a tördelés elcsúszott — a PDF nem azt adta, amit az előnézet mutatott.
+
+---
+
 ## [2026-08-14] — Leltár: kategória-gombok darabszámmal · kétnyelvű fişă hivatalos román formával
 <!-- key: 2026-08-14-leltar-kategoria-gombok-fisa-ro -->
 <!-- category: improvement -->

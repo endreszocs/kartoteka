@@ -285,6 +285,41 @@ export async function getProfileDialogData() {
     }
   }
 
+  // ── 2026-08-14 (1. pont, 2. fele): az AUTOMATIKUS szolgálati-hely napló ──
+  // A szolgalati_hely_naplo sorait egy profiles-trigger írja minden
+  // congregation_id-változásnál (migráció: 2026-08-14-szolgalati-hely-naplo.sql).
+  // FAIL-SOFT: amíg a migráció nem futott le élesben, üres lista — a fül a
+  // legacy adatokból él tovább, hibát nem mutatunk.
+  let helyNaplo: Array<{
+    id: string
+    congregationNev: string | null
+    elozoCongregationNev: string | null
+    jelleg: 'kezdeti' | 'valtozas'
+    createdAt: string
+  }> = []
+  {
+    const { data: hnData, error: hnError } = await supabase
+      .from('szolgalati_hely_naplo')
+      .select('id, congregation_nev, elozo_congregation_nev, jelleg, created_at')
+      .eq('profile_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(50)
+    if (hnError) {
+      console.warn('[profile] szolgalati_hely_naplo olvasása sikertelen (fail-soft):', hnError.message)
+    } else {
+      helyNaplo = ((hnData || []) as Array<{
+        id: string; congregation_nev: string | null; elozo_congregation_nev: string | null
+        jelleg: string; created_at: string
+      }>).map((r) => ({
+        id: r.id,
+        congregationNev: r.congregation_nev,
+        elozoCongregationNev: r.elozo_congregation_nev,
+        jelleg: r.jelleg === 'kezdeti' ? 'kezdeti' : 'valtozas',
+        createdAt: r.created_at,
+      }))
+    }
+  }
+
   const profileRoles = roleRows
     .map((r) => ({
       id: r.id,
@@ -329,6 +364,7 @@ export async function getProfileDialogData() {
         ministryNotes: pastorProfileCompat.row?.ministry_notes || '',
       },
       serviceHistory,
+      helyNaplo,
       profileRoles,
     },
   }
