@@ -168,9 +168,10 @@ async function getFinanceScope(): Promise<
  * továbbra is MEGHIÚSUL, de a lelkész tudja, mit tegyen — nyers szerver-action
  * hiba helyett.
  */
-async function assertYearsNotFinalizedForCreate(
+async function assertYearsNotFinalized(
   ctx: FinanceScopeContext,
   dates: Array<string | null | undefined>,
+  blockedMessage: (year: number) => string,
 ): Promise<string | null> {
   const years = new Set<number>()
   for (const d of dates) {
@@ -184,11 +185,50 @@ async function assertYearsNotFinalizedForCreate(
     } catch (err) {
       return yearFinalizedCheckErrorMessage(err, year)
     }
-    if (finalized) {
-      return `A ${year}. évi számadás már véglegesítve van — új tétel nem rögzíthető. Először kérj javítási engedélyt az egyházmegyétől.`
-    }
+    if (finalized) return blockedMessage(year)
   }
   return null
+}
+
+async function assertYearsNotFinalizedForCreate(
+  ctx: FinanceScopeContext,
+  dates: Array<string | null | undefined>,
+): Promise<string | null> {
+  return assertYearsNotFinalized(
+    ctx,
+    dates,
+    (year) =>
+      `A ${year}. évi számadás már véglegesítve van — új tétel nem rögzíthető. Először kérj javítási engedélyt az egyházmegyétől.`,
+  )
+}
+
+/**
+ * 2026-08-15 (átvilágítás, ⛔1): TÖRLÉS-zár — ugyanaz a kapu, mint a
+ * létrehozásnál/szerkesztésnél/stornónál, csak a törlésre szabott üzenettel.
+ *
+ * MI VOLT A HIBA: a `deleted = true` volt az EGYETLEN pénzügyi írási út, amely
+ * NEM olvasta a `bealitas.accounting_finalized` zászlót. Egy már véglegesített,
+ * aláírt és az egyházmegyének BEKÜLDÖTT év tétele egyetlen kattintással
+ * eltüntethető volt: a kassza-egyenleg, a Registru, a Csoportnapló és a
+ * Számadás tény-oszlopa azonnal elmozdult, a beküldött papír viszont nem —
+ * és a lelkész SEMMILYEN visszajelzést nem kapott róla.
+ *
+ * A helper NEM külön másolat: az `assertYearsNotFinalized` közös törzsét hívja,
+ * ami a kanonikus, fail-closed `isYearFinalized`-re (lib/auth/finance-scope.ts)
+ * épül — ha a zár-állapot nem olvasható, a törlés MEGHIÚSUL, nem megy át némán.
+ */
+async function assertYearsNotFinalizedForDelete(
+  ctx: FinanceScopeContext,
+  dates: Array<string | null | undefined>,
+): Promise<string | null> {
+  return assertYearsNotFinalized(
+    ctx,
+    dates,
+    (year) =>
+      `A ${year}. évi számadás már véglegesítve (és beküldve) van, ezért ebből az évből tétel ` +
+      'nem törölhető — a beküldött számadás és a rendszer adatai különben csendben szétcsúsznának. ' +
+      'Kérj feloldást (javítási engedélyt) az egyházmegyétől, és csak a jóváhagyás után töröld.',
+  )
 }
 
 /**
@@ -2196,6 +2236,28 @@ export async function deleteTransaction(type: 'befizetes' | 'kiadas', id: number
   // Diocese path — egyszerűbb (nincs belsomozgas_xkey pairing MVP-ben)
   if (scope.scope === 'diocese') {
     const table = type === 'befizetes' ? T.befizetes : T.kiadas
+    // 2026-08-15 (átvilágítás, ⛔1): ÉV-ZÁR a törlés ELŐTT — az egyházmegyei
+    // oldalon is (a `diocese_bealitas.szamadas_veglegesitve` zászlót ugyanaz a
+    // scope-tudatos `isYearFinalized` olvassa).
+    const { data: dRec, error: dRecErr } = await supabase
+      .from(table)
+      .select('datum')
+      .eq('id', id)
+      .eq('diocese_id', scope.scopeId)
+      .maybeSingle()
+    if (dRecErr) {
+      return {
+        error:
+          `A tétel ellenőrzése nem sikerült (${dRecErr.message}), ezért a törlést biztonságból ` +
+          'megszakítottuk. Próbáld újra néhány perc múlva; ha újra hibázik, jelezd a rendszergazdának.',
+      }
+    }
+    if (!dRec) return { error: 'A tétel nem található (talán már törölték).' }
+    const dLock = await assertYearsNotFinalizedForDelete(scope, [
+      (dRec as { datum?: string | null }).datum,
+    ])
+    if (dLock) return { error: dLock }
+
     const { error } = await supabase
       .from(table)
       .update({ deleted: true })
@@ -2206,27 +2268,89 @@ export async function deleteTransaction(type: 'befizetes' | 'kiadas', id: number
     return { success: true }
   }
 
-  // Congregation path (változatlan logika — belsomozgas pairing)
+  // Congregation path — belsomozgas pairing
   const congregationId = scope.scopeId
 
-  // Belső mozgás: mindkét oldalt töröljük
-  if (type === 'befizetes') {
-    const { data: rec } = await supabase.from('befizetes').select('belso_mozgas_xkey').eq('id', id).eq('congregation_id', congregationId).single()
-    if (rec?.belso_mozgas_xkey) {
-      await supabase.from('befizetes').update({ deleted: true }).eq('belso_mozgas_xkey', rec.belso_mozgas_xkey).eq('congregation_id', congregationId)
-      await supabase.from('kiadas').update({ deleted: true }).eq('belso_mozgas_xkey', rec.belso_mozgas_xkey).eq('congregation_id', congregationId)
-      revalidatePath('/penzugy')
-      return { success: true }
+  // 2026-08-15 (átvilágítás, ⛔1): a törlendő sort ELŐSZÖR lekérdezzük (dátum +
+  // belső-mozgás kulcs). A korábbi kód `const { data: rec } = … .single()`-t
+  // használt: az `error`-t ELDOBTA, így egy nem létező vagy nem olvasható sor is
+  // „nincs belső mozgás"-nak látszott, és a törlés a végén szó nélkül lefutott.
+  const { data: rec, error: recErr } = await supabase
+    .from(type)
+    .select('datum, belso_mozgas_xkey')
+    .eq('id', id)
+    .eq('congregation_id', congregationId)
+    .maybeSingle()
+  if (recErr) {
+    return {
+      error:
+        `A tétel ellenőrzése nem sikerült (${recErr.message}), ezért a törlést biztonságból ` +
+        'megszakítottuk. Próbáld újra néhány perc múlva; ha újra hibázik, jelezd a rendszergazdának.',
     }
   }
-  if (type === 'kiadas') {
-    const { data: rec } = await supabase.from('kiadas').select('belso_mozgas_xkey').eq('id', id).eq('congregation_id', congregationId).single()
-    if (rec?.belso_mozgas_xkey) {
-      await supabase.from('befizetes').update({ deleted: true }).eq('belso_mozgas_xkey', rec.belso_mozgas_xkey).eq('congregation_id', congregationId)
-      await supabase.from('kiadas').update({ deleted: true }).eq('belso_mozgas_xkey', rec.belso_mozgas_xkey).eq('congregation_id', congregationId)
-      revalidatePath('/penzugy')
-      return { success: true }
+  if (!rec) {
+    return { error: 'A tétel nem található (talán már törölték, vagy másik gyülekezeté).' }
+  }
+  const r = rec as { datum: string | null; belso_mozgas_xkey: string | null }
+
+  // Belső mozgás: a törlés MINDKÉT oldalt (bevétel + kiadás sort) érinti, ezért
+  // MINDKETTŐ évét ellenőrizni kell — egy év végi kassza↔bank átvezetés két
+  // oldala eltérő évre eshet, és ilyenkor a zárt év oldalának eltüntetése
+  // ugyanúgy elmozdítaná a beküldött számadást.
+  const datesToCheck: Array<string | null | undefined> = [r.datum]
+  if (r.belso_mozgas_xkey) {
+    const [befRes, kiaRes] = await Promise.all([
+      supabase
+        .from('befizetes')
+        .select('datum')
+        .eq('belso_mozgas_xkey', r.belso_mozgas_xkey)
+        .eq('congregation_id', congregationId),
+      supabase
+        .from('kiadas')
+        .select('datum')
+        .eq('belso_mozgas_xkey', r.belso_mozgas_xkey)
+        .eq('congregation_id', congregationId),
+    ])
+    const pairErr = befRes.error || kiaRes.error
+    if (pairErr) {
+      // Fail-closed: ha a párt nem tudjuk felderíteni, nem tudjuk azt sem, hogy
+      // melyik év(ek)et érintené a törlés → nem törlünk.
+      return {
+        error:
+          `A belső mozgás párjának ellenőrzése nem sikerült (${pairErr.message}), ezért a törlést ` +
+          'biztonságból megszakítottuk. Próbáld újra néhány perc múlva; ha újra hibázik, jelezd a ' +
+          'rendszergazdának.',
+      }
     }
+    for (const row of [...(befRes.data || []), ...(kiaRes.data || [])]) {
+      datesToCheck.push((row as { datum?: string | null }).datum)
+    }
+  }
+
+  const lockError = await assertYearsNotFinalizedForDelete(scope, datesToCheck)
+  if (lockError) return { error: lockError }
+
+  if (r.belso_mozgas_xkey) {
+    const { error: befErr } = await supabase
+      .from('befizetes')
+      .update({ deleted: true })
+      .eq('belso_mozgas_xkey', r.belso_mozgas_xkey)
+      .eq('congregation_id', congregationId)
+    if (befErr) return { error: `Hiba: ${befErr.message}` }
+    const { error: kiaErr } = await supabase
+      .from('kiadas')
+      .update({ deleted: true })
+      .eq('belso_mozgas_xkey', r.belso_mozgas_xkey)
+      .eq('congregation_id', congregationId)
+    if (kiaErr) {
+      return {
+        error:
+          `A belső mozgás bevétel-oldala törlődött, a kiadás-oldala viszont NEM (${kiaErr.message}). ` +
+          'Kérlek nézd meg a Belső mozgások listát, és jelezd a rendszergazdának.',
+      }
+    }
+    revalidatePath('/penzugy')
+    return { success: true }
   }
 
   const { error } = await supabase.from(type).update({ deleted: true }).eq('id', id).eq('congregation_id', congregationId)

@@ -8,8 +8,18 @@
  *
  * ## M2.5 (push-sync, outbox + optimistic writes)
  *   - updateOwnProfile(userId, patch)  — optimistic local + direkt Supabase v. outbox
- *   - processOutbox()                  — pending outbox-sorok elküldése
+ *   - processOutbox()                  — a KLASSZIKUS (mutation_id nélküli) outbox-sorok
+ *                                        elküldése; sorosított, session-őrzött
  *   - isOnline()                       — online/offline detektor
+ *
+ * ## 2026-08-15 (a függő írások automatikus felküldése)
+ *   - startOutboxAutoSync()            — indulás + `online` esemény + 30 mp poll,
+ *                                        exponenciális visszalépéssel (AuthGate indítja)
+ *   - flushAllPendingWrites(userId)    — a „Szinkronizálás most" közös helpere:
+ *                                        klasszikus outbox + MINDEN dedikált push-er
+ *   ⚠️ A `mutation_id`-s (pénzügyi) outbox-sorok NEM ide tartoznak — azokat
+ *      kizárólag a dedikált push-erek küldhetik fel (nyugtaszám-kiosztás,
+ *      párosítás, konfliktus-kezelés).
  *
  * ## M2.6 (conflict detection — revision + updated_at)
  *   - ProfileLocalRow most tartalmaz `revision` és `updated_at` mezőket
@@ -32,6 +42,7 @@
 
 import { errorMessage } from './error'
 import { getDesktopSupabase } from './supabase'
+import { getVerifiedSession } from './verified-session'
 import { dbExecute, dbExecuteMany, dbSelect, getSetting, setSetting, type SqlParam } from './local-db'
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -580,6 +591,28 @@ export async function enqueueOutbox(
   )
 }
 
+/** A `processOutbox` egy körének mérlege. */
+export interface ProcessOutboxResult {
+  attempted: number
+  sent: number
+  failed: number
+  conflicts: number
+  /** Ha ki kellett hagyni a kört, itt az EMBERI magyarázat (különben undefined). */
+  skippedReason?: string
+}
+
+/**
+ * 2026-08-15 — SOROSÍTÓ ŐR.
+ *
+ * MIÉRT KELL: mióta a `processOutbox`-ot automatikus trigger is indítja (poll +
+ * `online` esemény), a kézi „Szinkronizálás most" ütközhetne egy épp futó
+ * háttér-körrel. A függvény maga nem foglalja le a sorokat (csak a végén
+ * állítja őket `sent`-re), ezért két párhuzamos kör UGYANAZT a munkanapló-
+ * bejegyzést küldhetné fel KÉTSZER. Aki már fut, azt megvárjuk, és ugyanazt
+ * az eredményt adjuk vissza.
+ */
+let outboxRunPromise: Promise<ProcessOutboxResult> | null = null
+
 /**
  * Végigmegy a pending outbox-sorokon és elküldi őket a Supabase-nek.
  *
@@ -589,22 +622,60 @@ export async function enqueueOutbox(
  *
  * Konfliktus (0 sor frissül a conditional update-nél) → status='failed',
  * last_error='conflict: server revision moved'.
+ *
+ * ⚠️ HATÁSKÖR (2026-08-15): CSAK a klasszikus, `mutation_id IS NULL` sorok.
+ * Az `outbox` táblát az A-M7.0 óta a pénzügyi mutation-queue is használja
+ * (`enqueueMutation` — chitanta / befizetés / kiadás), `mutation_id`-vel.
+ * Azokat KIZÁRÓLAG a dedikált push-erek küldhetik fel, mert ők osztják ki a
+ * nyugtaszámot a tárcából, párosítják a lokális sort a szerver-id-vel és
+ * kezelik a konfliktust.
  */
-export async function processOutbox(): Promise<{
-  attempted: number
-  sent: number
-  failed: number
-  conflicts: number
-}> {
+export async function processOutbox(): Promise<ProcessOutboxResult> {
+  if (outboxRunPromise) return outboxRunPromise
+  outboxRunPromise = processOutboxInner()
+  try {
+    return await outboxRunPromise
+  } finally {
+    outboxRunPromise = null
+  }
+}
+
+async function processOutboxInner(): Promise<ProcessOutboxResult> {
   const online = await isOnline()
   if (!online) {
     return { attempted: 0, sent: 0, failed: 0, conflicts: 0 }
   }
 
+  // 2026-08-15: session-őr — a `getVerifiedSession` a repó közös helpere,
+  // ugyanaz, amit a pénzügyi push-erek használnak (fiók-egyezőség + lejárat).
+  //
+  // MIÉRT KELL: mióta ez a függvény automatikusan is fut (indulás + online
+  // esemény + poll), belefuthat az offline-PIN belépésbe, ahol nincs érvényes
+  // JWT. Session nélkül a szerver 401-gyel visszadobna minden sort, a
+  // `markOutboxFailed` pedig VÉGLEG `failed`-re állítaná őket — kézi
+  // újrapróbálás nélkül soha nem indulnának el. Fail-closed: inkább nem
+  // csinálunk semmit, a sorok `pending`-ben várnak a valódi belépésre.
+  const verified = await getVerifiedSession()
+  if (!verified.ok) {
+    return { attempted: 0, sent: 0, failed: 0, conflicts: 0, skippedReason: verified.message }
+  }
+
+  // 2026-08-15 (javítás): `mutation_id IS NULL`.
+  //
+  // MI VOLT A ROSSZ: ez a lekérdezés a KÖZÖS `outbox` tábla MINDEN függő sorát
+  // felvette, a `mutation_id`-s pénzügyi sorokat is (offline befizetés, kiadás,
+  // nyugta). Azokat aztán egy generikus `insert`-tel küldte fel.
+  // MI VOLT A KÖVETKEZMÉNYE: a nyugtaszám nem a szám-tárcából került ki, a
+  // lokális pending sor sosem párosult a szerver-id-vel (a dedikált push-er
+  // `status='pending' AND mutation_id IS NOT NULL`-t keres, ez a sor viszont
+  // már `sent` lett), a konfliktus-kezelés pedig teljesen kimaradt — vagyis a
+  // „Szinkronizálás most" gomb megkerülte a pénzügyi push-szinkront, és
+  // duplikált / sorszám nélküli bizonylatot okozhatott.
   const pending = await dbSelect<OutboxRow>(
     `SELECT id, op, target_table, target_id, payload, status, created_at, retry_count, last_error
        FROM outbox
       WHERE status = 'pending'
+        AND mutation_id IS NULL
       ORDER BY created_at ASC`,
   )
 
@@ -744,6 +815,221 @@ export async function retryOutboxRow(id: number): Promise<void> {
 /** Végleg törli a failed sort (pl. a user megszavazta, hogy szemétbe). */
 export async function dismissOutboxRow(id: number): Promise<void> {
   await dbExecute(`DELETE FROM outbox WHERE id = ?1`, [id])
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// 2026-08-15 — Az outbox klasszikus ágának AUTOMATIKUS ürítése
+//
+// MI VOLT A ROSSZ: a `processOutbox()`-ot kizárólag kézi gombnyomás indította
+// (Beállítások → „Szinkronizálás most", illetve a /dev oldal betöltése). A
+// pénzügyi push-ereknek volt automatikus indítójuk (indulás + `online` esemény
+// + 30 mp-es poll), az outbox klasszikus ágának NEM.
+// MI VOLT A KÖVETKEZMÉNYE: aki offline vezette a munkanaplót, vagy offline
+// javított egy tag- vagy profiladatot, és nem nyomott kézi szinkront, annak az
+// írása a saját gépén maradt — a szerverre soha nem jutott el, és erről semmi
+// nem szólt neki. Itt ugyanazt a triggerkészletet kapja meg, mint a pénzügyi
+// push-erek, exponenciális visszalépéssel (a hiába ismételt körök ne
+// terheljék a lassú vagy szakadozó hálózatot).
+// ═════════════════════════════════════════════════════════════════════════
+
+/** Poll-ciklus — a pénzügyi push-erekkel azonos ütem. */
+const OUTBOX_POLL_MS = 30_000
+
+/** Exponenciális visszalépés egymást követő sikertelen körök után (ms). */
+const OUTBOX_BACKOFF_MS = [0, 30_000, 60_000, 120_000, 300_000, 900_000]
+
+let outboxPollInterval: ReturnType<typeof setInterval> | null = null
+let outboxOnlineListenerAttached = false
+let outboxInFlight = false
+let outboxLastRunAt: string | null = null
+let outboxLastResult: ProcessOutboxResult | null = null
+let outboxConsecutiveFailures = 0
+let outboxNextAttemptAtMs = 0
+
+export interface OutboxSyncStatus {
+  running: boolean
+  lastRunAt: string | null
+  lastResult: ProcessOutboxResult | null
+  /** Egymást követő sikertelen körök száma (a visszalépés alapja). */
+  consecutiveFailures: number
+}
+
+export function getOutboxSyncStatus(): OutboxSyncStatus {
+  return {
+    running: outboxInFlight,
+    lastRunAt: outboxLastRunAt,
+    lastResult: outboxLastResult,
+    consecutiveFailures: outboxConsecutiveFailures,
+  }
+}
+
+/**
+ * Egy őrzött kör. Nem dob — a háttér-trigger sosem buktathatja el a UI-t,
+ * de a hibát NEM is nyeli el sikerként: számolja, naplózza, és a következő
+ * kört visszalépteti.
+ */
+async function runOutboxOnceGuarded(): Promise<void> {
+  if (outboxInFlight) return
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+  if (Date.now() < outboxNextAttemptAtMs) return
+
+  outboxInFlight = true
+  let sikeresKor = true
+  try {
+    const stats = await processOutbox()
+    outboxLastResult = stats
+    outboxLastRunAt = new Date().toISOString()
+    if (stats.skippedReason) {
+      // Nem hiba, de nem is siker: NEM nyeljük el — a naplóban látszódjon,
+      // miért maradnak a sorok a gépen.
+      console.info('[sync] Az outbox ürítése kimaradt:', stats.skippedReason)
+    }
+    // Kudarc = volt mit küldeni, de EGY sem ment át. (Az offline- vagy
+    // session nélküli kör `attempted: 0`-val tér vissza — az nem kudarc.)
+    sikeresKor = !(stats.attempted > 0 && stats.sent === 0)
+  } catch (err) {
+    sikeresKor = false
+    console.warn('[sync] Az outbox automatikus ürítése hibára futott:', errorMessage(err))
+  } finally {
+    outboxConsecutiveFailures = sikeresKor ? 0 : outboxConsecutiveFailures + 1
+    const idx = Math.min(outboxConsecutiveFailures, OUTBOX_BACKOFF_MS.length - 1)
+    outboxNextAttemptAtMs = Date.now() + OUTBOX_BACKOFF_MS[idx]
+    outboxInFlight = false
+  }
+}
+
+/**
+ * Beállítja az outbox auto-triggereit: indulás + `online` esemény + 30 mp-es
+ * poll. Idempotens — többszöri hívás nem duplikálja a listener-t / intervalt.
+ * A `befizetes-write-sync.startBefizetesAutoSync()` mintáját követi, hogy a
+ * két queue-nak azonos legyen a viselkedése.
+ */
+export function startOutboxAutoSync(): void {
+  if (typeof window === 'undefined') return
+
+  if (!outboxOnlineListenerAttached) {
+    window.addEventListener('online', () => {
+      // Visszatért a hálózat → a korábbi kudarcok visszalépése érvényét veszti.
+      outboxConsecutiveFailures = 0
+      outboxNextAttemptAtMs = 0
+      void runOutboxOnceGuarded()
+    })
+    outboxOnlineListenerAttached = true
+  }
+
+  if (!outboxPollInterval) {
+    outboxPollInterval = setInterval(() => {
+      void runOutboxOnceGuarded()
+    }, OUTBOX_POLL_MS)
+  }
+
+  void runOutboxOnceGuarded()
+}
+
+/** A `flushAllPendingWrites` összesítője. */
+export interface FlushAllResult {
+  outbox: ProcessOutboxResult
+  /** A dedikált push-erek összesített számai. */
+  dedikalt: { attempted: number; succeeded: number; retrying: number; conflicts: number }
+  /** Magyar nyelvű hibaszövegek — üres tömb = minden rendben ment. */
+  hibak: string[]
+}
+
+/** A dedikált push-erek közös eredmény-alakja (mind a hat ezt adja). */
+interface DedikaltPushEredmeny {
+  attempted: number
+  succeeded: number
+  retrying: number
+  conflicts: number
+  errors: string[]
+}
+
+/**
+ * MINDEN függő írás felküldése egy gombnyomásra — a klasszikus outbox
+ * (munkanapló, profil, tag-módosítás) ÉS a dedikált push-erek (nyugta,
+ * befizetés, kiadás, család, gyermek, új tag).
+ *
+ * 2026-08-15: azért közös helper, mert a „Szinkronizálás most" korábban CSAK
+ * a `processOutbox()`-ot hívta — a pénzügyi és tagnyilvántartási függő sorok a
+ * gomb hatására nem indultak el, a lelkész mégis azt látta, hogy
+ * „szinkronizált". A push-erek saját maguk őrzik magukat a párhuzamos
+ * futástól, ezért itt nyugodtan hívhatók.
+ *
+ * A dedikált modulokat DINAMIKUSAN importáljuk: így a sync.ts-t olvasó
+ * felületek nem húzzák be a teljes pénzügyi láncot, és nem keletkezhet
+ * körkörös import sem.
+ *
+ * Nem dob: minden akadály a `hibak` tömbbe kerül, hogy a felület KIÍRHASSA —
+ * néma „kész" üzenet nem takarhatja el a gépen maradt sorokat.
+ */
+export async function flushAllPendingWrites(userId?: string | null): Promise<FlushAllResult> {
+  const result: FlushAllResult = {
+    outbox: { attempted: 0, sent: 0, failed: 0, conflicts: 0 },
+    dedikalt: { attempted: 0, succeeded: 0, retrying: 0, conflicts: 0 },
+    hibak: [],
+  }
+
+  // 1. A klasszikus outbox-ág (munkanapló, profil, tag-módosítás).
+  try {
+    const stats = await processOutbox()
+    result.outbox = stats
+    // Ha a kör kimaradt (nincs érvényes belépés, más fiók), azt KI KELL írni:
+    // a gomb nem jelenthet sikert, miközben minden a gépen maradt.
+    if (stats.skippedReason) result.hibak.push(`Offline írások: ${stats.skippedReason}`)
+    // A kézi gomb után a háttér-visszalépés induljon tisztán.
+    outboxConsecutiveFailures = 0
+    outboxNextAttemptAtMs = 0
+  } catch (err) {
+    result.hibak.push(`Az offline írások feltöltése nem sikerült: ${errorMessage(err)}`)
+  }
+
+  // 2. A dedikált push-erek. Mindegyik külön try-ban: az egyik elakadása ne
+  //    akadályozza meg a többi feltöltését.
+  const futtat = async (cimke: string, fn: () => Promise<DedikaltPushEredmeny>) => {
+    try {
+      const r = await fn()
+      result.dedikalt.attempted += r.attempted
+      result.dedikalt.succeeded += r.succeeded
+      result.dedikalt.retrying += r.retrying
+      result.dedikalt.conflicts += r.conflicts
+      for (const e of r.errors) result.hibak.push(`${cimke}: ${e}`)
+    } catch (err) {
+      result.hibak.push(`${cimke}: ${errorMessage(err)}`)
+    }
+  }
+
+  const [chitanta, befizetes, kiadas, csalad, gyerek] = await Promise.all([
+    import('./chitanta-sync'),
+    import('./befizetes-write-sync'),
+    import('./kiadas-write-sync'),
+    import('./csalad-write-sync'),
+    import('./gyerek-write-sync'),
+  ])
+
+  await futtat('Nyugta', () => chitanta.runChitantaSyncManually())
+  await futtat('Befizetés', () => befizetes.runBefizetesSyncManually())
+  await futtat('Kiadás', () => kiadas.runKiadasSyncManually())
+  await futtat('Család', () => csalad.runCsaladSyncManually())
+  await futtat('Gyermek', () => gyerek.runGyerekSyncManually())
+
+  // Az új tagok push-ere gyülekezethez kötött — a profilból oldjuk fel.
+  // Ha a felhasználóhoz nincs gyülekezet rendelve, saját pending tagja sem
+  // lehet (a pending sorok mindig gyülekezet-hatókörűek), tehát nincs mit
+  // felküldeni — ez nem hiba.
+  if (userId) {
+    try {
+      const profile = await getLocalOwnProfile(userId)
+      if (profile?.congregation_id) {
+        const szemely = await import('./szemely-write-sync')
+        const congregationId = profile.congregation_id
+        await futtat('Új tag', () => szemely.runSzemelySyncManually(congregationId))
+      }
+    } catch (err) {
+      result.hibak.push(`Új tag: ${errorMessage(err)}`)
+    }
+  }
+
+  return result
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -2691,7 +2977,14 @@ export interface SzemelyCreateResult {
   pending: boolean
   /** Ha CNP dupláció-ütközés — a user gondolkodjon újra. */
   duplicateCnp: boolean
-  /** Hibaszöveg, ha volt. */
+  /**
+   * 2026-08-15: a SZERVER válaszolt, és ELUTASÍTOTTA a mentést (jogosultság,
+   * megszorítás, hiányzó kötelező mező…). Ez NEM offline-állapot — a felület
+   * ilyenkor piros hibát mutasson, ne kék „offline elmentve" visszajelzést.
+   * Hálózati hiba / offline esetén `false`.
+   */
+  serverRejected: boolean
+  /** Hibaszöveg, ha volt — magyarul, a lelkésznek szólóan. */
   error?: string
 }
 
@@ -2705,9 +2998,11 @@ export interface SzemelyCreateResult {
  *   3. INSERT `szemely_pending_local` (pending state).
  *   4. Ha online: supabase.from('szemely').insert(payload).select('id'):
  *      - 23505 (unique CNP) → conflict markolás + `duplicateCnp: true`
- *      - egyéb hiba → pending marad, sync.ts folyamatos próbálja
+ *      - egyéb SZERVER-hiba → `serverRejected: true` (a sor pending marad,
+ *        hogy az adat ne vesszen el, de a felület PIROS hibát mutat)
  *      - siker → markSynced(localId, serverId) + pullMembers delta
- *   5. Ha offline: a pending marad, a `szemely-write-sync.ts` fogja feltölteni.
+ *   5. Ha offline vagy hálózati kivétel: a pending marad, a
+ *      `szemely-write-sync.ts` fogja feltölteni — `serverRejected: false`.
  *
  * Nem használunk `enqueueOutbox`-ot — a `szemely_pending_local` önmagában
  * a queue (a `pushPendingSzemely` a `listLocalPendingSzemely`-ből dolgozik).
@@ -2732,6 +3027,7 @@ export async function createSzemelyEntry(
         synced: false,
         pending: false,
         duplicateCnp: true,
+        serverRejected: false,
         error: `A CNP (${cnp}) már létezik: ${dup.csaladnev ?? ''} ${dup.k_nev ?? ''}`.trim(),
       }
     }
@@ -2805,28 +3101,58 @@ export async function createSzemelyEntry(
             synced: false,
             pending: true,
             duplicateCnp: true,
+            serverRejected: false,
             error: error.message,
           }
         }
-        // Egyéb hiba: pending marad, a background-sync próbálkozni fog
+
+        // 2026-08-15 (javítás): a SZERVER VÁLASZOLT és elutasította.
+        //
+        // MI VOLT A ROSSZ: ez az ág is csak `pending: true`-val tért vissza, a
+        // dialógus pedig kék „mentve offline-ban" sávot mutatott, meghívta az
+        // onCreated-et és bezárta az ablakot.
+        // MI VOLT A KÖVETKEZMÉNYE: a valódi elutasítás (nincs jogosultság,
+        // hiányzó kötelező mező, megszorítás) NÉMÁN elveszett — a lelkész azt
+        // hitte, mentett, holott a tag soha nem került fel.
+        //
+        // A pending sort SZÁNDÉKOSAN meghagyjuk (a begépelt adat ne vesszen el),
+        // és rögzítjük a kísérletet, hogy a háttér-push-er visszalépése innen
+        // folytatódjon — de a hívó PIROS hibát kap a tényleges okkal.
+        await backend
+          .updateSzemelyAttempt(localId, error.message)
+          .catch(() => {
+            /* csendes: a kísérlet-számláló hiánya nem ok a hiba elnyelésére */
+          })
         return {
           serverId: null,
           localId,
           synced: false,
           pending: true,
           duplicateCnp: false,
-          error: error.message,
+          serverRejected: true,
+          error: szerverElutasitasUzenet(error),
         }
       }
 
       if (!data?.id) {
+        // A szerver válaszolt, de nem adott azonosítót — bizonytalan állapot.
+        // Fail-closed: NEM jelentünk sikert, és nem is offline-mentést.
+        await backend
+          .updateSzemelyAttempt(localId, 'A szerver nem adott azonosítót a mentés után')
+          .catch(() => {
+            /* csendes */
+          })
         return {
           serverId: null,
           localId,
           synced: false,
           pending: true,
           duplicateCnp: false,
-          error: 'Szerver nem adott ID-t az insert után',
+          serverRejected: true,
+          error:
+            'A szerver válaszolt, de nem küldött vissza azonosítót, ezért nem tudjuk biztosan, ' +
+            'létrejött-e a tag. Az adatot megőriztük a gépen. Nézd meg a tagok listájában, ' +
+            'és ha nem szerepel benne, próbáld újra a szinkronizálást.',
         }
       }
 
@@ -2844,16 +3170,20 @@ export async function createSzemelyEntry(
         synced: true,
         pending: false,
         duplicateCnp: false,
+        serverRejected: false,
       }
     } catch (err: unknown) {
-      // Hálózati hiba: pending marad
+      // Hálózati kivétel (megszakadt kapcsolat, időtúllépés): a szerver NEM
+      // válaszolt, tehát ez offline-eset — a pending sor marad, a háttér-push-er
+      // felküldi. Ez a `serverRejected: false` ág.
       return {
         serverId: null,
         localId,
         synced: false,
         pending: true,
         duplicateCnp: false,
-        error: err instanceof Error ? err.message : String(err),
+        serverRejected: false,
+        error: errorMessage(err),
       }
     }
   }
@@ -2865,7 +3195,62 @@ export async function createSzemelyEntry(
     synced: false,
     pending: true,
     duplicateCnp: false,
+    serverRejected: false,
   }
+}
+
+/**
+ * 2026-08-15 — A Postgres/PostgREST hibából EMBERI, magyar mondat a lelkésznek:
+ * mi történt és mit tehet. A nyers hibaszöveget csak zárójelben, a végén
+ * hagyjuk meg (segítség a hibakereséshez), de nem az vezeti a mondatot.
+ */
+function szerverElutasitasUzenet(err: {
+  message?: string
+  code?: string
+  details?: string | null
+  hint?: string | null
+}): string {
+  const code = err.code ?? ''
+  const raw = err.message ?? 'ismeretlen hiba'
+  const nyers = ` (A rendszer üzenete: ${raw})`
+
+  if (code === '42501' || /row-level security|permission denied/i.test(raw)) {
+    return (
+      'A szerver nem engedélyezte a mentést: ehhez a gyülekezethez nincs jogosultságod ' +
+      'új tagot rögzíteni. Ellenőrizd, a megfelelő gyülekezetben vagy-e, vagy kérd meg ' +
+      'a rendszergazdát, hogy adja meg a jogot.' + nyers
+    )
+  }
+  if (code === '23502') {
+    return (
+      'A szerver visszautasította a mentést, mert egy kötelező adat hiányzik. ' +
+      'Nézd át a kitöltött mezőket, és próbáld újra.' + nyers
+    )
+  }
+  if (code === '23503') {
+    return (
+      'A szerver visszautasította a mentést, mert egy hivatkozott adat (például a család ' +
+      'vagy a lakcím) nem található nála. Szinkronizálj, majd próbáld újra.' + nyers
+    )
+  }
+  if (code === '23514') {
+    return (
+      'A szerver visszautasította a mentést, mert az egyik megadott érték nem elfogadható ' +
+      '(például hibás dátum vagy formátum). Javítsd az adatot, és próbáld újra.' + nyers
+    )
+  }
+  // PGRST301/302 = a PostgREST JWT-hibái (lejárt / érvénytelen token).
+  if (code === 'PGRST301' || code === 'PGRST302' || /jwt|token|unauthor/i.test(raw)) {
+    return (
+      'Lejárt vagy érvénytelen a bejelentkezésed, ezért a szerver nem fogadta el a mentést. ' +
+      'Lépj ki, majd jelentkezz be újra — az adatot addig is megőriztük a gépen.' + nyers
+    )
+  }
+  return (
+    'A szerver visszautasította az új tag mentését. Az adatot megőriztük a gépen, ' +
+    'de amíg az ok nem tisztázódik, nem kerül fel. Ha nem tudod, mi lehet a baj, ' +
+    'jelezd a rendszergazdának.' + nyers
+  )
 }
 
 function buildServerInsertPayload(input: Record<string, unknown>): Record<string, unknown> {

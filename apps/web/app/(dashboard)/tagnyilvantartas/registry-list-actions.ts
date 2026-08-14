@@ -24,6 +24,19 @@ import {
   isChurchMaintenanceCode,
   type PaymentGoalCodeRef,
 } from '@kartoteka/ui-app'
+// 2026-08-15 (átvilágítás #22): ezek a predikátumok EDDIG itt, helyben éltek —
+// az Áttekintés fül (member-overview.ts) pedig a saját, ékezet nélküli másolatát
+// használta, és ugyanarról a gyülekezetről más lélekszámot mutatott. A közös
+// forrás a `lib/members/member-status.ts`; ez a fájl `'use server'`, tehát maga
+// nem exportálhatna szinkron segédeket.
+import {
+  hasLeftMember as hasLeft,
+  isActiveMember,
+  isMovedMember as isMoved,
+  isReformedMember as isReformed,
+  normalizeForSearch,
+  searchTokens,
+} from '@/lib/members/member-status'
 import {
   familyListQuerySchema,
   memberListQuerySchema,
@@ -179,40 +192,9 @@ function chunksOf<T>(items: T[], size = IN_FILTER_BATCH_SIZE): T[][] {
   return chunks
 }
 
-function normalizeForSearch(value: unknown) {
-  return String(value ?? '')
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .toLocaleLowerCase('hu-HU')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function searchTokens(value: string) {
-  return normalizeForSearch(value).split(' ').filter(Boolean)
-}
-
-function normalizeMemberStatus(value: string | null | undefined) {
-  return normalizeForSearch(value).replace(/[\s_-]+/g, '')
-}
-
-function isMoved(member: Pick<MemberRow, 'member_status'>) {
-  return normalizeMemberStatus(member.member_status) === 'elkoltozott'
-}
-
-function hasLeft(member: Pick<MemberRow, 'member_status'>) {
-  return normalizeMemberStatus(member.member_status) === 'kitert'
-}
-
-function isReformed(member: Pick<MemberRow, 'vallas'>) {
-  return normalizeForSearch(member.vallas) === 'reformatus'
-}
-
-function isActiveMember(member: EnrichedMember) {
-  const status = normalizeMemberStatus(member.member_status)
-  if (member.meghalt || isMoved(member) || hasLeft(member) || status === 'torolt') return false
-  return isReformed(member) || member.hasEverPaid
-}
+// A `normalizeForSearch` / `normalizeMemberStatus` / `isMoved` / `hasLeft` /
+// `isReformed` / `isActiveMember` HELYI másolata törölve — mind a fenti közös
+// `@/lib/members/member-status` modulból jön, bit-azonos implementációval.
 
 // 2026-08-11 (5. kör, P3 #4): a `getPaymentGoalCode` / `isChurchMaintenanceCode` pár
 // itteni MÁSOLATA törölve. Ez volt a négy példány közül az EGYETLEN, amelyik `??`-lal

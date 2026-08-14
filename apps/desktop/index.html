@@ -4,6 +4,41 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Kartotéka</title>
+
+    <!--
+      2026-08-15 — a mentett sötét/világos mód visszaállítása RENDER ELŐTT.
+
+      MI VOLT A HIBA: a `dark` osztályt kizárólag a Beállítások ablak tette fel,
+      kattintáskor. Újraindítás után semmi nem tette vissza, így a lelkész sötét
+      módja NÉMÁN elveszett — minden indításnál újra be kellett állítania.
+
+      Ez egy blokkoló (nem `type="module"`) szkript, ezért még az első festés
+      előtt lefut: nincs világos-villanás indításkor. Nem importálhat modult,
+      ezért a `src/lib/theme.ts` logikájának kézi másolata — ha ott változik a
+      kulcs vagy a szabály, ITT IS át kell vezetni.
+
+      CSP: a tauri.conf.json `script-src`-je NEM tartalmaz 'unsafe-inline'-t, de
+      a Tauri build-időben sha256-hasht számol MINDEN beágyazott inline
+      szkriptre, és azt hozzáadja a CSP-hez — ezért ez a blokk éles buildben is
+      lefut (dev módban a Vite-szerver oldalán nincs CSP).
+    -->
+    <script>
+      ;(function () {
+        try {
+          var mode = window.localStorage.getItem('kartoteka-desktop-theme-v1')
+          if (mode !== 'light' && mode !== 'dark' && mode !== 'system') mode = 'system'
+          var dark =
+            mode === 'dark' ||
+            (mode === 'system' &&
+              typeof window.matchMedia === 'function' &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches)
+          document.documentElement.classList.toggle('dark', dark)
+        } catch (e) {
+          /* Ha a tároló nem elérhető, marad a világos alapértelmezés — a
+             `main.tsx` indulásakor a theme.ts úgyis újra megpróbálja. */
+        }
+      })()
+    </script>
   </head>
 
   <body>

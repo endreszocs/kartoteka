@@ -14,6 +14,7 @@ import { clearLastUser, saveLastUser } from './desktop-user'
 import { startExcelWriteAutoSync } from './excel-write-sync'
 import { runKiadasSyncManually, startKiadasAutoSync } from './kiadas-write-sync'
 import { getDesktopSupabase } from './supabase'
+import { startOutboxAutoSync } from './sync'
 
 /**
  * AuthGate — védett útvonalak wrapper-e a desktop app router-ben.
@@ -161,6 +162,11 @@ export function AuthGate() {
     // E3 — Excel write-through worker (a kapcsolót a worker maga ellenőrzi;
     // kikapcsolt Excel-szinkronnál no-op, bekapcsolva boot-on is indul)
     startExcelWriteAutoSync()
+    // 2026-08-15 — az outbox KLASSZIKUS ága (munkanapló, profil, tag-módosítás).
+    // Eddig ezt CSAK kézi gombnyomás ürítette, ezért aki offline vezette a
+    // munkanaplót és nem nyomott szinkront, annak az adata a gépén maradt.
+    // Ugyanaz a triggerkészlet, mint a pénzügyi push-ereké; szintén idempotens.
+    startOutboxAutoSync()
 
     return () => {
       mounted = false

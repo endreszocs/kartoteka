@@ -19,6 +19,11 @@
  *   - `createSzemelyEntry` hívás
  *   - banner (success/offline/duplicate/error)
  *   - Siker esetén 1200 ms után bezár, parent list-refresh
+ *
+ * 2026-08-15: a „szerver elutasította" eset (`serverRejected`) KÜLÖNVÁLT az
+ * offline-mentéstől — ott piros hiba jön, az ablak nyitva marad, és nem fut le
+ * az onCreated(). Korábban a szerver-elutasítás is kék „mentve offline-ban"
+ * visszajelzést kapott, és a valódi ok némán elveszett.
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -224,6 +229,23 @@ export function MemberCreateDialog({
             result.error ??
             `A CNP (${form.cnp}) már létezik ebben a gyülekezetben. ` +
               `Keresd meg a listában, vagy lépj kapcsolatba egy adminnal.`,
+        })
+      } else if (result.serverRejected) {
+        // 2026-08-15 (javítás): a szerver VÁLASZOLT és elutasította a mentést.
+        //
+        // MI VOLT A ROSSZ: ez az eset a lenti `result.pending` ágba esett, ezért
+        // kék „mentve offline-ban" sáv jelent meg, lefutott az onCreated(), és
+        // az ablak 1,5 mp múlva bezárult.
+        // MI VOLT A KÖVETKEZMÉNYE: a valódi elutasítás (nincs jogosultság,
+        // hiányzó kötelező mező, megszorítás) NÉMÁN elveszett — a lelkész azt
+        // hitte, mentett. Innentől PIROS hiba, az ablak NYITVA marad (hogy
+        // javíthasson), és a listát sem frissítjük kész tényként.
+        setBanner({
+          kind: 'error',
+          text:
+            result.error ??
+            'A szerver visszautasította az új tag mentését. Az adatot megőriztük a gépen. ' +
+              'Próbáld újra, vagy jelezd a rendszergazdának.',
         })
       } else if (result.synced) {
         setBanner({

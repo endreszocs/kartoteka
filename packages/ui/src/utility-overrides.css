@@ -20,6 +20,18 @@
  * **Adatszemantika**: a `text-emerald-{500,600}` (bevétel), `text-red-{400,500}`
  * (kiadás) és specifikus state-színek (zöld pipa, piros hibaüzenet) **nem**
  * cserélődnek itt — azok intent-színek, témán átívelő jelentéssel.
+ *
+ * ⚑ 2026-08-15 — GRADIENS-RÉTEG PÓTOLVA. A fenti „~95% lefedettség" NEM volt
+ * igaz: a lista csak a `background-color`/`border-color`/`color` tulajdonságot
+ * író osztályokat fedte. A Tailwind 4 gradiensei viszont a
+ * `--tw-gradient-{from,via,to}` custom propertykben élnek, tehát a
+ * `from-white` / `via-white` / `to-white` és a `from-/via-/to-{szín}-50/100`
+ * színpontok KIMARADTAK. Emiatt kb. 30 gradienses kártya és fejléc sötét
+ * módban is fehér maradt, világos, olvashatatlan szöveggel. Ugyanígy hiányzott
+ * a `blue` / `green` / `zinc` / `gray` család világos tintája, és a piros
+ * hiba-blokk sötét módú kezelése. Lásd a lenti dátumozott szakaszokat.
+ * A színpontok azokra a tokenekre képeznek, mint a testvér `bg-*` osztályok —
+ * NINCS külön szabályrendszer, hogy a kettő ne tudjon széthúzni.
  */
 
 /* ===================================================================
@@ -46,7 +58,12 @@
   /* Halvány leíró szövegek */
   & .text-slate-300,
   & .text-slate-400,
-  & .text-slate-500 {
+  & .text-slate-500,
+  /* 2026-08-15: a `zinc-600` is ide tartozik. Eddig kimaradt, pedig a
+     `bg-zinc-50` mezőkön és gombokon ül — miután a `bg-zinc-50` alább
+     a sötét `--muted`-re fordul, a nyers Tailwind-szürke (#52525b)
+     olvashatatlan lenne rajta. A kettőnek EGYÜTT kell mozdulnia. */
+  & .text-zinc-600 {
     color: var(--muted-foreground);
   }
 
@@ -57,7 +74,8 @@
   & .text-slate-900,
   & .text-zinc-700,
   & .text-zinc-800,
-  & .text-zinc-900 {
+  & .text-zinc-900,
+  & .text-gray-700 {          /* 2026-08-15: a `gray` család is semleges */
     color: var(--foreground);
   }
 
@@ -92,11 +110,21 @@
   & .bg-white\/95 { background-color: color-mix(in oklab, var(--card) 95%, transparent); }
   & .bg-white\/96 { background-color: color-mix(in oklab, var(--card) 96%, transparent); }
 
-  /* Slate halvány hátterek → muted */
+  /* Slate halvány hátterek → muted
+     2026-08-15: a `zinc` és a `gray` UGYANOLYAN semleges szürke család, de
+     eddig kimaradtak a listából. Következmény: a `bg-zinc-50` beviteli mezők,
+     a „Mégse" gombok és a varázsló-lábléc SÖTÉT MÓDBAN IS VILÁGOSAK maradtak,
+     miközben a mellettük álló `bg-slate-50` testvérük már sötét volt. */
   & .bg-slate-50,
-  & .bg-slate-100 {
+  & .bg-slate-100,
+  & .bg-zinc-50,
+  & .bg-zinc-100,
+  & .bg-gray-50,
+  & .bg-gray-100 {
     background-color: var(--muted);
   }
+  & .bg-zinc-50\/50 { background-color: color-mix(in oklab, var(--muted) 50%, transparent); }
+  & .bg-zinc-50\/60 { background-color: color-mix(in oklab, var(--muted) 60%, transparent); }
   & .bg-slate-50\/30 { background-color: color-mix(in oklab, var(--muted) 30%, transparent); }
   & .bg-slate-50\/40 { background-color: color-mix(in oklab, var(--muted) 40%, transparent); }
   & .bg-slate-50\/50 { background-color: color-mix(in oklab, var(--muted) 50%, transparent); }
@@ -104,20 +132,27 @@
   & .bg-slate-50\/70 { background-color: color-mix(in oklab, var(--muted) 70%, transparent); }
   & .bg-slate-50\/80 { background-color: color-mix(in oklab, var(--muted) 80%, transparent); }
 
-  /* Hover slate */
+  /* Hover slate (2026-08-15: + zinc/gray, lásd fent) */
   & .hover\:bg-slate-50:hover,
-  & .hover\:bg-slate-100:hover {
+  & .hover\:bg-slate-100:hover,
+  & .hover\:bg-zinc-100:hover,
+  & .hover\:bg-gray-50:hover {
     background-color: color-mix(in oklab, var(--muted) 70%, transparent);
   }
 
   /* Slate-200 — közepes kontrasztú szürke (általában border-helyettesítő) */
-  & .bg-slate-200 { background-color: var(--border); }
+  & .bg-slate-200,
+  & .bg-gray-200 {           /* 2026-08-15: ugyanaz a szerep, eddig kimaradt */
+    background-color: var(--border);
+  }
 
   /* ─── KERETEK ──────────────────────────────────────────────────── */
 
+  & .border-slate-50,        /* 2026-08-15: eddig kimaradt (5×) */
   & .border-slate-100,
   & .border-slate-200,
   & .border-slate-300,
+  & .border-zinc-100,        /* 2026-08-15: eddig kimaradt (30×) */
   & .border-zinc-200,
   & .border-zinc-300 {
     border-color: var(--border);
@@ -160,8 +195,27 @@
   & .bg-pink-50,
   & .bg-orange-50,
   & .bg-lime-50,
-  & .bg-fuchsia-50 {
+  & .bg-fuchsia-50,
+  /* 2026-08-15: a `blue` és a `green` család eddig HIÁNYZOTT a listából —
+     a többi info-tinta már témára fordult, ez a kettő nyers Tailwind maradt.
+     Sötét módban ezek gyakorlatilag fehér foltok (#eff6ff, #f0fdf4), és a
+     rájuk kerülő világos `--foreground` szöveg olvashatatlan rajtuk. */
+  & .bg-blue-50,
+  & .bg-green-50 {
     background-color: color-mix(in oklab, var(--accent) 10%, var(--card));
+  }
+  /* A blue/green áttetsző változatai — a meglévő /40 és /60 arányok szerint */
+  & .bg-blue-50\/30, & .bg-blue-50\/40, & .bg-blue-50\/50 {
+    background-color: color-mix(in oklab, var(--accent) 4%, transparent);
+  }
+  & .bg-blue-50\/60, & .bg-blue-50\/70, & .bg-blue-50\/80, & .bg-blue-50\/90,
+  & .bg-green-50\/70 {
+    background-color: color-mix(in oklab, var(--accent) 6%, transparent);
+  }
+  & .hover\:bg-blue-50:hover, & .hover\:bg-blue-50\/30:hover,
+  & .hover\:bg-blue-50\/40:hover, & .hover\:bg-blue-50\/50:hover,
+  & .hover\:bg-blue-100:hover {
+    background-color: color-mix(in oklab, var(--accent) 12%, transparent);
   }
 
   /* /60, /70, /80 átlátszó variánsok — color-mix-szel arányosan halványabb */
@@ -181,8 +235,24 @@
   & .bg-teal-100,
   & .bg-violet-100,
   & .bg-indigo-100,
-  & .bg-sky-100 {
+  & .bg-sky-100,
+  /* 2026-08-15: a 100-as szint eddig CSAK 7 családra volt kész, pedig az
+     50-es szintjük mindegyiknek fordult már. A `bg-rose-100` badge tehát
+     rózsaszín maradt, miközben a rajta ülő `text-rose-800` már olívára
+     váltott — a kettő SZÉTHÚZOTT. Itt zárjuk be a listát. */
+  & .bg-blue-100,
+  & .bg-green-100,
+  & .bg-rose-100,
+  & .bg-orange-100,
+  & .bg-pink-100,
+  & .bg-purple-100 {
     background-color: color-mix(in oklab, var(--accent) 18%, var(--card));
+  }
+  & .bg-purple-50\/40 { background-color: color-mix(in oklab, var(--accent) 4%, transparent); }
+  & .bg-purple-50\/60 { background-color: color-mix(in oklab, var(--accent) 6%, transparent); }
+  & .bg-rose-100\/60  { background-color: color-mix(in oklab, var(--accent2) 18%, transparent); }
+  & .hover\:bg-rose-100:hover, & .hover\:bg-rose-100\/60:hover {
+    background-color: color-mix(in oklab, var(--accent) 12%, transparent);
   }
   & .bg-amber-100\/55, & .bg-amber-100\/60, & .bg-amber-100\/65,
   & .bg-emerald-100\/60, & .bg-emerald-100\/70,
@@ -203,7 +273,12 @@
   & .border-cyan-100, & .border-cyan-200,
   & .border-teal-100, & .border-teal-200, & .border-teal-200\/60,
   & .border-pink-100, & .border-pink-200,
-  & .border-orange-100, & .border-orange-200 {
+  & .border-orange-100, & .border-orange-200,
+  /* 2026-08-15: a blue/green/purple keretek eddig kimaradtak — a hozzájuk
+     tartozó `bg-*-50` most már témára fordul, a keret nem maradhat nyers. */
+  & .border-blue-100, & .border-blue-200, & .border-blue-200\/80,
+  & .border-green-100, & .border-green-200,
+  & .border-purple-100, & .border-purple-200 {
     border-color: color-mix(in oklab, var(--accent) 25%, var(--border));
   }
 
@@ -217,15 +292,139 @@
   & .text-violet-700, & .text-violet-700\/75, & .text-violet-800, & .text-violet-900,
   & .text-indigo-700, & .text-indigo-800, & .text-indigo-900,
   & .text-cyan-700,
-  & .text-teal-700, & .text-teal-700\/75 {
+  & .text-teal-700, & .text-teal-700\/75,
+  /* 2026-08-15: blue/green/purple — ezek a `bg-{blue,green}-50` info-blokkok
+     saját szövegszínei. A háttér mostantól témára fordul, tehát a szövegnek
+     VELE EGYÜTT kell fordulnia, különben sötét módban a nyers kék (#2563eb)
+     a sötét felületen olvashatatlan lenne. A `blue-600` azért van benne
+     (a többi családnál a 600 kimarad), mert a `bg-blue-50` dobozokban
+     ténylegesen `text-blue-600` ül — 8 komponensben. */
+  & .text-blue-600, & .text-blue-700, & .text-blue-700\/70,
+  & .text-blue-800, & .text-blue-900, & .text-blue-900\/85,
+  & .text-green-600, & .text-green-700,
+  & .text-purple-600, & .text-purple-700, & .text-purple-900 {
     color: color-mix(in oklab, var(--accent) 70%, var(--foreground));
+  }
+
+  /* ─── GRADIENS-SZÍNPONTOK (from- / via- / to-) ─────────────────────
+     ⚑ 2026-08-15 — EZ A RÉTEG EDDIG TELJESEN HIÁNYZOTT.
+
+     Mi volt a rossz: a fenti szabályok a `background-color`-t írják felül,
+     a Tailwind 4 gradiensei viszont NEM `background-color`-ban élnek. A
+     `from-white` a `--tw-gradient-from` custom propertyt állítja, a
+     `via-*` a `--tw-gradient-via`-t, a `to-*` a `--tw-gradient-to`-t, és
+     ezekből épül a `background-image`. Vagyis a `bg-white → var(--card)`
+     fordítás a `from-white`-hoz SOHA nem ért hozzá.
+
+     Mi lett a következménye: minden `bg-gradient-to-* from-white …`
+     felület — a pénzügyi varázslók fejlécei (BCR-import, Decont,
+     Dispoziție, Oblio-panelek), az egyházmegyei és kerületi kártyák, a
+     családfa-vászon, a beállítás-varázslók — SÖTÉT MÓDBAN IS FEHÉR
+     MARADT. A rájuk kerülő szöveg viszont a fenti `text-slate-*`
+     szabályon keresztül már a világos `--foreground`-ra váltott: világos
+     szöveg fehér alapon, azaz olvashatatlan.
+
+     ⚠️ CSAK az ÁTLÁTSZATLAN fehér színpontot fordítjuk le. A
+     `from-white/10`, `via-white/8`, `to-white/5` stb. változatok a SÖTÉT
+     oldalsáv aktív-elem csillanásai és a betöltő-képernyő fénye — azok
+     szándékosan fehérek, nem szabad hozzájuk nyúlni.
+
+     A színpontok ugyanazokra a tokenekre képeznek le, mint a testvér
+     `bg-*` osztályok fentebb, hogy a gradienses és a sima kártya egyforma
+     legyen. Sötét módban külön blokk NEM kell: a `--card`/`--muted`/
+     `--accent` már mód-tudatos. */
+
+  /* Fehér színpont → kártya-háttér (a `bg-white` párja) */
+  & .from-white { --tw-gradient-from: var(--card); }
+  & .via-white  { --tw-gradient-via:  var(--card); }
+  & .to-white   { --tw-gradient-to:   var(--card); }
+
+  /* Semleges (slate) színpontok → muted (a `bg-slate-50/100` párja) */
+  & .from-slate-50, & .from-slate-100 { --tw-gradient-from: var(--muted); }
+  & .via-slate-50 { --tw-gradient-via: var(--muted); }
+  & .to-slate-50  { --tw-gradient-to:  var(--muted); }
+  & .from-slate-50\/40 { --tw-gradient-from: color-mix(in oklab, var(--muted) 40%, transparent); }
+  & .to-slate-50\/30 { --tw-gradient-to: color-mix(in oklab, var(--muted) 30%, transparent); }
+  & .to-slate-50\/40 { --tw-gradient-to: color-mix(in oklab, var(--muted) 40%, transparent); }
+  & .to-slate-50\/50 { --tw-gradient-to: color-mix(in oklab, var(--muted) 50%, transparent); }
+
+  /* Szín-50 színpontok, átlátszatlan → a `bg-*-50` párja */
+  & .from-amber-50, & .from-emerald-50, & .from-indigo-50, & .from-orange-50,
+  & .from-rose-50, & .from-sky-50, & .from-teal-50, & .from-violet-50 {
+    --tw-gradient-from: color-mix(in oklab, var(--accent) 10%, var(--card));
+  }
+  & .via-orange-50, & .via-teal-50 {
+    --tw-gradient-via: color-mix(in oklab, var(--accent) 10%, var(--card));
+  }
+  & .to-amber-50, & .to-emerald-50, & .to-orange-50, & .to-purple-50,
+  & .to-teal-50, & .to-violet-50 {
+    --tw-gradient-to: color-mix(in oklab, var(--accent) 10%, var(--card));
+  }
+
+  /* Szín-50 színpontok, halvány áttetsző (/20–/50) — a `bg-*-50/40` arány */
+  & .from-amber-50\/40, & .from-amber-50\/50,
+  & .from-blue-50\/40, & .from-blue-50\/50,
+  & .from-emerald-50\/50, & .from-rose-50\/40,
+  & .from-teal-50\/40, & .from-violet-50\/40, & .from-violet-50\/50 {
+    --tw-gradient-from: color-mix(in oklab, var(--accent) 4%, transparent);
+  }
+  & .via-amber-50\/40 {
+    --tw-gradient-via: color-mix(in oklab, var(--accent) 4%, transparent);
+  }
+  & .to-amber-50\/30, & .to-amber-50\/35, & .to-amber-50\/40, & .to-amber-50\/45,
+  & .to-cyan-50\/30, & .to-cyan-50\/40,
+  & .to-emerald-50\/30, & .to-emerald-50\/40, & .to-emerald-50\/50,
+  & .to-indigo-50\/20, & .to-indigo-50\/30,
+  & .to-orange-50\/30, & .to-orange-50\/40, & .to-pink-50\/40,
+  & .to-teal-50\/20, & .to-teal-50\/30, & .to-teal-50\/40,
+  & .to-violet-50\/20, & .to-violet-50\/30, & .to-violet-50\/40,
+  & .to-yellow-50\/30, & .to-yellow-50\/40 {
+    --tw-gradient-to: color-mix(in oklab, var(--accent) 4%, transparent);
+  }
+
+  /* Szín-50 színpontok, erősebb áttetsző (/60–/95) — a `bg-*-50/60` arány */
+  & .from-amber-50\/60, & .from-amber-50\/80, & .from-emerald-50\/80,
+  & .from-rose-50\/60, & .from-rose-50\/70, & .from-sky-50\/60,
+  & .from-violet-50\/60 {
+    --tw-gradient-from: color-mix(in oklab, var(--accent) 6%, transparent);
+  }
+  & .via-amber-50\/90 {
+    --tw-gradient-via: color-mix(in oklab, var(--accent) 6%, transparent);
+  }
+  & .to-emerald-50\/60, & .to-orange-50\/70, & .to-rose-50\/60,
+  & .to-teal-50\/60, & .to-teal-50\/70 {
+    --tw-gradient-to: color-mix(in oklab, var(--accent) 6%, transparent);
+  }
+
+  /* Szín-100 színpontok, átlátszatlan → a `bg-*-100` párja */
+  & .from-amber-100, & .from-emerald-100, & .from-sky-100 {
+    --tw-gradient-from: color-mix(in oklab, var(--accent) 18%, var(--card));
+  }
+  & .to-amber-100, & .to-emerald-100, & .to-indigo-100, & .to-teal-100 {
+    --tw-gradient-to: color-mix(in oklab, var(--accent) 18%, var(--card));
+  }
+
+  /* Szín-100 színpontok, áttetsző → a `bg-*-100/60` párja (accent2) */
+  & .from-amber-100\/80, & .from-teal-100\/80, & .from-violet-100\/80 {
+    --tw-gradient-from: color-mix(in oklab, var(--accent2) 18%, transparent);
+  }
+  & .via-amber-100\/60 {
+    --tw-gradient-via: color-mix(in oklab, var(--accent2) 18%, transparent);
+  }
+  & .to-amber-100\/40, & .to-emerald-100\/80, & .to-indigo-100\/70,
+  & .to-orange-100\/70, & .to-orange-100\/80, & .to-purple-100\/80,
+  & .to-teal-100\/70 {
+    --tw-gradient-to: color-mix(in oklab, var(--accent2) 18%, transparent);
   }
 
   /* MARAD intent-szín (NE override) — pénzügyi szemantika:
      - text-emerald-{500,600} (bevétel zöld)
-     - text-red-{400,500,600,700} (kiadás piros, hiba)
-     - bg-red-{50,100} (hiba info-blokk)
-     - text-rose-500 (hiba szöveg) */
+     - text-red-{400,500} (kiadás piros)
+     - bg-red-{50,100} VILÁGOS módban (hiba info-blokk — fehér kártyán helyes)
+     - text-rose-500 (hiba szöveg)
+     ⚠️ 2026-08-15: a `bg-red-*` és a `text-red-{600..900}` SÖTÉT módban
+     mégis fordul — lásd a dark blokk indoklását alább. A pirosság ott sem
+     vész el, csak a téma saját `--destructive` tokenjére vált. */
 }
 
 /* ===================================================================
@@ -260,6 +459,47 @@
   & .text-violet-700, & .text-violet-700\/75, & .text-violet-800, & .text-violet-900,
   & .text-indigo-700, & .text-indigo-800, & .text-indigo-900 {
     color: color-mix(in oklab, var(--accent2) 80%, var(--foreground));
+  }
+
+  /* ─── PIROS HIBA-BLOKK SÖTÉT MÓDBAN ────────────────────────────────
+     ⚑ 2026-08-15 — a `bg-red-50` (#fef2f2) gyakorlatilag FEHÉR. Sötét
+     módban a hibaüzenet-dobozok (belépés, jelszó-visszaállítás, nyitó
+     egyenlegek, TVA-plafon, pénzügyi figyelmeztetések) vakító fehér
+     foltként ültek az oldalon, és a bennük lévő `text-slate-*` — ami a
+     fenti szabály szerint már a világos `--foreground` — OLVASHATATLAN
+     volt rajtuk.
+
+     A piros itt NEM az akcentusra (olívazöld) cserélődik: az elvenné a
+     doboz „ez hiba" jelentését. Helyette a téma SAJÁT `--destructive`
+     tokenjére vált, ami mindhárom témában piros/terrakotta — a doboz
+     sötét lesz, de továbbra is pirosan figyelmeztet. Idegen szín NEM
+     kerül be.
+
+     VILÁGOS MÓD ÉRINTETLEN: ott a Tailwind eredeti pirosa marad, mert a
+     fehér kártyán az helyes volt (lásd a base blokk intent-megjegyzését).
+
+     A háttér és a szöveg EGYÜTT mozdul — külön-külön bármelyik átírása
+     rosszabb kontrasztot adna, mint a mostani állapot. */
+  & .bg-red-50, & .bg-red-100,
+  & .hover\:bg-red-50:hover, & .hover\:bg-red-100:hover {
+    background-color: color-mix(in oklab, var(--destructive) 16%, var(--card));
+  }
+  & .bg-red-50\/30, & .bg-red-50\/40, & .bg-red-50\/50, & .bg-red-50\/60,
+  & .bg-red-50\/70, & .bg-red-50\/80, & .bg-red-50\/90,
+  & .bg-red-100\/80, & .bg-red-100\/90,
+  & .hover\:bg-red-50\/30:hover, & .hover\:bg-red-50\/40:hover,
+  & .hover\:bg-red-50\/60:hover, & .hover\:bg-red-100\/80:hover {
+    background-color: color-mix(in oklab, var(--destructive) 14%, transparent);
+  }
+  & .border-red-100, & .border-red-200,
+  & .border-red-200\/70, & .border-red-200\/80, & .border-red-300 {
+    border-color: color-mix(in oklab, var(--destructive) 45%, var(--border));
+  }
+  /* A 400/500 szint már eleve elég világos a sötét felülethez — marad. */
+  & .text-red-600, & .text-red-600\/70, & .text-red-600\/90,
+  & .text-red-700, & .text-red-700\/70, & .text-red-700\/80, & .text-red-700\/85,
+  & .text-red-800, & .text-red-900 {
+    color: color-mix(in oklab, var(--destructive) 55%, var(--foreground));
   }
 }
 

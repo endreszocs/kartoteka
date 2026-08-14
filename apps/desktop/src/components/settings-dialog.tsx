@@ -47,13 +47,16 @@ import { ThemePicker, useThemeStyle } from '@kartoteka/ui-app'
 import { AdatBiztonsagPanel } from './settings/adat-biztonsag-panel'
 import { FrissitesPanel } from './settings/frissites-panel'
 import { KonyvelesPanel } from './settings/konyveles-panel'
+// 2026-08-15: a sötét/világos mód logikája átkerült a `src/lib/theme.ts`-be, mert
+// induláskor (main.tsx + index.html) is kell — a dialógusban tartott korábbi
+// másolat miatt a mentett mód újraindítás után némán elveszett.
+import { loadThemeMode, saveThemeMode, type ThemeMode } from '../lib/theme'
 
 // ──────────────────────────────────────────────────────────────
 // localStorage helperek — megegyezik a web-es verzióval (`kartoteka-user-prefs-v1`)
 // ──────────────────────────────────────────────────────────────
 
 const LS_KEY = 'kartoteka-user-prefs-v1'
-const LS_THEME_KEY = 'kartoteka-desktop-theme-v1'
 
 interface UserPrefs {
   emailNotifications: boolean
@@ -84,32 +87,6 @@ function loadPrefs(): UserPrefs {
 function savePrefs(prefs: UserPrefs): void {
   if (typeof window === 'undefined') return
   window.localStorage.setItem(LS_KEY, JSON.stringify(prefs))
-}
-
-type ThemeMode = 'light' | 'dark' | 'system'
-
-function loadTheme(): ThemeMode {
-  if (typeof window === 'undefined') return 'system'
-  const raw = window.localStorage.getItem(LS_THEME_KEY)
-  if (raw === 'light' || raw === 'dark' || raw === 'system') return raw
-  return 'system'
-}
-
-function applyTheme(mode: ThemeMode): void {
-  if (typeof document === 'undefined') return
-  const root = document.documentElement
-  if (mode === 'system') {
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-    root.classList.toggle('dark', prefersDark)
-  } else {
-    root.classList.toggle('dark', mode === 'dark')
-  }
-}
-
-function saveTheme(mode: ThemeMode): void {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(LS_THEME_KEY, mode)
-  applyTheme(mode)
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -148,7 +125,7 @@ export function SettingsDialog({
   useEffect(() => {
     if (!open) return
     setPrefs(loadPrefs())
-    setThemeState(loadTheme())
+    setThemeState(loadThemeMode())
     // A hívó által kért fülre ugrunk minden megnyitáskor (pl. Pénzügy → Könyvelés).
     setActiveTab(initialTab ?? 'ertesitesek')
   }, [open, initialTab])
@@ -190,7 +167,7 @@ export function SettingsDialog({
   const handleSetTheme = useCallback(
     (mode: ThemeMode) => {
       setThemeState(mode)
-      saveTheme(mode)
+      saveThemeMode(mode)
       flashSaveMsg()
     },
     [flashSaveMsg],

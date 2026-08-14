@@ -20,6 +20,9 @@ import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
 import { describeMoves, ensureChildFamilyLink, type FamilyCompletionOffer } from '@/lib/family/auto-family'
 import { getAllowedFamilyIds, loadFamilyDisplayNames, syncHouseholdFromCsalad } from '@/lib/family/family-membership'
 import type { HiddenMemberItem, PersonReferenceItem, PersonReferencesResult } from '@/lib/members/removal-types'
+// 2026-08-15 (átvilágítás 23.): a választói jogosultság újraszámításának KÖZÖS
+// hívója — a kivezetés minden ága után lefut (lásd removeMember).
+import { refreshVoterEligibility } from '@/lib/members/voter-eligibility'
 
 // ── Segéd: congregation_id a profilból ───────────────────────
 
@@ -1369,6 +1372,14 @@ export async function removeMember(data: RemoveInput) {
       figyelmeztetesek.push('A háztartási tagság és a párkapcsolat lezárása nem sikerült — nyisd meg a Családok fülön a kartont, és ellenőrizd.')
     }
 
+    // 2026-08-15 (átvilágítás 23.): a választói jogosultság újraszámítása. Eddig
+    // ez SEMMILYEN kivezetés után nem futott (csak a Választók fül kézi gombja
+    // hívta), ezért az elhunyt a következő kézi frissítésig rajta maradt a
+    // hivatalos névjegyzéken. Best-effort: a haláleset már el van mentve, ezt
+    // nem görgetjük vissza — de a hibát figyelmeztetésként megmutatjuk.
+    const voterMeghalt = await refreshVoterEligibility(supabase, congregationId, 'removeMember/meghalt')
+    if (voterMeghalt.warning) figyelmeztetesek.push(voterMeghalt.warning)
+
     await logAuditEvent({ action: 'member.remove', targetTable: 'szemely', targetId: String(id), metadata: { reason: 'meghalt' } }, supabase)
     revalidatePath('/tagnyilvantartas')
     return {
@@ -1391,9 +1402,12 @@ export async function removeMember(data: RemoveInput) {
     // elköltözött tag „aktív" maradt (névjegyzéken is).
     const { error } = await supabase.from('szemely').update({ member_status: 'elköltözött', congregation_id: congregationId }).eq('id', id).eq('congregation_id', congregationId)
     if (error) return { error: `Hiba: ${error.message}` }
+    // 2026-08-15 (átvilágítás 23.): újraszámítás — enélkül az elköltözött a
+    // választói névjegyzéken maradt a következő kézi gombnyomásig.
+    const voterElkoltozott = await refreshVoterEligibility(supabase, congregationId, 'removeMember/elkoltozott')
     await logAuditEvent({ action: 'member.remove', targetTable: 'szemely', targetId: String(id), metadata: { reason: 'elkoltozott' } }, supabase)
     revalidatePath('/tagnyilvantartas')
-    return { success: true, message: 'Az elköltözés sikeresen adminisztrálva.' }
+    return { success: true, message: 'Az elköltözés sikeresen adminisztrálva.', warning: voterElkoltozott.warning }
   }
 
   if (reason === 'kitert') {
@@ -1404,9 +1418,12 @@ export async function removeMember(data: RemoveInput) {
     }])
     const { error } = await supabase.from('szemely').update({ member_status: 'kitért', vallas: parsed.data.kitert_vallas || 'Ismeretlen', congregation_id: congregationId }).eq('id', id).eq('congregation_id', congregationId)
     if (error) return { error: `Hiba: ${error.message}` }
+    // 2026-08-15 (átvilágítás 23.): újraszámítás — a kitért tag member_statusa
+    // most már azonnal kiveszi a névjegyzékből, nem csak kézi frissítés után.
+    const voterKitert = await refreshVoterEligibility(supabase, congregationId, 'removeMember/kitert')
     await logAuditEvent({ action: 'member.remove', targetTable: 'szemely', targetId: String(id), metadata: { reason: 'kitert' } }, supabase)
     revalidatePath('/tagnyilvantartas')
-    return { success: true, message: 'A kitérés sikeresen adminisztrálva.' }
+    return { success: true, message: 'A kitérés sikeresen adminisztrálva.', warning: voterKitert.warning }
   }
 
   if (reason === 'torles') {
@@ -1460,6 +1477,15 @@ export async function removeMember(data: RemoveInput) {
     }
 
     const status = (rpcData as { status?: string } | null)?.status
+    // 2026-08-15 (átvilágítás 23.): a törlés/elrejtés is választói jogosultságot
+    // érint (az elrejtett tag `isvisible=false` → nem jogosult), ezért a
+    // ténylegesen végrehajtott ágak után újraszámolunk. A 'forbidden'/'not_found'
+    // esetben nem történt változás, ott felesleges. Best-effort.
+    const torlesVegrehajtva =
+      status === 'deleted' || (typeof status === 'string' && status.startsWith('hidden_'))
+    const voterTorles = torlesVegrehajtva
+      ? await refreshVoterEligibility(supabase, congregationId, 'removeMember/torles')
+      : { ok: true as const, warning: undefined }
     await logAuditEvent({ action: 'member.remove', targetTable: 'szemely', targetId: String(id), metadata: { reason: 'torles', eredmeny: status || 'ismeretlen' } }, supabase)
     revalidatePath('/tagnyilvantartas')
     switch (status) {
@@ -1476,17 +1502,17 @@ export async function removeMember(data: RemoveInput) {
           },
           supabase,
         )
-        return { success: true, message: 'A tag véglegesen törölve. A törlésről napló készült.' }
+        return { success: true, message: 'A tag véglegesen törölve. A törlésről napló készült.', warning: voterTorles.warning }
       case 'hidden_payments':
-        return { success: true, message: 'A tag elrejtve a névsorból (pénzügyi tranzakció miatt nem törölhető véglegesen).' }
+        return { success: true, message: 'A tag elrejtve a névsorból (pénzügyi tranzakció miatt nem törölhető véglegesen).', warning: voterTorles.warning }
       case 'hidden_registry':
-        return { success: true, message: 'A tag elrejtve a névsorból (anyakönyvi bejegyzései miatt nem törölhető véglegesen).' }
+        return { success: true, message: 'A tag elrejtve a névsorból (anyakönyvi bejegyzései miatt nem törölhető véglegesen).', warning: voterTorles.warning }
       case 'hidden_kapcsolat':
         // 2026-08-14 (1. döntés): a v2 RPC a teljes kapcsolat-katalógusból
         // dönt — sírhely, leltár-felelős, család, CNP-szülőlánc stb. is véd.
-        return { success: true, message: 'A tag elrejtve a névsorból (védett kapcsolatai miatt nem törölhető véglegesen).' }
+        return { success: true, message: 'A tag elrejtve a névsorból (védett kapcsolatai miatt nem törölhető véglegesen).', warning: voterTorles.warning }
       case 'hidden_fk':
-        return { success: true, message: 'A tag elrejtve a névsorból (kapcsolódó rekordok miatt nem törölhető véglegesen).' }
+        return { success: true, message: 'A tag elrejtve a névsorból (kapcsolódó rekordok miatt nem törölhető véglegesen).', warning: voterTorles.warning }
       case 'forbidden':
         return { error: 'Nincs jogosultság a tag törléséhez.' }
       case 'not_found':

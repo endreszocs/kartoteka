@@ -8,11 +8,14 @@ import { logAuditEvent } from '@/lib/audit/log'
 // 2026-08-11 (#16): a süti-név és -formátum EGYETLEN forrásból jön, mert a
 // szerveroldali import-kapuőr (guard.ts) ugyanezt olvassa vissza. Ha a két hely
 // széthúzna, a kapuőr némán elutasítaná a jogos delegált munkamenetet.
+// 2026-08-15: a közös forrás átkerült a `lib/auth/delegated-import-session.ts`-be,
+// és a süti értéke már HMAC-aláírt (aláíratlan értéket senki nem állíthat ki).
 import {
   getDelegatedImportCookieName,
-  parseDelegatedImportCookie,
   sanitizeModuleKey,
-} from './guard'
+  signDelegatedImportCookieValue,
+  verifyDelegatedImportCookieValue,
+} from '@/lib/auth/delegated-import-session'
 
 const SETTINGS_TABLE = 'system_settings'
 
@@ -176,22 +179,44 @@ async function checkActivationRateLimit(
   return { allowed: false, retryAfterMin }
 }
 
+/**
+ * Elavult süti eltakarítása. Ez CSAK takarítás: a `getDelegatedImportStatus`-t
+ * szerver-komponensek (page.tsx) is hívják, ahol a Next.js nem enged sütit
+ * írni, és a dobott hiba az egész oldalt megbuktatná. A biztonsági döntést
+ * (`active: false`) nem ez hozza, hanem az aláírás-ellenőrzés — a takarítás
+ * elmaradása tehát nem enged át semmit.
+ */
+function forgetCookieQuietly(
+  cookieStore: Awaited<ReturnType<typeof cookies>>,
+  name: string,
+) {
+  try {
+    cookieStore.delete(name)
+  } catch {
+    // Szerver-komponensben nem írható a süti — a következő szerver-akció törli.
+  }
+}
+
 export async function getDelegatedImportStatus(moduleKey: string) {
   const cookieStore = await cookies()
-  const { congregationId } = await getEffectiveCongregationContext()
+  const { userId, congregationId } = await getEffectiveCongregationContext()
   const cookie = cookieStore.get(getDelegatedImportCookieName(moduleKey))
-  const parsed = parseDelegatedImportCookie(cookie?.value)
+  // 2026-08-15: aláírás-ellenőrzés (a lejárat és a felhasználóhoz kötés is
+  // ebben van). Örökölt, aláíratlan süti → null → a felület nem mutat aktív
+  // munkamenetet, és a régi süti azonnal törlődik.
+  const session = verifyDelegatedImportCookieValue(cookie?.value, userId, moduleKey)
 
-  if (!parsed) {
+  if (!session) {
+    if (cookie) forgetCookieQuietly(cookieStore, getDelegatedImportCookieName(moduleKey))
     return { active: false, expiresAt: null as number | null }
   }
 
-  if (!congregationId || parsed.congregationId !== congregationId || Date.now() >= parsed.expiresAt) {
-    cookieStore.delete(getDelegatedImportCookieName(moduleKey))
+  if (!congregationId || session.congregationId !== congregationId) {
+    forgetCookieQuietly(cookieStore, getDelegatedImportCookieName(moduleKey))
     return { active: false, expiresAt: null as number | null }
   }
 
-  return { active: true, expiresAt: parsed.expiresAt }
+  return { active: true, expiresAt: session.expiresAt }
 }
 
 export async function activateDelegatedImport(moduleKey: string, pin: string) {
@@ -244,13 +269,21 @@ export async function activateDelegatedImport(moduleKey: string, pin: string) {
 
   const expiresAt = Date.now() + SESSION_DURATION_MS
   const cookieStore = await cookies()
-  cookieStore.set(getDelegatedImportCookieName(moduleKey), `${context.congregationId}|${expiresAt}`, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge: SESSION_DURATION_MS / 1000,
-  })
+  // 2026-08-15: HMAC-aláírt süti. Korábban nyers `"<gyülekezet>|<lejárat>"`
+  // ment ki, amit bárki magának is beírhatott — így a PIN, a brute-force
+  // korlát és ez az audit-sor is kikerülhető volt. Az aláírás a felhasználót,
+  // a gyülekezetet, a modult és a lejáratot köti össze.
+  cookieStore.set(
+    getDelegatedImportCookieName(moduleKey),
+    signDelegatedImportCookieValue(context.userId, context.congregationId, moduleKey, expiresAt),
+    {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: SESSION_DURATION_MS / 1000,
+    },
+  )
 
   // P1-7: sikeres aktiválás audit-log
   await logAuditEvent({

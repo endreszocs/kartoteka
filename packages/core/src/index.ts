@@ -255,11 +255,17 @@ export {
 // Év-zár (számadás-véglegesítés) őr — 2026-08-11 (5. kör, P1): a befizetés /
 // kiadás / belső mozgás mentés-use-case-ek közös védelme, hogy a desktop se
 // könyvelhessen egy már véglegesített és beküldött évbe.
+//
+// 2026-08-15 (átvilágítás, ⛔1): a TÖRLÉS-ág (`assertYearsNotFinalizedForDelete`)
+// is ide került — a `deleted = true` volt az utolsó pénzügyi írási út, amelyen
+// nem volt zár-kapu.
 export {
   assertYearNotFinalizedOffline,
   assertYearsNotFinalizedForCreate,
+  assertYearsNotFinalizedForDelete,
   readYearFinalized,
   yearFinalizedCreateError,
+  yearFinalizedDeleteError,
   type YearLockError,
 } from './finance/year-lock'
 
