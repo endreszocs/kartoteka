@@ -26,10 +26,12 @@ export function MemberRemoveDialog({ open, onOpenChange, member }: MemberRemoveD
   // a lelkész a megerősítés ELŐTT látja, hogy végleges törlés vagy elrejtés
   // lesz-e, és pontosan mi védi a személyt. null = még fut / nem indult.
   const [refs, setRefs] = useState<PersonReferencesResult | null>(null)
+  // Az effektben CSAK az aszinkron betöltés él — a tiszta lapot (refs=null)
+  // az eseménykezelők állítják (selectReason/resetForm): effektben a szinkron
+  // setState tilos (react-hooks/set-state-in-effect, a CI lint hibának veszi).
   useEffect(() => {
     if (!(open && step === 'form' && reason === 'torles' && member)) return
     let cancelled = false
-    setRefs(null)
     checkPersonReferences(member.id)
       .then(r => {
         if (!cancelled) setRefs(r)
@@ -67,6 +69,9 @@ export function MemberRemoveDialog({ open, onOpenChange, member }: MemberRemoveD
 
   function selectReason(r: RemoveReason) {
     setReason(r)
+    // Az előzetes kapcsolat-ellenőrzés tiszta lappal indul — a gomb addig
+    // tiltott, amíg az effekt be nem tölti az eredményt.
+    setRefs(null)
     setStep('form')
   }
 

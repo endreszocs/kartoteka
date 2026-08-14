@@ -36,12 +36,12 @@ export function HiddenMembersDialog({
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
+  // Az effektben CSAK az aszinkron betöltés él — a tiszta lapot a bezárás
+  // eseménykezelője állítja (lásd a Dialog onOpenChange-ét): effektben a
+  // szinkron setState tilos (react-hooks/set-state-in-effect, CI lint-hiba).
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    setMembers(null)
-    setTruncated(false)
-    setError(null)
     listHiddenMembers()
       .then(res => {
         if (cancelled) return
@@ -72,7 +72,18 @@ export function HiddenMembersDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        // Záráskor tiszta lap — a következő nyitás friss listával indul.
+        if (!v) {
+          setMembers(null)
+          setTruncated(false)
+          setError(null)
+        }
+        onOpenChange(v)
+      }}
+    >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
