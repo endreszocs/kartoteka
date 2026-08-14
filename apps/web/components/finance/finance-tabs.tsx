@@ -46,6 +46,7 @@ const OblioEllenorzesTab = dynamic(() => import('./oblio-ellenorzes-tab').then((
 const FinanceSugoTab = dynamic(() => import('./finance-sugo-tab').then((m) => m.FinanceSugoTab), { ssr: false, loading: tabLoading })
 const FinanceImportTabs = dynamic(() => import('./finance-import/finance-import-tabs').then((m) => m.FinanceImportTabs), { ssr: false, loading: tabLoading })
 import { CombinedEntryDialog } from '@/components/modals/combined-entry-dialog'
+import { KasszaBiztato } from '@/components/finance/kassza-biztato'
 import { DecontDialog } from '@/components/modals/decont-dialog'
 import { DispozitieDialog } from '@/components/modals/dispozitie-dialog'
 import { DispozitieIncasareWizard } from '@/components/modals/dispozitie-incasare-wizard'
@@ -685,6 +686,10 @@ export function FinanceTabs({
             accountingFinalized={!!settings.accounting_finalized}
             onTransactionChanged={refreshData}
             onOpenOpeningBalances={scope === 'congregation' ? () => setOpeningBalancesOpen(true) : undefined}
+            // 2026-08-14 (13. pont, Endre kérése): kiemelt „Új tétel" a Kassza
+            // fülön — ugyanazt az összevont rögzítőt nyitja, mint a hero-sáv.
+            onNewEntry={() => setCombinedOpen(true)}
+            biztatoSlot={<KasszaBiztato />}
           />
         </TabsContent>
 

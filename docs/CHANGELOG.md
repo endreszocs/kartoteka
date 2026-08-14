@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-14] — Kassza fül: kiemelt rögzítő gomb, napi igevers, okos dátum-alapérték
+<!-- key: 2026-08-14-kassza-cta-igevers-datum -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+
+### ✨ Új funkciók
+
+- **Kiemelt „Új tétel hozzáadása" gomb került a Kassza fül tetejére** — eddig a rögzítő csak a fül feletti sávban volt elérhető. Mellette bátorító felirat és egy **naponta váltakozó sáfárság-igevers** (Károli), valamint a biztatás: vezesd párhuzamosan a bevételt és a kiadást — a mentés után a tételek dátum szerint rendezve kerülnek a helyükre. Véglegesített évben a gomb tiltva, és ezt ki is mondja.
+
+### 🐛 Javítások
+
+- **Az új tétel dátuma a nézett évhez igazodik.** Eddig mindig a mai nap volt az alapérték — ha egy korábbi évet nézve rögzítettél (visszamenőleges könyvelés), a tétel a folyó évhez könyvelődött, és „eltűnt" a nézett listáról. Mostantól más év nézetében az adott év az alapérték, és ha a dátum mégis más évre esik, a sor mellett figyelmeztetés mondja ki: hova fog könyvelődni, és hogy nem ezen a listán jelenik majd meg.
+
+---
+
 ## [2026-08-14] — Sötét mód: olvasható fülsorok · telefonon elérhető lap-alja
 <!-- key: 2026-08-14-sotet-mod-fulsor-dvh -->
 <!-- category: bugfix -->

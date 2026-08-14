@@ -230,8 +230,16 @@ const INTAKE_CATEGORY_OPTIONS = [
 ] as const
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
+// 2026-08-14 (13. pont): az új sor alapértelmezett dátuma a NÉZETT pénzügyi
+// évhez igazodik. Korábban mindig a MAI nap volt — ha a lelkész egy KORÁBBI
+// évet nézett (visszamenőleges könyvelés), a mentett tétel a folyó évhez
+// könyvelődött, és „eltűnt" a nézett listáról. Más évnél az év utolsó napja
+// az alap (a napot úgyis a bizonylathoz igazítja a rögzítő), és a dateWarning
+// külön is jelzi az év-eltérést.
 const newRow = (year?: number): EntryRow => ({
-  id: crypto.randomUUID(), datum: todayIso(), categoryId: '', partner: '', docType: '', iratszam: '', gyulekezetiSzam: '', amount: '', megjegyzes: '', bankId: '',
+  id: crypto.randomUUID(),
+  datum: year != null && year !== new Date().getFullYear() ? `${year}-12-31` : todayIso(),
+  categoryId: '', partner: '', docType: '', iratszam: '', gyulekezetiSzam: '', amount: '', megjegyzes: '', bankId: '',
   evre: year != null ? String(year) : '',
   people: [],
 })
@@ -867,6 +875,13 @@ export function CombinedEntryBody({
   function dateWarning(r: EntryRow): string | null {
     const iso = parseFlexibleDate(r.datum)
     if (!iso) return null
+    // 2026-08-14 (13. pont): ÉV-ELTÉRÉS — a legerősebb figyelmeztetés elöl.
+    // A más évre könyvelt tétel mentés után NEM a most nézett listán jelenik
+    // meg; e jelzés nélkül a lelkész „eltűnt tételnek" látta.
+    const rowYear = Number(iso.slice(0, 4))
+    if (Number.isFinite(currentYear) && rowYear !== currentYear) {
+      return `A(z) ${rowYear}. évhez könyvelődik — most a ${currentYear}. évet nézed, mentés után nem ezen a listán jelenik meg`
+    }
     if (iso > todayIso()) return 'Jövőbeli dátum'
     if (lastRecordedDate && iso < lastRecordedDate) return `Korábbi, mint az utolsó rögzített (${lastRecordedDate})`
     return null
