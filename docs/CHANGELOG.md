@@ -23,6 +23,18 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-14] — Nyomtatási előnézet telefonon: nagyítás és lapléptetés · modern román írásmód
+<!-- key: 2026-08-14-elonezet-mobil-ro-diakritika -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+
+### 🎨 UX javítások
+
+- **A nyomtatási előnézet telefonon is olvasható.** Eddig a lap a képernyő szélességére kicsinyült — telefonon olvashatatlanul apró volt. Mostantól **nagyítható** (−/+, „Lapszélesség" visszaállító), nagyítva vízszintesen is görgethető, és többoldalas nyomtatványban **lapléptető** gombokkal (‹ ›, „N/M. oldal") lehet ugrani.
+- **Modern román írásmód a pénzügyi nyomtatványokon**: a Számadás és a regiszterek román feliratai az elavult, cedillás ş/ţ helyett a hivatalos ș/ț betűkkel készülnek (a leltári fişă-nál már bevezetett szabvány kiterjesztése). Önellenőrzés őrzi, hogy a régi írásmód ne kerülhessen vissza.
+
+---
+
 ## [2026-08-14] — Személy-törlés: előzetes kapcsolat-ellenőrzés, naplózott törlés, rejtettek visszahozása
 <!-- key: 2026-08-14-szemely-torles-ket-utja -->
 <!-- category: improvement -->

@@ -408,7 +408,7 @@ if ('error' in fullYearBalances) {
   const pRows = valueRows(partial.html)
 
   // 2026-08-14 (K2): az ÉVES Számadás záró blokkja a hivatalos 116–134. sorokat
-  // is hozza (Datorii 116+117–127 · Creanţe 128+129–133 · Záróegyenleg 134 =
+  // is hozza (Datorii 116+117–127 · Creanțe 128+129–133 · Záróegyenleg 134 =
   // 19 értéksor), amelyek a BELSŐ részszámadáson SZÁNDÉKOSAN nincsenek rajta.
   // A Y0 szám-azonossági garanciája a KÖZÖS sorokra vonatkozik; a 19 többlet-
   // sorról külön állítjuk, hogy (adat híján) nulla, és a 134. Záróegyenleg
@@ -424,7 +424,7 @@ if ('error' in fullYearBalances) {
     const zaroEgyezik =
       soldRow && zaroRow && zaroRow[zaroRow.length - 1] === soldRow[soldRow.length - 1]
     if (koztesMindNulla && zaroEgyezik) {
-      ok('Y0d az éves többlet PONTOSAN a hivatalos 116–134. blokk: Datorii/Creanţe nulla, Záróegyenleg = Sold')
+      ok('Y0d az éves többlet PONTOSAN a hivatalos 116–134. blokk: Datorii/Creanțe nulla, Záróegyenleg = Sold')
       yRows = yRows.slice(0, -OFFICIAL_CLOSING_EXTRA)
     } else {
       fail(`Y0d a hivatalos záró blokk értékei nem a vártak (nullák + Záróegyenleg=Sold): zaro=${JSON.stringify(zaroRow)} sold=${JSON.stringify(soldRow)}`)
@@ -500,7 +500,7 @@ if ('error' in fullYearBalances) {
       ['Total încasări', '52'],
       ['EXCEDENT', '100'],
       ['DEFICIT', '101'],
-      ['Plăţi totale', '112'],
+      ['Plăți totale', '112'],
     ]
     const hianyzo = kozbeekelt.filter(
       ([label, nr]) => !new RegExp(`${label}[^<]*[\\s\\S]{0,200}?<td class="c">${nr}</td>`).test(yearly.html),
@@ -508,9 +508,9 @@ if ('error' in fullYearBalances) {
     if (hianyzo.length === 0) ok('Y0e a közbeékelt hivatalos összesítő sorok (36/52/100/101/112) jelen vannak')
     else fail(`Y0e hiányzó közbeékelt sor: ${hianyzo.map(([l, n]) => `${l} (${n})`).join(' · ')}`)
 
-    // A hivatalos záró blokk (Datorii/Creanţe/Záróegyenleg) a papíron van.
-    if (/Datorii/.test(yearly.html) && /Creanţe/.test(yearly.html) && /Záróegyenleg/.test(yearly.html)) {
-      ok('Y0e a hivatalos 116–134. záró blokk (Datorii · Creanţe · Záróegyenleg) a Számadáson van')
+    // A hivatalos záró blokk (Datorii/Creanțe/Záróegyenleg) a papíron van.
+    if (/Datorii/.test(yearly.html) && /Creanțe/.test(yearly.html) && /Záróegyenleg/.test(yearly.html)) {
+      ok('Y0e a hivatalos 116–134. záró blokk (Datorii · Creanțe · Záróegyenleg) a Számadáson van')
     } else {
       fail('Y0e a hivatalos záró blokk HIÁNYZIK a Számadásról')
     }
@@ -1171,6 +1171,25 @@ function totRowErtekek(html, label) {
   const zaras = utan.indexOf('</tr>')
   const sor = zaras < 0 ? utan : utan.slice(0, zaras)
   return [...sor.matchAll(/<td class="r">([^<]*)<\/td>/g)].map((x) => x[1])
+}
+
+// ── Diakritika-őr (2026-08-14, 16. pont) ──────────────────────────────────
+// A hivatalos nyomtatványokon a MODERN román írásmód (ș/ț, vessző) a szabvány
+// — a régi, cedillás ș/ț nem kerülhet vissza a kimeneti katalógusokba
+// (a 11. pont fișa-döntésének kiterjesztése a pénzügyi regiszterekre).
+for (const rel of [
+  ['packages', 'ui-app', 'src', 'finance', 'reporting.ts'],
+  ['packages', 'ui-app', 'src', 'finance', 'budget-reporting.ts'],
+]) {
+  const src = fs.readFileSync(path.join(REPO_ROOT, ...rel), 'utf8')
+  // Unicode-escape-ekkel (U+015E/015F = Ş/ş cedillával, U+0162/0163 = Ţ/ţ
+  // cedillával) — szó szerinti karakterrel a minta egy gépi betű-cserének
+  // maga is áldozatul esne (pont ez történt az első változattal).
+  if (/[ŞşŢţ]/.test(src)) {
+    fail(`D1: régi (cedillás) román diakritika a ${rel[rel.length - 1]} fájlban — modern ș/ț kell`)
+  } else {
+    ok(`D1: ${rel[rel.length - 1]} — csak modern román diakritika (ș/ț)`)
+  }
 }
 
 fs.rmSync(tmp, { recursive: true, force: true })

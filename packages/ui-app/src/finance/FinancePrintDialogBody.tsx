@@ -366,9 +366,45 @@ export function FinancePrintDialogBody({
   // A dokumentumot a konténernél kicsivel keskenyebbre méretezzük, hogy
   // legyen levegő a szélén (ne lógjon ki a széléig).
   const targetW = boxW > 0 ? Math.max(0, boxW - 24) : docW
-  const scale = Math.min(1, targetW / docW)
+  const fitScale = Math.min(1, targetW / docW)
+
+  // ── 2026-08-14 (14. pont): NAGYÍTÁS + LAPLÉPTETÉS — telefonon a teljes
+  // szélességre kicsinyített lap olvashatatlanul apró volt, és egy 10 oldalas
+  // regiszterben csak vak görgetéssel lehetett tájékozódni.
+  //  · A nagyítás a lapszélességhez igazított méret TÖBBSZÖRÖSE (a konténer
+  //    vízszintesen görgethető, ha a lap kilóg); felső plafon 1,5× valós méret.
+  //  · A lapszám a kész HTML .page blokkjaiból jön; az ugrás a lap-magasság
+  //    egyenletes osztásával számol (a nyomtatványok lapjai azonos méretűek).
+  const NAGYITAS_SZORZOK = [1, 1.5, 2, 3] as const
+  const [zoomIdx, setZoomIdx] = useState(0)
+  const scale = Math.min(1.5, fitScale * NAGYITAS_SZORZOK[zoomIdx])
   const scaledW = Math.round(docW * scale)
   const scaledH = Math.round(contentH * scale)
+
+  const pageCount = useMemo(() => {
+    const m = report.html.match(/class="page[\s"]/g)
+    return m && m.length > 0 ? m.length : 1
+  }, [report.html])
+  // Nyers lapszám a görgetésből; a kijelzett érték lap-számra vágva — így
+  // dokumentum-váltásnál (a scroll-reset után) nem kell effektben nullázni.
+  const [rawPage, setRawPage] = useState(1)
+  const currentPage = Math.min(rawPage, pageCount)
+  const lapMagassag = pageCount > 0 ? scaledH / pageCount : scaledH
+
+  const onPreviewScroll = () => {
+    const el = previewRef.current
+    if (!el || pageCount <= 1 || lapMagassag <= 0) return
+    const p = Math.floor((el.scrollTop + lapMagassag * 0.5) / lapMagassag) + 1
+    setRawPage(Math.min(pageCount, Math.max(1, p)))
+  }
+
+  const lapUgras = (delta: number) => {
+    const el = previewRef.current
+    if (!el) return
+    const cel = Math.min(pageCount, Math.max(1, currentPage + delta))
+    el.scrollTo({ top: (cel - 1) * lapMagassag, behavior: 'smooth' })
+    setRawPage(cel)
+  }
 
   async function handlePdf() {
     // Fail-closed, védőréteg a letiltott gomb MÖGÖTT is (2026-08-11).
@@ -738,8 +774,75 @@ export function FinancePrintDialogBody({
       </div>
 
       {/* ── Jobb oldal: élő előnézet (teljes szélességre kicsinyítve) ── */}
+      <div className="space-y-2">
+        {/* Előnézet-vezérlők (2026-08-14, 14. pont): nagyítás + lapléptetés —
+            44px-es érintőcélok, telefonon is használható. */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setZoomIdx((i) => Math.max(0, i - 1))}
+              disabled={zoomIdx === 0}
+              title="Kicsinyítés"
+              aria-label="Kicsinyítés"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-slate-300 bg-white text-base font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+            >
+              −
+            </button>
+            <span className="min-w-14 text-center text-xs font-semibold tabular-nums text-slate-600">
+              {Math.round(scale * 100)}%
+            </span>
+            <button
+              type="button"
+              onClick={() => setZoomIdx((i) => Math.min(NAGYITAS_SZORZOK.length - 1, i + 1))}
+              disabled={zoomIdx >= NAGYITAS_SZORZOK.length - 1 || scale >= 1.5}
+              title="Nagyítás"
+              aria-label="Nagyítás"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-slate-300 bg-white text-base font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+            >
+              +
+            </button>
+            {zoomIdx > 0 && (
+              <button
+                type="button"
+                onClick={() => setZoomIdx(0)}
+                className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Lapszélesség
+              </button>
+            )}
+          </div>
+          {pageCount > 1 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => lapUgras(-1)}
+                disabled={currentPage <= 1}
+                title="Előző oldal"
+                aria-label="Előző oldal"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-slate-300 bg-white text-base font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              >
+                ‹
+              </button>
+              <span className="text-xs font-semibold tabular-nums text-slate-600">
+                {currentPage} / {pageCount}. oldal
+              </span>
+              <button
+                type="button"
+                onClick={() => lapUgras(1)}
+                disabled={currentPage >= pageCount}
+                title="Következő oldal"
+                aria-label="Következő oldal"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-slate-300 bg-white text-base font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              >
+                ›
+              </button>
+            </div>
+          )}
+        </div>
       <div
         ref={previewRef}
+        onScroll={onPreviewScroll}
         className="overflow-auto rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5"
         style={{ maxHeight: PREVIEW_BOX_H + 40 }}
       >
@@ -768,6 +871,7 @@ export function FinancePrintDialogBody({
           />
         </div>
         )}
+      </div>
       </div>
     </div>
   )

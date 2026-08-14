@@ -201,7 +201,7 @@ export interface BudgetPrintData {
   zaroBanca?: number
   /** Tartozások (Datorii) — hivatalos sorszám (117–127) → összeg. Hiányzó sor = 0. */
   tartozasok?: Record<number, number>
-  /** Kintlévőségek (Creanţe) — hivatalos sorszám (129–133) → összeg. Hiányzó sor = 0. */
+  /** Kintlévőségek (Creanțe) — hivatalos sorszám (129–133) → összeg. Hiányzó sor = 0. */
   kintlevosegek?: Record<number, number>
   /** Véglegesítve van-e (költségvetés/számadás). Csak ekkor jelenik meg a
    *  presbitériumi határozat + egyházközségi iktatószám a nyomtatványon. */
@@ -719,24 +719,24 @@ function hivatalosNrRand(kod: string): string {
 // Nr. rând. A * a bérszámfejtéses (egyházmegye-függő) sorokat jelöli, ahogy
 // a hivatalos íven.
 export const SZAMADAS_DATORII_SOROK: ReadonlyArray<[number, string, string]> = [
-  [117, 'Contribuţii pentru susţinerea unităţii ierarhic superioare', 'Központi járulék'],
-  [118, 'Contribuţia centrală 10% din chirii', 'Bérjövedelmek 10%-a'],
-  [119, 'Contribuţii pentru prestări servicii efectuate către protopopiat', 'Egyházmegyei szolgáltatások díja'],
-  [120, 'Întreţinere (încălzire, iluminat, apă, etc.)', 'Közköltségek'],
-  [121, 'Retribuţii*', 'Javadalmak*'],
+  [117, 'Contribuții pentru susținerea unității ierarhic superioare', 'Központi járulék'],
+  [118, 'Contribuția centrală 10% din chirii', 'Bérjövedelmek 10%-a'],
+  [119, 'Contribuții pentru prestări servicii efectuate către protopopiat', 'Egyházmegyei szolgáltatások díja'],
+  [120, 'Întreținere (încălzire, iluminat, apă, etc.)', 'Közköltségek'],
+  [121, 'Retribuții*', 'Javadalmak*'],
   [122, 'Impozit asupra drepturilor de retribuire*', 'Jövedelemadó*'],
-  [123, 'Contribuţii pentru asigurări sociale*', 'Társadalombiztosítás*'],
+  [123, 'Contribuții pentru asigurări sociale*', 'Társadalombiztosítás*'],
   [124, 'C.A.S.S.*', 'Egészségbiztosítás*'],
   [125, 'Contribuția asiguratorie pentru muncă - 2,25%*', 'Munkabiztosítási járulék*'],
   [126, 'Credite primite', 'Kapott hitelek'],
   [127, 'Alte datorii', 'Más tartozások'],
 ]
 export const SZAMADAS_CREANTE_SOROK: ReadonlyArray<[number, string, string]> = [
-  [129, 'Contribuţii pentru susţinerea unităţii ierarhic superioare*', 'Központi járulék*'],
-  [130, 'Contribuţii pentru prestări servicii la parohii*', 'Szolgáltatások díja*'],
+  [129, 'Contribuții pentru susținerea unității ierarhic superioare*', 'Központi járulék*'],
+  [130, 'Contribuții pentru prestări servicii la parohii*', 'Szolgáltatások díja*'],
   [131, 'Închirieri', 'Bérleti díjak'],
   [132, 'Acordări de credite', 'Kiadott hitelek'],
-  [133, 'Alte creanţe', 'Más kintlévőségek'],
+  [133, 'Alte creanțe', 'Más kintlévőségek'],
 ]
 
 function buildSectionRows(data: BudgetPrintData, cells: SzamadasiCel[], mode: BudgetMode): string[] {
@@ -987,11 +987,11 @@ function collectBudgetRows(
       officialSummaryRow(100, 'EXCEDENT (41-99)', 'Bevételi többlet', exc.plan, exc.actual, exc.final),
       officialSummaryRow(101, 'DEFICIT (99-41)', 'Kiadási többlet', def.plan, def.actual, def.final),
     ],
-    '207': [officialSummaryRow(112, 'Plăţi totale', 'Kiadások összesen (99+102+109)', s112.plan, s112.actual, s112.final)],
+    '207': [officialSummaryRow(112, 'Plăți totale', 'Kiadások összesen (99+102+109)', s112.plan, s112.actual, s112.final)],
   }
 
   // A horgony-csoport hiányában is ki KELL kerülnie az összesítő sornak
-  // (pl. Total încasări / Plăţi totale mindig része a hivatalos ívnek) —
+  // (pl. Total încasări / Plăți totale mindig része a hivatalos ívnek) —
   // ilyenkor a szekció megfelelő pontján, sorrendben pótoljuk.
   const emitSection = (secLabel: string, cells: SzamadasiCel[], horgonyok: string[]) => {
     all.push(`<tr class="sec"><td colspan="${cols}">${secLabel}</td></tr>`)
@@ -1245,7 +1245,7 @@ function buildSzamadasExtraRows(data: BudgetPrintData): string {
 
   // ── 2026-08-14 (K2, BLOKKOLÓ-javítás): a hivatalos 113–134. sorblokk ──────
   // A hivatalos ív záró blokkja NEM áll meg a Soldnál: a 116. sortól a
-  // Tartozások (Datorii, 117–127), a 128.-tól a Kintlévőségek (Creanţe,
+  // Tartozások (Datorii, 117–127), a 128.-tól a Kintlévőségek (Creanțe,
   // 129–133), végül a 134. Záróegyenleg (113 − 116 + 128) következik.
   // Az Útmutató kimondja: „Ha nincs tartozás, akkor jegyzőkönyvezni kell azt
   // is, hogy nincs tartozás." — a blokk tehát MINDIG nyomtatandó, üresen is.
@@ -1275,7 +1275,7 @@ function buildSzamadasExtraRows(data: BudgetPrintData): string {
         ${sor(115, 'Banca', 'Banki egyenleg', data.zaroBanca ?? null)}
         ${sor(116, 'Datorii', 'Tartozások (117 + … + 127)', datoriiTotal, true)}
         ${SZAMADAS_DATORII_SOROK.map(([nr, ro, hu]) => sor(nr, ro, hu, t(nr))).join('')}
-        ${sor(128, 'Creanţe', 'Kintlevőségek (129 + … + 133)', creanteTotal, true)}
+        ${sor(128, 'Creanțe', 'Kintlevőségek (129 + … + 133)', creanteTotal, true)}
         ${SZAMADAS_CREANTE_SOROK.map(([nr, ro, hu]) => sor(nr, ro, hu, k(nr))).join('')}
         ${sor(134, 'Sold', 'Záróegyenleg (113 − 116 + 128)', zaroegyenleg, true)}
       </tbody>
