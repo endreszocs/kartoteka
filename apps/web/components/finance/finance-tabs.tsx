@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { AlertTriangle, Building2, Eye, FileCheck, FileText, Plus, Printer, Receipt, ShieldCheck, Wallet } from 'lucide-react'
+import { AlertTriangle, Building2, Eye, FileCheck, FileText, FolderOpen, Plus, Printer, Receipt, ShieldCheck, Wallet } from 'lucide-react'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { ColorTabs } from '@/components/ui/color-tabs'
 import { Button } from '@/components/ui/button'
@@ -457,6 +457,20 @@ export function FinanceTabs({
                   Oblio ellenőrzés
                 </Button>
               )}
+              {/* 2026-08-15 (7. pont A): a gyülekezeti Dokumentumtár belépési
+                  pontja — a szállítói számlák, bizonylatok és szerződések
+                  fájl-területe. Diocese módban rejtve (gyülekezet-szintű modul). */}
+              {scope !== 'diocese' && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl max-sm:min-h-10 border-emerald-200 bg-emerald-50 font-medium text-emerald-700 shadow-sm transition hover:bg-emerald-100 hover:shadow"
+                  onClick={() => router.push('/dokumentumtar')}
+                >
+                  <FolderOpen className="mr-1 size-3.5" />
+                  Dokumentumtár
+                </Button>
+              )}
               {/* A pénzügyi import fülre most közvetlen elérés van a fülsoron
                   belül a "Rendszergazdai importáló" fülön (rose, első helyen). */}
               {/* Költségvetés nyomtatás gomb áthelyezve a Költségvetés fülre */}
@@ -878,6 +892,7 @@ export function FinanceTabs({
         incomeRecords={incomeRecords}
         expenseRecords={expenseRecords}
         congregationName={congregationName}
+        congregationNameRo={congregationNameRo}
         carryoverCash={carryoverCash}
         carryoverBank={carryoverBank}
         currentYear={currentYear}

@@ -236,6 +236,13 @@ export interface OblioInvoiceListParams {
   'client[name]'?: string
   /** Sztornózott számlák is? */
   canceled?: boolean
+  /**
+   * Fizetési (beszedési) állapot — a hivatalos Oblio API paramétere
+   * (docs/ROMAN-SZABVANYOK-KUTATAS-2026-08-14.md 3.2):
+   *   -1 = mindegy · 0 = KIFIZETETLEN · 1 = kifizetett.
+   * A „Kifizetetlen számlák" ablak ezzel kérdez — NEM heurisztika.
+   */
+  collected?: -1 | 0 | 1
   /** Dátum tól (YYYY-MM-DD). */
   issuedAfter?: string
   /** Dátum ig (YYYY-MM-DD). */
