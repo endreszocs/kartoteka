@@ -26,8 +26,8 @@ import { errorMessage } from '../../lib/error'
 import { getDbStatus, getOutboxStats, type OutboxStats } from '../../lib/local-db'
 import { getDesktopUser } from '../../lib/desktop-user'
 import {
+  flushAllPendingWrites,
   isOnline,
-  processOutbox,
   pullOwnCongregation,
   pullOwnProfile,
   pullMembersOfOwnCongregation,
@@ -82,7 +82,14 @@ export function AdatBiztonsagPanel() {
     }
   }, [])
 
-  // Sync-minden — profil + gyülekezet + tagok + munkanapló sorban
+  // Sync-minden — profil + gyülekezet + tagok + munkanapló sorban, majd
+  // MINDEN függő írás felküldése.
+  //
+  // 2026-08-15 (javítás): a gomb korábban csak a `processOutbox()`-ot hívta.
+  // MI VOLT A KÖVETKEZMÉNYE: az offline rögzített befizetés / kiadás / nyugta
+  // és az új tagok a dedikált push-erek queue-jában maradtak, a lelkész mégis
+  // azt látta, hogy „szinkronizált". A `flushAllPendingWrites` a klasszikus
+  // outboxot ÉS a dedikált push-ereket is elindítja.
   const handleSyncAll = useCallback(async () => {
     if (!user) return
     setSyncing(true)
@@ -93,7 +100,6 @@ export function AdatBiztonsagPanel() {
         congregation: 0,
         members: 0,
         worklog: 0,
-        outbox: { sent: 0, conflicts: 0, failed: 0 },
       }
       const profileRes = await pullOwnProfile(user.id)
       results.profile = profileRes.pulledRows
@@ -103,15 +109,22 @@ export function AdatBiztonsagPanel() {
       results.members = membersRes.pulledRows
       const worklogRes = await pullWorklogOfOwnCongregation(user.id, 'delta')
       results.worklog = worklogRes.pulledRows
-      const outboxRes = await processOutbox()
-      results.outbox = {
-        sent: outboxRes.sent,
-        conflicts: outboxRes.conflicts,
-        failed: outboxRes.failed - outboxRes.conflicts,
-      }
+
+      const push = await flushAllPendingWrites(user.id)
+      const kikuldve = push.outbox.sent + push.dedikalt.succeeded
+      const konfliktus = push.outbox.conflicts + push.dedikalt.conflicts
+      const hibas = push.outbox.failed - push.outbox.conflicts
+
+      // Fail-closed: ha bármi nem ment át, azt KI KELL írni — a „kész" üzenet
+      // nem takarhatja el a bennmaradt sorokat.
+      const alap =
+        `Letöltve: ${results.profile} profil, ${results.congregation} gyülekezet, ` +
+        `${results.members} tag, ${results.worklog} napló. ` +
+        `Feltöltve: ${kikuldve} tétel, ${konfliktus} ütközés, ${hibas} hiba.`
       setSyncMsg(
-        `Pull: ${results.profile} profil, ${results.congregation} gyülekezet, ` +
-          `${results.members} tag, ${results.worklog} napló. Outbox: ${results.outbox.sent} kiküldve, ${results.outbox.conflicts} konfliktus, ${results.outbox.failed} hiba.`,
+        push.hibak.length > 0
+          ? `${alap}\nNem sikerült mindent feltölteni:\n• ${push.hibak.slice(0, 5).join('\n• ')}`
+          : alap,
       )
       await refreshDbAndOutbox()
     } catch (err) {
@@ -176,7 +189,7 @@ export function AdatBiztonsagPanel() {
         }
         extra={
           syncMsg && (
-            <div className="rounded-[0.8rem] border border-border bg-muted/40 px-3 py-2 text-[11px] text-foreground">
+            <div className="whitespace-pre-line rounded-[0.8rem] border border-border bg-muted/40 px-3 py-2 text-[11px] text-foreground">
               {syncMsg}
             </div>
           )

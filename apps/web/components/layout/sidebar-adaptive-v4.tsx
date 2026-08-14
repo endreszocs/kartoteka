@@ -122,6 +122,34 @@ const profileItems: MenuItem[] = [
   { label: 'Profilom', href: '/profile', icon: Handshake, gradient: 'from-teal-400 to-cyan-500' },
 ]
 
+/**
+ * 2026-08-15 — Billentyűzet-fókusz gyűrű az oldalsáv vezérlőire.
+ *
+ * MI VOLT A ROSSZ: a fő menüpontokra, az almenü-nyitó chevron gombra és az
+ * almenü-linkekre egyetlen `focus-visible:` szabály sem volt kötve. A fókuszt
+ * így csak a globális `* { outline-ring/50 }` fallback jelezte (kartoteka.css),
+ * ami a `--ring` tokent használja — az viszont a világos módú `--sidebar`
+ * háttéren parókia-témában SZÓ SZERINT azonos szín (#1f3a3a a #1f3a3a-n =
+ * 1,00:1), kertben 1,52:1, zsoltárosban 1,61:1, ráadásul még 50% alfával is.
+ *
+ * A KÖVETKEZMÉNYE: aki billentyűzettel (Tab) navigál, egyáltalán nem látta,
+ * melyik menüponton áll — mind a három témában. Ez WCAG 1.4.11 + 2.4.7 bukás.
+ *
+ * A `--sidebar-ring` token pontosan erre való, és mind a nyolc téma-blokkban
+ * bőven a 3:1-es küszöb fölött van a saját `--sidebar` hátterén (kert 6,7/8,2 ·
+ * parókia 6,6/9,2 · zsoltáros 4,7/5,7 · fallback 5,4/7,1), ezért a
+ * token-definíciókhoz nem kellett hozzányúlni.
+ *
+ * EGYETLEN konstans, hogy a négy vezérlő ne húzhasson szét (a mobil fiók
+ * „Menü bezárása" gombja már ezt a mintát használta — most ugyanabból a
+ * forrásból kapja). A 2px eltolás + 2px vastagság (=4px) belefér a menüsáv
+ * 10px-es vízszintes bélésébe és az almenü 8px-esébe, ezért keskeny, telefonos
+ * nézetben sem lóg ki; az `outline` amúgy sem növeli a görgethető területet,
+ * tehát vízszintes görgetést sem okoz.
+ */
+const SIDEBAR_FOCUS_RING =
+  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--sidebar-ring)]'
+
 function isActivePath(pathname: string, href: string) {
   if (pathname === href) return true
   // A "gyűjtő"/áttekintő útvonalak (/dashboard, /admin) CSAK pontos egyezésnél
@@ -231,6 +259,7 @@ function SidebarItem({
           suppressHydrationWarning
           className={cn(
             'group relative flex w-full items-center gap-2.5 overflow-hidden rounded-[12px] px-2.5 py-2 text-[13.5px] font-medium tracking-[-0.005em] transition-all duration-300 ease-out [@media(max-height:820px)]:py-1.5 [@media(max-height:820px)]:text-[12.5px]',
+            SIDEBAR_FOCUS_RING,
             active
               ? 'bg-gradient-to-r from-white/14 via-white/8 to-transparent text-white font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
               : 'text-white/78 hover:bg-white/6 hover:text-white hover:translate-x-[1px]',
@@ -289,7 +318,10 @@ function SidebarItem({
             }}
             aria-label={expanded ? `${item.label} almenü becsukása` : `${item.label} almenü kibontása`}
             aria-expanded={expanded}
-            className="group/chev absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-[8px] text-white/55 transition-all duration-300 hover:bg-white/10 hover:text-white [@media(max-height:820px)]:size-6"
+            className={cn(
+              'group/chev absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-[8px] text-white/55 transition-all duration-300 hover:bg-white/10 hover:text-white [@media(max-height:820px)]:size-6',
+              SIDEBAR_FOCUS_RING,
+            )}
           >
             <ChevronRight
               className={cn(
@@ -304,6 +336,15 @@ function SidebarItem({
       {/* PRÉMIUM SUBMENU: grid-rows animation (no JS) + glass effect + stagger */}
       {hasChildren && !collapsed && (
         <div
+          /* 2026-08-15 — A becsukott almenü linkjei `grid-rows-[0fr]` +
+             `overflow-hidden` + `opacity-0` alatt VIZUÁLISAN eltűnnek, de a
+             DOM-ban maradnak, tehát Tab-bal továbbra is rájuk lehetett állni.
+             Következmény: a billentyűzetes felhasználó a most bekötött
+             fókusz-gyűrűt sem látta volna, mert kb. 18 tabstop egy nulla
+             magasságúra vágott, láthatatlan linken volt — pontosan az a
+             „nem látom, hol járok" tünet, amit javítunk. Az `inert` egyszerre
+             veszi ki őket a tab-sorrendből és az akadálymentességi fából. */
+          inert={!expanded}
           className={cn(
             'grid transition-[grid-template-rows] duration-300 ease-out',
             expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
@@ -361,6 +402,7 @@ function SidebarItem({
                     }}
                     className={cn(
                       'group/child relative flex w-full items-center gap-2.5 rounded-[10px] pl-3.5 pr-3 py-2 text-[13px] transition-all duration-200 ease-out [@media(max-height:820px)]:py-1.5 [@media(max-height:820px)]:text-[12px]',
+                      SIDEBAR_FOCUS_RING,
                       expanded
                         ? 'translate-x-0 opacity-100'
                         : 'translate-x-1 opacity-0',
@@ -773,7 +815,10 @@ function SidebarNav({
                   onClick={onClose}
                   aria-label="Menü bezárása"
                   title="Menü bezárása"
-                  className="absolute right-2 top-2 inline-flex size-11 items-center justify-center rounded-full text-[var(--sidebar-foreground)] transition-colors hover:bg-white/12 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--sidebar-ring)]"
+                  className={cn(
+                    'absolute right-2 top-2 inline-flex size-11 items-center justify-center rounded-full text-[var(--sidebar-foreground)] transition-colors hover:bg-white/12',
+                    SIDEBAR_FOCUS_RING,
+                  )}
                 >
                   <X className="size-5" aria-hidden />
                 </button>

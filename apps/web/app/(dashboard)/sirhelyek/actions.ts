@@ -19,6 +19,82 @@ async function getCongId() {
   return { supabase, congId: congregationId }
 }
 
+type SirhelySupabase = Awaited<ReturnType<typeof getCongId>>['supabase']
+
+// 2026-08-15 (kereszt-gyülekezeti IDOR): a sirhely / sirhelyberles /
+// sirhelyelhunyt tábláknak NINCS congregation_id oszlopuk, a tulajdonos
+// KIZÁRÓLAG ezen a láncon oldható fel:
+//     sirhelyelhunyt|sirhelyberles.sirhelyid → sirhely.id
+//     sirhely.temetoid                       → sirhelytemeto.congregation_id
+// Eddig a savePlot update-ága, a saveRental, a saveDeceased és mind a három
+// törlő (deletePlot/deleteRental/deleteDeceased) CSAK a sor azonosítójára
+// szűrt. Egy szerver-akció viszont ÉLŐ POST-végpont: bármely bejelentkezett
+// felhasználó elküldhette egy MÁSIK gyülekezet sorának azonosítóját, és
+// átírhatta vagy törölhette azt (elhunytak neve, anyja neve, bérlő címe…).
+// A savePlot beszúró ága ezt a láncot már helyesen bejárta — innentől minden
+// írás-út ugyanezt teszi, egyetlen közös helperen keresztül, fail-closed
+// módon (bizonytalan állapotnál — hiányzó sor, NULL FK, RLS-megtagadás —
+// tagadunk).
+// Ez app-szintű védelem: az adatbázis-oldali őr (2026-08-10-nyitott-rls-
+// policyk-takaritas.sql 5. szakasz) mellé jön, nem helyette — védelmi mélység.
+
+/** A temető a hívó gyülekezetéé? (a lánc gyökere: itt van a congregation_id) */
+async function temetoAMienk(
+  supabase: SirhelySupabase,
+  congId: string,
+  temetoid: number | null | undefined,
+): Promise<boolean> {
+  if (typeof temetoid !== 'number') return false
+  const { data } = await supabase
+    .from('sirhelytemeto')
+    .select('id')
+    .eq('id', temetoid)
+    .eq('congregation_id', congId)
+    .maybeSingle()
+  return !!data
+}
+
+/** A sírhely a hívó gyülekezetéé? (sirhely.temetoid → temető → gyülekezet) */
+async function sirhelyAMienk(
+  supabase: SirhelySupabase,
+  congId: string,
+  sirhelyid: number | null | undefined,
+): Promise<boolean> {
+  if (typeof sirhelyid !== 'number') return false
+  const { data } = await supabase
+    .from('sirhely')
+    .select('temetoid')
+    .eq('id', sirhelyid)
+    .maybeSingle()
+  const temetoid = (data as { temetoid: number | null } | null)?.temetoid
+  return temetoAMienk(supabase, congId, temetoid)
+}
+
+/** Bérlet/elhunyt sor a hívó gyülekezetéé? (sor → sírhely → temető → gyülekezet) */
+async function alsorAMienk(
+  supabase: SirhelySupabase,
+  congId: string,
+  tabla: 'sirhelyberles' | 'sirhelyelhunyt',
+  id: number | null | undefined,
+): Promise<boolean> {
+  if (typeof id !== 'number') return false
+  const { data } = await supabase
+    .from(tabla)
+    .select('sirhelyid')
+    .eq('id', id)
+    .maybeSingle()
+  const sirhelyid = (data as { sirhelyid: number | null } | null)?.sirhelyid
+  return sirhelyAMienk(supabase, congId, sirhelyid)
+}
+
+// A lelkész számára érthető, cselekvésre irányító üzenetek (nincs zsargon).
+const IDEGEN_SOR_MODOSITAS =
+  'Ez a bejegyzés nem a te gyülekezeted temetőjéhez tartozik, ezért nem módosítható. Frissítsd az oldalt — ha a bejegyzés ezután is látszik, jelezd a rendszergazdának.'
+const IDEGEN_SOR_TORLES =
+  'Ez a bejegyzés nem a te gyülekezeted temetőjéhez tartozik, ezért nem törölhető. Frissítsd az oldalt — ha a bejegyzés ezután is látszik, jelezd a rendszergazdának.'
+const ISMERETLEN_SIRHELY =
+  'A megadott sírhely nem található, vagy nem a te gyülekezeted temetőjéhez tartozik. Frissítsd az oldalt, és válaszd ki újra a sírhelyet.'
+
 // ─────────────────────────────────────────────────────────────────
 // Temetők (sirhelytemeto)
 // ─────────────────────────────────────────────────────────────────
@@ -170,14 +246,10 @@ export async function savePlot(data: PlotInput) {
   if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
   const d = parsed.data
 
-  // Biztonsági ellenőrzés: a temető a saját gyülekezetünkhöz tartozik
-  const { data: temeto } = await supabase
-    .from('sirhelytemeto')
-    .select('id')
-    .eq('id', d.temetoid)
-    .eq('congregation_id', congId)
-    .single()
-  if (!temeto) return { error: 'A megadott temető nem található vagy nem hozzáférhető.' }
+  // Biztonsági ellenőrzés: a CÉL-temető a saját gyülekezetünkhöz tartozik
+  if (!(await temetoAMienk(supabase, congId, d.temetoid))) {
+    return { error: 'A megadott temető nem található vagy nem hozzáférhető.' }
+  }
 
   const record = {
     temetoid: d.temetoid,
@@ -194,6 +266,11 @@ export async function savePlot(data: PlotInput) {
     deleted: false,
   }
   if (d.id) {
+    // 2026-08-15: a FORRÁS-sor is a miénk kell legyen — a fenti ellenőrzés csak
+    // a cél-temetőt igazolja, enélkül idegen sírhelyet lehetne „behúzni".
+    if (!(await sirhelyAMienk(supabase, congId, d.id))) {
+      return { error: IDEGEN_SOR_MODOSITAS }
+    }
     const { error } = await supabase.from('sirhely').update(record).eq('id', d.id)
     if (error) return { error: error.message }
   } else {
@@ -208,7 +285,11 @@ export async function savePlot(data: PlotInput) {
 // eldobódott, és a kliens zöld „Sírhely törölve." toastot mutatott akkor is, ha
 // a sor a helyén maradt.
 export async function deletePlot(id: number) {
-  const { supabase } = await getCongId()
+  const { supabase, congId } = await getCongId()
+  if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!(await sirhelyAMienk(supabase, congId, id))) {
+    return { error: IDEGEN_SOR_TORLES }
+  }
   const { data, error } = await supabase
     .from('sirhely')
     .update({ deleted: true })
@@ -231,8 +312,14 @@ export async function deletePlot(id: number) {
 export async function saveRental(data: RentalInput) {
   const parsed = rentalSchema.safeParse(data)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
-  const { supabase } = await getCongId()
+  const { supabase, congId } = await getCongId()
+  if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
   const d = parsed.data
+  // A CÉL-sírhely a saját gyülekezetünk temetőjében van (beszúrásnál és
+  // áthelyezésnél egyaránt) — a savePlot beszúró ágának mintája.
+  if (!(await sirhelyAMienk(supabase, congId, d.sirhelyid))) {
+    return { error: ISMERETLEN_SIRHELY }
+  }
   const record = {
     sirhelyid: d.sirhelyid,
     befizetesid: d.befizetesid ?? null,
@@ -248,6 +335,11 @@ export async function saveRental(data: RentalInput) {
     deleted: false,
   }
   if (d.id) {
+    // 2026-08-15: a FORRÁS-bérlet is a miénk kell legyen (lásd a fájl elején
+    // a lánc-magyarázatot) — enélkül idegen bérlő adatai voltak átírhatók.
+    if (!(await alsorAMienk(supabase, congId, 'sirhelyberles', d.id))) {
+      return { error: IDEGEN_SOR_MODOSITAS }
+    }
     const { error } = await supabase.from('sirhelyberles').update(record).eq('id', d.id)
     if (error) return { error: error.message }
   } else {
@@ -260,7 +352,11 @@ export async function saveRental(data: RentalInput) {
 
 // 2026-08-11 (P1 #22): lásd a deleteCemetery feletti megjegyzést.
 export async function deleteRental(id: number) {
-  const { supabase } = await getCongId()
+  const { supabase, congId } = await getCongId()
+  if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!(await alsorAMienk(supabase, congId, 'sirhelyberles', id))) {
+    return { error: IDEGEN_SOR_TORLES }
+  }
   // Soft delete (a 2026-04-15-recycle-bin-cleanup.sql cron rendezi 30 nap után)
   const { data, error } = await supabase
     .from('sirhelyberles')
@@ -284,8 +380,14 @@ export async function deleteRental(id: number) {
 export async function saveDeceased(data: DeceasedInput) {
   const parsed = deceasedSchema.safeParse(data)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
-  const { supabase } = await getCongId()
+  const { supabase, congId } = await getCongId()
+  if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
   const d = parsed.data
+  // A CÉL-sírhely a saját gyülekezetünk temetőjében van (beszúrásnál és
+  // áthelyezésnél egyaránt) — a savePlot beszúró ágának mintája.
+  if (!(await sirhelyAMienk(supabase, congId, d.sirhelyid))) {
+    return { error: ISMERETLEN_SIRHELY }
+  }
   const record = {
     sirhelyid: d.sirhelyid,
     temetesid: d.temetesid ?? null,
@@ -307,6 +409,11 @@ export async function saveDeceased(data: DeceasedInput) {
     deleted: false,
   }
   if (d.id) {
+    // 2026-08-15: a FORRÁS-bejegyzés is a miénk kell legyen — enélkül idegen
+    // elhunyt anyakönyvi adatai (név, anyja neve, dátumok) voltak átírhatók.
+    if (!(await alsorAMienk(supabase, congId, 'sirhelyelhunyt', d.id))) {
+      return { error: IDEGEN_SOR_MODOSITAS }
+    }
     const { error } = await supabase.from('sirhelyelhunyt').update(record).eq('id', d.id)
     if (error) return { error: error.message }
   } else {
@@ -319,7 +426,11 @@ export async function saveDeceased(data: DeceasedInput) {
 
 // 2026-08-11 (P1 #22): lásd a deleteCemetery feletti megjegyzést.
 export async function deleteDeceased(id: number) {
-  const { supabase } = await getCongId()
+  const { supabase, congId } = await getCongId()
+  if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!(await alsorAMienk(supabase, congId, 'sirhelyelhunyt', id))) {
+    return { error: IDEGEN_SOR_TORLES }
+  }
   const { data, error } = await supabase
     .from('sirhelyelhunyt')
     .update({ deleted: true })

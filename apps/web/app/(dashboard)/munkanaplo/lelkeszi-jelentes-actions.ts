@@ -109,6 +109,71 @@ function isMissingBefizetesCompatColumn(error: PgError): boolean {
   )
 }
 
+/** A zárszámadás-pillanatkép sora a bealitas táblából (VII.6–VII.10 forrása). */
+interface BealitasZaroRow {
+  accounting_finalized: boolean | null
+  szamadas_zaro_adatok: Record<string, unknown> | null
+  szamadas_tartozasok?: { tartozasok?: Record<string, unknown>; kintlevosegek?: Record<string, unknown> } | null
+}
+
+/**
+ * A `bealitas.szamadas_tartozasok` oszlop hiányának felismerése (42703 =
+ * undefined_column, PGRST204 = a PostgREST séma-cache nem ismeri az oszlopot).
+ * Ugyanaz a két jel, amit a penzugy/actions.ts saveSzamadasTartozasok néz.
+ */
+function isMissingTartozasokOszlop(error: PgError): boolean {
+  if (!error) return false
+  if (error.code === '42703' || error.code === 'PGRST204') return true
+  return (error.message || '').toLowerCase().includes('szamadas_tartozasok')
+}
+
+const TARTOZASOK_OSZLOP_HIBA =
+  'A kintlévőségek (VII.9) és a kifizetési kötelezettségek (VII.10) rubrikái üresen maradtak: ' +
+  'a Számadás 116–133. sorait tároló adatbázis-mező még hiányzik. Ezt a két sort most kézzel töltse ki, ' +
+  'vagy kérje a rendszergazdát, hogy futtassa le a hiányzó adatbázis-bővítést ' +
+  '(migration-docs/sql/2026-08-14-szamadas-tartozasok.sql). A jelentés többi pénzügyi rubrikája ' +
+  'változatlanul a véglegesített Számadásból jön.'
+
+/**
+ * A zárszámadás-pillanatkép betöltése (VII.6–VII.10 forrása), a
+ * `szamadas_tartozasok` oszlop hiányát TÚLÉLŐ módon.
+ *
+ * 2026-08-15 (átvilágítás 21.) — MI VOLT A ROSSZ: a lekérdezés explicit módon
+ * kérte a `szamadas_tartozasok` oszlopot, amit csak a MÉG FUTTATÁSRA VÁRÓ
+ * migration-docs/sql/2026-08-14-szamadas-tartozasok.sql hoz létre. Amíg az SQL
+ * nem futott le, a PostgREST 42703-mal az EGÉSZ sort elutasította, így nem csak
+ * az új VII.9/VII.10, hanem a régóta helyesen működő VII.6–VII.8 (bevétel,
+ * kiadás, egyenleg) is NÉMÁN üresen maradt a hivatalos, aláírt jelentésen — a
+ * lelkész kézzel írta be azt, aminek a véglegesített Számadásból kell jönnie,
+ * és a két hivatalos nyomtatvány így széthúzhatott.
+ *
+ * MOSTANTÓL: a hiányzó oszlop CSAK a saját két rubrikáját ejti ki, és arról
+ * hangosan szólunk (autoHibak) — más hibát viszont NEM fed el a szűkebb
+ * lekérdezés (fail-closed: azt változatlanul hibaként adjuk vissza).
+ */
+async function fetchBealitasZaro(
+  supabase: Supa,
+  congId: string,
+  ev: number,
+): Promise<{ data: BealitasZaroRow | null; error: PgError; tartozasokOszlopHianyzik: boolean }> {
+  const ALAP_MEZOK = 'accounting_finalized, szamadas_zaro_adatok'
+  const sor = (mezok: string) =>
+    supabase.from('bealitas').select(mezok).eq('id', String(ev)).eq('congregation_id', congId).maybeSingle()
+
+  const teljes = await sor(`${ALAP_MEZOK}, szamadas_tartozasok`)
+  if (!teljes.error) {
+    return { data: (teljes.data as unknown as BealitasZaroRow) || null, error: null, tartozasokOszlopHianyzik: false }
+  }
+  if (!isMissingTartozasokOszlop(teljes.error)) {
+    return { data: null, error: teljes.error, tartozasokOszlopHianyzik: false }
+  }
+  const szukitett = await sor(ALAP_MEZOK)
+  if (szukitett.error) {
+    return { data: null, error: szukitett.error, tartozasokOszlopHianyzik: true }
+  }
+  return { data: (szukitett.data as unknown as BealitasZaroRow) || null, error: null, tartozasokOszlopHianyzik: true }
+}
+
 /**
  * Lapozás-tudatos lekérdezés: a PostgREST kérésenként legfeljebb 1000 sort ad
  * vissza. A hívó builderének determinisztikus `.order('id')` kell a stabil
@@ -469,13 +534,9 @@ async function computeAuto(
       .eq('congregation_id', congId)
       .eq('ev', ev - 1)
       .maybeSingle(),
-    // Zárszámadás kanonikus snapshot (VII.6/7/8) — csak véglegesített számadásból
-    supabase
-      .from('bealitas')
-      .select('accounting_finalized, szamadas_zaro_adatok, szamadas_tartozasok')
-      .eq('id', String(ev))
-      .eq('congregation_id', congId)
-      .maybeSingle(),
+    // Zárszámadás kanonikus snapshot (VII.6/7/8) — csak véglegesített számadásból.
+    // A `szamadas_tartozasok` oszlop hiányát a helper túléli (lásd ott).
+    fetchBealitasZaro(supabase, congId, ev),
     // Presbiterek száma (III.9) — a dashboard bevált szemely!inner mintája
     // (2026-06-30 perf-fix): a szűrés a szemely.congregation_id-n megy, mert a
     // LEGACY presbiter-sorokban a presbiter.congregation_id hiányozhat (az
@@ -671,35 +732,53 @@ async function computeAuto(
       if (e.deleted) continue
 
       const kategoria = categorizeWorklogEntry(e)
-      if (kategoria === 'katekezis') {
+      const jellege = (e.jellege || '').trim()
+
+      // 2026-08-15 (átvilágítás 12.) — MI VOLT A ROSSZ: a bibliaóra-számlálás a
+      // `kategoria === 'szolgalat'` őr MÖGÖTT ült, a legacy 'Ifjúsági bibliaóra
+      // (IKE)' és 'Ifjúsági óra' nevek viszont a worklog.ts katekézis-listájában
+      // élnek, tehát a categorizeWorklogEntry 'katekezis'-t ad rájuk — az őr
+      // némán kizárta őket. KÖVETKEZMÉNY: a hivatalos NYOMTATOTT munkanaplón
+      // (isJournalEntry engedi őket, a 13. oszlop „Ifjúsági" rovatába) szereplő
+      // alkalmak a jelentés II.8 és III.2 rubrikájában 0-t adtak, miközben
+      // ugyanaz az esemény a V.3 katekézis-rubrikába csúszott: rossz fejezet,
+      // aláírt és beküldött nyomtatványon. A bibliaóra-ság ezért MOSTANTÓL
+      // tisztán TÍPUSNÉV kérdése (a halmaz maga elég szűrő), a kategóriától
+      // függetlenül — ez ugyanaz a szabály, amit a nyomtatvány használ.
+      const bibliaoraTipusu = JELENTES_BIBLIAORA_TIPUSOK.has(jellege)
+
+      // V.3 — katekézis-alkalmak. A bibliaóra-típusú sorok NEM ide tartoznak
+      // (a nyomtatvány is a 13. „Bibliaóra" oszlopba teszi őket): enélkül a
+      // legacy ifjúsági alkalmak KÉTSZER számítanának, két külön fejezetben.
+      if (kategoria === 'katekezis' && !bibliaoraTipusu) {
         katekezisDb += 1
         // Vallásóra-átlag (V.3b): számláló = MINDEN vallásóra-alkalom
         // jelenléte (hivatalos 1–5. csoport + legacy 'Vallásóra'),
         // nevező = a 'Vallásóra 1. csoport' alkalmai.
-        const j = (e.jellege || '').trim()
-        if (j.startsWith('Vallásóra')) {
+        if (jellege.startsWith('Vallásóra')) {
           vallasoraJelenletOssz += jelenlet(e)
-          if (j === 'Vallásóra 1. csoport') vallasora1CsoportDb += 1
+          if (jellege === 'Vallásóra 1. csoport') vallasora1CsoportDb += 1
         }
       }
       if (kategoria === 'latogatas') {
-        if ((e.jellege || '').trim() === 'Családlátogatás') csaladlatogatasDb += 1
+        if (jellege === 'Családlátogatás') csaladlatogatasDb += 1
         else egyebLatogatasDb += 1
       }
 
       // Imahét (III.5/III.6) — jellege szerint, kategóriától függetlenül
-      if ((e.jellege || '').trim() === 'Imahét') halmoz(imahet, e)
+      if (jellege === 'Imahét') halmoz(imahet, e)
 
-      // II.1 e/f/g/h — típusnév szerinti számlálás (szolgálat kategória)
-      if (kategoria === 'szolgalat') {
-        const j = (e.jellege || '').trim()
-        if (JELENTES_BIBLIAORA_TIPUSOK.has(j)) {
-          halmoz(bibliaoraTipus, e)
-          bibliaoraTipusDb.set(j, (bibliaoraTipusDb.get(j) || 0) + 1)
-        }
-        else if (JELENTES_KAZUALIA_TIPUSOK.has(j)) kazualiaDb += 1
-        else if (j === 'Digitális alkalmak') digitalisDb += 1
-        else if (JELENTES_MAS_ALKALOM_TIPUSOK.has(j)) masAlkalomDb += 1
+      // II.1 e/f/g/h — típusnév szerinti számlálás. A bibliaóra-ág kategóriától
+      // FÜGGETLEN (lásd a fenti magyarázatot); a maradék három ág — kazuália,
+      // digitális, más alkalom — a szolgálat-kategórián belül marad. A négy
+      // típushalmaz diszjunkt, így egy bejegyzés pontosan egyszer számít.
+      if (bibliaoraTipusu) {
+        halmoz(bibliaoraTipus, e)
+        bibliaoraTipusDb.set(jellege, (bibliaoraTipusDb.get(jellege) || 0) + 1)
+      } else if (kategoria === 'szolgalat') {
+        if (JELENTES_KAZUALIA_TIPUSOK.has(jellege)) kazualiaDb += 1
+        else if (jellege === 'Digitális alkalmak') digitalisDb += 1
+        else if (JELENTES_MAS_ALKALOM_TIPUSOK.has(jellege)) masAlkalomDb += 1
       }
 
       // Úrvacsorázó-számot rögzítő sorok (bármely kategória)
@@ -1026,12 +1105,20 @@ async function computeAuto(
   //     zárt év): marad a nyers `totalIncome`, mert más adat egyszerűen nincs.
   if (bealitasRes.error) {
     console.error('[lelkeszi-jelentes] bealitas lekérdezés hiba — VII.6–VII.8 null:', bealitasRes.error.message)
+    autoHibak.push(
+      'A véglegesített Számadás adatai nem tölthetők be, ezért a jelentés pénzügyi rubrikái ' +
+        '(VII.6–VII.10) üresen maradtak. Töltse újra az oldalt; ha továbbra is üresek, írja be őket ' +
+        'kézzel a beküldött Számadás alapján, és jelezze a rendszergazdának. (Részletek: ' +
+        (bealitasRes.error.message || 'ismeretlen hiba') +
+        ')',
+    )
   } else {
-    const b = bealitasRes.data as {
-      accounting_finalized: boolean | null
-      szamadas_zaro_adatok: Record<string, unknown> | null
-      szamadas_tartozasok?: { tartozasok?: Record<string, unknown>; kintlevosegek?: Record<string, unknown> } | null
-    } | null
+    // A `szamadas_tartozasok` oszlop hiánya (még nem futott le a migráció) CSAK
+    // a VII.9/VII.10-et ejti ki — a lelkész erről HANGOS üzenetet kap, hogy ne
+    // higgye üres rubrikánál azt, hogy nincs tartozás/kintlévőség.
+    if (bealitasRes.tartozasokOszlopHianyzik) autoHibak.push(TARTOZASOK_OSZLOP_HIBA)
+
+    const b = bealitasRes.data
 
     // 2026-08-14 (18. pont 3D, spec VII): a kintlévőség (VII.9) és a
     // kifizetési kötelezettségek (VII.10) a Számadás hivatalos 129–133. ill.

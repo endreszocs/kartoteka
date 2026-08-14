@@ -50,6 +50,15 @@ export function yearFinalizedCreateError(year: number): string {
   )
 }
 
+/** A zárt évből próbált TÖRLÉS egységes, lelkész-barát hibaüzenete. */
+export function yearFinalizedDeleteError(year: number): string {
+  return (
+    `A ${year}. évi számadás már véglegesítve (és beküldve) van, ezért ebből az évből tétel ` +
+    'nem törölhető — a beküldött számadás és a rendszer adatai különben csendben szétcsúsznának. ' +
+    'Kérj feloldást (javítási engedélyt) az egyházmegyétől, és csak a jóváhagyás után töröld.'
+  )
+}
+
 /** Az ellenőrzés eredménye: `null` = mehet, string = elutasító hibaüzenet. */
 export type YearLockError = string | null
 
@@ -80,15 +89,18 @@ export async function readYearFinalized(
 }
 
 /**
- * ONLINE őr új tétel (befizetés / kiadás / belső mozgás) rögzítése előtt.
+ * Közös törzs: az érintett dátumok éveit fail-closed módon átvizsgálja.
  *
- * @param dates a tétel(ek) dátuma(i) — `YYYY-MM-DD` vagy ISO timestamp.
- * @returns `null`, ha rögzíthető; egyébként a magyar hibaüzenet.
+ * @param muvelet a művelet neve a hibaüzenetben, tárgyesetben — „a rögzítést",
+ *                „a törlést" —, hogy a lelkész azt olvassa, amit épp csinált.
+ * @param blockedMessage a ZÁRT évre adott üzenet (műveletenként más).
  */
-export async function assertYearsNotFinalizedForCreate(
+async function assertYearsNotFinalized(
   supabase: SupabaseClient,
   congregationId: string,
   dates: Array<string | null | undefined>,
+  muvelet: string,
+  blockedMessage: (year: number) => string,
 ): Promise<YearLockError> {
   const years = new Set<number>()
   for (const d of dates) {
@@ -103,13 +115,67 @@ export async function assertYearsNotFinalizedForCreate(
     if (res.unknown) {
       return (
         `Nem sikerült ellenőrizni, hogy a ${year}. évi számadás véglegesítve van-e ` +
-        `(${res.errorMessage || 'ismeretlen hiba'}), ezért a rögzítést biztonságból ` +
+        `(${res.errorMessage || 'ismeretlen hiba'}), ezért ${muvelet} biztonságból ` +
         'megszakítottuk. Ellenőrizd az internetkapcsolatot, és próbáld újra.'
       )
     }
-    if (res.finalized) return yearFinalizedCreateError(year)
+    if (res.finalized) return blockedMessage(year)
   }
   return null
+}
+
+/**
+ * ONLINE őr új tétel (befizetés / kiadás / belső mozgás) rögzítése előtt.
+ *
+ * @param dates a tétel(ek) dátuma(i) — `YYYY-MM-DD` vagy ISO timestamp.
+ * @returns `null`, ha rögzíthető; egyébként a magyar hibaüzenet.
+ */
+export async function assertYearsNotFinalizedForCreate(
+  supabase: SupabaseClient,
+  congregationId: string,
+  dates: Array<string | null | undefined>,
+): Promise<YearLockError> {
+  return assertYearsNotFinalized(
+    supabase,
+    congregationId,
+    dates,
+    'a rögzítést',
+    yearFinalizedCreateError,
+  )
+}
+
+/**
+ * ONLINE őr tétel TÖRLÉSE (soft delete, `deleted = true`) előtt.
+ *
+ * 2026-08-15 (átvilágítás, ⛔1) — MI VOLT A HIBA: a `deleted = true` volt az
+ * EGYETLEN pénzügyi írási út, amely nem olvasta a `bealitas.accounting_finalized`
+ * zászlót. A létrehozás (fentebb), a szerkesztés (update-transaction.ts) és a
+ * stornó (befizetes/kiadas/storno.ts) mind fail-closed zár — a három
+ * `softDelete…UseCase` viszont egyetlen `update({ deleted: true })` volt. A
+ * KÖVETKEZMÉNY: a lelkész a desktop Befizetés/Kiadás/Belső mozgás listáján
+ * eltüntethetett egy olyan tételt, amelynek éve már véglegesítve, aláírva és az
+ * egyházmegyének BEKÜLDVE volt — a kassza-egyenleg, a Registru, a Csoportnapló
+ * és a Számadás tény-oszlopa azonnal elmozdult, a beküldött papír viszont nem,
+ * és hibaüzenet sem jelent meg. Ez ugyanaz a hibaosztály, amit a 2026-08-11-i
+ * kör a létrehozásnál lezárt; a törlés kimaradt belőle.
+ *
+ * @param dates a törlés által ÉRINTETT összes sor dátuma. Belső mozgásnál
+ *              (kassza↔bank pár) MINDKÉT oldal dátumát add át: egy év végi
+ *              átvezetés két oldala eltérő évre eshet, és a zárt év oldalának
+ *              eltüntetése ugyanúgy elmozdítja a beküldött számadást.
+ */
+export async function assertYearsNotFinalizedForDelete(
+  supabase: SupabaseClient,
+  congregationId: string,
+  dates: Array<string | null | undefined>,
+): Promise<YearLockError> {
+  return assertYearsNotFinalized(
+    supabase,
+    congregationId,
+    dates,
+    'a törlést',
+    yearFinalizedDeleteError,
+  )
 }
 
 /**

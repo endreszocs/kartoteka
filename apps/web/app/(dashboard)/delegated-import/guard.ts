@@ -3,6 +3,14 @@ import 'server-only'
 import { cookies } from 'next/headers'
 
 import { assertCongregationInScope } from '@/lib/auth/admin-scope'
+// A delegált import sütije 2026-08-15 óta HMAC-aláírt: a süti-név és az
+// aláírás-ellenőrzés EGYETLEN közös modulból jön (delegated-import-session.ts),
+// hogy a kiállító (actions.ts) és az ellenőrző (ez a fájl) ne húzhasson szét.
+import {
+  getDelegatedImportCookieName,
+  sanitizeModuleKey,
+  verifyDelegatedImportCookieValue,
+} from '@/lib/auth/delegated-import-session'
 import type { EffectiveAccessContext } from '@/lib/auth/effective-access'
 // A god-mode munkamenet sütije 2026-08-15 (8. pont D) óta HMAC-aláírt,
 // felhasználóhoz kötött érték — az ellenőrzés a közös modulon át történik.
@@ -24,8 +32,9 @@ import { GOD_MODE_COOKIE, verifyGodModeCookieValue } from '@/lib/auth/god-mode-s
  * korlátozó és az aktiválási audit-nyom teljes megkerülésével.
  *
  * A kapuőr HÁROM legitim utat ismer el (fail-closed: bármi más elutasítás):
- *   1. `delegated`   — érvényes `delegated_import_<modul>` süti, amely UGYANARRA
- *                      a cél-gyülekezetre szól és még nem járt le,
+ *   1. `delegated`   — érvényes, HMAC-ALÁÍRT `delegated_import_<modul>` süti,
+ *                      amely ehhez a felhasználóhoz és UGYANARRA a
+ *                      cél-gyülekezetre szól, és még nem járt le,
  *   2. `god_mode`    — a master admin aktív god-mode munkamenete,
  *   3. `admin_scope` — a rendszergazdai Import központ (/admin/import) útja:
  *                      master / teljes / egyházkerületi admin, a cél-gyülekezet
@@ -34,23 +43,19 @@ import { GOD_MODE_COOKIE, verifyGodModeCookieValue } from '@/lib/auth/god-mode-s
  *                      az /admin layout már rendszergazdához köti.
  */
 
-export const DELEGATED_IMPORT_COOKIE_PREFIX = 'delegated_import_'
-
-export function sanitizeModuleKey(moduleKey: string) {
-  return (moduleKey || '').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40)
-}
-
-export function getDelegatedImportCookieName(moduleKey: string) {
-  return `${DELEGATED_IMPORT_COOKIE_PREFIX}${sanitizeModuleKey(moduleKey)}`
-}
-
-export function parseDelegatedImportCookie(value: string | undefined) {
-  if (!value) return null
-  const [congregationId, expiresAtRaw] = value.split('|')
-  const expiresAt = Number(expiresAtRaw)
-  if (!congregationId || !Number.isFinite(expiresAt)) return null
-  return { congregationId, expiresAt }
-}
+// A süti-név és az aláírás-ellenőrzés a közös modulban lakik — innen csak
+// tovább-exportáljuk, hogy a guard.ts-re mutató korábbi import-utak is
+// működjenek, és SEMMIKÉPP ne keletkezzen belőlük második, széthúzó másolat.
+// 2026-08-15: a korábbi `parseDelegatedImportCookie()` innen ELTŰNT. Az a
+// függvény aláírás-ellenőrzés nélkül hitte el a süti tartalmát, ezért bárki
+// beírhatta magának a delegált munkamenetet; helyette a
+// `verifyDelegatedImportCookieValue()` az egyetlen belépő.
+export {
+  DELEGATED_IMPORT_COOKIE_PREFIX,
+  getDelegatedImportCookieName,
+  sanitizeModuleKey,
+  verifyDelegatedImportCookieValue,
+} from '@/lib/auth/delegated-import-session'
 
 /** Melyik jogcímen engedtük át a hívást (naplózáshoz / diagnosztikához). */
 export type DelegatedImportGrant = 'delegated' | 'god_mode' | 'admin_scope'
@@ -94,15 +99,18 @@ export async function assertDelegatedImportAllowed(
     return { ok: false, error: 'Nincs aktív gyülekezet.' }
   }
 
-  // 1) Delegált (PIN-nel feloldott) munkamenet — modulra ÉS gyülekezetre szól.
-  const parsed = parseDelegatedImportCookie(
+  // 1) Delegált (PIN-nel feloldott) munkamenet — modulra, gyülekezetre ÉS
+  //    felhasználóra szól. 2026-08-15: a süti értéke HMAC-aláírt; korábban
+  //    aláíratlan `"<gyülekezet>|<lejárat>"` szöveg volt, amit ez az ág nyersen
+  //    elhitt, így bármelyik lelkész kézzel beírhatta magának a sütit, és
+  //    PIN nélkül, audit-nyom nélkül futtathatott tömeges importot.
+  //    Az örökölt (aláíratlan) süti mostantól érvénytelen — fail-closed.
+  const delegated = verifyDelegatedImportCookieValue(
     cookieStore.get(getDelegatedImportCookieName(cleanModuleKey))?.value,
+    access.user.id,
+    cleanModuleKey,
   )
-  if (
-    parsed &&
-    parsed.congregationId === targetCongregationId &&
-    Date.now() < parsed.expiresAt
-  ) {
+  if (delegated && delegated.congregationId === targetCongregationId) {
     return { ok: true, grant: 'delegated' }
   }
 

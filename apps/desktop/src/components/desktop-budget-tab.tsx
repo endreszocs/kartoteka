@@ -51,6 +51,49 @@ const DOC_LABELS: Record<string, string> = {
   koltsegvetes_modositas: 'Költségvetés-módosítás',
 }
 
+/**
+ * Az évi zár-/kérelem-zászlók írása a `bealitas` táblába — 0 soros NÉMA SIKER nélkül.
+ *
+ * 2026-08-15 (P0 néma no-op, desktop). MI VOLT A HIBA: a három írás (`finalizeBudget`,
+ * `finalizeBudgetModification`, `requestBudgetUnlock`) `.select()` NÉLKÜL futott, a
+ * PostgREST pedig 0 érintett sornál sem ad hibát. Ha az adott évhez nem volt
+ * `bealitas` sor — vagy az RLS elnyelte az írást —, a művelet „siker"-t adott vissza.
+ * KÖVETKEZMÉNY: a lelkész azt hitte, véglegesítette az évet (a BudgetTab a sikerre
+ * zöld utat kapott, és beküldte a snapshotot az egyházmegyének), közben a
+ * költségvetés NYITVA maradt; a feloldás-kérésnél pedig „Elküldve!"-t látott, de az
+ * esperes soha nem kapta meg a kérelmet.
+ *
+ * A webes párja ugyanezt 2026-08-11-én javította: `updateYearlyFinanceFlags`
+ * (apps/web/app/(dashboard)/penzugy/actions.ts) — ez annak a desktop-tükre.
+ * A két oldalnak nincs közös helpere: a webes változat szerver-akció
+ * (getProfileCongregation + revalidatePath), amit a Tauri-kliens nem tud hívni.
+ */
+async function updateYearlyBudgetFlags(
+  year: number,
+  congregationId: string,
+  updates: Record<string, unknown>,
+  muvelet: string,
+): Promise<{ success?: boolean; error?: string }> {
+  const { data: updated, error } = await getDesktopSupabase()
+    .from('bealitas')
+    .update(updates)
+    .eq('id', String(year))
+    .eq('congregation_id', congregationId)
+    .select('id')
+
+  if (error) return { error: `Hiba: ${error.message}` }
+  if (!updated || updated.length === 0) {
+    return {
+      error:
+        `${muvelet} nem történt meg: a ${year}. évhez nincs mentett évi pénzügyi ` +
+        'beállítás, vagy nincs írási jogosultságod hozzá. Nyisd meg a Pénzügy oldalon ' +
+        'ezt az évet, mentsd el az évi beállításokat, majd próbáld újra. Ha újra ezt ' +
+        'írja, jelezd a rendszergazdának.',
+    }
+  }
+  return { success: true }
+}
+
 export function DesktopBudgetTab({ userId, ...props }: DesktopBudgetTabProps) {
   /** Írás-őr: minden felhő-írás előtt igazolt munkamenet kell (B6). */
   async function requireVerified(): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -103,12 +146,13 @@ export function DesktopBudgetTab({ userId, ...props }: DesktopBudgetTabProps) {
       finalizeBudget={async (year) => {
         const guard = await requireVerified()
         if (!guard.ok) return { error: guard.error }
-        const { error } = await getDesktopSupabase()
-          .from('bealitas')
-          .update({ budget_finalized: true })
-          .eq('id', String(year))
-          .eq('congregation_id', props.settings.congregation_id)
-        if (error) return { error: `Hiba: ${error.message}` }
+        const result = await updateYearlyBudgetFlags(
+          year,
+          props.settings.congregation_id,
+          { budget_finalized: true },
+          'A költségvetés véglegesítése',
+        )
+        if (result.error) return result
         void pullFinanceSettings(props.settings.congregation_id, year)
         return { success: true }
       }}
@@ -116,16 +160,15 @@ export function DesktopBudgetTab({ userId, ...props }: DesktopBudgetTabProps) {
         const guard = await requireVerified()
         if (!guard.ok) return { error: guard.error }
         // A webbel azonos oszlopnevek (budget_modN_finalized + _date).
-        const { error } = await getDesktopSupabase()
-          .from('bealitas')
-          .update({
+        return updateYearlyBudgetFlags(
+          year,
+          props.settings.congregation_id,
+          {
             [`budget_mod${modNum}_finalized`]: true,
             [`budget_mod${modNum}_date`]: new Date().toISOString().split('T')[0],
-          })
-          .eq('id', String(year))
-          .eq('congregation_id', props.settings.congregation_id)
-        if (error) return { error: `Hiba: ${error.message}` }
-        return { success: true }
+          },
+          `A ${modNum}. költségvetés-módosítás véglegesítése`,
+        )
       }}
       submitDocument={async (docType, year, snapshot, modNum) => {
         const guard = await requireVerified()
@@ -198,12 +241,13 @@ export function DesktopBudgetTab({ userId, ...props }: DesktopBudgetTabProps) {
       requestBudgetUnlock={async (year, reason) => {
         const guard = await requireVerified()
         if (!guard.ok) return { error: guard.error }
-        const { error } = await getDesktopSupabase()
-          .from('bealitas')
-          .update({ unlock_requested: true, unlock_reason: reason?.trim() || null })
-          .eq('id', String(year))
-          .eq('congregation_id', props.settings.congregation_id)
-        if (error) return { error: `Hiba: ${error.message}` }
+        const result = await updateYearlyBudgetFlags(
+          year,
+          props.settings.congregation_id,
+          { unlock_requested: true, unlock_reason: reason?.trim() || null },
+          'A költségvetés javítási kérelmének elküldése',
+        )
+        if (result.error) return result
         void pullFinanceSettings(props.settings.congregation_id, year)
         return { success: true }
       }}

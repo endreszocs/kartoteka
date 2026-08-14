@@ -1,6 +1,6 @@
 # A napi biztonsági mentés élesítése — lépésről lépésre
 
-*Készült: 2026-08-11 · Kartotéka v0.9.161*
+*Készült: 2026-08-11 · Kartotéka v0.9.161 · **Frissítve: 2026-08-15** (a 3. rész — az ütemezés — átíródott)*
 
 Ez az egyetlen rész, amit nem tudtam elvégezni helyetted: a Google Drive-hoz **a te Google-fiókod engedélye** kell, a titkos kulcsokat pedig csak te teheted be a szerver beállításai közé.
 
@@ -147,8 +147,12 @@ $b = New-Object byte[] 32; [System.Security.Cryptography.RandomNumberGenerator]:
 |---|---|
 | `BACKUP_ALERT_EMAIL` | A címed, ahová a hibajelzés menjen (ha nincs megadva, a rendszergazda címére megy) |
 | `EXPIRY_REMINDER_SECRET` | A heti lejárat-emlékeztetőhöz — ugyanazzal a paranccsal generálhatod |
-| `BACKUP_WORKER_ENDPOINT` | `https://kartoteka.app/api/internal/backup` — **az ütemezett futáshoz kell** (lásd a 3. részt) |
-| `BACKUP_MAX_SZELET` | Hány szeletet vigyen egy éjszakai futás. Ha nem adod meg: **24** (≈4 óra). |
+| `BACKUP_WORKER_ENDPOINT` | `https://kartoteka.app/api/internal/backup` — **csak akkor kell**, ha a Railway-cront használod (3. rész, „B változat") |
+
+> ⚠️ **A `BACKUP_MAX_SZELET` már nem csinál semmit** *(2026-08-15)*. Korábban a cron-szkript
+> darabolta a munkát; ma a **szerver** intézi a szeletelést, tehát ez a változó hatástalan. Ha
+> beállítottad, nyugodtan töröld — a szkript amúgy is figyelmeztet rá a naplóban, hogy ne hidd
+> róla, hogy hat valamire.
 
 > ⚠️ **A `BACKUP_MAX_RUN_MS`-t NE állítsd be**, hacsak nem tudod pontosan, mit csinálsz.
 > Ez a szelet időkeretét írja felül, és **erősebb**, mint a felületről indított futás saját
@@ -157,43 +161,85 @@ $b = New-Object byte[] 32; [System.Security.Cryptography.RandomNumberGenerator]:
 
 ---
 
-## 3. rész — Az ütemezés (Railway cron)
+## 3. rész — Az ütemezés
 
-A Railway-en a szolgáltatás beállításai *(Settings)* közt keresd a **Cron Schedule** *(ütemezés)* vagy **Scheduled jobs** *(ütemezett feladatok)* részt, és vegyél fel egy napi futást:
+*(Ez a rész 2026-08-15-én átíródott. Lásd lentebb: „Mi változott és miért".)*
+
+**Egy dolgod van: felvenni egy titkot a GitHubon.** A napi mentés ütemezője már benne van a
+repóban — nem kell semmit megírni, se a Railway-en beállítani.
+
+### A változat — GitHub Actions *(ez az élő megoldás, ezt kövesd)*
+
+1. GitHub → a **kartoteka** repó → **Settings** → **Secrets and variables** → **Actions**
+2. **New repository secret**
+   - **Name:** `BACKUP_WORKER_SECRET`
+   - **Secret:** *ugyanaz az érték*, amit a Railway Variables közé beírtál (2. rész)
+3. Kész. A `.github/workflows/napi-mentes.yml` minden éjjel elindítja a mentést.
+
+> **Amíg ezt a titkot nem veszed fel, a munkafolyamat szándékosan CSENDBEN kilép** — nem hibázik el,
+> és nem küld naponta hibajelző levelet. Vagyis nem tud „elromlani" attól, hogy még nem állítottad be.
+
+**Próbáld ki azonnal:** GitHub → **Actions** → *Napi biztonsági mentés* → **Run workflow**.
+Nem kell megvárnod a hajnalt.
+
+Mit csinál: egy hívással **elindítja** a mentést a szerveren, majd 5 percig figyeli. A korai,
+rendszerszintű bajt (nincs kulcs, halott Drive-kapcsolat, nulla haladás) **pirosra futva** jelzi.
+A hosszú futás a **szerveren** megy tovább — a befejezést az **Admin → Biztonsági mentés** oldal és
+az őrszem-riasztás (e-mail + harang) igazolja.
+
+### B változat — Railway cron *(tartalék, csak ha a GitHub Actions valamiért nem járható)*
+
+A Railway-en a szolgáltatás beállításai *(Settings)* közt van a **Cron Schedule** *(ütemezés)* mező:
 
 - **Időpont:** `17 2 * * *`
 - **Amit futtat:** `node apps/web/scripts/run-backup-worker.mjs`
+- **Kell hozzá:** a `BACKUP_WORKER_ENDPOINT` változó (lásd az „Ajánlott" táblázatot)
+
+Ez a szkript ugyanazt teszi, mint a GitHub-os változat, egyetlen különbséggel: **végig kivárja** a
+futást (félpercenként megkérdezi a szervert, hol tart), és a **kilépési kódban** mondja ki az
+eredményt. Zöld **kizárólag** akkor lesz, ha a mentés végigment, minden gyülekezet mentése megvan,
+és tényleg készült is mentés — minden más esetben pirosan bukik.
+
+> ⚠️ **A Railway „Cron Schedule" mezője nem HTTP-hívást ütemez, hanem a szolgáltatás
+> indítóparancsát futtatja.** A saját dokumentációjuk mondja ki, hogy hosszan futó folyamatra —
+> mint amilyen egy webkiszolgáló — ne tegyünk cront. Külön Railway-szolgáltatás megoldaná, de az
+> plusz díj; a GitHub Actions ingyenes. Ezért lett az „A" változat az élő megoldás.
 
 ### ⚠️ A `17 2 * * *` UTC-ben értendő — NEM romániai időben
 
-A Railway ütemezője **UTC** szerint jár *(„schedules are based on UTC")*. A `17 2 * * *` tehát:
+Mind a GitHub Actions, mind a Railway ütemezője **UTC** szerint jár. A `17 2 * * *` tehát:
 
 | | Romániai idő |
 |---|---|
 | **Nyáron** (márc. vége – okt. vége, UTC+3) | **05:17** |
 | **Télen** (okt. vége – márc. vége, UTC+2) | **04:17** |
 
-*(Az útmutató korábbi változata azt írta, hogy „ez hajnali 2:17". Ez tévedés volt. A Railway nem
-ismer időzónát, tehát választani kell: vagy elfogadjuk, hogy a futás évente kétszer egy órát
+*(Az útmutató korábbi változata azt írta, hogy „ez hajnali 2:17". Ez tévedés volt. Az ütemezők nem
+ismernek időzónát, tehát választani kell: vagy elfogadjuk, hogy a futás évente kétszer egy órát
 vándorol, vagy évente kétszer átírjuk az időpontot. A mentésnek nem számít, hogy hajnali 4 vagy 5
 óra — a félrevezető dokumentáció viszont igen, ezért inkább az igazságot írjuk ki.)*
 
-*(A perc szándékosan nem kerek: egész órakor a világ összes ütemezett feladata egyszerre indul.)*
+*(A perc szándékosan nem kerek: egész órakor a világ összes ütemezett feladata egyszerre indul.
+A GitHub ráadásul nem garantálja a percre pontos indulást — terhelés esetén 10–60 percet is
+késhet. Napi mentésnél ez nem baj, csak ne lepődj meg rajta.)*
 
-### ⚠️ Miért a szkriptet futtatjuk, és nem egy sima HTTP-hívást
+### Mi változott és miért *(2026-08-15)*
 
-Az útmutató korábbi változata egyetlen `POST https://kartoteka.app/api/internal/backup` hívást
-ütemezett. Ez **egyetlen szeletet** futtatna — 784 gyülekezethez pedig több tucat kell. Ráadásul egy
-ilyen kérést a Railway edge-proxyja **300 másodperc** után elvág, ha közben nem mozog adat: a futás
-15 gyülekezet után elhalna, és éjszakánként ugyanennyivel haladna.
+Az útmutató korábbi változata **egyedül a Railway-cront** írta le, és két állítása mára hamis:
 
-A `run-backup-worker.mjs` ezzel szemben **szeletekben** hívja a motort, egymás után, amíg el nem fogy
-a munka — és minden szelet ott folytatja, ahol az előző abbahagyta. Ehhez kell a
-`BACKUP_WORKER_ENDPOINT` változó (lásd az „Ajánlott" táblázatot).
+- *„A `.github/workflows` mappában jelenleg csak a `ci.yml` van."* — **Ma már ott a
+  `napi-mentes.yml` is**, ez az élő ütemező.
+- *„A `run-backup-worker.mjs` szeletekben hívja a motort."* — **A szeletelés átköltözött a
+  szerverre.** Egy hívás már nem futtat szeletet, hanem elindítja a teljes futást; a szkriptnek
+  csak figyelnie kell.
 
-Ha a Railway-változatod nem tud parancsot ütemezni, szólj — akkor GitHub Actions-szel oldjuk meg.
-*(A `.github/workflows` mappában jelenleg **csak** a `ci.yml` van, ütemezés nélkül; azt előbb meg
-kell írni.)*
+⛔ **És egy néma hiba, amit ezzel együtt javítottunk.** A régi szkript még a régi válasz mezőit
+kereste, amik az új válaszban nincsenek benne — hiányzó szám helyett nullát olvasott, a nullából
+pedig azt a következtetést vonta le, hogy „nincs több munka, kész". Az első kör után **zöld
+pipával** állt le, **miközben egyetlen gyülekezet mentése sem készült el**. Ha valaki a Railway-cronra
+támaszkodott, a napi mentés csendben elmaradhatott, és a cron-előzményben végig zöld pipa állt.
+Mostantól a szkript **inkább hangosan bukik**, mint hogy bizonytalanságra sikert mondjon: ha nem
+tudja, mi lett a futásból, az piros.
 
 > **Nem kell megvárnod az éjszakát.** Az **Admin → Biztonsági mentés → „Mentés most"** gomb ugyanezt
 > a munkát elvégzi: elindítja a teljes futást a szerveren, és a lap megmutatja, hol tart
@@ -227,6 +273,8 @@ kell írni.)*
 | A kártya azt írja, nincs beállítva a titok | A `BACKUP_ENCRYPTION_KEY` vagy a `BACKUP_WORKER_SECRET` hiányzik, vagy 32 karakternél rövidebb. Railway → **Variables**. |
 | 7 nap múlva megszakad a kapcsolat | Az alkalmazás „Tesztelés" *(Testing)* állapotban maradt. Google Cloud → **OAuth consent screen** → **PUBLISH APP**. |
 | A mentés „sikertelen"-t ír, de nem tudod, miért | A részletek a Railway logban *(Deployments → View logs)* vannak, és e-mailben is megkapod. Küldd át, és megnézem. |
+| Az ütemezett futás zöld, de az Admin → Biztonsági mentés oldalon nincs mai mentés | **2026-08-15 előtt ez előfordulhatott** (lásd a 3. rész „Mi változott és miért" pontját). Mostantól nem: ha nulla mentés készül, az ütemezett futás pirosan bukik. Ha mégis ezt látod, az a szerver és az ütemező verzió-eltérésére utal — szólj. |
+| A GitHub Actions futás „csendben kilépett" | A `BACKUP_WORKER_SECRET` nincs felvéve a **repó** titkai közé. Ez nem hiba, hanem szándékos: GitHub → Settings → Secrets and variables → Actions (3. rész, A változat). |
 
 ---
 

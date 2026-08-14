@@ -23,6 +23,9 @@ import {
   type DispozitieDocData,
   buildDecontHtml,
   buildDispozitieHtml,
+  // 2026-08-15 (átvilágítás 15.): a borító iktató-/határozat-mezőinek KÖZÖS
+  // leképezése — hogy a webes és a desktopos dialógus ne húzhasson szét.
+  hivatalosHatarozatMezok,
 } from '@kartoteka/ui-app'
 import {
   buildFinancePrintDocument,
@@ -78,6 +81,19 @@ type YearRecordsPayload = {
   /** 2026-08-11 (6. kör): sikerült-e a nyitók feloldása (fail-closed kapu). */
   nyitoOk?: boolean
   nyitoBizonytalan?: boolean
+  /**
+   * 2026-08-15 (átvilágítás 13.): a KIVÁLASZTOTT év `bealitas` sora.
+   * `null` = az évhez nincs beállítás-sor (sosem nyitották meg) — ez ISMERT
+   * állapot, nem hiba: a nyomtatvány ilyenkor „nincs véglegesítve"-ként megy.
+   */
+  settings?: BealitasRow | null
+  /**
+   * `false` = a beállítás-sor lekérése HIBÁRA futott, tehát nem tudjuk, hogy az
+   * adott év véglegesítve van-e és mik a tartozásai → fail-closed: a hivatalos
+   * költségvetés/számadás nyomtatvány LETILTVA. Néma, rossz évből származó
+   * záró blokk helyett inkább semmit.
+   */
+  settingsOk?: boolean
 }
 
 /** Bizonylat-típusok, amelyeknek NEM kellenek a bevétel/kiadás sorok
@@ -149,6 +165,38 @@ export function FinancePrintDialog({
   // 2026-07-10 (S3 #1e): a 3xx/4xx mellett a 100-as fejezet (legacy belső mozgás /
   // pénztármaradvány: 100, 100.01, 100.5x) is kimarad — a buildCsoportNaplo ezeket
   // belsőként kihagyja, így felkínálásuk MINDIG üres nyomtatványt adott volna.
+  // ── 2026-08-15 (átvilágítás 13.): ÉV-SCOPE-OLT beállítás-lekérés ─────────
+  //
+  // MI VOLT A ROSSZ: a `settings` prop MINDIG az OLDAL évének `bealitas` sora,
+  // az év-választó viszont 8 évet kínál. A tételek és a költségvetés-sorok
+  // évhelyesen töltődtek újra, de a hivatalos záró blokk (`szamadas_tartozasok`)
+  // és a véglegesítés-zászló az oldal évéből jött.
+  // MI VOLT A KÖVETKEZMÉNYE: a 2026-on álló oldalról nyomtatott 2025-ös Számadás
+  // 116–127. Datorii sorába a 2026-os tartozás került, és mivel a 134. sor
+  // Záróegyenleg = 113 − 116 + 128, a 2025-ös ív VÉGSŐ egyenlege is ennyivel
+  // tért el — aláírható, beküldhető papíron. A `bealitas` sor évenként külön
+  // létezik (id = év), tehát a kiválasztott évre kell lekérni.
+  const loadYearSettings = async (
+    year: number,
+  ): Promise<{ row: BealitasRow | null; ok: boolean }> => {
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('bealitas')
+        // `select('*')` SZÁNDÉKOSAN: a `szamadas_tartozasok` oszlop csak a
+        // 2026-08-14-i migráció után létezik — explicit oszloplistával a TELJES
+        // lekérés 42703-mal bukna, és a záró blokk némán üresen menne ki.
+        .select('*')
+        .eq('congregation_id', settings.congregation_id)
+        .eq('id', String(year))
+        .maybeSingle()
+      if (error) return { row: null, ok: false }
+      return { row: (data as BealitasRow | null) ?? null, ok: true }
+    } catch {
+      return { row: null, ok: false }
+    }
+  }
+
   const categoryOptions = cellek
     .filter(
       (c) =>
@@ -202,6 +250,17 @@ export function FinancePrintDialog({
             const carryoverCashUse = yr ? yr.carryoverCash : carryoverCash
             const carryoverBankUse = yr ? yr.carryoverBank : carryoverBank
             const bankNyitoMapUse = yr ? yr.bankNyitoMap : bankNyitoMap
+            // 2026-08-15 (átvilágítás 13.): a beállítás-sor is a KIVÁLASZTOTT évé.
+            // Ha `yr` van, az oldal évétől eltérő (vagy részszámadás-) évet nézünk,
+            // ilyenkor a props-beli `settings` MÁS év sora lenne.
+            // KIVÉTEL: ha az újratöltött év MAGA az oldal éve (részszámadás), a
+            // props-beli sor a mérvadó — azt a szerver oldotta fel, egyházmegyei
+            // nézetben például a `diocese_bealitas` táblából, ahol a lenti
+            // `bealitas`-lekérés természetesen nem talál semmit.
+            const settingsUse: BealitasRow | null = yr
+              ? (yr.settings ?? (filters.selectedYear === currentYear ? settings : null))
+              : settings
+            const settingsOk = yr ? yr.settingsOk !== false : true
 
             // Korábbi bizonylatok újranyomtatása (a snapshot adatból)
             if (filters.printType === 'decont_reprint') {
@@ -237,6 +296,20 @@ export function FinancePrintDialog({
               if (!filters.budgetRows) return emptyPreview('Költségvetési adatok betöltése…')
               const isReszszamadas = filters.printType === 'reszszamadas'
               const isSzamadas = filters.printType === 'szamadas'
+
+              // 2026-08-15 (átvilágítás 13.): FAIL-CLOSED kapu. Ha a kiválasztott
+              // év beállítás-sorát nem sikerült lekérni, nem tudjuk, véglegesítve
+              // van-e, mi a presbitériumi határozata és mik a tartozásai. A
+              // hivatalos ívet ilyenkor NEM adjuk ki: a hiányzó adat helyére az
+              // OLDAL évének adata kerülne — pontosan az a hamis papír, ami ellen
+              // ez a javítás készült. (A részszámadás nem hivatalos zárszámadás,
+              // és a záró blokkot sem használja — annak saját kapui vannak.)
+              if (!isReszszamadas && !settingsOk) {
+                return blockedPreview(
+                  'Ez a nyomtatvány most nem készíthető el',
+                  `A(z) ${filters.selectedYear}. évi pénzügyi beállítások (véglegesítés, presbitériumi határozat, tartozások) nem tölthetők be, ezért a nyomtatvány hibás adatokkal készülne. Ellenőrizd az internetkapcsolatot, és próbáld újra. Ha újra ezt írja, jelezd a rendszergazdának.`,
+                )
+              }
 
               // 2026-08-11 (6. kör): a részszámadás tény-oszlopa CSAK az
               // időszaki tételeket összegzi. A nyitó/záró NEM ebből jön —
@@ -283,7 +356,15 @@ export function FinancePrintDialog({
                 year: filters.selectedYear,
                 carryoverCash: carryoverCashUse,
                 carryoverBank: carryoverBankUse,
-                finalized: isSzamadas ? !!settings.accounting_finalized : !!settings.budget_finalized,
+                finalized: isSzamadas
+                  ? !!settingsUse?.accounting_finalized
+                  : !!settingsUse?.budget_finalized,
+                // 2026-08-15 (átvilágítás 15.): a presbitériumi határozat és az
+                // egyházközségi iktatószám. Eddig CSAK a `finalized` zászló ment
+                // át, ezért a véglegesített ív borítóján a határozat-sor üresen
+                // maradt — és mivel az „ez még nincs véglegesítve" magyarázat is
+                // eltűnt, a lelkész észre sem vette, hogy hiányos papírt ad be.
+                ...hivatalosHatarozatMezok(settingsUse, isSzamadas ? 'szamadas' : 'koltsegvetes'),
               }
 
               // ── 2026-08-14 (K2): a hivatalos 113–134. záró blokk adatai ──
@@ -298,7 +379,8 @@ export function FinancePrintDialog({
                   }
                   return ki
                 }
-                const stored = settings.szamadas_tartozasok
+                // 2026-08-15 (átvilágítás 13.): a KIVÁLASZTOTT év sorából.
+                const stored = settingsUse?.szamadas_tartozasok
                 printData.tartozasok = toNumMap(stored?.tartozasok ?? undefined)
                 printData.kintlevosegek = toNumMap(stored?.kintlevosegek ?? undefined)
 
@@ -404,17 +486,27 @@ export function FinancePrintDialog({
           }}
           onLoadYearRecords={async (year): Promise<unknown> => {
             // 2026-07-10 (S5-#3): a kiválasztott év sorai + nyitói a szerverről.
-            const res = await getYearFinanceRecords(year)
+            // 2026-08-15 (átvilágítás 13.): a tételek MELLÉ az adott év
+            // `bealitas` sora is — abból jön a véglegesítés-zászló, a
+            // presbitériumi határozat és a hivatalos záró blokk (tartozások).
+            const [res, evSettings] = await Promise.all([
+              getYearFinanceRecords(year),
+              loadYearSettings(year),
+            ])
             if (res.error || !res.income || !res.expense) {
               toast.error(`A(z) ${year}. évi tételek betöltése sikertelen${res.error ? `: ${res.error}` : '.'}`)
               // 2026-08-11 (6. kör): `nyitoOk: false` → a részszámadás LETILTVA.
               // Üres tétel-listából némán „0 lej mindenütt" papír készülne.
+              // 2026-08-15: ugyanezért `settingsOk: false` — ha az év tételei nem
+              // jöttek meg, a hivatalos költségvetés/számadás ív sem adható ki.
               return {
                 income: [],
                 expense: [],
                 carryoverCash: 0,
                 carryoverBank: 0,
                 nyitoOk: false,
+                settings: null,
+                settingsOk: false,
               } satisfies YearRecordsPayload
             }
             return {
@@ -425,6 +517,8 @@ export function FinancePrintDialog({
               bankNyitoMap: res.bankNyitoMap,
               nyitoOk: res.nyitoOk,
               nyitoBizonytalan: res.nyitoBizonytalan,
+              settings: evSettings.row,
+              settingsOk: evSettings.ok,
             } satisfies YearRecordsPayload
           }}
           onLoadNyugtatombok={async (year) => {

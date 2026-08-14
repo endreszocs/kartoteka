@@ -216,6 +216,35 @@ export interface BealitasRow {
     tartozasok?: Record<string, number>
     kintlevosegek?: Record<string, number>
   } | null
+
+  // ── 2026-08-15 (átvilágítás 15.): a hivatalos borító határozat-mezői ──────
+  //
+  // MI VOLT A ROSSZ: ezek az oszlopok RÉGÓTA léteznek a `bealitas` táblában
+  // (Database_schema.sql:95–97 és 112–114), és a számadás-véglegesítő wizard ki
+  // is tölti a szamadas_* párost — de a típusban nem szerepeltek, ezért a két
+  // nyomtató dialógus nem is tudta átadni őket a borító-építőnek: az CSAK a
+  // `finalized` zászlót kapta meg.
+  // MI VOLT A KÖVETKEZMÉNYE: a véglegesített Számadás borítóján a „Tárgyalta és
+  // jóváhagyta a presbitérium a ____ tartott gyűlésén ____ szám alatt." sor
+  // ÜRESEN maradt, ráadásul a „Nincs véglegesítve…" magyarázó mondat is eltűnt
+  // (az csak `!finalized` esetén jelenik meg). A lelkész tehát kitöltetlen
+  // határozat-sorral adta be az ALÁÍRT papírt, miközben az adat a DB-ben ott volt.
+  //
+  // Mind opcionális: régi év-sorokban NULL-ok, ilyenkor a borítón üres vonal áll
+  // (ez a valóság — nem hazudunk rá számot).
+  /** Számadás — egyházközségi iktatószám (`bealitas.szamadas_iktatoszam`). */
+  szamadas_iktatoszam?: string | null
+  /** Számadás — a jóváhagyó presbitériumi határozat száma. */
+  szamadas_hatarozat_szam?: string | null
+  /** Számadás — a jóváhagyó presbitériumi gyűlés dátuma (ISO nap). */
+  szamadas_hatarozat_datum?: string | null
+  /** Költségvetés — egyházközségi iktatószám. */
+  egyhazkozsegi_iktatoszam?: string | null
+  /** Költségvetés — a jóváhagyó presbitériumi határozat száma. */
+  presbiteriumi_hatarozat_szam?: string | null
+  /** Költségvetés — a jóváhagyó presbitériumi gyűlés dátuma (ISO nap). */
+  presbiteriumi_hatarozat_datum?: string | null
+
   // Költségvetés módosítás flagek (3 kör)
   budget_mod1_finalized?: boolean
   budget_mod2_finalized?: boolean
@@ -226,6 +255,50 @@ export interface BealitasRow {
   budget_mod1_hatarozat?: string | null
   budget_mod2_hatarozat?: string | null
   budget_mod3_hatarozat?: string | null
+}
+
+/**
+ * A hivatalos Számadás/Költségvetés borítójára kerülő iktató- és
+ * határozat-adatok (a `BudgetPrintData` azonos nevű mezőibe megy).
+ */
+export interface HivatalosHatarozatMezok {
+  iktatoszam?: string
+  hatarozatSzam?: string
+  hatarozatDatum?: string
+}
+
+/**
+ * 2026-08-15 (átvilágítás 15.): melyik `bealitas` oszlop kerül a borítóra.
+ *
+ * SZÁNDÉKOSAN közös: a webes és a desktopos nyomtató dialógusok ugyanezt a
+ * leképezést használják. Ha mindegyik maga döntené el, hogy a Számadás a
+ * `szamadas_*`, a Költségvetés pedig a `presbiteriumi_*` / `egyhazkozsegi_*`
+ * oszlopokból dolgozik, a két felület némán széthúzna — a repó ismert
+ * hibaosztálya (lásd az anyakönyvi család-rögzítés 2026-08-04-i esetét).
+ *
+ * Üres/whitespace érték `undefined`-ként jön vissza: a borító-építő ilyenkor
+ * üres vonalat rajzol, nem egy látszólag kitöltött, valójában üres mezőt.
+ */
+export function hivatalosHatarozatMezok(
+  settings: BealitasRow | null | undefined,
+  tipus: 'szamadas' | 'koltsegvetes',
+): HivatalosHatarozatMezok {
+  const tisztit = (v: string | null | undefined): string | undefined => {
+    const s = (v ?? '').trim()
+    return s.length > 0 ? s : undefined
+  }
+  if (!settings) return {}
+  return tipus === 'szamadas'
+    ? {
+        iktatoszam: tisztit(settings.szamadas_iktatoszam),
+        hatarozatSzam: tisztit(settings.szamadas_hatarozat_szam),
+        hatarozatDatum: tisztit(settings.szamadas_hatarozat_datum),
+      }
+    : {
+        iktatoszam: tisztit(settings.egyhazkozsegi_iktatoszam),
+        hatarozatSzam: tisztit(settings.presbiteriumi_hatarozat_szam),
+        hatarozatDatum: tisztit(settings.presbiteriumi_hatarozat_datum),
+      }
 }
 
 export interface SzamadasiCel {

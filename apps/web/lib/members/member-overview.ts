@@ -1,5 +1,8 @@
 import { AGE_GROUPS, type EnrichedMember } from '@/lib/constants/members'
 import { isAdult } from '@/lib/members/age'
+// 2026-08-15 (átvilágítás #22): a tag-státusz KANONIKUS predikátumai — ugyanaz a
+// forrás, amire a Személyek fül (registry-list-actions.ts) is köt.
+import { hasLeftMember, isActiveMember, isMovedMember } from '@/lib/members/member-status'
 
 export interface MemberOverviewPerson {
   id: number
@@ -84,16 +87,17 @@ export function buildMemberOverviewSnapshot(
         })
         .map((member) => `${member.csaladnev || ''} ${member.k_nev || ''}`.trim())
 
-  const living = members.filter((member) =>
-    !member.meghalt
-    && !member.elkoltozott
-    && member.member_status !== 'elkoltozott'
-    && member.member_status !== 'kitért'
-    && member.member_status !== 'törölt',
-  )
-  const activeMembers = living.filter((member) =>
-    (member.vallas || '').trim().toLocaleLowerCase('hu-HU') === 'református' || member.hasEverPaid,
-  )
+  // 2026-08-15 (átvilágítás #22): itt korábban KÉZI, nyers összevetés állt:
+  // `member.elkoltozott` (NEM LÉTEZŐ oszlop → mindig undefined) és az ÉKEZET
+  // NÉLKÜLI `member_status !== 'elkoltozott'` — miközben a kivezetés ÉKEZETES
+  // 'elköltözött'-et ír. Az elköltözött tag ezért bennmaradt az aktív
+  // lélekszámban (és a nem/kor-bontásban, a választó-számban, az 5/10 éves
+  // előrejelzésben is), a Személyek fül viszont — amely már normalizálva szűrt —
+  // kihagyta: ugyanazon a képernyőn két különböző lélekszám. A `vallas`
+  // összevetése ugyanezért volt hibás: az importált, ékezet nélküli
+  // 'Reformatus' vallású tag itt NEM számított aktívnak. Mindkettő mostantól
+  // a közös, ékezet-érzéketlen `isActiveMember`-en megy.
+  const activeMembers = members.filter(isActiveMember)
 
   const groups: Record<string, number> = {}
   AGE_GROUPS.forEach((group) => { groups[group.key] = 0 })
@@ -203,8 +207,12 @@ export function buildMemberOverviewSnapshot(
       youngest,
       topLocs: Object.entries(localities).sort((left, right) => right[1] - left[1]).slice(0, 5),
       dead: members.filter((member) => member.meghalt).length,
-      moved: members.filter((member) => member.member_status === 'elkoltozott' || member.elkoltozott).length,
-      left: members.filter((member) => member.member_status === 'kitért').length,
+      // 2026-08-15 (átvilágítás #22): az „Elköltözött" pirula MINDIG 0-t mutatott —
+      // ékezet nélküli sztringre és a nem létező `elkoltozott` oszlopra hasonlított.
+      // A „Kitért" ág ékezetezése ugyan helyes volt, de az importált, ékezet nélküli
+      // 'kitert' státuszú tagot nem számolta; mindkettő a közös predikátumra köt.
+      moved: members.filter(isMovedMember).length,
+      left: members.filter(hasLeftMember).length,
       topFam: Object.entries(familyNames).sort((left, right) => right[1] - left[1]).slice(0, 10),
       topFirst: Object.entries(firstNames).sort((left, right) => right[1] - left[1]).slice(0, 10),
       // 2026-07-17 (PR-2 F1.4): dátum-pontos 18+ (a voter-RPC szemantikájával

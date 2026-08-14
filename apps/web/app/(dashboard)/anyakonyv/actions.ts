@@ -9,6 +9,9 @@ import { softDeleteRegistryWorklog, syncRegistryWorklogLink } from '@/lib/worklo
 import { guessGender } from '@/lib/utils/member-helpers'
 import { closeMarriageEdgeBetween, findMembershipConflicts, foreignMembershipWarning, reconcileKinshipForPersons, syncHouseholdFromCsalad } from '@/lib/family/family-membership'
 import { describeMoves, ensureChildFamilyLink } from '@/lib/family/auto-family'
+// 2026-08-15 (átvilágítás 23.): a választói jogosultság újraszámításának KÖZÖS
+// hívója — a temetés, a tagmozgás és a konfirmáció után is le kell futnia.
+import { refreshVoterEligibility } from '@/lib/members/voter-eligibility'
 
 async function getCongregation() {
   const { supabase, congregationId } = await getEffectiveCongregationContext()
@@ -1503,6 +1506,14 @@ export async function saveBurial(data: BurialInput) {
     figyelmeztetesek.push('A temetés rögzült, de a háztartási tagság és a párkapcsolat lezárása nem sikerült — nyisd meg a Családok fülön a kartont, és ellenőrizd.')
   }
 
+  // 2026-08-15 (átvilágítás 23.): a választói jogosultság újraszámítása. Eddig
+  // a temetés-mentés a `meghalt`/`member_status` mezőt ugyan átállította, de a
+  // perzisztált `voter_eligible` zászlót SENKI nem frissítette (csak a Választók
+  // fül kézi gombja), ezért az elhunyt ott maradt a hivatalos névjegyzéken.
+  // Best-effort: a temetési bejegyzés az elsődleges funkció, azt nem buktatjuk el.
+  const voterTemetes = await refreshVoterEligibility(supabase, congId, 'saveBurial')
+  if (voterTemetes.warning) figyelmeztetesek.push(voterTemetes.warning)
+
   revalidatePath('/anyakonyv')
   revalidatePath('/tagnyilvantartas')
   revalidatePath('/munkanaplo')
@@ -1544,8 +1555,19 @@ export async function saveMovement(data: MovementInput) {
   if (d.tipus === 'attert' || d.tipus === 'kitert') { record.felekezet = d.felekezet || null; if (d.tipus === 'attert') record.honnanid = d.helyid || null; else record.hovaid = d.helyid || null }
   if (d.id) { const { error } = await supabase.from(table).update(record).eq('id', d.id).eq('congregation_id', congId); if (error) return { error: `Hiba: ${error.message}` } }
   else { const { error } = await supabase.from(table).insert([record]); if (error) return { error: `Hiba: ${error.message}` } }
+
+  // 2026-08-15 (átvilágítás 23.): a tagmozgás közvetlenül hat a választói
+  // jogosultságra — az `elkoltozott` tábla puszta LÉTE kizárja a tagot a
+  // névjegyzékből (recompute_voter_eligibility: NOT EXISTS elkoltozott) —, a
+  // zászlót viszont eddig semmi nem frissítette a mentés után. Mind a négy
+  // mozgás-típusra futtatjuk (egyetlen közös út, nincs típusonkénti másolat).
+  const voterMozgas = await refreshVoterEligibility(supabase, congId, `saveMovement/${d.tipus}`)
+
   revalidatePath('/anyakonyv')
-  return { success: true }
+  // A jogosultsági jelölés a Tagnyilvántartás → Választók fülön látszik,
+  // ezért annak a gyorsítótárát is frissíteni kell.
+  revalidatePath('/tagnyilvantartas')
+  return { success: true, warning: voterMozgas.warning }
 }
 
 // ── Konfirmáció batch mentés ─────────────────────────────────
@@ -1624,9 +1646,16 @@ export async function saveConfirmationBatch(data: ConfirmationBatchInput) {
       if (linkErr) console.warn('[saveConfirmationBatch] munkanaplo_id linkelés sikertelen:', linkErr.message)
     }
   }
+  // 2026-08-15 (átvilágítás 23.): a konfirmáció a jogosultság egyik feltétele
+  // (ha a gyülekezet beállítása megköveteli), ezért az újonnan konfirmáltak
+  // eddig csak kézi gombnyomás után kerültek fel a névjegyzékre. A KÖTEG VÉGÉN
+  // hívjuk egyszer — az RPC amúgy is a teljes gyülekezetet számolja újra.
+  const voterKonfirmacio = await refreshVoterEligibility(supabase, congId, 'saveConfirmationBatch')
+
   revalidatePath('/anyakonyv')
   revalidatePath('/munkanaplo')
-  return { success: true, count: newCandidates.length }
+  revalidatePath('/tagnyilvantartas')
+  return { success: true, count: newCandidates.length, warning: voterKonfirmacio.warning }
 }
 
 // ── Konfirmáció EGYETLEN bejegyzés szerkesztés (✏️ gomb) ─────
@@ -1647,8 +1676,15 @@ export async function saveConfirmationSingle(data: ConfirmationSingleInput) {
   }
   const { error } = await supabase.from('konfirmalas').update(record).eq('id', d.id).eq('congregation_id', congId)
   if (error) return { error: `Hiba: ${error.message}` }
+
+  // 2026-08-15 (átvilágítás 23.): a szerkesztés át is írhatja, KIRE szól a
+  // konfirmációs bejegyzés (`id_szemely`), ezért ez is mozdíthatja a választói
+  // jogosultságot — újraszámolunk, best-effort módon.
+  const voterKonfirmacio = await refreshVoterEligibility(supabase, congId, 'saveConfirmationSingle')
+
   revalidatePath('/anyakonyv')
-  return { success: true }
+  revalidatePath('/tagnyilvantartas')
+  return { success: true, warning: voterKonfirmacio.warning }
 }
 
 // ── Bejegyzés törlés ─────────────────────────────────────────

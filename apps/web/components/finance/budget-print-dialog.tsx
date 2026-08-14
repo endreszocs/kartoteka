@@ -11,11 +11,15 @@
  * builder-t (`buildBudgetPrintDocument`) köti be a callback prop-okra.
  */
 
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   BudgetPrintDialogBody,
   type BudgetPrintFilters,
+  type PrintReport,
+  // 2026-08-15 (átvilágítás 15.): a borító iktató-/határozat-mezőinek KÖZÖS
+  // leképezése — ugyanaz, amit a Pénzügyi nyomtatási központ is használ.
+  hivatalosHatarozatMezok,
 } from '@kartoteka/ui-app'
 import {
   buildBudgetPrintDocument,
@@ -27,6 +31,32 @@ import { createClient } from '@/lib/supabase/client'
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
 import { toast } from 'sonner'
 import type { SzamadasiCel, BealitasRow, BefitetesRow, KiadasRow } from '@/lib/constants/finance'
+
+/**
+ * 2026-08-15 (átvilágítás 13.): magyarázó „nyomtatvány" a hibás/hiányzó
+ * bemenet helyett. A testvér-változata a Pénzügyi nyomtatási központban
+ * (`finance-print-dialog.tsx` `blockedPreview`) — a `blocked: true` ott tiltja
+ * is a gombokat; itt a lelkész legfeljebb ezt a magyarázatot mentheti PDF-be,
+ * hamis hivatalos ív helyett.
+ */
+function magyarazoElonezet(cim: string, uzenet: string): PrintReport {
+  return {
+    html: `<!doctype html><html lang="hu"><head><meta charset="utf-8"><style>
+      body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;padding:32px;color:#111;background:#fff}
+      .box{max-width:620px;margin:8vh auto;border:2px solid #111;border-radius:10px;padding:24px}
+      h1{font-size:17px;margin:0 0 10px}p{font-size:14px;line-height:1.65;margin:0 0 10px}
+    </style></head><body><div class="box"><h1>${cim}</h1><p>${uzenet}</p></div></body></html>`,
+    title: cim,
+    filename: 'dokumentum.pdf',
+    orientation: 'portrait',
+    blocked: true,
+  }
+}
+
+/** A kiválasztott év `bealitas` sorának betöltési állapota. */
+type EvBeallitasAllapot =
+  | { allapot: 'kesz'; ev: number; sor: BealitasRow | null }
+  | { allapot: 'hiba'; ev: number }
 
 interface BudgetPrintDialogProps {
   open: boolean
@@ -101,11 +131,47 @@ export function BudgetPrintDialog({
     [incomeRecords, expenseRecords, bevCelMap, kiaCelMap],
   )
 
+  // ── 2026-08-15 (átvilágítás 13. + 15.): ÉV-SCOPE-OLT beállítás-sor ───────
+  //
+  // MI VOLT A ROSSZ: az év-választó a TERV sorokat évhelyesen töltötte újra, de
+  // a véglegesítés-zászló (és vele a borító presbitériumi határozata) mindig az
+  // OLDAL évének `settings` propjából jött. Egy 2024-es Költségvetés így a
+  // 2026-os véglegesítés-állapottal ment ki.
+  // A `bealitas` sor évenként külön létezik (id = év), ezért a terv-sorok
+  // betöltésével EGYÜTT az adott év beállítás-sorát is elhozzuk.
+  const [evBeallitas, setEvBeallitas] = useState<EvBeallitasAllapot | null>(null)
+
   const onLoadBudgetRows = useCallback(
     async (year: number) => {
+      const supabase = createClient()
+
+      // A beállítás-sor lekérése SOSEM buktathatja el a terv-sorok betöltését:
+      // külön kezeljük, és a hibát `allapot: 'hiba'`-ként jelezzük (fail-closed
+      // — a nyomtatvány ilyenkor magyarázó előnézetet ad, nem rossz évi adatot).
+      const beallitasBetoltes = (async (): Promise<EvBeallitasAllapot> => {
+        try {
+          const { data, error } = await supabase
+            .from('bealitas')
+            // `select('*')` SZÁNDÉKOSAN: a `szamadas_tartozasok` oszlop csak a
+            // 2026-08-14-i migráció után létezik — explicit oszloplistával a
+            // TELJES lekérés 42703-mal bukna.
+            .select('*')
+            .eq('congregation_id', settings.congregation_id)
+            .eq('id', String(year))
+            .maybeSingle()
+          if (error) return { allapot: 'hiba', ev: year }
+          return { allapot: 'kesz', ev: year, sor: (data as BealitasRow | null) ?? null }
+        } catch {
+          return { allapot: 'hiba', ev: year }
+        }
+      })()
+
       try {
-        const supabase = createClient()
-        const data = await loadBudgetRowsCompat(supabase, year, settings.congregation_id)
+        const [data, beallitas] = await Promise.all([
+          loadBudgetRowsCompat(supabase, year, settings.congregation_id),
+          beallitasBetoltes,
+        ])
+        setEvBeallitas(beallitas)
         return { data: data.map((r) => ({
           szamadasicelid: r.szamadasicelid,
           tervezett: r.tervezett,
@@ -114,6 +180,7 @@ export function BudgetPrintDialog({
           mod3: r.mod3,
         })) }
       } catch (error) {
+        setEvBeallitas(await beallitasBetoltes)
         return {
           error: error instanceof Error ? error.message : 'Költségvetés-sorok betöltése sikertelen.',
         }
@@ -121,6 +188,16 @@ export function BudgetPrintDialog({
     },
     [settings.congregation_id],
   )
+
+  // A panel „Véglegesítve" sorához: a betöltött év sora, betöltés előtt a
+  // props-beli (folyó évi) — az induló év úgyis a folyó év. Hibánál `null`
+  // (fail-closed: inkább „Nem", mint egy másik év „Igen"-je).
+  const panelBeallitas: BealitasRow | null =
+    evBeallitas === null
+      ? settings
+      : evBeallitas.allapot === 'kesz'
+        ? (evBeallitas.sor ?? (evBeallitas.ev === currentYear ? settings : null))
+        : null
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -136,13 +213,52 @@ export function BudgetPrintDialog({
           // év-scope-olt tétel-betöltés és a SZÁMLÁNKÉNTI feloldott nyitó.
           printableTypes={BUDGET_PRINT_TYPES.filter((t) => t.id !== 'reszszamadas')}
           currentYear={currentYear}
-          budgetFinalized={!!settings.budget_finalized}
-          accountingFinalized={!!settings.accounting_finalized}
+          // 2026-08-15 (átvilágítás 13.): a bal oldali „Véglegesítve" sor is a
+          // KIVÁLASZTOTT évé. Enélkül a képernyő „Igen"-t írt volna, miközben a
+          // papírra „Nincs véglegesítve" került — ellentmondó két állítás
+          // ugyanarról az évről, ami a lelkészt bizonytalanságban hagyja.
+          budgetFinalized={!!panelBeallitas?.budget_finalized}
+          accountingFinalized={!!panelBeallitas?.accounting_finalized}
           computeActuals={computeActuals}
           onLoadBudgetRows={onLoadBudgetRows}
           buildReport={(filters: BudgetPrintFilters) => {
             const isSzamadas = filters.printType === 'szamadas'
-            const finalized = isSzamadas ? !!settings.accounting_finalized : !!settings.budget_finalized
+
+            // 2026-08-15 (átvilágítás 13.): a véglegesítés-állapot és a
+            // presbitériumi határozat a KIVÁLASZTOTT évé.
+            //  - betöltött sor az évre → azt használjuk (akkor is, ha `null`:
+            //    az évhez nincs beállítás-sor, tehát nincs is véglegesítés);
+            //  - a folyó évnél a props-beli `settings` PONTOSAN ez a sor, így
+            //    az első megnyitáskor (még betöltés előtt) is helyes;
+            //  - minden más esetben (más év, még tölt / hibára futott) NEM
+            //    tippelünk: magyarázó előnézet megy, nem hamis borító.
+            const betoltott =
+              evBeallitas && evBeallitas.ev === filters.selectedYear ? evBeallitas : null
+            let evSettings: BealitasRow | null
+            if (betoltott) {
+              if (betoltott.allapot === 'hiba') {
+                return magyarazoElonezet(
+                  'Ez a nyomtatvány most nem készíthető el',
+                  `A(z) ${filters.selectedYear}. évi pénzügyi beállítások (véglegesítés, presbitériumi határozat) nem tölthetők be, ezért a borító hibás adatokkal készülne. Ellenőrizd az internetkapcsolatot, és próbáld újra. Ha újra ezt írja, jelezd a rendszergazdának.`,
+                )
+              }
+              // Ha az évhez nincs `bealitas` sor, de ez ÉPP az oldal éve, a
+              // props-beli sor a mérvadó: azt a szerver oldotta fel (egyházmegyei
+              // nézetben a `diocese_bealitas`-ból, ahol a fenti lekérés nem talál).
+              evSettings =
+                betoltott.sor ?? (filters.selectedYear === currentYear ? settings : null)
+            } else if (filters.selectedYear === currentYear) {
+              evSettings = settings
+            } else {
+              return magyarazoElonezet(
+                'A nyomtatvány készül',
+                `A(z) ${filters.selectedYear}. évi pénzügyi beállítások betöltése folyamatban van. Egy pillanat, és megjelenik az előnézet.`,
+              )
+            }
+
+            const finalized = isSzamadas
+              ? !!evSettings?.accounting_finalized
+              : !!evSettings?.budget_finalized
             const printData: BudgetPrintData = {
               cellek,
               budgetRows: filters.budgetRows,
@@ -153,6 +269,11 @@ export function BudgetPrintDialog({
               carryoverCash,
               carryoverBank,
               finalized,
+              // 2026-08-15 (átvilágítás 15.): eddig CSAK a `finalized` zászló ment
+              // át a borító-építőnek, ezért a véglegesített ív „Tárgyalta és
+              // jóváhagyta a presbitérium…" sora ÜRESEN maradt — miközben a
+              // határozat száma és dátuma a `bealitas` sorban ott volt.
+              ...hivatalosHatarozatMezok(evSettings, isSzamadas ? 'szamadas' : 'koltsegvetes'),
             }
             return buildBudgetPrintDocument(filters.printType, printData)
           }}
