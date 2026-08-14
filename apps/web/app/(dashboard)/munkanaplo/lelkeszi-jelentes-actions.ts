@@ -555,11 +555,46 @@ async function computeAuto(
     // összejövetel") — a III.17 KÉZI rubrika JAVASLATÁHOZ, tételesen.
     const noszovetsegiTetelek: JelentesJavaslatTetel[] = []
 
+    // 2026-08-14 (18. pont, EREK-spec 2.2 — De.2/Du.2 ÖSSZEADÓ SZABÁLY):
+    // az istentiszteleti oszlopok alkalmait NEM halmozzuk azonnal — előbb
+    // összegyűjtjük, és a De.2/Du.2-vel jelölt (ugyanaznapi második) alkalmak
+    // jelenléte a nap ELSŐ azonos-napszakú alkalmához ADÓDIK, EGY alkalomként.
+    // Jelölés nélkül két külön alkalom = az átlag feleződik (100+200 → 150);
+    // jelöléssel 300 — ez a templomlátogatási százalék hivatalos alapja.
+    const itGyujto: Array<{
+      oszlop: 'vasarnapi' | 'unnepi' | 'satoros' | 'hetkoznapi' | 'bunbanati'
+      kulcs: string
+      masodik: boolean
+      e: WorklogEntry
+    }> = []
+    const itNapszakOldal = (e: WorklogEntry): 'de' | 'du' | 'este' => {
+      const n = e.napszak
+      if (n === 'de2') return 'de'
+      if (n === 'du2') return 'du'
+      return n ?? (e.du ? 'du' : 'de')
+    }
+
+    // 2026-08-14 (EREK-spec 3.1 — VALLÁSÓRA-ÁTLAG): a nevező NEM az összes
+    // vallásóra, hanem a „Vallásóra 1. csoport" alkalmainak száma (= a
+    // vallásórás hetek száma). Két csoport heti 10+20 fővel: helyesen 30.
+    let vallasoraJelenletOssz = 0
+    let vallasora1CsoportDb = 0
+
     for (const e of worklogRes.entries) {
       if (e.deleted) continue
 
       const kategoria = categorizeWorklogEntry(e)
-      if (kategoria === 'katekezis') katekezisDb += 1
+      if (kategoria === 'katekezis') {
+        katekezisDb += 1
+        // Vallásóra-átlag (V.3b): számláló = MINDEN vallásóra-alkalom
+        // jelenléte (hivatalos 1–5. csoport + legacy 'Vallásóra'),
+        // nevező = a 'Vallásóra 1. csoport' alkalmai.
+        const j = (e.jellege || '').trim()
+        if (j.startsWith('Vallásóra')) {
+          vallasoraJelenletOssz += jelenlet(e)
+          if (j === 'Vallásóra 1. csoport') vallasora1CsoportDb += 1
+        }
+      }
       if (kategoria === 'latogatas') {
         if ((e.jellege || '').trim() === 'Családlátogatás') csaladlatogatasDb += 1
         else egyebLatogatasDb += 1
@@ -580,21 +615,22 @@ async function computeAuto(
       if (isJournalEntry(e)) {
         const { column, slot } = classifyForOfficialJournal(e)
         switch (column) {
+          // Az 5 istentiszteleti oszlop a De.2/Du.2 összevonás miatt NEM
+          // halmozódik azonnal — a gyűjtőbe megy, a ciklus után egyesítjük.
           case 'vasarnapi':
-            halmoz(slot === 'du' ? vasarnapDu : vasarnapDe, e)
-            break
           case 'unnepi':
-            halmoz(unnepi, e)
-            break
           case 'satoros':
-            halmoz(satoros, e)
-            break
           case 'hetkoznapi':
-            halmoz(hetkoznapi, e)
+          case 'bunbanati': {
+            const oldal = itNapszakOldal(e)
+            itGyujto.push({
+              oszlop: column,
+              kulcs: `${column}|${(e.idopont || '').slice(0, 10)}|${oldal}`,
+              masodik: e.napszak === 'de2' || e.napszak === 'du2',
+              e,
+            })
             break
-          case 'bunbanati':
-            halmoz(bunbanati, e)
-            break
+          }
           case 'bibliaora':
             halmoz(bibliaora, e)
             if (slot === 'ifjusagi') bibliaoraIfjusagiDb += 1
@@ -642,6 +678,64 @@ async function computeAuto(
       if (uvAlkalom) uvOsztasDb += 1
     }
 
+    // ── De.2/Du.2 ÖSSZEVONÁS (EREK 2.2) ──────────────────────────────────
+    // Csoportkulcs: oszlop + nap + napszak-oldal. A jelöletlen alkalmak
+    // önálló alkalmak; a De.2/Du.2-vel jelöltek jelenléte a csoport ELSŐ
+    // jelöletlen alkalmához adódik (egy alkalomként számít). Ha egy jelölt
+    // alkalomnak nincs jelöletlen párja (adathiba), önálló alkalomként
+    // számoljuk — az adat nem veszhet el némán.
+    {
+      const csoportok = new Map<string, { alapok: WorklogEntry[]; masodikOssz: number }>()
+      for (const t of itGyujto) {
+        let cs = csoportok.get(t.kulcs)
+        if (!cs) {
+          cs = { alapok: [], masodikOssz: 0 }
+          csoportok.set(t.kulcs, cs)
+        }
+        if (t.masodik) cs.masodikOssz += jelenlet(t.e)
+        else cs.alapok.push(t.e)
+      }
+      for (const [kulcs, cs] of csoportok) {
+        const [oszlop, , oldal] = kulcs.split('|') as [
+          'vasarnapi' | 'unnepi' | 'satoros' | 'hetkoznapi' | 'bunbanati',
+          string,
+          'de' | 'du' | 'este',
+        ]
+        const celHalmozo =
+          oszlop === 'vasarnapi'
+            ? oldal === 'du' || oldal === 'este'
+              ? vasarnapDu
+              : vasarnapDe
+            : oszlop === 'unnepi'
+              ? unnepi
+              : oszlop === 'satoros'
+                ? satoros
+                : oszlop === 'hetkoznapi'
+                  ? hetkoznapi
+                  : bunbanati
+        if (cs.alapok.length === 0 && cs.masodikOssz > 0) {
+          // csak jelölt alkalom van a napon — önálló alkalomként számoljuk
+          halmoz(celHalmozo, {
+            jelenlet_osszesen: cs.masodikOssz,
+            jelenlet_ferfi: null,
+            jelenlet_no: null,
+            jelenlet_gyermek: null,
+          } as WorklogEntry)
+          continue
+        }
+        cs.alapok.forEach((alap, idx) => {
+          const osszevont = idx === 0 ? jelenlet(alap) + cs.masodikOssz : jelenlet(alap)
+          halmoz(celHalmozo, {
+            ...alap,
+            jelenlet_osszesen: osszevont,
+            jelenlet_ferfi: null,
+            jelenlet_no: null,
+            jelenlet_gyermek: null,
+          } as WorklogEntry)
+        })
+      }
+    }
+
     auto['II.1a'] = vasarnapDe.db
     auto['II.1b'] = atlagJelenlet(vasarnapDe)
     auto['II.1c'] = szazalek(atlagJelenlet(vasarnapDe), lelekszam)
@@ -679,6 +773,12 @@ async function computeAuto(
 
     // V.3 — katekézis-alkalmak (worklog-alapú, ezért ebben a blokkban)
     auto['V.3'] = katekezisDb
+    // V.3b — vallásórára járt átlag EGY ALKALOMMAL (EREK 3.1): a nevező a
+    // „Vallásóra 1. csoport" alkalmainak száma (= vallásórás hetek). Ha az
+    // adat még a régi, csoport nélküli típusnevekkel készült, nincs helyes
+    // nevező → null (kézi töltés), NEM hamis szám.
+    auto['V.3b'] =
+      vallasora1CsoportDb > 0 ? round1(vallasoraJelenletOssz / vallasora1CsoportDb) : null
 
     // III.17 — JAVASLAT (NEM auto-mező!) a nőszövetségi alkalmakból.
     // Csak akkor tesszük be, ha van mit javasolni: a nulla nem javaslat,

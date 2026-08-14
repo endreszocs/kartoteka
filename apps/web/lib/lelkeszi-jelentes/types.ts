@@ -182,6 +182,11 @@ export const JELENTES_MEZOK: JelentesMezo[] = [
   { id: 'V.2', fejezet: 'V', label: 'Vallásórás csoportok száma', tipus: 'szam', auto: false, egyseg: 'csoport' },
   // munkanapló: katekézis kategóriájú alkalmak
   { id: 'V.3', fejezet: 'V', label: 'Katekézis-alkalmak száma az évben', tipus: 'szam', auto: true, egyseg: 'alkalom' },
+  // 2026-08-14 (18. pont, EREK-spec 3.1): ÚJ mező, append-only id — a
+  // „vallásórára járt átlag" nevezője a Vallásóra 1. csoport alkalmainak
+  // száma (= vallásórás hetek), NEM az összes vallásóra. Régi (csoport
+  // nélküli) típusnevekkel rögzített évre nincs helyes nevező → null, kézi.
+  { id: 'V.3b', fejezet: 'V', label: 'Vallásórára járt átlag egy alkalommal', tipus: 'szam', auto: true, egyseg: 'fő' },
   { id: 'V.4', fejezet: 'V', label: 'Kiskonfirmációra járók száma', tipus: 'szam', auto: false, egyseg: 'fő' },
   { id: 'V.5a', fejezet: 'V', label: 'Konfirmandusok I. év — fiú', tipus: 'szam', auto: false, egyseg: 'fő' },
   { id: 'V.5b', fejezet: 'V', label: 'Konfirmandusok I. év — lány', tipus: 'szam', auto: false, egyseg: 'fő' },
