@@ -1551,7 +1551,7 @@ export interface WorklogLocalRow {
   kategoria: string | null
   /** SQLite INTEGER (0/1). Legacy — az új `napszak` finomítja (du = napszak==='du'). */
   du: number
-  /** 2026-07-11 (F2/W5): napszak — 'de' | 'du' | 'este' | NULL (legacy sorok). */
+  /** 2026-07-11 (F2/W5) + 2026-08-14 (De.2/Du.2): napszak — de/du/este/de2/du2 | NULL (legacy sorok). */
   napszak: string | null
   /** Úrvacsorázók a templomban — csak szolgálat kategóriánál értelmezett. */
   uv_templomban: number | null
@@ -1911,7 +1911,7 @@ export interface WorklogInput {
   /** Legacy délután-jelző — az adat-kontraktus szerint du = napszak==='du'. */
   du?: boolean
   // 2026-07-11 (F2/W5): napszak + úrvacsorázók (közös adat-kontraktus a webbel)
-  napszak?: 'de' | 'du' | 'este' | null
+  napszak?: 'de' | 'du' | 'este' | 'de2' | 'du2' | null
   uv_templomban?: number | null
   uv_betegnel?: number | null
 }

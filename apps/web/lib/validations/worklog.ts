@@ -27,8 +27,9 @@ export const worklogSchema = z.object({
   mediapath: z.string().nullable().optional(),
   du: z.boolean().optional().default(false),
   // 2026-07-11 (F2): napszak — a legacy `du` boolean finomítása (de/du/este).
-  // A `du`-val szinkronban tartjuk: du = napszak === 'du' (saveWorklog).
-  napszak: z.enum(['de', 'du', 'este']).nullable().optional(),
+  // A `du`-val szinkronban tartjuk: du = napszak 'du' VAGY 'du2' (saveWorklog).
+  // 2026-08-14 (18. pont): + de2/du2 — a második de./du. alkalom (EREK 2.2).
+  napszak: z.enum(['de', 'du', 'este', 'de2', 'du2']).nullable().optional(),
   // Úrvacsorázók száma — templomban / betegnél (csak szolgálat kategóriánál értelmezett).
   uv_templomban: z.number().int('Az úrvacsorázók száma egész szám legyen').min(0, 'Az úrvacsorázók száma nem lehet negatív').nullable().optional(),
   uv_betegnel: z.number().int('Az úrvacsorázók száma egész szám legyen').min(0, 'Az úrvacsorázók száma nem lehet negatív').nullable().optional(),

@@ -23,6 +23,20 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-14] — Munkanapló: a hivatalos EREK szolgálattípus-készlet + De.2/Du.2 jelölés
+<!-- key: 2026-08-14-erek-taxonomia-de2-du2 -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+
+### ✨ Új funkciók
+
+- **A munkanapló mostantól a hivatalos EREK-készletet kínálja** (IT 66/2023): 37 szolgálati típus (Vasárnapi/Ünnepi/Bűnbánati/Hétköznapi i.t., Úrvacsora templomban/Betegúrvacsora, 7-féle bibliaóra, személyenkénti F./N. keresztelő és temetés, Azonos/Vegyes esketés, sátoros ünnepek I–III. napja…), 11 katekézis-típus (Vallásóra 1–5. csoport, konfirmációi felkészítők, VBH…) és a hivatalos CsL/BL látogatás-bontás. **A korábbi bejegyzések érintetlenek** — a régi típusnevek megjelenítése és besorolása változatlanul működik, csak az új rögzítés kínálja a hivatalos neveket.
+- **De.2 / Du.2 jelölés**: ha egy napon délelőtt (vagy délután) két istentisztelet van, a második megjelölhető — ez a hivatalos számítási szabály alapja (a jelöléssel a résztvevők összeadódnak, nélküle átlagolódnak). A hivatalos ív oszlop-besorolása a 37 új típust is pontosan ismeri.
+- Az úrvacsorázók és a napszak adata mostantól a webes offline másolatba is leszinkronizálódik (a desktopon eddig is megvolt).
+- **A hivatalos munkafüzet mindhárom naplólapja nyomtatható**: az eddigi Szolgálati alkalmak ív mellé bekerült a **Katekézis lap** (sorszám, dátum, jelleg, résztvevők, tananyag, perselypénz, tartotta) és a **Családlátogatás lap** hivatalos **CsL/BL** bontással — A4 álló, éven belül folyamatos sorszámozással.
+
+---
+
 ## [2026-08-14] — Nyomtatási előnézet telefonon: nagyítás és lapléptetés · modern román írásmód
 <!-- key: 2026-08-14-elonezet-mobil-ro-diakritika -->
 <!-- category: improvement -->

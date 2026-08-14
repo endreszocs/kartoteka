@@ -181,6 +181,29 @@ const classifyCases = [
   // ismeretlen / nem-istentiszteleti típusok
   ['ismeretlen jellege', entry('Hittan', '2026-03-15'), 'egyeb', null],
   ['üres jellege', entry(null, '2026-03-15'), 'egyeb', null],
+  // ── 2026-08-14 (18. pont): a HIVATALOS 37-es készlet nevesített típusai ──
+  // A nevesített típus ERŐSEBB a dátum-heurisztikánál.
+  ['hivatalos „Vasárnapi i.t." de', entry('Vasárnapi i.t.', '2026-03-15', { napszak: 'de' }), 'vasarnapi', 'de'],
+  // De.2 (második délelőtti) az oszlopnál az alap-vetületére képez
+  ['hivatalos „Vasárnapi i.t." De.2', entry('Vasárnapi i.t.', '2026-03-15', { napszak: 'de2' }), 'vasarnapi', 'de'],
+  ['hivatalos „Vasárnapi i.t." Du.2', entry('Vasárnapi i.t.', '2026-03-15', { napszak: 'du2' }), 'vasarnapi', 'du'],
+  // Ünnepi i.t. HÉTKÖZNAPI dátumon is ünnepi — a lelkész választása dönt
+  ['hivatalos „Ünnepi i.t." hétköznapon', entry('Ünnepi i.t.', '2026-03-18', { napszak: 'de' }), 'unnepi', 'de'],
+  ['hivatalos „Húsvét II. it."', entry('Húsvét II. it.', '2026-04-06', { napszak: 'de' }), 'satoros', 'de'],
+  ['hivatalos „Bűnbánati i.t." de → reggel', entry('Bűnbánati i.t.', '2026-04-01', { napszak: 'de' }), 'bunbanati', 'reggel'],
+  ['hivatalos „Bűnbánati i.t." du → este', entry('Bűnbánati i.t.', '2026-04-01', { napszak: 'du' }), 'bunbanati', 'este'],
+  ['hivatalos „Hétköznapi i.t."', entry('Hétköznapi i.t.', '2026-03-18'), 'hetkoznapi', null],
+  ['hivatalos „Úrvacsora templomban"', entry('Úrvacsora templomban', '2026-03-15'), 'urvacsora', 'templomban'],
+  ['hivatalos „Betegúrvacsora"', entry('Betegúrvacsora', '2026-03-16'), 'urvacsora', 'betegnel'],
+  ['hivatalos „Felnőtt bibliaóra"', entry('Felnőtt bibliaóra', '2026-03-17'), 'bibliaora', 'felnott'],
+  ['hivatalos „Ifj. vagy IKE bibliaóra"', entry('Ifj. vagy IKE bibliaóra', '2026-03-17'), 'bibliaora', 'ifjusagi'],
+  ['hivatalos „Nőszöv. bibliaóra" → 15. oszlop', entry('Nőszöv. bibliaóra', '2026-03-17'), 'noszovetsegi', null],
+  ['hivatalos „Presbiteri bibliaóra"', entry('Presbiteri bibliaóra', '2026-03-17'), 'presbiteri', null],
+  ['hivatalos „Presbiteri felkészítő"', entry('Presbiteri felkészítő', '2026-03-17'), 'presbiteri', null],
+  ['hivatalos „Szeretetvendégség" → ünnepély', entry('Szeretetvendégség', '2026-03-21'), 'unnepely', null],
+  ['hivatalos „F. keresztelő" → egyéb', entry('F. keresztelő', '2026-03-15'), 'egyeb', null],
+  ['hivatalos „Vegyes esketés" → egyéb', entry('Vegyes esketés', '2026-03-21'), 'egyeb', null],
+  ['hivatalos „Digitális alkalmak" → egyéb', entry('Digitális alkalmak', '2026-03-15'), 'egyeb', null],
 ]
 for (const [label, e, column, slot] of classifyCases) {
   const got = classifyForOfficialJournal(e)

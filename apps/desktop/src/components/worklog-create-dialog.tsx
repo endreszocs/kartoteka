@@ -39,68 +39,66 @@ import {
 // 2026-06-12 (Endre #5 munkanapló): a webes bővítés tükre — a kazuáliák
 // (Keresztelő, Esketés, Temetés, Konfirmáció) a szolgálati típusok közé
 // kerültek, a katekézis Vallásóra/Kátéóra-val, a látogatás Beteglátogatás-sal bővült.
+// 2026-08-14 (18. pont): a HIVATALOS EREK-készlet (IT 66/2023 ív: 37+11+2) —
+// a webes lib/constants/worklog.ts WORKLOG_TYPES tükre, azonos sorrendben.
+// A régi típusnevek a LEGACY_WORKLOG_TYPES-ban élnek (append-only elv:
+// meglévő sor jellege-értéke nem változik, csak a legördülő készlete).
 export const WORKLOG_TYPES: Record<'szolgalat' | 'katekezis' | 'latogatas', string[]> = {
   szolgalat: [
-    // 2026-07-11 F3: a hivatalos munkanapló-nyomtatvány oszlopaihoz igazított
-    // típusok (Bűnbánati/Imahét/Presbiteri/Nőszövetségi/Vallásos ünnepély) —
-    // a webes lista tükre, azonos sorrendben.
-    'Istentisztelet',
-    'Igehirdetés',
-    'Úrvacsora',
-    'Bűnbánati istentisztelet',
-    'Bibliaóra',
-    'Imaóra',
-    'Esti áhítat',
-    'Alkalmi istentisztelet',
-    'Imahét',
-    'Presbiteri gyűlés',
-    'Nőszövetségi összejövetel',
-    'Vallásos ünnepély',
-    'Keresztelő',
-    'Esketés',
-    'Temetés',
-    'Konfirmáció',
+    'Vasárnapi i.t.', 'Ünnepi i.t.', 'Bűnbánati i.t.', 'Hétköznapi i.t.',
+    'Úrvacsora templomban', 'Betegúrvacsora',
+    'Felnőtt bibliaóra', 'Ifj. vagy IKE bibliaóra', 'Presbiteri bibliaóra',
+    'Nőszöv. bibliaóra', 'Házasok bibliaórája', 'Más bibliaóra 1', 'Más bibliaóra 2',
+    'F. keresztelő', 'N. keresztelő', 'Keresztelői felkészítő',
+    'F. temetés', 'N. temetés', 'Virrasztó',
+    'Azonos esketés', 'Vegyes esketés', 'Jegyesbeszélgetés',
+    'Digitális alkalmak', 'Imahét',
+    'Húsvét I. it.', 'Húsvét II. it.', 'Húsvét III. it.',
+    'Pünkösd I. it.', 'Pünkösd II. it.', 'Pünkösd III. it.',
+    'Karácsony I. it.', 'Karácsony II. it.', 'Karácsony III. it.',
+    'Vallásos ünnepély', 'Szeretetvendégség', 'Presbiteri felkészítő',
     'Egyéb szolgálat',
   ],
   katekezis: [
-    // 2026-07-11 F1: a 'Bibliaóra' duplikátum feloldva a webbel azonosan —
-    // a felnőtt Bibliaóra a szolgálat-lista tagja, itt az ifjúsági változat él.
-    'Ifjúsági bibliaóra (IKE)',
-    'Hittan',
-    'Vallásóra',
-    'Kátéóra',
-    'Konfirmáció előkészítő',
-    'Ifjúsági óra',
-    'Gyermek foglalkozás',
-    'Egyéb katekézis',
+    'Vallásóra 1. csoport', 'Vallásóra 2. csoport', 'Vallásóra 3. csoport',
+    'Vallásóra 4. csoport', 'Vallásóra 5. csoport',
+    'Elsőéves konf. felkészítő', 'Másodéves konf. felkészítő',
+    'Gyermekistentisztelet', 'Vasárnapi iskola',
+    'VBH – Vakációs Bibliahét', 'Egyéb foglalkozás',
   ],
-  latogatas: [
-    'Családlátogatás',
-    'Beteglátogatás',
-    'Kórházlátogatás',
-    'Idősek otthona',
-    'Börtönlátogatás',
-    'Egyéb látogatás',
-  ],
+  latogatas: ['Családlátogatás', 'Beteglátogatás'],
+}
+
+// A 2026 előtti rögzítések típusnevei — a webes LEGACY_WORKLOG_TYPES tükre.
+export const LEGACY_WORKLOG_TYPES: Record<'szolgalat' | 'katekezis' | 'latogatas', string[]> = {
+  szolgalat: ['Istentisztelet', 'Igehirdetés', 'Úrvacsora', 'Bűnbánati istentisztelet', 'Bibliaóra', 'Imaóra', 'Esti áhítat', 'Alkalmi istentisztelet', 'Presbiteri gyűlés', 'Nőszövetségi összejövetel', 'Keresztelő', 'Esketés', 'Temetés', 'Konfirmáció'],
+  katekezis: ['Ifjúsági bibliaóra (IKE)', 'Hittan', 'Vallásóra', 'Kátéóra', 'Konfirmáció előkészítő', 'Ifjúsági óra', 'Gyermek foglalkozás', 'Egyéb katekézis'],
+  latogatas: ['Kórházlátogatás', 'Idősek otthona', 'Börtönlátogatás', 'Egyéb látogatás'],
 }
 
 export type WorklogCategory = keyof typeof WORKLOG_TYPES
 
 // 2026-07-11 (F2/W5): napszak-opciók — a webes lib/constants/worklog.ts
-// NAPSZAK_OPTIONS tükre. Adat-kontraktus: du = napszak === 'du'.
+// NAPSZAK_OPTIONS tükre. Adat-kontraktus: du = napszak 'du' VAGY 'du2'.
+// 2026-08-14 (18. pont): + De.2/Du.2 — második de./du. alkalom (EREK 2.2:
+// a jelöléssel a résztvevők ÖSSZEADÓDNAK, nélküle a rendszer átlagol).
 export const NAPSZAK_OPTIONS = [
   { value: 'de', label: 'Délelőtt' },
   { value: 'du', label: 'Délután' },
   { value: 'este', label: 'Este' },
+  { value: 'de2', label: 'De. 2. — második délelőtti' },
+  { value: 'du2', label: 'Du. 2. — második délutáni' },
 ] as const
 
 export type Napszak = (typeof NAPSZAK_OPTIONS)[number]['value']
 
-/** Rövid napszak-felirat a lista/táblázat-cellákhoz ('de.' / 'du.' / 'este'). */
+/** Rövid napszak-felirat a lista/táblázat-cellákhoz. */
 export const NAPSZAK_SHORT_LABELS: Record<Napszak, string> = {
   de: 'de.',
   du: 'du.',
   este: 'este',
+  de2: 'De.2',
+  du2: 'Du.2',
 }
 
 /**
@@ -108,7 +106,10 @@ export const NAPSZAK_SHORT_LABELS: Record<Napszak, string> = {
  * (0/1) a fallback — a közös kontraktus szerint: napszak ?? (du ? 'du' : 'de').
  */
 export function napszakFromRow(row: { napszak?: string | null; du?: number | null }): Napszak {
-  if (row.napszak === 'de' || row.napszak === 'du' || row.napszak === 'este') return row.napszak
+  if (
+    row.napszak === 'de' || row.napszak === 'du' || row.napszak === 'este' ||
+    row.napszak === 'de2' || row.napszak === 'du2'
+  ) return row.napszak
   return row.du === 1 ? 'du' : 'de'
 }
 
@@ -122,8 +123,13 @@ export function napszakFromRow(row: { napszak?: string | null; du?: number | nul
  */
 export function categorizeWorklogEntry(e: { kategoria?: string | null; jellege?: string | null }): WorklogCategory {
   if (e.kategoria === 'katekezis' || e.kategoria === 'latogatas') return e.kategoria
+  // 2026-08-14 (18. pont): a hivatalos ÉS a legacy készlet is számít — a
+  // régi sorok besorolása nem változhat a taxonómia-bővítéstől.
   for (const cat of Object.keys(WORKLOG_TYPES) as WorklogCategory[]) {
-    if (e.jellege && WORKLOG_TYPES[cat].includes(e.jellege)) return cat
+    if (
+      e.jellege &&
+      (WORKLOG_TYPES[cat].includes(e.jellege) || LEGACY_WORKLOG_TYPES[cat].includes(e.jellege))
+    ) return cat
   }
   return 'szolgalat'
 }
@@ -292,7 +298,7 @@ export function WorklogCreateDialog({
         megjegyzes: megjegyzes || null,
         // Napszak + legacy `du` szinkronban (adat-kontraktus: du = napszak==='du')
         napszak,
-        du: napszak === 'du',
+        du: napszak === 'du' || napszak === 'du2',
         // Úrvacsorázók: üres mező → null (a beírt 0 értelmes adat, azt tároljuk)
         uv_templomban: uvTemplomban === '' ? null : Number(uvTemplomban),
         uv_betegnel: uvBetegnel === '' ? null : Number(uvBetegnel),
