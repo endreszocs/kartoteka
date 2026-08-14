@@ -191,6 +191,7 @@ import {
   type EsemenyKulcs,
 } from '@/lib/iktato/dokumentum-csaladok'
 import { A4_H_PX, A4_W_PX, dokumentumBurok } from '@/lib/iktato/dokumentum-stilus'
+import { kepDataUrl } from '@/lib/iktato/irat-kepek'
 import {
   buildEletutIgazolasHtml,
   buildEletutTodoHtml,
@@ -270,13 +271,31 @@ function fejlecHtmlNyelven(nyelv: DokumentumNyelv, header: CongregationHeaderDat
  * -szerep). A burok `.page__sign` sávjába kerül, amely `margin-top:auto`-val a
  * szövegtükör ALJÁRA húzza — így nem marad „lógó" üres rész a lap alján
  * (kutatás 1. pont). App-generált markup, minden dinamikus érték escape-elve.
+ *
+ * 24. pont: a feltöltött PECSÉT-kép a sor KÖZEPÉRE kerül (a keltezés mellé,
+ * halványan — .pecset-kep), az ALÁÍRÁS-kép pedig az aláíró neve/vonala FÖLÉ
+ * (.alairas-kep, kissé a vonalra lógva). Kép híján a mai forma marad
+ * (üres vonal, pecsét-elem nélkül).
  */
-function alairasBlokkHtml(keltSor: string, alairo: string, szerep: string): string {
+function alairasBlokkHtml(
+  keltSor: string,
+  alairo: string,
+  szerep: string,
+  kepek?: { pecsetUrl?: string | null; alairasUrl?: string | null },
+): string {
   const nev = (alairo || '').trim()
+  const pecsetUrl = (kepek?.pecsetUrl || '').trim()
+  const alairasUrl = (kepek?.alairasUrl || '').trim()
+  const pecset = pecsetUrl
+    ? `\n  <img class="pecset-kep" src="${escapeHtml(pecsetUrl)}" alt="" />`
+    : ''
+  const vonal = alairasUrl
+    ? `<div class="alairas-vonal alairas-vonal--keppel"><img class="alairas-kep" src="${escapeHtml(alairasUrl)}" alt="" /></div>`
+    : '<div class="alairas-vonal"></div>'
   return `<div class="alairas-sor">
-  <div class="alairas-kelt">${escapeHtml(keltSor)}</div>
+  <div class="alairas-kelt">${escapeHtml(keltSor)}</div>${pecset}
   <div class="alairas-blokk">
-    <div class="alairas-vonal"></div>
+    ${vonal}
     <div class="alairas-nev">${nev ? escapeHtml(nev) : '&nbsp;'}</div>
     <div class="alairas-szerep">${escapeHtml(szerep)}</div>
   </div>
@@ -306,6 +325,8 @@ const URES_FEJLEC: CongregationHeaderData = {
   cif: null,
   web: null,
   cimerUrl: null,
+  pecsetUrl: null,
+  alairasUrl: null,
   helysegHu: null,
   helysegRo: null,
 }
@@ -779,51 +800,56 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
   const [noLetterhead, setNoLetterhead] = useState(false)
   const [headerNyers, setHeaderNyers] = useState<CongregationHeaderData | null>(null)
   /**
-   * A címer BEÁGYAZOTT (data: URI) változata — 2026-07-25, user-észrevétel:
-   * „ha rákattintok a konfirmációra, eltűnik a fejlécből a logó".
+   * A címer, a pecsét és az aláírás BEÁGYAZOTT (data: URI) változata —
+   * 2026-07-25, user-észrevétel: „ha rákattintok a konfirmációra, eltűnik a
+   * fejlécből a logó".
    *
    * Ok: minden szerkesztés (pipa, mező) új `srcDoc`-ot ad az előnézet-iframe-nek,
-   * ami TELJES dokumentum-újratöltés — a távoli címer-kép ilyenkor újra
+   * ami TELJES dokumentum-újratöltés — a távoli kép ilyenkor újra
    * hálózatról töltődne, és a gyors egymásutánban megszakított kérések miatt
    * el-eltűnik. Ugyanez a gond a PDF-mentésnél is (a html2canvas a
    * más-originű képet CORS miatt kihagyhatja).
    *
-   * Megoldás: a képet EGYSZER letöltjük és data: URI-ként ágyazzuk a
-   * dokumentumba — így minden újratöltésnél azonnal ott van, és a PDF-be is
-   * belekerül. Hiba esetén marad az eredeti URL (a fejléc szövege sosem függ
-   * ettől).
+   * Megoldás: a képeket EGYSZER letöltjük és data: URI-ként ágyazzuk a
+   * dokumentumba (közös helper: lib/iktato/irat-kepek.kepDataUrl) — így minden
+   * újratöltésnél azonnal ott vannak, és a PDF-be is belekerülnek. Hiba esetén
+   * marad az eredeti URL (a dokumentum szövege sosem függ ettől).
+   * 24. pont: a pecsét-/aláírás-kép ugyanezen az úton megy, mint a címer.
    */
-  const [cimerDataUrl, setCimerDataUrl] = useState<string | null>(null)
+  const [kepDataUrls, setKepDataUrls] = useState<{
+    cimer: string | null
+    pecset: string | null
+    alairas: string | null
+  }>({ cimer: null, pecset: null, alairas: null })
   const nyersCimerUrl = headerNyers?.cimerUrl || ''
+  const nyersPecsetUrl = headerNyers?.pecsetUrl || ''
+  const nyersAlairasUrl = headerNyers?.alairasUrl || ''
   useEffect(() => {
-    setCimerDataUrl(null)
-    if (!nyersCimerUrl) return
+    setKepDataUrls({ cimer: null, pecset: null, alairas: null })
+    if (!nyersCimerUrl && !nyersPecsetUrl && !nyersAlairasUrl) return
     let cancelled = false
     void (async () => {
-      try {
-        const res = await fetch(nyersCimerUrl)
-        if (!res.ok) return
-        const blob = await res.blob()
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(String(reader.result || ''))
-          reader.onerror = () => reject(reader.error)
-          reader.readAsDataURL(blob)
-        })
-        if (!cancelled && dataUrl.startsWith('data:')) setCimerDataUrl(dataUrl)
-      } catch {
-        // Néma: a fejléc az eredeti URL-lel is helyes marad.
-      }
+      const [cimer, pecset, alairas] = await Promise.all([
+        kepDataUrl(nyersCimerUrl),
+        kepDataUrl(nyersPecsetUrl),
+        kepDataUrl(nyersAlairasUrl),
+      ])
+      if (!cancelled) setKepDataUrls({ cimer, pecset, alairas })
     })()
     return () => {
       cancelled = true
     }
-  }, [nyersCimerUrl])
-  /** A dokumentumba menő fejléc-adat (beágyazott címerrel, ha sikerült). */
+  }, [nyersCimerUrl, nyersPecsetUrl, nyersAlairasUrl])
+  /** A dokumentumba menő fejléc-adat (beágyazott képekkel, ahol sikerült). */
   const header = useMemo<CongregationHeaderData | null>(() => {
     if (!headerNyers) return null
-    return cimerDataUrl ? { ...headerNyers, cimerUrl: cimerDataUrl } : headerNyers
-  }, [headerNyers, cimerDataUrl])
+    return {
+      ...headerNyers,
+      cimerUrl: kepDataUrls.cimer || headerNyers.cimerUrl,
+      pecsetUrl: kepDataUrls.pecset || headerNyers.pecsetUrl,
+      alairasUrl: kepDataUrls.alairas || headerNyers.alairasUrl,
+    }
+  }, [headerNyers, kepDataUrls])
   const [headerError, setHeaderError] = useState<string | null>(null)
   // F8e (user 4.): a keltezés helysége SZERKESZTHETŐ — amíg a felhasználó nem
   // írja át, a nyelvhelyes automatikus nevet követi (lásd keltHelysegAuto).
@@ -1399,7 +1425,10 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
             : '',
         torzsHtml: rendered,
         alairasHtml: torzsSablon.alairasKell
-          ? alairasBlokkHtml(keltSor, values.lelkipasztor ?? '', ALAIRO_SZEREP[docLang])
+          ? alairasBlokkHtml(keltSor, values.lelkipasztor ?? '', ALAIRO_SZEREP[docLang], {
+              pecsetUrl: header?.pecsetUrl,
+              alairasUrl: header?.alairasUrl,
+            })
           : '',
       })
     },
@@ -1485,7 +1514,10 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued, ini
         szamSor: `${cimkek.szam}: ${escapeHtml(iratszamText)}`,
         targySor: targyText ? `${cimkek.targy}: ${escapeHtml(targyText)}` : '',
         torzsHtml: sanitizeFilingHtml(torzs),
-        alairasHtml: alairasBlokkHtml(keltSor, lelkesz, ALAIRO_SZEREP[docLang]),
+        alairasHtml: alairasBlokkHtml(keltSor, lelkesz, ALAIRO_SZEREP[docLang], {
+          pecsetUrl: header?.pecsetUrl,
+          alairasUrl: header?.alairasUrl,
+        }),
       })
     },
     [

@@ -61,6 +61,12 @@ import { getDokumentumUrl } from '@/app/(dashboard)/dokumentumtar/actions'
 interface KifizetetlenMainProps {
   congregationName: string
   congregationId: string
+  /**
+   * Endre 2026-08-15: a „Számlák egyeztetése" hub fülébe ágyazva a saját
+   * „Dokumentumtár" vissza-gomb fölösleges (ugyanazon az oldalon vagyunk) —
+   * embedded=true elrejti. Önállóan (/dokumentumtar/kifizetetlen) marad.
+   */
+  embedded?: boolean
 }
 
 function datumSzoveg(iso: string | null): string {
@@ -103,7 +109,7 @@ function vazlatSorTartalmas(r: Partial<VazlatSor> | null | undefined): boolean {
   )
 }
 
-export function KifizetetlenMain({ congregationName, congregationId }: KifizetetlenMainProps) {
+export function KifizetetlenMain({ congregationName, congregationId, embedded = false }: KifizetetlenMainProps) {
   const router = useRouter()
   const ma = maiIsoDatum()
 
@@ -332,15 +338,21 @@ export function KifizetetlenMain({ congregationName, congregationId }: Kifizetet
         ]}
         actions={
           <>
-            <Button
-              type="button"
-              variant="outline"
-              className="min-h-11 rounded-xl border-slate-200 font-medium text-slate-600 hover:bg-slate-50"
-              onClick={() => router.push('/dokumentumtar')}
-            >
-              <ArrowLeft className="mr-1.5 size-4" aria-hidden />
-              Dokumentumtár
-            </Button>
+            {/* Endre 2026-08-15: a hubba ágyazva (embedded) a vissza-gomb
+                rejtve — a hub tetején már van „Vissza a Pénzügyhöz". */}
+            {!embedded && (
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11 rounded-xl border-slate-200 font-medium text-slate-600 hover:bg-slate-50"
+                // A hub Dokumentumtár fülére (#dokumentumtar) — ne az
+                // alapértelmezett Oblio fülre — vigyen, a gomb ezt ígéri.
+                onClick={() => router.push('/dokumentumtar#dokumentumtar')}
+              >
+                <ArrowLeft className="mr-1.5 size-4" aria-hidden />
+                Dokumentumtár
+              </Button>
+            )}
             <Button
               type="button"
               variant="outline"

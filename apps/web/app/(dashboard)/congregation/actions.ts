@@ -1314,6 +1314,16 @@ const congregationSetupSchema = z.object({
   jarulek_kedvezmenyes: z.number().min(0).default(0),
   jarulek_hatarid: z.string().regex(MONTH_DAY_REGEX, 'Formátum: HH-NN (pl. 07-01)').default('07-01'),
   tartozas_szamitas_mod: z.enum(['akkori', 'aktualis']).default('akkori'),
+  // 2026-08-15 (beállítás-felmérés 2.1, P0): ÁFA-alanyiság. Eddig SEMMILYEN felület
+  // nem írta ezeket a mezőket, pedig az Oblio-számlaépítő a tva_alany-ból dönt
+  // 0% vs 19% ÁFÁ-ról (lib/finance/oblio/oblio-invoice-builder.ts) — plafon-átlépés
+  // után a lelkész csak kézi SQL-lel tudta volna rögzíteni.
+  // SZÁNDÉKOSAN nincs .default(): a régi kliens (nyitva felejtett fül) payloadjából
+  // hiányzó tva_alany „ne nyúlj hozzá", NEM „állítsd false-ra" — különben egy elavult
+  // mentés némán visszabillentené az ÁFA-alanyiságot (lásd a diocese_id K4-leckéjét).
+  tva_alany: z.boolean().optional(),
+  tva_kod: z.string().optional().or(z.literal('')),
+  tva_alany_tol: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formátum: ÉÉÉÉ-HH-NN (pl. 2026-01-01)').optional().or(z.literal('')),
 })
 
 export type CongregationSetupInput = z.infer<typeof congregationSetupSchema>
@@ -1392,6 +1402,18 @@ export async function saveCongregationSetup(
     jarulek_kedvezmenyes: parsed.data.jarulek_kedvezmenyes,
     jarulek_hatarid: parsed.data.jarulek_hatarid,
     tartozas_szamitas_mod: parsed.data.tartozas_szamitas_mod,
+    // 2026-08-15 (beállítás-felmérés 2.1): ÁFA-alanyiság a Pénzügyi alap panelről.
+    // Csak akkor írjuk, ha a kliens ténylegesen küldte a kapcsolót (undefined =
+    // régi kliens → a tárolt érték érintetlen marad). A kód/dátum kikapcsolt
+    // állapotban is megőrződik (nem destruktív) — az Oblio kizárólag a tva_alany
+    // zászlót olvassa, a kód/dátum tájékoztató adat.
+    ...(parsed.data.tva_alany !== undefined
+      ? {
+          tva_alany: parsed.data.tva_alany,
+          tva_kod: parsed.data.tva_kod?.trim() || null,
+          tva_alany_tol: parsed.data.tva_alany_tol || null,
+        }
+      : {}),
   }
 
   let updateError = (await access.supabase
@@ -1414,7 +1436,7 @@ export async function saveCongregationSetup(
   if (updateError && /column|does not exist|schema cache|could not find/i.test(updateError.message)) {
     const safe = { ...payload } as Record<string, unknown>
     const stripped: string[] = []
-    for (const k of ['diocese_id', 'eves_jarulek', 'jarulek_kedvezmenyes', 'jarulek_hatarid', 'tartozas_szamitas_mod']) {
+    for (const k of ['diocese_id', 'eves_jarulek', 'jarulek_kedvezmenyes', 'jarulek_hatarid', 'tartozas_szamitas_mod', 'tva_alany', 'tva_kod', 'tva_alany_tol']) {
       if (k in safe) stripped.push(k)
       delete safe[k]
     }
@@ -1599,6 +1621,187 @@ export async function uploadCongregationCimer(
   return { url: urlData.publicUrl }
 }
 
+// ────────────────────────────────────────────────────────────────────
+// 24. pont: pecsét- és aláírás-kép az iratokra (iktató-nyomtatványok)
+// A tárolás a címer bevált mintáját követi: `logos` public bucket,
+// `congregations/{id}/…` útvonal + a congregations.pecset_url/alairas_url
+// oszlop (migráció: migration-docs/sql/2026-08-15-iktato-pecset-alairas.sql).
+// ────────────────────────────────────────────────────────────────────
+
+/** A két irat-kép fajtája → cél-oszlop a congregations táblán. */
+const IRAT_KEP_OSZLOP = {
+  pecset: 'pecset_url',
+  alairas: 'alairas_url',
+} as const
+
+type IratKepFajta = keyof typeof IRAT_KEP_OSZLOP
+
+const IRAT_KEP_CIMKE: Record<IratKepFajta, string> = {
+  pecset: 'pecsét',
+  alairas: 'aláírás',
+}
+
+/**
+ * Hiányzó-oszlop hiba felismerése (a saveCongregationSetup oszlop-sodródás
+ * mintája) → hangos, magyar hibaüzenet a futtatandó SQL-fájllal. MEMORY:
+ * a migration-fájl NEM bizonyíték — a repó és a produkció némán széthúzhat.
+ */
+function iratKepOszlopHianyzik(message: string): boolean {
+  return /column|does not exist|schema cache|could not find/i.test(message)
+}
+
+const IRAT_KEP_MIGRACIO_HIBA =
+  'Az adatbázisból hiányzik a pecset_url/alairas_url oszlop — futtasd le a ' +
+  'migration-docs/sql/2026-08-15-iktato-pecset-alairas.sql migrációt, majd próbáld újra.'
+
+/**
+ * A gyülekezet pecsét- és aláírás-képének betöltése a beállítás-felülethez.
+ * Hiányzó oszlopnál HANGOS hiba (a felület a migrációra mutat) — a
+ * nyomtatvány-oldali, némán degradáló betöltés külön úton megy
+ * (iktato/szemely-actions.getCongregationHeader).
+ */
+export async function getCongregationIratKepek(congregationId: string): Promise<{
+  pecsetUrl: string | null
+  alairasUrl: string | null
+  error: string | null
+}> {
+  const access = await getEffectiveAccessContext()
+  if (!access.user) return { pecsetUrl: null, alairasUrl: null, error: 'Nincs bejelentkezve.' }
+
+  const { data, error } = await access.supabase
+    .from('congregations')
+    .select('pecset_url, alairas_url')
+    .eq('id', congregationId)
+    .maybeSingle()
+
+  if (error) {
+    return {
+      pecsetUrl: null,
+      alairasUrl: null,
+      error: iratKepOszlopHianyzik(error.message) ? IRAT_KEP_MIGRACIO_HIBA : error.message,
+    }
+  }
+  const row = (data || null) as { pecset_url: string | null; alairas_url: string | null } | null
+  return {
+    pecsetUrl: row?.pecset_url?.trim() || null,
+    alairasUrl: row?.alairas_url?.trim() || null,
+    error: null,
+  }
+}
+
+/**
+ * Pecsét- vagy aláírás-kép feltöltése + azonnali mentése a congregations
+ * sorra. A címer-feltöltéstől eltérően itt CSAK PNG/WEBP engedett (átlátszó
+ * háttér — a kép a nyomtatvány szövegére/vonalára kerül, a JPG fehér
+ * téglalapja eltakarná azt), és a plafon 1 MB (a kép data: URI-ként ágyazódik
+ * minden nyomtatványba — egy nagy kép a PDF-et is felduzzasztaná).
+ */
+export async function uploadCongregationIratKep(
+  congregationId: string,
+  fajta: IratKepFajta,
+  formData: FormData,
+): Promise<{ url?: string; error?: string }> {
+  const oszlop = IRAT_KEP_OSZLOP[fajta]
+  if (!oszlop) return { error: 'Ismeretlen kép-fajta.' }
+
+  const access = await getEffectiveAccessContext()
+  if (!access.user) return { error: 'Nincs bejelentkezve.' }
+
+  const canManage =
+    access.admin ||
+    access.master ||
+    access.egyhazkeruletiAdmin ||
+    access.profile?.congregation_id === congregationId
+
+  if (!canManage) return { error: `Nincs jogosultság a ${IRAT_KEP_CIMKE[fajta]}-kép feltöltéséhez.` }
+
+  const file = formData.get('file')
+  if (!file || !(file instanceof File)) {
+    return { error: 'Nincs fájl.' }
+  }
+
+  if (file.size > 1_048_576) {
+    return { error: 'A fájl mérete nem lehet több, mint 1 MB.' }
+  }
+  const allowedMime = ['image/png', 'image/webp']
+  if (!allowedMime.includes(file.type)) {
+    return { error: 'Csak PNG vagy WEBP formátum engedélyezett (átlátszó háttérrel).' }
+  }
+
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-')
+  const path = `congregations/${congregationId}/${fajta}-${Date.now()}-${safeName}`
+
+  const { error: upErr } = await access.supabase.storage
+    .from('logos')
+    .upload(path, file, {
+      cacheControl: '3600',
+      upsert: true,
+      contentType: file.type,
+    })
+
+  if (upErr) return { error: `Feltöltés hiba: ${upErr.message}` }
+
+  const { data: urlData } = access.supabase.storage
+    .from('logos')
+    .getPublicUrl(path)
+  const url = urlData.publicUrl
+
+  // Azonnali mentés a congregations sorra — a kép a feltöltés után rögtön él
+  // (nem függ a beállítás-ablak nagy „Mentés" gombjától és annak szigorú
+  // validációjától). Hiányzó oszlopnál hangos, a migrációra mutató hiba.
+  const { error: dbError } = await access.supabase
+    .from('congregations')
+    .update({ [oszlop]: url })
+    .eq('id', congregationId)
+
+  if (dbError) {
+    return {
+      error: iratKepOszlopHianyzik(dbError.message) ? IRAT_KEP_MIGRACIO_HIBA : dbError.message,
+    }
+  }
+
+  revalidatePath('/iktato')
+  return { url }
+}
+
+/**
+ * Pecsét- vagy aláírás-kép eltávolítása (a congregations oszlop NULL-ra) —
+ * a nyomtatványok ettől kezdve újra a mai (kép nélküli) formában készülnek.
+ * A Storage-beli fájlt szándékosan nem töröljük (a régi nyomtatvány-PDF-ek
+ * data: URI-t hordoznak, de a public URL-re mutató régi hivatkozások se
+ * törjenek el; a bucket-takarítás külön karbantartói feladat).
+ */
+export async function removeCongregationIratKep(
+  congregationId: string,
+  fajta: IratKepFajta,
+): Promise<{ ok?: true; error?: string }> {
+  const oszlop = IRAT_KEP_OSZLOP[fajta]
+  if (!oszlop) return { error: 'Ismeretlen kép-fajta.' }
+
+  const access = await getEffectiveAccessContext()
+  if (!access.user) return { error: 'Nincs bejelentkezve.' }
+
+  const canManage =
+    access.admin ||
+    access.master ||
+    access.egyhazkeruletiAdmin ||
+    access.profile?.congregation_id === congregationId
+
+  if (!canManage) return { error: `Nincs jogosultság a ${IRAT_KEP_CIMKE[fajta]}-kép törléséhez.` }
+
+  const { error } = await access.supabase
+    .from('congregations')
+    .update({ [oszlop]: null })
+    .eq('id', congregationId)
+
+  if (error) {
+    return { error: iratKepOszlopHianyzik(error.message) ? IRAT_KEP_MIGRACIO_HIBA : error.message }
+  }
+
+  revalidatePath('/iktato')
+  return { ok: true }
+}
+
 /**
  * A setup wizard-hoz meglévő adatok betöltése. Az ugyanazokat a mezőket
  * adja vissza, amelyeket a saveCongregationSetup ment, plusz:
@@ -1639,6 +1842,10 @@ export async function getCongregationForSetup(
     jarulek_kedvezmenyes: number | null
     jarulek_hatarid: string | null
     tartozas_szamitas_mod: 'akkori' | 'aktualis' | null
+    // 2026-08-15 (beállítás-felmérés 2.1): ÁFA-alanyiság a Pénzügyi alap panelhez
+    tva_alany: boolean
+    tva_kod: string | null
+    tva_alany_tol: string | null
   }
   error?: string
 }> {
@@ -1656,6 +1863,7 @@ export async function getCongregationForSetup(
       email, telefon, web, bank, iban, cimer_url,
       iranyitoszam, hazszam, country, adrlocality_id, adrstreet_id,
       diocese_id, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid, tartozas_szamitas_mod,
+      tva_alany, tva_kod, tva_alany_tol,
       dioceses ( name, district_id, districts ( name ) )
     `)
     .eq('id', targetId)
@@ -1746,6 +1954,11 @@ export async function getCongregationForSetup(
       jarulek_kedvezmenyes: row.jarulek_kedvezmenyes as number | null,
       jarulek_hatarid: row.jarulek_hatarid as string | null,
       tartozas_szamitas_mod: row.tartozas_szamitas_mod as 'akkori' | 'aktualis' | null,
+      // 2026-08-15: fail-closed — kétes/hiányzó érték esetén NEM ÁFA-alany
+      // (az Oblio ilyenkor ÁFA nélkül számláz, ami az alapeset).
+      tva_alany: Boolean(row.tva_alany),
+      tva_kod: (row.tva_kod as string | null) || null,
+      tva_alany_tol: (row.tva_alany_tol as string | null) || null,
     },
   }
 }

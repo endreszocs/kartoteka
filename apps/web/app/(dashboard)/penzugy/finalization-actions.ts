@@ -38,10 +38,11 @@ export interface CheckItem {
    * `applyHashToTab`, Sprint Q F1.6 óta); a régi `?tab=` paramétert SENKI nem
    * olvassa, így mind a 8 „Javítás" gomb néma zsákutca volt: a wizard bezárult,
    * az oldal viszont a Dashboard fülön maradt.
-   * Érvényes értékek (finance-tabs.tsx `validTabs` + a két speciális eset):
+   * Érvényes értékek (finance-tabs.tsx `validTabs` + a speciális eset):
    * dashboard, cashbook, bank, transactions, budget, accounting, debt, rental,
-   * sugo, admin_import, valamint `monetary` (lebegő widget) és
-   * `oblio_ellenorzes` (teljes képernyős modál).
+   * sugo, admin_import, valamint `monetary` (lebegő widget). Az Oblio-cél
+   * 2026-08-15 (Endre) óta MÁSIK OLDAL: `/dokumentumtar#oblio` („Számlák
+   * egyeztetése" hub) — más útvonal lévén a wizard sima router.push-sal viszi.
    */
   fixUrl?: string
   fixLabel?: string
@@ -287,8 +288,10 @@ export async function runFinalizationChecks(year: number): Promise<{
           ? `Mind a ${oblioXmls.length} Oblio számla bevezetve.`
           : `${oblioUnentered.length} / ${oblioXmls.length} Oblio számla még nincs kiadásként rögzítve.`,
     blocking: false,
-    fixUrl: '/penzugy#oblio_ellenorzes',
-    fixLabel: oblioUnentered.length > 0 ? 'Oblio ellenőrzés fülön' : undefined,
+    // Endre 2026-08-15: az Oblio-felület a „Számlák egyeztetése" hubra
+    // költözött (/dokumentumtar, Oblio egyeztetés fül) — a javítás-gomb oda visz.
+    fixUrl: '/dokumentumtar#oblio',
+    fixLabel: oblioUnentered.length > 0 ? 'Számlák egyeztetése oldalon' : undefined,
   })
 
   const hasBlocker = items.some((i) => i.blocking && i.status === 'error')

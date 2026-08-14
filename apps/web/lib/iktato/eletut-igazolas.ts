@@ -316,7 +316,14 @@ const IGAZOLAS_EXTRA_CSS = `
     .alairas .vonal { border-bottom: 0.6pt solid #111827; height: 9mm; margin-bottom: 1.5mm; }
     .alairas .nev { font-weight: bold; min-height: 4.5mm; line-height: 1.25; }
     .alairas .szerep { font-size: 8.5pt; line-height: 1.25; }
-    .pecset { width: 26mm; height: 26mm; border: 0.6pt dashed #64748b; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 8.5pt; color: #334155; flex: 0 0 auto; align-self: center; }`
+    .pecset { width: 26mm; height: 26mm; border: 0.6pt dashed #64748b; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 8.5pt; color: #334155; flex: 0 0 auto; align-self: center; }
+    /* 24. pont: feltöltött pecsét-kép a szaggatott P.H.-kör HELYÉN (halványan),
+       a feltöltött aláírás-kép a lelkipásztori vonal FÖLÉ, kissé rálógva.
+       Kép híján marad a mai forma (üres vonal + szaggatott kör). */
+    .pecset--kep { border: none; border-radius: 0; }
+    .pecset--kep img { width: 100%; height: 100%; object-fit: contain; opacity: .88; }
+    .alairas .vonal--keppel { display: flex; align-items: flex-end; justify-content: center; }
+    .alairas .vonal--keppel img { max-height: 11mm; max-width: 54mm; object-fit: contain; display: block; margin-bottom: -0.5mm; }`
 
 /** 1895. október 1. — Erdélyben eddig a felekezeti anyakönyv volt a hivatalos. */
 const ALLAMI_ANYAKONYV_KEZDETE = '1895-10-01'
@@ -701,9 +708,20 @@ export function buildEletutIgazolasHtml(opts: EletutIgazolasHtmlOptions): string
   const fogondnokSzerep =
     mod === 'harom' ? 'Főgondnok / Prim-curator / Chief Elder' : valaszt(mod, 'Főgondnok', 'Prim-curator', 'Chief Elder')
   const pecsetFelirat = mod === 'harom' ? 'P.H. / L.S.' : valaszt(mod, 'P.H.', 'L.S.', 'L.S.')
+  // 24. pont: a feltöltött pecsét-kép a P.H.-kör HELYÉRE, az aláírás-kép a
+  // lelkipásztori vonal FÖLÉ kerül; kép híján a mai forma marad. A képeket a
+  // hívó (certificate-issue-dialog) már data: URI-ként ágyazza a headerbe.
+  const pecsetKepUrl = txt(header.pecsetUrl)
+  const alairasKepUrl = txt(header.alairasUrl)
+  const pecsetBlokk = pecsetKepUrl
+    ? `<div class="pecset pecset--kep"><img src="${esc(pecsetKepUrl)}" alt="${esc(pecsetFelirat)}" /></div>`
+    : `<div class="pecset">${pecsetFelirat}</div>`
+  const lelkeszVonal = alairasKepUrl
+    ? `<div class="vonal vonal--keppel"><img src="${esc(alairasKepUrl)}" alt="" /></div>`
+    : '<div class="vonal"></div>'
   const alairasok = `<div class="alairasok">
-    <div class="alairas"><div class="vonal"></div><div class="nev">${esc(lelkipasztor)}</div><div class="szerep">${lelkeszSzerep}</div></div>
-    <div class="pecset">${pecsetFelirat}</div>
+    <div class="alairas">${lelkeszVonal}<div class="nev">${esc(lelkipasztor)}</div><div class="szerep">${lelkeszSzerep}</div></div>
+    ${pecsetBlokk}
     <div class="alairas"><div class="vonal"></div><div class="nev">${fogondnok ? esc(fogondnok) : '&nbsp;'}</div><div class="szerep">${fogondnokSzerep}</div></div>
   </div>`
 

@@ -19,7 +19,7 @@ import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Banknote, Check, Church, FileText, Image as ImageIcon,
-  Landmark, Loader2, MapPin, Percent, Phone, Plus, Save, Star, Trash2, Upload, UserCog, Wallet, X,
+  Landmark, Loader2, MapPin, Percent, Phone, Plus, Save, Stamp, Star, Trash2, Upload, UserCog, Wallet, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -36,6 +36,7 @@ import {
   WizardSectionCard,
   WizardField,
   WizardBanner,
+  WizardInputGrid,
   Input as WizardInput,
 } from '@/components/onboarding/wizard/_helpers/wizard-ui'
 // #Endre 2026-07-02: a haladó szerkesztő (kedvezmények, egyéb díjak, évenkénti díjak,
@@ -54,6 +55,9 @@ import {
   saveCongregationBankAccount,
   deleteCongregationBankAccount,
   getDioceses,
+  getCongregationIratKepek,
+  uploadCongregationIratKep,
+  removeCongregationIratKep,
 } from '@/app/(dashboard)/congregation/actions'
 
 /**
@@ -99,6 +103,11 @@ interface SetupFormState {
   jarulek_kedvezmenyes: number
   jarulek_hatarid: string
   tartozas_szamitas_mod: 'akkori' | 'aktualis'
+  // 2026-08-15 (beállítás-felmérés 2.1, P0): ÁFA-alanyiság — eddig csak kézi
+  // SQL-lel volt állítható, pedig az Oblio-számla ÁFA-kulcsa ebből dől el.
+  tva_alany: boolean
+  tva_kod: string
+  tva_alany_tol: string
 }
 
 type SetForm = (f: SetupFormState) => void
@@ -181,6 +190,7 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
     bank: '', iban: '', iranyitoszam: '', hazszam: '', country: 'Románia',
     adrlocality_id: null, adrstreet_id: null, isForeign: false,
     diocese_id: '', eves_jarulek: 100, jarulek_kedvezmenyes: 0, jarulek_hatarid: '07-01', tartozas_szamitas_mod: 'akkori',
+    tva_alany: false, tva_kod: '', tva_alany_tol: '',
   })
   const [dioceses, setDioceses] = useState<Array<{ id: string; name: string; district_id: string | null; district_name: string | null }>>([])
   // 2026-08-10: ha az egyházmegye-lista betöltése hibázik, a választó NEM
@@ -245,6 +255,9 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
             jarulek_kedvezmenyes: d.jarulek_kedvezmenyes ?? 0,
             jarulek_hatarid: d.jarulek_hatarid || '07-01',
             tartozas_szamitas_mod: d.tartozas_szamitas_mod || 'akkori',
+            tva_alany: d.tva_alany ?? false,
+            tva_kod: d.tva_kod || '',
+            tva_alany_tol: d.tva_alany_tol || '',
           })
           setContext({ dioceseName: d.diocese_name, districtName: d.district_name })
 
@@ -520,6 +533,9 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
                       dioceses={dioceses}
                       diocesesError={diocesesError}
                     />
+                    {/* 24. pont: pecsét + aláírás kép az iktató-nyomtatványokra —
+                        a címer-feltöltő MELLÉ, saját (azonnal mentő) adatlánccal. */}
+                    <SectionIratKepek congregationId={congregationId} />
                   </>
                 )}
 
@@ -846,6 +862,164 @@ function SectionBasics({
   )
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// 24. pont: Pecsét + aláírás kép az iktató-nyomtatványokra
+// ─────────────────────────────────────────────────────────────────────────
+
+type IratKepFajta = 'pecset' | 'alairas'
+
+const IRAT_KEP_FELIRAT: Record<IratKepFajta, string> = {
+  pecset: 'Hivatalos pecsét',
+  alairas: 'Lelkipásztori aláírás',
+}
+
+/**
+ * A gyülekezet pecsét- és aláírás-képének feltöltője — a címer-feltöltő
+ * mintájára, de SAJÁT (azonnal mentő) adatlánccal: a feltöltés a szerveren
+ * rögtön a congregations.pecset_url/alairas_url oszlopba írja az URL-t, így
+ * nem függ a varázsló nagy „Mentés" gombjától (és annak szigorú
+ * validációjától). A képek az iktató nyomtatványaira kerülnek: a pecsét az
+ * irat közepére (halványan), az aláírás az aláíró neve fölé.
+ *
+ * CSAK PNG/WEBP (átlátszó háttér — a kép a szövegre/vonalra kerül), max 1 MB.
+ * Amíg a 2026-08-15-iktato-pecset-alairas.sql migráció nem futott le, a
+ * betöltés hangos magyar hibával jelzi a teendőt (fail-closed), a feltöltők
+ * pedig nem jelennek meg.
+ */
+function SectionIratKepek({ congregationId }: { congregationId: string }) {
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [kepek, setKepek] = useState<Record<IratKepFajta, string | null>>({
+    pecset: null,
+    alairas: null,
+  })
+  const [busy, setBusy] = useState<IratKepFajta | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void getCongregationIratKepek(congregationId).then((res) => {
+      if (cancelled) return
+      setKepek({ pecset: res.pecsetUrl, alairas: res.alairasUrl })
+      setLoadError(res.error)
+      setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [congregationId])
+
+  async function handleUpload(fajta: IratKepFajta, ev: React.ChangeEvent<HTMLInputElement>) {
+    const file = ev.target.files?.[0]
+    // Az input értékét ürítjük, hogy UGYANAZ a fájl újra kiválasztható legyen
+    // (pl. sikertelen feltöltés után) — a change-esemény különben nem sülne el.
+    ev.target.value = ''
+    if (!file) return
+    setBusy(fajta)
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await uploadCongregationIratKep(congregationId, fajta, fd)
+    setBusy(null)
+    if (res.error) { toast.error(res.error); return }
+    if (res.url) {
+      const url = res.url
+      setKepek((prev) => ({ ...prev, [fajta]: url }))
+      toast.success(`${IRAT_KEP_FELIRAT[fajta]} feltöltve — a nyomtatott iratokra ezentúl rákerül.`)
+    }
+  }
+
+  async function handleRemove(fajta: IratKepFajta) {
+    setBusy(fajta)
+    const res = await removeCongregationIratKep(congregationId, fajta)
+    setBusy(null)
+    if (res.error) { toast.error(res.error); return }
+    setKepek((prev) => ({ ...prev, [fajta]: null }))
+    toast.success(`${IRAT_KEP_FELIRAT[fajta]} eltávolítva — a nyomtatványok üres vonallal készülnek.`)
+  }
+
+  return (
+    <div className="card-raised p-4 bg-amber-50/30 border-amber-200">
+      <p className="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-2">
+        <Stamp className="size-4 text-amber-700" />
+        Pecsét és aláírás az iratokra
+      </p>
+      <p className="text-xs text-slate-500 mb-3">
+        PNG vagy WEBP kép, <strong>átlátszó háttérrel</strong>, max 1 MB. A pecsét a nyomtatott
+        iratok közepére kerül (halványan, a keltezés mellé), az aláírás az aláíró neve fölé —
+        az iktatópecsét-nyomtatványon, az iktatókönyvön és a kiadott igazolásokon. Amíg nincs
+        kép feltöltve, minden nyomtatvány a mai formájában (üres aláírás-vonallal) készül.
+      </p>
+      {loading ? (
+        <p className="flex items-center gap-2 text-xs text-slate-400">
+          <Loader2 className="size-4 animate-spin" /> Betöltés…
+        </p>
+      ) : loadError ? (
+        <p className="text-xs text-rose-600">{loadError}</p>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {(['pecset', 'alairas'] as const).map((fajta) => {
+            const url = kepek[fajta]
+            const uploading = busy === fajta
+            return (
+              <div key={fajta} className="rounded-xl border border-slate-200 bg-white/70 p-3">
+                <p className="mb-2 text-xs font-medium text-slate-700">{IRAT_KEP_FELIRAT[fajta]}</p>
+                {url ? (
+                  <div className="flex items-start gap-3">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={url}
+                      alt={IRAT_KEP_FELIRAT[fajta]}
+                      className="size-20 shrink-0 rounded-lg border border-slate-200 bg-white object-contain p-1"
+                    />
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <p className="text-xs font-medium text-emerald-700">✅ Feltöltve</p>
+                      <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-indigo-700 hover:text-indigo-900">
+                        {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+                        Másik feltöltése
+                        <input
+                          type="file"
+                          accept="image/png,image/webp"
+                          className="hidden"
+                          onChange={(ev) => void handleUpload(fajta, ev)}
+                          disabled={busy !== null}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => void handleRemove(fajta)}
+                        disabled={busy !== null}
+                        className="flex items-center gap-1 text-xs text-rose-600 hover:text-rose-800 disabled:opacity-50"
+                      >
+                        <Trash2 className="size-3.5" />
+                        Eltávolítás
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-amber-300 bg-white/50 p-4 transition hover:bg-amber-50/40">
+                    {uploading ? (
+                      <Loader2 className="size-4 animate-spin text-amber-700" />
+                    ) : (
+                      <Upload className="size-4 text-amber-700" />
+                    )}
+                    <span className="text-xs font-medium text-amber-800">
+                      {uploading ? 'Feltöltés…' : 'Kép feltöltése'}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/png,image/webp"
+                      className="hidden"
+                      onChange={(ev) => void handleUpload(fajta, ev)}
+                      disabled={busy !== null}
+                    />
+                  </label>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // #Endre 2026-07-02: Pénzügyi alap — átmigrálva a „Gyülekezetünk adatai" ablakból.
 function SectionFinance({ form, setForm }: { form: SetupFormState; setForm: SetForm }) {
   const currentYear = new Date().getFullYear()
@@ -890,6 +1064,90 @@ function SectionFinance({ form, setForm }: { form: SetupFormState; setForm: SetF
           felvehető, akár évenként.
         </p>
       </WizardBanner>
+
+      {/* 2026-08-15 (beállítás-felmérés 2.1, P0): ÁFA-alanyiság (TVA). A kapcsolót az
+          Oblio-számlaépítő olvassa: bekapcsolva a kimenő számlák 19% ÁFÁ-val
+          („Normala"), kikapcsolva ÁFA nélkül („Scutit fără drept de deducere")
+          készülnek (lib/finance/oblio/oblio-invoice-builder.ts). Eddig a mezőt
+          semmilyen felület nem írta — plafon-átlépéskor a lelkész csak kézi SQL-lel
+          tudta volna rögzíteni, és a számlák továbbra is ÁFA nélkül mentek volna ki. */}
+      <WizardSectionCard
+        icon={Percent}
+        iconColor="text-rose-700"
+        iconBg="bg-rose-50"
+        title="ÁFA-alanyiság (TVA)"
+        description="A kimenő számlák (pl. a bérleti díjak Oblio-számlái) ÁFA-kezelését határozza meg."
+      >
+        <label
+          className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${
+            form.tva_alany
+              ? 'border-rose-200 bg-rose-50/40'
+              : 'border-slate-200 bg-slate-50/40 hover:border-slate-300'
+          }`}
+        >
+          <input
+            type="checkbox"
+            checked={form.tva_alany}
+            onChange={(e) => setForm({ ...form, tva_alany: e.target.checked })}
+            className="mt-0.5 size-4 accent-rose-600"
+          />
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium text-slate-800">
+              ÁFA-alany a gyülekezet?
+            </span>
+            <span className="mt-0.5 block text-xs text-slate-500">
+              Csak akkor kapcsold be, ha az ANAF-nál már megtörtént a TVA-regisztráció.
+            </span>
+          </span>
+        </label>
+
+        {form.tva_alany && (
+          <WizardInputGrid cols={2}>
+            <WizardField
+              id="tva_kod"
+              label="TVA-kód"
+              hint="Pl. RO12345678 — az ANAF-regisztrációkor kapott cod de TVA."
+            >
+              <WizardInput
+                id="tva_kod"
+                value={form.tva_kod}
+                onChange={(e) => setForm({ ...form, tva_kod: e.target.value })}
+                placeholder="pl. RO12345678"
+              />
+            </WizardField>
+            <WizardField
+              id="tva_alany_tol"
+              label="ÁFA-alanyiság kezdete"
+              hint="Az ANAF által visszaigazolt hatálybalépés napja."
+            >
+              <WizardInput
+                id="tva_alany_tol"
+                type="date"
+                value={form.tva_alany_tol}
+                onChange={(e) => setForm({ ...form, tva_alany_tol: e.target.value })}
+              />
+            </WizardField>
+          </WizardInputGrid>
+        )}
+
+        <WizardBanner tone={form.tva_alany ? 'warning' : 'info'}>
+          {form.tva_alany ? (
+            <p>
+              A gyülekezet <strong>ÁFA-alanyként</strong> van beállítva — a mentés után a
+              kimenő (Oblio) számlák <strong>19% ÁFÁ-val</strong> készülnek.
+            </p>
+          ) : (
+            <p>
+              <strong>Mikor ÁFA-alany egy gyülekezet?</strong> Ha az éves gazdasági forgalma
+              (pl. bérbeadásból) meghaladja a <strong>395 000 RON</strong> plafont — ekkor a
+              könyvelő 10 napon belül benyújtja a 010-es nyomtatványt az ANAF-hoz —, vagy ha
+              önként regisztrált ÁFA-körbe. Amíg a kapcsoló ki van kapcsolva, a kimenő
+              számlák ÁFA nélkül készülnek. A plafon közeledését a Pénzügy oldal
+              TVA-figyelője mutatja.
+            </p>
+          )}
+        </WizardBanner>
+      </WizardSectionCard>
 
       {/* 2026-07-17 (F5, Q6 — user-döntés): a „Tartozás-számítási mód" választó
           KIVEZETVE — a rendszer mindig az „akkori" (a tartozás évének beállításai

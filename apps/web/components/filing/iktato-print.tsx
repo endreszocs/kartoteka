@@ -20,6 +20,22 @@ interface PrintOptions {
   congregationName: string
   egyhazmegyeNev?: string
   year: number
+  /** 24. pont: a gyülekezet feltöltött pecsét-képe (data: URI-ként beágyazva)
+   *  — a nyomtatvány KÖZEPÉRE kerül, halványan. Hiányában marad a mai forma. */
+  pecsetKepUrl?: string | null
+  /** 24. pont: a lelkipásztori aláírás képe — az aláíró vonala FÖLÉ kerül
+   *  (az iktatókönyv „Lelkipásztor" aláírás-blokkjában). Hiányában üres vonal. */
+  alairasKepUrl?: string | null
+}
+
+/** HTML-escape a dinamikus attribútum-értékekhez (kép-URL-ek). */
+function escAttr(value: string): string {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
 }
 
 function openPrintWindow(html: string, title: string): void {
@@ -52,10 +68,18 @@ function openPrintWindow(html: string, title: string): void {
       .source-irat { margin-bottom: 24px; padding-bottom: 12px; border-bottom: 1px dashed #94a3b8; }
       .source-irat p { margin: 2px 0; font-size: 10pt; }
       .meta { text-align: right; font-size: 9pt; color: #64748b; margin-top: 6px; }
-      .signature-row { margin-top: 32px; display: flex; gap: 24px; justify-content: space-between; }
+      .signature-row { margin-top: 32px; display: flex; gap: 24px; justify-content: space-between; align-items: flex-end; }
       .signature-block { flex: 1; text-align: center; font-size: 10pt; }
       .signature-block .line { border-top: 1px solid #1f2937; margin: 32px 8px 4px 8px; }
       .closing { margin-top: 28px; font-style: italic; }
+      /* 24. pont: feltöltött pecsét- és aláírás-kép. A pecsét halványan,
+         KÖZÉPEN (a hivatalos 35×35 mm-es méretben); az aláírás-kép a vonal
+         FÖLÉ kerül, kissé rálógva. Kép híján egyik sem jelenik meg. */
+      .pecset-kep-sor { margin-top: 28px; text-align: center; }
+      .pecset-kep { width: 35mm; height: 35mm; object-fit: contain; opacity: .88; }
+      .signature-row .pecset-kep { flex: 0 0 auto; align-self: center; }
+      .signature-block .kep-vonal { position: relative; margin: 32px 8px 4px 8px; border-top: 1px solid #1f2937; }
+      .signature-block .kep-vonal img { position: absolute; left: 50%; bottom: -1px; transform: translateX(-50%); max-height: 15mm; max-width: 55mm; object-fit: contain; }
       @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
     </style>
   </head><body>${html}
@@ -106,6 +130,13 @@ export function printIktatoPecset(entry: FilingEntry, opts: PrintOptions): void 
       <p>Mellékletek száma: ${entry.mellekletek_szama ?? '—'}</p>
       ${entry.valasz_iktatoszam ? `<p>Kereszt-hivatkozás: ${entry.valasz_iktatoszam}</p>` : ''}
     </div>
+    ${
+      // 24. pont: a gyülekezet feltöltött pecsétje KÖZÉPEN, halványan a
+      // tartalom alatt — kép híján a nyomtatvány változatlan.
+      opts.pecsetKepUrl
+        ? `<div class="pecset-kep-sor"><img class="pecset-kep" src="${escAttr(opts.pecsetKepUrl)}" alt="" /></div>`
+        : ''
+    }
   `
   openPrintWindow(html, `Iktatópecset — ${entry.year}/${entry.sequence_number}`)
 }
@@ -164,9 +195,21 @@ export function printIktatokonyv(entries: FilingEntry[], opts: PrintOptions): vo
 
     <div class="signature-row">
       <div class="signature-block">
-        <div class="line"></div>
+        ${
+          // 24. pont: a feltöltött aláírás-kép a lelkipásztori vonal FÖLÉ
+          // kerül (kissé rálógva); kép híján marad az üres vonal.
+          opts.alairasKepUrl
+            ? `<div class="kep-vonal"><img src="${escAttr(opts.alairasKepUrl)}" alt="" /></div>`
+            : '<div class="line"></div>'
+        }
         Lelkipásztor
       </div>
+      ${
+        // 24. pont: a pecsét a két aláírás KÖZÉ, halványan (a dátum-záradék alá).
+        opts.pecsetKepUrl
+          ? `<img class="pecset-kep" src="${escAttr(opts.pecsetKepUrl)}" alt="" />`
+          : ''
+      }
       <div class="signature-block">
         <div class="line"></div>
         (Fő)gondnok

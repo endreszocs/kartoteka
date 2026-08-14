@@ -4,7 +4,8 @@
  * Settings Dialog — rendszerbeállítások modal.
  *
  * 5 tab:
- *   1. Értesítések  — e-mail értesítés kapcsoló, típus-szűrés
+ *   1. Értesítések  — 2026-08-15 óta csak tájékoztató szöveg (a hatástalan
+ *      e-mail kapcsolók rejtve — lásd EMAIL_ERTESITES_KAPCSOLOK_BEKOTVE)
  *   2. Megjelenés   — világos / sötét / rendszer mód, betűméret
  *   3. Nyelv        — UI nyelv (HU / RO) — jelenleg placeholder
  *   4. Publikus oldal  — gyors link + státusz
@@ -60,6 +61,20 @@ interface SettingsDialogProps {
 // ──────────────────────────────────────────────────────────────
 
 const LS_KEY = 'kartoteka-user-prefs-v1'
+
+// ──────────────────────────────────────────────────────────────
+// 2026-08-15 (beállítás-felmérés 1.1–1.2, P0 — KIVEZETÉS-JELÖLÉS):
+// Az e-mail értesítési kapcsolók REJTVE vannak a felületről, mert
+// HATÁSTALANOK voltak: az értékük csak a böngésző localStorage-ába került
+// (kartoteka-user-prefs-v1), amit a szerveroldali levélküldés
+// (lib/email/send.ts) elvből nem lát és egyetlen sora sem olvas. A lelkész
+// azt hitte, leiratkozott — de ugyanúgy kapta a leveleket.
+// A kapcsolók kódja (ToggleRow-blokk lent + a prefs mezők) szándékosan
+// MEGMARAD: a majdani valódi bekötésnél (értesítés-prefek a
+// profile_preferences táblába + a levélküldés szűrjön rájuk) ez a zászló
+// visszabillenthető true-ra. Addig a helyükön őszinte tájékoztató áll.
+// ──────────────────────────────────────────────────────────────
+const EMAIL_ERTESITES_KAPCSOLOK_BEKOTVE: boolean = false
 
 interface UserPrefs {
   emailNotifications: boolean
@@ -198,38 +213,55 @@ export function SettingsDialog({
           <div className="flex-1 min-w-0">
             {/* ─── ÉRTESÍTÉSEK ─── */}
             <TabsContent value="ertesitesek" className="space-y-4">
-              <SettingsSection title="E-mail értesítés" icon={<Bell className="size-4" />}>
-                <ToggleRow
-                  label="E-mailben is megkapom az értesítéseket"
-                  description={
-                    userEmail
-                      ? `Címzett: ${userEmail}`
-                      : 'A regisztrált e-mail cím kapja majd a leveleket.'
-                  }
-                  checked={prefs.emailNotifications}
-                  onChange={(v) => updatePrefs({ emailNotifications: v })}
-                />
-              </SettingsSection>
-
-              <SettingsSection title="Milyen típusú értesítéseket kapjak?" icon={<Bell className="size-4" />}>
-                <div className="space-y-2">
-                  {[
-                    { key: 'admin', label: 'Adminisztratív kérések (hozzáférés, jóváhagyás)' },
-                    { key: 'warning', label: 'Figyelmeztetések (TVA plafon, tartozások)' },
-                    { key: 'danger', label: 'Kritikus hibák (biztonsági esemény)' },
-                    { key: 'support_reply', label: 'Válasz támogatási kérdésre' },
-                    { key: 'info', label: 'Általános információk (frissítések)' },
-                  ].map((item) => (
+              {/* 2026-08-15 (beállítás-felmérés 1.1–1.2): a lenti kapcsoló-blokk
+                  REJTVE — hatástalan volt (részletek a EMAIL_ERTESITES_KAPCSOLOK_BEKOTVE
+                  konstansnál). A kód a visszakötésig szándékosan itt marad. */}
+              {EMAIL_ERTESITES_KAPCSOLOK_BEKOTVE ? (
+                <>
+                  <SettingsSection title="E-mail értesítés" icon={<Bell className="size-4" />}>
                     <ToggleRow
-                      key={item.key}
-                      label={item.label}
-                      checked={prefs.notificationTypes.includes(item.key)}
-                      onChange={() => toggleNotificationType(item.key)}
-                      compact
+                      label="E-mailben is megkapom az értesítéseket"
+                      description={
+                        userEmail
+                          ? `Címzett: ${userEmail}`
+                          : 'A regisztrált e-mail cím kapja majd a leveleket.'
+                      }
+                      checked={prefs.emailNotifications}
+                      onChange={(v) => updatePrefs({ emailNotifications: v })}
                     />
-                  ))}
-                </div>
-              </SettingsSection>
+                  </SettingsSection>
+
+                  <SettingsSection title="Milyen típusú értesítéseket kapjak?" icon={<Bell className="size-4" />}>
+                    <div className="space-y-2">
+                      {[
+                        { key: 'admin', label: 'Adminisztratív kérések (hozzáférés, jóváhagyás)' },
+                        { key: 'warning', label: 'Figyelmeztetések (TVA plafon, tartozások)' },
+                        { key: 'danger', label: 'Kritikus hibák (biztonsági esemény)' },
+                        { key: 'support_reply', label: 'Válasz támogatási kérdésre' },
+                        { key: 'info', label: 'Általános információk (frissítések)' },
+                      ].map((item) => (
+                        <ToggleRow
+                          key={item.key}
+                          label={item.label}
+                          checked={prefs.notificationTypes.includes(item.key)}
+                          onChange={() => toggleNotificationType(item.key)}
+                          compact
+                        />
+                      ))}
+                    </div>
+                  </SettingsSection>
+                </>
+              ) : (
+                <SettingsSection title="E-mail értesítések" icon={<Bell className="size-4" />}>
+                  <p className="text-sm leading-relaxed text-slate-600">
+                    Az e-mail értesítések beállítása <strong>később érkezik</strong>. Addig a
+                    rendszer a fontos eseményekről (pl. hozzáférési kérések, biztonsági
+                    események) automatikusan küld e-mailt
+                    {userEmail ? <> a(z) <strong>{userEmail}</strong> címre</> : null} — ez itt
+                    egyelőre nem kapcsolható ki.
+                  </p>
+                </SettingsSection>
+              )}
             </TabsContent>
 
             {/* ─── MEGJELENÉS ─── */}

@@ -22,7 +22,16 @@ import {
 } from '@/lib/dokumentumtar/kifizetetlen-types'
 import { getKifizetetlenSzamlak } from '@/app/(dashboard)/dokumentumtar/kifizetetlen-actions'
 
-export function KifizetetlenBelepo() {
+interface KifizetetlenBelepoProps {
+  /**
+   * Endre 2026-08-15: a „Számlák egyeztetése" hubban a belépő fülváltást
+   * végez (a hub adja át); nélküle a /dokumentumtar/kifizetetlen oldalra
+   * navigál (önálló használat, régi viselkedés).
+   */
+  onOpen?: () => void
+}
+
+export function KifizetetlenBelepo({ onOpen }: KifizetetlenBelepoProps = {}) {
   const router = useRouter()
   const [eredmeny, setEredmeny] = useState<KifizetetlenEredmeny | null>(null)
   const [loading, setLoading] = useState(true)
@@ -54,7 +63,7 @@ export function KifizetetlenBelepo() {
   return (
     <button
       type="button"
-      onClick={() => router.push('/dokumentumtar/kifizetetlen')}
+      onClick={() => (onOpen ? onOpen() : router.push('/dokumentumtar/kifizetetlen'))}
       className={`card-raised flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition sm:p-4 ${
         lejart > 0
           ? 'border-rose-300 ring-1 ring-rose-200 hover:border-rose-400'

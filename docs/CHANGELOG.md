@@ -23,6 +23,48 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-15] — Új: pecsét és aláírás a nyomtatott iratokon
+<!-- key: 2026-08-15-iktato-pecset-alairas -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+
+### ✨ Új funkciók
+
+- **Pecsét és aláírás — egyszer feltöltöd, minden iratra rákerül.** A **Gyülekezet beállítása** ablak Alapadatok szakaszában (a címer-feltöltő mellett) mostantól feltölthető a gyülekezet **hivatalos pecsétjének** és a **lelkipásztori aláírásnak** a képe (PNG vagy WEBP, átlátszó háttérrel, legfeljebb 1 MB — előnézettel, bármikor cserélhető vagy eltávolítható).
+- **Hol jelenik meg?** A kiállított igazolásokon és hivatalos leveleken, az életút-igazoláson, az iktatópecsét-nyomtatványon, az iktatókönyvön és az iratcsomó-leltáron: a **pecsét középre kerül, halványan** (a keltezés mellé — mintha valóban rá lenne ütve), az **aláírás-kép pedig az aláíró neve fölé**, a vonalra.
+- **Ha nincs kép feltöltve, semmi sem változik**: a nyomtatványok pontosan a megszokott formában (üres aláírás-vonallal) készülnek tovább.
+- Fontos tudni: a képek a gyülekezeti címerrel azonos, nyilvános tárhelyre kerülnek — a link birtokában megtekinthetők.
+
+---
+
+## [2026-08-15] — Számlák egyeztetése: egy közös hely az Oblio-nak, a Dokumentumtárnak és a kifizetetlen számláknak
+<!-- key: 2026-08-15-szamlak-egyeztetese-hub -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, konyvelo -->
+
+### 🎨 UX javítások
+
+- **Egy gomb, egy hely — „Számlák egyeztetése".** A Pénzügy oldalon eddig két külön gomb volt („Oblio ellenőrzés" és „Dokumentumtár"), és nem volt egyértelmű, melyik mire való. Mostantól **egy** gomb van: **Számlák egyeztetése** — ez egy külön oldalra visz, ahol minden számla-ügy együtt van.
+- **Három fül az új oldalon**: **Oblio egyeztetés** (a megszokott, sablonos Oblio fájl-feltöltő és egyeztető felület — pontosan az, ami eddig is élt a rendszerben), **Dokumentumtár** (a gyülekezet fájl-területe: szállítói számlák, bizonylatok, szerződések) és **Kifizetetlen számlák** (a még rendezetlen tételek listája).
+- **Visszalépő gomb felül**: az oldal tetején jól látható „← Vissza a Pénzügyhöz" gomb — nem lehet eltévedni, telefonon sem.
+- **A régi utak nem törnek el**: az oldalsáv „Oblio ellenőrzés" pontja és a régi könyvjelzők automatikusan az új oldalra visznek; az év végi zárás-ellenőrző „Javítás" gombja is ide mutat.
+
+---
+
+## [2026-08-15] — Új: több évre fizetett egyházfenntartói járulék egy nyugtával
+<!-- key: 2026-08-15-tobb-evre-fizetett-jarulek -->
+<!-- category: feature -->
+<!-- targets: lelkesz, konyvelo -->
+
+### ✨ Új funkciók
+
+- **Több évre fizet — egy mentéssel.** A Tétel rögzítőben, egyházfenntartói járulék jogcímen, ha kiválasztasz egy regisztrált befizetőt, megjelenik a **„Több évre fizet"** gomb. Rákattintva az utolsó ~10 év jelenik meg kis év-gombokként — jelöld ki, melyik évekre fizet a testvér.
+- **Az összegek maguktól kitöltődnek**: minden kijelölt évhez a rendszer az **adott évi** járulékot írja be (az arra az évre beállított díjjal, a kedvezményekkel és a már befizetett résszel számolva) — de bármelyik összeg kézzel átírható (részletfizetés is lehetséges).
+- **Évenként külön tétel, helyes évvel**: a mentés évenként külön befizetés-sort készít, mindegyik a saját évére könyvelve — a tartozás-nyilvántartás így minden évre pontos marad. A nyugta közös: a kerületi szám a megszokott módon /1, /2… utótagot kap, a gyülekezeti sorszám egy marad.
+- Telefonon is kényelmesen használható — az év-gombok és az évenkénti összegek a kártyás nézetben is elférnek.
+
+---
+
 ## [2026-08-15] — Új: Kifizetetlen számlák ablaka + számla-ZIP feldolgozás
 <!-- key: 2026-08-15-kifizetetlen-szamlak-ablak -->
 <!-- category: feature -->

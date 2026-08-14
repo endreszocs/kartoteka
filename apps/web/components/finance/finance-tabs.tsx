@@ -3,11 +3,10 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { AlertTriangle, Building2, Eye, FileCheck, FileText, FolderOpen, Plus, Printer, Receipt, ShieldCheck, Wallet } from 'lucide-react'
+import { AlertTriangle, Building2, Eye, FileCheck, FileText, Plus, Printer, Receipt, ShieldCheck, Wallet } from 'lucide-react'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { ColorTabs } from '@/components/ui/color-tabs'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import { FinanceDashboard } from './dashboard-tab'
 import { OblioStatusChip } from './oblio-status-chip'
@@ -16,7 +15,6 @@ import { FinanceYearSelector } from './finance-year-selector'
 // (jobb alsó sarok, Monetár + Számológép). A MonetaryTabV2-t a widget
 // dynamic importtal, kompakt módban mountolja.
 import { MonetarFloatingWidget } from './monetar-floating-widget'
-import { slugifyCongregationName } from '@/lib/utils/slugify'
 
 // 2026-06-30 (perf): a nehéz, nem-default fülek next/dynamic-kal töltődnek. A
 // base-ui Tabs.Panel (keepMounted=false alapérték) az inaktív fület nem rendereli,
@@ -25,9 +23,11 @@ import { slugifyCongregationName } from '@/lib/utils/slugify'
 // könyvelő/tranzakció/kassza/bank/költségvetés fül. A Dashboard (default) + a hero
 // (OblioStatusChip/YearSelector) statikus marad a gyors első festésért. A viselkedés
 // változatlan.
-// 2026-07-10 (S3 #2+#4): a Monetár fül lebegő widgetté, az Oblio-ellenőrzés fül
-// hero-gombból nyíló teljes-képernyős modállá alakult — az Oblio tartalma is
-// dynamic importtal, CSAK az első megnyitáskor töltődik le.
+// 2026-07-10 (S3 #2): a Monetár fül lebegő widgetté alakult.
+// 2026-08-15 (Endre): az Oblio-ellenőrzés modál KIVEZETVE — a tartalma a
+// /dokumentumtar „Számlák egyeztetése" hub „Oblio egyeztetés" fülén él tovább
+// (szamlak-egyeztetese-tabs.tsx); a hero gombja és a régi hash/event
+// belépési pontok oda navigálnak.
 const tabLoading = () => <div className="mt-4 h-64 animate-pulse rounded-2xl bg-slate-100" />
 const CashbookTab = dynamic(() => import('./cashbook-tab').then((m) => m.CashbookTab), { ssr: false, loading: tabLoading })
 const BankTab = dynamic(() => import('./bank-tab').then((m) => m.BankTab), { ssr: false, loading: tabLoading })
@@ -36,7 +36,6 @@ const AccountingTabV2 = dynamic(() => import('./accounting-tab-v2').then((m) => 
 const DebtTabV2 = dynamic(() => import('./debt-tab-v2').then((m) => m.DebtTabV2), { ssr: false, loading: tabLoading })
 const TransactionsTab = dynamic(() => import('./transactions-tab').then((m) => m.TransactionsTab), { ssr: false, loading: tabLoading })
 const RentalTab = dynamic(() => import('./rental-tab').then((m) => m.RentalTab), { ssr: false, loading: tabLoading })
-const OblioEllenorzesTab = dynamic(() => import('./oblio-ellenorzes-tab').then((m) => m.OblioEllenorzesTab), { ssr: false, loading: tabLoading })
 // 2026-08-11 (K5 #5): a Súgó fül a KÖZÖS `FinanceSugoTab` wrappert mountolja
 // (`finance-sugo-tab.tsx`) a korábbi, csak-webes `PenzugyHelp` helyett. Az eddigi
 // állapotban a wrapper halott kód volt, a web pedig egy külön fejlődő súgó-doksit
@@ -100,8 +99,8 @@ interface FinanceTabsProps {
   availableYears?: number[]
   isGodMode: boolean
   /** 2026-04-18 SCOPE-AWARE: 'congregation' (default) vagy 'diocese'.
-   *  Diocese módban a tag-szintű fülek (debt, rental) + a Monetár-widget és az
-   *  Oblio-modál (2026-07-10 S3 #2+#4 óta nem fülek) el vannak rejtve. */
+   *  Diocese módban a tag-szintű fülek (debt, rental) + a Monetár-widget és a
+   *  „Számlák egyeztetése" hero-gomb (2026-08-15, Endre) el vannak rejtve. */
   scope?: 'congregation' | 'diocese'
   /**
    * 2026-08-11 (számvevő-kör): ELLENŐRI (csak olvasható) nézet.
@@ -153,9 +152,9 @@ export function FinanceTabs({
   // vezérli, hogy a bejövő #monetary hash / a 'finance-tab-switch' event is
   // ki tudja nyitni.
   const [monetarWidgetOpen, setMonetarWidgetOpen] = useState(false)
-  // 2026-07-10 (S3 #4): az Oblio-ellenőrzés teljes-képernyős modál nyitottsága
-  // (a fül megszűnt, a hero "Oblio ellenőrzés" gombja nyitja).
-  const [oblioModalOpen, setOblioModalOpen] = useState(false)
+  // 2026-08-15 (Endre): az Oblio-ellenőrzés modál (oblioModalOpen) KIVEZETVE —
+  // a „Számlák egyeztetése" hub (/dokumentumtar) vette át; a régi hívóhelyek
+  // (hash, custom event) oda navigálnak.
 
   // Belső-mozgás cél-azonosítók: azok a befizetescel/kiadascel id-k, amelyek 3xx/4xx
   // számadási kódra mutatnak (300.01/301.01/400.01/401.01/402.02). Ezeket a bevétel/kiadás
@@ -200,19 +199,21 @@ export function FinanceTabs({
 
   // A Tranzakciók fülön a kiadás-soros SPV-ikon kattintása fülváltást küld
   // (custom event, nincs prop-drilling). Lásd `oblio-expense-status-icon.tsx`.
-  // 2026-07-10 (S3 #2+#4): a megszűnt monetary/oblio_ellenorzes fülre irányuló
-  // event a widgetet / a modált nyitja — a régi hívóhelyek változatlanul működnek.
+  // 2026-07-10 (S3 #2): a megszűnt monetary fülre irányuló event a widgetet
+  // nyitja — a régi hívóhelyek változatlanul működnek.
+  // 2026-08-15 (Endre): az oblio_ellenorzes cél a „Számlák egyeztetése" hubra
+  // (/dokumentumtar, Oblio egyeztetés fül) navigál — a modál kivezetve.
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail
       if (typeof detail !== 'string') return
-      if (detail === 'oblio_ellenorzes') { setOblioModalOpen(true); return }
+      if (detail === 'oblio_ellenorzes') { router.push('/dokumentumtar#oblio'); return }
       if (detail === 'monetary' || detail === 'monetar') { setMonetarWidgetOpen(true); return }
       setActiveTab(detail)
     }
     window.addEventListener('finance-tab-switch', handler)
     return () => window.removeEventListener('finance-tab-switch', handler)
-  }, [])
+  }, [router])
 
   // Hash-alapú navigáció a sidebar pénzügy almenüből
   // (Sprint Q F1.6, v0.7.6, 2026-04-26).
@@ -222,8 +223,9 @@ export function FinanceTabs({
   // egyeznek (dashboard, cashbook, bank, transactions, budget, accounting,
   // debt, rental, sugo, admin_import).
   // 2026-07-10 (S3 #2+#4): a monetary/oblio_ellenorzes fül MEGSZŰNT, de a
-  // bejövő hash (pl. sidebar-link, könyvjelző) NEM 404-el: a #monetary /
-  // #monetar a lebegő widgetet, a #oblio_ellenorzes a modált nyitja.
+  // bejövő hash (pl. régi könyvjelző) NEM 404-el: a #monetary / #monetar a
+  // lebegő widgetet nyitja, a #oblio_ellenorzes pedig — 2026-08-15 (Endre)
+  // óta — a „Számlák egyeztetése" hubra (/dokumentumtar) visz tovább.
   useEffect(() => {
     function applyHashToTab() {
       if (typeof window === 'undefined') return
@@ -237,8 +239,10 @@ export function FinanceTabs({
         return
       }
       if (hash === 'oblio_ellenorzes') {
-        setOblioModalOpen(true)
+        // A hash-t ELŐBB kiürítjük (replaceState), hogy a böngésző Vissza
+        // gombja ne pattogjon vissza ide, majd átnavigálunk a hubra.
         window.history.replaceState(null, '', window.location.pathname + window.location.search)
+        router.push('/dokumentumtar#oblio')
         return
       }
       // Validáljuk hogy létező fül-érték — egyébként figyelmen kívül hagyjuk.
@@ -261,7 +265,8 @@ export function FinanceTabs({
     applyHashToTab()
     window.addEventListener('hashchange', applyHashToTab)
     return () => window.removeEventListener('hashchange', applyHashToTab)
-  }, [])
+    // A router referencia stabil (Next.js useRouter) — a deps miatt szerepel.
+  }, [router])
 
   // Tab váltáskor frissítjük az URL hash-t — így a sidebar mindig az aktív
   // fülön mutat aktív állapotot, és újratöltéskor megmarad a fül.
@@ -443,32 +448,20 @@ export function FinanceTabs({
                 <Printer className="mr-1 size-3.5" />
                 Nyomtatási központ
               </Button>
-              {/* 2026-07-10 (S3 #4): az Oblio ellenőrzés fül megszűnt — a
-                  tartalma innen, a hero gombjából nyíló teljes-képernyős
-                  modálban él tovább. Diocese módban (tag-szintű funkció) rejtve. */}
+              {/* Endre 2026-08-15: a két külön gomb („Oblio ellenőrzés" modál +
+                  „Dokumentumtár" link) nem volt egyértelmű — egy közös „Számlák
+                  egyeztetése" hub lett belőlük a /dokumentumtar oldalon (Oblio
+                  egyeztetés + Dokumentumtár + Kifizetetlen számlák fülekkel).
+                  Diocese módban rejtve (gyülekezet-szintű funkció). */}
               {scope !== 'diocese' && (
                 <Button
                   size="sm"
                   variant="outline"
                   className="rounded-xl max-sm:min-h-10 border-cyan-200 bg-cyan-50 font-medium text-cyan-700 shadow-sm transition hover:bg-cyan-100 hover:shadow"
-                  onClick={() => setOblioModalOpen(true)}
-                >
-                  <FileCheck className="mr-1 size-3.5" />
-                  Oblio ellenőrzés
-                </Button>
-              )}
-              {/* 2026-08-15 (7. pont A): a gyülekezeti Dokumentumtár belépési
-                  pontja — a szállítói számlák, bizonylatok és szerződések
-                  fájl-területe. Diocese módban rejtve (gyülekezet-szintű modul). */}
-              {scope !== 'diocese' && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="rounded-xl max-sm:min-h-10 border-emerald-200 bg-emerald-50 font-medium text-emerald-700 shadow-sm transition hover:bg-emerald-100 hover:shadow"
                   onClick={() => router.push('/dokumentumtar')}
                 >
-                  <FolderOpen className="mr-1 size-3.5" />
-                  Dokumentumtár
+                  <FileCheck className="mr-1 size-3.5" />
+                  Számlák egyeztetése
                 </Button>
               )}
               {/* A pénzügyi import fülre most közvetlen elérés van a fülsoron
@@ -936,31 +929,10 @@ export function FinanceTabs({
         />
       )}
 
-      {/* 2026-07-10 (S3 #4): Oblio ellenőrzés — teljes-képernyős modál (mint a
-          Nyomtatási központ). A tartalom a MEGLÉVŐ OblioEllenorzesTab wrapper
-          VÁLTOZATLANUL, dynamic importtal — csak az első nyitáskor töltődik le. */}
-      {scope !== 'diocese' && (
-        <Dialog open={oblioModalOpen} onOpenChange={setOblioModalOpen}>
-          <DialogContent className="flex max-h-[92dvh] w-full flex-col overflow-hidden p-0 sm:max-w-7xl">
-            {/* 2026-07-10 (S4-mobil): kisebb belső margó telefonon (px-4), sm-től px-6. */}
-            <DialogHeader className="shrink-0 border-b border-slate-200 bg-white px-4 sm:px-6 py-4 pr-14">
-              <DialogTitle className="flex items-center gap-2">
-                <FileCheck className="size-5 text-cyan-600" />
-                Oblio ellenőrzés
-              </DialogTitle>
-            </DialogHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-6 py-5">
-              {oblioModalOpen && (
-                <OblioEllenorzesTab
-                  congregationSlug={slugifyCongregationName(congregationName)}
-                  congregationName={congregationName}
-                  currentYear={currentYear}
-                />
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
+      {/* 2026-08-15 (Endre): az Oblio ellenőrzés teljes-képernyős modál
+          KIVEZETVE — a tartalma (a MEGLÉVŐ OblioEllenorzesTab wrapper) a
+          /dokumentumtar „Számlák egyeztetése" hub „Oblio egyeztetés" fülén
+          él tovább (szamlak-egyeztetese-tabs.tsx). */}
 
       {/* 2026-07-10 (S3 #2): Monetár lebegő widget — csak a /penzugy oldalon
           (a FinanceTabs mountolja), diocese módban rejtve. A meglévő monetár

@@ -11,12 +11,19 @@
  * sor kategóriája ilyen, megjelenik a BANKSZÁMLA-választó, és a sor belső
  * mozgásként könyvelődik (a kassza ÉS a bank oldalt is rendezi).
  *
+ * „Több évre fizet" (2026-08-15, Endre 23. pont): egyházfenntartói járulék
+ * jogcímen EGY regisztrált befizető TÖBB ÉVRE is fizethet egyszerre —
+ * év-választó chipek (az utolsó ~10 év), évenként automatikusan előtöltött,
+ * szerkeszthető összeggel. A megvalósítás a people[] almenü-modellre épül
+ * (év = bejegyzés ugyanazzal a taggal), így a mentés a meglévő úton megy:
+ * évenként külön befizetés-sor, helyes fizetettev-vel, közös nyugtaszámmal.
+ *
  * Mobil-barát: kis/közepes képernyőn kártyák (nincs oldalirányú görgetés).
  */
 
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight, TrendingUp, TrendingDown, Boxes, AlertTriangle } from 'lucide-react'
+import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight, TrendingUp, TrendingDown, Boxes, AlertTriangle, CalendarRange } from 'lucide-react'
 import { keszpenzKorlatFigyelmeztetesek, type KeszpenzTetel } from '@kartoteka/core'
 import { formatRon } from './ron-in-words'
 import { parseFlexibleDate } from './date-parse'
@@ -255,6 +262,23 @@ type PayerLike = EntryRow['people'][number]
  *  dátuma szerint) — az összeg-mező melletti „Ajánlott összeg" jelzés adata. A reqKey a
  *  (tag, év, dátum) hármast kódolja: csak a JELENLEGI állapothoz tartozó hint jelenik meg. */
 type JarulekHint = { reqKey: string; expected: number; paid: number; debt: number; hasBase: boolean }
+
+/** 2026-08-15 (23. pont): a „Több évre fizet" mód PartnerCell-propja. Csak egyházfenntartói
+ *  járulék jogcímű bevétel-soron adjuk át; `active` = a panel látszik (év-chipek + évenkénti
+ *  összegek), különben a kapcsoló-pill jelenik meg (1 regisztrált befizetőnél). */
+type MultiYearProps = {
+  active: boolean
+  /** A felajánlott év-chipek (az utolsó ~10 év) — a már kiválasztott évekkel uniózva jelenik meg. */
+  yearChips: number[]
+  onEnable: () => void
+  /** Vissza az egy-éves módba: csak az első kijelölt év-bejegyzés marad meg. */
+  onDisable: () => void
+  /** A befizető leválasztása: üres, szabad-szöveges sor marad (minden év-bejegyzés törlődik). */
+  onDetach: () => void
+  /** Név-átírás a több-éves módban = másik személy → biztonságos visszaesés egy-éves módba. */
+  onEditName: (name: string) => void
+  onToggleYear: (year: number) => void
+}
 
 const inputClass =
   'flex h-9 w-full rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-sm ' +
@@ -830,6 +854,107 @@ export function CombinedEntryBody({
         return { ...r, people }
       }),
     )
+  }
+
+  // ── 2026-08-15 (Endre, 23. pont): „Több évre fizet" — egy befizető TÖBB ÉV járuléka ──
+  // EGY nyugtán. A megvalósítás a MEGLÉVŐ people[] almenü-modellre épül: minden kiválasztott
+  // év = egy people[]-bejegyzés UGYANAZZAL a regisztrált taggal (id+név), saját `evre`+`osszeg`
+  // mezővel. Így a teljes lánc VÁLTOZATLANUL működik: az auto-kitöltés (onGetExpectedJarulek —
+  // évenként az ADOTT ÉV még fizetendő járuléka), a mentés (évenként külön befizetés-sor,
+  // fizetettev helyesen) és a nyugtaszám-kezelés (közös nyugta, kerületi iratszám /N utótaggal).
+  /** Mely sorokon kapcsolta BE a felhasználó a több-éves módot (UI-állapot; 2+ évnél az
+   *  adatból is levezethető — lásd isSamePersonYears —, ezért vázlat-visszaállítás után is él). */
+  const [multiYearRowIds, setMultiYearRowIds] = useState<Set<string>>(() => new Set())
+  /** Az év-chipek: az utolsó ~10 év. A NÉZETT pénzügyi év ÉS a mai év közül a nagyobbtól
+   *  visszafelé — régebbi évet nézve a folyó évre is fizethessen előre. */
+  const multiYearChoices = useMemo(() => {
+    const top = Math.max(Number.isFinite(currentYear) ? currentYear : 0, new Date().getFullYear())
+    return Array.from({ length: 10 }, (_, i) => top - 9 + i)
+  }, [currentYear])
+  /** A sor ADATA szerint több-éves-e: 2+ bejegyzés, MIND ugyanaz a REGISZTRÁLT tag. */
+  const isSamePersonYears = (r: EntryRow): boolean => {
+    const ps = r.people ?? []
+    if (ps.length < 2) return false
+    const id0 = ps[0].id
+    return id0 != null && ps.every((p) => p.id === id0)
+  }
+  /** Aktív-e a több-éves panel: az adatból (2+ év) VAGY a kapcsolóból (még csak 1 év). */
+  const isMultiYearActive = (r: EntryRow): boolean => {
+    if (isSamePersonYears(r)) return true
+    const ps = r.people ?? []
+    return multiYearRowIds.has(r.id) && ps.length === 1 && ps[0].id != null
+  }
+  /** Több-éves mód BE — csak 1 regisztrált befizetőnél ajánljuk fel (a kapcsoló-pill). */
+  function enableMultiYear(rowId: string) {
+    setIncomeRows((cur) =>
+      cur.map((r) => {
+        if (r.id !== rowId) return r
+        const ps = r.people ?? []
+        if (ps.length !== 1 || ps[0].id == null) return r
+        // A bázis-év mindenképp legyen kitöltve — az év-chip kijelölése ebből olvas.
+        const evre = (ps[0].evre || '').trim() || (r.evre || '').trim() || String(currentYear)
+        return evre === ps[0].evre ? r : { ...r, people: [{ ...ps[0], evre }] }
+      }),
+    )
+    setMultiYearRowIds((s) => { const n = new Set(s); n.add(rowId); return n })
+  }
+  /** Több-éves mód KI: csak az ELSŐ év-bejegyzés marad (összegével); a többi év-sor törlődik.
+   *  `typedName` (név-átírás): a megmaradó bejegyzés szabad-szövegessé válik (id=null). */
+  function disableMultiYear(rowId: string, typedName?: string) {
+    setIncomeRows((cur) =>
+      cur.map((r) => {
+        if (r.id !== rowId) return r
+        const ps = r.people ?? []
+        if (ps.length === 0) return r
+        const first = typedName != null ? { ...ps[0], name: typedName, id: null } : ps[0]
+        return { ...r, people: [first] }
+      }),
+    )
+    setMultiYearRowIds((s) => { if (!s.has(rowId)) return s; const n = new Set(s); n.delete(rowId); return n })
+  }
+  /** A befizető leválasztása több-éves módban: üres, szabad-szöveges sor marad. */
+  function detachMultiYear(rowId: string) {
+    setIncomeRows((cur) => cur.map((r) => (r.id === rowId ? { ...r, people: [], partner: '', amount: '' } : r)))
+    setMultiYearRowIds((s) => { if (!s.has(rowId)) return s; const n = new Set(s); n.delete(rowId); return n })
+  }
+  /** Egy év-chip ki-/bekapcsolása: bejegyzés hozzáadása/törlése ugyanazzal a taggal. Az ÚJ év
+   *  összege ÜRESEN indul → a meglévő auto-kitöltés (onGetExpectedJarulek) az ADOTT ÉV még
+   *  fizetendő járulékát írja bele; a kézzel már beírt összegekhez nem nyúlunk. */
+  function toggleMultiYearYear(rowId: string, year: number) {
+    setIncomeRows((cur) =>
+      cur.map((r) => {
+        if (r.id !== rowId) return r
+        const ps = r.people ?? []
+        const base = ps[0]
+        if (!base || base.id == null) return r
+        const idx = ps.findIndex((p) => Number(p.evre) === year)
+        if (idx >= 0) {
+          if (ps.length === 1) return r // az utolsó kijelölt év nem vehető el
+          return { ...r, people: ps.filter((_, i) => i !== idx) }
+        }
+        const added = { uid: crypto.randomUUID(), id: base.id, name: base.name, osszeg: '', evre: String(year) }
+        // Év szerint növekvő sorrend — a mentett sorok (és a kerületi /N utótag) is így követik egymást.
+        const people = [...ps, added].sort((a, b) => (Number(a.evre) || 0) - (Number(b.evre) || 0))
+        return { ...r, people }
+      }),
+    )
+  }
+  /** A PartnerCell „Több évre fizet" propja — CSAK egyházfenntartás-jogcímű bevétel-soron. */
+  function multiYearFor(r: EntryRow): MultiYearProps | undefined {
+    if (tab !== 'income' || !isChurchMaintenance(r.categoryId)) return undefined
+    const ps = r.people ?? []
+    const active = isMultiYearActive(r)
+    const offer = ps.length === 1 && ps[0].id != null
+    if (!active && !offer) return undefined
+    return {
+      active,
+      yearChips: multiYearChoices,
+      onEnable: () => enableMultiYear(r.id),
+      onDisable: () => disableMultiYear(r.id),
+      onDetach: () => detachMultiYear(r.id),
+      onEditName: (name: string) => disableMultiYear(r.id, name),
+      onToggleYear: (year: number) => toggleMultiYearYear(r.id, year),
+    }
   }
 
   // #4: a fősor Összeg/Év mezője 0 vagy 1 befizetőnél a megfelelő forrást szerkeszti
@@ -1502,6 +1627,7 @@ export function CombinedEntryBody({
                         removePayer={removePayer}
                         focusPayerUid={focusPayerUid}
                         renderPayerHint={renderJarulekHint}
+                        multiYear={multiYearFor(r)}
                       />
                     )}
                   </td>
@@ -1510,7 +1636,13 @@ export function CombinedEntryBody({
                       {dir ? (
                         <span className="text-xs text-slate-400">—</span>
                       ) : (r.people?.length ?? 0) >= 2 ? (
-                        <span className="text-[11px] text-slate-400" title="Befizetőnként külön év — az almenüben">tagonként</span>
+                        // 2026-08-15 (23. pont): több-éves sornál a címke is ezt mondja ki.
+                        <span
+                          className="text-[11px] text-slate-400"
+                          title={isMultiYearActive(r) ? 'Évenként külön tétel — a „Több évre fizet" panelben' : 'Befizetőnként külön év — az almenüben'}
+                        >
+                          {isMultiYearActive(r) ? 'több évre' : 'tagonként'}
+                        </span>
                       ) : (
                         <input
                           className={inputClass + ' text-center'}
@@ -1626,6 +1758,7 @@ export function CombinedEntryBody({
                         removePayer={removePayer}
                         focusPayerUid={focusPayerUid}
                         renderPayerHint={renderJarulekHint}
+                        multiYear={multiYearFor(r)}
                       />
                     </label>
                     <label className="text-xs text-slate-500">Irattípus
@@ -1776,6 +1909,7 @@ function PartnerCell({
   removePayer,
   focusPayerUid,
   renderPayerHint,
+  multiYear,
 }: {
   row: EntryRow
   mode: 'income' | 'expense'
@@ -1797,6 +1931,8 @@ function PartnerCell({
   focusPayerUid?: string | null
   /** 2026-07-10 (S2-#1b): befizetőnkénti „Ajánlott összeg" jelzés a többfizetős almenüben. */
   renderPayerHint?: (row: EntryRow, p: PayerLike, idx: number) => ReactNode
+  /** 2026-08-15 (23. pont): „Több évre fizet" — csak egyházfenntartás-jogcímű bevétel-soron. */
+  multiYear?: MultiYearProps
 }) {
   // mode szerinti kereső-függvény: bevétel → tag-keresés; kiadás → korábbi partnerek (névlista).
   const searchFn = (query: string): Promise<CombinedMemberHit[]> =>
@@ -1823,6 +1959,128 @@ function PartnerCell({
   const subId = `payers-${row.id}`
   const sum = people.reduce((s, p) => s + (Number(p.osszeg) || 0), 0)
   const isMulti = mode === 'income' && people.length >= 2
+
+  // ── 2026-08-15 (23. pont): „Több évre fizet" — egy tag, több év EGY nyugtán ──────────
+  // A generikus többfizetős almenü HELYETT év-választó chipek + évenként szerkeszthető,
+  // automatikusan előtöltött összeg. Az adat ugyanaz a people[]-modell (év = bejegyzés),
+  // ezért a mentés/nyugtaszám-lánc érintetlen.
+  if (multiYear?.active && people.length >= 1) {
+    const base = people[0]
+    const selectedYears = new Set(people.map((p) => Number(p.evre)).filter((y) => Number.isFinite(y) && y > 1900))
+    // A chip-lista az utolsó ~10 év + a már kiválasztott (akár régebbi) évek uniója.
+    const chips = [...multiYear.yearChips]
+    selectedYears.forEach((y) => { if (!chips.includes(y)) chips.push(y) })
+    chips.sort((a, b) => a - b)
+    const missing = people.some((p) => !(Number(p.osszeg) > 0))
+    return (
+      <div className="relative space-y-1.5">
+        <div className="flex items-center gap-1">
+          <div className="min-w-0 flex-1">
+            <PayerNameSearch
+              value={base.name}
+              linked={base.id != null}
+              onSearch={searchFn}
+              placeholder="Befizető neve"
+              // Név-átírás = másik személy → biztonságos visszaesés az egy-éves módba.
+              onType={(t) => multiYear.onEditName(t)}
+              onPick={(h) => updatePayer(row.id, 0, { id: h.id, name: h.name })}
+            />
+          </div>
+          <button
+            type="button"
+            aria-label="Befizető leválasztása"
+            title="Befizető leválasztása (a kijelölt évek is törlődnek)"
+            className="flex h-9 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+            onClick={multiYear.onDetach}
+          >
+            <Trash2 className="size-4" />
+          </button>
+        </div>
+        <div className="overflow-visible rounded-lg border border-emerald-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between gap-2 border-b border-emerald-100 bg-emerald-50/70 px-2.5 py-1.5">
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-900">
+              <CalendarRange className="size-3.5 shrink-0 text-emerald-600" aria-hidden />
+              Több évre fizet — jelöld ki az éveket
+            </span>
+            <button
+              type="button"
+              onClick={multiYear.onDisable}
+              className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium text-emerald-700/70 transition hover:bg-emerald-100"
+              title="Vissza az egy-éves rögzítéshez (csak az első kijelölt év marad meg)"
+            >
+              Kikapcsol
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-1 px-2.5 py-2">
+            {chips.map((y) => {
+              const on = selectedYears.has(y)
+              const last = on && people.length === 1
+              return (
+                <button
+                  key={y}
+                  type="button"
+                  aria-pressed={on}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => multiYear.onToggleYear(y)}
+                  title={
+                    last
+                      ? 'Legalább egy évnek kijelölve kell maradnia'
+                      : on
+                        ? 'Év kivétele'
+                        : 'Év hozzáadása — az összeg az adott évi járulékkal töltődik ki'
+                  }
+                  className={`rounded-full border px-2.5 py-1 text-xs font-semibold tabular-nums transition ${
+                    on
+                      ? 'border-emerald-500 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700'
+                      : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-300 hover:bg-emerald-50'
+                  }`}
+                >
+                  {y}
+                </button>
+              )
+            })}
+          </div>
+          <div>
+            {people.map((p, i) => {
+              const zero = !(Number(p.osszeg) > 0)
+              const hint = renderPayerHint?.(row, p, i)
+              return (
+                <div key={p.uid} className="border-t border-slate-100 px-2.5 py-1.5 odd:bg-slate-50/40">
+                  <div className="flex items-center gap-2">
+                    <span className="w-16 shrink-0 text-xs font-semibold tabular-nums text-slate-600">
+                      {(p.evre || '').trim() ? `${p.evre}. év` : '— év'}
+                    </span>
+                    <input
+                      className={`${inputClass} h-8 flex-1 text-right tabular-nums ${zero ? 'border-amber-300 bg-amber-50/40' : ''}`}
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={p.osszeg}
+                      placeholder="auto"
+                      title={`A(z) ${p.evre}. évre fizetett összeg — automatikusan az adott évi járulékkal töltődik, de átírható`}
+                      onChange={(e) => updatePayer(row.id, i, { osszeg: e.target.value })}
+                    />
+                  </div>
+                  {hint && <div className="flex justify-end pt-0.5">{hint}</div>}
+                </div>
+              )
+            })}
+          </div>
+          <div className="flex items-center justify-between gap-2 border-t border-emerald-100 bg-emerald-50/70 px-2.5 py-2">
+            <span className="text-[11px] font-medium text-emerald-700/80">
+              {people.length} év — egy nyugta, évenként külön tétel
+            </span>
+            <span
+              className={`text-sm font-bold tabular-nums ${missing ? 'text-amber-600' : 'text-emerald-800'}`}
+              title={missing ? 'Van összeg nélküli év — az nem mentődik' : undefined}
+            >
+              Összesen: {formatRon(sum)} RON{missing ? ' ⚠' : ''}
+            </span>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // ── Üres / egyszemélyes / kiadás: a befizető NEVE maga a kereső-mező ────────
   if (!isMulti) {
@@ -1878,6 +2136,18 @@ function PartnerCell({
               >
                 <Plus className="size-3.5" /> Még egy befizető
               </button>
+              {/* 2026-08-15 (23. pont): egyházfenntartás + 1 regisztrált befizető → több-éves mód. */}
+              {multiYear && !multiYear.active && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={multiYear.onEnable}
+                  className="inline-flex items-center gap-1 rounded-full border border-sky-300 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700 shadow-sm transition hover:bg-sky-100"
+                  title="Egy nyugtával több év egyházfenntartói járuléka — évenként külön tétel, az összegek az adott évi járulékkal automatikusan kitöltve"
+                >
+                  <CalendarRange className="size-3.5" /> Több évre fizet
+                </button>
+              )}
               {onOpenFamily && (
                 <button
                   type="button"

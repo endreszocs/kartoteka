@@ -40,7 +40,9 @@ import {
   getYearClosure,
 } from '@/app/(dashboard)/iktato/actions'
 import { assignEntryToCsomo, listIratcsomok } from '@/app/(dashboard)/iktato/csomo-actions'
+import { getCongregationHeader } from '@/app/(dashboard)/iktato/szemely-actions'
 import type { FilingEntryWithCsomo, IratcsomoWithCount } from '@/lib/iktato/csomo-types'
+import { iratKepekBeagyazva, type IratKepek } from '@/lib/iktato/irat-kepek'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import { FILING_DIRECTIONS, FILING_DIRECTION_LABELS, FILING_FOLDERS } from '@/lib/constants/filing'
@@ -177,6 +179,34 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
   const [fMellekletekSzama, setFMellekletekSzama] = useState<string>('') // string, hogy üres lehessen
   const [fValaszIktatoszam, setFValaszIktatoszam] = useState('')
   const [fUgykorKod, setFUgykorKod] = useState('')
+
+  // ── 24. pont: pecsét + aláírás kép a nyomtatványokhoz ──
+  // Betöltés EGYSZER, az oldal megnyitásakor (nem a nyomtatás-kattintáskor):
+  // a printIktatoPecset/printIktatokonyv window.open-je csak a kattintás
+  // user-gesztusán belül maradva kerüli el a popup-blokkolót — egy await a
+  // kattintás és a window.open közé ezt elrontaná. A képek data: URI-ként
+  // ágyazódnak be (irat-kepek helper); hibánál némán kép nélkül nyomtatunk
+  // (a nyomtatvány szövege sosem függ tőlük).
+  const [iratKepek, setIratKepek] = useState<IratKepek>({ pecsetUrl: null, alairasUrl: null })
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await getCongregationHeader()
+        if (cancelled || res.error || !res.header) return
+        const kepek = await iratKepekBeagyazva({
+          pecsetUrl: res.header.pecsetUrl,
+          alairasUrl: res.header.alairasUrl,
+        })
+        if (!cancelled) setIratKepek(kepek)
+      } catch {
+        // Néma: kép nélkül minden nyomtatvány a mai formájában készül el.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // 2026-05-29 Fázis 3: másodpéldány-flag + évvégi lezárás
   const [fHasDuplicate, setFHasDuplicate] = useState(false)
@@ -764,8 +794,22 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
           loading={loading}
           openDialog={openDialog}
           handleDelete={handleDelete}
-          onPrintPecset={(entry) => printIktatoPecset(entry, { congregationName: congregationName || '', year })}
-          onPrintIktatokonyv={() => printIktatokonyv(filtered, { congregationName: congregationName || '', year })}
+          onPrintPecset={(entry) =>
+            printIktatoPecset(entry, {
+              congregationName: congregationName || '',
+              year,
+              pecsetKepUrl: iratKepek.pecsetUrl,
+              alairasKepUrl: iratKepek.alairasUrl,
+            })
+          }
+          onPrintIktatokonyv={() =>
+            printIktatokonyv(filtered, {
+              congregationName: congregationName || '',
+              year,
+              pecsetKepUrl: iratKepek.pecsetUrl,
+              alairasKepUrl: iratKepek.alairasUrl,
+            })
+          }
           isClosed={Boolean(yearClosure)}
           onOpenCert={() => void openCertDialog()}
           certLoading={certChunkLoading}
