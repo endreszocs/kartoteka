@@ -23,6 +23,18 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-14] — Lelkészi jelentés: a hivatalos számítási szabályok
+<!-- key: 2026-08-14-jelentes-de2-vallasora-atlag -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+
+### ✨ Új funkciók
+
+- **A De.2/Du.2 jelölés mostantól számít a jelentésben**: ha egy napon két délelőtti (vagy délutáni) istentisztelet volt és a második meg van jelölve, a résztvevők **összeadódnak** és egy alkalomként számítanak (100+200 → 300) — jelölés nélkül a rendszer átlagol (150). Ez a templomlátogatási százalék hivatalos számítási alapja.
+- **Új mező: „Vallásórára járt átlag egy alkalommal" (V.3b)** — a hivatalos szabály szerint a nevező a Vallásóra 1. csoport alkalmainak száma (a vallásórás hetek), nem az összes vallásóra: két csoport heti 10+20 fővel helyesen 30, nem 15. Régi, csoport nélküli rögzítésű évnél a mező üresen marad (kézzel tölthető), nem ír hamis számot.
+
+---
+
 ## [2026-08-14] — Munkanapló: a hivatalos EREK szolgálattípus-készlet + De.2/Du.2 jelölés
 <!-- key: 2026-08-14-erek-taxonomia-de2-du2 -->
 <!-- category: feature -->
