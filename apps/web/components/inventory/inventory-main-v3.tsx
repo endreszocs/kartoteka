@@ -150,6 +150,16 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
     [activeItems],
   )
 
+  // 2026-08-14 (12. pont): kategóriánkénti élő darabszám a szűrő-gombokhoz.
+  const categoryCounts = useMemo(() => {
+    const ki: Record<string, number> = {}
+    for (const item of activeItems) {
+      const k = item.kategoria_key || ''
+      if (k) ki[k] = (ki[k] || 0) + 1
+    }
+    return ki
+  }, [activeItems])
+
   const filtered = useMemo(() => {
     const normalizedQuery = searchQuery
       .normalize('NFD')
@@ -597,24 +607,53 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
           )}
 
           <div className="card-raised flex flex-col gap-3 p-4">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[210px_210px_180px_180px_minmax(240px,1fr)]">
-                <label className="text-sm font-medium text-slate-700">
-                  Kategória
-                  <select
-                    value={categoryFilter}
-                    onChange={event => setCategoryFilter(event.target.value)}
-                    className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
+            {/* 2026-08-14 (12. pont, Endre kérése): a kategória-szűrő KIS GOMBOK
+                sora lett DARABSZÁMMAL — a korábbi legördülő helyett. Egy
+                koppintás = szűrés; az aktív gomb smaragd. A darabszám az élő
+                (nem kivezetett) tételekből számol, a többi szűrőtől függetlenül,
+                hogy a gombok feliratai stabilak legyenek. */}
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setCategoryFilter('')}
+                className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition ${
+                  !categoryFilter
+                    ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-400/40 dark:bg-emerald-400/15 dark:text-emerald-300'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:text-emerald-700 dark:border-slate-700 dark:bg-transparent dark:text-slate-400 dark:hover:text-emerald-300'
+                }`}
+              >
+                Mind
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] tabular-nums ${!categoryFilter ? 'bg-emerald-100 dark:bg-emerald-400/20' : 'bg-slate-100 dark:bg-white/10'}`}>
+                  {activeItems.length}
+                </span>
+              </button>
+              {INVENTORY_CATEGORIES.map(category => {
+                const db = categoryCounts[category] || 0
+                const active = categoryFilter === category
+                return (
+                  <button
+                    key={category}
+                    type="button"
+                    onClick={() => setCategoryFilter(active ? '' : category)}
+                    className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition ${
+                      active
+                        ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-400/40 dark:bg-emerald-400/15 dark:text-emerald-300'
+                        : db === 0
+                          ? 'border-slate-200 bg-white text-slate-400 hover:text-slate-500 dark:border-slate-800 dark:bg-transparent dark:text-slate-600'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:text-emerald-700 dark:border-slate-700 dark:bg-transparent dark:text-slate-400 dark:hover:text-emerald-300'
+                    }`}
                   >
-                    <option value="">Minden kategória</option>
-                    {INVENTORY_CATEGORIES.map(category => (
-                      <option key={category} value={category}>
-                        {INVENTORY_CATEGORY_LABELS[category]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    {INVENTORY_CATEGORY_LABELS[category]}
+                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] tabular-nums ${active ? 'bg-emerald-100 dark:bg-emerald-400/20' : 'bg-slate-100 dark:bg-white/10'}`}>
+                      {db}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
 
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[210px_180px_180px_minmax(240px,1fr)]">
                 <label className="text-sm font-medium text-slate-700">
                   Helyszín / felelős
                   <select
@@ -656,11 +695,18 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
                   magasak voltak — a 44px-es koppintási minimum alatt. A `min-h-11`
                   telefonon is biztonságosan eltalálható gombot ad. */}
               <div className="flex flex-wrap gap-2 xl:justify-end">
+                {/* 2026-08-14 (12. pont, Endre kérése): az „Új tétel hozzáadása"
+                    KIEMELT, jól látható gomb — eddig a négy egyforma outline-gomb
+                    egyike volt, elveszett közöttük. */}
+                <Button
+                  size="sm"
+                  className="min-h-11 rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white shadow-md hover:bg-emerald-700 dark:bg-emerald-500 dark:text-emerald-950 dark:hover:bg-emerald-400"
+                  onClick={() => openDialog()}
+                >
+                  + Új tétel hozzáadása
+                </Button>
                 <Button size="sm" variant="outline" className="min-h-11 rounded-xl" onClick={() => setPrintDialogOpen(true)}>
                   Nyomtatási központ
-                </Button>
-                <Button size="sm" variant="outline" className="min-h-11 rounded-xl" onClick={() => openDialog()}>
-                  Új tétel
                 </Button>
                 {!isFinalized ? (
                   <Button
