@@ -563,13 +563,24 @@ if ('error' in fullYearBalances) {
   }
 
   // ── Y3: a P0 #1 javítás — a végösszeg-sorokban a TÉNY is megjelenik ──────
+  //
+  // 2026-08-15: a táblázat végéről eltűnt a három, sorszám nélküli végösszeg-sor
+  // (megismételték a hivatalos ív saját összesítőit). A P0 #1 GARANCIÁJA — hogy
+  // a végösszegnél a TERV és a TÉNY is megjelenik, és a tény nem esik a terv
+  // cellájába — mostantól a HIVATALOS 52. soron (Total încasări) mérjük.
   {
-    // Összbevétel: terv 6.500,00 · tény 1.997,00 — EGY sorban, két cellában.
-    const hasBoth = /Összbevétel \/ Total venituri<\/td><td class="r">6\.500,00<\/td><td class="r">1\.997,00<\/td>/.test(
-      yearly.html,
-    )
-    if (hasBoth) ok('Y3  az éves Számadás végösszeg-sorában a TERV és a TÉNY is szerepel (P0 #1)')
-    else fail('Y3: a végösszeg-sor NEM tartalmazza mindkét értéket — a P0 #1 javítás nem hatott')
+    const ertekek = totRowErtekek(yearly.html, 'Total încasări / Összbevétel')
+    if (ertekek && ertekek.length === 2 && ertekek[0] === '6.500,00' && ertekek[1] === '1.997,00') {
+      ok('Y3  a hivatalos 52. összesítő sorban a TERV és a TÉNY is szerepel (P0 #1)')
+    } else {
+      fail(`Y3: az 52. sor értékcellái nem a vártak (terv 6.500,00 · tény 1.997,00): ${JSON.stringify(ertekek)}`)
+    }
+    // És a régi, duplikált sor TÉNYLEG eltűnt — nehogy visszakerüljön.
+    if (!/<tr class="tot">/.test(yearly.html)) {
+      ok('Y3  nincs sorszám nélküli, duplikált végösszeg-sor a táblázat végén')
+    } else {
+      fail('Y3: visszakerült a sorszám nélküli végösszeg-sor — a hivatalos ív összesítőit ismétli meg')
+    }
   }
 
   // ── Y4: a nyomtatási margó nincs nullázva (P1 #5) ────────────────────────
@@ -604,38 +615,40 @@ if ('error' in fullYearBalances) {
       budgetRows: modBudgetRows,
       modNumber: 1,
     })
+    // 2026-08-15: a mérés a HIVATALOS összesítő sorokon fut (52. Total încasări,
+    // 112. Plăți totale) — a sorszám nélküli, duplikált végösszeg-sorok eltűntek.
     const expected = [
-      ['Összbevétel / Total venituri', '6.500,00', '500,00', '7.000,00'],
-      ['Összkiadás / Total cheltuieli', '3.900,00', '200,00', '4.100,00'],
-      ['Bevételi többlet / Excedent', '2.600,00', '300,00', '2.900,00'],
+      ['Total încasări / Összbevétel', '6.500,00', '500,00', '7.000,00'],
+      ['Plăți totale / Kiadások összesen', '3.900,00', '200,00', '4.100,00'],
     ]
     let allGood = true
     for (const [label, prev, delta, final] of expected) {
-      const re = new RegExp(
-        `${label.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}</td><td class="r">${prev.replace(/\./g, '\\.')}</td><td class="r">${delta.replace(/\./g, '\\.')}</td><td class="r">${final.replace(/\./g, '\\.')}</td>`,
-      )
-      if (!re.test(modReport.html)) {
+      const ertekek = totRowErtekek(modReport.html, label)
+      if (!ertekek || ertekek.length !== 3 || ertekek[0] !== prev || ertekek[1] !== delta || ertekek[2] !== final) {
         allGood = false
-        fail(`Y6: a(z) „${label}" végösszeg-sor NEM ${prev} · ${delta} · ${final} — a P0 #2 javítás nem hatott`)
+        fail(`Y6: a(z) „${label}" hivatalos összesítő NEM ${prev} · ${delta} · ${final} — kapott: ${JSON.stringify(ertekek)}`)
       }
     }
     if (allGood) {
-      ok('Y6  a költségvetés-módosítás végösszeg-sorában az ELŐZŐ, a MÓDOSÍTÁS és a VÉGLEGES is szerepel (P0 #2)')
+      ok('Y6  a költségvetés-módosítás hivatalos összesítőiben az ELŐZŐ, a MÓDOSÍTÁS és a VÉGLEGES is szerepel (P0 #2)')
     }
 
-    // A végösszeg-sor cella-száma egyezzen a fejléc oszlop-számával (7) — így a
-    // sor nem tud elcsúszni akkor sem, ha a formátum valaha változik.
-    const totRowMatch = modReport.html.match(/<tr class="tot"><td colspan="(\d+)"[^>]*>[^<]*<\/td>((?:<td class="r">[^<]*<\/td>)+)<\/tr>/)
-    if (totRowMatch) {
-      const spanned = Number(totRowMatch[1])
-      const valueCells = (totRowMatch[2].match(/<td class="r">/g) || []).length
-      if (spanned + valueCells === 7) {
-        ok('Y6  a módosítás végösszeg-sora pontosan kitölti a 7 oszlopot (nincs elcsúszás)')
+    // A hivatalos összesítő sor cella-száma egyezzen a fejléc oszlop-számával (7)
+    // — így a sor nem tud elcsúszni akkor sem, ha a formátum valaha változik.
+    // Szerkezete: <td colspan="2"> felirat + 2 db <td class="c"> + 3 db érték.
+    const sumRowMatch = modReport.html.match(
+      /<tr class="grp">\s*<td class="name" colspan="(\d+)">[^<]*<\/td>\s*<td class="c">\d+<\/td><td class="c"><\/td>((?:<td class="r">[^<]*<\/td>)+)/,
+    )
+    if (sumRowMatch) {
+      const spanned = Number(sumRowMatch[1])
+      const valueCells = (sumRowMatch[2].match(/<td class="r">/g) || []).length
+      if (spanned + 2 + valueCells === 7) {
+        ok('Y6  a hivatalos összesítő sor pontosan kitölti a 7 oszlopot (nincs elcsúszás)')
       } else {
-        fail(`Y6: a végösszeg-sor ${spanned} + ${valueCells} = ${spanned + valueCells} oszlopot fed le 7 helyett`)
+        fail(`Y6: a hivatalos összesítő ${spanned} + 2 + ${valueCells} = ${spanned + 2 + valueCells} oszlopot fed le 7 helyett`)
       }
     } else {
-      fail('Y6: a módosítás-nyomtatványban nem található végösszeg-sor')
+      fail('Y6: a módosítás-nyomtatványban nem található hivatalos összesítő sor')
     }
   }
 }
@@ -838,8 +851,8 @@ if ('error' in fullYearBalances) {
     const kepernyoTervKia = osszegezLevelek(szamadasIvLevelKodok(zCellek, 'K'), zBudgetRows_terv(zBudgetRows))
     const kepernyoTenyKia = osszegezLevelek(szamadasIvLevelKodok(zCellek, 'K'), zActualExpense)
 
-    const papirBev = totRowErtekek(zSzamadas.html, 'Összbevétel / Total venituri')
-    const papirKia = totRowErtekek(zSzamadas.html, 'Összkiadás / Total cheltuieli')
+    const papirBev = totRowErtekek(zSzamadas.html, 'Total încasări / Összbevétel')
+    const papirKia = totRowErtekek(zSzamadas.html, 'Plăți totale / Kiadások összesen')
 
     if (!papirBev || !papirKia) {
       fail('Z2: a Számadás nyomtatványon nem található a végösszeg-sor')
@@ -1052,8 +1065,8 @@ if ('error' in fullYearBalances) {
     const kepTervKia = osszegezLevelek(kiaLevelek, zBudgetRows_terv(zmBudgetRows))
     const kepTenyKia = osszegezLevelek(kiaLevelek, zmActualExpense)
 
-    const papirBev = totRowErtekek(zmSzamadas.html, 'Összbevétel / Total venituri')
-    const papirKia = totRowErtekek(zmSzamadas.html, 'Összkiadás / Total cheltuieli')
+    const papirBev = totRowErtekek(zmSzamadas.html, 'Total încasări / Összbevétel')
+    const papirKia = totRowErtekek(zmSzamadas.html, 'Plăți totale / Kiadások összesen')
 
     // A megyei szintű pénz TÉNYLEG benne van (különben ZM2 üresen is zöld lenne),
     // és a belső mozgás (100.02, 45 000) SEHOL nem számít bele.

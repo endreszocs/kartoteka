@@ -154,7 +154,23 @@ export async function printToPdf(
     const { iframe, iframeDoc } = await createPrintIframe(htmlContent)
     try {
       applyPrintStyles(iframeDoc)
-      const sheetEls = Array.from(iframeDoc.querySelectorAll<HTMLElement>('body .sheet'))
+      // ⛔ 2026-08-15 (Endre: „a PDF mentése üres dokumentumot ment") — GYÖKÉROK.
+      // A laponkénti render eddig CSAK a `.sheet` osztályú lapokat ismerte fel,
+      // a pénzügyi nyomtatványaink zöme viszont `.page`-et használ (Számadás,
+      // Részszámadás, Költségvetés, Költségvetés-módosítás, Kiadási kísérőív —
+      // budget-reporting.ts és reporting.ts). Ezek tehát MINDIG a régi,
+      // teljes-dokumentumos útra estek, ami az egész iratot EGYETLEN canvasra
+      // rasterizálja: egy 4–5 lapos A4 dokumentum ~15–19 ezer px magas, ami sok
+      // gépen túllépi a GPU textúra-plafonját (~16 384 px) — a canvas ilyenkor
+      // NÉMÁN ÜRES lesz, a mentett PDF pedig fehér lapokból áll. Pontosan az a
+      // hibamód, amit ez a fájl a 62–69. sorban már leír, csak a szelektor nem
+      // fedte le a `.page`-es dokumentumokat.
+      // A `.page` felvétele biztonságos: a lentebbi `allPageSized` őr úgyis
+      // visszaejt a régi útra, ha bármelyik lap nem lap-méretű, és ez az ág
+      // csak ÁLLÓ tájolásnál fut (a fekvő Registru-k változatlanul a régi úton).
+      const sheetEls = Array.from(
+        iframeDoc.querySelectorAll<HTMLElement>('body .sheet, body .page'),
+      )
       // 2026-07-24 (PR-14): a dokumentum a body-n hordozza a VÁRT lapszámot —
       // ha a DOM-ban kevesebb lap van (félbeszakadt betöltés), SOSEM mentünk
       // csonka hivatalos dokumentumot: hangos hibát adunk újrapróbálkozáshoz.

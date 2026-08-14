@@ -151,7 +151,14 @@ function budgetStyles() {
 }
 
 function wrapBudget(title: string, content: string) {
-  return `<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${budgetStyles()}</style></head><body>${content}</body></html>`
+  // 2026-08-15: a body a VÁRT lapszámot hordozza (`data-sheet-count`). A PDF-motor
+  // (apps/web/lib/utils/print-engine-v2.ts) ebből tudja, hogy hiánytalanul
+  // betöltött-e a dokumentum: ha a DOM-ban kevesebb lap van, INKÁBB hangos hiba,
+  // mint csonka hivatalos irat. Eddig csak a `.sheet`-es nyomtatványok kaptak
+  // ilyen jelzést, a pénzügyi ívek (.page) nem — így egy félbeszakadt betöltés
+  // némán rövidebb PDF-et adott volna.
+  const lapszam = (content.match(/<div class="page/g) || []).length
+  return `<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${budgetStyles()}</style></head><body data-sheet-count="${lapszam}">${content}</body></html>`
 }
 
 // ---------------------------------------------------------------------------
@@ -845,19 +852,34 @@ function tervezOldalak(
  *   pages * perPage − reserved ≥ rowCount.
  */
 function oldalMeretek(rowCount: number, terv: OldalTerv): number[] {
-  const { pages, perPage, reserved } = terv
+  const { pages, perPage } = terv
   const sizes = new Array<number>(pages).fill(0)
-  const utolsoKapacitas = Math.max(0, perPage - reserved)
-  sizes[pages - 1] = Math.min(rowCount, utolsoKapacitas)
-  let marad = rowCount - sizes[pages - 1]
-  for (let p = pages - 2; p >= 0 && marad > 0; p--) {
-    const take = Math.min(perPage, Math.ceil(marad / (p + 1)))
+
+  // ── 2026-08-15 (Endre) — ELÖLRŐL TELE, NEM SZÉTTERÍTVE ───────────────────
+  // A korábbi KIEGYENLÍTŐ elosztás minden lapot egyformán hiányosan hagyott
+  // (a részszámadás 4 lapján 32/32/33/20 sor, miközben egy lapra 40 fér), és a
+  // táblázat alatt laponként ~50 mm fehér maradt. Az erre adott első javításom
+  // — üres, vonalazott sorokkal feltölteni a lapot — ROSSZ volt: egy hivatalos
+  // íven a lap alján álló üres rovatok KIHAGYOTT SOROKNAK látszanak, miközben a
+  // sorszámozás a következő lapon zavartalanul folytatódik.
+  //
+  // A helyes megoldás: a lapokat ELÖLRŐL TÖLTJÜK TELE valódi sorokkal. Az
+  // utolsó lap kapja a maradékot — ott a lap alját amúgy is a záró blokk, a
+  // nyilatkozat és az aláírások foglalják el, tehát ott a szabad hely nem
+  // látszik hiánynak. Ha a maradék nulla, az utolsó lapra egyáltalán nem kerül
+  // táblázat (lásd renderTablePages): tiszta záró oldal lesz belőle.
+  //
+  // Biztonság: a `tervezOldalak` képlete garantálja, hogy az utolsó lapra jutó
+  // maradék SOSEM haladja meg a `perPage - reserved` kapacitást —
+  //   pages * perPage >= rowCount + reserved  ⟹  rowCount - (pages-1)*perPage <= perPage - reserved
+  // tehát a záró blokk mindig elfér, és nem vágódik le a papírról.
+  let marad = rowCount
+  for (let p = 0; p < pages - 1 && marad > 0; p++) {
+    const take = Math.min(perPage, marad)
     sizes[p] = take
     marad -= take
   }
-  // Fail-safe: ha bármi miatt mégis maradna sor (nem fordulhat elő a fenti
-  // képlettel), az UTOLSÓ oldalra tesszük — a sor kiesése rosszabb a túllógásnál.
-  if (marad > 0) sizes[pages - 1] += marad
+  sizes[pages - 1] = Math.max(0, marad)
   return sizes
 }
 
@@ -1027,76 +1049,25 @@ function collectBudgetRows(
   emitSection('Bevételek / Venituri', incomeCells, ['104', '105', '107'])
   emitSection('Kiadások / Cheltuieli', expenseCells, ['204', '205', '207'])
 
-  const groupsOf = (cells: SzamadasiCel[]) => cells.filter((c) => !c.id.includes('.'))
-  const totalIncome = groupsOf(incomeCells).reduce((s, c) => s + sumGroup(data, c.id, getVal), 0)
-  const totalExpense = groupsOf(expenseCells).reduce((s, c) => s + sumGroup(data, c.id, getVal), 0)
-  const balance = totalIncome - totalExpense
-
-  // ── 2026-08-11 (6. kör, P0 #1) — HAMIS SZÁM AZ ALÁÍRT ÉVES SZÁMADÁSON ──
-  // A három végösszeg-sor MINDIG a TERV értéket írta ki, `colspan=labelCols` +
-  // EGY cellával. Számadás módban (6 oszlop, ebből 2 érték) ez az EGY cella az
-  // „Execuție / Számadás" (tény) oszlop alá esett: az aláírt, beküldött
-  // nyomtatványon a TERV végösszeg szerepelt TÉNYKÉNT, a valódi tény végösszeg
-  // pedig SEHOL nem jelent meg. Számadás módban ezért két cella kell.
-  const totalActualIncome = groupsOf(incomeCells).reduce((s, c) => s + sumGroup(data, c.id, getActual), 0)
-  const totalActualExpense = groupsOf(expenseCells).reduce((s, c) => s + sumGroup(data, c.id, getActual), 0)
-  const actualBalance = totalActualIncome - totalActualExpense
-
-  // ── 2026-08-11 (6. kör, P0 #2) — UGYANEZ A HIBA A KÖLTSÉGVETÉS-MÓDOSÍTÁSON ──
-  // A módosítás-nyomtatványnak HÁROM értékoszlopa van (Előző · Módosítás ·
-  // Végleges), a végösszeg-sor viszont — a fenti számadás-hibával azonos okból —
-  // EGYETLEN cellát írt ki, a TERV (Előző) végösszegével, és az a `colspan`
-  // miatt a „Prevederi final / Végleges" oszlop alá esett. Vagyis az aláírt és
-  // beküldött költségvetés-módosításon a VÉGLEGES összbevétel/összkiadás
-  // helyén a MÓDOSÍTÁS ELŐTTI szám állt, a valódi végleges végösszeg pedig
-  // sehol nem jelent meg — pontosan az a hiba, ami miatt a módosítást
-  // egyáltalán beadják. Módosítás módban ezért három cella kell.
-  const getFinalVal = (d: BudgetPrintData, celId: string): number =>
-    d.budgetRows[celId]?.modositott || d.budgetRows[celId]?.tervezett || 0
-  const totalIncomeFinal = groupsOf(incomeCells).reduce((s, c) => s + sumGroup(data, c.id, getFinalVal), 0)
-  const totalExpenseFinal = groupsOf(expenseCells).reduce((s, c) => s + sumGroup(data, c.id, getFinalVal), 0)
-  const finalBalance = totalIncomeFinal - totalExpenseFinal
-
-  const isSzamadasMode = mode === 'szamadas'
-  const isModificationMode = mode === 'modification'
-  // A felirat-cellák száma MINDIG a mód értékoszlopainak számából jön — így a
-  // végösszeg-sor nem tud elcsúszni, ha egy mód oszlopszáma valaha változik.
-  const totLabelCols = cols - valueColCount(mode)
-  // A harmadik sor FELIRATÁT továbbra is a TERV egyenlege adja (a hivatalos
-  // forma nem változik); a tény/végleges oszlopban ELŐJELESEN áll az érték,
-  // hogy egy tervezett többlet melletti tényleges hiány ne tűnjön el.
-  const totRow = (label: string, plan: number, second: number, third: number) => {
-    let valueCellsHtml = `<td class="r">${fmtNum(plan)}</td>`
-    if (isSzamadasMode) valueCellsHtml += `<td class="r">${fmtNum(second)}</td>`
-    else if (isModificationMode) {
-      valueCellsHtml += `<td class="r">${fmtNum(second)}</td><td class="r">${fmtNum(third)}</td>`
-    }
-    return `<tr class="tot"><td colspan="${totLabelCols}" class="r">${label}</td>${valueCellsHtml}</tr>`
-  }
-  all.push(
-    totRow(
-      'Összbevétel / Total venituri',
-      totalIncome,
-      isSzamadasMode ? totalActualIncome : totalIncomeFinal - totalIncome,
-      totalIncomeFinal,
-    ),
-  )
-  all.push(
-    totRow(
-      'Összkiadás / Total cheltuieli',
-      totalExpense,
-      isSzamadasMode ? totalActualExpense : totalExpenseFinal - totalExpense,
-      totalExpenseFinal,
-    ),
-  )
-  all.push(
-    totRow(
-      balance >= 0 ? 'Bevételi többlet / Excedent' : 'Kiadási többlet / Deficit',
-      Math.abs(balance),
-      isSzamadasMode ? actualBalance : finalBalance - balance,
-      finalBalance,
-    ),
-  )
+  // ── 2026-08-15 (Endre: „a táblázat végén nem kell még egyszer összefoglalni") ──
+  //
+  // A táblázat végéről ELTÁVOLÍTVA a három korábbi végösszeg-sor (Összbevétel /
+  // Összkiadás / Bevételi többlet). Ezek SZÁMSZERŰEN megismételték a hivatalos
+  // ív saját összesítőit, amelyek a K2 kör (2026-08-14) óta a maguk hivatalos
+  // sorszámával, a maguk hivatalos helyén ott állnak a táblázatban:
+  //   · 52.  Total încasări  — az összbevétel (101+…+107), a 41+42+49 képlettel
+  //   · 112. Plăți totale    — az összkiadás (201+…+207), a 99+102+109 képlettel
+  //   · 100. EXCEDENT / 101. DEFICIT — a hivatalos 41−99, illetve 99−41 képlettel
+  // A számvevő a hivatalos íven SORSZÁM szerint olvas; egy azonos összeget
+  // sorszám nélkül, még egyszer kiírni csak zavart kelt, és két, egymástól
+  // eltérően számolt „többlet" sort eredményezett (a régi tot-sor MINDENT
+  // beleszámolt, a hivatalos 100/101 viszont a 106/107 és 206/207 fejezet
+  // NÉLKÜL számol — épp ezért nem volt szabad kettőt kiírni belőle).
+  //
+  // A korábbi P0-javítások GARANCIÁJA nem vész el: a terv/tény, illetve az
+  // előző/módosítás/végleges hasábok kitöltését a hivatalos összesítő sorok
+  // (`officialSummaryRow`) viszik tovább, és az önellenőrzés (Y3/Y6/Z2/ZM2)
+  // mostantól AZOKON méri ugyanezt.
   return all
 }
 
@@ -1154,32 +1125,25 @@ function renderTablePages(data: BudgetPrintData, mode: BudgetMode, rows: string[
   // A feltöltés és a lapszám UGYANABBÓL a tervből jön (lásd `OldalTerv`).
   const meretek = oldalMeretek(rows.length, opts.terv)
 
-  // ── 2026-08-15 (Endre): a táblázat a lap ALJÁIG érjen ─────────────────────
-  // Az `oldalMeretek` KIEGYENLÍTVE osztja szét a sorokat (hogy az utolsó lap ne
-  // maradjon üresen), ezért a köztes lapokon a kapacitásnál kevesebb sor állt:
-  // a részszámadás 117 sora 4 lapon 32/32/33/20 lett, miközben egy lapra 40 fér
-  // — laponként 7–8 sornyi (≈50 mm) fehér maradt a táblázat alatt.
-  // Üres, vonalazott sorokkal töltjük ki a maradékot. A tördelés SZÁMTANILAG
-  // VÁLTOZATLAN (a lapszám és a sorelosztás ugyanaz), csak a látvány lesz teli
-  // ív — a hivatalos nyomtatványon az üres rovat amúgy is természetes.
-  const padRow = `<tr class="pad"><td class="ro"></td><td></td><td class="c"></td><td class="c"></td>${'<td class="r"></td>'.repeat(valueColCount(mode))}</tr>`
-
   let html = ''
   let idx = 0
   for (let p = 0; p < opts.terv.pages; p++) {
     const isLast = p === opts.terv.pages - 1
     const chunk = rows.slice(idx, idx + Math.max(0, meretek[p]))
     idx += chunk.length
-    // ⚠️ CSAK a köztes lapokat töltjük fel. Az UTOLSÓ lap alját a záró blokk
-    // (extra tábla, nyilatkozat, aláírások) foglalja el — oda egyetlen sort sem
-    // szabad hozzáadni: a `.page` overflow:hidden, tehát a túlcsordulás nem
-    // gördül, hanem LEVÁGÓDIK a papírról (6. kör, reviewer-major tanulsága).
-    const hianyzoSor = isLast ? 0 : Math.max(0, opts.terv.perPage - chunk.length)
     const extras = isLast
       ? `${opts.lastExtraHtml || ''}${opts.withSignatures ? buildSignatureBlock(opts.withAuditor !== false) : ''}`
       : ''
+    // 2026-08-15 (Endre): ha egy lapra NEM jut sor (az elölről-tele elosztás
+    // után ez csak az utolsó, záró lap lehet), a táblázatot EGYÁLTALÁN nem
+    // rajzoljuk ki — egy fejléc-sor üres törzzsel csak zavart keltene a
+    // hivatalos íven. Ilyenkor a lap a záró blokké és az aláírásoké.
+    const tabla =
+      chunk.length > 0
+        ? `<table class="bt">${colgroup}<thead>${thead}</thead><tbody>${chunk.join('')}</tbody></table>`
+        : ''
     html += `<div class="page">
-      ${band}<table class="bt">${colgroup}<thead>${thead}</thead><tbody>${chunk.join('')}${padRow.repeat(hianyzoSor)}</tbody></table>
+      ${band}${tabla}
       ${extras}
       ${footer(data, opts.startPage + p, opts.total)}
     </div>`

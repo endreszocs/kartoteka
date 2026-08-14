@@ -23,6 +23,19 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-15] — Számadás könyvelői rendbetétel + a PDF-mentés javítása
+<!-- key: 2026-08-15-szamadas-pdf-javitas -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, konyvelo -->
+
+### 🐛 Javítások
+
+- **⛔ A PDF-mentés üres dokumentumot adott** — javítva. A PDF-készítő a pénzügyi íveket (Számadás, Részszámadás, Költségvetés) egyetlen óriási képre rajzolta, ami sok gépen túllépi a videokártya korlátját — a kép ilyenkor némán üres lett, a mentett PDF fehér lapokból állt. Mostantól ezek az ívek is laponként készülnek (ahogy a névjegyzék már régóta), és a mentés előtt a rendszer ellenőrzi, hogy minden lap hiánytalanul megvan-e — csonka irat helyett inkább hibát jelez.
+- **A Számadás végéről eltűnt a duplikált összefoglalás.** A táblázat végén még egyszer szerepelt az Összbevétel / Összkiadás / Többlet — sorszám nélkül, megismételve a hivatalos ív saját összesítőit (52. Total încasări, 112. Plăți totale, 100/101. Excedent/Deficit), ráadásul a „többlet" más képlettel számolt, mint a hivatalos 100/101. sor. A számvevő sorszám szerint olvas — a sorszám nélküli ismétlés csak zavart keltett. Az önellenőrzések mostantól a hivatalos sorokon mérik ugyanazokat a garanciákat.
+- **A „kihagyott üres sorok" eltűntek a lapokról.** A tegnapi lapkitöltő megoldás vonalazott üres sorokkal töltötte fel a lapok alját — könyvelői szemmel ezek kihagyott soroknak látszottak. Mostantól a lapok elölről, valódi sorokkal telnek meg; a szabad hely csak az utolsó lapon marad, ahol a záró blokk és az aláírások állnak.
+
+---
+
 ## [2026-08-15] — Éves beszámoló: a belső mozgás kikerült az anyagi részből
 <!-- key: 2026-08-15-eves-beszamolo-belso-mozgas -->
 <!-- category: bugfix -->
