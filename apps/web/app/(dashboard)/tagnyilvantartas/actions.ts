@@ -1419,6 +1419,33 @@ export async function removeMember(data: RemoveInput) {
     // A korábbi munkanapló-törlés opció okafogyott: csak anyakönyvi rekordhoz
     // tartozott munkanapló-link, az ilyen tag pedig már nem törölhető, csak
     // elrejthető.
+    // 2026-08-14 (1. döntés, „naplózott törlés"): a törlés ELŐTT pillanatképet
+    // veszünk a személyről és a vele törlődő kapcsolatairól. Ha az RPC tényleg
+    // VÉGLEGESEN töröl, a pillanatkép az audit_log-ba kerül — visszakereshető,
+    // ki kit törölt, mikor, és mi tűnt el vele. Az RPC-n BELÜLI (atomikus)
+    // naplózás SZÁNDÉKOSAN nem itt készül: a tagi-portál kompat lánc a törlő
+    // függvényt exact ujjlenyomattal védi, előtte nem cserélhető — az a
+    // portál-rollout körrel jön. DB-szintű háló addig is van: az
+    // audit.record_version sor-trigger a szemely DELETE-et old_record-dal
+    // naplózza.
+    const { data: pillanatSor } = await supabase
+      .from('szemely')
+      .select('*')
+      .eq('id', id)
+      .eq('congregation_id', congregationId)
+      .maybeSingle()
+    const szemelyPillanat = pillanatSor
+      ? ({ ...(pillanatSor as Record<string, unknown>) } as Record<string, unknown>)
+      : null
+    if (szemelyPillanat) delete szemelyPillanat.kep // a base64 fénykép nem naplóba való
+    let veleTorlodik: unknown = null
+    try {
+      const { data: kapcs } = await supabase.rpc('szemely_kapcsolatok', { p_szemely_id: id })
+      veleTorlodik = (kapcs as { vele_torlodik?: unknown } | null)?.vele_torlodik ?? null
+    } catch {
+      // fail-soft: a kapcsolat-lista nélkül is naplózunk
+    }
+
     const { data: rpcData, error: rpcErr } = await supabase.rpc('tagnyilvantartas_tag_torles', { p_szemely_id: id })
     if (rpcErr) {
       // 2026-08-14 bírálói javítás: a migrációs utótag CSAK hiányzó függvénynél
@@ -1437,7 +1464,19 @@ export async function removeMember(data: RemoveInput) {
     revalidatePath('/tagnyilvantartas')
     switch (status) {
       case 'deleted':
-        return { success: true, message: 'A tag véglegesen törölve.' }
+        // A VÉGLEGES törlés kiemelt naplója teljes sor-pillanatképpel (a
+        // data_wipe_log tanulsága: denormalizálva, hogy a sor eltűnése után
+        // is olvasható legyen, MI veszett el). A logAuditEvent fail-soft.
+        await logAuditEvent(
+          {
+            action: 'member.delete.permanent',
+            targetTable: 'szemely',
+            targetId: String(id),
+            metadata: { szemely: szemelyPillanat, vele_torolt: veleTorlodik },
+          },
+          supabase,
+        )
+        return { success: true, message: 'A tag véglegesen törölve. A törlésről napló készült.' }
       case 'hidden_payments':
         return { success: true, message: 'A tag elrejtve a névsorból (pénzügyi tranzakció miatt nem törölhető véglegesen).' }
       case 'hidden_registry':

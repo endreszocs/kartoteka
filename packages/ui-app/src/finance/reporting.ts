@@ -127,7 +127,7 @@ const MONTH_NAMES_RO = [
 
 
 // 2026-08-14 (K1): a RÖGZÍTETT irattípus kerül a nyomtatványra. Korábban
-// minden készpénzes sor „Chit."-ként ment ki — egy Factură vagy Dispoziţie
+// minden készpénzes sor „Chit."-ként ment ki — egy Factură vagy Dispoziție
 // alapján fizetett tétel a hivatalos regiszteren ellentmondott a lefűzött
 // bizonylatnak. A hivatalos ív („Irattip.", Sugo: „nyugta (chitanta), számla
 // (factura) stb. rövidített megnevezését lehet beírni") szabad szöveget vár.
@@ -159,9 +159,9 @@ function getDescription(row: BefitetesRow | KiadasRow, bevCelMap: Record<number,
   const cel = cellek.find((c) => c.kod === code)
   const name = 'forrasa' in row ? (row as BefitetesRow).forrasa : ('kedvezmenyzett' in row ? (row as KiadasRow).kedvezmenyzett || (row as KiadasRow).atvevo : null)
   // 2026-07-10 (S3 #1c): a hivatalos ROMÁN nyomtatványokon (Registru Casa/Banca/
-  // Jurnal) a jogcím ROMÁN neve az elsődleges (pl. „Contribuţia anuală a
-  // credincioşilor" az „Egyházfenntartói járulék" helyett); magyar csak fallback.
-  // 2026-08-14 (K1): a MEGJEGYZÉS is bekerül — a hivatalos ív Explicaţii oszlopa
+  // Jurnal) a jogcím ROMÁN neve az elsődleges (pl. „Contribuția anuală a
+  // credincioșilor" az „Egyházfenntartói járulék" helyett); magyar csak fallback.
+  // 2026-08-14 (K1): a MEGJEGYZÉS is bekerül — a hivatalos ív Explicații oszlopa
   // a Magyarázat + Név + MEGJEGYZÉS hármasból áll (Sugo: „Az ide beírt megjegyzés
   // bekerül a Főkönyvbe, a banknaplóba és csoportnaplóba. Itt lehet
   // megkülönböztetni az altételeket, pl. közköltségnél a fűtés, világítás…").
