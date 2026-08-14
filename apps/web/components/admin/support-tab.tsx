@@ -271,7 +271,7 @@ export function SupportTab() {
                 </DialogTitle>
               </DialogHeader>
 
-              <div className="max-h-[65vh] space-y-4 overflow-y-auto p-5">
+              <div className="max-h-[65dvh] space-y-4 overflow-y-auto p-5">
                 <p className="text-xs text-muted-foreground">
                   {ticketPerson(selected)}
                   {selected.profiles?.email ? ` (${selected.profiles.email})` : ''} ·{' '}

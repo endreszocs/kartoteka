@@ -8,7 +8,6 @@ import {
   MODULE_META,
   type TableRegistryEntry,
 } from '@/lib/offline/table-registry'
-import { buildRecycleBinLabel } from '@/lib/offline/recycle-bin-labels'
 
 /**
  * Globális Kuka oldal — az összes modul törölt rekordjai egy helyen.
@@ -26,10 +25,14 @@ export default async function KukaPage() {
     t => t.softDelete,
   )
 
+  // 2026-08-14 (6. pont, BLOKKOLÓ-javítás): CSAK sima adat mehet át a
+  // Server→Client határon. Korábban itt egy labelBuilder FÜGGVÉNY is átment,
+  // amitől az oldal minden betöltésnél kivétellel elszállt („Functions cannot
+  // be passed directly to Client Components"). A címkézőt a RecycleBinView
+  // állítja elő kliens-oldalon a tábla nevéből.
   const tables = softDeleteTables.map(t => ({
     dexieTable: t.dexieTable,
     label: `${MODULE_META[t.module].label} · ${t.label}`,
-    labelBuilder: buildRecycleBinLabel(t.dexieTable),
   }))
 
   return (

@@ -51,7 +51,7 @@ export function RejectPendingDialog({
             Hozzáférés-kérelem elutasítása
           </DialogTitle>
         </DialogHeader>
-        <div className="max-h-[65vh] space-y-4 overflow-y-auto">
+        <div className="max-h-[65dvh] space-y-4 overflow-y-auto">
           <div className="rounded-xl bg-muted/60 p-3 text-sm ring-1 ring-border">
             <p className="font-semibold text-foreground">{userName || '(nincs név)'}</p>
             <p className="mt-0.5 text-xs text-muted-foreground">{userEmail}</p>

@@ -490,7 +490,7 @@ export function NotificationBellRefined({ userId }: { userId: string }) {
 
       {/* Részletes megjelenítés — reszponzív, scrollozható */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="flex max-h-[90vh] w-[min(96vw,720px)] max-w-none flex-col overflow-hidden bg-popover p-0 sm:w-[min(94vw,720px)] sm:max-w-none">
+        <DialogContent className="flex max-h-[90dvh] w-[min(96vw,720px)] max-w-none flex-col overflow-hidden bg-popover p-0 sm:w-[min(94vw,720px)] sm:max-w-none">
           <DialogHeader className="shrink-0 gap-3 border-b border-border/70 bg-gradient-to-b from-secondary/60 to-popover px-5 py-4 sm:px-6">
             <DialogTitle className="flex items-start gap-3 pr-8">
               {selectedNotif && (

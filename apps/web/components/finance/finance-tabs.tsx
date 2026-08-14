@@ -46,6 +46,7 @@ const OblioEllenorzesTab = dynamic(() => import('./oblio-ellenorzes-tab').then((
 const FinanceSugoTab = dynamic(() => import('./finance-sugo-tab').then((m) => m.FinanceSugoTab), { ssr: false, loading: tabLoading })
 const FinanceImportTabs = dynamic(() => import('./finance-import/finance-import-tabs').then((m) => m.FinanceImportTabs), { ssr: false, loading: tabLoading })
 import { CombinedEntryDialog } from '@/components/modals/combined-entry-dialog'
+import { KasszaBiztato } from '@/components/finance/kassza-biztato'
 import { DecontDialog } from '@/components/modals/decont-dialog'
 import { DispozitieDialog } from '@/components/modals/dispozitie-dialog'
 import { DispozitieIncasareWizard } from '@/components/modals/dispozitie-incasare-wizard'
@@ -685,6 +686,10 @@ export function FinanceTabs({
             accountingFinalized={!!settings.accounting_finalized}
             onTransactionChanged={refreshData}
             onOpenOpeningBalances={scope === 'congregation' ? () => setOpeningBalancesOpen(true) : undefined}
+            // 2026-08-14 (13. pont, Endre kérése): kiemelt „Új tétel" a Kassza
+            // fülön — ugyanazt az összevont rögzítőt nyitja, mint a hero-sáv.
+            onNewEntry={() => setCombinedOpen(true)}
+            biztatoSlot={<KasszaBiztato />}
           />
         </TabsContent>
 
@@ -919,7 +924,7 @@ export function FinanceTabs({
           VÁLTOZATLANUL, dynamic importtal — csak az első nyitáskor töltődik le. */}
       {scope !== 'diocese' && (
         <Dialog open={oblioModalOpen} onOpenChange={setOblioModalOpen}>
-          <DialogContent className="flex max-h-[92vh] w-full flex-col overflow-hidden p-0 sm:max-w-7xl">
+          <DialogContent className="flex max-h-[92dvh] w-full flex-col overflow-hidden p-0 sm:max-w-7xl">
             {/* 2026-07-10 (S4-mobil): kisebb belső margó telefonon (px-4), sm-től px-6. */}
             <DialogHeader className="shrink-0 border-b border-slate-200 bg-white px-4 sm:px-6 py-4 pr-14">
               <DialogTitle className="flex items-center gap-2">

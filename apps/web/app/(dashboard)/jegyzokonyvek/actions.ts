@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { selectAllPaged } from '@kartoteka/supabase-client'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 
 // ---------------------------------------------------------------------------
@@ -365,11 +366,23 @@ export async function getFinancialSummaryForAttachment(year: number): Promise<{
   const totalExpense = (expResult.data || []).reduce((s, r: { osszeg: number }) => s + Number(r.osszeg || 0), 0)
 
   // Leltár adatok (helyes oszlopnevek: beszerzesi_ertek, is_deleted, kategoria)
-  const { data: leltarData } = await supabase
-    .from('leltar_tetelek')
-    .select('kategoria, beszerzesi_ertek, mennyiseg')
-    .eq('congregation_id', congId)
-    .eq('is_deleted', false)
+  // 2026-08-14 (10. pont): LAPOZVA — lapozás nélkül a PostgREST 1000 soros
+  // plafonja némán csonkolta volna a jegyzőkönyv-melléklet vagyonleltárát
+  // 1000+ tételes gyülekezetnél (pl. könyvtár). A dedupe kulcsa nélkül futna
+  // az alap 'id'-vel, de az id-t nem kérjük le → orderColumn: 'id' rendez,
+  // dedupeBy: null (a sorok id nélkül jönnek, kulcsuk nincs).
+  const { data: leltarData } = await selectAllPaged<{
+    kategoria: string
+    beszerzesi_ertek?: number
+    mennyiseg?: number
+  }>(
+    supabase
+      .from('leltar_tetelek')
+      .select('kategoria, beszerzesi_ertek, mennyiseg')
+      .eq('congregation_id', congId)
+      .eq('is_deleted', false),
+    { dedupeBy: null },
+  )
 
   const itemCount = leltarData?.length || 0
   const totalValue = (leltarData || []).reduce((s, r: { beszerzesi_ertek?: number; mennyiseg?: number }) =>

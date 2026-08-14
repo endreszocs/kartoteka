@@ -134,7 +134,7 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-5xl lg:max-w-6xl">
+      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-5xl lg:max-w-6xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2.5 font-heading text-2xl">
             <span className="flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-600 to-slate-800 text-white shadow-sm">

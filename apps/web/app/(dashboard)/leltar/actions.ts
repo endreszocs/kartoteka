@@ -64,19 +64,24 @@ function normalizeInventoryRow(row: InventoryRow): InventoryItem {
 }
 
 async function fetchInventoryRowsCompat(supabase: SupabaseClient, congId: string): Promise<InventoryRow[]> {
-  const baseQuery = () =>
+  // 2026-08-14 (10. pont, BLOKKOLÓ-javítás): LAPOZVA olvasunk. Korábban ez a
+  // fő lista-olvasó lapozás nélkül futott, így a PostgREST alapértelmezett
+  // 1000 soros plafonja NÉMÁN csonkolta az egész leltár-modult: 1000+ tételnél
+  // (pl. könyvtár) a lista, a statisztikák és a nyomtatványok is hiányos
+  // adatból dolgoztak — hibaüzenet nélkül. Ugyanaz a `selectAllPaged`, amit a
+  // leltári szám-generátor már használ (fail-closed: hiba esetén dobunk, nem
+  // adunk vissza csonka listát).
+  const { data, error } = await selectAllPaged<InventoryRow>(
     supabase
       .from('leltar_tetelek')
       .select('*')
       .eq('congregation_id', congId)
-      .order('created_at', { ascending: false })
-
-  const result = await baseQuery()
-  if (result.error) {
-    throw new Error(result.error.message)
+      .order('created_at', { ascending: false }),
+  )
+  if (error) {
+    throw new Error(error.message)
   }
-
-  return (result.data || []) as InventoryRow[]
+  return data
 }
 
 export async function getInventoryItems(): Promise<InventoryItem[]> {

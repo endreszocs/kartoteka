@@ -750,7 +750,7 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
 
       {/* A rács overflow-konténere: az OLDAL sosem görget vízszintesen, csak
           ez a doboz; a max-magasság miatt a fejléc sticky-je is működik. */}
-      <div className="max-h-[70vh] w-full overflow-auto rounded-xl border border-border bg-card shadow-sm">
+      <div className="max-h-[70dvh] w-full overflow-auto rounded-xl border border-border bg-card shadow-sm">
         <table className="w-full text-sm">
           <thead>
             {category === 'szolgalat' ? (

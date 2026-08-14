@@ -163,7 +163,7 @@ export function FinancePrintDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[92vh] w-full flex-col overflow-hidden p-0 sm:max-w-7xl">
+      <DialogContent className="flex max-h-[92dvh] w-full flex-col overflow-hidden p-0 sm:max-w-7xl">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-white px-6 py-4 pr-14">
           <DialogTitle>Pénzügyi nyomtatási központ</DialogTitle>
         </DialogHeader>
@@ -284,6 +284,43 @@ export function FinancePrintDialog({
                 carryoverCash: carryoverCashUse,
                 carryoverBank: carryoverBankUse,
                 finalized: isSzamadas ? !!settings.accounting_finalized : !!settings.budget_finalized,
+              }
+
+              // ── 2026-08-14 (K2): a hivatalos 113–134. záró blokk adatai ──
+              if (isSzamadas && !isReszszamadas) {
+                // Tartozások/Kintlévőségek a bealitas.szamadas_tartozasok-ból
+                // (a Könyvelés fül rögzítője írja). Kulcs: hivatalos Nr. rând.
+                const toNumMap = (m?: Record<string, number>): Record<number, number> => {
+                  const ki: Record<number, number> = {}
+                  for (const [nr, v] of Object.entries(m || {})) {
+                    const n = Number(nr)
+                    if (Number.isFinite(n)) ki[n] = Number(v) || 0
+                  }
+                  return ki
+                }
+                const stored = settings.szamadas_tartozasok
+                printData.tartozasok = toNumMap(stored?.tartozasok ?? undefined)
+                printData.kintlevosegek = toNumMap(stored?.kintlevosegek ?? undefined)
+
+                // Év végi Casa/Banca (114–115. sor): ugyanazzal a levezetéssel,
+                // mint a részszámadás, csak a teljes évre. Ha a levezetés
+                // hibázik, a mezők üresen maradnak → a papíron „—" áll (őszinte
+                // fallback), az ÉVES Számadást nem blokkoljuk miatta.
+                const evesBalances = computePeriodBalances({
+                  income: incomeUse as unknown as PeriodRow[],
+                  expense: expenseUse as unknown as PeriodRow[],
+                  year: filters.selectedYear,
+                  periodFrom: `${filters.selectedYear}-01-01`,
+                  periodTo: `${filters.selectedYear}-12-31`,
+                  yearOpeningCash: carryoverCashUse,
+                  yearOpeningBankById: bankNyitoMapUse || {},
+                  actualIncomeByCode: actualIncome,
+                  actualExpenseByCode: actualExpense,
+                })
+                if (!('error' in evesBalances)) {
+                  printData.zaroCasa = evesBalances.cash.closing
+                  printData.zaroBanca = evesBalances.bank.closing
+                }
               }
 
               // ── RÉSZSZÁMADÁS: időszaki nyitó/záró levezetés + fail-closed ──

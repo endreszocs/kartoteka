@@ -45,8 +45,8 @@ import {
 import {
   deletePricingTier, getScalingForecast, getSystemFinanceSummary,
   getFxRates, listPricingTiers, upsertPricingTier,
-  type PricingTierType, type ScalingScenario, type SystemFinanceSummary,
-  type SystemPricingTier, type FxRates,
+  type PricingTierType, type ScalingForecastBase, type ScalingScenario,
+  type SystemFinanceSummary, type SystemPricingTier, type FxRates,
 } from '@/app/(dashboard)/admin/system-finance-actions'
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -71,6 +71,7 @@ export function SystemFinanceTab() {
   const [summary, setSummary] = useState<SystemFinanceSummary | null>(null)
   const [tiers, setTiers] = useState<SystemPricingTier[]>([])
   const [forecast, setForecast] = useState<ScalingScenario[]>([])
+  const [forecastBase, setForecastBase] = useState<ScalingForecastBase | null>(null)
   const [fx, setFx] = useState<FxRates | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -91,7 +92,10 @@ export function SystemFinanceTab() {
     if (tiersRes.error) toast.error(`Árazási sávok: ${tiersRes.error}`)
     else if (tiersRes.data) setTiers(tiersRes.data)
     if (forecastRes.error) toast.error(`Előrejelzés: ${forecastRes.error}`)
-    else if (forecastRes.data) setForecast(forecastRes.data)
+    else if (forecastRes.data) {
+      setForecast(forecastRes.data)
+      setForecastBase(forecastRes.base ?? null)
+    }
     if (fxRes.data) setFx(fxRes.data)
     setLoading(false)
   }
@@ -169,20 +173,29 @@ export function SystemFinanceTab() {
       )}
 
       {tab === 'forecast' && (
-        <section className="card-raised space-y-3 p-4 sm:p-5">
-          <div className="flex items-center gap-2">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <BarChart3 className="size-4" />
-            </span>
-            <h3 className="font-heading text-lg text-foreground">Skálázási előrejelzés</h3>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            <Info className="mr-1 inline size-3.5 text-primary" />
-            <strong>Becsült, tájékoztató értékek.</strong> A számítás az aktív árazási sávok átlagdíjával +
-            aktív költségtételekkel (becsült skálázódási felárral) dolgozik — a tényleges összegek eltérhetnek.
-          </p>
-          <ForecastTable forecast={forecast} />
-        </section>
+        <div className="space-y-4">
+          {/* 2026-08-14 (Endre kérése): SAJÁT tervező — kis/nagy gyülekezet-
+              számokkal, havi ÉS éves bontásban, több forgatókönyvvel. */}
+          <PlannerPanel
+            tiers={tiers.filter((t) => t.aktiv && t.tipus === 'gyulekezet')}
+            base={forecastBase}
+          />
+
+          <section className="card-raised space-y-3 p-4 sm:p-5">
+            <div className="flex items-center gap-2">
+              <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <BarChart3 className="size-4" />
+              </span>
+              <h3 className="font-heading text-lg text-foreground">Skálázási előrejelzés</h3>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              <Info className="mr-1 inline size-3.5 text-primary" />
+              <strong>Becsült, tájékoztató értékek.</strong> A számítás az aktív árazási sávok átlagdíjával +
+              aktív költségtételekkel (becsült skálázódási felárral) dolgozik — a tényleges összegek eltérhetnek.
+            </p>
+            <ForecastTable forecast={forecast} />
+          </section>
+        </div>
       )}
 
       {/* ─── DIALÓGUSOK ─── */}
@@ -444,6 +457,253 @@ function ProfitValue({ value }: { value: number }) {
     <span className={`font-semibold ${positive ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'}`}>
       {positive ? '+' : ''}{formatRon(value)}
     </span>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tervező — kis/nagy gyülekezet-számokkal (2026-08-14, Endre kérése)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// A fix szcenárió-tábla (25/50/…/1000) mellett SAJÁT forgatókönyvek: az admin
+// beírja, hány KIS („B") és hány NAGY („A") gyülekezettel számol, és a rendszer
+// havi ÉS éves bontásban számolja a bevételt/költséget/profitot. Több
+// forgatókönyv tartható egymás mellett ([]+másolás), és a böngészőben megmarad
+// (localStorage) — ez tervezési segédeszköz, nem könyvelési adat, ezért nem
+// kerül adatbázisba.
+//
+// A díjak alapértéke a választott árazási sávból jön, de forgatókönyvenként
+// felülírható (pl. „mi lenne, ha a nagyoknak 60 lej lenne?"). Az éves díj
+// alapértéke a sáv éves díja, ha van; különben havi × 12.
+
+interface PlannerScenario {
+  id: string
+  nev: string
+  kisDb: string
+  nagyDb: string
+  kisHaviDij: string
+  nagyHaviDij: string
+  kisEvesDij: string
+  nagyEvesDij: string
+}
+
+const PLANNER_STORAGE_KEY = 'kartoteka-admin-tervezo-v1'
+
+function plannerDefaults(kis: SystemPricingTier | null, nagy: SystemPricingTier | null): PlannerScenario {
+  const kisHavi = kis ? String(kis.havi_dij_ron) : '35'
+  const nagyHavi = nagy ? String(nagy.havi_dij_ron) : '55'
+  return {
+    id: crypto.randomUUID(),
+    nev: 'A terv',
+    kisDb: '20',
+    nagyDb: '5',
+    kisHaviDij: kisHavi,
+    nagyHaviDij: nagyHavi,
+    kisEvesDij: kis && kis.eves_dij_ron > 0 ? String(kis.eves_dij_ron) : String(Number(kisHavi) * 12),
+    nagyEvesDij: nagy && nagy.eves_dij_ron > 0 ? String(nagy.eves_dij_ron) : String(Number(nagyHavi) * 12),
+  }
+}
+
+function PlannerPanel({ tiers, base }: { tiers: SystemPricingTier[]; base: ScalingForecastBase | null }) {
+  // Kis = a legalacsonyabb tag-számú sáv, nagy = a legmagasabb (alapértelmezés).
+  const sorted = [...tiers].sort((a, b) => a.min_tagok - b.min_tagok)
+  const kisTier = sorted[0] ?? null
+  const nagyTier = sorted.length > 1 ? sorted[sorted.length - 1] : null
+
+  const [scenarios, setScenarios] = useState<PlannerScenario[]>([])
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PLANNER_STORAGE_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw) as PlannerScenario[]
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setScenarios(parsed)
+          setLoaded(true)
+          return
+        }
+      }
+    } catch { /* sérült tároló → tiszta indulás */ }
+    setScenarios([plannerDefaults(kisTier, nagyTier)])
+    setLoaded(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (!loaded) return
+    try { localStorage.setItem(PLANNER_STORAGE_KEY, JSON.stringify(scenarios)) } catch { /* tele a tároló — nem végzetes */ }
+  }, [scenarios, loaded])
+
+  const upd = (id: string, patch: Partial<PlannerScenario>) =>
+    setScenarios((cur) => cur.map((s) => (s.id === id ? { ...s, ...patch } : s)))
+
+  const num = (v: string): number => {
+    const n = Number(String(v).replace(',', '.'))
+    return Number.isFinite(n) && n >= 0 ? n : 0
+  }
+
+  const compute = (s: PlannerScenario) => {
+    const kisDb = Math.floor(num(s.kisDb))
+    const nagyDb = Math.floor(num(s.nagyDb))
+    const osszes = kisDb + nagyDb
+    const haviBevetel = kisDb * num(s.kisHaviDij) + nagyDb * num(s.nagyHaviDij)
+    const evesBevetel = kisDb * num(s.kisEvesDij) + nagyDb * num(s.nagyEvesDij)
+    // Költség: az élő alapköltség + skálázódási felár (ugyanaz a képlet, mint a
+    // szerver-oldali előrejelzésben). Ha az alapadat nem jött le, 0-val — a
+    // felület jelzi, hogy a költség-oszlop ilyenkor nem értelmezhető.
+    const haviKoltseg = base
+      ? base.havi_alap_koltseg_ron + Math.floor(osszes / 100) * base.extra_ron_per_100_gyulekezet
+      : 0
+    const evesKoltseg = haviKoltseg * 12
+    return {
+      osszes,
+      haviBevetel,
+      evesBevetel,
+      haviKoltseg,
+      evesKoltseg,
+      haviProfit: haviBevetel - haviKoltseg,
+      evesProfit: evesBevetel - evesKoltseg,
+      margin: haviBevetel > 0 ? ((haviBevetel - haviKoltseg) / haviBevetel) * 100 : 0,
+    }
+  }
+
+  const numInput = (value: string, onChange: (v: string) => void, title: string) => (
+    <input
+      type="number"
+      min={0}
+      step={1}
+      inputMode="numeric"
+      value={value}
+      title={title}
+      onChange={(e) => onChange(e.target.value)}
+      className="h-9 w-full min-w-16 rounded-lg border border-input bg-background px-2 text-right text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-primary/30"
+    />
+  )
+
+  return (
+    <section className="card-raised space-y-3 p-4 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Users className="size-4" />
+          </span>
+          <h3 className="font-heading text-lg text-foreground">Tervező — kis és nagy gyülekezetekkel</h3>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="rounded-lg"
+          onClick={() =>
+            setScenarios((cur) => [
+              ...cur,
+              {
+                ...plannerDefaults(kisTier, nagyTier),
+                id: crypto.randomUUID(),
+                nev: `${String.fromCharCode(65 + (cur.length % 26))} terv`,
+              },
+            ])
+          }
+        >
+          <Plus className="mr-1 size-3.5" /> Új forgatókönyv
+        </Button>
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        <Info className="mr-1 inline size-3.5 text-primary" />
+        Írd be, hány <strong>kis („B")</strong> és hány <strong>nagy („A")</strong> gyülekezettel
+        számolsz — a rendszer <strong>havi és éves</strong> bontásban számol. A díjak alapértéke az
+        árazási sávokból jön{kisTier ? ` (kis: ${kisTier.nev} — ${formatRon(kisTier.havi_dij_ron)}/hó` : ''}
+        {nagyTier ? `, nagy: ${nagyTier.nev} — ${formatRon(nagyTier.havi_dij_ron)}/hó)` : kisTier ? ')' : ''},
+        de forgatókönyvenként átírható. Több forgatókönyv tartható egymás mellett; a böngésző megjegyzi őket.
+        {!base && (
+          <strong className="text-amber-600"> A költség-alapadat nem töltődött be — a költség/profit oszlopok most nem értelmezhetők.</strong>
+        )}
+      </p>
+
+      <div className="space-y-3">
+        {scenarios.map((s) => {
+          const c = compute(s)
+          return (
+            <div key={s.id} className="rounded-xl border border-border bg-muted/20 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  value={s.nev}
+                  onChange={(e) => upd(s.id, { nev: e.target.value })}
+                  className="h-9 w-32 rounded-lg border border-input bg-background px-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  title="A forgatókönyv neve"
+                />
+                <span className="ml-auto text-xs text-muted-foreground">
+                  Összesen <strong className="text-foreground">{c.osszes}</strong> gyülekezet
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="rounded-lg text-muted-foreground hover:text-destructive"
+                  onClick={() => setScenarios((cur) => cur.length > 1 ? cur.filter((x) => x.id !== s.id) : cur)}
+                  disabled={scenarios.length <= 1}
+                  title={scenarios.length <= 1 ? 'Az utolsó forgatókönyv nem törölhető' : 'Forgatókönyv törlése'}
+                >
+                  Törlés
+                </Button>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 lg:grid-cols-6">
+                <label className="space-y-1 text-[11px] font-medium text-muted-foreground">
+                  Kis gyülekezet (db)
+                  {numInput(s.kisDb, (v) => upd(s.id, { kisDb: v }), 'Hány kis („B") gyülekezettel számolsz?')}
+                </label>
+                <label className="space-y-1 text-[11px] font-medium text-muted-foreground">
+                  Nagy gyülekezet (db)
+                  {numInput(s.nagyDb, (v) => upd(s.id, { nagyDb: v }), 'Hány nagy („A") gyülekezettel számolsz?')}
+                </label>
+                <label className="space-y-1 text-[11px] font-medium text-muted-foreground">
+                  Kis díj (RON/hó)
+                  {numInput(s.kisHaviDij, (v) => upd(s.id, { kisHaviDij: v, kisEvesDij: String(num(v) * 12) }), 'Egy kis gyülekezet havi díja — átírásakor az éves díj is frissül (havi × 12)')}
+                </label>
+                <label className="space-y-1 text-[11px] font-medium text-muted-foreground">
+                  Nagy díj (RON/hó)
+                  {numInput(s.nagyHaviDij, (v) => upd(s.id, { nagyHaviDij: v, nagyEvesDij: String(num(v) * 12) }), 'Egy nagy gyülekezet havi díja — átírásakor az éves díj is frissül (havi × 12)')}
+                </label>
+                <label className="space-y-1 text-[11px] font-medium text-muted-foreground">
+                  Kis díj (RON/év)
+                  {numInput(s.kisEvesDij, (v) => upd(s.id, { kisEvesDij: v }), 'Egy kis gyülekezet ÉVES díja — ha az éves konstrukció olcsóbb, itt írd át')}
+                </label>
+                <label className="space-y-1 text-[11px] font-medium text-muted-foreground">
+                  Nagy díj (RON/év)
+                  {numInput(s.nagyEvesDij, (v) => upd(s.id, { nagyEvesDij: v }), 'Egy nagy gyülekezet ÉVES díja — ha az éves konstrukció olcsóbb, itt írd át')}
+                </label>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <PlannerStat label="Havi bevétel" value={formatRon(c.haviBevetel)} tone="pos" />
+                <PlannerStat label="Éves bevétel" value={formatRon(c.evesBevetel)} tone="pos" />
+                <PlannerStat label="Havi költség" value={base ? formatRon(c.haviKoltseg) : '—'} tone="neg" />
+                <PlannerStat label="Éves költség" value={base ? formatRon(c.evesKoltseg) : '—'} tone="neg" />
+                <PlannerStat label="Havi profit" value={base ? formatRon(c.haviProfit) : '—'} tone={c.haviProfit >= 0 ? 'pos' : 'neg'} strong />
+                <PlannerStat label="Éves profit" value={base ? formatRon(c.evesProfit) : '—'} tone={c.evesProfit >= 0 ? 'pos' : 'neg'} strong />
+                <div className="col-span-2 flex items-center justify-end gap-2 sm:col-span-2">
+                  <span className="text-[11px] font-medium text-muted-foreground">Margin</span>
+                  <StatusBadge intent={c.margin >= 50 ? 'success' : c.margin >= 0 ? 'warning' : 'danger'}>
+                    {base ? `${c.margin.toFixed(1)}%` : '—'}
+                  </StatusBadge>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function PlannerStat({ label, value, tone, strong }: { label: string; value: string; tone: 'pos' | 'neg'; strong?: boolean }) {
+  return (
+    <div className="rounded-lg border border-border bg-background px-3 py-2">
+      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className={`text-sm tabular-nums ${strong ? 'font-bold' : 'font-semibold'} ${tone === 'pos' ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'}`}>
+        {value}
+      </p>
+    </div>
   )
 }
 

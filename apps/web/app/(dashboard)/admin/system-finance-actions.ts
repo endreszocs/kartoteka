@@ -606,8 +606,22 @@ export async function getSystemFinanceSummary(): Promise<{
 // 5) Skálázási előrejelzés (szcenáriók)
 // ─────────────────────────────────────────────────────────────────────────
 
+/**
+ * 2026-08-14 (Endre kérése): a Tervezés fül SAJÁT kalkulátorának alapadatai —
+ * a kis/nagy gyülekezet-számos tervezéshez a kliensnek tudnia kell a havi
+ * alapköltséget és a skálázódási felárat, KÜLÖN, hogy ne kelljen a fix
+ * szcenárió-sorokból visszafejtenie.
+ */
+export interface ScalingForecastBase {
+  /** Az aktív költségtételek havi összege (RON). */
+  havi_alap_koltseg_ron: number
+  /** Becsült extra havi szerver-költség minden 100 gyülekezet után (RON). */
+  extra_ron_per_100_gyulekezet: number
+}
+
 export async function getScalingForecast(): Promise<{
   data?: ScalingScenario[]
+  base?: ScalingForecastBase
   error?: string
 }> {
   const ctx = await requireAdmin()
@@ -651,12 +665,12 @@ export async function getScalingForecast(): Promise<{
   }
 
   // Szcenáriók: 25, 50, 100, 200, 500, 1000 gyülekezet
-  // Tervgörbe alapján: ~5 RON extra havi költség minden 100 gyülekezet után
+  // Linearizált költség: alap + scale-with-count (Supabase egress, compute skálázik).
+  // A felár a kliens-oldali tervező-kalkulátorral KÖZÖS (lásd base a válaszban).
   const scenarios = [25, 50, 100, 200, 500, 1000]
+  const extraPer100 = 25 // RON extra szerver költség minden 100 gyülekezet után
 
   const forecast: ScalingScenario[] = scenarios.map((count) => {
-    // Linearizált költség: alap + scale-with-count (Supabase egress, compute skálázik)
-    const extraPer100 = 25  // RON extra szerver költség minden 100 gyülekezet után
     const scalingExtra = Math.floor(count / 100) * extraPer100
     const havi_koltseg_ron = monthlyBaseCostRon + scalingExtra
 
@@ -680,7 +694,13 @@ export async function getScalingForecast(): Promise<{
     }
   })
 
-  return { data: forecast }
+  return {
+    data: forecast,
+    base: {
+      havi_alap_koltseg_ron: Math.round(monthlyBaseCostRon * 100) / 100,
+      extra_ron_per_100_gyulekezet: extraPer100,
+    },
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────

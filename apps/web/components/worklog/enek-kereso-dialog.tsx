@@ -116,7 +116,7 @@ export function EnekKeresoDialog({ open, onOpenChange, onInsert }: EnekKeresoDia
 
   return (
     <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) setOpenedEnek(null) }}>
-      <DialogContent className="flex max-h-[85vh] flex-col gap-3 sm:max-w-3xl">
+      <DialogContent className="flex max-h-[85dvh] flex-col gap-3 sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Music className="size-5 text-primary" /> Énekkereső — teljes szövegű keresés

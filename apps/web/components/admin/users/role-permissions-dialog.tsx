@@ -85,7 +85,7 @@ export function RolePermissionsDialog({
           {email && <p className="truncate text-xs text-muted-foreground">{email}</p>}
         </DialogHeader>
 
-        <div className="max-h-[70vh] space-y-5 overflow-y-auto">
+        <div className="max-h-[70dvh] space-y-5 overflow-y-auto">
           {/* Aktív szerepkörök listája */}
           {approvedRoles.length === 0 ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">

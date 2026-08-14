@@ -43,7 +43,7 @@ export function OblioManualMatchDialog({
         className="
           w-[calc(100%-1.5rem)] sm:w-full
           sm:max-w-2xl md:max-w-3xl
-          max-h-[90vh] overflow-y-auto
+          max-h-[90dvh] overflow-y-auto
           border border-cyan-200 bg-gradient-to-br from-white via-white to-cyan-50/30
           p-0 gap-0 rounded-2xl
         "

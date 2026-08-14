@@ -54,7 +54,7 @@ export function InventoryAmortizationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="max-h-[88dvh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Amortizációs információk</DialogTitle>
         </DialogHeader>

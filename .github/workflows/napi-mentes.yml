@@ -10,10 +10,21 @@
 #  cront, az oldal nem futna folyamatosan. Külön Railway-szolgáltatás megoldaná,
 #  de az plusz díj. Ez itt ingyenes.
 #
-#  MIT CSINÁL
-#  Meghívja a mentés-motort, majd SZELETEKBEN addig hívja újra, amíg van hátra.
-#  A napi kulcs (`backup_log` egyedi indexe) miatt minden szelet pontosan ott
-#  folytatja, ahol az előző abbahagyta — kész hatókört SOHA nem ment újra.
+#  MIT CSINÁL (2026-08-14 óta: INDÍT ÉS RÖVIDEN FIGYEL)
+#  Egy POST-tal ELINDÍTJA a mentést a szerveren (a supervisor háttér-ciklusát),
+#  majd pár percig az állapotot kérdezgeti: a korai, rendszerszintű hibát
+#  (nincs kulcs, halott tároló, nulla haladás) hangosan jelzi. A hosszú futás
+#  a SZERVEREN megy tovább — a befejezés őre az admin → Biztonsági mentés
+#  oldal és az őrszem-riasztás (e-mail + harang).
+#
+#  ⚠️ MIÉRT NEM VÁRJA VÉGIG (2026-08-14, mért eset): a régi változat a szeletet
+#  EGY HTTP-kérésben futtatta végig, de a kartoteka.app előtt ülő Cloudflare
+#  ~100 másodpercnél minden kérést elvág (HTTP 524) — az első éles hajnali
+#  futás így bukott el. A végigvárás runner-percben is pazarlás lenne: egy
+#  teljes országos kör órákig tarthat.
+#
+#  A napi kulcs (`backup_log` egyedi indexe) miatt a futás mindig ott folytatja,
+#  ahol abbamaradt — kész hatókört SOHA nem ment újra.
 #
 #  ⚠️ IDŐZÓNA: a GitHub Actions ütemezése UTC-ben jár, akárcsak a Railway-é.
 #  A `17 2 * * *` tehát Bukarestben NYÁRON 05:17, TÉLEN 04:17. Ez szándékos:
@@ -51,9 +62,8 @@ concurrency:
 jobs:
   mentes:
     runs-on: ubuntu-latest
-    # Egy teljes kör 784 hatókörre bőven belefér; a felső korlát csak azért van,
-    # hogy egy elakadt futás ne pörögjön órákig.
-    timeout-minutes: 120
+    # Indítás + rövid figyelés — a futás maga a szerveren él, nem itt.
+    timeout-minutes: 15
 
     steps:
       - name: A titok meglétének ellenőrzése
@@ -68,7 +78,7 @@ jobs:
             echo "van=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Mentés indítása és végigfuttatása szeletekben
+      - name: Mentés indítása és rövid figyelése
         if: steps.orszem.outputs.van == 'true'
         env:
           VEGPONT: https://kartoteka.app/api/internal/backup
@@ -76,76 +86,92 @@ jobs:
         run: |
           set -uo pipefail
 
-          # Legfeljebb ennyi szelet. 784 hatókörnél bőven elég; a korlát csak
-          # végtelen ciklus ellen véd.
-          MAX_SZELET=40
-          szelet=0
-          osszes_sikeres=0
-          volt_bukas=0
-
-          while [ "$szelet" -lt "$MAX_SZELET" ]; do
-            szelet=$((szelet + 1))
-            echo "── $szelet. szelet ─────────────────────────────────────────"
-
-            # A `-sS` csendes, de a hibát kiírja. A `--max-time` a szerver saját
-            # szelet-keretéhez igazodik (az bőven 10 perc alatt zár).
-            valasz=$(curl -sS -X POST "$VEGPONT" \
-              -H "Authorization: Bearer $TITOK" \
-              -H "Content-Type: application/json" \
-              -d '{"forras":"github-actions"}' \
-              --max-time 900 \
-              -w '\n%{http_code}') || {
-                echo "::error::A hívás nem ért célba (hálózati hiba vagy időtúllépés) a $szelet. szeletnél."
-                exit 1
-              }
-
-            kod=$(printf '%s' "$valasz" | tail -n1)
-            torzs=$(printf '%s' "$valasz" | sed '$d')
-
-            echo "HTTP $kod"
-            echo "$torzs"
-
-            # A válasz JSON. Kiolvassuk, mennyi maradt és mennyi sikerült.
-            hatralevo=$(printf '%s' "$torzs" | jq -r '.hatralevo // empty')
-            sikeres=$(printf '%s'  "$torzs" | jq -r '.sikeres   // 0')
-            sikertelen=$(printf '%s' "$torzs" | jq -r '.sikertelen // 0')
-
-            osszes_sikeres=$((osszes_sikeres + sikeres))
-            if [ "$sikertelen" -gt 0 ]; then volt_bukas=1; fi
-
-            if [ "$kod" -ge 500 ]; then
-              echo "::error::A mentés-motor hibát adott (HTTP $kod). Nézd meg az admin → Biztonsági mentés oldalt."
+          # ── 1) INDÍTÁS — a POST azonnal visszatér (a futás a szerveren él) ──
+          # A `--retry` az átmeneti hálózati/proxy hibákat (502/524) is újrázza.
+          valasz=$(curl -sS -X POST "$VEGPONT" \
+            -H "Authorization: Bearer $TITOK" \
+            -H "Content-Type: application/json" \
+            -d '{"forras":"github-actions"}' \
+            --max-time 60 \
+            --retry 3 --retry-delay 20 --retry-all-errors \
+            -w '\n%{http_code}') || {
+              echo "::error::Az indító hívás nem ért célba (hálózati hiba vagy időtúllépés)."
               exit 1
-            fi
+            }
 
-            # Ha nincs több hátra, készen vagyunk.
-            if [ -z "$hatralevo" ] || [ "$hatralevo" -eq 0 ]; then
-              echo "✅ Nincs több hátralévő hatókör."
-              break
-            fi
+          kod=$(printf '%s' "$valasz" | tail -n1)
+          torzs=$(printf '%s' "$valasz" | sed '$d')
+          echo "HTTP $kod"
+          echo "$torzs"
 
-            # HALADÁS-FELTÉTEL: ha egy szelet NULLA sikerrel zárult, de van hátra,
-            # akkor rendszerszintű baj van — nincs értelme 40-szer nekifutni.
-            # (Ugyanez a szabály van a szerveroldali szelet-ciklusban is.)
-            if [ "$sikeres" -eq 0 ]; then
-              echo "::error::A szelet egyetlen hatókört sem tudott lementeni, pedig $hatralevo maradt. Ez rendszerszintű hiba — megállok."
-              exit 1
-            fi
-
-            echo "Hátralévő: $hatralevo — megyek tovább."
-          done
-
-          echo "──────────────────────────────────────────────────────────────"
-          echo "Összesen $osszes_sikeres hatókör mentése készült el $szelet szeletben."
-
-          if [ "$szelet" -ge "$MAX_SZELET" ]; then
-            echo "::error::Elértem a $MAX_SZELET szeletes korlátot, és még maradt hátra. Nézd meg az admin felületet."
+          # ⚠️ ELŐBB a státuszkód, CSAK UTÁNA a jq: egy proxy-hibaoldal nem
+          #    JSON, és a jq-elhasalás a valódi hibaüzenetet nyelné el (a
+          #    2026-08-14-i 524-es bukás pontosan így halt meg exit 5-tel).
+          if [ "$kod" -lt 200 ] || [ "$kod" -ge 300 ]; then
+            echo "::error::A mentés-indítás hibát adott (HTTP $kod). Nézd meg az admin → Biztonsági mentés oldalt."
             exit 1
           fi
 
-          if [ "$volt_bukas" -eq 1 ]; then
-            echo "::warning::Közben volt hatókör, amelyik elbukott — a részletek az admin → Biztonsági mentés oldalon, névvel."
+          inditva=$(printf '%s' "$torzs" | jq -r '.inditva // empty' 2>/dev/null || true)
+          if [ "$inditva" = "false" ]; then
+            echo "Már futott egy mentés a szerveren — nem indítottunk másodikat, azt figyeljük."
+          else
+            echo "✅ A mentés elindult a szerveren."
           fi
+
+          # ── 2) RÖVID FIGYELÉS — a korai, rendszerszintű hiba itt derül ki ──
+          # 10 × 30 mp = 5 perc. Ha eddig nem halt meg, jó eséllyel végigmegy;
+          # a befejezés őre az admin-oldal + az őrszem-riasztás.
+          sikeres=0
+          kesz=0
+          for i in $(seq 1 10); do
+            sleep 30
+            allapot=$(curl -sS "$VEGPONT" \
+              -H "Authorization: Bearer $TITOK" \
+              --max-time 60 \
+              --retry 2 --retry-delay 10 --retry-all-errors \
+              -w '\n%{http_code}') || {
+                echo "::warning::Az állapot-lekérdezés nem ért célba ($i. próba) — folytatom."
+                continue
+              }
+            akod=$(printf '%s' "$allapot" | tail -n1)
+            atorzs=$(printf '%s' "$allapot" | sed '$d')
+            if [ "$akod" -lt 200 ] || [ "$akod" -ge 300 ]; then
+              echo "::warning::Az állapot-lekérdezés HTTP $akod-t adott ($i. próba) — folytatom."
+              continue
+            fi
+
+            fut=$(printf '%s' "$atorzs"        | jq -r '.allapot.fut // empty'          2>/dev/null || true)
+            ok_vege=$(printf '%s' "$atorzs"    | jq -r '.allapot.befejezesOka // empty' 2>/dev/null || true)
+            sikeres=$(printf '%s' "$atorzs"    | jq -r '.allapot.sikeres // 0'          2>/dev/null || echo 0)
+            kesz=$(printf '%s' "$atorzs"       | jq -r '.allapot.korabbanKesz // 0'     2>/dev/null || echo 0)
+            hatralevo=$(printf '%s' "$atorzs"  | jq -r '.allapot.hatralevo // "?"'      2>/dev/null || echo '?')
+            hiba=$(printf '%s' "$atorzs"       | jq -r '.allapot.utolsoHiba // empty'   2>/dev/null || true)
+
+            echo "── $i. ellenőrzés: fut=$fut, kész ebben a futásban=$sikeres, korábban kész=$kesz, hátra=$hatralevo"
+
+            if [ "$fut" != "true" ]; then
+              case "$ok_vege" in
+                kesz)
+                  echo "✅ A mentés VÉGIGÉRT: minden hatókörhöz hozzáért."
+                  exit 0 ;;
+                hiba|nem_halad)
+                  echo "::error::A mentés megállt ($ok_vege): ${hiba:-részletek az admin → Biztonsági mentés oldalon}."
+                  exit 1 ;;
+                *)
+                  echo "::warning::A mentés megállt ($ok_vege) — nézd meg az admin → Biztonsági mentés oldalt."
+                  exit 1 ;;
+              esac
+            fi
+          done
+
+          # 5 perc után még fut — ez normális (egy teljes kör órákig tarthat).
+          if [ "${sikeres:-0}" -eq 0 ] && [ "${kesz:-0}" -eq 0 ]; then
+            echo "::warning::5 perc alatt nem látszott haladás. Lehet lassú előkészítés is — nézd meg az admin → Biztonsági mentés oldalt."
+          else
+            echo "✅ A mentés rendben halad — a futás a SZERVEREN folytatódik."
+          fi
+          echo "A befejezést az admin → Biztonsági mentés oldal és az őrszem-riasztás igazolja."
 
       - name: Emlékeztető, ha a titok hiányzik
         if: steps.orszem.outputs.van != 'true'

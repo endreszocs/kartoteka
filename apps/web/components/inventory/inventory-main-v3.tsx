@@ -105,6 +105,8 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
   // 2026-08-09: élő fişă-előnézet a tétel-űrlaphoz (xl+ oldalsó oszlop /
   // kisebb kijelzőn gombbal nyíló réteg) — a person-card-print (PR-17) mintája.
   const [previewHtml, setPreviewHtml] = useState('')
+  // 2026-08-14 (11. pont): a fisa nyelve — HU (alap) vagy RO (hivatalos forma).
+  const [fisaLang, setFisaLang] = useState<'hu' | 'ro'>('hu')
   const [previewOverlayOpen, setPreviewOverlayOpen] = useState(false)
   // 2026-08-09: „Kikeresés a könyvelésből" — kapcsolt kiadás (penzugy_xkey) +
   // a kiadás-választó állapota.
@@ -149,6 +151,16 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
     () => [...new Set(activeItems.map(item => item.helyszin).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), 'hu')),
     [activeItems],
   )
+
+  // 2026-08-14 (12. pont): kategóriánkénti élő darabszám a szűrő-gombokhoz.
+  const categoryCounts = useMemo(() => {
+    const ki: Record<string, number> = {}
+    for (const item of activeItems) {
+      const k = item.kategoria_key || ''
+      if (k) ki[k] = (ki[k] || 0) + 1
+    }
+    return ki
+  }, [activeItems])
 
   const filtered = useMemo(() => {
     const normalizedQuery = searchQuery
@@ -272,13 +284,13 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
   useEffect(() => {
     if (!dialogOpen) return
     const t = window.setTimeout(() => {
-      setPreviewHtml(buildInventoryItemCardHtml(formCardData()).html)
+      setPreviewHtml(buildInventoryItemCardHtml({ ...formCardData(), lang: fisaLang }).html)
     }, 300)
     return () => window.clearTimeout(t)
-  }, [dialogOpen, formCardData])
+  }, [dialogOpen, formCardData, fisaLang])
 
   function handlePreviewPrint() {
-    void printToBrowser(buildInventoryItemCardHtml(formCardData()).html)
+    void printToBrowser(buildInventoryItemCardHtml({ ...formCardData(), lang: fisaLang }).html)
   }
 
   const itemToCardData = useCallback((item: InventoryItem): InventoryItemCardData => {
@@ -309,7 +321,8 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
   }, [congregationName])
 
   function handleRowFisaPrint(item: InventoryItem) {
-    void printToBrowser(buildInventoryItemCardHtml(itemToCardData(item)).html)
+    // A fisa a legutobb valasztott nyelven nyomtatodik (HU az alap).
+    void printToBrowser(buildInventoryItemCardHtml({ ...itemToCardData(item), lang: fisaLang }).html)
   }
 
   async function handleFinalize() {
@@ -597,24 +610,53 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
           )}
 
           <div className="card-raised flex flex-col gap-3 p-4">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[210px_210px_180px_180px_minmax(240px,1fr)]">
-                <label className="text-sm font-medium text-slate-700">
-                  Kategória
-                  <select
-                    value={categoryFilter}
-                    onChange={event => setCategoryFilter(event.target.value)}
-                    className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
+            {/* 2026-08-14 (12. pont, Endre kérése): a kategória-szűrő KIS GOMBOK
+                sora lett DARABSZÁMMAL — a korábbi legördülő helyett. Egy
+                koppintás = szűrés; az aktív gomb smaragd. A darabszám az élő
+                (nem kivezetett) tételekből számol, a többi szűrőtől függetlenül,
+                hogy a gombok feliratai stabilak legyenek. */}
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setCategoryFilter('')}
+                className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition ${
+                  !categoryFilter
+                    ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-400/40 dark:bg-emerald-400/15 dark:text-emerald-300'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:text-emerald-700 dark:border-slate-700 dark:bg-transparent dark:text-slate-400 dark:hover:text-emerald-300'
+                }`}
+              >
+                Mind
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] tabular-nums ${!categoryFilter ? 'bg-emerald-100 dark:bg-emerald-400/20' : 'bg-slate-100 dark:bg-white/10'}`}>
+                  {activeItems.length}
+                </span>
+              </button>
+              {INVENTORY_CATEGORIES.map(category => {
+                const db = categoryCounts[category] || 0
+                const active = categoryFilter === category
+                return (
+                  <button
+                    key={category}
+                    type="button"
+                    onClick={() => setCategoryFilter(active ? '' : category)}
+                    className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition ${
+                      active
+                        ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-400/40 dark:bg-emerald-400/15 dark:text-emerald-300'
+                        : db === 0
+                          ? 'border-slate-200 bg-white text-slate-400 hover:text-slate-500 dark:border-slate-800 dark:bg-transparent dark:text-slate-600'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:text-emerald-700 dark:border-slate-700 dark:bg-transparent dark:text-slate-400 dark:hover:text-emerald-300'
+                    }`}
                   >
-                    <option value="">Minden kategória</option>
-                    {INVENTORY_CATEGORIES.map(category => (
-                      <option key={category} value={category}>
-                        {INVENTORY_CATEGORY_LABELS[category]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    {INVENTORY_CATEGORY_LABELS[category]}
+                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] tabular-nums ${active ? 'bg-emerald-100 dark:bg-emerald-400/20' : 'bg-slate-100 dark:bg-white/10'}`}>
+                      {db}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
 
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[210px_180px_180px_minmax(240px,1fr)]">
                 <label className="text-sm font-medium text-slate-700">
                   Helyszín / felelős
                   <select
@@ -656,11 +698,18 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
                   magasak voltak — a 44px-es koppintási minimum alatt. A `min-h-11`
                   telefonon is biztonságosan eltalálható gombot ad. */}
               <div className="flex flex-wrap gap-2 xl:justify-end">
+                {/* 2026-08-14 (12. pont, Endre kérése): az „Új tétel hozzáadása"
+                    KIEMELT, jól látható gomb — eddig a négy egyforma outline-gomb
+                    egyike volt, elveszett közöttük. */}
+                <Button
+                  size="sm"
+                  className="min-h-11 rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white shadow-md hover:bg-emerald-700 dark:bg-emerald-500 dark:text-emerald-950 dark:hover:bg-emerald-400"
+                  onClick={() => openDialog()}
+                >
+                  + Új tétel hozzáadása
+                </Button>
                 <Button size="sm" variant="outline" className="min-h-11 rounded-xl" onClick={() => setPrintDialogOpen(true)}>
                   Nyomtatási központ
-                </Button>
-                <Button size="sm" variant="outline" className="min-h-11 rounded-xl" onClick={() => openDialog()}>
-                  Új tétel
                 </Button>
                 {!isFinalized ? (
                   <Button
@@ -930,7 +979,7 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
         {/* 2026-08-09: xl+ szélességen a fişă élő előnézete külön oszlopban
             (a member-form-dialog PR-17-es mintája); kisebb kijelzőn gombbal
             nyíló előnézet-réteg. */}
-        <DialogContent className="grid h-[min(90vh,56rem)] max-h-[90vh] grid-rows-[minmax(0,1fr)] overflow-hidden p-0 sm:max-w-2xl xl:max-w-6xl [&_[data-slot=dialog-close]]:z-30">
+        <DialogContent className="grid h-[min(90vh,56rem)] max-h-[90dvh] grid-rows-[minmax(0,1fr)] overflow-hidden p-0 sm:max-w-2xl xl:max-w-6xl [&_[data-slot=dialog-close]]:z-30">
           {/* Fix keretmagasság + oszlopon belüli görgetés — így a mobil előnézet-réteg
               a LÁTHATÓ keretre feszül (nem a görgethető tartalom teljes magasságára). */}
           <div className="relative grid min-h-0 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -1119,9 +1168,30 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                 Fişă — élő előnézet
               </p>
-              <Button type="button" variant="outline" size="sm" className="min-h-9 rounded-lg" onClick={handlePreviewPrint}>
-                <Printer className="mr-1.5 size-3.5" /> Nyomtatás
-              </Button>
+              <div className="flex items-center gap-2">
+                {/* 2026-08-14 (11. pont, Endre kérése): HU/RO nyelvválasztó — a RO
+                    a hivatalos forma (Fișa mijlocului fix / obiectului de inventar). */}
+                <div className="inline-flex overflow-hidden rounded-lg border border-input" role="group" aria-label="A fişă nyelve">
+                  {(['hu', 'ro'] as const).map(l => (
+                    <button
+                      key={l}
+                      type="button"
+                      onClick={() => setFisaLang(l)}
+                      className={`min-h-9 px-2.5 text-xs font-semibold uppercase transition ${
+                        fisaLang === l
+                          ? 'bg-emerald-600 text-white dark:bg-emerald-500 dark:text-emerald-950'
+                          : 'bg-background text-muted-foreground hover:text-foreground'
+                      }`}
+                      title={l === 'hu' ? 'Magyar elsődleges, román alcímkék' : 'Román elsődleges (hivatalos forma), magyar alcímkék'}
+                    >
+                      {l}
+                    </button>
+                  ))}
+                </div>
+                <Button type="button" variant="outline" size="sm" className="min-h-9 rounded-lg" onClick={handlePreviewPrint}>
+                  <Printer className="mr-1.5 size-3.5" /> Nyomtatás
+                </Button>
+              </div>
             </div>
             <div className="p-3">
               <ItemCardPreviewFrame html={previewHtml} scale={0.42} />
@@ -1168,7 +1238,7 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
           hogy a transformált DialogContent ne vágja le). A leltár-köteles jogcímek
           (205.01 / 201.12) a lista elején, borostyán jelöléssel. */}
       <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
-        <DialogContent className="flex max-h-[85vh] flex-col gap-3 sm:max-w-3xl">
+        <DialogContent className="flex max-h-[85dvh] flex-col gap-3 sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>Kikeresés a könyvelésből</DialogTitle>
           </DialogHeader>

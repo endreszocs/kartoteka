@@ -343,7 +343,7 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
       <DialogContent
         className="
           !w-[96vw] !max-w-[96vw] sm:!max-w-[min(900px,96vw)]
-          !h-[92vh] !max-h-[92vh]
+          !h-[92dvh] !max-h-[92dvh]
           overflow-hidden p-0 gap-0
           border border-violet-200 bg-gradient-to-br from-white via-white to-violet-50/20
           rounded-2xl flex flex-col

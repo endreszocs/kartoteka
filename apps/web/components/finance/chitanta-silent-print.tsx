@@ -112,7 +112,7 @@ export function ChitantaSilentPrint({ chitantaId, onDone }: Props) {
         aria-hidden
       />
 
-      <div className="chitanta-preview-panel relative z-10 flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+      <div className="chitanta-preview-panel relative z-10 flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
         {/* Vezérlősor — nyomtatásban nem látszik */}
         <div className="chitanta-no-print flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
           <div className="flex items-center gap-2">

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   AlertTriangle,
@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { fetchExactDeletedAt } from '@/app/(dashboard)/kuka/actions'
 import { Button } from '@/components/ui/button'
 import {
   emptyBin,
@@ -23,6 +24,13 @@ import {
   restoreRecord,
   type DeletedRecordSummary,
 } from '@/lib/offline/recycle-bin-actions'
+import {
+  deletedDateSuffix,
+  exactKey,
+  purgeCountdownDays,
+  purgeCountdownLabel,
+} from '@/lib/offline/recycle-bin-countdown'
+import { buildRecycleBinLabel } from '@/lib/offline/recycle-bin-labels'
 
 /**
  * Recycle Bin View — reusable Kuka oldal minden modulhoz.
@@ -44,10 +52,15 @@ import {
  *  - `accentColor`: header szín (Tailwind color név, pl. 'emerald' vagy 'teal')
  */
 
+// 2026-08-14 (6. pont, BLOKKOLÓ-javítás): a config SZÁNDÉKOSAN csak sima
+// adat (string mezők) — függvény NEM lehet benne. Korábban a Server Component
+// oldal (`kuka/page.tsx`) egy labelBuilder FÜGGVÉNYT adott át propként, amit a
+// Next.js nem tud szerializálni a Server→Client határon, ezért a Kuka oldal
+// MINDEN betöltésnél kivétellel elszállt. A címkézőt mostantól ITT, a kliens
+// oldalon állítjuk elő a tábla nevéből (buildRecycleBinLabel tiszta függvény).
 export interface RecycleBinTableConfig {
   dexieTable: string
   label: string
-  labelBuilder?: (r: Record<string, unknown>) => string
 }
 
 export function RecycleBinView({
@@ -82,7 +95,9 @@ export function RecycleBinView({
     for (const t of tables) {
       try {
         const rows = await listDeletedRecords(t.dexieTable, congregationId, {
-          labelBuilder: t.labelBuilder,
+          // A címkéző a KLIENSEN épül a tábla nevéből — függvény nem jöhet
+          // át a Server Component határon (lásd a RecycleBinTableConfig kommentjét).
+          labelBuilder: buildRecycleBinLabel(t.dexieTable),
           limit: 500,
         })
         records.push(...rows)
@@ -100,22 +115,80 @@ export function RecycleBinView({
   // ürítés végleges), és üres-állapotot sem szabad ígérni.
   const hasReadError = failedTables.length > 0
 
+  // 2026-08-14 (6. pont 2. ütem): a PONTOS törlés-dátumok a szerverről.
+  // A helyi (Dexie) másolat nem hordozza a deleted_at-ot — a sync explicit
+  // select-listáiba a migráció élesítése előtt nem tehető be —, ezért egy
+  // fail-soft akcióval kérdezzük le. Ha az oszlop még nincs élesben, üres
+  // térkép jön vissza, és marad a „legfeljebb N nap" becslés.
+  const [exactMap, setExactMap] = useState<Record<string, string>>({})
+  const idsSignature = useMemo(
+    () =>
+      (allDeleted ?? [])
+        .map(r => exactKey(r.table, r.id))
+        .sort()
+        .join(','),
+    [allDeleted],
+  )
+  useEffect(() => {
+    if (!idsSignature) {
+      setExactMap({})
+      return
+    }
+    // Ürítés/visszaállítás közben a Dexie live query kötegenként újraszámol,
+    // és a signature sokszor változna — művelet alatt nem indítunk kérést,
+    // a befejezés után (isPending → false) egyszer frissítünk.
+    if (isPending) return
+    let cancelled = false
+    const byTable = new Map<string, Array<string | number>>()
+    for (const r of allDeleted ?? []) {
+      const arr = byTable.get(r.table)
+      if (arr) arr.push(r.id)
+      else byTable.set(r.table, [r.id])
+    }
+    fetchExactDeletedAt(
+      [...byTable.entries()].map(([table, ids]) => ({ table, ids })),
+    )
+      .then(map => {
+        if (!cancelled) setExactMap(map)
+      })
+      .catch(e => console.warn('[kuka exact deleted_at]', e))
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsSignature, isPending])
+
+  // A megjelenített sorok: ahol van pontos szerver-dátum, az felülírja a
+  // helyi becslést (dátum + visszaszámláló + „pontos" jelleg).
+  const displayRows = useMemo(() => {
+    const now = Date.now()
+    return (allDeleted ?? []).map(r => {
+      const exact = exactMap[exactKey(r.table, r.id)]
+      if (!exact || r.deletedAtIsExact) return r
+      return {
+        ...r,
+        deletedAt: exact,
+        deletedAtIsExact: true,
+        daysUntilPurge: purgeCountdownDays(exact, now),
+      }
+    })
+  }, [allDeleted, exactMap])
+
   // Csoportosítás tábla szerint
   const groupedByTable = useMemo(() => {
     const map = new Map<string, DeletedRecordSummary[]>()
-    for (const r of allDeleted || []) {
+    for (const r of displayRows) {
       const arr = map.get(r.table)
       if (arr) arr.push(r)
       else map.set(r.table, [r])
     }
     return map
-  }, [allDeleted])
+  }, [displayRows])
 
-  const totalCount = allDeleted?.length || 0
-  const expiringCount =
-    allDeleted?.filter(
-      d => d.daysUntilPurge !== null && d.daysUntilPurge <= 3,
-    ).length || 0
+  const totalCount = displayRows.length
+  const expiringCount = displayRows.filter(
+    d => d.daysUntilPurge !== null && d.daysUntilPurge <= 3,
+  ).length
 
   function handleRestore(table: string, id: string | number) {
     startTransition(async () => {
@@ -175,6 +248,10 @@ export function RecycleBinView({
         for (const t of tables) {
           const { count } = await emptyBin(t.dexieTable, congregationId, {
             olderThanDays: olderThanDays ?? 0,
+            // A küszöb a PONTOS szerver-dátumból dőljön el, ahol ismert —
+            // különben a gomb kevesebbet törölne, mint amit a sorokon
+            // mutatott pontos visszaszámláló ígér.
+            exactDeletedAt: exactMap,
           })
           total += count
         }
@@ -361,6 +438,10 @@ function RecycleBinRowItem({
     : 'ismeretlen'
   const isExpiring =
     row.daysUntilPurge !== null && row.daysUntilPurge <= 3
+  const countdown = purgeCountdownLabel(
+    row.daysUntilPurge,
+    row.deletedAtIsExact,
+  )
 
   return (
     <li className="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -368,12 +449,17 @@ function RecycleBinRowItem({
         <p className="truncate text-sm font-medium text-slate-800">
           {row.displayLabel}
         </p>
+        {/* 2026-08-14 (2. ütem): ha a szerver megmondta a PONTOS deleted_at-ot
+            (a kuka-deleted-at migráció triggere bélyegzi), azt írjuk; amíg a
+            migráció nincs élesben, az updated_at-alapú FELSŐ becslés marad,
+            „legfeljebb N nap"-pal — nem ígérünk pontosságot, amink nincs. */}
         <div className="mt-0.5 flex items-center gap-3 text-xs text-slate-500">
           <span>
             <Clock className="mr-0.5 inline h-3 w-3" />
             Törölve: {deletedDate}
+            {deletedDateSuffix(row.deletedAtIsExact)}
           </span>
-          {row.daysUntilPurge !== null && (
+          {countdown !== null && (
             <span
               className={
                 isExpiring
@@ -381,9 +467,7 @@ function RecycleBinRowItem({
                   : 'text-slate-500'
               }
             >
-              {row.daysUntilPurge === 0
-                ? 'Ma törlődik véglegesen!'
-                : `${row.daysUntilPurge} nap múlva törlődik véglegesen`}
+              {countdown}
             </span>
           )}
         </div>

@@ -10,8 +10,11 @@
 
 import {
   Landmark, Pencil, Printer, Building2, MapPin, Phone, Wallet, Coins, PiggyBank, Users, ShieldCheck,
+  Share2, Copy as CopyIcon,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { CopyButton } from '@/components/ui/copy-button'
 import { printToBrowser } from '@/lib/utils/print-engine-v2'
 
 export interface CongregationSummaryData {
@@ -36,6 +39,8 @@ export interface CongregationSummaryData {
   discounts: string[]
   pastors: Array<{ full_name: string; started_at: string | null; ended_at: string | null; role?: string | null }>
   status: string | null
+  /** 2026-08-14 (4. pont): a publikus oldal slugja (ha be van kapcsolva) — a Megosztás gombhoz. */
+  publicSlug?: string
 }
 
 const EMPTY = '—'
@@ -45,40 +50,86 @@ const huDate = (d: string | null) =>
 // 2026-07-17 (F5, Q6): a tartozás-számítási mód kivezetve — mindig „akkori".
 
 // ── Színpaletták kategóriánként (élénk, „apple settings" jelleg) ──────────────
+// 2026-08-14 (4. pont): minden akcentus SÖTÉT variánst kapott — korábban a
+// kártyafejlécek sötét módban világos pasztell sávok maradtak világos
+// szöveggel (olvashatatlan), a színkódolás pedig élesben megsemmisült.
 type Accent = 'sky' | 'violet' | 'emerald' | 'amber' | 'teal' | 'rose' | 'indigo'
 const ACCENTS: Record<Accent, { chip: string; ring: string; title: string; head: string }> = {
-  sky: { chip: 'bg-sky-100 text-sky-700', ring: 'ring-sky-100', title: 'text-sky-800', head: 'from-sky-50 to-white' },
-  violet: { chip: 'bg-violet-100 text-violet-700', ring: 'ring-violet-100', title: 'text-violet-800', head: 'from-violet-50 to-white' },
-  emerald: { chip: 'bg-emerald-100 text-emerald-700', ring: 'ring-emerald-100', title: 'text-emerald-800', head: 'from-emerald-50 to-white' },
-  amber: { chip: 'bg-amber-100 text-amber-700', ring: 'ring-amber-100', title: 'text-amber-800', head: 'from-amber-50 to-white' },
-  teal: { chip: 'bg-teal-100 text-teal-700', ring: 'ring-teal-100', title: 'text-teal-800', head: 'from-teal-50 to-white' },
-  rose: { chip: 'bg-rose-100 text-rose-700', ring: 'ring-rose-100', title: 'text-rose-800', head: 'from-rose-50 to-white' },
-  indigo: { chip: 'bg-indigo-100 text-indigo-700', ring: 'ring-indigo-100', title: 'text-indigo-800', head: 'from-indigo-50 to-white' },
+  sky: { chip: 'bg-sky-100 text-sky-700 dark:bg-sky-400/15 dark:text-sky-300', ring: 'ring-sky-100 dark:ring-sky-400/20', title: 'text-sky-800 dark:text-sky-300', head: 'from-sky-50 to-white dark:from-sky-400/10 dark:to-transparent' },
+  violet: { chip: 'bg-violet-100 text-violet-700 dark:bg-violet-400/15 dark:text-violet-300', ring: 'ring-violet-100 dark:ring-violet-400/20', title: 'text-violet-800 dark:text-violet-300', head: 'from-violet-50 to-white dark:from-violet-400/10 dark:to-transparent' },
+  emerald: { chip: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300', ring: 'ring-emerald-100 dark:ring-emerald-400/20', title: 'text-emerald-800 dark:text-emerald-300', head: 'from-emerald-50 to-white dark:from-emerald-400/10 dark:to-transparent' },
+  amber: { chip: 'bg-amber-100 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300', ring: 'ring-amber-100 dark:ring-amber-400/20', title: 'text-amber-800 dark:text-amber-300', head: 'from-amber-50 to-white dark:from-amber-400/10 dark:to-transparent' },
+  teal: { chip: 'bg-teal-100 text-teal-700 dark:bg-teal-400/15 dark:text-teal-300', ring: 'ring-teal-100 dark:ring-teal-400/20', title: 'text-teal-800 dark:text-teal-300', head: 'from-teal-50 to-white dark:from-teal-400/10 dark:to-transparent' },
+  rose: { chip: 'bg-rose-100 text-rose-700 dark:bg-rose-400/15 dark:text-rose-300', ring: 'ring-rose-100 dark:ring-rose-400/20', title: 'text-rose-800 dark:text-rose-300', head: 'from-rose-50 to-white dark:from-rose-400/10 dark:to-transparent' },
+  indigo: { chip: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-400/15 dark:text-indigo-300', ring: 'ring-indigo-100 dark:ring-indigo-400/20', title: 'text-indigo-800 dark:text-indigo-300', head: 'from-indigo-50 to-white dark:from-indigo-400/10 dark:to-transparent' },
 }
 
 function Group({ icon, title, accent, children }: { icon: React.ReactNode; title: string; accent: Accent; children: React.ReactNode }) {
   const a = ACCENTS[accent]
   return (
-    <section className={`overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-sm ring-1 ${a.ring}`}>
-      <div className={`flex items-center gap-2.5 border-b border-slate-100 bg-gradient-to-r ${a.head} px-4 py-2.5`}>
-        <span className={`flex size-7 items-center justify-center rounded-xl ${a.chip} shadow-sm`}>{icon}</span>
+    <section className={`overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-sm ring-1 dark:border-slate-700 dark:bg-slate-900/60 ${a.ring}`}>
+      <div className={`flex items-center gap-2.5 border-b border-slate-100 bg-gradient-to-r px-4 py-2.5 dark:border-slate-800 ${a.head}`}>
+        <span className={`flex size-7 items-center justify-center rounded-xl shadow-sm ${a.chip}`}>{icon}</span>
         <h3 className={`text-[13px] font-bold uppercase tracking-wide ${a.title}`}>{title}</h3>
       </div>
-      <div className="divide-y divide-slate-100">{children}</div>
+      <div className="divide-y divide-slate-100 dark:divide-slate-800">{children}</div>
     </section>
   )
 }
 
-function Row({ label, value, mono }: { label: string; value?: React.ReactNode; mono?: boolean }) {
+function Row({
+  label, value, mono, copyText, copyLabel, href,
+}: {
+  label: string
+  value?: React.ReactNode
+  mono?: boolean
+  /** 2026-08-14 (4. pont): ha megadott, másolás-gomb áll a sor végén. */
+  copyText?: string
+  copyLabel?: string
+  /** mailto:/tel:/https link — telefonon ez a leggyakoribb művelet. */
+  href?: string
+}) {
   const empty = value == null || value === '' || value === EMPTY
+  // A hosszú, szóköz nélküli értékek (IBAN, adószám, e-mail) mobilon kilógtak
+  // és levágódtak → min-w-0 + break-all a mono, break-words a szöveges értékekre.
+  const valueClass = `min-w-0 text-right text-sm ${
+    empty
+      ? 'italic text-slate-300 dark:text-slate-600'
+      : `font-semibold text-slate-800 dark:text-slate-100 ${mono ? 'break-all tabular-nums' : 'break-words'}`
+  }`
+  const inner = empty ? EMPTY : value
   return (
-    <div className="flex items-start justify-between gap-4 px-4 py-2.5">
-      <span className="shrink-0 text-sm text-slate-500">{label}</span>
-      <span className={`text-right text-sm ${empty ? 'italic text-slate-300' : `font-semibold text-slate-800 ${mono ? 'tabular-nums' : ''}`}`}>
-        {empty ? EMPTY : value}
+    <div className="flex items-start justify-between gap-3 px-4 py-2.5">
+      <span className="shrink-0 text-sm text-slate-500 dark:text-slate-400">{label}</span>
+      <span className="flex min-w-0 items-start gap-1">
+        {href && !empty ? (
+          <a href={href} className={`${valueClass} underline-offset-2 hover:underline`} target={href.startsWith('http') ? '_blank' : undefined} rel="noreferrer">
+            {inner}
+          </a>
+        ) : (
+          <span className={valueClass}>{inner}</span>
+        )}
+        {copyText && !empty && <CopyButton value={copyText} label={copyLabel || label} className="-mr-1.5 -mt-0.5" />}
       </span>
     </div>
   )
+}
+
+/** A főbb adatok szöveges összefoglalója — a Másolás és a Megosztás közös forrása. */
+function buildShareText(data: CongregationSummaryData, publicUrl: string | null): string {
+  const sorok: string[] = [data.nevHu || data.nev || 'Gyülekezet']
+  if (data.dioceseName) sorok.push(data.dioceseName)
+  sorok.push('')
+  if (data.cimSor) sorok.push(`Cím: ${data.cimSor}`)
+  if (data.email) sorok.push(`E-mail: ${data.email}`)
+  if (data.telefon) sorok.push(`Telefon: ${data.telefon}`)
+  if (data.web) sorok.push(`Weboldal: ${data.web}`)
+  if (data.adoszam) sorok.push(`Adószám (CIF): ${data.adoszam}`)
+  for (const b of data.banks) {
+    if (b.iban) sorok.push(`${b.bank_neve || 'Bank'} (${b.valuta}): ${b.iban}`)
+  }
+  if (publicUrl) sorok.push('', publicUrl)
+  return sorok.join('\n')
 }
 
 export function CongregationSummary({
@@ -88,6 +139,49 @@ export function CongregationSummary({
   data: CongregationSummaryData
   onEdit: () => void
 }) {
+  // 2026-08-14 (4. pont): gyors megosztás + másolás. Az abszolút publikus URL
+  // eseménykezelőben épül (window.location.origin) — staging/lokál is helyes.
+  const publicUrlOf = () =>
+    data.publicSlug ? `${window.location.origin}/gy/${data.publicSlug}` : null
+
+  async function handleShare() {
+    const publicUrl = publicUrlOf()
+    const text = buildShareText(data, publicUrl)
+    const title = data.nevHu || data.nev || 'Gyülekezet'
+    // A birthday-card-dialog kiforrott mintája: canShare-ellenőrzés, az
+    // AbortError = a felhasználó mégse — az NEM hiba, nincs toast.
+    if (navigator.share) {
+      try {
+        await navigator.share(publicUrl ? { title, text, url: publicUrl } : { title, text })
+        return
+      } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') return
+        // NotAllowedError vagy más → vágólap-fallback lentebb.
+      }
+    }
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text)
+        toast.success('A megosztás itt nem érhető el — a főbb adatok a vágólapra kerültek.')
+        return
+      } catch { /* a lenti hibaüzenet jön */ }
+    }
+    toast.error('Sem a megosztás, sem a vágólap nem érhető el ebben a böngészőben.')
+  }
+
+  async function handleCopyAll() {
+    if (!navigator.clipboard?.writeText) {
+      toast.error('A vágólap nem érhető el ebben a böngészőben.')
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(buildShareText(data, publicUrlOf()))
+      toast.success('A főbb adatok a vágólapra kerültek — beillesztheted levélbe, üzenetbe.')
+    } catch {
+      toast.error('A másolás nem sikerült.')
+    }
+  }
+
   return (
     <div className="space-y-4">
       {/* Színes hero — címer + név + gombok */}
@@ -113,7 +207,27 @@ export function CongregationSummary({
               </div>
             </div>
           </div>
-          <div className="flex shrink-0 gap-2">
+          {/* 2026-08-14 (4. pont): flex-wrap — mobilon a gombok eddig egy nem
+              törő sorban ragadtak; + gyors Megosztás és Másolás gomb. */}
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="bg-white/90 text-slate-800 hover:bg-white"
+              onClick={() => void handleShare()}
+              title={data.publicSlug ? 'A főbb adatok + a publikus oldal linkjének megosztása' : 'A főbb adatok megosztása'}
+            >
+              <Share2 className="mr-1.5 size-4" /> Megosztás
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="bg-white/90 text-slate-800 hover:bg-white"
+              onClick={() => void handleCopyAll()}
+              title="A főbb adatok másolása szövegként (levélbe, üzenetbe illeszthető)"
+            >
+              <CopyIcon className="mr-1.5 size-4" /> Másolás
+            </Button>
             <Button
               variant="secondary"
               size="sm"
@@ -135,12 +249,12 @@ export function CongregationSummary({
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Group icon={<Building2 className="size-4" />} title="Megnevezések" accent="sky">
-          <Row label="Hivatalos név" value={data.nev || undefined} />
+          <Row label="Hivatalos név" value={data.nev || undefined} copyText={data.nev} copyLabel="Hivatalos név" />
           <Row label="Magyar név" value={data.nevHu || undefined} />
-          <Row label="Román név" value={data.nevRo || undefined} />
+          <Row label="Román név" value={data.nevRo || undefined} copyText={data.nevRo} copyLabel="Román név" />
           <Row label="Angol név" value={data.nevEn || undefined} />
-          <Row label="Adószám (CIF)" value={data.adoszam || undefined} mono />
-          {data.bejegyzesiszam ? <Row label="Bejegyzési szám" value={data.bejegyzesiszam} mono /> : null}
+          <Row label="Adószám (CIF)" value={data.adoszam || undefined} mono copyText={data.adoszam} copyLabel="Adószám" />
+          {data.bejegyzesiszam ? <Row label="Bejegyzési szám" value={data.bejegyzesiszam} mono copyText={data.bejegyzesiszam} copyLabel="Bejegyzési szám" /> : null}
         </Group>
 
         <Group icon={<Landmark className="size-4" />} title="Egyházi hovatartozás" accent="indigo">
@@ -149,13 +263,13 @@ export function CongregationSummary({
         </Group>
 
         <Group icon={<MapPin className="size-4" />} title="Hivatalos cím" accent="rose">
-          <Row label="Cím" value={data.cimSor || undefined} />
+          <Row label="Cím" value={data.cimSor || undefined} copyText={data.cimSor} copyLabel="Cím" />
         </Group>
 
         <Group icon={<Phone className="size-4" />} title="Elérhetőség" accent="teal">
-          <Row label="E-mail" value={data.email || undefined} />
-          <Row label="Telefon" value={data.telefon || undefined} mono />
-          <Row label="Weboldal" value={data.web || undefined} />
+          <Row label="E-mail" value={data.email || undefined} copyText={data.email} copyLabel="E-mail cím" href={data.email ? `mailto:${data.email}` : undefined} />
+          <Row label="Telefon" value={data.telefon || undefined} mono copyText={data.telefon} copyLabel="Telefonszám" href={data.telefon ? `tel:${data.telefon.replace(/\s/g, '')}` : undefined} />
+          <Row label="Weboldal" value={data.web || undefined} copyText={data.web} copyLabel="Weboldal" href={data.web ? (data.web.startsWith('http') ? data.web : `https://${data.web}`) : undefined} />
         </Group>
 
         <Group icon={<Wallet className="size-4" />} title="Bankszámlák" accent="violet">
@@ -167,6 +281,8 @@ export function CongregationSummary({
                   label={`${b.bank_neve || 'Bank'}${b.is_default ? ' · fő' : ''} (${b.valuta})`}
                   value={b.iban || undefined}
                   mono
+                  copyText={b.iban || undefined}
+                  copyLabel={`${b.bank_neve || 'Bank'} IBAN`}
                 />
               ))}
         </Group>
@@ -196,7 +312,7 @@ export function CongregationSummary({
         )}
       </div>
 
-      <p className="px-1 text-center text-xs text-slate-400">
+      <p className="px-1 text-center text-xs text-slate-400 dark:text-slate-500">
         Ez az ablak csak megtekintésre és nyomtatásra szolgál. A szerkesztés a Gyülekezet beállítása ablakban érhető el.
       </p>
     </div>

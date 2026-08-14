@@ -530,7 +530,7 @@ export function MonetaryTab({
           onClick={() => setPrintOpen(false)}
         >
           <div
-            className="flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            className="flex max-h-[94dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-3">
@@ -550,7 +550,7 @@ export function MonetaryTab({
 
             <div className="min-h-0 flex-1 overflow-auto bg-slate-100 p-4">
               <div className="mx-auto w-full max-w-[800px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                <iframe title="Monetár előnézet" srcDoc={printHtml} className="block h-[68vh] w-full bg-white" />
+                <iframe title="Monetár előnézet" srcDoc={printHtml} className="block h-[68dvh] w-full bg-white" />
               </div>
             </div>
 

@@ -100,6 +100,7 @@ export async function processMutation(
           envelope,
           entry.supabaseTable,
           entry.softDelete,
+          entry.softDeleteColumn ?? 'deleted',
         )
     }
   } catch (e) {
@@ -218,6 +219,7 @@ async function processDelete(
   envelope: MutationEnvelope,
   supabaseTable: string,
   softDelete: boolean,
+  softDeleteColumn: string,
 ): Promise<PushResult> {
   const rowId = envelope.payload.id
 
@@ -229,11 +231,22 @@ async function processDelete(
     }
   }
 
-  if (softDelete) {
-    // Soft delete: UPDATE deleted = true
+  // 2026-08-14 (6. pont, BLOKKOLÓ-javítás): a Kuka „Végleges törlés" gombja
+  // `_hardDelete: true` jelzőt tesz a payload-ba. Korábban ennek NEM volt
+  // feldolgozó ága: soft-delete táblán a „végleges" törlés is csak újra
+  // soft-deletelt, így a szerveren megmaradt sort a KÖVETKEZŐ szinkron
+  // visszahozta a Dexie-be — a felhasználó szemével a törölt rekord
+  // „visszajött". A jelző mostantól KÉNYSZERÍTI a valódi DELETE-et.
+  // (Ha az adott táblán nincs RLS DELETE-policy, a hívás hangos hibával
+  // bukik — fail-closed, a felület hibaüzenetet mutat, nem hazudik sikert.)
+  const hardRequested = envelope.payload._hardDelete === true
+
+  if (softDelete && !hardRequested) {
+    // Soft delete: UPDATE <jelző-oszlop> = true. Az oszlop neve táblánként
+    // eltérhet (leltar_tetelek: `is_deleted`) — a registry mondja meg.
     let query = supabase
       .from(supabaseTable)
-      .update({ deleted: true })
+      .update({ [softDeleteColumn]: true })
       .eq('id', rowId)
 
     if (envelope.baseRevision !== null) {

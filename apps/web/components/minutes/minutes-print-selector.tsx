@@ -143,7 +143,7 @@ export function MinutesPrintSelector({ minutes, congregationName, inline }: Minu
               <DialogTitle>Nyomtatási központ</DialogTitle>
             </DialogHeader>
             <p className="text-xs text-slate-500 -mt-2 mb-3">Válassz egy véglegesített jegyzőkönyvet</p>
-            <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+            <div className="space-y-2 max-h-[60dvh] overflow-y-auto">
               {printableMinutes.length === 0 ? (
                 <p className="text-sm text-slate-400 text-center py-6">Nincs véglegesített jegyzőkönyv.</p>
               ) : (

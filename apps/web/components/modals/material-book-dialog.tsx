@@ -148,7 +148,7 @@ export function MaterialBookDialog({ open, onOpenChange, materialId, congregatio
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-5xl max-h-[92vh] overflow-y-auto p-0">
+      <DialogContent className="sm:max-w-5xl max-h-[92dvh] overflow-y-auto p-0">
         <div className="border-b border-zinc-100 px-6 pt-6 pb-4">
           <DialogHeader>
             <div className="flex items-start gap-3">

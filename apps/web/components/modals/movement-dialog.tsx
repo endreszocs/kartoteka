@@ -133,7 +133,7 @@ export function MovementDialog({ open, onOpenChange, movementType, editEntry }: 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-2xl max-h-[85dvh] overflow-y-auto">
         <DialogHeader><DialogTitle>{editEntry ? MOVEMENT_LABELS[movementType].replace('rögzítése', 'szerkesztése') : MOVEMENT_LABELS[movementType]}</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">

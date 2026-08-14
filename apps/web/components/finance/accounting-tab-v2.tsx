@@ -26,6 +26,7 @@ import {
   requestAccountingUnlock,
 } from '@/app/(dashboard)/penzugy/actions'
 import { AccountingFinalizeWizard } from '@/components/modals/accounting-finalize-wizard-dialog'
+import { SzamadasTartozasokDialog } from '@/components/finance/szamadas-tartozasok-dialog'
 import { loadBudgetRowsCompat } from '@/lib/finance/budget-compat'
 import { createClient } from '@/lib/supabase/client'
 
@@ -48,6 +49,8 @@ export function AccountingTabV2(props: AccountingTabV2Props) {
   const router = useRouter()
   const [budgetData, setBudgetData] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
+  // 2026-08-14 (K2): a hivatalos Számadás 116–133. sorainak rögzítője.
+  const [tartozasokOpen, setTartozasokOpen] = useState(false)
   // 2026-07-10 (#2): előző évi (currentYear-1) tény kódonként — halvány
   // „Előző évi tény" oszlop a terv/tény táblákban.
   const [prevActuals, setPrevActuals] = useState<{
@@ -93,6 +96,33 @@ export function AccountingTabV2(props: AccountingTabV2Props) {
   }, [props.currentYear])
 
   return (
+    <>
+      {/* 2026-08-14 (K2): Tartozások/Kintlévőségek (a hivatalos Számadás
+          116–133. sora) — év végi rögzítő. Webes wrapper-szint: a desktop
+          Könyvelés-nézete read-only pillanatkép, ott nincs értelme. */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-muted/20 px-3 py-2">
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          <strong className="text-foreground">Év végi tartozások és kintlévőségek</strong> — a
+          hivatalos Számadás 116–133. sora. Az Útmutató szerint azt is jegyzőkönyvezni kell, ha
+          nincs tartozás.
+        </p>
+        <button
+          type="button"
+          onClick={() => setTartozasokOpen(true)}
+          className="inline-flex min-h-9 items-center rounded-lg border border-input bg-background px-3 text-sm font-medium shadow-sm transition hover:bg-accent"
+        >
+          Rögzítés / megtekintés…
+        </button>
+      </div>
+
+      <SzamadasTartozasokDialog
+        open={tartozasokOpen}
+        onOpenChange={setTartozasokOpen}
+        year={props.currentYear}
+        settings={props.settings}
+        onSaved={() => router.refresh()}
+      />
+
     <AccountingTab
       {...props}
       budgetData={budgetData}
@@ -122,5 +152,6 @@ export function AccountingTabV2(props: AccountingTabV2Props) {
         />
       )}
     />
+    </>
   )
 }

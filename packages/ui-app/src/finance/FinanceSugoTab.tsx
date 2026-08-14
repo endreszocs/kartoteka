@@ -1683,7 +1683,7 @@ export function FinanceSugoTab({
             xl-en saját sticky oszlop; lg-n (2 oszlop) teljes szélességű sor a
             tartalom alatt; mobilon a lap alja. EGY példány — a pipák állapota
             (localStorage) így sosem duplázódik. */}
-        <div className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:self-start xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto xl:pr-0.5">
+        <div className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:self-start xl:max-h-[calc(100dvh-2rem)] xl:overflow-y-auto xl:pr-0.5">
           <FinanceSugoChecklist finalizeHref={finalizeHref} />
         </div>
       </div>

@@ -31,6 +31,13 @@
 
 import { getDb } from './db'
 import { enqueue } from './mutation-queue'
+import {
+  purgeCountdownDays,
+  RECYCLE_BIN_RETENTION_DAYS,
+} from './recycle-bin-countdown'
+import { getTableEntry } from './table-registry'
+
+export { RECYCLE_BIN_RETENTION_DAYS }
 
 // ─────────────────────────────────────────────────────────────────
 // Típusok
@@ -40,16 +47,20 @@ export interface DeletedRecordSummary {
   table: string
   id: string | number
   displayLabel: string
-  deletedAt: string | null // updated_at a soft-delete időpontja
-  daysUntilPurge: number | null // hány nap múlva törlődik véglegesen (null ha nem soft)
+  /**
+   * A törlés időpontja. PONTOS, ha a rekord hordozza a `deleted_at`-ot
+   * (a 2026-08-14-kuka-deleted-at.sql triggere bélyegzi); egyébként az
+   * `updated_at` — mivel a soft-delete maga is egy update, az LEGFELJEBB a
+   * törlés időpontja lehet, a belőle számolt napszám tehát FELSŐ becslés.
+   * Melyik eset áll fenn, azt a `deletedAtIsExact` mondja meg — a UI
+   * becslésnél „legfeljebb N nap"-ot ír. A Kuka-nézet ezen felül a
+   * szerverről is behúzza a pontos dátumot (fetchExactDeletedAt, fail-soft).
+   */
+  deletedAt: string | null
+  deletedAtIsExact: boolean
+  daysUntilPurge: number | null // hány nap múlva törlődhet véglegesen (null ha nem soft)
   record: Record<string, unknown>
 }
-
-/**
- * A szerver-oldali retention időtartam (napokban).
- * Ennél régebbi soft-deleted rekordokat a pg_cron hard-deletel.
- */
-export const RECYCLE_BIN_RETENTION_DAYS = 30
 
 // ─────────────────────────────────────────────────────────────────
 // List — a Kuka tartalma egy táblára
@@ -87,18 +98,12 @@ export async function listDeletedRecords(
   const now = Date.now()
 
   return all.map(record => {
+    // Pontos dátum előnyben: ha a helyi másolat hordozza a deleted_at-ot
+    // (jövőbeli pull-bővítés / desktop), abból számolunk; különben az
+    // updated_at a felső becslés alapja.
+    const exactDeletedAt = record.deleted_at as string | null | undefined
     const updatedAt = record.updated_at as string | null
-    let daysUntilPurge: number | null = null
-    if (updatedAt) {
-      const deletedMs = new Date(updatedAt).getTime()
-      if (Number.isFinite(deletedMs)) {
-        const elapsedDays = (now - deletedMs) / (1000 * 60 * 60 * 24)
-        daysUntilPurge = Math.max(
-          0,
-          Math.ceil(RECYCLE_BIN_RETENTION_DAYS - elapsedDays),
-        )
-      }
-    }
+    const deletedAt = exactDeletedAt ?? updatedAt
 
     return {
       table,
@@ -106,8 +111,9 @@ export async function listDeletedRecords(
       displayLabel: options?.labelBuilder
         ? options.labelBuilder(record)
         : `#${record.id ?? '?'}`,
-      deletedAt: updatedAt,
-      daysUntilPurge,
+      deletedAt,
+      deletedAtIsExact: Boolean(exactDeletedAt),
+      daysUntilPurge: purgeCountdownDays(deletedAt, now),
       record,
     }
   })
@@ -129,9 +135,10 @@ export async function restoreRecord(
 
   const baseRevision = (record as { revision?: number }).revision ?? 0
 
-  // leltar_tetelek tábla az `is_deleted` mezőt használja, nem a `deleted`-et
-  const usesIsDeleted = table === 'leltar_tetelek'
-  const deletedField = usesIsDeleted ? 'is_deleted' : 'deleted'
+  // 2026-08-14 (6. pont): a jelző-oszlop nevét a registry mondja meg — a
+  // korábbi, itt bedrótozott `table === 'leltar_tetelek'` feltétel és a push
+  // soft-delete ága széthúzhatott volna. Egy igazság-forrás van.
+  const deletedField = getTableEntry(table)?.softDeleteColumn ?? 'deleted'
 
   // Optimistic Dexie update
   await dexieTable.update(id, {
@@ -195,6 +202,13 @@ export async function emptyBin(
   congregationId: string | null,
   options?: {
     olderThanDays?: number
+    /**
+     * Pontos törlés-dátumok (`tábla:id` → deleted_at ISO), a Kuka-nézet
+     * szerver-lekérdezéséből. Enélkül a helyi updated_at-becslés dönt, ami
+     * FELÜLbecsüli a dátumot → a „30+ napos sorok" gomb kevesebbet törölne,
+     * mint amennyit a sorokon mutatott pontos visszaszámláló ígér.
+     */
+    exactDeletedAt?: Record<string, string>
   },
 ): Promise<{ count: number }> {
   const deleted = await listDeletedRecords(table, congregationId, {
@@ -204,9 +218,11 @@ export async function emptyBin(
   const threshold = options?.olderThanDays ?? 0
   const toDelete = deleted.filter(d => {
     if (threshold === 0) return true
-    if (!d.deletedAt) return false
+    const exact = options?.exactDeletedAt?.[`${d.table}:${d.id}`]
+    const deletedAt = exact ?? d.deletedAt
+    if (!deletedAt) return false
     const elapsedDays =
-      (Date.now() - new Date(d.deletedAt).getTime()) /
+      (Date.now() - new Date(deletedAt).getTime()) /
       (1000 * 60 * 60 * 24)
     return elapsedDays >= threshold
   })

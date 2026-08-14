@@ -46,6 +46,24 @@ interface ProfileDialogData {
     bio: string
     ministryNotes: string
   }
+  /** 2026-08-14 (1. pont, 2. fele): az AUTOMATIKUS szolgálati-hely napló
+   *  (szolgalati_hely_naplo — a profiles-trigger írja). */
+  helyNaplo?: Array<{
+    id: string
+    congregationNev: string | null
+    elozoCongregationNev: string | null
+    jelleg: 'kezdeti' | 'valtozas'
+    createdAt: string
+  }>
+  /** 2026-08-14 (1. pont): strukturált szolgálati előzmények (pastor_service_history). */
+  serviceHistory?: Array<{
+    id: string
+    hely: string
+    szerep: string | null
+    evTol: number | null
+    evIg: number | null
+    megjegyzes: string | null
+  }>
   /** Multi-role szerepkörök — hierarchia szerint rendezve (2026-04-18) */
   profileRoles?: Array<{
     id: string
@@ -237,7 +255,7 @@ export function ProfileDialog({ open, onOpenChange, profile }: ProfileDialogProp
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>Profil</DialogTitle>
         </DialogHeader>
@@ -369,6 +387,40 @@ export function ProfileDialog({ open, onOpenChange, profile }: ProfileDialogProp
               </TabsContent>
 
               <TabsContent value="szolgalat" className="space-y-4 pt-4">
+                {/* 2026-08-14 (1. pont, 2. fele): az AUTOMATIKUS hely-napló —
+                    hol szolgál MOST, mióta, és a korábbi áthelyezések. A sorokat
+                    a rendszer írja (profiles-trigger), nem kézzel karbantartott. */}
+                {(data?.helyNaplo?.length ?? 0) > 0 && (
+                  <ProfileCard title="Szolgálati hely — automatikus napló" icon={<MapPin className="size-4" />}>
+                    <div className="space-y-2">
+                      {data!.helyNaplo!.map((n, i) => (
+                        <div key={n.id} className="min-w-0 rounded-[1rem] bg-slate-50/90 px-4 py-3">
+                          <p className="break-words text-sm font-semibold text-slate-700">
+                            {n.jelleg === 'kezdeti'
+                              ? n.congregationNev || '—'
+                              : n.congregationNev
+                                ? `${n.elozoCongregationNev || '(nincs korábbi)'} → ${n.congregationNev}`
+                                : `${n.elozoCongregationNev || '—'} → (megszűnt a hozzárendelés)`}
+                            {i === 0 && n.congregationNev && (
+                              <span className="ml-2 rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-medium text-teal-700">jelenlegi</span>
+                            )}
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {n.jelleg === 'kezdeti' ? 'Nyilvántartásba véve: ' : 'Áthelyezés: '}
+                            {new Date(n.createdAt).toLocaleDateString('hu-HU', { year: 'numeric', month: 'long', day: 'numeric' })}
+                          </p>
+                        </div>
+                      ))}
+                      {data?.createdAt && (
+                        <p className="px-1 text-[11px] text-slate-400">
+                          Kartotéka-regisztráció: {new Date(data.createdAt).toLocaleDateString('hu-HU', { year: 'numeric', month: 'long', day: 'numeric' })}
+                          {' '}· áthelyezéskor a rendszer automatikusan naplóz és értesítést küld.
+                        </p>
+                      )}
+                    </div>
+                  </ProfileCard>
+                )}
+
                 <div className="grid gap-4 lg:grid-cols-2">
                   <ProfileCard title="Szolgálati idő és megjegyzések" icon={<Church className="size-4" />}>
                     <ProfileRow label="Szolgálat kezdete" value={data?.pastorProfile.serviceStartedAt ? new Date(data.pastorProfile.serviceStartedAt).toLocaleDateString('hu-HU') : 'Nincs rögzítve'} />
@@ -376,7 +428,28 @@ export function ProfileDialog({ open, onOpenChange, profile }: ProfileDialogProp
                   </ProfileCard>
 
                   <ProfileCard title="Korábbi helyek és szerepek" icon={<MapPin className="size-4" />}>
-                    <TagGroup title="Korábbi szolgálati helyek" items={data?.pastorProfile.previousServicePlaces || []} emptyText="Még nincs rögzítve szolgálati előzmény." />
+                    {/* 2026-08-14 (1. pont): a STRUKTURÁLT előzmények (pastor_service_history)
+                        — a tábla eddig is létezett és a welcome-varázsló írta, csak SENKI nem
+                        olvasta, ezért állt itt örökké a „Még nincs rögzítve". Ha strukturált
+                        sor van, azt mutatjuk; különben a legacy szöveges címkéket. */}
+                    {(data?.serviceHistory?.length ?? 0) > 0 ? (
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Korábbi szolgálati helyek</p>
+                        {data!.serviceHistory!.map(sh => (
+                          <div key={sh.id} className="min-w-0 rounded-[1rem] bg-slate-50/90 px-4 py-3">
+                            <p className="break-words text-sm font-semibold text-slate-700">{sh.hely}</p>
+                            <p className="mt-0.5 text-xs text-slate-500">
+                              {[sh.szerep, sh.evTol != null ? `${sh.evTol}–${sh.evIg ?? 'jelenleg'}` : null]
+                                .filter(Boolean)
+                                .join(' · ') || '—'}
+                            </p>
+                            {sh.megjegyzes && <p className="mt-1 break-words text-xs text-slate-500">{sh.megjegyzes}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <TagGroup title="Korábbi szolgálati helyek" items={data?.pastorProfile.previousServicePlaces || []} emptyText="Még nincs rögzítve szolgálati előzmény." />
+                    )}
                     <div className="mt-4" />
                     <TagGroup title="Korábbi szerepkörök" items={data?.pastorProfile.previousRoles || []} emptyText="Még nincs rögzítve szerepkör-előzmény." />
                   </ProfileCard>
@@ -457,10 +530,15 @@ function InfoPill({ icon, label }: { icon: React.ReactNode; label: string }) {
 }
 
 function StatCard({ label, value }: { label: string; value: string }) {
+  // 2026-08-14 (1. pont): `min-w-0` + `break-words` — a hosszú, szóköz nélküli
+  // értékek (pl. az e-mail cím) eddig LEVÁGÓDTAK: a kártya nem tudott
+  // zsugorodni a gridben, a hero konténere pedig overflow-hidden. A break-all
+  // az e-mailhez kell: a break-words a @ előtti hosszú felhasználónevet nem
+  // törné meg.
   return (
-    <div className="rounded-[1.3rem] border border-white/80 bg-white/86 p-4 shadow-[0_18px_38px_-28px_rgba(15,23,42,0.22)]">
+    <div className="min-w-0 rounded-[1.3rem] border border-white/80 bg-white/86 p-4 shadow-[0_18px_38px_-28px_rgba(15,23,42,0.22)]">
       <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">{label}</p>
-      <p className="mt-2 text-sm font-semibold text-slate-700">{value}</p>
+      <p className="mt-2 break-all text-sm font-semibold text-slate-700">{value}</p>
     </div>
   )
 }
@@ -478,10 +556,11 @@ function ProfileCard({ title, icon, children }: { title: string; icon: React.Rea
 }
 
 function ProfileRow({ label, value, multiline = false }: { label: string; value: string; multiline?: boolean }) {
+  // 2026-08-14 (1. pont): break-words — hosszú érték (e-mail, URL) ne csordulhasson túl.
   return (
-    <div className="rounded-[1rem] bg-slate-50/90 px-4 py-3">
+    <div className="min-w-0 rounded-[1rem] bg-slate-50/90 px-4 py-3">
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{label}</p>
-      <p className={`mt-1 text-sm text-slate-700 ${multiline ? 'whitespace-pre-wrap leading-6' : ''}`}>{value}</p>
+      <p className={`mt-1 break-words text-sm text-slate-700 ${multiline ? 'whitespace-pre-wrap leading-6' : ''}`}>{value}</p>
     </div>
   )
 }

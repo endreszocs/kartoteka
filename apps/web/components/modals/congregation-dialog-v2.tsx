@@ -325,8 +325,13 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
       discounts: discounts.filter((d) => d.aktiv !== false).map(fmtDiscount),
       pastors: pastors.map((p) => ({ full_name: p.full_name, started_at: p.started_at, ended_at: p.ended_at })),
       status: congStatus,
+      // 2026-08-14 (4. pont): a publikus oldal slugja EDDIG betöltődött ide a
+      // szülőbe, de nem jutott el az összefoglalóig — a Megosztás gombnak kell.
+      // Az abszolút URL-t az összefoglaló építi (window.location.origin), így
+      // staging/lokál környezetben is a helyes címet osztja meg.
+      publicSlug: publicSite.enabled && publicSite.slug ? publicSite.slug : undefined,
     }
-  }, [form, dioceses, districtName, bankAccounts, discounts, pastors, congStatus])
+  }, [form, dioceses, districtName, bankAccounts, discounts, pastors, congStatus, publicSite])
 
   if (!congregationId) return null
   const activeCongregationId = congregationId
@@ -506,7 +511,7 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* #Endre 2026-07-02: a read-only összefoglaló (view) keskenyebb — a 2 oszlopos kártyák nem
           igényelnek 94vw-t; a haladó szerkesztő (advanced-edit, táblázatok/tabok) marad széles. */}
-      <DialogContent className={`max-h-[92vh] overflow-y-auto w-[calc(100%-1rem)] ${variant === 'advanced-edit' ? 'sm:max-w-6xl xl:max-w-[94vw]' : 'sm:max-w-4xl'}`}>
+      <DialogContent className={`max-h-[92dvh] overflow-y-auto w-[calc(100%-1rem)] ${variant === 'advanced-edit' ? 'sm:max-w-6xl xl:max-w-[94vw]' : 'sm:max-w-4xl'}`}>
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-2">
             {variant === 'advanced-edit' ? 'Kedvezmények, díjak és lelkész-átadás' : 'Gyülekezetünk adatai'}

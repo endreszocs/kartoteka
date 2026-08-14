@@ -5,13 +5,21 @@
  * A nyomtatás izolált iframe-ben történik, így nem örökli a teljes app CSS-ét.
  */
 
-async function createPrintIframe(htmlContent: string) {
+async function createPrintIframe(
+  htmlContent: string,
+  orientation: 'portrait' | 'landscape' = 'portrait',
+) {
   const iframe = document.createElement('iframe')
   iframe.style.position = 'fixed'
   iframe.style.left = '-9999px'
   iframe.style.top = '0'
-  iframe.style.width = '210mm'
-  iframe.style.height = '297mm'
+  // 2026-08-14 (16. pont, gyökérok-javítás): az iframe a TÁJOLÁSHOZ igazodik.
+  // Korábban FIXEN 210×297 (álló) volt — a fekvő nyomtatványok (Registru
+  // Casa/Banca, Registrul-Jurnal, Csoportnapló: 297mm széles .page) egy
+  // 210mm-es viewportban raszterizálódtak, ezért a PDF nem egyezett az
+  // előnézettel (elcsúszott margók, más tördelés).
+  iframe.style.width = orientation === 'landscape' ? '297mm' : '210mm'
+  iframe.style.height = orientation === 'landscape' ? '210mm' : '297mm'
 
   // A valódi `load` eseményre várunk (srcdoc), nem fix időzítőre — így a
   // tartalom biztosan készen van, mielőtt nyomtatunk (megbízható dialog).
@@ -192,7 +200,8 @@ async function printToPdfLegacy(
 ) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const html2pdf = (await import('html2pdf.js' as any)).default
-  const { iframe, iframeDoc } = await createPrintIframe(htmlContent)
+  // 2026-08-14 (16. pont): a raszterizáló iframe a dokumentum tájolását kapja.
+  const { iframe, iframeDoc } = await createPrintIframe(htmlContent, options?.orientation ?? 'portrait')
   applyPrintStyles(iframeDoc)
 
   // A html2pdf a klónt a FŐDOKUMENTUMBA fűzi a raszterizálás idejére (láthatatlan

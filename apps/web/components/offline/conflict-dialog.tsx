@@ -102,7 +102,7 @@ export function ConflictDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl max-h-[92vh] overflow-y-auto p-0">
+      <DialogContent className="sm:max-w-3xl max-h-[92dvh] overflow-y-auto p-0">
         <DialogHeader className="flex flex-row items-center gap-3 border-b border-slate-100 bg-gradient-to-br from-red-500 to-orange-600 px-5 py-4 text-white">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/20">
             <AlertTriangle className="h-5 w-5 text-white" />

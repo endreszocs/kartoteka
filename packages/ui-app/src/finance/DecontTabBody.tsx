@@ -23,7 +23,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Plus, Printer, Save, Trash2 } from 'lucide-react'
+import { AlertTriangle, Plus, Printer, Save, Trash2 } from 'lucide-react'
+import { decontElolegUzenet } from '@kartoteka/core'
 import { buildDecontHtml, type DecontDocItem } from './official-documents'
 import { formatRon } from './ron-in-words'
 import { parseFlexibleDate } from './date-parse'
@@ -333,6 +334,22 @@ export function DecontTabBody({
                 <input className={inputClass} type="number" min={0} step={0.01} value={advance} onChange={(e) => setAdvance(e.target.value)} />
               </Field>
             </div>
+            {/* 2026-08-14 (Endre kérése, „Változások 2026"): elszámolási előleg
+                készpénzben legfeljebb 1 000 lej/nap/személy — figyelmeztet,
+                nem blokkol (a közös szabály a @kartoteka/core-ban). */}
+            {(() => {
+              const w = decontElolegUzenet(advanceNum)
+              if (!w) return null
+              return (
+                <div
+                  role="alert"
+                  className="mt-3 flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-[13px] leading-relaxed text-amber-900"
+                >
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                  <p>{w.uzenet}</p>
+                </div>
+              )
+            })()}
           </Section>
 
           <Section title="Dátum és kategória">

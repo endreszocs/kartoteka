@@ -106,7 +106,7 @@ export function BackupDetailDialog({ sor, open, onOpenChange, letoltheto, jelszo
 
   return (
     <Dialog open={open} onOpenChange={(o) => (busy ? undefined : onOpenChange(o))}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="pr-8 text-lg text-foreground">
             {sor.congregationNev ?? 'Rendszerszintű (globális) mentés'} — {sor.runDate}

@@ -63,7 +63,7 @@ export function ForumComposeDialog({ open, onOpenChange, categories }: ForumComp
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={false} className="max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] overflow-y-auto rounded-[1.25rem] border-[#d8c9b4] bg-[#fffdf7] p-0 shadow-[0_28px_80px_-24px_rgba(46,38,27,.55)] sm:max-h-[90vh] sm:max-w-lg sm:rounded-xl">
+      <DialogContent showCloseButton={false} className="max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] overflow-y-auto rounded-[1.25rem] border-[#d8c9b4] bg-[#fffdf7] p-0 shadow-[0_28px_80px_-24px_rgba(46,38,27,.55)] sm:max-h-[90dvh] sm:max-w-lg sm:rounded-xl">
         <div className="relative overflow-hidden border-b border-[#d8c9b4] bg-[#f4ebdd] px-4 py-4 pr-14 sm:px-6 sm:py-5 sm:pr-16">
           <Feather className="absolute -bottom-6 -right-2 h-28 w-28 rotate-[-18deg] text-[#c87552]/10" aria-hidden="true" />
           <button

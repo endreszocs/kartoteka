@@ -26,7 +26,7 @@ export function PublicSiteSplash({
     <div
       role="status"
       aria-live="polite"
-      className="flex min-h-[70vh] flex-col items-center justify-center px-6 py-24 text-center"
+      className="flex min-h-[70dvh] flex-col items-center justify-center px-6 py-24 text-center"
     >
       <PublicCrest
         src={crestUrl || '/kartoteka-logo.png'}

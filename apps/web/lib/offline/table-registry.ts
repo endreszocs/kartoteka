@@ -73,6 +73,13 @@ export interface TableRegistryEntry {
   scopeFilter: ScopeFilter
   /** Soft-delete használat */
   softDelete: boolean
+  /**
+   * 2026-08-14 (6. pont): a soft-delete jelző OSZLOPNEVE, ha nem `deleted`.
+   * A `leltar_tetelek` az `is_deleted` nevet használja — e mező nélkül a
+   * push soft-delete ága `deleted = true`-t próbálna írni, amit a PostgREST
+   * 42703-mal (nincs ilyen oszlop) utasítana el.
+   */
+  softDeleteColumn?: string
   /** Milyen mezőket válasszunk (* alapértelmezett) */
   select?: string
   /** Modul besorolás (Excel fájlhoz) */
@@ -189,7 +196,12 @@ const PENZUGY_TABLES: TableRegistryEntry[] = [
     supabaseTable: 'befizetes',
     primaryKey: 'id',
     scopeFilter: 'congregation_id',
-    softDelete: false,
+    // 2026-08-14 (6. pont, BLOKKOLO-javitas): softDelete: true — a tabla
+    // BIZONYITOTTAN soft-delete-elt (a select-ben ott a jelzo-oszlop, es az
+    // uzleti kod is szuri), de a flag false-on allt, ezert a Kuka SOSEM
+    // mutatta a torolt sorait, az op:'delete' pedig VEGLEGES DELETE-et
+    // futtatott volna soft-delete helyett.
+    softDelete: true,
     // 2026-08-11: KIHAGYVA a `created`, `userid`, `melleklet`, `synced`,
     // `stornozott_at/_indok/_by`, `dispozitie_id`. A `stornozott`,
     // `osszeg_ron` és `arfolyam` BENNE MARAD — nélkülük egyetlen offline
@@ -210,7 +222,12 @@ const PENZUGY_TABLES: TableRegistryEntry[] = [
     supabaseTable: 'kiadas',
     primaryKey: 'id',
     scopeFilter: 'congregation_id',
-    softDelete: false,
+    // 2026-08-14 (6. pont, BLOKKOLO-javitas): softDelete: true — a tabla
+    // BIZONYITOTTAN soft-delete-elt (a select-ben ott a jelzo-oszlop, es az
+    // uzleti kod is szuri), de a flag false-on allt, ezert a Kuka SOSEM
+    // mutatta a torolt sorait, az op:'delete' pedig VEGLEGES DELETE-et
+    // futtatott volna soft-delete helyett.
+    softDelete: true,
     // 2026-08-11: KIHAGYVA a `created`, `userid`, `melleklet`,
     // `kedvezmenyezett_cui`, `stornozott_at/_indok/_by`, `decont_id`,
     // `dispozitie_id`. A partner-oszlop `atvevo` (NEM `kedvezmenyzett`).
@@ -246,7 +263,12 @@ const PENZUGY_TABLES: TableRegistryEntry[] = [
     supabaseTable: 'belsomozgas',
     primaryKey: 'id',
     scopeFilter: 'congregation_id',
-    softDelete: false,
+    // 2026-08-14 (6. pont, BLOKKOLO-javitas): softDelete: true — a tabla
+    // BIZONYITOTTAN soft-delete-elt (a select-ben ott a jelzo-oszlop, es az
+    // uzleti kod is szuri), de a flag false-on allt, ezert a Kuka SOSEM
+    // mutatta a torolt sorait, az op:'delete' pedig VEGLEGES DELETE-et
+    // futtatott volna soft-delete helyett.
+    softDelete: true,
     // 2026-08-11: KIHAGYVA a `created_by` és `created_at`. A `cel_osszeg` +
     // `arfolyam` benne marad (devizás átvezetés).
     select: [
@@ -361,7 +383,12 @@ const MUNKANAPLO_TABLES: TableRegistryEntry[] = [
     supabaseTable: 'munkanaplo',
     primaryKey: 'id',
     scopeFilter: 'congregation_id',
-    softDelete: false,
+    // 2026-08-14 (6. pont, BLOKKOLO-javitas): softDelete: true — a tabla
+    // BIZONYITOTTAN soft-delete-elt (a select-ben ott a jelzo-oszlop, es az
+    // uzleti kod is szuri), de a flag false-on allt, ezert a Kuka SOSEM
+    // mutatta a torolt sorait, az op:'delete' pedig VEGLEGES DELETE-et
+    // futtatott volna soft-delete helyett.
+    softDelete: true,
     // 2026-08-11: KIHAGYVA a `created`.
     select: [
       'id', 'revision', 'updated_at', 'congregation_id', 'deleted',
@@ -427,7 +454,13 @@ const LELTAR_TABLES: TableRegistryEntry[] = [
     supabaseTable: 'leltar_tetelek',
     primaryKey: 'id',
     scopeFilter: 'congregation_id',
-    softDelete: false,
+    // 2026-08-14 (6. pont, BLOKKOLO-javitas): softDelete: true — a tabla
+    // BIZONYITOTTAN soft-delete-elt (a select-ben ott a jelzo-oszlop, es az
+    // uzleti kod is szuri), de a flag false-on allt, ezert a Kuka SOSEM
+    // mutatta a torolt sorait, az op:'delete' pedig VEGLEGES DELETE-et
+    // futtatott volna soft-delete helyett.
+    softDelete: true,
+    softDeleteColumn: 'is_deleted',
     // 2026-08-11: a soft-delete jelző itt `is_deleted` (NEM `deleted`).
     // KIHAGYVA a `created_at`, `userid`, `penzugy_xkey`, `regi_leltari_szam`,
     // a törlési blokk (`torles_datuma`, `torles_bizonylat`, `torles_indoklasa`)

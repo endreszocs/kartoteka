@@ -550,7 +550,7 @@ export function BankAccountDialog({
         className="
           w-[calc(100%-1.5rem)] sm:w-full
           sm:max-w-xl
-          max-h-[90vh] overflow-y-auto
+          max-h-[90dvh] overflow-y-auto
           border border-violet-200 bg-gradient-to-br from-white via-white to-violet-50/30
           p-0 gap-0 rounded-2xl
         "

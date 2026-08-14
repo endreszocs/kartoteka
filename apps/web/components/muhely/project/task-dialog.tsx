@@ -84,7 +84,7 @@ export function TaskDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={false} className="max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] overflow-y-auto rounded-[1.25rem] border-[#d8c9b4] bg-[#fffdf7] p-0 shadow-[0_28px_80px_-24px_rgba(46,38,27,.55)] sm:max-h-[90vh] sm:max-w-lg sm:rounded-xl">
+      <DialogContent showCloseButton={false} className="max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] overflow-y-auto rounded-[1.25rem] border-[#d8c9b4] bg-[#fffdf7] p-0 shadow-[0_28px_80px_-24px_rgba(46,38,27,.55)] sm:max-h-[90dvh] sm:max-w-lg sm:rounded-xl">
         <DialogHeader className="flex flex-row items-center gap-3 border-b border-[#d8c9b4] bg-[#f4ebdd] px-4 py-4 text-[#26382f] sm:px-5">
           <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[#b9c4af] bg-[#edf2e9]">
             <ListTodo className="h-5 w-5 text-[#526943]" />

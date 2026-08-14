@@ -404,8 +404,32 @@ if ('error' in fullYearBalances) {
     return out
   }
 
-  const yRows = valueRows(yearly.html)
+  let yRows = valueRows(yearly.html)
   const pRows = valueRows(partial.html)
+
+  // 2026-08-14 (K2): az ÉVES Számadás záró blokkja a hivatalos 116–134. sorokat
+  // is hozza (Datorii 116+117–127 · Creanţe 128+129–133 · Záróegyenleg 134 =
+  // 19 értéksor), amelyek a BELSŐ részszámadáson SZÁNDÉKOSAN nincsenek rajta.
+  // A Y0 szám-azonossági garanciája a KÖZÖS sorokra vonatkozik; a 19 többlet-
+  // sorról külön állítjuk, hogy (adat híján) nulla, és a 134. Záróegyenleg
+  // egyezik a 113. Solddal.
+  const OFFICIAL_CLOSING_EXTRA = 19
+  if (yRows.length === pRows.length + OFFICIAL_CLOSING_EXTRA) {
+    const extra = yRows.slice(-OFFICIAL_CLOSING_EXTRA)
+    const soldRow = yRows[yRows.length - OFFICIAL_CLOSING_EXTRA - 3] // a 113. sor (Sold)
+    const zaroRow = extra[extra.length - 1] // a 134. sor (Záróegyenleg)
+    const koztesMindNulla = extra
+      .slice(0, -1)
+      .every((cells) => cells.every((v) => v === 'x' || v === '0,00'))
+    const zaroEgyezik =
+      soldRow && zaroRow && zaroRow[zaroRow.length - 1] === soldRow[soldRow.length - 1]
+    if (koztesMindNulla && zaroEgyezik) {
+      ok('Y0d az éves többlet PONTOSAN a hivatalos 116–134. blokk: Datorii/Creanţe nulla, Záróegyenleg = Sold')
+      yRows = yRows.slice(0, -OFFICIAL_CLOSING_EXTRA)
+    } else {
+      fail(`Y0d a hivatalos záró blokk értékei nem a vártak (nullák + Záróegyenleg=Sold): zaro=${JSON.stringify(zaroRow)} sold=${JSON.stringify(soldRow)}`)
+    }
+  }
 
   if (yRows.length !== pRows.length) {
     fail(`Y0: eltérő értéksor-szám — éves: ${yRows.length}, részszámadás: ${pRows.length}`)
@@ -439,6 +463,65 @@ if ('error' in fullYearBalances) {
     ok(`Y0c a levezetett záró (${fullYearBalances.total.closing}) = az éves Számadás zárója (${closingFromFlow})`)
   } else {
     fail(`Y0c záró eltérés: levezetett ${fullYearBalances.total.closing} ≠ éves ${closingFromFlow}`)
+  }
+
+  // ── Y0e (2026-08-14, K2): a HIVATALOS, FIX Nr. rând ─────────────────────
+  // A futó számláló 101 számozott sorból 69-et rontott el; a lelkészi jelentés
+  // VIII. fejezetének hivatkozott sorai (66., 97., 98.) is rosszak voltak.
+  {
+    // Egy kód sorának Nr. rând cellája: <td class="c">NN</td><td class="c">KOD</td>
+    const nrOf = (kod) => {
+      const m = yearly.html.match(new RegExp(`<td class="c">(\\d+|—)</td><td class="c">${kod.replace('.', '\\.')}</td>`))
+      return m ? m[1] : null
+    }
+    // A fixture kódjaira állítunk — a 102→13 a régi hiba PONTOS detektora:
+    // a futó számláló a 102-nek 6-ot adott volna (nyitó 1–3 + 101→4 + 101.01→5),
+    // a hivatalos szám 13.
+    const elvart = [
+      ['101', '4'],
+      ['101.01', '5'],
+      ['102', '13'],
+      ['102.01', '14'],
+      ['201', '53'],
+      ['201.01', '54'],
+      ['202', '73'],
+      ['202.01', '74'],
+    ]
+    const rossz = elvart.filter(([kod, nr]) => nrOf(kod) !== nr)
+    if (rossz.length === 0) {
+      ok('Y0e a Nr. rând a FIX hivatalos katalógusból jön (102→13, 201→53, 202→73 — nem futó számláló)')
+    } else {
+      fail(`Y0e rossz Nr. rând: ${rossz.map(([kod, nr]) => `${kod}: várt ${nr}, kapott ${nrOf(kod)}`).join(' · ')}`)
+    }
+
+    // A közbeékelt hivatalos összesítő sorok jelen vannak a saját számukkal.
+    const kozbeekelt = [
+      ['Total venituri proprii', '36'],
+      ['Total încasări', '52'],
+      ['EXCEDENT', '100'],
+      ['DEFICIT', '101'],
+      ['Plăţi totale', '112'],
+    ]
+    const hianyzo = kozbeekelt.filter(
+      ([label, nr]) => !new RegExp(`${label}[^<]*[\\s\\S]{0,200}?<td class="c">${nr}</td>`).test(yearly.html),
+    )
+    if (hianyzo.length === 0) ok('Y0e a közbeékelt hivatalos összesítő sorok (36/52/100/101/112) jelen vannak')
+    else fail(`Y0e hiányzó közbeékelt sor: ${hianyzo.map(([l, n]) => `${l} (${n})`).join(' · ')}`)
+
+    // A hivatalos záró blokk (Datorii/Creanţe/Záróegyenleg) a papíron van.
+    if (/Datorii/.test(yearly.html) && /Creanţe/.test(yearly.html) && /Záróegyenleg/.test(yearly.html)) {
+      ok('Y0e a hivatalos 116–134. záró blokk (Datorii · Creanţe · Záróegyenleg) a Számadáson van')
+    } else {
+      fail('Y0e a hivatalos záró blokk HIÁNYZIK a Számadásról')
+    }
+
+    // A módosítás-nyomtatvány is hozza az 1–3. nyitósort (K2: sorszám-csúszás vége).
+    const modReport = buildBudgetModificationReport({ ...common, modNumber: 1 })
+    if (/Disponibil din anul precedent/.test(modReport.html)) {
+      ok('Y0e a Költségvetés-módosításon is ott az 1–3. nyitósor (nincs többé 3 soros csúszás)')
+    } else {
+      fail('Y0e a Költségvetés-módosításról hiányzik az 1–3. nyitósor')
+    }
   }
 
   // ── Y1: a részszámadás NEM téveszthető össze az évessel ───────────────────
@@ -809,7 +892,11 @@ if ('error' in fullYearBalances) {
   // papírra — összeggel —, de a végösszegbe nem számított bele: egy sor, aminek
   // a pénze sehol nem jött ki. Ez a kizárás a tulajdonosi döntés UTÁN IS érvényes.
   {
-    const nincsSor = !/<td class="c">100(\.\d+)?<\/td>/.test(zSzamadas.html)
+    // 2026-08-14 (K2): a minta a KÓD-cellát nézi, nem a Nr. rând cellát.
+    // A sor szerkezete: <td class="c">NR</td><td class="c">KOD</td><td class="r">…
+    // — a kód-cellát az különbözteti meg, hogy KÖZVETLENÜL érték-cella követi.
+    // (A hivatalos EXCEDENT sor Nr. rând-ja 100 — az NEM a 100-as fejezet kódja.)
+    const nincsSor = !/<td class="c">100(\.\d+)?<\/td><td class="r">/.test(zSzamadas.html)
     const nincsKod =
       !isSzamadasIvKod('100', 'B') &&
       !isSzamadasIvKod('100.02', 'B') &&

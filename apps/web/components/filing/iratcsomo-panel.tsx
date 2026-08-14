@@ -748,7 +748,7 @@ function CsomoLeltarDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[96vh] overflow-y-auto sm:max-w-5xl">
+      <DialogContent className="max-h-[96dvh] overflow-y-auto sm:max-w-5xl">
         <DialogHeader className="sticky top-0 z-10 bg-background pb-2">
           <DialogTitle>Iratcsomó-leltár — {csomo.nev}</DialogTitle>
           <DialogDescription>
@@ -799,7 +799,7 @@ function CsomoLeltarDialog({
           {/* Fit-to-width A4 előnézet */}
           <div
             ref={previewRef}
-            className="max-h-[68vh] min-h-[280px] overflow-y-auto rounded-2xl border border-border bg-muted/50 p-3"
+            className="max-h-[68dvh] min-h-[280px] overflow-y-auto rounded-2xl border border-border bg-muted/50 p-3"
           >
             <div
               className="mx-auto overflow-hidden rounded-lg border border-border bg-white shadow-sm"

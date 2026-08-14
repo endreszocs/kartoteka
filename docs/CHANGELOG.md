@@ -23,6 +23,179 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-14] — Személy-törlés: előzetes kapcsolat-ellenőrzés, naplózott törlés, rejtettek visszahozása
+<!-- key: 2026-08-14-szemely-torles-ket-utja -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, admin -->
+
+### ✨ Új funkciók
+
+- **A törlés előtt kiderül, mi fog történni.** A „Végleges törlés" választásakor a rendszer még a megerősítés előtt megnézi a személy **összes** kapcsolatát (befizetések, anyakönyvek, család, sírhely, leltár-felelősség, szülőként való hivatkozás, tagi portál…), és kimondja: ha semmi nem védi, **véglegesen törölhető** — ha bármi védi, **csak elrejtés** lesz, és pontosan felsorolja, mi védi. A gomb és a megerősítő kérdés is azt mondja, ami tényleg történni fog; amíg az ellenőrzés fut, a gomb nem nyomható. *(Ehhez adatbázis-bővítés szükséges: `2026-08-14-szemely-torles-ket-utja.sql` — addig a régi általános figyelmeztetés látszik.)*
+- **„Rejtettek" gomb a tagnyilvántartásban**: a törlés-védelem által elrejtett személyek listája, egy kattintásos **visszahozással**. Eddig a webről nem volt visszaút — amit a rendszer elrejtett, azt csak az asztali alkalmazás tudta visszahozni. Elhunyt vagy elköltözött státuszú személy visszahozása a státuszát nem írja át.
+
+---
+
+## [2026-08-14] — Kuka: pontos visszaszámláló és megbízható 30 napos takarítás
+<!-- key: 2026-08-14-kuka-deleted-at-takaritas -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, admin -->
+
+### ✨ Új funkciók
+
+- **A kuka mostantól napra pontosan mondja meg, mikor törlődik véglegesen egy elem.** Eddig csak becslést tudott („legfeljebb N nap"), mert a rendszer nem jegyezte fel a törlés pillanatát — mostantól minden törlés időbélyeget kap, és a kuka a pontos napot mutatja. *(Ehhez egy adatbázis-bővítés szükséges: `2026-08-14-kuka-deleted-at.sql` — amíg az nem fut le, marad az óvatos becslés.)*
+
+### 🐛 Javítások
+
+- **A „30 nap után véglegesen törlődik" ígéret mostantól minden modulra igaz.** Az automatikus takarítás eddig csak 7 táblát ürített — a pénzügyi tételek, a munkanapló és a leltár törölt sorai **sosem** törlődtek maguktól. Mostantól mind a 12 kukás adatkör takarítva van, hetente helyett **naponta** (hajnali 3-kor, a napi mentés előtt). A régóta kukában ülő pénzügyi/leltári sorok **30 nap türelmi időt kapnak a mai naptól** — semmi nem tűnik el visszamenőleg, szó nélkül.
+
+---
+
+## [2026-08-14] — Szolgálati hely: automatikus napló és értesítés áthelyezéskor · fekvő PDF-ek javítása
+<!-- key: 2026-08-14-szolgalati-hely-naplo-fekvo-pdf -->
+<!-- category: feature -->
+<!-- targets: lelkesz, admin -->
+
+### ✨ Új funkciók
+
+- **A szolgálati hely mostantól automatikusan naplózódik.** Ha egy lelkészt másik gyülekezethez rendelnek (vagy először kap gyülekezetet), a rendszer magától rögzíti a változást — ki, honnan, hová, mikor —, és **azonnal értesítést küld az érintettnek**. A napló a rendszer szintjén készül, tehát akkor is működik, ha a változást az admin felület, egy szinkron vagy bármely jövőbeli funkció végzi. A profil „Szolgálati háttér" fülén látszik: hol szolgálsz most és mióta, a korábbi áthelyezések, és a Kartotéka-regisztráció dátuma. *(Ehhez egy adatbázis-bővítés szükséges: `2026-08-14-szolgalati-hely-naplo.sql`.)*
+
+### 🐛 Javítások
+
+- **A fekvő nyomtatványok PDF-je mostantól egyezik az előnézettel.** A Registru Casă/Bancă, a Főkönyv és a Csoportnapló (fekvő A4) PDF-mentése eddig álló lapméretű vászonra renderelődött, ezért a margók és a tördelés elcsúszott — a PDF nem azt adta, amit az előnézet mutatott.
+
+---
+
+## [2026-08-14] — Leltár: kategória-gombok darabszámmal · kétnyelvű fişă hivatalos román formával
+<!-- key: 2026-08-14-leltar-kategoria-gombok-fisa-ro -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+
+### ✨ Új funkciók
+
+- **Kategória-gombok a leltár oldalon**: a legördülő szűrő helyett kis gombok sora, mindegyiken élő darabszámmal („Alapeszközök · 12"). Egy koppintás szűr, még egy kikapcsol. Az üres kategóriák halványak.
+- **Az „Új tétel hozzáadása" gomb kiemelt helyre került** — zöld, jól látható gomb a műveletsor elején, eddig elveszett a többi egyforma gomb között.
+- **A leltári tárgy fişája nyelvet válthat**: az élő előnézet fejlécében HU/RO kapcsoló. A román változat a **hivatalos formát** követi (alapeszköznél „FIȘA MIJLOCULUI FIX", egyébként „FIȘA OBIECTULUI DE INVENTAR"), a hivatalos terminológiával (Cod de clasificare, Valoarea de inventar, Loc de folosință…) és **modern román helyesírással** (ș/ț) — a korábbi elavult ş/ţ írásmód helyett. A magyar változatban a román alcímkék is a hivatalos megnevezéseket viselik.
+
+---
+
+## [2026-08-14] — Gyülekezetünk adatai: megosztás, másolás, sötét mód, mobil · profil-javítások
+<!-- key: 2026-08-14-gyulekezetunk-adatai-megosztas -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+
+### ✨ Új funkciók
+
+- **Megosztás és Másolás gomb a „Gyülekezetünk adatai" ablakban.** A Megosztás a telefon natív megosztójával küldi tovább a főbb adatokat (név, cím, elérhetőségek, adószám, bankszámlák) — és ha a gyülekezet publikus oldala be van kapcsolva, a linkjét is. A Másolás ugyanezt szövegként a vágólapra teszi, levélbe-üzenetbe illeszthetően.
+- **Mezőnkénti másolás**: az adószám, az IBAN-ok, az e-mail, a telefon, a cím és a hivatalos név mellett kis másoló-gomb áll — nem kell kijelölgetni.
+- **Az e-mail, telefon és weboldal kattintható** — telefonon azonnal hívást/levelet indít.
+
+### 🎨 UX javítások
+
+- **Sötét módban olvasható lett az ablak** — eddig a kártyafejlécek világos pasztell sávok maradtak világos szöveggel.
+- **Mobilon nem lóg ki az IBAN és az adószám**, és a fejléc gombjai több sorba törnek, ha nem férnek el.
+- **A profil ablakban az e-mail cím többé nem vágódik le**, és a Szolgálati háttér fülön **végre megjelennek a beléptetéskor rögzített szolgálati előzmények** (hely, szerep, évtől–évig) — eddig a rendszer tárolta, de sosem mutatta őket.
+
+---
+
+## [2026-08-14] — Kassza fül: kiemelt rögzítő gomb, napi igevers, okos dátum-alapérték
+<!-- key: 2026-08-14-kassza-cta-igevers-datum -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+
+### ✨ Új funkciók
+
+- **Kiemelt „Új tétel hozzáadása" gomb került a Kassza fül tetejére** — eddig a rögzítő csak a fül feletti sávban volt elérhető. Mellette bátorító felirat és egy **naponta váltakozó sáfárság-igevers** (Károli), valamint a biztatás: vezesd párhuzamosan a bevételt és a kiadást — a mentés után a tételek dátum szerint rendezve kerülnek a helyükre. Véglegesített évben a gomb tiltva, és ezt ki is mondja.
+
+### 🐛 Javítások
+
+- **Az új tétel dátuma a nézett évhez igazodik.** Eddig mindig a mai nap volt az alapérték — ha egy korábbi évet nézve rögzítettél (visszamenőleges könyvelés), a tétel a folyó évhez könyvelődött, és „eltűnt" a nézett listáról. Mostantól más év nézetében az adott év az alapérték, és ha a dátum mégis más évre esik, a sor mellett figyelmeztetés mondja ki: hova fog könyvelődni, és hogy nem ezen a listán jelenik majd meg.
+
+---
+
+## [2026-08-14] — Sötét mód: olvasható fülsorok · telefonon elérhető lap-alja
+<!-- key: 2026-08-14-sotet-mod-fulsor-dvh -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo, admin -->
+
+### 🎨 UX javítások
+
+- **A fülsorok sötét módban olvashatóvá váltak.** A 9 fő modul színes fülsora (Pénzügy, Tagnyilvántartás, Munkanapló…) sötét módban eddig világos pasztell pirulát mutatott világos szöveggel — az aktív fül gyakorlatilag olvashatatlan volt. Mind a 12 szín saját sötét változatot kapott: áttetsző színes háttér, világos szöveg.
+- **Telefonon a lap alja többé nem csúszik a böngésző címsávja alá.** Az alkalmazás kerete és 96 ablak a képernyő-magasságot úgy mérte, hogy abba a böngésző címsávja mögötti, nem látható terület is beleszámított — ezért a Mentés gombok és lapozók a képernyő alá kerülhettek, és odagörgetni sem lehetett. Mostantól a valóban látható terület számít; számítógépen semmi nem változik.
+
+---
+
+## [2026-08-14] — A Számadás a hivatalos ív szerint: fix sorszámok, Tartozások és Kintlévőségek blokk
+<!-- key: 2026-08-14-szamadas-hivatalos-iv-k2 -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+
+A nyomtatott Számadás, Költségvetés és Költségvetés-módosítás mostantól a hivatalos EREK-ív (Adatok_2026) szerkezetét követi. Ezekhez semmit nem kell tenned — a nyomtatványok maguktól lettek szabályosak.
+
+### 🐛 Javítások
+
+- **A sorszámok (Nr. rând) a hivatalos, rögzített 1–134-es számozást követik.** Eddig a rendszer egyszerűen végigszámozta a sorokat, ezért a 105-ös csoporttól kezdve **101 számozott sorból 69 rossz számot viselt** — például a Karbantartási kiadások a hivatalos 66. helyett a 63. számot kapta. A számvevő, aki a hivatalos ívvel soronként összeolvas, minden eltérésnél megakadt volna.
+- **A hivatalos összesítő sorok is rákerültek a nyomtatványra** a saját számukkal: Saját bevételek összesen (36.), Összesen (41.), Összbevétel (52.), Saját tevékenységek kiadásai (95.), Saját kiadások összesen (99.), EXCEDENT (100.), DEFICIT (101.), Kiadások összesen (112.) — eddig ezek egyáltalán nem szerepeltek.
+- **A Számadás záró blokkja teljes lett:** a Sold (113.) után most már ott a **Tartozások** blokk (116., részletezve 117–127.), a **Kintlévőségek** blokk (128., részletezve 129–133.) és a **Záróegyenleg** (134. = 113 − 116 + 128). Az Útmutató szerint „ha nincs tartozás, jegyzőkönyvezni kell azt is, hogy nincs" — a blokk tehát mindig nyomtatódik. (A tartozás-összegek rögzítő felülete külön lépésben érkezik; addig a sorok nullát mutatnak, ami a jelenleg tárolt valóság.)
+- **A Költségvetés-módosításról eddig hiányzott az 1–3. nyitósor** (Múlt évi pénztármaradvány / Casa / Banca), ezért a számozása 3-mal csúszott a Költségvetéshez képest — pótolva.
+- **A lelkészi jelentés VII.9. rubrikájának felirata félrevezetett:** „Kintlévőség (járulék-hátralék)" — pedig az EREK Útmutató kifejezetten kimondja, hogy a kintlévő egyházfenntartói járulék NEM számít kintlévőségnek. Az új felirat ezt egyértelművé teszi.
+
+### ✨ Új funkciók
+
+- **Tartozások és kintlévőségek rögzítője** a Pénzügy → Könyvelés fülön: a hivatalos Számadás 117–127. (Tartozások) és 129–133. (Kintlévőségek) sorai év végén itt tölthetők ki — a nyomtatványra pontosan ezek a számok kerülnek, a 116. és 128. összesítő sorral és a 134. Záróegyenleggel együtt. Véglegesített évben csak megtekinthető. *(Ehhez egy adatbázis-bővítés szükséges: `2026-08-14-szamadas-tartozasok.sql`.)*
+- **A Számadás 114–115. sora (Casa / Banca) valódi számot mutat:** az év végi készpénz- és bankegyenleg ugyanazzal a levezetéssel áll elő, mint a részszámadásnál — eddig „—" állt ott. Ha a levezetés nem lehetséges, továbbra is „—" áll (nem hamis szám).
+
+---
+
+## [2026-08-14] — Készpénz-figyelmeztetések, a Kuka helyreállítása, a leltár néma csonkulásának megszüntetése
+<!-- key: 2026-08-14-keszpenz-figyelmeztetesek-kuka-leltar -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+
+### ✨ Új funkciók
+
+- **Készpénzhasználati figyelmeztetések** — a 2026-os hivatalos szabályok (Változások 2026) beépültek a rendszerbe. A rendszer mostantól **figyelmeztet** (de nem akadályoz), ha:
+  - a kassza záró egyenlege meghaladja az **50 000 lejes** törvényes plafont (a többletet 3 napon belül bankba kell tenni);
+  - egyetlen készpénzes kifizetés **5 000 lej** felett van (a különbözet kötelezően átutalással megy);
+  - ugyanannak a partnernek ugyanazon a napon több készpénzes kifizetés összesen lépi át az 5 000 lejt (**a kifizetés feldarabolása tilos**);
+  - egy napon a készpénzes kifizetések összege meghaladja a **10 000 lejt**;
+  - elszámolási előlegként (decont) **1 000 lejnél** több menne ki készpénzben naponta és személyenként;
+  - egy befizetőtől egy napon 5 000, illetve 10 000 lejnél több készpénz érkezne.
+  A figyelmeztetés kimondja a szabályt és a mért összeget — a döntés a tiéd marad.
+- A pénzügyi súgó **két helyen két különböző előleg-plafont írt** (1 000 és 5 000 lej) — most mindkét helyen a hivatalos 1 000 lej szerepel.
+
+- **Tervező az admin Rendszer pénzügyei → Tervezés fülön** — beírható, hány kis („B") és hány nagy („A") gyülekezettel számolsz, és a rendszer havi és éves bontásban számolja a bevételt, költséget, profitot és a margint. Több forgatókönyv tartható egymás mellett, a díjak forgatókönyvenként átírhatók, és a böngésző megjegyzi őket.
+
+### 🐛 Javítások
+
+- **A Kuka oldal megnyílik.** Eddig minden betöltésnél hibával elszállt egy technikai hiba miatt.
+- **A pénzügyi, munkanaplós és leltári törölt tételek végre megjelennek a Kukában.** Eddig a Kuka csak 7 táblát figyelt — a törölt befizetések, kiadások, munkanapló-bejegyzések és leltári tárgyak sosem látszottak benne, pedig ott voltak.
+- **A „Végleges törlés" mostantól tényleg véglegesen töröl.** Eddig a véglegesen törölt rekord a következő szinkronizálásnál **visszajött** — a rendszer csak újra a kukába tette a szerveren, ahonnan a letöltés visszahozta.
+- **Őszinte visszaszámláló a Kukában.** A „törölve" dátum valójában a legutóbbi módosítás napja (a törlés pontos időpontját a rendszer ma még nem tárolja) — a felirat mostantól ezt ki is mondja, és „legfeljebb N nap múlva" formában fogalmaz.
+- **A leltár nem csonkul többé némán.** 1000-nél több leltári tételnél a lista, a statisztikák és a nyomtatványok eddig **hibaüzenet nélkül** hiányos adatból dolgoztak — mostantól minden tétel letöltődik, a jegyzőkönyv-melléklet vagyonleltárával együtt.
+- **A jogi nyilatkozat nem állít többé nem létező kétlépcsős belépést.** Mindhárom nyelven az igazat mondja: az érzékeny rendszergazdai műveleteknek külön megerősítő kódja van, a fiókszintű kétlépcsős belépés pedig bevezetés alatt áll.
+
+---
+
+## [2026-08-14] — Nyomtatási központ: visszatér az előnézet, a csoportnapló lapokra bomlik
+<!-- key: 2026-08-14-nyomtatasi-kozpont-elonezet-csoportnaplo -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+
+A Pénzügy → Nyomtatási központ három régi bosszúsága megszűnt. Ezekhez semmit nem kell tenned.
+
+### 🐛 Javítások
+
+- **„Ennek a nyomtatványnak nincs is előnézete."** — pedig volt. Ha egy hosszú dokumentum (például egy tizenkét oldalas Registru) után egy rövidre, mondjuk egy egyoldalas Decontra kattintottál, az előnézet-doboz **megtartotta a hosszú dokumentum magasságát**, a görgetés pedig ott maradt, ahol az előbb abbahagytad. Vagyis a semmibe néztél: több ezer képpontnyi üres fehér területre. Mostantól dokumentumváltáskor az előnézet **visszaugrik a lap elejére**, és a doboz a **valódi** magasságra zsugorodik.
+- **Üres részek az ablakban.** Ugyanennek a hibának a másik arca volt: a fehér terület nem „hiányzó tartalom" volt, hanem a be nem húzott doboz alja. Ezzel együtt megszűnt.
+- **A csoportnapló egyetlen, végtelen lapra nyomtatódott.** Az előnézetben nem látszott lapokra osztva, papíron pedig a második laptól a táblázat **a lap széléig futott**, mert a margó csak az első lapon érvényesült. Mostantól a csoportnapló **rendes lapokra bomlik**: minden lapon ott a fejléc, a szakaszcím és a táblázat fejlécsora, a folytatólagos lapok pedig „folytatás" jelzést kapnak. Egy jogcím fejléce sem marad többé árván egy lap alján.
+- **A csoportnaplón nem volt oldalszám** — pedig a leírása azt ígérte. A korábbi megoldás olyan nyomdai CSS-szabályra épült, amit **egyetlen böngésző sem támogat**. Most valódi „pg. 3 / 8" számozás kerül minden lapra.
+
+### 🎨 UX javítások
+
+- **A részszámadásról lekerült a „Belső használatra — az egyházmegyének NEM beküldendő." felirat** — a borítóról és a lapok tetején futó sávból is. A nyomtatvány nem hivatalos jellegét továbbra is jelzi a nyilatkozat, a lábléc és a képernyős figyelmeztetés.
+
+---
+
 ## [2026-08-12] — A mentés élesítése, három néma adatvesztés megszüntetése, szinkron-jelző és cím-ellenőrzés
 <!-- key: 2026-08-12-mentes-elesites-nema-adatvesztes -->
 <!-- category: bugfix -->

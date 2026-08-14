@@ -388,7 +388,7 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
           <X className="size-5" />
         </button>
         <div className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full bg-white/10 px-4 py-1.5 text-xs text-white/80">{currentIndex + 1} / {deckCount}</div>
-        <div className="h-[92vh] w-[92vw] max-w-[1800px]">
+        <div className="h-[92dvh] w-[92vw] max-w-[1800px]">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div key={current.key} initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }}
               transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }} className="h-full w-full">
@@ -409,7 +409,7 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
   })
 
   return (
-    <div className="flex min-h-[calc(100vh-4rem)] flex-col gap-4 lg:flex-row">
+    <div className="flex min-h-[calc(100dvh-4rem)] flex-col gap-4 lg:flex-row">
       {/* Slide-lista (pillérek szerint) */}
       <aside className="w-full rounded-[1.4rem] bg-white p-3 shadow-sm lg:w-72 lg:shrink-0">
         <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-2">

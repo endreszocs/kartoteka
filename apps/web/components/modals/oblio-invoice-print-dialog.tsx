@@ -42,7 +42,7 @@ export function OblioInvoicePrintDialog({
       <DialogContent
         className="
           !w-[96vw] !max-w-[96vw] sm:!max-w-[96vw]
-          !h-[94vh] !max-h-[94vh]
+          !h-[94dvh] !max-h-[94dvh]
           overflow-hidden
           border border-cyan-200 bg-gradient-to-br from-white via-white to-cyan-50/30
           p-0 gap-0 rounded-2xl

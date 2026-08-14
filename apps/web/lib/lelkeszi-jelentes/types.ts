@@ -214,7 +214,12 @@ export const JELENTES_MEZOK: JelentesMezo[] = [
   { id: 'VII.6', fejezet: 'VII', label: 'Zárszámadás — évi bevétel (b)', tipus: 'szam', auto: true, egyseg: 'RON' },
   { id: 'VII.7', fejezet: 'VII', label: 'Zárszámadás — évi kiadás (c)', tipus: 'szam', auto: true, egyseg: 'RON' },
   { id: 'VII.8', fejezet: 'VII', label: 'Zárszámadás — egyenleg (a + b − c)', tipus: 'szam', auto: true, egyseg: 'RON' },
-  { id: 'VII.9', fejezet: 'VII', label: 'Kintlévőség (járulék-hátralék)', tipus: 'szam', auto: false, egyseg: 'RON' },
+  // 2026-08-14 (K2): a korábbi „(járulék-hátralék)" toldalék PONT azt kérte,
+  // amit az EREK Útmutató kifejezetten KIZÁR: „Nem számítható be kinnlevőségnek
+  // a kintlevő egyházfenntartói járulék, mivel nem tervezhető és nem behajtható.
+  // … Nem számíthatnak kinnlevőségnek a csak megígért adományok, perselypénz stb."
+  // Az id NEM változhat (jsonb-kulcs) — csak a felirat mond mást.
+  { id: 'VII.9', fejezet: 'VII', label: 'Kintlévőség (bérleti díj, kiadott hitel stb. — az egyházfenntartói járulék-hátralék NEM számít bele)', tipus: 'szam', auto: false, egyseg: 'RON' },
   { id: 'VII.10', fejezet: 'VII', label: 'Kifizetési kötelezettségek', tipus: 'szam', auto: false, egyseg: 'RON' },
 
   // ── VIII. Ingatlanok (kézi fejezet) ──────────────────────────────────────

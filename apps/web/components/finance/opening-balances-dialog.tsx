@@ -29,7 +29,7 @@ interface OpeningBalancesDialogProps {
 export function OpeningBalancesDialog({ open, onOpenChange, bankAccounts, congregationId }: OpeningBalancesDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Induló (nyitó) egyenlegek</DialogTitle>
         </DialogHeader>

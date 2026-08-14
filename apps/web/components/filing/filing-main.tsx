@@ -788,7 +788,7 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
           }
         }}
       >
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-2xl max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editEntry ? 'Irat szerkesztése' : 'Új irat iktatása'}</DialogTitle>
             <DialogDescription>{activeWizardStep.hint}</DialogDescription>
@@ -1479,7 +1479,7 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
           if (!open) setAttachmentEntry(null)
         }}
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
           {/* A CsatolmanyPanel saját fejlécet hoz — a Radix-hez kötelező cím
               képernyőolvasónak szól (sr-only). */}
           <DialogHeader className="sr-only">

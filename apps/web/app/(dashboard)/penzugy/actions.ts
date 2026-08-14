@@ -4587,3 +4587,108 @@ export async function getPreviousYearActuals(year: number): Promise<{
   }
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────
+// 2026-08-14 (K2): a hivatalos Számadás 116–133. sorai — Tartozások (Datorii)
+// és Kintlévőségek (Creanţe) év végi rögzítése.
+//
+// A tároló a bealitas.szamadas_tartozasok jsonb (migráció:
+// migration-docs/sql/2026-08-14-szamadas-tartozasok.sql). A kulcs a HIVATALOS
+// Nr. rând. Az olvasás nem külön action: az initFinance a teljes bealitas
+// sort adja (select '*'), a nyomtatvány és a szerkesztő a settings-ből kapja.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** A hivatalos ív megengedett sorai — más kulcsot NEM fogadunk el. */
+const TARTOZAS_SOROK = new Set([117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127])
+const KINTLEVOSEG_SOROK = new Set([129, 130, 131, 132, 133])
+
+export async function saveSzamadasTartozasok(
+  year: number,
+  payload: {
+    tartozasok: Record<string, number>
+    kintlevosegek: Record<string, number>
+  },
+): Promise<{ error?: string }> {
+  try {
+    const { supabase, congregationId } = await getProfileCongregation()
+    if (!congregationId) return { error: 'Nincs kiválasztott gyülekezet.' }
+
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+      return { error: 'Érvénytelen év.' }
+    }
+
+    // Csak a hivatalos sorok, csak véges, nem-negatív számok. Az ismeretlen
+    // kulcs HANGOS hiba (nem néma eldobás): egy elütött sorszám különben
+    // észrevétlenül veszne el, a lelkész pedig azt hinné, rögzítette.
+    const tisztit = (
+      bemenet: Record<string, number>,
+      megengedett: Set<number>,
+      cimke: string,
+    ): { ok: Record<string, number> } | { error: string } => {
+      const ki: Record<string, number> = {}
+      for (const [kulcs, ertek] of Object.entries(bemenet || {})) {
+        const nr = Number(kulcs)
+        if (!megengedett.has(nr)) {
+          return { error: `Ismeretlen ${cimke}-sor: ${kulcs} — a hivatalos ív sorai: ${[...megengedett].join(', ')}.` }
+        }
+        const n = Number(ertek)
+        if (!Number.isFinite(n) || n < 0) {
+          return { error: `A(z) ${kulcs}. sor értéke nem érvényes szám (${String(ertek)}).` }
+        }
+        // 2 tizedesre kerekítve tárolunk — a nyomtatvány is így számol.
+        ki[String(nr)] = Math.round(n * 100) / 100
+      }
+      return { ok: ki }
+    }
+    const t = tisztit(payload?.tartozasok || {}, TARTOZAS_SOROK, 'tartozás')
+    if ('error' in t) return { error: t.error }
+    const k = tisztit(payload?.kintlevosegek || {}, KINTLEVOSEG_SOROK, 'kintlévőség')
+    if ('error' in k) return { error: k.error }
+
+    // Véglegesített évbe nem írunk — a beküldött, aláírt számadás és a tároló
+    // nem húzhat szét. FAIL-CLOSED: ha az ellenőrzés hibázik, nem mentünk.
+    const { data: evSor, error: evHiba } = await supabase
+      .from('bealitas')
+      .select('id, accounting_finalized')
+      .eq('congregation_id', congregationId)
+      .eq('id', String(year))
+      .maybeSingle()
+    if (evHiba) {
+      return {
+        error:
+          `Nem sikerült ellenőrizni az év zárás-állapotát (${evHiba.message}) — a mentést ` +
+          'biztonságból megszakítottuk. Próbáld újra; ha újra hibázik, jelezd a rendszergazdának.',
+      }
+    }
+    if (!evSor) {
+      return {
+        error: `A(z) ${year}. évhez még nincs pénzügyi beállítás-sor — előbb nyisd meg az évet a Pénzügy modulban.`,
+      }
+    }
+    if (evSor.accounting_finalized) {
+      return {
+        error: `A(z) ${year}. évi számadás már véglegesítve van — a tartozások nem módosíthatók. Először kérj javítási engedélyt az egyházmegyétől.`,
+      }
+    }
+
+    const { error } = await supabase
+      .from('bealitas')
+      .update({ szamadas_tartozasok: { tartozasok: t.ok, kintlevosegek: k.ok } })
+      .eq('congregation_id', congregationId)
+      .eq('id', String(year))
+    if (error) {
+      // 42703 = nincs ilyen oszlop → a migráció még nem futott le élesben.
+      if (error.code === '42703' || /szamadas_tartozasok/.test(error.message)) {
+        return {
+          error:
+            'A tároló oszlop (bealitas.szamadas_tartozasok) még nincs az adatbázisban — ' +
+            'futtasd le a migration-docs/sql/2026-08-14-szamadas-tartozasok.sql fájlt, majd próbáld újra.',
+        }
+      }
+      return { error: error.message }
+    }
+    return {}
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Ismeretlen hiba a tartozások mentésekor.' }
+  }
+}

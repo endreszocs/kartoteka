@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { removeMember } from '@/app/(dashboard)/tagnyilvantartas/actions'
+import { checkPersonReferences, removeMember } from '@/app/(dashboard)/tagnyilvantartas/actions'
 import { REMOVE_REASONS, REMOVE_REASON_LABELS } from '@/lib/constants/members'
 import type { RemoveReason } from '@/lib/constants/members'
+import type { PersonReferencesResult } from '@/lib/members/removal-types'
 import { toast } from 'sonner'
 
 interface MemberRemoveDialogProps {
@@ -20,6 +21,28 @@ export function MemberRemoveDialog({ open, onOpenChange, member }: MemberRemoveD
   const [step, setStep] = useState<'choose' | 'form'>('choose')
   const [reason, setReason] = useState<RemoveReason | null>(null)
   const [loading, setLoading] = useState(false)
+
+  // 2026-08-14 (1. döntés): ELŐZETES kapcsolat-ellenőrzés a 'torles' ághoz —
+  // a lelkész a megerősítés ELŐTT látja, hogy végleges törlés vagy elrejtés
+  // lesz-e, és pontosan mi védi a személyt. null = még fut / nem indult.
+  const [refs, setRefs] = useState<PersonReferencesResult | null>(null)
+  // Az effektben CSAK az aszinkron betöltés él — a tiszta lapot (refs=null)
+  // az eseménykezelők állítják (selectReason/resetForm): effektben a szinkron
+  // setState tilos (react-hooks/set-state-in-effect, a CI lint hibának veszi).
+  useEffect(() => {
+    if (!(open && step === 'form' && reason === 'torles' && member)) return
+    let cancelled = false
+    checkPersonReferences(member.id)
+      .then(r => {
+        if (!cancelled) setRefs(r)
+      })
+      .catch(() => {
+        if (!cancelled) setRefs({ available: false, blokkolo: [], veleTorlodik: [] })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, step, reason, member])
 
   // Form mezők
   const [hdatum, setHdatum] = useState('')
@@ -38,7 +61,7 @@ export function MemberRemoveDialog({ open, onOpenChange, member }: MemberRemoveD
   const [kitMegj, setKitMegj] = useState('')
 
   function resetForm() {
-    setStep('choose'); setReason(null)
+    setStep('choose'); setReason(null); setRefs(null)
     setHdatum(''); setTdatum(''); setHhely(''); setThely(''); setHoka(''); setLelkesz('')
     setKoltDatum(''); setKoltHova(''); setKulfold(false); setKoltMegj('')
     setKitDatum(''); setKitVallas(''); setKitHova(''); setKitMegj('')
@@ -46,13 +69,28 @@ export function MemberRemoveDialog({ open, onOpenChange, member }: MemberRemoveD
 
   function selectReason(r: RemoveReason) {
     setReason(r)
+    // Az előzetes kapcsolat-ellenőrzés tiszta lappal indul — a gomb addig
+    // tiltott, amíg az effekt be nem tölti az eredményt.
+    setRefs(null)
     setStep('form')
   }
 
   async function handleSubmit() {
     if (!member || !reason) return
 
-    if (reason === 'torles' && !confirm('Biztosan törli ezt a tagot? Ez a művelet visszavonhatatlan.')) return
+    if (reason === 'torles') {
+      // A megerősítő szöveg azt mondja, ami TÉNYLEG történni fog (előzetes
+      // kapcsolat-ellenőrzés alapján): elrejtés vagy végleges törlés. Amíg az
+      // ellenőrzés fut, a gomb le van tiltva; ha az ellenőrzés nem érhető el
+      // (a migráció még nincs élesben), a szöveg NEM állít véglegességet —
+      // kimondja, hogy a szerver dönt.
+      const uzenet = refs?.available
+        ? refs.blokkolo.length > 0
+          ? 'A személy védett kapcsolatai miatt NEM törlődik véglegesen, hanem elrejtésre kerül a névsorból. Folytatja?'
+          : 'Biztosan VÉGLEGESEN törli ezt a személyt? A törlésről napló készül, de a művelet nem visszavonható.'
+        : 'Biztosan kivezeti ezt a személyt? A rendszer dönti el: ha védett kapcsolata (pénzügy, anyakönyv, család…) van, elrejtés történik, különben végleges, nem visszavonható törlés.'
+      if (!confirm(uzenet)) return
+    }
 
     setLoading(true)
     const result = await removeMember({
@@ -149,17 +187,81 @@ export function MemberRemoveDialog({ open, onOpenChange, member }: MemberRemoveD
         )}
 
         {step === 'form' && reason === 'torles' && (
-          <div className="bg-red-50 p-3 rounded-lg text-sm text-red-700">
-            <p className="font-semibold">Figyelem!</p>
-            <p>Ha a taghoz pénzügyi tranzakció tartozik, a rendszer nem törli véglegesen, hanem elrejti a névsorból.</p>
+          <div className="space-y-2">
+            {/* 2026-08-14 (1. döntés): előzetes kapcsolat-ellenőrzés — a
+                megerősítés ELŐTT kiderül, mi fog történni. */}
+            {refs === null && (
+              <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">
+                Kapcsolatok ellenőrzése…
+              </div>
+            )}
+            {refs?.available && refs.blokkolo.length > 0 && (
+              <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+                <p className="font-semibold">
+                  A személyt {refs.blokkolo.reduce((s, b) => s + b.darab, 0)} védett kapcsolat őrzi
+                  — nem törölhető véglegesen.
+                </p>
+                <p className="mt-1">A végrehajtással a névsorból lesz <strong>elrejtve</strong> (később visszahozható). Ami védi:</p>
+                <ul className="mt-1 list-disc pl-5">
+                  {refs.blokkolo.map(b => (
+                    <li key={b.kulcs}>{b.cimke} — {b.darab} db</li>
+                  ))}
+                </ul>
+                {refs.blokkolo.some(b => b.kulcs === 'portal_link') && (
+                  <p className="mt-1">
+                    Az aktív tagi portál-összekötés miatt a rendszer a kivezetést
+                    el is utasíthatja — ilyenkor előbb a portál-hozzáférést kell
+                    visszavonni.
+                  </p>
+                )}
+              </div>
+            )}
+            {refs?.available && refs.blokkolo.length === 0 && (
+              <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                <p className="font-semibold">Nincs védett kapcsolat — a személy VÉGLEGESEN törölhető.</p>
+                <p className="mt-1">A törlésről napló készül (ki, kit, mikor). Ez a művelet nem visszavonható!</p>
+                {refs.veleTorlodik.length > 0 && (
+                  <p className="mt-1">
+                    Vele együtt törlődik:{' '}
+                    {refs.veleTorlodik.map(v => `${v.cimke} (${v.darab} db)`).join(', ')}.
+                  </p>
+                )}
+              </div>
+            )}
+            {refs !== null && !refs.available && (
+              <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                <p className="font-semibold">Figyelem!</p>
+                <p>Ha a taghoz pénzügyi tranzakció vagy más védett kapcsolat tartozik, a rendszer nem törli véglegesen, hanem elrejti a névsorból.</p>
+                {refs.error && <p className="mt-1 font-semibold">{refs.error}</p>}
+              </div>
+            )}
           </div>
         )}
 
         {step === 'form' && (
           <div className="flex justify-end gap-2 pt-3 border-t">
             <Button variant="ghost" onClick={() => setStep('choose')}>Vissza</Button>
-            <Button variant="destructive" onClick={handleSubmit} disabled={loading || (reason === 'meghalt' && (!hdatum || !tdatum))}>
-              {loading ? 'Feldolgozás...' : 'Végrehajtás'}
+            <Button
+              variant="destructive"
+              onClick={handleSubmit}
+              // 2026-08-14 bírálói javítás: amíg az előzetes ellenőrzés fut
+              // (refs === null), a destruktív gomb TILTOTT — különben a
+              // megerősítő szöveg mást mondana, mint ami történni fog.
+              disabled={
+                loading ||
+                (reason === 'meghalt' && (!hdatum || !tdatum)) ||
+                (reason === 'torles' && refs === null)
+              }
+            >
+              {loading
+                ? 'Feldolgozás...'
+                : reason === 'torles' && refs === null
+                  ? 'Ellenőrzés…'
+                  : reason === 'torles' && refs?.available
+                    ? refs.blokkolo.length > 0
+                      ? 'Elrejtés a névsorból'
+                      : 'Végleges törlés'
+                    : 'Végrehajtás'}
             </Button>
           </div>
         )}

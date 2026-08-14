@@ -124,7 +124,7 @@ export function BudgetPrintDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[96vh] overflow-y-auto sm:max-w-7xl">
+      <DialogContent className="max-h-[96dvh] overflow-y-auto sm:max-w-7xl">
         <DialogHeader className="sticky top-0 z-10 bg-background pb-2">
           <DialogTitle>Költségvetés és számadás nyomtatási központ</DialogTitle>
         </DialogHeader>

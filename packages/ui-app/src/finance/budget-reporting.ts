@@ -193,6 +193,16 @@ export interface BudgetPrintData {
   carryoverBank?: number
   periodFrom?: string
   periodTo?: string
+
+  // ── 2026-08-14 (K2): a hivatalos 113–134. záró blokk adatai ─────────────
+  /** Év végi KÉSZPÉNZ egyenleg (114. sor). Ha nincs, a papíron „—" áll. */
+  zaroCasa?: number
+  /** Év végi BANKI egyenleg (115. sor). Ha nincs, a papíron „—" áll. */
+  zaroBanca?: number
+  /** Tartozások (Datorii) — hivatalos sorszám (117–127) → összeg. Hiányzó sor = 0. */
+  tartozasok?: Record<number, number>
+  /** Kintlévőségek (Creanţe) — hivatalos sorszám (129–133) → összeg. Hiányzó sor = 0. */
+  kintlevosegek?: Record<number, number>
   /** Véglegesítve van-e (költségvetés/számadás). Csak ekkor jelenik meg a
    *  presbitériumi határozat + egyházközségi iktatószám a nyomtatványon. */
   finalized?: boolean
@@ -367,7 +377,10 @@ export function buildBudgetReport(data: BudgetPrintData): BudgetPrintResult {
 export function buildBudgetModificationReport(data: BudgetPrintData): BudgetPrintResult {
   const { year, modNumber } = data
   const modLabel = modNumber || 1
-  const rows = collectBudgetRows(data, 'modification')
+  // 2026-08-14 (K2): a hivatalos ív szerint a MÓDOSÍTÁS is ugyanazt az 1–134
+  // számozást viseli, az 1–3. nyitósorral EGYÜTT — korábban a nyitóblokk
+  // kimaradt, és a számozás további 3-mal csúszott a Költségvetéshez képest.
+  const rows = collectBudgetRows(data, 'modification', { openingRows: true })
   const terv = tervezOldalak(rows.length, true, false)
   const total = 1 + terv.pages
   const coverPage = buildCoverPage(data, `${modLabel}. KÖLTSÉGVETÉS-MÓDOSÍTÁS`, 'MODIFICARE BUGET DE VENITURI ȘI CHELTUIELI', modLabel, total)
@@ -384,7 +397,10 @@ export function buildSzamadasReport(data: BudgetPrintData): BudgetPrintResult {
   const { year } = data
   // 2026-07-10 (#2): a hivatalos forma 1–3. sora a nyitó egyenleg.
   const rows = collectBudgetRows(data, 'szamadas', { openingRows: true })
-  const terv = tervezOldalak(rows.length, true, true)
+  // 2026-08-14 (K2): a záró blokk a hivatalos 113–134. sorokkal ~21 sorra
+  // nőtt — az utolsó lapon ennyi helyet KELL tartalékolni, különben a
+  // Tartozások/Kintlévőségek blokk túlnyúlna a lapon (levágódna).
+  const terv = tervezOldalak(rows.length, true, true, 16)
   const total = 1 + terv.pages
   const coverPage = buildCoverPage(data, 'SZÁMADÁS', 'EXECUȚIA BUGETARĂ', null, total)
   const declaration = `<div class="decl">Alulírott lelkipásztor és főgondnok felelősségünk tudatában nyilatkozzuk, hogy a számadás adatai valósak és az egyházi rendelkezések szerint készült el.</div>`
@@ -575,11 +591,13 @@ function buildCoverPage(
     : `<div class="cv-title">${esc(titleHu)} A ${year}. ÉVRE</div>
       <div class="cv-title-ro">${esc(titleRo)} PE ANUL ${year}</div>`
   const hatarozatBlock = opts?.skipHatarozat
+    // 2026-08-14 (14. pont): a „Belső használatra — az egyházmegyének NEM
+    // beküldendő." felirat a felhasználó kérésére eltávolítva a borítóról.
+    // A részszámadás nem-hivatalos jellegét továbbra is jelzi a nyilatkozat
+    // (:504), a lábléc („· Részszámadás — nem hivatalos zárszámadás") és a
+    // képernyős figyelmeztetés a nyomtatási központban.
     ? `<div style="margin-top:40mm;text-align:center;font-size:11px;">
       Készült: ${esc(opts.keszult || '')} · a könyvelés aznapi állása szerint.
-    </div>
-    <div style="margin-top:6mm;text-align:center;font-size:11px;font-weight:bold;">
-      Belső használatra — az egyházmegyének NEM beküldendő.
     </div>`
     : `<div style="margin-top:40mm;text-align:center;font-size:12px;">
       Tárgyalta és jóváhagyta a presbitérium a <span class="cv-line">&nbsp;${hatDatum}</span> tartott gyűlésén
@@ -650,11 +668,83 @@ function valueCells(data: BudgetPrintData, c: SzamadasiCel, isGroup: boolean, mo
   return `<td class="r">${fmtNum(val)}</td>`
 }
 
-function buildSectionRows(data: BudgetPrintData, cells: SzamadasiCel[], mode: BudgetMode, startNum: number): { rows: string[]; nextNum: number } {
+// ─── 2026-08-14 (K2, BLOKKOLÓ-javítás): a HIVATALOS, FIX Nr. rând katalógus ──
+//
+// A hivatalos Adatok_2026.xlsx `Szamadas` lapja FIX 1–134 sorszámot használ
+// (D oszlop), amelyben az összesítő sorok (36, 41, 52, 95, 99–101, 112) is
+// SAJÁT számot viselnek. A korábbi futó számláló (`n++`) emiatt a 105-ös
+// csoporttól kezdve elcsúszott, és 101 számozott sorból 69 ROSSZ számot kapott —
+// a lelkészi jelentés VIII. fejezetének mindhárom hivatkozott sora (66., 97.,
+// 98.) is. A számozás mostantól ebből a fix katalógusból jön; ismeretlen kódra
+// „—" kerül (nem tolja el a többit).
+//
+// A katalógus GÉPI kinyerés a hivatalos lap D+E oszlopából (2026-08-14) —
+// kézzel NE szerkeszd, a hivatalos ív változásakor újra kinyerendő.
+const HIVATALOS_NR_RAND: Record<string, number> = {
+  '101': 4, '101.01': 5, '101.02': 6, '101.03': 7, '101.04': 8, '101.05': 9,
+  '101.06': 10, '101.07': 11, '101.08': 12,
+  '102': 13, '102.01': 14, '102.02': 15, '102.03': 16, '102.04': 17, '102.05': 18, '102.06': 19,
+  '103': 20, '103.01': 21, '103.02': 22, '103.03': 23, '103.04': 24, '103.05': 25,
+  '103.06': 26, '103.07': 27, '103.08': 28, '103.09': 29,
+  '104': 30, '104.01': 31, '104.02': 32, '104.03': 33, '104.04': 34, '104.05': 35,
+  '105': 37, '105.01': 38, '105.02': 39, '105.03': 40,
+  '106': 42, '106.01': 43, '106.02': 44, '106.03': 45, '106.04': 46, '106.05': 47, '106.06': 48,
+  '107': 49, '107.01': 50, '107.02': 51,
+  '201': 53, '201.01': 54, '201.02': 55, '201.03': 56, '201.04': 57, '201.05': 58,
+  '201.06': 59, '201.07': 60, '201.08': 61, '201.09': 62,
+  // Az Excel a 201.10-et floatként „201.1"-ként tárolja — mindkét írásmód él.
+  '201.1': 63, '201.10': 63,
+  '201.11': 64, '201.12': 65, '201.13': 66, '201.14': 67, '201.15': 68,
+  '201.16': 69, '201.17': 70, '201.18': 71, '201.19': 72,
+  '202': 73, '202.01': 74, '202.02': 75, '202.03': 76, '202.04': 77, '202.05': 78,
+  '202.06': 79, '202.07': 80, '202.08': 81,
+  '203': 82, '203.01': 83, '203.02': 84, '203.03': 85, '203.04': 86, '203.05': 87,
+  '203.06': 88, '203.07': 89,
+  '204': 90, '204.01': 91, '204.02': 92, '204.03': 93, '204.04': 94,
+  '205': 96, '205.01': 97, '205.02': 98,
+  '206': 102, '206.01': 103, '206.02': 104, '206.03': 105, '206.04': 106,
+  '206.05': 107, '206.06': 108,
+  '207': 109, '207.01': 110, '207.02': 111,
+}
+
+/** A kód hivatalos Nr. rând-ja; ismeretlen kódra „—" (nem tolja el a többit). */
+function hivatalosNrRand(kod: string): string {
+  const n = HIVATALOS_NR_RAND[kod]
+  return n === undefined ? '—' : String(n)
+}
+
+// ─── A hivatalos Tartozások/Kintlévőségek sor-katalógus (116–133) ──────────
+// EXPORTÁLT: a nyomtatvány (buildSzamadasExtraRows) ÉS a rögzítő felület is
+// ebből dolgozik — a feliratok nem tudnak széthúzni. Kulcs: a hivatalos
+// Nr. rând. A * a bérszámfejtéses (egyházmegye-függő) sorokat jelöli, ahogy
+// a hivatalos íven.
+export const SZAMADAS_DATORII_SOROK: ReadonlyArray<[number, string, string]> = [
+  [117, 'Contribuţii pentru susţinerea unităţii ierarhic superioare', 'Központi járulék'],
+  [118, 'Contribuţia centrală 10% din chirii', 'Bérjövedelmek 10%-a'],
+  [119, 'Contribuţii pentru prestări servicii efectuate către protopopiat', 'Egyházmegyei szolgáltatások díja'],
+  [120, 'Întreţinere (încălzire, iluminat, apă, etc.)', 'Közköltségek'],
+  [121, 'Retribuţii*', 'Javadalmak*'],
+  [122, 'Impozit asupra drepturilor de retribuire*', 'Jövedelemadó*'],
+  [123, 'Contribuţii pentru asigurări sociale*', 'Társadalombiztosítás*'],
+  [124, 'C.A.S.S.*', 'Egészségbiztosítás*'],
+  [125, 'Contribuția asiguratorie pentru muncă - 2,25%*', 'Munkabiztosítási járulék*'],
+  [126, 'Credite primite', 'Kapott hitelek'],
+  [127, 'Alte datorii', 'Más tartozások'],
+]
+export const SZAMADAS_CREANTE_SOROK: ReadonlyArray<[number, string, string]> = [
+  [129, 'Contribuţii pentru susţinerea unităţii ierarhic superioare*', 'Központi járulék*'],
+  [130, 'Contribuţii pentru prestări servicii la parohii*', 'Szolgáltatások díja*'],
+  [131, 'Închirieri', 'Bérleti díjak'],
+  [132, 'Acordări de credite', 'Kiadott hitelek'],
+  [133, 'Alte creanţe', 'Más kintlévőségek'],
+]
+
+function buildSectionRows(data: BudgetPrintData, cells: SzamadasiCel[], mode: BudgetMode): string[] {
   const rows: string[] = []
-  let n = startNum
   for (const c of cells) {
     const isGroup = !c.id.includes('.')
+    // 2026-08-14 (K2): a sorszám a FIX hivatalos katalógusból — nem futó számláló.
+    const n = hivatalosNrRand(c.id)
     if (isGroup) {
       rows.push(`<tr class="grp">
         <td class="name" colspan="2">${esc(roName(c))} / ${esc(c.nev)}</td>
@@ -666,9 +756,8 @@ function buildSectionRows(data: BudgetPrintData, cells: SzamadasiCel[], mode: Bu
         <td class="c">${n}</td><td class="c">${esc(c.id)}</td>${valueCells(data, c, false, mode)}
       </tr>`)
     }
-    n++
   }
-  return { rows, nextNum: n }
+  return rows
 }
 
 // Egy teljes táblázatoldalra férő sorok száma: 296mm lap − 20mm padding − ~5mm
@@ -798,7 +887,6 @@ function collectBudgetRows(
   // 2026-08-11 (6. kör): a nyitóblokk értékei/feliratai PARAMÉTERBŐL is jöhetnek
   // (`opts.opening`) — a részszámadás az IDŐSZAK ELEJÉRE levezetett nyitót írja
   // ide, nem a január 1-it. Az éves ág (`openingRows`) változatlan.
-  let startNum = 1
   const openingBlock: OpeningBlock | null = opts?.opening
     ? opts.opening
     : opts?.openingRows && (data.carryoverCash != null || data.carryoverBank != null)
@@ -825,15 +913,109 @@ function collectBudgetRows(
       <td class="ro">Banca</td><td>Banki egyenleg</td>
       <td class="c">3</td><td class="c"></td>${openingCells(openingBlock.bank)}
     </tr>`)
-    startNum = 4
+    // 2026-08-14 (K2): a folytatás sorszáma már NEM futó számláló — a fix
+    // hivatalos Nr. rând katalógus veszi át (a 4. sor a 101-es csoport).
   }
 
-  all.push(`<tr class="sec"><td colspan="${cols}">Bevételek / Venituri</td></tr>`)
-  const inc = buildSectionRows(data, incomeCells, mode, startNum)
-  all.push(...inc.rows)
-  all.push(`<tr class="sec"><td colspan="${cols}">Kiadások / Cheltuieli</td></tr>`)
-  const exp = buildSectionRows(data, expenseCells, mode, inc.nextNum)
-  all.push(...exp.rows)
+  // ── 2026-08-14 (K2): a hivatalos ív KÖZBEÉKELT összesítő sorai ────────────
+  // A hivatalos Szamadas lapon az összesítő sorok a szekciók KÖZBEN állnak,
+  // saját Nr. rând-dal: 36 (Total venituri proprii, a 104-es csoport után),
+  // 41 (Total, a 105 után), 52 (Total încasări), 95 (Total cheltuieli propriu-
+  // zisă, a 204 után), 99 (Total), 100 (EXCEDENT), 101 (DEFICIT, a 205 után),
+  // 112 (Plăți totale). Ezeket eddig egyáltalán nem nyomtattuk — a hivatalos
+  // ívvel soronként összeolvasó számvevőnek hiányoztak.
+  //
+  // A meglévő HÁROM záró végösszeg-sor (Összbevétel/Összkiadás/Excedent —
+  // `tr.tot`) VÁLTOZATLANUL megmarad: az önellenőrzés (Y3/Y6/Z2/ZM2) szerződése
+  // és a képernyő⇄papír egyezés őre. A közbeékelt sorok KIEGÉSZÍTÉS.
+  const sumGroups = (ids: string[], getter: (d: BudgetPrintData, celId: string) => number): number =>
+    ids.reduce((s, gid) => s + sumGroup(data, gid, getter), 0)
+  const getFinalValL = (d: BudgetPrintData, celId: string): number =>
+    d.budgetRows[celId]?.modositott || d.budgetRows[celId]?.tervezett || 0
+
+  /** Hivatalos összesítő sor a mód értékoszlop-konvenciójával. */
+  const officialSummaryRow = (nr: number, labelRo: string, labelHu: string, plan: number, actual: number, final: number): string => {
+    let vals = `<td class="r">${fmtNum(plan)}</td>`
+    if (mode === 'szamadas') vals = `<td class="r">${fmtNum(plan)}</td><td class="r">${fmtNum(actual)}</td>`
+    else if (mode === 'modification') vals = `<td class="r">${fmtNum(plan)}</td><td class="r">${fmtNum(final - plan)}</td><td class="r">${fmtNum(final)}</td>`
+    return `<tr class="grp">
+        <td class="name" colspan="2">${esc(labelRo)} / ${esc(labelHu)}</td>
+        <td class="c">${nr}</td><td class="c"></td>${vals}
+      </tr>`
+  }
+
+  // A hivatalos képletek csoport-összegei (terv / tény / végleges):
+  const S = (ids: string[]) => ({
+    plan: sumGroups(ids, getVal),
+    actual: sumGroups(ids, getActual),
+    final: sumGroups(ids, getFinalValL),
+  })
+  const s36 = S(['101', '102', '103', '104'])            // Total venituri proprii (4+13+20+30)
+  const s105 = S(['105'])
+  const s41 = { plan: s36.plan + s105.plan, actual: s36.actual + s105.actual, final: s36.final + s105.final } // Total (36+37)
+  const s10607 = S(['106', '107'])
+  const s52 = { plan: s41.plan + s10607.plan, actual: s41.actual + s10607.actual, final: s41.final + s10607.final } // Total încasări (41+42+49)
+  const s95 = S(['201', '202', '203', '204'])            // Total cheltuieli propriu-zisă (53+73+82+90)
+  const s205 = S(['205'])
+  const s99 = { plan: s95.plan + s205.plan, actual: s95.actual + s205.actual, final: s95.final + s205.final } // Total (95+96)
+  const s20607 = S(['206', '207'])
+  const s112 = { plan: s99.plan + s20607.plan, actual: s99.actual + s20607.actual, final: s99.final + s20607.final } // Plăți totale (99+102+109)
+  // EXCEDENT (41−99) / DEFICIT (99−41) — a hivatalos íven MINDKÉT sor létezik,
+  // az egyik jellemzően 0.
+  const exc = { plan: Math.max(0, s41.plan - s99.plan), actual: Math.max(0, s41.actual - s99.actual), final: Math.max(0, s41.final - s99.final) }
+  const def = { plan: Math.max(0, s99.plan - s41.plan), actual: Math.max(0, s99.actual - s41.actual), final: Math.max(0, s99.final - s41.final) }
+
+  /** A cellák csoport-blokkokra bontva (a csoport a saját levelei előtt áll). */
+  const groupBlocks = (cells: SzamadasiCel[]): Array<{ gid: string; cells: SzamadasiCel[] }> => {
+    const blocks: Array<{ gid: string; cells: SzamadasiCel[] }> = []
+    for (const c of cells) {
+      const gid = c.id.split('.')[0]
+      const last = blocks[blocks.length - 1]
+      if (last && last.gid === gid) last.cells.push(c)
+      else blocks.push({ gid, cells: [c] })
+    }
+    return blocks
+  }
+  /** Az adott csoport UTÁN beékelendő hivatalos összesítő sorok. */
+  const utana: Record<string, string[]> = {
+    '104': [officialSummaryRow(36, 'Total venituri proprii', 'Saját bevételek összesen (4+13+20+30)', s36.plan, s36.actual, s36.final)],
+    '105': [officialSummaryRow(41, 'Total', 'Összesen (36+37)', s41.plan, s41.actual, s41.final)],
+    '107': [officialSummaryRow(52, 'Total încasări', 'Összbevétel (41+42+49)', s52.plan, s52.actual, s52.final)],
+    '204': [officialSummaryRow(95, 'Total cheltuieli pentru activitate propriu zisă', 'Saját tevékenységek kiadásai (53+73+82+90)', s95.plan, s95.actual, s95.final)],
+    '205': [
+      officialSummaryRow(99, 'Total', 'Saját kiadások összesen (95+96)', s99.plan, s99.actual, s99.final),
+      officialSummaryRow(100, 'EXCEDENT (41-99)', 'Bevételi többlet', exc.plan, exc.actual, exc.final),
+      officialSummaryRow(101, 'DEFICIT (99-41)', 'Kiadási többlet', def.plan, def.actual, def.final),
+    ],
+    '207': [officialSummaryRow(112, 'Plăţi totale', 'Kiadások összesen (99+102+109)', s112.plan, s112.actual, s112.final)],
+  }
+
+  // A horgony-csoport hiányában is ki KELL kerülnie az összesítő sornak
+  // (pl. Total încasări / Plăţi totale mindig része a hivatalos ívnek) —
+  // ilyenkor a szekció megfelelő pontján, sorrendben pótoljuk.
+  const emitSection = (secLabel: string, cells: SzamadasiCel[], horgonyok: string[]) => {
+    all.push(`<tr class="sec"><td colspan="${cols}">${secLabel}</td></tr>`)
+    const kiirt = new Set<string>()
+    for (const b of groupBlocks(cells)) {
+      all.push(...buildSectionRows(data, b.cells, mode))
+      // Minden olyan horgony összesítője kimegy, amelynek a csoportja már
+      // nem következhet (a mostani blokk gid-je elérte vagy meghaladta).
+      for (const h of horgonyok) {
+        if (kiirt.has(h)) continue
+        if (b.gid >= h) {
+          for (const row of utana[h] || []) all.push(row)
+          kiirt.add(h)
+        }
+      }
+    }
+    for (const h of horgonyok) {
+      if (kiirt.has(h)) continue
+      for (const row of utana[h] || []) all.push(row)
+      kiirt.add(h)
+    }
+  }
+  emitSection('Bevételek / Venituri', incomeCells, ['104', '105', '107'])
+  emitSection('Kiadások / Cheltuieli', expenseCells, ['204', '205', '207'])
 
   const groupsOf = (cells: SzamadasiCel[]) => cells.filter((c) => !c.id.includes('.'))
   const totalIncome = groupsOf(incomeCells).reduce((s, c) => s + sumGroup(data, c.id, getVal), 0)
@@ -950,8 +1132,13 @@ function renderTablePages(data: BudgetPrintData, mode: BudgetMode, rows: string[
   </tr>`
   // Az időszak-sáv MINDEN oldal tetejére kell: a borító leválik/elveszik, és a
   // 2. oldaltól a részszámadás különben megkülönböztethetetlen az évestől.
+  // 2026-08-14 (14. pont): a „Belső használatra…" toldalék eltávolítva a sávból.
+  // A SÁV MAGA MARAD — az önellenőrzés (scripts/selftest-reszszamadas.mjs, Y1)
+  // azt állítja, hogy a .pband MINDEN táblázatoldalon ott van, és a sáv szerepe
+  // változatlan: a borító leválhat, és a 2. oldaltól a részszámadás különben
+  // megkülönböztethetetlen lenne az évestől.
   const band = opts.partial
-    ? `<div class="pband">RÉSZSZÁMADÁS · Időszak: ${esc(opts.partial.fromLabel)} — ${esc(opts.partial.toLabel)} · Belső használatra — az egyházmegyének NEM beküldendő.</div>`
+    ? `<div class="pband">RÉSZSZÁMADÁS · Időszak: ${esc(opts.partial.fromLabel)} — ${esc(opts.partial.toLabel)}</div>`
     : ''
 
   // A feltöltés és a lapszám UGYANABBÓL a tervből jön (lásd `OldalTerv`).
@@ -1055,13 +1242,42 @@ function buildSzamadasExtraRows(data: BudgetPrintData): string {
     if (isSzamadasIvKod(code, 'K')) totalActualExpense += v || 0
   }
   const closing = opening + totalActualIncome - totalActualExpense
+
+  // ── 2026-08-14 (K2, BLOKKOLÓ-javítás): a hivatalos 113–134. sorblokk ──────
+  // A hivatalos ív záró blokkja NEM áll meg a Soldnál: a 116. sortól a
+  // Tartozások (Datorii, 117–127), a 128.-tól a Kintlévőségek (Creanţe,
+  // 129–133), végül a 134. Záróegyenleg (113 − 116 + 128) következik.
+  // Az Útmutató kimondja: „Ha nincs tartozás, akkor jegyzőkönyvezni kell azt
+  // is, hogy nincs tartozás." — a blokk tehát MINDIG nyomtatandó, üresen is.
+  //
+  // Az értékek az opcionális `data.tartozasok` / `data.kintlevosegek`
+  // (hivatalos sorszám → összeg) mezőkből jönnek; amíg nincs rögzítő felület
+  // (külön szelet: bealitas-migráció + szerkesztő), minden sor 0 — ez ma a
+  // tárolt valóság, nem hamisítás. A Casa/Banca bontáshoz itt továbbra sincs
+  // oldalankénti tény-adat → „—" (hamis szám helyett), az opcionális
+  // `data.zaroCasa`/`data.zaroBanca` kitöltésével válik számmá.
+  const t = (nr: number): number => data.tartozasok?.[nr] || 0
+  const k = (nr: number): number => data.kintlevosegek?.[nr] || 0
+  const datoriiTotal = SZAMADAS_DATORII_SOROK.reduce((s, [nr]) => s + t(nr), 0)
+  const creanteTotal = SZAMADAS_CREANTE_SOROK.reduce((s, [nr]) => s + k(nr), 0)
+  // 134. Záróegyenleg = 113 − 116 + 128
+  const zaroegyenleg = closing - datoriiTotal + creanteTotal
+
+  const sor = (nr: number, ro: string, hu: string, v: number | null, grp = false): string =>
+    `<tr${grp ? ' class="grp"' : ''}><td class="c" style="width:6%">${nr}</td><td>${esc(ro)} / ${esc(hu)}</td><td class="r">x</td><td class="r">${v === null ? '—' : fmtNum(v)}</td></tr>`
+
   return `
     <table class="bt" style="margin-top:6px;">
-      <thead><tr><th style="width:60%">Megnevezés / Denumire</th><th style="width:20%">Költségvetés</th><th style="width:20%">Számadás</th></tr></thead>
+      <thead><tr><th style="width:6%">Nr. rând<br>Sorszám</th><th style="width:54%">Megnevezés / Denumire</th><th style="width:20%">Költségvetés</th><th style="width:20%">Számadás</th></tr></thead>
       <tbody>
-        <tr class="grp"><td>Pénztári és banki egyenleg az év végén / Sold la finele anului</td><td class="r">x</td><td class="r">${fmtNum(closing)}</td></tr>
-        <tr><td>Készpénz egyenleg / Casa</td><td class="r">x</td><td class="r">—</td></tr>
-        <tr><td>Banki egyenleg / Banca</td><td class="r">x</td><td class="r">—</td></tr>
+        ${sor(113, 'Sold la finele anului', 'Pénztári és banki egyenleg az év végén', closing, true)}
+        ${sor(114, 'Casa', 'Készpénz egyenleg', data.zaroCasa ?? null)}
+        ${sor(115, 'Banca', 'Banki egyenleg', data.zaroBanca ?? null)}
+        ${sor(116, 'Datorii', 'Tartozások (117 + … + 127)', datoriiTotal, true)}
+        ${SZAMADAS_DATORII_SOROK.map(([nr, ro, hu]) => sor(nr, ro, hu, t(nr))).join('')}
+        ${sor(128, 'Creanţe', 'Kintlevőségek (129 + … + 133)', creanteTotal, true)}
+        ${SZAMADAS_CREANTE_SOROK.map(([nr, ro, hu]) => sor(nr, ro, hu, k(nr))).join('')}
+        ${sor(134, 'Sold', 'Záróegyenleg (113 − 116 + 128)', zaroegyenleg, true)}
       </tbody>
     </table>
   `

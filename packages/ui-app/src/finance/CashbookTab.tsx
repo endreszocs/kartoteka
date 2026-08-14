@@ -36,6 +36,8 @@ import {
   Wallet,
 } from 'lucide-react'
 
+import { kasszaplafonUzenet } from '@kartoteka/core'
+
 import {
   formatCurrency,
   getExpensePartnerName,
@@ -147,6 +149,17 @@ export interface CashbookTabProps {
   /** 2026-07-17 (F4): az Induló (nyitó) egyenlegek szerkesztőjének megnyitása. */
   onOpenOpeningBalances?: () => void
 
+  /**
+   * 2026-08-14 (13. pont, Endre kérése): KIEMELT „Új tétel hozzáadása" a
+   * Kassza fülön — eddig a rögzítő gomb csak a fül feletti hero-sávban volt.
+   * Ha megadott, a fül tetején jól látható CTA-sáv jelenik meg. Opcionális:
+   * a desktop változatlan marad, amíg nem adja át.
+   */
+  onNewEntry?: () => void
+  /** A CTA-sáv bátorító tartalma (felirat + igevers) — a hívó adja (web: napi
+   *  sáfárság-igevers). Csak az onNewEntry mellett jelenik meg. */
+  biztatoSlot?: ReactNode
+
   /** Nyugta auto-kiállítás (web: autoIssueChitantaForBefizetes server action). */
   onAutoIssueChitanta?: (befizetesId: number) => Promise<AutoIssueChitantaResult>
 
@@ -225,6 +238,8 @@ export function CashbookTab({
   accountingFinalized = false,
   onTransactionChanged,
   onOpenOpeningBalances,
+  onNewEntry,
+  biztatoSlot,
   onAutoIssueChitanta,
   loadChitantakForBefizetesek,
   onUndoStorno,
@@ -610,6 +625,24 @@ export function CashbookTab({
 
   return (
     <div className="space-y-4">
+      {/* 2026-08-14 (13. pont): KIEMELT rögzítő CTA a fül tetején — bátorító
+          felirattal/igeverssel. Véglegesített évben a gomb tiltva, és ezt ki
+          is mondja. */}
+      {onNewEntry && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50/90 to-teal-50/60 p-4 dark:border-emerald-400/25 dark:from-emerald-400/10 dark:to-teal-400/5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">{biztatoSlot}</div>
+          <button
+            type="button"
+            onClick={onNewEntry}
+            disabled={accountingFinalized}
+            title={accountingFinalized ? 'A nézett év számadása véglegesítve van — új tétel nem rögzíthető.' : undefined}
+            className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 text-base font-semibold text-white shadow-md transition hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-400 dark:text-emerald-950"
+          >
+            <Wallet className="size-5" />
+            Új tétel hozzáadása
+          </button>
+        </div>
+      )}
       <div
         className={`grid grid-cols-2 gap-3 ${
           chitantaTombokPanelSlot ? 'sm:grid-cols-3 lg:grid-cols-5' : 'sm:grid-cols-4'
@@ -672,6 +705,24 @@ export function CashbookTab({
           </button>
         )}
       </div>
+
+      {/* 2026-08-14 (Endre kérése, „Változások 2026"): 50 000 lejes törvényes
+          kassza-plafon — ÉLŐ figyelmeztetés, ahogy a hivatalos Excel is jelzi
+          (Adatok_2026 „Kassza" I2). Figyelmeztet, nem blokkol. A közös szabály
+          a @kartoteka/core-ban él, így a desktop is ugyanazt kapja. */}
+      {(() => {
+        const plafon = kasszaplafonUzenet(closingBalance)
+        if (!plafon) return null
+        return (
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+            <p className="leading-relaxed">{plafon.uzenet}</p>
+          </div>
+        )
+      })()}
 
       {/* 2026-07-17 (F4): átvezetés az Induló egyenlegek szerkesztőjére — a KPI-sor
           ALATT, saját sorban (abszolút overlay mobilon a KPI-feliratot takarta volna). */}

@@ -63,7 +63,7 @@ export function DistrictPrintDialog({ open, onOpenChange, districtId, districtNa
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[96vh] overflow-y-auto sm:max-w-6xl">
+      <DialogContent className="max-h-[96dvh] overflow-y-auto sm:max-w-6xl">
         <DialogHeader>
           <DialogTitle>&bdquo;{districtName}&rdquo; — körzeti névsor nyomtatása</DialogTitle>
         </DialogHeader>
@@ -112,11 +112,11 @@ export function DistrictPrintDialog({ open, onOpenChange, districtId, districtNa
 
           <div className="overflow-hidden rounded-[22px] border border-border bg-muted/40 p-2">
             {loading ? (
-              <div className="flex h-[70vh] items-center justify-center text-sm text-muted-foreground">Névsor betöltése…</div>
+              <div className="flex h-[70dvh] items-center justify-center text-sm text-muted-foreground">Névsor betöltése…</div>
             ) : report ? (
-              <iframe title={report.title} srcDoc={report.html} className="h-[70vh] min-h-[500px] w-full rounded-[16px] bg-white" />
+              <iframe title={report.title} srcDoc={report.html} className="h-[70dvh] min-h-[500px] w-full rounded-[16px] bg-white" />
             ) : (
-              <div className="flex h-[70vh] items-center justify-center text-sm text-muted-foreground">Nincs megjeleníthető adat.</div>
+              <div className="flex h-[70dvh] items-center justify-center text-sm text-muted-foreground">Nincs megjeleníthető adat.</div>
             )}
           </div>
         </div>

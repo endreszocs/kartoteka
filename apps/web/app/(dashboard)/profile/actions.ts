@@ -245,6 +245,81 @@ export async function getProfileDialogData() {
     custom: 8,
   }
 
+  // ── 2026-08-14 (1. pont): a STRUKTURÁLT szolgálati előzmények ────────────
+  // A pastor_service_history tábla LÉTEZIK (RLS-sel), a welcome-varázsló ÍRJA —
+  // de eddig az egész repóban SENKI nem olvasta, ezért állt a profilban örökké
+  // a „Még nincs rögzítve", akkor is, ha a varázslóban rögzítettek előzményt.
+  // FAIL-SOFT: ha a tábla hiányzik élesben vagy az RLS elutasít, üres lista
+  // marad, és a legacy szöveges mezők (previous_service_places) viszik tovább.
+  let serviceHistory: Array<{
+    id: string
+    hely: string
+    szerep: string | null
+    evTol: number | null
+    evIg: number | null
+    megjegyzes: string | null
+  }> = []
+  {
+    const { data: shData, error: shError } = await supabase
+      .from('pastor_service_history')
+      .select('id, hely, szerep, ev_tol, ev_ig, megjegyzes, sorrend')
+      .eq('user_id', user.id)
+      .order('sorrend', { ascending: true })
+    if (shError) {
+      console.warn('[profile] pastor_service_history olvasása sikertelen (fail-soft):', shError.message)
+    } else {
+      serviceHistory = ((shData || []) as Array<{
+        id: string; hely: string; szerep: string | null
+        ev_tol: number | null; ev_ig: number | null; megjegyzes: string | null; sorrend: number | null
+      }>)
+        // Frissebb időszak elöl (a sorrend másodlagos, a kezdő év az elsődleges).
+        .sort((a, b) => (b.ev_tol ?? -1) - (a.ev_tol ?? -1))
+        .map((r) => ({
+          id: r.id,
+          hely: r.hely,
+          szerep: r.szerep,
+          evTol: r.ev_tol,
+          evIg: r.ev_ig,
+          megjegyzes: r.megjegyzes,
+        }))
+    }
+  }
+
+  // ── 2026-08-14 (1. pont, 2. fele): az AUTOMATIKUS szolgálati-hely napló ──
+  // A szolgalati_hely_naplo sorait egy profiles-trigger írja minden
+  // congregation_id-változásnál (migráció: 2026-08-14-szolgalati-hely-naplo.sql).
+  // FAIL-SOFT: amíg a migráció nem futott le élesben, üres lista — a fül a
+  // legacy adatokból él tovább, hibát nem mutatunk.
+  let helyNaplo: Array<{
+    id: string
+    congregationNev: string | null
+    elozoCongregationNev: string | null
+    jelleg: 'kezdeti' | 'valtozas'
+    createdAt: string
+  }> = []
+  {
+    const { data: hnData, error: hnError } = await supabase
+      .from('szolgalati_hely_naplo')
+      .select('id, congregation_nev, elozo_congregation_nev, jelleg, created_at')
+      .eq('profile_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(50)
+    if (hnError) {
+      console.warn('[profile] szolgalati_hely_naplo olvasása sikertelen (fail-soft):', hnError.message)
+    } else {
+      helyNaplo = ((hnData || []) as Array<{
+        id: string; congregation_nev: string | null; elozo_congregation_nev: string | null
+        jelleg: string; created_at: string
+      }>).map((r) => ({
+        id: r.id,
+        congregationNev: r.congregation_nev,
+        elozoCongregationNev: r.elozo_congregation_nev,
+        jelleg: r.jelleg === 'kezdeti' ? 'kezdeti' : 'valtozas',
+        createdAt: r.created_at,
+      }))
+    }
+  }
+
   const profileRoles = roleRows
     .map((r) => ({
       id: r.id,
@@ -288,6 +363,8 @@ export async function getProfileDialogData() {
         bio: pastorProfileCompat.row?.bio || '',
         ministryNotes: pastorProfileCompat.row?.ministry_notes || '',
       },
+      serviceHistory,
+      helyNaplo,
       profileRoles,
     },
   }

@@ -256,7 +256,7 @@ function OblioConfigDialog({ open, onOpenChange, status, onChanged }: DialogProp
         className="
           w-[calc(100%-1.5rem)] sm:w-full
           sm:max-w-2xl md:max-w-3xl
-          max-h-[90vh] overflow-y-auto
+          max-h-[90dvh] overflow-y-auto
           border border-teal-200 bg-gradient-to-br from-white via-white to-teal-50/40
           p-0 gap-0 rounded-2xl
         "
