@@ -68,6 +68,8 @@ interface BudgetPrintDialogProps {
   incomeRecords: BefitetesRow[]
   expenseRecords: KiadasRow[]
   congregationName: string
+  /** A gyülekezet hivatalos román neve (nev_ro) — a nyomtatvány-fejléchez. */
+  congregationNameRo?: string
   carryoverCash: number
   carryoverBank: number
   currentYear: number
@@ -83,6 +85,7 @@ export function BudgetPrintDialog({
   incomeRecords,
   expenseRecords,
   congregationName,
+  congregationNameRo,
   carryoverCash,
   carryoverBank,
   currentYear,
@@ -265,6 +268,7 @@ export function BudgetPrintDialog({
               actualIncome: filters.actualIncome,
               actualExpense: filters.actualExpense,
               congregationName,
+              congregationNameRo,
               year: filters.selectedYear,
               carryoverCash,
               carryoverBank,

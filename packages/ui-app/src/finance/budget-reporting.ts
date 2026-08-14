@@ -194,6 +194,10 @@ export interface BudgetPrintData {
   actualIncome?: Record<string, number>
   actualExpense?: Record<string, number>
   congregationName: string
+  /** 2026-08-15 (Endre): a gyülekezet hivatalos ROMÁN neve (nev_ro) — a
+   *  nyomtatvány-fejlécek a beállításokban rögzített SAJÁT neveket írják ki,
+   *  nem sablonszöveget. */
+  congregationNameRo?: string | null
   year: number
   iktatoszam?: string
   hatarozatSzam?: string
@@ -407,16 +411,21 @@ export function buildSzamadasReport(data: BudgetPrintData): BudgetPrintResult {
   const { year } = data
   // 2026-07-10 (#2): a hivatalos forma 1–3. sora a nyitó egyenleg.
   const rows = collectBudgetRows(data, 'szamadas', { openingRows: true })
-  // 2026-08-14 (K2): a záró blokk a hivatalos 113–134. sorokkal ~21 sorra
-  // nőtt — az utolsó lapon ennyi helyet KELL tartalékolni, különben a
-  // Tartozások/Kintlévőségek blokk túlnyúlna a lapon (levágódna).
-  // 2026-08-15: +1 sor a blokk élére került szekció-sávnak (a blokk a fő
-  // táblázat folytatása lett, lásd buildSzamadasExtraRows).
-  const terv = tervezOldalak(rows.length, true, true, 17)
+  // ── 2026-08-15 (Endre kifejezett döntése): a 113–134. záró blokk LEKERÜLT ──
+  // A hivatalos ív Tartozások/Kintlévőségek záró tábláját (113–134. sor) Endre
+  // — a „visszaküldhető számadás" szakmai figyelmeztetés ismeretében — kivetette
+  // a nyomtatványról: a gyakorlatban csupa nulla sort adott, és külön
+  // táblázatnak látszott. Az ADAT-ÚT ép marad: a bealitas.szamadas_tartozasok a
+  // lelkészi jelentés VII. fejezetét továbbra is táplálja, és a blokk a git-
+  // történetből visszahozható, ha az esperesi hivatal mégis kérné.
+  //
+  // A tartalék így már csak a nyilatkozat (~5 sor-egyenérték) + aláírások:
+  // a teljes Számadás célja Endre kérésére LEGFELJEBB 4 OLDAL (borítóval).
+  const terv = tervezOldalak(rows.length, true, false, 5)
   const total = 1 + terv.pages
   const coverPage = buildCoverPage(data, 'SZÁMADÁS', 'EXECUȚIA BUGETARĂ', null, total)
   const declaration = `<div class="decl">Alulírott lelkipásztor és főgondnok felelősségünk tudatában nyilatkozzuk, hogy a számadás adatai valósak és az egyházi rendelkezések szerint készült el.<span class="ro">Subsemnații, preotul și curatorul principal, declarăm pe propria răspundere că datele prezentei execuții bugetare sunt reale și au fost întocmite conform reglementărilor bisericești.</span></div>`
-  const lastExtraHtml = buildSzamadasExtraRows(data) + declaration
+  const lastExtraHtml = declaration
   const tablePages = renderTablePages(data, 'szamadas', rows, { startPage: 2, total, terv, withSignatures: true, lastExtraHtml })
   return {
     title: `Számadás ${year}`,
@@ -510,41 +519,41 @@ export function buildReszszamadasReport(data: BudgetPrintData): BudgetPrintResul
       labelHu: 'Nyitó pénzkészlet az időszak elején',
     },
   })
-  // +6 sor-egyenérték az UTOLSÓ oldalra: a két egyeztető vonal + a lábjegyzetek
-  // + a nyilatkozat nem fér bele az éves nyomtatvány tartalékába.
-  // 2026-08-11 (6. kör, reviewer-major): a KÖZTES oldalakat a `partial = true`
-  // miatt csökkentett per-oldal büdzsé védi (időszak-sáv minden oldal tetején).
-  // A lapszám és a feltöltés innentől UGYANEBBŐL a tervből jön.
-  const terv = tervezOldalak(rows.length, true, true, 6, true)
-  const total = 1 + terv.pages
-  const coverPage = buildCoverPage(data, 'RÉSZSZÁMADÁS', 'SITUAȚIE FINANCIARĂ PARȚIALĂ', null, total, undefined, {
-    // Az egyházmegyei blokk és a presbitériumi határozat KIMARAD: mindkettő
-    // arra hívna, hogy ezt a papírt iktassák/beküldjék. Ez BELSŐ kimutatás.
-    skipDiocese: true,
-    skipHatarozat: true,
-    keszult: data.keszult,
-    titleOverride: {
-      hu: 'RÉSZSZÁMADÁS — időszaki kimutatás',
-      ro: 'SITUAȚIE FINANCIARĂ PARȚIALĂ',
-    },
-    subTitle: `a ${year}. év ${fromLabel} — ${toLabel} időszakára`,
-  })
+  // ── 2026-08-15 (Endre): a KÜLÖN BORÍTÓ-OLDAL MEGSZŰNT ─────────────────────
+  // A részszámadás BELSŐ kimutatás — a korábbi, majdnem üres borító egy teljes
+  // lapot foglalt, és a teljes irat így nem fért bele Endre 4 oldalas keretébe.
+  // A borító tartalma (gyülekezet hivatalos nevei, cím, időszak, „Készült")
+  // kompakt fejlécként az 1. lap tetejére került; a helyét a terv
+  // `elsoFoglalt` sor-egyenértéke tartja fenn, így a tördelés nem csúszhat el.
+  // Az egyházmegyei blokk és a presbitériumi határozat továbbra sincs rajta
+  // (mindkettő arra hívna, hogy ezt a papírt iktassák/beküldjék).
+  const KOMPAKT_FEJLEC_SOR = 8
+  const kompaktFejlec = `<div style="margin-bottom:4mm;">
+    <div class="cv-entity" style="text-align:center;">${hivatalosEntitasNev(data)}</div>
+    <div style="text-align:center;font-size:16px;font-weight:bold;margin-top:3mm;">RÉSZSZÁMADÁS — időszaki kimutatás</div>
+    <div style="text-align:center;font-size:11px;font-weight:bold;">SITUAȚIE FINANCIARĂ PARȚIALĂ</div>
+    <div style="text-align:center;font-size:11px;margin-top:2mm;">a ${year}. év ${esc(fromLabel)} — ${esc(toLabel)} időszakára / pe perioada ${esc(fromLabel)} — ${esc(toLabel)} a anului ${year}</div>
+    ${data.keszult ? `<div style="text-align:center;font-size:9px;color:#444;margin-top:1mm;">Készült / Întocmit: ${esc(data.keszult)} · a könyvelés aznapi állása szerint / conform situației contabile din ziua respectivă</div>` : ''}
+  </div>`
+  const terv = tervezOldalak(rows.length, true, true, 6, true, KOMPAKT_FEJLEC_SOR)
+  const total = terv.pages
   const declaration = `<div class="decl">Alulírottak nyilatkozzuk, hogy a fenti időszak adatai a könyvelés mai állása szerint valósak. Ez a kimutatás <strong>NEM az éves zárszámadás</strong>, és az egyházmegyének nem küldhető be helyette.<span class="ro">Subsemnații declarăm că datele perioadei de mai sus sunt reale conform situației contabile de astăzi. Această situație <strong>NU este execuția bugetară anuală</strong> și nu poate fi înaintată protopopiatului în locul acesteia.</span></div>`
   const lastExtraHtml = buildReszszamadasExtraRows(data, partial) + declaration
   const tablePages = renderTablePages(data, 'szamadas', rows, {
-    startPage: 2,
+    startPage: 1,
     total,
     terv,
     withSignatures: true,
     withAuditor: false, // az ellenőrző bizottság az ÉVES számadást hitelesíti
     lastExtraHtml,
+    firstExtraHtml: kompaktFejlec,
     partial,
   })
   return {
     title: `Részszámadás ${year} (${fromLabel} – ${toLabel})`,
     filename: `Reszszamadas_${year}_${periodFrom}_${periodTo}.pdf`,
     orientation: 'portrait',
-    html: wrapBudget(`Részszámadás ${year}`, coverPage + tablePages),
+    html: wrapBudget(`Részszámadás ${year}`, tablePages),
   }
 }
 
@@ -560,6 +569,20 @@ function footer(data: BudgetPrintData, pageNo: number, total: number): string {
     ? ' · Részszámadás — nem hivatalos zárszámadás / Situație parțială — nu este execuție bugetară oficială'
     : ''
   return `<div class="page-footer"><span>${esc(data.congregationName)}${kind}</span><span>oldal / pagina ${pageNo} / ${total}</span></div>`
+}
+
+/**
+ * 2026-08-15 (Endre): a nyomtatvány-fejléc a gyülekezet SAJÁT hivatalos neveit
+ * írja ki NAGYBETŰVEL — „BARÁTOSI REFORMÁTUS EGYHÁZKÖZSÉG / PAROHIA REFORMATA
+ * BRATES" —, nem a korábbi sablonszöveget („REFORMÁTUS EGYHÁZKÖZSÉG / PAROHIA
+ * REFORMATĂ + név"). Mindkét név a Gyülekezet beállítása ablakból jön
+ * (congregations.name + nev_ro); ha a román név nincs kitöltve, csak a magyar
+ * jelenik meg — sablon-kiegészítés nélkül.
+ */
+function hivatalosEntitasNev(data: BudgetPrintData): string {
+  const hu = (data.congregationName || '').toLocaleUpperCase('hu-HU')
+  const ro = (data.congregationNameRo || '').trim().toLocaleUpperCase('ro-RO')
+  return ro ? `${esc(hu)} / ${esc(ro)}` : esc(hu)
 }
 
 interface CoverOpts {
@@ -584,7 +607,7 @@ function buildCoverPage(
   periodLine?: string,
   opts?: CoverOpts,
 ): string {
-  const { congregationName, year, iktatoszam, hatarozatSzam, hatarozatDatum } = data
+  const { year, iktatoszam, hatarozatSzam, hatarozatDatum } = data
   // A presbitériumi határozat + egyházközségi iktatószám CSAK véglegesítés után
   // jelenik meg (előtte üres vonal — a minta szerint kézzel/utólag töltik ki).
   const fin = data.finalized === true
@@ -626,7 +649,7 @@ function buildCoverPage(
     ${dioceseBlock}
 
     <div style="margin-top:16mm;">
-      <div class="cv-entity">REFORMÁTUS EGYHÁZKÖZSÉG / PAROHIA REFORMATĂ &nbsp; ${esc(congregationName)}</div>
+      <div class="cv-entity">${hivatalosEntitasNev(data)}</div>
       <div class="cv-row">
         <div>Egyházközségi iktatószám / Nr. înreg. parohie: <span class="cv-line">&nbsp;${iktato}</span></div>
       </div>
@@ -824,6 +847,10 @@ interface OldalTerv {
   perPage: number
   /** Az UTOLSÓ oldalon a záró blokkoknak fenntartott sor-egyenérték. */
   reserved: number
+  /** 2026-08-15: az ELSŐ oldalon a kompakt fejlécnek fenntartott sor-egyenérték
+   *  (a részszámadás borító-oldala megszűnt — a fejléce az 1. lapra került,
+   *  hogy a teljes irat beleférjen Endre 4 oldalas keretébe). */
+  elsoFoglalt: number
 }
 
 function tervezOldalak(
@@ -832,11 +859,12 @@ function tervezOldalak(
   hasExtra: boolean,
   extra = 0,
   partial = false,
+  elsoFoglalt = 0,
 ): OldalTerv {
   const perPage = partial ? ROWS_PER_PAGE_PARTIAL : ROWS_PER_PAGE
   const reserved = reservedSlots(withSignatures, hasExtra, extra)
-  const pages = Math.max(1, Math.ceil((rowCount + reserved) / perPage))
-  return { pages, perPage, reserved }
+  const pages = Math.max(1, Math.ceil((rowCount + reserved + elsoFoglalt) / perPage))
+  return { pages, perPage, reserved, elsoFoglalt }
 }
 
 /**
@@ -873,9 +901,14 @@ function oldalMeretek(rowCount: number, terv: OldalTerv): number[] {
   // maradék SOSEM haladja meg a `perPage - reserved` kapacitást —
   //   pages * perPage >= rowCount + reserved  ⟹  rowCount - (pages-1)*perPage <= perPage - reserved
   // tehát a záró blokk mindig elfér, és nem vágódik le a papírról.
+  // Az 1. lap kapacitásából a kompakt fejléc (elsoFoglalt) levonódik — a
+  // `tervezOldalak` képlete (pages*perPage ≥ rowCount+reserved+elsoFoglalt)
+  // garantálja, hogy az utolsó lapra jutó maradék így sem lépi túl a
+  // perPage − reserved kapacitást.
   let marad = rowCount
   for (let p = 0; p < pages - 1 && marad > 0; p++) {
-    const take = Math.min(perPage, marad)
+    const kapacitas = perPage - (p === 0 ? terv.elsoFoglalt : 0)
+    const take = Math.min(Math.max(0, kapacitas), marad)
     sizes[p] = take
     marad -= take
   }
@@ -1088,6 +1121,10 @@ interface TableOpts {
   /** false → nincs Számvevő-oszlop (az ellenőrző bizottság az ÉVEST hitelesíti). */
   withAuditor?: boolean
   lastExtraHtml?: string
+  /** 2026-08-15: az ELSŐ lap tetejére kerülő kompakt fejléc (a részszámadás
+   *  külön borító-oldala megszűnt — így fér bele a teljes irat 4 oldalba).
+   *  A helyét a terv.elsoFoglalt tartja fenn. */
+  firstExtraHtml?: string
   partial?: PartialInfo
 }
 
@@ -1142,8 +1179,9 @@ function renderTablePages(data: BudgetPrintData, mode: BudgetMode, rows: string[
       chunk.length > 0
         ? `<table class="bt">${colgroup}<thead>${thead}</thead><tbody>${chunk.join('')}</tbody></table>`
         : ''
+    const fejlec = p === 0 ? opts.firstExtraHtml || '' : ''
     html += `<div class="page">
-      ${band}${tabla}
+      ${fejlec}${band}${tabla}
       ${extras}
       ${footer(data, opts.startPage + p, opts.total)}
     </div>`
@@ -1209,83 +1247,15 @@ function buildReszszamadasExtraRows(data: BudgetPrintData, partial: PartialInfo)
   `
 }
 
-function buildSzamadasExtraRows(data: BudgetPrintData): string {
-  // 2026-07-10 (#2): KORÁBBAN HIBÁS volt — a NYITÓ carryover került a
-  // „Sold la finele anului / év végén" (ZÁRÓ) sorba, pedig nyitó ≠ záró.
-  // Helyesen: záró = nyitó (carryoverCash+carryoverBank) + Σ tény-bevétel −
-  // Σ tény-kiadás. A tény-összegek a BudgetPrintData actualIncome/actualExpense
-  // kódonkénti map-jeiből jönnek; a belső mozgás kódok (100.xx, 3xx/4xx)
-  // KIMARADNAK — a képernyős/nyomtatott tétel-szűrővel azonos szabály (#3/A).
-  // A kassza/bank ZÁRÓ BONTÁSHOZ itt nincs oldalankénti (kassza vs. bank)
-  // tény-adat (a map-ek kódonként aggregáltak) → a Casa/Banca sorok „—"-t
-  // mutatnak, hamis szám helyett.
-  // 2026-08-11 (6. kör): a kód-szűrés ugyanaz az `isSzamadasIvKod`, amit a
-  // táblázat-sorok és a képernyő is használ — nem tud széthúzni tőlük.
-  const opening = (data.carryoverCash || 0) + (data.carryoverBank || 0)
-  let totalActualIncome = 0
-  for (const [code, v] of Object.entries(data.actualIncome || {})) {
-    if (isSzamadasIvKod(code, 'B')) totalActualIncome += v || 0
-  }
-  let totalActualExpense = 0
-  for (const [code, v] of Object.entries(data.actualExpense || {})) {
-    if (isSzamadasIvKod(code, 'K')) totalActualExpense += v || 0
-  }
-  const closing = opening + totalActualIncome - totalActualExpense
-
-  // ── 2026-08-14 (K2, BLOKKOLÓ-javítás): a hivatalos 113–134. sorblokk ──────
-  // A hivatalos ív záró blokkja NEM áll meg a Soldnál: a 116. sortól a
-  // Tartozások (Datorii, 117–127), a 128.-tól a Kintlévőségek (Creanțe,
-  // 129–133), végül a 134. Záróegyenleg (113 − 116 + 128) következik.
-  // Az Útmutató kimondja: „Ha nincs tartozás, akkor jegyzőkönyvezni kell azt
-  // is, hogy nincs tartozás." — a blokk tehát MINDIG nyomtatandó, üresen is.
-  //
-  // Az értékek az opcionális `data.tartozasok` / `data.kintlevosegek`
-  // (hivatalos sorszám → összeg) mezőkből jönnek; amíg nincs rögzítő felület
-  // (külön szelet: bealitas-migráció + szerkesztő), minden sor 0 — ez ma a
-  // tárolt valóság, nem hamisítás. A Casa/Banca bontáshoz itt továbbra sincs
-  // oldalankénti tény-adat → „—" (hamis szám helyett), az opcionális
-  // `data.zaroCasa`/`data.zaroBanca` kitöltésével válik számmá.
-  const t = (nr: number): number => data.tartozasok?.[nr] || 0
-  const k = (nr: number): number => data.kintlevosegek?.[nr] || 0
-  const datoriiTotal = SZAMADAS_DATORII_SOROK.reduce((s, [nr]) => s + t(nr), 0)
-  const creanteTotal = SZAMADAS_CREANTE_SOROK.reduce((s, [nr]) => s + k(nr), 0)
-  // 134. Záróegyenleg = 113 − 116 + 128
-  const zaroegyenleg = closing - datoriiTotal + creanteTotal
-
-  // ── 2026-08-15 (Endre észrevétele): NE látsszon MÁSIK nyomtatványnak ──────
-  // A blokk korábban SAJÁT `<thead>`-del indult, ami megismételte a fő táblázat
-  // teljes fejlécét („Nr. rând | Megnevezés | Költségvetés | Számadás"), sőt más
-  // oszlopsorrenddel és más szélességekkel — a lapon ezért úgy festett, mintha a
-  // számadás után egy fölösleges, második táblázat következne.
-  //
-  // A blokk NEM fölösleges: ez a hivatalos Adatok_2026.xlsx `Szamadas` lapjának
-  // 113–134. sora (a hiánya 2026-08-14-én ⛔ BLOKKOLÓ megállapítás volt — a
-  // számvevő ezt a Casa/Banca bontást veti össze a következő év nyitójával,
-  // enélkül a számadás visszaküldhető). Ezért nem töröljük, hanem a fő táblázat
-  // FOLYTATÁSÁVÁ tesszük: azonos oszlopszélességek (colgroup), azonos
-  // cellasorrend (megnevezés · Nr. rând · fejezet · értékek), fejléc helyett egy
-  // szekció-sáv. Az értékcellák tartalma bitre azonos maradt — az önellenőrzés
-  // (selftest-reszszamadas Y0d) szerződése változatlan.
-  const sor = (nr: number, ro: string, hu: string, v: number | null, grp = false): string =>
-    `<tr${grp ? ' class="grp"' : ''}><td class="ro">${esc(ro)}</td><td>${esc(hu)}</td><td class="c">${nr}</td><td class="c"></td><td class="r">x</td><td class="r">${v === null ? '—' : fmtNum(v)}</td></tr>`
-
-  return `
-    <table class="bt" style="margin-top:-1px;">${colgroupFor('szamadas')}
-      <tbody>
-        <tr class="sec"><td colspan="${totalCols('szamadas')}">Blocul de încheiere al formularului oficial (rândurile 113–134) / A hivatalos ív záró blokkja</td></tr>
-        ${sor(113, 'Sold la finele anului', 'Pénztári és banki egyenleg az év végén', closing, true)}
-        ${sor(114, 'Casa', 'Készpénz egyenleg', data.zaroCasa ?? null)}
-        ${sor(115, 'Banca', 'Banki egyenleg', data.zaroBanca ?? null)}
-        ${sor(116, 'Datorii', 'Tartozások (117 + … + 127)', datoriiTotal, true)}
-        ${SZAMADAS_DATORII_SOROK.map(([nr, ro, hu]) => sor(nr, ro, hu, t(nr))).join('')}
-        ${sor(128, 'Creanțe', 'Kintlevőségek (129 + … + 133)', creanteTotal, true)}
-        ${SZAMADAS_CREANTE_SOROK.map(([nr, ro, hu]) => sor(nr, ro, hu, k(nr))).join('')}
-        ${sor(134, 'Sold', 'Záróegyenleg (113 − 116 + 128)', zaroegyenleg, true)}
-      </tbody>
-    </table>
-  `
-}
-
+// ── 2026-08-15: a buildSzamadasExtraRows (hivatalos 113–134. záró blokk) ─────
+// TÖRÖLVE Endre kifejezett, ismételt döntésére — a „visszaküldhető számadás"
+// szakmai figyelmeztetés elhangzott és tudomásul lett véve. A blokk a
+// gyakorlatban csupa nulla sort adott (a tartozás-rögzítő felület nem épült
+// meg), és a 4 oldalas terjedelem-célt is lehetetlenné tette. Az adat-út ép:
+// a SZAMADAS_DATORII_SOROK / SZAMADAS_CREANTE_SOROK katalógus és a
+// bealitas.szamadas_tartozasok a lelkészi jelentés VII. fejezetét továbbra is
+// táplálja. A blokk a git-történetből visszahozható, ha az esperesi hivatal
+// mégis kérné (PR #163 előtti állapot).
 // ---------------------------------------------------------------------------
 // Aláírási blokk — a minta szerint
 // ---------------------------------------------------------------------------

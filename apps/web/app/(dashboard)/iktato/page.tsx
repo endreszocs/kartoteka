@@ -45,10 +45,21 @@ export default async function IktatoPage() {
   // megnyitása egy fölösleges soros DB-körfordulót (~100-200 ms) fizetett,
   // mielőtt az oldal elkezdhetett volna renderelni. Most egy hullámban megy —
   // ugyanaz a minta, mint a penzugy/page.tsx:51 Promise.all-jában.
-  const [godMode, delegatedImport] = await Promise.all([
+  // 2026-08-15 (Endre): az iktató nyomtatványaira (iktatópecsét, iratcsomó-
+  // borító) a HIVATALOS név megy — az access.congregationName a rövid,
+  // nev_hu-elsőbbségű UI-név, ami hivatalos iraton nem elég (memória-szabály:
+  // congregations.name = hivatalos név).
+  const [godMode, delegatedImport, congNevRes] = await Promise.all([
     access.master ? getGodModeStatus() : Promise.resolve({ active: false }),
     getDelegatedImportStatus('filing'),
+    access.supabase
+      .from('congregations')
+      .select('name, nev_hu')
+      .eq('id', effectiveCongregationId)
+      .maybeSingle(),
   ])
+  const hivatalosNev =
+    congNevRes.data?.name || congNevRes.data?.nev_hu || congregationName || ''
 
   // 2026-05-25: a tabok a FilingMain Hero-ja ALATT jelennek meg
   // (Tagnyilvántartás minta — ModuleAdminWorkspace wrapper eltávolítva).
@@ -57,7 +68,7 @@ export default async function IktatoPage() {
   return (
     <div className="space-y-4">
       <FilingMain
-        congregationName={congregationName || ''}
+        congregationName={hivatalosNev}
         showAdminImport={showAdminImport}
         adminImportContent={
           <ModuleAdminImportTabV2
