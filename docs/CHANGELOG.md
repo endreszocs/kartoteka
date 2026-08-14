@@ -23,6 +23,19 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-15] — Kétlépcsős belépés (2FA): bekapcsolható második zár a fiókodon
+<!-- key: 2026-08-15-2fa-bevezetes -->
+<!-- category: security -->
+<!-- targets: lelkesz, admin, konyvelo -->
+
+### 🔒 Biztonsági javítások
+
+- **Bekapcsolható a kétlépcsős belépés** a Profil → Biztonság oldalon: a jelszó mellé a telefonod hitelesítő alkalmazásának (Google/Microsoft Authenticator, Aegis) 6 számjegyű, 30 másodpercenként változó kódja is kell. Nem kell hozzá SMS, és a telefonon internet sem — külföldön is ugyanúgy működik. **Önkéntes**: ha nem kapcsolod be, semmi nem változik. *(A mentőkódokhoz egy adatbázis-bővítés szükséges: `2026-08-15-mfa-mentokodok.sql`.)*
+- **8 nyomtatható mentőkód** készül bekapcsoláskor — ha a telefonod elveszne, ezek egyikével akkor is bejutsz (a kód egyszer használható, és utána a kétlépcsős belépés kikapcsol, hogy tiszta lappal, új telefonnal kapcsold vissza). A kódokat a rendszer csak titkosított ujjlenyomatként tárolja.
+- A belépés minden útja (jelszó, Google, nyitva felejtett fül) a **második lépcsőn keresztül** vezet, ha a fiókon be van kapcsolva — a védelmet nem lehet kerülőúton kihagyni.
+
+---
+
 ## [2026-08-14] — Lelkészi jelentés: számadás-egyezés, bibliaóra-bontás, többéves Adatlap grafikonokkal
 <!-- key: 2026-08-14-jelentes-vii-adatlap-grafikon -->
 <!-- category: feature -->

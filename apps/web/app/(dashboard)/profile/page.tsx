@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { ArrowRight, Handshake, Mail, Phone, Shield, User } from 'lucide-react'
+import { ArrowRight, Handshake, Mail, Phone, Shield, User , ShieldCheck } from 'lucide-react'
 
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -142,6 +142,27 @@ export default async function ProfilePage() {
       )}
 
       {/* Lelkészi kérések — csak lelkésznek */}
+      {/* 2026-08-15 (8. pont): kétlépcsős belépés — minden szerepkörnek. */}
+      <Card className="mt-6 border-emerald-200 bg-emerald-50/40">
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5">
+          <div>
+            <p className="text-sm font-semibold text-slate-800">Biztonság — kétlépcsős belépés</p>
+            <p className="mt-1 text-xs text-slate-600">
+              Önkéntes második zár a fiókodon: belépéskor a telefonod hitelesítő appjának 6 jegyű
+              kódja is kell. Mentőkódokkal, hogy elveszett telefonnal se zárd ki magad.
+            </p>
+          </div>
+          <Link
+            href="/profile/biztonsag"
+            className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+          >
+            <ShieldCheck className="size-4" />
+            Biztonság kezelése
+            <ArrowRight className="size-4" />
+          </Link>
+        </CardContent>
+      </Card>
+
       {role === 'lelkesz' && (
         <Card className="mt-6 border-teal-200 bg-teal-50/40">
           <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5">

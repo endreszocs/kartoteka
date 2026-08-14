@@ -385,12 +385,12 @@ function PrivacyContent() {
         def={'„Role-Based Access Control" — minden felhasználónak van egy szerepköre (pl. lelkész, esperes, könyvelő), és csak azt látja, amit a szerepköre megenged. Egy könyvelő nem látja a pasztorális jegyzeteket; egy gondnok nem látja a pénzügyi adatokat.'}
       />
       {/* 2026-08-14: ŐSZINTE megfogalmazás — fiókszintű 2FA még NINCS a
-          rendszerben (bevezetés alatt), a mai védelem a rendszergazdai
+          rendszerben (a Profil → Biztonság oldalon bekapcsolható), továbbá a rendszergazdai
           műveletek külön megerősítő kódja. A jogi szöveg nem ígérhet többet,
           mint ami él. */}
       <Term
         word="Külön megerősítés érzékeny műveleteknél"
-        def={'a rendszergazdai műveletekhez (pl. rendszergazdai módváltás) a jelszó mellett egy külön megerősítő kód is szükséges. A fiókszintű kétlépcsős belépés (hitelesítő alkalmazással) bevezetés alatt áll — amint elérhető, itt és a beállításokban is jelezzük.'}
+        def={'a rendszergazdai műveletekhez (pl. rendszergazdai módváltás) a jelszó mellett egy külön megerősítő kód is szükséges. A fiókszintű kétlépcsős belépés (hitelesítő alkalmazással, mentőkódokkal) elérhető és önkéntesen bekapcsolható a Profil → Biztonság oldalon.'}
       />
       <Term
         word="Naplózás"
@@ -1271,7 +1271,7 @@ function PrivacyRO() {
         <li><strong>TLS 1.3</strong> — criptare a comunicării</li>
         <li><strong>RLS (Row Level Security)</strong> — verificare la nivel de înregistrare</li>
         <li><strong>RBAC</strong> — control bazat pe roluri</li>
-        <li><strong>Confirmare suplimentară</strong> — cod separat de confirmare pentru operațiuni administrative sensibile (autentificarea în doi pași la nivel de cont este în curs de introducere)</li>
+        <li><strong>Confirmare suplimentară</strong> — cod separat de confirmare pentru operațiuni administrative sensibile (autentificarea în doi pași la nivel de cont este disponibilă opțional, cu coduri de rezervă)</li>
         <li><strong>Jurnalizare</strong> — toate accesurile înregistrate</li>
       </ul>
 
@@ -1608,7 +1608,7 @@ function PrivacyEN() {
         <li><strong>TLS 1.3</strong> — communication encryption</li>
         <li><strong>RLS (Row Level Security)</strong> — record-level verification</li>
         <li><strong>RBAC</strong> — role-based access control</li>
-        <li><strong>Extra confirmation</strong> — a separate confirmation code for sensitive administrative operations (account-level two-factor sign-in is being introduced)</li>
+        <li><strong>Extra confirmation</strong> — a separate confirmation code for sensitive administrative operations (optional account-level two-factor sign-in with backup codes is available)</li>
         <li><strong>Logging</strong> — all access events recorded</li>
       </ul>
 

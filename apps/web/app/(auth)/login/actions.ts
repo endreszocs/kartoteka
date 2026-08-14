@@ -41,6 +41,24 @@ export async function signIn(data: LoginInput) {
     }
   }
 
+  // ── 2FA második lépcső (2026-08-15, 8. pont) ──────────────────────────
+  // Ha a fióknak ellenőrzött TOTP-faktora van, a jelszó után a 6 jegyű kód
+  // (vagy mentőkód) következik — a cél-feloldás majd a 2. lépcső UTÁN fut
+  // (a /valassz-profilt úgyis újra-ellenőriz). Az OAuth-utat és a nyitva
+  // felejtett aal1-es füleket a middleware aal-őre fogja ugyanígy.
+  {
+    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+      // ⚠️ A session-mode cookie-t ITT is be kell állítani (lentebb a normál
+      // út is ezt teszi): enélkül a 2. lépcső utáni első védett oldalon a
+      // middleware „lejárt session"-ként azonnal kiléptetne.
+      const cookieStore2fa = await cookies()
+      const smc = buildSessionModeCookieOptions(parsed.data.rememberMe ?? false)
+      cookieStore2fa.set(SESSION_MODE_COOKIE, smc.mode, smc.options)
+      redirect('/login/ellenorzes')
+    }
+  }
+
   // Egységes belépés-utáni döntés — UGYANAZ a logika, mint a Google (OAuth)
   // flow-ban (auth/callback), hogy mindkét belépési mód azonosan viselkedjen.
   // `via: 'password'`: idáig kizárólag sikeres hitelesítés jut el, így a

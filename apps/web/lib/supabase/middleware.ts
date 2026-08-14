@@ -43,7 +43,13 @@ function isSetupRoute(pathname: string): boolean {
 }
 
 function canAuthenticatedUserStayOnAuthRoute(pathname: string): boolean {
-  return pathname.startsWith('/auth/callback') || pathname.startsWith('/oauth-complete')
+  return (
+    pathname.startsWith('/auth/callback') ||
+    pathname.startsWith('/oauth-complete') ||
+    // 2026-08-15 (8. pont): a 2FA második lépcsője — bejelentkezett (aal1-es)
+    // usernek pont itt VAN dolga.
+    pathname.startsWith('/login/ellenorzes')
+  )
 }
 
 // Publikus gyülekezeti oldalak — bárki látja, auth nem kell
@@ -170,6 +176,23 @@ export async function updateSession(request: NextRequest) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
+  }
+
+  // ── 2FA aal-őr (2026-08-15, 8. pont — Endre 4. döntése: opt-in) ─────────
+  // Ha a fióknak van ellenőrzött TOTP-faktora (nextLevel aal2), de a
+  // munkamenet még aal1-es (jelszó/OAuth után), MINDEN védett út a 2.
+  // lépcsőre irányít. Ez fogja az összes belépési pontot (jelszó, OAuth,
+  // nyitva felejtett fül). Faktor nélküli fióknál (nextLevel aal1) nem fut
+  // — az opt-in ígéret: akinek nincs 2FA-ja, annak semmi nem változik.
+  // Az alacsony AAL nem hiba, hanem állapot → átirányítás, nem hibakód.
+  if (user && !isPastorAuthRoute(pathname) && !isSetupRoute(pathname)) {
+    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+      const url = request.nextUrl.clone()
+      url.pathname = '/login/ellenorzes'
+      url.search = ''
+      return NextResponse.redirect(url)
+    }
   }
 
   // Bejelentkezett user lelkészi auth oldalra navigál → a root resolver
