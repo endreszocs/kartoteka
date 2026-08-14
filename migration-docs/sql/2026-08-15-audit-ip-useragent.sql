@@ -42,12 +42,42 @@ SECURITY DEFINER
 SET search_path = public
 AS $func$
 DECLARE
+  v_caller UUID := auth.uid();
+  v_recent INTEGER;
   v_id UUID;
   v_ip INET;
 BEGIN
+  -- ⚠️ A 2026-08-11-es keményítés NÉGY őre KÖTELEZŐEN itt marad. (Az első
+  -- változatból kimaradtak, és mivel ez a fájl DROP-olja az 5 paraméteres
+  -- függvényt, a keményítés némán elveszett élesben — a
+  -- 2026-08-15-HELYREALLITAS-audit-napszak-mfa.sql állította helyre.)
+  IF v_caller IS NULL THEN
+    RAISE EXCEPTION 'Nincs bejelentkezett felhasználó — audit-esemény nem naplózható.';
+  END IF;
+  IF p_action IS NULL OR btrim(p_action) = '' THEN
+    RAISE EXCEPTION 'Az audit-esemény action mezője kötelező.';
+  END IF;
+  IF length(p_action) > 120 THEN
+    RAISE EXCEPTION 'Túl hosszú audit action (% karakter, max. 120).', length(p_action);
+  END IF;
+  IF p_target_table IS NOT NULL AND length(p_target_table) > 120 THEN
+    RAISE EXCEPTION 'Túl hosszú audit target_table (% karakter, max. 120).', length(p_target_table);
+  END IF;
+  IF p_metadata IS NOT NULL AND length(p_metadata::text) > 8192 THEN
+    RAISE EXCEPTION 'Túl nagy audit metadata (% bájt, max. 8192).', length(p_metadata::text);
+  END IF;
+  SELECT COUNT(*) INTO v_recent
+  FROM public.audit_log a
+  WHERE a.user_id = v_caller AND a.created_at > now() - interval '1 hour';
+  IF v_recent >= 2000 THEN
+    RAISE WARNING 'Audit-korlát: a(z) % felhasználó az elmúlt órában már % eseményt naplózott — az esemény (%) eldobva.',
+      v_caller, v_recent, p_action;
+    RETURN NULL;
+  END IF;
+
   -- Torz IP-fejléc ne buktassa el a naplózást: hibánál NULL marad.
   BEGIN
-    v_ip := NULLIF(trim(p_ip), '')::inet;
+    v_ip := NULLIF(btrim(p_ip), '')::inet;
   EXCEPTION WHEN OTHERS THEN
     v_ip := NULL;
   END;
@@ -55,13 +85,19 @@ BEGIN
   INSERT INTO public.audit_log
     (user_id, device_id, action, target_table, target_id, metadata, ip, user_agent)
   VALUES
-    (auth.uid(), p_device_id, p_action, p_target_table, p_target_id, p_metadata,
-     v_ip, NULLIF(trim(p_user_agent), ''))
+    (v_caller, p_device_id, p_action, p_target_table, p_target_id, p_metadata,
+     v_ip, NULLIF(btrim(p_user_agent), ''))
   RETURNING id INTO v_id;
 
   RETURN v_id;
 END;
 $func$;
+
+-- A DROP FUNCTION elviszi a függvényre adott jogokat is — vissza kell adni,
+-- különben az alapértelmezett PUBLIC EXECUTE áll vissza (anon is hívhatná).
+REVOKE ALL ON FUNCTION public.log_audit_event(text, text, uuid, jsonb, uuid, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.log_audit_event(text, text, uuid, jsonb, uuid, text, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.log_audit_event(text, text, uuid, jsonb, uuid, text, text) TO authenticated;
 
 COMMENT ON FUNCTION public.log_audit_event IS
   'Gyors-beszúró függvény. A user_id-t az auth.uid()-ból veszi. 2026-08-15: p_ip + p_user_agent paraméterrel bővítve (a webes réteg a kérés fejléceiből tölti). Visszaadja az új sor ID-ját.';

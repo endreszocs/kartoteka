@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-15] — Kétnyelvű nyomtatványok · a korábbi évek járuléka végre érvényesül
+<!-- key: 2026-08-15-ketnyelvu-nyomtatvany-jarulek-fix -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, konyvelo -->
+
+### 🐛 Javítások
+
+- **A korábbi évekre beállított egyházfenntartói járulék végre érvényesül.** Ha a „Gyülekezet beállítása → Évenkénti díjak" panelen beállítottad például a 2024-es díjat, a tétel-rögzítő mégis a **mai** díjat ajánlotta fel. Oka: a panel a régebbi évek díját egy korábbi tárolóból is meg tudta jeleníteni, a számítás viszont csak az újat nézte — így a panel a helyes összeget *mutatta*, a rendszer mégis a maival *számolt*. Mostantól az adott évre rögzített díj mindig előbbre való a mai alapdíjnál.
+
+### 🌍 Kétnyelvűsítés (magyar–román)
+
+- **A hivatalos nyomtatványok minden felirata kétnyelvű lett.** Eddig a nyilatkozat, az aláírás-feliratok (Lelkipásztor / Főgondnok / Számvevő), a lapszám, a borító adatai (egyházmegye, iktatószám, presbitériumi határozat) és a pecsét helye csak magyarul szerepeltek — egy román ajkú ellenőr nem tudta, melyik vonalra ki ír alá. Érintett nyomtatványok: **Számadás, Költségvetés, Költségvetés-módosítás, Részszámadás, Kiadási kísérőív, Nyugtatömb-kimutatás**.
+
+---
+
 ## [2026-08-15] — Pénzügy: egy helyen a rögzítés · nyomtatás: teli ív és egységes betöltés
 <!-- key: 2026-08-15-penzugy-nyomtatas-finomhangolas -->
 <!-- category: improvement -->

@@ -128,6 +128,9 @@ function budgetStyles() {
     .sig .col { flex: 1; text-align: center; }
     .sig .label { color: #333; }
     .sig .line { border-top: 1px solid #111; margin-top: 32px; padding-top: 4px; font-weight: 600; }
+    /* 2026-08-15: a román megnevezés a magyar alatt, halványabban (kétnyelvű ív) */
+    .sig .line .ro { font-weight: normal; font-style: italic; font-size: 10px; color: #444; }
+    .decl .ro { display: block; margin-top: 4px; font-size: 10px; color: #333; }
     .page-footer { position: absolute; bottom: 8mm; left: 12mm; right: 12mm; display: flex; justify-content: space-between; font-size: 9px; color: #9aa3af; }
 
     /* Részszámadás — MINDEN oldal tetején (a borító leválhat, a 2+ oldal
@@ -405,7 +408,7 @@ export function buildSzamadasReport(data: BudgetPrintData): BudgetPrintResult {
   const terv = tervezOldalak(rows.length, true, true, 17)
   const total = 1 + terv.pages
   const coverPage = buildCoverPage(data, 'SZÁMADÁS', 'EXECUȚIA BUGETARĂ', null, total)
-  const declaration = `<div class="decl">Alulírott lelkipásztor és főgondnok felelősségünk tudatában nyilatkozzuk, hogy a számadás adatai valósak és az egyházi rendelkezések szerint készült el.</div>`
+  const declaration = `<div class="decl">Alulírott lelkipásztor és főgondnok felelősségünk tudatában nyilatkozzuk, hogy a számadás adatai valósak és az egyházi rendelkezések szerint készült el.<span class="ro">Subsemnații, preotul și curatorul principal, declarăm pe propria răspundere că datele prezentei execuții bugetare sunt reale și au fost întocmite conform reglementărilor bisericești.</span></div>`
   const lastExtraHtml = buildSzamadasExtraRows(data) + declaration
   const tablePages = renderTablePages(data, 'szamadas', rows, { startPage: 2, total, terv, withSignatures: true, lastExtraHtml })
   return {
@@ -519,7 +522,7 @@ export function buildReszszamadasReport(data: BudgetPrintData): BudgetPrintResul
     },
     subTitle: `a ${year}. év ${fromLabel} — ${toLabel} időszakára`,
   })
-  const declaration = `<div class="decl">Alulírottak nyilatkozzuk, hogy a fenti időszak adatai a könyvelés mai állása szerint valósak. Ez a kimutatás <strong>NEM az éves zárszámadás</strong>, és az egyházmegyének nem küldhető be helyette.</div>`
+  const declaration = `<div class="decl">Alulírottak nyilatkozzuk, hogy a fenti időszak adatai a könyvelés mai állása szerint valósak. Ez a kimutatás <strong>NEM az éves zárszámadás</strong>, és az egyházmegyének nem küldhető be helyette.<span class="ro">Subsemnații declarăm că datele perioadei de mai sus sunt reale conform situației contabile de astăzi. Această situație <strong>NU este execuția bugetară anuală</strong> și nu poate fi înaintată protopopiatului în locul acesteia.</span></div>`
   const lastExtraHtml = buildReszszamadasExtraRows(data, partial) + declaration
   const tablePages = renderTablePages(data, 'szamadas', rows, {
     startPage: 2,
@@ -545,8 +548,11 @@ export function buildReszszamadasReport(data: BudgetPrintData): BudgetPrintResul
 function footer(data: BudgetPrintData, pageNo: number, total: number): string {
   // 2026-08-11 (6. kör): részszámadáson a lábléc is kimondja, mi ez a papír —
   // a borító leválhat, a táblázatoldalak különben megkülönböztethetetlenek.
-  const kind = data.partial ? ' · Részszámadás — nem hivatalos zárszámadás' : ''
-  return `<div class="page-footer"><span>${esc(data.congregationName)}${kind}</span><span>oldal ${pageNo} / ${total}</span></div>`
+  // 2026-08-15 (Endre): a lábléc is kétnyelvű — a lapszám és a részszámadás-jelzés is.
+  const kind = data.partial
+    ? ' · Részszámadás — nem hivatalos zárszámadás / Situație parțială — nu este execuție bugetară oficială'
+    : ''
+  return `<div class="page-footer"><span>${esc(data.congregationName)}${kind}</span><span>oldal / pagina ${pageNo} / ${total}</span></div>`
 }
 
 interface CoverOpts {
@@ -581,10 +587,10 @@ function buildCoverPage(
   const dioceseBlock = opts?.skipDiocese
     ? ''
     : `<div style="margin-top:8mm;">
-      <div class="cv-entity">REFORMÁTUS EGYHÁZMEGYE</div>
+      <div class="cv-entity">REFORMÁTUS EGYHÁZMEGYE / PROTOPOPIATUL REFORMAT</div>
       <div class="cv-row">
-        <div>Egyházmegyei iktatószám: <span class="cv-line">&nbsp;</span></div>
-        <div>Esperes aláírása: <span class="cv-line">&nbsp;</span></div>
+        <div>Egyházmegyei iktatószám / Nr. înreg. protopopiat: <span class="cv-line">&nbsp;</span></div>
+        <div>Esperes aláírása / Semnătura protopopului: <span class="cv-line">&nbsp;</span></div>
       </div>
     </div>`
   const titleBlock = opts?.titleOverride
@@ -600,20 +606,22 @@ function buildCoverPage(
     // képernyős figyelmeztetés a nyomtatási központban.
     ? `<div style="margin-top:40mm;text-align:center;font-size:11px;">
       Készült: ${esc(opts.keszult || '')} · a könyvelés aznapi állása szerint.
+      <div style="font-size:10px;color:#333;margin-top:3px;">Întocmit: ${esc(opts.keszult || '')} · conform situației contabile din ziua respectivă.</div>
     </div>`
     : `<div style="margin-top:40mm;text-align:center;font-size:12px;">
       Tárgyalta és jóváhagyta a presbitérium a <span class="cv-line">&nbsp;${hatDatum}</span> tartott gyűlésén
       <span class="cv-line" style="min-width:90px;">&nbsp;${hatSzam}</span> szám alatt.
+      <div style="font-size:10px;color:#333;margin-top:3px;">Dezbătut și aprobat de consiliul parohial în ședința din data de mai sus, sub numărul indicat.</div>
     </div>
 
-    ${fin ? '' : `<div style="margin-top:8mm;text-align:center;font-size:10px;font-style:italic;color:#9a3412;">Nincs véglegesítve — a presbitériumi határozat és az egyházközségi iktatószám a véglegesítés után kerül a nyomtatványra.</div>`}`
+    ${fin ? '' : `<div style="margin-top:8mm;text-align:center;font-size:10px;font-style:italic;color:#9a3412;">Nincs véglegesítve — a presbitériumi határozat és az egyházközségi iktatószám a véglegesítés után kerül a nyomtatványra.<br>Nefinalizat — hotărârea consiliului parohial și numărul de înregistrare apar pe formular după finalizare.</div>`}`
   return `<div class="page cover">
     ${dioceseBlock}
 
     <div style="margin-top:16mm;">
-      <div class="cv-entity">REFORMÁTUS EGYHÁZKÖZSÉG &nbsp; ${esc(congregationName)}</div>
+      <div class="cv-entity">REFORMÁTUS EGYHÁZKÖZSÉG / PAROHIA REFORMATĂ &nbsp; ${esc(congregationName)}</div>
       <div class="cv-row">
-        <div>Egyházközségi iktatószám: <span class="cv-line">&nbsp;${iktato}</span></div>
+        <div>Egyházközségi iktatószám / Nr. înreg. parohie: <span class="cv-line">&nbsp;${iktato}</span></div>
       </div>
     </div>
 
@@ -623,7 +631,7 @@ function buildCoverPage(
 
     ${opts?.subTitle ? `<div style="text-align:center;font-size:14px;font-weight:bold;margin-top:6mm;">${esc(opts.subTitle)}</div>` : ''}
     ${periodLine ? `<div style="text-align:center;font-size:12px;font-weight:bold;margin-top:18mm;">${esc(periodLine)}</div>` : ''}
-    ${modNumber ? `<div style="text-align:center;font-size:11px;margin-top:8mm;">A korábbi költségvetést módosító ${modNumber}. számú módosítás.</div>` : ''}
+    ${modNumber ? `<div style="text-align:center;font-size:11px;margin-top:8mm;">A korábbi költségvetést módosító ${modNumber}. számú módosítás.<div style="font-size:10px;color:#333;margin-top:3px;">Modificarea nr. ${modNumber} a bugetului aprobat anterior.</div></div>` : ''}
 
     ${hatarozatBlock}
 
@@ -1140,7 +1148,7 @@ function renderTablePages(data: BudgetPrintData, mode: BudgetMode, rows: string[
   // változatlan: a borító leválhat, és a 2. oldaltól a részszámadás különben
   // megkülönböztethetetlen lenne az évestől.
   const band = opts.partial
-    ? `<div class="pband">RÉSZSZÁMADÁS · Időszak: ${esc(opts.partial.fromLabel)} — ${esc(opts.partial.toLabel)}</div>`
+    ? `<div class="pband">RÉSZSZÁMADÁS / SITUAȚIE PARȚIALĂ · Időszak / Perioada: ${esc(opts.partial.fromLabel)} — ${esc(opts.partial.toLabel)}</div>`
     : ''
 
   // A feltöltés és a lapszám UGYANABBÓL a tervből jön (lásd `OldalTerv`).
@@ -1229,8 +1237,8 @@ function buildReszszamadasExtraRows(data: BudgetPrintData, partial: PartialInfo)
       </tbody>
     </table>
     <div class="recon">
-      A kasszában lévő tényleges készpénz: <span class="ln">&nbsp;</span> lej<br>
-      A bankkivonat záró egyenlege: <span class="ln">&nbsp;</span> lej
+      A kasszában lévő tényleges készpénz / Numerarul efectiv din casă: <span class="ln">&nbsp;</span> lej<br>
+      A bankkivonat záró egyenlege / Soldul final din extrasul de cont: <span class="ln">&nbsp;</span> lej
     </div>
     ${deltaNote}
     ${noteHtml}
@@ -1300,7 +1308,7 @@ function buildSzamadasExtraRows(data: BudgetPrintData): string {
   return `
     <table class="bt" style="margin-top:-1px;">${colgroupFor('szamadas')}
       <tbody>
-        <tr class="sec"><td colspan="${totalCols('szamadas')}">A hivatalos ív záró blokkja — 113–134. sor</td></tr>
+        <tr class="sec"><td colspan="${totalCols('szamadas')}">Blocul de încheiere al formularului oficial (rândurile 113–134) / A hivatalos ív záró blokkja</td></tr>
         ${sor(113, 'Sold la finele anului', 'Pénztári és banki egyenleg az év végén', closing, true)}
         ${sor(114, 'Casa', 'Készpénz egyenleg', data.zaroCasa ?? null)}
         ${sor(115, 'Banca', 'Banki egyenleg', data.zaroBanca ?? null)}
@@ -1322,21 +1330,25 @@ function buildSignatureBlock(withAuditor = true): string {
   // 2026-08-11 (6. kör): a részszámadáson NINCS Számvevő-oszlop — az ellenőrző
   // bizottság az ÉVES zárszámadást hitelesíti. Egy üresen maradó „Számvevő"
   // vonal azt a látszatot keltené, hogy ez a papír is hitelesítendő/beküldendő.
+  // 2026-08-15 (Endre): az aláírás-feliratok KÉTNYELVŰEK. A címke-sorok eddig is
+  // azok voltak, a vonal alatti megnevezések viszont csak magyarul álltak — egy
+  // román ajkú ellenőr nem tudta, melyik vonalra ki ír alá. A román alak a
+  // projekt bevett mintáját követi (vö. Ellenőr/Cenzor, Pénztáros/Casier).
   const auditor = withAuditor
     ? `
     <div class="col">
       <div class="label">Ellenőrizte / Verificat</div>
-      <div class="line">Számvevő — aláírása</div>
+      <div class="line">Számvevő — aláírása<br><span class="ro">Cenzor — semnătura</span></div>
     </div>`
     : ''
   return `<div class="sig">
     <div class="col">
       <div class="label">Egyházközség képviselői / Conducătorii unității</div>
-      <div class="line">Lelkipásztor — aláírása</div>
+      <div class="line">Lelkipásztor — aláírása<br><span class="ro">Preot — semnătura</span></div>
     </div>
     <div class="col">
-      <div class="label">P.H.</div>
-      <div class="line">Főgondnok — aláírása</div>
+      <div class="label">P.H. / L.S.</div>
+      <div class="line">Főgondnok — aláírása<br><span class="ro">Curator principal — semnătura</span></div>
     </div>${auditor}
   </div>`
 }
