@@ -335,6 +335,23 @@ export interface HatarozatAdatok {
   fogondnok: string
 }
 
+/** 2026-08-14 (18. pont 4): egy korábbi év kivonata az Adatlaphoz. */
+export interface TobbEvesEv {
+  ev: number
+  /** ADATLAP_MEZO_IDS szerinti feloldott értékek (felülírás > auto > kézi). */
+  mezok: Record<string, number | null>
+}
+
+/**
+ * Az Adatlap (többéves összehasonlítás) sorai — a hivatalos munkafüzet
+ * Adatlap-lapjának kulcs-mutatói. Bővíthető (append-only), a sorrend a
+ * nyomtatvány sor-sorrendje.
+ */
+export const ADATLAP_MEZO_IDS = [
+  'I.10', 'I.2c', 'I.3c', 'II.1a', 'II.1b', 'II.1c', 'II.12',
+  'V.3', 'III.7', 'VII.1', 'VII.3', 'VII.8',
+] as const
+
 export interface LelkesziJelentesData {
   ev: number
   congregationName: string
@@ -350,6 +367,13 @@ export interface LelkesziJelentesData {
   felulirasok: Record<string, number | string | null>
   hatarozat: Partial<HatarozatAdatok>
   statusz: 'szerkesztes' | 'veglegesitve'
+  /**
+   * 2026-08-14 (18. pont 4): a korábbi évek VÉGLEGESÍTETT jelentéseinek
+   * kivonata az Adatlaphoz (legfeljebb 9 előző év, növekvő sorrendben).
+   * A nyomtatvány többéves táblát + grafikonokat rajzol belőle; hiányában
+   * az Adatlap csak a tárgyévet mutatja.
+   */
+  tobbEvesAdatok?: TobbEvesEv[]
   veglegesitveAt: string | null
 }
 

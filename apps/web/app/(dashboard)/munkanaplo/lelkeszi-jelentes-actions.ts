@@ -37,10 +37,11 @@ import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { categorizeWorklogEntry, type WorklogEntry } from '@/lib/constants/worklog'
 import { classifyForOfficialJournal, getUnnepInfo } from '@/lib/worklog/print-columns'
 import { isJournalEntry } from '@/lib/worklog/official-journal'
-import { JELENTES_MEZOK, MUNKANAPLO_JAVASLAT_MEZOK, deriveAutoMezok } from '@/lib/lelkeszi-jelentes/types'
+import { ADATLAP_MEZO_IDS, JELENTES_MEZOK, MUNKANAPLO_JAVASLAT_MEZOK, deriveAutoMezok } from '@/lib/lelkeszi-jelentes/types'
 import type {
   HatarozatAdatok,
   JelentesJavaslatTetel,
+  TobbEvesEv,
   JelentesJavaslatok,
   LelkesziJelentesData,
 } from '@/lib/lelkeszi-jelentes/types'
@@ -319,6 +320,41 @@ function snapshotMezoErtek(snapshot: Record<string, unknown> | null, mezoId: str
 
 function elozoEviLelekszam(snapshot: Record<string, unknown> | null): number | null {
   return snapshotMezoErtek(snapshot, 'I.10')
+}
+
+/**
+ * 2026-08-14 (18. pont 4): a korábbi évek VÉGLEGESÍTETT jelentéseinek
+ * kivonata az Adatlaphoz (legfeljebb 9 előző év). Fail-soft: hibánál üres
+ * lista — az Adatlap ilyenkor csak a tárgyévet mutatja.
+ */
+async function loadTobbEvesAdatok(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  congId: string,
+  ev: number,
+): Promise<TobbEvesEv[]> {
+  try {
+    const { data, error } = await supabase
+      .from('lelkeszi_jelentes')
+      .select('ev, statusz, snapshot')
+      .eq('congregation_id', congId)
+      .gte('ev', ev - 9)
+      .lt('ev', ev)
+      .eq('statusz', 'veglegesitve')
+      .order('ev')
+    if (error) {
+      console.warn('[lelkeszi-jelentes] többéves kivonat nem tölthető be:', error.message)
+      return []
+    }
+    return ((data || []) as Array<{ ev: number; snapshot: Record<string, unknown> | null }>).map((r) => {
+      const mezok: Record<string, number | null> = {}
+      for (const id of ADATLAP_MEZO_IDS) mezok[id] = snapshotMezoErtek(r.snapshot, id)
+      return { ev: Number(r.ev), mezok }
+    })
+  } catch (e) {
+    console.warn('[lelkeszi-jelentes] többéves kivonat hiba:', e)
+    return []
+  }
 }
 
 /**
@@ -1167,6 +1203,11 @@ export async function getLelkesziJelentes(ev: number): Promise<{
   // mert az egyházmegyei feldolgozás állapota a snapshot után is változik).
   const submission = await loadSubmission(supabase, congregationId, ev)
 
+  // Az Adatlap többéves kivonata — a véglegesített nézetben is FRISSEN
+  // számoljuk (a snapshot a saját éve befagyasztásakor még nem láthatta a
+  // később véglegesített éveket).
+  const tobbEvesAdatok = await loadTobbEvesAdatok(supabase, congregationId, ev)
+
   // Véglegesített sor: a snapshot a hiteles (befagyasztott) adat
   if (row?.statusz === 'veglegesitve' && isValidSnapshot(row.snapshot)) {
     const snap = row.snapshot as unknown as LelkesziJelentesData
@@ -1178,6 +1219,7 @@ export async function getLelkesziJelentes(ev: number): Promise<{
         veglegesitveAt: row.veglegesitve_at || snap.veglegesitveAt || null,
         egyhazmegyeNev: snap.egyhazmegyeNev ?? null,
         submission,
+        tobbEvesAdatok,
       },
       unlockRequested: row.unlock_requested === true,
     }
@@ -1185,7 +1227,7 @@ export async function getLelkesziJelentes(ev: number): Promise<{
 
   const { data, autoHibak, javaslatok } = await buildJelentesData(supabase, congregationId, ev, row)
   return {
-    data: { ...data, submission },
+    data: { ...data, submission, tobbEvesAdatok },
     unlockRequested: row?.unlock_requested === true,
     autoHibak,
     javaslatok,
