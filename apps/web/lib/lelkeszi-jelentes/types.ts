@@ -153,6 +153,13 @@ export const JELENTES_MEZOK: JelentesMezo[] = [
   // ── III. Gyülekezetgondozás ──────────────────────────────────────────────
   { id: 'III.1', fejezet: 'III', label: 'Felnőtt bibliaórák száma', tipus: 'szam', auto: true, egyseg: 'alkalom' },
   { id: 'III.2', fejezet: 'III', label: 'Ifjúsági bibliaórák (IKE) száma', tipus: 'szam', auto: true, egyseg: 'alkalom' },
+  // 2026-08-14 (18. pont 3D — spec III.1: típusonkénti bontás): ÚJ,
+  // append-only mezők a hivatalos taxonómia bibliaóra-típusaira.
+  { id: 'III.2b', fejezet: 'III', label: 'Presbiteri bibliaórák száma', tipus: 'szam', auto: true, egyseg: 'alkalom' },
+  { id: 'III.2c', fejezet: 'III', label: 'Nőszövetségi bibliaórák száma', tipus: 'szam', auto: true, egyseg: 'alkalom' },
+  { id: 'III.2d', fejezet: 'III', label: 'Házasok bibliaórái — alkalmak', tipus: 'szam', auto: true, egyseg: 'alkalom' },
+  { id: 'III.2e', fejezet: 'III', label: 'Más bibliaóra 1 — alkalmak (megnevezés a megjegyzésben)', tipus: 'szam', auto: true, egyseg: 'alkalom' },
+  { id: 'III.2f', fejezet: 'III', label: 'Más bibliaóra 2 — alkalmak (megnevezés a megjegyzésben)', tipus: 'szam', auto: true, egyseg: 'alkalom' },
   { id: 'III.3', fejezet: 'III', label: 'Vallásos ünnepélyek száma', tipus: 'szam', auto: true, egyseg: 'alkalom' },
   { id: 'III.4', fejezet: 'III', label: 'Szeretetvendégségek száma', tipus: 'szam', auto: false, egyseg: 'alkalom' },
   { id: 'III.5', fejezet: 'III', label: 'Imaheti alkalmak száma', tipus: 'szam', auto: true, egyseg: 'alkalom' },

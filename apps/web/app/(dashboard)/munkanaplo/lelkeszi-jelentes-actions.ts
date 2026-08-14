@@ -571,9 +571,6 @@ async function computeAuto(
     const satoros = ujHalmozo()
     const hetkoznapi = ujHalmozo()
     const bunbanati = ujHalmozo()
-    const bibliaora = ujHalmozo()
-    let bibliaoraFelnottDb = 0
-    let bibliaoraIfjusagiDb = 0
     let egyebDb = 0
     let presbiteriGyulesDb = 0
     let unnepelyDb = 0
@@ -631,6 +628,8 @@ async function computeAuto(
     let kazualiaDb = 0
     let masAlkalomDb = 0
     let digitalisDb = 0
+    // III.1/III.2 + új III.2b–f: bibliaóra-alkalmak TÍPUSONKÉNT (spec III.1).
+    const bibliaoraTipusDb = new Map<string, number>()
 
     for (const e of worklogRes.entries) {
       if (e.deleted) continue
@@ -658,7 +657,10 @@ async function computeAuto(
       // II.1 e/f/g/h — típusnév szerinti számlálás (szolgálat kategória)
       if (kategoria === 'szolgalat') {
         const j = (e.jellege || '').trim()
-        if (JELENTES_BIBLIAORA_TIPUSOK.has(j)) halmoz(bibliaoraTipus, e)
+        if (JELENTES_BIBLIAORA_TIPUSOK.has(j)) {
+          halmoz(bibliaoraTipus, e)
+          bibliaoraTipusDb.set(j, (bibliaoraTipusDb.get(j) || 0) + 1)
+        }
         else if (JELENTES_KAZUALIA_TIPUSOK.has(j)) kazualiaDb += 1
         else if (j === 'Digitális alkalmak') digitalisDb += 1
         else if (JELENTES_MAS_ALKALOM_TIPUSOK.has(j)) masAlkalomDb += 1
@@ -692,11 +694,6 @@ async function computeAuto(
             })
             break
           }
-          case 'bibliaora':
-            halmoz(bibliaora, e)
-            if (slot === 'ifjusagi') bibliaoraIfjusagiDb += 1
-            else bibliaoraFelnottDb += 1
-            break
           case 'urvacsora':
             uvAlkalom = true
             break
@@ -830,8 +827,18 @@ async function computeAuto(
     auto['II.13'] = uvResztvevosDb > 0 ? round1(uvResztvevoOssz / uvResztvevosDb) : null
     auto['II.14'] = uvBetegnelOssz
 
-    auto['III.1'] = bibliaoraFelnottDb
-    auto['III.2'] = bibliaoraIfjusagiDb
+    // 2026-08-14 (3D): a III.1/III.2 TÍPUSNÉV szerint számol (a régi
+    // ív-oszlop-slot a felnőtt rovatba sodorta a házasok/Más 1-2 órákat is);
+    // + az új típusonkénti bontás (III.2b–f, spec III.1).
+    const bibliaoraDb = (...tipusok: string[]) =>
+      tipusok.reduce((s, t) => s + (bibliaoraTipusDb.get(t) || 0), 0)
+    auto['III.1'] = bibliaoraDb('Felnőtt bibliaóra', 'Bibliaóra')
+    auto['III.2'] = bibliaoraDb('Ifj. vagy IKE bibliaóra', 'Ifjúsági bibliaóra (IKE)', 'Ifjúsági óra')
+    auto['III.2b'] = bibliaoraDb('Presbiteri bibliaóra')
+    auto['III.2c'] = bibliaoraDb('Nőszöv. bibliaóra')
+    auto['III.2d'] = bibliaoraDb('Házasok bibliaórája')
+    auto['III.2e'] = bibliaoraDb('Más bibliaóra 1')
+    auto['III.2f'] = bibliaoraDb('Más bibliaóra 2')
     auto['III.3'] = unnepelyDb
     auto['III.5'] = imahet.db
     auto['III.6'] = atlagJelenlet(imahet)
