@@ -23,6 +23,17 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-15] — Éves beszámoló: a belső mozgás kikerült az anyagi részből
+<!-- key: 2026-08-15-eves-beszamolo-belso-mozgas -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, konyvelo -->
+
+### 🐛 Javítások
+
+- **Az éves beszámoló bemutatójában a kassza–bank átvezetések (belső mozgás) többé nem jelennek meg** sem bevételként, sem kiadásként. Eddig ott szerepeltek a tétel-listákban, és a végösszegeket is felfújták, ezért a bemutatott bevétel/kiadás nem egyezett a Számadással. Mostantól a bemutató **ugyanazt a hivatalos ív-szabályt** használja, mint a nyomtatott Számadás és a Pénzügy képernyő.
+
+---
+
 ## [2026-08-15] — Kétnyelvű nyomtatványok · a korábbi évek járuléka végre érvényesül
 <!-- key: 2026-08-15-ketnyelvu-nyomtatvany-jarulek-fix -->
 <!-- category: bugfix -->
