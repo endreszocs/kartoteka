@@ -407,41 +407,37 @@ if ('error' in fullYearBalances) {
   let yRows = valueRows(yearly.html)
   const pRows = valueRows(partial.html)
 
-  // 2026-08-14 (K2): az ÉVES Számadás záró blokkja a hivatalos 116–134. sorokat
-  // is hozza (Datorii 116+117–127 · Creanțe 128+129–133 · Záróegyenleg 134 =
-  // 19 értéksor), amelyek a BELSŐ részszámadáson SZÁNDÉKOSAN nincsenek rajta.
-  // A Y0 szám-azonossági garanciája a KÖZÖS sorokra vonatkozik; a 19 többlet-
-  // sorról külön állítjuk, hogy (adat híján) nulla, és a 134. Záróegyenleg
-  // egyezik a 113. Solddal.
-  const OFFICIAL_CLOSING_EXTRA = 19
-  if (yRows.length === pRows.length + OFFICIAL_CLOSING_EXTRA) {
-    const extra = yRows.slice(-OFFICIAL_CLOSING_EXTRA)
-    const soldRow = yRows[yRows.length - OFFICIAL_CLOSING_EXTRA - 3] // a 113. sor (Sold)
-    const zaroRow = extra[extra.length - 1] // a 134. sor (Záróegyenleg)
-    const koztesMindNulla = extra
-      .slice(0, -1)
-      .every((cells) => cells.every((v) => v === 'x' || v === '0,00'))
-    const zaroEgyezik =
-      soldRow && zaroRow && zaroRow[zaroRow.length - 1] === soldRow[soldRow.length - 1]
-    if (koztesMindNulla && zaroEgyezik) {
-      ok('Y0d az éves többlet PONTOSAN a hivatalos 116–134. blokk: Datorii/Creanțe nulla, Záróegyenleg = Sold')
-      yRows = yRows.slice(0, -OFFICIAL_CLOSING_EXTRA)
-    } else {
-      fail(`Y0d a hivatalos záró blokk értékei nem a vártak (nullák + Záróegyenleg=Sold): zaro=${JSON.stringify(zaroRow)} sold=${JSON.stringify(soldRow)}`)
-    }
+  // 2026-08-15 (Endre VÉGSŐ döntése): a hivatalos 113–134. záró blokk LEKERÜLT
+  // az éves Számadásról (a „visszaküldhető számadás" figyelmeztetés elhangzott
+  // és tudomásul lett véve — csupa nulla sort adott, és a 4 oldalas keretbe
+  // sem fért bele). A RÉSZSZÁMADÁS viszont megtartja a saját 3 soros
+  // időszak-záró mini-tábláját (Sold/Casa/Banca — a rovancs alapja). A Y0
+  // szám-azonossági garanciája a KÖZÖS sorokra vonatkozik.
+  const PARTIAL_CLOSING_EXTRA = 3
+  let pRowsKozos = pRows
+  if (pRows.length === yRows.length + PARTIAL_CLOSING_EXTRA) {
+    pRowsKozos = pRows.slice(0, -PARTIAL_CLOSING_EXTRA)
+    ok('Y0d az éves Számadáson NINCS 113–134. blokk; a részszámadás 3 soros időszak-zárója megvan')
+  } else {
+    fail(`Y0d váratlan sorszám-viszony — éves: ${yRows.length}, rész: ${pRows.length} (várt többlet a részen: ${PARTIAL_CLOSING_EXTRA})`)
+  }
+  if (!/Datorii|Creanțe|Záróegyenleg|Blocul de încheiere/.test(yearly.html)) {
+    ok('Y0d a Datorii/Creanțe/Záróegyenleg blokk tényleg nincs a Számadás nyomtatványán')
+  } else {
+    fail('Y0d a 113–134. blokk (Datorii/Creanțe/Záróegyenleg) VISSZAKERÜLT a Számadásra — Endre kivetette')
   }
 
-  if (yRows.length !== pRows.length) {
-    fail(`Y0: eltérő értéksor-szám — éves: ${yRows.length}, részszámadás: ${pRows.length}`)
+  if (yRows.length !== pRowsKozos.length) {
+    fail(`Y0: eltérő értéksor-szám — éves: ${yRows.length}, részszámadás (közös rész): ${pRowsKozos.length}`)
   } else {
-    ok(`Y0a a két nyomtatvány ugyanannyi értéksort ad (${yRows.length} sor)`)
+    ok(`Y0a a két nyomtatvány ugyanannyi közös értéksort ad (${yRows.length} sor)`)
     // A ZÁRÓ kistábla Casa/Banca sorai az évesben szándékosan „—" (nincs
     // számlánkénti bontás), a részszámadásban VALÓS szám. Ezt a két sort
     // külön kezeljük; minden MÁS sornak cellára pontosan egyeznie kell.
     const diffs = []
     for (let i = 0; i < yRows.length; i++) {
       const a = yRows[i]
-      const b = pRows[i]
+      const b = pRowsKozos[i]
       if (a.length === b.length && a.every((v, j) => v === b[j])) continue
       if (a.length === b.length && a.every((v, j) => v === b[j] || v === '—')) continue
       diffs.push(`  sor ${i + 1}: éves [${a.join(' | ')}]  ≠  rész [${b.join(' | ')}]`)
@@ -508,12 +504,9 @@ if ('error' in fullYearBalances) {
     if (hianyzo.length === 0) ok('Y0e a közbeékelt hivatalos összesítő sorok (36/52/100/101/112) jelen vannak')
     else fail(`Y0e hiányzó közbeékelt sor: ${hianyzo.map(([l, n]) => `${l} (${n})`).join(' · ')}`)
 
-    // A hivatalos záró blokk (Datorii/Creanțe/Záróegyenleg) a papíron van.
-    if (/Datorii/.test(yearly.html) && /Creanțe/.test(yearly.html) && /Záróegyenleg/.test(yearly.html)) {
-      ok('Y0e a hivatalos 116–134. záró blokk (Datorii · Creanțe · Záróegyenleg) a Számadáson van')
-    } else {
-      fail('Y0e a hivatalos záró blokk HIÁNYZIK a Számadásról')
-    }
+    // 2026-08-15 (Endre): a 113–134. záró blokk SZÁNDÉKOSAN nincs a papíron —
+    // a fenti Y0d már őrzi; itt csak azt, hogy a döntés a Nr. rând-katalógust
+    // nem érintette (a közbeékelt hivatalos összesítők a helyükön vannak).
 
     // A módosítás-nyomtatvány is hozza az 1–3. nyitósort (K2: sorszám-csúszás vége).
     const modReport = buildBudgetModificationReport({ ...common, modNumber: 1 })
@@ -530,7 +523,9 @@ if ('error' in fullYearBalances) {
       const bands = (partial.html.match(/class="pband"/g) || []).length
       // FIGYELEM: a `page-footer` is „page"-dzsel kezdődik — pontos illesztés kell.
       const pages = (partial.html.match(/<div class="page(?:"| cover")/g) || []).length
-      return pages >= 2 && bands === pages - 1 // a borítón nincs sáv
+      // 2026-08-15: a részszámadás KÜLÖN BORÍTÓJA MEGSZŰNT (kompakt fejléc az
+      // 1. lapon, hogy az irat 4 oldalba férjen) — a sáv így MINDEN lapon ott van.
+      return pages >= 2 && bands === pages
     }],
     ['nincs „EXECUȚIA BUGETARĂ" (az éves beadvány neve)', () => !partial.html.includes('EXECUȚIA BUGETARĂ')],
     ['a román cím SITUAȚIE FINANCIARĂ PARȚIALĂ', () => partial.html.includes('SITUAȚIE FINANCIARĂ PARȚIALĂ')],
@@ -720,7 +715,10 @@ if ('error' in fullYearBalances) {
       finalized: false,
     }
     const valtozatok = [
-      ['Számadás', buildSzamadasReport({ ...common }), 14],
+      // 2026-08-15: a Számadás tartaléka 11 (6 aláírás + 5 nyilatkozat) — a
+      // 113–134. blokk Endre döntésére lekerült, a hozzá tartozó 8+17 tartalék
+      // is megszűnt.
+      ['Számadás', buildSzamadasReport({ ...common }), 11],
       [
         'Részszámadás',
         buildReszszamadasReport({
@@ -756,13 +754,23 @@ if ('error' in fullYearBalances) {
         y5ok = false
       }
       // (3) Az utolsó oldalon a záró blokk mellé fenntartott hely megmarad.
+      // 2026-08-15: az elölről-tele elosztásnál a maradék lehet 0 is — ilyenkor
+      // az utolsó lap TISZTA záró oldal (nyilatkozat + aláírások, táblázat
+      // nélkül), és a tbody-számlálás eggyel kevesebb lapot lát, mint ahány
+      // `.page` van. A tartalék-szabály ilyenkor magától teljesül.
+      const lapokSzama = (rep.html.match(/<div class="page(?:"| cover")/g) || []).length
+      const zaroLapTablaNelkul = nev === 'Számadás'
+        ? lapokSzama - 1 > sizes.length // borító + táblás lapok + esetleg tiszta záró lap
+        : lapokSzama > sizes.length
       const utolso = sizes[sizes.length - 1]
-      if (utolso > perPage - reserved) {
+      if (!zaroLapTablaNelkul && utolso > perPage - reserved) {
         fail(`Y5: ${nev} (${n} csoport) — az utolsó oldalon ${utolso} sor van, a záró blokk mellett legfeljebb ${perPage - reserved} fér el`)
         y5ok = false
       }
       // (4) A lapszámozás („N / M oldal") egyezik a tényleges oldalszámmal.
-      const oldalak = (rep.html.match(/class="page"/g) || []).length + 1 // + borító
+      // 2026-08-15: a részszámadásnak nincs borítója — a `.page` (és `.page
+      // cover`) elemeket számoljuk, felár nélkül.
+      const oldalak = lapokSzama
       const jelolt = Number((rep.html.match(/\/\s*(\d+)\s*oldal/) || [])[1] || 0)
       if (jelolt && jelolt !== oldalak) {
         fail(`Y5: ${nev} (${n} csoport) — a lábléc ${jelolt} oldalt ígér, de ${oldalak} van`)
@@ -1184,6 +1192,85 @@ function totRowErtekek(html, label) {
   const zaras = utan.indexOf('</tr>')
   const sor = zaras < 0 ? utan : utan.slice(0, zaras)
   return [...sor.matchAll(/<td class="r">([^<]*)<\/td>/g)].map((x) => x[1])
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Y7 — TERJEDELEM-ŐR (2026-08-15, Endre): a Számadás ÉS a Részszámadás a VALÓS
+// méretű (hivatalos, ~101 soros) katalógussal LEGFELJEBB 4 OLDAL lehet.
+// A Számadásnál: borító + 3 táblázatoldal. A Részszámadásnál: 4 táblázatoldal
+// (külön borító nincs — kompakt fejléc az 1. lapon).
+// ═════════════════════════════════════════════════════════════════════════════
+{
+  // A hivatalos ív tényleges sor-szerkezete (HIVATALOS_NR_RAND alapján):
+  // bevétel: 101(8)+102(6)+103(9)+104(5)+105(3)+106(6)+107(2) levél = 39 + 7 csoport
+  // kiadás:  201(19)+202(8)+203(7)+204(4)+205(2)+206(6)+207(2) levél = 48 + 7 csoport
+  const levelek = { 101: 8, 102: 6, 103: 9, 104: 5, 105: 3, 106: 6, 107: 2, 201: 19, 202: 8, 203: 7, 204: 4, 205: 2, 206: 6, 207: 2 }
+  const cs = []
+  const br = {}
+  const ai = {}
+  const ae = {}
+  for (const [gidStr, db] of Object.entries(levelek)) {
+    const gid = Number(gidStr)
+    const type = gid < 200 ? 'B' : 'K'
+    cs.push({ id: String(gid), nev: `Csoport ${gid}`, nevro: `Grup ${gid}`, type, kod: String(gid) })
+    for (let i = 1; i <= db; i++) {
+      const id = `${gid}.${String(i).padStart(2, '0')}`
+      cs.push({ id, nev: `Jogcím ${id}`, nevro: `Poz ${id}`, type, kod: id })
+      br[id] = { szamadasicelid: id, tervezett: 100, modositott: null, mod2: null, mod3: null }
+      ai[id] = type === 'B' ? 80 : 0
+      ae[id] = type === 'K' ? 60 : 0
+    }
+  }
+  const Y7 = 2026
+  const y7bal = computePeriodBalances({
+    income: [],
+    expense: [],
+    year: Y7,
+    periodFrom: `${Y7}-01-01`,
+    periodTo: `${Y7}-06-30`,
+    yearOpeningCash: 1000,
+    yearOpeningBankById: { 1: 2000 },
+    actualIncomeByCode: ai,
+    actualExpenseByCode: ae,
+  })
+  const y7common = {
+    cellek: cs, budgetRows: br, actualIncome: ai, actualExpense: ae,
+    congregationName: 'Barátosi Református Egyházközség',
+    congregationNameRo: 'Parohia Reformata Brates',
+    year: Y7, carryoverCash: 1000, carryoverBank: 2000, finalized: false,
+  }
+  const lapszam = (html) => (html.match(/<div class="page(?:"| cover")/g) || []).length
+  const y7szam = buildSzamadasReport({ ...y7common })
+  if (lapszam(y7szam.html) <= 4) {
+    ok(`Y7  a teljes Számadás ${lapszam(y7szam.html)} oldal (megengedett: 4)`)
+  } else {
+    fail(`Y7: a Számadás ${lapszam(y7szam.html)} oldalra nőtt — Endre kerete 4 oldal!`)
+  }
+  if ('error' in y7bal) {
+    fail(`Y7: a részszámadás-levezetés hibára futott: ${y7bal.error}`)
+  } else {
+    const y7resz = buildReszszamadasReport({
+      ...y7common,
+      periodFrom: `${Y7}-01-01`, periodTo: `${Y7}-06-30`,
+      periodBalances: y7bal, keszult: '2026-08-15',
+    })
+    if (y7resz.blocked) {
+      fail('Y7: a részszámadás BLOCKED lett a valós méretű katalógussal')
+    } else if (lapszam(y7resz.html) <= 4) {
+      ok(`Y7  a teljes Részszámadás ${lapszam(y7resz.html)} oldal (megengedett: 4)`)
+    } else {
+      fail(`Y7: a Részszámadás ${lapszam(y7resz.html)} oldalra nőtt — Endre kerete 4 oldal!`)
+    }
+    // A fejléc a gyülekezet SAJÁT hivatalos neveit írja NAGYBETŰVEL — nem sablont.
+    if (
+      y7szam.html.includes('BARÁTOSI REFORMÁTUS EGYHÁZKÖZSÉG / PAROHIA REFORMATA BRATES') &&
+      !y7szam.html.includes('REFORMÁTUS EGYHÁZKÖZSÉG / PAROHIA REFORMATĂ &nbsp;')
+    ) {
+      ok('Y7  a fejléc a gyülekezet saját hivatalos neveit írja (HU / RO, nagybetűvel)')
+    } else {
+      fail('Y7: a fejléc nem a beállításokban rögzített hivatalos neveket használja!')
+    }
+  }
 }
 
 // ── Diakritika-őr (2026-08-14, 16. pont) ──────────────────────────────────

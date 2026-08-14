@@ -1365,10 +1365,12 @@ export async function initFinance(year: number) {
       .eq('id', congregationId)
       .single()
 
-    congregationName = fallbackRes.data?.nev_hu || fallbackRes.data?.name || ''
+    // 2026-08-15 (Endre): a nyomtatványokra a HIVATALOS név (name) megy —
+    // a rövid magyar név (nev_hu) csak tartalék. (Memória-szabály: name = hivatalos.)
+    congregationName = fallbackRes.data?.name || fallbackRes.data?.nev_hu || ''
     congregationNameRo = (fallbackRes.data?.nev_ro as string | null) || ''
   } else {
-    congregationName = congRes.data?.nev_hu || congRes.data?.name || ''
+    congregationName = congRes.data?.name || congRes.data?.nev_hu || ''
     congregationNameRo = (congRes.data?.nev_ro as string | null) || ''
     // 2026-07-17 (F5, Q6 — user-döntés): a tartozas_szamitas_mod KIVEZETVE — mindig
     // 'akkori' (a régi tartozás a saját éve beállításaival számol). Az 'aktualis'

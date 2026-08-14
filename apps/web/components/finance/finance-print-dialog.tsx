@@ -353,6 +353,7 @@ export function FinancePrintDialog({
                 actualIncome,
                 actualExpense,
                 congregationName,
+                congregationNameRo,
                 year: filters.selectedYear,
                 carryoverCash: carryoverCashUse,
                 carryoverBank: carryoverBankUse,
