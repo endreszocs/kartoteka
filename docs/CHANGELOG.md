@@ -23,6 +23,19 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-14] — Leltár: kategória-gombok darabszámmal · kétnyelvű fişă hivatalos román formával
+<!-- key: 2026-08-14-leltar-kategoria-gombok-fisa-ro -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+
+### ✨ Új funkciók
+
+- **Kategória-gombok a leltár oldalon**: a legördülő szűrő helyett kis gombok sora, mindegyiken élő darabszámmal („Alapeszközök · 12"). Egy koppintás szűr, még egy kikapcsol. Az üres kategóriák halványak.
+- **Az „Új tétel hozzáadása" gomb kiemelt helyre került** — zöld, jól látható gomb a műveletsor elején, eddig elveszett a többi egyforma gomb között.
+- **A leltári tárgy fişája nyelvet válthat**: az élő előnézet fejlécében HU/RO kapcsoló. A román változat a **hivatalos formát** követi (alapeszköznél „FIȘA MIJLOCULUI FIX", egyébként „FIȘA OBIECTULUI DE INVENTAR"), a hivatalos terminológiával (Cod de clasificare, Valoarea de inventar, Loc de folosință…) és **modern román helyesírással** (ș/ț) — a korábbi elavult ş/ţ írásmód helyett. A magyar változatban a román alcímkék is a hivatalos megnevezéseket viselik.
+
+---
+
 ## [2026-08-14] — Gyülekezetünk adatai: megosztás, másolás, sötét mód, mobil · profil-javítások
 <!-- key: 2026-08-14-gyulekezetunk-adatai-megosztas -->
 <!-- category: improvement -->

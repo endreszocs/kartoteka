@@ -105,6 +105,8 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
   // 2026-08-09: élő fişă-előnézet a tétel-űrlaphoz (xl+ oldalsó oszlop /
   // kisebb kijelzőn gombbal nyíló réteg) — a person-card-print (PR-17) mintája.
   const [previewHtml, setPreviewHtml] = useState('')
+  // 2026-08-14 (11. pont): a fisa nyelve — HU (alap) vagy RO (hivatalos forma).
+  const [fisaLang, setFisaLang] = useState<'hu' | 'ro'>('hu')
   const [previewOverlayOpen, setPreviewOverlayOpen] = useState(false)
   // 2026-08-09: „Kikeresés a könyvelésből" — kapcsolt kiadás (penzugy_xkey) +
   // a kiadás-választó állapota.
@@ -282,13 +284,13 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
   useEffect(() => {
     if (!dialogOpen) return
     const t = window.setTimeout(() => {
-      setPreviewHtml(buildInventoryItemCardHtml(formCardData()).html)
+      setPreviewHtml(buildInventoryItemCardHtml({ ...formCardData(), lang: fisaLang }).html)
     }, 300)
     return () => window.clearTimeout(t)
-  }, [dialogOpen, formCardData])
+  }, [dialogOpen, formCardData, fisaLang])
 
   function handlePreviewPrint() {
-    void printToBrowser(buildInventoryItemCardHtml(formCardData()).html)
+    void printToBrowser(buildInventoryItemCardHtml({ ...formCardData(), lang: fisaLang }).html)
   }
 
   const itemToCardData = useCallback((item: InventoryItem): InventoryItemCardData => {
@@ -319,7 +321,8 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
   }, [congregationName])
 
   function handleRowFisaPrint(item: InventoryItem) {
-    void printToBrowser(buildInventoryItemCardHtml(itemToCardData(item)).html)
+    // A fisa a legutobb valasztott nyelven nyomtatodik (HU az alap).
+    void printToBrowser(buildInventoryItemCardHtml({ ...itemToCardData(item), lang: fisaLang }).html)
   }
 
   async function handleFinalize() {
@@ -1165,9 +1168,30 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                 Fişă — élő előnézet
               </p>
-              <Button type="button" variant="outline" size="sm" className="min-h-9 rounded-lg" onClick={handlePreviewPrint}>
-                <Printer className="mr-1.5 size-3.5" /> Nyomtatás
-              </Button>
+              <div className="flex items-center gap-2">
+                {/* 2026-08-14 (11. pont, Endre kérése): HU/RO nyelvválasztó — a RO
+                    a hivatalos forma (Fișa mijlocului fix / obiectului de inventar). */}
+                <div className="inline-flex overflow-hidden rounded-lg border border-input" role="group" aria-label="A fişă nyelve">
+                  {(['hu', 'ro'] as const).map(l => (
+                    <button
+                      key={l}
+                      type="button"
+                      onClick={() => setFisaLang(l)}
+                      className={`min-h-9 px-2.5 text-xs font-semibold uppercase transition ${
+                        fisaLang === l
+                          ? 'bg-emerald-600 text-white dark:bg-emerald-500 dark:text-emerald-950'
+                          : 'bg-background text-muted-foreground hover:text-foreground'
+                      }`}
+                      title={l === 'hu' ? 'Magyar elsődleges, román alcímkék' : 'Román elsődleges (hivatalos forma), magyar alcímkék'}
+                    >
+                      {l}
+                    </button>
+                  ))}
+                </div>
+                <Button type="button" variant="outline" size="sm" className="min-h-9 rounded-lg" onClick={handlePreviewPrint}>
+                  <Printer className="mr-1.5 size-3.5" /> Nyomtatás
+                </Button>
+              </div>
             </div>
             <div className="p-3">
               <ItemCardPreviewFrame html={previewHtml} scale={0.42} />

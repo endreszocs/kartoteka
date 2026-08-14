@@ -45,6 +45,14 @@ export interface InventoryItemCardData {
   /** Könyv-kategóriás tételek opcionális adatai (csak ha vannak). */
   szerzo?: string | null
   konyvIsbn?: string | null
+  /**
+   * 2026-08-14 (11. pont): a fişa nyelve. 'hu' (alap) = magyar elsődleges,
+   * román alcímkék; 'ro' = ROMÁN elsődleges (a hivatalos forma), magyar
+   * alcímkék. Az OMFP 2634/2015 csak KÖTELEZŐ MINIMÁLIS TARTALMAT ír elő,
+   * merev nyomtatványmintát nem — a kétnyelvű forma tehát szabályos, amíg a
+   * román megnevezések a hivatalos terminológiát követik.
+   */
+  lang?: 'hu' | 'ro'
 }
 
 export interface InventoryItemCardResult {
@@ -64,11 +72,11 @@ function val(v: string | null | undefined, minWidth = '6rem'): string {
   return `<span class="val">${esc(s)}</span>`
 }
 
-function fmtDate(v: string | null | undefined): string | null {
+function fmtDate(v: string | null | undefined, locale = 'hu-HU'): string | null {
   if (!v) return null
   const d = new Date(v.includes('T') ? v : `${v}T00:00:00`)
   if (Number.isNaN(d.getTime())) return v
-  return new Intl.DateTimeFormat('hu-HU', { year: 'numeric', month: 'long', day: 'numeric' }).format(d)
+  return new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'long', day: 'numeric' }).format(d)
 }
 
 function fmtRon(v: number | null | undefined): string | null {
@@ -120,8 +128,35 @@ function styles() {
 }
 
 export function buildInventoryItemCardHtml(data: InventoryItemCardData): InventoryItemCardResult {
+  // 2026-08-14 (11. pont): nyelvvalasztas + HIVATALOS roman terminologia.
+  //  - a roman feliratok a MODERN diakritikat hasznaljak (ș/ț — vesszos alak),
+  //    a korabbi elavult ş/ţ (cedillas) helyett;
+  //  - a terminologia az OMFP 2634/2015 normabol jon (Fișa mijlocului fix,
+  //    Cod de clasificare, Valoarea de inventar, Loc de folosință, …);
+  //  - alapeszkoznel a hivatalos iv neve „FIȘA MIJLOCULUI FIX", egyebkent
+  //    „FIȘA OBIECTULUI DE INVENTAR".
+  const lang: 'hu' | 'ro' = data.lang === 'ro' ? 'ro' : 'hu'
+
+  /** Mezocimke: elsodleges nyelv + alcimke a masikon. */
+  const L = (hu: string, ro: string): string =>
+    lang === 'hu'
+      ? `${esc(hu)}<span class="ro">${esc(ro)}</span>`
+      : `${esc(ro)}<span class="ro">${esc(hu)}</span>`
+  /** Szekcio-cim ugyanigy. */
+  const H = (hu: string, ro: string): string =>
+    lang === 'hu'
+      ? `${esc(hu)} <span class="ro">· ${esc(ro)}</span>`
+      : `${esc(ro)} <span class="ro">· ${esc(hu)}</span>`
+  /** Sima szoveg (megjegyzesek, jelzok) az elsodleges nyelven. */
+  const T = (hu: string, ro: string): string => (lang === 'hu' ? hu : ro)
+
+  const locale = lang === 'ro' ? 'ro-RO' : 'hu-HU'
   const megnevezes = (data.megnevezes ?? '').trim()
-  const title = megnevezes ? `Fişă — ${megnevezes}` : 'Leltári tárgy fişája'
+  const roFormName = data.isAlapeszkoz ? 'Fișa mijlocului fix' : 'Fișa obiectului de inventar'
+  const huFormName = 'Leltári tárgy fișája'
+  const title = megnevezes
+    ? `${lang === 'ro' ? 'Fișă' : 'Fișa'} — ${megnevezes}`
+    : T(huFormName, roFormName)
 
   const mennyisegStr =
     data.mennyiseg != null && data.mennyiseg > 0
@@ -142,28 +177,34 @@ export function buildInventoryItemCardHtml(data: InventoryItemCardData): Invento
   const amortBlock = data.isAlapeszkoz
     ? `<div class="amort">
         <div class="grid">
-          <div class="row"><span class="k">Katalóguskód<span class="ro">Cod de clasificare</span></span><span class="fill">${val(katalogus, '10rem')}</span></div>
-          <div class="row"><span class="k">Használati idő<span class="ro">Durata de utilizare</span></span><span class="fill">${val(data.hasznalatiIdoEv ? `${data.hasznalatiIdoEv} év` : null)}</span></div>
-          <div class="row"><span class="k">Havi leírás<span class="ro">Amortizare lunară</span></span><span class="fill">${val(monthlyDep)}</span></div>
-          <div class="row"><span class="k">Aktuális leltári érték<span class="ro">Valoare actuală</span></span><span class="fill">${val(fmtRon(data.aktualisErtek ?? null))}</span></div>
+          <div class="row"><span class="k">${L('Katalóguskód', 'Cod de clasificare')}</span><span class="fill">${val(katalogus, '10rem')}</span></div>
+          <div class="row"><span class="k">${L('Használati idő', 'Durata normală de funcționare')}</span><span class="fill">${val(data.hasznalatiIdoEv ? `${data.hasznalatiIdoEv} ${T('év', 'ani')}` : null)}</span></div>
+          <div class="row"><span class="k">${L('Havi leírás', 'Amortizarea lunară')}</span><span class="fill">${val(monthlyDep)}</span></div>
+          <div class="row"><span class="k">${L('Aktuális leltári érték', 'Valoarea actuală')}</span><span class="fill">${val(fmtRon(data.aktualisErtek ?? null))}</span></div>
         </div>
-        <div class="note">Lineáris (havi) leírás a hivatalos amortizációs katalógus szerint; az aktuális érték a mai napra számolva.</div>
+        <div class="note">${esc(T(
+          'Lineáris (havi) leírás a hivatalos amortizációs katalógus szerint; az aktuális érték a mai napra számolva.',
+          'Amortizare liniară (lunară) conform catalogului oficial (HG 2139/2004); valoarea actuală este calculată la zi.',
+        ))}</div>
       </div>`
-    : `<div class="amort"><div class="note">Nem amortizálódó kategória — a leltári érték a könyv szerinti értékkel azonos.</div></div>`
+    : `<div class="amort"><div class="note">${esc(T(
+        'Nem amortizálódó kategória — a leltári érték a könyv szerinti értékkel azonos.',
+        'Categorie neamortizabilă — valoarea de inventar este egală cu valoarea de intrare.',
+      ))}</div></div>`
 
   const bookRows =
     (data.szerzo ?? '').trim() || (data.konyvIsbn ?? '').trim()
       ? `<div class="section">
-          <h2>Könyv-adatok <span class="ro">· Date bibliografice</span></h2>
+          <h2>${H('Könyv-adatok', 'Date bibliografice')}</h2>
           <div class="grid">
-            <div class="row"><span class="k">Szerző<span class="ro">Autor</span></span><span class="fill">${val(data.szerzo)}</span></div>
+            <div class="row"><span class="k">${L('Szerző', 'Autor')}</span><span class="fill">${val(data.szerzo)}</span></div>
             <div class="row"><span class="k">ISBN</span><span class="fill">${val(data.konyvIsbn)}</span></div>
           </div>
         </div>`
       : ''
 
   const html = `<!DOCTYPE html>
-<html lang="hu">
+<html lang="${lang}">
 <head>
 <meta charset="utf-8" />
 <title>${esc(title)}</title>
@@ -174,61 +215,64 @@ export function buildInventoryItemCardHtml(data: InventoryItemCardData): Invento
     <div class="head">
       <div>
         <div class="cong">${esc(data.congregationName)}</div>
-        <h1>LELTÁRI TÁRGY FIŞÁJA</h1>
-        <div class="sub">Fişa obiectului de inventar</div>
-        <div class="row" style="margin-top:8px"><span class="k">Megnevezés<span class="ro">Denumirea obiectului</span></span><span class="fill">${val(megnevezes, '16rem')}</span></div>
-        <div class="row"><span class="k">Kategória<span class="ro">Categoria</span></span><span class="fill">${val(
+        <h1>${esc(T(huFormName.toUpperCase(), roFormName.toUpperCase()))}</h1>
+        <div class="sub">${esc(T(roFormName, huFormName))}</div>
+        <div class="row" style="margin-top:8px"><span class="k">${L('Megnevezés', data.isAlapeszkoz ? 'Denumirea mijlocului fix și caracteristici tehnice' : 'Denumirea obiectului')}</span><span class="fill">${val(megnevezes, '16rem')}</span></div>
+        <div class="row"><span class="k">${L('Kategória', 'Categoria')}</span><span class="fill">${val(
           [data.kategoriaLabel, data.kategoriaLabelRo ? `(${data.kategoriaLabelRo})` : null].filter(Boolean).join(' '),
           '12rem',
         )}</span></div>
       </div>
       <div class="numbox">
-        <div class="cap">Leltári szám<br/>Nr. de inventar</div>
+        <div class="cap">${lang === 'hu' ? 'Leltári szám<br/>Nr. de inventar' : 'Numărul de inventar<br/>Leltári szám'}</div>
         <div class="num">${data.leltariSzam ? esc(data.leltariSzam) : '—'}</div>
         <div class="old">${
           data.leltariSzam
             ? data.regiLeltariSzam
-              ? `Régi szám: ${esc(data.regiLeltariSzam)}`
+              ? `${esc(T('Régi szám', 'Nr. vechi'))}: ${esc(data.regiLeltariSzam)}`
               : '&nbsp;'
-            : 'mentéskor generálódik'
+            : esc(T('mentéskor generálódik', 'se generează la salvare'))
         }</div>
       </div>
     </div>
 
     <div class="section">
-      <h2>Alapadatok <span class="ro">· Date generale</span></h2>
+      <h2>${H('Alapadatok', 'Date generale')}</h2>
       <div class="grid">
-        <div class="row"><span class="k">Mennyiség<span class="ro">Cantitate</span></span><span class="fill">${val(mennyisegStr)}</span></div>
-        <div class="row"><span class="k">Helyszín<span class="ro">Locul de păstrare</span></span><span class="fill">${val(data.helyszin)}</span></div>
-        <div class="row"><span class="k">Felelős személy<span class="ro">Persoana responsabilă</span></span><span class="fill">${val(data.felelosNev)}</span></div>
+        <div class="row"><span class="k">${L('Mennyiség', 'Cantitate')}</span><span class="fill">${val(mennyisegStr)}</span></div>
+        <div class="row"><span class="k">${L('Helyszín', 'Loc de folosință')}</span><span class="fill">${val(data.helyszin)}</span></div>
+        <div class="row"><span class="k">${L('Felelős személy', 'Persoana responsabilă (gestionar)')}</span><span class="fill">${val(data.felelosNev)}</span></div>
         <div class="row"><span class="k">&nbsp;</span><span class="fill"></span></div>
       </div>
     </div>
 
     <div class="section">
-      <h2>Beszerzés <span class="ro">· Date de achiziţie</span></h2>
+      <h2>${H('Beszerzés', 'Date de achiziție')}</h2>
       <div class="grid">
-        <div class="row"><span class="k">Beszerzés dátuma<span class="ro">Data achiziţiei</span></span><span class="fill">${val(fmtDate(data.beszerzesDatuma))}</span></div>
-        <div class="row"><span class="k">Beszerzési irat<span class="ro">Document justificativ</span></span><span class="fill">${val(data.beszerzesBizonylat)}</span></div>
-        <div class="row"><span class="k">Egységérték<span class="ro">Valoare unitară</span></span><span class="fill">${val(unitValue)}</span></div>
-        <div class="row"><span class="k">Könyv szerinti érték<span class="ro">Valoare de intrare</span></span><span class="fill">${val(bookValue)}</span></div>
+        <div class="row"><span class="k">${L('Beszerzés dátuma', 'Data achiziției')}</span><span class="fill">${val(fmtDate(data.beszerzesDatuma, locale))}</span></div>
+        <div class="row"><span class="k">${L('Beszerzési irat', 'Document de proveniență')}</span><span class="fill">${val(data.beszerzesBizonylat)}</span></div>
+        <div class="row"><span class="k">${L('Egységérték', 'Valoare unitară')}</span><span class="fill">${val(unitValue)}</span></div>
+        <div class="row"><span class="k">${L('Könyv szerinti érték', 'Valoarea de inventar')}</span><span class="fill">${val(bookValue)}</span></div>
       </div>
     </div>
 
     <div class="section">
-      <h2>Amortizáció <span class="ro">· Amortizare</span></h2>
+      <h2>${H('Amortizáció', 'Amortizare')}</h2>
       ${amortBlock}
     </div>
     ${bookRows}
 
     <div class="section">
-      <h2>Megjegyzés <span class="ro">· Observaţii</span></h2>
+      <h2>${H('Megjegyzés', 'Observații')}</h2>
       <div class="note-box">${esc((data.megjegyzes ?? '').trim())}</div>
     </div>
 
-    <div class="date-line">Kelt: ______________________, ________ év ______ hó ____ nap</div>
-    <div class="sig"><div>lelkipásztor</div><div>leltárfelelős</div></div>
-    <div class="sheet-footer"><span>Kartotéka · ${esc(data.congregationName)}</span><span>${data.leltariSzam ? esc(data.leltariSzam) : 'új tétel'}</span></div>
+    <div class="date-line">${esc(T(
+      'Kelt: ______________________, ________ év ______ hó ____ nap',
+      'Întocmit la: ______________________, anul ________ luna ______ ziua ____',
+    ))}</div>
+    <div class="sig"><div>${esc(T('lelkipásztor', 'conducătorul unității'))}</div><div>${esc(T('leltárfelelős', 'responsabil cu inventarul'))}</div></div>
+    <div class="sheet-footer"><span>Kartotéka · ${esc(data.congregationName)}</span><span>${data.leltariSzam ? esc(data.leltariSzam) : esc(T('új tétel', 'obiect nou'))}</span></div>
   </div>
 </body>
 </html>`
