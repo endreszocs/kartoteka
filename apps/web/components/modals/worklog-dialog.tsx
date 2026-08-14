@@ -32,7 +32,7 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
   // 2026-07-11 (F2): a korábbi "Délutáni alkalom" checkbox (legacy `du`)
   // helyett napszak-választó (de/du/este) — a mentés a `du`-t szinkronban
   // tartja (du = napszak === 'du').
-  const [napszak, setNapszak] = useState<'de' | 'du' | 'este'>('de')
+  const [napszak, setNapszak] = useState<'de' | 'du' | 'este' | 'de2' | 'du2'>('de')
   // Úrvacsorázók — templomban / betegnél. String state: '' = nincs adat
   // (null-t tárolunk), a beírt 0 viszont értelmes érték marad.
   const [uvTemplomban, setUvTemplomban] = useState('')
@@ -213,7 +213,7 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
                   <Label>Napszak</Label>
                   <select
                     value={napszak}
-                    onChange={e => setNapszak(e.target.value as 'de' | 'du' | 'este')}
+                    onChange={e => setNapszak(e.target.value as 'de' | 'du' | 'este' | 'de2' | 'du2')}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   >
                     {NAPSZAK_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}

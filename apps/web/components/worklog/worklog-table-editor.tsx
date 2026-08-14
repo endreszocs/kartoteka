@@ -57,7 +57,7 @@ export interface WorklogTableEditorProps {
 // rekordot írja).
 // ---------------------------------------------------------------------------
 
-type Napszak = 'de' | 'du' | 'este'
+type Napszak = 'de' | 'du' | 'este' | 'de2' | 'du2'
 
 interface RowDraft {
   idopont: string
@@ -192,9 +192,9 @@ function toInput(draft: RowDraft, category: WorklogCategory, entry?: WorklogEntr
     jelenlet_no: toInt(draft.jelenlet_no),
     jelenlet_gyermek: toInt(draft.jelenlet_gyermek),
     persely: toDecimal(draft.persely),
-    // Kontraktus: du = napszak === 'du' (a legacy boolean szinkronban marad).
+    // Kontraktus: du = napszak 'du' VAGY 'du2' (a legacy boolean szinkronban marad).
     napszak: draft.napszak,
-    du: draft.napszak === 'du',
+    du: draft.napszak === 'du' || draft.napszak === 'du2',
     uv_templomban: toInt(draft.uv_templomban),
     uv_betegnel: toInt(draft.uv_betegnel),
   }

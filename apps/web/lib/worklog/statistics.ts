@@ -169,6 +169,11 @@ function effektivJelenlet(e: WorklogEntry): number {
 /** Napszak a legacy `du` boolean fallbackkel (azonos a print-columns.ts szabályával). */
 function effektivNapszak(e: WorklogEntry): 'de' | 'du' | 'este' {
   if (e.napszak === 'de' || e.napszak === 'du' || e.napszak === 'este') return e.napszak
+  // 2026-08-14 (18. pont): a De.2/Du.2 (második de./du. alkalom, EREK 2.2) a
+  // db-bontásban az alap-vetületére számít; az összeadó átlag-szabály a
+  // jelentés-aggregátoré.
+  if (e.napszak === 'de2') return 'de'
+  if (e.napszak === 'du2') return 'du'
   return e.du ? 'du' : 'de'
 }
 

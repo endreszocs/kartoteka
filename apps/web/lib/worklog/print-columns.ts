@@ -161,16 +161,37 @@ export function getUnnepInfo(isoDate: string): { nev: string; tipus: 'satoros' |
   return null
 }
 
-// A jellege-egyezések a lib/constants/worklog.ts WORKLOG_TYPES listáival
-// szinkronban tartandók.
-const BIBLIAORA_IFJUSAGI_TYPES = new Set(['Ifjúsági bibliaóra (IKE)', 'Ifjúsági óra'])
-const PRESBITERI_TYPES = new Set(['Presbiteri gyűlés', 'Konfirmáció előkészítő'])
+// A jellege-egyezések a lib/constants/worklog.ts WORKLOG_TYPES +
+// LEGACY_WORKLOG_TYPES listáival szinkronban tartandók.
+const BIBLIAORA_IFJUSAGI_TYPES = new Set(['Ifjúsági bibliaóra (IKE)', 'Ifjúsági óra', 'Ifj. vagy IKE bibliaóra'])
+const PRESBITERI_TYPES = new Set(['Presbiteri gyűlés', 'Konfirmáció előkészítő', 'Presbiteri bibliaóra', 'Presbiteri felkészítő'])
 const EGYEB_TYPES = new Set(['Keresztelő', 'Esketés', 'Temetés', 'Konfirmáció', 'Imahét', 'Egyéb szolgálat'])
 const ISTENTISZTELETI_TYPES = new Set(['Istentisztelet', 'Igehirdetés', 'Imaóra', 'Esti áhítat', 'Alkalmi istentisztelet'])
 
-/** Napszak-feloldás: az új napszak-mező, legacy fallback a `du` booleanból. */
+// 2026-08-14 (18. pont): a HIVATALOS 37-es készlet közvetlen leképezése.
+// A nevesített típus ERŐSEBB a dátum-heurisztikánál: ha a lelkész „Ünnepi
+// i.t."-t választott, az akkor is ünnepi, ha a dátum hétköznapra esik.
+const OFFICIAL_FELNOTT_BIBLIAORA = new Set(['Felnőtt bibliaóra', 'Házasok bibliaórája', 'Más bibliaóra 1', 'Más bibliaóra 2', 'Nőszöv. bibliaóra'])
+const OFFICIAL_SATOROS = new Set([
+  'Húsvét I. it.', 'Húsvét II. it.', 'Húsvét III. it.',
+  'Pünkösd I. it.', 'Pünkösd II. it.', 'Pünkösd III. it.',
+  'Karácsony I. it.', 'Karácsony II. it.', 'Karácsony III. it.',
+])
+const OFFICIAL_EGYEB = new Set([
+  'F. keresztelő', 'N. keresztelő', 'Keresztelői felkészítő',
+  'F. temetés', 'N. temetés', 'Virrasztó',
+  'Azonos esketés', 'Vegyes esketés', 'Jegyesbeszélgetés',
+  'Digitális alkalmak',
+])
+
+/** Napszak-feloldás: az új napszak-mező, legacy fallback a `du` booleanból.
+ *  A De.2/Du.2 (EREK 2.2) az oszlop-besorolásnál az alap-vetületére képez —
+ *  az ÖSSZEADÓ szabály a jelentés-aggregátor dolga, nem az oszlopé. */
 function resolveNapszak(entry: Pick<WorklogEntry, 'napszak' | 'du'>): 'de' | 'du' | 'este' {
-  return entry.napszak ?? (entry.du ? 'du' : 'de')
+  const n = entry.napszak
+  if (n === 'de2') return 'de'
+  if (n === 'du2') return 'du'
+  return n ?? (entry.du ? 'du' : 'de')
 }
 
 /** Kisbetűs + ékezet-mentes normalizálás a legacy tartalmazás-tesztekhez. */
@@ -196,6 +217,29 @@ function looksLikeIstentisztelet(jellege: string): boolean {
  */
 export function classifyForOfficialJournal(entry: WorklogEntry): JournalPlacement {
   const jellege = (entry.jellege || '').trim()
+
+  // (a0) 2026-08-14: a HIVATALOS 37-es készlet nevesített típusai — a
+  // dátum-heurisztika ELŐTT, mert a lelkész kifejezett választása dönt.
+  {
+    const napszak = resolveNapszak(entry)
+    const deDu: JournalSlot = napszak === 'du' || napszak === 'este' ? 'du' : 'de'
+    if (jellege === 'Vasárnapi i.t.') return { column: 'vasarnapi', slot: deDu }
+    if (jellege === 'Ünnepi i.t.') return { column: 'unnepi', slot: deDu }
+    if (OFFICIAL_SATOROS.has(jellege)) return { column: 'satoros', slot: deDu }
+    if (jellege === 'Bűnbánati i.t.') {
+      return { column: 'bunbanati', slot: napszak === 'de' ? 'reggel' : 'este' }
+    }
+    if (jellege === 'Hétköznapi i.t.') return { column: 'hetkoznapi', slot: null }
+    if (jellege === 'Úrvacsora templomban') return { column: 'urvacsora', slot: 'templomban' }
+    if (jellege === 'Betegúrvacsora') return { column: 'urvacsora', slot: 'betegnel' }
+    if (OFFICIAL_FELNOTT_BIBLIAORA.has(jellege)) {
+      // A Nőszöv. bibliaóra a 15. (nőszövetségi) oszlopba tartozik.
+      if (jellege === 'Nőszöv. bibliaóra') return { column: 'noszovetsegi', slot: null }
+      return { column: 'bibliaora', slot: 'felnott' }
+    }
+    if (jellege === 'Szeretetvendégség') return { column: 'unnepely', slot: null }
+    if (OFFICIAL_EGYEB.has(jellege)) return { column: 'egyeb', slot: null }
+  }
 
   // (a) Úrvacsora — 12. oszlop (a betegnél rovat a generátorban, uv_betegnel)
   if (jellege === 'Úrvacsora') return { column: 'urvacsora', slot: 'templomban' }

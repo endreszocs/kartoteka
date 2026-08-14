@@ -395,7 +395,11 @@ const MUNKANAPLO_TABLES: TableRegistryEntry[] = [
       'idopont', 'kategoria', 'jellege', 'id_jellege', 'bibliaolvasas',
       'alapige', 'cim', 'enekek', 'jelenlet_ferfi', 'jelenlet_no',
       'jelenlet_gyermek', 'jelenlet_osszesen', 'szolgalt', 'persely',
-      'megjegyzes', 'mediapath', 'du',
+      // 2026-08-14 (18. pont): napszak + uv_* — az oszlopok ÉLESBEN léteznek
+      // (2026-07-11-es F1-migráció, az OSSZKEP-ellenőrzésből igazolva), a
+      // desktop-tükör már eddig is szinkronizálta őket; a webes offline
+      // másolat eddig e nélkül járt.
+      'megjegyzes', 'mediapath', 'du', 'napszak', 'uv_templomban', 'uv_betegnel',
     ].join(', '),
     module: 'munkanaplo',
     label: 'Munkanapló',
