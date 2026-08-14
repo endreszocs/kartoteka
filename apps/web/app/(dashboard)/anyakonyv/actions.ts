@@ -6,6 +6,7 @@ import type { BaptismInput, MarriageInput, BurialInput, MovementInput, Confirmat
 import type { RegistryEntry } from '@/lib/constants/registry'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { softDeleteRegistryWorklog, syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
+import { guessGender } from '@/lib/utils/member-helpers'
 import { closeMarriageEdgeBetween, findMembershipConflicts, foreignMembershipWarning, reconcileKinshipForPersons, syncHouseholdFromCsalad } from '@/lib/family/family-membership'
 import { describeMoves, ensureChildFamilyLink } from '@/lib/family/auto-family'
 
@@ -34,6 +35,26 @@ async function getSzemelyNames(supabase: any, ids: number[]): Promise<Map<number
     out.set(row.id, `${row.csaladnev || ''} ${row.k_nev || ''}`.trim() || `#${row.id}`)
   }
   return out
+}
+
+/**
+ * 2026-08-14 (18. pont): a hivatalos EREK-ív a keresztelőt és a temetést
+ * F./N. bontásban kéri. A nemet a bevett név-heurisztika adja (guessGender —
+ * a választói logika is ezt használja); ha a keresztnév nem olvasható, a
+ * legacy típusnév marad (az ív-besorolás azt is ismeri).
+ */
+async function hivatalosNemTipus(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  szemelyId: number,
+  ferfiTipus: string,
+  noTipus: string,
+  fallback: string,
+): Promise<string> {
+  const { data } = await supabase.from('szemely').select('k_nev').eq('id', szemelyId).limit(1)
+  const kNev = (data?.[0]?.k_nev as string | null) ?? null
+  if (!kNev) return fallback
+  return guessGender(kNev) === 'no' ? noTipus : ferfiTipus
 }
 
 // ── Adatbetöltés (fülváltáskor) ──────────────────────────────
@@ -801,7 +822,8 @@ export async function saveBaptism(data: BaptismInput) {
       munkanaploba: !!d.munkanaploba,
       payload: {
         idopont: d.datum,
-        jellege: 'Keresztelő',
+        // 2026-08-14 (18. pont): a hivatalos ív F./N. bontásban kéri.
+        jellege: await hivatalosNemTipus(supabase, d.id_szemely, 'F. keresztelő', 'N. keresztelő', 'Keresztelő'),
         cim: `Keresztelés: ${names.get(d.id_szemely) || ''}`.trim(),
         alapige: d.alapige || null,
         szolgalt: d.lelkeszneve || null,
@@ -1302,7 +1324,9 @@ export async function saveMarriage(data: MarriageInput) {
       munkanaploba: !!d.munkanaploba,
       payload: {
         idopont: d.datum,
-        jellege: 'Esketés',
+        // 2026-08-14 (18. pont): a hivatalos ív Azonos/Vegyes bontásban kéri
+        // (Azonos = mindkét fél református; Vegyes = csak az egyik).
+        jellege: d.vegyes ? 'Vegyes esketés' : 'Azonos esketés',
         cim: `Esketés: ${names.get(d.id_ferfi) || '?'} és ${names.get(d.id_no) || '?'}`,
         szolgalt: d.lelkeszneve || null,
       },
@@ -1392,7 +1416,8 @@ export async function saveBurial(data: BurialInput) {
       munkanaploba: !!d.munkanaploba,
       payload: {
         idopont: d.tdatum,
-        jellege: 'Temetés',
+        // 2026-08-14 (18. pont): a hivatalos ív F./N. bontásban kéri.
+        jellege: await hivatalosNemTipus(supabase, d.id_szemely, 'F. temetés', 'N. temetés', 'Temetés'),
         cim: `Temetés: ${names.get(d.id_szemely) || ''}`.trim(),
         szolgalt: d.lelkeszneve || null,
       },

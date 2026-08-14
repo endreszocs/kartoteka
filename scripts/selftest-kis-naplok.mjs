@@ -112,5 +112,14 @@ const reszHtml = buildKatekezisNaploLapok(
 if (reszHtml.includes('<td class="text-center">12</td>')) ok('N6: jelenlét fallback (3+4+5=12)')
 else fail('N6: a jelenlét-fallback nem működik!')
 
+// N7: az anyakönyv-szinkron a HIVATALOS típusneveket írja (F./N. bontás,
+// Azonos/Vegyes esketés) — forrás-őr a legacy nevekre való visszacsúszás ellen.
+const anyak = fs.readFileSync(
+  path.join(REPO_ROOT, 'apps', 'web', 'app', '(dashboard)', 'anyakonyv', 'actions.ts'), 'utf8',
+)
+if (anyak.includes("'F. keresztelő'") && anyak.includes("'Azonos esketés'") && anyak.includes("'F. temetés'")) {
+  ok('N7: az anyakönyv-szinkron hivatalos típusneveket ír')
+} else fail('N7: az anyakönyv-szinkron visszacsúszott a legacy típusnevekre!')
+
 if (failed) { console.error('\nKIS-NAPLÓK selftest: HIBA'); process.exit(1) }
 console.log('\nKIS-NAPLÓK selftest: minden rendben ✅')
