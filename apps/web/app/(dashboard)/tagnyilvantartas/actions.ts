@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { memberSchema, removeSchema, type MemberInput, type RemoveInput } from '@/lib/validations/members'
-import { generateCnp } from '@/lib/utils/member-helpers'
+import { generateCnp, guessGender } from '@/lib/utils/member-helpers'
 import { logAuditEvent } from '@/lib/audit/log'
 import type { MemberRow, EnrichedMember } from '@/lib/constants/members'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
@@ -1817,13 +1817,27 @@ export async function updateRegistryEventDetails(
   const newDate = payload.datum?.trim() || null
   if (worklogId && newDate && (kind === 'keresztseg' || kind === 'konfirmalas' || kind === 'hazassag' || kind === 'temetes')) {
     try {
-      const jellege = kind === 'keresztseg' ? 'Keresztelő' : kind === 'konfirmalas' ? 'Konfirmáció' : kind === 'hazassag' ? 'Esketés' : 'Temetés'
+      let jellege = kind === 'keresztseg' ? 'Keresztelő' : kind === 'konfirmalas' ? 'Konfirmáció' : kind === 'hazassag' ? 'Esketés' : 'Temetés'
       const personIds = kind === 'hazassag'
         ? [before.id_ferfi, before.id_no].filter((v): v is number => typeof v === 'number')
         : typeof before.id_szemely === 'number' ? [before.id_szemely] : []
       let cim = jellege
       if (personIds.length > 0) {
         const { data: personRows } = await supabase.from('szemely').select('id, csaladnev, k_nev').in('id', personIds)
+        // 2026-08-14 (18. pont): a hivatalos ív F./N. ill. Azonos/Vegyes
+        // bontásban kéri — a nem a bevett név-heurisztikából (guessGender),
+        // a vegyes a hazassag sorából; ha nem megállapítható, a legacy
+        // típusnév marad (az ív-besorolás azt is ismeri).
+        const elsoKNev = (personRows?.[0] as { k_nev?: string | null } | undefined)?.k_nev ?? null
+        if ((kind === 'keresztseg' || kind === 'temetes') && elsoKNev) {
+          const no = guessGender(elsoKNev) === 'no'
+          jellege = kind === 'keresztseg' ? (no ? 'N. keresztelő' : 'F. keresztelő') : (no ? 'N. temetés' : 'F. temetés')
+        }
+        if (kind === 'hazassag') {
+          const vegyes = (before as { vegyes?: boolean | null }).vegyes
+          if (vegyes === true) jellege = 'Vegyes esketés'
+          else if (vegyes === false) jellege = 'Azonos esketés'
+        }
         const names = (personRows || []).map((p: { csaladnev: string | null; k_nev: string | null }) => `${p.csaladnev || ''} ${p.k_nev || ''}`.trim()).filter(Boolean)
         if (names.length > 0) cim = `${jellege}: ${names.join(' és ')}`
       }
