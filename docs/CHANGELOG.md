@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-14] — Kuka: pontos visszaszámláló és megbízható 30 napos takarítás
+<!-- key: 2026-08-14-kuka-deleted-at-takaritas -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, admin -->
+
+### ✨ Új funkciók
+
+- **A kuka mostantól napra pontosan mondja meg, mikor törlődik véglegesen egy elem.** Eddig csak becslést tudott („legfeljebb N nap"), mert a rendszer nem jegyezte fel a törlés pillanatát — mostantól minden törlés időbélyeget kap, és a kuka a pontos napot mutatja. *(Ehhez egy adatbázis-bővítés szükséges: `2026-08-14-kuka-deleted-at.sql` — amíg az nem fut le, marad az óvatos becslés.)*
+
+### 🐛 Javítások
+
+- **A „30 nap után véglegesen törlődik" ígéret mostantól minden modulra igaz.** Az automatikus takarítás eddig csak 7 táblát ürített — a pénzügyi tételek, a munkanapló és a leltár törölt sorai **sosem** törlődtek maguktól. Mostantól mind a 12 kukás adatkör takarítva van, hetente helyett **naponta** (hajnali 3-kor, a napi mentés előtt). A régóta kukában ülő pénzügyi/leltári sorok **30 nap türelmi időt kapnak a mai naptól** — semmi nem tűnik el visszamenőleg, szó nélkül.
+
+---
+
 ## [2026-08-14] — Szolgálati hely: automatikus napló és értesítés áthelyezéskor · fekvő PDF-ek javítása
 <!-- key: 2026-08-14-szolgalati-hely-naplo-fekvo-pdf -->
 <!-- category: feature -->
