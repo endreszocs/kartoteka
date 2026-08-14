@@ -1343,140 +1343,145 @@ ORDER BY gyulekezet, b.ervenyessegiev DESC;
 --  Kimutatasok_2026 — a nyomtatványok és a kötelező nyomtatási rend
 -- ==========================================================================
 
--- [7.1] Kiadási kísérőív túlcsordulás: a hivatalos ív 20 sor/lap (Kimutatasok_2026 'Kiadasi_kiseroiv' M2='=ROUNDUP(O1/20,0)'), a Kartotéka viszont EGY lapra nyomtat. Itt látszik, mely napokon lenne hivatalosan 2+ lap. VÁRT EREDMÉNY: 0 sor. Ha van sor, azon a napon a nyomtatvány túlcsordul, és onnantól az oldalszám-sorozat is elcsúszik a hivatalostól.
--- Kiadásos napok forrásonként, ahol 20-nál több tétel van (hivatalosan 2+ kísérőív-lap)
+-- 2026-08-14 JAVITAS: ez a szekcio korabban gyulekezet-azonosito jelolot vart
+-- kezi cserevel -- emiatt a fajl egyben futtatva 22P02 hibaval elszallt.
+-- Mostantol MINDEN lekerdezes jelolo nelkul, az OSSZES gyulekezetre fut,
+-- gyulekezetenkenti bontasban (ez hasznosabb is: latszik, KIT erint).
+
+-- [7.1] Kiadasi kiseroiv tulcsordulas: a hivatalos iv 20 sor/lap, a Kartoteka
+-- EGY lapra nyomtat. VART EREDMENY: 0 sor. Ha van sor, azon a napon a
+-- nyomtatvany tulcsordul, es az oldalszam-sorozat elcsuszik a hivatalostol.
 select
+  c.name                                               as gyulekezet,
   k.datum,
   coalesce(k.bankszamla_id::text, 'KASSZA')            as forras,
   count(*)                                             as tetel_db,
   ceil(count(*)::numeric / 20)                         as hivatalos_lapszam
 from public.kiadas k
-where k.congregation_id = '<GYULEKEZET_ID>'::uuid
-  and k.deleted = false
+join public.congregations c on c.id = k.congregation_id
+where k.deleted = false
   and coalesce(k.stornozott, false) = false
   and k.datum >= date '2026-01-01'
   and k.datum <  date '2027-01-01'
-group by k.datum, coalesce(k.bankszamla_id::text, 'KASSZA')
+group by c.name, k.datum, coalesce(k.bankszamla_id::text, 'KASSZA')
 having count(*) > 20
-order by k.datum, forras;
+order by c.name, k.datum, forras;
 
--- [7.2] Registru Casă / Registru Bancă lapozás: a hivatalos napló 40 sor/lap ('Naplo' P2=40), laponként 'TOTAL PAGINA' és 'Sold pagina precedentă' sorral. A Kartotéka hónaponként EGY lapot ad 'pg. 1'-gyel. VÁRT EREDMÉNY: 0 sor. Ahol van sor, ott a nyomtatvány némán több papírra folyik szét, fejléc és lapszám nélkül a 2. laptól.
--- Hónap+forrás bontásban a naplósorok száma; 40 felett a hivatalos napló több lap
+-- [7.2] Registru Casa / Banca lapozas: a hivatalos naplo 40 sor/lap, a
+-- Kartoteka honaponkent EGY lapot ad. VART EREDMENY: 0 sor.
 with mozgas as (
-  select date_trunc('month', b.datum)::date          as ho,
-         coalesce(b.bankszamla_id::text, 'KASSZA')   as forras
+  select b.congregation_id, date_trunc('month', b.datum)::date as ho,
+         coalesce(b.bankszamla_id::text, 'KASSZA')             as forras
   from public.befizetes b
-  where b.congregation_id = '<GYULEKEZET_ID>'::uuid
-    and b.deleted = false
-    and coalesce(b.stornozott, false) = false
+  where b.deleted = false and coalesce(b.stornozott, false) = false
     and b.datum >= date '2026-01-01' and b.datum < date '2027-01-01'
   union all
-  select date_trunc('month', k.datum)::date,
+  select k.congregation_id, date_trunc('month', k.datum)::date,
          coalesce(k.bankszamla_id::text, 'KASSZA')
   from public.kiadas k
-  where k.congregation_id = '<GYULEKEZET_ID>'::uuid
-    and k.deleted = false
-    and coalesce(k.stornozott, false) = false
+  where k.deleted = false and coalesce(k.stornozott, false) = false
     and k.datum >= date '2026-01-01' and k.datum < date '2027-01-01'
 )
-select ho, forras,
-       count(*)                       as naplo_sor_db,
-       ceil(count(*)::numeric / 40)   as hivatalos_lapszam
-from mozgas
-group by ho, forras
+select c.name as gyulekezet, m.ho, m.forras,
+       count(*)                     as naplo_sor_db,
+       ceil(count(*)::numeric / 40) as hivatalos_lapszam
+from mozgas m
+join public.congregations c on c.id = m.congregation_id
+group by c.name, m.ho, m.forras
 having count(*) > 40
-order by ho, forras;
+order by c.name, m.ho, m.forras;
 
--- [7.3] Főkönyv (Registru Jurnal) lapozás: a hivatalos főkönyv 40 sor/lap ('Fo_konyv' M3=40), 'De reportat pagina:' / 'Report pagina precedentă:' átvezetéssel, és KÖTELEZŐEN, bekötve őrzendő. VÁRT EREDMÉNY: 0 sor. Ahány sor visszajön, annyi hónapban a bekötendő főkönyv lapszámozása ma hibás (mind ugyanazt a 'pg. N'-t viseli).
--- Havi főkönyvi sorszám (kassza + MINDEN bankszámla együtt), 40 sor/lap kerettel
+-- [7.3] Fokonyv (Registru Jurnal) lapozas: 40 sor/lap, KOTELEZOEN bekotendo.
+-- VART EREDMENY: tajekoztato -- ahany sor, annyi honapban 2+ lapos a fokonyv.
+-- (A v0.9.166+ webes Fokonyv mar valodi 40 soros lapozassal nyomtat.)
 with fokonyv as (
-  select date_trunc('month', b.datum)::date as ho
+  select b.congregation_id, date_trunc('month', b.datum)::date as ho
   from public.befizetes b
-  where b.congregation_id = '<GYULEKEZET_ID>'::uuid
-    and b.deleted = false and coalesce(b.stornozott, false) = false
+  where b.deleted = false and coalesce(b.stornozott, false) = false
     and b.datum >= date '2026-01-01' and b.datum < date '2027-01-01'
   union all
-  select date_trunc('month', k.datum)::date
+  select k.congregation_id, date_trunc('month', k.datum)::date
   from public.kiadas k
-  where k.congregation_id = '<GYULEKEZET_ID>'::uuid
-    and k.deleted = false and coalesce(k.stornozott, false) = false
+  where k.deleted = false and coalesce(k.stornozott, false) = false
     and k.datum >= date '2026-01-01' and k.datum < date '2027-01-01'
 )
-select ho,
-       count(*)                      as fokonyvi_sor_db,
-       ceil(count(*)::numeric / 40)  as hivatalos_lapszam,
-       1                             as kartoteka_lapszam
-from fokonyv
-group by ho
+select c.name as gyulekezet, f.ho,
+       count(*)                     as fokonyvi_sor_db,
+       ceil(count(*)::numeric / 40) as hivatalos_lapszam
+from fokonyv f
+join public.congregations c on c.id = f.congregation_id
+group by c.name, f.ho
 having count(*) > 40
-order by ho;
+order by c.name, f.ho;
 
--- [7.4] Csoportnapló — belső mozgások: a hivatalos 'Csoportnaplo' A3 legördülője a Koltvetnev névtartomány, vagyis MINDEN költségvetési tétel választható, a készpénzletét/-felvétel is. A Kartotéka a 3xx/4xx/100 kódokat kihagyja (reporting.ts:841-842) ÉS a választóból is kiszűri (finance-print-dialog.tsx:152-160). VÁRT EREDMÉNY: ha itt sorok jönnek vissza, azok a tételek SEHOGY nem nyomtathatók csoportnaplóba.
--- Belső mozgásnak minősített jogcímek forgalma (ezek ma nem listázhatók csoportnaplóban)
-select sc.id                                        as jogcim_kod,
-       sc.nev                                       as jogcim_nev,
-       'kiadas'                                     as oldal,
-       count(*)                                     as tetel_db,
-       sum(coalesce(k.osszeg_ron, k.osszeg))        as osszeg_ron
+-- [7.4] Csoportnaplo -- belso mozgasok: a Kartoteka a 3xx/4xx/100 kodokat
+-- kihagyja a csoportnaplobol. VART EREDMENY: tajekoztato -- ezek a tetelek
+-- ma nem nyomtathatok csoportnaploba (gyulekezetenkent osszegezve).
+select c.name as gyulekezet, sc.id as jogcim_kod, sc.nev as jogcim_nev,
+       'kiadas' as oldal, count(*) as tetel_db,
+       round(sum(coalesce(k.osszeg_ron, k.osszeg))::numeric, 2) as osszeg_ron
 from public.kiadas k
+join public.congregations c on c.id = k.congregation_id
 join public.kiadascel    kc on kc.id = k.id_kiadascel
 join public.szamadasicel sc on sc.id = kc.id_szamadasicel
-where k.congregation_id = '<GYULEKEZET_ID>'::uuid
-  and k.deleted = false and coalesce(k.stornozott, false) = false
+where k.deleted = false and coalesce(k.stornozott, false) = false
   and k.datum >= date '2026-01-01' and k.datum < date '2027-01-01'
   and (sc.id ~ '^[34]' or sc.id = '100' or sc.id like '100.%')
-group by sc.id, sc.nev
+group by c.name, sc.id, sc.nev
 union all
-select sc.id, sc.nev, 'befizetes',
-       count(*), sum(coalesce(b.osszeg_ron, b.osszeg))
+select c.name, sc.id, sc.nev, 'befizetes', count(*),
+       round(sum(coalesce(b.osszeg_ron, b.osszeg))::numeric, 2)
 from public.befizetes b
+join public.congregations c on c.id = b.congregation_id
 join public.befizetescel bc on bc.id = b.id_befizetescel
 join public.szamadasicel sc on sc.id = bc.id_szamadasicel
-where b.congregation_id = '<GYULEKEZET_ID>'::uuid
-  and b.deleted = false and coalesce(b.stornozott, false) = false
+where b.deleted = false and coalesce(b.stornozott, false) = false
   and b.datum >= date '2026-01-01' and b.datum < date '2027-01-01'
   and (sc.id ~ '^[34]' or sc.id = '100' or sc.id like '100.%')
-group by sc.id, sc.nev
-order by jogcim_kod, oldal;
+group by c.name, sc.id, sc.nev
+order by gyulekezet, jogcim_kod, oldal;
 
--- [7.5] Besorolatlan tételek: jogcím nélküli bevétel/kiadás. Ezek a Kartotéka csoportnaplójában a „Fără capitol — Besorolatlan” csoportba esnek figyelmeztető lábjegyzettel (reporting.ts:868-877, 1040), a hivatalos munkafüzetben pedig az Adatok_2026 'Hibak' lapja jelzi őket (Sugo.txt 190). VÁRT EREDMÉNY: 0 sor. Ha van sor, addig sem a csoportnapló, sem a számadás nem hiteles.
--- Jogcím (számadási cél) nélküli tételek — a Hibak-lap 1. számú hibajelzésének megfelelője
-select 'befizetes' as tabla, b.id, b.datum,
-       coalesce(b.osszeg_ron, b.osszeg) as osszeg_ron,
-       b.forrasa as partner, b.megjegyzes
-from public.befizetes b
-left join public.befizetescel bc on bc.id = b.id_befizetescel
-where b.congregation_id = '<GYULEKEZET_ID>'::uuid
-  and b.deleted = false and coalesce(b.stornozott, false) = false
-  and b.datum >= date '2026-01-01' and b.datum < date '2027-01-01'
-  and (b.id_befizetescel is null or bc.id_szamadasicel is null)
-union all
-select 'kiadas', k.id, k.datum,
-       coalesce(k.osszeg_ron, k.osszeg),
-       k.atvevo, k.megjegyzes
-from public.kiadas k
-left join public.kiadascel kc on kc.id = k.id_kiadascel
-where k.congregation_id = '<GYULEKEZET_ID>'::uuid
-  and k.deleted = false and coalesce(k.stornozott, false) = false
-  and k.datum >= date '2026-01-01' and k.datum < date '2027-01-01'
-  and (k.id_kiadascel is null or kc.id_szamadasicel is null)
-order by datum, tabla;
+-- [7.5] Besorolatlan tetelek (jogcim nelkul) -- gyulekezetenkenti OSSZEGZES.
+-- VART EREDMENY: 0 sor. Ha van sor, ott sem a csoportnaplo, sem a szamadas
+-- nem hiteles. (Teteles listat celzottan kerunk, ha ez nem ures.)
+select c.name as gyulekezet, s.tabla,
+       count(*) as tetel_db,
+       round(sum(s.osszeg_ron)::numeric, 2) as osszeg_ron
+from (
+  select b.congregation_id, 'befizetes' as tabla,
+         coalesce(b.osszeg_ron, b.osszeg) as osszeg_ron
+  from public.befizetes b
+  left join public.befizetescel bc on bc.id = b.id_befizetescel
+  where b.deleted = false and coalesce(b.stornozott, false) = false
+    and b.datum >= date '2026-01-01' and b.datum < date '2027-01-01'
+    and (b.id_befizetescel is null or bc.id_szamadasicel is null)
+  union all
+  select k.congregation_id, 'kiadas',
+         coalesce(k.osszeg_ron, k.osszeg)
+  from public.kiadas k
+  left join public.kiadascel kc on kc.id = k.id_kiadascel
+  where k.deleted = false and coalesce(k.stornozott, false) = false
+    and k.datum >= date '2026-01-01' and k.datum < date '2027-01-01'
+    and (k.id_kiadascel is null or kc.id_szamadasicel is null)
+) s
+join public.congregations c on c.id = s.congregation_id
+group by c.name, s.tabla
+order by osszeg_ron desc;
 
--- [7.6] Román jogcímnév hiánya: a Registru Casa/Banca/Jurnal az „Explicaţii” oszlopba a jogcím ROMÁN nevét írja (reporting.ts:158 `cel?.nevro || cel?.nev`). Ahol a `nevro` üres vagy egyenlő a magyar névvel, ott MAGYAR szöveg kerül a román hivatalos regiszterbe. VÁRT EREDMÉNY: 0 sor.
--- Ténylegesen használt jogcímek, amelyeknek nincs valódi román nevük
+-- [7.6] Roman jogcimnev hianya: ahol a nevro ures vagy azonos a magyar
+-- nevvel, MAGYAR szoveg kerul a hivatalos roman regiszterbe.
+-- VART EREDMENY: 0 sor. (Az OSSZES gyulekezetnel hasznalt jogcimekre.)
 with hasznalt as (
   select distinct kc.id_szamadasicel as cel_id
   from public.kiadas k
   join public.kiadascel kc on kc.id = k.id_kiadascel
-  where k.congregation_id = '<GYULEKEZET_ID>'::uuid
-    and k.deleted = false and coalesce(k.stornozott, false) = false
+  where k.deleted = false and coalesce(k.stornozott, false) = false
     and k.datum >= date '2026-01-01' and k.datum < date '2027-01-01'
   union
   select distinct bc.id_szamadasicel
   from public.befizetes b
   join public.befizetescel bc on bc.id = b.id_befizetescel
-  where b.congregation_id = '<GYULEKEZET_ID>'::uuid
-    and b.deleted = false and coalesce(b.stornozott, false) = false
+  where b.deleted = false and coalesce(b.stornozott, false) = false
     and b.datum >= date '2026-01-01' and b.datum < date '2027-01-01'
 )
 select sc.id as jogcim_kod, sc.nev as magyar_nev, sc.nevro as roman_nev
@@ -1485,44 +1490,49 @@ join hasznalt h on h.cel_id = sc.id
 where coalesce(nullif(btrim(sc.nevro), ''), sc.nev) = sc.nev
 order by sc.id;
 
--- [7.7] Beruházási kiadások, amelyekhez a hivatalos kísérőív leltári szám sort nyomtat ('Kiadasi_kiseroiv' A29), a Kartotéka viszont nem. VÁRT EREDMÉNY: az itt visszajövő tételekhez ma kézzel kell a leltári számot ráírni a bizonylatra — érdemes összevetni a leltar_tetelek táblával, hogy be van-e leltározva.
--- 205.xx (Investiţii / Beruházások) jogcímű kiadások — kísérőívükön hiányzik a leltári szám sor
-select k.datum,
-       coalesce(k.bankszamla_id::text, 'KASSZA') as forras,
-       sc.id   as jogcim_kod,
-       sc.nev  as jogcim_nev,
-       k.atvevo,
-       k.iratszam,
-       coalesce(k.osszeg_ron, k.osszeg) as osszeg_ron
+-- [7.7] Beruhazasi (205.xx) kiadasok -- gyulekezetenkenti OSSZEGZES. A
+-- hivatalos kiseroiv ezekhez leltari szam sort nyomtat, a Kartoteka ma nem.
+-- VART EREDMENY: tajekoztato -- hol van 205.xx forgalom (leltarba vetel ellenorzendo).
+select c.name as gyulekezet, sc.id as jogcim_kod, sc.nev as jogcim_nev,
+       count(*) as tetel_db,
+       round(sum(coalesce(k.osszeg_ron, k.osszeg))::numeric, 2) as osszeg_ron
 from public.kiadas k
+join public.congregations c on c.id = k.congregation_id
 join public.kiadascel    kc on kc.id = k.id_kiadascel
 join public.szamadasicel sc on sc.id = kc.id_szamadasicel
-where k.congregation_id = '<GYULEKEZET_ID>'::uuid
-  and k.deleted = false and coalesce(k.stornozott, false) = false
+where k.deleted = false and coalesce(k.stornozott, false) = false
   and k.datum >= date '2026-01-01' and k.datum < date '2027-01-01'
   and sc.id like '205%'
-order by k.datum, k.id;
+group by c.name, sc.id, sc.nev
+order by osszeg_ron desc;
 
--- [7.8] „Sold zi” szemantika: a hivatalos 'Naplo' H11 képlete a napi egyenleget CSAK a nap utolsó során írja ki, a Kartotéka minden soron. Ez a lekérdezés megmutatja, hány napon van egynél több kassza-mozgás, azaz hány napon lesz több „Sold zi” érték a hivatalos egy helyett. VÁRT EREDMÉNY: minden visszajövő nap egy-egy hely, ahol az ellenőr nem tudja, melyik szám a napi zárás.
--- Kassza-napok több mozgással: itt a Kartotéka több „Sold zi” értéket ír egy helyett
+-- [7.8] "Sold zi": hany gyulekezetnel hany olyan kassza-nap van, ahol egynel
+-- tobb mozgas all -- ott a Kartoteka ma minden soron ir napi egyenleget, a
+-- hivatalos csak a nap utolso soran. VART EREDMENY: tajekoztato darabszam.
 with kassza_mozgas as (
-  select b.datum from public.befizetes b
-  where b.congregation_id = '<GYULEKEZET_ID>'::uuid
-    and b.deleted = false and coalesce(b.stornozott, false) = false
+  select b.congregation_id, b.datum from public.befizetes b
+  where b.deleted = false and coalesce(b.stornozott, false) = false
     and b.bankszamla_id is null
     and b.datum >= date '2026-01-01' and b.datum < date '2027-01-01'
   union all
-  select k.datum from public.kiadas k
-  where k.congregation_id = '<GYULEKEZET_ID>'::uuid
-    and k.deleted = false and coalesce(k.stornozott, false) = false
+  select k.congregation_id, k.datum from public.kiadas k
+  where k.deleted = false and coalesce(k.stornozott, false) = false
     and k.bankszamla_id is null
     and k.datum >= date '2026-01-01' and k.datum < date '2027-01-01'
+),
+napok as (
+  select congregation_id, datum, count(*) as mozgas_db
+  from kassza_mozgas
+  group by congregation_id, datum
+  having count(*) > 1
 )
-select datum, count(*) as mozgas_db
-from kassza_mozgas
-group by datum
-having count(*) > 1
-order by datum;
+select c.name as gyulekezet,
+       count(*)         as tobb_mozgasos_napok,
+       max(n.mozgas_db) as legtobb_mozgas_egy_napon
+from napok n
+join public.congregations c on c.id = n.congregation_id
+group by c.name
+order by tobb_mozgasos_napok desc;
 
 
 -- ==========================================================================
@@ -1685,56 +1695,59 @@ ORDER BY i.year DESC, c.name;
 -- ==========================================================================
 
 -- [9.1] Hány LAPOT kellene adnia a Főkönyvnek havonta a hivatalos 40 sor/lap szabály szerint, szemben azzal, hogy a Kartotéka ma hónaponként MINDIG 1 lapot (pg. 1) nyomtat. VÁRT EREDMÉNY: minden sorban hivatalos_lapszam = 1. Ha bármelyik hónapnál hivatalos_lapszam > 1, akkor azon a hónapon a mai nyomtatvány már NEM felel meg a hivatalos ívnek (nincs lapátvitel-sor, és minden lap „pg. 1").
--- Írd át: a gyülekezet azonosítója és az év.
 WITH p AS (
-  SELECT '<GYULEKEZET_UUID>'::uuid AS cid, 2026 AS ev
+  SELECT c.id AS cid, c.name AS cnev, 2026 AS ev FROM public.congregations c
 ),
 tetel AS (
   -- bevételek (kassza + bank együtt, ahogy a Főkönyv listáz)
-  SELECT date_trunc('month', b.datum::date)::date AS ho
+  SELECT p.cnev, date_trunc('month', b.datum::date)::date AS ho
   FROM public.befizetes b, p
   WHERE b.congregation_id = p.cid
     AND b.deleted = false AND b.stornozott = false
     AND b.datum::date BETWEEN make_date(p.ev,1,1) AND make_date(p.ev,12,31)
   UNION ALL
   -- kiadások (kassza + bank együtt)
-  SELECT date_trunc('month', k.datum::date)::date
+  SELECT p.cnev, date_trunc('month', k.datum::date)::date
   FROM public.kiadas k, p
   WHERE k.congregation_id = p.cid
     AND k.deleted = false AND k.stornozott = false
     AND k.datum::date BETWEEN make_date(p.ev,1,1) AND make_date(p.ev,12,31)
 )
 SELECT
+  cnev                                          AS gyulekezet,
   to_char(ho, 'YYYY-MM')                        AS honap,
   count(*)                                      AS tetel_db,
   ceil(count(*)::numeric / 40)::int             AS hivatalos_lapszam,  -- Fo_konyv M3 = 40 sor/lap
   1                                             AS kartoteka_lapszam   -- ma mindig 1 (pg. 1)
 FROM tetel
-GROUP BY ho
-ORDER BY ho;
+GROUP BY cnev, ho
+HAVING count(*) > 40
+ORDER BY cnev, ho;
 
 -- [9.2] A Főkönyv „Report din luna precedentă" sorának 6./7. oszlopa a RÖGZÍTETT évi nyitó egyenlegeket is tartalmazza (a hivatalos íven is így van: Fo_konyv G11 = Q5+Q6, ahol Q6 = Cs!CQ1 = a Kassza lap „Előző évi készpénzegyenleg" értéke). VÁRT EREDMÉNY: pontosan 1 'keszpenz' sor az adott évre, plusz minden élő bankszámlához 1 'bank' sor. Ha ÜRES az eredmény vagy hiányzik egy bankszámla, akkor a Report sor nyitója nem rögzített értékből, hanem visszaszámolt becslésből jön — a kinyomtatott Főkönyv nyitója utólag megváltozhat.
 WITH p AS (
-  SELECT '<GYULEKEZET_UUID>'::uuid AS cid, 2026 AS ev
+  SELECT c.id AS cid, c.name AS cnev, 2026 AS ev FROM public.congregations c
 )
-SELECT 'keszpenz'::text        AS tipus,
+SELECT p.cnev                  AS gyulekezet,
+       'keszpenz'::text        AS tipus,
        NULL::text              AS bankszamla_id,
        n.eve,
        n.nyito_egyenleg::numeric AS nyito_ron
 FROM public.keszpenz_nyito_egyenleg n, p
 WHERE n.congregation_id = p.cid AND n.eve = p.ev
 UNION ALL
-SELECT 'bank'::text,
+SELECT p.cnev,
+       'bank'::text,
        b.bankszamla_id::text,
        b.eve,
        b.nyito_egyenleg_ron::numeric
 FROM public.bankszamla_nyito_egyenleg b, p
 WHERE b.congregation_id = p.cid AND b.eve = p.ev
-ORDER BY 1, 2;
+ORDER BY 1, 2, 3;
 
 -- [9.3] A Főkönyv 3. oszlopa („Document / Fel"). A Kartotéka csak akkor ír 'Extr'-t, ha az irattipus PONTOSAN 'Banki' (reporting.ts:129-133) — minden más esetben 'Chit.'. VÁRT EREDMÉNY: a 'bank' csatornájú sorok egyikénél SEM szabadna 'Chit.'-nek állnia (ott 'Extr' / 'OP' a helyes), és a 'kassza' + 'kiadas' kombinációnál a hivatalos ív 'Disp.'-t (Dispoziție de plată) várna. Ha a fokonyv_fel_ma oszlopban a bank-soroknál 'Chit.' szerepel, a nyomtatvány rossz bizonylattípust ír.
 WITH p AS (
-  SELECT '<GYULEKEZET_UUID>'::uuid AS cid, 2026 AS ev
+  SELECT c.id AS cid, c.name AS cnev, 2026 AS ev FROM public.congregations c
 ),
 t AS (
   SELECT 'bevetel'::text AS irany, b.bankszamla_id, coalesce(b.irattipus,'') AS irattipus
@@ -1749,6 +1762,8 @@ t AS (
     AND k.deleted = false AND k.stornozott = false
     AND k.datum::date BETWEEN make_date(p.ev,1,1) AND make_date(p.ev,12,31)
 )
+-- (rendszer-szintu osszkep: a csatorna/irattipus eloszlas gyulekezettol
+--  fuggetlenul mutatja, hol irna rossz bizonylattipust a nyomtatvany)
 SELECT
   CASE WHEN bankszamla_id IS NULL THEN 'kassza' ELSE 'bank' END AS csatorna,
   irany,
@@ -1761,72 +1776,81 @@ ORDER BY 1, 2, 5 DESC;
 
 -- [9.4] A hivatalos ív 10. oszlopa („Simb. cont.") a jogcím számlaszimbóluma (Fo_konyv K12 = VLOOKUP(költségvetési tétel, Csfi, 2)). A Kartotéka ezt az oszlopot nem nyomtatja; ez a lekérdezés megmutatja, hogy egyáltalán KITÖLTHETŐ lenne-e: hány tételnek nincs jogcíme. VÁRT EREDMÉNY: jogcim_nelkul = 0 mindkét sorban. Ha nem nulla, a 10. oszlop visszaépítése után is üresen maradnának ezek a sorok.
 WITH p AS (
-  SELECT '<GYULEKEZET_UUID>'::uuid AS cid, 2026 AS ev
+  SELECT c.id AS cid, c.name AS cnev, 2026 AS ev FROM public.congregations c
 )
-SELECT 'bevetel'::text AS irany,
+SELECT p.cnev AS gyulekezet, 'bevetel'::text AS irany,
        count(*)                                          AS osszes,
        count(*) FILTER (WHERE b.id_befizetescel IS NULL) AS jogcim_nelkul
 FROM public.befizetes b, p
 WHERE b.congregation_id = p.cid
   AND b.deleted = false AND b.stornozott = false
   AND b.datum::date BETWEEN make_date(p.ev,1,1) AND make_date(p.ev,12,31)
+GROUP BY p.cnev
+HAVING count(*) FILTER (WHERE b.id_befizetescel IS NULL) > 0
 UNION ALL
-SELECT 'kiadas'::text,
+SELECT p.cnev, 'kiadas'::text,
        count(*),
        count(*) FILTER (WHERE k.id_kiadascel IS NULL)
 FROM public.kiadas k, p
 WHERE k.congregation_id = p.cid
   AND k.deleted = false AND k.stornozott = false
-  AND k.datum::date BETWEEN make_date(p.ev,1,1) AND make_date(p.ev,12,31);
+  AND k.datum::date BETWEEN make_date(p.ev,1,1) AND make_date(p.ev,12,31)
+GROUP BY p.cnev
+HAVING count(*) FILTER (WHERE k.id_kiadascel IS NULL) > 0
+ORDER BY 1, 2;
 
 -- [9.5] A Nr. crt. sorszám minden nyomtatáskor újraszámolódik (reporting.ts:493-496). Ez a lekérdezés kimutatja a VISSZADÁTUMOZOTT rögzítéseket: azokat a tételeket, amelyeknél egy KÉSŐBB felvitt sor (nagyobb id) KORÁBBI dátumot kapott — minden ilyen sor elcsúsztatja az utána következő összes sorszámot az újranyomtatott Főkönyvben. VÁRT EREDMÉNY: 0 sor. Ha vannak találatok, a már lefűzött lapok sorszámai eltérnek attól, amit a rendszer ma nyomtatna.
 WITH p AS (
-  SELECT '<GYULEKEZET_UUID>'::uuid AS cid, 2026 AS ev
+  SELECT c.id AS cid, c.name AS cnev, 2026 AS ev FROM public.congregations c
 ),
 t AS (
-  SELECT b.id, b.datum::date AS datum, 'befizetes'::text AS tabla
+  SELECT p.cnev, b.id, b.datum::date AS datum, 'befizetes'::text AS tabla
   FROM public.befizetes b, p
   WHERE b.congregation_id = p.cid
     AND b.deleted = false AND b.stornozott = false
     AND b.datum::date BETWEEN make_date(p.ev,1,1) AND make_date(p.ev,12,31)
   UNION ALL
-  SELECT k.id, k.datum::date, 'kiadas'::text
+  SELECT p.cnev, k.id, k.datum::date, 'kiadas'::text
   FROM public.kiadas k, p
   WHERE k.congregation_id = p.cid
     AND k.deleted = false AND k.stornozott = false
     AND k.datum::date BETWEEN make_date(p.ev,1,1) AND make_date(p.ev,12,31)
 ),
 jelolt AS (
-  SELECT t.*, max(datum) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS elozo_max_datum
+  SELECT t.*, max(datum) OVER (PARTITION BY cnev ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS elozo_max_datum
   FROM t
 )
-SELECT tabla, id, datum, elozo_max_datum,
-       (elozo_max_datum - datum) AS visszadatumozva_nap
+-- Gyulekezetenkenti OSSZEGZES (a teteles lista tul hosszu lenne rendszer-szinten)
+SELECT cnev AS gyulekezet,
+       count(*)                        AS visszadatumozott_tetel_db,
+       max(elozo_max_datum - datum)    AS legnagyobb_csuszas_nap
 FROM jelolt
 WHERE elozo_max_datum IS NOT NULL AND datum < elozo_max_datum
-ORDER BY datum, id;
+GROUP BY cnev
+ORDER BY visszadatumozott_tetel_db DESC;
 
 -- [9.6] Az éves („Jan–Dec") Főkönyv-nyomtatás üres-hónap vizsgálata NEM szűri a stornózott tételeket (reporting.ts:1213-1214), a lapot építő szűrő viszont igen (reporting.ts:268). VÁRT EREDMÉNY: 0 sor. Ha van találat, arra a hónapra a rendszer ÜRES Főkönyv-lapot generál (fejléc + Report sor + záró sorok, tétel nélkül), ami feleslegesen kerülne a bekötendő anyagba.
 WITH p AS (
-  SELECT '<GYULEKEZET_UUID>'::uuid AS cid, 2026 AS ev
+  SELECT c.id AS cid, c.name AS cnev, 2026 AS ev FROM public.congregations c
 ),
 t AS (
-  SELECT date_trunc('month', b.datum::date)::date AS ho, b.stornozott
+  SELECT p.cnev, date_trunc('month', b.datum::date)::date AS ho, b.stornozott
   FROM public.befizetes b, p
   WHERE b.congregation_id = p.cid AND b.deleted = false
     AND b.datum::date BETWEEN make_date(p.ev,1,1) AND make_date(p.ev,12,31)
   UNION ALL
-  SELECT date_trunc('month', k.datum::date)::date, k.stornozott
+  SELECT p.cnev, date_trunc('month', k.datum::date)::date, k.stornozott
   FROM public.kiadas k, p
   WHERE k.congregation_id = p.cid AND k.deleted = false
     AND k.datum::date BETWEEN make_date(p.ev,1,1) AND make_date(p.ev,12,31)
 )
-SELECT to_char(ho, 'YYYY-MM')                        AS honap,
+SELECT cnev AS gyulekezet,
+       to_char(ho, 'YYYY-MM')                        AS honap,
        count(*)                                      AS osszes_nem_torolt,
        count(*) FILTER (WHERE stornozott)            AS stornozott_db,
        count(*) FILTER (WHERE NOT stornozott)        AS ervenyes_db
 FROM t
-GROUP BY ho
+GROUP BY cnev, ho
 HAVING count(*) FILTER (WHERE NOT stornozott) = 0
 ORDER BY ho;
 
