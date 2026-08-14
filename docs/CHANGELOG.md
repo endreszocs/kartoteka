@@ -32,6 +32,7 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 - **A törlés előtt kiderül, mi fog történni.** A „Végleges törlés" választásakor a rendszer még a megerősítés előtt megnézi a személy **összes** kapcsolatát (befizetések, anyakönyvek, család, sírhely, leltár-felelősség, szülőként való hivatkozás, tagi portál…), és kimondja: ha semmi nem védi, **véglegesen törölhető** — ha bármi védi, **csak elrejtés** lesz, és pontosan felsorolja, mi védi. A gomb és a megerősítő kérdés is azt mondja, ami tényleg történni fog; amíg az ellenőrzés fut, a gomb nem nyomható. *(Ehhez adatbázis-bővítés szükséges: `2026-08-14-szemely-torles-ket-utja.sql` — addig a régi általános figyelmeztetés látszik.)*
 - **„Rejtettek" gomb a tagnyilvántartásban**: a törlés-védelem által elrejtett személyek listája, egy kattintásos **visszahozással**. Eddig a webről nem volt visszaút — amit a rendszer elrejtett, azt csak az asztali alkalmazás tudta visszahozni. Elhunyt vagy elköltözött státuszú személy visszahozása a státuszát nem írja át.
+- **A végleges törlés naplózott**: a törölt személy teljes adatlap-pillanatképe (fénykép nélkül) és a vele együtt törlődő kapcsolatok listája a rendszernaplóba kerül — visszakereshető, ki kit törölt és mikor.
 
 ---
 

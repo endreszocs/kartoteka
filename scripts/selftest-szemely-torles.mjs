@@ -122,5 +122,22 @@ if (/hianyzoFuggveny/.test(actions)) {
   ok('T15: a félrevezető migrációs utótag csak 42883-nál jelenik meg')
 } else fail('T15: a migrációs utótag feltétel nélkül megy ki — félrevezető!')
 
+// T16: a VÉGLEGES törlés naplózott — pillanatkép a törlés ELŐTT, napló a
+// 'deleted' státusznál (member.delete.permanent), a fénykép nélkül
+if (
+  actions.includes("action: 'member.delete.permanent'") &&
+  /delete szemelyPillanat\.kep/.test(actions) &&
+  actions.indexOf('szemelyPillanat') < actions.indexOf("supabase.rpc('tagnyilvantartas_tag_torles'")
+) {
+  ok('T16: a végleges törlés pillanatkép-naplós (member.delete.permanent)')
+} else fail('T16: a végleges törlés naplózása hiányzik vagy a pillanatkép a törlés UTÁN készülne!')
+
+// T17: a portál-kompat lánc érintetlen — a törlő függvényt EGYIK repóbeli
+// 08-14-es fájl sem írja felül (a lánc exact ujjlenyomattal védi)
+const compat = read('migration-docs/sql/2026-07-17-member-portal-legacy-workflow-compat.sql')
+if (compat && compat.includes("'KARTOTEKA_MEMBER_PORTAL_MEMBER_DELETE_COMPAT_V1'")) {
+  ok('T17: a portál-kompat lánc érintetlen (V1 marker a helyén)')
+} else fail('T17: a portál-kompat fájl megváltozott — a törlő-láncot csak a portál-rollout körrel szabad bántani!')
+
 if (failed) { console.error('\nSZEMÉLY-TÖRLÉS selftest: HIBA'); process.exit(1) }
 console.log('\nSZEMÉLY-TÖRLÉS selftest: minden rendben ✅')
