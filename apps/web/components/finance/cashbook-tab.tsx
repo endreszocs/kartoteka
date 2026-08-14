@@ -41,9 +41,9 @@ type WebCashbookTabProps = Pick<
   | 'accountingFinalized'
   | 'onTransactionChanged'
   | 'onOpenOpeningBalances'
-  // 2026-08-14 (13. pont): kiemelt rögzítő CTA + bátorító sáv (igevers).
-  | 'onNewEntry'
-  | 'biztatoSlot'
+  // 2026-08-15 (Endre): a 13. pont kiemelt rögzítő CTA-ja (onNewEntry +
+  // biztatoSlot) megszűnt — a gomb megkettőzte a hero „Tétel rögzítése"
+  // gombját, a bátorítás pedig a rögzítő ablakba került.
 >
 
 export function CashbookTab(props: WebCashbookTabProps) {

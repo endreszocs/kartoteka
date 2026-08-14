@@ -15,6 +15,7 @@ import {
   type CombinedBankAccount,
 } from '@kartoteka/ui-app'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { RogzitesBiztato } from '@/components/finance/kassza-biztato'
 import { ListPlus } from 'lucide-react'
 import {
   saveIncomeBatch,
@@ -93,6 +94,14 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
               </div>
             </div>
           </DialogHeader>
+        </div>
+
+        {/* 2026-08-15 (Endre kérése): az igevers és a bátorítás a Kassza fülről
+            IDE, a rögzítő ablakba költözött — kiemelten, mindjárt a fejléc alatt.
+            (A Kassza fül párhuzamos sávja megszűnt: a gombja megkettőzte a hero
+            „Tétel rögzítése" gombját.) */}
+        <div className="px-6 pt-4">
+          <RogzitesBiztato />
         </div>
 
         <div className="px-6 pb-6 pt-4">
