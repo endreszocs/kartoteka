@@ -14,6 +14,9 @@
  */
 
 import { selectAllPaged } from '@kartoteka/supabase-client'
+// 2026-08-15: a hivatalos ív-szabály KÖZÖS forrása — ugyanaz, amit a nyomtatott
+// Számadás és a Pénzügy képernyő használ (belső mozgás kizárása).
+import { isSzamadasIvKod } from '@kartoteka/ui-app'
 
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { categorizeWorklogEntry } from '@/lib/constants/worklog'
@@ -302,7 +305,9 @@ export async function getPresentationData(year: number): Promise<{
     fetchAllPagedRows(
       supabase
         .from('befizetes')
-        .select('osszeg, osszeg_ron, datum, fizetettev, id_szemely, id_befizetescel, befizetescel(nev)')
+        // 2026-08-15: `id_szamadasicel` is kell — a belső mozgás (kassza↔bank
+        // átvezetés) kiszűréséhez a hivatalos ív-szabály a kódra épül.
+        .select('osszeg, osszeg_ron, datum, fizetettev, id_szemely, id_befizetescel, befizetescel(nev, id_szamadasicel)')
         .eq('congregation_id', effectiveCongregationId)
         .eq('deleted', false)
         .eq('stornozott', false)
@@ -317,7 +322,7 @@ export async function getPresentationData(year: number): Promise<{
     fetchAllPagedRows(
       supabase
         .from('kiadas')
-        .select('osszeg, osszeg_ron, datum, kiadascel:id_kiadascel(nev)')
+        .select('osszeg, osszeg_ron, datum, kiadascel:id_kiadascel(nev, id_szamadasicel)')
         .eq('congregation_id', effectiveCongregationId)
         .eq('deleted', false)
         .eq('stornozott', false)
@@ -583,13 +588,14 @@ export async function getPresentationData(year: number): Promise<{
     )
   }
 
-  const befizetesek = (befizetesResult.data || []) as Array<{
+  type CelRef = { nev: string; id_szamadasicel: string | null }
+  const befizetesekNyers = (befizetesResult.data || []) as Array<{
     osszeg: number
     osszeg_ron: number | null
     datum: string
     fizetettev: number
     id_szemely: number
-    befizetescel: { nev: string } | { nev: string }[] | null
+    befizetescel: CelRef | CelRef[] | null
   }>
 
   // 2026-08-10 (P0 #5 JAVÍTÁS): a deviza-tételeket eddig `osszeg`-ként adtuk
@@ -598,12 +604,32 @@ export async function getPresentationData(year: number): Promise<{
   const ronOf = (r: { osszeg: number | null; osszeg_ron: number | null }): number =>
     Number(r.osszeg_ron ?? r.osszeg ?? 0)
 
-  const kiadasokAll = (kiadasResult.data || []) as Array<{
+  const kiadasokAllNyers = (kiadasResult.data || []) as Array<{
     osszeg: number
     osszeg_ron: number | null
     datum: string
-    kiadascel: { nev: string } | { nev: string }[] | null
+    kiadascel: CelRef | CelRef[] | null
   }>
+
+  // ── 2026-08-15 (Endre): A BELSŐ MOZGÁS KISZŰRÉSE ──────────────────────────
+  // Hiba volt: az éves beszámoló anyagi része a kassza↔bank átvezetéseket
+  // (belső mozgás) is bevételként ÉS kiadásként mutatta — „aminek semmi haszna",
+  // ráadásul a végösszegeket is felfújta, így a bemutatott bevétel/kiadás nem
+  // egyezett a Számadással. A hivatalos ív szabálya (`isSzamadasIvKod`) mondja
+  // meg, mely kódok ív-sorok; a belső mozgás (100.xx, 3xx, 4xx) nem az. Ez
+  // UGYANAZ a szabály, amit a nyomtatott Számadás és a Pénzügy képernyő használ
+  // — külön másolat nélkül, hogy ne tudjanak széthúzni.
+  const celOf = (raw: CelRef | CelRef[] | null): CelRef | null =>
+    (Array.isArray(raw) ? raw[0] : raw) || null
+  const ivSor = (raw: CelRef | CelRef[] | null, type: 'B' | 'K'): boolean => {
+    const kod = celOf(raw)?.id_szamadasicel
+    // Kód nélküli (besorolatlan) tétel BENNMARAD: a pénz valós, csak a jogcíme
+    // hiányzik — a kiszűrése néma veszteség lenne a végösszegben.
+    if (!kod) return true
+    return isSzamadasIvKod(kod, type)
+  }
+  const befizetesek = befizetesekNyers.filter((b) => ivSor(b.befizetescel, 'B'))
+  const kiadasokAll = kiadasokAllNyers.filter((k) => ivSor(k.kiadascel, 'K'))
 
   // PÉNZMOZGÁS-szemantika: a bevétel/kiadás összesítők a PÉNZTÁRI NAP (datum)
   // szerint sorolnak évhez — ez a számadás/kassza logikája.
