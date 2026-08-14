@@ -245,6 +245,46 @@ export async function getProfileDialogData() {
     custom: 8,
   }
 
+  // ── 2026-08-14 (1. pont): a STRUKTURÁLT szolgálati előzmények ────────────
+  // A pastor_service_history tábla LÉTEZIK (RLS-sel), a welcome-varázsló ÍRJA —
+  // de eddig az egész repóban SENKI nem olvasta, ezért állt a profilban örökké
+  // a „Még nincs rögzítve", akkor is, ha a varázslóban rögzítettek előzményt.
+  // FAIL-SOFT: ha a tábla hiányzik élesben vagy az RLS elutasít, üres lista
+  // marad, és a legacy szöveges mezők (previous_service_places) viszik tovább.
+  let serviceHistory: Array<{
+    id: string
+    hely: string
+    szerep: string | null
+    evTol: number | null
+    evIg: number | null
+    megjegyzes: string | null
+  }> = []
+  {
+    const { data: shData, error: shError } = await supabase
+      .from('pastor_service_history')
+      .select('id, hely, szerep, ev_tol, ev_ig, megjegyzes, sorrend')
+      .eq('user_id', user.id)
+      .order('sorrend', { ascending: true })
+    if (shError) {
+      console.warn('[profile] pastor_service_history olvasása sikertelen (fail-soft):', shError.message)
+    } else {
+      serviceHistory = ((shData || []) as Array<{
+        id: string; hely: string; szerep: string | null
+        ev_tol: number | null; ev_ig: number | null; megjegyzes: string | null; sorrend: number | null
+      }>)
+        // Frissebb időszak elöl (a sorrend másodlagos, a kezdő év az elsődleges).
+        .sort((a, b) => (b.ev_tol ?? -1) - (a.ev_tol ?? -1))
+        .map((r) => ({
+          id: r.id,
+          hely: r.hely,
+          szerep: r.szerep,
+          evTol: r.ev_tol,
+          evIg: r.ev_ig,
+          megjegyzes: r.megjegyzes,
+        }))
+    }
+  }
+
   const profileRoles = roleRows
     .map((r) => ({
       id: r.id,
@@ -288,6 +328,7 @@ export async function getProfileDialogData() {
         bio: pastorProfileCompat.row?.bio || '',
         ministryNotes: pastorProfileCompat.row?.ministry_notes || '',
       },
+      serviceHistory,
       profileRoles,
     },
   }
