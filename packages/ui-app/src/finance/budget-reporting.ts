@@ -400,7 +400,9 @@ export function buildSzamadasReport(data: BudgetPrintData): BudgetPrintResult {
   // 2026-08-14 (K2): a záró blokk a hivatalos 113–134. sorokkal ~21 sorra
   // nőtt — az utolsó lapon ennyi helyet KELL tartalékolni, különben a
   // Tartozások/Kintlévőségek blokk túlnyúlna a lapon (levágódna).
-  const terv = tervezOldalak(rows.length, true, true, 16)
+  // 2026-08-15: +1 sor a blokk élére került szekció-sávnak (a blokk a fő
+  // táblázat folytatása lett, lásd buildSzamadasExtraRows).
+  const terv = tervezOldalak(rows.length, true, true, 17)
   const total = 1 + terv.pages
   const coverPage = buildCoverPage(data, 'SZÁMADÁS', 'EXECUȚIA BUGETARĂ', null, total)
   const declaration = `<div class="decl">Alulírott lelkipásztor és főgondnok felelősségünk tudatában nyilatkozzuk, hogy a számadás adatai valósak és az egyházi rendelkezések szerint készült el.</div>`
@@ -1144,17 +1146,32 @@ function renderTablePages(data: BudgetPrintData, mode: BudgetMode, rows: string[
   // A feltöltés és a lapszám UGYANABBÓL a tervből jön (lásd `OldalTerv`).
   const meretek = oldalMeretek(rows.length, opts.terv)
 
+  // ── 2026-08-15 (Endre): a táblázat a lap ALJÁIG érjen ─────────────────────
+  // Az `oldalMeretek` KIEGYENLÍTVE osztja szét a sorokat (hogy az utolsó lap ne
+  // maradjon üresen), ezért a köztes lapokon a kapacitásnál kevesebb sor állt:
+  // a részszámadás 117 sora 4 lapon 32/32/33/20 lett, miközben egy lapra 40 fér
+  // — laponként 7–8 sornyi (≈50 mm) fehér maradt a táblázat alatt.
+  // Üres, vonalazott sorokkal töltjük ki a maradékot. A tördelés SZÁMTANILAG
+  // VÁLTOZATLAN (a lapszám és a sorelosztás ugyanaz), csak a látvány lesz teli
+  // ív — a hivatalos nyomtatványon az üres rovat amúgy is természetes.
+  const padRow = `<tr class="pad"><td class="ro"></td><td></td><td class="c"></td><td class="c"></td>${'<td class="r"></td>'.repeat(valueColCount(mode))}</tr>`
+
   let html = ''
   let idx = 0
   for (let p = 0; p < opts.terv.pages; p++) {
     const isLast = p === opts.terv.pages - 1
     const chunk = rows.slice(idx, idx + Math.max(0, meretek[p]))
     idx += chunk.length
+    // ⚠️ CSAK a köztes lapokat töltjük fel. Az UTOLSÓ lap alját a záró blokk
+    // (extra tábla, nyilatkozat, aláírások) foglalja el — oda egyetlen sort sem
+    // szabad hozzáadni: a `.page` overflow:hidden, tehát a túlcsordulás nem
+    // gördül, hanem LEVÁGÓDIK a papírról (6. kör, reviewer-major tanulsága).
+    const hianyzoSor = isLast ? 0 : Math.max(0, opts.terv.perPage - chunk.length)
     const extras = isLast
       ? `${opts.lastExtraHtml || ''}${opts.withSignatures ? buildSignatureBlock(opts.withAuditor !== false) : ''}`
       : ''
     html += `<div class="page">
-      ${band}<table class="bt">${colgroup}<thead>${thead}</thead><tbody>${chunk.join('')}</tbody></table>
+      ${band}<table class="bt">${colgroup}<thead>${thead}</thead><tbody>${chunk.join('')}${padRow.repeat(hianyzoSor)}</tbody></table>
       ${extras}
       ${footer(data, opts.startPage + p, opts.total)}
     </div>`
@@ -1263,13 +1280,27 @@ function buildSzamadasExtraRows(data: BudgetPrintData): string {
   // 134. Záróegyenleg = 113 − 116 + 128
   const zaroegyenleg = closing - datoriiTotal + creanteTotal
 
+  // ── 2026-08-15 (Endre észrevétele): NE látsszon MÁSIK nyomtatványnak ──────
+  // A blokk korábban SAJÁT `<thead>`-del indult, ami megismételte a fő táblázat
+  // teljes fejlécét („Nr. rând | Megnevezés | Költségvetés | Számadás"), sőt más
+  // oszlopsorrenddel és más szélességekkel — a lapon ezért úgy festett, mintha a
+  // számadás után egy fölösleges, második táblázat következne.
+  //
+  // A blokk NEM fölösleges: ez a hivatalos Adatok_2026.xlsx `Szamadas` lapjának
+  // 113–134. sora (a hiánya 2026-08-14-én ⛔ BLOKKOLÓ megállapítás volt — a
+  // számvevő ezt a Casa/Banca bontást veti össze a következő év nyitójával,
+  // enélkül a számadás visszaküldhető). Ezért nem töröljük, hanem a fő táblázat
+  // FOLYTATÁSÁVÁ tesszük: azonos oszlopszélességek (colgroup), azonos
+  // cellasorrend (megnevezés · Nr. rând · fejezet · értékek), fejléc helyett egy
+  // szekció-sáv. Az értékcellák tartalma bitre azonos maradt — az önellenőrzés
+  // (selftest-reszszamadas Y0d) szerződése változatlan.
   const sor = (nr: number, ro: string, hu: string, v: number | null, grp = false): string =>
-    `<tr${grp ? ' class="grp"' : ''}><td class="c" style="width:6%">${nr}</td><td>${esc(ro)} / ${esc(hu)}</td><td class="r">x</td><td class="r">${v === null ? '—' : fmtNum(v)}</td></tr>`
+    `<tr${grp ? ' class="grp"' : ''}><td class="ro">${esc(ro)}</td><td>${esc(hu)}</td><td class="c">${nr}</td><td class="c"></td><td class="r">x</td><td class="r">${v === null ? '—' : fmtNum(v)}</td></tr>`
 
   return `
-    <table class="bt" style="margin-top:6px;">
-      <thead><tr><th style="width:6%">Nr. rând<br>Sorszám</th><th style="width:54%">Megnevezés / Denumire</th><th style="width:20%">Költségvetés</th><th style="width:20%">Számadás</th></tr></thead>
+    <table class="bt" style="margin-top:-1px;">${colgroupFor('szamadas')}
       <tbody>
+        <tr class="sec"><td colspan="${totalCols('szamadas')}">A hivatalos ív záró blokkja — 113–134. sor</td></tr>
         ${sor(113, 'Sold la finele anului', 'Pénztári és banki egyenleg az év végén', closing, true)}
         ${sor(114, 'Casa', 'Készpénz egyenleg', data.zaroCasa ?? null)}
         ${sor(115, 'Banca', 'Banki egyenleg', data.zaroBanca ?? null)}

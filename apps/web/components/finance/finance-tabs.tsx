@@ -46,7 +46,6 @@ const OblioEllenorzesTab = dynamic(() => import('./oblio-ellenorzes-tab').then((
 const FinanceSugoTab = dynamic(() => import('./finance-sugo-tab').then((m) => m.FinanceSugoTab), { ssr: false, loading: tabLoading })
 const FinanceImportTabs = dynamic(() => import('./finance-import/finance-import-tabs').then((m) => m.FinanceImportTabs), { ssr: false, loading: tabLoading })
 import { CombinedEntryDialog } from '@/components/modals/combined-entry-dialog'
-import { KasszaBiztato } from '@/components/finance/kassza-biztato'
 import { DecontDialog } from '@/components/modals/decont-dialog'
 import { DispozitieDialog } from '@/components/modals/dispozitie-dialog'
 import { DispozitieIncasareWizard } from '@/components/modals/dispozitie-incasare-wizard'
@@ -404,12 +403,15 @@ export function FinanceTabs({
                   éppen az az ellenőr dolga. */}
               {!readOnly && (
                 <>
+                  {/* 2026-08-15 (Endre): a „Tétel rögzítése" a modul FŐ művelete
+                      — a hero-sávban kiemelten, a többi gombnál nagyobb súllyal
+                      áll. (A Kassza fül párhuzamos „Új tétel" sávja megszűnt: a
+                      gomb kétszer jelent meg ugyanarra a műveletre.) */}
                   <Button
-                    size="sm"
-                    className="rounded-xl max-sm:min-h-10 bg-gradient-to-r from-teal-600 to-emerald-600 px-4 font-semibold text-white shadow-md transition hover:from-teal-700 hover:to-emerald-700 hover:shadow-lg"
+                    className="min-h-11 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 px-5 text-base font-semibold text-white shadow-lg ring-1 ring-emerald-500/30 transition hover:from-teal-700 hover:to-emerald-700 hover:shadow-xl"
                     onClick={() => setCombinedOpen(true)}
                   >
-                    <Plus className="mr-1 size-4" />
+                    <Plus className="mr-1.5 size-5" />
                     Tétel rögzítése
                   </Button>
                   <Button
@@ -686,10 +688,10 @@ export function FinanceTabs({
             accountingFinalized={!!settings.accounting_finalized}
             onTransactionChanged={refreshData}
             onOpenOpeningBalances={scope === 'congregation' ? () => setOpeningBalancesOpen(true) : undefined}
-            // 2026-08-14 (13. pont, Endre kérése): kiemelt „Új tétel" a Kassza
-            // fülön — ugyanazt az összevont rögzítőt nyitja, mint a hero-sáv.
-            onNewEntry={() => setCombinedOpen(true)}
-            biztatoSlot={<KasszaBiztato />}
+            // 2026-08-15 (Endre): a Kassza fül kiemelt „Új tétel" sávja MEGSZŰNT
+            // — ugyanazt a rögzítőt nyitotta, mint a hero „Tétel rögzítése"
+            // gombja, tehát a művelet kétszer jelent meg az oldalon. Az igevers
+            // és a bátorítás a rögzítő ablakba költözött (RogzitesBiztato).
           />
         </TabsContent>
 

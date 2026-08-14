@@ -201,11 +201,17 @@ export function FinancePrintDialogBody({
   const selectedDoc = docList.find((d) => d.id === selectedDocId) ?? null
 
   // Korábbi bizonylatok betöltése (Decont + Dispoziție)
+  // 2026-08-15: külön töltés-jelző — a lista ÜRESSÉGE nem jelenthet „még
+  // töltök" állapotot (különben a betöltő örökké pörögne, ha nincs bizonylat).
+  const [savedDocsLoading, setSavedDocsLoading] = useState(false)
   useEffect(() => {
     if (!open || !isReprintMode || !onLoadSavedDocs) return
     let cancelled = false
+    setSavedDocsLoading(true)
     void onLoadSavedDocs(selectedYear).then((docs) => {
-      if (!cancelled) setSavedDocs(docs)
+      if (cancelled) return
+      setSavedDocs(docs)
+      setSavedDocsLoading(false)
     })
     return () => { cancelled = true }
   }, [open, isReprintMode, selectedYear, onLoadSavedDocs])
@@ -334,6 +340,32 @@ export function FinancePrintDialogBody({
   // 2026-08-11 (6. kör): fail-closed — ha a builder nem tud érvényes
   // nyomtatványt adni, a Nyomtatás és a PDF gomb LETILTVA marad.
   const blocked = report.blocked === true
+
+  // ── 2026-08-15 (Endre): EGYSÉGES betöltés-jelző ───────────────────────────
+  // A szép logós betöltő eddig CSAK a részszámadásnál (és nem-folyó évnél)
+  // jelent meg, mert egyedül az az ág nézte a `yearRecords` állapotot. A
+  // költségvetés/számadás a nyomtatványon BELÜL írt szürke „Adatok betöltése…"
+  // szöveget, a nyugtatömb csak egy apró feliratot, a korábbi bizonylatok
+  // pedig SEMMIT. Mostantól minden dokumentumtípus ugyanazt a betöltőt kapja.
+  const elonezetTolt =
+    (needsYearRecords && yearRecordsForSelected == null && !!onLoadYearRecords) ||
+    (isBudgetMode && budgetRows == null && !!onLoadBudgetRows) ||
+    (isNyugtatombMode && loadingNyugtatombok) ||
+    (isReprintMode && savedDocsLoading)
+  const betoltesFelirat =
+    needsYearRecords && yearRecordsForSelected == null
+      ? `A(z) ${selectedYear}. évi adatok betöltése…`
+      : 'A nyomtatvány adatainak betöltése…'
+
+  // Villódzás-védelem: a betöltő csak akkor jelenik meg, ha a betöltés tovább
+  // tart ~250 ms-nál. Egy gyors (cache-elt) válasznál a felhasználó nem lát
+  // felvillanó spinnert, csak a kész előnézetet. (Az állapotot időzítőn át
+  // állítjuk, nem az effect törzsében — react-hooks/set-state-in-effect.)
+  const [mutatBetoltot, setMutatBetoltot] = useState(false)
+  useEffect(() => {
+    const id = setTimeout(() => setMutatBetoltot(elonezetTolt), elonezetTolt ? 250 : 0)
+    return () => clearTimeout(id)
+  }, [elonezetTolt])
 
   // 2026-08-14 (17. pont): dokumentumváltáskor (típus, év, hónap, szűrő — bármi,
   // ami új HTML-t ad) a doboz magassága alaphelyzetbe kerül (a friss mérést az
@@ -847,12 +879,10 @@ export function FinancePrintDialogBody({
         style={{ maxHeight: PREVIEW_BOX_H + 40 }}
       >
         {/* 2026-07-11 (S6-#2): amíg a NEM-folyó év tételei töltődnek, a szép
-            logós betöltő látszik az üres/fehér előnézet helyett. */}
-        {needsYearRecords && yearRecordsForSelected == null && onLoadYearRecords ? (
-          <FinanceLoadingState
-            label={`A(z) ${selectedYear}. évi adatok betöltése…`}
-            logoSrc={loadingLogoSrc}
-          />
+            logós betöltő látszik az üres/fehér előnézet helyett.
+            2026-08-15 (Endre): MINDEN dokumentumtípusra — lásd `elonezetTolt`. */}
+        {mutatBetoltot ? (
+          <FinanceLoadingState label={betoltesFelirat} logoSrc={loadingLogoSrc} />
         ) : (
         <div className="mx-auto overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm" style={{ width: scaledW, height: scaledH }}>
           <iframe

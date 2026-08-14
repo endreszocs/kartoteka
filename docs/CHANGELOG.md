@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-15] — Pénzügy: egy helyen a rögzítés · nyomtatás: teli ív és egységes betöltés
+<!-- key: 2026-08-15-penzugy-nyomtatas-finomhangolas -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, konyvelo -->
+
+### 🎨 UX javítások
+
+- **Egy „Tétel rögzítése" gomb — a helyén**: a Pénzügy oldalon a rögzítő gomb eddig kétszer szerepelt (a fejlécben és a Kassza fülön is), ugyanarra a műveletre. Mostantól csak a fejlécben van, ott viszont nagyobb, kiemelt gombként.
+- **Az igevers a rögzítő ablakba került**: a bátorítás („Vezesd naprakészen a bevételt és a kiadást is!") és a naponta váltó igevers ott fogad, ahol tényleg rögzítesz — mindjárt a *Tétel rögzítése* ablak tetején, kiemelt keretben.
+- **A nyomtatványok kitöltik a lapot**: a Részszámadás (és minden más költségvetés-típusú ív) lapjain a táblázat alatt eddig 7–8 sornyi üres hely maradt. Mostantól a táblázat vonalazott üres sorokkal a lap aljáig ér — ahogy a Költségvetésnél is.
+- **A Számadás záró blokkja már nem látszik külön táblázatnak**: a hivatalos ív 113–134. sora (Pénztári/banki egyenleg · Tartozások · Kintlévőségek · Záróegyenleg) eddig saját fejléccel indult, mintha új nyomtatvány kezdődne. Mostantól a fő táblázat folytatása, azonos oszlopokkal, „A hivatalos ív záró blokkja" felirattal. *(A blokk tartalma nem változott — az egyházmegyének beküldött íven kötelező.)*
+- **Egységes betöltés-jelző a Nyomtatási központban**: a szép, logós betöltő eddig csak a Részszámadásnál jelent meg. Mostantól minden dokumentumtípusnál látszik, ha a betöltés tovább tart — villódzás nélkül.
+
+---
+
 ## [2026-08-15] — Kétlépcsős belépés (2FA): bekapcsolható második zár a fiókodon
 <!-- key: 2026-08-15-2fa-bevezetes -->
 <!-- category: security -->
