@@ -34,7 +34,7 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - **8 nyomtatható mentőkód** készül bekapcsoláskor — ha a telefonod elveszne, ezek egyikével akkor is bejutsz (a kód egyszer használható, és utána a kétlépcsős belépés kikapcsol, hogy tiszta lappal, új telefonnal kapcsold vissza). A kódokat a rendszer csak titkosított ujjlenyomatként tárolja.
 - A belépés minden útja (jelszó, Google, nyitva felejtett fül) a **második lépcsőn keresztül** vezet, ha a fiókon be van kapcsolva — a védelmet nem lehet kerülőúton kihagyni.
 - **Az asztali alkalmazás is ismeri a második lépcsőt**: a jelszó után ott is a hitelesítő app kódja következik, és a program nem enged be megerősítetlen munkamenettel. Ezzel a 2FA a desktopot használó fiókokon is biztonságosan bekapcsolható.
-- **Adatbázis-szintű kényszer** (kerülőút-védelem): a legérzékenyebb adatokhoz 2FA-s fióknál csak kóddal megerősített munkamenet fér hozzá — akinek nincs bekapcsolva, arra nulla hatással van. *(Adatbázis-bővítés: .)*
+- **Adatbázis-szintű kényszer** (kerülőút-védelem): a legérzékenyebb adatokhoz 2FA-s fióknál csak kóddal megerősített munkamenet fér hozzá — akinek nincs bekapcsolva, arra nulla hatással van. *(Adatbázis-bővítés: `2026-08-15-mfa-optin-rls.sql`.)*
 
 ---
 
