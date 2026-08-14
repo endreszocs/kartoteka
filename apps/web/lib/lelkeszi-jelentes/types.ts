@@ -134,9 +134,13 @@ export const JELENTES_MEZOK: JelentesMezo[] = [
   { id: 'II.7b', fejezet: 'II', label: 'Bűnbánati — átlagjelenlét', tipus: 'szam', auto: true, egyseg: 'fő' },
   { id: 'II.8a', fejezet: 'II', label: 'Bibliaóra (felnőtt + ifjúsági) — alkalmak', tipus: 'szam', auto: true, egyseg: 'alkalom' },
   { id: 'II.8b', fejezet: 'II', label: 'Bibliaóra — átlagjelenlét', tipus: 'szam', auto: true, egyseg: 'fő' },
-  { id: 'II.9', fejezet: 'II', label: 'Kazuáliák és egyéb szolgálatok — alkalmak', tipus: 'szam', auto: true, egyseg: 'alkalom' },
-  { id: 'II.10', fejezet: 'II', label: 'Más alkalmak', tipus: 'szam', auto: false, egyseg: 'alkalom' },
-  { id: 'II.11', fejezet: 'II', label: 'Digitális (online) alkalmak', tipus: 'szam', auto: false, egyseg: 'alkalom' },
+  // 2026-08-14 (18. pont 3C — a spec II.1 f/g/h képletei): a II.9 a pontos
+  // kazuália-készletre szűkült (keresztelők + esketések + felkészítők +
+  // Virrasztó + temetések); a II.10/II.11 KÉZIBŐL AUTO lett — a hivatalos
+  // űrlap [M]-et (munkanaplóból) kér. A címke frissülhet, az id SOHA.
+  { id: 'II.9', fejezet: 'II', label: 'Kazuáliák és felkészítők — alkalmak', tipus: 'szam', auto: true, egyseg: 'alkalom' },
+  { id: 'II.10', fejezet: 'II', label: 'Más alkalmak (ünnepély, szeretetvendégség, imahét, úrvacsora, egyéb)', tipus: 'szam', auto: true, egyseg: 'alkalom' },
+  { id: 'II.11', fejezet: 'II', label: 'Digitális (online) alkalmak', tipus: 'szam', auto: true, egyseg: 'alkalom' },
   // Úrvacsora: 'Úrvacsora' típusú alkalmak + minden sor, ahol úrvacsorázó-szám
   // van rögzítve (uv_templomban / uv_betegnel).
   { id: 'II.12', fejezet: 'II', label: 'Úrvacsoraosztások száma', tipus: 'szam', auto: true, egyseg: 'alkalom' },

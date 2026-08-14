@@ -23,6 +23,17 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-14] — Lelkészi jelentés: a II. fejezet hivatalos képletei
+<!-- key: 2026-08-14-jelentes-ii-fejezet-kepletek -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+
+### ✨ Új funkciók
+
+- **A II. fejezet négy rubrikája a hivatalos képletekkel számol**: a bibliaórák (II.8) mostantól **mind a 7** bibliaóra-típust összegzik (eddig a presbiteri és a nőszövetségi kimaradt); a kazuáliák (II.9) a pontos hivatalos készletre szűkültek (keresztelők + esketések + felkészítők + Virrasztó + temetések); a **„Más alkalmak" (II.10)** és a **„Digitális alkalmak" (II.11)** kézi rubrikából **automatikus** lett — a munkanaplóból számolódnak, ahogy a hivatalos űrlap kéri. A régi típusnevekkel rögzített bejegyzések is helyesen számítanak.
+
+---
+
 ## [2026-08-14] — Lelkészi jelentés: a hivatalos számítási szabályok
 <!-- key: 2026-08-14-jelentes-de2-vallasora-atlag -->
 <!-- category: improvement -->

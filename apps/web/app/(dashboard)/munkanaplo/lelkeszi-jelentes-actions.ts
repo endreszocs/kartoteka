@@ -230,6 +230,28 @@ const SATOROS_NAP_MEZO: Record<string, string> = {
   'Pünkösd harmadnapja': 'II.5i',
 }
 
+// 2026-08-14 (18. pont 3C): a spec II.1 e/f/g származtatásainak TÍPUSNÉV-
+// készletei (hivatalos EREK-nevek + legacy nevek — a régi rögzítések is
+// helyesen számítanak). Szinkronban tartandó a lib/constants/worklog.ts
+// WORKLOG_TYPES/LEGACY_WORKLOG_TYPES listáival.
+const JELENTES_BIBLIAORA_TIPUSOK = new Set([
+  'Felnőtt bibliaóra', 'Ifj. vagy IKE bibliaóra', 'Presbiteri bibliaóra',
+  'Nőszöv. bibliaóra', 'Házasok bibliaórája', 'Más bibliaóra 1', 'Más bibliaóra 2',
+  'Bibliaóra', 'Ifjúsági bibliaóra (IKE)', 'Ifjúsági óra',
+])
+const JELENTES_KAZUALIA_TIPUSOK = new Set([
+  'F. keresztelő', 'N. keresztelő', 'Keresztelői felkészítő',
+  'F. temetés', 'N. temetés', 'Virrasztó',
+  'Azonos esketés', 'Vegyes esketés', 'Jegyesbeszélgetés',
+  'Keresztelő', 'Esketés', 'Temetés',
+])
+const JELENTES_MAS_ALKALOM_TIPUSOK = new Set([
+  'Vallásos ünnepély', 'Szeretetvendégség', 'Imahét',
+  'Úrvacsora templomban', 'Betegúrvacsora', 'Egyéb szolgálat',
+  // legacy: az 'Úrvacsora' a mai 'Úrvacsora templomban' elődje; a
+  // 'Konfirmáció' esemény a 37-es készletben nem önálló típus → más alkalom.
+  'Úrvacsora', 'Konfirmáció',
+])
 interface AnyakonyviSzamok {
   ferfi: number
   no: number
@@ -580,6 +602,21 @@ async function computeAuto(
     let vallasoraJelenletOssz = 0
     let vallasora1CsoportDb = 0
 
+    // 2026-08-14 (18. pont 3C — a spec II.1 e/f/g/h származtatásai,
+    // TÍPUSNÉV szerint, a hivatalos képletekkel; a legacy nevek is számítanak):
+    //  e (II.8) = a 7 bibliaóra-típus összege (a hivatalos ív 13. oszlopa
+    //    csak a felnőtt/ifjúságit fogja — a jelentésé MIND a 7);
+    //  f (II.9) = kazuáliák és felkészítők: keresztelők + esketések +
+    //    Keresztelői felkészítő + Jegyesbeszélgetés + Virrasztó + temetések;
+    //  g (II.10) = más alkalmak: Vallásos ünnepély + Szeretetvendégség +
+    //    Imahét + Úrvacsora templomban + Betegúrvacsora + Egyéb szolgálat
+    //    (a legacy 'Úrvacsora' és 'Konfirmáció' is ide számít);
+    //  h (II.11) = kizárólag digitális alkalmak.
+    const bibliaoraTipus = ujHalmozo()
+    let kazualiaDb = 0
+    let masAlkalomDb = 0
+    let digitalisDb = 0
+
     for (const e of worklogRes.entries) {
       if (e.deleted) continue
 
@@ -602,6 +639,15 @@ async function computeAuto(
 
       // Imahét (III.5/III.6) — jellege szerint, kategóriától függetlenül
       if ((e.jellege || '').trim() === 'Imahét') halmoz(imahet, e)
+
+      // II.1 e/f/g/h — típusnév szerinti számlálás (szolgálat kategória)
+      if (kategoria === 'szolgalat') {
+        const j = (e.jellege || '').trim()
+        if (JELENTES_BIBLIAORA_TIPUSOK.has(j)) halmoz(bibliaoraTipus, e)
+        else if (JELENTES_KAZUALIA_TIPUSOK.has(j)) kazualiaDb += 1
+        else if (j === 'Digitális alkalmak') digitalisDb += 1
+        else if (JELENTES_MAS_ALKALOM_TIPUSOK.has(j)) masAlkalomDb += 1
+      }
 
       // Úrvacsorázó-számot rögzítő sorok (bármely kategória)
       const uvOsszeg = (e.uv_templomban ?? 0) + (e.uv_betegnel ?? 0)
@@ -755,9 +801,16 @@ async function computeAuto(
     auto['II.6b'] = atlagJelenlet(hetkoznapi)
     auto['II.7a'] = bunbanati.db
     auto['II.7b'] = atlagJelenlet(bunbanati)
-    auto['II.8a'] = bibliaora.db
-    auto['II.8b'] = atlagJelenlet(bibliaora)
-    auto['II.9'] = egyebDb
+    // 2026-08-14 (3C): a II.8 a spec e-képlete — MIND a 7 bibliaóra-típus
+    // (a régi, ív-oszlop alapú számláló a presbiterit/nőszövetségit kihagyta).
+    auto['II.8a'] = bibliaoraTipus.db
+    auto['II.8b'] = atlagJelenlet(bibliaoraTipus)
+    // f-képlet: kazuáliák és felkészítők (a régi érték az ív 17. oszlopa
+    // volt, amiben az Imahét/Digitális/Egyéb is benne volt — pontatlanul).
+    auto['II.9'] = kazualiaDb
+    // g/h-képlet: eddig KÉZI mezők voltak — a spec [M]-et (munkanaplóból) kér.
+    auto['II.10'] = masAlkalomDb
+    auto['II.11'] = digitalisDb
     auto['II.12'] = uvOsztasDb
     auto['II.13'] = uvResztvevosDb > 0 ? round1(uvResztvevoOssz / uvResztvevosDb) : null
     auto['II.14'] = uvBetegnelOssz
