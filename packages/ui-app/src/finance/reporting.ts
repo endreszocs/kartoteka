@@ -710,7 +710,7 @@ export function buildKiadasiKiseroiv(params: {
     </tr>`
   })
 
-  const sourceLine = sourceLabel ? `<div>Forr&aacute;s: ${esc(sourceLabel)}</div>` : ''
+  const sourceLine = sourceLabel ? `<div>Sursa / Forr&aacute;s: ${esc(sourceLabel)}</div>` : ''
   const sourceSlug = sourceLabel
     ? '_' + sourceLabel.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '')
     : ''
@@ -718,22 +718,22 @@ export function buildKiadasiKiseroiv(params: {
   const html = `<div class="page page--bottom-footer">
     <div class="header">
       <div class="header-left"><div class="entity">${esc(congregationName)}</div></div>
-      <div class="header-center"><div class="title" style="text-decoration:underline">KIAD&Aacute;SI K&Iacute;S&Eacute;R&Odblac;&Iacute;V</div></div>
-      <div class="header-right"><div>${pageNumber}. sz. kiad&aacute;s ${fmtDate(date)}</div>${sourceLine}<div>Registrul-Jurnal</div></div>
+      <div class="header-center"><div class="title" style="text-decoration:underline">BORDEROU DE PL&#258;&#538;I — KIAD&Aacute;SI K&Iacute;S&Eacute;R&Odblac;&Iacute;V</div></div>
+      <div class="header-right"><div>plata nr. ${pageNumber} / ${pageNumber}. sz. kiad&aacute;s ${fmtDate(date)}</div>${sourceLine}<div>Registrul-Jurnal</div></div>
     </div>
     <table>
       <thead><tr>
-        <th>Kiad. sz.</th><th>Iratsz&aacute;m</th><th>Irat</th><th>K&ouml;lts&eacute;gv. T&eacute;tel</th><th>Kiad&aacute;s megnevez&eacute;se</th><th>&Ouml;sszeg</th>
+        <th>Nr. plat&#259;<br>Kiad. sz.</th><th>Nr. doc.<br>Iratsz&aacute;m</th><th>Fel<br>Irat</th><th>Capitol buget<br>K&ouml;lts&eacute;gv. t&eacute;tel</th><th>Denumirea pl&#259;&#539;ii<br>Kiad&aacute;s megnevez&eacute;se</th><th>Suma<br>&Ouml;sszeg</th>
       </tr></thead>
       <tbody>
         ${tbody}
-        <tr class="totals"><td colspan="5" class="text-right">&Ouml;sszesen kiad&aacute;s - ${fmtDate(date)}</td><td class="text-right">${fmtNum(total)}</td></tr>
+        <tr class="totals"><td colspan="5" class="text-right">Total pl&#259;&#539;i / &Ouml;sszesen kiad&aacute;s - ${fmtDate(date)}</td><td class="text-right">${fmtNum(total)}</td></tr>
       </tbody>
     </table>
     <div class="footer">
-      <div class="footer-item"><div class="footer-line">Lelkip&aacute;sztor</div></div>
-      <div class="footer-item"><div class="footer-line">Ellen&odblac;rizte</div></div>
-      <div class="footer-item"><div class="footer-line">Gondnok</div></div>
+      <div class="footer-item"><div class="footer-line">Lelkip&aacute;sztor / Preot</div></div>
+      <div class="footer-item"><div class="footer-line">Ellen&odblac;rizte / Verificat</div></div>
+      <div class="footer-item"><div class="footer-line">Gondnok / Curator</div></div>
     </div>
     <div class="page-num">pg. ${pageNumber}</div>
   </div>`
@@ -769,7 +769,7 @@ function buildNyugtatombKimutatas(data: FinanceReportData, year: number): Financ
   const head = `
     <div class="title-row">
       <div>
-        <div class="title">Nyugtatömb kimutatás — ${year}</div>
+        <div class="title">Evidența carnetelor de chitanțe — Nyugtatömb kimutatás — ${year}</div>
         <div class="subtitle">${esc(congregationName)}</div>
       </div>
       <div class="pageinfo">A4 fekvő · pg. 1</div>
@@ -777,7 +777,7 @@ function buildNyugtatombKimutatas(data: FinanceReportData, year: number): Financ
   `
 
   const tableRows = rows.length === 0
-    ? `<tr><td colspan="11" class="empty">Nincs olyan tömb, amelyet ${year}-ban használatba vettek.</td></tr>`
+    ? `<tr><td colspan="11" class="empty">Nu există carnet pus în folosință în anul ${year}. / Nincs olyan tömb, amelyet ${year}-ban használatba vettek.</td></tr>`
     : rows.map(r => `
       <tr>
         <td class="center">${r.sorszam}</td>
@@ -790,7 +790,7 @@ function buildNyugtatombKimutatas(data: FinanceReportData, year: number): Financ
         <td class="right mono">${r.sajat_kezdet ?? '—'}</td>
         <td class="right mono">${r.sajat_veg ?? '—'}</td>
         <td class="right">${r.felhasznalt_darabszam} / ${r.darabszam_ossz}</td>
-        <td class="${r.aktiv ? 'badge-active' : 'badge-closed'}">${r.aktiv ? 'Aktív' : 'Lezárt'}</td>
+        <td class="${r.aktiv ? 'badge-active' : 'badge-closed'}">${r.aktiv ? 'Activ / Aktív' : 'Închis / Lezárt'}</td>
       </tr>
     `).join('')
 
@@ -798,17 +798,17 @@ function buildNyugtatombKimutatas(data: FinanceReportData, year: number): Financ
     <table class="nt">
       <thead>
         <tr>
-          <th>Sorsz.</th>
-          <th>Blokksz.</th>
-          <th>Seria</th>
-          <th>Nyomdai kezdet</th>
-          <th>Nyomdai vég</th>
-          <th>Első dátum</th>
-          <th>Utolsó dátum</th>
-          <th>Saját kezdet</th>
-          <th>Saját vég</th>
-          <th>Felhasznált / Össz</th>
-          <th>Állapot</th>
+          <th>Nr. crt.<br>Sorsz.</th>
+          <th>Nr. bloc<br>Blokksz.</th>
+          <th>Seria<br>Sorozat</th>
+          <th>Serie tipar de la<br>Nyomdai kezdet</th>
+          <th>Serie tipar până la<br>Nyomdai vég</th>
+          <th>Prima dată<br>Első dátum</th>
+          <th>Ultima dată<br>Utolsó dátum</th>
+          <th>Nr. propriu de la<br>Saját kezdet</th>
+          <th>Nr. propriu până la<br>Saját vég</th>
+          <th>Utilizate / Total<br>Felhasznált / Össz</th>
+          <th>Stare<br>Állapot</th>
         </tr>
       </thead>
       <tbody>${tableRows}</tbody>
@@ -817,25 +817,27 @@ function buildNyugtatombKimutatas(data: FinanceReportData, year: number): Financ
 
   const totals = rows.length > 0 ? `
     <div class="totals">
-      Összesen: <strong>${rows.length}</strong> tömb ·
-      ${rows.reduce((sum, r) => sum + r.felhasznalt_darabszam, 0)} felhasznált nyugta /
-      ${rows.reduce((sum, r) => sum + r.darabszam_ossz, 0)} össz
+      Összesen / Total: <strong>${rows.length}</strong> tömb / carnete ·
+      ${rows.reduce((sum, r) => sum + r.felhasznalt_darabszam, 0)} felhasznált nyugta / chitanțe utilizate din
+      ${rows.reduce((sum, r) => sum + r.darabszam_ossz, 0)} össz / total
     </div>
   ` : ''
 
+  // 2026-08-15 (Endre): kétnyelvű aláírás-feliratok — a nyomtatvány többi része
+  // (fejléc, oszlopnevek, végösszegek) már magyar/román, az aláírás-sáv nem volt az.
   const signatures = `
     <div class="signatures">
       <div class="sig-box">
         <div class="sig-line"></div>
-        <div class="sig-label">Lelkipásztor</div>
+        <div class="sig-label">Lelkipásztor<br><em>Preot</em></div>
       </div>
       <div class="sig-box">
         <div class="sig-line"></div>
-        <div class="sig-label">Gondnok</div>
+        <div class="sig-label">Gondnok<br><em>Curator</em></div>
       </div>
       <div class="sig-box">
         <div class="sig-line"></div>
-        <div class="sig-label">Pénztáros</div>
+        <div class="sig-label">Pénztáros<br><em>Casier</em></div>
       </div>
     </div>
   `

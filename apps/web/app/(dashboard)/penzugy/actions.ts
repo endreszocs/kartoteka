@@ -2713,6 +2713,37 @@ export async function getExpectedJarulek(
   const cong = congRes.error ? null : (congRes.data as {
     tartozas_szamitas_mod?: unknown; eves_jarulek?: number | null; jarulek_kedvezmenyes?: number | null; jarulek_hatarid?: string | null
   } | null)
+  // ── 2026-08-15 (Endre hibajelzése) — AZ ÉVRE RÖGZÍTETT DÍJ ELŐBBRE VALÓ ────
+  // A hiba: a lelkész a „Gyülekezet beállítása → Évenkénti díjak" panelen
+  // beállította a 2024-es díjat (100), a rögzítő mégis a MAI díjat (220)
+  // ajánlotta. Oka: a panel a hiányzó `bealitas` évekre a RÉGI
+  // `congregation_annual_fees` tükör-táblából pótol (congregation/actions.ts
+  // getAnnualFeeRowsCompat), tehát 100-at MUTAT — a motor viszont csak a
+  // `bealitas`-t nézte, és annak hiányában egyenesen a MAI gyülekezeti alapra
+  // esett vissza. A panel „működni látszott", a számítás mégis rossz volt.
+  //
+  // Javítás: a visszaesési sorrend mostantól
+  //   bealitas(év) → congregation_annual_fees(év) → congregations (MAI).
+  // Az ÉVRE szóló érték MINDIG előbbre való a mai globális alapnál.
+  if ((yearSettings[year]?.eves_jarulek || 0) <= 0) {
+    const { data: legacyFee } = await supabase
+      .from('congregation_annual_fees')
+      .select('eves_jarulek, jarulek_hatarid')
+      .eq('congregation_id', congregationId)
+      .eq('year', year)
+      .maybeSingle()
+    const legacyAmount = Number(legacyFee?.eves_jarulek) || 0
+    if (legacyAmount > 0) {
+      yearSettings[year] = {
+        year,
+        // A visszamenőleges évekhez nem jár kedvezmény (a panel ígérete) —
+        // ugyanaz a szabály, mint a saveAnnualFee createYearlySettings-ágán.
+        eves_jarulek: legacyAmount,
+        jarulek_kedvezmenyes: 0,
+        jarulek_hatarid: legacyFee?.jarulek_hatarid || cong?.jarulek_hatarid || null,
+      }
+    }
+  }
   if ((yearSettings[year]?.eves_jarulek || 0) <= 0 && (Number(cong?.eves_jarulek) || 0) > 0) {
     yearSettings[year] = {
       year,
