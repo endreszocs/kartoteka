@@ -33,6 +33,7 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - **A munkanapló mostantól a hivatalos EREK-készletet kínálja** (IT 66/2023): 37 szolgálati típus (Vasárnapi/Ünnepi/Bűnbánati/Hétköznapi i.t., Úrvacsora templomban/Betegúrvacsora, 7-féle bibliaóra, személyenkénti F./N. keresztelő és temetés, Azonos/Vegyes esketés, sátoros ünnepek I–III. napja…), 11 katekézis-típus (Vallásóra 1–5. csoport, konfirmációi felkészítők, VBH…) és a hivatalos CsL/BL látogatás-bontás. **A korábbi bejegyzések érintetlenek** — a régi típusnevek megjelenítése és besorolása változatlanul működik, csak az új rögzítés kínálja a hivatalos neveket.
 - **De.2 / Du.2 jelölés**: ha egy napon délelőtt (vagy délután) két istentisztelet van, a második megjelölhető — ez a hivatalos számítási szabály alapja (a jelöléssel a résztvevők összeadódnak, nélküle átlagolódnak). A hivatalos ív oszlop-besorolása a 37 új típust is pontosan ismeri.
 - Az úrvacsorázók és a napszak adata mostantól a webes offline másolatba is leszinkronizálódik (a desktopon eddig is megvolt).
+- **A hivatalos munkafüzet mindhárom naplólapja nyomtatható**: az eddigi Szolgálati alkalmak ív mellé bekerült a **Katekézis lap** (sorszám, dátum, jelleg, résztvevők, tananyag, perselypénz, tartotta) és a **Családlátogatás lap** hivatalos **CsL/BL** bontással — A4 álló, éven belül folyamatos sorszámozással.
 
 ---
 

@@ -25,6 +25,7 @@ import {
   type WorklogEntry,
 } from '@/lib/constants/worklog'
 import { buildOfficialMunkanaploHtml } from './official-journal'
+import { buildCsaladlatogatasNaploLapok, buildKatekezisNaploLapok } from './kis-naplok'
 
 // ---------------------------------------------------------------------------
 // Típusok
@@ -32,6 +33,8 @@ import { buildOfficialMunkanaploHtml } from './official-journal'
 
 export type WorklogPrintType =
   | 'hivatalos_munkanaplo'
+  | 'katekezis_naplo'
+  | 'csaladlatogatas_naplo'
   | 'szolgalati_osszesito'
   | 'kateketikai_osszesito'
   | 'diakoniai_osszesito'
@@ -61,6 +64,18 @@ export const WORKLOG_PRINT_TYPES: Array<{
     title: 'Hivatalos munkanapló',
     subtitle: 'I. Igehirdetési alkalmak',
     description: 'A hivatalos nyomtatott munkanapló hű mása — A4 fekvő, hónaponként külön lap, hó végi és éves összesítővel.',
+  },
+  {
+    id: 'katekezis_naplo',
+    title: 'Hivatalos munkanapló — Katekézis lap',
+    subtitle: 'II. Katekézis naplólap',
+    description: 'A hivatalos munkafüzet Katekézis lapja: sorszám, dátum, jelleg, résztvevők, tananyag, perselypénz — A4 álló.',
+  },
+  {
+    id: 'csaladlatogatas_naplo',
+    title: 'Hivatalos munkanapló — Családlátogatás lap',
+    subtitle: 'III. Családlátogatás naplólap',
+    description: 'A hivatalos munkafüzet Családlátogatás lapja CsL/BL bontással — A4 álló.',
   },
   {
     id: 'szolgalati_osszesito',
@@ -593,6 +608,27 @@ export function buildWorklogPrintDocument({
   switch (type) {
     case 'hivatalos_munkanaplo':
       return buildHivatalosMunkanaplo(entries, congregationName, filters)
+    case 'katekezis_naplo': {
+      // 2026-08-14 (18. pont 2. szelet): a hivatalos munkafüzet Katekézis lapja.
+      const rows = filter(entries, filters, 'katekezis')
+      const html = buildKatekezisNaploLapok(rows, congregationName, period(filters))
+      return {
+        title: 'Munkanapló — Katekézis',
+        filename: `Munkanaplo_Katekezis_${filters.year}.pdf`,
+        orientation: 'portrait',
+        html: wrap('Munkanapló — Katekézis', 'portrait', html),
+      }
+    }
+    case 'csaladlatogatas_naplo': {
+      const rows = filter(entries, filters, 'latogatas')
+      const html = buildCsaladlatogatasNaploLapok(rows, congregationName, period(filters))
+      return {
+        title: 'Munkanapló — Családlátogatás',
+        filename: `Munkanaplo_Csaladlatogatas_${filters.year}.pdf`,
+        orientation: 'portrait',
+        html: wrap('Munkanapló — Családlátogatás', 'portrait', html),
+      }
+    }
     case 'szolgalati_osszesito':
       return buildSzolgalati(entries, congregationName, filters)
     case 'kateketikai_osszesito':
