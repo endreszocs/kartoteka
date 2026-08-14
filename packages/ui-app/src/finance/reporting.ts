@@ -190,7 +190,11 @@ function styles() {
        flex-konténert nyomtatásban nem tördeli lapokra — a többoldalas regisztereket
        egy globális flex .page félbevágott sorokkal nyomtatná. */
     .page--bottom-footer { display: flex; flex-direction: column; }
-    .page--bottom-footer .footer { margin-top: auto; padding-top: 14px; }
+    /* 2026-08-15 (Endre: „szövegek fedik egymást"): az aljára tolt aláírás-sáv
+       PONTOSAN az abszolút pozíciójú oldalszám (.page-num, bottom:10mm) helyére
+       ért le — a „pg. N" a Gondnok/Curator aláírás-vonalára íródott. A 8mm alsó
+       margó az aláírásokat az oldalszám FÖLÉ emeli. */
+    .page--bottom-footer .footer { margin-top: auto; padding-top: 14px; margin-bottom: 8mm; }
     .page:last-child { break-after: auto; }
     .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
     .header-left { font-size: 12px; }
@@ -203,7 +207,9 @@ function styles() {
     th { background: #fff; text-align: center; font-weight: bold; font-size: 9px; }
     thead { display: table-header-group; }
     tr, td, th { page-break-inside: avoid; }
-    .text-right { text-align: right; }
+    /* 2026-08-15 (Endre): az összeg-cella 5-6 jegyű számnál sortörött
+       („12 345,67" két sorba) — pénzösszeg SOHA nem törhet meg. */
+    .text-right { text-align: right; white-space: nowrap; }
     .text-center { text-align: center; }
     /* Festéktakarékos: nincs háttér-kitöltés, csak félkövér + dupla felső keret */
     .totals { font-weight: bold; border-top: 2px solid #334155; }
@@ -718,10 +724,17 @@ export function buildKiadasiKiseroiv(params: {
   const html = `<div class="page page--bottom-footer">
     <div class="header">
       <div class="header-left"><div class="entity">${esc(congregationName)}</div></div>
-      <div class="header-center"><div class="title" style="text-decoration:underline">BORDEROU DE PL&#258;&#538;I — KIAD&Aacute;SI K&Iacute;S&Eacute;R&Odblac;&Iacute;V</div></div>
-      <div class="header-right"><div>plata nr. ${pageNumber} / ${pageNumber}. sz. kiad&aacute;s ${fmtDate(date)}</div>${sourceLine}<div>Registrul-Jurnal</div></div>
+      <div class="header-center">
+        <div class="title" style="text-decoration:underline">BORDEROU DE PL&#258;&#538;I</div>
+        <div style="font-size:12px;font-weight:bold;">KIAD&Aacute;SI K&Iacute;S&Eacute;R&Odblac;&Iacute;V</div>
+      </div>
+      <div class="header-right"><div>Kiad&aacute;s sorsz&aacute;ma / Nr. plat&#259;: <strong>${pageNumber}</strong></div><div>${fmtDate(date)}</div>${sourceLine}<div>Registrul-Jurnal</div></div>
     </div>
-    <table>
+    <table style="table-layout:fixed;">
+      <colgroup>
+        <col style="width:7%"><col style="width:12%"><col style="width:7%">
+        <col style="width:27%"><col style="width:34%"><col style="width:13%">
+      </colgroup>
       <thead><tr>
         <th>Nr. plat&#259;<br>Kiad. sz.</th><th>Nr. doc.<br>Iratsz&aacute;m</th><th>Fel<br>Irat</th><th>Capitol buget<br>K&ouml;lts&eacute;gv. t&eacute;tel</th><th>Denumirea pl&#259;&#539;ii<br>Kiad&aacute;s megnevez&eacute;se</th><th>Suma<br>&Ouml;sszeg</th>
       </tr></thead>
