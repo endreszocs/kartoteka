@@ -6,6 +6,17 @@ import {
   PieChart, Pie, Cell,
 } from 'recharts'
 import { BarChart3, PieChart as PieChartIcon, Users } from 'lucide-react'
+// 2026-08-15 (9. pont, sötét mód): minden szerkezeti szín (rács, tengely,
+// tooltip) és az adatsor-paletta a közös diagram-témából jön — CSS-változókra
+// épül, így a diagram mindhárom témát és a sötét módot is automatikusan követi.
+import {
+  CHART_CURSOR_BAR,
+  CHART_GRID,
+  CHART_SEMANTIC,
+  CHART_SERIES,
+  CHART_TICK,
+  CHART_TOOLTIP,
+} from '@/lib/charts/chart-theme'
 
 // 2026-08-11 (5. kör, P2-#21): a prop-típusok EXPORTÁLTAK, hogy a lazy wrapper
 // (chart-panels-lazy.tsx) csak típusként hivatkozhasson rájuk — a típus-import
@@ -41,7 +52,9 @@ export interface AgeDistributionCardProps {
   stats?: AgeStats
 }
 
-const AGE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444']
+// 2026-08-15: a korcsoport-színek a közös, olívazöldhöz hangolt palettából —
+// a fánk-cikkek ÉS a HTML-legenda pöttyei/sávjai ugyanebből olvasnak.
+const AGE_COLORS = CHART_SERIES
 
 function formatRON(value: number): string {
   return value.toLocaleString('hu') + ' RON'
@@ -58,28 +71,34 @@ export function FinanceOverviewChart({ monthlyData }: FinanceOverviewChartProps)
             <BarChart3 className="h-4 w-4 text-white" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-slate-800">Pénzügyi áttekintés</h3>
-            <p className="text-[11px] text-slate-400">Utolsó 8 hónap</p>
+            {/* 2026-08-15: token-osztályok a slate-* helyett — sötét módban is olvasható */}
+            <h3 className="text-sm font-semibold text-foreground">Pénzügyi áttekintés</h3>
+            <p className="text-[11px] text-muted-foreground">Utolsó 8 hónap</p>
           </div>
         </div>
         <div className="flex items-center gap-4 text-[11px]">
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-500 shadow-sm" /> Bevétel</span>
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-red-400 shadow-sm" /> Kiadás</span>
+          {/* 2026-08-15: a legenda-pöttyök PONTOSAN az oszlopok színét mutatják
+              (korábban a kiadás pötty red-400 volt, az oszlop red-500). */}
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm shadow-sm" style={{ backgroundColor: CHART_SEMANTIC.bevetel }} /> Bevétel</span>
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm shadow-sm" style={{ backgroundColor: CHART_SEMANTIC.kiadas }} /> Kiadás</span>
         </div>
       </div>
       {hasData ? (
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={monthlyData} barGap={2}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#d9ebe7" vertical={false} />
-            <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(value) => value.toLocaleString('hu')} axisLine={false} tickLine={false} />
-            <Tooltip formatter={(value) => formatRON(Number(value))} contentStyle={{ borderRadius: 14, border: '1px solid #d9ebe7', boxShadow: '0 16px 40px rgba(12,65,59,.12)' }} />
-            <Bar dataKey="income" name="Bevétel" fill="#10b981" radius={[6, 6, 0, 0]} />
-            <Bar dataKey="expense" name="Kiadás" fill="#ef4444" radius={[6, 6, 0, 0]} />
+            {/* 2026-08-15 (9. pont): a rács/tengely/tooltip a közös diagram-témából —
+                a korábbi fix világos színek (#d9ebe7 rács, fehér tooltip) sötét
+                módban olvashatatlanok voltak. */}
+            <CartesianGrid {...CHART_GRID} vertical={false} />
+            <XAxis dataKey="month" tick={CHART_TICK} axisLine={false} tickLine={false} />
+            <YAxis tick={CHART_TICK} tickFormatter={(value) => value.toLocaleString('hu')} axisLine={false} tickLine={false} />
+            <Tooltip {...CHART_TOOLTIP} cursor={CHART_CURSOR_BAR} formatter={(value) => formatRON(Number(value))} />
+            <Bar dataKey="income" name="Bevétel" fill={CHART_SEMANTIC.bevetel} radius={[6, 6, 0, 0]} />
+            <Bar dataKey="expense" name="Kiadás" fill={CHART_SEMANTIC.kiadas} radius={[6, 6, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       ) : (
-        <div className="flex h-[280px] items-center justify-center text-sm text-slate-400">Nincs pénzügyi adat.</div>
+        <div className="flex h-[280px] items-center justify-center text-sm text-muted-foreground">Nincs pénzügyi adat.</div>
       )}
     </div>
   )
@@ -169,15 +188,9 @@ export function AgeDistributionCard({ ageGroups, detailedAgeGroups, stats }: Age
                 <Pie data={ageData} cx="50%" cy="50%" innerRadius="62%" outerRadius="92%" paddingAngle={3} dataKey="value" strokeWidth={0}>
                   {ageData.map((_, index) => <Cell key={index} fill={AGE_COLORS[index % AGE_COLORS.length]} />)}
                 </Pie>
-                <Tooltip
-                  formatter={(value) => `${value} fő`}
-                  contentStyle={{
-                    borderRadius: 12,
-                    border: '1px solid var(--border)',
-                    background: 'var(--card)',
-                    color: 'var(--foreground)',
-                  }}
-                />
+                {/* 2026-08-15: a kézzel írt contentStyle helyett a közös
+                    tooltip-csomag — egy helyen él a diagram-téma. */}
+                <Tooltip {...CHART_TOOLTIP} formatter={(value) => `${value} fő`} />
               </PieChart>
             </ResponsiveContainer>
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">

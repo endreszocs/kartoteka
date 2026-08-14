@@ -23,6 +23,35 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-15] — Új: Kifizetetlen számlák ablaka + számla-ZIP feldolgozás
+<!-- key: 2026-08-15-kifizetetlen-szamlak-ablak -->
+<!-- category: feature -->
+<!-- targets: lelkesz, konyvelo -->
+
+### ✨ Új funkciók
+
+- **Kifizetetlen számlák — egy helyen.** A Dokumentumtár tetején új, jól látható belépő mutatja, hány számla vár rendezésre, és ebből hány **lejárt határidejű** (ez pirossal). Az ablakban a tételek lejárat szerint sorakoznak: a szállító/partner neve, a számla száma, az összeg és a határidő jól olvashatóan — telefonon is.
+- **Két forrásból, becsapás nélkül**: a listában a feltöltött szállítói számlák (amit a gyülekezet fizet) ÉS — ha van bekötött Oblio-fiók — az Oblio-ban kiállított, még be nem folyt számlák (kintlévőség) is megjelennek. Az Oblio fizetési állapota a hivatalos adat, nem találgatás. Ha az Oblio éppen nem elérhető, a feltöltött számlák attól még látszanak, és az ablak **hangosan jelzi**, hogy az online rész hiányzik.
+- **Kifizetés rögzítése egy kattintással**: a számla sorából nyílik a megszokott Tétel rögzítő, **előre kitöltve** a számla adataival (szállító, összeg, számlaszám) — csak a jogcímet kell kiválasztani és menteni. Mentés után a rendszer felkínálja a kiadás és a számla **összekapcsolását**, és ha a teljes összeg fedezve van, a számlát automatikusan kifizetettnek jelöli.
+- **A számla-ZIP feldolgozása a feltöltésből**: az ANAF-os ZIP-et (vagy egyetlen e-Factura XML-t) a „Szállítói számlák" mappába feltöltve a rendszer azonnal kibontja és számla-adatalapokat készít belőle — az eredmény (új számlák, már ismert duplikátumok, kihagyott és hibás tételek) tételesen, magyarul jelenik meg. Ugyanez a feldolgozás a lista ZIP/XML sorairól később is újraindítható — biztonságos, nem duplikál.
+
+---
+
+## [2026-08-15] — Új: Dokumentumtár — a gyülekezet fájl-területe
+<!-- key: 2026-08-15-dokumentumtar-gyulekezeti-fajlok -->
+<!-- category: feature -->
+<!-- targets: lelkesz, konyvelo -->
+
+### ✨ Új funkciók
+
+- **Megérkezett a Dokumentumtár** — a gyülekezet saját, biztonságos fájl-területe. Négy rendezett mappa várja az iratokat: **Szállítói számlák** (e-Factura XML, PDF, ANAF-os ZIP), **Bizonylatok**, **Szerződések** és **Egyéb dokumentumok**. Fontos tudni: az ANAF rendszere a számlákat csak 60 napig őrzi, a törvény viszont 5–10 év megőrzést ír elő — ez a tár pontosan erre való.
+- **Feltöltés egyszerűen**: húzd be a fájlokat az oldalra, vagy használd a Feltöltés gombot — egyszerre többet is. Minden feltöltésnél te döntöd el, melyik mappába kerüljön. Fájlonként legfeljebb 25 MB; PDF, kép, XML, ZIP, Word/Excel és szöveges fájl tölthető fel.
+- **Átlátható lista**: fájltípus-ikonok, méret és dátum minden sorban, keresés fájlnév szerint, dátum szerinti rendezés és lapozás — telefonon is kényelmesen használható.
+- **Kétlépcsős törlés**: a törölt dokumentum előbb a **Kukába** kerül, ahonnan bármikor visszaállítható — véglegesen csak onnan, külön megerősítéssel törölhető.
+- **Belépési pont**: a Pénzügy oldal tetején, az „Oblio ellenőrzés" gomb mellett találod a **Dokumentumtár** gombot.
+
+---
+
 ## [2026-08-15] — Számadás könyvelői rendbetétel + a PDF-mentés javítása
 <!-- key: 2026-08-15-szamadas-pdf-javitas -->
 <!-- category: bugfix -->

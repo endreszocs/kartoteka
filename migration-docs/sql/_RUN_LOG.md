@@ -19,6 +19,18 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
+## 🔴 PENDING – Dokumentumtár: gyülekezeti fájl-terület (2026-08-15, 7. pont A)
+
+- [ ] **`2026-08-15-dokumentumtar-gyulekezeti-fajlok.sql`** — PENDING (még nem futott)
+       Indok: a dokumentumtár PR merge előtt kell futtatni a Supabase SQL
+       Editorban. Új `gyulekezeti_dokumentum` tábla (RLS + oszlop-szintű
+       UPDATE grant a soft-delete-hez) + `gyulekezeti-dokumentumok` privát
+       bucket (25 MB) + storage policy-k. Idempotens; a végén beépített
+       verifikációs SELECT (minden sor ✅ kell legyen). Amíg nem fut le, az
+       app hangos magyar hibával jelzi a hiányt (fail-closed).
+
+---
+
 ## 🔴 PENDING – filmszerű honlaptéma és publikus témaolvasás (2026-07-18)
 
 - [x] 2026-07-18 — **`2026-07-17-public-site-v2-themes.sql`** ✅ LEFUTOTT
