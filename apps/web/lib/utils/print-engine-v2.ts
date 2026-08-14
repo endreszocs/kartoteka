@@ -180,7 +180,15 @@ export async function printToPdf(
           `A nyomtatvány nem töltött be hiánytalanul (${sheetEls.length}/${expected} lap) — kérlek, próbáld újra.`,
         )
       }
-      if (sheetEls.length > 0) {
+      // 2026-08-15 (Endre: „a kísérőív PDF-mentése nem működik") — a `.page`
+      // szelektor felvételekor az EGYOLDALAS, lapszám-jelzés nélküli iratok
+      // (Kiadási kísérőív) is átkerültek a laponkénti útra, pedig azoknál a
+      // bevált, teljes-dokumentumos út a helyes: egy lap canvas-mérete messze a
+      // GPU-plafon alatt van, a laponkénti út many-edge-case-e (min-height-es,
+      // flex-elrendezésű lap) viszont épp náluk üthet vissza. A laponkénti út
+      // CSAK ott kell, ahol a plafon-kockázat valós: több lap, VAGY a dokumentum
+      // maga kérte a lapszám-őrt (data-sheet-count).
+      if (sheetEls.length > 1 || expected > 0) {
         const pageHeightPx = sheetEls[0].offsetWidth * (297 / 210)
         const allPageSized = sheetEls.every((s) => s.offsetHeight <= pageHeightPx * 1.02)
         if (allPageSized) {
