@@ -77,5 +77,17 @@ if (sql.includes('ENABLE ROW LEVEL SECURITY') && sql.includes('backup_table_poli
   ok('F8: mentőkód-tábla RLS + egyetlen select-policy + mentés-besorolás')
 } else fail('F8: a mentőkód-migráció védelme hiányos!')
 
+// F9: a DESKTOP login is kezeli a 2. lepcsot (challenge+verify)
+const dLogin = read('apps/desktop/src/pages/login-page.tsx')
+if (dLogin && dLogin.includes('getAuthenticatorAssuranceLevel') && dLogin.includes('mfa.challenge') && dLogin.includes('mfa.verify')) {
+  ok('F9: a desktop belepo-oldal kezeli a TOTP-lepcsot')
+} else fail('F9: a desktop login NEM kezeli a 2FA-t — nema kizaras jonne!')
+
+// F10: az AuthGate nem enged be aal1-es sessiont, ha a fioknak faktora van
+const dGate = read('apps/desktop/src/lib/auth-gate.tsx')
+if (dGate && dGate.includes('mfaSzukseges') && dGate.includes('getAuthenticatorAssuranceLevel')) {
+  ok('F10: az AuthGate aal-ellenorzessel enged be')
+} else fail('F10: az AuthGate barmilyen sessiont beenged — 2FA-kerulout!')
+
 if (failed) { console.error('\n2FA selftest: HIBA'); process.exit(1) }
 console.log('\n2FA selftest: minden rendben ✅')
