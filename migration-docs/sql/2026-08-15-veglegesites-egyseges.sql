@@ -125,7 +125,7 @@ WHERE table_schema = 'public'
 --    ismernie kell a táblát — ha ❌, a mentés amúgy is hangosan áll):
 SELECT
   CASE WHEN EXISTS (
-    SELECT 1 FROM public.backup_table_policy WHERE table_name = 'bealitas'
+    SELECT 1 FROM public.backup_table_policy WHERE tabla = 'bealitas'
   )
     THEN '✅ a bealitas mentés-besorolása rendben'
     ELSE '❌ a bealitas NINCS besorolva a backup_table_policy-ban!'
