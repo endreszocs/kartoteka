@@ -92,7 +92,9 @@ export interface UnlockRequest {
   year: string
   // 2026-07-17 (F5): 'jelentes' = a hivatalos lelkészi jelentés feloldása
   // (lelkeszi_jelentes tábla, unlock_requested/unlock_reason flow)
-  type: 'budget' | 'accounting' | 'inventory' | 'jelentes'
+  // 2026-08-15 (Endre 4. szakasz): 'valasztok' = a választók névjegyzékének
+  // feloldása (bealitas.valasztok_finalized / valasztok_unlock_requested)
+  type: 'budget' | 'accounting' | 'inventory' | 'jelentes' | 'valasztok'
   reason: string | null
   requestedAt: string | null
 }

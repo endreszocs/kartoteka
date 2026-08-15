@@ -51,6 +51,9 @@ import type {
   FxRevaluationRow,
 } from '@/lib/constants/finance'
 import { getEffectiveCongregationContext, getEffectiveAccessContext } from '@/lib/auth/effective-access'
+// 2026-08-15 (egységes véglegesítés): a séma-drift felismerés KÖZÖS helperből
+// (a korábbi lokális isMissingColumnError odaköltözött — széthúzó másolat tilos).
+import { isMissingColumnError } from '@/lib/utils/schema-errors'
 import { inventoryItemSchema } from '@/lib/validations/inventory'
 import { INVENTORY_CATEGORY_PREFIXES, normalizeInventoryCategory, serializeInventoryCategory } from '@/lib/constants/inventory.next'
 import {
@@ -697,15 +700,8 @@ export async function getYearFinanceRecords(year: number): Promise<{
   }
 }
 
-function isMissingColumnError(message?: string) {
-  const lower = message?.toLowerCase() || ''
-  return (
-    lower.includes('column') ||
-    lower.includes('schema cache') ||
-    lower.includes('could not find') ||
-    lower.includes('does not exist')
-  )
-}
+// 2026-08-15: az isMissingColumnError a KÖZÖS @/lib/utils/schema-errors
+// helperből jön (fenti import) — a lokális másolat megszűnt.
 
 function shouldRetryLegacySettingsInsert(message?: string) {
   const lower = message?.toLowerCase() || ''
@@ -3122,6 +3118,24 @@ type YearlyFinanceFlagUpdates = Partial<
 > & {
   unlock_reason?: string | null
   accounting_unlock_reason?: string | null
+  // 2026-08-15 (Endre 4. szakasz — egységes véglegesítés-gomb): a zöld pecsét
+  // dátum/szerző pecsét-mezői. OPCIONÁLISAK: a 2026-08-15-veglegesites-egyseges.sql
+  // előtt az oszlop nem létezik — ilyenkor az írás a pecsét NÉLKÜL fut újra
+  // (a zászló maga nem veszhet el egy hiányzó dísz-oszlop miatt).
+  budget_finalized_at?: string | null
+  budget_finalized_by?: string | null
+}
+
+/**
+ * A pecsét-mezők (opcionális *_finalized_at / *_finalized_by) kulcsai — ezeket
+ * a séma-fallback eldobhatja, a kötelező zászlókat SOHA.
+ */
+const FINALIZE_STAMP_KEYS = ['budget_finalized_at', 'budget_finalized_by'] as const
+
+function stripFinalizeStampKeys(updates: YearlyFinanceFlagUpdates): YearlyFinanceFlagUpdates {
+  const stripped = { ...updates }
+  for (const key of FINALIZE_STAMP_KEYS) delete stripped[key]
+  return stripped
 }
 
 /**
@@ -3148,12 +3162,27 @@ async function updateYearlyFinanceFlags(
   // „Nincs bejelentkezett felhasználó." szerepel, ez az egy sor lógott ki.
   if (!congregationId) return { error: 'Nincs bejelentkezett felhasználó.' }
 
-  const { data: updated, error } = await supabase
+  let { data: updated, error } = await supabase
     .from('bealitas')
     .update(updates)
     .eq('id', String(year))
     .eq('congregation_id', congregationId)
     .select('id')
+
+  // 2026-08-15: séma-fallback CSAK a pecsét-mezőkre (*_finalized_at/_by) —
+  // migráció előtti adatbázison a zászló pecsét nélkül is beíródik. A kötelező
+  // zászlók hiányzó oszlopa továbbra is hangos hiba.
+  const strippable = FINALIZE_STAMP_KEYS.some((k) => k in updates)
+  if (error && strippable && isMissingColumnError(error.message)) {
+    const retry = await supabase
+      .from('bealitas')
+      .update(stripFinalizeStampKeys(updates))
+      .eq('id', String(year))
+      .eq('congregation_id', congregationId)
+      .select('id')
+    updated = retry.data
+    error = retry.error
+  }
 
   if (error) return { error: `Hiba: ${error.message}` }
   if (!updated || updated.length === 0) {
@@ -3195,7 +3224,17 @@ export async function finalizeBudget(year: number) {
     return { success: true }
   }
 
-  return updateYearlyFinanceFlags(year, { budget_finalized: true }, 'A költségvetés véglegesítése')
+  // 2026-08-15 (Endre 4. szakasz): dátum/szerző pecsét a zöld jelvényhez —
+  // migráció előtti adatbázison a fallback pecsét nélkül írja a zászlót.
+  return updateYearlyFinanceFlags(
+    year,
+    {
+      budget_finalized: true,
+      budget_finalized_at: new Date().toISOString(),
+      budget_finalized_by: scope.userId ?? null,
+    },
+    'A költségvetés véglegesítése',
+  )
 }
 
 export async function requestBudgetUnlock(year: number, reason?: string | null) {
@@ -3453,17 +3492,35 @@ export async function finalizeAccounting(
   // maradt (és a `szamadas_zaro_adatok` sem íródott ki) — pontosan az a
   // „beküldött-de-nyitott, némán elévülő snapshot" állapot, amit a zár-előszőr
   // sorrend meg akart szüntetni. Mostantól a 0 soros zárás HANGOS hiba.
-  const { data: finalizedRows, error } = await supabase
+  // 2026-08-15 (Endre 4. szakasz): + dátum/szerző pecsét (accounting_finalized_at/_by)
+  // a zöld jelvényhez. Séma-fallback: migráció előtti adatbázison a pecsét-mezők
+  // NÉLKÜL fut újra az írás — a zárás nem bukhat el egy hiányzó dísz-oszlopon.
+  const zarasPayload = {
+    accounting_finalized: true,
+    szamadas_zaro_adatok: storedSnapshot,
+    ...(meta?.jegyzokonyviSzam ? { szamadas_hatarozat_szam: meta.jegyzokonyviSzam } : {}),
+    ...(meta?.targyalasDatuma ? { szamadas_hatarozat_datum: meta.targyalasDatuma } : {}),
+  }
+  let { data: finalizedRows, error } = await supabase
     .from('bealitas')
     .update({
-      accounting_finalized: true,
-      szamadas_zaro_adatok: storedSnapshot,
-      ...(meta?.jegyzokonyviSzam ? { szamadas_hatarozat_szam: meta.jegyzokonyviSzam } : {}),
-      ...(meta?.targyalasDatuma ? { szamadas_hatarozat_datum: meta.targyalasDatuma } : {}),
+      ...zarasPayload,
+      accounting_finalized_at: new Date().toISOString(),
+      accounting_finalized_by: scope.userId ?? null,
     })
     .eq('id', String(year))
     .eq('congregation_id', scope.scopeId)
     .select('id')
+  if (error && isMissingColumnError(error.message)) {
+    const retry = await supabase
+      .from('bealitas')
+      .update(zarasPayload)
+      .eq('id', String(year))
+      .eq('congregation_id', scope.scopeId)
+      .select('id')
+    finalizedRows = retry.data
+    error = retry.error
+  }
 
   if (error) return { error: `Hiba: ${error.message}` }
   if (!finalizedRows || finalizedRows.length === 0) {

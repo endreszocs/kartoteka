@@ -205,6 +205,22 @@ export interface BealitasRow {
   accounting_unlock_reason: string | null
   leltar_unlock_requested?: boolean
   leltar_unlock_reason?: string | null
+  // 2026-08-15 (Endre 4. szakasz — egységes véglegesítés-gomb): a véglegesítés
+  // időbélyege/szerzője a zöld pecsét-jelvényhez. OPCIONÁLIS: a
+  // 2026-08-15-veglegesites-egyseges.sql migráció előtt az oszlopok még nem
+  // léteznek — az írásuk séma-fallbackkel történik, az olvasásuk undefined-re esik.
+  budget_finalized_at?: string | null
+  budget_finalized_by?: string | null
+  accounting_finalized_at?: string | null
+  accounting_finalized_by?: string | null
+  leltar_finalized_at?: string | null
+  leltar_finalized_by?: string | null
+  // Választók névjegyzéke — ÚJ véglegesítés-zászlók (ugyanabban a migrációban).
+  valasztok_finalized?: boolean
+  valasztok_finalized_at?: string | null
+  valasztok_finalized_by?: string | null
+  valasztok_unlock_requested?: boolean
+  valasztok_unlock_reason?: string | null
   szamadas_zaro_adatok: Record<string, unknown> | null
   /**
    * 2026-08-14 (K2): a hivatalos Számadás 116–133. sorainak év végi adatai.

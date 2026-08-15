@@ -32,6 +32,9 @@ export * from './form/ModalField'
 // 2026-08-11 (K5-#12): közös indoklás-bekérő dialógus a `window.prompt` helyett
 // (a natív prompt mobilon egysoros, Firefoxban letiltható → néma elérhetetlenség).
 export * from './form/ReasonPromptDialog'
+// 2026-08-15 (Endre 4. szakasz): EGYSÉGES véglegesítés-gomb mind a 6 irat-típushoz
+// (számadás, költségvetés, módosítás, vagyonleltár, választók, lelkészi jelentés).
+export * from './shared/FinalizeButton'
 // Sprint R · Vizuális megújulás (v0.8.1) — téma-választó réteg
 export * from './theme'
 // Sprint R · Vizuális megújulás (v0.8.2) — Missziós Műhely home

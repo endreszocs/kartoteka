@@ -22,10 +22,13 @@
  */
 
 import { useMemo, useState, type ReactNode } from 'react'
-import { AlertTriangle, Landmark, Scale, Send, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
+import { AlertTriangle, Landmark, Scale, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
 
-import { Badge, Button } from '@kartoteka/ui'
+import { Badge } from '@kartoteka/ui'
 
+// 2026-08-15 (Endre 4. szakasz): EGYSÉGES véglegesítés-gomb — egy megjelenés,
+// egy viselkedés mind a 6 irat-típusnál. A wizard-flow változatlan (skipConfirm).
+import { FinalizeButton } from '../shared/FinalizeButton'
 import {
   gyulekezetSzerkesztheti,
   osszegezLevelek,
@@ -387,28 +390,20 @@ export function AccountingTab({
     return <FinanceLoadingState label="Számadás betöltése…" logoSrc={loadingLogoSrc} />
   }
 
-  async function handleRequestUnlock() {
-    if (!onRequestUnlock) return
-    if (typeof window === 'undefined') return
-    const reason = window.prompt(
-      'Javítási kérelem — Számadás\n\n' +
-        'Kérjük, fogalmazza meg röviden, miért szükséges a javítás. ' +
-        'Az egyházmegye bírálja el a kérelmet, és az indoklást a csengőben látja.',
-      '',
-    )
-    if (reason === null) return
-    const trimmed = reason.trim()
-    if (!trimmed) {
-      onToast?.('Kérjük, adja meg a javítás okát.', 'error')
-      return
-    }
-    const result = await onRequestUnlock(currentYear, trimmed)
+  // 2026-08-15 (Endre 4. szakasz): a korábbi `window.prompt`-os javítási kérelem
+  // az EGYSÉGES FinalizeButton indoklás-dialógusára költözött (kötelező, ≥10
+  // karakteres indoklás — mint a többi irat-típusnál). A toast/refresh itt marad,
+  // a komponens csak a dialógus nyitva tartását dönti el a visszaadott hibából.
+  async function handleUnlockRequest(reason: string) {
+    if (!onRequestUnlock) return { error: 'A feloldás-kérés ezen a felületen nem érhető el.' }
+    const result = await onRequestUnlock(currentYear, reason)
     if (result.error) {
       onToast?.(result.error, 'error')
-      return
+      return { error: result.error }
     }
     onToast?.('Javítási kérelem elküldve az egyházmegyének!', 'success')
     onRefresh?.()
+    return { success: true }
   }
 
   const summary: AccountingFinalizeSummary = {
@@ -582,13 +577,27 @@ export function AccountingTab({
           Bevételek tábla 1–3. sorai (lásd lent, openingRows) — a külön kártya megszűnt. */}
       <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
         <div className="card-raised p-5">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Scale className="size-4 text-cyan-600" />
             <p className="text-base font-semibold text-slate-800">Élő számadási kép</p>
-            {settings.accounting_finalized && (
-              <Badge className="border-0 bg-emerald-100 text-emerald-700 ml-auto">
-                Véglegesítve
-              </Badge>
+            {/* 2026-08-15 (Endre 4. szakasz): EGYSÉGES véglegesítés-gomb a
+                fejléc-sáv jobb szélén. A meglévő wizard-flow változatlan
+                (skipConfirm: a wizard maga vezet végig és erősít meg); a
+                feloldás-kérés a közös indoklás-dialógussal megy. */}
+            {(finalizeWizardSlot || settings.accounting_finalized) && (
+              <FinalizeButton
+                className="ml-auto"
+                documentLabel="számadás"
+                year={currentYear}
+                finalized={!!settings.accounting_finalized}
+                finalizedAt={settings.accounting_finalized_at ?? null}
+                unlockRequested={!!settings.accounting_unlock_requested}
+                finalizeLabel="Véglegesítés és beküldés"
+                skipConfirm
+                onFinalize={() => setFinalizeWizardOpen(true)}
+                onRequestUnlock={onRequestUnlock ? handleUnlockRequest : undefined}
+                unlockPlaceholder="Pl. Egy decemberi banki kiadás rossz jogcímre került, javítani szeretném."
+              />
             )}
           </div>
           <p className="mt-2 text-sm leading-6 text-slate-500">
@@ -613,35 +622,14 @@ export function AccountingTab({
             />
           </div>
 
-          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+          {/* 2026-08-15 (Endre 4. szakasz): a gomb a fejléc-sávba költözött
+              (egységes hely mind a 6 irat-típusnál) — itt csak a magyarázat marad. */}
+          <div className="mt-5 border-t border-slate-100 pt-4">
             <p className="text-xs text-slate-500 max-w-md">
               {settings.accounting_finalized
-                ? 'A számadás véglegesítve és beküldve az egyházmegyének. Módosítás csak javítási kérelemmel lehetséges.'
-                : 'Ha minden tétel stimmel, egy kattintással véglegesítheted és beküldheted a számadást az egyházmegyének.'}
+                ? 'A számadás véglegesítve és beküldve az egyházmegyének. Módosítás csak a fenti „Feloldás kérése" úton lehetséges.'
+                : 'Ha minden tétel stimmel, a fenti „Véglegesítés és beküldés" gombbal zárhatod le és küldheted be a számadást az egyházmegyének.'}
             </p>
-            {/* 2026-07-10 (S4-mobil): max-sm:min-h-10 — 40px-es érintőfelület telefonon. */}
-            {!settings.accounting_finalized ? (
-              <Button
-                size="sm"
-                className="rounded-xl max-sm:min-h-10 bg-violet-600 hover:bg-violet-700 gap-1.5"
-                onClick={() => setFinalizeWizardOpen(true)}
-              >
-                <Send className="size-4" />
-                Véglegesítés és beküldés
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                className="rounded-xl max-sm:min-h-10 border-amber-300 text-amber-700 hover:bg-amber-50"
-                onClick={handleRequestUnlock}
-                disabled={!!settings.accounting_unlock_requested}
-              >
-                {settings.accounting_unlock_requested
-                  ? 'Javítási kérelem elbírálás alatt…'
-                  : 'Javítási kérelem'}
-              </Button>
-            )}
           </div>
         </div>
 

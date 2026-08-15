@@ -11,10 +11,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ModuleHero } from '@/components/shared/module-hero'
 import { ColorTabs } from '@/components/ui/color-tabs'
-// 2026-08-11 (K5-#12): a feloldási kérelem indoklása eddig `window.prompt`-tal
-// kérdezett. Ez a már meglévő, indok-mezős megerősítő dialógus váltja ki
-// (ugyanaz, amit az admin-felületek és a programtervező is használ).
-import { AdminConfirmDialog } from '@/components/admin/admin-confirm-dialog'
+// 2026-08-15 (Endre 4. szakasz): EGYSÉGES véglegesítés-gomb — megerősítő
+// dialógussal és a feloldás-kérés indoklás-dialógusával; a korábbi
+// window.confirm + AdminConfirmDialog párost ez az egy közös komponens váltja.
+import { FinalizeButton } from '@kartoteka/ui-app'
 import { InventoryAmortizationDialog } from '@/components/inventory/inventory-amortization-dialog'
 import { InventoryGuideTab } from '@/components/inventory/inventory-guide-tab'
 import { MaterialWarehouseTab } from '@/components/inventory/material-warehouse-tab'
@@ -79,10 +79,8 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
   const [amortizationItem, setAmortizationItem] = useState<InventoryItem | null>(null)
   const [isFinalized, setIsFinalized] = useState(false)
   const [unlockRequested, setUnlockRequested] = useState(false)
-  // 2026-08-11 (K5-#12): a feloldási kérelem indoklásának állapota (a
-  // `window.prompt` helyett rendes dialógus, kötelező indoklással).
-  const [unlockDialogOpen, setUnlockDialogOpen] = useState(false)
-  const [unlockSending, setUnlockSending] = useState(false)
+  // 2026-08-15 (Endre 4. szakasz): a véglegesítés dátuma a zöld pecsét-jelvényhez.
+  const [finalizedAt, setFinalizedAt] = useState<string | null>(null)
   // 2026-08-11 (P1 #24): melyik ÉV vagyonleltári jelentéséről van szó. A szerver
   // adja (documentSeasonYear) — ugyanaz a kulcs, mint a véglegesítésé és a
   // beküldésé, így a lelkész is látja, mit zár le éppen.
@@ -132,6 +130,7 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
     setItems(data)
     setIsFinalized(status.finalized)
     setUnlockRequested(status.unlockRequested)
+    setFinalizedAt(status.finalizedAt)
     setReportYear(year)
     if (araktar.data) setAnyagraktarStats(araktar.data)
     setLoading(false)
@@ -325,14 +324,10 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
     void printToBrowser(buildInventoryItemCardHtml({ ...itemToCardData(item), lang: fisaLang }).html)
   }
 
+  // 2026-08-15 (Endre 4. szakasz): a megerősítést az EGYSÉGES FinalizeButton
+  // dialógusa adja (az év-megnevezéssel — P1 #24) — mire ez fut, a lelkész már
+  // megerősítette a véglegesítést.
   async function handleFinalize() {
-    // 2026-08-11 (P1 #24): a megerősítő szöveg is megnevezi az évet — így derül
-    // ki azonnal, ha a lelkész nem arra az évre gondolt.
-    const yearLabel = reportYear ? `A(z) ${reportYear}. évi vagyonleltári jelentés` : 'A vagyonleltári jelentés'
-    if (!window.confirm(`${yearLabel} véglegesítése után új jelentést nem lehet lezárni, amíg az egyházmegye feloldást nem ad. A leltári tételek ettől még tovább szerkeszthetők. Folytatja?`)) {
-      return
-    }
-
     const result = await finalizeLeltar()
     if (result.error) {
       toast.error(result.error)
@@ -347,33 +342,19 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
     await load()
   }
 
-  // ── 2026-08-11 (K5-#12): feloldási kérelem indoklással ────────────────────
-  // MI VOLT A HIBA: az indoklást `window.prompt` kérdezte, és a kód csak a
-  // `null`-t (Mégse) szűrte — az ÜRES sztring átment, a szerver `|| null`-ként
-  // mentette, így az esperes indoklás NÉLKÜLI feloldási kérelmet kapott, amit
-  // nem tudott elbírálni, a lelkész viszont „elküldve" visszajelzést látott.
-  // Ráadásul a `window.prompt` telefonon egysoros és nem méretezhető, Firefox
-  // pedig ismételt használat után letiltatja a további dialógusokat — ekkor a
-  // funkció NÉMÁN elérhetetlenné vált.
-  async function submitUnlockRequest(reason?: string) {
-    const trimmed = (reason || '').trim()
-    if (!trimmed) {
-      toast.error('Kérjük, írja le, miért kéri a jelentés feloldását — enélkül az esperes nem tudja elbírálni a kérelmet.')
-      return
-    }
-
-    setUnlockSending(true)
-    const result = await requestLeltarUnlock(trimmed)
-    setUnlockSending(false)
-
+  // ── 2026-08-11 (K5-#12) + 2026-08-15 (Endre 4. szakasz) ───────────────────
+  // A feloldás-kérés indoklása az EGYSÉGES FinalizeButton indoklás-dialógusán
+  // érkezik (kötelező, ≥10 karakter — a szerver is ellenőrzi). A visszatérési
+  // értékből dönti el a komponens, hogy a dialógus bezárható-e.
+  async function submitUnlockRequest(reason: string) {
+    const result = await requestLeltarUnlock(reason)
     if (result.error) {
       toast.error(result.error)
-      return
+      return { error: result.error }
     }
-
-    setUnlockDialogOpen(false)
     toast.success('Feloldási kérelem elküldve az egyházmegyének.')
     await load()
+    return { success: true }
   }
 
   function openDialog(item?: InventoryItem) {
@@ -711,29 +692,22 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
                 <Button size="sm" variant="outline" className="min-h-11 rounded-xl" onClick={() => setPrintDialogOpen(true)}>
                   Nyomtatási központ
                 </Button>
-                {!isFinalized ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="min-h-11 rounded-xl border-green-300 text-green-700"
-                    onClick={() => void handleFinalize()}
-                  >
-                    {reportYear ? `${reportYear}. évi jelentés véglegesítése` : 'Jelentés véglegesítése'}
-                  </Button>
-                ) : unlockRequested ? (
-                  <Button size="sm" variant="outline" disabled className="min-h-11 rounded-xl">
-                    Jelentés-feloldási kérelem elbírálás alatt
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="min-h-11 rounded-xl border-amber-300 text-amber-700"
-                    onClick={() => setUnlockDialogOpen(true)}
-                  >
-                    Jelentés feloldásának kérése
-                  </Button>
-                )}
+                {/* 2026-08-15 (Endre 4. szakasz): EGYSÉGES véglegesítés-gomb a
+                    fejléc-sáv (műveletsor) jobb szélén — mind a 6 irat-típusnál
+                    ugyanez a komponens. A leltári tételek a véglegesítés után is
+                    szerkeszthetők maradnak (csak a JELENTÉS zárul le) — ezt a
+                    megerősítő dialógus külön kimondja. */}
+                <FinalizeButton
+                  documentLabel="vagyonleltári jelentés"
+                  year={reportYear}
+                  finalized={isFinalized}
+                  finalizedAt={finalizedAt}
+                  unlockRequested={unlockRequested}
+                  confirmDescription="A véglegesítés a vagyonleltári JELENTÉST zárja le — a leltári tételek ettől még tovább szerkeszthetők, de új jelentést addig nem lehet lezárni, amíg az egyházmegye feloldást nem ad."
+                  onFinalize={handleFinalize}
+                  onRequestUnlock={submitUnlockRequest}
+                  unlockPlaceholder="Pl. Kimaradt a februárban vásárolt hangosítás, pótolni szeretném."
+                />
                 {isFinalized && (
                   <Button
                     size="sm"
@@ -955,25 +929,8 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
         onOpenChange={setAmortizationDialogOpen}
       />
 
-      {/* 2026-08-11 (K5-#12): a `window.prompt` helyett rendes dialógus —
-          kötelező, legalább 10 karakteres indoklással. Enélkül a kérelem
-          el sem küldhető, tehát az esperes mindig kap mire alapozni. */}
-      <AdminConfirmDialog
-        open={unlockDialogOpen}
-        onOpenChange={open => {
-          if (!unlockSending) setUnlockDialogOpen(open)
-        }}
-        title={reportYear ? `A(z) ${reportYear}. évi vagyonleltári jelentés feloldása` : 'A vagyonleltári jelentés feloldása'}
-        description="A kérelmet az egyházmegye bírálja el. Írja le röviden, mit kell javítania a már véglegesített jelentésen — ebből tudja az esperes eldönteni, hogy feloldja-e."
-        confirmLabel="Kérelem elküldése"
-        cancelLabel="Mégse"
-        loading={unlockSending}
-        reasonLabel="A feloldás indoklása"
-        reasonPlaceholder="Pl. Kimaradt a februárban vásárolt hangosítás, pótolni szeretném."
-        reasonRequired
-        reasonMinLength={10}
-        onConfirm={reason => void submitUnlockRequest(reason)}
-      />
+      {/* 2026-08-15 (Endre 4. szakasz): a feloldás-kérés indoklás-dialógusa a
+          közös FinalizeButton-ban él (kötelező, ≥10 karakteres indoklás). */}
 
       <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
         {/* 2026-08-09: xl+ szélességen a fişă élő előnézete külön oszlopban

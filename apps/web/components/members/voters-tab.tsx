@@ -3,9 +3,12 @@
 import { useEffect, useState, useMemo } from 'react'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { getVoters, recomputeVoterEligibility, setVoterOverride, getVoterConfirmationRequirement, setVoterConfirmationRequirement, type VoterRow } from '@/app/(dashboard)/tagnyilvantartas/voter-actions'
+import { getVoters, recomputeVoterEligibility, setVoterOverride, getVoterConfirmationRequirement, setVoterConfirmationRequirement, getValasztokFinalizationStatus, finalizeValasztok, requestValasztokUnlock, type VoterRow } from '@/app/(dashboard)/tagnyilvantartas/voter-actions'
 import { Users, User, UserRound, CheckCircle, Printer, Send, Scale as ScaleIcon, RefreshCw, Lock, Unlock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+// 2026-08-15 (Endre 4. szakasz): EGYSÉGES véglegesítés-gomb — ugyanaz a
+// komponens, mint a számadás/költségvetés/leltár/lelkészi jelentés felületén.
+import { FinalizeButton } from '@kartoteka/ui-app'
 import { submitDocument } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
 import { VoterPrintDialog } from '@/components/members/voter-print-dialog'
 import { toast } from 'sonner'
@@ -27,6 +30,14 @@ export function VotersTab() {
   // az egyházmegyének beküldött létszám és a nyomtatás TOVÁBBRA IS a teljes
   // halmazon dolgozik — csak a DOM-ba írt sorok száma korlátozott.
   const [visibleCount, setVisibleCount] = useState(150)
+  // 2026-08-15 (Endre 4. szakasz): az idei névjegyzék véglegesítés-állapota —
+  // a szerver adja az év-kulcsot is, hogy a beküldés bit-azonos évvel menjen.
+  const [finalization, setFinalization] = useState<{
+    year: number
+    finalized: boolean
+    finalizedAt: string | null
+    unlockRequested: boolean
+  }>({ year: new Date().getFullYear(), finalized: false, finalizedAt: null, unlockRequested: false })
 
   const currentYear = new Date().getFullYear()
 
@@ -34,10 +45,30 @@ export function VotersTab() {
     return getVoters().then(data => { setVoters(data); setLoading(false) })
   }
 
+  function reloadFinalization() {
+    return getValasztokFinalizationStatus().then(setFinalization)
+  }
+
   useEffect(() => {
     reload()
     void getVoterConfirmationRequirement().then(setConfirmationRequired)
+    void reloadFinalization()
   }, [])
+
+  async function handleFinalize() {
+    const res = await finalizeValasztok()
+    if (res.error) { toast.error(res.error); return }
+    toast.success(`A(z) ${finalization.year}. évi választók névjegyzéke véglegesítve lett.`)
+    await reloadFinalization()
+  }
+
+  async function handleUnlockRequest(reason: string) {
+    const res = await requestValasztokUnlock(reason)
+    if (res.error) { toast.error(res.error); return { error: res.error } }
+    toast.success('Feloldási kérelem elküldve az egyházmegyének.')
+    await reloadFinalization()
+    return { success: true }
+  }
 
   async function handleConfirmationToggle(required: boolean) {
     setConfirmationSaving(true)
@@ -121,16 +152,18 @@ export function VotersTab() {
       </div>
 
       {/* Műveletek */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
           variant="outline"
           className="rounded-xl border-emerald-200 text-emerald-700 hover:bg-emerald-50"
           onClick={handleRecompute}
-          disabled={recomputing || loading}
-          title={confirmationRequired
-            ? 'A választói névjegyzék frissítése a szabály alapján: 18+, konfirmált, élő aktív tag (a kézi felülbírálás megmarad)'
-            : 'A választói névjegyzék frissítése a szabály alapján: 18+, élő aktív tag — konfirmáció-feltétel KIKAPCSOLVA (a kézi felülbírálás megmarad)'}
+          disabled={recomputing || loading || finalization.finalized}
+          title={finalization.finalized
+            ? `A(z) ${finalization.year}. évi névjegyzék véglegesítve — az újraszámítás zárolva (feloldás az egyházmegyétől kérhető).`
+            : confirmationRequired
+              ? 'A választói névjegyzék frissítése a szabály alapján: 18+, konfirmált, élő aktív tag (a kézi felülbírálás megmarad)'
+              : 'A választói névjegyzék frissítése a szabály alapján: 18+, élő aktív tag — konfirmáció-feltétel KIKAPCSOLVA (a kézi felülbírálás megmarad)'}
         >
           <RefreshCw className={`mr-1 size-3.5 ${recomputing ? 'animate-spin' : ''}`} />
           {recomputing ? 'Frissítés…' : 'Jogosultság frissítése'}
@@ -140,12 +173,14 @@ export function VotersTab() {
             18+ tag, az jogosultnak számít. */}
         <label
           className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 text-xs font-medium text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200"
-          title="Ha a konfirmálási anyakönyv még nincs bevezetve a rendszerbe, kapcsold ki — ilyenkor aki fizet (vagy felmentett) és aktív 18+ tag, az jogosultnak számít."
+          title={finalization.finalized
+            ? `A(z) ${finalization.year}. évi névjegyzék véglegesítve — a kritérium-váltás zárolva.`
+            : 'Ha a konfirmálási anyakönyv még nincs bevezetve a rendszerbe, kapcsold ki — ilyenkor aki fizet (vagy felmentett) és aktív 18+ tag, az jogosultnak számít.'}
         >
           <input
             type="checkbox"
             checked={confirmationRequired}
-            disabled={confirmationSaving || loading}
+            disabled={confirmationSaving || loading || finalization.finalized}
             onChange={e => void handleConfirmationToggle(e.target.checked)}
             className="rounded"
           />
@@ -161,25 +196,47 @@ export function VotersTab() {
           <Printer className="mr-1 size-3.5" />
           Nyomtatási központ
         </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          className="rounded-xl border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-          onClick={async () => {
-            if (!confirm(`Beküldöd a választók névjegyzékét az egyházmegyének? (${canonCount} fő)`)) return
-            const year = new Date().getFullYear()
-            // 2026-07-17 (PR-2 F1.5): a beküldött létszám a KANONIKUS definíció
-            // (jogosult ÉS fizetett-vagy-felmentett), NEM a képernyőn épp aktív
-            // szűrők (pl. keresőmező) eredménye — a definíció a snapshotba kerül.
-            const snapshot = { voterCount: canonCount, year, rule: 'eligible_and_paid_or_exempt' }
-            const result = await submitDocument('valasztok_nevjegyzeke', year, snapshot)
-            if ('error' in result && result.error) toast.error(result.error)
-            else toast.success(`Választók névjegyzéke beküldve az egyházmegyének (${canonCount} fő)!`)
-          }}
-        >
-          <Send className="mr-1 size-3.5" />
-          Beküldés egyházmegyének
-        </Button>
+        {/* 2026-08-15 (Endre 4. szakasz): a beküldés — a leltárral azonos
+            mintára — csak VÉGLEGESÍTETT névjegyzéknél érhető el: a megye azt
+            lássa, amit a gyülekezet véglegesített. Az év-kulcs a szerverről jön
+            (finalization.year), így a véglegesítés és a beküldés éve bit-azonos. */}
+        {finalization.finalized && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="rounded-xl border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+            onClick={async () => {
+              const year = finalization.year
+              if (!confirm(`Beküldöd a(z) ${year}. évi választók névjegyzékét az egyházmegyének? (${canonCount} fő)`)) return
+              // 2026-07-17 (PR-2 F1.5): a beküldött létszám a KANONIKUS definíció
+              // (jogosult ÉS fizetett-vagy-felmentett), NEM a képernyőn épp aktív
+              // szűrők (pl. keresőmező) eredménye — a definíció a snapshotba kerül.
+              const snapshot = { voterCount: canonCount, year, rule: 'eligible_and_paid_or_exempt' }
+              const result = await submitDocument('valasztok_nevjegyzeke', year, snapshot)
+              if ('error' in result && result.error) toast.error(result.error)
+              else toast.success(`Választók névjegyzéke beküldve az egyházmegyének (${canonCount} fő)!`)
+            }}
+          >
+            <Send className="mr-1 size-3.5" />
+            Beküldés egyházmegyének
+          </Button>
+        )}
+        {/* 2026-08-15 (Endre 4. szakasz): EGYSÉGES véglegesítés-gomb a
+            fejléc-sáv (műveletsor) jobb szélén — mind a 6 irat-típusnál
+            ugyanez a komponens, ugyanitt. */}
+        <FinalizeButton
+          className="ml-auto"
+          documentLabel="választók névjegyzéke"
+          year={finalization.year}
+          finalized={finalization.finalized}
+          finalizedAt={finalization.finalizedAt}
+          unlockRequested={finalization.unlockRequested}
+          confirmDescription={`A névjegyzékben jelenleg ${canonCount} választó szerepel. A véglegesítés után a jogosultság-újraszámítás és a kézi módosítás a(z) ${finalization.year}. évre zárolva lesz.`}
+          disabled={loading}
+          onFinalize={handleFinalize}
+          onRequestUnlock={handleUnlockRequest}
+          unlockPlaceholder="Pl. Két új konfirmált tag kimaradt, a névjegyzéket pótolni szeretném."
+        />
       </div>
 
       {/* Szűrők */}
@@ -262,12 +319,17 @@ export function VotersTab() {
                             <Lock className={`w-3 h-3 ${v.override === 1 ? 'text-blue-500' : 'text-rose-500'}`} />
                           </span>
                         )}
-                        {/* Felülbírálás-vezérlő: auto → jogosult → kizárt → auto */}
+                        {/* Felülbírálás-vezérlő: auto → jogosult → kizárt → auto.
+                            2026-08-15 (Endre 4. szakasz): véglegesített névjegyzéknél
+                            tiltva — a szerver-oldali zár mellett a kattintás is. */}
                         <button
                           type="button"
-                          className="text-slate-300 transition hover:text-slate-600"
+                          className="text-slate-300 transition hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+                          disabled={finalization.finalized}
                           title={
-                            v.override === null ? 'Kézi felülbírálás: jogosulttá tétel'
+                            finalization.finalized
+                              ? `A(z) ${finalization.year}. évi névjegyzék véglegesítve — a kézi módosítás zárolva.`
+                              : v.override === null ? 'Kézi felülbírálás: jogosulttá tétel'
                               : v.override === 1 ? 'Kézi felülbírálás: kizárás'
                               : 'Vissza automatikusra'
                           }

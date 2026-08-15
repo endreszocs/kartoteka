@@ -37,6 +37,9 @@ const TYPE_LABELS: Record<UnlockRequest['type'], string> = {
   accounting: 'számadás',
   inventory: 'vagyonleltár',
   jelentes: 'lelkészi jelentés',
+  // 2026-08-15 (Endre 4. szakasz): a választók névjegyzéke is véglegesíthető →
+  // a feloldási kérelme is ide fut be.
+  valasztok: 'választók névjegyzéke',
 }
 
 /**
@@ -170,9 +173,21 @@ export async function approveUnlockRequest(
       updates.accounting_unlock_requested = false
       updates.accounting_unlock_reason = null
     } else if (type === 'inventory') {
+      // 2026-08-15 (egységes véglegesítés, HIBAJAVÍTÁS): a jóváhagyás eddig CSAK a
+      // kérelem-zászlókat törölte, a `leltar_finalized`-et NEM — a régi komment
+      // („a flag más logikával működik") elavult volt: a finalizeLeltar 2026-08-11
+      // óta pontosan ezt a bealitas-oszlopot állítja. Következmény: a jóváhagyott
+      // feloldás után a gyülekezetnél a jelentés ZÁRVA maradt — javítási zsákutca
+      // fejlesztő nélkül. Mostantól a jóváhagyás ténylegesen felold.
+      updates.leltar_finalized = false
       updates.leltar_unlock_requested = false
       updates.leltar_unlock_reason = null
-      // A leltár véglegesítési flag más logikával működik (leltar_tetelek szintjén)
+    } else if (type === 'valasztok') {
+      // 2026-08-15 (Endre 4. szakasz): a választók névjegyzékének feloldása —
+      // a zászló ÉS a kérelem-mezők együtt nyílnak, a többi típussal azonosan.
+      updates.valasztok_finalized = false
+      updates.valasztok_unlock_requested = false
+      updates.valasztok_unlock_reason = null
     }
 
     // 2026-08-09: 0-soros update (RLS-elnyelés / rossz kulcs) = hiba, nem siker
@@ -212,7 +227,8 @@ export async function approveUnlockRequest(
       : type === 'budget' ? (unlockedBudgetModNumber ? 'koltsegvetes_modositas' : 'koltsegvetes')
         : type === 'jelentes' ? 'lelkeszi_jelentes'
           : type === 'inventory' ? 'vagyonleltar'
-            : null
+            : type === 'valasztok' ? 'valasztok_nevjegyzeke'
+              : null
   if (unlockedDocType) {
     try {
       let subQuery = supabase
@@ -258,6 +274,7 @@ export async function approveUnlockRequest(
   revalidatePath('/penzugy')
   revalidatePath('/leltar')
   if (type === 'jelentes') revalidatePath('/munkanaplo')
+  if (type === 'valasztok') revalidatePath('/tagnyilvantartas')
   return { success: true }
 }
 
@@ -305,6 +322,11 @@ export async function rejectUnlockRequest(
     } else if (type === 'inventory') {
       updates.leltar_unlock_requested = false
       updates.leltar_unlock_reason = null
+    } else if (type === 'valasztok') {
+      // Elutasításkor CSAK a kérelem-mezők nullázódnak — a névjegyzék
+      // véglegesített marad (a lelkészi jelentés elutasítás-mintája).
+      updates.valasztok_unlock_requested = false
+      updates.valasztok_unlock_reason = null
     }
 
     // 2026-08-09: 0-soros update = hiba, nem hamis siker
@@ -332,6 +354,7 @@ export async function rejectUnlockRequest(
   revalidatePath('/dashboard-egyhazmegye')
   revalidatePath('/penzugy')
   if (type === 'jelentes') revalidatePath('/munkanaplo')
+  if (type === 'valasztok') revalidatePath('/tagnyilvantartas')
   return { success: true }
 }
 
@@ -390,12 +413,14 @@ async function sendUnlockDecisionNotification(
         `A dokumentum véglegesített állapotban marad. Ha szükséges, vegye fel a kapcsolatot az espertessel.`
 
     // A lelkészi jelentés a munkanapló-oldalon él, a leltár a saját oldalán,
-    // minden más a pénzügy-oldalon.
+    // a választók névjegyzéke a tagnyilvántartásban, minden más a pénzügy-oldalon.
     const hivatkozas = args.type === 'jelentes'
       ? '/munkanaplo'
       : args.type === 'inventory'
         ? '/leltar'
-        : '/penzugy'
+        : args.type === 'valasztok'
+          ? '/tagnyilvantartas'
+          : '/penzugy'
 
     const rows = Array.from(recipientIds).map((userId) => ({
       user_id: userId,
@@ -491,12 +516,29 @@ export async function getCongregationOverviewData(): Promise<Array<{
 
   const congIds = congregations.map((c: { id: string }) => c.id)
 
-  // Feloldási kérelmek (bealitas) — flag-eket kérdezzük le, nem pénzügyi adatot
-  const { data: bealitasData } = await supabase
+  // Feloldási kérelmek (bealitas) — flag-eket kérdezzük le, nem pénzügyi adatot.
+  // 2026-08-15 (Endre 4. szakasz): + a választók névjegyzékének kérelem-mezői.
+  // Séma-fallback: a valasztok_* oszlopok a 2026-08-15-veglegesites-egyseges.sql
+  // migrációval jönnek — előtte a bővített SELECT hibázna, és az EGÉSZ megyei
+  // áttekintő kiürülne; ezért ilyenkor a régi oszlop-listával olvasunk újra.
+  const bealitasSelectBase =
+    'id, congregation_id, unlock_requested, unlock_reason, accounting_unlock_requested, accounting_unlock_reason, leltar_unlock_requested, leltar_unlock_reason'
+  // A két SELECT-alak oszlop-listája eltér → a fallback-újraírás miatt lazán
+  // tipizálva (a lenti feldolgozó úgyis Record<string, unknown>-ként olvassa).
+  let bealitasRes: { data: unknown[] | null; error: { message: string } | null } = await supabase
     .from('bealitas')
-    .select('id, congregation_id, unlock_requested, unlock_reason, accounting_unlock_requested, accounting_unlock_reason, leltar_unlock_requested, leltar_unlock_reason')
+    .select(`${bealitasSelectBase}, valasztok_unlock_requested, valasztok_unlock_reason`)
     .in('congregation_id', congIds)
     .in('id', relevantYears.map(String))
+  if (bealitasRes.error) {
+    console.warn('[dashboard-egyhazmegye] valasztok_* oszlopok nem olvashatók (migráció előtt?):', bealitasRes.error.message)
+    bealitasRes = await supabase
+      .from('bealitas')
+      .select(bealitasSelectBase)
+      .in('congregation_id', congIds)
+      .in('id', relevantYears.map(String))
+  }
+  const bealitasData = bealitasRes.data
 
   // 2026-07-17 (F5): lelkészi jelentés feloldás-kérelmek (lelkeszi_jelentes) —
   // itt is csak a kérelem-flageket kérdezzük, nem a jelentés tartalmát.
@@ -563,6 +605,10 @@ export async function getCongregationOverviewData(): Promise<Array<{
       }
       if (bealitas.leltar_unlock_requested) {
         requests.push({ congregationId: cong.id, congregationName: cong.name, year: rowYear, type: 'inventory', reason: (bealitas.leltar_unlock_reason as string) || null, requestedAt: null })
+      }
+      // 2026-08-15 (Endre 4. szakasz): a választók névjegyzékének feloldás-kérelme.
+      if (bealitas.valasztok_unlock_requested) {
+        requests.push({ congregationId: cong.id, congregationName: cong.name, year: rowYear, type: 'valasztok', reason: (bealitas.valasztok_unlock_reason as string) || null, requestedAt: null })
       }
     }
     // 2026-07-17 (F5): lelkészi jelentés kérelmek — évenként külön sor lehet

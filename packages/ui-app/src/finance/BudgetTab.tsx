@@ -22,9 +22,10 @@ import { ArrowDownCircle, ArrowUpCircle, Check, Lock, Scale } from 'lucide-react
 
 import { Badge, Button } from '@kartoteka/ui'
 
-// 2026-08-11 (K5-#12): a javítási kérelem indoklása eddig `window.prompt`-tal
-// kérdezett (mobilon egysoros, Firefoxban letiltható → néma elérhetetlenség).
-import { ReasonPromptDialog } from '../form/ReasonPromptDialog'
+// 2026-08-15 (Endre 4. szakasz): EGYSÉGES véglegesítés-gomb (megerősítő
+// dialógussal + a feloldás-kérés indoklás-dialógusával) — a korábbi
+// window.confirm + külön ReasonPromptDialog helyett.
+import { FinalizeButton } from '../shared/FinalizeButton'
 import { gyulekezetSzerkesztheti, szamadasIvCellak } from './budget-reporting'
 import { FinanceLoadingState } from './FinanceLoadingState'
 import { formatCurrency } from './helpers'
@@ -145,9 +146,6 @@ export function BudgetTab({
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [mode, setMode] = useState<BudgetMode>('base')
-  // 2026-08-11 (K5-#12): a javítási kérelem indoklás-dialógusának állapota.
-  const [unlockDialogOpen, setUnlockDialogOpen] = useState(false)
-  const [unlockSending, setUnlockSending] = useState(false)
   // 2026-07-10 (#2): előző évi (currentYear-1) TÉNY kódonként — szürke referencia.
   const [prevActuals, setPrevActuals] = useState<{
     income: Record<string, number>
@@ -432,18 +430,14 @@ export function BudgetTab({
     }
   }
 
+  // 2026-08-15 (Endre 4. szakasz): a korábbi `window.confirm` megerősítést az
+  // EGYSÉGES FinalizeButton saját dialógusa váltotta ki — mire ez a függvény
+  // fut, a lelkész már megerősítette a véglegesítést.
   async function handleFinalizeAndSubmit() {
     if (typeof window === 'undefined') return
     const modNum = mode === 'base' ? null : mode === 'mod1' ? 1 : mode === 'mod2' ? 2 : 3
     const docType: 'koltsegvetes' | 'koltsegvetes_modositas' =
       mode === 'base' ? 'koltsegvetes' : 'koltsegvetes_modositas'
-
-    const confirmMsg =
-      mode === 'base'
-        ? 'Véglegesíti és beküldi az egyházmegyének az alap költségvetést?\n\nEzután csak feloldási kérelemmel módosítható.'
-        : `Véglegesíti és beküldi az egyházmegyének a ${modNum}. módosítást?\n\nEzután csak feloldási kérelemmel módosítható.`
-
-    if (!window.confirm(confirmMsg)) return
 
     // 2026-08-11 (5. kör, P0): dupla-koppintás védelem — ha már fut egy mentés
     // vagy beküldés, ne induljon egy második flow.
@@ -549,33 +543,23 @@ export function BudgetTab({
           ? 'alap költségvetés'
           : null
 
-  // ── 2026-08-11 (K5-#12): javítási kérelem indoklással ─────────────────────
-  // MI VOLT A HIBA: az indoklást `window.prompt` kérdezte. Az üres szöveget itt
-  // legalább elutasította a kód, de a natív prompt telefonon egysoros és nem
-  // méretezhető, Firefoxban pedig a felhasználó ismételt megjelenés után
-  // letilthatja a további dialógusokat — onnantól a javítási kérelem NÉMÁN
-  // elérhetetlen. Helyette rendes dialógus (textarea + kötelező-jelölés +
-  // Mégse/Elküldöm), a leltár feloldás-kérésével azonos mintára.
+  // ── 2026-08-11 (K5-#12) + 2026-08-15 (Endre 4. szakasz) ───────────────────
+  // A javítási kérelem indoklása az EGYSÉGES FinalizeButton indoklás-
+  // dialógusán érkezik (kötelező, ≥10 karakter). Az indoklás elé továbbra is a
+  // véglegesített szint kerül („[1. módosítás] …"), mert az esperes ebből
+  // tudja, MELYIK kört kell feloldania. A visszatérési értékből dönti el a
+  // komponens, hogy a dialógus bezárható-e (hiba = nyitva marad).
   async function submitUnlockRequest(reason: string) {
-    if (!lastFinalizedLabel) return
-    const trimmed = reason.trim()
-    if (!trimmed) {
-      onToast?.('Kérjük, adja meg a javítás okát.', 'error')
-      return
-    }
-
-    setUnlockSending(true)
-    const fullReason = `[${lastFinalizedLabel}] ${trimmed}`
+    if (!lastFinalizedLabel) return { error: 'Nincs véglegesített költségvetés-szint.' }
+    const fullReason = `[${lastFinalizedLabel}] ${reason.trim()}`
     const result = await requestBudgetUnlock(currentYear, fullReason)
-    setUnlockSending(false)
-
     if (result.error) {
       onToast?.(result.error, 'error')
-      return
+      return { error: result.error }
     }
-    setUnlockDialogOpen(false)
     onToast?.('Feloldási kérelem elküldve az egyházmegyének!', 'success')
     onRefresh?.()
+    return { success: true }
   }
 
   if (loading) {
@@ -587,6 +571,35 @@ export function BudgetTab({
   // 2026-07-10 (#2): az „Előző évi tény" halvány referencia-oszlop csak base
   // módban és csak betöltött előző évi adat mellett látszik.
   const showPrevYear = mode === 'base' && prevActuals !== null
+
+  // ── 2026-08-15 (Endre 4. szakasz): az AKTÍV szint véglegesítés-állapota ────
+  // Az egységes gomb mindig a kiválasztott fül (alap / 1–3. módosítás)
+  // állapotát mutatja; a feloldás-kérés viszont csak a LEGUTOLSÓ véglegesített
+  // szinten értelmes (a K5-#12-es lastFinalizedLabel logika szerint).
+  const activeModNum: 1 | 2 | 3 | null =
+    mode === 'base' ? null : mode === 'mod1' ? 1 : mode === 'mod2' ? 2 : 3
+  const activeFinalized =
+    mode === 'base'
+      ? isBaseFinalized
+      : mode === 'mod1'
+        ? isMod1Finalized
+        : mode === 'mod2'
+          ? isMod2Finalized
+          : isMod3Finalized
+  const activeFinalizedAt =
+    mode === 'base'
+      ? (settings.budget_finalized_at ?? null)
+      : mode === 'mod1'
+        ? (settings.budget_mod1_date ?? null)
+        : mode === 'mod2'
+          ? (settings.budget_mod2_date ?? null)
+          : (settings.budget_mod3_date ?? null)
+  const activeModeLabel = mode === 'base' ? 'alap költségvetés' : `${activeModNum}. módosítás`
+  const activeDocumentLabel =
+    mode === 'base' ? 'költségvetés' : `${activeModNum}. költségvetés-módosítás`
+  // A feloldás-gomb csak a legutolsó véglegesített szinten jelenik meg — a
+  // korábbi köröket az esperes a legfrissebbtől visszafelé oldja fel.
+  const unlockAvailable = activeFinalized && activeModeLabel === lastFinalizedLabel
 
   return (
     <div className="space-y-4">
@@ -625,7 +638,7 @@ export function BudgetTab({
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {(['base', 'mod1', 'mod2', 'mod3'] as BudgetMode[]).map((m) => {
               const isActive = mode === m
               const isAvailable =
@@ -649,61 +662,45 @@ export function BudgetTab({
                 </Button>
               )
             })}
+
+            {/* 2026-08-15 (Endre 4. szakasz): EGYSÉGES véglegesítés-gomb a
+                fejléc-sáv jobb szélén — az aktív szint (alap / 1–3. módosítás)
+                állapotát mutatja. A flow változatlan: mentés → zár → beküldés
+                (handleFinalizeAndSubmit); a megerősítést a közös dialógus adja. */}
+            <FinalizeButton
+              documentLabel={activeDocumentLabel}
+              year={currentYear}
+              finalized={activeFinalized}
+              finalizedAt={activeFinalizedAt}
+              unlockRequested={!!settings.unlock_requested}
+              finalizeLabel="Véglegesítés és beküldés"
+              confirmDescription="A program előbb elmenti a képernyőn látható tervet, majd lezárja és azonnal beküldi az egyházmegyének."
+              // Csak a folyamatban lévő mentés tilt — a canEdit véglegesített
+              // szinten mindig false, és az NEM tilthatja a „Feloldás kérése" utat.
+              disabled={saving}
+              onFinalize={() => void handleFinalizeAndSubmit()}
+              onRequestUnlock={unlockAvailable ? submitUnlockRequest : undefined}
+              unlockPlaceholder="Pl. A 101.01 egyházfenntartói járulék tervezett összege elírás miatt 1000 lejjel kevesebb."
+            />
           </div>
         </div>
 
+        {/* 2026-08-15 (Endre 4. szakasz): a Véglegesítés + Javítási kérelem
+            gombok a fejléc-sáv jobb szélére, az EGYSÉGES FinalizeButton-ba
+            költöztek — itt csak a Mentés maradt. */}
         <div className="mt-4 flex flex-wrap gap-2">
           {/* 2026-07-10 (S4-mobil): max-sm:min-h-10 — 40px-es érintőfelület telefonon. */}
           {canEdit && (
-            <>
-              <Button
-                size="sm"
-                className="rounded-xl max-sm:min-h-10"
-                onClick={() => void handleSave()}
-                disabled={saving}
-              >
-                {saving ? 'Mentés...' : 'Mentés'}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="rounded-xl max-sm:min-h-10 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                onClick={() => void handleFinalizeAndSubmit()}
-                disabled={saving}
-              >
-                <Lock className="mr-1 size-3.5" />
-                {mode === 'base'
-                  ? 'Véglegesítés és beküldés'
-                  : `${MODE_LABELS[mode]} véglegesítése és beküldése`}
-              </Button>
-            </>
-          )}
-          {isBaseFinalized && !settings.unlock_requested && lastFinalizedLabel && (
             <Button
               size="sm"
-              variant="outline"
-              className="rounded-xl max-sm:min-h-10 text-amber-700 border-amber-200 hover:bg-amber-50"
-              onClick={() => setUnlockDialogOpen(true)}
+              className="rounded-xl max-sm:min-h-10"
+              onClick={() => void handleSave()}
+              disabled={saving}
             >
-              Javítási kérelem
+              {saving ? 'Mentés...' : 'Mentés'}
             </Button>
           )}
         </div>
-
-        {/* 2026-08-11 (K5-#12): a `window.prompt` kiváltása — kötelező indoklás,
-            e nélkül a kérelem el sem küldhető. */}
-        <ReasonPromptDialog
-          open={unlockDialogOpen}
-          onOpenChange={setUnlockDialogOpen}
-          title={`Javítási kérelem — ${lastFinalizedLabel ?? 'költségvetés'}`}
-          description="A kérelmet az egyházmegye bírálja el. Írja le röviden, mit kell javítania a már véglegesített költségvetésen — ebből tudja az esperes eldönteni, hogy feloldja-e."
-          reasonLabel="A javítás indoklása"
-          reasonPlaceholder="Pl. A 101.01 egyházfenntartói járulék tervezett összege elírás miatt 1000 lejjel kevesebb."
-          reasonMinLength={10}
-          confirmLabel="Kérelem elküldése"
-          loading={unlockSending}
-          onConfirm={reason => void submitUnlockRequest(reason)}
-        />
 
         {settings.unlock_requested && settings.unlock_reason && (
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
