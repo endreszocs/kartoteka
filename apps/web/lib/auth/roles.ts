@@ -9,6 +9,8 @@ const KNOWN_ROLES = [
   'admin',
   'konyvelo',
   'egyhazmegyei_szamvevo',
+  // 2026-08-15 (egyházkerületi S1): a 3. szint ellenőre — lásd isKeruletiSzamvevoRole.
+  'egyhazkeruleti_szamvevo',
 ] as const
 
 // ─────────────────────────────────────────────────────────────
@@ -48,6 +50,24 @@ export function isSzamvevoRole(role: Role): boolean {
   return role === 'egyhazmegyei_szamvevo'
 }
 
+/**
+ * 2026-08-15 (egyházkerületi S1): a 3. szint ELLENŐRE (kerületi számvevő).
+ *
+ * ⚠️ SZÁNDÉKOSAN NEM kerül bele az `isEgyhazkeruletiAdminRole()`-ba: az a
+ * függvény ÍRÁSI és adminisztrációs jogot ad (admin-override, szerepkör-
+ * kiosztás, megyei írás). A számvevő dolga az ELLENŐRZÉS — csak olvas.
+ * A kerületi OLVASÁSI kaput a `canReadDistrictScope()` adja (level-scope.ts),
+ * ami ezt a szerepet a `profile_roles` district sorain keresztül engedi be.
+ */
+export function isKeruletiSzamvevoRole(role: Role): boolean {
+  return role === 'egyhazkeruleti_szamvevo'
+}
+
+/** Bármelyik szint számvevője (megyei vagy kerületi ellenőr). */
+export function isBarmelySzamvevoRole(role: Role): boolean {
+  return isSzamvevoRole(role) || isKeruletiSzamvevoRole(role)
+}
+
 // ─────────────────────────────────────────────────────────────
 // Szakterületi jogosultság-ellenőrzők (pénzügy)
 // ─────────────────────────────────────────────────────────────
@@ -61,6 +81,10 @@ export function canReadFinancial(role: Role, email?: string | null): boolean {
     role === 'lelkesz' ||
     role === 'konyvelo' ||
     role === 'egyhazmegyei_szamvevo' ||
+    // 2026-08-15: a kerületi számvevő az egyházkerületi adminisztrátor OLVASÓ
+    // tükörképe. Az admin (isEsperesRole-on át) már ma is olvashat pénzügyet;
+    // az ellenőr ugyanazt látja, csak nem írhat.
+    role === 'egyhazkeruleti_szamvevo' ||
     isEsperesRole(role, email)
   )
 }
@@ -94,7 +118,11 @@ export function canAssignSzamvevo(role: Role, email?: string | null): boolean {
  * Könyvelő + számvevő + esperes felfelé.
  */
 export function canReviewFinancial(role: Role, email?: string | null): boolean {
-  return role === 'konyvelo' || role === 'egyhazmegyei_szamvevo' || isEsperesRole(role, email)
+  return (
+    role === 'konyvelo' ||
+    isBarmelySzamvevoRole(role) ||
+    isEsperesRole(role, email)
+  )
 }
 
 // Supabase auth hibaüzenetek fordítása

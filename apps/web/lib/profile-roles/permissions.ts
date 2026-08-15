@@ -185,6 +185,20 @@ export const ROLE_TEMPLATES: Record<ProfileRoleType, Permissions> = {
     eves_jelentes: readOnly(),
   },
 
+  // --- Egyházkerületi számvevő: a kerületi admin OLVASÓ tükörképe ---
+  // 2026-08-15 (egyházkerületi S1). Az ellenőr MEGNÉZ és KINYOMTAT, de nem
+  // rögzít és nem bírál el: se `admin` modul (szerepkör-kiosztás), se write.
+  // A modulkészlet szándékosan az `egyhazkeruleti_admin` sablonjának
+  // olvasó-vetülete — ha ott új modul jelenik meg, ide is kerüljön readOnly.
+  egyhazkeruleti_szamvevo: {
+    penzugy: readOnly(), // a beküldött/felterjesztett pillanatképeken
+    eves_jelentes: readOnly(),
+    jegyzokonyvek: readOnly(),
+    iktato: readOnly(),
+    leltar: readOnly(),
+    mm: readOnly(),
+  },
+
   // --- Egyházkerületi admin: szerepkör-kiosztás + kerületi dashboard ---
   egyhazkeruleti_admin: {
     admin: fullAccess('admin'),

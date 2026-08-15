@@ -237,12 +237,14 @@ export async function getProfileDialogData() {
   const ROLE_ORDER: Record<string, number> = {
     admin: 1,
     egyhazkeruleti_admin: 2,
-    egyhazmegyei_admin: 3,
-    esperes: 4,
-    egyhazmegyei_szamvevo: 5,
-    lelkesz: 6,
-    konyvelo: 7,
-    custom: 8,
+    // 2026-08-15: a kerületi ellenőr közvetlenül a kerületi admin után.
+    egyhazkeruleti_szamvevo: 3,
+    egyhazmegyei_admin: 4,
+    esperes: 5,
+    egyhazmegyei_szamvevo: 6,
+    lelkesz: 7,
+    konyvelo: 8,
+    custom: 9,
   }
 
   // ── 2026-08-14 (1. pont): a STRUKTURÁLT szolgálati előzmények ────────────

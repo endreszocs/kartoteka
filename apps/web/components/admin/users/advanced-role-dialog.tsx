@@ -74,6 +74,7 @@ export function AdvancedRoleDialog({
     if (scope === 'district')
       return [
         { value: 'egyhazkeruleti_admin' as ProfileRoleType, label: 'Egyházkerületi admin' },
+        { value: 'egyhazkeruleti_szamvevo' as ProfileRoleType, label: 'Egyházkerületi számvevő' },
         { value: 'custom' as ProfileRoleType, label: 'Egyedi szerep' },
       ]
     if (scope === 'diocese')

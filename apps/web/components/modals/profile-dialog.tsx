@@ -80,6 +80,7 @@ interface ProfileDialogData {
 const PROFILE_ROLE_LABELS: Record<string, string> = {
   admin: 'Rendszergazda',
   egyhazkeruleti_admin: 'Egyházkerületi admin',
+  egyhazkeruleti_szamvevo: 'Egyházkerületi számvevő',
   egyhazmegyei_admin: 'Egyházmegyei admin',
   esperes: 'Esperes',
   egyhazmegyei_szamvevo: 'Egyházmegyei számvevő',

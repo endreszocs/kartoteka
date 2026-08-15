@@ -53,6 +53,7 @@ const ROLE_META: Record<string, { intent: StatusIntent; icon: LucideIcon }> = {
   egyhazmegyei_admin: { intent: 'info', icon: Building2 },
   egyhazmegyei_szamvevo: { intent: 'warning', icon: Calculator },
   egyhazkeruleti_admin: { intent: 'info', icon: ShieldCheck },
+  egyhazkeruleti_szamvevo: { intent: 'warning', icon: Calculator },
   admin: { intent: 'neutral', icon: ShieldCheck },
   custom: { intent: 'neutral', icon: Sparkles },
 }
@@ -64,6 +65,7 @@ const ROLE_LABEL: Record<string, string> = {
   egyhazmegyei_admin: 'Egyházmegyei admin',
   egyhazmegyei_szamvevo: 'Egyházmegyei számvevő',
   egyhazkeruleti_admin: 'Egyházkerületi admin',
+  egyhazkeruleti_szamvevo: 'Egyházkerületi számvevő',
   admin: 'Rendszergazda',
   custom: 'Egyedi szerep',
 }

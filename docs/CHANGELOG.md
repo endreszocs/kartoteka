@@ -23,6 +23,34 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-15] — Egyházkerület: a harmadik szint alapjai és egy anonim adatszivárgás lezárása
+<!-- key: 2026-08-15-egyhazkeruleti-hatokor-biztonsag -->
+<!-- category: security -->
+<!-- version: 0.9.167 -->
+<!-- targets: egyhazkeruleti admin + rendszergazda -->
+
+### 🔒 Biztonsági javítások
+
+- **Az egyházmegyék hivatalos adatai eddig bejelentkezés nélkül is olvashatók voltak.** Az adószám (CIF), a bankszámlaszám, a pecsét és az aláírás képének címe, a cím és az elérhetőségek — mindez kiolvasható volt a nyilvános regisztrációs oldalon keresztül, fiók nélkül. Mostantól a be nem jelentkezett látogató **kizárólag a nevet és a besorolást** látja, amennyi a regisztrációs űrlap legördülőihez kell; minden más belépést kíván. Ugyanez a védelem előre elkészült az egyházkerületre is, hogy amikor megkapja a saját hivatalos adatait, azok **egyetlen pillanatra se** legyenek nyilvánosak.
+- **Aki csak szerepkör-kiosztással kapott kerületi jogot, eddig sehova nem jutott be.** Az egyházkerületi belépőt a program a fiók régi, elsődleges szerepéből olvasta, nem a kiosztott szerepkörből. Emiatt egy frissen kinevezett kerületi munkatárs a kerületi irányítópultról **és** az adminisztrációs felületről is visszakerült a gyülekezeti kezdőoldalra, magyarázat nélkül — zsákutcába. Mostantól mindkét kapu a valódi szerepkört nézi.
+- **A kerületi listák a valódi jogosultsághoz igazodnak.** Eddig bármilyen kerületi hatókörű szerepkör-sor (akár egy egyedi „titkárnő" szerep) kerületi jogosultságnak számított a felületen, miközben az adatbázis nem engedte be — az eredmény néma, üres képernyő lett hibaüzenet nélkül. A program és az adatbázis mostantól **ugyanazt a szereplistát** használja, és egy önellenőrzés minden telepítés előtt figyeli, hogy a kettő ne csússzon szét.
+
+### ✨ Új funkciók
+
+- **Egyházkerületi számvevő (ellenőr) szerepkör.** A megyei mintára: az **egyházkerületi adminisztrátor rögzít**, az **egyházkerületi számvevő ellenőriz**. A számvevő megnézhet és kinyomtathat mindent, amit a kerület lát — beküldött iratokat, pillanatképeket —, de nem rögzít, nem vesz át és nem bírál el. A felület ezt **előre** kiírja („Ellenőri (számvevői) nézet — csak megtekintés"), és a tiltott gombok mellé beszédes magyar magyarázat kerül, nem egy néma sikertelen mentés. A szerepkör a szokásos helyeken kiosztható (Felhasználók → szerepkör hozzárendelése), és a nyilvános hozzáférés-kérő űrlapon is választható.
+
+### 🐛 Javítások
+
+- **A nyugtán újra megjelenik az egyházmegye és az egyházkerület neve.** A Chitanța kétnyelvű fejlécéből mindkettő némán hiányzott: a program olyan mezőt kért az adatbázistól, ami az egyházmegye és az egyházkerület adatai közt nem létezik, ezért a lekérdezés egészében eldőlt. A kerület román nevét a következő szelet hozza meg.
+- **Az „Egyházmegye beállítása" varázsló megmondja, miért nem lehet tovább lépni.** Eddig a „Tovább" gomb némán letiltva maradt, ha egy mező hibás volt — a képernyőn minden kitöltöttnek látszott, tehát úgy tűnt, a program romlott el. (A valódi ok például egy `@` nélküli e-mail cím lehetett.) Mostantól a gombok fölött sárga sávban ott áll, **melyik mező hiányzik**, e-mailnél pedig azt is kiírja, mi a baj vele és mi a helyes alak.
+
+### ℹ️ Rendszergazdai teendő
+
+- Két SQL-fájl, **ebben a sorrendben**: **1)** `migration-docs/sql/2026-08-15-egyhazkeruleti-S0-allapotfelmeres.sql` — ez **semmit nem módosít**, csak visszaadja az éles adatbázis állapotát (az eredményt küldd vissza); **2)** `migration-docs/sql/2026-08-15-egyhazkeruleti-S1-hatokor-biztonsag.sql` — ez zárja le az anonim szivárgást és veszi fel az új szerepkört. A második fájl fail-closed őrszemmel áll le, ha az adatbázis nem a várt állapotban van. **Futtatás után 2 perces próba:** nyisd meg inkognitó ablakban a `/hozzaferes-kerese` oldalt — az Egyházkerület és Egyházmegye legördülőnek meg kell telnie.
+- **⚠️ Ha az S1 fájlt már lefuttattad a javítás előtt:** futtasd le a `migration-docs/sql/2026-08-15-egyhazkeruleti-S1-JAVITAS-custom-label-check.sql` fájlt is. Az S1 első változata a szerepkör-értéklista cseréjekor egy másik ellenőrző szabályt is eltalált (az egyedi szerepkörök címke-őrét), és kicserélte a tartalmát. **Adat nem veszett el, egyetlen sor sem módosult** — de a szabályt vissza kell tenni a helyére. A javító fájl fail-closed: ha közben keletkezett szabálysértő sor, megáll és név szerint felsorolja őket.
+
+---
+
 ## [2026-08-15] — Egyházmegyei irattár és összesítő: a beküldött iratok egy helyen
 <!-- key: 2026-08-15-egyhazmegyei-archivum-osszesito -->
 <!-- category: feature -->

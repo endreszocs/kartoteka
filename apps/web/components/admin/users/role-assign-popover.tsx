@@ -62,7 +62,10 @@ interface ScopeTarget {
 
 const ROLE_OPTIONS_BY_SCOPE: Record<ProfileRoleScope, Array<{ value: ProfileRoleType; label: string }>> = {
   system: [{ value: 'admin', label: 'Rendszergazda' }],
-  district: [{ value: 'egyhazkeruleti_admin', label: 'Egyházkerületi admin' }],
+  district: [
+    { value: 'egyhazkeruleti_admin', label: 'Egyházkerületi admin' },
+    { value: 'egyhazkeruleti_szamvevo', label: 'Egyházkerületi számvevő' },
+  ],
   diocese: [
     { value: 'esperes', label: 'Esperes' },
     { value: 'egyhazmegyei_admin', label: 'Egyházmegyei admin' },

@@ -87,6 +87,15 @@ type SetForm = (f: SetupFormState) => void
 
 const STEP_ORDER: WizardStep[] = ['basics', 'address', 'contact', 'bank-leadership', 'confirm']
 
+/** A lépések magyar neve — a „miért nem léphetsz tovább" üzenethez. */
+const STEP_LABELS: Record<WizardStep, string> = {
+  basics: 'Alapadatok',
+  address: 'Cím',
+  contact: 'Elérhetőségek',
+  'bank-leadership': 'Bank és vezetés',
+  confirm: 'Ellenőrzés',
+}
+
 // Pure step-validáció — a wizard kliens ÉS az init ugyanazt használja
 // (így a betöltés után meg tudja mondani, melyik az első hiányos lépés).
 function isStepValidOn(s: WizardStep, form: SetupFormState): boolean {
@@ -116,6 +125,80 @@ function isStepValidOn(s: WizardStep, form: SetupFormState): boolean {
   if (s === 'confirm')
     return STEP_ORDER.slice(0, -1).every((st) => isStepValidOn(st, form))
   return false
+}
+
+/**
+ * MIÉRT nem léphet tovább a felhasználó — magyarul, mezőnév szerint.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * MIÉRT KELL EZ (2026-08-15, Endre észrevétele)
+ * ════════════════════════════════════════════════════════════════════════════
+ * TÜNET VOLT: „kitöltöttem a kötelező részeket, de mégsem tudok tovább lépni".
+ * A 3. lépésen az e-mail `kezdiorbaigmail.com` volt — hiányzott belőle a `@`.
+ * A `isStepValidOn` helyesen elutasította, a „Tovább" gomb letiltódott — DE
+ * SEMMI nem mondta meg, MELYIK mező és MIÉRT. A `fieldErrors` csak a szerver
+ * válaszából töltődik, ide viszont el sem jutunk: a gomb tiltva van.
+ *
+ * A felhasználó szemszögéből minden mező ki volt töltve, tehát a program
+ * „elromlott". Egy letiltott gomb indoklás nélkül vakvágány — ugyanaz a
+ * hibaosztály, mint a néma 0-soros mentés: a program tud valamit, amit nem
+ * mond el.
+ *
+ * `null` = a lépés érvényes, nincs mit kiírni.
+ */
+function stepBlockReason(s: WizardStep, form: SetupFormState): string | null {
+  if (isStepValidOn(s, form)) return null
+
+  const hianyzo: string[] = []
+
+  if (s === 'basics') {
+    if (form.name.trim().length < 2) hianyzo.push('Hivatalos magyar név')
+    if (form.nev_ro.trim().length < 2) hianyzo.push('Hivatalos román név')
+    if (form.cif.trim().length === 0) hianyzo.push('CIF (adószám)')
+    if (form.cimer_url.trim().length === 0) hianyzo.push('Címer')
+  } else if (s === 'address') {
+    if (form.cim_orszag.trim().length === 0) hianyzo.push('Ország')
+    if (form.cim_megye.trim().length === 0) hianyzo.push('Megye')
+    if (form.cim_telepules.trim().length === 0) hianyzo.push('Település')
+    if (form.cim_iranyitoszam.trim().length === 0) hianyzo.push('Irányítószám')
+    if (form.cim_utca.trim().length === 0) hianyzo.push('Utca, házszám')
+  } else if (s === 'contact') {
+    // ⚠️ Az e-mailnél KÜLÖN üzenet kell: nem „hiányzik", hanem „nem jó alakú".
+    // Épp ezt nem lehetett kitalálni a néma letiltásból.
+    const email = form.email.trim()
+    if (email.length === 0) {
+      hianyzo.push('E-mail cím')
+    } else if (!email.includes('@')) {
+      return (
+        `Az e-mail címből hiányzik a „@” jel: „${email}”. ` +
+        'Helyes alak például: nev@egyhazmegye.ro'
+      )
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return (
+        `Ez az e-mail cím nem érvényes: „${email}”. ` +
+        'Ellenőrizd a @ utáni részt — kell bele egy pont is, például: nev@egyhazmegye.ro'
+      )
+    }
+    if (form.telefon.trim().length === 0) hianyzo.push('Telefonszám')
+  } else if (s === 'bank-leadership') {
+    if (form.bank_nev.trim().length === 0) hianyzo.push('Bank neve')
+    if (form.bank_fo_iban.trim().length === 0) hianyzo.push('IBAN')
+    if (form.esperes_nev.trim().length < 2) hianyzo.push('Esperes neve')
+    if (form.esperes_cim.trim().length < 2) hianyzo.push('Esperes címe')
+    if (form.jegyzo_nev.trim().length < 2) hianyzo.push('Jegyző neve')
+  } else if (s === 'confirm') {
+    const hianyosLepesek = STEP_ORDER.slice(0, -1)
+      .filter((st) => !isStepValidOn(st, form))
+      .map((st) => STEP_LABELS[st])
+    if (hianyosLepesek.length > 0) {
+      return `Még hiányos lépés: ${hianyosLepesek.join(', ')}. Lépj vissza és pótold.`
+    }
+  }
+
+  if (hianyzo.length === 0) return null
+  return hianyzo.length === 1
+    ? `Ez a mező még hiányzik: ${hianyzo[0]}`
+    : `Ezek a mezők még hiányoznak: ${hianyzo.join(', ')}`
 }
 
 // Melyik mezőket ment a partial-save action az adott lépésen?
@@ -293,6 +376,10 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
     return isStepValidOn(s, form)
   }
 
+  // 2026-08-15: MIÉRT van letiltva a gomb — ugyanabból a tiszta függvényből,
+  // ami a tiltást is eldönti, tehát a kettő SOHA nem mondhat mást.
+  const blockReason = stepBlockReason(step, form)
+
   async function handleNext() {
     if (stepSaving) return
     const idx = STEP_ORDER.indexOf(step)
@@ -442,6 +529,22 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
             </>
           )}
         </div>
+
+        {/* 2026-08-15 (Endre észrevétele): MIÉRT nem léphetsz tovább.
+            Egy letiltott gomb indoklás nélkül vakvágány — a felhasználó azt
+            látja, hogy mindent kitöltött, és azt hiszi, a program romlott el.
+            Lásd a stepBlockReason() docblockját. Az üzenet a gombok FÖLÖTT
+            áll, hogy telefonon is látszódjon (a gombsor egy sorba szorul). */}
+        {blockReason && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="shrink-0 border-t border-amber-200 bg-amber-50 px-6 py-2.5 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200"
+          >
+            <span className="font-medium">Még nem léphetsz tovább — </span>
+            {blockReason}
+          </div>
+        )}
 
         {/* Léptető gombok */}
         <div className="shrink-0 border-t border-zinc-100 bg-zinc-50/50 px-6 py-3 flex items-center justify-between gap-2">

@@ -46,7 +46,16 @@ export const oauthCompleteSchema = z.object({
     .or(z.literal('')),
   // 2026-07-11 — kért szerepkör (mint a jelszavas úton)
   requestedRole: z.enum(
-    ['lelkesz', 'esperes', 'egyhazmegyei_admin', 'egyhazkeruleti_admin', 'konyvelo', 'egyhazmegyei_szamvevo'],
+    [
+      'lelkesz',
+      'esperes',
+      'egyhazmegyei_admin',
+      'egyhazkeruleti_admin',
+      'konyvelo',
+      'egyhazmegyei_szamvevo',
+      // 2026-08-15 (egyházkerületi S1) — a nyilvános hozzáférés-kérő űrlapon is választható.
+      'egyhazkeruleti_szamvevo',
+    ],
     { message: 'Válassza ki a szerepkört' },
   ),
   // A választott egyházközség NEVE (megjelenítéshez, backward-compat a

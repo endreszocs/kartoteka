@@ -19,6 +19,70 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
+## 🔴 PENDING – Egyházkerületi szint (3. szint) S0 + S1 (2026-08-15)
+
+- [x] 2026-08-15 — **`2026-08-15-egyhazkeruleti-S1-hatokor-biztonsag.sql`** ✅ LEFUTOTT
+       A 2. szakasz mind a 26 sora zöld: az új szerep kiosztható, az olvasó
+       függvény megvan GRANT-tal, és a `has_column_privilege()` döntő próbája
+       igazolta, hogy az anon a CIF-et, IBAN-t, pecsétet, aláírást, címet és
+       elérhetőségeket **már NEM olvassa**, miközben az (id, name, district_id)
+       hármas megmaradt a regisztrációs űrlapnak.
+       ⚠️ **DE:** a fájl 1/A szakaszának `LIKE '%role%'` szűrője MELLÉFOGOTT —
+       lásd a következő tételt. A repóban a szűrő azóta oszlop-alapú
+       (`conkey`), tehát egy ÚJRAfuttatás már nem okozná ugyanezt.
+
+- [ ] **`2026-08-15-egyhazkeruleti-S1-JAVITAS-custom-label-check.sql`** — ⚠️ PENDING, SÜRGŐS
+       Indok: az S1 1/A szakasza a szerep-értéklista CHECK-jét kereste
+       `pg_get_constraintdef(...) LIKE '%role%'` szűrővel. Ez a
+       `profile_roles_custom_label_check`-et IS megfogta (a definíciója említi
+       a `role` oszlopot), eldobta, és a helyére — ugyanazzal a névvel — a
+       szerep-értéklistát tette. Következmény: az egyedi szerepkörök
+       CÍMKE-integritási őre némán megszűnt (ezután `role = 'custom'` sor
+       létrejöhetne címke nélkül). **Adat nem veszett el, egyetlen sor sem
+       módosult** — csak egy CHECK cserélődött ki. Ez a fájl visszateszi az
+       eredeti, 2026-04-17-i alakra, fail-closed módon (ha közben keletkezett
+       szabálysértő sor, megáll és név szerint felsorolja).
+       A másik három CHECK (scope, approval_status, scope_id) és a `profiles`
+       tábla érintetlen — a 0. szakasz ezt bizonyítja is.
+
+- [ ] **`2026-08-15-egyhazkeruleti-S0-allapotfelmeres.sql`** — PENDING, **CSAK OLVASÓ**
+       ⚠️ Az első próbálkozás `42P01: missing FROM-clause entry for table "t"`
+       hibával elszállt (a 0/C szakasz második ágából kimaradt a saját
+       `FROM (VALUES …) AS t(tabla)` záradéka). JAVÍTVA. Az egész repót
+       őrzi ezután a `scripts/selftest-sql-union-from.mjs` önellenőrzés,
+       ami pontosan ezt a hibaosztályt keresi minden SQL riport-blokkban.
+       Indok: ez a 3. szint MINDEN további SQL-jének bemenete. Egyetlen SELECT,
+       semmit nem módosít. A `migration-docs/Database_schema.sql` dump ELAVULT
+       (2026-07-10-ig ér), a 2026-08-15-ös migrációk nincsenek benne — ezért
+       tilos belőle tervezni. Ez a fájl az ÉLŐ adatbázisból adja vissza: a
+       `districts` oszlopkészletét, a 6 scope-oszlopos tábla CHECK-jét és
+       részleges indexeit, a `current_user_*` függvények meglétét ÉS
+       GRANT-jait, a `felettes_szint_hozzaferese()` kerületi lábát (K4 döntés),
+       a `district` hatókörű `profile_roles` sorokat, a
+       `diocese_felterjesztes` egyedi indexének oszlopszámát (3 = rossz,
+       4 = helyes), valamint a 14 dokumentált csapda mérési pontjait.
+       ⚠️ FUTTASD ELŐBB, MINT AZ S1-ET, és az eredményt küldd vissza.
+
+- [ ] **`2026-08-15-egyhazkeruleti-S1-hatokor-biztonsag.sql`** — PENDING (S0 után)
+       Indok: három, egymástól független javítás egyetlen tranzakcióban.
+       (A) Az `egyhazkeruleti_szamvevo` szerep felvétele a `profiles.role` és a
+       `profile_roles.role` CHECK-jébe — enélkül az app-oldali szerep
+       KIOSZTHATATLAN (23514). (B) `current_user_district_olvaso_ids()` — a
+       kerületi OLVASÓ hatókör, a `current_user_diocese_olvaso_ids()` betűhű
+       párja; az app-tükre `apps/web/lib/auth/level-scope.ts`
+       (DISTRICT_WRITE_ROLES / DISTRICT_READ_ROLES), a két réteget a
+       `scripts/selftest-kerulet-hatokor.mjs` köti össze. (C) ⛔ ÉLŐ SZIVÁRGÁS
+       ZÁRÁSA: a `dioceses` hivatalos adatai (CIF, IBAN, pecsét-URL,
+       aláírás-URL) MA bejelentkezés nélkül olvashatók — az `anon` szerep
+       tábla-szintű SELECT joga oszlop-szintűre szűkül
+       (`districts` → id, name; `dioceses` → id, name, district_id).
+       Ez fail-closed a jövőre: az S2-ben érkező érzékeny oszlopokra az anon
+       automatikusan NEM kap jogot.
+       ⚠️ FUTTATÁS UTÁN 2 PERCES PRÓBA: inkognitó ablakban a
+       `/hozzaferes-kerese` oldal két legördülőjének MEG KELL TELNIE.
+
+---
+
 ## 🔴 PENDING – Dokumentumtár: gyülekezeti fájl-terület (2026-08-15, 7. pont A)
 
 - [ ] **`2026-08-15-dokumentumtar-gyulekezeti-fajlok.sql`** — PENDING (még nem futott)
