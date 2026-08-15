@@ -71,7 +71,16 @@ export interface TableRegistryEntry {
   primaryKey: 'id'
   /** Scope szűrő */
   scopeFilter: ScopeFilter
-  /** Soft-delete használat */
+  /**
+   * Soft-delete használat.
+   *
+   * ⚠️ 2026-08-15 (desktop-paritás 3. szelet): a desktop Kuka a soft-delete
+   * táblák listáját a KÖZÖS `packages/ui-app/src/recycle-bin/tables.ts`
+   * fájlból olvassa (direkt Supabase-út — a Dexie-s lista ott nem
+   * használható). Ha itt soft-delete tábla kerül be vagy ki, vagy a
+   * jelző-oszlop neve változik, AZT A LISTÁT IS frissíteni kell, különben a
+   * desktop Kuka némán hiányos lesz.
+   */
   softDelete: boolean
   /**
    * 2026-08-14 (6. pont): a soft-delete jelző OSZLOPNEVE, ha nem `deleted`.

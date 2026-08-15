@@ -12,15 +12,30 @@
  *   - a kártya-lista helyett TÁBLÁZATOS nézet (a webes munkanapló-táblázat
  *     oszlop-mintájára, kategória-függő oszlopokkal); sor-kattintás =
  *     szerkesztés a meglévő dialoggal
+ *
+ * 2026-08-15 (desktop-paritás 4. szelet):
+ *   - a hivatalos KIS NAPLÓK (Katekézis + Családlátogatás naplólap)
+ *     nyomtatása a közös @kartoteka/ui-app builderekből, offline is
+ *   - a lelkészi jelentés (EREK űrlap) nyomtatása web-only maradt (lásd a
+ *     handleKisNaploPrint melletti megjegyzést)
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
-import { ClipboardList, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { ClipboardList, Pencil, Plus, Printer, Search, Trash2 } from 'lucide-react'
 
 import { Button, Card, CardContent, Input, Label } from '@kartoteka/ui'
+// 2026-08-15 (desktop-paritás 4. szelet): a hivatalos Katekézis +
+// Családlátogatás naplólapok (kis naplók) a KÖZÖS rétegből — a web
+// nyomtatási központja ugyanezekből a builderekből dolgozik.
+import {
+  buildCsaladlatogatasNaploLapok,
+  buildKatekezisNaploLapok,
+  wrapWorklogPrintDocument,
+} from '@kartoteka/ui-app'
 
 import { DesktopShell } from '../lib/shell/desktop-shell'
+import { printHtmlViaIframe } from '../lib/print-html'
 import {
   NAPSZAK_SHORT_LABELS,
   WorklogCreateDialog,
@@ -33,6 +48,7 @@ import { getDesktopUser } from '../lib/desktop-user'
 import {
   deleteWorklogEntry,
   getLastPullWorklogIso,
+  getLocalOwnCongregation,
   getLocalWorklogCount,
   getLocalWorklogOfOwnCongregation,
   pullWorklogOfOwnCongregation,
@@ -243,6 +259,49 @@ export function MunkanaploPage() {
     [user, refreshLists],
   )
 
+  // ── 2026-08-15 (desktop-paritás 4. szelet): kis naplók nyomtatása ────────
+  // A hivatalos Katekézis / Családlátogatás naplólap a KÖZÖS builderekből, a
+  // lokális cache adataiból (offline is működik) — a webes nyomtatási központ
+  // katekezis_naplo / csaladlatogatas_naplo ágának tükre: év+hónap szűrő,
+  // kategória-besorolás (categorizeWorklogEntry), idő szerint növekvő sorrend.
+  // A TÖBBI munkanapló-nyomtatvány (hivatalos I. Igehirdetési alkalmak lap,
+  // összesítők, éves jelentés) és a lelkészi jelentés (EREK űrlap) web-only
+  // rétegben él (apps/web/lib/worklog/reporting.ts ill. lib/lelkeszi-jelentes/
+  // + Server Actionök) — azok átemelése a paritás-terv szerint külön szelet
+  // (4. szelet: közös worklog-konstansok; jelentés: tudatosan nem ütemezett).
+  const handleKisNaploPrint = useCallback(
+    async (type: 'katekezis' | 'latogatas') => {
+      if (!user) return
+      try {
+        const [rows, cong] = await Promise.all([
+          getLocalWorklogOfOwnCongregation(user.id, {
+            year,
+            month: monthNum === 0 ? undefined : monthNum,
+            limit: 5000,
+          }),
+          getLocalOwnCongregation(user.id),
+        ])
+        const gyulekezetNev = cong?.name || 'Gyülekezet'
+        const idoszak = monthNum === 0 ? `${year}. év` : `${HU_MONTHS[monthNum - 1]} ${year}`
+        // A lokális sor szerkezete lefedi a KisNaploSor kontraktust — a lista
+        // idő szerint NÖVEKVŐ sorrendben megy a lapokra (webes tükör).
+        const sorok = rows
+          .filter((e) => categorizeWorklogEntry(e) === type)
+          .sort((a, b) => (a.idopont || '').localeCompare(b.idopont || ''))
+        const content =
+          type === 'katekezis'
+            ? buildKatekezisNaploLapok(sorok, gyulekezetNev, idoszak)
+            : buildCsaladlatogatasNaploLapok(sorok, gyulekezetNev, idoszak)
+        const title =
+          type === 'katekezis' ? 'Munkanapló — Katekézis' : 'Munkanapló — Családlátogatás'
+        await printHtmlViaIframe(wrapWorklogPrintDocument(title, 'portrait', content))
+      } catch (err) {
+        setCreateBanner(`✗ Nyomtatási hiba: ${errorMessage(err)}`)
+      }
+    },
+    [user, year, monthNum],
+  )
+
   // Kategória-szűrt lista + fülönkénti darabszám (a webes fülek tükre).
   const filtered = useMemo(
     () => entries.filter((e) => categorizeWorklogEntry(e) === activeCategory),
@@ -294,6 +353,26 @@ export function MunkanaploPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            {/* 2026-08-15 (4. szelet): a hivatalos kis naplók nyomtatása a
+                kiválasztott év/hónap adataiból — offline is működik. */}
+            <Button
+              variant="outline"
+              onClick={() => void handleKisNaploPrint('katekezis')}
+              disabled={!user}
+              title="A hivatalos Katekézis naplólap nyomtatása a kiválasztott időszakról"
+            >
+              <Printer className="mr-1.5 size-4" />
+              Katekézis lap
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void handleKisNaploPrint('latogatas')}
+              disabled={!user}
+              title="A hivatalos Családlátogatás naplólap nyomtatása a kiválasztott időszakról"
+            >
+              <Printer className="mr-1.5 size-4" />
+              Családlátogatás lap
+            </Button>
             <Button
               variant="outline"
               onClick={() => handlePull('delta')}

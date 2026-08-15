@@ -80,6 +80,12 @@ export interface KartotekaShellProps {
    * - Desktop: 8 desktop oldal (`/penzugy/attekintes`, `/penzugy/befizetes`, ...)
    */
   financeSubmenu?: MenuItem[]
+  /**
+   * Extra menüpontok a „Szolgálati adminisztráció" szekció végére
+   * (2026-08-15, desktop-paritás 3. szelet — desktop: Kuka). A web nem adja
+   * át → ott a sidebar változatlan.
+   */
+  extraOperativeItems?: MenuItem[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -114,6 +120,7 @@ export function KartotekaShell({
   hiddenMenuHrefs,
   children,
   financeSubmenu,
+  extraOperativeItems,
 }: KartotekaShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -140,6 +147,7 @@ export function KartotekaShell({
         activeScope={activeScope}
         financeSubmenu={financeSubmenu}
         hiddenMenuHrefs={hiddenMenuHrefs}
+        extraOperativeItems={extraOperativeItems}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">

@@ -9,8 +9,9 @@
  * pontosan, mint a web.
  *
  * Kész tabok (2026-06-11, paritás #5): Áttekintés, Kassza, Bank, Tranzakciók,
- * Költségvetés, Számadás, Tartozások, Monetár, Súgó. Egyedül a Bérleti
- * szerződések fül vár (webes szerződés-dialóg + Oblio e-Factura kötés).
+ * Költségvetés, Számadás, Tartozások, Monetár, Súgó. 2026-08-15 (paritás
+ * 1. szelet): a Bérleti szerződések fül is él — online törzsadattal, a
+ * szerződés-írás a webre delegálva (lásd desktop-rental-tab.tsx).
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -78,6 +79,7 @@ import { DesktopStornoConfirmDialog } from '../components/storno-confirm-dialog'
 import { DesktopTransactionEditDialog } from '../components/transaction-edit-dialog'
 import { DesktopBankTab } from '../components/desktop-bank-tab'
 import { DesktopOblioTab } from '../components/desktop-oblio-tab'
+import { DesktopRentalTab } from '../components/desktop-rental-tab'
 import { DesktopBudgetTab } from '../components/desktop-budget-tab'
 import { DesktopMonetaryTab } from '../components/desktop-monetary-tab'
 import { DesktopFinancePrintDialog } from '../components/finance-print-dialog'
@@ -88,10 +90,9 @@ import { DESKTOP_HELP_SECTIONS } from '../lib/desktop-help-sections'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
 
 // 2026-06-11 (paritás #5): Bank / Költségvetés / Monetár is a web-azonos
-// megosztott komponenssel renderelődik. Egyedül a Bérleti szerződések fül vár
-// még (webes szerződés-dialóg + Oblio e-Factura kötés).
-const READY_TABS = ['dashboard', 'cashbook', 'bank', 'transactions', 'budget', 'accounting', 'debt', 'monetary', 'oblio']
-
+// megosztott komponenssel renderelődik. 2026-08-15 (paritás 1. szelet): a
+// Bérleti szerződések fül is bekötve → a korábbi READY_TABS-őr és a webre
+// mutató placeholder kivezetve (minden definiált fülnek van tartalma).
 const TAB_DEFS = [
   { value: 'dashboard', label: 'Áttekintés', color: 'blue' },
   { value: 'cashbook', label: 'Kassza', color: 'emerald' },
@@ -675,17 +676,6 @@ export function PenzugyPage() {
             />
           ) : loading || !settings ? (
             <div className="py-12 text-center text-sm text-slate-400">Pénzügyi adatok betöltése…</div>
-          ) : !READY_TABS.includes(activeTab) ? (
-            <div className="card-raised p-8 text-center">
-              <p className="text-sm font-medium text-slate-600">
-                A Bérleti szerződések kezelése egyelőre a webes felületen érhető el.
-              </p>
-              <p className="mt-1 text-xs text-slate-400">
-                A szerződés-rögzítés és a bérleti e-Factura számlázás webes szolgáltatásokra épül —
-                nyisd meg a Kartotékát a böngészőben (Pénzügy → Bérleti szerződések). A befogadott
-                e-Factura ellenőrzés viszont már itt is elérhető az „Oblio ellenőrzés” fülön.
-              </p>
-            </div>
           ) : activeTab === 'dashboard' ? (
             <FinanceDashboard
               balances={balances}
@@ -907,6 +897,14 @@ export function PenzugyPage() {
               currentYear={year}
               expenseCategories={expenseCategories}
               bankAccounts={bankAccounts}
+              onToast={(msg, kind) => setPageToast({ kind, msg })}
+            />
+          ) : activeTab === 'rental' ? (
+            // Paritás 1. szelet (2026-08-15): web-azonos Bérleti szerződések fül.
+            // A szerződés-törzsnek nincs lokális tükre → online törzsadat; a
+            // szerződés-írás a webre delegálva (lásd desktop-rental-tab.tsx).
+            <DesktopRentalTab
+              congregationId={congregationId}
               onToast={(msg, kind) => setPageToast({ kind, msg })}
             />
           ) : null}

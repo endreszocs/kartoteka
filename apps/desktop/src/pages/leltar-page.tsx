@@ -1,26 +1,33 @@
 /**
  * Leltár oldal — `/leltar` route.
  *
- * Sprint F (2026-04-25) — READ-ONLY desktop-paritás a leltári tételekhez.
+ * Sprint F (2026-04-25): READ-ONLY desktop-paritás a leltári tételekhez.
+ * 2026-08-15 (desktop-paritás 4. szelet — „Leltár: rögzítés + fisa"):
+ *   - ÚJ TÉTEL rögzítése + sor-szerkesztés (InventoryItemDialog) — online-only
+ *     direkt Supabase-írás verified-session őrrel és szerver-visszaigazolással
+ *     (lib/inventory-write.ts); siker után full-pull frissíti a lokális tükröt
+ *   - kétnyelvű (HU/RO) fişă-nyomtatás soronként és az űrlapból — a KÖZÖS
+ *     @kartoteka/ui-app fisa-builder + printHtmlViaIframe
+ *   - kategória-szűrő a KÖZÖS kategória-készletből (web-azonos 7 kategória,
+ *     darabszámmal) — a korábbi kézi címke-másolat törölve (a „második felület
+ *     a régi implementációt őrzi" hibaosztály megszüntetése); a szűrés a
+ *     normalizált kulcson fut, kliens-oldalon
  *
  * Funkciók:
- *   - PageHero
- *   - 4 statisztika-kártya (összes / aktív / törölt / össz-érték)
- *   - Kategória-szűrő + szöveg-keresés
- *   - Leltári tétel-lista (max 200/lap, leltári-szám szerint rendezve)
- *   - „Frissítés most" gomb (full-pull)
- *   - „Új tétel" gomb (disabled, hamarosan)
- *
- * Új tétel rögzítése (write-flow) Sprint G+-ra kerül.
+ *   - PageHero + 4 statisztika-kártya + szöveg-keresés + tétel-lista
+ *   - „Frissítés most" gomb (full-pull); az adatok offline is olvashatók
+ *   - írás (új tétel / szerkesztés) CSAK online — a dialógus hangosan jelzi
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import {
   AlertCircle,
   Archive,
   Boxes,
   CheckCircle2,
+  FileText,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -28,35 +35,43 @@ import {
 } from 'lucide-react'
 
 import { Button, Card, CardContent, Input } from '@kartoteka/ui'
-import { OnlineStatePill, PageHero } from '@kartoteka/ui-app'
+import {
+  INVENTORY_CATEGORIES,
+  INVENTORY_CATEGORY_LABELS,
+  INVENTORY_CATEGORY_ROMANIAN_LABELS,
+  OnlineStatePill,
+  PageHero,
+  buildInventoryItemCardHtml,
+  calculateInventoryCurrentValue,
+  getInventoryAmortizationCatalogEntry,
+  getInventoryCategoryLabel,
+  normalizeInventoryCategory,
+  type InventoryCategory,
+  type InventoryItem,
+  type InventoryItemCardData,
+} from '@kartoteka/ui-app'
 
 import { DesktopShell } from '../lib/shell/desktop-shell'
+import { InventoryItemDialog } from '../components/inventory-item-dialog'
 import { errorMessage } from '../lib/error'
 import { getDesktopUser } from '../lib/desktop-user'
+import { printHtmlViaIframe } from '../lib/print-html'
+import { useSessionOnline } from '../lib/use-session-online'
 import {
   getLastPullInventoryIso,
   getLocalInventory,
   getLocalInventoryStats,
+  getLocalOwnCongregation,
+  getLocalOwnProfile,
   pullInventoryOfOwnCongregation,
   type InventoryItemLocalRow,
   type InventoryStats,
 } from '../lib/sync'
 
-const CATEGORY_LABELS: Record<string, string> = {
-  alapeszkoz: 'Alapeszközök',
-  konyv: 'Könyvek',
-  mukincs: 'Műkincsek',
-  felszereles: 'Felszerelés',
-  liturgikus: 'Liturgikus tárgyak',
-  jarmu: 'Járművek',
-  ingatlan: 'Ingatlan',
-  egyeb: 'Egyéb',
-}
-
-function formatCategoryLabel(key: string | null): string {
-  if (!key) return 'Besorolatlan'
-  return CATEGORY_LABELS[key] ?? key
-}
+// A kliens-oldali szűréshez elég nagy plafon (átlag <500 tétel/gyülekezet —
+// lásd sync.ts pullInventory); a kategória-szűrés a normalizált kulcson fut,
+// ezért nem tolható le az SQL-be.
+const LIST_LIMIT = 1000
 
 function formatCurrency(value: number): string {
   if (!value) return '0 RON'
@@ -65,21 +80,44 @@ function formatCurrency(value: number): string {
 
 export function LeltarPage() {
   const [user, setUser] = useState<User | null>(null)
+  const [congregationId, setCongregationId] = useState<string | null>(null)
+  const [congregationName, setCongregationName] = useState<string>('Gyülekezet')
   const [stats, setStats] = useState<InventoryStats | null>(null)
   const [items, setItems] = useState<InventoryItemLocalRow[]>([])
   const [search, setSearch] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
+  const [categoryFilter, setCategoryFilter] = useState<InventoryCategory | null>(null)
   const [lastPullIso, setLastPullIso] = useState<string | null>(null)
   const [pulling, setPulling] = useState(false)
   const [pullError, setPullError] = useState<string | null>(null)
   const [pullSuccess, setPullSuccess] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  // 4. szelet: rögzítő/szerkesztő dialógus + a fişă nyelve (webes minta:
+  // a soronkénti nyomtatás a legutóbb választott nyelven fut, HU az alap).
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editItem, setEditItem] = useState<InventoryItemLocalRow | null>(null)
+  const [fisaLang, setFisaLang] = useState<'hu' | 'ro'>('hu')
+  const online = useSessionOnline()
 
-  // Auth
+  // Auth + gyülekezet-feloldás: getDesktopUser (SOHA nem auth.getUser) →
+  // lokális profil → congregation_id + hivatalos név a fişă fejlécéhez.
   useEffect(() => {
     let mounted = true
-    getDesktopUser().then((resolvedUser) => {
-      if (mounted) setUser(resolvedUser)
+    getDesktopUser().then(async (resolvedUser) => {
+      if (!mounted) return
+      setUser(resolvedUser)
+      if (!resolvedUser) return
+      try {
+        const [profile, cong] = await Promise.all([
+          getLocalOwnProfile(resolvedUser.id),
+          getLocalOwnCongregation(resolvedUser.id),
+        ])
+        if (!mounted) return
+        setCongregationId(profile?.congregation_id ?? null)
+        // A `name` a HIVATALOS név (nem nev_hu!) — a fişă ezt viseli.
+        if (cong?.name) setCongregationName(cong.name)
+      } catch {
+        // csendes — a congregationId nélkül a mentés úgyis tiltott (fail-closed)
+      }
     })
     return () => {
       mounted = false
@@ -103,14 +141,13 @@ export function LeltarPage() {
     }
   }, [user, refreshKey])
 
-  // Lista (search + filter változáskor frissül)
+  // Lista (search változáskor frissül; a kategória-szűrés kliens-oldali)
   useEffect(() => {
     if (!user) return
     let mounted = true
     void getLocalInventory(user.id, {
       search: search || undefined,
-      category: categoryFilter,
-      limit: 200,
+      limit: LIST_LIMIT,
     })
       .then((rows) => {
         if (mounted) setItems(rows)
@@ -121,7 +158,7 @@ export function LeltarPage() {
     return () => {
       mounted = false
     }
-  }, [user, search, categoryFilter, refreshKey])
+  }, [user, search, refreshKey])
 
   const handlePull = useCallback(async () => {
     if (!user) return
@@ -143,8 +180,98 @@ export function LeltarPage() {
     }
   }, [user])
 
+  // Sikeres mentés: dialógus zár + full-pull (a lokális tükör a szerver
+  // állapotát csak pull után látja — a Kuka-szelet 4.6. tanulsága).
+  const handleSaved = useCallback(
+    (message: string) => {
+      setDialogOpen(false)
+      setEditItem(null)
+      setPullError(null)
+      setPullSuccess(message)
+      void handlePull()
+    },
+    [handlePull],
+  )
+
+  function openCreateDialog() {
+    setEditItem(null)
+    setDialogOpen(true)
+  }
+
+  function openEditDialog(item: InventoryItemLocalRow) {
+    setEditItem(item)
+    setDialogOpen(true)
+  }
+
+  // ── Fişă-nyomtatás egy lista-sorból (a webes itemToCardData tükre) ────────
+  const rowToCardData = useCallback(
+    (it: InventoryItemLocalRow): InventoryItemCardData => {
+      const key = normalizeInventoryCategory(it.kategoria)
+      const entry = getInventoryAmortizationCatalogEntry(it.katalogus_kod)
+      // Szintetikus tétel az amortizáció-számításhoz (csak a használt mezőkkel).
+      const syntheticItem = {
+        kategoria_key: key,
+        beszerzes_erteke: it.beszerzes_erteke ?? 0,
+        mennyiseg: it.mennyiseg || 1,
+        hasznalati_ido: it.hasznalati_ido,
+        beszerzes_datuma: it.beszerzes_datuma,
+      } as InventoryItem
+      return {
+        congregationName: congregationName || 'Gyülekezet',
+        leltariSzam: it.leltari_szam,
+        regiLeltariSzam: it.regi_leltari_szam,
+        megnevezes: it.megnevezes,
+        kategoriaLabel: getInventoryCategoryLabel(it.kategoria),
+        kategoriaLabelRo: key ? INVENTORY_CATEGORY_ROMANIAN_LABELS[key] : null,
+        isAlapeszkoz: key === 'alapeszkoz',
+        mennyiseg: it.mennyiseg || 1,
+        mertekegyseg: it.mertekegyseg,
+        beszerzesDatuma: it.beszerzes_datuma,
+        beszerzesBizonylat: it.beszerzes_bizonylat,
+        beszerzesErteke: it.beszerzes_erteke || null,
+        katalogusKod: it.katalogus_kod,
+        katalogusNev: entry?.nev ?? null,
+        hasznalatiIdoEv: it.hasznalati_ido,
+        aktualisErtek: calculateInventoryCurrentValue(syntheticItem),
+        helyszin: it.helyszin,
+        felelosNev: it.felelos_nev,
+        megjegyzes: it.megjegyzes,
+        szerzo: it.szerzo,
+        konyvIsbn: it.konyv_isbn,
+      }
+    },
+    [congregationName],
+  )
+
+  function handleRowFisaPrint(item: InventoryItemLocalRow) {
+    // A fişă a legutóbb választott nyelven nyomtatódik (HU az alap).
+    void printHtmlViaIframe(
+      buildInventoryItemCardHtml({ ...rowToCardData(item), lang: fisaLang }).html,
+    )
+  }
+
+  // Kategóriánkénti darabszám a KÖZÖS kulcsokra normalizálva (a lokális stats
+  // a nyers DB-értéken csoportosít — pl. 'Alapeszközök', 'Telkek_foldek_erdok').
+  const categoryCounts = useMemo(() => {
+    const counts: Partial<Record<InventoryCategory, number>> = {}
+    for (const [raw, cnt] of Object.entries(stats?.byCategory ?? {})) {
+      const key = normalizeInventoryCategory(raw)
+      if (key) counts[key] = (counts[key] ?? 0) + cnt
+    }
+    return counts
+  }, [stats])
+
+  // Kliens-oldali kategória-szűrés a normalizált kulcson (fail-closed: a nem
+  // besorolható sorok csak a „Mind" nézetben látszanak).
+  const visibleItems = useMemo(
+    () =>
+      categoryFilter
+        ? items.filter((it) => normalizeInventoryCategory(it.kategoria) === categoryFilter)
+        : items,
+    [items, categoryFilter],
+  )
+
   const lastPullText = lastPullIso ? formatRelativeTime(lastPullIso) : 'még sosem'
-  const categories = Object.keys(stats?.byCategory ?? {}).sort()
 
   return (
     <DesktopShell>
@@ -152,15 +279,22 @@ export function LeltarPage() {
         <PageHero
           eyebrow="Leltár"
           title="Leltári tételek"
-          description="A gyülekezet alapeszközei, könyvei, műkincsei és egyéb javai egy helyen. Az adatok offline is elérhetők; új tétel rögzítése hamarosan."
+          description="A gyülekezet alapeszközei, könyvei, kegyszerei és egyéb javai egy helyen. Az adatok offline is olvashatók; az új tétel rögzítéséhez és a szerkesztéshez internetkapcsolat kell."
           Icon={Boxes}
           actions={
             <>
               <Button
                 size="sm"
                 variant="outline"
-                disabled
-                title="Új leltári tétel rögzítése a következő frissítésben érkezik."
+                onClick={openCreateDialog}
+                disabled={!user || !congregationId || !online}
+                title={
+                  !online
+                    ? 'Az új tétel rögzítéséhez internetkapcsolat és online belépés kell — a leltári számot a szerver osztja ki.'
+                    : !congregationId
+                      ? 'Nincs hozzárendelt gyülekezet ezen a gépen.'
+                      : 'Új leltári tétel rögzítése'
+                }
                 className="rounded-xl border-slate-200 bg-white/90 shadow-sm"
               >
                 <Plus className="mr-1 size-3.5" />
@@ -180,7 +314,7 @@ export function LeltarPage() {
           stats={[{ label: 'Utolsó frissítés', value: lastPullText }]}
         />
 
-        {/* DIAGNOSTICS P2-7: egységes online/offline pill a read-only oldalakra */}
+        {/* DIAGNOSTICS P2-7: egységes online/offline pill */}
         <div className="flex justify-end">
           <OnlineStatePill lastSyncAt={lastPullIso} />
         </div>
@@ -210,11 +344,11 @@ export function LeltarPage() {
           <StatCard label="Össz-érték" value={formatCurrency(stats?.totalValue ?? 0)} icon={Boxes} gradient="from-amber-500 to-orange-600" isText />
         </div>
 
-        {/* Szűrők */}
+        {/* Szűrők — a kategória-gombok a KÖZÖS készletből (web-azonos 7 kategória) */}
         <Card className="card-raised border-0">
           <CardContent className="space-y-3 p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="relative flex-1">
+            <div className="flex flex-col gap-3">
+              <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
                 <Input
                   type="text"
@@ -235,29 +369,65 @@ export function LeltarPage() {
                   }`}
                 >
                   Mind
+                  <span className="ml-1.5 opacity-70">({stats?.active ?? 0})</span>
                 </button>
-                {categories.map((cat) => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setCategoryFilter(cat)}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                      categoryFilter === cat
-                        ? 'bg-slate-800 text-white'
-                        : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    {formatCategoryLabel(cat)}
-                    <span className="ml-1.5 opacity-70">({stats?.byCategory[cat] ?? 0})</span>
-                  </button>
-                ))}
+                {INVENTORY_CATEGORIES.map((cat) => {
+                  const db = categoryCounts[cat] ?? 0
+                  const active = categoryFilter === cat
+                  return (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setCategoryFilter(active ? null : cat)}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                        active
+                          ? 'bg-slate-800 text-white'
+                          : db === 0
+                            ? 'border border-slate-200 bg-white text-slate-400 hover:text-slate-500'
+                            : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      {INVENTORY_CATEGORY_LABELS[cat]}
+                      <span className="ml-1.5 opacity-70">({db})</span>
+                    </button>
+                  )
+                })}
+              </div>
+              {/* A fişă nyelve — a soronkénti nyomtatás ezt használja */}
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <span>A fişă nyelve:</span>
+                <div
+                  className="inline-flex overflow-hidden rounded-lg border border-slate-200"
+                  role="group"
+                  aria-label="A fişă nyelve"
+                >
+                  {(['hu', 'ro'] as const).map((l) => (
+                    <button
+                      key={l}
+                      type="button"
+                      onClick={() => setFisaLang(l)}
+                      className={`px-2.5 py-1 text-xs font-semibold uppercase transition ${
+                        fisaLang === l
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-white text-slate-500 hover:text-slate-700'
+                      }`}
+                      title={
+                        l === 'hu'
+                          ? 'Magyar elsődleges, román alcímkék'
+                          : 'Román elsődleges (hivatalos forma), magyar alcímkék'
+                      }
+                    >
+                      {l}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </CardContent>
         </Card>
 
         {/* Lista */}
-        {items.length === 0 ? (
+        {visibleItems.length === 0 ? (
           <Card className="card-raised border-0">
             <CardContent className="p-10 text-center">
               <Archive className="mx-auto size-10 text-slate-300" />
@@ -267,7 +437,8 @@ export function LeltarPage() {
                   : 'Még nincsen leltári tétel a lokális cache-ben.'}
               </p>
               <p className="text-xs text-slate-400">
-                Kattints a „Frissítés most" gombra, ha online vagy.
+                Kattints a „Frissítés most" gombra, ha online vagy — vagy rögzítsd az
+                első tételt az „Új tétel" gombbal.
               </p>
             </CardContent>
           </Card>
@@ -282,17 +453,23 @@ export function LeltarPage() {
                   <th className="px-4 py-2.5">Helyszín</th>
                   <th className="px-4 py-2.5">Mennyiség</th>
                   <th className="px-4 py-2.5 text-right">Érték (RON)</th>
+                  <th className="w-36 px-4 py-2.5"><span className="sr-only">Műveletek</span></th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((it) => (
-                  <tr key={it.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/40">
+                {visibleItems.map((it) => (
+                  <tr
+                    key={it.id}
+                    className="cursor-pointer border-b border-slate-100 last:border-0 hover:bg-slate-50/40"
+                    onClick={() => openEditDialog(it)}
+                    title="Kattints a szerkesztéshez"
+                  >
                     <td className="px-4 py-2.5 font-mono text-xs text-slate-700">{it.leltari_szam ?? '—'}</td>
                     <td className="px-4 py-2.5 text-slate-800">
                       <div className="font-medium">{it.megnevezes}</div>
                       {it.szerzo && <div className="text-xs text-slate-500">{it.szerzo}</div>}
                     </td>
-                    <td className="px-4 py-2.5 text-slate-600">{formatCategoryLabel(it.kategoria)}</td>
+                    <td className="px-4 py-2.5 text-slate-600">{getInventoryCategoryLabel(it.kategoria)}</td>
                     <td className="px-4 py-2.5 text-slate-600">{it.helyszin ?? '—'}</td>
                     <td className="px-4 py-2.5 text-slate-700">
                       {it.mennyiseg.toLocaleString('hu')} {it.mertekegyseg ?? 'db'}
@@ -300,18 +477,62 @@ export function LeltarPage() {
                     <td className="px-4 py-2.5 text-right font-mono text-slate-700">
                       {it.beszerzes_erteke ? formatCurrency(it.beszerzes_erteke * it.mennyiseg) : '—'}
                     </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="rounded-lg px-2 text-xs text-teal-700"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleRowFisaPrint(it)
+                          }}
+                          title="A tétel fişájának nyomtatása"
+                          aria-label={`${it.megnevezes} fişájának nyomtatása`}
+                        >
+                          <FileText className="mr-1 size-3.5" /> Fişă
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="rounded-lg px-2 text-xs text-blue-600"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openEditDialog(it)
+                          }}
+                          title="Tétel szerkesztése"
+                          aria-label={`${it.megnevezes} szerkesztése`}
+                        >
+                          <Pencil className="mr-1 size-3.5" /> Szerk.
+                        </Button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {items.length === 200 && (
+            {items.length === LIST_LIMIT && (
               <div className="border-t border-slate-100 p-3 text-center text-xs text-slate-500">
-                Az első 200 találat látszik. Szűkítsd a keresést, hogy a többit is láthasd.
+                Az első {LIST_LIMIT} találat látszik. Szűkítsd a keresést, hogy a többit is láthasd.
               </div>
             )}
           </Card>
         )}
       </div>
+
+      <InventoryItemDialog
+        open={dialogOpen}
+        onOpenChange={(next) => {
+          setDialogOpen(next)
+          if (!next) setEditItem(null)
+        }}
+        congregationId={congregationId}
+        congregationName={congregationName}
+        editItem={editItem}
+        fisaLang={fisaLang}
+        onFisaLangChange={setFisaLang}
+        onSaved={handleSaved}
+      />
     </DesktopShell>
   )
 }

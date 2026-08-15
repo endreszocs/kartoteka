@@ -5,6 +5,19 @@ import {
   INVENTORY_CATEGORY_LABELS,
   INVENTORY_CATEGORY_ROMANIAN_LABELS,
 } from '@/lib/constants/inventory.next'
+// 2026-08-15 (desktop-paritás 4. szelet): az érték-számítás a KÖZÖS rétegből
+// jön (packages/ui-app/src/inventory/value.ts) — az itteni másolatok törölve,
+// hogy a webes nyomtatványok és a desktop fisa/lista EGY képlettel számoljon.
+import {
+  calculateInventoryCurrentValue,
+  getInventoryBookValue as getBookValue,
+  getInventoryDisplayName,
+  getInventoryQuantity as getQuantity,
+  normalizeInventoryDate as normalizeDate,
+} from '@kartoteka/ui-app'
+
+// A meglévő webes importok (inventory-main-v3, stb.) kompatibilitása.
+export { calculateInventoryCurrentValue, getInventoryDisplayName }
 
 export type InventoryPrintType =
   | 'leltariv'
@@ -170,14 +183,6 @@ function formatDate(value?: string | null) {
   return date.toLocaleDateString('hu-HU')
 }
 
-function normalizeDate(value?: string | null) {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  date.setHours(0, 0, 0, 0)
-  return date
-}
-
 function formatPeriodLabel(filters?: InventoryReportFilters) {
   if (!filters?.periodStart && !filters?.periodEnd) return 'Teljes időszak'
   const start = formatDate(filters?.periodStart || null)
@@ -217,44 +222,6 @@ function applyInventoryFilters(
     const comparableDate = dateMode === 'deleted' ? normalizeDate(item.torles_datuma) : normalizeDate(item.beszerzes_datuma)
     return isDateWithinPeriod(comparableDate, filters)
   })
-}
-
-function getQuantity(item: InventoryItem) {
-  return Number(item.mennyiseg || 1) || 1
-}
-
-function getBookValue(item: InventoryItem) {
-  return (Number(item.beszerzes_erteke || 0) || 0) * getQuantity(item)
-}
-
-export function getInventoryDisplayName(item: InventoryItem) {
-  if (item.kategoria_key === 'konyv') {
-    const author = item.szerzo?.trim()
-    return author ? `${author}: ${item.megnevezes}` : item.megnevezes
-  }
-
-  return item.megnevezes
-}
-
-export function calculateInventoryCurrentValue(item: InventoryItem, referenceDate = new Date()) {
-  const bookValue = getBookValue(item)
-  if (item.kategoria_key !== 'alapeszkoz') return bookValue
-  if (!item.hasznalati_ido || !item.beszerzes_datuma) return bookValue
-
-  const purchaseDate = normalizeDate(item.beszerzes_datuma)
-  if (!purchaseDate) return bookValue
-
-  const months = Math.max(
-    0,
-    (referenceDate.getFullYear() - purchaseDate.getFullYear()) * 12 +
-      (referenceDate.getMonth() - purchaseDate.getMonth()),
-  )
-  const amortizationBase = Number(item.beszerzes_erteke || 0) || 0
-  const annualPeriod = Math.max(1, Number(item.hasznalati_ido || 0))
-  const monthlyDepreciation = amortizationBase / (annualPeriod * 12)
-  const currentUnitValue = Math.max(0, amortizationBase - months * monthlyDepreciation)
-
-  return currentUnitValue * getQuantity(item)
 }
 
 function getDepreciationValue(item: InventoryItem, referenceDate = new Date()) {

@@ -53,16 +53,12 @@ export const ENTRY_REASON_LABELS: Record<EntryReason, string> = {
 }
 
 // ── Kivezetés oka ────────────────────────────────────────────
+// 2026-08-15 (desktop-paritás 2. szelet): a kivezetés szótára a közös
+// @kartoteka/validations csomagba került (members/szemely-remove.ts) — a
+// desktop is onnan olvassa. Innen re-export a meglévő webes importok kedvéért.
 
-export const REMOVE_REASONS = ['meghalt', 'elkoltozott', 'kitert', 'torles'] as const
-export type RemoveReason = typeof REMOVE_REASONS[number]
-
-export const REMOVE_REASON_LABELS: Record<RemoveReason, string> = {
-  meghalt: 'Elhunyt',
-  elkoltozott: 'Elköltözött',
-  kitert: 'Kitért / kilépett',
-  torles: 'Végleges törlés',
-}
+export { REMOVE_REASONS, REMOVE_REASON_LABELS } from '@kartoteka/validations'
+export type { RemoveReason } from '@kartoteka/validations'
 
 // ── Rendezési oszlopok ───────────────────────────────────────
 

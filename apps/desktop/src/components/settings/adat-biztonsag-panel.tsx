@@ -17,6 +17,7 @@ import {
   Monitor,
   RefreshCw,
   Shield,
+  ShieldCheck,
 } from 'lucide-react'
 import type { User } from '@supabase/supabase-js'
 
@@ -24,6 +25,7 @@ import { Button } from '@kartoteka/ui'
 
 import { errorMessage } from '../../lib/error'
 import { getDbStatus, getOutboxStats, type OutboxStats } from '../../lib/local-db'
+import { getDesktopSupabase } from '../../lib/supabase'
 import { getDesktopUser } from '../../lib/desktop-user'
 import {
   flushAllPendingWrites,
@@ -45,6 +47,11 @@ export function AdatBiztonsagPanel() {
 
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
+  // 2026-08-15 (desktop-paritás 1. szelet, 8. pont útjelző): a kétlépcsős
+  // belépés (2FA) állapota — null = ellenőrzés fut, 'ismeretlen' = PIN-es
+  // (offline) munkamenet vagy hiba, ilyenkor NEM állítunk hamis „nincs
+  // bekapcsolva"-t.
+  const [ketlepcsos, setKetlepcsos] = useState<'aktiv' | 'inaktiv' | 'ismeretlen' | null>(null)
 
   // Auth + online + DB + outbox + device — egyszerre töltjük be
   useEffect(() => {
@@ -62,6 +69,45 @@ export function AdatBiztonsagPanel() {
       })
       .catch(() => {
         /* csendes */
+      })
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  // 2026-08-15 (desktop-paritás 1. szelet): 2FA-állapot — CSAK tájékoztató.
+  // Ugyanaz az olvasás, mint az auth-gate aal-őrében: a `nextLevel === 'aal2'`
+  // jelzi, hogy a fióknak van ellenőrzött 2FA-faktora. Session nélkül (PIN-es
+  // offline munkamenet) az állapot nem dönthető el → 'ismeretlen', őszintén
+  // kiírva. A be-/kikapcsolás a webes felületen történik (Profil → Biztonság).
+  useEffect(() => {
+    let mounted = true
+    const supabase = getDesktopSupabase()
+    // Timeout-tal (mint a verified-session): a getSession lejárt tokennél
+    // hálózati refresh-t indíthat — a Beállítások panel ne függjön rajta.
+    const timeout = new Promise<null>((resolve) => {
+      setTimeout(() => resolve(null), 4000)
+    })
+    void Promise.race([supabase.auth.getSession(), timeout])
+      .then((res) => {
+        const session = res && 'data' in res ? res.data.session : null
+        if (!session) {
+          if (mounted) setKetlepcsos('ismeretlen')
+          return null
+        }
+        return supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+      })
+      .then((aalRes) => {
+        if (!mounted || !aalRes) return
+        const aal = 'data' in aalRes ? aalRes.data : null
+        if (!aal) {
+          setKetlepcsos('ismeretlen')
+          return
+        }
+        setKetlepcsos(aal.nextLevel === 'aal2' ? 'aktiv' : 'inaktiv')
+      })
+      .catch(() => {
+        if (mounted) setKetlepcsos('ismeretlen')
       })
     return () => {
       mounted = false
@@ -240,6 +286,39 @@ export function AdatBiztonsagPanel() {
               </div>
             </div>
           )
+        }
+      />
+
+      {/* Kétlépcsős belépés (2FA) — útjelző kártya (8. pont): az állapotot
+          mutatja, a kezelés webes. A belépési kód-lépcső magát a login-oldal
+          + az auth-gate aal-őre adja (PR #158). */}
+      <StatusCard
+        icon={<ShieldCheck className="size-4" />}
+        title="Kétlépcsős belépés (2FA)"
+        status={ketlepcsos === 'aktiv' ? 'ok' : 'neutral'}
+        statusText={
+          ketlepcsos === null
+            ? 'Ellenőrzés…'
+            : ketlepcsos === 'aktiv'
+              ? 'Aktív a fiókodon'
+              : ketlepcsos === 'inaktiv'
+                ? 'Nincs bekapcsolva'
+                : 'Csak online belépéssel ellenőrizhető'
+        }
+        description={
+          ketlepcsos === 'aktiv'
+            ? 'Online belépéskor az asztali alkalmazás is kéri a hitelesítő alkalmazás 6 jegyű kódját (vagy egy mentőkódot) — a fiókod ezzel erősebben védett.'
+            : ketlepcsos === 'inaktiv'
+              ? 'A fiókod jelenleg csak jelszóval védett. A kétlépcsős belépés bekapcsolása erősen ajánlott — pár perc, és a webes felületen elvégezhető.'
+              : ketlepcsos === 'ismeretlen'
+                ? 'PIN-es (offline) munkamenetben az állapot nem olvasható ki — online belépés után frissül.'
+                : 'Az állapot ellenőrzése folyamatban.'
+        }
+        extra={
+          <div className="rounded-[0.8rem] border border-border bg-muted/40 px-3 py-2 text-[11px] text-foreground">
+            A be- és kikapcsolás, a QR-kód és a mentőkódok kezelése a webes felületen
+            történik: <strong>kartoteka.app → Profil → Biztonság</strong>.
+          </div>
         }
       />
 

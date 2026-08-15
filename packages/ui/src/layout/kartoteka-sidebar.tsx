@@ -165,6 +165,13 @@ export interface KartotekaSidebarProps {
   financeSubmenu?: MenuItem[]
   /** Menüpontok elrejtése href szerint (pl. desktop: még nem létező modulok). */
   hiddenMenuHrefs?: string[]
+  /**
+   * Extra menüpontok a „Szolgálati adminisztráció" szekció végére (2026-08-15,
+   * desktop-paritás 3. szelet). A webes Kuka a fejléc mega-menüjéből nyílik —
+   * desktopon nincs ilyen menü, ezért a sidebar kapja (pl. `/kuka`). A web
+   * nem adja át → ott semmi nem változik.
+   */
+  extraOperativeItems?: MenuItem[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -394,6 +401,8 @@ interface SidebarNavProps {
   financeSubmenu?: MenuItem[]
   /** Menüpontok elrejtése href szerint (pl. desktop: még nem létező modulok). */
   hiddenMenuHrefs?: string[]
+  /** Extra menüpontok a „Szolgálati adminisztráció" szekció végére (desktop: Kuka). */
+  extraOperativeItems?: MenuItem[]
 }
 
 function SidebarNav({
@@ -416,6 +425,7 @@ function SidebarNav({
   activeScope = null,
   financeSubmenu,
   hiddenMenuHrefs,
+  extraOperativeItems,
 }: SidebarNavProps) {
   const sections: MenuSection[] = []
 
@@ -461,7 +471,14 @@ function SidebarNav({
     } else {
       sections.push(
         { title: 'Fő modulok', items: effectiveMainItems },
-        { title: 'Szolgálati adminisztráció', items: operativeItems },
+        {
+          title: 'Szolgálati adminisztráció',
+          // 2026-08-15 (desktop-paritás 3. szelet): a kliens extra pontjai a
+          // szekció végén (desktop: Kuka — webes párja a fejléc mega-menüben).
+          items: extraOperativeItems && extraOperativeItems.length > 0
+            ? [...operativeItems, ...extraOperativeItems]
+            : operativeItems,
+        },
         { title: 'Közösségi tér', items: communityItems },
       )
     }
@@ -604,6 +621,7 @@ export function KartotekaSidebar({
   activeScope = null,
   financeSubmenu,
   hiddenMenuHrefs,
+  extraOperativeItems,
 }: KartotekaSidebarProps) {
   const navProps = {
     Link,
@@ -621,6 +639,7 @@ export function KartotekaSidebar({
     activeScope,
     financeSubmenu,
     hiddenMenuHrefs,
+    extraOperativeItems,
   }
   const shellBaseClassName =
     'relative shrink-0 overflow-hidden border-r border-white/10 bg-[var(--sidebar)] text-[var(--sidebar-foreground)]'

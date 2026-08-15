@@ -11,8 +11,19 @@ import { inventoryItemSchema, type InventoryItemInput } from '@/lib/validations/
 import {
   INVENTORY_CATEGORY_PREFIXES,
   normalizeInventoryCategory,
-  serializeInventoryCategory,
 } from '@/lib/constants/inventory.next'
+// 2026-08-15 (desktop-paritás 4. szelet): a szám-generálás SZABÁLYA és a
+// mentés-payload a KÖZÖS rétegből (packages/ui-app/src/inventory/save.ts) —
+// a desktop direkt Supabase-írása ugyanezt használja, így a két felület
+// nem húzhat szét (a „második felület a régi implementációt őrzi" hibaosztály
+// megelőzése). Az IO (lapozott lekérdezés, insert/update, 23505-újrapróbálás)
+// itt marad, mert Server Action-kontextusban fut.
+import {
+  buildInventoryUpsertPayloads,
+  isInventoryLegacySchemaError,
+  leltariSzamQueryFailedMessage,
+  nextLeltariSzam,
+} from '@kartoteka/ui-app'
 import type { InventoryItem, InventoryCategory } from '@/lib/constants/inventory.next'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import type { InventoryPrintFinanceSummary } from '@/lib/inventory/reporting'
@@ -115,19 +126,11 @@ export async function generateNextLeltariSzam(category: InventoryCategory): Prom
       .ilike('leltari_szam', `${prefix}-%`),
   )
   if (error) {
-    throw new Error(
-      'Nem sikerült lekérdezni a már kiadott leltári számokat ' +
-        `(${error.message}), ezért új számot sem adhatunk ki — különben egy már ` +
-        'használt leltári szám ismétlődne. Ellenőrizd az internetkapcsolatot, és ' +
-        'próbáld újra; ha újra hibázik, jelezd a rendszergazdának.',
-    )
+    throw new Error(leltariSzamQueryFailedMessage(error.message))
   }
-  let max = 0
-  for (const r of rows) {
-    const m = String(r.leltari_szam || '').match(/-(\d+)$/)
-    if (m) { const n = parseInt(m[1]); if (n > max) max = n }
-  }
-  return `${prefix}-${String(max + 1).padStart(3, '0')}`
+  // 2026-08-15: a numerikus-suffix-maximum szabály a közös rétegben él
+  // (nextLeltariSzam) — a desktop ugyanazzal a szabállyal generál.
+  return nextLeltariSzam(rows.map(r => r.leltari_szam), category)
 }
 
 export async function saveInventoryItem(data: InventoryItemInput) {
@@ -148,42 +151,18 @@ export async function saveInventoryItem(data: InventoryItemInput) {
       return { error: e instanceof Error ? e.message : 'A leltári szám generálása nem sikerült.' }
     }
   }
-  const serializedCategory = serializeInventoryCategory(d.kategoria)
-  // 2026-08-09: kapcsolt kiadás (penzugy_xkey) — CSAK akkor nyúlunk hozzá, ha a
-  // hívó ténylegesen küldte a mezőt (undefined = régi hívó → a meglévő link marad).
-  const penzugyXkeyPatch =
-    d.penzugy_xkey !== undefined ? { penzugy_xkey: d.penzugy_xkey || null } : {}
-  // Az új (kanonikus DB séma) szerinti mezőnevek. A `vonalkod` mező NEM létezik
-  // a `leltar_tetelek` táblában — ezért nem tesszük be a payload-ba.
-  const record: Record<string, unknown> = {
-    megnevezes: d.megnevezes, kategoria: serializedCategory, beszerzesi_ertek: d.beszerzes_erteke,
-    beszerzes_datuma: d.beszerzes_datuma || null, katalogus_kod: d.katalogus_kod || null,
-    hasznalati_ido_ev: d.hasznalati_ido || null, helyszin: d.helyszin || null,
-    felelos_neve: d.felelos_nev || null,
-    megjegyzes: d.megjegyzes || null, is_deleted: false, congregation_id: congId,
-    mennyiseg: d.mennyiseg ?? 1,
-    mertekegyseg: d.mertekegyseg || 'db',
-    beszerzes_bizonylat: d.beszerzes_bizonylat || null,
-    ...penzugyXkeyPatch,
-  }
-  // Backward-compat fallback (régi mezőnevek), ha az új séma még nincs migrálva.
-  const modernFallback: Record<string, unknown> = {
-    megnevezes: d.megnevezes, kategoria: serializedCategory, beszerzes_erteke: d.beszerzes_erteke,
-    beszerzes_datuma: d.beszerzes_datuma || null, katalogus_kod: d.katalogus_kod || null,
-    hasznalati_ido: d.hasznalati_ido || null, helyszin: d.helyszin || null,
-    felelos_nev: d.felelos_nev || null,
-    megjegyzes: d.megjegyzes || null, deleted: false, congregation_id: congId,
-    mennyiseg: d.mennyiseg ?? 1,
-    mertekegyseg: d.mertekegyseg || 'db',
-    beszerzes_bizonylat: d.beszerzes_bizonylat || null,
-    ...penzugyXkeyPatch,
-  }
+  // 2026-08-15 (desktop-paritás 4. szelet): a kanonikus + fallback payload a
+  // KÖZÖS rétegből (buildInventoryUpsertPayloads) — a desktop mentése bit-
+  // azonos payloadot épít. A `vonalkod` mező NEM létezik a `leltar_tetelek`
+  // táblában — ezért nincs a payload-ban; a penzugy_xkey undefined = a
+  // meglévő kapcsolat marad.
+  const { record, modernFallback } = buildInventoryUpsertPayloads(d, congId)
   if (!d.id) record.leltari_szam = leltariSzam
   if (!d.id) modernFallback.leltari_szam = leltariSzam
 
   if (d.id) {
     let { error } = await supabase.from('leltar_tetelek').update(record).eq('id', d.id).eq('congregation_id', congId)
-    if (error?.message?.match(/beszerzes_erteke|deleted|felelos_nev|hasznalati_ido/)) {
+    if (isInventoryLegacySchemaError(error?.message)) {
       const retry = await supabase.from('leltar_tetelek').update(modernFallback).eq('id', d.id).eq('congregation_id', congId)
       error = retry.error
     }
@@ -206,7 +185,7 @@ export async function saveInventoryItem(data: InventoryItemInput) {
         modernFallback.leltari_szam = freshSzam
       }
       let { error } = await supabase.from('leltar_tetelek').insert([record])
-      if (error?.message?.match(/beszerzes_erteke|deleted|felelos_nev|hasznalati_ido/)) {
+      if (isInventoryLegacySchemaError(error?.message)) {
         const retry = await supabase.from('leltar_tetelek').insert([modernFallback])
         error = retry.error
       }

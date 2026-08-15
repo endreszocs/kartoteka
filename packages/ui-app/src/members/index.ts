@@ -46,3 +46,11 @@ export {
   isOzvegyAllapot,
   type NameWithPrefixInput,
 } from './name-format'
+// 2026-08-15 (desktop-paritás 2. szelet): a négyutas tag-kivezetés dialógusa
+// KÖZÖS — a web Server Action-nel, a desktop direkt Supabase-tükörrel injektálja
+// a műveleteket, de a lelkész MINDKÉT felületen ugyanazt a folyamatot látja.
+export {
+  MemberRemoveDialog,
+  type MemberRemoveDialogProps,
+  type MemberRemoveToastKind,
+} from './MemberRemoveDialog'

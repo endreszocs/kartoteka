@@ -36,7 +36,10 @@ const read = (rel) => {
 const sql = read('migration-docs/sql/2026-08-14-szemely-torles-ket-utja.sql')
 const p0 = read('migration-docs/sql/2026-07-17-member-portal-p0-auth-isolation.sql')
 const actions = read('apps/web/app/(dashboard)/tagnyilvantartas/actions.ts')
-const dialog = read('apps/web/components/modals/member-remove-dialog.tsx')
+// 2026-08-15 (desktop-paritás 2. szelet): a négyutas kivezetés-dialógus a
+// KÖZÖS @kartoteka/ui-app csomagba költözött (web+desktop egy forrásból) —
+// a forrás-őr mostantól a közös fájlt vizsgálja, a webes wrapper vékony héj.
+const dialog = read('packages/ui-app/src/members/MemberRemoveDialog.tsx')
 const hidden = read('apps/web/components/modals/hidden-members-dialog.tsx')
 if (!sql || !p0 || !actions || !dialog || !hidden) process.exit(1)
 
@@ -83,9 +86,15 @@ if (/checkPersonReferences/.test(actions) && /available: false/.test(actions)) {
   ok('T8: checkPersonReferences fail-soft (migráció előtt is működik)')
 } else fail('T8: a checkPersonReferences hiányzik vagy nem fail-soft!')
 
-// T9: a dialógus a törlés ELŐTT hívja az ellenőrzést
-if (dialog.includes('checkPersonReferences(member.id)')) {
-  ok('T9: a törlés-dialógus előzetesen ellenőrzi a kapcsolatokat')
+// T9: a dialógus a törlés ELŐTT hívja az ellenőrzést. 2026-08-15 óta a közös
+// dialógus props-injektált `checkReferences`-t hív, a webes wrapper pedig a
+// checkPersonReferences szerver-akciót injektálja — MINDKÉT láncszem kell.
+const webWrapper = read('apps/web/components/modals/member-remove-dialog.tsx')
+if (
+  dialog.includes('checkReferences(member.id)') &&
+  webWrapper.includes('checkPersonReferences')
+) {
+  ok('T9: a törlés-dialógus előzetesen ellenőrzi a kapcsolatokat (közös dialógus + webes injektálás)')
 } else fail('T9: a dialógus nem hívja a checkPersonReferences-t!')
 
 // T10: a megerősítő szöveg a TÉNYLEGES műveletet mondja — és van semleges ág

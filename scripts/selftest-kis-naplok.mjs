@@ -18,7 +18,9 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
-const SRC = path.join(REPO_ROOT, 'apps', 'web', 'lib', 'worklog', 'kis-naplok.ts')
+// 2026-08-15 (desktop-paritás 4. szelet): a modul a KÖZÖS ui-app csomagba
+// költözött (a webes fájl re-export) — az önellenőrzés a közös forrást fordítja.
+const SRC = path.join(REPO_ROOT, 'packages', 'ui-app', 'src', 'worklog', 'kis-naplok.ts')
 
 let failed = false
 const fail = (msg) => { console.error(`FAIL: ${msg}`); failed = true }

@@ -10,6 +10,7 @@ import { IktatoPage } from './pages/iktato-page'
 import { InstallerPreviewPage } from './pages/installer-preview-page'
 import { JegyzokonyvekPage } from './pages/jegyzokonyvek-page'
 import { JegyzokonyvDetailPage } from './pages/jegyzokonyv-detail-page'
+import { KukaPage } from './pages/kuka-page'
 import { SirhelyekPage } from './pages/sirhelyek-page'
 import { EvesJelentesPage } from './pages/eves-jelentes-page'
 import { BefizetesPage } from './pages/befizetes-page'
@@ -85,6 +86,9 @@ function App() {
           <Route path="/jegyzokonyvek" element={<JegyzokonyvekPage />} />
           <Route path="/jegyzokonyvek/:id" element={<JegyzokonyvDetailPage />} />
           <Route path="/sirhelyek" element={<SirhelyekPage />} />
+          {/* 2026-08-15 (desktop-paritás 3. szelet): Kuka — a webes /kuka párja,
+              online-only, szerver-visszaigazolásos műveletekkel. */}
+          <Route path="/kuka" element={<KukaPage />} />
           <Route path="/eves-jelentes" element={<EvesJelentesPage />} />
           <Route path="/misszios-muhely" element={<MissziosMuhelyPage />} />
           <Route path="/dev" element={<DashboardPage />} />
