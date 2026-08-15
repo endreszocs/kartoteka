@@ -88,8 +88,13 @@ interface DocumentCenterProps {
 }
 
 /** Státusz-jelvény színkészlet — a components/admin/_shared/status-badge.tsx
- *  ring-mintáját követi, saját dark-párokkal (5 megkülönböztethető állapot). */
-const STATUS_UI: Record<
+ *  ring-mintáját követi, saját dark-párokkal (5 megkülönböztethető állapot).
+ *
+ *  2026-08-15 (S5, iratok archívuma): EXPORTÁLT — az egyházmegyei archívum
+ *  (`diocese-archivum-view.tsx`) UGYANEZT a színkészletet használja. Egy
+ *  másolat két helyen előbb-utóbb széthúzna, és a lelkész két felületen két
+ *  különböző színű „Átvéve" jelvényt látna ugyanarra az állapotra. */
+export const STATUS_UI: Record<
   DocumentStatus,
   { label: string; className: string; icon: typeof Inbox }
 > = {
@@ -1152,7 +1157,17 @@ function StatusTimeline({ sub, compact }: { sub: DocumentSubmission; compact?: b
  * darabonként. Így az évi több MB-os jsonb-tömeg eltűnt az oldal
  * RSC-csomagjából, viszont a részletkártya tartalma változatlan.
  */
-function SnapshotDialog({
+/**
+ * A fagyasztott pillanatkép nézője (idővonal + napló + strukturált adat +
+ * nyomtatás).
+ *
+ * 2026-08-15 (S5, iratok archívuma): EXPORTÁLT — az egyházmegyei
+ * irat-archívum ugyanezt a nézőt nyitja meg. A jogosultság-ellenőrzés a
+ * szerver-akcióban (`getSubmissionSnapshot`) van, tehát az újrahasznosítás
+ * nem tágít hatókört; egy MÁSOLT néző viszont előbb-utóbb más adatot mutatna
+ * ugyanarról az iratról (a „két felület, két implementáció" hibaosztály).
+ */
+export function SnapshotDialog({
   sub,
   level,
   onClose,

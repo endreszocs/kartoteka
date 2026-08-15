@@ -27,6 +27,9 @@ import {
   type BudgetPrintData,
 } from '@/lib/finance/budget-reporting'
 import { loadBudgetRowsCompat } from '@/lib/finance/budget-compat'
+// 2026-08-15 (egyházmegyei terv, 2.1): hatókör-tudatos évi beállítás-betöltő —
+// a Pénzügyi nyomtatási központ UGYANEZT hívja (közös helper, soha széthúzó másolat).
+import { loadEvBeallitas } from '@/lib/finance/print-scope'
 import { createClient } from '@/lib/supabase/client'
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
 import { toast } from 'sonner'
@@ -73,6 +76,16 @@ interface BudgetPrintDialogProps {
   carryoverCash: number
   carryoverBank: number
   currentYear: number
+  /**
+   * 2026-08-15 (egyházmegyei terv, 2.1): a nyomtatvány HATÓKÖRE. Megyei
+   * hatókörben a terv-sorok a `diocese_koltsegvetes`-ből, az évi beállítás a
+   * `diocese_bealitas`-ból jön, és a borító a megyei feliratokat kapja.
+   * Elmaradása 'congregation'-t jelentene — vagyis üres megyei ívet —, ezért a
+   * megyei oldal KÖTELEZŐEN átadja (lásd finance-tabs.tsx).
+   */
+  scope?: 'congregation' | 'diocese'
+  /** Az egyházkerület neve a megyei borító felső blokkjához. */
+  districtName?: string | null
 }
 
 export function BudgetPrintDialog({
@@ -89,6 +102,8 @@ export function BudgetPrintDialog({
   carryoverCash,
   carryoverBank,
   currentYear,
+  scope = 'congregation',
+  districtName,
 }: BudgetPrintDialogProps) {
   // Tényleges adatok aggregálása szamadasicel kódonként.
   // 2026-08-11 (6. kör): a részszámadás INNEN KIKERÜLT (a FinancePrintDialogba
@@ -151,27 +166,23 @@ export function BudgetPrintDialog({
       // A beállítás-sor lekérése SOSEM buktathatja el a terv-sorok betöltését:
       // külön kezeljük, és a hibát `allapot: 'hiba'`-ként jelezzük (fail-closed
       // — a nyomtatvány ilyenkor magyarázó előnézetet ad, nem rossz évi adatot).
+      // 2026-08-15 (egyházmegyei terv, 2.1): a betöltő HATÓKÖR-TUDATOS közös
+      // helper (lib/finance/print-scope.ts) — megyei nézetben a
+      // `diocese_bealitas` sorát hozza. Eddig itt a gyülekezeti tábla állt, és
+      // megyei hatókörben némán üresen tért vissza.
       const beallitasBetoltes = (async (): Promise<EvBeallitasAllapot> => {
-        try {
-          const { data, error } = await supabase
-            .from('bealitas')
-            // `select('*')` SZÁNDÉKOSAN: a `szamadas_tartozasok` oszlop csak a
-            // 2026-08-14-i migráció után létezik — explicit oszloplistával a
-            // TELJES lekérés 42703-mal bukna.
-            .select('*')
-            .eq('congregation_id', settings.congregation_id)
-            .eq('id', String(year))
-            .maybeSingle()
-          if (error) return { allapot: 'hiba', ev: year }
-          return { allapot: 'kesz', ev: year, sor: (data as BealitasRow | null) ?? null }
-        } catch {
-          return { allapot: 'hiba', ev: year }
-        }
+        const res = await loadEvBeallitas(supabase, scope, settings.congregation_id, year)
+        if (!res.ok) return { allapot: 'hiba', ev: year }
+        return { allapot: 'kesz', ev: year, sor: res.row }
       })()
 
       try {
         const [data, beallitas] = await Promise.all([
-          loadBudgetRowsCompat(supabase, year, settings.congregation_id),
+          // A terv-sorok is hatókör szerint: megyei nézetben a
+          // `diocese_koltsegvetes` tábla. Enélkül a megyei Költségvetés-ív
+          // MINDEN sora nullával ment ki (a lekérés a gyülekezeti táblában
+          // kereste az egyházmegye azonosítóját).
+          loadBudgetRowsCompat(supabase, year, settings.congregation_id, scope),
           beallitasBetoltes,
         ])
         setEvBeallitas(beallitas)
@@ -189,7 +200,7 @@ export function BudgetPrintDialog({
         }
       }
     },
-    [settings.congregation_id],
+    [settings.congregation_id, scope],
   )
 
   // A panel „Véglegesítve" sorához: a betöltött év sora, betöltés előtt a
@@ -269,6 +280,11 @@ export function BudgetPrintDialog({
               actualExpense: filters.actualExpense,
               congregationName,
               congregationNameRo,
+              // 2026-08-15 (terv 2.1/3): a borító feliratai a KIÁLLÍTÓ szintjét
+              // követik — megyei íven egyházkerületi blokk, egyházmegyei
+              // iktatószám, közgyűlési határozat.
+              printScope: scope,
+              districtName,
               year: filters.selectedYear,
               carryoverCash,
               carryoverBank,

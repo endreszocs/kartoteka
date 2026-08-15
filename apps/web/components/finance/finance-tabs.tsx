@@ -90,6 +90,12 @@ interface FinanceTabsProps {
   /** Hivatalos román gyülekezetnév (pl. „Parohia Reformată Brateș") a nyomtatványokhoz. */
   congregationNameRo?: string
   congregationId: string
+  /**
+   * 2026-08-15 (egyházmegyei terv, 2.1/3): az egyházkerület neve — CSAK megyei
+   * hatókörben van értelme (a megye saját nyomtatvány-borítójának felső blokkja
+   * az egyházkerületé, ahogy a gyülekezeti íven az egyházmegyéé).
+   */
+  districtName?: string | null
   debtCalcMode: DebtCalcMode
   yearlyFees: Record<number, number>
   debtRows: DebtRow[]
@@ -126,6 +132,7 @@ export function FinanceTabs({
   settings, szamadasiCellek, bevCelMap, kiaCelMap,
   bankAccounts, internalTransfers, initialIncome, initialExpense,
   carryoverCash, carryoverBank, bankNyitoMap, congregationName, congregationNameRo, congregationId,
+  districtName = null,
   currentYear, availableYears, yearlyFees, debtRows: initialDebtRows, receiptHealth: initialReceiptHealth, debtCalcMode, isGodMode,
   scope = 'congregation',
   readOnly = false,
@@ -774,6 +781,9 @@ export function FinanceTabs({
             carryoverBank={carryoverBank}
             // Diocese-módban a hero rejtve — a carryover/balances szemantika ott más.
             balances={scope === 'diocese' ? undefined : balances}
+            // 2026-08-15: ellenőri nézetben a megyei felküldés-kártya gombjai
+            // rejtve (a szerver akció is tiltja — ez a felhasználó kímélete).
+            readOnly={readOnly}
           />
         </TabsContent>
 
@@ -889,6 +899,11 @@ export function FinanceTabs({
         carryoverCash={carryoverCash}
         carryoverBank={carryoverBank}
         currentYear={currentYear}
+        // 2026-08-15 (egyházmegyei terv, 2.1): hatókör-tudatos nyomtatás — a
+        // megyei terv-sorok és az évi beállítás a diocese_* táblákból jönnek,
+        // a borító pedig a megyei feliratokat kapja.
+        scope={scope}
+        districtName={districtName}
       />
 
       <FinancePrintDialog
@@ -907,6 +922,8 @@ export function FinanceTabs({
         bankNyitoMap={bankNyitoMap}
         currentYear={currentYear}
         settings={settings}
+        scope={scope}
+        districtName={districtName}
       />
 
       {/* 2026-07-17 (F4): Induló (nyitó) egyenlegek szerkesztője — a kész

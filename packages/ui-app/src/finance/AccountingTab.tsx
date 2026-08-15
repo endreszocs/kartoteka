@@ -394,6 +394,13 @@ export function AccountingTab({
   // az EGYSÉGES FinalizeButton indoklás-dialógusára költözött (kötelező, ≥10
   // karakteres indoklás — mint a többi irat-típusnál). A toast/refresh itt marad,
   // a komponens csak a dialógus nyitva tartását dönti el a visszaadott hibából.
+  // 2026-08-15 (egyházmegyei szelet): a CÍMZETT a hatókör felettes szintje — a
+  // gyülekezeté az egyházmegye, az egyházmegye SAJÁT számadásáé az
+  // egyházkerület. Eddig a megyei felület is „az egyházmegyének" küldte a saját
+  // iratát (önmagának) — a felület mást mondott, mint ami történik.
+  const felettesSzint = scope === 'diocese' ? 'az egyházkerület' : 'az egyházmegye'
+  const felettesSzintNek = scope === 'diocese' ? 'az egyházkerületnek' : 'az egyházmegyének'
+
   async function handleUnlockRequest(reason: string) {
     if (!onRequestUnlock) return { error: 'A feloldás-kérés ezen a felületen nem érhető el.' }
     const result = await onRequestUnlock(currentYear, reason)
@@ -401,7 +408,7 @@ export function AccountingTab({
       onToast?.(result.error, 'error')
       return { error: result.error }
     }
-    onToast?.('Javítási kérelem elküldve az egyházmegyének!', 'success')
+    onToast?.(`Javítási kérelem elküldve ${felettesSzintNek}!`, 'success')
     onRefresh?.()
     return { success: true }
   }
@@ -596,6 +603,7 @@ export function AccountingTab({
                 skipConfirm
                 onFinalize={() => setFinalizeWizardOpen(true)}
                 onRequestUnlock={onRequestUnlock ? handleUnlockRequest : undefined}
+                unlockAuthorityLabel={felettesSzint}
                 unlockPlaceholder="Pl. Egy decemberi banki kiadás rossz jogcímre került, javítani szeretném."
               />
             )}
@@ -627,8 +635,8 @@ export function AccountingTab({
           <div className="mt-5 border-t border-slate-100 pt-4">
             <p className="text-xs text-slate-500 max-w-md">
               {settings.accounting_finalized
-                ? 'A számadás véglegesítve és beküldve az egyházmegyének. Módosítás csak a fenti „Feloldás kérése" úton lehetséges.'
-                : 'Ha minden tétel stimmel, a fenti „Véglegesítés és beküldés" gombbal zárhatod le és küldheted be a számadást az egyházmegyének.'}
+                ? `A számadás véglegesítve és beküldve ${felettesSzintNek}. Módosítás csak a fenti „Feloldás kérése" úton lehetséges.`
+                : `Ha minden tétel stimmel, a fenti „Véglegesítés és beküldés" gombbal zárhatod le és küldheted be a számadást ${felettesSzintNek}.`}
             </p>
           </div>
         </div>

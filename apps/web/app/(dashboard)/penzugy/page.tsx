@@ -186,6 +186,9 @@ export default async function PenzugyPage({
         congregationName={data.congregationName}
         congregationNameRo={data.congregationNameRo}
         congregationId={scopeId}
+        // 2026-08-15 (egyházmegyei terv, 2.1/3): a megyei nyomtatvány-borító
+        // felső blokkja az EGYHÁZKERÜLETÉ. Gyülekezeti hatókörben `null`.
+        districtName={data.districtName}
         debtCalcMode={data.debtCalcMode}
         yearlyFees={data.yearlyFees}
         debtRows={data.debtRows}

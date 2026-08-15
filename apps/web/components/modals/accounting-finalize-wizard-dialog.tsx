@@ -105,13 +105,22 @@ type Props = {
   }
   onFinalized?: () => void | Promise<void>
   /** 2026-04-18 SCOPE-AWARE: 'congregation' (default) vagy 'diocese'.
-   *  Diocese módban nincs submitDocument hívás (a diocese_annual_reports egy
-   *  lépésben tölti ki a submission+finalization mezőket). */
+   *  Diocese módban nincs gyülekezeti submitDocument hívás: a
+   *  `finalizeAccounting` megyei ága egy lépésben zár (diocese_bealitas),
+   *  pillanatképet ment (diocese_annual_reports) ÉS rögzíti a felküldést az
+   *  egyházkerületnek (diocese_felterjesztes — 2026-08-15, S6). */
   scope?: 'congregation' | 'diocese'
 }
 
 export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, onFinalized, scope = 'congregation' }: Props) {
   const router = useRouter()
+  // 2026-08-15 (egyházmegyei szelet): a wizard feliratai a CÍMZETT szintjét
+  // mondják — a gyülekezeté az egyházmegye, az egyházmegye SAJÁT számadásáé az
+  // egyházkerület. A folyamat (5 lépés, ellenőrzések, jegyzőkönyv) azonos.
+  const megyei = scope === 'diocese'
+  const felettesNek = megyei ? 'az egyházkerületnek' : 'az egyházmegyének'
+  const felettesHez = megyei ? 'az egyházkerülethez' : 'az egyházmegyéhez'
+  const felettes = megyei ? 'Az egyházkerület' : 'Az egyházmegye'
   const [isPending, startTransition] = useTransition()
   const [step, setStep] = useState<WizardStep>('overview')
 
@@ -280,10 +289,18 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
           return
         }
       } else {
-        const result = await finalizeAccounting(year, {
-          jegyzokonyviSzam: finalJkvSzam,
-          targyalasDatuma: finalDatum,
-        })
+        // 2026-08-15 (S6, terv 3.4): a megyei ág is ÁTADJA a kanonikus (kód-
+        // kulcsú, a hivatalos ív végpont-kódjaira szűrt) pillanatképet. Eddig
+        // nem adta át, ezért a megye zárszámadása a NYERS szerver-összesítéssel
+        // került a `diocese_annual_reports`-ba — az íven kívülre könyvelt pénzt
+        // is beleszámolva. Ugyanaz a hibaosztály volt, mint a gyülekezeti
+        // oldalon 2026-08-11-ig: két pillanatkép, két különböző szám ugyanarra
+        // az évre. Mostantól EGY forrás.
+        const result = await finalizeAccounting(
+          year,
+          { jegyzokonyviSzam: finalJkvSzam, targyalasDatuma: finalDatum },
+          snapshot,
+        )
         if (result.error) {
           toast.error(`Véglegesítés sikertelen: ${result.error}`)
           return
@@ -292,7 +309,7 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
 
       toast.success(
         scope === 'diocese'
-          ? 'Egyházmegyei számadás véglegesítve!'
+          ? 'Egyházmegyei számadás véglegesítve és felküldve az egyházkerületnek!'
           : 'Számadás véglegesítve és beküldve az egyházmegyének!',
         { duration: 5000 },
       )
@@ -360,9 +377,10 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
                     </h3>
                     <p className="text-sm text-slate-600 mt-1 leading-relaxed">
                       A KARTOTEKA végigvezet a véglegesítés 5 lépésén: automatikus
-                      ellenőrzések, presbiteri jegyzőkönyv csatolás, és a végső
-                      megerősítés. Véglegesítés után a számadás az egyházmegyéhez
-                      kerül — a módosítás csak javítási kérelemmel lehetséges.
+                      ellenőrzések, {megyei ? 'közgyűlési' : 'presbiteri'} jegyzőkönyv
+                      csatolás, és a végső megerősítés. Véglegesítés után a számadás
+                      {' '}{felettesHez} kerül — a módosítás csak javítási kérelemmel
+                      lehetséges.
                     </p>
                   </div>
                 </div>
@@ -515,10 +533,12 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
                 <div className="flex items-start gap-2">
                   <ScrollText className="size-4 text-indigo-700 shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-sm font-semibold text-indigo-900">Presbiteri jegyzőkönyv</p>
+                    <p className="text-sm font-semibold text-indigo-900">
+                      {megyei ? 'Közgyűlési jegyzőkönyv' : 'Presbiteri jegyzőkönyv'}
+                    </p>
                     <p className="text-xs text-slate-600 mt-1">
-                      A számadást a presbitérium tárgyalja — a jegyzőkönyvi szám és tárgyalási
-                      dátum kerül a hivatalos dokumentumba.
+                      A számadást {megyei ? 'az egyházmegyei közgyűlés' : 'a presbitérium'} tárgyalja
+                      — a jegyzőkönyvi szám és tárgyalási dátum kerül a hivatalos dokumentumba.
                     </p>
                   </div>
                 </div>
@@ -541,7 +561,7 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
                     Kartotéka jegyzőkönyv
                   </p>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Ha a presbiteri jegyzőkönyvet a Kartotékában írtad
+                    Ha a jegyzőkönyvet a Kartotékában írtad
                     {jkvList.length > 0 ? ` (${jkvList.length} elérhető)` : jkvLoading ? ' (töltés...)' : ' — nincs elérhető'}.
                   </p>
                 </button>
@@ -574,12 +594,12 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
                     </div>
                   ) : jkvList.length === 0 ? (
                     <p className="text-sm text-slate-500 italic text-center py-4">
-                      Nincs {year}-re szóló presbiteri jegyzőkönyv a Kartotékában. Válts manuális módra.
+                      Nincs {year}-re szóló jegyzőkönyv a Kartotékában. Válts manuális módra.
                     </p>
                   ) : (
                     <>
                       <div>
-                        <Label className="text-sm">Presbiteri jegyzőkönyv kiválasztása</Label>
+                        <Label className="text-sm">Jegyzőkönyv kiválasztása</Label>
                         <select
                           value={selectedJkvId}
                           onChange={(e) => {
@@ -656,7 +676,7 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
                       className="mt-1"
                     />
                     <p className="text-[11px] text-slate-500 mt-1">
-                      Ahogy a presbiteri jegyzőkönyvben szerepel.
+                      Ahogy a jegyzőkönyvben szerepel.
                     </p>
                   </div>
                   <div>
@@ -682,7 +702,7 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
                   Utolsó megerősítés
                 </h3>
                 <p className="text-sm text-slate-600 mt-1">
-                  Ezek az adatok kerülnek a hivatalos számadásba és az egyházmegyéhez:
+                  Ezek az adatok kerülnek a hivatalos számadásba és {felettesHez}:
                 </p>
 
                 <div className="mt-4 space-y-2 text-sm bg-white rounded-xl p-4 border border-slate-200">
@@ -726,8 +746,12 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
                     <p className="font-semibold mb-1">Mi fog történni a megerősítés után?</p>
                     <ul className="list-disc pl-5 space-y-0.5">
                       <li>A számadás véglegesítve lesz, <strong>új tétel rögzítése, stornózás, szerkesztés a {year}. évre letiltva</strong>.</li>
-                      <li>Az <strong>egyházmegye csengőn értesítést</strong> kap — az esperes látni fogja a beküldött dokumentumot.</li>
-                      <li>Módosítás csak az egyházmegyei <strong>javítási engedéllyel</strong> lehetséges.</li>
+                      {megyei ? (
+                        <li>A számadás <strong>felküldve</strong> lesz {felettesNek} — a felküldés ténye, ideje és tartalma rögzül.</li>
+                      ) : (
+                        <li>Az <strong>egyházmegye csengőn értesítést</strong> kap — az esperes látni fogja a beküldött dokumentumot.</li>
+                      )}
+                      <li>Módosítás csak {megyei ? 'egyházkerületi' : 'egyházmegyei'} <strong>javítási engedéllyel</strong> lehetséges.</li>
                     </ul>
                   </div>
                 </div>
@@ -745,9 +769,11 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
                 Számadás véglegesítve! 🎉
               </h3>
               <p className="text-sm text-slate-600 mt-3 leading-relaxed max-w-md mx-auto">
-                Az egyházmegye csengőn értesítést kap. A {year}. évi számadás mostantól
-                lezárt és nem módosítható — kivéve ha javítási kérelmet küldesz az
-                egyházmegyének.
+                {megyei
+                  ? `A(z) ${year}. évi számadás felküldve. `
+                  : `${felettes} csengőn értesítést kap. A ${year}. évi számadás `}
+                mostantól lezárt és nem módosítható — kivéve ha javítási kérelmet küldesz
+                {' '}{felettesNek}.
               </p>
               <Button
                 onClick={() => onOpenChange(false)}

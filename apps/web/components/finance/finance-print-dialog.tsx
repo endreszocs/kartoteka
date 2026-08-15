@@ -39,6 +39,9 @@ import {
   type BudgetPrintType,
 } from '@/lib/finance/budget-reporting'
 import { loadBudgetRowsCompat, type BudgetCompatRow } from '@/lib/finance/budget-compat'
+// 2026-08-15 (egyházmegyei terv, 2.1): hatókör-tudatos évi beállítás-betöltő
+// (a Költségvetés nyomtatási központ UGYANEZT hívja — közös helper).
+import { loadEvBeallitas } from '@/lib/finance/print-scope'
 // 2026-08-11 (6. kör): a részszámadás IDŐSZAKI nyitó/záró levezetése — tiszta
 // függvény, önellenőrzéssel (`npm run selftest:reszszamadas`).
 import { computePeriodBalances, type PeriodRow } from '@kartoteka/core'
@@ -69,6 +72,14 @@ interface FinancePrintDialogProps {
   bankNyitoMap?: Record<number, number>
   currentYear: number
   settings: BealitasRow
+  /**
+   * 2026-08-15 (egyházmegyei terv, 2.1): a nyomtatványok HATÓKÖRE. Megyei
+   * hatókörben az évi beállítás a `diocese_bealitas`-ból, a terv-sorok a
+   * `diocese_koltsegvetes`-ből jönnek, és a borító a megyei feliratokat kapja.
+   */
+  scope?: 'congregation' | 'diocese'
+  /** Az egyházkerület neve a megyei borító felső blokkjához. */
+  districtName?: string | null
 }
 
 /** 2026-07-10 (S5-#3): a Body opak yearRecords-ának webes alakja. */
@@ -144,6 +155,8 @@ export function FinancePrintDialog({
   bankNyitoMap,
   currentYear,
   settings,
+  scope = 'congregation',
+  districtName,
 }: FinancePrintDialogProps) {
   // 2026-08-11 (6. kör): a RÉSZSZÁMADÁS mostantól ITT érhető el. Eddig a
   // `.filter((t) => t.id !== 'reszszamadas')` kizárta abból az EGYETLEN
@@ -176,25 +189,16 @@ export function FinancePrintDialog({
   // Záróegyenleg = 113 − 116 + 128, a 2025-ös ív VÉGSŐ egyenlege is ennyivel
   // tért el — aláírható, beküldhető papíron. A `bealitas` sor évenként külön
   // létezik (id = év), tehát a kiválasztott évre kell lekérni.
+  // 2026-08-15 (egyházmegyei terv, 2.1): a betöltés HATÓKÖR-TUDATOS közös
+  // helperrel megy (lib/finance/print-scope.ts) — megyei nézetben a
+  // `diocese_bealitas` sorát hozza. Eddig itt a gyülekezeti tábla állt, és
+  // megyei hatókörben (ahol az azonosító az egyházmegyéé) NÉMÁN üres maradt:
+  // a megyei ív „nincs véglegesítve" felirattal ment ki a lezárt évekre is.
   const loadYearSettings = async (
     year: number,
   ): Promise<{ row: BealitasRow | null; ok: boolean }> => {
-    try {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from('bealitas')
-        // `select('*')` SZÁNDÉKOSAN: a `szamadas_tartozasok` oszlop csak a
-        // 2026-08-14-i migráció után létezik — explicit oszloplistával a TELJES
-        // lekérés 42703-mal bukna, és a záró blokk némán üresen menne ki.
-        .select('*')
-        .eq('congregation_id', settings.congregation_id)
-        .eq('id', String(year))
-        .maybeSingle()
-      if (error) return { row: null, ok: false }
-      return { row: (data as BealitasRow | null) ?? null, ok: true }
-    } catch {
-      return { row: null, ok: false }
-    }
+    const supabase = createClient()
+    return await loadEvBeallitas(supabase, scope, settings.congregation_id, year)
   }
 
   const categoryOptions = cellek
@@ -354,6 +358,10 @@ export function FinancePrintDialog({
                 actualExpense,
                 congregationName,
                 congregationNameRo,
+                // 2026-08-15 (terv 2.1/3): a borító feliratai a KIÁLLÍTÓ
+                // szintjét követik (megyei íven kerületi blokk + közgyűlés).
+                printScope: scope,
+                districtName,
                 year: filters.selectedYear,
                 carryoverCash: carryoverCashUse,
                 carryoverBank: carryoverBankUse,
@@ -542,7 +550,9 @@ export function FinancePrintDialog({
           onLoadBudgetRows={async (year): Promise<Record<string, unknown>> => {
             try {
               const supabase = createClient()
-              const rows = await loadBudgetRowsCompat(supabase, year, settings.congregation_id)
+              // Hatókör-tudatos: megyei nézetben a `diocese_koltsegvetes`
+              // tábla — enélkül a megyei ív minden terv-sora nulla lett volna.
+              const rows = await loadBudgetRowsCompat(supabase, year, settings.congregation_id, scope)
               const map: Record<string, unknown> = {}
               rows.forEach((r) => {
                 map[r.szamadasicelid] = {

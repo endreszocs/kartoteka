@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { LucideIcon } from 'lucide-react'
 import {
+  Archive,
   BookOpen,
   Building2,
   Castle,
@@ -666,8 +667,23 @@ function SidebarNav({
       : {}),
   }
 
-  // Diocese scope: csak Irányítópult + Pénzügy. A többi modul elrejtve.
-  const dioceseMainItems: MenuItem[] = [dynamicDashboardItem, financeMenuItem]
+  // Diocese scope menü (2026-08-15, egyházmegyei terv 4.4).
+  //
+  // MIÉRT BŐVÜLT: a megyei szint szeletei megérkeztek — a Leltár és az Iktatás
+  // már diocese-módban is fut (a MEGLÉVŐ modul, a megye adataival és saját
+  // sorszám-sorával), az iratok archívuma és az összesítő pedig önálló
+  // alútvonalat kapott. Enélkül ezek a felületek MEGÉPÜLTEK, de a menüből nem
+  // lettek elérhetők — a lelkész csak akkor találná meg őket, ha kézzel beírja
+  // az útvonalat. A terv szabálya érvényben marad: menüpont CSAK megépült
+  // célponthoz kerül be (halott link soha).
+  const dioceseMainItems: MenuItem[] = [
+    dynamicDashboardItem,
+    financeMenuItem,
+    { label: 'Iratok archívuma', href: '/dashboard-egyhazmegye/iratok', icon: Archive, gradient: 'from-emerald-400 to-teal-500' },
+    { label: 'Összesítő', href: '/dashboard-egyhazmegye/osszesito', icon: ClipboardList, gradient: 'from-teal-400 to-cyan-500' },
+    { label: 'Leltár', href: '/leltar', icon: Package, gradient: 'from-orange-400 to-amber-500' },
+    { label: 'Iktatás', href: '/iktato', icon: FileText, gradient: 'from-violet-400 to-purple-500' },
+  ]
 
   // Gyülekezeti mainItems dinamikus elemmel
   const effectiveMainItems: MenuItem[] = isDioceseScope
