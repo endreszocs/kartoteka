@@ -79,6 +79,18 @@ interface FilingMainProps {
   showAdminImport?: boolean
   /** A Rendszergazdai importáló tab tartalma. */
   adminImportContent?: React.ReactNode
+  /**
+   * 2026-08-15 (egyházmegyei szint, S4): 'diocese' = a MEGYE saját iktatója fut
+   * ugyanezen a felületen (a szerver-akciók a module-scope helperrel a
+   * diocese_id-re szűrnek, saját iktatószám-sorral). Megyei módban a
+   * gyülekezet-specifikus részek (Iratcsomók, személy-alapú igazolás-kiállítás)
+   * rejtve — azok a szemely/iratcsomo gyülekezeti tábláira épülnek.
+   */
+  scope?: 'congregation' | 'diocese'
+  /** false = ellenőri (számvevői) nézet — a rögzítő gombok rejtve. */
+  canWrite?: boolean
+  /** A csak-olvasható nézet magyar magyarázata (bannerben jelenik meg). */
+  readOnlyReason?: string | null
 }
 
 type FilingTab = 'iratok' | 'csomok' | 'sablonok' | 'help' | 'admin-import'
@@ -138,7 +150,15 @@ function SummaryRow({
   )
 }
 
-export function FilingMain({ congregationName, showAdminImport = false, adminImportContent }: FilingMainProps) {
+export function FilingMain({
+  congregationName,
+  showAdminImport = false,
+  adminImportContent,
+  scope = 'congregation',
+  canWrite = true,
+  readOnlyReason = null,
+}: FilingMainProps) {
+  const isDiocese = scope === 'diocese'
   const currentYear = new Date().getFullYear()
   const [activeTab, setActiveTab] = useState<FilingTab>('iratok')
   const [year, setYear] = useState(currentYear)
@@ -683,7 +703,7 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
           yearClosure ? { label: `Lezárt (${yearClosure.closed_at?.slice(0, 10)})`, tone: 'neutral' as const } : undefined,
         ].filter(Boolean) as { label: string; tone?: 'neutral' | 'emerald' | 'sky' }[]}
         actions={
-          activeTab === 'iratok' && !yearClosure ? (
+          activeTab === 'iratok' && !yearClosure && canWrite ? (
             <Button
               type="button"
               variant="outline"
@@ -698,6 +718,14 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
           ) : undefined
         }
       />
+
+      {/* 2026-08-15 (S4): számvevői (ellenőri) nézet — előre kimondjuk, mit nem
+          lehet, nem egy néma vagy nyers hibára hagyjuk. */}
+      {!canWrite && readOnlyReason && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 text-sm text-amber-900 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200">
+          {readOnlyReason}
+        </div>
+      )}
 
       {yearClosure && (
         <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex flex-col gap-2 sm:flex-row sm:items-start">
@@ -737,7 +765,10 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
       <ColorTabs
         tabs={[
           { value: 'iratok', label: 'Iktatott iratok', color: 'blue' },
-          { value: 'csomok', label: 'Iratcsomók', color: 'violet' },
+          // Az iratcsomó (iratcsomo tábla) gyülekezeti modul — megyei
+          // scope-oszlopa nincs (2026-08-15-egyhazmegyei-scope-oszlopok.sql
+          // szándékos döntése), ezért diocese-módban a fül sem jelenik meg.
+          ...(isDiocese ? [] : [{ value: 'csomok', label: 'Iratcsomók', color: 'violet' }]),
           { value: 'sablonok', label: 'Sablonok', color: 'amber' },
           { value: 'help', label: 'Súgó', color: 'teal' },
           ...(showAdminImport ? [
@@ -811,6 +842,8 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
             })
           }
           isClosed={Boolean(yearClosure)}
+          scope={scope}
+          canWrite={canWrite}
           onOpenCert={() => void openCertDialog()}
           certLoading={certChunkLoading}
           csomoNameById={csomoNameById}
@@ -1470,6 +1503,7 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
                   <CsatolmanyPanel
                     iktatoId={editEntry.id}
                     iktatoszam={`${editEntry.year}/${editEntry.sequence_number}`}
+                    scope={scope}
                     onChanged={() => void loadCsatolmanyCounts(entries.map((e) => e.id))}
                   />
                 </div>
@@ -1539,6 +1573,7 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
             <CsatolmanyPanel
               iktatoId={attachmentEntry.id}
               iktatoszam={`${attachmentEntry.year}/${attachmentEntry.sequence_number}`}
+              scope={scope}
               onChanged={() => void loadCsatolmanyCounts(entries.map((e) => e.id))}
             />
           )}
@@ -1693,6 +1728,10 @@ interface FilingEntriesViewProps {
   onPrintIktatokonyv?: () => void
   /** 2026-05-29 Fázis 3: lezárt-e az évi iktatókönyv (az "+ Új irat" gombhoz). */
   isClosed?: boolean
+  /** 2026-08-15 (S4): 'diocese' = megyei mód — a gyülekezet-specifikus sor-műveletek rejtve. */
+  scope?: 'congregation' | 'diocese'
+  /** false = ellenőri (számvevői) nézet — a rögzítő gombok rejtve. */
+  canWrite?: boolean
   /** 2026-07-17 (F6/K6): Igazolás/levél-kiállító megnyitása (lazy chunk). */
   onOpenCert: () => void
   /** A kiállító-chunk épp töltődik (gomb-visszajelzéshez). */
@@ -1728,6 +1767,8 @@ function FilingEntriesView({
   onPrintPecset,
   onPrintIktatokonyv,
   isClosed = false,
+  scope = 'congregation',
+  canWrite = true,
   onOpenCert,
   certLoading = false,
   csomoNameById,
@@ -1768,47 +1809,56 @@ function FilingEntriesView({
         <Input placeholder="Keresés..." value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} className="w-full sm:w-56" />
         <div className="ml-auto flex flex-wrap gap-2">
           {/* 2026-07-25 (F8d/S3): táblázatos gyorsrögzítés — sorozat-iktatáshoz.
-              md alatt rejtve: telefonon a lépéses varázsló a kényelmes út. */}
-          <Button
-            size="sm"
-            variant={quickRowOpen ? 'default' : 'outline'}
-            className="hidden md:inline-flex"
-            onClick={() => setQuickRowOpen((open) => !open)}
-            disabled={isClosed}
-            aria-expanded={quickRowOpen}
-            aria-controls="filing-quick-row"
-            title={
-              isClosed
-                ? 'Az év lezárt — nem vehető fel új bejegyzés.'
-                : 'Kompakt sor a lista fölött: irány, kelt, tárgy, partner, ügykör → Enter = iktatás'
-            }
-          >
-            <Zap className="size-3.5" aria-hidden />
-            {quickRowOpen ? 'Gyorsrögzítés elrejtése' : 'Gyorsrögzítés'}
-          </Button>
+              md alatt rejtve: telefonon a lépéses varázsló a kényelmes út.
+              2026-08-15 (S4): csak-olvasó (számvevői) nézetben rejtve. */}
+          {canWrite && (
+            <Button
+              size="sm"
+              variant={quickRowOpen ? 'default' : 'outline'}
+              className="hidden md:inline-flex"
+              onClick={() => setQuickRowOpen((open) => !open)}
+              disabled={isClosed}
+              aria-expanded={quickRowOpen}
+              aria-controls="filing-quick-row"
+              title={
+                isClosed
+                  ? 'Az év lezárt — nem vehető fel új bejegyzés.'
+                  : 'Kompakt sor a lista fölött: irány, kelt, tárgy, partner, ügykör → Enter = iktatás'
+              }
+            >
+              <Zap className="size-3.5" aria-hidden />
+              {quickRowOpen ? 'Gyorsrögzítés elrejtése' : 'Gyorsrögzítés'}
+            </Button>
+          )}
           {onPrintIktatokonyv && (
             <Button size="sm" variant="outline" onClick={onPrintIktatokonyv}>
               Iktatókönyv nyomtatás
             </Button>
           )}
           {/* 2026-07-17 (F6/K6): igazolás/hivatalos levél kiállítása sablonból,
-              anyakönyvi adatokkal — a mentés automatikusan iktat (kimenő). */}
-          <Button
-            size="sm"
-            onClick={onOpenCert}
-            disabled={certLoading}
-          >
-            <Stamp className="size-3.5 mr-1.5" />
-            {certLoading ? 'Betöltés…' : 'Igazolás / levél kiállítása'}
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => openDialog()}
-            disabled={isClosed}
-            title={isClosed ? 'Az év lezárt — nem vehető fel új bejegyzés.' : undefined}
-          >
-            + Új irat
-          </Button>
+              anyakönyvi adatokkal — a mentés automatikusan iktat (kimenő).
+              2026-08-15 (S4): megyei módban rejtve — a kiállító a gyülekezeti
+              szemely-táblára (anyakönyvi adatokra) épül. */}
+          {scope !== 'diocese' && canWrite && (
+            <Button
+              size="sm"
+              onClick={onOpenCert}
+              disabled={certLoading}
+            >
+              <Stamp className="size-3.5 mr-1.5" />
+              {certLoading ? 'Betöltés…' : 'Igazolás / levél kiállítása'}
+            </Button>
+          )}
+          {canWrite && (
+            <Button
+              size="sm"
+              onClick={() => openDialog()}
+              disabled={isClosed}
+              title={isClosed ? 'Az év lezárt — nem vehető fel új bejegyzés.' : undefined}
+            >
+              + Új irat
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1893,17 +1943,20 @@ function FilingEntriesView({
                           <span className="ml-0.5 tabular-nums">{csatolmanyCounts[entry.id]}</span>
                         ) : null}
                       </Button>
-                      {/* 2026-07-17 (F6/K6): iratcsomóba rendezés */}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-1.5 text-xs text-violet-700"
-                        onClick={() => onOpenCsomoPicker(entry)}
-                        title="Iratcsomóba rendezés"
-                        aria-label={`Iratcsomóba rendezés — ${entry.year}/${entry.sequence_number}`}
-                      >
-                        <FolderInput className="size-3.5" aria-hidden />
-                      </Button>
+                      {/* 2026-07-17 (F6/K6): iratcsomóba rendezés — megyei
+                          módban rejtve (az iratcsomo tábla gyülekezeti). */}
+                      {scope !== 'diocese' && canWrite && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-1.5 text-xs text-violet-700"
+                          onClick={() => onOpenCsomoPicker(entry)}
+                          title="Iratcsomóba rendezés"
+                          aria-label={`Iratcsomóba rendezés — ${entry.year}/${entry.sequence_number}`}
+                        >
+                          <FolderInput className="size-3.5" aria-hidden />
+                        </Button>
+                      )}
                       {onPrintPecset && (
                         <Button
                           variant="ghost"
@@ -1915,8 +1968,12 @@ function FilingEntriesView({
                           Pecsét
                         </Button>
                       )}
-                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-blue-600" onClick={() => openDialog(entry)}>Szerk.</Button>
-                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-red-500" onClick={() => handleDelete(entry.id)}>Törlés</Button>
+                      {canWrite && (
+                        <>
+                          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-blue-600" onClick={() => openDialog(entry)}>Szerk.</Button>
+                          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-red-500" onClick={() => handleDelete(entry.id)}>Törlés</Button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>

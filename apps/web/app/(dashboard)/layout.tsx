@@ -6,6 +6,7 @@ import { WalkthroughClient } from '@/components/onboarding/walkthrough/walkthrou
 import { SubscriptionSuspendedScreen } from '@/components/layout/subscription-suspended-screen'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { canWriteDioceseScope } from '@/lib/auth/level-scope'
 import { getCongregationAccessStatus, shouldGateUser } from '@/lib/auth/subscription-access'
 import { touchLastSeen } from '@/lib/auth/touch-last-seen'
 import { checkDioceseSetupStatus } from '@/app/(dashboard)/dashboard-egyhazmegye/diocese-actions'
@@ -220,6 +221,17 @@ export default async function DashboardLayout({
   const { shouldStartWalkthrough, walkthroughFirstName } = onboardingState
   const isGodMode = godMode.active
 
+  // 2026-08-15 (egyházmegyei terv, 4.1): a fejléc „Egyházmegyénk" /
+  // „Egyházmegye beállításai" pontjai KIZÁRÓLAG diocese-scope aktív profilnál
+  // élnek — a célpont az aktív szerep scope_id-ja (nem a tág skalár-feloldó).
+  const activeDioceseId =
+    activeProfileRole?.scope === 'diocese' ? (activeProfileRole.scopeId ?? null) : null
+  // A számvevő csak olvas: nála a beállítás-menüpont és a szerkesztés-gomb
+  // rejtve marad (a szerver akciók e nélkül is elutasítanák — ez csak UX).
+  const canWriteDiocese = activeDioceseId
+    ? canWriteDioceseScope(access, activeDioceseId)
+    : false
+
   // 4b. Előfizetés-gating — UTOLSÓ ellenőrzés a modul-render ELŐTT, minden auth-
   //     és onboarding-redirect (welcome/pending/onboarding) UTÁN.
   //     BIZTONSÁGOS DEFAULT: a DB-lekérés CSAK gyülekezeti scope-ú, NEM admin/
@@ -293,6 +305,8 @@ export default async function DashboardLayout({
         activeProfileRoleId={activeProfileRole?.id ?? null}
         scopeNames={scopeNames}
         activeScope={activeProfileRole?.scope ?? null}
+        activeDioceseId={activeDioceseId}
+        canWriteDiocese={canWriteDiocese}
         dioceseSetupNeeded={dioceseSetupStatus.needsSetup}
         dioceseSetupId={dioceseSetupStatus.dioceseId}
         dioceseSetupMissing={dioceseSetupStatus.missingFields}

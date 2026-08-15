@@ -3,7 +3,15 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
-import { getEffectiveAccessContext, getEffectiveCongregationContext } from '@/lib/auth/effective-access'
+import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+// 2026-08-15 (egyházmegyei szint, S4): a hatókör a KÖZÖS module-scope helperből
+// jön — a sablonok scope-oszloposak (iktato_sablonok.congregation_id VAGY
+// diocese_id), minden lekérdezés `.eq(ctx.scopeCol, ctx.scopeId)`-vel szűr.
+import {
+  getModuleScopeContext,
+  moduleWriteBlock,
+  type ModuleScopeContext,
+} from '@/lib/auth/module-scope'
 // 2026-08-10: közös, pointer-tudatos iktatószám-előnézet (lásd a modul doksiját).
 import { computeSequencePreview } from '@/lib/filing/sequence-preview'
 import {
@@ -30,6 +38,13 @@ import {
 // Validáció
 // ─────────────────────────────────────────────────────────────────
 
+/** A régi gyülekezet-feloldó scope-tudatos utódja — ctx === null: nincs hatókör. */
+async function getScopeCtx(): Promise<{ ctx: ModuleScopeContext | null }> {
+  const res = await getModuleScopeContext()
+  if ('error' in res) return { ctx: null }
+  return { ctx: res }
+}
+
 const templateSchema = z.object({
   id: z.string().uuid().optional(),
   nev: z.string().trim().min(1, 'A sablon neve kötelező').max(200),
@@ -47,13 +62,13 @@ const templateSchema = z.object({
 export async function listFilingTemplates(
   opts?: { includeInactive?: boolean; tipus?: TemplateType },
 ): Promise<{ data?: FilingTemplate[]; error?: string }> {
-  const { supabase, congregationId } = await getEffectiveCongregationContext()
-  if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { error: 'Nincs aktív gyülekezet vagy egyházmegye.' }
 
-  let query = supabase
+  let query = ctx.supabase
     .from('iktato_sablonok')
     .select('*')
-    .eq('congregation_id', congregationId)
+    .eq(ctx.scopeCol, ctx.scopeId)
     .eq('deleted', false)
     .order('sorrend', { ascending: true })
     .order('nev', { ascending: true })
@@ -73,14 +88,14 @@ export async function listFilingTemplates(
 export async function getFilingTemplate(
   id: string,
 ): Promise<{ data?: FilingTemplate; error?: string }> {
-  const { supabase, congregationId } = await getEffectiveCongregationContext()
-  if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { error: 'Nincs aktív gyülekezet vagy egyházmegye.' }
 
-  const { data, error } = await supabase
+  const { data, error } = await ctx.supabase
     .from('iktato_sablonok')
     .select('*')
     .eq('id', id)
-    .eq('congregation_id', congregationId)
+    .eq(ctx.scopeCol, ctx.scopeId)
     .eq('deleted', false)
     .maybeSingle()
 
@@ -102,16 +117,16 @@ export async function saveFilingTemplate(
   }
   const input = parsed.data
 
-  const { supabase, congregationId } = await getEffectiveCongregationContext()
-  if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { error: 'Nincs aktív gyülekezet vagy egyházmegye.' }
+  const blocked = moduleWriteBlock(ctx)
+  if (blocked) return blocked
+  const { supabase } = ctx
 
   const payload = {
-    congregation_id: congregationId,
+    // 2026-08-15 (S4): scope-oszlop dinamikusan — a CHECK
+    // (iktato_sablonok_pontosan_egy_scope) őrzi az integritást.
+    [ctx.scopeCol]: ctx.scopeId,
     nev: input.nev.trim(),
     tipus: input.tipus,
     leiras: input.leiras?.trim() || null,
@@ -126,7 +141,7 @@ export async function saveFilingTemplate(
       .from('iktato_sablonok')
       .update(payload)
       .eq('id', input.id)
-      .eq('congregation_id', congregationId)
+      .eq(ctx.scopeCol, ctx.scopeId)
 
     if (error) return { error: `Frissítés sikertelen: ${error.message}` }
     revalidatePath('/iktato')
@@ -136,7 +151,7 @@ export async function saveFilingTemplate(
   // INSERT
   const { data, error } = await supabase
     .from('iktato_sablonok')
-    .insert({ ...payload, created_by: user.id })
+    .insert({ ...payload, created_by: ctx.userId })
     .select('id')
     .single()
 
@@ -152,14 +167,16 @@ export async function saveFilingTemplate(
 export async function deleteFilingTemplate(
   id: string,
 ): Promise<{ success?: true; error?: string }> {
-  const { supabase, congregationId } = await getEffectiveCongregationContext()
-  if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { error: 'Nincs aktív gyülekezet vagy egyházmegye.' }
+  const blocked = moduleWriteBlock(ctx)
+  if (blocked) return blocked
 
-  const { error } = await supabase
+  const { error } = await ctx.supabase
     .from('iktato_sablonok')
     .update({ aktiv: false, deleted: true })
     .eq('id', id)
-    .eq('congregation_id', congregationId)
+    .eq(ctx.scopeCol, ctx.scopeId)
 
   if (error) return { error: `Törlés sikertelen: ${error.message}` }
   revalidatePath('/iktato')
@@ -173,14 +190,17 @@ export async function deleteFilingTemplate(
 export async function toggleFilingTemplateActive(
   id: string,
 ): Promise<{ success?: true; error?: string }> {
-  const { supabase, congregationId } = await getEffectiveCongregationContext()
-  if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { error: 'Nincs aktív gyülekezet vagy egyházmegye.' }
+  const blocked = moduleWriteBlock(ctx)
+  if (blocked) return blocked
+  const { supabase } = ctx
 
   const { data: current } = await supabase
     .from('iktato_sablonok')
     .select('aktiv')
     .eq('id', id)
-    .eq('congregation_id', congregationId)
+    .eq(ctx.scopeCol, ctx.scopeId)
     .maybeSingle()
 
   if (!current) return { error: 'A sablon nem található.' }
@@ -189,7 +209,7 @@ export async function toggleFilingTemplateActive(
     .from('iktato_sablonok')
     .update({ aktiv: !current.aktiv })
     .eq('id', id)
-    .eq('congregation_id', congregationId)
+    .eq(ctx.scopeCol, ctx.scopeId)
 
   if (error) return { error: `Frissítés sikertelen: ${error.message}` }
   revalidatePath('/iktato')
@@ -213,19 +233,17 @@ export async function seedDefaultFilingTemplates(): Promise<{
   skipped?: number
   error?: string
 }> {
-  const { supabase, congregationId } = await getEffectiveCongregationContext()
-  if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { error: 'Nincs aktív gyülekezet vagy egyházmegye.' }
+  const blocked = moduleWriteBlock(ctx)
+  if (blocked) return blocked
+  const { supabase } = ctx
 
   // Lekérjük a meglévő neveket
   const { data: existing } = await supabase
     .from('iktato_sablonok')
     .select('nev')
-    .eq('congregation_id', congregationId)
+    .eq(ctx.scopeCol, ctx.scopeId)
     .eq('deleted', false)
 
   const existingNames = new Set((existing || []).map(t => t.nev))
@@ -236,14 +254,14 @@ export async function seedDefaultFilingTemplates(): Promise<{
   }
 
   const rows = newOnes.map((s, idx) => ({
-    congregation_id: congregationId,
+    [ctx.scopeCol]: ctx.scopeId,
     nev: s.nev,
     tipus: s.tipus,
     leiras: s.leiras,
     tartalom: s.tartalom,
     aktiv: true,
     sorrend: idx,
-    created_by: user.id,
+    created_by: ctx.userId,
   }))
 
   const { error } = await supabase.from('iktato_sablonok').insert(rows)
@@ -278,10 +296,10 @@ export async function seedDefaultFilingTemplates(): Promise<{
 export async function generateNextIratszam(
   year: number,
 ): Promise<{ iratszam?: string; sequenceNumber?: number; error?: string }> {
-  const { supabase, congregationId } = await getEffectiveCongregationContext()
-  if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { error: 'Nincs aktív gyülekezet vagy egyházmegye.' }
 
-  const preview = await computeSequencePreview(supabase, congregationId, year)
+  const preview = await computeSequencePreview(ctx.supabase, { col: ctx.scopeCol, id: ctx.scopeId }, year)
   return { iratszam: preview.iratszam, sequenceNumber: preview.sequenceNumber }
 }
 
@@ -298,6 +316,27 @@ export async function getAutoPlaceholderContext(): Promise<{
 
   // Lelkipásztor neve a `profile.full_name`-ből
   const lelkipasztor = profile?.full_name || ''
+
+  // 2026-08-15 (S4): MEGYEI módban a {{gyulekezet}} placeholder az egyházmegye
+  // hivatalos neve, a {{helyseg}} az esperesi hivatal települése (dioceses
+  // törzsadat) — a sablon-szöveg így megyei iratokon is helyesen töltődik.
+  const { ctx } = await getScopeCtx()
+  if (ctx?.scope === 'diocese') {
+    let helysegDio = ''
+    const { data: dio } = await supabase
+      .from('dioceses')
+      .select('cim_telepules')
+      .eq('id', ctx.scopeId)
+      .maybeSingle()
+    helysegDio = ((dio as { cim_telepules: string | null } | null)?.cim_telepules || '').trim()
+    return {
+      data: {
+        gyulekezet: ctx.scopeName || '',
+        lelkipasztor,
+        helyseg: helysegDio,
+      },
+    }
+  }
 
   // Keltezés helysége (TELEPÜLÉS). 2026-07-25 (F8e): korábban a `cim` mezőt
   // olvastuk, ami az UTCÁT tárolja — így minden régi sablon {{helyseg}}

@@ -11,6 +11,7 @@ import {
   canWriteDioceseScope,
   resolveDioceseScopeId,
 } from '@/lib/auth/level-scope'
+import { formatEgyhazmegyeNev } from '@/lib/format/egyhazmegye-nev'
 import { getCongregationOverviewData } from './actions'
 import { getSubmissionMatrix } from './document-actions'
 import { checkDioceseSetupStatus } from './diocese-actions'
@@ -152,7 +153,11 @@ export default async function EgyhazmegyeDashboardPage() {
     <div className="space-y-5">
       <ScopeHero
         eyebrow="Egyházmegyei irányítópult"
-        title={dioceseRow?.name ? `${dioceseRow.name} Református Egyházmegye` : 'Egyházmegyei áttekintés'}
+        // 2026-08-15 (4.2): a dioceses.name MÁR tartalmazza a „Református
+        // Egyházmegye" toldatot — a sablonos hozzáfűzés „…Egyházmegye
+        // Református Egyházmegye" címet írt. A duplázás-védő KÖZÖS helperben
+        // él (a lelkészi jelentés nyomtatója is azt hívja).
+        title={formatEgyhazmegyeNev(dioceseRow?.name) || 'Egyházmegyei áttekintés'}
         description={
           dioceseRow?.name
             ? 'A gyülekezetek leadott dokumentumai, kérelmei és az egyházmegyei élet összefoglalása. A gyülekezet pénzügyi részletei a lelkészi felületen érhetők el — egyházmegyei szinten csak a kötelező évi dokumentumok láthatók.'
@@ -204,16 +209,19 @@ export default async function EgyhazmegyeDashboardPage() {
  */
 function ReadOnlyDioceseNotice() {
   return (
-    <div className="card-raised border-sky-200 bg-gradient-to-br from-sky-50/60 via-white to-slate-50/40 p-4 sm:p-5">
+    // 2026-08-15 (4.3): sötét módban a hardcode-olt világos gradient fehér
+    // lapként világított — dark:-on a gradient lekapcsol (bg-none), és a
+    // card-raised saját sötét háttere + sötét-barát szövegszínek élnek.
+    <div className="card-raised border-sky-200 bg-gradient-to-br from-sky-50/60 via-white to-slate-50/40 p-4 sm:p-5 dark:border-sky-400/25 dark:bg-none">
       <div className="flex items-start gap-3">
-        <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-sky-100 text-sky-700">
+        <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-sky-100 text-sky-700 dark:bg-sky-400/15 dark:text-sky-300">
           <Eye className="size-5" />
         </div>
         <div className="min-w-0 flex-1">
-          <h2 className="font-heading text-base text-slate-800 sm:text-lg">
+          <h2 className="font-heading text-base text-slate-800 sm:text-lg dark:text-slate-100">
             Ellenőri nézet — mindent látsz, de nem módosíthatsz
           </h2>
-          <p className="mt-2 text-sm leading-relaxed text-slate-600">
+          <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
             Egyházmegyei számvevőként az egyházmegye gyülekezeteinek beküldött
             dokumentumait, éves jelentéseit és az egyházmegye saját pénzügyi
             könyveit <strong>megtekintheted</strong>. Az iratok átvétele,
@@ -221,7 +229,7 @@ function ReadOnlyDioceseNotice() {
             pénzügyi rögzítés az esperes, illetve az egyházmegyei
             adminisztrátor feladata.
           </p>
-          <p className="mt-2 text-sm leading-relaxed text-slate-600">
+          <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
             Ez szándékos: az ellenőrzés és a rögzítés két külön kézben van. Ha
             hibát találsz, jelezd az esperesnek — a módosító gombok ezért
             nem működnek nálad.
@@ -241,22 +249,23 @@ function ReadOnlyDioceseNotice() {
 function MissingDioceseScopeNotice() {
   return (
     <div className="mx-auto max-w-xl px-4 py-8">
-      <div className="card-raised p-6 bg-gradient-to-br from-amber-50/40 via-white to-orange-50/30 border-amber-200">
+      {/* 2026-08-15 (4.3): sötét módban a világos gradient bg-none-nal lekapcsol. */}
+      <div className="card-raised p-6 bg-gradient-to-br from-amber-50/40 via-white to-orange-50/30 border-amber-200 dark:border-amber-400/25 dark:bg-none">
         <div className="flex items-start gap-3">
-          <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
             <AlertCircle className="size-5" />
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="font-heading text-lg text-slate-800">
+            <h2 className="font-heading text-lg text-slate-800 dark:text-slate-100">
               Nincs egyházmegye rendelve a fiókjához
             </h2>
-            <p className="mt-2 text-sm text-slate-600 leading-relaxed">
+            <p className="mt-2 text-sm text-slate-600 leading-relaxed dark:text-slate-300">
               Az egyházmegyei irányítópult csak akkor tud adatot mutatni, ha a
               szerepköréhez konkrét egyházmegye tartozik. Jelenleg a fiókjához
               nem sikerült egyházmegyét feloldani, ezért — az egyházmegyei
               adatok védelme érdekében — nem jelenítünk meg gyülekezeti listát.
             </p>
-            <p className="mt-2 text-sm text-slate-600 leading-relaxed">
+            <p className="mt-2 text-sm text-slate-600 leading-relaxed dark:text-slate-300">
               Kérjük, jelezze a rendszergazdának, hogy rendelje hozzá a
               szerepköréhez a megfelelő egyházmegyét, vagy — ha több profilja
               van — váltson profilt a fejlécben.

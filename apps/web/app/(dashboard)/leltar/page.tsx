@@ -4,6 +4,10 @@ import { CongregationOnlyNotice } from '@/components/layout/congregation-only-no
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+// 2026-08-15 (egyházmegyei szint, S3): diocese-módban a MEGLÉVŐ leltár-felület
+// fut a megye adataival (scope-oszlopos modell) — a CongregationOnlyNotice csak
+// a kerületi/admin profiloknak marad.
+import { getModuleScopeContext } from '@/lib/auth/module-scope'
 
 const LELTAR_IMPORT_PROFILES = [
   {
@@ -34,6 +38,23 @@ export default async function LeltarPage() {
   const { user, effectiveCongregationId, congregationName } = access
   if (!user) return null
   if (!effectiveCongregationId) {
+    // 2026-08-15 (S3): diocese-scope-ban a module-scope helper oldja fel a
+    // megyét — ugyanaz a felület fut, megyei adatokkal. A kerületi / admin
+    // profil (és a feloldhatatlan hatókör) továbbra is a magyarázó kártyát
+    // kapja — fail-closed, sosem szűretlen lista.
+    const moduleScope = await getModuleScopeContext()
+    if (!('error' in moduleScope) && moduleScope.scope === 'diocese') {
+      return (
+        <div className="space-y-4">
+          <InventoryMain
+            congregationName={moduleScope.scopeName || 'Egyházmegye'}
+            scope="diocese"
+            canWrite={moduleScope.canWrite}
+            readOnlyReason={moduleScope.readOnlyReason}
+          />
+        </div>
+      )
+    }
     const scope = access.activeProfileRole?.scope === 'diocese' ? 'diocese'
       : access.activeProfileRole?.scope === 'district' ? 'district'
       : (access.admin || access.master) ? 'admin' : 'other'

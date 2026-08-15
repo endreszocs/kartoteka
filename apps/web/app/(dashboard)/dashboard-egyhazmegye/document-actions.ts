@@ -40,7 +40,7 @@ import {
   describeDioceseWriteBlock,
   getDioceseScopeContext,
   getDistrictScopeContext,
-  resolveDioceseScopeIds,
+  resolveDioceseReadScopeIds,
   resolveDistrictScopeIds,
 } from '@/lib/auth/level-scope'
 import type { DocumentType, DocumentStatus, DocumentSubmission } from '@/lib/constants/documents'
@@ -261,7 +261,12 @@ async function assertDioceseOwnership(
   congregationId: string,
 ): Promise<string | null> {
   if (access.admin || access.master) return null
-  const scopeIds = resolveDioceseScopeIds(access)
+  // 2026-08-15 (S1, 0.3): SZEREP-SZŰRT olvasói hatókör a tág feloldó helyett —
+  // a tág változat a kerületi admin elavult `profiles.diocese_id` skalárját
+  // szerep nélkül is elfogadta, így idegen megye iratára is átment az assert.
+  // Az írási akciókat e függvény ELŐTT már a canWriteDioceseScope kapuzza,
+  // ezért itt az olvasói (írók + számvevő) lista a helyes közös nevező.
+  const scopeIds = resolveDioceseReadScopeIds(access)
   if (scopeIds.length === 0) {
     return 'Nincs feloldható egyházmegye-hatóköre — a művelet nem engedélyezett.'
   }
@@ -338,21 +343,39 @@ export async function submitDocument(
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!access.effectiveCongregationId) return { error: 'Nincs aktív gyülekezet.' }
 
-  const { supabase, profile } = access
+  const { supabase } = access
   const congregationId = access.effectiveCongregationId
 
   // 2026-07-10 (#4/8): a sor diocese_id-je a GYÜLEKEZET tényleges megyéjéből
-  // jön (congregations.diocese_id); a profil-beli érték csak a SOR-mező
-  // fallbackje. Az ÉRTESÍTÉS címzettjeit viszont KIZÁRÓLAG a gyülekezet
-  // megyéje határozza meg (2026-08-09, diagnosztika #9) — profil-fallback és
-  // szűretlen országos szórás nélkül.
-  const { data: congRow } = await supabase
+  // jön (congregations.diocese_id). Az ÉRTESÍTÉS címzettjeit is KIZÁRÓLAG a
+  // gyülekezet megyéje határozza meg (2026-08-09, diagnosztika #9).
+  //
+  // 2026-08-15 FIX (S1 biztonsági szelet, 0.4): a korábbi
+  // `congDioceseId || profile?.diocese_id` fallback FAIL-CLOSED lett. Megye
+  // nélküli gyülekezet + elavult beküldői skalár esetén a beküldött sor MÁS
+  // megye diocese_id-jét kapta volna, és a régi (a sor nullable diocese_id
+  // oszlopán pivotáló) RLS-nézetében annál a megyénél jelent volna meg. Ha a
+  // gyülekezetnek nincs megyéje, a beküldés hangosan megáll — nem néma
+  // skalár-fallback.
+  const { data: congRow, error: congRowError } = await supabase
     .from('congregations')
     .select('diocese_id, name, nev_hu')
     .eq('id', congregationId)
     .maybeSingle()
+  if (congRowError) {
+    return {
+      error:
+        'A gyülekezet egyházmegye-besorolása most nem ellenőrizhető, ezért a beküldés biztonsági okból elmaradt. Próbálja újra néhány másodperc múlva.',
+    }
+  }
   const congDioceseId = (congRow?.diocese_id as string | null) || null
-  const rowDioceseId = congDioceseId || profile?.diocese_id || null
+  if (!congDioceseId) {
+    return {
+      error:
+        'A gyülekezethez nincs egyházmegye rendelve — kérd a rendszergazdát, hogy állítsa be; enélkül a beküldés rossz egyházmegyénél kötne ki.',
+    }
+  }
+  const rowDioceseId = congDioceseId
 
   // Felülírás-védelem: a meglévő sor státusza dönt.
   let existingQ = supabase
@@ -493,9 +516,12 @@ export async function getDioceseSubmissions(
   // 2026-08-11 (számvevő-kör): OLVASÁSI kapu — a számvevő is beleesik.
   if (!canReadDioceseScope(ctx.access)) return []
 
+  // 2026-08-15 (S1, 0.3): listaszűrés a SZEREP-SZŰRT olvasói hatókörrel — a
+  // tág ctx.scopeId a kerületi admin elavult skalárján át MÁS megye beküldéseit
+  // is megmutatta volna. Üres hatókör → fail-closed üres lista.
   let congs: Array<{ id: string; name: string; diocese_id: string | null }>
-  if (ctx.scopeId) {
-    congs = await fetchCongregations(ctx.supabase, [ctx.scopeId])
+  if (ctx.readScopeIds.length > 0) {
+    congs = await fetchCongregations(ctx.supabase, ctx.readScopeIds)
   } else if (ctx.isMaster || ctx.isAdmin) {
     // Feliratozott rendszergazdai összesített ág (a hívó felület jelzi).
     congs = await fetchCongregations(ctx.supabase, null)
@@ -504,9 +530,11 @@ export async function getDioceseSubmissions(
   }
 
   const congNames = new Map(congs.map((c) => [c.id, c.name]))
-  const rows = await fetchSubmissions(ctx.supabase, ctx.scopeId ? congs.map((c) => c.id) : null, {
-    year: year ?? null,
-  })
+  const rows = await fetchSubmissions(
+    ctx.supabase,
+    ctx.readScopeIds.length > 0 ? congs.map((c) => c.id) : null,
+    { year: year ?? null },
+  )
   return sortBySubmittedDesc(rows.map((r) => toSubmission(r, congNames)))
 }
 
@@ -839,10 +867,14 @@ async function resolveDocumentScope(
       return { ok: false, error: 'Nincs jogosultsága az egyházmegyei dokumentumokhoz.' }
     }
 
+    // 2026-08-15 (S1, 0.3): listaszűrés a SZEREP-SZŰRT olvasói hatókörrel
+    // (ctx.readScopeIds) a tág ctx.scopeId helyett — a tág feloldó a kerületi
+    // admin elavult `profiles.diocese_id` skalárját szerep nélkül is bevette,
+    // így MÁS megye beküldés-mátrixa látszott. Üres hatókör → fail-closed.
     let congs: Array<{ id: string; name: string; diocese_id: string | null }>
     let scopeNotice: string | null = null
-    if (ctx.scopeId) {
-      congs = await fetchCongregations(ctx.supabase, [ctx.scopeId])
+    if (ctx.readScopeIds.length > 0) {
+      congs = await fetchCongregations(ctx.supabase, ctx.readScopeIds)
     } else if (ctx.isMaster || ctx.isAdmin) {
       congs = await fetchCongregations(ctx.supabase, null)
       scopeNotice = 'Rendszergazdai nézet: minden egyházmegye gyülekezetei látszanak.'
@@ -859,7 +891,7 @@ async function resolveDocumentScope(
       value: {
         supabase: ctx.supabase,
         congs,
-        congIds: ctx.scopeId ? congs.map((c) => c.id) : null,
+        congIds: ctx.readScopeIds.length > 0 ? congs.map((c) => c.id) : null,
         congNames: new Map(congs.map((c) => [c.id, c.name])),
         dioceseNames: new Map(),
         dioceseNameByCong: new Map(),

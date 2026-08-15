@@ -247,6 +247,23 @@ export interface BackupLiveTableRow {
   reteg: number | null
   visszaallithato: boolean
   join_predikatum: string | null
+  /**
+   * 2026-08-15 (egyházmegyei szint, S3/S4): a MEGYEI sorok mentés-szűrője.
+   *
+   * A scope-oszlopos táblákban (leltar_tetelek, iktato, iktato_sablonok,
+   * iktato_yearly_closures, iktato_csatolmany, iktato_sequence_pointers)
+   * MEGYEI sorok is élnek (diocese_id IS NOT NULL, congregation_id IS NULL) —
+   * ezek a gyülekezeti szűrőn (congregation_id = $1) KÍVÜL esnek, tehát a
+   * gyülekezeti fájlokba nem kerülnek be. Ha ez a mező kitöltött (tipikusan
+   * 't.congregation_id IS NULL'), a tábla EZEKKEL a soraival a GLOBÁLIS
+   * mentés-fájlban IS részt vesz — pontosan úgy, ahogy a diocese_* pénzügyi
+   * táblák eleve 'globalis' hatókörűek.
+   *
+   * Opcionális: a régi backup_live_tables RPC nem adja vissza (undefined) —
+   * ilyenkor a viselkedés bitre a régi, és a worker HANGOS figyelmeztetést ad
+   * a fedetlen megyei sorokról (lásd inventory.ts → dioceseFedetlen).
+   */
+  globalis_predikatum?: string | null
   identity_always: string[]
   pk_oszlopok: string[]
   oszlopok: string[]

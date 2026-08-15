@@ -31,6 +31,19 @@ const CongregationSetupWizardLazy = dynamic(
   { ssr: false },
 )
 
+// 2026-08-15 (egyházmegyei terv, 4.1): a fejléc „Egyházmegyénk" (read-only
+// adatlap) és „Egyházmegye beállításai" (a MEGLÉVŐ setup-wizard menüből
+// nyitva) ablakai — csak diocese-scope aktív profilnál töltődnek be.
+const DioceseSummaryDialogLazy = dynamic(
+  () => import('@/components/modals/diocese-summary').then((module) => module.DioceseSummaryDialog),
+  { ssr: false },
+)
+
+const DioceseSetupWizardLazy = dynamic(
+  () => import('@/components/modals/diocese-setup-wizard').then((module) => module.DioceseSetupWizard),
+  { ssr: false },
+)
+
 interface DashboardShellProps {
   profile: Profile
   /** 2026-07-10 (S4-avatar): a beállított profilfotó URL-je a header avatárhoz. */
@@ -51,6 +64,13 @@ interface DashboardShellProps {
   activeScope?: 'system' | 'district' | 'diocese' | 'congregation' | null
   /** A scope_id-hez tartozó név (egyházmegye / egyházkerület esetén). */
   activeScopeName?: string | null
+  /** 2026-08-15 (4.1): az AKTÍV diocese-profil egyházmegyéje — a fejléc
+   *  „Egyházmegyénk" / „Egyházmegye beállításai" ablakainak célpontja.
+   *  CSAK diocese-scope aktív profilnál nem null. */
+  activeDioceseId?: string | null
+  /** Írhat-e a néző megyei szinten? (számvevő: false → a beállítás-menüpont
+   *  és a szerkesztés-gomb rejtve — ne mutassunk sehová nem vezető gombot). */
+  canWriteDiocese?: boolean
   /**
    * RÖGZÍTETT HELYŰ RIASZTÁS-SÁV (2026-08-11) — a fejléc ALATT, a görgethető
    * `<main>`-en KÍVÜL.
@@ -85,6 +105,8 @@ export function DashboardShell({
   scopeNames = {},
   activeScope = null,
   activeScopeName = null,
+  activeDioceseId = null,
+  canWriteDiocese = false,
   alertSlot = null,
   children,
   onToggleMobileMenu,
@@ -94,6 +116,9 @@ export function DashboardShell({
   const [congregationOpen, setCongregationOpen] = useState(false)
   const [godModeOpen, setGodModeOpen] = useState(false)
   const [congregationSetupWizardOpen, setCongregationSetupWizardOpen] = useState(false)
+  // 2026-08-15 (4.1): megyei fejléc-ablakok — csak diocese-scope-nál használt.
+  const [dioceseSummaryOpen, setDioceseSummaryOpen] = useState(false)
+  const [dioceseSetupOpen, setDioceseSetupOpen] = useState(false)
 
   // Globális window-esemény figyelése — pl. a januári banner "Beállítom most"
   // gombja küldi. A kommunikáció: a page-level komponensek (banner, widget)
@@ -145,6 +170,10 @@ export function DashboardShell({
         activeScopeName={activeScopeName}
         onOpenProfile={() => setProfileOpen(true)}
         onOpenCongregation={() => setCongregationOpen(true)}
+        onOpenDiocese={activeDioceseId ? () => setDioceseSummaryOpen(true) : undefined}
+        onOpenDioceseSetup={
+          activeDioceseId && canWriteDiocese ? () => setDioceseSetupOpen(true) : undefined
+        }
         onOpenGodMode={isMasterAdmin && !isGodMode ? () => setGodModeOpen(true) : undefined}
         onToggleMobileMenu={onToggleMobileMenu}
         onToggleSidebar={onToggleSidebar}
@@ -189,6 +218,26 @@ export function DashboardShell({
           open={congregationSetupWizardOpen}
           onOpenChange={setCongregationSetupWizardOpen}
           congregationId={congregationId}
+        />
+      )}
+
+      {/* 2026-08-15 (4.1): megyei fejléc-ablakok — a gyülekezeti páros
+          tükörképei. Az „Egyházmegyénk" read-only; a beállítás-varázslót a
+          menüpont ÉS a summary „Szerkesztés a beállításokban" gombja nyitja. */}
+      {activeDioceseId && (
+        <DioceseSummaryDialogLazy
+          open={dioceseSummaryOpen}
+          onOpenChange={setDioceseSummaryOpen}
+          dioceseId={activeDioceseId}
+          canWrite={canWriteDiocese}
+          onOpenSetup={() => setDioceseSetupOpen(true)}
+        />
+      )}
+      {activeDioceseId && canWriteDiocese && (
+        <DioceseSetupWizardLazy
+          open={dioceseSetupOpen}
+          onOpenChange={setDioceseSetupOpen}
+          dioceseId={activeDioceseId}
         />
       )}
     </>

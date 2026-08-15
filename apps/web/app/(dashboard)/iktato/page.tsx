@@ -4,6 +4,10 @@ import { CongregationOnlyNotice } from '@/components/layout/congregation-only-no
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+// 2026-08-15 (egyházmegyei szint, S4): diocese-módban a MEGLÉVŐ iktató-felület
+// fut a megye adataival (scope-oszlopos modell) — a CongregationOnlyNotice csak
+// a kerületi/admin profiloknak marad.
+import { getModuleScopeContext } from '@/lib/auth/module-scope'
 import { FILING_PROFILES } from '@/lib/import/import-profiles'
 
 const IKTATO_IMPORT_PROFILES = [
@@ -35,6 +39,22 @@ export default async function IktatoPage() {
   const { user, effectiveCongregationId, congregationName } = access
   if (!user) return null
   if (!effectiveCongregationId) {
+    // 2026-08-15 (S4): diocese-scope-ban a module-scope helper oldja fel a
+    // megyét — ugyanaz az iktató-felület fut, a megye irataival és saját
+    // iktatószám-sorával. A hivatalos név a dioceses.name (duplázás-védetten).
+    const moduleScope = await getModuleScopeContext()
+    if (!('error' in moduleScope) && moduleScope.scope === 'diocese') {
+      return (
+        <div className="space-y-4">
+          <FilingMain
+            congregationName={moduleScope.scopeName || 'Egyházmegye'}
+            scope="diocese"
+            canWrite={moduleScope.canWrite}
+            readOnlyReason={moduleScope.readOnlyReason}
+          />
+        </div>
+      )
+    }
     const scope = access.activeProfileRole?.scope === 'diocese' ? 'diocese'
       : access.activeProfileRole?.scope === 'district' ? 'district'
       : (access.admin || access.master) ? 'admin' : 'other'

@@ -30,6 +30,7 @@ import {
   type LelkesziJelentesData,
 } from './types'
 import { epitOszlopdiagram, type AdatlapPont } from './adatlap-svg'
+import { formatEgyhazmegyeNev } from '@/lib/format/egyhazmegye-nev'
 
 // ---------------------------------------------------------------------------
 // Segédfüggvények
@@ -113,15 +114,14 @@ function nevelo(nev: string): string {
 /**
  * Az egyházmegye-vonal a címlap fejlécébe: ha ismert az egyházmegye neve,
  * escape-elve jelenik meg — a „Református Egyházmegye" toldat duplázás-
- * védelmével (a gyülekezetnév-heurisztika mintájára); üres névnél a kitöltő-
- * vonal marad (mint az üres nyomtatványon).
+ * védelme a KÖZÖS helperben él (lib/format/egyhazmegye-nev.ts — ugyanezt
+ * hívja a megyei dashboard hero-címe is, hogy a két hely ne húzhasson szét);
+ * üres névnél a kitöltő-vonal marad (mint az üres nyomtatványon).
  */
 function egyhazmegyeSor(egyhazmegyeNev: string | null): string {
-  const nyers = (egyhazmegyeNev || '').trim()
-  if (!nyers) return '<span class="kitolto"></span> Református Egyházmegye'
-  return nyers.toUpperCase().includes('EGYHÁZMEGYE')
-    ? esc(nyers)
-    : `${esc(nyers)} Református Egyházmegye`
+  const teljes = formatEgyhazmegyeNev(egyhazmegyeNev)
+  if (!teljes) return '<span class="kitolto"></span> Református Egyházmegye'
+  return esc(teljes)
 }
 
 /**

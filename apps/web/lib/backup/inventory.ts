@@ -84,9 +84,28 @@ export interface InventoryClassification {
    *    leltárban, csak épp senki nem olvasta.
    */
   szuroNelkul: string[]
+  /**
+   * 2026-08-15 (egyházmegyei szint, S3/S4): gyülekezeti hatókörű tábla,
+   * amelyben MEGYEI sorok is élhetnek (VAN `diocese_id` oszlopa), de NINCS
+   * `globalis_predikatum`-a → a megyei sorai (congregation_id IS NULL) EGYIK
+   * mentés-fájlba sem kerülnének. A worker erről HANGOS figyelmeztetést ad —
+   * szándékosan nem állítja le a mentést (az az összes gyülekezet napi
+   * mentését vinné el, mint a retegNelkul-nál), de a hiány nem néma.
+   */
+  dioceseFedetlen: string[]
   gyulekezet: BackupLiveTableRow[]
   globalis: BackupLiveTableRow[]
   kizart: BackupLiveTableRow[]
+}
+
+/**
+ * Van-e a táblának ÉRVÉNYES globális (megyei-sor) mentés-szűrője?
+ * Az üres string itt is hiánynak számít (a join_predikatum mintája).
+ */
+function vanGlobalisPredikatum(row: BackupLiveTableRow): boolean {
+  return (
+    typeof row.globalis_predikatum === 'string' && row.globalis_predikatum.trim().length > 0
+  )
 }
 
 /** Szétválogatja a leltárt. Nem dob — a döntést a hívóra bízza. */
@@ -95,6 +114,7 @@ export function classifyInventory(rows: BackupLiveTableRow[]): InventoryClassifi
     besorolatlan: [],
     retegNelkul: [],
     szuroNelkul: [],
+    dioceseFedetlen: [],
     gyulekezet: [],
     globalis: [],
     kizart: [],
@@ -114,6 +134,11 @@ export function classifyInventory(rows: BackupLiveTableRow[]): InventoryClassifi
       if (!vanSajatSzuro && row.van_congregation_id !== true) {
         out.szuroNelkul.push(row.tabla)
       }
+      // 2026-08-15 (S3/S4): scope-oszlopos tábla (van diocese_id oszlopa), de a
+      // megyei sorainak nincs mentés-útja → hangos figyelmeztetés a workerben.
+      if ((row.oszlopok ?? []).includes('diocese_id') && !vanGlobalisPredikatum(row)) {
+        out.dioceseFedetlen.push(row.tabla)
+      }
     } else if (row.hatokor === 'globalis') {
       out.globalis.push(row)
     } else {
@@ -123,6 +148,7 @@ export function classifyInventory(rows: BackupLiveTableRow[]): InventoryClassifi
   out.besorolatlan.sort()
   out.retegNelkul.sort()
   out.szuroNelkul.sort()
+  out.dioceseFedetlen.sort()
   return out
 }
 
@@ -205,7 +231,15 @@ export function orderTablesForDump(
   scope: BackupScope,
 ): BackupLiveTableRow[] {
   return rows
-    .filter((r) => r.hatokor === scope)
+    .filter(
+      (r) =>
+        r.hatokor === scope ||
+        // 2026-08-15 (egyházmegyei szint, S3/S4): a scope-oszlopos, gyülekezeti
+        // hatókörű táblák MEGYEI sorai (globalis_predikatum) a GLOBÁLIS fájlba
+        // mennek — a backup_scope_where SQL-oldalon ugyanebből a mezőből adja a
+        // WHERE-t, így a számlálás/dump/igazolás hármasa nem húzhat szét.
+        (scope === 'globalis' && r.hatokor === 'gyulekezet' && vanGlobalisPredikatum(r)),
+    )
     .sort((a, b) => {
       const ra = a.reteg ?? 99
       const rb = b.reteg ?? 99

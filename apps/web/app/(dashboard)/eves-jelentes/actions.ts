@@ -3,7 +3,11 @@
 import { revalidatePath } from 'next/cache'
 
 import { getEffectiveAccessContext, getEffectiveCongregationContext } from '@/lib/auth/effective-access'
-import { resolveDioceseScopeId, resolveDioceseScopeIds } from '@/lib/auth/level-scope'
+import {
+  canReadDioceseScope,
+  resolveDioceseReadScopeIds,
+  resolveDioceseScopeIds,
+} from '@/lib/auth/level-scope'
 import {
   buildAnnualReportData,
   type AnnualReportSnapshot,
@@ -213,18 +217,22 @@ export async function getDioceseAnnualReports(
 ): Promise<{ data?: Array<AnnualReportRow & { congregation_name: string | null }>; error?: string }> {
   // A teljes access context kell a hatókör-feloldáshoz
   const access = await getEffectiveAccessContext()
-  const { supabase, esperes, admin, master } = access
+  const { supabase, admin, master } = access
 
-  if (!esperes && !admin && !master) {
+  // 2026-08-11 (számvevő-kör) + 2026-08-15 (S1): OLVASÓ kapu — a korábbi
+  // esperes/admin/master feltétel szigorú BŐVÍTÉSE az egyházmegyei számvevővel
+  // (az adatbázis is engedi: annual_reports_szamvevo_select).
+  if (!canReadDioceseScope(access)) {
     return { error: 'Nincs jogosultsága az egyházmegyei jelentések megtekintéséhez.' }
   }
 
-  // 2026-08-09: feloldott hatókör (aktív szerep → profile_roles → skalár) +
-  // FAIL-CLOSED: NULL-scope esperes ÜRES listát kap, nem az egész egyház
-  // jelentéseit (korábban a `if (profile?.diocese_id)` NULL esetén némán
-  // eldobta a szűrőt). Szűretlenül csak a master/rendszergazda láthat.
-  const dioceseId = resolveDioceseScopeId(access)
-  if (!dioceseId && !master && !admin) {
+  // 2026-08-15 FIX (S1 biztonsági szelet, 0.3): SZEREP-SZŰRT olvasói hatókör a
+  // tág feloldó helyett. A tág változat a kerületi admin elavult
+  // `profiles.diocese_id` skalárját szerep nélkül is elfogadta — így akár MÁSIK
+  // kerület megyéjének éves jelentéseit listázta. FAIL-CLOSED: feloldható
+  // hatókör nélkül ÜRES lista; szűretlenül csak a master/rendszergazda láthat.
+  const dioceseIds = resolveDioceseReadScopeIds(access)
+  if (dioceseIds.length === 0 && !master && !admin) {
     return { data: [] }
   }
 
@@ -236,12 +244,13 @@ export async function getDioceseAnnualReports(
     .neq('status', 'draft') // esperes csak a beküldött, fogadott, ellenőrzött, véglegesített jelentéseket látja
     .order('submitted_at', { ascending: false })
 
-  // Nem master: csak a saját (feloldott) egyházmegye gyülekezetei
-  if (!master && dioceseId) {
+  // Nem master/rendszergazda: csak a saját (szerep-szűrt) egyházmegye-hatókör
+  // gyülekezetei — több megyés tisztségviselőnél az unió.
+  if (!master && !admin) {
     const { data: congs } = await supabase
       .from('congregations')
       .select('id')
-      .eq('diocese_id', dioceseId)
+      .in('diocese_id', dioceseIds)
     const congIds = (congs || []).map(c => c.id)
     if (congIds.length === 0) return { data: [] }
     query = query.in('congregation_id', congIds)

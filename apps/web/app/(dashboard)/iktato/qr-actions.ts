@@ -29,6 +29,9 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { headers } from 'next/headers'
 
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+// 2026-08-15 (S4): a pecsét-adat megyei ágához (a QR-munkamenet maga
+// gyülekezeti maradt — a megyei felület a QR-gombot nem is mutatja).
+import { getModuleScopeContext } from '@/lib/auth/module-scope'
 import type { IktatoCsatolmany } from '@/lib/iktato/csomo-types'
 import { listCsatolmanyok } from './csatolmany-actions'
 
@@ -239,8 +242,34 @@ export async function getIktatoPecsetAdat(iktatoId: string): Promise<{
   const ctx = await getEffectiveAccessContext()
   const supabase = ctx.supabase
   const congId = ctx.effectiveCongregationId
-  if (!congId) return { adat: null, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
   if (!ervenyesUuid(iktatoId)) return { adat: null, error: 'Érvénytelen irat-azonosító.' }
+  if (!congId) {
+    // ── 2026-08-15 (S4): MEGYEI pecsét-adat ──
+    // A digitális iktató-pecsét sávjába a MEGYE hivatalos neve kerül; az
+    // iratcsomó gyülekezeti fogalom, megyei módban nincs.
+    const moduleScope = await getModuleScopeContext()
+    if (!('error' in moduleScope) && moduleScope.scope === 'diocese') {
+      const { data: dioSor, error: dioErr } = await moduleScope.supabase
+        .from('iktato')
+        .select('year, sequence_number')
+        .eq('id', iktatoId)
+        .eq('diocese_id', moduleScope.scopeId)
+        .eq('deleted', false)
+        .maybeSingle()
+      if (dioErr) return { adat: null, error: `A pecsét-adatok lekérése sikertelen: ${dioErr.message}` }
+      if (!dioSor) return { adat: null, error: 'Az iktatott irat nem található — lehet, hogy időközben törölték.' }
+      const dioRow = dioSor as { year: number; sequence_number: number }
+      return {
+        adat: {
+          iktatoszam: `${dioRow.year}/${dioRow.sequence_number}`,
+          gyulekezet: moduleScope.scopeName || 'Egyházmegye',
+          iratcsomo: null,
+        },
+        error: null,
+      }
+    }
+    return { adat: null, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  }
 
   // A csomo_id csak az F6-migráció után létezik — hiánya nem lehet végzetes.
   let year: number | null = null

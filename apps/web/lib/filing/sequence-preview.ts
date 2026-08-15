@@ -34,6 +34,17 @@ import type { getEffectiveCongregationContext } from '@/lib/auth/effective-acces
 
 type EffectiveSupabase = Awaited<ReturnType<typeof getEffectiveCongregationContext>>['supabase']
 
+/**
+ * 2026-08-15 (egyházmegyei szint, S4): a számláló-olvasás SCOPE-KULCSÚ lett —
+ * a megyei iktató (diocese_id) UGYANEZT a logikát futtatja a saját számsorán
+ * (a pointer-tábla diocese-sorai + az iktato diocese-sorai). NEM új
+ * implementáció: kizárólag a szűrő-oszlop cserélődik.
+ */
+export interface SequenceScopeKey {
+  col: 'congregation_id' | 'diocese_id'
+  id: string
+}
+
 export interface SequenceState {
   /** `iktato_sequence_pointers.last_sequence` — 0, ha nincs/nem látszik. */
   pointer: number
@@ -43,16 +54,16 @@ export interface SequenceState {
   pointerVisible: boolean
 }
 
-/** A (gyülekezet, év) számláló-állapot beolvasása — pointer + MAX. */
+/** A (scope, év) számláló-állapot beolvasása — pointer + MAX. */
 export async function readSequenceState(
   supabase: EffectiveSupabase,
-  congId: string,
+  scopeKey: SequenceScopeKey,
   year: number,
 ): Promise<SequenceState> {
   const { data: pointerRow } = await supabase
     .from('iktato_sequence_pointers')
     .select('last_sequence')
-    .eq('congregation_id', congId)
+    .eq(scopeKey.col, scopeKey.id)
     .eq('year', year)
     .maybeSingle()
   const rawPointer = (pointerRow as { last_sequence: number } | null)?.last_sequence
@@ -64,7 +75,7 @@ export async function readSequenceState(
   const { data: maxRow } = await supabase
     .from('iktato')
     .select('sequence_number')
-    .eq('congregation_id', congId)
+    .eq(scopeKey.col, scopeKey.id)
     .eq('year', year)
     .order('sequence_number', { ascending: false })
     .limit(1)
@@ -85,10 +96,10 @@ export async function readSequenceState(
  */
 export async function readSequencePointer(
   supabase: EffectiveSupabase,
-  congId: string,
+  scopeKey: SequenceScopeKey,
   year: number,
 ): Promise<number> {
-  const state = await readSequenceState(supabase, congId, year)
+  const state = await readSequenceState(supabase, scopeKey, year)
   return state.pointerVisible ? state.pointer : state.maxSequence
 }
 
@@ -105,10 +116,10 @@ export interface SequencePreview {
 /** A következő iktatószám ELŐNÉZETE (nem foglal számot). */
 export async function computeSequencePreview(
   supabase: EffectiveSupabase,
-  congId: string,
+  scopeKey: SequenceScopeKey,
   year: number,
 ): Promise<SequencePreview> {
-  const { pointer, maxSequence, pointerVisible } = await readSequenceState(supabase, congId, year)
+  const { pointer, maxSequence, pointerVisible } = await readSequenceState(supabase, scopeKey, year)
   const sequenceNumber = Math.max(pointer, maxSequence) + 1
   return {
     year,

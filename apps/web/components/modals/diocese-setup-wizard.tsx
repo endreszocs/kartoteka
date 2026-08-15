@@ -37,8 +37,12 @@ import { Badge } from '@/components/ui/badge'
 import { AddressForm, type AddressValue } from '@/components/ui/address-form'
 import {
   getDiocese, saveDioceseSetup, saveDioceseSetupStep, uploadDioceseCimer,
+  getDioceseIratKepek, uploadDioceseIratKep, clearDioceseIratKep,
   type DioceseRecord,
 } from '@/app/(dashboard)/dashboard-egyhazmegye/diocese-actions'
+// 2026-08-15 (S4): a pecsét/aláírás-feltöltő UI a KÖZÖS komponensből — a
+// gyülekezeti setup-wizard ugyanezt használja a gyülekezeti akciókkal.
+import { IratKepekSection } from '@/components/shared/irat-kepek-section'
 
 type WizardStep = 'basics' | 'address' | 'contact' | 'bank-leadership' | 'confirm'
 
@@ -412,6 +416,7 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
                   onCimerUpload={handleCimerUpload}
                   uploading={uploading}
                   fieldErrors={fieldErrors}
+                  dioceseId={dioceseId}
                 />
               )}
               {step === 'address' && <StepAddress form={form} setForm={setForm} fieldErrors={fieldErrors} />}
@@ -491,13 +496,14 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
 // ─────────────────────────────────────────────────────────────────────────
 
 function StepBasics({
-  form, setForm, onCimerUpload, uploading, fieldErrors,
+  form, setForm, onCimerUpload, uploading, fieldErrors, dioceseId,
 }: {
   form: SetupFormState
   setForm: SetForm
   onCimerUpload: (ev: React.ChangeEvent<HTMLInputElement>) => void
   uploading: boolean
   fieldErrors: Record<string, string>
+  dioceseId: string
 }) {
   return (
     <div className="max-w-2xl mx-auto space-y-4">
@@ -574,6 +580,23 @@ function StepBasics({
         )}
         {fieldErrors.cimer_url && <p className="text-xs text-rose-600 mt-2">{fieldErrors.cimer_url}</p>}
       </div>
+
+      {/* 2026-08-15 (egyházmegyei szint, S4): esperesi hivatali pecsét +
+          aláírás — a KÖZÖS IratKepekSection a gyülekezeti 24. pont megyei
+          párjaként, a megyei szerver-akciókkal. A képek a MEGYEI iktató
+          nyomtatványaira kerülnek (Legea 489/2006 Art. 15: a pecséten a
+          hivatalos elnevezés kötelező). */}
+      <IratKepekSection
+        feliratok={{ pecset: 'Esperesi hivatali pecsét', alairas: 'Esperesi aláírás' }}
+        leiras={
+          'PNG vagy WEBP kép, átlátszó háttérrel, max 1 MB. A pecsét és az aláírás az ' +
+          'egyházmegyei iktató nyomtatványaira kerül (iktatópecsét, iktatókönyv, kiadott ' +
+          'levelek). Amíg nincs kép feltöltve, minden nyomtatvány üres aláírás-vonallal készül.'
+        }
+        load={() => getDioceseIratKepek(dioceseId)}
+        upload={(fajta, fd) => uploadDioceseIratKep(dioceseId, fajta, fd)}
+        remove={(fajta) => clearDioceseIratKep(dioceseId, fajta)}
+      />
     </div>
   )
 }

@@ -23,6 +23,29 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-15] — Egyházmegyei leltár és iktató (a megye saját nyilvántartásai)
+<!-- key: 2026-08-15-egyhazmegyei-leltar-iktato -->
+<!-- category: feature -->
+<!-- targets: esperes + egyhazmegyei admin + szamvevo -->
+
+### ✨ Új funkciók
+
+- **A megyének saját leltára van.** Az esperes és az egyházmegyei adminisztrátor a megszokott Leltár oldalon mostantól az EGYHÁZMEGYE saját vagyonleltárát vezeti — ugyanazzal a felülettel, kategória-gombokkal, fişă-nyomtatással és nyomtatási központtal, mint a gyülekezetek, de a megye tételeivel és saját leltári számsorral. A „Kikeresés a könyvelésből" a megyei pénzügy kiadásai közül ajánl.
+- **A megyének saját iktatókönyve van.** Az Iktató oldal megyei belépéssel az esperesi hivatal iratait kezeli: saját, megyénként és évenként futó iktatószám-sorral, iratlistával, iktatókönyv-nyomtatással, évzárással és csatolmány-feltöltéssel (befotózott oldalak). A sablonok (kimenő levelek) is megyei készletként élnek.
+- **Esperesi pecsét és aláírás a megyei iratokra.** Az „Egyházmegye beállítása" ablak első lépésében feltölthető az esperesi hivatali pecsét és az aláírás képe (PNG, átlátszó háttérrel) — pontosan úgy, mint a gyülekezeteknél; a képek a megyei iktató nyomtatványaira kerülnek.
+- **A számvevő mindent lát, de nem módosíthat.** Az egyházmegyei számvevő a megyei leltárt és iktatót megnyithatja és kinyomtathatja; a rögzítő gombok nála nem jelennek meg, és a felület előre, érthetően elmondja, miért.
+
+### 🔒 Biztonsági és megbízhatósági alapok
+
+- **A megyei adatok bekerültek a napi mentésbe.** A leltár és az iktató megyei sorai eddig egyik mentés-fájlba sem estek volna bele — mostantól a napi rendszerszintű mentés részei, és ha egy jövőbeni tábla megyei sorai fedetlenek maradnának, a mentés hangosan, névvel jelzi.
+- **Megye csak a saját adatát éri el.** Minden megyei lekérdezés és adatbázis-szabály a szerep-szűrt megyei hatókörre épül (esperes / egyházmegyei admin ír, a számvevő csak olvas) — más megye adatai se listában, se csatolmányban nem érhetők el.
+
+### ℹ️ Rendszergazdai teendő
+
+- Futtatandó SQL-ek sorrendben: **1)** `migration-docs/sql/2026-08-15-egyhazmegyei-scope-oszlopok.sql` (ha még nem futott), **2)** `migration-docs/sql/2026-08-15-egyhazmegyei-iktato-leltar-s4.sql`. Amíg a 2. nem fut le, a megyei iktatás érthető hibával jelzi a teendőt, a napi mentés pedig figyelmeztetést ír a fedetlen megyei sorokról; a gyülekezeti működés mindkettőtől függetlenül változatlan.
+
+---
+
 ## [2026-08-15] — Egységes Véglegesítés-gomb mind a hat évi jelentésnél
 <!-- key: 2026-08-15-egyseges-veglegesites-gomb -->
 <!-- category: feature -->

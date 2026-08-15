@@ -57,12 +57,32 @@ interface InventoryMainProps {
   showAdminImport?: boolean
   /** A Rendszergazdai importáló tab tartalma. */
   adminImportContent?: React.ReactNode
+  /**
+   * 2026-08-15 (egyházmegyei szint, S3): 'diocese' = a MEGYE saját leltára fut
+   * ugyanezen a felületen (a szerver-akciók a module-scope helperrel a
+   * diocese_id-re szűrnek). Megyei módban a gyülekezet-specifikus részek
+   * (Anyagraktár, vagyonleltári jelentés véglegesítése/beküldése) rejtve —
+   * azok a gyülekezet→megye beküldési út elemei.
+   */
+  scope?: 'congregation' | 'diocese'
+  /** false = ellenőri (számvevői) nézet — a rögzítő gombok rejtve. */
+  canWrite?: boolean
+  /** A csak-olvasható nézet magyar magyarázata (bannerben jelenik meg). */
+  readOnlyReason?: string | null
 }
 
 type LeltarTab = 'nyilvantartas' | 'anyagraktar' | 'sugo'
 type ActiveView = 'tab' | 'admin-import'
 
-export function InventoryMain({ congregationName, showAdminImport = false, adminImportContent }: InventoryMainProps) {
+export function InventoryMain({
+  congregationName,
+  showAdminImport = false,
+  adminImportContent,
+  scope = 'congregation',
+  canWrite = true,
+  readOnlyReason = null,
+}: InventoryMainProps) {
+  const isDiocese = scope === 'diocese'
   const [activeTab, setActiveTab] = useState<LeltarTab>('nyilvantartas')
   const [activeView, setActiveView] = useState<ActiveView>('tab')
   const [items, setItems] = useState<InventoryItem[]>([])
@@ -510,20 +530,38 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
     <>
       <ModuleHero
         eyebrow="Leltár"
-        title="Gyülekezeti vagyonleltár"
-        description="A hivatalos leltárprogram logikájához igazított, kereshető, helyszín és időszak szerint szűrhető, többféle hivatalos nyomtatványt kezelő felület."
+        title={isDiocese ? 'Egyházmegyei vagyonleltár' : 'Gyülekezeti vagyonleltár'}
+        description={
+          isDiocese
+            ? 'Az egyházmegye saját vagyonleltára — ugyanaz a felület, mint a gyülekezeti leltár, a megye tételeivel és saját leltári számsorral.'
+            : 'A hivatalos leltárprogram logikájához igazított, kereshető, helyszín és időszak szerint szűrhető, többféle hivatalos nyomtatványt kezelő felület.'
+        }
         pills={[
           congregationName ? { label: congregationName, tone: 'neutral' } : undefined,
           { label: `${filtered.length} aktív tétel`, tone: 'emerald' },
           { label: `${deletedCount} törölt tétel`, tone: 'amber' },
-          { label: isFinalized ? 'Vagyonleltári jelentés véglegesítve' : 'Jelentés szerkeszthető', tone: isFinalized ? 'amber' : 'teal' },
+          // A vagyonleltári JELENTÉS a gyülekezet→megye beküldés útja — megyei
+          // módban nincs ilyen állapot (a megye felterjesztése az S6 szelet).
+          isDiocese
+            ? undefined
+            : { label: isFinalized ? 'Vagyonleltári jelentés véglegesítve' : 'Jelentés szerkeszthető', tone: isFinalized ? 'amber' : 'teal' },
         ].filter(Boolean) as { label: string; tone?: 'neutral' | 'emerald' | 'amber' | 'teal' }[]}
       />
+
+      {/* 2026-08-15 (S3): számvevői (ellenőri) nézet — előre kimondjuk, mit nem
+          lehet, nem egy néma vagy nyers hibára hagyjuk. */}
+      {!canWrite && readOnlyReason && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 text-sm text-amber-900 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200">
+          {readOnlyReason}
+        </div>
+      )}
 
       <ColorTabs
         tabs={[
           { value: 'nyilvantartas', label: 'Leltári nyilvántartás', color: 'teal', count: filtered.length },
-          { value: 'anyagraktar', label: 'Anyagraktár', color: 'emerald' },
+          // Az Anyagraktár (materials tábla) gyülekezeti modul — megyei
+          // scope-oszlopa nincs, ezért diocese-módban a fül sem jelenik meg.
+          ...(isDiocese ? [] : [{ value: 'anyagraktar', label: 'Anyagraktár', color: 'emerald' }]),
           { value: 'sugo', label: 'Súgó', color: 'teal' },
           // 2026-05-25: Rendszergazdai importáló a sor végén, red-prominent háttérrel
           ...(showAdminImport ? [
@@ -557,7 +595,7 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
           </div>
 
           {/* Vagyonleltári jelentés összesítő — tartalmazza az Anyagraktárt is */}
-          {anyagraktarStats && (
+          {!isDiocese && anyagraktarStats && (
             <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50/50 to-yellow-50/30 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
@@ -681,14 +719,19 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
               <div className="flex flex-wrap gap-2 xl:justify-end">
                 {/* 2026-08-14 (12. pont, Endre kérése): az „Új tétel hozzáadása"
                     KIEMELT, jól látható gomb — eddig a négy egyforma outline-gomb
-                    egyike volt, elveszett közöttük. */}
-                <Button
-                  size="sm"
-                  className="min-h-11 rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white shadow-md hover:bg-emerald-700 dark:bg-emerald-500 dark:text-emerald-950 dark:hover:bg-emerald-400"
-                  onClick={() => openDialog()}
-                >
-                  + Új tétel hozzáadása
-                </Button>
+                    egyike volt, elveszett közöttük.
+                    2026-08-15 (S3): számvevői (csak-olvasó) nézetben rejtve —
+                    a szerver-akció amúgy is blokkolna, de a felület ELŐRE mondja
+                    meg (banner fent), nem egy hibaüzenettel utólag. */}
+                {canWrite && (
+                  <Button
+                    size="sm"
+                    className="min-h-11 rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white shadow-md hover:bg-emerald-700 dark:bg-emerald-500 dark:text-emerald-950 dark:hover:bg-emerald-400"
+                    onClick={() => openDialog()}
+                  >
+                    + Új tétel hozzáadása
+                  </Button>
+                )}
                 <Button size="sm" variant="outline" className="min-h-11 rounded-xl" onClick={() => setPrintDialogOpen(true)}>
                   Nyomtatási központ
                 </Button>
@@ -696,7 +739,11 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
                     fejléc-sáv (műveletsor) jobb szélén — mind a 6 irat-típusnál
                     ugyanez a komponens. A leltári tételek a véglegesítés után is
                     szerkeszthetők maradnak (csak a JELENTÉS zárul le) — ezt a
-                    megerősítő dialógus külön kimondja. */}
+                    megerősítő dialógus külön kimondja.
+                    2026-08-15 (S3): megyei módban rejtve — a vagyonleltári
+                    jelentés a gyülekezet→megye beküldés útja; a megye saját
+                    felterjesztése (megye→kerület) az S6 szeletben épül. */}
+                {!isDiocese && canWrite && (
                 <FinalizeButton
                   documentLabel="vagyonleltári jelentés"
                   year={reportYear}
@@ -708,7 +755,8 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
                   onRequestUnlock={submitUnlockRequest}
                   unlockPlaceholder="Pl. Kimaradt a februárban vásárolt hangosítás, pótolni szeretném."
                 />
-                {isFinalized && (
+                )}
+                {!isDiocese && isFinalized && (
                   <Button
                     size="sm"
                     variant="outline"

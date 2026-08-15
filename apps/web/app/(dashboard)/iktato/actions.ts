@@ -4,20 +4,36 @@ import { revalidatePath } from 'next/cache'
 import { selectAllPaged } from '@kartoteka/supabase-client'
 import { filingEntrySchema, type FilingEntryInput } from '@/lib/validations/filing'
 import type { FilingEntry, IktatoYearlyClosure } from '@/lib/constants/filing'
-import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 // 2026-08-10 (K4 iktatószám-diagnosztika #5): egyetlen, pointer-tudatos
 // előnézet-implementáció — a korábbi két külön MAX+1 másolat helyett.
 import { computeSequencePreview, readSequencePointer } from '@/lib/filing/sequence-preview'
-import type { SequencePreview } from '@/lib/filing/sequence-preview'
+import type { SequencePreview, SequenceScopeKey } from '@/lib/filing/sequence-preview'
+// 2026-08-15 (egyházmegyei szint, S4): a hatókör a KÖZÖS module-scope helperből
+// jön (gyülekezet VAGY egyházmegye) — minden lekérdezés `.eq(ctx.scopeCol,
+// ctx.scopeId)`-vel szűr, a sorszám-kiosztás pedig scope-onként külön számsoron
+// fut (next_iktato_sequence / next_iktato_sequence_dio RPC).
+import {
+  getModuleScopeContext,
+  moduleWriteBlock,
+  type ModuleScopeContext,
+} from '@/lib/auth/module-scope'
 
-async function getCongId() {
-  const { supabase, congregationId, userId } = await getEffectiveCongregationContext()
-  return { supabase, congId: congregationId, userId }
+/** A régi `getCongId()` scope-tudatos utódja — ctx === null: nincs hatókör. */
+async function getScopeCtx(): Promise<{ ctx: ModuleScopeContext | null }> {
+  const res = await getModuleScopeContext()
+  if ('error' in res) return { ctx: null }
+  return { ctx: res }
+}
+
+/** A scope-kulcs a sequence-preview modul számláló-olvasóihoz. */
+function scopeKeyOf(ctx: ModuleScopeContext): SequenceScopeKey {
+  return { col: ctx.scopeCol, id: ctx.scopeId }
 }
 
 export async function getFilingEntries(year: number, direction: string): Promise<FilingEntry[]> {
-  const { supabase, congId } = await getCongId()
-  if (!congId) return []
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return []
+  const { supabase } = ctx
   // 2026-07-17 (F6): a PostgREST alapértelmezetten legfeljebb 1000 sort ad
   // vissza kérésenként — egy 1000+ iratos évnél a lista, a keresés ÉS az
   // iktatókönyv-nyomtatás is némán csonkulna (K6 óta mindig direction='all'
@@ -31,7 +47,7 @@ export async function getFilingEntries(year: number, direction: string): Promise
   // az iktatókönyv az ELSŐ lap után megállt volna — némán a felét listázva és
   // nyomtatva. `orderColumn: null`, mert a rendezés itt DIREKT fordított
   // (sequence_number DESC, id DESC) és az `id` már egyedi döntetlen-bontó.
-  let query = supabase.from('iktato').select('*').eq('congregation_id', congId).eq('year', year).eq('deleted', false)
+  let query = supabase.from('iktato').select('*').eq(ctx.scopeCol, ctx.scopeId).eq('year', year).eq('deleted', false)
   if (direction === 'incoming' || direction === 'outgoing') query = query.eq('direction', direction)
   const { data, error } = await selectAllPaged<FilingEntry>(
     query.order('sequence_number', { ascending: false }).order('id', { ascending: false }),
@@ -57,9 +73,9 @@ export async function getFilingEntries(year: number, direction: string): Promise
  * régi `MAX+1` pedig egy sikertelen INSERT után TARTÓSAN alábecsülte a számot.
  */
 export async function getNextSequenceNumber(year: number): Promise<number> {
-  const { supabase, congId } = await getCongId()
-  if (!congId) return 1
-  const preview = await computeSequencePreview(supabase, congId, year)
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return 1
+  const preview = await computeSequencePreview(ctx.supabase, scopeKeyOf(ctx), year)
   return preview.sequenceNumber
 }
 
@@ -75,11 +91,11 @@ export async function getNextSequenceNumber(year: number): Promise<number> {
 export async function getNextFilingNumberPreview(
   year: number,
 ): Promise<SequencePreview & { error: string | null }> {
-  const { supabase, congId } = await getCongId()
-  if (!congId) {
-    return { year, sequenceNumber: 0, iratszam: '', pointerVisible: false, error: 'Nincs aktív gyülekezet.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) {
+    return { year, sequenceNumber: 0, iratszam: '', pointerVisible: false, error: 'Nincs aktív gyülekezet vagy egyházmegye.' }
   }
-  const preview = await computeSequencePreview(supabase, congId, year)
+  const preview = await computeSequencePreview(ctx.supabase, scopeKeyOf(ctx), year)
   return { ...preview, error: null }
 }
 
@@ -103,11 +119,12 @@ export async function getRetroactiveInfo(year: number): Promise<{
   osszesSzabad: number
   error: string | null
 }> {
-  const { supabase, congId } = await getCongId()
-  if (!congId) {
+  const { ctx } = await getScopeCtx()
+  if (!ctx) {
     return { pointer: 0, szabadSzamok: [], osszesSzabad: 0, error: 'Nincs bejelentkezett felhasználó.' }
   }
-  const pointer = await readSequencePointer(supabase, congId, year)
+  const { supabase } = ctx
+  const pointer = await readSequencePointer(supabase, scopeKeyOf(ctx), year)
   if (pointer <= 0) {
     return {
       pointer: 0,
@@ -128,7 +145,7 @@ export async function getRetroactiveInfo(year: number): Promise<{
     supabase
       .from('iktato')
       .select('sequence_number')
-      .eq('congregation_id', congId)
+      .eq(ctx.scopeCol, ctx.scopeId)
       .eq('year', year)
       .eq('deleted', false)
       .order('sequence_number', { ascending: true })
@@ -162,8 +179,13 @@ export async function getRetroactiveInfo(year: number): Promise<{
 export async function saveFilingEntry(data: FilingEntryInput) {
   const parsed = filingEntrySchema.safeParse(data)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
-  const { supabase, congId } = await getCongId()
-  if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { error: 'Nincs bejelentkezett felhasználó.' }
+  // 2026-08-15 (S4): a számvevő ellenőr — a felület is letiltja, de a
+  // szerver-oldali kapu a mérvadó (beszédes magyar üzenet nyers RLS-hiba helyett).
+  const blocked = moduleWriteBlock(ctx)
+  if (blocked) return { error: blocked.error }
+  const { supabase } = ctx
   const d = parsed.data
   const year = new Date(d.kelt).getFullYear()
 
@@ -171,7 +193,7 @@ export async function saveFilingEntry(data: FilingEntryInput) {
   const { data: closure } = await supabase
     .from('iktato_yearly_closures')
     .select('closed_at')
-    .eq('congregation_id', congId)
+    .eq(ctx.scopeCol, ctx.scopeId)
     .eq('year', year)
     .maybeSingle()
   if (closure) {
@@ -186,7 +208,10 @@ export async function saveFilingEntry(data: FilingEntryInput) {
     file_folder: d.file_folder || null,
     targykivonat: d.targykivonat || null, elintezes_ideje: d.elintezes_ideje || null,
     elintezes_modja: d.elintezes_modja || null, irattarijel: d.irattarijel || null,
-    megjegyzes: d.megjegyzes || null, deleted: false, congregation_id: congId, year,
+    // 2026-08-15 (S4): a scope-oszlop dinamikus (congregation_id VAGY
+    // diocese_id) — a DB-oldali CHECK (iktato_pontosan_egy_scope) őrzi, hogy
+    // pontosan az egyik legyen kitöltve.
+    megjegyzes: d.megjegyzes || null, deleted: false, [ctx.scopeCol]: ctx.scopeId, year,
     // 2026-05-28: EREK 2024-es ügykörjegyzék szerinti új mezők
     external_ref_szam: d.external_ref_szam || null,
     external_ref_kelt: d.external_ref_kelt || null,
@@ -199,7 +224,7 @@ export async function saveFilingEntry(data: FilingEntryInput) {
     has_duplicate: d.has_duplicate ?? false,
   }
   if (d.id) {
-    const { error } = await supabase.from('iktato').update(record).eq('id', d.id).eq('congregation_id', congId)
+    const { error } = await supabase.from('iktato').update(record).eq('id', d.id).eq(ctx.scopeCol, ctx.scopeId)
     if (error) return { error: `Hiba: ${error.message}` }
   } else if (d.manualSequenceNumber != null) {
     // ── 2026-07-25: VISSZAMENŐLEGES iktatás kézi sorszámmal (csak ÚJ iratra) ──
@@ -208,7 +233,7 @@ export async function saveFilingEntry(data: FilingEntryInput) {
     // felfelé lépked, így az alatta lévő szabad számokat sosem osztja ki újra
     // → nincs jövőbeli ütközés. A pointer ITT NEM változik (nincs RPC-hívás)!
     const manualSeq = d.manualSequenceNumber
-    const pointer = await readSequencePointer(supabase, congId, year)
+    const pointer = await readSequencePointer(supabase, scopeKeyOf(ctx), year)
     if (pointer <= 0) {
       return { error: 'Visszamenőleges iktatáshoz előbb legyen legalább egy automatikus iktatás ebben az évben.' }
     }
@@ -231,15 +256,27 @@ export async function saveFilingEntry(data: FilingEntryInput) {
     // Az insert-ág meglévő visszatérési alakja (lásd az automata ág megjegyzését).
     return { success: true, year, sequenceNumber: manualSeq }
   } else {
-    // DIAGNOSTICS P3-5: atomic per-(cong, year) sorszám az RPC-ből.
+    // DIAGNOSTICS P3-5: atomic per-(scope, year) sorszám az RPC-ből.
     // A korábbi `getNextSequenceNumber(year)` SELECT MAX + INSERT két lépéses
     // mintát használt — két párhuzamos hívás ugyanazt a sorszámot kaphatta.
-    // Az új RPC INSERT...ON CONFLICT DO UPDATE RETURNING-gel row-szintű
-    // lock-kal sorosít. A migráció: 2026-05-17-iktato-sequence-pointer-rpc.sql
-    const { data: nextSeq, error: rpcErr } = await supabase.rpc('next_iktato_sequence', {
-      p_congregation_id: congId,
-      p_year: year,
-    })
+    // Az RPC INSERT...ON CONFLICT DO UPDATE RETURNING-gel row-szintű
+    // lock-kal sorosít. Migrációk: 2026-05-17-iktato-sequence-pointer-rpc.sql
+    // + 2026-08-15-egyhazmegyei-iktato-leltar-s4.sql (megyei változat).
+    //
+    // 2026-08-15 (S4): megyénként+évenként SAJÁT számsor — a megyei kiosztást
+    // a next_iktato_sequence_dio RPC végzi (a hívó jogosultságát a szerep-szűrt
+    // current_user_diocese_ids()-hez köti, ahogy a gyülekezeti RPC a
+    // profiles.congregation_id-hez).
+    const { data: nextSeq, error: rpcErr } =
+      ctx.scope === 'diocese'
+        ? await supabase.rpc('next_iktato_sequence_dio', {
+            p_diocese_id: ctx.scopeId,
+            p_year: year,
+          })
+        : await supabase.rpc('next_iktato_sequence', {
+            p_congregation_id: ctx.scopeId,
+            p_year: year,
+          })
     if (rpcErr || nextSeq === null || nextSeq === undefined) {
       return {
         error: `Sorszám lekérése sikertelen: ${rpcErr?.message ?? 'a next_iktato_sequence RPC nem adott vissza értéket'}`,
@@ -274,17 +311,20 @@ export async function saveFilingEntry(data: FilingEntryInput) {
 }
 
 export async function deleteFilingEntry(id: string) {
-  const { supabase, congId } = await getCongId()
-  if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
-  const { error } = await supabase.from('iktato').update({ deleted: true }).eq('id', id).eq('congregation_id', congId)
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const blocked = moduleWriteBlock(ctx)
+  if (blocked) return { error: blocked.error }
+  const { error } = await ctx.supabase.from('iktato').update({ deleted: true }).eq('id', id).eq(ctx.scopeCol, ctx.scopeId)
   if (error) return { error: `Hiba: ${error.message}` }
   revalidatePath('/iktato')
   return { success: true }
 }
 
 export async function getFilingStats(year: number) {
-  const { supabase, congId } = await getCongId()
-  if (!congId) return { total: 0, incoming: 0, outgoing: 0, pending: 0 }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { total: 0, incoming: 0, outgoing: 0, pending: 0 }
+  const { supabase } = ctx
   // 2026-08-10 (K4 iktatószám-diagnosztika): a korábbi implementáció EGY
   // lapozatlan SELECT sorait számolta meg JS-ben — a PostgREST 1000-soros
   // alapértelmezett limitje miatt egy 1000+ iratos évnél a statisztika némán
@@ -294,7 +334,7 @@ export async function getFilingStats(year: number) {
     supabase
       .from('iktato')
       .select('id', { count: 'exact', head: true })
-      .eq('congregation_id', congId)
+      .eq(ctx.scopeCol, ctx.scopeId)
       .eq('year', year)
       .eq('deleted', false)
   const [totalRes, incomingRes, outgoingRes, pendingRes] = await Promise.all([
@@ -313,26 +353,26 @@ export async function getFilingStats(year: number) {
 
 // ─── 2026-05-29 Fázis 3: Évvégi iktatókönyv-lezárás ─────────────────────
 
-/** Az aktuális gyülekezetre vonatkozó összes évzárás. */
+/** Az aktuális hatókör (gyülekezet vagy egyházmegye) összes évzárása. */
 export async function getYearlyClosures(): Promise<IktatoYearlyClosure[]> {
-  const { supabase, congId } = await getCongId()
-  if (!congId) return []
-  const { data } = await supabase
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return []
+  const { data } = await ctx.supabase
     .from('iktato_yearly_closures')
     .select('*')
-    .eq('congregation_id', congId)
+    .eq(ctx.scopeCol, ctx.scopeId)
     .order('year', { ascending: false })
   return (data || []) as IktatoYearlyClosure[]
 }
 
 /** Egy adott évre vonatkozó lezárás (ha létezik). */
 export async function getYearClosure(year: number): Promise<IktatoYearlyClosure | null> {
-  const { supabase, congId } = await getCongId()
-  if (!congId) return null
-  const { data } = await supabase
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return null
+  const { data } = await ctx.supabase
     .from('iktato_yearly_closures')
     .select('*')
-    .eq('congregation_id', congId)
+    .eq(ctx.scopeCol, ctx.scopeId)
     .eq('year', year)
     .maybeSingle()
   return (data as IktatoYearlyClosure | null) ?? null
@@ -344,8 +384,11 @@ export async function getYearClosure(year: number): Promise<IktatoYearlyClosure 
  * Csak a folyó év vagy korábbi év zárható le (jövőre vonatkozó lezárás tilos).
  */
 export async function closeFilingYear(params: { year: number; closingNote?: string }) {
-  const { supabase, congId, userId } = await getCongId()
-  if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const blocked = moduleWriteBlock(ctx)
+  if (blocked) return { error: blocked.error }
+  const { supabase, userId } = ctx
   const currentYear = new Date().getFullYear()
   if (params.year > currentYear) {
     return { error: `Jövőre vonatkozó évvégi lezárás nem engedélyezett (${params.year} > ${currentYear}).` }
@@ -360,14 +403,16 @@ export async function closeFilingYear(params: { year: number; closingNote?: stri
   const { count } = await supabase
     .from('iktato')
     .select('id', { count: 'exact', head: true })
-    .eq('congregation_id', congId)
+    .eq(ctx.scopeCol, ctx.scopeId)
     .eq('year', params.year)
     .eq('deleted', false)
   const totalEntries = count ?? null
 
   const { error } = await supabase.from('iktato_yearly_closures').insert([
     {
-      congregation_id: congId,
+      // 2026-08-15 (S4): scope-oszlop dinamikusan — a CHECK
+      // (iktato_yearly_closures_pontosan_egy_scope) őrzi az integritást.
+      [ctx.scopeCol]: ctx.scopeId,
       year: params.year,
       closing_note: params.closingNote || null,
       total_entries_at_close: totalEntries,
@@ -386,10 +431,37 @@ export async function closeFilingYear(params: { year: number; closingNote?: stri
  * DELETE az RLS DELETE-policy hiánya miatt néma no-op volt (2026-07-11 P2).
  */
 export async function reopenFilingYear(year: number) {
-  const { supabase, congId } = await getCongId()
-  if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const { supabase } = ctx
+
+  // 2026-08-15 (S4): MEGYEI évzárás feloldása. A gyülekezeti utat egy
+  // SECURITY DEFINER RPC végzi (admin/master-kapuval), mert a gyülekezet
+  // felett ott áll az egyházmegye mint kontroll-szint. A megye felett
+  // interaktív felettes szint (még) nincs — a feloldás az esperes /
+  // egyházmegyei admin joga, és a diocese-láb RLS (FOR ALL, szerep-szűrt
+  // current_user_diocese_ids) pontosan ezt engedi; a számvevőt a
+  // moduleWriteBlock zárja ki. Direkt DELETE — a `.select('id')` miatt a
+  // 0-soros (némán semmit sem törlő) eset is hangos.
+  if (ctx.scope === 'diocese') {
+    const blocked = moduleWriteBlock(ctx)
+    if (blocked) return { error: blocked.error }
+    const { data: torolt, error: delErr } = await supabase
+      .from('iktato_yearly_closures')
+      .delete()
+      .eq('diocese_id', ctx.scopeId)
+      .eq('year', year)
+      .select('id')
+    if (delErr) return { error: `Feloldás sikertelen: ${delErr.message}` }
+    if (!torolt || torolt.length === 0) {
+      return { error: 'Ez az év nem volt lezárva — nincs mit feloldani. Frissítsd a listát.' }
+    }
+    revalidatePath('/iktato')
+    return { success: true }
+  }
+
   const { data, error } = await supabase.rpc('reopen_iktato_year', {
-    p_congregation_id: congId,
+    p_congregation_id: ctx.scopeId,
     p_year: year,
   })
   if (error) {

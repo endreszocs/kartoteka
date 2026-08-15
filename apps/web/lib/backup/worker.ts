@@ -529,6 +529,20 @@ export async function runBackupWorker(
           (osztalyozas.retegNelkul.length > 15 ? ' …' : ''),
       )
     }
+    // ── 2026-08-15 (egyházmegyei szint, S3/S4): FEDETLEN MEGYEI SOROK ──
+    // A scope-oszlopos táblák (diocese_id oszloppal) megyei sorai a gyülekezeti
+    // szűrőn kívül esnek; a globalis_predikatum nélkül EGYIK fájlba sem
+    // kerülnének. Szándékosan NEM állítjuk le a futást (az minden gyülekezet
+    // napi mentését vinné el) — de a hiány HANGOS, névvel és teendővel.
+    if (osztalyozas.dioceseFedetlen.length > 0) {
+      figyelmeztetesek.push(
+        `⚠️ MEGYEI SOROK MENTÉS NÉLKÜL: ${osztalyozas.dioceseFedetlen.join(', ')} — ` +
+          'ezekben a táblákban egyházmegyei sorok is lehetnek (diocese_id), de nincs ' +
+          'mentés-szűrőjük (backup_table_policy.globalis_predikatum), így a megyei sorok ' +
+          'EGYIK mentés-fájlba sem kerülnek. Futtasd le a ' +
+          'migration-docs/sql/2026-08-15-egyhazmegyei-iktato-leltar-s4.sql fájlt.',
+      )
+    }
     semaUjjlenyomat = computeSchemaFingerprint(inventory)
 
     // ── 2) TÁROLÓ. A választás automatikus (Drive, ha össze van kötve), és a

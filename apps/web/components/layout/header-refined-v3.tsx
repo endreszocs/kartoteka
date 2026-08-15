@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import {
   ArrowLeftRight,
+  Building2,
   ChevronDown,
   Church,
   HardDrive,
@@ -67,6 +68,12 @@ interface HeaderProps {
   publicSiteEnabled?: boolean
   onOpenProfile?: () => void
   onOpenCongregation?: () => void
+  /** 2026-08-15 (egyházmegyei terv, 4.1): az „Egyházmegyénk" read-only ablak —
+   *  CSAK diocese-scope aktív profilnál kap értéket (a shell adja). */
+  onOpenDiocese?: () => void
+  /** „Egyházmegye beállításai" (a meglévő setup-wizard menüből) — csak megyei
+   *  ÍRÓNAK (esperes/megyei admin); számvevőnél undefined → a pont rejtve. */
+  onOpenDioceseSetup?: () => void
   onOpenGodMode?: () => void
   onToggleMobileMenu: () => void
   /** Sidebar collapse/expand toggle — a Kartotéka-ikonra kattintásra. */
@@ -142,6 +149,8 @@ export function HeaderRefinedV3({
   publicSiteEnabled = false,
   onOpenProfile,
   onOpenCongregation,
+  onOpenDiocese,
+  onOpenDioceseSetup,
   onOpenGodMode,
   onToggleMobileMenu,
   onToggleSidebar,
@@ -389,7 +398,17 @@ export function HeaderRefinedV3({
                 />
 
                 <div className="flex min-w-0 flex-1 flex-col">
-                  <div className="grid gap-x-1 p-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {/* 2026-08-15 (egyházmegyei terv, 4.1): a középső hasáb
+                      scope-tudatos. Megyei profilnál „Egyházmegye" hasáb
+                      (Egyházmegyénk + Egyházmegye beállításai); rendszergazdai
+                      (system) profilnál a hasáb TELJESEN rejtve — Endre kérése:
+                      ott ezek a pontok nem vezetnek sehová. A rács oszlopszáma
+                      követi (2 hasábnál lg:grid-cols-2). */}
+                  <div
+                    className={`grid gap-x-1 p-2 sm:grid-cols-2 ${
+                      activeScope === 'system' ? 'lg:grid-cols-2' : 'lg:grid-cols-3'
+                    }`}
+                  >
                     <MenuColumn title="Fiók">
                       <MegaItem
                         icon={User}
@@ -412,29 +431,56 @@ export function HeaderRefinedV3({
                       />
                     </MenuColumn>
 
-                    <MenuColumn title="Gyülekezet">
-                      <MegaItem
-                        icon={Church}
-                        label="Gyülekezetünk"
-                        hint="Adatlap megtekintése"
-                        onClick={onOpenCongregation}
-                      />
-                      <MegaItem
-                        icon={Landmark}
-                        label="Gyülekezet-beállítás"
-                        hint="Alapadatok, cím, bank"
-                        // A varázsló a DashboardShell-lel window-eventen kommunikál — a híd marad.
-                        onClick={() => {
-                          window.dispatchEvent(new Event('kartoteka:open-congregation-setup-wizard'))
-                        }}
-                      />
-                      <MegaItem
-                        icon={Trash2}
-                        label="Kuka"
-                        hint="Törölt tételek visszaállítása"
-                        onClick={() => router.push('/kuka')}
-                      />
-                    </MenuColumn>
+                    {activeScope === 'diocese' ? (
+                      // Feloldhatatlan megye-hatókörnél (nincs scope_id → a
+                      // shell nem ad callbacket) a hasáb el sem készül —
+                      // sehová nem vezető pontot nem mutatunk.
+                      onOpenDiocese && (
+                      <MenuColumn title="Egyházmegye">
+                        <MegaItem
+                          icon={Building2}
+                          label="Egyházmegyénk"
+                          hint="Adatlap megtekintése"
+                          onClick={onOpenDiocese}
+                        />
+                        {/* Számvevőnél (csak-olvasó) a shell nem ad callbacket →
+                            a beállítás-pont meg sem jelenik (sehová nem vezető
+                            gombot nem mutatunk). */}
+                        {onOpenDioceseSetup && (
+                          <MegaItem
+                            icon={Landmark}
+                            label="Egyházmegye beállításai"
+                            hint="Alapadatok, cím, bank"
+                            onClick={onOpenDioceseSetup}
+                          />
+                        )}
+                      </MenuColumn>
+                      )
+                    ) : activeScope !== 'system' ? (
+                      <MenuColumn title="Gyülekezet">
+                        <MegaItem
+                          icon={Church}
+                          label="Gyülekezetünk"
+                          hint="Adatlap megtekintése"
+                          onClick={onOpenCongregation}
+                        />
+                        <MegaItem
+                          icon={Landmark}
+                          label="Gyülekezet-beállítás"
+                          hint="Alapadatok, cím, bank"
+                          // A varázsló a DashboardShell-lel window-eventen kommunikál — a híd marad.
+                          onClick={() => {
+                            window.dispatchEvent(new Event('kartoteka:open-congregation-setup-wizard'))
+                          }}
+                        />
+                        <MegaItem
+                          icon={Trash2}
+                          label="Kuka"
+                          hint="Törölt tételek visszaállítása"
+                          onClick={() => router.push('/kuka')}
+                        />
+                      </MenuColumn>
+                    ) : null}
 
                     <MenuColumn title="Segítség és megjelenés">
                       <MegaItem

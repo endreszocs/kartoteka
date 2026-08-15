@@ -92,6 +92,24 @@ export interface DioceseScopeContext {
    * "minden egyházmegye" águkon mehetnek tovább.
    */
   scopeId: string | null
+  /**
+   * 2026-08-15 (S1 biztonsági szelet, 0.3): SZEREP-SZŰRT megyei hatókörök.
+   *
+   * MIÉRT KÉT KÜLÖN MEZŐ A `scopeId` MELLETT: a `scopeId` a TÁG feloldóból
+   * (resolveDioceseScopeIds) jön, ami szerep-SZŰRETLEN és skalár-fallbackes —
+   * MEGJELENÍTÉSRE (hero-cím) még jó, de LISTASZŰRÉSRE nem: egy kerületi
+   * admin ELAVULT `profiles.diocese_id` skalárral (akár MÁSIK kerület
+   * megyéje!) diocese-szerepkör nélkül is kapott rajta feloldott megyét, és
+   * azon át MÁS MEGYE adatait látta. A hívók listaszűrésre KIZÁRÓLAG ezt a
+   * két szerep-szűrt mezőt használhatják — pontosan azt a szerep-listát
+   * tükrözik, amit az adatbázis kanonikus függvényei
+   * (current_user_diocese_olvaso_ids / current_user_diocese_ids) engednek,
+   * így az app és az RLS nem húzhat szét. Üres tömb = nincs hatókör →
+   * fail-closed (üres állapot, SOHA nem szűretlen lekérdezés).
+   */
+  readScopeIds: string[]
+  /** Szerep-szűrt ÍRÁSI megyei hatókör (esperes / egyházmegyei admin) — lásd a readScopeIds kommentjét. */
+  writeScopeIds: string[]
   isMaster: boolean
   isAdmin: boolean
   /**
@@ -364,6 +382,11 @@ export async function getDioceseScopeContext(): Promise<DioceseScopeContext> {
     user: access.user,
     access,
     scopeId: access.user ? resolveDioceseScopeId(access) : null,
+    // 2026-08-15 (S1, 0.3): listaszűrésre a hívók KIZÁRÓLAG ezt a két
+    // szerep-szűrt mezőt használhatják (lásd a mezők JSDoc-ját) — a tág
+    // `scopeId` csak megjelenítésre való.
+    readScopeIds: access.user ? resolveDioceseReadScopeIds(access) : [],
+    writeScopeIds: access.user ? resolveDioceseWriteScopeIds(access) : [],
     isMaster: access.master,
     isAdmin: access.admin,
     canWrite,
