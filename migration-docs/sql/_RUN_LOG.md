@@ -19,7 +19,32 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
+## 🔴 PENDING – Egyházmegyei számvevő neve (2026-08-15, Endre kérése)
+
+- [ ] **`2026-08-15-egyhazmegyei-szamvevo-nev.sql`** — PENDING
+       Indok: egyetlen NULLABLE oszlop (`dioceses.szamvevo_nev`) a hivatalos
+       megyei irat aláírás-rovatához. A beállítás-varázsló mostantól LISTÁBÓL
+       kínálja fel a vezetőket (esperes / jegyző / számvevő) — a megye
+       gyülekezeteinek lelkészei és a megyéhez kiosztott szerepkörök közül —,
+       de a számvevő nevének eddig nem volt hova kerülnie.
+       ⚠️ NEM sürgős: az app FAIL-SOFT. Amíg nem fut le, a mentés a
+       `szamvevo_nev` nélkül megy végbe (updateDioceseFailSoft), tehát semmi
+       más adat nem vész el — csak ez az egy mező nem tárolódik.
+
+---
+
 ## 🔴 PENDING – Egyházkerületi szint (3. szint) S0 + S1 (2026-08-15)
+
+- [ ] **`2026-08-15-egyhazkeruleti-S1b-anon-truncate.sql`** — ⚠️ PENDING, SÜRGŐS
+       Indok: az S0 0/B szakasza kimutatta, hogy az `anon` szerepnek
+       **TRUNCATE** joga van a `districts` és a `dioceses` táblán (a
+       `authenticated`-nek szintén). **A TRUNCATE-re az RLS SOHA nem
+       vonatkozik**: hiába nincs a `districts`-en egyetlen írás-policy sem,
+       a TRUNCATE joggal a teljes törzsadat kiüríthető — és a `districts`
+       kiürítése az egész rendszert megbénítaná (mind a 25 egyházmegye FK-val
+       mutat rá). Az S1 abban a változatában, ami lefutott, csak a SELECT-et és
+       a három DML-jogot vonta vissza. Ez a fájl `REVOKE ALL PRIVILEGES`-szel
+       zárja le, és MEGMÉRI, hány másik táblán él ugyanez (azokhoz nem nyúl).
 
 - [x] 2026-08-15 — **`2026-08-15-egyhazkeruleti-S1-hatokor-biztonsag.sql`** ✅ LEFUTOTT
        A 2. szakasz mind a 26 sora zöld: az új szerep kiosztható, az olvasó

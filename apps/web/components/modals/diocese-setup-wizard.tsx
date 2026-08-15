@@ -38,11 +38,16 @@ import { AddressForm, type AddressValue } from '@/components/ui/address-form'
 import {
   getDiocese, saveDioceseSetup, saveDioceseSetupStep, uploadDioceseCimer,
   getDioceseIratKepek, uploadDioceseIratKep, clearDioceseIratKep,
+  getDioceseVezetoJeloltek,
   type DioceseRecord,
+  type VezetoJeloltek,
 } from '@/app/(dashboard)/dashboard-egyhazmegye/diocese-actions'
 // 2026-08-15 (S4): a pecsét/aláírás-feltöltő UI a KÖZÖS komponensből — a
 // gyülekezeti setup-wizard ugyanezt használja a gyülekezeti akciókkal.
 import { IratKepekSection } from '@/components/shared/irat-kepek-section'
+// 2026-08-15 (Endre): a vezetők nevét listából lehessen választani, ne kézzel
+// begépelni — lásd a komponens docblockját.
+import { VezetoValaszto } from '@/components/shared/vezeto-valaszto'
 
 type WizardStep = 'basics' | 'address' | 'contact' | 'bank-leadership' | 'confirm'
 
@@ -77,6 +82,9 @@ interface SetupFormState {
   esperes_nev: string
   esperes_cim: string
   jegyzo_nev: string
+  /** 2026-08-15 (Endre): az egyházmegyei számvevő neve — a hivatalos irat
+   *  aláírás-rovatához. Nem kötelező. */
+  szamvevo_nev: string
   // Új cím FK-k (2026-04-21)
   adrlocality_id: number | null
   adrstreet_id: number | null
@@ -239,6 +247,7 @@ function stepFields(s: WizardStep, form: SetupFormState): Record<string, unknown
         esperes_nev: form.esperes_nev,
         esperes_cim: form.esperes_cim,
         jegyzo_nev: form.jegyzo_nev,
+        szamvevo_nev: form.szamvevo_nev,
       }
     default:
       return {}
@@ -312,6 +321,7 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
     esperes_nev: '',
     esperes_cim: 'esperes',
     jegyzo_nev: '',
+    szamvevo_nev: '',
     adrlocality_id: null,
     adrstreet_id: null,
     isForeign: false,
@@ -320,6 +330,10 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [uploading, setUploading] = useState(false)
   const [stepSaving, setStepSaving] = useState(false)
+  // 2026-08-15 (Endre): a vezetők listából választhatók — a jelöltek betöltése
+  // a megnyitáskor, a többi adattal együtt. `null` = még tölt / nem oldható fel;
+  // ilyenkor a VezetoValaszto a kézi beírásra esik vissza (fail-soft).
+  const [vezetoJeloltek, setVezetoJeloltek] = useState<VezetoJeloltek | null>(null)
 
   // Betöltés: meglévő adatok előtöltése + folytatás-logika
   useEffect(() => {
@@ -328,6 +342,12 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
     queueMicrotask(() => {
       if (cancelled) return
       setLoading(true)
+      // A vezető-jelöltek betöltése párhuzamosan — ha hibázik, csendben üresen
+      // marad, és a mezők kézi beírásra esnek vissza (fail-soft: a beállítás
+      // NEM akadhat el azon, hogy a jelölt-listát nem tudtuk lekérni).
+      void getDioceseVezetoJeloltek(dioceseId).then((j) => {
+        if (!cancelled) setVezetoJeloltek(j)
+      })
       void getDiocese(dioceseId).then((res) => {
         if (cancelled) return
         if (res.data) {
@@ -353,6 +373,7 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
             esperes_nev: d.esperes_nev || '',
             esperes_cim: d.esperes_cim || 'esperes',
             jegyzo_nev: d.jegyzo_nev || '',
+            szamvevo_nev: d.szamvevo_nev || '',
             adrlocality_id: d.adrlocality_id,
             adrstreet_id: d.adrstreet_id,
             isForeign: (d.cim_orszag && d.cim_orszag !== 'Románia') || false,
@@ -590,7 +611,12 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
               {step === 'address' && <StepAddress form={form} setForm={setForm} fieldErrors={fieldErrors} />}
               {step === 'contact' && <StepContact form={form} setForm={setForm} fieldErrors={fieldErrors} />}
               {step === 'bank-leadership' && (
-                <StepBankLeadership form={form} setForm={setForm} fieldErrors={fieldErrors} />
+                <StepBankLeadership
+                  form={form}
+                  setForm={setForm}
+                  fieldErrors={fieldErrors}
+                  jeloltek={vezetoJeloltek}
+                />
               )}
               {step === 'confirm' && <StepConfirm form={form} />}
             </>
@@ -880,8 +906,15 @@ function StepContact({
 }
 
 function StepBankLeadership({
-  form, setForm, fieldErrors,
-}: { form: SetupFormState; setForm: SetForm; fieldErrors: Record<string, string> }) {
+  form, setForm, fieldErrors, jeloltek,
+}: {
+  form: SetupFormState
+  setForm: SetForm
+  fieldErrors: Record<string, string>
+  jeloltek: VezetoJeloltek | null
+}) {
+  const lista = jeloltek?.jeloltek ?? []
+  const hozzarendelt = jeloltek?.hozzarendelt
   return (
     <div className="max-w-2xl mx-auto space-y-4">
       <div className="card-raised p-4 bg-teal-50/30 border-teal-100">
@@ -928,15 +961,54 @@ function StepBankLeadership({
           <p className="text-sm font-semibold text-slate-800">Vezetés</p>
         </div>
         <div className="grid gap-3 md:grid-cols-3">
-          <ModalField label="Esperes neve *">
-            <Input value={form.esperes_nev} onChange={(e) => setForm({ ...form, esperes_nev: e.target.value })} />
+          <VezetoValaszto
+            label="Esperes neve *"
+            value={form.esperes_nev}
+            onChange={(nev) => setForm({ ...form, esperes_nev: nev })}
+            jeloltek={lista}
+            hozzarendelt={hozzarendelt?.esperes ?? null}
+            uresSegitseg={
+              'Az egyházmegye gyülekezeteinél még nincs nyilvántartott lelkipásztor, ' +
+              'és esperesi szerepkör sincs kiosztva. A Felhasználók felületen rendelhető hozzá — ' +
+              'addig írd be kézzel.'
+            }
+            placeholder="Teljes név"
+          />
+          <ModalField label="Esperes címe (tisztsége) *">
+            <Input
+              value={form.esperes_cim}
+              onChange={(e) => setForm({ ...form, esperes_cim: e.target.value })}
+              placeholder="esperes / esperesi megbízott"
+            />
           </ModalField>
-          <ModalField label="Esperes címe *">
-            <Input value={form.esperes_cim} onChange={(e) => setForm({ ...form, esperes_cim: e.target.value })} placeholder="esperes / esperesi megbízott" />
-          </ModalField>
-          <ModalField label="Egyházmegyei jegyző *">
-            <Input value={form.jegyzo_nev} onChange={(e) => setForm({ ...form, jegyzo_nev: e.target.value })} />
-          </ModalField>
+          <VezetoValaszto
+            label="Egyházmegyei jegyző *"
+            value={form.jegyzo_nev}
+            onChange={(nev) => setForm({ ...form, jegyzo_nev: nev })}
+            jeloltek={lista}
+            hozzarendelt={hozzarendelt?.jegyzo ?? null}
+            uresSegitseg={
+              'Nincs egyházmegyei adminisztrátor hozzárendelve ehhez az egyházmegyéhez. ' +
+              'A Felhasználók felületen rendelhető hozzá — addig írd be kézzel.'
+            }
+            placeholder="Teljes név"
+          />
+        </div>
+
+        {/* 2026-08-15 (Endre): a SZÁMVEVŐ is legyen választható. */}
+        <div className="grid gap-3 md:grid-cols-3 mt-3">
+          <VezetoValaszto
+            label="Egyházmegyei számvevő (nem kötelező)"
+            value={form.szamvevo_nev}
+            onChange={(nev) => setForm({ ...form, szamvevo_nev: nev })}
+            jeloltek={lista}
+            hozzarendelt={hozzarendelt?.szamvevo ?? null}
+            uresSegitseg={
+              'Nincs egyházmegyei számvevő hozzárendelve. A Felhasználók felületen ' +
+              'osztható ki az „Egyházmegyei számvevő” szerepkör — addig írd be kézzel.'
+            }
+            placeholder="Teljes név"
+          />
         </div>
       </div>
     </div>
@@ -973,10 +1045,22 @@ function StepConfirm({ form }: { form: SetupFormState }) {
         {form.email} · {form.telefon}{form.weboldal && <> · <a href={form.weboldal} target="_blank" rel="noopener" className="underline">{form.weboldal}</a></>}
       </SummaryRow>
       <SummaryRow icon={<Landmark className="size-4 text-teal-600" />} label="Bank">
-        {form.bank_nev} · <span className="font-mono text-xs">{form.bank_fo_iban}</span> <Badge className="bg-slate-100 text-slate-700 border-0 ml-1 text-[10px]">{form.bank_fo_iban_valuta}</Badge>
+        {/* 2026-08-15: a bank már nem kötelező — ha üres, LÁTHATÓAN jelezzük,
+            hogy pótolandó, ne csak egy üres sor maradjon a helyén. */}
+        {form.bank_nev.trim() || form.bank_fo_iban.trim() ? (
+          <>
+            {form.bank_nev} · <span className="font-mono text-xs">{form.bank_fo_iban}</span>{' '}
+            <Badge className="bg-slate-100 text-slate-700 border-0 ml-1 text-[10px]">{form.bank_fo_iban_valuta}</Badge>
+          </>
+        ) : (
+          <span className="text-amber-700">
+            Még nincs megadva — később pótolható az „Egyházmegye beállításai" ablakban.
+          </span>
+        )}
       </SummaryRow>
       <SummaryRow icon={<Users className="size-4 text-amber-600" />} label="Vezetés">
         {form.esperes_nev} ({form.esperes_cim}) · Jegyző: {form.jegyzo_nev}
+        {form.szamvevo_nev ? <> · Számvevő: {form.szamvevo_nev}</> : null}
       </SummaryRow>
 
       <div className="card-raised p-3 bg-amber-50/40 border-amber-200">
