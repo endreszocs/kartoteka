@@ -65,6 +65,10 @@ import {
   type LelkesziJelentesData,
 } from '@/lib/lelkeszi-jelentes/types'
 import { buildLelkesziJelentesHtml } from '@/lib/lelkeszi-jelentes/print'
+// 2026-08-15 (Endre 4. szakasz): EGYSÉGES véglegesítés-gomb a fejléc-sáv jobb
+// szélén — ugyanaz a komponens, mint a többi öt irat-típusnál. A meglévő
+// wizard-flow változatlan (skipConfirm: a wizard maga vezet végig és erősít meg).
+import { FinalizeButton } from '@kartoteka/ui-app'
 import {
   finalizeLelkesziJelentes,
   getLelkesziJelentes,
@@ -254,10 +258,8 @@ export function LelkesziJelentesDialog({
   // Debounced előnézet-adat (a tényleges HTML a previewHtml memo-ban készül)
   const [previewData, setPreviewData] = useState<LelkesziJelentesData | null>(null)
 
-  // Feloldás-kérés + beküldés + nyomtatás
-  const [unlockFormOpen, setUnlockFormOpen] = useState(false)
-  const [unlockReason, setUnlockReason] = useState('')
-  const [unlockSending, setUnlockSending] = useState(false)
+  // Beküldés + nyomtatás. 2026-08-15 (Endre 4. szakasz): a feloldás-kérés
+  // állapotát (dialógus + küldés) a közös FinalizeButton kezeli.
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [printing, setPrinting] = useState(false)
@@ -294,8 +296,6 @@ export function LelkesziJelentesDialog({
       setMode('szerkeszto')
       setWizardStep('attekintes')
       setMobileView('szerkesztes')
-      setUnlockFormOpen(false)
-      setUnlockReason('')
       setSubmitted(false)
       // Az előnézetet is nullázzuk — újranyitáskor ne az előző (akár másik évi)
       // jelentés villanjon fel, és az első render azonnali legyen (debounce nélkül).
@@ -546,17 +546,19 @@ export function LelkesziJelentesDialog({
     toast.success('A jelentés beküldve az egyházmegyének.')
   }
 
-  async function handleUnlockRequest() {
-    setUnlockSending(true)
-    const res = await requestJelentesUnlock(year, unlockReason.trim() || null)
-    setUnlockSending(false)
+  // 2026-08-15 (Endre 4. szakasz): az indoklás az EGYSÉGES FinalizeButton
+  // indoklás-dialógusán érkezik (kötelező, ≥10 karakter — eddig üresen is
+  // elment, és az esperes nem tudta elbírálni). A visszatérési értékből dönti
+  // el a komponens, hogy a dialógus bezárható-e.
+  async function handleUnlockRequest(reason: string) {
+    const res = await requestJelentesUnlock(year, reason)
     if (res.error) {
       toast.error(res.error)
-      return
+      return { error: res.error }
     }
     setUnlockRequested(true)
-    setUnlockFormOpen(false)
     toast.success('A feloldási kérelem elküldve az egyházmegyének.')
+    return { success: true }
   }
 
   async function handlePdf() {
@@ -991,26 +993,43 @@ export function LelkesziJelentesDialog({
       >
         {/* ── Fejléc ─────────────────────────────────────────────────── */}
         <DialogHeader className="shrink-0 border-b border-border bg-card/70 px-4 py-3 sm:px-6">
-          <DialogTitle className="flex items-center gap-3 font-heading text-lg text-foreground sm:text-xl">
-            <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <ScrollText className="size-5" />
-            </span>
-            <span className="min-w-0">
-              <span className="flex flex-wrap items-center gap-2">
-                Lelkészi jelentés — {year}
-                {readOnly ? (
-                  <Badge className="bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300">
-                    Véglegesítve
-                  </Badge>
-                ) : (
-                  <Badge className="bg-muted text-muted-foreground hover:bg-muted">Szerkesztés alatt</Badge>
-                )}
+          {/* 2026-08-15 (Endre 4. szakasz): a fejléc-sáv jobb szélén az EGYSÉGES
+              véglegesítés-gomb (a bezáró X miatt pr-8). A „Véglegesítve" jelvényt
+              is a közös komponens zöld pecsétje adja — nincs második másolat. */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pr-8">
+            <DialogTitle className="flex min-w-0 items-center gap-3 font-heading text-lg text-foreground sm:text-xl">
+              <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <ScrollText className="size-5" />
               </span>
-              <span className="mt-0.5 block truncate text-xs font-normal text-muted-foreground">
-                {congregationName || data?.congregationName || 'Egyházközség'} — hivatalos éves jelentés (I–X. fejezet)
+              <span className="min-w-0">
+                <span className="flex flex-wrap items-center gap-2">
+                  Lelkészi jelentés — {year}
+                  {!readOnly && (
+                    <Badge className="bg-muted text-muted-foreground hover:bg-muted">Szerkesztés alatt</Badge>
+                  )}
+                </span>
+                <span className="mt-0.5 block truncate text-xs font-normal text-muted-foreground">
+                  {congregationName || data?.congregationName || 'Egyházközség'} — hivatalos éves jelentés (I–X. fejezet)
+                </span>
               </span>
-            </span>
-          </DialogTitle>
+            </DialogTitle>
+            {!loading && !loadError && mode === 'szerkeszto' && (
+              <FinalizeButton
+                documentLabel="lelkészi jelentés"
+                year={year}
+                finalized={readOnly}
+                finalizedAt={data?.veglegesitveAt ?? null}
+                unlockRequested={unlockRequested}
+                skipConfirm
+                onFinalize={() => {
+                  setWizardStep('attekintes')
+                  setMode('wizard')
+                }}
+                onRequestUnlock={handleUnlockRequest}
+                unlockPlaceholder="Pl. A III. fejezet létszám-adatai hiányosak, javítani szeretném."
+              />
+            )}
+          </div>
 
           {/* Wizard-progressz */}
           {mode === 'wizard' && (
@@ -1319,7 +1338,9 @@ export function LelkesziJelentesDialog({
         ) : (
           /* ── SZERKESZTŐ + ELŐNÉZET ──────────────────────────────────── */
           <div className="flex min-h-0 flex-1 flex-col px-4 pt-3 sm:px-6">
-            {/* Véglegesítve-banner + feloldás-kérés */}
+            {/* Véglegesítve — magyarázó sáv. 2026-08-15 (Endre 4. szakasz): a
+                feloldás-kérés gombja/dialógusa a fejléc közös FinalizeButton-jába
+                költözött; itt csak a magyarázat marad (miért zároltak a mezők). */}
             {readOnly && (
               <div className="mb-3 shrink-0 rounded-2xl border border-emerald-400/40 bg-emerald-500/10 p-3">
                 <div className="flex flex-wrap items-center gap-2">
@@ -1327,34 +1348,10 @@ export function LelkesziJelentesDialog({
                   <p className="min-w-0 flex-1 text-sm text-foreground">
                     <strong>Véglegesítve</strong>
                     {data?.veglegesitveAt ? ` (${data.veglegesitveAt.slice(0, 10)})` : ''} — a mezők nem
-                    szerkeszthetők, feloldás kérhető az egyházmegyétől.
+                    szerkeszthetők. Feloldás a fejléc „Feloldás kérése" gombjával kérhető az
+                    egyházmegyétől.
                   </p>
-                  {unlockRequested ? (
-                    <Badge className="bg-amber-500/15 text-amber-700 hover:bg-amber-500/15 dark:text-amber-300">
-                      Feloldási kérelem elküldve
-                    </Badge>
-                  ) : (
-                    <Button variant="outline" size="sm" onClick={() => setUnlockFormOpen((v) => !v)}>
-                      <ShieldAlert className="size-4" />
-                      Feloldás kérése
-                    </Button>
-                  )}
                 </div>
-                {unlockFormOpen && !unlockRequested && (
-                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-start">
-                    <Textarea
-                      value={unlockReason}
-                      onChange={(e) => setUnlockReason(e.target.value)}
-                      rows={2}
-                      placeholder="A feloldás indoklása (opcionális)…"
-                      className="min-h-0 flex-1"
-                    />
-                    <Button size="sm" onClick={() => void handleUnlockRequest()} disabled={unlockSending}>
-                      {unlockSending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                      Kérelem küldése
-                    </Button>
-                  </div>
-                )}
               </div>
             )}
 
@@ -1583,22 +1580,13 @@ export function LelkesziJelentesDialog({
                   </Button>
                 </>
               ) : (
-                <>
-                  <Button variant="outline" size="sm" onClick={() => void handleSave()} disabled={saving}>
-                    {saving ? <Loader2 className="size-4 animate-spin" /> : null}
-                    Mentés
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      setWizardStep('attekintes')
-                      setMode('wizard')
-                    }}
-                  >
-                    <CheckCircle2 className="size-4" />
-                    Véglegesítés…
-                  </Button>
-                </>
+                /* 2026-08-15 (Endre 4. szakasz): a Véglegesítés-gomb a fejléc-sáv
+                   jobb szélére költözött (egységes hely mind a 6 irat-típusnál) —
+                   a láblécben a Mentés maradt. */
+                <Button variant="outline" size="sm" onClick={() => void handleSave()} disabled={saving}>
+                  {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+                  Mentés
+                </Button>
               )}
             </div>
           </div>

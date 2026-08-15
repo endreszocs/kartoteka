@@ -1535,9 +1535,21 @@ export async function requestJelentesUnlock(
   const { supabase, congregationId } = await getEffectiveCongregationContext()
   if (!congregationId) return { error: 'Nincs bejelentkezett felhasználó vagy aktív gyülekezet.' }
 
+  // 2026-08-15 (Endre 4. szakasz — egységes véglegesítés): AZ INDOKLÁS KÖTELEZŐ,
+  // mint a többi öt irat-típusnál (a leltár K5-#12-es mintája). Eddig üresen is
+  // átment (`|| null`), így az esperes indoklás nélküli kérelmet kapott, amit
+  // nem tudott elbírálni. A kliens-dialógus megkerülhető, ezért a szerver is őrzi.
+  const trimmedReason = (reason || '').trim()
+  if (trimmedReason.length < 10) {
+    return {
+      error:
+        'Írja le legalább egy mondatban, miért kéri a jelentés feloldását — enélkül az egyházmegye nem tudja elbírálni a kérelmet.',
+    }
+  }
+
   const { data: upd, error } = await supabase
     .from('lelkeszi_jelentes')
-    .update({ unlock_requested: true, unlock_reason: reason?.trim() || null })
+    .update({ unlock_requested: true, unlock_reason: trimmedReason })
     .eq('congregation_id', congregationId)
     .eq('ev', ev)
     .eq('statusz', 'veglegesitve')

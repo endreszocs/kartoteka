@@ -6,6 +6,10 @@ import { getVisibleDistrictName, getVisibleDistrictNameMap } from '@/lib/members
 import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallback'
 import { exactAge, isAdult } from '@/lib/members/age'
 import { logAuditEvent } from '@/lib/audit/log'
+// 2026-08-15 (Endre 4. szakasz — egységes véglegesítés): séma-drift felismerés
+// a KÖZÖS helperből (a valasztok_* oszlopok a 2026-08-15-veglegesites-egyseges.sql
+// migrációval jönnek).
+import { isMissingColumnError } from '@/lib/utils/schema-errors'
 
 /**
  * Választó adatsor — névjegyzékhez és a nyomtatási központhoz.
@@ -229,6 +233,199 @@ export async function getVoters(): Promise<VoterRow[]> {
     })
 }
 
+// ── Választók névjegyzéke — EGYSÉGES véglegesítés (2026-08-15, Endre 4. szakasz) ──
+//
+// docs/EGYHAZMEGYEI-SZINT-DONTESEK-2026-08-15.md: a véglegesítés-gomb mind a hat
+// irat-típusnál egyforma — a választók névjegyzékének EDDIG semmilyen
+// véglegesítése nem volt. Az állapot a `bealitas` év-során él (valasztok_finalized
+// + unlock-pár + _at/_by), a többi irat-típus zászlóival azonos mintára.
+// A véglegesített év ZÁR is: a jogosultság-újraszámítás és a kézi módosítás az
+// adott évre tiltva (lásd a guardot a lenti mutáló akciókban).
+
+/**
+ * A névjegyzék KANONIKUS év-kulcsa: a naptári év. A beküldés (voters-tab →
+ * submitDocument('valasztok_nevjegyzeke', …)) történetileg is getFullYear()-rel
+ * megy (határidő: május 31., nem nyúlik át az évhatáron, mint a számadás) — a
+ * véglegesítésnek UGYANEZT kell használnia, különben a lelkész az egyik évet
+ * zárja le és egy másikat küldi be (a leltár P1 #24-es hibaosztálya).
+ */
+function valasztokReportYear(): number {
+  return new Date().getFullYear()
+}
+
+/** A kliens is ezt kéri le, hogy a beküldés év-kulcsa bit-azonos legyen a véglegesítésével. */
+export async function getValasztokReportYear(): Promise<number> {
+  return valasztokReportYear()
+}
+
+const VALASZTOK_MIGRACIO_HIANYZIK =
+  'A választók névjegyzékének véglegesítéséhez szükséges adatbázis-bővítés még nincs lefuttatva ' +
+  '(2026-08-15-veglegesites-egyseges.sql) — kérjük, jelezd a rendszergazdának.'
+
+function valasztokMissingYearMessage(year: number): string {
+  return (
+    `A(z) ${year}. évhez még nincs éves beállítás a rendszerben, ezért a művelet NEM mentődött el. ` +
+    `Nyisd meg a Pénzügy modult, és válaszd ki fent a(z) ${year}. évet — a rendszer ilyenkor létrehozza az évet. ` +
+    `Utána térj vissza ide, és próbáld újra.`
+  )
+}
+
+export async function getValasztokFinalizationStatus(): Promise<{
+  year: number
+  finalized: boolean
+  finalizedAt: string | null
+  unlockRequested: boolean
+}> {
+  const year = valasztokReportYear()
+  const { supabase, congregationId: congId } = await getEffectiveCongregationContext()
+  if (!congId) return { year, finalized: false, finalizedAt: null, unlockRequested: false }
+  const { data, error } = await supabase
+    .from('bealitas')
+    .select('valasztok_finalized, valasztok_finalized_at, valasztok_unlock_requested')
+    .eq('id', String(year))
+    .eq('congregation_id', congId)
+    .maybeSingle()
+  if (error) {
+    // Migráció előtti adatbázis: a funkció még nem létezik → nem véglegesített.
+    // (Más hibánál is ezt adjuk vissza, de hangosan naplózva — a véglegesítés
+    // maga fail-closed, ott nem tippelünk.)
+    console.warn('[valasztok] a véglegesítés-állapot nem olvasható:', error.message)
+    return { year, finalized: false, finalizedAt: null, unlockRequested: false }
+  }
+  const row = (data || null) as {
+    valasztok_finalized?: boolean | null
+    valasztok_finalized_at?: string | null
+    valasztok_unlock_requested?: boolean | null
+  } | null
+  return {
+    year,
+    finalized: !!row?.valasztok_finalized,
+    finalizedAt: row?.valasztok_finalized_at ?? null,
+    unlockRequested: !!row?.valasztok_unlock_requested,
+  }
+}
+
+/**
+ * A véglegesített-e az idei névjegyzék? — guard a mutáló akciókhoz.
+ *
+ * FAIL-CLOSED kivétellel: ha az oszlop még nem létezik (migráció előtt), a zár
+ * maga sem létezhet → engedünk (warn-nal); MINDEN MÁS hibánál viszont hangosan
+ * megállunk — egy zár-állapotot nem szabad megtippelni.
+ *
+ * @returns null = szabad az út; string = magyar hibaüzenet, a művelet tiltva.
+ */
+async function valasztokFinalizedGuard(
+  supabase: Awaited<ReturnType<typeof getEffectiveCongregationContext>>['supabase'],
+  congId: string,
+): Promise<string | null> {
+  const year = valasztokReportYear()
+  const { data, error } = await supabase
+    .from('bealitas')
+    .select('valasztok_finalized')
+    .eq('id', String(year))
+    .eq('congregation_id', congId)
+    .maybeSingle()
+  if (error) {
+    if (isMissingColumnError(error.message)) {
+      console.warn('[valasztok] a valasztok_finalized oszlop hiányzik (migráció előtt?) — a zár nem aktív.')
+      return null
+    }
+    return `A névjegyzék zár-állapota nem olvasható (${error.message}) — a módosítást biztonsági okból nem engedtük el. Próbáld újra.`
+  }
+  if ((data as { valasztok_finalized?: boolean | null } | null)?.valasztok_finalized) {
+    return (
+      `A(z) ${year}. évi választók névjegyzéke VÉGLEGESÍTVE van — a jogosultság újraszámítása és a kézi módosítás erre az évre zárolva. ` +
+      'Ha javítani kell, a Tagnyilvántartás → Választók fülön kérj feloldást („Feloldás kérése"), és az egyházmegye jóváhagyása után próbáld újra.'
+    )
+  }
+  return null
+}
+
+/**
+ * A névjegyzék véglegesítése az idei évre — a meglévő updateYearlyFinanceFlags
+ * mintájára: fail-closed, `.select('id')` 0-sor-őrrel, magyar hibákkal, audit-loggal.
+ */
+export async function finalizeValasztok(): Promise<{ success?: boolean; error?: string }> {
+  const { supabase, congregationId: congId, userId } = await getEffectiveCongregationContext()
+  if (!congId) return { error: 'Nincs bejelentkezett felhasználó vagy aktív gyülekezet.' }
+  const year = valasztokReportYear()
+
+  const { data, error } = await supabase
+    .from('bealitas')
+    .update({
+      valasztok_finalized: true,
+      valasztok_finalized_at: new Date().toISOString(),
+      valasztok_finalized_by: userId ?? null,
+      // Új véglegesítés = a korábbi (már elbírált/okafogyott) kérelem törlődik.
+      valasztok_unlock_requested: false,
+      valasztok_unlock_reason: null,
+    })
+    .eq('id', String(year))
+    .eq('congregation_id', congId)
+    .select('id')
+
+  if (error) {
+    // Itt NINCS pecsét-nélküli fallback: maga a zászló-oszlop hiányzik → a
+    // funkció nem létezik, ezt ki kell mondani (fail-closed, nem néma siker).
+    if (isMissingColumnError(error.message)) return { error: VALASZTOK_MIGRACIO_HIANYZIK }
+    return { error: `Hiba: ${error.message}` }
+  }
+  if (!data || data.length === 0) return { error: valasztokMissingYearMessage(year) }
+
+  await logAuditEvent(
+    {
+      action: 'valasztok.finalize',
+      targetTable: 'bealitas',
+      targetId: String(year),
+      metadata: { year },
+    },
+    supabase,
+  )
+  revalidatePath('/tagnyilvantartas')
+  return { success: true }
+}
+
+/** Feloldás-kérés a véglegesített névjegyzékre — kötelező, ≥10 karakteres indoklással. */
+export async function requestValasztokUnlock(
+  reason?: string | null,
+): Promise<{ success?: boolean; error?: string }> {
+  const { supabase, congregationId: congId } = await getEffectiveCongregationContext()
+  if (!congId) return { error: 'Nincs bejelentkezett felhasználó vagy aktív gyülekezet.' }
+  // A kliens-oldali dialógus megkerülhető, ezért a szerver is ellenőrzi
+  // (a leltár K5-#12-es mintája: üres kérelmet az esperes nem tud elbírálni).
+  const trimmedReason = (reason || '').trim()
+  if (trimmedReason.length < 10) {
+    return {
+      error:
+        'Írd le legalább egy mondatban, miért kéred a névjegyzék feloldását — enélkül az egyházmegye nem tudja elbírálni a kérelmet.',
+    }
+  }
+  const year = valasztokReportYear()
+  const { data, error } = await supabase
+    .from('bealitas')
+    .update({ valasztok_unlock_requested: true, valasztok_unlock_reason: trimmedReason })
+    .eq('id', String(year))
+    .eq('congregation_id', congId)
+    .select('id')
+  if (error) {
+    if (isMissingColumnError(error.message)) return { error: VALASZTOK_MIGRACIO_HIANYZIK }
+    return { error: `Hiba: ${error.message}` }
+  }
+  if (!data || data.length === 0) return { error: valasztokMissingYearMessage(year) }
+
+  await logAuditEvent(
+    {
+      action: 'valasztok.unlock_request',
+      targetTable: 'bealitas',
+      targetId: String(year),
+      metadata: { year, reason: trimmedReason },
+    },
+    supabase,
+  )
+  revalidatePath('/tagnyilvantartas')
+  return { success: true }
+}
+
 // ── Választói jogosultság automatika (2026-06-10, Fázis 5 / P3-7) ─────
 
 /**
@@ -246,6 +443,11 @@ export async function recomputeVoterEligibility(): Promise<{
 }> {
   const { supabase, congregationId: congId } = await getEffectiveCongregationContext()
   if (!congId) return { ok: false, error: 'Nincs aktív gyülekezet.' }
+
+  // 2026-08-15 (Endre 4. szakasz): a véglegesített évi névjegyzék ZÁR —
+  // az újraszámítás hangos magyar üzenettel áll meg.
+  const zarHiba = await valasztokFinalizedGuard(supabase, congId)
+  if (zarHiba) return { ok: false, error: zarHiba }
 
   const { data, error } = await supabase.rpc('recompute_voter_eligibility', { p_congregation_id: congId })
   if (error) return { ok: false, error: `${error.message} (Lefutott már a 2026-06-10-es Fázis 5 migráció?)` }
@@ -285,6 +487,11 @@ export async function setVoterConfirmationRequirement(required: boolean): Promis
   const { supabase, congregationId: congId } = await getEffectiveCongregationContext()
   if (!congId) return { ok: false, error: 'Nincs aktív gyülekezet.' }
 
+  // 2026-08-15 (Endre 4. szakasz): a kapcsoló-váltás automatikus újraszámítással
+  // jár — véglegesített névjegyzék mellett ez is zárolva van.
+  const zarHiba = await valasztokFinalizedGuard(supabase, congId)
+  if (zarHiba) return { ok: false, error: zarHiba }
+
   const { error } = await supabase
     .from('congregations')
     .update({ valaszto_konfirmacio_szukseges: required })
@@ -317,6 +524,11 @@ export async function setVoterConfirmationRequirement(required: boolean): Promis
 export async function setVoterOverride(szemelyId: number, override: 0 | 1 | null) {
   const { supabase, congregationId: congId } = await getEffectiveCongregationContext()
   if (!congId) return { ok: false, error: 'Nincs aktív gyülekezet.' }
+
+  // 2026-08-15 (Endre 4. szakasz): véglegesített névjegyzék mellett a kézi
+  // felülbírálás is zárolva — hangos magyar üzenettel, nem néma no-op-pal.
+  const zarHiba = await valasztokFinalizedGuard(supabase, congId)
+  if (zarHiba) return { ok: false, error: zarHiba }
 
   const { error } = await supabase
     .from('szemely')

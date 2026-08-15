@@ -23,6 +23,28 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-15] — Egységes Véglegesítés-gomb mind a hat évi jelentésnél
+<!-- key: 2026-08-15-egyseges-veglegesites-gomb -->
+<!-- category: feature -->
+<!-- targets: lelkesz + esperes -->
+
+### ✨ Új funkciók
+
+- **Egyforma Véglegesítés-gomb mindenhol.** Mostantól mind a hat évi iratnál — számadás, költségvetés, költségvetés-módosítás, vagyonleltári jelentés, választók névjegyzéke, lelkészi jelentés — ugyanaz a lila „Véglegesítés" gomb található, mindig az adott oldal fejlécének jobb szélén. A gomb megnyomása előtt a program érthetően elmondja, mi zárul le és hogyan lehet később javítani; véglegesítés után zöld pecsét mutatja az állapotot a véglegesítés dátumával, mellette pedig a „Feloldás kérése" gomb — a feloldást indoklással az egyházmegyétől lehet kérni, minden iratnál ugyanúgy.
+- **A választók névjegyzéke is véglegesíthető.** Eddig a névjegyzéket csak beküldeni lehetett — mostantól előbb véglegesíteni kell (mint a leltárnál), és az egyházmegye azt kapja meg, amit a gyülekezet lezárt. A véglegesített évre a jogosultság-újraszámítás és a kézi módosítás zárolva van: ha javítani kell, a „Feloldás kérése" gombbal indoklást küldhetsz, és az esperes jóváhagyása után a névjegyzék újra szerkeszthető.
+- **Az esperes a névjegyzék-feloldási kérelmeket is látja.** Az egyházmegyei vezérlőpult Kérelmek füle mostantól a választók névjegyzékének feloldás-kéréseit is mutatja, és a döntésről a gyülekezet a csengőben értesül — pontosan úgy, mint a számadásnál.
+
+### 🐛 Javítások
+
+- **A vagyonleltári jelentés feloldása mostantól tényleg felold.** Eddig hiába hagyta jóvá az esperes a leltár-feloldási kérelmet, a gyülekezetnél a jelentés zárva maradt — a lelkész se javítani, se újra lezárni nem tudta. A jóváhagyás mostantól valóban kinyitja a jelentést.
+- **A javítási kérelmek mindenhol kötelező indoklással mennek.** A számadásnál és a lelkészi jelentésnél eddig üres vagy egysoros böngésző-ablakban lehetett (akár indoklás nélkül) kérelmet küldeni — mostantól mindenhol ugyanaz a rendes ablak kéri a legalább egymondatos indoklást, amiből az esperes el tudja bírálni a kérést.
+
+### ℹ️ Rendszergazdai teendő
+
+- Futtatandó SQL: `migration-docs/sql/2026-08-15-veglegesites-egyseges.sql` (a választók névjegyzékének véglegesítés-mezői + a pecsét-dátumok). Amíg nem fut le, a névjegyzék véglegesítése érthető hibaüzenettel jelzi a teendőt, a többi irat véglegesítése változatlanul működik.
+
+---
+
 ## [2026-08-15] — Asztali alkalmazás: leltár-rögzítés + fişă + kis naplók nyomtatása
 <!-- key: 2026-08-15-desktop-paritas-4-szelet-leltar-munkanaplo -->
 <!-- category: feature -->

@@ -26,6 +26,9 @@ import {
 } from '@kartoteka/ui-app'
 import type { InventoryItem, InventoryCategory } from '@/lib/constants/inventory.next'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
+// 2026-08-15 (egységes véglegesítés): séma-drift felismerés a KÖZÖS helperből —
+// a pecsét-mezők (leltar_finalized_at/_by) migráció előtti adatbázison kimaradnak.
+import { isMissingColumnError } from '@/lib/utils/schema-errors'
 import type { InventoryPrintFinanceSummary } from '@/lib/inventory/reporting'
 import { calculateBalances } from '@/lib/utils/finance-helpers'
 
@@ -356,12 +359,42 @@ export async function getLeltarReportYear(): Promise<number> {
   return leltarReportYear()
 }
 
-export async function getLeltarFinalizationStatus(): Promise<{ finalized: boolean; unlockRequested: boolean }> {
+export async function getLeltarFinalizationStatus(): Promise<{
+  finalized: boolean
+  unlockRequested: boolean
+  /** 2026-08-15 (egységes véglegesítés): a zöld pecsét dátuma — migráció előtt null. */
+  finalizedAt: string | null
+}> {
   const { supabase, congId } = await getCongId()
-  if (!congId) return { finalized: false, unlockRequested: false }
+  if (!congId) return { finalized: false, unlockRequested: false, finalizedAt: null }
   const year = leltarReportYear()
-  const { data } = await supabase.from('bealitas').select('leltar_finalized, leltar_unlock_requested').eq('id', String(year)).eq('congregation_id', congId).maybeSingle()
-  return { finalized: !!data?.leltar_finalized, unlockRequested: !!data?.leltar_unlock_requested }
+  // Séma-fallback: a leltar_finalized_at oszlop a 2026-08-15-veglegesites-egyseges.sql
+  // migrációval jön — előtte a bővített SELECT hibázna, ezért a régi oszlop-listával
+  // olvasunk újra (a pecsét-dátum ilyenkor null, az állapot attól még hiteles).
+  let res = await supabase
+    .from('bealitas')
+    .select('leltar_finalized, leltar_unlock_requested, leltar_finalized_at')
+    .eq('id', String(year))
+    .eq('congregation_id', congId)
+    .maybeSingle()
+  if (res.error && isMissingColumnError(res.error.message)) {
+    res = await supabase
+      .from('bealitas')
+      .select('leltar_finalized, leltar_unlock_requested')
+      .eq('id', String(year))
+      .eq('congregation_id', congId)
+      .maybeSingle()
+  }
+  const data = (res.data || null) as {
+    leltar_finalized?: boolean | null
+    leltar_unlock_requested?: boolean | null
+    leltar_finalized_at?: string | null
+  } | null
+  return {
+    finalized: !!data?.leltar_finalized,
+    unlockRequested: !!data?.leltar_unlock_requested,
+    finalizedAt: data?.leltar_finalized_at ?? null,
+  }
 }
 
 /**
@@ -380,15 +413,33 @@ export async function getLeltarFinalizationStatus(): Promise<{ finalized: boolea
  * rekordja, kötelező járulék-mezőkkel — azt ott, a helyén kell kitölteni.)
  */
 export async function finalizeLeltar() {
-  const { supabase, congId } = await getCongId()
+  // 2026-08-15 (Endre 4. szakasz): a userId is kell — a véglegesítés dátum/szerző
+  // pecsétet kap (leltar_finalized_at/_by) a zöld jelvényhez.
+  const { supabase, congregationId: congId, userId } = await getEffectiveCongregationContext()
   if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
   const year = leltarReportYear()
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('bealitas')
-    .update({ leltar_finalized: true })
+    .update({
+      leltar_finalized: true,
+      leltar_finalized_at: new Date().toISOString(),
+      leltar_finalized_by: userId ?? null,
+    })
     .eq('id', String(year))
     .eq('congregation_id', congId)
     .select('id')
+  // Séma-fallback: migráció előtti adatbázison a pecsét-mezők NÉLKÜL fut újra —
+  // a zászló nem veszhet el egy hiányzó dísz-oszlop miatt.
+  if (error && isMissingColumnError(error.message)) {
+    const retry = await supabase
+      .from('bealitas')
+      .update({ leltar_finalized: true })
+      .eq('id', String(year))
+      .eq('congregation_id', congId)
+      .select('id')
+    data = retry.data
+    error = retry.error
+  }
   if (error) return { error: `Hiba: ${error.message}` }
   if (!data || data.length === 0) return { error: missingYearSettingsMessage(year) }
   revalidatePath('/leltar')

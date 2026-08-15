@@ -1,3 +1,10 @@
+> **TULAJDONOSI DÖNTÉSEK (felülírják a terv javaslatait):** lásd
+> docs/EGYHAZMEGYEI-SZINT-DONTESEK-2026-08-15.md — (1) megyei szerepek:
+> esperes + számvevő + megyei adminok; (2) archívum csak rendszerből
+> véglegesített évektől; (3) egyházkerület = 3. szint, KÜLÖN kör; megyei
+> véglegesítés-gomb KÉT úton; (4) egységes véglegesítés-gomb mind a 6
+> irat-típusra (2026-08-15-én MEGÉPÜLT, a lelkészi jelentéssel együtt).
+
 # EGYHÁZMEGYEI SZINT — TELJES KIVITELI TERV (2026-08-15)
 
 **Ez egy TERV-dokumentum. Kód ebben a körben nem készült.** Minden állítás mellett
