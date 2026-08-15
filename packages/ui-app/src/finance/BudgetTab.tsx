@@ -152,6 +152,15 @@ export function BudgetTab({
     expense: Record<string, number>
   } | null>(null)
 
+  // 2026-08-15 (egyházmegyei szelet): a beküldés CÍMZETTJE a hatókör felettes
+  // szintje — a gyülekezeté az egyházmegye, az egyházmegye SAJÁT
+  // költségvetéséé az egyházkerület. A gomb, a helye és a folyamat (mentés →
+  // zárás → felküldés) BETŰRE ugyanaz; csak a címzett neve igazodik ahhoz, ami
+  // valóban történik. A tényleges beküldő hívást a `submitDocument` callback
+  // adja (a web-wrapper hatókör szerint választja meg a célt).
+  const felettesSzint = scope === 'diocese' ? 'az egyházkerület' : 'az egyházmegye'
+  const felettesSzintNek = scope === 'diocese' ? 'az egyházkerületnek' : 'az egyházmegyének'
+
   const isBaseFinalized = settings.budget_finalized
   const isMod1Finalized = settings.budget_mod1_finalized ?? false
   const isMod2Finalized = settings.budget_mod2_finalized ?? false
@@ -520,8 +529,8 @@ export function BudgetTab({
 
       onToast?.(
         mode === 'base'
-          ? 'Költségvetés véglegesítve és beküldve!'
-          : `${modNum}. módosítás véglegesítve és beküldve!`,
+          ? `Költségvetés véglegesítve és beküldve ${felettesSzintNek}!`
+          : `${modNum}. módosítás véglegesítve és beküldve ${felettesSzintNek}!`,
         'success',
       )
       setTimeout(() => onRefresh?.(), 600)
@@ -557,7 +566,7 @@ export function BudgetTab({
       onToast?.(result.error, 'error')
       return { error: result.error }
     }
-    onToast?.('Feloldási kérelem elküldve az egyházmegyének!', 'success')
+    onToast?.(`Feloldási kérelem elküldve ${felettesSzintNek}!`, 'success')
     onRefresh?.()
     return { success: true }
   }
@@ -674,7 +683,8 @@ export function BudgetTab({
               finalizedAt={activeFinalizedAt}
               unlockRequested={!!settings.unlock_requested}
               finalizeLabel="Véglegesítés és beküldés"
-              confirmDescription="A program előbb elmenti a képernyőn látható tervet, majd lezárja és azonnal beküldi az egyházmegyének."
+              confirmDescription={`A program előbb elmenti a képernyőn látható tervet, majd lezárja és azonnal beküldi ${felettesSzintNek}.`}
+              unlockAuthorityLabel={felettesSzint}
               // Csak a folyamatban lévő mentés tilt — a canEdit véglegesített
               // szinten mindig false, és az NEM tilthatja a „Feloldás kérése" utat.
               disabled={saving}
@@ -709,7 +719,9 @@ export function BudgetTab({
             </p>
             <p className="mt-1 text-sm text-amber-900">{settings.unlock_reason}</p>
             <p className="mt-1 text-xs text-amber-600">
-              Az egyházmegye döntéséről a csengőben fog értesülni.
+              {scope === 'diocese'
+                ? 'Az egyházkerület döntéséről a csengőben fog értesülni.'
+                : 'Az egyházmegye döntéséről a csengőben fog értesülni.'}
             </p>
           </div>
         )}

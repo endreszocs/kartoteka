@@ -18,7 +18,10 @@
  */
 
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import {
+  Archive,
+  ArrowRight,
   Building2,
   CalendarClock,
   ClipboardCheck,
@@ -300,6 +303,27 @@ export function DioceseDashboardTabs({
       {/* === DOKUMENTUMOK === */}
       {tab === 'documents' && (
         <div className="space-y-5">
+          {/* 2026-08-15 (S5): a fül a FOLYÓ szezon munkafelülete (átvétel,
+              ellenőrzés, továbbítás) — a több évre visszamenő ARCHÍVUM önálló
+              útvonalon él. Innen egy kattintás oda, hogy ne kelljen keresni. */}
+          <Link
+            href="/dashboard-egyhazmegye/iratok"
+            className="card-raised flex items-center gap-3 rounded-2xl p-4 transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300">
+              <Archive className="size-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="font-heading text-sm text-foreground sm:text-base">
+                Beküldött iratok archívuma — évekre visszamenőleg
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Gyülekezetenkénti dosszié és éves mátrix mind a hat irat-típusra.
+              </p>
+            </div>
+            <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
+          </Link>
+
           {/* 2026-08-09: közös dokumentumközpont — teljességi mátrix (minden
               gyülekezet), év/típus-szűrés, snapshot-néző + nyomtatás,
               visszaküldés-flow. Az éves jelentések külön panelje marad. */}

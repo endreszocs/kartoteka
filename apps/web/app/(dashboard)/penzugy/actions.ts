@@ -98,6 +98,13 @@ import { submitDocument } from '@/app/(dashboard)/dashboard-egyhazmegye/document
 // 2026-08-15 (S6): a diocese_bealitas → BealitasRow leképezés közös normalizálója
 // (a módosítás-flagek korábban itt inline, hardkódolt false-szal „normalizálódtak").
 import { normalizeDioceseBealitas } from '@/lib/finance/diocese-bealitas'
+// 2026-08-15 (S6, terv 3.6): a megye→egyházkerület felküldés KÖZÖS adatrétege —
+// a számadás, a költségvetés és a költségvetés-módosítás ugyanazon az úton megy.
+import {
+  olvasDioceseFelterjesztesek,
+  rogzitDioceseFelterjesztes,
+  type DioceseFelterjesztesSor,
+} from '@/lib/finance/diocese-felterjesztes'
 // 2026-08-15 (terv 4.2): egyházmegye-név duplázás-védő közös helper.
 import { formatEgyhazmegyeNev } from '@/lib/format/egyhazmegye-nev'
 
@@ -163,6 +170,16 @@ async function getFinanceScope(): Promise<
  */
 
 /**
+ * 2026-08-15 (egyházmegyei szelet): KI ad javítási engedélyt? A gyülekezetnek
+ * az egyházmegye, az egyházmegyének az egyházkerület. Egy helyen él, hogy a
+ * zár-üzenetek ne húzzanak szét (a megyei felület eddig „az egyházmegyétől"
+ * kért engedélyt — vagyis önmagától).
+ */
+function felettesSzintTol(ctx: FinanceScopeContext): string {
+  return ctx.scope === 'diocese' ? 'az egyházkerülettől' : 'az egyházmegyétől'
+}
+
+/**
  * 2026-07-10 (#4/3): véglegesített évbe ÚJ tétel sem rögzíthető — eddig csak a
  * szerkesztés/stornó volt védve (edit-storno-actions), így a véglegesítés +
  * beküldés UTÁN is lehetett új tételt rögzíteni, és a beküldött snapshot
@@ -206,7 +223,8 @@ async function assertYearsNotFinalizedForCreate(
     ctx,
     dates,
     (year) =>
-      `A ${year}. évi számadás már véglegesítve van — új tétel nem rögzíthető. Először kérj javítási engedélyt az egyházmegyétől.`,
+      `A ${year}. évi számadás már véglegesítve van — új tétel nem rögzíthető. ` +
+      `Először kérj javítási engedélyt ${felettesSzintTol(ctx)}.`,
   )
 }
 
@@ -235,7 +253,7 @@ async function assertYearsNotFinalizedForDelete(
     (year) =>
       `A ${year}. évi számadás már véglegesítve (és beküldve) van, ezért ebből az évből tétel ` +
       'nem törölhető — a beküldött számadás és a rendszer adatai különben csendben szétcsúsznának. ' +
-      'Kérj feloldást (javítási engedélyt) az egyházmegyétől, és csak a jóváhagyás után töröld.',
+      `Kérj feloldást (javítási engedélyt) ${felettesSzintTol(ctx)}, és csak a jóváhagyás után töröld.`,
   )
 }
 
@@ -1773,6 +1791,9 @@ export async function initFinance(year: number) {
     internalTransfers,
     congregationName,
     congregationNameRo,
+    // A megyei nyomtatvány-borító felső blokkjának neve — gyülekezeti
+    // hatókörben nem értelmezett (ott az egyházmegye blokkja áll, sablonnal).
+    districtName: null as string | null,
     debtCalcMode,
     yearlyFees,
     debtRows,
@@ -1873,10 +1894,31 @@ async function initFinanceDiocese(
   let dioceseName = ''
   const dioRes = await supabase
     .from('dioceses')
-    .select('name')
+    .select('name, district_id')
     .eq('id', dioceseId)
     .single()
   dioceseName = formatEgyhazmegyeNev(dioRes.data?.name)
+
+  // ── Egyházkerület neve (a megyei nyomtatvány-borító felső blokkjához) ──
+  // 2026-08-15 (terv 2.1/3): a megye SAJÁT íve az egyházkerülethez megy fel,
+  // ezért a borító felső blokkjában a KERÜLET neve áll (a gyülekezeti íven ott
+  // az egyházmegye áll). Ez KIZÁRÓLAG felirat: ha nem sikerül lekérdezni, a
+  // nyomtatvány semleges „REFORMÁTUS EGYHÁZKERÜLET" feliratot ír — jogosultságot
+  // vagy zárást nem befolyásol, ezért a hiba elnyelése itt biztonságos.
+  let districtName: string | null = null
+  const districtId = (dioRes.data as { district_id?: string | null } | null)?.district_id || null
+  if (districtId) {
+    try {
+      const { data: distRow } = await supabase
+        .from('districts')
+        .select('name')
+        .eq('id', districtId)
+        .maybeSingle()
+      districtName = (distRow as { name?: string | null } | null)?.name ?? null
+    } catch {
+      districtName = null
+    }
+  }
 
   // ── Bealitas normalizálása BealitasRow-kompatibilisra ──
   // 2026-08-15 (terv 2.1/2): a leképezés a KÖZÖS normalizálóba költözött
@@ -1946,6 +1988,8 @@ async function initFinanceDiocese(
     internalTransfers: [] as InternalTransferRow[], // Phase 5-re halasztott
     congregationName: dioceseName, // UI label, diocese módban a diocese neve
     congregationNameRo: '', // diocese módban nincs külön román gyülekezetnév
+    // A felettes szint neve a nyomtatvány-borítóra (csak megyei hatókörben).
+    districtName,
     debtCalcMode: 'akkori' as 'akkori' | 'aktualis',
     yearlyFees: {} as Record<number, number>, // diocese-nél nincs tag-járulék
     debtRows: [] as DebtRow[], // tag-szintű adósság diocese-ben nincs
@@ -3519,10 +3563,38 @@ export async function finalizeAccounting(
         },
         { onConflict: 'diocese_id,year' },
       )
-    if (arErr) return { error: `Véglegesítve, de annual_report hiba: ${arErr.message}` }
+    if (arErr) {
+      return {
+        error:
+          'A(z) ' + year + '. évi megyei számadás lezárása megtörtént, de a zárszámadás ' +
+          'pillanatképét nem sikerült elmenteni, ezért a felküldés is elmaradt. Jelezd a ' +
+          `rendszergazdának (részlet: ${arErr.message}).`,
+      }
+    }
+
+    // 3. FELTERJESZTÉS az egyházkerületnek (terv 3.6 + Endre 3. döntése): a
+    //    véglegesítés és a felküldés EGY mozdulat — ugyanaz a gomb, ugyanott,
+    //    mint a gyülekezeteknél. A kerületi FOGADÓ oldal a 3. szint külön
+    //    körében épül; a felküldés ténye, ideje és tartalma MÁR MOST rögzül.
+    //    Ha ez nem sikerül, a zárás akkor is érvényes — ezért NEM „sikeres"
+    //    választ adunk, hanem elmondjuk, hol lehet a felküldést pótolni.
+    const felt = await rogzitDioceseFelterjesztes(supabase, {
+      dioceseId: scope.scopeId,
+      userId: scope.userId,
+      docType: 'megyei_szamadas',
+      year,
+      snapshot: storedSnapshot,
+    })
 
     revalidatePath('/penzugy')
     revalidatePath('/dashboard-egyhazmegye')
+    if (felt.error) {
+      return {
+        error:
+          `A(z) ${year}. évi megyei számadás VÉGLEGESÍTVE lett, de a felküldés nem rögzült: ` +
+          felt.error,
+      }
+    }
     // Itt is a TÉNYLEGESEN eltárolt objektumot adjuk vissza, hogy a szerződés
     // egységes legyen: „amit ez a függvény visszaad, azt írta ki".
     return { success: true, hivatalosPillanatkep: storedSnapshot }
@@ -3844,6 +3916,183 @@ export async function getDioceseFinalizedAccountings(): Promise<{
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// FELTERJESZTÉS az egyházkerületnek (terv 3.6 + Endre 3. döntése)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// A megye SAJÁT iratainál a véglegesítés és a felküldés EGY mozdulat — ugyanaz
+// a gomb, ugyanott, mint a gyülekezeteknél. A kerületi FOGADÓ oldal a 3. szint
+// külön körében épül; addig a felküldés ténye, ideje és fagyasztott tartalma a
+// `diocese_felterjesztes` táblában rögzül.
+
+/**
+ * A megye SAJÁT költségvetésének (vagy 1–3. módosításának) felküldése.
+ *
+ * A közös BudgetTab „Véglegesítés és beküldés" gombja hívja — megyei
+ * hatókörben a gyülekezeti `submitDocument` HELYETT (az a beküldő a
+ * gyülekezet→megye úthoz való, és megyei profilban „Nincs aktív gyülekezet."
+ * hibával állt meg).
+ *
+ * FAIL-CLOSED: csak megyei hatókörben, csak írási joggal, és csak akkor, ha az
+ * adott szint TÉNYLEG véglegesítve van — felküldött, de le nem zárt irat nem
+ * keletkezhet.
+ */
+export async function felterjesztMegyeiKoltsegvetes(
+  year: number,
+  modNumber: 1 | 2 | 3 | null,
+  /**
+   * A képernyőn látott, ÉPP LEZÁRT terv pillanatképe (a BudgetTab adja). Ha
+   * hiányzik (PÓTLÁS a „Felküldés az egyházkerületnek" kártyáról), a szerver a
+   * MENTETT `diocese_koltsegvetes` sorokból állítja össze — így a pótolt
+   * felküldés is a tárolt valóságot viszi, nem üres csomagot.
+   */
+  snapshot?: Record<string, unknown> | null,
+): Promise<{ success?: boolean; error?: string }> {
+  const scope = await getFinanceScope()
+  if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (scope.scope !== 'diocese') {
+    return { error: 'A felküldés az egyházkerületnek csak egyházmegyei nézetben értelmezhető.' }
+  }
+  const writeBlock = financeWriteBlock(scope)
+  if (writeBlock) return writeBlock
+
+  // Zár-ellenőrzés: a felküldés csak LEZÁRT iratra igaz állítás.
+  const flagOszlop = modNumber
+    ? `koltsegvetes_mod${modNumber}_veglegesitve`
+    : 'koltsegvetes_veglegesitve'
+  const { data: bealitasSor, error: bealitasErr } = await scope.supabase
+    .from('diocese_bealitas')
+    .select('*')
+    .eq('diocese_id', scope.scopeId)
+    .eq('eve', year)
+    .maybeSingle()
+  if (bealitasErr) {
+    return {
+      error:
+        'A véglegesítés állapotát most nem sikerült ellenőrizni, ezért a felküldést nem ' +
+        'rögzítettük. Próbáld újra néhány perc múlva.',
+    }
+  }
+  if (!(bealitasSor as Record<string, unknown> | null)?.[flagOszlop]) {
+    return {
+      error:
+        `A(z) ${year}. évi ${modNumber ? `${modNumber}. költségvetés-módosítás` : 'költségvetés'} ` +
+        'még nincs véglegesítve, ezért nem küldhető fel az egyházkerületnek. Előbb véglegesítsd.',
+    }
+  }
+
+  // PÓTLÁS: a mentett terv-sorokból építjük a csomagot. A végösszegeket
+  // SZÁNDÉKOSAN nem számoljuk itt újra (az a hivatalos ív szabálya szerint a
+  // nyomtatóban dől el — két külön számítás széthúzna); a csomag a SOROKAT
+  // viszi, és megjelöli magát pótlásként.
+  let felkuldottCsomag: Record<string, unknown> | null = snapshot ?? null
+  if (!felkuldottCsomag) {
+    const { data: tervSorok, error: tervErr } = await scope.supabase
+      .from('diocese_koltsegvetes')
+      .select('szamadasicelid, tervezett, osszeg_mod_1, osszeg_mod_2, osszeg_mod_3')
+      .eq('diocese_id', scope.scopeId)
+      .eq('eve', year)
+    if (tervErr) {
+      return {
+        error:
+          'A költségvetés sorai most nem olvashatók, ezért a felküldést nem rögzítettük. ' +
+          'Próbáld újra néhány perc múlva.',
+      }
+    }
+    felkuldottCsomag = {
+      budgetSorok: tervSorok || [],
+      year,
+      modNumber,
+      potlas: true,
+      megjegyzes:
+        'Pótlólag rögzített felküldés: a csomag a mentett költségvetési sorokat tartalmazza.',
+    }
+  }
+
+  const res = await rogzitDioceseFelterjesztes(scope.supabase, {
+    dioceseId: scope.scopeId,
+    userId: scope.userId,
+    docType: modNumber ? 'megyei_koltsegvetes_modositas' : 'megyei_koltsegvetes',
+    year,
+    modificationNumber: modNumber,
+    snapshot: felkuldottCsomag,
+  })
+  if (res.error) return { error: res.error }
+  revalidatePath('/penzugy')
+  return { success: true }
+}
+
+/**
+ * A megye SAJÁT számadásának felküldése — PÓTLÁS/ÚJRAPRÓBÁLÁS.
+ *
+ * Rendes úton a `finalizeAccounting` megyei ága rögzíti a felküldést a
+ * véglegesítéssel EGYÜTT. Ha az a lépés elbukott (hálózat, hiányzó migráció,
+ * be nem állított egyházkerület), a lelkész itt pótolhatja — a felküldött
+ * tartalom a MÁR ELTÁROLT zárszámadás-pillanatkép, nem újraszámolt adat.
+ */
+export async function felterjesztMegyeiSzamadas(
+  year: number,
+): Promise<{ success?: boolean; error?: string }> {
+  const scope = await getFinanceScope()
+  if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (scope.scope !== 'diocese') {
+    return { error: 'A felküldés az egyházkerületnek csak egyházmegyei nézetben értelmezhető.' }
+  }
+  const writeBlock = financeWriteBlock(scope)
+  if (writeBlock) return writeBlock
+
+  const { data, error } = await scope.supabase
+    .from('diocese_annual_reports')
+    .select('snapshot_data, status')
+    .eq('diocese_id', scope.scopeId)
+    .eq('year', year)
+    .eq('deleted', false)
+    .maybeSingle()
+  if (error) {
+    return {
+      error:
+        'A véglegesített számadás most nem olvasható, ezért a felküldést nem rögzítettük. ' +
+        'Próbáld újra néhány perc múlva.',
+    }
+  }
+  const sor = data as { snapshot_data?: Record<string, unknown>; status?: string } | null
+  if (!sor || sor.status !== 'finalized') {
+    return {
+      error:
+        `A(z) ${year}. évi egyházmegyei számadás még nincs véglegesítve, ezért nem küldhető fel ` +
+        'az egyházkerületnek. Előbb véglegesítsd a Számadás fülön.',
+    }
+  }
+
+  const res = await rogzitDioceseFelterjesztes(scope.supabase, {
+    dioceseId: scope.scopeId,
+    userId: scope.userId,
+    docType: 'megyei_szamadas',
+    year,
+    snapshot: sor.snapshot_data ?? {},
+  })
+  if (res.error) return { error: res.error }
+  revalidatePath('/penzugy')
+  revalidatePath('/dashboard-egyhazmegye')
+  return { success: true }
+}
+
+/**
+ * A megye adott évi felküldéseinek állapota — a Pénzügy „Felküldés az
+ * egyházkerületnek" kártyájához. Olvasó action: a számvevő is hívhatja.
+ */
+export async function getDioceseFelterjesztesAllapot(year: number): Promise<{
+  rows?: DioceseFelterjesztesSor[]
+  error?: string
+}> {
+  const scope = await getFinanceScope()
+  if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (scope.scope !== 'diocese') {
+    return { error: 'Ez a nézet csak egyházmegyei hatókörben érhető el.' }
+  }
+  return await olvasDioceseFelterjesztesek(scope.supabase, scope.scopeId, year)
+}
+
 // ── Költségvetés módosítás véglegesítés ──────────────────────
 
 export async function finalizeBudgetModification(year: number, modNumber: 1 | 2 | 3) {
@@ -3948,8 +4197,13 @@ export async function saveBudgetRowsAction(
     .eq(T.yearColBealitas, yearValueFor(scope.scope, year))
     .maybeSingle()
   if (lockRow && Boolean((lockRow as Record<string, unknown>)[T.budgetFinalizedCol])) {
+    // A feloldást a FELETTES szint bírálja el: a gyülekezetét az egyházmegye,
+    // az egyházmegyéét az egyházkerület (2026-08-15, egyházmegyei szelet) — a
+    // megnevezés a KÖZÖS helperből jön, hogy a zár-üzenetek ne húzzanak szét.
     return {
-      error: `A ${year}. évi költségvetés már véglegesítve van — a mentés nem engedélyezett. Először kérj feloldást az egyházmegyétől.`,
+      error:
+        `A ${year}. évi költségvetés már véglegesítve van — a mentés nem engedélyezett. ` +
+        `Először kérj feloldást ${felettesSzintTol(scope)}.`,
     }
   }
 

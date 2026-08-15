@@ -1273,6 +1273,65 @@ function totRowErtekek(html, label) {
   }
 }
 
+// ── Megyei ív-őr (2026-08-15, egyházmegyei terv 2.1/3) ────────────────────
+// A megye SAJÁT zárszámadása UGYANAZZAL a nyomtatóval készül, mint a
+// gyülekezeti — de a borító feliratai a KIÁLLÍTÓ szintjét követik:
+//   · a felső blokk az EGYHÁZKERÜLETÉ (a gyülekezeti íven az egyházmegyéé),
+//   · a saját iktatószám EGYHÁZMEGYEI (nem egyházközségi),
+//   · a határozatot az egyházmegyei közgyűlés hozza (nem a presbitérium),
+//   · az aláírók az esperes és az egyházmegyei gondnok.
+// A gyülekezeti alak VÁLTOZATLAN — ezt is ellenőrizzük, mert a megyei ág
+// bevezetése nem ronthatja el a több ezer gyülekezeti ívet.
+{
+  const cs = [
+    { id: '101', type: 'B', nev: 'Egyházfenntartói járulék', sorszam: 1 },
+    { id: '101.01', type: 'B', nev: 'Egyházfenntartói járulék', sorszam: 2 },
+    { id: '201', type: 'K', nev: 'Személyi kiadások', sorszam: 3 },
+    { id: '201.01', type: 'K', nev: 'Fizetések', sorszam: 4 },
+  ]
+  const br = { '101.01': { szamadasicelid: '101.01', tervezett: 1000 }, '201.01': { szamadasicelid: '201.01', tervezett: 800 } }
+  const kozos = {
+    cellek: cs, budgetRows: br, actualIncome: { '101.01': 900 }, actualExpense: { '201.01': 700 },
+    year: Y, carryoverCash: 0, carryoverBank: 0, finalized: true,
+    hatarozatSzam: '7/2026', hatarozatDatum: '2026-03-14', iktatoszam: '42/2026',
+  }
+  const gyul = buildSzamadasReport({ ...kozos, congregationName: 'Barátosi Református Egyházközség' })
+  const megye = buildSzamadasReport({
+    ...kozos,
+    congregationName: 'Kézdi-Orbai Református Egyházmegye',
+    printScope: 'diocese',
+    districtName: 'Erdélyi Református Egyházkerület',
+  })
+
+  const megyeiAllitasok = [
+    ['E1 a felső blokk az EGYHÁZKERÜLETÉ', () =>
+      megye.html.includes('ERDÉLYI REFORMÁTUS EGYHÁZKERÜLET / EPARHIA REFORMATĂ') &&
+      !megye.html.includes('REFORMÁTUS EGYHÁZMEGYE / PROTOPOPIATUL REFORMAT')],
+    ['E2 a saját iktatószám EGYHÁZMEGYEI', () =>
+      megye.html.includes('Egyházmegyei iktatószám / Nr. înreg. protopopiat: <span class="cv-line">&nbsp;42/2026') &&
+      !megye.html.includes('Egyházközségi iktatószám')],
+    ['E3 a határozatot a KÖZGYŰLÉS hozza', () =>
+      megye.html.includes('Tárgyalta és jóváhagyta az egyházmegyei közgyűlés') &&
+      !megye.html.includes('Tárgyalta és jóváhagyta a presbitérium')],
+    ['E4 az aláírók az esperes és az egyházmegyei gondnok', () =>
+      megye.html.includes('Esperes — aláírása') &&
+      megye.html.includes('Egyházmegyei gondnok — aláírása') &&
+      !megye.html.includes('Lelkipásztor — aláírása')],
+    ['E5 a nyilatkozat is a megyei aláírókat nevezi meg', () =>
+      megye.html.includes('Alulírott esperes és egyházmegyei gondnok')],
+    ['E6 a GYÜLEKEZETI ív változatlan (presbitérium + egyházközségi iktatószám)', () =>
+      gyul.html.includes('Tárgyalta és jóváhagyta a presbitérium') &&
+      gyul.html.includes('Egyházközségi iktatószám') &&
+      gyul.html.includes('REFORMÁTUS EGYHÁZMEGYE / PROTOPOPIATUL REFORMAT') &&
+      gyul.html.includes('Lelkipásztor — aláírása') &&
+      !gyul.html.includes('EPARHIA REFORMATĂ')],
+  ]
+  for (const [nev, allitas] of megyeiAllitasok) {
+    if (allitas()) ok(nev)
+    else fail(`${nev} — HIBA`)
+  }
+}
+
 // ── Diakritika-őr (2026-08-14, 16. pont) ──────────────────────────────────
 // A hivatalos nyomtatványokon a MODERN román írásmód (ș/ț, vessző) a szabvány
 // — a régi, cedillás ș/ț nem kerülhet vissza a kimeneti katalógusokba

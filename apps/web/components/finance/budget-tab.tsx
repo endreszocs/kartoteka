@@ -13,6 +13,7 @@ import { toast } from 'sonner'
 import { BudgetTab as SharedBudgetTab, type BudgetTabProps } from '@kartoteka/ui-app'
 
 import {
+  felterjesztMegyeiKoltsegvetes,
   finalizeBudget,
   finalizeBudgetModification,
   getPreviousYearActuals,
@@ -57,7 +58,13 @@ export function BudgetTab(props: WebBudgetTabProps) {
       loadBudgetRows={async (year, congregationId) => {
         const supabase = createClient()
         try {
-          const data = await loadBudgetRowsCompat(supabase, year, congregationId)
+          // 2026-08-15 (egyházmegyei terv, 2.1): HATÓKÖR-TUDATOS betöltés. A
+          // mentés már régóta a `diocese_koltsegvetes`-be írt (szerver-akció,
+          // scope-aware), az OLVASÁS viszont a gyülekezeti táblában kereste az
+          // egyházmegye azonosítóját → a megyei Költségvetés fül a mentés után
+          // ÜRESEN jött vissza. Beírt, elmentett, létező adat tűnt el a szem
+          // elől — a legrosszabb fajta néma hiba.
+          const data = await loadBudgetRowsCompat(supabase, year, congregationId, props.scope ?? 'congregation')
           return { rows: data, error: null }
         } catch (e) {
           return {
@@ -85,7 +92,25 @@ export function BudgetTab(props: WebBudgetTabProps) {
         const result = await finalizeBudgetModification(year, modNum)
         return { error: 'error' in result ? result.error : null }
       }}
+      // ── 2026-08-15 (egyházmegyei terv, 3.6 + Endre 3. döntése) ────────────
+      // A „Véglegesítés és beküldés" gomb ugyanaz mind a két hatókörben, de a
+      // CÉL más: a gyülekezet az egyházmegyének küld be
+      // (`document_submissions`), az egyházmegye SAJÁT költségvetése az
+      // egyházkerületnek megy fel (`diocese_felterjesztes`).
+      //
+      // MI VOLT A HIBA: megyei nézetben is a gyülekezeti beküldő futott, ami
+      // „Nincs aktív gyülekezet." hibával állt meg (a megyei profilnak nincs
+      // gyülekezete). Az esperes tehát lezárta az évet, majd egy értelmezhetetlen
+      // hibaüzenetet kapott, és sehol nem maradt nyoma a felküldésnek.
       submitDocument={async (docType, year, snapshot, modNum) => {
+        if (props.scope === 'diocese') {
+          const result = await felterjesztMegyeiKoltsegvetes(
+            year,
+            (modNum as 1 | 2 | 3 | null) ?? null,
+            snapshot,
+          )
+          return { error: result.error ?? null }
+        }
         const result = await submitDocument(docType, year, snapshot, modNum)
         return { error: 'error' in result ? result.error : null }
       }}

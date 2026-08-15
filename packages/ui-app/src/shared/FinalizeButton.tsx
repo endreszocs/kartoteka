@@ -89,6 +89,15 @@ export interface FinalizeButtonProps {
   onRequestUnlock?: (reason: string) => Promise<FinalizeActionResult | void> | void
   /** Az indoklás-mező placeholder szövege (irat-specifikus példa). */
   unlockPlaceholder?: string
+  /**
+   * 2026-08-15 (egyházmegyei szelet): KI bírálja el a feloldás-kérelmet?
+   * Alap: „az egyházmegye" (gyülekezeti irat). Az egyházmegye SAJÁT iratainál
+   * „az egyházkerület" — a gomb, a dialógus és a viselkedés BETŰRE ugyanaz
+   * marad, csak a címzett neve követi a valóságot (Endre 4. döntése az
+   * egyformaságról a MEGJELENÉSRE és a VISELKEDÉSRE vonatkozik, nem arra, hogy
+   * a program rossz címzettet mondjon).
+   */
+  unlockAuthorityLabel?: string
   className?: string
 }
 
@@ -113,6 +122,7 @@ export function FinalizeButton({
   onFinalize,
   onRequestUnlock,
   unlockPlaceholder,
+  unlockAuthorityLabel = 'az egyházmegye',
   className,
 }: FinalizeButtonProps) {
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -182,7 +192,7 @@ export function FinalizeButton({
                 if (!unlockSending) setUnlockOpen(next)
               }}
               title={`Feloldás kérése — ${year ? `${year}. évi ` : ''}${documentLabel}`}
-              description="A kérelmet az egyházmegye bírálja el. Írja le röviden, mit kell javítania a már véglegesített iraton — ebből tudja az esperes eldönteni, hogy feloldja-e."
+              description={`A kérelmet ${unlockAuthorityLabel} bírálja el. Írja le röviden, mit kell javítania a már véglegesített iraton — ebből tudják eldönteni, hogy feloldják-e.`}
               reasonLabel="A feloldás indoklása"
               reasonPlaceholder={unlockPlaceholder}
               reasonMinLength={10}

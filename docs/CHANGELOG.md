@@ -23,6 +23,56 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-15] — Egyházmegyei irattár és összesítő: a beküldött iratok egy helyen
+<!-- key: 2026-08-15-egyhazmegyei-archivum-osszesito -->
+<!-- category: feature -->
+<!-- targets: esperes + egyhazmegyei admin + szamvevo -->
+
+### ✨ Új funkciók
+
+- **Beküldött iratok archívuma — gyülekezetenként és évekre visszamenőleg.** Az egyházmegyei irányítópulton új belépő vezet az irattárba (`Iratok archívuma`), ahol mind a hat hivatalos irat — számadás, költségvetés, költségvetés-módosítás, vagyonleltári jelentés, választók névjegyzéke és **lelkészi jelentés** — együtt látszik. Két nézet: **gyülekezetenkénti dosszié** (egy gyülekezet minden éve egy helyen, évenként csoportosítva) és **éves mátrix** (gyülekezet × irat-típus, egy pillantással látszik, ki mit adott le és mi hiányzik). Bármelyik iratra kattintva megnyílik a beküldött, fagyasztott adat — ugyanaz a néző, ugyanazzal a nyomtatással, mint eddig.
+- **Egyházmegyei összesítő (Kánon 90.§).** Új felület (`Összesítő`) a gyülekezetek beküldött, véglegesített iratainak megyei összesítésére: a számadás bevételei és kiadásai **számadási kódonként**, az érvényes költségvetés (ahol volt módosítás, ott a legutolsó módosított összeggel), a vagyonleltár tételszáma és értéke, a választásra jogosultak száma, és a lelkészi jelentés kulcs-mutatói — mindegyikhez gyülekezetenkénti bontás és **A4-es, aláírás-rovatos nyomtatvány**.
+- **Az összesítő külön véglegesíthető és felküldhető.** Ugyanaz a lila „Véglegesítés és felküldés" gomb, ugyanott, mint minden más iratnál; a címzett az **egyházkerület**. Amíg a kerület nem vette át, a „Feloldás kérése" gomb visszavonja a felküldést (indoklással, naplózva), utána javíthatsz és újraküldhetsz; ha már átvette, a kérelem rögzül, és a kerület bírálja el.
+- **A menüben is ott van.** Egyházmegyei profilban a bal oldali menü mostantól az Irányítópult és a Pénzügy mellett az **Iratok archívumát, az Összesítőt, a Leltárt és az Iktatást** is kínálja.
+
+### 🎨 Ami megvéd a téves összesítéstől
+
+- **Ami nincs beküldve, az láthatóan hiányzik.** Minden összesítő-szakasz megmondja, hány és **melyik** gyülekezet adata hiányzik belőle — az esperes ebből tudja, kit kell megsürgetnie a felküldés előtt. A javításra visszaküldött iratok összege szándékosan NEM számít bele (külön, nevesítve látszanak), hiszen épp az egyházmegye kifogásolta meg őket.
+- **Ha a felküldés után érkezik újabb irat, a program szól.** A felület kiírja, hány gyülekezeti irat érkezett az összesítő felküldése óta — ezek nincsenek benne a felküldött csomagban —, és felkínálja a feloldás útját.
+- **A képernyőn látott szám és a felküldött papír ugyanaz.** Az összesítést egyetlen, közös számoló mag végzi, és a felküldés a szerveren újraszámolt adatot rögzíti — nem a böngészőből kapott számot.
+
+### 📋 Amit a rendszergazdának futtatnia kell
+
+- `migration-docs/sql/2026-08-15-egyhazmegyei-osszesito-feloldas.sql` — a felküldött összesítő feloldás-kérésének nyilvántartása. E nélkül az archívum, az összesítő és a felküldés működik; csak a MÁR ÁTVETT összesítő feloldás-kérése áll meg beszédes magyar üzenettel.
+
+---
+
+## [2026-08-15] — Egyházmegyei könyvelés: a megye saját számadása és költségvetése
+<!-- key: 2026-08-15-egyhazmegyei-konyveles-veglegesites -->
+<!-- category: feature -->
+<!-- targets: esperes + egyhazmegyei admin + szamvevo -->
+
+### ✨ Új funkciók
+
+- **A megye saját iratait ugyanazzal a gombbal zárja le, mint a gyülekezetek.** Az egyházmegyei számadás, költségvetés és költségvetés-módosítás véglegesítése ugyanazzal a lila „Véglegesítés és beküldés" gombbal történik, ugyanott, a fejléc jobb szélén — utána zöld pecsét mutatja a dátumot, és ugyanígy kérhető feloldás indoklással. A különbség csak a címzett: a gyülekezeté az egyházmegye, az egyházmegyéé az **egyházkerület**.
+- **Felküldés az egyházkerületnek — már most rögzül.** A megyei Számadás fülön új „Felküldés az egyházkerületnek" kártya mutatja, melyik irat ment fel és mikor. A kerületi (harmadik szintű) fogadó felület külön körben készül el, de a felküldés ténye, ideje és fagyasztott tartalma mostantól rögzül — semmit nem kell utólag papírokból pótolni. Ha egy felküldés valamiért elmaradt, a kártyán egy gombbal pótolható.
+- **Megyei nyomtatvány, megyei feliratokkal.** A megye saját Számadás- és Költségvetés-íve ugyanabban a hivatalos formában készül, de a borítón az egyházkerület blokkja, az egyházmegyei iktatószám és a közgyűlési határozat sora áll; az aláírás-rovatok az esperesé, az egyházmegyei gondnoké és a megyei számvevőé (a gyülekezeti ív betűre változatlan).
+
+### 🐛 Javítások — „az egyházmegyei pénzügy mondjon igazat"
+
+- **A megyei költségvetés nem tűnik el többé.** A megyei Költségvetés fül a mentés után üresen jött vissza, és a Számadás fül 0%-os megvalósulást mutatott: a program a beírt terv-sorokat a gyülekezeti táblában kereste. Mostantól mindenütt a megye saját adatát olvassa.
+- **A megyei nyomtatvány sem hazudik.** A megyei Számadás/Költségvetés kinyomtatva minden sorában nullát mutatott, a lezárt évekre pedig „nincs véglegesítve" feliratot vitt a borítóra. Mindkettő a megye saját adatából él mostantól.
+- **A megyei költségvetés-módosítás zárása látszik.** A véglegesített 1–3. módosítás eddig nyitottnak látszott a megyei felületen (a program mindig „nem véglegesített"-et jelentett), így újra szerkeszthetőnek tűnt.
+- **A megyei zárszámadás pillanatképe a hivatalos ív szerint készül.** Eddig a nyers összesítés került a megye zárszámadásába — az íven kívülre könyvelt pénzt is beleszámolva —, most ugyanaz a hivatalos, kód szerinti pillanatkép, mint a gyülekezeteknél.
+- **Érthető üzenetek a helyes címzettel.** A megyei felületen a beküldés eddig „Nincs aktív gyülekezet." hibával állt meg, a zárolás-üzenetek pedig „az egyházmegyétől" kértek javítási engedélyt — vagyis önmagától. Mostantól minden felirat az egyházkerületet nevezi meg — a gyülekezeti felületen minden szöveg a megszokott maradt.
+- **Ami a megyén nem értelmes, nem is látszik.** Az év végi tartozás-rögzítő (a gyülekezeti Számadás 116–133. sora) eltűnt a megyei felületről — ott úgysem mentődött volna el semmi.
+
+### ℹ️ Rendszergazdai teendő
+
+- Futtatandó SQL-ek sorrendben: **1)** `migration-docs/sql/2026-08-15-egyhazmegyei-uj-tablak.sql`, **2)** `migration-docs/sql/2026-08-15-egyhazmegyei-konyveles-s6.sql`, **3)** `migration-docs/sql/2026-08-15-egyhazmegyei-felterjesztes-modositas.sql`. Amíg ezek nem futnak le, a megyei véglegesítés és felküldés magyar nyelvű üzenettel jelzi, melyik fájl hiányzik — a gyülekezeti működés végig változatlan. Az egyházkerületnek felküldött iratokhoz az „Egyházmegye beállításai" ablakban ki kell töltve lennie az egyházkerületnek.
+
+---
+
 ## [2026-08-15] — Egyházmegyei leltár és iktató (a megye saját nyilvántartásai)
 <!-- key: 2026-08-15-egyhazmegyei-leltar-iktato -->
 <!-- category: feature -->
