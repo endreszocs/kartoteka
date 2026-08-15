@@ -55,6 +55,11 @@ interface Props {
 
 interface SetupFormState {
   name: string
+  /** 2026-08-15 (Endre): hivatalos ROMÁN név — KÖTELEZŐ (a hivatalos iratok
+   *  fejléce ebből építi a kétnyelvű alakot, a gyülekezeti minta szerint). */
+  nev_ro: string
+  /** Angol név — opcionális. */
+  nev_en: string
   cif: string
   adoszam: string
   cimer_url: string
@@ -86,7 +91,10 @@ const STEP_ORDER: WizardStep[] = ['basics', 'address', 'contact', 'bank-leadersh
 // (így a betöltés után meg tudja mondani, melyik az első hiányos lépés).
 function isStepValidOn(s: WizardStep, form: SetupFormState): boolean {
   if (s === 'basics')
-    return form.name.length >= 2 && form.cif.trim().length > 0 && form.cimer_url.trim().length > 0
+    // 2026-08-15 (Endre): a ROMÁN név is kötelező — enélkül a hivatalos
+    // irat fejléce csak magyarul tudna megjelenni.
+    return form.name.length >= 2 && form.nev_ro.trim().length >= 2
+      && form.cif.trim().length > 0 && form.cimer_url.trim().length > 0
   if (s === 'address')
     return (
       form.cim_orszag.trim().length > 0 &&
@@ -118,6 +126,8 @@ function stepFields(s: WizardStep, form: SetupFormState): Record<string, unknown
         name: form.name,
         cif: form.cif,
         adoszam: form.adoszam,
+        nev_ro: form.nev_ro,
+        nev_en: form.nev_en,
         cimer_url: form.cimer_url,
       }
     case 'address':
@@ -200,6 +210,8 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
     name: '',
     cif: '',
     adoszam: '',
+    nev_ro: '',
+    nev_en: '',
     cimer_url: '',
     cim_orszag: 'Románia',
     cim_megye: '',
@@ -239,6 +251,8 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
             name: d.name || '',
             cif: d.cif || '',
             adoszam: d.adoszam || '',
+            nev_ro: d.nev_ro || '',
+            nev_en: d.nev_en || '',
             cimer_url: d.cimer_url || '',
             cim_orszag: d.cim_orszag || 'Románia',
             cim_megye: d.cim_megye || '',
@@ -535,6 +549,29 @@ function StepBasics({
             placeholder="Pl. 12345678"
           />
           {fieldErrors.cif && <p className="text-xs text-rose-600 mt-1">{fieldErrors.cif}</p>}
+        </ModalField>
+      </div>
+
+      {/* 2026-08-15 (Endre): a hivatalos ROMÁN név kötelező, az angol opcionális —
+          a gyülekezeti beállítás mintájára (congregations.nev_ro / nev_en). */}
+      <div className="grid gap-3 md:grid-cols-2">
+        <ModalField label="Román név (hivatalos) *">
+          <Input
+            value={form.nev_ro}
+            onChange={(e) => setForm({ ...form, nev_ro: e.target.value })}
+            placeholder="Pl. Protopopiatul Reformat Chezdi-Orbai"
+          />
+          <p className="text-xs text-slate-500 mt-1">
+            Ez kerül a hivatalos iratok fejlécére a magyar név mellé.
+          </p>
+          {fieldErrors.nev_ro && <p className="text-xs text-rose-600 mt-1">{fieldErrors.nev_ro}</p>}
+        </ModalField>
+        <ModalField label="Angol név (opcionális)">
+          <Input
+            value={form.nev_en}
+            onChange={(e) => setForm({ ...form, nev_en: e.target.value })}
+            placeholder="Pl. Chezdi-Orbai Reformed Deanery"
+          />
         </ModalField>
       </div>
 

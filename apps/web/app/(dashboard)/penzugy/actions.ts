@@ -1894,10 +1894,13 @@ async function initFinanceDiocese(
   let dioceseName = ''
   const dioRes = await supabase
     .from('dioceses')
-    .select('name, district_id')
+    // 2026-08-15 (Endre): a `nev_ro` is kell — a megyei nyomtatvány fejléce a
+    // gyülekezetihez hasonlóan KÉTNYELVŰ (magyar / román hivatalos név).
+    .select('name, nev_ro, district_id')
     .eq('id', dioceseId)
     .single()
   dioceseName = formatEgyhazmegyeNev(dioRes.data?.name)
+  const dioceseNameRo = (dioRes.data?.nev_ro as string | null) || ''
 
   // ── Egyházkerület neve (a megyei nyomtatvány-borító felső blokkjához) ──
   // 2026-08-15 (terv 2.1/3): a megye SAJÁT íve az egyházkerülethez megy fel,
@@ -1987,7 +1990,7 @@ async function initFinanceDiocese(
     bankNyitoMap: {} as Record<number, number>, // diocese módban nincs per-számla nyitó-tábla
     internalTransfers: [] as InternalTransferRow[], // Phase 5-re halasztott
     congregationName: dioceseName, // UI label, diocese módban a diocese neve
-    congregationNameRo: '', // diocese módban nincs külön román gyülekezetnév
+    congregationNameRo: dioceseNameRo, // a megye hivatalos ROMÁN neve a nyomtatvány-fejléchez
     // A felettes szint neve a nyomtatvány-borítóra (csak megyei hatókörben).
     districtName,
     debtCalcMode: 'akkori' as 'akkori' | 'aktualis',
