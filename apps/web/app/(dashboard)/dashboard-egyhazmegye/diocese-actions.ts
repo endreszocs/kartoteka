@@ -32,6 +32,11 @@ import {
 export interface DioceseRecord {
   id: string
   name: string
+  /** 2026-08-15 (Endre): hivatalos ROMÁN név — a nyomtatvány-fejléc kétnyelvű
+   *  alakjához KÖTELEZŐ (a congregations.nev_ro párja). */
+  nev_ro: string | null
+  /** Angol név — opcionális. */
+  nev_en: string | null
   district_id: string | null
 
   // Jogi / pénzügyi azonosítók
@@ -76,6 +81,8 @@ export interface DioceseRecord {
 const dioceseSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(2, 'A név kötelező.'),
+  nev_ro: z.string().optional().or(z.literal('')),
+  nev_en: z.string().optional().or(z.literal('')),
   cif: z.string().optional().or(z.literal('')),
   adoszam: z.string().optional().or(z.literal('')),
   cnp_letter: z.string().optional().or(z.literal('')),
@@ -295,6 +302,8 @@ export async function updateDiocese(input: DioceseInput): Promise<{
 
   const payload = {
     name: parsed.data.name,
+    nev_ro: parsed.data.nev_ro || null,
+    nev_en: parsed.data.nev_en || null,
     cif: parsed.data.cif || null,
     adoszam: parsed.data.adoszam || null,
     cnp_letter: parsed.data.cnp_letter || null,
@@ -430,6 +439,9 @@ export async function checkDioceseSetupStatus(dioceseId?: string): Promise<Dioce
 const setupSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(2, 'A név kötelező.'),
+  // 2026-08-15 (Endre): Romániában a román alak a hivatalos — KÖTELEZŐ.
+  nev_ro: z.string().min(2, 'A román név kötelező — ez kerül a hivatalos iratok fejlécére.'),
+  nev_en: z.string().optional().or(z.literal('')),
   cif: z.string().min(1, 'A CIF kötelező.'),
   adoszam: z.string().optional().or(z.literal('')),
   cim_orszag: z.string().min(1, 'Az ország kötelező.'),
@@ -470,6 +482,8 @@ export async function saveDioceseSetup(
   // 1. dioceses UPDATE
   const payload = {
     name: parsed.data.name,
+    nev_ro: parsed.data.nev_ro,
+    nev_en: parsed.data.nev_en || null,
     cif: parsed.data.cif,
     adoszam: parsed.data.adoszam || null,
     cim_orszag: parsed.data.cim_orszag,

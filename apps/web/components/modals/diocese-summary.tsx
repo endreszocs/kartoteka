@@ -142,6 +142,8 @@ export function DioceseSummaryDialog({ open, onOpenChange, dioceseId, canWrite, 
             <div className="grid gap-4 lg:grid-cols-2">
               <Group icon={<FileText className="size-4" />} title="Alapadatok" accent="sky">
                 <Row label="Hivatalos név" value={data.name || undefined} copyText={data.name || undefined} copyLabel="Hivatalos név" />
+                <Row label="Román név (hivatalos)" value={data.nev_ro || undefined} copyText={data.nev_ro || undefined} copyLabel="Román név" />
+                {data.nev_en ? <Row label="Angol név" value={data.nev_en} copyText={data.nev_en} copyLabel="Angol név" /> : null}
                 <Row label="CIF (adóazonosító)" value={data.cif || undefined} mono copyText={data.cif || undefined} copyLabel="CIF" />
                 <Row label="Magyar adószám" value={data.adoszam || undefined} mono copyText={data.adoszam || undefined} copyLabel="Adószám" />
                 {data.cnp_letter ? <Row label="Hivatali főszám" value={data.cnp_letter} mono /> : null}
