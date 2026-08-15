@@ -19,6 +19,11 @@
 import { selectAllPaged } from '@kartoteka/supabase-client'
 
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
+// 2026-08-15 (egyházmegyei szint, S4): a fejléc-adat MEGYEI módban a dioceses
+// törzsadatból épül (az esperesi hivatal levelezik, nem egy gyülekezet) — a
+// személy-keresés/anyakönyvi rész változatlanul gyülekezeti (a szemely tábla
+// gyülekezeti), diocese-módban azok üresen térnek vissza.
+import { getModuleScopeContext } from '@/lib/auth/module-scope'
 import { personSearchScore, tokenize } from '@/lib/import/person-search-match'
 import type {
   CertificatePersonHit,
@@ -282,7 +287,71 @@ export async function getCongregationHeader(): Promise<{
   error: string | null
 }> {
   const { supabase, congId } = await getCongId()
-  if (!congId) return { header: null, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  if (!congId) {
+    // ── 2026-08-15 (S4): MEGYEI fejléc a dioceses törzsadatból ──
+    // Az esperesi hivatal iratain a megye hivatalos neve, címe, CIF-je és a
+    // (később feltöltött) pecsét/aláírás képe megy — ugyanabba a
+    // CongregationHeaderData alakba csomagolva, hogy a letterheads/nyomtatvány
+    // réteg VÁLTOZATLANUL működjön (közös fogyasztó, nem másolat).
+    const moduleScope = await getModuleScopeContext()
+    if (!('error' in moduleScope) && moduleScope.scope === 'diocese') {
+      const { data: dio, error: dioErr } = await moduleScope.supabase
+        .from('dioceses')
+        .select('name, cif, adoszam, cim_telepules, cim_iranyitoszam, cim_utca, email, telefon, weboldal, cimer_url')
+        .eq('id', moduleScope.scopeId)
+        .maybeSingle()
+      if (dioErr) return { header: null, error: `Egyházmegyei adatok lekérése sikertelen: ${dioErr.message}` }
+      if (!dio) return { header: null, error: 'Az egyházmegye nem található.' }
+      const d = dio as {
+        name: string | null; cif: string | null; adoszam: string | null
+        cim_telepules: string | null; cim_iranyitoszam: string | null; cim_utca: string | null
+        email: string | null; telefon: string | null; weboldal: string | null; cimer_url: string | null
+      }
+
+      // Pecsét + aláírás — KÜLÖN, elnyelt hibájú lekérdezés (a gyülekezeti ág
+      // mintája): amíg a dioceses.pecset_url/alairas_url migráció nem futott
+      // le élesben, a fejléc kép nélkül, hangtalanul működik tovább.
+      let pecsetUrlDio: string | null = null
+      let alairasUrlDio: string | null = null
+      {
+        const { data: kepRow, error: kepError } = await moduleScope.supabase
+          .from('dioceses')
+          .select('pecset_url, alairas_url')
+          .eq('id', moduleScope.scopeId)
+          .maybeSingle()
+        if (!kepError && kepRow) {
+          const k = kepRow as { pecset_url: string | null; alairas_url: string | null }
+          pecsetUrlDio = clean(k.pecset_url) || null
+          alairasUrlDio = clean(k.alairas_url) || null
+        }
+      }
+
+      const localityPart = [d.cim_iranyitoszam, d.cim_telepules].map(clean).filter(Boolean).join(' ')
+      const cimHu = [localityPart, clean(d.cim_utca)].filter(Boolean).join(', ') || null
+      const hivatalosNev = moduleScope.scopeName || clean(d.name)
+      return {
+        header: {
+          hivatalosNev,
+          nevHu: hivatalosNev || null,
+          nevRo: null,
+          nevEn: null,
+          cimHu,
+          cimRo: null,
+          helysegHu: clean(d.cim_telepules) || null,
+          helysegRo: null,
+          telefon: clean(d.telefon) || null,
+          email: clean(d.email) || null,
+          cif: clean(d.cif) || clean(d.adoszam) || null,
+          web: clean(d.weboldal) || null,
+          cimerUrl: clean(d.cimer_url) || null,
+          pecsetUrl: pecsetUrlDio,
+          alairasUrl: alairasUrlDio,
+        },
+        error: null,
+      }
+    }
+    return { header: null, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  }
 
   const { data, error } = await supabase
     .from('congregations')

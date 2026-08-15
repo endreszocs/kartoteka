@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { assertCongregationInScope, getAdminDistrictScope, getScopedCongregationIds } from '@/lib/auth/admin-scope'
-import { resolveDioceseScopeId } from '@/lib/auth/level-scope'
+import { canReadDioceseScope, resolveDioceseReadScopeIds } from '@/lib/auth/level-scope'
 
 /**
  * profile_congregations hozzárendelések kezelése — admin / kerületi admin oldali actions.
@@ -54,8 +54,14 @@ export async function listAssignments(options?: {
 }): Promise<{ data?: AssignmentRow[]; error?: string }> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
-  const role = access.profile?.role
-  const isDioceseLevel = role === 'esperes' || role === 'egyhazmegyei_admin'
+  // 2026-08-15 FIX (S1 biztonsági szelet, 0.5): a megyei szint eddig CSAK a
+  // skalár profiles.role-ból dőlt el — a profile_roles-only esperes (akinek a
+  // skalárja pl. `lelkesz`) hibát kapott, és a megyei dashboard függő
+  // hozzárendelés-listája némán üres maradt (fail-closed divergencia, nem
+  // szivárgás). A canReadDioceseScope a skalár ÉS a profile_roles lábat is
+  // ismeri, és a számvevőt is beengedi (csak listázás — a kiosztás/visszavonás
+  // továbbra is admin / kerületi admin joga, lásd createAssignment).
+  const isDioceseLevel = canReadDioceseScope(access)
   if (!access.admin && !access.egyhazkeruletiAdmin && !isDioceseLevel) {
     return { error: 'Nincs jogosultsága a listázáshoz.' }
   }
@@ -87,12 +93,14 @@ export async function listAssignments(options?: {
     // (csak az RLS korlátozta, ami bármikor elcsúszhat) — mostantól explicit
     // a feloldott egyházmegye gyülekezeteire szűrünk. FAIL-CLOSED: feloldható
     // egyházmegye nélkül üres lista, nem szűretlen lekérdezés.
-    const dioceseId = resolveDioceseScopeId(access)
-    if (!dioceseId) return { data: [] }
+    // 2026-08-15 (S1, 0.3): a hatókör a SZEREP-SZŰRT olvasói feloldóból jön —
+    // a tág feloldó az elavult skalárt szerep nélkül is bevette volna.
+    const dioceseIds = resolveDioceseReadScopeIds(access)
+    if (dioceseIds.length === 0) return { data: [] }
     const { data: congs, error: congErr } = await supabase
       .from('congregations')
       .select('id')
-      .eq('diocese_id', dioceseId)
+      .in('diocese_id', dioceseIds)
     if (congErr) return { error: congErr.message }
     const congIds = (congs ?? []).map((c) => c.id as string)
     if (congIds.length === 0) return { data: [] }

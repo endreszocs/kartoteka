@@ -22,6 +22,7 @@ import {
   describeDioceseWriteBlock,
   resolveDioceseReadScopeIds,
   resolveDioceseScopeIds,
+  resolveDioceseWriteScopeIds,
 } from '@/lib/auth/level-scope'
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -124,8 +125,19 @@ async function requireDioceseAccess(
 
   let canManage = !!access.admin || !!access.master
 
-  // Esperes / egyházmegyei admin: csak a SAJÁT (feloldott) egyházmegyéje
-  if (!canManage && !!access.esperes && resolvedIds.includes(targetId)) {
+  // Esperes / egyházmegyei admin: csak a SAJÁT (feloldott) egyházmegyéje.
+  //
+  // 2026-08-15 FIX (S1 biztonsági szelet, 0.3): korábban itt a szerep-SZŰRETLEN
+  // `access.esperes && resolvedIds.includes(targetId)` feltétel állt. Mivel az
+  // `access.esperes` (isEsperesRole) az `egyhazkeruleti_admin`-t IS lefedi, a
+  // tág `resolvedIds` pedig a skalár `profiles.diocese_id`-t szerep nélkül is
+  // beveszi, egy kerületi admin ELAVULT skalárral (akár MÁSIK kerület
+  // megyéje!) ezen az ágon `canManage=true`-t kapott, és a district-ellenőrző
+  // kerületi ágig (lentebb) el sem jutott — más megye törzsadatait (IBAN, CIF,
+  // címer) szerkeszthette. A szerep-szűrt írási feloldó (esperes /
+  // egyházmegyei admin, az SQL current_user_diocese_ids() tükre) ezt kizárja:
+  // a kerületi admin KIZÁRÓLAG a lenti, assertDioceseInScope-os ágon mehet át.
+  if (!canManage && resolveDioceseWriteScopeIds(access).includes(targetId)) {
     canManage = true
   }
 
@@ -228,6 +240,35 @@ export async function getDiocese(dioceseId?: string): Promise<{
   if (!data) return { error: 'Egyházmegye nem található.' }
 
   return { data: data as unknown as DioceseRecord }
+}
+
+/**
+ * Az „Egyházmegyénk" fejléc-ablak adatcsomagja: a törzsadat + a kerület neve.
+ *
+ * MIÉRT KÜLÖN AKCIÓ (egyházmegyei terv, 4.1): a read-only ablaknak a kerület
+ * NEVE is kell (a getDiocese csak a district_id-t adja) — a jogosultság-kaput
+ * viszont NEM másoljuk le: a getDiocese-en át megy minden hívás, így a
+ * tagsági ellenőrzés egyetlen helyen él.
+ */
+export async function getDioceseSummaryData(dioceseId?: string): Promise<{
+  data?: DioceseRecord & { districtName: string | null }
+  error?: string
+}> {
+  const res = await getDiocese(dioceseId)
+  if (res.error || !res.data) return { error: res.error || 'Egyházmegye nem található.' }
+
+  let districtName: string | null = null
+  if (res.data.district_id) {
+    const access = await getEffectiveAccessContext()
+    const { data: dr } = await access.supabase
+      .from('districts')
+      .select('name')
+      .eq('id', res.data.district_id)
+      .maybeSingle()
+    districtName = (dr as { name: string | null } | null)?.name ?? null
+  }
+
+  return { data: { ...res.data, districtName } }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -346,15 +387,18 @@ export interface DioceseSetupStatus {
  * (vagy ha a rendszergazda bármely egyházmegyét ellenőrzi).
  */
 export async function checkDioceseSetupStatus(dioceseId?: string): Promise<DioceseSetupStatus> {
-  const access = await getEffectiveAccessContext()
-  if (!access.user) return { needsSetup: false, missingFields: [], dioceseId: null }
+  // 2026-08-15 (S1 biztonsági szelet, 0.5): KAPU — korábban BÁRMELY
+  // bejelentkezett felhasználó tetszőleges dioceseId-re lekérdezhette, mely
+  // törzsadat-mezők hiányoznak egy idegen egyházmegyénél. Csak mezőnév-lista
+  // szivárgott (érték nem), de kapu nélküli végpont volt. Olvasói hatókör
+  // (esperes / megyei admin / számvevő / jogosult kerületi admin) elég;
+  // jogosultság híján fail-closed „nincs teendő" választ adunk.
+  const ctx = await requireDioceseAccess(dioceseId, 'read')
+  if ('error' in ctx) return { needsSetup: false, missingFields: [], dioceseId: null }
 
-  // 2026-08-09: a fallback is a feloldott hatókör (aktív szerep → profile_roles
-  // → profiles.diocese_id), nem a nyers skalár.
-  const targetId = dioceseId || resolveDioceseScopeIds(access)[0] || null
-  if (!targetId) return { needsSetup: false, missingFields: [], dioceseId: null }
+  const targetId = ctx.dioceseId
 
-  const { data } = await access.supabase
+  const { data } = await ctx.supabase
     .from('dioceses')
     .select('*')
     .eq('id', targetId)
@@ -624,6 +668,159 @@ export async function uploadDioceseCimer(
     .getPublicUrl(filename)
 
   return { url: urlData.publicUrl }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 2026-08-15 (egyházmegyei szint, S4): esperesi hivatali PECSÉT + ALÁÍRÁS kép
+// — a gyülekezeti 24. pont (congregation/actions.ts uploadCongregationIratKep)
+// megyei párja, a MEGYEI asszetekkel: tárolás a dioceses törzsadat mellé
+// (dioceses.pecset_url / alairas_url oszlop), a kép a 'dioceses-logos' bucket
+// {diocese_id}/… prefixe alá kerül (a címer bevált mintája). A nyomtatványok a
+// getCongregationHeader diocese-ágán át kapják (iktato/szemely-actions.ts).
+// Jogszabályi háttér: Legea 489/2006 Art. 15 — a pecséten a hivatalos
+// elnevezés kötelező (a képet az esperesi hivatal a saját pecsétjéről tölti fel).
+// ─────────────────────────────────────────────────────────────────────────
+
+const DIO_IRAT_KEP_OSZLOP = {
+  pecset: 'pecset_url',
+  alairas: 'alairas_url',
+} as const
+
+type DioIratKepFajta = keyof typeof DIO_IRAT_KEP_OSZLOP
+
+const DIO_IRAT_KEP_CIMKE: Record<DioIratKepFajta, string> = {
+  pecset: 'pecsét',
+  alairas: 'aláírás',
+}
+
+const DIO_IRAT_KEP_MIGRACIO_HIBA =
+  'Az adatbázisból hiányzik a dioceses.pecset_url/alairas_url oszlop — futtasd le a ' +
+  'migration-docs/sql/2026-08-15-egyhazmegyei-iktato-leltar-s4.sql migrációt, majd próbáld újra.'
+
+/** Hiányzó-oszlop hiba felismerése (MEMORY: a migration-fájl NEM bizonyíték). */
+function dioIratKepOszlopHianyzik(message: string): boolean {
+  return /column|does not exist|schema cache|could not find/i.test(message)
+}
+
+/**
+ * Az egyházmegye pecsét- és aláírás-képének betöltése a beállítás-felülethez.
+ * Hiányzó oszlopnál HANGOS hiba (a felület a migrációra mutat) — a
+ * nyomtatvány-oldali, némán degradáló betöltés külön úton megy
+ * (iktato/szemely-actions.getCongregationHeader diocese-ága).
+ */
+export async function getDioceseIratKepek(dioceseId?: string): Promise<{
+  pecsetUrl: string | null
+  alairasUrl: string | null
+  error: string | null
+}> {
+  const ctx = await requireDioceseAccess(dioceseId, 'read')
+  if ('error' in ctx) {
+    return { pecsetUrl: null, alairasUrl: null, error: ctx.error ?? 'Nincs jogosultság az egyházmegyéhez.' }
+  }
+
+  const { data, error } = await ctx.supabase
+    .from('dioceses')
+    .select('pecset_url, alairas_url')
+    .eq('id', ctx.dioceseId)
+    .maybeSingle()
+
+  if (error) {
+    return {
+      pecsetUrl: null,
+      alairasUrl: null,
+      error: dioIratKepOszlopHianyzik(error.message) ? DIO_IRAT_KEP_MIGRACIO_HIBA : error.message,
+    }
+  }
+  const row = (data || null) as { pecset_url: string | null; alairas_url: string | null } | null
+  return {
+    pecsetUrl: row?.pecset_url?.trim() || null,
+    alairasUrl: row?.alairas_url?.trim() || null,
+    error: null,
+  }
+}
+
+/**
+ * Pecsét- vagy aláírás-kép feltöltése + azonnali mentése a dioceses sorra.
+ * A gyülekezeti párral azonos szabályok: CSAK PNG/WEBP (átlátszó háttér — a
+ * kép a nyomtatvány szövegére kerül, a JPG fehér téglalapja eltakarná), plafon
+ * 1 MB (a kép data: URI-ként ágyazódik minden nyomtatványba).
+ */
+export async function uploadDioceseIratKep(
+  dioceseId: string,
+  fajta: DioIratKepFajta,
+  formData: FormData,
+): Promise<{ url?: string; error?: string }> {
+  const oszlop = DIO_IRAT_KEP_OSZLOP[fajta]
+  if (!oszlop) return { error: 'Ismeretlen kép-fajta.' }
+
+  // 'write' mód: a számvevő (ellenőr) beszédes magyar magyarázatot kap.
+  const ctx = await requireDioceseAccess(dioceseId)
+  if ('error' in ctx) return { error: ctx.error }
+
+  const file = formData.get('file')
+  if (!file || !(file instanceof File)) return { error: 'Nincs fájl.' }
+  if (file.size > 1_048_576) {
+    return { error: `A ${DIO_IRAT_KEP_CIMKE[fajta]}-kép legfeljebb 1 MB lehet — kicsinyítsd le, és próbáld újra.` }
+  }
+  const allowedMime = ['image/png', 'image/webp']
+  if (!allowedMime.includes(file.type)) {
+    return {
+      error:
+        `A ${DIO_IRAT_KEP_CIMKE[fajta]}-képhez PNG vagy WEBP formátum kell (átlátszó háttérrel) — ` +
+        'a JPG fehér téglalapja eltakarná a nyomtatvány szövegét.',
+    }
+  }
+
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-')
+  const path = `${ctx.dioceseId}/${fajta}-${Date.now()}-${safeName}`
+
+  const { error: upErr } = await ctx.supabase.storage
+    .from('dioceses-logos')
+    .upload(path, file, { cacheControl: '3600', upsert: true, contentType: file.type })
+  if (upErr) return { error: `Feltöltés hiba: ${upErr.message}` }
+
+  const { data: urlData } = ctx.supabase.storage.from('dioceses-logos').getPublicUrl(path)
+  const url = urlData.publicUrl
+
+  const { error: dbErr } = await ctx.supabase
+    .from('dioceses')
+    .update({ [oszlop]: url })
+    .eq('id', ctx.dioceseId)
+  if (dbErr) {
+    return {
+      error: dioIratKepOszlopHianyzik(dbErr.message)
+        ? DIO_IRAT_KEP_MIGRACIO_HIBA
+        : `A kép feltöltődött, de a mentése nem sikerült: ${dbErr.message}`,
+    }
+  }
+
+  revalidatePath('/iktato')
+  revalidatePath('/dashboard-egyhazmegye')
+  return { url }
+}
+
+/** A pecsét- vagy aláírás-kép LEVÉTELE (az URL törlése a dioceses sorról). */
+export async function clearDioceseIratKep(
+  dioceseId: string,
+  fajta: DioIratKepFajta,
+): Promise<{ ok?: true; error?: string }> {
+  const oszlop = DIO_IRAT_KEP_OSZLOP[fajta]
+  if (!oszlop) return { error: 'Ismeretlen kép-fajta.' }
+  const ctx = await requireDioceseAccess(dioceseId)
+  if ('error' in ctx) return { error: ctx.error }
+
+  const { error } = await ctx.supabase
+    .from('dioceses')
+    .update({ [oszlop]: null })
+    .eq('id', ctx.dioceseId)
+  if (error) {
+    return {
+      error: dioIratKepOszlopHianyzik(error.message) ? DIO_IRAT_KEP_MIGRACIO_HIBA : error.message,
+    }
+  }
+  revalidatePath('/iktato')
+  revalidatePath('/dashboard-egyhazmegye')
+  return { ok: true }
 }
 
 /**

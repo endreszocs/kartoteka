@@ -182,14 +182,39 @@ export async function saveBudgetRowsCompat(
 /**
  * Egy adott módosítási kör értékeinek mentése.
  * Nem törli az egész sort, hanem UPDATE-el a megfelelő oszlopra.
+ *
+ * 2026-08-15 (S6) SCOPE-AWARE: diocese módban a diocese_koltsegvetes
+ * osszeg_mod_N oszlopára fut, UPSERT-tel — a tábla PK-ja
+ * (diocese_id, eve, szamadasicelid), így az alap-terv nélküli sorra írt
+ * módosítás-érték sem veszik el némán (a congregation-ág UPDATE-viselkedése
+ * változatlan marad).
  */
 export async function saveBudgetModification(
   supabase: SupabaseClient,
   year: number,
-  congregationId: string,
+  scopeId: string,
   modNumber: 1 | 2 | 3,
   rows: Array<{ szamadasicelid: string; value: number }>,
+  scope: 'congregation' | 'diocese' = 'congregation',
 ) {
+  if (scope === 'diocese') {
+    const dioColumn = `osszeg_mod_${modNumber}`
+    for (const row of rows) {
+      const { error } = await supabase.from('diocese_koltsegvetes').upsert(
+        {
+          diocese_id: scopeId,
+          eve: year,
+          szamadasicelid: row.szamadasicelid,
+          [dioColumn]: row.value,
+        },
+        { onConflict: 'diocese_id,eve,szamadasicelid' },
+      )
+      if (error) throw error
+    }
+    return
+  }
+
+  const congregationId = scopeId
   const yearId = String(year)
   const column = modNumber === 1 ? 'modositott' : modNumber === 2 ? 'osszeg_mod_2' : 'osszeg_mod_3'
 

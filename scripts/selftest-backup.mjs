@@ -907,6 +907,42 @@ const MINTA_LELTAR = [
       fail(`D4c: a globális lista hibás — ${globalis.join(', ')}`)
     }
 
+    // D4c2 — 2026-08-15 (egyházmegyei szint, S3/S4): a scope-oszlopos
+    // gyülekezeti tábla MEGYEI sorai (globalis_predikatum) a GLOBÁLIS fájlba
+    // IS bekerülnek; predikátum NÉLKÜL viszont a classifyInventory hangosan
+    // megnevezi a fedetlen táblát (dioceseFedetlen) — a megyei sor nem tűnhet
+    // el némán a mentésből.
+    {
+      const dioTabla = {
+        ...leltarSor('leltar_tetelek', 'gyulekezet', 7, ['id', 'congregation_id', 'diocese_id']),
+        globalis_predikatum: 't.congregation_id IS NULL',
+      }
+      const glob2 = orderTablesForDump([...MINTA_LELTAR, dioTabla], 'globalis').map((r) => r.tabla)
+      const gyul2 = orderTablesForDump([...MINTA_LELTAR, dioTabla], 'gyulekezet').map((r) => r.tabla)
+      if (glob2.includes('leltar_tetelek') && gyul2.includes('leltar_tetelek')) {
+        ok('D4c2 ⭐ a scope-oszlopos tábla MINDKÉT hatókörben mentésre kerül (megyei sorok → globális fájl)')
+      } else {
+        fail(`D4c2: globális=${glob2.join(', ')} — gyülekezeti=${gyul2.join(', ')}`)
+      }
+      // Üres predikátum = hiány (a join_predikatum üres-string szabálya).
+      const fedetlen = {
+        ...leltarSor('iktato', 'gyulekezet', 7, ['id', 'congregation_id', 'diocese_id']),
+        globalis_predikatum: '   ',
+      }
+      const c2 = classifyInventory([...MINTA_LELTAR, fedetlen, dioTabla])
+      if (c2.dioceseFedetlen.join('|') === 'iktato') {
+        ok('D4c3 a fedetlen megyei sorú tábla NÉVVEL jelenik meg (dioceseFedetlen) — nem néma hiány')
+      } else {
+        fail(`D4c3: dioceseFedetlen=${c2.dioceseFedetlen.join(', ')}`)
+      }
+      const glob3 = orderTablesForDump([...MINTA_LELTAR, fedetlen], 'globalis').map((r) => r.tabla)
+      if (!glob3.includes('iktato')) {
+        ok('D4c4 predikátum nélkül a gyülekezeti tábla NEM szivárog a globális fájlba')
+      } else {
+        fail(`D4c4: ${glob3.join(', ')}`)
+      }
+    }
+
     const retegNelkul = leltarSor('kesobb_besoroljuk', 'gyulekezet', null)
     const vegen = orderTablesForDump([retegNelkul, ...MINTA_LELTAR], 'gyulekezet')
     if (vegen[vegen.length - 1].tabla === 'kesobb_besoroljuk') {

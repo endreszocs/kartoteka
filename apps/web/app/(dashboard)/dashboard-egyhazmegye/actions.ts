@@ -12,8 +12,8 @@ import {
   canReadDioceseScope,
   canWriteDioceseScope,
   describeDioceseWriteBlock,
-  resolveDioceseScopeId,
-  resolveDioceseScopeIds,
+  resolveDioceseReadScopeIds,
+  resolveDioceseWriteScopeIds,
 } from '@/lib/auth/level-scope'
 import { documentSeasonYear, type UnlockRequest } from '@/lib/constants/documents'
 
@@ -61,7 +61,11 @@ async function assertCongregationInCallerDiocese(
 
   // 2026-08-09 (review-fix): a TELJES hatókör-unió számít (két egyházmegyét is
   // vihet ugyanaz a tisztségviselő) — a document-actions assert-jével azonosan.
-  const dioceseIds = resolveDioceseScopeIds(access)
+  // 2026-08-15 (S1, 0.3): SZEREP-SZŰRT ÍRÁSI hatókör a tág feloldó helyett —
+  // a tág változat a kerületi admin elavult `profiles.diocese_id` skalárját
+  // szerep nélkül is elfogadta, így idegen megye gyülekezetének feloldására is
+  // átment az assert (a feloldás írás: az SQL-tükör a current_user_diocese_ids()).
+  const dioceseIds = resolveDioceseWriteScopeIds(access)
   if (dioceseIds.length === 0) {
     return 'Nincs egyházmegye rendelve a fiókjához — a kérelem nem bírálható el.'
   }
@@ -471,11 +475,15 @@ export async function getCongregationOverviewData(): Promise<Array<{
   if (!canReadDioceseScope(access)) return []
 
   const { supabase } = access
-  // 2026-08-09: feloldott hatókör (aktív szerep → profile_roles → skalár) +
-  // FAIL-CLOSED: NULL-scope diocese-felhasználó ÜRES listát kap, nem az egész
-  // egyház gyülekezeteit (a congregations SELECT RLS USING(true), nincs backstop).
-  const dioceseId = resolveDioceseScopeId(access)
-  if (!dioceseId && !access.master && !access.admin) return []
+  // 2026-08-09: feloldott hatókör + FAIL-CLOSED: NULL-scope diocese-felhasználó
+  // ÜRES listát kap, nem az egész egyház gyülekezeteit (a congregations SELECT
+  // RLS USING(true), nincs backstop).
+  // 2026-08-15 (S1, 0.3): a hatókör a SZEREP-SZŰRT olvasói feloldóból jön — a
+  // tág feloldó a kerületi admin elavult `profiles.diocese_id` skalárját szerep
+  // nélkül is bevette, így MÁS megye áttekintője (kérelmek, választó-létszám)
+  // látszott. Több megyés tisztségviselőnél az unió.
+  const dioceseIds = resolveDioceseReadScopeIds(access)
+  if (dioceseIds.length === 0 && !access.master && !access.admin) return []
   const currentYear = new Date().getFullYear()
 
   /**
@@ -506,8 +514,8 @@ export async function getCongregationOverviewData(): Promise<Array<{
     .from('congregations')
     .select('id, name')
 
-  if (dioceseId && !access.master) {
-    congQuery = congQuery.eq('diocese_id', dioceseId)
+  if (dioceseIds.length > 0 && !access.master) {
+    congQuery = congQuery.in('diocese_id', dioceseIds)
   }
 
   const { data: congregations } = await congQuery

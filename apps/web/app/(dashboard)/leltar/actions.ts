@@ -26,6 +26,15 @@ import {
 } from '@kartoteka/ui-app'
 import type { InventoryItem, InventoryCategory } from '@/lib/constants/inventory.next'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
+// 2026-08-15 (egyházmegyei szint, S3): a hatókör a KÖZÖS module-scope helperből
+// jön (gyülekezet VAGY egyházmegye — scope-oszlopos modell). Minden lekérdezés
+// `.eq(ctx.scopeCol, ctx.scopeId)`-vel szűr; kézzel írt 'congregation_id'
+// literál diocese-módban némán 0 sort adna.
+import {
+  getModuleScopeContext,
+  moduleWriteBlock,
+  type ModuleScopeContext,
+} from '@/lib/auth/module-scope'
 // 2026-08-15 (egységes véglegesítés): séma-drift felismerés a KÖZÖS helperből —
 // a pecsét-mezők (leltar_finalized_at/_by) migráció előtti adatbázison kimaradnak.
 import { isMissingColumnError } from '@/lib/utils/schema-errors'
@@ -34,10 +43,22 @@ import { calculateBalances } from '@/lib/utils/finance-helpers'
 
 type InventoryRow = Record<string, unknown>
 
-async function getCongId() {
-  const { supabase, congregationId } = await getEffectiveCongregationContext()
-  return { supabase, congId: congregationId }
+/**
+ * 2026-08-15 (S3): a régi `getCongId()` scope-tudatos utódja. `ctx === null`
+ * = nincs feloldható hatókör → a hívó a meglévő kontraktusát tartja (üres
+ * lista / magyar hibaüzenet), de SOHA nem futtat szűretlen lekérdezést.
+ */
+async function getScopeCtx(): Promise<{ ctx: ModuleScopeContext | null }> {
+  const res = await getModuleScopeContext()
+  if ('error' in res) return { ctx: null }
+  return { ctx: res }
 }
+
+/** Az egyházmegyei módban (még) nem elérhető funkciók egységes üzenete. */
+const DIOCESE_FINALIZE_UNAVAILABLE =
+  'Az egyházmegye saját leltárának véglegesítése és felterjesztése a következő ' +
+  'fejlesztési körben készül el — a tételek rögzítése, szerkesztése és ' +
+  'nyomtatása már most is működik egyházmegyei módban.'
 
 function normalizeInventoryRow(row: InventoryRow): InventoryItem {
   const rawCategory = typeof row.kategoria === 'string' ? row.kategoria : 'alapeszkoz'
@@ -77,7 +98,11 @@ function normalizeInventoryRow(row: InventoryRow): InventoryItem {
   }
 }
 
-async function fetchInventoryRowsCompat(supabase: SupabaseClient, congId: string): Promise<InventoryRow[]> {
+async function fetchInventoryRowsCompat(
+  supabase: SupabaseClient,
+  scopeCol: 'congregation_id' | 'diocese_id',
+  scopeId: string,
+): Promise<InventoryRow[]> {
   // 2026-08-14 (10. pont, BLOKKOLÓ-javítás): LAPOZVA olvasunk. Korábban ez a
   // fő lista-olvasó lapozás nélkül futott, így a PostgREST alapértelmezett
   // 1000 soros plafonja NÉMÁN csonkolta az egész leltár-modult: 1000+ tételnél
@@ -89,7 +114,7 @@ async function fetchInventoryRowsCompat(supabase: SupabaseClient, congId: string
     supabase
       .from('leltar_tetelek')
       .select('*')
-      .eq('congregation_id', congId)
+      .eq(scopeCol, scopeId)
       .order('created_at', { ascending: false }),
   )
   if (error) {
@@ -99,15 +124,16 @@ async function fetchInventoryRowsCompat(supabase: SupabaseClient, congId: string
 }
 
 export async function getInventoryItems(): Promise<InventoryItem[]> {
-  const { supabase, congId } = await getCongId()
-  if (!congId) return []
-  const rows = await fetchInventoryRowsCompat(supabase, congId)
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return []
+  const rows = await fetchInventoryRowsCompat(ctx.supabase, ctx.scopeCol, ctx.scopeId)
   return rows.map(normalizeInventoryRow)
 }
 
 export async function generateNextLeltariSzam(category: InventoryCategory): Promise<string> {
-  const { supabase, congId } = await getCongId()
-  if (!congId) return `${INVENTORY_CATEGORY_PREFIXES[category]}-001`
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return `${INVENTORY_CATEGORY_PREFIXES[category]}-001`
+  const { supabase, scopeCol, scopeId } = ctx
   const prefix = INVENTORY_CATEGORY_PREFIXES[category]
   // 2026-08-09 (review-fix): LAPOZVA olvassuk az összes számot — a PostgREST 1000
   // soros néma plafonja miatt 1000+ tételnél (pl. könyvtár, 'K-%') már kiadott
@@ -121,11 +147,15 @@ export async function generateNextLeltariSzam(category: InventoryCategory): Prom
   // adott vissza — vagyis egy hálózati hiba után a rendszer egy MÁR HASZNÁLT
   // leltári számot javasolt. Számot generáló kapunál nincs olyan hiba, ami után
   // a „tippeljünk egyet" lenne a jó válasz, ezért most hangosan dobunk.
+  // 2026-08-15 (S3): a scope-kulcsú szűrés miatt a MEGYEI számsor a
+  // gyülekezetitől FÜGGETLEN (a DB-oldali párja a
+  // leltar_tetelek_dio_leltari_szam_key részleges egyediségi index) — a
+  // számozási SZABÁLY (nextLeltariSzam) változatlanul a közös rétegből jön.
   const { data: rows, error } = await selectAllPaged<{ leltari_szam: string | null }>(
     supabase
       .from('leltar_tetelek')
       .select('leltari_szam')
-      .eq('congregation_id', congId)
+      .eq(scopeCol, scopeId)
       .ilike('leltari_szam', `${prefix}-%`),
   )
   if (error) {
@@ -139,8 +169,14 @@ export async function generateNextLeltariSzam(category: InventoryCategory): Prom
 export async function saveInventoryItem(data: InventoryItemInput) {
   const parsed = inventoryItemSchema.safeParse(data)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
-  const { supabase, congId } = await getCongId()
-  if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { error: 'Nincs bejelentkezett felhasználó.' }
+  // 2026-08-15 (S3): a számvevő ellenőr — a felület is letiltja a gombot, de a
+  // szerver-oldali kapu a mérvadó (néma 0-soros mentés / nyers RLS-hiba helyett
+  // beszédes magyar üzenet).
+  const blocked = moduleWriteBlock(ctx)
+  if (blocked) return { error: blocked.error }
+  const { supabase } = ctx
 
   const d = parsed.data
   // 2026-08-11 (5. kör, P3 #15): a `generateNextLeltariSzam` mostantól DOB, ha nem
@@ -159,14 +195,25 @@ export async function saveInventoryItem(data: InventoryItemInput) {
   // azonos payloadot épít. A `vonalkod` mező NEM létezik a `leltar_tetelek`
   // táblában — ezért nincs a payload-ban; a penzugy_xkey undefined = a
   // meglévő kapcsolat marad.
-  const { record, modernFallback } = buildInventoryUpsertPayloads(d, congId)
+  const { record, modernFallback } = buildInventoryUpsertPayloads(d, ctx.scopeId)
+  // 2026-08-15 (S3): a közös payload-építő (packages/ui-app) congregation_id-t
+  // ír — a desktop gyülekezeti útja így bit-azonos marad. Megyei módban a
+  // scope-oszlopot ITT cseréljük; a DB-oldali CHECK
+  // (leltar_tetelek_pontosan_egy_scope) őrzi, hogy pontosan az egyik legyen
+  // kitöltve.
+  if (ctx.scope === 'diocese') {
+    for (const p of [record, modernFallback]) {
+      delete p.congregation_id
+      p.diocese_id = ctx.scopeId
+    }
+  }
   if (!d.id) record.leltari_szam = leltariSzam
   if (!d.id) modernFallback.leltari_szam = leltariSzam
 
   if (d.id) {
-    let { error } = await supabase.from('leltar_tetelek').update(record).eq('id', d.id).eq('congregation_id', congId)
+    let { error } = await supabase.from('leltar_tetelek').update(record).eq('id', d.id).eq(ctx.scopeCol, ctx.scopeId)
     if (isInventoryLegacySchemaError(error?.message)) {
-      const retry = await supabase.from('leltar_tetelek').update(modernFallback).eq('id', d.id).eq('congregation_id', congId)
+      const retry = await supabase.from('leltar_tetelek').update(modernFallback).eq('id', d.id).eq(ctx.scopeCol, ctx.scopeId)
       error = retry.error
     }
     if (error) return { error: `Hiba: ${error.message}` }
@@ -212,8 +259,9 @@ export async function saveInventoryItem(data: InventoryItemInput) {
  * LAPOZOTT (a PostgREST 1000 soros néma plafonja ismert hibaosztály).
  */
 export async function listExpensesForInventoryPicker(year: number): Promise<ExpensePickerResult> {
-  const { supabase, congId } = await getCongId()
-  if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const { supabase } = ctx
 
   // 2026-08-11 (5. kör, P3 #15): a lokális `fetchPaged` helyett a KÖZÖS
   // `selectAllPaged`. A régi változat a `rows.length < PAGE` stop-feltételt
@@ -225,13 +273,27 @@ export async function listExpensesForInventoryPicker(year: number): Promise<Expe
     return res.data
   }
 
+  // 2026-08-15 (S3): a kiadás-tábla scope-függő — a pénzügy tablesFor-térképe
+  // szerint a megyei főkönyv a `diocese_kiadas` (finance-scope.ts:93-108).
+  // Két lényegi oszlop-eltérés (2026-04-18-egyhazmegyei-penzugy-fazis8.sql):
+  //   · a kategória közvetlen `id_szamadasicel` kód (nincs kiadascel-lánc),
+  //   · a partner-oszlop `kedvezmenyezett` (a gyülekezeti `atvevo` párja),
+  //   · belső-mozgás oszlop nincs (megyei szinten nincs belső mozgás).
+  const isDiocese = ctx.scope === 'diocese'
+  const kiadasQuery = isDiocese
+    ? supabase
+        .from('diocese_kiadas')
+        .select('id, xkey, datum, osszeg, kedvezmenyezett, iratszam, nyugta, irattipus, megjegyzes, id_szamadasicel, stornozott')
+        .eq('diocese_id', ctx.scopeId)
+    : supabase
+        .from('kiadas')
+        .select('id, xkey, datum, osszeg, atvevo, iratszam, nyugta, irattipus, megjegyzes, id_kiadascel, stornozott, belso_mozgas_xkey')
+        .eq('congregation_id', ctx.scopeId)
+
   try {
     const [kiadasRes, kiaCelRes, celRes, linkedRes, years] = await Promise.all([
       selectAllPaged<Record<string, unknown>>(
-        supabase
-          .from('kiadas')
-          .select('id, xkey, datum, osszeg, atvevo, iratszam, nyugta, irattipus, megjegyzes, id_kiadascel, stornozott, belso_mozgas_xkey')
-          .eq('congregation_id', congId)
+        kiadasQuery
           .eq('deleted', false)
           .gte('datum', `${year}-01-01`)
           .lte('datum', `${year}-12-31`)
@@ -242,13 +304,16 @@ export async function listExpensesForInventoryPicker(year: number): Promise<Expe
         // dedup az `id`-n továbbra is kell.
         { orderColumn: null, dedupeBy: 'id' },
       ),
-      supabase.from('kiadascel').select('id, id_szamadasicel'),
+      // Megyei módban a kiadascel-lánc nem kell (közvetlen szamadasicel-kód).
+      isDiocese
+        ? Promise.resolve({ data: [] as Array<{ id: number; id_szamadasicel: string | null }>, error: null })
+        : supabase.from('kiadascel').select('id, id_szamadasicel'),
       supabase.from('szamadasicel').select('id, nev'),
       selectAllPaged<{ penzugy_xkey: string | null }>(
         supabase
           .from('leltar_tetelek')
           .select('penzugy_xkey')
-          .eq('congregation_id', congId)
+          .eq(ctx.scopeCol, ctx.scopeId)
           // A törölt leltári tétel NEM foglalja a kiadást (újra kikereshető).
           .eq('is_deleted', false)
           .not('penzugy_xkey', 'is', null),
@@ -271,13 +336,15 @@ export async function listExpensesForInventoryPicker(year: number): Promise<Expe
     const rows: ExpensePickerRow[] = kiadasRows
       .filter((r) => !r.stornozott && !r.belso_mozgas_xkey && r.xkey)
       .map((r) => {
-        const kod = kodById.get(Number(r.id_kiadascel)) ?? null
+        const kod = isDiocese
+          ? (r.id_szamadasicel ? String(r.id_szamadasicel) : null)
+          : kodById.get(Number(r.id_kiadascel)) ?? null
         return {
           id: Number(r.id),
           xkey: String(r.xkey),
           datum: String(r.datum || '').slice(0, 10),
           osszeg: Number(r.osszeg) || 0,
-          atvevo: (r.atvevo as string | null) || null,
+          atvevo: ((isDiocese ? r.kedvezmenyezett : r.atvevo) as string | null) || null,
           iratszam: (r.iratszam as string | null) || null,
           nyugta: (r.nyugta as string | null) || null,
           irattipus: (r.irattipus as string | null) || null,
@@ -303,12 +370,15 @@ export async function listExpensesForInventoryPicker(year: number): Promise<Expe
 }
 
 export async function deleteInventoryItem(id: string) {
-  const { supabase, congId } = await getCongId()
-  if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const blocked = moduleWriteBlock(ctx)
+  if (blocked) return { error: blocked.error }
+  const { supabase } = ctx
 
-  let { error } = await supabase.from('leltar_tetelek').update({ is_deleted: true }).eq('id', id).eq('congregation_id', congId)
+  let { error } = await supabase.from('leltar_tetelek').update({ is_deleted: true }).eq('id', id).eq(ctx.scopeCol, ctx.scopeId)
   if (error?.message?.includes('is_deleted')) {
-    const retry = await supabase.from('leltar_tetelek').update({ deleted: true }).eq('id', id).eq('congregation_id', congId)
+    const retry = await supabase.from('leltar_tetelek').update({ deleted: true }).eq('id', id).eq(ctx.scopeCol, ctx.scopeId)
     error = retry.error
   }
   if (error) return { error: `Hiba: ${error.message}` }
@@ -365,8 +435,15 @@ export async function getLeltarFinalizationStatus(): Promise<{
   /** 2026-08-15 (egységes véglegesítés): a zöld pecsét dátuma — migráció előtt null. */
   finalizedAt: string | null
 }> {
-  const { supabase, congId } = await getCongId()
-  if (!congId) return { finalized: false, unlockRequested: false, finalizedAt: null }
+  const { ctx } = await getScopeCtx()
+  // 2026-08-15 (S3): megyei módban a vagyonleltári jelentés véglegesítése (a
+  // gyülekezet→megye beküldés útja) nem értelmezett — a felület el is rejti a
+  // blokkot; itt fail-closed „nincs véglegesítve" állapotot adunk.
+  if (!ctx || ctx.scope === 'diocese') {
+    return { finalized: false, unlockRequested: false, finalizedAt: null }
+  }
+  const { supabase } = ctx
+  const congId = ctx.scopeId
   const year = leltarReportYear()
   // Séma-fallback: a leltar_finalized_at oszlop a 2026-08-15-veglegesites-egyseges.sql
   // migrációval jön — előtte a bővített SELECT hibázna, ezért a régi oszlop-listával
@@ -416,7 +493,13 @@ export async function finalizeLeltar() {
   // 2026-08-15 (Endre 4. szakasz): a userId is kell — a véglegesítés dátum/szerző
   // pecsétet kap (leltar_finalized_at/_by) a zöld jelvényhez.
   const { supabase, congregationId: congId, userId } = await getEffectiveCongregationContext()
-  if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!congId) {
+    // 2026-08-15 (S3): megyei módban beszédes üzenet, nem a félrevezető
+    // „nincs bejelentkezve" (a hívó ott áll a megyei leltár képernyőn).
+    const { ctx } = await getScopeCtx()
+    if (ctx?.scope === 'diocese') return { error: DIOCESE_FINALIZE_UNAVAILABLE }
+    return { error: 'Nincs bejelentkezett felhasználó.' }
+  }
   const year = leltarReportYear()
   let { data, error } = await supabase
     .from('bealitas')
@@ -447,8 +530,11 @@ export async function finalizeLeltar() {
 }
 
 export async function requestLeltarUnlock(reason?: string | null) {
-  const { supabase, congId } = await getCongId()
-  if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (ctx.scope === 'diocese') return { error: DIOCESE_FINALIZE_UNAVAILABLE }
+  const { supabase } = ctx
+  const congId = ctx.scopeId
   // 2026-08-11 (K5-#12): AZ INDOKLÁS KÖTELEZŐ. Eddig az üres sztring is átment
   // (`reason?.trim() || null`), így az esperes indoklás nélküli feloldási
   // kérelmet kapott — nem tudta elbírálni —, a lelkész viszont sikeres

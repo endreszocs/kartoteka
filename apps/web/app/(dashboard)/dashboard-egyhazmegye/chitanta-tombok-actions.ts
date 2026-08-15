@@ -22,6 +22,7 @@ import {
   describeDioceseWriteBlock,
   resolveDioceseReadScopeIds,
   resolveDioceseScopeIds,
+  resolveDioceseWriteScopeIds,
 } from '@/lib/auth/level-scope'
 
 export interface DioceseChitantaTomb {
@@ -67,8 +68,17 @@ async function requireDioceseAccess(
 
   let canManage = !!access.admin || !!access.master
 
-  // Esperes / egyházmegyei admin: csak a SAJÁT (feloldott) egyházmegyéje
-  if (!canManage && !!access.esperes && resolvedIds.includes(targetId)) {
+  // Esperes / egyházmegyei admin: csak a SAJÁT (feloldott) egyházmegyéje.
+  //
+  // 2026-08-15 FIX (S1 biztonsági szelet, 0.3): a korábbi szerep-SZŰRETLEN
+  // `access.esperes && resolvedIds.includes(targetId)` feltétel a kerületi
+  // admint elavult `profiles.diocese_id` skalárral (akár MÁSIK kerület
+  // megyéje!) is átengedte ezen az ágon, a district-ellenőrző kerületi ág
+  // megkerülésével — más megye nyugtatömbjeit nyithatta/zárhatta. A
+  // szerep-szűrt írási feloldó (az SQL current_user_diocese_ids() tükre)
+  // ezt kizárja; a kerületi admin csak a lenti assertDioceseInScope-os
+  // ágon mehet át.
+  if (!canManage && resolveDioceseWriteScopeIds(access).includes(targetId)) {
     canManage = true
   }
 

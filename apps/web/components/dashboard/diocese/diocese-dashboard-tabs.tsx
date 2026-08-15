@@ -8,9 +8,13 @@
  *   számadás, vagyonleltár, választók névjegyzéke) láthatja. NEM kérdezhet
  *   közvetlenül a `befizetes`, `kiadas`, `szemely`, anyakönyvi táblákból.
  *
- * 7 fül:
- *  🏠 Áttekintés · ⛪ Gyülekezetek · 📂 Dokumentumok · 🔔 Kérelmek
- *  💰 Pénzügy (jövőbeli — profilváltás után) · 🌱 Misszió (jövőbeli) · 👥 Szerepkörök
+ * Fülek:
+ *  🏠 Áttekintés · 🏛️ Egyházmegyénk · ⛪ Gyülekezetek · 📂 Dokumentumok ·
+ *  🔔 Kérelmek · 🧾 Nyugtatömbök · 👥 Szerepkörök
+ *
+ * 2026-08-15 (egyházmegyei terv, 4.4): a 🌱 Misszió-placeholder ELTŰNT a
+ * fülsorból — üres ígéretet nem mutatunk; a fül a statisztikai csomag (S10
+ * szelet) szállításával tér vissza, valódi tartalommal.
  */
 
 import { useMemo, useState } from 'react'
@@ -23,7 +27,6 @@ import {
   Inbox,
   Layers,
   Search,
-  Sprout,
   UserCog,
   Vote,
 } from 'lucide-react'
@@ -71,7 +74,7 @@ interface DioceseDashboardTabsProps {
   canOverride: boolean
 }
 
-type TabKey = 'overview' | 'our-diocese' | 'congregations' | 'documents' | 'requests' | 'chitanta' | 'mission' | 'roles'
+type TabKey = 'overview' | 'our-diocese' | 'congregations' | 'documents' | 'requests' | 'chitanta' | 'roles'
 
 export function DioceseDashboardTabs({
   dioceseId,
@@ -136,9 +139,8 @@ export function DioceseDashboardTabs({
     if (dioceseId) {
       list.push({ value: 'chitanta', label: '🧾 Nyugtatömbök', color: 'amber' })
     }
-    list.push(
-      { value: 'mission', label: '🌱 Misszió', color: 'teal' },
-    )
+    // 2026-08-15 (4.4): a 🌱 Misszió-placeholder fül ELTÁVOLÍTVA — üres
+    // ígéretet nem mutatunk; az S10 (statisztikai csomag) hozza vissza.
     if (canManageRoles) {
       list.push({ value: 'roles', label: '👥 Szerepkörök', color: 'indigo' })
     }
@@ -314,20 +316,8 @@ export function DioceseDashboardTabs({
         />
       )}
 
-      {/* === MISSZIÓ === — JÖVŐBELI: az éves jelentésekből */}
-      {tab === 'mission' && (
-        <FuturePlaceholder
-          icon={<Sprout className="size-5 text-teal-700" />}
-          title="Misszió és élet"
-          description="Az egyházmegyei misszió-statisztika a beküldött éves jelentésekből (lásd a Dokumentumok fülön) lesz aggregálva. Az alapelv szerint az egyházmegye nem kérdez közvetlenül a gyülekezetek anyakönyvi adataiból — csak a kötelezően leadott jelentésekből."
-          accent="teal"
-          bullet={[
-            'Kazuáliás összesítés a beküldött éves jelentésből',
-            'Tagmozgási mérlegek (be- és elköltözöttek)',
-            'Missziói műhely aktivitása az egyházmegyében',
-          ]}
-        />
-      )}
+      {/* 2026-08-15 (4.4): a Misszió-placeholder render-blokkja eltávolítva —
+          a fül az S10 statisztikai csomaggal tér vissza, valódi tartalommal. */}
 
       {/* === SZEREPKÖRÖK === (csak rendszergazdai vagy egyházkerületi admin szerepben) */}
       {tab === 'roles' && canManageRoles && (
@@ -479,48 +469,8 @@ function RecentSubmissionsCard({
   )
 }
 
-function FuturePlaceholder({
-  icon,
-  title,
-  description,
-  accent,
-  bullet,
-}: {
-  icon: React.ReactNode
-  title: string
-  description: string
-  accent: 'emerald' | 'teal'
-  bullet?: string[]
-}) {
-  const accentClasses: Record<string, string> = {
-    emerald: 'border-emerald-200 bg-emerald-50/40',
-    teal: 'border-teal-200 bg-teal-50/40',
-  }
-  return (
-    <div className={`rounded-2xl border ${accentClasses[accent]} p-6`}>
-      <div className="flex items-start gap-3">
-        <div className="rounded-xl bg-white p-2 shadow-sm">{icon}</div>
-        <div className="flex-1">
-          <h2 className="font-heading text-xl text-slate-800">{title}</h2>
-          <p className="mt-2 text-sm text-slate-700 leading-relaxed">{description}</p>
-          {bullet && bullet.length > 0 && (
-            <ul className="mt-3 space-y-1.5 text-sm text-slate-700">
-              {bullet.map((b) => (
-                <li key={b} className="flex items-start gap-2">
-                  <span className="mt-1.5 size-1.5 rounded-full bg-slate-400 shrink-0" />
-                  <span>{b}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="mt-4 inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 border border-slate-200">
-            🔧 Hamarosan elérhető
-          </p>
-        </div>
-      </div>
-    </div>
-  )
-}
+// 2026-08-15 (4.4): a FuturePlaceholder komponens a Misszió-füllel együtt
+// eltávolítva — egyetlen fogyasztója volt.
 
 function CongregationCard({
   cong,

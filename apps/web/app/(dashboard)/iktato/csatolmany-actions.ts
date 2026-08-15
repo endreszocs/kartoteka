@@ -19,7 +19,15 @@
  */
 
 import { revalidatePath } from 'next/cache'
-import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
+// 2026-08-15 (egyházmegyei szint, S4): a hatókör a KÖZÖS module-scope helperből
+// jön — a megyei iktató csatolmányai a {diocese_id}/{iktato_id}/… storage-út
+// alatt élnek (az út ELSŐ szegmense mindig a scope-azonosító, erre szűrnek a
+// storage-policyk mindkét scope-ban).
+import {
+  getModuleScopeContext,
+  moduleWriteBlock,
+  type ModuleScopeContext,
+} from '@/lib/auth/module-scope'
 import {
   CSATOLMANY_BUCKET,
   CSATOLMANY_MAX_BYTES,
@@ -37,16 +45,16 @@ import {
 export async function listCsatolmanyok(
   iktatoId: string,
 ): Promise<{ csatolmanyok: IktatoCsatolmany[]; error: string | null }> {
-  const { supabase, congId } = await getCongId()
-  if (!congId) {
+  const { ctx } = await getScopeCtx()
+  if (!ctx) {
     return { csatolmanyok: [], error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await ctx.supabase
     .from('iktato_csatolmany')
     .select('*')
     .eq('iktato_id', iktatoId)
-    .eq('congregation_id', congId)
+    .eq(ctx.scopeCol, ctx.scopeId)
     .order('oldal_sorszam', { ascending: true })
     .order('created_at', { ascending: true })
   if (error) {
@@ -73,8 +81,10 @@ export async function prepareCsatolmanyUpload(input: {
   mimeType: string
   meretBytes: number
 }): Promise<{ path: string | null; error: string | null }> {
-  const { supabase, congId } = await getCongId()
-  if (!congId) return { path: null, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { path: null, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  const blocked = moduleWriteBlock(ctx)
+  if (blocked) return { path: null, error: blocked.error }
 
   if (!isAllowedCsatolmanyMime(input.mimeType)) {
     return {
@@ -89,11 +99,13 @@ export async function prepareCsatolmanyUpload(input: {
     return { path: null, error: 'A fájl túl nagy — legfeljebb 10 MB tölthető fel.' }
   }
 
-  const entryErr = await verifyEntry(supabase, congId, input.iktatoId)
+  const entryErr = await verifyEntry(ctx, input.iktatoId)
   if (entryErr) return { path: null, error: entryErr }
 
   const safeName = sanitizeCsatolmanyFileName(input.fileName)
-  const path = `${congId}/${input.iktatoId}/${crypto.randomUUID()}-${safeName}`
+  // Az út ELSŐ szegmense a scope-azonosító (gyülekezet VAGY egyházmegye) —
+  // a storage-policyk mindkét scope-ban erre szűrnek.
+  const path = `${ctx.scopeId}/${input.iktatoId}/${crypto.randomUUID()}-${safeName}`
   return { path, error: null }
 }
 
@@ -118,8 +130,11 @@ export async function registerCsatolmany(input: {
   oldalSorszam?: number | null
   megjegyzes?: string | null
 }): Promise<{ csatolmany: IktatoCsatolmany | null; error: string | null }> {
-  const { supabase, congId, userId } = await getCongId()
-  if (!congId) return { csatolmany: null, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { csatolmany: null, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  const blocked = moduleWriteBlock(ctx)
+  if (blocked) return { csatolmany: null, error: blocked.error }
+  const { supabase, userId } = ctx
 
   const fileName = (input.fileName || '').trim()
   if (!fileName) return { csatolmany: null, error: 'A csatolmány megnevezése nem lehet üres.' }
@@ -127,10 +142,10 @@ export async function registerCsatolmany(input: {
     return { csatolmany: null, error: 'A csatolmány megnevezése legfeljebb 200 karakter lehet.' }
   }
 
-  // Út-hamisítás elleni őr: a storage_path CSAK a saját gyülekezet + az adott
-  // irat prefixe alatt lehet (a kontraktus-út első két szegmense).
+  // Út-hamisítás elleni őr: a storage_path CSAK a saját scope (gyülekezet vagy
+  // egyházmegye) + az adott irat prefixe alatt lehet (az út első két szegmense).
   if (input.storagePath) {
-    const expectedPrefix = `${congId}/${input.iktatoId}/`
+    const expectedPrefix = `${ctx.scopeId}/${input.iktatoId}/`
     if (!input.storagePath.startsWith(expectedPrefix)) {
       return {
         csatolmany: null,
@@ -148,7 +163,7 @@ export async function registerCsatolmany(input: {
     }
   }
 
-  const entryErr = await verifyEntry(supabase, congId, input.iktatoId)
+  const entryErr = await verifyEntry(ctx, input.iktatoId)
   if (entryErr) return { csatolmany: null, error: entryErr }
 
   // Oldal-sorszám: explicit érték, vagy a következő szabad (max+1)
@@ -169,7 +184,7 @@ export async function registerCsatolmany(input: {
         .from('iktato_csatolmany')
         .select('oldal_sorszam')
         .eq('iktato_id', input.iktatoId)
-        .eq('congregation_id', congId)
+        .eq(ctx.scopeCol, ctx.scopeId)
         .order('oldal_sorszam', { ascending: false })
         .limit(1)
       if (lastErr) {
@@ -188,7 +203,10 @@ export async function registerCsatolmany(input: {
           iktato_id: input.iktatoId,
           // Denormalizált — a K1 kontraktus szerint az iktato sorával egyezően
           // KELL beszúrni (a verifyEntry fentebb pont ezt garantálja).
-          congregation_id: congId,
+          // 2026-08-15 (S4): a scope-oszlop dinamikus; a kompozit FK-k
+          // (iktato_id+congregation_id ill. iktato_id+diocese_id) őrzik, hogy a
+          // denormalizált érték a szülő irat valódi scope-ja legyen.
+          [ctx.scopeCol]: ctx.scopeId,
           storage_path: input.storagePath || null,
           file_name: fileName,
           mime_type: input.mimeType || null,
@@ -249,14 +267,15 @@ export async function registerCsatolmany(input: {
 export async function getCsatolmanyUrl(
   id: string,
 ): Promise<{ url: string | null; error: string | null }> {
-  const { supabase, congId } = await getCongId()
-  if (!congId) return { url: null, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { url: null, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  const { supabase } = ctx
 
   const { data, error } = await supabase
     .from('iktato_csatolmany')
     .select('storage_path')
     .eq('id', id)
-    .eq('congregation_id', congId)
+    .eq(ctx.scopeCol, ctx.scopeId)
     .maybeSingle()
   if (error) return { url: null, error: friendlyDbError('A csatolmány lekérése sikertelen', error) }
   if (!data) return { url: null, error: 'A csatolmány nem található — lehet, hogy időközben törölték.' }
@@ -289,14 +308,17 @@ export async function getCsatolmanyUrl(
 export async function deleteCsatolmany(
   id: string,
 ): Promise<{ success: boolean; error: string | null }> {
-  const { supabase, congId } = await getCongId()
-  if (!congId) return { success: false, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  const { ctx } = await getScopeCtx()
+  if (!ctx) return { success: false, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  const blocked = moduleWriteBlock(ctx)
+  if (blocked) return { success: false, error: blocked.error }
+  const { supabase } = ctx
 
   const { data, error } = await supabase
     .from('iktato_csatolmany')
     .select('id, storage_path, file_name')
     .eq('id', id)
-    .eq('congregation_id', congId)
+    .eq(ctx.scopeCol, ctx.scopeId)
     .maybeSingle()
   if (error) return { success: false, error: friendlyDbError('A csatolmány lekérése sikertelen', error) }
   if (!data) return { success: false, error: 'A csatolmány nem található — lehet, hogy már törölték.' }
@@ -337,7 +359,7 @@ export async function deleteCsatolmany(
     .from('iktato_csatolmany')
     .delete()
     .eq('id', id)
-    .eq('congregation_id', congId)
+    .eq(ctx.scopeCol, ctx.scopeId)
     .select('id')
   if (delErr) {
     return {
@@ -358,24 +380,23 @@ export async function deleteCsatolmany(
 // Belső segédek ('use server' fájl csak async function-t exportálhat)
 // ─────────────────────────────────────────────────────────────────
 
-async function getCongId() {
-  const { supabase, congregationId, userId } = await getEffectiveCongregationContext()
-  return { supabase, congId: congregationId, userId }
+/** A régi `getCongId()` scope-tudatos utódja — ctx === null: nincs hatókör. */
+async function getScopeCtx(): Promise<{ ctx: ModuleScopeContext | null }> {
+  const res = await getModuleScopeContext()
+  if ('error' in res) return { ctx: null }
+  return { ctx: res }
 }
 
-type SupabaseCtx = Awaited<ReturnType<typeof getCongId>>['supabase']
-
-/** Az irat létezik-e (nem törölt) a saját gyülekezetben — null = rendben. */
+/** Az irat létezik-e (nem törölt) a saját hatókörben — null = rendben. */
 async function verifyEntry(
-  supabase: SupabaseCtx,
-  congId: string,
+  ctx: ModuleScopeContext,
   iktatoId: string,
 ): Promise<string | null> {
-  const { data, error } = await supabase
+  const { data, error } = await ctx.supabase
     .from('iktato')
     .select('id')
     .eq('id', iktatoId)
-    .eq('congregation_id', congId)
+    .eq(ctx.scopeCol, ctx.scopeId)
     .eq('deleted', false)
     .maybeSingle()
   if (error) return `Az irat ellenőrzése sikertelen: ${error.message}`

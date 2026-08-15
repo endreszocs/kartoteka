@@ -99,9 +99,16 @@ export interface CsatolmanyPanelProps {
   iktatoszam?: string
   /** Értesítés a szülőnek, ha a csatolmány-lista változott (darabszám-frissítéshez). */
   onChanged?: () => void
+  /**
+   * 2026-08-15 (egyházmegyei szint, S4): 'diocese' = megyei iktató. A
+   * „Fotózás telefonnal (QR)" gomb ilyenkor rejtve — a QR-munkamenet
+   * (upload_sessions) gyülekezeti adatlánc, megyei változata későbbi kör.
+   * A többi feltöltési út (befotózás, fájl, metaadat) megyei módban is él.
+   */
+  scope?: 'congregation' | 'diocese'
 }
 
-export function CsatolmanyPanel({ iktatoId, iktatoszam, onChanged }: CsatolmanyPanelProps) {
+export function CsatolmanyPanel({ iktatoId, iktatoszam, onChanged, scope = 'congregation' }: CsatolmanyPanelProps) {
   const supabase = useMemo(() => createClient(), [])
 
   // ── Lista ────────────────────────────────────────────────────
@@ -585,16 +592,18 @@ export function CsatolmanyPanel({ iktatoId, iktatoszam, onChanged }: CsatolmanyP
           <FileUp data-icon="inline-start" aria-hidden />
           Fájl feltöltése
         </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={isUploading || qrStarting}
-          onClick={() => (qrOpen ? void handleQrClose() : void handleQrStart())}
-        >
-          <QrCode data-icon="inline-start" aria-hidden />
-          Fotózás telefonnal (QR)
-        </Button>
+        {scope !== 'diocese' && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isUploading || qrStarting}
+            onClick={() => (qrOpen ? void handleQrClose() : void handleQrStart())}
+          >
+            <QrCode data-icon="inline-start" aria-hidden />
+            Fotózás telefonnal (QR)
+          </Button>
+        )}
         <Button
           type="button"
           variant="ghost"
