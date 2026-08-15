@@ -9,8 +9,11 @@
  *    „legfeljebb" szó (nem hazudunk pontosságot), pontos dátumnál tilos
  *  - a lejárt sor „bármikor törlődhet" felirata
  *
- * Az apps/web/lib/offline/recycle-bin-countdown.ts NULLA importtal készül,
- * ezért önállóan fordítható.
+ * 2026-08-15 (desktop-paritás 3. szelet): a kanonikus visszaszámláló a közös
+ * csomagba költözött — packages/ui-app/src/recycle-bin/countdown.ts (a webes
+ * apps/web/lib/offline/recycle-bin-countdown.ts már csak re-export). A
+ * selftest a KANONIKUS példányt fordítja: az NULLA importtal készül, ezért
+ * önállóan fordítható.
  *
  * Futtatás:  node scripts/selftest-kuka.mjs
  */
@@ -24,7 +27,7 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
 const SRC = path.join(
-  REPO_ROOT, 'apps', 'web', 'lib', 'offline', 'recycle-bin-countdown.ts',
+  REPO_ROOT, 'packages', 'ui-app', 'src', 'recycle-bin', 'countdown.ts',
 )
 
 let failed = false

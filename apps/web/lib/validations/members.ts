@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ENTRY_REASONS, REMOVE_REASONS } from '@/lib/constants/members'
+import { ENTRY_REASONS } from '@/lib/constants/members'
 
 // ── Tag felvétel / szerkesztés ───────────────────────────────
 
@@ -94,39 +94,12 @@ export type MemberFormValues = z.input<typeof memberSchema>
 export type MemberInput = z.output<typeof memberSchema>
 
 // ── Tag kivezetés ────────────────────────────────────────────
+// 2026-08-15 (desktop-paritás 2. szelet): a séma a közös @kartoteka/validations
+// csomagba került (members/szemely-remove.ts) — a desktop kivezetés-tükre is
+// UGYANEZZEL validál. Innen re-export a meglévő webes importok kedvéért.
 
-export const removeSchema = z.object({
-  id: z.number({ message: 'A tag azonosítója kötelező' }),
-  reason: z.enum(REMOVE_REASONS),
-  // Elhunyt
-  hdatum: z.string().optional().or(z.literal('')),
-  tdatum: z.string().optional().or(z.literal('')),
-  hhely: z.string().optional().or(z.literal('')),
-  thely: z.string().optional().or(z.literal('')),
-  hoka: z.string().optional().or(z.literal('')),
-  lelkesz: z.string().optional().or(z.literal('')),
-  munkanaplo: z.boolean().optional(),
-  // Elköltözött
-  kolt_datum: z.string().optional().or(z.literal('')),
-  kolt_hova: z.string().optional().or(z.literal('')),
-  kulfold: z.boolean().optional(),
-  kolt_megj: z.string().optional().or(z.literal('')),
-  // Kitért
-  kitert_datum: z.string().optional().or(z.literal('')),
-  kitert_vallas: z.string().optional().or(z.literal('')),
-  kitert_hova: z.string().optional().or(z.literal('')),
-  kitert_megj: z.string().optional().or(z.literal('')),
-  // Törlés: munkanapló törlés kérés
-  delete_worklogs: z.boolean().optional(),
-}).refine(
-  (data) => {
-    if (data.reason === 'meghalt') return !!data.hdatum && !!data.tdatum
-    return true
-  },
-  { message: 'Elhunyt esetén a halál és temetés dátuma kötelező', path: ['hdatum'] }
-)
-
-export type RemoveInput = z.infer<typeof removeSchema>
+export { szemelyRemoveSchema as removeSchema } from '@kartoteka/validations'
+export type { SzemelyRemoveInput as RemoveInput } from '@kartoteka/validations'
 
 // ── Család ───────────────────────────────────────────────────
 

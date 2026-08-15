@@ -3,28 +3,14 @@
  *
  * KÜLÖN FÁJLBAN, mert a tagnyilvantartas/actions.ts 'use server' modul,
  * amiből csak async function exportálható (Next 16 szabály).
+ *
+ * 2026-08-15 (desktop-paritás 2. szelet): a kapcsolat-ellenőrzés típusai a
+ * közös @kartoteka/validations csomagba kerültek (members/szemely-remove.ts) —
+ * a desktop kivezetés-tükre is ugyanazokat használja. Innen re-export a
+ * meglévő webes importok kedvéért.
  */
 
-/** Egy hivatkozás-kategória a szemely_kapcsolatok RPC katalógusából. */
-export interface PersonReferenceItem {
-  kulcs: string
-  cimke: string
-  darab: number
-}
-
-/**
- * Az előzetes kapcsolat-ellenőrzés eredménye.
- * `available: false` = az RPC (még) nem érhető el — a felület a régi,
- * általános figyelmeztetést mutatja (fail-soft, a migráció előtt is működik).
- */
-export interface PersonReferencesResult {
-  available: boolean
-  /** Védett kapcsolatok — ha van ilyen, nincs fizikai törlés, csak elrejtés. */
-  blokkolo: PersonReferenceItem[]
-  /** A törléssel együtt eltűnő kapcsolt sorok (tájékoztató). */
-  veleTorlodik: PersonReferenceItem[]
-  error?: string
-}
+export type { PersonReferenceItem, PersonReferencesResult } from '@kartoteka/validations'
 
 /** Egy rejtett (isvisible=false) személy a visszahozó listában. */
 export interface HiddenMemberItem {

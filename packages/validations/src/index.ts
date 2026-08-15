@@ -41,3 +41,6 @@ export * from './members/szemely-create'
 export * from './members/csalad-list'
 export * from './members/csalad-save'
 export * from './members/gyerek-save'
+// 2026-08-15 (desktop-paritás 2. szelet): a négyutas tag-kivezetés közös
+// sémája + szótára — a web és a desktop EGY forrásból dolgozik.
+export * from './members/szemely-remove'

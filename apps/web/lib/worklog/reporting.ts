@@ -26,6 +26,10 @@ import {
 } from '@/lib/constants/worklog'
 import { buildOfficialMunkanaploHtml } from './official-journal'
 import { buildCsaladlatogatasNaploLapok, buildKatekezisNaploLapok } from './kis-naplok'
+// 2026-08-15 (desktop-paritás 4. szelet): a nyomtatvány-keret (A4 .page
+// stílusok + <html> csomagolás) a KÖZÖS rétegből jön — az itteni styles()/
+// wrap() másolat törölve, a desktop kis napló-nyomtatás ugyanezt használja.
+import { wrapWorklogPrintDocument } from '@kartoteka/ui-app'
 
 // ---------------------------------------------------------------------------
 // Típusok
@@ -150,51 +154,11 @@ function monthLabel(monthStr: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Stílusok (leltár séma)
+// Stílusok (leltár séma) — a KÖZÖS wrapWorklogPrintDocument (ui-app) adja;
+// a lokális styles()/wrap() másolat 2026-08-15-én törölve (bit-azonos kimenet).
 // ---------------------------------------------------------------------------
 
-function styles(orientation: 'portrait' | 'landscape') {
-  const pw = orientation === 'landscape' ? '297mm' : '210mm'
-  const ph = orientation === 'landscape' ? '210mm' : '297mm'
-  return `
-    @page { size: A4 ${orientation}; margin: 12mm; }
-    * { box-sizing: border-box; }
-    body { font-family: 'Times New Roman', serif; color: #111827; margin: 0; background: #e2e8f0; padding: 18px 0; }
-    .page { width: ${pw}; min-height: ${ph}; margin: 0 auto 18px; background: #fff; box-shadow: 0 18px 40px rgba(15,23,42,.12); padding: 12mm; break-after: page; position: relative; }
-    .page:last-child { break-after: auto; }
-    .title { font-size: 20px; font-weight: bold; text-align: center; margin-bottom: 6px; text-transform: uppercase; }
-    .subtitle { font-size: 12px; text-align: center; margin-bottom: 14px; color: #475569; }
-    .meta-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 6px 24px; margin-bottom: 14px; font-size: 12px; }
-    .meta-grid strong { color: #0f172a; }
-    table { width: 100%; border-collapse: collapse; margin-top: 6px; }
-    th, td { border: 1px solid #334155; padding: 5px 6px; vertical-align: top; font-size: 11px; }
-    th { background: #e2e8f0; text-align: center; font-weight: bold; }
-    thead { display: table-header-group; }
-    tr, td, th { page-break-inside: avoid; }
-    .text-right { text-align: right; }
-    .text-center { text-align: center; }
-    .section { margin-top: 14px; }
-    .section-title { margin: 0 0 6px; font-size: 13px; font-weight: bold; text-transform: uppercase; border-bottom: 1px solid #334155; padding-bottom: 3px; }
-    .totals { font-weight: bold; background: #f8fafc; }
-    .field-row { display: flex; gap: 24px; font-size: 12px; margin-bottom: 3px; }
-    .field-row .label { color: #475569; min-width: 220px; }
-    .field-row .value { font-weight: bold; color: #0f172a; }
-    .stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; margin-bottom: 14px; }
-    .stat-box { border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 10px; text-align: center; }
-    .stat-box .label { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: #64748b; }
-    .stat-box .value { font-size: 16px; font-weight: bold; margin-top: 3px; }
-    .signature-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 18px; margin-top: 28px; }
-    .signature-box { text-align: center; font-size: 12px; }
-    .signature-line { margin-top: 30px; border-top: 1px solid #0f172a; padding-top: 5px; }
-    .page-footer { margin-top: 12px; display: flex; justify-content: space-between; font-size: 10px; color: #64748b; }
-    .note { margin-top: 8px; border: 1px solid #cbd5e1; background: #f8fafc; padding: 8px 10px; font-size: 11px; color: #475569; }
-    @media print { body { background: #fff; padding: 0; } .page { width: auto; min-height: auto; margin: 0; box-shadow: none; } }
-  `
-}
-
-function wrap(title: string, orientation: 'portrait' | 'landscape', content: string) {
-  return `<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8" /><title>${esc(title)}</title><style>${styles(orientation)}</style></head><body>${content}</body></html>`
-}
+const wrap = wrapWorklogPrintDocument
 
 // ---------------------------------------------------------------------------
 // Szűrők

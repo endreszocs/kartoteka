@@ -23,6 +23,75 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-15] — Asztali alkalmazás: leltár-rögzítés + fişă + kis naplók nyomtatása
+<!-- key: 2026-08-15-desktop-paritas-4-szelet-leltar-munkanaplo -->
+<!-- category: feature -->
+<!-- targets: lelkesz (asztali alkalmazas) -->
+
+### ✨ Új funkciók
+
+- **Új leltári tétel az asztali gépről is.** A Leltár oldal „Új tétel" gombja mostantól él: a rögzítő ablak ugyanazokkal a mezőkkel dolgozik, mint a weben (kategória, érték, mennyiség, beszerzési adatok, amortizációs katalóguskód, helyszín, felelős), a leltári számot pedig a szerver osztja ki — így két gépen sem ismétlődhet szám. A meglévő tételek a listából egy kattintással szerkeszthetők. A mentéshez internetkapcsolat és online belépés kell (a leltári szám miatt), és csak a szerver visszaigazolásával számít késznek — néma „siker" nincs.
+- **Kétnyelvű fişă az asztali gépről.** Minden leltári sor mellett ott a **Fişă** gomb, és a rögzítő ablakból is nyomtatható: ugyanaz a hivatalos, magyar–román kétnyelvű nyomtatvány (Fișa mijlocului fix / obiectului de inventar), mint a weben, HU/RO nyelvválasztóval. A nyomtatás offline is működik.
+- **Hivatalos kis naplók a Munkanaplóból.** A Munkanapló oldalon két új gomb nyomtatja a hivatalos munkafüzet **Katekézis** és **Családlátogatás** naplólapját a kiválasztott évről/hónapról — a gépen tárolt adatokból, tehát internet nélkül is.
+
+### 🎨 UX javítások
+
+- **A leltár kategória-szűrője web-azonos lett.** A hét hivatalos tárgycsoport (Alapeszközök, Telkek-földek-erdők, Csekély értékű, Könyvek, Kegyszerek, Kárpótlási, Bizományi) darabszámmal jelenik meg — a korábbi, elavult asztali címke-készlet megszűnt.
+- **Egy forrás, két felület.** A leltár kategóriái, az érték-számítás, a fişă és a kis naplók mostantól közös építőelemből jönnek a weben és az asztali gépen — amit a jövőben az egyiken javítunk, az a másikon is megjelenik. A lelkészi jelentés (EREK űrlap) nyomtatása egyelőre a webes felületen érhető el.
+
+---
+
+## [2026-08-15] — Asztali alkalmazás: Kuka — törölt rekordok visszaállítása a gépről is
+<!-- key: 2026-08-15-desktop-paritas-3-szelet-kuka -->
+<!-- category: feature -->
+<!-- targets: lelkesz (asztali alkalmazas) -->
+
+### ✨ Új funkciók
+
+- **Kuka az asztali alkalmazásban.** A bal oldali menü „Szolgálati adminisztráció" szakaszának végén új **Kuka** pont nyílt: pontosan ugyanaz a felület, mint a weben — a törölt befizetések, kiadások, belső mozgások, bérleti szerződések, munkanapló-bejegyzések, iratok, sablonok, leltári tételek és temetői rekordok egy helyen, táblánként csoportosítva, a végleges törlésig hátralévő napok visszaszámlálójával. Minden soron ott a **Visszaállítás** és a **Végleges** gomb, felül pedig a kuka ürítése (mindent, vagy csak a 30+ napos sorokat).
+- **A törlés és a visszaállítás csak a szerver visszaigazolásával számít késznek.** Az asztali Kuka minden művelet után ellenőrzi, hogy a szerver tényleg elvégezte-e — ha nem (például időközben más törölte a sort, vagy nincs jogosultság), hangos, magyar hibaüzenet jön, soha nem néma „siker".
+
+### 🎨 UX javítások
+
+- **Internetkapcsolat kell hozzá — és ezt az alkalmazás meg is mondja.** A törölt rekordoknak nincs helyi másolata a gépen, ezért a Kuka a szerverről dolgozik: kapcsolat vagy online belépés nélkül érthető magyarázó kártyát mutat, üres listát sosem hazudik. Ha valamelyik adatcsoport nem olvasható ki, figyelmeztető sáv jelenik meg, és az ürítés addig le van tiltva.
+- **Egy felület, két csomagolás.** A webes és az asztali Kuka mostantól ugyanabból a közös építőelemből épül — amit a jövőben a webes Kukán javítunk, az automatikusan az asztali változatban is megjelenik.
+
+---
+
+## [2026-08-15] — Asztali alkalmazás: a tag-kivezetés ugyanaz, mint a weben
+<!-- key: 2026-08-15-desktop-paritas-2-szelet-kivezetes -->
+<!-- category: improvement -->
+<!-- targets: lelkesz (asztali alkalmazas) -->
+
+### ✨ Új funkciók
+
+- **„Kivezetés" gomb a tag-portrén — négy úttal.** Az asztali alkalmazásban eddig csak elrejteni lehetett egy tagot; a haláleset kézi pipája pedig kihagyta az anyakönyvet. Mostantól a tag adatlapján a **Kivezetés** gomb pontosan azt a folyamatot nyitja, mint a weben: **Elhunyt** (temetés-bejegyzéssel, a háztartási tagság és a házastársi/élettársi kapcsolat lezárásával), **Elköltözött**, **Kitért / kilépett**, valamint **Végleges törlés** — utóbbinál a rendszer előre megmutatja, hogy a személyt védik-e kapcsolatok (pénzügy, anyakönyv, család…), és ilyenkor törlés helyett csak elrejti a névsorból.
+- **A választói névjegyzék magától frissül.** Minden kivezetés után a rendszer újraszámolja a választói jogosultságot — az elhunyt vagy elköltözött tag nem marad a hivatalos névjegyzéken.
+
+### 🎨 UX javítások
+
+- **Internetkapcsolat kell hozzá — és ezt az alkalmazás meg is mondja.** A kivezetés felelős művelet (anyakönyv, kapcsolat-lezárás, névjegyzék), ezért offline nem kerül várakozó sorba: kapcsolat vagy online belépés nélkül az ablak érthető magyar magyarázatot mutat, és megvárja, míg újra online leszel.
+- **A kézi „Elhunyt" pipa kikerült a szerkesztőből.** A halálesetet mostantól az asztali gépen is a Kivezetés gombbal rögzíted — így a temetési anyakönyv sem marad ki, és nincs többé kétféle, széttartó út a két felület között.
+
+---
+
+## [2026-08-15] — Asztali alkalmazás 0.9.12: friss nyomtatványok + Bérleti szerződések fül
+<!-- key: 2026-08-15-desktop-0-9-12-paritas-1-szelet -->
+<!-- category: improvement -->
+<!-- version: desktop 0.9.12 -->
+<!-- targets: lelkesz (asztali alkalmazas) -->
+
+### ✨ Új funkciók
+
+- **Bérleti szerződések fül az asztali alkalmazásban.** A Pénzügy oldal Bérleti szerződések füle mostantól a gépen is ugyanazt mutatja, mint a weben: aktív szerződések, éves várt bevétel, lejárt szerződések, típus- és állapot-szűrők. A fülhöz internetkapcsolat és online belépés kell (ha hiányzik, ezt magyarul, érthetően jelzi); a szerződés törlése innen is elvégezhető, az új szerződés rögzítése és az e-Factura számlázás egyelőre a webes felületen történik — a gombok oda irányítanak.
+- **„Kétlépcsős belépés" kártya a Beállításokban.** A Beállítások → Adat & biztonság fül új kártyán mutatja, hogy a fiókodon aktív-e a kétlépcsős belépés (2FA), és leírja, hogy a be- és kikapcsolás, a QR-kód és a mentőkódok kezelése a webes felületen történik (kartoteka.app → Profil → Biztonság).
+
+### 🎨 UX javítások
+
+- **A friss webes pénzügyi és nyomtatási javítások a gépeden is.** Az elmúlt hetek közös fejlesztései — a Kassza kiemelt rögzítő gombja, felirata és igeverse, a dátum szerinti rendezés, a nyomtatási központ javításai (részszámadás, csoportnapló lapokra bontva, romániai szabvány szerinti nyomtatványok, a Főkönyv valódi 40 soros lapozása), a kétnyelvű nyomtatványok és a román ékezetek — az új asztali kiadással (0.9.12) mind megérkeznek. Ehhez csak az alkalmazás frissítése kell, a megszokott automatikus frissítővel.
+
+---
+
 ## [2026-08-15] — Új: pecsét és aláírás a nyomtatott iratokon
 <!-- key: 2026-08-15-iktato-pecset-alairas -->
 <!-- category: feature -->

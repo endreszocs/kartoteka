@@ -23,6 +23,9 @@ import type { HiddenMemberItem, PersonReferenceItem, PersonReferencesResult } fr
 // 2026-08-15 (átvilágítás 23.): a választói jogosultság újraszámításának KÖZÖS
 // hívója — a kivezetés minden ága után lefut (lásd removeMember).
 import { refreshVoterEligibility } from '@/lib/members/voter-eligibility'
+// 2026-08-15 (desktop-paritás 2. szelet): a település-feloldás közös törzse —
+// web és desktop ugyanazt hívja (lásd a lenti getOrCreateLocality wrappert).
+import { getOrCreateLocality as coreGetOrCreateLocality } from '@kartoteka/core'
 
 // ── Segéd: congregation_id a profilból ───────────────────────
 
@@ -74,24 +77,12 @@ async function fetchAllPagedRows<T>(
 // (2026-06-10-tagnyilvantartas-fazis1-biztonsag.sql), hiba esetén null.
 
 async function getOrCreateLocality(name: string): Promise<number | null> {
-  const trimmed = name?.trim()
-  if (!trimmed) return null
+  // 2026-08-15 (desktop-paritás 2. szelet): a törzs a közös @kartoteka/core-ba
+  // került (members/locality.ts) — a desktop kivezetés-tükre is UGYANAZT a
+  // feloldást használja. Ez a wrapper csak a web-oldali kliens-példányosítást
+  // teszi hozzá.
   const supabase = await createClient()
-  // 1) Meglévő település keresése — SELECT-grant mindig van, így ez a
-  //    leggyakoribb eset a migráció lefutása előtt is működik.
-  // 2026-07-24 (PR-11 review): a % és _ ILIKE-metakarakterek escape-elve
-  // (különben pl. "Sepsi_szentgyörgy" mintaként viselkedne), és determinisztikus
-  // sorrend duplikált nevű települések esetére.
-  const escaped = trimmed.replace(/([\\%_])/g, '\\$1')
-  const { data: existing } = await supabase.from('adrlocality').select('id').ilike('name', escaped).order('id', { ascending: true }).limit(1).maybeSingle()
-  if (existing?.id) return existing.id
-  // 2) Létrehozás guardolt RPC-n
-  const { data, error } = await supabase.rpc('app_get_or_create_locality', { p_name: trimmed })
-  if (error || typeof data !== 'number') {
-    console.error('[getOrCreateLocality] sikertelen:', error?.message)
-    return null
-  }
-  return data
+  return coreGetOrCreateLocality(supabase, name)
 }
 
 async function getOrCreateStreet(name: string, localityId: number): Promise<number | null> {

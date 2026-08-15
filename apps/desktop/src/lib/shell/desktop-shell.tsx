@@ -32,6 +32,7 @@ import {
   Receipt,
   Scale,
   ScrollText,
+  Trash2,
 } from 'lucide-react'
 
 import { KartotekaShell, type MenuItem } from '@kartoteka/ui'
@@ -75,6 +76,13 @@ const DESKTOP_HIDDEN_MENU_HREFS = [
   '/admin',
   '/dashboard-egyhazmegye',
   '/dashboard-kerulet',
+]
+
+// 2026-08-15 (desktop-paritás 3. szelet): a Kuka a weben a fejléc
+// mega-menüjéből nyílik — desktopon nincs ilyen menü, ezért a sidebar
+// „Szolgálati adminisztráció" szekciójának végére kerül.
+const DESKTOP_EXTRA_OPERATIVE_ITEMS: MenuItem[] = [
+  { label: 'Kuka', href: '/kuka', icon: Trash2, gradient: 'from-red-400 to-rose-500' },
 ]
 
 import { AutoSyncStatusBar } from '../../components/auto-sync-status-bar'
@@ -338,6 +346,7 @@ export function DesktopShell({ children }: DesktopShellProps) {
         }}
         financeSubmenu={DESKTOP_FINANCE_SUBMENU}
         hiddenMenuHrefs={DESKTOP_HIDDEN_MENU_HREFS}
+        extraOperativeItems={DESKTOP_EXTRA_OPERATIVE_ITEMS}
         // 2026-06-11 (Endre): a session/szinkron jelvények a HEADERBEN élnek —
         // a korábbi lebegő (fixed) pozíció kitakarta a modulok tartalmát.
         headerExtra={

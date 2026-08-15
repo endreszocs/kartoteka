@@ -60,3 +60,13 @@ export * from './dashboard/AgeDistribution'
 export * from './finance'
 // Tagnyilvántartás közös darabjai (D-hullám, 2026-06-11): avatar + családi kártya + karton-print
 export * from './members'
+// Kuka közös rétege (2026-08-15, desktop-paritás 3. szelet): visszaszámláló,
+// címkék, táblalista + RecycleBinBody — a web és a desktop Kuka EGY felület.
+export * from './recycle-bin'
+// Leltár közös rétege (2026-08-15, desktop-paritás 4. szelet): kategóriák,
+// érték-számítás, kétnyelvű fisa-builder, mentés-szabályok — web ⇄ desktop
+// egy forrásból (a webes lib/constants/inventory.next.ts innen re-exportál).
+export * from './inventory'
+// Munkanapló közös rétege (2026-08-15, desktop-paritás 4. szelet): a hivatalos
+// Katekézis + Családlátogatás naplólapok (kis naplók) és a nyomtatvány-keret.
+export * from './worklog'

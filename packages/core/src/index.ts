@@ -397,3 +397,13 @@ export {
   type KeszpenzFigyelmeztetes,
   type KeszpenzFigyelmeztetesKod,
 } from './finance/keszpenz-korlatok'
+
+// ── Tagnyilvántartás — közös use-case helperek (2026-08-15, desktop-paritás
+// 2. szelet: a webes kivezetés-lánc megosztott darabjai, a desktop-tükör is
+// ezeket hívja) ──
+export {
+  VOTER_RECOMPUTE_WARNING,
+  refreshVoterEligibility,
+  type VoterRecomputeResult,
+} from './members/voter-recompute'
+export { getOrCreateLocality } from './members/locality'

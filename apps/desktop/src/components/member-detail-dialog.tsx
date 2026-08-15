@@ -20,10 +20,21 @@
  *   - Rejtés előtt browser-confirm, pasztorális magyarázattal
  *   - A `cnp`, `congregation_id`, `family_id`, `type`, `isvisible` az edit-formból
  *     kimarad: külön flow vagy admin-felület (M8.3 család-UI, M8.1 új tag)
+ *
+ * 2026-08-15 (desktop-paritás 2. szelet — „A törlés egy nyelvet beszéljen"):
+ *   - Új „Kivezetés" gomb (onRemoveRequest) — a webes négyutas kivezetést
+ *     nyitja (elhunyt / elköltözött / kitért / végleges törlés), amely az
+ *     anyakönyvi láncot, a kapcsolat-lezárást és a választói frissítést is
+ *     elvégzi (members-page → DesktopMemberRemoveDialog).
+ *   - A régi „Elrejtés / Visszahozás" toggle MEGMARAD admin-műveletként
+ *     (lista-szűrés, nem kivezetés).
+ *   - A kézi „Elhunyt" pipa az edit-formból TÖRÖLVE: a régi M8.2-es út az
+ *     anyakönyv (temetés-bejegyzés) kihagyásával jelölt halált — pontosan az
+ *     az adatminőség-rés, amit a kivezetés-port megszüntet.
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, Camera, Check, EyeOff, Eye, Pencil, X } from 'lucide-react'
+import { AlertCircle, Camera, Check, EyeOff, Eye, Pencil, UserMinus, X } from 'lucide-react'
 
 import { Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Label } from '@kartoteka/ui'
 import { AvatarEditorBody } from '@kartoteka/ui-app'
@@ -48,6 +59,12 @@ interface MemberDetailDialogProps {
   userId: string
   /** Az aktuális szerver-revision (a szemely_local.revision mezőből olvasva). */
   currentRevision: number
+  /**
+   * 2026-08-15 (2. szelet): a négyutas kivezetés-dialógus megnyitása — a
+   * members-page köti be (DesktopMemberRemoveDialog). Ha nincs megadva, a
+   * Kivezetés gomb nem jelenik meg (defenzív).
+   */
+  onRemoveRequest?: () => void
 }
 
 type Mode = 'view' | 'edit'
@@ -65,6 +82,7 @@ export function MemberDetailDialog({
   onClose,
   userId,
   currentRevision,
+  onRemoveRequest,
 }: MemberDetailDialogProps) {
   const [mode, setMode] = useState<Mode>('view')
   const [form, setForm] = useState<EditableFields>(() => extractEditable(m))
@@ -88,6 +106,10 @@ export function MemberDetailDialog({
    * M8.2 — soft-delete / visszahozás. Az `isvisible` flag-et toggle-eli az
    * `updateSzemelyEntry` sync-helper-en. A lelkész oldalán ez a "Rejtett"
    * lista-szűrőbe teszi / onnan visszahozza a taget.
+   *
+   * 2026-08-15 (2. szelet): ez ADMIN-művelet maradt (lista-szűrés) — a valódi
+   * kivezetés (haláleset, elköltözés, kitérés, törlés) útja a „Kivezetés"
+   * gomb, amely az anyakönyvvel összekötött négyutas dialógust nyitja.
    */
   async function handleToggleVisibility() {
     const isCurrentlyVisible = m.isvisible === 1
@@ -377,6 +399,23 @@ export function MemberDetailDialog({
                   <Pencil className="size-4" />
                   Szerkesztés
                 </Button>
+                {/* 2026-08-15 (2. szelet): a webes négyutas kivezetés —
+                    elhunyt / elköltözött / kitért / végleges törlés, az
+                    anyakönyvi lánccal együtt. Online kapcsolat kell hozzá
+                    (a dialógus offline hangosan jelzi). */}
+                {onRemoveRequest && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={onRemoveRequest}
+                    disabled={saving}
+                    className="border-rose-300 text-rose-800 hover:bg-rose-50"
+                    title="Kivezetés: haláleset, elköltözés, kitérés vagy végleges törlés — anyakönyvi bejegyzéssel és a választói névjegyzék frissítésével."
+                  >
+                    <UserMinus className="mr-2 size-4" />
+                    Kivezetés
+                  </Button>
+                )}
                 <Button
                   type="button"
                   variant="outline"
@@ -529,8 +568,9 @@ type EditableFields = {
   foglalkozas: string
   nemzetiseg: string
   megjegyzes: string
-  // M8.4 admin-jelzők (boolean → string '0'/'1' a form-state-ben; patch-be boolean-ként)
-  meghalt: string
+  // M8.4 admin-jelzők (boolean → string '0'/'1' a form-state-ben; patch-be
+  // boolean-ként). 2026-08-15 (2. szelet): a `meghalt` KIKERÜLT — a haláleset
+  // a Kivezetés gombbal rögzítendő (anyakönyvi lánccal), nem kézi pipával.
   /** 2026-07-24 (PR-8): választói KÉZI felülbírálás — '' = automatikus,
    *  '1' = kézzel választó, '0' = kézzel nem választó. A voter_eligible-t
    *  közvetlenül többé nem szerkesztjük (a webes recompute felülírná). */
@@ -616,14 +656,16 @@ function EditBody({
           előbb a gondnokot vagy a presbitériumot.
         </p>
 
-        <CheckboxRow
-          id="meghalt"
-          label="Elhunyt"
-          hint="Ha a tag elhunyt — a listában † jellel + áthúzott névvel jelenik meg."
-          checked={form.meghalt === '1'}
-          onChange={(v) => upd('meghalt', v ? '1' : '0')}
-          disabled={disabled}
-        />
+        {/* 2026-08-15 (2. szelet): a kézi „Elhunyt" pipa TÖRÖLVE — az M8.2-es
+            út az anyakönyv (temetés-bejegyzés) kihagyásával jelölt halált.
+            A haláleset a tag-portré „Kivezetés" gombjával rögzítendő, amely a
+            temetés-bejegyzést, a kapcsolat-lezárást és a választói frissítést
+            is elvégzi. */}
+        <p className="rounded-md border border-slate-200 bg-slate-50/60 px-3 py-2 text-[11px] leading-tight text-slate-500">
+          Haláleset, elköltözés, kitérés vagy törlés rögzítése: zárd be a
+          szerkesztést, és használd a <strong>Kivezetés</strong> gombot — az az
+          anyakönyvi bejegyzéssel együtt vezeti ki a tagot.
+        </p>
         {/* 2026-07-24 (PR-8): a közvetlen voter_eligible-kapcsoló helyett
             felülbírálás-választó — a kézi döntést a webes „Jogosultság
             frissítése" (recompute) is megőrzi. */}
@@ -862,9 +904,10 @@ const EDITABLE_TEXT_KEYS: (keyof EditableFields)[] = [
  * Integer-boolean mezők a `szemely_local`-on (0/1) — a form-state-ben '0'/'1'
  * stringként tároljuk a kezelés egységessége miatt, a patch-be konvertáljuk
  * valódi `boolean`-ná.
+ * 2026-08-15 (2. szelet): a `meghalt` kikerült — lásd az EditableFields
+ * kommentjét (Kivezetés-gomb az út, nem kézi pipa).
  */
 const EDITABLE_BOOL_KEYS: (keyof EditableFields)[] = [
-  'meghalt',
   'csaladfo',
 ]
 

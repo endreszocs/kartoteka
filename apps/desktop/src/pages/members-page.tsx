@@ -32,11 +32,13 @@ import {
 
 import { MemberCreateDialog } from '../components/member-create-dialog'
 import { MemberDetailDialog } from '../components/member-detail-dialog'
+// 2026-08-15 (desktop-paritás 2. szelet): a webes négyutas kivezetés desktopon.
+import { DesktopMemberRemoveDialog } from '../components/member-remove-dialog'
 import { SzemelyConflictDialog } from '../components/szemely-conflict-dialog'
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
 import { getDesktopUser } from '../lib/desktop-user'
-import { getLocalOwnProfile } from '../lib/sync'
+import { getLocalOwnProfile, pullMembersOfOwnCongregation } from '../lib/sync'
 import { useDataVersion, notifyLocalDataChanged } from '../lib/sync-orchestrator'
 import { startSzemelyAutoSync } from '../lib/szemely-write-sync'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
@@ -60,6 +62,19 @@ export function MembersPage() {
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+
+  // 2026-08-15 (2. szelet): a kivezetés-dialógus célszemélye + oldal-toast
+  // (a penzugy-page pageToast mintája — a siker/figyelmeztetés a dialógus
+  // zárása UTÁN is látsszon).
+  const [removeTarget, setRemoveTarget] = useState<{ id: number; name: string } | null>(null)
+  const [pageToast, setPageToast] = useState<{ kind: 'success' | 'warning'; msg: string } | null>(null)
+
+  // Toast automatikus eltűntetése — a figyelmeztetés (teendős üzenet) tovább marad.
+  useEffect(() => {
+    if (!pageToast) return
+    const t = setTimeout(() => setPageToast(null), pageToast.kind === 'warning' ? 12000 : 5000)
+    return () => clearTimeout(t)
+  }, [pageToast])
 
   type PendingRow = Awaited<
     ReturnType<ReturnType<typeof getTauriSqliteBackend>['listLocalPendingSzemely']>
@@ -290,6 +305,20 @@ export function MembersPage() {
           </div>
         )}
 
+        {/* Kivezetés-visszajelzés (siker / teendős figyelmeztetés) */}
+        {pageToast && (
+          <div
+            role="status"
+            className={`rounded-md border px-3 py-2 text-sm ${
+              pageToast.kind === 'success'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                : 'border-amber-200 bg-amber-50 text-amber-900'
+            }`}
+          >
+            {pageToast.msg}
+          </div>
+        )}
+
         {/* Táblázat */}
         {loading ? (
           <div className="py-12 text-center text-muted-foreground">
@@ -433,6 +462,49 @@ export function MembersPage() {
               notifyLocalDataChanged()
             }}
             onClose={() => setSelectedId(null)}
+            // 2026-08-15 (2. szelet): a négyutas kivezetés megnyitása — csak
+            // ismert gyülekezet-hatókörrel (fail-closed: enélkül a gomb sincs).
+            onRemoveRequest={
+              congregationId
+                ? () =>
+                    setRemoveTarget({
+                      id: selectedMember.id,
+                      name: formatFullName(selectedMember),
+                    })
+                : undefined
+            }
+          />
+        )}
+
+        {/* 2026-08-15 (2. szelet): a webes négyutas kivezetés — online-only,
+            offline hangos magyarázattal (fail-closed, nem kerül outbox-ba). */}
+        {congregationId && (
+          <DesktopMemberRemoveDialog
+            open={removeTarget !== null}
+            onOpenChange={(v) => {
+              if (!v) setRemoveTarget(null)
+            }}
+            member={removeTarget}
+            congregationId={congregationId}
+            onToast={(msg, kind) => setPageToast({ kind, msg })}
+            onRemoved={() => {
+              // Siker: a portré-ablak is záruljon (a régi adatokat mutatná),
+              // majd TELJES pull — a kivezetés a szerveren történt, a lokális
+              // tükör innen frissül (a végleges törlés lokális takarítását a
+              // removeMemberDesktop már elvégezte).
+              setRemoveTarget(null)
+              setSelectedId(null)
+              if (userId) {
+                pullMembersOfOwnCongregation(userId, 'full')
+                  .then(() => notifyLocalDataChanged())
+                  .catch((err) => {
+                    setPageToast({
+                      kind: 'warning',
+                      msg: `A kivezetés megtörtént, de a helyi lista frissítése nem sikerült: ${errorMessage(err)} — húzd le kézzel a szinkront, vagy indítsd újra az alkalmazást.`,
+                    })
+                  })
+              }
+            }}
           />
         )}
 
