@@ -115,9 +115,12 @@ function isStepValidOn(s: WizardStep, form: SetupFormState): boolean {
   if (s === 'contact')
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email) && form.telefon.trim().length > 0
   if (s === 'bank-leadership')
+    // 2026-08-15 (Endre): a BANKSZÁMLA már NEM kötelező ezen a lépésen —
+    // „a banki kontók beállítása később". A bankszámla nem a hivatalos irat
+    // fejlécéhez kell (az a név, a cím és a CIF), hanem a pénzforgalomhoz;
+    // azt viszont ritkán tudja fejből az, aki a törzsadatot rögzíti.
+    // A varázsló záró összesítője KIÍRJA, ha üresen maradt.
     return (
-      form.bank_nev.trim().length > 0 &&
-      form.bank_fo_iban.trim().length > 0 &&
       form.esperes_nev.trim().length >= 2 &&
       form.esperes_cim.trim().length >= 2 &&
       form.jegyzo_nev.trim().length >= 2
@@ -181,11 +184,10 @@ function stepBlockReason(s: WizardStep, form: SetupFormState): string | null {
     }
     if (form.telefon.trim().length === 0) hianyzo.push('Telefonszám')
   } else if (s === 'bank-leadership') {
-    if (form.bank_nev.trim().length === 0) hianyzo.push('Bank neve')
-    if (form.bank_fo_iban.trim().length === 0) hianyzo.push('IBAN')
+    // A bank SZÁNDÉKOSAN nincs itt — 2026-08-15 óta később is pótolható.
     if (form.esperes_nev.trim().length < 2) hianyzo.push('Esperes neve')
-    if (form.esperes_cim.trim().length < 2) hianyzo.push('Esperes címe')
-    if (form.jegyzo_nev.trim().length < 2) hianyzo.push('Jegyző neve')
+    if (form.esperes_cim.trim().length < 2) hianyzo.push('Esperes címe (tisztsége)')
+    if (form.jegyzo_nev.trim().length < 2) hianyzo.push('Egyházmegyei jegyző neve')
   } else if (s === 'confirm') {
     const hianyosLepesek = STEP_ORDER.slice(0, -1)
       .filter((st) => !isStepValidOn(st, form))
@@ -402,9 +404,66 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
     }
   }
 
-  function handleBack() {
+  /**
+   * A JELENLEGI LÉPÉS BEÍRT ADATAINAK MENTÉSE — akkor is, ha a lépés HIÁNYOS.
+   *
+   * ════════════════════════════════════════════════════════════════════════
+   * MIÉRT KELL (2026-08-15, Endre kérése)
+   * ════════════════════════════════════════════════════════════════════════
+   * „minden beírt adatot a Tovább gomb megnyomásával mentsen el, hogy ne
+   *  kelljen újra kitölteni elölről, ha kilépek valamelyik pontnál"
+   *
+   * Eddig HÁROM lyuk volt, és mindhárom ugyanoda vezetett — elveszett a
+   * begépelt adat:
+   *   (1) a „Tovább" MENT ugyan, de a gomb LE VAN TILTVA, amíg a lépés
+   *       hiányos → épp akkor NEM mentett, amikor a legnagyobb szükség lett
+   *       volna rá (pl. egy elgépelt e-mail miatt);
+   *   (2) a „Vissza" EGYÁLTALÁN nem mentett — aki visszalépett javítani,
+   *       elvesztette az aktuális lépésen beírtakat;
+   *   (3) a „Később" / X / ESC sem mentett.
+   *
+   * A `saveDioceseSetupStep` szerver-akció ERRE ALKALMAS: csak a ténylegesen
+   * átadott mezőket írja, az üres értéket NULL-ra teszi, a NOT NULL `name`-et
+   * pedig csak nem üres értékkel frissíti. Hiányos lépést tehát nyugodtan
+   * elmenthetünk — nem ront el semmit.
+   *
+   * `csendes = true`: kilépéskor/visszalépéskor nem villantunk hibát a
+   * felhasználó arcába; a mentés legrosszabb esetben nem történik meg, de a
+   * navigáció nem akad el.
+   */
+  async function mentsdAmiBeVanIrva(csendes = true): Promise<boolean> {
+    setStepSaving(true)
+    try {
+      const res = await saveDioceseSetupStep({ id: dioceseId, ...stepFields(step, form) })
+      if (res.error) {
+        if (!csendes) toast.error(`Mentés sikertelen: ${res.error}`)
+        return false
+      }
+      return true
+    } catch {
+      return false
+    } finally {
+      setStepSaving(false)
+    }
+  }
+
+  async function handleBack() {
     const idx = STEP_ORDER.indexOf(step)
-    if (idx > 0) setStep(STEP_ORDER[idx - 1])
+    if (idx <= 0) return
+    // Előbb mentünk, csak utána lépünk vissza — különben az ezen a lépésen
+    // beírt (esetleg még hiányos) adat elveszne.
+    await mentsdAmiBeVanIrva()
+    setStep(STEP_ORDER[idx - 1])
+  }
+
+  /**
+   * Kilépés — de CSAK a beírt adat mentése UTÁN.
+   * Ez fogja el a „Később" gombot, az X-et, az ESC-et és a dialóguson kívüli
+   * kattintást is (mind a `onOpenChange(false)`-on megy keresztül).
+   */
+  async function handleClose() {
+    await mentsdAmiBeVanIrva()
+    onOpenChange(false)
   }
 
   async function handleCimerUpload(ev: React.ChangeEvent<HTMLInputElement>) {
@@ -444,7 +503,15 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
   const progressPercent = ((STEP_ORDER.indexOf(step) + 1) / STEP_ORDER.length) * 100
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    // 2026-08-15: a bezárás MINDEN útja (X, ESC, kívülre kattintás, „Később")
+    // átmegy a handleClose-on, ami előbb elmenti a beírt adatot.
+    <Dialog
+      open={open}
+      onOpenChange={(nyitva) => {
+        if (nyitva) onOpenChange(true)
+        else void handleClose()
+      }}
+    >
       <DialogContent
         className="
           !w-[96vw] !max-w-[96vw] sm:!max-w-[min(900px,96vw)]
@@ -543,6 +610,11 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
           >
             <span className="font-medium">Még nem léphetsz tovább — </span>
             {blockReason}
+            {/* Megnyugtatás: a begépelt adat NEM vész el, akkor sem, ha most
+                kilépsz. Épp ez volt a panasz (2026-08-15). */}
+            <span className="block mt-0.5 opacity-80">
+              A már beírt adatokat elmentjük — ha most kilépsz, nem kell újra kitöltened.
+            </span>
           </div>
         )}
 
@@ -551,7 +623,7 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
           <Button
             type="button"
             variant="ghost"
-            onClick={step === 'basics' ? () => onOpenChange(false) : handleBack}
+            onClick={step === 'basics' ? () => void handleClose() : () => void handleBack()}
             disabled={isPending || stepSaving}
             className="rounded-xl"
           >
@@ -818,17 +890,22 @@ function StepBankLeadership({
           <div>
             <h3 className="font-heading text-base text-slate-800">Bank + vezetés</h3>
             <p className="text-xs text-slate-600 mt-1">
-              A fő bankszámla és a jelenlegi esperes + jegyző neve (a dokumentumokon megjelenik).
+              A jelenlegi esperes és jegyző neve — ezek a hivatalos dokumentumokon megjelennek.
+            </p>
+            {/* 2026-08-15 (Endre): a bankszámla később is pótolható. */}
+            <p className="text-xs text-slate-500 mt-1">
+              A <strong className="font-medium">bankszámla megadása nem kötelező most</strong> —
+              később, az „Egyházmegye beállításai” ablakban is pótolható.
             </p>
           </div>
         </div>
       </div>
 
       <div className="grid gap-3 md:grid-cols-[1.2fr_2fr_0.8fr]">
-        <ModalField label="Bank neve *">
+        <ModalField label="Bank neve (később is megadható)">
           <Input value={form.bank_nev} onChange={(e) => setForm({ ...form, bank_nev: e.target.value })} placeholder="Pl. BCR" />
         </ModalField>
-        <ModalField label="IBAN *">
+        <ModalField label="IBAN (később is megadható)">
           <Input value={form.bank_fo_iban} onChange={(e) => setForm({ ...form, bank_fo_iban: e.target.value })} placeholder="RO..." className="font-mono text-xs" />
         </ModalField>
         <ModalField label="Valuta">
