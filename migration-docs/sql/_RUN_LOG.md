@@ -19,6 +19,38 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
+## 🔴 PENDING – Egyházkerületi S3: fogadó felület (2026-08-16)
+
+- [ ] **`2026-08-16-egyhazkeruleti-S3-fogado.sql`** — PENDING
+       A kerületi fogadó felület adatbázis-alapja. NÉGY dolgot old meg:
+       **(1) 9. csapda — a fagyasztott irat védelme.** BEFORE UPDATE trigger
+       (`diocese_felterjesztes_kerulet_oszlopvedelem`): kerületi útról CSAK a
+       status / received_* / returned_reason / notes / unlock_* / updated_at
+       változhat. A `snapshot_data`, `iktatoszam`, `submitted_*`, `doc_type`,
+       `year`, `diocese_id`, `district_id` SOHA — a kerület nem hamisíthatja meg
+       a megye beküldött iratát. **Engedélyezési listás** (`to_jsonb` diff),
+       tehát minden később hozzáadott oszlop automatikusan védett. A MEGYEI
+       felküldés (`rogzitDioceseFelterjesztes`) és a rendszergazda átmegy rajta.
+       Külön záradék köti a `received_by`-t (csak a saját uid) és az
+       `unlock_requested_by`-t (kerület felől csak NULL-ra) — okirat-integritás.
+       **(2) 10. csapda — a valódi lánc.** `dioceses` UNIQUE (id, district_id) +
+       kompozit FK (diocese_id, district_id): egy esperes nem küldhet fel
+       tetszőleges kerülethez. ⚠️ Ettől KÉT FK mutat a `dioceses`-re, tehát a
+       PostgREST-beágyazás kétértelmű (PGRST201) — a fájl 2/B-205 sora és a
+       fejléce is figyelmeztet rá.
+       **(3) A kerületi SZÁMVEVŐ olvasása.** A meglévő `_kerulet_select` a
+       `current_user_district_ids()`-t hívja (csak admin) → az ellenőr ÜRES
+       listát látott volna, ami „nincs beküldve"-nek látszik. Új, külön SELECT
+       policy a `current_user_district_olvaso_ids()`-re.
+       **(4) Az ÉRTESÍTÉS-LÁNC kerületi vége.** Az `ertesitesek_szint_insert`
+       `congregation_id IS NOT NULL`-t követel, a felterjesztés viszont a MEGYE
+       irata (nincs gyülekezete) → kerületi adminként MINDEN átvétel/
+       visszaküldés/feloldás-értesítés elbukott volna az RLS-en, némán. Új,
+       szűk `ertesitesek_kerulet_insert` policy: gyülekezet nélküli sor, a hívó
+       kerületébe eső egyházmegye AKTÍV tisztségviselőjének címezve.
+
+---
+
 ## 🔴 PENDING – Egyházkerületi szint: S1c rálátás-bezárás + S2 identitás (2026-08-16)
 
 - [ ] **`2026-08-16-egyhazkeruleti-S1c-ralatas-bezaras.sql`** — PENDING

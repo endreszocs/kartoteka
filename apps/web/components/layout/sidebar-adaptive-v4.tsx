@@ -685,10 +685,35 @@ function SidebarNav({
     { label: 'Iktatás', href: '/iktato', icon: FileText, gradient: 'from-violet-400 to-purple-500' },
   ]
 
+  // District scope menü (2026-08-16, egyházkerületi S3).
+  //
+  // MIÉRT KELL SAJÁT ÁG: a kerületi profil eddig a GYÜLEKEZETI modul-listát
+  // kapta (Pénzügy, Tagnyilvántartás, Anyakönyv…). Ez Endre K4 döntése óta
+  // egyenesen félrevezető: „A kerület nem írhatja és nem is olvassa a kerület
+  // gyülekezeteinek és egyházmegyéinek az adatait, csak a hivatalosan beküldött
+  // adatokat illetve azoknak az összesítőjét." Azok a menüpontok tehát olyan
+  // felületekre vittek, amelyek 2026-08-16 óta üresek — a felhasználó pedig azt
+  // hinné, hogy elromlott valami, nem azt, hogy nem is jár neki.
+  //
+  // A terv szabálya itt is érvényes: menüpont CSAK MEGÉPÜLT célponthoz kerül be
+  // (halott link soha). Ezért ma két elem van; az S4 hozza majd az „Iratok
+  // archívuma" és az „Összesítő" pontot, az S5 a kerületi Leltárt/Iktatást.
+  const districtMainItems: MenuItem[] = [
+    dynamicDashboardItem,
+    {
+      label: 'Felterjesztések',
+      href: '/dashboard-kerulet/felterjesztesek',
+      icon: Archive,
+      gradient: 'from-violet-400 to-purple-500',
+    },
+  ]
+
   // Gyülekezeti mainItems dinamikus elemmel
   const effectiveMainItems: MenuItem[] = isDioceseScope
     ? dioceseMainItems
-    : [
+    : isDistrictScope
+      ? districtMainItems
+      : [
         dynamicDashboardItem,
         ...mainItems.slice(1).map((m) => {
           if (m.href === '/penzugy') return financeMenuItem
@@ -700,8 +725,12 @@ function SidebarNav({
 
   // Lelkész / esperes / admin: a saját gyülekezetük moduljaihoz jutnak
   if (showCongregationSections) {
-    if (isDioceseScope) {
-      // Diocese scope-ban CSAK a Pénzügy fő modul + Profil
+    if (isDioceseScope || isDistrictScope) {
+      // Diocese scope-ban CSAK a Pénzügy fő modul + Profil.
+      // District scope-ban (2026-08-16, K4) UGYANEZ az elv: a kerület a
+      // gyülekezetek belső moduljait NEM látja, tehát a „Szolgálati
+      // adminisztráció" és a „Közösségi tér" szakasz sem jár neki — azok
+      // gyülekezeti adatra épülnek, ami számára üres lenne.
       sections.push({ title: 'Fő modulok', items: effectiveMainItems })
       sections.push({ title: 'Profilom', items: profileItems })
     } else {

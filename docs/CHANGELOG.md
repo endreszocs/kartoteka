@@ -23,6 +23,32 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-16] — Az egyházkerület mostantól átveszi a megyék felterjesztéseit
+<!-- key: 2026-08-16-egyhazkeruleti-fogado-felulet -->
+<!-- category: feature -->
+<!-- version: 0.9.169 -->
+<!-- targets: egyhazkeruleti admin + szamvevo + esperes -->
+
+### ✨ Új funkciók
+
+- **Megérkezett a lánc másik vége.** Az egyházmegye 2026-08-15 óta fel tudja küldeni a számadását, költségvetését, költségvetés-módosításait és a számvevői összesítőjét — de **a kerület eddig nem látta őket**. Új felület (`Felterjesztések`) a kerületi menüben: évenként és egyházmegyénként, mind a négy irattípusra.
+- **Átvétel, visszaküldés, feloldás — egy helyen.** Az „Átvettem" gombbal a kerület nyugtázza az irat átvételét. A „Visszaküldés javításra" **kötelező indoklást** kér (indoklás nélkül a megyének nincs mit javítania), és az indok megjelenik a megyénél. A megye feloldás-kérelmeit külön, kiemelt blokkban lehet **jóváhagyni vagy elutasítani**.
+- **Ami nincs beküldve, az láthatóan hiányzik.** A felület a kerület **összes** egyházmegyéjét felsorolja, nem csak azokat, akiktől érkezett irat — így egy „kerek" listában nem rejtőzhet el fél kerület hiánya. (A költségvetés-módosítás hiánya szándékosan nem kap riasztó jelzést: nem minden évben van módosítás.)
+- **A megye is látja, mi történt.** A megyei felületen eddig csak a „Felküldve" felirat állt; mostantól az **„Átvéve"** és a **„Visszaküldve"** állapot is megjelenik, dátummal — visszaküldésnél az indoklással és azzal, mi a teendő.
+- **Értesítés a megyének.** Átvételkor, visszaküldéskor és feloldás-elbíráláskor a megye tisztségviselői értesítést kapnak — a lánc eddig némán futott.
+
+### 🔒 Ami megvédi a hivatalos iratot
+
+- **A beküldött irat tartalma nem módosítható a kerület felől.** Adatbázis-szintű őrszem gondoskodik róla, hogy a kerület csak az átvétel tényét, a visszaküldés indokát és a megjegyzéseket írhassa — a **beküldött irat tartalmát, iktatószámát és a felküldés időpontját soha**. Az „átvevő személye" mezőbe sem lehet más nevét beírni.
+- **Egy egyházmegye csak a saját egyházkerületéhez küldhet fel.** Eddig ezt semmi nem akadályozta meg.
+- **Az ellenőr lát, de nem nyúl hozzá.** Az egyházkerületi számvevő megnézheti és kinyomtathatja a felterjesztéseket, de az átvétel, a visszaküldés és az elbírálás gombjai nála **letiltva** jelennek meg, magyarázattal — nem kattintás után derül ki.
+
+### ℹ️ Rendszergazdai teendő
+
+- Futtatandó: `migration-docs/sql/2026-08-16-egyhazkeruleti-S3-fogado.sql`. Amíg nem fut le, a fogadó felület megnyílik, de az átvétel/visszaküldés az irat-védelem és az értesítés hiánya miatt nem teljes.
+
+---
+
 ## [2026-08-16] — Egyházkerület: saját arculat, és a kerület már nem lát bele a gyülekezetekbe
 <!-- key: 2026-08-16-egyhazkeruleti-identitas-ralatas -->
 <!-- category: feature -->
