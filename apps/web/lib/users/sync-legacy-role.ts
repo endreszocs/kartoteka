@@ -7,6 +7,9 @@ import { createClient } from '@/lib/supabase/server'
 const ROLE_PRIORITY = [
   'admin',
   'egyhazkeruleti_admin',
+  // 2026-08-15: a kerületi számvevő az ellenőr — a kerületi ADMIN alatt, de a
+  // megyei szintek FÖLÖTT áll, mert a hatóköre egy egész egyházkerület.
+  'egyhazkeruleti_szamvevo',
   'esperes',
   'egyhazmegyei_admin',
   'egyhazmegyei_szamvevo',

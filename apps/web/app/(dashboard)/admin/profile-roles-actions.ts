@@ -171,8 +171,17 @@ export async function createProfileRole(
   if (input.scope === 'system' && input.role !== 'admin') {
     return { error: 'System scope-hoz csak admin szerep rendelhető.' }
   }
-  if (input.scope === 'district' && !['egyhazkeruleti_admin', 'custom'].includes(input.role)) {
-    return { error: 'Egyházkerületi scope-hoz csak egyházkerületi admin vagy egyedi szerep rendelhető.' }
+  // 2026-08-15 (egyházkerületi S1): a kerületi SZÁMVEVŐ (ellenőr) is district
+  // hatókörű. Enélkül a szerep létezne a típusokban, de KIOSZTHATÓ nem lenne.
+  if (
+    input.scope === 'district' &&
+    !['egyhazkeruleti_admin', 'egyhazkeruleti_szamvevo', 'custom'].includes(input.role)
+  ) {
+    return {
+      error:
+        'Egyházkerületi scope-hoz csak egyházkerületi admin, egyházkerületi számvevő ' +
+        'vagy egyedi szerep rendelhető.',
+    }
   }
   if (input.scope === 'diocese' && !['egyhazmegyei_admin', 'esperes', 'egyhazmegyei_szamvevo', 'custom'].includes(input.role)) {
     return { error: 'Egyházmegyei scope-hoz csak esperes, egyházmegyei admin/számvevő vagy egyedi szerep rendelhető.' }

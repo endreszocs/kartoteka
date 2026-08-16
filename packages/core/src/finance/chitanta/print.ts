@@ -136,27 +136,48 @@ export async function getChitantaForPrintUseCase(
     let egyhazmegyeNevRo: string | null = null
     let egyhazkeruletNev: string | null = null
     let egyhazkeruletNevRo: string | null = null
+    // ⚠️ 2026-08-15 JAVÍTÁS — NEM LÉTEZŐ OSZLOPOKAT KÉRTÜNK.
+    //
+    // TÜNET VOLT: a nyugta kétnyelvű fejlécéből NÉMÁN kimaradt az egyházmegye
+    // ÉS az egyházkerület neve is.
+    //
+    // OK: itt a `congregations` mintáját másoltuk (ott VAN `nev_hu`), de
+    //   · a `dioceses` táblán NINCS `nev_hu` (csak `name`, és 2026-08-15 óta
+    //     `nev_ro` + `nev_en` — lásd 2026-08-15-dioceses-nev-ro-en.sql),
+    //   · a `districts` táblán NINCS sem `nev_hu`, sem `nev_ro` (a táblának
+    //     mindössze három oszlopa van: id, name, created_at).
+    // A PostgREST ilyenkor 42703-mal 400-at ad, a `data` null lesz — a hiba
+    // pedig nem volt kezelve, ezért a `if (diocese)` ág SOHA nem futott le, és
+    // vele együtt a beágyazott kerület-lekérdezés sem.
+    //
+    // HIBAOSZTÁLY: „rossz select → némán ÜRES eredmény". Csak a ténylegesen
+    // létező oszlopokat kérjük.
+    //
+    // TODO (S2 + S6 szelet): amint a `districts` megkapja a hivatalos
+    // identitását (`nev_ro`), a kerületi román nevet ITT kell bekötni —
+    // ugyanígy, `dd.nev_ro`-ként.
     if (cong?.diocese_id) {
       const { data: diocese } = await ctx.supabase
         .from('dioceses')
-        .select('name, nev_hu, nev_ro, district_id')
+        .select('name, nev_ro, district_id')
         .eq('id', cong.diocese_id)
         .maybeSingle()
       if (diocese) {
         const d = diocese as Record<string, string | null>
-        egyhazmegyeNev = d.nev_hu ?? d.name ?? null
+        egyhazmegyeNev = d.name ?? null
         egyhazmegyeNevRo = d.nev_ro ?? null
         const districtId = d.district_id
         if (districtId) {
           const { data: district } = await ctx.supabase
             .from('districts')
-            .select('name, nev_hu, nev_ro')
+            .select('name')
             .eq('id', districtId)
             .maybeSingle()
           if (district) {
             const dd = district as Record<string, string | null>
-            egyhazkeruletNev = dd.nev_hu ?? dd.name ?? null
-            egyhazkeruletNevRo = dd.nev_ro ?? null
+            egyhazkeruletNev = dd.name ?? null
+            // A kerületi ROMÁN nevet az S2 szelet hozza meg (districts.nev_ro).
+            egyhazkeruletNevRo = null
           }
         }
       }

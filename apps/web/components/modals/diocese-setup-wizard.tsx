@@ -38,11 +38,16 @@ import { AddressForm, type AddressValue } from '@/components/ui/address-form'
 import {
   getDiocese, saveDioceseSetup, saveDioceseSetupStep, uploadDioceseCimer,
   getDioceseIratKepek, uploadDioceseIratKep, clearDioceseIratKep,
+  getDioceseVezetoJeloltek,
   type DioceseRecord,
+  type VezetoJeloltek,
 } from '@/app/(dashboard)/dashboard-egyhazmegye/diocese-actions'
 // 2026-08-15 (S4): a pecsét/aláírás-feltöltő UI a KÖZÖS komponensből — a
 // gyülekezeti setup-wizard ugyanezt használja a gyülekezeti akciókkal.
 import { IratKepekSection } from '@/components/shared/irat-kepek-section'
+// 2026-08-15 (Endre): a vezetők nevét listából lehessen választani, ne kézzel
+// begépelni — lásd a komponens docblockját.
+import { VezetoValaszto } from '@/components/shared/vezeto-valaszto'
 
 type WizardStep = 'basics' | 'address' | 'contact' | 'bank-leadership' | 'confirm'
 
@@ -77,6 +82,9 @@ interface SetupFormState {
   esperes_nev: string
   esperes_cim: string
   jegyzo_nev: string
+  /** 2026-08-15 (Endre): az egyházmegyei számvevő neve — a hivatalos irat
+   *  aláírás-rovatához. Nem kötelező. */
+  szamvevo_nev: string
   // Új cím FK-k (2026-04-21)
   adrlocality_id: number | null
   adrstreet_id: number | null
@@ -86,6 +94,15 @@ interface SetupFormState {
 type SetForm = (f: SetupFormState) => void
 
 const STEP_ORDER: WizardStep[] = ['basics', 'address', 'contact', 'bank-leadership', 'confirm']
+
+/** A lépések magyar neve — a „miért nem léphetsz tovább" üzenethez. */
+const STEP_LABELS: Record<WizardStep, string> = {
+  basics: 'Alapadatok',
+  address: 'Cím',
+  contact: 'Elérhetőségek',
+  'bank-leadership': 'Bank és vezetés',
+  confirm: 'Ellenőrzés',
+}
 
 // Pure step-validáció — a wizard kliens ÉS az init ugyanazt használja
 // (így a betöltés után meg tudja mondani, melyik az első hiányos lépés).
@@ -106,9 +123,12 @@ function isStepValidOn(s: WizardStep, form: SetupFormState): boolean {
   if (s === 'contact')
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email) && form.telefon.trim().length > 0
   if (s === 'bank-leadership')
+    // 2026-08-15 (Endre): a BANKSZÁMLA már NEM kötelező ezen a lépésen —
+    // „a banki kontók beállítása később". A bankszámla nem a hivatalos irat
+    // fejlécéhez kell (az a név, a cím és a CIF), hanem a pénzforgalomhoz;
+    // azt viszont ritkán tudja fejből az, aki a törzsadatot rögzíti.
+    // A varázsló záró összesítője KIÍRJA, ha üresen maradt.
     return (
-      form.bank_nev.trim().length > 0 &&
-      form.bank_fo_iban.trim().length > 0 &&
       form.esperes_nev.trim().length >= 2 &&
       form.esperes_cim.trim().length >= 2 &&
       form.jegyzo_nev.trim().length >= 2
@@ -116,6 +136,79 @@ function isStepValidOn(s: WizardStep, form: SetupFormState): boolean {
   if (s === 'confirm')
     return STEP_ORDER.slice(0, -1).every((st) => isStepValidOn(st, form))
   return false
+}
+
+/**
+ * MIÉRT nem léphet tovább a felhasználó — magyarul, mezőnév szerint.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * MIÉRT KELL EZ (2026-08-15, Endre észrevétele)
+ * ════════════════════════════════════════════════════════════════════════════
+ * TÜNET VOLT: „kitöltöttem a kötelező részeket, de mégsem tudok tovább lépni".
+ * A 3. lépésen az e-mail `kezdiorbaigmail.com` volt — hiányzott belőle a `@`.
+ * A `isStepValidOn` helyesen elutasította, a „Tovább" gomb letiltódott — DE
+ * SEMMI nem mondta meg, MELYIK mező és MIÉRT. A `fieldErrors` csak a szerver
+ * válaszából töltődik, ide viszont el sem jutunk: a gomb tiltva van.
+ *
+ * A felhasználó szemszögéből minden mező ki volt töltve, tehát a program
+ * „elromlott". Egy letiltott gomb indoklás nélkül vakvágány — ugyanaz a
+ * hibaosztály, mint a néma 0-soros mentés: a program tud valamit, amit nem
+ * mond el.
+ *
+ * `null` = a lépés érvényes, nincs mit kiírni.
+ */
+function stepBlockReason(s: WizardStep, form: SetupFormState): string | null {
+  if (isStepValidOn(s, form)) return null
+
+  const hianyzo: string[] = []
+
+  if (s === 'basics') {
+    if (form.name.trim().length < 2) hianyzo.push('Hivatalos magyar név')
+    if (form.nev_ro.trim().length < 2) hianyzo.push('Hivatalos román név')
+    if (form.cif.trim().length === 0) hianyzo.push('CIF (adószám)')
+    if (form.cimer_url.trim().length === 0) hianyzo.push('Címer')
+  } else if (s === 'address') {
+    if (form.cim_orszag.trim().length === 0) hianyzo.push('Ország')
+    if (form.cim_megye.trim().length === 0) hianyzo.push('Megye')
+    if (form.cim_telepules.trim().length === 0) hianyzo.push('Település')
+    if (form.cim_iranyitoszam.trim().length === 0) hianyzo.push('Irányítószám')
+    if (form.cim_utca.trim().length === 0) hianyzo.push('Utca, házszám')
+  } else if (s === 'contact') {
+    // ⚠️ Az e-mailnél KÜLÖN üzenet kell: nem „hiányzik", hanem „nem jó alakú".
+    // Épp ezt nem lehetett kitalálni a néma letiltásból.
+    const email = form.email.trim()
+    if (email.length === 0) {
+      hianyzo.push('E-mail cím')
+    } else if (!email.includes('@')) {
+      return (
+        `Az e-mail címből hiányzik a „@” jel: „${email}”. ` +
+        'Helyes alak például: nev@egyhazmegye.ro'
+      )
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return (
+        `Ez az e-mail cím nem érvényes: „${email}”. ` +
+        'Ellenőrizd a @ utáni részt — kell bele egy pont is, például: nev@egyhazmegye.ro'
+      )
+    }
+    if (form.telefon.trim().length === 0) hianyzo.push('Telefonszám')
+  } else if (s === 'bank-leadership') {
+    // A bank SZÁNDÉKOSAN nincs itt — 2026-08-15 óta később is pótolható.
+    if (form.esperes_nev.trim().length < 2) hianyzo.push('Esperes neve')
+    if (form.esperes_cim.trim().length < 2) hianyzo.push('Esperes címe (tisztsége)')
+    if (form.jegyzo_nev.trim().length < 2) hianyzo.push('Egyházmegyei jegyző neve')
+  } else if (s === 'confirm') {
+    const hianyosLepesek = STEP_ORDER.slice(0, -1)
+      .filter((st) => !isStepValidOn(st, form))
+      .map((st) => STEP_LABELS[st])
+    if (hianyosLepesek.length > 0) {
+      return `Még hiányos lépés: ${hianyosLepesek.join(', ')}. Lépj vissza és pótold.`
+    }
+  }
+
+  if (hianyzo.length === 0) return null
+  return hianyzo.length === 1
+    ? `Ez a mező még hiányzik: ${hianyzo[0]}`
+    : `Ezek a mezők még hiányoznak: ${hianyzo.join(', ')}`
 }
 
 // Melyik mezőket ment a partial-save action az adott lépésen?
@@ -154,6 +247,7 @@ function stepFields(s: WizardStep, form: SetupFormState): Record<string, unknown
         esperes_nev: form.esperes_nev,
         esperes_cim: form.esperes_cim,
         jegyzo_nev: form.jegyzo_nev,
+        szamvevo_nev: form.szamvevo_nev,
       }
     default:
       return {}
@@ -227,6 +321,7 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
     esperes_nev: '',
     esperes_cim: 'esperes',
     jegyzo_nev: '',
+    szamvevo_nev: '',
     adrlocality_id: null,
     adrstreet_id: null,
     isForeign: false,
@@ -235,6 +330,10 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [uploading, setUploading] = useState(false)
   const [stepSaving, setStepSaving] = useState(false)
+  // 2026-08-15 (Endre): a vezetők listából választhatók — a jelöltek betöltése
+  // a megnyitáskor, a többi adattal együtt. `null` = még tölt / nem oldható fel;
+  // ilyenkor a VezetoValaszto a kézi beírásra esik vissza (fail-soft).
+  const [vezetoJeloltek, setVezetoJeloltek] = useState<VezetoJeloltek | null>(null)
 
   // Betöltés: meglévő adatok előtöltése + folytatás-logika
   useEffect(() => {
@@ -243,6 +342,12 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
     queueMicrotask(() => {
       if (cancelled) return
       setLoading(true)
+      // A vezető-jelöltek betöltése párhuzamosan — ha hibázik, csendben üresen
+      // marad, és a mezők kézi beírásra esnek vissza (fail-soft: a beállítás
+      // NEM akadhat el azon, hogy a jelölt-listát nem tudtuk lekérni).
+      void getDioceseVezetoJeloltek(dioceseId).then((j) => {
+        if (!cancelled) setVezetoJeloltek(j)
+      })
       void getDiocese(dioceseId).then((res) => {
         if (cancelled) return
         if (res.data) {
@@ -268,6 +373,7 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
             esperes_nev: d.esperes_nev || '',
             esperes_cim: d.esperes_cim || 'esperes',
             jegyzo_nev: d.jegyzo_nev || '',
+            szamvevo_nev: d.szamvevo_nev || '',
             adrlocality_id: d.adrlocality_id,
             adrstreet_id: d.adrstreet_id,
             isForeign: (d.cim_orszag && d.cim_orszag !== 'Románia') || false,
@@ -293,6 +399,10 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
     return isStepValidOn(s, form)
   }
 
+  // 2026-08-15: MIÉRT van letiltva a gomb — ugyanabból a tiszta függvényből,
+  // ami a tiltást is eldönti, tehát a kettő SOHA nem mondhat mást.
+  const blockReason = stepBlockReason(step, form)
+
   async function handleNext() {
     if (stepSaving) return
     const idx = STEP_ORDER.indexOf(step)
@@ -315,9 +425,66 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
     }
   }
 
-  function handleBack() {
+  /**
+   * A JELENLEGI LÉPÉS BEÍRT ADATAINAK MENTÉSE — akkor is, ha a lépés HIÁNYOS.
+   *
+   * ════════════════════════════════════════════════════════════════════════
+   * MIÉRT KELL (2026-08-15, Endre kérése)
+   * ════════════════════════════════════════════════════════════════════════
+   * „minden beírt adatot a Tovább gomb megnyomásával mentsen el, hogy ne
+   *  kelljen újra kitölteni elölről, ha kilépek valamelyik pontnál"
+   *
+   * Eddig HÁROM lyuk volt, és mindhárom ugyanoda vezetett — elveszett a
+   * begépelt adat:
+   *   (1) a „Tovább" MENT ugyan, de a gomb LE VAN TILTVA, amíg a lépés
+   *       hiányos → épp akkor NEM mentett, amikor a legnagyobb szükség lett
+   *       volna rá (pl. egy elgépelt e-mail miatt);
+   *   (2) a „Vissza" EGYÁLTALÁN nem mentett — aki visszalépett javítani,
+   *       elvesztette az aktuális lépésen beírtakat;
+   *   (3) a „Később" / X / ESC sem mentett.
+   *
+   * A `saveDioceseSetupStep` szerver-akció ERRE ALKALMAS: csak a ténylegesen
+   * átadott mezőket írja, az üres értéket NULL-ra teszi, a NOT NULL `name`-et
+   * pedig csak nem üres értékkel frissíti. Hiányos lépést tehát nyugodtan
+   * elmenthetünk — nem ront el semmit.
+   *
+   * `csendes = true`: kilépéskor/visszalépéskor nem villantunk hibát a
+   * felhasználó arcába; a mentés legrosszabb esetben nem történik meg, de a
+   * navigáció nem akad el.
+   */
+  async function mentsdAmiBeVanIrva(csendes = true): Promise<boolean> {
+    setStepSaving(true)
+    try {
+      const res = await saveDioceseSetupStep({ id: dioceseId, ...stepFields(step, form) })
+      if (res.error) {
+        if (!csendes) toast.error(`Mentés sikertelen: ${res.error}`)
+        return false
+      }
+      return true
+    } catch {
+      return false
+    } finally {
+      setStepSaving(false)
+    }
+  }
+
+  async function handleBack() {
     const idx = STEP_ORDER.indexOf(step)
-    if (idx > 0) setStep(STEP_ORDER[idx - 1])
+    if (idx <= 0) return
+    // Előbb mentünk, csak utána lépünk vissza — különben az ezen a lépésen
+    // beírt (esetleg még hiányos) adat elveszne.
+    await mentsdAmiBeVanIrva()
+    setStep(STEP_ORDER[idx - 1])
+  }
+
+  /**
+   * Kilépés — de CSAK a beírt adat mentése UTÁN.
+   * Ez fogja el a „Később" gombot, az X-et, az ESC-et és a dialóguson kívüli
+   * kattintást is (mind a `onOpenChange(false)`-on megy keresztül).
+   */
+  async function handleClose() {
+    await mentsdAmiBeVanIrva()
+    onOpenChange(false)
   }
 
   async function handleCimerUpload(ev: React.ChangeEvent<HTMLInputElement>) {
@@ -357,7 +524,15 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
   const progressPercent = ((STEP_ORDER.indexOf(step) + 1) / STEP_ORDER.length) * 100
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    // 2026-08-15: a bezárás MINDEN útja (X, ESC, kívülre kattintás, „Később")
+    // átmegy a handleClose-on, ami előbb elmenti a beírt adatot.
+    <Dialog
+      open={open}
+      onOpenChange={(nyitva) => {
+        if (nyitva) onOpenChange(true)
+        else void handleClose()
+      }}
+    >
       <DialogContent
         className="
           !w-[96vw] !max-w-[96vw] sm:!max-w-[min(900px,96vw)]
@@ -436,19 +611,45 @@ export function DioceseSetupWizard({ open, onOpenChange, dioceseId, onCompleted 
               {step === 'address' && <StepAddress form={form} setForm={setForm} fieldErrors={fieldErrors} />}
               {step === 'contact' && <StepContact form={form} setForm={setForm} fieldErrors={fieldErrors} />}
               {step === 'bank-leadership' && (
-                <StepBankLeadership form={form} setForm={setForm} fieldErrors={fieldErrors} />
+                <StepBankLeadership
+                  form={form}
+                  setForm={setForm}
+                  fieldErrors={fieldErrors}
+                  jeloltek={vezetoJeloltek}
+                />
               )}
               {step === 'confirm' && <StepConfirm form={form} />}
             </>
           )}
         </div>
 
+        {/* 2026-08-15 (Endre észrevétele): MIÉRT nem léphetsz tovább.
+            Egy letiltott gomb indoklás nélkül vakvágány — a felhasználó azt
+            látja, hogy mindent kitöltött, és azt hiszi, a program romlott el.
+            Lásd a stepBlockReason() docblockját. Az üzenet a gombok FÖLÖTT
+            áll, hogy telefonon is látszódjon (a gombsor egy sorba szorul). */}
+        {blockReason && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="shrink-0 border-t border-amber-200 bg-amber-50 px-6 py-2.5 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200"
+          >
+            <span className="font-medium">Még nem léphetsz tovább — </span>
+            {blockReason}
+            {/* Megnyugtatás: a begépelt adat NEM vész el, akkor sem, ha most
+                kilépsz. Épp ez volt a panasz (2026-08-15). */}
+            <span className="block mt-0.5 opacity-80">
+              A már beírt adatokat elmentjük — ha most kilépsz, nem kell újra kitöltened.
+            </span>
+          </div>
+        )}
+
         {/* Léptető gombok */}
         <div className="shrink-0 border-t border-zinc-100 bg-zinc-50/50 px-6 py-3 flex items-center justify-between gap-2">
           <Button
             type="button"
             variant="ghost"
-            onClick={step === 'basics' ? () => onOpenChange(false) : handleBack}
+            onClick={step === 'basics' ? () => void handleClose() : () => void handleBack()}
             disabled={isPending || stepSaving}
             className="rounded-xl"
           >
@@ -705,8 +906,15 @@ function StepContact({
 }
 
 function StepBankLeadership({
-  form, setForm, fieldErrors,
-}: { form: SetupFormState; setForm: SetForm; fieldErrors: Record<string, string> }) {
+  form, setForm, fieldErrors, jeloltek,
+}: {
+  form: SetupFormState
+  setForm: SetForm
+  fieldErrors: Record<string, string>
+  jeloltek: VezetoJeloltek | null
+}) {
+  const lista = jeloltek?.jeloltek ?? []
+  const hozzarendelt = jeloltek?.hozzarendelt
   return (
     <div className="max-w-2xl mx-auto space-y-4">
       <div className="card-raised p-4 bg-teal-50/30 border-teal-100">
@@ -715,17 +923,22 @@ function StepBankLeadership({
           <div>
             <h3 className="font-heading text-base text-slate-800">Bank + vezetés</h3>
             <p className="text-xs text-slate-600 mt-1">
-              A fő bankszámla és a jelenlegi esperes + jegyző neve (a dokumentumokon megjelenik).
+              A jelenlegi esperes és jegyző neve — ezek a hivatalos dokumentumokon megjelennek.
+            </p>
+            {/* 2026-08-15 (Endre): a bankszámla később is pótolható. */}
+            <p className="text-xs text-slate-500 mt-1">
+              A <strong className="font-medium">bankszámla megadása nem kötelező most</strong> —
+              később, az „Egyházmegye beállításai” ablakban is pótolható.
             </p>
           </div>
         </div>
       </div>
 
       <div className="grid gap-3 md:grid-cols-[1.2fr_2fr_0.8fr]">
-        <ModalField label="Bank neve *">
+        <ModalField label="Bank neve (később is megadható)">
           <Input value={form.bank_nev} onChange={(e) => setForm({ ...form, bank_nev: e.target.value })} placeholder="Pl. BCR" />
         </ModalField>
-        <ModalField label="IBAN *">
+        <ModalField label="IBAN (később is megadható)">
           <Input value={form.bank_fo_iban} onChange={(e) => setForm({ ...form, bank_fo_iban: e.target.value })} placeholder="RO..." className="font-mono text-xs" />
         </ModalField>
         <ModalField label="Valuta">
@@ -748,15 +961,54 @@ function StepBankLeadership({
           <p className="text-sm font-semibold text-slate-800">Vezetés</p>
         </div>
         <div className="grid gap-3 md:grid-cols-3">
-          <ModalField label="Esperes neve *">
-            <Input value={form.esperes_nev} onChange={(e) => setForm({ ...form, esperes_nev: e.target.value })} />
+          <VezetoValaszto
+            label="Esperes neve *"
+            value={form.esperes_nev}
+            onChange={(nev) => setForm({ ...form, esperes_nev: nev })}
+            jeloltek={lista}
+            hozzarendelt={hozzarendelt?.esperes ?? null}
+            uresSegitseg={
+              'Az egyházmegye gyülekezeteinél még nincs nyilvántartott lelkipásztor, ' +
+              'és esperesi szerepkör sincs kiosztva. A Felhasználók felületen rendelhető hozzá — ' +
+              'addig írd be kézzel.'
+            }
+            placeholder="Teljes név"
+          />
+          <ModalField label="Esperes címe (tisztsége) *">
+            <Input
+              value={form.esperes_cim}
+              onChange={(e) => setForm({ ...form, esperes_cim: e.target.value })}
+              placeholder="esperes / esperesi megbízott"
+            />
           </ModalField>
-          <ModalField label="Esperes címe *">
-            <Input value={form.esperes_cim} onChange={(e) => setForm({ ...form, esperes_cim: e.target.value })} placeholder="esperes / esperesi megbízott" />
-          </ModalField>
-          <ModalField label="Egyházmegyei jegyző *">
-            <Input value={form.jegyzo_nev} onChange={(e) => setForm({ ...form, jegyzo_nev: e.target.value })} />
-          </ModalField>
+          <VezetoValaszto
+            label="Egyházmegyei jegyző *"
+            value={form.jegyzo_nev}
+            onChange={(nev) => setForm({ ...form, jegyzo_nev: nev })}
+            jeloltek={lista}
+            hozzarendelt={hozzarendelt?.jegyzo ?? null}
+            uresSegitseg={
+              'Nincs egyházmegyei adminisztrátor hozzárendelve ehhez az egyházmegyéhez. ' +
+              'A Felhasználók felületen rendelhető hozzá — addig írd be kézzel.'
+            }
+            placeholder="Teljes név"
+          />
+        </div>
+
+        {/* 2026-08-15 (Endre): a SZÁMVEVŐ is legyen választható. */}
+        <div className="grid gap-3 md:grid-cols-3 mt-3">
+          <VezetoValaszto
+            label="Egyházmegyei számvevő (nem kötelező)"
+            value={form.szamvevo_nev}
+            onChange={(nev) => setForm({ ...form, szamvevo_nev: nev })}
+            jeloltek={lista}
+            hozzarendelt={hozzarendelt?.szamvevo ?? null}
+            uresSegitseg={
+              'Nincs egyházmegyei számvevő hozzárendelve. A Felhasználók felületen ' +
+              'osztható ki az „Egyházmegyei számvevő” szerepkör — addig írd be kézzel.'
+            }
+            placeholder="Teljes név"
+          />
         </div>
       </div>
     </div>
@@ -793,10 +1045,22 @@ function StepConfirm({ form }: { form: SetupFormState }) {
         {form.email} · {form.telefon}{form.weboldal && <> · <a href={form.weboldal} target="_blank" rel="noopener" className="underline">{form.weboldal}</a></>}
       </SummaryRow>
       <SummaryRow icon={<Landmark className="size-4 text-teal-600" />} label="Bank">
-        {form.bank_nev} · <span className="font-mono text-xs">{form.bank_fo_iban}</span> <Badge className="bg-slate-100 text-slate-700 border-0 ml-1 text-[10px]">{form.bank_fo_iban_valuta}</Badge>
+        {/* 2026-08-15: a bank már nem kötelező — ha üres, LÁTHATÓAN jelezzük,
+            hogy pótolandó, ne csak egy üres sor maradjon a helyén. */}
+        {form.bank_nev.trim() || form.bank_fo_iban.trim() ? (
+          <>
+            {form.bank_nev} · <span className="font-mono text-xs">{form.bank_fo_iban}</span>{' '}
+            <Badge className="bg-slate-100 text-slate-700 border-0 ml-1 text-[10px]">{form.bank_fo_iban_valuta}</Badge>
+          </>
+        ) : (
+          <span className="text-amber-700">
+            Még nincs megadva — később pótolható az „Egyházmegye beállításai" ablakban.
+          </span>
+        )}
       </SummaryRow>
       <SummaryRow icon={<Users className="size-4 text-amber-600" />} label="Vezetés">
         {form.esperes_nev} ({form.esperes_cim}) · Jegyző: {form.jegyzo_nev}
+        {form.szamvevo_nev ? <> · Számvevő: {form.szamvevo_nev}</> : null}
       </SummaryRow>
 
       <div className="card-raised p-3 bg-amber-50/40 border-amber-200">

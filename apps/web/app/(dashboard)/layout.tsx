@@ -6,7 +6,7 @@ import { WalkthroughClient } from '@/components/onboarding/walkthrough/walkthrou
 import { SubscriptionSuspendedScreen } from '@/components/layout/subscription-suspended-screen'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
-import { canWriteDioceseScope } from '@/lib/auth/level-scope'
+import { canWriteDioceseScope, canWriteDistrictScope } from '@/lib/auth/level-scope'
 import { getCongregationAccessStatus, shouldGateUser } from '@/lib/auth/subscription-access'
 import { touchLastSeen } from '@/lib/auth/touch-last-seen'
 import { checkDioceseSetupStatus } from '@/app/(dashboard)/dashboard-egyhazmegye/diocese-actions'
@@ -232,6 +232,17 @@ export default async function DashboardLayout({
     ? canWriteDioceseScope(access, activeDioceseId)
     : false
 
+  // 2026-08-16 (egyházkerületi S2): ugyanez a 3. szintre. A célpont az AKTÍV
+  // szerep scope_id-ja — nem a tág skalár-feloldó. (A tág feloldó a kerületi
+  // admin elavult skalárját is bevenné, és a fejléc MÁS kerület adatlapját
+  // nyitná meg, mint amiben a felhasználó éppen eljár.)
+  const activeDistrictId =
+    activeProfileRole?.scope === 'district' ? (activeProfileRole.scopeId ?? null) : null
+  // A kerületi SZÁMVEVŐ csak olvas: nála a beállítás-menüpont rejtve marad.
+  const canWriteDistrict = activeDistrictId
+    ? canWriteDistrictScope(access, activeDistrictId)
+    : false
+
   // 4b. Előfizetés-gating — UTOLSÓ ellenőrzés a modul-render ELŐTT, minden auth-
   //     és onboarding-redirect (welcome/pending/onboarding) UTÁN.
   //     BIZTONSÁGOS DEFAULT: a DB-lekérés CSAK gyülekezeti scope-ú, NEM admin/
@@ -306,6 +317,8 @@ export default async function DashboardLayout({
         scopeNames={scopeNames}
         activeScope={activeProfileRole?.scope ?? null}
         activeDioceseId={activeDioceseId}
+        activeDistrictId={activeDistrictId}
+        canWriteDistrict={canWriteDistrict}
         canWriteDiocese={canWriteDiocese}
         dioceseSetupNeeded={dioceseSetupStatus.needsSetup}
         dioceseSetupId={dioceseSetupStatus.dioceseId}

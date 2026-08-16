@@ -19,6 +19,200 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
+## ✅ LEFUTOTT – Egyházkerületi S3: fogadó felület (2026-08-16)
+
+- [x] 2026-08-16 — **`2026-08-16-egyhazkeruleti-S3-fogado.sql`** ✅ LEFUTOTT
+       A 2. szakasz minden sora zöld: az oszlop-őrszem RÁ VAN KÖTVE a táblára
+       (BEFORE UPDATE), a kompozit FK és a `dioceses` UNIQUE (id, district_id)
+       létrejött, 0 hamis district_id, a kerületi számvevő SELECT policy-ja él
+       és NEM kapott írási jogot, mind a 3 függvény-GRANT megvan, és a megyei
+       felküldés útja érintetlen. Eredeti teendő-leírás:
+       A kerületi fogadó felület adatbázis-alapja. NÉGY dolgot old meg:
+       **(1) 9. csapda — a fagyasztott irat védelme.** BEFORE UPDATE trigger
+       (`diocese_felterjesztes_kerulet_oszlopvedelem`): kerületi útról CSAK a
+       status / received_* / returned_reason / notes / unlock_* / updated_at
+       változhat. A `snapshot_data`, `iktatoszam`, `submitted_*`, `doc_type`,
+       `year`, `diocese_id`, `district_id` SOHA — a kerület nem hamisíthatja meg
+       a megye beküldött iratát. **Engedélyezési listás** (`to_jsonb` diff),
+       tehát minden később hozzáadott oszlop automatikusan védett. A MEGYEI
+       felküldés (`rogzitDioceseFelterjesztes`) és a rendszergazda átmegy rajta.
+       Külön záradék köti a `received_by`-t (csak a saját uid) és az
+       `unlock_requested_by`-t (kerület felől csak NULL-ra) — okirat-integritás.
+       **(2) 10. csapda — a valódi lánc.** `dioceses` UNIQUE (id, district_id) +
+       kompozit FK (diocese_id, district_id): egy esperes nem küldhet fel
+       tetszőleges kerülethez. ⚠️ Ettől KÉT FK mutat a `dioceses`-re, tehát a
+       PostgREST-beágyazás kétértelmű (PGRST201) — a fájl 2/B-205 sora és a
+       fejléce is figyelmeztet rá.
+       **(3) A kerületi SZÁMVEVŐ olvasása.** A meglévő `_kerulet_select` a
+       `current_user_district_ids()`-t hívja (csak admin) → az ellenőr ÜRES
+       listát látott volna, ami „nincs beküldve"-nek látszik. Új, külön SELECT
+       policy a `current_user_district_olvaso_ids()`-re.
+       **(4) Az ÉRTESÍTÉS-LÁNC kerületi vége.** Az `ertesitesek_szint_insert`
+       `congregation_id IS NOT NULL`-t követel, a felterjesztés viszont a MEGYE
+       irata (nincs gyülekezete) → kerületi adminként MINDEN átvétel/
+       visszaküldés/feloldás-értesítés elbukott volna az RLS-en, némán. Új,
+       szűk `ertesitesek_kerulet_insert` policy: gyülekezet nélküli sor, a hívó
+       kerületébe eső egyházmegye AKTÍV tisztségviselőjének címezve.
+
+---
+
+## ✅ LEFUTOTT – Egyházkerületi szint: S1c rálátás-bezárás + S2 identitás (2026-08-16)
+
+- [x] 2026-08-16 — **`2026-08-16-egyhazkeruleti-S1c-ralatas-bezaras.sql`** ✅ LEFUTOTT
+       **35 policy / 33 tábláról** tűnt el a kerületi sor-szintű rálátás. A megye
+       írása SÉRTETLEN (5/5 policy hívja a megyei feloldót), a `document_submissions`
+       és a `diocese_felterjesztes` kerületi ablakai (2+2) megmaradtak, az
+       `annual_reports_select_district` és a `district_member_counts()` is.
+       A `felettes_szint_szerkesztheto` kerületi lába szándékosan MEGMARADT.
+       Eredeti teendő-leírás:
+       ENDRE K4 DÖNTÉSE: „A kerület nem írhatja és nem is olvassa a kerület
+       gyülekezeteinek és egyházmegyéinek az adatait, csak a hivatalosan
+       beküldött adatokat illetve azoknak az összesítőjét."
+       A `felettes_szint_hozzaferese()` és a `felettes_szint_gyulekezet_ids()`
+       megye-only alakra vált (a 2026-08-11-es fájl előkészített, sosem futott
+       „2/B" szakaszából, betűhűen), és az 5 megyei pénzügyi policy kerületi ága
+       megszűnik. Egy csapásra ~40 tábláról tűnik el a kerületi sor-szintű
+       rálátás — a 0/D szakasz NÉV SZERINT felsorolja őket futtatás előtt.
+       ⚠️ MEGMARAD (fail-closed őrszem ellenőrzi, mielőtt bármit elvenne):
+       `document_submissions_district_select/_update` (a beküldött iratok — csak
+       a továbbított/véglegesített sorokra), `diocese_felterjesztes_kerulet_*`
+       (a felterjesztési csatorna), a törzsadat-olvasás és a
+       `district_member_counts()` összesítő RPC.
+       ⚠️ MEGMARAD a `felettes_szint_szerkesztheto()` kerületi lába is: az a
+       GYÜLEKEZETI TÖRZSADAT (név, cím) szerkesztése, ami adminisztratív
+       funkció, nem „a gyülekezet adata" — ha ezt is el akarod venni, szólj.
+       A 2/E szakasz 4 lépéses KÉZI PRÓBÁT ír le.
+
+- [x] 2026-08-16 — **`2026-08-16-egyhazkeruleti-S2-identitas.sql`** ✅ LEFUTOTT
+       29/29 oszlop, a kerületi vezetői négyes (puspok_nev/puspok_cim/
+       adminisztrator_nev/szamvevo_nev), `esperes_*` NEM jött létre, a teszt-jelölés
+       PONTOSAN a „Teszt Egyházkerület"-re, az anon CSAK (id, name)-et olvashat
+       (CIF/IBAN/pecsét/aláírás/cím/e-mail/telefon mind ZÁRVA), az írás-policy
+       MINDKÉT ágával (rendszergazda + saját kerület), `districts-logos` bucket
+       + 4 policy, `tg_districts_updated` trigger.
+       ⏳ NYITOTT DÖNTÉS marad: a pecsét/aláírás publikus bucketben van.
+       Eredeti teendő-leírás:
+       A `districts` hivatalos identitása: 29 új oszlop a `dioceses` mintájára,
+       de KERÜLETI vezetői nevekkel (`puspok_nev`, `puspok_cim`,
+       `adminisztrator_nev`, `szamvevo_nev`) — `esperes_*` NEM jön létre.
+       Plusz `teszt boolean` (a „Teszt Egyházkerület" látható megjelöléséhez),
+       `districts-logos` storage bucket, és az ELSŐ írás-policy a táblán
+       (`districts_update_district_scope`) — eddig egyetlen sem volt, tehát a
+       kerületi admin nem tudta menteni a saját adatait.
+       ⚠️ ANON-VÉDELEM: a fájl EGYETLEN GRANT-ot sem ad az anonnak, és a COMMIT
+       ELŐTT `has_column_privilege()`-dzsel végigméri mind a 29 új oszlopot —
+       szivárgás esetén RAISE EXCEPTION-nel VISSZAGÖRDÍTI az egész tranzakciót.
+       ❓ **ENDRE DÖNTÉSÉRE VÁR** (a fájl fejlécében is): a püspöki pecsét és az
+       aláírás publikus bucketbe kerül, tehát az URL birtokában bejelentkezés
+       nélkül letölthető. Ez okirat-hamisítási felület. Ma a gyülekezeti és a
+       megyei szint is így működik — a döntés mind a hármat érinti.
+
+---
+
+## ✅ LEFUTOTT – Egyházmegyei számvevő neve (2026-08-15, Endre kérése)
+
+- [x] 2026-08-16 — **`2026-08-15-egyhazmegyei-szamvevo-nev.sql`** ✅ LEFUTOTT
+       `dioceses.szamvevo_nev` text (nullable), a négy vezetői oszlop mind megvan.
+       Eredeti teendő-leírás:
+       Indok: egyetlen NULLABLE oszlop (`dioceses.szamvevo_nev`) a hivatalos
+       megyei irat aláírás-rovatához. A beállítás-varázsló mostantól LISTÁBÓL
+       kínálja fel a vezetőket (esperes / jegyző / számvevő) — a megye
+       gyülekezeteinek lelkészei és a megyéhez kiosztott szerepkörök közül —,
+       de a számvevő nevének eddig nem volt hova kerülnie.
+       ⚠️ NEM sürgős: az app FAIL-SOFT. Amíg nem fut le, a mentés a
+       `szamvevo_nev` nélkül megy végbe (updateDioceseFailSoft), tehát semmi
+       más adat nem vész el — csak ez az egy mező nem tárolódik.
+
+---
+
+## ✅ LEFUTOTT – Egyházkerületi szint (3. szint) S0 + S1 + javítások (2026-08-15/16)
+
+- [x] 2026-08-16 — **`2026-08-15-egyhazkeruleti-S1b-anon-truncate.sql`** ✅ LEFUTOTT
+       Mind a 8 TRUNCATE/REFERENCES/TRIGGER jog visszavonva (anon + authenticated,
+       districts + dioceses), mind az 5 regressziós őr zöld, a service_role
+       érintetlen. Eredeti teendő-leírás:
+       Indok: az S0 0/B szakasza kimutatta, hogy az `anon` szerepnek
+       **TRUNCATE** joga van a `districts` és a `dioceses` táblán (a
+       `authenticated`-nek szintén). **A TRUNCATE-re az RLS SOHA nem
+       vonatkozik**: hiába nincs a `districts`-en egyetlen írás-policy sem,
+       a TRUNCATE joggal a teljes törzsadat kiüríthető — és a `districts`
+       kiürítése az egész rendszert megbénítaná (mind a 25 egyházmegye FK-val
+       mutat rá). Az S1 abban a változatában, ami lefutott, csak a SELECT-et és
+       a három DML-jogot vonta vissza. Ez a fájl `REVOKE ALL PRIVILEGES`-szel
+       zárja le, és MEGMÉRI, hány másik táblán él ugyanez (azokhoz nem nyúl).
+
+- [x] 2026-08-15 — **`2026-08-15-egyhazkeruleti-S1-hatokor-biztonsag.sql`** ✅ LEFUTOTT
+       A 2. szakasz mind a 26 sora zöld: az új szerep kiosztható, az olvasó
+       függvény megvan GRANT-tal, és a `has_column_privilege()` döntő próbája
+       igazolta, hogy az anon a CIF-et, IBAN-t, pecsétet, aláírást, címet és
+       elérhetőségeket **már NEM olvassa**, miközben az (id, name, district_id)
+       hármas megmaradt a regisztrációs űrlapnak.
+       ⚠️ **DE:** a fájl 1/A szakaszának `LIKE '%role%'` szűrője MELLÉFOGOTT —
+       lásd a következő tételt. A repóban a szűrő azóta oszlop-alapú
+       (`conkey`), tehát egy ÚJRAfuttatás már nem okozná ugyanezt.
+
+- [x] 2026-08-16 — **`2026-08-15-egyhazkeruleti-S1-JAVITAS-custom-label-check.sql`** ✅ LEFUTOTT
+       A `profile_roles_custom_label_check` visszaállt az eredeti, 2026-04-17-i
+       alakra; mind az 5 CHECK a nevéhez illő definíciót hordja, és a szerep-lista
+       megőrizte az `egyhazkeruleti_szamvevo`-t ÉS a `custom`-ot.
+       Eredeti teendő-leírás:
+       Indok: az S1 1/A szakasza a szerep-értéklista CHECK-jét kereste
+       `pg_get_constraintdef(...) LIKE '%role%'` szűrővel. Ez a
+       `profile_roles_custom_label_check`-et IS megfogta (a definíciója említi
+       a `role` oszlopot), eldobta, és a helyére — ugyanazzal a névvel — a
+       szerep-értéklistát tette. Következmény: az egyedi szerepkörök
+       CÍMKE-integritási őre némán megszűnt (ezután `role = 'custom'` sor
+       létrejöhetne címke nélkül). **Adat nem veszett el, egyetlen sor sem
+       módosult** — csak egy CHECK cserélődött ki. Ez a fájl visszateszi az
+       eredeti, 2026-04-17-i alakra, fail-closed módon (ha közben keletkezett
+       szabálysértő sor, megáll és név szerint felsorolja).
+       A másik három CHECK (scope, approval_status, scope_id) és a `profiles`
+       tábla érintetlen — a 0. szakasz ezt bizonyítja is.
+
+- [x] 2026-08-16 — **`2026-08-15-egyhazkeruleti-S0-allapotfelmeres.sql`** ✅ LEFUTOTT (csak olvasó)
+       Az eredményéből épült az S1c és az S2. Fő megállapításai: `districts` = 3
+       oszlop; 3 kerület (köztük a Teszt); 25/25 megyének van kerülete; 0 eltérés
+       a `congregations.district` szövegben; mind a 6 scope-tábla CHECK-je
+       kétoszlopos (az S5 dolga); a PK-k már surrogate `id`-k.
+       Eredeti teendő-leírás:
+       ⚠️ Az első próbálkozás `42P01: missing FROM-clause entry for table "t"`
+       hibával elszállt (a 0/C szakasz második ágából kimaradt a saját
+       `FROM (VALUES …) AS t(tabla)` záradéka). JAVÍTVA. Az egész repót
+       őrzi ezután a `scripts/selftest-sql-union-from.mjs` önellenőrzés,
+       ami pontosan ezt a hibaosztályt keresi minden SQL riport-blokkban.
+       Indok: ez a 3. szint MINDEN további SQL-jének bemenete. Egyetlen SELECT,
+       semmit nem módosít. A `migration-docs/Database_schema.sql` dump ELAVULT
+       (2026-07-10-ig ér), a 2026-08-15-ös migrációk nincsenek benne — ezért
+       tilos belőle tervezni. Ez a fájl az ÉLŐ adatbázisból adja vissza: a
+       `districts` oszlopkészletét, a 6 scope-oszlopos tábla CHECK-jét és
+       részleges indexeit, a `current_user_*` függvények meglétét ÉS
+       GRANT-jait, a `felettes_szint_hozzaferese()` kerületi lábát (K4 döntés),
+       a `district` hatókörű `profile_roles` sorokat, a
+       `diocese_felterjesztes` egyedi indexének oszlopszámát (3 = rossz,
+       4 = helyes), valamint a 14 dokumentált csapda mérési pontjait.
+       ⚠️ FUTTASD ELŐBB, MINT AZ S1-ET, és az eredményt küldd vissza.
+
+- [x] 2026-08-15 — **`2026-08-15-egyhazkeruleti-S1-hatokor-biztonsag.sql`** ✅ LEFUTOTT
+       (Lásd a fenti, részletes bejegyzést is.) Eredeti teendő-leírás:
+       Indok: három, egymástól független javítás egyetlen tranzakcióban.
+       (A) Az `egyhazkeruleti_szamvevo` szerep felvétele a `profiles.role` és a
+       `profile_roles.role` CHECK-jébe — enélkül az app-oldali szerep
+       KIOSZTHATATLAN (23514). (B) `current_user_district_olvaso_ids()` — a
+       kerületi OLVASÓ hatókör, a `current_user_diocese_olvaso_ids()` betűhű
+       párja; az app-tükre `apps/web/lib/auth/level-scope.ts`
+       (DISTRICT_WRITE_ROLES / DISTRICT_READ_ROLES), a két réteget a
+       `scripts/selftest-kerulet-hatokor.mjs` köti össze. (C) ⛔ ÉLŐ SZIVÁRGÁS
+       ZÁRÁSA: a `dioceses` hivatalos adatai (CIF, IBAN, pecsét-URL,
+       aláírás-URL) MA bejelentkezés nélkül olvashatók — az `anon` szerep
+       tábla-szintű SELECT joga oszlop-szintűre szűkül
+       (`districts` → id, name; `dioceses` → id, name, district_id).
+       Ez fail-closed a jövőre: az S2-ben érkező érzékeny oszlopokra az anon
+       automatikusan NEM kap jogot.
+       ⚠️ FUTTATÁS UTÁN 2 PERCES PRÓBA: inkognitó ablakban a
+       `/hozzaferes-kerese` oldal két legördülőjének MEG KELL TELNIE.
+
+---
+
 ## 🔴 PENDING – Dokumentumtár: gyülekezeti fájl-terület (2026-08-15, 7. pont A)
 
 - [ ] **`2026-08-15-dokumentumtar-gyulekezeti-fajlok.sql`** — PENDING (még nem futott)

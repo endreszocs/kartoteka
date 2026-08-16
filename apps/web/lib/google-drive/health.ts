@@ -138,34 +138,92 @@ interface LogSlice {
  * „hiányzik"-ot mutatna olyan gyülekezetekre, amelyeknek megvan a mentése —
  * vagy fordítva. Egy felügyeleti kijelző, ami tévedhet, rosszabb a semminél.
  */
+/**
+ * ⚠️ 2026-08-16 — MIÉRT DARABOLUNK: a `.in()` szűrő a KÉRÉS URL-JÉBE kerül.
+ *
+ * TÜNET VOLT: a mentés-sáv azt írta, hogy „A mentési napló nem olvasható — nem
+ * tudjuk igazolni, hogy készült-e mentés", MIKÖZBEN ugyanazon az oldalon alatta
+ * ott állt, hogy mind a 784 mentés elkészült ÉS ellenőrizve lett. A sáv és a lap
+ * ELLENTMONDOTT egymásnak.
+ *
+ * AZ OK: a sáv a BEKAPCSOLT PROFIL hatókörével metsz (display-scope-core —
+ * „metszet(jogosultság, profil), soha unió"). Kerületi profilban ez ~500
+ * gyülekezet-azonosító, amit a PostgREST egyetlen `in.(uuid,uuid,…)`
+ * query-paraméterbe fűz: ~19 KB URL. A Supabase előtti proxy ezt 414-gyel
+ * eldobja — a lekérdezés tehát nem 0 sort ad, hanem HIBÁZIK. A lap alatta
+ * azért volt zöld, mert ott a hatókör szűretlen (`null`), így nincs `in()`.
+ *
+ * Ez ugyanaz a hibaosztály, mint a „GRANT nélküli policy": az őrszem nem tagad,
+ * hanem elszáll — és a hibából a felület „nem tudjuk igazolni"-t csinál. Egy
+ * riasztás, ami téved, rosszabb a semminél: elszoktat attól, hogy komolyan vedd.
+ *
+ * A darabszám óvatos: 80 × 37 karakter ≈ 3 KB, bőven a 8 KB-os proxy-korlát
+ * alatt, a többi szűrővel és a fejlécekkel együtt is.
+ */
+const IN_SZURO_DARAB = 80
+
+function darabokra<T>(lista: T[], meret: number): T[][] {
+  const ki: T[][] = []
+  for (let i = 0; i < lista.length; i += meret) ki.push(lista.slice(i, i + meret))
+  return ki
+}
+
+/**
+ * A 14 napos napló-szelet.
+ *
+ * ⚠️ LAPOZOTT OLVASÁS (2026-08-11 javítás). A szelet mérete
+ * 14 nap × (gyülekezetek + 1) sor: 72 gyülekezet fölött ÁTLÉPI a PostgREST
+ * 1000 soros plafonját, ami NÉMÁN csonkol. A csonkolt szeletből a lefedettség
+ * „hiányzik"-ot mutatna olyan gyülekezetekre, amelyeknek megvan a mentése —
+ * vagy fordítva. Egy felügyeleti kijelző, ami tévedhet, rosszabb a semminél.
+ *
+ * ⚠️ 2026-08-16: a hatókör-szűrő DARABOKBAN megy (lásd IN_SZURO_DARAB).
+ */
 async function loadLogSlice(
   supabase: SupabaseClient,
   scope: ScopeInput,
   tolNap: string,
   igNap: string,
 ): Promise<{ rows: LogSlice[]; needsSql: boolean; error?: string }> {
-  let query = supabase
-    .from('backup_log')
-    .select('id, scope, congregation_id, status, drive_verified_at, run_date, kind')
-    .gte('run_date', tolNap)
-    .lte('run_date', igNap)
-    .eq('kind', 'napi')
+  const alap = () =>
+    supabase
+      .from('backup_log')
+      .select('id, scope, congregation_id, status, drive_verified_at, run_date, kind')
+      .gte('run_date', tolNap)
+      .lte('run_date', igNap)
+      .eq('kind', 'napi')
 
-  if (scope.congregationIds !== null) {
-    if (scope.congregationIds.length === 0) return { rows: [], needsSql: false }
-    // A kerületi admin a `globalis` hatókört NEM látja — csak a saját
-    // gyülekezeteit. Az `in` szűrő a NULL congregation_id-t kizárja.
-    query = query.in('congregation_id', scope.congregationIds)
-  }
-
-  const paged = await selectAllPaged<LogSlice>(query, { maxRows: 200_000 })
-  if (paged.error) {
-    if (isMissingTableError(paged.error as { message?: string; code?: string })) {
-      return { rows: [], needsSql: true }
+  // Szűretlen (rendszergazdai) ág — nincs `in()`, nincs URL-korlát.
+  if (scope.congregationIds === null) {
+    const paged = await selectAllPaged<LogSlice>(alap(), { maxRows: 200_000 })
+    if (paged.error) {
+      if (isMissingTableError(paged.error as { message?: string; code?: string })) {
+        return { rows: [], needsSql: true }
+      }
+      return { rows: [], needsSql: false, error: paged.error.message }
     }
-    return { rows: [], needsSql: false, error: paged.error.message }
+    return { rows: paged.data, needsSql: false }
   }
-  return { rows: paged.data, needsSql: false }
+
+  if (scope.congregationIds.length === 0) return { rows: [], needsSql: false }
+
+  // A kerületi admin a `globalis` hatókört NEM látja — csak a saját
+  // gyülekezeteit. Az `in` szűrő a NULL congregation_id-t kizárja.
+  const osszes: LogSlice[] = []
+  for (const csoport of darabokra(scope.congregationIds, IN_SZURO_DARAB)) {
+    const paged = await selectAllPaged<LogSlice>(
+      alap().in('congregation_id', csoport),
+      { maxRows: 200_000 },
+    )
+    if (paged.error) {
+      if (isMissingTableError(paged.error as { message?: string; code?: string })) {
+        return { rows: [], needsSql: true }
+      }
+      return { rows: [], needsSql: false, error: paged.error.message }
+    }
+    osszes.push(...paged.data)
+  }
+  return { rows: osszes, needsSql: false }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -181,32 +239,57 @@ export async function computeBackupHealth(
   scope: ScopeInput,
   driveHiba: string | null,
 ): Promise<{ health: BackupHealth; needsSql: boolean; error?: string }> {
-  let query = supabase
-    .from('backup_log')
-    .select('finished_at')
-    .eq('status', 'ok')
-    .not('drive_verified_at', 'is', null)
-    .not('finished_at', 'is', null)
-    .order('finished_at', { ascending: false })
-    .limit(1)
+  const alap = () =>
+    supabase
+      .from('backup_log')
+      .select('finished_at')
+      .eq('status', 'ok')
+      .not('drive_verified_at', 'is', null)
+      .not('finished_at', 'is', null)
+      .order('finished_at', { ascending: false })
+      .limit(1)
 
-  if (scope.congregationIds !== null) {
-    if (scope.congregationIds.length === 0) {
-      return {
-        health: {
-          allapot: 'nincs_mentes',
-          utolsoIgazoltAt: null,
-          oraSzam: null,
-          driveHiba,
-          mondat: 'Ehhez a hatókörhöz nem tartozik gyülekezet, ezért mentési adat sem.',
-        },
-        needsSql: false,
-      }
+  if (scope.congregationIds !== null && scope.congregationIds.length === 0) {
+    return {
+      health: {
+        allapot: 'nincs_mentes',
+        utolsoIgazoltAt: null,
+        oraSzam: null,
+        driveHiba,
+        mondat: 'Ehhez a hatókörhöz nem tartozik gyülekezet, ezért mentési adat sem.',
+      },
+      needsSql: false,
     }
-    query = query.in('congregation_id', scope.congregationIds)
   }
 
-  const { data, error } = await query
+  // ⚠️ 2026-08-16: a hatókör-szűrő DARABOKBAN megy — lásd az IN_SZURO_DARAB
+  //    docblockját. Kerületi profilban ~500 azonosító egyetlen URL-be nem fér
+  //    bele, és a lekérdezés nem 0 sort ad, hanem 414-gyel HIBÁZIK. Innen jött
+  //    a „nem tudjuk igazolni, hogy készült-e mentés" üzenet olyankor is,
+  //    amikor a mentés hibátlanul lefutott.
+  //    Csak a LEGKÉSŐBBI időbélyeg kell, ezért darabonként `limit 1`, és a
+  //    végén a maximumot vesszük — a részeredmények sorrendje közömbös.
+  let data: Array<{ finished_at: string | null }> | null = null
+  let error: { message: string; code?: string } | null = null
+
+  if (scope.congregationIds === null) {
+    const res = await alap()
+    data = res.data as Array<{ finished_at: string | null }> | null
+    error = res.error
+  } else {
+    let legkesobbi: string | null = null
+    for (const csoport of darabokra(scope.congregationIds, IN_SZURO_DARAB)) {
+      const res = await alap().in('congregation_id', csoport)
+      if (res.error) {
+        error = res.error
+        break
+      }
+      const ertek = (res.data as Array<{ finished_at: string | null }> | null)?.[0]?.finished_at
+      // ISO-8601 UTC időbélyegek: a szöveges összehasonlítás sorrendhelyes.
+      if (ertek && (!legkesobbi || ertek > legkesobbi)) legkesobbi = ertek
+    }
+    if (!error) data = legkesobbi ? [{ finished_at: legkesobbi }] : []
+  }
   if (error) {
     if (isMissingTableError(error)) {
       return {
@@ -221,13 +304,22 @@ export async function computeBackupHealth(
         needsSql: true,
       }
     }
+    // ⚠️ 2026-08-16: A HIBA OKÁT IS KIÍRJUK. Korábban csak az általános mondat
+    //    ment ki, az `error.message` pedig a hívási láncban elveszett
+    //    (a computeBannerHealth nem adja tovább az `error` mezőt). Ettől a sáv
+    //    „a napló nem olvasható"-t állított, miközben ugyanazon az oldalon
+    //    alatta ott volt a zöld, igazolt mentés — és semmi nem árulta el, MIÉRT.
+    //    Ez a fájl a lefedettség-hibánál MÁR kiírja az okot (lásd savAllapot);
+    //    itt ugyanaz az elv: a „nem tudom" legyen MAGYARÁZOTT, ne rejtélyes.
     return {
       health: {
         allapot: 'nincs_mentes',
         utolsoIgazoltAt: null,
         oraSzam: null,
         driveHiba,
-        mondat: 'A mentési napló nem olvasható — nem tudjuk igazolni, hogy készült-e mentés.',
+        mondat:
+          'A mentési napló nem olvasható — nem tudjuk igazolni, hogy készült-e mentés. ' +
+          `A hiba: ${error.message}`,
       },
       needsSql: false,
       error: error.message,

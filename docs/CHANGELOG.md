@@ -23,6 +23,107 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-17] — Kerületi irattár és összesítő: a megyék adatai egy íven
+<!-- key: 2026-08-17-egyhazkeruleti-irattar-osszesito -->
+<!-- category: feature -->
+<!-- version: 0.9.170 -->
+<!-- targets: egyhazkeruleti admin + szamvevo -->
+
+### ✨ Új funkciók
+
+- **Kerületi irattár.** Egy helyen a kerülethez tartozó **összes hivatalos irat**, évekre visszamenőleg, két világosan elkülönített rekeszben: a **gyülekezetek** továbbított iratai (mind a hat típus), és a **megyék** saját felterjesztései. A kettő jogi természete más, ezért nem keverednek össze.
+- **Egyházkerületi összesítő.** A megyék felterjesztett, véglegesített irataiból: a számadás bevételei és kiadásai **számadási kódonként**, az érvényes költségvetés (ahol volt módosítás, ott a legutolsóval), és a számvevői összesítők kulcs-mutatói — mindegyikhez **egyházmegyénkénti bontás** és **A4-es, aláírás-rovatos nyomtatvány** (püspök, adminisztrátor, számvevő).
+- **Belépő kártyák a kerületi kezdőoldalon** a három munkafelülethez (Felterjesztések · Irattár · Összesítő), és a bal oldali menü is mostantól a kerület saját pontjait kínálja.
+
+### 🎨 Ami megvéd a téves összesítéstől
+
+- **Ami nincs felterjesztve, az láthatóan hiányzik.** Minden szakasz megmondja, **melyik** egyházmegye adata hiányzik belőle — név szerint. A javításra visszaküldött iratok összege szándékosan nem számít bele (külön, nevesítve látszanak), hiszen épp a kerület kifogásolta meg őket. És ha egy megyétől van érvényes irat **és** javítás alatt lévő is, azt is kiírja — különben a szám nem a legutolsó tervet tükrözné.
+- **A régi évek összege is helyes.** A korábbi beküldések pillanatképe kétféle alakban létezik; az összesítő mostantól bizonyítottan a **hivatalos, ívre szűrt** értéket olvassa, nem az íven kívüli tételeket is tartalmazó nyers összesítést. Erre külön önellenőrzés vigyáz.
+- **Ha egy adat nem megbízható, azt a papír is megmondja.** Ha a számadási kód-katalógus nem olvasható, a költségvetés bevétel/kiadás bontása felborulna — ilyenkor a figyelmeztetés **a nyomtatványra is rákerül**, nem csak a képernyőre. A képernyős figyelmeztetés nem véd meg azt, aki már kinyomtatta az ívet.
+
+---
+
+## [2026-08-16] — Az egyházkerület mostantól átveszi a megyék felterjesztéseit
+<!-- key: 2026-08-16-egyhazkeruleti-fogado-felulet -->
+<!-- category: feature -->
+<!-- version: 0.9.169 -->
+<!-- targets: egyhazkeruleti admin + szamvevo + esperes -->
+
+### ✨ Új funkciók
+
+- **Megérkezett a lánc másik vége.** Az egyházmegye 2026-08-15 óta fel tudja küldeni a számadását, költségvetését, költségvetés-módosításait és a számvevői összesítőjét — de **a kerület eddig nem látta őket**. Új felület (`Felterjesztések`) a kerületi menüben: évenként és egyházmegyénként, mind a négy irattípusra.
+- **Átvétel, visszaküldés, feloldás — egy helyen.** Az „Átvettem" gombbal a kerület nyugtázza az irat átvételét. A „Visszaküldés javításra" **kötelező indoklást** kér (indoklás nélkül a megyének nincs mit javítania), és az indok megjelenik a megyénél. A megye feloldás-kérelmeit külön, kiemelt blokkban lehet **jóváhagyni vagy elutasítani**.
+- **Ami nincs beküldve, az láthatóan hiányzik.** A felület a kerület **összes** egyházmegyéjét felsorolja, nem csak azokat, akiktől érkezett irat — így egy „kerek" listában nem rejtőzhet el fél kerület hiánya. (A költségvetés-módosítás hiánya szándékosan nem kap riasztó jelzést: nem minden évben van módosítás.)
+- **A megye is látja, mi történt.** A megyei felületen eddig csak a „Felküldve" felirat állt; mostantól az **„Átvéve"** és a **„Visszaküldve"** állapot is megjelenik, dátummal — visszaküldésnél az indoklással és azzal, mi a teendő.
+- **Értesítés a megyének.** Átvételkor, visszaküldéskor és feloldás-elbíráláskor a megye tisztségviselői értesítést kapnak — a lánc eddig némán futott.
+
+### 🔒 Ami megvédi a hivatalos iratot
+
+- **A beküldött irat tartalma nem módosítható a kerület felől.** Adatbázis-szintű őrszem gondoskodik róla, hogy a kerület csak az átvétel tényét, a visszaküldés indokát és a megjegyzéseket írhassa — a **beküldött irat tartalmát, iktatószámát és a felküldés időpontját soha**. Az „átvevő személye" mezőbe sem lehet más nevét beírni.
+- **Egy egyházmegye csak a saját egyházkerületéhez küldhet fel.** Eddig ezt semmi nem akadályozta meg.
+- **Az ellenőr lát, de nem nyúl hozzá.** Az egyházkerületi számvevő megnézheti és kinyomtathatja a felterjesztéseket, de az átvétel, a visszaküldés és az elbírálás gombjai nála **letiltva** jelennek meg, magyarázattal — nem kattintás után derül ki.
+
+### ℹ️ Rendszergazdai teendő
+
+- Futtatandó: `migration-docs/sql/2026-08-16-egyhazkeruleti-S3-fogado.sql`. Amíg nem fut le, a fogadó felület megnyílik, de az átvétel/visszaküldés az irat-védelem és az értesítés hiánya miatt nem teljes.
+
+---
+
+## [2026-08-16] — Egyházkerület: saját arculat, és a kerület már nem lát bele a gyülekezetekbe
+<!-- key: 2026-08-16-egyhazkeruleti-identitas-ralatas -->
+<!-- category: feature -->
+<!-- version: 0.9.168 -->
+<!-- targets: egyhazkeruleti admin + esperes + lelkesz -->
+
+### 🔒 Biztonsági javítások
+
+- **A kerület mostantól csak a hivatalosan beküldött iratokat látja.** Eddig egy egyházkerületi adminisztrátor közvetlen lekérdezéssel elolvashatta — és részben írhatta is — a kerülete **összes gyülekezetének** anyakönyvét (keresztelés, házasság, temetés, konfirmáció), családlátogatási naplóját, munkanaplóját, pénzügyi tételeit és leltárát, valamint az egyházmegyék könyveit. Ez mintegy negyven adattáblát érintett. Mostantól a kerület **kizárólag** azt látja, amit a gyülekezet vagy az egyházmegye **hivatalosan felküldött**, illetve az abból készült összesítőt — pontosan úgy, ahogy a kerületi irányítópult eddig is ígérte. A beküldött iratok átvétele, visszaküldése és a kérelmek elbírálása változatlanul működik.
+- **A gyülekezeti lista már nem szivárog.** Az egyházmegyei irányítópult „Gyülekezetek" fülén rendszergazdai belépéssel az **ország mind a 783 gyülekezete** megjelent, miközben a fejléc helyesen 36-ot írt: a szűrő a háttérben némán eltűnt. Mostantól a lista mindig ahhoz az egyházmegyéhez igazodik, amelyiket a képernyő mutatja.
+
+### ✨ Új funkciók
+
+- **Az egyházkerületnek saját hivatalos arculata lett.** Új „Egyházkerület beállításai" varázsló: hivatalos magyar és **román** név, címer, cím, adószámok, elérhetőségek, bankszámla, valamint a **püspök**, az **egyházkerületi adminisztrátor** és a **számvevő** neve — mindaz, ami a hivatalos iratok fejlécéhez és hitelesítéséhez kell. Mellette az „Egyházkerületünk" adatlap, ahol mindez egy helyen megtekinthető és másolható.
+- **A vezetők nevét listából lehet választani.** Nem kell kézzel begépelni: a program felkínálja azokat, akik a rendszerben már be vannak töltve a tisztségbe. Így a hivatalos iratra pontosan az a név kerül, amelyik a rendszerben szerepel — elgépelés nélkül. Kézi megadás továbbra is lehetséges (a főgondnok például jellemzően nem szerepel a rendszerben).
+- **A teszt-egyházkerület láthatóan meg van jelölve.** Éles használatban így nem lehet összekeverni a valódiakkal.
+
+### 🎨 Ami megvéd az adatvesztéstől
+
+- **A beállítás-varázsló semmit nem felejt el.** Ha félbehagyod — visszalépsz, bezárod, vagy csak véletlenül kikattintasz —, a beírt adatok **elmentődnek**; nem kell elölről kezdeni. Ez a gyülekezeti, az egyházmegyei és az egyházkerületi varázslóra egyaránt igaz.
+
+### ℹ️ Rendszergazdai teendő
+
+- Két SQL, **ebben a sorrendben**: **1)** `migration-docs/sql/2026-08-16-egyhazkeruleti-S1c-ralatas-bezaras.sql` (a rálátás szűkítése — a 0. szakasz **név szerint felsorolja**, mely táblákról tűnik el a kerületi hozzáférés, futtatás előtt olvasd el); **2)** `migration-docs/sql/2026-08-16-egyhazkeruleti-S2-identitas.sql` (a kerületi törzsadat, a címer-tároló és az első írás-jogosultság). Mindkettő fail-closed őrszemmel áll le, ha az adatbázis nem a várt állapotban van. **Nyitott döntés:** a püspöki pecsét és az aláírás képe publikus tárolóba kerül, tehát az URL ismeretében bejelentkezés nélkül letölthető — a fájl fejléce leírja a két lehetőséget.
+
+---
+
+## [2026-08-15] — Egyházkerület: a harmadik szint alapjai és egy anonim adatszivárgás lezárása
+<!-- key: 2026-08-15-egyhazkeruleti-hatokor-biztonsag -->
+<!-- category: security -->
+<!-- version: 0.9.167 -->
+<!-- targets: egyhazkeruleti admin + rendszergazda -->
+
+### 🔒 Biztonsági javítások
+
+- **Az egyházmegyék hivatalos adatai eddig bejelentkezés nélkül is olvashatók voltak.** Az adószám (CIF), a bankszámlaszám, a pecsét és az aláírás képének címe, a cím és az elérhetőségek — mindez kiolvasható volt a nyilvános regisztrációs oldalon keresztül, fiók nélkül. Mostantól a be nem jelentkezett látogató **kizárólag a nevet és a besorolást** látja, amennyi a regisztrációs űrlap legördülőihez kell; minden más belépést kíván. Ugyanez a védelem előre elkészült az egyházkerületre is, hogy amikor megkapja a saját hivatalos adatait, azok **egyetlen pillanatra se** legyenek nyilvánosak.
+- **Aki csak szerepkör-kiosztással kapott kerületi jogot, eddig sehova nem jutott be.** Az egyházkerületi belépőt a program a fiók régi, elsődleges szerepéből olvasta, nem a kiosztott szerepkörből. Emiatt egy frissen kinevezett kerületi munkatárs a kerületi irányítópultról **és** az adminisztrációs felületről is visszakerült a gyülekezeti kezdőoldalra, magyarázat nélkül — zsákutcába. Mostantól mindkét kapu a valódi szerepkört nézi.
+- **A kerületi listák a valódi jogosultsághoz igazodnak.** Eddig bármilyen kerületi hatókörű szerepkör-sor (akár egy egyedi „titkárnő" szerep) kerületi jogosultságnak számított a felületen, miközben az adatbázis nem engedte be — az eredmény néma, üres képernyő lett hibaüzenet nélkül. A program és az adatbázis mostantól **ugyanazt a szereplistát** használja, és egy önellenőrzés minden telepítés előtt figyeli, hogy a kettő ne csússzon szét.
+
+### ✨ Új funkciók
+
+- **Egyházkerületi számvevő (ellenőr) szerepkör.** A megyei mintára: az **egyházkerületi adminisztrátor rögzít**, az **egyházkerületi számvevő ellenőriz**. A számvevő megnézhet és kinyomtathat mindent, amit a kerület lát — beküldött iratokat, pillanatképeket —, de nem rögzít, nem vesz át és nem bírál el. A felület ezt **előre** kiírja („Ellenőri (számvevői) nézet — csak megtekintés"), és a tiltott gombok mellé beszédes magyar magyarázat kerül, nem egy néma sikertelen mentés. A szerepkör a szokásos helyeken kiosztható (Felhasználók → szerepkör hozzárendelése), és a nyilvános hozzáférés-kérő űrlapon is választható.
+
+### 🐛 Javítások
+
+- **A nyugtán újra megjelenik az egyházmegye és az egyházkerület neve.** A Chitanța kétnyelvű fejlécéből mindkettő némán hiányzott: a program olyan mezőt kért az adatbázistól, ami az egyházmegye és az egyházkerület adatai közt nem létezik, ezért a lekérdezés egészében eldőlt. A kerület román nevét a következő szelet hozza meg.
+- **Az „Egyházmegye beállítása" varázsló megmondja, miért nem lehet tovább lépni.** Eddig a „Tovább" gomb némán letiltva maradt, ha egy mező hibás volt — a képernyőn minden kitöltöttnek látszott, tehát úgy tűnt, a program romlott el. (A valódi ok például egy `@` nélküli e-mail cím lehetett.) Mostantól a gombok fölött sárga sávban ott áll, **melyik mező hiányzik**, e-mailnél pedig azt is kiírja, mi a baj vele és mi a helyes alak.
+
+### ℹ️ Rendszergazdai teendő
+
+- Két SQL-fájl, **ebben a sorrendben**: **1)** `migration-docs/sql/2026-08-15-egyhazkeruleti-S0-allapotfelmeres.sql` — ez **semmit nem módosít**, csak visszaadja az éles adatbázis állapotát (az eredményt küldd vissza); **2)** `migration-docs/sql/2026-08-15-egyhazkeruleti-S1-hatokor-biztonsag.sql` — ez zárja le az anonim szivárgást és veszi fel az új szerepkört. A második fájl fail-closed őrszemmel áll le, ha az adatbázis nem a várt állapotban van. **Futtatás után 2 perces próba:** nyisd meg inkognitó ablakban a `/hozzaferes-kerese` oldalt — az Egyházkerület és Egyházmegye legördülőnek meg kell telnie.
+- **⚠️ Ha az S1 fájlt már lefuttattad a javítás előtt:** futtasd le a `migration-docs/sql/2026-08-15-egyhazkeruleti-S1-JAVITAS-custom-label-check.sql` fájlt is. Az S1 első változata a szerepkör-értéklista cseréjekor egy másik ellenőrző szabályt is eltalált (az egyedi szerepkörök címke-őrét), és kicserélte a tartalmát. **Adat nem veszett el, egyetlen sor sem módosult** — de a szabályt vissza kell tenni a helyére. A javító fájl fail-closed: ha közben keletkezett szabálysértő sor, megáll és név szerint felsorolja őket.
+
+---
+
 ## [2026-08-15] — Egyházmegyei irattár és összesítő: a beküldött iratok egy helyen
 <!-- key: 2026-08-15-egyhazmegyei-archivum-osszesito -->
 <!-- category: feature -->

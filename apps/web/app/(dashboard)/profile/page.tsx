@@ -24,6 +24,8 @@ function roleLabel(role: string): string {
       return 'Egyházmegyei admin'
     case 'egyhazkeruleti_admin':
       return 'Egyházkerületi admin'
+    case 'egyhazkeruleti_szamvevo':
+      return 'Egyházkerületi számvevő'
     case 'admin':
       return 'Rendszergazda'
     case 'konyvelo':
@@ -47,6 +49,7 @@ function roleColor(role: string): string {
       return 'bg-indigo-100 text-indigo-800'
     case 'konyvelo':
     case 'egyhazmegyei_szamvevo':
+    case 'egyhazkeruleti_szamvevo':
       return 'bg-amber-100 text-amber-800'
     default:
       return 'bg-slate-100 text-slate-700'

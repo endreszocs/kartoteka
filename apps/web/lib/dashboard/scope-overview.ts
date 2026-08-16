@@ -104,6 +104,8 @@ function roleLabel(role: string) {
       return 'Admin'
     case 'egyhazkeruleti_admin':
       return 'Egyházkerületi admin'
+    case 'egyhazkeruleti_szamvevo':
+      return 'Egyházkerületi számvevő'
     case 'egyhazmegyei_admin':
       return 'Egyházmegyei admin'
     case 'egyhazmegyei_szamvevo':

@@ -14,6 +14,7 @@ import {
   ClipboardList,
   FileText,
   Handshake,
+  Inbox,
   Landmark,
   LayoutDashboard,
   Package,
@@ -615,9 +616,43 @@ function SidebarNav({
   const isDioceseScope = activeScope === 'diocese'
   const isDistrictScope = activeScope === 'district'
   const isSystemScope = activeScope === 'system'
-  const showCongregationSections = hasExplicitScope ? (isCongregationScope || isDioceseScope) : hasCongregation
+  // 2026-08-17 (S4) NÉMA HIBA JAVÍTÁSA: a district ág hiányzott ebből a kapuból.
+  //
+  // MI VOLT A ROSSZ: az S3 (2026-08-16) felépítette a `districtMainItems`
+  // tömböt, és a 727. sor belső elágazása is kezeli a district scope-ot — de EZ
+  // a külső kapu `hasExplicitScope && !congregation && !diocese` esetén false-ot
+  // adott, tehát a `sections.push({ title: 'Fő modulok', … })` SOHA nem futott
+  // le kerületi profillal. A „Felterjesztések" menüpont így megépült, de az
+  // oldalsávban nem volt sehol; a kerületi tisztségviselő csak kézzel beírt
+  // útvonalon érte el. A hiba néma: nincs kivétel, nincs üres állapot — a
+  // menüpont egyszerűen nincs ott, mintha meg sem épült volna.
+  //
+  // Ezzel a district scope ugyanazt a két szakaszt kapja, amit a diocese:
+  // „Fő modulok" (a saját, K4-konform listája) + „Profilom". A gyülekezeti
+  // szakaszokat továbbra sem kapja meg — arról a belső elágazás gondoskodik.
+  const showCongregationSections = hasExplicitScope
+    ? (isCongregationScope || isDioceseScope || isDistrictScope)
+    : hasCongregation
   const showDioceseSection = hasExplicitScope ? false : isEsperes
-  const showDistrictSection = hasExplicitScope ? isDistrictScope : (isEgyhazkeruletiAdmin || isAdmin)
+  // 2026-08-17 (S4) DUPLA MENÜPONT JAVÍTÁSA — a district ág mostantól a megyeit követi.
+  //
+  // MI VOLT A TÜNET: explicit district scope-ban a /dashboard-kerulet KÉT
+  // menüpontot kapott: a „Fő modulok" szakasz `dynamicDashboardItem`-jét
+  // („Kerületi irányítópult") ÉS az „Egyházkerületi nézet" szakasz
+  // `districtItems` elemét („Egyházkerület"). Ugyanazon az útvonalon MINDKETTŐ
+  // aktívként (kiemelve) renderelődött — a felhasználó két külön helynek hitte
+  // őket, és nem tudta eldönteni, melyiken „van". A megyei ág pontosan ezért van
+  // elnémítva (`showDioceseSection` fenti sora): explicit scope-ban a „Fő modulok"
+  // már tartalmazza a szint saját irányítópultját, tehát a külön nézet-szakasz
+  // felesleges.
+  //
+  // ⚠️ A NEM-EXPLICIT (legacy, profile_roles nélküli) kerületi adminnál NEM
+  // változhat semmi: ott az `effectiveMainItems` a GYÜLEKEZETI listát adja
+  // (`isDistrictScope` false → a dashboard-elem a sima `/dashboard`), tehát az
+  // „Egyházkerületi nézet" szakasz az EGYETLEN belépője a kerületi felületre.
+  // Ezért marad a `hasExplicitScope` szerinti kétágú feltétel, és a false-ág
+  // (isEgyhazkeruletiAdmin || isAdmin) érintetlen.
+  const showDistrictSection = hasExplicitScope ? false : (isEgyhazkeruletiAdmin || isAdmin)
   // 2026-07-11 fix: a kerületi admin (scope='district') is lássa a Rendszerszint
   // szekciót — az admin server actionök (requireAdminAccess allowDistrictAdmin
   // default true + admin-scope.ts szűkítés) eddig is támogatták, csak a menü és
@@ -685,10 +720,49 @@ function SidebarNav({
     { label: 'Iktatás', href: '/iktato', icon: FileText, gradient: 'from-violet-400 to-purple-500' },
   ]
 
+  // District scope menü (2026-08-16, egyházkerületi S3).
+  //
+  // MIÉRT KELL SAJÁT ÁG: a kerületi profil eddig a GYÜLEKEZETI modul-listát
+  // kapta (Pénzügy, Tagnyilvántartás, Anyakönyv…). Ez Endre K4 döntése óta
+  // egyenesen félrevezető: „A kerület nem írhatja és nem is olvassa a kerület
+  // gyülekezeteinek és egyházmegyéinek az adatait, csak a hivatalosan beküldött
+  // adatokat illetve azoknak az összesítőjét." Azok a menüpontok tehát olyan
+  // felületekre vittek, amelyek 2026-08-16 óta üresek — a felhasználó pedig azt
+  // hinné, hogy elromlott valami, nem azt, hogy nem is jár neki.
+  //
+  // A terv szabálya itt is érvényes: menüpont CSAK MEGÉPÜLT célponthoz kerül be
+  // (halott link soha). Az S5 hozza majd a kerületi Leltárt/Iktatást.
+  //
+  // 2026-08-17 (S4): megérkezett a kerületi „Iratok archívuma" és „Összesítő".
+  // A SORREND SZÁNDÉKOSAN a megyeit (`dioceseMainItems`) tükrözi —
+  // irányítópult → archívum → összesítő —, mert ugyanaz a személy jár át a két
+  // szint között (az esperesből lett kerületi tisztségviselő), és a menü
+  // helyének átrendeződése minden szintváltásnál újratanulást követelne.
+  // Az ikon/gradiens is a megyei párjáé (Archive, ClipboardList).
+  //
+  // A „Felterjesztések" (S3 fogadó felület) az Archive helyett INBOX ikont kap:
+  // az „Iratok archívuma" bejövetelével két menüpont viselte volna UGYANAZT az
+  // Archive ikont, összecsukott oldalsávban pedig CSAK az ikon látszik — ott a
+  // kettő megkülönböztethetetlen lett volna. A postaláda-ikon egyébként is
+  // pontosabb: az a felület egy beérkező sor, nem archívum.
+  const districtMainItems: MenuItem[] = [
+    dynamicDashboardItem,
+    { label: 'Iratok archívuma', href: '/dashboard-kerulet/iratok', icon: Archive, gradient: 'from-emerald-400 to-teal-500' },
+    { label: 'Összesítő', href: '/dashboard-kerulet/osszesito', icon: ClipboardList, gradient: 'from-teal-400 to-cyan-500' },
+    {
+      label: 'Felterjesztések',
+      href: '/dashboard-kerulet/felterjesztesek',
+      icon: Inbox,
+      gradient: 'from-violet-400 to-purple-500',
+    },
+  ]
+
   // Gyülekezeti mainItems dinamikus elemmel
   const effectiveMainItems: MenuItem[] = isDioceseScope
     ? dioceseMainItems
-    : [
+    : isDistrictScope
+      ? districtMainItems
+      : [
         dynamicDashboardItem,
         ...mainItems.slice(1).map((m) => {
           if (m.href === '/penzugy') return financeMenuItem
@@ -700,8 +774,12 @@ function SidebarNav({
 
   // Lelkész / esperes / admin: a saját gyülekezetük moduljaihoz jutnak
   if (showCongregationSections) {
-    if (isDioceseScope) {
-      // Diocese scope-ban CSAK a Pénzügy fő modul + Profil
+    if (isDioceseScope || isDistrictScope) {
+      // Diocese scope-ban CSAK a Pénzügy fő modul + Profil.
+      // District scope-ban (2026-08-16, K4) UGYANEZ az elv: a kerület a
+      // gyülekezetek belső moduljait NEM látja, tehát a „Szolgálati
+      // adminisztráció" és a „Közösségi tér" szakasz sem jár neki — azok
+      // gyülekezeti adatra épülnek, ami számára üres lenne.
       sections.push({ title: 'Fő modulok', items: effectiveMainItems })
       sections.push({ title: 'Profilom', items: profileItems })
     } else {

@@ -116,6 +116,7 @@ const ROLE_FILTER_OPTIONS: Array<[RoleFilter, string]> = [
   ['no-role', 'Szerepkör nélkül'],
   ['admin', ROLE_LABELS.admin],
   ['egyhazkeruleti_admin', ROLE_LABELS.egyhazkeruleti_admin],
+  ['egyhazkeruleti_szamvevo', ROLE_LABELS.egyhazkeruleti_szamvevo],
   ['esperes', ROLE_LABELS.esperes],
   ['egyhazmegyei_admin', ROLE_LABELS.egyhazmegyei_admin],
   ['egyhazmegyei_szamvevo', ROLE_LABELS.egyhazmegyei_szamvevo],
@@ -234,6 +235,14 @@ export function UnifiedUsersTab() {
         scopeId: d.id,
         role: 'egyhazkeruleti_admin',
         label: `Egyházkerületi admin — ${d.name}`,
+      })
+      // 2026-08-15 (egyházkerületi S1): a kerületi ELLENŐR — csak olvas.
+      opts.push({
+        key: `district::${d.id}::egyhazkeruleti_szamvevo`,
+        scope: 'district',
+        scopeId: d.id,
+        role: 'egyhazkeruleti_szamvevo',
+        label: `Egyházkerületi számvevő — ${d.name}`,
       })
     }
     for (const d of scopeData.dioceses) {

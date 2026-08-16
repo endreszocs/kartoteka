@@ -457,7 +457,30 @@ async function sendUnlockDecisionNotification(
  *   A választók száma a `valasztok_nevjegyzeke` snapshot-jából kell jönnie
  *   (jövőbeli iteráció), addig nem mutatunk taglétszámot.
  */
-export async function getCongregationOverviewData(): Promise<Array<{
+export async function getCongregationOverviewData(
+  /**
+   * A KÉPERNYŐN ÉPPEN LÁTHATÓ egyházmegye (a hívó oldal kontextusa).
+   *
+   * ⚠️ 2026-08-15 — EZ A PARAMÉTER EGY VALÓS SZIVÁRGÁST ZÁR BE.
+   * TÜNET VOLT: a Kézdi-Orbai egyházmegye „Gyülekezetek" fülén MIND A 783
+   * gyülekezet megjelent, miközben a hero fejléce helyesen 36-ot írt.
+   *
+   * OK — KÉT RÉTEG, KÉT KÜLÖNBÖZŐ FELOLDÓ:
+   *   · a page.tsx a TÁG `resolveDioceseScopeId()`-t használja (skalár
+   *     `profiles.diocese_id` fallbackkel) → megvan a Kézdi-Orbai;
+   *   · ez a függvény a SZEREP-SZŰRT `resolveDioceseReadScopeIds()`-t →
+   *     rendszergazdánál (profiles.role = 'admin') ez ÜRES tömb,
+   *   · és az üres tömbnél a szűrő NÉMÁN ELTŰNT:
+   *         if (dioceseIds.length > 0 && !access.master) query.in(...)
+   *     Ez szó szerint a projekt dokumentált hibaosztálya: „skalár hatókör +
+   *     if (id) filter = néma teljes szivárgás".
+   *
+   * A SZABÁLY, amit ez a paraméter érvényesít: METSZET(jogosultság, profil) —
+   * soha unió, soha tágítás. Ha a képernyő egy KONKRÉT egyházmegyét mutat,
+   * a lista is CSAK azt mutathatja — akkor is, ha a hívó rendszergazda.
+   */
+  kontextusDioceseId?: string | null,
+): Promise<Array<{
   congregationId: string
   congregationName: string
   unlockRequests: UnlockRequest[]
@@ -509,13 +532,36 @@ export async function getCongregationOverviewData(): Promise<Array<{
     (a, b) => b - a,
   )
 
-  // Gyülekezetek lekérdezése — szűretlenül CSAK a rendszergazdai/master ág futhat
+  // ── A SZŰRŐ MEGHATÁROZÁSA — FAIL-CLOSED ───────────────────────────────────
+  // `null` = szűretlen. Ide KIZÁRÓLAG a rendszergazda juthat, és CSAK akkor,
+  // ha a képernyő SEM mutat konkrét egyházmegyét (összesített admin-nézet).
+  // Minden más ágon van szűrő — üres tömb esetén üres LISTA, nem „nincs szűrő".
+  let szuroIds: string[] | null
+  if (kontextusDioceseId) {
+    // A képernyőn látható egyházmegye az elsődleges. Jogosultsággal
+    // rendelkezőnél METSZET a hatókörével (a profilváltás SOHA nem tágít).
+    szuroIds =
+      access.master || access.admin
+        ? [kontextusDioceseId]
+        : dioceseIds.includes(kontextusDioceseId)
+          ? [kontextusDioceseId]
+          : []
+  } else if (dioceseIds.length > 0) {
+    szuroIds = dioceseIds
+  } else if (access.master || access.admin) {
+    szuroIds = null // feliratozott, összesített rendszergazdai nézet
+  } else {
+    szuroIds = []
+  }
+
+  // Üres hatókör → ÜRES lista (fail-closed). SOHA nem szűretlen lekérdezés.
+  if (szuroIds !== null && szuroIds.length === 0) return []
+
   let congQuery = supabase
     .from('congregations')
     .select('id, name')
-
-  if (dioceseIds.length > 0 && !access.master) {
-    congQuery = congQuery.in('diocese_id', dioceseIds)
+  if (szuroIds !== null) {
+    congQuery = congQuery.in('diocese_id', szuroIds)
   }
 
   const { data: congregations } = await congQuery

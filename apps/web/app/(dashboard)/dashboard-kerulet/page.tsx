@@ -12,9 +12,20 @@ import { ScopeHero } from '@/components/dashboard/scope-dashboard-sections'
 // 2026-08-09: a FinalizedDocumentsList + DeadlineCard helyett a közös
 // dokumentumközpont (teljességi mátrix + snapshot-néző + átvétel-igazolás).
 import { DocumentCenter } from '@/components/dashboard/document-center'
+// 2026-08-16 (egyházkerületi S2): a kerület hivatalos identitásának olvasó
+// szekciója — az „Egyházmegyénk" párja, a kerületi irányítópulton.
+import { OurDistrictSection } from '@/components/dashboard/district/our-district-section'
+// 2026-08-17 (S3–S4): belépő kártyák a három kerületi munkafelületre. A megyei
+// párjával azonos indok: a fülek közé rejtett link ott a legkevésbé feltűnő,
+// ahol a legfontosabb.
+import { DistrictBelepoKartyak } from '@/components/dashboard/district/district-belepo-kartyak'
 import { getHomePathForScope } from '@/lib/auth/active-ui-scope'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
-import { resolveDistrictScopeIds } from '@/lib/auth/level-scope'
+import {
+  canReadDistrictScope,
+  canWriteDistrictScope,
+  resolveDistrictReadScopeIds,
+} from '@/lib/auth/level-scope'
 import { getSubmissionMatrix } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
 import { documentSeasonYear } from '@/lib/constants/documents'
 
@@ -38,19 +49,44 @@ import { documentSeasonYear } from '@/lib/constants/documents'
  *   szerinti ELSŐ egyházmegye sorából lett kitalálva — a hero akár a MÁSIK
  *   kerület nevét mutatta. FAIL-CLOSED: hatókör nélkül magyarázó kártya;
  *   a mindent-látó ág KIZÁRÓLAG a masteré/rendszergazdáé (explicit, feliratozva).
+ *
+ * 2026-08-15 (EGYHÁZKERÜLETI S1) — KÉT JAVÍTÁS EZEN AZ OLDALON:
+ *
+ *   (1) A BELÉPŐ-KAPU. Eddig `if (!egyhazkeruletiAdmin) redirect('/dashboard')`
+ *       állt itt. Az `egyhazkeruletiAdmin` KIZÁRÓLAG a `profiles.role`
+ *       SKALÁRBÓL jön (effective-access.ts) — tehát akinek csak `profile_roles`
+ *       district sora van (a szerepkör-kiosztás pipeline ezt rendszeresen
+ *       előállítja, miközben a skalár `lelkesz` marad), az NÉMÁN kirepült a
+ *       gyülekezeti dashboardra. Ugyanez zárta volna ki az új kerületi
+ *       SZÁMVEVŐT is. Mostantól a kapu a `canReadDistrictScope()`, ami a
+ *       skalár ÉS a szerepkör-sor lábat is nézi.
+ *
+ *   (2) A LISTASZŰRÉS. Eddig a szerep-SZŰRETLEN `resolveDistrictScopeIds`
+ *       adta a szűrőt: bármely `district` hatókörű sor (akár `custom`,
+ *       `lelkesz`) hatókörnek számított, miközben az RLS csak
+ *       `egyhazkeruleti_admin`-t enged → az app feloldott egy kerületet,
+ *       lefuttatta rá a lekérdezéseket, és 0 sort kapott vissza HIBAÜZENET
+ *       NÉLKÜL (üres képernyő). Mostantól a szerep-szűrt
+ *       `resolveDistrictReadScopeIds` fut, ami betűre azt a szereplistát
+ *       tükrözi, amit az adatbázis `current_user_district_olvaso_ids()`-e.
  */
 export default async function KeruletDashboardPage() {
   const access = await getEffectiveAccessContext()
-  const { supabase, user, egyhazkeruletiAdmin, admin, master, activeProfileRole } = access
+  const { supabase, user, admin, master, activeProfileRole } = access
 
   if (!user) redirect('/login')
-  if (!egyhazkeruletiAdmin) redirect('/dashboard')
+  // (1) lásd a fenti docblockot — skalár ÉS profile_roles láb.
+  if (!canReadDistrictScope(access)) redirect('/dashboard')
   if (activeProfileRole && activeProfileRole.scope !== 'district') {
     redirect(getHomePathForScope(activeProfileRole.scope))
   }
 
-  // 2026-08-09: aktív szerep → profile_roles district sorok → profiles.district_id
-  const districtIds = resolveDistrictScopeIds(access)
+  // (2) SZEREP-SZŰRT olvasási hatókör — az RLS tükörképe, hogy a két réteg
+  // ne húzhasson szét (lásd a fenti docblockot).
+  const districtIds = resolveDistrictReadScopeIds(access)
+  // Csak olvasó (számvevői) nézet? A felület a rögzítő/elbíráló gombokat ELŐRE
+  // letiltja majd — nem néma 0-soros mentés után hibázunk.
+  const readOnlyScope = !canWriteDistrictScope(access)
   const isSystemAdmin = !!admin || !!master
   // Explicit, feliratozott "minden kerület" ág — CSAK master/rendszergazda,
   // akinek nincs saját kerület-hatóköre.
@@ -160,6 +196,9 @@ export default async function KeruletDashboardPage() {
         description="A kerület kizárólag a véglegesített és továbbított hivatalos dokumentumokat látja. Az egyházmegyék és gyülekezetek belső adataihoz a kerület — a gyülekezeti és egyházmegyei autonómia jegyében — nem fér hozzá."
         chips={[
           showAllDistricts ? 'Rendszergazdai nézet: minden egyházkerület' : undefined,
+          // 2026-08-15 (S1): az ellenőr ELŐRE lássa, hogy csak olvasni fog —
+          // ne egy néma, 0-soros mentés után derüljön ki.
+          readOnlyScope ? 'Ellenőri (számvevői) nézet — csak megtekintés' : undefined,
           `${(dioceses?.length ?? 0).toLocaleString('hu-HU')} egyházmegye`,
           `${totalCongregations.toLocaleString('hu-HU')} gyülekezet`,
           // 2026-08-11 (P2-#19): a felirat a TELJES archívumot mutatja (olcsó
@@ -199,6 +238,19 @@ export default async function KeruletDashboardPage() {
           hint="januári + májusi határidők"
         />
       </div>
+
+      {/* 2026-08-17 (S3–S4): a három kerületi munkafelület belépője. */}
+      <DistrictBelepoKartyak ev={seasonYear} />
+
+      {/* 2026-08-16 (egyházkerületi S2): „Egyházkerületünk" — a hivatalos
+          identitás (név, román név, cím, CIF, bank, vezetés, címer/pecsét).
+          Ha az adat hiányos, a szekció BESZÉDESEN kiírja, mi hiányzik, és a
+          beállítás-varázslóra mutat — nem néma üres mező.
+          A `districtId` az elsődleges (hero) kerület; hatókör nélkül ide el sem
+          jutunk (fentebb fail-closed kártya áll). */}
+      {districtId && (
+        <OurDistrictSection districtId={districtId} canWrite={!readOnlyScope} />
+      )}
 
       {/* Egyházmegyei bontás — gyülekezet-darabszám + (2026-08-11) taglétszám */}
       <DioceseBreakdown

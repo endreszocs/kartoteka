@@ -138,10 +138,36 @@ export interface DistrictScopeContext {
    * profiles.district_id fallback, deduplikálva; az aktív az első) — a
    * getAdminDistrictScope (lib/auth/admin-scope.ts) mintája szerint. Több
    * kerületes admin mindegyikét látja. Üres tömb = nincs hatókör → fail-closed.
+   *
+   * ⚠️ 2026-08-15 (kerületi S1): ez a mező SZEREP-SZŰRETLEN (lásd
+   * `resolveDistrictScopeIds` JSDoc-ját). MEGJELENÍTÉSRE (hero-cím) való.
+   * LISTASZŰRÉSRE a `readScopeIds` / `writeScopeIds` mezőket használd.
    */
   districtIds: string[]
+  /**
+   * 2026-08-15 (kerületi S1): SZEREP-SZŰRT kerületi OLVASÁSI hatókör.
+   * Pontosan azt a szerep-listát tükrözi, amit az adatbázis kanonikus
+   * `current_user_district_olvaso_ids()` függvénye enged, így az app és az RLS
+   * nem húzhat szét. Üres tömb = nincs hatókör → fail-closed (üres állapot,
+   * SOHA nem szűretlen lekérdezés).
+   */
+  readScopeIds: string[]
+  /** Szerep-szűrt kerületi ÍRÁSI hatókör — lásd a readScopeIds kommentjét. */
+  writeScopeIds: string[]
   isMaster: boolean
   isAdmin: boolean
+  /**
+   * Írhat-e a hívó ezen a kerületi hatókörön? `false` = ellenőri (számvevői)
+   * nézet. A felület KÖTELES a mentő/elbíráló gombokat ELŐRE letiltani,
+   * magyarázattal — nem néma 0-soros mentés után hibázni.
+   */
+  canWrite: boolean
+  /**
+   * Beszédes magyar magyarázat, ha `canWrite === false` — tooltipre, letiltott
+   * gomb feliratára és szerver-oldali `{ error }`-ra egyaránt alkalmas.
+   * `null`, ha a hívó írhat.
+   */
+  readOnlyReason: string | null
 }
 
 /**
@@ -335,6 +361,20 @@ export function describeDioceseWriteBlock(
  * Pure feloldó: a felhasználó egyházkerület-hatóköre (union, aktív szerep elöl).
  * Sorrend: aktív district-szerep scope_id → profile_roles district sorok →
  * profiles.district_id skalár (fallback).
+ *
+ * ⚠️ 2026-08-15 (kerületi S1): EZ A FELOLDÓ SZEREP-SZŰRETLEN — bármely
+ * `district` hatókörű `profile_roles` sor (akár `custom`, `lelkesz`,
+ * `konyvelo`) kerületi hatókörnek számít. Az adatbázis kanonikus
+ * `current_user_district_ids()` függvénye viszont KIZÁRÓLAG az
+ * `egyhazkeruleti_admin` szerepűeket adja vissza. Ez pontosan az a
+ * réteg-divergencia, ami a megyei számvevőnél ÜRES KÉPERNYŐT okozott
+ * hibaüzenet nélkül (az app feloldott egy hatókört, az RLS 0 sort adott rá).
+ *
+ * ⇒ LISTASZŰRÉSRE EZT NE HASZNÁLD. Használd a lentebbi szerep-szűrt párokat:
+ *   · `resolveDistrictReadScopeIds`  ⇄ current_user_district_olvaso_ids()
+ *   · `resolveDistrictWriteScopeIds` ⇄ current_user_district_ids()
+ * Ez a tág változat MEGJELENÍTÉSRE (hero-cím, alapértelmezett nézet) marad —
+ * pontosan úgy, ahogy a megyei `resolveDioceseScopeIds` párja.
  */
 export function resolveDistrictScopeIds(access: LevelScopeAccess): string[] {
   const ids: string[] = []
@@ -359,6 +399,189 @@ export function resolveDistrictScopeIds(access: LevelScopeAccess): string[] {
 /** Az elsődleges (aktív) egyházkerület-azonosító — null, ha nem feloldható. */
 export function resolveDistrictScopeId(access: LevelScopeAccess): string | null {
   return resolveDistrictScopeIds(access)[0] ?? null
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-08-15 (EGYHÁZKERÜLETI S1): OLVASÓ és ÍRÓ kerületi hatókör — az SQL tükre
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Ez a blokk a fenti megyei blokk (DIOCESE_WRITE_ROLES / DIOCESE_READ_ROLES /
+// resolveDioceseIdsForRoles) BETŰHŰ tükörképe, a 3. szintre. Azért betűhű, mert
+// a projekt visszatérő hibaosztálya éppen az, hogy „a második felület a régi
+// implementációt őrzi": ha a kerületi ág önálló, kicsit másképp működő logikát
+// kapna, a két szint idővel némán széthúzna.
+//
+// A KÉT SZINT INDOKA (a megyei számvevő-kör tanulsága):
+//   · az ÍRÓ a kerület hivatalos ügyvivője (egyházkerületi adminisztrátor),
+//   · az OLVASÓ mellé fér a kerületi SZÁMVEVŐ (ellenőr), aki megnézhet és
+//     kinyomtathat mindent, de nem rögzít és nem bírál el.
+// Az ellenőrzés és a rögzítés SZÁNDÉKOSAN két külön kézben van.
+
+/**
+ * ÍRÁSI kerületi szerepek — pontosan az a lista, amit az adatbázis kanonikus
+ * `current_user_district_ids()` függvényének szerep-szűrője használ
+ * (2026-08-11-globalis-hozzaferes-szukites.sql:888). Ha ez a két lista
+ * széthúz, visszatér a néma 0-soros mentés hibaosztálya.
+ */
+const DISTRICT_WRITE_ROLES: readonly string[] = ['egyhazkeruleti_admin']
+
+/**
+ * OLVASÁSI kerületi szerepek = az írók + a kerületi számvevő (ellenőr).
+ * Az SQL párja: `current_user_district_olvaso_ids()` (a kerületi S1 SQL hozza
+ * létre, az `current_user_diocese_olvaso_ids()` mintájára).
+ */
+const DISTRICT_READ_ROLES: readonly string[] = [
+  ...DISTRICT_WRITE_ROLES,
+  'egyhazkeruleti_szamvevo',
+]
+
+/**
+ * Közös feloldó a két kerületi szinthez — a `resolveDioceseIdsForRoles`
+ * betűhű párja. PONTOSAN azt a három szabályt követi, amit az SQL:
+ *   (a) az AKTÍV szerep számít elsőként, ha `district` hatókörű ÉS a szerepe
+ *       benne van az engedélyezett listában;
+ *   (b) SZEREP-SZŰRT visszaadás a `profile_roles` sorokból;
+ *   (c) SZEREP-FÜGGETLEN skalár-elnyomás: ha van BÁRMILYEN érvényes `district`
+ *       sor, a (esetleg elavult) `profiles.district_id` NEM bővíti a hatókört —
+ *       különben egy visszavont szerep melletti régi skalár tovább nyitna.
+ *       Ez a `current_user_district_ids()` `barmely_keruleti_sor` CTE-je.
+ */
+function resolveDistrictIdsForRoles(
+  access: LevelScopeAccess,
+  allowedRoles: readonly string[],
+): string[] {
+  const ids: string[] = []
+  const push = (id: string | null | undefined) => {
+    if (id && !ids.includes(id)) ids.push(id)
+  }
+
+  // (a) aktív szerep
+  if (
+    access.activeProfileRole?.scope === 'district' &&
+    allowedRoles.includes(access.activeProfileRole.role)
+  ) {
+    push(access.activeProfileRole.scopeId)
+  }
+
+  // (b) profile_roles sorok — és közben (c) a szerep-FÜGGETLEN elnyomás jelzése
+  let hasAnyDistrictRow = false
+  for (const r of access.profileRoles) {
+    if (!r.active || r.approval_status !== 'approved' || r.scope !== 'district') continue
+    if (r.scope_id) hasAnyDistrictRow = true
+    if (allowedRoles.includes(r.role)) push(r.scope_id)
+  }
+
+  // (c) skalár tartalék — csak ha EGYÁLTALÁN nincs kerületi szerepkör-sor
+  if (!hasAnyDistrictRow && access.profile?.role && allowedRoles.includes(access.profile.role)) {
+    push(access.profile.district_id ?? null)
+  }
+
+  return ids
+}
+
+/**
+ * A hívó ÍRÁSI kerületi hatóköre (egyházkerületi adminisztrátor).
+ * Az SQL párja: `current_user_district_ids()`.
+ */
+export function resolveDistrictWriteScopeIds(access: LevelScopeAccess): string[] {
+  return resolveDistrictIdsForRoles(access, DISTRICT_WRITE_ROLES)
+}
+
+/**
+ * A hívó OLVASÁSI kerületi hatóköre (írók + egyházkerületi számvevő).
+ * Az SQL párja: `current_user_district_olvaso_ids()`.
+ */
+export function resolveDistrictReadScopeIds(access: LevelScopeAccess): string[] {
+  return resolveDistrictIdsForRoles(access, DISTRICT_READ_ROLES)
+}
+
+/**
+ * Van-e a hívónak kerületi OLVASÁSI jogosultsága? EZT hívja a kerületi felület
+ * belépő-kapuja a korábbi puszta `access.egyhazkeruletiAdmin` feltétel helyett.
+ *
+ * MIÉRT NEM AZ `egyhazkeruletiAdmin` MEZŐT BŐVÍTETTÜK KI (a brief két
+ * lehetőséget kínált):
+ * ─────────────────────────────────────────────────────────────────────────
+ * Az `access.egyhazkeruletiAdmin` KIZÁRÓLAG a `profiles.role` skalárból jön
+ * (effective-access.ts). Kézenfekvő lett volna `profile_roles` district-lábat
+ * adni neki — DE ez a mező kb. két tucat helyen dönt, és köztük olyanokban is,
+ * amelyek NEM kerületi hatókörre vonatkoznak:
+ *   · `canWriteDioceseScope()` (uo. feljebb) `true`-t ad rá — hatókör nélkül,
+ *     BÁRMELYIK egyházmegyére;
+ *   · az admin-override („Belépés a gyülekezetbe") engedélyezése;
+ *   · `getAdminDistrictScope()` belépő-feltétele.
+ * A mező kibővítése tehát nem a kerületi kaput nyitná ki, hanem EGYSZERRE
+ * tágítana egy tucat, egymástól független jogosultságot — pontosan az a fajta
+ * néma tágítás, amit a projekt már kétszer megszenvedett.
+ *
+ * Ezért a SZŰK megoldást választottuk: a `profile_roles` district-láb ott
+ * kapcsolódik be, ahol tényleg kell — a kerületi kapukban, ezen a függvényen
+ * keresztül. A `egyhazkeruletiAdmin` mező viselkedése BYTE-RA VÁLTOZATLAN.
+ *
+ * SZIGORÚAN BŐVÍTÉS a régihez képest: aki eddig beléphetett (skalár kerületi
+ * admin, rendszergazda, master), ezután is belép — ÚJ csak a `profile_roles`
+ * alapú kerületi admin és a kerületi számvevő.
+ */
+export function canReadDistrictScope(access: LevelScopeAccess): boolean {
+  if (access.master || access.admin || access.egyhazkeruletiAdmin) return true
+  return resolveDistrictReadScopeIds(access).length > 0
+}
+
+/**
+ * Írhat-e a hívó kerületi szinten?
+ *
+ * `access.egyhazkeruletiAdmin` az `isEgyhazkeruletiAdminRole()` eredménye:
+ * lefedi az `egyhazkeruleti_admin`, `admin` és master szerepeket (skalár láb).
+ * Mellé kell a `profile_roles` láb, mert egy „profile_roles-only" kerületi
+ * adminnak a skalárja akár `lelkesz` is lehet.
+ *
+ * OPCIONÁLIS `districtId` paraméter — a megyei párjával azonos okból: van, aki
+ * EGYSZERRE kerületi adminisztrátor az egyikben és SZÁMVEVŐ a másikban. A
+ * hatókör-FÜGGETLEN változat rá `true`-t adna, vagyis a második kerület
+ * felületén úgy tűnne, hogy írhat, pedig ott csak ellenőr.
+ */
+export function canWriteDistrictScope(
+  access: LevelScopeAccess,
+  districtId?: string | null,
+): boolean {
+  // Szint-FÜGGETLEN írási jog (rendszergazda / master) — nincs kerülethez kötve.
+  if (access.master || access.admin) return true
+  // Skalár kerületi admin: a SAJÁT (profiles.district_id) kerületére ír.
+  if (
+    access.egyhazkeruletiAdmin &&
+    (!districtId || access.profile?.district_id === districtId)
+  ) {
+    return true
+  }
+  const ids = resolveDistrictWriteScopeIds(access)
+  return districtId ? ids.includes(districtId) : ids.length > 0
+}
+
+/**
+ * Miért nem írhat a hívó kerületi szinten — LELKÉSZ-BARÁT magyar szöveg,
+ * tegezve. `null`, ha írhat.
+ *
+ * Ugyanez a szöveg megy a letiltott gomb tooltipjébe ÉS a szerver akció
+ * `{ error }`-ába, hogy a felhasználó ugyanazt olvassa mindkét helyen.
+ */
+export function describeDistrictWriteBlock(
+  access: LevelScopeAccess,
+  districtId?: string | null,
+): string | null {
+  if (canWriteDistrictScope(access, districtId)) return null
+  if (resolveDistrictReadScopeIds(access).length > 0) {
+    return (
+      'Kerületi számvevőként (ellenőrként) az egyházkerület adatait megtekintheted és ' +
+      'kinyomtathatod, de nem módosíthatod. Az egyházmegyék felterjesztéseinek átvétele, ' +
+      'visszaküldése, a feloldás-kérések elbírálása és a kerületi pénzügyi rögzítés az ' +
+      'egyházkerületi adminisztrátor feladata. Ha úgy látod, hogy javítani kell valamit, ' +
+      'jelezd neki — az ellenőrzés és a rögzítés szándékosan két külön kézben van.'
+    )
+  }
+  return (
+    'Ehhez a művelethez egyházkerületi adminisztrátori jogosultság kell. ' +
+    'Ha úgy gondolod, hogy neked járna, kérd a rendszergazdától.'
+  )
 }
 
 /**
@@ -396,19 +619,35 @@ export async function getDioceseScopeContext(): Promise<DioceseScopeContext> {
 
 /**
  * Egyházkerületi scope-kontextus szerver akciókhoz / oldalakhoz.
- * A `districtIds` a teljes hatókör (több kerület is lehet) — listaszűréshez;
- * a `scopeId` az elsődleges (hero-cím, alapértelmezett nézet).
+ *
+ * Használat (a fail-closed minta, a megyei párjával azonos):
+ *   const ctx = await getDistrictScopeContext()
+ *   if (ctx.isMaster) { … szűretlen, feliratozott master-ág … }
+ *   else if (ctx.readScopeIds.length) { query = query.in('district_id', ctx.readScopeIds) }
+ *   else if (ctx.isAdmin) { … szűretlen, feliratozott admin-ág … }
+ *   else return []   // ← SOHA nem szűretlen lekérdezés!
+ *
+ * ÍRÁS ELŐTT:
+ *   if (!ctx.canWrite) return { error: ctx.readOnlyReason! }
+ *
+ * ⚠️ A `districtIds` / `scopeId` MEGJELENÍTÉSRE való (szerep-szűretlen);
+ *    listaszűrésre KIZÁRÓLAG a `readScopeIds` / `writeScopeIds` használható.
  */
 export async function getDistrictScopeContext(): Promise<DistrictScopeContext> {
   const access = await getEffectiveAccessContext()
   const districtIds = access.user ? resolveDistrictScopeIds(access) : []
+  const canWrite = access.user ? canWriteDistrictScope(access) : false
   return {
     supabase: access.supabase,
     user: access.user,
     access,
     scopeId: districtIds[0] ?? null,
     districtIds,
+    readScopeIds: access.user ? resolveDistrictReadScopeIds(access) : [],
+    writeScopeIds: access.user ? resolveDistrictWriteScopeIds(access) : [],
     isMaster: access.master,
     isAdmin: access.admin,
+    canWrite,
+    readOnlyReason: canWrite ? null : describeDistrictWriteBlock(access),
   }
 }

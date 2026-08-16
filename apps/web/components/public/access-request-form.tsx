@@ -40,6 +40,7 @@ const ROLES: { value: AccessRequestRole; label: string; description: string }[] 
   { value: 'egyhazkeruleti_admin', label: 'Egyházkerületi admin', description: 'EREK hivatalvezető' },
   { value: 'konyvelo', label: 'Könyvelő', description: 'Gyülekezeti/egyházmegyei könyvelő' },
   { value: 'egyhazmegyei_szamvevo', label: 'Egyházmegyei számvevő', description: 'Egyházmegyei pénzügyi ellenőr' },
+  { value: 'egyhazkeruleti_szamvevo', label: 'Egyházkerületi számvevő', description: 'Egyházkerületi pénzügyi ellenőr' },
 ]
 
 export function AccessRequestForm() {

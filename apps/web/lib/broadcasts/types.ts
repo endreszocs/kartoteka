@@ -15,6 +15,8 @@ export type BroadcastTargetRole =
   | 'admin'
   | 'konyvelo'
   | 'egyhazmegyei_szamvevo'
+  // 2026-08-15 (egyhazkeruleti S1)
+  | 'egyhazkeruleti_szamvevo'
 
 export type ReleaseCategory = 'bugfix' | 'feature' | 'improvement' | 'security' | 'breaking'
 
@@ -152,6 +154,7 @@ export const BROADCAST_TARGET_ROLE_LABELS: Record<BroadcastTargetRole, string> =
   admin: 'Rendszergazdák',
   konyvelo: 'Könyvelők',
   egyhazmegyei_szamvevo: 'Egyházmegyei számvevők',
+  egyhazkeruleti_szamvevo: 'Egyházkerületi számvevők',
 }
 
 export const RELEASE_CATEGORY_LABELS: Record<ReleaseCategory, string> = {
@@ -171,4 +174,5 @@ export const ROLE_OPTIONS: Array<{ value: BroadcastTargetRole; label: string }> 
   { value: 'admin', label: 'Rendszergazdák' },
   { value: 'konyvelo', label: 'Könyvelők' },
   { value: 'egyhazmegyei_szamvevo', label: 'Egyházmegyei számvevők' },
+  { value: 'egyhazkeruleti_szamvevo', label: 'Egyházkerületi számvevők' },
 ]

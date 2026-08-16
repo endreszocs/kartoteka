@@ -8,6 +8,10 @@ export type Role =
   | 'admin'
   | 'konyvelo'
   | 'egyhazmegyei_szamvevo'
+  // 2026-08-15 (egyházkerületi S1): a 3. szint ELLENŐRE. Az egyházkerületi
+  // adminisztrátor ÍR, a kerületi számvevő CSAK OLVAS — pontosan úgy, ahogy a
+  // megyei szinten az esperes ⇄ egyházmegyei számvevő páros.
+  | 'egyhazkeruleti_szamvevo'
 
 export type ProfileStatus = 'pending' | 'active'
 

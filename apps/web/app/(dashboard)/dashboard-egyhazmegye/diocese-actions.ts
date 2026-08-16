@@ -16,7 +16,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
-import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { getEffectiveAccessContext, type EffectiveAccessContext } from '@/lib/auth/effective-access'
 import { assertDioceseInScope } from '@/lib/auth/admin-scope'
 import {
   describeDioceseWriteBlock,
@@ -65,6 +65,9 @@ export interface DioceseRecord {
   esperes_nev: string | null
   esperes_cim: string | null
   jegyzo_nev: string | null
+  /** 2026-08-15 (Endre): az egyházmegyei SZÁMVEVŐ neve — a hivatalos irat
+   *  aláírás-rovatához. NEM kötelező (nem minden megyének van kiosztva). */
+  szamvevo_nev: string | null
 
   // Vizuális
   cimer_url: string | null
@@ -100,6 +103,7 @@ const dioceseSchema = z.object({
   esperes_nev: z.string().optional().or(z.literal('')),
   esperes_cim: z.string().optional().or(z.literal('')),
   jegyzo_nev: z.string().optional().or(z.literal('')),
+  szamvevo_nev: z.string().optional().or(z.literal('')),
   megjegyzes: z.string().optional().or(z.literal('')),
 })
 
@@ -321,6 +325,7 @@ export async function updateDiocese(input: DioceseInput): Promise<{
     esperes_nev: parsed.data.esperes_nev || null,
     esperes_cim: parsed.data.esperes_cim || null,
     jegyzo_nev: parsed.data.jegyzo_nev || null,
+    szamvevo_nev: parsed.data.szamvevo_nev || null,
     megjegyzes: parsed.data.megjegyzes || null,
     updated_by: ctx.userId,
   }
@@ -378,9 +383,23 @@ export async function getDioceseBankSummary(dioceseId?: string): Promise<{
  * Kötelező mezők, amelyek hiánya triggeri a setup wizard-ot. Ha az
  * alábbiakból bármelyik üres → a wizard kötelezően megnyílik.
  */
+// ⚠️ 2026-08-15 (Endre): a BANK és a SZÁMVEVŐ SZÁNDÉKOSAN NINCS benne.
+//   · bank_nev / bank_fo_iban — „a banki kontók beállítása később";
+//   · szamvevo_nev — nem minden egyházmegyének van kiosztott számvevője.
+// Ha benne maradnának, a setup-banner ÖRÖKKÉ nyaggatna olyan adatért, amit a
+// varázsló maga sem kér kötelezően — és a két réteg némán széthúzna.
+// ⚠️ 2026-08-16: a `nev_ro` IDE IS KELL. A `setupSchema` KÖTELEZŐNEK validálja
+//   (nev_ro: z.string().min(2, …)) és a varázsló `isStepValidOn('basics')` is
+//   megköveteli — ebből a listából viszont hiányzott. Következmény: ha CSAK a
+//   román név üres, a `checkDioceseSetupStatus` `needsSetup: false`-t adott,
+//   tehát a beállítás-sáv NÉMÁN hallgatott („kész vagy"), a varázsló viszont az
+//   1. lépésen letiltotta a Tovább gombot („nem vagy kész"). A két réteg
+//   ellentmondott egymásnak, és a felhasználó nem tudta, melyiknek higgyen.
+//   A hibát a kerületi (S2) kör adverzariális ellenőrzése találta meg — ott
+//   ugyanez a lista öröklődött volna tovább, harmadszor is.
 const REQUIRED_SETUP_FIELDS = [
-  'name', 'cif', 'cim_orszag', 'cim_megye', 'cim_telepules', 'cim_iranyitoszam',
-  'cim_utca', 'email', 'telefon', 'bank_nev', 'bank_fo_iban',
+  'name', 'nev_ro', 'cif', 'cim_orszag', 'cim_megye', 'cim_telepules', 'cim_iranyitoszam',
+  'cim_utca', 'email', 'telefon',
   'esperes_nev', 'esperes_cim', 'jegyzo_nev', 'cimer_url',
 ] as const
 
@@ -452,12 +471,18 @@ const setupSchema = z.object({
   email: z.string().email('Érvénytelen email.'),
   telefon: z.string().min(1, 'A telefon kötelező.'),
   weboldal: z.string().optional().or(z.literal('')),
-  bank_nev: z.string().min(1, 'A bank neve kötelező.'),
-  bank_fo_iban: z.string().min(1, 'Az IBAN kötelező.'),
+  // 2026-08-15 (Endre): a BANKSZÁMLA már NEM kötelező — „a banki kontók
+  // beállítása később". A kliens-oldali lépés-validáció is ezt tükrözi
+  // (diocese-setup-wizard.tsx isStepValidOn). Ha a szerver továbbra is
+  // követelné, a varázsló utolsó lépése némán elhasalna — pontosan az a
+  // réteg-divergencia, amit a projekt már többször megszenvedett.
+  bank_nev: z.string().optional().or(z.literal('')),
+  bank_fo_iban: z.string().optional().or(z.literal('')),
   bank_fo_iban_valuta: z.string().default('RON'),
   esperes_nev: z.string().min(2, 'Az esperes neve kötelező.'),
-  esperes_cim: z.string().min(2, 'Az esperes címe kötelező.'),
+  esperes_cim: z.string().min(2, 'Az esperes címe (tisztsége) kötelező.'),
   jegyzo_nev: z.string().min(2, 'A jegyző neve kötelező.'),
+  szamvevo_nev: z.string().optional().or(z.literal('')),
   cimer_url: z.string().url('Érvénytelen címer URL.'),
   // Új cím FK-k — opcionálisak
   adrlocality_id: z.number().int().nullable().optional(),
@@ -494,12 +519,13 @@ export async function saveDioceseSetup(
     email: parsed.data.email,
     telefon: parsed.data.telefon,
     weboldal: parsed.data.weboldal || null,
-    bank_nev: parsed.data.bank_nev,
-    bank_fo_iban: parsed.data.bank_fo_iban,
+    bank_nev: parsed.data.bank_nev || null,
+    bank_fo_iban: parsed.data.bank_fo_iban || null,
     bank_fo_iban_valuta: parsed.data.bank_fo_iban_valuta || 'RON',
     esperes_nev: parsed.data.esperes_nev,
     esperes_cim: parsed.data.esperes_cim,
     jegyzo_nev: parsed.data.jegyzo_nev,
+    szamvevo_nev: parsed.data.szamvevo_nev || null,
     cimer_url: parsed.data.cimer_url,
     // Új cím FK-k
     adrlocality_id: parsed.data.adrlocality_id ?? null,
@@ -507,12 +533,10 @@ export async function saveDioceseSetup(
     updated_by: ctx.userId,
   }
 
-  const { error: dioErr } = await ctx.supabase
-    .from('dioceses')
-    .update(payload)
-    .eq('id', parsed.data.id)
-
-  if (dioErr) return { error: dioErr.message }
+  // Fail-soft: ha a `szamvevo_nev` oszlop még nem létezik élesben, a mentés
+  // NEM veszhet el miatta — lásd updateDioceseFailSoft docblockját.
+  const dioRes = await updateDioceseFailSoft(ctx.supabase, parsed.data.id, payload)
+  if (dioRes.error) return { error: dioRes.error }
 
   // 2. diocese_bealitas auto-upsert az aktuális évre (ha még nincs)
   const currentYear = new Date().getFullYear()
@@ -564,6 +588,7 @@ const setupPartialSchema = z.object({
   esperes_nev: z.string().optional(),
   esperes_cim: z.string().optional(),
   jegyzo_nev: z.string().optional(),
+  szamvevo_nev: z.string().optional(),
   cimer_url: z.string().optional(),
   // Új cím FK-k
   adrlocality_id: z.number().int().nullable().optional(),
@@ -571,6 +596,53 @@ const setupPartialSchema = z.object({
 })
 
 export type DioceseSetupPartialInput = z.infer<typeof setupPartialSchema>
+
+/**
+ * FAIL-SOFT ÍRÁS a `dioceses` táblára, ha egy oszlop MÉG NEM LÉTEZIK élesben.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * MIÉRT (2026-08-15)
+ * ════════════════════════════════════════════════════════════════════════════
+ * A `szamvevo_nev` oszlopot a 2026-08-15-egyhazmegyei-szamvevo-nev.sql hozza
+ * létre — de a projekt bizonyított hibaosztálya, hogy „a migration-fájl NEM
+ * bizonyíték arra, hogy lefutott élesben". Ha a kód olyan oszlopra ír, ami még
+ * nincs meg, a PostgREST PGRST204/42703-mal az EGÉSZ mentést eldobja — vagyis
+ * a felhasználó a TÖBBI, tökéletesen érvényes mezőjét is elveszítené.
+ *
+ * Ez különösen rossz most, amikor épp az adatvesztést szüntettük meg a
+ * varázslóban. Ezért: ha a hiba egy ISMERT, opcionális oszlopra mutat, kivesszük
+ * a payloadból és ÚJRAPRÓBÁLJUK. A mentés így sikerül, csak az az egy mező nem
+ * tárolódik — és `hianyzoOszlop`-ként vissza is jelezzük.
+ */
+const OPCIONALIS_UJ_OSZLOPOK = ['szamvevo_nev'] as const
+
+function hianyzoOszlopHiba(uzenet: string | undefined, kod: string | undefined): string | null {
+  if (kod !== 'PGRST204' && kod !== '42703') return null
+  const m = (uzenet || '').toLowerCase()
+  for (const o of OPCIONALIS_UJ_OSZLOPOK) {
+    if (m.includes(o)) return o
+  }
+  return null
+}
+
+async function updateDioceseFailSoft(
+  supabase: EffectiveAccessContext['supabase'],
+  dioceseId: string,
+  payload: Record<string, unknown>,
+): Promise<{ error?: string; hianyzoOszlop?: string }> {
+  const { error } = await supabase.from('dioceses').update(payload).eq('id', dioceseId)
+  if (!error) return {}
+
+  const hianyzo = hianyzoOszlopHiba(error.message, error.code)
+  if (!hianyzo) return { error: error.message }
+
+  // Az ismert, opcionális oszlop nélkül újra — hogy a többi mező elmenthető legyen.
+  const szukitett = { ...payload }
+  delete szukitett[hianyzo]
+  const masodik = await supabase.from('dioceses').update(szukitett).eq('id', dioceseId)
+  if (masodik.error) return { error: masodik.error.message }
+  return { hianyzoOszlop: hianyzo }
+}
 
 export async function saveDioceseSetupStep(
   input: DioceseSetupPartialInput,
@@ -613,6 +685,7 @@ export async function saveDioceseSetupStep(
   if (d.esperes_nev !== undefined) patch.esperes_nev = d.esperes_nev.trim() || null
   if (d.esperes_cim !== undefined) patch.esperes_cim = d.esperes_cim.trim() || null
   if (d.jegyzo_nev !== undefined) patch.jegyzo_nev = d.jegyzo_nev.trim() || null
+  if (d.szamvevo_nev !== undefined) patch.szamvevo_nev = d.szamvevo_nev.trim() || null
   if (d.cimer_url !== undefined) patch.cimer_url = d.cimer_url.trim() || null
   if (d.adrlocality_id !== undefined) patch.adrlocality_id = d.adrlocality_id
   if (d.adrstreet_id !== undefined) patch.adrstreet_id = d.adrstreet_id
@@ -623,12 +696,8 @@ export async function saveDioceseSetupStep(
     return { ok: true }
   }
 
-  const { error } = await ctx.supabase
-    .from('dioceses')
-    .update(patch)
-    .eq('id', d.id)
-
-  if (error) return { error: error.message }
+  const res = await updateDioceseFailSoft(ctx.supabase, d.id, patch)
+  if (res.error) return { error: res.error }
 
   revalidatePath('/dashboard-egyhazmegye')
   revalidatePath('/', 'layout')
@@ -864,4 +933,170 @@ export async function ensureDioceseBealitasForYear(
 
   if (error) return { error: error.message }
   return { ok: true }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// VEZETŐ-JELÖLTEK (2026-08-15, Endre kérése)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// MIÉRT: a beállítás-varázsló 4. lépésén az esperes, a jegyző és a számvevő
+// nevét EDDIG KÉZZEL kellett begépelni. A kézzel írt név elszakad a rendszerben
+// nyilvántartott személytől — ugyanaz a hibaosztály, mint a `congregations.district`
+// szöveges oszlopé: két helyen él ugyanaz az adat, és némán széthúzhat
+// (elgépelés, névváltozás, „dr." elé/mögé).
+//
+// Endre kérése szó szerint: „az esperes személyét lehessen kiválasztani a
+// kézdi-orbai lelkészeinek a listájából ha benne van, az egyházmegyei
+// főjegyzőt és számvevőt ha nincs hozzárendelve már az egyházmegyéhez a
+// rendszergazdai adminisztrátori felületről."
+//
+// EZÉRT KÉT LISTÁT adunk vissza:
+//   · `hozzarendelt` — akinek MÁR VAN megyei szerepkör-sora erre az
+//     egyházmegyére (a rendszergazdai felületről kiosztva). Ezt a varázsló
+//     ELŐRE felkínálja, és megmondja, honnan tudja.
+//   · `jeloltek` — a megye gyülekezeteinek LELKÉSZEI (+ a fentiek), akik közül
+//     az esperes választható, ha még nincs nevesített szerepkör-sora.
+//
+// FAIL-CLOSED: a lekérdezés a megyei OLVASÓ hatókörhöz kötött; hatókör nélkül
+// üres listát ad, SOHA nem szűretlen felhasználó-listát.
+
+export interface VezetoJelolt {
+  profileId: string
+  nev: string
+  email: string | null
+  /** Honnan ismerjük — a felületen ez a magyarázat jelenik meg a név mellett. */
+  honnan: string
+}
+
+export interface VezetoJeloltek {
+  /** A megye gyülekezeteinek lelkészei + a megyei szerepkör-sorral rendelkezők. */
+  jeloltek: VezetoJelolt[]
+  /** Akinek MÁR VAN nevesített megyei szerepköre (a rendszergazdai felületről). */
+  hozzarendelt: {
+    esperes: VezetoJelolt | null
+    jegyzo: VezetoJelolt | null
+    szamvevo: VezetoJelolt | null
+  }
+  /** Igaz, ha a hatókör feloldható volt (különben a felület magyarázatot ír ki). */
+  feloldhato: boolean
+}
+
+const URES_JELOLTEK: VezetoJeloltek = {
+  jeloltek: [],
+  hozzarendelt: { esperes: null, jegyzo: null, szamvevo: null },
+  feloldhato: false,
+}
+
+export async function getDioceseVezetoJeloltek(dioceseId?: string): Promise<VezetoJeloltek> {
+  // OLVASÓ hatókör: a számvevő is megnézheti, ki a megye vezetése.
+  const ctx = await requireDioceseAccess(dioceseId, 'read')
+  if ('error' in ctx) return URES_JELOLTEK
+
+  const { supabase } = ctx
+  const megyeId = ctx.dioceseId
+
+  // (1) A megye gyülekezetei — a lelkész-jelöltekhez.
+  const { data: congs } = await supabase
+    .from('congregations')
+    .select('id, name')
+    .eq('diocese_id', megyeId)
+  const congIds = (congs ?? []).map((c) => String(c.id))
+  const congNev = new Map((congs ?? []).map((c) => [String(c.id), String(c.name || '')]))
+
+  // (2) MEGYEI szerepkör-sorok erre az egyházmegyére.
+  const { data: megyeiSorok } = await supabase
+    .from('profile_roles')
+    .select('profile_id, role')
+    .eq('scope', 'diocese')
+    .eq('scope_id', megyeId)
+    .eq('active', true)
+    .eq('approval_status', 'approved')
+
+  // (3) GYÜLEKEZETI lelkész-sorok a megye gyülekezeteiben.
+  let lelkeszSorok: Array<{ profile_id: string; scope_id: string }> = []
+  if (congIds.length > 0) {
+    const { data } = await supabase
+      .from('profile_roles')
+      .select('profile_id, scope_id')
+      .eq('scope', 'congregation')
+      .eq('role', 'lelkesz')
+      .eq('active', true)
+      .eq('approval_status', 'approved')
+      .in('scope_id', congIds)
+    lelkeszSorok = (data ?? []) as Array<{ profile_id: string; scope_id: string }>
+  }
+
+  // (4) A nevek egyetlen lekérdezéssel.
+  const profilIds = [
+    ...new Set([
+      ...(megyeiSorok ?? []).map((r) => String(r.profile_id)),
+      ...lelkeszSorok.map((r) => String(r.profile_id)),
+    ]),
+  ]
+  if (profilIds.length === 0) {
+    return { ...URES_JELOLTEK, feloldhato: true }
+  }
+
+  const { data: profilok } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, status')
+    .in('id', profilIds)
+
+  const profil = new Map(
+    (profilok ?? [])
+      // Csak AKTÍV fiókot kínálunk fel — egy függőben lévő regisztrálót nem
+      // szabad hivatalos irat aláírójaként felajánlani.
+      .filter((p) => (p as { status?: string }).status === 'active')
+      .map((p) => [
+        String((p as { id: string }).id),
+        {
+          nev: String((p as { full_name?: string | null }).full_name || '').trim(),
+          email: ((p as { email?: string | null }).email || null) as string | null,
+        },
+      ]),
+  )
+
+  const MEGYEI_SZEREP_FELIRAT: Record<string, string> = {
+    esperes: 'esperes (kiosztott szerepkör)',
+    egyhazmegyei_admin: 'egyházmegyei adminisztrátor',
+    egyhazmegyei_szamvevo: 'egyházmegyei számvevő (kiosztott szerepkör)',
+  }
+
+  const jeloltMap = new Map<string, VezetoJelolt>()
+  const felvesz = (id: string, honnan: string) => {
+    const p = profil.get(id)
+    if (!p || p.nev.length === 0) return
+    const meglevo = jeloltMap.get(id)
+    if (meglevo) {
+      // Ha valaki több jogcímen is jelölt, mindkettőt kiírjuk.
+      if (!meglevo.honnan.includes(honnan)) meglevo.honnan += ` · ${honnan}`
+      return
+    }
+    jeloltMap.set(id, { profileId: id, nev: p.nev, email: p.email, honnan })
+  }
+
+  for (const r of megyeiSorok ?? []) {
+    const szerep = String(r.role)
+    felvesz(String(r.profile_id), MEGYEI_SZEREP_FELIRAT[szerep] ?? `megyei szerepkör: ${szerep}`)
+  }
+  for (const r of lelkeszSorok) {
+    const nev = congNev.get(String(r.scope_id)) || 'gyülekezet'
+    felvesz(String(r.profile_id), `lelkipásztor — ${nev}`)
+  }
+
+  const elso = (szerep: string): VezetoJelolt | null => {
+    const sor = (megyeiSorok ?? []).find((r) => String(r.role) === szerep)
+    if (!sor) return null
+    return jeloltMap.get(String(sor.profile_id)) ?? null
+  }
+
+  return {
+    jeloltek: [...jeloltMap.values()].sort((a, b) => a.nev.localeCompare(b.nev, 'hu')),
+    hozzarendelt: {
+      esperes: elso('esperes'),
+      jegyzo: elso('egyhazmegyei_admin'),
+      szamvevo: elso('egyhazmegyei_szamvevo'),
+    },
+    feloldhato: true,
+  }
 }

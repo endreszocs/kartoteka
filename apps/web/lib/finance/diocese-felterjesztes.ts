@@ -29,6 +29,29 @@
 import type { createClient } from '@/lib/supabase/server'
 import { isMissingColumnError } from '@/lib/utils/schema-errors'
 
+import type { DioceseFelterjesztesStatus } from './felterjesztes-allapot-core'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A FELKÜLDÉS ÁLLAPOT-SZÖVEGE — a TISZTA mag újra-exportálva.
+//
+// MIÉRT NEM ITT LAKIK: ez a modul Supabase-t hív, tehát projekt-importja van, és
+// így ÖNMAGÁBAN nem transpile-olható. A megfogalmazó viszont a szerveren és a
+// kliensen IS kell, és önellenőrzéssel védendő — ezért a repó `*-core.ts`
+// mintája szerint import-mentes fájlba került
+// (`felterjesztes-allapot-core.ts`, őrszem: scripts/selftest-felterjesztes-allapot.mjs).
+//
+// MIÉRT ITT IS LÁTSZIK: a hívók eddig is innen importálták a felterjesztés
+// típusait; az újra-export miatt egyetlen import-útvonal és szignatúra sem
+// változott. Ne „egyszerűsítsd" úgy, hogy a hívókat a mag-fájlra irányítod át —
+// a KÖZÖS belépési pont ez a modul marad.
+// ─────────────────────────────────────────────────────────────────────────────
+export { felterjesztesAllapotSzoveg } from './felterjesztes-allapot-core'
+export type {
+  DioceseFelterjesztesStatus,
+  FelterjesztesAllapotBemenet,
+  FelterjesztesAllapotSzoveg,
+} from './felterjesztes-allapot-core'
+
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
 
 /** A megye által felterjeszthető iratok (a tábla doc_type CHECK-jével azonos). */
@@ -51,8 +74,14 @@ export interface DioceseFelterjesztesSor {
   /** Költségvetés-módosításnál 1–3, egyébként 0 (a tábla is 0-t tárol). */
   modificationNumber: number
   year: number
-  status: 'draft' | 'submitted' | 'received' | 'returned'
+  status: DioceseFelterjesztesStatus
   submittedAt: string | null
+  /**
+   * Mikor vette át az egyházkerület. MIÉRT KELL: enélkül a megyei kártya
+   * az átvett és a még postaládában álló iratot UGYANÚGY „Felküldve"-ként
+   * mutatta — a megye tehát nem tudta, megérkezett-e egyáltalán, amit küldött.
+   */
+  receivedAt: string | null
   iktatoszam: string | null
   returnedReason: string | null
 }
@@ -182,7 +211,7 @@ export async function rogzitDioceseFelterjesztes(
 export interface OsszesitoFelkuldesAllapot {
   /** Van-e egyáltalán felterjesztés-sor erre az évre. */
   letezik: boolean
-  status: DioceseFelterjesztesSor['status']
+  status: DioceseFelterjesztesStatus
   submittedAt: string | null
   receivedAt: string | null
   unlockRequested: boolean
@@ -208,7 +237,7 @@ export async function olvasOsszesitoAllapot(
 ): Promise<{ allapot?: OsszesitoFelkuldesAllapot; error?: string }> {
   const alap = (sor: Record<string, unknown> | null, hianyzoOszlopok: boolean): OsszesitoFelkuldesAllapot => ({
     letezik: !!sor,
-    status: ((sor?.status as DioceseFelterjesztesSor['status']) ?? 'draft'),
+    status: ((sor?.status as DioceseFelterjesztesStatus) ?? 'draft'),
     submittedAt: (sor?.submitted_at as string | null) ?? null,
     receivedAt: (sor?.received_at as string | null) ?? null,
     unlockRequested: sor?.unlock_requested === true,
@@ -383,7 +412,9 @@ export async function olvasDioceseFelterjesztesek(
 ): Promise<{ rows?: DioceseFelterjesztesSor[]; error?: string }> {
   const { data, error } = await supabase
     .from('diocese_felterjesztes')
-    .select('doc_type, modification_number, year, status, submitted_at, iktatoszam, returned_reason')
+    .select(
+      'doc_type, modification_number, year, status, submitted_at, received_at, iktatoszam, returned_reason',
+    )
     .eq('diocese_id', dioceseId)
     .eq('year', year)
   if (error) {
@@ -404,8 +435,9 @@ export async function olvasDioceseFelterjesztesek(
       docType: r.doc_type as DioceseFelterjesztesTipus,
       modificationNumber: Number(r.modification_number) || 0,
       year: Number(r.year),
-      status: (r.status as DioceseFelterjesztesSor['status']) ?? 'draft',
+      status: (r.status as DioceseFelterjesztesStatus) ?? 'draft',
       submittedAt: (r.submitted_at as string | null) ?? null,
+      receivedAt: (r.received_at as string | null) ?? null,
       iktatoszam: (r.iktatoszam as string | null) ?? null,
       returnedReason: (r.returned_reason as string | null) ?? null,
     })),

@@ -138,7 +138,10 @@ export default async function EgyhazmegyeDashboardPage() {
     annualReportsRes,
     pendingAssignmentsRes,
   ] = await Promise.all([
-    getCongregationOverviewData(),
+    // 2026-08-15: a KÉPERNYŐN LÁTHATÓ egyházmegyét adjuk át kontextusként —
+    // enélkül a lista rendszergazdánál szűretlenül az ORSZÁG összes
+    // gyülekezetét hozta (783), miközben a hero helyesen 36-ot írt.
+    getCongregationOverviewData(dioceseId),
     getSubmissionMatrix('diocese'),
     getDioceseAnnualReports(annualReportYear),
     listAssignments({ status: 'pending' }),

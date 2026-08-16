@@ -32,6 +32,8 @@ export type AccessRequestRole =
   | 'egyhazkeruleti_admin'
   | 'konyvelo'
   | 'egyhazmegyei_szamvevo'
+  // 2026-08-15 (egyhazkeruleti S1)
+  | 'egyhazkeruleti_szamvevo'
 
 const ROLE_LABELS: Record<AccessRequestRole, string> = {
   lelkesz: 'Lelkész',
@@ -40,6 +42,7 @@ const ROLE_LABELS: Record<AccessRequestRole, string> = {
   egyhazkeruleti_admin: 'Egyházkerületi admin',
   konyvelo: 'Könyvelő',
   egyhazmegyei_szamvevo: 'Egyházmegyei számvevő',
+  egyhazkeruleti_szamvevo: 'Egyházkerületi számvevő',
 }
 
 const VALID_ROLES: AccessRequestRole[] = Object.keys(ROLE_LABELS) as AccessRequestRole[]

@@ -10,6 +10,8 @@ export type ProfileRoleScope = 'system' | 'district' | 'diocese' | 'congregation
 export type ProfileRoleType =
   | 'admin'
   | 'egyhazkeruleti_admin'
+  // 2026-08-15 (egyházkerületi S1): a 3. szint ELLENŐRE — csak olvas.
+  | 'egyhazkeruleti_szamvevo'
   | 'egyhazmegyei_admin'
   | 'esperes'
   | 'egyhazmegyei_szamvevo'
@@ -84,6 +86,7 @@ export const SCOPE_LABELS: Record<ProfileRoleScope, string> = {
 export const ROLE_LABELS: Record<ProfileRoleType, string> = {
   admin: 'Rendszergazda',
   egyhazkeruleti_admin: 'Egyházkerületi admin',
+  egyhazkeruleti_szamvevo: 'Egyházkerületi számvevő',
   egyhazmegyei_admin: 'Egyházmegyei admin',
   esperes: 'Esperes',
   egyhazmegyei_szamvevo: 'Egyházmegyei számvevő',

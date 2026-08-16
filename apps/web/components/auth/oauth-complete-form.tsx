@@ -31,6 +31,7 @@ const ROLES: { value: RequestedRole; label: string; description: string }[] = [
   { value: 'egyhazkeruleti_admin', label: 'Egyházkerületi admin', description: 'EREK hivatalvezető' },
   { value: 'konyvelo', label: 'Könyvelő', description: 'Gyülekezeti/egyházmegyei könyvelő' },
   { value: 'egyhazmegyei_szamvevo', label: 'Egyházmegyei számvevő', description: 'Egyházmegyei pénzügyi ellenőr' },
+  { value: 'egyhazkeruleti_szamvevo', label: 'Egyházkerületi számvevő', description: 'Egyházkerületi pénzügyi ellenőr' },
 ]
 
 const ALLOWED_DOC_TYPES = ['application/pdf', 'image/jpeg', 'image/png']

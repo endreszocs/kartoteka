@@ -20,6 +20,8 @@ export type AccessRequestRole =
   | 'egyhazkeruleti_admin'
   | 'konyvelo'
   | 'egyhazmegyei_szamvevo'
+  // 2026-08-15 (egyhazkeruleti S1)
+  | 'egyhazkeruleti_szamvevo'
 
 export type AccessRequestStatus = 'pending' | 'approved' | 'rejected'
 
@@ -97,6 +99,7 @@ export const ROLE_LABELS: Record<AccessRequestRole, string> = {
   egyhazkeruleti_admin: 'Egyházkerületi admin',
   konyvelo: 'Könyvelő',
   egyhazmegyei_szamvevo: 'Egyházmegyei számvevő',
+  egyhazkeruleti_szamvevo: 'Egyházkerületi számvevő',
 }
 
 export const STATUS_LABELS: Record<AccessRequestStatus, string> = {

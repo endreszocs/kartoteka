@@ -101,7 +101,7 @@ const SELECT_CLS =
 /** A kért szerepkörhöz tartozó alapértelmezett hatókör. */
 function scopeForRole(role: ProfileRoleType): ProfileRoleScope {
   if (role === 'admin') return 'system'
-  if (role === 'egyhazkeruleti_admin') return 'district'
+  if (role === 'egyhazkeruleti_admin' || role === 'egyhazkeruleti_szamvevo') return 'district'
   if (role === 'esperes' || role === 'egyhazmegyei_admin' || role === 'egyhazmegyei_szamvevo')
     return 'diocese'
   return 'congregation' // lelkesz, konyvelo, custom
@@ -138,6 +138,7 @@ function roleOptionsForScope(scope: ProfileRoleScope): Array<{ value: ProfileRol
   if (scope === 'district')
     return [
       { value: 'egyhazkeruleti_admin', label: ROLE_LABELS.egyhazkeruleti_admin },
+      { value: 'egyhazkeruleti_szamvevo', label: ROLE_LABELS.egyhazkeruleti_szamvevo },
       { value: 'custom', label: 'Egyedi szerep' },
     ]
   if (scope === 'diocese')

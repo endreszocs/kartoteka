@@ -41,7 +41,13 @@ import {
   getDioceseScopeContext,
   getDistrictScopeContext,
   resolveDioceseReadScopeIds,
-  resolveDistrictScopeIds,
+  // 2026-08-15 (egyhazkeruleti S1): a szerep-SZURETLEN resolveDistrictScopeIds
+  // helyett a ket szerep-szurt feloldo - az RLS tukorkepei.
+  canReadDistrictScope,
+  canWriteDistrictScope,
+  describeDistrictWriteBlock,
+  resolveDistrictReadScopeIds,
+  resolveDistrictWriteScopeIds,
 } from '@/lib/auth/level-scope'
 import type { DocumentType, DocumentStatus, DocumentSubmission } from '@/lib/constants/documents'
 import { DOCUMENT_TYPE_LABELS, documentSeasonYear } from '@/lib/constants/documents'
@@ -282,15 +288,35 @@ async function assertDioceseOwnership(
   return null
 }
 
-/** Kerületi tulajdon-ellenőrzés: gyülekezet → megye → kerület ∈ hatókör. */
+/**
+ * Kerületi tulajdon-ellenőrzés: gyülekezet → megye → kerület ∈ hatókör.
+ *
+ * 2026-08-15 (egyházkerületi S1) — KÉT VÁLTOZÁS:
+ *  (a) A hatókör a szerep-SZŰRETLEN `resolveDistrictScopeIds`-ból jött. Így egy
+ *      `custom` (vagy `lelkesz`) szerepű `district` sor is átment ezen az
+ *      ellenőrzésen, miközben az RLS csak `egyhazkeruleti_admin`-t enged — az
+ *      app tehát engedélyezte a műveletet, az adatbázis pedig 0 sort írt:
+ *      NÉMA NO-OP. Mostantól szerep-szűrt feloldók futnak.
+ *  (b) ÚJ `mode` paraméter. Az OLVASÁS (pillanatkép megtekintése, nyomtatás) a
+ *      kerületi számvevőnek is jár; az ÍRÁS (átvétel visszaigazolása) nem.
+ *      Egyetlen közös hatókör mindkettőre vagy túl szűk lenne (az ellenőr nem
+ *      nézhetne meg semmit), vagy túl tág (az ellenőr írhatna).
+ */
 async function assertDistrictOwnership(
   access: EffectiveAccessContext,
   congregationId: string,
+  mode: 'read' | 'write' = 'write',
 ): Promise<string | null> {
   if (access.admin || access.master) return null
-  const districtIds = resolveDistrictScopeIds(access)
+  const districtIds =
+    mode === 'read'
+      ? resolveDistrictReadScopeIds(access)
+      : resolveDistrictWriteScopeIds(access)
   if (districtIds.length === 0) {
-    return 'Nincs feloldható egyházkerület-hatóköre — a művelet nem engedélyezett.'
+    return mode === 'read'
+      ? 'Nincs feloldható egyházkerület-hatóköre — a művelet nem engedélyezett.'
+      : describeDistrictWriteBlock(access) ??
+          'Nincs feloldható egyházkerület-hatóköre — a művelet nem engedélyezett.'
   }
   const { data: cong } = await access.supabase
     .from('congregations')
@@ -739,17 +765,24 @@ export async function getKeruletSubmissions(
   const ctx = await getDistrictScopeContext()
   if (!ctx.user) return []
   // Szerep-kapu (2026-08-09, diagnosztika #10): korábban bármely bejelentkezett
-  // felhasználó hívhatta. egyhazkeruletiAdmin magában foglalja az admin/mastert.
-  if (!ctx.access.egyhazkeruletiAdmin && !ctx.isAdmin && !ctx.isMaster) return []
+  // felhasználó hívhatta.
+  // 2026-08-15 (S1): a puszta `egyhazkeruletiAdmin` skalár helyett
+  // `canReadDistrictScope` — így a `profile_roles`-only kerületi admin és a
+  // kerületi számvevő sem esik ki némán. SZIGORÚAN BŐVÍTÉS: aki eddig átment,
+  // ezután is átmegy.
+  if (!canReadDistrictScope(ctx.access)) return []
 
   let congs: Array<{ id: string; name: string; diocese_id: string | null }>
   let dioceseNames = new Map<string, string>()
 
-  if (ctx.districtIds.length > 0) {
+  // 2026-08-15 (S1): listaszűrés a SZEREP-SZŰRT olvasói hatókörrel — a tág
+  // `ctx.districtIds` a megjelenítésé (lásd level-scope.ts).
+  const readIds = ctx.readScopeIds
+  if (readIds.length > 0) {
     const { data: dioceses } = await ctx.supabase
       .from('dioceses')
       .select('id, name')
-      .in('district_id', ctx.districtIds)
+      .in('district_id', readIds)
     const dioIds = (dioceses || []).map((d) => String(d.id))
     dioceseNames = new Map((dioceses || []).map((d) => [String(d.id), String(d.name || '')]))
     if (dioIds.length === 0) return []
@@ -768,7 +801,7 @@ export async function getKeruletSubmissions(
   )
   const rows = await fetchSubmissions(
     ctx.supabase,
-    ctx.districtIds.length > 0 ? congs.map((c) => c.id) : null,
+    readIds.length > 0 ? congs.map((c) => c.id) : null,
     { year: year ?? null, districtVisibleOnly: true },
   )
   return sortBySubmittedDesc(rows.map((r) => toSubmission(r, congNames, dioceseNameByCong)))
@@ -791,8 +824,10 @@ export async function acknowledgeKeruletReceipt(
 ): Promise<DocumentActionResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
-  if (!access.egyhazkeruletiAdmin && !access.admin && !access.master) {
-    return { error: 'Nincs jogosultsága.' }
+  // 2026-08-15 (S1): ez ÍRÓ művelet — a kerületi számvevő (ellenőr) ELŐRE,
+  // beszédes magyarázattal áll meg itt, nem egy néma 0-soros UPDATE után.
+  if (!canWriteDistrictScope(access)) {
+    return { error: describeDistrictWriteBlock(access) ?? 'Nincs jogosultsága.' }
   }
 
   const { supabase } = access
@@ -807,7 +842,11 @@ export async function acknowledgeKeruletReceipt(
     return { error: 'Csak a kerületnek már továbbított dokumentum átvételét lehet visszaigazolni.' }
   }
 
-  const ownershipError = await assertDistrictOwnership(access, String(sub.congregation_id))
+  const ownershipError = await assertDistrictOwnership(
+    access,
+    String(sub.congregation_id),
+    'write',
+  )
   if (ownershipError) return { error: ownershipError }
 
   const trimmedNote = (note || '').trim()
@@ -904,7 +943,10 @@ async function resolveDocumentScope(
   // scope === 'district'
   const ctx = await getDistrictScopeContext()
   if (!ctx.user) return { ok: false, error: 'Nincs bejelentkezve.' }
-  if (!ctx.access.egyhazkeruletiAdmin && !ctx.isAdmin && !ctx.isMaster) {
+  // 2026-08-15 (S1): ez egy OLVASÓ feloldó (a dokumentumközpont adatcsomagját
+  // állítja elő) — a kerületi számvevő is átmegy rajta. Az írási akciók
+  // (acknowledgeKeruletReceipt) KÜLÖN ellenőriznek `canWriteDistrictScope`-pal.
+  if (!canReadDistrictScope(ctx.access)) {
     return { ok: false, error: 'Nincs jogosultsága az egyházkerületi dokumentumokhoz.' }
   }
 
@@ -912,11 +954,13 @@ async function resolveDocumentScope(
   let congs: Array<{ id: string; name: string; diocese_id: string | null }>
   let scopeNotice: string | null = null
 
-  if (ctx.districtIds.length > 0) {
+  // 2026-08-15 (S1): SZEREP-SZŰRT olvasói hatókör a tág ctx.districtIds helyett.
+  const districtReadIds = ctx.readScopeIds
+  if (districtReadIds.length > 0) {
     const { data: dioceses } = await ctx.supabase
       .from('dioceses')
       .select('id, name')
-      .in('district_id', ctx.districtIds)
+      .in('district_id', districtReadIds)
     const dioIds = (dioceses || []).map((d) => String(d.id))
     dioceseNames = new Map((dioceses || []).map((d) => [String(d.id), String(d.name || '')]))
     congs = dioIds.length > 0 ? await fetchCongregations(ctx.supabase, dioIds) : []
@@ -1065,7 +1109,11 @@ export async function getSubmissionSnapshot(
     if (!canReadDioceseScope(access)) {
       return { snapshot: null, error: 'Nincs jogosultsága.' }
     }
-  } else if (!access.egyhazkeruletiAdmin && !access.admin && !access.master) {
+    // 2026-08-15 (kerületi S1): a kerületi ág párja — ugyanaz az indok.
+    // A fagyasztott pillanatkép MEGTEKINTÉSE az ellenőr munkaeszköze, ezért
+    // OLVASÓ kapu (canReadDistrictScope) áll itt, nem a skalár
+    // `egyhazkeruletiAdmin`. Ez volt az UTOLSÓ kerületi skalár kapu a fájlban.
+  } else if (!canReadDistrictScope(access)) {
     return { snapshot: null, error: 'Nincs jogosultsága.' }
   }
 
@@ -1088,7 +1136,7 @@ export async function getSubmissionSnapshot(
   const ownershipError =
     scope === 'diocese'
       ? await assertDioceseOwnership(access, String(sub.congregation_id))
-      : await assertDistrictOwnership(access, String(sub.congregation_id))
+      : await assertDistrictOwnership(access, String(sub.congregation_id), 'read')
   if (ownershipError) return { snapshot: null, error: ownershipError }
 
   if (scope === 'district' && sub.forwarded_to_kerulet !== true && sub.status !== 'finalized') {

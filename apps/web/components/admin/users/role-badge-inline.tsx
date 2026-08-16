@@ -51,6 +51,8 @@ const SCOPE_ICONS: Record<ProfileRoleScope, React.ComponentType<{ className?: st
 const ROLE_ICONS: Record<ProfileRoleType, React.ComponentType<{ className?: string }>> = {
   admin: ShieldCheck,
   egyhazkeruleti_admin: Landmark,
+  // 2026-08-15: a kerületi számvevő — a megyei számvevővel azonos ikon (mindkettő ellenőr).
+  egyhazkeruleti_szamvevo: Calculator,
   egyhazmegyei_admin: BookOpenCheck,
   esperes: Crown,
   egyhazmegyei_szamvevo: Calculator,
