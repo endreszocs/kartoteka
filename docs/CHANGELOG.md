@@ -23,6 +23,26 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-17] — Kerületi irattár és összesítő: a megyék adatai egy íven
+<!-- key: 2026-08-17-egyhazkeruleti-irattar-osszesito -->
+<!-- category: feature -->
+<!-- version: 0.9.170 -->
+<!-- targets: egyhazkeruleti admin + szamvevo -->
+
+### ✨ Új funkciók
+
+- **Kerületi irattár.** Egy helyen a kerülethez tartozó **összes hivatalos irat**, évekre visszamenőleg, két világosan elkülönített rekeszben: a **gyülekezetek** továbbított iratai (mind a hat típus), és a **megyék** saját felterjesztései. A kettő jogi természete más, ezért nem keverednek össze.
+- **Egyházkerületi összesítő.** A megyék felterjesztett, véglegesített irataiból: a számadás bevételei és kiadásai **számadási kódonként**, az érvényes költségvetés (ahol volt módosítás, ott a legutolsóval), és a számvevői összesítők kulcs-mutatói — mindegyikhez **egyházmegyénkénti bontás** és **A4-es, aláírás-rovatos nyomtatvány** (püspök, adminisztrátor, számvevő).
+- **Belépő kártyák a kerületi kezdőoldalon** a három munkafelülethez (Felterjesztések · Irattár · Összesítő), és a bal oldali menü is mostantól a kerület saját pontjait kínálja.
+
+### 🎨 Ami megvéd a téves összesítéstől
+
+- **Ami nincs felterjesztve, az láthatóan hiányzik.** Minden szakasz megmondja, **melyik** egyházmegye adata hiányzik belőle — név szerint. A javításra visszaküldött iratok összege szándékosan nem számít bele (külön, nevesítve látszanak), hiszen épp a kerület kifogásolta meg őket. És ha egy megyétől van érvényes irat **és** javítás alatt lévő is, azt is kiírja — különben a szám nem a legutolsó tervet tükrözné.
+- **A régi évek összege is helyes.** A korábbi beküldések pillanatképe kétféle alakban létezik; az összesítő mostantól bizonyítottan a **hivatalos, ívre szűrt** értéket olvassa, nem az íven kívüli tételeket is tartalmazó nyers összesítést. Erre külön önellenőrzés vigyáz.
+- **Ha egy adat nem megbízható, azt a papír is megmondja.** Ha a számadási kód-katalógus nem olvasható, a költségvetés bevétel/kiadás bontása felborulna — ilyenkor a figyelmeztetés **a nyomtatványra is rákerül**, nem csak a képernyőre. A képernyős figyelmeztetés nem véd meg azt, aki már kinyomtatta az ívet.
+
+---
+
 ## [2026-08-16] — Az egyházkerület mostantól átveszi a megyék felterjesztéseit
 <!-- key: 2026-08-16-egyhazkeruleti-fogado-felulet -->
 <!-- category: feature -->

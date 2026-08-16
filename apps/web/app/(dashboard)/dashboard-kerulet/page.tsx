@@ -15,6 +15,10 @@ import { DocumentCenter } from '@/components/dashboard/document-center'
 // 2026-08-16 (egyházkerületi S2): a kerület hivatalos identitásának olvasó
 // szekciója — az „Egyházmegyénk" párja, a kerületi irányítópulton.
 import { OurDistrictSection } from '@/components/dashboard/district/our-district-section'
+// 2026-08-17 (S3–S4): belépő kártyák a három kerületi munkafelületre. A megyei
+// párjával azonos indok: a fülek közé rejtett link ott a legkevésbé feltűnő,
+// ahol a legfontosabb.
+import { DistrictBelepoKartyak } from '@/components/dashboard/district/district-belepo-kartyak'
 import { getHomePathForScope } from '@/lib/auth/active-ui-scope'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import {
@@ -234,6 +238,9 @@ export default async function KeruletDashboardPage() {
           hint="januári + májusi határidők"
         />
       </div>
+
+      {/* 2026-08-17 (S3–S4): a három kerületi munkafelület belépője. */}
+      <DistrictBelepoKartyak ev={seasonYear} />
 
       {/* 2026-08-16 (egyházkerületi S2): „Egyházkerületünk" — a hivatalos
           identitás (név, román név, cím, CIF, bank, vezetés, címer/pecsét).

@@ -19,9 +19,14 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
-## 🔴 PENDING – Egyházkerületi S3: fogadó felület (2026-08-16)
+## ✅ LEFUTOTT – Egyházkerületi S3: fogadó felület (2026-08-16)
 
-- [ ] **`2026-08-16-egyhazkeruleti-S3-fogado.sql`** — PENDING
+- [x] 2026-08-16 — **`2026-08-16-egyhazkeruleti-S3-fogado.sql`** ✅ LEFUTOTT
+       A 2. szakasz minden sora zöld: az oszlop-őrszem RÁ VAN KÖTVE a táblára
+       (BEFORE UPDATE), a kompozit FK és a `dioceses` UNIQUE (id, district_id)
+       létrejött, 0 hamis district_id, a kerületi számvevő SELECT policy-ja él
+       és NEM kapott írási jogot, mind a 3 függvény-GRANT megvan, és a megyei
+       felküldés útja érintetlen. Eredeti teendő-leírás:
        A kerületi fogadó felület adatbázis-alapja. NÉGY dolgot old meg:
        **(1) 9. csapda — a fagyasztott irat védelme.** BEFORE UPDATE trigger
        (`diocese_felterjesztes_kerulet_oszlopvedelem`): kerületi útról CSAK a
@@ -51,9 +56,15 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
-## 🔴 PENDING – Egyházkerületi szint: S1c rálátás-bezárás + S2 identitás (2026-08-16)
+## ✅ LEFUTOTT – Egyházkerületi szint: S1c rálátás-bezárás + S2 identitás (2026-08-16)
 
-- [ ] **`2026-08-16-egyhazkeruleti-S1c-ralatas-bezaras.sql`** — PENDING
+- [x] 2026-08-16 — **`2026-08-16-egyhazkeruleti-S1c-ralatas-bezaras.sql`** ✅ LEFUTOTT
+       **35 policy / 33 tábláról** tűnt el a kerületi sor-szintű rálátás. A megye
+       írása SÉRTETLEN (5/5 policy hívja a megyei feloldót), a `document_submissions`
+       és a `diocese_felterjesztes` kerületi ablakai (2+2) megmaradtak, az
+       `annual_reports_select_district` és a `district_member_counts()` is.
+       A `felettes_szint_szerkesztheto` kerületi lába szándékosan MEGMARADT.
+       Eredeti teendő-leírás:
        ENDRE K4 DÖNTÉSE: „A kerület nem írhatja és nem is olvassa a kerület
        gyülekezeteinek és egyházmegyéinek az adatait, csak a hivatalosan
        beküldött adatokat illetve azoknak az összesítőjét."
@@ -72,7 +83,15 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
        funkció, nem „a gyülekezet adata" — ha ezt is el akarod venni, szólj.
        A 2/E szakasz 4 lépéses KÉZI PRÓBÁT ír le.
 
-- [ ] **`2026-08-16-egyhazkeruleti-S2-identitas.sql`** — PENDING
+- [x] 2026-08-16 — **`2026-08-16-egyhazkeruleti-S2-identitas.sql`** ✅ LEFUTOTT
+       29/29 oszlop, a kerületi vezetői négyes (puspok_nev/puspok_cim/
+       adminisztrator_nev/szamvevo_nev), `esperes_*` NEM jött létre, a teszt-jelölés
+       PONTOSAN a „Teszt Egyházkerület"-re, az anon CSAK (id, name)-et olvashat
+       (CIF/IBAN/pecsét/aláírás/cím/e-mail/telefon mind ZÁRVA), az írás-policy
+       MINDKÉT ágával (rendszergazda + saját kerület), `districts-logos` bucket
+       + 4 policy, `tg_districts_updated` trigger.
+       ⏳ NYITOTT DÖNTÉS marad: a pecsét/aláírás publikus bucketben van.
+       Eredeti teendő-leírás:
        A `districts` hivatalos identitása: 29 új oszlop a `dioceses` mintájára,
        de KERÜLETI vezetői nevekkel (`puspok_nev`, `puspok_cim`,
        `adminisztrator_nev`, `szamvevo_nev`) — `esperes_*` NEM jön létre.
@@ -90,9 +109,11 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
-## 🔴 PENDING – Egyházmegyei számvevő neve (2026-08-15, Endre kérése)
+## ✅ LEFUTOTT – Egyházmegyei számvevő neve (2026-08-15, Endre kérése)
 
-- [ ] **`2026-08-15-egyhazmegyei-szamvevo-nev.sql`** — PENDING
+- [x] 2026-08-16 — **`2026-08-15-egyhazmegyei-szamvevo-nev.sql`** ✅ LEFUTOTT
+       `dioceses.szamvevo_nev` text (nullable), a négy vezetői oszlop mind megvan.
+       Eredeti teendő-leírás:
        Indok: egyetlen NULLABLE oszlop (`dioceses.szamvevo_nev`) a hivatalos
        megyei irat aláírás-rovatához. A beállítás-varázsló mostantól LISTÁBÓL
        kínálja fel a vezetőket (esperes / jegyző / számvevő) — a megye
@@ -104,9 +125,12 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
-## 🔴 PENDING – Egyházkerületi szint (3. szint) S0 + S1 (2026-08-15)
+## ✅ LEFUTOTT – Egyházkerületi szint (3. szint) S0 + S1 + javítások (2026-08-15/16)
 
-- [ ] **`2026-08-15-egyhazkeruleti-S1b-anon-truncate.sql`** — ⚠️ PENDING, SÜRGŐS
+- [x] 2026-08-16 — **`2026-08-15-egyhazkeruleti-S1b-anon-truncate.sql`** ✅ LEFUTOTT
+       Mind a 8 TRUNCATE/REFERENCES/TRIGGER jog visszavonva (anon + authenticated,
+       districts + dioceses), mind az 5 regressziós őr zöld, a service_role
+       érintetlen. Eredeti teendő-leírás:
        Indok: az S0 0/B szakasza kimutatta, hogy az `anon` szerepnek
        **TRUNCATE** joga van a `districts` és a `dioceses` táblán (a
        `authenticated`-nek szintén). **A TRUNCATE-re az RLS SOHA nem
@@ -127,7 +151,11 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
        lásd a következő tételt. A repóban a szűrő azóta oszlop-alapú
        (`conkey`), tehát egy ÚJRAfuttatás már nem okozná ugyanezt.
 
-- [ ] **`2026-08-15-egyhazkeruleti-S1-JAVITAS-custom-label-check.sql`** — ⚠️ PENDING, SÜRGŐS
+- [x] 2026-08-16 — **`2026-08-15-egyhazkeruleti-S1-JAVITAS-custom-label-check.sql`** ✅ LEFUTOTT
+       A `profile_roles_custom_label_check` visszaállt az eredeti, 2026-04-17-i
+       alakra; mind az 5 CHECK a nevéhez illő definíciót hordja, és a szerep-lista
+       megőrizte az `egyhazkeruleti_szamvevo`-t ÉS a `custom`-ot.
+       Eredeti teendő-leírás:
        Indok: az S1 1/A szakasza a szerep-értéklista CHECK-jét kereste
        `pg_get_constraintdef(...) LIKE '%role%'` szűrővel. Ez a
        `profile_roles_custom_label_check`-et IS megfogta (a definíciója említi
@@ -141,7 +169,12 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
        A másik három CHECK (scope, approval_status, scope_id) és a `profiles`
        tábla érintetlen — a 0. szakasz ezt bizonyítja is.
 
-- [ ] **`2026-08-15-egyhazkeruleti-S0-allapotfelmeres.sql`** — PENDING, **CSAK OLVASÓ**
+- [x] 2026-08-16 — **`2026-08-15-egyhazkeruleti-S0-allapotfelmeres.sql`** ✅ LEFUTOTT (csak olvasó)
+       Az eredményéből épült az S1c és az S2. Fő megállapításai: `districts` = 3
+       oszlop; 3 kerület (köztük a Teszt); 25/25 megyének van kerülete; 0 eltérés
+       a `congregations.district` szövegben; mind a 6 scope-tábla CHECK-je
+       kétoszlopos (az S5 dolga); a PK-k már surrogate `id`-k.
+       Eredeti teendő-leírás:
        ⚠️ Az első próbálkozás `42P01: missing FROM-clause entry for table "t"`
        hibával elszállt (a 0/C szakasz második ágából kimaradt a saját
        `FROM (VALUES …) AS t(tabla)` záradéka). JAVÍTVA. Az egész repót
@@ -159,7 +192,8 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
        4 = helyes), valamint a 14 dokumentált csapda mérési pontjait.
        ⚠️ FUTTASD ELŐBB, MINT AZ S1-ET, és az eredményt küldd vissza.
 
-- [ ] **`2026-08-15-egyhazkeruleti-S1-hatokor-biztonsag.sql`** — PENDING (S0 után)
+- [x] 2026-08-15 — **`2026-08-15-egyhazkeruleti-S1-hatokor-biztonsag.sql`** ✅ LEFUTOTT
+       (Lásd a fenti, részletes bejegyzést is.) Eredeti teendő-leírás:
        Indok: három, egymástól független javítás egyetlen tranzakcióban.
        (A) Az `egyhazkeruleti_szamvevo` szerep felvétele a `profiles.role` és a
        `profile_roles.role` CHECK-jébe — enélkül az app-oldali szerep

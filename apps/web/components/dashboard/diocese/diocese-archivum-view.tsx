@@ -21,7 +21,7 @@
  * hiánynak azt, ami sosem került a rendszerbe.
  */
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   Archive,
   Building2,
@@ -58,6 +58,21 @@ type Nezet = 'gyulekezet' | 'ev'
 
 interface Props {
   data: DocumentCenterData
+  /**
+   * MELYIK SZINT nézi az archívumot (2026-08-17, kerületi S4).
+   *
+   * MIÉRT KELLETT: az egyházkerületi irattár (`/dashboard-kerulet/iratok`)
+   * ugyanezt a nézetet használja — ne két, előbb-utóbb széthúzó implementáció
+   * mutassa ugyanazt a hat irat-típust. A `level` viszont LOAD-BEARING: a
+   * pillanatkép-néző ebből dönti el, MELYIK szint jogosultságát ellenőrizze
+   * (`getSubmissionSnapshot(id, level)` — a 'diocese' ág `canReadDioceseScope`-ot
+   * kér). Beégetett 'diocese'-zal tehát a kerületi felhasználó MINDEN pillanatképre
+   * „Nincs jogosultsága" hibát kapna — némán üres részletkártyát.
+   *
+   * ALAPÉRTELMEZÉS 'diocese': a megyei hívó (dashboard-egyhazmegye/iratok) így
+   * betűre változatlan marad.
+   */
+  level?: 'diocese' | 'district'
 }
 
 function datum(v?: string | null): string {
@@ -86,7 +101,7 @@ function StatuszJelveny({ status }: { status: DocumentStatus }) {
   )
 }
 
-export function DioceseArchivumView({ data }: Props) {
+export function DioceseArchivumView({ data, level = 'diocese' }: Props) {
   const [nezet, setNezet] = useState<Nezet>('gyulekezet')
   const [kereses, setKereses] = useState('')
   const [tipusSzuro, setTipusSzuro] = useState<DocumentType | 'mind'>('mind')
@@ -110,6 +125,25 @@ export function DioceseArchivumView({ data }: Props) {
     })
   }, [bekuldesek, tipusSzuro, evSzuro])
 
+  /**
+   * KERÜLETI NÉZET: az egyházmegye neve is számít (2026-08-17, S4).
+   *
+   * A megyei archívumban egyetlen egyházmegye gyülekezetei sorakoznak — ott a
+   * gyülekezet neve önmagában azonosít. A KERÜLETI archívumban viszont több száz
+   * gyülekezet jön tíz egyházmegyéből: azonos nevű falvak is előfordulnak, és a
+   * keresés is a megye szerint szűkítene a legtermészetesebben. Ezért kerületi
+   * szinten a megye neve is illeszkedhet a keresésre, és alcímként megjelenik.
+   * Megyei szinten a `level` alapértelmezés miatt minden marad a régiben.
+   */
+  const illeszkedik = useCallback(
+    (c: DocumentCenterData['congregations'][number], q: string) => {
+      if (!q) return true
+      if (c.name.toLowerCase().includes(q)) return true
+      return level === 'district' && (c.dioceseName || '').toLowerCase().includes(q)
+    },
+    [level],
+  )
+
   /** Gyülekezetenkénti dosszié: a hatókör TELJES listája (nem a beküldőkből). */
   const dossziek = useMemo(() => {
     const q = kereses.trim().toLowerCase()
@@ -120,24 +154,41 @@ export function DioceseArchivumView({ data }: Props) {
       else tetelek.set(s.congregation_id, [s])
     }
     return data.congregations
-      .filter((c) => !q || c.name.toLowerCase().includes(q))
+      .filter((c) => illeszkedik(c, q))
       .map((c) => {
         const iratok = (tetelek.get(c.id) || []).slice().sort((a, b) => {
           if (a.year !== b.year) return b.year - a.year
           return (b.submitted_at || '').localeCompare(a.submitted_at || '')
         })
         const evekLista = [...new Set(iratok.map((s) => s.year))].sort((a, b) => b - a)
-        return { id: c.id, nev: c.name, iratok, evek: evekLista }
+        return {
+          id: c.id,
+          nev: c.name,
+          // Csak kerületi nézetben van értelme: a megyei archívum minden sora
+          // ugyanahhoz az egyházmegyéhez tartozik.
+          megye: level === 'district' ? c.dioceseName : null,
+          iratok,
+          evek: evekLista,
+        }
       })
-      .sort((a, b) => a.nev.localeCompare(b.nev, 'hu'))
-  }, [data.congregations, szurt, kereses])
+      .sort(
+        (a, b) =>
+          (a.megye || '').localeCompare(b.megye || '', 'hu') || a.nev.localeCompare(b.nev, 'hu'),
+      )
+  }, [data.congregations, szurt, kereses, illeszkedik, level])
 
   /** Év-nézet: évenként gyülekezet × típus mátrix. */
   const evNezet = useMemo(() => {
     const q = kereses.trim().toLowerCase()
+    const megyeNev = (c: DocumentCenterData['congregations'][number]) =>
+      level === 'district' ? c.dioceseName : null
     const gyulekezetek = data.congregations
-      .filter((c) => !q || c.name.toLowerCase().includes(q))
-      .sort((a, b) => a.name.localeCompare(b.name, 'hu'))
+      .filter((c) => illeszkedik(c, q))
+      .sort(
+        (a, b) =>
+          (megyeNev(a) || '').localeCompare(megyeNev(b) || '', 'hu') ||
+          a.name.localeCompare(b.name, 'hu'),
+      )
     const evLista = evSzuro === 'mind' ? evek : [evSzuro]
     return evLista.map((e) => ({
       ev: e,
@@ -150,10 +201,10 @@ export function DioceseArchivumView({ data }: Props) {
           // Több módosítás esetén a legfrissebb beküldés jelvénye látszik.
           if (!elozo || (s.submitted_at || '') > (elozo.submitted_at || '')) cellak.set(tipus, s)
         }
-        return { id: c.id, nev: c.name, cellak }
+        return { id: c.id, nev: c.name, megye: megyeNev(c), cellak }
       }),
     }))
-  }, [data.congregations, szurt, evek, evSzuro, kereses])
+  }, [data.congregations, szurt, evek, evSzuro, kereses, illeszkedik, level])
 
   const osszesIrat = bekuldesek.length
 
@@ -198,7 +249,11 @@ export function DioceseArchivumView({ data }: Props) {
         <div className="flex items-center gap-2 rounded-xl border border-border px-3 py-1.5">
           <Search className="size-4 shrink-0 text-muted-foreground" />
           <Input
-            placeholder="Keresés gyülekezet neve szerint…"
+            placeholder={
+              level === 'district'
+                ? 'Keresés gyülekezet vagy egyházmegye neve szerint…'
+                : 'Keresés gyülekezet neve szerint…'
+            }
             value={kereses}
             onChange={(e) => setKereses(e.target.value)}
             className="h-9 border-0 bg-transparent px-0 text-sm focus-visible:ring-0"
@@ -256,6 +311,11 @@ export function DioceseArchivumView({ data }: Props) {
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-semibold text-foreground">{d.nev}</p>
+                      {/* Kerületi nézetben a megye neve azonosít: tíz egyházmegye
+                          gyülekezetei között azonos falunevek is előfordulnak. */}
+                      {d.megye && (
+                        <p className="truncate text-[11px] text-muted-foreground">{d.megye}</p>
+                      )}
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         {d.iratok.length === 0
                           ? 'Nincs beküldött irat ebben a szűrésben'
@@ -343,7 +403,14 @@ export function DioceseArchivumView({ data }: Props) {
                     <tbody className="divide-y divide-border">
                       {blokk.sorok.map((sor) => (
                         <tr key={sor.id}>
-                          <td className="p-2 text-foreground">{sor.nev}</td>
+                          <td className="p-2 text-foreground">
+                            {sor.nev}
+                            {sor.megye && (
+                              <span className="block text-[11px] text-muted-foreground">
+                                {sor.megye}
+                              </span>
+                            )}
+                          </td>
                           {ARCHIVUM_TIPUSOK.map((t) => {
                             const s = sor.cellak.get(t)
                             return (
@@ -375,7 +442,7 @@ export function DioceseArchivumView({ data }: Props) {
       )}
 
       {/* A KÖZÖS pillanatkép-néző (idővonal + napló + nyomtatás). */}
-      <SnapshotDialog sub={megnyitott} level="diocese" onClose={() => setMegnyitott(null)} />
+      <SnapshotDialog sub={megnyitott} level={level} onClose={() => setMegnyitott(null)} />
     </div>
   )
 }
