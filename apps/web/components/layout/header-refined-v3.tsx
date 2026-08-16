@@ -74,6 +74,13 @@ interface HeaderProps {
   /** „Egyházmegye beállításai" (a meglévő setup-wizard menüből) — csak megyei
    *  ÍRÓNAK (esperes/megyei admin); számvevőnél undefined → a pont rejtve. */
   onOpenDioceseSetup?: () => void
+  /** 2026-08-16 (egyházkerületi S2): az „Egyházkerületünk" read-only ablak —
+   *  CSAK district-scope aktív profilnál kap értéket (a shell adja). */
+  onOpenDistrict?: () => void
+  /** „Egyházkerület beállításai" — csak kerületi ÍRÓNAK (egyházkerületi admin);
+   *  a kerületi SZÁMVEVŐNÉL undefined → a pont meg sem jelenik. A megyei
+   *  párjával azonos elv: sehová nem vezető gombot nem mutatunk. */
+  onOpenDistrictSetup?: () => void
   onOpenGodMode?: () => void
   onToggleMobileMenu: () => void
   /** Sidebar collapse/expand toggle — a Kartotéka-ikonra kattintásra. */
@@ -151,6 +158,8 @@ export function HeaderRefinedV3({
   onOpenCongregation,
   onOpenDiocese,
   onOpenDioceseSetup,
+  onOpenDistrict,
+  onOpenDistrictSetup,
   onOpenGodMode,
   onToggleMobileMenu,
   onToggleSidebar,
@@ -431,7 +440,30 @@ export function HeaderRefinedV3({
                       />
                     </MenuColumn>
 
-                    {activeScope === 'diocese' ? (
+                    {activeScope === 'district' ? (
+                      // 2026-08-16 (egyházkerületi S2): a 3. szint hasábja.
+                      // Ugyanaz az elv, mint a megyeinél: feloldhatatlan
+                      // kerület-hatókörnél a shell nem ad callbacket, ezért a
+                      // hasáb el sem készül.
+                      onOpenDistrict && (
+                      <MenuColumn title="Egyházkerület">
+                        <MegaItem
+                          icon={Building2}
+                          label="Egyházkerületünk"
+                          hint="Adatlap megtekintése"
+                          onClick={onOpenDistrict}
+                        />
+                        {onOpenDistrictSetup && (
+                          <MegaItem
+                            icon={Landmark}
+                            label="Egyházkerület beállításai"
+                            hint="Alapadatok, cím, bank"
+                            onClick={onOpenDistrictSetup}
+                          />
+                        )}
+                      </MenuColumn>
+                      )
+                    ) : activeScope === 'diocese' ? (
                       // Feloldhatatlan megye-hatókörnél (nincs scope_id → a
                       // shell nem ad callbacket) a hasáb el sem készül —
                       // sehová nem vezető pontot nem mutatunk.

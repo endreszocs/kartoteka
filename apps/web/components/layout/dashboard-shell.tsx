@@ -44,6 +44,19 @@ const DioceseSetupWizardLazy = dynamic(
   { ssr: false },
 )
 
+// 2026-08-16 (egyházkerületi S2): a 3. szint fejléc-ablakai — a megyei páros
+// tükörképei. Lusta betöltés: a gyülekezeti és megyei felhasználók kötegébe
+// SOHA nem kerül bele a kerületi varázsló kódja.
+const DistrictSummaryDialogLazy = dynamic(
+  () => import('@/components/modals/district-summary').then((module) => module.DistrictSummaryDialog),
+  { ssr: false },
+)
+
+const DistrictSetupWizardLazy = dynamic(
+  () => import('@/components/modals/district-setup-wizard').then((module) => module.DistrictSetupWizard),
+  { ssr: false },
+)
+
 interface DashboardShellProps {
   profile: Profile
   /** 2026-07-10 (S4-avatar): a beállított profilfotó URL-je a header avatárhoz. */
@@ -68,6 +81,10 @@ interface DashboardShellProps {
    *  „Egyházmegyénk" / „Egyházmegye beállításai" ablakainak célpontja.
    *  CSAK diocese-scope aktív profilnál nem null. */
   activeDioceseId?: string | null
+  /** 2026-08-16 (egyházkerületi S2): az aktív kerületi profil scope_id-ja. */
+  activeDistrictId?: string | null
+  /** Írhat-e a hívó ezen a kerületen? A kerületi SZÁMVEVŐ nem. */
+  canWriteDistrict?: boolean
   /** Írhat-e a néző megyei szinten? (számvevő: false → a beállítás-menüpont
    *  és a szerkesztés-gomb rejtve — ne mutassunk sehová nem vezető gombot). */
   canWriteDiocese?: boolean
@@ -107,6 +124,8 @@ export function DashboardShell({
   activeScopeName = null,
   activeDioceseId = null,
   canWriteDiocese = false,
+  activeDistrictId = null,
+  canWriteDistrict = false,
   alertSlot = null,
   children,
   onToggleMobileMenu,
@@ -119,6 +138,9 @@ export function DashboardShell({
   // 2026-08-15 (4.1): megyei fejléc-ablakok — csak diocese-scope-nál használt.
   const [dioceseSummaryOpen, setDioceseSummaryOpen] = useState(false)
   const [dioceseSetupOpen, setDioceseSetupOpen] = useState(false)
+  // 2026-08-16 (egyházkerületi S2): a 3. szint párjai.
+  const [districtSummaryOpen, setDistrictSummaryOpen] = useState(false)
+  const [districtSetupOpen, setDistrictSetupOpen] = useState(false)
 
   // Globális window-esemény figyelése — pl. a januári banner "Beállítom most"
   // gombja küldi. A kommunikáció: a page-level komponensek (banner, widget)
@@ -171,6 +193,10 @@ export function DashboardShell({
         onOpenProfile={() => setProfileOpen(true)}
         onOpenCongregation={() => setCongregationOpen(true)}
         onOpenDiocese={activeDioceseId ? () => setDioceseSummaryOpen(true) : undefined}
+        onOpenDistrict={activeDistrictId ? () => setDistrictSummaryOpen(true) : undefined}
+        onOpenDistrictSetup={
+          activeDistrictId && canWriteDistrict ? () => setDistrictSetupOpen(true) : undefined
+        }
         onOpenDioceseSetup={
           activeDioceseId && canWriteDiocese ? () => setDioceseSetupOpen(true) : undefined
         }
@@ -238,6 +264,27 @@ export function DashboardShell({
           open={dioceseSetupOpen}
           onOpenChange={setDioceseSetupOpen}
           dioceseId={activeDioceseId}
+        />
+      )}
+
+      {/* 2026-08-16 (egyházkerületi S2): a 3. szint párjai, ugyanazzal az
+          elvvel. Az „Egyházkerületünk" read-only ablak a kerületi SZÁMVEVŐNEK
+          is jár (ő ellenőr, meg kell néznie); a beállítás-varázsló KIZÁRÓLAG
+          az írónak töltődik be — a számvevőnél a menüpont sem jelenik meg. */}
+      {activeDistrictId && (
+        <DistrictSummaryDialogLazy
+          open={districtSummaryOpen}
+          onOpenChange={setDistrictSummaryOpen}
+          districtId={activeDistrictId}
+          canWrite={canWriteDistrict}
+          onOpenSetup={() => setDistrictSetupOpen(true)}
+        />
+      )}
+      {activeDistrictId && canWriteDistrict && (
+        <DistrictSetupWizardLazy
+          open={districtSetupOpen}
+          onOpenChange={setDistrictSetupOpen}
+          districtId={activeDistrictId}
         />
       )}
     </>

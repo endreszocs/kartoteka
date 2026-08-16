@@ -23,6 +23,33 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-16] — Egyházkerület: saját arculat, és a kerület már nem lát bele a gyülekezetekbe
+<!-- key: 2026-08-16-egyhazkeruleti-identitas-ralatas -->
+<!-- category: feature -->
+<!-- version: 0.9.168 -->
+<!-- targets: egyhazkeruleti admin + esperes + lelkesz -->
+
+### 🔒 Biztonsági javítások
+
+- **A kerület mostantól csak a hivatalosan beküldött iratokat látja.** Eddig egy egyházkerületi adminisztrátor közvetlen lekérdezéssel elolvashatta — és részben írhatta is — a kerülete **összes gyülekezetének** anyakönyvét (keresztelés, házasság, temetés, konfirmáció), családlátogatási naplóját, munkanaplóját, pénzügyi tételeit és leltárát, valamint az egyházmegyék könyveit. Ez mintegy negyven adattáblát érintett. Mostantól a kerület **kizárólag** azt látja, amit a gyülekezet vagy az egyházmegye **hivatalosan felküldött**, illetve az abból készült összesítőt — pontosan úgy, ahogy a kerületi irányítópult eddig is ígérte. A beküldött iratok átvétele, visszaküldése és a kérelmek elbírálása változatlanul működik.
+- **A gyülekezeti lista már nem szivárog.** Az egyházmegyei irányítópult „Gyülekezetek" fülén rendszergazdai belépéssel az **ország mind a 783 gyülekezete** megjelent, miközben a fejléc helyesen 36-ot írt: a szűrő a háttérben némán eltűnt. Mostantól a lista mindig ahhoz az egyházmegyéhez igazodik, amelyiket a képernyő mutatja.
+
+### ✨ Új funkciók
+
+- **Az egyházkerületnek saját hivatalos arculata lett.** Új „Egyházkerület beállításai" varázsló: hivatalos magyar és **román** név, címer, cím, adószámok, elérhetőségek, bankszámla, valamint a **püspök**, az **egyházkerületi adminisztrátor** és a **számvevő** neve — mindaz, ami a hivatalos iratok fejlécéhez és hitelesítéséhez kell. Mellette az „Egyházkerületünk" adatlap, ahol mindez egy helyen megtekinthető és másolható.
+- **A vezetők nevét listából lehet választani.** Nem kell kézzel begépelni: a program felkínálja azokat, akik a rendszerben már be vannak töltve a tisztségbe. Így a hivatalos iratra pontosan az a név kerül, amelyik a rendszerben szerepel — elgépelés nélkül. Kézi megadás továbbra is lehetséges (a főgondnok például jellemzően nem szerepel a rendszerben).
+- **A teszt-egyházkerület láthatóan meg van jelölve.** Éles használatban így nem lehet összekeverni a valódiakkal.
+
+### 🎨 Ami megvéd az adatvesztéstől
+
+- **A beállítás-varázsló semmit nem felejt el.** Ha félbehagyod — visszalépsz, bezárod, vagy csak véletlenül kikattintasz —, a beírt adatok **elmentődnek**; nem kell elölről kezdeni. Ez a gyülekezeti, az egyházmegyei és az egyházkerületi varázslóra egyaránt igaz.
+
+### ℹ️ Rendszergazdai teendő
+
+- Két SQL, **ebben a sorrendben**: **1)** `migration-docs/sql/2026-08-16-egyhazkeruleti-S1c-ralatas-bezaras.sql` (a rálátás szűkítése — a 0. szakasz **név szerint felsorolja**, mely táblákról tűnik el a kerületi hozzáférés, futtatás előtt olvasd el); **2)** `migration-docs/sql/2026-08-16-egyhazkeruleti-S2-identitas.sql` (a kerületi törzsadat, a címer-tároló és az első írás-jogosultság). Mindkettő fail-closed őrszemmel áll le, ha az adatbázis nem a várt állapotban van. **Nyitott döntés:** a püspöki pecsét és az aláírás képe publikus tárolóba kerül, tehát az URL ismeretében bejelentkezés nélkül letölthető — a fájl fejléce leírja a két lehetőséget.
+
+---
+
 ## [2026-08-15] — Egyházkerület: a harmadik szint alapjai és egy anonim adatszivárgás lezárása
 <!-- key: 2026-08-15-egyhazkeruleti-hatokor-biztonsag -->
 <!-- category: security -->

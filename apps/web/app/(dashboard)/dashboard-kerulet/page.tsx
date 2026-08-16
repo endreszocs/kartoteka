@@ -12,6 +12,9 @@ import { ScopeHero } from '@/components/dashboard/scope-dashboard-sections'
 // 2026-08-09: a FinalizedDocumentsList + DeadlineCard helyett a közös
 // dokumentumközpont (teljességi mátrix + snapshot-néző + átvétel-igazolás).
 import { DocumentCenter } from '@/components/dashboard/document-center'
+// 2026-08-16 (egyházkerületi S2): a kerület hivatalos identitásának olvasó
+// szekciója — az „Egyházmegyénk" párja, a kerületi irányítópulton.
+import { OurDistrictSection } from '@/components/dashboard/district/our-district-section'
 import { getHomePathForScope } from '@/lib/auth/active-ui-scope'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import {
@@ -231,6 +234,16 @@ export default async function KeruletDashboardPage() {
           hint="januári + májusi határidők"
         />
       </div>
+
+      {/* 2026-08-16 (egyházkerületi S2): „Egyházkerületünk" — a hivatalos
+          identitás (név, román név, cím, CIF, bank, vezetés, címer/pecsét).
+          Ha az adat hiányos, a szekció BESZÉDESEN kiírja, mi hiányzik, és a
+          beállítás-varázslóra mutat — nem néma üres mező.
+          A `districtId` az elsődleges (hero) kerület; hatókör nélkül ide el sem
+          jutunk (fentebb fail-closed kártya áll). */}
+      {districtId && (
+        <OurDistrictSection districtId={districtId} canWrite={!readOnlyScope} />
+      )}
 
       {/* Egyházmegyei bontás — gyülekezet-darabszám + (2026-08-11) taglétszám */}
       <DioceseBreakdown

@@ -388,8 +388,17 @@ export async function getDioceseBankSummary(dioceseId?: string): Promise<{
 //   · szamvevo_nev — nem minden egyházmegyének van kiosztott számvevője.
 // Ha benne maradnának, a setup-banner ÖRÖKKÉ nyaggatna olyan adatért, amit a
 // varázsló maga sem kér kötelezően — és a két réteg némán széthúzna.
+// ⚠️ 2026-08-16: a `nev_ro` IDE IS KELL. A `setupSchema` KÖTELEZŐNEK validálja
+//   (nev_ro: z.string().min(2, …)) és a varázsló `isStepValidOn('basics')` is
+//   megköveteli — ebből a listából viszont hiányzott. Következmény: ha CSAK a
+//   román név üres, a `checkDioceseSetupStatus` `needsSetup: false`-t adott,
+//   tehát a beállítás-sáv NÉMÁN hallgatott („kész vagy"), a varázsló viszont az
+//   1. lépésen letiltotta a Tovább gombot („nem vagy kész"). A két réteg
+//   ellentmondott egymásnak, és a felhasználó nem tudta, melyiknek higgyen.
+//   A hibát a kerületi (S2) kör adverzariális ellenőrzése találta meg — ott
+//   ugyanez a lista öröklődött volna tovább, harmadszor is.
 const REQUIRED_SETUP_FIELDS = [
-  'name', 'cif', 'cim_orszag', 'cim_megye', 'cim_telepules', 'cim_iranyitoszam',
+  'name', 'nev_ro', 'cif', 'cim_orszag', 'cim_megye', 'cim_telepules', 'cim_iranyitoszam',
   'cim_utca', 'email', 'telefon',
   'esperes_nev', 'esperes_cim', 'jegyzo_nev', 'cimer_url',
 ] as const

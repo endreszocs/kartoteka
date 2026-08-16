@@ -19,6 +19,45 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
+## 🔴 PENDING – Egyházkerületi szint: S1c rálátás-bezárás + S2 identitás (2026-08-16)
+
+- [ ] **`2026-08-16-egyhazkeruleti-S1c-ralatas-bezaras.sql`** — PENDING
+       ENDRE K4 DÖNTÉSE: „A kerület nem írhatja és nem is olvassa a kerület
+       gyülekezeteinek és egyházmegyéinek az adatait, csak a hivatalosan
+       beküldött adatokat illetve azoknak az összesítőjét."
+       A `felettes_szint_hozzaferese()` és a `felettes_szint_gyulekezet_ids()`
+       megye-only alakra vált (a 2026-08-11-es fájl előkészített, sosem futott
+       „2/B" szakaszából, betűhűen), és az 5 megyei pénzügyi policy kerületi ága
+       megszűnik. Egy csapásra ~40 tábláról tűnik el a kerületi sor-szintű
+       rálátás — a 0/D szakasz NÉV SZERINT felsorolja őket futtatás előtt.
+       ⚠️ MEGMARAD (fail-closed őrszem ellenőrzi, mielőtt bármit elvenne):
+       `document_submissions_district_select/_update` (a beküldött iratok — csak
+       a továbbított/véglegesített sorokra), `diocese_felterjesztes_kerulet_*`
+       (a felterjesztési csatorna), a törzsadat-olvasás és a
+       `district_member_counts()` összesítő RPC.
+       ⚠️ MEGMARAD a `felettes_szint_szerkesztheto()` kerületi lába is: az a
+       GYÜLEKEZETI TÖRZSADAT (név, cím) szerkesztése, ami adminisztratív
+       funkció, nem „a gyülekezet adata" — ha ezt is el akarod venni, szólj.
+       A 2/E szakasz 4 lépéses KÉZI PRÓBÁT ír le.
+
+- [ ] **`2026-08-16-egyhazkeruleti-S2-identitas.sql`** — PENDING
+       A `districts` hivatalos identitása: 29 új oszlop a `dioceses` mintájára,
+       de KERÜLETI vezetői nevekkel (`puspok_nev`, `puspok_cim`,
+       `adminisztrator_nev`, `szamvevo_nev`) — `esperes_*` NEM jön létre.
+       Plusz `teszt boolean` (a „Teszt Egyházkerület" látható megjelöléséhez),
+       `districts-logos` storage bucket, és az ELSŐ írás-policy a táblán
+       (`districts_update_district_scope`) — eddig egyetlen sem volt, tehát a
+       kerületi admin nem tudta menteni a saját adatait.
+       ⚠️ ANON-VÉDELEM: a fájl EGYETLEN GRANT-ot sem ad az anonnak, és a COMMIT
+       ELŐTT `has_column_privilege()`-dzsel végigméri mind a 29 új oszlopot —
+       szivárgás esetén RAISE EXCEPTION-nel VISSZAGÖRDÍTI az egész tranzakciót.
+       ❓ **ENDRE DÖNTÉSÉRE VÁR** (a fájl fejlécében is): a püspöki pecsét és az
+       aláírás publikus bucketbe kerül, tehát az URL birtokában bejelentkezés
+       nélkül letölthető. Ez okirat-hamisítási felület. Ma a gyülekezeti és a
+       megyei szint is így működik — a döntés mind a hármat érinti.
+
+---
+
 ## 🔴 PENDING – Egyházmegyei számvevő neve (2026-08-15, Endre kérése)
 
 - [ ] **`2026-08-15-egyhazmegyei-szamvevo-nev.sql`** — PENDING

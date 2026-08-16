@@ -185,6 +185,10 @@ interface DashboardLayoutClientProps {
   /** 2026-08-15 (egyházmegyei terv, 4.1): az aktív diocese-profil egyházmegyéje
    *  a fejléc „Egyházmegyénk"/„Egyházmegye beállításai" ablakaihoz. */
   activeDioceseId?: string | null
+  /** 2026-08-16 (egyházkerületi S2): az aktív kerületi profil scope_id-ja. */
+  activeDistrictId?: string | null
+  /** Írhat-e a hívó ezen a kerületen? (a számvevő NEM) */
+  canWriteDistrict?: boolean
   /** Írhat-e a néző megyei szinten? (számvevő: false → beállítás-pont rejtve) */
   canWriteDiocese?: boolean
   /** 2026-04-19: egyházmegye setup status — ha kitöltetlen, banner jelenik meg. */
@@ -206,6 +210,7 @@ export function DashboardLayoutClient({
   isGodMode, godModeExpiresAt, congregationName, congregationLogo, congregationDioceseName = null,
   override, profileRoles = [], activeProfileRoleId = null, scopeNames = {}, activeScope = null,
   activeDioceseId = null, canWriteDiocese = false,
+  activeDistrictId = null, canWriteDistrict = false,
   dioceseSetupNeeded = false, dioceseSetupId = null, dioceseSetupMissing = [],
   congregationSetupNeeded = false, congregationSetupId = null, congregationSetupMissing = [],
   deferSetupForWalkthrough = false,
@@ -271,6 +276,8 @@ export function DashboardLayoutClient({
           scopeNames={scopeNames}
           activeScope={activeScope}
           activeDioceseId={activeDioceseId}
+          activeDistrictId={activeDistrictId}
+          canWriteDistrict={canWriteDistrict}
           canWriteDiocese={canWriteDiocese}
           activeScopeName={(() => {
             // Az aktív profile_role scope_id-jához tartozó név (egyházmegye / kerület)
