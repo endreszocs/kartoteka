@@ -217,11 +217,13 @@ function szintFeliratok(scope: AccountingScope): SzintFeliratok {
     case 'diocese':
       return bekuldosFeliratok('az egyházkerület', 'az egyházkerületnek')
     case 'district':
-      // ⏳ ENDRE DÖNTÉSÉRE VÁR: a KERÜLETI feloldás-kérelemnek ma nincs
-      //    elbírálója (ugyanaz a nyitott pont, mint az actions.ts
-      //    `requestBudgetUnlock` K3-figyelmeztetésénél). Amíg nincs döntés, az
-      //    `elbiralo` „az egyházkerület vezetősége" — SEMMIKÉPP nem „az
-      //    egyházmegye", mert az a megyét emelné a kerület fölé.
+      // ✅ 2026-08-22 — ENDRE DÖNTÉSE, LEZÁRVA (K6): a kerületi feloldás-
+      //    kérelemnek NINCS és nem is lesz elbírálója, mert a kerület fölött
+      //    nincs szint. A kérelem rögzül és naplózódik — a rendszergazda NEM kap
+      //    hozzá külön elbíráló felületet.
+      //
+      //    Az `elbiralo` ezért „az egyházkerület vezetősége" — SEMMIKÉPP nem
+      //    „az egyházmegye", mert az a megyét emelné a kerület fölé.
       return {
         elbiralo: 'az egyházkerület vezetősége',
         finalizeLabel: 'Véglegesítés',

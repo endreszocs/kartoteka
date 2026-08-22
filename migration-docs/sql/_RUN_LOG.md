@@ -19,15 +19,22 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
-## 🔴 PENDING – Egyházkerületi S5: könyvelés + leltár + iktatás (2026-08-17)
+## ✅ LEFUTOTT – Egyházkerületi S5: könyvelés + leltár + iktatás (2026-08-22)
 
 **⚠️ A SORREND KÖTÖTT: S5a → S5b → S5c.** Az S5c őrszeme ellenőrzi, hogy az S5a
 lefutott (`iktato.district_id` léte); az S5b független, de a felület csak
 mindhárom után lesz teljes. Mindegyik fájl 3 szakaszos: a 0. csak olvas, az 1.
 EGYETLEN tranzakció fail-closed őrszemmel, a 2. ellenőriz.
 
-- [ ] **`2026-08-17-egyhazkeruleti-S5a-scope-oszlopok.sql`** — PENDING
-       Indok: futtatásra vár. A LELTÁR és az IKTATÓ kerületi hatóköre — nem új
+- [x] 2026-08-22 — **`2026-08-17-egyhazkeruleti-S5a-scope-oszlopok.sql`** ✅ LEFUTOTT
+       A 2. szakasz MINDEN sora zöld: 6/6 `district_id` + FK, **6/6 háromoszlopos
+       scope-CHECK**, 4/4 kerületi egyediségi index, **8/8 régi index VÁLTOZATLAN**,
+       `iktato_id_district_uk` + kompozit FK ✅, `next_iktato_sequence_dis` + GRANT ✅
+       (a cong/dio RPC érintetlen), 12/12 kerületi policy, **0 beburkolt kerületi láb**
+       + **12/12 immunitás**, 0 írási láb olvasó-feloldóval, 32 nem-kerületi policy
+       (érintetlen), `purge_recycle_bin()` szűkítve ✅ **és a törzse a 2026-08-14-es,
+       3 oszlopos, 12 táblás, `deleted_at`-alapú alak maradt** ✅, 6/6
+       `globalis_predikatum`, 3 egyházkerület. Eredeti teendő-leírás: A LELTÁR és az IKTATÓ kerületi hatóköre — nem új
        táblák, hanem a MEGLÉVŐ 6 táblán (`leltar_tetelek`, `iktato`,
        `iktato_sablonok`, `iktato_yearly_closures`, `iktato_csatolmany`,
        `iktato_sequence_pointers`) egy `district_id` oszlop.
@@ -59,8 +66,15 @@ EGYETLEN tranzakció fail-closed őrszemmel, a 2. ellenőriz.
        annak újrafuttatása különben NÉMÁN visszaállítaná a szűretlen törzset.
        **(6)** 12 új kerületi RLS-policy, a kanonikus szerep-szűrt függvényekkel.
 
-- [ ] **`2026-08-17-egyhazkeruleti-S5b-penzugy-tablak.sql`** — PENDING
-       Indok: futtatásra vár. Az 5 kerületi pénzügyi tábla a `diocese_*` párjaik
+- [x] 2026-08-22 — **`2026-08-17-egyhazkeruleti-S5b-penzugy-tablak.sql`** ✅ LEFUTOTT
+       5/5 tábla, mindegyiken RLS BE + pontosan 2 policy; 5/5 író policy a SZEREP-SZŰRT
+       feloldóval és **0 szerep-szűrő nélküli `profile_roles`-ág**; 5/5 számvevő SELECT;
+       **0 írási láb olvasó-feloldóval**; **0 hatókör-szivárgás** (egyetlen district-policy
+       sem hivatkozik megyei/gyülekezeti feloldóra); 20/20 GRANT, **0 jog az anonnak**,
+       3/3 szekvencia-USAGE, 3/3 függvény-EXECUTE; 3/3 upsert-kulcs; **0 hiányzó
+       oszlop-pár a `diocese_*` tükörhöz** (tökéletes tükör); 5/5 mentés-besorolás és
+       **0 besorolatlan élő tábla az EGÉSZ sémában** (a napi mentés elindul);
+       10/10 megyei policy változatlan. Eredeti teendő-leírás: Az 5 kerületi pénzügyi tábla a `diocese_*` párjaik
        betűhű tükreként: `district_bealitas`, `district_befizetes`,
        `district_kiadas`, `district_koltsegvetes`, `district_annual_reports`.
        A `bealitas` MÁR a 2026-08-15 utáni TELJES alakban készül (9
@@ -73,8 +87,15 @@ EGYETLEN tranzakció fail-closed őrszemmel, a 2. ellenőriz.
        `reteg=2`) — besorolatlan tábla esetén a NAPI MENTÉS MINDEN gyülekezetnél
        LEÁLL.
 
-- [ ] **`2026-08-17-egyhazkeruleti-S5c-storage-bank.sql`** — PENDING
-       Indok: futtatásra vár; **az S5a UTÁN** (az őrszeme ellenőrzi).
+- [x] 2026-08-22 — **`2026-08-17-egyhazkeruleti-S5c-storage-bank.sql`** ✅ LEFUTOTT
+       3/3 kerületi storage-láb, **a kerületi és a megyei policy UGYANAZZAL a módszerrel
+       bontja az utat** (`storage.foldername()`) — ez volt a „két szint máshogy elemzi,
+       az egyik némán sosem illeszkedik" csapda őre; 3/3 megyei láb érintetlen.
+       `bankszamlak.district_id` + `chitanta_tombok.district_id` FK-val ✅; mindkét
+       CHECK a RÉGI kifejezéshez OR-olt új ággal bővült (szigorú felsőhalmaz);
+       4 részleges index; 8/8 kerületi policy, **0 írási láb olvasó-feloldóval**,
+       **8/8 COALESCE fail-closed**; a meglévő sorok (bankszamlak 4 gyülekezeti,
+       chitanta_tombok 11 gyülekezeti) és a régi policy-k VÁLTOZATLANOK.
        **(A)** 3 storage-policy az `iktato-csatolmanyok` bucket kerületi prefixű
        útjaihoz (`{district_id}/{iktato_id}/…`), a megyei `_dio_*` betűhű tükre.
        Enélkül a kerületi irat iktatható, de a MELLÉKLETE 403-mal bukna.
