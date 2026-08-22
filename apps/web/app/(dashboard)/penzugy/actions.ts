@@ -1977,14 +1977,20 @@ async function initFinanceFelsoSzint(
   // A `bankszamlak.scope` szöveges címke — ez NEM része a tábla-térképnek, mert
   // nem táblát választ, hanem egy sor-szűrő értéke. A megyei számlák
   // 'egyhazmegye', a kerületiek 'egyhazkerulet' címkét kapnak.
-  // ⚠️ A KERÜLETI BANKLISTA MA ÜRES, ÉS AZ S5c UTÁN IS AZ MARAD — ez nem hiba,
-  //    hanem hiányzó felület, és fontos, hogy a következő kör ne higgye másnak.
-  //    Az S5c felveszi a `bankszamlak.district_id` oszlopot és kibővíti a
-  //    scope-CHECK-et az 'egyhazkerulet' értékkel, DE a repóban EGYETLEN kód sem
-  //    szúr be ilyen sort: a kerületi beállítás-varázslóban nincs bankszámla-
-  //    blokk (a megyei bank-lépés tükre). Amíg az meg nem születik, az
-  //    egyházkerület KÉSZPÉNZ-ONLY. Ugyanez áll a `chitanta_tombok.district_id`-re
-  //    (kerületi nyugtatömb-felület sincs).
+  // ⚠️ A KERÜLETI BANKLISTA MA ÜRES — de 2026-08-22 óta MÁS OKBÓL, mint korábban.
+  //    Az adatbázis-oldal KÉSZ: az S5c élesben lefutott, tehát a
+  //    `bankszamlak.district_id` oszlop, a bővített scope-CHECK ('egyhazkerulet'),
+  //    a 4 részleges index és a 8 kerületi RLS-láb mind a helyén van — ez a
+  //    lekérdezés tehát MŰKÖDIK, csak nincs mit visszaadnia.
+  //
+  //    AMI HIÁNYZIK: az ÍRÁSI út. A repóban egyetlen kód sem szúr be
+  //    `scope = 'egyhazkerulet'` sort a `bankszamlak`-ba — a kerületi beállítás-
+  //    varázslóban nincs bankszámla-blokk (a megyei bank-lépés tükre). Amíg az
+  //    meg nem születik, az egyházkerület KÉSZPÉNZ-ONLY. Ugyanez áll a
+  //    `chitanta_tombok.district_id`-re: kerületi nyugtatömb-felület sincs.
+  //    ⚠️ Ez NEM hiba, hanem hiányzó felület — fontos, hogy a következő kör ne
+  //    kezdje el „megjavítani" az amúgy jó lekérdezést.
+  //
   //    A degradálás SZÁNDÉKOSAN ilyen: üres lista helyett SOHA nem eshetünk
   //    vissza egy másik szint számláira.
   const bankSzamlaScope = kerulet ? 'egyhazkerulet' : 'egyhazmegye'
@@ -3507,12 +3513,21 @@ export async function requestBudgetUnlock(year: number, reason?: string | null) 
     // megyei szinten is RÖGZÜL (a szamadas_unlock_* meglévő mintájára). Az
     // elbíráló a felettes szint (egyházkerület).
     //
-    // ⚠️ 2026-08-17 (kerületi S5) — ENDRE DÖNTÉSÉRE VÁR: a kerület fölött K3
-    //    szerint NINCS negyedik szint, tehát a KERÜLETI feloldás-kérelemnek ma
-    //    nincs elbírálója. A zászlót azért rögzítjük ugyanúgy, mert (a) a
-    //    kérelem ténye és indoka így naplózva marad, (b) a mai alternatíva a
-    //    néma gyülekezeti ágra esés lenne. Ha Endre úgy dönt, hogy a kerület
-    //    SAJÁT MAGÁT oldja fel, ez az ág lesz a feloldó gomb helye.
+    // ✅ 2026-08-22 — ENDRE DÖNTÉSE, LEZÁRVA (K6):
+    //    „A kerületi véglegesítés-feloldásnak nincs elbírálója, mert a kerület
+    //     fölött nincs szint. A kérelem rögzül és naplózódik, a feliratok nem
+    //     hazudnak — ez így rendben van, a rendszergazdának ezt NEM kell
+    //     megkapnia külön felülettel."
+    //
+    //    Vagyis ez az ág a VÉGLEGES viselkedés, nem átmeneti állapot: a kérelem
+    //    ténye és indoka NAPLÓZÓDIK (ettől számonkérhető és visszakereshető),
+    //    de nincs és nem is lesz elbíráló képernyő. A feliratok ehhez igazodnak:
+    //    a kerületi ág „rögzítve"-t ír, nem „elbírálás alatt"-ot, és nem ígér
+    //    értesítést egy nem létező fórumtól (lásd `budgetSzintFeliratok` /
+    //    `szintFeliratok` a @kartoteka/ui-app-ban).
+    //
+    //    ⚠️ NE „javítsd meg" egy elbíráló felület hozzáadásával — az tulajdonosi
+    //    döntés ellenében menne. Ha valaha mégis kell, az ÚJ döntés lesz.
     const { T } = scope
     const { error } = await scope.supabase
       .from(T.bealitas)

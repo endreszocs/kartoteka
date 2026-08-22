@@ -144,11 +144,14 @@ function budgetSzintFeliratok(scope: BudgetScope): BudgetSzintFeliratok {
         'Az egyházkerület döntéséről a csengőben fog értesülni.',
       )
     case 'district':
-      // ⏳ ENDRE DÖNTÉSÉRE VÁR: a KERÜLETI feloldás-kérelemnek ma nincs
-      //    elbírálója (ugyanaz a nyitott pont, mint az actions.ts
-      //    `requestBudgetUnlock` K3-figyelmeztetésénél). Amíg nincs döntés, a
-      //    felirat NEM ígér értesítést és NEM nevez meg megyét — csak azt
-      //    mondja ki, ami biztosan igaz: a kérelem rögzült.
+      // ✅ 2026-08-22 — ENDRE DÖNTÉSE, LEZÁRVA (K6): a kerületi feloldás-
+      //    kérelemnek NINCS és nem is lesz elbírálója, mert a kerület fölött
+      //    nincs szint. A kérelem rögzül és naplózódik — a rendszergazda NEM kap
+      //    hozzá külön elbíráló felületet.
+      //
+      //    A felirat ezért nem ígér értesítést és nem nevez meg megyét: csak azt
+      //    mondja ki, ami biztosan igaz — a kérelem rögzült. (Az `unlockPendingCim`
+      //    is ezért „rögzítve", nem „elbírálás alatt".)
       return {
         elbiralo: 'az egyházkerület vezetősége',
         finalizeLabel: 'Véglegesítés',
