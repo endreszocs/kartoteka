@@ -543,6 +543,23 @@ export async function runBackupWorker(
           'migration-docs/sql/2026-08-15-egyhazmegyei-iktato-leltar-s4.sql fájlt.',
       )
     }
+    // ── 2026-08-22 (egyházkerületi szint, S7): FEDETLEN KERÜLETI SOROK ──
+    // Ugyanaz a hibaosztály eggyel feljebb. MA nem sül el (az S5a mind a 6
+    // scope-oszlopos táblán kitöltötte a predikátumot) — az őr egy JÖVŐBELI
+    // kerületi scope-oszlopos táblát fog elkapni. Nélküle a mentés
+    // „sikeresnek" látszana, a kerületi sorok viszont nem lennének a fájlban,
+    // és ez CSAK visszaállításkor derülne ki, amikor már késő.
+    // ⚠️ Itt sem állítjuk le a futást: a fedetlenség figyelmeztetés, nem kapu
+    //    (az egyetlen megállító ok a besorolatlan tábla marad).
+    if (osztalyozas.districtFedetlen.length > 0) {
+      figyelmeztetesek.push(
+        `⚠️ KERÜLETI SOROK MENTÉS NÉLKÜL: ${osztalyozas.districtFedetlen.join(', ')} — ` +
+          'ezekben a táblákban egyházkerületi sorok is lehetnek (district_id), de nincs ' +
+          'mentés-szűrőjük (backup_table_policy.globalis_predikatum), így a kerületi sorok ' +
+          'EGYIK mentés-fájlba sem kerülnek. Mintát a ' +
+          'migration-docs/sql/2026-08-17-egyhazkeruleti-S5a-scope-oszlopok.sql fájl ad.',
+      )
+    }
     semaUjjlenyomat = computeSchemaFingerprint(inventory)
 
     // ── 2) TÁROLÓ. A választás automatikus (Drive, ha össze van kötve), és a

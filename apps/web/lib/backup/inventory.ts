@@ -93,6 +93,26 @@ export interface InventoryClassification {
    * mentését vinné el, mint a retegNelkul-nál), de a hiány nem néma.
    */
   dioceseFedetlen: string[]
+  /**
+   * 2026-08-22 (egyházkerületi szint, S7): UGYANEZ EGGYEL FELJEBB. Gyülekezeti
+   * hatókörű tábla, amelyben KERÜLETI sorok is élhetnek (VAN `district_id`
+   * oszlopa), de NINCS `globalis_predikatum`-a → a kerületi sorai egyik
+   * mentés-fájlba sem kerülnének.
+   *
+   * ⚠️ MIÉRT KÜLÖN MEZŐ, ÉS NEM SZINT-SEMLEGES ÁTNEVEZÉS: a `dioceseFedetlen`
+   *    nevet olyan fájlok is megnevezik, amelyeket ez a szelet nem ír
+   *    (`types.ts` mező-dokumentációja, `migration-docs/sql/
+   *    2026-08-15-egyhazmegyei-iktato-leltar-s4.sql`); egy átnevezés ott néma,
+   *    hazug hivatkozásokat hagyna. A KÉT LISTA ráadásul KÜLÖN TEENDŐT ad: a
+   *    megyei hiányt az S4, a keruletit az S5a SQL pótolja — egy összevont
+   *    listából ez elveszne, és a figyelmeztetés „olvasd el a forráskódot"
+   *    szintre romlana. A megyei ág viselkedése így BITRE változatlan.
+   *
+   * MA ez a lista ÜRES (az S5a mind a 6 scope-oszlopos táblán kitöltötte a
+   * predikátumot) — az őr egy JÖVŐBELI kerületi scope-oszlopos táblát fog
+   * elkapni, amit különben csak a visszaállításkor vennénk észre.
+   */
+  districtFedetlen: string[]
   gyulekezet: BackupLiveTableRow[]
   globalis: BackupLiveTableRow[]
   kizart: BackupLiveTableRow[]
@@ -115,6 +135,7 @@ export function classifyInventory(rows: BackupLiveTableRow[]): InventoryClassifi
     retegNelkul: [],
     szuroNelkul: [],
     dioceseFedetlen: [],
+    districtFedetlen: [],
     gyulekezet: [],
     globalis: [],
     kizart: [],
@@ -134,10 +155,22 @@ export function classifyInventory(rows: BackupLiveTableRow[]): InventoryClassifi
       if (!vanSajatSzuro && row.van_congregation_id !== true) {
         out.szuroNelkul.push(row.tabla)
       }
-      // 2026-08-15 (S3/S4): scope-oszlopos tábla (van diocese_id oszlopa), de a
-      // megyei sorainak nincs mentés-útja → hangos figyelmeztetés a workerben.
-      if ((row.oszlopok ?? []).includes('diocese_id') && !vanGlobalisPredikatum(row)) {
+      // 2026-08-15 (S3/S4) + 2026-08-22 (S7): scope-oszlopos tábla (van
+      // diocese_id VAGY district_id oszlopa), de a felső szintű sorainak nincs
+      // mentés-útja → hangos figyelmeztetés a workerben.
+      //
+      // ⚠️ A KÉT ÁG KÜLÖN FUT (nem `else if`): egy tábla mindkét oszlopot
+      //    viselheti (a 6 élő scope-oszlopos tábla pontosan ilyen), és ilyenkor
+      //    MINDKÉT szint sorai elvesznének — a figyelmeztetésnek ezt mindkét
+      //    néven ki kell mondania, különben a megnevezett szint pótlása után
+      //    az olvasó azt hinné, kész van.
+      const oszlopok = row.oszlopok ?? []
+      const nincsFelsoSzintuSzuro = !vanGlobalisPredikatum(row)
+      if (oszlopok.includes('diocese_id') && nincsFelsoSzintuSzuro) {
         out.dioceseFedetlen.push(row.tabla)
+      }
+      if (oszlopok.includes('district_id') && nincsFelsoSzintuSzuro) {
+        out.districtFedetlen.push(row.tabla)
       }
     } else if (row.hatokor === 'globalis') {
       out.globalis.push(row)
@@ -149,6 +182,7 @@ export function classifyInventory(rows: BackupLiveTableRow[]): InventoryClassifi
   out.retegNelkul.sort()
   out.szuroNelkul.sort()
   out.dioceseFedetlen.sort()
+  out.districtFedetlen.sort()
   return out
 }
 

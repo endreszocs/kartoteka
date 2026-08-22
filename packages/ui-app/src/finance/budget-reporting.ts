@@ -37,9 +37,18 @@ export const BUDGET_PRINT_TYPES: Array<{
 }> = [
   {
     id: 'koltsegvetes',
+    // 2026-08-22 (kerületi S6): a leírásból kikerült az „az egyházmegye számára"
+    // zárórész. MIÉRT: ez a lista mind a három szinten UGYANEZ a konstans, és a
+    // K3-döntés szerint az egyházkerület fölött NINCS további szint — nincs
+    // egyházmegye, ahová felterjesztené —, tehát a kerületi felhasználónak a
+    // mondat egyszerűen valótlan volt. A címzett szint amúgy sem a nyomtatvány
+    // LEÍRÁSÁBA tartozik: a felterjesztés címzettjét a PAPÍR mondja ki (a borító
+    // felettes blokkja, `buildCoverPage` → `skipDiocese`), hatókör szerint.
+    // ⚠️ Ez KÉPERNYŐ-szöveg (a nyomtatvány-választó bal oldali listája), a
+    //    generált HTML-be nem kerül bele — a papír képe ettől byte-ra ugyanaz.
     title: 'Költségvetés',
     subtitle: 'Végleges költségvetési terv',
-    description: 'Az éves költségvetés hivatalos nyomtatványa az egyházmegye számára.',
+    description: 'Az éves költségvetés hivatalos nyomtatványa.',
   },
   {
     id: 'koltsegvetes_modositas',
@@ -157,7 +166,28 @@ function wrapBudget(title: string, content: string) {
   // mint csonka hivatalos irat. Eddig csak a `.sheet`-es nyomtatványok kaptak
   // ilyen jelzést, a pénzügyi ívek (.page) nem — így egy félbeszakadt betöltés
   // némán rövidebb PDF-et adott volna.
-  const lapszam = (content.match(/<div class="page/g) || []).length
+  //
+  // ⛔ 2026-08-22 JAVÍTÁS — A LAPSZÁM A KÉTSZERESE VOLT, ÉS EMIATT A PDF-MENTÉS
+  //    MINDEN SZINTEN ELHASALT (nem csak a kerületin).
+  //
+  // MI VOLT A HIBA: a `/<div class="page/` minta SZÖVEG-ELŐTAGRA illeszkedik,
+  // tehát a `<div class="page-footer">` elemekre IS — azokból viszont pontosan
+  // egy jut minden lapra. Egy N lapos ív jelzett lapszáma így 2N lett.
+  // A PDF-motor (apps/web/lib/utils/print-engine-v2.ts:172-182) ezzel szemben
+  // VALÓDI elemeket számol — `querySelectorAll('body .sheet, body .page')` —, és
+  // a `page-footer` osztálylistája a `page` tokent NEM tartalmazza, tehát oda
+  // nem számít bele. A két szám sosem egyezett, a motor pedig eltérésnél
+  // SZÁNDÉKOSAN dob („A nyomtatvány nem töltött be hiánytalanul"), hogy ne
+  // mentsünk csonka hivatalos iratot — vagyis a helyes őr egy hibás számoláson
+  // bukott el, és a mentés SOHA nem futott le.
+  //
+  // ⚠️ A PAPÍR KÉPE NEM VÁLTOZIK. Csak a betöltés-őr kap végre igaz számot:
+  //    a gyülekezeti és a megyei ív ugyanaz marad, de a PDF-mentésük működni fog.
+  //
+  // A minta a `page` token UTÁN szóközt vagy idézőjelet követel, tehát a valódi
+  // lapokra (`class="page"`, `class="page cover"`) illeszkedik, a kötőjeles
+  // díszekre (`page-footer`, `page-num`) NEM.
+  const lapszam = (content.match(/<div class="page[ "]/g) || []).length
   return `<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${budgetStyles()}</style></head><body data-sheet-count="${lapszam}">${content}</body></html>`
 }
 

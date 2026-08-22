@@ -18,6 +18,7 @@ import {
   Landmark,
   LayoutDashboard,
   Package,
+  Receipt,
   Settings,
   Sparkles,
   Users,
@@ -765,6 +766,24 @@ function SidebarNav({
     { label: 'Összesítő', href: '/dashboard-kerulet/osszesito', icon: ClipboardList, gradient: 'from-teal-400 to-cyan-500' },
     { label: 'Leltár', href: '/leltar', icon: Package, gradient: 'from-orange-400 to-amber-500' },
     { label: 'Iktatás', href: '/iktato', icon: FileText, gradient: 'from-violet-400 to-purple-500' },
+    // 2026-08-22 (S6): a KERÜLETI nyugtatömb-nyilvántartás.
+    //
+    // ⚠️ MIÉRT KELLETT KÜLÖN BEKÖTNI: a felület (útvonal + kliens-komponens +
+    // 5 szerver-akció) megépült, de EGYETLEN link sem vezetett hozzá — a
+    // kerületi felhasználó csak kézzel begépelt URL-lel juthatott volna oda.
+    // Ez ugyanaz a hibaosztály, amit a `diocese_felterjesztes`-nél már
+    // megéltünk: „az írás él, az olvasás nincs, és senki nem tudja, hogy a
+    // lánc elszakadt". A ház szabálya (menüpont CSAK megépült célponthoz)
+    // itt teljesül, mert a célpont ugyanebben a szeletben készült el.
+    //
+    // A megyénél ez a nyugtatömb-kezelő a dashboard füleiben ül; a kerületnek
+    // nincs füles irányítópultja, ezért kap saját útvonalat és menüpontot.
+    {
+      label: 'Nyugtatömbök',
+      href: '/dashboard-kerulet/nyugtatombok',
+      icon: Receipt,
+      gradient: 'from-rose-400 to-pink-500',
+    },
     {
       label: 'Felterjesztések',
       href: '/dashboard-kerulet/felterjesztesek',
