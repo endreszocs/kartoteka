@@ -23,6 +23,44 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-22] — Kerületi nyomtatványok, nyugtatömb és Kuka + PDF-mentés javítás
+<!-- key: 2026-08-22-egyhazkeruleti-nyomtatvany-kuka -->
+<!-- category: feature -->
+<!-- version: 0.9.172 -->
+<!-- targets: mindenki (a PDF-javítás), egyhazkeruleti admin + szamvevo -->
+
+### 🐛 Javítások — MINDENKIT ÉRINT
+
+- **A Számadás és a Költségvetés PDF-mentése nem működött**: a program a vártnál kétszer
+  több oldalt jelzett magának (az oldalak láblécét is oldalnak számolta), és mivel a
+  mentés inkább leáll, mint hogy csonka hivatalos iratot adjon, a mentés soha nem futott
+  le. A papír képe nem változik — csak a mentés működik újra. Ez a gyülekezeti, az
+  egyházmegyei és az egyházkerületi ívet egyaránt érintette.
+
+### ✨ Új funkciók — egyházkerület
+
+- **Kerületi nyomtatványok**: az egyházkerület mostantól kinyomtathatja a saját
+  Költségvetését, Költségvetés-módosítását és Számadását — saját fejléccel, kétnyelvű
+  megnevezéssel, püspöki és egyházkerületi adminisztrátori aláírás-sávval. Felettes szint
+  nem szerepel az íven, mert a kerület fölött nincs.
+- **Kerületi nyugtatömb-nyilvántartás**: a kerület vezetheti a saját nyugtatömbjeit
+  (rögzítés, lezárás, törlés) — a menüből elérhetően.
+- **Kerületi Kuka**: a törölt kerületi leltári és iktató tételek visszaállíthatók. Eddig
+  nem volt út hozzájuk: se vissza nem lehetett hozni őket, se el nem tűntek.
+
+### 🔒 Biztonsági javítások
+
+- **A mentés őre észreveszi a kerületi táblákat is**: ha egy tábla kerületi sorokat
+  tartalmaz, de nincs mentés-útja, a program ezt mostantól hangosan jelzi — eddig csak
+  visszaállításkor derült volna ki, hogy az adat kimaradt.
+- **A mentés figyelmeztetései eljutnak a rendszergazdához**: eddig csak a háttérnapló
+  őrizte őket, ahová senki nem néz.
+- **Amit a kerület nem tud hitelesen kiállítani, azt nem is állítja ki**: a kassza- és
+  banknapló, a csoportnapló és a részszámadás kerületi nézetben magyarázó üzenetet ad,
+  nem pedig egy másik szint aláírás-soraival ellátott ívet.
+
+---
+
 ## [2026-08-22] — A fogadóképernyő elcsúszott laptopon
 <!-- key: 2026-08-22-splash-laptop-elcsuszas -->
 <!-- category: bugfix -->

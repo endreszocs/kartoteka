@@ -41,11 +41,13 @@ import {
 import { loadBudgetRowsCompat, type BudgetCompatRow } from '@/lib/finance/budget-compat'
 // 2026-08-15 (egyházmegyei terv, 2.1): hatókör-tudatos évi beállítás-betöltő
 // (a Költségvetés nyomtatási központ UGYANEZT hívja — közös helper).
-// 2026-08-17 (kerületi S5): innen jön a hatókör KANONIKUS típusa és a kerületi
-// (még hiányzó) nyomtatvány-ág fail-closed kapuja is.
+// 2026-08-17 (kerületi S5): innen jön a hatókör KANONIKUS típusa és a nyomtatvány-ág
+// nélküli szintek fail-closed kapuja is.
 import {
-  KERULETI_NYOMTATVANY_CIM,
-  KERULETI_NYOMTATVANY_UZENET,
+  KIALLITO_NEVE_HIANYZIK_CIM,
+  KIALLITO_NEVE_HIANYZIK_UZENET,
+  NINCS_NYOMTATVANY_AG_CIM,
+  NINCS_NYOMTATVANY_AG_UZENET,
   loadEvBeallitas,
   nyomtatvanyScope,
   type PrintScope,
@@ -86,9 +88,14 @@ interface FinancePrintDialogProps {
    * `diocese_koltsegvetes`-ből jönnek, és a borító a megyei feliratokat kapja.
    *
    * 2026-08-17 (kerületi S5): a típus a KANONIKUS `PrintScope` (= `FinanceScope`),
-   * tehát az EGYHÁZKERÜLETET is befogadja — kézi unió-másolat helyett. A
-   * kerületi ÉRTÉK viszont nem nyomtat: minden nyomtatvány magyarázó, tiltó
-   * előnézetet ad (a MIÉRT a print-scope.ts-ben).
+   * tehát az EGYHÁZKERÜLETET is befogadja — kézi unió-másolat helyett.
+   *
+   * 2026-08-22 (kerületi S6): a kerületi érték RÉSZBEN nyomtat. A hivatalos
+   * Költségvetés / Költségvetés-módosítás / Számadás kerületi ága kész és nyitva
+   * van; a többi ív (Registru de casă/banca/jurnal, Csoportnapló,
+   * nyugtatömb-kimutatás, Decont/Dispoziție újranyomtatás, Részszámadás) és a
+   * NEM az oldal évére kért ívek fail-closed módon zárva maradnak — a pontos
+   * miért (fájl:sor bizonyítékokkal) a `KERULETI_IVEK` konstansnál lentebb.
    */
   scope?: PrintScope
   /** Az egyházkerület neve a megyei borító felső blokkjához. */
@@ -118,6 +125,14 @@ type YearRecordsPayload = {
    * záró blokk helyett inkább semmit.
    */
   settingsOk?: boolean
+  /**
+   * 2026-08-22 (kerületi S6): MIÉRT bukott a beállítás-sor (`settingsOk === false`).
+   * A `loadEvBeallitas` eddig is megkülönböztette a hálózati hibát a hiányzó
+   * nyomtatvány-ágtól, de az ok itt elveszett, és a felhasználó mindkettőre azt
+   * a tanácsot kapta, hogy „ellenőrizd az internetkapcsolatot" — a másodiknál ez
+   * félrevezető, mert soha nem sikerülne.
+   */
+  settingsHibaOk?: 'lekerdezes_hiba' | 'nincs_nyomtatvany_ag'
 }
 
 /** Bizonylat-típusok, amelyeknek NEM kellenek a bevétel/kiadás sorok
@@ -127,6 +142,82 @@ const TYPES_WITHOUT_RECORDS = new Set<FinancePrintType>([
   'dispozitie_reprint',
   'nyugtatomb_kimutatas',
 ])
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * 2026-08-22 (KERÜLETI S6) — AMIT AZ EGYHÁZKERÜLET EBBŐL AZ ABLAKBÓL KIADHAT
+ * ════════════════════════════════════════════════════════════════════════════
+ * A kerületi SZÁMADÁS/KÖLTSÉGVETÉS ág elkészült (borító, nyilatkozat,
+ * aláírás-blokk: budget-reporting.ts; terv-sorok: `district_koltsegvetes`; évi
+ * beállítás: `district_bealitas`), ezért ezek a típusok NYITVA vannak.
+ *
+ * A LISTÁRÓL HIÁNYZÓ TÍPUSOK KERÜLETI HATÓKÖRBEN FAIL-CLOSED MARADNAK, mert a
+ * láncuk egy IDEGEN fájlban szakad — és félig kész ív nem mehet ki:
+ *
+ *  · Registru de casă / banca / jurnal + Csoportnapló — az aláírás-sáv
+ *    HARDKÓDOLTAN gyülekezeti tisztségeket nevez meg:
+ *    packages/ui-app/src/finance/reporting.ts:401-403, :483-485, :662-664,
+ *    :1118-1120 („Conducătorul unității — Lelkész/Gondnok", „Întocmit",
+ *    „Verificat"). A `FinanceReportData`-nak nincs `printScope` mezője, tehát a
+ *    szint nem is tud eljutni odáig. A püspöki hivatal kasszanaplóján a
+ *    „Lelkész/Gondnok" aláírás-vonal valótlanság — és alá lehetne írni.
+ *  · Nyugtatömb-kimutatás — ugyanez az aláírás-sáv (reporting.ts:845-853:
+ *    Lelkipásztor / Gondnok / Pénztáros), RÁADÁSUL az adatforrás gyülekezeti:
+ *    a `getChitantaTombokReport` (penzugy/chitanta-tombok-actions.ts:376-385)
+ *    az `effectiveCongregationId`-ből dolgozik, nem a hatókörből.
+ *  · Decont / Dispoziție újranyomtatás — a nyugtatömb-világ gyülekezeti iratai;
+ *    a listázók maguk zárnak ki minden nem-gyülekezeti hatókört
+ *    (decont-actions.ts:172, dispozitie-actions.ts:95/136/202 —
+ *    `ctx.scope !== 'congregation'` → üres lista).
+ *  · Részszámadás — az időszaki nyitó SZÁMLÁNKÉNTI feloldását a
+ *    `getYearFinanceRecords` (penzugy/actions.ts:623) adná, az viszont
+ *    gyülekezeti tábla-only (lásd a `KERULETI_MAS_EV_*` indoklását lentebb).
+ *
+ * ⚠️ NE „nyisd meg" őket a lista bővítésével, amíg a fenti négy pont nem
+ *    javult. A kerületi Költségvetés/Számadás ettől függetlenül teljes értékű.
+ */
+const KERULETI_IVEK: ReadonlySet<FinancePrintType> = new Set<FinancePrintType>([
+  'koltsegvetes',
+  'koltsegvetes_modositas',
+  'szamadas',
+])
+
+const KERULETI_TILTOTT_IV_CIM = 'Ez a nyomtatvány egyházkerületi szinten nem adható ki'
+
+const KERULETI_TILTOTT_IV_UZENET =
+  'Ez az ív a gyülekezeti könyvvezetéshez készült: az aláírás-sávja a lelkészt és a gondnokot ' +
+  'nevezi meg, egyes adatai pedig a gyülekezeti nyugtatömb-nyilvántartásból jönnek. Egyházkerületi ' +
+  'kiállítóval ezért csak látszatra volna helyes: a papír olyan tisztségeknek hagyna aláírás-vonalat, ' +
+  'amelyek ezen a szinten nem léteznek. A kerület hivatalos Költségvetése és Számadása ' +
+  'változatlanul kinyomtatható — az adatok rendben rögzülnek, ez a nyomtatvány készül még.'
+
+const KERULETI_MAS_EV_CIM = 'Ehhez az évhez válts oldal-évet'
+
+/**
+ * MIÉRT (2026-08-22, kerületi S6 lánc-ellenőrzés): a nem az oldal évére kért
+ * nyomtatványokhoz a közös Body a `getYearFinanceRecords` server actiontől kéri
+ * a tételeket (penzugy/actions.ts:623) — az viszont NEM hatókör-tudatos: az
+ * `access.effectiveCongregationId`-vel a GYÜLEKEZETI `befizetes`/`kiadas`
+ * táblákat olvassa (:640 és az alatta lévő selectek). Kerületi hatókörben ez
+ * kétféleképp végződik, és egyik sem elfogadható hivatalos íven:
+ *   · profilváltós kerületi felhasználónál `effectiveCongregationId === null` →
+ *     „Nincs aktív gyülekezet." → néma 0-ák (a meglévő `settingsOk` kapu ezt
+ *     megfogja, de a régi szövege hálózati hibát emleget, ami félrevezető);
+ *   · „örökölt" (profile_roles sor NÉLKÜLI) kerületi adminnál viszont
+ *     `effectiveCongregationId` a SAJÁT gyülekezetéé (effective-access.ts:418-420,
+ *     mert `activeProfileRole === null`) → a kerületi borító alá EGY GYÜLEKEZET
+ *     tételei kerülnének. Ez a legrosszabb eset: hihető, aláírható, HAMIS ív.
+ * A javítás IDEGEN fájlban volna (scope-aware `getYearFinanceRecords`), ezért
+ * itt fail-closed kapu áll — és a felhasználó megkapja a MŰKÖDŐ utat: a
+ * Pénzügy oldal fenti év-választója (`?year=`) az egész oldalt a `district_*`
+ * táblákból tölti újra, onnan a nyomtatvány már helyes.
+ */
+const KERULETI_MAS_EV_UZENET =
+  'Ebben az ablakban egyházkerületi szinten csak az oldal évének nyomtatványa készíthető el. ' +
+  'A korábbi évek tételeit a rendszer egyelőre csak gyülekezeti szinten tudja visszatölteni, ' +
+  'ezért más évet nem adunk ki innen — hibás számokkal készülne. Ami helyette MŰKÖDIK: fent, a ' +
+  'Pénzügy oldal év-választójában válaszd ki a kívánt évet, és nyisd meg újra ezt az ablakot. ' +
+  'Akkor a teljes oldal (és vele a nyomtatvány) az egyházkerület adott évi könyveiből dolgozik.'
 
 function emptyPreview(message: string): PrintReport {
   return {
@@ -171,12 +262,43 @@ export function FinancePrintDialog({
   scope = 'congregation',
   districtName,
 }: FinancePrintDialogProps) {
-  // ⛔ 2026-08-17 (kerületi S5): a NYOMTATVÁNY-réteg (borító-építő + terv-sor
-  // betöltő) ma csak a gyülekezeti és az egyházmegyei ívet ismeri. `null` =
-  // erre a szintre még nincs ív → MINDEN nyomtatvány magyarázó, TILTÓ
-  // előnézetet ad. Enélkül a kerületi adat gyülekezeti fejléccel menne papírra
-  // — aláírhatóan. (A kerületi ág az S6 szelet feladata.)
+  // ⛔ A NYOMTATVÁNY-réteg által ISMERT hatókör. `null` = erre a szintre még
+  // nincs ív → MINDEN nyomtatvány magyarázó, TILTÓ előnézetet ad. 2026-08-22
+  // (kerületi S6): a három mai szint mind ismert, tehát ez az ág ma nem fut —
+  // de MARAD: ez a negyedik szint fail-closed válasza. Enélkül egy új szint
+  // adata gyülekezeti fejléccel menne papírra, aláírhatóan.
   const keszScope = nyomtatvanyScope(scope)
+
+  // 2026-08-22 (kerületi S6): a kerületi ág CSAK a hivatalos költségvetés/
+  // számadás ívekre nyílt meg — a többi típus és a más évek kapuja lentebb, a
+  // `buildReport` elején (a MIÉRT a `KERULETI_IVEK` / `KERULETI_MAS_EV_UZENET`
+  // konstansoknál, fájl:sor bizonyítékokkal).
+  const keruleti = keszScope === 'district'
+
+  // ⛔ A KIÁLLÍTÓ NEVE NÉLKÜL NINCS ÍV. A fejléc entitás-sora a
+  // `congregationName`-ből épül (felső szinten a megye/kerület neve), amit a
+  // szerver `initFinanceFelsoSzint`-je úgy old fel, hogy a lekérés HIBÁJÁT nem
+  // nézi (`data?.name || ''`, penzugy/actions.ts) — hálózati hibánál némán üres
+  // marad, és egy NÉVTELEN, mégis aláírható hivatalos ív menne ki.
+  // ⚠️ Csak a most megnyíló kerületi ágra: a gyülekezeti és a megyei ív élesben
+  //    fut, és byte-ra változatlan marad (a megyei néma üres-név út jelentve).
+  //
+  // ⚠️ A KAPU SZÁNDÉKOSAN ASZIMMETRIKUS: csak a MAGYAR nevet nézi, a románt
+  //    (`congregationNameRo` → `districts.nev_ro`) NEM. Ez nem feledékenység:
+  //     · a fejléc-építő (`hivatalosEntitasNev`, budget-reporting.ts:710-713)
+  //       üres román névnél a magyart írja ki EGYEDÜL, sablon-kiegészítés nélkül
+  //       — vagyis a papír HIÁNYOS lesz (a többi elem: cím, nyilatkozat,
+  //       aláírás-sáv, lábléc kétnyelvű marad), de nem HAZUDIK: nem tesz a
+  //       kiállító helyére kitalált vagy másik szintről vett román nevet;
+  //     · magyar név nélkül viszont a fejléc entitás-sora TELJESEN üres — az
+  //       aláírható, mégis névtelen ív a valódi kockázat, ezért csak ez tilt;
+  //     · a román név opcionális mező (S2, kerületi identitás-varázsló), a
+  //       magyar kötelező — egy tiltó kapu az opcionális mezőn a kerületet
+  //       kizárná a saját hivatalos ívéből.
+  //    A két ÉLŐ szint (gyülekezet, megye) ma pontosan így viselkedik, és a
+  //    döntés az övék is. ⛔ NE „szimmetrizáld" ezt a következő körben: az
+  //    hármas viselkedés-változás volna élő, aláírt iratokon.
+  const nevHianyzik = keruleti && congregationName.trim().length === 0
 
   // 2026-08-11 (6. kör): a RÉSZSZÁMADÁS mostantól ITT érhető el. Eddig a
   // `.filter((t) => t.id !== 'reszszamadas')` kizárta abból az EGYETLEN
@@ -214,9 +336,17 @@ export function FinancePrintDialog({
   // `diocese_bealitas` sorát hozza. Eddig itt a gyülekezeti tábla állt, és
   // megyei hatókörben (ahol az azonosító az egyházmegyéé) NÉMÁN üres maradt:
   // a megyei ív „nincs véglegesítve" felirattal ment ki a lezárt évekre is.
+  // 2026-08-22 (kerületi S6): a `settings.congregation_id` felső szinten a SZINT
+  // azonosítója (a közös `normalizeDioceseBealitas` ezt tölti a megye/kerület
+  // UUID-jával), tehát a kerületi ág a `district_bealitas` helyes sorát kéri.
+  // A hiba OKA is átmegy — a hívó ebből választ üzenetet.
   const loadYearSettings = async (
     year: number,
-  ): Promise<{ row: BealitasRow | null; ok: boolean }> => {
+  ): Promise<{
+    row: BealitasRow | null
+    ok: boolean
+    hibaOk?: 'lekerdezes_hiba' | 'nincs_nyomtatvany_ag'
+  }> => {
     const supabase = createClient()
     return await loadEvBeallitas(supabase, scope, settings.congregation_id, year)
   }
@@ -252,13 +382,52 @@ export function FinancePrintDialog({
           categories={categoryOptions}
           currentYear={currentYear}
           buildReport={(filters: FinancePrintFilters): PrintReport => {
-            // ⛔ 2026-08-17 (kerületi S5): a kerületi ív az S6 szeleté. A kapu a
-            // FÜGGVÉNY ELEJÉN áll, tehát a bizonylat-újranyomtatásra (Decont,
-            // Dispoziție) is érvényes — azok a gyülekezeti nyugtatömb-világ
-            // iratai, kerületi hatókörben nincs értelmük. A `blocked: true` a
-            // nyomtató gombokat is letiltja.
+            // ⛔ Nyomtatvány-ág nélküli (jövőbeli) szint. A kapu a FÜGGVÉNY
+            // ELEJÉN áll, tehát a bizonylat-újranyomtatásra (Decont,
+            // Dispoziție) is érvényes. A `blocked: true` a nyomtató gombokat is
+            // letiltja.
             if (keszScope === null) {
-              return blockedPreview(KERULETI_NYOMTATVANY_CIM, KERULETI_NYOMTATVANY_UZENET)
+              return blockedPreview(NINCS_NYOMTATVANY_AG_CIM, NINCS_NYOMTATVANY_AG_UZENET)
+            }
+
+            // ⛔ 2026-08-22 (kerületi S6) — A KERÜLETI ÁG RÉSZLEGES NYITÁSA.
+            // A sorrend nem cserélhető fel: előbb a TÍPUS (a részszámadásnak a
+            // más-év üzenete félrevezető volna: nála az oldal-év váltása sem
+            // segít), aztán a NÉV, végül az ÉV.
+            if (keruleti && !KERULETI_IVEK.has(filters.printType)) {
+              return blockedPreview(KERULETI_TILTOTT_IV_CIM, KERULETI_TILTOTT_IV_UZENET)
+            }
+            if (nevHianyzik) {
+              return blockedPreview(KIALLITO_NEVE_HIANYZIK_CIM, KIALLITO_NEVE_HIANYZIK_UZENET)
+            }
+            // A `filters.yearRecords !== undefined` a közös Body SAJÁT jelzése
+            // arról, hogy ehhez a nyomtatványhoz szerverről visszatöltött év-sorok
+            // kellenek (`needsYearRecords`). SZÁNDÉKOSAN ezt nézzük, és nem
+            // számoljuk újra az év-feltételt: egy második, széthúzó másolat a
+            // projekt visszatérő hibaosztálya.
+            //
+            // ⛔ NE SZŰKÍTSD a kaput a `szamadas`-ra azzal, hogy „a Költségvetésnek
+            //    úgysincs tény-oszlopa". Igaz, hogy a tény-oszlop csak a Számadásé,
+            //    DE a Költségvetés/Költségvetés-módosítás ÍV 1–3. SORA (Disponibil
+            //    din anul precedent / Casa / Banca) ugyanebből a payloadból jön:
+            //    `carryoverCashUse`/`carryoverBankUse` → `printData.carryoverCash/
+            //    carryoverBank` → collectBudgetRows(…, { openingRows: true })
+            //    (budget-reporting.ts:478 és :497, a nyitóblokk :1131-1140).
+            //    Kerületi hatókörben az `onLoadYearRecords` fail-closed csonkot ad
+            //    vissza (0 / 0, lentebb a MIÉRT-tel), tehát a szűkítés egy olyan
+            //    hivatalos ívet engedne ki, amelynek a nyitó egyenleg-sorai NÉMÁN
+            //    nullák — pontosan az a hihető, aláírható, hamis papír, ami ellen
+            //    az egész kapu készült. A `settingsOk === false` ág ma másodikként
+            //    úgyis megfogná, de FÉLREVEZETŐ („ellenőrizd az internetkapcsolatot")
+            //    szöveggel, a MŰKÖDŐ tanács (válts oldal-évet) helyett.
+            //    A valódi feloldás IDEGEN fájlban van: hatókör-tudatos
+            //    `getYearFinanceRecords` (penzugy/actions.ts:623) — amíg az nincs
+            //    meg, ez a kapu marad, és tudatosan SZIGORÚBB, mint a Költségvetés
+            //    nyomtatási központé (az a régi évre is kiadja az ívet, de az
+            //    OLDAL évének nyitóival — ez a két ablak ma is meglévő, minden
+            //    szintre igaz eltérése, jelentve, itt nem javítva).
+            if (keruleti && filters.yearRecords !== undefined) {
+              return blockedPreview(KERULETI_MAS_EV_CIM, KERULETI_MAS_EV_UZENET)
             }
 
             // 2026-07-10 (S5-#3): a bevétel/kiadás sorok a KIVÁLASZTOTT évhez.
@@ -338,6 +507,13 @@ export function FinancePrintDialog({
               // ez a javítás készült. (A részszámadás nem hivatalos zárszámadás,
               // és a záró blokkot sem használja — annak saját kapui vannak.)
               if (!isReszszamadas && !settingsOk) {
+                // 2026-08-22 (kerületi S6): a MIÉRT szerint MÁS a szöveg. A
+                // `'nincs_nyomtatvany_ag'` nem múlik el magától (nincs ilyen
+                // szintű ív), ezért ott az „próbáld újra" tanács félrevezető —
+                // eddig mindkét ok ugyanezt a hálózati szöveget kapta.
+                if (yr?.settingsHibaOk === 'nincs_nyomtatvany_ag') {
+                  return blockedPreview(NINCS_NYOMTATVANY_AG_CIM, NINCS_NYOMTATVANY_AG_UZENET)
+                }
                 return blockedPreview(
                   'Ez a nyomtatvány most nem készíthető el',
                   `A(z) ${filters.selectedYear}. évi pénzügyi beállítások (véglegesítés, presbitériumi határozat, tartozások) nem tölthetők be, ezért a nyomtatvány hibás adatokkal készülne. Ellenőrizd az internetkapcsolatot, és próbáld újra. Ha újra ezt írja, jelezd a rendszergazdának.`,
@@ -523,6 +699,25 @@ export function FinancePrintDialog({
             })
           }}
           onLoadYearRecords={async (year): Promise<unknown> => {
+            // ⛔ 2026-08-22 (kerületi S6): kerületi hatókörben EL SEM INDÍTJUK a
+            // lekérést. A `getYearFinanceRecords` (penzugy/actions.ts:623) az
+            // `effectiveCongregationId`-vel a GYÜLEKEZETI táblákat olvassa, és
+            // egy „örökölt" (profile_roles sor nélküli) kerületi adminnál ez a
+            // saját gyülekezete tételeit hozná vissza — a `buildReport` úgyis
+            // tiltó előnézetet ad rá, de a HATÓKÖRÖN KÍVÜLI OLVASÁS akkor sem
+            // történhet meg. Fail-closed payload, hangos toast nélkül: a
+            // magyarázatot az előnézet adja (`KERULETI_MAS_EV_UZENET`).
+            if (keruleti) {
+              return {
+                income: [],
+                expense: [],
+                carryoverCash: 0,
+                carryoverBank: 0,
+                nyitoOk: false,
+                settings: null,
+                settingsOk: false,
+              } satisfies YearRecordsPayload
+            }
             // 2026-07-10 (S5-#3): a kiválasztott év sorai + nyitói a szerverről.
             // 2026-08-15 (átvilágítás 13.): a tételek MELLÉ az adott év
             // `bealitas` sora is — abból jön a véglegesítés-zászló, a
@@ -545,6 +740,9 @@ export function FinancePrintDialog({
                 nyitoOk: false,
                 settings: null,
                 settingsOk: false,
+                // A tétel-lekérés bukott el (nem a beállítás-sor betöltője), ez
+                // hálózat/jogosultság jellegű — az újrapróbálás értelmes tanács.
+                settingsHibaOk: 'lekerdezes_hiba',
               } satisfies YearRecordsPayload
             }
             return {
@@ -557,9 +755,20 @@ export function FinancePrintDialog({
               nyitoBizonytalan: res.nyitoBizonytalan,
               settings: evSettings.row,
               settingsOk: evSettings.ok,
+              settingsHibaOk: evSettings.hibaOk,
             } satisfies YearRecordsPayload
           }}
           onLoadNyugtatombok={async (year) => {
+            // ⛔ 2026-08-22 (kerületi S6): kerületi hatókörben EL SEM INDÍTJUK.
+            // A `getChitantaTombokReport` (chitanta-tombok-actions.ts:376-385)
+            // nem a hatókörből, hanem az `effectiveCongregationId`-ből dolgozik:
+            // egy „örökölt" kerületi adminnál EGY GYÜLEKEZET nyugtatömbjeit
+            // hozná vissza, és a bal oldali lista ki is írná őket a kerület
+            // nevével a fejlécben. A nyomtatványt a `buildReport` amúgy is
+            // tiltja — de a hatókörön kívüli OLVASÁS sem történhet meg.
+            // (A Decont/Dispoziție listázó nem kap ilyen kaput: azok maguk
+            // zárnak ki minden nem-gyülekezeti hatókört, üres listával.)
+            if (keruleti) return { data: undefined, error: null }
             const res = await getChitantaTombokReport(year)
             return {
               data: 'data' in res ? res.data : undefined,
@@ -577,11 +786,15 @@ export function FinancePrintDialog({
             ]
           }}
           onLoadBudgetRows={async (year): Promise<Record<string, unknown>> => {
-            // Kerületi hatókörben nincs mit betölteni: a `loadBudgetRowsCompat`
-            // a `district_koltsegvetes`-t nem ismeri, tehát a gyülekezeti
-            // táblában keresné a kerület azonosítóját (0 sor). A `buildReport`
-            // amúgy is tiltó előnézetet ad — ez csak a fölösleges lekérés
-            // megspórolása, azonos (üres) eredménnyel.
+            // Nyomtatvány-ág nélküli (jövőbeli) szinten nincs mit betölteni: a
+            // `loadBudgetRowsCompat` a ma ismert három szint tábláit ismeri,
+            // egy negyedik szintnél a gyülekezeti táblában keresné az
+            // azonosítót (0 sor). A `buildReport` amúgy is tiltó előnézetet ad —
+            // ez csak a fölösleges lekérés megspórolása, azonos eredménnyel.
+            // 2026-08-22 (kerületi S6): a KERÜLET viszont IDE már beér — a
+            // `keszScope === 'district'` a `district_koltsegvetes` táblára megy
+            // (budget-compat.ts `felsoSzintTerv()`), tehát a kerületi
+            // Költségvetés/Számadás terv-oszlopa valódi adatot kap.
             if (keszScope === null) return {}
             try {
               const supabase = createClient()

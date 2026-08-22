@@ -29,11 +29,15 @@ import {
 import { loadBudgetRowsCompat } from '@/lib/finance/budget-compat'
 // 2026-08-15 (egyházmegyei terv, 2.1): hatókör-tudatos évi beállítás-betöltő —
 // a Pénzügyi nyomtatási központ UGYANEZT hívja (közös helper, soha széthúzó másolat).
-// 2026-08-17 (kerületi S5): innen jön a hatókör KANONIKUS típusa és a kerületi
-// (még hiányzó) nyomtatvány-ág fail-closed kapuja is.
+// 2026-08-17 (kerületi S5): innen jön a hatókör KANONIKUS típusa és a nyomtatvány-ág
+// nélküli szintek fail-closed kapuja is.
+// 2026-08-22 (kerületi S6): a kerület MÁR NYOMTAT ebből az ablakból — a fail-closed
+// kapu innentől a JÖVŐBELI, ág nélküli szintekre vonatkozik.
 import {
-  KERULETI_NYOMTATVANY_CIM,
-  KERULETI_NYOMTATVANY_UZENET,
+  KIALLITO_NEVE_HIANYZIK_CIM,
+  KIALLITO_NEVE_HIANYZIK_UZENET,
+  NINCS_NYOMTATVANY_AG_CIM,
+  NINCS_NYOMTATVANY_AG_UZENET,
   loadEvBeallitas,
   nyomtatvanyScope,
   type PrintScope,
@@ -64,10 +68,18 @@ function magyarazoElonezet(cim: string, uzenet: string): PrintReport {
   }
 }
 
-/** A kiválasztott év `bealitas` sorának betöltési állapota. */
+/**
+ * A kiválasztott év `bealitas` sorának betöltési állapota.
+ *
+ * 2026-08-22 (kerületi S6): a hiba-ág mostantól VISZI a betöltő okát is. Eddig
+ * a `loadEvBeallitas` gondosan megkülönböztette a hálózati hibát a hiányzó
+ * nyomtatvány-ágtól, a dialógus viszont mindkettőt egyetlen `hiba` állapotra
+ * képezte — vagyis az ok HOLT KÓD volt, és a lelkész egy soha meg nem javuló
+ * állapotra is azt a tanácsot kapta, hogy „ellenőrizd az internetkapcsolatot".
+ */
 type EvBeallitasAllapot =
   | { allapot: 'kesz'; ev: number; sor: BealitasRow | null }
-  | { allapot: 'hiba'; ev: number }
+  | { allapot: 'hiba'; ev: number; hibaOk?: 'lekerdezes_hiba' | 'nincs_nyomtatvany_ag' }
 
 interface BudgetPrintDialogProps {
   open: boolean
@@ -93,9 +105,14 @@ interface BudgetPrintDialogProps {
    *
    * 2026-08-17 (kerületi S5): a típus a KANONIKUS `PrintScope` (= `FinanceScope`),
    * tehát az EGYHÁZKERÜLETET is befogadja — kézi `'congregation' | 'diocese'`
-   * unió-másolat helyett. A kerületi ÉRTÉK viszont nem nyomtat: a
-   * `nyomtatvanyScope()` `null`-t ad rá, és a dialógus magyarázó, nyomtatást
-   * tiltó előnézetet mutat (a MIÉRT a print-scope.ts-ben).
+   * unió-másolat helyett.
+   *
+   * 2026-08-22 (kerületi S6): a kerületi ÉRTÉK MOSTANTÓL NYOMTAT. A terv-sorok a
+   * `district_koltsegvetes`-ből, az évi beállítás a `district_bealitas`-ból jön,
+   * és a borító a kerületi feliratokat kapja (felettes blokk NÉLKÜL: a kerület
+   * fölött nincs szint). Ez az ablak a kerületnek is teljes értékű — a
+   * tény-oszlop az OLDAL évének kerületi tételeiből számol, más évi Számadást
+   * pedig a közös Body eleve nem enged (`yearMismatch`).
    */
   scope?: PrintScope
   /** Az egyházkerület neve a megyei borító felső blokkjához. */
@@ -119,11 +136,24 @@ export function BudgetPrintDialog({
   scope = 'congregation',
   districtName,
 }: BudgetPrintDialogProps) {
-  // ⛔ 2026-08-17 (kerületi S5): a NYOMTATVÁNY-réteg (borító-építő + terv-sor
-  // betöltő) ma csak a gyülekezeti és az egyházmegyei ívet ismeri. `null` =
-  // erre a szintre még nincs ív → a dialógus MAGYARÁZ, nem nyomtat. Enélkül a
-  // kerületi adat gyülekezeti fejléccel menne papírra.
+  // ⛔ A NYOMTATVÁNY-réteg (borító-építő + terv-sor betöltő) által ISMERT
+  // hatókör. `null` = erre a szintre még nincs ív → a dialógus MAGYARÁZ, nem
+  // nyomtat. 2026-08-22 (kerületi S6): a három mai szint mind ismert (a kerület
+  // is), tehát ez az ág ma nem fut — de MARAD: ez a negyedik szint fail-closed
+  // válasza. Enélkül egy új szint adata gyülekezeti fejléccel menne papírra.
   const keszScope = nyomtatvanyScope(scope)
+
+  // ⛔ 2026-08-22 (kerületi S6, lánc-ellenőrzés): A KIÁLLÍTÓ NEVE NÉLKÜL NINCS ÍV.
+  // A borító entitás-sora a `congregationName`-ből épül (felső szinten ez a
+  // megye/kerület neve). A nevet a szerver `initFinanceFelsoSzint`-je kérdezi le
+  // úgy, hogy a lekérés HIBÁJÁT NEM NÉZI (`… .maybeSingle()` → `data?.name || ''`,
+  // penzugy/actions.ts), tehát hálózati hibánál némán ÜRES marad. Üres névvel a
+  // papíron egy NÉVTELEN, mégis aláírható hivatalos ív keletkezne.
+  // ⚠️ CSAK a MOST megnyíló kerületi ágra nézzük. A gyülekezeti és a megyei ív
+  // élesben fut, és a megbízás szerint BYTE-RA változatlan marad — egy új kapu
+  // ott akkor is viselkedés-változás volna, ha csak egy elfajult esetben süt el.
+  // (Ugyanez a néma üres-név út a megyénél is megvan; jelentve, nem javítva.)
+  const nevHianyzik = scope === 'district' && congregationName.trim().length === 0
 
   // Tényleges adatok aggregálása szamadasicel kódonként.
   // 2026-08-11 (6. kör): a részszámadás INNEN KIKERÜLT (a FinancePrintDialogba
@@ -181,12 +211,17 @@ export function BudgetPrintDialog({
 
   const onLoadBudgetRows = useCallback(
     async (year: number) => {
-      // ⛔ Kerületi hatókör: nincs mit betölteni, mert nincs mibe nyomtatni.
-      // A `loadBudgetRowsCompat` a `district_koltsegvetes`-t nem ismeri, tehát
-      // a gyülekezeti táblában keresné a kerület azonosítóját → 0 sor, és az
-      // ív MINDEN tétele nullával menne ki. Hangos üzenet néma nullák helyett.
+      // ⛔ Nyomtatvány-ág nélküli (jövőbeli) szint: nincs mit betölteni, mert
+      // nincs mibe nyomtatni. A `loadBudgetRowsCompat` csak a ma ismert három
+      // szint tábláit ismeri, egy negyedik szintnél a gyülekezeti táblában
+      // keresné az azonosítót → 0 sor, és az ív MINDEN tétele nullával menne ki.
+      // Hangos üzenet néma nullák helyett.
       if (keszScope === null) {
-        return { error: KERULETI_NYOMTATVANY_UZENET }
+        return { error: NINCS_NYOMTATVANY_AG_UZENET }
+      }
+      // ⛔ Kiállító neve nélkül nincs ív — a terv-sorokat sem kérjük le.
+      if (nevHianyzik) {
+        return { error: KIALLITO_NEVE_HIANYZIK_UZENET }
       }
 
       const supabase = createClient()
@@ -198,9 +233,14 @@ export function BudgetPrintDialog({
       // helper (lib/finance/print-scope.ts) — megyei nézetben a
       // `diocese_bealitas` sorát hozza. Eddig itt a gyülekezeti tábla állt, és
       // megyei hatókörben némán üresen tért vissza.
+      // 2026-08-22 (kerületi S6): a `settings.congregation_id` felső szinten a
+      // SZINT azonosítója — a közös `normalizeDioceseBealitas` ezt a mezőt tölti
+      // a megye/kerület UUID-jával, tehát a kerületi ág a `district_bealitas`
+      // helyes sorát kéri. (A mező neve gyülekezeti örökség, a tartalma nem az.)
+      // A hiba OKÁT is átvisszük: a „próbáld újra" tanács csak az egyiknél igaz.
       const beallitasBetoltes = (async (): Promise<EvBeallitasAllapot> => {
         const res = await loadEvBeallitas(supabase, scope, settings.congregation_id, year)
-        if (!res.ok) return { allapot: 'hiba', ev: year }
+        if (!res.ok) return { allapot: 'hiba', ev: year, hibaOk: res.hibaOk }
         return { allapot: 'kesz', ev: year, sor: res.row }
       })()
 
@@ -228,7 +268,7 @@ export function BudgetPrintDialog({
         }
       }
     },
-    [settings.congregation_id, scope, keszScope],
+    [settings.congregation_id, scope, keszScope, nevHianyzik],
   )
 
   // A panel „Véglegesítve" sorához: a betöltött év sora, betöltés előtt a
@@ -264,12 +304,16 @@ export function BudgetPrintDialog({
           computeActuals={computeActuals}
           onLoadBudgetRows={onLoadBudgetRows}
           buildReport={(filters: BudgetPrintFilters) => {
-            // ⛔ 2026-08-17 (kerületi S5): a kerületi ív az S6 szeleté. Amíg
-            // nincs kész, itt ÁLLUNK MEG — a `blocked: true` a gombokat is
-            // letiltja. Ha átengednénk, a borító gyülekezeti (illetve megyei)
-            // fejlécet írna a kerület adatai fölé, és azt valaki aláírná.
+            // ⛔ Nyomtatvány-ág nélküli (jövőbeli) szint: itt ÁLLUNK MEG — a
+            // `blocked: true` a gombokat is letiltja. Ha átengednénk, a borító
+            // egy MÁSIK szint fejlécét írná az adatok fölé, és azt valaki
+            // aláírná. (2026-08-22 óta a kerület már NEM ilyen szint.)
             if (keszScope === null) {
-              return magyarazoElonezet(KERULETI_NYOMTATVANY_CIM, KERULETI_NYOMTATVANY_UZENET)
+              return magyarazoElonezet(NINCS_NYOMTATVANY_AG_CIM, NINCS_NYOMTATVANY_AG_UZENET)
+            }
+            // ⛔ Kiállító neve nélkül nincs ív (lásd a `nevHianyzik` indoklását).
+            if (nevHianyzik) {
+              return magyarazoElonezet(KIALLITO_NEVE_HIANYZIK_CIM, KIALLITO_NEVE_HIANYZIK_UZENET)
             }
 
             const isSzamadas = filters.printType === 'szamadas'
@@ -287,6 +331,13 @@ export function BudgetPrintDialog({
             let evSettings: BealitasRow | null
             if (betoltott) {
               if (betoltott.allapot === 'hiba') {
+                // 2026-08-22 (kerületi S6): a MIÉRT szerint MÁS a szöveg. A
+                // `'nincs_nyomtatvany_ag'` nem múlik el magától (nincs ilyen
+                // szintű ív), ezért ott az „próbáld újra" tanács félrevezető —
+                // eddig mindkét ok ugyanezt a hálózati szöveget kapta.
+                if (betoltott.hibaOk === 'nincs_nyomtatvany_ag') {
+                  return magyarazoElonezet(NINCS_NYOMTATVANY_AG_CIM, NINCS_NYOMTATVANY_AG_UZENET)
+                }
                 return magyarazoElonezet(
                   'Ez a nyomtatvány most nem készíthető el',
                   `A(z) ${filters.selectedYear}. évi pénzügyi beállítások (véglegesítés, presbitériumi határozat) nem tölthetők be, ezért a borító hibás adatokkal készülne. Ellenőrizd az internetkapcsolatot, és próbáld újra. Ha újra ezt írja, jelezd a rendszergazdának.`,

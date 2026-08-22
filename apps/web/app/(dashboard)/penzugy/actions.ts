@@ -1986,10 +1986,17 @@ async function initFinanceFelsoSzint(
   //    AMI HIÁNYZIK: az ÍRÁSI út. A repóban egyetlen kód sem szúr be
   //    `scope = 'egyhazkerulet'` sort a `bankszamlak`-ba — a kerületi beállítás-
   //    varázslóban nincs bankszámla-blokk (a megyei bank-lépés tükre). Amíg az
-  //    meg nem születik, az egyházkerület KÉSZPÉNZ-ONLY. Ugyanez áll a
-  //    `chitanta_tombok.district_id`-re: kerületi nyugtatömb-felület sincs.
+  //    meg nem születik, az egyházkerület KÉSZPÉNZ-ONLY.
   //    ⚠️ Ez NEM hiba, hanem hiányzó felület — fontos, hogy a következő kör ne
   //    kezdje el „megjavítani" az amúgy jó lekérdezést.
+  //
+  //    ✅ 2026-08-22 (S6) PONTOSÍTÁS: a `chitanta_tombok` MÁR NEM tartozik ide.
+  //    A kerületi NYUGTATÖMB-felület megépült (`/dashboard-kerulet/nyugtatombok`
+  //    + `dashboard-kerulet/chitanta-tombok-actions.ts`), tehát ott az írási út
+  //    is él. Már CSAK a bankszámla-felvétel hiányzik.
+  //    (Ez a mondat egy szeletnyi ideig hazudott — pontosan az a hibaosztály,
+  //    ami ellen a fenti figyelmeztetés szól: az elavult magyarázó komment
+  //    rosszabb a hiányzónál, mert magabiztosan téveszti meg a következő kört.)
   //
   //    A degradálás SZÁNDÉKOSAN ilyen: üres lista helyett SOHA nem eshetünk
   //    vissza egy másik szint számláira.

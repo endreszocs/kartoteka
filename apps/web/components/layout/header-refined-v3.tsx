@@ -461,6 +461,25 @@ export function HeaderRefinedV3({
                             onClick={onOpenDistrictSetup}
                           />
                         )}
+                        {/* 2026-08-22 (S7): a KERÜLETI Kuka belépő pontja.
+                            MIÉRT KELLETT: a `/kuka` egyetlen belépője eddig a
+                            „Gyülekezet" hasáb alatt ült, tehát kerületi
+                            szerepben a felhasználó NEM tudott eljutni oda —
+                            miközben az S5 óta a leltár és az iktató kerületi
+                            sorokat is tartalmaz, amiket törölhet.
+                            A `purge_recycle_bin()` szűkítése óta ezek a sorok
+                            fizikailag NEM törlődnek, tehát visszaállító út
+                            nélkül örökre láthatatlanul ottmaradnának.
+                            A ház szabálya szerint a menüpont csak MEGÉPÜLT
+                            célponthoz kerül be — a kerületi Kuka-nézet
+                            (kuka/page.tsx `keruleti` ága) ugyanebben a
+                            szeletben készült el. */}
+                        <MegaItem
+                          icon={Trash2}
+                          label="Kuka"
+                          hint="Törölt kerületi tételek visszaállítása"
+                          onClick={() => router.push('/kuka')}
+                        />
                       </MenuColumn>
                       )
                     ) : activeScope === 'diocese' ? (

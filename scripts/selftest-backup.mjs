@@ -941,6 +941,190 @@ const MINTA_LELTAR = [
       } else {
         fail(`D4c4: ${glob3.join(', ')}`)
       }
+
+      // ── D4c5–D4c8 — 2026-08-22 (egyházkerületi szint, S7) ────────────────
+      // A `district_id` UGYANEZ A HIBAOSZTÁLY eggyel feljebb. MA egyik éles
+      // tábla sem esik bele (az S5a mind a 6-on kitöltötte a predikátumot),
+      // ezért a pozitív mérés önmagában HAZUG: zölden állna akkor is, ha az őr
+      // egyáltalán nem létezne. Ezért itt VISSZAJÁTSSZUK a régi, csak
+      // `diocese_id`-t néző őrt, és bizonyítjuk, hogy AZ ELBUKNA a bemeneten.
+      {
+        // Csak KERÜLETI scope-oszlop, predikátum nélkül — a legrosszabb eset:
+        // a mentés „sikeres", a kerületi sorok viszont sehol.
+        const keruletiFedetlen = leltarSor('kerulet_uj_tabla_2027', 'gyulekezet', 7, [
+          'id',
+          'congregation_id',
+          'district_id',
+        ])
+        const c3 = classifyInventory([...MINTA_LELTAR, keruletiFedetlen])
+
+        // (1) POZITÍV: az őr NÉVVEL kiírja.
+        if (c3.districtFedetlen.join('|') === 'kerulet_uj_tabla_2027') {
+          ok('D4c5 a fedetlen KERÜLETI sorú tábla NÉVVEL jelenik meg (districtFedetlen)')
+        } else {
+          fail(`D4c5: districtFedetlen=${c3.districtFedetlen.join(', ')}`)
+        }
+
+        // (2) ⭐ NEGATÍV ASSZERT — a MUTÁNS: a JAVÍTÁS ELŐTTI őr (kizárólag a
+        //     `diocese_id` oszlopot nézte). Ha ez a bemenet ott is „tisztának"
+        //     látszik, akkor a régi kód VALÓBAN vak volt rá — vagyis a mostani
+        //     mérés nem tautológia. Ha a mutáns MÉGIS elkapná, az azt jelenti,
+        //     hogy rossz bemenettel mérünk, és az őrszem sosem tudna pirosra
+        //     váltani.
+        const regiOrTalalat = [...MINTA_LELTAR, keruletiFedetlen]
+          .filter(
+            (r) =>
+              r.hatokor === 'gyulekezet' &&
+              (r.oszlopok ?? []).includes('diocese_id') &&
+              !(
+                typeof r.globalis_predikatum === 'string' &&
+                r.globalis_predikatum.trim().length > 0
+              ),
+          )
+          .map((r) => r.tabla)
+        if (regiOrTalalat.length === 0) {
+          ok('D4c6 ⭐ NEGATÍV ASSZERT: a RÉGI (csak diocese_id) őr NÉMÁN átengedte ezt a táblát')
+        } else {
+          fail(
+            'D4c6: a mutáns őr is elkapta a kerületi táblát — a D4c5 mérés így semmit nem ' +
+              `bizonyít (mutáns találat: ${regiOrTalalat.join(', ')})`,
+          )
+        }
+
+        // (3) A MEGYEI ÁG VÁLTOZATLAN: csak diocese_id → csak a megyei listán.
+        if (c3.dioceseFedetlen.join('|') === '' && !c3.dioceseFedetlen.includes('kerulet_uj_tabla_2027')) {
+          ok('D4c7 a kerületi tábla NEM szivárog a MEGYEI listára (a megyei ág viselkedése változatlan)')
+        } else {
+          fail(`D4c7: dioceseFedetlen=${c3.dioceseFedetlen.join(', ')}`)
+        }
+        const c4 = classifyInventory([...MINTA_LELTAR, fedetlen])
+        if (c4.dioceseFedetlen.join('|') === 'iktato' && c4.districtFedetlen.length === 0) {
+          ok('D4c7b a MEGYEI őr találata bitre a régi (iktato), és nem lett kerületi mellékhatása')
+        } else {
+          fail(
+            `D4c7b: dioceseFedetlen=${c4.dioceseFedetlen.join(', ')} / ` +
+              `districtFedetlen=${c4.districtFedetlen.join(', ')}`,
+          )
+        }
+
+        // (4) MINDKÉT oszlop, predikátum nélkül → MINDKÉT listán ott a neve.
+        //     Enélkül a megyei hiány pótlása után az olvasó azt hinné, kész van.
+        const ketSzintuFedetlen = leltarSor('leltar_tetelek', 'gyulekezet', 7, [
+          'id',
+          'congregation_id',
+          'diocese_id',
+          'district_id',
+        ])
+        const c5 = classifyInventory([...MINTA_LELTAR, ketSzintuFedetlen])
+        if (
+          c5.dioceseFedetlen.includes('leltar_tetelek') &&
+          c5.districtFedetlen.includes('leltar_tetelek')
+        ) {
+          ok('D4c8 a KÉT scope-oszlopos tábla MINDKÉT szint listáján megjelenik (nem `else if`)')
+        } else {
+          fail(
+            `D4c8: dioceseFedetlen=${c5.dioceseFedetlen.join(', ')} / ` +
+              `districtFedetlen=${c5.districtFedetlen.join(', ')}`,
+          )
+        }
+
+        // (5) KITÖLTÖTT predikátummal egyik listára sem kerül — vagyis az őr a
+        //     MAI éles állapotra (6/6 kitöltve) NEM ad hamis riasztást.
+        const keruletiRendben = {
+          ...keruletiFedetlen,
+          globalis_predikatum: 't.congregation_id IS NULL',
+        }
+        const c6 = classifyInventory([...MINTA_LELTAR, keruletiRendben])
+        const glob4 = orderTablesForDump([...MINTA_LELTAR, keruletiRendben], 'globalis').map(
+          (r) => r.tabla,
+        )
+        if (
+          c6.districtFedetlen.length === 0 &&
+          c6.dioceseFedetlen.length === 0 &&
+          glob4.includes('kerulet_uj_tabla_2027')
+        ) {
+          ok('D4c9 kitöltött predikátummal nincs riasztás, és a kerületi sorok a GLOBÁLIS fájlba mennek')
+        } else {
+          fail(
+            `D4c9: districtFedetlen=${c6.districtFedetlen.join(', ')} / globalis=${glob4.join(', ')}`,
+          )
+        }
+
+        // (6) A fedetlenség NEM állítja meg a mentést. A fájl fejlécében rögzített
+        //     szabály: a gyógyszer nem lehet rosszabb a betegségnél — egy új tábla
+        //     felvétele nem viheti el MINDEN gyülekezet napi mentését.
+        let megallt = false
+        try {
+          assertInventoryClassified([...MINTA_LELTAR, keruletiFedetlen])
+        } catch {
+          megallt = true
+        }
+        if (!megallt) {
+          ok('D4c10 ⭐ a fedetlen KERÜLETI tábla NEM állítja meg a mentést (figyelmeztetés, nem kapu)')
+        } else {
+          fail('D4c10: a kerületi fedetlenség leállította a mentést — ez MINDEN gyülekezetet érintene')
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // D4c11 · A TULAJDONOS LÁTJA-E? — az admin „Próba" felület őre
+      // ─────────────────────────────────────────────────────────────────────
+      // ⛔ MIÉRT KELL EZ A MÉRCE KÜLÖN: a fenti D4c asszertek azt bizonyítják,
+      // hogy a `classifyInventory` HELYESEN OSZTÁLYOZ. Azt viszont EGYIK SEM
+      // bizonyítja, hogy a fedetlenség el is jut a felhasználóhoz. Márpedig
+      // 2026-08-15 és 2026-08-22 között pontosan ez volt a helyzet: a megyei
+      // `dioceseFedetlen` figyelmeztetés MEGVOLT, de kizárólag a worker
+      // naplójában — az admin „Próba" gombja csak a `besorolatlan` és a
+      // `szuroNelkul` listát olvasta. Egy őr, amit senki nem olvas, nem őr:
+      // a mentés „sikeresnek" látszott volna, miközben a felső szintű sorok
+      // kimaradnak a fájlból — és ez CSAK visszaállításkor derül ki.
+      {
+        const forras = fs.readFileSync(
+          path.join(REPO_ROOT, 'apps', 'web', 'app', '(dashboard)', 'admin', 'biztonsagi-mentes', 'actions.ts'),
+          'utf8',
+        )
+        // ⚠️ A KOMMENTEK KISZEDÉSE LOAD-BEARING: a fájl fejléc-kommentje NÉV
+        //    SZERINT idézi mindkét mezőt, tehát nyers szövegen mérve ez az őr
+        //    VAK ZÖLD maradna akkor is, ha a tényleges ág hiányzik.
+        const kod = forras
+          .replace(/\/\*[\s\S]*?\*\//g, '')
+          .replace(/^\s*\/\/.*$/gm, '')
+
+        const vanAg = (mezo) =>
+          new RegExp(`c\\.${mezo}\\.length\\s*>\\s*0`).test(kod) &&
+          new RegExp(`figyelmeztetesek\\.push\\([\\s\\S]{0,400}?c\\.${mezo}`).test(kod)
+
+        const megyei = vanAg('dioceseFedetlen')
+        const keruleti = vanAg('districtFedetlen')
+
+        if (megyei && keruleti) {
+          ok('D4c11 az admin „Próba" felület MINDKÉT fedetlenség-listát kimondja a tulajdonosnak')
+        } else {
+          fail(
+            'D4c11: a fedetlenség NEM jut el a felülethez ' +
+              `(megyei=${megyei}, kerületi=${keruleti}). A checkBackupReadinessAction-nek a ` +
+              '`figyelmeztetesek` tömbbe kell tolnia mindkét listát — enélkül a figyelmeztetés ' +
+              'csak a worker naplójában él, ahol senki nem nézi.',
+          )
+        }
+
+        // NEGATÍV ASSZERT — a mérce tudjon pirosra váltani.
+        // Mutáns: kivágjuk a kerületi ág feltételét. Ha az őr erre is zöld
+        // marad, akkor nem a kódot méri, hanem a kommenteket.
+        const mutans = kod.replace(/c\.districtFedetlen\.length\s*>\s*0/g, 'false')
+        if (mutans === kod) {
+          fail('D4c11n: a mutáns azonos az eredetivel — az őr nem azt méri, amit hisz')
+        } else {
+          const mutansVan =
+            /c\.districtFedetlen\.length\s*>\s*0/.test(mutans) &&
+            /figyelmeztetesek\.push\([\s\S]{0,400}?c\.districtFedetlen/.test(mutans)
+          if (!mutansVan) {
+            ok('D4c11n negatív asszert: az ág törlésére az őr BUKIK (nem vak zöld)')
+          } else {
+            fail('D4c11n: a mutánsra is zöld maradt — az őr sosem tudna pirosra váltani')
+          }
+        }
+      }
     }
 
     const retegNelkul = leltarSor('kesobb_besoroljuk', 'gyulekezet', null)

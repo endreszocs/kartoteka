@@ -1237,6 +1237,52 @@ export async function checkBackupReadinessAction(): Promise<MentesFutasEredmeny>
           (c.retegNelkul.length > 15 ? ' …' : ''),
       )
     }
+    // ── FEDETLEN FELSŐ SZINTŰ SOROK (2026-08-22) ────────────────────────────
+    // ⚠️ MIÉRT KELL EZ IDE: a `classifyInventory` 2026-08-15 óta megnevezi a
+    //    fedetlen MEGYEI sorú táblákat (`dioceseFedetlen`), az S7 óta a
+    //    KERÜLETIeket is (`districtFedetlen`) — de mindkettőt CSAK a worker
+    //    naplója mondta ki. A tulajdonos a felületen sehol nem látta. Így a
+    //    „Próba" azt felelte, hogy „a rendszer KÉSZ a mentésre", miközben egy
+    //    egész szint sorai kimaradtak volna a fájlból: néma adatvesztés, ami
+    //    CSAK a visszaállításkor derül ki, amikor már késő.
+    //
+    // ⚠️ NEM-BLOKKOLÓ, SZÁNDÉKOSAN. A `bajok` tömbbe NEM kerül — a próba
+    //    ettől nem bukik el, és a mentés sem áll meg. A megállító ok továbbra
+    //    is egyedül a besorolatlan tábla: ha a fedetlenség kaput nyitna, egy
+    //    új tábla felvétele MINDEN gyülekezet napi mentését elvinné, vagyis a
+    //    gyógyszer rosszabb lenne a betegségnél (lásd `inventory.ts` fejléc).
+    //
+    // ⚠️ KÉT KÜLÖN FIGYELMEZTETÉS, NEM EGY ÖSSZEVONT. A két szint hiányát KÉT
+    //    KÜLÖN SQL pótolja; egy közös mondatból az olvasó nem tudná meg, MELYIK
+    //    fájlt kell lefuttatnia. Egy tábla ráadásul MINDKÉT listán szerepelhet
+    //    (van diocese_id és district_id oszlopa is) — ilyenkor mindkét sort
+    //    látnia kell, különben az egyik pótlása után késznek hinné a dolgot.
+    //
+    // A szöveg SZÁNDÉKOSAN egyezik a worker naplójáéval (`lib/backup/worker.ts`),
+    // csak feltételes módban: a próba nem ment, csak megmér — ugyanaz a mondat
+    // a naplóban és a felületen egy hibát jelent, nem kettőt.
+    //
+    // MA MINDKÉT LISTA ÜRES (az S4 és az S5a is lefutott, 6/6 kitöltött
+    // predikátum), tehát ez a blokk semmit nem jelenít meg — az őr egy JÖVŐBELI
+    // scope-oszlopos táblára szól.
+    if (c.dioceseFedetlen.length > 0) {
+      figyelmeztetesek.push(
+        `⚠️ MEGYEI SOROK MENTÉS NÉLKÜL: ${c.dioceseFedetlen.join(', ')} — ` +
+          'ezekben a táblákban egyházmegyei sorok is lehetnek (diocese_id), de nincs ' +
+          'mentés-szűrőjük (backup_table_policy.globalis_predikatum), így a megyei sorok ' +
+          'EGYIK mentés-fájlba sem kerülnének. Futtasd le a ' +
+          'migration-docs/sql/2026-08-15-egyhazmegyei-iktato-leltar-s4.sql fájlt.',
+      )
+    }
+    if (c.districtFedetlen.length > 0) {
+      figyelmeztetesek.push(
+        `⚠️ KERÜLETI SOROK MENTÉS NÉLKÜL: ${c.districtFedetlen.join(', ')} — ` +
+          'ezekben a táblákban egyházkerületi sorok is lehetnek (district_id), de nincs ' +
+          'mentés-szűrőjük (backup_table_policy.globalis_predikatum), így a kerületi sorok ' +
+          'EGYIK mentés-fájlba sem kerülnének. Mintát a ' +
+          'migration-docs/sql/2026-08-17-egyhazkeruleti-S5a-scope-oszlopok.sql fájl ad.',
+      )
+    }
 
     const storage = await resolveBackupStorage()
     jelolLepes(lepesek, 'tarolo', true, storage.nev)
