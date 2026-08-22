@@ -4,8 +4,13 @@ import { FinanceTabs } from '@/components/finance/finance-tabs'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
-import { getFinanceScopeContext } from '@/lib/auth/finance-scope'
+import { getFinanceScopeContext, type FinanceScope } from '@/lib/auth/finance-scope'
 import { ensureDioceseBealitasForYear } from '@/app/(dashboard)/dashboard-egyhazmegye/diocese-actions'
+// 2026-08-17 (kerületi S5): a megyei `ensureDioceseBealitasForYear` KERÜLETI
+// PÁRJA. Szándékosan a `dashboard-kerulet/district-actions.ts`-ben él (a
+// megyeié is a saját szintje fájljában) — az a fájl fejlécének (3) pontja
+// előre ki is mondta, hogy „ha az S5 megjön, ide kerül a párja".
+import { ensureDistrictBealitasForYear } from '@/app/(dashboard)/dashboard-kerulet/district-actions'
 import { YearlySettingsDialog } from '@/components/modals/yearly-settings-dialog'
 
 export default async function PenzugyPage({
@@ -37,7 +42,12 @@ export default async function PenzugyPage({
       </div>
     )
   }
-  const scope: 'congregation' | 'diocese' = financeCtx.scope
+  // 2026-08-17 (kerületi S5): a típus a hatókör-modul HÁROM-értékű uniója. Az
+  // eddigi kézzel írt `'congregation' | 'diocese'` annotáció fordítási hibát ad
+  // a harmadik szinttől — ez SZÁNDÉKOS és hasznos: a szűkítő annotáció az a
+  // hely, ahol egy új szint még HANGOSAN elakad, nem némán a gyülekezeti ágra
+  // esik. Mostantól a modul típusa a forrás, nem egy kézi másolat.
+  const scope: FinanceScope = financeCtx.scope
   const scopeId = financeCtx.scopeId
   const readOnly = financeCtx.readOnly
   const readOnlyReason = financeCtx.readOnlyReason
@@ -82,7 +92,35 @@ export default async function PenzugyPage({
 
   // 2026-04-19: scope-aware settings kezelés
   if (!data.settings) {
-    if (scope === 'diocese') {
+    // ⛔ 2026-08-17 (kerületi S5) — NÉMA GYÜLEKEZETI VISSZAESÉS JAVÍTÁSA.
+    // Itt eddig `if (scope === 'diocese') { … } else { …gyülekezeti… }` állt.
+    // A kerület az `else` ágra esett volna, ahol a kód a `congregations`
+    // táblából olvas `scopeId`-vel — csakhogy a `scopeId` ilyenkor egy
+    // KERÜLET UUID-je: 0 sor, `yearlyFee = 0`, és a kerületi adminisztrátor a
+    // gyülekezeti „éves egyházfenntartói járulék" űrlapot (YearlySettingsDialog)
+    // kapta volna a kerületi könyvelés helyett. Hibaüzenet nélkül.
+    // A kapu mostantól a GYÜLEKEZETI sajátosságot nevezi meg; a megyei ág
+    // viselkedése (és minden szövege) változatlan.
+    if (scope !== 'congregation') {
+      // A két felső szint UGYANAZT csinálja, csak más táblára és más felirattal.
+      // Egy helyen soroljuk fel a különbségeket, hogy a két szint ne húzhasson
+      // szét (a projekt visszatérő hibaosztálya: „a második felület a régi
+      // implementációt őrzi").
+      const felsoSzint =
+        scope === 'diocese'
+          ? {
+              szintNev: 'az egyházmegye',
+              illetekes: 'az esperes vagy az egyházmegyei adminisztrátor teszi meg',
+              jelzes: 'jelezd nekik',
+              ensureBealitas: ensureDioceseBealitasForYear,
+            }
+          : {
+              szintNev: 'az egyházkerület',
+              illetekes: 'az egyházkerületi adminisztrátor teszi meg',
+              jelzes: 'jelezd neki',
+              ensureBealitas: ensureDistrictBealitasForYear,
+            }
+
       // ⚠️ 2026-08-11 (számvevő-kör, review-fix): az `ensureDioceseBealitasForYear`
       // ÍR (`requireDioceseAccess(..., 'write')`, és az adatbázisban a
       // RESTRICTIVE `diocese_bealitas_szamvevo_iras_tilos` policy is blokkolja).
@@ -90,25 +128,27 @@ export default async function PenzugyPage({
       // egy hibakártyát kapott a teljes tartalom helyett („… nem módosíthatod")
       // — pont az a régi tünet, amit ez a kör megszüntet. Ellenőri nézetben
       // ezért NEM hívjuk: magyarázó üres állapotot mutatunk.
+      // (2026-08-17: ugyanez érvényes a KERÜLETI számvevőre és a kerületi
+      // párra — a `district_bealitas` írását ott is a szerep-szűrt hatókör védi.)
       if (readOnly) {
         return (
           <div className="bg-white rounded-xl border p-8 text-center text-muted-foreground">
             <p className="text-lg">
-              Erre az évre ({selectedYear}) az egyházmegye még nem nyitotta meg a
+              Erre az évre ({selectedYear}) {felsoSzint.szintNev} még nem nyitotta meg a
               könyvelést.
             </p>
             <p className="mt-2 text-sm">
-              Ellenőrként (számvevőként) nem tudod létrehozni az éves konfigurációt — ezt
-              az esperes vagy az egyházmegyei adminisztrátor teszi meg. Válassz olyan
-              évet, amelyikben már van könyvelés, vagy jelezd nekik.
+              Ellenőrként (számvevőként) nem tudod létrehozni az éves konfigurációt — ezt{' '}
+              {felsoSzint.illetekes}. Válassz olyan évet, amelyikben már van könyvelés,
+              vagy {felsoSzint.jelzes}.
             </p>
           </div>
         )
       }
-      // Egyházmegyei módban NINCS éves egyházfenntartás beállítás!
-      // Automatikusan létrehozunk egy üres `diocese_bealitas` sort az évre,
-      // és azonnal újratöltünk — a lelkész nem lát külön dialógust.
-      const ensure = await ensureDioceseBealitasForYear(scopeId, selectedYear)
+      // Felső szinten NINCS éves egyházfenntartás beállítás!
+      // Automatikusan létrehozunk egy üres `diocese_bealitas` / `district_bealitas`
+      // sort az évre, és azonnal újratöltünk — a felhasználó nem lát külön dialógust.
+      const ensure = await felsoSzint.ensureBealitas(scopeId, selectedYear)
       if (ensure.error) {
         return (
           <div className="bg-white rounded-xl border p-8 text-center text-muted-foreground">

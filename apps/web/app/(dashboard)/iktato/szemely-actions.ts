@@ -23,7 +23,9 @@ import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 // törzsadatból épül (az esperesi hivatal levelezik, nem egy gyülekezet) — a
 // személy-keresés/anyakönyvi rész változatlanul gyülekezeti (a szemely tábla
 // gyülekezeti), diocese-módban azok üresen térnek vissza.
-import { getModuleScopeContext } from '@/lib/auth/module-scope'
+// 2026-08-17 (kerületi S5): ugyanez a KERÜLETRE a districts törzsadatból (a
+// püspöki hivatal levelezik) — a személy-keresés ott is üresen tér vissza.
+import { getModuleScopeContext, type ModuleScope } from '@/lib/auth/module-scope'
 import { personSearchScore, tokenize } from '@/lib/import/person-search-match'
 import type {
   CertificatePersonHit,
@@ -50,6 +52,9 @@ export async function searchPersonsForCertificate(
 ): Promise<{ results: CertificatePersonHit[]; error: string | null }> {
   const { supabase, congId } = await getCongId()
   if (!congId) return { results: [], error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  // MÁSODIK VÉDVONAL — a két hatókör-rétegnek egyet kell mondania (lásd lent).
+  const eltres = await hatokorEltres(congId, 'személy-kereső')
+  if (eltres) return { results: [], error: eltres }
 
   const trimmed = (query || '').trim()
   if (trimmed.length < 2) return { results: [], error: null }
@@ -128,6 +133,9 @@ export async function getPersonCertificateData(
 ): Promise<{ persons: PersonCertData[]; error: string | null }> {
   const { supabase, congId } = await getCongId()
   if (!congId) return { persons: [], error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  // MÁSODIK VÉDVONAL — a két hatókör-rétegnek egyet kell mondania (lásd lent).
+  const eltres = await hatokorEltres(congId, 'anyakönyvi adatok')
+  if (eltres) return { persons: [], error: eltres }
 
   const ids = Array.from(new Set((personIds || []).filter((n) => Number.isInteger(n))))
   if (ids.length === 0) return { persons: [], error: null }
@@ -293,36 +301,47 @@ export async function getCongregationHeader(): Promise<{
     // (később feltöltött) pecsét/aláírás képe megy — ugyanabba a
     // CongregationHeaderData alakba csomagolva, hogy a letterheads/nyomtatvány
     // réteg VÁLTOZATLANUL működjön (közös fogyasztó, nem másolat).
+    //
+    // ── 2026-08-17 (kerületi S5): a KERÜLET ugyanezt kapja a districts-ből ──
+    // A `districts` oszlopkészletét az S2 a `dioceses` mintájára BETŰRE
+    // ugyanígy vette fel (2026-08-16-egyhazkeruleti-S2-identitas.sql), ezért a
+    // két ág egyetlen, tábla-paraméteres implementáció — nem másolat, ami
+    // később széthúzhatna. A kapu `!== 'congregation'`, mert amit ez az ág
+    // megkerül (adrlocality/adrstreet join, kétnyelvű cím, gyulekezetNevMag),
+    // az a GYÜLEKEZETI szint sajátossága. A régi `=== 'diocese'` alakkal a
+    // kerületi felhasználó a „Nincs bejelentkezett felhasználó vagy gyülekezet."
+    // hibát kapta volna — vagyis egyetlen igazolást sem tudott volna kiállítani.
     const moduleScope = await getModuleScopeContext()
-    if (!('error' in moduleScope) && moduleScope.scope === 'diocese') {
-      const { data: dio, error: dioErr } = await moduleScope.supabase
-        .from('dioceses')
+    if (!('error' in moduleScope) && moduleScope.scope !== 'congregation') {
+      const torzs = felsoSzintTorzsadat(moduleScope.scope)
+      const { data: sor, error: sorErr } = await moduleScope.supabase
+        .from(torzs.tabla)
         .select('name, cif, adoszam, cim_telepules, cim_iranyitoszam, cim_utca, email, telefon, weboldal, cimer_url')
         .eq('id', moduleScope.scopeId)
         .maybeSingle()
-      if (dioErr) return { header: null, error: `Egyházmegyei adatok lekérése sikertelen: ${dioErr.message}` }
-      if (!dio) return { header: null, error: 'Az egyházmegye nem található.' }
-      const d = dio as {
+      if (sorErr) return { header: null, error: `${torzs.szintNev} adatok lekérése sikertelen: ${sorErr.message}` }
+      if (!sor) return { header: null, error: `${torzs.hianyzikUzenet}` }
+      const d = sor as {
         name: string | null; cif: string | null; adoszam: string | null
         cim_telepules: string | null; cim_iranyitoszam: string | null; cim_utca: string | null
         email: string | null; telefon: string | null; weboldal: string | null; cimer_url: string | null
       }
 
       // Pecsét + aláírás — KÜLÖN, elnyelt hibájú lekérdezés (a gyülekezeti ág
-      // mintája): amíg a dioceses.pecset_url/alairas_url migráció nem futott
-      // le élesben, a fejléc kép nélkül, hangtalanul működik tovább.
-      let pecsetUrlDio: string | null = null
-      let alairasUrlDio: string | null = null
+      // mintája): amíg a pecset_url/alairas_url migráció nem futott le élesben,
+      // a fejléc kép nélkül, hangtalanul működik tovább.
+      let pecsetUrlFelso: string | null = null
+      let alairasUrlFelso: string | null = null
       {
         const { data: kepRow, error: kepError } = await moduleScope.supabase
-          .from('dioceses')
+          .from(torzs.tabla)
           .select('pecset_url, alairas_url')
           .eq('id', moduleScope.scopeId)
           .maybeSingle()
         if (!kepError && kepRow) {
           const k = kepRow as { pecset_url: string | null; alairas_url: string | null }
-          pecsetUrlDio = clean(k.pecset_url) || null
-          alairasUrlDio = clean(k.alairas_url) || null
+          pecsetUrlFelso = clean(k.pecset_url) || null
+          alairasUrlFelso = clean(k.alairas_url) || null
         }
       }
 
@@ -333,6 +352,9 @@ export async function getCongregationHeader(): Promise<{
         header: {
           hivatalosNev,
           nevHu: hivatalosNev || null,
+          // ⚠️ A kétnyelvű (nev_ro/nev_en) fejléc-ág a S6 szelet feladata — a
+          // megyei alak is null-t ad, és a kettőt EGYSZERRE kell bekapcsolni,
+          // hogy a nyomtatvány két szinten se húzzon szét.
           nevRo: null,
           nevEn: null,
           cimHu,
@@ -344,14 +366,22 @@ export async function getCongregationHeader(): Promise<{
           cif: clean(d.cif) || clean(d.adoszam) || null,
           web: clean(d.weboldal) || null,
           cimerUrl: clean(d.cimer_url) || null,
-          pecsetUrl: pecsetUrlDio,
-          alairasUrl: alairasUrlDio,
+          pecsetUrl: pecsetUrlFelso,
+          alairasUrl: alairasUrlFelso,
         },
         error: null,
       }
     }
     return { header: null, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
   }
+
+  // ── MÁSODIK VÉDVONAL a GYÜLEKEZETI fejléc-ágon ────────────────────────────
+  // Idáig csak akkor jutunk, ha `congId` NEM null — vagyis a fenti felső szintű
+  // (megyei / kerületi) ág BYTE-RA változatlan. Itt viszont kötelező egyeztetni:
+  // a levélfej HIVATALOS IRAT tetejére kerül, és ha a két hatókör-réteg széthúz,
+  // idegen egyházközség fejléce alá kerülnének a saját anyakönyvi adatok.
+  const fejlecEltres = await fejlecHatokorEltres(congId)
+  if (fejlecEltres) return { header: null, error: fejlecEltres }
 
   const { data, error } = await supabase
     .from('congregations')
@@ -510,6 +540,161 @@ export async function getCongregationHeader(): Promise<{
 async function getCongId() {
   const { supabase, congregationId } = await getEffectiveCongregationContext()
   return { supabase, congId: congregationId }
+}
+
+/**
+ * ── MÁSODIK VÉDVONAL: A KÉT HATÓKÖR-RÉTEGNEK EGYET KELL MONDANIA ──────────
+ * (a `leltar/actions.ts` `finalizeLeltar()` 2026-08-17-es mintája szerint)
+ *
+ * MELYIK KÉT FELOLDÓ HÚZHAT SZÉT. Ebben a fájlban MIND A KETTŐ ott van egymás
+ * mellett: a személy-kereső és az anyakönyvi adatok a
+ * `getEffectiveCongregationContext()`-ből (`getCongId()` fent), a fejléc felső
+ * szintű ága viszont a `getModuleScopeContext()`-ből dolgozik — és ugyanabból
+ * merít az Iktató modul összes többi akciója (`iktato/actions.ts`,
+ * `template-actions.ts`, `csatolmany-actions.ts`, `qr-actions.ts`).
+ *
+ * MI LENNE A TÜNET. Az igazolás-kiállító EGY képernyő, de KÉT rétegből épül: a
+ * FEJLÉC a module-scope-ból, a SZEMÉLY-ADAT innen. Széthúzásnál a nyomtatvány
+ * egyik fele az egyik, másik fele a másik hatókörből származna — idegen
+ * egyházközség levélfeje alatt a mi tagunk keresztelési adataival. Ez
+ * VISSZAMENŐLEG JAVÍTHATATLAN: a kiállított és iktatott igazolás papíron is
+ * kimegy. A kereső ráadásul NÉMÁN üres listát adna (idegen hatókörben 0 tag), és
+ * a lelkész a saját tagnyilvántartását hinné üresnek.
+ *
+ * A GYÖKÉROK MA MÁR ZÁRVA: a 2026-08-17-es override-elsőbbségi kapu
+ * (`lib/auth/finance-scope.ts` és `lib/auth/module-scope.ts` 0) blokkja) a
+ * kerületi admin „Belépés a gyülekezetbe" esetét javítja, ezért a két réteg ma
+ * BIZONYÍTOTTAN egyet mond. Ez itt a második védvonal egy JÖVŐBELI
+ * divergenciára — egyik kapu sem ír adatot.
+ *
+ * ⚠️ A GYÜLEKEZETI (ÉS A MEGYEI) ÚT VISELKEDÉSE VÁLTOZATLAN — bizonyítás:
+ *   · ha `congId` (= `effectiveCongregationId`) nem null, a
+ *     `getModuleScopeContext()` 3) gyülekezeti fallbackje UGYANEZT az értéket
+ *     adja, a 0) override-kapu pedig az `override.congregationId`-t, ami az
+ *     `effective-access.ts:404-411` szerint UGYANAZ az érték;
+ *   · a megyei / kerületi profilban álló felhasználónál `effectiveCongregationId`
+ *     null (`effective-access.ts:412-414`), tehát a kereső/anyakönyv-akciókban a
+ *     `!congId` ágon kapja a MAI, betűre változatlan üzenetet, a fejlécben pedig
+ *     a MAI felső szintű (dioceses/districts) ágra fut — idáig el sem jut.
+ *   ⇒ mindegyik kapu no-op a mai éles adaton; csak széthúzáskor szólal meg.
+ */
+async function hatokorEltres(congId: string, mit: string): Promise<string | null> {
+  const modulCtx = await getModuleScopeContext()
+  if ('error' in modulCtx) {
+    return (
+      'A hatókör (gyülekezet / egyházmegye / egyházkerület) most nem oldható fel, ezért biztonsági ' +
+      `okból megszakítottuk a műveletet (${mit}). Frissítsd az oldalt, és próbáld újra; ha újra ` +
+      'hibázik, jelezd a rendszergazdának.'
+    )
+  }
+  if (modulCtx.scope !== 'congregation') {
+    // ⚠️ SZÁNDÉKOSAN NEM KITERJESZTÉS: a tagnyilvántartás és az anyakönyv
+    // TISZTÁN GYÜLEKEZETI fogalom (a `szemely` / `keresztseg` / `konfirmalas` /
+    // `hazassag` táblák `congregation_id`-vel élnek, scope-oszlopuk nincs). A
+    // megyei/kerületi kiterjesztés KÜLÖN döntés; addig a helyes védvonal a
+    // SZINTET MEGNEVEZŐ elutasítás, nem a néma gyülekezeti visszaesés.
+    // A szint-nevet a fenti, már meglévő EXHAUSTIVE leképezésből vesszük — nem
+    // írunk mellé egy második, széthúzható switch-et.
+    const szint = felsoSzintTorzsadat(modulCtx.scope).szintNev.toLowerCase()
+    return (
+      `A gyülekezeti tagnyilvántartás és anyakönyv ${szint} módban nincs értelmezve (az ` +
+      'anyakönyveket az egyházközség vezeti), ezért nem futtattuk le a műveletet ' +
+      `(${mit}). Válts gyülekezeti profilra — vagy ha „Belépés a gyülekezetbe" nézetben vagy, lépj ` +
+      'ki belőle —, és ott állítsd ki az igazolást.'
+    )
+  }
+  if (modulCtx.scopeId !== congId) {
+    return (
+      'A rendszer két különböző gyülekezetet lát ehhez a művelethez, ezért biztonsági okból ' +
+      `megszakítottuk a műveletet (${mit}) — hivatalos igazolás nem készülhet bizonytalan ` +
+      'hatókörből. Lépj ki a „Belépés a gyülekezetbe" nézetből vagy válts profilt, majd próbáld ' +
+      'újra; ha újra hibázik, jelezd a rendszergazdának.'
+    )
+  }
+  return null
+}
+
+/**
+ * A fejléc-ág SAJÁT védvonala.
+ *
+ * ⚠️ MIÉRT KÜLÖN FÜGGVÉNY, ÉS MIÉRT MÁS A SZÖVEG: a levélfej — a keresővel és az
+ * anyakönyvvel ELLENTÉTBEN — felső szinten IS értelmezett (a fenti ág a
+ * dioceses/districts törzsadatból építi). Itt tehát nem az a baj, hogy „nincs
+ * ilyen szint", hanem hogy A KÉT RÉTEG MÁST MOND: a hívó a gyülekezeti ágra
+ * jutott (`congId` nem null), miközben a modul másik hatókörben dolgozik. Ilyenkor
+ * NEM tippelünk (sem gyülekezeti, sem felső szintű fejlécet nem adunk), mert
+ * mindkét választás rossz fejlécet nyomtathat egy HIVATALOS IRATRA — inkább
+ * hangosan megállunk.
+ */
+async function fejlecHatokorEltres(congId: string): Promise<string | null> {
+  const modulCtx = await getModuleScopeContext()
+  if ('error' in modulCtx) {
+    return (
+      'A hatókör (gyülekezet / egyházmegye / egyházkerület) most nem oldható fel, ezért biztonsági ' +
+      'okból NEM állítottuk össze a levélfejet (hivatalos irat fejléce nem épülhet bizonytalan ' +
+      'hatókörből). Frissítsd az oldalt, és próbáld újra; ha újra hibázik, jelezd a ' +
+      'rendszergazdának.'
+    )
+  }
+  if (modulCtx.scope !== 'congregation') {
+    const szint = felsoSzintTorzsadat(modulCtx.scope).szintNev.toLowerCase()
+    return (
+      `A rendszer két különböző hatókört lát: a levélfej a gyülekezeté lenne, miközben az Iktató ` +
+      `${szint} módban dolgozik. Biztonsági okból NEM állítottuk össze a levélfejet — így nem ` +
+      'kerülhet idegen fejléc hivatalos iratra. Lépj ki a „Belépés a gyülekezetbe" nézetből vagy ' +
+      'válts profilt, majd próbáld újra; ha újra hibázik, jelezd a rendszergazdának.'
+    )
+  }
+  if (modulCtx.scopeId !== congId) {
+    return (
+      'A rendszer két különböző gyülekezetet lát, ezért biztonsági okból NEM állítottuk össze a ' +
+      'levélfejet (hivatalos irat fejléce nem épülhet bizonytalan hatókörből). Lépj ki a „Belépés a ' +
+      'gyülekezetbe" nézetből vagy válts profilt, majd próbáld újra; ha újra hibázik, jelezd a ' +
+      'rendszergazdának.'
+    )
+  }
+  return null
+}
+
+/**
+ * A FELSŐ SZINTŰ (megyei/kerületi) fejléc törzsadat-táblája és a hozzá tartozó
+ * MAGYAR feliratok.
+ *
+ * ⚠️ A `szintNev` és a `hianyzikUzenet` a megyei ágban BETŰRE a 2026-08-15 óta
+ * élő szöveg — a megyei felhasználó ugyanazt a hibaüzenetet látja, mint eddig.
+ * A kerületi változat „az egyházkerülettől" beszél: egy megyei szövegű üzenet a
+ * kerületi ügyintézőt ROSSZ hivatalhoz küldené.
+ *
+ * A `default: never` ág egy jövőbeli negyedik szintnél FORDÍTÁSI HIBÁT ad —
+ * néma rossz-tábla-olvasás (idegen szint fejléce a hivatalos iraton) helyett.
+ */
+function felsoSzintTorzsadat(scope: ModuleScope): {
+  tabla: 'dioceses' | 'districts'
+  szintNev: string
+  hianyzikUzenet: string
+} {
+  switch (scope) {
+    case 'diocese':
+      return {
+        tabla: 'dioceses',
+        szintNev: 'Egyházmegyei',
+        hianyzikUzenet: 'Az egyházmegye nem található.',
+      }
+    case 'district':
+      return {
+        tabla: 'districts',
+        szintNev: 'Egyházkerületi',
+        hianyzikUzenet: 'Az egyházkerület nem található.',
+      }
+    case 'congregation':
+      // Ide a hívó `!== 'congregation'` kapuja miatt nem jutunk el; ha valaki
+      // egyszer mégis idehívja, HANGOS hibát kapjon.
+      throw new Error('A gyülekezeti fejléc nem a felső szintű törzsadatból épül.')
+    default: {
+      const _nemKezelt: never = scope
+      throw new Error(`Ismeretlen modul-hatókör: ${String(_nemKezelt)}`)
+    }
+  }
 }
 
 function joinName(csaladnev: string | null, kNev: string | null): string {

@@ -201,25 +201,60 @@ DECLARE
   v_tabla  text;
   v_jelzo  text;
   v_id     record;
+  v_szuro  text;   -- 2026-08-19 UTÓLAGOS KIEGÉSZÍTÉS: a scope-szűrő, táblánként
 BEGIN
   FOREACH sor SLICE 1 IN ARRAY terv LOOP
     v_tabla := sor[1]; v_jelzo := sor[2];
     tbl := v_tabla; deleted_count := 0; skipped_count := 0;
+
+    -- ⚠️ 2026-08-19 UTÓLAGOS KIEGÉSZÍTÉS — CSAK ÚJRAFUTTATÁSKOR SZÁMÍT.
+    -- Ez a fájl 2026-08-14-én már lefutott; élesben azóta a
+    -- 2026-08-17-egyhazkeruleti-S5a-scope-oszlopok.sql 1/G szakasza írta újra a
+    -- függvényt, EZZEL a scope-szűrővel. Mivel ITT is DROP FUNCTION +
+    -- CREATE FUNCTION áll, e fájl bármikori ÚJRAFUTTATÁSA NÉMÁN visszaállítaná
+    -- a SZŰRETLEN törzset — és a következő napi takarítás (03:15 UTC)
+    -- FIZIKAILAG törölné a MEGYEI (diocese_id) és a KERÜLETI (district_id)
+    -- sorokat is. Egyik szintnek SINCS Kuka-felülete, ahonnan a 30 napos ablak
+    -- alatt visszaállíthatná őket: az adatvesztés VISSZAVONHATATLAN volna.
+    -- Ezért a szűrő ITT IS benne van — a két fájl törzse így AZONOS, bármelyik
+    -- sorrendben futtatható. A GYÜLEKEZETI viselkedés BYTE-RA változatlan: a
+    -- gyülekezeti sor congregation_id-je definíció szerint nem NULL.
+    -- A szűrőt OSZLOP-LÉTEZÉS szerint állítjuk össze — nem minden táblának van
+    -- congregation_id oszlopa, és vakon hozzáfűzve az EXECUTE hibára futna,
+    -- vagyis a tábla NÉMÁN a -1-es hiba-ágra kerülne. SZÁNDÉKOSAN a
+    -- hiba-elnyelő BEGIN … EXCEPTION blokk ELŐTT áll: itteni hiba HANGOSAN
+    -- bukjon, ne szűretlen DELETE-be forduljon.
+    SELECT CASE WHEN EXISTS (
+             SELECT 1 FROM information_schema.columns c
+             WHERE c.table_schema = 'public'
+               AND c.table_name::text = v_tabla
+               AND c.column_name = 'congregation_id')
+           THEN ' AND congregation_id IS NOT NULL'
+           ELSE '' END
+      INTO v_szuro;
+    -- Fail-closed: a format() a NULL-t ÜRES sztringre cserélné, vagyis egy NULL
+    -- szűrő NÉMÁN szűretlen törlést jelentene.
+    IF v_szuro IS NULL THEN
+      RAISE EXCEPTION 'purge_recycle_bin: a(z) % scope-szűrője NULL lett — fail-closed leállás (szűretlen törlés helyett).', v_tabla;
+    END IF;
+
     BEGIN
       -- Gyors út: egyetlen tömeges DELETE.
       EXECUTE format(
-        'DELETE FROM public.%I WHERE %I = true AND deleted_at IS NOT NULL AND deleted_at < now() - interval ''30 days''',
-        v_tabla, v_jelzo);
+        'DELETE FROM public.%I WHERE %I = true AND deleted_at IS NOT NULL AND deleted_at < now() - interval ''30 days''%s',
+        v_tabla, v_jelzo, v_szuro);
       GET DIAGNOSTICS deleted_count = ROW_COUNT;
     EXCEPTION WHEN OTHERS THEN
       -- Tartalék út: SORONKÉNT — ami törölhető, törlődjön; a védett sor
       -- kimarad és számoljuk. Egy beragadt sor így NEM tartja túszul a
       -- tábla többi 30+ napos sorát.
+      -- ⚠️ 2026-08-19: a scope-szűrő ITT IS rajta van — enélkül a tartalék-ág
+      --    megkerülné, és pont a hibás úton törölné a megyei/kerületi sorokat.
       BEGIN
         deleted_count := 0;
         FOR v_id IN EXECUTE format(
-          'SELECT id FROM public.%I WHERE %I = true AND deleted_at IS NOT NULL AND deleted_at < now() - interval ''30 days''',
-          v_tabla, v_jelzo)
+          'SELECT id FROM public.%I WHERE %I = true AND deleted_at IS NOT NULL AND deleted_at < now() - interval ''30 days''%s',
+          v_tabla, v_jelzo, v_szuro)
         LOOP
           BEGIN
             EXECUTE format('DELETE FROM public.%I WHERE id = $1', v_tabla) USING v_id.id;
@@ -244,10 +279,19 @@ BEGIN
 END;
 $$;
 
+-- ⚠️ 2026-08-19 UTÓLAGOS KIEGÉSZÍTÉS (kerületi S5) — csak újrafuttatáskor számít.
+-- A komment is megkapta a scope-szűrő említését. MIÉRT FONTOS EZ AZ EGY SOR: ez
+-- a szöveg az ADATBÁZIS KATALÓGUSÁBA kerül, és a következő kör onnan fogja
+-- „megtudni", mit csinál a függvény. Ha a törzs szűrve van, de a komment nem
+-- említi, egy későbbi olvasó jóhiszeműen visszaírhatja a szűretlen alakot.
 COMMENT ON FUNCTION public.purge_recycle_bin() IS
   '2026-08-14 (6. pont): a 30 napnál régebben törölt (deleted_at) sorok végleges '
   'törlése mind a 12 soft-delete táblából. FK-védett sor kimarad (skipped_count), '
-  'nem blokkolja a többit. Naponta fut pg_cron-nal (03:15 UTC).';
+  'nem blokkolja a többit. Naponta fut pg_cron-nal (03:15 UTC). '
+  '2026-08-19 (kerületi S5): CSAK a gyülekezeti sorokat takarítja '
+  '(congregation_id IS NOT NULL, oszlop-létezés szerint) — az egyházmegyei és '
+  'egyházkerületi soft-delete soroknak NINCS Kuka-útjuk a felületen, tehát a '
+  'fizikai törlésük visszafordíthatatlan adatvesztés lenne.';
 
 -- Jogosultságok: csak a service_role / pg_cron futtathatja.
 REVOKE ALL ON FUNCTION public.purge_recycle_bin() FROM PUBLIC;

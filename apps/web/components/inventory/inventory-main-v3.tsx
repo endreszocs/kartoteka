@@ -51,6 +51,52 @@ import { printToBrowser } from '@/lib/utils/print-engine-v2'
 import { formatCurrency } from '@/lib/constants/finance'
 import { toast } from 'sonner'
 
+/**
+ * A leltár-felület HÁROM hatóköre — a kanonikus `ModuleScope`
+ * (apps/web/lib/auth/module-scope.ts:71) kliens-oldali párja.
+ * A részletes MIÉRT (miért másolat és nem import) a `scope` propnál áll.
+ */
+type LeltarScope = 'congregation' | 'diocese' | 'district'
+
+/**
+ * A hero SZINT-FÜGGŐ feliratai.
+ *
+ * MIÉRT KÜLÖN, EXHAUSTIVE FÜGGVÉNY, és nem `isDiocese ? … : …` a JSX-ben:
+ * a ternár „minden más" ága NÉMÁN a gyülekezeti szöveget adta volna a
+ * kerületnek — az egyházkerületi ügyintéző „Gyülekezeti vagyonleltár" címet
+ * látott volna a saját, kerületi tételei fölött. A `default: never` ág egy
+ * jövőbeli negyedik szintnél FORDÍTÁSI HIBÁT ad.
+ *
+ * ⚠️ A `congregation` és a `diocese` szöveg BETŰRE a 2026-08-15 óta élő —
+ *    a két meglévő szint felirata nem változik.
+ */
+function leltarFeliratok(scope: LeltarScope): { cim: string; leiras: string } {
+  switch (scope) {
+    case 'congregation':
+      return {
+        cim: 'Gyülekezeti vagyonleltár',
+        leiras:
+          'A hivatalos leltárprogram logikájához igazított, kereshető, helyszín és időszak szerint szűrhető, többféle hivatalos nyomtatványt kezelő felület.',
+      }
+    case 'diocese':
+      return {
+        cim: 'Egyházmegyei vagyonleltár',
+        leiras:
+          'Az egyházmegye saját vagyonleltára — ugyanaz a felület, mint a gyülekezeti leltár, a megye tételeivel és saját leltári számsorral.',
+      }
+    case 'district':
+      return {
+        cim: 'Egyházkerületi vagyonleltár',
+        leiras:
+          'Az egyházkerület saját vagyonleltára — ugyanaz a felület, mint a gyülekezeti leltár, a kerület tételeivel és saját leltári számsorral.',
+      }
+    default: {
+      const _nemKezelt: never = scope
+      throw new Error(`Ismeretlen leltár-hatókör: ${String(_nemKezelt)}`)
+    }
+  }
+}
+
 interface InventoryMainProps {
   congregationName?: string
   /** 2026-05-25: ha true, "Rendszergazdai importáló" tab a sor végén (red-prominent). */
@@ -63,8 +109,25 @@ interface InventoryMainProps {
    * diocese_id-re szűrnek). Megyei módban a gyülekezet-specifikus részek
    * (Anyagraktár, vagyonleltári jelentés véglegesítése/beküldése) rejtve —
    * azok a gyülekezet→megye beküldési út elemei.
+   *
+   * 2026-08-17 (kerületi S5, K2): 'district' = az EGYHÁZKERÜLET saját leltára,
+   * `district_id` scope-oszloppal. A gyülekezet-specifikus részeket a kerület
+   * ugyanúgy nem kapja meg, mint a megye — lásd a `felsoSzint` kaput lentebb.
+   *
+   * ⚠️ EZ A HÁROM ÉRTÉK KÉZI MÁSOLAT, ÉS EGYEZNIE KELL a kanonikus
+   *    `ModuleScope` típussal (apps/web/lib/auth/module-scope.ts:71).
+   *    MIÉRT NEM IMPORTÁLJUK: ez a fájl `'use client'`, a `module-scope.ts`
+   *    viszont `import 'server-only'`-os modul — a Next.js 16 doksi
+   *    (01-app/02-guides/data-security.md) kimondja, hogy kliens-komponens nem
+   *    nyúlhat server-only modulhoz, és a repóban ma EGYETLEN kliens-komponens
+   *    sem teszi. (A pénzügyi ág ugyanezt a `finance-scope-core.ts` tiszta
+   *    maggal oldotta meg; a `module-scope`-nak ilyen magja MÉG NINCS.)
+   *    A fordítói kapu ettől megvan, csak eggyel feljebb: a hívó szerver-oldal
+   *    (`app/(dashboard)/leltar/page.tsx`) a `ModuleScope`-típusú
+   *    `moduleScope.scope`-ot adja ide, tehát egy JÖVŐBELI NEGYEDIK SZINT
+   *    ott HANGOSAN elakad, nem némán a gyülekezeti ágra esik.
    */
-  scope?: 'congregation' | 'diocese'
+  scope?: LeltarScope
   /** false = ellenőri (számvevői) nézet — a rögzítő gombok rejtve. */
   canWrite?: boolean
   /** A csak-olvasható nézet magyar magyarázata (bannerben jelenik meg). */
@@ -82,7 +145,20 @@ export function InventoryMain({
   canWrite = true,
   readOnlyReason = null,
 }: InventoryMainProps) {
-  const isDiocese = scope === 'diocese'
+  // ── 2026-08-17 (kerületi S5): `isDiocese` → `felsoSzint` ──
+  //
+  // ⛔ A HIBAOSZTÁLY, AMIÉRT ÁTNEVEZTÜK: minden kapu, ami ezzel a zászlóval
+  // dolgozik, egy GYÜLEKEZETI SAJÁTOSSÁGOT rejt el (Anyagraktár, vagyonleltári
+  // jelentés véglegesítése és beküldése az egyházmegyéhez). A régi
+  // `=== 'diocese'` alak szerint a kerület „nem-megye" volt, tehát MEGKAPTA
+  // volna ezeket: a kerületi ügyintéző egy üres Anyagraktár-fület és egy
+  // „Beküldöm az egyházmegyének" gombot látott volna, aminek a kerületi
+  // szinten nincs értelme (a kerület fölött nincs egyházmegye).
+  //
+  // Ezért a kapu `!== 'congregation'`, és a NÉV IS EZT MONDJA — egy jövőbeli
+  // negyedik szint automatikusan a helyes oldalra kerül.
+  const felsoSzint = scope !== 'congregation'
+  const { cim: heroCim, leiras: heroLeiras } = leltarFeliratok(scope)
   const [activeTab, setActiveTab] = useState<LeltarTab>('nyilvantartas')
   const [activeView, setActiveView] = useState<ActiveView>('tab')
   const [items, setItems] = useState<InventoryItem[]>([])
@@ -530,19 +606,16 @@ export function InventoryMain({
     <>
       <ModuleHero
         eyebrow="Leltár"
-        title={isDiocese ? 'Egyházmegyei vagyonleltár' : 'Gyülekezeti vagyonleltár'}
-        description={
-          isDiocese
-            ? 'Az egyházmegye saját vagyonleltára — ugyanaz a felület, mint a gyülekezeti leltár, a megye tételeivel és saját leltári számsorral.'
-            : 'A hivatalos leltárprogram logikájához igazított, kereshető, helyszín és időszak szerint szűrhető, többféle hivatalos nyomtatványt kezelő felület.'
-        }
+        title={heroCim}
+        description={heroLeiras}
         pills={[
           congregationName ? { label: congregationName, tone: 'neutral' } : undefined,
           { label: `${filtered.length} aktív tétel`, tone: 'emerald' },
           { label: `${deletedCount} törölt tétel`, tone: 'amber' },
-          // A vagyonleltári JELENTÉS a gyülekezet→megye beküldés útja — megyei
-          // módban nincs ilyen állapot (a megye felterjesztése az S6 szelet).
-          isDiocese
+          // A vagyonleltári JELENTÉS a gyülekezet→megye beküldés útja — felső
+          // szinten (megye ÉS kerület) nincs ilyen állapot; a megye
+          // felterjesztése az S6 szelet, a kerület pedig már a lánc teteje.
+          felsoSzint
             ? undefined
             : { label: isFinalized ? 'Vagyonleltári jelentés véglegesítve' : 'Jelentés szerkeszthető', tone: isFinalized ? 'amber' : 'teal' },
         ].filter(Boolean) as { label: string; tone?: 'neutral' | 'emerald' | 'amber' | 'teal' }[]}
@@ -559,9 +632,12 @@ export function InventoryMain({
       <ColorTabs
         tabs={[
           { value: 'nyilvantartas', label: 'Leltári nyilvántartás', color: 'teal', count: filtered.length },
-          // Az Anyagraktár (materials tábla) gyülekezeti modul — megyei
-          // scope-oszlopa nincs, ezért diocese-módban a fül sem jelenik meg.
-          ...(isDiocese ? [] : [{ value: 'anyagraktar', label: 'Anyagraktár', color: 'emerald' }]),
+          // Az Anyagraktár (materials tábla) GYÜLEKEZETI modul — sem megyei,
+          // sem kerületi scope-oszlopa nincs, ezért felső szinten a fül sem
+          // jelenik meg. (A régi `isDiocese`-kapu a kerületnek MEGMUTATTA
+          // volna — egy örökre üres fület, aminek a betöltése a gyülekezeti
+          // materials táblára futott volna.)
+          ...(felsoSzint ? [] : [{ value: 'anyagraktar', label: 'Anyagraktár', color: 'emerald' }]),
           { value: 'sugo', label: 'Súgó', color: 'teal' },
           // 2026-05-25: Rendszergazdai importáló a sor végén, red-prominent háttérrel
           ...(showAdminImport ? [
@@ -595,7 +671,9 @@ export function InventoryMain({
           </div>
 
           {/* Vagyonleltári jelentés összesítő — tartalmazza az Anyagraktárt is */}
-          {!isDiocese && anyagraktarStats && (
+          {/* Az összesítő az Anyagraktárt is beszámítja — felső szinten (megye,
+              kerület) nincs anyagraktár, ezért a kártya sem jelenik meg. */}
+          {!felsoSzint && anyagraktarStats && (
             <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50/50 to-yellow-50/30 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
@@ -742,8 +820,12 @@ export function InventoryMain({
                     megerősítő dialógus külön kimondja.
                     2026-08-15 (S3): megyei módban rejtve — a vagyonleltári
                     jelentés a gyülekezet→megye beküldés útja; a megye saját
-                    felterjesztése (megye→kerület) az S6 szeletben épül. */}
-                {!isDiocese && canWrite && (
+                    felterjesztése (megye→kerület) az S6 szeletben épül.
+                    2026-08-17 (kerületi S5): a kapu `felsoSzint` lett. A gomb
+                    szövege és a feloldás-kérése az egyházmegyéről beszél
+                    („amíg az egyházmegye feloldást nem ad") — a kerület fölött
+                    viszont nincs egyházmegye, tehát ez a gomb ott hazudna. */}
+                {!felsoSzint && canWrite && (
                 <FinalizeButton
                   documentLabel="vagyonleltári jelentés"
                   year={reportYear}
@@ -756,7 +838,10 @@ export function InventoryMain({
                   unlockPlaceholder="Pl. Kimaradt a februárban vásárolt hangosítás, pótolni szeretném."
                 />
                 )}
-                {!isDiocese && isFinalized && (
+                {/* „Beküldés az egyházmegyének" — GYÜLEKEZETI út. Felső
+                    szinten rejtve: a kerületnek nincs fölöttes egyházmegyéje,
+                    a megye felterjesztése pedig az S6 szelet külön útja. */}
+                {!felsoSzint && isFinalized && (
                   <Button
                     size="sm"
                     variant="outline"

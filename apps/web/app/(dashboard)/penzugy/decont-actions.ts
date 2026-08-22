@@ -13,6 +13,24 @@
  *   migration-docs/sql/2026-06-06-decont-dispozitie-sorszam.sql
  *
  * Csak congregation scope-on érhető el (a decont gyülekezeti bizonylat).
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 2026-08-17 (kerületi S5): AZ EGYHÁZKERÜLET SEM HASZNÁLJA — SZÁNDÉKOSAN
+ * ═══════════════════════════════════════════════════════════════════════════
+ * A modul MIND AZ ÖT hatókör-kapuja `ctx.scope !== 'congregation'` alakú, tehát
+ * a kerület — az egyházmegyéhez hasonlóan — KIMARAD, kód-változtatás nélkül. Ez
+ * NEM véletlen, hanem a helyes viselkedés: a decont a gyülekezeti pénztáros és
+ * a lelkész közötti előleg-elszámolás bizonylata, a sorszáma pedig a
+ * `penzugyi_bizonylat_sorszam` táblából jön, aminek `congregation_id` a
+ * hatóköre (nincs megyei/kerületi számsora). A felső szintek a saját
+ * kiadásaikat közvetlenül a `diocese_kiadas` / `district_kiadas` táblába
+ * könyvelik.
+ *
+ * ⚠️ HA EZ VALAHA MEGVÁLTOZIK: az öt kapu közül a `saveDecont`-ban lévő az
+ * egyetlen ÍRÓ — a másik négy néma üres listát / `1`-es sorszámot ad. Egy
+ * felső szintre nyitás tehát NEM egyetlen `if` átírása: kell hozzá szintenkénti
+ * bizonylat-számsor és a `kiadas`/`befizetes` táblanevek térképre cserélése
+ * (`tablesFor`), különben a kerületi decont a GYÜLEKEZETI könyvekbe írna.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -234,10 +252,13 @@ export async function saveDecont(input: SaveDecontInput): Promise<
   if ('error' in ctx) return { error: ctx.error }
   // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU. Ma redundáns (a decont gyülekezeti
   // funkció, ott a `readOnly` mindig false), de SZÁNDÉKOSAN itt marad: ha a
-  // decont valaha megyei hatókört is kap, a kapu már a helyén van, és nem egy
-  // néma 0-soros mentés hívja fel rá a figyelmet.
+  // decont valaha felső szintű (megyei/kerületi) hatókört is kap, a kapu már a
+  // helyén van, és nem egy néma 0-soros mentés hívja fel rá a figyelmet.
   const writeBlock = financeWriteBlock(ctx)
   if (writeBlock) return writeBlock
+  // A kapu SZÁNDÉKOSAN a gyülekezeti sajátosságot nevezi meg: így MINDEN felső
+  // szint (egyházmegye ÉS 2026-08-17 óta egyházkerület) egyformán kimarad —
+  // egy új szint nem eshet be némán a gyülekezeti könyvelésbe.
   if (ctx.scope !== 'congregation') {
     return { error: 'A decont csak gyülekezeti módban érhető el.' }
   }

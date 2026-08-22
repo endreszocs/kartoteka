@@ -29,7 +29,15 @@ import {
 import { loadBudgetRowsCompat } from '@/lib/finance/budget-compat'
 // 2026-08-15 (egyházmegyei terv, 2.1): hatókör-tudatos évi beállítás-betöltő —
 // a Pénzügyi nyomtatási központ UGYANEZT hívja (közös helper, soha széthúzó másolat).
-import { loadEvBeallitas } from '@/lib/finance/print-scope'
+// 2026-08-17 (kerületi S5): innen jön a hatókör KANONIKUS típusa és a kerületi
+// (még hiányzó) nyomtatvány-ág fail-closed kapuja is.
+import {
+  KERULETI_NYOMTATVANY_CIM,
+  KERULETI_NYOMTATVANY_UZENET,
+  loadEvBeallitas,
+  nyomtatvanyScope,
+  type PrintScope,
+} from '@/lib/finance/print-scope'
 import { createClient } from '@/lib/supabase/client'
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
 import { toast } from 'sonner'
@@ -82,8 +90,14 @@ interface BudgetPrintDialogProps {
    * `diocese_bealitas`-ból jön, és a borító a megyei feliratokat kapja.
    * Elmaradása 'congregation'-t jelentene — vagyis üres megyei ívet —, ezért a
    * megyei oldal KÖTELEZŐEN átadja (lásd finance-tabs.tsx).
+   *
+   * 2026-08-17 (kerületi S5): a típus a KANONIKUS `PrintScope` (= `FinanceScope`),
+   * tehát az EGYHÁZKERÜLETET is befogadja — kézi `'congregation' | 'diocese'`
+   * unió-másolat helyett. A kerületi ÉRTÉK viszont nem nyomtat: a
+   * `nyomtatvanyScope()` `null`-t ad rá, és a dialógus magyarázó, nyomtatást
+   * tiltó előnézetet mutat (a MIÉRT a print-scope.ts-ben).
    */
-  scope?: 'congregation' | 'diocese'
+  scope?: PrintScope
   /** Az egyházkerület neve a megyei borító felső blokkjához. */
   districtName?: string | null
 }
@@ -105,6 +119,12 @@ export function BudgetPrintDialog({
   scope = 'congregation',
   districtName,
 }: BudgetPrintDialogProps) {
+  // ⛔ 2026-08-17 (kerületi S5): a NYOMTATVÁNY-réteg (borító-építő + terv-sor
+  // betöltő) ma csak a gyülekezeti és az egyházmegyei ívet ismeri. `null` =
+  // erre a szintre még nincs ív → a dialógus MAGYARÁZ, nem nyomtat. Enélkül a
+  // kerületi adat gyülekezeti fejléccel menne papírra.
+  const keszScope = nyomtatvanyScope(scope)
+
   // Tényleges adatok aggregálása szamadasicel kódonként.
   // 2026-08-11 (6. kör): a részszámadás INNEN KIKERÜLT (a FinancePrintDialogba
   // költözött) — nincs többé időszak-szűrés ebben az ablakban.
@@ -161,6 +181,14 @@ export function BudgetPrintDialog({
 
   const onLoadBudgetRows = useCallback(
     async (year: number) => {
+      // ⛔ Kerületi hatókör: nincs mit betölteni, mert nincs mibe nyomtatni.
+      // A `loadBudgetRowsCompat` a `district_koltsegvetes`-t nem ismeri, tehát
+      // a gyülekezeti táblában keresné a kerület azonosítóját → 0 sor, és az
+      // ív MINDEN tétele nullával menne ki. Hangos üzenet néma nullák helyett.
+      if (keszScope === null) {
+        return { error: KERULETI_NYOMTATVANY_UZENET }
+      }
+
       const supabase = createClient()
 
       // A beállítás-sor lekérése SOSEM buktathatja el a terv-sorok betöltését:
@@ -182,7 +210,7 @@ export function BudgetPrintDialog({
           // `diocese_koltsegvetes` tábla. Enélkül a megyei Költségvetés-ív
           // MINDEN sora nullával ment ki (a lekérés a gyülekezeti táblában
           // kereste az egyházmegye azonosítóját).
-          loadBudgetRowsCompat(supabase, year, settings.congregation_id, scope),
+          loadBudgetRowsCompat(supabase, year, settings.congregation_id, keszScope),
           beallitasBetoltes,
         ])
         setEvBeallitas(beallitas)
@@ -200,7 +228,7 @@ export function BudgetPrintDialog({
         }
       }
     },
-    [settings.congregation_id, scope],
+    [settings.congregation_id, scope, keszScope],
   )
 
   // A panel „Véglegesítve" sorához: a betöltött év sora, betöltés előtt a
@@ -236,6 +264,14 @@ export function BudgetPrintDialog({
           computeActuals={computeActuals}
           onLoadBudgetRows={onLoadBudgetRows}
           buildReport={(filters: BudgetPrintFilters) => {
+            // ⛔ 2026-08-17 (kerületi S5): a kerületi ív az S6 szeleté. Amíg
+            // nincs kész, itt ÁLLUNK MEG — a `blocked: true` a gombokat is
+            // letiltja. Ha átengednénk, a borító gyülekezeti (illetve megyei)
+            // fejlécet írna a kerület adatai fölé, és azt valaki aláírná.
+            if (keszScope === null) {
+              return magyarazoElonezet(KERULETI_NYOMTATVANY_CIM, KERULETI_NYOMTATVANY_UZENET)
+            }
+
             const isSzamadas = filters.printType === 'szamadas'
 
             // 2026-08-15 (átvilágítás 13.): a véglegesítés-állapot és a
@@ -283,7 +319,7 @@ export function BudgetPrintDialog({
               // 2026-08-15 (terv 2.1/3): a borító feliratai a KIÁLLÍTÓ szintjét
               // követik — megyei íven egyházkerületi blokk, egyházmegyei
               // iktatószám, közgyűlési határozat.
-              printScope: scope,
+              printScope: keszScope,
               districtName,
               year: filters.selectedYear,
               carryoverCash,

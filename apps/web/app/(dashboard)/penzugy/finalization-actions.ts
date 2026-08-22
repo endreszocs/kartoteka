@@ -11,9 +11,33 @@
  *
  * Ez az action a 2. lépéshez (ellenőrzések) és a 3. lépéshez (jkv lista) ad
  * támogatást.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 2026-08-17 (KERÜLETI S5) — A HARMADIK SZINT ÉS A VÉGLEGESÍTÉS MINT JOGI AKTUS
+ * ─────────────────────────────────────────────────────────────────────────────
+ * A wizard két szerver-támogatója eddig `if (scope === 'diocese') { … }` +
+ * utána GYÜLEKEZETI kód alakban élt. Ez a kerületnél NÉMÁN a gyülekezeti ágra
+ * esett volna, és ott a legrosszabb módon: a gyülekezeti ág nem a pénzügyi
+ * hatókörből, hanem az `access.effectiveCongregationId`-ból dolgozik. Egy
+ * kerületi adminisztrátor tipikusan EGYÚTTAL egy gyülekezet lelkésze is, tehát
+ * nem hibát kapott volna, hanem A SAJÁT GYÜLEKEZETE ellenőrzési listáját és
+ * presbiteri jegyzőkönyveit — a KERÜLET számadásának véglegesítő wizardjában.
+ * A lelkész a saját gyülekezete adatai alapján nyomott volna „véglegesítés"-t
+ * egy egyházkerületi hivatalos számadásra. Ezért mindkét kapu mostantól a
+ * GYÜLEKEZETI sajátosságot nevezi meg (`=== 'congregation'` / `!== 'congregation'`).
+ *
+ * A felső szintek ellenőrzés-listája KÖZÖS (`runFelsoSzintFinalizationChecks`):
+ * a kerület a megyei MVP tükörképét kapja, ahogy K2 rendelkezik. A megyei ág
+ * eredménye BYTE-RA változatlan (ugyanaz a két check, ugyanazok a kulcsok,
+ * szövegek és `fixUrl`-ek).
  */
 
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+// ⚠️ SZÁNDÉKOSAN a MAGBÓL (`finance-scope-core`), nem a gazda-modulból: a
+// `getFinanceScopeContext`-et ez a fájl továbbra is DINAMIKUSAN tölti be (lásd
+// lentebb), így a modul-gráf változatlan marad. A mag import-mentes, tiszta
+// tábla-térkép — a statikus behúzása semmilyen server-only láncot nem hoz.
+import { tablesFor, type FinanceScope } from '@/lib/auth/finance-scope-core'
 
 // ─────────────────────────────────────────────────────────────
 // 1) Ellenőrzések
@@ -64,13 +88,21 @@ export async function runFinalizationChecks(year: number): Promise<{
   data?: FinalizationChecksResult
   error?: string
 }> {
-  // 2026-04-18 SCOPE-AWARE: diocese módban egyszerűsített MVP check-lista
+  // 2026-04-18 SCOPE-AWARE: felső szinten egyszerűsített MVP check-lista.
+  //
+  // ⛔ 2026-08-17 (kerületi S5): a kapu `=== 'diocese'`-ről `!== 'congregation'`-re
+  // változott. A MIÉRT a fájl fejlécében áll: a régi alakkal a KERÜLETI
+  // véglegesítő wizard a lelkész SAJÁT GYÜLEKEZETE ellenőrzéseit mutatta volna
+  // (az alábbi gyülekezeti ág az `effectiveCongregationId`-ból dolgozik, nem a
+  // pénzügyi hatókörből) — hibaüzenet nélkül, egy jogi aktus előtt.
+  // A megyei viselkedés változatlan: ugyanaz a két check ugyanazokkal a
+  // kulcsokkal és szövegekkel.
   const { getFinanceScopeContext } = await import('@/lib/auth/finance-scope')
   const fsCtx = await getFinanceScopeContext()
   if ('error' in fsCtx) return { error: fsCtx.error }
 
-  if (fsCtx.scope === 'diocese') {
-    return runDioceseFinalizationChecks(fsCtx.supabase, fsCtx.scopeId, year)
+  if (fsCtx.scope !== 'congregation') {
+    return runFelsoSzintFinalizationChecks(fsCtx.supabase, fsCtx.scope, fsCtx.scopeId, year)
   }
 
   const access = await getEffectiveAccessContext()
@@ -342,13 +374,22 @@ export interface JegyzokonyvForFinalization {
 export async function listJegyzokonyvekForFinalization(
   year: number,
 ): Promise<{ data?: JegyzokonyvForFinalization[]; error?: string }> {
-  // 2026-04-18 SCOPE-AWARE: diocese módban a Kartotéka-jkv integráció
-  // még nem épült ki a presbiteri_jegyzokonyvek scope-bővítésével → üres
-  // array, amire a wizard automatikusan manual jkv módra vált
+  // 2026-04-18 SCOPE-AWARE: felső szinten a Kartotéka-jkv integráció még nem
+  // épült ki a `presbiteri_jegyzokonyvek` scope-bővítésével → üres array, amire
+  // a wizard automatikusan manuális jkv módra vált.
+  //
+  // ⛔ 2026-08-17 (kerületi S5): a kapu `=== 'diocese'`-ről `!== 'congregation'`-re
+  // változott. A régi alakkal a kerületi véglegesítő wizard a lelkész SAJÁT
+  // GYÜLEKEZETE presbiteri jegyzőkönyveit kínálta volna fel az EGYHÁZKERÜLET
+  // számadásához csatolandó jegyzőkönyvként — vagyis a kerület hivatalos irata
+  // egy gyülekezeti presbiteri határozatra hivatkozott volna. A `presbiteri_`
+  // jegyzőkönyv fogalmilag is gyülekezeti testület irata; a kerületi testület
+  // (közgyűlés) jegyzőkönyve KÜLÖN kör (S6/S7), addig manuális csatolás megy.
+  // A megyei viselkedés változatlan (üres lista → manuális mód).
   const { getFinanceScopeContext } = await import('@/lib/auth/finance-scope')
   const fsCtx = await getFinanceScopeContext()
   if ('error' in fsCtx) return { error: fsCtx.error }
-  if (fsCtx.scope === 'diocese') {
+  if (fsCtx.scope !== 'congregation') {
     return { data: [] }
   }
 
@@ -423,28 +464,50 @@ export async function listJegyzokonyvekForFinalization(
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Diocese-scope check — egyszerűsített MVP
+// FELSŐ SZINTEK (egyházmegye + 2026-08-17 óta egyházkerület) — egyszerűsített
+// MVP check-lista
 // ─────────────────────────────────────────────────────────────────────────
-async function runDioceseFinalizationChecks(
+/**
+ * ⚠️ MIÉRT KÖZÖS FÜGGVÉNY, ÉS NEM EGY MÁSOLAT A KERÜLETNEK: a projekt visszatérő
+ * hibaosztálya, hogy „a második felület a régi implementációt őrzi". Ha a
+ * kerület saját másolatot kapna, a két szint ellenőrzés-listája idővel némán
+ * széthúzna — és a véglegesítés JOGI AKTUS: két szint nem zárhat két különböző
+ * szigorúsággal anélkül, hogy ezt valaki eldöntötte volna.
+ *
+ * ⚠️ A TÁBLA- ÉS OSZLOPNEVEK A `tablesFor` TÉRKÉPBŐL jönnek, nem kézzel írt
+ * literálból: így ha egyszer egy negyedik szint jön, itt nincs mit módosítani,
+ * és nem eshet vissza némán a gyülekezeti táblákra (a térkép exhaustive).
+ *
+ * ⚠️ A paraméter típusa `Exclude<FinanceScope, 'congregation'>`: a gyülekezeti
+ * hatókörrel EZT A FÜGGVÉNYT MEGHÍVNI FORDÍTÁSI HIBA. A gyülekezetnek saját,
+ * jóval bővebb (bank-nyitó, FX, Oblio, járulék) ellenőrzés-listája van.
+ */
+async function runFelsoSzintFinalizationChecks(
   supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>,
-  dioceseId: string,
+  scope: Exclude<FinanceScope, 'congregation'>,
+  scopeId: string,
   year: number,
 ): Promise<{ data: FinalizationChecksResult; error?: undefined }> {
   const yearStart = `${year}-01-01`
   const yearEnd = `${year}-12-31`
+  const T = tablesFor(scope)
 
+  // A `select` oszloplistája SZÁNDÉKOSAN literál marad: mindkét felső szint
+  // kategória-oszlopa `id_szamadasicel` (lásd `tablesFor` — a térkép ezt
+  // állítja mindkét ágon), a postgrest-js viszont a sor típusát a select-sztring
+  // LITERÁLJÁBÓL vezeti le, futásidőben összefűzött sztringtől elveszti.
   const [befRes, kiaRes] = await Promise.all([
     supabase
-      .from('diocese_befizetes')
+      .from(T.befizetes)
       .select('id, id_szamadasicel, stornozott')
-      .eq('diocese_id', dioceseId)
+      .eq(T.scopeCol, scopeId)
       .eq('deleted', false)
       .gte('datum', yearStart)
       .lte('datum', yearEnd),
     supabase
-      .from('diocese_kiadas')
+      .from(T.kiadas)
       .select('id, id_szamadasicel, stornozott')
-      .eq('diocese_id', dioceseId)
+      .eq(T.scopeCol, scopeId)
       .eq('deleted', false)
       .gte('datum', yearStart)
       .lte('datum', yearEnd),
@@ -487,16 +550,33 @@ async function runDioceseFinalizationChecks(
     fixLabel: kiaMissing.length > 0 ? 'Javítás a Tranzakciók fülön' : undefined,
   })
 
-  // Informatív: bank nyitó egyenleg / FX revaluation / Oblio — diocese módban
+  // Informatív: bank nyitó egyenleg / FX revaluation / Oblio — felső szinten
   // MVP-ben nem érhető el, így skippeljük. Phase 5 bővítés.
-  items.push({
-    key: 'diocese_info',
-    label: 'Egyházmegyei sajátosság',
-    description: 'Egyházmegyei szinten a bank nyitó, FX átértékelés és Oblio-integráció jelenleg MVP-n kívül.',
-    status: 'ok',
-    detail: 'A következő körökben bővül.',
-    blocking: false,
-  })
+  //
+  // ⚠️ A KULCS ÉS A SZÖVEG SZINT-FÜGGŐ. A megyei ág (`diocese_info` +
+  // „Egyházmegyei sajátosság") BETŰRE a korábbi. A kerület saját kulcsot kap:
+  // a `key` a wizard React-listájának azonosítója és a jövőbeli mentett
+  // ellenőrzés-naplóé is — ha a kerületi sor `diocese_info` néven futna, egy
+  // kerületi számadás naplójában az állna, hogy „egyházmegyei sajátosság".
+  items.push(
+    scope === 'diocese'
+      ? {
+          key: 'diocese_info',
+          label: 'Egyházmegyei sajátosság',
+          description: 'Egyházmegyei szinten a bank nyitó, FX átértékelés és Oblio-integráció jelenleg MVP-n kívül.',
+          status: 'ok',
+          detail: 'A következő körökben bővül.',
+          blocking: false,
+        }
+      : {
+          key: 'district_info',
+          label: 'Egyházkerületi sajátosság',
+          description: 'Egyházkerületi szinten a bank nyitó, FX átértékelés és Oblio-integráció jelenleg MVP-n kívül.',
+          status: 'ok',
+          detail: 'A következő körökben bővül.',
+          blocking: false,
+        },
+  )
 
   const hasBlocker = items.some((i) => i.blocking && i.status === 'error')
   const hasWarning = items.some((i) => i.status === 'warning')

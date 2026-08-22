@@ -13,6 +13,21 @@
  *
  * Sorszámozás: gyülekezetenként + évente, típusonként (dp_plata / dp_incasare).
  * Csak congregation scope.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 2026-08-17 (kerületi S5): AZ EGYHÁZKERÜLET SEM HASZNÁLJA — SZÁNDÉKOSAN
+ * ═══════════════════════════════════════════════════════════════════════════
+ * A modul MIND A HAT hatókör-kapuja `ctx.scope !== 'congregation'` alakú, ezért
+ * a kerület — az egyházmegyéhez hasonlóan — KIMARAD, kód-változtatás nélkül.
+ * Ez a helyes viselkedés (K2 „a kerület a megye mintáját követi"): a
+ * dispoziție a gyülekezeti kassza bizonylata, a sorszáma a
+ * `penzugyi_bizonylat_sorszam` `congregation_id`-hatókörű számsorából jön, és a
+ * `dispozitie` táblának nincs sem `diocese_id`, sem `district_id` oszlopa.
+ *
+ * ⚠️ HA EZ VALAHA MEGVÁLTOZIK: a hat kapuból csak a `saveDispozitie` ír; a
+ * megnyitás nem egyetlen `if` átírása, hanem szintenkénti bizonylat-számsor +
+ * a `kiadas`/`befizetes` táblanevek `tablesFor`-térképre cserélése — különben a
+ * kerületi rendelvény a GYÜLEKEZETI könyvekbe könyvelne.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -313,6 +328,8 @@ export async function saveDispozitie(input: SaveDispozitieInput): Promise<
   // pontján lévő indoklást (ma redundáns, de a helyén marad).
   const writeBlock = financeWriteBlock(ctx)
   if (writeBlock) return writeBlock
+  // A kapu SZÁNDÉKOSAN a gyülekezeti sajátosságot nevezi meg: így MINDEN felső
+  // szint (egyházmegye ÉS 2026-08-17 óta egyházkerület) egyformán kimarad.
   if (ctx.scope !== 'congregation') {
     return { error: 'A dispoziție csak gyülekezeti módban érhető el.' }
   }

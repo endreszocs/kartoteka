@@ -292,7 +292,22 @@ BEGIN
     FROM pg_policies p
     WHERE p.schemaname = 'public'
       AND p.tablename = 'iktato_csatolmany'
-      AND p.policyname NOT LIKE '%diocese%'
+      AND p.policyname NOT LIKE '%diocese%'   -- a diocese-lábakat nem burkoljuk
+      -- ⚠️ 2026-08-18 UTÓLAGOS KIEGÉSZÍTÉS — NEM a fájl eredeti (2026-08-15-i)
+      --    állapota! Ez a fájl akkor MÁR ÉLESBEN LEFUTOTT; a mostani sor kizárólag
+      --    az ÚJRAFUTTATÁSKOR számít.
+      --    INDOK: 2026-08-17 óta a KERÜLETI (3. szint) RLS-lábak is ezen a táblán
+      --    élnek (iktato_csatolmany_district_select / _insert / _delete — lásd
+      --     2026-08-17-egyhazkeruleti-S5a-scope-oszlopok.sql 1/F).
+      --    Egy kerületi láb beburkolása congregation_id IS NOT NULL AND (…) alakra
+      --    ÖRÖKRE HAMIS volna (kerületi sornál a congregation_id NULL) → MINDEN
+      --    kerületi csatolmány NÉMÁN eltűnne a felületről.
+      --    Az S5a immunizálja a saját lábait, de a gyökeret ITT kell zárni: minden
+      --    JÖVŐBELI kerületi policy, amelyik lemarad az immunizáló tagról, e nélkül
+      --    a sor nélkül némán beburkolódna.
+      --    A MEGYEI viselkedést NEM változtatja: megyei policy neve sosem tartalmaz
+      --    district-et (a megyei lábak neve iktato_csatolmany_diocese_*).
+      AND p.policyname NOT LIKE '%district%'
       AND (COALESCE(p.qual,'') || ' ' || COALESCE(p.with_check,''))
           NOT LIKE '%congregation_id IS NOT NULL%'
   LOOP

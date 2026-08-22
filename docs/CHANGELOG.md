@@ -23,6 +23,75 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-22] — A fogadóképernyő elcsúszott laptopon
+<!-- key: 2026-08-22-splash-laptop-elcsuszas -->
+<!-- category: bugfix -->
+<!-- version: 0.9.171 -->
+<!-- targets: mindenki -->
+
+### 🐛 Javítások
+
+- **A bejelentkezés előtti fogadóképernyő elcsúszott laptopon**: a „Békesség Istentől!"
+  köszöntő képe nem középen állt, hanem jobbra-lefelé tolódva, bal oldalt és fölül fekete
+  sávval. Mostantól minden képernyőméreten középen van.
+- **A köszöntő felirat teteje levágódott a laposabb laptop-képernyőkön**: a kép eddig
+  mindig kitöltötte a képernyőt, és a felesleget fölülről-alulról vágta le — pont ott, ahol
+  a felirat van. Mostantól, ha a vágás elérné a feliratot, a program inkább teljes egészében
+  megmutatja a képet (keskeny sávval a szélén). Széles képernyőn (16:9) semmi nem változik.
+
+---
+
+## [2026-08-19] — Az egyházkerület saját könyvet, leltárt és iktatót vezet
+<!-- key: 2026-08-19-egyhazkeruleti-konyveles-leltar-iktatas -->
+<!-- category: feature -->
+<!-- version: 0.9.171 -->
+<!-- targets: egyhazkeruleti admin + szamvevo -->
+
+### ✨ Új funkciók
+
+- **Egyházkerületi könyvelés**: az egyházkerület mostantól ugyanúgy vezeti a saját
+  számadását és költségvetését, ahogy az egyházmegye. A Pénzügy menüpont megjelent a
+  kerületi oldalsávban, és a saját adattábláiba dolgozik — a gyülekezetek és a megyék
+  könyvéhez sem hozzáférése, sem köze nincs.
+- **Egyházkerületi leltár és iktatás**: a Leltár és az Iktatás felület kerületi
+  hatókörben is működik, saját leltári szám- és iktatószám-sorral. A kerületi iktatószám
+  külön számsorból jön, tehát nem fogyasztja és nem is ütközik a gyülekezeti vagy megyei
+  számokkal.
+- **Kerületi számvevő**: az ellenőr mindent lát, de semmit nem módosít — és ha
+  megpróbálná, világos magyarázatot kap, nem néma hibát.
+
+### 🎨 UX javítások
+
+- **A menü megmondja, hol vagy**: a kerületi oldalsáv sorrendje szándékosan ugyanaz, mint
+  a megyeié, mert ugyanaz a személy jár át a két szint között.
+- **Nincs több félrevezető felirat**: az egyházkerület a legfelső szint, ezért a
+  véglegesítés nála lezár, de nem küld fel, és a feloldás-kérelem sem „elbírálás alatt"
+  áll, hanem „rögzítve" — nincs ugyanis fölötte fórum, aki elbírálná.
+
+### 🔒 Biztonsági javítások
+
+- **A heti kukaürítés eddig törölte volna az egyházmegyei és kerületi sorokat**: a
+  takarító művelet nem volt gyülekezeti hatókörre szűkítve, pedig a felsőbb szintek
+  sorainak nincs Kuka-útjuk — vagyis végleg eltűntek volna. Mostantól csak a gyülekezeti
+  sorokat takarítja.
+- **A kerületi melléklet nem szivároghat idegen irathoz**: az iktatói csatolmányokat
+  háromoszlopos, szintenként külön kulcs köti az irathoz.
+
+### 🐛 Javítások
+
+- **Az egyházmegyei Számadás fülön a tartozás-rögzítő nem került a felsőbb szintekre**:
+  a felsőbb szintű felhasználó eddig kitölthetett volna egy űrlapot, amelyből semmi nem
+  mentődik.
+- **„Belépés a gyülekezetbe" kerületi adminként**: amikor az egyházkerületi adminisztrátor
+  belép egy gyülekezetbe (támogatás, lelkészi kérésre), a Pénzügy, a Leltár és az Iktatás
+  mostantól helyesen ANNAK A GYÜLEKEZETNEK az adatait mutatja. Enélkül a kerület saját
+  könyvei jelentek volna meg — a gyülekezet neve alatt.
+- **Decont és Dispoziție felsőbb szinten**: a két gomb eddig az egyházmegyei nézetben is
+  megjelent, pedig a művelet gyülekezeti — az esperes kitölthette a űrlapot, és csak
+  mentéskor derült ki, hogy nem menthető. Mostantól felsőbb szinten nem jelenik meg.
+
+---
+
 ## [2026-08-17] — Kerületi irattár és összesítő: a megyék adatai egy íven
 <!-- key: 2026-08-17-egyhazkeruleti-irattar-osszesito -->
 <!-- category: feature -->

@@ -9,11 +9,16 @@ import type { FilingEntry, IktatoYearlyClosure } from '@/lib/constants/filing'
 import { computeSequencePreview, readSequencePointer } from '@/lib/filing/sequence-preview'
 import type { SequencePreview, SequenceScopeKey } from '@/lib/filing/sequence-preview'
 // 2026-08-15 (egyházmegyei szint, S4): a hatókör a KÖZÖS module-scope helperből
-// jön (gyülekezet VAGY egyházmegye) — minden lekérdezés `.eq(ctx.scopeCol,
-// ctx.scopeId)`-vel szűr, a sorszám-kiosztás pedig scope-onként külön számsoron
-// fut (next_iktato_sequence / next_iktato_sequence_dio RPC).
+// jön (gyülekezet VAGY egyházmegye VAGY egyházkerület) — minden lekérdezés
+// `.eq(ctx.scopeCol, ctx.scopeId)`-vel szűr, a sorszám-kiosztás pedig
+// scope-onként külön számsoron fut (next_iktato_sequence /
+// next_iktato_sequence_dio / next_iktato_sequence_dis RPC).
+// 2026-08-17 (kerületi S5): HARMADIK hatókör — egyházkerület (`district_id`,
+// next_iktato_sequence_dis). Az RPC-választás innentől NEM ebben a fájlban,
+// hanem a module-scope `iktatoSequenceRpcFor` exhaustive térképében él.
 import {
   getModuleScopeContext,
+  iktatoSequenceRpcFor,
   moduleWriteBlock,
   type ModuleScopeContext,
 } from '@/lib/auth/module-scope'
@@ -93,7 +98,7 @@ export async function getNextFilingNumberPreview(
 ): Promise<SequencePreview & { error: string | null }> {
   const { ctx } = await getScopeCtx()
   if (!ctx) {
-    return { year, sequenceNumber: 0, iratszam: '', pointerVisible: false, error: 'Nincs aktív gyülekezet vagy egyházmegye.' }
+    return { year, sequenceNumber: 0, iratszam: '', pointerVisible: false, error: 'Nincs aktív gyülekezet, egyházmegye vagy egyházkerület.' }
   }
   const preview = await computeSequencePreview(ctx.supabase, scopeKeyOf(ctx), year)
   return { ...preview, error: null }
@@ -208,9 +213,9 @@ export async function saveFilingEntry(data: FilingEntryInput) {
     file_folder: d.file_folder || null,
     targykivonat: d.targykivonat || null, elintezes_ideje: d.elintezes_ideje || null,
     elintezes_modja: d.elintezes_modja || null, irattarijel: d.irattarijel || null,
-    // 2026-08-15 (S4): a scope-oszlop dinamikus (congregation_id VAGY
-    // diocese_id) — a DB-oldali CHECK (iktato_pontosan_egy_scope) őrzi, hogy
-    // pontosan az egyik legyen kitöltve.
+    // 2026-08-15 (S4) + 2026-08-17 (S5): a scope-oszlop dinamikus
+    // (congregation_id VAGY diocese_id VAGY district_id) — a DB-oldali CHECK
+    // (iktato_pontosan_egy_scope) őrzi, hogy pontosan az egyik legyen kitöltve.
     megjegyzes: d.megjegyzes || null, deleted: false, [ctx.scopeCol]: ctx.scopeId, year,
     // 2026-05-28: EREK 2024-es ügykörjegyzék szerinti új mezők
     external_ref_szam: d.external_ref_szam || null,
@@ -267,19 +272,23 @@ export async function saveFilingEntry(data: FilingEntryInput) {
     // a next_iktato_sequence_dio RPC végzi (a hívó jogosultságát a szerep-szűrt
     // current_user_diocese_ids()-hez köti, ahogy a gyülekezeti RPC a
     // profiles.congregation_id-hez).
-    const { data: nextSeq, error: rpcErr } =
-      ctx.scope === 'diocese'
-        ? await supabase.rpc('next_iktato_sequence_dio', {
-            p_diocese_id: ctx.scopeId,
-            p_year: year,
-          })
-        : await supabase.rpc('next_iktato_sequence', {
-            p_congregation_id: ctx.scopeId,
-            p_year: year,
-          })
+    //
+    // ⛔ 2026-08-17 (kerületi S5) — MIÉRT NEM TERNARY TÖBBÉ:
+    // itt eddig `ctx.scope === 'diocese' ? …_dio : …` állt. Ha ilyen kód mellé
+    // CSAK a scope-unió bővül egy harmadik szinttel, A FORDÍTÓ NEM SZÓL: a
+    // kerületi irat NÉMÁN a GYÜLEKEZETI számlálóból kapna sorszámot — vagyis egy
+    // idegen gyülekezet számsorát fogyasztaná, és a hivatalos iratra visszamenőleg
+    // javíthatatlan, duplikált iktatószám kerülne. Az RPC-választás ezért a
+    // module-scope `iktatoSequenceRpcFor` EXHAUSTIVE (`default: never`) térképében
+    // él: egy jövőbeli negyedik szint FORDÍTÁSI HIBÁT ad, nem rossz iktatószámot.
+    const seqRpc = iktatoSequenceRpcFor(ctx, year)
+    const { data: nextSeq, error: rpcErr } = await supabase.rpc(seqRpc.fn, seqRpc.args)
     if (rpcErr || nextSeq === null || nextSeq === undefined) {
+      // A hívott RPC NEVE is bemegy az üzenetbe: kerületi/megyei módban a
+      // „nincs telepítve" eset máskülönben a gyülekezeti RPC nevét emlegetné,
+      // és a rendszergazda a rossz migrációt keresné.
       return {
-        error: `Sorszám lekérése sikertelen: ${rpcErr?.message ?? 'a next_iktato_sequence RPC nem adott vissza értéket'}`,
+        error: `Sorszám lekérése sikertelen: ${rpcErr?.message ?? `a ${seqRpc.fn} RPC nem adott vissza értéket`}`,
       }
     }
     record.sequence_number = nextSeq as number
@@ -353,7 +362,7 @@ export async function getFilingStats(year: number) {
 
 // ─── 2026-05-29 Fázis 3: Évvégi iktatókönyv-lezárás ─────────────────────
 
-/** Az aktuális hatókör (gyülekezet vagy egyházmegye) összes évzárása. */
+/** Az aktuális hatókör (gyülekezet, egyházmegye vagy egyházkerület) összes évzárása. */
 export async function getYearlyClosures(): Promise<IktatoYearlyClosure[]> {
   const { ctx } = await getScopeCtx()
   if (!ctx) return []
@@ -443,13 +452,25 @@ export async function reopenFilingYear(year: number) {
   // current_user_diocese_ids) pontosan ezt engedi; a számvevőt a
   // moduleWriteBlock zárja ki. Direkt DELETE — a `.select('id')` miatt a
   // 0-soros (némán semmit sem törlő) eset is hangos.
-  if (ctx.scope === 'diocese') {
+  //
+  // 2026-08-17 (kerületi S5): a kapu `!== 'congregation'`, mert a
+  // SECURITY DEFINER RPC-út a GYÜLEKEZETI szint sajátossága (ott a felettes
+  // egyházmegye a kontroll). A kerület — mint a megye — a lánc felső vége: a
+  // feloldás a kerületi adminisztrátor joga, és a district-láb RLS (FOR ALL,
+  // szerep-szűrt current_user_district_ids) pontosan ezt engedi. A régi
+  // `=== 'diocese'` alakkal a kerület NÉMÁN a gyülekezeti RPC-re esett volna,
+  // ami `p_congregation_id`-ként a kerület azonosítóját kapja → néma no-op.
+  //
+  // A DELETE scope-oszlopa is dinamikus: a korábbi kézzel írt `'diocese_id'`
+  // literál kerületi módban a MÁSIK oszlopra szűrt volna (0 sor, „nem volt
+  // lezárva" üzenettel), miközben a zárás sora ott áll a táblában.
+  if (ctx.scope !== 'congregation') {
     const blocked = moduleWriteBlock(ctx)
     if (blocked) return { error: blocked.error }
     const { data: torolt, error: delErr } = await supabase
       .from('iktato_yearly_closures')
       .delete()
-      .eq('diocese_id', ctx.scopeId)
+      .eq(ctx.scopeCol, ctx.scopeId)
       .eq('year', year)
       .select('id')
     if (delErr) return { error: `Feloldás sikertelen: ${delErr.message}` }

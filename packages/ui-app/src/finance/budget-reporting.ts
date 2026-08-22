@@ -188,6 +188,53 @@ export interface BudgetPeriodBalances {
   movementCount: number
 }
 
+/**
+ * A NYOMTATVÁNY KIÁLLÍTÓJÁNAK SZINTJE — a kanonikus `FinanceScope` tükre.
+ *
+ * ⚠️ KÉZI TÜKÖR, NEM IMPORT. A kanonikus forrás
+ * `apps/web/lib/auth/finance-scope-core.ts` →
+ * `export type FinanceScope = 'congregation' | 'diocese' | 'district'`.
+ * ONNAN NEM IMPORTÁLHATÓ IDE, KÉT okból:
+ *   1. függőségi irány — a `packages/ui-app` az `apps/web` ALATT van
+ *      (a web importál a csomagból, sosem fordítva), és a desktop is ezt a
+ *      fájlt használja;
+ *   2. ez a fájl NULLA futásidejű importtal kell fordítható maradjon: a
+ *      `scripts/selftest-reszszamadas.mjs` önállóan transpilálja (lásd a
+ *      `BudgetPeriodBalances` fölötti megjegyzést).
+ *
+ * ⇒ HA A KANONIKUS TÍPUS BŐVÜL, EZT IS BŐVÍTSD — a `kiallitoSzint()`
+ *   exhaustive switch-e ilyenkor FORDÍTÁSI HIBÁT ad, amíg az új szint
+ *   feliratai be nem kerülnek. Fordítási hiba > hamis felirat hivatalos íven.
+ */
+export type BudgetPrintScope = 'congregation' | 'diocese' | 'district'
+
+/**
+ * A kiállító szintje, `undefined` esetén a gyülekezeti alap.
+ *
+ * MIÉRT KÜLÖN FÜGGVÉNY: az ív négy helyen (számadás-nyilatkozat,
+ * részszámadás-nyilatkozat, borító, aláírás-blokk) dönt szint szerint. Ezek
+ * korábban külön-külön `printScope === 'diocese'` összehasonlítások voltak,
+ * vagyis a KERÜLET — mint „nem-diocese" — némán a GYÜLEKEZETI feliratokat
+ * kapta volna: „Tárgyalta és jóváhagyta a presbitérium", „Lelkipásztor —
+ * aláírása". Egy hivatalos, aláírt papíron ez nem hiba, hanem valótlanság.
+ * Innentől EGY helyen dől el, és a `default` ág fordítói kapu.
+ */
+function kiallitoSzint(scope: BudgetPrintScope | undefined): BudgetPrintScope {
+  switch (scope) {
+    case 'diocese':
+      return 'diocese'
+    case 'district':
+      return 'district'
+    case 'congregation':
+    case undefined:
+      return 'congregation'
+    default: {
+      const _nemLehet: never = scope
+      throw new Error(`Ismeretlen nyomtatvány-hatókör: ${String(_nemLehet)}`)
+    }
+  }
+}
+
 export interface BudgetPrintData {
   cellek: SzamadasiCel[]
   budgetRows: Record<string, BudgetCompatRow>
@@ -205,7 +252,12 @@ export interface BudgetPrintData {
    *     (oda megy be), a határozatot a presbitérium hozza;
    *   - 'diocese': az esperesi hivatal SAJÁT íve — a felső blokk az
    *     EGYHÁZKERÜLET (oda megy fel), az iktatószám EGYHÁZMEGYEI, a határozatot
-   *     az egyházmegyei közgyűlés hozza.
+   *     az egyházmegyei közgyűlés hozza;
+   *   - 'district' (2026-08-17, kerületi S5): a püspöki hivatal SAJÁT íve —
+   *     NINCS felettes blokk (a kerület a rendszer legfelső szintje, nincs
+   *     hová felterjeszteni), az iktatószám EGYHÁZKERÜLETI, a határozatot az
+   *     egyházkerületi közgyűlés hozza, és a püspök + egyházkerületi
+   *     adminisztrátor ír alá.
    *
    * MIÉRT KELL: a megyei Pénzügy ugyanezt a nyomtatót hívja, és eddig a megye
    * saját zárszámadására is „Egyházközségi iktatószám" + „Tárgyalta és
@@ -213,11 +265,16 @@ export interface BudgetPrintData {
    * aláírta. Az elrendezés, a betűk és a táblázat VÁLTOZATLAN: csak a három
    * felirat követi a kiállító szintjét.
    */
-  printScope?: 'congregation' | 'diocese'
+  printScope?: BudgetPrintScope
   /**
-   * Az egyházkerület neve a megyei ív borítójára (pl. „Erdélyi Református
+   * Az egyházkerület neve a MEGYEI ív borítójára (pl. „Erdélyi Református
    * Egyházkerület"). Csak `printScope: 'diocese'` esetén jelenik meg; ha
    * hiányzik, a semleges „REFORMÁTUS EGYHÁZKERÜLET" felirat áll ott.
+   *
+   * ⚠️ A KERÜLETI íven (`printScope: 'district'`) SZÁNDÉKOSAN NINCS szerepe:
+   * ott a kerület a KIÁLLÍTÓ (a saját neve a `congregationName`-ben jön), nem
+   * a címzett. A kerületi ívnek nincs felettes blokkja — lásd a `buildCoverPage`
+   * `felsoSzint` ágát.
    */
   districtName?: string | null
   year: number
@@ -449,8 +506,17 @@ export function buildSzamadasReport(data: BudgetPrintData): BudgetPrintResult {
   // 2026-08-15 (egyházmegyei terv, 2.1/3): a nyilatkozat aláíróit a KIÁLLÍTÓ
   // szintje adja — a megye saját zárszámadásán az esperes és az egyházmegyei
   // gondnok nyilatkozik (az aláírás-blokkal egyezően).
+  // 2026-08-17 (kerületi S5): + kerületi ág. A kerület vezetői a repó bevett
+  // szóhasználata szerint a PÜSPÖK és az EGYHÁZKERÜLETI ADMINISZTRÁTOR
+  // (districts.puspok_nev / adminisztrator_nev — lásd
+  // `dashboard-kerulet/district-actions.ts` és a kerületi összesítő
+  // aláírás-rovatát), ezért itt is ők nyilatkoznak. Enélkül a kerületi
+  // számadáson „Alulírott lelkipásztor és főgondnok" állt volna.
+  const szint = kiallitoSzint(data.printScope)
   const declaration =
-    data.printScope === 'diocese'
+    szint === 'district'
+      ? `<div class="decl">Alulírott püspök és egyházkerületi adminisztrátor felelősségünk tudatában nyilatkozzuk, hogy a számadás adatai valósak és az egyházi rendelkezések szerint készült el.<span class="ro">Subsemnații, episcopul și administratorul eparhial, declarăm pe propria răspundere că datele prezentei execuții bugetare sunt reale și au fost întocmite conform reglementărilor bisericești.</span></div>`
+      : szint === 'diocese'
       ? `<div class="decl">Alulírott esperes és egyházmegyei gondnok felelősségünk tudatában nyilatkozzuk, hogy a számadás adatai valósak és az egyházi rendelkezések szerint készült el.<span class="ro">Subsemnații, protopopul și curatorul protopopiatului, declarăm pe propria răspundere că datele prezentei execuții bugetare sunt reale și au fost întocmite conform reglementărilor bisericești.</span></div>`
       : `<div class="decl">Alulírott lelkipásztor és főgondnok felelősségünk tudatában nyilatkozzuk, hogy a számadás adatai valósak és az egyházi rendelkezések szerint készült el.<span class="ro">Subsemnații, preotul și curatorul principal, declarăm pe propria răspundere că datele prezentei execuții bugetare sunt reale și au fost întocmite conform reglementărilor bisericești.</span></div>`
   const lastExtraHtml = declaration
@@ -567,8 +633,16 @@ export function buildReszszamadasReport(data: BudgetPrintData): BudgetPrintResul
   const total = terv.pages
   // A címzett a KIÁLLÍTÓ felettes szintje: a gyülekezeté az egyházmegye, a
   // megyéé az egyházkerület (egyházmegyei terv, 2.1/3).
+  // 2026-08-17 (kerületi S5): a KERÜLET fölött a rendszerben NINCS szint, ezért
+  // a kerületi részszámadáson nem nevezünk meg címzettet — de a lényeget
+  // („ez nem a zárszámadás") ugyanúgy kimondjuk. A megyei mondatot NEM lehet
+  // átvenni: az az egyházkerületnek címez, vagyis a kerület saját magának
+  // tiltaná meg a felterjesztést.
+  const szint = kiallitoSzint(data.printScope)
   const declaration =
-    data.printScope === 'diocese'
+    szint === 'district'
+      ? `<div class="decl">Alulírottak nyilatkozzuk, hogy a fenti időszak adatai a könyvelés mai állása szerint valósak. Ez a kimutatás <strong>NEM az éves zárszámadás</strong>, és nem lép annak helyébe.<span class="ro">Subsemnații declarăm că datele perioadei de mai sus sunt reale conform situației contabile de astăzi. Această situație <strong>NU este execuția bugetară anuală</strong> și nu ține locul acesteia.</span></div>`
+      : szint === 'diocese'
       ? `<div class="decl">Alulírottak nyilatkozzuk, hogy a fenti időszak adatai a könyvelés mai állása szerint valósak. Ez a kimutatás <strong>NEM az éves zárszámadás</strong>, és az egyházkerületnek nem küldhető fel helyette.<span class="ro">Subsemnații declarăm că datele perioadei de mai sus sunt reale conform situației contabile de astăzi. Această situație <strong>NU este execuția bugetară anuală</strong> și nu poate fi înaintată eparhiei în locul acesteia.</span></div>`
       : `<div class="decl">Alulírottak nyilatkozzuk, hogy a fenti időszak adatai a könyvelés mai állása szerint valósak. Ez a kimutatás <strong>NEM az éves zárszámadás</strong>, és az egyházmegyének nem küldhető be helyette.<span class="ro">Subsemnații declarăm că datele perioadei de mai sus sunt reale conform situației contabile de astăzi. Această situație <strong>NU este execuția bugetară anuală</strong> și nu poate fi înaintată protopopiatului în locul acesteia.</span></div>`
   const lastExtraHtml = buildReszszamadasExtraRows(data, partial) + declaration
@@ -653,12 +727,22 @@ function buildCoverPage(
   // iktatószámot és esperesi aláírást). A megye SAJÁT íve ugyanilyen felépítésű,
   // csak eggyel feljebb: a felső blokk az EGYHÁZKERÜLETÉ, az alsó iktatószám
   // pedig egyházmegyei. Egy elrendezés, három felirat követi a szintet.
-  const megyei = data.printScope === 'diocese'
+  //
+  // 2026-08-17 (kerületi S5): HARMADIK szint. A kerületi ív abban tér el
+  // mindkettőtől, hogy FÖLÖTTE NINCS SZINT a rendszerben — nincs kinek
+  // iktatószámot és aláírást hagyni a lap tetején —, ezért a felettes blokk
+  // ELMARAD. (A megyei ág `districtName`-je itt szándékosan nem játszik: ott a
+  // kerület a CÍMZETT, a kerületi íven viszont maga a KIÁLLÍTÓ.)
+  const szint = kiallitoSzint(data.printScope)
+  const megyei = szint === 'diocese'
+  const keruleti = szint === 'district'
   const felettesNev = megyei
     ? (data.districtName || '').trim().toLocaleUpperCase('hu-HU') ||
       'REFORMÁTUS EGYHÁZKERÜLET'
     : 'REFORMÁTUS EGYHÁZMEGYE'
-  const felettesBlock = megyei
+  const felettesBlock = keruleti
+    ? ''
+    : megyei
     ? `<div class="cv-entity">${esc(felettesNev)} / EPARHIA REFORMATĂ</div>
       <div class="cv-row">
         <div>Egyházkerületi iktatószám / Nr. înreg. eparhie: <span class="cv-line">&nbsp;</span></div>
@@ -669,13 +753,17 @@ function buildCoverPage(
         <div>Egyházmegyei iktatószám / Nr. înreg. protopopiat: <span class="cv-line">&nbsp;</span></div>
         <div>Esperes aláírása / Semnătura protopopului: <span class="cv-line">&nbsp;</span></div>
       </div>`
-  const dioceseBlock = opts?.skipDiocese
+  const dioceseBlock = opts?.skipDiocese || felettesBlock === ''
     ? ''
     : `<div style="margin-top:8mm;">
       ${felettesBlock}
     </div>`
   // A kiállító SAJÁT iktatószámának felirata (a név alatti sor).
-  const sajatIktatoFelirat = megyei
+  // A kerületi felirat-pár BETŰRE az, ami a megyei ív FELSŐ blokkjában áll
+  // (lásd fentebb) — ugyanaz a hivatal, csak most kiállítóként.
+  const sajatIktatoFelirat = keruleti
+    ? 'Egyházkerületi iktatószám / Nr. înreg. eparhie'
+    : megyei
     ? 'Egyházmegyei iktatószám / Nr. înreg. protopopiat'
     : 'Egyházközségi iktatószám / Nr. înreg. parohie'
   const titleBlock = opts?.titleOverride
@@ -694,16 +782,22 @@ function buildCoverPage(
       <div style="font-size:10px;color:#333;margin-top:3px;">Întocmit: ${esc(opts.keszult || '')} · conform situației contabile din ziua respectivă.</div>
     </div>`
     : `<div style="margin-top:40mm;text-align:center;font-size:12px;">
-      ${megyei
+      ${keruleti
+        ? 'Tárgyalta és jóváhagyta az egyházkerületi közgyűlés a'
+        : megyei
         ? 'Tárgyalta és jóváhagyta az egyházmegyei közgyűlés a'
         : 'Tárgyalta és jóváhagyta a presbitérium a'} <span class="cv-line">&nbsp;${hatDatum}</span> tartott gyűlésén
       <span class="cv-line" style="min-width:90px;">&nbsp;${hatSzam}</span> szám alatt.
-      <div style="font-size:10px;color:#333;margin-top:3px;">${megyei
+      <div style="font-size:10px;color:#333;margin-top:3px;">${keruleti
+        ? 'Dezbătut și aprobat de adunarea generală a eparhiei în ședința din data de mai sus, sub numărul indicat.'
+        : megyei
         ? 'Dezbătut și aprobat de adunarea generală a protopopiatului în ședința din data de mai sus, sub numărul indicat.'
         : 'Dezbătut și aprobat de consiliul parohial în ședința din data de mai sus, sub numărul indicat.'}</div>
     </div>
 
-    ${fin ? '' : `<div style="margin-top:8mm;text-align:center;font-size:10px;font-style:italic;color:#9a3412;">${megyei
+    ${fin ? '' : `<div style="margin-top:8mm;text-align:center;font-size:10px;font-style:italic;color:#9a3412;">${keruleti
+        ? 'Nincs véglegesítve — a közgyűlési határozat és az egyházkerületi iktatószám a véglegesítés után kerül a nyomtatványra.<br>Nefinalizat — hotărârea adunării generale și numărul de înregistrare apar pe formular după finalizare.'
+        : megyei
         ? 'Nincs véglegesítve — a közgyűlési határozat és az egyházmegyei iktatószám a véglegesítés után kerül a nyomtatványra.<br>Nefinalizat — hotărârea adunării generale și numărul de înregistrare apar pe formular după finalizare.'
         : 'Nincs véglegesítve — a presbitériumi határozat és az egyházközségi iktatószám a véglegesítés után kerül a nyomtatványra.<br>Nefinalizat — hotărârea consiliului parohial și numărul de înregistrare apar pe formular după finalizare.'}</div>`}`
   return `<div class="page cover">
@@ -1230,7 +1324,7 @@ function renderTablePages(data: BudgetPrintData, mode: BudgetMode, rows: string[
     const chunk = rows.slice(idx, idx + Math.max(0, meretek[p]))
     idx += chunk.length
     const extras = isLast
-      ? `${opts.lastExtraHtml || ''}${opts.withSignatures ? buildSignatureBlock(opts.withAuditor !== false, data.printScope === 'diocese') : ''}`
+      ? `${opts.lastExtraHtml || ''}${opts.withSignatures ? buildSignatureBlock(opts.withAuditor !== false, kiallitoSzint(data.printScope)) : ''}`
       : ''
     // 2026-08-15 (Endre): ha egy lapra NEM jut sor (az elölről-tele elosztás
     // után ez csak az utolsó, záró lap lehet), a táblázatot EGYÁLTALÁN nem
@@ -1321,7 +1415,19 @@ function buildReszszamadasExtraRows(data: BudgetPrintData, partial: PartialInfo)
 // Aláírási blokk — a minta szerint
 // ---------------------------------------------------------------------------
 
-function buildSignatureBlock(withAuditor = true, megyei = false): string {
+/**
+ * 2026-08-17 (kerületi S5): a második paraméter BOOLEAN `megyei` volt.
+ *
+ * ⛔ EZ VOLT A HIBAOSZTÁLY: egy boolean csak KÉT szintet tud ábrázolni, ezért a
+ *    kerületi ív a `false` ágra esett volna — a püspöki hivatal hivatalos
+ *    zárszámadására „Lelkipásztor — aláírása" és „Főgondnok — aláírása" került
+ *    volna. Aláírt papíron ez nem apró felirat-hiba, hanem valótlanság: azt
+ *    állítaná, hogy a gyülekezet lelkésze felel a kerület számadásáért.
+ *    A paraméter ezért a KIÁLLÍTÓ SZINTJE lett, nem egy igen/nem.
+ */
+function buildSignatureBlock(withAuditor = true, szint: BudgetPrintScope = 'congregation'): string {
+  const megyei = szint === 'diocese'
+  const keruleti = szint === 'district'
   // 2026-08-11 (6. kör): a részszámadáson NINCS Számvevő-oszlop — az ellenőrző
   // bizottság az ÉVES zárszámadást hitelesíti. Egy üresen maradó „Számvevő"
   // vonal azt a látszatot keltené, hogy ez a papír is hitelesítendő/beküldendő.
@@ -1333,7 +1439,9 @@ function buildSignatureBlock(withAuditor = true, megyei = false): string {
     ? `
     <div class="col">
       <div class="label">Ellenőrizte / Verificat</div>
-      <div class="line">${megyei
+      <div class="line">${keruleti
+        ? 'Egyházkerületi számvevő — aláírása<br><span class="ro">Cenzorul eparhiei — semnătura</span>'
+        : megyei
         ? 'Egyházmegyei számvevő — aláírása<br><span class="ro">Cenzorul protopopiatului — semnătura</span>'
         : 'Számvevő — aláírása<br><span class="ro">Cenzor — semnătura</span>'}</div>
     </div>`
@@ -1342,18 +1450,28 @@ function buildSignatureBlock(withAuditor = true, megyei = false): string {
   // és a főgondnok írja alá, hanem az esperes és az egyházmegyei gondnok. Az
   // elrendezés (két/három oszlop, P.H. helye) VÁLTOZATLAN — csak a megnevezések
   // követik a kiállító szintjét, hogy a papíron az álljon, aki aláírja.
+  // 2026-08-17 (kerületi S5): a kerületi ág aláírói a PÜSPÖK és az
+  // EGYHÁZKERÜLETI ADMINISZTRÁTOR — pontosan az a két tisztség, amit a kerületi
+  // összesítő aláírás-rovata is használ (`dashboard-kerulet/osszesito/page.tsx`
+  // `AlairasRovat`), hogy a kerület két hivatalos irata ne mondjon mást.
   return `<div class="sig">
     <div class="col">
-      <div class="label">${megyei
+      <div class="label">${keruleti
+        ? 'Egyházkerület képviselői / Conducătorii eparhiei'
+        : megyei
         ? 'Egyházmegye képviselői / Conducătorii protopopiatului'
         : 'Egyházközség képviselői / Conducătorii unității'}</div>
-      <div class="line">${megyei
+      <div class="line">${keruleti
+        ? 'Püspök — aláírása<br><span class="ro">Episcop — semnătura</span>'
+        : megyei
         ? 'Esperes — aláírása<br><span class="ro">Protopop — semnătura</span>'
         : 'Lelkipásztor — aláírása<br><span class="ro">Preot — semnătura</span>'}</div>
     </div>
     <div class="col">
       <div class="label">P.H. / L.S.</div>
-      <div class="line">${megyei
+      <div class="line">${keruleti
+        ? 'Egyházkerületi adminisztrátor — aláírása<br><span class="ro">Administratorul eparhial — semnătura</span>'
+        : megyei
         ? 'Egyházmegyei gondnok — aláírása<br><span class="ro">Curatorul protopopiatului — semnătura</span>'
         : 'Főgondnok — aláírása<br><span class="ro">Curator principal — semnătura</span>'}</div>
     </div>${auditor}

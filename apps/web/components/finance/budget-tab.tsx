@@ -102,17 +102,42 @@ export function BudgetTab(props: WebBudgetTabProps) {
       // „Nincs aktív gyülekezet." hibával állt meg (a megyei profilnak nincs
       // gyülekezete). Az esperes tehát lezárta az évet, majd egy értelmezhetetlen
       // hibaüzenetet kapott, és sehol nem maradt nyoma a felküldésnek.
+      //
+      // ⚠️ 2026-08-17 (kerületi S5) — MIÉRT LETT EBBŐL EXHAUSTIVE SWITCH.
+      // A régi alak (`if (scope === 'diocese') {…}` majd a gyülekezeti beküldő)
+      // a kerületet NÉMÁN a gyülekezeti ágra ejtette volna — vagyis a püspöki
+      // hivatal a saját költségvetése lezárása után pontosan azt a
+      // „Nincs aktív gyülekezet." hibát kapta volna, amit a fenti bekezdés a
+      // megyénél már egyszer megjavított. A kerület fölött NINCS szint (Endre
+      // K3 döntése), tehát felterjesztés sincs: a `BudgetTab` ezért kerületi
+      // hatókörben már a GOMBOT sem mutatja (`feliratok.bekuldVan`). Ez itt a
+      // második védvonal — ha a gomb valaha mégis megjelenne, beszédes hibát
+      // adjon, ne írjon a gyülekezeti `document_submissions`-be.
       submitDocument={async (docType, year, snapshot, modNum) => {
-        if (props.scope === 'diocese') {
-          const result = await felterjesztMegyeiKoltsegvetes(
-            year,
-            (modNum as 1 | 2 | 3 | null) ?? null,
-            snapshot,
-          )
-          return { error: result.error ?? null }
+        const hatokor = props.scope ?? 'congregation'
+        switch (hatokor) {
+          case 'diocese': {
+            const result = await felterjesztMegyeiKoltsegvetes(
+              year,
+              (modNum as 1 | 2 | 3 | null) ?? null,
+              snapshot,
+            )
+            return { error: result.error ?? null }
+          }
+          case 'district':
+            return {
+              error:
+                'Az egyházkerület a legfelső szint — a költségvetését nincs hová felterjeszteni. A véglegesítés önmagában lezárja az évet.',
+            }
+          case 'congregation': {
+            const result = await submitDocument(docType, year, snapshot, modNum)
+            return { error: 'error' in result ? result.error : null }
+          }
+          default: {
+            const _nemLehet: never = hatokor
+            return { error: `Ismeretlen hatókör: ${String(_nemLehet)}` }
+          }
         }
-        const result = await submitDocument(docType, year, snapshot, modNum)
-        return { error: 'error' in result ? result.error : null }
       }}
       requestBudgetUnlock={async (year, reason) => {
         const result = await requestBudgetUnlock(year, reason)

@@ -73,6 +73,24 @@ import { FilingQuickRow } from './filing-quick-row'
 type CertificateIssueDialogComponent =
   typeof import('./certificate-issue-dialog').CertificateIssueDialog
 
+/**
+ * Az iktató-felület HÁROM hatóköre — a kanonikus `ModuleScope`
+ * (apps/web/lib/auth/module-scope.ts:71) kliens-oldali párja.
+ *
+ * ⚠️ EZ KÉZI MÁSOLAT, ÉS EGYEZNIE KELL a `ModuleScope`-pal.
+ *    MIÉRT NEM IMPORTÁLJUK: ez a fájl `'use client'`, a `module-scope.ts`
+ *    viszont `import 'server-only'`-os modul — a Next.js 16 doksi
+ *    (01-app/02-guides/data-security.md) kimondja, hogy kliens-komponens nem
+ *    nyúlhat server-only modulhoz, és a repóban ma EGYETLEN kliens-komponens
+ *    sem teszi. (A pénzügyi ág ugyanezt a `finance-scope-core.ts` tiszta
+ *    maggal oldotta meg; a `module-scope`-nak ilyen magja MÉG NINCS.)
+ *    A fordítói kapu ettől megvan, csak eggyel feljebb: a hívó szerver-oldal
+ *    (`app/(dashboard)/iktato/page.tsx`) a `ModuleScope`-típusú
+ *    `moduleScope.scope`-ot adja ide, tehát egy JÖVŐBELI NEGYEDIK SZINT ott
+ *    HANGOSAN elakad, nem némán a gyülekezeti ágra esik.
+ */
+type IktatoScope = 'congregation' | 'diocese' | 'district'
+
 interface FilingMainProps {
   congregationName?: string
   /** 2026-05-25: ha true, "Rendszergazdai importáló" tab a sor végén (red-prominent). */
@@ -85,8 +103,13 @@ interface FilingMainProps {
    * diocese_id-re szűrnek, saját iktatószám-sorral). Megyei módban a
    * gyülekezet-specifikus részek (Iratcsomók, személy-alapú igazolás-kiállítás)
    * rejtve — azok a szemely/iratcsomo gyülekezeti tábláira épülnek.
+   *
+   * 2026-08-17 (kerületi S5, K2): 'district' = az EGYHÁZKERÜLET saját iktatója,
+   * `district_id` scope-oszloppal és saját iktatószám-sorral
+   * (`next_iktato_sequence_dis`). A gyülekezet-specifikus részeket a kerület
+   * ugyanúgy nem kapja meg, mint a megye — lásd a `felsoSzint` kaput lentebb.
    */
-  scope?: 'congregation' | 'diocese'
+  scope?: IktatoScope
   /** false = ellenőri (számvevői) nézet — a rögzítő gombok rejtve. */
   canWrite?: boolean
   /** A csak-olvasható nézet magyar magyarázata (bannerben jelenik meg). */
@@ -158,7 +181,15 @@ export function FilingMain({
   canWrite = true,
   readOnlyReason = null,
 }: FilingMainProps) {
-  const isDiocese = scope === 'diocese'
+  // ── 2026-08-17 (kerületi S5): `isDiocese` → `felsoSzint` ──
+  //
+  // ⛔ A HIBAOSZTÁLY, AMIÉRT ÁTNEVEZTÜK: ez a zászló egyetlen dolgot kapuz, az
+  // „Iratcsomók" fület — ami GYÜLEKEZETI sajátosság (az `iratcsomo` táblának
+  // sem megyei, sem kerületi scope-oszlopa nincs). A régi `=== 'diocese'` alak
+  // szerint a kerület „nem-megye" volt, tehát MEGKAPTA volna ezt a fület: egy
+  // örökre üres iratcsomó-listát, aminek a betöltése a gyülekezeti táblára
+  // futott volna. Ezért a kapu `!== 'congregation'`, és a NÉV IS EZT MONDJA.
+  const felsoSzint = scope !== 'congregation'
   const currentYear = new Date().getFullYear()
   const [activeTab, setActiveTab] = useState<FilingTab>('iratok')
   const [year, setYear] = useState(currentYear)
@@ -765,10 +796,11 @@ export function FilingMain({
       <ColorTabs
         tabs={[
           { value: 'iratok', label: 'Iktatott iratok', color: 'blue' },
-          // Az iratcsomó (iratcsomo tábla) gyülekezeti modul — megyei
-          // scope-oszlopa nincs (2026-08-15-egyhazmegyei-scope-oszlopok.sql
-          // szándékos döntése), ezért diocese-módban a fül sem jelenik meg.
-          ...(isDiocese ? [] : [{ value: 'csomok', label: 'Iratcsomók', color: 'violet' }]),
+          // Az iratcsomó (iratcsomo tábla) GYÜLEKEZETI modul — sem megyei, sem
+          // kerületi scope-oszlopa nincs (2026-08-15-egyhazmegyei-scope-oszlopok.sql
+          // és a kerületi S5 SQL szándékos döntése), ezért FELSŐ SZINTEN
+          // (megye ÉS kerület) a fül sem jelenik meg.
+          ...(felsoSzint ? [] : [{ value: 'csomok', label: 'Iratcsomók', color: 'violet' }]),
           { value: 'sablonok', label: 'Sablonok', color: 'amber' },
           { value: 'help', label: 'Súgó', color: 'teal' },
           ...(showAdminImport ? [
@@ -1728,8 +1760,14 @@ interface FilingEntriesViewProps {
   onPrintIktatokonyv?: () => void
   /** 2026-05-29 Fázis 3: lezárt-e az évi iktatókönyv (az "+ Új irat" gombhoz). */
   isClosed?: boolean
-  /** 2026-08-15 (S4): 'diocese' = megyei mód — a gyülekezet-specifikus sor-műveletek rejtve. */
-  scope?: 'congregation' | 'diocese'
+  /**
+   * 2026-08-15 (S4): 'diocese' = megyei mód — a gyülekezet-specifikus
+   * sor-műveletek rejtve.
+   * 2026-08-17 (kerületi S5): 'district' = kerületi mód, ugyanezekkel a
+   * rejtésekkel. A típus a `FilingMain` propjával közös (`IktatoScope`), hogy
+   * a szülő és a gyerek SOHA ne húzhasson szét egy új szintnél.
+   */
+  scope?: IktatoScope
   /** false = ellenőri (számvevői) nézet — a rögzítő gombok rejtve. */
   canWrite?: boolean
   /** 2026-07-17 (F6/K6): Igazolás/levél-kiállító megnyitása (lazy chunk). */
@@ -1838,8 +1876,15 @@ function FilingEntriesView({
           {/* 2026-07-17 (F6/K6): igazolás/hivatalos levél kiállítása sablonból,
               anyakönyvi adatokkal — a mentés automatikusan iktat (kimenő).
               2026-08-15 (S4): megyei módban rejtve — a kiállító a gyülekezeti
-              szemely-táblára (anyakönyvi adatokra) épül. */}
-          {scope !== 'diocese' && canWrite && (
+              szemely-táblára (anyakönyvi adatokra) épül.
+              2026-08-17 (kerületi S5): a kapu `=== 'congregation'` lett. Amit
+              elrejt, az GYÜLEKEZETI sajátosság: a `searchPersonsForCertificate`
+              a `szemely` táblán keres, aminek sem megyei, sem kerületi
+              scope-oszlopa nincs. A régi `!== 'diocese'` alakkal a kerületi
+              ügyintéző MEGKAPTA volna a gombot, és a személykeresés némán
+              üresen tért volna vissza — vagy egy idegen gyülekezet
+              anyakönyvi adatait hozta volna fel. */}
+          {scope === 'congregation' && canWrite && (
             <Button
               size="sm"
               onClick={onOpenCert}
@@ -1944,8 +1989,12 @@ function FilingEntriesView({
                         ) : null}
                       </Button>
                       {/* 2026-07-17 (F6/K6): iratcsomóba rendezés — megyei
-                          módban rejtve (az iratcsomo tábla gyülekezeti). */}
-                      {scope !== 'diocese' && canWrite && (
+                          módban rejtve (az iratcsomo tábla gyülekezeti).
+                          2026-08-17 (kerületi S5): a kapu `=== 'congregation'`
+                          lett — ugyanaz a GYÜLEKEZETI tábla, ugyanaz az ok.
+                          Az „Iratcsomók" fül felső szinten nem is látszik,
+                          tehát a sor-művelet egy nem létező listába rendezne. */}
+                      {scope === 'congregation' && canWrite && (
                         <Button
                           variant="ghost"
                           size="sm"

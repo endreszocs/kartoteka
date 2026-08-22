@@ -15,7 +15,13 @@
  * Reszponzív viselkedés:
  *   - mobile  (<768px):   külön vertikális kompakt layout, viewport-fit, single column
  *   - tablet  (768-1023): stage Math.min(sx, sy) letterboxing — minden látszik
- *   - desktop (>=1024):   stage Math.max(sx, sy) fill — eredeti élmény
+ *   - desktop (>=1024):   stage Math.max(sx, sy) fill — de CSAK amíg nem vág le
+ *                         lényeges tartalmat; a küszöb fölött szintén letterbox
+ *                         (2026-08-22, lásd `MAX_VAGAS`)
+ *
+ * ⚠️ A színpad KÖZÉPRE IGAZÍTÁSA abszolút pozíció + `translate(-50%, -50%)`,
+ *    NEM `place-items: center`. A miértje a `StageSplash` törzsében van leírva —
+ *    ne írd vissza rácsos igazításra, mert laptopon félrecsúszik.
  *
  * Implementáció: az opacity/transform inline `style`-szal kezelt (nem CSS
  * cascade-classszal), így a Tailwind 4 layer-prioritás-konfliktusoktól
@@ -24,6 +30,8 @@
 
 import Image from 'next/image'
 import { useEffect, useMemo, useRef, useState } from 'react'
+
+import { splashStageScale } from '@/lib/ui/splash-stage-core'
 
 const SESSION_KEY = 'kartoteka_splash_shown'
 const DURATION_MS = 5000
@@ -55,15 +63,15 @@ function useViewportMode(): ViewportMode {
 }
 
 function useStageScale(mode: ViewportMode) {
-  // Desktop (>=1024): max(sx, sy) — fill mode (kitölti a viewport-ot, levág a széleken).
-  // Tablet (768-1023): min(sx, sy) — letterboxing, minden látszik.
-  // Mobile-on a Stage nem renderelődik (külön layout), így itt mindegy.
+  // A SZABÁLY a `lib/ui/splash-stage-core.ts`-ben él (import-mentes mag,
+  // önellenőrzéssel) — itt csak a viewport-mérés és az állapot van.
+  // ⚠️ NE másold vissza ide a képletet: a mag azért külön fájl, hogy a
+  //    `scripts/selftest-splash-stage.mjs` tudja futtatni. Két példány némán
+  //    széthúzna — pontosan az a hibaosztály, amit ez a projekt üldöz.
   const [scale, setScale] = useState(1)
   useEffect(() => {
     function onResize() {
-      const sx = window.innerWidth / 1920
-      const sy = window.innerHeight / 1080
-      setScale(mode === 'tablet' ? Math.min(sx, sy) : Math.max(sx, sy))
+      setScale(splashStageScale(window.innerWidth, window.innerHeight, mode).skala)
     }
     onResize()
     window.addEventListener('resize', onResize)
@@ -174,20 +182,42 @@ function StageSplash({ fading, phases, progress, stageScale, mode }: StageSplash
       className="fixed inset-0 z-50"
       style={{
         background: '#0d0a07',
-        display: 'grid',
-        placeItems: 'center',
         overflow: 'hidden',
         fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, sans-serif',
         opacity: fading ? 0 : 1,
         transition: 'opacity 700ms ease-in',
       }}
     >
+      {/*
+        ⛔ 2026-08-22 — A SPLASH ELCSÚSZÁSA LAPTOPON (Endre bejelentése).
+        Kimért tünet 1536×730-as nézetben: a színpad 192 képponttal JOBBRA és 108
+        képponttal LEFELÉ csúszott, és pontosan ennyivel lógott ki a jobb, illetve
+        az alsó szélen — vagyis bal oldalt és fölül fekete sáv maradt.
+
+        AZ OK: a réteg korábban `display: grid` + `place-items: center` volt, a
+        színpad LAYOUT-doboza pedig 1920×1080 — a kicsinyítést ugyanis a
+        `transform: scale()` végzi, ami a layout-méretet NEM változtatja meg. Egy
+        laptop-viewportnál ez a doboz NAGYOBB a rétegnél, a középre igazítás tehát
+        negatív pozíciót adna (1536−1920)/2 = −192 — a böngésző viszont a túllógó
+        rács-elemet a kezdőélre KAPCSOLJA (nullára vágja). Így a doboz közepe már
+        nem a képernyő közepén van, és a `transform-origin: center center` körüli
+        kicsinyítés pontosan ezzel az eltolással landol félre.
+
+        A JAVÍTÁS: a színpadot nem a rács igazítja, hanem abszolút pozíció +
+        saját méretéhez képest visszahúzás. A `left/top: 50%` a RÉTEGHEZ mér, a
+        `translate(-50%, -50%)` pedig a színpad SAJÁT dobozához — így a túllógás
+        nem tud kezdőélre kapcsolni, és a látvány minden méretben középen marad.
+        (Kimérve 1536×730, 1366×625, 1280×600 és 1920×940 nézetben: a bal és a
+        jobb túllógás mindenütt szimmetrikus lett.)
+      */}
       <div
         style={{
-          position: 'relative',
+          position: 'absolute',
+          left: '50%',
+          top: '50%',
           width: 1920,
           height: 1080,
-          transform: `scale(${stageScale})`,
+          transform: `translate(-50%, -50%) scale(${stageScale})`,
           transformOrigin: 'center center',
           overflow: 'hidden',
           background: '#d8cfba',

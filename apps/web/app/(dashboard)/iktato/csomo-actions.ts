@@ -22,6 +22,9 @@
 
 import { revalidatePath } from 'next/cache'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
+// 2026-08-17 (kerületi S5, elvarratlan szál): a MÁSODIK VÉDVONAL feloldója — a
+// részletes MIÉRT a fájl végén, a `hatokorEltres()` docblockjában él.
+import { getModuleScopeContext, type ModuleScope } from '@/lib/auth/module-scope'
 import type {
   FilingEntryWithCsomo,
   Iratcsomo,
@@ -42,6 +45,8 @@ export async function listIratcsomok(
 ): Promise<{ csomok: IratcsomoWithCount[]; error: string | null }> {
   const { supabase, congId } = await getCongId()
   if (!congId) return { csomok: [], error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  const eltres = await hatokorEltres(congId, 'iratcsomó-lista')
+  if (eltres) return { csomok: [], error: eltres }
   if (!Number.isInteger(ev)) return { csomok: [], error: 'Érvénytelen év.' }
 
   const { data, error } = await supabase
@@ -100,6 +105,8 @@ export async function saveIratcsomo(input: {
 }): Promise<{ csomo: Iratcsomo | null; error: string | null }> {
   const { supabase, congId } = await getCongId()
   if (!congId) return { csomo: null, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  const eltres = await hatokorEltres(congId, 'iratcsomó mentése')
+  if (eltres) return { csomo: null, error: eltres }
 
   const nev = (input.nev || '').trim()
   if (!nev) return { csomo: null, error: 'A csomó neve nem lehet üres.' }
@@ -150,6 +157,8 @@ export async function setIratcsomoLezarva(
 ): Promise<{ csomo: Iratcsomo | null; error: string | null }> {
   const { supabase, congId } = await getCongId()
   if (!congId) return { csomo: null, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  const eltres = await hatokorEltres(congId, 'iratcsomó lezárása / feloldása')
+  if (eltres) return { csomo: null, error: eltres }
 
   const { data, error } = await supabase
     .from('iratcsomo')
@@ -188,6 +197,8 @@ export async function deleteIratcsomo(
 ): Promise<{ success: boolean; error: string | null }> {
   const { supabase, congId } = await getCongId()
   if (!congId) return { success: false, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  const eltres = await hatokorEltres(congId, 'iratcsomó törlése')
+  if (eltres) return { success: false, error: eltres }
 
   // Lezárt csomó nem törölhető — előbb fel kell oldani (a lezárás értelme,
   // hogy a dosszié + leltár állapota ne változhasson némán).
@@ -266,6 +277,8 @@ export async function assignEntryToCsomo(
 ): Promise<{ success: boolean; error: string | null }> {
   const { supabase, congId } = await getCongId()
   if (!congId) return { success: false, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  const eltres = await hatokorEltres(congId, 'irat csomóba rendezése')
+  if (eltres) return { success: false, error: eltres }
 
   // Az irat lekérdezése MINDIG lefut — a kivétel (csomoId=null) ágon is,
   // mert a FORRÁS-csomó lezártsága csak az irat aktuális csomo_id-jából
@@ -367,6 +380,8 @@ export async function getCsomoEntries(
 ): Promise<{ entries: FilingEntryWithCsomo[]; error: string | null }> {
   const { supabase, congId } = await getCongId()
   if (!congId) return { entries: [], error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  const eltres = await hatokorEltres(congId, 'a csomó iratai')
+  if (eltres) return { entries: [], error: eltres }
 
   const { data, error } = await supabase
     .from('iktato')
@@ -388,6 +403,104 @@ export async function getCsomoEntries(
 async function getCongId() {
   const { supabase, congregationId, userId } = await getEffectiveCongregationContext()
   return { supabase, congId: congregationId, userId }
+}
+
+/**
+ * ── MÁSODIK VÉDVONAL: A KÉT HATÓKÖR-RÉTEGNEK EGYET KELL MONDANIA ──────────
+ * (a `leltar/actions.ts` `finalizeLeltar()` 2026-08-17-es mintája szerint)
+ *
+ * MELYIK KÉT FELOLDÓ HÚZHAT SZÉT. Ez a fájl a `getEffectiveCongregationContext()`-ből
+ * veszi a hatókört (`getCongId()` fent), az Iktató modul TÖBBI akciója viszont a
+ * `getModuleScopeContext()`-ből (`iktato/actions.ts`, `template-actions.ts`,
+ * `csatolmany-actions.ts`, `qr-actions.ts`). KÉT FELOLDÓ, KÉT VÁLASZ — ugyanazon
+ * a képernyőn.
+ *
+ * MI LENNE A TÜNET. Az iktatókönyv listája (module-scope) az EGYIK hatókör
+ * iratait mutatná, a csomó-kezelés viszont a MÁSIK hatókör `iratcsomo` sorain
+ * dolgozna: a csomó-legördülő üresen maradna vagy IDEGEN dossziékat kínálna, a
+ * „Csomóba rendezés" 0 sort érintene („az irat nem található vagy nincs
+ * jogosultság"), az átnevezés / lezárás / törlés pedig egy MÁSIK gyülekezet
+ * dossziéját érintené. A lista-ág ráadásul NÉMA: hiba nélkül adna vissza üres
+ * vagy idegen csomó-listát, és a lelkész az irattári rendjét hinné elveszettnek.
+ *
+ * A GYÖKÉROK MA MÁR ZÁRVA: a 2026-08-17-es override-elsőbbségi kapu
+ * (`lib/auth/finance-scope.ts` és `lib/auth/module-scope.ts` 0) blokkja) a
+ * kerületi admin „Belépés a gyülekezetbe" esetét javítja, ezért a két réteg ma
+ * BIZONYÍTOTTAN egyet mond. Ez itt a második védvonal egy JÖVŐBELI
+ * divergenciára — egyik kapu sem ír adatot.
+ *
+ * ⚠️ A GYÜLEKEZETI (ÉS A MEGYEI) ÚT VISELKEDÉSE VÁLTOZATLAN — bizonyítás:
+ *   · ha `congId` (= `effectiveCongregationId`) nem null, a
+ *     `getModuleScopeContext()` 3) gyülekezeti fallbackje UGYANEZT az értéket
+ *     adja, a 0) override-kapu pedig az `override.congregationId`-t, ami az
+ *     `effective-access.ts:404-411` szerint UGYANAZ az érték;
+ *   · a megyei / kerületi profilban álló felhasználónál `effectiveCongregationId`
+ *     null (`effective-access.ts:412-414`), tehát ő a hívó `!congId` ágán kapja
+ *     a MAI, betűre változatlan üzenetet — idáig el sem jut.
+ *   ⇒ mind a három kapu no-op a mai éles adaton; csak széthúzáskor szólal meg.
+ */
+async function hatokorEltres(congId: string, mit: string): Promise<string | null> {
+  const modulCtx = await getModuleScopeContext()
+  if ('error' in modulCtx) {
+    return (
+      'A hatókör (gyülekezet / egyházmegye / egyházkerület) most nem oldható fel, ezért biztonsági ' +
+      `okból megszakítottuk a műveletet (${mit}). Frissítsd az oldalt, és próbáld újra; ha újra ` +
+      'hibázik, jelezd a rendszergazdának.'
+    )
+  }
+  if (modulCtx.scope !== 'congregation') {
+    return felsoSzintNemErtelmezett(modulCtx.scope) ?? ALTALANOS_NEM_ERTELMEZETT
+  }
+  if (modulCtx.scopeId !== congId) {
+    return (
+      'A rendszer két különböző gyülekezetet lát ehhez a művelethez, ezért biztonsági okból ' +
+      `megszakítottuk a műveletet (${mit}) — az irattári rend nem kerülhet bizonytalan hatókörbe. ` +
+      'Lépj ki a „Belépés a gyülekezetbe" nézetből vagy válts profilt, majd próbáld újra; ha újra ' +
+      'hibázik, jelezd a rendszergazdának.'
+    )
+  }
+  return null
+}
+
+const ALTALANOS_NEM_ERTELMEZETT =
+  'Az iratcsomó az egyházközség iktatókönyvének dossziéja — a jelenlegi hatókörben nem kezelhető. ' +
+  'Válts gyülekezeti profilra, és ott rendezd a csomókat.'
+
+/**
+ * A FELSŐ SZINTŰ (megyei / kerületi) hatókör beszédes elutasítása.
+ *
+ * ⚠️ SZÁNDÉKOSAN NEM KITERJESZTÉS: az iratcsomó TISZTÁN GYÜLEKEZETI fogalom (az
+ * `iratcsomo` táblának `congregation_id` oszlopa van, scope-oszlopa nincs — a
+ * megyei/kerületi iratcsomó-kezelés KÜLÖN döntés és külön SQL). A helyes
+ * védvonal ezért a megnevezett szintű elutasítás, nem a néma gyülekezeti
+ * visszaesés.
+ *
+ * `null` = ezen a szinten nincs mit tiltani. A `default: never` ág egy jövőbeli
+ * NEGYEDIK szintnél FORDÍTÁSI HIBÁT ad — nem néma átesést.
+ */
+function felsoSzintNemErtelmezett(scope: ModuleScope): string | null {
+  switch (scope) {
+    case 'congregation':
+      return null
+    case 'diocese':
+      return (
+        'Az iratcsomó az egyházközség iktatókönyvének dossziéja — EGYHÁZMEGYEI módban nincs ' +
+        'értelmezve (az egyházmegye saját iratcsomó-kezelése külön fejlesztési kör). Válts ' +
+        'gyülekezeti profilra — vagy ha „Belépés a gyülekezetbe" nézetben vagy, lépj ki belőle —, ' +
+        'és ott rendezd a csomókat.'
+      )
+    case 'district':
+      return (
+        'Az iratcsomó az egyházközség iktatókönyvének dossziéja — EGYHÁZKERÜLETI módban nincs ' +
+        'értelmezve (az egyházkerület saját iratcsomó-kezelése külön fejlesztési kör). Válts ' +
+        'gyülekezeti profilra — vagy ha „Belépés a gyülekezetbe" nézetben vagy, lépj ki belőle —, ' +
+        'és ott rendezd a csomókat.'
+      )
+    default: {
+      const _nemKezelt: never = scope
+      throw new Error(`Ismeretlen modul-hatókör: ${String(_nemKezelt)}`)
+    }
+  }
 }
 
 /**

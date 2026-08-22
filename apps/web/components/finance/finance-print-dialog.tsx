@@ -41,7 +41,15 @@ import {
 import { loadBudgetRowsCompat, type BudgetCompatRow } from '@/lib/finance/budget-compat'
 // 2026-08-15 (egyházmegyei terv, 2.1): hatókör-tudatos évi beállítás-betöltő
 // (a Költségvetés nyomtatási központ UGYANEZT hívja — közös helper).
-import { loadEvBeallitas } from '@/lib/finance/print-scope'
+// 2026-08-17 (kerületi S5): innen jön a hatókör KANONIKUS típusa és a kerületi
+// (még hiányzó) nyomtatvány-ág fail-closed kapuja is.
+import {
+  KERULETI_NYOMTATVANY_CIM,
+  KERULETI_NYOMTATVANY_UZENET,
+  loadEvBeallitas,
+  nyomtatvanyScope,
+  type PrintScope,
+} from '@/lib/finance/print-scope'
 // 2026-08-11 (6. kör): a részszámadás IDŐSZAKI nyitó/záró levezetése — tiszta
 // függvény, önellenőrzéssel (`npm run selftest:reszszamadas`).
 import { computePeriodBalances, type PeriodRow } from '@kartoteka/core'
@@ -76,8 +84,13 @@ interface FinancePrintDialogProps {
    * 2026-08-15 (egyházmegyei terv, 2.1): a nyomtatványok HATÓKÖRE. Megyei
    * hatókörben az évi beállítás a `diocese_bealitas`-ból, a terv-sorok a
    * `diocese_koltsegvetes`-ből jönnek, és a borító a megyei feliratokat kapja.
+   *
+   * 2026-08-17 (kerületi S5): a típus a KANONIKUS `PrintScope` (= `FinanceScope`),
+   * tehát az EGYHÁZKERÜLETET is befogadja — kézi unió-másolat helyett. A
+   * kerületi ÉRTÉK viszont nem nyomtat: minden nyomtatvány magyarázó, tiltó
+   * előnézetet ad (a MIÉRT a print-scope.ts-ben).
    */
-  scope?: 'congregation' | 'diocese'
+  scope?: PrintScope
   /** Az egyházkerület neve a megyei borító felső blokkjához. */
   districtName?: string | null
 }
@@ -158,6 +171,13 @@ export function FinancePrintDialog({
   scope = 'congregation',
   districtName,
 }: FinancePrintDialogProps) {
+  // ⛔ 2026-08-17 (kerületi S5): a NYOMTATVÁNY-réteg (borító-építő + terv-sor
+  // betöltő) ma csak a gyülekezeti és az egyházmegyei ívet ismeri. `null` =
+  // erre a szintre még nincs ív → MINDEN nyomtatvány magyarázó, TILTÓ
+  // előnézetet ad. Enélkül a kerületi adat gyülekezeti fejléccel menne papírra
+  // — aláírhatóan. (A kerületi ág az S6 szelet feladata.)
+  const keszScope = nyomtatvanyScope(scope)
+
   // 2026-08-11 (6. kör): a RÉSZSZÁMADÁS mostantól ITT érhető el. Eddig a
   // `.filter((t) => t.id !== 'reszszamadas')` kizárta abból az EGYETLEN
   // felületből, ahol a lelkész nyomtatványt keres — miközben a rendszer saját
@@ -232,6 +252,15 @@ export function FinancePrintDialog({
           categories={categoryOptions}
           currentYear={currentYear}
           buildReport={(filters: FinancePrintFilters): PrintReport => {
+            // ⛔ 2026-08-17 (kerületi S5): a kerületi ív az S6 szeleté. A kapu a
+            // FÜGGVÉNY ELEJÉN áll, tehát a bizonylat-újranyomtatásra (Decont,
+            // Dispoziție) is érvényes — azok a gyülekezeti nyugtatömb-világ
+            // iratai, kerületi hatókörben nincs értelmük. A `blocked: true` a
+            // nyomtató gombokat is letiltja.
+            if (keszScope === null) {
+              return blockedPreview(KERULETI_NYOMTATVANY_CIM, KERULETI_NYOMTATVANY_UZENET)
+            }
+
             // 2026-07-10 (S5-#3): a bevétel/kiadás sorok a KIVÁLASZTOTT évhez.
             // Az oldal évén a props-beli (memóriában lévő) sorokat használjuk;
             // más évnél a Body által betöltött yearRecords-ot — amíg az töltődik,
@@ -360,7 +389,7 @@ export function FinancePrintDialog({
                 congregationNameRo,
                 // 2026-08-15 (terv 2.1/3): a borító feliratai a KIÁLLÍTÓ
                 // szintjét követik (megyei íven kerületi blokk + közgyűlés).
-                printScope: scope,
+                printScope: keszScope,
                 districtName,
                 year: filters.selectedYear,
                 carryoverCash: carryoverCashUse,
@@ -548,11 +577,17 @@ export function FinancePrintDialog({
             ]
           }}
           onLoadBudgetRows={async (year): Promise<Record<string, unknown>> => {
+            // Kerületi hatókörben nincs mit betölteni: a `loadBudgetRowsCompat`
+            // a `district_koltsegvetes`-t nem ismeri, tehát a gyülekezeti
+            // táblában keresné a kerület azonosítóját (0 sor). A `buildReport`
+            // amúgy is tiltó előnézetet ad — ez csak a fölösleges lekérés
+            // megspórolása, azonos (üres) eredménnyel.
+            if (keszScope === null) return {}
             try {
               const supabase = createClient()
               // Hatókör-tudatos: megyei nézetben a `diocese_koltsegvetes`
               // tábla — enélkül a megyei ív minden terv-sora nulla lett volna.
-              const rows = await loadBudgetRowsCompat(supabase, year, settings.congregation_id, scope)
+              const rows = await loadBudgetRowsCompat(supabase, year, settings.congregation_id, keszScope)
               const map: Record<string, unknown> = {}
               rows.forEach((r) => {
                 map[r.szamadasicelid] = {

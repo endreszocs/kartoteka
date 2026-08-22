@@ -53,6 +53,12 @@ import { OpeningBalancesDialog } from '@/components/finance/opening-balances-dia
 import { BudgetPrintDialog } from '@/components/finance/budget-print-dialog'
 import { calculateBalances } from '@/lib/utils/finance-helpers'
 import { computeInternalMovementHealth } from '@/lib/finance/internal-movement-health'
+// 2026-08-17 (kerületi S5): a hatókör KANONIKUS típusa. Itt eddig kézi
+// `'congregation' | 'diocese'` unió-másolat állt — pontosan az, ami miatt a
+// harmadik szint fordítási hiba nélkül maradhatott volna ki a felületből.
+// A mag (`finance-scope-core.ts`) import-mentes, ezért kliens-komponensben is
+// biztonságos (a `finance-scope.ts` gazda-modul `server-only` láncot húzna be).
+import type { FinanceScope } from '@/lib/auth/finance-scope-core'
 import type {
   BealitasRow,
   SzamadasiCel,
@@ -104,10 +110,26 @@ interface FinanceTabsProps {
   /** A hero év-választóban felkínált évek (csak adattal bíró évek + folyó év). */
   availableYears?: number[]
   isGodMode: boolean
-  /** 2026-04-18 SCOPE-AWARE: 'congregation' (default) vagy 'diocese'.
-   *  Diocese módban a tag-szintű fülek (debt, rental) + a Monetár-widget és a
-   *  „Számlák egyeztetése" hero-gomb (2026-08-15, Endre) el vannak rejtve. */
-  scope?: 'congregation' | 'diocese'
+  /**
+   * 2026-04-18 SCOPE-AWARE: a Pénzügy modul hatóköre. Alapértelmezés:
+   * 'congregation'.
+   *
+   * ⛔ 2026-08-17 (kerületi S5) — MIÉRT A KANONIKUS TÍPUS, ÉS MIÉRT LETT MINDEN
+   *    KAPUBÓL `=== 'congregation'`:
+   *    Itt eddig kézi `'congregation' | 'diocese'` unió-másolat állt, a kapuk
+   *    pedig `scope !== 'diocese'` / `scope === 'diocese'` alakúak voltak. Ezek
+   *    a kapuk GYÜLEKEZETI sajátosságokat rejtenek (tag-szintű Tartozások és
+   *    Bérleti szerződések fül, Monetár-widget, Számlák egyeztetése, a
+   *    pénzügy→leltár híd) — vagyis a „nem-diocese" feltétel a harmadik szintre
+   *    IGAZ lett volna, és az egyházkerület MEGKAPTA VOLNA a gyülekezeti
+   *    felületet: olyan füleket, amelyek a kerület számára üresek, és olyan
+   *    hidat, ami a GYÜLEKEZETI leltárba írna.
+   *    Mostantól a típus a kanonikus `FinanceScope` (a `tablesFor` magjából),
+   *    a kapuk pedig a GYÜLEKEZETI sajátosságot nevezik meg. A gyülekezeti és
+   *    az egyházmegyei viselkedés BYTE-RA azonos maradt: a `congregation` ág
+   *    ugyanazt kapja, a `diocese` ág ugyanúgy kimarad.
+   */
+  scope?: FinanceScope
   /**
    * 2026-08-11 (számvevő-kör): ELLENŐRI (csak olvasható) nézet.
    *
@@ -139,6 +161,30 @@ export function FinanceTabs({
   readOnlyReason = null,
   showAdminImport = false,
 }: FinanceTabsProps) {
+  // ── 2026-08-17 (kerületi S5): SZINT-FÜGGŐ KAPU EGY HELYEN ──────────────────
+  //
+  // `gyulekezeti` a GYÜLEKEZETI sajátosságok kapuja. A korábbi kapuk
+  // `scope !== 'diocese'` alakúak voltak — ez a harmadik szintre IGAZ, tehát az
+  // egyházkerület megkapta volna a tag-szintű füleket (Tartozások, Bérleti
+  // szerződések), a Monetár-widgetet, a „Számlák egyeztetése" gombot és a
+  // pénzügy→leltár hidat. A név szándékosan azt mondja, AMIT ELDÖNT: nem
+  // „nem-megye", hanem „gyülekezet".
+  //
+  // ⚠️ A `congregation` és a `diocese` viselkedés ettől BYTE-RA változatlan:
+  //    `scope === 'congregation'` pontosan ugyanazokra a hívókra igaz, mint
+  //    korábban a `scope !== 'diocese'`, EGYETLEN kivétellel — a kerülettel,
+  //    ami eddig nem is létezett ezen a felületen.
+  const gyulekezeti = scope === 'congregation'
+
+  // Az ellenőri (számvevői) sáv TARTALÉK szövege — akkor látszik, ha a szerver
+  // nem adott `readOnlyReason`-t. A megyei ág szövege BETŰRE a korábbi; a
+  // kerületi azért külön, mert a kerületben nincs esperes, és a felirat NE
+  // küldje a számvevőt rossz ügyintézőhöz.
+  const olvasoiTartalekSzoveg =
+    scope === 'district'
+      ? 'Számvevőként (ellenőrként) az egyházkerület pénzügyi könyveit megtekintheted és kinyomtathatod, de nem rögzíthetsz, nem javíthatsz és nem véglegesíthetsz. A rögzítés az egyházkerületi adminisztrátor feladata.'
+      : 'Számvevőként (ellenőrként) az egyházmegye pénzügyi könyveit megtekintheted és kinyomtathatod, de nem rögzíthetsz, nem javíthatsz és nem véglegesíthetsz. A rögzítés az esperes vagy az egyházmegyei adminisztrátor feladata.'
+
   const [activeTab, setActiveTab] = useState('dashboard')
   const [incomeRecords, setIncomeRecords] = useState(initialIncome)
   const [expenseRecords, setExpenseRecords] = useState(initialExpense)
@@ -378,8 +424,7 @@ export function FinanceTabs({
                 Ellenőri nézet — mindent látsz, de nem módosíthatsz
               </h2>
               <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                {readOnlyReason ??
-                  'Számvevőként (ellenőrként) az egyházmegye pénzügyi könyveit megtekintheted és kinyomtathatod, de nem rögzíthetsz, nem javíthatsz és nem véglegesíthetsz. A rögzítés az esperes vagy az egyházmegyei adminisztrátor feladata.'}
+                {readOnlyReason ?? olvasoiTartalekSzoveg}
               </p>
             </div>
           </div>
@@ -426,24 +471,43 @@ export function FinanceTabs({
                     <Plus className="mr-1.5 size-5" />
                     Tétel rögzítése
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="rounded-xl max-sm:min-h-10 border-violet-200 bg-violet-50 font-medium text-violet-700 shadow-sm transition hover:bg-violet-100 hover:shadow"
-                    onClick={() => setDecontOpen(true)}
-                  >
-                    <Receipt className="mr-1 size-3.5" />
-                    Decont
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="rounded-xl max-sm:min-h-10 border-amber-200 bg-amber-50 font-medium text-amber-700 shadow-sm transition hover:bg-amber-100 hover:shadow"
-                    onClick={() => setDispozitieOpen(true)}
-                  >
-                    <FileText className="mr-1 size-3.5" />
-                    Dispoziție
-                  </Button>
+                  {/* ⛔ 2026-08-19 (kerületi S5, záró ellenőrzés): a Decont és a
+                      Dispoziție GYÜLEKEZETI kapu alá került.
+                      MI VOLT A BAJ: mindkét gomb kizárólag a `!readOnly` kapun
+                      ment át, scope-szűrés nélkül — miközben a szomszédos
+                      „Számlák egyeztetése" ugyanebben a sorban megkapta a
+                      `gyulekezeti` kaput. A felsőbb szintű felhasználó tehát
+                      megnyitotta a dialógust, kitöltötte, és csak MENTÉSKOR
+                      derült ki, hogy a művelet ezen a szinten nem létezik.
+                      MIÉRT GYÜLEKEZETI: mindkét bizonylat sorszáma a
+                      `penzugyi_bizonylat_sorszam` `congregation_id`-hatókörű
+                      számsorából jön, és sem a `decont`, sem a `dispozitie`
+                      táblának nincs felső szintű scope-oszlopa (a szerver-akciók
+                      ezért zárják ki mindkét felső szintet).
+                      ⚠️ Ez a MEGYEI nézetnek is javítás — ott ma is felkínált
+                      egy mindig bukó gombot —, a gyülekezetit nem érinti. */}
+                  {gyulekezeti && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-xl max-sm:min-h-10 border-violet-200 bg-violet-50 font-medium text-violet-700 shadow-sm transition hover:bg-violet-100 hover:shadow"
+                        onClick={() => setDecontOpen(true)}
+                      >
+                        <Receipt className="mr-1 size-3.5" />
+                        Decont
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-xl max-sm:min-h-10 border-amber-200 bg-amber-50 font-medium text-amber-700 shadow-sm transition hover:bg-amber-100 hover:shadow"
+                        onClick={() => setDispozitieOpen(true)}
+                      >
+                        <FileText className="mr-1 size-3.5" />
+                        Dispoziție
+                      </Button>
+                    </>
+                  )}
                 </>
               )}
               <Button
@@ -459,8 +523,15 @@ export function FinanceTabs({
                   „Dokumentumtár" link) nem volt egyértelmű — egy közös „Számlák
                   egyeztetése" hub lett belőlük a /dokumentumtar oldalon (Oblio
                   egyeztetés + Dokumentumtár + Kifizetetlen számlák fülekkel).
-                  Diocese módban rejtve (gyülekezet-szintű funkció). */}
-              {scope !== 'diocese' && (
+                  Diocese módban rejtve (gyülekezet-szintű funkció).
+                  ⛔ 2026-08-17 (kerületi S5): a kapu `!== 'diocese'`-ről
+                  `=== 'congregation'`-re változott. A hub (Oblio e-Factura
+                  egyeztetés, szállítói számlák, kifizetetlen ablak) a
+                  GYÜLEKEZET sajátossága — Endre 2026-08-15-i döntése éppen
+                  ezért rejtette el megyei nézetben. A régi alakkal a kerület
+                  „nem-megyeként" MEGKAPTA volna ezt a gombot, és egy számára
+                  üres/idegen felületre navigált volna. */}
+              {gyulekezeti && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -626,10 +697,16 @@ export function FinanceTabs({
             // 2026-07-10 (S3 #2+#4): a Monetár fül a lebegő widgetbe, az Oblio
             // ellenőrzés fül a hero-gombból nyíló modálba költözött — a fülsorból
             // mindkettő kikerült.
-            ...(scope === 'diocese' ? [] : [
+            // ⛔ 2026-08-17 (kerületi S5): a kapu `=== 'diocese' ? [] : […]`-ról
+            // `=== 'congregation' ? […] : []`-ra fordult. A Tartozások (tagi
+            // egyházfenntartói járulék) és a Bérleti szerződések a GYÜLEKEZET
+            // sajátosságai — a kerületnek nincsenek tagjai és nincs bérbeadója.
+            // A régi alakkal a kerület két, számára örökre ÜRES fület kapott
+            // volna a fülsorba.
+            ...(gyulekezeti ? [
               { value: 'debt', label: 'Tartozások', color: 'orange' },
               { value: 'rental', label: 'Bérleti szerződések', color: 'amber' },
-            ]),
+            ] : []),
             { value: 'sugo', label: 'Súgó', color: 'teal' },
             // 2026-05-25: Rendszergazdai importáló a sor VÉGÉN, mindig piros háttérrel
             // (red-prominent: vizuálisan figyelmeztető, hogy a fül veszélyes műveletet rejt).
@@ -651,7 +728,15 @@ export function FinanceTabs({
               accent="emerald"
               icon={Wallet}
               title="Még nincs pénzügyi tétel"
-              description="Kezdd el a gyülekezet pénzügyi nyilvántartását — rögzítsd az első befizetést vagy kiadást. A kassza, bank és számadás innen épül fel."
+              // 2026-08-17 (kerületi S5): a kerületi változat NE „a gyülekezet"
+              // nyilvántartásáról beszéljen. A gyülekezeti és a MEGYEI szöveg
+              // BETŰRE változatlan (a megyei felirat mai pontatlanságát
+              // szándékosan nem javítjuk itt: az a 2. szint viselkedése).
+              description={
+                scope === 'district'
+                  ? 'Kezdd el az egyházkerület pénzügyi nyilvántartását — rögzítsd az első befizetést vagy kiadást. A kassza, bank és számadás innen épül fel.'
+                  : 'Kezdd el a gyülekezet pénzügyi nyilvántartását — rögzítsd az első befizetést vagy kiadást. A kassza, bank és számadás innen épül fel.'
+              }
               ctaLabel="Rögzítsd az első tételt"
               onCta={() => setCombinedOpen(true)}
               secondaryLabel="Bevétel / kiadás rögzítése"
@@ -780,15 +865,25 @@ export function FinanceTabs({
             carryoverCash={carryoverCash}
             carryoverBank={carryoverBank}
             // Diocese-módban a hero rejtve — a carryover/balances szemantika ott más.
-            balances={scope === 'diocese' ? undefined : balances}
+            // ⛔ 2026-08-17 (kerületi S5): `=== 'diocese' ? undefined : balances`
+            // helyett `gyulekezeti`. Az évi összegző hero a GYÜLEKEZETI
+            // kassza/bank-egyenleg levezetésére épül (nyugtatömb, tagi
+            // befizetések, nyitó egyenlegek) — felsőbb szinten a szemantikája
+            // más. A régi alakkal a kerület egy olyan összegzőt kapott volna,
+            // amit a saját adataira nem így vezetünk le.
+            balances={gyulekezeti ? balances : undefined}
             // 2026-08-15: ellenőri nézetben a megyei felküldés-kártya gombjai
             // rejtve (a szerver akció is tiltja — ez a felhasználó kímélete).
             readOnly={readOnly}
           />
         </TabsContent>
 
-        {/* Diocese-ben a tag-szintű és gyülekezet-specifikus fülek nem renderelődnek */}
-        {scope !== 'diocese' && (
+        {/* Diocese-ben a tag-szintű és gyülekezet-specifikus fülek nem renderelődnek.
+            ⛔ 2026-08-17 (kerületi S5): a kapu `!== 'diocese'`-ről
+            `=== 'congregation'`-re változott — PÁRBAN a fenti fülsor-kapuval.
+            Ha csak az egyik fordult volna meg, a kerület vagy címke nélküli
+            tartalmat, vagy tartalom nélküli címkét kapott volna. */}
+        {gyulekezeti && (
           <>
             <TabsContent value="debt" className="mt-4">
               <DebtTabV2
@@ -840,7 +935,15 @@ export function FinanceTabs({
         congregationId={congregationId}
         // 2026-08-09: pénzügy→leltár híd — csak gyülekezeti módban (az egyházmegyei
         // könyvelésnek nincs leltár-integrációja).
-        offerExpenseInventory={scope !== 'diocese'}
+        // ⛔ 2026-08-17 (kerületi S5): a kapu `!== 'diocese'`-ről
+        // `=== 'congregation'`-re változott. Ez a legveszélyesebb a hét kapu
+        // közül: a híd a kiadásból leltári tételt gyárt, és a GYÜLEKEZETI
+        // leltárba ír. A régi alakkal a kerületi adminisztrátor kiadás-rögzítés
+        // közben felajánlva kapta volna a leltárba vételt — az eredmény vagy egy
+        // néma 0-soros mentés, vagy egy idegen gyülekezet leltárába csúszott
+        // kerületi eszköz lett volna. A kerület saját leltára a Leltár modulban
+        // él (`leltar_tetelek.district_id`), nem ezen a hídon át.
+        offerExpenseInventory={gyulekezeti}
       />
 
       {/* Decont (elszámolás) dialog — a hivatalos Elszamolas sablonnal */}
@@ -954,8 +1057,14 @@ export function FinanceTabs({
       {/* 2026-07-10 (S3 #2): Monetár lebegő widget — csak a /penzugy oldalon
           (a FinanceTabs mountolja), diocese módban rejtve. A meglévő monetár
           propok a monetary-tab-v2 wrapperen át jutnak bele, a teljes
-          funkcionalitással (mentés, nyomtatás, törlés) + számológéppel. */}
-      {scope !== 'diocese' && (
+          funkcionalitással (mentés, nyomtatás, törlés) + számológéppel.
+          ⛔ 2026-08-17 (kerületi S5): a kapu `!== 'diocese'`-ről
+          `=== 'congregation'`-re változott. A Monetár a gyülekezeti
+          KÉSZPÉNZKASSZA címletjegyzéke (`congregationName` felirattal, a
+          gyülekezeti kassza-egyenleghez mérve) — Endre ezért rejtette el megyei
+          nézetben. A kerület „nem-megyeként" megkapta volna, méghozzá a
+          gyülekezeti egyenleg-szemantikával. */}
+      {gyulekezeti && (
         <MonetarFloatingWidget
           open={monetarWidgetOpen}
           onOpenChange={setMonetarWidgetOpen}
