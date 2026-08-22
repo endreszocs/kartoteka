@@ -14,6 +14,27 @@
  * FAIL-CLOSED felület: ha az állapot betöltése hibára fut, HIBÁT írunk ki, nem
  * „nincs felküldve" képet — az utóbbi arra bírná a lelkészt, hogy másodszor is
  * felküldje azt, ami már fent van.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * ⛔ 2026-08-17 (KERÜLETI S5) — EZ A KÁRTYA KERÜLETI NÉZETBEN NEM JELENHET MEG
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Endre K3 döntése: az EGYHÁZKERÜLET FÖLÖTT NINCS negyedik szint. A kártya
+ * három dolgot állít, és kerületi hatókörben MIND A HÁROM hamis volna:
+ *   1. „Felküldés az egyházkerületnek" — a kerület önmagának küldene fel;
+ *   2. a `felterjesztMegyeiSzamadas` / `felterjesztMegyeiKoltsegvetes` szerver
+ *      akciók SZÁNDÉKOSAN `scope === 'diocese'`-hez kötöttek, tehát a gomb
+ *      hibaüzenettel bukna („csak egyházmegyei nézetben értelmezhető");
+ *   3. a `getDioceseFinalizedAccountings` 2026-08-17 óta KERÜLETI hatókörben is
+ *      ad adatot — a kerület véglegesített évei tehát megjelennének a
+ *      „Véglegesített egyházmegyei számadások" felirat alatt. Ez az a fajta
+ *      néma félrecímkézés, amiből később hivatalos irat lesz.
+ *
+ * A VALÓDI megjelenítési kapu a hívónál van: `accounting-tab-v2.tsx`
+ * (`const megyei = props.scope === 'diocese'`) — az `=== 'diocese'` alak a
+ * kerületet helyesen kizárja. A lenti `scope` prop ennek az ÖV-ÉS-NADRÁGTARTÓ
+ * párja: ha egy jövőbeli hívó mégis átadná a kerületi hatókört, a kártya
+ * magától nem renderel. A prop OPCIONÁLIS és 'diocese' az alapértéke, ezért a
+ * MAI hívó (ami nem ad át semmit) viselkedése BYTE-RA változatlan.
  */
 
 import { useCallback, useEffect, useState, useTransition } from 'react'
@@ -29,6 +50,9 @@ import {
   getDioceseFinalizedAccountings,
 } from '@/app/(dashboard)/penzugy/actions'
 import type { BealitasRow } from '@/lib/constants/finance'
+// 2026-08-17 (kerületi S5): a hatókör KANONIKUS típusa (import-mentes mag,
+// kliens-oldalon is biztonságos).
+import type { FinanceScope } from '@/lib/auth/finance-scope-core'
 
 interface Props {
   year: number
@@ -36,6 +60,13 @@ interface Props {
   settings: BealitasRow
   /** Ellenőri (számvevői) nézet: a felküldés-gombok nem jelennek meg. */
   readOnly?: boolean
+  /**
+   * 2026-08-17 (kerületi S5) — ÖV-ÉS-NADRÁGTARTÓ (a MIÉRT a fájl fejlécében).
+   * A kártya KIZÁRÓLAG egyházmegyei hatókörben értelmes; bármi más értéknél
+   * `null`-t rendel. Alapérték `'diocese'`, hogy a mai (paramétert nem adó)
+   * hívóhely viselkedése bit-azonos maradjon.
+   */
+  scope?: FinanceScope
 }
 
 type Tetel = {
@@ -55,7 +86,15 @@ function rovidDatum(iso: string | null): string | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(nap) ? nap.replace(/-/g, '. ') + '.' : null
 }
 
-export function DioceseFelkuldesCard({ year, settings, readOnly = false }: Props) {
+export function DioceseFelkuldesCard({
+  year,
+  settings,
+  readOnly = false,
+  scope = 'diocese',
+}: Props) {
+  // A kapu ÉRTÉKE itt dől el, de a `return null` csak a hookok UTÁN állhat
+  // (React hook-szabály) — lásd lentebb.
+  const megyeiHatokor = scope === 'diocese'
   const [allapot, setAllapot] = useState<
     | { fazis: 'toltes' }
     | { fazis: 'hiba'; uzenet: string }
@@ -92,6 +131,9 @@ export function DioceseFelkuldesCard({ year, settings, readOnly = false }: Props
   }, [year])
 
   useEffect(() => {
+    // ⛔ Nem-megyei hatókörben NEM indítunk lekérést: a felterjesztés-állapot
+    // fogalma is csak a megyénél létezik, és a kártya úgysem renderel.
+    if (!megyeiHatokor) return
     let elavult = false
     // Az effect törzsében nincs szinkron setState — a betöltés microtaskban indul.
     queueMicrotask(() => {
@@ -101,7 +143,13 @@ export function DioceseFelkuldesCard({ year, settings, readOnly = false }: Props
     return () => {
       elavult = true
     }
-  }, [betolt])
+  }, [betolt, megyeiHatokor])
+
+  // ⛔ 2026-08-17 (kerületi S5): a fail-closed kapu — a hookok UTÁN, hogy a
+  // hook-sorrend minden rendereléskor azonos legyen. A MIÉRT a fájl fejlécében:
+  // az egyházkerület fölött nincs szint (K3), ennek a kártyának ott nincs
+  // igaz állítása.
+  if (!megyeiHatokor) return null
 
   const tetelek: Tetel[] = ([
     {

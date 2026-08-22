@@ -30,11 +30,23 @@ import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 // jön (gyülekezet VAGY egyházmegye — scope-oszlopos modell). Minden lekérdezés
 // `.eq(ctx.scopeCol, ctx.scopeId)`-vel szűr; kézzel írt 'congregation_id'
 // literál diocese-módban némán 0 sort adna.
+// 2026-08-17 (kerületi S5): a hatókör HÁROM értékű lett (gyülekezet /
+// egyházmegye / egyházkerület). A `ModuleScopeColumn` típust SZÁNDÉKOSAN a
+// közös modulból hozzuk — így ha egyszer negyedik szint jön, itt FORDÍTÁSI
+// HIBA lesz, nem néma „a district_id nem fér bele" csonkulás.
 import {
   getModuleScopeContext,
   moduleWriteBlock,
+  type ModuleScope,
+  type ModuleScopeColumn,
   type ModuleScopeContext,
 } from '@/lib/auth/module-scope'
+// 2026-08-17 (kerületi S5): a kiadás-kikeresőnek MELYIK főkönyvi táblát kell
+// olvasnia, azt NEM itt döntjük el kézzel (`scope === 'diocese' ? … : …`),
+// hanem a pénzügy KÖZÖS, fordító által őrzött tábla-térképéből. A kézi ternárius
+// pontosan az a „néma gyülekezeti visszaesés"-csapda, ami miatt a kerületi
+// kikereső a GYÜLEKEZET kiadásait listázta volna.
+import { tablesFor } from '@/lib/auth/finance-scope'
 // 2026-08-15 (egységes véglegesítés): séma-drift felismerés a KÖZÖS helperből —
 // a pecsét-mezők (leltar_finalized_at/_by) migráció előtti adatbázison kimaradnak.
 import { isMissingColumnError } from '@/lib/utils/schema-errors'
@@ -54,11 +66,74 @@ async function getScopeCtx(): Promise<{ ctx: ModuleScopeContext | null }> {
   return { ctx: res }
 }
 
-/** Az egyházmegyei módban (még) nem elérhető funkciók egységes üzenete. */
-const DIOCESE_FINALIZE_UNAVAILABLE =
-  'Az egyházmegye saját leltárának véglegesítése és felterjesztése a következő ' +
-  'fejlesztési körben készül el — a tételek rögzítése, szerkesztése és ' +
-  'nyomtatása már most is működik egyházmegyei módban.'
+/**
+ * A FELSŐBB SZINTEKEN (egyházmegye, egyházkerület) még nem elérhető leltár-
+ * véglegesítés egységes üzenete.
+ *
+ * 2026-08-17 (kerületi S5) — MIÉRT LETT FÜGGVÉNY A KONSTANSBÓL:
+ * korábban `DIOCESE_FINALIZE_UNAVAILABLE` néven egyetlen, MEGYEI szövegű
+ * konstans volt, a kapuk pedig `ctx.scope === 'diocese'` alakúak. Emiatt a
+ * kerület NÉMÁN átesett a kapun, és a `finalizeLeltar` a GYÜLEKEZETI ágra
+ * futott volna (`bealitas` + congregation_id) — vagyis a kerületi felhasználó
+ * vagy „Nincs bejelentkezett felhasználó."-t kapott volna, vagy — rosszabb —
+ * egy idegen gyülekezet év-sorát próbálta volna véglegesíteni. A név most
+ * szint-semleges, a SZÖVEG pedig megmondja a helyes szintet.
+ *
+ * ⚠️ EXHAUSTIVE SWITCH: `null` = ezen a szinten NINCS mit tiltani (a
+ * gyülekezeti véglegesítés működik). Egy negyedik szint FORDÍTÁSI HIBÁT ad,
+ * nem néma átesést a gyülekezeti ágra.
+ *
+ * ⚠️ A `diocese` ág szövege BETŰRE a 2026-08-15 óta élesben futó — a megyei
+ * viselkedés nem változhat.
+ */
+function felsoSzintFinalizeUnavailable(scope: ModuleScope): string | null {
+  switch (scope) {
+    case 'congregation':
+      return null
+    case 'diocese':
+      return (
+        'Az egyházmegye saját leltárának véglegesítése és felterjesztése a következő ' +
+        'fejlesztési körben készül el — a tételek rögzítése, szerkesztése és ' +
+        'nyomtatása már most is működik egyházmegyei módban.'
+      )
+    case 'district':
+      return (
+        'Az egyházkerület saját leltárának véglegesítése és felterjesztése a következő ' +
+        'fejlesztési körben készül el — a tételek rögzítése, szerkesztése és ' +
+        'nyomtatása már most is működik egyházkerületi módban.'
+      )
+    default: {
+      const _nemKezelt: never = scope
+      throw new Error(`Ismeretlen modul-hatókör: ${String(_nemKezelt)}`)
+    }
+  }
+}
+
+/**
+ * A kiadás-tábla PARTNER-oszlopa hatókör szerint.
+ *
+ * MIÉRT KÜLÖN, EXHAUSTIVE FÜGGVÉNY: a `tablesFor` térkép a tábla- és a
+ * kategória-oszlop nevét tudja, a partner-oszlopét nem. A gyülekezeti `kiadas`
+ * oszlopa `atvevo`, a felsőbb szintek tükör-tábláié (`diocese_kiadas`,
+ * `district_kiadas`) `kedvezmenyezett`. Kézi `isDiocese ? … : …` alakban egy új
+ * szint NÉMÁN `atvevo`-t kért volna egy olyan táblától, amelyben nincs ilyen
+ * oszlop — a PostgREST hibája pedig a kikereső teljes tartalmát elnyelte volna
+ * („A kiadások betöltése nem sikerült.").
+ */
+function kiadasPartnerOszlop(scope: ModuleScope): 'atvevo' | 'kedvezmenyezett' {
+  switch (scope) {
+    case 'congregation':
+      return 'atvevo'
+    case 'diocese':
+      return 'kedvezmenyezett'
+    case 'district':
+      return 'kedvezmenyezett'
+    default: {
+      const _nemKezelt: never = scope
+      throw new Error(`Ismeretlen modul-hatókör: ${String(_nemKezelt)}`)
+    }
+  }
+}
 
 function normalizeInventoryRow(row: InventoryRow): InventoryItem {
   const rawCategory = typeof row.kategoria === 'string' ? row.kategoria : 'alapeszkoz'
@@ -100,7 +175,11 @@ function normalizeInventoryRow(row: InventoryRow): InventoryItem {
 
 async function fetchInventoryRowsCompat(
   supabase: SupabaseClient,
-  scopeCol: 'congregation_id' | 'diocese_id',
+  // 2026-08-17 (kerületi S5): itt korábban egy KÉZZEL BŐVÍTENDŐ unió-másolat
+  // állt ('congregation_id' | 'diocese_id'). A közös `ModuleScopeColumn` típus
+  // átvétele az egyetlen alak, amelyben egy új scope-oszlop fordítási hibát ad
+  // — a másolat mellett a `district_id` némán „nem fért volna bele".
+  scopeCol: ModuleScopeColumn,
   scopeId: string,
 ): Promise<InventoryRow[]> {
   // 2026-08-14 (10. pont, BLOKKOLÓ-javítás): LAPOZVA olvasunk. Korábban ez a
@@ -151,6 +230,14 @@ export async function generateNextLeltariSzam(category: InventoryCategory): Prom
   // gyülekezetitől FÜGGETLEN (a DB-oldali párja a
   // leltar_tetelek_dio_leltari_szam_key részleges egyediségi index) — a
   // számozási SZABÁLY (nextLeltariSzam) változatlanul a közös rétegből jön.
+  //
+  // 2026-08-17 (kerületi S5): a KERÜLETI számsor UGYANEZEN A MINTÁN áll — a
+  // FORMÁTUM szándékosan azonos (PREFIX-NNN, pl. „A-001"), csak a számsor
+  // független, mert a szűrés `ctx.scopeCol` szerint megy. Itt NINCS scope-
+  // elágazás, és nem is szabad hogy legyen: a `scopeCol` a
+  // `moduleScopeColumn()` exhaustive térképéből jön, tehát a district_id
+  // automatikusan helyes. (DB-oldali párja a kerületi S5 SQL
+  // leltar_tetelek_dis_leltari_szam_key részleges egyediségi indexe.)
   const { data: rows, error } = await selectAllPaged<{ leltari_szam: string | null }>(
     supabase
       .from('leltar_tetelek')
@@ -197,14 +284,27 @@ export async function saveInventoryItem(data: InventoryItemInput) {
   // meglévő kapcsolat marad.
   const { record, modernFallback } = buildInventoryUpsertPayloads(d, ctx.scopeId)
   // 2026-08-15 (S3): a közös payload-építő (packages/ui-app) congregation_id-t
-  // ír — a desktop gyülekezeti útja így bit-azonos marad. Megyei módban a
+  // ír — a desktop gyülekezeti útja így bit-azonos marad. Felsőbb szinten a
   // scope-oszlopot ITT cseréljük; a DB-oldali CHECK
   // (leltar_tetelek_pontosan_egy_scope) őrzi, hogy pontosan az egyik legyen
   // kitöltve.
-  if (ctx.scope === 'diocese') {
+  //
+  // 2026-08-17 (kerületi S5) — ITT VOLT A SZELET LEGSÚLYOSABB CSAPDÁJA. A
+  // korábbi alak `if (ctx.scope === 'diocese') { … p.diocese_id = … }` volt,
+  // utána a payload VÁLTOZATLANUL ment tovább. Egy kerületi felhasználó
+  // mentése így némán `congregation_id`-vel érkezett volna: a kerületi leltári
+  // tétel egy GYÜLEKEZET sorai közé íródik (vagy — RLS-en fennakadva — nyers,
+  // érthetetlen hibát ad). A fordító egy szót sem szólt volna.
+  //
+  // A javítás nem új elágazás, hanem a KÉZI elágazás MEGSZÜNTETÉSE: a
+  // scope-oszlop nevét a `ctx.scopeCol` adja (a `moduleScopeColumn()`
+  // exhaustive térképéből), tehát minden jelenlegi és jövőbeli szint helyes.
+  // A gyülekezeti ág BYTE-RA változatlan: ott `scopeCol === 'congregation_id'`,
+  // amit a payload-építő már beírt — ezért nem is nyúlunk hozzá.
+  if (ctx.scopeCol !== 'congregation_id') {
     for (const p of [record, modernFallback]) {
       delete p.congregation_id
-      p.diocese_id = ctx.scopeId
+      p[ctx.scopeCol] = ctx.scopeId
     }
   }
   if (!d.id) record.leltari_szam = leltariSzam
@@ -273,22 +373,40 @@ export async function listExpensesForInventoryPicker(year: number): Promise<Expe
     return res.data
   }
 
-  // 2026-08-15 (S3): a kiadás-tábla scope-függő — a pénzügy tablesFor-térképe
-  // szerint a megyei főkönyv a `diocese_kiadas` (finance-scope.ts:93-108).
-  // Két lényegi oszlop-eltérés (2026-04-18-egyhazmegyei-penzugy-fazis8.sql):
-  //   · a kategória közvetlen `id_szamadasicel` kód (nincs kiadascel-lánc),
+  // 2026-08-15 (S3) / 2026-08-17 (kerületi S5): a kiadás-tábla scope-függő.
+  //
+  // ⚠️ A TÁBLÁT ÉS A KATEGÓRIA-OSZLOPOT MOSTANTÓL A KÖZÖS TÉRKÉP DÖNTI EL
+  // (`tablesFor`, lib/auth/finance-scope-core.ts). Korábban itt kézi
+  // `isDiocese ? 'diocese_kiadas' : 'kiadas'` ternárius állt — az a kerületi
+  // hívónak NÉMÁN a GYÜLEKEZETI főkönyvet adta volna: a kerületi felhasználó
+  // egy idegen gyülekezet kiadásait látta volna a leltár-kikeresőben, és
+  // azokhoz kapcsolt volna kerületi leltári tételt. A térkép exhaustive
+  // switch, tehát egy negyedik szint fordítási hibát ad, nem néma visszaesést.
+  //
+  // A felsőbb szintek tükör-tábláinak (diocese_kiadas, district_kiadas) HÁROM
+  // oszlop-eltérése a gyülekezetihez képest
+  // (2026-04-18-egyhazmegyei-penzugy-fazis8.sql és a kerületi S5 SQL):
+  //   · a kategória közvetlen `id_szamadasicel` kód → nincs kiadascel-lánc,
   //   · a partner-oszlop `kedvezmenyezett` (a gyülekezeti `atvevo` párja),
-  //   · belső-mozgás oszlop nincs (megyei szinten nincs belső mozgás).
-  const isDiocese = ctx.scope === 'diocese'
-  const kiadasQuery = isDiocese
-    ? supabase
-        .from('diocese_kiadas')
-        .select('id, xkey, datum, osszeg, kedvezmenyezett, iratszam, nyugta, irattipus, megjegyzes, id_szamadasicel, stornozott')
-        .eq('diocese_id', ctx.scopeId)
-    : supabase
-        .from('kiadas')
-        .select('id, xkey, datum, osszeg, atvevo, iratszam, nyugta, irattipus, megjegyzes, id_kiadascel, stornozott, belso_mozgas_xkey')
-        .eq('congregation_id', ctx.scopeId)
+  //   · belső-mozgás oszlop nincs (felsőbb szinten nincs belső mozgás).
+  // Mindhárom a GYÜLEKEZETI szint sajátossága, ezért a kapu `=== 'congregation'`
+  // alakú (C-forma): a kerület automatikusan a megyei viselkedést örökli.
+  const T = tablesFor(ctx.scope)
+  const gyulekezeti = ctx.scope === 'congregation'
+  const partnerOszlop = kiadasPartnerOszlop(ctx.scope)
+  const kiadasOszlopok = [
+    'id', 'xkey', 'datum', 'osszeg', partnerOszlop,
+    'iratszam', 'nyugta', 'irattipus', 'megjegyzes',
+    T.categoryColKiadas, 'stornozott',
+    // A `belso_mozgas_xkey` CSAK a gyülekezeti `kiadas` táblán létezik —
+    // felsőbb szinten a lekérdezésbe téve a PostgREST az EGÉSZ kikeresőt
+    // hibára futtatná („A kiadások betöltése nem sikerült.").
+    ...(gyulekezeti ? ['belso_mozgas_xkey'] : []),
+  ].join(', ')
+  const kiadasQuery = supabase
+    .from(T.kiadas)
+    .select(kiadasOszlopok)
+    .eq(T.scopeCol, ctx.scopeId)
 
   try {
     const [kiadasRes, kiaCelRes, celRes, linkedRes, years] = await Promise.all([
@@ -304,10 +422,11 @@ export async function listExpensesForInventoryPicker(year: number): Promise<Expe
         // dedup az `id`-n továbbra is kell.
         { orderColumn: null, dedupeBy: 'id' },
       ),
-      // Megyei módban a kiadascel-lánc nem kell (közvetlen szamadasicel-kód).
-      isDiocese
-        ? Promise.resolve({ data: [] as Array<{ id: number; id_szamadasicel: string | null }>, error: null })
-        : supabase.from('kiadascel').select('id, id_szamadasicel'),
+      // A kiadascel-lánc a GYÜLEKEZETI szint sajátossága — a felsőbb szintek
+      // (megye, kerület) közvetlen `id_szamadasicel` kódot tárolnak.
+      gyulekezeti
+        ? supabase.from('kiadascel').select('id, id_szamadasicel')
+        : Promise.resolve({ data: [] as Array<{ id: number; id_szamadasicel: string | null }>, error: null }),
       supabase.from('szamadasicel').select('id, nev'),
       selectAllPaged<{ penzugy_xkey: string | null }>(
         supabase
@@ -336,15 +455,19 @@ export async function listExpensesForInventoryPicker(year: number): Promise<Expe
     const rows: ExpensePickerRow[] = kiadasRows
       .filter((r) => !r.stornozott && !r.belso_mozgas_xkey && r.xkey)
       .map((r) => {
-        const kod = isDiocese
-          ? (r.id_szamadasicel ? String(r.id_szamadasicel) : null)
-          : kodById.get(Number(r.id_kiadascel)) ?? null
+        // A kategória-oszlop nevét a KÖZÖS térkép adja: gyülekezeten
+        // `id_kiadascel` (int → kiadascel-láncon át kód), felsőbb szinten
+        // `id_szamadasicel` (már maga a kód).
+        const nyersKategoria = r[T.categoryColKiadas]
+        const kod = gyulekezeti
+          ? kodById.get(Number(nyersKategoria)) ?? null
+          : (nyersKategoria ? String(nyersKategoria) : null)
         return {
           id: Number(r.id),
           xkey: String(r.xkey),
           datum: String(r.datum || '').slice(0, 10),
           osszeg: Number(r.osszeg) || 0,
-          atvevo: ((isDiocese ? r.kedvezmenyezett : r.atvevo) as string | null) || null,
+          atvevo: (r[partnerOszlop] as string | null) || null,
           iratszam: (r.iratszam as string | null) || null,
           nyugta: (r.nyugta as string | null) || null,
           irattipus: (r.irattipus as string | null) || null,
@@ -436,10 +559,17 @@ export async function getLeltarFinalizationStatus(): Promise<{
   finalizedAt: string | null
 }> {
   const { ctx } = await getScopeCtx()
-  // 2026-08-15 (S3): megyei módban a vagyonleltári jelentés véglegesítése (a
-  // gyülekezet→megye beküldés útja) nem értelmezett — a felület el is rejti a
-  // blokkot; itt fail-closed „nincs véglegesítve" állapotot adunk.
-  if (!ctx || ctx.scope === 'diocese') {
+  // 2026-08-15 (S3) / 2026-08-17 (kerületi S5): FELSŐBB szinten (egyházmegye,
+  // egyházkerület) a vagyonleltári jelentés véglegesítése — ami a
+  // gyülekezet→felettes BEKÜLDÉS útja — nem értelmezett; a felület el is rejti
+  // a blokkot, itt fail-closed „nincs véglegesítve" állapotot adunk.
+  //
+  // ⚠️ A kapu SZÁNDÉKOSAN `!== 'congregation'` és nem `=== 'diocese'`: ez a
+  // véglegesítés-blokk a GYÜLEKEZETI szint sajátossága. A korábbi
+  // `=== 'diocese'` alaknál a kerület némán a gyülekezeti ágra esett, és a
+  // `bealitas` táblát kérdezte volna le `congregation_id = <kerület UUID>`
+  // szűrővel — 0 sor, hibaüzenet nélkül.
+  if (!ctx || ctx.scope !== 'congregation') {
     return { finalized: false, unlockRequested: false, finalizedAt: null }
   }
   const { supabase } = ctx
@@ -494,12 +624,76 @@ export async function finalizeLeltar() {
   // pecsétet kap (leltar_finalized_at/_by) a zöld jelvényhez.
   const { supabase, congregationId: congId, userId } = await getEffectiveCongregationContext()
   if (!congId) {
-    // 2026-08-15 (S3): megyei módban beszédes üzenet, nem a félrevezető
-    // „nincs bejelentkezve" (a hívó ott áll a megyei leltár képernyőn).
+    // 2026-08-15 (S3) / 2026-08-17 (kerületi S5): felsőbb szinten beszédes,
+    // A SZINTET MEGNEVEZŐ üzenet, nem a félrevezető „nincs bejelentkezve" (a
+    // hívó ott áll a megyei / kerületi leltár képernyőn).
     const { ctx } = await getScopeCtx()
-    if (ctx?.scope === 'diocese') return { error: DIOCESE_FINALIZE_UNAVAILABLE }
+    const felsoSzintUzenet = ctx ? felsoSzintFinalizeUnavailable(ctx.scope) : null
+    if (felsoSzintUzenet) return { error: felsoSzintUzenet }
     return { error: 'Nincs bejelentkezett felhasználó.' }
   }
+
+  // ── MÁSODIK VÉDVONAL: A KÉT HATÓKÖR-RÉTEGNEK EGYET KELL MONDANIA ──────────
+  //
+  // MIÉRT KELL EGYÁLTALÁN. Ez a függvény a `getEffectiveCongregationContext()`-ből
+  // dolgozik, a Leltár összes TÖBBI akciója viszont a `getModuleScopeContext()`-ből
+  // (`getScopeCtx`). KÉT FELOLDÓ, KÉT VÁLASZ — és ha széthúznak, a következmény
+  // nem üres lista, hanem HIVATALOS IRAT ROSSZ LEZÁRÁSA: a `bealitas` sor
+  // `leltar_finalized` zászlóját ez a függvény a GYÜLEKEZETRE írja, miközben a
+  // felhasználó a képernyőn egy MÁSIK szint (kerület/megye) tételeit látja.
+  // A csapda néma is: a `getLeltarFinalizationStatus()` (fent) `ctx.scope !==
+  // 'congregation'` esetén MINDIG `finalized:false`-t ad, tehát a gomb újra és
+  // újra megnyomható lenne, a lelkész pedig soha nem értesülne róla, hogy a
+  // jelentése lezárult.
+  //
+  // A KONKRÉT, MÁR MEGTÖRTÉNT DIVERGENCIA (kerületi S5, ezért fail-closed):
+  // az `egyhazkeruleti_admin` „Belépés a gyülekezetbe" override-ja mellett a
+  // module-scope új district-ága DISTRICT hatókört adott, az
+  // `effectiveCongregationId` viszont a gyülekezetet — a kerületi admin a
+  // KERÜLET tételeit látva zárta volna le a GYÜLEKEZET vagyonleltári jelentését.
+  // A GYÖKÉROKOT a `lib/auth/finance-scope.ts` / `lib/auth/module-scope.ts`
+  // 0) override-elsőbbségi kapuja javítja; ez itt a MÁSODIK VÉDVONAL, hogy egy
+  // JÖVŐBELI divergencia se tudjon hivatalos iratot lezárni.
+  //
+  // ⚠️ A GYÜLEKEZETI ÚT VISELKEDÉSE VÁLTOZATLAN — bizonyítás:
+  //   · ha `congId` (= `effectiveCongregationId`) nem null, akkor a
+  //     `getModuleScopeContext()` 3) gyülekezeti fallbackje MINDIG lefut, hacsak
+  //     a hívó nem megyei/kerületi OLVASÓ szerep (DIOCESE_READ_ROLES /
+  //     DISTRICT_READ_ROLES) — a `lelkesz` egyikben sincs benne;
+  //   · a megyei/kerületi profilban álló felhasználónál `effectiveCongregationId`
+  //     null, tehát ő a FENTI ágon kap üzenetet, ide el sem jut;
+  //   · a `scopeId` és a `congId` azonossága ma bizonyítottan fennáll: a
+  //     module-scope gyülekezeti ága az `effectiveCongregationId`-t adja, a
+  //     0) kapu pedig az `override.congregationId`-t, ami az
+  //     `effective-access.ts:404-411` szerint UGYANAZ az érték.
+  //   ⇒ mind a két új ellenőrzés a mai éles adaton no-op; csak akkor szólal meg,
+  //     ha a két réteg tényleg széthúzott.
+  const { ctx: modulCtx } = await getScopeCtx()
+  if (!modulCtx) {
+    return {
+      error:
+        'A hatókör (gyülekezet / egyházmegye / egyházkerület) most nem oldható fel, ezért biztonsági okból ' +
+        'NEM véglegesítettük a vagyonleltári jelentést. Frissítsd az oldalt, és próbáld újra; ha újra hibázik, ' +
+        'jelezd a rendszergazdának.',
+    }
+  }
+  if (modulCtx.scope !== 'congregation') {
+    return {
+      error:
+        felsoSzintFinalizeUnavailable(modulCtx.scope) ??
+        'A vagyonleltári jelentés véglegesítése csak gyülekezeti hatókörben értelmezett.',
+    }
+  }
+  if (modulCtx.scopeId !== congId) {
+    return {
+      error:
+        'A rendszer két különböző gyülekezetet lát ehhez a művelethez, ezért biztonsági okból NEM ' +
+        'véglegesítettük a vagyonleltári jelentést (nem zárhatunk le hivatalos iratot bizonytalan ' +
+        'hatókörrel). Lépj ki a „Belépés a gyülekezetbe" nézetből vagy válts profilt, majd próbáld újra; ' +
+        'ha újra hibázik, jelezd a rendszergazdának.',
+    }
+  }
+
   const year = leltarReportYear()
   let { data, error } = await supabase
     .from('bealitas')
@@ -532,7 +726,13 @@ export async function finalizeLeltar() {
 export async function requestLeltarUnlock(reason?: string | null) {
   const { ctx } = await getScopeCtx()
   if (!ctx) return { error: 'Nincs bejelentkezett felhasználó.' }
-  if (ctx.scope === 'diocese') return { error: DIOCESE_FINALIZE_UNAVAILABLE }
+  // 2026-08-17 (kerületi S5): a kapu ugyanaz, mint a `finalizeLeltar`-ban — a
+  // korábbi `=== 'diocese'` alaknál a kerület némán átesett rajta, és a
+  // feloldási kérelem a `bealitas` táblára ment volna `congregation_id = <kerület
+  // UUID>` szűrővel: 0 érintett sor → a lelkész a „nincs év-sor" üzenetet kapta
+  // volna, ami a kerületen értelmezhetetlen.
+  const felsoSzintUzenet = felsoSzintFinalizeUnavailable(ctx.scope)
+  if (felsoSzintUzenet) return { error: felsoSzintUzenet }
   const { supabase } = ctx
   const congId = ctx.scopeId
   // 2026-08-11 (K5-#12): AZ INDOKLÁS KÖTELEZŐ. Eddig az üres sztring is átment

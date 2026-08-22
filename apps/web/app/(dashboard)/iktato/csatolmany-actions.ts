@@ -103,7 +103,8 @@ export async function prepareCsatolmanyUpload(input: {
   if (entryErr) return { path: null, error: entryErr }
 
   const safeName = sanitizeCsatolmanyFileName(input.fileName)
-  // Az út ELSŐ szegmense a scope-azonosító (gyülekezet VAGY egyházmegye) —
+  // Az út ELSŐ szegmense a scope-azonosító (gyülekezet VAGY egyházmegye VAGY
+  // egyházkerület) —
   // a storage-policyk mindkét scope-ban erre szűrnek.
   const path = `${ctx.scopeId}/${input.iktatoId}/${crypto.randomUUID()}-${safeName}`
   return { path, error: null }
@@ -204,7 +205,8 @@ export async function registerCsatolmany(input: {
           // Denormalizált — a K1 kontraktus szerint az iktato sorával egyezően
           // KELL beszúrni (a verifyEntry fentebb pont ezt garantálja).
           // 2026-08-15 (S4): a scope-oszlop dinamikus; a kompozit FK-k
-          // (iktato_id+congregation_id ill. iktato_id+diocese_id) őrzik, hogy a
+          // (iktato_id+congregation_id, iktato_id+diocese_id ill. — 2026-08-17,
+          // kerületi S5 — iktato_id+district_id) őrzik, hogy a
           // denormalizált érték a szülő irat valódi scope-ja legyen.
           [ctx.scopeCol]: ctx.scopeId,
           storage_path: input.storagePath || null,

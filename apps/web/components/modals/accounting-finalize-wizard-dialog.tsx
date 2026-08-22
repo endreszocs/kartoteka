@@ -10,7 +10,9 @@
  *        A) Kartotéka jegyzőkönyv összekapcsolás (napirendi pont + határozat szám)
  *        B) Manuális beírás (szám + dátum)
  *   4. Megerősítés — összefoglaló, submit
- *   5. Kész — az egyházmegyének beküldve
+ *   5. Kész — a felettes szintnek beküldve (gyülekezet → egyházmegye,
+ *      egyházmegye → egyházkerület; az EGYHÁZKERÜLET fölött K3 szerint nincs
+ *      szint, ott a véglegesítés csak lezár, nem küld sehová)
  */
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
@@ -53,6 +55,10 @@ import {
   finalizeAndSubmitAccounting,
 } from '@/app/(dashboard)/penzugy/actions'
 import { formatCurrency } from '@/lib/constants/finance'
+// 2026-08-17 (kerületi S5): a hatókör KANONIKUS típusa (a `tablesFor` magjából).
+// A mag import-mentes, ezért kliens-komponensben is biztonságos — a
+// `finance-scope.ts` gazda-modul `server-only` láncot húzna a bundle-be.
+import type { FinanceScope } from '@/lib/auth/finance-scope-core'
 
 type WizardStep = 'overview' | 'checks' | 'jegyzokonyv' | 'confirm' | 'done'
 
@@ -104,12 +110,21 @@ type Props = {
     actualExpense: Record<string, number>
   }
   onFinalized?: () => void | Promise<void>
-  /** 2026-04-18 SCOPE-AWARE: 'congregation' (default) vagy 'diocese'.
+  /** 2026-04-18 SCOPE-AWARE: a véglegesítés hatóköre. Alapértelmezés:
+   *  'congregation'.
    *  Diocese módban nincs gyülekezeti submitDocument hívás: a
    *  `finalizeAccounting` megyei ága egy lépésben zár (diocese_bealitas),
    *  pillanatképet ment (diocese_annual_reports) ÉS rögzíti a felküldést az
-   *  egyházkerületnek (diocese_felterjesztes — 2026-08-15, S6). */
-  scope?: 'congregation' | 'diocese'
+   *  egyházkerületnek (diocese_felterjesztes — 2026-08-15, S6).
+   *
+   *  ⛔ 2026-08-17 (kerületi S5): a típus a KANONIKUS `FinanceScope` — kézi
+   *  `'congregation' | 'diocese'` unió-másolat helyett. A kerületi ág a megyei
+   *  MŰKÖDÉSÉT követi (egy lépésben zár + pillanatkép a `district_annual_reports`
+   *  táblába), a FELIRATAI viszont NEM: K3 döntés szerint az egyházkerület
+   *  fölött NINCS negyedik szint, tehát nincs kinek felküldeni. Ha a wizard a
+   *  megyei szöveget kapná, azt ígérné a kerületi adminisztrátornak, hogy az
+   *  irat „felkerül az egyházkerülethez" — vagyis önmagához. */
+  scope?: FinanceScope
 }
 
 export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, onFinalized, scope = 'congregation' }: Props) {
@@ -117,10 +132,29 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
   // 2026-08-15 (egyházmegyei szelet): a wizard feliratai a CÍMZETT szintjét
   // mondják — a gyülekezeté az egyházmegye, az egyházmegye SAJÁT számadásáé az
   // egyházkerület. A folyamat (5 lépés, ellenőrzések, jegyzőkönyv) azonos.
+  //
+  // 2026-08-17 (kerületi S5): HÁROM szint, KÉT független tengely:
+  //   · `felsoSzint`  — gyülekezet-e vagy sem (közgyűlés kontra presbitérium);
+  //   · `keruleti`    — van-e felettes szint egyáltalán (K3: a kerületnek NINCS).
+  // A két tengely szándékosan külön: a kerület a jegyzőkönyv-oldalon a MEGYÉRE
+  // hasonlít (közgyűlés tárgyalja), a felküldés-oldalon viszont EGYIKRE SEM.
   const megyei = scope === 'diocese'
-  const felettesNek = megyei ? 'az egyházkerületnek' : 'az egyházmegyének'
-  const felettesHez = megyei ? 'az egyházkerülethez' : 'az egyházmegyéhez'
-  const felettes = megyei ? 'Az egyházkerület' : 'Az egyházmegye'
+  const keruleti = scope === 'district'
+  const felsoSzint = scope !== 'congregation'
+  /** „Presbiteri" / „Közgyűlési" jegyzőkönyv — a tárgyaló testület szerint. */
+  const jegyzokonyvCim = felsoSzint ? 'Közgyűlési jegyzőkönyv' : 'Presbiteri jegyzőkönyv'
+  /** A számadást tárgyaló testület, mondatba illesztve. */
+  const targyaloTestulet = keruleti
+    ? 'az egyházkerületi közgyűlés'
+    : megyei
+      ? 'az egyházmegyei közgyűlés'
+      : 'a presbitérium'
+  // ⚠️ A három „felettes" felirat KERÜLETI hatókörben `null` — nem üres string,
+  //    hanem HIÁNYZÓ fogalom. Így a felhasználó helyeken kényszerítve vagyunk
+  //    külön mondatot írni, nem egy fél mondat marad üresen a képernyőn.
+  const felettesNek: string | null = keruleti ? null : megyei ? 'az egyházkerületnek' : 'az egyházmegyének'
+  const felettesHez: string | null = keruleti ? null : megyei ? 'az egyházkerülethez' : 'az egyházmegyéhez'
+  const felettes: string | null = keruleti ? null : megyei ? 'Az egyházkerület' : 'Az egyházmegye'
   const [isPending, startTransition] = useTransition()
   const [step, setStep] = useState<WizardStep>('overview')
 
@@ -278,6 +312,16 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
       //   Korábban előbb küldött, aztán zárt — a zárás bukása beküldött-de-nyitott
       //   (elévülő snapshotú) állapotot hagyott.
       // - Diocese mód: CSAK finalizeAccounting (a diocese_annual_reports egy lépésben submission+finalization)
+      //
+      // ✅ 2026-08-17 (kerületi S5): ez a kapu MÁR HELYES volt, és SZÁNDÉKOSAN
+      //    marad `=== 'congregation'`. A `finalizeAndSubmitAccounting` a
+      //    gyülekezet→egyházmegye beküldési utat járja (submitDocument), ami
+      //    felsőbb szinten értelmetlen. A kerület tehát az `else` ágra fut, és a
+      //    scope-tudatos `finalizeAccounting` a `district_bealitas` /
+      //    `district_annual_reports` táblákat kezeli (lásd finance-scope
+      //    `tablesFor`). Ha valaki ezt „egységesítené" `!== 'district'`-re, a
+      //    kerület a gyülekezeti beküldő úton próbálna felküldeni — némán 0
+      //    sorral vagy nyers RLS-hibával.
       if (scope === 'congregation') {
         const result = await finalizeAndSubmitAccounting(
           year,
@@ -307,10 +351,17 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
         }
       }
 
+      // ⛔ 2026-08-17 (kerületi S5): a régi kétágú ternárius a kerületet a
+      //    GYÜLEKEZETI ágra ejtette volna — a kerületi adminisztrátor azt a
+      //    visszajelzést kapta volna, hogy a számadását „beküldtük az
+      //    egyházmegyének". K3: a kerület fölött nincs szint, és a szerver sem
+      //    küld sehová; a felirat ezt mondja ki.
       toast.success(
-        scope === 'diocese'
-          ? 'Egyházmegyei számadás véglegesítve és felküldve az egyházkerületnek!'
-          : 'Számadás véglegesítve és beküldve az egyházmegyének!',
+        keruleti
+          ? 'Egyházkerületi számadás véglegesítve és lezárva!'
+          : megyei
+            ? 'Egyházmegyei számadás véglegesítve és felküldve az egyházkerületnek!'
+            : 'Számadás véglegesítve és beküldve az egyházmegyének!',
         { duration: 5000 },
       )
       setStep('done')
@@ -375,12 +426,17 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
                     <h3 className="font-heading text-lg text-slate-800">
                       Az éves számadás véglegesítése
                     </h3>
+                    {/* 2026-08-17 (kerületi S5): a jegyzőkönyv-jelző a TÁRGYALÓ
+                        testületet követi (a kerületet is közgyűlés tárgyalja), a
+                        záró tagmondat viszont csak ott beszél „hová kerül", ahol
+                        tényleg van felettes szint. */}
                     <p className="text-sm text-slate-600 mt-1 leading-relaxed">
                       A KARTOTEKA végigvezet a véglegesítés 5 lépésén: automatikus
-                      ellenőrzések, {megyei ? 'közgyűlési' : 'presbiteri'} jegyzőkönyv
+                      ellenőrzések, {felsoSzint ? 'közgyűlési' : 'presbiteri'} jegyzőkönyv
                       csatolás, és a végső megerősítés. Véglegesítés után a számadás
-                      {' '}{felettesHez} kerül — a módosítás csak javítási kérelemmel
-                      lehetséges.
+                      {felettesHez
+                        ? ` ${felettesHez} kerül — a módosítás csak javítási kérelemmel lehetséges.`
+                        : ' lezárul — a módosítás csak javítási kérelemmel lehetséges.'}
                     </p>
                   </div>
                 </div>
@@ -534,10 +590,10 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
                   <ScrollText className="size-4 text-indigo-700 shrink-0 mt-0.5" />
                   <div>
                     <p className="text-sm font-semibold text-indigo-900">
-                      {megyei ? 'Közgyűlési jegyzőkönyv' : 'Presbiteri jegyzőkönyv'}
+                      {jegyzokonyvCim}
                     </p>
                     <p className="text-xs text-slate-600 mt-1">
-                      A számadást {megyei ? 'az egyházmegyei közgyűlés' : 'a presbitérium'} tárgyalja
+                      A számadást {targyaloTestulet} tárgyalja
                       — a jegyzőkönyvi szám és tárgyalási dátum kerül a hivatalos dokumentumba.
                     </p>
                   </div>
@@ -701,8 +757,13 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
                   <Send className="size-5 text-violet-600" />
                   Utolsó megerősítés
                 </h3>
+                {/* ⛔ 2026-08-17 (kerületi S5): kerületi hatókörben a
+                    „…és {felettesHez}" mondatrész HAZUDNA (nincs hová) —
+                    ezért ott külön, teljes mondat áll. */}
                 <p className="text-sm text-slate-600 mt-1">
-                  Ezek az adatok kerülnek a hivatalos számadásba és {felettesHez}:
+                  {felettesHez
+                    ? `Ezek az adatok kerülnek a hivatalos számadásba és ${felettesHez}:`
+                    : 'Ezek az adatok kerülnek a hivatalos egyházkerületi számadásba:'}
                 </p>
 
                 <div className="mt-4 space-y-2 text-sm bg-white rounded-xl p-4 border border-slate-200">
@@ -746,12 +807,27 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
                     <p className="font-semibold mb-1">Mi fog történni a megerősítés után?</p>
                     <ul className="list-disc pl-5 space-y-0.5">
                       <li>A számadás véglegesítve lesz, <strong>új tétel rögzítése, stornózás, szerkesztés a {year}. évre letiltva</strong>.</li>
-                      {megyei ? (
+                      {/* ⛔ 2026-08-17 (kerületi S5): HÁROM ág. A régi kétágú
+                          alakban a kerület a gyülekezeti ágra esett volna:
+                          „Az egyházmegye csengőn értesítést kap" — miközben a
+                          kerületi számadásról semmilyen egyházmegye nem kap
+                          értesítést, és nincs is felettes szint (K3). */}
+                      {keruleti ? (
+                        <li>Az egyházkerület a <strong>legfelső szint</strong> — a számadás a véglegesítéssel lezárul, nem kell feljebb küldeni.</li>
+                      ) : megyei ? (
                         <li>A számadás <strong>felküldve</strong> lesz {felettesNek} — a felküldés ténye, ideje és tartalma rögzül.</li>
                       ) : (
                         <li>Az <strong>egyházmegye csengőn értesítést</strong> kap — az esperes látni fogja a beküldött dokumentumot.</li>
                       )}
-                      <li>Módosítás csak {megyei ? 'egyházkerületi' : 'egyházmegyei'} <strong>javítási engedéllyel</strong> lehetséges.</li>
+                      {/* A kerületi feloldás ELBÍRÁLÓJA Endre nyitott döntése
+                          (K3) — lásd penzugy/actions.ts requestBudgetUnlock. Amíg
+                          nincs döntés, itt NEM nevezünk meg elbírálót: a kérelem
+                          ténye és indoka rögzül, ennyit állítunk. */}
+                      {keruleti ? (
+                        <li>Módosítás csak <strong>javítási engedéllyel</strong> lehetséges — a kérelmet a rendszer rögzíti és naplózza.</li>
+                      ) : (
+                        <li>Módosítás csak {megyei ? 'egyházkerületi' : 'egyházmegyei'} <strong>javítási engedéllyel</strong> lehetséges.</li>
+                      )}
                     </ul>
                   </div>
                 </div>
@@ -768,12 +844,23 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
               <h3 className="font-heading text-2xl text-slate-800">
                 Számadás véglegesítve! 🎉
               </h3>
+              {/* ⛔ 2026-08-17 (kerületi S5): a kerületi mondat KÜLÖN, teljes
+                  egészében. A régi alakban a záró tagmondat („kivéve ha
+                  javítási kérelmet küldesz {felettesNek}") a kerületnél
+                  „az egyházmegyének"-et írt volna — rossz címzett egy
+                  lezárt, hivatalos irat mellé. */}
               <p className="text-sm text-slate-600 mt-3 leading-relaxed max-w-md mx-auto">
-                {megyei
-                  ? `A(z) ${year}. évi számadás felküldve. `
-                  : `${felettes} csengőn értesítést kap. A ${year}. évi számadás `}
-                mostantól lezárt és nem módosítható — kivéve ha javítási kérelmet küldesz
-                {' '}{felettesNek}.
+                {keruleti ? (
+                  `A(z) ${year}. évi egyházkerületi számadás mostantól lezárt és nem módosítható — kivéve ha javítási engedélyt kérsz.`
+                ) : (
+                  <>
+                    {megyei
+                      ? `A(z) ${year}. évi számadás felküldve. `
+                      : `${felettes} csengőn értesítést kap. A ${year}. évi számadás `}
+                    mostantól lezárt és nem módosítható — kivéve ha javítási kérelmet küldesz
+                    {' '}{felettesNek}.
+                  </>
+                )}
               </p>
               <Button
                 onClick={() => onOpenChange(false)}

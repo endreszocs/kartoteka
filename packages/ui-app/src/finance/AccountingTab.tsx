@@ -39,7 +39,20 @@ import { formatCurrency } from './helpers'
 import type { FinanceBalances } from './helpers'
 import type { BealitasRow, BefitetesRow, KiadasRow, SzamadasiCel } from './types'
 
-export type AccountingScope = 'congregation' | 'diocese'
+/**
+ * A fül HÁROM hatóköre (2026-08-17, kerületi S5).
+ *
+ * ⚠️ EZ A KANONIKUS `FinanceScope` MÁSOLATA — a két uniónak BETŰRE egyeznie
+ *    kell. A kanonikus típus: `apps/web/lib/auth/finance-scope-core.ts`
+ *    (`FinanceScope`), és a tábla-térképet (`tablesFor`) is az adja.
+ *    MIÉRT NEM ONNAN IMPORTÁLJUK: a `packages/ui-app` NEM függ az
+ *    `apps/web`-től (package.json: csak @kartoteka/* csomagok), és nem is
+ *    függhet — ugyanezt a komponenst a Tauri-desktop is rendereli. A fordított
+ *    import a monorepo függőségi irányát szakítaná el.
+ * ⇒ Ha a `FinanceScope` unió bővül, EZT IS bővíteni kell: itt a fordító nem
+ *   segít, ezért áll a figyelmeztetés a típus fölött.
+ */
+export type AccountingScope = 'congregation' | 'diocese' | 'district'
 export type ToastKind = 'success' | 'error' | 'info'
 
 export interface AccountingTabProps {
@@ -139,6 +152,95 @@ function isInternalMovement(xkey: string | null | undefined, code: string | unde
   return code.startsWith('100') || code.startsWith('3') || code.startsWith('4')
 }
 
+/**
+ * SZINT-FÜGGŐ FELIRATOK — a fül minden olyan mondata, ami a hatókör FÖLÖTTI
+ * szintet nevezi meg (2026-08-17, kerületi S5).
+ *
+ * ⛔ MIÉRT NEM MARADHAT `scope === 'diocese' ? … : …`
+ * ─────────────────────────────────────────────────────
+ * A ternárius „minden más" ága a GYÜLEKEZETI szöveget adja. Amint a `scope`
+ * unió harmadik értéket kap, az EGYHÁZKERÜLET — mint „nem-megye" — azt olvasná
+ * a képernyőn, hogy a számadását „az egyházmegyének" küldi be. A kerület a
+ * megye FÖLÖTT áll: ez nem pontatlanság, hanem a hierarchia megfordítása,
+ * ráadásul némán (ternáriusra a fordító nem szól). Ezért exhaustive switch:
+ * egy jövőbeli negyedik szint FORDÍTÁSI HIBÁT ad, nem hazudós feliratot.
+ *
+ * ⚠️ A `congregation` és a `diocese` szöveg BETŰRE a 2026-08-15 óta élesben
+ *    futó — a közös `bekuldosFeliratok()` pontosan a régi sablonokból építi
+ *    őket, hogy egy átfogalmazás se csúszhasson be.
+ *
+ * A `district` ág a K3 döntést követi (lásd `apps/web/app/(dashboard)/penzugy/
+ * actions.ts` — `felterjesztMegyeiSzamadas` figyelmeztetése): az egyházkerület
+ * fölött NINCS negyedik szint, `district_felterjesztes` tábla sem készül. A
+ * kerületi véglegesítés tehát ZÁR, de nem küld fel sehova — ezért a kerületi
+ * feliratban nincs címzett, és a gomb sem ígér beküldést.
+ */
+interface SzintFeliratok {
+  /** KI bírálja el a feloldás-kérelmet (FinalizeButton `unlockAuthorityLabel`). */
+  elbiralo: string
+  /** A véglegesítés-gomb felirata. */
+  finalizeLabel: string
+  /** Toast a feloldás-kérelem sikeres elküldése után. */
+  unlockToast: string
+  /** Magyarázó mondat MÁR véglegesített számadásnál. */
+  veglegesitveMondat: string
+  /** Magyarázó mondat véglegesítés ELŐTT. */
+  veglegesitesElottMondat: string
+  /** Az „íven kívüli pénz" figyelmeztetés mondatvége (mibe nem számít bele). */
+  offFormBekuldes: string
+}
+
+/**
+ * A BEKÜLDŐS szintek (gyülekezet, egyházmegye) feliratai. A sablonok BETŰRE a
+ * korábbi `felettesSzint` / `felettesSzintNek` interpolációk — ezért nem lehet
+ * elgépelni a két élő szint szövegét.
+ */
+function bekuldosFeliratok(felettes: string, felettesNek: string): SzintFeliratok {
+  return {
+    elbiralo: felettes,
+    finalizeLabel: 'Véglegesítés és beküldés',
+    unlockToast: `Javítási kérelem elküldve ${felettesNek}!`,
+    veglegesitveMondat: `A számadás véglegesítve és beküldve ${felettesNek}. Módosítás csak a fenti „Feloldás kérése" úton lehetséges.`,
+    veglegesitesElottMondat: `Ha minden tétel stimmel, a fenti „Véglegesítés és beküldés" gombbal zárhatod le és küldheted be a számadást ${felettesNek}.`,
+    // ⚠️ Ez a mondatvég MEGYEI nézetben is „az egyházmegyének"-et mond — így áll
+    //    2026-08-11 óta, a `felettesSzint` bevezetése nem érintette. SZÁNDÉKOSAN
+    //    nem javítjuk itt: a megyei felirat BETŰRE változatlan kell maradjon.
+    //    Jelentve; Endre döntése, hogy javuljon-e „az egyházkerületnek"-re.
+    offFormBekuldes: 'az egyházmegyének beküldött adatba sem.',
+  }
+}
+
+function szintFeliratok(scope: AccountingScope): SzintFeliratok {
+  switch (scope) {
+    case 'congregation':
+      return bekuldosFeliratok('az egyházmegye', 'az egyházmegyének')
+    case 'diocese':
+      return bekuldosFeliratok('az egyházkerület', 'az egyházkerületnek')
+    case 'district':
+      // ⏳ ENDRE DÖNTÉSÉRE VÁR: a KERÜLETI feloldás-kérelemnek ma nincs
+      //    elbírálója (ugyanaz a nyitott pont, mint az actions.ts
+      //    `requestBudgetUnlock` K3-figyelmeztetésénél). Amíg nincs döntés, az
+      //    `elbiralo` „az egyházkerület vezetősége" — SEMMIKÉPP nem „az
+      //    egyházmegye", mert az a megyét emelné a kerület fölé.
+      return {
+        elbiralo: 'az egyházkerület vezetősége',
+        finalizeLabel: 'Véglegesítés',
+        unlockToast: 'Javítási kérelem rögzítve.',
+        veglegesitveMondat:
+          'Az egyházkerületi számadás véglegesítve és lezárva. Módosítás csak a fenti „Feloldás kérése" úton lehetséges.',
+        veglegesitesElottMondat:
+          'Ha minden tétel stimmel, a fenti „Véglegesítés" gombbal zárhatod le az egyházkerületi számadást. Felküldés nincs: az egyházkerület fölött nincs további szint.',
+        offFormBekuldes: 'a véglegesített egyházkerületi számadásba sem.',
+      }
+    default: {
+      // ⛔ FORDÍTÓI KAPU — negyedik szintnél fordítási hiba, nem néma,
+      //    hierarchiát megfordító felirat.
+      const _nemKezelt: never = scope
+      throw new Error(`Ismeretlen számadás-hatókör: ${String(_nemKezelt)}`)
+    }
+  }
+}
+
 export function AccountingTab({
   szamadasiCellek,
   incomeRecords,
@@ -177,7 +279,7 @@ export function AccountingTab({
    *    201.17 CAS, 206.02 Biztosítások, 101.07, 105.03, 106.02–106.06 …) —
    *    Endre, aki maga adja be ezeket az íveket, ezt kimondottan megerősítette.
    *    Ezek a sorok látszanak, de a gyülekezet nem tölti ki őket (lásd lentebb
-   *    `dioceseOnlyCodes`, illetve a BudgetTab `zaroltKodok`-ja).
+   *    `felsobbSzintuKodok`, illetve a BudgetTab `zaroltKodok`-ja).
    *
    * 2) EGYHÁZMEGYEI ív (2026-08-11, MOST): „minden tétel szerepel rajta, nem
    *    csak az egyházmegyeiek!" — tulajdonosi döntés. Eddig itt egy
@@ -237,8 +339,19 @@ export function AccountingTab({
    * ha mégis van rajtuk pénz, az legacy/importált adat, amit érdemes átnézni.
    *
    * A `szint` azt mondja meg, hogy a GYÜLEKEZETI íven ki tölti ki az adott sort.
-   * Az egyházmegye SAJÁT ívén ennek nincs értelme: ott minden sor az övé, ezért
-   * `scope === 'diocese'` esetén sem jelölés, sem figyelmeztetés nincs.
+   * A FELSŐBB SZINTEK SAJÁT ívén ennek nincs értelme: ott minden sor az övé,
+   * ezért sem jelölés, sem figyelmeztetés nincs.
+   *
+   * 2026-08-17 (kerületi S5): a kapu `scope !== 'diocese'`-ről
+   * `scope === 'congregation'`-re változott. MIÉRT: amit elrejt, az a
+   * GYÜLEKEZET sajátossága („erre a kódra te nem könyvelhetsz"), nem a megyéé.
+   * A régi alakkal az egyházkerület — mint „nem-megye" — megkapta volna a
+   * gyülekezeti jelölést és a sárga „nézd át" figyelmeztetést a SAJÁT ívén,
+   * pedig a rögzítő legördülők felsőbb hatókörben ma sem szűrnek
+   * (finance-tabs.tsx: `scope !== 'congregation'`), tehát a kerület BÁRMELY
+   * kódra jogszerűen könyvelhet. Gyülekezeti és megyei nézetben a viselkedés
+   * BYTE-RA változatlan (`!== 'diocese'` ⇔ `=== 'congregation'` a régi,
+   * kétértékű unión).
    */
   const szintByCode = useMemo(() => {
     const map: Record<string, SzamadasiCel['szint']> = {}
@@ -246,13 +359,13 @@ export function AccountingTab({
     return map
   }, [szamadasiCellek])
 
-  const csakEgyhazmegyeKod = (code: string) =>
-    scope !== 'diocese' && !gyulekezetSzerkesztheti(szintByCode[code])
+  const csakFelsobbSzintuKod = (code: string) =>
+    scope === 'congregation' && !gyulekezetSzerkesztheti(szintByCode[code])
 
-  /** A táblában megjelölendő (egyházmegyei szintű) kódok — csak gyülekezeti nézetben. */
-  const dioceseOnlyCodes = useMemo(() => {
+  /** A táblában megjelölendő (felsőbb szintű) kódok — CSAK gyülekezeti nézetben. */
+  const felsobbSzintuKodok = useMemo(() => {
     const set = new Set<string>()
-    if (scope === 'diocese') return set
+    if (scope !== 'congregation') return set
     for (const cell of szamadasiCellek) {
       if (!gyulekezetSzerkesztheti(cell.szint)) set.add(cell.id)
     }
@@ -285,12 +398,12 @@ export function AccountingTab({
   // az egyházmegyei szintűeket IS tartalmazza (rajta vannak a papíron), tehát az
   // ilyen kódra könyvelt pénz mostantól bekerül a tény-oszlopba, a végösszegbe és
   // a beküldött pillanatképbe — pontosan úgy, ahogy a nyomtatványon. Külön
-  // gyűjtjük viszont (`dioceseOnly*`), mert a gyülekezet ezekre már NEM
+  // gyűjtjük viszont (`felsobb*`), mert a gyülekezet ezekre már NEM
   // könyvelhet: ha mégis van rajtuk pénz, az legacy/importált sor.
-  const { actualIncome, offFormIncome, dioceseOnlyIncome } = useMemo(() => {
+  const { actualIncome, offFormIncome, felsobbSzintuBevetel } = useMemo(() => {
     const map: Record<string, number> = {}
     const offForm: Record<string, number> = {}
-    const dioceseOnly: Record<string, number> = {}
+    const felsobb: Record<string, number> = {}
     incomeRecords.forEach((row) => {
       // 2026-08-11 (6. kör): a `deleted` is szűrve — a hívó ma már szűrt sorokat
       // ad, de ez KIMONDATLAN invariáns volt (a nyomtatvány mindkettőt nézi).
@@ -299,35 +412,35 @@ export function AccountingTab({
       const code = bevCelMap[row.id_befizetescel || 0]
       if (code && officialIncomeCodes.has(code)) {
         map[code] = (map[code] || 0) + amount
-        if (csakEgyhazmegyeKod(code)) dioceseOnly[code] = (dioceseOnly[code] || 0) + amount
+        if (csakFelsobbSzintuKod(code)) felsobb[code] = (felsobb[code] || 0) + amount
         return
       }
       if (isInternalMovement(row.belso_mozgas_xkey, code)) return
       const key = code || '(nincs kategória)'
       offForm[key] = (offForm[key] || 0) + amount
     })
-    return { actualIncome: map, offFormIncome: offForm, dioceseOnlyIncome: dioceseOnly }
+    return { actualIncome: map, offFormIncome: offForm, felsobbSzintuBevetel: felsobb }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomeRecords, bevCelMap, officialIncomeCodes, szintByCode, scope])
 
-  const { actualExpense, offFormExpense, dioceseOnlyExpense } = useMemo(() => {
+  const { actualExpense, offFormExpense, felsobbSzintuKiadas } = useMemo(() => {
     const map: Record<string, number> = {}
     const offForm: Record<string, number> = {}
-    const dioceseOnly: Record<string, number> = {}
+    const felsobb: Record<string, number> = {}
     expenseRecords.forEach((row) => {
       if (row.deleted || row.stornozott) return
       const amount = Number(row.osszeg_ron ?? row.osszeg) || 0
       const code = kiaCelMap[row.id_kiadascel || 0]
       if (code && officialExpenseCodes.has(code)) {
         map[code] = (map[code] || 0) + amount
-        if (csakEgyhazmegyeKod(code)) dioceseOnly[code] = (dioceseOnly[code] || 0) + amount
+        if (csakFelsobbSzintuKod(code)) felsobb[code] = (felsobb[code] || 0) + amount
         return
       }
       if (isInternalMovement(row.belso_mozgas_xkey, code)) return
       const key = code || '(nincs kategória)'
       offForm[key] = (offForm[key] || 0) + amount
     })
-    return { actualExpense: map, offFormExpense: offForm, dioceseOnlyExpense: dioceseOnly }
+    return { actualExpense: map, offFormExpense: offForm, felsobbSzintuKiadas: felsobb }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expenseRecords, kiaCelMap, officialExpenseCodes, szintByCode, scope])
 
@@ -357,16 +470,16 @@ export function AccountingTab({
    * zárva), így ha mégis van rajta pénz, az régi vagy importált tétel. Ezért ez
    * NEM „nem fér rá az ívre" figyelmeztetés, hanem egy átnézésre hívó jelzés.
    */
-  const dioceseOnlyRows = useMemo(() => {
+  const felsobbSzintuSorok = useMemo(() => {
     const rows: Array<{ code: string; amount: number; kind: 'bevétel' | 'kiadás' }> = []
-    for (const [code, amount] of Object.entries(dioceseOnlyIncome)) {
+    for (const [code, amount] of Object.entries(felsobbSzintuBevetel)) {
       if (amount !== 0) rows.push({ code, amount, kind: 'bevétel' })
     }
-    for (const [code, amount] of Object.entries(dioceseOnlyExpense)) {
+    for (const [code, amount] of Object.entries(felsobbSzintuKiadas)) {
       if (amount !== 0) rows.push({ code, amount, kind: 'kiadás' })
     }
     return rows.sort((a, b) => a.code.localeCompare(b.code, 'hu'))
-  }, [dioceseOnlyIncome, dioceseOnlyExpense])
+  }, [felsobbSzintuBevetel, felsobbSzintuKiadas])
 
   // 2026-08-11 (6. kör): a végösszegek a KÖZÖS `osszegezLevelek` helperrel —
   // ugyanaz a levél-készlet, ugyanaz az összeadás, mint a nyomtatványon.
@@ -398,8 +511,10 @@ export function AccountingTab({
   // gyülekezeté az egyházmegye, az egyházmegye SAJÁT számadásáé az
   // egyházkerület. Eddig a megyei felület is „az egyházmegyének" küldte a saját
   // iratát (önmagának) — a felület mást mondott, mint ami történik.
-  const felettesSzint = scope === 'diocese' ? 'az egyházkerület' : 'az egyházmegye'
-  const felettesSzintNek = scope === 'diocese' ? 'az egyházkerületnek' : 'az egyházmegyének'
+  // 2026-08-17 (kerületi S5): a két ternárius helyett exhaustive leképezés —
+  // a MIÉRT a `szintFeliratok` fejlécében (a kerület a „minden más" ágon a
+  // gyülekezeti szöveget kapta volna, azaz „beküldve az egyházmegyének").
+  const feliratok = szintFeliratok(scope)
 
   async function handleUnlockRequest(reason: string) {
     if (!onRequestUnlock) return { error: 'A feloldás-kérés ezen a felületen nem érhető el.' }
@@ -408,7 +523,7 @@ export function AccountingTab({
       onToast?.(result.error, 'error')
       return { error: result.error }
     }
-    onToast?.(`Javítási kérelem elküldve ${felettesSzintNek}!`, 'success')
+    onToast?.(feliratok.unlockToast, 'success')
     onRefresh?.()
     return { success: true }
   }
@@ -505,7 +620,7 @@ export function AccountingTab({
           keletkezhet (a rögzítő legördülők kizárják), ezért átnézésre hívunk.
           A valóban íven KÍVÜLI pénz (ismeretlen kód / nincs kategória) továbbra is
           hangos figyelmeztetés — az tényleg hiányozna a papírról. */}
-      {(offFormRows.length > 0 || dioceseOnlyRows.length > 0) && (
+      {(offFormRows.length > 0 || felsobbSzintuSorok.length > 0) && (
         <div className="card-raised border-amber-300 bg-amber-50/70 p-5">
           <div className="flex items-start gap-3">
             <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" />
@@ -522,7 +637,7 @@ export function AccountingTab({
                     Az alábbi tételek olyan számadási kódra vannak könyvelve, amelyik ezen
                     az íven nem szerepel (ismeretlen kód, vagy nincs kategória kiválasztva).
                     Ezek az összegek NEM számítanak bele a lenti terv–tény táblázatba, a
-                    végösszegekbe és az egyházmegyének beküldött adatba sem. Kérlek, a
+                    végösszegekbe és {feliratok.offFormBekuldes} Kérlek, a
                     véglegesítés előtt könyveld át őket a megfelelő kódra a Tranzakciók
                     fülön — különben a Számadás kevesebbet mutat, mint a tényleges forgalom.
                   </p>
@@ -544,7 +659,7 @@ export function AccountingTab({
                 </>
               )}
 
-              {dioceseOnlyRows.length > 0 && (
+              {felsobbSzintuSorok.length > 0 && (
                 <>
                   <p
                     className={`text-sm leading-6 text-amber-900/90 ${
@@ -559,7 +674,7 @@ export function AccountingTab({
                     és ha nem ide való, könyveld át a Tranzakciók fülön.
                   </p>
                   <ul className="mt-3 space-y-1">
-                    {dioceseOnlyRows.map((row) => (
+                    {felsobbSzintuSorok.map((row) => (
                       <li
                         key={`egyhm-${row.kind}-${row.code}`}
                         className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg bg-white/70 px-3 py-1.5 text-sm"
@@ -599,11 +714,11 @@ export function AccountingTab({
                 finalized={!!settings.accounting_finalized}
                 finalizedAt={settings.accounting_finalized_at ?? null}
                 unlockRequested={!!settings.accounting_unlock_requested}
-                finalizeLabel="Véglegesítés és beküldés"
+                finalizeLabel={feliratok.finalizeLabel}
                 skipConfirm
                 onFinalize={() => setFinalizeWizardOpen(true)}
                 onRequestUnlock={onRequestUnlock ? handleUnlockRequest : undefined}
-                unlockAuthorityLabel={felettesSzint}
+                unlockAuthorityLabel={feliratok.elbiralo}
                 unlockPlaceholder="Pl. Egy decemberi banki kiadás rossz jogcímre került, javítani szeretném."
               />
             )}
@@ -635,8 +750,8 @@ export function AccountingTab({
           <div className="mt-5 border-t border-slate-100 pt-4">
             <p className="text-xs text-slate-500 max-w-md">
               {settings.accounting_finalized
-                ? `A számadás véglegesítve és beküldve ${felettesSzintNek}. Módosítás csak a fenti „Feloldás kérése" úton lehetséges.`
-                : `Ha minden tétel stimmel, a fenti „Véglegesítés és beküldés" gombbal zárhatod le és küldheted be a számadást ${felettesSzintNek}.`}
+                ? feliratok.veglegesitveMondat
+                : feliratok.veglegesitesElottMondat}
             </p>
           </div>
         </div>
@@ -684,7 +799,7 @@ export function AccountingTab({
                 ]
               : undefined
           }
-          dioceseOnlyCodes={dioceseOnlyCodes}
+          felsobbSzintuKodok={felsobbSzintuKodok}
         />
         <ComparisonTable
           title="Kiadások - terv és tény"
@@ -695,7 +810,7 @@ export function AccountingTab({
           actualData={actualExpense}
           prevActualData={prevActualExpense}
           positiveClassName="text-rose-500"
-          dioceseOnlyCodes={dioceseOnlyCodes}
+          felsobbSzintuKodok={felsobbSzintuKodok}
         />
       </div>
 
@@ -856,7 +971,7 @@ function ComparisonTable({
   prevActualData,
   positiveClassName,
   openingRows,
-  dioceseOnlyCodes,
+  felsobbSzintuKodok,
 }: {
   title: string
   icon: ReactNode
@@ -870,10 +985,11 @@ function ComparisonTable({
   /** 2026-07-10 (S2 #10): a hivatalos nyomtatvány 1–3. NYITÓ sora a tábla élén
    *  (Disponibil / Casa / Banca) — automatikus, nem szerkeszthető. */
   openingRows?: Array<{ nr: string; nev: string; value: number; group: boolean }>
-  /** 2026-08-11 (6. kör): egyházmegyei szintű kódok. A sor RAJTA van az íven és a
-   *  végösszegben, de a gyülekezet nem könyvelhet rá — ezt a soron is kimondjuk,
-   *  hogy az üres tény-oszlop ne tűnjön hiányzó adatnak. */
-  dioceseOnlyCodes?: Set<string>
+  /** 2026-08-11 (6. kör): felsőbb szintű (egyházmegyei/kerületi `szint`-ű) kódok.
+   *  A sor RAJTA van az íven és a végösszegben, de a gyülekezet nem könyvelhet rá —
+   *  ezt a soron is kimondjuk, hogy az üres tény-oszlop ne tűnjön hiányzó adatnak.
+   *  2026-08-17 (kerületi S5): a készlet csak GYÜLEKEZETI hatókörben nem üres. */
+  felsobbSzintuKodok?: Set<string>
 }) {
   const showPrevYear = prevActualData != null
   return (
@@ -969,7 +1085,7 @@ function ComparisonTable({
                     }`}
                   >
                     {cell.nev}
-                    {dioceseOnlyCodes?.has(cell.id) && (
+                    {felsobbSzintuKodok?.has(cell.id) && (
                       <span
                         className="ml-2 whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800"
                         title="Egyházmegyei szintű tétel — a hivatalos íven szerepel, de az egyházmegye tölti ki; a gyülekezet nem könyvelhet rá."

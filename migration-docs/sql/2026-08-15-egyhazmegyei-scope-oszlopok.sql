@@ -395,6 +395,24 @@ BEGIN
     WHERE p.schemaname = 'public'
       AND p.tablename IN ('leltar_tetelek','iktato','iktato_sablonok','iktato_yearly_closures')
       AND p.policyname NOT LIKE '%diocese%'   -- a diocese-lábakat nem burkoljuk
+      -- ⚠️ 2026-08-18 UTÓLAGOS KIEGÉSZÍTÉS — NEM a fájl eredeti (2026-08-15-i)
+      --    állapota! Ez a fájl akkor MÁR ÉLESBEN LEFUTOTT; a mostani sor kizárólag
+      --    az ÚJRAFUTTATÁSKOR számít.
+      --    INDOK: 2026-08-17 óta a KERÜLETI (3. szint) RLS-lábak is ezen a
+      --    4 táblán élnek (leltar_tetelek / iktato / iktato_sablonok /
+      --    iktato_yearly_closures)
+      --    (…_district_all / …_district_olvaso_select — lásd
+      --     2026-08-17-egyhazkeruleti-S5a-scope-oszlopok.sql 1/F).
+      --    Egy kerületi láb beburkolása congregation_id IS NOT NULL AND (…) alakra
+      --    ÖRÖKRE HAMIS volna (kerületi sornál a congregation_id NULL) → MINDEN
+      --    kerületi leltári tétel és iktatott irat NÉMÁN eltűnne a felületről.
+      --    Az S5a immunizálja a saját lábait, de a gyökeret ITT kell zárni: minden
+      --    JÖVŐBELI kerületi policy, amelyik lemarad az immunizáló tagról, e nélkül
+      --    a sor nélkül némán beburkolódna.
+      --    A MEGYEI viselkedést NEM változtatja: megyei policy neve sosem tartalmaz
+      --    district-et (a megyei lábak neve …_diocese_all / …_diocese_olvaso_select,
+      --    …_diocese_select / _insert / _delete).
+      AND p.policyname NOT LIKE '%district%'
       AND (COALESCE(p.qual,'') || ' ' || COALESCE(p.with_check,''))
           NOT LIKE '%congregation_id IS NOT NULL%'  -- idempotencia
   LOOP

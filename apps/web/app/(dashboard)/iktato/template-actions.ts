@@ -6,10 +6,12 @@ import { z } from 'zod'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 // 2026-08-15 (egyházmegyei szint, S4): a hatókör a KÖZÖS module-scope helperből
 // jön — a sablonok scope-oszloposak (iktato_sablonok.congregation_id VAGY
-// diocese_id), minden lekérdezés `.eq(ctx.scopeCol, ctx.scopeId)`-vel szűr.
+// diocese_id VAGY — 2026-08-17, kerületi S5 — district_id), minden lekérdezés
+// `.eq(ctx.scopeCol, ctx.scopeId)`-vel szűr.
 import {
   getModuleScopeContext,
   moduleWriteBlock,
+  type ModuleScope,
   type ModuleScopeContext,
 } from '@/lib/auth/module-scope'
 // 2026-08-10: közös, pointer-tudatos iktatószám-előnézet (lásd a modul doksiját).
@@ -45,6 +47,30 @@ async function getScopeCtx(): Promise<{ ctx: ModuleScopeContext | null }> {
   return { ctx: res }
 }
 
+/**
+ * A FELSŐ SZINTŰ hatókör törzsadat-táblája (a hivatal székhelyéhez).
+ *
+ * 'congregation' esetén dob: a gyülekezeti ág NEM ide tartozik (ott az
+ * adrlocality-alapú, nyelvhelyes helység-feloldás fut) — ha valaki egyszer
+ * mégis idehívja, HANGOS hibát kapjon, ne a `congregations` táblát „találjuk el"
+ * véletlenül. A `default: never` ág pedig egy jövőbeli negyedik szintnél ad
+ * fordítási hibát, néma rossz-tábla-olvasás helyett.
+ */
+function felsoSzintTorzsTabla(scope: ModuleScope): 'dioceses' | 'districts' {
+  switch (scope) {
+    case 'diocese':
+      return 'dioceses'
+    case 'district':
+      return 'districts'
+    case 'congregation':
+      throw new Error('A gyülekezeti hatókörnek nincs felső szintű törzsadat-táblája.')
+    default: {
+      const _nemKezelt: never = scope
+      throw new Error(`Ismeretlen modul-hatókör: ${String(_nemKezelt)}`)
+    }
+  }
+}
+
 const templateSchema = z.object({
   id: z.string().uuid().optional(),
   nev: z.string().trim().min(1, 'A sablon neve kötelező').max(200),
@@ -63,7 +89,7 @@ export async function listFilingTemplates(
   opts?: { includeInactive?: boolean; tipus?: TemplateType },
 ): Promise<{ data?: FilingTemplate[]; error?: string }> {
   const { ctx } = await getScopeCtx()
-  if (!ctx) return { error: 'Nincs aktív gyülekezet vagy egyházmegye.' }
+  if (!ctx) return { error: 'Nincs aktív gyülekezet, egyházmegye vagy egyházkerület.' }
 
   let query = ctx.supabase
     .from('iktato_sablonok')
@@ -89,7 +115,7 @@ export async function getFilingTemplate(
   id: string,
 ): Promise<{ data?: FilingTemplate; error?: string }> {
   const { ctx } = await getScopeCtx()
-  if (!ctx) return { error: 'Nincs aktív gyülekezet vagy egyházmegye.' }
+  if (!ctx) return { error: 'Nincs aktív gyülekezet, egyházmegye vagy egyházkerület.' }
 
   const { data, error } = await ctx.supabase
     .from('iktato_sablonok')
@@ -118,7 +144,7 @@ export async function saveFilingTemplate(
   const input = parsed.data
 
   const { ctx } = await getScopeCtx()
-  if (!ctx) return { error: 'Nincs aktív gyülekezet vagy egyházmegye.' }
+  if (!ctx) return { error: 'Nincs aktív gyülekezet, egyházmegye vagy egyházkerület.' }
   const blocked = moduleWriteBlock(ctx)
   if (blocked) return blocked
   const { supabase } = ctx
@@ -168,7 +194,7 @@ export async function deleteFilingTemplate(
   id: string,
 ): Promise<{ success?: true; error?: string }> {
   const { ctx } = await getScopeCtx()
-  if (!ctx) return { error: 'Nincs aktív gyülekezet vagy egyházmegye.' }
+  if (!ctx) return { error: 'Nincs aktív gyülekezet, egyházmegye vagy egyházkerület.' }
   const blocked = moduleWriteBlock(ctx)
   if (blocked) return blocked
 
@@ -191,7 +217,7 @@ export async function toggleFilingTemplateActive(
   id: string,
 ): Promise<{ success?: true; error?: string }> {
   const { ctx } = await getScopeCtx()
-  if (!ctx) return { error: 'Nincs aktív gyülekezet vagy egyházmegye.' }
+  if (!ctx) return { error: 'Nincs aktív gyülekezet, egyházmegye vagy egyházkerület.' }
   const blocked = moduleWriteBlock(ctx)
   if (blocked) return blocked
   const { supabase } = ctx
@@ -234,7 +260,7 @@ export async function seedDefaultFilingTemplates(): Promise<{
   error?: string
 }> {
   const { ctx } = await getScopeCtx()
-  if (!ctx) return { error: 'Nincs aktív gyülekezet vagy egyházmegye.' }
+  if (!ctx) return { error: 'Nincs aktív gyülekezet, egyházmegye vagy egyházkerület.' }
   const blocked = moduleWriteBlock(ctx)
   if (blocked) return blocked
   const { supabase } = ctx
@@ -297,7 +323,7 @@ export async function generateNextIratszam(
   year: number,
 ): Promise<{ iratszam?: string; sequenceNumber?: number; error?: string }> {
   const { ctx } = await getScopeCtx()
-  if (!ctx) return { error: 'Nincs aktív gyülekezet vagy egyházmegye.' }
+  if (!ctx) return { error: 'Nincs aktív gyülekezet, egyházmegye vagy egyházkerület.' }
 
   const preview = await computeSequencePreview(ctx.supabase, { col: ctx.scopeCol, id: ctx.scopeId }, year)
   return { iratszam: preview.iratszam, sequenceNumber: preview.sequenceNumber }
@@ -320,20 +346,32 @@ export async function getAutoPlaceholderContext(): Promise<{
   // 2026-08-15 (S4): MEGYEI módban a {{gyulekezet}} placeholder az egyházmegye
   // hivatalos neve, a {{helyseg}} az esperesi hivatal települése (dioceses
   // törzsadat) — a sablon-szöveg így megyei iratokon is helyesen töltődik.
+  //
+  // 2026-08-17 (kerületi S5): a KERÜLET ugyanezt kapja a `districts` törzsadatból
+  // (a püspöki hivatal települése). A kapu `!== 'congregation'`, mert amit ez az
+  // ág megkerül — a congregations-join, az adrlocality-alapú helység-feloldás —
+  // a GYÜLEKEZETI szint sajátossága. A régi `=== 'diocese'` alakkal a kerületi
+  // felhasználó némán a gyülekezeti ágra esett volna: ott a
+  // `profile.congregation_id` üres, tehát a {{gyulekezet}} és a {{helyseg}}
+  // ÜRESEN maradt volna egy kiállított hivatalos levélen.
   const { ctx } = await getScopeCtx()
-  if (ctx?.scope === 'diocese') {
-    let helysegDio = ''
-    const { data: dio } = await supabase
-      .from('dioceses')
+  if (ctx && ctx.scope !== 'congregation') {
+    // A tábla-választás exhaustive (`default: never`): a két törzsadat-tábla
+    // oszlopneve azonos (`cim_telepules`), a NEVÜK viszont nem — egy néma rossz
+    // tábla itt IDEGEN SZINT települését írná a keltezés-sorba.
+    const torzsTabla = felsoSzintTorzsTabla(ctx.scope)
+    let helysegFelso = ''
+    const { data: sor } = await supabase
+      .from(torzsTabla)
       .select('cim_telepules')
       .eq('id', ctx.scopeId)
       .maybeSingle()
-    helysegDio = ((dio as { cim_telepules: string | null } | null)?.cim_telepules || '').trim()
+    helysegFelso = ((sor as { cim_telepules: string | null } | null)?.cim_telepules || '').trim()
     return {
       data: {
         gyulekezet: ctx.scopeName || '',
         lelkipasztor,
-        helyseg: helysegDio,
+        helyseg: helysegFelso,
       },
     }
   }

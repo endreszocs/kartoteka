@@ -39,6 +39,9 @@
  */
 
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
+// 2026-08-17 (kerületi S5, elvarratlan szál): a MÁSODIK VÉDVONAL feloldója — a
+// részletes MIÉRT a fájl végén, a `hatokorEltres()` docblockjában él.
+import { getModuleScopeContext, type ModuleScope } from '@/lib/auth/module-scope'
 import type {
   EletutAdat,
   EletutGyermek,
@@ -57,6 +60,9 @@ export async function getEletutAdat(personId: number): Promise<{
 }> {
   const { supabase, congId } = await getCongId()
   if (!congId) return { adat: null, hianyok: [], error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  // MÁSODIK VÉDVONAL — a két hatókör-rétegnek egyet kell mondania (lásd lent).
+  const eltres = await hatokorEltres(congId, 'életút-adatok')
+  if (eltres) return { adat: null, hianyok: [], error: eltres }
   if (!Number.isInteger(personId) || personId <= 0) {
     return { adat: null, hianyok: [], error: `Érvénytelen személy-azonosító: ${String(personId)}` }
   }
@@ -522,6 +528,107 @@ export async function getEletutAdat(personId: number): Promise<{
 async function getCongId() {
   const { supabase, congregationId } = await getEffectiveCongregationContext()
   return { supabase, congId: congregationId }
+}
+
+/**
+ * ── MÁSODIK VÉDVONAL: A KÉT HATÓKÖR-RÉTEGNEK EGYET KELL MONDANIA ──────────
+ * (a `leltar/actions.ts` `finalizeLeltar()` 2026-08-17-es mintája szerint)
+ *
+ * MELYIK KÉT FELOLDÓ HÚZHAT SZÉT. Ez a fájl a `getEffectiveCongregationContext()`-ből
+ * veszi a hatókört (`getCongId()` fent), az Iktató modul TÖBBI akciója viszont a
+ * `getModuleScopeContext()`-ből (`iktato/actions.ts`, `template-actions.ts`,
+ * `szemely-actions.ts` fejléc-ága). KÉT FELOLDÓ, KÉT VÁLASZ — ugyanazon a
+ * kiállító-képernyőn.
+ *
+ * MI LENNE A TÜNET. Az életút-igazolás a legkényesebb nyomtatványunk: a
+ * FEJLÉCET (`getCongregationHeader`, module-scope) és az ADATOT (ez a fájl,
+ * effective-congregation) KÉT KÜLÖNBÖZŐ réteg adja. Széthúzásnál egy MÁSIK
+ * egyházközség fejléce alatt jelenne meg a személy keresztelése, konfirmációja,
+ * házassága és temetése — vagy fordítva: a saját fejléc alatt egy idegen
+ * gyülekezet anyakönyvi adatai. A hiány-detektor ilyenkor NÉMÁN „mindent
+ * hiányzónak" jelezne (0 találat idegen hatókörben), és a lelkész a saját
+ * anyakönyveit hinné üresnek — pontosan a néma-üres-lista hibaosztály, ami ellen
+ * ez az egész fájl épült.
+ *
+ * A GYÖKÉROK MA MÁR ZÁRVA: a 2026-08-17-es override-elsőbbségi kapu
+ * (`lib/auth/finance-scope.ts` és `lib/auth/module-scope.ts` 0) blokkja) a
+ * kerületi admin „Belépés a gyülekezetbe" esetét javítja, ezért a két réteg ma
+ * BIZONYÍTOTTAN egyet mond. Ez itt a második védvonal egy JÖVŐBELI
+ * divergenciára — egyik kapu sem ír adatot (ez a fájl amúgy is csak olvas).
+ *
+ * ⚠️ A GYÜLEKEZETI (ÉS A MEGYEI) ÚT VISELKEDÉSE VÁLTOZATLAN — bizonyítás:
+ *   · ha `congId` (= `effectiveCongregationId`) nem null, a
+ *     `getModuleScopeContext()` 3) gyülekezeti fallbackje UGYANEZT az értéket
+ *     adja, a 0) override-kapu pedig az `override.congregationId`-t, ami az
+ *     `effective-access.ts:404-411` szerint UGYANAZ az érték;
+ *   · a megyei / kerületi profilban álló felhasználónál `effectiveCongregationId`
+ *     null (`effective-access.ts:412-414`), tehát ő a hívó `!congId` ágán kapja
+ *     a MAI, betűre változatlan üzenetet — idáig el sem jut.
+ *   ⇒ mind a három kapu no-op a mai éles adaton; csak széthúzáskor szólal meg.
+ */
+async function hatokorEltres(congId: string, mit: string): Promise<string | null> {
+  const modulCtx = await getModuleScopeContext()
+  if ('error' in modulCtx) {
+    return (
+      'A hatókör (gyülekezet / egyházmegye / egyházkerület) most nem oldható fel, ezért biztonsági ' +
+      `okból megszakítottuk a műveletet (${mit}). Frissítsd az oldalt, és próbáld újra; ha újra ` +
+      'hibázik, jelezd a rendszergazdának.'
+    )
+  }
+  if (modulCtx.scope !== 'congregation') {
+    return felsoSzintNemErtelmezett(modulCtx.scope) ?? ALTALANOS_NEM_ERTELMEZETT
+  }
+  if (modulCtx.scopeId !== congId) {
+    return (
+      'A rendszer két különböző gyülekezetet lát ehhez a művelethez, ezért biztonsági okból ' +
+      `megszakítottuk a műveletet (${mit}) — hivatalos igazolás nem készülhet bizonytalan ` +
+      'hatókörből gyűjtött anyakönyvi adatokból. Lépj ki a „Belépés a gyülekezetbe" nézetből vagy ' +
+      'válts profilt, majd próbáld újra; ha újra hibázik, jelezd a rendszergazdának.'
+    )
+  }
+  return null
+}
+
+const ALTALANOS_NEM_ERTELMEZETT =
+  'Az életút-igazolás a gyülekezeti anyakönyvekből épül fel — a jelenlegi hatókörben nincs ' +
+  'értelmezve. Válts gyülekezeti profilra, és ott állítsd ki az igazolást.'
+
+/**
+ * A FELSŐ SZINTŰ (megyei / kerületi) hatókör beszédes elutasítása.
+ *
+ * ⚠️ SZÁNDÉKOSAN NEM KITERJESZTÉS: az életút TISZTÁN GYÜLEKEZETI fogalom — a
+ * `szemely`, `keresztseg`, `konfirmalas`, `hazassag`, `temetes` táblák
+ * `congregation_id`-vel élnek, scope-oszlopuk nincs, és az anyakönyvet az
+ * egyházközség vezeti. A megyei/kerületi kiterjesztés KÜLÖN döntés (és külön
+ * SQL); a helyes védvonal addig a megnevezett szintű elutasítás, nem a néma
+ * gyülekezeti visszaesés.
+ *
+ * `null` = ezen a szinten nincs mit tiltani. A `default: never` ág egy jövőbeli
+ * NEGYEDIK szintnél FORDÍTÁSI HIBÁT ad — nem néma átesést.
+ */
+function felsoSzintNemErtelmezett(scope: ModuleScope): string | null {
+  switch (scope) {
+    case 'congregation':
+      return null
+    case 'diocese':
+      return (
+        'Az életút-igazolás a gyülekezeti anyakönyvekből (keresztelés, konfirmáció, házasság, ' +
+        'temetés) épül fel — EGYHÁZMEGYEI módban nincs értelmezve, mert az anyakönyveket az ' +
+        'egyházközség vezeti. Válts gyülekezeti profilra — vagy ha „Belépés a gyülekezetbe" ' +
+        'nézetben vagy, lépj ki belőle —, és ott állítsd ki az igazolást.'
+      )
+    case 'district':
+      return (
+        'Az életút-igazolás a gyülekezeti anyakönyvekből (keresztelés, konfirmáció, házasság, ' +
+        'temetés) épül fel — EGYHÁZKERÜLETI módban nincs értelmezve, mert az anyakönyveket az ' +
+        'egyházközség vezeti. Válts gyülekezeti profilra — vagy ha „Belépés a gyülekezetbe" ' +
+        'nézetben vagy, lépj ki belőle —, és ott állítsd ki az igazolást.'
+      )
+    default: {
+      const _nemKezelt: never = scope
+      throw new Error(`Ismeretlen modul-hatókör: ${String(_nemKezelt)}`)
+    }
+  }
 }
 
 function joinName(csaladnev: string | null, kNev: string | null): string {

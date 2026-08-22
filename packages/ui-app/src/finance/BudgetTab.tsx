@@ -33,14 +33,143 @@ import type { BealitasRow, BudgetCompatRow, SzamadasiCel } from './types'
 
 export type BudgetMode = 'base' | 'mod1' | 'mod2' | 'mod3'
 export type BudgetToastKind = 'success' | 'error' | 'info'
-/** 2026-08-11 (6. kör): a fül hatóköre — az `AccountingScope`-pal azonos szemantika. */
-export type BudgetScope = 'congregation' | 'diocese'
+/**
+ * 2026-08-11 (6. kör): a fül hatóköre — az `AccountingScope`-pal azonos szemantika.
+ *
+ * 2026-08-17 (kerületi S5) — HARMADIK ÉRTÉK: `district`.
+ * ⚠️ EZ A KANONIKUS `FinanceScope` MÁSOLATA — a két uniónak BETŰRE egyeznie
+ *    kell. A kanonikus típus: `apps/web/lib/auth/finance-scope-core.ts`
+ *    (`FinanceScope`). MIÉRT NEM ONNAN IMPORTÁLJUK: a `packages/ui-app` NEM
+ *    függ az `apps/web`-től (package.json: csak @kartoteka/* csomagok), és nem
+ *    is függhet — ugyanezt a komponenst a Tauri-desktop is rendereli. A
+ *    fordított import a monorepo függőségi irányát szakítaná el.
+ * ⇒ Ha a `FinanceScope` unió bővül, EZT IS bővíteni kell: itt a fordító nem
+ *   segít, ezért áll a figyelmeztetés a típus fölött.
+ */
+export type BudgetScope = 'congregation' | 'diocese' | 'district'
 
 const MODE_LABELS: Record<BudgetMode, string> = {
   base: 'Alap költségvetés',
   mod1: '1. módosítás',
   mod2: '2. módosítás',
   mod3: '3. módosítás',
+}
+
+/**
+ * SZINT-FÜGGŐ FELIRATOK ÉS A BEKÜLDÉS MEGLÉTE (2026-08-17, kerületi S5).
+ *
+ * ⛔ MIÉRT NEM MARADHAT `scope === 'diocese' ? … : …`
+ * ─────────────────────────────────────────────────────
+ * A ternárius „minden más" ága a GYÜLEKEZETI szöveget adja. Egy harmadik
+ * scope-nál az EGYHÁZKERÜLET — mint „nem-megye" — azt olvasná, hogy a
+ * költségvetését „az egyházmegyének" küldi be. A kerület a megye FÖLÖTT áll:
+ * ez a hierarchia megfordítása, ráadásul némán (ternáriusra a fordító nem
+ * szól). Ezért exhaustive switch: negyedik szintnél FORDÍTÁSI HIBA.
+ *
+ * ⚠️ A `congregation` és a `diocese` szöveg BETŰRE a 2026-08-15 óta élesben
+ *    futó — a közös `bekuldosFeliratok()` a régi sablonokból építi őket.
+ *
+ * A `district` ág a K3 döntést követi (lásd `apps/web/app/(dashboard)/penzugy/
+ * actions.ts` — `felterjesztMegyeiKoltsegvetes` figyelmeztetése): az
+ * egyházkerület fölött NINCS negyedik szint, `district_felterjesztes` tábla sem
+ * készül. A kerületi véglegesítés ZÁR, de nem küld fel sehova.
+ */
+interface BudgetSzintFeliratok {
+  /** KI bírálja el a feloldás-kérelmet (FinalizeButton `unlockAuthorityLabel`). */
+  elbiralo: string
+  /** A véglegesítés-gomb felirata. */
+  finalizeLabel: string
+  /** A megerősítő dialógus magyarázata (mi történik pontosan). */
+  confirmDescription: string
+  /** Sikeres zárás toastja — alap költségvetésnél `modNum === null`. */
+  veglegesitesToast: (modNum: number | null) => string
+  /** Toast a feloldás-kérelem elküldése után. */
+  unlockToast: string
+  /** A „kérelem elbírálás alatt" doboz második sora. */
+  unlockPendingMondat: string
+  /**
+   * A várakozó feloldás-kérelem CÍME (jelvény + doboz-fejléc).
+   *
+   * ⚠️ 2026-08-17 (kerületi S5) MIÉRT LETT EBBŐL FELIRAT-MEZŐ: eddig két
+   * helyen kőbe vésve állt, hogy „elbírálás alatt". A beküldős szinteken ez
+   * igaz — ott tényleg ül valaki a kérelmen. Az egyházkerületnél viszont K3
+   * szerint NINCS elbíráló, tehát a mondat egy nem létező hatóságra várakoztatná
+   * az adminisztrátort, aki hiába nézi a csengőt. A második sor (`unlockPendingMondat`)
+   * már szint-helyes volt, a cím viszont hazudott volna fölötte.
+   */
+  unlockPendingCim: string
+  /**
+   * Van-e KINEK felküldeni a lezárt tervet. `false` az egyházkerületnél (K3).
+   * A `handleFinalizeAndSubmit` ettől függően hívja a `submitDocument`-et.
+   */
+  bekuldVan: boolean
+}
+
+/**
+ * A BEKÜLDŐS szintek (gyülekezet, egyházmegye) feliratai. A sablonok BETŰRE a
+ * korábbi `felettesSzint` / `felettesSzintNek` interpolációk.
+ */
+function bekuldosFeliratok(
+  felettes: string,
+  felettesNek: string,
+  unlockPendingMondat: string,
+): BudgetSzintFeliratok {
+  return {
+    elbiralo: felettes,
+    finalizeLabel: 'Véglegesítés és beküldés',
+    confirmDescription: `A program előbb elmenti a képernyőn látható tervet, majd lezárja és azonnal beküldi ${felettesNek}.`,
+    veglegesitesToast: (modNum) =>
+      modNum === null
+        ? `Költségvetés véglegesítve és beküldve ${felettesNek}!`
+        : `${modNum}. módosítás véglegesítve és beküldve ${felettesNek}!`,
+    unlockToast: `Feloldási kérelem elküldve ${felettesNek}!`,
+    unlockPendingMondat,
+    unlockPendingCim: 'elbírálás alatt',
+    bekuldVan: true,
+  }
+}
+
+function budgetSzintFeliratok(scope: BudgetScope): BudgetSzintFeliratok {
+  switch (scope) {
+    case 'congregation':
+      return bekuldosFeliratok(
+        'az egyházmegye',
+        'az egyházmegyének',
+        'Az egyházmegye döntéséről a csengőben fog értesülni.',
+      )
+    case 'diocese':
+      return bekuldosFeliratok(
+        'az egyházkerület',
+        'az egyházkerületnek',
+        'Az egyházkerület döntéséről a csengőben fog értesülni.',
+      )
+    case 'district':
+      // ⏳ ENDRE DÖNTÉSÉRE VÁR: a KERÜLETI feloldás-kérelemnek ma nincs
+      //    elbírálója (ugyanaz a nyitott pont, mint az actions.ts
+      //    `requestBudgetUnlock` K3-figyelmeztetésénél). Amíg nincs döntés, a
+      //    felirat NEM ígér értesítést és NEM nevez meg megyét — csak azt
+      //    mondja ki, ami biztosan igaz: a kérelem rögzült.
+      return {
+        elbiralo: 'az egyházkerület vezetősége',
+        finalizeLabel: 'Véglegesítés',
+        confirmDescription:
+          'A program előbb elmenti a képernyőn látható tervet, majd lezárja az egyházkerületi költségvetést. Felküldés nincs: az egyházkerület fölött nincs további szint.',
+        veglegesitesToast: (modNum) =>
+          modNum === null
+            ? 'Egyházkerületi költségvetés véglegesítve és lezárva!'
+            : `${modNum}. módosítás véglegesítve és lezárva!`,
+        unlockToast: 'Feloldási kérelem rögzítve.',
+        unlockPendingMondat: 'A kérelmet rögzítettük.',
+        unlockPendingCim: 'rögzítve',
+        bekuldVan: false,
+      }
+    default: {
+      // ⛔ FORDÍTÓI KAPU — negyedik szintnél fordítási hiba, nem néma,
+      //    hierarchiát megfordító felirat.
+      const _nemKezelt: never = scope
+      throw new Error(`Ismeretlen költségvetés-hatókör: ${String(_nemKezelt)}`)
+    }
+  }
 }
 
 export interface BudgetTabProps {
@@ -53,6 +182,9 @@ export interface BudgetTabProps {
    * Gyülekezeti hatókörben az egyházmegyei szintű ív-sorok LÁTSZANAK, de
    * ZÁROLVA (azokat az egyházmegye tölti ki). Egyházmegyei hatókörben a
    * viselkedés változatlan.
+   * 2026-08-17 (kerületi S5): az EGYHÁZKERÜLET a megyével azonos módon a SAJÁT
+   * ívét tölti — nála sincs zárolás; a véglegesítés viszont csak ZÁR, nem küld
+   * fel (K3: a kerület fölött nincs negyedik szint).
    */
   scope?: BudgetScope
 
@@ -158,8 +290,10 @@ export function BudgetTab({
   // zárás → felküldés) BETŰRE ugyanaz; csak a címzett neve igazodik ahhoz, ami
   // valóban történik. A tényleges beküldő hívást a `submitDocument` callback
   // adja (a web-wrapper hatókör szerint választja meg a célt).
-  const felettesSzint = scope === 'diocese' ? 'az egyházkerület' : 'az egyházmegye'
-  const felettesSzintNek = scope === 'diocese' ? 'az egyházkerületnek' : 'az egyházmegyének'
+  // 2026-08-17 (kerületi S5): a két ternárius helyett exhaustive leképezés — a
+  // MIÉRT a `budgetSzintFeliratok` fejlécében (a kerület a „minden más" ágon a
+  // gyülekezeti szöveget kapta volna: „beküldve az egyházmegyének").
+  const feliratok = budgetSzintFeliratok(scope)
 
   const isBaseFinalized = settings.budget_finalized
   const isMod1Finalized = settings.budget_mod1_finalized ?? false
@@ -217,6 +351,15 @@ export function BudgetTab({
    * megjelenítjük, és a mentés is változatlanul viszi tovább (a `budgetData`
    * teljes tartalma megy fel), így egy régi/importált érték nem tűnik el némán.
    *
+   * 2026-08-17 (kerületi S5): a kapu `scope === 'diocese'`-ről
+   * `scope !== 'congregation'`-re változott. MIÉRT: amit a zárolás megvéd, az a
+   * GYÜLEKEZET sajátossága („ezt a sort nem te töltöd ki"), nem a megyéé. A régi
+   * alakkal az egyházkerület — mint „nem-megye" — a SAJÁT ívén kapott volna
+   * zárolt sorokat. A lenti két indok szó szerint áll a kerületre is: az ő ívén
+   * is minden sor az övé, és a rögzítő legördülők felsőbb hatókörben ma sem
+   * szűrnek, tehát terv nélküli tény keletkezne. Gyülekezeti és megyei nézetben
+   * a viselkedés BYTE-RA változatlan.
+   *
    * EGYHÁZMEGYEI hatókörben a készlet ÜRES — vagyis az egyházmegye a SAJÁT ívén
    * MINDEN sort szerkeszthet, a 95 gyülekezeti szintűt is. Ez szándékos:
    *   · a `szint` azt mondja meg, ki tölti ki a sort a GYÜLEKEZETI íven; az
@@ -229,7 +372,7 @@ export function BudgetTab({
    */
   const zaroltKodok = useMemo(() => {
     const set = new Set<string>()
-    if (scope === 'diocese') return set
+    if (scope !== 'congregation') return set
     for (const c of szamadasiCellek) {
       if (!gyulekezetSzerkesztheti(c.szint)) set.add(c.id)
     }
@@ -517,22 +660,31 @@ export function BudgetTab({
         }
       }
 
-      const submitResult = await submitDocument(docType, currentYear, snapshot, modNum)
-      if (submitResult.error || submitResult.success === false) {
-        onToast?.(
-          `Véglegesítve, de a beküldés sikertelen: ${submitResult.error || 'ismeretlen hiba'} — ` +
-            'próbáld újra a beküldést, vagy kérj javítási engedélyt.',
-          'error',
-        )
-        return
+      // ── 2026-08-17 (kerületi S5): VAN-E KINEK FELKÜLDENI? ─────────────────
+      // K3 döntés (penzugy/actions.ts `felterjesztMegyeiKoltsegvetes`): az
+      // egyházkerület fölött NINCS negyedik szint, `district_felterjesztes`
+      // tábla sem készül — a kerületi véglegesítés ZÁR, de nem küld fel sehova.
+      //
+      // MIÉRT NEM MARADHAT A KÖZÖS ÁGON: a `submitDocument` callback kerületi
+      // hatókörben a GYÜLEKEZETI beküldőre esne, ami „Nincs aktív gyülekezet."
+      // hibával áll meg — a kerületi adminisztrátor MINDEN sikeres zárás után
+      // piros hibát kapna egy soha meg nem történt beküldésről. Pontosan az a
+      // tünet, amit a megyei ágon 2026-08-15-én javítottunk.
+      //
+      // A gyülekezeti és a megyei ág BYTE-RA változatlan: ott `bekuldVan` true.
+      if (feliratok.bekuldVan) {
+        const submitResult = await submitDocument(docType, currentYear, snapshot, modNum)
+        if (submitResult.error || submitResult.success === false) {
+          onToast?.(
+            `Véglegesítve, de a beküldés sikertelen: ${submitResult.error || 'ismeretlen hiba'} — ` +
+              'próbáld újra a beküldést, vagy kérj javítási engedélyt.',
+            'error',
+          )
+          return
+        }
       }
 
-      onToast?.(
-        mode === 'base'
-          ? `Költségvetés véglegesítve és beküldve ${felettesSzintNek}!`
-          : `${modNum}. módosítás véglegesítve és beküldve ${felettesSzintNek}!`,
-        'success',
-      )
+      onToast?.(feliratok.veglegesitesToast(modNum), 'success')
       setTimeout(() => onRefresh?.(), 600)
     } finally {
       setSaving(false)
@@ -566,7 +718,7 @@ export function BudgetTab({
       onToast?.(result.error, 'error')
       return { error: result.error }
     }
-    onToast?.(`Feloldási kérelem elküldve ${felettesSzintNek}!`, 'success')
+    onToast?.(feliratok.unlockToast, 'success')
     onRefresh?.()
     return { success: true }
   }
@@ -641,7 +793,7 @@ export function BudgetTab({
               )}
               {settings.unlock_requested && (
                 <Badge variant="outline" className="border-red-200 text-red-600">
-                  Feloldás elbírálás alatt...
+                  Feloldás {feliratok.unlockPendingCim}...
                 </Badge>
               )}
             </div>
@@ -682,9 +834,9 @@ export function BudgetTab({
               finalized={activeFinalized}
               finalizedAt={activeFinalizedAt}
               unlockRequested={!!settings.unlock_requested}
-              finalizeLabel="Véglegesítés és beküldés"
-              confirmDescription={`A program előbb elmenti a képernyőn látható tervet, majd lezárja és azonnal beküldi ${felettesSzintNek}.`}
-              unlockAuthorityLabel={felettesSzint}
+              finalizeLabel={feliratok.finalizeLabel}
+              confirmDescription={feliratok.confirmDescription}
+              unlockAuthorityLabel={feliratok.elbiralo}
               // Csak a folyamatban lévő mentés tilt — a canEdit véglegesített
               // szinten mindig false, és az NEM tilthatja a „Feloldás kérése" utat.
               disabled={saving}
@@ -715,13 +867,11 @@ export function BudgetTab({
         {settings.unlock_requested && settings.unlock_reason && (
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
-              Javítási kérelem elbírálás alatt
+              Javítási kérelem {feliratok.unlockPendingCim}
             </p>
             <p className="mt-1 text-sm text-amber-900">{settings.unlock_reason}</p>
             <p className="mt-1 text-xs text-amber-600">
-              {scope === 'diocese'
-                ? 'Az egyházkerület döntéséről a csengőben fog értesülni.'
-                : 'Az egyházmegye döntéséről a csengőben fog értesülni.'}
+              {feliratok.unlockPendingMondat}
             </p>
           </div>
         )}

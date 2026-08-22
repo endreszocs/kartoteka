@@ -5,8 +5,10 @@ import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/act
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 // 2026-08-15 (egyházmegyei szint, S3): diocese-módban a MEGLÉVŐ leltár-felület
-// fut a megye adataival (scope-oszlopos modell) — a CongregationOnlyNotice csak
-// a kerületi/admin profiloknak marad.
+// fut a megye adataival (scope-oszlopos modell).
+// 2026-08-17 (kerületi S5, K2): UGYANEZ a felület szolgálja ki az
+// EGYHÁZKERÜLETET is (district_id scope-oszlop) — a CongregationOnlyNotice így
+// már csak a feloldhatatlan hatókörnek és az admin/master profiloknak marad.
 import { getModuleScopeContext } from '@/lib/auth/module-scope'
 
 const LELTAR_IMPORT_PROFILES = [
@@ -39,16 +41,25 @@ export default async function LeltarPage() {
   if (!user) return null
   if (!effectiveCongregationId) {
     // 2026-08-15 (S3): diocese-scope-ban a module-scope helper oldja fel a
-    // megyét — ugyanaz a felület fut, megyei adatokkal. A kerületi / admin
-    // profil (és a feloldhatatlan hatókör) továbbra is a magyarázó kártyát
-    // kapja — fail-closed, sosem szűretlen lista.
+    // megyét — ugyanaz a felület fut, megyei adatokkal.
+    //
+    // 2026-08-17 (kerületi S5): a kapu `!== 'congregation'` lett. A korábbi
+    // `=== 'diocese'` alaknál a kerületi adminisztrátor — akinek a module-scope
+    // helper MÁR feloldotta a kerületét — némán a CongregationOnlyNotice
+    // kártyára esett volna („a Leltár modul gyülekezeti modul"), vagyis a saját,
+    // megépített kerületi leltárát nem érte volna el. Az admin/master profil és
+    // a feloldhatatlan hatókör továbbra is a magyarázó kártyát kapja —
+    // fail-closed, sosem szűretlen lista.
     const moduleScope = await getModuleScopeContext()
-    if (!('error' in moduleScope) && moduleScope.scope === 'diocese') {
+    if (!('error' in moduleScope) && moduleScope.scope !== 'congregation') {
+      // Tartalék felirat, ha a törzsadatban nincs név — a SZINTET nevezze meg,
+      // különben a kerületi felhasználó „Egyházmegye" címet látna.
+      const szintNev = moduleScope.scope === 'district' ? 'Egyházkerület' : 'Egyházmegye'
       return (
         <div className="space-y-4">
           <InventoryMain
-            congregationName={moduleScope.scopeName || 'Egyházmegye'}
-            scope="diocese"
+            congregationName={moduleScope.scopeName || szintNev}
+            scope={moduleScope.scope}
             canWrite={moduleScope.canWrite}
             readOnlyReason={moduleScope.readOnlyReason}
           />

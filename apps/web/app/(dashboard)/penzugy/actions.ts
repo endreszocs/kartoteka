@@ -82,6 +82,7 @@ import {
   tablesFor,
   yearFinalizedCheckErrorMessage,
   yearValueFor,
+  type FinanceScope,
   type FinanceScopeContext,
   type FinanceScopeTableMap,
 } from '@/lib/auth/finance-scope'
@@ -174,9 +175,29 @@ async function getFinanceScope(): Promise<
  * az egyházmegye, az egyházmegyének az egyházkerület. Egy helyen él, hogy a
  * zár-üzenetek ne húzzanak szét (a megyei felület eddig „az egyházmegyétől"
  * kért engedélyt — vagyis önmagától).
+ *
+ * 2026-08-17 (kerületi S5, K3 döntés): az EGYHÁZKERÜLET FÖLÖTT NINCS NEGYEDIK
+ * SZINT. A ternárius „minden más" ága itt némán „az egyházmegyétől"-t adott
+ * volna a kerületnek is — vagyis a püspökséget a saját alárendeltjéhez küldte
+ * volna engedélyért. Ezért a szöveg a kerületnél a SZINT SAJÁTJA: a feloldás
+ * saját hatáskör, a kerület vezetősége dönt róla.
+ *
+ * ⚠️ EXHAUSTIVE SWITCH (a tablesFor mintája): ha egyszer mégis lesz zsinati
+ *    szint, a fordító ITT áll meg — nem egy elgépelt magyar mondat élesben.
  */
 function felettesSzintTol(ctx: FinanceScopeContext): string {
-  return ctx.scope === 'diocese' ? 'az egyházkerülettől' : 'az egyházmegyétől'
+  switch (ctx.scope) {
+    case 'congregation':
+      return 'az egyházmegyétől'
+    case 'diocese':
+      return 'az egyházkerülettől'
+    case 'district':
+      return 'az egyházkerület vezetőségétől'
+    default: {
+      const _nemLehet: never = ctx.scope
+      throw new Error(`Ismeretlen pénzügyi hatókör: ${String(_nemLehet)}`)
+    }
+  }
 }
 
 /**
@@ -854,23 +875,33 @@ async function insertExpenseRecord(params: {
 }
 
 /**
- * Diocese-scope-specifikus bevétel-insert. A `diocese_befizetes` táblába ír,
- * a gyülekezeti `befizetes` helyett. Az `id_befizetescel` (int) helyett az
+ * FELSŐ SZINTŰ bevétel-insert — egyházmegye ÉS egyházkerület. A `tablesFor`
+ * térkép szerinti táblába ír (`diocese_befizetes` / `district_befizetes`) a
+ * gyülekezeti `befizetes` helyett. Az `id_befizetescel` (int) helyett az
  * `id_szamadasicel` (string kód) használatos.
  *
+ * 2026-08-17 (kerületi S5): a helper korábban `insertDioceseIncomeRecord` volt,
+ * hardkódolt `diocese_befizetes` / `diocese_id` névvel. A hívó oldalon
+ * `scope === 'diocese' ? dioceseInsert : congregationInsert` állt — vagyis a
+ * KERÜLETI bevétel NÉMÁN a gyülekezeti `befizetes` táblába került volna, a
+ * lelkész saját gyülekezetének azonosítójával. Rossz helyre könyvelt, hivatalos
+ * pénz, hibaüzenet nélkül. Ezért a tábla- és oszlopnév mostantól a térképből jön.
+ *
  * FONTOS: az IncomeInput.id_befizetescel itt **a szamadasicel kódot** jelenti
- * (pl. '101.07' string-ként int-re cast-olva). A diocese UI bevCelMap-je
+ * (pl. '101.07' string-ként int-re cast-olva). A felső szintű UI bevCelMap-je
  * identitás (kulcs=érték=kód), így az int érték a kód hash-beli indexe.
  * Az input.id_befizetescel-t itt string-re konvertáljuk a szamadasicel
  * alapján — ehhez vissza-keresés kell.
  */
-async function insertDioceseIncomeRecord(params: {
+async function insertFelsoSzintIncomeRecord(params: {
   supabase: Awaited<ReturnType<typeof createClient>>
-  dioceseId: string
+  scope: FinanceScope
+  scopeId: string
   userId: string
   input: IncomeInput
 }) {
-  const { supabase, dioceseId, userId, input } = params
+  const { supabase, scope, scopeId, userId, input } = params
+  const T = tablesFor(scope)
   const documentNumber = buildDocumentNumber(input.iratszam, input.datum)
 
   // A UI bevCelMap-ben diocese módban a kulcs maga a szamadasicel.id (mint "101.07")
@@ -902,7 +933,7 @@ async function insertDioceseIncomeRecord(params: {
     if (direct) idSzamadasicel = direct.id
   }
   if (!idSzamadasicel) {
-    return { error: 'Nem található a kiválasztott kategória az egyházmegyei szinten.' as string }
+    return { error: `Nem található a kiválasztott kategória ${szintNeveRagozva(scope)} szinten.` as string }
   }
 
   const payload = {
@@ -910,31 +941,55 @@ async function insertDioceseIncomeRecord(params: {
     datum: input.datum,
     id_szamadasicel: idSzamadasicel,
     forrasa: input.forrasa || 'Kézi rögzítés',
-    befizeto_congregation_id: null,  // az UI-ban a lelkész választhat gyülekezetet, MVP null
+    // A „ki fizette" FK-t a kerületi ágon SZÁNDÉKOSAN nem címezzük meg.
+    //
+    // ⚠️ 2026-08-19 JAVÍTOTT INDOK: egy korábbi komment azt állította, hogy a
+    // `district_befizetes`-en nem is létezik ez az oszlop, és a megcímzése
+    // PGRST204-gyel bukna. EZ TÉVEDÉS VOLT — az oszlop LÉTEZIK (a tábla a
+    // `diocese_befizetes` betűhű tükre, lásd
+    // 2026-08-17-egyhazkeruleti-S5b-penzugy-tablak.sql:570). A viselkedés így is
+    // helyes, de a téves indok félrevezette volna a következő kört.
+    //
+    // A VALÓDI INDOK SZEMANTIKAI: a megyébe GYÜLEKEZETEK fizetnek be, tehát ott
+    // a „ki fizette" tényleg egy gyülekezet. A kerületbe EGYHÁZMEGYÉK fizetnek —
+    // egy megye azonosítóját viszont ez az oszlop nem tudja hordozni, és külön
+    // `befizeto_diocese_id` TUDATOSAN nincs (a megyei tükör sem ismer ilyet).
+    // Egy gyülekezet-FK odaírása a kerületi soron tehát nem hiányos adat lenne,
+    // hanem HAMIS. A „melyik egyházmegye fizetett" információt a KÖTELEZŐ
+    // `forrasa` szabad szöveg hordozza.
+    ...(scope === 'diocese'
+      ? { befizeto_congregation_id: null } // az UI-ban a lelkész választhat gyülekezetet, MVP null
+      : {}),
     iratszam: documentNumber.slice(0, 20),
     nyugta: documentNumber.slice(0, 20),
-    irattipus: normalizeIrattipusForDiocese(input.irattipus),
+    irattipus: normalizeIrattipusFelsoSzint(input.irattipus),
     fizetettev: input.fizetettev || new Date(input.datum).getFullYear(),
     megjegyzes: input.megjegyzes || null,
     bankszamla_id: null as number | null,
     xkey: randomUUID().replace(/-/g, '').slice(0, 20),
     userid: userId,
     deleted: false,
-    diocese_id: dioceseId,
+    [T.scopeCol]: scopeId,
   }
 
-  const { data, error } = await supabase.from('diocese_befizetes').insert([payload]).select('id').single()
+  const { data, error } = await supabase.from(T.befizetes).insert([payload]).select('id').single()
   if (error) return { error: `Hiba: ${error.message}` as string }
   return { id: Number(data?.id), documentNumber }
 }
 
-async function insertDioceseExpenseRecord(params: {
+/**
+ * FELSŐ SZINTŰ kiadás-insert — a bevételi párja, ugyanazzal a MIÉRT-tel
+ * (lásd `insertFelsoSzintIncomeRecord`).
+ */
+async function insertFelsoSzintExpenseRecord(params: {
   supabase: Awaited<ReturnType<typeof createClient>>
-  dioceseId: string
+  scope: FinanceScope
+  scopeId: string
   userId: string
   input: ExpenseInput | ExpenseBatchRowInput
 }) {
-  const { supabase, dioceseId, userId, input } = params
+  const { supabase, scope, scopeId, userId, input } = params
+  const T = tablesFor(scope)
   const documentNumber = buildDocumentNumber(
     input.iratszam || ('bizonylatszam' in input ? input.bizonylatszam : null),
     input.datum,
@@ -954,7 +1009,7 @@ async function insertDioceseExpenseRecord(params: {
     if (direct) idSzamadasicel = direct.id
   }
   if (!idSzamadasicel) {
-    return { error: 'Nem található a kiválasztott kategória az egyházmegyei szinten.' as string }
+    return { error: `Nem található a kiválasztott kategória ${szintNeveRagozva(scope)} szinten.` as string }
   }
 
   const payload = {
@@ -962,29 +1017,93 @@ async function insertDioceseExpenseRecord(params: {
     datum: input.datum,
     id_szamadasicel: idSzamadasicel,
     kedvezmenyezett: input.kedvezmenyzett || 'Kézi rögzítés',
-    kedvezmenyezett_congregation_id: null,  // Phase 5: UI gyülekezet dropdown
+    // Lásd a bevételi helper azonos ágát: ez a FK a megyei tábla sajátja.
+    ...(scope === 'diocese'
+      ? { kedvezmenyezett_congregation_id: null } // Phase 5: UI gyülekezet dropdown
+      : {}),
     iratszam: documentNumber.slice(0, 20),
     nyugta: documentNumber.slice(0, 20),
-    irattipus: normalizeIrattipusForDiocese(input.irattipus),
+    irattipus: normalizeIrattipusFelsoSzint(input.irattipus),
     megjegyzes: input.megjegyzes || null,
     bankszamla_id: null as number | null,
     xkey: randomUUID().replace(/-/g, '').slice(0, 20),
     userid: userId,
     deleted: false,
-    diocese_id: dioceseId,
+    [T.scopeCol]: scopeId,
   }
 
-  const { data, error } = await supabase.from('diocese_kiadas').insert([payload]).select('id').single()
+  const { data, error } = await supabase.from(T.kiadas).insert([payload]).select('id').single()
   if (error) return { error: `Hiba: ${error.message}` as string }
   return { id: Number(data?.id), documentNumber }
 }
 
 /**
- * A diocese_befizetes / diocese_kiadas tábla `irattipus` oszlopa CHECK
- * constraint-et használ: csak 'készpénz' / 'banki' / 'számla' értéket fogad el.
- * A gyülekezeti bemenetet normalizáljuk.
+ * 2026-08-17 (kerületi S5): szint-helyes magyar megnevezés a hibaüzenetekhez.
+ * A korábbi szöveg fixen „az egyházmegyei szinten"-t írt — a kerületi
+ * felhasználó egy őt nem érintő szintről kapott volna hibát.
  */
-function normalizeIrattipusForDiocese(raw: string): 'készpénz' | 'banki' | 'számla' {
+function szintNeveRagozva(scope: FinanceScope): string {
+  switch (scope) {
+    case 'congregation':
+      return 'a gyülekezeti'
+    case 'diocese':
+      return 'az egyházmegyei'
+    case 'district':
+      return 'az egyházkerületi'
+    default: {
+      const _nemLehet: never = scope
+      throw new Error(`Ismeretlen pénzügyi hatókör: ${String(_nemLehet)}`)
+    }
+  }
+}
+
+/**
+ * 2026-08-17 (kerületi S5): a felső szint MELLÉKNÉVI alakja a nyomtatvány- és
+ * hibaüzenet-szövegekhez („megyei számadás" ⇄ „kerületi számadás").
+ */
+function szintJelzo(scope: FinanceScope): string {
+  switch (scope) {
+    case 'congregation':
+      return 'gyülekezeti'
+    case 'diocese':
+      return 'megyei'
+    case 'district':
+      return 'kerületi'
+    default: {
+      const _nemLehet: never = scope
+      throw new Error(`Ismeretlen pénzügyi hatókör: ${String(_nemLehet)}`)
+    }
+  }
+}
+
+/**
+ * 2026-08-17 (kerületi S5): „a migráció még nem futott le" üzenet SZINT-HELYES
+ * SQL-fájlnévvel. A megyei szöveg byte-ra változatlan (ugyanaz a mondat, ugyanaz
+ * a fájlnév) — a kerületi ág a saját S5-ös fájljára mutat, mert a megyei SQL
+ * futtatása a kerületi oszlopokat nem hozná létre, és a lelkész körbe-körbe
+ * járna.
+ */
+const KERULETI_KONYVELES_SQL = '2026-08-17-egyhazkeruleti-S5b-penzugy-tablak.sql'
+
+function hianyzoOszlopUzenet(
+  scope: FinanceScope,
+  mihez: string,
+  megyeiSqlFajl: string,
+): string {
+  const sqlFajl = scope === 'district' ? KERULETI_KONYVELES_SQL : megyeiSqlFajl
+  return (
+    `${mihez} szükséges adatbázis-oszlopok még hiányoznak — ` +
+    `futtasd le a ${sqlFajl} fájlt, majd próbáld újra.`
+  )
+}
+
+/**
+ * A felső szintű bevétel/kiadás tábla `irattipus` oszlopa CHECK constraint-et
+ * használ: csak 'készpénz' / 'banki' / 'számla' értéket fogad el (a
+ * `diocese_*` és a `district_*` tükör-táblán egyaránt). A gyülekezeti bemenetet
+ * normalizáljuk.
+ */
+function normalizeIrattipusFelsoSzint(raw: string): 'készpénz' | 'banki' | 'számla' {
   const lower = (raw || '').toLowerCase().trim()
   if (lower.includes('bank')) return 'banki'
   if (lower.includes('szám') || lower === 'számla') return 'számla'
@@ -1192,18 +1311,35 @@ export async function listFinanceYears(): Promise<number[]> {
     }
   }
 
-  const isDiocese =
-    access.activeProfileRole?.scope === 'diocese' && !!access.activeProfileRole.scopeId
+  // 2026-08-17 (kerületi S5): a KÉT felső szint közös diszkriminátora.
+  //
+  // ⚠️ MIÉRT MARAD az aktív profil-szerep a döntő (és miért NEM a
+  //    `getFinanceScopeContext`): ez az év-választó 2026-04-18 óta így dönt, és
+  //    a kanonikus feloldóra cserélés az „örökölt" (profile_roles nélküli)
+  //    felhasználóknál a MEGLÉVŐ megyei/gyülekezeti viselkedést is elmozdítaná.
+  //    Ez a szelet CSAK a harmadik ágat teszi hozzá — a másik kettő byte-ra áll.
+  const active = access.activeProfileRole
+  const felsoScope: FinanceScope | null =
+    active?.scope === 'diocese' && active.scopeId
+      ? 'diocese'
+      : active?.scope === 'district' && active.scopeId
+        ? 'district'
+        : null
   try {
     // 2026-08-11 (K5-#8): LAPOZOTT lekérés. A PostgREST 1000-es plafonja alatt a
     // legrégebbi évek egyszerűen KIMARADTAK az év-választóból (a lelkész nem
     // tudott visszalépni a korábbi évekre), méghozzá determinisztikus sorrend
     // nélkül, kiszámíthatatlanul.
-    if (isDiocese) {
-      const did = access.activeProfileRole!.scopeId as string
+    if (felsoScope) {
+      // ⚠️ A tábla- és oszlopnév NEM kézi elágazásból jön, hanem a `tablesFor`
+      //    térképből: kézi `? :`-nál egy új szint NÉMÁN a gyülekezeti táblákból
+      //    olvasná az éveket, és a kerületi év-választó a lelkész saját
+      //    gyülekezetének éveit mutatná. (Megyei ágon a lekérdezés byte-azonos.)
+      const T = tablesFor(felsoScope)
+      const sid = active!.scopeId as string
       const [bev, kia] = await Promise.all([
-        fetchAllPaged(access.supabase.from('diocese_befizetes').select('id, datum').eq('diocese_id', did).eq('deleted', false).order('id', { ascending: true })),
-        fetchAllPaged(access.supabase.from('diocese_kiadas').select('id, datum').eq('diocese_id', did).eq('deleted', false).order('id', { ascending: true })),
+        fetchAllPaged(access.supabase.from(T.befizetes).select('id, datum').eq(T.scopeCol, sid).eq('deleted', false).order('id', { ascending: true })),
+        fetchAllPaged(access.supabase.from(T.kiadas).select('id, datum').eq(T.scopeCol, sid).eq('deleted', false).order('id', { ascending: true })),
       ])
       addYears((bev.data || []) as { datum: string | null }[])
       addYears((kia.data || []) as { datum: string | null }[])
@@ -1227,8 +1363,12 @@ export async function initFinance(year: number) {
   const scope = await getFinanceScope()
   if (!scope) return null
 
-  if (scope.scope === 'diocese') {
-    return initFinanceDiocese(year, scope)
+  // 2026-08-17 (kerületi S5): a felső szintek (egyházmegye ÉS egyházkerület)
+  // KÖZÖS init-je. Itt `!== 'congregation'` a helyes alak, mert a különbség
+  // valóban a GYÜLEKEZETI sajátosság: tag-szintű járulék, család-felosztás,
+  // belső mozgás, nyugta-kronológia — ezek egyik felső szinten sem léteznek.
+  if (scope.scope !== 'congregation') {
+    return initFinanceFelsoSzint(year, scope)
   }
 
   // ── Congregation path (MEGLÉVŐ, VÁLTOZATLAN kód a backward compat-ért) ──
@@ -1803,12 +1943,21 @@ export async function initFinance(year: number) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// initFinanceDiocese — scope='diocese' path
+// initFinanceFelsoSzint — scope='diocese' ÉS scope='district' path
 // ─────────────────────────────────────────────────────────────────────────
 /**
- * Az egyházmegyei pénzügyi dashboard inicializálása. A diocese_* táblákból
- * olvas, és ugyanolyan struktúrát ad vissza, mint az `initFinance` gyülekezeti
- * path-a — így a FinanceTabs komponens scope-agnosztikusan tud dolgozni.
+ * A FELSŐ SZINTŰ pénzügyi dashboard inicializálása — egyházmegye ÉS
+ * egyházkerület. A `tablesFor` térkép szerinti táblákból olvas (`diocese_*`
+ * vagy `district_*`), és ugyanolyan struktúrát ad vissza, mint az
+ * `initFinance` gyülekezeti path-a — így a FinanceTabs komponens
+ * scope-agnosztikusan tud dolgozni.
+ *
+ * 2026-08-17 (kerületi S5): a függvény korábban `initFinanceDiocese` volt, és a
+ * táblaneveket HARDKÓDOLTAN tartalmazta. A harmadik szint bevezetése után a
+ * kerületi felhasználó az `initFinance` `=== 'diocese'` ága mellett NÉMÁN a
+ * gyülekezeti ágra esett volna: a püspökség a lelkész saját gyülekezetének
+ * könyveit látta volna sajátjaként. Mostantól minden tábla- és oszlopnév a
+ * `scope.T` térképből jön.
  *
  * Különbségek a gyülekezeti path-tól:
  *   - Tag-szintű adatok (szemely, csalad, jarulek_kedvezmeny, felmentes)
@@ -1818,53 +1967,69 @@ export async function initFinance(year: number) {
  *   - A bevCelMap / kiaCelMap "virtuális identitás-hash" (kulcs = érték = kód)
  *   - belsomozgas / jarulek_kedvezmeny / befizetescel junction nincs
  */
-async function initFinanceDiocese(
+async function initFinanceFelsoSzint(
   year: number,
   scope: FinanceScopeContext & { T: FinanceScopeTableMap },
 ) {
-  const { supabase, scopeId: dioceseId } = scope
+  const { supabase, scopeId, T } = scope
+  const kerulet = scope.scope === 'district'
+
+  // A `bankszamlak.scope` szöveges címke — ez NEM része a tábla-térképnek, mert
+  // nem táblát választ, hanem egy sor-szűrő értéke. A megyei számlák
+  // 'egyhazmegye', a kerületiek 'egyhazkerulet' címkét kapnak.
+  // ⚠️ A KERÜLETI BANKLISTA MA ÜRES, ÉS AZ S5c UTÁN IS AZ MARAD — ez nem hiba,
+  //    hanem hiányzó felület, és fontos, hogy a következő kör ne higgye másnak.
+  //    Az S5c felveszi a `bankszamlak.district_id` oszlopot és kibővíti a
+  //    scope-CHECK-et az 'egyhazkerulet' értékkel, DE a repóban EGYETLEN kód sem
+  //    szúr be ilyen sort: a kerületi beállítás-varázslóban nincs bankszámla-
+  //    blokk (a megyei bank-lépés tükre). Amíg az meg nem születik, az
+  //    egyházkerület KÉSZPÉNZ-ONLY. Ugyanez áll a `chitanta_tombok.district_id`-re
+  //    (kerületi nyugtatömb-felület sincs).
+  //    A degradálás SZÁNDÉKOSAN ilyen: üres lista helyett SOHA nem eshetünk
+  //    vissza egy másik szint számláira.
+  const bankSzamlaScope = kerulet ? 'egyhazkerulet' : 'egyhazmegye'
 
   const [
     settingsRes, celRes, bankRes, bevRes, kiaRes, prevBevRes, prevKiaRes,
   ] = await Promise.all([
     supabase
-      .from('diocese_bealitas')
+      .from(T.bealitas)
       .select('*')
-      .eq('diocese_id', dioceseId)
-      .eq('eve', year)
+      .eq(T.scopeCol, scopeId)
+      .eq(T.yearColBealitas, yearValueFor(scope.scope, year))
       .maybeSingle(),
     supabase.from('szamadasicel').select('*').order('sorszam'),
     supabase
       .from('bankszamlak')
       .select('*')
-      .eq('scope', 'egyhazmegye')
-      .eq('diocese_id', dioceseId)
+      .eq('scope', bankSzamlaScope)
+      .eq(T.scopeCol, scopeId)
       .eq('aktiv', true),
     supabase
-      .from('diocese_befizetes')
+      .from(T.befizetes)
       .select('*')
-      .eq('diocese_id', dioceseId)
+      .eq(T.scopeCol, scopeId)
       .eq('deleted', false)
       .gte('datum', `${year}-01-01`)
       .lte('datum', `${year}-12-31`),
     supabase
-      .from('diocese_kiadas')
+      .from(T.kiadas)
       .select('*')
-      .eq('diocese_id', dioceseId)
+      .eq(T.scopeCol, scopeId)
       .eq('deleted', false)
       .gte('datum', `${year}-01-01`)
       .lte('datum', `${year}-12-31`),
     supabase
-      .from('diocese_befizetes')
+      .from(T.befizetes)
       .select('osszeg, irattipus')
-      .eq('diocese_id', dioceseId)
+      .eq(T.scopeCol, scopeId)
       .eq('deleted', false)
       .gte('datum', `${year - 1}-01-01`)
       .lte('datum', `${year - 1}-12-31`),
     supabase
-      .from('diocese_kiadas')
+      .from(T.kiadas)
       .select('osszeg, irattipus')
-      .eq('diocese_id', dioceseId)
+      .eq(T.scopeCol, scopeId)
       .eq('deleted', false)
       .gte('datum', `${year - 1}-01-01`)
       .lte('datum', `${year - 1}-12-31`),
@@ -1887,39 +2052,60 @@ async function initFinanceDiocese(
     if (c.type === 'K') kiaCelMap[c.id] = c.id
   })
 
-  // ── Egyházmegye neve ──
-  // 2026-08-15 (terv 4.2): a duplázás-védő közös helperen át — a dioceses.name
-  // a seedben már tartalmazza a „Református Egyházmegye" toldatot, egy régi/kézi
-  // sor viszont nem biztos; a helper mindkét esetben a teljes hivatalos nevet adja.
-  let dioceseName = ''
-  const dioRes = await supabase
-    .from('dioceses')
-    // 2026-08-15 (Endre): a `nev_ro` is kell — a megyei nyomtatvány fejléce a
-    // gyülekezetihez hasonlóan KÉTNYELVŰ (magyar / román hivatalos név).
-    .select('name, nev_ro, district_id')
-    .eq('id', dioceseId)
-    .single()
-  dioceseName = formatEgyhazmegyeNev(dioRes.data?.name)
-  const dioceseNameRo = (dioRes.data?.nev_ro as string | null) || ''
-
-  // ── Egyházkerület neve (a megyei nyomtatvány-borító felső blokkjához) ──
-  // 2026-08-15 (terv 2.1/3): a megye SAJÁT íve az egyházkerülethez megy fel,
-  // ezért a borító felső blokkjában a KERÜLET neve áll (a gyülekezeti íven ott
-  // az egyházmegye áll). Ez KIZÁRÓLAG felirat: ha nem sikerül lekérdezni, a
-  // nyomtatvány semleges „REFORMÁTUS EGYHÁZKERÜLET" feliratot ír — jogosultságot
-  // vagy zárást nem befolyásol, ezért a hiba elnyelése itt biztonságos.
+  // ── A SZINT neve (nyomtatvány-fejléc, UI-felirat) ──
+  // 2026-08-15 (terv 4.2): a megyénél duplázás-védő közös helperen át — a
+  // dioceses.name a seedben már tartalmazza a „Református Egyházmegye" toldatot,
+  // egy régi/kézi sor viszont nem biztos; a helper mindkét esetben a teljes
+  // hivatalos nevet adja.
+  // 2026-08-17 (kerületi S5): a kerület neve a `districts` táblából jön, és NEM
+  // megy át a megyei név-formázón — a `formatEgyhazmegyeNev` „…Egyházmegye"
+  // toldatot pótolna, ami a püspökség nevét meghamisítaná.
+  // ⚠️ A felterjesztő szint neve (`districtName`) a MEGYEI borító felső blokkja.
+  //    A kerületnek K3 szerint NINCS felettes szintje, ezért ott `null` marad —
+  //    a nyomtatvány így nem ír oda egy nem létező feljebbvalót.
+  let szintNev = ''
+  let szintNevRo = ''
   let districtName: string | null = null
-  const districtId = (dioRes.data as { district_id?: string | null } | null)?.district_id || null
-  if (districtId) {
-    try {
-      const { data: distRow } = await supabase
-        .from('districts')
-        .select('name')
-        .eq('id', districtId)
-        .maybeSingle()
-      districtName = (distRow as { name?: string | null } | null)?.name ?? null
-    } catch {
-      districtName = null
+
+  if (kerulet) {
+    const distRes = await supabase
+      .from('districts')
+      // A `nev_ro` a kétnyelvű (magyar / román) nyomtatvány-fejléchez kell —
+      // ugyanaz a szabály, mint a gyülekezeti és a megyei íven.
+      .select('name, nev_ro')
+      .eq('id', scopeId)
+      .maybeSingle()
+    szintNev = (distRes.data?.name as string | null) || ''
+    szintNevRo = (distRes.data?.nev_ro as string | null) || ''
+  } else {
+    const dioRes = await supabase
+      .from('dioceses')
+      // 2026-08-15 (Endre): a `nev_ro` is kell — a megyei nyomtatvány fejléce a
+      // gyülekezetihez hasonlóan KÉTNYELVŰ (magyar / román hivatalos név).
+      .select('name, nev_ro, district_id')
+      .eq('id', scopeId)
+      .single()
+    szintNev = formatEgyhazmegyeNev(dioRes.data?.name)
+    szintNevRo = (dioRes.data?.nev_ro as string | null) || ''
+
+    // ── Egyházkerület neve (a megyei nyomtatvány-borító felső blokkjához) ──
+    // 2026-08-15 (terv 2.1/3): a megye SAJÁT íve az egyházkerülethez megy fel,
+    // ezért a borító felső blokkjában a KERÜLET neve áll (a gyülekezeti íven ott
+    // az egyházmegye áll). Ez KIZÁRÓLAG felirat: ha nem sikerül lekérdezni, a
+    // nyomtatvány semleges „REFORMÁTUS EGYHÁZKERÜLET" feliratot ír — jogosultságot
+    // vagy zárást nem befolyásol, ezért a hiba elnyelése itt biztonságos.
+    const districtId = (dioRes.data as { district_id?: string | null } | null)?.district_id || null
+    if (districtId) {
+      try {
+        const { data: distRow } = await supabase
+          .from('districts')
+          .select('name')
+          .eq('id', districtId)
+          .maybeSingle()
+        districtName = (distRow as { name?: string | null } | null)?.name ?? null
+      } catch {
+        districtName = null
+      }
     }
   }
 
@@ -1929,8 +2115,13 @@ async function initFinanceDiocese(
   // költségvetés-módosítás flageket hardkódolt false-szal töltötte, így a
   // véglegesített megyei módosítás nyitottnak látszott. A BudgetPrintDialog
   // ugyanezt a normalizálót hívja — közös helper, soha széthúzó másolat.
+  // 2026-08-17 (kerületi S5): ugyanez a normalizáló szolgálja ki a kerületet is.
+  // MIÉRT SZABAD: a `district_bealitas` a `diocese_bealitas` OSZLOPNÉV-HŰ tükre
+  // (eve int PK, magyar véglegesítés- és unlock-oszlopok), a normalizáló pedig
+  // kizárólag oszlopnevek szerint dolgozik — nem tábla- vagy scope-függő. Ha a
+  // két séma valaha széthúzna, ITT kell megállni, nem egy másolattal megkerülni.
   const rawSettings = settingsRes.data as Record<string, unknown> | null
-  const settings: BealitasRow | null = normalizeDioceseBealitas(rawSettings, dioceseId, year)
+  const settings: BealitasRow | null = normalizeDioceseBealitas(rawSettings, scopeId, year)
 
   // ── Átviteli egyenleg (előző évi záró) ──
   let carryoverCash = 0
@@ -1989,9 +2180,10 @@ async function initFinanceDiocese(
     carryoverBank,
     bankNyitoMap: {} as Record<number, number>, // diocese módban nincs per-számla nyitó-tábla
     internalTransfers: [] as InternalTransferRow[], // Phase 5-re halasztott
-    congregationName: dioceseName, // UI label, diocese módban a diocese neve
-    congregationNameRo: dioceseNameRo, // a megye hivatalos ROMÁN neve a nyomtatvány-fejléchez
-    // A felettes szint neve a nyomtatvány-borítóra (csak megyei hatókörben).
+    congregationName: szintNev, // UI label: felső szinten a megye/kerület neve
+    congregationNameRo: szintNevRo, // a szint hivatalos ROMÁN neve a nyomtatvány-fejléchez
+    // A felettes szint neve a nyomtatvány-borítóra. CSAK megyei hatókörben van
+    // értelme: a kerület fölött nincs negyedik szint (K3), ott `null`.
     districtName,
     debtCalcMode: 'akkori' as 'akkori' | 'aktualis',
     yearlyFees: {} as Record<number, number>, // diocese-nél nincs tag-járulék
@@ -2031,11 +2223,17 @@ export async function saveIncome(data: IncomeInput) {
   const lockError = await assertYearsNotFinalizedForCreate(scope, [d.datum])
   if (lockError) return { error: lockError }
 
-  // Scope-aware elágazás: diocese vagy congregation
-  const insertResult = scope.scope === 'diocese'
-    ? await insertDioceseIncomeRecord({
+  // Scope-aware elágazás: FELSŐ SZINT (egyházmegye/egyházkerület) vagy gyülekezet.
+  // ⚠️ 2026-08-17 (kerületi S5): itt korábban `=== 'diocese'` állt. A harmadik
+  //    szint bevezetésekor ez NÉMÁN a gyülekezeti ágra ejtette volna a kerületet:
+  //    a püspökség bevétele a lelkész saját gyülekezetének `befizetes` táblájába
+  //    került volna, hibaüzenet nélkül. A `!== 'congregation'` alak azt mondja ki,
+  //    ami igaz: a tag-/család-kapcsolat a GYÜLEKEZETI sajátosság.
+  const insertResult = scope.scope !== 'congregation'
+    ? await insertFelsoSzintIncomeRecord({
         supabase: scope.supabase,
-        dioceseId: scope.scopeId,
+        scope: scope.scope,
+        scopeId: scope.scopeId,
         userId: user.id,
         input: d,
       })
@@ -2077,11 +2275,12 @@ export async function saveExpense(data: ExpenseInput) {
   const lockError = await assertYearsNotFinalizedForCreate(scope, [d.datum])
   if (lockError) return { error: lockError }
 
-  // Scope-aware elágazás
-  const insertResult = scope.scope === 'diocese'
-    ? await insertDioceseExpenseRecord({
+  // Scope-aware elágazás — lásd a `saveIncome` azonos ágának MIÉRT-jét.
+  const insertResult = scope.scope !== 'congregation'
+    ? await insertFelsoSzintExpenseRecord({
         supabase: scope.supabase,
-        dioceseId: scope.scopeId,
+        scope: scope.scope,
+        scopeId: scope.scopeId,
         userId: user.id,
         input: d,
       })
@@ -2129,12 +2328,13 @@ export async function saveIncomeBatch(rows: IncomeBatchRowInput[]) {
 
   for (let index = 0; index < parsed.data.length; index += 1) {
     const row = parsed.data[index]
-    const result = scope.scope === 'diocese'
-      ? await insertDioceseIncomeRecord({
+    const result = scope.scope !== 'congregation'
+      ? await insertFelsoSzintIncomeRecord({
           supabase: scope.supabase,
-          dioceseId: scope.scopeId,
+          scope: scope.scope,
+          scopeId: scope.scopeId,
           userId: user.id,
-          // Egyházmegyei bevételnek nincs tag/család-kapcsolata.
+          // Felső szintű (megyei/kerületi) bevételnek nincs tag/család-kapcsolata.
           input: { ...row, id_szemely: null, id_csalad: null },
         })
       : await insertIncomeRecord({
@@ -2199,13 +2399,14 @@ export async function saveExpenseBatch(rows: ExpenseBatchRowInput[]) {
   for (let index = 0; index < parsed.data.length; index += 1) {
     const row = parsed.data[index]
 
-    if (scope.scope === 'diocese') {
+    if (scope.scope !== 'congregation') {
       if (row.inventory) {
-        return { error: `${index + 1}. sor: a leltárba vétel egyházmegyei módban nem elérhető — külön rögzítsd a kiadást és a leltári tételt.` }
+        return { error: `${index + 1}. sor: a leltárba vétel ${szintNeveRagozva(scope.scope)} módban nem elérhető — külön rögzítsd a kiadást és a leltári tételt.` }
       }
-      const result = await insertDioceseExpenseRecord({
+      const result = await insertFelsoSzintExpenseRecord({
         supabase: scope.supabase,
-        dioceseId: scope.scopeId,
+        scope: scope.scope,
+        scopeId: scope.scopeId,
         userId: user.id,
         input: row,
       })
@@ -2268,17 +2469,23 @@ export async function deleteTransaction(type: 'befizetes' | 'kiadas', id: number
   if (writeBlock) return writeBlock
   const { supabase, T } = scope
 
-  // Diocese path — egyszerűbb (nincs belsomozgas_xkey pairing MVP-ben)
-  if (scope.scope === 'diocese') {
+  // Felső szintű (megyei/kerületi) path — egyszerűbb: ezeken a táblákon nincs
+  // `belso_mozgas_xkey` oszlop, tehát nincs kassza↔bank pár-törlés sem.
+  // ⚠️ 2026-08-17 (kerületi S5): itt korábban `=== 'diocese'` állt, a scope-oszlop
+  //    pedig hardkódolt `diocese_id` volt. A kerület így a lenti GYÜLEKEZETI ágra
+  //    esett volna, ahol a `.eq('congregation_id', <kerület UUID>)` szűrő 0 sort ad
+  //    → „A tétel nem található" — miközben a tétel megvan. Néma, érthetetlen
+  //    elakadás egy hivatalos könyvelésben.
+  if (scope.scope !== 'congregation') {
     const table = type === 'befizetes' ? T.befizetes : T.kiadas
-    // 2026-08-15 (átvilágítás, ⛔1): ÉV-ZÁR a törlés ELŐTT — az egyházmegyei
-    // oldalon is (a `diocese_bealitas.szamadas_veglegesitve` zászlót ugyanaz a
-    // scope-tudatos `isYearFinalized` olvassa).
+    // 2026-08-15 (átvilágítás, ⛔1): ÉV-ZÁR a törlés ELŐTT — a felső szinteken is
+    // (a `*_bealitas.szamadas_veglegesitve` zászlót ugyanaz a scope-tudatos
+    // `isYearFinalized` olvassa).
     const { data: dRec, error: dRecErr } = await supabase
       .from(table)
       .select('datum')
       .eq('id', id)
-      .eq('diocese_id', scope.scopeId)
+      .eq(T.scopeCol, scope.scopeId)
       .maybeSingle()
     if (dRecErr) {
       return {
@@ -2297,7 +2504,7 @@ export async function deleteTransaction(type: 'befizetes' | 'kiadas', id: number
       .from(table)
       .update({ deleted: true })
       .eq('id', id)
-      .eq('diocese_id', scope.scopeId)
+      .eq(T.scopeCol, scope.scopeId)
     if (error) return { error: `Hiba: ${error.message}` }
     revalidatePath('/penzugy')
     return { success: true }
@@ -2495,6 +2702,12 @@ export async function getNextReceiptNumbers(
     // A lapozáshoz KÖTELEZŐ a determinisztikus rendezés (id ASC) — enélkül a
     // .range() ablakok átfedhetnek/kihagyhatnak sorokat.
     .order('id', { ascending: true })
+  // ✅ 2026-08-17 (kerületi S5): a három `=== 'congregation'` szűrő ITT HELYES,
+  //    és ÍGY IS MARAD. A `belso_mozgas_xkey` oszlop KIZÁRÓLAG a gyülekezeti
+  //    `befizetes`/`kiadas` táblán létezik (kassza↔bank átvezetés-pár) — a felső
+  //    szintek tükör-tábláin nincs ilyen oszlop, tehát a kerület helyesen marad
+  //    ki. Ha valaki ezt „egységesítené" `!== 'diocese'`-re, a kerületi
+  //    nyugtaszám-lekérdezés 42703-mal bukna, és a Chitanță-számozás elnémulna.
   if (scope.scope === 'congregation') allQ = allQ.is('belso_mozgas_xkey', null)
 
   // #Endre 2026-07-01 (perf): a 3 FÜGGETLEN lekérdezés PÁRHUZAMOSAN (nem sorosan): kerületi (allQ),
@@ -3242,19 +3455,26 @@ export async function finalizeBudget(year: number) {
   const writeBlock = financeWriteBlock(scope)
   if (writeBlock) return writeBlock
 
-  if (scope.scope === 'diocese') {
-    // Diocese path: upsert diocese_bealitas
+  // 2026-08-17 (kerületi S5): FELSŐ SZINTŰ ág (egyházmegye ÉS egyházkerület).
+  // A tábla, a scope-oszlop, az év-oszlop és a zászló neve mind a térképből jön —
+  // a korábbi `=== 'diocese'` + hardkódolt `diocese_bealitas` alaknál a kerület a
+  // lenti gyülekezeti `updateYearlyFinanceFlags`-re esett volna, ami a
+  // `bealitas`-t próbálja `congregation_id = <kerület UUID>`-vel frissíteni:
+  // 0 sor, és a lelkész „nincs mentett évi beállítás" üzenetet kapna, miközben
+  // a kerület költségvetése SOHA nem záródna le.
+  if (scope.scope !== 'congregation') {
+    const { T } = scope
     const { error } = await scope.supabase
-      .from('diocese_bealitas')
+      .from(T.bealitas)
       .upsert(
         {
-          diocese_id: scope.scopeId,
-          eve: year,
-          koltsegvetes_veglegesitve: true,
+          [T.scopeCol]: scope.scopeId,
+          [T.yearColBealitas]: yearValueFor(scope.scope, year),
+          [T.budgetFinalizedCol]: true,
           koltsegvetes_veglegesites_datuma: new Date().toISOString().slice(0, 10),
           koltsegvetes_veglegesitette: scope.userId,
         },
-        { onConflict: 'diocese_id,eve' },
+        { onConflict: `${T.scopeCol},${T.yearColBealitas}` },
       )
     if (error) return { error: `Hiba: ${error.message}` }
     revalidatePath('/penzugy')
@@ -3282,31 +3502,40 @@ export async function requestBudgetUnlock(year: number, reason?: string | null) 
   const writeBlock = financeWriteBlock(scope)
   if (writeBlock) return writeBlock
 
-  if (scope.scope === 'diocese') {
+  if (scope.scope !== 'congregation') {
     // 2026-08-15 (S6, Endre 4. döntése — egységes véglegesítés-gomb): a kérelem
     // megyei szinten is RÖGZÜL (a szamadas_unlock_* meglévő mintájára). Az
-    // elbíráló a felettes szint (egyházkerület) — a fogadó oldala a 3. szint
-    // külön körében épül; addig a kérelem a diocese_bealitas-ban áll.
+    // elbíráló a felettes szint (egyházkerület).
+    //
+    // ⚠️ 2026-08-17 (kerületi S5) — ENDRE DÖNTÉSÉRE VÁR: a kerület fölött K3
+    //    szerint NINCS negyedik szint, tehát a KERÜLETI feloldás-kérelemnek ma
+    //    nincs elbírálója. A zászlót azért rögzítjük ugyanúgy, mert (a) a
+    //    kérelem ténye és indoka így naplózva marad, (b) a mai alternatíva a
+    //    néma gyülekezeti ágra esés lenne. Ha Endre úgy dönt, hogy a kerület
+    //    SAJÁT MAGÁT oldja fel, ez az ág lesz a feloldó gomb helye.
+    const { T } = scope
     const { error } = await scope.supabase
-      .from('diocese_bealitas')
+      .from(T.bealitas)
       .upsert(
         {
-          diocese_id: scope.scopeId,
-          eve: year,
+          [T.scopeCol]: scope.scopeId,
+          [T.yearColBealitas]: yearValueFor(scope.scope, year),
           koltsegvetes_unlock_requested: true,
           koltsegvetes_unlock_request_reason: reason?.trim() || null,
           koltsegvetes_unlock_request_at: new Date().toISOString(),
         },
-        { onConflict: 'diocese_id,eve' },
+        { onConflict: `${T.scopeCol},${T.yearColBealitas}` },
       )
     if (error) {
       // Hiányzó oszlop = a migráció még nem futott le — mondjuk ki magyarul,
       // mit kell tenni, ne nyers PostgREST-hibát adjunk.
       if (isMissingColumnError(error.message)) {
         return {
-          error:
-            'A költségvetés feloldás-kérelméhez szükséges adatbázis-oszlopok még hiányoznak — ' +
-            'futtasd le a 2026-08-15-egyhazmegyei-konyveles-s6.sql fájlt, majd próbáld újra.',
+          error: hianyzoOszlopUzenet(
+            scope.scope,
+            'A költségvetés feloldás-kérelméhez',
+            '2026-08-15-egyhazmegyei-konyveles-s6.sql',
+          ),
         }
       }
       return { error: `Hiba: ${error.message}` }
@@ -3512,50 +3741,54 @@ export async function finalizeAccounting(
     }
   }
 
-  // ── Egyházmegyei ág ───────────────────────────────────────────────────────
-  if (scope.scope === 'diocese') {
-    // 1. diocese_bealitas upsert — zár + pecsét (dátum/aláíró) + a jóváhagyó
-    //    gyűlés határozat-adatai a megyei nyomtatvány-borítóhoz (S6 SQL hozza az
+  // ── Felső szintű ág (egyházmegye ÉS egyházkerület) ────────────────────────
+  // 2026-08-17 (kerületi S5): itt korábban `=== 'diocese'` állt, hardkódolt
+  // `diocese_bealitas` / `diocese_annual_reports` táblanevekkel. A kerület így
+  // a lenti GYÜLEKEZETI ágra esett volna: a `bealitas` UPDATE 0 sort érint
+  // (`congregation_id = <kerület UUID>`), tehát a kerület számadása SOHA nem
+  // záródott volna le — a lelkész pedig „nincs mentett évi beállítás" üzenetet
+  // kapott volna egy tökéletesen felkönyvelt évre.
+  if (scope.scope !== 'congregation') {
+    // 1. `*_bealitas` upsert — zár + pecsét (dátum/aláíró) + a jóváhagyó gyűlés
+    //    határozat-adatai a nyomtatvány-borítóhoz (a szint SQL-je hozza az
     //    oszlopokat; migráció előtti adatbázison séma-fallbackkel, a határozat-
     //    mezők NÉLKÜL fut újra az írás — a zárás nem bukhat el rajtuk).
-    const dioZarasAlap = {
-      diocese_id: scope.scopeId,
-      eve: year,
-      szamadas_veglegesitve: true,
+    const felsoZarasAlap = {
+      [T.scopeCol]: scope.scopeId,
+      [T.yearColBealitas]: yearValueFor(scope.scope, year),
+      [T.finalizedCol]: true,
       szamadas_veglegesites_datuma: new Date().toISOString().slice(0, 10),
       szamadas_veglegesitette: scope.userId,
     }
+    const bealitasOnConflict = `${T.scopeCol},${T.yearColBealitas}`
     let bealitasErr = (
-      await supabase.from('diocese_bealitas').upsert(
+      await supabase.from(T.bealitas).upsert(
         {
-          ...dioZarasAlap,
+          ...felsoZarasAlap,
           ...(meta?.jegyzokonyviSzam ? { szamadas_hatarozat_szam: meta.jegyzokonyviSzam } : {}),
           ...(meta?.targyalasDatuma ? { szamadas_hatarozat_datum: meta.targyalasDatuma } : {}),
         },
-        { onConflict: 'diocese_id,eve' },
+        { onConflict: bealitasOnConflict },
       )
     ).error
     if (bealitasErr && isMissingColumnError(bealitasErr.message)) {
       bealitasErr = (
         await supabase
-          .from('diocese_bealitas')
-          .upsert(dioZarasAlap, { onConflict: 'diocese_id,eve' })
+          .from(T.bealitas)
+          .upsert(felsoZarasAlap, { onConflict: bealitasOnConflict })
       ).error
     }
-    if (bealitasErr) return { error: `Hiba (diocese_bealitas): ${bealitasErr.message}` }
+    if (bealitasErr) return { error: `Hiba (${T.bealitas}): ${bealitasErr.message}` }
 
-    // 2. diocese_annual_reports upsert — a megye SAJÁT zárszámadás-tára (terv
-    //    3.4: mostantól van fogyasztója — a megyei Pénzügy „Számadás" fülének
-    //    „Véglegesített évek" kártyája innen olvas). A snapshot a fenti KÖZÖS
-    //    kanonikus pillanatkép; a „felküldés" célja az egyházkerület — a
-    //    tényleges kerületi fogadó oldal a 3. szint külön körében épül, itt a
-    //    véglegesítés + pecsét rögzül.
+    // 2. `*_annual_reports` upsert — a szint SAJÁT zárszámadás-tára (terv 3.4:
+    //    a Pénzügy „Számadás" fülének „Véglegesített évek" kártyája innen olvas).
+    //    A snapshot a fenti KÖZÖS kanonikus pillanatkép.
     const nowIso = new Date().toISOString()
     const { error: arErr } = await supabase
-      .from('diocese_annual_reports')
+      .from(T.annualReport)
       .upsert(
         {
-          diocese_id: scope.scopeId,
+          [T.scopeCol]: scope.scopeId,
           year,
           status: 'finalized',
           snapshot_data: storedSnapshot,
@@ -3564,39 +3797,55 @@ export async function finalizeAccounting(
           finalized_at: nowIso,
           finalized_by: scope.userId,
         },
-        { onConflict: 'diocese_id,year' },
+        { onConflict: `${T.scopeCol},year` },
       )
     if (arErr) {
+      // ⚠️ 2026-08-19: a „, ezért a felküldés is elmaradt" tagmondat SZINT-FÜGGŐ,
+      // és a megyénél VISSZA KELL ÁLLNIA betűre. A függvény ezen az ágon
+      // `return`-öl, tehát a lenti 3. lépés (a `rogzitDioceseFelterjesztes`)
+      // TÉNYLEG nem fut le — az esperesnek joga van tudni, hogy a felküldés sem
+      // történt meg, nem csak a pillanatkép mentése bukott. A kerületnél viszont
+      // nincs mit felküldeni (K3: nincs felettes szint), ott a tagmondat
+      // hazugság lenne.
+      const felkuldesIsElmaradt = scope.scope === 'diocese' ? ', ezért a felküldés is elmaradt' : ''
       return {
         error:
-          'A(z) ' + year + '. évi megyei számadás lezárása megtörtént, de a zárszámadás ' +
-          'pillanatképét nem sikerült elmenteni, ezért a felküldés is elmaradt. Jelezd a ' +
+          `A(z) ${year}. évi ${szintJelzo(scope.scope)} számadás lezárása megtörtént, de a ` +
+          `zárszámadás pillanatképét nem sikerült elmenteni${felkuldesIsElmaradt}. Jelezd a ` +
           `rendszergazdának (részlet: ${arErr.message}).`,
       }
     }
 
-    // 3. FELTERJESZTÉS az egyházkerületnek (terv 3.6 + Endre 3. döntése): a
+    // 3. FELTERJESZTÉS a felettes szintnek (terv 3.6 + Endre 3. döntése): a
     //    véglegesítés és a felküldés EGY mozdulat — ugyanaz a gomb, ugyanott,
-    //    mint a gyülekezeteknél. A kerületi FOGADÓ oldal a 3. szint külön
-    //    körében épül; a felküldés ténye, ideje és tartalma MÁR MOST rögzül.
-    //    Ha ez nem sikerül, a zárás akkor is érvényes — ezért NEM „sikeres"
-    //    választ adunk, hanem elmondjuk, hol lehet a felküldést pótolni.
-    const felt = await rogzitDioceseFelterjesztes(supabase, {
-      dioceseId: scope.scopeId,
-      userId: scope.userId,
-      docType: 'megyei_szamadas',
-      year,
-      snapshot: storedSnapshot,
-    })
+    //    mint a gyülekezeteknél. Ha ez nem sikerül, a zárás akkor is érvényes —
+    //    ezért NEM „sikeres" választ adunk, hanem elmondjuk, hol lehet pótolni.
+    //
+    // ⚠️ A KERÜLET KIMARAD (K3 döntés: a kerület fölött NINCS negyedik szint,
+    //    `district_felterjesztes` tábla nem is készül). A kerületnél a
+    //    véglegesítés ZÁR, de nem küld fel sehova — ezért itt nem „elmaradt
+    //    felküldés", hanem nincs is mit felküldeni.
+    if (scope.scope === 'diocese') {
+      const felt = await rogzitDioceseFelterjesztes(supabase, {
+        dioceseId: scope.scopeId,
+        userId: scope.userId,
+        docType: 'megyei_szamadas',
+        year,
+        snapshot: storedSnapshot,
+      })
 
-    revalidatePath('/penzugy')
-    revalidatePath('/dashboard-egyhazmegye')
-    if (felt.error) {
-      return {
-        error:
-          `A(z) ${year}. évi megyei számadás VÉGLEGESÍTVE lett, de a felküldés nem rögzült: ` +
-          felt.error,
+      revalidatePath('/penzugy')
+      revalidatePath('/dashboard-egyhazmegye')
+      if (felt.error) {
+        return {
+          error:
+            `A(z) ${year}. évi megyei számadás VÉGLEGESÍTVE lett, de a felküldés nem rögzült: ` +
+            felt.error,
+        }
       }
+    } else {
+      revalidatePath('/penzugy')
+      revalidatePath('/dashboard-kerulet')
     }
     // Itt is a TÉNYLEGESEN eltárolt objektumot adjuk vissza, hogy a szerződés
     // egységes legyen: „amit ez a függvény visszaad, azt írta ki".
@@ -3834,19 +4083,22 @@ export async function requestAccountingUnlock(year: number, reason?: string | nu
   const writeBlock = financeWriteBlock(scope)
   if (writeBlock) return writeBlock
 
-  if (scope.scope === 'diocese') {
-    // Diocese: diocese_bealitas.szamadas_unlock_requested
+  // Felső szint (megye ÉS kerület): a `*_bealitas.szamadas_unlock_requested`
+  // zászló. A kerületi elbíráló kérdéséhez lásd a `requestBudgetUnlock` azonos
+  // ágán a K3-figyelmeztetést — ugyanaz a nyitott döntés.
+  if (scope.scope !== 'congregation') {
+    const { T } = scope
     const { error } = await scope.supabase
-      .from('diocese_bealitas')
+      .from(T.bealitas)
       .upsert(
         {
-          diocese_id: scope.scopeId,
-          eve: year,
+          [T.scopeCol]: scope.scopeId,
+          [T.yearColBealitas]: yearValueFor(scope.scope, year),
           szamadas_unlock_requested: true,
           szamadas_unlock_request_reason: reason?.trim() || null,
           szamadas_unlock_request_at: new Date().toISOString(),
         },
-        { onConflict: 'diocese_id,eve' },
+        { onConflict: `${T.scopeCol},${T.yearColBealitas}` },
       )
     if (error) return { error: `Hiba: ${error.message}` }
     revalidatePath('/penzugy')
@@ -3872,8 +4124,15 @@ export async function requestAccountingUnlock(year: number, reason?: string | nu
  * „Véglegesített évek" kártyáját táplálja: a véglegesített évek listája a
  * pecsét dátumával és a hivatalos végösszegekkel.
  *
- * FAIL-CLOSED: csak diocese-hatókörben ad adatot; hibánál `{ error }`, soha
+ * FAIL-CLOSED: csak FELSŐ hatókörben ad adatot; hibánál `{ error }`, soha
  * szűretlen lista. A számvevő (readOnly) is olvashatja — ez olvasó action.
+ *
+ * 2026-08-17 (kerületi S5): a kapu `!== 'diocese'`-ről `=== 'congregation'`-re
+ * változott, a tábla pedig a térképből jön. A megyei viselkedés byte-ra azonos;
+ * a kerület mostantól a SAJÁT `district_annual_reports` sorait látja ahelyett,
+ * hogy „csak egyházmegyei hatókörben" hibát kapna a saját véglegesített éveire.
+ * A név `getDioceseFinalizedAccountings` maradt, mert a hívó komponens ezt
+ * importálja — az átnevezés külön, egy lépésben végezhető el.
  */
 export async function getDioceseFinalizedAccountings(): Promise<{
   years?: Array<{
@@ -3886,14 +4145,14 @@ export async function getDioceseFinalizedAccountings(): Promise<{
 }> {
   const scope = await getFinanceScope()
   if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
-  if (scope.scope !== 'diocese') {
-    return { error: 'Ez a nézet csak egyházmegyei hatókörben érhető el.' }
+  if (scope.scope === 'congregation') {
+    return { error: 'Ez a nézet csak egyházmegyei vagy egyházkerületi hatókörben érhető el.' }
   }
 
   const { data, error } = await scope.supabase
-    .from('diocese_annual_reports')
+    .from(scope.T.annualReport)
     .select('year, status, finalized_at, snapshot_data')
-    .eq('diocese_id', scope.scopeId)
+    .eq(scope.T.scopeCol, scope.scopeId)
     .eq('deleted', false)
     .eq('status', 'finalized')
     .order('year', { ascending: false })
@@ -3953,6 +4212,11 @@ export async function felterjesztMegyeiKoltsegvetes(
 ): Promise<{ success?: boolean; error?: string }> {
   const scope = await getFinanceScope()
   if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  // ⚠️ 2026-08-17 (kerületi S5): ez az ág SZÁNDÉKOSAN marad `=== 'diocese'`-hez
+  //    kötve, NEM lesz belőle `!== 'congregation'`. K3 döntés: az egyházkerület
+  //    fölött NINCS negyedik szint, `district_felterjesztes` tábla nem is
+  //    készül — a kerületnek nincs kinek felküldenie. Ha egy későbbi
+  //    „egységesítés" ezt kinyitná, a kerület a saját magának küldene fel.
   if (scope.scope !== 'diocese') {
     return { error: 'A felküldés az egyházkerületnek csak egyházmegyei nézetben értelmezhető.' }
   }
@@ -4038,6 +4302,11 @@ export async function felterjesztMegyeiSzamadas(
 ): Promise<{ success?: boolean; error?: string }> {
   const scope = await getFinanceScope()
   if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  // ⚠️ 2026-08-17 (kerületi S5): ez az ág SZÁNDÉKOSAN marad `=== 'diocese'`-hez
+  //    kötve, NEM lesz belőle `!== 'congregation'`. K3 döntés: az egyházkerület
+  //    fölött NINCS negyedik szint, `district_felterjesztes` tábla nem is
+  //    készül — a kerületnek nincs kinek felküldenie. Ha egy későbbi
+  //    „egységesítés" ezt kinyitná, a kerület a saját magának küldene fel.
   if (scope.scope !== 'diocese') {
     return { error: 'A felküldés az egyházkerületnek csak egyházmegyei nézetben értelmezhető.' }
   }
@@ -4090,6 +4359,11 @@ export async function getDioceseFelterjesztesAllapot(year: number): Promise<{
 }> {
   const scope = await getFinanceScope()
   if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  // ⚠️ 2026-08-17 (kerületi S5): ez az ág SZÁNDÉKOSAN marad `=== 'diocese'`-hez
+  //    kötve, NEM lesz belőle `!== 'congregation'`. K3 döntés: az egyházkerület
+  //    fölött NINCS negyedik szint, `district_felterjesztes` tábla nem is
+  //    készül — a kerületnek nincs kinek felküldenie. Ha egy későbbi
+  //    „egységesítés" ezt kinyitná, a kerület a saját magának küldene fel.
   if (scope.scope !== 'diocese') {
     return { error: 'Ez a nézet csak egyházmegyei hatókörben érhető el.' }
   }
@@ -4109,20 +4383,23 @@ export async function finalizeBudgetModification(year: number, modNumber: 1 | 2 
   const writeBlock = financeWriteBlock(scope)
   if (writeBlock) return writeBlock
 
-  if (scope.scope === 'diocese') {
+  // 2026-08-17 (kerületi S5): felső szintű ág (megye ÉS kerület) — a `mod{N}`
+  // oszlopnevek a két tükör-táblán azonosak, a tábla/scope/év a térképből jön.
+  if (scope.scope !== 'congregation') {
+    const { T } = scope
     const { error } = await scope.supabase
-      .from('diocese_bealitas')
+      .from(T.bealitas)
       .upsert(
         {
-          diocese_id: scope.scopeId,
-          eve: year,
+          [T.scopeCol]: scope.scopeId,
+          [T.yearColBealitas]: yearValueFor(scope.scope, year),
           [`koltsegvetes_mod${modNumber}_veglegesitve`]: true,
           [`koltsegvetes_mod${modNumber}_veglegesites_datuma`]: new Date()
             .toISOString()
             .slice(0, 10),
           [`koltsegvetes_mod${modNumber}_veglegesitette`]: scope.userId,
         },
-        { onConflict: 'diocese_id,eve' },
+        { onConflict: `${T.scopeCol},${T.yearColBealitas}` },
       )
     if (error) {
       // Hiányzó oszlop = a migráció még nem futott le. SZÁNDÉKOSAN nincs
@@ -4130,9 +4407,11 @@ export async function finalizeBudgetModification(year: number, modNumber: 1 | 2 
       // hamis „siker" lenne (a 0-soros UPDATE hibaosztály testvére).
       if (isMissingColumnError(error.message)) {
         return {
-          error:
-            'A költségvetés-módosítás véglegesítéséhez szükséges adatbázis-oszlopok még ' +
-            'hiányoznak — futtasd le a 2026-08-15-egyhazmegyei-uj-tablak.sql fájlt, majd próbáld újra.',
+          error: hianyzoOszlopUzenet(
+            scope.scope,
+            'A költségvetés-módosítás véglegesítéséhez',
+            '2026-08-15-egyhazmegyei-uj-tablak.sql',
+          ),
         }
       }
       return { error: `Hiba: ${error.message}` }
@@ -4210,6 +4489,27 @@ export async function saveBudgetRowsAction(
     }
   }
 
+  // 2026-08-17 (kerületi S5): itt EGY IDEIG egy fail-closed őr állt, amely a
+  // kerületi mentést megtagadta, mert a közös mentő réteg akkor még csak
+  // `'congregation' | 'diocese'` hatókört ismert, és a „minden más" ága a
+  // GYÜLEKEZETI `koltsegvetes` táblára írt volna — a püspökség terve
+  // `congregation_id = <kerület UUID>` sorokként landolt volna, némán.
+  //
+  // 2026-08-19: az őr ELAVULT, ezért ELTÁVOLÍTVA. A `packages/core/src/finance/
+  // budget-compat.ts` megkapta a harmadik ágát (`felsoSzintTerv()` →
+  // `district_koltsegvetes` / `district_id`), és a leképezés EXHAUSTIVE
+  // (`default: const _nemLehet: never`), tehát a rossz táblába írás veszélye nem
+  // „kisebb lett", hanem megszűnt: egy negyedik szint FORDÍTÁSI HIBÁT ad.
+  //
+  // ⚠️ MIÉRT NEM HAGYTUK BENT „biztos, ami biztos" alapon: egy elavult őr nem
+  // ártalmatlan. A `handleFinalizeAndSubmit` ELŐSZÖR ment, és csak sikeres
+  // mentés után véglegesít — az őr tehát nemcsak a mentést, hanem a kerületi
+  // költségvetés VÉGLEGESÍTÉSÉT is megbuktatta volna, miközben a felület
+  // felkínálja a gombot. Egy mindig bukó gomb rosszabb, mint egy hiányzó.
+  //
+  // Ha az S5b SQL még nem futott le élesben, a hiba a helyes rétegből jön (a
+  // PostgREST nem találja a `district_koltsegvetes` táblát), és a lenti catch
+  // ág adja tovább — nem néma siker.
   try {
     await saveBudgetRowsCompat(supabase, year, scope.scopeId, rows, scope.scope)
   } catch (e) {
@@ -4236,15 +4536,16 @@ export async function saveBudgetModificationAction(
   // 2026-08-15 (S6, terv 2.1/2): scope-aware — megyei ágon a diocese_bealitas
   // koltsegvetes_modN_veglegesitve flagje a zár (eddig a diocese-ág „nem
   // támogatott" hibával állt le, a megyei módosítás nem volt menthető).
-  if (scope.scope === 'diocese') {
+  if (scope.scope !== 'congregation') {
+    const { T } = scope
     const dioFlagKey = `koltsegvetes_mod${modNum}_veglegesitve`
     const { data: lockRow, error: lockErr } = await supabase
-      .from('diocese_bealitas')
-      // `select('*')`: a mod-oszlopok csak a 2026-08-15-egyhazmegyei-uj-tablak.sql
-      // után léteznek — explicit oszloplistával a lekérés 42703-mal bukna.
+      .from(T.bealitas)
+      // `select('*')`: a mod-oszlopok csak a szint saját SQL-je után léteznek —
+      // explicit oszloplistával a lekérés 42703-mal bukna.
       .select('*')
-      .eq('diocese_id', scope.scopeId)
-      .eq('eve', year)
+      .eq(T.scopeCol, scope.scopeId)
+      .eq(T.yearColBealitas, yearValueFor(scope.scope, year))
       .maybeSingle()
     // Fail-closed: ha a zár-állapot nem olvasható, NEM mentünk „vakon" — egy
     // már véglegesített kört nem írhatunk felül egy elnyelt hiba miatt.
@@ -4275,6 +4576,10 @@ export async function saveBudgetModificationAction(
     }
   }
 
+  // 2026-08-19: itt is állt egy fail-closed kerületi őr, ugyanazzal az indokkal,
+  // mint a `saveBudgetRowsAction`-ben — és ugyanúgy ELAVULT, ezért eltávolítva.
+  // A `saveBudgetModificationCompat` a `felsoSzintTerv()` exhaustive leképezésén
+  // át már a `district_koltsegvetes`-re ír. A részletes MIÉRT-et lásd ott.
   try {
     await saveBudgetModificationCompat(supabase, year, scope.scopeId, modNum, rows, scope.scope)
   } catch (e) {
@@ -5156,43 +5461,52 @@ export async function getPreviousYearActuals(year: number): Promise<{
     if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
     const prevYear = year - 1
 
-    if (scope.scope === 'diocese') {
-      // A diocese_befizetes/diocese_kiadas kategória-oszlopa (id_szamadasicel)
-      // KÖZVETLENÜL a kód — junction-térkép nem kell.
+    // 2026-08-17 (kerületi S5): felső szintű ág (megye ÉS kerület). A tábla, a
+    // scope-oszlop és a KATEGÓRIA-oszlop is a térképből jön — utóbbi azért
+    // fontos, mert a gyülekezeti táblán `id_befizetescel` (int junction-FK), a
+    // felső szinteken `id_szamadasicel` (kód). Kézi elágazásnál a kerület a
+    // lenti gyülekezeti ágra esett volna, ott a junction-térkép szerint fordítva
+    // — és az „Előző évi tény" oszlop némán ÜRES maradt volna.
+    if (scope.scope !== 'congregation') {
+      const { T } = scope
+      const bevKatOszlop = T.categoryColBefizetes
+      const kiaKatOszlop = T.categoryColKiadas
       const [bevRes, kiaRes] = await Promise.all([
         scope.supabase
-          .from('diocese_befizetes')
-          .select('id_szamadasicel, osszeg, osszeg_ron')
-          .eq('diocese_id', scope.scopeId)
+          .from(T.befizetes)
+          .select(`${bevKatOszlop}, osszeg, osszeg_ron`)
+          .eq(T.scopeCol, scope.scopeId)
           .eq('deleted', false)
           .eq('stornozott', false)
           .gte('datum', `${prevYear}-01-01`)
           .lte('datum', `${prevYear}-12-31`),
         scope.supabase
-          .from('diocese_kiadas')
-          .select('id_szamadasicel, osszeg, osszeg_ron')
-          .eq('diocese_id', scope.scopeId)
+          .from(T.kiadas)
+          .select(`${kiaKatOszlop}, osszeg, osszeg_ron`)
+          .eq(T.scopeCol, scope.scopeId)
           .eq('deleted', false)
           .eq('stornozott', false)
           .gte('datum', `${prevYear}-01-01`)
           .lte('datum', `${prevYear}-12-31`),
       ])
-      const dioError = bevRes.error || kiaRes.error
-      if (dioError) {
-        return { error: `Előző évi tény betöltése sikertelen: ${dioError.message}` }
+      const felsoError = bevRes.error || kiaRes.error
+      if (felsoError) {
+        return { error: `Előző évi tény betöltése sikertelen: ${felsoError.message}` }
       }
       const isInternalCode = (code: string) => /^(100|[34])/.test(code)
+      const osszeg = (r: Record<string, unknown>) =>
+        Number((r.osszeg_ron ?? r.osszeg) as number | string | null) || 0
       const actualIncome: Record<string, number> = {}
-      ;((bevRes.data || []) as Array<{ id_szamadasicel: string | null; osszeg: number; osszeg_ron?: number | null }>).forEach((r) => {
-        const code = r.id_szamadasicel
+      ;((bevRes.data || []) as Array<Record<string, unknown>>).forEach((r) => {
+        const code = (r[bevKatOszlop] as string | null) || ''
         if (!code || isInternalCode(code)) return
-        actualIncome[code] = (actualIncome[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
+        actualIncome[code] = (actualIncome[code] || 0) + osszeg(r)
       })
       const actualExpense: Record<string, number> = {}
-      ;((kiaRes.data || []) as Array<{ id_szamadasicel: string | null; osszeg: number; osszeg_ron?: number | null }>).forEach((r) => {
-        const code = r.id_szamadasicel
+      ;((kiaRes.data || []) as Array<Record<string, unknown>>).forEach((r) => {
+        const code = (r[kiaKatOszlop] as string | null) || ''
         if (!code || isInternalCode(code)) return
-        actualExpense[code] = (actualExpense[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
+        actualExpense[code] = (actualExpense[code] || 0) + osszeg(r)
       })
       return { actualIncome, actualExpense }
     }

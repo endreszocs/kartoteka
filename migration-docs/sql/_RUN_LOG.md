@@ -19,6 +19,82 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
+## 🔴 PENDING – Egyházkerületi S5: könyvelés + leltár + iktatás (2026-08-17)
+
+**⚠️ A SORREND KÖTÖTT: S5a → S5b → S5c.** Az S5c őrszeme ellenőrzi, hogy az S5a
+lefutott (`iktato.district_id` léte); az S5b független, de a felület csak
+mindhárom után lesz teljes. Mindegyik fájl 3 szakaszos: a 0. csak olvas, az 1.
+EGYETLEN tranzakció fail-closed őrszemmel, a 2. ellenőriz.
+
+- [ ] **`2026-08-17-egyhazkeruleti-S5a-scope-oszlopok.sql`** — PENDING
+       Indok: futtatásra vár. A LELTÁR és az IKTATÓ kerületi hatóköre — nem új
+       táblák, hanem a MEGLÉVŐ 6 táblán (`leltar_tetelek`, `iktato`,
+       `iktato_sablonok`, `iktato_yearly_closures`, `iktato_csatolmany`,
+       `iktato_sequence_pointers`) egy `district_id` oszlop.
+       **(1)** A scope-őr CHECK cseréje kétoszloposról háromoszloposra mind a 6
+       táblán — enélkül az ELSŐ kerületi leltári tétel `23514`-gyel elhasalna
+       (`num_nonnulls(...) = 1`, kerületi sornál mindkét régi oszlop NULL).
+       Az idempotencia-őr a DEFINÍCIÓRA néz, nem a névre: a név ugyanaz marad.
+       **(2)** A 4 kerületi RÉSZLEGES EGYEDISÉGI index (leltári szám, iktatószám,
+       évzárás, sorszám-mutató) — enélkül DUPLIKÁLT IKTATÓSZÁM kerülhetne egy
+       hivatalos iratra.
+       **(3)** `iktato_id_district_uk` + a HARMADIK kompozit FK az
+       `iktato_csatolmany`-on: kerületi sornál a két meglévő kompozit FK
+       MATCH SIMPLE mellett vákuumosan teljesülne, tehát a csatolmány BÁRMELYIK,
+       akár idegen iktató-sorra mutathatna.
+       **(4)** `next_iktato_sequence_dis()` + GRANT, az `ON CONFLICT` arbitere a
+       (2)-ben, UGYANEBBEN a tranzakcióban létrejövő részleges index.
+       **(5)** ⛔ `purge_recycle_bin()` **DROP + újralétrehozás** a 2026-08-14-es
+       (élő) törzsből, `congregation_id IS NOT NULL` scope-szűrővel kiegészítve.
+       Ma NINCS szűkítve: a NAPI takarítás (03:15 UTC) FIZIKAILAG törölné a
+       kerületi ÉS a MEGYEI sorokat, pedig azoknak nincs Kuka-útjuk. **Ez a
+       megyei szintet is megvédi — ma azok is törlődnének.**
+       ⚠️ MIÉRT DROP ÉS NEM `CREATE OR REPLACE`: az élő függvénynek HÁROM kimeneti
+       oszlopa van (`tbl, deleted_count, skipped_count`), és a PostgreSQL a
+       visszatérési típus megváltoztatását `CREATE OR REPLACE`-szel nem engedi
+       (42P13). Mivel az 1. szakasz egyetlen tranzakció, ez az EGÉSZ S5a-t
+       visszagörgetné. A DROP elviszi a jogokat, ezért a `GRANT EXECUTE … TO
+       service_role` visszaállítása kötelező — az utó-ellenőrző DO ezt méri is.
+       ⚠️ A `2026-08-14-kuka-deleted-at.sql` is megkapta a scope-szűrőt, mert
+       annak újrafuttatása különben NÉMÁN visszaállítaná a szűretlen törzset.
+       **(6)** 12 új kerületi RLS-policy, a kanonikus szerep-szűrt függvényekkel.
+
+- [ ] **`2026-08-17-egyhazkeruleti-S5b-penzugy-tablak.sql`** — PENDING
+       Indok: futtatásra vár. Az 5 kerületi pénzügyi tábla a `diocese_*` párjaik
+       betűhű tükreként: `district_bealitas`, `district_befizetes`,
+       `district_kiadas`, `district_koltsegvetes`, `district_annual_reports`.
+       A `bealitas` MÁR a 2026-08-15 utáni TELJES alakban készül (9
+       `koltsegvetes_mod*` + 3 `koltsegvetes_unlock_*` + `szamadas_hatarozat_*`),
+       tehát a kerület nem örökli a megyénél utólag pótolt hiányokat.
+       RLS táblánként 2 policy (író + kerületi számvevő olvasó), a GRANT-ok a
+       policy-csere ELŐTT, egy tranzakcióban.
+       **⛔ MENTÉS-BESOROLÁS UGYANEBBEN A TRANZAKCIÓBAN**: mind az 5 tábla bekerül
+       a `backup_table_policy`-ba (`tabla` kulcsoszlop, `hatokor='globalis'`,
+       `reteg=2`) — besorolatlan tábla esetén a NAPI MENTÉS MINDEN gyülekezetnél
+       LEÁLL.
+
+- [ ] **`2026-08-17-egyhazkeruleti-S5c-storage-bank.sql`** — PENDING
+       Indok: futtatásra vár; **az S5a UTÁN** (az őrszeme ellenőrzi).
+       **(A)** 3 storage-policy az `iktato-csatolmanyok` bucket kerületi prefixű
+       útjaihoz (`{district_id}/{iktato_id}/…`), a megyei `_dio_*` betűhű tükre.
+       Enélkül a kerületi irat iktatható, de a MELLÉKLETE 403-mal bukna.
+       **(B)** `bankszamlak` + `chitanta_tombok` kerületi kinyitása: `district_id`
+       oszlop, a `*_scope_check` és `*_scope_fk_check` bővítése, 4 részleges index,
+       8 RLS-láb. ⚠️ **Ez ÉLŐ, gyülekezeti táblákat érint.** A CHECK-cserénél a
+       régi ágakat nem gépeljük újra: a `pg_get_constraintdef()` élő kifejezéséhez
+       OR-olunk egy ágat, tehát a predikátum szigorú felsőhalmaz — ma érvényes sor
+       nem eshet ki. A célzás `conkey` + `conname` szerint (`LIKE` sehol — az
+       egyszer már elsült élesben).
+
+**Utólagos kiegészítés két MÁR LEFUTOTT megyei fájlban** (csak újrafuttatáskor
+számít, a megyei viselkedést nem változtatja): a `2026-08-15-egyhazmegyei-scope-oszlopok.sql`
+és a `2026-08-15-egyhazmegyei-iktato-leltar-s4.sql` policy-burkoló DO-blokkja
+megkapta az `AND p.policyname NOT LIKE '%district%'` sort. Enélkül egy jövőbeli
+újrafuttatás a kerületi policy-kat is beburkolná `congregation_id IS NOT NULL AND (…)`
+alakra, ami kerületi sorra örökre hamis — MINDEN kerületi sor NÉMÁN eltűnne.
+
+---
+
 ## ✅ LEFUTOTT – Egyházkerületi S3: fogadó felület (2026-08-16)
 
 - [x] 2026-08-16 — **`2026-08-16-egyhazkeruleti-S3-fogado.sql`** ✅ LEFUTOTT

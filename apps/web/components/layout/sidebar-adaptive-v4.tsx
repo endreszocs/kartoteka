@@ -745,10 +745,26 @@ function SidebarNav({
   // Archive ikont, összecsukott oldalsávban pedig CSAK az ikon látszik — ott a
   // kettő megkülönböztethetetlen lett volna. A postaláda-ikon egyébként is
   // pontosabb: az a felület egy beérkező sor, nem archívum.
+  //
+  // 2026-08-17 (S5): megérkezett a KERÜLETI KÖNYVELÉS, LELTÁR és IKTATÁS.
+  // A fenti bekezdés ígéretét ez váltja be („Az S5 hozza majd a kerületi
+  // Leltárt/Iktatást"), és a szabály — menüpont CSAK megépült célponthoz —
+  // továbbra is áll: mind a három útvonal ugyanaz a MEGLÉVŐ modul, amely
+  // mostantól kerületi hatókörben is fut (a saját `district_*` tábláival és a
+  // saját `next_iktato_sequence_dis` sorszám-sorával).
+  //
+  // A SORREND SZÁNDÉKOSAN betűre a `dioceseMainItems`-é: irányítópult →
+  // Pénzügy → archívum → összesítő → Leltár → Iktatás. Ugyanaz a személy jár át
+  // a két szint között, és a menü átrendeződése minden szintváltásnál
+  // újratanulást követelne. A „Felterjesztések" marad a lista végén: az a
+  // kerület sajátja, a megyének nincs párja.
   const districtMainItems: MenuItem[] = [
     dynamicDashboardItem,
+    financeMenuItem,
     { label: 'Iratok archívuma', href: '/dashboard-kerulet/iratok', icon: Archive, gradient: 'from-emerald-400 to-teal-500' },
     { label: 'Összesítő', href: '/dashboard-kerulet/osszesito', icon: ClipboardList, gradient: 'from-teal-400 to-cyan-500' },
+    { label: 'Leltár', href: '/leltar', icon: Package, gradient: 'from-orange-400 to-amber-500' },
+    { label: 'Iktatás', href: '/iktato', icon: FileText, gradient: 'from-violet-400 to-purple-500' },
     {
       label: 'Felterjesztések',
       href: '/dashboard-kerulet/felterjesztesek',

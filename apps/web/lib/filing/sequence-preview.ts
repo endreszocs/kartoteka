@@ -1,6 +1,10 @@
 import 'server-only'
 
 import type { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
+// 2026-08-17 (kerületi S5): a scope-oszlop KANONIKUS típusa. Ez a fájl maga is
+// `server-only`, tehát a hatókör-modul közvetlenül importálható — nincs
+// kliens/szerver határ, amit ez megsértene.
+import type { ModuleScopeColumn } from '@/lib/auth/module-scope'
 
 /**
  * Iktató sorszám-számláló olvasása és ELŐNÉZET-számítás (2026-08-10).
@@ -39,9 +43,20 @@ type EffectiveSupabase = Awaited<ReturnType<typeof getEffectiveCongregationConte
  * a megyei iktató (diocese_id) UGYANEZT a logikát futtatja a saját számsorán
  * (a pointer-tábla diocese-sorai + az iktato diocese-sorai). NEM új
  * implementáció: kizárólag a szűrő-oszlop cserélődik.
+ *
+ * 2026-08-17 (kerületi S5): a `col` mező a KANONIKUS `ModuleScopeColumn` lett.
+ *
+ * MIÉRT NEM MARAD KÉZI UNIÓ-MÁSOLAT (`'congregation_id' | 'diocese_id'`):
+ * a hívók (`iktato/actions.ts`, `iktato/template-actions.ts`) a
+ * `ctx.scopeCol`-t adják át, ami a hatókör-modul típusa. Amíg itt kézzel írt,
+ * SZŰKEBB unió állt, a kerületi `'district_id'` egyszerűen nem fért bele —
+ * fordítási hiba lett belőle (ez volt a 2026-08-17-i két tsc-hiba). Ha valaki
+ * a hibát „megoldva" a `col`-t `string`-re tágítja, a csonkulás NÉMA lesz:
+ * a kerületi iktató a gyülekezeti számsor előnézetét mutatná. A kanonikus
+ * típusra hivatkozva a bővülés automatikus, a szűkülés pedig fordítási hiba.
  */
 export interface SequenceScopeKey {
-  col: 'congregation_id' | 'diocese_id'
+  col: ModuleScopeColumn
   id: string
 }
 

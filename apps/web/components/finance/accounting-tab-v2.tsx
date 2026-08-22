@@ -117,11 +117,28 @@ export function AccountingTabV2({ readOnly = false, ...props }: AccountingTabV2P
   // GYÜLEKEZETI `bealitas.szamadas_tartozasok` oszlopba ír, megyei hatókörben
   // tehát némán 0 sort érintene — a lelkész kitöltötte volna, és semmi nem
   // mentődik. Helyette a megyei felküldés-kártya áll ott.
-  const megyei = props.scope === 'diocese'
+  //
+  // ⚠️ 2026-08-17 (kerületi S5) — MIÉRT LETT EBBŐL KÉT ZÁSZLÓ.
+  // Eddig egyetlen `megyei` boolean vezérelte MIND A KETTŐT, ellentétes
+  // irányban (`megyei` → felküldés-kártya, `!megyei` → Tartozások). Egy
+  // kétértékű világban ez működött, három szinttel viszont NÉMÁN elromlik: a
+  // kerület nem `'diocese'`, tehát `megyei === false`, tehát `!megyei === true`
+  // — a kerületi adminisztrátor MEGKAPTA VOLNA a gyülekezeti Tartozások-
+  // rögzítőt, kitöltötte volna a hivatalos Számadás 116–133. sorát, és semmi
+  // nem mentődik (a dialógus `congregation_id`-vel ír). Pontosan az a hiba,
+  // amit a fenti bekezdés a megyénél már megelőzött.
+  //
+  // A két kapunak KÜLÖN kérdése van, ezért külön zászló:
+  //   · a felküldés-kártya arról szól, VAN-E FELETTES SZINT, akinek felküldünk.
+  //     A kerület fölött nincs (Endre K3 döntése) → továbbra is csak a megye.
+  //   · a Tartozások-rögzítő arról szól, GYÜLEKEZETI-E a hatókör. Mindkét felső
+  //     szint kimarad belőle.
+  const felkuldesKartya = props.scope === 'diocese'
+  const gyulekezetiHatokor = (props.scope ?? 'congregation') === 'congregation'
 
   return (
     <>
-      {megyei && (
+      {felkuldesKartya && (
         <DioceseFelkuldesCard
           year={props.currentYear}
           settings={props.settings}
@@ -132,8 +149,8 @@ export function AccountingTabV2({ readOnly = false, ...props }: AccountingTabV2P
       {/* 2026-08-14 (K2): Tartozások/Kintlévőségek (a hivatalos Számadás
           116–133. sora) — év végi rögzítő. Webes wrapper-szint: a desktop
           Könyvelés-nézete read-only pillanatkép, ott nincs értelme.
-          Megyei hatókörben rejtve (lásd fent). */}
-      {!megyei && (
+          Felsőbb szintű (megyei/kerületi) hatókörben rejtve — lásd fent. */}
+      {gyulekezetiHatokor && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-muted/20 px-3 py-2">
           <p className="text-xs leading-relaxed text-muted-foreground">
             <strong className="text-foreground">Év végi tartozások és kintlévőségek</strong> — a
@@ -150,7 +167,7 @@ export function AccountingTabV2({ readOnly = false, ...props }: AccountingTabV2P
         </div>
       )}
 
-      {!megyei && (
+      {gyulekezetiHatokor && (
         <SzamadasTartozasokDialog
           open={tartozasokOpen}
           onOpenChange={setTartozasokOpen}

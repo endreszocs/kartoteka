@@ -29,9 +29,10 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { headers } from 'next/headers'
 
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
-// 2026-08-15 (S4): a pecsét-adat megyei ágához (a QR-munkamenet maga
-// gyülekezeti maradt — a megyei felület a QR-gombot nem is mutatja).
-import { getModuleScopeContext } from '@/lib/auth/module-scope'
+// 2026-08-15 (S4) + 2026-08-17 (kerületi S5): a pecsét-adat FELSŐ SZINTŰ
+// (megyei/kerületi) ágához. A QR-munkamenet maga gyülekezeti maradt — a megyei
+// és a kerületi felület a QR-gombot nem is mutatja.
+import { getModuleScopeContext, type ModuleScope } from '@/lib/auth/module-scope'
 import type { IktatoCsatolmany } from '@/lib/iktato/csomo-types'
 import { listCsatolmanyok } from './csatolmany-actions'
 
@@ -247,22 +248,33 @@ export async function getIktatoPecsetAdat(iktatoId: string): Promise<{
     // ── 2026-08-15 (S4): MEGYEI pecsét-adat ──
     // A digitális iktató-pecsét sávjába a MEGYE hivatalos neve kerül; az
     // iratcsomó gyülekezeti fogalom, megyei módban nincs.
+    //
+    // ── 2026-08-17 (kerületi S5): a KERÜLET ugyanezt az ágat kapja ──
+    // A kapu `!== 'congregation'`, mert amit ez az ág kihagy (iratcsomó), az a
+    // GYÜLEKEZETI szint sajátossága — a kerület szerkezetileg felső szint, mint
+    // a megye. A régi `=== 'diocese'` alakkal a kerületi felhasználó a
+    // „Nincs bejelentkezett felhasználó vagy gyülekezet." hibát kapta volna, és
+    // a pecsét üresen maradt volna egy hivatalos iraton.
+    //
+    // ⚠️ A scope-oszlop a kontextusból jön (`moduleScope.scopeCol`): a korábbi
+    // kézzel írt `'diocese_id'` literál kerületi módban a MÁSIK oszlopra szűrt
+    // volna — 0 sor, „az irat nem található" üzenettel, holott ott van.
     const moduleScope = await getModuleScopeContext()
-    if (!('error' in moduleScope) && moduleScope.scope === 'diocese') {
-      const { data: dioSor, error: dioErr } = await moduleScope.supabase
+    if (!('error' in moduleScope) && moduleScope.scope !== 'congregation') {
+      const { data: felsoSor, error: felsoErr } = await moduleScope.supabase
         .from('iktato')
         .select('year, sequence_number')
         .eq('id', iktatoId)
-        .eq('diocese_id', moduleScope.scopeId)
+        .eq(moduleScope.scopeCol, moduleScope.scopeId)
         .eq('deleted', false)
         .maybeSingle()
-      if (dioErr) return { adat: null, error: `A pecsét-adatok lekérése sikertelen: ${dioErr.message}` }
-      if (!dioSor) return { adat: null, error: 'Az iktatott irat nem található — lehet, hogy időközben törölték.' }
-      const dioRow = dioSor as { year: number; sequence_number: number }
+      if (felsoErr) return { adat: null, error: `A pecsét-adatok lekérése sikertelen: ${felsoErr.message}` }
+      if (!felsoSor) return { adat: null, error: 'Az iktatott irat nem található — lehet, hogy időközben törölték.' }
+      const felsoRow = felsoSor as { year: number; sequence_number: number }
       return {
         adat: {
-          iktatoszam: `${dioRow.year}/${dioRow.sequence_number}`,
-          gyulekezet: moduleScope.scopeName || 'Egyházmegye',
+          iktatoszam: `${felsoRow.year}/${felsoRow.sequence_number}`,
+          gyulekezet: moduleScope.scopeName || felsoSzintFelirat(moduleScope.scope),
           iratcsomo: null,
         },
         error: null,
@@ -337,6 +349,28 @@ export async function getIktatoPecsetAdat(iktatoId: string): Promise<{
 async function getCongCtx() {
   const ctx = await getEffectiveAccessContext()
   return { supabase: ctx.supabase, congregationId: ctx.effectiveCongregationId, userId: ctx.userId }
+}
+
+/**
+ * A pecsét-sáv TARTALÉK felirata, ha a hatókör neve valamiért üres.
+ *
+ * SZÁNDÉKOSAN exhaustive (`default: never`): egy jövőbeli negyedik szint ne
+ * kapja némán az „Egyházmegye" feliratot — az egy HIVATALOS irat pecsétjén
+ * rossz kibocsátót nevezne meg. Fordítási hiba jobb, mint hamis pecsét.
+ */
+function felsoSzintFelirat(scope: ModuleScope): string {
+  switch (scope) {
+    case 'congregation':
+      return 'Gyülekezet'
+    case 'diocese':
+      return 'Egyházmegye'
+    case 'district':
+      return 'Egyházkerület'
+    default: {
+      const _nemKezelt: never = scope
+      throw new Error(`Ismeretlen modul-hatókör: ${String(_nemKezelt)}`)
+    }
+  }
 }
 
 /** Lazán ellenőrzött uuid-alak — a nyilvánvalóan hibás bemenet korai kiszűrése. */

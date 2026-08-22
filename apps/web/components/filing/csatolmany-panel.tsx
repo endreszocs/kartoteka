@@ -104,8 +104,24 @@ export interface CsatolmanyPanelProps {
    * „Fotózás telefonnal (QR)" gomb ilyenkor rejtve — a QR-munkamenet
    * (upload_sessions) gyülekezeti adatlánc, megyei változata későbbi kör.
    * A többi feltöltési út (befotózás, fájl, metaadat) megyei módban is él.
+   *
+   * 2026-08-17 (kerületi S5, K2): 'district' = kerületi iktató — ugyanaz a
+   * rejtés, ugyanaz az ok (a szerver-oldal is így fogalmaz:
+   * `app/(dashboard)/iktato/qr-actions.ts` fejléce — „A QR-munkamenet maga
+   * gyülekezeti maradt — a megyei és a kerületi felület a QR-gombot nem is
+   * mutatja").
+   *
+   * ⚠️ EZ A HÁROM ÉRTÉK KÉZI MÁSOLAT, ÉS EGYEZNIE KELL a kanonikus
+   *    `ModuleScope` típussal (apps/web/lib/auth/module-scope.ts:71).
+   *    MIÉRT NEM IMPORTÁLJUK: ez a fájl `'use client'`, a `module-scope.ts`
+   *    viszont `import 'server-only'`-os modul — kliens-komponens nem nyúlhat
+   *    server-only modulhoz (Next.js 16 doksi:
+   *    01-app/02-guides/data-security.md), és a repóban ma egyetlen
+   *    kliens-komponens sem teszi. A fordítói kapu eggyel feljebb, a
+   *    `filing-main.tsx` `IktatoScope` propján keresztül a szerver-oldali
+   *    `moduleScope.scope`-nál van.
    */
-  scope?: 'congregation' | 'diocese'
+  scope?: 'congregation' | 'diocese' | 'district'
 }
 
 export function CsatolmanyPanel({ iktatoId, iktatoszam, onChanged, scope = 'congregation' }: CsatolmanyPanelProps) {
@@ -592,7 +608,14 @@ export function CsatolmanyPanel({ iktatoId, iktatoszam, onChanged, scope = 'cong
           <FileUp data-icon="inline-start" aria-hidden />
           Fájl feltöltése
         </Button>
-        {scope !== 'diocese' && (
+        {/* 2026-08-17 (kerületi S5): a kapu `=== 'congregation'` lett. Amit
+            elrejt, az GYÜLEKEZETI sajátosság: a QR-munkamenet (upload_sessions
+            + qr_register_upload RPC) a MUNKAMENET-SORBÓL veszi a gyülekezetet,
+            és nincs megyei/kerületi ága. A régi `!== 'diocese'` alakkal a
+            kerületi ügyintéző MEGKAPTA volna a gombot, és a createQrSession
+            nyers hibával — vagy rosszabb: idegen gyülekezetbe fűzött
+            csatolmánnyal — végződött volna. */}
+        {scope === 'congregation' && (
           <Button
             type="button"
             variant="outline"

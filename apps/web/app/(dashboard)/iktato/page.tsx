@@ -5,8 +5,9 @@ import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/act
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 // 2026-08-15 (egyházmegyei szint, S4): diocese-módban a MEGLÉVŐ iktató-felület
-// fut a megye adataival (scope-oszlopos modell) — a CongregationOnlyNotice csak
-// a kerületi/admin profiloknak marad.
+// fut a megye adataival (scope-oszlopos modell).
+// 2026-08-17 (kerületi S5): district-módban UGYANEZ — a CongregationOnlyNotice
+// innentől csak a hatókör NÉLKÜLI admin/master profiloknak marad.
 import { getModuleScopeContext } from '@/lib/auth/module-scope'
 import { FILING_PROFILES } from '@/lib/import/import-profiles'
 
@@ -42,13 +43,20 @@ export default async function IktatoPage() {
     // 2026-08-15 (S4): diocese-scope-ban a module-scope helper oldja fel a
     // megyét — ugyanaz az iktató-felület fut, a megye irataival és saját
     // iktatószám-sorával. A hivatalos név a dioceses.name (duplázás-védetten).
+    //
+    // 2026-08-17 (kerületi S5): a KERÜLET ugyanezt az utat járja (districts.name,
+    // `district_id` scope-oszlop, next_iktato_sequence_dis számsor). A kapu
+    // `!== 'congregation'`, mert amit itt kihagyunk — a gyülekezeti laborimport
+    // és a hivatalos-név-feloldás a congregations tábláról — a gyülekezeti szint
+    // sajátossága. A régi `=== 'diocese'` alakkal a kerületi felhasználó a
+    // „csak gyülekezeteknek" tájékoztatót kapta volna a SAJÁT iktatója helyett.
     const moduleScope = await getModuleScopeContext()
-    if (!('error' in moduleScope) && moduleScope.scope === 'diocese') {
+    if (!('error' in moduleScope) && moduleScope.scope !== 'congregation') {
       return (
         <div className="space-y-4">
           <FilingMain
-            congregationName={moduleScope.scopeName || 'Egyházmegye'}
-            scope="diocese"
+            congregationName={moduleScope.scopeName || (moduleScope.scope === 'district' ? 'Egyházkerület' : 'Egyházmegye')}
+            scope={moduleScope.scope}
             canWrite={moduleScope.canWrite}
             readOnlyReason={moduleScope.readOnlyReason}
           />

@@ -14,6 +14,13 @@
  * működik. A scope-specifikus táblaneveket és oszlopokat a
  * `getFinanceScopeContext` + `tablesFor(scope)` helper adja.
  *
+ * 2026-08-17 (kerületi S5): HARMADIK hatókör — az EGYHÁZKERÜLET (`district`).
+ * A tábla-/oszlopválasztás VÁLTOZATLANUL a `tablesFor(ctx.scope)` térképből jön,
+ * tehát a kerület automatikusan a `district_*` táblákra dolgozik. Amit KÉZZEL
+ * kellett javítani: két `scope === 'diocese' ? … : …` ternárius (a stornó és a
+ * stornó-visszavonás `select`-je), mert azok a kerületet NÉMÁN a GYÜLEKEZETI
+ * ágra ejtették — lásd ott a részletes MIÉRT-et.
+ *
  * FONTOS: a véglegesített (számadás lezárva) évekre vonatkozó tételek
  *         NEM szerkeszthetők — a felhasználó előbb javítási kérelmet ad.
  */
@@ -25,10 +32,51 @@ import {
   tablesFor,
   isYearFinalized,
   yearFinalizedCheckErrorMessage,
+  type FinanceScope,
   type FinanceScopeContext,
 } from '@/lib/auth/finance-scope'
 
 export type TransactionType = 'befizetes' | 'kiadas'
+
+/**
+ * KITŐL kér a felhasználó javítási engedélyt egy már véglegesített évre?
+ *
+ * MIÉRT KELL EZ A HELPER: a modul két zár-üzenete eddig FIX „az egyházmegyétől"
+ * szöveget írt, hatókörtől függetlenül. A kerületi ág megjelenésével ez azt
+ * jelentené, hogy az egyházkerületet a SAJÁT ALÁRENDELT szintjéhez küldjük
+ * engedélyért — értelmetlen utasítás egy hivatalos zárás feloldásához.
+ *
+ * ⚠️ MIÉRT AD A `diocese` ÁG TOVÁBBRA IS „az egyházmegyétől"-t (és miért NEM
+ *    „az egyházkerülettől"-t, ahogy a penzugy/actions.ts `felettesSzintTol`
+ *    helpere): mert ez a szelet KIZÁRÓLAG a kerületi ágat érintheti — a megyei
+ *    viselkedés BYTE-RA változatlan kell maradjon. A két fájl szövege tehát MA
+ *    is széthúz (actions.ts:179 az egyházkerülethez küldi a megyét, ez a fájl
+ *    az egyházmegyéhez); ez ELŐZETESEN IS FENNÁLLÓ eltérés, Endre döntésére vár,
+ *    NEM ebben a szeletben javítjuk csendben.
+ *
+ * ⚠️ A `district` ág `null`-t ad: a rendszerben a kerület FÖLÖTT nincs olyan
+ *    szint, amelyik a feloldást elbírálná (a megyei kérelmet a kerület bírálja
+ *    el — a kerületét senki). Ezért a hívó egy felettest NEM NEVEZŐ, tényszerű
+ *    mondatot ír ki. Ha Endre kijelöl elbírálót (Zsinat / kerületi közgyűlés),
+ *    itt EGY helyen kell átírni.
+ *
+ * EXHAUSTIVE SWITCH: egy negyedik szint FORDÍTÁSI HIBÁT ad, nem néma
+ * „az egyházmegyétől"-t egy olyan szintnek, amelynek köze sincs a megyéhez.
+ */
+function javitasiEngedelyForrasa(scope: FinanceScope): string | null {
+  switch (scope) {
+    case 'congregation':
+      return 'az egyházmegyétől'
+    case 'diocese':
+      return 'az egyházmegyétől'
+    case 'district':
+      return null
+    default: {
+      const _nemKezelt: never = scope
+      throw new Error(`Ismeretlen pénzügyi hatókör: ${String(_nemKezelt)}`)
+    }
+  }
+}
 
 /**
  * Megmondja, hogy egy tétel az ADOTT TÍPUSÚ utolsó-e az éveben + scope-ban.
@@ -217,8 +265,16 @@ export async function updateTransactionBasic(
       return { error: yearFinalizedCheckErrorMessage(err, year) }
     }
     if (finalized) {
+      // A záró mondat HATÓKÖR-FÜGGŐ (lásd `javitasiEngedelyForrasa`): a
+      // gyülekezeti és a megyei szöveg BETŰRE a korábbi, a kerület pedig nem kap
+      // olyan utasítást, hogy a saját alárendelt szintjétől kérjen engedélyt.
+      const forras = javitasiEngedelyForrasa(ctx.scope)
       return {
-        error: `A ${year}. évi számadás már véglegesítve (és beküldve) van, ezért ez a tétel nem módosítható. Kérj feloldást (javítási engedélyt) az egyházmegyétől, és a jóváhagyás után javítsd.`,
+        error:
+          `A ${year}. évi számadás már véglegesítve (és beküldve) van, ezért ez a tétel nem módosítható. ` +
+          (forras
+            ? `Kérj feloldást (javítási engedélyt) ${forras}, és a jóváhagyás után javítsd.`
+            : 'A javításhoz előbb fel kell oldani a lezárt évet.'),
       }
     }
   }
@@ -274,10 +330,16 @@ export async function updateTransactionBasic(
 }
 
 /**
- * Diocese-scope-ban a kategória oszlop `id_szamadasicel` (string kód),
- * congregation-scope-ban `id_befizetescel`/`id_kiadascel` (int). A UI
- * int-et küld — diocese módban ezt kóddá konvertáljuk a szamadasicel.sorszam
- * alapján (ua. mint az insertDioceseIncomeRecord-ban).
+ * A FELSŐ SZINTEKEN (egyházmegye, 2026-08-17 óta egyházkerület is) a kategória
+ * oszlop `id_szamadasicel` (string kód), gyülekezeti hatókörben
+ * `id_befizetescel`/`id_kiadascel` (int). A UI mindkét esetben int-et küld —
+ * felső szinten ezt kóddá konvertáljuk a `szamadasicel.sorszam` alapján
+ * (ua. mint az insertDioceseIncomeRecord-ban).
+ *
+ * ⚠️ A KAPU SZÁNDÉKOSAN a GYÜLEKEZETI sajátosságot nevezi meg
+ * (`=== 'congregation'`), nem az egyik felső szintet: így a kerület a HELYES
+ * (kód-konvertáló) ágra esik. Ha itt `=== 'diocese'` állna, a kerületi jogcím
+ * némán int-ként kerülne a `district_*.id_szamadasicel` szöveges oszlopba.
  */
 async function resolveCategoryValue(
   ctx: FinanceScopeContext,
@@ -286,7 +348,7 @@ async function resolveCategoryValue(
   if (id_cel == null) return null
   if (ctx.scope === 'congregation') return id_cel
 
-  // Diocese: int → kód konverzió
+  // Felső szint (egyházmegye / egyházkerület): int → kód konverzió
   const { data: cells } = await ctx.supabase
     .from('szamadasicel')
     .select('id, sorszam')
@@ -318,10 +380,20 @@ export async function stornoTransaction(args: {
     return { error: 'A stornó indoklás legalább 5 karakter legyen.' }
   }
 
-  // Először lekérdezzük a tétel dátumát a véglegesítés-ellenőrzéshez
-  // Diocese módban nincs belso_mozgas_xkey — a select konditionálisan
+  // Először lekérdezzük a tétel dátumát a véglegesítés-ellenőrzéshez.
+  //
+  // ⛔ 2026-08-17 (kerületi S5) — NÉMA GYÜLEKEZETI VISSZAESÉS JAVÍTÁSA.
+  // Itt eddig `ctx.scope === 'diocese' ? … : …` állt, vagyis a „minden más" ág
+  // a GYÜLEKEZETI oszloplistát adta. A `belso_mozgas_xkey` (belső pénzmozgás
+  // kassza⇄bank) viszont GYÜLEKEZETI SAJÁTOSSÁG: sem a `diocese_*`, sem a
+  // `district_*` táblán nincs ilyen oszlop. A kerületi tétel stornózásakor
+  // tehát a PostgREST a nem létező oszlopra hibázott volna, a `data` null lesz,
+  // és a felhasználó „A tétel nem található." üzenetet kapott volna egy létező,
+  // a képernyőn ott álló tételre — miközben a stornó egyáltalán nem fut le.
+  // Ezért a kapu mostantól a GYÜLEKEZETI sajátosságot nevezi meg. A gyülekezeti
+  // és a megyei oszloplista BETŰRE változatlan.
   const selectCols =
-    ctx.scope === 'diocese' ? 'datum, stornozott' : 'datum, belso_mozgas_xkey, stornozott'
+    ctx.scope === 'congregation' ? 'datum, belso_mozgas_xkey, stornozott' : 'datum, stornozott'
 
   const { data: row } = await ctx.supabase
     .from(table)
@@ -344,8 +416,14 @@ export async function stornoTransaction(args: {
       return { error: yearFinalizedCheckErrorMessage(err, year) }
     }
     if (finalized) {
+      // Hatókör-függő záró mondat — lásd `javitasiEngedelyForrasa`.
+      const forras = javitasiEngedelyForrasa(ctx.scope)
       return {
-        error: `A ${year}. évi számadás már véglegesítve van. Először kérj javítási engedélyt az egyházmegyétől.`,
+        error:
+          `A ${year}. évi számadás már véglegesítve van. ` +
+          (forras
+            ? `Először kérj javítási engedélyt ${forras}.`
+            : 'A stornóhoz előbb fel kell oldani a lezárt évet.'),
       }
     }
   }
@@ -413,8 +491,13 @@ export async function undoStornoTransaction(args: {
   const T = tablesFor(ctx.scope)
   const table = args.type === 'befizetes' ? T.befizetes : T.kiadas
 
+  // ⛔ 2026-08-17 (kerületi S5): ugyanaz a néma visszaesés, mint a
+  // `stornoTransaction`-ben — a `belso_mozgas_xkey` GYÜLEKEZETI oszlop, ezért a
+  // kapu a gyülekezeti sajátosságot nevezi meg, nem az egyik felső szintet.
+  // Enélkül a kerületi stornó visszavonása „A tétel nem található."-val bukott
+  // volna el egy létező tételen.
   const selectCols =
-    ctx.scope === 'diocese' ? 'stornozott_by, datum' : 'stornozott_by, belso_mozgas_xkey, datum'
+    ctx.scope === 'congregation' ? 'stornozott_by, belso_mozgas_xkey, datum' : 'stornozott_by, datum'
 
   const { data: row } = await ctx.supabase
     .from(table)

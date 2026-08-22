@@ -9,6 +9,87 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+/**
+ * A költségvetés-mentés HÁROM hatóköre.
+ *
+ * ⚠️ EZ A TÍPUS A KANONIKUS `FinanceScope` TÜKRE
+ * ──────────────────────────────────────────────
+ * A kanonikus forrás: `apps/web/lib/auth/finance-scope-core.ts` →
+ * `export type FinanceScope = 'congregation' | 'diocese' | 'district'`.
+ * ONNAN NEM IMPORTÁLHATÓ IDE: a `packages/core` a függőségi láncban a
+ * `apps/web` ALATT van (a web importál a magból, sosem fordítva), és a
+ * desktop (`apps/desktop`) is ugyanezt a magot használja — egy web-irányú
+ * import mindkettőt megtörné. Ezért ez a saját unió a kanonikus típus
+ * KÉZI TÜKRE.
+ *
+ * ⇒ HA A KANONIKUS TÍPUS BŐVÜL, EZT IS BŐVÍTSD. A `felsoSzintTerv()`
+ *   exhaustive switch-e miatt a bővítés UTÁN itt FORDÍTÁSI HIBA lesz, amíg
+ *   az új szint tábla-ága be nem kerül — pontosan ezért van az a kapu.
+ */
+export type BudgetCompatScope = 'congregation' | 'diocese' | 'district'
+
+/**
+ * A FELSŐBB SZINTEK (egyházmegye, egyházkerület) költségvetés-táblája.
+ *
+ * A gyülekezeti `koltsegvetes` táblától mindkettő ELTÉR: `eve` (int) év-oszlop,
+ * `tervezett` + `osszeg_mod_1..3` értékoszlopok, kompozit PK
+ * (`<scope>_id, eve, szamadasicelid`). Egymásnak viszont BETŰHŰ TÜKREI
+ * (migration-docs/sql/2026-08-17-egyhazkeruleti-S5b-penzugy-tablak.sql:688),
+ * ezért egy leírás elég: csak a tábla neve és a szűrő-oszlop tér el.
+ */
+interface FelsoSzintTerv {
+  tabla: 'diocese_koltsegvetes' | 'district_koltsegvetes'
+  scopeCol: 'diocese_id' | 'district_id'
+}
+
+/**
+ * Melyik felsőbb szintű táblára megy a művelet? `null` = gyülekezeti ág.
+ *
+ * ⛔ EXHAUSTIVE SWITCH — NE ÍRD VISSZA `if`-RE. A függvény 2026-08-17 előtt így
+ *    nézett ki mindhárom hívóban:
+ *
+ *        if (scope === 'diocese') { …megyei tábla… }
+ *        …gyülekezeti tábla…        // ← a „minden más" ág
+ *
+ *    Ez NÉMA ADATVESZTÉS-CSAPDA: amikor a hatókör-unió harmadik értéket kapott
+ *    (`'district'`), a fordító EGY SZÓT SEM SZÓLT, és az egyházkerület
+ *    költségvetése `congregation_id = <kerület UUID>` sorokként landolt volna a
+ *    GYÜLEKEZETI `koltsegvetes` táblában — hibaüzenet nélkül, aláírt hivatalos
+ *    terv rossz könyvben. (Emiatt volt a kerületi mentés a
+ *    `penzugy/actions.ts`-ben fail-closed letiltva.)
+ *
+ *    Mostantól a `default` ág `never`-értékadása FORDÍTÁSI HIBÁT ad, ha a
+ *    `BudgetCompatScope` negyedik szinttel bővül és ide nem kerül `case`.
+ *    Fordítási hiba > néma adatvesztés. A `default` ág NEM fölösleges kód:
+ *    az a fordítói kapu maga.
+ */
+function felsoSzintTerv(scope: BudgetCompatScope): FelsoSzintTerv | null {
+  switch (scope) {
+    // ── EGYHÁZMEGYE (2026-04-18) ────────────────────────────────────────────
+    // ⚠️ Élesben futó ág — a tábla/oszlop nevek BYTE-RA változatlanok.
+    case 'diocese':
+      return { tabla: 'diocese_koltsegvetes', scopeCol: 'diocese_id' }
+
+    // ── EGYHÁZKERÜLET (2026-08-17, kerületi S5 / K2 döntés) ─────────────────
+    // A kerület ugyanúgy vezet saját könyvet, mint a megye; a
+    // `district_koltsegvetes` a `diocese_koltsegvetes` betűhű tükre
+    // (azonos oszlopnevek, PK: district_id, eve, szamadasicelid).
+    case 'district':
+      return { tabla: 'district_koltsegvetes', scopeCol: 'district_id' }
+
+    // ── GYÜLEKEZET ──────────────────────────────────────────────────────────
+    // NEVESÍTETT ág: korábban ez volt a függvény „minden más" visszatérése,
+    // pontosan ezért nem eshet rá többé véletlenül egy új szint.
+    case 'congregation':
+      return null
+
+    default: {
+      const _nemLehet: never = scope
+      throw new Error(`Ismeretlen költségvetési hatókör: ${String(_nemLehet)}`)
+    }
+  }
+}
+
 export interface BudgetCompatRow {
   szamadasicelid: string
   tervezett: number
@@ -51,15 +132,18 @@ export async function loadBudgetRowsCompat(
   supabase: SupabaseClient,
   year: number,
   scopeId: string,
-  scope: 'congregation' | 'diocese' = 'congregation',
+  scope: BudgetCompatScope = 'congregation',
 ) {
-  // 2026-04-18 SCOPE-AWARE: diocese módban a diocese_koltsegvetes táblára fut
-  if (scope === 'diocese') {
+  // 2026-04-18 SCOPE-AWARE: megyei módban a diocese_koltsegvetes táblára fut.
+  // 2026-08-17 (kerületi S5): ugyanez a kerületi district_koltsegvetes-re — a
+  // két tábla oszlopkészlete azonos, ezért EGY ág szolgálja ki mindkettőt.
+  const felso = felsoSzintTerv(scope)
+  if (felso) {
     const { data, error } = await supabase
-      .from('diocese_koltsegvetes')
+      .from(felso.tabla)
       .select('szamadasicelid, tervezett, osszeg_mod_1, osszeg_mod_2, osszeg_mod_3')
       .eq('eve', year)
-      .eq('diocese_id', scopeId)
+      .eq(felso.scopeCol, scopeId)
     if (error) throw error
     return (data || []).map((r) => ({
       szamadasicelid: r.szamadasicelid as string,
@@ -109,22 +193,24 @@ export async function saveBudgetRowsCompat(
   year: number,
   scopeId: string,
   rows: BudgetCompatRow[],
-  scope: 'congregation' | 'diocese' = 'congregation',
+  scope: BudgetCompatScope = 'congregation',
 ) {
-  // 2026-04-18 SCOPE-AWARE: diocese módban a diocese_koltsegvetes táblára fut
-  if (scope === 'diocese') {
+  // 2026-04-18 SCOPE-AWARE: megyei módban a diocese_koltsegvetes táblára fut.
+  // 2026-08-17 (kerületi S5): + kerületi ág a district_koltsegvetes-re.
+  const felso = felsoSzintTerv(scope)
+  if (felso) {
     const { error: deleteError } = await supabase
-      .from('diocese_koltsegvetes')
+      .from(felso.tabla)
       .delete()
       .eq('eve', year)
-      .eq('diocese_id', scopeId)
+      .eq(felso.scopeCol, scopeId)
     if (deleteError) throw deleteError
 
     const activeRows = rows.filter((row) => row.tervezett > 0 || (row.modositott && row.modositott > 0) || (row.mod2 && row.mod2 > 0) || (row.mod3 && row.mod3 > 0))
     if (activeRows.length === 0) return
 
     const payload = activeRows.map((row) => ({
-      diocese_id: scopeId,
+      [felso.scopeCol]: scopeId,
       eve: year,
       szamadasicelid: row.szamadasicelid,
       tervezett: row.tervezett,
@@ -133,7 +219,7 @@ export async function saveBudgetRowsCompat(
       osszeg_mod_3: row.mod3 ?? 0,
     }))
 
-    const { error } = await supabase.from('diocese_koltsegvetes').insert(payload)
+    const { error } = await supabase.from(felso.tabla).insert(payload)
     if (error) throw error
     return
   }
@@ -183,11 +269,16 @@ export async function saveBudgetRowsCompat(
  * Egy adott módosítási kör értékeinek mentése.
  * Nem törli az egész sort, hanem UPDATE-el a megfelelő oszlopra.
  *
- * 2026-08-15 (S6) SCOPE-AWARE: diocese módban a diocese_koltsegvetes
+ * 2026-08-15 (S6) SCOPE-AWARE: megyei módban a diocese_koltsegvetes
  * osszeg_mod_N oszlopára fut, UPSERT-tel — a tábla PK-ja
  * (diocese_id, eve, szamadasicelid), így az alap-terv nélküli sorra írt
  * módosítás-érték sem veszik el némán (a congregation-ág UPDATE-viselkedése
  * változatlan marad).
+ *
+ * 2026-08-17 (kerületi S5): ugyanez a kerületi ágon, a
+ * `district_koltsegvetes` PK-jával (district_id, eve, szamadasicelid) — az
+ * `onConflict` a scope-oszlopból épül, ezért a megyei kulcs-sztring
+ * (`diocese_id,eve,szamadasicelid`) BETŰRE változatlan marad.
  */
 export async function saveBudgetModification(
   supabase: SupabaseClient,
@@ -195,19 +286,20 @@ export async function saveBudgetModification(
   scopeId: string,
   modNumber: 1 | 2 | 3,
   rows: Array<{ szamadasicelid: string; value: number }>,
-  scope: 'congregation' | 'diocese' = 'congregation',
+  scope: BudgetCompatScope = 'congregation',
 ) {
-  if (scope === 'diocese') {
-    const dioColumn = `osszeg_mod_${modNumber}`
+  const felso = felsoSzintTerv(scope)
+  if (felso) {
+    const modColumn = `osszeg_mod_${modNumber}`
     for (const row of rows) {
-      const { error } = await supabase.from('diocese_koltsegvetes').upsert(
+      const { error } = await supabase.from(felso.tabla).upsert(
         {
-          diocese_id: scopeId,
+          [felso.scopeCol]: scopeId,
           eve: year,
           szamadasicelid: row.szamadasicelid,
-          [dioColumn]: row.value,
+          [modColumn]: row.value,
         },
-        { onConflict: 'diocese_id,eve,szamadasicelid' },
+        { onConflict: `${felso.scopeCol},eve,szamadasicelid` },
       )
       if (error) throw error
     }

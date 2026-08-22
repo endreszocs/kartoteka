@@ -43,6 +43,9 @@ import { selectAllPaged } from '@kartoteka/supabase-client'
 
 import { logAuditEvent } from '@/lib/audit/log'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
+// 2026-08-17 (kerületi S5, elvarratlan szál): a MÁSODIK VÉDVONAL feloldója — a
+// részletes MIÉRT a fájl végén, a `hatokorEltres()` docblockjában él.
+import { getModuleScopeContext, type ModuleScope } from '@/lib/auth/module-scope'
 import { personSearchScore, tokenize } from '@/lib/import/person-search-match'
 import { getCongregationOfficials } from '@/lib/profiles/officials'
 import type {
@@ -72,6 +75,11 @@ export async function searchCongregations(
 ): Promise<{ results: CongregationSearchHit[]; error: string | null }> {
   const { supabase, congId } = await getCongId()
   if (!congId) return { results: [], error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+  // MÁSODIK VÉDVONAL — a két hatókör-rétegnek egyet kell mondania (lásd lent).
+  // Itt a `congId` a SAJÁT gyülekezet kizárására szolgál: széthúzáskor a kereső
+  // felkínálná a saját egyházközséget célpontnak (és elrejtene egy másikat).
+  const eltres = await hatokorEltres(congId, 'cél-gyülekezet keresése')
+  if (eltres) return { results: [], error: eltres }
 
   const trimmed = (query || '').trim()
   if (trimmed.length < 2) return { results: [], error: null }
@@ -181,6 +189,12 @@ export async function registerAtadas(input: RegisterAtadasInput): Promise<Regist
 
   const { supabase, congId, userId } = await getCongId()
   if (!congId) return { success: false, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.', warnings }
+  // ── MÁSODIK VÉDVONAL — a két hatókör-rétegnek egyet kell mondania ──────────
+  // A modul LEGSÚLYOSABB írása: kereszt-gyülekezeti hatású (elkoltozott-sor +
+  // trigger-rel kiváltott átjelentkezési kérelem + a fogadó iktatókönyvébe
+  // kiosztott, VISSZAMENŐLEG JAVÍTHATATLAN iktatószám). A részletes MIÉRT lent.
+  const eltres = await hatokorEltres(congId, 'egyháztag-átadás rögzítése')
+  if (eltres) return { success: false, error: eltres, warnings }
   if (celCongregationId === congId) {
     return { success: false, error: 'A cél-egyházközség nem lehet a saját gyülekezet.', warnings }
   }
@@ -407,6 +421,113 @@ export async function registerAtadas(input: RegisterAtadasInput): Promise<Regist
 async function getCongId() {
   const { supabase, congregationId, userId } = await getEffectiveCongregationContext()
   return { supabase, congId: congregationId, userId }
+}
+
+/**
+ * ── MÁSODIK VÉDVONAL: A KÉT HATÓKÖR-RÉTEGNEK EGYET KELL MONDANIA ──────────
+ * (a `leltar/actions.ts` `finalizeLeltar()` 2026-08-17-es mintája szerint)
+ *
+ * MELYIK KÉT FELOLDÓ HÚZHAT SZÉT. Ez a fájl a `getEffectiveCongregationContext()`-ből
+ * veszi a hatókört (`getCongId()` fent), az Iktató modul TÖBBI akciója viszont a
+ * `getModuleScopeContext()`-ből (`iktato/actions.ts`, `template-actions.ts`,
+ * `csatolmany-actions.ts`, `qr-actions.ts`, `szemely-actions.ts` fejléc-ága).
+ * KÉT FELOLDÓ, KÉT VÁLASZ — miközben az átadási flow MINDKETTŐBŐL merít: az
+ * igazolást a module-scope iktatja, az átadás tényét ez a fájl rögzíti.
+ *
+ * MI LENNE A TÜNET, HA SZÉTHÚZNAK. Ez a modul legsúlyosabb írása, mert
+ * KERESZT-GYÜLEKEZETI hatású, és nagyrészt SECURITY DEFINER triggeren/RPC-n át
+ * megy — vagyis az RLS NEM fogja meg:
+ *   · a `congId` a KÜLDŐ félként kerül az `elkoltozott` sorba és a `szemely`
+ *     státusz-frissítés szűrőjébe → rossz hatókörnél a tulajdonjog-ellenőrzés
+ *     („a tag a saját gyülekezeté") NEM a valódi küldő gyülekezetre néz;
+ *   · a „nem lehet a saját gyülekezet" őr a rossz azonosítót hasonlítaná össze,
+ *     így egy gyülekezet önmagának adhatná át a tagját;
+ *   · a `sajatNev` a fogadó lelkész értesítésébe és a fogadó iktatókönyvébe
+ *     kerül KÜLDŐKÉNT → IDEGEN egyházközség neve alatt indulna átjelentkezés,
+ *     ráadásul a fogadó oldalon KIOSZTOTT, VISSZAMENŐLEG JAVÍTHATATLAN
+ *     iktatószámmal (hivatalos irat).
+ * A tünet ráadásul félig NÉMA: a kérelem és a kereszt-iktatás best-effort ágon
+ * fut, tehát a küldő oldalon minden „sikeresnek" látszana.
+ *
+ * A GYÖKÉROK MA MÁR ZÁRVA: a 2026-08-17-es override-elsőbbségi kapu
+ * (`lib/auth/finance-scope.ts` és `lib/auth/module-scope.ts` 0) blokkja) a
+ * kerületi admin „Belépés a gyülekezetbe" esetét javítja, ezért a két réteg ma
+ * BIZONYÍTOTTAN egyet mond. Ez itt a második védvonal egy JÖVŐBELI
+ * divergenciára — egyik kapu sem ír adatot.
+ *
+ * ⚠️ A GYÜLEKEZETI (ÉS A MEGYEI) ÚT VISELKEDÉSE VÁLTOZATLAN — bizonyítás:
+ *   · ha `congId` (= `effectiveCongregationId`) nem null, a
+ *     `getModuleScopeContext()` 3) gyülekezeti fallbackje UGYANEZT az értéket
+ *     adja, a 0) override-kapu pedig az `override.congregationId`-t, ami az
+ *     `effective-access.ts:404-411` szerint UGYANAZ az érték;
+ *   · a megyei / kerületi profilban álló felhasználónál `effectiveCongregationId`
+ *     null (`effective-access.ts:412-414`), tehát ő a hívó `!congId` ágán kapja
+ *     a MAI, betűre változatlan üzenetet — idáig el sem jut.
+ *   ⇒ mind a három kapu no-op a mai éles adaton; csak széthúzáskor szólal meg.
+ */
+async function hatokorEltres(congId: string, mit: string): Promise<string | null> {
+  const modulCtx = await getModuleScopeContext()
+  if ('error' in modulCtx) {
+    return (
+      'A hatókör (gyülekezet / egyházmegye / egyházkerület) most nem oldható fel, ezért biztonsági ' +
+      `okból megszakítottuk a műveletet (${mit}). Frissítsd az oldalt, és próbáld újra; ha újra ` +
+      'hibázik, jelezd a rendszergazdának.'
+    )
+  }
+  if (modulCtx.scope !== 'congregation') {
+    return felsoSzintNemErtelmezett(modulCtx.scope) ?? ALTALANOS_NEM_ERTELMEZETT
+  }
+  if (modulCtx.scopeId !== congId) {
+    return (
+      'A rendszer két különböző gyülekezetet lát ehhez a művelethez, ezért biztonsági okból ' +
+      `megszakítottuk a műveletet (${mit}) — egyháztagot nem adhatunk át bizonytalan hatókörből ` +
+      '(az átjelentkezési kérelem és a fogadó oldali iktatószám visszamenőleg nem javítható). ' +
+      'Lépj ki a „Belépés a gyülekezetbe" nézetből vagy válts profilt, majd próbáld újra; ha újra ' +
+      'hibázik, jelezd a rendszergazdának.'
+    )
+  }
+  return null
+}
+
+const ALTALANOS_NEM_ERTELMEZETT =
+  'Az egyháztag-átadás két EGYHÁZKÖZSÉG közt zajlik — a jelenlegi hatókörben nincs értelmezve. ' +
+  'Válts gyülekezeti profilra, és onnan add át a tagot.'
+
+/**
+ * A FELSŐ SZINTŰ (megyei / kerületi) hatókör beszédes elutasítása.
+ *
+ * ⚠️ SZÁNDÉKOSAN NEM KITERJESZTÉS: az egyháztag-átadás TISZTÁN GYÜLEKEZETI
+ * fogalom — küldő és fogadó egyaránt egyházközség (`szemely`, `elkoltozott`,
+ * `member_transfer_notifications` mind `congregation_id`-vel él, az
+ * `iktato_atadas_bejegyzes` RPC pedig `p_target_congregation_id`-t vár). Az
+ * egyházmegyének/egyházkerületnek nincsenek egyháztagjai, akiket átadhatna; a
+ * felső szintű változat KÜLÖN döntés lenne, addig a helyes védvonal a
+ * megnevezett szintű elutasítás, nem a néma gyülekezeti visszaesés.
+ *
+ * `null` = ezen a szinten nincs mit tiltani. A `default: never` ág egy jövőbeli
+ * NEGYEDIK szintnél FORDÍTÁSI HIBÁT ad — nem néma átesést.
+ */
+function felsoSzintNemErtelmezett(scope: ModuleScope): string | null {
+  switch (scope) {
+    case 'congregation':
+      return null
+    case 'diocese':
+      return (
+        'Az egyháztag-átadás két EGYHÁZKÖZSÉG közt zajlik — EGYHÁZMEGYEI módban nincs értelmezve ' +
+        '(az egyházmegyének nincsenek egyháztagjai). Válts gyülekezeti profilra — vagy ha „Belépés ' +
+        'a gyülekezetbe" nézetben vagy, lépj ki belőle —, és onnan add át a tagot.'
+      )
+    case 'district':
+      return (
+        'Az egyháztag-átadás két EGYHÁZKÖZSÉG közt zajlik — EGYHÁZKERÜLETI módban nincs értelmezve ' +
+        '(az egyházkerületnek nincsenek egyháztagjai). Válts gyülekezeti profilra — vagy ha „Belépés ' +
+        'a gyülekezetbe" nézetben vagy, lépj ki belőle —, és onnan add át a tagot.'
+      )
+    default: {
+      const _nemKezelt: never = scope
+      throw new Error(`Ismeretlen modul-hatókör: ${String(_nemKezelt)}`)
+    }
+  }
 }
 
 /**

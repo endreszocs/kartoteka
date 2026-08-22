@@ -1557,3 +1557,61 @@ export async function getDistrictVezetoJeloltek(districtId?: string): Promise<Ve
     feloldhato: true,
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// KERÜLETI PÉNZÜGYI BEÁLLÍTÁS-SOR (2026-08-17, S5)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Biztosítja, hogy létezik a `district_bealitas` sor az adott évre.
+ *
+ * A kerületi Pénzügy oldalon első belépéskor hívódik, a megyei
+ * `ensureDioceseBealitasForYear` betűhű tükreként. NINCS user-input: felsőbb
+ * szinten nincs éves egyházfenntartói járulék, csak egy üres zászlókkal
+ * rendelkező sor kell, hogy az `initFinance` ne adjon vissza `settings: null`-t.
+ *
+ * MIÉRT KELL EGYÁLTALÁN: a véglegesítés-zászlók (`szamadas_veglegesitve`,
+ * `koltsegvetes_veglegesitve`) ezen a soron élnek. Ha a sor hiányzik, a
+ * felület nem tudja megkülönböztetni a „még nem véglegesített" és a „nincs is
+ * ilyen év" állapotot — az elsőnél dolgozni kell, a másodiknál nincs mit.
+ *
+ * FAIL-CLOSED: a `requireDistrictAccess` írási kapuján megy át, tehát a
+ * kerületi SZÁMVEVŐ (aki olvas, de nem ír) itt beszédes hibát kap, nem néma
+ * 403-at az RLS-től.
+ */
+export async function ensureDistrictBealitasForYear(
+  districtId: string,
+  year: number,
+): Promise<{ ok?: true; error?: string }> {
+  const ctx = await requireDistrictAccess(districtId)
+  if ('error' in ctx) return { error: ctx.error }
+
+  const { error } = await ctx.supabase
+    .from('district_bealitas')
+    .upsert(
+      {
+        district_id: ctx.districtId,
+        eve: year,
+        koltsegvetes_veglegesitve: false,
+        szamadas_veglegesitve: false,
+      },
+      { onConflict: 'district_id,eve' },
+    )
+
+  // A tábla az S5b SQL-lel jön létre. Amíg Endre nem futtatta le, a PostgREST
+  // 42P01/PGRST205-öt ad — ilyenkor NE néma üres oldalt adjunk, hanem mondjuk
+  // meg, mi hiányzik. (Ugyanaz a hibaosztály, mint a `nev_hu`-é: a migration-
+  // fájl megléte NEM bizonyíték arra, hogy élesben is lefutott.)
+  if (error) {
+    const hianyzoTabla =
+      error.code === '42P01' ||
+      error.code === 'PGRST205' ||
+      /district_bealitas/i.test(error.message)
+    return {
+      error: hianyzoTabla
+        ? 'Az egyházkerületi könyvelés adattáblái még nincsenek felvéve. Futtatandó SQL: 2026-08-17-egyhazkeruleti-S5b-penzugy-tablak.sql'
+        : error.message,
+    }
+  }
+  return { ok: true }
+}

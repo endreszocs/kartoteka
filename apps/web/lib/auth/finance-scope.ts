@@ -7,6 +7,12 @@
  * táblákra, vagy a `diocese_befizetes`/.../`diocese_annual_reports` táblákra
  * írnak.
  *
+ * 2026-08-17 (kerületi S5, Endre K2 döntése): HARMADIK ÁG — az EGYHÁZKERÜLET
+ * ugyanúgy vezet saját könyvet (számadás, költségvetés), ahogy a megye, ezért
+ * a `district_befizetes`/.../`district_annual_reports` táblákat kapja. A
+ * tábla-térkép a magban van (`finance-scope-core.ts`), és ott EXHAUSTIVE
+ * SWITCH — lásd ott a részletes MIÉRT-et (néma adatvesztés-csapda).
+ *
  * Használat (szerver akció):
  *   const ctx = await getFinanceScopeContext()
  *   if ('error' in ctx) return { error: ctx.error }
@@ -24,11 +30,27 @@ import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 // feloldást használt, és ez néma adatvesztéshez vezetett.
 import {
   canWriteDioceseScope,
+  canWriteDistrictScope,
   describeDioceseWriteBlock,
+  describeDistrictWriteBlock,
   resolveDioceseReadScopeIds,
+  resolveDistrictReadScopeIds,
 } from '@/lib/auth/level-scope'
+// 2026-08-17 (kerületi S5): a scope → tábla/év leképezés a MAGBA költözött.
+// MIÉRT: ez a két függvény TISZTA, de ez a fájl `server-only` láncot húz be,
+// ezért önállóan nem volt tesztelhető — a `finance-scope-core.ts` import-mentes,
+// és a `scripts/selftest-finance-scope.mjs` azt fordítja/futtatja.
+import {
+  tablesFor,
+  yearValueFor,
+  type FinanceScope,
+} from '@/lib/auth/finance-scope-core'
 
-export type FinanceScope = 'congregation' | 'diocese'
+// A HÍVÓK IMPORTJA VÁLTOZATLAN: a ~40 meglévő hívó továbbra is
+// `from '@/lib/auth/finance-scope'`-ból veszi mindkét függvényt és mindkét
+// típust. Ez a re-export a mag kiemelésének ára — ne töröld.
+export { tablesFor, yearValueFor }
+export type { FinanceScope, FinanceScopeTableMap } from '@/lib/auth/finance-scope-core'
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
 
@@ -36,12 +58,12 @@ export interface FinanceScopeContext {
   supabase: SupabaseServerClient
   userId: string
   scope: FinanceScope
-  /** congregation_id vagy diocese_id (UUID) */
+  /** congregation_id, diocese_id vagy district_id (UUID) */
   scopeId: string
-  /** gyülekezet vagy egyházmegye neve — UI-ra és logra */
+  /** gyülekezet, egyházmegye vagy egyházkerület neve — UI-ra és logra */
   scopeName: string | null
   /** A szamadasicel.szint értéke, ami scope-ban releváns */
-  szamadasicelSzint: 'gyulekezet' | 'egyhazmegye'
+  szamadasicelSzint: 'gyulekezet' | 'egyhazmegye' | 'kerulet'
   /**
    * 2026-08-11 (számvevő-kör): CSAK OLVASHATÓ-e ez a pénzügyi kontextus?
    *
@@ -51,6 +73,10 @@ export interface FinanceScopeContext {
    * lásd migration-docs/sql/2026-08-11-szamvevo-megyei-hozzaferes.sql 1/C) —
    * ez a mező azért van, hogy a FELÜLET ELŐRE letilthassa a mentő gombokat,
    * és ne egy néma, 0 sort érintő mentés után derüljön ki a dolog.
+   *
+   * 2026-08-17 (kerületi S5): UGYANEZ a KERÜLETI SZÁMVEVŐRE is. Ő a kerület
+   * könyveit megnézheti és kinyomtathatja, de nem rögzít és nem véglegesít —
+   * az ellenőrzés és a rögzítés szándékosan két külön kézben van.
    */
   readOnly: boolean
   /**
@@ -60,83 +86,21 @@ export interface FinanceScopeContext {
   readOnlyReason: string | null
 }
 
-export interface FinanceScopeTableMap {
-  /** Fő bevételi tábla */
-  befizetes: 'befizetes' | 'diocese_befizetes'
-  /** Fő kiadási tábla */
-  kiadas: 'kiadas' | 'diocese_kiadas'
-  /** Éves konfig (számadás/költségvetés véglegesítési flag) */
-  bealitas: 'bealitas' | 'diocese_bealitas'
-  /** Költségvetési tervezés */
-  koltsegvetes: 'koltsegvetes' | 'diocese_koltsegvetes'
-  /** Éves jelentés snapshot */
-  annualReport: 'annual_reports' | 'diocese_annual_reports'
-  /** Scope szerinti oszlop: congregation_id vagy diocese_id */
-  scopeCol: 'congregation_id' | 'diocese_id'
-  /** bealitas PK: 'id' (string év) vs 'eve' (int) — eltér! */
-  yearColBealitas: 'id' | 'eve'
-  /** koltsegvetes PK: 'bealitasid' (string) vs 'eve' (int) — eltér! */
-  yearColKtvs: 'bealitasid' | 'eve'
-  /** Számadás véglegesítés flag */
-  finalizedCol: 'accounting_finalized' | 'szamadas_veglegesitve'
-  /** Költségvetés véglegesítés flag */
-  budgetFinalizedCol: 'budget_finalized' | 'koltsegvetes_veglegesitve'
-  /** A tranzakciós tábla kategória-oszlopa — int ref vs string kód */
-  categoryColBefizetes: 'id_befizetescel' | 'id_szamadasicel'
-  categoryColKiadas: 'id_kiadascel' | 'id_szamadasicel'
-}
-
 /**
- * Visszaadja a scope alapú tábla-nevek és oszlop-nevek hash-ét.
- * Pure függvény, side-effect nélkül.
+ * ⚠️ A `FinanceScopeTableMap`, a `tablesFor` és a `yearValueFor` 2026-08-17 óta
+ *    a `finance-scope-core.ts`-ben él (import-mentes mag, önteszttel) — feljebb
+ *    re-exportáljuk őket, tehát a hívók importja VÁLTOZATLAN. A MIÉRT ott van
+ *    leírva: `if/else`-ből EXHAUSTIVE SWITCH lett, mert egy új scope különben
+ *    NÉMÁN a gyülekezeti táblákba könyvelt volna. Ne másold vissza ide.
  */
-export function tablesFor(scope: FinanceScope): FinanceScopeTableMap {
-  if (scope === 'diocese') {
-    return {
-      befizetes: 'diocese_befizetes',
-      kiadas: 'diocese_kiadas',
-      bealitas: 'diocese_bealitas',
-      koltsegvetes: 'diocese_koltsegvetes',
-      annualReport: 'diocese_annual_reports',
-      scopeCol: 'diocese_id',
-      yearColBealitas: 'eve',
-      yearColKtvs: 'eve',
-      finalizedCol: 'szamadas_veglegesitve',
-      budgetFinalizedCol: 'koltsegvetes_veglegesitve',
-      categoryColBefizetes: 'id_szamadasicel',
-      categoryColKiadas: 'id_szamadasicel',
-    }
-  }
-  return {
-    befizetes: 'befizetes',
-    kiadas: 'kiadas',
-    bealitas: 'bealitas',
-    koltsegvetes: 'koltsegvetes',
-    annualReport: 'annual_reports',
-    scopeCol: 'congregation_id',
-    yearColBealitas: 'id',
-    yearColKtvs: 'bealitasid',
-    finalizedCol: 'accounting_finalized',
-    budgetFinalizedCol: 'budget_finalized',
-    categoryColBefizetes: 'id_befizetescel',
-    categoryColKiadas: 'id_kiadascel',
-  }
-}
-
-/**
- * Az év érték scope-helyes reprezentációja:
- *   - congregation: string (pl. "2026")
- *   - diocese: number (2026)
- */
-export function yearValueFor(scope: FinanceScope, year: number): string | number {
-  return scope === 'diocese' ? year : String(year)
-}
 
 /**
  * A scope-aware kontextus lekérdezése. A hívó oldalon az `activeProfileRole`
  * szerint választ:
  *   - ha `activeProfileRole.scope === 'diocese'` + scopeId + jogosultság
  *     → diocese-kontextus a scope_id-val
+ *   - ha `activeProfileRole.scope === 'district'` + scopeId + jogosultság
+ *     → district-kontextus a scope_id-val (2026-08-17, kerületi S5 / K2)
  *   - különben a meglévő `effectiveCongregationId` fallback
  *
  * @returns FinanceScopeContext vagy `{ error }` objektum
@@ -146,6 +110,86 @@ export async function getFinanceScopeContext(): Promise<
 > {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
+
+  // ── 0) ADMIN-OVERRIDE ELSŐBBSÉGI KAPU („Belépés a gyülekezetbe") ──────────
+  //
+  // ⚠️ EZ A KAPU A KERÜLETI S5 SZELET ÖNVÉDELME. A lenti 2) district-ág
+  // 2026-08-17-ig NEM LÉTEZETT (origin/main), és a beszúrása PONTOSAN EGY
+  // szerepnél ütközik az aktív admin-override-dal: az `egyhazkeruleti_admin`-nál.
+  //
+  // AZ ÜTKÖZÉS KÉNYSZERŰ, NEM SZÉLSŐSÉGES ESET — a három sor, ami előírja:
+  //   · effective-access.ts:381-382 —
+  //       overrideAllowed = !missingPrimaryRole && (master ? godModeActive : admin || egyhazkeruletiAdmin)
+  //     tehát a „Belépés a gyülekezetbe" gombot a KERÜLETI ADMIN is használhatja;
+  //   · level-scope.ts:433 — DISTRICT_READ_ROLES = ['egyhazkeruleti_admin',
+  //     'egyhazkeruleti_szamvevo'], vagyis UGYANEZ a szerep a lenti kerületi ág
+  //     diszkriminátorába is beleesik;
+  //   · az override NEM VÁLTJA A PROFILT: az `enterCongregation` csak egy
+  //     `admin_access_requests` sort ír, az ACTIVE_PROFILE_ROLE_COOKIE-hoz senki
+  //     nem nyúl → az `activeProfileRole.scope` MARAD `'district'`.
+  //   · sőt: az `admin-scope.ts:151-155` `assertCongregationInScope`-ja ÜRES
+  //     districtIds-nél DOB, tehát aki egyáltalán be tud lépni egy gyülekezetbe
+  //     kerületi adminként, annak SZÜKSÉGSZERŰEN nem-üres a kerületi hatóköre.
+  //
+  // A TÜNET A KAPU NÉLKÜL: a belépett kerületi admin a lenti 2) ágra fut, és a
+  // Pénzügy (valamint a testvér module-scope.ts-en a Leltár és az Iktató) a
+  // KERÜLET könyveit adja — miközben a fejlécben és a hero-címben a GYÜLEKEZET
+  // neve áll, mert a `page.tsx` az `effectiveCongregationId`-t látja, ami az
+  // override miatt a gyülekezeté. Ez a KÉT RÉTEG NÉMA SZÉTHÚZÁSA: idegen könyv
+  // (idegen iktatószám-előnézet, idegen leltár) a gyülekezet neve alatt.
+  //
+  // A SZABÁLYT NEM MI TALÁLJUK KI: az `effective-access.ts:404-411` MÁR kimondja,
+  // hogy „az AKTÍV admin-override MINDEN más szabályt megelőz", és ott az
+  // `effectiveCongregationId` már az override gyülekezetéé. Ez a kapu ugyanazt a
+  // szabályt hozza be a hatókör-feloldóba, hogy a KÉT RÉTEG UGYANAZT MONDJA.
+  //
+  // MIÉRT NEM VÁLTOZIK A MEGYEI ÉS A GYÜLEKEZETI VISELKEDÉS — BIZONYÍTÁS, NEM ÍGÉRET:
+  //   `override.active` csak `overrideAllowed === true` mellett lehet igaz, ahhoz
+  //   pedig a SKALÁR `profiles.role` kell: `'admin'` (isAdminRole) vagy
+  //   `'egyhazkeruleti_admin'` (isEgyhazkeruletiAdminRole) — vagy master + AKTÍV
+  //   god mode. A `lelkesz`, `konyvelo`, `esperes`, `egyhazmegyei_admin`,
+  //   `egyhazmegyei_szamvevo` és `egyhazkeruleti_szamvevo` szerepnél
+  //   `overrideAllowed === false`, tehát a kapu SOHA nem fut le rajtuk → a
+  //   gyülekezeti és a MEGYEI ág byte-ra változatlan.
+  //   A rendszergazdánál (`'admin'`) a kapu EREDMÉNYE azonos a korábbival: ő sem
+  //   a DIOCESE_READ_ROLES-ban, sem a DISTRICT_READ_ROLES-ban nincs benne, tehát
+  //   eddig is a 3) gyülekezeti fallbackre esett — most csak hamarabb, ugyanazzal
+  //   a hatókörrel.
+  //   ⇒ VISELKEDÉST KIZÁRÓLAG az `egyhazkeruleti_admin` (és a god mode-os master)
+  //     esetén változtat: pontosan ott, ahol a hiba van.
+  //
+  // A HATÓKÖRT ITT NEM ELLENŐRIZZÜK ÚJRA: a `getActiveOverride` a sor
+  // FELHASZNÁLÁSAKOR végigfuttatja az `assertCongregationInScope`-ot és hibánál
+  // `{ active: false }`-t ad (fail-closed) — `override.active === true` tehát már
+  // bizonyítottan hatókörön belüli gyülekezetet jelent.
+  //
+  // ⚠️ MIÉRT EGYETLEN KONSTRUKTOR (`gyulekezetiKontextus`) ÉS NEM KÉT KÉZZEL
+  //    ÍRT `return`: a kapu és a lenti 3) fallback UGYANAZT a gyülekezeti
+  //    kontextust adja. Két külön objektum-literál a projekt visszatérő „két,
+  //    széthúzó implementáció" hibaosztálya: aki egyszer új mezőt vesz fel a
+  //    `FinanceScopeContext`-be, a másik ágat elfelejtené — és az override-os
+  //    úton más kontextus születne, mint a rendes gyülekezetin.
+  //    (A testvér-modul `module-scope.ts` 0) kapuja betűre így áll.)
+  const felhasznaloId = access.user.id
+  const gyulekezetiKontextus = (scopeId: string): FinanceScopeContext => ({
+    supabase: access.supabase,
+    userId: felhasznaloId,
+    scope: 'congregation',
+    scopeId,
+    scopeName: access.congregationName,
+    szamadasicelSzint: 'gyulekezet',
+    // A gyülekezeti szint írás/olvasás-korlátait a meglévő szerepkör-rétegek
+    // (konyvelo m2m, profile_congregations jóváhagyás) kezelik — ez a mező
+    // KIZÁRÓLAG a megyei / kerületi ellenőri esetről szól.
+    readOnly: false,
+    readOnlyReason: null,
+  })
+
+  const override = access.override
+  if (override.active && override.congregationId) {
+    // A belépett admin a GYÜLEKEZET ügyintézőjeként jár el, nem ellenőrként.
+    return gyulekezetiKontextus(override.congregationId)
+  }
 
   // ── 1) Diocese scope ellenőrzés ──
   //
@@ -244,21 +288,82 @@ export async function getFinanceScopeContext(): Promise<
     }
   }
 
-  // ── 2) Congregation fallback ──
-  if (access.effectiveCongregationId) {
+  // ── 2) District (egyházkerületi) scope ellenőrzés ──
+  //
+  // 2026-08-17 (kerületi S5, K2 döntés): a kerület SAJÁT könyvet vezet, ezért
+  // ugyanaz a Pénzügy felület a `district_*` táblákra ír. Ez a blokk a fenti
+  // megyei ág BETŰHŰ tükörképe — szándékosan, mert a projekt visszatérő
+  // hibaosztálya éppen az, hogy „a második felület a régi implementációt őrzi":
+  // ha a kerületi ág önálló, kicsit másképp működő diszkriminátort kapna, a két
+  // szint idővel némán széthúzna.
+  //
+  // ⚠️ MIÉRT NEM SZÁMÍT A KÉT ÁG SORRENDJE (és miért NEM regresszió ez a
+  //    beszúrás a megyei/gyülekezeti viselkedésre):
+  //      · ha VAN aktív profil-szerep, a `scope` mezője EGYETLEN érték, tehát a
+  //        `dioceseId` és a `districtId` közül legfeljebb az egyik lehet nem-null;
+  //      · ha NINCS `profile_roles` sor („örökölt" felhasználó), a döntés a
+  //        szerep-szűrt skalár tartalékra fut, a két szerep-lista pedig
+  //        DISZJUNKT (esperes / megyei admin / megyei számvevő ⇄ kerületi admin /
+  //        kerületi számvevő), tehát a `profiles.role` legfeljebb az egyikbe fér bele.
+  //    ⇒ Aki eddig a megyei vagy a gyülekezeti ágra futott, ezután is pontosan
+  //      oda fut. Új hatókört KIZÁRÓLAG az kap, aki eddig NÉMÁN a gyülekezeti
+  //      ágra esett, pedig kerületi hatókörben járt el.
+  const districtReadIds = resolveDistrictReadScopeIds(access)
+  const districtId: string | null = active
+    ? active.scope === 'district' && active.scopeId && districtReadIds.includes(active.scopeId)
+      ? active.scopeId
+      : null
+    : (districtReadIds[0] ?? null)
+
+  if (districtId) {
+    // Öv-és-nadrágtartó (a megyei ág mintája): a fenti diszkriminátor
+    // konstrukció szerint már csak szerep-szűrt kerületet ad — de ha valaki
+    // egyszer átírja, itt fail-closed megállunk. (Az admin/master ág
+    // SZÁNDÉKOSAN nincs itt: ők a saját kerületi szerepükön keresztül jönnek,
+    // különben egy rendszergazda egy tetszőleges kerület könyveibe könyvelne.)
+    if (!districtReadIds.includes(districtId)) {
+      return { error: 'Nincs jogosultság az egyházkerületi pénzügyhez.' }
+    }
+
+    // Név lekérdezés — KIZÁRÓLAG felirat (log + UI), jogosultságról vagy
+    // zárásról soha nem dönt, ezért az elnyelt hiba itt biztonságos: a
+    // jogosultsági ág fentebb (`districtReadIds`) már fail-closed lezárult.
+    let scopeName: string | null = null
+    try {
+      const { data } = await access.supabase
+        .from('districts')
+        .select('name')
+        .eq('id', districtId)
+        .maybeSingle()
+      scopeName = (data as { name?: string } | null)?.name ?? null
+    } catch {
+      scopeName = null
+    }
+
+    // A KERÜLETI SZÁMVEVŐ ellenőri szerep — a kerület könyveit OLVASHATJA, de
+    // nem írhatja (a megyei számvevő párja). A `districtId` átadása azért
+    // fontos, mert aki EGYSZERRE kerületi adminisztrátor az egyikben és
+    // számvevő a másikban, az CSAK az elsőben írhat.
+    const canWrite = canWriteDistrictScope(access, districtId)
+
     return {
       supabase: access.supabase,
       userId: access.user.id,
-      scope: 'congregation',
-      scopeId: access.effectiveCongregationId,
-      scopeName: access.congregationName,
-      szamadasicelSzint: 'gyulekezet',
-      // A gyülekezeti szint írás/olvasás-korlátait a meglévő szerepkör-rétegek
-      // (konyvelo m2m, profile_congregations jóváhagyás) kezelik — ez a mező
-      // KIZÁRÓLAG a megyei ellenőri esetről szól.
-      readOnly: false,
-      readOnlyReason: null,
+      scope: 'district',
+      scopeId: districtId,
+      scopeName,
+      szamadasicelSzint: 'kerulet',
+      readOnly: !canWrite,
+      readOnlyReason: canWrite ? null : describeDistrictWriteBlock(access, districtId),
     }
+  }
+
+  // ── 3) Congregation fallback ──
+  // A visszaadott kontextus BYTE-RA ugyanaz, mint korábban — csak a fenti
+  // `gyulekezetiKontextus` konstruktoron át, hogy a 0) override-kapuval
+  // egyetlen forrásból éljen (lásd ott a MIÉRT-et).
+  if (access.effectiveCongregationId) {
+    return gyulekezetiKontextus(access.effectiveCongregationId)
   }
 
   return { error: 'Nincs aktív gyülekezet vagy egyházmegye a profilban.' }
@@ -289,12 +394,37 @@ export function financeWriteBlock(
   ctx: FinanceScopeContext,
 ): { error: string } | null {
   if (!ctx.readOnly) return null
-  return {
-    error:
-      ctx.readOnlyReason ??
-      'Ellenőri (számvevői) nézetben vagy: az egyházmegye pénzügyi adatait ' +
-        'megtekintheted, de nem módosíthatod. A rögzítés és a véglegesítés az ' +
-        'esperes vagy az egyházmegyei adminisztrátor feladata.',
+  if (ctx.readOnlyReason) return { error: ctx.readOnlyReason }
+  // 2026-08-17 (kerületi S5): a tartalék-szöveg SCOPE-HELYES legyen. A
+  // `readOnlyReason` a gyakorlatban mindig ki van töltve (a describe*WriteBlock
+  // nem-null, ha nem írhat), ezért ez az ág elvi tartalék — de ha egyszer
+  // mégis ide fut egy kerületi számvevő, ne az egyházmegyéről olvasson.
+  //
+  // ⚠️ MIÉRT SWITCH ÉS NEM `if (district) … else …`: a testvér-modul
+  // `altalanosOlvasoiUzenet`-e (module-scope.ts) már így áll, és jó okkal. Egy
+  // `if/else` alatt minden JÖVŐBELI szint némán az egyházmegyei mondatot kapná
+  // — vagyis rossz ügyintézőhöz küldenénk a felhasználót egy olyan üzenetben,
+  // ami magabiztosan hangzik. A `never`-kapu ehelyett FORDÍTÁSI HIBÁT ad.
+  switch (ctx.scope) {
+    case 'district':
+      return {
+        error:
+          'Ellenőri (számvevői) nézetben vagy: az egyházkerület pénzügyi adatait ' +
+          'megtekintheted, de nem módosíthatod. A rögzítés és a véglegesítés az ' +
+          'egyházkerületi adminisztrátor feladata.',
+      }
+    case 'congregation':
+    case 'diocese':
+      return {
+        error:
+          'Ellenőri (számvevői) nézetben vagy: az egyházmegye pénzügyi adatait ' +
+          'megtekintheted, de nem módosíthatod. A rögzítés és a véglegesítés az ' +
+          'esperes vagy az egyházmegyei adminisztrátor feladata.',
+      }
+    default: {
+      const _nemLehet: never = ctx.scope
+      throw new Error(`Ismeretlen pénzügyi hatókör: ${String(_nemLehet)}`)
+    }
   }
 }
 
