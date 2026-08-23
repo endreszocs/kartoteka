@@ -523,7 +523,17 @@ const REGI_FORRASOK = {
 const REGI_AI_VILAG = gitVilag(JAVITAS_ELOTTI_COMMIT, `a ${JAVITAS_ELOTTI_COMMIT.slice(0, 8)} commit`)
 
 if (REGI_FORRASOK.header === null && REGI_AI_VILAG === null) {
-  console.log(`   ! a ${JAVITAS_ELOTTI_COMMIT.slice(0, 8)} commit nem olvasható — ez a részmérce kimarad`)
+  // ⚠️ 2026-08-24 — EZ A KIMARADÁS VÁRHATÓ, NEM HIBA, és nem is teszi vakká az őrt.
+  // Két oka lehet: (1) a CI sekély klónt használ (fetch-depth 1), ott egyetlen
+  // régi commit sem elérhető; (2) a 699188c8 SQUASH-merge-dzsel került a main-be,
+  // tehát a commit-objektum a főágon amúgy sem létezik.
+  // A tényleges fedezetet a LENTI szintetikus világok adják — azok git nélkül,
+  // determinisztikusan játsszák újra ugyanezeket a hibákat. Ez a blokk csak
+  // ráadás: valódi történelemmel is igazolja a mércét, ha a történelem elérhető.
+  console.log(
+    `   ! a ${JAVITAS_ELOTTI_COMMIT.slice(0, 8)} commit nem olvasható (sekély klón vagy squash-merge) — ` +
+      'ez a RÁADÁS-részmérce kimarad; a fedezetet a szintetikus világok adják',
+  )
 } else {
   const r = ellenoriz(REGI_FORRASOK, 'A JAVÍTÁS ELŐTTI VALÓDI ÁLLAPOT', {
     szintaxis: false,

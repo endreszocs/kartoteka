@@ -78,9 +78,9 @@
  *                         forrásfájljainak pedig tényleg nem szabad ott lenniük.
  *  M5  HELYŐRZŐ-FEGYELEM — kitalált cégadat (e-mail, adószám) nem kerülhet a
  *                         SZÖVEGTÖRZSBE; ami hiányzik, azt a konfig jelöli.
- *  M6  NEGATÍV ASSZERT  — a mércék a RÉGI (HEAD-en lévő) szövegre és tíz
- *                         mutánsra ténylegesen elbuknak. Őr negatív asszert
- *                         nélkül vak.
+ *  M6  NEGATÍV ASSZERT  — a mércék az ÖSSZETETT „régi világra" (a mai szövegből
+ *                         előállítva, git nélkül) és tíz mutánsra ténylegesen
+ *                         elbuknak. Őr negatív asszert nélkül vak.
  *  M7  KÖZPONTI KONFIG  — a kitöltendő értékek EGY objektumból jönnek; a
  *                         szövegtörzsben nincs szétszórt „kitöltendő" felirat,
  *                         és minden `mezo="…"` létező konfig-kulcsra mutat.
@@ -100,7 +100,9 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { execFileSync } from 'node:child_process'
+// 2026-08-24: a HEAD-alapú visszajátszás megszűnt (lásd az M6 blokk indoklását),
+// ezért ennek az őrszemnek nincs többé szüksége git-hívásra — és így sekély
+// CI-klónban is teljes értékű marad.
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 
@@ -1011,21 +1013,72 @@ console.log('\n── M6: negatív asszert (a régi szöveg és a mutánsok BUKJ
 
 const negativHibak = []
 
-// (a) A VALÓDI régi változat a HEAD-ről.
-let regi = ''
-try {
-  regi = execFileSync('git', ['show', `HEAD:${REL}`], { cwd: ROOT, encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 })
-} catch (e) {
-  console.log(`   ! a HEAD-változat nem olvasható (${e.message.split('\n')[0]}) — ez a mérce kimarad`)
+// (a) AZ ÖSSZETETT „RÉGI VILÁG" — a javítás előtti állapot HÁROM hibája EGYSZERRE.
+//
+// ⚠️ 2026-08-24 — MIÉRT NEM `git show HEAD:…` EZ A MÉRCE (élesben elsült):
+// korábban a valódi régi szöveget a HEAD-ről olvastuk vissza. Ez CSAK addig
+// működött, amíg a javítás commitolatlan volt: abban a pillanatban, hogy a kör
+// commitra került, a HEAD MAGA LETT a javított fájl — az őr tehát azt találta,
+// hogy „a régi változat nem bukik el", és SAJÁT MAGÁRA írt hibát. A CI-n pontosan
+// így vált pirosra (32667348906), miközben lokálisan, commit előtt még zöld volt.
+//
+// A javítás nem az, hogy rögzített commitra hivatkozunk: a CI sekély klónt (fetch
+// -depth 1) használ, ott EGYETLEN régi commit sem elérhető, tehát a mérce némán
+// kimaradna — ami ugyanolyan vakság, csak csendesebb.
+//
+// Ezért a „régi világot" ITT ÁLLÍTJUK ELŐ, a MAI szövegből, a három egykori hiba
+// visszajátszásával. Git-független, determinisztikus, és commit után is fog.
+// A három átalakítás SZÓ SZERINT ugyanaz, mint a lenti egyedi mutánsoké — az
+// összetett minta azt bizonyítja, hogy a mércék EGYÜTT is megszólalnak.
+const REGI_VILAG_ATALAKITASOK = [
+  {
+    merce: 'M2',
+    leiras: 'visszatér a hamis „soha nem kerülnek át harmadik országba"',
+    keszit: (s) =>
+      s.replace(
+        '<SectionTitle>7. Kikerül-e adat az Európai Unióból?</SectionTitle>',
+        '<SectionTitle>7. Kikerül-e adat az Európai Unióból?</SectionTitle>\n      <p>Az adatok soha nem kerülnek át harmadik országba.</p>',
+      ),
+  },
+  {
+    merce: 'M3',
+    leiras: 'kiesik az adathordozhatóság joga',
+    keszit: (s) => s.replace(/adathordozhatóság/gi, 'adatátadás'),
+  },
+  {
+    merce: 'M10',
+    leiras: 'visszakerül egy „Aladár" AI-említés',
+    keszit: (s) =>
+      s.replace(
+        '<SectionTitle>0. A lényeg dióhéjban</SectionTitle>',
+        '<SectionTitle>0. A lényeg dióhéjban</SectionTitle>\n      <p>Az „Aladár" AI-segéd a begépelt üzenetet az OpenRouter felé továbbítja.</p>',
+      ),
+  },
+]
+
+let regi = egesz
+const nemFogott = []
+for (const a of REGI_VILAG_ATALAKITASOK) {
+  const utana = a.keszit(regi)
+  // Fail-closed: ha egy horgony elmozdul a fájlban, a csere NEM történik meg, és
+  // a mérce némán elveszti az élét. Inkább szóljon.
+  if (utana === regi) nemFogott.push(`${a.merce} (${a.leiras})`)
+  regi = utana
 }
-if (regi) {
-  const r = ellenoriz(regi, 'HEAD (a javítás ELŐTTI szöveg)', { szintaxis: false })
+if (nemFogott.length) {
+  negativHibak.push(
+    `a „régi világ" előállítása NEM fogott: ${nemFogott.join(', ')} — a horgony elmozdult a fájlban, javítsd az átalakítást`,
+  )
+}
+
+{
+  const r = ellenoriz(regi, 'ÖSSZETETT RÉGI VILÁG (a három egykori hiba együtt)', { szintaxis: false })
   const bukik = r.hibak > 0 && r.mercek.has('M2') && r.mercek.has('M3') && r.mercek.has('M10')
   if (!bukik) {
-    negativHibak.push('a HEAD-változat NEM bukott el az M2/M3/M10 mércén — az őr vak lenne')
+    negativHibak.push('az összetett régi világ NEM bukott el az M2/M3/M10 mércén — az őr vak lenne')
   }
   console.log(
-    `   ${bukik ? '✓' : '✗'} a régi szöveg ${r.hibak} ponton bukik (mércék: ${[...r.mercek].join(', ') || 'egy sem'})`,
+    `   ${bukik ? '✓' : '✗'} az összetett régi világ ${r.hibak} ponton bukik (mércék: ${[...r.mercek].join(', ') || 'egy sem'})`,
   )
 }
 
