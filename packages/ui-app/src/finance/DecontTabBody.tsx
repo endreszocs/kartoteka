@@ -52,6 +52,10 @@ export interface DecontSaveInput {
 
 export interface DecontTabBodyProps {
   congregationName: string
+  /** 2026-08-22 (6. pont): a kiállító hivatalos ROMÁN neve (`nev_ro`) — a
+   *  DECONT „Unitate" sávjába, a magyar név mellé. OPCIONÁLIS: a desktop hívói
+   *  e nélkül is fordulnak, ott csak a magyar név áll az íven. */
+  congregationNameRo?: string
   /** Kiadás-kategóriák a könyveléshez (id_kiadascel). */
   categories: DecontCategoryOption[]
   /** A következő decont-sorszám lekérése (megtekintés). */
@@ -187,6 +191,7 @@ function A4Preview({ html, title }: { html: string; title: string }) {
 
 export function DecontTabBody({
   congregationName,
+  congregationNameRo,
   categories,
   onGetNextNumber,
   onSaveDecont,
@@ -245,6 +250,7 @@ export function DecontTabBody({
     () =>
       buildDecontHtml({
         congregationName,
+        congregationNameRo,
         sorszam: sorszam ?? '—',
         date,
         personName,
@@ -253,7 +259,7 @@ export function DecontTabBody({
         advance: advanceNum,
         items: docItems,
       }),
-    [congregationName, sorszam, date, personName, jelleg, approvedBy, advanceNum, docItems],
+    [congregationName, congregationNameRo, sorszam, date, personName, jelleg, approvedBy, advanceNum, docItems],
   )
 
   function updateRow(id: string, patch: Partial<Row>) {

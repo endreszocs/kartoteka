@@ -53,9 +53,12 @@ npm run lint
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: publikus Supabase anon kulcs
 - `MASTER_ADMIN_EMAIL`: master admin azonosítás
 - `GOD_MODE_PIN`: God Mode szerveroldali PIN
-- `OPENROUTER_API_KEY`: opcionális AI provider kulcs
-- `GROQ_API_KEY`: opcionális AI provider kulcs
-- `GEMINI_API_KEY`: opcionális AI provider kulcs
+
+> **2026-08-23:** az „Aladár" AI-csevegőasszisztens **megszűnt** (Endre döntése, GDPR-indokból:
+> így nem kerül semmilyen begépelt szöveg EU-n kívüli szolgáltatóhoz). A hozzá tartozó
+> `OPENROUTER_API_KEY`, `GROQ_API_KEY` és `GEMINI_API_KEY` változókra **nincs többé szükség** —
+> ha még be vannak állítva az üzemeltetői környezetben, törölhetők. Visszaállításuk előtt
+> az adatvédelmi tájékoztatót is újra kellene írni (lásd `scripts/selftest-adatvedelmi-fedezet.mjs`).
 
 ## Fontos projektfájlok
 

@@ -12,6 +12,8 @@
  *   - nyomtatás: rejtett iframe print (rendszer-dialógus, PDF onnan menthető).
  */
 
+import { useCallback, useEffect, useRef } from 'react'
+
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@kartoteka/ui'
 import {
   FinancePrintDialogBody,
@@ -149,6 +151,511 @@ export function DesktopFinancePrintDialog({
     ...budgetTypes,
   ]
 
+  // ── 2026-08-22 (8. pont, web-paritás): STABIL callback-referenciák ──────
+  //
+  // MI VOLT A ROSSZ: ezek a propok INLINE nyíl-függvényként mentek át, tehát
+  // minden renderben ÚJ identitást kaptak. A közös `FinancePrintDialogBody`
+  // NÉGY betöltő-effektje a deps közt figyeli őket, vagyis a `penzugy-page`
+  // MINDEN renderére újraindult a négy lekérés, és az előnézet visszaesett
+  // betöltő-állapotba. Az `onLoadYearRecords` ráadásul `onToast`-ot hív, ami
+  // a page-en inline függvény és `setPageToast`-ot ír: egyetlen hiba-toast
+  // önfenntartó kört zárt volna, ha az `onToast` a deps-listába kerül.
+  //
+  // ⛔ EZÉRT az `onToast` REF-en át hívódik, és NINCS egyetlen deps-listában
+  //    sem. ⚠️ A deps-listák egyébként TELJESEK — hiányos deps = BEFAGYASZTOTT
+  //    előnézet, azaz régi állapotból készülő hivatalos ív.
+  const onToastRef = useRef(onToast)
+  useEffect(() => {
+    onToastRef.current = onToast
+  })
+
+  const buildReport = useCallback((filters: FinancePrintFilters): PrintReport => {
+    // 2026-07-10 (S5-#3, web-paritás): a sorok a KIVÁLASZTOTT évhez —
+    // az oldal évén a props, más évnél a Body által betöltött yearRecords.
+    // 2026-08-11 (6. kör, web-paritás): a Body `undefined`-et ad, ha
+    // a props-beli (oldal-évi) sorok elegendők, `null`-t amíg tölt.
+    const wantsYearRecords = filters.yearRecords !== undefined
+    if (
+      wantsYearRecords &&
+      filters.yearRecords == null &&
+      !TYPES_WITHOUT_RECORDS.has(filters.printType)
+    ) {
+      return emptyPreview(`A(z) ${filters.selectedYear}. évi tételek betöltése…`)
+    }
+    const yr = wantsYearRecords ? (filters.yearRecords as YearRecordsPayload | null) : null
+    const incomeUse = yr ? yr.income : income
+    const expenseUse = yr ? yr.expense : expense
+    const carryoverCashUse = yr ? yr.carryoverCash : carryoverCash
+    const carryoverBankUse = yr ? yr.carryoverBank : carryoverBank
+    const bankNyitoMapUse = yr ? yr.bankNyitoMap : bankNyitoMap
+
+    // Korábbi bizonylatok újranyomtatása (a mentett pillanatképből)
+    if (filters.printType === 'decont_reprint') {
+      const doc = filters.selectedDoc
+      if (!doc) return emptyPreview('Válassz egy korábbi elszámolást a bal oldalon.')
+      // 2026-08-22 (6. pont): a DECONT „Unitate" sávja kétnyelvű — a webes
+      // ággal AZONOSAN (a két felület széthúzása visszatérő hibaosztály). A
+      // mai hivatalos neveket a snapshot UTÁN tesszük rá, hogy a mentett
+      // tétel-adat ne írhassa felül őket.
+      const data = doc.data as Omit<DecontDocData, 'congregationName' | 'congregationNameRo'>
+      return {
+        html: buildDecontHtml({ ...data, congregationName, congregationNameRo }),
+        title: `Decont #${data.sorszam}`,
+        filename: `Decont_${data.sorszam}_${data.date}.pdf`,
+        orientation: 'portrait',
+      }
+    }
+    if (filters.printType === 'dispozitie_reprint') {
+      const doc = filters.selectedDoc
+      if (!doc) return emptyPreview('Válassz egy korábbi rendelvényt a bal oldalon.')
+      const data = doc.data as Omit<DispozitieDocData, 'congregationName'>
+      return {
+        html: buildDispozitieHtml({ congregationName, congregationNameRo, ...data }),
+        title: `Dispoziție #${data.sorszam}`,
+        filename: `Dispozitie_${data.tipus}_${data.sorszam}_${data.date}.pdf`,
+        orientation: 'portrait',
+      }
+    }
+
+    // Költségvetés / költségvetés-módosítás / számadás / részszámadás
+    if (
+      filters.printType === 'koltsegvetes' ||
+      filters.printType === 'koltsegvetes_modositas' ||
+      filters.printType === 'szamadas' ||
+      filters.printType === 'reszszamadas'
+    ) {
+      if (!filters.budgetRows) return emptyPreview('Költségvetési adatok betöltése…')
+      const isReszszamadas = filters.printType === 'reszszamadas'
+      const isSzamadas = filters.printType === 'szamadas'
+      const periodFrom = filters.periodFrom
+      const periodTo = filters.periodTo
+      const inPeriod = (datum: string | null | undefined): boolean => {
+        if (!isReszszamadas) return true
+        if (!datum || !periodFrom || !periodTo) return false
+        const d = datum.slice(0, 10)
+        return d >= periodFrom && d <= periodTo
+      }
+      const actualIncome: Record<string, number> = {}
+      const actualExpense: Record<string, number> = {}
+      // 2026-07-10 (S5, web-paritás — S3 audit KRITIKUS #1): a stornózott
+      // tétel a hivatalos tényadatba sem számít (a webes wrapper már így
+      // számolt, a desktop-tükörből kimaradt).
+      // 2026-08-11 (6. kör, K5-#6 web-paritás): az összeg a RON-EKVIVALENS
+      // (`osszeg_ron ?? osszeg`) — a nyers deviza-összeg a Registrutól
+      // ELTÉRŐ számot adott ugyanarra az évre, két aláírt papíron.
+      for (const r of incomeUse) {
+        if (r.deleted || r.stornozott) continue
+        if (!inPeriod(r.datum)) continue
+        const code = r.id_befizetescel ? bevCelMap[r.id_befizetescel] : undefined
+        if (code) actualIncome[code] = (actualIncome[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
+      }
+      for (const r of expenseUse) {
+        if (r.deleted || r.stornozott) continue
+        if (!inPeriod(r.datum)) continue
+        const code = r.id_kiadascel ? kiaCelMap[r.id_kiadascel] : undefined
+        if (code) actualExpense[code] = (actualExpense[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
+      }
+      const printData: BudgetPrintData = {
+        cellek,
+        budgetRows: filters.budgetRows as Record<string, BudgetCompatRow>,
+        actualIncome,
+        actualExpense,
+        congregationName,
+        year: filters.selectedYear,
+        carryoverCash: carryoverCashUse,
+        carryoverBank: carryoverBankUse,
+        finalized: isSzamadas ? !!settings.accounting_finalized : !!settings.budget_finalized,
+      }
+
+      // ── RÉSZSZÁMADÁS: időszaki nyitó/záró + fail-closed kapuk ──
+      if (isReszszamadas) {
+        if (yr && yr.nyitoOk === false) {
+          return blockedPreview(
+            'A részszámadás most nem nyomtatható',
+            'A nyitó egyenlegek feloldása nem sikerült (offline vagy hibás adat), így az időszak nyitó és záró egyenlege nem vezethető le. Csatlakozz az internethez, ellenőrizd a nyitó egyenlegeket, majd próbáld újra.',
+          )
+        }
+        if (!periodFrom || !periodTo) {
+          return blockedPreview(
+            'A részszámadás most nem nyomtatható',
+            'Add meg az időszak kezdő és záró dátumát a bal oldalon.',
+          )
+        }
+        const balances = computePeriodBalances({
+          income: incomeUse as unknown as PeriodRow[],
+          expense: expenseUse as unknown as PeriodRow[],
+          year: filters.selectedYear,
+          periodFrom,
+          periodTo,
+          yearOpeningCash: carryoverCashUse,
+          yearOpeningBankById: bankNyitoMapUse || {},
+          actualIncomeByCode: actualIncome,
+          actualExpenseByCode: actualExpense,
+        })
+        if ('error' in balances) {
+          return blockedPreview('A részszámadás most nem nyomtatható', balances.error)
+        }
+        const fxIds = new Set<number>()
+        for (const r of [...incomeUse, ...expenseUse]) {
+          if (r.deleted || r.stornozott) continue
+          if (!inPeriod(r.datum)) continue
+          if (r.bankszamla_id != null && r.osszeg_ron != null && Number(r.osszeg_ron) !== Number(r.osszeg)) {
+            fxIds.add(r.bankszamla_id)
+          }
+        }
+        printData.periodFrom = periodFrom
+        printData.periodTo = periodTo
+        printData.periodBalances = balances
+        printData.partial = true
+        printData.nyitoBizonytalan = yr?.nyitoBizonytalan === true
+        printData.keszult = new Date().toISOString().slice(0, 10)
+        printData.devizaSzamlak = [...fxIds].map(
+          (id) => bankAccounts.find((b) => b.id === id)?.bank_neve || `#${id}`,
+        )
+      }
+
+      return buildBudgetPrintDocument(filters.printType as BudgetPrintType, printData)
+    }
+
+    const reportData: FinanceReportData = {
+      income: incomeUse,
+      expense: expenseUse,
+      bankAccounts,
+      cellek,
+      bevCelMap,
+      kiaCelMap,
+      congregationName,
+      congregationNameRo,
+      carryoverCash: carryoverCashUse,
+      carryoverBank: carryoverBankUse,
+      bankNyitoMap: bankNyitoMapUse,
+      nyugtatombok:
+        filters.printType === 'nyugtatomb_kimutatas'
+          ? filters.nyugtatombok
+          : undefined,
+    }
+    return buildFinancePrintDocument(filters.printType, reportData, {
+      year: filters.selectedYear,
+      month: filters.selectedMonth,
+      bankAccountId: filters.selectedBankId,
+      categoryKod: filters.selectedCategoryKod,
+    })
+  }, [
+    income,
+    expense,
+    bankAccounts,
+    cellek,
+    bevCelMap,
+    kiaCelMap,
+    congregationName,
+    congregationNameRo,
+    carryoverCash,
+    carryoverBank,
+    bankNyitoMap,
+    settings.accounting_finalized,
+    settings.budget_finalized,
+  ])
+
+  const onLoadYearRecords = useCallback(async (year: number): Promise<unknown> => {
+    // 2026-08-11 (6. kör): `nyitoOk: false` minden hibaágon — a
+    // részszámadás inkább NE készüljön el, mint hogy üres/0 alapról
+    // nyomtasson egy aláírható papírt.
+    const emptyPayload: YearRecordsPayload = {
+      income: [],
+      expense: [],
+      carryoverCash: 0,
+      carryoverBank: 0,
+      nyitoOk: false,
+    }
+    if (!(await isOnlineWithSession())) {
+      onToastRef.current?.('A múltbeli évek nyomtatásához internetkapcsolat és belépés szükséges.', 'warning')
+      return emptyPayload
+    }
+    try {
+      const supabase = getDesktopSupabase()
+      const congregationId = settings.congregation_id
+      const [bevRes, kiaRes, prevBevRes, prevKiaRes, cashNyitoRes, bankNyitoRes] = await Promise.all([
+        // 2026-07-25 (F6.1): LAPOZVA — ez a nyomtatványok (Számadás,
+        // Registru, nyitó) forrása; a szerver-plafon némán hibás összeget adott volna.
+        // 2026-08-11 (6. kör, reviewer-blocker): `osszeg_ron, arfolyam` a
+        // SELECT-be. A `Number(r.osszeg_ron ?? r.osszeg)` deviza-javítás
+        // ENÉLKÜL TEHETETLEN volt: a `BefitetesRow.osszeg_ron` opcionális,
+        // tehát a hiányzó oszlop `undefined`-ként fordult le, a `??` mindig
+        // a NYERS deviza-összegre esett vissza — 1000 EUR bank-sor 1.000,00
+        // lej-ként ment az aláírt Részszámadásra/Számadásra, míg a Registru
+        // 4.970,00 lejt írt. Ugyanezen okból a deviza-lábjegyzet
+        // (`osszeg_ron !== osszeg`) SOHA nem sült el. A részszámadás MINDIG
+        // ezen az úton jön (`needsYearRecords`), a múltbeli évi Számadás is.
+        selectAllPaged(supabase.from('befizetes').select('id, osszeg, osszeg_ron, arfolyam, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`)),
+        selectAllPaged(supabase.from('kiadas').select('id, osszeg, osszeg_ron, arfolyam, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`)),
+        selectAllPaged(supabase.from('befizetes').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`)),
+        selectAllPaged(supabase.from('kiadas').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`)),
+        supabase.from('keszpenz_nyito_egyenleg').select('eve, nyito_egyenleg')
+          .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
+        supabase.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron, bankszamla_id')
+          .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
+      ])
+      const firstErr = bevRes.error || kiaRes.error || prevBevRes.error || prevKiaRes.error
+      if (firstErr) {
+        onToastRef.current?.(`A(z) ${year}. évi tételek betöltése sikertelen: ${firstErr.message}`, 'error')
+        return emptyPayload
+      }
+      let recCashCur = 0, recCashPrev = 0, hasCashCur = false
+      for (const r of (cashNyitoRes.data || []) as { eve: number; nyito_egyenleg: number }[]) {
+        if (r.eve === year) { recCashCur += Number(r.nyito_egyenleg) || 0; hasCashCur = true }
+        else recCashPrev += Number(r.nyito_egyenleg) || 0
+      }
+      let recBankCur = 0, recBankPrev = 0, hasBankCur = false
+      const yearBankNyitoMap: Record<number, number> = {}
+      for (const r of (bankNyitoRes.data || []) as { eve: number; nyito_egyenleg_ron: number; bankszamla_id: number }[]) {
+        if (r.eve === year) {
+          recBankCur += Number(r.nyito_egyenleg_ron) || 0
+          hasBankCur = true
+          if (r.bankszamla_id != null) yearBankNyitoMap[r.bankszamla_id] = Number(r.nyito_egyenleg_ron) || 0
+        } else recBankPrev += Number(r.nyito_egyenleg_ron) || 0
+      }
+      // 2026-08-11 (6. kör, reviewer-blocker): a bázisév nettó forgalma is
+      // RON-EKVIVALENSBEN (`osszeg_ron ?? osszeg`), a webes
+      // `getYearFinanceRecords` szerint — a könyvelés RON-ban vezet, a nyers
+      // deviza-összeg hamis nyitót adott volna a következő évre.
+      let cashNet = 0, bankNet = 0
+      type PrevFlowRow = { osszeg: number; osszeg_ron?: number | null; bankszamla_id: number | null }
+      ;((prevBevRes.data || []) as unknown as PrevFlowRow[]).forEach((r) => {
+        if (r.bankszamla_id == null) cashNet += Number(r.osszeg_ron ?? r.osszeg) || 0
+        else bankNet += Number(r.osszeg_ron ?? r.osszeg) || 0
+      })
+      ;((prevKiaRes.data || []) as unknown as PrevFlowRow[]).forEach((r) => {
+        if (r.bankszamla_id == null) cashNet -= Number(r.osszeg_ron ?? r.osszeg) || 0
+        else bankNet -= Number(r.osszeg_ron ?? r.osszeg) || 0
+      })
+      // 2026-08-11 (6. kör, G5 web-paritás): „előző évi záró = köv.
+      // évi nyitó" OLVASÁS-ONLY feloldás SZÁMLÁNKÉNT. A részszámadás
+      // időszaki nyitója ebből vezetődik le; a régi, aggregált
+      // fallback egy MÁSIK számla nyitóját írta volna ide.
+      const resolved = await resolveNyitoEgyenlegekUseCase(
+        { congregationId, eve: year },
+        { supabase, runtime: 'desktop' },
+      )
+      const resolvedBankMap: Record<number, number> = { ...yearBankNyitoMap }
+      if (resolved.success) {
+        for (const [id, r] of Object.entries(resolved.bank)) resolvedBankMap[Number(id)] = r.value
+      }
+      const nyitoBizonytalan =
+        resolved.success &&
+        (resolved.cash.baseYear === null ||
+          Object.values(resolved.bank).some((b) => b.baseYear === null))
+      return {
+        income: (bevRes.data || []) as unknown as BefitetesRow[],
+        expense: (kiaRes.data || []) as unknown as KiadasRow[],
+        carryoverCash: resolved.success
+          ? resolved.cash.value
+          : hasCashCur
+            ? recCashCur
+            : recCashPrev + cashNet,
+        carryoverBank: resolved.success
+          ? resolved.bankTotal
+          : hasBankCur
+            ? recBankCur
+            : recBankPrev + bankNet,
+        bankNyitoMap: resolvedBankMap,
+        nyitoOk: resolved.success,
+        nyitoBizonytalan,
+      } satisfies YearRecordsPayload
+    } catch (e) {
+      onToastRef.current?.(`A(z) ${year}. évi tételek betöltése sikertelen: ${errorMessage(e)}`, 'error')
+      return emptyPayload
+    }
+  }, [
+    income,
+    expense,
+    carryoverCash,
+    carryoverBank,
+    bankNyitoMap,
+    settings.congregation_id,
+  ])
+
+  const onLoadNyugtatombok = useCallback(async (year: number) => {
+    if (!(await isOnlineWithSession())) {
+      return { data: undefined, error: 'A nyugtatömb-kimutatáshoz internetkapcsolat és belépés szükséges.' }
+    }
+    try {
+      const supabase = getDesktopSupabase()
+      const { data: tombok, error } = await supabase
+        .from('chitanta_tombok')
+        .select('*')
+        .eq('congregation_id', settings.congregation_id)
+        .order('szam_kezdet', { ascending: true })
+      if (error) return { data: undefined, error: error.message }
+
+      // 2026-07-25 (F6.1): LAPOZOTT — a kiállított nyugták száma évente
+      // több száz, a PostgREST plafonja némán levágta volna a min/max-ot.
+      const { data: chitantak } = await selectAllPaged<{
+        tomb_id: string | null
+        gyulekezeti_szam: number | null
+      }>(
+        supabase
+          .from('oblio_szamlak')
+          .select('id, tomb_id, gyulekezeti_szam')
+          .eq('congregation_id', settings.congregation_id)
+          .eq('tipus', 'chitanta_papir')
+          .eq('stornozott', false)
+          .not('gyulekezeti_szam', 'is', null),
+      )
+
+      const gyulSzamByTomb = new Map<string, { min: number; max: number }>()
+      for (const c of chitantak || []) {
+        if (!c.tomb_id || c.gyulekezeti_szam == null) continue
+        const existing = gyulSzamByTomb.get(c.tomb_id as string)
+        if (!existing) {
+          gyulSzamByTomb.set(c.tomb_id as string, {
+            min: c.gyulekezeti_szam as number,
+            max: c.gyulekezeti_szam as number,
+          })
+        } else {
+          existing.min = Math.min(existing.min, c.gyulekezeti_szam as number)
+          existing.max = Math.max(existing.max, c.gyulekezeti_szam as number)
+        }
+      }
+
+      const filtered = ((tombok || []) as Record<string, unknown>[]).filter((t) => {
+        const elso = t.elso_hasznalat_datum as string | null
+        const utolso = t.utolso_hasznalat_datum as string | null
+        if (!elso && !utolso) return false
+        const elsoYear = elso ? new Date(elso).getFullYear() : null
+        const utolsoYear = utolso ? new Date(utolso).getFullYear() : null
+        return elsoYear === year || utolsoYear === year
+      })
+
+      return {
+        data: filtered.map((t, idx) => {
+          const gyul = gyulSzamByTomb.get(t.id as string)
+          return {
+            sorszam: idx + 1,
+            block_nr: (t.block_nr as string | null) || null,
+            seria: t.seria as string,
+            nyomdai_kezdet: t.szam_kezdet as number,
+            nyomdai_veg: t.szam_veg as number,
+            datum_kezdet: (t.elso_hasznalat_datum as string | null) || null,
+            datum_veg: (t.utolso_hasznalat_datum as string | null) || null,
+            sajat_kezdet: gyul?.min ?? null,
+            sajat_veg: gyul?.max ?? null,
+            felhasznalt_darabszam: t.felhasznalt_darabszam as number,
+            darabszam_ossz: t.darabszam_ossz as number,
+            aktiv: t.aktiv as boolean,
+          }
+        }),
+        error: null,
+      }
+    } catch (e) {
+      return { data: undefined, error: errorMessage(e) }
+    }
+  }, [
+    settings.congregation_id,
+  ])
+
+  const onLoadSavedDocs = useCallback(async (year: number): Promise<SavedDocOption[]> => {
+    if (!(await isOnlineWithSession())) return []
+    try {
+      const supabase = getDesktopSupabase()
+      const [decontRes, dispRes] = await Promise.all([
+        supabase
+          .from('decont')
+          .select('id, sorszam, datum, elszamolo_nev, jovahagyta, jelleg, kapott_eloleg, osszkoltseg, tetelek')
+          .eq('congregation_id', settings.congregation_id)
+          .eq('ev', year)
+          .eq('deleted', false)
+          .order('sorszam', { ascending: true }),
+        supabase
+          .from('dispozitie')
+          .select('id, tipus, sorszam, datum, nev, tisztseg, osszeg, cel, ci_tipus, ci_serie, ci_nr')
+          .eq('congregation_id', settings.congregation_id)
+          .eq('ev', year)
+          .eq('deleted', false)
+          .order('datum', { ascending: true }),
+      ])
+
+      const deconts: SavedDocOption[] = ((decontRes.data || []) as Record<string, unknown>[]).map((r) => {
+        const tetelek = Array.isArray(r.tetelek) ? (r.tetelek as Record<string, unknown>[]) : []
+        const datum = String(r.datum).slice(0, 10)
+        return {
+          id: String(r.id),
+          label: `#${r.sorszam} · ${datum} · ${String(r.elszamolo_nev || '—')}`,
+          kind: 'decont' as const,
+          data: {
+            sorszam: Number(r.sorszam),
+            date: datum,
+            personName: String(r.elszamolo_nev || ''),
+            jelleg: String(r.jelleg || ''),
+            approvedBy: String(r.jovahagyta || ''),
+            advance: Number(r.kapott_eloleg) || 0,
+            items: tetelek.map((t) => ({
+              actNr: String(t.act_nr || ''),
+              actType: String(t.act_type || ''),
+              actDate: String(t.act_date || ''),
+              issuer: String(t.issuer || ''),
+              explanation: String(t.explanation || ''),
+              amount: Number(t.amount) || 0,
+            })),
+          },
+        }
+      })
+
+      const dispozitiok: SavedDocOption[] = ((dispRes.data || []) as Record<string, unknown>[]).map((r) => {
+        const datum = String(r.datum).slice(0, 10)
+        const tipus = String(r.tipus || 'plata')
+        return {
+          id: String(r.id),
+          label: `${tipus === 'plata' ? 'Plată' : 'Încasare'} #${r.sorszam} · ${datum} · ${String(r.nev || '—')}`,
+          kind: 'dispozitie' as const,
+          data: {
+            tipus,
+            sorszam: Number(r.sorszam),
+            date: datum,
+            name: String(r.nev || ''),
+            tisztseg: String(r.tisztseg || ''),
+            amount: Number(r.osszeg) || 0,
+            cel: String(r.cel || ''),
+            ciTipus: String(r.ci_tipus || ''),
+            ciSerie: String(r.ci_serie || ''),
+            ciNr: String(r.ci_nr || ''),
+          },
+        }
+      })
+
+      return [...deconts, ...dispozitiok]
+    } catch {
+      return []
+    }
+  }, [
+    settings.congregation_id,
+  ])
+
+  const onLoadBudgetRows = useCallback(async (year: number): Promise<Record<string, unknown>> => {
+    try {
+      if (!(await isOnlineWithSession())) return {}
+      const rows = await loadBudgetRowsCompat(getDesktopSupabase(), year, settings.congregation_id)
+      const map: Record<string, unknown> = {}
+      rows.forEach((r) => {
+        map[r.szamadasicelid] = {
+          szamadasicelid: r.szamadasicelid,
+          tervezett: r.tervezett,
+          modositott: r.modositott,
+          mod2: r.mod2,
+          mod3: r.mod3,
+        }
+      })
+      return map
+    } catch {
+      return {}
+    }
+  }, [
+    settings.congregation_id,
+  ])
+
+  const onPrintToBrowser = useCallback((html: string) => printHtmlViaIframe(html), [])
+  const onPrintToPdf = useCallback((html: string) => printHtmlViaIframe(html), [])
+  const onClose = useCallback(() => onOpenChange(false), [onOpenChange])
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[92vh] w-full flex-col overflow-hidden p-0 sm:max-w-7xl">
@@ -179,464 +686,22 @@ export function DesktopFinancePrintDialog({
               .map((c) => ({ kod: c.kod, nev: c.nev || c.kod, type: c.type as 'B' | 'K' }))
               .sort((a, b) => a.kod.localeCompare(b.kod, undefined, { numeric: true }))}
             currentYear={currentYear}
-            buildReport={(filters: FinancePrintFilters): PrintReport => {
-              // 2026-07-10 (S5-#3, web-paritás): a sorok a KIVÁLASZTOTT évhez —
-              // az oldal évén a props, más évnél a Body által betöltött yearRecords.
-              // 2026-08-11 (6. kör, web-paritás): a Body `undefined`-et ad, ha
-              // a props-beli (oldal-évi) sorok elegendők, `null`-t amíg tölt.
-              const wantsYearRecords = filters.yearRecords !== undefined
-              if (
-                wantsYearRecords &&
-                filters.yearRecords == null &&
-                !TYPES_WITHOUT_RECORDS.has(filters.printType)
-              ) {
-                return emptyPreview(`A(z) ${filters.selectedYear}. évi tételek betöltése…`)
-              }
-              const yr = wantsYearRecords ? (filters.yearRecords as YearRecordsPayload | null) : null
-              const incomeUse = yr ? yr.income : income
-              const expenseUse = yr ? yr.expense : expense
-              const carryoverCashUse = yr ? yr.carryoverCash : carryoverCash
-              const carryoverBankUse = yr ? yr.carryoverBank : carryoverBank
-              const bankNyitoMapUse = yr ? yr.bankNyitoMap : bankNyitoMap
-
-              // Korábbi bizonylatok újranyomtatása (a mentett pillanatképből)
-              if (filters.printType === 'decont_reprint') {
-                const doc = filters.selectedDoc
-                if (!doc) return emptyPreview('Válassz egy korábbi elszámolást a bal oldalon.')
-                const data = doc.data as Omit<DecontDocData, 'congregationName'>
-                return {
-                  html: buildDecontHtml({ congregationName, ...data }),
-                  title: `Decont #${data.sorszam}`,
-                  filename: `Decont_${data.sorszam}_${data.date}.pdf`,
-                  orientation: 'portrait',
-                }
-              }
-              if (filters.printType === 'dispozitie_reprint') {
-                const doc = filters.selectedDoc
-                if (!doc) return emptyPreview('Válassz egy korábbi rendelvényt a bal oldalon.')
-                const data = doc.data as Omit<DispozitieDocData, 'congregationName'>
-                return {
-                  html: buildDispozitieHtml({ congregationName, congregationNameRo, ...data }),
-                  title: `Dispoziție #${data.sorszam}`,
-                  filename: `Dispozitie_${data.tipus}_${data.sorszam}_${data.date}.pdf`,
-                  orientation: 'portrait',
-                }
-              }
-
-              // Költségvetés / költségvetés-módosítás / számadás / részszámadás
-              if (
-                filters.printType === 'koltsegvetes' ||
-                filters.printType === 'koltsegvetes_modositas' ||
-                filters.printType === 'szamadas' ||
-                filters.printType === 'reszszamadas'
-              ) {
-                if (!filters.budgetRows) return emptyPreview('Költségvetési adatok betöltése…')
-                const isReszszamadas = filters.printType === 'reszszamadas'
-                const isSzamadas = filters.printType === 'szamadas'
-                const periodFrom = filters.periodFrom
-                const periodTo = filters.periodTo
-                const inPeriod = (datum: string | null | undefined): boolean => {
-                  if (!isReszszamadas) return true
-                  if (!datum || !periodFrom || !periodTo) return false
-                  const d = datum.slice(0, 10)
-                  return d >= periodFrom && d <= periodTo
-                }
-                const actualIncome: Record<string, number> = {}
-                const actualExpense: Record<string, number> = {}
-                // 2026-07-10 (S5, web-paritás — S3 audit KRITIKUS #1): a stornózott
-                // tétel a hivatalos tényadatba sem számít (a webes wrapper már így
-                // számolt, a desktop-tükörből kimaradt).
-                // 2026-08-11 (6. kör, K5-#6 web-paritás): az összeg a RON-EKVIVALENS
-                // (`osszeg_ron ?? osszeg`) — a nyers deviza-összeg a Registrutól
-                // ELTÉRŐ számot adott ugyanarra az évre, két aláírt papíron.
-                for (const r of incomeUse) {
-                  if (r.deleted || r.stornozott) continue
-                  if (!inPeriod(r.datum)) continue
-                  const code = r.id_befizetescel ? bevCelMap[r.id_befizetescel] : undefined
-                  if (code) actualIncome[code] = (actualIncome[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
-                }
-                for (const r of expenseUse) {
-                  if (r.deleted || r.stornozott) continue
-                  if (!inPeriod(r.datum)) continue
-                  const code = r.id_kiadascel ? kiaCelMap[r.id_kiadascel] : undefined
-                  if (code) actualExpense[code] = (actualExpense[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
-                }
-                const printData: BudgetPrintData = {
-                  cellek,
-                  budgetRows: filters.budgetRows as Record<string, BudgetCompatRow>,
-                  actualIncome,
-                  actualExpense,
-                  congregationName,
-                  year: filters.selectedYear,
-                  carryoverCash: carryoverCashUse,
-                  carryoverBank: carryoverBankUse,
-                  finalized: isSzamadas ? !!settings.accounting_finalized : !!settings.budget_finalized,
-                }
-
-                // ── RÉSZSZÁMADÁS: időszaki nyitó/záró + fail-closed kapuk ──
-                if (isReszszamadas) {
-                  if (yr && yr.nyitoOk === false) {
-                    return blockedPreview(
-                      'A részszámadás most nem nyomtatható',
-                      'A nyitó egyenlegek feloldása nem sikerült (offline vagy hibás adat), így az időszak nyitó és záró egyenlege nem vezethető le. Csatlakozz az internethez, ellenőrizd a nyitó egyenlegeket, majd próbáld újra.',
-                    )
-                  }
-                  if (!periodFrom || !periodTo) {
-                    return blockedPreview(
-                      'A részszámadás most nem nyomtatható',
-                      'Add meg az időszak kezdő és záró dátumát a bal oldalon.',
-                    )
-                  }
-                  const balances = computePeriodBalances({
-                    income: incomeUse as unknown as PeriodRow[],
-                    expense: expenseUse as unknown as PeriodRow[],
-                    year: filters.selectedYear,
-                    periodFrom,
-                    periodTo,
-                    yearOpeningCash: carryoverCashUse,
-                    yearOpeningBankById: bankNyitoMapUse || {},
-                    actualIncomeByCode: actualIncome,
-                    actualExpenseByCode: actualExpense,
-                  })
-                  if ('error' in balances) {
-                    return blockedPreview('A részszámadás most nem nyomtatható', balances.error)
-                  }
-                  const fxIds = new Set<number>()
-                  for (const r of [...incomeUse, ...expenseUse]) {
-                    if (r.deleted || r.stornozott) continue
-                    if (!inPeriod(r.datum)) continue
-                    if (r.bankszamla_id != null && r.osszeg_ron != null && Number(r.osszeg_ron) !== Number(r.osszeg)) {
-                      fxIds.add(r.bankszamla_id)
-                    }
-                  }
-                  printData.periodFrom = periodFrom
-                  printData.periodTo = periodTo
-                  printData.periodBalances = balances
-                  printData.partial = true
-                  printData.nyitoBizonytalan = yr?.nyitoBizonytalan === true
-                  printData.keszult = new Date().toISOString().slice(0, 10)
-                  printData.devizaSzamlak = [...fxIds].map(
-                    (id) => bankAccounts.find((b) => b.id === id)?.bank_neve || `#${id}`,
-                  )
-                }
-
-                return buildBudgetPrintDocument(filters.printType as BudgetPrintType, printData)
-              }
-
-              const reportData: FinanceReportData = {
-                income: incomeUse,
-                expense: expenseUse,
-                bankAccounts,
-                cellek,
-                bevCelMap,
-                kiaCelMap,
-                congregationName,
-                congregationNameRo,
-                carryoverCash: carryoverCashUse,
-                carryoverBank: carryoverBankUse,
-                bankNyitoMap: bankNyitoMapUse,
-                nyugtatombok:
-                  filters.printType === 'nyugtatomb_kimutatas'
-                    ? filters.nyugtatombok
-                    : undefined,
-              }
-              return buildFinancePrintDocument(filters.printType, reportData, {
-                year: filters.selectedYear,
-                month: filters.selectedMonth,
-                bankAccountId: filters.selectedBankId,
-                categoryKod: filters.selectedCategoryKod,
-              })
-            }}
+            buildReport={buildReport}
             // 2026-07-10 (S5-#3): a kiválasztott év sorai + nyitói — a webes
             // getYearFinanceRecords tükre (azonos select-ek + nyitó-számítás).
-            onLoadYearRecords={async (year): Promise<unknown> => {
-              // 2026-08-11 (6. kör): `nyitoOk: false` minden hibaágon — a
-              // részszámadás inkább NE készüljön el, mint hogy üres/0 alapról
-              // nyomtasson egy aláírható papírt.
-              const emptyPayload: YearRecordsPayload = {
-                income: [],
-                expense: [],
-                carryoverCash: 0,
-                carryoverBank: 0,
-                nyitoOk: false,
-              }
-              if (!(await isOnlineWithSession())) {
-                onToast?.('A múltbeli évek nyomtatásához internetkapcsolat és belépés szükséges.', 'warning')
-                return emptyPayload
-              }
-              try {
-                const supabase = getDesktopSupabase()
-                const congregationId = settings.congregation_id
-                const [bevRes, kiaRes, prevBevRes, prevKiaRes, cashNyitoRes, bankNyitoRes] = await Promise.all([
-                  // 2026-07-25 (F6.1): LAPOZVA — ez a nyomtatványok (Számadás,
-                  // Registru, nyitó) forrása; a szerver-plafon némán hibás összeget adott volna.
-                  // 2026-08-11 (6. kör, reviewer-blocker): `osszeg_ron, arfolyam` a
-                  // SELECT-be. A `Number(r.osszeg_ron ?? r.osszeg)` deviza-javítás
-                  // ENÉLKÜL TEHETETLEN volt: a `BefitetesRow.osszeg_ron` opcionális,
-                  // tehát a hiányzó oszlop `undefined`-ként fordult le, a `??` mindig
-                  // a NYERS deviza-összegre esett vissza — 1000 EUR bank-sor 1.000,00
-                  // lej-ként ment az aláírt Részszámadásra/Számadásra, míg a Registru
-                  // 4.970,00 lejt írt. Ugyanezen okból a deviza-lábjegyzet
-                  // (`osszeg_ron !== osszeg`) SOHA nem sült el. A részszámadás MINDIG
-                  // ezen az úton jön (`needsYearRecords`), a múltbeli évi Számadás is.
-                  selectAllPaged(supabase.from('befizetes').select('id, osszeg, osszeg_ron, arfolyam, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`)),
-                  selectAllPaged(supabase.from('kiadas').select('id, osszeg, osszeg_ron, arfolyam, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`)),
-                  selectAllPaged(supabase.from('befizetes').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`)),
-                  selectAllPaged(supabase.from('kiadas').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`)),
-                  supabase.from('keszpenz_nyito_egyenleg').select('eve, nyito_egyenleg')
-                    .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
-                  supabase.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron, bankszamla_id')
-                    .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
-                ])
-                const firstErr = bevRes.error || kiaRes.error || prevBevRes.error || prevKiaRes.error
-                if (firstErr) {
-                  onToast?.(`A(z) ${year}. évi tételek betöltése sikertelen: ${firstErr.message}`, 'error')
-                  return emptyPayload
-                }
-                let recCashCur = 0, recCashPrev = 0, hasCashCur = false
-                for (const r of (cashNyitoRes.data || []) as { eve: number; nyito_egyenleg: number }[]) {
-                  if (r.eve === year) { recCashCur += Number(r.nyito_egyenleg) || 0; hasCashCur = true }
-                  else recCashPrev += Number(r.nyito_egyenleg) || 0
-                }
-                let recBankCur = 0, recBankPrev = 0, hasBankCur = false
-                const yearBankNyitoMap: Record<number, number> = {}
-                for (const r of (bankNyitoRes.data || []) as { eve: number; nyito_egyenleg_ron: number; bankszamla_id: number }[]) {
-                  if (r.eve === year) {
-                    recBankCur += Number(r.nyito_egyenleg_ron) || 0
-                    hasBankCur = true
-                    if (r.bankszamla_id != null) yearBankNyitoMap[r.bankszamla_id] = Number(r.nyito_egyenleg_ron) || 0
-                  } else recBankPrev += Number(r.nyito_egyenleg_ron) || 0
-                }
-                // 2026-08-11 (6. kör, reviewer-blocker): a bázisév nettó forgalma is
-                // RON-EKVIVALENSBEN (`osszeg_ron ?? osszeg`), a webes
-                // `getYearFinanceRecords` szerint — a könyvelés RON-ban vezet, a nyers
-                // deviza-összeg hamis nyitót adott volna a következő évre.
-                let cashNet = 0, bankNet = 0
-                type PrevFlowRow = { osszeg: number; osszeg_ron?: number | null; bankszamla_id: number | null }
-                ;((prevBevRes.data || []) as unknown as PrevFlowRow[]).forEach((r) => {
-                  if (r.bankszamla_id == null) cashNet += Number(r.osszeg_ron ?? r.osszeg) || 0
-                  else bankNet += Number(r.osszeg_ron ?? r.osszeg) || 0
-                })
-                ;((prevKiaRes.data || []) as unknown as PrevFlowRow[]).forEach((r) => {
-                  if (r.bankszamla_id == null) cashNet -= Number(r.osszeg_ron ?? r.osszeg) || 0
-                  else bankNet -= Number(r.osszeg_ron ?? r.osszeg) || 0
-                })
-                // 2026-08-11 (6. kör, G5 web-paritás): „előző évi záró = köv.
-                // évi nyitó" OLVASÁS-ONLY feloldás SZÁMLÁNKÉNT. A részszámadás
-                // időszaki nyitója ebből vezetődik le; a régi, aggregált
-                // fallback egy MÁSIK számla nyitóját írta volna ide.
-                const resolved = await resolveNyitoEgyenlegekUseCase(
-                  { congregationId, eve: year },
-                  { supabase, runtime: 'desktop' },
-                )
-                const resolvedBankMap: Record<number, number> = { ...yearBankNyitoMap }
-                if (resolved.success) {
-                  for (const [id, r] of Object.entries(resolved.bank)) resolvedBankMap[Number(id)] = r.value
-                }
-                const nyitoBizonytalan =
-                  resolved.success &&
-                  (resolved.cash.baseYear === null ||
-                    Object.values(resolved.bank).some((b) => b.baseYear === null))
-                return {
-                  income: (bevRes.data || []) as unknown as BefitetesRow[],
-                  expense: (kiaRes.data || []) as unknown as KiadasRow[],
-                  carryoverCash: resolved.success
-                    ? resolved.cash.value
-                    : hasCashCur
-                      ? recCashCur
-                      : recCashPrev + cashNet,
-                  carryoverBank: resolved.success
-                    ? resolved.bankTotal
-                    : hasBankCur
-                      ? recBankCur
-                      : recBankPrev + bankNet,
-                  bankNyitoMap: resolvedBankMap,
-                  nyitoOk: resolved.success,
-                  nyitoBizonytalan,
-                } satisfies YearRecordsPayload
-              } catch (e) {
-                onToast?.(`A(z) ${year}. évi tételek betöltése sikertelen: ${errorMessage(e)}`, 'error')
-                return emptyPayload
-              }
-            }}
+            onLoadYearRecords={onLoadYearRecords}
             // Nyugtatömb-kimutatás — a web `getChitantaTombokReport` tükre
             // (chitanta_tombok + gyülekezeti számok az oblio_szamlak-ból).
-            onLoadNyugtatombok={async (year) => {
-              if (!(await isOnlineWithSession())) {
-                return { data: undefined, error: 'A nyugtatömb-kimutatáshoz internetkapcsolat és belépés szükséges.' }
-              }
-              try {
-                const supabase = getDesktopSupabase()
-                const { data: tombok, error } = await supabase
-                  .from('chitanta_tombok')
-                  .select('*')
-                  .eq('congregation_id', settings.congregation_id)
-                  .order('szam_kezdet', { ascending: true })
-                if (error) return { data: undefined, error: error.message }
-
-                // 2026-07-25 (F6.1): LAPOZOTT — a kiállított nyugták száma évente
-                // több száz, a PostgREST plafonja némán levágta volna a min/max-ot.
-                const { data: chitantak } = await selectAllPaged<{
-                  tomb_id: string | null
-                  gyulekezeti_szam: number | null
-                }>(
-                  supabase
-                    .from('oblio_szamlak')
-                    .select('id, tomb_id, gyulekezeti_szam')
-                    .eq('congregation_id', settings.congregation_id)
-                    .eq('tipus', 'chitanta_papir')
-                    .eq('stornozott', false)
-                    .not('gyulekezeti_szam', 'is', null),
-                )
-
-                const gyulSzamByTomb = new Map<string, { min: number; max: number }>()
-                for (const c of chitantak || []) {
-                  if (!c.tomb_id || c.gyulekezeti_szam == null) continue
-                  const existing = gyulSzamByTomb.get(c.tomb_id as string)
-                  if (!existing) {
-                    gyulSzamByTomb.set(c.tomb_id as string, {
-                      min: c.gyulekezeti_szam as number,
-                      max: c.gyulekezeti_szam as number,
-                    })
-                  } else {
-                    existing.min = Math.min(existing.min, c.gyulekezeti_szam as number)
-                    existing.max = Math.max(existing.max, c.gyulekezeti_szam as number)
-                  }
-                }
-
-                const filtered = ((tombok || []) as Record<string, unknown>[]).filter((t) => {
-                  const elso = t.elso_hasznalat_datum as string | null
-                  const utolso = t.utolso_hasznalat_datum as string | null
-                  if (!elso && !utolso) return false
-                  const elsoYear = elso ? new Date(elso).getFullYear() : null
-                  const utolsoYear = utolso ? new Date(utolso).getFullYear() : null
-                  return elsoYear === year || utolsoYear === year
-                })
-
-                return {
-                  data: filtered.map((t, idx) => {
-                    const gyul = gyulSzamByTomb.get(t.id as string)
-                    return {
-                      sorszam: idx + 1,
-                      block_nr: (t.block_nr as string | null) || null,
-                      seria: t.seria as string,
-                      nyomdai_kezdet: t.szam_kezdet as number,
-                      nyomdai_veg: t.szam_veg as number,
-                      datum_kezdet: (t.elso_hasznalat_datum as string | null) || null,
-                      datum_veg: (t.utolso_hasznalat_datum as string | null) || null,
-                      sajat_kezdet: gyul?.min ?? null,
-                      sajat_veg: gyul?.max ?? null,
-                      felhasznalt_darabszam: t.felhasznalt_darabszam as number,
-                      darabszam_ossz: t.darabszam_ossz as number,
-                      aktiv: t.aktiv as boolean,
-                    }
-                  }),
-                  error: null,
-                }
-              } catch (e) {
-                return { data: undefined, error: errorMessage(e) }
-              }
-            }}
+            onLoadNyugtatombok={onLoadNyugtatombok}
             // Decont + Dispoziție újranyomtatás — a web reprint-listák tükre.
-            onLoadSavedDocs={async (year): Promise<SavedDocOption[]> => {
-              if (!(await isOnlineWithSession())) return []
-              try {
-                const supabase = getDesktopSupabase()
-                const [decontRes, dispRes] = await Promise.all([
-                  supabase
-                    .from('decont')
-                    .select('id, sorszam, datum, elszamolo_nev, jovahagyta, jelleg, kapott_eloleg, osszkoltseg, tetelek')
-                    .eq('congregation_id', settings.congregation_id)
-                    .eq('ev', year)
-                    .eq('deleted', false)
-                    .order('sorszam', { ascending: true }),
-                  supabase
-                    .from('dispozitie')
-                    .select('id, tipus, sorszam, datum, nev, tisztseg, osszeg, cel, ci_tipus, ci_serie, ci_nr')
-                    .eq('congregation_id', settings.congregation_id)
-                    .eq('ev', year)
-                    .eq('deleted', false)
-                    .order('datum', { ascending: true }),
-                ])
-
-                const deconts: SavedDocOption[] = ((decontRes.data || []) as Record<string, unknown>[]).map((r) => {
-                  const tetelek = Array.isArray(r.tetelek) ? (r.tetelek as Record<string, unknown>[]) : []
-                  const datum = String(r.datum).slice(0, 10)
-                  return {
-                    id: String(r.id),
-                    label: `#${r.sorszam} · ${datum} · ${String(r.elszamolo_nev || '—')}`,
-                    kind: 'decont' as const,
-                    data: {
-                      sorszam: Number(r.sorszam),
-                      date: datum,
-                      personName: String(r.elszamolo_nev || ''),
-                      jelleg: String(r.jelleg || ''),
-                      approvedBy: String(r.jovahagyta || ''),
-                      advance: Number(r.kapott_eloleg) || 0,
-                      items: tetelek.map((t) => ({
-                        actNr: String(t.act_nr || ''),
-                        actType: String(t.act_type || ''),
-                        actDate: String(t.act_date || ''),
-                        issuer: String(t.issuer || ''),
-                        explanation: String(t.explanation || ''),
-                        amount: Number(t.amount) || 0,
-                      })),
-                    },
-                  }
-                })
-
-                const dispozitiok: SavedDocOption[] = ((dispRes.data || []) as Record<string, unknown>[]).map((r) => {
-                  const datum = String(r.datum).slice(0, 10)
-                  const tipus = String(r.tipus || 'plata')
-                  return {
-                    id: String(r.id),
-                    label: `${tipus === 'plata' ? 'Plată' : 'Încasare'} #${r.sorszam} · ${datum} · ${String(r.nev || '—')}`,
-                    kind: 'dispozitie' as const,
-                    data: {
-                      tipus,
-                      sorszam: Number(r.sorszam),
-                      date: datum,
-                      name: String(r.nev || ''),
-                      tisztseg: String(r.tisztseg || ''),
-                      amount: Number(r.osszeg) || 0,
-                      cel: String(r.cel || ''),
-                      ciTipus: String(r.ci_tipus || ''),
-                      ciSerie: String(r.ci_serie || ''),
-                      ciNr: String(r.ci_nr || ''),
-                    },
-                  }
-                })
-
-                return [...deconts, ...dispozitiok]
-              } catch {
-                return []
-              }
-            }}
-            onLoadBudgetRows={async (year): Promise<Record<string, unknown>> => {
-              try {
-                if (!(await isOnlineWithSession())) return {}
-                const rows = await loadBudgetRowsCompat(getDesktopSupabase(), year, settings.congregation_id)
-                const map: Record<string, unknown> = {}
-                rows.forEach((r) => {
-                  map[r.szamadasicelid] = {
-                    szamadasicelid: r.szamadasicelid,
-                    tervezett: r.tervezett,
-                    modositott: r.modositott,
-                    mod2: r.mod2,
-                    mod3: r.mod3,
-                  }
-                })
-                return map
-              } catch {
-                return {}
-              }
-            }}
+            onLoadSavedDocs={onLoadSavedDocs}
+            onLoadBudgetRows={onLoadBudgetRows}
             // Desktopon mindkét mód a rendszer print-dialógusát nyitja
             // (PDF-be mentés onnan választható).
-            onPrintToBrowser={(html) => printHtmlViaIframe(html)}
-            onPrintToPdf={(html) => printHtmlViaIframe(html)}
+            onPrintToBrowser={onPrintToBrowser}
+            onPrintToPdf={onPrintToPdf}
             onToast={onToast}
-            onClose={() => onOpenChange(false)}
+            onClose={onClose}
           />
         </div>
       </DialogContent>

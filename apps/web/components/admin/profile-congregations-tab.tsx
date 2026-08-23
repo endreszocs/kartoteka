@@ -59,7 +59,17 @@ function formatDate(iso: string | null) {
   return d.toLocaleDateString('hu-HU', { year: 'numeric', month: 'long', day: 'numeric' })
 }
 
-export function ProfileCongregationsTab() {
+/**
+ * 2026-08-22 (4/D): a komponens KÉT felületet szolgál ki — a rendszergazdai
+ * „Könyvelői hozzárendelések" fület és az egyházmegyei irányítópult fülét.
+ *
+ * A megyei felületen eddig PARAMÉTER NÉLKÜL hívta a `listAssignments()`-et,
+ * ezért egy kerületi admin egy MEGYEI képernyőn a TELJES kerülete
+ * hozzárendeléseit látta. A `dioceseId` prop erre a képernyőn látott
+ * egyházmegyére szűkít (a szerver-oldali action METSZETET képez a hatókörrel,
+ * tehát ez nem tágít, csak szűkít).
+ */
+export function ProfileCongregationsTab({ dioceseId = null }: { dioceseId?: string | null } = {}) {
   const [assignments, setAssignments] = useState<AssignmentRow[]>([])
   const [users, setUsers] = useState<AssignableUser[]>([])
   const [congs, setCongs] = useState<AssignableCongregation[]>([])
@@ -85,7 +95,9 @@ export function ProfileCongregationsTab() {
     setLoading(true)
     setError(null)
     return Promise.all([
-      listAssignments(),
+      // A `dioceseId` a képernyőn látott egyházmegye — enélkül a lista a teljes
+      // hatókört hozta, miközben a felület egy KONKRÉT megyéről szólt.
+      listAssignments(dioceseId ? { dioceseId } : undefined),
       listAssignableUsers(),
       listCongregationsForAssignment(),
     ])
@@ -101,7 +113,7 @@ export function ProfileCongregationsTab() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Ismeretlen hiba a betöltés közben.'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [dioceseId])
 
   useEffect(() => {
     // requestAnimationFrame — a setState-t egy frame-re kitoljuk (a synchronous
@@ -127,12 +139,17 @@ export function ProfileCongregationsTab() {
       ),
     [users],
   )
+  // 2026-08-22 (4/D): a megyei felületen a form legördülője is CSAK a képernyőn
+  // látott egyházmegye gyülekezeteit kínálja — különben a felirat („egyházmegyei
+  // irányítópult") és a választható elemek széthúznának.
   const sortedCongs = useMemo(
     () =>
-      [...congs].sort((a, b) =>
-        (a.nev_hu || a.name || '').localeCompare(b.nev_hu || b.name || '', 'hu'),
-      ),
-    [congs],
+      [...congs]
+        .filter((c) => !dioceseId || c.diocese_id === dioceseId)
+        .sort((a, b) =>
+          (a.nev_hu || a.name || '').localeCompare(b.nev_hu || b.name || '', 'hu'),
+        ),
+    [congs, dioceseId],
   )
 
   const filtered = useMemo(() => {

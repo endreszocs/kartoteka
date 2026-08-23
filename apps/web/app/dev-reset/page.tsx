@@ -10,14 +10,22 @@
  * Mit csinál:
  *   1. Unregister-eli az ÖSSZES service worker-t
  *   2. Törli az ÖSSZES cache-storage-ot (PWA cache)
- *   3. Üríti a localStorage és sessionStorage-ot
- *   4. Átirányít a kezdőlapra fresh állapotban
+ *   3. Kiüríti és eldobja az offline IndexedDB-t
+ *   4. Törli az adat-jellegű localStorage/sessionStorage kulcsokat
+ *      (a téma és a felhasználói beállítások SZÁNDÉKOSAN megmaradnak)
+ *   5. Átirányít a kezdőlapra fresh állapotban
+ *
+ * ⚠️ A takarítás maga NEM itt él, hanem a KÖZÖS helperben
+ * (`@/lib/utils/helyi-tarolo-urites`), mert ugyanezt a kijelentkezés is
+ * elvégzi. Két másolat némán széthúzna — ez a projekt rögzített hibaosztálya.
  *
  * Használat: `http://localhost:3000/dev-reset`
  */
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+
+import { uritsdAHelyiAdatCachet } from '@/lib/utils/helyi-tarolo-urites'
 
 type LogEntry = { msg: string; ok: boolean }
 
@@ -33,57 +41,15 @@ export default function DevResetPage() {
         setLogs([...newLogs])
       }
 
-      // 1. Service Worker unregister
-      try {
-        if ('serviceWorker' in navigator) {
-          const regs = await navigator.serviceWorker.getRegistrations()
-          if (regs.length === 0) {
-            log('Nincs regisztrált service worker.')
-          } else {
-            for (const reg of regs) {
-              await reg.unregister()
-              log(`Service worker unregister: ${reg.scope}`)
-            }
-          }
-        } else {
-          log('A böngésző nem támogatja a service worker-eket (nincs teendő).')
-        }
-      } catch (e) {
-        log(`Service worker hiba: ${e instanceof Error ? e.message : String(e)}`, false)
-      }
-
-      // 2. Cache Storage clear
-      try {
-        if ('caches' in window) {
-          const keys = await caches.keys()
-          if (keys.length === 0) {
-            log('Nincs cache-storage entry.')
-          } else {
-            for (const key of keys) {
-              await caches.delete(key)
-              log(`Cache törölve: ${key}`)
-            }
-          }
-        }
-      } catch (e) {
-        log(`Cache hiba: ${e instanceof Error ? e.message : String(e)}`, false)
-      }
-
-      // 3. localStorage + sessionStorage
-      try {
-        const lsCount = localStorage.length
-        localStorage.clear()
-        log(`localStorage törölve (${lsCount} kulcs).`)
-      } catch (e) {
-        log(`localStorage hiba: ${e instanceof Error ? e.message : String(e)}`, false)
-      }
-      try {
-        const ssCount = sessionStorage.length
-        sessionStorage.clear()
-        log(`sessionStorage törölve (${ssCount} kulcs).`)
-      } catch (e) {
-        log(`sessionStorage hiba: ${e instanceof Error ? e.message : String(e)}`, false)
-      }
+      // A takarítást a KÖZÖS helper végzi — ugyanaz, amit a kijelentkezés hív.
+      // A /dev-reset a service worker-eket is leiratkoztatja, és az offline
+      // adatbázist akkor is eldobja, ha maradtak fel nem töltött módosítások
+      // (itt ez a szándék: „mindent elölről").
+      await uritsdAHelyiAdatCachet({
+        naplo: (msg, ok) => log(msg, ok),
+        serviceWorkerLeiratkozas: true,
+        eroltetettOfflineTorles: true,
+      })
 
       log('✓ Reset kész. 3 mp múlva átirányítás a kezdőlapra…')
       setDone(true)

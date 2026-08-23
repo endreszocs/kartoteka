@@ -852,6 +852,9 @@ export function PenzugyPage() {
               bankAccounts={bankAccounts}
               internalTransfers={internalTransfers}
               congregationName={congregationName}
+              // 2026-08-22 (6. pont): a MONETAR fejléce kétnyelvű — a webes
+              // ággal azonosan (a román név MÁR ITT VAN az állapotban).
+              congregationNameRo={congregationNameRo || undefined}
               congregationId={congregationId}
               onToast={(msg, kind) => setPageToast({ kind, msg })}
             />
@@ -863,6 +866,9 @@ export function PenzugyPage() {
               kiaCelMap={kiaCelMap}
               szamadasiCellek={szamadasiCellek}
               congregationName={congregationName}
+              // 2026-08-22 (6. pont): a kísérőív (BORDEROU DE PLĂȚI) fejléce
+              // kétnyelvű — a webes ággal azonosan.
+              congregationNameRo={congregationNameRo || undefined}
               onRefresh={() => void load()}
               // 2026-07-10 (ÚJ #8): kp/banki chip — a már betöltött bankszámla-listából.
               bankAccounts={bankAccounts}

@@ -118,6 +118,49 @@ export function DesktopBudgetPrintDialog({
     [settings.congregation_id],
   )
 
+  // ── 2026-08-22 (8. pont, web-paritás): STABIL callback-referenciák ───────
+  //
+  // A desktopon a hurok eddig sem állt be (nincs saját state ebben a
+  // komponensben), de az `onToast` PROPKÉNT jön a `penzugy-page.tsx`-ből, ahol
+  // inline nyíl-függvény, és `setPageToast`-ot ír: egyetlen hiba-toast után a
+  // page újrarenderel → új `onToast` → (a régi kódban) a betöltő-effect újra
+  // fut → új toast → önfenntartó kör. A közös Body ref-mintája ezt már
+  // elvágja; itt a másik oldalról zárjuk. A `buildReport` memoizálása a
+  // fölösleges nyomtatvány-újraépítést spórolja meg.
+  //
+  // ⚠️ A deps-lista TELJES — hiányos deps = BEFAGYASZTOTT előnézet (régi
+  //    `settings` a hivatalos íven).
+  const buildReport = useCallback(
+    (filters: BudgetPrintFilters) => {
+      const isSzamadas = filters.printType === 'szamadas'
+      const finalized = isSzamadas ? !!settings.accounting_finalized : !!settings.budget_finalized
+      const printData: BudgetPrintData = {
+        cellek,
+        budgetRows: filters.budgetRows,
+        actualIncome: filters.actualIncome,
+        actualExpense: filters.actualExpense,
+        congregationName,
+        year: filters.selectedYear,
+        carryoverCash,
+        carryoverBank,
+        finalized,
+      }
+      return buildBudgetPrintDocument(filters.printType, printData)
+    },
+    [
+      settings.accounting_finalized,
+      settings.budget_finalized,
+      cellek,
+      congregationName,
+      carryoverCash,
+      carryoverBank,
+    ],
+  )
+
+  const onPrintToBrowser = useCallback((html: string) => printHtmlViaIframe(html), [])
+  const onPrintToPdf = useCallback((html: string) => printHtmlViaIframe(html), [])
+  const onClose = useCallback(() => onOpenChange(false), [onOpenChange])
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[96vh] overflow-y-auto sm:max-w-7xl">
@@ -135,26 +178,11 @@ export function DesktopBudgetPrintDialog({
           accountingFinalized={!!settings.accounting_finalized}
           computeActuals={computeActuals}
           onLoadBudgetRows={onLoadBudgetRows}
-          buildReport={(filters: BudgetPrintFilters) => {
-            const isSzamadas = filters.printType === 'szamadas'
-            const finalized = isSzamadas ? !!settings.accounting_finalized : !!settings.budget_finalized
-            const printData: BudgetPrintData = {
-              cellek,
-              budgetRows: filters.budgetRows,
-              actualIncome: filters.actualIncome,
-              actualExpense: filters.actualExpense,
-              congregationName,
-              year: filters.selectedYear,
-              carryoverCash,
-              carryoverBank,
-              finalized,
-            }
-            return buildBudgetPrintDocument(filters.printType, printData)
-          }}
-          onPrintToBrowser={(html) => printHtmlViaIframe(html)}
-          onPrintToPdf={(html) => printHtmlViaIframe(html)}
+          buildReport={buildReport}
+          onPrintToBrowser={onPrintToBrowser}
+          onPrintToPdf={onPrintToPdf}
           onToast={onToast}
-          onClose={() => onOpenChange(false)}
+          onClose={onClose}
         />
       </DialogContent>
     </Dialog>

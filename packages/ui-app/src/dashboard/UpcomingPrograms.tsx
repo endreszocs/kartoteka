@@ -357,8 +357,11 @@ export function UpcomingPrograms({ entries, daysAhead = 14, showReadOnlyNote = t
     if (events.length) groups.push({ dateStr: cell, date: d, events })
   }
 
+  // 2026-08-22: `kt-widget--flow` — a desktop widget is a tartalommal EGYÜTT
+  // nő (nincs 760px-es plafon és nincs BELSŐ görgetés), ahogy a weben.
+  // A hosszú listánál így az ablak görget, nem a csempe belseje.
   return (
-    <div className="card-raised kt-widget">
+    <div className="card-raised kt-widget kt-widget--flow">
       <div className="kt-glow" />
 
       {/* Fejléc — web-azonos */}

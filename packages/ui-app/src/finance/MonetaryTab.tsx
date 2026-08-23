@@ -26,6 +26,7 @@ import {
 import { Button, Card, CardContent, CardHeader, CardTitle, Input } from '@kartoteka/ui'
 
 import { formatCurrency } from './helpers'
+import { hivatalosKetnyelvuNev } from './entity-name'
 import {
   TRANSFER_TYPE_LABELS,
   type BankAccount,
@@ -59,6 +60,14 @@ export interface MonetaryTabProps {
   onToast?: (message: string, kind: MonetaryToastKind) => void
   /** Gyülekezet neve a nyomtatott címletjegyzék fejlécéhez. */
   congregationName?: string
+  /**
+   * 2026-08-22 (6. pont): a kiállító hivatalos ROMÁN neve (`nev_ro`). A
+   * MONETAR végig kétnyelvű nyomtatvány („Bancnote și 1 RON / Bankjegyek"),
+   * a KIÁLLÍTÓ neve mégis csak magyarul állt rajta — román név-ág nem is
+   * létezett. OPCIONÁLIS (a desktop hívói e nélkül fordulnak); ha üres, a
+   * magyar név áll ott EGYEDÜL, sablon-kiegészítés nélkül.
+   */
+  congregationNameRo?: string
   /** Nyomtatás callback (web: printToBrowser / printToPdf). Ha hiányzik, nincs gomb. */
   onPrint?: (params: { mode: 'pdf' | 'browser'; html: string; filename?: string }) => Promise<void>
   /**
@@ -88,6 +97,7 @@ function escHtml(v: string): string {
 /** Nyomtatható monetár (címletjegyzék) — tiszta, festéktakarékos A4 álló lap. */
 function buildMonetarSheetHtml(params: {
   congregationName: string
+  congregationNameRo?: string
   year: number
   dateIso: string
   banknotes: MonetaryDenomination[]
@@ -96,7 +106,12 @@ function buildMonetarSheetHtml(params: {
   countedTotal: number
   expected: number
 }): string {
-  const { congregationName, year, dateIso, banknotes, coins, counts, countedTotal, expected } = params
+  const { congregationName, congregationNameRo, year, dateIso, banknotes, coins, counts, countedTotal, expected } = params
+  // 2026-08-22 (6. pont): a kiállító KÉTNYELVŰ megnevezése — a közös helperből
+  // (finance/entity-name.ts), hogy a Monetár ne húzzon szét a Számadás-borítótól
+  // és a román regiszterektől. Van román név → „MAGYAR / ROMÁN"; nincs → csak a
+  // magyar, sablon nélkül.
+  const entitasNev = hivatalosKetnyelvuNev(congregationName, congregationNameRo)
   const diff = countedTotal - expected
   const rowsFor = (items: MonetaryDenomination[]) =>
     items
@@ -151,7 +166,7 @@ function buildMonetarSheetHtml(params: {
   <body>
     <div class="title-ro">MONETAR — Borderou de numerar</div>
     <div class="title">Monetár — Pénztári címletjegyzék</div>
-    <div class="sub">${escHtml(congregationName)} · ${year} · Data / Dátum: ${escHtml(dateIso)}</div>
+    <div class="sub">${escHtml(entitasNev)} · ${year} · Data / Dátum: ${escHtml(dateIso)}</div>
     ${table('Bancnote și 1 RON / Bankjegyek és 1 RON', banknotes)}
     ${table('Monede / Érmék', coins)}
     <table class="summary">
@@ -175,6 +190,7 @@ export function MonetaryTab({
   saveSnapshot,
   onToast,
   congregationName = '',
+  congregationNameRo,
   onPrint,
   onDeleteTransfer,
   compact = false,
@@ -273,6 +289,7 @@ export function MonetaryTab({
     () =>
       buildMonetarSheetHtml({
         congregationName,
+        congregationNameRo,
         year: currentYear,
         dateIso: printDateIso,
         banknotes: grouped.bankjegy,
@@ -281,7 +298,7 @@ export function MonetaryTab({
         countedTotal,
         expected: expectedCashBalance,
       }),
-    [congregationName, currentYear, printDateIso, grouped, counts, countedTotal, expectedCashBalance],
+    [congregationName, congregationNameRo, currentYear, printDateIso, grouped, counts, countedTotal, expectedCashBalance],
   )
 
   async function doPrint(mode: 'pdf' | 'browser') {

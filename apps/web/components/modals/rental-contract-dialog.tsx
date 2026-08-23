@@ -11,9 +11,18 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { ModalField } from '@/components/ui/modal-field'
+// 2026-08-23 (kisebb rések, 2.): a bérlő-kereső a SCOPE-TUDATOS
+// `searchIncomePartners`-re költözött. A régi `searchMembersForFinance` a
+// `getProfileCongregation()`-ből jövő `effectiveCongregationId`-re szűr, ami
+// FELSŐ SZINTŰ (megyei/kerületi) aktív profilnál definíció szerint `null` →
+// azonnali üres tömb, hibaüzenet nélkül. A fő tétel-rögzítő már 2026-08-22 óta
+// az új keresőt hívja; ez az ablak a régit őrizte.
+//
+// ⚠️ A GYÜLEKEZETI VISELKEDÉS VÁLTOZATLAN: a `searchIncomePartners`
+// `congregation` ága a MAI tag-kereső törzsét futtatja (`queryCongregationMembers`).
 import {
   saveRentalContract,
-  searchMembersForFinance,
+  searchIncomePartners,
 } from '@/app/(dashboard)/penzugy/actions'
 import {
   RENTAL_TIPUS,
@@ -32,14 +41,15 @@ import {
   type RentalBerloTipus,
 } from '@/lib/constants/finance'
 
-interface SearchResult {
-  id: number
-  csaladnev: string
-  k_nev: string
-  sz_datum: string | null
-  c_szam: string | null
-  adrlocality: { name: string } | null
-  adrstreet: { name: string } | null
+/** A `searchIncomePartners` egy sora (a szerver típusa `'use server'` fájlban él,
+ *  ezért nem importálható — a hívás visszatérési típusából vezetjük le). */
+type SearchResult = Awaited<ReturnType<typeof searchIncomePartners>>[number]
+
+/** A felső szintű partner-fajták magyar címkéi (a találati sor jobb oldalán). */
+const PARTNER_CIMKEK: Record<string, string> = {
+  gyulekezet: 'gyülekezet',
+  lelkesz: 'lelkész',
+  egyhazmegye: 'egyházmegye',
 }
 
 interface RentalContractDialogProps {
@@ -94,6 +104,14 @@ export function RentalContractDialog({
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [showResults, setShowResults] = useState(false)
+  /**
+   * 2026-08-23 (kisebb rések, 2.): a keresés HIBÁJA LÁTHATÓ.
+   *
+   * Eddig a `catch` csak `setShowResults(false)`-t hívott: hálózati hiba,
+   * RLS-tiltás és „tényleg nincs találat" ugyanúgy nézett ki — néma üres lista.
+   * `null` = nincs gond; string = a látható magyar magyarázat.
+   */
+  const [searchError, setSearchError] = useState<string | null>(null)
 
   const isEditing = !!editingContract?.id
 
@@ -167,30 +185,49 @@ export function RentalContractDialog({
     }
   }
 
-  // Személy keresés
+  // Bérlő keresés (scope-tudatos: gyülekezetnél tagok, felső szinten
+  // gyülekezetek / lelkészek / egyházmegyék)
   async function handleSearch(val: string) {
     setSearchQuery(val)
     setBerloNev(val)
     if (val.length < 2) {
       setShowResults(false)
       setSearchResults([])
+      setSearchError(null)
       return
     }
     try {
-      const results = await searchMembersForFinance(val)
-      setSearchResults(results as unknown as SearchResult[])
+      const results = await searchIncomePartners(val)
+      setSearchResults(results)
+      setSearchError(null)
       setShowResults(true)
-    } catch {
+    } catch (e) {
+      // ⛔ NE nyeld el: a néma üres lista azt hazudja, hogy „nincs ilyen bérlő".
+      setSearchResults([])
       setShowResults(false)
+      setSearchError(
+        'A bérlő-kereső most nem válaszolt, ezért nem tudjuk megmutatni a találatokat. ' +
+          'Ellenőrizd az internetkapcsolatot, és próbáld újra — addig a nevet szabad szövegként is beírhatod.' +
+          (e instanceof Error && e.message ? ` (Részlet: ${e.message})` : ''),
+      )
     }
   }
 
+  /**
+   * Találat kiválasztása.
+   *
+   * ⛔ CSAK a `kind === 'szemely'` sor köthető `id_szemely`-re. A felső szintű
+   * partnerek (gyülekezet / lelkész / egyházmegye) azonosítója NEGATÍV
+   * ál-azonosító — nem `szemely.id` —, ezért ott csak a NÉV megy át, a
+   * `personId` marad `null` (szabad szöveges bérlő).
+   */
   function selectPerson(person: SearchResult) {
-    const fullName = `${person.csaladnev} ${person.k_nev}`.trim()
-    setPersonId(person.id)
+    const fullName = person.name.trim()
+    setPersonId(person.kind === 'szemely' ? person.id : null)
     setBerloNev(fullName)
     setSearchQuery(fullName)
     setShowResults(false)
+    setSearchError(null)
   }
 
   function clearPerson() {
@@ -303,7 +340,7 @@ export function RentalContractDialog({
 
           {/* Személy bérlő */}
           {berloTipus === 'szemely' && (
-            <ModalField label="Bérlő neve" required hint="Kezd gépelni (min. 2 karakter) — a lista a gyülekezet tagjai között keres">
+            <ModalField label="Bérlő neve" required hint="Kezdj gépelni (min. 2 karakter) — gyülekezeti nézetben a tagok közt keres, egyházmegyei/egyházkerületi nézetben a gyülekezetek, lelkészek és egyházmegyék közt">
               <div className="relative">
                 <Input
                   value={searchQuery}
@@ -332,18 +369,31 @@ export function RentalContractDialog({
                 </p>
               )}
 
+              {/* 2026-08-23 (kisebb rések, 2.): a keresési hiba LÁTHATÓ — nem
+                  néma üres lista. Téma-tokenes piros doboz (sötét módban is). */}
+              {searchError && (
+                <p
+                  role="alert"
+                  className="mt-1.5 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs leading-relaxed text-rose-800 dark:border-rose-500/40 dark:bg-rose-950/40 dark:text-rose-100"
+                >
+                  {searchError}
+                </p>
+              )}
+
               {showResults && searchResults.length > 0 && (
                 <div className="absolute z-20 mt-1 max-h-56 w-[calc(100%-3rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-1 shadow-xl">
                   {searchResults.map(r => (
                     <button
-                      key={r.id}
+                      key={`${r.kind}-${r.id}`}
                       type="button"
-                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm hover:bg-amber-50"
+                      className="flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-amber-50"
                       onClick={() => selectPerson(r)}
                     >
-                      <span>{r.csaladnev} {r.k_nev}</span>
-                      <span className="text-xs text-slate-400">
-                        {r.sz_datum ? r.sz_datum.slice(0, 4) : ''}
+                      <span className="min-w-0 flex-1 truncate">{r.name}</span>
+                      <span className="shrink-0 text-xs text-slate-400">
+                        {r.kind === 'szemely'
+                          ? (r.szDatum ? String(r.szDatum).slice(0, 4) : '')
+                          : PARTNER_CIMKEK[r.kind] ?? ''}
                       </span>
                     </button>
                   ))}

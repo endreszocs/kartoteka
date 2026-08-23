@@ -35,6 +35,8 @@ interface MonetarFloatingWidgetProps {
   bankAccounts: BankAccount[]
   internalTransfers: InternalTransferRow[]
   congregationName: string
+  /** 2026-08-22 (6. pont): a hivatalos ROMÁN név a MONETAR fejlécéhez. */
+  congregationNameRo?: string
 }
 
 /* ============================== Számológép ============================== */
@@ -256,6 +258,7 @@ export function MonetarFloatingWidget({
   bankAccounts,
   internalTransfers,
   congregationName,
+  congregationNameRo,
 }: MonetarFloatingWidgetProps) {
   const [mode, setMode] = useState<'monetar' | 'szamologep'>('monetar')
   // Finom emlékeztető pulzálás: percenként 3 mp-ig animate-pulse — nyitott
@@ -338,6 +341,7 @@ export function MonetarFloatingWidget({
                 bankAccounts={bankAccounts}
                 internalTransfers={internalTransfers}
                 congregationName={congregationName}
+                congregationNameRo={congregationNameRo}
               />
             </div>
             {mode === 'szamologep' && <SimpleCalculator />}

@@ -9,7 +9,7 @@ import { HU_MONTHS_SHORT } from '@/lib/constants/dashboard'
  * 2026-08-11 (5. kör, P2-#18): a szűrő/nyomtató modál — az üdvözlőkártya-
  * készítővel együtt ~54 KB forrás — LAZY töltődik. Az irányítópult a
  * leggyakrabban megnyitott képernyő, a modált viszont a lelkész többnyire ki
- * sem nyitja. A minta a repóban bevált (AiChatWidgetLazy, AdminImportLazy).
+ * sem nyitja. A minta a repóban bevált (AdminImportLazy, FullBackupPanelClient).
  */
 const BirthdayListDialog = dynamic(
   () => import('./birthday-list-dialog').then((m) => m.BirthdayListDialog),

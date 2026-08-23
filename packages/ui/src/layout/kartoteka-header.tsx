@@ -77,16 +77,41 @@ export interface KartotekaHeaderProps {
   headerExtra?: ReactNode
 }
 
-// Role-label egyszerűsítés — a web-oldali `getRoleLabel` másolata.
+/**
+ * Szerep-címkék a fejléchez — a web-oldali `getRoleLabel` PÁRJA (desktop).
+ *
+ * ⚠️ 2026-08-22 (4/F) HIBAJAVÍTÁS: itt `admin: 'Kerületi admin'` állt, ami
+ * HELYTELEN — az `admin` a RENDSZERGAZDA, a kerületi admin kulcsa
+ * `egyhazkeruleti_admin`. A térkép fele ráadásul hiányzott (könyvelő, a két
+ * számvevő, megyei admin), így azok nyers, aláhúzásos kulcsként jelentek meg.
+ *
+ * ⚠️ EZ A TÉRKÉP A KANONIKUS `ROLE_LABELS` MÁSOLATA
+ * (`apps/web/lib/profile-roles/types.ts`). A `packages/ui` NEM importálhat az
+ * `apps/web`-ből, ezért nem lehet közös helper — a két oldal így NÉMÁN
+ * széthúzhat. A `scripts/selftest-hatokor.mjs` „SZ" blokkja betűre összeveti a
+ * kettőt, és HIBÁT dob, ha eltérnek. Ha itt módosítasz, a másikat is módosítsd.
+ */
+const ROLE_LABELS: Record<string, string> = {
+  admin: 'Rendszergazda',
+  egyhazkeruleti_admin: 'Egyházkerületi admin',
+  egyhazkeruleti_szamvevo: 'Egyházkerületi számvevő',
+  egyhazmegyei_admin: 'Egyházmegyei admin',
+  esperes: 'Esperes',
+  egyhazmegyei_szamvevo: 'Egyházmegyei számvevő',
+  lelkesz: 'Lelkipásztor',
+  konyvelo: 'Könyvelő',
+  custom: 'Egyedi szerepkör',
+}
+
+/** A `profiles.role` LEGACY kulcsai (nem `ProfileRoleType`-ok). */
+const LEGACY_ROLE_LABELS: Record<string, string> = {
+  master_admin: 'Főadmin',
+  pastor: 'Lelkipásztor',
+  user: 'Felhasználó',
+}
+
 function getRoleLabel(role: string): string {
-  const roleLabels: Record<string, string> = {
-    admin: 'Kerületi admin',
-    esperes: 'Esperes',
-    master_admin: 'Főadmin',
-    pastor: 'Lelkipásztor',
-    user: 'Felhasználó',
-  }
-  return roleLabels[role] || role.replace(/_/g, ' ')
+  return ROLE_LABELS[role] || LEGACY_ROLE_LABELS[role] || role.replace(/_/g, ' ')
 }
 
 // ─────────────────────────────────────────────────────────────────────────

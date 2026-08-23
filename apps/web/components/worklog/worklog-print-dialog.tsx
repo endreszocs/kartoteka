@@ -71,6 +71,15 @@ export function WorklogPrintDialog({
   const [sendingToPrinter, setSendingToPrinter] = useState(false)
   const [entries, setEntries] = useState<WorklogEntry[]>([])
   const [loadingEntries, setLoadingEntries] = useState(false)
+  /**
+   * 2026-08-22 (8. pont): a betöltés HIBA-ága. Eddig a `.then()`-nek nem volt
+   * `.catch()`-e: egy elutasított promise-nál a `loadingEntries` ÖRÖKRE `true`
+   * maradt, a „betöltés…" felirat bent ragadt, a bejegyzés-lista pedig üresen —
+   * a lelkész mégis kinyomtathatott egy ÜRES hivatalos munkanaplót.
+   */
+  const [betoltesHiba, setBetoltesHiba] = useState<string | null>(null)
+  /** Az „Újrapróbálom" gomb léptetője — a betöltő effect depje. */
+  const [ujratoltoKulcs, setUjratoltoKulcs] = useState(0)
 
   // Megnyitáskor az átadott évre ugrunk
   useEffect(() => {
@@ -82,13 +91,25 @@ export function WorklogPrintDialog({
     if (!open) return
     let cancelled = false
     setLoadingEntries(true)
-    getWorklogsForYear(selectedYear).then((data) => {
-      if (cancelled) return
-      setEntries(data)
-      setLoadingEntries(false)
-    })
+    setBetoltesHiba(null)
+    getWorklogsForYear(selectedYear)
+      .then((data) => {
+        if (cancelled) return
+        setEntries(data)
+        setLoadingEntries(false)
+      })
+      // 2026-08-22 (8. pont): KÖTELEZŐ `.catch()` — enélkül a felirat örökre
+      // bent ragad, és üres bejegyzés-listával nyomtatható a hivatalos ív.
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setEntries([])
+        setLoadingEntries(false)
+        const uzenet = err instanceof Error ? err.message : 'Ismeretlen hiba.'
+        setBetoltesHiba(uzenet)
+        toast.error(`A(z) ${selectedYear}. évi bejegyzések betöltése nem sikerült: ${uzenet}`)
+      })
     return () => { cancelled = true }
-  }, [open, selectedYear])
+  }, [open, selectedYear, ujratoltoKulcs])
 
   const filters: WorklogReportFilters = useMemo(() => ({
     year: selectedYear,
@@ -278,6 +299,31 @@ export function WorklogPrintDialog({
                 <div><span className="font-semibold text-slate-800">Tájolás:</span> {report.orientation === 'landscape' ? 'A4 fekvő' : 'A4 álló'}</div>
               </div>
 
+              {/* 2026-08-22 (8. pont): hangos, TILTÓ, újrapróbálható hiba-ág —
+                  a néma „betöltés…" beragadás helyett. */}
+              {betoltesHiba !== null && (
+                <div
+                  role="alert"
+                  className="space-y-2 rounded-2xl border border-red-300 bg-red-50 p-3 text-xs leading-5 text-red-800"
+                >
+                  <p>
+                    A(z) <strong>{selectedYear}. évi bejegyzések betöltése nem sikerült</strong>:{' '}
+                    {betoltesHiba}
+                  </p>
+                  <p>
+                    A nyomtatás addig <strong>letiltva marad</strong> — üres munkanapló nem kerülhet
+                    ki hivatalos ívként.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setUjratoltoKulcs((k) => k + 1)}
+                    className="inline-flex min-h-11 items-center justify-center rounded-lg border border-red-400 bg-white px-3 text-xs font-semibold text-red-800 transition-colors hover:bg-red-100"
+                  >
+                    Újrapróbálom
+                  </button>
+                </div>
+              )}
+
               <div className="rounded-2xl border border-sky-100 bg-sky-50/80 p-3 text-xs leading-5 text-slate-600">
                 A direkt nyomtatás a böngésző saját nyomtatási előnézetét nyitja meg. Ott a dokumentum több oldalra bontva látszik.
               </div>
@@ -286,10 +332,19 @@ export function WorklogPrintDialog({
                 <Button variant="ghost" className="flex-1" onClick={() => onOpenChange(false)}>
                   Bezárás
                 </Button>
-                <Button variant="outline" className="flex-1" onClick={() => void handleDirectPrint()} disabled={sendingToPrinter}>
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => void handleDirectPrint()}
+                  disabled={sendingToPrinter || loadingEntries || betoltesHiba !== null}
+                >
                   {sendingToPrinter ? 'Nyomtatási előnézet...' : 'Direkt nyomtatás'}
                 </Button>
-                <Button className="flex-1" onClick={() => void handlePdf()} disabled={printing}>
+                <Button
+                  className="flex-1"
+                  onClick={() => void handlePdf()}
+                  disabled={printing || loadingEntries || betoltesHiba !== null}
+                >
                   {printing ? 'PDF készül...' : 'PDF-be mentés'}
                 </Button>
               </div>

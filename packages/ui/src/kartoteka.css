@@ -852,7 +852,12 @@
 
 .kt-auth-page {
   position: relative;
+  /* 2026-08-22 — a splash utáni auth-oldal „ugrálása" ellen.
+     Előbb a 100vh TARTALÉK (régi böngészők), majd a 100svh: a `svh` a mobil
+     címsáv KIS állapotát méri, ezért a sáv be/kicsúszásakor a lap magassága
+     nem változik, és a kártya nem ugrik meg a splash eltűnése után. */
   min-height: 100vh;
+  min-height: 100svh;
   background-color: #e8ddc4;
   background-image: url("/Hatter.png");
   background-size: cover;
@@ -2019,8 +2024,10 @@
    Három szabály tartja együtt a sort:
      1) `.kt-dash-trio` — a rács `align-items: stretch` + közös minimum
         sormagasság, így mindhárom csempe PONTOSAN egyforma magas.
-     2) `.kt-cal--compact` — kis kockás hónapnaptár (mobilon 38px, xl-en 32px
-        cella), fix 6 hetes ráccsal, hogy a magasság hónapváltáskor se ugráljon.
+     2) `.kt-cal--compact` — kis kockás hónapnaptár FLUID cellamérettel
+        (2026-08-22 óta: a cella a csempe szélességéből következik, felső
+        korláttal), fix 6 hetes ráccsal, hogy a magasság hónapváltáskor se
+        ugráljon.
      3) `.kt-widget--tile` — a programok-widget csempe-változata: sűrűbb
         fejléc/navigáció/agenda + egysoros akciósáv, BELSŐ GÖRGETÉS NÉLKÜL.
    A `.kt-widget` alapváltozat (desktop `UpcomingPrograms`) érintetlen marad.
@@ -2059,15 +2066,27 @@
 .kt-more-line:hover { background: color-mix(in oklab, var(--primary) 16%, var(--card)); }
 .kt-more-line:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 
-/* ── 2. Kompakt (kis kockás) hónapnaptár ──
-   A cellák NÉGYZETESEK (aspect-ratio: 1) és rugalmasak, de a rács szélessége
-   `--kt-cell`-re van maximálva → keskeny oszlopban zsugorodnak, széles
-   oszlopban nem nőnek nagyra. Mobilon így is >=36px az érintőfelület. */
+/* ── 2. Kompakt (kis kockás) hónapnaptár — FLUID cellaméret (2026-08-22) ──
+   ⛔ MI VOLT A HIBA (Endre észrevétele: „széles képernyőn kicsi a naptár"):
+   a rácsnak KEMÉNY, képpontos felső korlátja volt
+   (`max-width: calc(var(--kt-cell) * 7 + …)`, ahol a `--kt-cell` FIX 38px, és
+   >=1280px-en egyenesen 32px-re CSÖKKENT). Így a rács soha nem lett szélesebb
+   ~242 képpontnál, sőt a nagy kijelzőn KISEBB lett, mint telefonon.
+
+   MOST: a rács kitölti a rendelkezésre álló szélességet — a cellák a
+   `repeat(7, 1fr)` + `aspect-ratio: 1` miatt maguktól nőnek vele. A
+   `--kt-cell-max` már NEM méret, csak FELSŐ korlát: azt akadályozza meg, hogy
+   a rács (és vele a három-csempés sor) függőlegesen elszaladjon. Alsó korlát
+   nincs: szűk oszlopban ugyanúgy zsugorodik, mint eddig (mobilon a csempe
+   szélessége ad ~34–42px cellát, tehát az érintőfelület nem romlik). */
 .kt-cal--compact {
-  --kt-cell: 38px;
   --kt-cal-gap: 4px;
+  /* FELSŐ korlát a cellára — a tényleges méret ennél KISEBB is lehet.
+     48px: ennyi fér el a 35rem-es közös sormagasságban a fejléc/navigáció/
+     napi agenda/akciósáv mellett, anélkül hogy a sor eltorzulna. */
+  --kt-cell-max: 48px;
   gap: var(--kt-cal-gap);
-  max-width: calc(var(--kt-cell) * 7 + var(--kt-cal-gap) * 6);
+  max-width: calc(var(--kt-cell-max) * 7 + var(--kt-cal-gap) * 6);
   margin-inline: auto;
   width: 100%;
 }
@@ -2077,20 +2096,29 @@
   height: auto;
   min-height: 0;
 }
-.kt-cal--compact .kt-cal-day { border-radius: 9px; gap: 1px; padding: 0; }
-.kt-cal--compact .kt-cal-num { font-size: 12.5px; }
-.kt-cal--compact .kt-cal-head { font-size: 9.5px; padding: 0 0 4px; letter-spacing: 0.03em; }
-.kt-cal--compact .kt-cal-dots { height: 5px; gap: 2px; }
-.kt-cal--compact .kt-cal-dot { width: 4.5px; height: 4.5px; }
-.kt-cal--compact .kt-cal-more { font-size: 8px; margin-left: 0; }
-.kt-cal--compact .kt-cal-day.is-today { border-width: 1.5px; }
-/* Nagy képernyőn még kisebb kocka — a csempe így nem lóg ki a sorból.
-   Mobilon marad a 38px (>=36px érintőfelület). */
-@media (min-width: 1280px) {
-  .kt-cal--compact { --kt-cell: 32px; --kt-cal-gap: 3px; }
-  .kt-cal--compact .kt-cal-num { font-size: 12px; }
-  .kt-cal--compact .kt-cal-day { border-radius: 8px; }
+/* A belső tipográfia is a cellamérettel skálázódik. A `clamp()` ALSÓ határa
+   mindenütt a régi kompakt érték, tehát telefonon semmi nem lesz kisebb. */
+.kt-cal--compact .kt-cal-day {
+  border-radius: clamp(9px, calc(var(--kt-cell-max) * 0.2), 13px);
+  gap: 1px;
+  padding: 0;
 }
+.kt-cal--compact .kt-cal-num { font-size: clamp(12.5px, calc(var(--kt-cell-max) * 0.27), 15px); }
+.kt-cal--compact .kt-cal-head {
+  font-size: clamp(9.5px, calc(var(--kt-cell-max) * 0.21), 12px);
+  padding: 0 0 4px;
+  letter-spacing: 0.03em;
+}
+.kt-cal--compact .kt-cal-dots { height: clamp(5px, calc(var(--kt-cell-max) * 0.115), 7px); gap: 2px; }
+.kt-cal--compact .kt-cal-dot {
+  width: clamp(4.5px, calc(var(--kt-cell-max) * 0.105), 6.5px);
+  height: clamp(4.5px, calc(var(--kt-cell-max) * 0.105), 6.5px);
+}
+.kt-cal--compact .kt-cal-more { font-size: clamp(8px, calc(var(--kt-cell-max) * 0.18), 10.5px); margin-left: 0; }
+.kt-cal--compact .kt-cal-day.is-today { border-width: 1.5px; }
+/* ⛔ NINCS többé „nagy képernyőn még kisebb kocka" media-blokk: pont az
+   okozta, hogy 1280px fölött 32px-re esett vissza a cella. Ha valaha
+   visszakerülne, a `scripts/selftest-naptar-geometria.mjs` PIROSRA vált. */
 
 /* ── 3. A programok-widget csempe-változata ── */
 .kt-widget--tile { max-height: none; height: 100%; }
@@ -2146,6 +2174,41 @@
 .kt-widget--tile .kt-empty-sub { font-size: 12px; margin-top: 4px; }
 .kt-widget--tile .kt-empty-cta { margin-top: 10px; padding: 6px 12px; font-size: 12px; }
 .kt-widget--tile .kt-listgroup-num { font-size: 16px; }
+
+/* ── 4. Széles csempe: KÉT HASÁB (2026-08-22) ────────────────────────────
+   Ha a csempe elég széles ahhoz, hogy a hónap-rács MELLETT is maradjon hely,
+   a napi agenda (illetve lista-nézetben a napcsoportok) a naptár MELLÉ kerül,
+   nem alá. Így a széles ablak vízszintesen telik meg: a csempe nem lesz
+   aránytalanul magas, több tétel fér ki, és továbbra sem kell görgetni.
+
+   Az `is-2col` osztályt a komponens teszi ki, ResizeObserverrel mért
+   csempe-szélesség alapján. EGY forrás: a JSX-ben a „+N további" csonkolás
+   korlátai is ugyanabból a mérésből következnek — így a látvány és a
+   csonkolás nem tud némán széthúzni (nincs külön @container + külön JS-küszöb).
+   A sor NEM változik: a naptár marad a saját csempéjében (a három-csempés,
+   egy magasságú sor 2026-08-10-i felhasználói kérés). */
+.kt-widget--tile.is-2col .kt-scroll {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 4px 18px;
+}
+/* Betöltés / üres állapot és a lista-nézet a TELJES szélességet kapja */
+.kt-widget--tile.is-2col .kt-scroll > .kt-empty,
+.kt-widget--tile.is-2col .kt-listview,
+.kt-widget--tile.is-2col .kt-listview > .kt-empty { grid-column: 1 / -1; }
+.kt-widget--tile.is-2col .kt-cal-grid { align-self: start; }
+/* Két hasábban több hely marad függőlegesen → nagyobb cella is elfér */
+.kt-widget--tile.is-2col .kt-cal--compact { --kt-cell-max: 60px; }
+.kt-widget--tile.is-2col .kt-dayagenda { margin-top: 0; }
+/* A hónap lista-nézete is két hasábban fut, ha van hely */
+.kt-widget--tile.is-2col .kt-listview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 10px 18px;
+}
+.kt-widget--tile.is-2col .kt-listview > .kt-more-line { grid-column: 1 / -1; justify-self: center; }
 
 /* Egysoros akciósáv: elsődleges gomb + ikonos másodlagos műveletek.
    A műveletek NEM tűnnek el, csak helytakarékos ikon-formát kapnak. */

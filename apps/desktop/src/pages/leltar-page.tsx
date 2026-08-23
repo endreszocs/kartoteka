@@ -82,6 +82,10 @@ export function LeltarPage() {
   const [user, setUser] = useState<User | null>(null)
   const [congregationId, setCongregationId] = useState<string | null>(null)
   const [congregationName, setCongregationName] = useState<string>('Gyülekezet')
+  // 2026-08-22 (6. pont): a gyülekezet hivatalos ROMÁN neve (`nev_ro`) — a
+  // ROMÁN nyelvre állított fişa fejlécébe. Ha nincs kitöltve, `null` marad, és
+  // a kartonon a magyar név áll EGYEDÜL (kitalált román nevet nem írunk).
+  const [congregationNameRo, setCongregationNameRo] = useState<string | null>(null)
   const [stats, setStats] = useState<InventoryStats | null>(null)
   const [items, setItems] = useState<InventoryItemLocalRow[]>([])
   const [search, setSearch] = useState('')
@@ -115,6 +119,10 @@ export function LeltarPage() {
         setCongregationId(profile?.congregation_id ?? null)
         // A `name` a HIVATALOS név (nem nev_hu!) — a fişă ezt viseli.
         if (cong?.name) setCongregationName(cong.name)
+        // A `nev_ro` a HIVATALOS ROMÁN név — a lokális congregations_local sor
+        // már ma is tárolja (sync.ts SELECT-je olvassa), csak eddig senki nem
+        // adta tovább a fişának.
+        setCongregationNameRo((cong?.nev_ro || '').trim() || null)
       } catch {
         // csendes — a congregationId nélkül a mentés úgyis tiltott (fail-closed)
       }
@@ -218,6 +226,7 @@ export function LeltarPage() {
       } as InventoryItem
       return {
         congregationName: congregationName || 'Gyülekezet',
+        congregationNameRo,
         leltariSzam: it.leltari_szam,
         regiLeltariSzam: it.regi_leltari_szam,
         megnevezes: it.megnevezes,
@@ -240,7 +249,7 @@ export function LeltarPage() {
         konyvIsbn: it.konyv_isbn,
       }
     },
-    [congregationName],
+    [congregationName, congregationNameRo],
   )
 
   function handleRowFisaPrint(item: InventoryItemLocalRow) {
@@ -528,6 +537,7 @@ export function LeltarPage() {
         }}
         congregationId={congregationId}
         congregationName={congregationName}
+        congregationNameRo={congregationNameRo}
         editItem={editItem}
         fisaLang={fisaLang}
         onFisaLangChange={setFisaLang}

@@ -36,6 +36,30 @@ interface ProgramSchedulerProps {
 const DAY_CAP = 2
 const LIST_CAP = 4
 
+/**
+ * 2026-08-22 — KÉT HASÁBOS elrendezés széles csempén.
+ *
+ * A naptár melletti hasábban a napi agenda FÜGGŐLEGESEN sokkal több helyet
+ * kap (nem a rács alatt osztozik), ezért ott bővebb a csonkolás — különben
+ * fölöslegesen rejtenénk el tételeket ott, ahol bőven van hely.
+ *
+ * A küszöb a CSEMPE szélessége (nem a képernyőé!): a csempe az irányítópult
+ * sorában akár 1280px fölött is keskeny lehet, 1280 alatt viszont — ahol a sor
+ * egy hasábra esik szét — teljes szélességű. 700px az a méret, ahol két
+ * hasábban is marad legalább akkora naptár-cella, mint egy hasábban
+ * (`--kt-cell-max: 48px`), tehát a váltás nem KICSINYÍTI a naptárat.
+ *
+ * ⚠️ EGY FORRÁS: ugyanez a mérés adja az `is-2col` osztályt is (lásd
+ * `packages/ui/src/kartoteka.css`), hogy a látvány és a csonkolás ne
+ * húzhasson szét némán.
+ */
+const TWO_COL_MIN = 700
+/** Törtpixel-ingadozás elleni holtsáv (ennél nagyobb NEM lehet: a visszaváltási
+ *  sávban is legalább akkora cellát akarunk, mint egy hasábban). */
+const TWO_COL_HISZTEREZIS = 8
+const DAY_CAP_2COL = 6
+const LIST_CAP_2COL = 12
+
 // ── Hónap-választó popover ──
 function MonthPicker({
   year, month, today, onPick, onClose,
@@ -110,6 +134,31 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
   // 2026-08-02 (PR-20): Google Naptár összekötés dialógus
   const [gcalOpen, setGcalOpen] = useState(false)
 
+  // ── Csempe-szélesség mérése (2026-08-22) ────────────────────────────────
+  // A két hasábos elrendezés ÉS a tétel-korlátok is ebből az EGY mérésből
+  // következnek. Kis hiszterézissel, hogy a törtpixel-ingadozás ne kapcsolgassa.
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [twoCol, setTwoCol] = useState(false)
+  useEffect(() => {
+    const el = rootRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const apply = (w: number) => {
+      setTwoCol((prev) => {
+        const next = prev ? w >= TWO_COL_MIN - TWO_COL_HISZTEREZIS : w >= TWO_COL_MIN
+        return next === prev ? prev : next
+      })
+    }
+    apply(el.getBoundingClientRect().width)
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) apply(e.contentRect.width)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const dayCap = twoCol ? DAY_CAP_2COL : DAY_CAP
+  const listCap = twoCol ? LIST_CAP_2COL : LIST_CAP
+
   const isCurrentMonth = year === today.getFullYear() && month === today.getMonth()
 
   // ── Adatbetöltés ──
@@ -166,10 +215,12 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
   const selectedIsToday = !!selectedDay && isCurrentMonth && selectedDay === today.getDate()
 
   // ── Görgetésmentes korlátok (2026-08-10) ─────────────────────────────────
-  // A csempe fix magasságú sorban ül, ezért alapból csak DAY_CAP nap-esemény,
-  // illetve LIST_CAP lista-tétel látszik. A többi a „+N további" gombbal
+  // A csempe fix magasságú sorban ül, ezért alapból csak `dayCap` nap-esemény,
+  // illetve `listCap` lista-tétel látszik. A többi a „+N további" gombbal
   // bontható ki — így semmi nem válik elérhetetlenné, de nincs scrollbar sem.
-  const shownDayEvents = expanded ? selectedEvents : selectedEvents.slice(0, DAY_CAP)
+  // 2026-08-22: két hasábos (széles) csempén bővebb a korlát, mert ott a
+  // hasáb magassága nem a naptár-rács alatti maradék.
+  const shownDayEvents = expanded ? selectedEvents : selectedEvents.slice(0, dayCap)
   const hiddenDayEvents = selectedEvents.length - shownDayEvents.length
 
   const listTotal = useMemo(
@@ -181,13 +232,13 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
     const out: { day: number; date: Date; events: Program[] }[] = []
     let used = 0
     for (const g of listGroups) {
-      if (used >= LIST_CAP) break
-      const take = g.events.slice(0, LIST_CAP - used)
+      if (used >= listCap) break
+      const take = g.events.slice(0, listCap - used)
       out.push({ ...g, events: take })
       used += take.length
     }
     return out
-  }, [listGroups, expanded])
+  }, [listGroups, expanded, listCap])
   const hiddenListEvents = listTotal - shownListGroups.reduce((sum, g) => sum + g.events.length, 0)
 
   // Napváltás / hónapváltás / nézetváltás után újra a kompakt állapot az alap
@@ -247,8 +298,12 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
 
   // 2026-08-10: `kt-widget--tile` — kompakt csempe-változat az irányítópult
   // három-csempés sorához (egy magasság, belső görgetés nélkül).
+  // 2026-08-22: `is-2col` — széles csempén a napi agenda a naptár MELLÉ kerül.
   return (
-    <div className="card-raised kt-widget kt-widget--flow kt-widget--tile">
+    <div
+      ref={rootRef}
+      className={`card-raised kt-widget kt-widget--flow kt-widget--tile${twoCol ? ' is-2col' : ''}`}
+    >
       <div className="kt-glow" />
 
       {/* Fejléc */}
@@ -362,7 +417,7 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
                       +{hiddenDayEvents} további program
                     </button>
                   )}
-                  {expanded && selectedEvents.length > DAY_CAP && (
+                  {expanded && selectedEvents.length > dayCap && (
                     <button type="button" className="kt-more-line" onClick={() => setExpanded(false)}>
                       Kevesebb
                     </button>
@@ -412,7 +467,7 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
                     +{hiddenListEvents} további program a hónapban
                   </button>
                 )}
-                {expanded && listTotal > LIST_CAP && (
+                {expanded && listTotal > listCap && (
                   <button type="button" className="kt-more-line" onClick={() => setExpanded(false)}>
                     Kevesebb
                   </button>

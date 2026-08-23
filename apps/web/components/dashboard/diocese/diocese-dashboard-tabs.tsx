@@ -10,14 +10,18 @@
  *
  * Fülek:
  *  🏠 Áttekintés · 🏛️ Egyházmegyénk · ⛪ Gyülekezetek · 📂 Dokumentumok ·
- *  🔔 Kérelmek · 🧾 Nyugtatömbök · 👥 Szerepkörök
+ *  🔔 Kérelmek · 🧾 Nyugtatömbök · 👥 Szerepkörök és hozzárendelések
+ *
+ * 2026-08-22 (4. pont): az utolsó fül felirata eddig „Szerepkörök" volt, de
+ * KIZÁRÓLAG a könyvelői/számvevői hozzárendeléseket mutatta. Mostantól a valódi,
+ * egyházmegyére szűrt szerepkör-lista is ott van — és a felirat ezt mondja.
  *
  * 2026-08-15 (egyházmegyei terv, 4.4): a 🌱 Misszió-placeholder ELTŰNT a
  * fülsorból — üres ígéretet nem mutatunk; a fül a statisztikai csomag (S10
  * szelet) szállításával tér vissza, valódi tartalommal.
  */
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   Archive,
@@ -29,7 +33,9 @@ import {
   HandHeart,
   Inbox,
   Layers,
+  RefreshCw,
   Search,
+  ShieldCheck,
   UserCog,
   Vote,
 } from 'lucide-react'
@@ -41,6 +47,13 @@ import { ColorTabs } from '@/components/ui/color-tabs'
 import { DocumentCenter } from '@/components/dashboard/document-center'
 import { DioceseAnnualReportsPanel } from '@/components/annual-report/diocese-annual-reports-panel'
 import { ProfileCongregationsTab } from '@/components/admin/profile-congregations-tab'
+// 2026-08-22 (4. pont): a fül eddig CSAK a könyvelői hozzárendeléseket mutatta
+// „Szerepkörök" felirattal. A VALÓDI, egyházmegyére szűrt szerepkör-lista innen jön.
+import {
+  listProfileRolesForDiocese,
+  type DioceseProfileRoleRow,
+} from '@/app/(dashboard)/admin/profile-roles-actions'
+import { APPROVAL_STATUS_LABELS, ROLE_LABELS, SCOPE_LABELS } from '@/lib/profile-roles/types'
 
 import { CongregationDetailModal, type CongregationDetail } from './congregation-detail-modal'
 import { RequestsSection } from './requests-section'
@@ -145,7 +158,11 @@ export function DioceseDashboardTabs({
     // 2026-08-15 (4.4): a 🌱 Misszió-placeholder fül ELTÁVOLÍTVA — üres
     // ígéretet nem mutatunk; az S10 (statisztikai csomag) hozza vissza.
     if (canManageRoles) {
-      list.push({ value: 'roles', label: '👥 Szerepkörök', color: 'indigo' })
+      // 2026-08-22 (4/A): a felirat eddig „Szerepkörök" volt, a tartalom viszont
+      // KIZÁRÓLAG a könyvelői/számvevői hozzárendelések listája — a fül azt
+      // ígérte, amit nem adott. A felirat mostantól MINDKÉT tartalmat nevén
+      // nevezi (valódi szerepkör-lista + hozzárendelések).
+      list.push({ value: 'roles', label: '👥 Szerepkörök és hozzárendelések', color: 'indigo' })
     }
     return list
   }, [dioceseId, congregationOverview.length, seasonSubs.length, totalUnlockRequests, pendingAssignments.length, canManageRoles])
@@ -343,15 +360,35 @@ export function DioceseDashboardTabs({
       {/* 2026-08-15 (4.4): a Misszió-placeholder render-blokkja eltávolítva —
           a fül az S10 statisztikai csomaggal tér vissza, valódi tartalommal. */}
 
-      {/* === SZEREPKÖRÖK === (csak rendszergazdai vagy egyházkerületi admin szerepben) */}
+      {/* === SZEREPKÖRÖK ÉS HOZZÁRENDELÉSEK ===
+          (csak rendszergazdai vagy egyházkerületi admin szerepben)
+
+          2026-08-22 (4. pont): a fül KÉT, egymástól jól elválasztott dolgot mutat:
+           (1) az egyházmegye VALÓDI szerepkör-listáját (profile_roles, csak olvasás),
+           (2) a könyvelői/számvevői HOZZÁRENDELÉSEKET (profile_congregations).
+          Korábban csak a (2) volt itt — „Szerepkörök" felirattal. */}
       {tab === 'roles' && canManageRoles && (
-        <div className="space-y-4">
-          <SectionIntro
-            icon={<UserCog className="size-5 text-indigo-700" />}
-            title="Szerepkörök kiosztása"
-            subtitle="A szerepkörök kiosztása az egyházkerületi admin és a rendszergazdai admin hatáskörébe tartozik. A gyülekezeti könyvelő hozzárendelést a lelkész jóváhagyja a saját profilján."
-          />
-          <ProfileCongregationsTab />
+        <div className="space-y-6">
+          <div className="space-y-4">
+            <SectionIntro
+              icon={<ShieldCheck className="size-5 text-indigo-700" />}
+              title="Az egyházmegye szerepkörei"
+              subtitle="Ki milyen szerepkörrel dolgozik ebben az egyházmegyében és a gyülekezeteiben. Elöl az aktív szerepkörök, mögöttük a függő és a visszavont sorok. Csak megtekintés — a kiosztás a rendszergazdai felületen történik."
+            />
+            <DioceseRolesPanel dioceseId={dioceseId} />
+          </div>
+
+          <div className="space-y-4">
+            <SectionIntro
+              icon={<UserCog className="size-5 text-indigo-700" />}
+              title="Könyvelői és számvevői hozzárendelések"
+              subtitle="A hozzárendelés kezdeményezése az egyházkerületi admin és a rendszergazdai admin hatásköre. A gyülekezeti könyvelő hozzárendelést a lelkész hagyja jóvá a saját profilján."
+            />
+            {/* 2026-08-22 (4/D): a lista eddig PARAMÉTER NÉLKÜL töltődött, ezért egy
+                megyei képernyőn a kerületi admin a TELJES kerülete hozzárendeléseit
+                látta. Mostantól a képernyőn látott egyházmegyére szűkít. */}
+            <ProfileCongregationsTab dioceseId={dioceseId} />
+          </div>
         </div>
       )}
 
@@ -568,6 +605,146 @@ function SectionIntro({
         <h2 className="font-heading text-lg text-slate-800">{title}</h2>
         <p className="text-sm text-slate-600 mt-0.5">{subtitle}</p>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Az egyházmegye VALÓDI szerepkör-listája (2026-08-22, 4. pont).
+ *
+ * Miért van: a „Szerepkörök" fül eddig a `profile_congregations` (könyvelői
+ * hozzárendelések) táblát mutatta — szerepkört nem. Ez a panel adja a hiányzó
+ * felét: a `profile_roles` sorokat, a KÉPERNYŐN LÁTOTT egyházmegyére szűrve.
+ *
+ * A hiba SOHA nem néma: a betöltési hiba látható dobozban jelenik meg
+ * „Újrapróbálom" gombbal — nem üres listaként. (A projekt visszatérő
+ * hibaosztálya: a néma üres lista „nincs adat"-ot hazudik a „nem tudjuk"
+ * helyett.)
+ *
+ * Színek: kizárólag téma-tokenek (`border-border`, `bg-card`, `text-foreground`,
+ * `text-muted-foreground`) — sötét módban is helyes, nincs hardcode-olt fehér.
+ */
+function DioceseRolesPanel({ dioceseId }: { dioceseId: string | null }) {
+  const [rows, setRows] = useState<DioceseProfileRoleRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    if (!dioceseId) {
+      setRows([])
+      setLoading(false)
+      setError(null)
+      return Promise.resolve()
+    }
+    setLoading(true)
+    setError(null)
+    return listProfileRolesForDiocese(dioceseId)
+      .then((res) => {
+        if (res.error) {
+          setError(res.error)
+          return
+        }
+        setRows(res.data ?? [])
+      })
+      .catch((e) =>
+        setError(e instanceof Error ? e.message : 'Ismeretlen hiba a szerepkörök betöltése közben.'),
+      )
+      .finally(() => setLoading(false))
+  }, [dioceseId])
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      void load()
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [load])
+
+  if (!dioceseId) {
+    return (
+      <div className="rounded-2xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+        Rendszergazdai összesített nézetben nincs kiválasztott egyházmegye, ezért a
+        szerepkör-lista nem szűkíthető. Válts egyházmegyei profilra, vagy használd a
+        rendszergazdai Szerepkörök felületet.
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-2xl border border-rose-200 bg-rose-50/60 p-4 dark:border-rose-900 dark:bg-rose-950/30">
+        <p className="text-sm font-semibold text-rose-800 dark:text-rose-200">
+          A szerepkörök betöltése nem sikerült
+        </p>
+        <p className="mt-1 text-sm text-rose-700 dark:text-rose-300">{error}</p>
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-rose-300 px-3 py-1.5 text-sm font-medium text-rose-800 transition hover:bg-rose-100 dark:border-rose-800 dark:text-rose-200 dark:hover:bg-rose-900/40"
+        >
+          <RefreshCw className="size-4" />
+          Újrapróbálom
+        </button>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-2" aria-busy="true">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-14 animate-pulse rounded-xl border border-border bg-muted/40" />
+        ))}
+      </div>
+    )
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-2xl border border-border bg-card p-4 text-sm text-muted-foreground">
+        Ehhez az egyházmegyéhez és a gyülekezeteihez még nincs rögzített szerepkör.
+      </div>
+    )
+  }
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border bg-card">
+      <ul className="divide-y divide-border">
+        {rows.map((r) => {
+          const nev = r.profile_full_name || r.profile_email || 'Névtelen felhasználó'
+          const szerep = r.role === 'custom' ? r.custom_label || ROLE_LABELS.custom : ROLE_LABELS[r.role]
+          const aktiv = r.active && r.approval_status === 'approved'
+          return (
+            <li key={r.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-4">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-foreground">{nev}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {szerep}
+                  {' · '}
+                  {SCOPE_LABELS[r.scope]}
+                  {r.scope_name ? `: ${r.scope_name}` : ''}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <span
+                  className={
+                    'rounded-full px-2 py-0.5 text-[11px] font-medium ' +
+                    (aktiv
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200'
+                      : 'bg-muted text-muted-foreground')
+                  }
+                >
+                  {APPROVAL_STATUS_LABELS[r.approval_status]}
+                </span>
+                {!r.active && r.approval_status === 'approved' && (
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    Inaktív
+                  </span>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }

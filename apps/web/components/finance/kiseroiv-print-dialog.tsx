@@ -35,6 +35,9 @@ interface KiseroivPrintDialogProps {
   allExpenses: KiadasRow[]
   bankAccounts: BankAccount[]
   congregationName: string
+  /** 2026-08-22 (6. pont): a kiállító hivatalos ROMÁN neve — a BORDEROU DE
+   *  PLĂȚI fejlécébe (a magyar név mellé). Ha nincs, csak a magyar áll ott. */
+  congregationNameRo?: string
   kiaCelMap: Record<number, string>
   cellek: SzamadasiCel[]
 }
@@ -52,6 +55,7 @@ export function KiseroivPrintDialog({
   allExpenses,
   bankAccounts,
   congregationName,
+  congregationNameRo,
   kiaCelMap,
   cellek,
 }: KiseroivPrintDialogProps) {
@@ -102,11 +106,12 @@ export function KiseroivPrintDialog({
         date,
         pageNumber,
         congregationName,
+        congregationNameRo,
         kiaCelMap,
         cellek,
         sourceLabel,
       }),
-    [expenses, date, pageNumber, congregationName, kiaCelMap, cellek, sourceLabel],
+    [expenses, date, pageNumber, congregationName, congregationNameRo, kiaCelMap, cellek, sourceLabel],
   )
 
   // 2026-07-17 (F3): RON-ekvivalens összeg — bit-azonos a nyomtatvány ronOf-jával

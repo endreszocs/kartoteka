@@ -44,6 +44,22 @@ type CongregationSummary = {
   id: string
   nev_hu: string | null
   name: string | null
+  /**
+   * 2026-08-23 (kisebb rések, 1.): a gyülekezet HIVATALOS ROMÁN neve
+   * (`congregations.nev_ro`) — a román nyomtatványok (Registru inventar, Lista
+   * de inventariere, Registru Casa…) fejlécébe.
+   *
+   * MIÉRT KELLETT IDE: a 6. pont a megyei és a kerületi szint román nevét
+   * bekötötte, a GYÜLEKEZETIT viszont nem — mert az egyetlen forrás, ez a
+   * lekérés, `nev_ro`-t nem olvasott. A `module-scope.ts` gyülekezeti ága ezért
+   * hardkódolt `null`-t adott, és a gyülekezeti leltár-ív ROMÁN fejléce magyar
+   * maradt.
+   *
+   * ⚠️ CSAK FELIRAT — jogosultságról soha nem dönt, és a hiánya SEM tilt: üres
+   * román névnél a magyar áll a lapon EGYEDÜL, sablon-kiegészítés nélkül
+   * (kitalált román nevet aláírható iratra SOHA nem írunk).
+   */
+  nev_ro: string | null
   cimer_url: string | null
   /** A gyülekezet egyházmegyéjének neve (header-chip secondary felirathoz). */
   diocese_name: string | null
@@ -74,6 +90,10 @@ export interface EffectiveOverrideInfo {
   active: boolean
   congregationId?: string
   congregationName?: string
+  /** 2026-08-23 (kisebb rések, 1.): a belépett gyülekezet ROMÁN neve — enélkül a
+   *  „Belépés a gyülekezetbe" úton a román ívek fejléce némán magyar maradna,
+   *  miközben a rendes gyülekezeti úton már kétnyelvű. Két úton EGY viselkedés. */
+  congregationNameRo?: string | null
   congregationLogo?: string | null
   remainingMinutes?: number
   expiresAt?: string | null
@@ -121,6 +141,18 @@ export interface EffectiveAccessContext {
   profileCongregationId: string | null
   effectiveCongregationId: string | null
   congregationName: string | null
+  /**
+   * 2026-08-23 (kisebb rések, 1.): a gyülekezet HIVATALOS ROMÁN neve
+   * (`congregations.nev_ro`), `null`, ha nincs rögzítve.
+   *
+   * A név a FELSŐ szinteken a `module-scope.ts` / `finance-scope.ts`
+   * `scopeNameRo` mezőjén át jut a nyomtatványokhoz; a gyülekezeti ág eddig
+   * itt szakadt meg (ez a lekérés `nev_ro`-t nem olvasott), ezért a gyülekezeti
+   * román leltár-fejléc magyar maradt.
+   *
+   * ⚠️ CSAK FELIRAT: jogosultságról soha nem dönt, és a hiánya SEM tilt.
+   */
+  congregationNameRo: string | null
   congregationLogo: string | null
   /** A gyülekezet egyházmegyéjének neve (header chip secondary felirathoz). */
   congregationDioceseName: string | null
@@ -171,9 +203,12 @@ async function getCongregationSummary(
 ): Promise<CongregationSummary | null> {
   if (!congregationId) return null
 
+  // 2026-08-23 (kisebb rések, 1.): a `nev_ro` IS jön. Az oszlop a `congregations`
+  // táblában 2026-07 óta létezik (a welcome-varázsló és a gyülekezeti alapadat-
+  // szerkesztő is írja), tehát ez nem „még nem futott le az SQL" eset.
   const { data } = await supabase
     .from('congregations')
-    .select('id, nev_hu, name, cimer_url, dioceses:diocese_id(name)')
+    .select('id, nev_hu, name, nev_ro, cimer_url, dioceses:diocese_id(name)')
     .eq('id', congregationId)
     .maybeSingle()
 
@@ -191,6 +226,9 @@ async function getCongregationSummary(
     id: data.id as string,
     nev_hu: (data.nev_hu as string | null) ?? null,
     name: (data.name as string | null) ?? null,
+    // Üres/whitespace-only érték = NINCS román név (a fejléc-építők ilyenkor a
+    // magyart írják ki egyedül) — a `''` némán „van, csak üres"-nek látszana.
+    nev_ro: ((data.nev_ro as string | null) ?? '').trim() || null,
     cimer_url: (data.cimer_url as string | null) ?? null,
     diocese_name: dioceseName,
   }
@@ -244,7 +282,7 @@ async function getActiveOverride(
 ): Promise<EffectiveOverrideInfo> {
   const { data } = await supabase
     .from('admin_access_requests')
-    .select('congregation_id, expires_at, congregations(id, nev_hu, name, cimer_url)')
+    .select('congregation_id, expires_at, congregations(id, nev_hu, name, nev_ro, cimer_url)')
     .eq('admin_user_id', userId)
     .eq('status', 'approved')
     .gt('expires_at', new Date().toISOString())
@@ -276,6 +314,9 @@ async function getActiveOverride(
     active: true,
     congregationId: overrideRow.congregation_id,
     congregationName: congregation?.nev_hu || congregation?.name || 'Ismeretlen',
+    // ⚠️ A román névnek NINCS „Ismeretlen" tartaléka: kitalált/helykitöltő román
+    // szöveg hivatalos, aláírható iratra nem kerülhet. Hiányzik → `null`.
+    congregationNameRo: (congregation?.nev_ro ?? '').trim() || null,
     congregationLogo: congregation?.cimer_url || null,
     remainingMinutes: calculateRemainingMinutes(overrideRow.expires_at),
     expiresAt: overrideRow.expires_at,
@@ -317,6 +358,7 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
       profileCongregationId: null,
       effectiveCongregationId: null,
       congregationName: null,
+      congregationNameRo: null,
       congregationLogo: null,
       congregationDioceseName: null,
       hasCongregation: false,
@@ -431,6 +473,9 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
           id: override.congregationId,
           nev_hu: override.congregationName || null,
           name: override.congregationName || null,
+          // 2026-08-23 (kisebb rések, 1.): a `getActiveOverride` már beolvassa —
+          // enélkül az admin-override úton a román fejléc némán magyar maradna.
+          nev_ro: override.congregationNameRo || null,
           cimer_url: override.congregationLogo || null,
           diocese_name: null,
         }
@@ -453,6 +498,7 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
     profileCongregationId,
     effectiveCongregationId,
     congregationName: congregation?.nev_hu || congregation?.name || null,
+    congregationNameRo: congregation?.nev_ro || null,
     congregationLogo: congregation?.cimer_url || null,
     congregationDioceseName: congregation?.diocese_name || null,
     hasCongregation: !!effectiveCongregationId,

@@ -3,8 +3,10 @@
  *
  * SZERVER-KOMPONENS — az ikonokat maga importálja.
  *
- * ⚠️ A 12 kártya és a sorrendjük VÁLTOZATLAN a korábbi felülethez képest: ez a
- * navigáció, itt az izommemória a legfontosabb. Ami ÚJ: ahol a fenti csempék
+ * ⚠️ A kártyák sorrendje VÁLTOZATLAN a korábbi felülethez képest: ez a
+ * navigáció, itt az izommemória a legfontosabb. (2026-08-22: a lista 12-ről
+ * 13-ra nőtt — a „Szervezeti áttekintő" a rács ELEJÉRE került, a többi kártya
+ * egymáshoz képesti sorrendje viszont érintetlen.) Ami ÚJ: ahol a fenti csempék
  * úgyis lekérték, ott a kártya kap egy kis, jobb felső sarki pirulát a saját
  * élő számával. Eddig EGYETLEN kártyán sem volt szám — a lelkésznek be kellett
  * lépnie mindegyikbe, hogy megtudja, van-e ott dolga.
@@ -43,10 +45,12 @@ import {
   Church,
   Database,
   Download,
+  FileLock2,
   Flame,
   History,
   Link2,
   LifeBuoy,
+  Network,
   PiggyBank,
   ShieldAlert,
   ShieldCheck,
@@ -65,6 +69,15 @@ interface Modul {
 }
 
 const MODULOK: ReadonlyArray<Modul> = [
+  // 2026-08-22 (7. pont): a rács ELSŐ eleme — ez a szervezet teljes térképe,
+  // a „Gyülekezetek" pedig az alatta lévő szint listája. Ugyanez a sorrend a
+  // bal oldalsáv admin almenüjében is.
+  {
+    href: '/admin/szervezet',
+    icon: Network,
+    label: 'Szervezeti áttekintő',
+    description: 'Egyházkerület → egyházmegye → egyházközség egy képernyőn.',
+  },
   {
     href: '/admin/gyulekezetek',
     icon: Church,
@@ -112,6 +125,15 @@ const MODULOK: ReadonlyArray<Modul> = [
     icon: PiggyBank,
     label: 'Rendszer pénzügyei',
     description: 'A platform pénzügyi forgalma, számlázás, határidők.',
+  },
+  // 2026-08-23 (adatvédelmi fedezet, 2. rész): érintetti kérelmek határidő-
+  // követéssel + ÁSZF-elfogadások. A sorrend a bal oldalsáv admin almenüjét
+  // követi: közvetlenül a „Rendszer pénzügyei" után.
+  {
+    href: '/admin/adatvedelem',
+    icon: FileLock2,
+    label: 'Adatvédelmi napló',
+    description: 'Érintetti kérelmek határidővel és ÁSZF-elfogadások — a GDPR bizonyítéka.',
   },
   {
     href: '/admin/rendszer',

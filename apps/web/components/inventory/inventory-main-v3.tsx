@@ -99,6 +99,12 @@ function leltarFeliratok(scope: LeltarScope): { cim: string; leiras: string } {
 
 interface InventoryMainProps {
   congregationName?: string
+  /**
+   * 2026-08-22 (6. pont): a hatókör hivatalos ROMÁN neve (`nev_ro`) — a ROMÁN
+   * leltár-ívek („Registru inventar", „Lista de inventariere") és a román
+   * nyelvre állított Fișa fejlécébe. Ha nincs, a magyar név áll ott EGYEDÜL.
+   */
+  congregationNameRo?: string
   /** 2026-05-25: ha true, "Rendszergazdai importáló" tab a sor végén (red-prominent). */
   showAdminImport?: boolean
   /** A Rendszergazdai importáló tab tartalma. */
@@ -139,6 +145,7 @@ type ActiveView = 'tab' | 'admin-import'
 
 export function InventoryMain({
   congregationName,
+  congregationNameRo,
   showAdminImport = false,
   adminImportContent,
   scope = 'congregation',
@@ -339,6 +346,7 @@ export function InventoryMain({
     } as InventoryItem
     return {
       congregationName: congregationName || 'Gyülekezet',
+      congregationNameRo,
       leltariSzam: editItem?.leltari_szam ?? null,
       regiLeltariSzam: editItem?.regi_leltari_szam ?? null,
       megnevezes: fMegnevezes,
@@ -360,7 +368,7 @@ export function InventoryMain({
       szerzo: editItem?.szerzo ?? null,
       konyvIsbn: editItem?.konyv_isbn ?? null,
     }
-  }, [congregationName, editItem, fBizonylat, fDatum, fErtek, fFelelos, fHasznalatiIdo, fHelyszin, fKategoria, fKatalogusKod, fMegj, fMegnevezes, fMennyiseg, fMertekegyseg])
+  }, [congregationName, congregationNameRo, editItem, fBizonylat, fDatum, fErtek, fFelelos, fHasznalatiIdo, fHelyszin, fKategoria, fKatalogusKod, fMegj, fMegnevezes, fMennyiseg, fMertekegyseg])
 
   // 2026-08-11: a bezáráskori ürítés ÁTKERÜLT eseménykezelőbe
   // (`handleDialogOpenChange`) — az effect törzsében hívott setState
@@ -392,6 +400,7 @@ export function InventoryMain({
     const entry = getInventoryAmortizationCatalogEntry(item.katalogus_kod)
     return {
       congregationName: congregationName || 'Gyülekezet',
+      congregationNameRo,
       leltariSzam: item.leltari_szam,
       regiLeltariSzam: item.regi_leltari_szam,
       megnevezes: item.megnevezes,
@@ -413,7 +422,7 @@ export function InventoryMain({
       szerzo: item.szerzo,
       konyvIsbn: item.konyv_isbn,
     }
-  }, [congregationName])
+  }, [congregationName, congregationNameRo])
 
   function handleRowFisaPrint(item: InventoryItem) {
     // A fisa a legutobb valasztott nyelven nyomtatodik (HU az alap).
@@ -1045,6 +1054,7 @@ export function InventoryMain({
         onOpenChange={setPrintDialogOpen}
         items={items}
         congregationName={congregationName}
+        congregationNameRo={congregationNameRo}
         visibleItemCount={filtered.length}
         filters={{
           categoryKey: categoryFilter ? (categoryFilter as InventoryCategory) : null,

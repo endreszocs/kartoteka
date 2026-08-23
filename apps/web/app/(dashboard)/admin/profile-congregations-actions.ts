@@ -3,7 +3,12 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
-import { assertCongregationInScope, getAdminDistrictScope, getScopedCongregationIds } from '@/lib/auth/admin-scope'
+import {
+  assertCongregationInScope,
+  darabolIdListat,
+  getAdminDistrictScope,
+  getScopedCongregationIdsResult,
+} from '@/lib/auth/admin-scope'
 import { canReadDioceseScope, resolveDioceseReadScopeIds } from '@/lib/auth/level-scope'
 
 /**
@@ -51,6 +56,17 @@ export async function listAssignments(options?: {
   congregationId?: string
   profileId?: string
   status?: 'pending' | 'approved' | 'rejected' | 'revoked'
+  /**
+   * 2026-08-22 (4/D): a KÉPERNYŐN LÁTOTT egyházmegyére szűrés.
+   *
+   * A megyei irányítópult „Szerepkörök" füle eddig PARAMÉTER NÉLKÜL hívta ezt a
+   * listázót, ezért egy kerületi admin egy MEGYEI képernyőn a TELJES kerülete
+   * hozzárendeléseit látta — a felirat és a tartalom széthúzott.
+   *
+   * Ez a szűrő SZŰKÍT, nem tágít: a hatókör-szűrővel METSZETET képez, tehát
+   * idegen megye azonosítójával sem lehet vele több adathoz jutni.
+   */
+  dioceseId?: string
 }): Promise<{ data?: AssignmentRow[]; error?: string }> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
@@ -68,26 +84,73 @@ export async function listAssignments(options?: {
 
   const supabase = access.supabase
 
-  let query = supabase
-    .from('profile_congregations')
-    .select(`
-      id, profile_id, congregation_id, role_scope, approval_status, approval_reason,
-      assigned_by, assigned_at, approved_at, approved_by, active,
-      revoked_at, revoked_by, revoked_reason,
-      profile:profiles!profile_congregations_profile_id_fkey(full_name, email, role),
-      congregation:congregations(nev_hu, name)
-    `)
-    .order('assigned_at', { ascending: false })
+  /**
+   * A lekérdezés ÚJRAÉPÍTHETŐ formában — a PostgREST-builder egyszer használatos,
+   * a 414-védelmi darabolás viszont darabonként egy-egy friss lekérdezést kér.
+   */
+  const buildQuery = (congIds?: string[]) => {
+    let q = supabase
+      .from('profile_congregations')
+      .select(`
+        id, profile_id, congregation_id, role_scope, approval_status, approval_reason,
+        assigned_by, assigned_at, approved_at, approved_by, active,
+        revoked_at, revoked_by, revoked_reason,
+        profile:profiles!profile_congregations_profile_id_fkey(full_name, email, role),
+        congregation:congregations(nev_hu, name)
+      `)
+    if (options?.congregationId) q = q.eq('congregation_id', options.congregationId)
+    if (options?.profileId) q = q.eq('profile_id', options.profileId)
+    if (options?.status) q = q.eq('approval_status', options.status)
+    // ⚠️ ÜRES tömbbel SOHA nem hívjuk (a hívó előbb kizárja): az `.in([])`
+    // lefutna, 0 sort adna, és HIBA NÉLKÜL néma üres listát mutatna. Fail-closed:
+    // ha valaha mégis idejutna, HANGOSAN dobunk, nem hazudunk „nincs adat"-ot.
+    if (congIds !== undefined) {
+      if (congIds.length === 0) {
+        throw new Error('Belső hiba: üres gyülekezet-szűrővel indult a hozzárendelés-lekérdezés.')
+      }
+      q = q.in('congregation_id', congIds)
+    }
+    return q.order('assigned_at', { ascending: false })
+  }
 
-  if (options?.congregationId) query = query.eq('congregation_id', options.congregationId)
-  if (options?.profileId) query = query.eq('profile_id', options.profileId)
-  if (options?.status) query = query.eq('approval_status', options.status)
+  /**
+   * A gyülekezet-szűrő. `null` = NINCS szűrés (korlátlan admin).
+   *
+   * ⚠️ HIBAOSZTÁLY, amit itt javítunk (2026-08-22): a korábbi kód
+   * `if (scopedCongIds) query = query.in(...)` volt. Az ÜRES TÖMB JS-ben
+   * TRUTHY, tehát az `.in([])` LEFUTOTT, 0 sort adott — HIBA NÉLKÜL. A képernyő
+   * azt állította, hogy „nincs hozzárendelés", miközben a valóság az volt, hogy
+   * a hatókört nem sikerült feloldani. Ezért az üres tömböt mostantól KÜLÖN
+   * kezeljük, és az okot BESZÉDES hibaüzenetben adjuk vissza.
+   */
+  let congIdFilter: string[] | null = null
 
   // #2: a KERÜLETI admin (de nem a teljes admin / nem az esperes-szintű) csak a
   // saját egyházkerülete gyülekezeteinek hozzárendeléseit lássa.
   if (access.egyhazkeruletiAdmin && !access.admin) {
-    const scopedCongIds = await getScopedCongregationIds(access)
-    if (scopedCongIds) query = query.in('congregation_id', scopedCongIds)
+    const keruletiScope = await getScopedCongregationIdsResult(access)
+    if (!keruletiScope.feloldhato) {
+      return {
+        error:
+          'Az egyházkerületi hatókörét most nem sikerült feloldani, ezért nem tudjuk megmutatni a hozzárendeléseket. ' +
+          'Próbálja újra; ha újra előjön, jelezze a rendszergazdának.' +
+          (keruletiScope.hiba ? ` (Részlet: ${keruletiScope.hiba})` : ''),
+      }
+    }
+    if (keruletiScope.indok === 'nincs_kerulet') {
+      return {
+        error:
+          'Nincs feloldható egyházkerületi hatóköre, ezért nem listázhatók a hozzárendelések. ' +
+          'Kérje a rendszergazdát, hogy állítsa be az egyházkerületét.',
+      }
+    }
+    if (keruletiScope.ids && keruletiScope.ids.length === 0) {
+      return {
+        error:
+          'Az egyházkerületéhez jelenleg egyetlen gyülekezet sincs hozzárendelve, ezért nincs mit listázni.',
+      }
+    }
+    congIdFilter = metszHatokort(congIdFilter, keruletiScope.ids)
   } else if (isDioceseLevel && !access.admin) {
     // 2026-08-09: az esperes / egyházmegyei admin ág eddig SZŰRETLENÜL futott
     // (csak az RLS korlátozta, ami bármikor elcsúszhat) — mostantól explicit
@@ -95,20 +158,59 @@ export async function listAssignments(options?: {
     // egyházmegye nélkül üres lista, nem szűretlen lekérdezés.
     // 2026-08-15 (S1, 0.3): a hatókör a SZEREP-SZŰRT olvasói feloldóból jön —
     // a tág feloldó az elavult skalárt szerep nélkül is bevette volna.
+    // 2026-08-22: a néma üres lista helyett BESZÉDES üzenet (lásd fent).
     const dioceseIds = resolveDioceseReadScopeIds(access)
-    if (dioceseIds.length === 0) return { data: [] }
+    if (dioceseIds.length === 0) {
+      return {
+        error:
+          'Nincs feloldható egyházmegyei hatóköre, ezért nem listázhatók a hozzárendelések. ' +
+          'Kérje a rendszergazdát, hogy állítsa be az egyházmegyéjét.',
+      }
+    }
     const { data: congs, error: congErr } = await supabase
       .from('congregations')
       .select('id')
       .in('diocese_id', dioceseIds)
     if (congErr) return { error: congErr.message }
     const congIds = (congs ?? []).map((c) => c.id as string)
-    if (congIds.length === 0) return { data: [] }
-    query = query.in('congregation_id', congIds)
+    if (congIds.length === 0) {
+      return {
+        error: 'Az egyházmegyéjéhez jelenleg egyetlen gyülekezet sincs hozzárendelve, ezért nincs mit listázni.',
+      }
+    }
+    congIdFilter = metszHatokort(congIdFilter, congIds)
   }
 
-  const { data, error } = await query
-  if (error) return { error: error.message }
+  // A KÉPERNYŐN LÁTOTT egyházmegye (opcionális) — METSZET a hatókörrel.
+  if (options?.dioceseId) {
+    const { data: megyeCongs, error: megyeErr } = await supabase
+      .from('congregations')
+      .select('id')
+      .eq('diocese_id', options.dioceseId)
+    if (megyeErr) return { error: megyeErr.message }
+    const megyeIds = (megyeCongs ?? []).map((c) => c.id as string)
+    // Itt az üres lista TÉNY, nem „nem tudjuk": a lekérdezés sikerült, és az
+    // egyházmegyéhez nem tartozik gyülekezet.
+    if (megyeIds.length === 0) return { data: [] }
+    congIdFilter = metszHatokort(congIdFilter, megyeIds)
+  }
+
+  // 414-VÉDELEM: a `.in()` szűrő az URL-be kerül, ezért 80-asával darabolunk, és
+  // a darabok eredményét fűzzük össze. Enélkül a fenti szűkítés a NÉMA ÜRES
+  // LISTÁT egy nagy kerületben 414-es HIBÁRA fordította volna át.
+  const nyersSorok: unknown[] = []
+  if (congIdFilter === null) {
+    const { data, error } = await buildQuery()
+    if (error) return { error: error.message }
+    nyersSorok.push(...(data ?? []))
+  } else {
+    if (congIdFilter.length === 0) return { data: [] }
+    for (const darab of darabolIdListat(congIdFilter)) {
+      const { data, error } = await buildQuery(darab)
+      if (error) return { error: error.message }
+      nyersSorok.push(...(data ?? []))
+    }
+  }
 
   type Row = {
     id: string
@@ -129,7 +231,7 @@ export async function listAssignments(options?: {
     congregation: { nev_hu: string | null; name: string | null } | { nev_hu: string | null; name: string | null }[] | null
   }
 
-  const rows: AssignmentRow[] = ((data ?? []) as unknown as Row[]).map((row) => {
+  const rows: AssignmentRow[] = (nyersSorok as Row[]).map((row) => {
     const profile = Array.isArray(row.profile) ? row.profile[0] : row.profile
     const cong = Array.isArray(row.congregation) ? row.congregation[0] : row.congregation
     return {
@@ -154,7 +256,23 @@ export async function listAssignments(options?: {
     }
   })
 
+  // A darabolás után a sorrendet ÚJRA elő kell állítani: az egyes darabok
+  // önmagukban rendezettek, az összefűzött lista viszont nem.
+  rows.sort((a, b) => (b.assigned_at || '').localeCompare(a.assigned_at || ''))
+
   return { data: rows }
+}
+
+/**
+ * Két hatókör-lista METSZETE. `null` = „nincs szűrés ezen a lábon", tehát a
+ * másik láb dönt. SOHA nem tágít — ez a szabály a legkönnyebben esik vissza egy
+ * későbbi refaktorban („logikusnak" tűnik uniózni).
+ */
+function metszHatokort(a: string[] | null, b: string[] | null): string[] | null {
+  if (a === null) return b === null ? null : [...b]
+  if (b === null) return [...a]
+  const halmaz = new Set(b)
+  return a.filter((x) => halmaz.has(x))
 }
 
 /**

@@ -105,6 +105,97 @@ export async function saveChitantaConfig(input: {
 }
 
 // ─────────────────────────────────────────────────────────────
+// 2026-08-22 (5. pont / 5b): JOGI SZEMÉLY befizető → CIF + székhely
+// ─────────────────────────────────────────────────────────────
+//
+// A TÜNET: a nyugta-sablonon KÉT külön CIF van — a fejlécé a KIÁLLÍTÓ
+// gyülekezeté (helyes), a törzs „CIF" sora a BEFIZETŐÉ (`klienesseg_cui`).
+// Ez utóbbit egyetlen élő felület sem töltötte ki, ezért ha a nyugta egy MÁSIK
+// egyházközségnek (jogi személynek) szólt, a hivatalos iraton mindig „—" állt.
+//
+// ⚠️ TÖRTÉNETI HŰSÉG — EZ A LÉNYEG: a partner CIF-je és székhelye a nyugtán
+//    PILLANATFELVÉTEL. Ezért ÉRTÉKKÉNT mentjük az `oblio_szamlak` sorba a
+//    kiállítás pillanatában, és SOHA nem futásidejű JOIN-nal olvassuk a
+//    nyomtatáskor. Ha később a partner adószáma vagy székhelye megváltozik, a
+//    MÁR KIADOTT, aláírt nyugta képe nem írható át visszamenőleg.
+//
+// ⚠️ FAIL-CLOSED PÁROSÍTÁS: a `forrasa` szabad szöveg, a párosítás EXAKT
+//    (kisbetűsített, ékezet- és szóköz-normalizált) egyezésre megy, és CSAK
+//    akkor ír CIF-et, ha PONTOSAN EGY jelölt van. Egy „majdnem jó" fuzzy
+//    találat egy hivatalos iratra HAMIS adószámot írna — az rosszabb, mint az
+//    üres mező. Bizonytalanságnál marad a mai viselkedés (a „—").
+
+/** Név-normalizálás a párosításhoz: kisbetű, ékezet nélkül, egy szóközzel. */
+function normalizaltNev(nev: string | null | undefined): string {
+  return String(nev || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** A jogi személy befizető bejegyzett SZÉKHELYE (nem lakcím!) egy sorban. */
+function szekhelyBol(c: { cim?: string | null; varos?: string | null }): string | null {
+  const cim = String(c.cim || '').trim()
+  const varos = String(c.varos || '').trim()
+  if (cim && varos && !cim.toLowerCase().includes(varos.toLowerCase())) return `${cim}, ${varos}`
+  return cim || varos || null
+}
+
+/**
+ * A `befizetes.forrasa` szabad szövegből egyházközség-partner feloldása.
+ *
+ * HATÓKÖR: a KIÁLLÍTÓ gyülekezet SAJÁT egyházmegyéjének gyülekezetei (a saját
+ * magát kizárva). Ez szándékosan szűk: (a) az egyházközségek közti pénzmozgás
+ * gyakorlatilag a megyén belül történik, (b) egy országos névkeresés minden
+ * gyülekezet adószámát és székhelyét kiadná egy sima nyugtanyomtatásnál.
+ *
+ * `null`-t ad, ha nincs egyértelmű találat vagy a partnernek nincs adószáma —
+ * ilyenkor a hívó a mai (magánszemélyes) viselkedést tartja meg.
+ */
+async function feloldJogiSzemelyBefizeto(
+  supabase: Awaited<ReturnType<typeof getEffectiveAccessContext>>['supabase'],
+  kiallitoCongregationId: string,
+  forrasa: string,
+): Promise<{ nev: string; cui: string; szekhely: string | null } | null> {
+  const cel = normalizaltNev(forrasa)
+  if (cel.length < 3) return null
+
+  const { data: sajat } = await supabase
+    .from('congregations')
+    .select('diocese_id')
+    .eq('id', kiallitoCongregationId)
+    .maybeSingle()
+  const dioceseId = (sajat as { diocese_id?: string | null } | null)?.diocese_id
+  if (!dioceseId) return null
+
+  const { data } = await supabase
+    .from('congregations')
+    .select('id, name, nev_hu, adoszam, cim, varos')
+    .eq('diocese_id', dioceseId)
+  const sorok = (data ?? []) as Array<{
+    id: string; name?: string | null; nev_hu?: string | null
+    adoszam?: string | null; cim?: string | null; varos?: string | null
+  }>
+  const jeloltek = sorok.filter(
+    (c) =>
+      String(c.id) !== kiallitoCongregationId &&
+      (normalizaltNev(c.name) === cel || normalizaltNev(c.nev_hu) === cel),
+  )
+  // Pontosan EGY jelölt — különben inkább üres marad a CIF (lásd a fenti MIÉRT-et).
+  if (jeloltek.length !== 1) return null
+  const p = jeloltek[0]
+  const cui = String(p.adoszam || '').trim()
+  if (!cui) return null
+  return {
+    nev: String(p.name || p.nev_hu || '').trim(),
+    cui,
+    szekhely: szekhelyBol(p),
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // Automata kiállítás egy meglévő befizetéshez (gyors nyomtatáshoz)
 // ─────────────────────────────────────────────────────────────
 
@@ -192,6 +283,32 @@ export async function autoIssueChitantaForBefizetes(
   if (!befizetoNev && typeof befizetes.forrasa === 'string') {
     befizetoNev = befizetes.forrasa.trim()
   }
+
+  // 2026-08-22 (5b): JOGI SZEMÉLY befizető → CIF + BEJEGYZETT SZÉKHELY.
+  // CSAK akkor próbálkozunk, ha a befizetés SEM személyhez, SEM családhoz nincs
+  // kötve — azaz szabad szöveges „forrasa"-val jött. Magánszemélynél a
+  // viselkedés BYTE-AZONOS a mai állapottal (nincs CIF, a lakcím marad).
+  let befizetoCui: string | null = null
+  if (
+    !befizetes.id_szemely &&
+    !befizetes.id_csalad &&
+    typeof befizetes.forrasa === 'string' &&
+    befizetes.forrasa.trim()
+  ) {
+    const partner = await feloldJogiSzemelyBefizeto(
+      access.supabase,
+      access.effectiveCongregationId,
+      befizetes.forrasa,
+    )
+    if (partner) {
+      befizetoNev = partner.nev || befizetoNev
+      befizetoCui = partner.cui
+      // A SZÉKHELY felülírja a (magánszemélyre szabott) cím-mezőt — jogi
+      // személynél a nyugtára a bejegyzett székhely való, nem lakcím.
+      befizetoCim = partner.szekhely
+    }
+  }
+
   if (!befizetoNev) befizetoNev = 'Gyülekezeti tag'
 
   // 3. Számadási cél neve — a reprezentand mezőhöz (magyar + román)
@@ -261,6 +378,10 @@ export async function autoIssueChitantaForBefizetes(
       szamla_datum: szamlaDatum,
       klienesseg_nev: befizetoNev,
       klienesseg_cim: befizetoCim,
+      // ⚠️ PILLANATFELVÉTEL: a partner adószáma ÉRTÉKKÉNT mentődik a nyugta
+      // sorába. A nyomtatás SOHA nem olvashatja futásidejű JOIN-nal, különben
+      // egy későbbi CIF-változás visszamenőleg átírná a már kiadott nyugtát.
+      klienesseg_cui: befizetoCui,
       osszeg_net: osszeg,
       osszeg_brut: osszeg,
       osszeg_tva: 0,

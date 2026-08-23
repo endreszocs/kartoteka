@@ -3,15 +3,26 @@
  * RÉSZSZÁMADÁS önellenőrzés — build/tesztkeret nélkül futtatható
  * (a selftest-print-columns.mjs mintájára).
  *
- * A node_modules-beli `typescript`-tel CommonJS-re transpile-olja KÉT forrást
+ * A node_modules-beli `typescript`-tel CommonJS-re transpile-olja a forrásokat
  * egy temp könyvtárba, és assertekkel ellenőrzi:
  *
  *   packages/core/src/finance/reszszamadas/period-balances.ts   (tiszta mag)
  *   packages/ui-app/src/finance/budget-reporting.ts             (nyomtatvány)
+ *   packages/ui-app/src/finance/entity-name.ts                  (közös helper)
  *
- * Mindkét fájl NULLA futásidejű importtal készül (a budget-reporting csak
- * `import type`-ot használ, amit a transpiler kidob) — ezért fordíthatók
- * önállóan, bundler nélkül.
+ * ⚠️ 2026-08-22 (6. pont) — MIÉRT VAN ITT AZ `entity-name` IS:
+ * a `budget-reporting.ts` korábban NULLA futásidejű importtal készült (csak
+ * `import type`-ot használt, amit a transpiler kidob), ezért önállóan fordult.
+ * A román nyomtatvány-kör óta viszont VALÓDI, futásidejű importja van a közös
+ * kétnyelvű név-építőre (`./entity-name`). Ezért azt is le kell fordítani —
+ * UGYANEBBE a temp könyvtárba, hogy a relatív `require('./entity-name')`
+ * magától feloldódjon.
+ *
+ * A pótlék NEM hamisítvány: a VALÓDI, lefordított modul kerül oda, tehát a
+ * mérce továbbra is a teljes láncot méri. A lenti fail-closed őr éle is
+ * megmarad: az kizárólag a CSOMAGNÉV-importokat (`require("valami")`) tiltja,
+ * a relatívakat (`require("./valami")`) nem — vagyis ha valaha egy bundler-t
+ * igénylő függőség kerülne a fájlba, továbbra is ITT bukna el.
  *
  * A LEGFONTOSABB ÁLLÍTÁS (Y0):
  *   Egy 01-01 – 12-31 időszakra kiadott RÉSZSZÁMADÁS SZÁMAI PONTOSAN
@@ -31,6 +42,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
 const PERIOD_SRC = path.join(REPO_ROOT, 'packages', 'core', 'src', 'finance', 'reszszamadas', 'period-balances.ts')
 const REPORT_SRC = path.join(REPO_ROOT, 'packages', 'ui-app', 'src', 'finance', 'budget-reporting.ts')
+const ENTITY_SRC = path.join(REPO_ROOT, 'packages', 'ui-app', 'src', 'finance', 'entity-name.ts')
 
 let failed = false
 const fail = (msg) => {
@@ -39,7 +51,7 @@ const fail = (msg) => {
 }
 const ok = (msg) => console.log(`OK:   ${msg}`)
 
-for (const f of [PERIOD_SRC, REPORT_SRC]) {
+for (const f of [PERIOD_SRC, REPORT_SRC, ENTITY_SRC]) {
   if (!fs.existsSync(f)) {
     fail(`hiányzik a forrás: ${f}`)
     process.exit(1)
@@ -81,6 +93,10 @@ function loadTs(srcFile, outName) {
 let periodMod, reportMod
 try {
   periodMod = loadTs(PERIOD_SRC, 'period-balances')
+  // Az `entity-name` ELŐBB kell, mint a `budget-reporting`: az utóbbi
+  // futásidőben `require('./entity-name')`-t hív, ami ugyanebben a temp
+  // könyvtárban oldódik fel.
+  loadTs(ENTITY_SRC, 'entity-name')
   reportMod = loadTs(REPORT_SRC, 'budget-reporting')
 } catch (e) {
   fail(`transpile/betöltés hiba: ${e?.message || e}`)

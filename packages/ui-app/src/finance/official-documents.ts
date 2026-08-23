@@ -12,6 +12,7 @@
  */
 
 import { formatRon, ronInWordsDispozitie } from './ron-in-words'
+import { hivatalosKetnyelvuNev } from './entity-name'
 
 function esc(value: unknown): string {
   return String(value ?? '')
@@ -41,6 +42,17 @@ export interface DecontDocItem {
 
 export interface DecontDocData {
   congregationName: string
+  /**
+   * 2026-08-22 (6. pont): a kiállító hivatalos ROMÁN neve (`nev_ro`) — a
+   * DECONT DE CHELTUIELI „Unitate" sávjába, a magyar név mellé. A lap végig
+   * kétnyelvű (a hivatalos `Elszamolas_2026.xlsx` mintája szerint), csak az
+   * EGYSÉG megnevezése volt eddig magyar-egyedüli: román név-ág nem is létezett
+   * ezen az íven.
+   *
+   * ⚠️ OPCIONÁLIS, hogy a desktop hívói ne törjenek; ha üres, a magyar név áll
+   * ott EGYEDÜL — sablon-kiegészítés nélkül, kitalált román név NÉLKÜL.
+   */
+  congregationNameRo?: string
   sorszam: number | string
   date: string // yyyy-mm-dd — a decont (könyvelési) dátuma
   personName: string
@@ -128,7 +140,10 @@ export function buildDecontHtml(d: DecontDocData): string {
     .decl .date { float: right; font-weight: bold; }
   </style></head>
   <body><div class="sheet">
-    <div class="unit-band">&nbsp;${esc(d.congregationName)}</div>
+    <!-- 2026-08-22 (6. pont): az EGYSÉG megnevezése kétnyelvű (magyar / román).
+         A „Unitate - Egység" felirat HIVATALOS elem (Elszamolas_2026.xlsx:1416) —
+         nem cserélhető és nem törölhető; csak a NÉV egészült ki. -->
+    <div class="unit-band">&nbsp;${esc(hivatalosKetnyelvuNev(d.congregationName, d.congregationNameRo))}</div>
     <div class="unit-label">Unitate - Egység</div>
 
     <div class="title">DECONT DE CHELTUIELI<br/>ELSZÁMOLÁS</div>
@@ -316,6 +331,12 @@ export interface DecontIncasareItem {
 
 export interface DecontIncasareDocData {
   congregationName: string
+  /**
+   * 2026-08-22 (6. pont): a kiállító hivatalos ROMÁN neve (`nev_ro`) — a
+   * DECONT DE ÎNCASĂRI „Unitate" sávjába, a magyar név mellé. OPCIONÁLIS; ha
+   * üres, a magyar név áll ott egyedül (kitalált román nevet SOHA nem írunk).
+   */
+  congregationNameRo?: string
   date: string // yyyy-mm-dd — a könyvelés dátuma
   category: string // közös bevétel-jogcím (pl. Egyházfenntartás)
   note: string // pl. „Utólag elszámolt nyugták"
@@ -370,7 +391,9 @@ export function buildDecontIncasareHtml(d: DecontIncasareDocData): string {
     .decl .date { float: right; font-weight: bold; }
   </style></head>
   <body><div class="sheet">
-    <div class="unit-band">&nbsp;${esc(d.congregationName)}</div>
+    <!-- 2026-08-22 (6. pont): kétnyelvű egység-megnevezés (a „Unitate - Egység"
+         felirat maga HIVATALOS elem, változatlan). -->
+    <div class="unit-band">&nbsp;${esc(hivatalosKetnyelvuNev(d.congregationName, d.congregationNameRo))}</div>
     <div class="unit-label">Unitate - Egység</div>
 
     <div class="title">DECONT DE ÎNCASĂRI<br/>BEVÉTELI ELSZÁMOLÁS</div>

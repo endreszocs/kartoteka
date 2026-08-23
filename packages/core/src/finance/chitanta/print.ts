@@ -153,9 +153,12 @@ export async function getChitantaForPrintUseCase(
     // HIBAOSZTÁLY: „rossz select → némán ÜRES eredmény". Csak a ténylegesen
     // létező oszlopokat kérjük.
     //
-    // TODO (S2 + S6 szelet): amint a `districts` megkapja a hivatalos
-    // identitását (`nev_ro`), a kerületi román nevet ITT kell bekötni —
-    // ugyanígy, `dd.nev_ro`-ként.
+    // 2026-08-22 (6. pont) — A FENTI TODO LEZÁRVA. Az S2 szelet 2026-08-16-án
+    // LEFUTOTT: a `districts` megkapta a `nev_ro` oszlopot, tehát a kerületi
+    // román nevet innentől az ADAT adja. Addig itt hardkódolt `null` állt, a
+    // hiányt pedig a webes sablon TALÁLGATÁSSAL pótolta (a háttér-címerből
+    // következtetett kerületnevet írt a hivatalos bizonylatra) — kitalált adat
+    // egy aláírható, sorszámozott nyugtán.
     if (cong?.diocese_id) {
       const { data: diocese } = await ctx.supabase
         .from('dioceses')
@@ -170,14 +173,16 @@ export async function getChitantaForPrintUseCase(
         if (districtId) {
           const { data: district } = await ctx.supabase
             .from('districts')
-            .select('name')
+            .select('name, nev_ro')
             .eq('id', districtId)
             .maybeSingle()
           if (district) {
             const dd = district as Record<string, string | null>
             egyhazkeruletNev = dd.name ?? null
-            // A kerületi ROMÁN nevet az S2 szelet hozza meg (districts.nev_ro).
-            egyhazkeruletNevRo = null
+            // 2026-08-22 (6. pont): a kerület HIVATALOS román neve — az S2 óta
+            // létező `districts.nev_ro`-ból. Ha nincs kitöltve, `null` marad,
+            // és a sablon a román sort ELHAGYJA (nem talál ki nevet).
+            egyhazkeruletNevRo = dd.nev_ro ?? null
           }
         }
       }

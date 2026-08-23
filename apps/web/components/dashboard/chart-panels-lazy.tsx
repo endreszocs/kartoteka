@@ -10,10 +10,10 @@
  * volna. A két panel a KPI-csempék és a hármas sor ALATT ül, tehát telefonon
  * jellemzően nem is látszik az első képernyőn.
  *
- * A minta a repóban már bevált (AiChatWidgetLazy, AdminImportLazy,
- * FullBackupPanelClient, member-tabs-v4 next/dynamic fülei): vékony
- * `'use client'` burkoló + `next/dynamic`, mert az `ssr: false` szerver-
- * komponensből (dashboard/page.tsx) nem adható meg.
+ * A minta a repóban már bevált (AdminImportLazy, FullBackupPanelClient,
+ * member-tabs-v4 next/dynamic fülei): vékony `'use client'` burkoló +
+ * `next/dynamic`, mert az `ssr: false` szerver-komponensből
+ * (dashboard/page.tsx) nem adható meg.
  *
  * A `loading` vázak MÉRETTARTÓK: ugyanaz a `card-raised` keret és magasság,
  * mint a kész panelé, így nincs elrendezés-ugrás (CLS) — sem a hármas sorban,

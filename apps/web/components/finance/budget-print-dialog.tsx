@@ -12,10 +12,12 @@
  */
 
 import { useCallback, useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   BudgetPrintDialogBody,
   type BudgetPrintFilters,
+  type BudgetPrintToastKind,
   type PrintReport,
   // 2026-08-15 (átvilágítás 15.): a borító iktató-/határozat-mezőinek KÖZÖS
   // leképezése — ugyanaz, amit a Pénzügyi nyomtatási központ is használ.
@@ -68,6 +70,101 @@ function magyarazoElonezet(cim: string, uzenet: string): PrintReport {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// 2026-08-23 (kisebb rések, 4.) — HIÁNYZÓ ROMÁN NÉV: FIGYELMEZTETÉS, NEM KAPU
+// ════════════════════════════════════════════════════════════════════════════
+//
+// A TÉNY (Endre ellenőrző SQL-je, 2026-08-22): MIND A 25 egyházmegyének ÜRES a
+// `nev_ro` mezője. A 6. pont bekötötte a román neveket a nyomtatványokba, de ha
+// nincs mit kiírni, a fejléc-építő (`hivatalosKetnyelvuNev`) a MAGYAR nevet írja
+// ki egyedül — helyesen, mert kitalált román nevet aláírható iratra soha nem
+// teszünk. A felhasználó viszont ezt eddig SEHOL nem látta előre: csak a kész,
+// kinyomtatott papíron derült ki.
+//
+// ⛔⛔ EZ CSAK FIGYELMEZTETÉS LEHET, SOHA NEM TILTÓ KAPU. ⛔⛔
+// A `finance-print-dialog.tsx` `nevHianyzik` blokkjának kommentje ezt
+// KIFEJEZETTEN megtiltja („⛔ NE »szimmetrizáld« ezt a következő körben: az
+// hármas viselkedés-változás volna élő, aláírt iratokon"). Az indoklás ott áll
+// részletesen; a lényeg: a román név OPCIONÁLIS mező, a magyar a kötelező —
+// egy tiltó kapu az opcionálison kizárná mind a 25 egyházmegyét a saját
+// hivatalos ívéből. A `scripts/selftest-kerulet-nyomtatvany.mjs` K11 mércéje
+// ezt NEGATÍV ASSZERTTEL is őrzi: ha valaki kapuvá alakítja, a merce bukik.
+
+/** A kiállító szintjének magyar megnevezése — a figyelmeztetés szövegéhez. */
+const SZINT_MEGNEVEZES: Record<PrintScope, string> = {
+  congregation: 'gyülekezet',
+  diocese: 'egyházmegye',
+  district: 'egyházkerület',
+}
+
+/** Üres/whitespace-only román név = NINCS román név. */
+export function romanNevHianyzik(nevRo: string | null | undefined): boolean {
+  return String(nevRo ?? '').trim().length === 0
+}
+
+/**
+ * ⛔ A NYOMTATÁST TILTÓ egyetlen név-kapu: a KIÁLLÍTÓ MAGYAR neve hiányzik.
+ *
+ * Mind a két nyomtatási központ EZT hívja — enélkül a két ablak külön-külön
+ * másolta ugyanezt a feltételt, és egy későbbi javítás csak az egyikben
+ * jelent volna meg (a projekt visszatérő „két felület némán széthúz" hibája).
+ *
+ * ⚠️ SZÁNDÉKOSAN ASZIMMETRIKUS: a ROMÁN nevet NEM nézi. Lásd a fenti blokkot.
+ */
+export function kiallitoNeveHianyzik(scope: PrintScope | null, nevHu: string): boolean {
+  return scope === 'district' && String(nevHu ?? '').trim().length === 0
+}
+
+/**
+ * A figyelmeztetés szövege, vagy `null`, ha nincs mire figyelmeztetni.
+ *
+ * Mind a három szintre (gyülekezet, egyházmegye, egyházkerület) érvényes, és
+ * CSAK akkor ad szöveget, ha a román név tényleg hiányzik.
+ */
+export function romanNevFigyelmeztetes(
+  scope: PrintScope | null,
+  nevHu: string,
+  nevRo: string | null | undefined,
+): string | null {
+  // Nyomtatvány-ág nélküli (jövőbeli) szint: ott a TILTÓ magyarázó előnézet
+  // beszél — egy név-figyelmeztetés csak elterelné a figyelmet.
+  if (scope === null) return null
+  if (!romanNevHianyzik(nevRo)) return null
+  const szint = SZINT_MEGNEVEZES[scope]
+  const megnevezes = String(nevHu ?? '').trim()
+  const alany = megnevezes ? `A(z) „${megnevezes}"` : `A kiállító ${szint}`
+  return (
+    `${alany} hivatalos ROMÁN neve nincs kitöltve, ezért a román nyelvű ` +
+    'nyomtatványokon a MAGYAR név fog szerepelni. Pótolni a ' +
+    `${szint} alapadatainál, a beállításoknál lehet. ` +
+    'A nyomtatás emiatt nem áll meg: a program szándékosan nem talál ki román ' +
+    'nevet, mert az hamis adat volna egy aláírható hivatalos iraton.'
+  )
+}
+
+/**
+ * A figyelmeztetés SÁVJA — mindkét nyomtatási központ ugyanezt rendereli.
+ * `null` üzenetnél semmit nem rajzol (nincs üres, zavaró doboz).
+ *
+ * Sötét mód: kizárólag `dark:` variánsokkal párosított színek, nincs hardcode-olt
+ * fehér háttér. Mobil: a szöveg tördel, az ikon nem zsugorodik el.
+ */
+export function RomanNevFigyelmeztetesSav({ uzenet }: { uzenet: string | null }) {
+  if (!uzenet) return null
+  return (
+    <div
+      role="status"
+      className="mb-4 flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-3 sm:p-4 dark:border-amber-400/40 dark:bg-amber-950/40"
+    >
+      <AlertTriangle
+        className="mt-0.5 size-5 shrink-0 text-amber-700 dark:text-amber-300"
+        aria-hidden
+      />
+      <p className="min-w-0 text-sm leading-relaxed text-amber-900 dark:text-amber-100">{uzenet}</p>
+    </div>
+  )
+}
+
 /**
  * A kiválasztott év `bealitas` sorának betöltési állapota.
  *
@@ -117,6 +214,11 @@ interface BudgetPrintDialogProps {
   scope?: PrintScope
   /** Az egyházkerület neve a megyei borító felső blokkjához. */
   districtName?: string | null
+  /** 2026-08-22 (6. pont): a felettes egyházkerület hivatalos ROMÁN neve
+   *  (`districts.nev_ro`) — a MEGYEI borító felső blokkjába, a korábbi
+   *  hardkódolt „EPARHIA REFORMATĂ" helyett. Ha nincs román név, a mai
+   *  sablonszöveg marad (kitalált NÉV nem kerül a lapra). */
+  districtNameRo?: string | null
 }
 
 export function BudgetPrintDialog({
@@ -135,6 +237,7 @@ export function BudgetPrintDialog({
   currentYear,
   scope = 'congregation',
   districtName,
+  districtNameRo,
 }: BudgetPrintDialogProps) {
   // ⛔ A NYOMTATVÁNY-réteg (borító-építő + terv-sor betöltő) által ISMERT
   // hatókör. `null` = erre a szintre még nincs ív → a dialógus MAGYARÁZ, nem
@@ -153,7 +256,16 @@ export function BudgetPrintDialog({
   // élesben fut, és a megbízás szerint BYTE-RA változatlan marad — egy új kapu
   // ott akkor is viselkedés-változás volna, ha csak egy elfajult esetben süt el.
   // (Ugyanez a néma üres-név út a megyénél is megvan; jelentve, nem javítva.)
-  const nevHianyzik = scope === 'district' && congregationName.trim().length === 0
+  // 2026-08-23 (kisebb rések, 4.): a feltétel KÖZÖS helperbe költözött
+  // (`kiallitoNeveHianyzik`) — a Pénzügyi nyomtatási központ UGYANEZT hívja,
+  // hogy a két ablak ne húzhasson szét. A viselkedés BYTE-RA azonos:
+  // `nyomtatvanyScope('district') === 'district'`, tehát a `keszScope`-os alak a
+  // `scope === 'district'` pontos megfelelője.
+  const nevHianyzik = kiallitoNeveHianyzik(keszScope, congregationName)
+
+  // 2026-08-23 (kisebb rések, 4.): FIGYELMEZTETÉS (nem kapu) a hiányzó román
+  // névre. `null`, ha van román név — akkor semmi nem jelenik meg.
+  const romanFigyelmeztetes = romanNevFigyelmeztetes(keszScope, congregationName, congregationNameRo)
 
   // Tényleges adatok aggregálása szamadasicel kódonként.
   // 2026-08-11 (6. kör): a részszámadás INNEN KIKERÜLT (a FinancePrintDialogba
@@ -281,12 +393,155 @@ export function BudgetPrintDialog({
         ? (evBeallitas.sor ?? (evBeallitas.ev === currentYear ? settings : null))
         : null
 
+  // ── 2026-08-22 (8. pont): STABIL callback-referenciák ────────────────────
+  //
+  // MI VOLT A ROSSZ: az `onToast` és a `buildReport` INLINE nyíl-függvényként
+  // ment át, tehát MINDEN renderben új identitást kapott. A közös Body
+  // betöltő-effektje az `onToast`-ot a deps közt figyelte, a betöltő callback
+  // pedig ennek a komponensnek a state-jét írta (`setEvBeallitas`, lentebb) —
+  // vagyis a betöltés saját magát indította újra: villogó „Adatok betöltése…"
+  // felirat és VÉGTELEN hálózati kérés-sorozat. (A Body ref-mintája ma már
+  // önmagában is elvágja a kört; ez a memoizálás a másik oldalról zárja.)
+  //
+  // ⚠️ A deps-lista TELJES. Egy hiányzó dep itt nem „optimalizálás", hanem
+  //    BEFAGYASZTOTT ELŐNÉZET: a nyomtatvány egy régi `evBeallitas`/`settings`
+  //    állapottal készülne — pontosan az a hamis hivatalos ív, ami ellen a
+  //    fenti év-scope-olt betöltés készült. A `sonner` `toast` modul-szintű
+  //    import, tehát az `onToast`-nak nincs függősége.
+  const onToast = useCallback((msg: string, kind: BudgetPrintToastKind) => {
+    if (kind === 'error') toast.error(msg)
+    else if (kind === 'success') toast.success(msg)
+    else if (kind === 'warning') toast.warning(msg)
+    else toast(msg)
+  }, [])
+
+  const onClose = useCallback(() => onOpenChange(false), [onOpenChange])
+
+  const onPrintToBrowser = useCallback((html: string) => printToBrowser(html), [])
+
+  const onPrintToPdf = useCallback(
+    (
+      html: string,
+      filename: string,
+      options?: { orientation?: 'portrait' | 'landscape'; margin?: number[]; format?: string },
+    ) =>
+      printToPdf(html, filename, {
+        orientation: options?.orientation,
+        margin: options?.margin,
+        format: options?.format,
+      }),
+    [],
+  )
+
+  const buildReport = useCallback(
+    (filters: BudgetPrintFilters): PrintReport => {
+      // ⛔ Nyomtatvány-ág nélküli (jövőbeli) szint: itt ÁLLUNK MEG — a
+      // `blocked: true` a gombokat is letiltja. Ha átengednénk, a borító
+      // egy MÁSIK szint fejlécét írná az adatok fölé, és azt valaki
+      // aláírná. (2026-08-22 óta a kerület már NEM ilyen szint.)
+      if (keszScope === null) {
+        return magyarazoElonezet(NINCS_NYOMTATVANY_AG_CIM, NINCS_NYOMTATVANY_AG_UZENET)
+      }
+      // ⛔ Kiállító neve nélkül nincs ív (lásd a `nevHianyzik` indoklását).
+      if (nevHianyzik) {
+        return magyarazoElonezet(KIALLITO_NEVE_HIANYZIK_CIM, KIALLITO_NEVE_HIANYZIK_UZENET)
+      }
+
+      const isSzamadas = filters.printType === 'szamadas'
+
+      // 2026-08-15 (átvilágítás 13.): a véglegesítés-állapot és a
+      // presbitériumi határozat a KIVÁLASZTOTT évé.
+      //  - betöltött sor az évre → azt használjuk (akkor is, ha `null`:
+      //    az évhez nincs beállítás-sor, tehát nincs is véglegesítés);
+      //  - a folyó évnél a props-beli `settings` PONTOSAN ez a sor, így
+      //    az első megnyitáskor (még betöltés előtt) is helyes;
+      //  - minden más esetben (más év, még tölt / hibára futott) NEM
+      //    tippelünk: magyarázó előnézet megy, nem hamis borító.
+      const betoltott =
+        evBeallitas && evBeallitas.ev === filters.selectedYear ? evBeallitas : null
+      let evSettings: BealitasRow | null
+      if (betoltott) {
+        if (betoltott.allapot === 'hiba') {
+          // 2026-08-22 (kerületi S6): a MIÉRT szerint MÁS a szöveg. A
+          // `'nincs_nyomtatvany_ag'` nem múlik el magától (nincs ilyen
+          // szintű ív), ezért ott az „próbáld újra" tanács félrevezető —
+          // eddig mindkét ok ugyanezt a hálózati szöveget kapta.
+          if (betoltott.hibaOk === 'nincs_nyomtatvany_ag') {
+            return magyarazoElonezet(NINCS_NYOMTATVANY_AG_CIM, NINCS_NYOMTATVANY_AG_UZENET)
+          }
+          return magyarazoElonezet(
+            'Ez a nyomtatvány most nem készíthető el',
+            `A(z) ${filters.selectedYear}. évi pénzügyi beállítások (véglegesítés, presbitériumi határozat) nem tölthetők be, ezért a borító hibás adatokkal készülne. Ellenőrizd az internetkapcsolatot, és próbáld újra. Ha újra ezt írja, jelezd a rendszergazdának.`,
+          )
+        }
+        // Ha az évhez nincs `bealitas` sor, de ez ÉPP az oldal éve, a
+        // props-beli sor a mérvadó: azt a szerver oldotta fel (egyházmegyei
+        // nézetben a `diocese_bealitas`-ból, ahol a fenti lekérés nem talál).
+        evSettings =
+          betoltott.sor ?? (filters.selectedYear === currentYear ? settings : null)
+      } else if (filters.selectedYear === currentYear) {
+        evSettings = settings
+      } else {
+        return magyarazoElonezet(
+          'A nyomtatvány készül',
+          `A(z) ${filters.selectedYear}. évi pénzügyi beállítások betöltése folyamatban van. Egy pillanat, és megjelenik az előnézet.`,
+        )
+      }
+
+      const finalized = isSzamadas
+        ? !!evSettings?.accounting_finalized
+        : !!evSettings?.budget_finalized
+      const printData: BudgetPrintData = {
+        cellek,
+        budgetRows: filters.budgetRows,
+        actualIncome: filters.actualIncome,
+        actualExpense: filters.actualExpense,
+        congregationName,
+        congregationNameRo,
+        // 2026-08-15 (terv 2.1/3): a borító feliratai a KIÁLLÍTÓ szintjét
+        // követik — megyei íven egyházkerületi blokk, egyházmegyei
+        // iktatószám, közgyűlési határozat.
+        printScope: keszScope,
+        districtName,
+        districtNameRo,
+        year: filters.selectedYear,
+        carryoverCash,
+        carryoverBank,
+        finalized,
+        // 2026-08-15 (átvilágítás 15.): eddig CSAK a `finalized` zászló ment
+        // át a borító-építőnek, ezért a véglegesített ív „Tárgyalta és
+        // jóváhagyta a presbitérium…" sora ÜRESEN maradt — miközben a
+        // határozat száma és dátuma a `bealitas` sorban ott volt.
+        ...hivatalosHatarozatMezok(evSettings, isSzamadas ? 'szamadas' : 'koltsegvetes'),
+      }
+      return buildBudgetPrintDocument(filters.printType, printData)
+    },
+    [
+      keszScope,
+      nevHianyzik,
+      evBeallitas,
+      currentYear,
+      settings,
+      cellek,
+      congregationName,
+      congregationNameRo,
+      districtName,
+      districtNameRo,
+      carryoverCash,
+      carryoverBank,
+    ],
+  )
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[96dvh] overflow-y-auto sm:max-w-7xl">
         <DialogHeader className="sticky top-0 z-10 bg-background pb-2">
           <DialogTitle>Költségvetés és számadás nyomtatási központ</DialogTitle>
         </DialogHeader>
+
+        {/* ⛔ FIGYELMEZTETÉS, NEM KAPU: a nyomtatás emiatt SOHA nem tiltható le
+            (lásd a `romanNevFigyelmeztetes` fölötti blokkot). */}
+        <RomanNevFigyelmeztetesSav uzenet={romanFigyelmeztetes} />
 
         <BudgetPrintDialogBody
           open={open}
@@ -303,102 +558,11 @@ export function BudgetPrintDialog({
           accountingFinalized={!!panelBeallitas?.accounting_finalized}
           computeActuals={computeActuals}
           onLoadBudgetRows={onLoadBudgetRows}
-          buildReport={(filters: BudgetPrintFilters) => {
-            // ⛔ Nyomtatvány-ág nélküli (jövőbeli) szint: itt ÁLLUNK MEG — a
-            // `blocked: true` a gombokat is letiltja. Ha átengednénk, a borító
-            // egy MÁSIK szint fejlécét írná az adatok fölé, és azt valaki
-            // aláírná. (2026-08-22 óta a kerület már NEM ilyen szint.)
-            if (keszScope === null) {
-              return magyarazoElonezet(NINCS_NYOMTATVANY_AG_CIM, NINCS_NYOMTATVANY_AG_UZENET)
-            }
-            // ⛔ Kiállító neve nélkül nincs ív (lásd a `nevHianyzik` indoklását).
-            if (nevHianyzik) {
-              return magyarazoElonezet(KIALLITO_NEVE_HIANYZIK_CIM, KIALLITO_NEVE_HIANYZIK_UZENET)
-            }
-
-            const isSzamadas = filters.printType === 'szamadas'
-
-            // 2026-08-15 (átvilágítás 13.): a véglegesítés-állapot és a
-            // presbitériumi határozat a KIVÁLASZTOTT évé.
-            //  - betöltött sor az évre → azt használjuk (akkor is, ha `null`:
-            //    az évhez nincs beállítás-sor, tehát nincs is véglegesítés);
-            //  - a folyó évnél a props-beli `settings` PONTOSAN ez a sor, így
-            //    az első megnyitáskor (még betöltés előtt) is helyes;
-            //  - minden más esetben (más év, még tölt / hibára futott) NEM
-            //    tippelünk: magyarázó előnézet megy, nem hamis borító.
-            const betoltott =
-              evBeallitas && evBeallitas.ev === filters.selectedYear ? evBeallitas : null
-            let evSettings: BealitasRow | null
-            if (betoltott) {
-              if (betoltott.allapot === 'hiba') {
-                // 2026-08-22 (kerületi S6): a MIÉRT szerint MÁS a szöveg. A
-                // `'nincs_nyomtatvany_ag'` nem múlik el magától (nincs ilyen
-                // szintű ív), ezért ott az „próbáld újra" tanács félrevezető —
-                // eddig mindkét ok ugyanezt a hálózati szöveget kapta.
-                if (betoltott.hibaOk === 'nincs_nyomtatvany_ag') {
-                  return magyarazoElonezet(NINCS_NYOMTATVANY_AG_CIM, NINCS_NYOMTATVANY_AG_UZENET)
-                }
-                return magyarazoElonezet(
-                  'Ez a nyomtatvány most nem készíthető el',
-                  `A(z) ${filters.selectedYear}. évi pénzügyi beállítások (véglegesítés, presbitériumi határozat) nem tölthetők be, ezért a borító hibás adatokkal készülne. Ellenőrizd az internetkapcsolatot, és próbáld újra. Ha újra ezt írja, jelezd a rendszergazdának.`,
-                )
-              }
-              // Ha az évhez nincs `bealitas` sor, de ez ÉPP az oldal éve, a
-              // props-beli sor a mérvadó: azt a szerver oldotta fel (egyházmegyei
-              // nézetben a `diocese_bealitas`-ból, ahol a fenti lekérés nem talál).
-              evSettings =
-                betoltott.sor ?? (filters.selectedYear === currentYear ? settings : null)
-            } else if (filters.selectedYear === currentYear) {
-              evSettings = settings
-            } else {
-              return magyarazoElonezet(
-                'A nyomtatvány készül',
-                `A(z) ${filters.selectedYear}. évi pénzügyi beállítások betöltése folyamatban van. Egy pillanat, és megjelenik az előnézet.`,
-              )
-            }
-
-            const finalized = isSzamadas
-              ? !!evSettings?.accounting_finalized
-              : !!evSettings?.budget_finalized
-            const printData: BudgetPrintData = {
-              cellek,
-              budgetRows: filters.budgetRows,
-              actualIncome: filters.actualIncome,
-              actualExpense: filters.actualExpense,
-              congregationName,
-              congregationNameRo,
-              // 2026-08-15 (terv 2.1/3): a borító feliratai a KIÁLLÍTÓ szintjét
-              // követik — megyei íven egyházkerületi blokk, egyházmegyei
-              // iktatószám, közgyűlési határozat.
-              printScope: keszScope,
-              districtName,
-              year: filters.selectedYear,
-              carryoverCash,
-              carryoverBank,
-              finalized,
-              // 2026-08-15 (átvilágítás 15.): eddig CSAK a `finalized` zászló ment
-              // át a borító-építőnek, ezért a véglegesített ív „Tárgyalta és
-              // jóváhagyta a presbitérium…" sora ÜRESEN maradt — miközben a
-              // határozat száma és dátuma a `bealitas` sorban ott volt.
-              ...hivatalosHatarozatMezok(evSettings, isSzamadas ? 'szamadas' : 'koltsegvetes'),
-            }
-            return buildBudgetPrintDocument(filters.printType, printData)
-          }}
-          onPrintToBrowser={(html) => printToBrowser(html)}
-          onPrintToPdf={(html, filename, options) =>
-            printToPdf(html, filename, {
-              orientation: options?.orientation,
-              margin: options?.margin,
-              format: options?.format,
-            })
-          }
-          onToast={(msg, kind) => {
-            if (kind === 'error') toast.error(msg)
-            else if (kind === 'success') toast.success(msg)
-            else if (kind === 'warning') toast.warning(msg)
-            else toast(msg)
-          }}
-          onClose={() => onOpenChange(false)}
+          buildReport={buildReport}
+          onPrintToBrowser={onPrintToBrowser}
+          onPrintToPdf={onPrintToPdf}
+          onToast={onToast}
+          onClose={onClose}
         />
       </DialogContent>
     </Dialog>

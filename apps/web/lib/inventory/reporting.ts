@@ -13,6 +13,7 @@ import {
   getInventoryBookValue as getBookValue,
   getInventoryDisplayName,
   getInventoryQuantity as getQuantity,
+  hivatalosKetnyelvuNev,
   normalizeInventoryDate as normalizeDate,
 } from '@kartoteka/ui-app'
 
@@ -326,7 +327,15 @@ function buildLeltarivReport(
   congregationName: string,
   year: number,
   filters?: InventoryReportFilters,
+  /**
+   * 2026-08-22 (6. pont): a kiállító hivatalos ROMÁN neve (`nev_ro`). A
+   * „Lista de inventariere" ROMÁN nyomtatvány — a kiállító neve mégis csak
+   * magyarul állt rajta; román név-ág egyáltalán nem létezett. Ha nincs román
+   * név, a magyar áll ott EGYEDÜL (sablon-kiegészítés nélkül).
+   */
+  congregationNameRo?: string,
 ) {
+  const entitasNev = escapeHtml(hivatalosKetnyelvuNev(congregationName, congregationNameRo))
   const referenceDate = new Date(year, 11, 31)
   const scopedItems = applyInventoryFilters(items, filters, 'purchase')
   const activeItems = scopedItems.filter(item => isItemActiveOn(item, referenceDate))
@@ -352,7 +361,7 @@ function buildLeltarivReport(
   const content = `
     <div class="page">
       <div class="title">Leltárív</div>
-      <div class="subtitle">Lista de inventariere · ${escapeHtml(congregationName)}</div>
+      <div class="subtitle">Lista de inventariere · ${entitasNev}</div>
       <div class="meta-grid">
         <div><strong>Dátum:</strong> 31.12.${year}</div>
         <div><strong>Helyszín / felelős:</strong> ${escapeHtml(filters?.locationFilter || 'Minden helyszín')}</div>
@@ -385,7 +394,7 @@ function buildLeltarivReport(
         </tfoot>
       </table>
       <div class="page-footer">
-        <span>${escapeHtml(congregationName)} · Leltárív</span>
+        <span>${entitasNev} · Leltárív</span>
         <span>Oldal <span class="page-number"></span></span>
       </div>
     </div>
@@ -405,7 +414,14 @@ function buildRegistruReport(
   year: number,
   filters?: InventoryReportFilters,
   financeSummary?: InventoryPrintFinanceSummary | null,
+  /**
+   * 2026-08-22 (6. pont): a kiállító hivatalos ROMÁN neve (`nev_ro`). A
+   * „Registru inventar" ROMÁN nyomtatvány; a fejlécében eddig csak a magyar
+   * név állt. Ha nincs román név, a magyar marad egyedül.
+   */
+  congregationNameRo?: string,
 ) {
+  const entitasNev = escapeHtml(hivatalosKetnyelvuNev(congregationName, congregationNameRo))
   const summary = getCategorySummary(applyInventoryFilters(items, filters, 'purchase'), year)
   const rows = [
     ['1', 'Mijloace fixe', summary.find(row => row.category === 'alapeszkoz')?.closingValue || 0],
@@ -433,7 +449,7 @@ function buildRegistruReport(
   const content = `
     <div class="page">
       <div class="title">Registru inventar</div>
-      <div class="subtitle">${escapeHtml(congregationName)} · la data de 31.12.${year}</div>
+      <div class="subtitle">${entitasNev} · la data de 31.12.${year}</div>
       <div class="meta-grid">
         <div><strong>Kategória:</strong> ${escapeHtml(filters?.categoryLabel || 'Minden tárgycsoport')}</div>
         <div><strong>Helyszín:</strong> ${escapeHtml(filters?.locationFilter || 'Minden helyszín')}</div>
@@ -455,7 +471,7 @@ function buildRegistruReport(
         A pénztár és a követelések sorai a kiválasztott időszak pénzügyi adataiból töltődnek, a leltári tárgycsoportok pedig a nyilvántartott vagyonelemek alapján számolódnak.
       </div>
       <div class="page-footer">
-        <span>${escapeHtml(congregationName)} · Registru inventar</span>
+        <span>${entitasNev} · Registru inventar</span>
         <span>Oldal <span class="page-number"></span></span>
       </div>
     </div>
@@ -728,6 +744,7 @@ export function buildInventoryPrintDocument({
   type,
   items,
   congregationName,
+  congregationNameRo,
   year,
   filters,
   financeSummary,
@@ -735,15 +752,24 @@ export function buildInventoryPrintDocument({
   type: InventoryPrintType
   items: InventoryItem[]
   congregationName: string
+  /**
+   * 2026-08-22 (6. pont): a kiállító hivatalos ROMÁN neve (`nev_ro`).
+   *
+   * ⚠️ SZÁNDÉKOSAN CSAK A KÉT ROMÁN ÍVRE megy tovább („Lista de inventariere",
+   * „Registru inventar"). A másik három nyomtatvány (Aktív–passzív, Törölt
+   * tárgyak, Vagyonleltári jelentés) végig MAGYAR belső kimutatás — oda a
+   * román név csak zajt vinne, nem hivatalos elvárást teljesítene.
+   */
+  congregationNameRo?: string
   year: number
   filters?: InventoryReportFilters
   financeSummary?: InventoryPrintFinanceSummary | null
 }) {
   switch (type) {
     case 'leltariv':
-      return buildLeltarivReport(items, congregationName, year, filters)
+      return buildLeltarivReport(items, congregationName, year, filters, congregationNameRo)
     case 'registru_inventar':
-      return buildRegistruReport(items, congregationName, year, filters, financeSummary)
+      return buildRegistruReport(items, congregationName, year, filters, financeSummary, congregationNameRo)
     case 'aktiv_passziv':
       return buildAktivPasszivReport(items, congregationName, year, filters, financeSummary)
     case 'torolt_targyak':

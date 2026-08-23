@@ -61,6 +61,9 @@ export interface InventoryItemDialogProps {
   /** null = a profil még nem oldódott fel — a mentés ilyenkor tiltott. */
   congregationId: string | null
   congregationName: string
+  /** 2026-08-22 (6. pont): a hivatalos ROMÁN név (`nev_ro`) — a ROMÁN nyelvre
+   *  állított fişa fejlécébe. Ha nincs, a magyar áll ott egyedül. */
+  congregationNameRo?: string | null
   /** null = új tétel rögzítése. */
   editItem: InventoryItemLocalRow | null
   /** A fişă nyelve — a lista-oldali nyomtatással KÖZÖS állapot (webes minta). */
@@ -93,6 +96,7 @@ function InventoryItemForm({
   onOpenChange,
   congregationId,
   congregationName,
+  congregationNameRo,
   editItem,
   fisaLang,
   onFisaLangChange,
@@ -139,6 +143,7 @@ function InventoryItemForm({
     } as InventoryItem
     return {
       congregationName: congregationName || 'Gyülekezet',
+      congregationNameRo,
       leltariSzam: editItem?.leltari_szam ?? null,
       regiLeltariSzam: editItem?.regi_leltari_szam ?? null,
       megnevezes: fMegnevezes,

@@ -17,6 +17,7 @@ import {
   Inbox,
   Landmark,
   LayoutDashboard,
+  Network,
   Package,
   Receipt,
   Settings,
@@ -764,6 +765,31 @@ function SidebarNav({
     financeMenuItem,
     { label: 'Iratok archívuma', href: '/dashboard-kerulet/iratok', icon: Archive, gradient: 'from-emerald-400 to-teal-500' },
     { label: 'Összesítő', href: '/dashboard-kerulet/osszesito', icon: ClipboardList, gradient: 'from-teal-400 to-cyan-500' },
+    // 2026-08-22 (7. pont, D8 döntés): a kerületi admin is lássa a SAJÁT
+    // kerülete szervezeti fáját — szűkített tartalommal. A hatókör-szűrést és a
+    // K4-konform elhagyásokat a `getSzervezetiFa()` végzi, fail-closed; ide
+    // menüpont CSAK azért kerülhet, mert a célpont (/admin/szervezet) megépült.
+    //
+    // ⚠️ EZ NEM KERÜLHET A `DISTRICT_ADMIN_HIDDEN` HALMAZBA (lásd lentebb): az
+    // az /admin almenü rendszer-szintű oldalait rejti a kerületi admin elől.
+    //
+    // ⚠️ MIÉRT FELTÉTELES: az `/admin` layout kapuja az ÍRÓ jog
+    // (`canWriteDistrictScope`), tehát a kerületi SZÁMVEVŐ (ellenőr) onnan
+    // átirányítódik a /dashboard-kerulet-re. Feltétel nélkül tehát pont neki
+    // adnánk egy menüpontot, ami visszapattintja — ez ugyanaz a néma zsákutca,
+    // amit az S4-nél már egyszer megéltünk, csak fordítva. Az
+    // `isEgyhazkeruletiAdmin` SZÁNDÉKOSAN nem tartalmazza a számvevőt
+    // (lib/auth/roles.ts), ezért pontosan ez a kapu kell ide.
+    ...(isEgyhazkeruletiAdmin || isAdmin || isMasterAdmin
+      ? [
+          {
+            label: 'Szervezeti fa',
+            href: '/admin/szervezet',
+            icon: Network,
+            gradient: 'from-sky-400 to-indigo-500',
+          } as MenuItem,
+        ]
+      : []),
     { label: 'Leltár', href: '/leltar', icon: Package, gradient: 'from-orange-400 to-amber-500' },
     { label: 'Iktatás', href: '/iktato', icon: FileText, gradient: 'from-violet-400 to-purple-500' },
     // 2026-08-22 (S6): a KERÜLETI nyugtatömb-nyilvántartás.

@@ -138,6 +138,23 @@ export interface ModuleScopeContext {
    */
   scopeName: string | null
   /**
+   * 2026-08-22 (6. pont): a hatókör HIVATALOS ROMÁN neve (`congregations.nev_ro` /
+   * `dioceses.nev_ro` / `districts.nev_ro`) — a ROMÁN nyomtatványok fejlécébe
+   * (Registru inventar, Lista de inventariere). `null`, ha nincs rögzítve.
+   *
+   * 2026-08-23 (kisebb rések, 1.): MOSTANTÓL A GYÜLEKEZETI ÁG IS AD ÉRTÉKET. A
+   * 6. pont a megyei és a kerületi nevet kötötte be, a gyülekezetit nem — mert
+   * az egyetlen forrás, az `effective-access` congregations-lekérése `nev_ro`-t
+   * nem olvasott, és ez a mező hardkódolt `null` volt. A lekérés bővült
+   * (`access.congregationNameRo`), így mind a három szint egyformán viselkedik.
+   *
+   * ⚠️ CSAK FELIRAT — jogosultságról soha nem dönt, és a hiánya SEM tilt: a
+   * hiányzó román nevet a beállítás-varázslón kell pótolni, a nyomtató NEM
+   * találhatja ki (a magyarból képzett román alak hamis adat volna egy
+   * aláírható iraton).
+   */
+  scopeNameRo: string | null
+  /**
    * `false` az egyházmegyei és az egyházkerületi SZÁMVEVŐNÉL (ellenőri szerep):
    * a megye / kerület leltárát / iktatóját megnézheti, de nem rögzíthet és nem
    * törölhet. Az adatbázis is ezt kényszeríti (a diocese-/district-láb írási
@@ -206,6 +223,14 @@ export async function getModuleScopeContext(): Promise<
     scopeCol: moduleScopeColumn('congregation'),
     scopeId,
     scopeName: access.congregationName,
+    // 2026-08-23 (kisebb rések, 1.): a gyülekezet ROMÁN neve MOSTANTÓL
+    // megérkezik idáig — az `effective-access` congregations-lekérése bekötötte
+    // a `congregations.nev_ro`-t (`access.congregationNameRo`). Eddig itt
+    // hardkódolt `null` állt, ezért a 6. pont román nyomtatvány-nevei a megyei
+    // és a kerületi szinten működtek, a GYÜLEKEZETIN viszont nem.
+    // Ha nincs rögzített román név, továbbra is `null` → a román íven a magyar
+    // név áll EGYEDÜL, sablon-kiegészítés nélkül (kitalált nevet nem gyártunk).
+    scopeNameRo: access.congregationNameRo || null,
     // A gyülekezeti szint írás-korlátait a meglévő szerepkör-rétegek kezelik —
     // ez a mező kizárólag a megyei / kerületi ellenőri (számvevői) esetről szól.
     canWrite: true,
@@ -241,16 +266,25 @@ export async function getModuleScopeContext(): Promise<
     // Név-lekérdezés — KIZÁRÓLAG felirat, ezért az elnyelt hiba nem adhat
     // hozzáférést (a jogosultsági ág fentebb már fail-closed lezárult).
     let scopeName: string | null = null
+    // 2026-08-22 (6. pont): a ROMÁN név is kell — a Registru inventar / Lista de
+    // inventariere fejlécében eddig csak a magyar név állt egy román íven.
+    let scopeNameRo: string | null = null
     try {
       const { data } = await access.supabase
         .from('dioceses')
-        .select('name')
+        .select('name, nev_ro')
         .eq('id', dioceseId)
         .maybeSingle()
-      const nyers = (data as { name?: string } | null)?.name ?? null
+      const sor = data as { name?: string; nev_ro?: string | null } | null
+      const nyers = sor?.name ?? null
       scopeName = nyers ? formatEgyhazmegyeNev(nyers) : null
+      // A román nevet NYERSEN vesszük át: a `formatEgyhazmegyeNev` toldat-
+      // heurisztikája MAGYAR alakokra épül, románra alkalmazva félrevezető
+      // feliratot gyártana.
+      scopeNameRo = (sor?.nev_ro || '').trim() || null
     } catch {
       scopeName = null
+      scopeNameRo = null
     }
 
     // A dioceseId átadása fontos: aki az egyik megyében esperes, a másikban
@@ -264,6 +298,7 @@ export async function getModuleScopeContext(): Promise<
       scopeCol: moduleScopeColumn('diocese'),
       scopeId: dioceseId,
       scopeName,
+      scopeNameRo,
       canWrite,
       readOnlyReason: canWrite ? null : describeDioceseWriteBlock(access, dioceseId),
     }
@@ -305,16 +340,21 @@ export async function getModuleScopeContext(): Promise<
     // Név-lekérdezés — KIZÁRÓLAG felirat, ezért az elnyelt hiba nem adhat
     // hozzáférést (a jogosultsági ág fentebb már fail-closed lezárult).
     let scopeName: string | null = null
+    // 2026-08-22 (6. pont): a kerület ROMÁN neve is kell a román leltár-ívekhez.
+    let scopeNameRo: string | null = null
     try {
       const { data } = await access.supabase
         .from('districts')
-        .select('name')
+        .select('name, nev_ro')
         .eq('id', districtId)
         .maybeSingle()
-      const nyers = (data as { name?: string } | null)?.name ?? null
+      const sor = data as { name?: string; nev_ro?: string | null } | null
+      const nyers = sor?.name ?? null
       scopeName = nyers ? nyers.trim() || null : null
+      scopeNameRo = (sor?.nev_ro || '').trim() || null
     } catch {
       scopeName = null
+      scopeNameRo = null
     }
 
     // A districtId átadása fontos: aki az egyik kerületben adminisztrátor, a
@@ -328,6 +368,7 @@ export async function getModuleScopeContext(): Promise<
       scopeCol: moduleScopeColumn('district'),
       scopeId: districtId,
       scopeName,
+      scopeNameRo,
       canWrite,
       readOnlyReason: canWrite ? null : describeDistrictWriteBlock(access, districtId),
     }

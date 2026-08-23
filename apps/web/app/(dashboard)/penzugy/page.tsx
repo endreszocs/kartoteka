@@ -229,6 +229,9 @@ export default async function PenzugyPage({
         // 2026-08-15 (egyházmegyei terv, 2.1/3): a megyei nyomtatvány-borító
         // felső blokkja az EGYHÁZKERÜLETÉ. Gyülekezeti hatókörben `null`.
         districtName={data.districtName}
+        // 2026-08-22 (6. pont): a felettes kerület HIVATALOS ROMÁN neve —
+        // a hardkódolt „EPARHIA REFORMATĂ" helyett.
+        districtNameRo={data.districtNameRo}
         debtCalcMode={data.debtCalcMode}
         yearlyFees={data.yearlyFees}
         debtRows={data.debtRows}
