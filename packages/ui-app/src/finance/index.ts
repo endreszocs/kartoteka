@@ -36,6 +36,13 @@ export * from './FinanceSugoChecklist'
 export * from './FinanceSugoTab'
 export * from './FinancePrintDialogBody'
 export * from './BudgetPrintDialogBody'
+// 2026-08-22 (6. pont): a kiállító hivatalos, KÉTNYELVŰ megnevezése — EGY
+// forrásból minden ívnek (a `nev_ro || magyar` néma visszaesés helyett).
+export * from './entity-name'
+// 2026-08-22 (8. pont): a nyomtatási központok betöltés-állapotgépe — import-mentes
+// mag, hogy az őrszem futtatni tudja (a `tolt / kesz / ures / hiba` négy ága a
+// korábbi kétállapotú `loading` helyett).
+export * from './print-loading-core'
 // Nyomtatvány-builderek (a webes lib/finance/reporting + budget-reporting
 // áthelyezve, 2026-06-11 — web/desktop közös nyomtatási központ)
 export * from './reporting'

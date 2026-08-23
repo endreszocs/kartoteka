@@ -20,6 +20,9 @@ interface InventoryPrintDialogProps {
   onOpenChange: (open: boolean) => void
   items: InventoryItem[]
   congregationName?: string
+  /** 2026-08-22 (6. pont): a hivatalos ROMÁN név a két ROMÁN ívhez („Registru
+   *  inventar", „Lista de inventariere"). Ha nincs, csak a magyar áll ott. */
+  congregationNameRo?: string
   filters?: InventoryReportFilters
   visibleItemCount?: number
 }
@@ -29,6 +32,7 @@ export function InventoryPrintDialog({
   onOpenChange,
   items,
   congregationName,
+  congregationNameRo,
   filters,
   visibleItemCount,
 }: InventoryPrintDialogProps) {
@@ -48,6 +52,15 @@ export function InventoryPrintDialog({
   const [sendingToPrinter, setSendingToPrinter] = useState(false)
   const [financeSummary, setFinanceSummary] = useState<InventoryPrintFinanceSummary | null>(null)
   const [financeLoading, setFinanceLoading] = useState(false)
+  /**
+   * 2026-08-22 (8. pont): a `try/catch/finally` itt megvolt (ez a repó pozitív
+   * példája), de a hibát NÉMÁN nyelte: `setFinanceSummary(null)` → a panelen és
+   * a leltáríven „0 / 0 RON" jelent meg, mintha a pénztár tényleg üres lenne.
+   * Nulla és „nem tudjuk" NEM ugyanaz egy aláírandó leltáríven.
+   */
+  const [financeHiba, setFinanceHiba] = useState<string | null>(null)
+  /** Az „Újrapróbálom" gomb léptetője — a betöltő effect depje. */
+  const [ujratoltoKulcs, setUjratoltoKulcs] = useState(0)
 
   useEffect(() => {
     setSelectedYear(initialYear)
@@ -59,6 +72,7 @@ export function InventoryPrintDialog({
     async function loadFinanceSummary() {
       if (!open) return
       setFinanceLoading(true)
+      setFinanceHiba(null)
       try {
         const summary = await getInventoryPrintFinanceSummary({
           year: selectedYear,
@@ -66,8 +80,15 @@ export function InventoryPrintDialog({
           periodEnd: filters?.periodEnd || null,
         })
         if (!cancelled) setFinanceSummary(summary)
-      } catch {
-        if (!cancelled) setFinanceSummary(null)
+      } catch (err) {
+        // 2026-08-22 (8. pont): a hiba LÁTHATÓ. Eddig némán `null` lett, és a
+        // panel „0 / 0 RON"-t írt — a lelkész nem tudta megkülönböztetni az
+        // ÜRES pénztárt a BE NEM TÖLTÖTT pénztártól.
+        if (cancelled) return
+        setFinanceSummary(null)
+        const uzenet = err instanceof Error ? err.message : 'Ismeretlen hiba.'
+        setFinanceHiba(uzenet)
+        toast.error(`A pénztár/követelés adatok betöltése nem sikerült: ${uzenet}`)
       } finally {
         if (!cancelled) setFinanceLoading(false)
       }
@@ -77,7 +98,7 @@ export function InventoryPrintDialog({
     return () => {
       cancelled = true
     }
-  }, [filters?.periodEnd, filters?.periodStart, open, selectedYear])
+  }, [filters?.periodEnd, filters?.periodStart, open, selectedYear, ujratoltoKulcs])
 
   const report = useMemo(
     () =>
@@ -85,11 +106,12 @@ export function InventoryPrintDialog({
         type: printType,
         items,
         congregationName: congregationName || 'Gyülekezeti leltár',
+        congregationNameRo,
         year: selectedYear,
         filters,
         financeSummary,
       }),
-    [congregationName, filters, financeSummary, items, printType, selectedYear],
+    [congregationName, congregationNameRo, filters, financeSummary, items, printType, selectedYear],
   )
 
   async function handlePdf() {
@@ -212,9 +234,33 @@ export function InventoryPrintDialog({
                   <span className="font-semibold text-slate-800">Pénztár / követelés:</span>{' '}
                   {financeLoading
                     ? 'betöltés...'
-                    : `${(financeSummary?.closingCash || 0).toLocaleString('hu-HU', { maximumFractionDigits: 2 })} / ${(financeSummary?.closingReceivables || 0).toLocaleString('hu-HU', { maximumFractionDigits: 2 })} RON`}
+                    : financeHiba
+                      ? 'nem tölthető be'
+                      : `${(financeSummary?.closingCash || 0).toLocaleString('hu-HU', { maximumFractionDigits: 2 })} / ${(financeSummary?.closingReceivables || 0).toLocaleString('hu-HU', { maximumFractionDigits: 2 })} RON`}
                 </div>
               </div>
+
+              {/* 2026-08-22 (8. pont): a néma nyelés helyett LÁTHATÓ hibaüzenet.
+                  A leltárív ilyenkor is elkészíthető (a tételek megvannak), de a
+                  lelkész TUDJA, hogy a pénztár/követelés sor nem valós nulla. */}
+              {financeHiba !== null && (
+                <div
+                  role="alert"
+                  className="space-y-2 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-xs leading-5 text-amber-800"
+                >
+                  <p>
+                    A <strong>pénztár / követelés</strong> adatok nem tölthetők be: {financeHiba} —
+                    a nyomtatványon ez a sor <strong>nem valós nulla</strong>, hanem hiányzó adat.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setUjratoltoKulcs((k) => k + 1)}
+                    className="inline-flex min-h-11 items-center justify-center rounded-lg border border-amber-400 bg-white px-3 text-xs font-semibold text-amber-900 transition-colors hover:bg-amber-100"
+                  >
+                    Újrapróbálom
+                  </button>
+                </div>
+              )}
 
               <div className="rounded-2xl border border-sky-100 bg-sky-50/80 p-3 text-xs leading-5 text-slate-600">
                 A direkt nyomtatás a böngésző saját nyomtatási előnézetét nyitja meg. Ott a dokumentum több oldalra bontva

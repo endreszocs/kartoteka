@@ -22,8 +22,21 @@
  * táblázat-sori fişă-nyomtatás ugyanazt hívja.
  */
 
+import { hivatalosKetnyelvuNev } from '../finance/entity-name'
+
 export interface InventoryItemCardData {
   congregationName: string
+  /**
+   * 2026-08-22 (6. pont): a kiállító hivatalos ROMÁN neve (`nev_ro`). A fişa
+   * MINDEN felirata nyelvet vált a `lang` szerint — a KIÁLLÍTÓ neve viszont
+   * eddig mindig magyar volt, vagyis a román nyelvre állított hivatalos karton
+   * fejlécében magyar név állt.
+   *
+   * ⚠️ OPCIONÁLIS: a desktop hívói e nélkül is fordulnak, és ha nincs román
+   * név, a magyar áll ott EGYEDÜL — kitalált román nevet SOHA nem írunk a
+   * lapra (a hiányt a beállítás-varázslón kell pótolni).
+   */
+  congregationNameRo?: string | null
   /** Meglévő tételnél a kiosztott szám; új tételnél null → "mentéskor generálódik". */
   leltariSzam?: string | null
   regiLeltariSzam?: string | null
@@ -158,6 +171,17 @@ export function buildInventoryItemCardHtml(data: InventoryItemCardData): Invento
   const T = (hu: string, ro: string): string => (lang === 'hu' ? hu : ro)
 
   const locale = lang === 'ro' ? 'ro-RO' : 'hu-HU'
+
+  /**
+   * 2026-08-22 (6. pont): a KIÁLLÍTÓ kétnyelvű megnevezése — a lap nyelvének
+   * megfelelő sorrendben. Román kartonon a ROMÁN név áll ELÖL (különben a
+   * fejléc mondana ellent a lap többi, románra fordított feliratának);
+   * magyaron a magyar. Ha csak az egyik név van meg, az áll ott EGYEDÜL.
+   * A logika a közös helperből jön (finance/entity-name.ts), nem másolat.
+   */
+  const entitasNev = esc(
+    hivatalosKetnyelvuNev(data.congregationName, data.congregationNameRo, { elol: lang }),
+  )
   const megnevezes = (data.megnevezes ?? '').trim()
   const roFormName = data.isAlapeszkoz ? 'Fișa mijlocului fix' : 'Fișa obiectului de inventar'
   const huFormName = 'Leltári tárgy fișája'
@@ -221,7 +245,7 @@ export function buildInventoryItemCardHtml(data: InventoryItemCardData): Invento
   <div class="sheet">
     <div class="head">
       <div>
-        <div class="cong">${esc(data.congregationName)}</div>
+        <div class="cong">${entitasNev}</div>
         <h1>${esc(T(huFormName.toUpperCase(), roFormName.toUpperCase()))}</h1>
         <div class="sub">${esc(T(roFormName, huFormName))}</div>
         <div class="row" style="margin-top:8px"><span class="k">${L('Megnevezés', data.isAlapeszkoz ? 'Denumirea mijlocului fix și caracteristici tehnice' : 'Denumirea obiectului')}</span><span class="fill">${val(megnevezes, '16rem')}</span></div>
@@ -279,7 +303,7 @@ export function buildInventoryItemCardHtml(data: InventoryItemCardData): Invento
       'Întocmit la: ______________________, anul ________ luna ______ ziua ____',
     ))}</div>
     <div class="sig"><div>${esc(T('lelkipásztor', 'conducătorul unității'))}</div><div>${esc(T('leltárfelelős', 'responsabil cu inventarul'))}</div></div>
-    <div class="sheet-footer"><span>Kartotéka · ${esc(data.congregationName)}</span><span>${data.leltariSzam ? esc(data.leltariSzam) : esc(T('új tétel', 'obiect nou'))}</span></div>
+    <div class="sheet-footer"><span>Kartotéka · ${entitasNev}</span><span>${data.leltariSzam ? esc(data.leltariSzam) : esc(T('új tétel', 'obiect nou'))}</span></div>
   </div>
 </body>
 </html>`

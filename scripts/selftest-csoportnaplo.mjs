@@ -16,8 +16,15 @@
  *
  *   Ez az önellenőrzés azt őrzi, hogy a lapokra bontás ne csússzon vissza.
  *
- *   A `reporting.ts` NULLA futásidejű importtal készül (csak `import type`),
- *   ezért önállóan fordítható, bundler nélkül.
+ *   ⚠️ 2026-08-22 (6. pont): a `reporting.ts` korábban NULLA futásidejű
+ *   importtal készült (csak `import type`), ezért önállóan fordult. A román
+ *   nyomtatvány-kör óta VALÓDI, futásidejű importja van a közös kétnyelvű
+ *   név-építőre (`./entity-name`), ezért azt is le kell fordítani UGYANEBBE a
+ *   temp könyvtárba, hogy a relatív `require('./entity-name')` feloldódjon.
+ *
+ *   A pótlék NEM hamisítvány: a VALÓDI, lefordított modul kerül oda. A lenti
+ *   fail-closed őr éle megmarad — az kizárólag a CSOMAGNÉV-importokat tiltja,
+ *   a relatívakat nem.
  *
  * Futtatás:  node scripts/selftest-csoportnaplo.mjs
  */
@@ -31,6 +38,7 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
 const REPORT_SRC = path.join(REPO_ROOT, 'packages', 'ui-app', 'src', 'finance', 'reporting.ts')
+const ENTITY_SRC = path.join(REPO_ROOT, 'packages', 'ui-app', 'src', 'finance', 'entity-name.ts')
 
 let failed = false
 const fail = (msg) => {
@@ -39,9 +47,11 @@ const fail = (msg) => {
 }
 const ok = (msg) => console.log(`OK:   ${msg}`)
 
-if (!fs.existsSync(REPORT_SRC)) {
-  fail(`hiányzik a forrás: ${REPORT_SRC}`)
-  process.exit(1)
+for (const f of [REPORT_SRC, ENTITY_SRC]) {
+  if (!fs.existsSync(f)) {
+    fail(`hiányzik a forrás: ${f}`)
+    process.exit(1)
+  }
 }
 
 const require_ = createRequire(path.join(REPO_ROOT, 'package.json'))
@@ -78,6 +88,10 @@ function loadTs(srcFile, outName) {
 
 let reportMod
 try {
+  // Az `entity-name` ELŐBB kell: a `reporting.ts` futásidőben
+  // `require('./entity-name')`-t hív, ami ugyanebben a temp könyvtárban
+  // oldódik fel.
+  loadTs(ENTITY_SRC, 'entity-name')
   reportMod = loadTs(REPORT_SRC, 'reporting')
 } catch (e) {
   fail(`transpile/betöltés hiba: ${e?.message || e}`)

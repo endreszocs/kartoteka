@@ -16,6 +16,7 @@ import {
   Database,
   Download,
   Eye,
+  FileLock2,
   Flame,
   Heart,
   HelpCircle,
@@ -27,6 +28,7 @@ import {
   Link2,
   LogIn,
   LogOut,
+  Network,
   PiggyBank,
   PlaneLanding,
   PlaneTakeoff,
@@ -47,6 +49,7 @@ import { BottomVerse } from './bottom-verse'
 import { DioceseSetupBanner } from './diocese-setup-banner'
 import { CongregationSetupBanner } from './congregation-setup-banner'
 import { BackupStaleBanner } from '@/components/admin/backup/backup-stale-banner'
+import { AszfElfogadasOr } from '@/components/admin/adatvedelem/aszf-elfogadas-or'
 import type { Profile } from '@/lib/types/auth'
 import type { Role } from '@/lib/types/auth'
 import type { ProfileRoleRow } from '@/lib/profile-roles/types'
@@ -104,6 +107,12 @@ const WEB_ADMIN_SUBMENU = [
   // jóváhagyása + aktiválása mostantól EGY helyen, a Felhasználók oldalon
   // történik (a függőben lévő kérelmek kontextusa ott látszik). Az útvonal
   // (/admin/hozzaferes-kerelmek) megmarad archívumként/visszafordíthatóságért.
+
+  // 2026-08-22 (7. pont): a szervezet HÁROM szintje egy képernyőn
+  // (egyházkerület → egyházmegye → egyházközség). Szándékosan a „Gyülekezetek"
+  // ELŐTT: az a lista két szintig jut, ez adja a teljes térképet. A kerületi
+  // admin is látja — szűkítve, fail-closed (D8 döntés, 2026-08-22).
+  { label: 'Szervezeti áttekintő', href: '/admin/szervezet', icon: Network, gradient: 'from-sky-400 to-indigo-500' },
   { label: 'Gyülekezetek', href: '/admin/gyulekezetek', icon: Church, gradient: 'from-emerald-400 to-teal-500' },
   // 2026-07-11 (2. kör): a „Könyvelők / számvevők" külön menüpont MEGSZŰNT — a
   // könyvelői/számvevői hozzárendelések a Felhasználók oldal második fülére
@@ -117,6 +126,10 @@ const WEB_ADMIN_SUBMENU = [
   { label: 'Támogatás', href: '/admin/tamogatas', icon: LifeBuoy, gradient: 'from-yellow-400 to-amber-500' },
   { label: 'Import', href: '/admin/import', icon: Download, gradient: 'from-pink-400 to-rose-500' },
   { label: 'Rendszer pénzügyei', href: '/admin/penzugy', icon: PiggyBank, gradient: 'from-rose-400 to-pink-500' },
+  // 2026-08-23 (adatvédelmi fedezet, 2. rész): érintetti kérelmek határidő-
+  // követéssel + ÁSZF-elfogadások naplója. A kerületi admin is látja a
+  // menüpontot, de gyülekezeti sort NEM kap (K4 döntés) — az oldal ezt kiírja.
+  { label: 'Adatvédelmi napló', href: '/admin/adatvedelem', icon: FileLock2, gradient: 'from-teal-400 to-cyan-600' },
   // 2026-07-11 (admin-redesign): a Tevékenység-napló (rekord-szintű audit) újra
   // elérhető — a halott AdminTabsV3-ból önálló /admin/naplo oldalra költözött.
   { label: 'Tevékenység-napló', href: '/admin/naplo', icon: History, gradient: 'from-slate-400 to-slate-600' },
@@ -327,6 +340,12 @@ export function DashboardLayoutClient({
 
         {/* Sablon-szerű napi igeszakasz csík a layout alján */}
         <BottomVerse />
+
+        {/* 2026-08-23 — ÁSZF-ELFOGADÁS ŐR. Nem renderel semmit és nem zavar:
+            csak rögzíti, hogy ez a felhasználó melyik jogi verzióval találkozott
+            (ÁSZF 13. pont: „a további használat elfogadásnak minősül"). A verziót
+            a jogi dialógus LEGAL_VERSION-je adja — nincs második igazság. */}
+        <AszfElfogadasOr profileId={profile?.id ?? null} />
       </div>
     </div>
   )

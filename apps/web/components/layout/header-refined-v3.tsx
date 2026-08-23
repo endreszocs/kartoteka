@@ -25,6 +25,7 @@ import { SupportDialog } from '@/components/layout/support-dialog'
 import { SettingsDialog } from '@/components/modals/settings-dialog'
 
 import { signOut } from '@/app/(dashboard)/actions'
+import { uritsdAHelyiAdatCachet } from '@/lib/utils/helyi-tarolo-urites'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
   DropdownMenu,
@@ -39,7 +40,7 @@ import { NotificationBellRefined } from './notification-bell-refined'
 import { OfflineMenuItemBadge } from '@/components/offline/offline-menu-item-badge'
 import { SyncStatusButton } from '@/components/offline/sync-status-button'
 import { ProfileSwitcher, SWITCHER_PANEL_WIDTH, switcherInitialColumns } from './profile-switcher'
-import type { ProfileRoleRow } from '@/lib/profile-roles/types'
+import { ROLE_LABELS, type ProfileRoleRow } from '@/lib/profile-roles/types'
 
 interface HeaderProps {
   profile: Profile
@@ -123,16 +124,36 @@ const MEGA_PANEL_WIDTH = 'w-[min(56rem,calc(100vw-1.5rem))]'
 const NEUTRAL_FOCUS =
   'focus:bg-secondary focus:text-foreground not-data-[variant=destructive]:focus:**:text-inherit'
 
-function getRoleLabel(role: string) {
-  const roleLabels: Record<string, string> = {
-    admin: 'Kerületi admin',
-    esperes: 'Esperes',
-    master_admin: 'Főadmin',
-    pastor: 'Lelkipásztor',
-    user: 'Felhasználó',
-  }
+/**
+ * A `profiles.role` LEGACY kulcsai, amelyek NINCSENEK a kanonikus ROLE_LABELS-ben.
+ * (Ezek régi/technikai értékek, nem `ProfileRoleType`-ok.)
+ */
+const LEGACY_ROLE_LABELS: Record<string, string> = {
+  master_admin: 'Főadmin',
+  pastor: 'Lelkipásztor',
+  user: 'Felhasználó',
+}
 
-  return roleLabels[role] || role.replace(/_/g, ' ')
+/**
+ * A fejléc szerep-címkéje.
+ *
+ * ⚠️ 2026-08-22 (4/F) HIBAJAVÍTÁS: itt `admin: 'Kerületi admin'` állt — ez
+ * HELYTELEN. Az `admin` kulcs a RENDSZERGAZDA; a kerületi admin kulcsa
+ * `egyhazkeruleti_admin`. A rendszergazda tehát a SAJÁT fejlécében kerületi
+ * adminnak látta magát. Ráadásul a kézi térképből hiányzott a könyvelő, a két
+ * számvevő és a megyei admin, így azok nyers, aláhúzásos kulcsként jelentek meg
+ * (`egyhazmegyei szamvevo`).
+ *
+ * A címkék MOSTANTÓL a projekt EGYETLEN kanonikus térképéből jönnek
+ * (`lib/profile-roles/types.ts` → ROLE_LABELS) — nincs többé párhuzamos lista,
+ * amit el lehet felejteni frissíteni.
+ */
+function getRoleLabel(role: string) {
+  return (
+    (ROLE_LABELS as Record<string, string>)[role] ||
+    LEGACY_ROLE_LABELS[role] ||
+    role.replace(/_/g, ' ')
+  )
 }
 
 // 2026-08-11 — hidratálás-érzékelés `useSyncExternalStore`-ral (lásd lentebb).
@@ -226,6 +247,28 @@ export function HeaderRefinedV3({
 
   async function handleSignOut() {
     setSigningOut(true)
+    // ────────────────────────────────────────────────────────────────────────
+    // ADATVÉDELEM (2026-08-23): közös hivatali gépen a kijelentkezés után NE
+    // maradjon személyes adat a böngészőben. A service worker gyorstárában
+    // RSC-payload (névsorok, CNP, pénzügyi sorok), az IndexedDB-ben a teljes
+    // offline tükör ült — kijelentkezéskor eddig egyik sem ürült.
+    //
+    // ⚠️ A takarítás a szerver-oldali `signOut()` ELŐTT fut, mert az
+    //    `redirect('/login')`-nel elhagyja az oldalt: utána már nem lenne, ami
+    //    lefusson. Így nincs versenyhelyzet.
+    // ────────────────────────────────────────────────────────────────────────
+    //
+    // ⚠️ OFFLINE KIVÉTEL: hálózat nélkül a szerver-oldali `signOut()` úgyis
+    //    elbukik — a munkamenet ÉLŐ marad. Ilyenkor a takarítás semmit nem
+    //    védene, viszont elvinné a helyi tükröt, amit a felhasználó offline
+    //    nem tudna újratölteni. Ezért offline nem takarítunk.
+    try {
+      if (typeof navigator === 'undefined' || navigator.onLine !== false) {
+        await uritsdAHelyiAdatCachet()
+      }
+    } catch {
+      // A takarítás hibája SOHA ne akadályozza meg a kijelentkezést.
+    }
     await signOut()
   }
 

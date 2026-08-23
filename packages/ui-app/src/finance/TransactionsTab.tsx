@@ -77,6 +77,10 @@ export interface TransactionsTabProps {
   kiaCelMap: Record<number, string>
   szamadasiCellek: SzamadasiCel[]
   congregationName: string
+  /** 2026-08-22 (6. pont): a kiállító hivatalos ROMÁN neve (`nev_ro`) — a
+   *  kísérőív (BORDEROU DE PLĂȚI) fejlécébe megy tovább. OPCIONÁLIS: a desktop
+   *  hívói e nélkül is fordulnak, ott csak a magyar név áll a lapon. */
+  congregationNameRo?: string
   onRefresh: () => void
   rentalContracts?: RentalContractRow[]
 
@@ -147,6 +151,7 @@ export interface TransactionsTabProps {
     allExpenses: KiadasRow[]
     bankAccounts: BankAccount[]
     congregationName: string
+    congregationNameRo?: string
     kiaCelMap: Record<number, string>
     cellek: SzamadasiCel[]
   }) => ReactNode
@@ -219,6 +224,7 @@ export function TransactionsTab({
   kiaCelMap,
   szamadasiCellek,
   congregationName,
+  congregationNameRo,
   onRefresh,
   rentalContracts = [],
   bankAccounts = [],
@@ -837,6 +843,7 @@ export function TransactionsTab({
           allExpenses: expenseRecords,
           bankAccounts,
           congregationName,
+          congregationNameRo,
           kiaCelMap,
           cellek: szamadasiCellek,
         })}

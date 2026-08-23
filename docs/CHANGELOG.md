@@ -23,6 +23,140 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-23] — Megszűnt az AI-segéd · fogadóképernyő, naptár, nyomtatványok, szervezeti áttekintő és megújult jogi tájékoztatók
+<!-- key: 2026-08-23-eszrevetelek-kore -->
+<!-- category: security -->
+<!-- version: 0.9.173 -->
+<!-- targets: mindenki; a szervezeti áttekintő rendszergazdának és egyházkerületi adminnak -->
+
+### 🔒 Megszűnt az „Aladár" AI-segéd — MINDENKIT ÉRINT
+
+- **Az AI-csevegőasszisztens teljesen kikerült a rendszerből.** Eddig, amit valaki beírt az
+  Aladárnak, az kiment egy Európai Unión kívüli szolgáltatóhoz (OpenRouter, Groq vagy Google
+  Gemini). A funkció kényelmes volt, de **egyházi nyilvántartást kezelő rendszerben nem éri meg
+  ezt a kockázatot** — ezért inkább megszüntettük, mintsem figyelmeztetésekkel körbebástyázzuk.
+- **Amit ez jelent:** a Kartotékában mostantól **nem működik AI-csevegő és nem működik
+  AI-asszisztens**; a rendszerbe bevitt adatok semmilyen AI-szolgáltatóhoz nem jutnak el.
+  Az adatvédelmi tájékoztató is ennek megfelelően szűkült: a harmadik országba történő
+  adattovábbításnál már csak a Google Drive-os napi biztonsági mentés szerepel.
+- Ez egyben megszüntetett két, az átvilágításon talált gyengeséget is (az AI-végpontnak nem
+  volt szerveroldali sebesség- és méretkorlátja).
+
+### 🐛 Javítások — MINDENKIT ÉRINT
+
+- **Eltűntek a fekete sávok a bejelentkezés előtti fogadóképernyőről**: a háttérkép eddig
+  együtt kicsinyedett a képernyő tartalmával, ezért a szélein sötét csík maradt — laptopon,
+  széles monitoron és táblagépen egyaránt. Mostantól a háttér mindig teljesen kitölti a
+  képernyőt, bármilyen méretű és arányú is az; és a „Békesség Istentől!" felirat sem
+  vágódhat le többé. Ugyanez a javítás a letölthető (asztali) programban is megtörtént,
+  ahol eddig a felirat teteje valóban hiányzott.
+
+- **A „Költségvetés és számadás nyomtatási központ" nem villog többé**: az „Adatok
+  betöltése…" felirat eddig másodpercenként többször felvillant, és közben a program
+  szüntelenül újra és újra lekérdezte ugyanazt. Mostantól egyszer tölt be, és **meg is
+  mondja, mi történt**: hány költségvetési sort talált, vagy hogy az adott évhez még nincs
+  egyetlen sor sem, vagy hogy hiba történt — ez utóbbi esetben „Újrapróbálom" gombbal.
+  **Fontos biztonsági szigorítás:** ha a betöltés hibára fut, a nyomtatás letiltva marad,
+  hogy ne lehessen üres tervoszlopokkal hivatalos ívet kiadni. Ugyanez a gyülekezeti, az
+  egyházmegyei és az egyházkerületi felületen egyformán működik.
+
+- **Nem ragad be többé a „betöltés…" felirat** a munkanapló, a választói névjegyzék és a
+  leltár nyomtatásánál sem: ha a lekérdezés hibára fut, azt mostantól kiírja a program,
+  ahelyett hogy némán, örökre töltene.
+
+### 🎨 UX javítások
+
+- **A határidőnapló (Gyülekezeti programok) alkalmazkodik a képernyőhöz**: széles monitoron
+  eddig a naptár kicsi maradt — sőt nagy képernyőn még kisebb is lett —, és a modulon belül
+  görgetni kellett. Mostantól a napok mérete együtt nő az ablakkal, széles nézetben pedig a
+  hónap-naptár és a kiválasztott nap programjai **egymás mellé** kerülnek, nem egymás alá.
+
+- **Pontosabb szerepkör-megnevezések a fejlécben**: a rendszergazda eddig tévesen „Kerületi
+  admin"-ként jelent meg. Mostantól minden szerepkör a saját, hivatalos nevén szerepel
+  (rendszergazda, egyházkerületi admin, egyházmegyei admin, könyvelő, számvevő).
+
+- **Nincs többé néma üres lista**: ahol eddig magyarázat nélkül üres lista fogadott (például
+  az egyházmegyei hozzárendeléseknél), ott most a program megmondja, **miért** üres, és mit
+  lehet tenni. A félrevezető „Szerepkörök" fülfelirat is a valódi tartalmára javítva.
+
+### ✨ Új funkciók
+
+- **Szervezeti áttekintő** (Adminisztráció → Szervezeti áttekintő): egyetlen képernyőn a
+  teljes szervezeti fa — egyházkerület → egyházmegye → egyházközség —, gyülekezetenként a
+  taglétszámmal, a hozzárendelt felhasználókkal és szerepkörükkel, valamint azzal, hogy
+  hiányzik-e még kötelező törzsadat. Kereshető, ki- és becsukható. Az egyházkerületi admin
+  is látja, de **csak a saját kerületét**.
+
+- **Az egyházmegyei és egyházkerületi pénzügyben a befizető-kereső végre talál is valakit**:
+  eddig felső szinten egyetlen találatot sem adott. Mostantól az egyházmegyénél a hozzá
+  tartozó **gyülekezetek és lelkipásztoraik**, az egyházkerületnél pedig a **hozzá tartozó
+  egyházmegyék** nevei is kereshetők, csoportosítva.
+
+- **A nyugtán a befizető saját adószáma (CIF) és bejegyzett székhelye szerepel**, ha a nyugta
+  egyházközségnek (jogi személynek) szól — eddig ez a sor mindig üresen maradt. Az adatot a
+  program a kiállítás pillanatában rögzíti, hogy egy későbbi adatváltozás visszamenőleg ne
+  írhassa át a már aláírt nyugtát.
+
+### 📄 Román nyelvű nyomtatványok
+
+- **A román íveken az egyházközség, az egyházmegye és az egyházkerület neve is románul
+  jelenik meg**, a beállításokban megadott hivatalos román névből — eddig több nyomtatványon
+  (Registru Casa, Decont, kiadási kísérőív, Monetár, nyugtatömb-kimutatás, leltári ívek,
+  Fișa mijlocului fix) magyarul maradt. **A kétnyelvű aláírás-sorok és a „Unitate" felirat
+  változatlanok** — ezek hivatalosan kötelező elemek.
+- **A nyugta nem talál ki adatot**: eddig hiányzó román névnél a program a címerből
+  következtetett intézménynevet írt a sorszámozott bizonylatra. Mostantól ha nincs hivatalos
+  román név, a román sor egyszerűen elmarad.
+- ⚠️ **Teendő**: ahol az egyházmegye vagy a gyülekezet **román neve nincs kitöltve**, ott a
+  nyomtatvány továbbra is a magyar nevet írja. Ezt a beállítás-varázslóban lehet pótolni.
+
+### 🔒 Adatvédelem és jogi tájékoztatók
+
+- **Teljesen megújult az Adatvédelmi tájékoztató, az Általános Szerződési Feltételek és a
+  Súgó adatvédelmi része** — mindhárom nyelven (magyar, román, angol), az európai uniós
+  adatvédelmi rendelet (GDPR) és a romániai 190/2018-as törvény követelményei szerint.
+- **Két valótlan állítást javítottunk a korábbi szövegben.** A régi tájékoztató azt írta,
+  hogy az adatok soha nem kerülnek az Európai Unión kívülre. Ez nem volt igaz: a napi
+  biztonsági mentés a Google Drive-ba megy, az „Aladár" segéd pedig a begépelt kérdést
+  továbbítja a szolgáltatójának. Mindkettőt őszintén leírtuk, a garanciákkal együtt — és
+  kimondtuk, hogy **a segédbe ne írjunk személyes adatot**, mert az nem lát rá a
+  nyilvántartásra.
+- Új benne: az érintettek **mind a nyolc joga**, a megőrzési idők, a teljes adatfeldolgozó-
+  lista, az adatvédelmi hatóság (ANSPDCP) elérhetősége és a panasz módja.
+- ⚠️ **Teendő:** a tájékoztatóban néhány adat (hivatalos adatvédelmi e-mail-cím, postai cím,
+  megőrzési idők) **még kitöltésre vár** — ezek a helyek borostyán jelöléssel látszanak, amíg
+  a rendszergazda ki nem tölti őket. Így a szöveg soha nem állít valótlant.
+
+### 🛡️ Új adatvédelmi funkciók
+
+- **„Ki nyúlt az adataimhoz?"** — a Profil → Adatvédelem oldalon mindenki megnézheti közérthető
+  magyar mondatokban, hogy ki, mikor és mit tett az adataival.
+- **Teljes gyülekezeti adatkimentés** egyetlen gombbal, géppel olvasható formában — ez fedezi az
+  adathordozhatósághoz való jogot és a megszűnéskori adatkiadást.
+- **Adatvédelmi kérelmek nyilvántartása** (Adminisztráció → Adatvédelem): az érintetti kérelmek
+  határidővel, állapottal és a teljesítés dokumentálásával — a törvény ugyanis nemcsak a
+  teljesítést, hanem annak **bizonyíthatóságát** is megköveteli.
+- **Kijelentkezéskor a program kitakarítja a böngészőben maradt adatokat**, hogy közös
+  hivatali gépen a következő felhasználó ne férhessen hozzájuk. Ha van még fel nem töltött
+  offline munka, azt szándékosan megőrizzük — a néma adatvesztés rosszabb volna.
+
+### 🎨 További finomítások
+
+- **A fogadóképernyő mostantól minden képarányon arányos**: a fix méretű, kicsinyített
+  „színpad" helyett a felirat és a címerek maguktól igazodnak a képernyőhöz. Laptopon a
+  köszöntés érezhetően nagyobb, telefonon fektetve sem csúszik el semmi.
+- **A jogi szövegek sötét módban is olvashatók** (eddig fix világos háttérrel jelentek meg).
+- **A román nevű nyomtatványoknál a program előre szól**, ha az egyházközség vagy egyházmegye
+  hivatalos román neve nincs kitöltve — így nem a kész papíron derül ki. A nyomtatás emiatt
+  **nem tiltódik le**, csak figyelmeztet.
+- A gyülekezeti leltár román íve is a hivatalos román nevet kapja.
+- Az esperes és az egyházmegyei számvevő **megnézheti** a saját egyházmegyéje szerepköreit
+  (kiosztani továbbra sem tud — az a kerületi admin és a rendszergazda joga).
+- A Dispoziție-varázsló és a bérleti szerződés befizető-keresője is a hatókör-tudatos keresőt
+  használja, és hiba esetén szól, ahelyett hogy némán üres listát mutatna.
+
+---
+
 ## [2026-08-22] — Kerületi nyomtatványok, nyugtatömb és Kuka + PDF-mentés javítás
 <!-- key: 2026-08-22-egyhazkeruleti-nyomtatvany-kuka -->
 <!-- category: feature -->

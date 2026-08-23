@@ -385,6 +385,147 @@ const VART_KERULET = {
   }
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// F9 — A SCOPE-TUDATOS BEFIZETŐ-KERESŐ EXHAUSTIVE KAPUJA (2026-08-22, 5a).
+//
+// A TÜNET, AMIT ŐRZÜNK: a megyei/kerületi „Tétel rögzítése" befizető-mezője
+// SEMMIT nem adott. Nem „csak személyeket" — semmit: az egyetlen forrás a
+// `searchMembersForFinance` volt, ami a `getProfileCongregation()` szerinti
+// `effectiveCongregationId`-re szűr, az pedig FELSŐ SZINTŰ aktív profilnál
+// definíció szerint `null` → azonnali üres tömb. NÉMA ÜRES LISTA.
+//
+// A javítás az új `searchIncomePartners` action, ami a `getFinanceScope()`-ra
+// épül, EXHAUSTIVE SWITCH-csel. Ha valaki ezt egyszer visszaírja
+// „egyszerűbb" `if (scope === 'diocese')` alakra, a negyedik szint (vagy egy
+// átnevezett scope) MEGINT némán a gyülekezeti keresőre esne — ugyanaz a
+// hibaosztály, csak egy szinttel feljebb.
+//
+// ⚠️ EZ SZÖVEG-ELLENŐRZÉS, ÉS AZ NÉMÁN VAKKÁ VÁLHAT (pl. ha a függvényt
+//    átnevezik, az extraktor üres törzset adna, és minden „zöld" lenne).
+//    Ezért MINDEN asszerthez tartozik NEGATÍV PÁR: legyártjuk a RÉGI, hibás
+//    alakot (mutáns), és bizonyítjuk, hogy az ellenőrző elbukik rajta.
+// ────────────────────────────────────────────────────────────────────────────
+{
+  const AKCIOK = path.join(REPO_ROOT, 'apps', 'web', 'app', '(dashboard)', 'penzugy', 'actions.ts')
+
+  /** Kommentek kiszedése — a fájl SZÖVEGESEN is emlegeti a scope-ágakat. */
+  const kodCsak = (szoveg) =>
+    szoveg.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
+
+  /** Egy top-level `export async function NEV(` törzsének kivágása a záró `}`-ig. */
+  const fuggvenyTorzs = (szoveg, nev) => {
+    const kezd = szoveg.indexOf(`export async function ${nev}(`)
+    if (kezd < 0) return null
+    const veg = szoveg.indexOf('\n}\n', kezd)
+    return veg < 0 ? szoveg.slice(kezd) : szoveg.slice(kezd, veg + 3)
+  }
+
+  /**
+   * AZ ELLENŐRZŐ. Ugyanez fut az ÉLES törzsön (üres listát kell adnia) és a
+   * MUTÁNSOKON (nem-üres listát kell adnia).
+   */
+  const hibakSearch = (torzs) => {
+    const h = []
+    if (!torzs) return ['nincs meg a searchIncomePartners function']
+    if (!/switch\s*\(\s*scope\.scope\s*\)/.test(torzs)) h.push('nincs `switch (scope.scope)` — visszaírták if/else-re?')
+    for (const ag of ['congregation', 'diocese', 'district']) {
+      if (!new RegExp(`case\\s*'${ag}'\\s*:`).test(torzs)) h.push(`hiányzik a \`case '${ag}'\` ág`)
+    }
+    if (!/:\s*never\s*=\s*scope\.scope/.test(torzs)) h.push('nincs `const _nemLehet: never = scope.scope` fordítói kapu')
+    if (!/getFinanceScope\s*\(/.test(torzs)) h.push('nem a getFinanceScope()-ot használja (a getProfileCongregation() felső szinten null!)')
+    if (/getProfileCongregation\s*\(/.test(torzs)) h.push('MÉG MINDIG a getProfileCongregation()-t hívja — az felső szinten null → néma üres lista')
+    return h
+  }
+
+  if (!fs.existsSync(AKCIOK)) {
+    fail(`F9: hiányzik a pénzügyi action-fájl: ${AKCIOK}`)
+  } else {
+    const forras = kodCsak(fs.readFileSync(AKCIOK, 'utf8'))
+    const torzs = fuggvenyTorzs(forras, 'searchIncomePartners')
+
+    // ── F9a: POZITÍV — az éles törzs hibátlan ───────────────────────────────
+    const elesHibak = hibakSearch(torzs)
+    if (elesHibak.length === 0) {
+      ok('F9a searchIncomePartners: exhaustive switch + never-kapu + getFinanceScope')
+    } else {
+      fail(`F9a: ${elesHibak.join(' · ')}`)
+    }
+
+    // ── F9b: NEGATÍV — hiányzó scope-ág (a néma üres lista visszatérése) ────
+    // ⚠️ Enélkül az asszert VAK lenne: egy mindig-üres ellenőrző is „zöld".
+    const mutansAgNelkul = (torzs || '').replace(/case\s*'district'\s*:/, "case 'ELGEPELT':")
+    if (hibakSearch(mutansAgNelkul).some((x) => x.includes("case 'district'"))) {
+      ok("F9b NEGATÍV: hiányzó `case 'district'` ágra az ellenőrző ELBUKIK (nem vak)")
+    } else {
+      fail("F9b: a mutáns (district-ág elrontva) ÁTMENT — az F9a asszert VAK, nem véd semmit")
+    }
+
+    // ── F9c: NEGATÍV — kitörölt never-kapu (a fordítói kapu „fölösleges kód") ─
+    const mutansKapuNelkul = (torzs || '').replace(/const\s+_nemLehet\s*:\s*never\s*=\s*scope\.scope/, 'const _nemLehet = scope.scope')
+    if (hibakSearch(mutansKapuNelkul).some((x) => x.includes('never'))) {
+      ok('F9c NEGATÍV: a never-kapu törlésére az ellenőrző ELBUKIK')
+    } else {
+      fail('F9c: a mutáns (never-kapu nélkül) ÁTMENT — a kapu-asszert VAK')
+    }
+
+    // ── F9d: NEGATÍV — visszaírás a RÉGI, hibás forrásra ────────────────────
+    const mutansRegiForras = (torzs || '').replace(/getFinanceScope\s*\(/g, 'getProfileCongregation(')
+    if (hibakSearch(mutansRegiForras).length > 0) {
+      ok('F9d NEGATÍV: a getProfileCongregation()-re visszaírt alak ELBUKIK (ez volt maga a hiba)')
+    } else {
+      fail('F9d: a RÉGI, felső szinten mindig üres listát adó alak ÁTMENT az ellenőrzőn')
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // F10 — A MENTÉS FAIL-CLOSED KAPUJA. A befizető-partner azonosítója a
+    //       KLIENSTŐL jön, és a szerver-akció publikus végpont: vakon beírva
+    //       egy megyei ügyintéző IDEGEN megye gyülekezetét címezhetné meg a
+    //       saját bevételi során. Ezért a `saveIncomeBatch`-nek a saját
+    //       hatókörére VISSZA KELL ELLENŐRIZNIE (`feloldBefizetoPartner`).
+    // ────────────────────────────────────────────────────────────────────────
+    const mentesTorzs = fuggvenyTorzs(forras, 'saveIncomeBatch')
+    const hibakMentes = (t) => {
+      const h = []
+      if (!t) return ['nincs meg a saveIncomeBatch function']
+      if (!/feloldBefizetoPartner\s*\(/.test(t)) h.push('nem hívja a feloldBefizetoPartner()-t — a kliens-prop vakon íródna FK-ba')
+      return h
+    }
+    if (hibakMentes(mentesTorzs).length === 0) {
+      ok('F10a saveIncomeBatch: a befizető-FK szerveroldali (hatókörre kötött) ellenőrzésen megy át')
+    } else {
+      fail(`F10a: ${hibakMentes(mentesTorzs).join(' · ')}`)
+    }
+    const mutansEllenorzesNelkul = (mentesTorzs || '').replace(/feloldBefizetoPartner\s*\(/g, 'nyersKliensAdat(')
+    if (hibakMentes(mutansEllenorzesNelkul).length > 0) {
+      ok('F10b NEGATÍV: az ellenőrzés kivételére a teszt ELBUKIK (nem vak)')
+    } else {
+      fail('F10b: a szerveroldali ellenőrzés NÉLKÜLI alak ÁTMENT — az F10a asszert VAK')
+    }
+
+    // ── F10c: a feloldó MAGA hatókörre köt (eq diocese_id / district_id) ────
+    const feloldoKezd = forras.indexOf('async function feloldBefizetoPartner(')
+    const feloldo = feloldoKezd < 0 ? null : forras.slice(feloldoKezd, forras.indexOf('\n}\n', feloldoKezd) + 3)
+    const hibakFeloldo = (t) => {
+      const h = []
+      if (!t) return ['nincs meg a feloldBefizetoPartner function']
+      if (!/\.eq\('diocese_id',\s*scopeId\)/.test(t)) h.push("a gyülekezet-partner nincs a SAJÁT megyéhez kötve (.eq('diocese_id', scopeId))")
+      if (!/\.eq\('district_id',\s*scopeId\)/.test(t)) h.push("az egyházmegye-partner nincs a SAJÁT kerülethez kötve (.eq('district_id', scopeId))")
+      return h
+    }
+    if (hibakFeloldo(feloldo).length === 0) {
+      ok('F10c a feloldó MINDKÉT ágon a saját hatókörre szűr (nincs idegen partner)')
+    } else {
+      fail(`F10c: ${hibakFeloldo(feloldo).join(' · ')}`)
+    }
+    const mutansSzuresNelkul = (feloldo || '').replace(/\.eq\('district_id',\s*scopeId\)/g, '')
+    if (hibakFeloldo(mutansSzuresNelkul).length > 0) {
+      ok('F10d NEGATÍV: a hatókör-szűrő kivételére a teszt ELBUKIK')
+    } else {
+      fail('F10d: a hatókör-szűrő NÉLKÜLI alak ÁTMENT — az F10c asszert VAK')
+    }
+  }
+}
+
 fs.rmSync(tmp, { recursive: true, force: true })
 
 if (failed) {

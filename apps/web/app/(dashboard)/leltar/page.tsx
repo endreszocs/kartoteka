@@ -59,6 +59,12 @@ export default async function LeltarPage() {
         <div className="space-y-4">
           <InventoryMain
             congregationName={moduleScope.scopeName || szintNev}
+            // 2026-08-22 (6. pont): a hatókör hivatalos ROMÁN neve — a
+            // „Registru inventar" / „Lista de inventariere" ROMÁN íveken eddig
+            // csak a magyar név állt. Ha nincs `nev_ro`, `undefined` megy át,
+            // és a magyar név marad EGYEDÜL (kitalált román nevet soha nem
+            // írunk a lapra; a hiányt a varázslón kell pótolni).
+            congregationNameRo={moduleScope.scopeNameRo || undefined}
             scope={moduleScope.scope}
             canWrite={moduleScope.canWrite}
             readOnlyReason={moduleScope.readOnlyReason}

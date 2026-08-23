@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { Eye } from 'lucide-react'
+import { Eye, ShieldCheck } from 'lucide-react'
 
 import { ScopeHero } from '@/components/dashboard/scope-dashboard-sections'
 import { DioceseDashboardTabs } from '@/components/dashboard/diocese/diocese-dashboard-tabs'
@@ -21,6 +21,11 @@ import { getSubmissionMatrix } from './document-actions'
 import { checkDioceseSetupStatus } from './diocese-actions'
 import { getDioceseAnnualReports } from '@/app/(dashboard)/eves-jelentes/actions'
 import { listAssignments } from '@/app/(dashboard)/admin/profile-congregations-actions'
+// 2026-08-23 (kisebb rések, 3.): a megye VALÓDI szerepkör-listája. A szerver
+// action hatókör-kapuja fail-closed, és a MEGYEI OLVASÓT (esperes / megyei
+// admin / megyei számvevő) is beengedi — lásd profile-roles-actions.ts.
+import { listProfileRolesForDiocese } from '@/app/(dashboard)/admin/profile-roles-actions'
+import { APPROVAL_STATUS_LABELS, ROLE_LABELS, SCOPE_LABELS } from '@/lib/profile-roles/types'
 
 /**
  * Egyházmegyei dashboard.
@@ -151,8 +156,28 @@ export default async function EgyhazmegyeDashboardPage() {
   const pendingAssignments = pendingAssignmentsRes.data || []
   const totalRequests = congregationOverview.reduce((s, c) => s + c.unlockRequests.length, 0)
 
-  // Szerepkör-adás jogosultság: CSAK admin (rendszergazda) és egyházkerületi admin
+  // ── 2026-08-23 (kisebb rések, 3.): a „LÁTHATJA" és a „KIOSZTHATJA" KÉT JOG ──
+  //
+  // MI VOLT A ROSSZ: egyetlen `canManageRoles = !!egyhazkeruletiAdmin` zászló
+  // döntött MINDKETTŐRŐL, ezért a „👥 Szerepkörök és hozzárendelések" fül CSAK a
+  // rendszergazdának és a kerületi adminnak jelent meg. Az ESPERES — aki a saját
+  // egyházmegyéjét vezeti — nem látta, KI dolgozik szerepkörrel a megyéjében,
+  // pedig a `listProfileRolesForDiocese` hatókör-kapuja őt (és a megyei
+  // számvevőt) SZÁNDÉKOSAN beengedi olvasásra.
+  //
+  // A KETTŐ SZÉTVÁLASZTVA:
+  //   · `canManageRoles` — KIOSZTHATJA: hozzárendelést hoz létre / von vissza.
+  //     Ehhez a `createAssignment` / `revokeAssignment` / `listAssignableUsers`
+  //     szerver-oldali kapuja `admin || egyhazkeruletiAdmin`-t követel
+  //     (profile-congregations-actions.ts) — a zászló EZT tükrözi, nem tágít.
+  //   · `canViewRoles` — LÁTHATJA: csak olvassa a megye szerepkör-listáját.
+  //     Meglévő hatókör-helperrel (`canReadDioceseScope`), nem újjal.
+  //
+  // FAIL-CLOSED: a `canReadDioceseScope` ugyanaz a kapu, ami feljebb a teljes
+  // oldalt őrzi — aki nem jut be, ide sem jut el; a szerver action pedig a
+  // KONKRÉT egyházmegyére is újraellenőriz (és hibát ad, nem üres listát).
   const canManageRoles = !!egyhazkeruletiAdmin
+  const canViewRoles = canManageRoles || canReadDioceseScope(access)
   // Admin Override jogosultság: csak admin/master
   const canOverride = !!admin || !!master
 
@@ -203,12 +228,143 @@ export default async function EgyhazmegyeDashboardPage() {
         canOverride={canOverride}
       />
 
+      {/* 2026-08-23 (kisebb rések, 3.): CSAK OLVASÓ szerepkör-lista annak, aki
+          LÁTHATJA, de nem oszthatja ki (esperes, megyei admin, megyei számvevő).
+          A kiosztásra jogosult ugyanezt a listát a „👥 Szerepkörök és
+          hozzárendelések" fülön kapja, a hozzárendelés-kezelővel EGYÜTT —
+          ezért a kettő KÖLCSÖNÖSEN KIZÁRÓ (`!canManageRoles`), soha nem
+          jelenik meg egyszerre két lista ugyanarról. */}
+      {canViewRoles && !canManageRoles && dioceseId && (
+        <DioceseRolesReadOnlySection dioceseId={dioceseId} />
+      )}
+
       {/* Auto-open setup wizard, ha az egyházmegye alapadatai hiányosak */}
       <DioceseSetupAutoOpen
         dioceseId={dioceseSetupStatus.dioceseId}
         needsSetup={dioceseSetupStatus.needsSetup}
       />
     </div>
+  )
+}
+
+/**
+ * 2026-08-23 (kisebb rések, 3.): AZ EGYHÁZMEGYE SZEREPKÖREI — CSAK OLVASÁS.
+ *
+ * KINEK: annak, aki `canViewRoles`, de NEM `canManageRoles` — vagyis az
+ * esperesnek, a megyei adminnak és a megyei számvevőnek. Aki kioszthat
+ * (rendszergazda, egyházkerületi admin), ugyanezt a listát a fülön kapja, a
+ * hozzárendelés-kezelővel együtt.
+ *
+ * ⛔ MIÉRT NINCS ITT EGYETLEN SZERKESZTŐ VEZÉRLŐ SEM: a kiosztás/visszavonás
+ * szerver-oldali kapuja `admin || egyhazkeruletiAdmin`-t követel
+ * (`createAssignment` / `revokeAssignment`, profile-congregations-actions.ts).
+ * Egy itt megjelenő gomb tehát KATTINTHATÓNAK LÁTSZANA, és „Nincs jogosultsága"
+ * hibával halna el — a projekt szerint ez rosszabb, mint a gomb hiánya.
+ *
+ * A HIBA SOHA NEM NÉMA: betöltési hibánál látható magyar magyarázat áll a
+ * listában, nem üres állapot („nincs adat" ≠ „nem tudjuk").
+ */
+async function DioceseRolesReadOnlySection({ dioceseId }: { dioceseId: string }) {
+  // A szerver action hatókör-kaput futtat és `{ data | error }`-t ad. A
+  // try/catch a VÁRATLAN dobásra van (pl. hiányzó tábla, 42P01): ilyenkor is
+  // magyarázó kártya jelenjen meg, ne piros hibaoldal az egész irányítópult
+  // helyett.
+  let rows: Awaited<ReturnType<typeof listProfileRolesForDiocese>>['data'] = []
+  let hiba: string | null = null
+  try {
+    const res = await listProfileRolesForDiocese(dioceseId)
+    if (res.error) hiba = res.error
+    else rows = res.data ?? []
+  } catch (e) {
+    hiba =
+      'A szerepkörök most nem tölthetők be. ' +
+      (e instanceof Error && e.message ? `(Részlet: ${e.message})` : '')
+  }
+
+  return (
+    <section className="card-raised p-4 sm:p-5">
+      <div className="flex items-start gap-3">
+        <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-100 text-indigo-700 dark:bg-indigo-400/15 dark:text-indigo-300">
+          <ShieldCheck className="size-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h2 className="font-heading text-base text-foreground sm:text-lg">
+            Az egyházmegye szerepkörei
+          </h2>
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+            Ki milyen szerepkörrel dolgozik ebben az egyházmegyében és a
+            gyülekezeteiben. <strong>Csak megtekintés</strong> — a szerepkörök
+            kiosztása és visszavonása az egyházkerületi admin, illetve a
+            rendszergazda hatásköre.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        {hiba ? (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50/60 p-4 dark:border-rose-900 dark:bg-rose-950/30">
+            <p className="text-sm font-semibold text-rose-800 dark:text-rose-200">
+              A szerepkörök betöltése nem sikerült
+            </p>
+            <p className="mt-1 text-sm text-rose-700 dark:text-rose-300">{hiba}</p>
+            <p className="mt-2 text-xs text-rose-700/80 dark:text-rose-300/80">
+              Ez nem azt jelenti, hogy nincs szerepkör — csak azt, hogy most nem
+              tudtuk lekérdezni. Frissítsd az oldalt, és ha újra ezt írja, jelezd
+              a rendszergazdának.
+            </p>
+          </div>
+        ) : (rows ?? []).length === 0 ? (
+          <div className="rounded-2xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+            Ehhez az egyházmegyéhez és a gyülekezeteihez még nincs rögzített
+            szerepkör.
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-2xl border border-border bg-card">
+            <ul className="divide-y divide-border">
+              {(rows ?? []).map((r) => {
+                const nev = r.profile_full_name || r.profile_email || 'Névtelen felhasználó'
+                const szerep =
+                  r.role === 'custom' ? r.custom_label || ROLE_LABELS.custom : ROLE_LABELS[r.role]
+                const aktiv = r.active && r.approval_status === 'approved'
+                return (
+                  <li
+                    key={r.id}
+                    className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-4"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-foreground">{nev}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {szerep}
+                        {' · '}
+                        {SCOPE_LABELS[r.scope]}
+                        {r.scope_name ? `: ${r.scope_name}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span
+                        className={
+                          'rounded-full px-2 py-0.5 text-[11px] font-medium ' +
+                          (aktiv
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200'
+                            : 'bg-muted text-muted-foreground')
+                        }
+                      >
+                        {APPROVAL_STATUS_LABELS[r.approval_status]}
+                      </span>
+                      {!r.active && r.approval_status === 'approved' && (
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                          Inaktív
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )}
+      </div>
+    </section>
   )
 }
 

@@ -19,6 +19,7 @@ import type {
   FinancePrintType,
   NyugtatombReportRow,
 } from './types'
+import { hivatalosKetnyelvuNev } from './entity-name'
 
 /** Kibővített típusok a tényleges DB oszlopokkal, amik a típus definícióból hiányozhatnak */
 type IncomeRow = BefitetesRow & { bankszamla_id?: number | null }
@@ -106,6 +107,27 @@ export const FINANCE_PRINT_TYPES: Array<{
 
 function esc(v: string) {
   return v.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
+}
+
+/**
+ * A kiállító hivatalos, KÉTNYELVŰ megnevezése a román regiszterek fejlécébe —
+ * escape-elve.
+ *
+ * ⛔ MI VOLT A HIBA (2026-08-22, 6. pont): itt `congregationNameRo ||
+ * congregationName` állt. A vagy-lánc üres román névnél HANG NÉLKÜL a magyar
+ * nevet írta ki — a REGISTRU CASA fejlécébe „Kézdi-Orbai Református
+ * Egyházmegye" került, egy végig román íven. És ez nem ritka eset: a
+ * `dioceses.nev_ro` oszlop csak 2026-08-15 óta létezik, a MEGLÉVŐ megye-sorokon
+ * NULL. Most mindkét név kimegy, ha megvan; ha a román hiányzik, CSAK a magyar
+ * áll ott — sablon-kiegészítés nélkül (a hiányt a beállítás-varázslón kell
+ * pótolni, nem a nyomtatóban kitalálni).
+ *
+ * A logika a közös `hivatalosKetnyelvuNev`-ben él (entity-name.ts) — ugyanezt a
+ * döntést a Számadás-borító, a Decont, a kísérőív, a Monetár és a leltár-ívek
+ * is kérik; másolatból némán széthúzó felületek lettek volna.
+ */
+function entitasNev(data: Pick<FinanceReportData, 'congregationName' | 'congregationNameRo'>): string {
+  return esc(hivatalosKetnyelvuNev(data.congregationName, data.congregationNameRo))
 }
 
 /** Hivatalos szám formátum: szóköz ezresek, pont tizedes, 2 jegy */
@@ -381,7 +403,7 @@ function buildRegistruCasa(data: FinanceReportData, f: MonthFilters): FinancePri
   const monthRo = MONTH_NAMES_RO[f.month - 1]
   const html = `<div class="page">
     <div class="header">
-      <div class="header-left"><div class="entity">${esc(data.congregationNameRo || data.congregationName)}</div><div>Unitate</div></div>
+      <div class="header-left"><div class="entity">${entitasNev(data)}</div><div>Unitate</div></div>
       <div class="header-center"><div class="title">REGISTRU CASA</div></div>
       <div class="header-right"><div>LUNA ${monthRo}</div><div>Anul: ${f.year}</div></div>
     </div>
@@ -463,7 +485,7 @@ function buildRegistruBanca(data: FinanceReportData, f: MonthFilters): FinancePr
   const monthRo = MONTH_NAMES_RO[f.month - 1]
   const html = `<div class="page">
     <div class="header">
-      <div class="header-left"><div class="entity">${esc(data.congregationNameRo || data.congregationName)}</div><div>Unitate</div></div>
+      <div class="header-left"><div class="entity">${entitasNev(data)}</div><div>Unitate</div></div>
       <div class="header-center"><div class="title">REGISTRU BANCA</div><div style="font-size:11px;margin-top:2px">${esc(bankLabel)}</div></div>
       <div class="header-right"><div>LUNA ${monthRo} Anul: ${f.year}</div><div>Operatiuni prin RON</div></div>
     </div>
@@ -593,7 +615,7 @@ function buildRegistruJurnal(data: FinanceReportData, f: MonthFilters): FinanceP
 
   const monthRo = MONTH_NAMES_RO[f.month - 1]
   const fejlec = `<div class="header">
-      <div class="header-left"><div>Unitate:</div><div class="entity">${esc(data.congregationNameRo || data.congregationName)}</div></div>
+      <div class="header-left"><div>Unitate:</div><div class="entity">${entitasNev(data)}</div></div>
       <div class="header-center"><div class="title">REGISTRUL-JURNAL DE INCASARI SI PLATI</div></div>
       <div class="header-right"><div>LUNA ${monthRo} ANUL ${f.year}</div></div>
     </div>`
@@ -685,13 +707,20 @@ export function buildKiadasiKiseroiv(params: {
   date: string
   pageNumber: number
   congregationName: string
+  /**
+   * 2026-08-22 (6. pont): a kiállító hivatalos ROMÁN neve (`nev_ro`). A
+   * BORDEROU DE PLĂȚI végig román nyomtatvány, a fejlécében mégis CSAK a magyar
+   * név állt — román név-ág egyáltalán nem létezett rajta. OPCIONÁLIS, hogy a
+   * desktop hívói ne törjenek; ha üres, a magyar név áll ott EGYEDÜL.
+   */
+  congregationNameRo?: string
   kiaCelMap: Record<number, string>
   cellek: SzamadasiCel[]
   /** 2026-07-17 (F3, Q10): a kísérőív forrása — pl. „Kassza" vagy egy bankszámla neve.
       Forrásonként KÜLÖN sorozat fut (a pageNumber már forrás-szűrten érkezik). */
   sourceLabel?: string
 }): FinancePrintResult {
-  const { expenses, date, pageNumber, congregationName, kiaCelMap, cellek, sourceLabel } = params
+  const { expenses, date, pageNumber, congregationName, congregationNameRo, kiaCelMap, cellek, sourceLabel } = params
 
   const total = expenses.reduce((s, r) => s + ronOf(r), 0)
 
@@ -723,7 +752,7 @@ export function buildKiadasiKiseroiv(params: {
 
   const html = `<div class="page page--bottom-footer">
     <div class="header">
-      <div class="header-left"><div class="entity">${esc(congregationName)}</div></div>
+      <div class="header-left"><div class="entity">${entitasNev({ congregationName, congregationNameRo })}</div></div>
       <div class="header-center">
         <div class="title" style="text-decoration:underline">BORDEROU DE PL&#258;&#538;I</div>
         <div style="font-size:12px;font-weight:bold;">KIAD&Aacute;SI K&Iacute;S&Eacute;R&Odblac;&Iacute;V</div>
@@ -770,7 +799,12 @@ export function buildKiadasiKiseroiv(params: {
  */
 function buildNyugtatombKimutatas(data: FinanceReportData, year: number): FinancePrintResult {
   const rows = data.nyugtatombok || []
-  const congregationName = data.congregationName || '—'
+  // 2026-08-22 (6. pont): a fejléc-cím ROMÁN („Evidența carnetelor de
+  // chitanțe"), a kiállító neve alatta mégis CSAK magyar volt — pedig a
+  // `congregationNameRo` MÁR ITT VOLT az adatban, csak senki nem olvasta.
+  // Most kétnyelvű; ha nincs román név, a magyar áll egyedül (a `—` a
+  // korábbi, név nélküli eset tartaléka).
+  const entitasFelirat = entitasNev(data) || '&mdash;'
 
   function fmtHu(iso: string | null): string {
     if (!iso) return '—'
@@ -783,7 +817,7 @@ function buildNyugtatombKimutatas(data: FinanceReportData, year: number): Financ
     <div class="title-row">
       <div>
         <div class="title">Evidența carnetelor de chitanțe — Nyugtatömb kimutatás — ${year}</div>
-        <div class="subtitle">${esc(congregationName)}</div>
+        <div class="subtitle">${entitasFelirat}</div>
       </div>
       <div class="pageinfo">A4 fekvő · pg. 1</div>
     </div>
@@ -1109,7 +1143,7 @@ function buildCsoportNaplo(data: FinanceReportData, filters: FinanceReportFilter
   const CSN_CIM_SULY = 4
 
   const fejlecBlokk = `<div class="header">
-      <div class="header-left"><div class="entity">${esc(data.congregationNameRo || data.congregationName)}</div><div>Unitate</div></div>
+      <div class="header-left"><div class="entity">${entitasNev(data)}</div><div>Unitate</div></div>
       <div class="header-center"><div class="title">Registru grupat pe capitole</div><div style="font-size:12px;font-weight:normal">Csoportnapló — jogcímenkénti tétellista</div></div>
       <div class="header-right"><div>${periodLabel}</div><div>${periodLabelHu}</div></div>
     </div>`

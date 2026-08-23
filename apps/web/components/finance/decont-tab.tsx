@@ -15,14 +15,18 @@ import { toast } from 'sonner'
 
 interface DecontTabProps {
   congregationName: string
+  /** 2026-08-22 (6. pont): a kiállító hivatalos ROMÁN neve — a DECONT „Unitate"
+   *  sávjába, a magyar név mellé. */
+  congregationNameRo?: string
   categories: DecontCategoryOption[]
   prefill?: DecontPrefill
 }
 
-export function DecontTab({ congregationName, categories, prefill }: DecontTabProps) {
+export function DecontTab({ congregationName, congregationNameRo, categories, prefill }: DecontTabProps) {
   return (
     <DecontTabBody
       congregationName={congregationName}
+      congregationNameRo={congregationNameRo}
       categories={categories}
       prefill={prefill}
       onGetNextNumber={getNextDecontNumber}

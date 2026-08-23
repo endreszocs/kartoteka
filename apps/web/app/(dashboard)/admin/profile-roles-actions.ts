@@ -17,15 +17,20 @@
 
 import { revalidatePath } from 'next/cache'
 import { requireAdminAccess } from '@/lib/auth/admin-access'
+import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import {
   assertScopeTargetInScope,
+  darabolIdListat,
   getAdminDistrictScope,
   getScopedCongregationIds,
   getScopedDioceseIds,
+  getScopedDioceseIdsResult,
 } from '@/lib/auth/admin-scope'
+import { canReadDioceseScope, resolveDioceseReadScopeIds } from '@/lib/auth/level-scope'
 import { logAuditEvent } from '@/lib/audit/log'
 import { ROLE_TEMPLATES } from '@/lib/profile-roles/permissions'
 import type {
+  ApprovalStatus,
   Permissions,
   ProfileRoleRow,
   ProfileRoleScope,
@@ -81,6 +86,184 @@ export async function listProfileRoles(): Promise<{ data?: ProfileRoleRow[]; err
     return false // 'system' — kerületi admin nem látja
   })
   return { data: filtered }
+}
+
+/**
+ * Egy EGYHÁZMEGYE VALÓDI szerepkör-listája (csak olvasás).
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * MIÉRT KELLETT (2026-08-22, 4. pont)
+ * ════════════════════════════════════════════════════════════════════════════
+ * A megyei irányítópult „Szerepkörök" füle valójában a `profile_congregations`
+ * táblát (könyvelői/számvevői HOZZÁRENDELÉSEK) mutatta — szerepkört nem. A
+ * felirat és a tartalom széthúzott. Ez a listázó adja a hiányzó felet: a
+ * `profile_roles` sorokat, a KÉPERNYŐN LÁTOTT egyházmegyére szűrve.
+ *
+ * Miért nem a meglévő `listProfileRoles`: az `requireAdminAccess`-t követel
+ * (a megyei olvasó ott elbukik), és EGYHÁZKERÜLETRE szűr, nem megyére.
+ *
+ * HATÓKÖR (FAIL-CLOSED): korlátlan admin; kerületi admin, akinek a feloldott
+ * megyéi közt van ez a megye; vagy megyei OLVASÓ (esperes / megyei admin /
+ * megyei számvevő), akinek a szerep-szűrt olvasói hatókörében szerepel. Bárki
+ * más HIBÁT kap — nem üres listát.
+ *
+ * Amit hoz: a `scope='diocese'` sorok erre a megyére + a megye gyülekezeteire
+ * eső `scope='congregation'` sorok. A `system` és a `district` szint SOHA.
+ */
+export type DioceseProfileRoleRow = {
+  id: string
+  profile_id: string
+  profile_full_name: string | null
+  profile_email: string | null
+  scope: 'diocese' | 'congregation'
+  scope_id: string
+  /** Az egyházmegye vagy a gyülekezet neve — a listában ez látszik. */
+  scope_name: string | null
+  role: ProfileRoleType
+  custom_label: string | null
+  approval_status: ApprovalStatus
+  active: boolean
+  granted_at: string
+}
+
+export async function listProfileRolesForDiocese(
+  dioceseId: string,
+): Promise<{ data?: DioceseProfileRoleRow[]; error?: string }> {
+  if (!dioceseId) return { error: 'Nincs kiválasztott egyházmegye.' }
+
+  const access = await getEffectiveAccessContext()
+  if (!access.user) return { error: 'Nincs bejelentkezve.' }
+
+  // ── Hatókör-kapu ──────────────────────────────────────────────────────────
+  const adminScope = getAdminDistrictScope(access)
+  let engedelyezett = adminScope.unrestricted
+
+  if (!engedelyezett && access.egyhazkeruletiAdmin) {
+    // A „nem tudjuk" NEM lehet néma üres lista (lásd admin-scope ScopedIdsResult).
+    const megyek = await getScopedDioceseIdsResult(access)
+    if (!megyek.feloldhato) {
+      return {
+        error:
+          'Az egyházkerületi hatókörét most nem sikerült feloldani, ezért a szerepköröket nem tudjuk megmutatni.' +
+          (megyek.hiba ? ` (Részlet: ${megyek.hiba})` : ''),
+      }
+    }
+    if (megyek.indok === 'nincs_kerulet') {
+      return {
+        error:
+          'Nincs feloldható egyházkerületi hatóköre, ezért a szerepkörök nem listázhatók. ' +
+          'Kérje a rendszergazdát, hogy állítsa be az egyházkerületét.',
+      }
+    }
+    engedelyezett = !!megyek.ids && megyek.ids.includes(dioceseId)
+  }
+
+  if (!engedelyezett && canReadDioceseScope(access)) {
+    engedelyezett = resolveDioceseReadScopeIds(access).includes(dioceseId)
+  }
+
+  if (!engedelyezett) {
+    return { error: 'Ehhez az egyházmegyéhez nincs jogosultsága a szerepkörök megtekintéséhez.' }
+  }
+
+  const supabase = access.supabase
+  const OSZLOPOK = 'id, profile_id, scope, scope_id, role, custom_label, approval_status, active, granted_at'
+  type Nyers = {
+    id: string
+    profile_id: string
+    scope: 'diocese' | 'congregation'
+    scope_id: string
+    role: ProfileRoleType
+    custom_label: string | null
+    approval_status: ApprovalStatus
+    active: boolean
+    granted_at: string
+  }
+
+  // (1) Az egyházmegye neve — a megyei sorok mellé.
+  const { data: megyeSor } = await supabase
+    .from('dioceses')
+    .select('name')
+    .eq('id', dioceseId)
+    .maybeSingle()
+  const megyeNev = ((megyeSor as { name?: string | null } | null)?.name ?? null) as string | null
+
+  // (2) A MEGYEI szintű szerepkör-sorok.
+  const { data: megyeiSorok, error: megyeiErr } = await supabase
+    .from('profile_roles')
+    .select(OSZLOPOK)
+    .eq('scope', 'diocese')
+    .eq('scope_id', dioceseId)
+  if (megyeiErr) return { error: megyeiErr.message }
+
+  // (3) A megye gyülekezetei (név is, hogy a lista olvasható legyen).
+  const { data: congs, error: congErr } = await supabase
+    .from('congregations')
+    .select('id, nev_hu, name')
+    .eq('diocese_id', dioceseId)
+  if (congErr) return { error: congErr.message }
+  const congNev = new Map<string, string | null>(
+    (congs ?? []).map((c): [string, string | null] => {
+      const sor = c as { id: string; nev_hu: string | null; name: string | null }
+      return [sor.id, sor.nev_hu || sor.name || null]
+    }),
+  )
+
+  // (4) A GYÜLEKEZETI szintű sorok — 80-asával DARABOLVA (414-védelem: egy nagy
+  //     megye gyülekezet-listája is az URL-be kerülne).
+  const gyulekezetiSorok: Nyers[] = []
+  for (const darab of darabolIdListat([...congNev.keys()])) {
+    const { data, error } = await supabase
+      .from('profile_roles')
+      .select(OSZLOPOK)
+      .eq('scope', 'congregation')
+      .in('scope_id', darab)
+    if (error) return { error: error.message }
+    gyulekezetiSorok.push(...((data ?? []) as unknown as Nyers[]))
+  }
+
+  const osszes: Nyers[] = [...((megyeiSorok ?? []) as unknown as Nyers[]), ...gyulekezetiSorok]
+  if (osszes.length === 0) return { data: [] }
+
+  // (5) A nevek — szintén darabolva.
+  const profilIds = [...new Set(osszes.map((r) => r.profile_id))]
+  const profilNev = new Map<string, { full_name: string | null; email: string | null }>()
+  for (const darab of darabolIdListat(profilIds)) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, full_name, email')
+      .in('id', darab)
+    if (error) return { error: error.message }
+    for (const p of data ?? []) {
+      const sor = p as { id: string; full_name: string | null; email: string | null }
+      profilNev.set(sor.id, { full_name: sor.full_name, email: sor.email })
+    }
+  }
+
+  const rows: DioceseProfileRoleRow[] = osszes.map((r) => ({
+    id: r.id,
+    profile_id: r.profile_id,
+    profile_full_name: profilNev.get(r.profile_id)?.full_name ?? null,
+    profile_email: profilNev.get(r.profile_id)?.email ?? null,
+    scope: r.scope,
+    scope_id: r.scope_id,
+    scope_name: r.scope === 'diocese' ? megyeNev : (congNev.get(r.scope_id) ?? null),
+    role: r.role,
+    custom_label: r.custom_label,
+    approval_status: r.approval_status,
+    active: r.active,
+    granted_at: r.granted_at,
+  }))
+
+  // A darabolt lekérdezések után a rendezést itt állítjuk elő. A visszavont /
+  // függő sorokat NEM rejtjük el (az elhallgatás is félrevezetés), csak hátra
+  // soroljuk — elöl az legyen, aki tényleg dolgozik a megyében.
+  const elol = (r: DioceseProfileRoleRow) => (r.active && r.approval_status === 'approved' ? 0 : 1)
+  rows.sort(
+    (a, b) => elol(a) - elol(b) || (b.granted_at || '').localeCompare(a.granted_at || ''),
+  )
+
+  return { data: rows }
 }
 
 // BIZTONSÁGI FIX 2026-08-11 (#15): a `listAssignableProfiles` export TÖRÖLVE.

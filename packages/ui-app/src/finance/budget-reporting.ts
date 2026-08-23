@@ -12,6 +12,7 @@
 // 2026-06-11 (Endre #4): az `apps/web/lib/finance/budget-reporting.ts`-ből
 // költözött ide változatlan builder-logikával (web: re-export shim).
 import type { SzamadasiCel, BudgetCompatRow, BudgetPrintType } from './types'
+import { hivatalosKetnyelvuNev } from './entity-name'
 
 // ---------------------------------------------------------------------------
 // Típusok
@@ -307,6 +308,16 @@ export interface BudgetPrintData {
    * `felsoSzint` ágát.
    */
   districtName?: string | null
+  /**
+   * 2026-08-22 (6. pont): a felettes egyházkerület HIVATALOS ROMÁN neve
+   * (`districts.nev_ro`) a MEGYEI ív borítójának felső blokkjához. Ha hiányzik,
+   * ott a mai „EPARHIA REFORMATĂ" hivatal-megnevezés marad — kitalált NÉV soha
+   * nem kerül a lapra (lásd a `buildCoverPage` `felettesSor` MIÉRT-jét).
+   *
+   * ⚠️ A `districtName`-hez hasonlóan a KERÜLETI íven nincs szerepe: ott a
+   * kerület a KIÁLLÍTÓ, a saját román neve a `congregationNameRo`-ban jön.
+   */
+  districtNameRo?: string | null
   year: number
   iktatoszam?: string
   hatarozatSzam?: string
@@ -705,7 +716,13 @@ function footer(data: BudgetPrintData, pageNo: number, total: number): string {
   const kind = data.partial
     ? ' · Részszámadás — nem hivatalos zárszámadás / Situație parțială — nu este execuție bugetară oficială'
     : ''
-  return `<div class="page-footer"><span>${esc(data.congregationName)}${kind}</span><span>oldal / pagina ${pageNo} / ${total}</span></div>`
+  // 2026-08-22 (6. pont): a lábléc entitás-neve is KÉTNYELVŰ — eddig a lapok
+  // alján akkor is a magyar név állt EGYEDÜL, ha a román hivatalos név rögzítve
+  // volt. (Az `esc` a fejlécével azonos: van román név → „MAGYAR / ROMÁN",
+  // nincs → csak a magyar, sablon nélkül.) A lábléc szándékosan NEM nagybetűs:
+  // a lapalji sáv kisbetűs, ez az elrendezés nem változik.
+  const entitas = esc(hivatalosKetnyelvuNev(data.congregationName, data.congregationNameRo))
+  return `<div class="page-footer"><span>${entitas}${kind}</span><span>oldal / pagina ${pageNo} / ${total}</span></div>`
 }
 
 /**
@@ -715,11 +732,17 @@ function footer(data: BudgetPrintData, pageNo: number, total: number): string {
  * REFORMATĂ + név"). Mindkét név a Gyülekezet beállítása ablakból jön
  * (congregations.name + nev_ro); ha a román név nincs kitöltve, csak a magyar
  * jelenik meg — sablon-kiegészítés nélkül.
+ *
+ * 2026-08-22 (6. pont): a LOGIKA a közös `hivatalosKetnyelvuNev` helperbe
+ * költözött (finance/entity-name.ts) — ugyanezt a döntést 12+ nyomtatvány
+ * kérte, és a másolatok némán széthúztak (a többi ív `nev_ro || magyar`
+ * vagy-lánca üres román névnél MAGYAR nevet írt egy végig román ívre). Ez a
+ * függvény megmarad a `BudgetPrintData`-ra szabott, escape-elt burkolatnak.
  */
 function hivatalosEntitasNev(data: BudgetPrintData): string {
-  const hu = (data.congregationName || '').toLocaleUpperCase('hu-HU')
-  const ro = (data.congregationNameRo || '').trim().toLocaleUpperCase('ro-RO')
-  return ro ? `${esc(hu)} / ${esc(ro)}` : esc(hu)
+  return esc(
+    hivatalosKetnyelvuNev(data.congregationName, data.congregationNameRo, { nagybetus: true }),
+  )
 }
 
 interface CoverOpts {
@@ -770,10 +793,25 @@ function buildCoverPage(
     ? (data.districtName || '').trim().toLocaleUpperCase('hu-HU') ||
       'REFORMÁTUS EGYHÁZKERÜLET'
     : 'REFORMÁTUS EGYHÁZMEGYE'
+  // ── 2026-08-22 (6. pont): a felettes kerület ROMÁN neve a TÖRZSADATBÓL ────
+  // Eddig a megyei ív felső blokkjában hardkódolt „/ EPARHIA REFORMATĂ" állt,
+  // vagyis a magyar sor a VALÓDI kerületet nevezte meg, a román viszont csak a
+  // hivatal-típust — a papír két nyelven mást mondott. Most a `districts.nev_ro`
+  // jön (penzugy/actions.ts).
+  //
+  // ⚠️ HA NINCS kerületi román név, a MAI sablonszöveg MARAD (Endre döntése).
+  // Ez NEM mond ellent a „soha ne generálj román nevet" szabálynak: az
+  // „EPARHIA REFORMATĂ" nem a kerület NEVE, hanem a hivatal megnevezése —
+  // pontosan úgy, ahogy a mellette álló magyar sor is „REFORMÁTUS
+  // EGYHÁZKERÜLET"-re esik vissza név hiányában. Kitalált NÉV nem kerül a lapra.
+  const felettesRo = (data.districtNameRo || '').trim().toLocaleUpperCase('ro-RO')
+  const felettesSor = felettesRo
+    ? esc(hivatalosKetnyelvuNev(felettesNev, felettesRo))
+    : `${esc(felettesNev)} / EPARHIA REFORMATĂ`
   const felettesBlock = keruleti
     ? ''
     : megyei
-    ? `<div class="cv-entity">${esc(felettesNev)} / EPARHIA REFORMATĂ</div>
+    ? `<div class="cv-entity">${felettesSor}</div>
       <div class="cv-row">
         <div>Egyházkerületi iktatószám / Nr. înreg. eparhie: <span class="cv-line">&nbsp;</span></div>
         <div>Aláírás / Semnătura: <span class="cv-line">&nbsp;</span></div>

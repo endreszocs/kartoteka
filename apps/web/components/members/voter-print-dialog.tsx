@@ -64,12 +64,23 @@ export function VoterPrintDialog({
   // nyomtatás is garantáltan látja (nincs CORS-/betöltés-időzítés kérdés).
   const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null)
   const [loadingCtx, setLoadingCtx] = useState(false)
+  /**
+   * 2026-08-22 (8. pont): a kontextus-betöltés HIBA-ága. Eddig a `.then()`-nek
+   * nem volt `.catch()`-e: elutasított promise-nál a `loadingCtx` ÖRÖKRE `true`
+   * maradt (a felirat bent ragadt), a fejléc-adatok (hivatalos név, CIF, cím)
+   * pedig az alapértelmezett „Gyülekezet" helyőrzőn — vagyis a hivatalos
+   * névjegyzék NÉV NÉLKÜL, mégis aláírhatóan ment volna ki.
+   */
+  const [ctxHiba, setCtxHiba] = useState<string | null>(null)
+  /** Az „Újrapróbálom" gomb léptetője — a betöltő effect depje. */
+  const [ujratoltoKulcs, setUjratoltoKulcs] = useState(0)
 
   // Első megnyitáskor — gyülekezet kontextus (fejléchez)
   useEffect(() => {
     if (!open) return
     let cancelled = false
     setLoadingCtx(true)
+    setCtxHiba(null)
     void getVoterPrintContext().then(async ctx => {
       if (cancelled) return
       setCongregationName(ctx.congregationName)
@@ -96,8 +107,18 @@ export function VoterPrintDialog({
         }
       }
     })
+    // 2026-08-22 (8. pont): KÖTELEZŐ `.catch()` — enélkül a „Gyülekezeti adatok
+    // betöltése..." felirat örökre bent ragad, és a névjegyzék a helyőrző
+    // fejléccel nyomtatható ki.
+    .catch((err: unknown) => {
+      if (cancelled) return
+      setLoadingCtx(false)
+      const uzenet = err instanceof Error ? err.message : 'Ismeretlen hiba.'
+      setCtxHiba(uzenet)
+      toast.error(`A gyülekezeti adatok betöltése nem sikerült: ${uzenet}`)
+    })
     return () => { cancelled = true }
-  }, [open])
+  }, [open, ujratoltoKulcs])
 
   const filteredVoters = useMemo(() => {
     // 2026-07-24 (PR-12): kanonikus mód — a névjegyzék-tagság kész flagje
@@ -323,8 +344,33 @@ export function VoterPrintDialog({
                 {/* 2026-07-24 (PR-12): a lapszám is látszik — a teljes névsor több
                     A4-lapra tördelődik, az előnézet görgethető. */}
                 <div><span className="font-semibold text-slate-800">Terjedelem:</span> {report.sheetCount} A4-oldal (álló)</div>
-                {loadingCtx && <div className="text-[11px] text-blue-600 mt-1">Gyülekezeti adatok betöltése...</div>}
+                {loadingCtx && !ctxHiba && <div className="text-[11px] text-blue-600 mt-1">Gyülekezeti adatok betöltése...</div>}
               </div>
+
+              {/* 2026-08-22 (8. pont): hangos, TILTÓ, újrapróbálható hiba-ág. A
+                  fejléc-adatok (hivatalos név, CIF, cím) nélkül a névjegyzék
+                  helyőrző fejléccel, mégis aláírhatóan menne ki. */}
+              {ctxHiba !== null && (
+                <div
+                  role="alert"
+                  className="space-y-2 rounded-lg border border-red-300 bg-red-50 p-2.5 text-xs leading-5 text-red-800"
+                >
+                  <p>
+                    A <strong>gyülekezeti fejléc-adatok betöltése nem sikerült</strong>: {ctxHiba}
+                  </p>
+                  <p>
+                    A nyomtatás addig <strong>letiltva marad</strong> — hivatalos névjegyzék nem
+                    mehet ki helyőrző fejléccel.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setUjratoltoKulcs(k => k + 1)}
+                    className="inline-flex min-h-11 items-center justify-center rounded-lg border border-red-400 bg-white px-3 text-xs font-semibold text-red-800 transition-colors hover:bg-red-100"
+                  >
+                    Újrapróbálom
+                  </button>
+                </div>
+              )}
 
               {!anyFilter && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-2.5 text-xs text-amber-800">
@@ -361,7 +407,15 @@ export function VoterPrintDialog({
                 <Button
                   className="flex-[2]"
                   onClick={() => void handleDirectPrint()}
-                  disabled={sendingToPrinter || !anyFilter || filteredVoters.length === 0}
+                  disabled={
+                    sendingToPrinter ||
+                    !anyFilter ||
+                    filteredVoters.length === 0 ||
+                    // 2026-08-22 (8. pont): fail-closed — hiányzó fejléc-adatokkal
+                    // (vagy még be sem töltött kontextussal) nincs hivatalos ív.
+                    loadingCtx ||
+                    ctxHiba !== null
+                  }
                 >
                   {sendingToPrinter ? 'Nyomtatás...' : 'Nyomtatás / Mentés PDF-ként'}
                 </Button>

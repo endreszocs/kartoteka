@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { ArrowRight, Handshake, Mail, Phone, Shield, User , ShieldCheck } from 'lucide-react'
+import { ArrowRight, Eye, Handshake, Mail, Phone, Shield, User , ShieldCheck } from 'lucide-react'
 
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -161,6 +161,31 @@ export default async function ProfilePage() {
           >
             <ShieldCheck className="size-4" />
             Biztonság kezelése
+            <ArrowRight className="size-4" />
+          </Link>
+        </CardContent>
+      </Card>
+
+      {/* Adataim és adatvédelem — 2026-08-23.
+          A jogi dokumentumok két konkrét ígérete: betekintés-kimutatás
+          (Adatvédelmi tájékoztató 18. szakasz) és géppel olvasható adatexport
+          (9. szakasz + ÁSZF 12. pont). A hatókör-ellenőrzés a panelekben fut,
+          fail-closed módon — ezért a belépő itt minden szerepkörnek látszik. */}
+      <Card className="mt-6 border-sky-200 bg-sky-50/40">
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5">
+          <div>
+            <p className="text-sm font-semibold text-slate-800">Adataim és adatvédelem</p>
+            <p className="mt-1 text-xs text-slate-600">
+              Nézd meg, ki és mikor nyúlt a gyülekezet adataihoz, és töltsd le a gyülekezet teljes
+              adatállományát géppel olvasható formában.
+            </p>
+          </div>
+          <Link
+            href="/profile/adatvedelem"
+            className="inline-flex items-center gap-2 rounded-full bg-sky-700 px-4 py-2 text-sm font-medium text-white hover:bg-sky-800"
+          >
+            <Eye className="size-4" />
+            Adataim megnyitása
             <ArrowRight className="size-4" />
           </Link>
         </CardContent>

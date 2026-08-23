@@ -24,7 +24,15 @@ import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
 // így a mentés/nyomtatás/törlés funkcionalitás EGYETLEN helyen él tovább.
 type WebMonetaryTabProps = Pick<
   MonetaryTabProps,
-  'expectedCashBalance' | 'currentYear' | 'bankAccounts' | 'internalTransfers' | 'congregationName' | 'compact'
+  // 2026-08-22 (6. pont): a `congregationNameRo` is átmegy — a MONETAR
+  // fejlécében eddig CSAK a magyar név állt egy végig kétnyelvű nyomtatványon.
+  | 'expectedCashBalance'
+  | 'currentYear'
+  | 'bankAccounts'
+  | 'internalTransfers'
+  | 'congregationName'
+  | 'congregationNameRo'
+  | 'compact'
 >
 
 export function MonetaryTabV2(props: WebMonetaryTabProps) {

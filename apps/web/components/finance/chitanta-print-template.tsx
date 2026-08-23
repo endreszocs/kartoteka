@@ -52,13 +52,22 @@ function stripDiacritics(s: string): string {
  * Visszaadja a hivatalos román nevet uppercase-olva — ha a rendelkezésre
  * álló `nev` már tartalmazza a prefixet (pl. "PAROHIA REFORMATĂ"), akkor
  * csak azt adjuk vissza duplázás nélkül; egyébként hozzáillesztjük.
+ *
+ * ⛔ 2026-08-22 (6. pont): A `fallback` PARAMÉTER MEGSZŰNT. Eddig hiányzó
+ * román névnél a puszta hivatal-megnevezést („PAROHIA REFORMATĂ",
+ * „PROTOPOPIAT REFORMAT") írtuk ki NÉV GYANÁNT egy sorszámozott, aláírható
+ * bizonylatra — vagyis a nyugta olyat állított, ami nem az adatból jött.
+ * Most `null` jön vissza, és a hívó a ROMÁN SORT ELHAGYJA. Kevesebb szöveg,
+ * de igaz szöveg; a hiányzó nevet a beállítás-varázslón kell pótolni.
+ *
+ * ✅ A PREFIX-DUPLÁZÁS VÉDELME MARAD: ha a rögzített név már tartalmazza a
+ * hivatal-megnevezést, nem tesszük ki még egyszer.
  */
 function formatRoHeaderName(
   name: string | null | undefined,
   prefix: string,
-  fallback: string,
-): string {
-  if (!name || !name.trim()) return fallback
+): string | null {
+  if (!name || !name.trim()) return null
   const normalized = stripDiacritics(name)
   const normalizedPrefix = stripDiacritics(prefix)
   if (normalized.startsWith(normalizedPrefix)) {
@@ -79,12 +88,50 @@ function districtEmblemSrc(data: ChitantaPrintData): string {
     : '/EREK.png'
 }
 
-/** A kerület román fejléc-sora — adatból; ha nincs RO név, a kerület-felismerés dönt. */
-function districtRoHeader(data: ChitantaPrintData): string {
-  if (data.egyhazkeruletNevRo) return data.egyhazkeruletNevRo.toUpperCase()
-  return districtEmblemSrc(data) === '/KEREK.png'
-    ? 'EPARHIA REFORMATĂ DE PE LÂNGĂ PIATRA CRAIULUI'
-    : 'EPARHIA REFORMATĂ DIN ARDEAL'
+/**
+ * A kerület ROMÁN fejléc-sora — KIZÁRÓLAG adatból (`districts.nev_ro`).
+ *
+ * ⛔ MI VOLT ITT (2026-08-22-ig): ha nem volt román név, a függvény a
+ * HÁTTÉR-CÍMERBŐL következtetett kerületnevet, és azt írta a nyugtára —
+ * „EPARHIA REFORMATĂ DIN ARDEAL" akkor is, ha az adatbázis erről semmit nem
+ * tudott. A címer-választás egy KÉP eldöntésére való heurisztika; NÉV-adatot
+ * levezetni belőle találgatás. Ráadásul a hiány oka is a kódban volt: a
+ * `chitanta/print.ts` egy elavult TODO miatt hardkódoltan `null`-t adott a
+ * kerületi román névre (az S2 szelet 2026-08-16-án már lefutott).
+ *
+ * MOST: van név → az; nincs → `null`, és a hívó a ROMÁN SORT ELHAGYJA.
+ */
+function districtRoHeader(data: ChitantaPrintData): string | null {
+  const ro = (data.egyhazkeruletNevRo || '').trim()
+  return ro ? ro.toUpperCase() : null
+}
+
+/**
+ * A fejléc HÁROM szintjének kiírandó nevei — EGY döntés, mindkét elrendezésnek.
+ *
+ * MIÉRT KÖZÖS: a nyugtának két sablon-ága van (egyoldalas `ChitantaSingle` és
+ * a kettévágható `ChitantaDualLayout`), és eddig mindkettő SAJÁT másolatban
+ * döntött a fallbackekről. Pontosan az a hibaosztály, ami ellen a projekt
+ * többi közös helpere épült: az egyik ág javítása elrejtette volna a másikat.
+ *
+ * A SZABÁLY: ami nincs az adatban, az nem kerül a papírra. Sem kitalált román
+ * név (címerből, prefixből), sem generikus magyar sablon
+ * („REFORMÁTUS EGYHÁZKÖZSÉG") — az utóbbi egy MÁSIK gyülekezet nevének is
+ * beillene, tehát félrevezető egy sorszámozott bizonylaton.
+ */
+function fejlecNevek(data: ChitantaPrintData) {
+  return {
+    keruletRo: districtRoHeader(data),
+    // ⚠️ A KERÜLET magyar sora SZÁNDÉKOSAN nem nagybetűs: a mai nyugtán is a
+    // tárolt alakban áll (a megye és a gyülekezet sora viszont `toUpperCase()`
+    // volt — ezt sem mozdítjuk). A LÁTVÁNY változatlan, csak a hiányzó nevek
+    // sablon-pótlása szűnt meg.
+    keruletHu: (data.egyhazkeruletNevHu || '').trim() || null,
+    megyeRo: formatRoHeaderName(data.egyhazmegyeNevRo, 'Protopopiat Reformat'),
+    megyeHu: (data.egyhazmegyeNevHu || '').trim().toUpperCase() || null,
+    gyulekezetRo: formatRoHeaderName(data.gyulekezet.nevRo, 'Parohia Reformată'),
+    gyulekezetHu: (data.gyulekezet.nevHu || '').trim().toUpperCase() || null,
+  }
 }
 
 export function ChitantaPrintTemplate({ data, copyWatermark, dualMode }: Props) {
@@ -106,6 +153,9 @@ function ChitantaSingle({ data, copyWatermark }: { data: ChitantaPrintData; copy
   const { day, month, year } = formatDateParts(data.szamlaDatum)
   const huWords = amountInWordsHu(data.osszegBrut)
   const roWords = amountInWordsRo(data.osszegBrut)
+  // 2026-08-22 (6. pont): a fejléc név-sorai EGY közös döntésből (fejlecNevek) —
+  // az egyoldalas és a kettévágható sablon eddig külön másolatban döntött.
+  const nevek = fejlecNevek(data)
 
   return (
     <div className="chitanta-print-root mx-auto bg-white text-slate-900 print:m-0">
@@ -202,28 +252,30 @@ function ChitantaSingle({ data, copyWatermark }: { data: ChitantaPrintData; copy
       {/* ─── Fejléc — kompakt 3 sor egyháztartó struktúra + pecsét helye jobbra ─── */}
       <div className="grid grid-cols-[2fr_1fr] gap-3 border-b border-slate-300 pb-2 relative" style={{ zIndex: 2 }}>
         <div className="space-y-0.5 text-[9pt] leading-tight">
-          <div className="font-bold uppercase tracking-tight">
-            {districtRoHeader(data)}
-          </div>
-          <div className="italic text-slate-700">
-            {data.egyhazkeruletNevHu || 'ERDÉLYI REFORMÁTUS EGYHÁZKERÜLET'}
-          </div>
-          <div className="border-t border-dotted border-slate-400 pt-0.5 mt-0.5">
-            <span className="font-semibold uppercase">
-              {formatRoHeaderName(data.egyhazmegyeNevRo, 'Protopopiat Reformat', 'PROTOPOPIAT REFORMAT')}
-            </span>
-            <div className="italic text-slate-700">
-              {data.egyhazmegyeNevHu ? `${data.egyhazmegyeNevHu.toUpperCase()}` : 'REFORMÁTUS EGYHÁZMEGYE'}
+          {/* 2026-08-22 (6. pont): minden név-sor CSAK akkor jelenik meg, ha az
+              adatban tényleg megvan. Hiányzó román névnél a sor ELMARAD (nem
+              találunk ki nevet a címerből), hiányzó magyar névnél sincs
+              generikus sablon — az egy másik gyülekezetre is illene. */}
+          {nevek.keruletRo && (
+            <div className="font-bold uppercase tracking-tight">{nevek.keruletRo}</div>
+          )}
+          {nevek.keruletHu && <div className="italic text-slate-700">{nevek.keruletHu}</div>}
+          {(nevek.megyeRo || nevek.megyeHu) && (
+            <div className="border-t border-dotted border-slate-400 pt-0.5 mt-0.5">
+              {nevek.megyeRo && <span className="font-semibold uppercase">{nevek.megyeRo}</span>}
+              {nevek.megyeHu && <div className="italic text-slate-700">{nevek.megyeHu}</div>}
             </div>
-          </div>
-          <div className="border-t border-dotted border-slate-400 pt-0.5 mt-0.5">
-            <span className="font-semibold uppercase">
-              {formatRoHeaderName(data.gyulekezet.nevRo, 'Parohia Reformată', 'PAROHIA REFORMATĂ')}
-            </span>
-            <div className="italic text-slate-700">
-              {data.gyulekezet.nevHu ? data.gyulekezet.nevHu.toUpperCase() : 'REFORMÁTUS EGYHÁZKÖZSÉG'}
+          )}
+          {(nevek.gyulekezetRo || nevek.gyulekezetHu) && (
+            <div className="border-t border-dotted border-slate-400 pt-0.5 mt-0.5">
+              {nevek.gyulekezetRo && (
+                <span className="font-semibold uppercase">{nevek.gyulekezetRo}</span>
+              )}
+              {nevek.gyulekezetHu && (
+                <div className="italic text-slate-700">{nevek.gyulekezetHu}</div>
+              )}
             </div>
-          </div>
+          )}
           <div className="pt-0.5">
             <span className="font-semibold">C.I.F.:</span> {data.gyulekezet.cif || '________'}
           </div>
@@ -509,6 +561,9 @@ function ChitantaInnerContent({
   const { day, month, year } = formatDateParts(data.szamlaDatum)
   const huWords = amountInWordsHu(data.osszegBrut)
   const roWords = amountInWordsRo(data.osszegBrut)
+  // 2026-08-22 (6. pont): a fejléc név-sorai EGY közös döntésből (fejlecNevek) —
+  // az egyoldalas és a kettévágható sablon eddig külön másolatban döntött.
+  const nevek = fejlecNevek(data)
 
   return (
     <>
@@ -563,16 +618,16 @@ function ChitantaInnerContent({
       {/* Fejléc — kompakt, A4 szélességre igazítva (telefon eltávolítva) */}
       <div className="grid grid-cols-[2fr_1fr] gap-3 border-b border-slate-300 pb-2 mb-2 text-[9pt] leading-tight relative" style={{ zIndex: 2 }}>
         <div>
-          <div className="font-bold uppercase">{districtRoHeader(data)}</div>
-          <div className="italic text-slate-700">
-            {data.egyhazkeruletNevHu || 'ERDÉLYI REFORMÁTUS EGYHÁZKERÜLET'}
-          </div>
-          <div className="font-semibold uppercase mt-0.5">
-            {formatRoHeaderName(data.gyulekezet.nevRo, 'Parohia Reformată', 'PAROHIA REFORMATĂ')}
-          </div>
-          <div className="italic text-slate-700">
-            {data.gyulekezet.nevHu ? data.gyulekezet.nevHu.toUpperCase() : 'REFORMÁTUS EGYHÁZKÖZSÉG'}
-          </div>
+          {/* 2026-08-22 (6. pont): ugyanaz a döntés, mint az egyoldalas ágon —
+              a `fejlecNevek` KÖZÖS helperből (nem másolat). */}
+          {nevek.keruletRo && <div className="font-bold uppercase">{nevek.keruletRo}</div>}
+          {nevek.keruletHu && <div className="italic text-slate-700">{nevek.keruletHu}</div>}
+          {nevek.gyulekezetRo && (
+            <div className="font-semibold uppercase mt-0.5">{nevek.gyulekezetRo}</div>
+          )}
+          {nevek.gyulekezetHu && (
+            <div className="italic text-slate-700">{nevek.gyulekezetHu}</div>
+          )}
           <div className="mt-0.5">
             <span className="font-semibold">C.I.F.:</span> {data.gyulekezet.cif || '________'}
           </div>

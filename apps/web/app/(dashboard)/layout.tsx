@@ -1,5 +1,4 @@
 import { redirect } from 'next/navigation'
-import { AiChatWidgetLazy } from '@/components/ai/ai-chat-widget-lazy'
 import { DashboardLayoutClient } from '@/components/layout/dashboard-layout-client'
 import { SyncProvider } from '@/components/offline/sync-provider'
 import { WalkthroughClient } from '@/components/onboarding/walkthrough/walkthrough-client'
@@ -275,13 +274,6 @@ export default async function DashboardLayout({
     )
   }
 
-  // 5. AI widget
-  const hasAiApiKey = !!(
-    process.env.OPENROUTER_API_KEY ||
-    process.env.GROQ_API_KEY ||
-    process.env.GEMINI_API_KEY
-  )
-
   return (
     <SyncProvider
       congregationId={access.effectiveCongregationId}
@@ -330,7 +322,6 @@ export default async function DashboardLayout({
       >
         {children}
       </DashboardLayoutClient>
-      <AiChatWidgetLazy hasApiKey={hasAiApiKey} />
       <WalkthroughClient
         firstName={walkthroughFirstName}
         shouldStart={shouldStartWalkthrough}

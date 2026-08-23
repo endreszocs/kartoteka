@@ -37,9 +37,22 @@ import { createPortal } from 'react-dom'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Check, Coins, Plus, Trash2, Loader2, UserPlus, Users, X } from 'lucide-react'
+import { Building2, Check, Coins, Plus, Trash2, Loader2, UserPlus, Users, X } from 'lucide-react'
 // 2026-07-10 (ÚJ #4): searchFamilies — a kereső a személyek mellett családokat is ajánl.
-import { saveIncomeBatch, searchFamilies, searchMembersForFinance } from '@/app/(dashboard)/penzugy/actions'
+//
+// 2026-08-23 (kisebb rések, 2.): a befizető-kereső a SCOPE-TUDATOS
+// `searchIncomePartners`-re költözött. A régi `searchMembersForFinance` a
+// `getProfileCongregation()`-ből jövő `effectiveCongregationId`-re szűr, ami
+// FELSŐ SZINTŰ (megyei/kerületi) aktív profilnál definíció szerint `null` →
+// azonnali üres tömb, hibaüzenet nélkül. A fő tétel-rögzítő (combined-entry-dialog)
+// már 2026-08-22 óta az új keresőt hívja; ez az ablak és a bérleti szerződés
+// dialógus a RÉGIT őrizte — pontosan a projekt visszatérő hibaosztálya
+// („a második felület a régi implementációt őrzi").
+//
+// ⚠️ A GYÜLEKEZETI VISELKEDÉS VÁLTOZATLAN: a `searchIncomePartners`
+// `congregation` ága a MAI tag-kereső törzsét futtatja (`queryCongregationMembers`,
+// penzugy/actions.ts) — ugyanaz a select, ugyanaz a három szűrő, ugyanaz a limit.
+import { saveIncomeBatch, searchFamilies, searchIncomePartners } from '@/app/(dashboard)/penzugy/actions'
 import type { IncomeBatchRowInput } from '@/lib/validations/finance'
 import { buildDecontIncasareHtml, type DecontIncasareItem, type MissingReceipt } from '@/lib/constants/finance'
 import { toast } from 'sonner'
@@ -54,6 +67,10 @@ interface Props {
   defaultDate?: string
   /** Az élő előnézet fejlécéhez (Unitate). */
   congregationName?: string
+  /** 2026-08-22 (6. pont): a hivatalos ROMÁN név (`nev_ro`) — a végig román
+   *  DECONT DE ÎNCASĂRI „Unitate" sávjába, a magyar név mellé. Ha nincs, csak a
+   *  magyar áll ott (kitalált román nevet SOHA nem írunk a lapra). */
+  congregationNameRo?: string
   onDone?: () => void
 }
 
@@ -63,27 +80,40 @@ type Payer = { uid: string; id: number | null; familyId: number | null; name: st
 // 2026-07-10 (ÚJ #4): categoryId — a nyugta SAJÁT jogcíme (null = a fejléc közös jogcímét örökli).
 type Row = { id: string; iratsz: string; keruleti: string; categoryId: number | null; people: Payer[] }
 
-type SearchHitRaw = {
-  id: number
-  csaladnev: string | null
-  k_nev: string | null
-  sz_datum: string | null
-  c_szam: string | null
-  adrlocality?: { name?: string } | Array<{ name?: string }> | null
-  adrstreet?: { name?: string } | Array<{ name?: string }> | null
-}
+/** A `searchIncomePartners` egy sora (a szerver típusa `'use server'` fájlban él,
+ *  ezért nem importálható — a hívás visszatérési típusából vezetjük le). */
+type PartnerTalalat = Awaited<ReturnType<typeof searchIncomePartners>>[number]
 
 // 2026-07-10 (ÚJ #4): kind — a találat személy VAGY család (a család egy payerként kerül a sorhoz).
-type Hit = { kind: 'person' | 'family'; id: number; name: string; detail?: string; age?: number; birthYear?: string }
+//
+// 2026-08-23 (kisebb rések, 2.): harmadik fajta — `'partner'`. Felső (megyei /
+// kerületi) hatókörben a kereső GYÜLEKEZETEKET, LELKÉSZEKET és EGYHÁZMEGYÉKET is
+// ad vissza. ⛔ EZEK AZONOSÍTÓJA NEM `szemely.id`: a szerver NEGATÍV ál-azonosítót
+// oszt nekik, épp azért, hogy soha ne kerülhessen `id_szemely` idegen kulcsba.
+// A `'partner'` találat ezért CSAK A NEVET adja (szabad szövegként) — a mentés
+// `id_szemely`/`id_csalad` mezője marad `null`.
+type Hit = {
+  kind: 'person' | 'family' | 'partner'
+  id: number
+  name: string
+  detail?: string
+  age?: number
+  birthYear?: string
+  /** `'partner'` találatnál a fajta magyar címkéje (gyülekezet / lelkész / egyházmegye). */
+  badge?: string
+}
+
+/** A felső szintű partner-fajták magyar címkéi (a találat-chiphez). */
+const PARTNER_CIMKEK: Record<string, string> = {
+  gyulekezet: 'gyülekezet',
+  lelkesz: 'lelkész',
+  egyhazmegye: 'egyházmegye',
+}
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
 const uid = () => `${Math.random().toString(36).slice(2)}-${Date.now()}`
 const ron = (n: number) => `${(Number(n) || 0).toLocaleString('hu-HU')} RON`
 
-function relName(v: SearchHitRaw['adrlocality']): string | null {
-  const name = Array.isArray(v) ? v[0]?.name : v?.name
-  return name || null
-}
 function ageFromBirth(szDatum: string | null): number | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(szDatum || ''))
   if (!m) return null
@@ -94,14 +124,31 @@ function ageFromBirth(szDatum: string | null): number | null {
   if (now.getMonth() < birth.getMonth() || (now.getMonth() === birth.getMonth() && now.getDate() < birth.getDate())) age -= 1
   return age >= 0 && age < 130 ? age : null
 }
-function toHit(m: SearchHitRaw): Hit {
+/**
+ * A scope-tudatos kereső egy sora → találat.
+ *
+ * ⛔ A `kind !== 'szemely'` sorok NEM lesznek `'person'`-ok. A szerver ezekhez
+ * NEGATÍV ál-azonosítót ad (nem `szemely.id`), tehát a `'person'`-ná alakítás
+ * egy nem létező személy azonosítóját tolná az `id_szemely` idegen kulcsba a
+ * mentésnél.
+ */
+function toHit(sor: PartnerTalalat): Hit {
+  if (sor.kind === 'szemely') {
+    return {
+      kind: 'person',
+      id: sor.id,
+      name: sor.name,
+      detail: sor.detail ?? undefined,
+      age: ageFromBirth(sor.szDatum) ?? undefined,
+      birthYear: sor.szDatum ? String(sor.szDatum).slice(0, 4) : undefined,
+    }
+  }
   return {
-    kind: 'person',
-    id: m.id,
-    name: `${m.csaladnev ?? ''} ${m.k_nev ?? ''}`.trim() || `#${m.id}`,
-    detail: [relName(m.adrlocality), relName(m.adrstreet), m.c_szam].filter(Boolean).join(' · ') || undefined,
-    age: ageFromBirth(m.sz_datum) ?? undefined,
-    birthYear: m.sz_datum ? String(m.sz_datum).slice(0, 4) : undefined,
+    kind: 'partner',
+    id: sor.id,
+    name: sor.name,
+    detail: sor.detail ?? undefined,
+    badge: PARTNER_CIMKEK[sor.kind] ?? 'partner',
   }
 }
 
@@ -124,6 +171,16 @@ function PayerSearch({
   const [hits, setHits] = useState<Hit[]>([])
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  /**
+   * 2026-08-23 (kisebb rések, 2.): a keresés HIBÁJA LÁTHATÓ.
+   *
+   * Eddig `.catch(() => [])` állt a két hívás körül: hálózati hiba, RLS-tiltás és
+   * „tényleg nincs találat" PONTOSAN UGYANÚGY nézett ki — üres lista, néma
+   * képernyő. A lelkész ilyenkor azt hitte, a tag nincs a rendszerben, és szabad
+   * szövegként rögzítette (elveszett a személy-kötés), vagy percekig gépelt egy
+   * halott keresőbe. `null` = nincs gond; string = a látható magyar magyarázat.
+   */
+  const [hiba, setHiba] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const debounceRef = useRef<number | null>(null)
   // 2026-07-10 (ÚJ #4): kérés-sorszám — az elavult (lassabb) válasz nem írja felül a frissebbet.
@@ -143,7 +200,9 @@ function PayerSearch({
   }, [autoFocus])
 
   useEffect(() => {
-    if (!open) return
+    // 2026-08-23: a HIBA-doboz is a mérésre épül (ugyanoda kerül, mint a
+    // találati lista) — enélkül a hibaüzenetnek nem volna hova kirajzolódnia.
+    if (!open && !hiba) return
     // setState mikrotaszkban (react-hooks/set-state-in-effect — a kódbázis mintája)
     queueMicrotask(measure)
     const onMove = () => measure()
@@ -153,10 +212,10 @@ function PayerSearch({
       window.removeEventListener('scroll', onMove, true)
       window.removeEventListener('resize', onMove)
     }
-  }, [open, hits])
+  }, [open, hits, hiba])
 
   useEffect(() => {
-    const reset = () => queueMicrotask(() => { setHits([]); setOpen(false) })
+    const reset = () => queueMicrotask(() => { setHits([]); setOpen(false); setHiba(null) })
     if (linked) { reset(); return }
     if (justPickedRef.current) { justPickedRef.current = false; return }
     const q = value.trim()
@@ -164,20 +223,44 @@ function PayerSearch({
     if (debounceRef.current) window.clearTimeout(debounceRef.current)
     queueMicrotask(() => setLoading(true))
     debounceRef.current = window.setTimeout(() => {
-      // 2026-07-10 (ÚJ #4): személy + család PÁRHUZAMOSAN; kérés-sorszámmal az elavult
+      // 2026-07-10 (ÚJ #4): befizető + család PÁRHUZAMOSAN; kérés-sorszámmal az elavult
       // válasz eldobódik (gyors gépelésnél a lassabb korábbi kérés nem írja felül a frissebbet).
+      //
+      // 2026-08-23 (kisebb rések, 2.): `allSettled`, NEM `all` + `catch(() => [])`.
+      //  · az `all` egyetlen elbukó ágnál MINDKÉT listát eldobná,
+      //  · a `catch(() => [])` viszont NÉMÁN üres listát adott — a hiba
+      //    megkülönböztethetetlen volt a „nincs találat"-tól.
+      // Így ági bontásban tudjuk, MI bukott el, a másik ág találatai megmaradnak,
+      // és a felhasználó LÁTHATÓ magyar mondatot kap.
       const seq = ++seqRef.current
-      void Promise.all([
-        searchMembersForFinance(q).catch(() => []),
-        searchFamilies(q).catch(() => [] as Awaited<ReturnType<typeof searchFamilies>>),
-      ])
-        .then(([persons, families]) => {
+      void Promise.allSettled([searchIncomePartners(q), searchFamilies(q)])
+        .then(([partnerAg, csaladAg]) => {
           if (seq !== seqRef.current) return
-          const personHits = ((persons || []) as unknown as SearchHitRaw[]).map(toHit).slice(0, 8)
-          const familyHits: Hit[] = (families || [])
-            .slice(0, 4)
-            .map((f) => ({ kind: 'family' as const, id: f.id, name: f.name, detail: f.detail }))
-          const merged = [...personHits, ...familyHits]
+          const gondok: string[] = []
+
+          let partnerHits: Hit[] = []
+          if (partnerAg.status === 'fulfilled') {
+            partnerHits = (partnerAg.value || []).map(toHit).slice(0, 8)
+          } else {
+            gondok.push('a befizető-kereső')
+          }
+
+          let familyHits: Hit[] = []
+          if (csaladAg.status === 'fulfilled') {
+            familyHits = (csaladAg.value || [])
+              .slice(0, 4)
+              .map((f) => ({ kind: 'family' as const, id: f.id, name: f.name, detail: f.detail }))
+          } else {
+            gondok.push('a család-kereső')
+          }
+
+          setHiba(
+            gondok.length === 0
+              ? null
+              : `${gondok.join(' és ')} most nem válaszolt, ezért a lista hiányos lehet. ` +
+                'Ellenőrizd az internetkapcsolatot, és gépelj újra — addig a nevet szabad szövegként is beírhatod.',
+          )
+          const merged = [...partnerHits, ...familyHits]
           setHits(merged)
           setOpen(merged.length > 0)
         })
@@ -216,34 +299,67 @@ function PayerSearch({
         onFocus={() => hits.length > 0 && setOpen(true)}
       />
       {loading && <Loader2 className="absolute right-2 size-3.5 animate-spin text-slate-300" />}
-      {!linked && value.trim().length >= 2 && !loading && hits.length === 0 && (
+      {/* 2026-08-23 (kisebb rések, 2.): HIBA ≠ „nincs találat". A piros chip
+          azonnal látszik (a magyarázó doboz a mező alatt nyílik ki), a szürke
+          „nem tag" chip pedig CSAK akkor, ha a keresés tényleg lefutott. */}
+      {!linked && value.trim().length >= 2 && !loading && hiba && (
+        <span
+          className="shrink-0 rounded-full bg-rose-100 px-1.5 py-0.5 text-[9px] font-semibold text-rose-700"
+          title={hiba}
+        >
+          kereső hiba
+        </span>
+      )}
+      {!linked && value.trim().length >= 2 && !loading && !hiba && hits.length === 0 && (
         <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-500" title="Nincs tag-találat — szabad szövegként mentődik (nem gyülekezeti tag is adhat)">
           nem tag
         </span>
       )}
-      {open && hits.length > 0 && dropRect && typeof document !== 'undefined' &&
+      {/* EGYETLEN portál a hibaüzenetnek ÉS a találatoknak — két külön lebegő
+          doboz ugyanarra a koordinátára egymásra csúszna, és a hiba szövege
+          eltakarná a listát (vagy fordítva). */}
+      {((open && hits.length > 0) || hiba) && dropRect && typeof document !== 'undefined' &&
         createPortal(
           <div
             className="fixed z-[200] max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-2xl ring-1 ring-black/5"
             style={{ left: dropRect.left, top: dropRect.top, width: Math.max(dropRect.width, 300) }}
           >
+            {hiba && (
+              <div
+                role="alert"
+                className="mb-1 rounded-lg border border-rose-300 bg-rose-50 p-2 text-[11px] leading-relaxed text-rose-800"
+              >
+                {hiba}
+              </div>
+            )}
             {hits.map((h) => (
               <button
                 key={`${h.kind}-${h.id}`}
                 type="button"
                 className={`group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${
-                  h.kind === 'family' ? 'hover:bg-sky-50' : 'hover:bg-emerald-50'
+                  h.kind === 'family' ? 'hover:bg-sky-50' : h.kind === 'partner' ? 'hover:bg-amber-50' : 'hover:bg-emerald-50'
                 }`}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => { justPickedRef.current = true; onPick(h); setHits([]); setOpen(false) }}
               >
-                {/* 2026-07-10 (ÚJ #4): család-találat — Users-ikon + „család" chip (személynél avatar + életkor). */}
+                {/* 2026-07-10 (ÚJ #4): család-találat — Users-ikon + „család" chip (személynél avatar + életkor).
+                    2026-08-23 (kisebb rések, 2.): felső szintű partner — Building2-ikon + fajta-chip. */}
                 <span
                   className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-xs font-semibold ${
-                    h.kind === 'family' ? 'from-sky-100 to-indigo-100 text-sky-700' : 'from-emerald-100 to-teal-100 text-emerald-700'
+                    h.kind === 'family'
+                      ? 'from-sky-100 to-indigo-100 text-sky-700'
+                      : h.kind === 'partner'
+                        ? 'from-amber-100 to-orange-100 text-amber-700'
+                        : 'from-emerald-100 to-teal-100 text-emerald-700'
                   }`}
                 >
-                  {h.kind === 'family' ? <Users className="size-4" /> : (h.name.trim()[0] || '?').toUpperCase()}
+                  {h.kind === 'family' ? (
+                    <Users className="size-4" />
+                  ) : h.kind === 'partner' ? (
+                    <Building2 className="size-4" />
+                  ) : (
+                    (h.name.trim()[0] || '?').toUpperCase()
+                  )}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline justify-between gap-2">
@@ -251,6 +367,10 @@ function PayerSearch({
                     {h.kind === 'family' ? (
                       <span className="shrink-0 rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 group-hover:bg-white">
                         család
+                      </span>
+                    ) : h.kind === 'partner' ? (
+                      <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 group-hover:bg-white">
+                        {h.badge || 'partner'}
                       </span>
                     ) : h.age != null ? (
                       <span
@@ -273,7 +393,7 @@ function PayerSearch({
 }
 
 export function DispozitieIncasareWizard({
-  open, onOpenChange, missingNumbers, missingReceipts, incomeCategories, defaultDate, congregationName, onDone,
+  open, onOpenChange, missingNumbers, missingReceipts, incomeCategories, defaultDate, congregationName, congregationNameRo, onDone,
 }: Props) {
   const [date, setDate] = useState(defaultDate || todayIso())
   const [categoryId, setCategoryId] = useState<number | ''>('')
@@ -367,12 +487,13 @@ export function DispozitieIncasareWizard({
       categoryName || (uniqNames.length === 1 ? uniqNames[0] : uniqNames.length > 1 ? 'Diverse — vegyes (soronként)' : '')
     return buildDecontIncasareHtml({
       congregationName: congregationName || '',
+      congregationNameRo,
       date,
       category: headerCategory,
       note: megj.trim(),
       items,
     })
-  }, [rows, date, categoryId, categoryName, incomeCategories, megj, congregationName])
+  }, [rows, date, categoryId, categoryName, incomeCategories, megj, congregationName, congregationNameRo])
 
   async function handleSave() {
     if (validRows.length === 0) return
@@ -582,14 +703,19 @@ export function DispozitieIncasareWizard({
                             linkedKind={p.familyId != null ? 'family' : p.id != null ? 'person' : null}
                             autoFocus={focusUid === p.uid}
                             onType={(t) => updatePayer(r.id, p.uid, { name: t, id: null, familyId: null })}
-                            /* 2026-07-10 (ÚJ #4): család-találat → a család EGY payerként, id_csalad-dal. */
+                            /* 2026-07-10 (ÚJ #4): család-találat → a család EGY payerként, id_csalad-dal.
+                               2026-08-23 (kisebb rések, 2.): ⛔ a `'partner'` (felső szintű gyülekezet /
+                               lelkész / egyházmegye) találat CSAK A NEVET adja: az azonosítója NEGATÍV
+                               ál-azonosító, nem `szemely.id` — FK-ba írva a mentés hasalna el. */
                             onPick={(h) =>
                               updatePayer(
                                 r.id,
                                 p.uid,
                                 h.kind === 'family'
                                   ? { id: null, familyId: h.id, name: h.name }
-                                  : { id: h.id, familyId: null, name: h.name },
+                                  : h.kind === 'partner'
+                                    ? { id: null, familyId: null, name: h.name }
+                                    : { id: h.id, familyId: null, name: h.name },
                               )
                             }
                           />

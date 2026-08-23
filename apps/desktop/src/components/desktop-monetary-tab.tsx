@@ -26,7 +26,15 @@ import { printHtmlViaIframe } from '../lib/print-html'
 
 type DesktopMonetaryTabProps = Pick<
   MonetaryTabProps,
-  'expectedCashBalance' | 'currentYear' | 'bankAccounts' | 'internalTransfers' | 'congregationName' | 'onToast'
+  // 2026-08-22 (6. pont): a `congregationNameRo` is átmegy — a MONETAR
+  // fejlécében eddig CSAK a magyar név állt egy végig kétnyelvű nyomtatványon.
+  | 'expectedCashBalance'
+  | 'currentYear'
+  | 'bankAccounts'
+  | 'internalTransfers'
+  | 'congregationName'
+  | 'congregationNameRo'
+  | 'onToast'
 > & {
   congregationId: string
 }

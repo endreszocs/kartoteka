@@ -102,6 +102,9 @@ interface FinanceTabsProps {
    * az egyházkerületé, ahogy a gyülekezeti íven az egyházmegyéé).
    */
   districtName?: string | null
+  /** 2026-08-22 (6. pont): a felettes egyházkerület hivatalos ROMÁN neve
+   *  (`districts.nev_ro`) — a MEGYEI borító felső blokkjához. */
+  districtNameRo?: string | null
   debtCalcMode: DebtCalcMode
   yearlyFees: Record<number, number>
   debtRows: DebtRow[]
@@ -155,6 +158,7 @@ export function FinanceTabs({
   bankAccounts, internalTransfers, initialIncome, initialExpense,
   carryoverCash, carryoverBank, bankNyitoMap, congregationName, congregationNameRo, congregationId,
   districtName = null,
+  districtNameRo = null,
   currentYear, availableYears, yearlyFees, debtRows: initialDebtRows, receiptHealth: initialReceiptHealth, debtCalcMode, isGodMode,
   scope = 'congregation',
   readOnly = false,
@@ -761,6 +765,9 @@ export function FinanceTabs({
             kiaCelMap={kiaCelMap}
             szamadasiCellek={szamadasiCellek}
             congregationName={congregationName}
+            // 2026-08-22 (6. pont): a kísérőív (BORDEROU DE PLĂȚI) fejlécéhez —
+            // eddig a végig román íven CSAK a magyar név állt.
+            congregationNameRo={congregationNameRo}
             onRefresh={refreshData}
             rentalContracts={rentalContracts}
             bankAccounts={bankAccounts}
@@ -933,6 +940,11 @@ export function FinanceTabs({
         bankAccounts={bankAccounts}
         currentYear={currentYear}
         congregationId={congregationId}
+        // 2026-08-22 (5. pont): a rögzítő MOSTANTÓL ismeri a szintet. Enélkül a
+        // dialógus `'congregation'`-re esett vissza, és felső szinten is a
+        // gyülekezet-specifikus extrákat (család csatolása, járulék-ajánló)
+        // kínálta — miközben a befizető-kereső már hatókör-tudatos.
+        scope={scope}
         // 2026-08-09: pénzügy→leltár híd — csak gyülekezeti módban (az egyházmegyei
         // könyvelésnek nincs leltár-integrációja).
         // ⛔ 2026-08-17 (kerületi S5): a kapu `!== 'diocese'`-ről
@@ -951,6 +963,8 @@ export function FinanceTabs({
         open={decontOpen}
         onOpenChange={(open) => { setDecontOpen(open); if (!open) refreshData() }}
         congregationName={congregationName}
+        // 2026-08-22 (6. pont): a DECONT „Unitate" sávja is kétnyelvű.
+        congregationNameRo={congregationNameRo}
         categories={expenseCategories}
       />
 
@@ -962,6 +976,8 @@ export function FinanceTabs({
         missingNumbers={receiptHealth.missingNumbers}
         missingReceipts={receiptHealth.missingReceipts}
         congregationName={congregationName}
+        // 2026-08-22 (6. pont): a DECONT DE ÎNCASĂRI „Unitate" sávja is kétnyelvű.
+        congregationNameRo={congregationNameRo}
         incomeCategories={incomeCategories}
         defaultDate={
           currentYear === new Date().getFullYear()
@@ -1007,6 +1023,7 @@ export function FinanceTabs({
         // a borító pedig a megyei feliratokat kapja.
         scope={scope}
         districtName={districtName}
+        districtNameRo={districtNameRo}
       />
 
       <FinancePrintDialog
@@ -1027,6 +1044,7 @@ export function FinanceTabs({
         settings={settings}
         scope={scope}
         districtName={districtName}
+        districtNameRo={districtNameRo}
       />
 
       {/* 2026-07-17 (F4): Induló (nyitó) egyenlegek szerkesztője — a kész
@@ -1073,6 +1091,8 @@ export function FinanceTabs({
           bankAccounts={bankAccounts}
           internalTransfers={internalTransfers}
           congregationName={congregationName}
+          // 2026-08-22 (6. pont): a MONETAR fejléce is kétnyelvű.
+          congregationNameRo={congregationNameRo}
         />
       )}
     </>

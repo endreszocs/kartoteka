@@ -32,6 +32,58 @@ export interface AdminDistrictScope {
 }
 
 /**
+ * PostgREST `.in()` biztonságos darabmérete.
+ *
+ * HIBAOSZTÁLY (2026-08-16): a `.in()` szűrő az URL-be kerül; kb. 100 azonosító
+ * fölött a proxy 414-gyel eldobja a kérést — a hívó tehát NEM nulla sort kap,
+ * hanem HIBÁT. Egy kerületben több száz gyülekezet is lehet, ezért minden
+ * gyülekezet-azonosítós szűrőt DARABOLNI kell.
+ *
+ * Közös konstans, hogy a két felület (hozzárendelés-listázó és
+ * szerepkör-listázó) ne húzzon némán szét egy későbbi hangoláskor.
+ */
+export const IN_SZURO_DARAB = 80
+
+/** Azonosító-lista feldarabolása `.in()`-barát darabokra (414-védelem). */
+export function darabolIdListat(ids: string[], meret: number = IN_SZURO_DARAB): string[][] {
+  const biztosMeret = Math.max(1, Math.floor(meret))
+  const darabok: string[][] = []
+  for (let i = 0; i < ids.length; i += biztosMeret) {
+    darabok.push(ids.slice(i, i + biztosMeret))
+  }
+  return darabok
+}
+
+/**
+ * Egy hatókör-feloldás EREDMÉNYE — a puszta tömb helyett.
+ *
+ * 2026-08-22 (4. pont): a `getScopedDioceseIds` / `getScopedCongregationIds`
+ * KÉT gyökeresen különböző okra adta ugyanazt az üres tömböt:
+ *   (a) a kerületi adminnak nincs beállított egyházkerülete → tényleg nem lát
+ *       semmit (ez FAIL-CLOSED, helyes);
+ *   (b) a feloldó LEKÉRDEZÉS HIBÁZOTT → nem tudjuk, mit láthatna.
+ *
+ * A hívó a kettőt nem tudta megkülönböztetni, ezért a (b) esetben is NÉMA ÜRES
+ * LISTÁT mutatott: „nincs hozzárendelés" — miközben a valóság az volt, hogy
+ * „nem tudjuk". Ez a projekt visszatérő, már kétszer megfizetett hibaosztálya
+ * (lásd `effective-access.ts` → `profileRolesFeloldhato`, illetve a
+ * megjelenítési hatókör `fail_closed` indoka).
+ *
+ * A régi, tömböt adó exportok VÁLTOZATLANUL működnek (vékony burkolók), hogy a
+ * meglévő ~10 hívóhely viselkedése egy betűt se mozduljon.
+ */
+export interface ScopedIdsResult {
+  /** Az azonosítók. `null` = KORLÁTLAN (master / teljes admin). */
+  ids: string[] | null
+  /** `false` → a hatókört NEM tudtuk feloldani (a lekérdezés hibázott). */
+  feloldhato: boolean
+  /** Miért ez az eredmény — ebből tud a hívó beszédes üzenetet írni. */
+  indok: 'korlatlan' | 'nincs_kerulet' | 'feloldva' | 'lekerdezes_hiba'
+  /** A feloldó lekérdezés hibaüzenete (csak `lekerdezes_hiba` esetén). */
+  hiba?: string
+}
+
+/**
  * Megállapítja az admin hatókörét. Master/teljes admin → korlátlan. Kerületi
  * admin → a district-scope szerepkörei (+ profile.district_id fallback).
  * Bárki más → korlátozott, üres hatókörrel (semmit nem lát).
@@ -52,39 +104,65 @@ export function getAdminDistrictScope(access: ScopeAccess): AdminDistrictScope {
 }
 
 /**
- * A hatókörbe eső egyházmegye-azonosítók. `null` = korlátlan (minden).
- * Üres tömb = a kerületi adminnak nincs beállított kerülete → semmit nem lát.
+ * A hatókörbe eső egyházmegye-azonosítók — MEGKÜLÖNBÖZTETHETŐ eredménnyel.
+ * A „nincs kerülete" és a „a lekérdezés hibázott" eset NEM ugyanaz.
  */
-export async function getScopedDioceseIds(access: ScopeAccess): Promise<string[] | null> {
+export async function getScopedDioceseIdsResult(access: ScopeAccess): Promise<ScopedIdsResult> {
   const scope = getAdminDistrictScope(access)
-  if (scope.unrestricted) return null
-  if (scope.districtIds.length === 0) return []
+  if (scope.unrestricted) return { ids: null, feloldhato: true, indok: 'korlatlan' }
+  if (scope.districtIds.length === 0) return { ids: [], feloldhato: true, indok: 'nincs_kerulet' }
 
   const { data, error } = await access.supabase
     .from('dioceses')
     .select('id')
     .in('district_id', scope.districtIds)
 
-  if (error) return []
-  return (data ?? []).map((d) => d.id as string)
+  if (error) return { ids: [], feloldhato: false, indok: 'lekerdezes_hiba', hiba: error.message }
+  return { ids: (data ?? []).map((d) => d.id as string), feloldhato: true, indok: 'feloldva' }
 }
 
 /**
- * A hatókörbe eső gyülekezet-azonosítók. `null` = korlátlan (minden).
- * Üres tömb = nincs beállított kerület → semmit nem lát.
+ * A hatókörbe eső gyülekezet-azonosítók — MEGKÜLÖNBÖZTETHETŐ eredménnyel.
+ * A „nincs kerülete" és a „a lekérdezés hibázott" eset NEM ugyanaz.
  */
-export async function getScopedCongregationIds(access: ScopeAccess): Promise<string[] | null> {
+export async function getScopedCongregationIdsResult(access: ScopeAccess): Promise<ScopedIdsResult> {
   const scope = getAdminDistrictScope(access)
-  if (scope.unrestricted) return null
-  if (scope.districtIds.length === 0) return []
+  if (scope.unrestricted) return { ids: null, feloldhato: true, indok: 'korlatlan' }
+  if (scope.districtIds.length === 0) return { ids: [], feloldhato: true, indok: 'nincs_kerulet' }
 
   const { data, error } = await access.supabase
     .from('congregations')
     .select('id, dioceses!inner(district_id)')
     .in('dioceses.district_id', scope.districtIds)
 
-  if (error) return []
-  return (data ?? []).map((c) => (c as { id: string }).id)
+  if (error) return { ids: [], feloldhato: false, indok: 'lekerdezes_hiba', hiba: error.message }
+  return {
+    ids: (data ?? []).map((c) => (c as { id: string }).id),
+    feloldhato: true,
+    indok: 'feloldva',
+  }
+}
+
+/**
+ * A hatókörbe eső egyházmegye-azonosítók. `null` = korlátlan (minden).
+ * Üres tömb = a kerületi adminnak nincs beállított kerülete → semmit nem lát.
+ *
+ * ⚠️ Ez a burkoló ELNYELI a „nem tudjuk" esetet (hibánál is üres tömböt ad).
+ * ÚJ hívóhelyen a `getScopedDioceseIdsResult`-ot használd, és írj ki hibát.
+ */
+export async function getScopedDioceseIds(access: ScopeAccess): Promise<string[] | null> {
+  return (await getScopedDioceseIdsResult(access)).ids
+}
+
+/**
+ * A hatókörbe eső gyülekezet-azonosítók. `null` = korlátlan (minden).
+ * Üres tömb = nincs beállított kerület → semmit nem lát.
+ *
+ * ⚠️ Ez a burkoló ELNYELI a „nem tudjuk" esetet (hibánál is üres tömböt ad).
+ * ÚJ hívóhelyen a `getScopedCongregationIdsResult`-ot használd, és írj ki hibát.
+ */
+export async function getScopedCongregationIds(access: ScopeAccess): Promise<string[] | null> {
+  return (await getScopedCongregationIdsResult(access)).ids
 }
 
 /**

@@ -24,8 +24,19 @@
  *   és a `buildReport(filters)` callback-en át adja át.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { BudgetPrintType, BudgetPrintTypeMeta, PrintReport } from './types'
+// 2026-08-22 (8. pont): a betöltés NÉGYÁGÚ állapotának tiszta magja. Külön,
+// import-mentes modul, hogy az őrszem (scripts/selftest-print-betoltes.mjs)
+// render-fa nélkül tesztelhesse.
+import {
+  BETOLTES_TOLT,
+  budgetBetoltesUzenet,
+  derivalBetoltesAllapot,
+  hibaAllapotbol,
+  nyomtatasTiltva,
+  type PrintBetoltesAllapot,
+} from './print-loading-core'
 
 export type BudgetPrintToastKind = 'success' | 'error' | 'info' | 'warning'
 
@@ -145,7 +156,32 @@ export function BudgetPrintDialogBody({
   const [printing, setPrinting] = useState(false)
   const [sendingToPrinter, setSendingToPrinter] = useState(false)
   const [budgetRows, setBudgetRows] = useState<Record<string, BudgetPrintCompatRow>>({})
-  const [loading, setLoading] = useState(false)
+  // 2026-08-22 (8. pont): a `loading: boolean` HELYETT négyágú, diszkriminált
+  // állapot (tölt / kész / üres / hiba). Lásd `print-loading-core.ts`.
+  const [betoltes, setBetoltes] = useState<PrintBetoltesAllapot>(BETOLTES_TOLT)
+  /** Az „Újrapróbálom" gomb léptetője — az effect DEPJE. */
+  const [ujratoltoKulcs, setUjratoltoKulcs] = useState(0)
+
+  // ── 2026-08-22 (8. pont): ÖV ÉS NADRÁGSZÍJ a végtelen hurok ellen ─────────
+  //
+  // MI VOLT A ROSSZ: a lenti betöltő-effect a deps közt figyelte az `onToast`
+  // FÜGGVÉNY-REFERENCIÁT is. A webes wrapper viszont INLINE nyíl-függvényként
+  // adta át (budget-print-dialog.tsx), tehát minden renderben ÚJ identitást
+  // kapott — a wrapper pedig a betöltő callback-jében a SAJÁT state-jét írta
+  // (`setEvBeallitas`). A kör: betöltés → wrapper-state → új render → új
+  // `onToast` → az effect ÚJRA fut → új lekérés → … Ez a „villog az Adatok
+  // betöltése… felirat" panasz gyökere, és közben végtelen hálózati kérés ment.
+  //
+  // A wrapper `useCallback`-je önmagában megoldaná, de ez a Body KÖZÖS (web +
+  // desktop + jövőbeli iOS): egyetlen hanyag wrapper visszahozná a hurkot. A
+  // desktop `penzugy-page.tsx` ma is inline `onToast`-ot ad, ami page-state-et
+  // ír (`setPageToast`) — ott a HIBA-ág zárt volna ugyanilyen kört. Ezért az
+  // `onToast` REF-be tükrözve él, és NEM szerepel az effect deps között.
+  // ⛔ NE tedd vissza a deps közé: azzal a hurok azonnal visszaáll.
+  const onToastRef = useRef(onToast)
+  useEffect(() => {
+    onToastRef.current = onToast
+  })
 
   // ── 2026-08-11 (6. kör, P0 #4) — ÉV-KEVEREDÉS FAIL-CLOSED KAPU ──────────
   // Az évválasztó 8 évet kínál, de CSAK a TERV sorok töltődnek újra: a
@@ -156,29 +192,50 @@ export function BudgetPrintDialogBody({
   const isSzamadas = printType === 'szamadas'
   const yearMismatch = isSzamadas && selectedYear !== currentYear
 
-  // Budget adatok betöltése a kiválasztott évre
+  // Budget adatok betöltése a kiválasztott évre.
+  // 2026-08-22 (8. pont): `onToast` NINCS a deps között (ref-en át hívjuk),
+  // és a `.then()` mellett KÖTELEZŐ `.catch()` áll — enélkül egy elutasított
+  // promise-nál a „tölt" állapot örökre bent ragadt volna.
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    setLoading(true)
-    void onLoadBudgetRows(selectedYear).then((res) => {
-      if (cancelled) return
-      setLoading(false)
-      if (res.error) {
-        onToast?.(`Költségvetési sorok betöltése sikertelen: ${res.error}`, 'error')
-        setBudgetRows({})
-        return
-      }
-      const map: Record<string, BudgetPrintCompatRow> = {}
-      ;(res.data || []).forEach((r) => {
-        map[r.szamadasicelid] = r
+    setBetoltes(BETOLTES_TOLT)
+    void onLoadBudgetRows(selectedYear)
+      .then((res) => {
+        if (cancelled) return
+        const allapot = derivalBetoltesAllapot(res)
+        setBetoltes(allapot)
+        if (allapot.fazis === 'hiba') {
+          onToastRef.current?.(
+            `Költségvetési sorok betöltése sikertelen: ${allapot.uzenet}`,
+            'error',
+          )
+          setBudgetRows({})
+          return
+        }
+        const map: Record<string, BudgetPrintCompatRow> = {}
+        ;(res.data || []).forEach((r) => {
+          map[r.szamadasicelid] = r
+        })
+        setBudgetRows(map)
       })
-      setBudgetRows(map)
-    })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        const allapot = hibaAllapotbol(err)
+        setBetoltes(allapot)
+        setBudgetRows({})
+        onToastRef.current?.(
+          `Költségvetési sorok betöltése sikertelen: ${allapot.uzenet}`,
+          'error',
+        )
+      })
     return () => {
       cancelled = true
     }
-  }, [open, selectedYear, onLoadBudgetRows, onToast])
+  }, [open, selectedYear, onLoadBudgetRows, ujratoltoKulcs])
+
+  /** FAIL-CLOSED: tölt ÉS hiba állapotban sem adható ki nyomtatvány. */
+  const betoltesTilt = nyomtatasTiltva(betoltes)
 
   // Tényleges adatok aggregálása szamadasicel kódonként — a wrapper számol
   const actualData = useMemo(() => computeActuals(), [computeActuals])
@@ -200,6 +257,15 @@ export function BudgetPrintDialogBody({
   )
 
   async function handlePdf() {
+    // 2026-08-22 (8. pont): fail-closed védőréteg a LETILTOTT gomb mögött is —
+    // a `FinancePrintDialogBody` `blocked`-kapujának tükre.
+    if (betoltesTilt) {
+      onToastRef.current?.(
+        budgetBetoltesUzenet(betoltes, selectedYear),
+        betoltes.fazis === 'hiba' ? 'error' : 'info',
+      )
+      return
+    }
     if (!onPrintToPdf) {
       onToast?.('A PDF mentés nem érhető el ezen a felületen.', 'warning')
       return
@@ -220,6 +286,13 @@ export function BudgetPrintDialogBody({
   }
 
   async function handleDirectPrint() {
+    if (betoltesTilt) {
+      onToastRef.current?.(
+        budgetBetoltesUzenet(betoltes, selectedYear),
+        betoltes.fazis === 'hiba' ? 'error' : 'info',
+      )
+      return
+    }
     if (!onPrintToBrowser) {
       onToast?.('A nyomtatás nem érhető el ezen a felületen.', 'warning')
       return
@@ -314,8 +387,47 @@ export function BudgetPrintDialogBody({
               <span className="font-semibold text-slate-800">Véglegesítve:</span>{' '}
               {(isSzamadas ? accountingFinalized : budgetFinalized) ? 'Igen' : 'Nem'}
             </div>
-            {loading && <div className="text-xs text-amber-600">Adatok betöltése...</div>}
+            {/* 2026-08-22 (8. pont): NÉGYÁGÚ visszajelzés a néma kétállapotú
+                felirat helyett. A „tölt" és a „kész" a panelen belül fut, az
+                „üres" és a „hiba" külön, hangos dobozt kap lentebb. */}
+            {betoltes.fazis === 'tolt' && (
+              <div className="text-xs text-amber-600">{budgetBetoltesUzenet(betoltes, selectedYear)}</div>
+            )}
+            {betoltes.fazis === 'kesz' && (
+              <div className="text-xs text-slate-500">{budgetBetoltesUzenet(betoltes, selectedYear)}</div>
+            )}
           </div>
+
+          {/* ÜRES: nem hiba — a nyomtatvány elkészül, csak minden terv-oszlopa
+              nulla lesz. A lelkész eddig ezt SEMMIBŐL nem tudta meg. */}
+          {betoltes.fazis === 'ures' && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
+              {budgetBetoltesUzenet(betoltes, selectedYear)}
+            </div>
+          )}
+
+          {/* HIBA: hangos, tiltó, ÚJRAPRÓBÁLHATÓ. A gombok is le vannak tiltva
+              (`betoltesTilt`) — hibás betöltés után eddig ki lehetett nyomtatni
+              egy üres terv-oszlopú, mégis aláírható hivatalos ívet. */}
+          {betoltes.fazis === 'hiba' && (
+            <div
+              role="alert"
+              className="space-y-2 rounded-xl border border-red-300 bg-red-50 p-3 text-xs leading-5 text-red-800"
+            >
+              <p>{budgetBetoltesUzenet(betoltes, selectedYear)}</p>
+              <p>
+                A nyomtatás és a PDF-mentés addig <strong>letiltva marad</strong>, amíg az adatok
+                meg nem jönnek — üres terv-oszlopú hivatalos ív nem kerülhet ki.
+              </p>
+              <button
+                type="button"
+                onClick={() => setUjratoltoKulcs((k) => k + 1)}
+                className="inline-flex min-h-11 items-center justify-center rounded-lg border border-red-400 bg-white px-3 text-xs font-semibold text-red-800 transition-colors hover:bg-red-100"
+              >
+                Újrapróbálom
+              </button>
+            </div>
+          )}
 
           {!(isSzamadas ? accountingFinalized : budgetFinalized) && (
             <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
@@ -336,7 +448,7 @@ export function BudgetPrintDialogBody({
             <button
               type="button"
               onClick={() => void handleDirectPrint()}
-              disabled={sendingToPrinter || loading || yearMismatch}
+              disabled={sendingToPrinter || betoltesTilt || yearMismatch}
               className="flex-1 inline-flex items-center justify-center whitespace-nowrap h-9 px-3 text-sm font-medium border bg-white rounded-md transition-colors disabled:opacity-50 hover:bg-slate-50"
             >
               {sendingToPrinter ? 'Nyomtatás...' : 'Direkt nyomtatás'}
@@ -344,7 +456,7 @@ export function BudgetPrintDialogBody({
             <button
               type="button"
               onClick={() => void handlePdf()}
-              disabled={printing || loading}
+              disabled={printing || betoltesTilt}
               className="flex-1 inline-flex items-center justify-center whitespace-nowrap h-9 px-3 text-sm font-medium rounded-md bg-teal-600 text-white hover:bg-teal-700 transition-colors disabled:opacity-50 shadow-sm"
             >
               {printing ? 'PDF készül...' : 'PDF-be mentés'}

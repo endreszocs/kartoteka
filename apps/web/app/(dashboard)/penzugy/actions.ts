@@ -899,8 +899,16 @@ async function insertFelsoSzintIncomeRecord(params: {
   scopeId: string
   userId: string
   input: IncomeInput
+  /**
+   * 2026-08-22 (5a): a SZERVEREN MÁR ELLENŐRZÖTT befizető-partner. A hívó
+   * `feloldBefizetoPartner()`-rel oldja fel — a kliens-prop önmagában SOHA nem
+   * bizonyíték (fail-closed: hatókörön kívüli azonosítónál `null` marad, és a
+   * sor a mai, FK nélküli alakban megy be).
+   */
+  befizeto?: { congregationId: string | null; dioceseId: string | null; hivatalosNev: string | null }
 }) {
   const { supabase, scope, scopeId, userId, input } = params
+  const befizeto = params.befizeto ?? { congregationId: null, dioceseId: null, hivatalosNev: null }
   const T = tablesFor(scope)
   const documentNumber = buildDocumentNumber(input.iratszam, input.datum)
 
@@ -940,26 +948,26 @@ async function insertFelsoSzintIncomeRecord(params: {
     osszeg: input.osszeg,
     datum: input.datum,
     id_szamadasicel: idSzamadasicel,
-    forrasa: input.forrasa || 'Kézi rögzítés',
-    // A „ki fizette" FK-t a kerületi ágon SZÁNDÉKOSAN nem címezzük meg.
+    // A `forrasa` KÖTELEZŐ (NOT NULL) marad, és ha a szerver feloldotta a
+    // partnert, a HIVATALOS nevet kapja (nem azt, amit a kliens küldött).
+    forrasa: befizeto.hivatalosNev || input.forrasa || 'Kézi rögzítés',
+    // ── A „ki fizette" FK — 2026-08-22 (5. pont / 5a) ─────────────────────────
     //
-    // ⚠️ 2026-08-19 JAVÍTOTT INDOK: egy korábbi komment azt állította, hogy a
-    // `district_befizetes`-en nem is létezik ez az oszlop, és a megcímzése
-    // PGRST204-gyel bukna. EZ TÉVEDÉS VOLT — az oszlop LÉTEZIK (a tábla a
-    // `diocese_befizetes` betűhű tükre, lásd
-    // 2026-08-17-egyhazkeruleti-S5b-penzugy-tablak.sql:570). A viselkedés így is
-    // helyes, de a téves indok félrevezette volna a következő kört.
+    // ⚠️ A 2026-08-19-i komment ITT azt írta, hogy a kerületi ágon SZÁNDÉKOSAN
+    // nincs FK, mert a `district_befizetes`-en csak `befizeto_congregation_id`
+    // van, és egy megye azonosítóját az nem hordozhatja (HAMIS adat lenne).
+    // AZ ÉRVELÉS HELYES VOLT — a hiányzó oszlopot pótoltuk:
+    // `migration-docs/sql/2026-08-22-pont5-befizeto.sql` felveszi a
+    // `district_befizetes.befizeto_diocese_id` oszlopot. Amíg az SQL nem futott
+    // le élesben, a lenti insert SÉMA-DRIFT ágon esik vissza az oszlop nélküli
+    // alakra (nem hibaüzenettel áll meg) — a `forrasa` akkor is hordozza, ki
+    // fizetett.
     //
-    // A VALÓDI INDOK SZEMANTIKAI: a megyébe GYÜLEKEZETEK fizetnek be, tehát ott
-    // a „ki fizette" tényleg egy gyülekezet. A kerületbe EGYHÁZMEGYÉK fizetnek —
-    // egy megye azonosítóját viszont ez az oszlop nem tudja hordozni, és külön
-    // `befizeto_diocese_id` TUDATOSAN nincs (a megyei tükör sem ismer ilyet).
-    // Egy gyülekezet-FK odaírása a kerületi soron tehát nem hiányos adat lenne,
-    // hanem HAMIS. A „melyik egyházmegye fizetett" információt a KÖTELEZŐ
-    // `forrasa` szabad szöveg hordozza.
-    ...(scope === 'diocese'
-      ? { befizeto_congregation_id: null } // az UI-ban a lelkész választhat gyülekezetet, MVP null
-      : {}),
+    // A SZEMANTIKA VÁLTOZATLAN: a megyébe GYÜLEKEZETEK fizetnek be
+    // (`befizeto_congregation_id`), a kerületbe EGYHÁZMEGYÉK
+    // (`befizeto_diocese_id`). Kereszt-írás TILOS, ezért két külön ág.
+    ...(scope === 'diocese' ? { befizeto_congregation_id: befizeto.congregationId } : {}),
+    ...(scope === 'district' && befizeto.dioceseId ? { befizeto_diocese_id: befizeto.dioceseId } : {}),
     iratszam: documentNumber.slice(0, 20),
     nyugta: documentNumber.slice(0, 20),
     irattipus: normalizeIrattipusFelsoSzint(input.irattipus),
@@ -973,8 +981,90 @@ async function insertFelsoSzintIncomeRecord(params: {
   }
 
   const { data, error } = await supabase.from(T.befizetes).insert([payload]).select('id').single()
-  if (error) return { error: `Hiba: ${error.message}` as string }
+  if (error) {
+    // SÉMA-DRIFT ág: a `befizeto_diocese_id` oszlop csak a 2026-08-22-i SQL
+    // lefutása UTÁN létezik. A migration-fájl NEM bizonyíték arra, hogy le is
+    // futott (ismert hibaosztály) — ezért a kerületi bevétel rögzítése ATTÓL
+    // FÜGGETLENÜL működik: az oszlop nélkül próbáljuk újra, a `forrasa` pedig
+    // változatlanul hordozza a befizető hivatalos nevét.
+    if (
+      scope === 'district' &&
+      befizeto.dioceseId &&
+      isMissingColumnError(error.message)
+    ) {
+      const oszlopNelkul: Record<string, unknown> = { ...payload }
+      delete oszlopNelkul.befizeto_diocese_id
+      const ujra = await supabase.from(T.befizetes).insert([oszlopNelkul]).select('id').single()
+      if (ujra.error) return { error: `Hiba: ${ujra.error.message}` as string }
+      return { id: Number(ujra.data?.id), documentNumber }
+    }
+    return { error: `Hiba: ${error.message}` as string }
+  }
   return { id: Number(data?.id), documentNumber }
+}
+
+/**
+ * 2026-08-22 (5. pont / 5a): a KLIENS ÁLTAL KÜLDÖTT befizető-azonosító
+ * SZERVEROLDALI ellenőrzése — fail-closed.
+ *
+ * ⚠️ MIÉRT NEM ELÉG A KLIENS-PROP: a `searchIncomePartners` a saját hatókörében
+ *    keres, de a mentés HTTP-hívása tetszőleges UUID-t hozhat (a szerver-akció
+ *    publikus végpont). Ha vakon beírnánk, egy megyei ügyintéző IDEGEN megye
+ *    gyülekezetét címezhetné meg a saját bevételi során. Ezért a partner
+ *    azonosítóját ITT, a saját hatókörhöz kötve kérdezzük vissza: ha nem a
+ *    hatókörben van, `null` marad (a sor a FK nélküli, mai alakban megy be).
+ *
+ * A visszaadott `hivatalosNev` az adatbázisból jön, nem a kliensből — a
+ * `forrasa` így akkor is a hivatalos nevet kapja, ha a felület mást küldött.
+ */
+async function feloldBefizetoPartner(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  scope: FinanceScope,
+  scopeId: string,
+  nyersSor: unknown,
+): Promise<{ congregationId: string | null; dioceseId: string | null; hivatalosNev: string | null }> {
+  const ures = { congregationId: null, dioceseId: null, hivatalosNev: null }
+  if (scope === 'congregation') return ures
+  const sor = (nyersSor && typeof nyersSor === 'object' ? nyersSor : {}) as Record<string, unknown>
+  const partnerId = typeof sor.befizeto_scope_id === 'string' ? sor.befizeto_scope_id.trim() : ''
+  const fajta = typeof sor.befizeto_kind === 'string' ? sor.befizeto_kind : ''
+  if (!partnerId) return ures
+  // Szigorú UUID-alak: a szemét-bemenet ne is menjen le a DB-be.
+  if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(partnerId)) return ures
+
+  if (scope === 'diocese') {
+    // A megyébe GYÜLEKEZET fizet — és CSAK a SAJÁT megye gyülekezete.
+    if (fajta !== 'gyulekezet') return ures
+    const { data } = await supabase
+      .from('congregations')
+      .select('id, name, nev_hu')
+      .eq('id', partnerId)
+      .eq('diocese_id', scopeId)
+      .maybeSingle()
+    const sorAdat = data as { id?: string; name?: string | null; nev_hu?: string | null } | null
+    if (!sorAdat?.id) return ures
+    return {
+      congregationId: String(sorAdat.id),
+      dioceseId: null,
+      hivatalosNev: String(sorAdat.name || sorAdat.nev_hu || '').trim() || null,
+    }
+  }
+
+  // A kerületbe EGYHÁZMEGYE fizet — és CSAK a SAJÁT kerület egyházmegyéje.
+  if (fajta !== 'egyhazmegye') return ures
+  const { data } = await supabase
+    .from('dioceses')
+    .select('id, name')
+    .eq('id', partnerId)
+    .eq('district_id', scopeId)
+    .maybeSingle()
+  const sorAdat = data as { id?: string; name?: string | null } | null
+  if (!sorAdat?.id) return ures
+  return {
+    congregationId: null,
+    dioceseId: String(sorAdat.id),
+    hivatalosNev: formatEgyhazmegyeNev(sorAdat.name) || null,
+  }
 }
 
 /**
@@ -1934,6 +2024,7 @@ export async function initFinance(year: number) {
     // A megyei nyomtatvány-borító felső blokkjának neve — gyülekezeti
     // hatókörben nem értelmezett (ott az egyházmegye blokkja áll, sablonnal).
     districtName: null as string | null,
+    districtNameRo: null as string | null,
     debtCalcMode,
     yearlyFees,
     debtRows,
@@ -2079,6 +2170,12 @@ async function initFinanceFelsoSzint(
   let szintNev = ''
   let szintNevRo = ''
   let districtName: string | null = null
+  // 2026-08-22 (6. pont): a felettes kerület HIVATALOS ROMÁN neve is kell — a
+  // megyei borító felső blokkjában eddig hardkódolt „/ EPARHIA REFORMATĂ" állt,
+  // vagyis a magyar sor a VALÓDI kerületet nevezte meg, a román viszont csak a
+  // hivatal-típust. Ha nincs `nev_ro`, a mai sablonszöveg marad (kitalált NÉV
+  // nem kerül a lapra).
+  let districtNameRo: string | null = null
 
   if (kerulet) {
     const distRes = await supabase
@@ -2112,12 +2209,15 @@ async function initFinanceFelsoSzint(
       try {
         const { data: distRow } = await supabase
           .from('districts')
-          .select('name')
+          .select('name, nev_ro')
           .eq('id', districtId)
           .maybeSingle()
-        districtName = (distRow as { name?: string | null } | null)?.name ?? null
+        const sor = distRow as { name?: string | null; nev_ro?: string | null } | null
+        districtName = sor?.name ?? null
+        districtNameRo = (sor?.nev_ro || '').trim() || null
       } catch {
         districtName = null
+        districtNameRo = null
       }
     }
   }
@@ -2198,6 +2298,7 @@ async function initFinanceFelsoSzint(
     // A felettes szint neve a nyomtatvány-borítóra. CSAK megyei hatókörben van
     // értelme: a kerület fölött nincs negyedik szint (K3), ott `null`.
     districtName,
+    districtNameRo,
     debtCalcMode: 'akkori' as 'akkori' | 'aktualis',
     yearlyFees: {} as Record<number, number>, // diocese-nél nincs tag-járulék
     debtRows: [] as DebtRow[], // tag-szintű adósság diocese-ben nincs
@@ -2339,6 +2440,13 @@ export async function saveIncomeBatch(rows: IncomeBatchRowInput[]) {
   const lockError = await assertYearsNotFinalizedForCreate(scope, parsed.data.map((r) => r.datum))
   if (lockError) return { error: lockError }
 
+  // 2026-08-22 (5. pont / 5a): a befizető-partner azonosítója NEM fér át a zod
+  // sémán (a `incomeBatchRowSchema` a nem ismert kulcsokat LEVÁGJA), ezért a
+  // NYERS bemenetből olvassuk ki — és a `feloldBefizetoPartner` a saját
+  // hatókörhöz kötve ellenőrzi. A sorrend és a hossz azonos: a `z.array` a
+  // bemeneti sorrendet megőrzi.
+  const nyersSorok = (Array.isArray(rows) ? rows : []) as unknown[]
+
   for (let index = 0; index < parsed.data.length; index += 1) {
     const row = parsed.data[index]
     const result = scope.scope !== 'congregation'
@@ -2349,6 +2457,12 @@ export async function saveIncomeBatch(rows: IncomeBatchRowInput[]) {
           userId: user.id,
           // Felső szintű (megyei/kerületi) bevételnek nincs tag/család-kapcsolata.
           input: { ...row, id_szemely: null, id_csalad: null },
+          befizeto: await feloldBefizetoPartner(
+            scope.supabase,
+            scope.scope,
+            scope.scopeId,
+            nyersSorok[index],
+          ),
         })
       : await insertIncomeRecord({
           supabase: scope.supabase,
@@ -2824,10 +2938,27 @@ export async function getLastRecordedDate(): Promise<string | null> {
 
 // ── Tag keresés (bevételhez) ─────────────────────────────────
 
-export async function searchMembersForFinance(query: string) {
-  if (query.trim().length < 2) return []
-  const { supabase, congregationId } = await getProfileCongregation()
-  if (!congregationId) return []
+/**
+ * 2026-08-22 (5. pont / 5a): a GYÜLEKEZETI tag-kereső TÖRZSE — EGY helyen.
+ *
+ * MIÉRT KÜLÖN FÜGGVÉNY: mostantól KÉT hívója van — a régi
+ * `searchMembersForFinance` (a dispozitie-wizard és a bérleti szerződés
+ * dialógus is hívja) és az új, scope-tudatos `searchIncomePartners`. Ha a két
+ * felület saját másolatot tartana, a projekt visszatérő hibaosztályát kapnánk
+ * vissza („a második felület a régi implementációt őrzi"): egy későbbi
+ * szűrő-javítás (pl. `meghalt`) csak az egyik keresőben jelenne meg, és a
+ * lelkész két képernyőn MÁS találati listát látna ugyanarra a névre.
+ *
+ * ⚠️ A TÖRZS BYTE-AZONOS a 2026-08-22 előtti `searchMembersForFinance`-szal —
+ *    a select-lista, a három `eq` szűrő, az `or`/`ilike` ág és a `limit(8)` is.
+ *    Ez a függvény élesben fut 2026-06 óta; a 3. lánc-szelet CSAK a felső
+ *    szintű ágat teszi mellé, a gyülekezetit nem mozdítja el.
+ */
+async function queryCongregationMembers(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  congregationId: string,
+  query: string,
+) {
   // ekezet-javitas: a raw (ekezetes) query-vel keresunk - az ilike NEM ekezet-erzeketlen,
   // ezert a strippelt query (pl. Kovacs) sosem talalna meg az ekezetes DB-nevet (Kovacs).
   const parts = query.trim().split(/\s+/)
@@ -2840,6 +2971,272 @@ export async function searchMembersForFinance(query: string) {
 
   const { data } = await q.limit(8)
   return data || []
+}
+
+export async function searchMembersForFinance(query: string) {
+  if (query.trim().length < 2) return []
+  const { supabase, congregationId } = await getProfileCongregation()
+  if (!congregationId) return []
+  return await queryCongregationMembers(supabase, congregationId, query)
+}
+
+// ── 2026-08-22 (5. pont / 5a): SCOPE-TUDATOS befizető-kereső ─────────────────
+//
+// A TÜNET: az egyházmegyei/kerületi „Tétel rögzítése" befizető-mezője SEMMIT
+// nem adott. Nem „csak személyeket" — semmit: az egyetlen forrás a
+// `searchMembersForFinance` volt, az pedig a `getProfileCongregation()`-ből
+// jövő `effectiveCongregationId`-re szűr, ami FELSŐ SZINTŰ aktív profilnál
+// definíció szerint `null` → azonnali üres tömb. Néma üres lista, hibaüzenet
+// nélkül (a projekt ismert hibaosztálya).
+//
+// A JAVÍTÁS: külön action, ami a `getFinanceScope()`-ot használja (NEM a
+// `getProfileCongregation()`-t), és EXHAUSTIVE SWITCH-csel dönt:
+//   · congregation → a MAI tag-kereső törzse, változatlanul,
+//   · diocese      → a megye GYÜLEKEZETEI + azok LELKÉSZEI,
+//   · district     → a kerület EGYHÁZMEGYÉI (+ espereseik).
+//
+// ⚠️ MIÉRT `switch` ÉS `never`-KAPU, NEM `if (scope === 'diocese')`: ha egyszer
+//    negyedik szint kerül a `FinanceScope` unióba, egy „minden más" ág NÉMÁN a
+//    gyülekezeti keresőre ejtené — vagyis a negyedik szint felhasználója megint
+//    üres listát kapna, hibaüzenet nélkül. A `const _nemLehet: never` értékadás
+//    ilyenkor FORDÍTÁSI HIBÁT ad. Fordítási hiba > néma üres lista.
+//    (Ugyanaz a kapu-minta, mint a `tablesFor`-ban — lásd finance-scope-core.ts.)
+
+/** Beágyazott Supabase to-one mező nevének kibontása (objektum vagy 1-elemű tömb). */
+function beagyazottNev(v: unknown): string {
+  if (!v) return ''
+  const node = Array.isArray(v) ? v[0] : v
+  return (node as { name?: string } | null)?.name || ''
+}
+
+/** A találat FAJTÁJA — a csoportosított listához ÉS a mentés FK-jához. */
+type BefizetoPartnerFajta = 'szemely' | 'gyulekezet' | 'lelkesz' | 'egyhazmegye'
+
+interface BefizetoPartnerTalalat {
+  kind: BefizetoPartnerFajta
+  /** Listakulcs. SZEMÉLYNÉL a `szemely.id`; felső szinten NEGATÍV ál-azonosító,
+   *  hogy soha ne kerülhessen `id_szemely` FK-ba (a szerver amúgy is nullázza). */
+  id: number
+  /** A felső szintű partner UUID-ja (gyülekezet / egyházmegye); személynél null. */
+  refId: string | null
+  name: string
+  detail: string | null
+  /** Csak személynél — a dialógus életkor-badge-éhez (a mai látvány megőrzéséhez). */
+  szDatum: string | null
+}
+
+/** Ékezet-tűrő, kisbetűs tartalmazás — a felső szintű listákat MEMÓRIÁBAN szűrjük
+ *  (egy megyében néhány tucat gyülekezet van), így az `ilike` ékezet-vaksága sem üt. */
+function nevIlleszkedik(nev: string | null | undefined, term: string): boolean {
+  const normal = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const n = String(nev || '')
+  if (!n) return false
+  return n.toLowerCase().includes(term.toLowerCase()) || normal(n).includes(normal(term))
+}
+
+/** `.in()` URL-korlát (ismert hibaosztály): sok azonosítónál a proxy 414-gyel eldobja
+ *  a kérést, és a hívó NEM üres listát, hanem HIBÁT kap. 80-asával darabolunk. */
+function darabol<T>(tomb: T[], meret = 80): T[][] {
+  const ki: T[][] = []
+  for (let i = 0; i < tomb.length; i += meret) ki.push(tomb.slice(i, i + meret))
+  return ki
+}
+
+/** Profil-nevek feloldása (chunkolt `.in()`) — profileId → megjelenítendő NÉV. */
+async function feloldProfilNevek(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  profileIds: string[],
+): Promise<Map<string, string>> {
+  const ki = new Map<string, string>()
+  for (const csoport of darabol(profileIds)) {
+    if (csoport.length === 0) continue
+    const { data } = await supabase.from('profiles').select('id, full_name, status').in('id', csoport)
+    for (const p of (data ?? []) as Array<{ id: string; full_name?: string | null; status?: string | null }>) {
+      // Csak AKTÍV fiókot kínálunk fel befizetőként — egy függőben lévő
+      // regisztráló nem kerülhet hivatalos bevételi sor „forrásába".
+      if (p.status !== 'active') continue
+      const nev = String(p.full_name || '').trim()
+      if (nev) ki.set(String(p.id), nev)
+    }
+  }
+  return ki
+}
+
+/** MEGYEI ág: a megye gyülekezetei + azok lelkészei. */
+async function keresMegyeiPartnerek(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  dioceseId: string,
+  term: string,
+): Promise<BefizetoPartnerTalalat[]> {
+  // (1) A megye ÖSSZES gyülekezete — a név-szűrés memóriában megy, mert a
+  //     lelkész-ághoz amúgy is kell a TELJES gyülekezet-lista (id → név).
+  const { data: congs } = await supabase
+    .from('congregations')
+    .select('id, name, nev_hu, varos, cim')
+    .eq('diocese_id', dioceseId)
+    .order('name')
+  const congSorok = (congs ?? []) as Array<{
+    id: string; name?: string | null; nev_hu?: string | null; varos?: string | null; cim?: string | null
+  }>
+  const congNev = new Map(congSorok.map((c) => [String(c.id), String(c.name || c.nev_hu || '')]))
+
+  const talalatok: BefizetoPartnerTalalat[] = []
+  let alAzonosito = 0
+  const kovetkezoId = () => { alAzonosito += 1; return -alAzonosito }
+
+  for (const c of congSorok) {
+    if (talalatok.length >= 6) break
+    if (!nevIlleszkedik(c.name, term) && !nevIlleszkedik(c.nev_hu, term)) continue
+    talalatok.push({
+      kind: 'gyulekezet',
+      id: kovetkezoId(),
+      refId: String(c.id),
+      // A HIVATALOS név (`congregations.name`) megy a `forrasa`-ba — nem a becenév.
+      name: String(c.name || c.nev_hu || '').trim() || 'Egyházközség',
+      detail: [c.varos, c.cim].filter(Boolean).join(' · ') || null,
+      szDatum: null,
+    })
+  }
+
+  // (2) A megye gyülekezeteinek lelkészei — a `getDioceseVezetoJeloltek` mintája.
+  const congIds = congSorok.map((c) => String(c.id))
+  const lelkeszSorok: Array<{ profile_id: string; scope_id: string }> = []
+  for (const csoport of darabol(congIds)) {
+    if (csoport.length === 0) continue
+    const { data } = await supabase
+      .from('profile_roles')
+      .select('profile_id, scope_id')
+      .eq('scope', 'congregation')
+      .eq('role', 'lelkesz')
+      .eq('active', true)
+      .eq('approval_status', 'approved')
+      .in('scope_id', csoport)
+    for (const r of (data ?? []) as Array<{ profile_id: string; scope_id: string }>) lelkeszSorok.push(r)
+  }
+  const nevek = await feloldProfilNevek(supabase, [...new Set(lelkeszSorok.map((r) => String(r.profile_id)))])
+  const mar = new Set<string>()
+  for (const r of lelkeszSorok) {
+    if (talalatok.length >= 12) break
+    const nev = nevek.get(String(r.profile_id))
+    if (!nev || !nevIlleszkedik(nev, term)) continue
+    const kulcs = `${r.profile_id}:${r.scope_id}`
+    if (mar.has(kulcs)) continue
+    mar.add(kulcs)
+    talalatok.push({
+      kind: 'lelkesz',
+      id: kovetkezoId(),
+      // D5 (Endre döntése): a lelkészt NEM tároljuk külön `befizeto_profile_id`-vel —
+      // elég a `forrasa` szabad szöveg. Ezért itt SZÁNDÉKOSAN nincs refId.
+      refId: null,
+      name: nev,
+      detail: `lelkipásztor — ${congNev.get(String(r.scope_id)) || 'gyülekezet'}`,
+      szDatum: null,
+    })
+  }
+  return talalatok
+}
+
+/** KERÜLETI ág: a kerület egyházmegyéi + azok esperesei. */
+async function keresKeruletiPartnerek(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  districtId: string,
+  term: string,
+): Promise<BefizetoPartnerTalalat[]> {
+  const { data: megyek } = await supabase
+    .from('dioceses')
+    .select('id, name, cim_telepules')
+    .eq('district_id', districtId)
+    .order('name')
+  const megyeSorok = (megyek ?? []) as Array<{ id: string; name?: string | null; cim_telepules?: string | null }>
+  const megyeNev = new Map(megyeSorok.map((m) => [String(m.id), String(m.name || '')]))
+
+  const talalatok: BefizetoPartnerTalalat[] = []
+  let alAzonosito = 0
+  const kovetkezoId = () => { alAzonosito += 1; return -alAzonosito }
+
+  for (const m of megyeSorok) {
+    if (talalatok.length >= 6) break
+    if (!nevIlleszkedik(m.name, term)) continue
+    talalatok.push({
+      kind: 'egyhazmegye',
+      id: kovetkezoId(),
+      refId: String(m.id),
+      name: formatEgyhazmegyeNev(String(m.name || '')) || 'Egyházmegye',
+      detail: m.cim_telepules ? String(m.cim_telepules) : null,
+      szDatum: null,
+    })
+  }
+
+  // Esperesek — a kerületbe rendszerint a megye fizet, de a papíron gyakran az
+  // esperes NEVE szerepel; a `forrasa` szabad szöveget ő is kitöltheti.
+  const megyeIds = megyeSorok.map((m) => String(m.id))
+  const espSorok: Array<{ profile_id: string; scope_id: string }> = []
+  for (const csoport of darabol(megyeIds)) {
+    if (csoport.length === 0) continue
+    const { data } = await supabase
+      .from('profile_roles')
+      .select('profile_id, scope_id')
+      .eq('scope', 'diocese')
+      .eq('role', 'esperes')
+      .eq('active', true)
+      .eq('approval_status', 'approved')
+      .in('scope_id', csoport)
+    for (const r of (data ?? []) as Array<{ profile_id: string; scope_id: string }>) espSorok.push(r)
+  }
+  const nevek = await feloldProfilNevek(supabase, [...new Set(espSorok.map((r) => String(r.profile_id)))])
+  const mar = new Set<string>()
+  for (const r of espSorok) {
+    if (talalatok.length >= 12) break
+    const nev = nevek.get(String(r.profile_id))
+    if (!nev || !nevIlleszkedik(nev, term)) continue
+    const kulcs = `${r.profile_id}:${r.scope_id}`
+    if (mar.has(kulcs)) continue
+    mar.add(kulcs)
+    talalatok.push({
+      kind: 'lelkesz',
+      id: kovetkezoId(),
+      refId: null,
+      name: nev,
+      detail: `esperes — ${formatEgyhazmegyeNev(megyeNev.get(String(r.scope_id)) || '') || 'egyházmegye'}`,
+      szDatum: null,
+    })
+  }
+  return talalatok
+}
+
+export async function searchIncomePartners(query: string): Promise<BefizetoPartnerTalalat[]> {
+  const term = query.trim()
+  if (term.length < 2) return []
+  const scope = await getFinanceScope()
+  if (!scope) return []
+  const { supabase } = scope
+
+  switch (scope.scope) {
+    case 'congregation': {
+      const rows = (await queryCongregationMembers(supabase, scope.scopeId, term)) as Array<Record<string, unknown>>
+      return rows.map((m) => ({
+        kind: 'szemely' as const,
+        id: Number(m.id),
+        refId: null,
+        name: `${(m.csaladnev as string) ?? ''} ${(m.k_nev as string) ?? ''}`.trim() || `#${m.id}`,
+        // A másodlagos sor a MAI látvány: „helység · utca · házszám".
+        detail:
+          [beagyazottNev(m.adrlocality), beagyazottNev(m.adrstreet), m.c_szam]
+            .filter(Boolean)
+            .join(' · ') || null,
+        szDatum: m.sz_datum ? String(m.sz_datum) : null,
+      }))
+    }
+    case 'diocese':
+      return await keresMegyeiPartnerek(supabase, scope.scopeId, term)
+    case 'district':
+      return await keresKeruletiPartnerek(supabase, scope.scopeId, term)
+    default: {
+      // ⛔ NE TÖRÖLD: ez a fordítói kapu maga (lásd a fenti MIÉRT-et).
+      const _nemLehet: never = scope.scope
+      throw new Error(`Ismeretlen pénzügyi hatókör a befizető-keresőben: ${String(_nemLehet)}`)
+    }
+  }
 }
 
 // ── #5 (Endre): kiadás-partner autocomplete ──────────────────

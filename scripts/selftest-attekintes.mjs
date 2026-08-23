@@ -56,6 +56,15 @@ const FORRASOK = {
   // ugyanígy betölthető — és mostantól ez az EGYETLEN relatív-idő
   // implementáció a kódbázisban (korábban három másolat élt belőle).
   ido: path.join(WEB, 'lib', 'utils', 'idopont-bukarest.ts'),
+  // 2026-08-22 (7. pont): a SZERVEZETI FA döntési magja. Szintén import-mentes
+  // — a „nem tudjuk ≠ 0" szabály itt él, és az R) szakasz ezt őrzi.
+  szervezet: path.join(WEB, 'app', '(dashboard)', 'admin', 'szervezet-shared.ts'),
+}
+
+/** A szervezeti fa szerver-akciója és felülete — SZÖVEGES ellenőrzésekhez. */
+const SZERVEZET_FORRASOK = {
+  akcio: path.join(WEB, 'app', '(dashboard)', 'admin', 'szervezet-actions.ts'),
+  csomopont: path.join(WEB, 'components', 'admin', 'szervezet', 'fa-csomopont.tsx'),
 }
 
 let failed = false
@@ -114,9 +123,29 @@ const O = loadTs(FORRASOK.overview, 'overview.cjs')
 const P = loadTs(FORRASOK.parser, 'parser.cjs')
 const S = loadTs(FORRASOK.status, 'status.cjs')
 const T = loadTs(FORRASOK.ido, 'ido.cjs')
-if (!O || !P || !S || !T) {
+const SZ = loadTs(FORRASOK.szervezet, 'szervezet.cjs')
+if (!O || !P || !S || !T || !SZ) {
   fs.rmSync(tmp, { recursive: true, force: true })
   process.exit(1)
+}
+
+/**
+ * Kód a kommentek NÉLKÜL — szöveges ellenőrzésekhez.
+ *
+ * ⚠️ MIÉRT KELL: a fájlok tele vannak olyan magyarázó kommenttel, ami SZÓ
+ *    SZERINT tartalmazza a keresett mintát („nem eshet vissza `?? 0`-ra").
+ *    Kommentek nélkül nézve az őrszem a VALÓDI kódot méri, nem a szándékot.
+ */
+function tisztitKod(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((l) => {
+      const t = l.trim()
+      return !t.startsWith('//') && !t.startsWith('*')
+    })
+    .map((l) => l.replace(/\s\/\/.*$/, ''))
+    .join('\n')
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1008,6 +1037,286 @@ if (!O || !P || !S || !T) {
     ok('Q7 nincs kézi „v" + nyers verziószám összefűzés (mindenütt a verzioFelirat fut)')
   } else {
     fail('Q7: kézi verzió-összefűzés került vissza a kódba')
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// R) SZERVEZETI FA — „NEM TUDJUK" ≠ 0 (2026-08-22, 7. pont)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// MIT VÉD: a fa taglétszáma KÉT külön forrásból jön (K4, 2026-08-16):
+//   · rendszergazda → `admin_overview_member_counts()`   (SECURITY INVOKER)
+//   · kerületi admin → `district_member_counts(uuid)`    (SECURITY DEFINER)
+//
+// Ha a kerületi ág a kézenfekvő `admin_overview_member_counts()`-ot hívná, az
+// S1c migráció után NULLA SORT adna — és a fa MINDEN gyülekezetnél „0 tag"-ot
+// mutatna, hibaüzenet nélkül. Ez pontosan az a hibaosztály, ami az /admin
+// Áttekintés egyházmegye-bontásán már egyszer elsült (`tagszamElerheto`).
+//
+// ⚠️ MINDEN ÁLLÍTÁS MELLETT OTT A NEGATÍV KONTROLL: eljátsszuk a RÉGI, hibás
+//    viselkedést (`?? 0`), és bizonyítjuk, hogy elbukna ezen az őrszemen.
+//    Negatív asszert nélkül az őrszem VAK — a régi kód átcsúszna rajta.
+{
+  // ── R1: az ismeretlen tagszám SOHA nem szám ────────────────────────────
+  const ismeretlen = SZ.tagszamFelirat(null)
+  if (ismeretlen === SZ.TAGSZAM_ISMERETLEN && !/^\d/.test(ismeretlen)) {
+    ok(`R1 ismeretlen tagszám felirata „${ismeretlen}" — nem szám`)
+  } else {
+    fail(`R1: tagszamFelirat(null) = ${JSON.stringify(ismeretlen)} — a néma nulla visszatért`)
+  }
+
+  // NEGATÍV KONTROLL: a RÉGI viselkedés (`String(x ?? 0)`) ugyanerre „0"-t adna.
+  const regiViselkedes = String(null ?? 0)
+  if (regiViselkedes === '0' && regiViselkedes !== ismeretlen) {
+    ok('R2 a régi `?? 0` viselkedés „0"-t adna — az őrszem TÉNYLEG megkülönbözteti')
+  } else {
+    fail('R2: a negatív kontroll nem különbözik — az R1 assert vak lenne')
+  }
+
+  // ── R3: a VALÓDI nulla viszont kiírandó (üres nyilvántartás) ────────────
+  if (SZ.tagszamFelirat(0) === '0') {
+    ok('R3 a valódi nulla (üres nyilvántartás) továbbra is „0"')
+  } else {
+    fail(`R3: tagszamFelirat(0) = ${JSON.stringify(SZ.tagszamFelirat(0))}`)
+  }
+
+  // ── R4: EGYETLEN ismeretlen az EGÉSZ összeget ismeretlenné teszi ────────
+  const osszeg = SZ.osszegTagszam([5, null, 3])
+  const regiOsszeg = [5, null, 3].reduce((s, x) => s + (x ?? 0), 0)
+  if (osszeg === null) {
+    ok('R4 egy ismeretlen tag az egész összeget „nem tudjuk"-ra viszi')
+  } else {
+    fail(`R4: osszegTagszam([5, null, 3]) = ${osszeg} — részleges összeg magabiztosan hazudik`)
+  }
+  if (regiOsszeg === 8 && regiOsszeg !== osszeg) {
+    ok('R5 a régi reduce(`?? 0`) 8-at adna — az őrszem ezt is elkapja')
+  } else {
+    fail('R5: a negatív kontroll nem különbözik az R4 eredményétől')
+  }
+  if (SZ.osszegTagszam([]) === 0 && SZ.osszegTagszam([5, 3]) === 8) {
+    ok('R6 üres bemenetre 0, ismert értékekre valódi összeg')
+  } else {
+    fail('R6: az összegzés ismert értékeken is hibás')
+  }
+
+  // ── R7: az összegzés a fa MINDEN szintjén továbbviszi az ismeretlent ────
+  const gy = (nev, tagszam) => ({
+    id: nev,
+    nev,
+    dioceseId: 'm1',
+    tagszam,
+    felhasznalok: 1,
+    szerepek: [],
+    aktiv: true,
+    utolsoAktivitas: null,
+    hianyzoMezok: null,
+  })
+  const megye = { id: 'm1', nev: 'M', esperesNev: null, districtId: 'k1', gyulekezetek: [gy('A', 4), gy('B', null)] }
+  const kerulet = { id: 'k1', nev: 'K', nevRo: null, cimerUrl: null, puspokNev: null, egyhazmegyek: [megye] }
+  if (
+    SZ.megyeOsszeg(megye).tagszam === null &&
+    SZ.keruletOsszeg(kerulet).tagszam === null &&
+    SZ.faOsszeg([kerulet]).tagszam === null
+  ) {
+    ok('R7 megye / kerület / teljes fa: mindhárom szint „nem tudjuk"-ot ad, ha egy tag ismeretlen')
+  } else {
+    fail('R7: valamelyik szint összeadta az ismeretlent nullaként')
+  }
+  // A darabszámok viszont IGENIS számok — a hiány csak a tagszámra terjed ki.
+  if (SZ.faOsszeg([kerulet]).gyulekezetek === 2 && SZ.faOsszeg([kerulet]).egyhazmegyek === 1) {
+    ok('R8 a gyülekezet- és egyházmegye-darabszám attól még pontos marad')
+  } else {
+    fail('R8: a darabszámok is elvesztek')
+  }
+
+  // ── R9: rendezésnél az ismeretlen a VÉGÉRE kerül, NEM a nulla helyére ───
+  // ⚠️ A `?? 0` itt is elsülne: az ismeretlen beolvadna a 0 tagú gyülekezetek
+  //    közé, és a felület megint azt sugallná, hogy megnéztük.
+  const rendezve = SZ.gyulekezetekRendezve([gy('Aismeretlen', null), gy('Bures', 0), gy('Cnagy', 7)], 'tagszam')
+  const sorrend = rendezve.map((g) => g.nev)
+  const regiRendezes = [gy('Aismeretlen', null), gy('Bures', 0), gy('Cnagy', 7)]
+    .slice()
+    .sort((a, b) => (b.tagszam ?? 0) - (a.tagszam ?? 0) || a.nev.localeCompare(b.nev, 'hu'))
+    .map((g) => g.nev)
+  if (sorrend.join('>') === 'Cnagy>Bures>Aismeretlen') {
+    ok('R9 tagszám szerinti rendezésnél az ismeretlen a lista VÉGÉN áll')
+  } else {
+    fail(`R9: ${sorrend.join(' > ')} — az ismeretlen beolvadt a nullák közé`)
+  }
+  if (regiRendezes.join('>') === 'Cnagy>Aismeretlen>Bures' && regiRendezes.join('>') !== sorrend.join('>')) {
+    ok('R10 a régi `?? 0`-s rendezés MÁS sorrendet adna — a negatív kontroll fog')
+  } else {
+    fail(`R10: a negatív kontroll (${regiRendezes.join(' > ')}) nem különbözik`)
+  }
+
+  // ── R11: kötelező mezők — a csupa szóköz is HIÁNY ───────────────────────
+  const teljes = {
+    nev_hu: 'Barátosi Református Egyházközség',
+    nev_ro: 'Parohia Reformată Brateș',
+    adoszam: '12345678',
+    cim: 'Fő út 1.',
+    email: 'a@b.hu',
+    telefon: '0700000000',
+    iban: 'RO49AAAA1B31007593840000',
+    bank: 'BT',
+    diocese_id: 'm1',
+  }
+  if (SZ.hianyzoKotelezoMezok(teljes).length === 0) {
+    ok('R11 hiánytalan törzsadatnál üres a hiánylista')
+  } else {
+    fail(`R11: ${JSON.stringify(SZ.hianyzoKotelezoMezok(teljes))}`)
+  }
+  const hianyos = SZ.hianyzoKotelezoMezok({ ...teljes, iban: '   ', bank: '', diocese_id: null })
+  if (hianyos.length === 3 && hianyos.includes('IBAN') && hianyos.includes('Egyházmegye')) {
+    ok('R12 a csupa szóköz, az üres string és a null EGYARÁNT hiány')
+  } else {
+    fail(`R12: ${JSON.stringify(hianyos)} — a „kitöltött" szóköz átcsúszott`)
+  }
+
+  // ── R13: keresés — a megye-találat NEM üríti ki a megyét ────────────────
+  const fa = [
+    {
+      id: 'k1',
+      nev: 'Erdélyi Református Egyházkerület',
+      nevRo: 'Eparhia Reformată din Ardeal',
+      cimerUrl: null,
+      puspokNev: null,
+      egyhazmegyek: [
+        { id: 'm1', nev: 'Sepsi Egyházmegye', esperesNev: null, districtId: 'k1', gyulekezetek: [gy('Barátos', 12)] },
+        { id: 'm2', nev: 'Kalotaszegi Egyházmegye', esperesNev: null, districtId: 'k1', gyulekezetek: [gy('Bánffyhunyad', 8)] },
+      ],
+    },
+  ]
+  const sepsi = SZ.faSzures(fa, 'sepsi')
+  if (sepsi.length === 1 && sepsi[0].egyhazmegyek.length === 1 && sepsi[0].egyhazmegyek[0].gyulekezetek.length === 1) {
+    ok('R13 az egyházmegye nevére keresve a megye a GYÜLEKEZETEIVEL együtt marad meg')
+  } else {
+    fail(`R13: ${JSON.stringify(sepsi.map((k) => k.egyhazmegyek.map((m) => m.gyulekezetek.length)))}`)
+  }
+  const nincs = SZ.faSzures(fa, 'zzz-nincs-ilyen')
+  if (nincs.length === 0) {
+    ok('R14 nem illeszkedő keresésre ÜRES a fa (nem esik vissza a teljes listára)')
+  } else {
+    fail('R14: a keresés nem szűrt — a nem illeszkedő ág is bent maradt')
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// S) SZERVEZETI FA — A SZERVER-AKCIÓ HÁROM KÖTELEZŐ ÁGA (szöveges + mutáns)
+// ────────────────────────────────────────────────────────────────────────────
+{
+  const akcioPath = SZERVEZET_FORRASOK.akcio
+  const csomopontPath = SZERVEZET_FORRASOK.csomopont
+  if (!fs.existsSync(akcioPath) || !fs.existsSync(csomopontPath)) {
+    fail(`S0: hiányzik a szervezeti fa forrása (${akcioPath} / ${csomopontPath})`)
+  } else {
+    const akcio = tisztitKod(fs.readFileSync(akcioPath, 'utf8'))
+    const csomopont = tisztitKod(fs.readFileSync(csomopontPath, 'utf8'))
+
+    // Az őrszemek — mindegyik EGY függvény, hogy a mutáns is átfuttatható legyen.
+    const orok = [
+      {
+        id: 'S1',
+        cim: 'a tagszám hibás forrásnál `null`, nem 0',
+        // `tagszam: tagszamRes.terkep ? (...) : null,`
+        orszem: (src) => /tagszam:[^\n]*:\s*null/.test(src),
+        mutans: (src) =>
+          src.replace(/tagszam:[^\n]*:\s*null,/, 'tagszam: tagszamRes.terkep?.get(id) ?? 0,'),
+      },
+      {
+        id: 'S2',
+        cim: 'FAIL-CLOSED kapu: hatókör nélkül ÜRES fa, nem országos lista',
+        orszem: (src) => /districtIds\.length === 0/.test(src) && /hatokorUres:\s*true/.test(src),
+        mutans: (src) => src.replace(/hatokorUres:\s*true/, 'hatokorUres: false'),
+      },
+      {
+        id: 'S3',
+        cim: 'a kerületi ág a SECURITY DEFINER `district_member_counts`-ot hívja',
+        orszem: (src) =>
+          /'admin_overview_member_counts'/.test(src) && /'district_member_counts'/.test(src),
+        // A KÉZENFEKVŐ HIBA: a kerületi ág is az INVOKER RPC-t hívja → az S1c
+        // után 0 sor → néma „0 tag" minden gyülekezetnél.
+        mutans: (src) =>
+          src.replace(/'district_member_counts'/g, "'admin_overview_member_counts'"),
+      },
+      {
+        id: 'S4',
+        cim: 'K4: a kötelező-mező oszlopokat csak a rendszergazda kéri le',
+        orszem: (src) =>
+          /const GY_ALAP = '(?![^']*adoszam)[^']*'/.test(src) &&
+          /const GY_ADMIN = [^\n]*adoszam/.test(src) &&
+          /hianyzoMezokElerheto:\s*rendszergazda/.test(src),
+        mutans: (src) => src.replace(/const GY_ALAP = '/, "const GY_ALAP = 'adoszam, "),
+      },
+      {
+        id: 'S5',
+        cim: '`.in()` URL-korlát: az azonosító-listás szűrők darabolva mennek',
+        orszem: (src) => /const IN_DARAB = (?:[1-9]\d?|100)\b/.test(src) && /darabolvaLekerd/.test(src),
+        mutans: (src) => src.replace(/const IN_DARAB = \d+/, 'const IN_DARAB = 5000'),
+      },
+      {
+        id: 'S9',
+        cim: 'PostgREST 1000 soros plafon: a nagy listák lapozva jönnek',
+        // A `profiles` és a `profile_roles` bőven ezer sor fölött van; plafonon
+        // a szerver NÉMÁN vág — a fa alján ebből „0 felhasználó" lenne.
+        orszem: (src) =>
+          /selectAllPaged/.test(src) &&
+          /from\('profiles'\)/.test(src) &&
+          /lapozvaLekerd|darabolvaLekerd/.test(src),
+        mutans: (src) => src.replace(/selectAllPaged/g, 'nemLapozunk'),
+      },
+      {
+        id: 'S8',
+        cim: 'a hatókör-feloldás HIBÁJA hangos, nem üres fa',
+        // A rövid burkolók (`getScopedDioceseIds`) a lekérdezés-hibát is üres
+        // tömbbé nyelik → tökéletesen üres, magabiztos képernyő. Az admin-scope.ts
+        // ezért adta a `…Result` változatokat: ÚJ hívóhely azokat használja.
+        orszem: (src) =>
+          /getScopedDioceseIdsResult/.test(src) &&
+          /getScopedCongregationIdsResult/.test(src) &&
+          /!\w+\.feloldhato/.test(src),
+        mutans: (src) => src.replace(/if \(!\w+\.feloldhato\)/g, 'if (false)'),
+      },
+    ]
+
+    for (const o of orok) {
+      if (!o.orszem(akcio)) {
+        fail(`${o.id}: ${o.cim} — az őrszem NEM találja a mintát a szervezet-actions.ts-ben`)
+        continue
+      }
+      // ⚠️ MUTÁNS-PRÓBA: eljátsszuk a régi/hibás változatot, és megköveteljük,
+      //    hogy az őrszem elbukjon rajta. Enélkül egy „mindig igaz" regex
+      //    zöldet mutatna a hibás kódra is.
+      if (o.orszem(o.mutans(akcio))) {
+        fail(`${o.id}: a MUTÁNS is átment — az őrszem vak, nem véd semmit`)
+      } else {
+        ok(`${o.id} ${o.cim} (a mutáns elbukik rajta)`)
+      }
+    }
+
+    // ── S6–S7: a FELÜLET sem eshet vissza nullára ─────────────────────────
+    // A regressziót leginkább ITT írná vissza egy refaktor: „miért ez a fura
+    // komponens, írjuk ki simán a számot".
+
+    // S6: van külön, KIMONDOTT ismeretlen-ág, ami a tagszamFelirat(null)-t írja.
+    const s6 = (src) => /ertek === null/.test(src) && /tagszamFelirat\(null\)/.test(src)
+    if (!s6(csomopont)) {
+      fail('S6: a fa-csomopont.tsx-ből eltűnt az ismeretlen-ág (tagszamFelirat(null))')
+    } else if (s6(csomopont.replace(/ertek === null/, 'false'))) {
+      fail('S6: a MUTÁNS (ismeretlen-ág kivágva) is átment — az őrszem vak')
+    } else {
+      ok('S6 a felületnek külön, kimondott „nem tudjuk" ága van (a mutáns elbukik)')
+    }
+
+    // S7: SEHOL nincs numerikus nulla-visszaesés (`?? 0` / `|| 0`) a fában.
+    const s7 = (src) => !/(\?\?|\|\|)\s*0\b/.test(src)
+    if (!s7(csomopont)) {
+      fail('S7: a fa-csomopont.tsx-ben megjelent egy `?? 0` / `|| 0` nulla-visszaesés')
+    } else if (s7(`${csomopont}\nconst x = gyulekezet.tagszam ?? 0\n`)) {
+      fail('S7: a MUTÁNS is átment — a nulla-visszaesés őrszeme vak')
+    } else {
+      ok('S7 a fa felületén nincs numerikus nulla-visszaesés (a mutáns elbukik)')
+    }
   }
 }
 

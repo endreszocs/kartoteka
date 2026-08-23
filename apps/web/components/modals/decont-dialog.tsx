@@ -23,12 +23,14 @@ type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   congregationName: string
+  /** 2026-08-22 (6. pont): a hivatalos ROMÁN név a DECONT „Unitate" sávjához. */
+  congregationNameRo?: string
   categories: DecontCategoryOption[]
   /** #Endre 2026-07-01: előtöltés (pl. a Nyugtafigyelő „hiányzó nyugták" gombjából). */
   prefill?: DecontPrefill
 }
 
-export function DecontDialog({ open, onOpenChange, congregationName, categories, prefill }: Props) {
+export function DecontDialog({ open, onOpenChange, congregationName, congregationNameRo, categories, prefill }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -60,6 +62,7 @@ export function DecontDialog({ open, onOpenChange, congregationName, categories,
           <DecontTab
             key={prefill ? (prefill.actNumbers?.join(',') || '') + (prefill.date || '') : 'empty'}
             congregationName={congregationName}
+            congregationNameRo={congregationNameRo}
             categories={categories}
             prefill={prefill}
           />

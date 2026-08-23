@@ -11,10 +11,12 @@
  * (`buildFinancePrintDocument`) köti be a callback prop-okra.
  */
 
+import { useCallback } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   FinancePrintDialogBody,
   type FinancePrintFilters,
+  type FinancePrintToastKind,
   type FinancePrintType,
   type FinancePrintTypeMeta,
   type SavedDocOption,
@@ -38,6 +40,16 @@ import {
   type BudgetPrintData,
   type BudgetPrintType,
 } from '@/lib/finance/budget-reporting'
+// 2026-08-23 (kisebb rések, 4.): a hiányzó román név FIGYELMEZTETÉSE és a
+// kiállító-név TILTÓ kapuja KÖZÖS helperekből jön — a testvér-ablak
+// (Költségvetés nyomtatási központ) ugyanezt a hármat használja. Két külön
+// másolat itt pontosan azt a „két felület némán széthúz" hibát hozná vissza,
+// amit a projekt már többször megszenvedett.
+import {
+  RomanNevFigyelmeztetesSav,
+  kiallitoNeveHianyzik,
+  romanNevFigyelmeztetes,
+} from '@/components/finance/budget-print-dialog'
 import { loadBudgetRowsCompat, type BudgetCompatRow } from '@/lib/finance/budget-compat'
 // 2026-08-15 (egyházmegyei terv, 2.1): hatókör-tudatos évi beállítás-betöltő
 // (a Költségvetés nyomtatási központ UGYANEZT hívja — közös helper).
@@ -100,6 +112,11 @@ interface FinancePrintDialogProps {
   scope?: PrintScope
   /** Az egyházkerület neve a megyei borító felső blokkjához. */
   districtName?: string | null
+  /** 2026-08-22 (6. pont): a felettes egyházkerület hivatalos ROMÁN neve
+   *  (`districts.nev_ro`) — a MEGYEI borító felső blokkjába, a korábbi
+   *  hardkódolt „EPARHIA REFORMATĂ" helyett. Ha nincs román név, a mai
+   *  sablonszöveg marad (kitalált NÉV nem kerül a lapra). */
+  districtNameRo?: string | null
 }
 
 /** 2026-07-10 (S5-#3): a Body opak yearRecords-ának webes alakja. */
@@ -261,6 +278,7 @@ export function FinancePrintDialog({
   settings,
   scope = 'congregation',
   districtName,
+  districtNameRo,
 }: FinancePrintDialogProps) {
   // ⛔ A NYOMTATVÁNY-réteg által ISMERT hatókör. `null` = erre a szintre még
   // nincs ív → MINDEN nyomtatvány magyarázó, TILTÓ előnézetet ad. 2026-08-22
@@ -298,7 +316,20 @@ export function FinancePrintDialog({
   //    A két ÉLŐ szint (gyülekezet, megye) ma pontosan így viselkedik, és a
   //    döntés az övék is. ⛔ NE „szimmetrizáld" ezt a következő körben: az
   //    hármas viselkedés-változás volna élő, aláírt iratokon.
-  const nevHianyzik = keruleti && congregationName.trim().length === 0
+  //
+  // 2026-08-23 (kisebb rések, 4.): a feltétel KÖZÖS helperbe költözött
+  // (`kiallitoNeveHianyzik`, budget-print-dialog.tsx) — a testvér-ablak
+  // UGYANEZT hívja. A viselkedés BYTE-RA azonos a korábbi
+  // `keruleti && congregationName.trim().length === 0` alakkal
+  // (`keruleti === (keszScope === 'district')`).
+  const nevHianyzik = kiallitoNeveHianyzik(keszScope, congregationName)
+
+  // 2026-08-23 (kisebb rések, 4.): FIGYELMEZTETÉS a hiányzó ROMÁN névre.
+  // ⛔ CSAK FELIRAT: a `buildReport` egyetlen ága sem nézi, tehát a nyomtatást
+  // NEM tiltja le — pontosan úgy, ahogy a fenti blokk előírja. Élesben mind a
+  // 25 egyházmegye `nev_ro` mezője üres (Endre ellenőrző SQL-je, 2026-08-22),
+  // vagyis egy kapu itt kizárná őket a saját hivatalos ívükből.
+  const romanFigyelmeztetes = romanNevFigyelmeztetes(keszScope, congregationName, congregationNameRo)
 
   // 2026-08-11 (6. kör): a RÉSZSZÁMADÁS mostantól ITT érhető el. Eddig a
   // `.filter((t) => t.id !== 'reszszamadas')` kizárta abból az EGYETLEN
@@ -340,16 +371,22 @@ export function FinancePrintDialog({
   // azonosítója (a közös `normalizeDioceseBealitas` ezt tölti a megye/kerület
   // UUID-jával), tehát a kerületi ág a `district_bealitas` helyes sorát kéri.
   // A hiba OKA is átmegy — a hívó ebből választ üzenetet.
-  const loadYearSettings = async (
-    year: number,
-  ): Promise<{
-    row: BealitasRow | null
-    ok: boolean
-    hibaOk?: 'lekerdezes_hiba' | 'nincs_nyomtatvany_ag'
-  }> => {
-    const supabase = createClient()
-    return await loadEvBeallitas(supabase, scope, settings.congregation_id, year)
-  }
+  // 2026-08-22 (8. pont): memoizálva, mert az `onLoadYearRecords` (a Body egyik
+  // betöltő-effektjének depje) ezt hívja — instabil referenciával a betöltő
+  // minden szülő-renderre újraindulna.
+  const loadYearSettings = useCallback(
+    async (
+      year: number,
+    ): Promise<{
+      row: BealitasRow | null
+      ok: boolean
+      hibaOk?: 'lekerdezes_hiba' | 'nincs_nyomtatvany_ag'
+    }> => {
+      const supabase = createClient()
+      return await loadEvBeallitas(supabase, scope, settings.congregation_id, year)
+    },
+    [scope, settings.congregation_id],
+  )
 
   const categoryOptions = cellek
     .filter(
@@ -363,6 +400,508 @@ export function FinancePrintDialog({
     .map((c) => ({ kod: c.kod, nev: c.nev || c.kod, type: c.type as 'B' | 'K' }))
     .sort((a, b) => a.kod.localeCompare(b.kod, undefined, { numeric: true }))
 
+  // ── 2026-08-22 (8. pont): STABIL callback-referenciák ────────────────────
+  //
+  // MI VOLT A ROSSZ: ezek a propok INLINE nyíl-függvényként mentek át, tehát
+  // minden renderben ÚJ identitást kaptak. A közös `FinancePrintDialogBody`
+  // NÉGY betöltő-effektje a deps közt figyeli őket (`onLoadBudgetRows`,
+  // `onLoadYearRecords`, `onLoadNyugtatombok`, `onLoadSavedDocs`), tehát minden
+  // szülő-render ÚJ lekérést indított és visszaejtette a betöltő-állapotot —
+  // fölösleges Supabase-körök + újra kilőtt hibás toastok. A testvér-ablakban
+  // (Költségvetés nyomtatási központ) ugyanez ZÁRT KÖRT is: az `onToast` a deps
+  // között + a wrapper saját state-írása = önfenntartó végtelen hurok.
+  //
+  // ⚠️ A deps-listák TELJESEK. Egy hiányzó dep itt nem „optimalizálás", hanem
+  //    BEFAGYASZTOTT ELŐNÉZET: a hivatalos ív egy régi állapotból készülne.
+  //    ⛔ NE told be az `onToast`-ot egyetlen betöltő deps-listájába sem.
+  const onToast = useCallback((msg: string, kind: FinancePrintToastKind) => {
+    if (kind === 'error') toast.error(msg)
+    else if (kind === 'success') toast.success(msg)
+    else if (kind === 'warning') toast.warning(msg)
+    else toast(msg)
+  }, [])
+
+  const onClose = useCallback(() => onOpenChange(false), [onOpenChange])
+
+  const onPrintToBrowser = useCallback((html: string) => printToBrowser(html), [])
+
+  const onPrintToPdf = useCallback(
+    (
+      html: string,
+      filename: string,
+      options?: { orientation?: 'portrait' | 'landscape'; margin?: number[]; format?: string },
+    ) =>
+      printToPdf(html, filename, {
+        orientation: options?.orientation,
+        margin: options?.margin,
+        format: options?.format,
+      }),
+    [],
+  )
+
+  const buildReport = useCallback((filters: FinancePrintFilters): PrintReport => {
+    // ⛔ Nyomtatvány-ág nélküli (jövőbeli) szint. A kapu a FÜGGVÉNY
+    // ELEJÉN áll, tehát a bizonylat-újranyomtatásra (Decont,
+    // Dispoziție) is érvényes. A `blocked: true` a nyomtató gombokat is
+    // letiltja.
+    if (keszScope === null) {
+      return blockedPreview(NINCS_NYOMTATVANY_AG_CIM, NINCS_NYOMTATVANY_AG_UZENET)
+    }
+
+    // ⛔ 2026-08-22 (kerületi S6) — A KERÜLETI ÁG RÉSZLEGES NYITÁSA.
+    // A sorrend nem cserélhető fel: előbb a TÍPUS (a részszámadásnak a
+    // más-év üzenete félrevezető volna: nála az oldal-év váltása sem
+    // segít), aztán a NÉV, végül az ÉV.
+    if (keruleti && !KERULETI_IVEK.has(filters.printType)) {
+      return blockedPreview(KERULETI_TILTOTT_IV_CIM, KERULETI_TILTOTT_IV_UZENET)
+    }
+    if (nevHianyzik) {
+      return blockedPreview(KIALLITO_NEVE_HIANYZIK_CIM, KIALLITO_NEVE_HIANYZIK_UZENET)
+    }
+    // A `filters.yearRecords !== undefined` a közös Body SAJÁT jelzése
+    // arról, hogy ehhez a nyomtatványhoz szerverről visszatöltött év-sorok
+    // kellenek (`needsYearRecords`). SZÁNDÉKOSAN ezt nézzük, és nem
+    // számoljuk újra az év-feltételt: egy második, széthúzó másolat a
+    // projekt visszatérő hibaosztálya.
+    //
+    // ⛔ NE SZŰKÍTSD a kaput a `szamadas`-ra azzal, hogy „a Költségvetésnek
+    //    úgysincs tény-oszlopa". Igaz, hogy a tény-oszlop csak a Számadásé,
+    //    DE a Költségvetés/Költségvetés-módosítás ÍV 1–3. SORA (Disponibil
+    //    din anul precedent / Casa / Banca) ugyanebből a payloadból jön:
+    //    `carryoverCashUse`/`carryoverBankUse` → `printData.carryoverCash/
+    //    carryoverBank` → collectBudgetRows(…, { openingRows: true })
+    //    (budget-reporting.ts:478 és :497, a nyitóblokk :1131-1140).
+    //    Kerületi hatókörben az `onLoadYearRecords` fail-closed csonkot ad
+    //    vissza (0 / 0, lentebb a MIÉRT-tel), tehát a szűkítés egy olyan
+    //    hivatalos ívet engedne ki, amelynek a nyitó egyenleg-sorai NÉMÁN
+    //    nullák — pontosan az a hihető, aláírható, hamis papír, ami ellen
+    //    az egész kapu készült. A `settingsOk === false` ág ma másodikként
+    //    úgyis megfogná, de FÉLREVEZETŐ („ellenőrizd az internetkapcsolatot")
+    //    szöveggel, a MŰKÖDŐ tanács (válts oldal-évet) helyett.
+    //    A valódi feloldás IDEGEN fájlban van: hatókör-tudatos
+    //    `getYearFinanceRecords` (penzugy/actions.ts:623) — amíg az nincs
+    //    meg, ez a kapu marad, és tudatosan SZIGORÚBB, mint a Költségvetés
+    //    nyomtatási központé (az a régi évre is kiadja az ívet, de az
+    //    OLDAL évének nyitóival — ez a két ablak ma is meglévő, minden
+    //    szintre igaz eltérése, jelentve, itt nem javítva).
+    if (keruleti && filters.yearRecords !== undefined) {
+      return blockedPreview(KERULETI_MAS_EV_CIM, KERULETI_MAS_EV_UZENET)
+    }
+
+    // 2026-07-10 (S5-#3): a bevétel/kiadás sorok a KIVÁLASZTOTT évhez.
+    // Az oldal évén a props-beli (memóriában lévő) sorokat használjuk;
+    // más évnél a Body által betöltött yearRecords-ot — amíg az töltődik,
+    // "Betöltés…" előnézetet adunk (mint a budgetRows-nál).
+    // 2026-08-11 (6. kör): a Body `undefined`-et ad, ha a props-beli
+    // (oldal-évi) sorok elegendők, és `null`-t, amíg tölt. A
+    // részszámadás a FOLYÓ évben IS a szerverről kéri a sorokat — csak
+    // ott van SZÁMLÁNKÉNTI feloldott nyitó és `nyitoOk`.
+    const wantsYearRecords = filters.yearRecords !== undefined
+    if (
+      wantsYearRecords &&
+      filters.yearRecords == null &&
+      !TYPES_WITHOUT_RECORDS.has(filters.printType)
+    ) {
+      return emptyPreview(`A(z) ${filters.selectedYear}. évi tételek betöltése…`)
+    }
+    const yr = wantsYearRecords ? (filters.yearRecords as YearRecordsPayload | null) : null
+    const incomeUse = yr ? yr.income : income
+    const expenseUse = yr ? yr.expense : expense
+    const carryoverCashUse = yr ? yr.carryoverCash : carryoverCash
+    const carryoverBankUse = yr ? yr.carryoverBank : carryoverBank
+    const bankNyitoMapUse = yr ? yr.bankNyitoMap : bankNyitoMap
+    // 2026-08-15 (átvilágítás 13.): a beállítás-sor is a KIVÁLASZTOTT évé.
+    // Ha `yr` van, az oldal évétől eltérő (vagy részszámadás-) évet nézünk,
+    // ilyenkor a props-beli `settings` MÁS év sora lenne.
+    // KIVÉTEL: ha az újratöltött év MAGA az oldal éve (részszámadás), a
+    // props-beli sor a mérvadó — azt a szerver oldotta fel, egyházmegyei
+    // nézetben például a `diocese_bealitas` táblából, ahol a lenti
+    // `bealitas`-lekérés természetesen nem talál semmit.
+    const settingsUse: BealitasRow | null = yr
+      ? (yr.settings ?? (filters.selectedYear === currentYear ? settings : null))
+      : settings
+    const settingsOk = yr ? yr.settingsOk !== false : true
+
+    // Korábbi bizonylatok újranyomtatása (a snapshot adatból)
+    if (filters.printType === 'decont_reprint') {
+      const doc = filters.selectedDoc
+      if (!doc) return emptyPreview('Válassz egy korábbi elszámolást a bal oldalon.')
+      // 2026-08-22 (6. pont): a kiállító MAI hivatalos neveit (magyar + román)
+      // a snapshot UTÁN tesszük rá, hogy a mentett tétel-adat ne írhassa felül
+      // őket — a snapshot a tételekről szól, nem az egyházközség nevéről.
+      const data = doc.data as Omit<DecontDocData, 'congregationName' | 'congregationNameRo'>
+      return {
+        html: buildDecontHtml({ ...data, congregationName, congregationNameRo }),
+        title: `Decont #${data.sorszam}`,
+        filename: `Decont_${data.sorszam}_${data.date}.pdf`,
+        orientation: 'portrait',
+      }
+    }
+    if (filters.printType === 'dispozitie_reprint') {
+      const doc = filters.selectedDoc
+      if (!doc) return emptyPreview('Válassz egy korábbi rendelvényt a bal oldalon.')
+      const data = doc.data as Omit<DispozitieDocData, 'congregationName'>
+      return {
+        html: buildDispozitieHtml({ congregationName, congregationNameRo, ...data }),
+        title: `Dispoziție #${data.sorszam}`,
+        filename: `Dispozitie_${data.tipus}_${data.sorszam}_${data.date}.pdf`,
+        orientation: 'portrait',
+      }
+    }
+
+    // Költségvetés / költségvetés-módosítás / számadás / részszámadás
+    if (
+      filters.printType === 'koltsegvetes' ||
+      filters.printType === 'koltsegvetes_modositas' ||
+      filters.printType === 'szamadas' ||
+      filters.printType === 'reszszamadas'
+    ) {
+      if (!filters.budgetRows) return emptyPreview('Költségvetési adatok betöltése…')
+      const isReszszamadas = filters.printType === 'reszszamadas'
+      const isSzamadas = filters.printType === 'szamadas'
+
+      // 2026-08-15 (átvilágítás 13.): FAIL-CLOSED kapu. Ha a kiválasztott
+      // év beállítás-sorát nem sikerült lekérni, nem tudjuk, véglegesítve
+      // van-e, mi a presbitériumi határozata és mik a tartozásai. A
+      // hivatalos ívet ilyenkor NEM adjuk ki: a hiányzó adat helyére az
+      // OLDAL évének adata kerülne — pontosan az a hamis papír, ami ellen
+      // ez a javítás készült. (A részszámadás nem hivatalos zárszámadás,
+      // és a záró blokkot sem használja — annak saját kapui vannak.)
+      if (!isReszszamadas && !settingsOk) {
+        // 2026-08-22 (kerületi S6): a MIÉRT szerint MÁS a szöveg. A
+        // `'nincs_nyomtatvany_ag'` nem múlik el magától (nincs ilyen
+        // szintű ív), ezért ott az „próbáld újra" tanács félrevezető —
+        // eddig mindkét ok ugyanezt a hálózati szöveget kapta.
+        if (yr?.settingsHibaOk === 'nincs_nyomtatvany_ag') {
+          return blockedPreview(NINCS_NYOMTATVANY_AG_CIM, NINCS_NYOMTATVANY_AG_UZENET)
+        }
+        return blockedPreview(
+          'Ez a nyomtatvány most nem készíthető el',
+          `A(z) ${filters.selectedYear}. évi pénzügyi beállítások (véglegesítés, presbitériumi határozat, tartozások) nem tölthetők be, ezért a nyomtatvány hibás adatokkal készülne. Ellenőrizd az internetkapcsolatot, és próbáld újra. Ha újra ezt írja, jelezd a rendszergazdának.`,
+        )
+      }
+
+      // 2026-08-11 (6. kör): a részszámadás tény-oszlopa CSAK az
+      // időszaki tételeket összegzi. A nyitó/záró NEM ebből jön —
+      // azt a `computePeriodBalances` vezeti le a pénzmozgásból.
+      const periodFrom = filters.periodFrom
+      const periodTo = filters.periodTo
+      const inPeriod = (datum: string | null | undefined): boolean => {
+        if (!isReszszamadas) return true
+        if (!datum || !periodFrom || !periodTo) return false
+        const d = datum.slice(0, 10)
+        return d >= periodFrom && d <= periodTo
+      }
+
+      const actualIncome: Record<string, number> = {}
+      const actualExpense: Record<string, number> = {}
+      // 2026-07-10 (S3 audit KRITIKUS #1): stornózott tétel a hivatalos
+      // költségvetés/számadás nyomtatvány tényadatába sem számít.
+      // 2026-08-11 (K5-#6): a tény-oszlop a NYERS deviza-összeget (`osszeg`)
+      // adta össze, miközben a Registru Casa/Banca/Jurnal a RON-ekvivalenst
+      // (`osszeg_ron`) használja (reporting.ts `ronOf`, helpers.ts
+      // calculateBalances). Devizás banki tételnél (pl. 1000 EUR = 4970 lej)
+      // a Számadás 1000 lejt, a Registru 4970 lejt írt — két hivatalos,
+      // ALÁÍRT papír ugyanarra az évre, egymásnak ellentmondó összeggel.
+      // A könyvelés RON-ban folyik, ezért mindenhol `osszeg_ron ?? osszeg`.
+      for (const r of incomeUse) {
+        if (r.deleted || r.stornozott) continue
+        if (!inPeriod(r.datum)) continue
+        const code = r.id_befizetescel ? bevCelMap[r.id_befizetescel] : undefined
+        if (code) actualIncome[code] = (actualIncome[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
+      }
+      for (const r of expenseUse) {
+        if (r.deleted || r.stornozott) continue
+        if (!inPeriod(r.datum)) continue
+        const code = r.id_kiadascel ? kiaCelMap[r.id_kiadascel] : undefined
+        if (code) actualExpense[code] = (actualExpense[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
+      }
+
+      const printData: BudgetPrintData = {
+        cellek,
+        budgetRows: filters.budgetRows as Record<string, BudgetCompatRow>,
+        actualIncome,
+        actualExpense,
+        congregationName,
+        congregationNameRo,
+        // 2026-08-15 (terv 2.1/3): a borító feliratai a KIÁLLÍTÓ
+        // szintjét követik (megyei íven kerületi blokk + közgyűlés).
+        printScope: keszScope,
+        districtName,
+        districtNameRo,
+        year: filters.selectedYear,
+        carryoverCash: carryoverCashUse,
+        carryoverBank: carryoverBankUse,
+        finalized: isSzamadas
+          ? !!settingsUse?.accounting_finalized
+          : !!settingsUse?.budget_finalized,
+        // 2026-08-15 (átvilágítás 15.): a presbitériumi határozat és az
+        // egyházközségi iktatószám. Eddig CSAK a `finalized` zászló ment
+        // át, ezért a véglegesített ív borítóján a határozat-sor üresen
+        // maradt — és mivel az „ez még nincs véglegesítve" magyarázat is
+        // eltűnt, a lelkész észre sem vette, hogy hiányos papírt ad be.
+        ...hivatalosHatarozatMezok(settingsUse, isSzamadas ? 'szamadas' : 'koltsegvetes'),
+      }
+
+      // ── 2026-08-14 (K2): a hivatalos 113–134. záró blokk adatai ──
+      if (isSzamadas && !isReszszamadas) {
+        // Tartozások/Kintlévőségek a bealitas.szamadas_tartozasok-ból
+        // (a Könyvelés fül rögzítője írja). Kulcs: hivatalos Nr. rând.
+        const toNumMap = (m?: Record<string, number>): Record<number, number> => {
+          const ki: Record<number, number> = {}
+          for (const [nr, v] of Object.entries(m || {})) {
+            const n = Number(nr)
+            if (Number.isFinite(n)) ki[n] = Number(v) || 0
+          }
+          return ki
+        }
+        // 2026-08-15 (átvilágítás 13.): a KIVÁLASZTOTT év sorából.
+        const stored = settingsUse?.szamadas_tartozasok
+        printData.tartozasok = toNumMap(stored?.tartozasok ?? undefined)
+        printData.kintlevosegek = toNumMap(stored?.kintlevosegek ?? undefined)
+
+        // Év végi Casa/Banca (114–115. sor): ugyanazzal a levezetéssel,
+        // mint a részszámadás, csak a teljes évre. Ha a levezetés
+        // hibázik, a mezők üresen maradnak → a papíron „—" áll (őszinte
+        // fallback), az ÉVES Számadást nem blokkoljuk miatta.
+        const evesBalances = computePeriodBalances({
+          income: incomeUse as unknown as PeriodRow[],
+          expense: expenseUse as unknown as PeriodRow[],
+          year: filters.selectedYear,
+          periodFrom: `${filters.selectedYear}-01-01`,
+          periodTo: `${filters.selectedYear}-12-31`,
+          yearOpeningCash: carryoverCashUse,
+          yearOpeningBankById: bankNyitoMapUse || {},
+          actualIncomeByCode: actualIncome,
+          actualExpenseByCode: actualExpense,
+        })
+        if (!('error' in evesBalances)) {
+          printData.zaroCasa = evesBalances.cash.closing
+          printData.zaroBanca = evesBalances.bank.closing
+        }
+      }
+
+      // ── RÉSZSZÁMADÁS: időszaki nyitó/záró levezetés + fail-closed ──
+      if (isReszszamadas) {
+        // A nyitók feloldása HANGOSAN bukik: a részszámadás MINDEN
+        // száma a nyitóra épül, néma 0-bázisból hamis papír lenne.
+        if (yr && yr.nyitoOk === false) {
+          return blockedPreview(
+            'A részszámadás most nem nyomtatható',
+            'A nyitó egyenlegek feloldása nem sikerült, így az időszak nyitó és záró egyenlege nem vezethető le. Nyisd meg a Pénzügy → Bank / Kassza fület, ellenőrizd a nyitó egyenlegeket, majd próbáld újra.',
+          )
+        }
+        if (!periodFrom || !periodTo) {
+          return blockedPreview(
+            'A részszámadás most nem nyomtatható',
+            'Add meg az időszak kezdő és záró dátumát a bal oldalon.',
+          )
+        }
+        const balances = computePeriodBalances({
+          income: incomeUse as unknown as PeriodRow[],
+          expense: expenseUse as unknown as PeriodRow[],
+          year: filters.selectedYear,
+          periodFrom,
+          periodTo,
+          yearOpeningCash: carryoverCashUse,
+          // SZÁMLÁNKÉNTI nyitó. SOHA nem az aggregát `carryoverBank`
+          // egyetlen számlára — az egy MÁSIK számla nyitóját írná oda.
+          yearOpeningBankById: bankNyitoMapUse || {},
+          actualIncomeByCode: actualIncome,
+          actualExpenseByCode: actualExpense,
+        })
+        if ('error' in balances) {
+          return blockedPreview('A részszámadás most nem nyomtatható', balances.error)
+        }
+        // Devizás számla az időszakban → RON-ekvivalens lábjegyzet.
+        const fxIds = new Set<number>()
+        for (const r of [...incomeUse, ...expenseUse]) {
+          if (r.deleted || r.stornozott) continue
+          if (!inPeriod(r.datum)) continue
+          if (r.bankszamla_id != null && r.osszeg_ron != null && Number(r.osszeg_ron) !== Number(r.osszeg)) {
+            fxIds.add(r.bankszamla_id)
+          }
+        }
+        printData.periodFrom = periodFrom
+        printData.periodTo = periodTo
+        printData.periodBalances = balances
+        printData.partial = true
+        printData.nyitoBizonytalan = yr?.nyitoBizonytalan === true
+        printData.keszult = new Date().toISOString().slice(0, 10)
+        printData.devizaSzamlak = [...fxIds].map(
+          (id) => bankAccounts.find((b) => b.id === id)?.bank_neve || `#${id}`,
+        )
+      }
+
+      return buildBudgetPrintDocument(filters.printType as BudgetPrintType, printData)
+    }
+
+    const reportData: FinanceReportData = {
+      income: incomeUse,
+      expense: expenseUse,
+      bankAccounts,
+      cellek,
+      bevCelMap,
+      kiaCelMap,
+      congregationName,
+      congregationNameRo,
+      carryoverCash: carryoverCashUse,
+      carryoverBank: carryoverBankUse,
+      bankNyitoMap: bankNyitoMapUse,
+      nyugtatombok:
+        filters.printType === 'nyugtatomb_kimutatas'
+          ? filters.nyugtatombok
+          : undefined,
+    }
+    return buildFinancePrintDocument(filters.printType, reportData, {
+      year: filters.selectedYear,
+      month: filters.selectedMonth,
+      bankAccountId: filters.selectedBankId,
+      categoryKod: filters.selectedCategoryKod,
+    })
+  }, [
+    keszScope,
+    keruleti,
+    nevHianyzik,
+    income,
+    expense,
+    bankAccounts,
+    cellek,
+    bevCelMap,
+    kiaCelMap,
+    congregationName,
+    congregationNameRo,
+    carryoverCash,
+    carryoverBank,
+    bankNyitoMap,
+    currentYear,
+    settings,
+    districtName,
+    districtNameRo,
+  ])
+
+  const onLoadYearRecords = useCallback(async (year: number): Promise<unknown> => {
+    // ⛔ 2026-08-22 (kerületi S6): kerületi hatókörben EL SEM INDÍTJUK a
+    // lekérést. A `getYearFinanceRecords` (penzugy/actions.ts:623) az
+    // `effectiveCongregationId`-vel a GYÜLEKEZETI táblákat olvassa, és
+    // egy „örökölt" (profile_roles sor nélküli) kerületi adminnál ez a
+    // saját gyülekezete tételeit hozná vissza — a `buildReport` úgyis
+    // tiltó előnézetet ad rá, de a HATÓKÖRÖN KÍVÜLI OLVASÁS akkor sem
+    // történhet meg. Fail-closed payload, hangos toast nélkül: a
+    // magyarázatot az előnézet adja (`KERULETI_MAS_EV_UZENET`).
+    if (keruleti) {
+      return {
+        income: [],
+        expense: [],
+        carryoverCash: 0,
+        carryoverBank: 0,
+        nyitoOk: false,
+        settings: null,
+        settingsOk: false,
+      } satisfies YearRecordsPayload
+    }
+    // 2026-07-10 (S5-#3): a kiválasztott év sorai + nyitói a szerverről.
+    // 2026-08-15 (átvilágítás 13.): a tételek MELLÉ az adott év
+    // `bealitas` sora is — abból jön a véglegesítés-zászló, a
+    // presbitériumi határozat és a hivatalos záró blokk (tartozások).
+    const [res, evSettings] = await Promise.all([
+      getYearFinanceRecords(year),
+      loadYearSettings(year),
+    ])
+    if (res.error || !res.income || !res.expense) {
+      toast.error(`A(z) ${year}. évi tételek betöltése sikertelen${res.error ? `: ${res.error}` : '.'}`)
+      // 2026-08-11 (6. kör): `nyitoOk: false` → a részszámadás LETILTVA.
+      // Üres tétel-listából némán „0 lej mindenütt" papír készülne.
+      // 2026-08-15: ugyanezért `settingsOk: false` — ha az év tételei nem
+      // jöttek meg, a hivatalos költségvetés/számadás ív sem adható ki.
+      return {
+        income: [],
+        expense: [],
+        carryoverCash: 0,
+        carryoverBank: 0,
+        nyitoOk: false,
+        settings: null,
+        settingsOk: false,
+        // A tétel-lekérés bukott el (nem a beállítás-sor betöltője), ez
+        // hálózat/jogosultság jellegű — az újrapróbálás értelmes tanács.
+        settingsHibaOk: 'lekerdezes_hiba',
+      } satisfies YearRecordsPayload
+    }
+    return {
+      income: res.income,
+      expense: res.expense,
+      carryoverCash: res.carryoverCash ?? 0,
+      carryoverBank: res.carryoverBank ?? 0,
+      bankNyitoMap: res.bankNyitoMap,
+      nyitoOk: res.nyitoOk,
+      nyitoBizonytalan: res.nyitoBizonytalan,
+      settings: evSettings.row,
+      settingsOk: evSettings.ok,
+      settingsHibaOk: evSettings.hibaOk,
+    } satisfies YearRecordsPayload
+  }, [keruleti, loadYearSettings])
+
+  const onLoadNyugtatombok = useCallback(async (year: number) => {
+    // ⛔ 2026-08-22 (kerületi S6): kerületi hatókörben EL SEM INDÍTJUK.
+    // A `getChitantaTombokReport` (chitanta-tombok-actions.ts:376-385)
+    // nem a hatókörből, hanem az `effectiveCongregationId`-ből dolgozik:
+    // egy „örökölt" kerületi adminnál EGY GYÜLEKEZET nyugtatömbjeit
+    // hozná vissza, és a bal oldali lista ki is írná őket a kerület
+    // nevével a fejlécben. A nyomtatványt a `buildReport` amúgy is
+    // tiltja — de a hatókörön kívüli OLVASÁS sem történhet meg.
+    // (A Decont/Dispoziție listázó nem kap ilyen kaput: azok maguk
+    // zárnak ki minden nem-gyülekezeti hatókört, üres listával.)
+    if (keruleti) return { data: undefined, error: null }
+    const res = await getChitantaTombokReport(year)
+    return {
+      data: 'data' in res ? res.data : undefined,
+      error: 'error' in res ? (res.error ?? null) : null,
+    }
+  }, [keruleti])
+
+  const onLoadSavedDocs = useCallback(async (year: number): Promise<SavedDocOption[]> => {
+    const [deconts, dispozitiok] = await Promise.all([
+      listDecontReprint(year).catch(() => []),
+      listDispozitieReprint(year).catch(() => []),
+    ])
+    return [
+      ...deconts.map((d) => ({ id: d.id, label: d.label, kind: 'decont' as const, data: d.data })),
+      ...dispozitiok.map((d) => ({ id: d.id, label: d.label, kind: 'dispozitie' as const, data: d.data })),
+    ]
+  }, [])
+
+  const onLoadBudgetRows = useCallback(async (year: number): Promise<Record<string, unknown>> => {
+    // Nyomtatvány-ág nélküli (jövőbeli) szinten nincs mit betölteni: a
+    // `loadBudgetRowsCompat` a ma ismert három szint tábláit ismeri,
+    // egy negyedik szintnél a gyülekezeti táblában keresné az
+    // azonosítót (0 sor). A `buildReport` amúgy is tiltó előnézetet ad —
+    // ez csak a fölösleges lekérés megspórolása, azonos eredménnyel.
+    // 2026-08-22 (kerületi S6): a KERÜLET viszont IDE már beér — a
+    // `keszScope === 'district'` a `district_koltsegvetes` táblára megy
+    // (budget-compat.ts `felsoSzintTerv()`), tehát a kerületi
+    // Költségvetés/Számadás terv-oszlopa valódi adatot kap.
+    if (keszScope === null) return {}
+    try {
+      const supabase = createClient()
+      // Hatókör-tudatos: megyei nézetben a `diocese_koltsegvetes`
+      // tábla — enélkül a megyei ív minden terv-sora nulla lett volna.
+      const rows = await loadBudgetRowsCompat(supabase, year, settings.congregation_id, keszScope)
+      const map: Record<string, unknown> = {}
+      rows.forEach((r) => {
+        map[r.szamadasicelid] = {
+          szamadasicelid: r.szamadasicelid,
+          tervezett: r.tervezett,
+          modositott: r.modositott,
+          mod2: r.mod2,
+          mod3: r.mod3,
+        }
+      })
+      return map
+    } catch {
+      return {}
+    }
+  }, [keszScope, settings.congregation_id])
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[92dvh] w-full flex-col overflow-hidden p-0 sm:max-w-7xl">
@@ -371,6 +910,8 @@ export function FinancePrintDialog({
         </DialogHeader>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+        {/* ⛔ FIGYELMEZTETÉS, NEM KAPU: a nyomtatás emiatt SOHA nem tiltható le. */}
+        <RomanNevFigyelmeztetesSav uzenet={romanFigyelmeztetes} />
         <FinancePrintDialogBody
           open={open}
           printableTypes={printableTypes}
@@ -381,457 +922,16 @@ export function FinancePrintDialog({
           }))}
           categories={categoryOptions}
           currentYear={currentYear}
-          buildReport={(filters: FinancePrintFilters): PrintReport => {
-            // ⛔ Nyomtatvány-ág nélküli (jövőbeli) szint. A kapu a FÜGGVÉNY
-            // ELEJÉN áll, tehát a bizonylat-újranyomtatásra (Decont,
-            // Dispoziție) is érvényes. A `blocked: true` a nyomtató gombokat is
-            // letiltja.
-            if (keszScope === null) {
-              return blockedPreview(NINCS_NYOMTATVANY_AG_CIM, NINCS_NYOMTATVANY_AG_UZENET)
-            }
-
-            // ⛔ 2026-08-22 (kerületi S6) — A KERÜLETI ÁG RÉSZLEGES NYITÁSA.
-            // A sorrend nem cserélhető fel: előbb a TÍPUS (a részszámadásnak a
-            // más-év üzenete félrevezető volna: nála az oldal-év váltása sem
-            // segít), aztán a NÉV, végül az ÉV.
-            if (keruleti && !KERULETI_IVEK.has(filters.printType)) {
-              return blockedPreview(KERULETI_TILTOTT_IV_CIM, KERULETI_TILTOTT_IV_UZENET)
-            }
-            if (nevHianyzik) {
-              return blockedPreview(KIALLITO_NEVE_HIANYZIK_CIM, KIALLITO_NEVE_HIANYZIK_UZENET)
-            }
-            // A `filters.yearRecords !== undefined` a közös Body SAJÁT jelzése
-            // arról, hogy ehhez a nyomtatványhoz szerverről visszatöltött év-sorok
-            // kellenek (`needsYearRecords`). SZÁNDÉKOSAN ezt nézzük, és nem
-            // számoljuk újra az év-feltételt: egy második, széthúzó másolat a
-            // projekt visszatérő hibaosztálya.
-            //
-            // ⛔ NE SZŰKÍTSD a kaput a `szamadas`-ra azzal, hogy „a Költségvetésnek
-            //    úgysincs tény-oszlopa". Igaz, hogy a tény-oszlop csak a Számadásé,
-            //    DE a Költségvetés/Költségvetés-módosítás ÍV 1–3. SORA (Disponibil
-            //    din anul precedent / Casa / Banca) ugyanebből a payloadból jön:
-            //    `carryoverCashUse`/`carryoverBankUse` → `printData.carryoverCash/
-            //    carryoverBank` → collectBudgetRows(…, { openingRows: true })
-            //    (budget-reporting.ts:478 és :497, a nyitóblokk :1131-1140).
-            //    Kerületi hatókörben az `onLoadYearRecords` fail-closed csonkot ad
-            //    vissza (0 / 0, lentebb a MIÉRT-tel), tehát a szűkítés egy olyan
-            //    hivatalos ívet engedne ki, amelynek a nyitó egyenleg-sorai NÉMÁN
-            //    nullák — pontosan az a hihető, aláírható, hamis papír, ami ellen
-            //    az egész kapu készült. A `settingsOk === false` ág ma másodikként
-            //    úgyis megfogná, de FÉLREVEZETŐ („ellenőrizd az internetkapcsolatot")
-            //    szöveggel, a MŰKÖDŐ tanács (válts oldal-évet) helyett.
-            //    A valódi feloldás IDEGEN fájlban van: hatókör-tudatos
-            //    `getYearFinanceRecords` (penzugy/actions.ts:623) — amíg az nincs
-            //    meg, ez a kapu marad, és tudatosan SZIGORÚBB, mint a Költségvetés
-            //    nyomtatási központé (az a régi évre is kiadja az ívet, de az
-            //    OLDAL évének nyitóival — ez a két ablak ma is meglévő, minden
-            //    szintre igaz eltérése, jelentve, itt nem javítva).
-            if (keruleti && filters.yearRecords !== undefined) {
-              return blockedPreview(KERULETI_MAS_EV_CIM, KERULETI_MAS_EV_UZENET)
-            }
-
-            // 2026-07-10 (S5-#3): a bevétel/kiadás sorok a KIVÁLASZTOTT évhez.
-            // Az oldal évén a props-beli (memóriában lévő) sorokat használjuk;
-            // más évnél a Body által betöltött yearRecords-ot — amíg az töltődik,
-            // "Betöltés…" előnézetet adunk (mint a budgetRows-nál).
-            // 2026-08-11 (6. kör): a Body `undefined`-et ad, ha a props-beli
-            // (oldal-évi) sorok elegendők, és `null`-t, amíg tölt. A
-            // részszámadás a FOLYÓ évben IS a szerverről kéri a sorokat — csak
-            // ott van SZÁMLÁNKÉNTI feloldott nyitó és `nyitoOk`.
-            const wantsYearRecords = filters.yearRecords !== undefined
-            if (
-              wantsYearRecords &&
-              filters.yearRecords == null &&
-              !TYPES_WITHOUT_RECORDS.has(filters.printType)
-            ) {
-              return emptyPreview(`A(z) ${filters.selectedYear}. évi tételek betöltése…`)
-            }
-            const yr = wantsYearRecords ? (filters.yearRecords as YearRecordsPayload | null) : null
-            const incomeUse = yr ? yr.income : income
-            const expenseUse = yr ? yr.expense : expense
-            const carryoverCashUse = yr ? yr.carryoverCash : carryoverCash
-            const carryoverBankUse = yr ? yr.carryoverBank : carryoverBank
-            const bankNyitoMapUse = yr ? yr.bankNyitoMap : bankNyitoMap
-            // 2026-08-15 (átvilágítás 13.): a beállítás-sor is a KIVÁLASZTOTT évé.
-            // Ha `yr` van, az oldal évétől eltérő (vagy részszámadás-) évet nézünk,
-            // ilyenkor a props-beli `settings` MÁS év sora lenne.
-            // KIVÉTEL: ha az újratöltött év MAGA az oldal éve (részszámadás), a
-            // props-beli sor a mérvadó — azt a szerver oldotta fel, egyházmegyei
-            // nézetben például a `diocese_bealitas` táblából, ahol a lenti
-            // `bealitas`-lekérés természetesen nem talál semmit.
-            const settingsUse: BealitasRow | null = yr
-              ? (yr.settings ?? (filters.selectedYear === currentYear ? settings : null))
-              : settings
-            const settingsOk = yr ? yr.settingsOk !== false : true
-
-            // Korábbi bizonylatok újranyomtatása (a snapshot adatból)
-            if (filters.printType === 'decont_reprint') {
-              const doc = filters.selectedDoc
-              if (!doc) return emptyPreview('Válassz egy korábbi elszámolást a bal oldalon.')
-              const data = doc.data as Omit<DecontDocData, 'congregationName'>
-              return {
-                html: buildDecontHtml({ congregationName, ...data }),
-                title: `Decont #${data.sorszam}`,
-                filename: `Decont_${data.sorszam}_${data.date}.pdf`,
-                orientation: 'portrait',
-              }
-            }
-            if (filters.printType === 'dispozitie_reprint') {
-              const doc = filters.selectedDoc
-              if (!doc) return emptyPreview('Válassz egy korábbi rendelvényt a bal oldalon.')
-              const data = doc.data as Omit<DispozitieDocData, 'congregationName'>
-              return {
-                html: buildDispozitieHtml({ congregationName, congregationNameRo, ...data }),
-                title: `Dispoziție #${data.sorszam}`,
-                filename: `Dispozitie_${data.tipus}_${data.sorszam}_${data.date}.pdf`,
-                orientation: 'portrait',
-              }
-            }
-
-            // Költségvetés / költségvetés-módosítás / számadás / részszámadás
-            if (
-              filters.printType === 'koltsegvetes' ||
-              filters.printType === 'koltsegvetes_modositas' ||
-              filters.printType === 'szamadas' ||
-              filters.printType === 'reszszamadas'
-            ) {
-              if (!filters.budgetRows) return emptyPreview('Költségvetési adatok betöltése…')
-              const isReszszamadas = filters.printType === 'reszszamadas'
-              const isSzamadas = filters.printType === 'szamadas'
-
-              // 2026-08-15 (átvilágítás 13.): FAIL-CLOSED kapu. Ha a kiválasztott
-              // év beállítás-sorát nem sikerült lekérni, nem tudjuk, véglegesítve
-              // van-e, mi a presbitériumi határozata és mik a tartozásai. A
-              // hivatalos ívet ilyenkor NEM adjuk ki: a hiányzó adat helyére az
-              // OLDAL évének adata kerülne — pontosan az a hamis papír, ami ellen
-              // ez a javítás készült. (A részszámadás nem hivatalos zárszámadás,
-              // és a záró blokkot sem használja — annak saját kapui vannak.)
-              if (!isReszszamadas && !settingsOk) {
-                // 2026-08-22 (kerületi S6): a MIÉRT szerint MÁS a szöveg. A
-                // `'nincs_nyomtatvany_ag'` nem múlik el magától (nincs ilyen
-                // szintű ív), ezért ott az „próbáld újra" tanács félrevezető —
-                // eddig mindkét ok ugyanezt a hálózati szöveget kapta.
-                if (yr?.settingsHibaOk === 'nincs_nyomtatvany_ag') {
-                  return blockedPreview(NINCS_NYOMTATVANY_AG_CIM, NINCS_NYOMTATVANY_AG_UZENET)
-                }
-                return blockedPreview(
-                  'Ez a nyomtatvány most nem készíthető el',
-                  `A(z) ${filters.selectedYear}. évi pénzügyi beállítások (véglegesítés, presbitériumi határozat, tartozások) nem tölthetők be, ezért a nyomtatvány hibás adatokkal készülne. Ellenőrizd az internetkapcsolatot, és próbáld újra. Ha újra ezt írja, jelezd a rendszergazdának.`,
-                )
-              }
-
-              // 2026-08-11 (6. kör): a részszámadás tény-oszlopa CSAK az
-              // időszaki tételeket összegzi. A nyitó/záró NEM ebből jön —
-              // azt a `computePeriodBalances` vezeti le a pénzmozgásból.
-              const periodFrom = filters.periodFrom
-              const periodTo = filters.periodTo
-              const inPeriod = (datum: string | null | undefined): boolean => {
-                if (!isReszszamadas) return true
-                if (!datum || !periodFrom || !periodTo) return false
-                const d = datum.slice(0, 10)
-                return d >= periodFrom && d <= periodTo
-              }
-
-              const actualIncome: Record<string, number> = {}
-              const actualExpense: Record<string, number> = {}
-              // 2026-07-10 (S3 audit KRITIKUS #1): stornózott tétel a hivatalos
-              // költségvetés/számadás nyomtatvány tényadatába sem számít.
-              // 2026-08-11 (K5-#6): a tény-oszlop a NYERS deviza-összeget (`osszeg`)
-              // adta össze, miközben a Registru Casa/Banca/Jurnal a RON-ekvivalenst
-              // (`osszeg_ron`) használja (reporting.ts `ronOf`, helpers.ts
-              // calculateBalances). Devizás banki tételnél (pl. 1000 EUR = 4970 lej)
-              // a Számadás 1000 lejt, a Registru 4970 lejt írt — két hivatalos,
-              // ALÁÍRT papír ugyanarra az évre, egymásnak ellentmondó összeggel.
-              // A könyvelés RON-ban folyik, ezért mindenhol `osszeg_ron ?? osszeg`.
-              for (const r of incomeUse) {
-                if (r.deleted || r.stornozott) continue
-                if (!inPeriod(r.datum)) continue
-                const code = r.id_befizetescel ? bevCelMap[r.id_befizetescel] : undefined
-                if (code) actualIncome[code] = (actualIncome[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
-              }
-              for (const r of expenseUse) {
-                if (r.deleted || r.stornozott) continue
-                if (!inPeriod(r.datum)) continue
-                const code = r.id_kiadascel ? kiaCelMap[r.id_kiadascel] : undefined
-                if (code) actualExpense[code] = (actualExpense[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
-              }
-
-              const printData: BudgetPrintData = {
-                cellek,
-                budgetRows: filters.budgetRows as Record<string, BudgetCompatRow>,
-                actualIncome,
-                actualExpense,
-                congregationName,
-                congregationNameRo,
-                // 2026-08-15 (terv 2.1/3): a borító feliratai a KIÁLLÍTÓ
-                // szintjét követik (megyei íven kerületi blokk + közgyűlés).
-                printScope: keszScope,
-                districtName,
-                year: filters.selectedYear,
-                carryoverCash: carryoverCashUse,
-                carryoverBank: carryoverBankUse,
-                finalized: isSzamadas
-                  ? !!settingsUse?.accounting_finalized
-                  : !!settingsUse?.budget_finalized,
-                // 2026-08-15 (átvilágítás 15.): a presbitériumi határozat és az
-                // egyházközségi iktatószám. Eddig CSAK a `finalized` zászló ment
-                // át, ezért a véglegesített ív borítóján a határozat-sor üresen
-                // maradt — és mivel az „ez még nincs véglegesítve" magyarázat is
-                // eltűnt, a lelkész észre sem vette, hogy hiányos papírt ad be.
-                ...hivatalosHatarozatMezok(settingsUse, isSzamadas ? 'szamadas' : 'koltsegvetes'),
-              }
-
-              // ── 2026-08-14 (K2): a hivatalos 113–134. záró blokk adatai ──
-              if (isSzamadas && !isReszszamadas) {
-                // Tartozások/Kintlévőségek a bealitas.szamadas_tartozasok-ból
-                // (a Könyvelés fül rögzítője írja). Kulcs: hivatalos Nr. rând.
-                const toNumMap = (m?: Record<string, number>): Record<number, number> => {
-                  const ki: Record<number, number> = {}
-                  for (const [nr, v] of Object.entries(m || {})) {
-                    const n = Number(nr)
-                    if (Number.isFinite(n)) ki[n] = Number(v) || 0
-                  }
-                  return ki
-                }
-                // 2026-08-15 (átvilágítás 13.): a KIVÁLASZTOTT év sorából.
-                const stored = settingsUse?.szamadas_tartozasok
-                printData.tartozasok = toNumMap(stored?.tartozasok ?? undefined)
-                printData.kintlevosegek = toNumMap(stored?.kintlevosegek ?? undefined)
-
-                // Év végi Casa/Banca (114–115. sor): ugyanazzal a levezetéssel,
-                // mint a részszámadás, csak a teljes évre. Ha a levezetés
-                // hibázik, a mezők üresen maradnak → a papíron „—" áll (őszinte
-                // fallback), az ÉVES Számadást nem blokkoljuk miatta.
-                const evesBalances = computePeriodBalances({
-                  income: incomeUse as unknown as PeriodRow[],
-                  expense: expenseUse as unknown as PeriodRow[],
-                  year: filters.selectedYear,
-                  periodFrom: `${filters.selectedYear}-01-01`,
-                  periodTo: `${filters.selectedYear}-12-31`,
-                  yearOpeningCash: carryoverCashUse,
-                  yearOpeningBankById: bankNyitoMapUse || {},
-                  actualIncomeByCode: actualIncome,
-                  actualExpenseByCode: actualExpense,
-                })
-                if (!('error' in evesBalances)) {
-                  printData.zaroCasa = evesBalances.cash.closing
-                  printData.zaroBanca = evesBalances.bank.closing
-                }
-              }
-
-              // ── RÉSZSZÁMADÁS: időszaki nyitó/záró levezetés + fail-closed ──
-              if (isReszszamadas) {
-                // A nyitók feloldása HANGOSAN bukik: a részszámadás MINDEN
-                // száma a nyitóra épül, néma 0-bázisból hamis papír lenne.
-                if (yr && yr.nyitoOk === false) {
-                  return blockedPreview(
-                    'A részszámadás most nem nyomtatható',
-                    'A nyitó egyenlegek feloldása nem sikerült, így az időszak nyitó és záró egyenlege nem vezethető le. Nyisd meg a Pénzügy → Bank / Kassza fület, ellenőrizd a nyitó egyenlegeket, majd próbáld újra.',
-                  )
-                }
-                if (!periodFrom || !periodTo) {
-                  return blockedPreview(
-                    'A részszámadás most nem nyomtatható',
-                    'Add meg az időszak kezdő és záró dátumát a bal oldalon.',
-                  )
-                }
-                const balances = computePeriodBalances({
-                  income: incomeUse as unknown as PeriodRow[],
-                  expense: expenseUse as unknown as PeriodRow[],
-                  year: filters.selectedYear,
-                  periodFrom,
-                  periodTo,
-                  yearOpeningCash: carryoverCashUse,
-                  // SZÁMLÁNKÉNTI nyitó. SOHA nem az aggregát `carryoverBank`
-                  // egyetlen számlára — az egy MÁSIK számla nyitóját írná oda.
-                  yearOpeningBankById: bankNyitoMapUse || {},
-                  actualIncomeByCode: actualIncome,
-                  actualExpenseByCode: actualExpense,
-                })
-                if ('error' in balances) {
-                  return blockedPreview('A részszámadás most nem nyomtatható', balances.error)
-                }
-                // Devizás számla az időszakban → RON-ekvivalens lábjegyzet.
-                const fxIds = new Set<number>()
-                for (const r of [...incomeUse, ...expenseUse]) {
-                  if (r.deleted || r.stornozott) continue
-                  if (!inPeriod(r.datum)) continue
-                  if (r.bankszamla_id != null && r.osszeg_ron != null && Number(r.osszeg_ron) !== Number(r.osszeg)) {
-                    fxIds.add(r.bankszamla_id)
-                  }
-                }
-                printData.periodFrom = periodFrom
-                printData.periodTo = periodTo
-                printData.periodBalances = balances
-                printData.partial = true
-                printData.nyitoBizonytalan = yr?.nyitoBizonytalan === true
-                printData.keszult = new Date().toISOString().slice(0, 10)
-                printData.devizaSzamlak = [...fxIds].map(
-                  (id) => bankAccounts.find((b) => b.id === id)?.bank_neve || `#${id}`,
-                )
-              }
-
-              return buildBudgetPrintDocument(filters.printType as BudgetPrintType, printData)
-            }
-
-            const reportData: FinanceReportData = {
-              income: incomeUse,
-              expense: expenseUse,
-              bankAccounts,
-              cellek,
-              bevCelMap,
-              kiaCelMap,
-              congregationName,
-              congregationNameRo,
-              carryoverCash: carryoverCashUse,
-              carryoverBank: carryoverBankUse,
-              bankNyitoMap: bankNyitoMapUse,
-              nyugtatombok:
-                filters.printType === 'nyugtatomb_kimutatas'
-                  ? filters.nyugtatombok
-                  : undefined,
-            }
-            return buildFinancePrintDocument(filters.printType, reportData, {
-              year: filters.selectedYear,
-              month: filters.selectedMonth,
-              bankAccountId: filters.selectedBankId,
-              categoryKod: filters.selectedCategoryKod,
-            })
-          }}
-          onLoadYearRecords={async (year): Promise<unknown> => {
-            // ⛔ 2026-08-22 (kerületi S6): kerületi hatókörben EL SEM INDÍTJUK a
-            // lekérést. A `getYearFinanceRecords` (penzugy/actions.ts:623) az
-            // `effectiveCongregationId`-vel a GYÜLEKEZETI táblákat olvassa, és
-            // egy „örökölt" (profile_roles sor nélküli) kerületi adminnál ez a
-            // saját gyülekezete tételeit hozná vissza — a `buildReport` úgyis
-            // tiltó előnézetet ad rá, de a HATÓKÖRÖN KÍVÜLI OLVASÁS akkor sem
-            // történhet meg. Fail-closed payload, hangos toast nélkül: a
-            // magyarázatot az előnézet adja (`KERULETI_MAS_EV_UZENET`).
-            if (keruleti) {
-              return {
-                income: [],
-                expense: [],
-                carryoverCash: 0,
-                carryoverBank: 0,
-                nyitoOk: false,
-                settings: null,
-                settingsOk: false,
-              } satisfies YearRecordsPayload
-            }
-            // 2026-07-10 (S5-#3): a kiválasztott év sorai + nyitói a szerverről.
-            // 2026-08-15 (átvilágítás 13.): a tételek MELLÉ az adott év
-            // `bealitas` sora is — abból jön a véglegesítés-zászló, a
-            // presbitériumi határozat és a hivatalos záró blokk (tartozások).
-            const [res, evSettings] = await Promise.all([
-              getYearFinanceRecords(year),
-              loadYearSettings(year),
-            ])
-            if (res.error || !res.income || !res.expense) {
-              toast.error(`A(z) ${year}. évi tételek betöltése sikertelen${res.error ? `: ${res.error}` : '.'}`)
-              // 2026-08-11 (6. kör): `nyitoOk: false` → a részszámadás LETILTVA.
-              // Üres tétel-listából némán „0 lej mindenütt" papír készülne.
-              // 2026-08-15: ugyanezért `settingsOk: false` — ha az év tételei nem
-              // jöttek meg, a hivatalos költségvetés/számadás ív sem adható ki.
-              return {
-                income: [],
-                expense: [],
-                carryoverCash: 0,
-                carryoverBank: 0,
-                nyitoOk: false,
-                settings: null,
-                settingsOk: false,
-                // A tétel-lekérés bukott el (nem a beállítás-sor betöltője), ez
-                // hálózat/jogosultság jellegű — az újrapróbálás értelmes tanács.
-                settingsHibaOk: 'lekerdezes_hiba',
-              } satisfies YearRecordsPayload
-            }
-            return {
-              income: res.income,
-              expense: res.expense,
-              carryoverCash: res.carryoverCash ?? 0,
-              carryoverBank: res.carryoverBank ?? 0,
-              bankNyitoMap: res.bankNyitoMap,
-              nyitoOk: res.nyitoOk,
-              nyitoBizonytalan: res.nyitoBizonytalan,
-              settings: evSettings.row,
-              settingsOk: evSettings.ok,
-              settingsHibaOk: evSettings.hibaOk,
-            } satisfies YearRecordsPayload
-          }}
-          onLoadNyugtatombok={async (year) => {
-            // ⛔ 2026-08-22 (kerületi S6): kerületi hatókörben EL SEM INDÍTJUK.
-            // A `getChitantaTombokReport` (chitanta-tombok-actions.ts:376-385)
-            // nem a hatókörből, hanem az `effectiveCongregationId`-ből dolgozik:
-            // egy „örökölt" kerületi adminnál EGY GYÜLEKEZET nyugtatömbjeit
-            // hozná vissza, és a bal oldali lista ki is írná őket a kerület
-            // nevével a fejlécben. A nyomtatványt a `buildReport` amúgy is
-            // tiltja — de a hatókörön kívüli OLVASÁS sem történhet meg.
-            // (A Decont/Dispoziție listázó nem kap ilyen kaput: azok maguk
-            // zárnak ki minden nem-gyülekezeti hatókört, üres listával.)
-            if (keruleti) return { data: undefined, error: null }
-            const res = await getChitantaTombokReport(year)
-            return {
-              data: 'data' in res ? res.data : undefined,
-              error: 'error' in res ? (res.error ?? null) : null,
-            }
-          }}
-          onLoadSavedDocs={async (year): Promise<SavedDocOption[]> => {
-            const [deconts, dispozitiok] = await Promise.all([
-              listDecontReprint(year).catch(() => []),
-              listDispozitieReprint(year).catch(() => []),
-            ])
-            return [
-              ...deconts.map((d) => ({ id: d.id, label: d.label, kind: 'decont' as const, data: d.data })),
-              ...dispozitiok.map((d) => ({ id: d.id, label: d.label, kind: 'dispozitie' as const, data: d.data })),
-            ]
-          }}
-          onLoadBudgetRows={async (year): Promise<Record<string, unknown>> => {
-            // Nyomtatvány-ág nélküli (jövőbeli) szinten nincs mit betölteni: a
-            // `loadBudgetRowsCompat` a ma ismert három szint tábláit ismeri,
-            // egy negyedik szintnél a gyülekezeti táblában keresné az
-            // azonosítót (0 sor). A `buildReport` amúgy is tiltó előnézetet ad —
-            // ez csak a fölösleges lekérés megspórolása, azonos eredménnyel.
-            // 2026-08-22 (kerületi S6): a KERÜLET viszont IDE már beér — a
-            // `keszScope === 'district'` a `district_koltsegvetes` táblára megy
-            // (budget-compat.ts `felsoSzintTerv()`), tehát a kerületi
-            // Költségvetés/Számadás terv-oszlopa valódi adatot kap.
-            if (keszScope === null) return {}
-            try {
-              const supabase = createClient()
-              // Hatókör-tudatos: megyei nézetben a `diocese_koltsegvetes`
-              // tábla — enélkül a megyei ív minden terv-sora nulla lett volna.
-              const rows = await loadBudgetRowsCompat(supabase, year, settings.congregation_id, keszScope)
-              const map: Record<string, unknown> = {}
-              rows.forEach((r) => {
-                map[r.szamadasicelid] = {
-                  szamadasicelid: r.szamadasicelid,
-                  tervezett: r.tervezett,
-                  modositott: r.modositott,
-                  mod2: r.mod2,
-                  mod3: r.mod3,
-                }
-              })
-              return map
-            } catch {
-              return {}
-            }
-          }}
+          buildReport={buildReport}
+          onLoadYearRecords={onLoadYearRecords}
+          onLoadNyugtatombok={onLoadNyugtatombok}
+          onLoadSavedDocs={onLoadSavedDocs}
+          onLoadBudgetRows={onLoadBudgetRows}
           loadingLogoSrc="/kartoteka-icon.png"
-          onPrintToBrowser={(html) => printToBrowser(html)}
-          onPrintToPdf={(html, filename, options) =>
-            printToPdf(html, filename, {
-              orientation: options?.orientation,
-              margin: options?.margin,
-              format: options?.format,
-            })
-          }
-          onToast={(msg, kind) => {
-            if (kind === 'error') toast.error(msg)
-            else if (kind === 'success') toast.success(msg)
-            else if (kind === 'warning') toast.warning(msg)
-            else toast(msg)
-          }}
-          onClose={() => onOpenChange(false)}
+          onPrintToBrowser={onPrintToBrowser}
+          onPrintToPdf={onPrintToPdf}
+          onToast={onToast}
+          onClose={onClose}
         />
         </div>
       </DialogContent>

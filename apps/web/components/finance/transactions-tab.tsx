@@ -33,6 +33,8 @@ type WebTransactionsTabProps = Pick<
   | 'kiaCelMap'
   | 'szamadasiCellek'
   | 'congregationName'
+  // 2026-08-22 (6. pont): a hivatalos ROMÁN név a kísérőív fejlécéhez.
+  | 'congregationNameRo'
   | 'onRefresh'
   | 'rentalContracts'
   // 2026-07-10 (ÚJ #8): kp/banki jelző chip — a bankszámla-nevek feloldásához.
@@ -123,6 +125,7 @@ export function TransactionsTabWeb(props: WebTransactionsTabProps) {
         allExpenses,
         bankAccounts,
         congregationName,
+        congregationNameRo,
         kiaCelMap,
         cellek,
       }) => (
@@ -133,6 +136,7 @@ export function TransactionsTabWeb(props: WebTransactionsTabProps) {
           allExpenses={allExpenses}
           bankAccounts={bankAccounts}
           congregationName={congregationName}
+          congregationNameRo={congregationNameRo}
           kiaCelMap={kiaCelMap}
           cellek={cellek}
         />

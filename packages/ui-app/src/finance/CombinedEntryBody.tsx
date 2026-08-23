@@ -78,6 +78,18 @@ export interface CombinedInternalTransferPayload {
   megjegyzes: string
 }
 
+/**
+ * 2026-08-22 (5. pont / 5a): a befizető-találat FAJTÁJA.
+ *
+ * Gyülekezeti szinten a befizető SZEMÉLY; felső szinten viszont JOGI SZEMÉLY:
+ * az egyházmegyébe a GYÜLEKEZETEK fizetnek, az egyházkerületbe az
+ * EGYHÁZMEGYÉK. A `lelkesz` a megyei listában szereplő lelkipásztor (illetve a
+ * kerületi listában az esperes) — ő SZEMÉLY, de NEM gyülekezeti tag, ezért
+ * külön csoportba kerül, és FK-t sem kap (Endre D5 döntése: elég a `forrasa`
+ * szabad szöveg).
+ */
+export type CombinedPartnerKind = 'szemely' | 'gyulekezet' | 'lelkesz' | 'egyhazmegye'
+
 /** Tag-találat a Befizető-keresőhöz (B1, 2026-06-11). */
 export interface CombinedMemberHit {
   id: number
@@ -88,6 +100,66 @@ export interface CombinedMemberHit {
   age?: number
   /** Születési év (ha van) — a badge tooltipjéhez / másodlagos infóhoz. */
   birthYear?: string
+  /**
+   * 2026-08-22 (5a): a találat fajtája. HIÁNYA = `'szemely'` — a gyülekezeti
+   * kereső és a kiadás-partner autocomplete NEM tölti ki, így azok látványa
+   * és viselkedése BYTE-AZONOS marad (a csoport-fejlécek is csak akkor
+   * jelennek meg, ha van nem-személy találat).
+   */
+  kind?: CombinedPartnerKind
+  /**
+   * 2026-08-22 (5a): a felső szintű partner UUID-ja (gyülekezet / egyházmegye).
+   * Ez lesz a mentett bevételi sor VALÓDI FK-ja — a szerver a saját hatókörére
+   * visszaellenőrzi (a kliens-prop önmagában nem bizonyíték).
+   */
+  refId?: string
+}
+
+/**
+ * 2026-08-22 (5a): a mentendő bevételi sor + a FELSŐ SZINTŰ befizető-partner.
+ *
+ * MIÉRT KITERJESZTÉS és nem a `SaveIncomeBatchRow` átírása: azt a típust a
+ * gyülekezeti IncomeDialogBody is használja, és a két mező OPCIONÁLIS — így a
+ * desktop hívó (`apps/desktop`) és a gyülekezeti web-út egyaránt változatlan
+ * marad. A szerver a `befizeto_scope_id`-t a SAJÁT hatókörére visszaellenőrzi;
+ * hatókörön kívüli azonosítónál a sor FK nélkül, a mai alakban mentődik.
+ */
+export interface CombinedIncomeBatchRow extends SaveIncomeBatchRow {
+  /** A kiválasztott felső szintű partner UUID-ja (gyülekezet / egyházmegye). */
+  befizeto_scope_id?: string | null
+  /** A partner fajtája — a szerver ebből tudja, MELYIK FK-oszlopot töltheti. */
+  befizeto_kind?: CombinedPartnerKind | null
+}
+
+/** A találati csoportok magyar fejlécei (a felső szintű, csoportosított listához). */
+const PARTNER_CSOPORT_FELIRAT: Record<CombinedPartnerKind, string> = {
+  szemely: 'Gyülekezeti tagok',
+  gyulekezet: 'Gyülekezetek',
+  lelkesz: 'Lelkipásztorok',
+  egyhazmegye: 'Egyházmegyék',
+}
+
+/** A csoportok MEGJELENÍTÉSI SORRENDJE a találati listában. */
+const PARTNER_CSOPORT_SORREND: CombinedPartnerKind[] = ['gyulekezet', 'egyhazmegye', 'lelkesz', 'szemely']
+
+/**
+ * Egy találatból a befizető-bejegyzés mezői.
+ *
+ * ⚠️ A SZEMÉLY-FK (`id`) CSAK VALÓDI SZEMÉLYNÉL marad kitöltve. A felső szintű
+ *    találatok azonosítója NEGATÍV ál-szám (listakulcs), ami `id_szemely`-ként
+ *    idegen kulcs-hibát adna — ezért ott `id: null`, és a partner a `refId`-ben
+ *    utazik. (A szerver a felső szintű ágon amúgy is nullázza az `id_szemely`-t;
+ *    ez az öv-és-nadrágtartó a kliens oldalon: így a járulék-ajánló sem indul el
+ *    egy nem létező személy-azonosítóra.)
+ */
+function payerFromHit(h: CombinedMemberHit): { id: number | null; name: string; refId: string | null; kind: CombinedPartnerKind } {
+  const kind = h.kind ?? 'szemely'
+  return {
+    id: kind === 'szemely' ? h.id : null,
+    name: h.name,
+    refId: kind === 'szemely' ? null : (h.refId ?? null),
+    kind,
+  }
 }
 
 export interface CombinedEntryBodyProps {
@@ -95,7 +167,7 @@ export interface CombinedEntryBodyProps {
   expenseCategories: ExpenseCategory[]
   bankAccounts: CombinedBankAccount[]
   currentYear: number
-  onSaveIncomeBatch: (rows: SaveIncomeBatchRow[]) => Promise<{ error?: string | null }>
+  onSaveIncomeBatch: (rows: CombinedIncomeBatchRow[]) => Promise<{ error?: string | null }>
   onSaveExpenseBatch: (rows: SaveExpenseBatchRow[]) => Promise<{ error?: string | null }>
   onSaveInternalTransfer: (payload: CombinedInternalTransferPayload) => Promise<{ error?: string | null }>
   onClose: () => void
@@ -195,7 +267,17 @@ type EntryRow = {
    *  1 elem → egy regisztrált befizető (a fősor `amount`/`evre` az ő `osszeg`/`evre` mezőjét szerkeszti).
    *  2+ elem → lenyitható almenü, befizetőnként összeg+év; a fősor összege read-only summa.
    *  id=null = szabad szöveges (nem regisztrált) befizető. */
-  people: Array<{ uid: string; id: number | null; name: string; osszeg: string; evre: string }>
+  /** 2026-08-22 (5a): `refId`+`kind` — felső szintű (jogi személy) befizetőnél a
+   *  valódi partner-azonosító. Személynél `refId: null`, `kind: 'szemely'`. */
+  people: Array<{
+    uid: string
+    id: number | null
+    name: string
+    osszeg: string
+    evre: string
+    refId?: string | null
+    kind?: CombinedPartnerKind
+  }>
   /** Legacy (B1) — már a people[] váltja ki; csak régi vázlat visszaállításához tartjuk meg. */
   szemelyId?: number | null
   csaladId?: number | null
@@ -789,13 +871,19 @@ export function CombinedEntryBody({
 
   // ── #4 befizető-almenü műveletek (a sor people[] listáján) ────────────────
   /** Új befizetők hozzáfűzése (kereső-találat vagy család) — id szerint dedupolva. */
-  function appendPayers(rowId: string, additions: Array<{ id: number | null; name: string }>) {
+  function appendPayers(rowId: string, additions: Array<{ id: number | null; name: string; refId?: string | null; kind?: CombinedPartnerKind }>) {
     setRows((cur) =>
       cur.map((r) => {
         if (r.id !== rowId) return r
         const curPeople = r.people ?? []
         const existing = new Set(curPeople.filter((p) => p.id != null).map((p) => p.id))
-        const add = additions.filter((a) => a.id == null || !existing.has(a.id))
+        // 2026-08-22 (5a): a felső szintű partnernek NINCS `id`-je (az null marad),
+        // ezért a `refId` szerint is dedupolunk — különben ugyanaz a gyülekezet
+        // kétszer is bekerülhetne ugyanarra a nyugtára.
+        const existingRef = new Set(curPeople.filter((p) => p.refId).map((p) => p.refId))
+        const add = additions.filter(
+          (a) => (a.id == null || !existing.has(a.id)) && (!a.refId || !existingRef.has(a.refId)),
+        )
         if (!add.length) return { ...r, partner: '' }
         const evreDefault = curPeople[0]?.evre || r.evre || String(currentYear)
         // BLOCKER-fix: 0 befizetőről indulva a fő Összeg mezőbe MÁR beírt érték (r.amount) NE
@@ -805,7 +893,7 @@ export function CombinedEntryBody({
         const seed = curPeople.length === 0 ? (r.amount.trim() || '') : ''
         const newPeople = [
           ...curPeople,
-          ...add.map((a, i) => ({ uid: crypto.randomUUID(), id: a.id, name: a.name, osszeg: i === 0 ? seed : '', evre: evreDefault })),
+          ...add.map((a, i) => ({ uid: crypto.randomUUID(), id: a.id, name: a.name, refId: a.refId ?? null, kind: a.kind ?? 'szemely', osszeg: i === 0 ? seed : '', evre: evreDefault })),
         ]
         return { ...r, people: newPeople, partner: '', ...(curPeople.length === 0 ? { amount: '' } : {}) }
       }),
@@ -834,7 +922,7 @@ export function CombinedEntryBody({
     setFocusPayerUid(newUid)
   }
   /** Egy befizető mezőjének frissítése (név / összeg / év). */
-  function updatePayer(rowId: string, idx: number, patch: Partial<{ id: number | null; name: string; osszeg: string; evre: string }>) {
+  function updatePayer(rowId: string, idx: number, patch: Partial<{ id: number | null; name: string; osszeg: string; evre: string; refId: string | null; kind: CombinedPartnerKind }>) {
     setRows((cur) => cur.map((r) => (r.id === rowId ? { ...r, people: (r.people ?? []).map((p, i) => (i === idx ? { ...p, ...patch } : p)) } : r)))
   }
   /** Egy befizető törlése az almenüből. */
@@ -906,7 +994,7 @@ export function CombinedEntryBody({
         if (r.id !== rowId) return r
         const ps = r.people ?? []
         if (ps.length === 0) return r
-        const first = typedName != null ? { ...ps[0], name: typedName, id: null } : ps[0]
+        const first = typedName != null ? { ...ps[0], name: typedName, id: null, refId: null, kind: 'szemely' as const } : ps[0]
         return { ...r, people: [first] }
       }),
     )
@@ -1195,7 +1283,7 @@ export function CombinedEntryBody({
     // mentett fázis sorait AZONNAL kivesszük az űrlapból — így egy későbbi fázis
     // hibája utáni ÚJRA-mentés nem rögzíti duplán a már elmentett tételeket.
     const transfers: Array<{ payload: CombinedInternalTransferPayload; rowId: string; tab: 'income' | 'expense' }> = []
-    const incomeBatch: SaveIncomeBatchRow[] = []
+    const incomeBatch: CombinedIncomeBatchRow[] = []
     const expenseBatch: SaveExpenseBatchRow[] = []
     const savedIncomeRowIds: string[] = []
     const savedExpenseRowIds: string[] = []
@@ -1250,6 +1338,10 @@ export function CombinedEntryBody({
             megjegyzes: commonMegj,
             id_szemely: p.id,
             id_csalad: null,
+            // 2026-08-22 (5a): felső szintű (jogi személy) befizető — a szerver
+            // a saját hatókörére visszaellenőrzi, mielőtt FK-ként beírja.
+            befizeto_scope_id: p.refId ?? null,
+            befizeto_kind: p.kind ?? null,
           })
         })
       } else {
@@ -1923,9 +2015,9 @@ function PartnerCell({
   expanded: boolean
   onToggleExpand: () => void
   /** #4: befizetők hozzáfűzése / üres sor / mező-frissítés / törlés a sor almenüjén. */
-  appendPayers: (rowId: string, additions: Array<{ id: number | null; name: string }>) => void
+  appendPayers: (rowId: string, additions: Array<{ id: number | null; name: string; refId?: string | null; kind?: CombinedPartnerKind }>) => void
   addEmptyPayer: (rowId: string) => void
-  updatePayer: (rowId: string, idx: number, patch: Partial<{ id: number | null; name: string; osszeg: string; evre: string }>) => void
+  updatePayer: (rowId: string, idx: number, patch: Partial<{ id: number | null; name: string; osszeg: string; evre: string; refId: string | null; kind: CombinedPartnerKind }>) => void
   removePayer: (rowId: string, idx: number) => void
   /** #5: az újonnan hozzáadott befizető uid-je — annak NÉV-mezője fókuszt kap. */
   focusPayerUid?: string | null
@@ -1978,12 +2070,12 @@ function PartnerCell({
           <div className="min-w-0 flex-1">
             <PayerNameSearch
               value={base.name}
-              linked={base.id != null}
+              linked={base.id != null || !!base.refId}
               onSearch={searchFn}
               placeholder="Befizető neve"
               // Név-átírás = másik személy → biztonságos visszaesés az egy-éves módba.
               onType={(t) => multiYear.onEditName(t)}
-              onPick={(h) => updatePayer(row.id, 0, { id: h.id, name: h.name })}
+              onPick={(h) => updatePayer(row.id, 0, payerFromHit(h))}
             />
           </div>
           <button
@@ -2091,7 +2183,7 @@ function PartnerCell({
           <div className="min-w-0 flex-1">
             <PayerNameSearch
               value={single ? single.name : row.partner}
-              linked={!!single && single.id != null}
+              linked={!!single && (single.id != null || !!single.refId)}
               onSearch={searchFn}
               showUnlinkedBadge={mode === 'income'}
               placeholder={
@@ -2100,13 +2192,15 @@ function PartnerCell({
                   : 'Cég/személy — itt keres a korábbiak közt (vagy szabad szöveg)'
               }
               onType={(t) => {
-                if (single) updatePayer(row.id, 0, { name: t, id: null })
+                // ⚠️ A refId-t IS nullázni kell: ha a felhasználó átírja egy kiválasztott
+                // gyülekezet nevét, a mentés NEM vihet magával egy immár hamis partner-FK-t.
+                if (single) updatePayer(row.id, 0, { name: t, id: null, refId: null, kind: 'szemely' })
                 else updateRow(row.id, { partner: t })
               }}
               onPick={(h) => {
                 if (mode === 'expense') updateRow(row.id, { partner: h.name })
-                else if (single) updatePayer(row.id, 0, { id: h.id, name: h.name })
-                else appendPayers(row.id, [{ id: h.id, name: h.name }])
+                else if (single) updatePayer(row.id, 0, payerFromHit(h))
+                else appendPayers(row.id, [payerFromHit(h)])
               }}
             />
           </div>
@@ -2217,11 +2311,11 @@ function PartnerCell({
                     <div className="min-w-0 flex-1">
                       <PayerNameSearch
                         value={p.name}
-                        linked={p.id != null}
+                        linked={p.id != null || !!p.refId}
                         onSearch={searchFn}
                         placeholder="Név — itt keres (vagy szabad szöveg)"
-                        onType={(t) => updatePayer(row.id, i, { name: t, id: null })}
-                        onPick={(h) => updatePayer(row.id, i, { id: h.id, name: h.name })}
+                        onType={(t) => updatePayer(row.id, i, { name: t, id: null, refId: null, kind: 'szemely' })}
+                        onPick={(h) => updatePayer(row.id, i, payerFromHit(h))}
                         autoFocus={focusPayerUid === p.uid}
                         showUnlinkedBadge
                       />
@@ -2370,19 +2464,36 @@ function PayerNameSearch({
     debounceRef.current = window.setTimeout(() => {
       if (!isElementVisible(inputRef.current)) return // rejtett breakpoint ne keressen
       void onSearch(q)
-        .then((res) => { setHits(res.slice(0, 8)); setOpen(res.length > 0) })
+        // 2026-08-22 (5a): 8 → 12. A gyülekezeti kereső látványa NEM változik
+        // (a szerver ott `limit(8)`-cal jön), a felső szintű, CSOPORTOSÍTOTT
+        // lista viszont 8-nál elvágná a második csoportot (pl. a lelkészeket).
+        .then((res) => { setHits(res.slice(0, 12)); setOpen(res.length > 0) })
         .catch(() => { setHits([]); setOpen(false) })
     }, 300)
     return () => { if (debounceRef.current) window.clearTimeout(debounceRef.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, linked])
 
+  // ── 2026-08-22 (5a): CSOPORTOSÍTOTT találati lista ────────────────────────
+  // Felső szinten három FÉLE partner jöhet egyszerre (gyülekezet / egyházmegye /
+  // lelkipásztor), és egy vegyes, felirat nélküli lista félrevezető: a lelkész
+  // NEVE önmagában nem árulja el, hogy ő NEM a befizető jogi személy.
+  //
+  // ⚠️ REGRESSZIÓ-VÉDELEM: a fejlécek CSAK akkor jelennek meg, ha van legalább
+  //    egy nem-személy találat. A gyülekezeti tag-kereső és a kiadás-partner
+  //    autocomplete `kind` nélkül jön → `csoportositott === false` → a lista
+  //    látványa BYTE-AZONOS a mai állapottal.
+  const csoportositott = hits.some((h) => (h.kind ?? 'szemely') !== 'szemely')
+  const csoportok = PARTNER_CSOPORT_SORREND
+    .map((kind) => ({ kind, elemek: hits.filter((h) => (h.kind ?? 'szemely') === kind) }))
+    .filter((cs) => cs.elemek.length > 0)
+
   return (
     <div className="relative flex items-center gap-1.5">
       {linked && (
         <span
           className="inline-block size-2 shrink-0 rounded-full bg-emerald-500"
-          title="Regisztrált tag hozzárendelve"
+          title="Beillesztett befizető (regisztrált tag vagy hivatalos partner)"
         />
       )}
       <input
@@ -2409,33 +2520,44 @@ function PayerNameSearch({
             className="fixed z-[200] max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-2xl ring-1 ring-black/5"
             style={{ left: dropRect.left, top: dropRect.top, width: Math.max(dropRect.width, 280) }}
           >
-            {hits.map((h) => (
-              <button
-                key={h.id}
-                type="button"
-                className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-emerald-50"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => { justPickedRef.current = true; onPick(h); setHits([]); setOpen(false) }}
-              >
-                {/* Kezdőbetűs avatar — letisztult, „apple" jelleg */}
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-100 to-teal-100 text-xs font-semibold text-emerald-700">
-                  {(h.name.trim()[0] || '?').toUpperCase()}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-baseline justify-between gap-2">
-                    <span className="truncate text-sm font-medium text-slate-800">{h.name}</span>
-                    {h.age != null && (
-                      <span
-                        className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-slate-500 group-hover:bg-white"
-                        title={h.birthYear ? `Született: ${h.birthYear}` : undefined}
-                      >
-                        {h.age} éves
+            {csoportok.map(({ kind, elemek }) => (
+              <div key={kind}>
+                {/* A csoport-fejléc CSAK felső szinten jelenik meg (lásd `csoportositott`):
+                    a gyülekezeti tag-kereső és a kiadás-partner lista látványa változatlan. */}
+                {csoportositott && (
+                  <div className="px-2.5 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    {PARTNER_CSOPORT_FELIRAT[kind]}
+                  </div>
+                )}
+                {elemek.map((h) => (
+                  <button
+                    key={h.id}
+                    type="button"
+                    className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-emerald-50"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => { justPickedRef.current = true; onPick(h); setHits([]); setOpen(false) }}
+                  >
+                    {/* Kezdőbetűs avatar — letisztult, „apple" jelleg */}
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-100 to-teal-100 text-xs font-semibold text-emerald-700">
+                      {(h.name.trim()[0] || '?').toUpperCase()}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-baseline justify-between gap-2">
+                        <span className="truncate text-sm font-medium text-slate-800">{h.name}</span>
+                        {h.age != null && (
+                          <span
+                            className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-slate-500 group-hover:bg-white"
+                            title={h.birthYear ? `Született: ${h.birthYear}` : undefined}
+                          >
+                            {h.age} éves
+                          </span>
+                        )}
                       </span>
-                    )}
-                  </span>
-                  {h.detail && <span className="mt-0.5 block truncate text-[11px] text-slate-400">{h.detail}</span>}
-                </span>
-              </button>
+                      {h.detail && <span className="mt-0.5 block truncate text-[11px] text-slate-400">{h.detail}</span>}
+                    </span>
+                  </button>
+                ))}
+              </div>
             ))}
           </div>,
           document.body,
