@@ -23,6 +23,51 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-25] — Biztonsági javítások és offline nyitólap
+<!-- key: 2026-08-25-biztonsagi-javitasok -->
+<!-- category: security -->
+<!-- version: 0.9.174 -->
+<!-- targets: mindenki -->
+
+### 🔒 Biztonsági javítások
+
+A rendszer átvilágítása után hat gyenge pontot javítottunk. Egyik sem okozott
+tudomásunk szerint kárt — de mindegyik kihasználható lett volna.
+
+- **A jegyzőkönyv-nyomtatvány volt a legsúlyosabb.** Aki jegyzőkönyvet írhatott,
+  olyan rejtett utasítást helyezhetett el benne, ami **bárki más nevében futott
+  volna le**, amikor az illető ránéz a Nyomtatás gombra — akár a rendszergazdáéban,
+  felülvizsgálatkor. Mostantól a program minden beírt szöveget ártalmatlan
+  szövegként kezel.
+- **A kétlépcsős azonosítás megkerülhető volt.** Aki tudta valakinek a jelszavát,
+  a böngészőjében átírhatott egy tárolt értéket, és a rendszer beengedte második
+  faktor nélkül. Mostantól a döntést a szerver hozza, nem a böngésző.
+- **A lelkészcsere-értesítő levélbe idegen tartalmat lehetett csempészni.** Ez a
+  levél minden rendszergazdának megy, a saját címünkről — így hitelesnek látszó
+  megtévesztő levél születhetett volna.
+- **A böngésző lemezre írta a névsorokat és a pénzügyi adatokat** (24 órára), és
+  kijelentkezéskor sem törölte. Közös hivatali gépen a következő felhasználó
+  kiolvashatta. Ez megszűnt.
+- **A CSV-exportokba képletet lehetett rejteni**, ami az Excelben megnyitva
+  lefutott volna.
+- **A titkos kulcsok tárolása gyenge kulccsal is elfogadta az új értéket.**
+  Mostantól erős kulcs nélkül nem menthető új titok — a meglévők változatlanul
+  olvashatók maradnak.
+
+### 📴 Offline nyitólap
+
+- **Internet nélkül mostantól a Kartotéka saját lapja fogad**, nem a böngésző
+  hibaoldala: elmondja, mi érhető el ilyenkor, mi nem, és miért. Egy gombbal
+  újrapróbálható, és magától jelzi, ha visszatért a kapcsolat.
+- ⚠️ **Őszintén a böngészős offline módról:** a rendszer eddig azt ígérte, hogy
+  offline „láthatók az utoljára szinkronizált tagok, munkanapló, pénzügyi adatok".
+  **Ez valójában sosem így működött** — ezek a képernyők mindig a szerverről
+  töltődnek. A feltöltésre váró munka viszont **tényleg megmarad**, és magától
+  felkerül, amint visszatér a kapcsolat. A felirat mostantól ezt mondja.
+  Aki napokig dolgozna hálózat nélkül, annak továbbra is az asztali program való.
+
+---
+
 ## [2026-08-23] — Megszűnt az AI-segéd · fogadóképernyő, naptár, nyomtatványok, szervezeti áttekintő és megújult jogi tájékoztatók
 <!-- key: 2026-08-23-eszrevetelek-kore -->
 <!-- category: security -->
