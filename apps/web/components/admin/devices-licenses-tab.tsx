@@ -31,6 +31,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
+import { csvCella } from '@/lib/utils/csv'
 import { AdminConfirmDialog } from './admin-confirm-dialog'
 import { AdminTable, type AdminTableColumn } from './_shared/admin-table'
 import { AdminEmptyState } from './_shared/admin-empty-state'
@@ -938,11 +939,10 @@ function MetadataCell({ metadata }: { metadata: unknown }) {
   )
 }
 
-function csvEscape(value: unknown): string {
-  const s = String(value ?? '')
-  return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-}
-
+// 2026-08-24 (B14): a saját, feltételes kvótálás helyére a KÖZÖS `csvCella()`
+// lépett. A régi változat csak a mező-határt védte — a képlet-injekció ellen
+// nem: az `e.user_email` (regisztrációkor VÁLASZTOTT cím) és a `metadata` JSON
+// egyaránt kezdődhet `=`-lel, és a naplót a rendszergazda nyitja meg Excelben.
 function exportAuditCsv(rows: AuditLogEntry[]) {
   const headers = ['Időpont', 'Felhasználó', 'Akció', 'Cél tábla', 'Cél azonosító', 'IP', 'Metaadat']
   const lines = [headers.join(';')]
@@ -955,7 +955,7 @@ function exportAuditCsv(rows: AuditLogEntry[]) {
       e.target_id || '',
       e.ip || '',
       e.metadata != null ? JSON.stringify(e.metadata) : '',
-    ].map(csvEscape).join(';'))
+    ].map((cella) => csvCella(cella)).join(';'))
   }
   // BOM (﻿) + CRLF — így az Excel helyesen kezeli az ékezetes UTF-8 tartalmat.
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' })

@@ -7,6 +7,10 @@ import { redirect } from 'next/navigation'
 import { loginSchema, type LoginInput } from '@/lib/validations/auth'
 import { logAuditEvent } from '@/lib/audit/log'
 import { resolvePostLoginDestination } from '@/lib/auth/post-login-destination'
+// A 2FA-kapu KÖZÖS döntése — ugyanaz a mag, mint a proxy-kapué, hogy a két
+// belépési pont ne tudjon széthúzni (a `middleware.ts` itt saját helper-modul,
+// nem Next.js file-convention).
+import { kellEMasodikFaktor } from '@/lib/supabase/middleware'
 import {
   SESSION_MODE_COOKIE,
   buildSessionModeCookieOptions,
@@ -53,9 +57,19 @@ export async function signIn(data: LoginInput) {
   // (vagy mentőkód) következik — a cél-feloldás majd a 2. lépcső UTÁN fut
   // (a /valassz-profilt úgyis újra-ellenőriz). Az OAuth-utat és a nyitva
   // felejtett aal1-es füleket a middleware aal-őre fogja ugyanígy.
+  //
+  // ⛔ 2026-08-24 (biztonsági javító kör): a faktor-listát a SZERVERTŐL kérjük.
+  // A `getAuthenticatorAssuranceLevel()` `nextLevel` mezője a sütiből
+  // visszaolvasott, ALÁÍRATLAN `session.user.factors` tömbből számolna — azt a
+  // támadó a böngészőjében kiürítheti (`"factors":[]`), az aláírt tokenek
+  // érintése nélkül, és a második lépcső elmaradna. A `getUser()` ezzel
+  // szemben hálózati `/user` hívás, a válasza hiteles. A `currentLevel`
+  // maradhat a könyvtártól: az az ALÁÍRT token `aal` claim-je.
+  // A közös döntés a `kellEMasodikFaktor()` — ugyanaz, amit a proxy-kapu is hív.
   {
+    const { data: hitelesAdat } = await supabase.auth.getUser()
     const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-    if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+    if (kellEMasodikFaktor(hitelesAdat?.user, aal?.currentLevel)) {
       // ⚠️ A session-mode cookie-t ITT is be kell állítani (lentebb a normál
       // út is ezt teszi): enélkül a 2. lépcső utáni első védett oldalon a
       // middleware „lejárt session"-ként azonnal kiléptetne.

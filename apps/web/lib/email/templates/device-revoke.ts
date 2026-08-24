@@ -13,16 +13,8 @@ import 'server-only'
 
 import { huIdopontBukarest } from '@/lib/utils/idopont-bukarest'
 
+import { escHtml } from '../escape'
 import type { EmailSendArgs } from '../types'
-
-function escHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
 
 function layout(opts: {
   accentColor: string

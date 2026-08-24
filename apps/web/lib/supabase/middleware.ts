@@ -89,6 +89,74 @@ function isInternalWorkerRoute(pathname: string): boolean {
   return pathname.startsWith('/api/internal/')
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// 2FA-KAPU — A DÖNTÉS (2026-08-24, biztonsági javító kör)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// ⛔ MIÉRT TISZTA FÜGGVÉNY: a kétlépcsős belépés EGYETLEN kikényszerítő pontja
+// ez a kapu. Ami itt eldől, azt önellenőrzéssel mérni kell tudni — a döntés
+// ezért kiemelve él, és a `scripts/selftest-2fa-kapu.mjs` határesetekkel
+// futtatja (a hamisított sütis támadás újrajátszásával együtt).
+//
+// ⛔ MIÉRT NEM A KÖNYVTÁR `nextLevel` MEZŐJE DÖNT (a javítás lényege):
+// a `supabase.auth.mfa.getAuthenticatorAssuranceLevel()` ARGUMENTUM NÉLKÜL a
+// `getSession()`-ből dolgozik. Ott a `currentLevel` az ALÁÍRT JWT `aal`
+// claim-jéből jön (az hiteles), DE a `nextLevel` a `session.user.factors`
+// tömbből — ami a SÜTIBŐL visszaolvasott, ALÁÍRATLAN JSON. A @supabase/ssr
+// saját kódja meg is jelöli: „isServer: true — coming from a server
+// environment and their value should not be trusted".
+//
+// A TÁMADÁS, amit ez a javítás lezár: a támadó ismeri az áldozat jelszavát, de
+// a telefonját nem. Bejelentkezik → érvényes, aláírt, aal1-es access_token +
+// átirányítás a /login/ellenorzes-re. A böngésző eszköztárában kiveszi az
+// `sb-<projekt>-auth-token` sütit, base64url-ből dekódolja, a `user.factors`
+// tömböt KIÜRÍTI (`"factors":[]`), visszakódolja. Az access_token és a
+// refresh_token VÁLTOZATLAN marad, tehát az aláírás érvényes — de a kapu már
+// nem követelte a második faktort. Innentől a támadó bent van.
+//
+// A JAVÍTÁS: a faktor-listát a SZERVERTŐL vesszük. A `supabase.auth.getUser()`
+// hálózati `/user` hívás, a válasza hiteles — ugyanaz a forrás, amiből a
+// könyvtár `mfa.listFactors()`-a is dolgozik. A `currentLevel` maradhat a
+// könyvtártól: az az ALÁÍRT tokenből jön, azt nem lehet hamisítani.
+
+/** Egy MFA-faktor a döntés szempontjából — csak az számít, ellenőrzött-e. */
+export type MfaFaktor = { status?: string | null }
+
+/**
+ * A SZERVERTŐL kapott, hitelesített felhasználó-objektum vázlata.
+ * A `factors` mező a `supabase.auth.getUser()` HÁLÓZATI válaszából származik.
+ */
+export type SzerverFelhasznalo = { factors?: MfaFaktor[] | null }
+
+/**
+ * KELL-E MÁSODIK FAKTOR? — a 2FA-kapu tiszta döntése.
+ *
+ * @param szerverFelhasznalo a `getUser()` hálózati válaszának felhasználója
+ *   (`null`/`undefined` = nem tudjuk, ki ez → FAIL-CLOSED)
+ * @param jelenlegiSzint az ALÁÍRT access_token `aal` claim-je
+ * @returns `true`, ha a kérést a második lépcsőre kell terelni
+ *
+ * A három szabály, ebben a sorrendben:
+ *  1. FAIL-CLOSED — hitelesített szerver-válasz nélkül SOHA nem mondunk
+ *     „átengedhető"-t. (Ez az az ág, ahol a régi kód a sütinek hitt.)
+ *  2. OPT-IN ÍGÉRET — ha a szerver szerint NINCS ellenőrzött faktor, semmi nem
+ *     változik. Akinek nincs 2FA-ja, azt ez a kapu soha nem téríti el.
+ *     Az „enrollment" alatti, még ELLENŐRIZETLEN faktor sem számít: az még nem
+ *     használható belépésre, tehát nem is szabad vele kizárni senkit.
+ *  3. Ha van ellenőrzött faktor, csak aal2-es munkamenettel megyünk tovább.
+ */
+export function kellEMasodikFaktor(
+  szerverFelhasznalo: SzerverFelhasznalo | null | undefined,
+  jelenlegiSzint: string | null | undefined,
+): boolean {
+  if (!szerverFelhasznalo) return true
+  const ellenorzottFaktorok = (szerverFelhasznalo.factors ?? []).filter(
+    (faktor) => faktor?.status === 'verified',
+  )
+  if (ellenorzottFaktorok.length === 0) return false
+  return jelenlegiSzint !== 'aal2'
+}
+
 export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname
   let supabaseResponse = NextResponse.next({ request })
@@ -179,19 +247,60 @@ export async function updateSession(request: NextRequest) {
   }
 
   // ── 2FA aal-őr (2026-08-15, 8. pont — Endre 4. döntése: opt-in) ─────────
-  // Ha a fióknak van ellenőrzött TOTP-faktora (nextLevel aal2), de a
-  // munkamenet még aal1-es (jelszó/OAuth után), MINDEN védett út a 2.
-  // lépcsőre irányít. Ez fogja az összes belépési pontot (jelszó, OAuth,
-  // nyitva felejtett fül). Faktor nélküli fióknál (nextLevel aal1) nem fut
-  // — az opt-in ígéret: akinek nincs 2FA-ja, annak semmi nem változik.
+  // Ha a fióknak van ellenőrzött TOTP-faktora, de a munkamenet még aal1-es
+  // (jelszó/OAuth után), MINDEN védett út a 2. lépcsőre irányít. Ez fogja az
+  // összes belépési pontot (jelszó, OAuth, nyitva felejtett fül). Faktor
+  // nélküli fióknál nem fut — az opt-in ígéret: akinek nincs 2FA-ja, annak
+  // semmi nem változik.
   // Az alacsony AAL nem hiba, hanem állapot → átirányítás, nem hibakód.
+  // 2026-08-24: a „van-e faktor" kérdést a SZERVER válaszolja meg, nem a süti
+  // (lásd a fájl elején a `kellEMasodikFaktor()` melletti magyarázatot).
   if (user && !isPastorAuthRoute(pathname) && !isSetupRoute(pathname)) {
+    // A `currentLevel` az ALÁÍRT JWT `aal` claim-je → hiteles, ezt átvesszük.
+    // A `nextLevel`-t SZÁNDÉKOSAN NEM használjuk: azt a könyvtár a sütiből
+    // visszaolvasott `session.user.factors` tömbből számolná (lásd a fenti
+    // magyarázatot). A faktorokat a `user`-ből vesszük, ami a fenti
+    // `supabase.auth.getUser()` HÁLÓZATI válasza — plusz kérés nélkül.
     const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-    if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+    if (kellEMasodikFaktor(user, aal?.currentLevel)) {
+      // ── A SÜTI HOZZÁIGAZÍTÁSA A SZERVERHEZ (pattogás-védelem) ───────────
+      // A /login/ellenorzes oldal SAJÁT őre még a süti-beli
+      // `session.user.factors` tömbből dolgozik. Ha a süti elavult (a 2FA-t
+      // másik eszközön kapcsolták be, vagy a token-frissítés válasza nem hozta
+      // vissza a faktorokat), az az oldal visszadobna a /valassz-profilt-ra,
+      // a kapu pedig újra ide — oda-vissza pattogás lenne. Ezért MIELŐTT
+      // odaküldenénk, a `setSession()`-nel újraíratjuk a sütit a SZERVERTŐL
+      // kapott felhasználó-objektummal. A tokenek VÁLTOZATLANOK maradnak
+      // (a `setSession` le nem járt tokennél csak a `/user`-t kéri le), tehát
+      // ez nem léptet ki senkit. Csak akkor fut, amikor tényleg széthúz a
+      // kettő — utána a süti egyezik, és a következő kérésnél már el sem indul.
+      // Best-effort: a hibája NEM változtat a fenti (fail-closed) döntésen.
+      if (aal?.nextLevel !== 'aal2') {
+        try {
+          const { data: sutiMunkamenet } = await supabase.auth.getSession()
+          const munkamenet = sutiMunkamenet?.session
+          if (munkamenet?.access_token && munkamenet?.refresh_token) {
+            await supabase.auth.setSession({
+              access_token: munkamenet.access_token,
+              refresh_token: munkamenet.refresh_token,
+            })
+          }
+        } catch {
+          // szándékosan néma — a kapu attól még fail-closed marad
+        }
+      }
+
       const url = request.nextUrl.clone()
       url.pathname = '/login/ellenorzes'
       url.search = ''
-      return NextResponse.redirect(url)
+      const atiranyitas = NextResponse.redirect(url)
+      // ⚠️ A fenti `setSession()` a `supabaseResponse`-ra írta a frissített
+      // auth-sütiket. Egy ÚJ válaszobjektum ezeket elveszítené (a @supabase/ssr
+      // middleware-mintájának klasszikus csapdája), ezért átmásoljuk.
+      for (const suti of supabaseResponse.cookies.getAll()) {
+        atiranyitas.cookies.set(suti)
+      }
+      return atiranyitas
     }
   }
 

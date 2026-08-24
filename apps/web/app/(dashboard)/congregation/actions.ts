@@ -455,6 +455,21 @@ export async function getCongregationPastors(
 }
 
 /**
+ * 2026-08-24 (B10) — az átadás-indítás BEMENETE séma alá került.
+ *
+ * MIÉRT: az `indok` mezőre eddig SEMMILYEN korlát nem állt (csak egy `.trim()`),
+ * pedig a szöveg egy olyan levélbe kerül, amit a rendszer MINDEN aktív
+ * rendszergazdának és az egyházmegyei számvevőnek kiküld. A HTML-injekciót a
+ * sablon `escHtml()`-je zárja ki (lib/email/templates/congregation-transfer.ts),
+ * a MÉRET-et pedig ez a séma: 500 karakter fölött nem indul el az átadás.
+ * A `.trim()` a `.max()` ELŐTT fut, tehát a záró szóközök nem számítanak bele.
+ */
+const transferInitiateSchema = z.object({
+  congregationId: z.string().uuid('Érvénytelen gyülekezet-azonosító.'),
+  reason: z.string().trim().max(500, 'Az indok legfeljebb 500 karakter lehet.').optional(),
+})
+
+/**
  * 2026-06-05 (F3a) — Lelkészcsere-átadás INDÍTÁSA.
  * A távozó lelkész elindítja az átadást → létrejön egy `congregation_transfers`
  * rekord (status='requested'), és értesül a RENDSZERGAZDA + az egyházmegye
@@ -465,14 +480,23 @@ export async function initiateCongregationTransfer(input: {
   congregationId: string
   reason?: string
 }): Promise<{ success?: boolean; error?: string; auditorsNotified?: number; alreadyOpen?: boolean }> {
-  const permission = await requireActiveCongregation(input.congregationId)
+  const parsed = transferInitiateSchema.safeParse(input)
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0].message }
+  }
+  const congregationId = parsed.data.congregationId
+  // Üres / csak szóközös indok → null (a korábbi `input.reason?.trim() || null`
+  // viselkedés változatlan; a séma már trimmelve adja vissza).
+  const reason = parsed.data.reason || null
+
+  const permission = await requireActiveCongregation(congregationId)
   if ('error' in permission) return { error: permission.error }
   const { supabase, user } = permission.access
 
   // 1) Átadás rekord létrehozása (RPC — jogosultság-ellenőrzéssel)
   const { data: rpcRes, error: rpcErr } = await supabase.rpc('initiate_congregation_transfer', {
-    p_congregation_id: input.congregationId,
-    p_reason: input.reason?.trim() || null,
+    p_congregation_id: congregationId,
+    p_reason: reason,
   })
   if (rpcErr) {
     const missing = /relation .* does not exist|schema cache|function .* does not exist/i.test(rpcErr.message)
@@ -496,7 +520,7 @@ export async function initiateCongregationTransfer(input: {
     const { data: congRow } = await admin
       .from('congregations')
       .select('nev_hu, name')
-      .eq('id', input.congregationId)
+      .eq('id', congregationId)
       .maybeSingle()
     const congName =
       ((congRow as { nev_hu?: string | null; name?: string | null } | null)?.nev_hu) ||
@@ -559,7 +583,7 @@ export async function initiateCongregationTransfer(input: {
 
       await admin.from('ertesitesek').insert([
         {
-          congregation_id: input.congregationId,
+          congregation_id: congregationId,
           user_id: r.id,
           cim: `Lelkészcsere-átadás indult: ${congName}`,
           uzenet: `${fromName} elindította a(z) ${congName} gyülekezet átadását. Kérjük, nézd át a gyülekezet adatait, és hagyd jóvá vagy rögzíts meghagyásokat.`,
@@ -575,7 +599,7 @@ export async function initiateCongregationTransfer(input: {
           recipientRole: r.role,
           congregationName: congName,
           fromPastorName: fromName,
-          reason: input.reason?.trim() || null,
+          reason,
           portalUrl,
         }),
       )
@@ -592,7 +616,7 @@ export async function initiateCongregationTransfer(input: {
     action: 'transfer.initiate',
     targetTable: 'congregation_transfers',
     targetId: info.transfer_id ?? null,
-    metadata: { congregation_id: input.congregationId, auditors_notified: auditorsNotified },
+    metadata: { congregation_id: congregationId, auditors_notified: auditorsNotified },
   }, supabase)
 
   revalidatePath('/congregation')

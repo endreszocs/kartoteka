@@ -40,6 +40,7 @@ import { Button } from '@/components/ui/button'
 import { ColorTabs } from '@/components/ui/color-tabs'
 import { ModuleHero } from '@/components/shared/module-hero'
 import { cn } from '@/lib/utils'
+import { csvCella } from '@/lib/utils/csv'
 import { getWorklogs, deleteWorklog } from '@/app/(dashboard)/munkanaplo/actions'
 import { WorklogDialog } from '@/components/modals/worklog-dialog'
 import {
@@ -176,8 +177,11 @@ function downloadCsv(entries: WorklogEntry[], fileName: string) {
     entry.megjegyzes || '',
   ])
   // UTF-8 BOM — enélkül az Excel torzan (Latin-1-ként) nyitja az ékezeteket.
+  // 2026-08-24 (B14): a cellakódolás a KÖZÖS `csvCella()`-ból jön — a puszta
+  // kvótálás nem védett a képlet-injekció ellen (a `cim`/`alapige`/`megjegyzes`/
+  // `szolgalt` mezőt a felhasználó gépeli, a CSV-t viszont más nyitja meg).
   const csv = String.fromCharCode(0xfeff) + [header, ...rows]
-    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(';'))
+    .map((row) => row.map((cell) => csvCella(cell)).join(';'))
     .join('\n')
 
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })

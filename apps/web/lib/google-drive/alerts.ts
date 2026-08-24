@@ -22,6 +22,7 @@ import 'server-only'
 
 import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
 import { getCongregationOfficials } from '@/lib/profiles/officials'
+import { escHtml } from '@/lib/email/escape'
 import { sendEmail } from '@/lib/email/send'
 import { bukarestiNapKulcs } from '@/lib/utils/idopont-bukarest'
 import { isMissingTableError, loadAlertRecipient } from './settings'
@@ -31,15 +32,6 @@ const FELULET_UT = '/admin/biztonsagi-mentes'
 function appUrl(): string {
   const base = (process.env.NEXT_PUBLIC_APP_URL?.trim() || 'https://kartoteka.app').replace(/\/+$/, '')
   return `${base}${FELULET_UT}`
-}
-
-function escHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
 }
 
 /** A `device-revoke.ts` layout-sablonja, destruktív akcentussal. */

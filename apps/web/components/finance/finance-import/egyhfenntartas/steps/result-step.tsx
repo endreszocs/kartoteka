@@ -3,6 +3,7 @@
 import { CheckCircle2, AlertTriangle, Download, RotateCcw } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { csvCella } from '@/lib/utils/csv'
 import type {
   ExecuteImportResult,
   PreviewMatchedRow,
@@ -27,15 +28,20 @@ export function ResultStep({ result, matched, selectedYear, onNewImport }: Resul
     )
     const lines = [
       'Forrása,Összeg,Dátum,Iratszám,Befizetett év,Megjegyzés',
+      // 2026-08-24 (B14): minden cella a KÖZÖS `csvCella()`-n megy át — a
+      // `forrasa`, a `datum` és az `iratszam` a beolvasott (idegen) fájlból
+      // jön, tehát kezdődhet `=`-lel, és ezt a CSV-t utána valaki Excelben
+      // nyitja meg. A tisztán szám alakú `osszeg`/`fizetettev` érintetlen
+      // marad (a helper kivétele) — a táblázatban továbbra is szám.
       ...noTagRows.map(r => {
         const fr = r.finalRow
         return [
-          `"${fr.forrasa.replace(/"/g, '""')}"`,
-          fr.osszeg,
-          fr.datum,
-          fr.iratszam,
-          fr.fizetettev,
-          `"${(fr.megjegyzes || '').replace(/"/g, '""')}"`,
+          csvCella(fr.forrasa),
+          csvCella(fr.osszeg),
+          csvCella(fr.datum),
+          csvCella(fr.iratszam),
+          csvCella(fr.fizetettev),
+          csvCella(fr.megjegyzes || ''),
         ].join(',')
       }),
     ]
