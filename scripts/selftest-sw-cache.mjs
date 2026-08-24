@@ -62,6 +62,33 @@
  *                   vak. (A régi világot NEM a git-történelemből vesszük:
  *                   commit után a HEAD már a javított fájl lenne, sekély
  *                   CI-klónban pedig egy rögzített commit sem érhető el.)
+ *  S9 TARTALÉK    — az ADATMENTES offline tartalék lap (2026-08-25).
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * S9 — MIÉRT KELL RÁ KÜLÖN MÉRCE
+ * ════════════════════════════════════════════════════════════════════════════
+ * A fenti javítás ára az volt, hogy offline a böngésző CSUPASZ hibaoldala
+ * fogadta a lelkészt. Erre jött a Serwist `fallbacks`: internet nélkül a
+ * `public/nincs-internet.html` jelenik meg. Ennek HÁROM, egymástól független
+ * feltétele van, és MINDHÁROM tud NÉMÁN elromlani:
+ *
+ *   (1) a `sw.ts` `fallbacks` bejegyzése a helyes URL-re mutat, és CSAK
+ *       navigációra szól (RSC-nek vagy `/api`-nak HTML-t visszaadni rosszabb,
+ *       mint hibázni);
+ *   (2) a lap PRECACHE-ELVE van — a `next.config.ts` `globPublicPatterns`
+ *       POZITÍV lista, ami nincs benne, az nincs a lemezen. Enélkül a
+ *       `matchPrecache` üresen tér vissza, és a tartalék lap pont akkor nem
+ *       elérhető, amikor kellene;
+ *   (3) a `proxy.ts` matcher KIHAGYJA a lapot. Enélkül a Supabase
+ *       `updateSession` a bejelentkezetlen kérést a `/login`-ra irányítja — és
+ *       mivel a service worker telepítése tipikusan a bejelentkezés ELŐTT fut
+ *       le, a precache-be a BEJELENTKEZŐ OLDAL kerülne offline tartaléknak.
+ *
+ * Plusz a lényeg: a tartalék lap LEMEZRE kerül, tehát bizonyítani kell, hogy
+ * ADATMENTES — nincs benne hálózati hívás, IndexedDB-olvasás, külső
+ * hivatkozás és szerver-oldali behelyettesítés. (Ezért NEM egy Next-oldalt
+ * precache-elünk: az `/offline` oldal payloadjába a `(dashboard)` layout a
+ * bejelentkezett felhasználó profilját és a gyülekezet nevét is beleadja.)
  *
  * Futtatás:  node scripts/selftest-sw-cache.mjs
  */
@@ -82,6 +109,43 @@ process.env.NODE_ENV = 'production'
 const SW_REL = 'apps/web/app/sw.ts'
 const SW_ABS = path.join(ROOT, SW_REL)
 const SERWIST_WORKER_ABS = path.join(ROOT, 'node_modules/@serwist/next/dist/index.worker.js')
+
+/* ── S9: az offline tartalék lap három lába ───────────────────────────────── */
+const TARTALEK_REL = 'apps/web/public/nincs-internet.html'
+const TARTALEK_ABS = path.join(ROOT, TARTALEK_REL)
+/** A fájlnév, ahogy a `globPublicPatterns` pozitív listájában szerepel. */
+const TARTALEK_FAJLNEV = 'nincs-internet.html'
+/** Az URL, amit a `sw.ts` `fallbacks` bejegyzésének használnia kell. */
+const TARTALEK_URL = '/nincs-internet.html'
+
+const SERWIST_MAG_DIR = path.join(ROOT, 'node_modules/serwist/dist')
+
+/**
+ * A `serwist` mag-csomag forrása egyben (index + chunkok). A chunk-fájlnevek
+ * verzióról verzióra változnak, ezért nem egy fájlnévre horgonyzunk.
+ * FAIL-CLOSED: ha a könyvtár nincs meg, kivétel.
+ */
+function serwistMagForras() {
+  if (!fs.existsSync(SERWIST_MAG_DIR)) {
+    throw new Error(`a serwist mag-csomag nem található: ${SERWIST_MAG_DIR} (fail-closed)`)
+  }
+  const darabok = [path.join(SERWIST_MAG_DIR, 'index.js')]
+  const chunkDir = path.join(SERWIST_MAG_DIR, 'chunks')
+  if (fs.existsSync(chunkDir)) {
+    for (const f of fs.readdirSync(chunkDir)) {
+      if (f.endsWith('.js')) darabok.push(path.join(chunkDir, f))
+    }
+  }
+  return darabok
+    .filter((f) => fs.existsSync(f))
+    .map((f) => fs.readFileSync(f, 'utf8'))
+    .join('\n')
+}
+
+const NEXT_CONFIG_REL = 'apps/web/next.config.ts'
+const NEXT_CONFIG_ABS = path.join(ROOT, NEXT_CONFIG_REL)
+const PROXY_REL = 'apps/web/proxy.ts'
+const PROXY_ABS = path.join(ROOT, PROXY_REL)
 
 /** A @serwist/next alapkészletének ADAT-cache-ei — ezek egyike sem maradhat bent. */
 const ADAT_CACHE_NEVEK = ['pages-rsc-prefetch', 'pages-rsc', 'pages', 'apis']
@@ -109,9 +173,71 @@ function jelent(merce, ok, uzenet) {
    a lemezre. Ha a mérce nem szedné ki a kommenteket, örökre riasztana.
    ══════════════════════════════════════════════════════════════════════════ */
 function kommentNelkul(szoveg) {
-  return szoveg
-    .replace(/\/\*[\s\S]*?\*\//g, ' ') // blokk-komment (a /** */ is)
-    .replace(/^[ \t]*\/\/.*$/gm, ' ') // teljes soros // komment
+  return (
+    szoveg
+      // ELŐBB a teljes soros `//` kommentek — a sorrend NEM mindegy. A
+      // next.config.ts egyik magyarázó sorában ott áll a `["**/*"]` glob-minta;
+      // annak a `/*`-át a blokk-komment söprés nyitásnak nézte, és a fájl felét
+      // megette (a `globPublicPatterns` tömbbel együtt). Némán: a mérce nem
+      // találta a horgonyt.
+      .replace(/^[ \t]*\/\/.*$/gm, ' ')
+      // A blokk-komment nyitása csak sor elején vagy elválasztó után számít —
+      // különben a `"icons/**/*"` sztringliterált is kommentnek néznénk.
+      .replace(/(^|[\s;,{([=])\/\*[\s\S]*?\*\//g, '$1 ')
+  )
+}
+
+/**
+ * Ugyanez HTML-re: előbb az `<!-- … -->` blokkok, aztán a benne lévő CSS/JS
+ * kommentek. A tartalék lap fejlécében SZÁNDÉKOSAN ott áll, hogy „NEM olvas
+ * IndexedDB-t" — ha a mérce nem szedné ki a kommenteket, pont a magyarázattól
+ * riasztana.
+ */
+function htmlKommentNelkul(szoveg) {
+  return kommentNelkul(szoveg.replace(/<!--[\s\S]*?-->/g, ' '))
+}
+
+/**
+ * Egy `kulcs: [ … ]` tömb-literál elemei a forrásból (kommentek nélkül).
+ * FAIL-CLOSED: ha a horgony nem található, kivételt dob — az őrszem SZÓL,
+ * nem siklik el felette.
+ */
+function tombLiteralElemei(forras, kulcs, honnan) {
+  const tiszta = kommentNelkul(forras)
+  const egyezes = tiszta.match(new RegExp(`${kulcs}:\\s*\\[([\\s\\S]*?)\\]`))
+  if (!egyezes) {
+    throw new Error(
+      `${honnan}: a \`${kulcs}\` tömb nem található — elmozdult a mérce horgonya (fail-closed)`,
+    )
+  }
+  return [...egyezes[1].matchAll(/(['"`])((?:\\.|(?!\1).)*)\1/g)].map((m) => m[0])
+}
+
+/** Egy forrásbeli string-literál VALÓDI értéke (a `\\.` → `\.` feloldásával). */
+function literalErteke(literal) {
+  // A selftest saját forrásán fut, nem külső bemeneten — a literál kiértékelése
+  // itt a legpontosabb feloldás (a kézi visszafejtés csendben félreértené a
+  // regex-escape-eket).
+  return new Function(`return ${literal}`)()
+}
+
+/**
+ * A `proxy.ts` matcher-mintája regexként. A Next a path-to-regexp-en engedi át,
+ * de a minta itt egyetlen, kézzel írt regex-csoport (`/((?!…).*)`), tehát az
+ * `^…$` közé zárva pontosan azt méri, amit a Next is: melyik útvonalra fut le a
+ * Supabase `updateSession`.
+ */
+function proxyMatcherRegex(proxyForras) {
+  const literalok = tombLiteralElemei(proxyForras, 'matcher', PROXY_REL)
+  if (literalok.length === 0) {
+    throw new Error(`${PROXY_REL}: a matcher tömb üres — elmozdult a horgony (fail-closed)`)
+  }
+  return literalok.map((lit) => new RegExp(`^${literalErteke(lit)}$`))
+}
+
+/** Lefut-e a proxy (Supabase updateSession) erre az útvonalra? */
+function proxyElkapja(regexek, utvonal) {
+  return regexek.some((r) => r.test(utvonal))
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -162,9 +288,10 @@ function keszitsMuhelyt(tmp) {
 
 /**
  * A `sw.ts` forrásából futtatható ESM modult csinál, majd betölti, és
- * visszaadja a `Serwist`-nek átadott `runtimeCaching` listát.
+ * visszaadja a `Serwist`-nek átadott TELJES opció-objektumot (ebben van a
+ * `runtimeCaching` lista ÉS a `fallbacks` bejegyzés is).
  */
-async function szabalyokBetoltese(tmp, swForras, azonosito) {
+async function opciokBetoltese(tmp, swForras, azonosito) {
   const js = ts.transpileModule(swForras, {
     compilerOptions: {
       module: ts.ModuleKind.ESNext,
@@ -192,7 +319,7 @@ async function szabalyokBetoltese(tmp, swForras, azonosito) {
   if (!opciok || !Array.isArray(opciok.runtimeCaching)) {
     throw new Error(`${azonosito}: a Serwist nem kapott runtimeCaching listát`)
   }
-  return opciok.runtimeCaching
+  return opciok
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -325,19 +452,84 @@ const APP_HEJ_KERESEK = [
   },
 ]
 
+/** S9 — ezekre a kérésekre KELL az offline tartalék lap (teljes oldalbetöltés). */
+const TARTALEK_KELL = [
+  {
+    nev: 'navigáció a tagnyilvántartásra',
+    k: keres({ ut: '/tagnyilvantartas', mode: 'navigate', destination: 'document' }),
+  },
+  {
+    nev: 'navigáció a bejelentkezésre',
+    k: keres({ ut: '/login', mode: 'navigate', destination: 'document' }),
+  },
+  {
+    nev: 'navigáció a publikus gyülekezeti oldalra',
+    k: keres({ ut: '/gy/baratosi', mode: 'navigate', destination: 'document' }),
+  },
+]
+
+/** S9 — ezekre SZÁNDÉKOSAN NEM (HTML-lapot adni rájuk rosszabb, mint hibázni). */
+const TARTALEK_TILOS = [
+  {
+    nev: 'RSC-payload (a Next útválasztóját zavarná össze)',
+    k: keres({ ut: '/penzugy', fejlecek: { RSC: '1' } }),
+  },
+  {
+    nev: 'RSC-prefetch',
+    k: keres({ ut: '/tagnyilvantartas?_rsc=1a2b3', fejlecek: { RSC: '1', 'Next-Router-Prefetch': '1' } }),
+  },
+  { nev: '/api GET (a hívó kódot zavarná össze)', k: keres({ ut: '/api/calendar?ev=2026' }) },
+  { nev: 'JS chunk', k: keres({ ut: '/_next/static/chunks/main-abc123.js', destination: 'script' }) },
+  { nev: 'kép-asset', k: keres({ ut: '/kartoteka-icon.png', destination: 'image' }) },
+  {
+    nev: 'idegen eredetű betűkészlet',
+    k: keres({ ut: 'https://fonts.gstatic.com/s/inter/v13/latin.woff2', destination: 'font' }),
+  },
+]
+
+/**
+ * S9 — amit a tartalék lap forrása NEM tartalmazhat.
+ * A lap LEMEZRE kerül és bejelentkezés nélkül is megnyílik: se hálózatról, se
+ * a helyi tárolóból nem szedhet elő adatot, és a build/szerver sem
+ * helyettesíthet bele semmit.
+ */
+const TILTOTT_MINTAK = [
+  { minta: /fetch\s*\(/i, mit: 'hálózati hívás (fetch)' },
+  { minta: /XMLHttpRequest/i, mit: 'hálózati hívás (XMLHttpRequest)' },
+  { minta: /\bindexedDB\b/i, mit: 'IndexedDB-olvasás (a Dexie-tükörben SZEMÉLYES ADAT van)' },
+  { minta: /\bDexie\b/i, mit: 'Dexie-hivatkozás' },
+  { minta: /WebSocket|EventSource|sendBeacon/i, mit: 'egyéb hálózati csatorna' },
+  { minta: /https?:\/\//i, mit: 'külső hivatkozás (offline nem töltődne be)' },
+  { minta: /<script[^>]+src=/i, mit: 'külső szkript' },
+  { minta: /<link[^>]+stylesheet/i, mit: 'külső stíluslap' },
+  { minta: /\{\{|<\?|<%|\$\{/, mit: 'szerver-oldali behelyettesítés nyoma' },
+]
+
+/** S9 — amit viszont TARTALMAZNIA kell (a brief három elvárása). */
+const KOTELEZO_MINTAK = [
+  { minta: /<html[^>]*\slang="hu"/i, mit: 'magyar nyelvű lap (lang="hu")' },
+  { minta: /<meta[^>]+name="viewport"/i, mit: 'mobil-first viewport' },
+  { minta: /prefers-color-scheme:\s*dark/i, mit: 'sötét mód' },
+]
+
 /* ══════════════════════════════════════════════════════════════════════════
    AZ ELLENŐRZÉS
    ══════════════════════════════════════════════════════════════════════════ */
 
 /**
- * Lefuttatja az S3–S7 mércéket egy adott forrás-változaton.
+ * Lefuttatja az S3–S7 és S9 mércéket egy adott VILÁGON.
+ *
+ * A „világ" a négy forrásfájl együtt (`sw`, `config`, `proxy`, `tartalek`) —
+ * mert az offline tartalék lap csak akkor működik, ha MIND A NÉGY a helyén van.
  * Visszaadja, mely mércék buktak el — a negatív asszert ezt olvassa.
  */
-async function ellenoriz(tmp, forras, azonosito, cimke) {
+async function ellenoriz(tmp, vilag, azonosito, cimke) {
   console.log(`\n── ${cimke} ──`)
   const elozoHibak = hibak
   const elozoMercek = new Set(bukottMercek)
   bukottMercek.clear()
+
+  const forras = vilag.sw
 
   /* S3 — szöveges: nem szórjuk szét nyersen a defaultCache-t. */
   const tiszta = kommentNelkul(forras)
@@ -352,7 +544,8 @@ async function ellenoriz(tmp, forras, azonosito, cimke) {
   }
 
   /* S4–S7 — viselkedés. */
-  const szabalyok = await szabalyokBetoltese(tmp, forras, azonosito)
+  const opciok = await opciokBetoltese(tmp, forras, azonosito)
+  const szabalyok = opciok.runtimeCaching
 
   for (const { nev, k } of ADAT_KERESEK) {
     const e = lemezreIr(szabalyok, k)
@@ -376,6 +569,83 @@ async function ellenoriz(tmp, forras, azonosito, cimke) {
     `a szabálylistában nincs adat-cache${bentMaradtAdatCache.length ? ` (bent maradt: ${bentMaradtAdatCache.join(', ')})` : ''}`,
   )
 
+  /* ── S9: az ADATMENTES offline tartalék lap ───────────────────────────────
+     Három láb + a lap adatmentessége. Bármelyik hiányzik: a lelkészt offline
+     megint a csupasz böngésző-hibaoldal fogadja — némán. */
+
+  // (1) A `sw.ts` tényleg átadta a fallback bejegyzést a Serwistnek?
+  const tartalekBejegyzesek = opciok.fallbacks?.entries ?? []
+  const tartalek = tartalekBejegyzesek.find((b) => b?.url === TARTALEK_URL)
+  jelent(
+    'S9',
+    Boolean(tartalek),
+    `a Serwist fallback-bejegyzése a(z) ${TARTALEK_URL}-re mutat`
+      + (tartalek ? '' : ` (talált: ${JSON.stringify(tartalekBejegyzesek.map((b) => b?.url))})`),
+  )
+
+  // (2) A bejegyzés CSAK navigációra szól.
+  if (tartalek && typeof tartalek.matcher === 'function') {
+    const hiba = new Error('offline')
+    for (const { nev, k } of TARTALEK_KELL) {
+      let talalat = false
+      try {
+        talalat = Boolean(tartalek.matcher({ request: k.request, event: {}, error: hiba }))
+      } catch {
+        talalat = false
+      }
+      jelent('S9', talalat, `${nev} → megkapja a tartalék lapot${talalat ? '' : ' — NEM kapja meg!'}`)
+    }
+    for (const { nev, k } of TARTALEK_TILOS) {
+      let talalat = true
+      try {
+        talalat = Boolean(tartalek.matcher({ request: k.request, event: {}, error: hiba }))
+      } catch {
+        talalat = false
+      }
+      jelent('S9', !talalat, `${nev} → NEM kap HTML-t${talalat ? ' — PEDIG KAPNA!' : ''}`)
+    }
+  } else if (tartalek) {
+    jelent('S9', false, 'a fallback-bejegyzésnek nincs matcher függvénye')
+  }
+
+  // (3) PRECACHE — a `globPublicPatterns` pozitív listája tartalmazza-e?
+  //     Enélkül a `matchPrecache` üresen tér vissza: a lap pont offline hiányzik.
+  const globMinta = tombLiteralElemei(vilag.config, 'globPublicPatterns', NEXT_CONFIG_REL)
+  const precacheelt = globMinta.some((lit) => literalErteke(lit) === TARTALEK_FAJLNEV)
+  jelent(
+    'S9',
+    precacheelt,
+    `a tartalék lap PRECACHE-ELVE van (${NEXT_CONFIG_REL} → globPublicPatterns)`
+      + (precacheelt ? '' : ' — offline maga a tartalék lap sem érhető el!'),
+  )
+
+  // (4) PROXY — a Supabase updateSession NEM foghatja el, különben a precache
+  //     a bejelentkező oldalt tenné el tartaléknak.
+  const proxyRegexek = proxyMatcherRegex(vilag.proxy)
+  const elkapja = proxyElkapja(proxyRegexek, TARTALEK_URL)
+  jelent(
+    'S9',
+    !elkapja,
+    `a proxy (updateSession) KIHAGYJA a(z) ${TARTALEK_URL}-t`
+      + (elkapja ? ' — bejelentkezetlenül a /login-ra irányítana, azt precache-elnénk!' : ''),
+  )
+  // Horgony: a matcher ne legyen vakon „semmire sem illeszkedő" — a védett
+  // útvonalakra TOVÁBBRA IS le kell futnia.
+  jelent(
+    'S9',
+    proxyElkapja(proxyRegexek, '/tagnyilvantartas'),
+    'a proxy a védett útvonalakra továbbra is lefut (/tagnyilvantartas)',
+  )
+
+  // (5) A lap ADATMENTES és statikus.
+  const lapTiszta = htmlKommentNelkul(vilag.tartalek)
+  for (const { minta, mit } of TILTOTT_MINTAK) {
+    jelent('S9', !minta.test(lapTiszta), `a tartalék lapban nincs ${mit}`)
+  }
+  for (const { minta, mit } of KOTELEZO_MINTAK) {
+    jelent('S9', minta.test(vilag.tartalek), `a tartalék lapon megvan: ${mit}`)
+  }
+
   const sajatHibak = hibak - elozoHibak
   const sajatMercek = new Set(bukottMercek)
   // A globális állapot visszaállítása: csak az ÉLES futás hibái számítanak.
@@ -398,6 +668,23 @@ try {
 
   const ELES_FORRAS = fs.readFileSync(SW_ABS, 'utf8')
 
+  // FAIL-CLOSED: ha a tartalék lap nincs a helyén, az őrszem SZÓL — nem
+  // futtatja le félig a mércéket egy hiányzó fájlra.
+  if (!fs.existsSync(TARTALEK_ABS)) {
+    throw new Error(
+      `az offline tartalék lap hiányzik: ${TARTALEK_REL} — ` +
+        'a `fallbacks` bejegyzés nélküle NÉMÁN hatástalan (fail-closed)',
+    )
+  }
+
+  /** A „világ": a négy forrásfájl együtt — a tartalék lap mind a négytől függ. */
+  const ELES_VILAG = {
+    sw: ELES_FORRAS,
+    config: fs.readFileSync(NEXT_CONFIG_ABS, 'utf8'),
+    proxy: fs.readFileSync(PROXY_ABS, 'utf8'),
+    tartalek: fs.readFileSync(TARTALEK_ABS, 'utf8'),
+  }
+
   console.log('═══ SERVICE WORKER GYORSTÁR önellenőrzés ═══')
 
   /* ── S1: HORGONY ────────────────────────────────────────────────────────── */
@@ -405,6 +692,19 @@ try {
   const serwistForras = fs.readFileSync(SERWIST_WORKER_ABS, 'utf8')
   for (const nev of ADAT_CACHE_NEVEK) {
     jelent('S1', serwistForras.includes(`"${nev}"`), `a "${nev}" cache-név megvan az alapkészletben`)
+  }
+
+  // A tartalék lap MECHANIZMUSA is horgony: ha a serwist egy frissítésben
+  // átalakítja, a `fallbacks` NÉMÁN hatástalanná válna (a lap ott maradna a
+  // precache-ben, de sosem jutna a képernyőre).
+  const magForras = serwistMagForras()
+  const MECHANIZMUS_HORGONYOK = [
+    { minta: 'fallbackUrls: fallbacks.entries', mit: 'a `fallbacks` bekötése a PrecacheFallbackPlugin-be' },
+    { minta: 'class NetworkOnly extends Strategy', mit: 'a NetworkOnly Strategy — csak így kap plugint' },
+    { minta: 'iterateCallbacks("handlerDidError")', mit: 'a hibaághoz kötött tartalék-válasz' },
+  ]
+  for (const { minta, mit } of MECHANIZMUS_HORGONYOK) {
+    jelent('S1', magForras.includes(minta), `a serwist mag még tudja: ${mit}`)
   }
 
   /* ── S2: SZINTAXIS ──────────────────────────────────────────────────────── */
@@ -417,8 +717,8 @@ try {
     `${SW_REL} elemezhető${parseHibak.length ? ` (${parseHibak.length} hiba)` : ''}`,
   )
 
-  /* ── S3–S7: az ÉLES fájl ────────────────────────────────────────────────── */
-  const eles = await ellenoriz(tmp, ELES_FORRAS, 'eles', 'S3–S7: az ÉLES sw.ts')
+  /* ── S3–S7 + S9: az ÉLES világ ──────────────────────────────────────────── */
+  const eles = await ellenoriz(tmp, ELES_VILAG, 'eles', 'S3–S7 + S9: az ÉLES forrás')
   hibak += eles.hibak
   for (const m of eles.mercek) bukottMercek.add(m)
 
@@ -429,13 +729,18 @@ try {
   const RUNTIME_SOR =
     'runtimeCaching: [authRouteCaching, hitelesitettAdatCaching, ...adatCacheNelkuliAlap],'
 
+  /* Minden mutáns megmondja, MELYIK forrásfájlt írja át (`mezo`), és mely
+     mércéknek KELL elbukniuk rajta (`vart`). Ha a csere nem fog, az őrszem
+     fail-closed módon szól: elmozdult a horgony. */
   const MUTANSOK = [
     {
       nev: 'S8/a — A RÉGI VILÁG: `[authRouteCaching, ...defaultCache]` (maga a lelet)',
+      mezo: 'sw',
       vart: ['S3', 'S4', 'S7'],
       keszit: (s) => s.replace(RUNTIME_SOR, 'runtimeCaching: [authRouteCaching, ...defaultCache],'),
     },
     {
+      mezo: 'sw',
       nev: 'S8/b — CSAK a névszűrés marad (a NetworkOnly szabály nélkül)',
       // Ez a fontos: a négy cache kiszűrése ÖNMAGÁBAN nem elég, mert a
       // dokumentum és az RSC az `others` gyűjtőbe csúszik — vagyis lemezre.
@@ -444,15 +749,18 @@ try {
     },
     {
       nev: 'S8/c — CSAK a NetworkOnly marad (a névszűrés visszavonva)',
+      mezo: 'sw',
       vart: ['S7'],
       keszit: (s) => s.replace('...adatCacheNelkuliAlap]', '...defaultCache]'),
     },
     {
       nev: 'S8/d — a publikus /gy/ kivétel eltűnik (a gyülekezeti oldal is kiesik)',
+      mezo: 'sw',
       vart: ['S5'],
       keszit: (s) => s.replace('if (publikusGyulekezetiUt(utvonal)) return false', ''),
     },
     {
+      mezo: 'sw',
       // A naiv „az egész /gy/ publikus" világ: ilyenkor a tagi fiók SSR-HTML-je
       // és RSC-payloadja — a tag SAJÁT adatai — lemezre kerülnek.
       nev: 'S8/e — a /gy/ kivétel naivan MINDENRE szól (a tagi fiók is kiesik a védelemből)',
@@ -462,12 +770,60 @@ try {
     },
     {
       nev: 'S8/f — az app-héj is a NetworkOnly-ba esik (offline el sem indulna)',
+      mezo: 'sw',
       vart: ['S6'],
       keszit: (s) =>
         s.replace(
           'if (utvonal.startsWith(APP_HEJ_ELOTAG)) return false',
           'if (utvonal.startsWith(APP_HEJ_ELOTAG)) return true',
         ),
+    },
+
+    /* ── S9 „régi világa" és csapdái ─────────────────────────────────────────
+       Az S8/g a 2026-08-24-i állapotot állítja vissza: a szivárgás elzárva, de
+       offline a csupasz böngésző-hibaoldal fogad. A többi a három láb egy-egy
+       néma törése. */
+    {
+      nev: 'S8/g — A RÉGI VILÁG (2026-08-24): nincs `fallbacks` (csupasz hibaoldal offline)',
+      mezo: 'sw',
+      vart: ['S9'],
+      keszit: (s) => s.replace(/\n\s*fallbacks:\s*\{[\s\S]*?\n\s*\},\n/, '\n'),
+    },
+    {
+      nev: 'S8/h — a fallback URL elgépelve (a precache-ben nincs ilyen lap)',
+      mezo: 'sw',
+      vart: ['S9'],
+      keszit: (s) => s.replace(`'${TARTALEK_URL}'`, "'/offline.html'"),
+    },
+    {
+      nev: 'S8/i — a fallback MINDENRE szól (az RSC és az /api is HTML-t kapna)',
+      mezo: 'sw',
+      vart: ['S9'],
+      keszit: (s) => s.replace('matcher: ({ request }) => dokumentumKeres(request),', 'matcher: () => true,'),
+    },
+    {
+      nev: 'S8/j — a lap kiesik a precache pozitív listájából (offline nem érhető el)',
+      mezo: 'config',
+      vart: ['S9'],
+      keszit: (s) => s.replace(`"${TARTALEK_FAJLNEV}",`, ''),
+    },
+    {
+      nev: 'S8/k — a proxy-kihagyás eltűnik (a precache a /login-t tenné el tartaléknak)',
+      mezo: 'proxy',
+      vart: ['S9'],
+      keszit: (s) => s.replace('nincs-internet\\\\.html|', ''),
+    },
+    {
+      nev: 'S8/l — a tartalék lap hálózatról töltene be adatot',
+      mezo: 'tartalek',
+      vart: ['S9'],
+      keszit: (s) => s.replace('frissit();', 'fetch("/api/allapot"); frissit();'),
+    },
+    {
+      nev: 'S8/m — a tartalék lap az IndexedDB-ből olvasna (ott SZEMÉLYES ADAT van)',
+      mezo: 'tartalek',
+      vart: ['S9'],
+      keszit: (s) => s.replace('frissit();', 'indexedDB.open("kartoteka"); frissit();'),
     },
   ]
 
@@ -476,15 +832,17 @@ try {
 
   for (const m of MUTANSOK) {
     sorszam++
-    const mutalt = m.keszit(ELES_FORRAS)
-    if (mutalt === ELES_FORRAS) {
+    const eredeti = ELES_VILAG[m.mezo]
+    const mutalt = m.keszit(eredeti)
+    if (mutalt === eredeti) {
       // FAIL-CLOSED: ha a csere nem fogott, elmozdult a horgony — az őrszem
       // ilyenkor SZÓL, nem hallgat.
-      negativHibak.push(`${m.nev}: a mutáció NEM fogott (elmozdult a horgony)`)
+      negativHibak.push(`${m.nev}: a mutáció NEM fogott (elmozdult a horgony a(z) ${m.mezo} forrásban)`)
       console.log(`   ✗ ${m.nev} — a mutáció nem fogott`)
       continue
     }
-    const r = await ellenoriz(tmp, mutalt, `mutans-${sorszam}`, `MUTÁNS · ${m.nev}`)
+    const mutaltVilag = { ...ELES_VILAG, [m.mezo]: mutalt }
+    const r = await ellenoriz(tmp, mutaltVilag, `mutans-${sorszam}`, `MUTÁNS · ${m.nev}`)
     const hianyzo = m.vart.filter((merce) => !r.mercek.has(merce))
     if (hianyzo.length > 0) {
       negativHibak.push(`${m.nev}: a(z) ${hianyzo.join(', ')} mérce NEM bukott el rajta`)
@@ -516,7 +874,7 @@ try {
   for (const h of negativHibak) console.log(`  ✗ ${h}`)
 
   if (hibak === 0 && negativHibak.length === 0) {
-    console.log('\n✅ PASS — mind a nyolc mérce teljesül.')
+    console.log('\n✅ PASS — mind a kilenc mérce teljesül.')
     kilepesiKod = 0
   } else {
     console.log('\n❌ FAIL')

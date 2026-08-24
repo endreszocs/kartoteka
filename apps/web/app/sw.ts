@@ -10,6 +10,9 @@
  *  - A publikus `/gy/` gyülekezeti oldal → marad offline-elhető
  *  - Supabase API → NetworkOnly (mert a Dexie + sync orchestrator kezeli)
  *  - Google Fonts → StaleWhileRevalidate
+ *
+ * Offline navigáció esetén az ADATMENTES tartalék lap felel
+ * (`public/nincs-internet.html`, Serwist `fallbacks`) — lásd lentebb.
  */
 
 import { defaultCache } from '@serwist/next/worker'
@@ -101,15 +104,66 @@ const authRouteCaching: RuntimeCaching = {
    A hitelesített felület oldalai OFFLINE már nem nyílnak meg a lemezről.
    Eddig egy korábban meglátogatott oldal (pl. a tagnyilvántartás) offline is
    megjelent — az elavult, lemezre írt HTML/RSC-ből. Ez volt maga a lelet.
+   (2026-08-25 óta ilyenkor a lenti ADATMENTES tartalék lap fogadja a
+   lelkészt — de a kartoték-adat továbbra sem jelenik meg offline.)
    Ami NEM változik: a Dexie/IndexedDB offline tükör, a feltöltésre váró sor
    és a szinkron (`lib/offline/**`) érintetlen — az offline ADAT ott van, nem
    a Cache Storage RSC-jében.
 
-   TOVÁBBLÉPÉS (külön kör): ha az offline INDULÁS is kell, a Serwist
-   `fallbacks` opciójával lehet egy ADATMENTES offline oldalt precache-elni.
-   Az nem adatszivárgás, mert nincs benne kartoték-adat. Most szándékosan nem
-   nyúlunk hozzá — ez a kör csak a szivárgást zárja el.
+   TOVÁBBLÉPÉS — 2026-08-25-ÓTA MEGVAN: a Serwist `fallbacks` opciójával egy
+   ADATMENTES offline lap van precache-elve. Az nem adatszivárgás, mert nincs
+   benne kartoték-adat. A részletek a következő blokkban.
    ══════════════════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════════════════
+   2026-08-25 — ADATMENTES OFFLINE TARTALÉK LAP (a fenti „továbblépés")
+   ══════════════════════════════════════════════════════════════════════════
+   MI VOLT A BAJ
+   A fenti javítás ára az volt, hogy internet nélkül a böngésző CSUPASZ
+   HIBAOLDALA fogadta a lelkészt („Nem érhető el az oldal"). A rendszer
+   közben offline-first PWA-nak nevezi magát — a felület tehát többet ígért,
+   mint amit a kód adott.
+
+   A JAVÍTÁS
+   A Serwist `fallbacks` opciója egy PRECACHE-ELT lapot ad vissza, amikor egy
+   stratégia nem tud választ előállítani (offline: a `NetworkOnly` `fetch`-e
+   eldobja magát). A `PrecacheFallbackPlugin` minden olyan `runtimeCaching`
+   bejegyzés handlerére felkerül, amelynek még nincs `handlerDidError`
+   bővítménye — vagyis a mi NetworkOnly szabályainkra is.
+
+   MIÉRT STATIKUS FÁJL, ÉS NEM EGY NEXT-OLDAL
+   A tartalék lapot LEMEZRE kell írni (precache), különben offline maga sem
+   érhető el. Ezért CSAK olyan lap jöhet szóba, amiben garantáltan nincs
+   személyes adat. Egy Next-oldal — az `/offline` is — a `(dashboard)`
+   layouton keresztül a bejelentkezett felhasználó teljes `profile` sorát és
+   a gyülekezet nevét is beleadja a payloadba (layout.tsx: `profile={profile}`,
+   `congregationName`), tehát a „csak a váz" NEM igaz rá: precache-elve
+   visszacsempésznénk a személyes adatot a lemezre. A `public/` alatti
+   statikus fájlba viszont sem a build, sem a szerver nem interpolál semmit.
+
+   HÁROM DOLOG KELL EGYÜTT (ha bármelyik hiányzik, a lap NÉMÁN nem működik):
+    (1) a fájl:            apps/web/public/nincs-internet.html
+    (2) a precache-lista:  next.config.ts → `globPublicPatterns`
+                           (a lista POZITÍV: ami nincs benne, nincs a lemezen)
+    (3) a proxy-kihagyás:  apps/web/proxy.ts matcher — különben a Supabase
+                           `updateSession` a bejelentkezetlen kérést a
+                           `/login`-ra irányítja, és a precache a LOGIN-OLDALT
+                           tenné el tartaléknak (a SW első telepítése tipikusan
+                           épp a bejelentkezés előtt történik).
+   Mindhármat visszaméri: scripts/selftest-sw-cache.mjs
+
+   MIRE SZÓL, ÉS MIRE NEM
+   CSAK dokumentum-kérésre (navigáció). Az RSC-payloadra és a `/api/*` GET-re
+   SZÁNDÉKOSAN nem: egy HTML-lap RSC-válaszként visszaadva a Next útválasztóját
+   zavarná össze, `/api`-válaszként pedig a hívó kódot. Ezek maradnak hibásak —
+   az alkalmazás saját hibakezelése látja el őket.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Az ADATMENTES offline tartalék lap. Statikus fájl a `public/` alatt —
+ * a build ideje alatt sem kerül bele semmilyen adat.
+ */
+const OFFLINE_TARTALEK_URL = '/nincs-internet.html'
 
 /** A publikus gyülekezeti oldal előtagja — ez offline-elhető MARAD. */
 const PUBLIKUS_ELOTAG = '/gy/'
@@ -122,6 +176,18 @@ const TAGI_SZEGMENSEK: readonly string[] = ['tagi-fiok', 'tagi-portal']
 
 /** Az alkalmazás-héj build-assetjei — ezek cache-elhetők MARADNAK. */
 const APP_HEJ_ELOTAG = '/_next/static/'
+
+/**
+ * Dokumentum-kérés-e (teljes oldalbetöltés / navigáció)?
+ *
+ * KÖZÖS definíció: ugyanez dönti el, hogy a kérés a hitelesített adat-szabály
+ * alá esik-e, ÉS hogy offline megkapja-e a tartalék lapot. A kettőnek egyeznie
+ * kell — különben van olyan kérés, amit a hálózatra engedünk, de hiba esetén
+ * a csupasz böngésző-hibaoldal fogad.
+ */
+function dokumentumKeres(request: Request): boolean {
+  return request.mode === 'navigate' || request.destination === 'document'
+}
 
 /** Publikus gyülekezeti útvonal-e (a tagi aloldalak NEM azok)? */
 function publikusGyulekezetiUt(utvonal: string): boolean {
@@ -183,11 +249,9 @@ const hitelesitettAdatCaching: RuntimeCaching = {
       request.headers.get('RSC') === '1'
       || request.headers.get('Next-Router-Prefetch') === '1'
       || url.searchParams.has('_rsc')
-    const dokumentumKeres =
-      request.mode === 'navigate' || request.destination === 'document'
     const apiKeres = utvonal.startsWith('/api/')
 
-    return rscKeres || dokumentumKeres || apiKeres
+    return rscKeres || dokumentumKeres(request) || apiKeres
   },
   handler: new NetworkOnly(),
 }
@@ -199,6 +263,16 @@ const serwist = new Serwist({
   navigationPreload: true,
   // Az auth-route és az adat-szabály ELŐRE — felülírják az alapkészletet.
   runtimeCaching: [authRouteCaching, hitelesitettAdatCaching, ...adatCacheNelkuliAlap],
+  // Offline tartalék: a csupasz böngésző-hibaoldal helyett a MI lapunk.
+  // Lásd a fenti magyarázatot — csak navigációra szól, adatot nem tartalmaz.
+  fallbacks: {
+    entries: [
+      {
+        url: OFFLINE_TARTALEK_URL,
+        matcher: ({ request }) => dokumentumKeres(request),
+      },
+    ],
+  },
 })
 
 serwist.addEventListeners()
