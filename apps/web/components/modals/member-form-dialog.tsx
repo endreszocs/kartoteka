@@ -23,6 +23,10 @@ import {
 } from '@/lib/members/cross-congregation-actions'
 import { ENTRY_REASONS, ENTRY_REASON_LABELS } from '@/lib/constants/members'
 import type { EnrichedMember } from '@/lib/constants/members'
+// 2026-08-25 (gyülekezeti egységek): egység-választó a Lakóhely blokkban —
+// csak akkor jelenik meg, ha a gyülekezetnek van legalább egy aktív egysége.
+import { listGyulekezetiEgysegek } from '@/app/(dashboard)/congregation/egysegek-actions'
+import { kozpontValasztoCimke, type GyulekezetiEgyseg } from '@/lib/gyulekezet/egysegek-shared'
 import { toast } from 'sonner'
 import {
   BookOpen,
@@ -67,7 +71,8 @@ const WIZARD_STEPS: { id: WizardStep; label: string; icon: typeof User }[] = [
 // 2026-06-10: melyik mező melyik wizard-lépésen van — validációs hibánál
 // erre a lépésre ugrunk vissza, különben a hibajelzés láthatatlan maradna
 // (a „nem történik semmi a mentésre" bug oka).
-const STEP1_FIELDS: readonly (keyof MemberFormValues)[] = ['csaladnev', 'k_nev', 'szcs_nev', 'namepattern', 'ferfi', 'sz_datum', 'sz_hely_text', 'foglalkozas', 'vallas', 'c_helyseg_text', 'c_utca_text', 'c_szam', 'c_tombhaz', 'c_lepcsohaz', 'c_emelet', 'c_ajto', 'telefon', 'email', 'megjegyzes', 'apjaneve', 'anyjaneve', 'id_apja_cnp', 'id_anyja_cnp', 'bek_datum', 'bek_honnan', 'bek_igazolas', 'att_datum', 'att_felekezet', 'att_honnan', 'belepes_oka']
+// 2026-08-25 (gyülekezeti egységek): az 'egyseg_id' a Lakóhely blokk mezője (1. lépés).
+const STEP1_FIELDS: readonly (keyof MemberFormValues)[] = ['csaladnev', 'k_nev', 'szcs_nev', 'namepattern', 'ferfi', 'sz_datum', 'sz_hely_text', 'foglalkozas', 'vallas', 'c_helyseg_text', 'c_utca_text', 'c_szam', 'c_tombhaz', 'c_lepcsohaz', 'c_emelet', 'c_ajto', 'egyseg_id', 'telefon', 'email', 'megjegyzes', 'apjaneve', 'anyjaneve', 'id_apja_cnp', 'id_anyja_cnp', 'bek_datum', 'bek_honnan', 'bek_igazolas', 'att_datum', 'att_felekezet', 'att_honnan', 'belepes_oka']
 // 2026-07-24 (PR-4, D4 döntés): az esketés-mezők KIKERÜLTEK — a saveMember soha
 // nem mentette őket (néma adatvesztés volt), az esketés rögzítése kizárólag az
 // Anyakönyv → Esketés modulban történik.
@@ -119,12 +124,32 @@ export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged
   // 2026-08-02 (PR-20): szülő-név párosítás eredménye a mentés után
   const [parentLinkResult, setParentLinkResult] = useState<ParentLinkResultData | null>(null)
 
+  // 2026-08-25 (gyülekezeti egységek): az aktív egységek listája a
+  // „Gyülekezeti egység" mezőhöz. Hibánál (pl. a migráció még nem futott le)
+  // a lista üres marad, és a mező egyszerűen NEM jelenik meg — a mentés a
+  // szerveroldali oszlop-strip retry miatt akkor sem bukik el.
+  const [egysegek, setEgysegek] = useState<GyulekezetiEgyseg[]>([])
+  // 2026-08-25 (társegyházközség): a szervezeti forma a „központ" opció feliratához —
+  // társnál a címke nélküli adat a KÖZÖS állomány, nem az anyaközpont.
+  const [szervezetiTipus, setSzervezetiTipus] = useState<string | null>(null)
+
   useEffect(() => {
     if (!open) return
     let cancelled = false
     void getVoterPrintContext()
       .then((ctx) => { if (!cancelled) setCongName(ctx.congregationName) })
       .catch(() => { /* fallback marad */ })
+    void listGyulekezetiEgysegek()
+      .then((res) => {
+        if (cancelled) return
+        setEgysegek(res.egysegek ?? [])
+        setSzervezetiTipus(res.szervezetiTipus ?? null)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setEgysegek([])
+        setSzervezetiTipus(null)
+      })
     return () => { cancelled = true }
   }, [open])
 
@@ -186,6 +211,10 @@ export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged
         c_lepcsohaz: editMember.c_lepcsohaz || '',
         c_emelet: editMember.c_emelet || '',
         c_ajto: editMember.c_ajto || '',
+        // 2026-08-25 (gyülekezeti egységek): a meglévő besorolás ELŐTÖLTÉSE
+        // kötelező — a saveMember mindig menti az egyseg_id-t, előtöltés nélkül
+        // minden szerkesztés visszasorolná a tagot az anyaközpontba.
+        egyseg_id: editMember.egyseg_id ?? null,
         telefon: editMember.telefon || '',
         email: editMember.email || '',
         apjaneve: editMember.apjaneve || '',
@@ -208,7 +237,7 @@ export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged
       setStep('choose')
       setWizardStep(1)
       setMaxReachedStep(1)
-      reset({ belepes_oka: 'alap', vallas: '', ferfi: undefined, sz_datum: '', sz_hely_text: '', c_szam: '1', gdpr_consent: false, photo_consent: false, mailing_consent: false, social_profil_url: '' })
+      reset({ belepes_oka: 'alap', vallas: '', ferfi: undefined, sz_datum: '', sz_hely_text: '', c_szam: '1', gdpr_consent: false, photo_consent: false, mailing_consent: false, social_profil_url: '', egyseg_id: null })
     }
     setParentResults({ apa: [], anya: [] })
     setParentSearchVisible({ apa: false, anya: false })
@@ -618,6 +647,37 @@ export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged
                     <Input id="member-door" {...register('c_ajto')} placeholder="12" className={FIELD_CLASS} />
                   </div>
                 </div>
+
+                {/* 2026-08-25 (gyülekezeti egységek): egység-besorolás — CSAK ha a
+                    gyülekezetnek van legalább 1 aktív egysége (leány/szórvány).
+                    Üres érték = anyaközpont (a szerveren NULL). */}
+                {egysegek.length > 0 && (
+                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    <div className="space-y-1.5 md:col-span-2 lg:col-span-1">
+                      <Label htmlFor="member-egyseg">Gyülekezeti egység</Label>
+                      <select
+                        id="member-egyseg"
+                        {...register('egyseg_id', {
+                          setValueAs: (value) => (value === '' || value == null ? null : String(value)),
+                        })}
+                        className={'w-full border px-3 py-2 text-sm ' + FIELD_CLASS}
+                      >
+                        <option value="">{kozpontValasztoCimke(szervezetiTipus)}</option>
+                        {egysegek.map((egyseg) => (
+                          <option key={egyseg.id} value={egyseg.id}>{egyseg.nev}</option>
+                        ))}
+                        {/* A tag jelenlegi (időközben inaktivált) egysége ne
+                            nullázódjon némán egy sima mentéskor. */}
+                        {editMember?.egyseg_id && !egysegek.some((egyseg) => egyseg.id === editMember.egyseg_id) && (
+                          <option value={editMember.egyseg_id}>Inaktív egység (megtartva)</option>
+                        )}
+                      </select>
+                      <p className="text-xs text-muted-foreground">
+                        Melyik egységhez tartozik a tag — a tömeges (település szerinti) besorolás a taglista „Egység-besorolás" gombjával érhető el.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
                   <div className="space-y-1.5">

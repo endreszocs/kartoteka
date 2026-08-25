@@ -86,6 +86,9 @@ export const memberSchema = z.object({
   photo_consent: z.boolean().optional(),
   mailing_consent: z.boolean().optional(),
   social_profil_url: z.string().optional().or(z.literal('')),
+  /** 2026-08-25 (gyülekezeti egységek): a tag egység-címkéje —
+   *  null = anyaközpont (a szemely.egyseg_id oszlop, nullable FK). */
+  egyseg_id: z.string().uuid().nullable().optional(),
 })
 
 /** A böngészőűrlap nyers értékei; a Zod-defaultok alkalmazása előtt. */

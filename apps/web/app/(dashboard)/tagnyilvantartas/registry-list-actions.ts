@@ -250,6 +250,9 @@ function normalizeMemberRow(row: unknown): MemberRow {
     ...raw,
     // A jelenlegi production sémában a költözés a member_status mezőn él.
     elkoltozott: raw.elkoltozott ?? false,
+    // 2026-08-25 (gyülekezeti egységek): a migráció előtt az oszlop hiányzik —
+    // az explicit null miatt minden fogyasztó egységesen anyaközpontot lát.
+    egyseg_id: raw.egyseg_id ?? null,
     adrstreet: street ? { name: street.name as string } : null,
     adrlocality: (pickRelation(raw.adrlocality) as { name: string } | null) ?? streetLocality,
     birthLocality: pickRelation(raw.birthLocality) as { name: string } | null,
@@ -265,24 +268,47 @@ function normalizeMemberRow(row: unknown): MemberRow {
  * Kliens-oldali szerver-akciók külön kérések, azokra ez nem hat — lásd a
  * `getMembersPage` fejlécében a lapozásról szóló megjegyzést.
  */
+// 2026-08-25 (gyülekezeti egységek): az egyseg_id oszlop a
+// 2026-08-25-gyulekezeti-egysegek.sql migrációval jön. Oszlop-drift-biztos
+// select: ha a hiányzó oszlop miatt hibázik, egyseg_id nélkül fut újra — a
+// lista ilyenkor egység-adat nélkül, de HIBA NÉLKÜL töltődik.
+const EGYSEG_OSZLOP_HIANY_MINTA = /column|does not exist|schema cache|could not find/i
+
+function memberRowSelect(withEgyseg: boolean) {
+  return `
+    id, cnp, csaladnev, k_nev, szcs_nev, namepattern, allapot, ferfi,
+    sz_datum, sz_helyid, foglalkozas, vallas, telefon, email, meghalt,
+    member_status, isvisible, photo_url, gdpr_consent_at, photo_consent,
+    mailing_consent, social_profil_url, voter_eligible, voter_manual_override,
+    type, befizetoev, id_apja, id_anyja, apjaneve, anyjaneve, megjegyzes,
+    c_helysegid, c_utcaid, c_szam, c_tombhaz, c_lepcsohaz, c_emelet, c_ajto,
+    congregation_id, ${withEgyseg ? 'egyseg_id, ' : ''}adrstreet!c_utcaid(name, adrlocality!localityid(name)), adrlocality!c_helysegid(name),
+    birthLocality:adrlocality!sz_helyid(name)
+  `
+}
+
 const loadMemberRows = cache(async (supabase: SupabaseClient, congregationId: string) => {
+  // A visszaesés lap-független: ha egyszer kiderült, hogy az oszlop hiányzik,
+  // a további lapok már eleve nélküle futnak.
+  let egysegOszloppal = true
   return collectBatched<MemberRow>('Személyek lekérdezése sikertelen', async (from, to) => {
-    const result = await supabase
+    const futtat = (withEgyseg: boolean) => supabase
       .from('szemely')
-      .select(`
-        id, cnp, csaladnev, k_nev, szcs_nev, namepattern, allapot, ferfi,
-        sz_datum, sz_helyid, foglalkozas, vallas, telefon, email, meghalt,
-        member_status, isvisible, photo_url, gdpr_consent_at, photo_consent,
-        mailing_consent, social_profil_url, voter_eligible, voter_manual_override,
-        type, befizetoev, id_apja, id_anyja, apjaneve, anyjaneve, megjegyzes,
-        c_helysegid, c_utcaid, c_szam, c_tombhaz, c_lepcsohaz, c_emelet, c_ajto,
-        congregation_id, adrstreet!c_utcaid(name, adrlocality!localityid(name)), adrlocality!c_helysegid(name),
-        birthLocality:adrlocality!sz_helyid(name)
-      `)
+      .select(memberRowSelect(withEgyseg))
       .eq('congregation_id', congregationId)
       .eq('isvisible', true)
       .order('id', { ascending: true })
       .range(from, to)
+
+    let result = await futtat(egysegOszloppal)
+    if (result.error && egysegOszloppal && EGYSEG_OSZLOP_HIANY_MINTA.test(result.error.message)) {
+      console.warn(
+        '[registry-list] szemely.egyseg_id nem olvasható (lefutott a 2026-08-25-ös migráció?) — oszlop nélkül olvasunk:',
+        result.error.message,
+      )
+      egysegOszloppal = false
+      result = await futtat(false)
+    }
 
     return {
       data: ((result.data ?? []) as unknown[]).map(normalizeMemberRow),
@@ -713,6 +739,12 @@ function filterMembers(
     if (query.contact === 'email' && !hasEmail) return false
     if (query.contact === 'both' && (!hasPhone || !hasEmail)) return false
     if (query.contact === 'missing' && (hasPhone || hasEmail)) return false
+
+    // 2026-08-25 (gyülekezeti egységek): '' = mind; 'kozpont' = anyaközpont
+    // (egyseg_id NULL — a migráció előtti sorok is ide esnek); különben az
+    // egység uuid-jára pontos egyezés.
+    if (query.egyseg === 'kozpont' && member.egyseg_id != null) return false
+    if (query.egyseg && query.egyseg !== 'kozpont' && member.egyseg_id !== query.egyseg) return false
     return true
   })
 }

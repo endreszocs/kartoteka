@@ -15,11 +15,11 @@
  *   - Kattintásra a globális CongregationSetupBanner-ből (minden oldalon).
  */
 
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Banknote, Check, Church, FileText, Image as ImageIcon,
-  Landmark, Loader2, MapPin, Percent, Phone, Plus, Save, Stamp, Star, Trash2, Upload, UserCog, Wallet, X,
+  Landmark, Loader2, MapPin, Network, Pencil, Percent, Phone, Plus, Save, Stamp, Star, Trash2, Upload, UserCog, Wallet, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -62,6 +62,25 @@ import {
 // 2026-08-15 (S4): a pecsét/aláírás-feltöltő UI a KÖZÖS komponensből — az
 // egyházmegyei wizard ugyanezt használja a megyei akciókkal.
 import { IratKepekSection } from '@/components/shared/irat-kepek-section'
+// 2026-08-25 (gyülekezeti egységek, terv 3.1–3.2; 2026-08-25/2 Endre kérése):
+// a szervezeti formát a lelkész MAGA állíthatja be (külön mentő-gombbal) +
+// a leány/szórvány egységek kezelő panelje.
+import {
+  listGyulekezetiEgysegek,
+  saveGyulekezetiEgyseg,
+  deleteGyulekezetiEgyseg,
+  getEgysegHasznalat,
+  listAnyaJeloltek,
+  saveSzervezetiForma,
+} from '@/app/(dashboard)/congregation/egysegek-actions'
+import {
+  EGYSEG_TIPUS_CIMKEK,
+  SZERVEZETI_TIPUS_CIMKEK,
+  SZERVEZETI_TIPUS_LEIRAS,
+  type EgysegTipus,
+  type GyulekezetiEgyseg,
+  type SzervezetiTipus,
+} from '@/lib/gyulekezet/egysegek-shared'
 
 /**
  * A beviteli mezők erősebb kiemelése (tömör fehér háttér + határozott keret),
@@ -114,6 +133,10 @@ interface SetupFormState {
 }
 
 type SetForm = (f: SetupFormState) => void
+
+/** A bal oldali kategória-sáv kulcsai. Az 'egysegek' OPCIONÁLIS panel:
+ *  a paneMissing-be nem számít bele, és a készültség-jelzőben sem szerepel. */
+type PaneKey = 'attekintes' | 'egysegek' | 'cim' | 'bank' | 'penzugy' | 'kedvezmenyek' | 'lelkesz'
 
 /** Egy bankszámla a szerkesztőben (meglévő → id; új → id undefined). */
 interface BankSlot {
@@ -185,7 +208,7 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
   const [isPending, startTransition] = useTransition()
   const [loading, setLoading] = useState(true)
 
-  const [activePane, setActivePane] = useState<'attekintes' | 'cim' | 'bank' | 'penzugy' | 'kedvezmenyek' | 'lelkesz'>('attekintes')
+  const [activePane, setActivePane] = useState<PaneKey>('attekintes')
 
   const [form, setForm] = useState<SetupFormState>({
     nev: '', nev_hu: '', nev_ro: '', nev_en: '', adoszam: '', cimer_url: '',
@@ -204,11 +227,18 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
   const [bankAccounts, setBankAccounts] = useState<BankSlot[]>([])
   const [removedBankIds, setRemovedBankIds] = useState<number[]>([])
 
-  // Read-only kontextus: egyházkerület + egyházmegye név
+  // Kontextus: egyházkerület + egyházmegye név + (2026-08-25) a hivatalos
+  // szervezeti forma és az anyaegyházközség neve. A formát 2026-08-25/2 óta a
+  // lelkész MAGA is beállíthatja (SzervezetiFormaSzerkeszto, saját mentő-
+  // gombbal, saveSzervezetiForma) — a SetupFormState-be és a
+  // saveCongregationSetup payloadjába szándékosan NEM került be; sikeres
+  // forma-mentés után csak ez a display-state frissül.
   const [context, setContext] = useState<{
     dioceseName: string | null
     districtName: string | null
-  }>({ dioceseName: null, districtName: null })
+    szervezetiTipus: SzervezetiTipus | null
+    anyaNev: string | null
+  }>({ dioceseName: null, districtName: null, szervezetiTipus: null, anyaNev: null })
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [uploading, setUploading] = useState(false)
@@ -262,7 +292,12 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
             tva_kod: d.tva_kod || '',
             tva_alany_tol: d.tva_alany_tol || '',
           })
-          setContext({ dioceseName: d.diocese_name, districtName: d.district_name })
+          setContext({
+            dioceseName: d.diocese_name,
+            districtName: d.district_name,
+            szervezetiTipus: d.szervezeti_tipus,
+            anyaNev: d.anya_nev,
+          })
 
           // Bankszámlák betöltése; ha nincs külön rekord, de a congregations.bank
           // ki van töltve (legacy), abból seedelünk egy fő számlát.
@@ -339,7 +374,8 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
   // Készültség kategóriánként (Tier-1 kötelező mezők). A szerver továbbra is szigorúan validál; a
   // hiányzó mezőket panelenként jelezzük (oldalsáv-státusz + készültség-jelző). A `cim` (utca) és a
   // `cimer_url` is itt van — különben a gomb aktív lenne, de a szerver-mentés elbukna.
-  const paneMissing: Record<'attekintes' | 'cim' | 'bank' | 'penzugy' | 'kedvezmenyek' | 'lelkesz', string[]> = { attekintes: [], cim: [], bank: [], penzugy: [], kedvezmenyek: [], lelkesz: [] }
+  // Az 'egysegek' kulcs mindig üres marad — a panel OPCIONÁLIS, sosem blokkolja a mentést.
+  const paneMissing: Record<PaneKey, string[]> = { attekintes: [], egysegek: [], cim: [], bank: [], penzugy: [], kedvezmenyek: [], lelkesz: [] }
   if (form.nev_hu.trim().length < 2) paneMissing.attekintes.push('magyar név')
   // 2026-08-10 (K4 regisztráció-diagnosztika #2): az egyházmegye KÖTELEZŐ.
   // Enélkül a gyülekezet egyetlen egyházmegyei/kerületi felületen sem látszik,
@@ -358,13 +394,18 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
 
   const PANES = [
     { key: 'attekintes' as const, label: 'Áttekintés és alapadatok', icon: Church, chipBg: 'bg-teal-50', chipText: 'text-teal-600' },
+    // 2026-08-25 (gyülekezeti egységek): OPCIONÁLIS panel — nem számít bele a
+    // készültségbe (paneMissing.egysegek mindig üres), és nem blokkolja a mentést.
+    { key: 'egysegek' as const, label: 'Egységek', icon: Network, chipBg: 'bg-amber-50', chipText: 'text-amber-600' },
     { key: 'cim' as const, label: 'Cím és elérhetőség', icon: MapPin, chipBg: 'bg-sky-50', chipText: 'text-sky-600' },
     { key: 'bank' as const, label: 'Bankszámlák', icon: Banknote, chipBg: 'bg-indigo-50', chipText: 'text-indigo-600' },
     { key: 'penzugy' as const, label: 'Pénzügyi alap', icon: Landmark, chipBg: 'bg-emerald-50', chipText: 'text-emerald-600' },
     { key: 'kedvezmenyek' as const, label: 'Kedvezmények és díjak', icon: Percent, chipBg: 'bg-violet-50', chipText: 'text-violet-600' },
     { key: 'lelkesz' as const, label: 'Lelkészek és átadás', icon: UserCog, chipBg: 'bg-rose-50', chipText: 'text-rose-600' },
   ]
-  const doneCount = PANES.filter((p) => paneMissing[p.key].length === 0).length
+  // A készültség-jelzőben csak a kötelező panelek szerepelnek (az Egységek opcionális).
+  const kotelezoPanes = PANES.filter((p) => p.key !== 'egysegek')
+  const doneCount = kotelezoPanes.filter((p) => paneMissing[p.key].length === 0).length
   const allMissing = [...paneMissing.attekintes, ...paneMissing.cim, ...paneMissing.bank, ...paneMissing.penzugy]
 
   function handleSave() {
@@ -487,7 +528,7 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
                       <span className="hidden flex-1 min-w-0 text-[13px] font-medium leading-tight text-slate-700 sm:block">
                         {p.label}
                       </span>
-                      {miss.length === 0 ? (
+                      {p.key === 'egysegek' ? null : miss.length === 0 ? (
                         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-800">
                           <Check className="size-3" />
                           <span className="hidden sm:inline">Kész</span>
@@ -511,12 +552,12 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
                     <div className="card-raised p-4">
                       <div className="mb-2 flex items-center justify-between gap-3">
                         <p className="text-sm font-semibold text-slate-800">A beállítás állapota</p>
-                        <span className="text-xs text-slate-500">{doneCount} / {PANES.length} szakasz kész</span>
+                        <span className="text-xs text-slate-500">{doneCount} / {kotelezoPanes.length} szakasz kész</span>
                       </div>
                       <div className="h-2 overflow-hidden rounded-full bg-slate-100">
                         <div
                           className="h-full rounded-full bg-emerald-500 transition-all"
-                          style={{ width: `${Math.round((doneCount / PANES.length) * 100)}%` }}
+                          style={{ width: `${Math.round((doneCount / kotelezoPanes.length) * 100)}%` }}
                         />
                       </div>
                       {allMissing.length > 0 && (
@@ -535,11 +576,20 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
                       districtName={context.districtName}
                       dioceses={dioceses}
                       diocesesError={diocesesError}
+                      szervezetiTipus={context.szervezetiTipus}
+                      anyaNev={context.anyaNev}
+                      onSzervezetChanged={(tipus, anyaNev) =>
+                        setContext((c) => ({ ...c, szervezetiTipus: tipus, anyaNev }))
+                      }
                     />
                     {/* 24. pont: pecsét + aláírás kép az iktató-nyomtatványokra —
                         a címer-feltöltő MELLÉ, saját (azonnal mentő) adatlánccal. */}
                     <SectionIratKepek congregationId={congregationId} />
                   </>
+                )}
+
+                {activePane === 'egysegek' && (
+                  <SectionEgysegek szervezetiTipus={context.szervezetiTipus} />
                 )}
 
                 {activePane === 'penzugy' && (
@@ -676,6 +726,7 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
 
 function SectionBasics({
   form, setForm, onCimerUpload, uploading, fieldErrors, dioceseName, districtName, dioceses, diocesesError,
+  szervezetiTipus, anyaNev, onSzervezetChanged,
 }: {
   form: SetupFormState
   setForm: SetForm
@@ -687,6 +738,13 @@ function SectionBasics({
   dioceses: Array<{ id: string; name: string; district_id: string | null; district_name: string | null }>
   /** 2026-08-10: az egyházmegye-lista betöltési hibája (ha volt) — a select alatt jelenik meg. */
   diocesesError: string | null
+  /** 2026-08-25/2: a hivatalos szervezeti forma — a lelkész itt MAGA állíthatja
+   *  be (külön mentő-gombbal); migráció előtt null → a blokk read-only. */
+  szervezetiTipus: SzervezetiTipus | null
+  /** A kapcsolt anyaegyházközség neve (csak leánynál). */
+  anyaNev: string | null
+  /** Sikeres forma-mentés után a szülő display-state-jének frissítése. */
+  onSzervezetChanged: (tipus: SzervezetiTipus, anyaNev: string | null) => void
 }) {
   // A kiválasztott egyházmegye kerülete (a select alatt read-only megjelenítéshez).
   const selectedDistrictName = form.diocese_id
@@ -774,6 +832,14 @@ function SectionBasics({
                 )}
               </div>
             </div>
+            {/* 2026-08-25/2 (Endre kérése): a szervezeti formát a lelkész MAGA
+                állíthatja be — külön mentő-gombbal (saveSzervezetiForma), a fő
+                „Mentés" gombtól függetlenül. Migráció előtt read-only marad. */}
+            <SzervezetiFormaSzerkeszto
+              szervezetiTipus={szervezetiTipus}
+              anyaNev={anyaNev}
+              onChanged={onSzervezetChanged}
+            />
           </div>
         </div>
       </div>
@@ -866,6 +932,201 @@ function SectionBasics({
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// 2026-08-25/2 (Endre kérése): a szervezeti formát a lelkész MAGA állíthatja
+// be a saját gyülekezetére. Külön mentő-gomb (saveSzervezetiForma) — a fő
+// „Mentés" gombhoz és a saveCongregationSetup payloadjához NEM kapcsolódik.
+// A DB-őrtrigger a végső védelem (magyar hibaüzenete szó szerint jelenik
+// meg a toastban); vitás besorolást a rendszergazda a Szervezeti fán rendez,
+// és minden módosítás audit-naplóba kerül. Migráció előtt (szervezetiTipus
+// === null, az oszlop hiányzik) a blokk read-only marad.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** A diocese-selecttel azonos megjelenésű natív select. */
+const SZERVEZET_SELECT_CLASS =
+  'mt-0.5 h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-teal-500/25 disabled:cursor-not-allowed disabled:bg-slate-100'
+
+/** Az anya-jelöltek betöltési állapota — lusta: az első leány-választáskor indul. */
+interface AnyaJeloltekState {
+  status: 'ures' | 'toltodik' | 'kesz' | 'hiba'
+  lista: Array<{ id: string; nev: string }>
+  error?: string
+}
+
+function SzervezetiFormaSzerkeszto({
+  szervezetiTipus,
+  anyaNev,
+  onChanged,
+}: {
+  /** A mentett hivatalos forma; null = az oszlop még nincs migrálva → read-only. */
+  szervezetiTipus: SzervezetiTipus | null
+  /** A mentett anyaegyházközség neve (csak leánynál). */
+  anyaNev: string | null
+  /** Sikeres mentés után a szülő display-state-jének frissítése. */
+  onChanged: (tipus: SzervezetiTipus, anyaNev: string | null) => void
+}) {
+  const [tipus, setTipus] = useState<SzervezetiTipus>(szervezetiTipus ?? 'anya')
+  const [anyaId, setAnyaId] = useState('')
+  const [jeloltek, setJeloltek] = useState<AnyaJeloltekState>({ status: 'ures', lista: [] })
+  const [saving, setSaving] = useState(false)
+  // Ref-őr: egy betöltés fusson (StrictMode-ban is); hibánál visszanyitjuk,
+  // így egy másik formára váltás után a leány újra-választása újrapróbál.
+  const jeloltekKerve = useRef(false)
+
+  // Lusta betöltés: az első leány-választáskor indul (akkor is, ha a mentett
+  // érték eleve leány).
+  useEffect(() => {
+    if (tipus !== 'leany' || jeloltekKerve.current) return
+    jeloltekKerve.current = true
+    setJeloltek({ status: 'toltodik', lista: [] })
+    void listAnyaJeloltek()
+      .then((res) => {
+        if (res.error) {
+          jeloltekKerve.current = false
+          setJeloltek({ status: 'hiba', lista: [], error: res.error })
+          return
+        }
+        const lista = res.jeloltek || []
+        setJeloltek({ status: 'kesz', lista })
+        // Ha már van mentett anya (csak a NEVÉT ismerjük), előválasztjuk.
+        if (anyaNev) {
+          const talalat = lista.find((j) => j.nev === anyaNev)
+          if (talalat) setAnyaId((elozo) => elozo || talalat.id)
+        }
+      })
+      .catch((e) => {
+        jeloltekKerve.current = false
+        setJeloltek({
+          status: 'hiba',
+          lista: [],
+          error: e instanceof Error ? e.message : 'Az anyaegyházközség-jelöltek betöltése sikertelen.',
+        })
+      })
+  }, [tipus, anyaNev])
+
+  async function handleFormaMentes() {
+    const anyaKivalasztott = tipus === 'leany' ? anyaId || null : null
+    if (tipus === 'leany' && !anyaKivalasztott) {
+      toast.error('Leányegyházközségnél kötelező kiválasztani az anyaegyházközséget.')
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await saveSzervezetiForma({ tipus, anyaCongregationId: anyaKivalasztott })
+      if (res.error) {
+        // A DB-őrtrigger magyar üzenete is így, változtatás nélkül jelenik meg.
+        toast.error(res.error)
+        return
+      }
+      const ujAnyaNev = anyaKivalasztott
+        ? (jeloltek.lista.find((j) => j.id === anyaKivalasztott)?.nev ?? null)
+        : null
+      onChanged(tipus, ujAnyaNev)
+      toast.success(`Szervezeti forma elmentve: ${SZERVEZETI_TIPUS_CIMKEK[tipus]}.`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Migráció-előtti állapot: az oszlop hiányzik → read-only, migrációs tudnivalóval.
+  if (szervezetiTipus === null) {
+    return (
+      <div className="space-y-1.5 border-t border-sky-100 pt-2">
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-slate-500">Szervezeti forma</p>
+          <p className="text-sm font-semibold text-slate-800">
+            <span className="italic font-normal text-slate-400">még nincs beállítva</span>
+          </p>
+        </div>
+        <p className="text-[11px] text-slate-500">
+          A forma itt akkor lesz beállítható, ha a rendszergazda lefuttatta a{' '}
+          <code className="text-[10px]">2026-08-25-gyulekezeti-egysegek.sql</code> migrációt
+          az adatbázison.
+        </p>
+      </div>
+    )
+  }
+
+  const mentesTiltva =
+    saving || (tipus === 'leany' && (jeloltek.status !== 'kesz' || !anyaId))
+
+  return (
+    <div className="space-y-2 border-t border-sky-100 pt-2">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-slate-500">Szervezeti forma</p>
+          <select
+            value={tipus}
+            onChange={(e) => setTipus(e.target.value as SzervezetiTipus)}
+            className={SZERVEZET_SELECT_CLASS}
+          >
+            {(Object.keys(SZERVEZETI_TIPUS_CIMKEK) as SzervezetiTipus[]).map((t) => (
+              <option key={t} value={t}>{SZERVEZETI_TIPUS_CIMKEK[t]}</option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-muted-foreground">{SZERVEZETI_TIPUS_LEIRAS[tipus]}</p>
+          {tipus !== szervezetiTipus && (
+            <p className="mt-1 text-xs text-amber-700">
+              Jelenleg mentett: <b>{SZERVEZETI_TIPUS_CIMKEK[szervezetiTipus]}</b> — a mentés ezt írja felül.
+            </p>
+          )}
+        </div>
+        {tipus === 'leany' && (
+          <div>
+            <p className="text-[10px] uppercase tracking-wide text-slate-500">Anyaegyházközség *</p>
+            <select
+              value={anyaId}
+              onChange={(e) => setAnyaId(e.target.value)}
+              disabled={jeloltek.status !== 'kesz' || jeloltek.lista.length === 0}
+              className={SZERVEZET_SELECT_CLASS}
+            >
+              <option value="" disabled>
+                {jeloltek.status === 'toltodik'
+                  ? 'A jelöltek betöltése…'
+                  : '— válassz anyaegyházközséget —'}
+              </option>
+              {jeloltek.lista.map((j) => (
+                <option key={j.id} value={j.id}>{j.nev}</option>
+              ))}
+            </select>
+            {jeloltek.status === 'hiba' && (
+              <p className="mt-1 text-xs text-amber-700">{jeloltek.error}</p>
+            )}
+            {jeloltek.status === 'kesz' && jeloltek.lista.length === 0 && (
+              <p className="mt-1 text-xs text-amber-700">
+                A saját egyházmegyében nincs választható anyaegyházközség — kérd a
+                rendszergazda segítségét.
+              </p>
+            )}
+            {jeloltek.status === 'kesz' && anyaNev && !anyaId && (
+              <p className="mt-1 text-xs text-slate-500">
+                Jelenleg mentett: <b>{anyaNev}</b>
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="min-w-0 flex-1 basis-52 text-[11px] text-slate-500">
+          A formát itt te is beállíthatod; vitás besorolást a rendszergazda a Szervezeti
+          fán rendez (minden módosítás naplózott).
+        </p>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => void handleFormaMentes()}
+          disabled={mentesTiltva}
+          className="shrink-0 border-sky-300 bg-white text-sky-800 hover:bg-sky-100"
+        >
+          {saving ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : <Save className="mr-1 size-3.5" />}
+          Szervezeti forma mentése
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // 24. pont: Pecsét + aláírás kép az iktató-nyomtatványokra
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -892,6 +1153,439 @@ function SectionIratKepek({ congregationId }: { congregationId: string }) {
       upload={(fajta, fd) => uploadCongregationIratKep(congregationId, fajta, fd)}
       remove={(fajta) => removeCongregationIratKep(congregationId, fajta)}
     />
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 2026-08-25 (gyülekezeti egységek, terv 3.2): a leány/szórvány egységek
+// kezelője. A CRUD az egysegek-actions server actionjeire épül — azok a
+// hívó EFFEKTÍV gyülekezetére dolgoznak (getEffectiveCongregationContext),
+// ezért a komponensnek nem kell congregationId prop. Fail-closed: a lista-
+// betöltés hibája (pl. a tábla még nincs migrálva) borostyán sávban jelenik
+// meg, és SOHA nem számít üres listának.
+// ─────────────────────────────────────────────────────────────────────────
+
+interface EgysegFormState {
+  id?: string
+  nev: string
+  tipus: EgysegTipus
+  megjegyzes: string
+}
+
+/**
+ * 2026-08-25/2: az „Új egység" típus-választék + alapérték a szervezeti forma
+ * szerint. Anyánál nincs egyházrész; társnál az egyházrész az alapérték (nincs
+ * leány); missziónál a szórvány az első, de a többi is választható. Ismeretlen
+ * (migráció előtti) formánál a teljes lista, leány alapértékkel.
+ */
+function egysegTipusValasztek(forma: SzervezetiTipus | null): {
+  tipusok: EgysegTipus[]
+  alapertelmezett: EgysegTipus
+} {
+  switch (forma) {
+    case 'anya':
+      return { tipusok: ['leany', 'szorvany'], alapertelmezett: 'szorvany' }
+    case 'misszioi':
+      return { tipusok: ['szorvany', 'leany', 'egyhazresz'], alapertelmezett: 'szorvany' }
+    case 'tars':
+      return { tipusok: ['egyhazresz', 'szorvany'], alapertelmezett: 'egyhazresz' }
+    case 'leany':
+      return { tipusok: ['szorvany', 'leany'], alapertelmezett: 'szorvany' }
+    default:
+      return { tipusok: ['leany', 'szorvany', 'egyhazresz'], alapertelmezett: 'leany' }
+  }
+}
+
+function SectionEgysegek({
+  szervezetiTipus,
+}: {
+  /** 2026-08-25: a hivatalos szervezeti forma — az intro-szöveg, a leány-
+   *  infódoboz és az „Új egység" típus-választék + alapérték ehhez igazodik
+   *  (egysegTipusValasztek). Migráció előtt null → teljes választék. */
+  szervezetiTipus: SzervezetiTipus | null
+}) {
+  const [egysegek, setEgysegek] = useState<GyulekezetiEgyseg[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [szerkesztett, setSzerkesztett] = useState<EgysegFormState | null>(null)
+  // Törlés-megerősítés: a getEgysegHasznalat eredményével együtt. A null
+  // darabszám = „nem tudjuk" (SOHA nem 0-ként kezeljük).
+  const [torlendo, setTorlendo] = useState<{
+    egyseg: GyulekezetiEgyseg
+    tagok: number | null
+    naploSorok: number | null
+    usageError?: string
+  } | null>(null)
+
+  async function frissit() {
+    const res = await listGyulekezetiEgysegek({ inaktivakIs: true })
+    if (res.error) {
+      setLoadError(res.error)
+      setEgysegek([])
+    } else {
+      setLoadError(null)
+      setEgysegek(res.egysegek || [])
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      setLoading(true)
+      const res = await listGyulekezetiEgysegek({ inaktivakIs: true })
+      if (cancelled) return
+      if (res.error) {
+        setLoadError(res.error)
+        setEgysegek([])
+      } else {
+        setLoadError(null)
+        setEgysegek(res.egysegek || [])
+      }
+      setLoading(false)
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  async function handleMentes() {
+    if (!szerkesztett) return
+    setBusy(true)
+    try {
+      // Módosításnál a NEM szerkesztett mezőket (adrlocality_id, sorrend, aktiv)
+      // az eredeti sorból adjuk tovább — az update különben kinullázná őket.
+      const eredeti = szerkesztett.id ? egysegek.find((e) => e.id === szerkesztett.id) : undefined
+      const res = await saveGyulekezetiEgyseg({
+        id: szerkesztett.id,
+        nev: szerkesztett.nev.trim(),
+        tipus: szerkesztett.tipus,
+        megjegyzes: szerkesztett.megjegyzes.trim() || null,
+        ...(eredeti
+          ? { adrlocality_id: eredeti.adrlocality_id, sorrend: eredeti.sorrend, aktiv: eredeti.aktiv }
+          : {}),
+      })
+      if (res.error) { toast.error(res.error); return }
+      toast.success(szerkesztett.id ? 'Egység módosítva.' : 'Új egység felvéve.')
+      setSzerkesztett(null)
+      await frissit()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleAktivValtas(e: GyulekezetiEgyseg) {
+    setBusy(true)
+    try {
+      const res = await saveGyulekezetiEgyseg({
+        id: e.id,
+        nev: e.nev,
+        tipus: e.tipus,
+        megjegyzes: e.megjegyzes,
+        adrlocality_id: e.adrlocality_id,
+        sorrend: e.sorrend,
+        aktiv: !e.aktiv,
+      })
+      if (res.error) { toast.error(res.error); return }
+      toast.success(
+        e.aktiv
+          ? 'Egység inaktiválva — új adatnál nem választható, a meglévő címkék megmaradnak.'
+          : 'Egység újra aktív.',
+      )
+      await frissit()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleTorlesElokeszites(e: GyulekezetiEgyseg) {
+    setSzerkesztett(null)
+    setBusy(true)
+    try {
+      const hasznalat = await getEgysegHasznalat(e.id)
+      setTorlendo({
+        egyseg: e,
+        tagok: hasznalat.tagok,
+        naploSorok: hasznalat.naploSorok,
+        usageError: hasznalat.error,
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleTorles() {
+    if (!torlendo) return
+    setBusy(true)
+    try {
+      const res = await deleteGyulekezetiEgyseg(torlendo.egyseg.id)
+      if (res.error) { toast.error(res.error); return }
+      toast.success('Egység törölve — a rá mutató címkék az anyaközpontra estek vissza.')
+      setTorlendo(null)
+      await frissit()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const hasznalatIsmeretlen = torlendo
+    ? torlendo.tagok === null || torlendo.naploSorok === null
+    : false
+  const vanCimkezettAdat = torlendo
+    ? (torlendo.tagok ?? 0) > 0 || (torlendo.naploSorok ?? 0) > 0
+    : false
+
+  // 2026-08-25/2: az „Új egység" típus-választék és alapérték a szervezeti
+  // formához igazodik (az intro-szöveggel és a leány-infódobozzal együtt).
+  const valasztek = egysegTipusValasztek(szervezetiTipus)
+
+  return (
+    <section className="space-y-4">
+      {/* 2026-08-25/2: leány-forma — az egység-felvétel általában felesleges,
+          de az űrlap használható marad (nem tiltjuk le). */}
+      {szervezetiTipus === 'leany' && (
+        <div className="rounded-[1rem] border border-sky-200 bg-sky-50/60 px-3 py-2.5 text-xs text-sky-900">
+          Leányegyházközségként a gyülekezetetek egy anyaegyházközséghez tartozik —
+          saját egységekre általában nincs szükség.
+        </div>
+      )}
+      <div className="card-raised p-4 bg-amber-50/30 border-amber-100">
+        <div className="flex items-start gap-2">
+          <Network className="size-5 text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <h3 className="font-heading text-base text-slate-800">Leány- és szórványegységek</h3>
+            <p className="text-xs text-slate-600 mt-1">
+              A leányegyházközségek és szórványok az anyaegyházközség kartotékán belüli
+              címkézhető egységek — nem külön fiókok. A munkanaplóban és a tagoknál
+              megjelölhető, melyik egységhez tartozik egy alkalom vagy személy, a
+              lelkészi jelentés „Gyülekezetenkénti bontás&rdquo; táblájában pedig minden egység
+              külön oszlopot kap. Az egység nélküli (címkézetlen) adat mindig az
+              anyaközpontot jelenti.
+              {szervezetiTipus === 'tars' && (
+                <>
+                  {' '}Társegyházközségnél az egyenrangú egyházrészeket „Egyházrész&rdquo;
+                  típusú egységként vedd fel — a címke nélküli adat a közös (egész
+                  egyházközséget érintő) tétel.
+                </>
+              )}
+              {szervezetiTipus === 'misszioi' && (
+                <>
+                  {' '}Missziói egyházközségként a gondozott településeket „Szórvány&rdquo;
+                  típusú egységként érdemes felvenni — a központi település marad az
+                  anyaközpont.
+                </>
+              )}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {loadError && (
+        <div className="rounded-[1rem] border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-xs text-amber-900">
+          {loadError}
+        </div>
+      )}
+
+      {loading ? (
+        <p className="flex items-center gap-2 px-1 text-sm text-slate-400">
+          <Loader2 className="size-4 animate-spin" /> Az egységek betöltése…
+        </p>
+      ) : !loadError && egysegek.length === 0 ? (
+        <p className="px-1 text-sm italic text-slate-500">
+          Még nincs felvett egység. Ha a gyülekezethez leányegyházközség vagy szórvány
+          tartozik, az „Új egység&rdquo; gombbal veheted fel.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {egysegek.map((e) => (
+            <div
+              key={e.id}
+              className={`rounded-xl border p-3 ${e.aktiv ? 'border-slate-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-80'}`}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold text-slate-800">{e.nev}</span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                    e.tipus === 'leany' ? 'bg-sky-100 text-sky-800' : 'bg-violet-100 text-violet-800'
+                  }`}
+                >
+                  {EGYSEG_TIPUS_CIMKEK[e.tipus]}
+                </span>
+                {!e.aktiv && (
+                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                    Inaktív
+                  </span>
+                )}
+                <span className="ml-auto flex shrink-0 flex-wrap gap-1">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      setTorlendo(null)
+                      setSzerkesztett({ id: e.id, nev: e.nev, tipus: e.tipus, megjegyzes: e.megjegyzes || '' })
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                    title="Egység szerkesztése"
+                  >
+                    <Pencil className="size-3.5" />
+                    <span className="hidden sm:inline">Szerkesztés</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void handleAktivValtas(e)}
+                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+                    title={e.aktiv ? 'Inaktiválás — új adatnál nem választható, a meglévő címkék megmaradnak' : 'Újra aktiválás'}
+                  >
+                    {e.aktiv ? 'Inaktiválás' : 'Aktiválás'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void handleTorlesElokeszites(e)}
+                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                    title="Egység törlése (megerősítéssel)"
+                  >
+                    <Trash2 className="size-3.5" />
+                    <span className="hidden sm:inline">Törlés</span>
+                  </button>
+                </span>
+              </div>
+              {e.megjegyzes && <p className="mt-1 text-xs text-slate-500">{e.megjegyzes}</p>}
+
+              {torlendo?.egyseg.id === e.id && (
+                <div className="mt-2 rounded-[1rem] border border-rose-200 bg-rose-50/60 p-3 text-xs text-rose-900">
+                  <p className="font-semibold">Biztosan törlöd a(z) „{torlendo.egyseg.nev}&rdquo; egységet?</p>
+                  {hasznalatIsmeretlen ? (
+                    <p className="mt-1">
+                      A címkézett adatok száma most nem állapítható meg
+                      {torlendo.usageError ? ` (${torlendo.usageError})` : ''} — ilyenkor a
+                      biztonságos út az <strong>inaktiválás</strong>: a meglévő címkék
+                      megmaradnak, csak új adatra nem választható.
+                    </p>
+                  ) : vanCimkezettAdat ? (
+                    <p className="mt-1">
+                      Ehhez az egységhez jelenleg <strong>{torlendo.tagok} tag</strong> és{' '}
+                      <strong>{torlendo.naploSorok} munkanapló-sor</strong> van címkézve.
+                      Törléskor a címkék az anyaközpontra esnek vissza (az adatok megmaradnak,
+                      csak az egység-besorolásuk vész el) — ehelyett az{' '}
+                      <strong>inaktiválást</strong> ajánljuk.
+                    </p>
+                  ) : (
+                    <p className="mt-1">Az egységhez nem tartozik címkézett adat — a törlés biztonságos.</p>
+                  )}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setTorlendo(null)}
+                      disabled={busy}
+                    >
+                      Mégse
+                    </Button>
+                    {torlendo.egyseg.aktiv && (hasznalatIsmeretlen || vanCimkezettAdat) && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="border-amber-300 bg-white text-amber-800 hover:bg-amber-50"
+                        onClick={() => {
+                          const cel = torlendo.egyseg
+                          setTorlendo(null)
+                          void handleAktivValtas(cel)
+                        }}
+                        disabled={busy}
+                      >
+                        Inkább inaktiválom
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="bg-rose-600 text-white hover:bg-rose-700"
+                      onClick={() => void handleTorles()}
+                      disabled={busy}
+                    >
+                      Törlés véglegesen
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {szerkesztett ? (
+        <div className="card-raised space-y-3 p-4">
+          <p className="text-sm font-semibold text-slate-800">
+            {szerkesztett.id ? 'Egység szerkesztése' : 'Új egység'}
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ModalField label="Egység neve *">
+              <Input
+                value={szerkesztett.nev}
+                maxLength={120}
+                onChange={(ev) => setSzerkesztett({ ...szerkesztett, nev: ev.target.value })}
+                placeholder="pl. Páva (leányegyházközség)"
+                className={FIELD_INPUT_CLASS}
+              />
+            </ModalField>
+            <ModalField label="Típus *">
+              <select
+                value={szerkesztett.tipus}
+                onChange={(ev) => setSzerkesztett({ ...szerkesztett, tipus: ev.target.value as EgysegTipus })}
+                className="mt-1 h-10 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/25"
+              >
+                {/* A forma szerinti választék; meglévő egység eltérő típusát
+                    a lista végére vesszük fel, hogy a szerkesztés ne írja át némán. */}
+                {(valasztek.tipusok.includes(szerkesztett.tipus)
+                  ? valasztek.tipusok
+                  : [...valasztek.tipusok, szerkesztett.tipus]
+                ).map((t) => (
+                  <option key={t} value={t}>{EGYSEG_TIPUS_CIMKEK[t]}</option>
+                ))}
+              </select>
+            </ModalField>
+          </div>
+          <ModalField label="Megjegyzés (opcionális)">
+            <Input
+              value={szerkesztett.megjegyzes}
+              maxLength={500}
+              onChange={(ev) => setSzerkesztett({ ...szerkesztett, megjegyzes: ev.target.value })}
+              placeholder="pl. kéthetente délutáni istentisztelet"
+              className={FIELD_INPUT_CLASS}
+            />
+          </ModalField>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setSzerkesztett(null)} disabled={busy}>
+              Mégse
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleMentes()}
+              disabled={busy || szerkesztett.nev.trim().length < 2}
+            >
+              {busy ? <Loader2 className="mr-1 size-4 animate-spin" /> : <Save className="mr-1 size-4" />}
+              Mentés
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            setTorlendo(null)
+            // 2026-08-25/2: az alapérték a szervezeti formához igazodik.
+            setSzerkesztett({ nev: '', tipus: valasztek.alapertelmezett, megjegyzes: '' })
+          }}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-amber-300 bg-white/50 p-3 text-sm font-medium text-amber-700 transition hover:bg-amber-50/40 disabled:opacity-50"
+        >
+          <Plus className="size-4" />
+          Új egység
+        </button>
+      )}
+    </section>
   )
 }
 

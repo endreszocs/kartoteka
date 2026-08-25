@@ -4,14 +4,17 @@ import { useState } from 'react'
 import {
   BookOpen,
   ChevronRight,
+  Church,
   ClipboardCheck,
   Heart,
   Info,
   ListChecks,
+  Network,
   Printer,
   Table2,
   Users,
 } from 'lucide-react'
+import { GyulekezetformakUtmutato } from '@/components/gyulekezet/gyulekezetformak-utmutato'
 
 interface HelpCategory {
   id: string
@@ -28,6 +31,10 @@ const CATEGORIES: HelpCategory[] = [
   { id: 'visits', label: 'Látogatás', Icon: Heart, short: 'Családlátogatás, kórház, idősek' },
   { id: 'fields', label: 'Bejegyzés-mezők', Icon: ClipboardCheck, short: 'Kötelező és opcionális adatok' },
   { id: 'report', label: 'Lelkészi jelentés', Icon: Users, short: 'Havi és éves összesítés' },
+  // 2026-08-25: gyülekezeti egységek (leány/szórvány helyszín-címke) + a
+  // gyülekezetformák teljes útmutatója.
+  { id: 'egysegek', label: 'Gyülekezeti egységek', Icon: Network, short: 'Leány, szórvány, helyszín-címke' },
+  { id: 'gyformak', label: 'Gyülekezetformák', Icon: Church, short: 'Anya, leány, missziói, társ, szórvány' },
   { id: 'print', label: 'Export és nyomtatás', Icon: Printer, short: 'CSV export, hivatalos jelentés' },
 ]
 
@@ -93,6 +100,8 @@ export function MunkanaploHelp() {
             {active === 'visits' && <VisitsContent />}
             {active === 'fields' && <FieldsContent />}
             {active === 'report' && <ReportContent />}
+            {active === 'egysegek' && <EgysegekContent />}
+            {active === 'gyformak' && <GyulekezetformakUtmutato />}
             {active === 'print' && <PrintContent />}
           </div>
         </main>
@@ -409,6 +418,55 @@ function ReportContent() {
         egy gombbal <strong>beküldhető az egyházmegyének</strong>, valamint PDF-ként
         menthető és nyomtatható.
       </p>
+    </>
+  )
+}
+
+// 2026-08-25: gyülekezeti egységek — a helyszín-címke súgója a munkanaplóhoz.
+function EgysegekContent() {
+  return (
+    <>
+      <p>
+        Ha az egyházközségedhez <strong>leányegyházközség vagy szórvány</strong>{' '}
+        tartozik, ezeket a Gyülekezet-beállító varázsló „Egységek" paneljén
+        veheted fel. Ettől kezdve a munkanapló rögzítőjében megjelenik egy{' '}
+        <strong>helyszín-választó</strong>: minden alkalomnál megjelölheted,
+        hogy az anyaközpontban vagy valamelyik egységben történt.
+      </p>
+
+      <S>Hogyan működik a helyszín-címke?</S>
+      <ul className="list-disc pl-5 space-y-1">
+        <li>A választó csak akkor látszik, ha a gyülekezetnek van legalább egy egysége — ha nincs, semmi nem változik.</li>
+        <li>Alapértéke az <strong>anyaközpont</strong> — a központi alkalomnál nincs külön teendő.</li>
+        <li>Ha a leányban vagy a szórványban szolgáltál, válaszd ki az egységet a listából.</li>
+        <li>A címke nélküli (üresen hagyott) bejegyzés mindig az <strong>anyaközponthoz</strong> számít — a régi bejegyzéseid így visszamenőleg is helyesek.</li>
+        <li>Társegyházközségnél a helyszín-választó <strong>„Közös"</strong> opciója az egész egyházközséget érintő alkalmakat jelöli — az egyes egyházrészek alkalmait a saját egyházrész-címkéjükkel rögzítsd.</li>
+      </ul>
+
+      <S>Mire jó? — a lelkészi jelentés bontása</S>
+      <p>
+        Az éves lelkészi jelentés <strong>„Gyülekezetenkénti bontás"</strong>{' '}
+        táblája ezekből a címkékből számolja egységenként az alkalmakat, az
+        átlagjelenlétet és a perselypénzt — oszloponként az anyaegyházközség,
+        az egységek és az Összesen. Az automatikus értékek mellett{' '}
+        <strong>minden cella kézzel felülírható</strong>, a tábla pedig külön
+        fekvő A4 mellékletként nyomtatható; a hivatalos beküldött űrlap
+        változatlan marad.
+      </p>
+      <p>
+        Ha a naplózás év közben indult, a bontás hiányos lehet — az érintett
+        cella ilyenkor <strong>üresen marad</strong> (nem hamis nulla), és
+        kézzel pótolhatod. A desktop programban rögzített bejegyzések egyelőre
+        mindig az anyaközponthoz számítanak.
+      </p>
+
+      <div className="rounded-xl border border-border bg-muted/40 p-4">
+        <p>
+          Az öt gyülekezetforma (anya, leány, missziói, társ, szórvány) és a
+          teljes beállítási útmutató a <strong>„Gyülekezetformák"</strong>{' '}
+          fejezetben található, itt a bal oldali listában.
+        </p>
+      </div>
     </>
   )
 }

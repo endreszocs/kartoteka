@@ -34,17 +34,26 @@
 import { revalidatePath } from 'next/cache'
 import { selectAllPaged } from '@kartoteka/supabase-client'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
-import { categorizeWorklogEntry, type WorklogEntry } from '@/lib/constants/worklog'
-import { classifyForOfficialJournal, getUnnepInfo } from '@/lib/worklog/print-columns'
-import { isJournalEntry } from '@/lib/worklog/official-journal'
-import { ADATLAP_MEZO_IDS, JELENTES_MEZOK, MUNKANAPLO_JAVASLAT_MEZOK, deriveAutoMezok } from '@/lib/lelkeszi-jelentes/types'
+import type { WorklogEntry } from '@/lib/constants/worklog'
+import { ADATLAP_MEZO_IDS, JELENTES_MEZOK, deriveAutoMezok } from '@/lib/lelkeszi-jelentes/types'
 import type {
   HatarozatAdatok,
-  JelentesJavaslatTetel,
   TobbEvesEv,
   JelentesJavaslatok,
   LelkesziJelentesData,
 } from '@/lib/lelkeszi-jelentes/types'
+// 2026-08-25 (gyülekezeti egységek, 3. ütem): a munkanapló-alapú auto-mezők
+// TISZTA magja (worklogAutoMezok) a worklog-auto.ts-be költözött — a fő
+// jelentés az ÖSSZES évi sorral hívja (viselkedés-azonos a korábbi ~250 soros
+// blokkal), a „Gyülekezetenkénti bontás" partíciónként ugyanazt.
+import { worklogAutoMezok } from '@/lib/lelkeszi-jelentes/worklog-auto'
+import type { BontasEgyseg, JelentesBontas } from '@/lib/lelkeszi-jelentes/worklog-auto'
+import {
+  ANYA_OSZLOP_ID,
+  BONTAS_MEZO_IDS,
+  kozpontCimke,
+  parseEgysegMezoKulcs,
+} from '@/lib/gyulekezet/egysegek-shared'
 import { submitDocument } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
 import { getWorklogsForYearChecked } from './actions'
 
@@ -196,10 +205,6 @@ async function fetchAllRows<T>(
   return { rows: res.data, error: null }
 }
 
-function round1(n: number): number {
-  return Math.round(n * 10) / 10
-}
-
 function round2(n: number): number {
   return Math.round(n * 100) / 100
 }
@@ -221,43 +226,9 @@ function sanitizeErtekek(raw: Record<string, unknown> | null | undefined): Recor
   return out
 }
 
-/**
- * Egy alkalom effektív jelenléte: jelenlet_osszesen ha > 0, különben a
- * férfi+nő+gyermek összege (azonos a statistics.ts / generator.ts szabályával).
- */
-function jelenlet(e: WorklogEntry): number {
-  if (typeof e.jelenlet_osszesen === 'number' && e.jelenlet_osszesen > 0) return e.jelenlet_osszesen
-  return (e.jelenlet_ferfi ?? 0) + (e.jelenlet_no ?? 0) + (e.jelenlet_gyermek ?? 0)
-}
-
-/** Alkalom-halmozó: darab + össz-jelenlét + jelenlétet ténylegesen rögzítő alkalmak. */
-interface Halmozo {
-  db: number
-  jelenletOssz: number
-  jelenletesDb: number
-}
-
-function ujHalmozo(): Halmozo {
-  return { db: 0, jelenletOssz: 0, jelenletesDb: 0 }
-}
-
-function halmoz(h: Halmozo, e: WorklogEntry) {
-  h.db += 1
-  const j = jelenlet(e)
-  h.jelenletOssz += j
-  if (j > 0) h.jelenletesDb += 1
-}
-
-/** Átlagjelenlét: a jelenlétet rögzítő alkalmak átlaga, 1 tizedes; null ha nincs ilyen. */
-function atlagJelenlet(h: Halmozo): number | null {
-  return h.jelenletesDb > 0 ? round1(h.jelenletOssz / h.jelenletesDb) : null
-}
-
-/** Átlagjelenlét a lélekszám %-ában (1 tizedes); null ha bármelyik hiányzik. */
-function szazalek(atlag: number | null, lelekszam: number | null): number | null {
-  if (atlag === null || !lelekszam || lelekszam <= 0) return null
-  return round1((atlag / lelekszam) * 100)
-}
+// A jelenlét-/halmozó-segédek (jelenlet, Halmozo, atlagJelenlet, szazalek) a
+// worklogAutoMezok tiszta magjával együtt a lib/lelkeszi-jelentes/
+// worklog-auto.ts-be költöztek (2026-08-25, gyülekezeti egységek).
 
 /** Beágyazott PostgREST sor normalizálása (objektum VAGY 1 elemű tömb jöhet). */
 function egyBeagyazott<T>(v: T | T[] | null | undefined): T | null {
@@ -281,43 +252,9 @@ function befizetesKod(row: { befizetescel?: unknown }): string | null {
 // Auto-számítás
 // ─────────────────────────────────────────────────────────────────────────
 
-/** A sátoros ünnepnapok (getUnnepInfo nevei) → II.5x mező-azonosítók. */
-const SATOROS_NAP_MEZO: Record<string, string> = {
-  'Karácsony': 'II.5a',
-  'Karácsony másodnapja': 'II.5b',
-  'Húsvét': 'II.5c',
-  'Húsvét másodnapja': 'II.5d',
-  'Pünkösd': 'II.5e',
-  'Pünkösd másodnapja': 'II.5f',
-  // 2026-07-17 (F5): a hivatalos nyomtatvány III. napjai (Erdélyben a sátoros
-  // ünnepek harmadnapja is ünnep) — a getUnnepInfo új 'harmadnapja' nevei.
-  'Karácsony harmadnapja': 'II.5g',
-  'Húsvét harmadnapja': 'II.5h',
-  'Pünkösd harmadnapja': 'II.5i',
-}
+// A SATOROS_NAP_MEZO és a JELENTES_* típusnév-készletek a worklogAutoMezok
+// tiszta magjával a lib/lelkeszi-jelentes/worklog-auto.ts-ben élnek (2026-08-25).
 
-// 2026-08-14 (18. pont 3C): a spec II.1 e/f/g származtatásainak TÍPUSNÉV-
-// készletei (hivatalos EREK-nevek + legacy nevek — a régi rögzítések is
-// helyesen számítanak). Szinkronban tartandó a lib/constants/worklog.ts
-// WORKLOG_TYPES/LEGACY_WORKLOG_TYPES listáival.
-const JELENTES_BIBLIAORA_TIPUSOK = new Set([
-  'Felnőtt bibliaóra', 'Ifj. vagy IKE bibliaóra', 'Presbiteri bibliaóra',
-  'Nőszöv. bibliaóra', 'Házasok bibliaórája', 'Más bibliaóra 1', 'Más bibliaóra 2',
-  'Bibliaóra', 'Ifjúsági bibliaóra (IKE)', 'Ifjúsági óra',
-])
-const JELENTES_KAZUALIA_TIPUSOK = new Set([
-  'F. keresztelő', 'N. keresztelő', 'Keresztelői felkészítő',
-  'F. temetés', 'N. temetés', 'Virrasztó',
-  'Azonos esketés', 'Vegyes esketés', 'Jegyesbeszélgetés',
-  'Keresztelő', 'Esketés', 'Temetés',
-])
-const JELENTES_MAS_ALKALOM_TIPUSOK = new Set([
-  'Vallásos ünnepély', 'Szeretetvendégség', 'Imahét',
-  'Úrvacsora templomban', 'Betegúrvacsora', 'Egyéb szolgálat',
-  // legacy: az 'Úrvacsora' a mai 'Úrvacsora templomban' elődje; a
-  // 'Konfirmáció' esemény a 37-es készletben nem önálló típus → más alkalom.
-  'Úrvacsora', 'Konfirmáció',
-])
 interface AnyakonyviSzamok {
   ferfi: number
   no: number
@@ -329,37 +266,151 @@ interface AnyakonyviSzamok {
  * lookupjával. Az ismeretlen nemű (hiányzó/nem látható személy) csak az
  * „együtt" rubrikába számít — az a/b összege ezért lehet kisebb a c-nél.
  */
-function nemBontas(idSzemelyLista: Array<number | null>, ferfiMap: Map<number, boolean | null>): AnyakonyviSzamok {
+function nemBontas(idSzemelyLista: Array<number | null>, cimkek: Map<number, SzemelyCimke>): AnyakonyviSzamok {
   let ferfi = 0
   let no = 0
   for (const id of idSzemelyLista) {
     if (id == null) continue
-    const f = ferfiMap.get(id)
+    const f = cimkek.get(id)?.ferfi
     if (f === true) ferfi += 1
     else if (f === false) no += 1
   }
   return { ferfi, no, egyutt: idSzemelyLista.length }
 }
 
-/** szemely.ferfi kötegelt lekérdezése (200-as .in() csomagokban — URL-hossz limit). */
-async function fetchFerfiMap(supabase: Supa, ids: number[]): Promise<Map<number, boolean | null>> {
-  const map = new Map<number, boolean | null>()
+/** A szemely-lookup címkéi: nem (ferfi) + egység-besorolás (a bontáshoz). */
+interface SzemelyCimke {
+  ferfi: boolean | null
+  egysegId: string | null
+}
+
+/**
+ * szemely.ferfi (+ aktív bontásnál egyseg_id) kötegelt lekérdezése (200-as
+ * .in() csomagokban — URL-hossz limit; az azonosítók numerikusak, így a 200-as
+ * csomag bőven a limit alatt marad). Az egyseg_id-t CSAK akkor kérjük, ha az
+ * oszlop bizonyítottan létezik (a fő szemely-lekérdezés igazolta): a migráció
+ * előtti adatbázison a plusz oszlop az egész lookupot — és vele a fő jelentés
+ * férfi/nő bontását — buktatná el.
+ */
+async function fetchSzemelyCimkeMap(
+  supabase: Supa,
+  ids: number[],
+  egysegOszloppal: boolean,
+): Promise<Map<number, SzemelyCimke>> {
+  const map = new Map<number, SzemelyCimke>()
   const unique = Array.from(new Set(ids))
   const CHUNK = 200
   for (let i = 0; i < unique.length; i += CHUNK) {
+    // A feltételes select-string a supabase-js literál-parserének nem elemezhető
+    // (ParserError-uniót ad) — a sor-alakot ezért .returns nélkül, futásidőben
+    // ellenőrizve szűkítjük (unknown-on át, a 313-314. sori védőfeltételekkel).
     const { data, error } = await supabase
       .from('szemely')
-      .select('id, ferfi')
+      .select((egysegOszloppal ? 'id, ferfi, egyseg_id' : 'id, ferfi') as 'id, ferfi')
       .in('id', unique.slice(i, i + CHUNK))
     if (error) {
-      console.error('[lelkeszi-jelentes] szemely.ferfi lookup hiba — a férfi/nő bontás hiányos lesz:', error.message)
+      console.error('[lelkeszi-jelentes] szemely lookup hiba — a férfi/nő és az egység-bontás hiányos lesz:', error.message)
       continue
     }
-    for (const row of (data || []) as Array<{ id: number; ferfi: boolean | null }>) {
-      map.set(Number(row.id), row.ferfi === true ? true : row.ferfi === false ? false : null)
+    for (const row of (data || []) as unknown as Array<{ id: number; ferfi: boolean | null; egyseg_id?: string | null }>) {
+      map.set(Number(row.id), {
+        ferfi: row.ferfi === true ? true : row.ferfi === false ? false : null,
+        egysegId: typeof row.egyseg_id === 'string' ? row.egyseg_id : null,
+      })
     }
   }
   return map
+}
+
+/** A szemely sora a lélekszám-számításhoz (egyseg_id: bontás — fetchSzemelyRows). */
+interface SzemelySor {
+  id: number
+  meghalt: boolean | null
+  member_status: string | null
+  voter_eligible: boolean | null
+  egyseg_id?: string | null
+}
+
+/**
+ * A KANONIKUS „aktív tag" szűrő (2026-08-11, 6. kör: az I.10 és az I.11 közös
+ * szabálya). 2026-08-25: modul-szintre emelve, hogy a gyülekezetenkénti bontás
+ * UGYANEZT használja — nincs két igazság.
+ */
+function aktivTagSzuro(s: { meghalt: boolean | null; member_status: string | null }): boolean {
+  return (
+    !s.meghalt &&
+    !['elhunyt', 'elköltözött', 'elkoltozott', 'kitért', 'törölt'].includes(s.member_status || '')
+  )
+}
+
+/** A szemely/munkanaplo egyseg_id oszlopának hiánya (42703 / PGRST204). */
+function isMissingEgysegOszlop(error: PgError): boolean {
+  if (!error) return false
+  const msg = (error.message || '').toLowerCase()
+  if (!msg.includes('egyseg_id')) return false
+  return (
+    error.code === '42703' ||
+    error.code === 'PGRST204' ||
+    msg.includes('does not exist') ||
+    msg.includes('schema cache') ||
+    msg.includes('could not find')
+  )
+}
+
+/** A gyulekezeti_egysegek tábla hiánya (a 2026-08-25-ös migráció előtt). */
+function isMissingEgysegTabla(error: PgError): boolean {
+  if (!error) return false
+  if (error.code === '42P01' || error.code === 'PGRST205') return true
+  const msg = (error.message || '').toLowerCase()
+  return (
+    msg.includes('gyulekezeti_egysegek') &&
+    (msg.includes('does not exist') || msg.includes('schema cache') || msg.includes('could not find'))
+  )
+}
+
+/**
+ * Lélekszám-sorok lekérdezése — a bontáshoz egyseg_id-vel, a MIGRÁCIÓ ELŐTTI
+ * adatbázist TÚLÉLŐ visszaeséssel (a fetchBealitasZaro bevált mintája): ha az
+ * egyseg_id oszlop még nincs, a szűkített lekérdezés fut, és CSAK a bontás
+ * marad el — az I.10/I.11 fő rubrikái nem sérülhetnek a bővítéstől. Bármilyen
+ * MÁS hibát változatlanul továbbadunk (fail-closed, nincs elfedés).
+ */
+async function fetchSzemelyRows(
+  supabase: Supa,
+  congId: string,
+): Promise<{ rows: SzemelySor[]; error: PgError; egysegOszlop: boolean }> {
+  const build = (mezok: string) =>
+    supabase
+      .from('szemely')
+      .select(mezok)
+      .eq('congregation_id', congId)
+      .eq('isvisible', true)
+      .order('id')
+  const teljes = await fetchAllRows<SzemelySor>(build('id, meghalt, member_status, voter_eligible, egyseg_id'))
+  if (!teljes.error) return { rows: teljes.rows, error: null, egysegOszlop: true }
+  if (!isMissingEgysegOszlop(teljes.error)) return { rows: [], error: teljes.error, egysegOszlop: false }
+  const szukitett = await fetchAllRows<SzemelySor>(build('id, meghalt, member_status, voter_eligible'))
+  return { rows: szukitett.rows, error: szukitett.error, egysegOszlop: false }
+}
+
+/**
+ * 2026-08-25 (társegyházközség): a gyülekezet-sor a jelentés fejlécéhez + a
+ * szervezeti forma (a bontás „központ" oszlopának feliratához) — OSZLOP-
+ * DRIFT-BIZTOSAN. A congregations.szervezeti_tipus a migráció előtt még
+ * hiányozhat: ha a bővített select hibázik, a régi (szűkített) select fut —
+ * a fő jelentés (gyülekezet-/egyházmegye-név) migráció előtt sem sérülhet,
+ * ilyenkor csak a központ-felirat esik vissza az alapértelmezettre.
+ */
+async function fetchCongRow(
+  supabase: Supa,
+  congId: string,
+): Promise<{ data: unknown; error: PgError }> {
+  const sor = (mezok: string) =>
+    supabase.from('congregations').select(mezok).eq('id', congId).maybeSingle()
+  const teljes = await sor('nev_hu, name, szervezeti_tipus, dioceses(name)')
+  if (!teljes.error) return { data: teljes.data, error: null }
+  const szukitett = await sor('nev_hu, name, dioceses(name)')
+  return { data: szukitett.data, error: szukitett.error }
 }
 
 /**
@@ -422,6 +473,176 @@ async function loadTobbEvesAdatok(
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Gyülekezetenkénti bontás (2026-08-25, gyülekezeti egységek — 3. ütem)
+// ─────────────────────────────────────────────────────────────────────────
+
+/** A bontásban munkanaplóból számolt mutatók (a BONTAS_MEZO_IDS részhalmaza). */
+const BONTAS_WORKLOG_MEZOK = ['II.1a', 'II.1b', 'II.6a', 'II.12', 'V.3', 'III.7'] as const
+
+/**
+ * A „Gyülekezetenkénti bontás" auto-értékei partíciónként (anyaközpont +
+ * minden aktív egység). FAIL-CLOSED: ha egy forrás-lekérdezés hibázott, a
+ * hozzá tartozó cellák null-ok maradnak + magyar üzenet a hibak listában —
+ * SOHA nem néma 0. Az inaktív/törölt egység-címkéjű sorok az anyaközpont
+ * oszlopába számítanak (az ON DELETE SET NULL szemantikája), de HANGOSAN.
+ */
+function bontasSzamitas(args: {
+  egysegek: BontasEgyseg[]
+  worklog: { entries: WorklogEntry[]; error: string | null }
+  szemely: { rows: SzemelySor[]; error: PgError; egysegOszlop: boolean }
+  keresztseg: { rows: Array<{ id: number; id_szemely: number | null }>; error: PgError }
+  temetes: { rows: Array<{ id: number; id_szemely: number | null }>; error: PgError }
+  konfirmalas: { rows: Array<{ id: number; id_szemely: number | null }>; error: PgError }
+  hazassag: { rows: Array<{ id: number; id_ferfi: number | null; id_no: number | null }>; error: PgError }
+  befizetes: {
+    rows: Array<{ osszeg: number | null; osszeg_ron?: number | null; id_szemely?: number | null; befizetescel?: unknown }>
+    error: PgError
+  }
+  /** A közös szemely-lookup (nem + egység) — az anyakönyvi/járulék-cellákhoz. */
+  cimkek: Map<number, SzemelyCimke>
+  /** false = a lookup egység-adat nélkül futott → a személy-alapú cellák az anya oszlopba esnének. */
+  cimkeEgysegOk: boolean
+}): JelentesBontas {
+  const hibak: string[] = []
+  const oszlopIds = [ANYA_OSZLOP_ID, ...args.egysegek.map((e) => e.id)]
+  const ervenyes = new Set(oszlopIds)
+  const auto: Record<string, Record<string, number | null>> = {}
+  for (const o of oszlopIds) {
+    const rekord: Record<string, number | null> = {}
+    for (const mezoId of BONTAS_MEZO_IDS) rekord[mezoId] = null
+    auto[o] = rekord
+  }
+
+  let atsorolt = 0
+  const oszlop = (egysegId: string | null | undefined): string => {
+    if (!egysegId) return ANYA_OSZLOP_ID
+    if (ervenyes.has(egysegId)) return egysegId
+    atsorolt += 1
+    return ANYA_OSZLOP_ID
+  }
+  const szemelyEgyseg = (idSzemely: number | null | undefined): string | null =>
+    idSzemely == null ? null : (args.cimkek.get(Number(idSzemely))?.egysegId ?? null)
+
+  // ── Munkanapló-alapú cellák (II.1a/II.1b/II.6a/II.12/V.3/III.7 + VII.3) ──
+  // Partíciónként UGYANAZ a tiszta mag fut, mint a fő jelentésben — így a
+  // De.2/Du.2 összevonás és minden él-eset partíción belül azonosan működik
+  // (egy alkalom pontosan egy partícióban van, kulcs-ütközés nincs).
+  if (args.worklog.error) {
+    hibak.push(
+      'A munkanapló lekérdezése hibázott — az alkalom-mutatók (II.1a, II.1b, II.6a, II.12, V.3, III.7) ' +
+        'és a perselypénz (VII.3) bontás-cellái üresen maradtak.',
+    )
+  } else {
+    const particiok = new Map<string, WorklogEntry[]>()
+    for (const o of oszlopIds) particiok.set(o, [])
+    for (const e of args.worklog.entries) {
+      if (e.deleted) continue
+      particiok.get(oszlop(e.egyseg_id))!.push(e)
+    }
+    for (const [o, sorok] of particiok) {
+      // A százalék-mezők nevezője (lélekszám) itt nem kell — nem bontás-mutatók.
+      const resz = worklogAutoMezok(sorok, null)
+      for (const mezoId of BONTAS_WORKLOG_MEZOK) auto[o][mezoId] = resz.mezok[mezoId] ?? null
+      // VII.3 — perselypénz az alkalom-sorok persely-rovatából. A FŐ jelentés
+      // VII.3-a a könyvelt befizetésekből számol — ISMERT, DOKUMENTÁLT eltérés,
+      // a bontás-panel és a nyomtatott melléklet lábjegyzete mondja ki.
+      auto[o]['VII.3'] = round2(sorok.reduce((s, e) => s + (Number(e.persely) || 0), 0))
+    }
+  }
+
+  // ── I.10 / I.11 — lélekszám + választók egységenként (a KANONIKUS szűrővel) ──
+  if (args.szemely.error) {
+    hibak.push('A tagnyilvántartás lekérdezése hibázott — a lélekszám és a választók (I.10, I.11) bontás-cellái üresen maradtak.')
+  } else if (!args.szemely.egysegOszlop) {
+    // Elvben nem fordulhat elő (az egység-tábla és az oszlop egy migrációban
+    // születik) — de ha mégis: üres cella + hangos jelzés, nem hamis szám.
+    hibak.push(
+      'A szemely.egyseg_id oszlop hiányzik — a lélekszám (I.10, I.11) bontás-cellái üresen maradtak. ' +
+        'Futtassa le a 2026-08-25-gyulekezeti-egysegek.sql migrációt.',
+    )
+  } else {
+    for (const o of oszlopIds) {
+      auto[o]['I.10'] = 0
+      auto[o]['I.11'] = 0
+    }
+    for (const s of args.szemely.rows) {
+      if (!aktivTagSzuro(s)) continue
+      const o = oszlop(s.egyseg_id ?? null)
+      auto[o]['I.10'] = (auto[o]['I.10'] ?? 0) + 1
+      if (s.voter_eligible === true) auto[o]['I.11'] = (auto[o]['I.11'] ?? 0) + 1
+    }
+  }
+
+  // ── I.2c / I.3c / V.7c — anyakönyvek a személy egység-besorolása szerint ──
+  // (Az esemény a személy egységét örökli — a terv 3.3 pontja; a ritka
+  // határeset a bontás-cellában felülírható.) Ismeretlen személy → anya oszlop.
+  const anyakonyvBontas = (
+    forras: { rows: Array<{ id_szemely: number | null }>; error: PgError },
+    mezoId: 'I.2c' | 'I.3c' | 'V.7c',
+    nev: string,
+  ) => {
+    if (forras.error) {
+      hibak.push(`A ${nev} lekérdezése hibázott — a ${mezoId} bontás-cellái üresen maradtak.`)
+      return
+    }
+    for (const o of oszlopIds) auto[o][mezoId] = 0
+    for (const r of forras.rows) {
+      const o = oszlop(szemelyEgyseg(r.id_szemely))
+      auto[o][mezoId] = (auto[o][mezoId] ?? 0) + 1
+    }
+  }
+  anyakonyvBontas(args.keresztseg, 'I.2c', 'keresztelési anyakönyv')
+  anyakonyvBontas(args.temetes, 'I.3c', 'temetési anyakönyv')
+  anyakonyvBontas(args.konfirmalas, 'V.7c', 'konfirmációs anyakönyv')
+
+  // ── I.16 — esketések: a férj egysége; ha neki nincs, a feleségé ──
+  if (args.hazassag.error) {
+    hibak.push('A házassági anyakönyv lekérdezése hibázott — az I.16 bontás-cellái üresen maradtak.')
+  } else {
+    for (const o of oszlopIds) auto[o]['I.16'] = 0
+    for (const r of args.hazassag.rows) {
+      const egysegId = szemelyEgyseg(r.id_ferfi) ?? szemelyEgyseg(r.id_no)
+      const o = oszlop(egysegId)
+      auto[o]['I.16'] = (auto[o]['I.16'] ?? 0) + 1
+    }
+  }
+
+  // ── VII.1 — egyházfenntartói járulék a befizető személy egysége szerint ──
+  // JAVASLAT-jellegű bontás (a terv D3 döntése): a család-szintű vagy személy
+  // nélküli befizetés az anyaközpont oszlopába számít.
+  if (args.befizetes.error) {
+    hibak.push('A befizetések lekérdezése hibázott — az egyházfenntartói járulék (VII.1) bontás-cellái üresen maradtak.')
+  } else {
+    const jarulek = new Map<string, number>()
+    for (const o of oszlopIds) jarulek.set(o, 0)
+    for (const r of args.befizetes.rows) {
+      const kod = befizetesKod(r)
+      if (!kod || !kod.startsWith('101.01')) continue
+      // A RON-ekvivalens a hivatalos érték (osszeg_ron ?? osszeg) — ugyanaz a
+      // szabály, mint a fő VII.1 összegzésében.
+      const osszeg = Number(r.osszeg_ron ?? r.osszeg) || 0
+      const o = r.id_szemely != null ? oszlop(szemelyEgyseg(r.id_szemely)) : ANYA_OSZLOP_ID
+      jarulek.set(o, (jarulek.get(o) || 0) + osszeg)
+    }
+    for (const o of oszlopIds) auto[o]['VII.1'] = round2(jarulek.get(o) || 0)
+  }
+
+  if (!args.cimkeEgysegOk) {
+    hibak.push(
+      'A személyek egység-besorolása nem volt betölthető — az anyakönyvi (I.2c, I.3c, I.16, V.7c) és a ' +
+        'járulék (VII.1) bontás-cellák teljes egészében az Anyaegyházközség oszlopában összegződtek.',
+    )
+  }
+  if (atsorolt > 0) {
+    hibak.push(
+      `${atsorolt} adatsor időközben törölt vagy inaktív egység-címkét visel — ezek az Anyaegyházközség oszlopában szerepelnek.`,
+    )
+  }
+
+  return { egysegek: args.egysegek, auto, hibak }
+}
+
 /**
  * A teljes auto-rekord kiszámítása egy évre. A `kezi` és `felulirasok` a már
  * mentett sorból jön — a levezetett mezőkhöz (I.8/I.9/VII.8, deriveAutoMezok)
@@ -449,6 +670,15 @@ async function computeAuto(
    * snapshotba (a hivatalos, befagyasztott dokumentumba) SOHA nem kerülhet bele.
    */
   javaslatok: JelentesJavaslatok
+  /**
+   * 2026-08-25 (gyülekezeti egységek): a „Gyülekezetenkénti bontás" auto-adata.
+   * Csak akkor van, ha a gyülekezetnek van aktív egysége ÉS a gyulekezeti_
+   * egysegek tábla létezik (migráció előtt / egység nélkül: undefined).
+   * A kozpontCimke a „központ" oszlop felirata a szervezeti forma szerint
+   * (társegyházközségnél „Közös (egész egyházközség)") — a snapshotba fagyó
+   * bontás automatikusan viszi.
+   */
+  bontas?: JelentesBontas & { kozpontCimke: string }
 }> {
   const yearStart = `${ev}-01-01`
   const yearEndExclusive = `${ev + 1}-01-01`
@@ -474,6 +704,7 @@ async function computeAuto(
     bealitasRes,
     presbiterRes,
     congRes,
+    egysegekRes,
   ] = await Promise.all([
     // Munkanapló — teljes év, 1000-es lapozóval, HIBA-TOVÁBBADÁSSAL (a néma
     // üres lista hivatalos rubrikában tilos — v0.9.78 hibaosztály)
@@ -498,10 +729,13 @@ async function computeAuto(
         .lt('tdatum', yearEndExclusive)
         .order('id'),
     ),
-    fetchAllRows<{ id: number; vegyes: boolean | null }>(
+    // 2026-08-25: + id_ferfi/id_no — a bontás I.16 cellájához (az egység a
+    // férj szemely.egyseg_id-je, ha nincs, a feleségé). A fő I.16/I.17
+    // számítást a két plusz oszlop nem érinti.
+    fetchAllRows<{ id: number; vegyes: boolean | null; id_ferfi: number | null; id_no: number | null }>(
       supabase
         .from('hazassag')
-        .select('id, vegyes')
+        .select('id, vegyes, id_ferfi, id_no')
         .eq('congregation_id', congId)
         .gte('datum', yearStart)
         .lt('datum', yearEndExclusive)
@@ -519,14 +753,9 @@ async function computeAuto(
     // Lélekszám — az annual-report generator.ts MŰKÖDŐ mintája (v0.9.78 után):
     // CSAK verifikált oszlopok (meghalt, member_status, isvisible).
     // 2026-07-17 (PR-2 F1.7): + voter_eligible az I.11 auto-számításhoz.
-    fetchAllRows<{ id: number; meghalt: boolean | null; member_status: string | null; voter_eligible: boolean | null }>(
-      supabase
-        .from('szemely')
-        .select('id, meghalt, member_status, voter_eligible')
-        .eq('congregation_id', congId)
-        .eq('isvisible', true)
-        .order('id'),
-    ),
+    // 2026-08-25: + egyseg_id a bontáshoz — a helper migráció előtti DB-n a
+    // szűkített select-re esik vissza (az I.10/I.11 fő rubrikái nem sérülnek).
+    fetchSzemelyRows(supabase, congId),
     // Előző évi jelentés (I.1-hez) — csak véglegesítettből olvasunk
     supabase
       .from('lelkeszi_jelentes')
@@ -547,7 +776,18 @@ async function computeAuto(
       .eq('szemely.congregation_id', congId)
       .eq('szemely.meghalt', false),
     // Gyülekezet-név + egyházmegye-név (a jelentés fejlécéhez / címzettjéhez)
-    supabase.from('congregations').select('nev_hu, name, dioceses(name)').eq('id', congId).maybeSingle(),
+    // + szervezeti_tipus (2026-08-25: a bontás „központ" felirata) — oszlop-
+    // drift-biztosan (lásd fetchCongRow).
+    fetchCongRow(supabase, congId),
+    // 2026-08-25: aktív gyülekezeti egységek — a „Gyülekezetenkénti bontás"
+    // oszlopai. Hiányzó tábla (migráció előtt) = nincs bontás, NEM hiba.
+    supabase
+      .from('gyulekezeti_egysegek')
+      .select('id, nev, tipus')
+      .eq('congregation_id', congId)
+      .eq('aktiv', true)
+      .order('sorrend', { ascending: true })
+      .order('nev', { ascending: true }),
   ])
 
   if (congRes.error) {
@@ -556,11 +796,32 @@ async function computeAuto(
   const congRow = congRes.data as {
     nev_hu?: string | null
     name?: string | null
+    /** 2026-08-25 (társegyházközség): a migráció előtt / szűkített selectnél hiányzik. */
+    szervezeti_tipus?: string | null
     dioceses?: { name?: string | null } | Array<{ name?: string | null }> | null
   } | null
   const congregationName = congRow?.nev_hu || congRow?.name || ''
   const dioceseRow = egyBeagyazott(congRow?.dioceses)
   const egyhazmegyeNev = (dioceseRow?.name || '').trim() || null
+
+  // ── Gyülekezeti egységek — a bontás oszlopai (2026-08-25) ──
+  // Hiányzó tábla (a migráció még nem futott le) → a bontás EGÉSZÉNEK
+  // kihagyása, NEM hiba. Más hibánál is kihagyjuk (a fő jelentés fut tovább),
+  // de hangosan logolunk.
+  let egysegek: BontasEgyseg[] = []
+  if (egysegekRes.error) {
+    if (!isMissingEgysegTabla(egysegekRes.error)) {
+      console.error(
+        '[lelkeszi-jelentes] gyulekezeti_egysegek lekérdezés hiba — a gyülekezetenkénti bontás kimarad:',
+        egysegekRes.error.message,
+      )
+    }
+  } else {
+    egysegek = ((egysegekRes.data || []) as Array<{ id: string; nev: string; tipus: string }>)
+      .filter((e) => e.tipus === 'leany' || e.tipus === 'szorvany')
+      .map((e) => ({ id: e.id, nev: e.nev, tipus: e.tipus as BontasEgyseg['tipus'] }))
+  }
+  const bontasAktiv = egysegek.length > 0
 
   // ── I. Lélekszám ──
 
@@ -572,11 +833,8 @@ async function computeAuto(
   } else {
     // 2026-08-11 (6. kör): a KANONIKUS „aktív tag" szűrő — az I.10 és az I.11
     // MOSTANTÓL UGYANEZT használja (eddig az I.11 csak a `meghalt`-at nézte).
-    const aktivTag = (s: (typeof szemelyRes.rows)[number]) =>
-      !s.meghalt &&
-      !['elhunyt', 'elköltözött', 'elkoltozott', 'kitért', 'törölt'].includes(s.member_status || '')
-
-    lelekszam = szemelyRes.rows.filter(aktivTag).length
+    // 2026-08-25: a szűrő modul-szintű (aktivTagSzuro) — a bontás is EZT hívja.
+    lelekszam = szemelyRes.rows.filter(aktivTagSzuro).length
     auto['I.10'] = lelekszam
     // I.11 — választói névjegyzékben szereplők (2026-07-17, PR-2 F1.7): a
     // perzisztált voter_eligible flagből (a „Jogosultság frissítése" gomb / RPC
@@ -587,7 +845,7 @@ async function computeAuto(
     // `voter_eligible` flagje nem lett letisztítva, felhizlalta a választók
     // számát — miközben az I.10 lélekszámban már NEM szerepelt. A hivatalos
     // nyomtatványon így több választó látszott, mint amennyi gyülekezeti tag.
-    auto['I.11'] = szemelyRes.rows.filter((s) => s.voter_eligible === true && aktivTag(s)).length
+    auto['I.11'] = szemelyRes.rows.filter((s) => s.voter_eligible === true && aktivTagSzuro(s)).length
   }
 
   // I.1 — előző évi véglegesített jelentés I.10-e
@@ -606,12 +864,27 @@ async function computeAuto(
     }
   }
 
-  // I.2 / I.3 / V.7 — férfi/nő bontás közös szemely-lookuppal
+  // I.2 / I.3 / V.7 — férfi/nő bontás közös szemely-lookuppal. 2026-08-25:
+  // aktív bontásnál UGYANEZ a lookup adja a személyek EGYSÉG-besorolását is
+  // (a bontás I.16 cellájához a házasfelek azonosítói is bekerülnek).
   const szemelyIds: number[] = []
   if (!keresztsegRes.error) for (const r of keresztsegRes.rows) if (r.id_szemely != null) szemelyIds.push(Number(r.id_szemely))
   if (!temetesRes.error) for (const r of temetesRes.rows) if (r.id_szemely != null) szemelyIds.push(Number(r.id_szemely))
   if (!konfirmalasRes.error) for (const r of konfirmalasRes.rows) if (r.id_szemely != null) szemelyIds.push(Number(r.id_szemely))
-  const ferfiMap = szemelyIds.length > 0 ? await fetchFerfiMap(supabase, szemelyIds) : new Map<number, boolean | null>()
+  if (bontasAktiv && !hazassagRes.error) {
+    for (const r of hazassagRes.rows) {
+      if (r.id_ferfi != null) szemelyIds.push(Number(r.id_ferfi))
+      if (r.id_no != null) szemelyIds.push(Number(r.id_no))
+    }
+  }
+  // Az egyseg_id-t csak akkor kérjük, ha az oszlop BIZONYÍTOTTAN létezik (a fő
+  // szemely-lekérdezés igazolta) — különben a migráció előtti DB-n a lookup, és
+  // vele a fő jelentés férfi/nő bontása is elhasalna.
+  const cimkeEgysegOk = bontasAktiv && szemelyRes.egysegOszlop
+  const ferfiMap =
+    szemelyIds.length > 0
+      ? await fetchSzemelyCimkeMap(supabase, szemelyIds, cimkeEgysegOk)
+      : new Map<number, SzemelyCimke>()
 
   if (keresztsegRes.error) {
     console.error('[lelkeszi-jelentes] keresztseg lekérdezés hiba — I.2 null:', keresztsegRes.error.message)
@@ -662,327 +935,14 @@ async function computeAuto(
         worklogRes.error,
     )
   } else {
-    const vasarnapDe = ujHalmozo()
-    const vasarnapDu = ujHalmozo()
-    const unnepi = ujHalmozo()
-    const satoros = ujHalmozo()
-    const hetkoznapi = ujHalmozo()
-    const bunbanati = ujHalmozo()
-    let egyebDb = 0
-    let presbiteriGyulesDb = 0
-    let unnepelyDb = 0
-    const imahet = ujHalmozo()
-    const satorosNapJelenlet = new Map<string, number>() // mezoId → össz-jelenlét
-    let katekezisDb = 0
-    let csaladlatogatasDb = 0
-    let egyebLatogatasDb = 0
-    // Úrvacsora: 'Úrvacsora'-ként besorolt alkalmak + minden sor, ahol
-    // úrvacsorázó-szám van rögzítve (uv_templomban / uv_betegnel)
-    let uvOsztasDb = 0
-    let uvResztvevoOssz = 0
-    let uvResztvevosDb = 0
-    let uvBetegnelOssz = 0
-    // 2026-08-11 (6. kör): a hivatalos napló 15. oszlopa („Nőszövetségi
-    // összejövetel") — a III.17 KÉZI rubrika JAVASLATÁHOZ, tételesen.
-    const noszovetsegiTetelek: JelentesJavaslatTetel[] = []
-
-    // 2026-08-14 (18. pont, EREK-spec 2.2 — De.2/Du.2 ÖSSZEADÓ SZABÁLY):
-    // az istentiszteleti oszlopok alkalmait NEM halmozzuk azonnal — előbb
-    // összegyűjtjük, és a De.2/Du.2-vel jelölt (ugyanaznapi második) alkalmak
-    // jelenléte a nap ELSŐ azonos-napszakú alkalmához ADÓDIK, EGY alkalomként.
-    // Jelölés nélkül két külön alkalom = az átlag feleződik (100+200 → 150);
-    // jelöléssel 300 — ez a templomlátogatási százalék hivatalos alapja.
-    const itGyujto: Array<{
-      oszlop: 'vasarnapi' | 'unnepi' | 'satoros' | 'hetkoznapi' | 'bunbanati'
-      kulcs: string
-      masodik: boolean
-      e: WorklogEntry
-    }> = []
-    const itNapszakOldal = (e: WorklogEntry): 'de' | 'du' | 'este' => {
-      const n = e.napszak
-      if (n === 'de2') return 'de'
-      if (n === 'du2') return 'du'
-      return n ?? (e.du ? 'du' : 'de')
-    }
-
-    // 2026-08-14 (EREK-spec 3.1 — VALLÁSÓRA-ÁTLAG): a nevező NEM az összes
-    // vallásóra, hanem a „Vallásóra 1. csoport" alkalmainak száma (= a
-    // vallásórás hetek száma). Két csoport heti 10+20 fővel: helyesen 30.
-    let vallasoraJelenletOssz = 0
-    let vallasora1CsoportDb = 0
-
-    // 2026-08-14 (18. pont 3C — a spec II.1 e/f/g/h származtatásai,
-    // TÍPUSNÉV szerint, a hivatalos képletekkel; a legacy nevek is számítanak):
-    //  e (II.8) = a 7 bibliaóra-típus összege (a hivatalos ív 13. oszlopa
-    //    csak a felnőtt/ifjúságit fogja — a jelentésé MIND a 7);
-    //  f (II.9) = kazuáliák és felkészítők: keresztelők + esketések +
-    //    Keresztelői felkészítő + Jegyesbeszélgetés + Virrasztó + temetések;
-    //  g (II.10) = más alkalmak: Vallásos ünnepély + Szeretetvendégség +
-    //    Imahét + Úrvacsora templomban + Betegúrvacsora + Egyéb szolgálat
-    //    (a legacy 'Úrvacsora' és 'Konfirmáció' is ide számít);
-    //  h (II.11) = kizárólag digitális alkalmak.
-    const bibliaoraTipus = ujHalmozo()
-    let kazualiaDb = 0
-    let masAlkalomDb = 0
-    let digitalisDb = 0
-    // III.1/III.2 + új III.2b–f: bibliaóra-alkalmak TÍPUSONKÉNT (spec III.1).
-    const bibliaoraTipusDb = new Map<string, number>()
-
-    for (const e of worklogRes.entries) {
-      if (e.deleted) continue
-
-      const kategoria = categorizeWorklogEntry(e)
-      const jellege = (e.jellege || '').trim()
-
-      // 2026-08-15 (átvilágítás 12.) — MI VOLT A ROSSZ: a bibliaóra-számlálás a
-      // `kategoria === 'szolgalat'` őr MÖGÖTT ült, a legacy 'Ifjúsági bibliaóra
-      // (IKE)' és 'Ifjúsági óra' nevek viszont a worklog.ts katekézis-listájában
-      // élnek, tehát a categorizeWorklogEntry 'katekezis'-t ad rájuk — az őr
-      // némán kizárta őket. KÖVETKEZMÉNY: a hivatalos NYOMTATOTT munkanaplón
-      // (isJournalEntry engedi őket, a 13. oszlop „Ifjúsági" rovatába) szereplő
-      // alkalmak a jelentés II.8 és III.2 rubrikájában 0-t adtak, miközben
-      // ugyanaz az esemény a V.3 katekézis-rubrikába csúszott: rossz fejezet,
-      // aláírt és beküldött nyomtatványon. A bibliaóra-ság ezért MOSTANTÓL
-      // tisztán TÍPUSNÉV kérdése (a halmaz maga elég szűrő), a kategóriától
-      // függetlenül — ez ugyanaz a szabály, amit a nyomtatvány használ.
-      const bibliaoraTipusu = JELENTES_BIBLIAORA_TIPUSOK.has(jellege)
-
-      // V.3 — katekézis-alkalmak. A bibliaóra-típusú sorok NEM ide tartoznak
-      // (a nyomtatvány is a 13. „Bibliaóra" oszlopba teszi őket): enélkül a
-      // legacy ifjúsági alkalmak KÉTSZER számítanának, két külön fejezetben.
-      if (kategoria === 'katekezis' && !bibliaoraTipusu) {
-        katekezisDb += 1
-        // Vallásóra-átlag (V.3b): számláló = MINDEN vallásóra-alkalom
-        // jelenléte (hivatalos 1–5. csoport + legacy 'Vallásóra'),
-        // nevező = a 'Vallásóra 1. csoport' alkalmai.
-        if (jellege.startsWith('Vallásóra')) {
-          vallasoraJelenletOssz += jelenlet(e)
-          if (jellege === 'Vallásóra 1. csoport') vallasora1CsoportDb += 1
-        }
-      }
-      if (kategoria === 'latogatas') {
-        if (jellege === 'Családlátogatás') csaladlatogatasDb += 1
-        else egyebLatogatasDb += 1
-      }
-
-      // Imahét (III.5/III.6) — jellege szerint, kategóriától függetlenül
-      if (jellege === 'Imahét') halmoz(imahet, e)
-
-      // II.1 e/f/g/h — típusnév szerinti számlálás. A bibliaóra-ág kategóriától
-      // FÜGGETLEN (lásd a fenti magyarázatot); a maradék három ág — kazuália,
-      // digitális, más alkalom — a szolgálat-kategórián belül marad. A négy
-      // típushalmaz diszjunkt, így egy bejegyzés pontosan egyszer számít.
-      if (bibliaoraTipusu) {
-        halmoz(bibliaoraTipus, e)
-        bibliaoraTipusDb.set(jellege, (bibliaoraTipusDb.get(jellege) || 0) + 1)
-      } else if (kategoria === 'szolgalat') {
-        if (JELENTES_KAZUALIA_TIPUSOK.has(jellege)) kazualiaDb += 1
-        else if (jellege === 'Digitális alkalmak') digitalisDb += 1
-        else if (JELENTES_MAS_ALKALOM_TIPUSOK.has(jellege)) masAlkalomDb += 1
-      }
-
-      // Úrvacsorázó-számot rögzítő sorok (bármely kategória)
-      const uvOsszeg = (e.uv_templomban ?? 0) + (e.uv_betegnel ?? 0)
-      uvBetegnelOssz += e.uv_betegnel ?? 0
-      let uvAlkalom = uvOsszeg > 0
-      if (uvOsszeg > 0) {
-        uvResztvevoOssz += uvOsszeg
-        uvResztvevosDb += 1
-      }
-
-      if (isJournalEntry(e)) {
-        const { column, slot } = classifyForOfficialJournal(e)
-        switch (column) {
-          // Az 5 istentiszteleti oszlop a De.2/Du.2 összevonás miatt NEM
-          // halmozódik azonnal — a gyűjtőbe megy, a ciklus után egyesítjük.
-          case 'vasarnapi':
-          case 'unnepi':
-          case 'satoros':
-          case 'hetkoznapi':
-          case 'bunbanati': {
-            const oldal = itNapszakOldal(e)
-            itGyujto.push({
-              oszlop: column,
-              kulcs: `${column}|${(e.idopont || '').slice(0, 10)}|${oldal}`,
-              masodik: e.napszak === 'de2' || e.napszak === 'du2',
-              e,
-            })
-            break
-          }
-          case 'urvacsora':
-            uvAlkalom = true
-            break
-          case 'presbiteri':
-            presbiteriGyulesDb += 1
-            break
-          case 'unnepely':
-            unnepelyDb += 1
-            break
-          case 'noszovetsegi': {
-            // 2026-08-11 (6. kör): eddig ITT ÜRES volt az ág — a rendesen
-            // naplózott nőszövetségi alkalom SEHOL nem jelent meg a
-            // jelentésben. A III.17 rubrika KÉZI MARAD (az okokat lásd a
-            // types.ts MUNKANAPLO_JAVASLAT_MEZOK kommentjében), de mostantól
-            // JAVASLATOT adunk mellé — tételesen, hogy a lelkész ellenőrizni
-            // tudja, mit ír alá.
-            const nszJelenlet = jelenlet(e)
-            noszovetsegiTetelek.push({
-              datum: (e.idopont || '').slice(0, 10),
-              cim: (e.cim || '').trim() || (e.jellege || '').trim() || 'Nőszövetségi összejövetel',
-              jelenlet: nszJelenlet > 0 ? nszJelenlet : null,
-            })
-            break
-          }
-          case 'egyeb':
-            egyebDb += 1
-            break
-        }
-
-        // Sátoros ünnepek naponkénti jelenléte (II.5a–i): az adott ünnepNAP
-        // ÖSSZES naplózott alkalmának jelenléte (oszloptól függetlenül —
-        // pl. az aznapi úrvacsorás istentisztelet is beleszámít).
-        const unnep = getUnnepInfo((e.idopont || '').slice(0, 10))
-        if (unnep && unnep.tipus === 'satoros') {
-          const mezoId = SATOROS_NAP_MEZO[unnep.nev]
-          if (mezoId) satorosNapJelenlet.set(mezoId, (satorosNapJelenlet.get(mezoId) || 0) + jelenlet(e))
-        }
-      }
-
-      if (uvAlkalom) uvOsztasDb += 1
-    }
-
-    // ── De.2/Du.2 ÖSSZEVONÁS (EREK 2.2) ──────────────────────────────────
-    // Csoportkulcs: oszlop + nap + napszak-oldal. A jelöletlen alkalmak
-    // önálló alkalmak; a De.2/Du.2-vel jelöltek jelenléte a csoport ELSŐ
-    // jelöletlen alkalmához adódik (egy alkalomként számít). Ha egy jelölt
-    // alkalomnak nincs jelöletlen párja (adathiba), önálló alkalomként
-    // számoljuk — az adat nem veszhet el némán.
-    {
-      const csoportok = new Map<string, { alapok: WorklogEntry[]; masodikOssz: number }>()
-      for (const t of itGyujto) {
-        let cs = csoportok.get(t.kulcs)
-        if (!cs) {
-          cs = { alapok: [], masodikOssz: 0 }
-          csoportok.set(t.kulcs, cs)
-        }
-        if (t.masodik) cs.masodikOssz += jelenlet(t.e)
-        else cs.alapok.push(t.e)
-      }
-      for (const [kulcs, cs] of csoportok) {
-        const [oszlop, , oldal] = kulcs.split('|') as [
-          'vasarnapi' | 'unnepi' | 'satoros' | 'hetkoznapi' | 'bunbanati',
-          string,
-          'de' | 'du' | 'este',
-        ]
-        const celHalmozo =
-          oszlop === 'vasarnapi'
-            ? oldal === 'du' || oldal === 'este'
-              ? vasarnapDu
-              : vasarnapDe
-            : oszlop === 'unnepi'
-              ? unnepi
-              : oszlop === 'satoros'
-                ? satoros
-                : oszlop === 'hetkoznapi'
-                  ? hetkoznapi
-                  : bunbanati
-        if (cs.alapok.length === 0 && cs.masodikOssz > 0) {
-          // csak jelölt alkalom van a napon — önálló alkalomként számoljuk
-          halmoz(celHalmozo, {
-            jelenlet_osszesen: cs.masodikOssz,
-            jelenlet_ferfi: null,
-            jelenlet_no: null,
-            jelenlet_gyermek: null,
-          } as WorklogEntry)
-          continue
-        }
-        cs.alapok.forEach((alap, idx) => {
-          const osszevont = idx === 0 ? jelenlet(alap) + cs.masodikOssz : jelenlet(alap)
-          halmoz(celHalmozo, {
-            ...alap,
-            jelenlet_osszesen: osszevont,
-            jelenlet_ferfi: null,
-            jelenlet_no: null,
-            jelenlet_gyermek: null,
-          } as WorklogEntry)
-        })
-      }
-    }
-
-    auto['II.1a'] = vasarnapDe.db
-    auto['II.1b'] = atlagJelenlet(vasarnapDe)
-    auto['II.1c'] = szazalek(atlagJelenlet(vasarnapDe), lelekszam)
-    auto['II.2a'] = vasarnapDu.db
-    auto['II.2b'] = atlagJelenlet(vasarnapDu)
-    auto['II.2c'] = szazalek(atlagJelenlet(vasarnapDu), lelekszam)
-    auto['II.3a'] = unnepi.db
-    auto['II.3b'] = atlagJelenlet(unnepi)
-    auto['II.3c'] = szazalek(atlagJelenlet(unnepi), lelekszam)
-    auto['II.4a'] = satoros.db
-    auto['II.4b'] = atlagJelenlet(satoros)
-    auto['II.4c'] = szazalek(atlagJelenlet(satoros), lelekszam)
-    for (const mezoId of Object.values(SATOROS_NAP_MEZO)) {
-      auto[mezoId] = satorosNapJelenlet.has(mezoId) ? satorosNapJelenlet.get(mezoId)! : null
-    }
-    auto['II.6a'] = hetkoznapi.db
-    auto['II.6b'] = atlagJelenlet(hetkoznapi)
-    auto['II.7a'] = bunbanati.db
-    auto['II.7b'] = atlagJelenlet(bunbanati)
-    // 2026-08-14 (3C): a II.8 a spec e-képlete — MIND a 7 bibliaóra-típus
-    // (a régi, ív-oszlop alapú számláló a presbiterit/nőszövetségit kihagyta).
-    auto['II.8a'] = bibliaoraTipus.db
-    auto['II.8b'] = atlagJelenlet(bibliaoraTipus)
-    // f-képlet: kazuáliák és felkészítők (a régi érték az ív 17. oszlopa
-    // volt, amiben az Imahét/Digitális/Egyéb is benne volt — pontatlanul).
-    auto['II.9'] = kazualiaDb
-    // g/h-képlet: eddig KÉZI mezők voltak — a spec [M]-et (munkanaplóból) kér.
-    auto['II.10'] = masAlkalomDb
-    auto['II.11'] = digitalisDb
-    auto['II.12'] = uvOsztasDb
-    auto['II.13'] = uvResztvevosDb > 0 ? round1(uvResztvevoOssz / uvResztvevosDb) : null
-    auto['II.14'] = uvBetegnelOssz
-
-    // 2026-08-14 (3D): a III.1/III.2 TÍPUSNÉV szerint számol (a régi
-    // ív-oszlop-slot a felnőtt rovatba sodorta a házasok/Más 1-2 órákat is);
-    // + az új típusonkénti bontás (III.2b–f, spec III.1).
-    const bibliaoraDb = (...tipusok: string[]) =>
-      tipusok.reduce((s, t) => s + (bibliaoraTipusDb.get(t) || 0), 0)
-    auto['III.1'] = bibliaoraDb('Felnőtt bibliaóra', 'Bibliaóra')
-    auto['III.2'] = bibliaoraDb('Ifj. vagy IKE bibliaóra', 'Ifjúsági bibliaóra (IKE)', 'Ifjúsági óra')
-    auto['III.2b'] = bibliaoraDb('Presbiteri bibliaóra')
-    auto['III.2c'] = bibliaoraDb('Nőszöv. bibliaóra')
-    auto['III.2d'] = bibliaoraDb('Házasok bibliaórája')
-    auto['III.2e'] = bibliaoraDb('Más bibliaóra 1')
-    auto['III.2f'] = bibliaoraDb('Más bibliaóra 2')
-    auto['III.3'] = unnepelyDb
-    auto['III.5'] = imahet.db
-    auto['III.6'] = atlagJelenlet(imahet)
-    auto['III.7'] = csaladlatogatasDb
-    auto['III.8'] = egyebLatogatasDb
-    auto['III.10'] = presbiteriGyulesDb
-
-    // V.3 — katekézis-alkalmak (worklog-alapú, ezért ebben a blokkban)
-    auto['V.3'] = katekezisDb
-    // V.3b — vallásórára járt átlag EGY ALKALOMMAL (EREK 3.1): a nevező a
-    // „Vallásóra 1. csoport" alkalmainak száma (= vallásórás hetek). Ha az
-    // adat még a régi, csoport nélküli típusnevekkel készült, nincs helyes
-    // nevező → null (kézi töltés), NEM hamis szám.
-    auto['V.3b'] =
-      vallasora1CsoportDb > 0 ? round1(vallasoraJelenletOssz / vallasora1CsoportDb) : null
-
-    // III.17 — JAVASLAT (NEM auto-mező!) a nőszövetségi alkalmakból.
-    // Csak akkor tesszük be, ha van mit javasolni: a nulla nem javaslat,
-    // hanem zaj. Az `ertek` MINDIG a lista hossza — nincs két igazság.
-    // FIGYELEM: ez az ág a `worklogRes.error === null` blokkban van, tehát
-    // hibás munkanapló-lekérdezésnél NEM születik javaslat (a 0 hazugság
-    // lenne) — a hiba az autoHibak listán megy ki, hangosan.
-    if (MUNKANAPLO_JAVASLAT_MEZOK.has('III.17') && noszovetsegiTetelek.length > 0) {
-      noszovetsegiTetelek.sort((a, b) => a.datum.localeCompare(b.datum))
-      javaslatok['III.17'] = {
-        ertek: noszovetsegiTetelek.length,
-        tetelek: noszovetsegiTetelek,
-      }
-    }
+    // 2026-08-25 (gyülekezeti egységek): a ~250 soros worklog-blokk a
+    // worklogAutoMezok TISZTA magba költözött (lib/lelkeszi-jelentes/
+    // worklog-auto.ts) — a fő jelentés itt az ÖSSZES évi sorral hívja
+    // (viselkedés-azonos BETŰRE: De.2/Du.2 összevonás, javaslat-építés és
+    // minden él-eset változatlan), a bontás lentebb partíciónként ugyanazt.
+    const worklogSzamitas = worklogAutoMezok(worklogRes.entries, lelekszam)
+    Object.assign(auto, worklogSzamitas.mezok)
+    Object.assign(javaslatok, worklogSzamitas.javaslatok)
   }
 
   // III.9 — presbiterek száma (NEM worklog-alapú — worklog-hibánál is számol)
@@ -1011,7 +971,10 @@ async function computeAuto(
     let q = supabase
       .from('befizetes')
       // 2026-08-11 (6. kör): `osszeg_ron` is kell — lásd a lenti összegzésnél.
-      .select('id, osszeg, osszeg_ron, befizetescel(szamadasicel(kod))')
+      // 2026-08-25: + id_szemely/id_csalad — a bontás VII.1 (járulék) cellái a
+      // befizető személy egysége szerint oszlanak el (a fő összegzést a két
+      // plusz oszlop nem érinti).
+      .select('id, osszeg, osszeg_ron, id_szemely, id_csalad, befizetescel(szamadasicel(kod))')
       .eq('congregation_id', congId)
       .gte('datum', `${ev}-01-01`)
       .lte('datum', `${ev}-12-31`)
@@ -1031,6 +994,8 @@ async function computeAuto(
       id: number
       osszeg: number | null
       osszeg_ron?: number | null
+      id_szemely?: number | null
+      id_csalad?: number | null
       befizetescel?: unknown
     }>(q.order('id'))
   }
@@ -1158,6 +1123,45 @@ async function computeAuto(
     }
   }
 
+  // ── Gyülekezetenkénti bontás (2026-08-25) — csak aktív egységeknél ──
+  let bontas: (JelentesBontas & { kozpontCimke: string }) | undefined
+  if (bontasAktiv) {
+    // A járulék-bontáshoz a BEFIZETŐ személyek egység-címkéje is kell — a
+    // közös lookupot pótoljuk a belőle még hiányzó azonosítókkal.
+    if (cimkeEgysegOk && !befRes.error) {
+      const potlando: number[] = []
+      for (const r of befRes.rows) {
+        if (r.id_szemely == null) continue
+        const id = Number(r.id_szemely)
+        if (!ferfiMap.has(id)) potlando.push(id)
+      }
+      if (potlando.length > 0) {
+        const potlas = await fetchSzemelyCimkeMap(supabase, potlando, true)
+        for (const [id, cimke] of potlas) ferfiMap.set(id, cimke)
+      }
+    }
+    bontas = {
+      ...bontasSzamitas({
+        egysegek,
+        worklog: worklogRes,
+        szemely: szemelyRes,
+        keresztseg: keresztsegRes,
+        temetes: temetesRes,
+        konfirmalas: konfirmalasRes,
+        hazassag: hazassagRes,
+        befizetes: befRes,
+        cimkek: ferfiMap,
+        cimkeEgysegOk,
+      }),
+      // 2026-08-25 (társegyházközség): a „központ" oszlop felirata a szervezeti
+      // forma szerint — társnál „Közös (egész egyházközség)", különben (és a
+      // migráció előtti / szűkített congregations-selectnél is) a hagyományos
+      // „Anyaegyházközség". A véglegesítéskor a snapshotba fagyó bontás ezt
+      // automatikusan viszi magával.
+      kozpontCimke: kozpontCimke(congRow?.szervezeti_tipus ?? null),
+    }
+  }
+
   // ── Levezetett mezők (I.8, I.9, VII.8) — közös helper (types.ts) ──
   // A deriveAutoMezok a komponenseket a felulirasok > kezi > auto prioritással
   // oldja fel, így a VII.8 a záró-blokkon KÍVÜL származik: felülírt VII.6/VII.7
@@ -1165,7 +1169,7 @@ async function computeAuto(
   // temetett számok is átfolynak az I.8/I.9-be.
   const derivedAuto = deriveAutoMezok(auto, kezi, felulirasok)
 
-  return { auto: derivedAuto, congregationName, egyhazmegyeNev, autoHibak, javaslatok }
+  return { auto: derivedAuto, congregationName, egyhazmegyeNev, autoHibak, javaslatok, bontas }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1195,19 +1199,51 @@ function isValidSnapshot(s: Record<string, unknown> | null): s is Record<string,
   return !!s && typeof s === 'object' && typeof s.auto === 'object' && s.auto !== null
 }
 
+/**
+ * 2026-08-25: a snapshotba fagyasztott bontás kiolvasása (minimális alak-
+ * ellenőrzéssel). Véglegesített jelentésnél NEM számolunk újra — a befagyott
+ * adat a hiteles; a bontás nélkül véglegesített (régi) snapshotnál undefined.
+ */
+function snapshotBontas(
+  snapshot: Record<string, unknown>,
+): (JelentesBontas & { kozpontCimke?: string }) | undefined {
+  const b = snapshot.bontas
+  if (!b || typeof b !== 'object' || Array.isArray(b)) return undefined
+  const o = b as { egysegek?: unknown; auto?: unknown; hibak?: unknown; kozpontCimke?: unknown }
+  if (!Array.isArray(o.egysegek) || !o.auto || typeof o.auto !== 'object' || Array.isArray(o.auto)) {
+    return undefined
+  }
+  return {
+    egysegek: o.egysegek as JelentesBontas['egysegek'],
+    auto: o.auto as JelentesBontas['auto'],
+    hibak: Array.isArray(o.hibak) ? (o.hibak as unknown[]).filter((h): h is string => typeof h === 'string') : [],
+    // 2026-08-25 (társegyházközség): a kozpontCimke nélkül fagyasztott (régi)
+    // snapshotot TOLERÁLJUK — a mező ilyenkor hiányzik, a hívók (dialógus,
+    // nyomtatott melléklet) az ANYAKOZPONT_CIMKE-re esnek vissza.
+    ...(typeof o.kozpontCimke === 'string' ? { kozpontCimke: o.kozpontCimke } : {}),
+  }
+}
+
 async function buildJelentesData(
   supabase: Supa,
   congId: string,
   ev: number,
   row: JelentesRow | null,
-): Promise<{ data: LelkesziJelentesData; autoHibak: string[]; javaslatok: JelentesJavaslatok }> {
+): Promise<{
+  data: LelkesziJelentesData
+  autoHibak: string[]
+  javaslatok: JelentesJavaslatok
+  /** 2026-08-25: a gyülekezetenkénti bontás — csak aktív egységeknél. */
+  bontas?: JelentesBontas & { kozpontCimke: string }
+}> {
   const kezi = sanitizeErtekek(row?.kezi_adatok)
   const felulirasok = sanitizeErtekek(row?.felulirasok)
-  const { auto, congregationName, egyhazmegyeNev, autoHibak, javaslatok } = await computeAuto(
+  const { auto, congregationName, egyhazmegyeNev, autoHibak, javaslatok, bontas } = await computeAuto(
     supabase, congId, ev, kezi, felulirasok,
   )
   return {
     javaslatok,
+    bontas,
     data: {
       ev,
       congregationName,
@@ -1278,6 +1314,15 @@ export async function getLelkesziJelentes(ev: number): Promise<{
    * snapshot a hiteles adat, és javaslatot már nincs értelme kínálni.
    */
   javaslatok?: JelentesJavaslatok
+  /**
+   * 2026-08-25 (gyülekezeti egységek): a „Gyülekezetenkénti bontás" adata.
+   * Szerkesztés módban élőből számolt; VÉGLEGESÍTETT jelentésnél a snapshot
+   * `bontas` kulcsából jön (nem számolunk újra). Egység nélküli gyülekezetnél
+   * / a migráció előtt hiányzik. A kozpontCimke a „központ" oszlop felirata
+   * (társegyházközségnél „Közös (egész egyházközség)"); a régi snapshotból
+   * hiányozhat — a hívó az ANYAKOZPONT_CIMKE-re essen vissza.
+   */
+  bontas?: JelentesBontas & { kozpontCimke?: string }
   error?: string
 }> {
   const { supabase, congregationId } = await getEffectiveCongregationContext()
@@ -1309,15 +1354,18 @@ export async function getLelkesziJelentes(ev: number): Promise<{
         tobbEvesAdatok,
       },
       unlockRequested: row.unlock_requested === true,
+      // A bontás a snapshotból — a befagyott adat a hiteles, nem számolunk újra.
+      bontas: snapshotBontas(row.snapshot),
     }
   }
 
-  const { data, autoHibak, javaslatok } = await buildJelentesData(supabase, congregationId, ev, row)
+  const { data, autoHibak, javaslatok, bontas } = await buildJelentesData(supabase, congregationId, ev, row)
   return {
     data: { ...data, submission, tobbEvesAdatok },
     unlockRequested: row?.unlock_requested === true,
     autoHibak,
     javaslatok,
+    bontas,
   }
 }
 
@@ -1340,13 +1388,58 @@ export async function saveLelkesziJelentes(
   // felulirasok → auto-mezők (idegen kulcsok némán kiesnek).
   const keziMezok = new Set(JELENTES_MEZOK.filter((m) => !m.auto).map((m) => m.id))
   const autoMezok = new Set(JELENTES_MEZOK.filter((m) => m.auto).map((m) => m.id))
+
+  // 2026-08-25 (gyülekezeti egységek) — ⛔ BONTÁS-KULCSOK: a bontás-cellák
+  // `egyseg:<uuid|anya>:<mezoId>` kulcsai a fenti szűrőkön idegen kulcsként
+  // NÉMÁN kiesnének a teljes-csere mentésből. Érvényes bontás-kulcs = létező
+  // mezoId + a gyülekezet valamelyik egysége (VAGY az anya-oszlop). Az
+  // egység-listát a mentés elején kérjük le; hiányzó tábla (migráció előtt) →
+  // üres halmaz: a bontás-kulcsok kimaradnak, a többi mentés fut.
+  const ervenyesEgysegIds = new Set<string>()
+  const vanBontasKulcs =
+    Object.keys(input.kezi || {}).some((k) => parseEgysegMezoKulcs(k) !== null) ||
+    Object.keys(input.felulirasok || {}).some((k) => parseEgysegMezoKulcs(k) !== null)
+  if (vanBontasKulcs) {
+    // Szándékosan az INAKTÍV egységek is benne vannak: egy egység
+    // inaktiválása nem törölheti némán a korábban mentett bontás-celláit.
+    const egysegekRes = await supabase
+      .from('gyulekezeti_egysegek')
+      .select('id')
+      .eq('congregation_id', congregationId)
+    if (egysegekRes.error) {
+      if (!isMissingEgysegTabla(egysegekRes.error)) {
+        // Váratlan hibánál MEGÁLLUNK: a teljes-csere mentés különben némán
+        // törölné a korábban mentett bontás-cellákat (fail-closed).
+        return {
+          error:
+            'A gyülekezeti egységek ellenőrzése nem sikerült, ezért a mentés nem történt meg ' +
+            '(a gyülekezetenkénti bontás celláinak védelme miatt). Próbálja újra. Részletek: ' +
+            egysegekRes.error.message,
+        }
+      }
+    } else {
+      ervenyesEgysegIds.add(ANYA_OSZLOP_ID)
+      for (const s of (egysegekRes.data || []) as Array<{ id: string }>) ervenyesEgysegIds.add(s.id)
+    }
+  }
+
   const kezi: Record<string, number | string | null> = {}
   for (const [k, v] of Object.entries(sanitizeErtekek(input.kezi || {}))) {
-    if (keziMezok.has(k)) kezi[k] = v
+    if (keziMezok.has(k)) {
+      kezi[k] = v
+    } else {
+      const p = parseEgysegMezoKulcs(k)
+      if (p && keziMezok.has(p.mezoId) && ervenyesEgysegIds.has(p.egysegId)) kezi[k] = v
+    }
   }
   const felulirasok: Record<string, number | string | null> = {}
   for (const [k, v] of Object.entries(sanitizeErtekek(input.felulirasok || {}))) {
-    if (autoMezok.has(k)) felulirasok[k] = v
+    if (autoMezok.has(k)) {
+      felulirasok[k] = v
+    } else {
+      const p = parseEgysegMezoKulcs(k)
+      if (p && autoMezok.has(p.mezoId) && ervenyesEgysegIds.has(p.egysegId)) felulirasok[k] = v
+    }
   }
   const HATAROZAT_KULCSOK: Array<keyof HatarozatAdatok> = [
     'presbiteriSzam', 'presbiteriDatum', 'kozgyulesiSzam', 'kozgyulesiDatum',
@@ -1434,10 +1527,13 @@ export async function finalizeLelkesziJelentes(ev: number): Promise<{ success?: 
   // statusz='veglegesitve' — az időközben feloldott sort nem bántjuk).
   if (row?.statusz === 'veglegesitve') {
     if (isValidSnapshot(row.snapshot)) return { error: 'Ez a jelentés már véglegesítve van.' }
-    const { data } = await buildJelentesData(supabase, congregationId, ev, row)
+    const { data, bontas } = await buildJelentesData(supabase, congregationId, ev, row)
     const gyogyitoAt = row.veglegesitve_at || new Date().toISOString()
     const snapshot: Record<string, unknown> = {
       ...data,
+      // 2026-08-25: a gyülekezetenkénti bontás is befagy (append-only kulcs —
+      // a snapshot meglévő alakja nem változik, csak bővül).
+      ...(bontas ? { bontas } : {}),
       statusz: 'veglegesitve',
       veglegesitveAt: gyogyitoAt,
       veglegesito: fullName || null,
@@ -1479,9 +1575,14 @@ export async function finalizeLelkesziJelentes(ev: number): Promise<{ success?: 
   // ilyenkor 0 sort frissít, és EGYSZER friss sorból újraépítve próbálunk.
   for (let kiserlet = 1; ; kiserlet++) {
     const nowIso = new Date().toISOString()
-    const { data } = await buildJelentesData(supabase, congregationId, ev, row)
+    const { data, bontas } = await buildJelentesData(supabase, congregationId, ev, row)
     const snapshot: Record<string, unknown> = {
       ...data,
+      // 2026-08-25: a gyülekezetenkénti bontás is befagy (append-only kulcs —
+      // a snapshot meglévő alakja nem változik, csak bővül). A bontás kézi
+      // cellái / felülírásai a data.kezi / data.felulirasok részeként már
+      // eleve a snapshotban vannak (egyseg:<id>:<mezoId> kulcsokkal).
+      ...(bontas ? { bontas } : {}),
       statusz: 'veglegesitve',
       veglegesitveAt: nowIso,
       // Audit-kényelem: ki véglegesítette (a hiteles azonosító a

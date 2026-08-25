@@ -42,6 +42,9 @@ import { ModuleHero } from '@/components/shared/module-hero'
 import { cn } from '@/lib/utils'
 import { csvCella } from '@/lib/utils/csv'
 import { getWorklogs, deleteWorklog } from '@/app/(dashboard)/munkanaplo/actions'
+import { listGyulekezetiEgysegek } from '@/app/(dashboard)/congregation/egysegek-actions'
+import { kozpontValasztoCimke } from '@/lib/gyulekezet/egysegek-shared'
+import type { GyulekezetiEgyseg } from '@/lib/gyulekezet/egysegek-shared'
 import { WorklogDialog } from '@/components/modals/worklog-dialog'
 import {
   categorizeWorklogEntry,
@@ -246,6 +249,19 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
   const [konkordanciaOpen, setKonkordanciaOpen] = useState(false)
   const [Konkordancia, setKonkordancia] = useState<KonkordanciaDialogComponent | null>(null)
   const [toolChunkLoading, setToolChunkLoading] = useState<'enek' | 'konkordancia' | null>(null)
+  // 2026-08-25 (gyülekezeti egységek): a leány/szórvány egységek listája — az
+  // egység-választó (táblázat + dialógus) és az időszak-sáv egység-szűrője
+  // csak akkor jelenik meg, ha a lista SIKERESEN betöltődött és nem üres.
+  // Hibánál (pl. a migráció még nem futott le) csendes console.warn + üres
+  // lista: az egység-funkció opcionális, a munkanapló nélküle is teljes értékű.
+  const [egysegek, setEgysegek] = useState<GyulekezetiEgyseg[]>([])
+  // 2026-08-25 (társegyházközség): a gyülekezet szervezeti formája — a
+  // „központ" feliratokhoz (társnál „Közös / egész egyházközség"); null =
+  // ismeretlen vagy migráció előtti adatbázis (hagyományos felirat).
+  const [szervezetiTipus, setSzervezetiTipus] = useState<string | null>(null)
+  // Egység-szűrő az időszak-sávban: 'all' = minden egység, 'anya' =
+  // anyaközpont (egyseg_id nélküli sorok), különben egy egység uuid-ja.
+  const [egysegFilter, setEgysegFilter] = useState<string>('all')
   const isMdUp = useIsMdUp()
   // A mindenkori aktuális év — a csendes újratöltés stale-year őre ezt
   // hasonlítja össze a híváskor rögzített évvel (lásd refreshEntries).
@@ -275,6 +291,30 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
       cancelled = true
     }
   }, [year])
+
+  // 2026-08-25: az egység-lista EGYSZERI betöltése. Hiba (vagy hiányzó
+  // tábla/migráció) esetén csendes console.warn + üres lista — a választó és
+  // a szűrő ilyenkor egyszerűen nem jelenik meg, a mentés pedig nem küld
+  // egyseg_id-t (így a meglévő címkék sem sérülnek).
+  useEffect(() => {
+    let cancelled = false
+    listGyulekezetiEgysegek()
+      .then((res) => {
+        if (cancelled) return
+        if (res.error || !res.egysegek) {
+          console.warn('[worklog] az egység-lista betöltése sikertelen:', res.error)
+          return
+        }
+        setEgysegek(res.egysegek)
+        setSzervezetiTipus(res.szervezetiTipus ?? null)
+      })
+      .catch((err) => {
+        if (!cancelled) console.warn('[worklog] az egység-lista betöltése sikertelen:', err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   /**
    * Csendes újratöltés (mentés/törlés/dialógus-zárás után): NEM billenti át a
@@ -306,10 +346,16 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
   }, [periodEntries])
 
   // Az aktív kategória időszaki bejegyzései (mobil-lista + CSV-export).
+  // 2026-08-25: az időszak-sáv egység-szűrője is itt hat — 'anya' = a címke
+  // nélküli (anyaközponti) sorok; uuid = az adott egység sorai.
   const filteredPeriod = useMemo(() => {
-    if (!isCategory(activeTab)) return periodEntries
-    return periodEntries.filter((e) => categorizeWorklogEntry(e) === activeTab)
-  }, [periodEntries, activeTab])
+    const base = isCategory(activeTab)
+      ? periodEntries.filter((e) => categorizeWorklogEntry(e) === activeTab)
+      : periodEntries
+    if (egysegek.length === 0 || egysegFilter === 'all') return base
+    if (egysegFilter === 'anya') return base.filter((e) => !e.egyseg_id)
+    return base.filter((e) => e.egyseg_id === egysegFilter)
+  }, [periodEntries, activeTab, egysegek, egysegFilter])
 
   // A táblázatos rögzítő a TELJES év adott kategóriájú sorait kapja, dátum
   // szerint NÖVEKVŐ sorrendben (a szerver csökkenőt ad) — az éven belüli
@@ -487,6 +533,26 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
             <option value={0}>Egész év</option>
             {HU_MONTHS.map((name, i) => <option key={i + 1} value={i + 1}>{name}</option>)}
           </select>
+          {/* 2026-08-25: egység-szűrő — csak akkor látszik, ha a gyülekezetnek
+              van (sikeresen betöltött) leány/szórvány egysége. */}
+          {egysegek.length > 0 && (
+            <>
+              <label className="sr-only" htmlFor="worklog-egyseg">Egység</label>
+              <select
+                id="worklog-egyseg"
+                value={egysegFilter}
+                onChange={(event) => setEgysegFilter(event.target.value)}
+                className={SELECT_CLS}
+              >
+                <option value="all">Minden egység</option>
+                {/* 2026-08-25 (társegyházközség): a „központ" felirata a
+                    szervezeti forma szerint — társnál „Közös / egész
+                    egyházközség" (nincs kitüntetett anyaközpont). */}
+                <option value="anya">{kozpontValasztoCimke(szervezetiTipus)}</option>
+                {egysegek.map((eg) => <option key={eg.id} value={eg.id}>{eg.nev}</option>)}
+              </select>
+            </>
+          )}
         </div>
       </div>
 
@@ -654,6 +720,9 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
                 category={dialogCategory}
                 onChanged={refreshEntries}
                 onEditEntry={(entry) => { setEditEntry(entry); setDialogOpen(true) }}
+                egysegek={egysegek}
+                egysegFilter={egysegek.length === 0 ? 'all' : egysegFilter}
+                szervezetiTipus={szervezetiTipus}
               />
             </div>
           )}
@@ -693,7 +762,7 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
         </div>
       )}
 
-      <WorklogDialog open={dialogOpen} onOpenChange={closeDialog} editEntry={editEntry} defaultCategory={dialogCategory} />
+      <WorklogDialog open={dialogOpen} onOpenChange={closeDialog} editEntry={editEntry} defaultCategory={dialogCategory} egysegek={egysegek} szervezetiTipus={szervezetiTipus} />
 
       {/* A nyomtatási központ saját maga tölti be a kiválasztott év TELJES
           adatait (getWorklogsForYear). */}

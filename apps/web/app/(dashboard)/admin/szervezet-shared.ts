@@ -46,6 +46,35 @@ export interface FaSzerepJelveny {
   darab: number
 }
 
+/**
+ * A `congregations.szervezeti_tipus` értékkészlete (2026-08-25, gyülekezeti
+ * egységek).
+ *
+ * ⚠️ SZÁNDÉKOS MÁSOLATA a `lib/gyulekezet/egysegek-shared.ts` `SzervezetiTipus`
+ *    típusának: EZ a fájl import-mentes kell maradjon (a
+ *    `scripts/selftest-attekintes.mjs` direktben tölti), projekt-import ide nem
+ *    kerülhet. A strukturális típusegyezés miatt a két deklaráció átjárható.
+ */
+export type FaSzervezetiTipus = 'anya' | 'leany' | 'misszioi' | 'tars'
+
+/**
+ * Az anya kartotékán BELÜLI egység (leány/szórvány/egyházrész) — a
+ * `gyulekezeti_hierarchia()` RPC `egysegek` jsonb-jéből. Strukturálisan a
+ * `HierarchiaEgyseg` megfelelője (lásd a fenti import-mentességi megjegyzést).
+ * Az 'egyhazresz' a társegyházközség ('tars') egyenrangú egyházrésze.
+ */
+export interface FaEgyseg {
+  id: string
+  nev: string
+  tipus: 'leany' | 'szorvany' | 'egyhazresz'
+  aktiv: boolean
+  /**
+   * ⚠️ `null` / hiányzó = NEM TUDJUK (a néző hatóköre nem jogosít élő
+   * létszámra) — a felület ilyenkor „nem tudjuk"-ot ír, SOHA nem 0-t.
+   */
+  letszam?: number | null
+}
+
 export interface FaGyulekezet {
   id: string
   nev: string
@@ -67,6 +96,19 @@ export interface FaGyulekezet {
    *    minden megvan. A kettő nem keverhető össze.
    */
   hianyzoMezok: string[] | null
+  /**
+   * Hivatalos szervezeti forma (2026-08-25) — a `gyulekezeti_hierarchia()`
+   * RPC-ből. HIÁNYZIK (undefined), ha a migráció még nem futott le vagy az RPC
+   * hibázott: a felület ilyenkor jelvényt SEM tesz ki (a hiányt a
+   * `SzervezetiFa.hierarchiaUzenet` mondja ki), a fa többi része változatlan.
+   */
+  szervezetiTipus?: FaSzervezetiTipus
+  /** A leány anyaegyházközségének azonosítója; nem-leánynál `null`. */
+  anyaId?: string | null
+  /** Aktív, jóváhagyott lelkész(ek) neve vesszővel; `null`, ha nincs regisztrált. */
+  lelkeszNevek?: string | null
+  /** Az anya kartotékán belüli AKTÍV egységek (leány/szórvány/egyházrész). */
+  egysegek?: FaEgyseg[]
 }
 
 export interface FaEgyhazmegye {
@@ -112,6 +154,21 @@ export interface SzervezetiFa {
   hatokorUres: boolean
   /** Magyarázat az üres hatókörhöz. `null`, ha a hatókör rendben van. */
   hatokorUzenet: string | null
+  /**
+   * Elérhető-e a szervezeti hierarchia (típus / anya-kötés / lelkész / egységek
+   * — 2026-08-25). Ha `false`, a felület SÁVBAN mondja ki, miért: a némán
+   * eltűnő típus-jelvények „minden gyülekezet önálló anya" látszatot keltenének.
+   */
+  hierarchiaElerheto: boolean
+  /**
+   * `true` = kifejezetten a `gyulekezeti_hierarchia()` RPC HIÁNYZIK (a
+   * 2026-08-25-gyulekezeti-egysegek.sql migráció nem futott le) — a teendő az
+   * SQL futtatása. `false` + `hierarchiaElerheto: false` = az RPC létezik, de
+   * HIBÁZOTT (a hibaüzenet a `hierarchiaUzenet`-ben).
+   */
+  hierarchiaHiany: boolean
+  /** Magyar magyarázat a figyelmeztető sávba; `null`, ha a hierarchia elérhető. */
+  hierarchiaUzenet: string | null
   /** Mikor készült a mérés (ISO) — a felület kiírja. */
   mertAt: string
 }
@@ -254,6 +311,85 @@ export function hianyzoKotelezoMezok(forras: KotelezoMezoForras): string[] {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Anya–leány csoportosítás egy egyházmegyén belül (2026-08-25)
+// ────────────────────────────────────────────────────────────────────────────
+
+/** A `csoportositAnyakSzerint` egy kimeneti sora — a megjelenítési sorrendben. */
+export interface AnyaCsoportSor {
+  gyulekezet: FaGyulekezet
+  /** `true` = leány, amely a listában szereplő ANYJA alatt, behúzva jelenik meg. */
+  leanySorkent: boolean
+  /**
+   * `true` = leány, amelynek az anyja nincs megadva vagy nincs ebben a listában
+   * (pl. másik egyházmegyében van, vagy adathiba) — „árva" jelzést kap.
+   */
+  arvaLeany: boolean
+}
+
+/**
+ * A megye gyülekezetei anya-csoportokba rendezve: a csoportfő + az alárendelt
+ * leányai közvetlenül utána (a leány behúzással az anyja alá kerül). Az anya
+ * nélküli leány a saját helyén marad, „árva" jelzéssel.
+ *
+ * CSOPORTFŐ minden nem-'leany' forma: 'anya', 'misszioi' és 'tars'
+ * (társegyházközség, 2026-08-25) — a DB-őr szerint mindhármukhoz kapcsolódhat
+ * leány, ezért a leányok mindhármuk alá befésülődnek.
+ *
+ * ⚠️ FAIL-CLOSED TELJESSÉG: minden bemeneti sor PONTOSAN EGYSZER jelenik meg a
+ *    kimenetben. Ha adathibából (pl. a leány anyja maga is leány) egy sor a fő
+ *    menetben kimaradna, a záró menet „árva"-ként akkor is kiteszi — sor ebből
+ *    a függvényből NÉMÁN nem veszhet el.
+ *
+ * Ha a hierarchia-mezők hiányoznak (a migráció még nem futott le), egyetlen sor
+ * sem `leany`, tehát a kimenet a bemenet változatlan sorrendje, jelzések nélkül.
+ */
+export function csoportositAnyakSzerint(
+  gyulekezetek: ReadonlyArray<FaGyulekezet>,
+): AnyaCsoportSor[] {
+  const idk = new Set(gyulekezetek.map((g) => g.id))
+  // Leányok az anyjuk szerint — csak ha az anya TÉNYLEG itt van a listában.
+  // (Az `anyaId === g.id` ág elvben lehetetlen — DB CHECK —, de adathibánál
+  // öncsatolás helyett „árva" jelzést adunk.)
+  const leanyokAnyankent = new Map<string, FaGyulekezet[]>()
+  for (const g of gyulekezetek) {
+    if (g.szervezetiTipus !== 'leany') continue
+    const anyaId = g.anyaId ?? null
+    if (!anyaId || anyaId === g.id || !idk.has(anyaId)) continue
+    const lista = leanyokAnyankent.get(anyaId) ?? []
+    lista.push(g)
+    leanyokAnyankent.set(anyaId, lista)
+  }
+
+  const ki: AnyaCsoportSor[] = []
+  const kiirt = new Set<string>()
+  for (const g of gyulekezetek) {
+    if (kiirt.has(g.id)) continue
+    if (g.szervezetiTipus === 'leany') {
+      const anyaId = g.anyaId ?? null
+      // Ha az anyja itt van a listában, majd ALATTA jelenik meg.
+      if (anyaId && anyaId !== g.id && idk.has(anyaId)) continue
+      ki.push({ gyulekezet: g, leanySorkent: false, arvaLeany: true })
+      kiirt.add(g.id)
+      continue
+    }
+    ki.push({ gyulekezet: g, leanySorkent: false, arvaLeany: false })
+    kiirt.add(g.id)
+    for (const leany of leanyokAnyankent.get(g.id) ?? []) {
+      if (kiirt.has(leany.id)) continue
+      ki.push({ gyulekezet: leany, leanySorkent: true, arvaLeany: false })
+      kiirt.add(leany.id)
+    }
+  }
+  // Záró teljességi menet — lásd a fejléc-kommentet.
+  for (const g of gyulekezetek) {
+    if (kiirt.has(g.id)) continue
+    ki.push({ gyulekezet: g, leanySorkent: false, arvaLeany: true })
+    kiirt.add(g.id)
+  }
+  return ki
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Keresés — a fa MINDHÁROM szintjén illeszt
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -268,6 +404,10 @@ function normal(s: string | null | undefined): string {
  * megmarad (a szülő találata a gyerekeket is behozza) — különben a felhasználó
  * rákeresne az egyházmegyére, és egy ÜRES megyét kapna vissza.
  * Ami sehol nem illeszkedik, az kiesik; az üres kerület/megye nem marad ott.
+ *
+ * 2026-08-25 óta a gyülekezet-szinten a LELKÉSZ nevére és az EGYSÉGEK
+ * (leány/szórvány) nevére is illeszt — ha a hierarchia-mezők hiányoznak, ez az
+ * ág egyszerűen sosem talál (undefined → üres szöveg).
  */
 export function faSzures(keruletek: ReadonlyArray<FaKerulet>, kereses: string): FaKerulet[] {
   const q = kereses.trim().toLowerCase()
@@ -284,7 +424,12 @@ export function faSzures(keruletek: ReadonlyArray<FaKerulet>, kereses: string): 
         keruletTalalat || normal(m.nev).includes(q) || normal(m.esperesNev).includes(q)
       const gyulekezetek = megyeTalalat
         ? m.gyulekezetek
-        : m.gyulekezetek.filter((g) => normal(g.nev).includes(q))
+        : m.gyulekezetek.filter(
+            (g) =>
+              normal(g.nev).includes(q) ||
+              normal(g.lelkeszNevek).includes(q) ||
+              (g.egysegek ?? []).some((e) => normal(e.nev).includes(q)),
+          )
       if (megyeTalalat || gyulekezetek.length > 0) {
         megyek.push({ ...m, gyulekezetek })
       }

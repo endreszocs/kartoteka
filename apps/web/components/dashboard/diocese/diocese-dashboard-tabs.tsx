@@ -23,6 +23,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import {
   Archive,
   ArrowRight,
@@ -56,6 +57,17 @@ import {
 import { APPROVAL_STATUS_LABELS, ROLE_LABELS, SCOPE_LABELS } from '@/lib/profile-roles/types'
 
 import { CongregationDetailModal, type CongregationDetail } from './congregation-detail-modal'
+// 2026-08-25: Szervezeti térkép — az anya→leány kapcsolatok + egységek +
+// lelkészek vizuális képe. A panel next/dynamic-kal töltődik (a finance-tabs
+// perf-mintája): a fül kódja CSAK a fülre kattintáskor kerül a kliensre.
+const DioceseSzervezetPanel = dynamic(
+  () => import('./diocese-szervezet-panel').then((m) => m.DioceseSzervezetPanel),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 animate-pulse rounded-2xl bg-muted/40" />,
+  },
+)
+import type { SzervezetTerkepEredmeny } from '@/lib/gyulekezet/egysegek-shared'
 import { RequestsSection } from './requests-section'
 import { OurDioceseSection } from './our-diocese-section'
 import { DioceseChitantaTombokSection } from './diocese-chitanta-tombok-section'
@@ -88,9 +100,13 @@ interface DioceseDashboardTabsProps {
   annualReportYear: number
   canManageRoles: boolean
   canOverride: boolean
+  /** 2026-08-25: a szervezeti térkép adata (a page.tsx Promise.all kötegéből).
+   *  A hiba/hiányzó-migráció/nincs-hatókör állapotok a csomagban utaznak —
+   *  a panel SOHA nem kezeli üres listaként őket. */
+  szervezetTerkep: SzervezetTerkepEredmeny
 }
 
-type TabKey = 'overview' | 'our-diocese' | 'congregations' | 'documents' | 'requests' | 'chitanta' | 'roles'
+type TabKey = 'overview' | 'our-diocese' | 'congregations' | 'szervezet' | 'documents' | 'requests' | 'chitanta' | 'roles'
 
 export function DioceseDashboardTabs({
   dioceseId,
@@ -103,6 +119,7 @@ export function DioceseDashboardTabs({
   annualReportYear,
   canManageRoles,
   canOverride,
+  szervezetTerkep,
 }: DioceseDashboardTabsProps) {
   const [tab, setTab] = useState<TabKey>('overview')
   const [search, setSearch] = useState('')
@@ -145,6 +162,10 @@ export function DioceseDashboardTabs({
     }
     list.push(
       { value: 'congregations', label: '⛪ Gyülekezetek', color: 'violet', count: congregationOverview.length },
+      // 2026-08-25: az anya→leány szervezeti kép (gyulekezeti_hierarchia RPC).
+      // Feltétel nélkül látszik: hiányzó migrációnál / hatókör nélkül a fül a
+      // MAGYARÁZÓ állapotot mutatja, nem tűnik el némán.
+      { value: 'szervezet', label: '🗺️ Szervezeti térkép', color: 'teal' },
       // 2026-08-09: a fül-számláló a szezon-év beküldéseit mutatja (nem a
       // teljes, évről évre növekvő archívumot).
       { value: 'documents', label: '📂 Dokumentumok', color: 'amber', count: seasonSubs.length },
@@ -315,6 +336,14 @@ export function DioceseDashboardTabs({
             </div>
           )}
         </div>
+      )}
+
+      {/* === SZERVEZETI TÉRKÉP === */}
+      {tab === 'szervezet' && (
+        <DioceseSzervezetPanel
+          data={szervezetTerkep}
+          congregationOverview={congregationOverview}
+        />
       )}
 
       {/* === DOKUMENTUMOK === */}

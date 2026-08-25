@@ -15,6 +15,8 @@ import {
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { printToBrowser } from '@/lib/utils/print-engine-v2'
+// 2026-08-25 (gyülekezeti egységek): a hivatalos szervezeti forma címkéi.
+import { SZERVEZETI_TIPUS_CIMKEK, type SzervezetiTipus } from '@/lib/gyulekezet/egysegek-shared'
 // 2026-08-15 (egyházmegyei szint, 4.1): a Group/Row építőkövek a KÖZÖS
 // summary-kit-be kerültek — az „Egyházmegyénk" ablak (diocese-summary.tsx)
 // ugyanezeket használja, hogy a két ablak soha ne húzhasson szét.
@@ -44,6 +46,19 @@ export interface CongregationSummaryData {
   status: string | null
   /** 2026-08-14 (4. pont): a publikus oldal slugja (ha be van kapcsolva) — a Megosztás gombhoz. */
   publicSlug?: string
+  /** 2026-08-25 (gyülekezeti egységek): hivatalos szervezeti forma
+   *  (a SZERVEZETI_TIPUS_CIMKEK katalógus kulcsai: 'anya'|'leany'|'misszioi'|'tars')
+   *  — migráció előtt / régi hívónál null/undefined, ilyenkor a sor nem jelenik meg. */
+  szervezetiTipus?: string | null
+  /** A kapcsolt anyaegyházközség neve (csak leánynál értelmes). */
+  anyaNev?: string | null
+}
+
+/** A szervezeti forma magyar címkéje — ismeretlen/hiányzó értéknél null. */
+function szervezetiTipusCimke(t: string | null | undefined): string | null {
+  return t && t in SZERVEZETI_TIPUS_CIMKEK
+    ? SZERVEZETI_TIPUS_CIMKEK[t as SzervezetiTipus]
+    : null
 }
 
 const ron = (n: number) => `${(Number(n) || 0).toLocaleString('hu-HU')} RON`
@@ -196,6 +211,14 @@ export function CongregationSummary({
         <Group icon={<Landmark className="size-4" />} title="Egyházi hovatartozás" accent="indigo">
           <Row label="Egyházkerület" value={data.districtName || undefined} />
           <Row label="Egyházmegye" value={data.dioceseName || undefined} />
+          {/* 2026-08-25: szervezeti forma (admin kezeli) — csak akkor, ha ismert
+              (migráció előtt null, és a sor el is marad). */}
+          {data.szervezetiTipus ? (
+            <Row label="Szervezeti forma" value={szervezetiTipusCimke(data.szervezetiTipus) || data.szervezetiTipus} />
+          ) : null}
+          {data.szervezetiTipus === 'leany' ? (
+            <Row label="Anyaegyházközség" value={data.anyaNev || undefined} />
+          ) : null}
         </Group>
 
         <Group icon={<MapPin className="size-4" />} title="Hivatalos cím" accent="rose">
@@ -316,6 +339,12 @@ export function buildCongregationSummaryPrintHtml(data: CongregationSummaryData)
     ${section('Egyházi hovatartozás', '#4338ca', rowsHtml([
       ['Egyházkerület', data.districtName],
       ['Egyházmegye', data.dioceseName],
+      ...(data.szervezetiTipus
+        ? [['Szervezeti forma', szervezetiTipusCimke(data.szervezetiTipus) || data.szervezetiTipus] as [string, string]]
+        : []),
+      ...(data.szervezetiTipus === 'leany'
+        ? [['Anyaegyházközség', data.anyaNev || null] as [string, string | null]]
+        : []),
     ]))}
     ${section('Hivatalos cím', '#be123c', rowsHtml([['Cím', data.cimSor]]))}
     ${section('Elérhetőség', '#0f766e', rowsHtml([

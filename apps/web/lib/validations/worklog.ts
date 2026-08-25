@@ -33,6 +33,10 @@ export const worklogSchema = z.object({
   // Úrvacsorázók száma — templomban / betegnél (csak szolgálat kategóriánál értelmezett).
   uv_templomban: z.number().int('Az úrvacsorázók száma egész szám legyen').min(0, 'Az úrvacsorázók száma nem lehet negatív').nullable().optional(),
   uv_betegnel: z.number().int('Az úrvacsorázók száma egész szám legyen').min(0, 'Az úrvacsorázók száma nem lehet negatív').nullable().optional(),
+  // 2026-08-25 (gyülekezeti egységek): az alkalom helyszíne — gyulekezeti_egysegek
+  // sor uuid-ja; null = anyaközpont. `undefined` = a kliens nem küldte (a mentés
+  // ilyenkor NEM nyúl az oszlophoz — lásd a saveWorklog mediapath-mintáját).
+  egyseg_id: z.string().uuid('Érvénytelen egység-azonosító').nullable().optional(),
 })
 
 export type WorklogInput = z.input<typeof worklogSchema>

@@ -757,6 +757,17 @@ export async function getMemberDetails(id: number, familyId?: number | null) {
 
 // ── Tag mentés (insert / update) ─────────────────────────────
 
+// 2026-08-25 (gyülekezeti egységek): a szemely.egyseg_id oszlop a
+// 2026-08-25-gyulekezeti-egysegek.sql migrációval jön. Amíg az élesben nem
+// futott le, a tag-mentés NEM bukhat el miatta: oszlop-hibánál az egyseg_id
+// nélkül próbáljuk újra, és (ha volt tényleges egység-választás) figyelmeztetést
+// adunk vissza. A minta ugyanaz, mint a district-auto-actions szemely.id_csoport
+// ellenálló olvasása.
+const EGYSEG_OSZLOP_HIANY_MINTA = /column|does not exist|schema cache|could not find/i
+const EGYSEG_OSZLOP_HIANY_UZENET =
+  'A tag mentve, de a gyülekezeti egység-besorolás nem került mentésre — ' +
+  'az adatbázis-migráció (2026-08-25-gyulekezeti-egysegek.sql) még nem futott le.'
+
 export async function saveMember(data: MemberInput) {
   const parsed = memberSchema.safeParse(data)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -807,6 +818,42 @@ export async function saveMember(data: MemberInput) {
     megjegyzes: d.megjegyzes || null,
     // #1 (Endre): közösségi profil-link (a fénykép ebből tölthető)
     social_profil_url: d.social_profil_url || null,
+    // 2026-08-25 (gyülekezeti egységek): egység-címke (null = anyaközpont).
+    // Szerkesztésnél az űrlap előtölti a meglévő értéket, így a mentés nem
+    // törli a korábbi besorolást akkor sem, ha a mező épp nem látszik.
+    egyseg_id: d.egyseg_id ?? null,
+  }
+
+  /** Az egyseg_id nélküli tartalék-mentés figyelmeztetése (migráció előtt). */
+  let egysegWarning: string | undefined
+
+  /** Az egyseg_id mező kihagyása a retry-hoz (oszlop-drift-biztos út). */
+  const memberDataEgysegNelkul = () => {
+    const { egyseg_id: _egysegId, ...tobbi } = memberData
+    return tobbi
+  }
+
+  // 2026-08-25 (gyülekezeti egységek): egység-tulajdon ellenőrzés a mentés
+  // ELŐTT — idegen gyülekezet egység-azonosítóját nem fogadjuk el. Az `aktiv`
+  // oszlopra szándékosan NEM szűrünk: szerkesztésnél egy időközben inaktivált
+  // egység címkéje megőrizhető. Ha a tábla még nem létezik (a migráció nem
+  // futott le), NEM blokkoljuk a mentést — a lenti strip-retry út kezeli.
+  if (d.egyseg_id != null) {
+    const egysegRes = await supabase
+      .from('gyulekezeti_egysegek')
+      .select('id')
+      .eq('id', d.egyseg_id)
+      .eq('congregation_id', congregationId)
+      .limit(1)
+    if (egysegRes.error) {
+      if (!/does not exist|schema cache|could not find/i.test(egysegRes.error.message)) {
+        // Fail-closed: ismeretlen hibánál nem engedjük át az ellenőrizetlen ID-t.
+        return { error: `A gyülekezeti egység ellenőrzése nem sikerült: ${egysegRes.error.message}` }
+      }
+      // Hiányzó tábla (migráció előtt): a mentés mehet tovább.
+    } else if ((egysegRes.data?.length ?? 0) === 0) {
+      return { error: 'A megadott gyülekezeti egység nem ehhez a gyülekezethez tartozik.' }
+    }
   }
 
   let savedId = d.id
@@ -828,8 +875,20 @@ export async function saveMember(data: MemberInput) {
     prevApjaneve = (prevNames as { apjaneve: string | null } | null)?.apjaneve ?? null
     prevAnyjaneve = (prevNames as { anyjaneve: string | null } | null)?.anyjaneve ?? null
 
-    const { error } = await supabase.from('szemely').update(memberData).eq('id', d.id).eq('congregation_id', congregationId)
-    if (error) return { error: `Hiba: ${error.message}` }
+    let updateError = (
+      await supabase.from('szemely').update(memberData).eq('id', d.id).eq('congregation_id', congregationId)
+    ).error
+    if (updateError && EGYSEG_OSZLOP_HIANY_MINTA.test(updateError.message)) {
+      // 2026-08-25: migráció előtti séma — egyseg_id nélkül újra.
+      const retry = await supabase
+        .from('szemely')
+        .update(memberDataEgysegNelkul())
+        .eq('id', d.id)
+        .eq('congregation_id', congregationId)
+      updateError = retry.error
+      if (!retry.error && d.egyseg_id != null) egysegWarning = EGYSEG_OSZLOP_HIANY_UZENET
+    }
+    if (updateError) return { error: `Hiba: ${updateError.message}` }
 
     // 2026-07-24 (PR-4 F5.10): a Fizetési státusz eddig UPDATE-nél teljesen
     // figyelmen kívül maradt (halott vezérlő volt). Mostantól: 'felmentett'-re
@@ -868,8 +927,14 @@ export async function saveMember(data: MemberInput) {
     memberData.csaladfo = false
     memberData.meghalt = false
 
-    const { data: inserted, error } = await supabase.from('szemely').insert([memberData]).select('id')
-    if (error) return { error: `Hiba: ${error.message}` }
+    let insertRes = await supabase.from('szemely').insert([memberData]).select('id')
+    if (insertRes.error && EGYSEG_OSZLOP_HIANY_MINTA.test(insertRes.error.message)) {
+      // 2026-08-25: migráció előtti séma — egyseg_id nélkül újra.
+      insertRes = await supabase.from('szemely').insert([memberDataEgysegNelkul()]).select('id')
+      if (!insertRes.error && d.egyseg_id != null) egysegWarning = EGYSEG_OSZLOP_HIANY_UZENET
+    }
+    if (insertRes.error) return { error: `Hiba: ${insertRes.error.message}` }
+    const inserted = insertRes.data
     if (!inserted?.[0]) return { error: 'Nem kaptunk vissza azonosítót.' }
     savedId = inserted[0].id
 
@@ -1054,7 +1119,10 @@ export async function saveMember(data: MemberInput) {
   }, supabase)
 
   revalidatePath('/tagnyilvantartas')
-  return { success: true, id: savedId, warning: autoFamilyWarning, parentLink }
+  // 2026-08-25: az egység-migráció előtti tartalék-mentés figyelmeztetése a
+  // meglévő warning-csatornán megy ki (a kliens toast.warning-gal mutatja).
+  const osszevontWarning = [egysegWarning, autoFamilyWarning].filter(Boolean).join(' ') || undefined
+  return { success: true, id: savedId, warning: osszevontWarning, parentLink }
 }
 
 // ── Szülő-név párosítás + utólagos összekötés (2026-08-02, PR-20) ───────────

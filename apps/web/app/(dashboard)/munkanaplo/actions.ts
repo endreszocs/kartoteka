@@ -27,8 +27,26 @@ function worklogSaveError(error: { message?: string } | null | undefined): strin
   if (isMissingColumn && /napszak|uv_templomban|uv_betegnel/.test(lower)) {
     return 'Az adatbázisból még hiányoznak az új munkanapló-oszlopok (napszak, úrvacsorázók). Kérjük, futtassa le a 2026-07-11-es munkanapló-migrációt, majd próbálja újra a mentést.'
   }
+  // 2026-08-25 (gyülekezeti egységek): normál esetben ide el sem jutunk — a
+  // mentés az oszlop hiányát strip+retry-jal túléli (lásd saveWorklog). Ez a
+  // vég-őr arra az esetre marad, ha a retry után is oszlop-hibát kapnánk.
+  if (isMissingColumn && /egyseg_id/.test(lower)) {
+    return 'Az adatbázisból még hiányzik a munkanapló egység-oszlopa (egyseg_id). Kérjük, futtassa le a 2026-08-25-gyulekezeti-egysegek.sql migrációt, majd próbálja újra a mentést.'
+  }
   return `Hiba: ${msg}`
 }
+
+/** A PostgREST „nincs ilyen oszlop: egyseg_id" hibájának felismerése —
+ * az isMissingDeletedColumn (registry-sync) mintájára. */
+function isMissingEgysegColumn(error: { message?: string } | null | undefined): boolean {
+  const msg = (error?.message || '').toLowerCase()
+  return msg.includes('egyseg_id') && (msg.includes('column') || msg.includes('schema cache'))
+}
+
+// A strip+retry figyelmeztetése — a hívó toast-ban jelzi, hogy a sor mentve
+// van, de az egység-címke NEM (fail-closed: nincs néma adatvesztés).
+const EGYSEG_OSZLOP_HIANYZIK_FIGYELMEZTETES =
+  'A bejegyzés mentve, de az egység-címke nem került eltárolásra: az adatbázisból még hiányzik a munkanaplo.egyseg_id oszlop. Futtassa le a 2026-08-25-gyulekezeti-egysegek.sql migrációt.'
 
 /**
  * Munkanapló-bejegyzések lekérdezése.
@@ -120,7 +138,14 @@ export async function getWorklogsForYearChecked(
   return queryWorklogs(String(year))
 }
 
-export async function saveWorklog(data: WorklogInput) {
+/**
+ * Mentés. Siker: `{ success: true }`; `warning` akkor jön mellé, ha a sor
+ * mentve van, de az egység-címke a hiányzó egyseg_id oszlop miatt kimaradt
+ * (a hívó toast-ban jelzi — nincs néma adatvesztés). Hiba: `{ error }`.
+ */
+export async function saveWorklog(
+  data: WorklogInput,
+): Promise<{ success?: true; warning?: string; error?: string }> {
   const parsed = worklogSchema.safeParse(data)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const { supabase, congId } = await getCongId()
@@ -162,6 +187,37 @@ export async function saveWorklog(data: WorklogInput) {
   // kulcs feltétel nélkül szerepelne, minden szerkesztés NULL-ra írná a
   // meglévő csatolmány-útvonalat. Csak akkor írjuk, ha ténylegesen érkezett.
   if (d.mediapath !== undefined) record.mediapath = d.mediapath || null
+  // 2026-08-25 (gyülekezeti egységek — a mediapath-minta): az egység-címke
+  // csak akkor íródik, ha a kliens ténylegesen küldte. Ha az egység-választó
+  // nem jelent meg (a lista nem töltődött be / migráció előtt), a meglévő
+  // címke NEM nullázódik. A küldött null = anyaközpont (tudatos választás).
+  if (d.egyseg_id !== undefined) record.egyseg_id = d.egyseg_id ?? null
+  // 2026-08-25 (gyülekezeti egységek): egység-tulajdon ellenőrzés a mentés
+  // ELŐTT — idegen gyülekezet egység-azonosítóját nem fogadjuk el. Az `aktiv`
+  // oszlopra szándékosan NEM szűrünk: szerkesztésnél egy időközben inaktivált
+  // egység címkéje megőrizhető. Ha a tábla még nem létezik (a migráció nem
+  // futott le), NEM blokkoljuk a mentést — a lenti strip-retry út kezeli.
+  if (d.egyseg_id !== undefined && d.egyseg_id !== null) {
+    const egysegRes = await supabase
+      .from('gyulekezeti_egysegek')
+      .select('id')
+      .eq('id', d.egyseg_id)
+      .eq('congregation_id', congId)
+      .limit(1)
+    if (egysegRes.error) {
+      if (!/does not exist|schema cache|could not find/i.test(egysegRes.error.message)) {
+        // Fail-closed: ismeretlen hibánál nem engedjük át az ellenőrizetlen ID-t.
+        return { error: `A gyülekezeti egység ellenőrzése nem sikerült: ${egysegRes.error.message}` }
+      }
+      // Hiányzó tábla (migráció előtt): a mentés mehet tovább.
+    } else if ((egysegRes.data?.length ?? 0) === 0) {
+      return { error: 'A megadott gyülekezeti egység nem ehhez a gyülekezethez tartozik.' }
+    }
+  }
+  // Ha az egyseg_id oszlop még nem létezik a DB-ben (a 2026-08-25-ös migráció
+  // előtt), a mentés nem dőlhet el: a címkét levágjuk, újrapróbálunk, és a
+  // hívónak figyelmeztetést adunk vissza (strip + figyelmeztetés minta).
+  let egysegWarning: string | undefined
   if (d.id) {
     // 2026-06-12: szerkesztéskor az id_jellege-t NEM nulláznánk ki — abban él
     // az anyakönyvi forrás-marker (pl. `keresztseg:123`). A dialog nem küldi,
@@ -180,6 +236,11 @@ export async function saveWorklog(data: WorklogInput) {
       delete record.deleted
       upd = await runUpdate()
     }
+    if (upd.error && isMissingEgysegColumn(upd.error) && 'egyseg_id' in record) {
+      delete record.egyseg_id
+      egysegWarning = EGYSEG_OSZLOP_HIANYZIK_FIGYELMEZTETES
+      upd = await runUpdate()
+    }
     if (upd.error) return { error: worklogSaveError(upd.error) }
     if (!upd.data || upd.data.length === 0) {
       return { error: 'A bejegyzést időközben máshol módosították. Frissítse a listát, és próbálja újra.' }
@@ -190,10 +251,15 @@ export async function saveWorklog(data: WorklogInput) {
       delete record.deleted
       ins = await supabase.from('munkanaplo').insert([record])
     }
+    if (ins.error && isMissingEgysegColumn(ins.error) && 'egyseg_id' in record) {
+      delete record.egyseg_id
+      egysegWarning = EGYSEG_OSZLOP_HIANYZIK_FIGYELMEZTETES
+      ins = await supabase.from('munkanaplo').insert([record])
+    }
     if (ins.error) return { error: worklogSaveError(ins.error) }
   }
   revalidatePath('/munkanaplo')
-  return { success: true }
+  return { success: true, warning: egysegWarning }
 }
 
 export async function deleteWorklog(id: number) {

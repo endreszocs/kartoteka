@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Archive, ArrowRight, ClipboardList, Inbox } from 'lucide-react'
+import { Archive, ArrowRight, ClipboardList, Inbox, MapPinned } from 'lucide-react'
 
 /**
  * A kerületi kezdőoldal BELÉPŐ KÁRTYÁI (2026-08-17, S3–S4).
@@ -24,7 +24,9 @@ import { Archive, ArrowRight, ClipboardList, Inbox } from 'lucide-react'
  */
 export function DistrictBelepoKartyak({ ev }: { ev: number }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-3">
+    // 2026-08-25: a Szervezeti térkép a negyedik belépő — nagy képernyőn négy
+    // oszlop, közepes méreten 2×2 (négy elem 3 oszlopban árva kártyát hagyna).
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <BelepoKartya
         href="/dashboard-kerulet/felterjesztesek"
         ikon={<Inbox className="size-5" />}
@@ -46,6 +48,15 @@ export function DistrictBelepoKartyak({ ev }: { ev: number }) {
         leiras={`A(z) ${ev}. évi megyei felterjesztések kerületi összesítése, nyomtatható ívvel.`}
         szin="purple"
       />
+      {/* 2026-08-25: a kerület szervezeti térképe (anya→leány + egységek +
+          lelkészek, egyházmegyénként) — a gyulekezeti_hierarchia() RPC-ből. */}
+      <BelepoKartya
+        href="/dashboard-kerulet/szervezet"
+        ikon={<MapPinned className="size-5" />}
+        cim="Szervezeti térkép"
+        leiras="Anya- és leányegyházközségek, szórványok, lelkészek és létszám — egyházmegyénkénti bontásban."
+        szin="fuchsia"
+      />
     </div>
   )
 }
@@ -61,17 +72,19 @@ function BelepoKartya({
   ikon: React.ReactNode
   cim: string
   leiras: string
-  szin: 'violet' | 'indigo' | 'purple'
+  szin: 'violet' | 'indigo' | 'purple' | 'fuchsia'
 }) {
   const szinek: Record<typeof szin, string> = {
     violet: 'border-violet-200 hover:border-violet-300 dark:border-violet-400/25',
     indigo: 'border-indigo-200 hover:border-indigo-300 dark:border-indigo-400/25',
     purple: 'border-purple-200 hover:border-purple-300 dark:border-purple-400/25',
+    fuchsia: 'border-fuchsia-200 hover:border-fuchsia-300 dark:border-fuchsia-400/25',
   }
   const ikonSzin: Record<typeof szin, string> = {
     violet: 'bg-violet-50 text-violet-700 dark:bg-violet-400/15 dark:text-violet-300',
     indigo: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-400/15 dark:text-indigo-300',
     purple: 'bg-purple-50 text-purple-700 dark:bg-purple-400/15 dark:text-purple-300',
+    fuchsia: 'bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-400/15 dark:text-fuchsia-300',
   }
   return (
     <Link

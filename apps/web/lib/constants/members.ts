@@ -118,6 +118,10 @@ export interface MemberRow {
   c_emelet: string | null
   c_ajto: string | null
   congregation_id: string | null
+  /** 2026-08-25 (gyülekezeti egységek): egység-címke (null/hiányzó = anyaközpont).
+   *  Opcionális, mert a 2026-08-25-ös migráció előtt az oszlop még nem létezik
+   *  — a fogyasztók a hiányt anyaközpontként kezelik. */
+  egyseg_id?: string | null
   adrstreet: { name: string } | null
   adrlocality: { name: string } | null
   /** A születési hely feloldott neve (`sz_helyid` → `adrlocality`). */

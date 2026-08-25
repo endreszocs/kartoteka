@@ -25,6 +25,8 @@ import { toast } from 'sonner'
 import { deleteWorklog, saveWorklog } from '@/app/(dashboard)/munkanaplo/actions'
 import { NAPSZAK_OPTIONS, WORKLOG_TYPES } from '@/lib/constants/worklog'
 import type { WorklogCategory, WorklogEntry } from '@/lib/constants/worklog'
+import { kozpontValasztoCimke } from '@/lib/gyulekezet/egysegek-shared'
+import type { GyulekezetiEgyseg } from '@/lib/gyulekezet/egysegek-shared'
 import type { WorklogInput } from '@/lib/validations/worklog'
 import { cn } from '@/lib/utils'
 // A két „okos” mezőt párhuzamos munkafolyam készíti — a kontraktus:
@@ -47,6 +49,43 @@ export interface WorklogTableEditorProps {
    * Ha meg van adva, a műveletek-cellában ceruza-ikon jelenik meg.
    */
   onEditEntry?: (entry: WorklogEntry) => void
+  /**
+   * 2026-08-25: a gyülekezet leány/szórvány egységei (helyszín-címke).
+   * Az „Egység" oszlop CSAK akkor renderelődik, ha a lista nem üres — és a
+   * mentés is csak ilyenkor küld egyseg_id-t (különben a meglévő címke marad).
+   */
+  egysegek?: GyulekezetiEgyseg[]
+  /**
+   * 2026-08-25: az időszak-sáv egység-szűrője — 'all' = minden sor, 'anya' =
+   * csak a címke nélküli (anyaközponti) sorok, különben egy egység uuid-ja.
+   * A Ssz. a szűrőtől függetlenül az éven belüli folyamatos sorszám marad
+   * (a hónap-szűrés mintája).
+   */
+  egysegFilter?: string
+  /**
+   * 2026-08-25 (társegyházközség): a gyülekezet szervezeti formája. Társnál a
+   * címke nélküli sor nem az anyaközpont, hanem a KÖZÖS (egész egyházközséget
+   * érintő) adat — a központ-opció és a súgószövegek felirata ebből jön;
+   * nem-társ gyülekezetnél minden BETŰRE a régi marad.
+   */
+  szervezetiTipus?: string | null
+}
+
+/**
+ * 2026-08-25 (társegyházközség): a címke nélküli (központ) opció felirata a
+ * kompakt egység-cellában. Társnál a valódi felirat áll („Közös / egész
+ * egyházközség" — ott a NULL címke a közös adatot jelenti, nincs anyaközpont);
+ * nem-társ gyülekezetnél a kompakt „—" BETŰRE változatlan.
+ */
+function kozpontOpcioFelirat(szervezetiTipus?: string | null): string {
+  return szervezetiTipus === 'tars' ? kozpontValasztoCimke(szervezetiTipus) : '—'
+}
+
+/** Az egység-oszlop súgószövege (fejléc-title + cella aria-label/title). */
+function egysegOszlopSugo(szervezetiTipus?: string | null): string {
+  return szervezetiTipus === 'tars'
+    ? 'Egység / helyszín (üres = közös, egész egyházközség)'
+    : 'Egység / helyszín (üres = anyaközpont)'
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +102,8 @@ interface RowDraft {
   idopont: string
   jellege: string
   napszak: Napszak
+  /** 2026-08-25: helyszín-címke (gyulekezeti_egysegek uuid); '' = anyaközpont. */
+  egyseg_id: string
   cim: string
   bibliaolvasas: string
   alapige: string
@@ -78,7 +119,7 @@ interface RowDraft {
 }
 
 const DRAFT_KEYS: (keyof RowDraft)[] = [
-  'idopont', 'jellege', 'napszak', 'cim', 'bibliaolvasas', 'alapige', 'enekek',
+  'idopont', 'jellege', 'napszak', 'egyseg_id', 'cim', 'bibliaolvasas', 'alapige', 'enekek',
   'szolgalt', 'megjegyzes', 'jelenlet_ferfi', 'jelenlet_no', 'jelenlet_gyermek',
   'uv_templomban', 'uv_betegnel', 'persely',
 ]
@@ -111,6 +152,7 @@ function entryToDraft(e: WorklogEntry): RowDraft {
     jellege: e.jellege || '',
     // Legacy sorok: ha nincs napszak, a du boolean dönt (kontraktus).
     napszak: e.napszak ?? (e.du ? 'du' : 'de'),
+    egyseg_id: e.egyseg_id || '',
     cim: e.cim || '',
     bibliaolvasas: e.bibliaolvasas || '',
     alapige: e.alapige || '',
@@ -158,11 +200,12 @@ function defaultNewDate(year: number, month: number | null): string {
   return year === now.getFullYear() ? localToday() : `${year}-01-01`
 }
 
-function emptyDraft(year: number, month: number | null): RowDraft {
+function emptyDraft(year: number, month: number | null, egysegId = ''): RowDraft {
   return {
     idopont: defaultNewDate(year, month),
     jellege: '',
     napszak: 'de',
+    egyseg_id: egysegId,
     cim: '', bibliaolvasas: '', alapige: '', enekek: '', szolgalt: '', megjegyzes: '',
     jelenlet_ferfi: '', jelenlet_no: '', jelenlet_gyermek: '',
     uv_templomban: '', uv_betegnel: '', persely: '',
@@ -173,9 +216,19 @@ function emptyDraft(year: number, month: number | null): RowDraft {
  * A teljes draft megy ki — a nem látható mezők a betöltött sor értékét
  * hordozzák, így a saveWorklog teljes-rekord írása nem töröl adatot.
  * (mediapath és id_jellege szándékosan NEM megy: azokat az action védi.)
+ *
+ * 2026-08-25: az egyseg_id CSAK akkor megy ki (includeEgyseg), ha az
+ * egység-oszlop látszik — különben a mentés nem nyúl a meglévő címkéhez
+ * (az action mediapath-mintája).
  */
-function toInput(draft: RowDraft, category: WorklogCategory, entry?: WorklogEntry): WorklogInput {
+function toInput(
+  draft: RowDraft,
+  category: WorklogCategory,
+  entry?: WorklogEntry,
+  includeEgyseg?: boolean,
+): WorklogInput {
   return {
+    ...(includeEgyseg ? { egyseg_id: draft.egyseg_id || null } : {}),
     id: entry?.id,
     // Optimista zárolás: a betöltött revision megy vissza (legacy soron nincs).
     revision: entry?.revision ?? undefined,
@@ -268,6 +321,14 @@ interface EditorRowProps {
   /** A sor kulcsa — a stabil (dispatch-stílusú) callbackek ezzel hívódnak. */
   rowKey: RowKey
   category: WorklogCategory
+  /**
+   * Egység-lista (referencia-stabil — a memo miatt fontos). Üres lista =
+   * nincs Egység-cella (a gyülekezetnek nincs leány/szórvány egysége, vagy
+   * a lista nem töltődött be).
+   */
+  egysegek: GyulekezetiEgyseg[]
+  /** 2026-08-25 (társegyházközség): a központ-opció feliratához (memo-biztos primitív). */
+  szervezetiTipus?: string | null
   /** CSAK a saját sor draftja — referencia-stabil, amíg a sort nem érintik (memo!). */
   draft: RowDraft
   /** Éven belüli folyamatos sorszám (csak megjelenítés); új sornál nem jelenik meg. */
@@ -288,7 +349,7 @@ interface EditorRowProps {
 }
 
 const EditorRow = memo(function EditorRow({
-  rowKey, category, draft, ssz, dirty, saving, deleting, isNew,
+  rowKey, category, egysegek, szervezetiTipus, draft, ssz, dirty, saving, deleting, isNew,
   onField: onFieldProp, onCommit: onCommitProp, onRowLeave: onRowLeaveProp,
   onDelete: onDeleteProp, onEditForm: onEditFormProp, dateRef,
 }: EditorRowProps) {
@@ -392,6 +453,32 @@ const EditorRow = memo(function EditorRow({
           ))}
         </select>
       </td>
+
+      {/* Egység / helyszín — kategória-független címke; csak akkor látszik,
+          ha a gyülekezetnek van leány/szórvány egysége. Kompakt: '—' =
+          anyaközpont, az opciók a rövid egység-nevek. */}
+      {egysegek.length > 0 && (
+        <td className={td}>
+          <select
+            value={draft.egyseg_id}
+            aria-label={egysegOszlopSugo(szervezetiTipus)}
+            title={egysegOszlopSugo(szervezetiTipus)}
+            onChange={(e) => onField('egyseg_id', e.target.value)}
+            className={cn(CELL_INPUT, 'px-1', !draft.egyseg_id && 'text-muted-foreground/60')}
+          >
+            <option value="">{kozpontOpcioFelirat(szervezetiTipus)}</option>
+            {/* Inaktív/törölt egység címkéjének megőrzése — különben a select
+                üresre ugrana, és egy másik cella mentése némán anyaközpontra
+                írná át a sort (a jelleg-select legacy-mintája). */}
+            {draft.egyseg_id && !egysegek.some((eg) => eg.id === draft.egyseg_id) && (
+              <option value={draft.egyseg_id}>(inaktív egység)</option>
+            )}
+            {egysegek.map((eg) => (
+              <option key={eg.id} value={eg.id}>{eg.nev}</option>
+            ))}
+          </select>
+        </td>
+      )}
 
       {category === 'szolgalat' && (
         <>
@@ -556,12 +643,17 @@ const EditorRow = memo(function EditorRow({
 // Fő komponens
 // ---------------------------------------------------------------------------
 
-export function WorklogTableEditor({ yearEntries, year, month, category, onChanged, onEditEntry }: WorklogTableEditorProps) {
+export function WorklogTableEditor({ yearEntries, year, month, category, onChanged, onEditEntry, egysegek = [], egysegFilter = 'all', szervezetiTipus = null }: WorklogTableEditorProps) {
+  // 2026-08-25: az Egység-oszlop (és a mentésbe kerülő egyseg_id) kapcsolója.
+  const hasEgysegek = egysegek.length > 0
+  // Konkrét egységre állított szűrőnél az új sor is oda kap alapértéket
+  // ('all'/'anya' → üres, azaz anyaközpont).
+  const defaultEgysegId = egysegFilter !== 'all' && egysegFilter !== 'anya' ? egysegFilter : ''
   // Csak a megérintett sorokhoz tárolunk draftot; a megjelenített érték
   // draft ?? getBaseline(entry) (cache-elt entryToDraft). Sikeres mentés után
   // a draft törlődik, a friss adat a szülő újratöltéséből (onChanged) jön.
   const [drafts, setDrafts] = useState<Record<number, RowDraft>>({})
-  const [newDraft, setNewDraft] = useState<RowDraft>(() => emptyDraft(year, month))
+  const [newDraft, setNewDraft] = useState<RowDraft>(() => emptyDraft(year, month, defaultEgysegId))
   const [savingIds, setSavingIds] = useState<Set<number | 'new'>>(() => new Set())
   const [deletingId, setDeletingId] = useState<number | null>(null)
 
@@ -593,16 +685,33 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
 
   // Év/hónap/kategória-váltáskor az új-sor draft friss defaultot kap.
   useEffect(() => {
-    setNewDraft(emptyDraft(year, month))
+    setNewDraft(emptyDraft(year, month, defaultEgysegId))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- szándékos triggerek
   }, [year, month, category])
 
+  // Egység-szűrő váltásakor CSAK az új-sor egység-defaultja frissül — a már
+  // beírt többi mező megmarad.
+  useEffect(() => {
+    setNewDraft((prev) => withField(prev, 'egyseg_id', defaultEgysegId))
+  }, [defaultEgysegId])
+
   // month != null → csak az adott hónap sorai; a Ssz. akkor is az ÉVEN
-  // belüli folyamatos index (a yearEntries dátum szerint növekvő).
+  // belüli folyamatos index (a yearEntries dátum szerint növekvő). Az
+  // egység-szűrő UGYANÍGY a Ssz.-hozzárendelés UTÁN hat (2026-08-25):
+  // 'anya' = a címke nélküli (anyaközponti) sorok, uuid = az adott egység —
+  // az éven belüli folyamatos számozás így érintetlen marad.
   const visible = useMemo(() => {
-    const rows = yearEntries.map((entry, i) => ({ entry, ssz: i + 1 }))
-    if (month == null) return rows
-    return rows.filter(({ entry }) => Number((entry.idopont || '').slice(5, 7)) === month)
-  }, [yearEntries, month])
+    let rows = yearEntries.map((entry, i) => ({ entry, ssz: i + 1 }))
+    if (month != null) {
+      rows = rows.filter(({ entry }) => Number((entry.idopont || '').slice(5, 7)) === month)
+    }
+    if (egysegFilter === 'anya') {
+      rows = rows.filter(({ entry }) => !entry.egyseg_id)
+    } else if (egysegFilter !== 'all') {
+      rows = rows.filter(({ entry }) => entry.egyseg_id === egysegFilter)
+    }
+    return rows
+  }, [yearEntries, month, egysegFilter])
 
   function setSaving(id: number | 'new', on: boolean) {
     if (on) inFlight.current.add(id)
@@ -636,7 +745,7 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
     }
     setSaving(id, true)
     try {
-      const result = await saveWorklog(toInput(draft, category, entry))
+      const result = await saveWorklog(toInput(draft, category, entry, hasEgysegek))
       if (result.error) {
         // Konkurencia (vagy validációs) hiba: a beírt értékek megmaradnak a
         // draftban, a friss adatot a szülő újratölti — újrapróbálható.
@@ -648,7 +757,10 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
           delete next[id]
           return next
         })
-        toast.success('Sor mentve.')
+        // 2026-08-25: a sor mentve, de az egység-címke kimaradt (migráció
+        // előtti DB) — hangos jelzés, nincs néma adatvesztés.
+        if (result.warning) toast.warning(result.warning)
+        else toast.success('Sor mentve.')
         onChanged()
       }
     } finally {
@@ -666,13 +778,15 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
     }
     setSaving('new', true)
     try {
-      const result = await saveWorklog(toInput(draft, category))
+      const result = await saveWorklog(toInput(draft, category, undefined, hasEgysegek))
       if (result.error) {
         toast.error(result.error)
         return
       }
-      toast.success('Új bejegyzés rögzítve.')
-      setNewDraft(emptyDraft(year, month))
+      // 2026-08-25: mentve, de az egység-címke kimaradt (migráció előtti DB).
+      if (result.warning) toast.warning(result.warning)
+      else toast.success('Új bejegyzés rögzítve.')
+      setNewDraft(emptyDraft(year, month, defaultEgysegId))
       onChanged()
       // Enterrel rögzítő „gyorsírók”: a fókusz visszaáll az új sor dátumára.
       if (viaEnter) requestAnimationFrame(() => newDateRef.current?.focus())
@@ -737,8 +851,9 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
     actionsRef.current.openEditForm(id)
   }, [])
 
-  const colCount = category === 'szolgalat' ? 15 : category === 'katekezis' ? 10 : 7
-  const newRowDirty = isDirty(newDraft, emptyDraft(year, month))
+  const colCount =
+    (category === 'szolgalat' ? 15 : category === 'katekezis' ? 10 : 7) + (hasEgysegek ? 1 : 0)
+  const newRowDirty = isDirty(newDraft, emptyDraft(year, month, defaultEgysegId))
 
   return (
     <div className="space-y-2">
@@ -758,6 +873,9 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
                 <Th className="w-10 text-center" title="Éven belüli folyamatos sorszám">Ssz.</Th>
                 <Th className="min-w-[8.75rem]">Dátum</Th>
                 <Th className="min-w-[9.5rem]">Jelleg</Th>
+                {hasEgysegek && (
+                  <Th className="min-w-[7rem]" title={egysegOszlopSugo(szervezetiTipus)}>Egység</Th>
+                )}
                 <Th className="min-w-[6.5rem]">Napszak</Th>
                 <Th className="min-w-[8.5rem]" title="Bibliaolvasás (igehely)">Bibliaolvasás</Th>
                 <Th className="min-w-[8.5rem]" title="Az igehirdetés alapigéje">Alapige</Th>
@@ -776,6 +894,9 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
                 <Th className="w-10 text-center" title="Éven belüli folyamatos sorszám">Ssz.</Th>
                 <Th className="min-w-[8.75rem]">Dátum</Th>
                 <Th className="min-w-[9.5rem]">Jelleg</Th>
+                {hasEgysegek && (
+                  <Th className="min-w-[7rem]" title={egysegOszlopSugo(szervezetiTipus)}>Egység</Th>
+                )}
                 <Th className="min-w-[10rem]">Cím</Th>
                 <Th className="w-12 min-w-[3rem] text-center" title="Jelenlét — férfi">F</Th>
                 <Th className="w-12 min-w-[3rem] text-center" title="Jelenlét — nő">N</Th>
@@ -789,6 +910,9 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
                 <Th className="w-10 text-center" title="Éven belüli folyamatos sorszám">Ssz.</Th>
                 <Th className="min-w-[8.75rem]">Dátum</Th>
                 <Th className="min-w-[9.5rem]">Jelleg</Th>
+                {hasEgysegek && (
+                  <Th className="min-w-[7rem]" title={egysegOszlopSugo(szervezetiTipus)}>Egység</Th>
+                )}
                 <Th className="min-w-[10rem]">Cím / család</Th>
                 <Th className="min-w-[8rem]">Lelkész / látogató</Th>
                 <Th className="min-w-[12rem]">Megjegyzés</Th>
@@ -800,9 +924,11 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
             {visible.length === 0 && (
               <tr>
                 <td colSpan={colCount} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                  {month != null
-                    ? 'Ebben a hónapban még nincs bejegyzés.'
-                    : 'Ebben az évben még nincs bejegyzés.'}{' '}
+                  {egysegFilter !== 'all'
+                    ? 'A kiválasztott egység-szűrővel nincs bejegyzés ebben az időszakban.'
+                    : month != null
+                      ? 'Ebben a hónapban még nincs bejegyzés.'
+                      : 'Ebben az évben még nincs bejegyzés.'}{' '}
                   Kezdje az alábbi új sorral — a dátum és a jelleg kitöltése után magától mentődik.
                 </td>
               </tr>
@@ -819,6 +945,8 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
                   key={entry.id}
                   rowKey={entry.id}
                   category={category}
+                  egysegek={egysegek}
+                  szervezetiTipus={szervezetiTipus}
                   draft={rowDraft ?? baseline}
                   ssz={ssz}
                   dirty={rowDraft !== undefined && isDirty(rowDraft, baseline)}
@@ -838,6 +966,8 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
               isNew
               rowKey="new"
               category={category}
+              egysegek={egysegek}
+              szervezetiTipus={szervezetiTipus}
               draft={newDraft}
               dirty={newRowDirty}
               saving={savingIds.has('new')}

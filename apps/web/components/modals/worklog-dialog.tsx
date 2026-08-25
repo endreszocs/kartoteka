@@ -8,11 +8,38 @@ import { Label } from '@/components/ui/label'
 import { saveWorklog } from '@/app/(dashboard)/munkanaplo/actions'
 import { WORKLOG_TYPES, NAPSZAK_OPTIONS, categorizeWorklogEntry } from '@/lib/constants/worklog'
 import type { WorklogCategory, WorklogEntry } from '@/lib/constants/worklog'
+import { EGYSEG_TIPUS_CIMKEK, kozpontValasztoCimke } from '@/lib/gyulekezet/egysegek-shared'
+import type { GyulekezetiEgyseg } from '@/lib/gyulekezet/egysegek-shared'
 import { toast } from 'sonner'
 
-interface WorklogDialogProps { open: boolean; onOpenChange: (open: boolean) => void; editEntry: WorklogEntry | null; defaultCategory: WorklogCategory }
+interface WorklogDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  editEntry: WorklogEntry | null
+  defaultCategory: WorklogCategory
+  /**
+   * 2026-08-25: a gyülekezet leány/szórvány egységei. Az „Egység / helyszín"
+   * mező CSAK akkor jelenik meg, ha a lista nem üres — és a mentés is csak
+   * ilyenkor küld egyseg_id-t (különben a meglévő címke érintetlen marad).
+   */
+  egysegek?: GyulekezetiEgyseg[]
+  /**
+   * 2026-08-25 (társegyházközség): a gyülekezet szervezeti formája — a
+   * központ-opció felirata ebből jön (társnál „Közös / egész egyházközség";
+   * nem-társnál változatlanul „Anyaegyházközség (központ)").
+   */
+  szervezetiTipus?: string | null
+}
 
-export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }: WorklogDialogProps) {
+/** Opció-felirat: a név + típus-utótag, pl. „Páva (leányegyházközség)" —
+ * kivéve, ha a név már tartalmazza a típust. */
+function egysegFelirat(e: GyulekezetiEgyseg): string {
+  const cimke = EGYSEG_TIPUS_CIMKEK[e.tipus]
+  if (e.nev.toLowerCase().includes(cimke.toLowerCase())) return e.nev
+  return `${e.nev} (${cimke.toLowerCase()})`
+}
+
+export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory, egysegek = [], szervezetiTipus = null }: WorklogDialogProps) {
   const [loading, setLoading] = useState(false)
   const [category, setCategory] = useState<WorklogCategory>(defaultCategory)
   const [idopont, setIdopont] = useState('')
@@ -38,6 +65,9 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
   const [uvTemplomban, setUvTemplomban] = useState('')
   const [uvBetegnel, setUvBetegnel] = useState('')
   const [megj, setMegj] = useState('')
+  // 2026-08-25 (gyülekezeti egységek): az alkalom helyszíne; '' = anyaközpont.
+  // KATEGÓRIA-FÜGGETLEN — a kategória-váltó mező-ürítése szándékosan nem érinti.
+  const [egysegId, setEgysegId] = useState('')
 
   useEffect(() => {
     if (!open) return
@@ -61,6 +91,7 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
         setUvTemplomban(editEntry.uv_templomban != null ? String(editEntry.uv_templomban) : '')
         setUvBetegnel(editEntry.uv_betegnel != null ? String(editEntry.uv_betegnel) : '')
         setMegj(editEntry.megjegyzes || '')
+        setEgysegId(editEntry.egyseg_id || '')
         // Kategória meghatározás — a közös helperrel (kategoria mező +
         // jellege fallback; 2026-06-12, Endre #3 munkanapló)
         setCategory(categorizeWorklogEntry(editEntry))
@@ -81,6 +112,7 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
         setUvTemplomban('')
         setUvBetegnel('')
         setMegj('')
+        setEgysegId('')
       }
     })
     return () => {
@@ -122,10 +154,16 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
       uv_templomban: uvTemplomban === '' ? null : Number(uvTemplomban),
       uv_betegnel: uvBetegnel === '' ? null : Number(uvBetegnel),
       megjegyzes: megj || null,
+      // 2026-08-25: az egység-címke CSAK akkor megy ki, ha a választó látszott
+      // (van egység) — különben a mentés nem nyúl a meglévő címkéhez (a
+      // saveWorklog mediapath-mintája). '' → null = anyaközpont.
+      ...(egysegek.length > 0 ? { egyseg_id: egysegId || null } : {}),
     })
     if (result.error) toast.error(result.error)
     else {
-      toast.success(editEntry ? 'Frissítve!' : 'Rögzítve!')
+      // Mentve, de az egység-címke kimaradt (migráció előtti DB) — hangos jelzés.
+      if (result.warning) toast.warning(result.warning)
+      else toast.success(editEntry ? 'Frissítve!' : 'Rögzítve!')
       onOpenChange(false)
     }
     setLoading(false)
@@ -184,6 +222,32 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
             <div className="space-y-1.5"><Label>Dátum *</Label><Input type="date" value={idopont} onChange={e => setIdopont(e.target.value)} /></div>
             <div className="space-y-1.5"><Label>Cím</Label><Input value={cim} onChange={e => setCim(e.target.value)} /></div>
           </div>
+
+          {/* 2026-08-25: Egység / helyszín — KATEGÓRIA-FÜGGETLEN címke, ezért a
+              kategória-váltó mező-ürítése szándékosan nem érinti. Csak akkor
+              látszik, ha a gyülekezetnek van leány/szórvány egysége. */}
+          {egysegek.length > 0 && (
+            <div className="space-y-1.5">
+              <Label htmlFor="worklog-dialog-egyseg">Egység / helyszín</Label>
+              <select
+                id="worklog-dialog-egyseg"
+                value={egysegId}
+                onChange={e => setEgysegId(e.target.value)}
+                className="w-full min-h-9 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground"
+              >
+                {/* 2026-08-25 (társegyházközség): társnál a címke nélküli adat
+                    a KÖZÖS (egész egyházközséget érintő) tétel, nem az anya. */}
+                <option value="">{kozpontValasztoCimke(szervezetiTipus)}</option>
+                {/* Inaktív/törölt egység címkéjének megőrzése szerkesztéskor —
+                    különben a select üresre ugrana, és a mentés némán az
+                    anyaközpontra írná át (a Típus-select legacy-mintája). */}
+                {egysegId && !egysegek.some(eg => eg.id === egysegId) && (
+                  <option value={egysegId}>(korábbi, már nem aktív egység)</option>
+                )}
+                {egysegek.map(eg => <option key={eg.id} value={eg.id}>{egysegFelirat(eg)}</option>)}
+              </select>
+            </div>
+          )}
 
           {/* Jelenlét — mindhárom kategóriánál (a hivatalos Excel naplók
               mindegyike tartalmaz létszámot: Férfi/Nő, Résztvett, Jelen volt).

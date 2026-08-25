@@ -5,6 +5,7 @@ import { z } from 'zod'
 
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { normalizeDebtCalcMode } from '@/lib/constants/finance'
+import { SZERVEZETI_TIPUS_CIMKEK, type SzervezetiTipus } from '@/lib/gyulekezet/egysegek-shared'
 import { createClient } from '@/lib/supabase/server'
 import { sendEmail } from '@/lib/email/send'
 import {
@@ -1352,6 +1353,63 @@ const congregationSetupSchema = z.object({
 
 export type CongregationSetupInput = z.infer<typeof congregationSetupSchema>
 
+// ────────────────────────────────────────────────────────────────────
+// ⛔ HIBAJAVÍTÁS 2026-08-25 (rögzített hibaosztály: „skalár hatókör" — a
+// 3. kör tanulságának tükörképe). A canManage eddig KIZÁRÓLAG a
+// profiles.congregation_id skalárt hasonlította, így akinek a gyülekezeti
+// jogosultsága profile_roles congregation-sorban él (multi-role: pl.
+// második gyülekezet lelkésze), az jogosult létére sem menthetett/tölthetett fel.
+// Roles-first: a skalár MELLETT (VAGY-kapcsolattal) az aktív + jóváhagyott,
+// congregation-scope, role='lelkesz' profile_roles sort is elfogadjuk erre a
+// gyülekezetre. FONTOS (rögzített szabály): ez a kapu betűre AZONOS a DB-oldali
+// congregations_update_roles_first RLS-policyval (2026-08-25-gyulekezeti-egysegek.sql),
+// amely szintén PONTOSAN role='lelkesz'-t enged — a két kapu nem térhet el,
+// különben az app „igen"-je után az RLS némán 0 sort frissít (vagy fordítva).
+// Fail-closed: lekérdezési hibánál NEM tágítunk (false). A viselkedés csak
+// BŐVÜL — aki eddig menthetett, ezután is tud.
+// ────────────────────────────────────────────────────────────────────
+
+type EffectiveAccess = Awaited<ReturnType<typeof getEffectiveAccessContext>>
+
+async function canManageCongregation(
+  access: EffectiveAccess,
+  congregationId: string,
+): Promise<boolean> {
+  // Admin-override láb (a régi viselkedés változatlanul)
+  if (access.admin || access.master || access.egyhazkeruletiAdmin) return true
+  // Skalár-láb (a régi viselkedés változatlanul)
+  if (access.profile?.congregation_id === congregationId) return true
+  if (!access.userId) return false
+  // Roles-first láb — a kontextusban már betöltött (approved + active)
+  // profile_roles sorok gyors útja. Szigorúan role='lelkesz' — betűre azonos
+  // a congregations_update_roles_first RLS-policy feltételével!
+  if (
+    access.profileRoles.some(
+      (r) =>
+        r.scope === 'congregation' &&
+        r.scope_id === congregationId &&
+        r.role === 'lelkesz',
+    )
+  ) {
+    return true
+  }
+  // …és friss DB-ellenőrzés: a profileRoles betöltése tranziensen hibázhatott
+  // (profileRolesFeloldhato=false), ilyenkor a memória-üresség NEM bizonyíték.
+  // Ugyanaz a szigorú role='lelkesz' szűrés, mint a gyors úton és az RLS-ben.
+  const { data, error } = await access.supabase
+    .from('profile_roles')
+    .select('id')
+    .eq('profile_id', access.userId)
+    .eq('scope', 'congregation')
+    .eq('scope_id', congregationId)
+    .eq('role', 'lelkesz')
+    .eq('active', true)
+    .eq('approval_status', 'approved')
+    .limit(1)
+  if (error) return false
+  return (data?.length ?? 0) > 0
+}
+
 export async function saveCongregationSetup(
   input: CongregationSetupInput,
 ): Promise<{ ok?: true; error?: string; warning?: string; fieldErrors?: Record<string, string> }> {
@@ -1365,13 +1423,8 @@ export async function saveCongregationSetup(
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
 
-  // Jogosultság: csak a saját gyülekezet lelkésze (vagy admin override)
-  const canManage =
-    access.admin ||
-    access.master ||
-    access.egyhazkeruletiAdmin ||
-    access.profile?.congregation_id === parsed.data.id
-
+  // Jogosultság: a gyülekezet lelkésze/munkatársa (roles-first) vagy admin
+  const canManage = await canManageCongregation(access, parsed.data.id)
   if (!canManage) return { error: 'Nincs jogosultság a gyülekezet szerkesztéséhez.' }
 
   // ── 2026-08-10 (K4 regisztráció-diagnosztika #1/#2): egyházmegye-kötés védelme ──
@@ -1440,10 +1493,16 @@ export async function saveCongregationSetup(
       : {}),
   }
 
-  let updateError = (await access.supabase
+  // 2026-08-25 (gyülekezeti egységek): `.select('id')`-vel kérjük vissza a
+  // frissített sort. Ha nincs hiba, DE 0 sor jött vissza, az RLS némán
+  // elutasította az UPDATE-et — ez eddig hamis „sikerként" jelent meg.
+  const updateRes = await access.supabase
     .from('congregations')
     .update(payload)
-    .eq('id', parsed.data.id)).error
+    .eq('id', parsed.data.id)
+    .select('id')
+  let updateError = updateRes.error
+  let updatedRowCount = updateRes.data?.length ?? 0
 
   // Régi DB-ken hiányozhat pl. a tartozas_szamitas_mod oszlop → az új mezők nélkül újrapróbáljuk,
   // hogy a mag-adatok akkor is elmentődjenek (a setup-mentés ne bukjon el egy hiányzó oszlopon).
@@ -1464,8 +1523,13 @@ export async function saveCongregationSetup(
       if (k in safe) stripped.push(k)
       delete safe[k]
     }
-    const retry = await access.supabase.from('congregations').update(safe).eq('id', parsed.data.id)
+    const retry = await access.supabase
+      .from('congregations')
+      .update(safe)
+      .eq('id', parsed.data.id)
+      .select('id')
     updateError = retry.error
+    updatedRowCount = retry.data?.length ?? 0
     if (!retry.error && stripped.length > 0) {
       strippedWarning =
         `Figyelem: az adatbázis nem ismeri a következő mezőket, ezért NEM mentődtek el: ${stripped.join(', ')}. ` +
@@ -1474,6 +1538,14 @@ export async function saveCongregationSetup(
   }
 
   if (updateError) return { error: updateError.message }
+  // 0 frissített sor hiba nélkül = az RLS elutasította az UPDATE-et (a retry
+  // ágon is ellenőrizzük) — ne folytassuk hamis sikerrel/warninggal.
+  if (updatedRowCount === 0) {
+    return {
+      error:
+        'A mentés nem történt meg: az adatbázis jogosultság-szabálya (RLS) nem engedte a gyülekezet frissítését. Ha szerepkör-alapú hozzárendeléssel dolgozik, futtassa le a rendszergazda a 2026-08-25-gyulekezeti-egysegek.sql migrációt.',
+    }
+  }
 
   // 2026-07-17 (F1-2): a setup-varázsló díjmezői is szinkronba kerülnek az aktuális
   // évi bealitas sorral (ugyanaz az ok, mint az updateCongregation-nél).
@@ -1490,108 +1562,10 @@ export async function saveCongregationSetup(
   return strippedWarning ? { ok: true, warning: strippedWarning } : { ok: true }
 }
 
-// ────────────────────────────────────────────────────────────────────
-// Partial save — a wizard Tovább gombja minden step után ezt hívja.
-// A lelkész kilépéskor nem veszít adatot: ami ki van töltve, megmarad.
-// A végső `saveCongregationSetup` továbbra is szigorúan validálja a teljes
-// form-ot, mielőtt a wizard "kész"-nek deklarálja.
-// ────────────────────────────────────────────────────────────────────
-
-const congregationSetupPartialSchema = z.object({
-  id: z.string().uuid(),
-  nev: z.string().optional(),
-  nev_hu: z.string().optional(),
-  nev_ro: z.string().nullable().optional(),
-  nev_en: z.string().nullable().optional(),
-  adoszam: z.string().optional(),
-  megye: z.string().optional(),
-  varos: z.string().optional(),
-  cim: z.string().optional(),
-  email: z.string().optional(),
-  telefon: z.string().optional(),
-  web: z.string().nullable().optional(),
-  bank: z.string().optional(),
-  iban: z.string().optional(),
-  cimer_url: z.string().optional(),
-  // Új cím-mezők (2026-04-21)
-  iranyitoszam: z.string().optional(),
-  hazszam: z.string().optional(),
-  country: z.string().optional(),
-  adrlocality_id: z.number().int().nullable().optional(),
-  adrstreet_id: z.number().int().nullable().optional(),
-})
-
-export type CongregationSetupPartialInput = z.infer<typeof congregationSetupPartialSchema>
-
-export async function saveCongregationSetupStep(
-  input: CongregationSetupPartialInput,
-): Promise<{ ok?: true; error?: string }> {
-  const parsed = congregationSetupPartialSchema.safeParse(input)
-  if (!parsed.success) {
-    return { error: 'Érvénytelen adat a lépéshez.' }
-  }
-
-  const access = await getEffectiveAccessContext()
-  if (!access.user) return { error: 'Nincs bejelentkezve.' }
-
-  const canManage =
-    access.admin ||
-    access.master ||
-    access.egyhazkeruletiAdmin ||
-    access.profile?.congregation_id === parsed.data.id
-
-  if (!canManage) return { error: 'Nincs jogosultság a gyülekezet szerkesztéséhez.' }
-
-  // Csak a ténylegesen megadott (nem-undefined) mezőket frissítjük.
-  // A nev_hu-t is csak akkor, ha nem üres — mert a `name` NOT NULL szinkronját
-  // is tartanunk kell.
-  const d = parsed.data
-  const patch: Record<string, unknown> = {}
-
-  // A hivatalos `name` a dedikált „Hivatalos név" (nev) mezőből; a rövid magyar nevet (nev_hu) külön
-  // tartjuk, hogy a setup NE írja felül a hivatalos nevet (eddig nev_hu-val clobbolta).
-  if (d.nev !== undefined) {
-    const trimmed = d.nev.trim()
-    if (trimmed.length > 0) patch.name = trimmed
-  }
-  if (d.nev_hu !== undefined) {
-    const trimmed = d.nev_hu.trim()
-    if (trimmed.length > 0) patch.nev_hu = trimmed
-  }
-  if (d.nev_ro !== undefined) patch.nev_ro = d.nev_ro?.trim() || null
-  if (d.nev_en !== undefined) patch.nev_en = d.nev_en?.trim() || null
-  if (d.adoszam !== undefined) patch.adoszam = d.adoszam.trim() || null
-  if (d.megye !== undefined) patch.megye = d.megye.trim() || null
-  if (d.varos !== undefined) patch.varos = d.varos.trim() || null
-  if (d.cim !== undefined) patch.cim = d.cim.trim() || null
-  if (d.email !== undefined) patch.email = d.email.trim() || null
-  if (d.telefon !== undefined) patch.telefon = d.telefon.trim() || null
-  if (d.web !== undefined) patch.web = d.web?.trim() || null
-  if (d.bank !== undefined) patch.bank = d.bank.trim() || null
-  if (d.iban !== undefined) patch.iban = d.iban.trim() || null
-  if (d.cimer_url !== undefined) patch.cimer_url = d.cimer_url.trim() || null
-  if (d.iranyitoszam !== undefined) patch.iranyitoszam = d.iranyitoszam.trim() || null
-  if (d.hazszam !== undefined) patch.hazszam = d.hazszam.trim() || null
-  if (d.country !== undefined) patch.country = d.country.trim() || null
-  if (d.adrlocality_id !== undefined) patch.adrlocality_id = d.adrlocality_id
-  if (d.adrstreet_id !== undefined) patch.adrstreet_id = d.adrstreet_id
-
-  if (Object.keys(patch).length === 0) {
-    // Nincs mit menteni — üres patch. Nem hiba.
-    return { ok: true }
-  }
-
-  const { error } = await access.supabase
-    .from('congregations')
-    .update(patch)
-    .eq('id', d.id)
-
-  if (error) return { error: error.message }
-
-  revalidatePath('/dashboard')
-  revalidatePath('/', 'layout')
-  return { ok: true }
-}
+// 2026-08-25: a saveCongregationSetupStep („partial save") HALOTT KÓD volt —
+// a wizard 2026-06-05 óta egylapos, a Tovább-gombos lépések megszűntek, és
+// greppel igazoltan sehol nem hívta senki. TÖRÖLVE (a congregationSetupPartialSchema
+// + CongregationSetupPartialInput típussal együtt).
 
 /**
  * Címer feltöltés a `logos` Storage bucket-be.
@@ -1604,12 +1578,7 @@ export async function uploadCongregationCimer(
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
 
-  const canManage =
-    access.admin ||
-    access.master ||
-    access.egyhazkeruletiAdmin ||
-    access.profile?.congregation_id === congregationId
-
+  const canManage = await canManageCongregation(access, congregationId)
   if (!canManage) return { error: 'Nincs jogosultság a címer feltöltéséhez.' }
 
   const file = formData.get('file')
@@ -1731,12 +1700,7 @@ export async function uploadCongregationIratKep(
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
 
-  const canManage =
-    access.admin ||
-    access.master ||
-    access.egyhazkeruletiAdmin ||
-    access.profile?.congregation_id === congregationId
-
+  const canManage = await canManageCongregation(access, congregationId)
   if (!canManage) return { error: `Nincs jogosultság a ${IRAT_KEP_CIMKE[fajta]}-kép feltöltéséhez.` }
 
   const file = formData.get('file')
@@ -1805,12 +1769,7 @@ export async function removeCongregationIratKep(
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
 
-  const canManage =
-    access.admin ||
-    access.master ||
-    access.egyhazkeruletiAdmin ||
-    access.profile?.congregation_id === congregationId
-
+  const canManage = await canManageCongregation(access, congregationId)
   if (!canManage) return { error: `Nincs jogosultság a ${IRAT_KEP_CIMKE[fajta]}-kép törléséhez.` }
 
   const { error } = await access.supabase
@@ -1870,6 +1829,11 @@ export async function getCongregationForSetup(
     tva_alany: boolean
     tva_kod: string | null
     tva_alany_tol: string | null
+    // 2026-08-25 (gyülekezeti egységek, terv 3.1): a hivatalos szervezeti forma —
+    // READ-ONLY a wizardban, az ADMIN kezeli. Migráció előtt (oszlop-drift) null.
+    szervezeti_tipus: SzervezetiTipus | null
+    /** A kapcsolt anyaegyházközség neve (csak leánynál); migráció előtt null. */
+    anya_nev: string | null
   }
   error?: string
 }> {
@@ -1880,19 +1844,41 @@ export async function getCongregationForSetup(
   if (!targetId) return { error: 'Nincs gyülekezet megadva.' }
 
   // Congregation + dioceses JOIN + districts (kettős JOIN)
-  const { data, error } = await access.supabase
-    .from('congregations')
-    .select(`
+  const alapMezok = `
       id, nev_hu, name, nev_ro, nev_en, adoszam, megye, varos, cim,
       email, telefon, web, bank, iban, cimer_url,
       iranyitoszam, hazszam, country, adrlocality_id, adrstreet_id,
       diocese_id, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid, tartozas_szamitas_mod,
       tva_alany, tva_kod, tva_alany_tol,
       dioceses ( name, district_id, districts ( name ) )
-    `)
+    `
+  // 2026-08-25 (gyülekezeti egységek, terv 3.1): szervezeti forma + anya-kapcsolat
+  // (az anya nevét a congregations_anya_fk önreláción át hozzuk).
+  const szervezetMezok = `
+      szervezeti_tipus, anya_congregation_id,
+      anya:congregations!congregations_anya_fk ( nev_hu, name ),
+    `
+
+  let szervezetElerheto = true
+  let queryRes = await access.supabase
+    .from('congregations')
+    .select(`${szervezetMezok}${alapMezok}`)
     .eq('id', targetId)
     .maybeSingle()
 
+  // Oszlop-drift (a migráció még nem futott le élesben — a migration-fájl NEM
+  // bizonyíték): az új mezők NÉLKÜL újrapróbáljuk, és null-lal térünk vissza,
+  // hogy a beállítás-felület migráció előtt is működjön.
+  if (queryRes.error && /column|does not exist|schema cache|could not find/i.test(queryRes.error.message)) {
+    szervezetElerheto = false
+    queryRes = await access.supabase
+      .from('congregations')
+      .select(alapMezok)
+      .eq('id', targetId)
+      .maybeSingle()
+  }
+
+  const { data, error } = queryRes
   if (error) return { error: error.message }
   if (!data) return { error: 'Gyülekezet nem található.' }
 
@@ -1913,6 +1899,29 @@ export async function getCongregationForSetup(
         if (distObj && typeof distObj === 'object') {
           districtName = (distObj.name as string | null) || null
         }
+      }
+    }
+  }
+
+  // Szervezeti forma + az anyaegyházközség neve — a dioceses-kibontás mintája:
+  // a beágyazott reláció tömb VAGY objektum alakban is érkezhet.
+  // 2026-08-25: a katalógus (SZERVEZETI_TIPUS_CIMKEK) a mérvadó — a 'tars'
+  // (társegyházközség) is érvényes; ismeretlen érték továbbra is null.
+  let szervezetiTipus: SzervezetiTipus | null = null
+  let anyaNev: string | null = null
+  if (szervezetElerheto) {
+    const t = row.szervezeti_tipus
+    if (typeof t === 'string' && t in SZERVEZETI_TIPUS_CIMKEK) {
+      szervezetiTipus = t as SzervezetiTipus
+    }
+    const aRaw = row.anya
+    if (aRaw) {
+      const a = Array.isArray(aRaw) ? aRaw[0] : (aRaw as Record<string, unknown>)
+      if (a && typeof a === 'object') {
+        anyaNev =
+          ((a as Record<string, unknown>).nev_hu as string | null) ||
+          ((a as Record<string, unknown>).name as string | null) ||
+          null
       }
     }
   }
@@ -1983,6 +1992,10 @@ export async function getCongregationForSetup(
       tva_alany: Boolean(row.tva_alany),
       tva_kod: (row.tva_kod as string | null) || null,
       tva_alany_tol: (row.tva_alany_tol as string | null) || null,
+      // 2026-08-25: migráció előtt (oszlop-drift) mindkettő null — a felület
+      // ilyenkor „még nincs beállítva"-t mutat, nem hasal el.
+      szervezeti_tipus: szervezetiTipus,
+      anya_nev: anyaNev,
     },
   }
 }
