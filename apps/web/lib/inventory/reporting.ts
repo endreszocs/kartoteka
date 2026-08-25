@@ -116,6 +116,29 @@ export const INVENTORY_GUIDE_SECTIONS = [
       'A végleges jelentés előtti hibajelzések figyelmen kívül hagyása.',
     ],
   },
+  {
+    id: 'leltar343',
+    title: 'Leltar 3_43 munkafüzet — import és export',
+    description:
+      'A rendszer teljeskörűen ismeri a hivatalos egyházmegyei Leltar 3_43.xlsx munkafüzetet: a kitöltött fájl a Rendszergazdai importáló fülön tölthető be, a nyilvántartás pedig a „Export (Leltar 3_43)" gombbal kitöltött munkafüzetként tölthető le — az eredeti sablon képleteivel, legördülőivel és lapvédelmével.',
+    bullets: [
+      'Import: mind a 7 tárgycsoport-lapot és a Cimlap helyszín/felelős katalógusát felismerjük; a hiányzó hónap/nap január 1-re, a hiányzó mennyiség 1 darabra áll (a Súgó szabályai szerint).',
+      'A negatív sorok részleges kivezetésként, alapeszköznél le-/felértékelésként kerülnek be; a már létező leltári számú tételeket nem írjuk felül.',
+      'Export: a kivezetett tételek is a lapokon maradnak (törlés-dátummal és irattal) — a Kukába dobott, kivezetési adat nélküli tételek nem kerülnek bele.',
+      'Az exportált fájl megnyitásakor engedélyezze az újraszámolást, ha az Excel rákérdez — a Hibak/Fisa/Leltáriv lapok abból frissülnek.',
+    ],
+  },
+  {
+    id: 'kivezetes',
+    title: 'Kivezetés (törlés) szabályosan',
+    description:
+      'A leltárból való törlés a hivatalos rend szerint KIVEZETÉS: a tétel sora megmarad, és a törlés dátuma, iratszáma (pl. presbiteri határozat) és indoklása kerül rá. A Törlés gomb ezért ezeket kéri be.',
+    bullets: [
+      'A kivezetés dátuma kötelező; az iratszám és az indoklás erősen ajánlott.',
+      'Részleges kivezetésnél (pl. 10 székből 3) a mennyiséget csökkentse, és a megjegyzésbe írja a részleteket.',
+      'Az alapeszköz-értékhatár a beszerzés napján érvényes szabály szerint értendő: 2013. júliusáig 1800 lej, utána 2500 lej, 2026. február 25-től (OUG 8/2026) 5000 lej — a rendszer a rögzítésnél figyelmeztet, de nem tilt.',
+    ],
+  },
 ] as const
 
 type CategorySummary = {

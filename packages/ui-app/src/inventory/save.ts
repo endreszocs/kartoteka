@@ -57,6 +57,11 @@ export interface InventoryUpsertInput {
   mertekegyseg?: string | null
   /** undefined = a hívó NEM küldte a mezőt → a meglévő kapcsolat marad. */
   penzugy_xkey?: string | null
+  /** 2026-08-26 (Leltar 3_43): könyveknél a szerző. undefined = nem küldött mező. */
+  szerzo?: string | null
+  /** 2026-08-26: halmozott le-/felértékelés (±RON). undefined = nem küldött mező. */
+  ertek_modositas?: number | null
+  ertek_modositas_megjegyzes?: string | null
 }
 
 /**
@@ -106,6 +111,18 @@ export function buildInventoryUpsertPayloads(
   // hívó ténylegesen küldte a mezőt (undefined = régi hívó → a meglévő link marad).
   const penzugyXkeyPatch =
     d.penzugy_xkey !== undefined ? { penzugy_xkey: d.penzugy_xkey || null } : {}
+  // 2026-08-26 (Leltar 3_43): szerző + le-/felértékelés — szintén csak küldött
+  // mezőként (a régi hívók payloadja BITRE változatlan marad). Az
+  // ertek_modositas/…_megjegyzes oszlop a 2026-08-26-os SQL-lel érkezik — a
+  // migráció előtti hibát a hívó a stripUjLeltarOszlopok segéddel kezeli.
+  const szerzoPatch = d.szerzo !== undefined ? { szerzo: d.szerzo?.trim() || null } : {}
+  const ertekModositasPatch =
+    d.ertek_modositas !== undefined
+      ? {
+          ertek_modositas: Number(d.ertek_modositas || 0) || 0,
+          ertek_modositas_megjegyzes: d.ertek_modositas_megjegyzes?.trim() || null,
+        }
+      : {}
 
   const record: Record<string, unknown> = {
     megnevezes: d.megnevezes, kategoria: serializedCategory, beszerzesi_ertek: d.beszerzes_erteke,
@@ -117,6 +134,8 @@ export function buildInventoryUpsertPayloads(
     mertekegyseg: d.mertekegyseg || 'db',
     beszerzes_bizonylat: d.beszerzes_bizonylat || null,
     ...penzugyXkeyPatch,
+    ...szerzoPatch,
+    ...ertekModositasPatch,
   }
   const modernFallback: Record<string, unknown> = {
     megnevezes: d.megnevezes, kategoria: serializedCategory, beszerzes_erteke: d.beszerzes_erteke,
@@ -128,9 +147,25 @@ export function buildInventoryUpsertPayloads(
     mertekegyseg: d.mertekegyseg || 'db',
     beszerzes_bizonylat: d.beszerzes_bizonylat || null,
     ...penzugyXkeyPatch,
+    ...szerzoPatch,
   }
 
   return { record, modernFallback }
+}
+
+/**
+ * 2026-08-26 (Leltar 3_43): a 2026-08-26-os SQL-lel érkező oszlopok
+ * felismerése + eltávolítása a payloadból — a migráció ELŐTT a mentés e
+ * mezők nélkül fut le (a hívó hangosan jelzi, hogy az SQL még hátravan).
+ */
+export const UJ_LELTAR_OSZLOP_RE = /ertek_modositas|alapeszkoz_csoport/
+
+export function stripUjLeltarOszlopok(payload: Record<string, unknown>): Record<string, unknown> {
+  const masolat = { ...payload }
+  delete masolat['ertek_modositas']
+  delete masolat['ertek_modositas_megjegyzes']
+  delete masolat['alapeszkoz_csoport']
+  return masolat
 }
 
 /**

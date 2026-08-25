@@ -19,5 +19,11 @@ export const inventoryItemSchema = z.object({
   penzugy_xkey: z.string().nullable().optional(),
   mennyiseg: z.number().positive().default(1).optional(),
   mertekegyseg: z.string().nullable().optional(),
+  // 2026-08-26 (Leltar 3_43 kör): könyveknél a szerző; alapeszköznél a
+  // halmozott le-/felértékelés (±RON, lehet negatív) + indoklása. Az undefined
+  // (nem küldött mező) a régi hívók viselkedését bitre őrzi.
+  szerzo: z.string().nullable().optional(),
+  ertek_modositas: z.number().nullable().optional(),
+  ertek_modositas_megjegyzes: z.string().nullable().optional(),
 })
 export type InventoryItemInput = z.infer<typeof inventoryItemSchema>

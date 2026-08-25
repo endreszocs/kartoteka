@@ -17,6 +17,11 @@ export interface ParseResult {
   fileName?: string
   isCsv?: boolean
   sheets?: ParsedSheetPreview[]
+  /**
+   * 2026-08-26: a feltöltött fájl a HIVATALOS Leltar 3_43 munkafüzet — a
+   * generikus út nem dolgozza fel, a kliens a dedikált importálóhoz irányít.
+   */
+  leltar343?: boolean
 }
 
 export interface ImportSheetConfig {

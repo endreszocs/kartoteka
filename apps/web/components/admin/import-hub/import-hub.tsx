@@ -96,9 +96,10 @@ const MODULE_META: ModuleMeta[] = [
   {
     key: 'inventory',
     label: 'Leltár',
-    description: 'Eszköz- és leltárnyilvántartás importja.',
+    description: 'Eszköz- és leltárnyilvántartás importja (egyszerű lista). A hivatalos Leltar 3_43 munkafüzetet a Leltár modul rendszergazdai importáló füle fogadja.',
     icon: Package2,
-    kind: 'soon',
+    // 2026-08-26 (Leltar 3_43 kör): 'soon' → valódi multi-sheet út.
+    kind: 'multisheet',
   },
 ]
 

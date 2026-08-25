@@ -23,6 +23,8 @@ import {
   isInventoryLegacySchemaError,
   leltariSzamQueryFailedMessage,
   nextLeltariSzam,
+  stripUjLeltarOszlopok,
+  UJ_LELTAR_OSZLOP_RE,
 } from '@kartoteka/ui-app'
 import type { InventoryItem, InventoryCategory } from '@/lib/constants/inventory.next'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
@@ -160,6 +162,11 @@ function normalizeInventoryRow(row: InventoryRow): InventoryItem {
     torles_datuma: (row.torles_datuma as string | null) || null,
     torles_bizonylat: (row.torles_bizonylat as string | null) || null,
     torles_indoklasa: (row.torles_indoklasa as string | null) || null,
+    // 2026-08-26 (Leltar 3_43 kör): a select('*') miatt a migráció ELŐTT e
+    // mezők egyszerűen hiányoznak a sorból — a defaultok (0/null) élnek.
+    ertek_modositas: Number(row.ertek_modositas ?? 0) || 0,
+    ertek_modositas_megjegyzes: (row.ertek_modositas_megjegyzes as string | null) || null,
+    alapeszkoz_csoport: row.alapeszkoz_csoport == null ? null : Number(row.alapeszkoz_csoport) || null,
     penzugy_xkey: (row.penzugy_xkey as string | null) || null,
     szerzo: (row.szerzo as string | null) || null,
     konyv_isbn: (row.konyv_isbn as string | null) || null,
@@ -312,6 +319,16 @@ export async function saveInventoryItem(data: InventoryItemInput) {
 
   if (d.id) {
     let { error } = await supabase.from('leltar_tetelek').update(record).eq('id', d.id).eq(ctx.scopeCol, ctx.scopeId)
+    // 2026-08-26 (Leltar 3_43): a migráció ELŐTT az új oszlopokra (ertek_modositas…)
+    // panaszkodó hibánál lecsupaszított payloaddal próbálunk újra — a mentés így
+    // nem akad el, de a hívó beszédes üzenetet kap, hogy az SQL még hátravan.
+    if (error && UJ_LELTAR_OSZLOP_RE.test(error.message || '')) {
+      const retry = await supabase.from('leltar_tetelek').update(stripUjLeltarOszlopok(record)).eq('id', d.id).eq(ctx.scopeCol, ctx.scopeId)
+      if (!retry.error && (d.ertek_modositas || d.ertek_modositas_megjegyzes)) {
+        return { error: 'A tétel mentve, DE a le-/felértékelés mező NEM — a 2026-08-26-leltar-343.sql még nincs lefuttatva a Supabase-ben.' }
+      }
+      error = retry.error
+    }
     if (isInventoryLegacySchemaError(error?.message)) {
       const retry = await supabase.from('leltar_tetelek').update(modernFallback).eq('id', d.id).eq(ctx.scopeCol, ctx.scopeId)
       error = retry.error
@@ -335,6 +352,11 @@ export async function saveInventoryItem(data: InventoryItemInput) {
         modernFallback.leltari_szam = freshSzam
       }
       let { error } = await supabase.from('leltar_tetelek').insert([record])
+      // 2026-08-26 (Leltar 3_43): új-oszlop hiba (migráció előtt) → csupaszított payload.
+      if (error && UJ_LELTAR_OSZLOP_RE.test(error.message || '')) {
+        const retry = await supabase.from('leltar_tetelek').insert([stripUjLeltarOszlopok(record)])
+        error = retry.error
+      }
       if (isInventoryLegacySchemaError(error?.message)) {
         const retry = await supabase.from('leltar_tetelek').insert([modernFallback])
         error = retry.error
@@ -492,16 +514,40 @@ export async function listExpensesForInventoryPicker(year: number): Promise<Expe
   }
 }
 
-export async function deleteInventoryItem(id: string) {
+/**
+ * 2026-08-26 (Leltar 3_43 kör): a törlés mostantól SZABÁLYOS KIVEZETÉS is
+ * lehet — a hivatalos leltári rend (és a Leltar 3_43 munkafüzet) szerint a
+ * kivezetett tétel sora megmarad, a törlés dátumával, iratszámával és
+ * indoklásával. A `kivezetes` nélküli hívás a régi viselkedés (Kuka):
+ * csak az `is_deleted` billen, kivezetési adat nem íródik.
+ */
+export async function deleteInventoryItem(
+  id: string,
+  kivezetes?: { datum: string; bizonylat?: string | null; indoklas?: string | null },
+) {
   const { ctx } = await getScopeCtx()
   if (!ctx) return { error: 'Nincs bejelentkezett felhasználó.' }
   const blocked = moduleWriteBlock(ctx)
   if (blocked) return { error: blocked.error }
   const { supabase } = ctx
 
-  let { error } = await supabase.from('leltar_tetelek').update({ is_deleted: true }).eq('id', id).eq(ctx.scopeCol, ctx.scopeId)
+  const patch: Record<string, unknown> = { is_deleted: true }
+  if (kivezetes) {
+    if (!kivezetes.datum || Number.isNaN(new Date(kivezetes.datum).getTime())) {
+      return { error: 'A kivezetés dátuma kötelező és érvényes dátum kell legyen.' }
+    }
+    patch.torles_datuma = kivezetes.datum
+    patch.torles_bizonylat = kivezetes.bizonylat?.trim() || null
+    patch.torles_indoklasa = kivezetes.indoklas?.trim() || null
+  }
+
+  let { error } = await supabase.from('leltar_tetelek').update(patch).eq('id', id).eq(ctx.scopeCol, ctx.scopeId)
   if (error?.message?.includes('is_deleted')) {
-    const retry = await supabase.from('leltar_tetelek').update({ deleted: true }).eq('id', id).eq(ctx.scopeCol, ctx.scopeId)
+    const retry = await supabase
+      .from('leltar_tetelek')
+      .update({ ...patch, is_deleted: undefined, deleted: true })
+      .eq('id', id)
+      .eq(ctx.scopeCol, ctx.scopeId)
     error = retry.error
   }
   if (error) return { error: `Hiba: ${error.message}` }

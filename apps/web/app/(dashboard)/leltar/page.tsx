@@ -1,5 +1,7 @@
 import { InventoryMain } from '@/components/inventory/inventory-main-v3'
 import { ModuleAdminImportTabV2 } from '@/components/shared/module-admin-import-tab-v2'
+import { Leltar343ImportCard } from '@/components/inventory/leltar343-import-card'
+import { INVENTORY_PROFILES } from '@/lib/import/import-profiles'
 import { CongregationOnlyNotice } from '@/components/layout/congregation-only-notice'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
@@ -11,27 +13,21 @@ import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 // már csak a feloldhatatlan hatókörnek és az admin/master profiloknak marad.
 import { getModuleScopeContext } from '@/lib/auth/module-scope'
 
+// 2026-08-26 (Leltar 3_43 kör): a korábbi három kártya közül kettő
+// ('categories', 'values') KITALÁLT, DB-hez nem kötött scaffold volt — ilyen
+// tábla/akció nem létezik, a kártyájuk csak félrevezetett. A megmaradt kártya
+// oszlopai a VALÓDI import-profil ('inventory_items') fejléceit mutatják.
 const LELTAR_IMPORT_PROFILES = [
   {
     value: 'items',
     label: 'Leltári tételek',
-    description: 'Eszközök, tárgyak és berendezések strukturált feltöltésének előkészítése.',
-    columns: ['leltari_szam', 'megnevezes', 'kategoria', 'beszerzes_erteke', 'helyszin', 'felelos_nev'],
-    hints: ['A leltári szám legyen egyedi', 'Az érték számszerű legyen', 'A kategória egyezzen a leltári törzzsel'],
-  },
-  {
-    value: 'categories',
-    label: 'Kategóriák',
-    description: 'Leltári kategóriák és csoportosítások laborimportja.',
-    columns: ['kategoria_kod', 'megnevezes', 'megjegyzes'],
-    hints: ['A kategóriakód legyen stabil', 'A megnevezés legyen rövid és egyértelmű', 'A meglévő kategóriákat ne duplikáld'],
-  },
-  {
-    value: 'values',
-    label: 'Értékhelyreállítás',
-    description: 'Korábbi tételek értékeinek tömeges korrekciójához szükséges előkészítés.',
-    columns: ['leltari_szam', 'uj_ertek', 'datum', 'megjegyzes'],
-    hints: ['A leltári szám pontosan egyezzen', 'Az új érték pozitív szám legyen', 'A módosítás okát érdemes megadni'],
+    description: 'Egyszerű leltár-lista feltöltése (egy sor = egy tétel). A hivatalos Leltar 3_43 munkafüzetet a fenti dedikált kártya fogadja.',
+    columns: ['Megnevezés', 'Kategória', 'Leltári szám', 'Helyszín', 'Felelős', 'Beszerzés dátuma', 'Beszerzési érték', 'Mennyiség'],
+    hints: [
+      'A kategória magyarul vagy románul is megadható (pl. „Alapeszközök")',
+      'A leltári szám üresen hagyható — a rendszer automatikusan sorszámoz',
+      'A már létező leltári számú sorokat kihagyjuk (nem írunk felül)',
+    ],
   },
 ]
 
@@ -95,17 +91,29 @@ export default async function LeltarPage() {
         congregationName={congregationName || ''}
         showAdminImport={showAdminImport}
         adminImportContent={
-          <ModuleAdminImportTabV2
-            moduleKey="inventory"
-            moduleLabel="Leltár"
-            title="Leltári laborimport az aktuális gyülekezethez"
-            description="Itt készíthető elő a leltári tételek, kategóriák, értékek és felelősök Excel/CSV alapú, védett rendszergazdai importja."
-            congregationName={congregationName}
-            isGodMode={godMode.active}
-            isDelegatedImport={delegatedImport.active}
-            delegatedExpiresAt={delegatedImport.expiresAt}
-            profiles={LELTAR_IMPORT_PROFILES}
-          />
+          <div className="space-y-4">
+            {/* 2026-08-26 (Leltar 3_43 kör, Endre hibajelzése): eddig CSAK a
+                dekoratív előkészítő felület élt itt — `importProfiles` és
+                `importModule` nélkül a ModuleAdminImportTabV2 `hasProcessor`
+                kapcsolója hamis volt, tehát az „Import indítása" gomb SOHA nem
+                renderelődött. Most (1) a hivatalos Leltar 3_43 munkafüzetnek
+                dedikált kártyája van, (2) az egyszerű listákat a közös
+                multi-sheet út dolgozza fel a VALÓDI 'inventory_items' profillal. */}
+            <Leltar343ImportCard />
+            <ModuleAdminImportTabV2
+              moduleKey="inventory"
+              moduleLabel="Leltár"
+              title="Leltári laborimport az aktuális gyülekezethez"
+              description="Egyszerű leltár-listák (Excel/CSV) védett rendszergazdai importja. A hivatalos Leltar 3_43 munkafüzetet a fenti kártya fogadja."
+              congregationName={congregationName}
+              isGodMode={godMode.active}
+              isDelegatedImport={delegatedImport.active}
+              delegatedExpiresAt={delegatedImport.expiresAt}
+              profiles={LELTAR_IMPORT_PROFILES}
+              importProfiles={INVENTORY_PROFILES}
+              importModule="inventory"
+            />
+          </div>
         }
       />
     </div>
