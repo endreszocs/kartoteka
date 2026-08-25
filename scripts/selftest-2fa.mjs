@@ -47,10 +47,29 @@ if (actions.includes('talalt === null') && actions.includes('korai')) {
   ok('F2: a kód-keresés nem lép ki korán (idő-szivárgás ellen)')
 } else fail('F2: a mentőkód-keresés korai kilépéses lehet!')
 
-// F3: middleware aal-őr — opt-in feltétellel
-if (mw.includes('getAuthenticatorAssuranceLevel') && mw.includes("nextLevel === 'aal2'") && mw.includes("currentLevel !== 'aal2'")) {
-  ok('F3: middleware aal-őr (opt-in: csak faktoros fióknál kényszerít)')
-} else fail('F3: HIÁNYZIK a middleware aal-őr!')
+// F3: middleware aal-őr — opt-in feltétellel, SZERVER-oldali faktor-listából
+//
+// ⚠️ 2026-08-24 (biztonsági javító kör): ez az asszert megfordult. Korábban azt
+// követelte, hogy a kapu a `nextLevel === 'aal2'` mezőre épüljön — épp AZT a
+// mezőt, amit a könyvtár a SÜTIBŐL visszaolvasott, ALÁÍRATLAN
+// `session.user.factors` tömbből számol. A támadó (aki tudja a jelszót, de a
+// telefont nem) a sütiben kiürítette a `factors` tömböt, és a kapu átengedte.
+// Az új mérce: a kapu a `kellEMasodikFaktor()`-t hívja, a szerver-oldali
+// `user`-rel, és a döntésben NEM szerepelhet a `nextLevel`.
+// A részletes, mutáns-ellenőrzött fedezet: `scripts/selftest-2fa-kapu.mjs`.
+//
+// A vizsgálat KOMMENT NÉLKÜLI forráson fut: a javítás magyarázata szó szerint
+// idézi a régi, hibás sort, és egy naiv keresés arra is ráillene.
+const mwKodMezitlab = mw
+  .replace(/\/\*[\s\S]*?\*\//g, ' ')
+  .replace(/^[ \t]*\/\/.*$/gm, ' ')
+const f3AalOr =
+  mw.includes('getAuthenticatorAssuranceLevel')
+  && /if \(kellEMasodikFaktor\(\s*user\s*,[^)]*\)\)/.test(mwKodMezitlab)
+  && !/if \([^)]*nextLevel === 'aal2'[^)]*\)/.test(mwKodMezitlab)
+if (f3AalOr) {
+  ok('F3: middleware aal-őr (opt-in, és a faktor-lista a SZERVERTŐL jön)')
+} else fail('F3: a middleware aal-őr hiányzik, vagy megint a sütiből dönt!')
 
 // F4: a /login/ellenorzes bent maradhat auth-útként (nincs bounce)
 if (mw.includes("'/login/ellenorzes'")) ok('F4: a 2. lépcső oldala nem pattan vissza')

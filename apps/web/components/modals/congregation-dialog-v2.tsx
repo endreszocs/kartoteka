@@ -793,6 +793,9 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
                         value={transferReason}
                         onChange={(e) => setTransferReason(e.target.value)}
                         rows={2}
+                        // 2026-08-24 (B10): a szerver zod-sémája 500 karakternél elutasít.
+                        // A korlát ITT is ott van, hogy ne küldéskor derüljön ki a túllépés.
+                        maxLength={500}
                         placeholder="pl. Másik gyülekezetbe helyeztek át 2026 szeptemberétől."
                         className="w-full rounded-xl border border-slate-200 bg-zinc-50 px-3 py-2 text-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100"
                       />

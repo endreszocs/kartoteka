@@ -13,6 +13,7 @@ import 'server-only'
  * logóval, fehér tartalomkártya, reszponzív @media szabályok, EREK-lábléc.
  */
 
+import { escHtml } from '../escape'
 import type { EmailSendArgs } from '../types'
 import { INVITE_FEATURE_CATEGORIES } from '@/app/(dashboard)/admin/meghivo-shared'
 
@@ -25,15 +26,6 @@ const CTA_URL = `${APP_URL}/hozzaferes-kerese`
 const DEVELOPER_NAME = 'Szőcs Endre'
 const DEVELOPER_TITLE = 'barátosi lelkipásztor, a Kartotéka fejlesztője'
 const DEVELOPER_EMAIL = 'endreszocs@gmail.com'
-
-function escHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
 
 export function inviteEmail(args: {
   email: string

@@ -16,16 +16,8 @@ import 'server-only'
  * (Cormorant Garamond → Georgia → Times New Roman).
  */
 
+import { escHtml } from '../escape'
 import type { EmailSendArgs } from '../types'
-
-function escHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
 
 /** Közös header/footer, hogy minden email egységes legyen */
 function layout(opts: {

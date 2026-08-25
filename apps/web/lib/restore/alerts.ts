@@ -22,6 +22,7 @@ import 'server-only'
  *    riasztás veszne el némán.
  */
 
+import { escHtml } from '@/lib/email/escape'
 import { sendEmail } from '@/lib/email/send'
 import { loadAlertRecipient } from '@/lib/google-drive/settings'
 import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
@@ -40,15 +41,6 @@ export interface RestoreAlertArgs {
   osszesen?: { beszuras: number; modositas: number; torles: number }
   /** Rövid, biztonságos hibaüzenet (error.message) — soha nem sorérték. */
   hibaUzenet?: string | null
-}
-
-function escHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
 }
 
 function layout(opts: {

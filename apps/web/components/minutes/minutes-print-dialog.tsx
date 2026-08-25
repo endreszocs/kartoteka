@@ -129,9 +129,24 @@ export function MinutesPrintDialog({ open, onOpenChange, generateHtml, year }: M
           {/* Jobb oldal: előnézet */}
           <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-slate-100/80 p-3 shadow-inner">
             <div className="rounded-[22px] border border-slate-200 bg-white shadow-sm">
+              {/*
+                ⚠️ 2026-08-24 (biztonsági kör, B3 — tárolt XSS): `sandbox=""`.
+                A `srcDoc`-os iframe ENÉLKÜL a szülő originjét örökli, tehát egy
+                jegyzőkönyv-szövegbe injektált script a kartoteka.app originben
+                futna — a NÉZŐ (esperes, számvevő, rendszergazda) munkamenetével.
+                Az üres `sandbox` opak origint ad ÉS letiltja a script-futtatást.
+
+                Miért NEM töri el a nyomtatást: ez az iframe CSAK az ELŐNÉZET.
+                A PDF-mentés és a direkt nyomtatás a print-engine-v2.ts SAJÁT,
+                nem-sandboxolt iframe-jében / `window.open` ablakában történik
+                (annak kell a same-origin `contentDocument` / `print()`), ezt az
+                elemet nem érinti. Az előnézet statikus HTML + inline <style> —
+                nincs szüksége scriptre, formra vagy navigációra.
+              */}
               <iframe
                 title={selectedType?.title || 'Előnézet'}
                 srcDoc={html}
+                sandbox=""
                 className="h-[78dvh] min-h-[760px] w-full rounded-[22px] bg-white"
               />
             </div>

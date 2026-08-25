@@ -1,0 +1,405 @@
+<!doctype html>
+<!--
+  ════════════════════════════════════════════════════════════════════════════
+  KARTOTÉKA — OFFLINE TARTALÉK OLDAL (2026-08-25)
+  ════════════════════════════════════════════════════════════════════════════
+  MI EZ
+  Ezt a lapot a service worker (app/sw.ts) adja vissza, ha a felhasználó
+  internet nélkül próbál megnyitni egy oldalt. A Serwist `fallbacks` opciója
+  köti be; a lap PRECACHE-ELVE van (a precache-listát a
+  next.config.ts `globPublicPatterns` sora tartja karban), különben offline
+  maga a tartalék oldal sem lenne elérhető.
+
+  ⛔ MIÉRT STATIKUS FÁJL, ÉS MIÉRT NEM EGY NEXT-OLDAL
+  A 2026-08-24-i adatvédelmi javítás óta a hitelesített felület ADAT-válaszai
+  (HTML, RSC-payload, /api GET) SOHA nem mennek a lemezre. Egy Next-oldalt
+  precache-elni azt jelentené, hogy a kirenderelt válaszát lemezre írjuk — a
+  `(dashboard)` layout viszont a bejelentkezett felhasználó `profile`
+  objektumát és a gyülekezet nevét is beleadja MINDEN alatta lévő oldal
+  payloadjába (az `/offline` oldalét is). Vagyis a „csak a váz" nem igaz:
+  személyes adat kerülne vissza a lemezre, és a javítás elromlana.
+
+  Ez a fájl ezért:
+   · statikus — a build és a szerver semmit nem interpolál bele,
+   · adatmentes — egyetlen név, dátum, összeg, azonosító sincs benne,
+   · magának való — nincs benne külső hivatkozás (font, kép, szkript), mert
+     éppen offline kell megjelennie,
+   · NEM olvas IndexedDB-t. A Dexie-tükörben VAN személyes adat, ez a lap
+     viszont bejelentkezés nélkül is megnyílik (a proxy kihagyja) — így egy
+     közös gépen bárki elérné. Számot, nevet, semmit nem mutatunk belőle.
+
+  A szövegre külön ügyelj: csak azt ígérheti, amit a kód tényleg tud.
+  Az önellenőrzés: scripts/selftest-sw-cache.mjs
+  ════════════════════════════════════════════════════════════════════════════
+-->
+<html lang="hu" data-theme="kert">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Nincs internetkapcsolat · Kartotéka</title>
+<meta name="theme-color" content="#f3f1ec" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1a1f1d" media="(prefers-color-scheme: dark)">
+<style>
+/* A színek a Kartotéka „Kerített kert" témájának tokenjei
+   (packages/ui/src/themes.css). Itt kézzel másolva, mert ez a lap offline,
+   a design-rendszer betöltése NÉLKÜL is meg kell hogy jelenjen. */
+:root {
+  --hatter: #f3f1ec;
+  --szoveg: #1c2a26;
+  --kartya: #ffffff;
+  --halvany: #616b64;
+  --keret: rgba(28, 42, 38, 0.12);
+  --elsodleges: #264e4a;
+  --elsodleges-szoveg: #ffffff;
+  --akcentus: #6b8e4e;
+  --akcentus-halvany: rgba(107, 142, 78, 0.14);
+  --figyelem-szoveg: #6b4d0f;
+  --figyelem-hatter: rgba(243, 192, 97, 0.22);
+  --siker-szoveg: #1f5c3a;
+  --siker-hatter: rgba(107, 142, 78, 0.20);
+  --arnyek: 0 1px 2px rgba(28, 42, 38, 0.05), 0 10px 28px rgba(28, 42, 38, 0.07);
+  --sugar: 12px;
+}
+/* Sötét mód — rendszer-beállítás szerint, ha a felhasználó nem választott
+   kifejezetten világosat. (A `data-mod` attribútumot a lap alján lévő
+   szkript állítja be a Kartotéka téma-választása alapján.) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-mod="vilagos"]) {
+    --hatter: #1a1f1d;
+    --szoveg: #e8e1d2;
+    --kartya: #22282a;
+    --halvany: #9e998c;
+    --keret: rgba(232, 225, 210, 0.16);
+    --elsodleges: #8ab266;
+    --elsodleges-szoveg: #1a1f1d;
+    --akcentus: #9bbf6e;
+    --akcentus-halvany: rgba(155, 191, 110, 0.16);
+    --figyelem-szoveg: #e7c98b;
+    --figyelem-hatter: rgba(231, 184, 91, 0.16);
+    --siker-szoveg: #b6cf8c;
+    --siker-hatter: rgba(155, 191, 110, 0.18);
+    --arnyek: 0 1px 2px rgba(0, 0, 0, 0.30), 0 10px 28px rgba(0, 0, 0, 0.35);
+  }
+}
+:root[data-mod="sotet"] {
+  --hatter: #1a1f1d;
+  --szoveg: #e8e1d2;
+  --kartya: #22282a;
+  --halvany: #9e998c;
+  --keret: rgba(232, 225, 210, 0.16);
+  --elsodleges: #8ab266;
+  --elsodleges-szoveg: #1a1f1d;
+  --akcentus: #9bbf6e;
+  --akcentus-halvany: rgba(155, 191, 110, 0.16);
+  --figyelem-szoveg: #e7c98b;
+  --figyelem-hatter: rgba(231, 184, 91, 0.16);
+  --siker-szoveg: #b6cf8c;
+  --siker-hatter: rgba(155, 191, 110, 0.18);
+  --arnyek: 0 1px 2px rgba(0, 0, 0, 0.30), 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  min-height: 100svh;
+  background: var(--hatter);
+  color: var(--szoveg);
+  font-family: "Geist Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  padding: 20px 16px calc(28px + env(safe-area-inset-bottom));
+  display: flex;
+  justify-content: center;
+}
+.lap { width: 100%; max-width: 34rem; }
+
+.fejlec {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
+.markanev {
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  font-size: 0.95rem;
+}
+.markanev span { color: var(--halvany); font-weight: 500; }
+.jelzo {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 4px 11px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--figyelem-hatter);
+  color: var(--figyelem-szoveg);
+}
+.jelzo[data-allapot="online"] {
+  background: var(--siker-hatter);
+  color: var(--siker-szoveg);
+}
+.jelzo::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.ikon {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--akcentus-halvany);
+  color: var(--akcentus);
+  margin-bottom: 14px;
+}
+.ikon svg { width: 27px; height: 27px; }
+
+h1 {
+  font-size: 1.6rem;
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+  margin: 0 0 10px;
+}
+.bevezeto { margin: 0 0 22px; color: var(--halvany); }
+.bevezeto strong { color: var(--szoveg); font-weight: 600; }
+
+.kartya {
+  background: var(--kartya);
+  border: 1px solid var(--keret);
+  border-radius: var(--sugar);
+  box-shadow: var(--arnyek);
+  padding: 16px 17px;
+  margin-bottom: 14px;
+}
+.kartya h2 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.kartya h2 .pont {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--akcentus);
+  flex: 0 0 auto;
+}
+.kartya h2.nem .pont { background: var(--halvany); }
+ul { margin: 0; padding: 0; list-style: none; }
+li {
+  position: relative;
+  padding-left: 17px;
+  font-size: 0.925rem;
+}
+li + li { margin-top: 9px; }
+li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0.62em;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--keret);
+  box-shadow: 0 0 0 1px var(--halvany) inset;
+}
+li strong { font-weight: 600; }
+
+.gombsor { margin: 20px 0 16px; }
+.gomb {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  background: var(--elsodleges);
+  color: var(--elsodleges-szoveg);
+  font: inherit;
+  font-weight: 600;
+  padding: 13px 18px;
+  cursor: pointer;
+  text-align: center;
+}
+.gomb:hover { filter: brightness(1.06); }
+.gomb:focus-visible { outline: 3px solid var(--akcentus); outline-offset: 2px; }
+.gombsug {
+  margin: 9px 2px 0;
+  font-size: 0.82rem;
+  color: var(--halvany);
+  text-align: center;
+}
+
+.tipp {
+  border: 1px solid var(--keret);
+  border-radius: var(--sugar);
+  background: var(--akcentus-halvany);
+  padding: 13px 15px;
+  font-size: 0.875rem;
+}
+.tipp strong { font-weight: 600; }
+
+.lablec {
+  margin: 20px 2px 0;
+  font-size: 0.78rem;
+  color: var(--halvany);
+  text-align: center;
+}
+
+/* Keskeny telefonon a márkanév utótagja elmarad, hogy a kapcsolat-jelző
+   ugyanabban a sorban maradjon. */
+@media (max-width: 429px) {
+  .markanev span { display: none; }
+}
+@media (min-width: 640px) {
+  body { padding: 44px 24px; }
+  h1 { font-size: 1.9rem; }
+  .gomb { width: auto; min-width: 15rem; margin: 0 auto; }
+}
+</style>
+</head>
+<body>
+<main class="lap">
+
+  <div class="fejlec">
+    <p class="markanev">Kartotéka <span>· egyházközségi nyilvántartás</span></p>
+    <span class="jelzo" id="allapot" data-allapot="offline" role="status" aria-live="polite">Nincs kapcsolat</span>
+  </div>
+
+  <div class="ikon" aria-hidden="true">
+    <!-- áthúzott felhő -->
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+         stroke-linecap="round" stroke-linejoin="round">
+      <path d="M17.5 19H7a4.5 4.5 0 0 1-.9-8.9A6 6 0 0 1 16 7.6"></path>
+      <path d="M19.4 11.3A4.5 4.5 0 0 1 18.6 19"></path>
+      <path d="M3 3l18 18"></path>
+    </svg>
+  </div>
+
+  <h1>Most éppen nincs internet</h1>
+  <p class="bevezeto">
+    A Kartotéka nem éri el a szervert, ezért ezt a lapot mutatja a szokásos oldal
+    helyett. <strong>Amit eddig rögzítettél, nem veszett el</strong> — csak várnia
+    kell, amíg visszatér a kapcsolat.
+  </p>
+
+  <section class="kartya">
+    <h2><span class="pont" aria-hidden="true"></span>Ami ilyenkor is megvan</h2>
+    <ul>
+      <li>
+        A készülékeden várakozó, még fel nem töltött módosítások
+        <strong>megmaradnak</strong>. A Kartotéka magától felküldi őket, amint
+        újra van internet — nem kell tenned semmit.
+      </li>
+      <li>
+        Ha az alkalmazás egy másik böngészőlapon még nyitva van, azt ne zárd be:
+        ott a <strong>már betöltött képernyő</strong> és a szinkron-jelző továbbra
+        is használható.
+      </li>
+      <li>
+        A gyülekezet adatairól a készüléken tartott másolat
+        <strong>érintetlen marad</strong>, és a kapcsolat visszatértekor magától
+        frissül.
+      </li>
+    </ul>
+  </section>
+
+  <section class="kartya">
+    <h2 class="nem"><span class="pont" aria-hidden="true"></span>Amihez internet kell</h2>
+    <ul>
+      <li>
+        <strong>Az oldalak megnyitása.</strong> A tagnyilvántartás, az anyakönyv, a
+        pénzügy és a munkanapló képernyőit a szerver állítja össze, ezért kapcsolat
+        nélkül nem tudnak betöltődni. Ez a böngészős verzió korlátja.
+      </li>
+      <li>
+        <strong>Ez szándékos.</strong> A Kartotéka nem hagy a gép lemezén megnyitható
+        másolatot a nevekről, személyi számokról és pénzügyi sorokról — közös vagy
+        hivatali gépen így a következő felhasználó nem tudja kiolvasni őket.
+      </li>
+    </ul>
+  </section>
+
+  <div class="gombsor">
+    <button type="button" class="gomb" id="ujra">Újrapróbálom</button>
+    <p class="gombsug" id="gombsug">
+      Ha visszatért a kapcsolat, ez a gomb oda visz vissza, ahol abbahagytad.
+    </p>
+    <noscript>
+      <p class="gombsug">Frissítsd az oldalt, amint újra van internet.</p>
+    </noscript>
+  </div>
+
+  <p class="tipp">
+    <strong>Ha rendszeresen dolgozol hálózat nélkül</strong> (kiszállás, utazás,
+    gyenge lefedettségű parókia), arra az asztali alkalmazás való: ott a teljes
+    adatbázisod tartósan, titkosítva a saját gépeden van. A böngészős verzió a
+    kapcsolat rövid kihagyásait viseli el jól.
+  </p>
+
+  <p class="lablec">
+    Ez a lap a készülékeden tárolt tartalék oldal — nem tartalmaz gyülekezeti
+    adatot.
+  </p>
+
+</main>
+
+<script>
+/* Adatmentes szkript: téma-egyeztetés, kapcsolat-jelző, újrapróbálás.
+   Semmilyen hálózati kérést és semmilyen tárolót (IndexedDB) nem olvas. */
+(function () {
+  var gyoker = document.documentElement;
+
+  // A Kartotéka téma-választása (next-themes, `theme` kulcs) — hogy a tartalék
+  // lap ne váltson át hirtelen világosra, ha a felhasználó sötétben dolgozik.
+  try {
+    var valasztott = window.localStorage.getItem('theme');
+    var sotet =
+      valasztott === 'dark' ||
+      ((valasztott === 'system' || valasztott === null) &&
+        window.matchMedia('(prefers-color-scheme: dark)').matches);
+    // Ha nincs választás, a next-themes alapértelmezése a világos — de a
+    // rendszer sötét beállítását tiszteletben tartjuk, mert a lap CSS-e is azt
+    // követi. Kifejezett választásnál a választás dönt.
+    if (valasztott === 'light') sotet = false;
+    gyoker.setAttribute('data-mod', sotet ? 'sotet' : 'vilagos');
+  } catch (hiba) {
+    // Privát mód / letiltott tároló: marad a rendszer-beállítás.
+  }
+
+  var jelzo = document.getElementById('allapot');
+  var gomb = document.getElementById('ujra');
+  var sugo = document.getElementById('gombsug');
+
+  function frissit() {
+    var online = navigator.onLine !== false;
+    jelzo.setAttribute('data-allapot', online ? 'online' : 'offline');
+    jelzo.textContent = online ? 'Újra van kapcsolat' : 'Nincs kapcsolat';
+    gomb.textContent = online ? 'Folytatom' : 'Újrapróbálom';
+    sugo.textContent = online
+      ? 'Úgy tűnik, visszatért az internet — koppints, és folytathatod.'
+      : 'Ha visszatért a kapcsolat, ez a gomb oda visz vissza, ahol abbahagytad.';
+  }
+
+  gomb.addEventListener('click', function () {
+    window.location.reload();
+  });
+  window.addEventListener('online', frissit);
+  window.addEventListener('offline', frissit);
+  frissit();
+})();
+</script>
+</body>
+</html>

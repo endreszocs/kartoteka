@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { getMinutesList, searchMinutes, getMinutesById } from '@/app/(dashboard)/jegyzokonyvek/actions'
 import { MinutesPrintDialog } from './minutes-print-dialog'
+import { buildMinutesPrintHtml, type MinutesPrintData } from '@/lib/minutes/print'
 import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import { toast } from 'sonner'
 
@@ -59,43 +60,19 @@ export function MinutesList({ initialMinutes, currentYear, congregationName = 'R
     setPrintOpen(true)
   }
 
-  const generatePrintHtml = useCallback((type: string): string => {
-    if (!printData) return '<p>Nincs adat.</p>'
-    const d = printData as { datum: string; tipus?: string; hely?: string; elnok_neve?: string; jegyzo_neve?: string; hitelesito1?: string; hitelesito2?: string; igevers?: string; felolvasas?: string; megjegyzes?: string; resztvevok: Array<{ nev: string; statusz: string }>; napirendi_pontok: Array<{ sorszam: number; cim: string; eloado?: string; targyalas?: string }>; hatarozatok: Array<{ sorszam: number; szoveg: string; napirendi_pont_id?: string }> }
-    const yr = new Date(d.datum).getFullYear()
-    const tipusNev = d.tipus === 'kozgyulesi' ? 'Közgyűlésének' : 'Presbitériumának'
-    const jelen = d.resztvevok.filter((r) => r.statusz === 'jelen').map((r) => r.nev).join(', ')
-    const igazoltan = d.resztvevok.filter((r) => r.statusz === 'igazoltan_tavol').map((r) => r.nev).join(', ')
-
-    const baseStyles = `* { box-sizing: border-box; } body { font-family: 'Times New Roman', serif; color: #111827; margin: 0; padding: 30mm 25mm; font-size: 12pt; line-height: 1.7; } @page { size: A4 portrait; margin: 0; } @media print { body { padding: 20mm 25mm 30mm 30mm; } }`
-
-    const sigBlock = `<div style="margin-top:28px;text-align:center;font-size:11pt;">K.m.f</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:14px;"><div style="text-align:center;"><div style="margin-top:28px;border-top:1px solid #111;padding-top:4px;width:180px;margin:0 auto;">${d.elnok_neve || '___'}<br>lelkipásztor</div></div><div style="text-align:center;"><div style="margin-top:28px;border-top:1px solid #111;padding-top:4px;width:180px;margin:0 auto;">${d.jegyzo_neve || '___'}<br>gondnok-jegyző</div></div></div><div style="text-align:center;font-size:11pt;margin-top:16px;">Hitelesítők:</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:4px;"><div style="text-align:center;"><div style="margin-top:24px;border-top:1px solid #111;padding-top:4px;width:180px;margin:0 auto;">${d.hitelesito1 || '___'}</div></div><div style="text-align:center;"><div style="margin-top:24px;border-top:1px solid #111;padding-top:4px;width:180px;margin:0 auto;">${d.hitelesito2 || '___'}</div></div></div>`
-
-    if (type === 'hatarozat_kivonat') {
-      let rows = ''
-      d.hatarozatok.forEach((h) => { rows += `<tr><td style="border:1px solid #334;padding:6px;text-align:center;font-weight:bold;">${h.sorszam}/${yr}</td><td style="border:1px solid #334;padding:6px;">${h.szoveg}</td></tr>` })
-      return `<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8"><style>${baseStyles}</style></head><body><div style="text-align:center;font-weight:bold;text-transform:uppercase;letter-spacing:3px;font-size:14pt;margin-bottom:16px;">HATÁROZAT KIVONAT — ${yr}</div><div style="border-bottom:1px solid #334;padding-bottom:8px;margin-bottom:14px;font-style:italic;font-weight:bold;">${congregationName}</div><table style="width:100%;border-collapse:collapse;"><thead><tr><th style="border:1px solid #334;padding:6px;background:#e2e8f0;">Szám</th><th style="border:1px solid #334;padding:6px;background:#e2e8f0;">Határozat</th></tr></thead><tbody>${rows}</tbody></table>${sigBlock}</body></html>`
-    }
-
-    if (type === 'meghivo') {
-      const napLabel = d.tipus === 'kozgyulesi' ? 'közgyűlésre' : 'presbiteri gyűlésre'
-      let napirendList = ''
-      d.napirendi_pontok.forEach((np) => { napirendList += `<div style="padding-left:16px;margin-bottom:3px;">— ${np.cim}</div>` })
-      return `<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8"><style>${baseStyles}</style></head><body><div style="border-bottom:2px solid #334;padding-bottom:10px;margin-bottom:16px;"><div style="font-size:13pt;font-weight:bold;font-style:italic;">${congregationName}</div><div style="font-style:italic;font-weight:bold;">Lelkipásztori Hivatala.</div></div><div style="text-align:center;font-weight:bold;font-style:italic;font-size:14pt;letter-spacing:6px;margin:24px 0;">M e g h í v ó</div><p style="text-align:justify;">Tisztelettel hívom meg a ${d.tipus === 'kozgyulesi' ? 'Gyülekezet tagjait' : 'Presbitérium tagjait'} a <strong>${d.datum}</strong>-én, <strong>${(printData as { kezdes?: string }).kezdes || '___'}</strong> órakor kezdődő ${napLabel}.</p>${napirendList ? `<p style="font-weight:bold;margin-top:16px;">Tárgysorozat:</p>${napirendList}` : ''}<p style="margin-top:24px;">Kelt: ${d.datum}</p><p style="font-style:italic;">Atyafiai köszöntéssel,</p><div style="margin-top:16px;border-top:1px solid #111;width:180px;padding-top:4px;">lelkipásztor</div></body></html>`
-    }
-
-    // Jegyzőkönyv
-    let content = ''
-    d.napirendi_pontok.forEach((np) => {
-      content += `<div style="margin-top:16px;"><strong>${np.sorszam}-${yr}.</strong>&emsp;${np.cim}${np.eloado ? ` — <em>Előadó: ${np.eloado}</em>` : ''}`
-      if (np.targyalas) content += `<p style="text-align:justify;margin:6px 0;">${np.targyalas.replace(/\n/g, '<br>')}</p>`
-      const npHatarozatok = d.hatarozatok.filter((h) => h.napirendi_pont_id)
-      npHatarozatok.forEach((h) => { content += `<div style="margin:8px 0 8px 35%;text-align:justify;font-style:italic;">${h.szoveg.replace(/\n/g, '<br>')}</div>` })
-      content += '</div>'
-    })
-
-    return `<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8"><style>${baseStyles}</style></head><body><div style="display:flex;justify-content:space-between;border-bottom:1px solid #334;padding-bottom:8px;margin-bottom:8px;"><div style="font-style:italic;"><div style="font-weight:bold;">${congregationName}</div><div>Lelkipásztori Hivatala.</div></div><div style="text-align:right;font-size:10pt;color:#475;">JEGYZŐKÖNYV</div></div><p style="text-align:justify;font-style:italic;">Jegyzőkönyv, mely készült a ${congregationName} ${tipusNev} <strong>${d.datum}</strong>-én a ${d.hely || 'gyülekezeti teremben'} tartott rendes gyűlésén.</p><p><strong>Elnök:</strong> ${d.elnok_neve || '—'}, <strong>Jegyző:</strong> ${d.jegyzo_neve || '—'}</p>${d.igevers ? `<p><strong>Felolvasott ige:</strong> ${d.igevers}</p>` : ''}<p><strong><u>Jelen vannak:</u></strong> ${jelen || '—'}</p>${igazoltan ? `<p><strong>Igazoltan távol:</strong> ${igazoltan}</p>` : ''}${content}${d.megjegyzes ? `<p style="margin-top:12px;">${d.megjegyzes}</p>` : ''}${sigBlock}</body></html>`
-  }, [printData, congregationName])
+  // ⚠️ 2026-08-24 (biztonsági kör, B3 — tárolt XSS): a nyomtatvány HTML-je
+  // a KÖZÖS `@/lib/minutes/print` modulban épül, ahol MINDEN felhasználói
+  // mező escape-elődik. ⛔ Ide NE kerüljön vissza nyers sablon-interpoláció.
+  const generatePrintHtml = useCallback(
+    (type: string): string => {
+      if (!printData) return '<p>Nincs adat.</p>'
+      return buildMinutesPrintHtml(type, {
+        ...(printData as unknown as MinutesPrintData),
+        congregationName,
+      })
+    },
+    [printData, congregationName],
+  )
 
   async function handleSearch() {
     if (!searchQuery.trim()) return

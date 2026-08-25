@@ -3,6 +3,29 @@
  * - PDF mentés html2pdf.js-szel
  * - közvetlen böngészős nyomtatás a rendszer nyomtatójára
  * A nyomtatás izolált iframe-ben történik, így nem örökli a teljes app CSS-ét.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * ⚠️ BIZTONSÁG: ITT NEM LEHET `sandbox` — AZ ESCAPE-ELÉS A FORRÁSNÁL A VÉDELEM
+ * ════════════════════════════════════════════════════════════════════════════
+ * A motor MINDHÁROM útja a kapott HTML-t a SAJÁT origin-jében futtatja:
+ *   1. `createPrintIframe` — `iframe.srcdoc`, majd `iframe.contentDocument`
+ *      olvasása/írása (stíluslap-másolás, lapszám-mérés) és html2canvas-render;
+ *   2. `printToPdfLegacy` — ugyanaz, plusz a klón a FŐDOKUMENTUMBA kerül;
+ *   3. `printToBrowser` — `window.open` + `document.write` + `win.print()`.
+ * Mind a három SAME-ORIGIN hozzáférést igényel: egy `sandbox` attribútum
+ * (`allow-same-origin` nélkül) opak origint adna, a `contentDocument` null
+ * lenne, és a PDF-mentés + a nyomtatás ELROMLANA. `allow-same-origin`-nal
+ * viszont a sandbox nem védene semmit — tehát nincs értelme.
+ *
+ * A VALÓDI VÉDELEM ezért a HTML ÉPÍTÉSÉNÉL van: minden nyomtatvány-modul
+ * escape-eli a felhasználói mezőket, mielőtt a HTML-be írná
+ * (pl. `lib/minutes/print.ts`, `lib/inventory/reporting.ts`,
+ * `lib/filing/templates.ts`, `lib/iktato/*`). Aki ÚJ nyomtatványt ír, annak is
+ * escape-elnie KELL — ide már késő.
+ *
+ * (Az ELŐNÉZETI iframe-ek — pl. `minutes-print-dialog.tsx` — más lapon vannak:
+ * azok nem hívnak `print()`-et és nem olvassák a `contentDocument`-et, ezért
+ * ott a `sandbox=""` mélységi védelemként hozzáadható.)
  */
 
 async function createPrintIframe(

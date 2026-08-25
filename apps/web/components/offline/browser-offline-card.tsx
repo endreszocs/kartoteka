@@ -14,12 +14,39 @@ import {
 /**
  * Böngésző-offline mód magyarázó kártyája a /offline oldalon.
  *
- * Ha a lelkész nem tudja (vagy nem akarja) a desktop appot használni, a
- * webapp maga is működik böngésző-offline módban (PWA + Service Worker +
- * IndexedDB/Dexie réteg). Ez a kártya röviden elmagyarázza, mit tud és
- * mit nem.
- *
  * A jelenlegi online/offline állapotot a `navigator.onLine` mutatja.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * ⚠️ 2026-08-25 — A KÁRTYA TÖBBET ÍGÉRT, MINT AMIT A KÓD AD
+ * ════════════════════════════════════════════════════════════════════════════
+ * A korábbi szöveg ezt állította:
+ *
+ *   „Látható: az utoljára szinkronizált tagok, munkanapló, pénzügyi adatok."
+ *   „Szerkeszthető: új tételek, új tag, módosítás — mind »feltöltésre váró«
+ *    állapotban marad, amíg visszatér az internet."
+ *
+ * EGYIK SEM IGAZ a böngészős verzióra:
+ *  · A tagnyilvántartás, a munkanapló, a pénzügy és az anyakönyv képernyőit
+ *    SZERVER-oldali komponensek állítják össze — kapcsolat nélkül be sem
+ *    töltődnek. (A Dexie-tükör megvan a készüléken, de ezek a modulok nem
+ *    abból rajzolnak: a `useSyncQuery`-t az egész alkalmazásban csak a Kuka
+ *    és maguk az offline-képernyők használják.)
+ *  · Az adatrögzítés szerver-akciókkal megy, azok offline elbuknak. A
+ *    feltöltésre váró sor VALÓBAN megmarad és magától felkerül — de azt nem
+ *    a modulok töltik meg.
+ *  · 2026-08-24 óta ráadásul a hitelesített oldalak HTML/RSC-válasza sem megy
+ *    lemezre (adatvédelmi javítás: közös gépen kiolvasható volt), tehát még a
+ *    korábban meglátogatott oldal sem nyílik meg offline.
+ *
+ * Ez ugyanaz a hibaosztály, mint a jogi dokumentum „az adat sosem hagyja el az
+ * EU-t" mondata: a FELÜLET NE ÍGÉRJEN TÖBBET, MINT AMIT A KÓD AD. Az alábbi
+ * szöveg ezért pontosan hármat állít, és mind a három visszamérhető:
+ *   (1) offline a Kartotéka saját tartalék lapja fogad
+ *       (`public/nincs-internet.html`, `app/sw.ts` → `fallbacks`),
+ *   (2) a feltöltésre váró sor megmarad és magától felkerül
+ *       (`lib/offline/mutation-queue.ts` + `sync-orchestrator`),
+ *   (3) az adatok MEGNYITÁSÁHOZ kapcsolat kell — szándékosan.
+ * ════════════════════════════════════════════════════════════════════════════
  */
 export function BrowserOfflineCard() {
   const [online, setOnline] = useState<boolean | null>(null)
@@ -47,12 +74,12 @@ export function BrowserOfflineCard() {
             <Globe className="size-5" />
           </div>
           <div className="flex-1">
-            <CardTitle className="text-base text-slate-900">
-              Böngésző is tud offline dolgozni
+            <CardTitle className="text-base text-foreground">
+              Mi történik, ha elmegy az internet
             </CardTitle>
             <CardDescription className="text-sm">
-              Ha maradsz a böngészőben, a Kartotéka webapp akkor is elérhető,
-              ha épp megszűnik az internet.
+              A böngészős verzió a kapcsolat kihagyásait viseli el jól: nem hagy
+              magadra, és nem veszít el semmit.
             </CardDescription>
           </div>
           {online !== null && (
@@ -68,28 +95,31 @@ export function BrowserOfflineCard() {
       </CardHeader>
 
       <CardContent className="space-y-3">
-        <ul className="space-y-1.5 text-sm text-slate-700">
+        <ul className="space-y-1.5 text-sm text-foreground/80">
           <li>
-            <span className="mr-1 font-semibold">Látható:</span> az utoljára
-            szinkronizált tagok, munkanapló, pénzügyi adatok.
+            <span className="mr-1 font-semibold">Nem a böngésző hibaoldala fogad:</span>
+            internet nélkül a Kartotéka saját lapja jelenik meg, és elmondja,
+            mi a teendő.
           </li>
           <li>
-            <span className="mr-1 font-semibold">Szerkeszthető:</span> új
-            tételek, új tag, módosítás — mind „feltöltésre váró" állapotban
-            marad, amíg visszatér az internet.
+            <span className="mr-1 font-semibold">Megmarad, ami feltöltésre vár:</span>
+            a készülékeden várakozó módosítások nem vesznek el, és maguktól
+            felkerülnek, amint újra van kapcsolat.
           </li>
           <li>
-            <span className="mr-1 font-semibold">Automatikus szinkron:</span>
-            amint újra elérhető a kapcsolat, a rendszer a háttérben feltölti
-            a változtatásaidat a szerverre.
+            <span className="mr-1 font-semibold">Az adatok megnyitásához internet kell:</span>
+            a tagnyilvántartás, a munkanapló, a pénzügy és az anyakönyv
+            képernyőit a szerver állítja össze. A Kartotéka szándékosan nem hagy
+            belőlük olvasható másolatot a gép lemezén — közös vagy hivatali gépen
+            így a következő felhasználó nem tudja kiolvasni őket.
           </li>
         </ul>
 
-        <div className="rounded-md border border-sky-100 bg-sky-50/50 px-3 py-2 text-xs text-sky-900">
-          <span className="font-semibold">Tipp:</span> a böngészős verzió kényelmes, de
-          ha napokig dolgoznál offline (pl. hálózat nélküli utazás), akkor az
-          asztali alkalmazás jobban illik a feladathoz — ott a teljes
-          adatbázisod tartósan elérhető, titkosítva a gépeden.
+        <div className="rounded-md border border-border bg-accent/10 px-3 py-2 text-xs text-foreground/80">
+          <span className="font-semibold">Tipp:</span> ha tényleg hálózat nélkül
+          dolgoznál (kiszállás, utazás, gyenge lefedettségű parókia), arra az
+          asztali alkalmazás való — ott a teljes adatbázisod tartósan elérhető,
+          titkosítva a gépeden. A böngészős verzió a rövid kimaradásokra készült.
         </div>
       </CardContent>
     </Card>

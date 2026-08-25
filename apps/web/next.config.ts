@@ -52,6 +52,14 @@ const withSerwist = withSerwistInit({
   // alapértelmezés így a „nem precache-eljük".
   globPublicPatterns: [
     "manifest.json",
+    // 2026-08-25 — AZ OFFLINE TARTALÉK LAP. Ha ez a sor kiesik, a
+    // `app/sw.ts` `fallbacks` bejegyzése NÉMÁN hatástalan lesz: a lapot a
+    // service worker nem találja a precache-ben, és internet nélkül újra a
+    // böngésző csupasz hibaoldala fogad. Adatmentes statikus fájl (~9 KB),
+    // ezért precache-elni SZABAD — az `/offline` Next-oldalt viszont NEM,
+    // mert a `(dashboard)` layout a bejelentkezett felhasználó profilját is
+    // beleadja a payloadba. Visszaméri: scripts/selftest-sw-cache.mjs
+    "nincs-internet.html",
     // A PWA-manifest ikonja + az alkalmazás-héj logói (splash-screen,
     // oldalsáv, nyomtatási fejlécek). Együtt ~2,0 MB.
     "kartoteka-icon.png",
