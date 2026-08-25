@@ -10,6 +10,11 @@ import { Separator } from '@/components/ui/separator'
 import { saveBaptism, getNextEgyhaziSzam, getParentsForChild, getMarriageBetween } from '@/app/(dashboard)/anyakonyv/actions'
 import { MemberSearchSelect, type MemberSearchResult } from '@/components/registry/member-search-select'
 import { MemberFormDialog } from '@/components/modals/member-form-dialog'
+// 2026-08-25 (Endre): sikeres mentés után — ha a munkanapló-kapcsoló BE volt —
+// a munkanapló-rögzítő előtöltve nyílik meg, hogy a szolgálat (jelenlét,
+// persely) azonnal rögzíthető legyen.
+import { WorklogDialog } from '@/components/modals/worklog-dialog'
+import type { WorklogEntry } from '@/lib/constants/worklog'
 import { CertificateRenderer } from '@/components/registry/emleklap/certificate-renderer'
 import {
   EMLEKLAP_TEMPLATES_MAP,
@@ -52,6 +57,10 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
   const [selectedPerson, setSelectedPerson] = useState<MemberSearchResult | null>(null)
   const [familyAutoLoaded, setFamilyAutoLoaded] = useState(false)
   const [quickAddOpen, setQuickAddOpen] = useState(false)
+  // 2026-08-25: a mentés utáni munkanapló-rögzítő (a szerver-szinkron által
+  // már létrehozott munkanaplo sorral, szerkesztés módban — így nincs duplikáció).
+  const [worklogOpen, setWorklogOpen] = useState(false)
+  const [worklogPrefill, setWorklogPrefill] = useState<WorklogEntry | null>(null)
 
   const [father, setFather] = useState<MemberSearchResult | null>(null)
   const [mother, setMother] = useState<MemberSearchResult | null>(null)
@@ -150,7 +159,9 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
       setApjaneveText(null); setAnyjaneveText(null); setParentDiag(null)
       const today = new Date().toISOString().slice(0, 10)
       setDatum(today); setOkirat(''); setLelkesz(''); setKeresztszulok('')
-      setAlapige(''); setMegjegyzes(''); setMunkanaploba(false)
+      // 2026-08-25 (Endre): új rögzítésnél a munkanapló-kapcsoló ALAPBÓL BE —
+      // a kazuália szinte mindig elvégzett szolgálat is.
+      setAlapige(''); setMegjegyzes(''); setMunkanaploba(true)
       setApavallas(''); setAnyavallas(''); setAnyaLeanykori('')
       // 2026-05-29: gondnok visszatöltése localStorage-ból (sticky)
       try {
@@ -357,9 +368,11 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
     return out
   }, [template, selectedPerson, father, mother, anyaLeanykori, egyhaziHazassag, datum, lelkesz, gondnok, congregationName])
 
-  async function handleSubmit(): Promise<boolean> {
-    if (!selectedPerson) { toast.error('Válasszon személyt!'); return false }
-    if (!datum) { toast.error('A dátum kötelező!'); return false }
+  // 2026-08-25: a mentés eredménye a munkanapló-előtöltést is hozza (ha a
+  // kapcsoló BE volt) — a hívó ezzel nyitja meg a munkanapló-rögzítőt.
+  async function handleSubmit(): Promise<{ ok: boolean; worklogEntry: WorklogEntry | null }> {
+    if (!selectedPerson) { toast.error('Válasszon személyt!'); return { ok: false, worklogEntry: null } }
+    if (!datum) { toast.error('A dátum kötelező!'); return { ok: false, worklogEntry: null } }
     setLoading(true)
     const fatherName = father ? `${father.csaladnev || ''} ${father.k_nev || ''}`.trim() : ''
     // 2026-05-30: az anya neve CSAK akkor formázva, ha a felhasználó kiválasztotta.
@@ -410,17 +423,40 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
     setLoading(false)
     if (result.error) {
       toast.error(result.error)
-      return false
+      return { ok: false, worklogEntry: null }
     }
     toast.success('Keresztelés rögzítve!')
     // 2026-08-01 (PR-18): dupla-tagsági figyelmeztetés az auto-család őrtől
     if ('warning' in result && result.warning) toast.warning(result.warning, { duration: 9000 })
-    return true
+    return {
+      ok: true,
+      worklogEntry: 'worklogEntry' in result && result.worklogEntry
+        ? (result.worklogEntry as WorklogEntry)
+        : null,
+    }
+  }
+
+  /**
+   * 2026-08-25 (Endre): sikeres mentés UTÁN a munkanapló-rögzítő megnyitása
+   * előtöltve (a szerver-szinkron által írt sorral: dátum + kanonikus jellege
+   * [F./N. keresztelő] + cím). CSAK akkor nyílik, ha a szolgálat még nincs
+   * felvéve: új rögzítésnél, vagy ha a kapcsoló szerkesztéskor most került
+   * BE-re — a sima szerkesztés-mentés nem dobja fel újra. A kis késleltetés
+   * a dupla-modal ellen: előbb záródjon be az anyakönyvi dialógus.
+   */
+  function maybeOpenWorklog(entry: WorklogEntry | null) {
+    if (!entry) return
+    if (editEntry && editEntry.munkanaploba) return
+    setWorklogPrefill(entry)
+    toast.info('A szolgálat előtöltve a munkanaplóba — egészítsd ki a jelenléttel és a perselypénzzel, majd mentsd.', { duration: 6000 })
+    setTimeout(() => setWorklogOpen(true), 250)
   }
 
   async function handleSaveOnly() {
-    const ok = await handleSubmit()
-    if (ok) onOpenChange(false)
+    const res = await handleSubmit()
+    if (!res.ok) return
+    onOpenChange(false)
+    maybeOpenWorklog(res.worklogEntry)
   }
 
   /**
@@ -451,12 +487,15 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
         try { localStorage.setItem('kartoteka.emleklap.gondnokName', warden) } catch {}
       }
     }
-    const ok = await handleSubmit()
-    if (!ok) return
+    const res = await handleSubmit()
+    if (!res.ok) return
     // Várunk egy tick-et, hogy a fieldValues a friss state-tel frissüljön a print előtt
     setTimeout(() => {
       handlePrint()
-      setTimeout(() => onOpenChange(false), 500)
+      setTimeout(() => {
+        onOpenChange(false)
+        maybeOpenWorklog(res.worklogEntry)
+      }, 500)
     }, 50)
   }
 
@@ -679,7 +718,14 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
               </div>
               <div className="space-y-1.5"><Label>Alapige</Label><Input value={alapige} onChange={e => setAlapige(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
               <div className="space-y-1.5"><Label>Megjegyzés</Label><Input value={megjegyzes} onChange={e => setMegjegyzes(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
-              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={munkanaploba} onChange={e => setMunkanaploba(e.target.checked)} /> Rögzítés a munkanaplóba</label>
+              {/* 2026-08-25 (Endre): a kapcsoló új rögzítésnél alapból BE, és
+                  mentés után előtöltve nyílik a munkanapló-rögzítő. */}
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={munkanaploba} onChange={e => setMunkanaploba(e.target.checked)} /> Megjelenjen a munkanaplóban?</label>
+              {munkanaploba && (
+                <p className="text-[11px] text-slate-500">
+                  Mentés után megnyílik a munkanapló-rögzítő előtöltve — a jelenlét és a perselypénz azonnal kiegészíthető.
+                </p>
+              )}
             </div>
 
             {/* ─── JOBB OSZLOP: Élő emléklap-vászon ─── */}
@@ -757,6 +803,16 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
       </Dialog>
 
       <MemberFormDialog open={quickAddOpen} onOpenChange={handleQuickAddOpenChange} editMember={null} />
+
+      {/* 2026-08-25: mentés utáni munkanapló-rögzítő — a szerver-szinkron által
+          létrehozott bejegyzést nyitja szerkesztésre (dátum + kanonikus jellege
+          + cím előtöltve), a lelkész a jelenlétet/perselyt egészíti ki. */}
+      <WorklogDialog
+        open={worklogOpen}
+        onOpenChange={(o) => { setWorklogOpen(o); if (!o) setWorklogPrefill(null) }}
+        editEntry={worklogPrefill}
+        defaultCategory="szolgalat"
+      />
     </>
   )
 }

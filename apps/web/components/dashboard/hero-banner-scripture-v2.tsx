@@ -117,6 +117,8 @@ export function HeroBannerScriptureV2({
   todayNamedays,
 }: HeroBannerScriptureV2Props) {
   const [verseExpanded, setVerseExpanded] = useState(false)
+  // A „Mai üzenet" alapból csukva indul minden betöltéskor; kattintásra nyílik.
+  const [uzenetExpanded, setUzenetExpanded] = useState(false)
   // A Károli-versszöveg az egyetlen aszinkron adat — minden más szinkron,
   // statikus naptárból számolódik (useMemo, nem effect+setState: a React
   // Compiler lint a szinkron effect-setState-et kaszkád-render miatt tiltja).
@@ -299,14 +301,50 @@ export function HeroBannerScriptureV2({
                   )}
                   <p className="mt-2 text-xs font-semibold text-amber-100/88">{maiIge.hivatkozas}</p>
 
-                  {/* A NAPI ÜZENET — kiemelve, mindig látható */}
+                  {/* A NAPI ÜZENET — alapból csukva, kattintásra nyílik/csukódik.
+                      A kártya maga egy <button> (verseExpanded), ezért a belső
+                      kapcsoló role="button" span + stopPropagation, hogy a
+                      kattintás ne billentse át a gondolatok-lenyílót is. */}
                   {maiIge.uzenet && (
-                    <div className="mt-3 rounded-[1rem] border border-amber-200/25 bg-amber-300/[0.12] px-3 py-2.5">
-                      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-amber-100/85">
-                        <Sparkles className="size-3" />
-                        Mai üzenet
+                    <div className="mt-3 overflow-hidden rounded-[1rem] border border-amber-200/25 bg-amber-300/[0.12]">
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={uzenetExpanded}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setUzenetExpanded((prev) => !prev)
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setUzenetExpanded((prev) => !prev)
+                          }
+                        }}
+                        className="flex min-h-9 w-full cursor-pointer items-center justify-between gap-2 px-3 py-2 transition-colors hover:bg-amber-300/[0.14]"
+                      >
+                        <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-amber-100/85">
+                          <Sparkles className="size-3" />
+                          Mai üzenet
+                        </span>
+                        <ChevronDown
+                          className={cn(
+                            'size-3.5 shrink-0 text-amber-100/70 transition-transform duration-300',
+                            uzenetExpanded && 'rotate-180'
+                          )}
+                        />
+                      </span>
+                      <div
+                        className={cn(
+                          'grid transition-all duration-300 ease-out',
+                          uzenetExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                        )}
+                      >
+                        <div className="overflow-hidden">
+                          <p className="px-3 pb-2.5 text-sm leading-relaxed text-amber-50/95">{maiIge.uzenet}</p>
+                        </div>
                       </div>
-                      <p className="mt-1.5 text-sm leading-relaxed text-amber-50/95">{maiIge.uzenet}</p>
                     </div>
                   )}
                 </>

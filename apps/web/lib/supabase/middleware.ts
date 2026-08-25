@@ -89,6 +89,15 @@ function isInternalWorkerRoute(pathname: string): boolean {
   return pathname.startsWith('/api/internal/')
 }
 
+// FEJLESZTŐI PRÓBAPAD (2026-08-25) — KIZÁRÓLAG development módban él.
+// A /dev-proba oldal izolált komponens- és PDF-motor-tesztekhez való
+// (auth-mentes, mock-adatokkal), hogy a vizuális/renderelési hibák a beépített
+// böngészővel reprodukálhatók legyenek. Élesben a NODE_ENV 'production',
+// tehát ez az ág HALOTT — a route a normál auth-kapura esik.
+function isDevProbapadRoute(pathname: string): boolean {
+  return process.env.NODE_ENV === 'development' && pathname.startsWith('/dev-proba')
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // 2FA-KAPU — A DÖNTÉS (2026-08-24, biztonsági javító kör)
 // ════════════════════════════════════════════════════════════════════════════
@@ -199,6 +208,11 @@ export async function updateSession(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser()
+
+  // Fejlesztői próbapad → CSAK development módban engedjük át
+  if (isDevProbapadRoute(pathname)) {
+    return supabaseResponse
+  }
 
   // Publikus gyülekezeti oldalak → mindig átengedünk
   if (isPublicCongregationRoute(pathname)) {

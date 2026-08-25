@@ -234,6 +234,19 @@ function engineOrszem(src) {
     bajok.push('nincs `.toCanvas().get(\'canvas\')` — a legacy út nem méri a vásznat mentés előtt')
   }
 
+  // 4) 2026-08-25/2 — A VALÓDI GYÖKÉROK ŐRE (a próbapadon reprodukálva):
+  //    a kezdeti about:blank dokumentum is readyState==='complete' + van
+  //    body-ja, ezért a készenlét CSAK akkor fogadható el, ha a body már a
+  //    beírt tartalmat hordozza (childElementCount > 0), és az üres dokumentum
+  //    HANGOS hibát ad. Enélkül a motor a srcdoc-navigáció ELŐTTI üres
+  //    dokumentumon dolgozik → 0 lap, vak lapszám-őr, néma üres PDF.
+  if (!/childElementCount\s*>\s*0/.test(kod)) {
+    bajok.push('nincs `childElementCount > 0` készenlét-feltétel — az about:blank-ot kész dokumentumnak fogadná el')
+  }
+  if (!/childElementCount\s*===\s*0/.test(kod) || !/üres dokumentum/.test(kod)) {
+    bajok.push('nincs hangos „üres dokumentum" hiba a betöltés-ellenőrzésben')
+  }
+
   return bajok
 }
 
@@ -285,6 +298,20 @@ if (engineOrszem(mutansKomment).length === 0) {
   fail('MUTÁNS#4 ÁTMENT: a komment kielégítette a keresést — a komment-kiszedő nem működik')
 } else {
   ok('mutáns#4 (a hibadobás csak kommentben van meg) — az őrszem elbukik rajta ✔')
+}
+
+/** 5. mutáns (2026-08-25/2): a RÉGI, about:blank-ot elfogadó készenlét-poll
+ *  visszaírása — a VALÓDI gyökérok (a próbapadon reprodukálva: 0 lap, néma
+ *  üres PDF). Az őrszemnek buknia kell rajta. */
+const mutansAboutBlank = engineSrc
+  .replace(/childElementCount\s*>\s*0/g, 'childElementCount >= 0')
+  .replace(/childElementCount\s*===\s*0/g, 'childElementCount < 0')
+if (mutansAboutBlank === engineSrc) {
+  fail('az about:blank-mutáns nem készült el — az őrszem vak lehet')
+} else if (engineOrszem(mutansAboutBlank).length === 0) {
+  fail('MUTÁNS#5 ÁTMENT: az őrszem elfogadja az about:blank-ot kész dokumentumnak (a valódi gyökérok visszatérhetne)')
+} else {
+  ok('mutáns#5 (about:blank-elfogadó készenlét, a régi világ) — az őrszem elbukik rajta ✔')
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

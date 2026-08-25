@@ -58,6 +58,7 @@ import {
   FEJEZET_CIMEK,
   JELENTES_MEZOK,
   MUNKANAPLO_JAVASLAT_MEZOK,
+  SZARMAZTATOTT_EGYUTT_MEZOK,
   deriveAutoMezok,
   mezoErtek,
   parseHuSzam,
@@ -97,6 +98,7 @@ import { FinalizeButton } from '@kartoteka/ui-app'
 import {
   finalizeLelkesziJelentes,
   getLelkesziJelentes,
+  listJelentesEvek,
   requestJelentesUnlock,
   saveLelkesziJelentes,
   submitLelkesziJelentes,
@@ -325,6 +327,14 @@ export function LelkesziJelentesDialog({
 }) {
   const [isPending, startTransition] = useTransition()
 
+  // 2026-08-25 (jelentés-UX kör): ÉVVÁLASZTÓ — a worklog-fültől kapott év az
+  // alapérték, de a fejlécből át lehet váltani egy korábbi (mentett) évre.
+  // Váltáskor a getLelkesziJelentes(év) újratölt; a véglegesített évek
+  // csak-olvashatók (readOnly), de nyomtathatók / PDF-ezhetők.
+  const [selectedYear, setSelectedYear] = useState(year)
+  // A gyülekezet mentett jelentés-évei (listJelentesEvek) — az opciókhoz.
+  const [evLista, setEvLista] = useState<Array<{ ev: number; statusz: string }>>([])
+
   // Betöltés
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -383,13 +393,35 @@ export function LelkesziJelentesDialog({
   // 2026-08-11 (6. kör): a különleges alkalmak EGYSZER töltődnek be a dialógus
   // nyitásakor, és ugyanaz az adat táplálja a wizard 2. lépését ÉS a szerkesztő
   // javaslat-sorait — így a két helyen látott szám soha nem tud széthúzni.
-  const kulonleges = useKulonlegesAlkalmak(year, open)
+  const kulonleges = useKulonlegesAlkalmak(selectedYear, open)
   // Ha van megerősítésre váró alkalom, a panel ALAPBÓL nyitva van (az a teendő);
   // különben csukva, hogy ne tolja le a fejezeteket. A lelkész döntése felülírja.
   const kulonlegesAlapNyitva = kulonleges.osszesites.fuggoben > 0
   const kulonlegesPanelNyitva = kulonlegesNyitva ?? kulonlegesAlapNyitva
 
-  // ── Betöltés nyitáskor (queueMicrotask: nincs szinkron setState az effectben) ──
+  // ── Évválasztó: nyitáskor a fülről kapott év az alapérték (a korábbi nyitás
+  // választása nem ragadhat be). A load-effect ELŐTT áll, hogy évváltáskor a
+  // régi évre indított betöltést a cleanup azonnal érvénytelenítse. ──
+  useEffect(() => {
+    if (open) setSelectedYear(year)
+  }, [open, year])
+
+  // ── A mentett jelentés-évek listája az évválasztóhoz (nyitásonként egyszer;
+  // hibánál a választó a minimum-készletet mutatja — nem blokkol semmit). ──
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    void listJelentesEvek()
+      .then((res) => {
+        if (!cancelled && res.evek) setEvLista(res.evek)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
+  // ── Betöltés nyitáskor / évváltáskor (queueMicrotask: nincs szinkron setState az effectben) ──
   useEffect(() => {
     if (!open) return
     let cancelled = false
@@ -419,7 +451,7 @@ export function LelkesziJelentesDialog({
       // jelentés villanjon fel, és az első render azonnali legyen (debounce nélkül).
       setPreviewData(null)
       setSheetOverflow(false)
-      void getLelkesziJelentes(year)
+      void getLelkesziJelentes(selectedYear)
         .then((res) => {
           if (cancelled) return
           if (res.error || !res.data) {
@@ -450,7 +482,29 @@ export function LelkesziJelentesDialog({
     return () => {
       cancelled = true
     }
-  }, [open, year])
+  }, [open, selectedYear])
+
+  // Az évválasztó opciói: a fül éve + az aktuális és az ELŐZŐ naptári év
+  // (mindig) + minden mentett év — csökkenő sorrendben, duplikátum nélkül.
+  const evOpciok = useMemo(() => {
+    const most = new Date().getFullYear()
+    const s = new Set<number>([year, most, most - 1, selectedYear])
+    for (const e of evLista) s.add(e.ev)
+    return Array.from(s).sort((a, b) => b - a)
+  }, [year, selectedYear, evLista])
+  const veglegesitettEvek = useMemo(
+    () => new Set(evLista.filter((e) => e.statusz === 'veglegesitve').map((e) => e.ev)),
+    [evLista],
+  )
+
+  /** Évváltás — nem mentett módosításnál rákérdezünk (a váltás újratölt). */
+  function handleYearChange(next: number) {
+    if (next === selectedYear) return
+    if (dirty && data?.statusz !== 'veglegesitve') {
+      if (!confirm('Nem mentett módosítások vannak — évváltáskor elvesznek. Folytatja?')) return
+    }
+    setSelectedYear(next)
+  }
 
   /**
    * Csendes újratöltés (véglegesítés/feloldás után) — a nézetet nem resetteli.
@@ -459,7 +513,7 @@ export function LelkesziJelentesDialog({
    */
   async function reload(failMessage?: string) {
     try {
-      const res = await getLelkesziJelentes(year)
+      const res = await getLelkesziJelentes(selectedYear)
       if (res.error || !res.data) {
         // A hibátlan-de-üres válasz korábban némán elveszett — most mindig jelzünk.
         toast.error(failMessage || res.error || 'A jelentés újratöltése nem sikerült.')
@@ -476,6 +530,12 @@ export function LelkesziJelentesDialog({
       setUnlockRequested(res.unlockRequested === true)
       setSubmitted(Boolean(res.data.submission))
       setDirty(false)
+      // Az évválasztó címkéi (— véglegesítve) frissüljenek pl. véglegesítés után.
+      void listJelentesEvek()
+        .then((evek) => {
+          if (evek.evek) setEvLista(evek.evek)
+        })
+        .catch(() => {})
     } catch {
       toast.error(failMessage || 'Hálózati hiba — a jelentés újratöltése nem sikerült.')
     }
@@ -624,7 +684,7 @@ export function LelkesziJelentesDialog({
   /** Mentés — teljes csere (kezi + felulirasok + hatarozat). */
   async function handleSave(silent = false): Promise<boolean> {
     setSaving(true)
-    const res = await saveLelkesziJelentes(year, {
+    const res = await saveLelkesziJelentes(selectedYear, {
       kezi: normalizeForSave(kezi),
       felulirasok: normalizeForSave(felulirasok),
       hatarozat,
@@ -644,12 +704,12 @@ export function LelkesziJelentesDialog({
     startTransition(async () => {
       const saved = await handleSave(true)
       if (!saved) return
-      const res = await finalizeLelkesziJelentes(year)
+      const res = await finalizeLelkesziJelentes(selectedYear)
       if (res.error) {
         toast.error(res.error)
         return
       }
-      toast.success(`A(z) ${year}. évi lelkészi jelentés véglegesítve.`, { duration: 5000 })
+      toast.success(`A(z) ${selectedYear}. évi lelkészi jelentés véglegesítve.`, { duration: 5000 })
       setWizardStep('kesz')
       // Optimista állapot: a szerveren már megtörtént a véglegesítés — ha az
       // újratöltés elakadna, a UI akkor is a csak-olvasható nézetet mutassa.
@@ -666,7 +726,7 @@ export function LelkesziJelentesDialog({
       return
     }
     setSubmitting(true)
-    const res = await submitLelkesziJelentes(year)
+    const res = await submitLelkesziJelentes(selectedYear)
     setSubmitting(false)
     if (res.error) {
       toast.error(res.error)
@@ -681,7 +741,7 @@ export function LelkesziJelentesDialog({
   // elment, és az esperes nem tudta elbírálni). A visszatérési értékből dönti
   // el a komponens, hogy a dialógus bezárható-e.
   async function handleUnlockRequest(reason: string) {
-    const res = await requestJelentesUnlock(year, reason)
+    const res = await requestJelentesUnlock(selectedYear, reason)
     if (res.error) {
       toast.error(res.error)
       return { error: res.error }
@@ -695,7 +755,7 @@ export function LelkesziJelentesDialog({
     if (!currentData) return
     setPrinting(true)
     try {
-      await printToPdf(buildLelkesziJelentesHtml(currentData), `Lelkeszi_jelentes_${year}.pdf`, {
+      await printToPdf(buildLelkesziJelentesHtml(currentData), `Lelkeszi_jelentes_${selectedYear}.pdf`, {
         orientation: 'portrait',
         // WYSIWYG: a lap-margót a dokumentum saját paddingje adja.
         margin: [0, 0],
@@ -715,8 +775,8 @@ export function LelkesziJelentesDialog({
     setPrintingBontas(true)
     try {
       await printToPdf(
-        buildBontasMellekletHtml(currentData, bontas, year),
-        `Gyulekezetenkenti_kimutatas_${year}.pdf`,
+        buildBontasMellekletHtml(currentData, bontas, selectedYear),
+        `Gyulekezetenkenti_kimutatas_${selectedYear}.pdf`,
         { orientation: 'landscape', margin: [0, 0], format: 'a4' },
       )
       toast.success('A gyülekezetenkénti kimutatás PDF elkészült.')
@@ -752,7 +812,9 @@ export function LelkesziJelentesDialog({
 
   const hianyzoKeziMezok = useMemo(() => {
     if (!currentData) return []
-    return JELENTES_MEZOK.filter((m) => !m.auto).filter((m) => {
+    // A számolt „együtt" mezők (I.4c–I.7c) kimaradnak: az ürességük a férfi/nő
+    // komponensek ürességéből következik — azok külön szerepelnek a listában.
+    return JELENTES_MEZOK.filter((m) => !m.auto && !SZARMAZTATOTT_EGYUTT_MEZOK.has(m.id)).filter((m) => {
       const v = mezoErtek(currentData, m.id)
       return v === null || v === undefined || String(v).trim() === ''
     })
@@ -800,7 +862,14 @@ export function LelkesziJelentesDialog({
   // ── Mező-sorok (szerkesztő) ──
 
   function renderAutoMezo(mezo: JelentesMezo) {
-    const autoV = data?.auto[mezo.id] ?? null
+    // 2026-08-25 (jelentés-UX kör): a SZÁMOLT „együtt" mezők (I.4c–I.7c) is itt
+    // renderelődnek — az értékük a deriveAutoMezok-ból jön (a + b), régi kézzel
+    // mentett soron a kézi érték a tartalék. Az ÉLŐ (currentData) auto-rekordot
+    // olvassuk, hogy az a/b beírása azonnal frissítse az együtt-mezőt (és az
+    // I.8/I.9/VII.8 származtatott mezőket is).
+    const szamitott = SZARMAZTATOTT_EGYUTT_MEZOK.has(mezo.id)
+    const eloAuto = currentData?.auto[mezo.id] ?? null
+    const autoV = szamitott && eloAuto === null ? (kezi[mezo.id] ?? null) : eloAuto
     const felulV = felulirasok[mezo.id]
     const vanFeluliras = felulV !== undefined && felulV !== null && felulV !== ''
     const overrideAktiv = vanFeluliras || overrideOpen.has(mezo.id)
@@ -811,6 +880,7 @@ export function LelkesziJelentesDialog({
         <div className="flex items-center justify-between gap-2">
           <Label className="text-xs leading-4 text-muted-foreground">
             <span className="tabular-nums font-semibold text-foreground">{mezo.id}</span> — {mezo.label}
+            {szamitott && <span className="text-muted-foreground/70"> (a férfi + nő összege)</span>}
           </Label>
           {vanFeluliras && (
             <Badge className="shrink-0 bg-amber-500/15 text-amber-700 hover:bg-amber-500/15 dark:text-amber-300">
@@ -1408,7 +1478,25 @@ export function LelkesziJelentesDialog({
               </span>
               <span className="min-w-0">
                 <span className="flex flex-wrap items-center gap-2">
-                  Lelkészi jelentés — {year}
+                  Lelkészi jelentés
+                  {/* 2026-08-25 (jelentés-UX kör): évválasztó — az aktuális év
+                      mellett a mentett korábbi évek + az előző naptári év.
+                      Váltáskor a jelentés újratölt; a véglegesített év
+                      csak-olvasható, de nyomtatható / PDF-ezhető. */}
+                  <select
+                    value={selectedYear}
+                    onChange={(e) => handleYearChange(Number(e.target.value))}
+                    disabled={loading}
+                    aria-label="A jelentés éve"
+                    className="h-8 rounded-lg border border-border bg-background px-2 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {evOpciok.map((ev) => (
+                      <option key={ev} value={ev}>
+                        {ev}
+                        {veglegesitettEvek.has(ev) ? ' — véglegesítve' : ''}
+                      </option>
+                    ))}
+                  </select>
                   {!readOnly && (
                     <Badge className="bg-muted text-muted-foreground hover:bg-muted">Szerkesztés alatt</Badge>
                   )}
@@ -1421,7 +1509,7 @@ export function LelkesziJelentesDialog({
             {!loading && !loadError && mode === 'szerkeszto' && (
               <FinalizeButton
                 documentLabel="lelkészi jelentés"
-                year={year}
+                year={selectedYear}
                 finalized={readOnly}
                 finalizedAt={data?.veglegesitveAt ?? null}
                 unlockRequested={unlockRequested}
@@ -1561,7 +1649,7 @@ export function LelkesziJelentesDialog({
                   </div>
                 )}
 
-                <KulonlegesAlkalomLista ev={year} adat={kulonleges} zarolva={readOnly} kompakt />
+                <KulonlegesAlkalomLista ev={selectedYear} adat={kulonleges} zarolva={readOnly} kompakt />
 
                 {/* 2026-08-11 (6. kör, reviewer-major): a megerősített számok ITT
                     is beírhatók. Korábban a [Beírom] gomb CSAK a szerkesztő
@@ -1683,7 +1771,7 @@ export function LelkesziJelentesDialog({
                     Utolsó megerősítés
                   </h3>
                   <div className="mt-3 space-y-2 rounded-xl border border-border bg-background p-4 text-sm">
-                    <SorPar label="Év" value={String(year)} />
+                    <SorPar label="Év" value={String(selectedYear)} />
                     <SorPar label="Egyházközség" value={congregationName || data?.congregationName || '—'} />
                     <SorPar label="Presbitériumi határozat" value={hatarozat.presbiteriSzam || '—'} />
                     <SorPar label="Presbitériumi tárgyalás" value={hatarozat.presbiteriDatum || '—'} />
@@ -1718,7 +1806,7 @@ export function LelkesziJelentesDialog({
                 </div>
                 <h3 className="mt-4 font-heading text-2xl text-foreground">A jelentés véglegesítve!</h3>
                 <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">
-                  A(z) {year}. évi lelkészi jelentés lezárult. Beküldheti az egyházmegyének, illetve a
+                  A(z) {selectedYear}. évi lelkészi jelentés lezárult. Beküldheti az egyházmegyének, illetve a
                   szerkesztőbe visszalépve PDF-be mentheti vagy kinyomtathatja.
                 </p>
                 <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
@@ -1862,7 +1950,7 @@ export function LelkesziJelentesDialog({
                     {kulonlegesPanelNyitva && (
                       <div className="border-t border-border px-4 py-3.5">
                         <KulonlegesAlkalomLista
-                          ev={year}
+                          ev={selectedYear}
                           adat={kulonleges}
                           zarolva={readOnly}
                           kompakt
@@ -1993,7 +2081,14 @@ export function LelkesziJelentesDialog({
                       </button>
                       {nyitva && (
                         <div className="space-y-3 border-t border-border px-4 py-3.5">
-                          {mezok.map((mezo) => (mezo.auto ? renderAutoMezo(mezo) : renderKeziMezo(mezo)))}
+                          {/* 2026-08-25 (jelentés-UX kör): a számolt „együtt"
+                              mezők (I.4c–I.7c) nem gépelhetők — számolt
+                              (felülírható) mezőként jelennek meg. */}
+                          {mezok.map((mezo) =>
+                            mezo.auto || SZARMAZTATOTT_EGYUTT_MEZOK.has(mezo.id)
+                              ? renderAutoMezo(mezo)
+                              : renderKeziMezo(mezo),
+                          )}
                         </div>
                       )}
                     </section>
@@ -2027,7 +2122,7 @@ export function LelkesziJelentesDialog({
                       <iframe
                         ref={iframeRef}
                         onLoad={measurePreview}
-                        title={`Lelkészi jelentés előnézet — ${year}`}
+                        title={`Lelkészi jelentés előnézet — ${selectedYear}`}
                         srcDoc={previewHtml}
                         style={{
                           width: A4_PORTRAIT_W,

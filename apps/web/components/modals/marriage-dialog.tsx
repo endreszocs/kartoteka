@@ -8,6 +8,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { saveMarriage, getNextEgyhaziSzam, getMemberBirthPlace } from '@/app/(dashboard)/anyakonyv/actions'
 import { MemberSearchSelect, type MemberSearchResult } from '@/components/registry/member-search-select'
+// 2026-08-25 (Endre): sikeres mentés után — ha a munkanapló-kapcsoló BE volt —
+// a munkanapló-rögzítő előtöltve nyílik meg (jelenlét, persely kiegészítéséhez).
+import { WorklogDialog } from '@/components/modals/worklog-dialog'
+import type { WorklogEntry } from '@/lib/constants/worklog'
 import { CertificateRenderer } from '@/components/registry/emleklap/certificate-renderer'
 import {
   EMLEKLAP_TEMPLATES_MAP,
@@ -76,6 +80,10 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
   const [vegyes, setVegyes] = useState(false)
   // 2026-06-12 (Endre #3-4 munkanapló): esketés → munkanapló pipa
   const [munkanaploba, setMunkanaploba] = useState(false)
+  // 2026-08-25: a mentés utáni munkanapló-rögzítő (a szerver-szinkron által
+  // már létrehozott munkanaplo sorral, szerkesztés módban — nincs duplikáció).
+  const [worklogOpen, setWorklogOpen] = useState(false)
+  const [worklogPrefill, setWorklogPrefill] = useState<WorklogEntry | null>(null)
   const [megj, setMegj] = useState('')
   const [gondnok, setGondnok] = useState('')
   // 2026-05-30: emléklap-specifikus mezők (a hazassag táblában nincs külön
@@ -170,7 +178,8 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
       }
       setGroom(null); setBride(null)
       setDatum(new Date().toISOString().slice(0, 10))
-      setHlevel(''); setLelkesz(''); setTanuk(''); setVegyes(false); setMunkanaploba(false); setMegj('')
+      // 2026-08-25 (Endre): új rögzítésnél a munkanapló-kapcsoló ALAPBÓL BE.
+      setHlevel(''); setLelkesz(''); setTanuk(''); setVegyes(false); setMunkanaploba(true); setMegj('')
       setHusbandBirthPlace(''); setWifeBirthPlace('')
       setVerseText(DEFAULT_VERSE_TEXT); setVerseReference(DEFAULT_VERSE_REFERENCE)
       try {
@@ -263,9 +272,11 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
     return out
   }, [template, groom, bride, datum, lelkesz, gondnok, congregationName, husbandBirthPlace, wifeBirthPlace, verseText, verseReference])
 
-  async function handleSubmit(): Promise<boolean> {
-    if (!groom || !bride) { toast.error('Mindkét fél kötelező!'); return false }
-    if (!datum) { toast.error('A dátum kötelező!'); return false }
+  // 2026-08-25: a mentés eredménye a munkanapló-előtöltést is hozza (ha a
+  // kapcsoló BE volt) — a hívó ezzel nyitja meg a munkanapló-rögzítőt.
+  async function handleSubmit(): Promise<{ ok: boolean; worklogEntry: WorklogEntry | null }> {
+    if (!groom || !bride) { toast.error('Mindkét fél kötelező!'); return { ok: false, worklogEntry: null } }
+    if (!datum) { toast.error('A dátum kötelező!'); return { ok: false, worklogEntry: null } }
     setLoading(true)
     const result = await saveMarriage({
       id: editEntry?.id,
@@ -285,16 +296,38 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
       verse_reference: verseReference || null,
     })
     setLoading(false)
-    if (result.error) { toast.error(result.error); return false }
+    if (result.error) { toast.error(result.error); return { ok: false, worklogEntry: null } }
     toast.success('Házasság rögzítve!')
     // 2026-08-01 (PR-18): dupla-tagsági figyelmeztetés az auto-család őrtől
     if ('warning' in result && result.warning) toast.warning(result.warning, { duration: 9000 })
-    return true
+    return {
+      ok: true,
+      worklogEntry: 'worklogEntry' in result && result.worklogEntry
+        ? (result.worklogEntry as WorklogEntry)
+        : null,
+    }
+  }
+
+  /**
+   * 2026-08-25 (Endre): sikeres mentés UTÁN a munkanapló-rögzítő megnyitása
+   * előtöltve (dátum + kanonikus jellege [Azonos/Vegyes esketés] + cím a
+   * szerver-szinkronból). CSAK ha a szolgálat még nincs felvéve: új
+   * rögzítésnél, vagy ha a kapcsoló most került BE-re. A kis késleltetés a
+   * dupla-modal ellen: előbb záródjon be az anyakönyvi dialógus.
+   */
+  function maybeOpenWorklog(entry: WorklogEntry | null) {
+    if (!entry) return
+    if (editEntry && editEntry.munkanaploba) return
+    setWorklogPrefill(entry)
+    toast.info('A szolgálat előtöltve a munkanaplóba — egészítsd ki a jelenléttel és a perselypénzzel, majd mentsd.', { duration: 6000 })
+    setTimeout(() => setWorklogOpen(true), 250)
   }
 
   async function handleSaveOnly() {
-    const ok = await handleSubmit()
-    if (ok) onOpenChange(false)
+    const res = await handleSubmit()
+    if (!res.ok) return
+    onOpenChange(false)
+    maybeOpenWorklog(res.worklogEntry)
   }
 
   async function handleSaveAndPrint() {
@@ -315,11 +348,14 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
         try { localStorage.setItem('kartoteka.emleklap.gondnokName', warden) } catch {}
       }
     }
-    const ok = await handleSubmit()
-    if (!ok) return
+    const res = await handleSubmit()
+    if (!res.ok) return
     setTimeout(() => {
       handlePrint()
-      setTimeout(() => onOpenChange(false), 500)
+      setTimeout(() => {
+        onOpenChange(false)
+        maybeOpenWorklog(res.worklogEntry)
+      }, 500)
     }, 50)
   }
 
@@ -345,6 +381,7 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-5xl lg:max-w-6xl xl:max-w-7xl max-h-[92dvh] overflow-y-auto">
         <DialogHeader>
@@ -478,11 +515,18 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
             </label>
             {/* 2026-06-12 (Endre #3-4 munkanapló): az esketésnél eddig hiányzott a
                 munkanapló-pipa — a keresztelő/temetés/konfirmáció dialógokkal
-                egységesen az esketés is rögzíthető elvégzett szolgálatként. */}
+                egységesen az esketés is rögzíthető elvégzett szolgálatként.
+                2026-08-25 (Endre): új rögzítésnél alapból BE, és mentés után
+                előtöltve nyílik a munkanapló-rögzítő. */}
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={munkanaploba} onChange={e => setMunkanaploba(e.target.checked)} />
-              Rögzítés a munkanaplóba
+              Megjelenjen a munkanaplóban?
             </label>
+            {munkanaploba && (
+              <p className="text-[11px] text-slate-500">
+                Mentés után megnyílik a munkanapló-rögzítő előtöltve — a jelenlét és a perselypénz azonnal kiegészíthető.
+              </p>
+            )}
           </div>
 
           {/* ─── JOBB: élő esketési emléklap ─── */}
@@ -541,5 +585,16 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
         </div>
       </DialogContent>
     </Dialog>
+
+    {/* 2026-08-25: mentés utáni munkanapló-rögzítő — a szerver-szinkron által
+        létrehozott bejegyzést nyitja szerkesztésre (dátum + kanonikus jellege
+        + cím előtöltve), a lelkész a jelenlétet/perselyt egészíti ki. */}
+    <WorklogDialog
+      open={worklogOpen}
+      onOpenChange={(o) => { setWorklogOpen(o); if (!o) setWorklogPrefill(null) }}
+      editEntry={worklogPrefill}
+      defaultCategory="szolgalat"
+    />
+    </>
   )
 }

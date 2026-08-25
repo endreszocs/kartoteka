@@ -8,6 +8,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { saveBurial, getNextEgyhaziSzam } from '@/app/(dashboard)/anyakonyv/actions'
 import { MemberSearchSelect, type MemberSearchResult } from '@/components/registry/member-search-select'
+// 2026-08-25 (Endre): sikeres mentés után — ha a munkanapló-kapcsoló BE volt —
+// a munkanapló-rögzítő előtöltve nyílik meg (jelenlét, persely kiegészítéséhez).
+import { WorklogDialog } from '@/components/modals/worklog-dialog'
+import type { WorklogEntry } from '@/lib/constants/worklog'
 import { CertificateRenderer } from '@/components/registry/emleklap/certificate-renderer'
 import {
   EMLEKLAP_TEMPLATES_MAP,
@@ -61,6 +65,10 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
   const [lelkesz, setLelkesz] = useState('')
   const [megj, setMegj] = useState('')
   const [munkanaploba, setMunkanaploba] = useState(false)
+  // 2026-08-25: a mentés utáni munkanapló-rögzítő (a szerver-szinkron által
+  // már létrehozott munkanaplo sorral, szerkesztés módban — nincs duplikáció).
+  const [worklogOpen, setWorklogOpen] = useState(false)
+  const [worklogPrefill, setWorklogPrefill] = useState<WorklogEntry | null>(null)
   // Gyászjelentés-specifikus mezők (in-place a vásznon is szerkeszthetők)
   const [funeralPlace, setFuneralPlace] = useState('')
   const [funeralTime, setFuneralTime] = useState('')
@@ -134,7 +142,8 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
       }
       setPerson(null)
       setHdatum(''); setTdatum(''); setHoka(''); setOkirat('')
-      setLelkesz(''); setMegj(''); setMunkanaploba(false)
+      // 2026-08-25 (Endre): új rögzítésnél a munkanapló-kapcsoló ALAPBÓL BE.
+      setLelkesz(''); setMegj(''); setMunkanaploba(true)
       setFuneralPlace(''); setFuneralTime('14:00')
       setVigilDate(''); setVigilTime(''); setVigilPlace('')
       // Alapértelmezett igevers — a Jób könyvéből (a gyászjelentés-sablon
@@ -198,9 +207,11 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
     return out
   }, [template, person, hdatum, tdatum, funeralPlace, funeralTime, vigilDate, vigilTime, vigilPlace, verseText, verseReference, relativeRelation, mourners])
 
-  async function handleSubmit(): Promise<boolean> {
-    if (!person) { toast.error('Válasszon személyt!'); return false }
-    if (!hdatum || !tdatum) { toast.error('A halál és temetés dátuma kötelező!'); return false }
+  // 2026-08-25: a mentés eredménye a munkanapló-előtöltést is hozza (ha a
+  // kapcsoló BE volt) — a hívó ezzel nyitja meg a munkanapló-rögzítőt.
+  async function handleSubmit(): Promise<{ ok: boolean; worklogEntry: WorklogEntry | null }> {
+    if (!person) { toast.error('Válasszon személyt!'); return { ok: false, worklogEntry: null } }
+    if (!hdatum || !tdatum) { toast.error('A halál és temetés dátuma kötelező!'); return { ok: false, worklogEntry: null } }
     setLoading(true)
     const result = await saveBurial({
       id: editEntry?.id,
@@ -225,7 +236,7 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
       mourners: mourners || '', // üres string is OK — skip esetén üres sor jelenik meg
     })
     setLoading(false)
-    if (result.error) { toast.error(result.error); return false }
+    if (result.error) { toast.error(result.error); return { ok: false, worklogEntry: null } }
     // 2026-08-04 (PR-42): ha a tag „elhunyt" jelölése vagy a családi/háztartási
     // lezárás nem sikerült, azt eddig SEMMI nem mutatta — a lelkész azt hitte,
     // minden rendben. Most külön figyelmeztetés jelenik meg.
@@ -234,20 +245,45 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
     } else {
       toast.success('Temetés rögzítve! A tag státusza „elhunyt"-ra változott.', { duration: 4000 })
     }
-    return true
+    return {
+      ok: true,
+      worklogEntry: 'worklogEntry' in result && result.worklogEntry
+        ? (result.worklogEntry as WorklogEntry)
+        : null,
+    }
+  }
+
+  /**
+   * 2026-08-25 (Endre): sikeres mentés UTÁN a munkanapló-rögzítő megnyitása
+   * előtöltve (dátum + kanonikus jellege [F./N. temetés] + cím a
+   * szerver-szinkronból). CSAK ha a szolgálat még nincs felvéve: új
+   * rögzítésnél, vagy ha a kapcsoló most került BE-re. A kis késleltetés a
+   * dupla-modal ellen: előbb záródjon be az anyakönyvi dialógus.
+   */
+  function maybeOpenWorklog(entry: WorklogEntry | null) {
+    if (!entry) return
+    if (editEntry && editEntry.munkanaploba) return
+    setWorklogPrefill(entry)
+    toast.info('A szolgálat előtöltve a munkanaplóba — egészítsd ki a jelenléttel és a perselypénzzel, majd mentsd.', { duration: 6000 })
+    setTimeout(() => setWorklogOpen(true), 250)
   }
 
   async function handleSaveOnly() {
-    const ok = await handleSubmit()
-    if (ok) onOpenChange(false)
+    const res = await handleSubmit()
+    if (!res.ok) return
+    onOpenChange(false)
+    maybeOpenWorklog(res.worklogEntry)
   }
 
   async function handleSaveAndPrint() {
-    const ok = await handleSubmit()
-    if (!ok) return
+    const res = await handleSubmit()
+    if (!res.ok) return
     setTimeout(() => {
       handlePrint()
-      setTimeout(() => onOpenChange(false), 500)
+      setTimeout(() => {
+        onOpenChange(false)
+        maybeOpenWorklog(res.worklogEntry)
+      }, 500)
     }, 50)
   }
 
@@ -270,6 +306,7 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-5xl lg:max-w-6xl xl:max-w-7xl max-h-[92dvh] overflow-y-auto">
         <DialogHeader>
@@ -427,7 +464,14 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
             </div>
 
             <div className="space-y-1.5"><Label>Megjegyzés</Label><Input value={megj} onChange={e => setMegj(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={munkanaploba} onChange={e => setMunkanaploba(e.target.checked)} /> Rögzítés a munkanaplóba</label>
+            {/* 2026-08-25 (Endre): a kapcsoló új rögzítésnél alapból BE, és
+                mentés után előtöltve nyílik a munkanapló-rögzítő. */}
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={munkanaploba} onChange={e => setMunkanaploba(e.target.checked)} /> Megjelenjen a munkanaplóban?</label>
+            {munkanaploba && (
+              <p className="text-[11px] text-slate-500">
+                Mentés után megnyílik a munkanapló-rögzítő előtöltve — a jelenlét és a perselypénz azonnal kiegészíthető.
+              </p>
+            )}
             {/* 2026-05-30: a saveBurial 2026-05-02 óta automatikusan beállítja
                 a szemely.meghalt=true és member_status='elhunyt' mezőket. */}
             <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 p-2 rounded">
@@ -470,5 +514,16 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
         </div>
       </DialogContent>
     </Dialog>
+
+    {/* 2026-08-25: mentés utáni munkanapló-rögzítő — a szerver-szinkron által
+        létrehozott bejegyzést nyitja szerkesztésre (dátum + kanonikus jellege
+        + cím előtöltve), a lelkész a jelenlétet/perselyt egészíti ki. */}
+    <WorklogDialog
+      open={worklogOpen}
+      onOpenChange={(o) => { setWorklogOpen(o); if (!o) setWorklogPrefill(null) }}
+      editEntry={worklogPrefill}
+      defaultCategory="szolgalat"
+    />
+    </>
   )
 }

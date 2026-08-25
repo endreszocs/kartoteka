@@ -97,6 +97,21 @@ export const JELENTES_MEZOK: JelentesMezo[] = [
   { id: 'I.21', fejezet: 'I', label: 'Az egyházfenntartás személyenkénti éves meghatározott összege', tipus: 'szam', auto: false, egyseg: 'RON' },
   { id: 'I.22', fejezet: 'I', label: 'Más településen élő egyháztagok száma', tipus: 'szam', auto: false, egyseg: 'fő' },
   { id: 'I.23', fejezet: 'I', label: 'Más gyülekezetben is tagságot vállaló egyháztagok száma', tipus: 'szam', auto: false, egyseg: 'fő' },
+  // 2026-08-25 (jelentés-UX kör): ÚJ, append-only AUTO kor-mutatók a nyomtatvány
+  // „Gyülekezetünk képe" összefoglalójához. Mindhárom a szemely.sz_datum-ból
+  // számol, KIZÁRÓLAG az aktív tagokra (a kanonikus aktivTagSzuro szűrővel), a
+  // tárgyév dec. 31-i korral (kor = tárgyév − születési év — dec. 31-én az évi
+  // születésnap már mindenkinél elmúlt). A sz_datum nélküli (vagy értelmetlen
+  // dátumú) tagok a számításból KIMARADNAK; ha az aktív tagok több mint 20%-a
+  // ilyen, az aggregátor autoHibak-üzenetben jelzi. Lekérdezés-hibánál null —
+  // néma 0 hivatalos rubrikában TILOS (fail-closed).
+  // I.24 — a gyülekezet átlagéletkora, 1 tizedesre kerekítve.
+  { id: 'I.24', fejezet: 'I', label: 'A gyülekezet átlagéletkora (aktív tagok)', tipus: 'szam', auto: true, egyseg: 'év' },
+  // I.25 — vallásórás korú gyermekek: a 6–14 évesek (mindkét határ beleértve).
+  { id: 'I.25', fejezet: 'I', label: 'Vallásórás korú gyermekek (6–14 év)', tipus: 'szam', auto: true, egyseg: 'fő' },
+  // I.26 — IKE-korosztály: konfirmált ifjak + a konfirmáció utáni korosztály
+  // 25 éves korig, azaz a 15–25 évesek (mindkét határ beleértve).
+  { id: 'I.26', fejezet: 'I', label: 'IKE-korosztály (15–25 év)', tipus: 'szam', auto: true, egyseg: 'fő' },
 
   // ── II. Istentisztelet ───────────────────────────────────────────────────
   // Forrás: munkanapló évi sorai, típus→oszlop besorolás a hivatalos
@@ -329,6 +344,40 @@ export type JelentesJavaslatok = Record<string, JelentesJavaslat>
 export const MUNKANAPLO_JAVASLAT_MEZOK: ReadonlySet<string> = new Set(['III.17'])
 
 // ─────────────────────────────────────────────────────────────────────────
+// SZÁMOLT „EGYÜTT" MEZŐK a férfi/nő PÁROS KÉZI rubrikákhoz (2026-08-25)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// A betért/kitért/beköltözött/kiköltözött rubrikák „együtt" tagját (I.4c,
+// I.5c, I.6c, I.7c) NEM a lelkész írja be: a deriveAutoMezok számolja
+// (a + b, ha legalább az egyik ki van töltve; mindkettő üres → null), a
+// szerkesztő pedig számolt (nem gépelhető, de ceruzával FELÜLÍRHATÓ)
+// mezőként mutatja. A meglévő auto együtt-mezők (I.2c, I.3c) változatlanok.
+//
+// ⛔ A négy mező a katalógusban KÉZI MARAD (auto: false)! Az auto: true-ra
+//    állítás a saveLelkesziJelentes keziMezok-szűrőjén át NÉMÁN KIDOBNÁ a
+//    korábban kézzel mentett értékeket a kezi_adatok-ból (ugyanaz a
+//    hibaosztály, mint a MUNKANAPLO_JAVASLAT_MEZOK kommentjének 2. pontja).
+//
+// PRIORITÁS (a mezoErtek felulirasok > auto > kezi láncával kompatibilisen):
+//    felülírás > (régi) kézi érték > számolt (a + b).
+//  A deriveAutoMezok ezért CSAK akkor teszi a számolt értéket az auto
+//  rekordba, ha a kézi érték üres — így a régi (kézzel kitöltött) sorok és a
+//  RÉGI VÉGLEGESÍTETT snapshotok értéke betűre változatlan marad.
+//  A felülírásukat a saveLelkesziJelentes kulcs-szűrője külön engedi át
+//  (a felulirasok-szűrő alapból csak auto: true mezőt fogad).
+export const SZARMAZTATOTT_EGYUTT_PAROK: ReadonlyArray<{ c: string; a: string; b: string }> = [
+  { c: 'I.4c', a: 'I.4a', b: 'I.4b' },
+  { c: 'I.5c', a: 'I.5a', b: 'I.5b' },
+  { c: 'I.6c', a: 'I.6a', b: 'I.6b' },
+  { c: 'I.7c', a: 'I.7a', b: 'I.7b' },
+]
+
+/** A számolt „együtt" mezők id-készlete (gyors tagság-vizsgálathoz). */
+export const SZARMAZTATOTT_EGYUTT_MEZOK: ReadonlySet<string> = new Set(
+  SZARMAZTATOTT_EGYUTT_PAROK.map((p) => p.c),
+)
+
+// ─────────────────────────────────────────────────────────────────────────
 // HATÁRIDŐNAPLÓ-ALAPÚ JAVASLAT a IV. fejezet kézi rubrikáihoz (2026-08-25)
 // ─────────────────────────────────────────────────────────────────────────
 //
@@ -450,17 +499,24 @@ export function parseHuSzam(value: number | string | null | undefined): number |
 }
 
 /**
- * A számolt auto-mezők (I.8, I.9, VII.8) újraszámítása a felhasználó által
- * már beírt értékek figyelembevételével. ÚJ auto-rekordot ad vissza (a
- * bemeneteket nem módosítja), amelyben ez a három mező újraszámolt, minden
- * más auto-érték változatlan.
+ * A számolt auto-mezők (I.4c–I.7c, I.8, I.9, VII.8) újraszámítása a
+ * felhasználó által már beírt értékek figyelembevételével. ÚJ auto-rekordot
+ * ad vissza (a bemeneteket nem módosítja), amelyben ezek a mezők
+ * újraszámoltak, minden más auto-érték változatlan.
  *
  * Egy összetevő értéke — ertek(id): felulirasok[id] (ha nem üres) → kezi[id]
  * (ha nem üres) → auto[id], magyar szám-parse-szal (parseHuSzam); a nem-szám
  * érték null-nak számít.
+ *  - I.4c/I.5c/I.6c/I.7c (2026-08-25, jelentés-UX kör): a + b, ha legalább az
+ *    egyik ki van töltve; mindkettő üres → null. A számolt érték CSAK akkor
+ *    kerül az auto-rekordba, ha a kézi érték üres — így a mezoErtek
+ *    (felulirasok > auto > kezi) eredő prioritása: felülírás > kézi (régi
+ *    sorok/snapshotok!) > számolt. Részletek: SZARMAZTATOTT_EGYUTT_PAROK.
  *  - I.8   = ertek('I.2c') − ertek('I.3c') — null, ha bármelyik null;
  *  - I.9   = I.8 + n0('I.4c') + n0('I.6c') − n0('I.5c') − n0('I.7c'),
- *            ahol n0: null→0 — null, ha I.8 null;
+ *            ahol n0: null→0, és az együtt-komponensek UGYANAZT a feloldott
+ *            (felülírás > kézi > számolt) értéket kapják, amit a nyomtatvány
+ *            mutat — null, ha I.8 null;
  *  - VII.8 = round2(n0('VII.5') + ertek('VII.6') − ertek('VII.7')) — null,
  *            ha VII.6 vagy VII.7 null (a hiányzó előző évi maradvány 0).
  */
@@ -481,16 +537,38 @@ export function deriveAutoMezok(
   const n0 = (v: number | null): number => (v === null ? 0 : v)
   const round2 = (v: number): number => Math.round(v * 100) / 100
 
+  // I.4c–I.7c — számolt „együtt" mezők (a + b). A kézi értéket hordozó (régi)
+  // sorban a derivált érték NEM kerül az auto-rekordba (null marad), így a
+  // mezoErtek a kézi értékre esik vissza — a régi adat betűre változatlan.
+  const egyuttAuto: Record<string, number | null> = {}
+  const egyuttFeloldott: Record<string, number | null> = {}
+  for (const par of SZARMAZTATOTT_EGYUTT_PAROK) {
+    const a = ertek(par.a)
+    const b = ertek(par.b)
+    const szamolt = a === null && b === null ? null : n0(a) + n0(b)
+    const keziC = kezi[par.c]
+    const vanKezi = keziC !== undefined && keziC !== null && keziC !== ''
+    egyuttAuto[par.c] = vanKezi ? null : szamolt
+    // Az I.9 komponense UGYANAZT lássa, amit a nyomtatvány mutat:
+    // felülírás > kézi > számolt.
+    const kifejezett = parseHuSzam(nyersErtek(par.c))
+    egyuttFeloldott[par.c] = kifejezett !== null ? kifejezett : szamolt
+  }
+
   // I.8 — természetes szaporulat / apadás (keresztelt − temetett)
   const keresztelt = ertek('I.2c')
   const temetett = ertek('I.3c')
   const i8 = keresztelt === null || temetett === null ? null : keresztelt - temetett
 
-  // I.9 — általános szaporulat / apadás (a hiányzó kézi összetevők 0-nak számítanak)
+  // I.9 — általános szaporulat / apadás (a hiányzó összetevők 0-nak számítanak)
   const i9 =
     i8 === null
       ? null
-      : i8 + n0(ertek('I.4c')) + n0(ertek('I.6c')) - n0(ertek('I.5c')) - n0(ertek('I.7c'))
+      : i8 +
+        n0(egyuttFeloldott['I.4c']) +
+        n0(egyuttFeloldott['I.6c']) -
+        n0(egyuttFeloldott['I.5c']) -
+        n0(egyuttFeloldott['I.7c'])
 
   // VII.8 — zárszámadási egyenleg (a + b − c)
   const bevetel = ertek('VII.6')
@@ -498,5 +576,5 @@ export function deriveAutoMezok(
   const vii8 =
     bevetel === null || kiadas === null ? null : round2(n0(ertek('VII.5')) + bevetel - kiadas)
 
-  return { ...auto, 'I.8': i8, 'I.9': i9, 'VII.8': vii8 }
+  return { ...auto, ...egyuttAuto, 'I.8': i8, 'I.9': i9, 'VII.8': vii8 }
 }

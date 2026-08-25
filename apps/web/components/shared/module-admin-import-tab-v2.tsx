@@ -1,14 +1,16 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   Building2,
+  Check,
   CheckCircle2,
   FileSpreadsheet,
   LockKeyhole,
   ShieldAlert,
   ShieldCheck,
   Upload,
+  X,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
@@ -61,6 +63,19 @@ function getExtension(fileName: string) {
   return parts.length > 1 ? `.${parts.pop()}` : ''
 }
 
+/** A kiválasztott fájl mérete emberi formában (magyar tizedesvesszővel). */
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`
+}
+
+/**
+ * 2026-08-25 (leltár-import UX): számozott lépés-sor, hogy első ránézésre
+ * látsszon, HOL tart a folyamat és HOVA kell feltölteni a fájlt.
+ */
+const IMPORT_STEPS = ['Fájl kiválasztása', 'Ellenőrzés', 'Importálás'] as const
+
 function downloadTemplate(moduleLabel: string, profile: ModuleImportProfile) {
   const rows = [
     profile.columns.join(';'),
@@ -104,6 +119,10 @@ export function ModuleAdminImportTabV2({
   const router = useRouter()
   const [selectedProfile, setSelectedProfile] = useState(profiles[0]?.value ?? '')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  // 2026-08-25 (leltár-import UX): drag-and-drop kiemelés az ejtőzónán.
+  const [dragActive, setDragActive] = useState(false)
+  // A „Tovább az importálásra" gomb ide görget (csak multi-sheet moduloknál).
+  const multiSheetRef = useRef<HTMLDivElement | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [pin, setPin] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -125,6 +144,10 @@ export function ModuleAdminImportTabV2({
   const supported = ['.xlsx', '.xls', '.csv'].includes(extension)
   const ready = canImport && !!selectedFile && supported
   const remainingLabel = formatRemaining(delegatedExpiresAt)
+  // Van-e tényleges feldolgozó (multi-sheet importáló) a lap alján?
+  const hasProcessor = !!(importProfiles && importModule)
+  // Hol tart a folyamat? 1 = még nincs fájl, 2 = az ellenőrzés bukott, 3 = importra kész.
+  const currentStep: 1 | 2 | 3 = !selectedFile ? 1 : supported ? 3 : 2
 
   // ── Admin import-hub mód ─────────────────────────────────────────────
   // Ha explicit cél-gyülekezetet kaptunk, a komponens letisztult „hub" nézetet ad:
@@ -304,6 +327,42 @@ export function ModuleAdminImportTabV2({
         </div>
       </div>
 
+      {/* ── Számozott lépés-sor: hol tartasz a folyamatban? ──────────── */}
+      <ol
+        aria-label="Az import lépései"
+        className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[1.4rem] border border-border bg-card px-4 py-3 sm:px-5"
+      >
+        {IMPORT_STEPS.map((step, index) => {
+          const stepNo = index + 1
+          const done = currentStep > stepNo
+          const active = currentStep === stepNo
+          return (
+            <li key={step} className="flex items-center gap-2">
+              {index > 0 && <span className="hidden h-px w-6 bg-border sm:block" aria-hidden />}
+              <span
+                className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                  done
+                    ? 'bg-emerald-500 text-white dark:bg-emerald-600'
+                    : active
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-muted-foreground'
+                }`}
+                aria-hidden
+              >
+                {done ? <Check className="size-3.5" /> : stepNo}
+              </span>
+              <span
+                className={`text-xs font-semibold sm:text-sm ${
+                  active ? 'text-foreground' : 'text-muted-foreground'
+                }`}
+              >
+                {step}
+              </span>
+            </li>
+          )
+        })}
+      </ol>
+
       <div className="grid gap-4 xl:grid-cols-[1.02fr_1.18fr]">
         <div className="card-raised p-5">
           <h4 className="text-sm font-semibold text-slate-800">Importprofil választása</h4>
@@ -358,24 +417,164 @@ export function ModuleAdminImportTabV2({
                 <p className="mt-1 text-sm text-slate-500">Az import mindig az aktuális munkameneti gyülekezethez kötődik.</p>
               </div>
 
+              {/* ── EJTŐZÓNA (2026-08-25, leltár-import UX): nagy, jól látható
+                     felület — ide kell feltölteni a fájlt. Drag-and-drop +
+                     kattintásra tallózás; a feldolgozó logika változatlan. ── */}
               <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Excel vagy CSV fájl</label>
-                <label className="flex h-12 cursor-pointer items-center justify-between rounded-[1.2rem] border border-dashed border-slate-300 bg-white/85 px-4 text-sm text-slate-600 transition hover:border-red-300 hover:bg-red-50/40">
-                  <span className="truncate pr-3">
-                    {selectedFile ? selectedFile.name : 'Válassz .xlsx, .xls vagy .csv fájlt'}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
-                    <Upload className="size-3.5" />
-                    Tallózás
-                  </span>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Excel vagy CSV fájl
+                </p>
+                <label
+                  onDragOver={(event) => {
+                    event.preventDefault()
+                    if (canImport) setDragActive(true)
+                  }}
+                  onDragEnter={(event) => {
+                    event.preventDefault()
+                    if (canImport) setDragActive(true)
+                  }}
+                  onDragLeave={() => setDragActive(false)}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    setDragActive(false)
+                    if (!canImport) return
+                    const file = event.dataTransfer.files?.[0]
+                    if (file) setSelectedFile(file)
+                  }}
+                  className={`flex min-h-44 flex-col items-center justify-center gap-3 rounded-[1.4rem] border-2 border-dashed p-6 text-center transition focus-within:ring-2 focus-within:ring-primary/40 sm:p-8 ${
+                    !canImport
+                      ? 'cursor-not-allowed border-border bg-muted/40 opacity-70'
+                      : dragActive
+                        ? 'cursor-pointer border-primary bg-primary/10 ring-2 ring-primary/30'
+                        : selectedFile && !supported
+                          ? 'cursor-pointer border-red-300 bg-red-50/60 hover:border-red-400 dark:border-red-900/60 dark:bg-red-950/30'
+                          : selectedFile
+                            ? 'cursor-pointer border-emerald-300 bg-emerald-50/50 hover:border-emerald-400 dark:border-emerald-900/60 dark:bg-emerald-950/20'
+                            : 'cursor-pointer border-primary/40 bg-primary/5 hover:border-primary/70 hover:bg-primary/10'
+                  }`}
+                >
                   <input
                     type="file"
-                    className="hidden"
+                    className="sr-only"
                     accept=".xlsx,.xls,.csv"
                     disabled={!canImport}
-                    onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
+                    aria-label={`${moduleLabel} importfájl kiválasztása (.xlsx, .xls vagy .csv)`}
+                    onChange={(event) => {
+                      setSelectedFile(event.target.files?.[0] || null)
+                      // Ugyanazt a fájlt újraválasztva is jöjjön change-esemény.
+                      event.target.value = ''
+                    }}
                   />
+
+                  {!canImport ? (
+                    <>
+                      <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                        <LockKeyhole className="size-6" />
+                      </span>
+                      <span className="text-sm font-semibold text-foreground">
+                        Az importfelület még zárolva van
+                      </span>
+                      <span className="max-w-sm text-xs leading-relaxed text-muted-foreground">
+                        Előbb engedélyezd a helyszíni delegált vagy a rendszergazdai importot —
+                        utána ide tölthető fel a fájl.
+                      </span>
+                    </>
+                  ) : selectedFile ? (
+                    <>
+                      <span
+                        className={`flex size-12 items-center justify-center rounded-full ${
+                          supported
+                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                            : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                        }`}
+                      >
+                        <FileSpreadsheet className="size-6" />
+                      </span>
+                      <span className="max-w-full break-all text-sm font-semibold text-foreground">
+                        {selectedFile.name}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {formatFileSize(selectedFile.size)}
+                      </span>
+                      <span className="flex flex-wrap items-center justify-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">
+                          <Upload className="size-3.5" />
+                          Másik fájl választása
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            // Ne nyíljon meg a fájlböngésző a törléskor.
+                            event.preventDefault()
+                            event.stopPropagation()
+                            setSelectedFile(null)
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                        >
+                          <X className="size-3.5" />
+                          Eltávolítás
+                        </button>
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                        <Upload className="size-6" />
+                      </span>
+                      <span className="text-sm font-semibold text-foreground">
+                        Húzd ide a(z) {moduleLabel.toLowerCase()}-fájlt, vagy kattints a tallózáshoz
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        Elfogadott formátumok: <strong>.xlsx</strong>, <strong>.xls</strong>,{' '}
+                        <strong>.csv</strong>
+                      </span>
+                      <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground">
+                        <Upload className="size-3.5" />
+                        Tallózás
+                      </span>
+                    </>
+                  )}
                 </label>
+
+                {/* Jól látható magyar hibaüzenet rossz formátumnál */}
+                {canImport && selectedFile && !supported && (
+                  <div
+                    role="alert"
+                    className="flex items-start gap-2 rounded-[1.2rem] border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
+                  >
+                    <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+                    <p>
+                      Nem támogatott fájlformátum
+                      {extension ? <> („<strong>{extension}</strong>”)</> : null}. Elfogadott:
+                      .xlsx, .xls vagy .csv — válassz másik fájlt.
+                    </p>
+                  </div>
+                )}
+
+                {/* Kiemelt továbblépés, ha a fájl megfelelt */}
+                {ready && (
+                  <div className="flex flex-col gap-3 rounded-[1.2rem] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-2">
+                      <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+                      <p>
+                        {hasProcessor
+                          ? 'A fájl megfelelt az ellenőrzésen — az importálás lent, az Excel-importálóban folytatódik.'
+                          : 'A fájl megfelelt az ellenőrzésen, és elő van készítve a következő importkörhöz.'}
+                      </p>
+                    </div>
+                    {hasProcessor && (
+                      <Button
+                        type="button"
+                        className="rounded-full"
+                        onClick={() =>
+                          multiSheetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                        }
+                      >
+                        Tovább az importálásra
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
@@ -436,12 +635,14 @@ export function ModuleAdminImportTabV2({
 
       {/* ── Multi-sheet Excel import ──────────────────────── */}
       {importProfiles && importModule && canImport && (
-        <MultiSheetImport
-          module={importModule}
-          profiles={importProfiles}
-          moduleLabel={moduleLabel}
-          canImport={canImport}
-        />
+        <div ref={multiSheetRef} className="scroll-mt-24">
+          <MultiSheetImport
+            module={importModule}
+            profiles={importProfiles}
+            moduleLabel={moduleLabel}
+            canImport={canImport}
+          />
+        </div>
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
