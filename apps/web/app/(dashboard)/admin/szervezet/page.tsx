@@ -16,14 +16,18 @@ import { SzervezetiFa } from '@/components/admin/szervezet/szervezeti-fa'
  * admin). A SZŰKÍTÉST a `getSzervezetiFa()` szerver-akció végzi, fail-closed —
  * a kerületi admin a saját kerülete fáját látja, beállítás-hiányok nélkül (K4).
  *
- * SQL NEM KELL: minden adat meglévő táblából és RPC-ből jön.
+ * SQL: az alap-fa meglévő táblákból és RPC-kből jön. A 2026-08-25-ös
+ * gyülekezeti-egységek réteg (típus-jelvény, anya–leány kötés, egységek,
+ * lelkész-nevek) a `gyulekezeti_hierarchia()` RPC-re épül — amíg a
+ * 2026-08-25-gyulekezeti-egysegek.sql migráció nem fut le, a fa e mezők
+ * nélkül működik, és ezt sávban jelzi (nem némán).
  */
 export default function Page() {
   return (
     <>
       <AdminPageHeader
         title="Szervezeti áttekintő"
-        description="Egyházkerület → egyházmegye → egyházközség egy képernyőn: hány egyházmegye, hány gyülekezet, hány tag és hány felhasználó tartozik az egyes szintekhez."
+        description="Egyházkerület → egyházmegye → egyházközség egy képernyőn: hány egyházmegye, hány gyülekezet, hány tag és hány felhasználó tartozik az egyes szintekhez — a gyülekezetek hivatalos szervezeti formája (anya, leány, missziói) és az anya–leány kapcsolatok is itt kezelhetők."
         icon={Network}
       />
       <div className="card-raised p-4 sm:p-5">

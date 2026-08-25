@@ -69,12 +69,16 @@ import {
   getScopedCongregationIdsResult,
   getScopedDioceseIdsResult,
 } from '@/lib/auth/admin-scope'
+import type { HierarchiaSor } from '@/lib/gyulekezet/egysegek-shared'
+import { isMissingRpcError } from '@/lib/profiles/officials'
 import {
   hianyzoKotelezoMezok,
   type FaEgyhazmegye,
+  type FaEgyseg,
   type FaGyulekezet,
   type FaKerulet,
   type FaSzerepJelveny,
+  type FaSzervezetiTipus,
   type KotelezoMezoForras,
   type SzervezetiFa,
 } from './szervezet-shared'
@@ -149,6 +153,40 @@ function szoveg(ertek: unknown): string | null {
   return typeof ertek === 'string' && ertek.trim() !== '' ? ertek : null
 }
 
+/**
+ * A `szervezeti_tipus` óvatos leképezése: csak az ismert értékkészlet megy
+ * tovább — ismeretlen érték úgy viselkedik, mintha nem tudnánk (undefined),
+ * nem „lefokozódik" anyává.
+ */
+function ervenyesSzervezetiTipus(ertek: unknown): FaSzervezetiTipus | undefined {
+  return ertek === 'anya' || ertek === 'leany' || ertek === 'misszioi' ? ertek : undefined
+}
+
+/**
+ * Az RPC `egysegek` jsonb-jének óvatos leképezése.
+ *
+ * ⚠️ A `letszam` kulcs HIÁNYA nem nulla: a `gyulekezeti_hierarchia()` a
+ *    megyei/kerület-nélküli hatókörnek el sem küldi a létszámot — ilyenkor
+ *    `null` marad, amit a felület „nem tudjuk"-ként ír ki.
+ */
+function egysegLista(ertek: unknown): FaEgyseg[] {
+  if (!Array.isArray(ertek)) return []
+  const ki: FaEgyseg[] = []
+  for (const e of ertek as Array<Record<string, unknown>>) {
+    if (!e || typeof e.id !== 'string' || typeof e.nev !== 'string') continue
+    const tipus = e.tipus === 'leany' || e.tipus === 'szorvany' ? e.tipus : null
+    if (!tipus) continue
+    ki.push({
+      id: e.id,
+      nev: e.nev,
+      tipus,
+      aktiv: e.aktiv !== false,
+      letszam: typeof e.letszam === 'number' && Number.isFinite(e.letszam) ? e.letszam : null,
+    })
+  }
+  return ki
+}
+
 // ---------------------------------------------------------------------------
 // A fa
 // ---------------------------------------------------------------------------
@@ -184,6 +222,11 @@ export async function getSzervezetiFa(): Promise<{ data?: SzervezetiFa; error?: 
           'Ez nem hiba a fában: a rendszer szándékosan nem mutat országos listát ' +
           'annak, akinek nincs beállított hatóköre. Kérd meg a fő rendszergazdát, ' +
           'hogy állítsa be az egyházkerületedet a Felhasználók oldalon.',
+        // Hatókör nélkül a hierarchiát MEG SEM kérdezzük — a migráció-sáv itt
+        // csak zaj lenne egy amúgy is üres képernyőn.
+        hierarchiaElerheto: false,
+        hierarchiaHiany: false,
+        hierarchiaUzenet: null,
         mertAt,
       },
     }
@@ -356,14 +399,69 @@ export async function getSzervezetiFa(): Promise<{ data?: SzervezetiFa; error?: 
     return { terkep, uzenet: null }
   }
 
-  const [keruletRes, megyeRes, gyulekezetRes, profilRes, szerepRes, tagszamRes] = await Promise.all([
-    keruletSorok(),
-    megyeSorok(),
-    gyulekezetSorok(),
-    profilSorok(),
-    szerepSorok(),
-    tagszamTerkep(),
-  ])
+  /**
+   * GYÜLEKEZETI HIERARCHIA (2026-08-25) — szervezeti típus, anya–leány kötés,
+   * lelkész-nevek és egységek a `gyulekezeti_hierarchia()` RPC-ből. Az RPC maga
+   * hatókör-szűrt (SECURITY DEFINER, fail-closed), és itt csak a fa MÁR
+   * hatókör-szűrt gyülekezeteihez FÉSÜLJÜK hozzá — a térkép többlet-sora
+   * (ha lenne) sosem kerül a kimenetbe.
+   *
+   * ⚠️ HÁROM KIMENET, ÉS EGYIK SEM NÉMA:
+   *   · lefutott        → terkep (congregation_id → sor),
+   *   · az RPC HIÁNYZIK → hiany: true + magyar teendő (migráció-futtatás); a fa
+   *     a többi adattal változatlanul működik, a felület sávban jelzi a hiányt,
+   *   · az RPC HIBÁZOTT → hiany: false + a hibaüzenet továbbadva — szintén
+   *     jelzett: a némán eltűnő típus-jelvény „minden gyülekezet önálló anya"
+   *     látszatot keltene.
+   */
+  async function hierarchiaTerkep(): Promise<{
+    terkep: Map<string, HierarchiaSor> | null
+    hiany: boolean
+    uzenet: string | null
+  }> {
+    const { data, error } = await supabase.rpc('gyulekezeti_hierarchia')
+    if (error) {
+      if (isMissingRpcError(error, 'gyulekezeti_hierarchia')) {
+        return {
+          terkep: null,
+          hiany: true,
+          uzenet:
+            'A szervezeti típusok (anya–leány–missziói) és a gyülekezeti egységek még nem ' +
+            'elérhetők. Futtassa le a 2026-08-25-gyulekezeti-egysegek.sql migrációt ' +
+            '(migration-docs/sql/) — a fa addig is működik, csak ezek a mezők hiányoznak.',
+        }
+      }
+      return {
+        terkep: null,
+        hiany: false,
+        uzenet: `A gyülekezeti hierarchia lekérdezése hibát adott: ${error.message}`,
+      }
+    }
+    if (!Array.isArray(data)) {
+      return {
+        terkep: null,
+        hiany: false,
+        uzenet:
+          'A gyülekezeti hierarchia lekérdezése nem adott sorokat (ismeretlen válasz-formátum).',
+      }
+    }
+    const terkep = new Map<string, HierarchiaSor>()
+    for (const sor of data as HierarchiaSor[]) {
+      if (sor && typeof sor.congregation_id === 'string') terkep.set(sor.congregation_id, sor)
+    }
+    return { terkep, hiany: false, uzenet: null }
+  }
+
+  const [keruletRes, megyeRes, gyulekezetRes, profilRes, szerepRes, tagszamRes, hierarchiaRes] =
+    await Promise.all([
+      keruletSorok(),
+      megyeSorok(),
+      gyulekezetSorok(),
+      profilSorok(),
+      szerepSorok(),
+      tagszamTerkep(),
+      hierarchiaTerkep(),
+    ])
 
   if (keruletRes.hiba) return { error: `Egyházkerületek hibája: ${keruletRes.hiba}` }
   if (megyeRes.hiba) return { error: `Egyházmegyék hibája: ${megyeRes.hiba}` }
@@ -418,6 +516,10 @@ export async function getSzervezetiFa(): Promise<{ data?: SzervezetiFa; error?: 
     const szerepek = [...(szerepekByCong.get(id)?.values() ?? [])].sort(
       (a, b) => b.darab - a.darab || a.role.localeCompare(b.role, 'hu'),
     )
+    // Hierarchia-összefésülés congregation_id szerint. Ha a térkép nincs meg
+    // (migráció-hiány / RPC-hiba), a mezők HIÁNYOZNAK (undefined) — a felület a
+    // `hierarchiaUzenet` sávból tudja, miért.
+    const hier = hierarchiaRes.terkep?.get(id)
 
     const sor: FaGyulekezet = {
       id,
@@ -435,6 +537,14 @@ export async function getSzervezetiFa(): Promise<{ data?: SzervezetiFa; error?: 
       hianyzoMezok: rendszergazda
         ? hianyzoKotelezoMezok(c as unknown as KotelezoMezoForras)
         : null,
+      ...(hier
+        ? {
+            szervezetiTipus: ervenyesSzervezetiTipus(hier.szervezeti_tipus),
+            anyaId: szoveg(hier.anya_congregation_id),
+            lelkeszNevek: szoveg(hier.lelkesz_nevek),
+            egysegek: egysegLista(hier.egysegek),
+          }
+        : {}),
     }
     const lista = gyulekezetekByMegye.get(megyeKulcs) ?? []
     lista.push(sor)
@@ -541,6 +651,9 @@ export async function getSzervezetiFa(): Promise<{ data?: SzervezetiFa; error?: 
       rendszergazda,
       hatokorUres: false,
       hatokorUzenet: null,
+      hierarchiaElerheto: hierarchiaRes.terkep !== null,
+      hierarchiaHiany: hierarchiaRes.hiany,
+      hierarchiaUzenet: hierarchiaRes.uzenet,
       mertAt,
     },
   }

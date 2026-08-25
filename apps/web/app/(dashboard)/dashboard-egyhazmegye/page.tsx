@@ -19,6 +19,9 @@ import { formatEgyhazmegyeNev } from '@/lib/format/egyhazmegye-nev'
 import { getCongregationOverviewData } from './actions'
 import { getSubmissionMatrix } from './document-actions'
 import { checkDioceseSetupStatus } from './diocese-actions'
+// 2026-08-25: Szervezeti térkép (anya→leány + egységek + lelkészek) — az
+// adatforrás a gyulekezeti_hierarchia() RPC, az alapelv-konform úton.
+import { getSzervezetTerkep } from './szervezet-terkep-actions'
 import { getDioceseAnnualReports } from '@/app/(dashboard)/eves-jelentes/actions'
 import { listAssignments } from '@/app/(dashboard)/admin/profile-congregations-actions'
 // 2026-08-23 (kisebb rések, 3.): a megye VALÓDI szerepkör-listája. A szerver
@@ -142,6 +145,7 @@ export default async function EgyhazmegyeDashboardPage() {
     documentCenter,
     annualReportsRes,
     pendingAssignmentsRes,
+    szervezetTerkep,
   ] = await Promise.all([
     // 2026-08-15: a KÉPERNYŐN LÁTHATÓ egyházmegyét adjuk át kontextusként —
     // enélkül a lista rendszergazdánál szűretlenül az ORSZÁG összes
@@ -150,6 +154,9 @@ export default async function EgyhazmegyeDashboardPage() {
     getSubmissionMatrix('diocese'),
     getDioceseAnnualReports(annualReportYear),
     listAssignments({ status: 'pending' }),
+    // 2026-08-25: a szervezeti térkép — ugyanazzal a kontextus-megyével, mint
+    // az áttekintő (METSZET-szabály: a képernyő megyéjén túl sosem tágít).
+    getSzervezetTerkep(dioceseId),
   ])
 
   const annualReports = annualReportsRes.data || []
@@ -226,6 +233,7 @@ export default async function EgyhazmegyeDashboardPage() {
         annualReportYear={annualReportYear}
         canManageRoles={canManageRoles}
         canOverride={canOverride}
+        szervezetTerkep={szervezetTerkep}
       />
 
       {/* 2026-08-23 (kisebb rések, 3.): CSAK OLVASÓ szerepkör-lista annak, aki

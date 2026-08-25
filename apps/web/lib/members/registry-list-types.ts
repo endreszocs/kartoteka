@@ -83,6 +83,11 @@ export const memberListQuerySchema = z
     religion: z.string().trim().max(120).nullable().default(null),
     payment: z.union([z.literal('all'), z.enum(paymentStatuses)]).default('all'),
     contact: z.enum(['all', 'phone', 'email', 'both', 'missing']).default('all'),
+    /** 2026-08-25 (gyülekezeti egységek): '' = mind; 'kozpont' = anyaközpont
+     *  (egyseg_id NULL); különben a gyulekezeti_egysegek.id (uuid). A szűrés a
+     *  JS-oldali szűrőláncban fut; a cursorFingerprint része, így a szűrőváltás
+     *  a régi lapozó-kurzort automatikusan érvényteleníti. */
+    egyseg: z.string().trim().max(64).optional().default(''),
     sort: z.enum(MEMBER_SORTS).default('name'),
     direction: z.enum(['asc', 'desc']).default('asc'),
   })

@@ -26,6 +26,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
@@ -41,6 +42,7 @@ import {
   Send,
   ShieldAlert,
   Sparkles,
+  Table2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -65,6 +67,20 @@ import {
   type LelkesziJelentesData,
 } from '@/lib/lelkeszi-jelentes/types'
 import { buildLelkesziJelentesHtml } from '@/lib/lelkeszi-jelentes/print'
+// 2026-08-25 (gyülekezeti egységek): a „Gyülekezetenkénti bontás" panel —
+// cellakulcsok (egyseg:<id>:<mezoId>), a kiszámolt bontás típusa és a fekvő
+// nyomtatott melléklet építője.
+import {
+  ANYA_OSZLOP_ID,
+  ANYAKOZPONT_CIMKE,
+  BONTAS_MEZO_IDS,
+  BONTAS_NEM_OSSZEGZO_MEZOK,
+  EGYSEG_TIPUS_CIMKEK,
+  egysegMezoKulcs,
+  parseEgysegMezoKulcs,
+} from '@/lib/gyulekezet/egysegek-shared'
+import type { JelentesBontas } from '@/lib/lelkeszi-jelentes/worklog-auto'
+import { buildBontasMellekletHtml } from '@/lib/lelkeszi-jelentes/bontas-print'
 // 2026-08-15 (Endre 4. szakasz): EGYSÉGES véglegesítés-gomb a fejléc-sáv jobb
 // szélén — ugyanaz a komponens, mint a többi öt irat-típusnál. A meglévő
 // wizard-flow változatlan (skipConfirm: a wizard maga vezet végig és erősít meg).
@@ -138,7 +154,9 @@ const SHEET_OVERFLOW_PX = 1130
 
 type NezetMod = 'szerkeszto' | 'wizard'
 type WizardLepes = 'attekintes' | 'ellenorzes' | 'hatarozat' | 'megerosites' | 'kesz'
-type MobilNezet = 'szerkesztes' | 'elonezet'
+// 2026-08-25: + 'bontas' — a „Gyülekezetenkénti bontás" mobil-füle (csak
+// akkor jelenik meg, ha a szervernek van bontás-adata).
+type MobilNezet = 'szerkesztes' | 'elonezet' | 'bontas'
 
 /** A wizard-lépések felolvasható címei (fókusz-fejléc + aria-live bejelentés). */
 const WIZARD_LEPES_CIM: Record<WizardLepes, string> = {
@@ -183,6 +201,18 @@ function displayErtek(mezo: JelentesMezo, v: number | string | null | undefined)
 }
 
 /**
+ * 2026-08-25: bontás-kulcsnál (`egyseg:<id>:<mezoId>`) a mezoId katalógus-
+ * definíciója dönt a szám-parse-ról — a bontás minden mutatója szám-típusú,
+ * így a cellák számként (nem szövegként) mentődnek.
+ */
+function mezoDefinicio(id: string): JelentesMezo | undefined {
+  const direkt = MEZO_BY_ID.get(id)
+  if (direkt) return direkt
+  const p = parseEgysegMezoKulcs(id)
+  return p ? MEZO_BY_ID.get(p.mezoId) : undefined
+}
+
+/**
  * Szerkesztés közben nyers stringeket tárolunk — mentéskor normalizálunk:
  * üres érték kimarad, a szám-mezők parse-olt számmá válnak (hu vessző is jó),
  * a nem értelmezhető szöveg szövegként marad (a szerver-akció úgyis szűri).
@@ -197,7 +227,7 @@ function normalizeForSave(rec: Ertekek): Ertekek {
     }
     const s = String(v).trim()
     if (s === '') continue
-    const mezo = MEZO_BY_ID.get(id)
+    const mezo = mezoDefinicio(id)
     if (mezo?.tipus === 'szam') {
       // hu-számformátum ('12.345,67' és NBSP-s '12 345' is szám) — a nem
       // értelmezhető szöveg szövegként marad (a wizard külön figyelmeztet rá).
@@ -236,6 +266,11 @@ export function LelkesziJelentesDialog({
   // 2026-08-11 (6. kör): munkanapló-alapú javaslatok a KÉZI rubrikákhoz (III.17).
   // Véglegesített jelentésnél a szerver üresen hagyja — a snapshot a hiteles adat.
   const [javaslatok, setJavaslatok] = useState<JelentesJavaslatok>({})
+  // 2026-08-25 (gyülekezeti egységek): a „Gyülekezetenkénti bontás" adata —
+  // csak akkor van, ha a gyülekezetnek aktív egysége van (különben a panel
+  // meg sem jelenik). Véglegesített jelentésnél a snapshotból jön.
+  const [bontas, setBontas] = useState<JelentesBontas | null>(null)
+  const [bontasNyitva, setBontasNyitva] = useState(true)
 
   // Szerkesztő-állapot (nyers értékek — mentéskor normalizálunk)
   const [kezi, setKezi] = useState<Ertekek>({})
@@ -264,6 +299,8 @@ export function LelkesziJelentesDialog({
   const [submitting, setSubmitting] = useState(false)
   const [printing, setPrinting] = useState(false)
   const [sendingToPrinter, setSendingToPrinter] = useState(false)
+  // 2026-08-25: a „Gyülekezetenkénti kimutatás" fekvő mellékletének mentése.
+  const [printingBontas, setPrintingBontas] = useState(false)
 
   const readOnly = data?.statusz === 'veglegesitve'
 
@@ -289,6 +326,8 @@ export function LelkesziJelentesDialog({
       setFelulirasok({})
       setHatarozat({})
       setJavaslatok({})
+      setBontas(null)
+      setBontasNyitva(true)
       setDirty(false)
       setOverrideOpen(new Set())
       setOpenChapters(new Set(['I']))
@@ -314,6 +353,7 @@ export function LelkesziJelentesDialog({
           setFelulirasok({ ...res.data.felulirasok })
           setHatarozat({ ...res.data.hatarozat })
           setJavaslatok(res.javaslatok || {})
+          setBontas(res.bontas ?? null)
           setUnlockRequested(res.unlockRequested === true)
           // Beküldve-állapot a szerverről (korábban fixen false maradt)
           setSubmitted(Boolean(res.data.submission))
@@ -349,6 +389,7 @@ export function LelkesziJelentesDialog({
       setFelulirasok({ ...res.data.felulirasok })
       setHatarozat({ ...res.data.hatarozat })
       setJavaslatok(res.javaslatok || {})
+      setBontas(res.bontas ?? null)
       setUnlockRequested(res.unlockRequested === true)
       setSubmitted(Boolean(res.data.submission))
       setDirty(false)
@@ -379,6 +420,12 @@ export function LelkesziJelentesDialog({
     () => (previewData ? buildLelkesziJelentesHtml(previewData) : ''),
     [previewData],
   )
+
+  // 2026-08-25: ha a bontás megszűnik (pl. újratöltés után már nincs), a mobil
+  // „Bontás" fülről visszalépünk a szerkesztésre — ne maradjon üres nézet.
+  useEffect(() => {
+    if (!bontas && mobileView === 'bontas') setMobileView('szerkesztes')
+  }, [bontas, mobileView])
 
   // ── Fit-to-width előnézet (a worklog-print-dialog mintája) ──
   const previewRef = useRef<HTMLDivElement>(null)
@@ -579,6 +626,24 @@ export function LelkesziJelentesDialog({
     }
   }
 
+  /** 2026-08-25: „Gyülekezetenkénti kimutatás" — fekvő A4 melléklet PDF-be. */
+  async function handleBontasPdf() {
+    if (!currentData || !bontas) return
+    setPrintingBontas(true)
+    try {
+      await printToPdf(
+        buildBontasMellekletHtml(currentData, bontas, year),
+        `Gyulekezetenkenti_kimutatas_${year}.pdf`,
+        { orientation: 'landscape', margin: [0, 0], format: 'a4' },
+      )
+      toast.success('A gyülekezetenkénti kimutatás PDF elkészült.')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'A PDF mentése nem sikerült.')
+    } finally {
+      setPrintingBontas(false)
+    }
+  }
+
   async function handleDirectPrint() {
     if (!currentData) return
     setSendingToPrinter(true)
@@ -732,6 +797,260 @@ export function LelkesziJelentesDialog({
             </p>
           </div>
         )}
+      </div>
+    )
+  }
+
+  // ── Gyülekezetenkénti bontás (2026-08-25, gyülekezeti egységek) ──
+
+  /**
+   * Egy bontás-cella setter-e. A cella értéke a katalógus szerint AUTO
+   * mutatónál FELÜLÍRÁSKÉNT tárolódik (a saveLelkesziJelentes kulcs-szűrőjének
+   * autoMezok-lába engedi át), kézi mutatónál a kezi rekordba menne.
+   * ⛔ Ma a bontás mind a 14 mutatója auto-mező — a kezi-ág jövőbiztosítás:
+   * enélkül egy kézi katalógus-mutató cellája a mentés kulcs-szűrőjén NÉMÁN
+   * elveszne (pont az a hibaosztály, amit a szűrő véd).
+   */
+  function setBontasCella(oszlopId: string, mezoId: string, raw: string) {
+    const kulcs = egysegMezoKulcs(oszlopId, mezoId)
+    if (MEZO_BY_ID.get(mezoId)?.auto) setFelulirasErtek(kulcs, raw)
+    else setKeziErtek(kulcs, raw)
+  }
+
+  /**
+   * Egy bontás-cella feloldott nyers értéke — a fő jelentés prioritásával:
+   * felulirasok[kulcs] > bontas.auto[oszlop][mezoId] > kezi[kulcs].
+   */
+  function bontasCellaNyers(oszlopId: string, mezoId: string): number | string | null {
+    if (!bontas) return null
+    const kulcs = egysegMezoKulcs(oszlopId, mezoId)
+    const felul = felulirasok[kulcs]
+    if (felul !== undefined && felul !== null && felul !== '') return felul
+    const autoV = bontas.auto[oszlopId]?.[mezoId]
+    if (autoV !== undefined && autoV !== null) return autoV
+    const k = kezi[kulcs]
+    return k === undefined || k === null || k === '' ? null : k
+  }
+
+  /** Egy bontás-cella megjelenítése (a renderAutoMezo KOMPAKT változata). */
+  function renderBontasCella(oszlopId: string, mezoId: string) {
+    if (!bontas) return null
+    const kulcs = egysegMezoKulcs(oszlopId, mezoId)
+    const autoV = bontas.auto[oszlopId]?.[mezoId] ?? null
+    const felulV = felulirasok[kulcs]
+    const vanFeluliras = felulV !== undefined && felulV !== null && felulV !== ''
+    const nyers = bontasCellaNyers(oszlopId, mezoId)
+
+    // Véglegesített/beküldött jelentés: minden cella csak olvasható.
+    if (readOnly) {
+      return (
+        <span className={cn('tabular-nums', nyers === null && 'italic text-muted-foreground')}>
+          {nyers === null ? '—' : typeof nyers === 'number' ? fmtSzam(nyers) : String(nyers)}
+        </span>
+      )
+    }
+
+    // Nem levezethető cella (nincs auto érték): közvetlen beviteli mező.
+    // A tárolt érték felülírásban VAGY (régebbi mentésből) kézi kulcson ülhet.
+    if (autoV === null) {
+      const value = vanFeluliras
+        ? String(felulV)
+        : kezi[kulcs] === undefined || kezi[kulcs] === null
+          ? ''
+          : String(kezi[kulcs])
+      return (
+        <Input
+          value={value}
+          onChange={(e) => setBontasCella(oszlopId, mezoId, e.target.value)}
+          inputMode="decimal"
+          aria-label={`${mezoId} — kézi érték (${oszlopId === ANYA_OSZLOP_ID ? ANYAKOZPONT_CIMKE : 'egység'})`}
+          placeholder="—"
+          className="h-8 w-20 border-dashed text-right tabular-nums"
+        />
+      )
+    }
+
+    // Auto-alapú cella: readonly érték + ceruza-felülírás.
+    const overrideAktiv = vanFeluliras || overrideOpen.has(kulcs)
+    if (!overrideAktiv) {
+      return (
+        <span className="inline-flex items-center gap-0.5">
+          <span className="tabular-nums text-foreground">{fmtSzam(autoV)}</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-6"
+            aria-label={`${mezoId} felülírása ebben az oszlopban`}
+            title="Felülírás kézi értékkel"
+            onClick={() => startOverride(kulcs)}
+          >
+            <Pencil className="size-3" />
+          </Button>
+        </span>
+      )
+    }
+    return (
+      <span className="inline-flex items-center gap-0.5">
+        <Input
+          value={felulV === undefined || felulV === null ? '' : String(felulV)}
+          onChange={(e) => setBontasCella(oszlopId, mezoId, e.target.value)}
+          inputMode="decimal"
+          placeholder={fmtSzam(autoV)}
+          aria-label={`${mezoId} felülírt érték`}
+          className="h-8 w-20 border-amber-400/60 text-right tabular-nums"
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-6"
+          aria-label={`${mezoId} felülírás visszaállítása`}
+          title="Vissza az automatikus értékre"
+          onClick={() => resetOverride(kulcs)}
+        >
+          <RotateCcw className="size-3" />
+        </Button>
+      </span>
+    )
+  }
+
+  /**
+   * A bontás-panel tartalma (hibasáv + tábla + lábjegyzetek) — a bal oszlop
+   * akkordeonjában ÉS a mobil „Bontás" fülön UGYANEZ renderelődik.
+   * Mobile-first: a tábla vízszintesen görgethető, a mutató-oszlop ragadós.
+   */
+  function renderBontasTartalom() {
+    if (!bontas || !currentData) return null
+    const oszlopok: Array<{ id: string; nev: string; tipusCimke: string | null }> = [
+      { id: ANYA_OSZLOP_ID, nev: ANYAKOZPONT_CIMKE, tipusCimke: null },
+      ...bontas.egysegek.map((e) => ({
+        id: e.id,
+        nev: e.nev,
+        tipusCimke: EGYSEG_TIPUS_CIMKEK[e.tipus] || null,
+      })),
+    ]
+    return (
+      <div className="space-y-2.5">
+        {bontas.hibak.length > 0 && (
+          <div className="rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-2">
+            <ul className="space-y-1 text-xs leading-5 text-foreground">
+              {bontas.hibak.map((h, i) => (
+                <li key={i} className="flex items-start gap-1.5">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <span className="min-w-0">{h}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="overflow-x-auto rounded-xl border border-border">
+          <table className="w-full min-w-max border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-border">
+                <th
+                  scope="col"
+                  className="sticky left-0 z-10 bg-muted px-2.5 py-2 text-left font-semibold text-foreground"
+                >
+                  Mutató
+                </th>
+                {oszlopok.map((o) => (
+                  <th key={o.id} scope="col" className="bg-muted px-2.5 py-2 text-right font-semibold text-foreground">
+                    <span className="block max-w-[9rem] truncate" title={o.nev}>
+                      {o.nev}
+                    </span>
+                    {o.tipusCimke && (
+                      <span className="block text-[10px] font-normal text-muted-foreground">{o.tipusCimke}</span>
+                    )}
+                  </th>
+                ))}
+                <th scope="col" className="bg-muted px-2.5 py-2 text-right font-semibold text-foreground">
+                  Σ Összesen
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {BONTAS_MEZO_IDS.map((mezoId) => {
+                const mezo = MEZO_BY_ID.get(mezoId)
+                const foNyers = mezoErtek(currentData, mezoId)
+                const foSzam = parseHuSzam(foNyers)
+                // Σ-egyeztetés: a cellák összege (a null cellák kihagyásával).
+                // Az átlag-jellegű mutatóknál (BONTAS_NEM_OSSZEGZO_MEZOK — pl.
+                // II.1b) nincs összegzés, ott a Σ a fő jelentés értéke marad.
+                let osszeg: number | null = null
+                if (!BONTAS_NEM_OSSZEGZO_MEZOK.has(mezoId)) {
+                  let s = 0
+                  let vanCella = false
+                  for (const o of oszlopok) {
+                    const n = parseHuSzam(bontasCellaNyers(o.id, mezoId))
+                    if (n !== null) {
+                      s += n
+                      vanCella = true
+                    }
+                  }
+                  osszeg = vanCella ? Math.round(s * 100) / 100 : null
+                }
+                const elter = osszeg !== null && foSzam !== null && Math.abs(osszeg - foSzam) > 0.005
+                return (
+                  <tr key={mezoId} className="border-b border-border last:border-b-0">
+                    <th
+                      scope="row"
+                      className="sticky left-0 z-10 min-w-[10rem] max-w-[13rem] bg-card px-2.5 py-1.5 text-left align-middle text-xs font-normal"
+                    >
+                      <span className="tabular-nums font-semibold text-foreground">{mezoId}</span>{' '}
+                      <span className="text-muted-foreground">{mezo?.label || ''}</span>
+                      {mezo?.egyseg ? (
+                        <span className="text-muted-foreground/70"> ({mezo.egyseg})</span>
+                      ) : null}
+                      {elter && (
+                        <span
+                          className="ml-1 inline-flex align-middle"
+                          title={`A cellák összege (${fmtSzam(osszeg!)}) eltér a fő jelentés értékétől (${fmtSzam(foSzam!)}).${
+                            mezoId === 'VII.3'
+                              ? ' A VII.3-nál ez várható: a bontás a munkanapló persely-rovatából, a fő jelentés a befizetésekből számol.'
+                              : ''
+                          }`}
+                        >
+                          <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-400" />
+                        </span>
+                      )}
+                    </th>
+                    {oszlopok.map((o) => (
+                      <td key={o.id} className="px-2.5 py-1.5 text-right align-middle">
+                        {renderBontasCella(o.id, mezoId)}
+                      </td>
+                    ))}
+                    <td className="px-2.5 py-1.5 text-right align-middle font-semibold tabular-nums text-foreground">
+                      {foNyers === null || foNyers === ''
+                        ? '—'
+                        : typeof foNyers === 'number'
+                          ? fmtSzam(foNyers)
+                          : String(foNyers)}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="space-y-1 text-[11px] leading-4 text-muted-foreground">
+          <p>
+            Üres cella (—) = nincs levezethető adat az egységre — kézzel tölthető, soha nem néma 0. A Σ
+            oszlop a fő jelentés hivatalos (feloldott) értéke.
+          </p>
+          <p>
+            <strong className="text-foreground">VII.1</strong> — a járulék-bontás a befizető személy
+            egysége szerinti <em>javaslat</em> (család-szintű vagy egység nélküli befizetés: Anyaegyházközség
+            oszlop).
+          </p>
+          <p>
+            <strong className="text-foreground">VII.3</strong> — a persely-bontás a munkanapló
+            alkalom-soraiból számol; a fő jelentés VII.3-a a könyvelt befizetésekből — a kettő ismert módon
+            eltérhet, ezért ott a Σ-egyeztetés jelzése várható.
+          </p>
+        </div>
       </div>
     )
   }
@@ -1385,6 +1704,23 @@ export function LelkesziJelentesDialog({
                 <Eye className="size-4" />
                 Előnézet
               </button>
+              {/* 2026-08-25: harmadik fül — csak akkor, ha van bontás-adat. */}
+              {bontas && (
+                <button
+                  type="button"
+                  onClick={() => setMobileView('bontas')}
+                  aria-pressed={mobileView === 'bontas'}
+                  className={cn(
+                    'flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+                    mobileView === 'bontas'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  <Table2 className="size-4" />
+                  Bontás
+                </button>
+              )}
             </div>
 
             <div className="grid min-h-0 flex-1 gap-4 pb-3 lg:grid-cols-2">
@@ -1445,6 +1781,44 @@ export function LelkesziJelentesDialog({
                           zarolva={readOnly}
                           kompakt
                         />
+                      </div>
+                    )}
+                  </section>
+                )}
+
+                {/* 2026-08-25 (gyülekezeti egységek): „Gyülekezetenkénti bontás"
+                    akkordeon a fejezet-akkordeonok FELETT — csak akkor, ha a
+                    szerver bontás-adatot adott (van aktív egység). Mobilon a
+                    fülváltó külön „Bontás" füle mutatja ugyanezt a tartalmat. */}
+                {bontas && (
+                  <section className="rounded-2xl border border-border bg-card">
+                    <button
+                      type="button"
+                      onClick={() => setBontasNyitva((v) => !v)}
+                      aria-expanded={bontasNyitva}
+                      className="flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <span className="min-w-0 flex-1 font-heading text-sm text-foreground sm:text-base">
+                        Gyülekezetenkénti bontás
+                      </span>
+                      {bontas.hibak.length > 0 && (
+                        <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] tabular-nums text-amber-700 dark:text-amber-300">
+                          {bontas.hibak.length} jelzés
+                        </span>
+                      )}
+                      <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground">
+                        {bontas.egysegek.length + 1} oszlop
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          'size-4 shrink-0 text-muted-foreground transition-transform',
+                          bontasNyitva && 'rotate-180',
+                        )}
+                      />
+                    </button>
+                    {bontasNyitva && (
+                      <div className="border-t border-border px-3 py-3.5 sm:px-4">
+                        {renderBontasTartalom()}
                       </div>
                     )}
                   </section>
@@ -1525,6 +1899,24 @@ export function LelkesziJelentesDialog({
                   <div className="py-10 text-center text-sm text-muted-foreground">Előnézet készítése…</div>
                 )}
               </div>
+
+              {/* 2026-08-25: a bontás mobil-nézete (lg-től a bal oszlop
+                  akkordeonja mutatja ugyanezt) */}
+              {bontas && (
+                <div
+                  className={cn(
+                    'min-h-0 overflow-y-auto pb-2 lg:hidden',
+                    mobileView !== 'bontas' && 'hidden',
+                  )}
+                >
+                  <div className="rounded-2xl border border-border bg-card p-3">
+                    <h3 className="mb-2 font-heading text-sm text-foreground">
+                      Gyülekezetenkénti bontás
+                    </h3>
+                    {renderBontasTartalom()}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1550,6 +1942,18 @@ export function LelkesziJelentesDialog({
               {sendingToPrinter ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
               Nyomtatás
             </Button>
+            {/* 2026-08-25: fekvő A4 melléklet — csak ha van bontás-adat. */}
+            {bontas && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleBontasPdf()}
+                disabled={printingBontas || !currentData}
+              >
+                {printingBontas ? <Loader2 className="size-4 animate-spin" /> : <Table2 className="size-4" />}
+                Bontás nyomtatása (fekvő)
+              </Button>
+            )}
             <div className="ml-auto flex flex-wrap items-center gap-2">
               {dirty && !readOnly && (
                 <span className="text-xs text-muted-foreground">Nem mentett módosítások</span>

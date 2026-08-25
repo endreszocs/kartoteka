@@ -17,6 +17,7 @@ import {
   Inbox,
   Landmark,
   LayoutDashboard,
+  MapPinned,
   Network,
   Package,
   Receipt,
@@ -765,6 +766,16 @@ function SidebarNav({
     financeMenuItem,
     { label: 'Iratok archívuma', href: '/dashboard-kerulet/iratok', icon: Archive, gradient: 'from-emerald-400 to-teal-500' },
     { label: 'Összesítő', href: '/dashboard-kerulet/osszesito', icon: ClipboardList, gradient: 'from-teal-400 to-cyan-500' },
+    // 2026-08-25: a kerület SZERVEZETI TÉRKÉPE (anya→leány + egységek +
+    // lelkészek + összesített létszám, egyházmegyénként) — a
+    // gyulekezeti_hierarchia() RPC-ből, K4-konform (a kerület csak aggregált
+    // darabszámot lát). A szabály itt is áll: menüpont CSAK megépült célponthoz
+    // — a /dashboard-kerulet/szervezet ebben a szeletben készült el.
+    //
+    // ⚠️ IKON: NEM Network — azt a lentebbi, admin-feltételes „Szervezeti fa"
+    // viseli, és összecsukott oldalsávban CSAK az ikon látszik (a
+    // Felterjesztések/Archive tanulsága, lásd a fenti 2026-08-17-es blokkot).
+    { label: 'Szervezeti térkép', href: '/dashboard-kerulet/szervezet', icon: MapPinned, gradient: 'from-fuchsia-400 to-purple-500' },
     // 2026-08-22 (7. pont, D8 döntés): a kerületi admin is lássa a SAJÁT
     // kerülete szervezeti fáját — szűkített tartalommal. A hatókör-szűrést és a
     // K4-konform elhagyásokat a `getSzervezetiFa()` végzi, fail-closed; ide

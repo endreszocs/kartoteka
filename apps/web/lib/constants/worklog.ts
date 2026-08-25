@@ -159,6 +159,10 @@ export interface WorklogEntry {
   napszak?: 'de' | 'du' | 'este' | 'de2' | 'du2' | null
   uv_templomban?: number | null
   uv_betegnel?: number | null
+  // 2026-08-25 (gyülekezeti egységek): az alkalom helyszíne — a
+  // gyulekezeti_egysegek tábla sorára mutat; NULL/hiányzó = anyaközpont.
+  // A 2026-08-25-gyulekezeti-egysegek.sql migráció előtt az oszlop nem létezik.
+  egyseg_id?: string | null
   deleted: boolean
   congregation_id: string | null
 }

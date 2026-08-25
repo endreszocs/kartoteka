@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import dynamic from 'next/dynamic'
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
 import { MemberAvatar, CalvinSpinner } from '@kartoteka/ui-app'
 import {
@@ -15,6 +16,7 @@ import {
   ArrowUp,
   ArrowUpDown,
   BriefcaseBusiness,
+  Building2,
   Cake,
   CheckCircle2,
   Download,
@@ -70,9 +72,21 @@ import { ageFromDate, currentRegistryMonth, monthFromIsoDate } from '@/lib/utils
 import { formatNameWithPrefix, isActiveMember } from '@/lib/utils/member-helpers'
 import { cn } from '@/lib/utils'
 
+// 2026-08-25 (gyülekezeti egységek): egység-szűrő + tömeges besorolás + jelvény.
+// Az egység-lista hibájánál (pl. a migráció még nem futott le) minden
+// egység-felület egyszerűen ELTŰNIK — hiba nélkül.
+import { listGyulekezetiEgysegek } from '@/app/(dashboard)/congregation/egysegek-actions'
+import type { GyulekezetiEgyseg } from '@/lib/gyulekezet/egysegek-shared'
+
 import { MemberStatusBadge } from './member-status-badge'
 import { useCrossCongregationNotifications } from './use-cross-congregation-notifications'
 import { useDebouncedValue } from './use-debounced-value'
+
+// A tömeges besoroló dialógus csak gombnyomásra kell — lazy betöltés.
+const EgysegBesorolasDialog = dynamic(
+  () => import('./egyseg-besorolas-dialog').then((mod) => mod.EgysegBesorolasDialog),
+  { ssr: false },
+)
 
 interface PersonsTabProps {
   initialPage: MemberListPage
@@ -92,6 +106,8 @@ interface PersonFilters {
   religion: string
   payment: PaymentFilter
   contact: MemberContactFilter
+  /** 2026-08-25: '' = mind; 'kozpont' = anyaközpont; különben egység-uuid. */
+  egyseg: string
 }
 
 type ActiveFilterKey = keyof PersonFilters | 'age'
@@ -114,6 +130,7 @@ const DEFAULT_FILTERS: PersonFilters = {
   religion: '',
   payment: 'all',
   contact: 'all',
+  egyseg: '',
 }
 
 const EMPTY_FILTERS: PersonFilters = {
@@ -147,7 +164,7 @@ function formatAddress(member: MemberListItem): string {
   return [locality, streetLine].filter(Boolean).join(', ')
 }
 
-function createFilterChips(filters: PersonFilters): ActiveFilterChip[] {
+function createFilterChips(filters: PersonFilters, egysegek: GyulekezetiEgyseg[] = []): ActiveFilterChip[] {
   const chips: ActiveFilterChip[] = []
   const status = MEMBER_STATUS_FILTERS.find((item) => item.value === filters.status)
   if (filters.status !== 'mind' && status) chips.push({ key: 'status', label: status.label })
@@ -192,6 +209,14 @@ function createFilterChips(filters: PersonFilters): ActiveFilterChip[] {
     missing: 'Nincs elérhetőség',
   }
   if (filters.contact !== 'all') chips.push({ key: 'contact', label: contactLabels[filters.contact] })
+
+  // 2026-08-25 (gyülekezeti egységek): egység-szűrő chip.
+  if (filters.egyseg) {
+    const egysegNev = filters.egyseg === 'kozpont'
+      ? 'Anyaegyházközség (központ)'
+      : egysegek.find((egyseg) => egyseg.id === filters.egyseg)?.nev ?? 'Kiválasztott egység'
+    chips.push({ key: 'egyseg', label: `Egység: ${egysegNev}` })
+  }
 
   return chips
 }
@@ -312,6 +337,25 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
   const [familyOpen, setFamilyOpen] = useState(false)
   const [familyDetailsId, setFamilyDetailsId] = useState<number | null>(null)
 
+  // 2026-08-25 (gyülekezeti egységek): az aktív egységek listája. Hibánál
+  // (pl. a migráció még nem futott le) üres marad, és az egység-szűrő, a
+  // tömeges besorolás gombja és a jelvények egyszerűen nem jelennek meg.
+  const [egysegek, setEgysegek] = useState<GyulekezetiEgyseg[]>([])
+  const [egysegBesorolasOpen, setEgysegBesorolasOpen] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    listGyulekezetiEgysegek()
+      .then((res) => { if (!cancelled) setEgysegek(res.egysegek ?? []) })
+      .catch(() => { /* az egység-felületek rejtve maradnak */ })
+    return () => { cancelled = true }
+  }, [])
+
+  const egysegNevById = useMemo(
+    () => new Map(egysegek.map((egyseg) => [egyseg.id, egyseg.nev])),
+    [egysegek],
+  )
+
   const serverSearch = deferredSearchQuery.trim()
   const serverQuery = useMemo<MemberListQuery>(() => ({
     pageSize: PAGE_SIZE,
@@ -326,6 +370,7 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
     religion: filters.religion || null,
     payment: filters.payment,
     contact: filters.contact,
+    egyseg: filters.egyseg,
     sort: sortCol,
     direction: sortDir,
   }), [filters, registryMonth, serverSearch, sortCol, sortDir])
@@ -342,6 +387,7 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
     && filters.religion === DEFAULT_FILTERS.religion
     && filters.payment === DEFAULT_FILTERS.payment
     && filters.contact === DEFAULT_FILTERS.contact
+    && filters.egyseg === DEFAULT_FILTERS.egyseg
 
   const everPaidSet = useMemo(() => {
     const result = new Set<number>()
@@ -363,7 +409,7 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
   const isSearchPending = searchQuery.trim() !== deferredSearchQuery
   const visibleMembers = members
   const hasMore = !isLoading && pageState.hasMore && Boolean(pageState.nextCursor)
-  const activeFilterChips = createFilterChips(filters)
+  const activeFilterChips = createFilterChips(filters, egysegek)
   const localityOptions = filterOptions?.localities ?? []
   const religionOptions = filterOptions?.religions ?? []
   const statusOptions = filterOptions?.statuses.length ? filterOptions.statuses : MEMBER_STATUS_FILTERS
@@ -371,7 +417,7 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
   const familyOptions = filterOptions?.families.length ? filterOptions.families : FALLBACK_FAMILY_OPTIONS
   const contactOptions = filterOptions?.contacts.length ? filterOptions.contacts : FALLBACK_CONTACT_OPTIONS
   const paymentOptions = filterOptions?.paymentStatuses.length ? filterOptions.paymentStatuses : PAYMENT_OPTIONS
-  const draftFilterCount = createFilterChips(draftFilters).length
+  const draftFilterCount = createFilterChips(draftFilters, egysegek).length
   const draftAgeError = getAgeFilterError(draftFilters)
 
   const fetchFirstPage = useCallback(async ({ preserveMembers = false } = {}) => {
@@ -563,6 +609,8 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
           return { ...current, payment: 'all' }
         case 'contact':
           return { ...current, contact: 'all' }
+        case 'egyseg':
+          return { ...current, egyseg: '' }
       }
     })
   }
@@ -753,6 +801,18 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                 <span className="hidden sm:inline"> · {pageState.totalCount} személyből</span>
                 {isSearchPending && <span className="ml-2 text-primary">Keresés…</span>}
               </p>
+              {/* 2026-08-25 (gyülekezeti egységek): tömeges besorolás — csak ha van egység. */}
+              {egysegek.length > 0 && (
+                <Button
+                  variant="outline"
+                  className="h-11 gap-2 rounded-xl bg-background/70"
+                  onClick={() => setEgysegBesorolasOpen(true)}
+                  title="Tagok tömeges besorolása gyülekezeti egységbe település szerint"
+                >
+                  <Building2 className="size-4" />
+                  <span className="hidden lg:inline">Egység-besorolás</span>
+                </Button>
+              )}
               <Button
                 variant="outline"
                 className="h-11 gap-2 rounded-xl bg-background/70"
@@ -891,6 +951,7 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                 registryMonth={registryMonth}
                 active={isActiveMember(member, everPaidSet, everPaidSet)}
                 crossMatched={crossMatchedIds.has(member.id)}
+                egysegNev={member.egyseg_id ? egysegNevById.get(member.egyseg_id) ?? null : null}
                 onOpen={() => openDetails(member)}
                 onRemove={() => openRemove(member)}
                 onOpenFamily={openFamilyFromList}
@@ -919,6 +980,8 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                   const active = isActiveMember(member, everPaidSet, everPaidSet)
                   const birthday = isBirthdayInMonth(member, registryMonth)
                   const familyId = member.familyId
+                  // 2026-08-25: egység-jelvény — csak feloldott (aktív) egységnél.
+                  const egysegNev = member.egyseg_id ? egysegNevById.get(member.egyseg_id) ?? null : null
 
                   return (
                     <tr
@@ -950,6 +1013,14 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                               {age !== null && <span>{age} éves</span>}
                               {member.telefon && <span className="truncate">{member.telefon}</span>}
                               {address && <span className="truncate lg:hidden">{address}</span>}
+                              {egysegNev && (
+                                <span
+                                  className="inline-flex max-w-[10rem] items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                                  title={`Gyülekezeti egység: ${egysegNev}`}
+                                >
+                                  <span className="truncate">{egysegNev}</span>
+                                </span>
+                              )}
                             </span>
                             <span className="mt-2 flex flex-wrap gap-1.5 md:hidden">
                               <MembershipBadge member={member} active={active} />
@@ -1223,6 +1294,24 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                       {contactOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select>
                   </FilterField>
+
+                  {/* 2026-08-25 (gyülekezeti egységek): csak ha van legalább 1 aktív egység. */}
+                  {egysegek.length > 0 && (
+                    <FilterField id="filter-egyseg" label="Gyülekezeti egység">
+                      <select
+                        id="filter-egyseg"
+                        value={draftFilters.egyseg}
+                        onChange={(event) => setDraftFilters((current) => ({ ...current, egyseg: event.target.value }))}
+                        className={filterControlClassName}
+                      >
+                        <option value="">Minden egység</option>
+                        <option value="kozpont">Anyaegyházközség (központ)</option>
+                        {egysegek.map((egyseg) => (
+                          <option key={egyseg.id} value={egyseg.id}>{egyseg.nev}</option>
+                        ))}
+                      </select>
+                    </FilterField>
+                  )}
                 </div>
 
                 {draftAgeError && (
@@ -1299,6 +1388,14 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
         onDataChanged={() => void fetchFirstPage({ preserveMembers: true })}
       />
       <MemberRemoveDialog open={removeOpen} onOpenChange={handleRemoveClose} member={removingMember} />
+      {/* 2026-08-25 (gyülekezeti egységek): tömeges besorolás település szerint. */}
+      {egysegBesorolasOpen && (
+        <EgysegBesorolasDialog
+          open={egysegBesorolasOpen}
+          onOpenChange={setEgysegBesorolasOpen}
+          onDone={() => void fetchFirstPage({ preserveMembers: true })}
+        />
+      )}
       <HiddenMembersDialog
         open={hiddenOpen}
         onOpenChange={setHiddenOpen}
@@ -1382,6 +1479,7 @@ function MobilePersonCard({
   registryMonth,
   active,
   crossMatched,
+  egysegNev,
   onOpen,
   onRemove,
   onOpenFamily,
@@ -1390,6 +1488,8 @@ function MobilePersonCard({
   registryMonth: number
   active: boolean
   crossMatched: boolean
+  /** 2026-08-25: a tag egységének feloldott neve (null = anyaközpont / nincs adat). */
+  egysegNev?: string | null
   onOpen: () => void
   onRemove: () => void
   onOpenFamily: (familyId: number) => void
@@ -1426,6 +1526,14 @@ function MobilePersonCard({
           <span className="mt-2.5 flex flex-wrap gap-1.5">
             <MembershipBadge member={member} active={active} />
             <FinancialBadge status={member.paymentStatus} />
+            {egysegNev && (
+              <span
+                className="inline-flex max-w-[10rem] items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                title={`Gyülekezeti egység: ${egysegNev}`}
+              >
+                <span className="truncate">{egysegNev}</span>
+              </span>
+            )}
             {member.pendingTransfer && (
               <Badge variant="outline" className="rounded-full border-amber-200 bg-amber-50 text-[10px] text-amber-700">
                 Átjelentkezik

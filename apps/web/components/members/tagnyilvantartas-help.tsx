@@ -9,6 +9,7 @@ import {
   HomeIcon,
   Info,
   MapPin,
+  Network,
   Sparkles,
   UserCheck,
   Users,
@@ -59,6 +60,13 @@ const CATEGORIES: HelpCategory[] = [
     label: 'Körzetek',
     Icon: MapPin,
     short: 'Egyházi körzetek a gyülekezeten belül',
+  },
+  // 2026-08-25: gyülekezeti egységek — leány/szórvány tag-besorolás.
+  {
+    id: 'egysegek',
+    label: 'Gyülekezeti egységek',
+    Icon: Network,
+    short: 'Leány- és szórvány-besorolás',
   },
   {
     id: 'voters',
@@ -167,6 +175,7 @@ export function TagnyilvantartasHelp() {
             {active === 'families' && <FamiliesContent />}
             {active === 'fees' && <FeesContent />}
             {active === 'districts' && <DistrictsContent />}
+            {active === 'egysegek' && <EgysegekContent />}
             {active === 'voters' && <VotersContent />}
             {active === 'presbyters' && <PresbytersContent />}
             {active === 'errors' && <ErrorsContent />}
@@ -995,6 +1004,73 @@ function DistrictsContent() {
         elrejtődnek a kiválasztó listákból. A körzeteket csak <em>aktív</em> állapotban
         ajánlja fel a rendszer; az inaktívak megmaradnak az archívumban (történeti
         családi adatokhoz).
+      </p>
+    </>
+  )
+}
+
+// 2026-08-25: gyülekezeti egységek — a tag-besorolás súgója. Az új szakasz már
+// téma-tokenekkel készül (a munkanaplo-help mintája), nem slate-színekkel.
+function EgysegCim({ children }: { children: React.ReactNode }) {
+  return (
+    <h4 className="font-heading text-base font-semibold text-foreground mt-5 first:mt-0">
+      {children}
+    </h4>
+  )
+}
+
+function EgysegekContent() {
+  return (
+    <>
+      <p>
+        Ha az egyházközségedhez <strong>leányegyházközség vagy szórvány</strong>{' '}
+        tartozik, a Gyülekezet-beállító varázsló „Egységek" paneljén veheted fel
+        őket. A tagoknál ezután megadhatod, melyik tag melyik egységhez
+        (közösséghez) tartozik — minden adat egy közös kartotékban marad, az
+        egység csak címke.
+      </p>
+
+      <EgysegCim>Hogyan sorolod be a tagokat?</EgysegCim>
+      <ul className="list-disc pl-5 space-y-1">
+        <li>
+          <strong>Egyénileg</strong> — a személyi kartonon van egy
+          egység-mező: itt választod ki, hogy a tag az anyaközponthoz vagy
+          valamelyik egységhez tartozik.
+        </li>
+        <li>
+          <strong>Tömegesen, település szerint</strong> — a Tagnyilvántartás
+          besorolás-segédjével egy lépésben átsorolható „minden X településen
+          lakó tag → Y egység". A lakcímekből a rendszer javaslatot is ad.
+        </li>
+      </ul>
+
+      <EgysegCim>Mire jó a besorolás?</EgysegCim>
+      <p>
+        Az éves lelkészi jelentés <strong>„Gyülekezetenkénti bontás"</strong>{' '}
+        táblája ebből számolja egységenként a lélekszámot, a választókat és az
+        anyakönyvi mozgásokat (keresztelt, temetett, esketett, konfirmált) —
+        oszloponként az anyaegyházközség, az egységek és az Összesen. A
+        hiányzó vagy pontatlan cellák a jelentésben kézzel felülírhatók.
+      </p>
+
+      <div className="rounded-xl border border-border bg-muted/40 p-4">
+        <p className="font-semibold text-foreground">Fontos elv</p>
+        <p className="mt-1">
+          A besorolatlan tag mindig az <strong>anyaközponthoz</strong> számít —
+          semmi nem romlik el, ha nem sorolsz be senkit, csak a bontás lesz
+          kevésbé részletes. Az összesítések és a hivatalos jelentés ettől
+          függetlenül helyesek maradnak.
+        </p>
+      </div>
+
+      <EgysegCim>Nem ugyanaz, mint a körzet</EgysegCim>
+      <p>
+        A <strong>körzet</strong> a gyülekezet belső, pasztorációs felosztása
+        (utcák, falurészek — lásd a „Körzetek" fejezetet). Az{' '}
+        <strong>egység</strong> ezzel szemben egy kapcsolt közösség
+        (leányegyházközség vagy szórvány), amelynek a lelkészi jelentésben
+        saját oszlopa van. Egy tagnak lehet körzete ÉS egysége is — a kettő
+        nem zavarja egymást.
       </p>
     </>
   )

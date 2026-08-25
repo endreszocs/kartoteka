@@ -151,6 +151,12 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
   // a „Szerkesztés" gombra vált a meglévő szerkesztő nézetre.
   const [mode, setMode] = useState<'summary' | 'edit'>(variant === 'advanced-edit' ? 'edit' : 'summary')
   const [districtName, setDistrictName] = useState<string | null>(null)
+  // 2026-08-25 (gyülekezeti egységek): hivatalos szervezeti forma a getCongregation
+  // select('*') sorából — migráció előtt az oszlop hiányzik → marad null, és az
+  // összefoglaló sora egyszerűen nem jelenik meg. Az ANYA NEVÉT itt szándékosan
+  // NEM oldjuk fel (nem építünk új actiont ebbe a fájlba): a név a setup-wizard
+  // „Egyházi hovatartozás" kártyáján jelenik meg (getCongregationForSetup.anya_nev).
+  const [szervezetiTipus, setSzervezetiTipus] = useState<string | null>(null)
   const [bankForm, setBankForm] = useState(getEmptyBankForm())
   // Publikus oldal (readonly) — a gyülekezet külön modulban állítja be (/publikus-oldal),
   // itt csak megjelenítjük, hogy a lelkész lássa az élő URL-t.
@@ -233,6 +239,9 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
         enabled: !!congregation.public_site_enabled,
         slug: congregation.public_slug ?? null,
       })
+      setSzervezetiTipus(
+        ((congregation as { szervezeti_tipus?: string | null }).szervezeti_tipus) ?? null,
+      )
       setForm({
         id: congregation.id,
         nev: congregation.name || '',
@@ -330,8 +339,13 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
       // Az abszolút URL-t az összefoglaló építi (window.location.origin), így
       // staging/lokál környezetben is a helyes címet osztja meg.
       publicSlug: publicSite.enabled && publicSite.slug ? publicSite.slug : undefined,
+      // 2026-08-25: szervezeti forma az összefoglalóba; az anya NEVÉT ez a dialog
+      // nem oldja fel (lásd a szervezetiTipus state kommentjét) — leánynál a sor
+      // „—"-t mutat, a név a Gyülekezet beállítása ablakban látható.
+      szervezetiTipus,
+      anyaNev: null,
     }
-  }, [form, dioceses, districtName, bankAccounts, discounts, pastors, congStatus, publicSite])
+  }, [form, dioceses, districtName, bankAccounts, discounts, pastors, congStatus, publicSite, szervezetiTipus])
 
   if (!congregationId) return null
   const activeCongregationId = congregationId

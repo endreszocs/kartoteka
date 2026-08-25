@@ -23,6 +23,56 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-25] — Gyülekezeti egységek: anya-, leány-, missziói egyházközség és szórvány
+<!-- key: 2026-08-25-gyulekezeti-egysegek -->
+<!-- category: feature -->
+<!-- version: 0.9.175 -->
+<!-- targets: mindenki -->
+
+### ✨ Új funkciók
+
+A Kartotéka mostantól ismeri az egyházközségek szervezeti formáit, és követi,
+melyik gyülekezet hová tartozik. Aki egyedül szolgál egy önálló gyülekezetben,
+annak semmi teendője — minden úgy működik, mint eddig.
+
+- **Gyülekezeti egységek**: ha az anyaegyházközséghez leányegyházközség vagy
+  szórvány tartozik, ezeket a Gyülekezet-beállító varázsló új „Egységek"
+  paneljén lehet felvenni. Minden adat továbbra is egy közös kartotékban marad
+  — az egység csak egy címke, amivel megjelölhető, mi hol történt.
+- **Munkanapló helyszín-jelölés**: minden alkalomnál megadható, melyik
+  egységben történt (üresen hagyva az anyaegyházközséghez számít). Az
+  Időszak-sávban egység szerint szűrhető a napló.
+- **Tagok besorolása**: a személyi kartonon egyenként, a Tagnyilvántartás új
+  „Egység-besorolás" eszközével pedig egész települések tagjai egy mozdulattal
+  besorolhatók a megfelelő egységbe.
+- **Lelkészi jelentés — gyülekezetenkénti bontás**: a jelentés-ablakban új
+  tábla mutatja oszloponként az anyaegyházközség és minden kapcsolt egység
+  helyzetét (lélekszám, keresztelés, temetés, esketés, konfirmálás, választók,
+  istentiszteleti alkalmak és átlagok, vallásóra, családlátogatás, járulék,
+  persely) — összesítő oszloppal. Az értékek a címkékből maguktól számolódnak,
+  minden cella kézzel felülírható, és a tábla fekvő A4 mellékletként
+  nyomtatható. A hivatalos EREK-űrlap változatlan maradt.
+- **Szervezeti térkép három szinten**: a rendszergazda a Szervezeti fán
+  beállíthatja a gyülekezetek hivatalos formáját (anya / leány / missziói) és
+  az anya–leány kapcsolatokat; az egyházmegye és az egyházkerület saját
+  térkép-nézetben látja, melyik gyülekezet hová tartozik, ki a lelkésze és
+  (kerületi szinten) hányan vannak.
+- **Súgó és útmutató**: a Munkanapló és a Tagnyilvántartás súgója új
+  fejezeteket kapott, köztük egy lépésről lépésre vezető útmutatót a
+  gyülekezetformák működéséről — közérthetően, példákkal.
+
+### 🐛 Javítások
+
+- **Gyülekezet-beállítás mentése szerepkör-alapú hozzárendelésnél**: a
+  beállítások mentése eddig csak a régi típusú gyülekezet-kötést fogadta el —
+  mostantól az újabb, szerepkör-alapú lelkész-hozzárendeléssel is működik.
+
+⚠️ **Rendszergazdai teendő**: az új funkcióhoz le kell futtatni a
+`migration-docs/sql/2026-08-25-gyulekezeti-egysegek.sql` migrációt. A futtatásig
+minden felület a régi módon működik, az új panelek pedig ezt jelzik.
+
+---
+
 ## [2026-08-25] — Biztonsági javítások és offline nyitólap
 <!-- key: 2026-08-25-biztonsagi-javitasok -->
 <!-- category: security -->

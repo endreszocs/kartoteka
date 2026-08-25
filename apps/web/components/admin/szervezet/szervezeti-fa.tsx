@@ -47,11 +47,13 @@ import {
   faOsszeg,
   faSzures,
   tagszamFelirat,
+  type FaGyulekezet,
   type FaRendezes,
   type SzervezetiFa as SzervezetiFaAdat,
 } from '@/app/(dashboard)/admin/szervezet-shared'
 
 import { KeruletKartya } from './fa-csomopont'
+import { KotesDialog, type AnyaJelolt } from './kotes-dialog'
 
 export function SzervezetiFa() {
   const [adat, setAdat] = useState<SzervezetiFaAdat | null>(null)
@@ -61,10 +63,16 @@ export function SzervezetiFa() {
   const [rendezes, setRendezes] = useState<FaRendezes>('nev')
   const [nyitottKeruletek, setNyitottKeruletek] = useState<Set<string>>(new Set())
   const [nyitottMegyek, setNyitottMegyek] = useState<Set<string>>(new Set())
+  // 2026-08-25: a kötés-dialógus — melyik gyülekezetre van nyitva (null = zárva).
+  const [kotesGy, setKotesGy] = useState<FaGyulekezet | null>(null)
 
   // ⚠️ KÖTELEZŐ `.catch()`: enélkül egy elutasított promise-nál a betöltő-felirat
   //    ÖRÖKRE bent ragadna, üzenet nélkül (a projekt visszatérő hibaosztálya).
-  const betolt = useCallback(() => {
+  //
+  // `nyitasVisszaallitas`: az ELSŐ betöltés (és az újrapróbálás) a kerületeket
+  // nyitja / a megyéket zárja; a kötés-mentés utáni ÚJRATÖLTÉS viszont megőrzi
+  // a nyitott ágakat — az admin ne veszítse el a helyét egy mentés után.
+  const betolt = useCallback((nyitasVisszaallitas: boolean) => {
     setToltes(true)
     setHiba(null)
     getSzervezetiFa()
@@ -75,10 +83,12 @@ export function SzervezetiFa() {
         }
         if (res.data) {
           setAdat(res.data)
-          // Alapból a KERÜLETEK nyílnak ki, az egyházmegyék nem: 783 gyülekezet
-          // egyszerre kirajzolva telefonon másodpercekig tartó dermedés lenne.
-          setNyitottKeruletek(new Set(res.data.keruletek.map((k) => k.id)))
-          setNyitottMegyek(new Set())
+          if (nyitasVisszaallitas) {
+            // Alapból a KERÜLETEK nyílnak ki, az egyházmegyék nem: 783 gyülekezet
+            // egyszerre kirajzolva telefonon másodpercekig tartó dermedés lenne.
+            setNyitottKeruletek(new Set(res.data.keruletek.map((k) => k.id)))
+            setNyitottMegyek(new Set())
+          }
         }
       })
       .catch((e) => setHiba(e instanceof Error ? e.message : 'Ismeretlen hiba.'))
@@ -86,13 +96,57 @@ export function SzervezetiFa() {
   }, [])
 
   useEffect(() => {
-    const raf = requestAnimationFrame(() => betolt())
+    const raf = requestAnimationFrame(() => betolt(true))
     return () => cancelAnimationFrame(raf)
   }, [betolt])
 
   const keruletek = useMemo(() => adat?.keruletek ?? [], [adat])
   const szurt = useMemo(() => faSzures(keruletek, kereses), [keruletek, kereses])
   const keres = kereses.trim().length > 0
+
+  // A kötés-dialógus anya-jelöltjei: a kiválasztott gyülekezet SAJÁT
+  // egyházmegyéjének 'anya'/'misszioi' (és anya-kötés nélküli) gyülekezetei —
+  // a fa MÁR BETÖLTÖTT adatából, külön lekérdezés nélkül.
+  const anyaJeloltek = useMemo<AnyaJelolt[]>(() => {
+    if (!kotesGy) return []
+    const sajatMegye = keruletek
+      .flatMap((k) => k.egyhazmegyek)
+      .find((m) => m.gyulekezetek.some((g) => g.id === kotesGy.id))
+    const jeloltek = sajatMegye
+      ? sajatMegye.gyulekezetek
+          .filter(
+            (g) =>
+              g.id !== kotesGy.id &&
+              (g.szervezetiTipus === 'anya' || g.szervezetiTipus === 'misszioi') &&
+              !g.anyaId,
+          )
+          .map((g) => ({ id: g.id, nev: g.nev }))
+          .sort((a, b) => a.nev.localeCompare(b.nev, 'hu'))
+      : []
+    // ⚠️ 2026-08-25: ha a JELENLEGI anya időközben MÁSIK egyházmegyébe került,
+    // a saját megye jelöltjei között nincs — a kontrollált select „üresnek"
+    // látszana, és az admin nem látná, ki a mostani anya. Ilyenkor a TELJES
+    // fából keressük ki és megjelölve hozzáfűzzük; ha a fában sincs (hatókörön
+    // kívül), helyőrző névvel, hogy az azonosító akkor se vesszen el némán.
+    if (kotesGy.anyaId && !jeloltek.some((j) => j.id === kotesGy.anyaId)) {
+      const anya = keruletek
+        .flatMap((k) => k.egyhazmegyek)
+        .flatMap((m) => m.gyulekezetek)
+        .find((g) => g.id === kotesGy.anyaId)
+      const sajatMegyeben = Boolean(
+        anya && sajatMegye?.gyulekezetek.some((g) => g.id === anya.id),
+      )
+      jeloltek.push(
+        anya
+          ? { id: anya.id, nev: sajatMegyeben ? anya.nev : `${anya.nev} (másik egyházmegye)` }
+          : {
+              id: kotesGy.anyaId,
+              nev: 'Jelenlegi anyaegyházközség (nem látható a hatókörödben)',
+            },
+      )
+    }
+    return jeloltek
+  }, [keruletek, kotesGy])
 
   // A stat-chipek MINDIG a teljes hatókört mutatják (nem a szűrt listát) — a
   // szűrt találat-szám külön sorban jelenik meg.
@@ -152,7 +206,7 @@ export function SzervezetiFa() {
           A szervezeti fa betöltése nem sikerült
         </p>
         <p className="mt-1 text-sm text-rose-700 dark:text-rose-300">{hiba}</p>
-        <Button onClick={betolt} variant="outline" className="mt-3 gap-2">
+        <Button onClick={() => betolt(true)} variant="outline" className="mt-3 gap-2">
           <RefreshCw className="size-4" />
           Újrapróbálom
         </Button>
@@ -225,6 +279,20 @@ export function SzervezetiFa() {
         </p>
       )}
 
+      {/* ⚠️ A SZERVEZETI HIERARCHIA NEM ELÉRHETŐ (2026-08-25) — a típus-jelvények
+          és az anya–leány kötések ilyenkor HIÁNYOZNAK, és ezt KI IS MONDJUK:
+          a néma hiány „minden gyülekezet önálló anya" látszatot keltene.
+          Migráció-hiánynál a sáv a teendőt (SQL-futtatás) is megnevezi. */}
+      {adat && !adat.hierarchiaElerheto && adat.hierarchiaUzenet && (
+        <p
+          role="status"
+          className="flex items-start gap-2 rounded-2xl border border-amber-300 bg-amber-50/70 px-3 py-2.5 text-sm leading-relaxed text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100"
+        >
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span>{adat.hierarchiaUzenet}</span>
+        </p>
+      )}
+
       {/* Stat-chipek — mindig a teljes hatókör számai */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
         <StatCsempe label="Egyházkerület" ertek={String(osszeg.keruletek)} icon={Landmark} />
@@ -242,7 +310,7 @@ export function SzervezetiFa() {
               aria-hidden
             />
             <Input
-              placeholder="Keresés kerület, egyházmegye vagy gyülekezet nevére…"
+              placeholder="Keresés kerület, egyházmegye, gyülekezet, lelkész vagy egység nevére…"
               value={kereses}
               onChange={(e) => setKereses(e.target.value)}
               className="pl-9"
@@ -324,6 +392,12 @@ export function SzervezetiFa() {
               nyitottMegyek={lathatoMegyek}
               onToggle={() => keruletValt(k.id)}
               onToggleMegye={megyeValt}
+              // A „Szervezet" gomb csak akkor jelenik meg, ha a hierarchia-adat
+              // TÉNYLEG elérhető — migráció nélkül a mentés úgyis elbukna, a
+              // teendőt pedig a fenti sáv mondja ki. A hatókör-őr (kerületi
+              // admin csak a saját kerületét írhatja) a szerver-actionben van.
+              szervezetGomb={Boolean(adat?.hierarchiaElerheto)}
+              onSzervezet={setKotesGy}
             />
           ))
         )}
@@ -334,6 +408,20 @@ export function SzervezetiFa() {
           A mérés ideje: {new Date(adat.mertAt).toLocaleString('hu-HU')}
         </p>
       )}
+
+      {/* Kötés-dialógus: a gyülekezet hivatalos szervezeti formája (2026-08-25).
+          Siker után zárás + ÚJRATÖLTÉS a nyitott ágak megőrzésével. */}
+      <KotesDialog
+        gyulekezet={kotesGy}
+        anyaJeloltek={anyaJeloltek}
+        onOpenChange={(nyitva) => {
+          if (!nyitva) setKotesGy(null)
+        }}
+        onSaved={() => {
+          setKotesGy(null)
+          betolt(false)
+        }}
+      />
     </div>
   )
 }
