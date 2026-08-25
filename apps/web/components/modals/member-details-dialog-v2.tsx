@@ -72,7 +72,7 @@ import {
   SheetDescription,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { getMemberDetails, updateMemberNote, updateRegistryEventDetails, updateMemberConsents, type NoteEventKind } from '@/app/(dashboard)/tagnyilvantartas/actions'
+import { getMemberDetails, updateMemberNote, updateRegistryEventDetails, updateMemberConsents, getMemberNevPublikalasConsent, type NoteEventKind } from '@/app/(dashboard)/tagnyilvantartas/actions'
 import { getFormerPartners, getMemberFamilySummary, type FormerPartner } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import { getTransactionDocumentNumber } from '@/lib/constants/finance'
 import { isOzvegyAllapot, isPrefixLikeNamepattern } from '@/lib/utils/member-helpers'
@@ -1958,6 +1958,11 @@ function ConsentEditor({
   const [gdpr, setGdpr] = useState(!!gdprConsentAt)
   const [photo, setPhoto] = useState(!!photoConsent)
   const [mailing, setMailing] = useState(!!mailingConsent)
+  // 2026-08-26 (5. kör): név-publikálás a gyülekezet weboldalán — friss, külön
+  // lekérdezéssel (nem a központi listából), migráció-toleránsan.
+  const [nevPub, setNevPub] = useState(false)
+  const [nevPubBaseline, setNevPubBaseline] = useState(false)
+  const [nevPubBetoltve, setNevPubBetoltve] = useState(false)
   const [consentDate, setConsentDate] = useState<string | null>(gdprConsentAt)
   const [baseline, setBaseline] = useState({
     gdpr: Boolean(gdprConsentAt),
@@ -1965,6 +1970,17 @@ function ConsentEditor({
     mailing: Boolean(mailingConsent),
   })
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void getMemberNevPublikalasConsent(memberId).then(v => {
+      if (cancelled || v === null) return
+      setNevPub(v)
+      setNevPubBaseline(v)
+      setNevPubBetoltve(true)
+    })
+    return () => { cancelled = true }
+  }, [memberId])
 
   useEffect(() => {
     let cancelled = false
@@ -1985,10 +2001,16 @@ function ConsentEditor({
   }, [gdprConsentAt, photoConsent, mailingConsent])
 
   const dirty = gdpr !== baseline.gdpr || photo !== baseline.photo || mailing !== baseline.mailing
+    || (nevPubBetoltve && nevPub !== nevPubBaseline)
 
   async function handleSave() {
     setSaving(true)
-    const res = await updateMemberConsents(memberId, { gdpr_consent: gdpr, photo_consent: photo, mailing_consent: mailing })
+    const res = await updateMemberConsents(memberId, {
+      gdpr_consent: gdpr,
+      photo_consent: photo,
+      mailing_consent: mailing,
+      ...(nevPubBetoltve ? { nev_publikalas_consent: nevPub } : {}),
+    })
     setSaving(false)
     if (res?.error) { toast.error(res.error); return }
     const nextConsentDate = gdpr ? consentDate || new Date().toISOString() : null
@@ -2015,6 +2037,11 @@ function ConsentEditor({
     { checked: gdpr, saved: baseline.gdpr, set: setGdpr, label: 'Adatkezelés', hint: 'Általános adatkezelési hozzájárulás', savedLabel: 'Hozzájárult', missingLabel: 'Nincs hozzájárulás' },
     { checked: photo, saved: baseline.photo, set: setPhoto, label: 'Fotó / megjelenés', hint: 'Kép, felvétel közzététele', savedLabel: 'Engedélyezve', missingLabel: 'Nincs engedélyezve' },
     { checked: mailing, saved: baseline.mailing, set: setMailing, label: 'Levelezés', hint: 'Hírlevél, körlevél küldése', savedLabel: 'Engedélyezve', missingLabel: 'Nincs engedélyezve' },
+    // 2026-08-26 (5. kör): a tisztségviselő neve CSAK ezzel a hozzájárulással
+    // kerülhet a gyülekezet nyilvános weboldalára (GDPR 9. cikk).
+    ...(nevPubBetoltve
+      ? [{ checked: nevPub, saved: nevPubBaseline, set: setNevPub, label: 'Név a weboldalon', hint: 'Név és tisztség közzététele a gyülekezet nyilvános weboldalán', savedLabel: 'Engedélyezve', missingLabel: 'Nincs engedélyezve' }]
+      : []),
   ]
 
   return (

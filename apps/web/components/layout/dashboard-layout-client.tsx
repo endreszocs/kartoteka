@@ -90,7 +90,7 @@ const WEB_FINANCE_SUBMENU = [
 const WEB_TAGNYILVANTARTAS_SUBMENU = [
   { label: 'Áttekintés', href: '/tagnyilvantartas', icon: Eye, gradient: 'from-blue-400 to-indigo-500' },
   { label: 'Személyek', href: '/tagnyilvantartas#persons', icon: User, gradient: 'from-emerald-400 to-teal-500' },
-  { label: 'Presbiterek', href: '/tagnyilvantartas#presbyters', icon: UserCheck, gradient: 'from-amber-400 to-orange-500' },
+  { label: 'Tisztségek', href: '/tagnyilvantartas#presbyters', icon: UserCheck, gradient: 'from-amber-400 to-orange-500' },
   { label: 'Körzetek', href: '/tagnyilvantartas#districts', icon: Layers, gradient: 'from-cyan-400 to-teal-500' },
   { label: 'Választók', href: '/tagnyilvantartas#voters', icon: Vote, gradient: 'from-pink-400 to-rose-500' },
   { label: 'Hibák', href: '/tagnyilvantartas#errors', icon: AlertTriangle, gradient: 'from-rose-400 to-red-500' },

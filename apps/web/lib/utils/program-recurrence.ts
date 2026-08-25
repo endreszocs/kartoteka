@@ -68,7 +68,9 @@ export function expandProgramOccurrences(programs: Program[], horizonYear?: numb
 
   for (const p of programs) {
     const rec = p.ismetlodes_tipus
-    const isRecurring = rec === 'heti' || rec === 'ketheti' || rec === 'havi'
+    // 2026-08-26 (5. kör): + 'evi' — az évente visszatérő alkalom (búcsú,
+    // hálaadás, VBH) is sorozatként bontható.
+    const isRecurring = rec === 'heti' || rec === 'ketheti' || rec === 'havi' || rec === 'evi'
 
     if (!isRecurring || !p.datum) {
       result.push(p)
@@ -78,10 +80,16 @@ export function expandProgramOccurrences(programs: Program[], horizonYear?: numb
     const spanDays = p.datum_vege ? Math.max(0, dayDiff(p.datum, p.datum_vege)) : 0
     const baseYear = Number(p.datum.slice(0, 4))
     const endYear = Math.max(baseYear, horizonYear ?? baseYear)
-    const horizon = `${endYear}-12-31`
+    // 2026-08-26 (5. kör): a sorozat SAJÁT záró-dátuma (ismetlodes_vege) a
+    // horizontot is vágja — eddig egy 2019-es heti bibliaóra „örökre futott".
+    let horizon = `${endYear}-12-31`
+    if (p.ismetlodes_vege && p.ismetlodes_vege < horizon) horizon = p.ismetlodes_vege
 
     for (let i = 0; i < MAX_OCCURRENCES; i++) {
-      const cur = rec === 'havi' ? addMonths(p.datum, i) : addDays(p.datum, i * STEP_DAYS[rec])
+      const cur =
+        rec === 'havi' ? addMonths(p.datum, i)
+        : rec === 'evi' ? addMonths(p.datum, i * 12)
+        : addDays(p.datum, i * STEP_DAYS[rec])
       if (cur > horizon) break
       result.push({
         ...p,

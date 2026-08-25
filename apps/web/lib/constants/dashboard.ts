@@ -64,11 +64,13 @@ export const PROG_PRIORITAS_LABELS: Record<ProgramPrioritas, string> = {
 
 // ── Ismétlődés típusok ───────────────────────────────────────
 
-export const ISMETLODES_TYPES = ['heti', 'ketheti', 'havi'] as const
+// 2026-08-26 (5. kör): + 'evi' — az évente visszatérő gyülekezeti alkalom
+// (búcsú, hálaadás, VBH) eddig nem volt modellezhető ismétlődésként.
+export const ISMETLODES_TYPES = ['heti', 'ketheti', 'havi', 'evi'] as const
 export type IsmetlodesTipus = typeof ISMETLODES_TYPES[number]
 
 export const ISMETLODES_LABELS: Record<IsmetlodesTipus, string> = {
-  heti: 'Heti', ketheti: 'Kétheti', havi: 'Havi',
+  heti: 'Heti', ketheti: 'Kétheti', havi: 'Havi', evi: 'Évente',
 }
 
 // ── Emoji picker lista (64 elem) ─────────────────────────────
@@ -108,6 +110,11 @@ export interface Program {
   tipus: ProgramTipus
   prioritas: ProgramPrioritas
   ismetlodes_tipus: string | null
+  /** 2026-08-26 (5. kör): a sorozat utolsó napja — e nélkül a heti bibliaóra
+   *  „örökre futott". NULL = nincs megadva (a régi viselkedés). */
+  ismetlodes_vege?: string | null
+  /** 2026-08-26 (5. kör): megjelenhet a gyülekezet nyilvános weboldalán. */
+  publikus?: boolean | null
   egyedi_tipus_nev: string | null
   egyedi_emoji: string | null
   megjegyzes: string | null

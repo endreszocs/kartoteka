@@ -1138,32 +1138,55 @@ function PresbytersContent() {
   return (
     <>
       <p>
-        A <strong>presbiter</strong> egy meglévő személyhez kötött tisztség — nem külön
-        személy-bejegyzés. Az egyháztag „Presbiterek" fülön történő rögzítése a tisztséget
-        kapcsolja hozzá.
+        A <strong>Tisztségek</strong> fül a gyülekezet választott és megbízott
+        szolgálattevőit tartja nyilván, három részben: <strong>Presbitérium</strong>,
+        <strong> Bizottságok</strong> (gazdasági, leltározó, diakóniai) és
+        <strong> Egyéb tisztségek</strong> (kántor, diakónus, nőszövetségi elnök,
+        IKE-elnök, önkéntesek, egyházmegyei küldött). A tisztség mindig egy meglévő
+        egyháztaghoz kapcsolódik — nem külön személy-bejegyzés.
       </p>
 
-      <SectionTitle>Mit lehet rögzíteni?</SectionTitle>
+      <SectionTitle>Presbitérium</SectionTitle>
       <ul className="list-disc pl-5 space-y-1">
-        <li><strong>Személy</strong> — egy aktív egyháztag a Személyek listából.</li>
-        <li><strong>Tisztség</strong> — szabad szöveg (pl. „Presbiter", „Pótpresbiter",
-          „Gondnok", „Pénztáros"). A leggyakoribb a „Presbiter".</li>
+        <li><strong>Fokozat</strong> — teljes értékű, pót- vagy tiszteletbeli presbiter.
+          A pót- és tiszteletbeli presbiter tanácskozási joggal vesz részt, a
+          jegyzőkönyvi határozatképességbe nem számít.</li>
+        <li><strong>Funkció</strong> — főgondnok és/vagy gondnok, akit az új presbitérium
+          a saját tagjai közül választ. Csak teljes értékű presbiter lehet; egyszerre
+          csak egy aktív főgondnok jelölhető.</li>
+        <li><strong>Mandátum</strong> — a kezdet megadásakor a rendszer a gyülekezeti
+          ciklus (alapból 3 év, Erdély) szerint javasolja a lejáratot. A kártya színes
+          jelzést mutat: zöld = érvényes, sárga = fél éven belül lejár, piros = lejárt,
+          szürke = nincs megadva.</li>
         <li><strong>Felelős körzet</strong> (opcionális) — melyik körzet pasztorációjáért
           felel az adott presbiter.</li>
       </ul>
 
-      <SectionTitle>Mire jó?</SectionTitle>
+      <SectionTitle>Választás után — „Új ciklus" varázsló</SectionTitle>
       <p>
-        Az éves jelentés a presbiterek listáját automatikusan generálja innen.
-        A pasztorális felelősség (egy presbiter — egy körzet) az alap-szervezési minta;
-        ha a felelős körzet meg van adva, a körzet listája a presbiter nevét is mutatja.
+        A presbiterválasztás után az <strong>Új ciklus</strong> gombbal egy lépésben
+        lezárható minden lejáró mandátum és felvehető az új névsor (fokozattal és
+        gondnok-jelöléssel). A régi bejegyzések a történetben megmaradnak — a
+        <strong> Lezárás</strong> a mandátum végét rögzíti, a törlés csak téves
+        rögzítéshez való.
       </p>
 
-      <SectionTitle>Választás után</SectionTitle>
+      <SectionTitle>Megjelenés a gyülekezet weboldalán</SectionTitle>
       <p>
-        Új presbiterek megválasztásakor: bejegyezni az új tisztségviselőket itt, a
-        régieknél pedig módosítani a tisztség leírását (pl. „Volt presbiter, 2020–2024")
-        vagy kitörölni a tisztség-bejegyzést. Az egyháztagi karton megmarad.
+        Bármely tisztség megjelölhető úgy, hogy a gyülekezet nyilvános weboldalán
+        megjelenjen. A név CSAK akkor kerül ki, ha a személyi kartonon (GDPR-blokk) a
+        <strong> „Név a weboldalon"</strong> hozzájárulás is be van pipálva — az egyházi
+        tisztség vallási meggyőződésre utaló különleges adat, ezért a hozzájárulás
+        nélküli megjelenítést a rendszer technikailag is kizárja. A weboldal-szekciót a
+        Weboldal-kezelő → Beállítások → „Tisztségviselőink" kapcsolóval lehet
+        bekapcsolni.
+      </p>
+
+      <SectionTitle>Mire jó még?</SectionTitle>
+      <p>
+        Az éves jelentés VII. szakasza és a lelkészi jelentés III.9 rovata az AKTÍV
+        presbiterekből számol automatikusan; a jegyzőkönyv jelenléti íve is innen
+        töltődik elő, a fokozat szerinti szereppel.
       </p>
     </>
   )

@@ -119,6 +119,47 @@ export function getReformedHolidaysForYear(year: number): HolidayInfo[] {
 }
 
 /**
+ * 2026-08-26 (5. kör): a naptár-fogyasztók (képernyő-rács, éves terv
+ * nyomtatás, ICS) KANONIKUS, naponkénti ünneplistája — a többnapos ünnepek
+ * napjai SAJÁT NÉVVEL (Húsvéthétfő, Pünkösdhétfő, Karácsony 2. napja).
+ *
+ * MIÉRT: eddig HÁROM, egymásnak részben ellentmondó ünnep-forrás élt a
+ * kódban (ez a modul, az annual-plan-print saját húsvét-számítása és listája,
+ * ill. az ICS a durationDays-t bontotta) — a nyomtatott éves terv és a feed
+ * MÁS ünnepeket mutatott. Mostantól minden fogyasztó EZT a listát használja;
+ * a köszöntés-logika (getHolidayForDate) viselkedése változatlan.
+ */
+export interface UnnepNap {
+  /** YYYY-MM-DD */
+  date: string
+  name: string
+}
+
+export function getUnnepnapokForYear(year: number): UnnepNap[] {
+  const easter = getEasterDate(year)
+  const e = (days: number) => formatDate(addDays(easter, days))
+  return [
+    { date: `${year}-01-01`, name: 'Újév' },
+    { date: e(-7), name: 'Virágvasárnap' },
+    { date: e(-2), name: 'Nagypéntek' },
+    { date: e(0), name: 'Húsvét' },
+    { date: e(1), name: 'Húsvéthétfő' },
+    { date: e(39), name: 'Áldozócsütörtök (Mennybemenetel)' },
+    { date: e(49), name: 'Pünkösd' },
+    { date: e(50), name: 'Pünkösdhétfő' },
+    { date: `${year}-10-31`, name: 'Reformáció napja' },
+    { date: `${year}-12-24`, name: 'Szenteste' },
+    { date: `${year}-12-25`, name: 'Karácsony' },
+    { date: `${year}-12-26`, name: 'Karácsony 2. napja' },
+  ]
+}
+
+/** Gyors napi kikeresés a képernyő-naptárhoz: 'YYYY-MM-DD' → ünnepnév. */
+export function getUnnepnapTerkep(year: number): Map<string, string> {
+  return new Map(getUnnepnapokForYear(year).map(u => [u.date, u.name]))
+}
+
+/**
  * Ha a megadott dátum ünnep — visszaadja az info-t.
  * Figyelembe veszi a durationDays-t (pl. karácsony 25-26, húsvét 2 nap).
  */

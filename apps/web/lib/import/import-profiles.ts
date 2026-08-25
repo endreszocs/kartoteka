@@ -339,12 +339,18 @@ export const PROFILE_PRESBYTERS: ImportProfile = {
     { excelHeader: 'Személy CNP', excelAliases: ['szemely_cnp', 'CNP'], dbColumn: '_szemely_cnp', type: 'string', required: true, hint: 'A presbiter személyi száma → id_szemely megkereséséhez' },
     { excelHeader: 'Teljes név', excelAliases: ['teljes_nev', 'Név'], dbColumn: '_teljes_nev', type: 'string', required: false, hint: 'Fallback, ha a CNP nem egyezik' },
     { excelHeader: 'Tisztség', excelAliases: ['tiszseg', 'tisztseg', 'Pozíció'], dbColumn: 'tisztseg', type: 'string', required: false },
+    // 2026-08-26 (5. kör): kódolt fokozat/funkció + mandátum-dátumok.
+    { excelHeader: 'Fokozat', excelAliases: ['fokozat'], dbColumn: 'fokozat', type: 'string', required: false, hint: 'teljes / pot / tiszteletbeli (üresen: teljes)' },
+    { excelHeader: 'Funkció', excelAliases: ['funkcio'], dbColumn: 'funkcio', type: 'string', required: false, hint: 'fogondnok / gondnok (csak teljes értékű presbiternél)' },
+    { excelHeader: 'Mandátum kezdete', excelAliases: ['kezdete', 'Kezdete'], dbColumn: 'kezdete', type: 'date', required: false },
+    { excelHeader: 'Mandátum vége', excelAliases: ['vege', 'Vége'], dbColumn: 'vege', type: 'date', required: false },
     { excelHeader: 'Körzet', excelAliases: ['korzet', 'Körzet neve'], dbColumn: 'korzet', type: 'string', required: false },
   ],
   autoColumns: [],
   hints: [
     'A személyeket CNP-vel azonosítjuk — a CNP oszlop kötelező.',
     'A tisztségek legyenek egységes megnevezésűek.',
+    'A Fokozat kódértéket vár: teljes / pot / tiszteletbeli; a Funkció: fogondnok / gondnok.',
   ],
   sheetHints: ['Presbiterek', 'presbiter', 'Presbyters'],
 }

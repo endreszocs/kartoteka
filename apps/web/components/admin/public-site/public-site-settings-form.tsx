@@ -630,6 +630,40 @@ export function PublicSiteSettingsForm({ initial, themes }: Props) {
               </span>
             </span>
           </label>
+          {/* 2026-08-26 (5. kör): tisztségviselők + közelgő események szekció. */}
+          <label htmlFor="public-site-show-tisztsegek" className="flex min-h-11 cursor-pointer items-start gap-2 rounded-xl p-3 hover:bg-slate-50">
+            <input
+              id="public-site-show-tisztsegek"
+              type="checkbox"
+              checked={!!form.show_tisztsegek}
+              onChange={(e) => update('show_tisztsegek', e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="block text-sm font-medium text-slate-700">Tisztségviselőink</span>
+              <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                A Tagnyilvántartás → Tisztségek fülön publikusra jelölt tisztségviselők neve és
+                tisztsége. Egy név CSAK akkor jelenik meg, ha a személyi kartonon a név-publikálási
+                hozzájárulás is rögzítve van (GDPR).
+              </span>
+            </span>
+          </label>
+          <label htmlFor="public-site-show-events" className="flex min-h-11 cursor-pointer items-start gap-2 rounded-xl p-3 hover:bg-slate-50">
+            <input
+              id="public-site-show-events"
+              type="checkbox"
+              checked={!!form.show_events}
+              onChange={(e) => update('show_events', e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="block text-sm font-medium text-slate-700">Közelgő események</span>
+              <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                A határidőnaplóban publikusra jelölt események (cím, időpont, helyszín) a következő
+                90 napból — a leírás és a megjegyzés sosem kerül ki.
+              </span>
+            </span>
+          </label>
         </div>
       </section>
 

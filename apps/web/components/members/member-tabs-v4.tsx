@@ -356,7 +356,7 @@ export function MemberTabsV4({
       ...(graphUnlock.unlocked
         ? [{ value: 'family-network', label: 'Családi háló ✦', color: 'violet' }]
         : []),
-      { value: 'presbyters', label: 'Presbiterek', color: 'amber' },
+      { value: 'presbyters', label: 'Tisztségek', color: 'amber' },
       { value: 'districts', label: 'Körzetek', color: 'cyan' },
       { value: 'voters', label: 'Választók', color: 'pink' },
       { value: 'errors', label: 'Hibák', color: 'red' },

@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { selectAllPaged } from '@kartoteka/supabase-client'
 import { z } from 'zod'
 import { programSchema, batchRowSchema, type ProgramInput } from '@/lib/validations/dashboard'
 import type { Program } from '@/lib/constants/dashboard'
@@ -11,33 +12,41 @@ import { isMissingDeletedColumn } from '@/lib/worklog/registry-sync'
 export async function getProgramsForYear(year: number): Promise<Program[]> {
   const { supabase, congregationId } = await getEffectiveCongregationContext()
   if (!congregationId) return []
-  const [{ data, error }, recurringRes] = await Promise.all([
-    supabase
-      .from('gyulekezeti_programok')
-      .select('*')
-      .eq('congregation_id', congregationId)
-      .gte('datum', `${year}-01-01`)
-      .lte('datum', `${year}-12-31`)
-      .order('datum')
-      .order('ido_kezdes'),
+  // 2026-08-26 (5. kör): LAPOZVA — a korábbi limit nélküli lekérdezést a
+  // PostgREST 1000 soros néma plafonja csonkolhatta (ismert hibaosztály:
+  // sűrűn programozó gyülekezetnél a naptár fele hang nélkül eltűnt volna).
+  const [evesRes, recurringRes] = await Promise.all([
+    selectAllPaged<Program>(
+      supabase
+        .from('gyulekezeti_programok')
+        .select('*')
+        .eq('congregation_id', congregationId)
+        .gte('datum', `${year}-01-01`)
+        .lte('datum', `${year}-12-31`)
+        .order('datum')
+        .order('ido_kezdes'),
+    ),
     // 2026-08-02 (PR-20): a KORÁBBI években indult ISMÉTLŐDŐ sorozatok is
     // kellenek — a heti bibliaóra eddig az új évre lapozva egyszerűen eltűnt
     // (a kibontás horizontja + a betöltés év-szűrése együtt vágta el).
-    // Legfeljebb 5 évre visszamenőleg (a kibontás-plafon így is bőven fedi).
-    supabase
-      .from('gyulekezeti_programok')
-      .select('*')
-      .eq('congregation_id', congregationId)
-      .not('ismetlodes_tipus', 'is', null)
-      .gte('datum', `${year - 5}-01-01`)
-      .lt('datum', `${year}-01-01`)
-      .order('datum'),
+    // Legfeljebb 5 évre visszamenőleg (a kibontás-plafon így is bőven fedi;
+    // az ismetlodes_vege bevezetésével a régebbi sorozatok amúgy is lezárulnak).
+    selectAllPaged<Program>(
+      supabase
+        .from('gyulekezeti_programok')
+        .select('*')
+        .eq('congregation_id', congregationId)
+        .not('ismetlodes_tipus', 'is', null)
+        .gte('datum', `${year - 5}-01-01`)
+        .lt('datum', `${year}-01-01`)
+        .order('datum'),
+    ),
   ])
   // 2026-06-07: a hibát nem nyeljük el csendben — feldobjuk, hogy a kliens
   // egyértelmű üzenetet adhasson és a „Betöltés…" ne ragadjon be.
-  if (error) throw new Error(error.message)
+  if (evesRes.error) throw new Error(evesRes.error.message)
   if (recurringRes.error) throw new Error(recurringRes.error.message)
-  return [...((recurringRes.data || []) as Program[]), ...((data || []) as Program[])]
+  return [...recurringRes.data, ...evesRes.data]
 }
 
 /**
@@ -65,6 +74,45 @@ export async function getCalendarFeedToken(): Promise<{ token: string | null; er
 }
 
 /**
+ * 2026-08-26 (5. kör): a naptár-feed részletessége. Alapból a feed a
+ * megjegyzés/leírás NÉLKÜL megy ki (a lelkészi jegyzet lelkigondozói adatot
+ * hordozhat, a token pedig külső naptár-szolgáltatóra szinkronizálódik) —
+ * a teljes tartalom tudatos, gyülekezetenkénti opt-in.
+ */
+export async function getCalendarFeedReszletes(): Promise<{ reszletes: boolean; elerheto: boolean }> {
+  const { supabase, congregationId } = await getEffectiveCongregationContext()
+  if (!congregationId) return { reszletes: false, elerheto: false }
+  const { data, error } = await supabase
+    .from('congregations')
+    .select('calendar_feed_reszletes')
+    .eq('id', congregationId)
+    .maybeSingle()
+  if (error) return { reszletes: false, elerheto: false }
+  return {
+    reszletes: (data as { calendar_feed_reszletes?: boolean | null } | null)?.calendar_feed_reszletes === true,
+    elerheto: true,
+  }
+}
+
+export async function setCalendarFeedReszletes(reszletes: boolean) {
+  const { supabase, user, congregationId } = await getEffectiveCongregationContext()
+  if (!user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!congregationId) return { error: 'Nincs aktív gyülekezet kiválasztva.' }
+  const { error } = await supabase
+    .from('congregations')
+    .update({ calendar_feed_reszletes: reszletes })
+    .eq('id', congregationId)
+  if (error) {
+    if (/calendar_feed_reszletes/.test(error.message || '')) {
+      return { error: 'A beállításhoz előbb le kell futtatni a 2026-08-26-presbiterium-tisztsegek.sql migrációt.' }
+    }
+    return { error: `Hiba: ${error.message}` }
+  }
+  await logAuditEvent({ action: 'program.feed_reszletesseg', targetTable: 'congregations', targetId: congregationId, metadata: { reszletes } }, supabase)
+  return { success: true }
+}
+
+/**
  * Egy program-bemenetből a `gyulekezeti_programok` táblába írható mező-objektum.
  * A `saveProgram` és a `saveBatchPrograms` is ezt használja (korábban a két
  * helyen duplikálva volt — 2026-06-07).
@@ -80,11 +128,26 @@ function buildProgramRecord(d: ProgramInput): Record<string, unknown> {
     tipus: d.tipus,
     prioritas: d.prioritas,
     ismetlodes_tipus: d.ismetlodes_tipus || null,
+    // 2026-08-26 (5. kör): a sorozat záró napja + weboldal-publikálás.
+    ismetlodes_vege: d.ismetlodes_tipus ? d.ismetlodes_vege || null : null,
+    publikus: d.publikus === true,
     'ismétlődő': !!d.ismetlodes_tipus,
     egyedi_tipus_nev: d.tipus === 'egyeb' ? (d.egyedi_tipus_nev || null) : null,
     egyedi_emoji: d.tipus === 'egyeb' ? (d.egyedi_emoji || null) : null,
     megjegyzes: d.megjegyzes || null,
   }
+}
+
+/** Migráció előtti kecses visszaesés: az új program-oszlopok kihagyása. */
+function ujProgramOszlopHiba(message?: string | null): boolean {
+  return /ismetlodes_vege|publikus/.test(message || '')
+}
+
+function ujProgramOszlopNelkul(record: Record<string, unknown>): Record<string, unknown> {
+  const masolat = { ...record }
+  delete masolat['ismetlodes_vege']
+  delete masolat['publikus']
+  return masolat
 }
 
 export async function saveProgram(data: ProgramInput) {
@@ -106,7 +169,11 @@ export async function saveProgram(data: ProgramInput) {
 
   if (d.id) {
     // UPDATE
-    const { error } = await supabase.from('gyulekezeti_programok').update(record).eq('id', d.id).eq('congregation_id', congregationId)
+    let { error } = await supabase.from('gyulekezeti_programok').update(record).eq('id', d.id).eq('congregation_id', congregationId)
+    if (error && ujProgramOszlopHiba(error.message)) {
+      const retry = await supabase.from('gyulekezeti_programok').update(ujProgramOszlopNelkul(record)).eq('id', d.id).eq('congregation_id', congregationId)
+      error = retry.error
+    }
     if (error) return { error: `Hiba: ${error.message}` }
   } else {
     // INSERT — profil adatok hozzáfűzése
@@ -114,7 +181,11 @@ export async function saveProgram(data: ProgramInput) {
     record.letrehozta_nev = fullName || ''
     record.congregation_id = congregationId
 
-    const { error } = await supabase.from('gyulekezeti_programok').insert(record)
+    let { error } = await supabase.from('gyulekezeti_programok').insert(record)
+    if (error && ujProgramOszlopHiba(error.message)) {
+      const retry = await supabase.from('gyulekezeti_programok').insert(ujProgramOszlopNelkul(record))
+      error = retry.error
+    }
     if (error) return { error: `Hiba: ${error.message}` }
   }
 
@@ -138,6 +209,26 @@ export async function toggleProgramDone(id: string, done: boolean) {
   const { supabase, user, congregationId } = await getEffectiveCongregationContext()
   if (!user) return { error: 'Nincs bejelentkezett felhasználó.' }
   if (!congregationId) return { error: 'Nincs aktív gyülekezet kiválasztva.' }
+
+  // 2026-08-26 (5. kör): ISMÉTLŐDŐ sorozatnál a pipa az ÖSSZES alkalmat
+  // jelölné teljesítettnek (a kibontott alkalmak a sorozat DB-sorát öröklik) —
+  // ez adathelyességi hiba volt. Az alkalmankénti teljesítés (sorozat-kivétel
+  // tárolás) külön körben épül; addig hangosan tiltjuk.
+  if (done) {
+    const { data: sor } = await supabase
+      .from('gyulekezeti_programok')
+      .select('ismetlodes_tipus')
+      .eq('id', id)
+      .eq('congregation_id', congregationId)
+      .maybeSingle()
+    if ((sor as { ismetlodes_tipus?: string | null } | null)?.ismetlodes_tipus) {
+      return {
+        error:
+          'Ismétlődő sorozatnál a „teljesítve" jelölés az ÖSSZES alkalomra vonatkozna, ezért itt nem használható. ' +
+          'Az alkalmankénti teljesítés-jelölés egy következő fejlesztési körben érkezik.',
+      }
+    }
+  }
 
   const { error } = await supabase.from('gyulekezeti_programok').update({
     teljesitett: done,
@@ -320,7 +411,11 @@ export async function saveBatchPrograms(records: ProgramInput[]) {
     congregation_id: congregationId,
   }))
 
-  const { error } = await supabase.from('gyulekezeti_programok').insert(dbRecords)
+  let { error } = await supabase.from('gyulekezeti_programok').insert(dbRecords)
+  if (error && ujProgramOszlopHiba(error.message)) {
+    const retry = await supabase.from('gyulekezeti_programok').insert(dbRecords.map(ujProgramOszlopNelkul))
+    error = retry.error
+  }
   if (error) return { error: `Hiba: ${error.message}` }
 
   revalidatePath('/dashboard')

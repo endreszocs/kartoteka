@@ -17,6 +17,7 @@ import { saveMinutes, finalizeMinutes, getNextHatarozatSorszam, getPresbyterName
 import { MinutesPrintDialog } from './minutes-print-dialog'
 import { buildMinutesPrintHtml } from '@/lib/minutes/print'
 import { FinancialAttachment } from './financial-attachment'
+import { kvorumSzamitas } from '@/lib/tisztsegek/shared'
 import { toast } from 'sonner'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -108,10 +109,15 @@ export function MinutesEditor({ initialData, congregationName = 'Református Egy
   const [kozgyulesQuorum, setKozgyulesQuorum] = useState(true)
 
   // ── Szavazóképesség ──────────────────────────────────────
+  //
+  // 2026-08-26 (5. kör, egyházjogi szabály): az alap CSAK a SZAVAZATI JOGÚ
+  // sorok (a pót- és tiszteletbeli presbiter „tanácskozási joggal" vesz részt,
+  // a kvórumba nem számít) + a lelkész hivatalból (+1, az ülés elnöke). A régi
+  // (minden sor számít, a lelkész nem) alak a pót-fokozat bevezetésével
+  // JOGILAG MEGTÁMADHATÓ jegyzőkönyvet adott volna.
   const jelenCount = resztvevok.filter((r) => r.statusz === 'jelen').length
-  const totalPresbyters = resztvevok.length
-  const quorumNeeded = Math.floor(totalPresbyters / 2) + 1
-  const isQuorumMet = tipus === 'kozgyulesi' ? kozgyulesQuorum : jelenCount >= quorumNeeded
+  const kvorum = kvorumSzamitas(resztvevok)
+  const isQuorumMet = tipus === 'kozgyulesi' ? kozgyulesQuorum : kvorum.megvan
 
   // ── Napirendi pont CRUD ──────────────────────────────────
   function addNapirend() {
@@ -333,7 +339,11 @@ export function MinutesEditor({ initialData, congregationName = 'Református Egy
                 <p className={`text-sm font-semibold ${isQuorumMet ? 'text-emerald-700' : 'text-red-700'}`}>
                   {isQuorumMet ? 'A gyűlés szavazóképes!' : 'A gyűlés NEM szavazóképes!'}
                 </p>
-                <p className="text-xs text-slate-500">{jelenCount} jelenlévő / {totalPresbyters} összesen — minimum {quorumNeeded} fő szükséges</p>
+                <p className="text-xs text-slate-500">
+                  {kvorum.jelen} szavazati jogú jelenlévő / {kvorum.alap} fős testület (a lelkésszel együtt) —
+                  minimum {kvorum.szukseges} fő szükséges. A pót- és tiszteletbeli presbiter tanácskozási
+                  joggal vesz részt, a kvórumba nem számít.
+                </p>
               </div>
             </div>
           )}
@@ -374,7 +384,7 @@ export function MinutesEditor({ initialData, congregationName = 'Református Egy
       {/* Résztvevők */}
       <div className="card-raised p-5">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-heading text-lg text-slate-800 flex items-center gap-2"><Users className="size-5 text-indigo-600" /> Résztvevők ({jelenCount}/{totalPresbyters})</h2>
+          <h2 className="font-heading text-lg text-slate-800 flex items-center gap-2"><Users className="size-5 text-indigo-600" /> Résztvevők ({jelenCount}/{resztvevok.length})</h2>
           {!isFinalized && <Button size="sm" variant="outline" onClick={() => setResztvevok((p) => [...p, { nev: '', statusz: 'jelen' }])} className="rounded-xl"><Plus className="size-3.5 mr-1" /> Résztvevő</Button>}
         </div>
         <div className="space-y-2">

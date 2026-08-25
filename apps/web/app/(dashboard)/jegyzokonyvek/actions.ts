@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { selectAllPaged } from '@kartoteka/supabase-client'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { presbiterSzerepCimke } from '@/lib/tisztsegek/shared'
 
 // ---------------------------------------------------------------------------
 // Jegyzőkönyv CRUD
@@ -238,17 +239,58 @@ export async function getPresbyterNames(): Promise<Array<{ nev: string; telefon:
   const access = await getEffectiveAccessContext()
   if (!access.user || !access.effectiveCongregationId) return []
 
-  const { data } = await access.supabase
-    .from('presbiter')
-    .select('tisztseg, szemely:szemely!id_szemely(csaladnev, k_nev, telefon)')
-    .eq('szemely.congregation_id', access.effectiveCongregationId)
+  // 2026-08-26 (5. kör): CSAK az AKTÍV mandátumú sorok kerülnek a jelenléti
+  // ívre, a szerep-címke a kódolt fokozat/funkcióból képződik (a pót- és
+  // tiszteletbeli presbiter „tanácskozási joggal" jelzést kap — a kvórum-
+  // számítás ERRE ismer rá). !inner: idegen gyülekezet személye nem duzzaszt.
+  const ma = new Date().toISOString().slice(0, 10)
+  const futtat = (ujOszlopokkal: boolean) =>
+    access.supabase
+      .from('presbiter')
+      .select(
+        ujOszlopokkal
+          ? 'tisztseg, fokozat, funkcio, kezdete, vege, id_szemely, szemely:szemely!id_szemely!inner(csaladnev, k_nev, telefon)'
+          : 'tisztseg, id_szemely, szemely:szemely!id_szemely!inner(csaladnev, k_nev, telefon)',
+      )
+      .eq('szemely.congregation_id', access.effectiveCongregationId)
 
-  return (data || []).map((row: Record<string, unknown>) => {
-    const szemely = row.szemely as { csaladnev: string; k_nev: string; telefon: string | null } | null
+  let res = await futtat(true)
+  const migracioElott = Boolean(res.error && /fokozat|funkcio|kezdete|vege/.test(res.error.message || ''))
+  if (migracioElott) res = await futtat(false)
+  if (res.error) return []
+
+  type Sor = {
+    tisztseg: string | null
+    fokozat?: string | null
+    funkcio?: string | null
+    kezdete?: string | null
+    vege?: string | null
+    id_szemely?: number | null
+    szemely: { csaladnev: string; k_nev: string; telefon: string | null } | null
+  }
+  const sorok = ((res.data || []) as unknown as Sor[])
+    // aktív mandátum (migráció előtt minden sor "aktív" — nincs dátum-adat)
+    .filter(r => (!r.kezdete || r.kezdete <= ma) && (!r.vege || r.vege >= ma))
+
+  // Személyenként EGY sor (történeti/több-körzetes duplikátum ellen) — a
+  // legmagasabb rangú (funkció > fokozat) marad.
+  const rang = (r: Sor) => (r.funkcio === 'fogondnok' ? 0 : r.funkcio === 'gondnok' ? 1 : r.fokozat === 'pot' ? 3 : r.fokozat === 'tiszteletbeli' ? 4 : 2)
+  const szemelyenkent = new Map<number | string, Sor>()
+  for (const r of sorok) {
+    const kulcs = r.id_szemely ?? `${r.szemely?.csaladnev}|${r.szemely?.k_nev}`
+    const eddigi = szemelyenkent.get(kulcs)
+    if (!eddigi || rang(r) < rang(eddigi)) szemelyenkent.set(kulcs, r)
+  }
+
+  return [...szemelyenkent.values()].map(row => {
+    const szemely = row.szemely
+    const szerep = migracioElott || row.fokozat == null
+      ? row.tisztseg || null
+      : presbiterSzerepCimke(row.fokozat, row.funkcio)
     return {
       nev: szemely ? `${szemely.csaladnev} ${szemely.k_nev}` : 'Ismeretlen',
       telefon: szemely?.telefon || null,
-      tisztseg: row.tisztseg as string || null,
+      tisztseg: szerep,
     }
   })
 }

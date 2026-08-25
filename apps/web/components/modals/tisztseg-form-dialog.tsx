@@ -1,13 +1,9 @@
 'use client'
 
 /**
- * Presbiter rögzítése / szerkesztése (2026-08-26, 5. kör).
- *
- * A régi, 3 mezős (személy + szabadszöveges tisztség + körzet) űrlap helyett:
- * kódolt fokozat (teljes/pót/tiszteletbeli), funkció (főgondnok/gondnok —
- * csak teljes értékű presbiternek), mandátum (kezdete/vége, vége-javaslattal
- * a gyülekezeti ciklusból), körzet és weboldal-publikálás. A szerkesztés
- * SORONKÉNT megy (nem személyenként) — a történet így megőrizhető.
+ * Nem-presbiteri tisztség rögzítése / szerkesztése (2026-08-26, 5. kör):
+ * kántor (hivatásos/önkéntes), diakónus, nőszövetségi/IKE-elnök, önkéntes,
+ * bizottsági tag (gazdasági/leltározó/diakóniai), egyházmegyei küldött, egyéb.
  */
 
 import { useEffect, useState } from 'react'
@@ -15,44 +11,39 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  savePresbyter,
-  getDistricts,
-  type DistrictRow,
-  type PresbiterRow,
-} from '@/app/(dashboard)/tagnyilvantartas/presbyter-actions'
+import { saveTisztseg, type TisztsegRow } from '@/app/(dashboard)/tagnyilvantartas/tisztseg-actions'
 import { searchParent } from '@/app/(dashboard)/tagnyilvantartas/actions'
 import {
-  PRESBITER_FOKOZATOK,
-  PRESBITER_FOKOZAT_CIMKEK,
-  PRESBITER_FUNKCIOK,
-  PRESBITER_FUNKCIO_CIMKEK,
-  mandatumVegeJavaslat,
-  type PresbiterFokozat,
-  type PresbiterFunkcio,
+  TISZTSEG_TIPUSOK,
+  TISZTSEG_TIPUS_CIMKEK,
+  BIZOTTSAGOK,
+  BIZOTTSAG_CIMKEK,
+  type TisztsegTipus,
+  type BizottsagKod,
 } from '@/lib/tisztsegek/shared'
 import { ageFromDate } from '@/lib/utils/date'
 import { toast } from 'sonner'
 
-interface PresbiterFormDialogProps {
+interface TisztsegFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Szerkesztendő SOR (null = új felvétel). */
-  editRow: PresbiterRow | null
-  /** A gyülekezet presbiteri ciklusa (év) — a vége-javaslathoz. */
-  ciklusEv: number
+  editRow: TisztsegRow | null
+  /** Előre kitöltött típus/bizottság (a bizottsági fülek „+ Tag" gombjaihoz). */
+  defaultTipus?: TisztsegTipus
+  defaultBizottsag?: BizottsagKod
 }
 
-export function PresbiterFormDialog({ open, onOpenChange, editRow, ciklusEv }: PresbiterFormDialogProps) {
+export function TisztsegFormDialog({ open, onOpenChange, editRow, defaultTipus, defaultBizottsag }: TisztsegFormDialogProps) {
   const [loading, setLoading] = useState(false)
-  const [districts, setDistricts] = useState<DistrictRow[]>([])
   const [szemelId, setSzemelId] = useState<number | null>(null)
   const [szemelName, setSzemelName] = useState('')
-  const [fokozat, setFokozat] = useState<PresbiterFokozat>('teljes')
-  const [funkcio, setFunkcio] = useState<'' | PresbiterFunkcio>('')
+  const [tipus, setTipus] = useState<TisztsegTipus>('kantor')
+  const [bizottsag, setBizottsag] = useState<string>('gazdasagi')
+  const [bizottsagiSzerep, setBizottsagiSzerep] = useState<'elnok' | 'tag'>('tag')
+  const [jelleg, setJelleg] = useState<'' | 'hivatasos' | 'onkentes'>('')
+  const [egyebMegnevezes, setEgyebMegnevezes] = useState('')
   const [kezdete, setKezdete] = useState('')
   const [vege, setVege] = useState('')
-  const [korzetId, setKorzetId] = useState<string>('')
   const [publikus, setPublikus] = useState(false)
   const [megjegyzes, setMegjegyzes] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
@@ -64,27 +55,28 @@ export function PresbiterFormDialog({ open, onOpenChange, editRow, ciklusEv }: P
     let cancelled = false
     queueMicrotask(() => {
       if (cancelled) return
-      getDistricts().then(data => {
-        if (!cancelled) setDistricts(data)
-      })
       if (editRow?.szemely) {
         setSzemelId(editRow.szemely.id)
         setSzemelName(`${editRow.szemely.csaladnev} ${editRow.szemely.k_nev}`)
-        setFokozat((editRow.fokozat as PresbiterFokozat) || 'teljes')
-        setFunkcio((editRow.funkcio as PresbiterFunkcio) || '')
+        setTipus(editRow.tipus as TisztsegTipus)
+        setBizottsag(editRow.bizottsag || 'gazdasagi')
+        setBizottsagiSzerep((editRow.bizottsagi_szerep as 'elnok' | 'tag') || 'tag')
+        setJelleg((editRow.jelleg as 'hivatasos' | 'onkentes') || '')
+        setEgyebMegnevezes(editRow.egyeb_megnevezes || '')
         setKezdete(editRow.kezdete || '')
         setVege(editRow.vege || '')
-        setKorzetId(editRow.id_csoport?.toString() || '')
-        setPublikus(editRow.publikus === true)
+        setPublikus(editRow.publikus)
         setMegjegyzes(editRow.megjegyzes || '')
       } else {
         setSzemelId(null)
         setSzemelName('')
-        setFokozat('teljes')
-        setFunkcio('')
+        setTipus(defaultTipus || 'kantor')
+        setBizottsag(defaultBizottsag || 'gazdasagi')
+        setBizottsagiSzerep('tag')
+        setJelleg('')
+        setEgyebMegnevezes('')
         setKezdete('')
         setVege('')
-        setKorzetId('')
         setPublikus(false)
         setMegjegyzes('')
       }
@@ -92,44 +84,40 @@ export function PresbiterFormDialog({ open, onOpenChange, editRow, ciklusEv }: P
       setSearchResults([])
       setShowResults(false)
     })
-    return () => {
-      cancelled = true
-    }
-  }, [open, editRow])
+    return () => { cancelled = true }
+  }, [open, editRow, defaultTipus, defaultBizottsag])
 
   async function handleSearch(val: string) {
     setSearchQuery(val)
     if (val.length < 3) { setShowResults(false); return }
-    const results = await searchParent(val, true) // mindkét nemre keres
+    const results = await searchParent(val, true)
     setSearchResults(results as unknown as typeof searchResults)
     setShowResults(true)
   }
 
-  function handleKezdeteChange(val: string) {
-    setKezdete(val)
-    // Vége-javaslat a gyülekezeti ciklusból — csak ha a vége még üres.
-    if (val && !vege && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
-      setVege(mandatumVegeJavaslat(val, ciklusEv))
-    }
-  }
-
   async function handleSubmit() {
     if (!szemelId) { toast.error('Kérem, válasszon egyháztagot!'); return }
+    if (tipus === 'egyeb' && !egyebMegnevezes.trim()) {
+      toast.error('Egyéb tisztségnél a megnevezés kötelező.')
+      return
+    }
     setLoading(true)
-    const result = await savePresbyter({
+    const result = await saveTisztseg({
       id: editRow?.id,
       id_szemely: szemelId,
-      fokozat,
-      funkcio: fokozat === 'teljes' && funkcio ? funkcio : null,
+      tipus,
+      bizottsag: tipus === 'bizottsagi_tag' ? bizottsag : null,
+      bizottsagi_szerep: tipus === 'bizottsagi_tag' ? bizottsagiSzerep : null,
+      jelleg: tipus === 'kantor' && jelleg ? jelleg : null,
+      egyeb_megnevezes: tipus === 'egyeb' ? egyebMegnevezes : null,
       kezdete: kezdete || null,
       vege: vege || null,
-      id_csoport: korzetId ? parseInt(korzetId) : null,
       publikus,
       megjegyzes: megjegyzes || null,
     })
     if (result.error) toast.error(result.error)
     else {
-      toast.success('Presbiter mentve!')
+      toast.success('Tisztség mentve!')
       if (result.warning) toast.warning(result.warning, { duration: 10000 })
       onOpenChange(false)
     }
@@ -139,7 +127,7 @@ export function PresbiterFormDialog({ open, onOpenChange, editRow, ciklusEv }: P
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader><DialogTitle>{editRow ? 'Presbiter szerkesztése' : 'Presbiter felvétele'}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{editRow ? 'Tisztség szerkesztése' : 'Tisztség felvétele'}</DialogTitle></DialogHeader>
         <div className="space-y-4">
           <div className="relative space-y-1.5">
             <Label>Személy *</Label>
@@ -175,78 +163,80 @@ export function PresbiterFormDialog({ open, onOpenChange, editRow, ciklusEv }: P
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>Fokozat *</Label>
+              <Label>Tisztség *</Label>
               <select
-                value={fokozat}
-                onChange={e => {
-                  const next = e.target.value as PresbiterFokozat
-                  setFokozat(next)
-                  // Egyházjog: gondnok/főgondnok csak teljes értékű presbiter.
-                  if (next !== 'teljes') setFunkcio('')
-                }}
+                value={tipus}
+                onChange={e => setTipus(e.target.value as TisztsegTipus)}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
-                {PRESBITER_FOKOZATOK.map(f => (
-                  <option key={f} value={f}>{PRESBITER_FOKOZAT_CIMKEK[f]}</option>
+                {TISZTSEG_TIPUSOK.map(t => (
+                  <option key={t} value={t}>{TISZTSEG_TIPUS_CIMKEK[t]}</option>
                 ))}
               </select>
             </div>
 
+            {tipus === 'kantor' && (
+              <div className="space-y-1.5">
+                <Label>Kántor jellege</Label>
+                <select value={jelleg} onChange={e => setJelleg(e.target.value as '' | 'hivatasos' | 'onkentes')} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                  <option value="">— nincs megadva —</option>
+                  <option value="hivatasos">hivatásos</option>
+                  <option value="onkentes">önkéntes</option>
+                </select>
+              </div>
+            )}
+
+            {tipus === 'bizottsagi_tag' && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Bizottság *</Label>
+                  <select value={bizottsag} onChange={e => setBizottsag(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                    {BIZOTTSAGOK.map(b => (
+                      <option key={b} value={b}>{BIZOTTSAG_CIMKEK[b]}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Szerep</Label>
+                  <select value={bizottsagiSzerep} onChange={e => setBizottsagiSzerep(e.target.value as 'elnok' | 'tag')} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                    <option value="tag">tag</option>
+                    <option value="elnok">elnök</option>
+                  </select>
+                </div>
+              </>
+            )}
+
+            {tipus === 'egyeb' && (
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Megnevezés *</Label>
+                <Input value={egyebMegnevezes} onChange={e => setEgyebMegnevezes(e.target.value)} placeholder="pl. harangozó, iratterjesztő" />
+              </div>
+            )}
+
             <div className="space-y-1.5">
-              <Label>Funkció (a presbitérium választja)</Label>
-              <select
-                value={funkcio}
-                onChange={e => setFunkcio(e.target.value as '' | PresbiterFunkcio)}
-                disabled={fokozat !== 'teljes'}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-50"
-              >
-                <option value="">— nincs —</option>
-                {PRESBITER_FUNKCIOK.map(f => (
-                  <option key={f} value={f}>{PRESBITER_FUNKCIO_CIMKEK[f]}</option>
-                ))}
-              </select>
-              {fokozat !== 'teljes' && (
-                <p className="text-xs text-slate-400">Gondnok/főgondnok csak teljes értékű presbiter lehet.</p>
-              )}
+              <Label>Megbízatás kezdete</Label>
+              <Input type="date" value={kezdete} onChange={e => setKezdete(e.target.value)} />
             </div>
 
             <div className="space-y-1.5">
-              <Label>Mandátum kezdete</Label>
-              <Input type="date" value={kezdete} onChange={e => handleKezdeteChange(e.target.value)} />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Mandátum vége</Label>
+              <Label>Megbízatás vége</Label>
               <Input type="date" value={vege} onChange={e => setVege(e.target.value)} />
-              <p className="text-xs text-slate-400">A kezdet megadásakor a {ciklusEv} éves ciklus szerint javasoljuk.</p>
-            </div>
-
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label>Körzet</Label>
-              <select value={korzetId} onChange={e => setKorzetId(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                <option value="">— Nincs körzet —</option>
-                {districts.map(d => <option key={d.id} value={d.id}>{d.nev}</option>)}
-              </select>
+              <p className="text-xs text-slate-400">Üresen hagyható (határozatlan idejű).</p>
             </div>
 
             <div className="space-y-1.5 sm:col-span-2">
               <Label>Megjegyzés</Label>
-              <Input value={megjegyzes} onChange={e => setMegjegyzes(e.target.value)} placeholder="pl. jegyző, missziói felelős" />
+              <Input value={megjegyzes} onChange={e => setMegjegyzes(e.target.value)} />
             </div>
           </div>
 
           <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50/60 p-3 text-sm">
-            <input
-              type="checkbox"
-              checked={publikus}
-              onChange={e => setPublikus(e.target.checked)}
-              className="mt-0.5"
-            />
+            <input type="checkbox" checked={publikus} onChange={e => setPublikus(e.target.checked)} className="mt-0.5" />
             <span>
               <span className="font-medium">Megjelenhet a gyülekezet weboldalán</span>
               <span className="block text-xs text-slate-500">
-                A név CSAK akkor kerül ki, ha a személyi kartonon a név-publikálási
-                hozzájárulás is be van pipálva (GDPR) — a rendszer e nélkül nem publikál.
+                A név CSAK a személyi kartonon rögzített név-publikálási hozzájárulással
+                együtt kerül ki (GDPR) — e nélkül a rendszer nem publikál.
               </span>
             </span>
           </label>

@@ -85,6 +85,102 @@ export function BatchProgramDialog({ open, onOpenChange, year }: BatchProgramDia
 
   const filledCount = rows.filter((r) => r.cim.trim()).length
 
+  // ── 2026-08-26 (5. kör): ünnepnapi alkalmak előtöltése ──────────────────
+  // Az év kanonikus ünneplistájából istentisztelet-javaslatok kerülnek a
+  // rácsba (a nem kellő sorokat egy kattintással törölni lehet). Az ünnepek
+  // maguk NEM válnak program-sorrá — a naptár-rács jelzésként mutatja őket.
+  async function handleUnnepElotoltes() {
+    const { getUnnepnapokForYear } = await import('@/lib/utils/reformed-holidays')
+    const unnepek = getUnnepnapokForYear(year)
+    setNextKey((prevKey) => {
+      let k = prevKey
+      const ujak: BatchRow[] = unnepek.map((u) => ({
+        ...emptyRow(k++),
+        cim: `Ünnepi istentisztelet — ${u.name}`,
+        datum: u.date,
+        tipus: 'istentisztelet',
+        prioritas: 'fontos',
+      }))
+      setRows((prev) => {
+        // A meglévő ÜRES sorok helyére töltünk, a többi a végére kerül.
+        const kitoltottek = prev.filter((r) => r.cim.trim() || r.datum)
+        return [...kitoltottek, ...ujak]
+      })
+      return k
+    })
+    toast.success(`${unnepek.length} ünnepnapi alkalom előtöltve — a fölöslegeseket töröld, a többit mentsd.`)
+  }
+
+  // ── 2026-08-26 (5. kör): naptár-feltöltés fájlból (Excel/CSV) ───────────
+  // A fájl KLIENS-oldalon dolgozódik fel a rácsba — a mentés ugyanazon az
+  // ellenőrzött úton megy, mint a kézi kitöltés. Elvárt oszlopok: Cím, Dátum
+  // (ÉÉÉÉ-HH-NN); opcionális: Záró dátum, Kezdés, Befejezés, Típus, Helyszín.
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  async function handleFajlFeltoltes(file: File) {
+    try {
+      const XLSX = await import('xlsx')
+      const buffer = await file.arrayBuffer()
+      const wb = XLSX.read(buffer, { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      if (!ws) { toast.error('A fájlban nincs munkalap.'); return }
+      const sorok = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { raw: false, defval: '' })
+      if (sorok.length === 0) { toast.error('A munkalap üres.'); return }
+
+      const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')
+      const mezo = (sor: Record<string, unknown>, nevek: string[]) => {
+        for (const kulcs of Object.keys(sor)) {
+          if (nevek.includes(norm(kulcs))) return String(sor[kulcs] ?? '').trim()
+        }
+        return ''
+      }
+      const datumra = (v: string) => {
+        const m = v.match(/^(\d{4})[.\-/ ]+(\d{1,2})[.\-/ ]+(\d{1,2})/)
+        if (!m) return ''
+        return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+      }
+      const tipusra = (v: string) => {
+        const t = norm(v)
+        const talalat = PROGRAM_TYPES.find((pt) => norm(PROG_TIPUS_LABELS[pt] || pt) === t || pt === t)
+        return talalat || 'egyeb'
+      }
+
+      let kihagyott = 0
+      const ujSorok: Array<Omit<BatchRow, 'key'>> = []
+      for (const sor of sorok) {
+        const cim = mezo(sor, ['cim', 'megnevezes', 'program', 'esemeny', 'nev'])
+        const datum = datumra(mezo(sor, ['datum', 'kezdodatum', 'nap', 'date']))
+        if (!cim || !datum) { kihagyott += 1; continue }
+        ujSorok.push({
+          cim,
+          datum,
+          datum_vege: datumra(mezo(sor, ['zarodatum', 'datumvege', 'vege'])),
+          ido_kezdes: mezo(sor, ['kezdes', 'idokezdes', 'ido', 'ora']).slice(0, 5),
+          ido_befejezes: mezo(sor, ['befejezes', 'idobefejezes', 'zaras']).slice(0, 5),
+          tipus: tipusra(mezo(sor, ['tipus', 'kategoria'])) as string,
+          helyszin: mezo(sor, ['helyszin', 'hely']),
+          prioritas: 'normal',
+          ismetlodes: '',
+        })
+      }
+      if (ujSorok.length === 0) {
+        toast.error('Egyetlen sor sem volt beolvasható — a Cím és a Dátum (ÉÉÉÉ-HH-NN) oszlop kötelező.')
+        return
+      }
+      setNextKey((prevKey) => {
+        let k = prevKey
+        const kesz: BatchRow[] = ujSorok.map((s) => ({ key: k++, ...s }))
+        setRows((prev) => [...prev.filter((r) => r.cim.trim() || r.datum), ...kesz])
+        return k
+      })
+      toast.success(
+        `${ujSorok.length} sor beolvasva a fájlból${kihagyott > 0 ? ` (${kihagyott} hiányos sor kimaradt)` : ''} — ellenőrzés után mentsd.`,
+      )
+    } catch (e) {
+      toast.error(`A fájl beolvasása nem sikerült: ${e instanceof Error ? e.message : 'ismeretlen hiba'}`)
+    }
+  }
+
   function handleKeyDown(e: React.KeyboardEvent, currentKey: number) {
     if (e.key !== 'Enter') return
     e.preventDefault()
@@ -165,6 +261,29 @@ export function BatchProgramDialog({ open, onOpenChange, year }: BatchProgramDia
           <div className="kt-batch-toolbar">
             <span className="kt-batch-count">
               {filledCount > 0 ? <><strong>{filledCount}</strong> kitöltött program</> : 'Töltsd ki a sorokat — a cím a kötelező mező.'}
+            </span>
+            {/* 2026-08-26 (5. kör): naptár-feltöltés — ünnepnapi javaslatok +
+                Excel/CSV beolvasás a rácsba (a mentés a megszokott úton megy). */}
+            <span style={{ display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="kt-btn kt-btn-ghost" onClick={() => void handleUnnepElotoltes()}
+                title="Az év református ünnepeihez istentisztelet-javaslatok kerülnek a sorokba">
+                ✝ Ünnepnapi alkalmak előtöltése
+              </button>
+              <button type="button" className="kt-btn kt-btn-ghost" onClick={() => fileInputRef.current?.click()}
+                title="Excel/CSV beolvasása a rácsba — elvárt oszlopok: Cím, Dátum (ÉÉÉÉ-HH-NN); opcionális: Záró dátum, Kezdés, Befejezés, Típus, Helyszín">
+                📄 Feltöltés fájlból
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) void handleFajlFeltoltes(f)
+                  e.target.value = ''
+                }}
+              />
             </span>
           </div>
 

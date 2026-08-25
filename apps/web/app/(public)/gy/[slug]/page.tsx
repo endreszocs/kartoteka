@@ -21,6 +21,10 @@ import { PublicAgeDistribution } from '@/components/public/public-age-distributi
 import { PublicCinematicHome } from '@/components/public/public-cinematic-home'
 import { CINEMATIC_PUBLIC_THEME_KEY } from '@/lib/public-site/visual-theme-registry'
 import { isMemberPortalAuthEnabled } from './tagi-portal/auth-enabled'
+// 2026-08-26 (5. kör): tisztségviselők + közelgő események — a kapu (kapcsoló,
+// publikus jelölés, hozzájárulás) az RPC-ben él; üres listánál nem renderel.
+import { loadPublicTisztsegek, loadPublicEsemenyek } from '@/lib/public-site/tisztsegek-events-loader'
+import { PublicTisztsegekSection, PublicEsemenyekSection } from '@/components/public/public-tisztsegek-events'
 
 export default async function CongregationHomePage({
   params,
@@ -31,10 +35,12 @@ export default async function CongregationHomePage({
   const site = await loadPublicSiteBySlug(slug)
   if (!site) notFound()
 
-  const [recentPosts, magazine, stats] = await Promise.all([
+  const [recentPosts, magazine, stats, tisztsegek, esemenyek] = await Promise.all([
     loadPublishedPosts(site.congregation_id, 3),
     loadPublishedMagazine(site.congregation_id, { pageSize: 1 }),
     loadPublicSiteStats(site),
+    loadPublicTisztsegek(site.slug),
+    loadPublicEsemenyek(site.slug),
   ])
   const latestIssue = magazine?.issues[0] || null
   // A DB-ben levo HTML-t minden rendereleskor ujra tisztitjuk. Igy egy
@@ -113,6 +119,9 @@ export default async function CongregationHomePage({
         </div>
       </section>
 
+      {/* Közelgő események — a határidőnaplóban publikusra jelölt alkalmak */}
+      <PublicEsemenyekSection esemenyek={esemenyek} />
+
       {/* A hét igéje */}
       <PublicVerseBlock site={site} />
 
@@ -122,6 +131,9 @@ export default async function CongregationHomePage({
 
       {/* Istentiszteleti rend + elérhetőség */}
       <PublicServiceTimes site={site} />
+
+      {/* Tisztségviselőink — publikus jelölés + személyes hozzájárulás kell */}
+      <PublicTisztsegekSection tisztsegek={tisztsegek} />
 
       {/* Rólunk teaser — világos, szerkesztőségi hasáb (nem harmadik sötét sáv) */}
       {safeAboutHtml && (

@@ -1794,7 +1794,14 @@ export async function updateMemberNote(szemelyId: number, note: string) {
 // ── GDPR-hozzájárulások frissítése (2026-06-10, Fázis 5 / P3-5) ─────
 export async function updateMemberConsents(
   szemelyId: number,
-  consents: { gdpr_consent: boolean; photo_consent: boolean; mailing_consent: boolean },
+  consents: {
+    gdpr_consent: boolean
+    photo_consent: boolean
+    mailing_consent: boolean
+    /** 2026-08-26 (5. kör): név-publikálás a gyülekezet weboldalán (GDPR 9. cikk).
+     *  undefined = a hívó (régi felület) nem küldte → a meglévő érték marad. */
+    nev_publikalas_consent?: boolean
+  },
 ) {
   const { supabase, user, congregationId } = await getProfileCongregation()
   if (!user || !congregationId) return { error: 'Nincs bejelentkezett felhasználó.' }
@@ -1818,17 +1825,51 @@ export async function updateMemberConsents(
     mailing_consent: consents.mailing_consent,
   }
   if (gdpr_consent_at !== undefined) payload.gdpr_consent_at = gdpr_consent_at
+  // Név-publikálás: a mikor is rögzül (igazolhatóság); visszavonáskor a
+  // hozzájárulás ÉS a dátuma is törlődik — a publikus RPC kapuja miatt a név
+  // azonnal eltűnik a weboldalról.
+  if (consents.nev_publikalas_consent !== undefined) {
+    payload.nev_publikalas_consent = consents.nev_publikalas_consent
+    payload.nev_publikalas_consent_at = consents.nev_publikalas_consent ? new Date().toISOString() : null
+  }
 
-  const { error } = await supabase
+  let { error } = await supabase
     .from('szemely')
     .update(payload)
     .eq('id', szemelyId)
     .eq('congregation_id', congregationId)
+  if (error && /nev_publikalas_consent/.test(error.message || '')) {
+    // Migráció előtti kecses visszaesés — a többi hozzájárulás mentése nem
+    // hiúsulhat meg az új oszlop hiányán.
+    const { nev_publikalas_consent: _n, nev_publikalas_consent_at: _na, ...regi } = payload
+    const retry = await supabase.from('szemely').update(regi).eq('id', szemelyId).eq('congregation_id', congregationId)
+    error = retry.error
+  }
   if (error) return { error: `Hiba: ${error.message}` }
 
   await logAuditEvent({ action: 'member.consent_update', targetTable: 'szemely', targetId: String(szemelyId), metadata: { ...consents } }, supabase)
   revalidatePath('/tagnyilvantartas')
   return { success: true }
+}
+
+/**
+ * 2026-08-26 (5. kör): a név-publikálási hozzájárulás KÜLÖN, friss
+ * lekérdezéssel jön (nem a központi tag-listából) — így a migráció előtti DB-n
+ * a tagnyilvántartás nem törik, a válasz pedig: true/false, vagy null, ha az
+ * oszlop még nem létezik (a felület ilyenkor a migrációra mutat).
+ */
+export async function getMemberNevPublikalasConsent(szemelyId: number): Promise<boolean | null> {
+  const { supabase, user, congregationId } = await getProfileCongregation()
+  if (!user || !congregationId) return null
+  const { data, error } = await supabase
+    .from('szemely')
+    .select('nev_publikalas_consent')
+    .eq('id', szemelyId)
+    .eq('congregation_id', congregationId)
+    .maybeSingle()
+  if (error) return null
+  const v = (data as { nev_publikalas_consent?: boolean | null } | null)?.nev_publikalas_consent
+  return v === true
 }
 
 const NOTE_EVENT_KINDS = ['keresztseg', 'konfirmalas', 'hazassag', 'temetes', 'bekoltozott', 'attert'] as const

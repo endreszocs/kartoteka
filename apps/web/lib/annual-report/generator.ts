@@ -143,6 +143,10 @@ type PresbiterSzemelyEmbed = {
 
 interface PresbiterJoinRow {
   tisztseg: string
+  fokozat?: string | null
+  funkcio?: string | null
+  kezdete?: string | null
+  vege?: string | null
   szemely: PresbiterSzemelyEmbed | PresbiterSzemelyEmbed[] | null
 }
 
@@ -275,13 +279,29 @@ export async function buildAnnualReportData(
     // `dashboard/page.tsx:210` már javított), másrészt lapozva végtelenül drága
     // lenne. `!inner`-rel a szűrés a szerveren történik; a végeredmény
     // változatlan, mert a nem illeszkedő sorokat eddig is eldobtuk.
-    fetchAllPagedRows<PresbiterJoinRow>(
-      supabase
-        .from('presbiter')
-        .select('id, tisztseg, szemely:szemely!presbiter_id_szemely_fk!inner(csaladnev, k_nev, congregation_id)')
-        .eq('szemely.congregation_id', congregationId)
-        .order('id', { ascending: true }),
-    ),
+    // 2026-08-26 (5. kör): a mandátum-oszlopokat is kérjük, hogy CSAK az aktív
+    // presbiterek kerüljenek a hivatalos jelentésbe. Migráció előtti kecses
+    // visszaesés: oszlop-hibánál a régi mezőkészlettel újra (a jelentés nem
+    // hiúsulhat meg amiatt, hogy az SQL még nincs lefuttatva).
+    (async () => {
+      const res = await fetchAllPagedRows<PresbiterJoinRow>(
+        supabase
+          .from('presbiter')
+          .select('id, tisztseg, fokozat, funkcio, kezdete, vege, szemely:szemely!presbiter_id_szemely_fk!inner(csaladnev, k_nev, congregation_id)')
+          .eq('szemely.congregation_id', congregationId)
+          .order('id', { ascending: true }),
+      )
+      if (res.error && /fokozat|funkcio|kezdete|vege/.test(res.error.message || '')) {
+        return fetchAllPagedRows<PresbiterJoinRow>(
+          supabase
+            .from('presbiter')
+            .select('id, tisztseg, szemely:szemely!presbiter_id_szemely_fk!inner(csaladnev, k_nev, congregation_id)')
+            .eq('szemely.congregation_id', congregationId)
+            .order('id', { ascending: true }),
+        )
+      }
+      return res
+    })(),
     // Leltár (jelenlegi állapot, nem évhez kötött)
     // 2026-08-11 (K5-#8) JAVÍTÁS: a lekérdezés sem `is_deleted`-re, sem
     // `torles_datuma`-ra NEM szűrt, ezért a VIII. „Egyházi vagyon" szekció a
@@ -442,13 +462,20 @@ export async function buildAnnualReportData(
   }
 
   // VII. Presbitérium
-  const presbiterRows = (presbiterRes.data || []) as PresbiterJoinRow[]
+  // 2026-08-26 (5. kör): CSAK az AKTÍV mandátumú sorok — a lezárt (régi
+  // ciklusbeli) bejegyzés a történet része, de a hivatalos jelentésbe nem való.
+  const maNap = new Date().toISOString().slice(0, 10)
+  const presbiterRows = ((presbiterRes.data || []) as PresbiterJoinRow[]).filter(
+    p => (!p.kezdete || p.kezdete <= maNap) && (!p.vege || p.vege >= maNap),
+  )
   const presbiterNevek: Array<{ nev: string; tisztseg: string }> = []
+  const latottSzemelyNev = new Set<string>()
   for (const p of presbiterRows) {
     const sz = Array.isArray(p.szemely) ? p.szemely[0] : p.szemely
     if (!sz) continue
     const nev = `${sz.csaladnev || ''} ${sz.k_nev || ''}`.trim()
-    if (nev) {
+    if (nev && !latottSzemelyNev.has(nev)) {
+      latottSzemelyNev.add(nev)
       presbiterNevek.push({ nev, tisztseg: p.tisztseg })
     }
   }

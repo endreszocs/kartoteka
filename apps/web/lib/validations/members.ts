@@ -181,10 +181,41 @@ export type DistrictInput = z.infer<typeof districtSchema>
 
 // ── Presbiter ────────────────────────────────────────────────
 
+// 2026-08-26 (5. kör): a szabadszöveges tisztseg helyett kódolt fokozat
+// (teljes/pot/tiszteletbeli) + funkció (fogondnok/gondnok) + mandátum.
+// A tisztseg mező megmarad kijelzési címkének (a szerver generálja).
 export const presbyterSchema = z.object({
+  id: z.number().optional(),
   id_szemely: z.number({ message: 'Válasszon egyháztagot' }),
-  tisztseg: z.string().default('Presbiter'),
+  fokozat: z.enum(['teljes', 'pot', 'tiszteletbeli']).default('teljes'),
+  funkcio: z.enum(['fogondnok', 'gondnok']).nullable().optional(),
+  kezdete: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  vege: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   id_csoport: z.number().nullable().optional(),
+  egyseg_id: z.string().uuid().nullable().optional(),
+  publikus: z.boolean().default(false),
+  megjegyzes: z.string().max(500).nullable().optional(),
 })
 
 export type PresbyterInput = z.infer<typeof presbyterSchema>
+
+// ── Nem-presbiteri tisztségek (tisztsegek tábla) ─────────────
+
+export const tisztsegSchema = z.object({
+  id: z.string().uuid().optional(),
+  id_szemely: z.number({ message: 'Válasszon egyháztagot' }),
+  tipus: z.enum([
+    'kantor', 'diakonus', 'noszovetsegi_elnok', 'ike_elnok', 'onkentes',
+    'bizottsagi_tag', 'egyhazmegyei_kuldott', 'egyeb',
+  ]),
+  bizottsag: z.string().max(40).nullable().optional(),
+  bizottsagi_szerep: z.enum(['elnok', 'tag']).nullable().optional(),
+  jelleg: z.enum(['hivatasos', 'onkentes']).nullable().optional(),
+  egyeb_megnevezes: z.string().max(120).nullable().optional(),
+  kezdete: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  vege: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  publikus: z.boolean().default(false),
+  megjegyzes: z.string().max(500).nullable().optional(),
+})
+
+export type TisztsegInput = z.infer<typeof tisztsegSchema>
