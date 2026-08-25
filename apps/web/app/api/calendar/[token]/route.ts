@@ -22,6 +22,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 interface FeedPayload {
   status?: string
   congregation_name?: string
+  /** 2026-08-26 (5. kör): a gyülekezet kérte-e a megjegyzéses (teljes) feedet.
+   *  Régi RPC-válaszban hiányzik → alapértelmezés: NEM (biztonságos irány). */
+  reszletes?: boolean
   programs?: Program[]
 }
 
@@ -57,6 +60,9 @@ export async function GET(
     fromYear: currentYear - 1,
     toYear: currentYear + 1,
     includeHolidays,
+    // 2026-08-26 (5. kör): a leírás/megjegyzés csak a gyülekezet kifejezett
+    // opt-injével megy ki — a token külső naptár-szolgáltatóra szinkronizál.
+    includeNotes: payload.reszletes === true,
   })
 
   return new NextResponse(ics, {

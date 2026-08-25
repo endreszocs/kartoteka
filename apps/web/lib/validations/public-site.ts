@@ -109,6 +109,9 @@ export const publicSiteSettingsSchema = z.object({
   show_presbyter_count: z.boolean().default(false),
   show_family_count: z.boolean().default(false),
   show_age_distribution: z.boolean().default(false),
+  // 2026-08-26 (5. kör): tisztségviselők + közelgő események szekció.
+  show_tisztsegek: z.boolean().default(false),
+  show_events: z.boolean().default(false),
   override_member_count: z.number().int().min(0).max(1_000_000).nullish(),
   override_presbyter_count: z.number().int().min(0).max(1_000_000).nullish(),
   override_family_count: z.number().int().min(0).max(1_000_000).nullish(),

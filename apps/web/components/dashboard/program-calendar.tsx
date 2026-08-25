@@ -5,6 +5,9 @@
 import { CAL_DAYS_HU, HU_MONTHS, progColor } from '@/lib/constants/dashboard'
 import type { Program } from '@/lib/constants/dashboard'
 import { ymd, eventsForDay } from '@/lib/utils/program-day'
+// 2026-08-26 (5. kör): a képernyő-naptár eddig SEMMILYEN ünnepet nem mutatott
+// (csak a nyomtatás és az ICS) — a kanonikus ünneplistából jelezzük őket.
+import { getUnnepnapTerkep } from '@/lib/utils/reformed-holidays'
 
 interface ProgramCalendarProps {
   /** A betöltött év (ismétlődés-feloldott) programjai. */
@@ -34,6 +37,7 @@ export function ProgramCalendar({
   const todayStr = ymd(today.getFullYear(), today.getMonth(), today.getDate())
   // 2026-08-10: a kis kockába csak 2 pötty fér el olvashatóan, a többi „+N"
   const maxDots = compact ? 2 : 3
+  const unnepek = getUnnepnapTerkep(year)
 
   const cells: React.ReactNode[] = []
 
@@ -52,6 +56,7 @@ export function ProgramCalendar({
     const evts = eventsForDay(programs, year, month, d)
     const has = evts.length > 0
     const selected = selectedDay === d
+    const unnepNev = unnepek.get(dateStr) || null
 
     const colors: string[] = []
     for (const e of evts) { if (colors.length < maxDots) colors.push(progColor(e)) }
@@ -64,17 +69,24 @@ export function ProgramCalendar({
     if (isPast && !isToday) cls += ' is-past'
     if (has) cls += ' has-events'
 
+    const cimResz = [unnepNev ? `✝ ${unnepNev}` : null, has ? `${evts.length} program` : null]
+      .filter(Boolean)
+      .join(' — ')
+
     cells.push(
       <button
         key={d}
         type="button"
         className={cls}
         onClick={() => onSelectDay(d)}
-        title={has ? `${HU_MONTHS[month]} ${d}. — ${evts.length} program` : `${HU_MONTHS[month]} ${d}.`}
+        title={`${HU_MONTHS[month]} ${d}.${cimResz ? ` — ${cimResz}` : ''}`}
         aria-pressed={selected}
-        aria-label={`${HU_MONTHS[month]} ${d}.${has ? `, ${evts.length} program` : ''}`}
+        aria-label={`${HU_MONTHS[month]} ${d}.${unnepNev ? `, ${unnepNev}` : ''}${has ? `, ${evts.length} program` : ''}`}
       >
-        <span className="kt-cal-num">{d}</span>
+        <span className="kt-cal-num" style={unnepNev ? { color: '#b45309', fontWeight: 700 } : undefined}>
+          {d}
+          {unnepNev && <span aria-hidden style={{ fontSize: 8, lineHeight: 1, display: 'block' }}>✝</span>}
+        </span>
         {has && (
           <span className="kt-cal-dots">
             {colors.map((c, i) => (

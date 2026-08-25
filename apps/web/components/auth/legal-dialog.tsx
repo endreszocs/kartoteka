@@ -631,6 +631,16 @@ function PrivacyContent() {
           hozzájárulásával tesszük közzé, és a hozzájárulás <em>bármikor, indoklás nélkül
           visszavonható</em>.
         </p>
+        <p className="text-[13px] text-foreground mt-2">
+          <strong>Gyülekezeti tisztségek a weboldalon (2026-08-26-tól):</strong> a
+          tisztségviselő (presbiter, gondnok, kántor, bizottsági tag stb.) neve és
+          tisztsége kizárólag <strong>külön, névre szóló hozzájárulással</strong> jelenhet
+          meg a gyülekezet nyilvános weboldalán. Az egyházi tisztség a vallási
+          meggyőződésre utaló, a GDPR 9. cikke szerinti különleges adat — a rendszer a
+          hozzájárulás nélküli megjelenítést technikailag is kizárja, a hozzájárulás
+          visszavonásakor a név azonnal lekerül az oldalról. A kezelt adatkörbe a
+          tisztség megnevezése és a megbízatás időszaka (mandátum) is beletartozik.
+        </p>
       </div>
 
       <Note>

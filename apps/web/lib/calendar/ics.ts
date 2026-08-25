@@ -18,7 +18,7 @@
 import type { Program } from '@/lib/constants/dashboard'
 import { progEmoji, progLabel } from '@/lib/constants/dashboard'
 import { expandProgramOccurrences } from '@/lib/utils/program-recurrence'
-import { getReformedHolidaysForYear } from '@/lib/utils/reformed-holidays'
+import { getUnnepnapokForYear } from '@/lib/utils/reformed-holidays'
 
 const CRLF = '\r\n'
 
@@ -147,6 +147,14 @@ export interface BuildIcsInput {
   /** Református ünnepek egész napos eseményként (alap: igen) */
   includeHolidays: boolean
   /**
+   * 2026-08-26 (5. kör): a leírás/megjegyzés mezők a feedbe kerüljenek-e.
+   * ALAPBÓL NEM — a lelkészi jegyzet lelkigondozói adatot hordozhat (pl.
+   * temetésnél), a token-feed pedig Google/Apple szerverére szinkronizálódik.
+   * A teljes tartalom gyülekezetenkénti, tudatos opt-in
+   * (congregations.calendar_feed_reszletes).
+   */
+  includeNotes?: boolean
+  /**
    * Egész napos kiegészítő események (évfordulók). A nyilvános feed nem ad át
    * ilyet — a lelkészi feed igen (2026-08-11).
    */
@@ -167,7 +175,7 @@ const PRIORITY_LABELS: Record<string, string> = {
 }
 
 export function buildCalendarIcs(input: BuildIcsInput): string {
-  const { congregationName, programs, fromYear, toYear, includeHolidays } = input
+  const { congregationName, programs, fromYear, toYear, includeHolidays, includeNotes = false } = input
   const calendarName = input.calendarName?.trim() || `${congregationName} — gyülekezeti naptár`
   const lines: string[] = [
     'BEGIN:VCALENDAR',
@@ -194,8 +202,8 @@ export function buildCalendarIcs(input: BuildIcsInput): string {
     const emoji = progEmoji(p)
     const label = progLabel(p)
     const descParts = [
-      p.leiras?.trim() || null,
-      p.megjegyzes?.trim() || null,
+      includeNotes ? p.leiras?.trim() || null : null,
+      includeNotes ? p.megjegyzes?.trim() || null : null,
       `Típus: ${label}`,
       p.prioritas && p.prioritas !== 'normal' ? `Prioritás: ${PRIORITY_LABELS[p.prioritas] ?? p.prioritas}` : null,
       p.ismetlodes_tipus ? `Ismétlődés: ${p.ismetlodes_tipus === 'heti' ? 'hetente' : p.ismetlodes_tipus === 'ketheti' ? 'kéthetente' : 'havonta'}` : null,
@@ -243,17 +251,18 @@ export function buildCalendarIcs(input: BuildIcsInput): string {
   }
 
   // ── Református ünnepek (egész napos) ──
+  // 2026-08-26 (5. kör): az EGYETLEN kanonikus ünnep-forrásból
+  // (getUnnepnapokForYear) — naponkénti bejegyzések, saját névvel
+  // (Húsvéthétfő, Pünkösdhétfő, Karácsony 2. napja).
   if (includeHolidays) {
     for (let y = fromYear; y <= toYear; y++) {
-      for (const h of getReformedHolidaysForYear(y)) {
+      for (const h of getUnnepnapokForYear(y)) {
         lines.push('BEGIN:VEVENT')
         lines.push(fold(`UID:kartoteka-unnep-${icsDate(h.date)}-${esc(h.name).replace(/[^\p{L}\p{N}]+/gu, '-')}@kartoteka.app`))
         lines.push(`DTSTAMP:${dtstamp}`)
         lines.push(fold(`SUMMARY:${esc(`✝ ${h.name}`)}`))
         lines.push(`DTSTART;VALUE=DATE:${icsDate(h.date)}`)
-        // 2026-08-02 (review): a kétnapos ünnepek (húsvét/pünkösd/karácsony)
-        // mindkét napja — a durationDays a DTEND exkluzív végét tolja
-        lines.push(`DTEND;VALUE=DATE:${icsAddDays(h.date, h.durationDays ?? 1)}`)
+        lines.push(`DTEND;VALUE=DATE:${icsAddDays(h.date, 1)}`)
         lines.push('TRANSP:TRANSPARENT')
         lines.push(fold(`DESCRIPTION:${esc(`Református ünnep — Kartotéka naptár (${congregationName})`)}`))
         lines.push('CATEGORIES:Ünnep')

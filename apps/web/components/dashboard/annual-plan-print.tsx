@@ -10,6 +10,7 @@ import { Printer, Download, X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { PROG_TIPUS_COLOR } from '@/lib/constants/dashboard'
 import type { Program, ProgramTipus } from '@/lib/constants/dashboard'
 import { expandProgramOccurrences } from '@/lib/utils/program-recurrence'
+import { getUnnepnapokForYear } from '@/lib/utils/reformed-holidays'
 import { getProgramsForYear } from '@/app/(dashboard)/programs/actions'
 
 interface AnnualPlanPrintProps {
@@ -62,36 +63,26 @@ type Rank = 'major' | 'mid' | 'minor'
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
-function easterSunday(year: number): Date {
-  const a = year % 19, b = Math.floor(year / 100), c = year % 100
-  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25)
-  const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30
-  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7
-  const m = Math.floor((a + 11 * h + 22 * l) / 451)
-  const month = Math.floor((h + l - 7 * m + 114) / 31)
-  const day = ((h + l - 7 * m + 114) % 31) + 1
-  return new Date(year, month - 1, day)
-}
 function addDays(date: Date, n: number): Date { const d = new Date(date); d.setDate(d.getDate() + n); return d }
 function ymdE(d: Date): string { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 
+// 2026-08-26 (5. kör): a KORÁBBI saját húsvét-számítás és ünneplista TÖRÖLVE —
+// az egyetlen kanonikus forrás a lib/utils/reformed-holidays getUnnepnapokForYear
+// (a nyomtatott éves terv és az ICS-feed eddig MÁS ünnepeket mutatott).
+// A rang (kiemelés) itt csak megjelenítési döntés.
+const UNNEP_RANK: Record<string, Rank> = {
+  'Húsvét': 'major', 'Húsvéthétfő': 'major', 'Pünkösd': 'major',
+  'Pünkösdhétfő': 'major', 'Karácsony': 'major', 'Karácsony 2. napja': 'major',
+  'Nagypéntek': 'mid', 'Virágvasárnap': 'mid',
+  'Áldozócsütörtök (Mennybemenetel)': 'mid', 'Reformáció napja': 'mid',
+  'Szenteste': 'mid',
+}
+
 function reformedHolidays(year: number): Record<string, { name: string; rank: Rank }> {
-  const easter = easterSunday(year)
-  const list: { date: Date; name: string; rank: Rank }[] = [
-    { date: new Date(year, 0, 1), name: 'Újév', rank: 'minor' },
-    { date: addDays(easter, -2), name: 'Nagypéntek', rank: 'mid' },
-    { date: easter, name: 'Húsvét', rank: 'major' },
-    { date: addDays(easter, 1), name: 'Húsvéthétfő', rank: 'major' },
-    { date: addDays(easter, 39), name: 'Áldozócsütörtök', rank: 'mid' },
-    { date: addDays(easter, 49), name: 'Pünkösd', rank: 'major' },
-    { date: addDays(easter, 50), name: 'Pünkösdhétfő', rank: 'major' },
-    { date: new Date(year, 9, 31), name: 'Reformáció ünnepe', rank: 'mid' },
-    { date: new Date(year, 11, 24), name: 'Szenteste', rank: 'mid' },
-    { date: new Date(year, 11, 25), name: 'Karácsony', rank: 'major' },
-    { date: new Date(year, 11, 26), name: 'Karácsony 2. napja', rank: 'major' },
-  ]
   const map: Record<string, { name: string; rank: Rank }> = {}
-  list.forEach((h) => { map[ymdE(h.date)] = { name: h.name, rank: h.rank } })
+  for (const u of getUnnepnapokForYear(year)) {
+    map[u.date] = { name: u.name, rank: UNNEP_RANK[u.name] || 'minor' }
+  }
   return map
 }
 

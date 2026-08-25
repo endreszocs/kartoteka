@@ -151,7 +151,9 @@ function TypesContent() {
       </p>
       <ul className="list-disc pl-5 space-y-1">
         <li>A <strong>számadás</strong> jóváhagyása ezen történik.</li>
-        <li>A <strong>presbiterválasztás</strong> 6 évente.</li>
+        <li>A <strong>presbiterválasztás</strong> — az Erdélyi Református
+          Egyházkerületben a ciklus 3 év (a gyülekezeti ciklus-hossz a
+          rendszerben állítható).</li>
         <li>Egyéb fontos egyházközségi döntések (épület-eladás, hitelek, stb.).</li>
       </ul>
 
@@ -189,9 +191,13 @@ function ParticipantsContent() {
 
       <S>Határozatképesség</S>
       <p>
-        Egy ülés akkor határozatképes, ha a tagok többsége (50% + 1) jelen van. Ha nem,
-        akkor a jegyzőkönyvben rögzíteni kell a határozatképtelenséget — érdemi határozat
-        nem hozható. Új ülést kell összehívni.
+        Egy ülés akkor határozatképes, ha a szavazati jogú tagok többsége (50% + 1)
+        jelen van. A rendszer 2026-08-26-tól így számol: az alap a <strong>teljes
+        értékű, aktív mandátumú presbiterek</strong> + a <strong>lelkész</strong>
+        (hivatalból, az ülés elnökeként). A <strong>pót-</strong> és
+        <strong> tiszteletbeli presbiter</strong> tanácskozási joggal vesz részt, a
+        kvórumba nem számít. Ha az ülés nem határozatképes, a jegyzőkönyvben rögzíteni
+        kell — érdemi határozat nem hozható, új ülést kell összehívni.
       </p>
     </>
   )

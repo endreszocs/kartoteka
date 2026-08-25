@@ -17,7 +17,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { getCalendarFeedToken } from '@/app/(dashboard)/programs/actions'
+import { getCalendarFeedToken, getCalendarFeedReszletes, setCalendarFeedReszletes } from '@/app/(dashboard)/programs/actions'
 
 interface GoogleCalendarDialogProps {
   open: boolean
@@ -30,6 +30,11 @@ export function GoogleCalendarDialog({ open, onOpenChange }: GoogleCalendarDialo
   const [loading, setLoading] = useState(false)
   const [includeHolidays, setIncludeHolidays] = useState(true)
   const [copied, setCopied] = useState(false)
+  // 2026-08-26 (5. kör): a feed alapból MEGJEGYZÉS NÉLKÜL megy ki — a lelkészi
+  // jegyzet lelkigondozói adatot hordozhat, a hivatkozás pedig Google/Apple
+  // szerverére szinkronizálódik. A teljes tartalom tudatos opt-in.
+  const [reszletes, setReszletes] = useState(false)
+  const [reszletesElerheto, setReszletesElerheto] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -50,6 +55,11 @@ export function GoogleCalendarDialog({ open, onOpenChange }: GoogleCalendarDialo
         })
         .catch(() => { if (!cancelled) setError('A naptár-hivatkozás betöltése nem sikerült.') })
         .finally(() => { if (!cancelled) setLoading(false) })
+      getCalendarFeedReszletes().then((res) => {
+        if (cancelled) return
+        setReszletes(res.reszletes)
+        setReszletesElerheto(res.elerheto)
+      })
     })
     return () => { cancelled = true }
   }, [open])
@@ -128,6 +138,33 @@ export function GoogleCalendarDialog({ open, onOpenChange }: GoogleCalendarDialo
                 />
                 Református ünnepek is (húsvét, pünkösd, reformáció napja…)
               </label>
+
+              {reszletesElerheto && (
+                <label className="flex min-h-10 cursor-pointer items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={reszletes}
+                    onChange={(e) => {
+                      const next = e.target.checked
+                      setReszletes(next)
+                      void setCalendarFeedReszletes(next).then((res) => {
+                        if (res?.error) {
+                          toast.error(res.error)
+                          setReszletes(!next)
+                        }
+                      })
+                    }}
+                    className="mt-0.5 size-4"
+                  />
+                  <span>
+                    A leírás és a megjegyzés is kerüljön a naptárba
+                    <span className="block text-xs text-muted-foreground">
+                      Alapból KIKAPCSOLVA: a hivatkozás a Google/Apple szerverére szinkronizál, a
+                      lelkészi megjegyzés pedig érzékeny adatot is hordozhat (pl. temetésnél).
+                    </span>
+                  </span>
+                </label>
+              )}
 
               <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-3 text-sm leading-6 text-sky-950 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100">
                 <p className="font-semibold">Így veszed fel a Google Naptárban:</p>

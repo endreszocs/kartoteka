@@ -219,7 +219,15 @@ export default async function DashboardPage() {
     supabase.from('befizetes').select('*', { count: 'exact', head: true }).eq('congregation_id', effectiveCongregationId).eq('fizetettev', curYear),
     // 2026-06-30 (perf + scope): gyülekezetre szűrt presbiterek a bevált
     // szemely!inner join-mintával (korábban az EGÉSZ presbiter táblát lehúzta).
-    supabase.from('presbiter').select('id, szemely:szemely!inner(congregation_id, meghalt)').eq('szemely.congregation_id', effectiveCongregationId).eq('szemely.meghalt', false),
+    // 2026-08-26 (5. kör): a mandátum-oszlopokkal — a csempe csak az AKTÍV
+    // presbitereket számolja; migráció előtt a régi mezőkészlettel esik vissza.
+    (async () => {
+      const res = await supabase.from('presbiter').select('id, kezdete, vege, szemely:szemely!inner(congregation_id, meghalt)').eq('szemely.congregation_id', effectiveCongregationId).eq('szemely.meghalt', false)
+      if (res.error && /kezdete|vege/.test(res.error.message || '')) {
+        return supabase.from('presbiter').select('id, szemely:szemely!inner(congregation_id, meghalt)').eq('szemely.congregation_id', effectiveCongregationId).eq('szemely.meghalt', false)
+      }
+      return res
+    })(),
     // 2026-06-30 (perf): csak a mai nap névnapja kell — korábban a teljes
     // (~366 soros) nevnap táblát lehúzta, hogy aztán JS-ben keressen.
     supabase.from('nevnap').select('nev1, nev2, nev3, honap, nap').eq('honap', String(curMonth)).eq('nap', String(curDay)),
@@ -290,9 +298,12 @@ export default async function DashboardPage() {
     )
   }).length
   // 2026-06-30: a presbiter-lekérdezés már gyülekezetre szűrt (szemely!inner:
-  // csak ennek a gyülekezetnek az ÉLŐ tagjai), így a sorok száma = a
-  // presbiterek száma — nincs szükség kliens-oldali szűrésre.
-  const presbCount = (presbResult.data || []).length
+  // csak ennek a gyülekezetnek az ÉLŐ tagjai). 2026-08-26 (5. kör): a lezárt
+  // mandátumú (régi ciklusbeli) sorok NEM számítanak — a csempe az aktív
+  // presbitériumot mutatja.
+  const presbMa = new Date().toISOString().slice(0, 10)
+  const presbCount = ((presbResult.data || []) as Array<{ kezdete?: string | null; vege?: string | null }>)
+    .filter(p => (!p.kezdete || p.kezdete <= presbMa) && (!p.vege || p.vege >= presbMa)).length
 
   const allBefizetes = (befizetesResult.data || []) as LedgerRow[]
   const allKiadas = (kiadasResult.data || []) as LedgerRow[]

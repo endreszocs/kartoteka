@@ -17,6 +17,11 @@ const programBase = z.object({
   tipus: z.enum(PROGRAM_TYPES, { message: 'Érvénytelen típus' }),
   prioritas: z.enum(PROGRAM_PRIORITIES, { message: 'Érvénytelen prioritás' }),
   ismetlodes_tipus: z.enum(ISMETLODES_TYPES).optional().or(z.literal('')),
+  // 2026-08-26 (5. kör): a sorozat záró napja — e nélkül a heti sorozat
+  // „örökre futott" (nem volt modellezhető a vége).
+  ismetlodes_vege: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal('')),
+  // 2026-08-26 (5. kör): megjelenhet a gyülekezet nyilvános weboldalán.
+  publikus: z.boolean().optional(),
   egyedi_tipus_nev: z.string().optional().or(z.literal('')),
   egyedi_emoji: z.string().optional().or(z.literal('')),
   megjegyzes: z.string().optional().or(z.literal('')),

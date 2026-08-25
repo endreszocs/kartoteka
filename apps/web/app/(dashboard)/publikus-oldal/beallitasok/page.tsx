@@ -37,7 +37,7 @@ export default async function PublicSiteSettingsPage() {
   const congregationId = access.effectiveCongregationId
   if (!congregationId) redirect('/publikus-oldal')
 
-  const [siteWithServiceTimesResult, themesResult] = await Promise.all([
+  const [siteWithServiceTimesResult, themesResult, ujKapcsolokResult] = await Promise.all([
     access.supabase
       .from('public_sites')
       .select(`${PUBLIC_SITE_SETTINGS_COLUMNS}, service_times`)
@@ -51,6 +51,14 @@ export default async function PublicSiteSettingsPage() {
       .eq('is_active', true)
       .in('preset_key', [...PUBLIC_VISUAL_THEME_KEYS])
       .order('sort_order'),
+    // 2026-08-26 (5. kör): az új szekció-kapcsolók KÜLÖN, hiba-toleráns
+    // lekérdezéssel (expand/contract) — a migráció előtti DB-n a beállítás-
+    // oldal többi része érintetlenül működik.
+    access.supabase
+      .from('public_sites')
+      .select('show_tisztsegek, show_events')
+      .eq('congregation_id', congregationId)
+      .maybeSingle(),
   ])
 
   let siteResult = siteWithServiceTimesResult
@@ -154,6 +162,12 @@ export default async function PublicSiteSettingsPage() {
             override_member_count: site?.override_member_count ?? null,
             override_presbyter_count: site?.override_presbyter_count ?? null,
             override_family_count: site?.override_family_count ?? null,
+            // 2026-08-26 (5. kör): hiba-toleráns külön lekérdezésből (a
+            // migráció előtti DB-n false marad).
+            show_tisztsegek:
+              (ujKapcsolokResult.data as { show_tisztsegek?: boolean | null } | null)?.show_tisztsegek ?? false,
+            show_events:
+              (ujKapcsolokResult.data as { show_events?: boolean | null } | null)?.show_events ?? false,
           }}
           themes={themes}
         />

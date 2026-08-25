@@ -140,16 +140,30 @@ export async function savePublicSiteSettings(
     show_presbyter_count: parsed.data.show_presbyter_count ?? false,
     show_family_count: parsed.data.show_family_count ?? false,
     show_age_distribution: parsed.data.show_age_distribution ?? false,
+    // 2026-08-26 (5. kör): tisztségviselők + közelgő események szekció.
+    show_tisztsegek: parsed.data.show_tisztsegek ?? false,
+    show_events: parsed.data.show_events ?? false,
     override_member_count: parsed.data.override_member_count ?? null,
     override_presbyter_count: parsed.data.override_presbyter_count ?? null,
     override_family_count: parsed.data.override_family_count ?? null,
   }
 
+  // 2026-08-26 (5. kör): migráció előtti kecses visszaesés — az új szekció-
+  // kapcsolók hiánya ne akadályozza a többi beállítás mentését.
+  const ujKapcsoloNelkul = () => {
+    const { show_tisztsegek: _t, show_events: _e, ...tobbi } = payload as Record<string, unknown>
+    return tobbi
+  }
+
   if (mine) {
-    const { error } = await supabase
+    let { error } = await supabase
       .from('public_sites')
       .update(payload)
       .eq('id', mine.id)
+    if (error && /show_tisztsegek|show_events/.test(error.message || '')) {
+      const retry = await supabase.from('public_sites').update(ujKapcsoloNelkul()).eq('id', mine.id)
+      error = retry.error
+    }
     if (error) return { error: handleDbError(error, 'savePublicSiteSettings.update') }
   } else {
     const { error } = await supabase.from('public_sites').insert(payload)

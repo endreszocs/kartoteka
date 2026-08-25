@@ -89,6 +89,8 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
           tipus: editProgram.tipus,
           prioritas: editProgram.prioritas,
           ismetlodes_tipus: (editProgram.ismetlodes_tipus as ProgramInput['ismetlodes_tipus']) || '',
+          ismetlodes_vege: editProgram.ismetlodes_vege || '',
+          publikus: editProgram.publikus === true,
           egyedi_tipus_nev: editProgram.egyedi_tipus_nev || '',
           egyedi_emoji: editProgram.egyedi_emoji || '',
           megjegyzes: editProgram.megjegyzes || '',
@@ -100,7 +102,8 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
           cim: '', datum: defaultDate || '', datum_vege: '',
           ido_kezdes: '', ido_befejezes: '', helyszin: '',
           tipus: 'istentisztelet', prioritas: 'normal',
-          ismetlodes_tipus: '', egyedi_tipus_nev: '', egyedi_emoji: '', megjegyzes: '',
+          ismetlodes_tipus: '', ismetlodes_vege: '', publikus: false,
+          egyedi_tipus_nev: '', egyedi_emoji: '', megjegyzes: '',
         })
         setMultiDay(false)
         setAllDay(false)
@@ -484,6 +487,27 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* 2026-08-26 (5. kör): a sorozat záró napja — e nélkül a heti
+              bibliaóra „örökre futott" a naptárban. */}
+          {ismetlodes ? (
+            <div className="kt-field">
+              <label className="kt-label">Ismétlődés vége (utolsó alkalom napja)</label>
+              <input type="date" className="kt-input" {...register('ismetlodes_vege')} />
+              <p className="kt-modal-sub">Üresen hagyva a sorozat a megjelenített év végéig fut.</p>
+            </div>
+          ) : null}
+
+          {/* 2026-08-26 (5. kör): weboldal-publikálás — az esemény címe,
+              időpontja és helyszíne kikerülhet a gyülekezet nyilvános
+              weboldalára (a leírás és a megjegyzés SOHA). */}
+          <div className="kt-field">
+            <label className="kt-switch" title="Bekapcsolva az esemény (cím, időpont, helyszín) megjelenik a gyülekezet nyilvános weboldalán — a leírás és a megjegyzés nem kerül ki.">
+              <input type="checkbox" {...register('publikus')} />
+              <span className="kt-switch-track"><span className="kt-switch-thumb" /></span>
+              Megjelenhet a gyülekezet weboldalán
+            </label>
           </div>
 
           {/* Imahét — napi vendéglelkész-beosztás (2026-08-25) */}

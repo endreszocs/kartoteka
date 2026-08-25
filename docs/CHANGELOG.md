@@ -23,6 +23,63 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-26] — Tisztségek: presbitérium mandátumokkal, bizottságok, weboldal-megjelenés + naptár-megújítás
+<!-- key: 2026-08-26-tisztsegek-naptar -->
+<!-- category: feature -->
+<!-- version: 0.9.179 -->
+<!-- targets: mindenki -->
+
+### ✨ Új funkciók
+
+- **A Presbiterek fül Tisztségek füllé bővült**, három résszel:
+  **Presbitérium** (teljes értékű / pót- / tiszteletbeli fokozat, főgondnok- és
+  gondnok-jelölés, mandátum kezdete-vége színes lejárat-jelzéssel, kánoni
+  4–36 fős létszám-őr), **Bizottságok** (gazdasági, leltározó, diakóniai —
+  elnökkel és tagokkal) és **Egyéb tisztségek** (kántor hivatásos/önkéntes
+  jelleggel, diakónus, nőszövetségi elnök, IKE-elnök, önkéntesek,
+  egyházmegyei küldött).
+- **Mandátum-kezelés**: a presbiteri ciklus alapból 3 év (gyülekezetenként
+  állítható); az „Új ciklus" varázsló a választás után egy lépésben lezárja a
+  régi névsort és felveszi az újat; egyszeri kérdés tölti fel a meglévő
+  presbiterek mandátumát. A lezárt bejegyzések a történetben megmaradnak —
+  a mentés többé nem törli a korábbi adatokat.
+- **Tisztségviselők és események a gyülekezet weboldalán**: a lelkész
+  tisztségenként és eseményenként jelöli ki, mi jelenhet meg; egy név CSAK a
+  személyi kartonon rögzített, névre szóló hozzájárulással kerülhet ki (az
+  egyházi tisztség a GDPR szerint különleges adat — a védelem a szerveren
+  van, nem a felületen). A weboldal új „Tisztségviselőink" és „Közelgő
+  események" szekciót kapott.
+- **Naptár-feltöltés**: a tömeges rögzítőben egy gombbal előtölthetők az év
+  ünnepnapi alkalmai, és Excel/CSV fájlból is beolvasható az éves naptár.
+  Új „évente" ismétlődés-típus (búcsú, hálaadás) és ismétlődés-vége mező
+  (a heti sorozat eddig „örökre futott").
+
+### 🐛 Javítások
+
+- **Egy ünnep-forrás**: eddig a nyomtatott éves terv és a naptár-hivatkozás
+  MÁS ünneplistát használt (a képernyő-naptár pedig semmit nem jelzett) —
+  mostantól egyetlen, 12 napos kanonikus lista él mindenhol, és az ünnepek a
+  képernyő-naptárban is látszanak.
+- **Jegyzőkönyvi határozatképesség**: a kvórum mostantól az aktív, teljes
+  értékű presbiterekből ÉS a lelkészből számol (a pót- és tiszteletbeli
+  presbiter tanácskozási joggal vesz részt) — a régi számítás a pót-fokozat
+  bevezetésével jogilag megtámadható jegyzőkönyvet adott volna.
+- **Naptár-hivatkozás (Google/Apple) adatvédelme**: a megosztott naptár
+  alapból a lelkészi megjegyzések NÉLKÜL megy ki (azok érzékeny adatot
+  hordozhatnak) — a teljes tartalom tudatos kapcsolóval kérhető.
+- Ismétlődő sorozatnál a „teljesítve" pipa hangos magyarázattal tiltva (az
+  összes alkalmat jelölte volna); a naptár-betöltés lapozva fut (1000 sor
+  feletti évek); a lelkészi jelentés III.9 (presbiterek száma) rovata
+  mostantól automatikusan töltődik.
+
+### ⚙️ Rendszergazdai teendő
+
+- Futtatandó SQL: `2026-08-26-presbiterium-tisztsegek.sql` (új tisztségek
+  tábla, presbiteri mandátum-mezők, hozzájárulás-mezők, naptár- és
+  weboldal-kapcsolók — a végén ✅-ellenőrző sorokkal).
+
+---
+
 ## [2026-08-26] — Leltár: a hivatalos Leltar 3_43 munkafüzet importja és kitöltött exportja + szabályos kivezetés
 <!-- key: 2026-08-26-leltar-343 -->
 <!-- category: feature -->

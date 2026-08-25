@@ -969,6 +969,39 @@ async function computeAuto(
     }
   }
 
+  // III.9 — Presbiterek száma (2026-08-26, 5. kör): eddig auto-jelölt, de
+  // SOHA nem töltött rovat volt. Az AKTÍV mandátumú, TELJES értékű presbiterek
+  // száma (a pót/tiszteletbeli tanácskozási jogú — a hivatalos rovatba nem
+  // számít). Migráció előtt (nincs fokozat-oszlop) minden sor számít — a régi
+  // viselkedés hű mása.
+  {
+    const maNap = new Date().toISOString().slice(0, 10)
+    const presbFuttat = (ujOszlopok: boolean) =>
+      supabase
+        .from('presbiter')
+        .select(ujOszlopok
+          ? 'id, id_szemely, fokozat, kezdete, vege, szemely:szemely!id_szemely!inner(congregation_id)'
+          : 'id, id_szemely, szemely:szemely!id_szemely!inner(congregation_id)')
+        .eq('szemely.congregation_id', congId)
+    let presbRes = await presbFuttat(true)
+    if (presbRes.error && /fokozat|kezdete|vege/.test(presbRes.error.message || '')) {
+      presbRes = await presbFuttat(false)
+    }
+    if (presbRes.error) {
+      autoHibak.push(`A presbiterek száma (III.9) nem volt lekérdezhető: ${presbRes.error.message}`)
+    } else {
+      const sorok = (presbRes.data || []) as unknown as Array<{ id_szemely: number | null; fokozat?: string | null; kezdete?: string | null; vege?: string | null }>
+      const szemelyek = new Set<number>()
+      for (const p of sorok) {
+        if (p.kezdete && p.kezdete > maNap) continue
+        if (p.vege && p.vege < maNap) continue
+        if (p.fokozat !== undefined && p.fokozat !== null && p.fokozat !== 'teljes') continue
+        if (p.id_szemely != null) szemelyek.add(p.id_szemely)
+      }
+      auto['III.9'] = szemelyek.size
+    }
+  }
+
   // I.1 — előző évi véglegesített jelentés I.10-e
   if (elozoJelentesRes.error) {
     if (!isMissingJelentesTable(elozoJelentesRes.error)) {
