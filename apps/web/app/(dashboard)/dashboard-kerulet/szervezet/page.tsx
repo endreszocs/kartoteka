@@ -30,9 +30,9 @@ import {
  * (2026-08-25, gyülekezeti egységek kör).
  *
  * MIT MUTAT: a kerület gyülekezeteinek szervezeti képét EGYHÁZMEGYÉNKÉNT
- * csoportosítva — anyaegyházközségek, a hozzájuk kapcsolt leányegyházközségek,
- * a kartotékon belüli egységek (leány/szórvány), a szolgáló lelkészek neve és
- * az élő létszám.
+ * csoportosítva — anya-, missziói és társegyházközségek, a hozzájuk kapcsolt
+ * leányegyházközségek, a kartotékon belüli egységek (leány/szórvány/egyházrész),
+ * a szolgáló lelkészek neve és az élő létszám.
  *
  * ADATFORRÁS-HATÁR (Endre K4 döntése, 2026-08-16): a kerület a gyülekezetek
  * belső adatait nem olvassa. Ez az oldal EGYETLEN adatforrásból dolgozik: a
@@ -54,16 +54,24 @@ import {
  */
 
 /** Típus → jelvény-hangulat — a megyei panel (diocese-szervezet-panel.tsx)
- *  leképezésével BETŰRE azonos, hogy a két szint ugyanazt a nyelvet beszélje. */
-const TIPUS_INTENT: Record<SzervezetiTipus, StatusIntent> = {
-  anya: 'info',
-  leany: 'success',
-  misszioi: 'warning',
+ *  leképezésével BETŰRE azonos, hogy a két szint ugyanazt a nyelvet beszélje.
+ *  A StatusBadge-nek nincs teal intentje: a társegyházközség (és az egyházrész)
+ *  teal színe `className`-felülírással érvényesül, dark párral. */
+const TEAL_JELVENY =
+  'bg-teal-50 text-teal-700 ring-teal-600/25 dark:bg-teal-950/50 dark:text-teal-300 dark:ring-teal-400/30'
+
+const TIPUS_META: Record<SzervezetiTipus, { intent: StatusIntent; className?: string }> = {
+  anya: { intent: 'info' },
+  leany: { intent: 'success' },
+  misszioi: { intent: 'warning' },
+  tars: { intent: 'neutral', className: TEAL_JELVENY },
 }
 
-const EGYSEG_INTENT: Record<EgysegTipus, StatusIntent> = {
-  leany: 'success',
-  szorvany: 'neutral',
+const EGYSEG_META: Record<EgysegTipus, { intent: StatusIntent; className?: string }> = {
+  leany: { intent: 'success' },
+  szorvany: { intent: 'neutral' },
+  // Az egyházrész a társegyházközség színnyelvét viseli.
+  egyhazresz: { intent: 'neutral', className: TEAL_JELVENY },
 }
 
 /** Hiányzó RPC felismerése (PGRST202 / 42883 / proxy-átírt szövegek). */
@@ -180,13 +188,25 @@ export default async function KeruletiSzervezetPage() {
           <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             Jelmagyarázat:
           </span>
-          {(Object.keys(TIPUS_INTENT) as SzervezetiTipus[]).map((t) => (
-            <StatusBadge key={t} intent={TIPUS_INTENT[t]} dot>
+          {(Object.keys(TIPUS_META) as SzervezetiTipus[]).map((t) => (
+            <StatusBadge
+              key={t}
+              intent={TIPUS_META[t].intent}
+              className={TIPUS_META[t].className}
+              dot
+            >
               {SZERVEZETI_TIPUS_CIMKEK[t]}
             </StatusBadge>
           ))}
-          <StatusBadge intent={EGYSEG_INTENT.szorvany} dot>
+          <StatusBadge intent={EGYSEG_META.szorvany.intent} dot>
             {EGYSEG_TIPUS_CIMKEK.szorvany}
+          </StatusBadge>
+          <StatusBadge
+            intent={EGYSEG_META.egyhazresz.intent}
+            className={EGYSEG_META.egyhazresz.className}
+            dot
+          >
+            {EGYSEG_TIPUS_CIMKEK.egyhazresz}
           </StatusBadge>
         </div>
       )}
@@ -305,7 +325,10 @@ function AnyaCsoportSor({
           {egysegek.map((e) => (
             <div key={e.id} className="flex flex-wrap items-center gap-2">
               <p className="text-sm text-foreground">{e.nev}</p>
-              <StatusBadge intent={EGYSEG_INTENT[e.tipus] ?? 'neutral'}>
+              <StatusBadge
+                intent={EGYSEG_META[e.tipus]?.intent ?? 'neutral'}
+                className={EGYSEG_META[e.tipus]?.className}
+              >
                 {EGYSEG_TIPUS_CIMKEK[e.tipus] ?? e.tipus}
               </StatusBadge>
               {!e.aktiv && (
@@ -338,7 +361,10 @@ function GyulekezetSor({ sor, kicsi }: { sor: HierarchiaSor; kicsi?: boolean }) 
           >
             {sor.name}
           </p>
-          <StatusBadge intent={TIPUS_INTENT[sor.szervezeti_tipus] ?? 'neutral'}>
+          <StatusBadge
+            intent={TIPUS_META[sor.szervezeti_tipus]?.intent ?? 'neutral'}
+            className={TIPUS_META[sor.szervezeti_tipus]?.className}
+          >
             {SZERVEZETI_TIPUS_CIMKEK[sor.szervezeti_tipus] ?? sor.szervezeti_tipus}
           </StatusBadge>
         </div>

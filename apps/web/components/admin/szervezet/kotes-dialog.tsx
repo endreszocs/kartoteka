@@ -2,12 +2,14 @@
 
 /**
  * KÖTÉS-DIALÓGUS — egy gyülekezet HIVATALOS szervezeti formája
- * (anya–leány–missziói) és az anya-kötés kezelése (2026-08-25, terv 3.1).
+ * (anya–leány–missziói–társ) és az anya-kötés kezelése (2026-08-25, terv 3.1).
  *
  * · A típus-választó a kanonikus SZERVEZETI_TIPUS_CIMKEK + _LEIRAS párokból
- *   épül (lib/gyulekezet/egysegek-shared.ts) — a magyarázat ott van a döntésnél.
- * · Leánynál anya-választó: a SAJÁT egyházmegye 'anya'/'misszioi' gyülekezetei,
- *   a fa MÁR BETÖLTÖTT adatából szűrve (nincs külön lekérdezés), névre szűrhető.
+ *   épül (lib/gyulekezet/egysegek-shared.ts) — a magyarázat ott van a döntésnél,
+ *   és egy új forma (mint a 'tars') a katalógusból magától megjelenik.
+ * · Leánynál anya-választó: a SAJÁT egyházmegye 'anya'/'misszioi'/'tars'
+ *   gyülekezetei, a fa MÁR BETÖLTÖTT adatából szűrve (nincs külön lekérdezés),
+ *   névre szűrhető.
  * · ⚠️ A SZERVER-HIBA SZÓ SZERINT jelenik meg: a DB őr-trigger
  *   (congregations_szervezet_guard) magyar RAISE-üzenetei maguk a szabályok
  *   („Leányegyházközségnek kötelező anyaegyházközséget megadni…") — nem
@@ -36,7 +38,10 @@ import {
 import { setCongregationSzervezet } from '@/app/(dashboard)/admin/szervezet-kotes-actions'
 import type { FaGyulekezet } from '@/app/(dashboard)/admin/szervezet-shared'
 
-const TIPUSOK: SzervezetiTipus[] = ['anya', 'leany', 'misszioi']
+// Katalógus-alapú (nem kézzel felsorolt) lista: a SZERVEZETI_TIPUS_CIMKEK
+// kulcsai a teljes értékkészlet — így a 'tars' (és minden későbbi forma)
+// automatikusan megjelenik a választóban.
+const TIPUSOK = Object.keys(SZERVEZETI_TIPUS_CIMKEK) as SzervezetiTipus[]
 
 export interface AnyaJelolt {
   id: string
@@ -52,7 +57,7 @@ export function KotesDialog({
   /** `null` = a dialógus zárva. */
   gyulekezet: FaGyulekezet | null
   /**
-   * A saját egyházmegye 'anya'/'misszioi' gyülekezetei (a fa betöltött
+   * A saját egyházmegye 'anya'/'misszioi'/'tars' gyülekezetei (a fa betöltött
    * adatából) — a hívó szűri, itt csak a saját magára mutató sort dobjuk el.
    */
   anyaJeloltek: AnyaJelolt[]
@@ -184,12 +189,12 @@ export function KotesDialog({
               htmlFor="kotes-anya-select"
               className="block text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground"
             >
-              Anyaegyházközség (a saját egyházmegye anya- és missziói egyházközségei)
+              Anyaegyházközség (a saját egyházmegye anya-, missziói és társegyházközségei)
             </label>
             {valaszthatoJeloltek.length === 0 ? (
               <p className="text-xs leading-relaxed text-muted-foreground">
-                Ebben az egyházmegyében jelenleg nincs választható anya- vagy missziói
-                egyházközség — előbb a leendő anya típusát kell beállítani.
+                Ebben az egyházmegyében jelenleg nincs választható anya-, missziói vagy
+                társegyházközség — előbb a leendő anya típusát kell beállítani.
               </p>
             ) : (
               <>

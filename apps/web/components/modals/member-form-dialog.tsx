@@ -26,7 +26,7 @@ import type { EnrichedMember } from '@/lib/constants/members'
 // 2026-08-25 (gyülekezeti egységek): egység-választó a Lakóhely blokkban —
 // csak akkor jelenik meg, ha a gyülekezetnek van legalább egy aktív egysége.
 import { listGyulekezetiEgysegek } from '@/app/(dashboard)/congregation/egysegek-actions'
-import type { GyulekezetiEgyseg } from '@/lib/gyulekezet/egysegek-shared'
+import { kozpontValasztoCimke, type GyulekezetiEgyseg } from '@/lib/gyulekezet/egysegek-shared'
 import { toast } from 'sonner'
 import {
   BookOpen,
@@ -129,6 +129,9 @@ export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged
   // a lista üres marad, és a mező egyszerűen NEM jelenik meg — a mentés a
   // szerveroldali oszlop-strip retry miatt akkor sem bukik el.
   const [egysegek, setEgysegek] = useState<GyulekezetiEgyseg[]>([])
+  // 2026-08-25 (társegyházközség): a szervezeti forma a „központ" opció feliratához —
+  // társnál a címke nélküli adat a KÖZÖS állomány, nem az anyaközpont.
+  const [szervezetiTipus, setSzervezetiTipus] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -137,8 +140,16 @@ export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged
       .then((ctx) => { if (!cancelled) setCongName(ctx.congregationName) })
       .catch(() => { /* fallback marad */ })
     void listGyulekezetiEgysegek()
-      .then((res) => { if (!cancelled) setEgysegek(res.egysegek ?? []) })
-      .catch(() => { if (!cancelled) setEgysegek([]) })
+      .then((res) => {
+        if (cancelled) return
+        setEgysegek(res.egysegek ?? [])
+        setSzervezetiTipus(res.szervezetiTipus ?? null)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setEgysegek([])
+        setSzervezetiTipus(null)
+      })
     return () => { cancelled = true }
   }, [open])
 
@@ -651,7 +662,7 @@ export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged
                         })}
                         className={'w-full border px-3 py-2 text-sm ' + FIELD_CLASS}
                       >
-                        <option value="">Anyaegyházközség (központ)</option>
+                        <option value="">{kozpontValasztoCimke(szervezetiTipus)}</option>
                         {egysegek.map((egyseg) => (
                           <option key={egyseg.id} value={egyseg.id}>{egyseg.nev}</option>
                         ))}

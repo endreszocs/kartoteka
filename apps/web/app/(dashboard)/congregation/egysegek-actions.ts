@@ -12,7 +12,8 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { logAuditEvent } from '@/lib/audit/log'
-import type { GyulekezetiEgyseg } from '@/lib/gyulekezet/egysegek-shared'
+import type { GyulekezetiEgyseg, SzervezetiTipus } from '@/lib/gyulekezet/egysegek-shared'
+import { SZERVEZETI_TIPUS_CIMKEK } from '@/lib/gyulekezet/egysegek-shared'
 
 const HIANYZO_TABLA_MINTA = /relation .* does not exist|schema cache|could not find/i
 
@@ -26,7 +27,7 @@ function hianyzoTablaUzenet(): string {
 const egysegSchema = z.object({
   id: z.string().uuid().optional(),
   nev: z.string().trim().min(2, 'Az egység neve legalább 2 karakter legyen.').max(120),
-  tipus: z.enum(['leany', 'szorvany']),
+  tipus: z.enum(['leany', 'szorvany', 'egyhazresz']),
   adrlocality_id: z.number().int().positive().nullable().optional(),
   sorrend: z.number().int().min(0).max(9999).optional(),
   aktiv: z.boolean().optional(),
@@ -39,12 +40,19 @@ const EGYSEG_SELECT =
   'id, congregation_id, nev, tipus, adrlocality_id, linked_congregation_id, sorrend, aktiv, megjegyzes'
 
 /**
- * A saját gyülekezet egységei (alapból csak az aktívak).
+ * A saját gyülekezet egységei (alapból csak az aktívak) + a gyülekezet
+ * szervezeti formája (a „központ" felirataihoz: társegyházközségnél a
+ * címke nélküli adat nem „anyaközpont", hanem KÖZÖS).
  * Hibánál { error } — a hívó SOHA ne kezelje üres listaként a hibát.
  */
 export async function listGyulekezetiEgysegek(opts?: {
   inaktivakIs?: boolean
-}): Promise<{ egysegek?: GyulekezetiEgyseg[]; error?: string }> {
+}): Promise<{
+  egysegek?: GyulekezetiEgyseg[]
+  /** 'anya' | 'leany' | 'misszioi' | 'tars' — null, ha az oszlop még nincs migrálva. */
+  szervezetiTipus?: string | null
+  error?: string
+}> {
   const { supabase, user, congregationId } = await getEffectiveCongregationContext()
   if (!user) return { error: 'Nincs bejelentkezett felhasználó.' }
   if (!congregationId) return { error: 'Nincs aktív gyülekezeti hatókör.' }
@@ -57,12 +65,21 @@ export async function listGyulekezetiEgysegek(opts?: {
     .order('nev', { ascending: true })
   if (!opts?.inaktivakIs) q = q.eq('aktiv', true)
 
-  const { data, error } = await q
-  if (error) {
-    if (HIANYZO_TABLA_MINTA.test(error.message)) return { error: hianyzoTablaUzenet() }
-    return { error: `Az egységek betöltése sikertelen: ${error.message}` }
+  const [egysegekRes, tipusRes] = await Promise.all([
+    q,
+    supabase.from('congregations').select('szervezeti_tipus').eq('id', congregationId).maybeSingle(),
+  ])
+
+  if (egysegekRes.error) {
+    if (HIANYZO_TABLA_MINTA.test(egysegekRes.error.message)) return { error: hianyzoTablaUzenet() }
+    return { error: `Az egységek betöltése sikertelen: ${egysegekRes.error.message}` }
   }
-  return { egysegek: (data || []) as GyulekezetiEgyseg[] }
+  // A szervezeti_tipus oszlop hiánya (migráció előtt) NEM hiba — null-lal jelezzük.
+  const szervezetiTipus = tipusRes.error
+    ? null
+    : ((tipusRes.data as { szervezeti_tipus?: string | null } | null)?.szervezeti_tipus ?? null)
+
+  return { egysegek: (egysegekRes.data || []) as GyulekezetiEgyseg[], szervezetiTipus }
 }
 
 /** Egység létrehozása vagy módosítása (id nélkül = új). */
@@ -185,6 +202,128 @@ export async function deleteGyulekezetiEgyseg(
   )
   revalidatePath('/munkanaplo')
   revalidatePath('/tagnyilvantartas')
+  return { ok: true }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Szervezeti forma — a lelkész a SAJÁT gyülekezetére maga állíthatja be
+// (2026-08-25/2, Endre kérése). A DB-őrtrigger a végső védelem (leánynak
+// kötelező érvényes anya; társnak/anyának/missziói­nak nem lehet anyja),
+// az admin Szervezeti fán bármikor felülbírálhat, és minden változás
+// audit-naplóba kerül.
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Anya-jelöltek a leány-kötéshez: a SAJÁT egyházmegye önálló (anya nélküli)
+ * 'anya' / 'misszioi' / 'tars' gyülekezetei. A congregations SELECT-je
+ * mindenkinek nyitott (publikus alapadat), így ez sima lekérdezés.
+ */
+export async function listAnyaJeloltek(): Promise<{
+  jeloltek?: Array<{ id: string; nev: string }>
+  error?: string
+}> {
+  const { supabase, user, congregationId } = await getEffectiveCongregationContext()
+  if (!user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!congregationId) return { error: 'Nincs aktív gyülekezeti hatókör.' }
+
+  const sajat = await supabase
+    .from('congregations')
+    .select('diocese_id')
+    .eq('id', congregationId)
+    .maybeSingle()
+  if (sajat.error) return { error: `A gyülekezet betöltése sikertelen: ${sajat.error.message}` }
+  const dioceseId = (sajat.data as { diocese_id?: string | null } | null)?.diocese_id
+  if (!dioceseId) return { error: 'A gyülekezethez nincs egyházmegye rendelve — kérje a rendszergazda segítségét.' }
+
+  const res = await supabase
+    .from('congregations')
+    .select('id, name, nev_hu, szervezeti_tipus, anya_congregation_id')
+    .eq('diocese_id', dioceseId)
+    .neq('id', congregationId)
+    .in('szervezeti_tipus', ['anya', 'misszioi', 'tars'])
+    .is('anya_congregation_id', null)
+    .order('name')
+  if (res.error) {
+    if (/column|does not exist|schema cache|could not find/i.test(res.error.message)) {
+      return {
+        error:
+          'A szervezeti forma oszlopai még nincsenek az adatbázisban. Futtassa le a 2026-08-25-gyulekezeti-egysegek.sql migrációt.',
+      }
+    }
+    return { error: `Az anyaegyházközség-jelöltek betöltése sikertelen: ${res.error.message}` }
+  }
+  const jeloltek = ((res.data || []) as Array<{ id: string; name: string; nev_hu: string | null }>).map(
+    (c) => ({ id: c.id, nev: (c.nev_hu || '').trim() || c.name }),
+  )
+  return { jeloltek }
+}
+
+const szervezetiFormaSchema = z.object({
+  tipus: z.enum(['anya', 'leany', 'misszioi', 'tars']),
+  anyaCongregationId: z.string().uuid().nullable().optional(),
+})
+
+/**
+ * A saját gyülekezet szervezeti formájának beállítása. Leánynál kötelező az
+ * anya; minden más formánál az anya-kötés törlődik. A DB-őrtrigger magyar
+ * hibaüzenetei változtatás nélkül jutnak vissza a felületre.
+ */
+export async function saveSzervezetiForma(input: {
+  tipus: SzervezetiTipus
+  anyaCongregationId?: string | null
+}): Promise<{ ok?: true; error?: string }> {
+  const parsed = szervezetiFormaSchema.safeParse(input)
+  if (!parsed.success) return { error: 'Érvénytelen szervezeti forma.' }
+
+  const { supabase, user, congregationId } = await getEffectiveCongregationContext()
+  if (!user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!congregationId) return { error: 'Nincs aktív gyülekezeti hatókör.' }
+
+  const anyaId = parsed.data.tipus === 'leany' ? (parsed.data.anyaCongregationId ?? null) : null
+  if (parsed.data.tipus === 'leany' && !anyaId) {
+    return { error: 'Leányegyházközségnél kötelező kiválasztani az anyaegyházközséget.' }
+  }
+  if (anyaId === congregationId) {
+    return { error: 'Az egyházközség nem lehet önmaga anyaegyházközsége.' }
+  }
+
+  const updated = await supabase
+    .from('congregations')
+    .update({ szervezeti_tipus: parsed.data.tipus, anya_congregation_id: anyaId })
+    .eq('id', congregationId)
+    .select('id')
+  if (updated.error) {
+    if (/column|does not exist|schema cache|could not find/i.test(updated.error.message)) {
+      return {
+        error:
+          'A szervezeti forma oszlopai még nincsenek az adatbázisban. Futtassa le a 2026-08-25-gyulekezeti-egysegek.sql migrációt.',
+      }
+    }
+    // A DB-őrtrigger RAISE-üzenetei magyarul fogalmaznak — szó szerint továbbadjuk.
+    return { error: updated.error.message }
+  }
+  if (!updated.data || updated.data.length === 0) {
+    return {
+      error:
+        'A mentés nem történt meg: az adatbázis jogosultság-szabálya (RLS) nem engedte a módosítást. Kérje a rendszergazda segítségét.',
+    }
+  }
+
+  await logAuditEvent(
+    {
+      action: 'congregation.szervezet_changed_self',
+      targetTable: 'congregations',
+      targetId: congregationId,
+      metadata: {
+        uj_tipus: parsed.data.tipus,
+        uj_tipus_cimke: SZERVEZETI_TIPUS_CIMKEK[parsed.data.tipus],
+        anya_congregation_id: anyaId,
+      },
+    },
+    supabase,
+  )
+  revalidatePath('/dashboard')
+  revalidatePath('/', 'layout')
   return { ok: true }
 }
 

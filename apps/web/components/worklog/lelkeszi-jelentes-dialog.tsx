@@ -81,6 +81,13 @@ import {
 } from '@/lib/gyulekezet/egysegek-shared'
 import type { JelentesBontas } from '@/lib/lelkeszi-jelentes/worklog-auto'
 import { buildBontasMellekletHtml } from '@/lib/lelkeszi-jelentes/bontas-print'
+
+/**
+ * 2026-08-25 (társegyházközség): a bontás + a „központ" oszlop felirata
+ * (társnál „Közös (egész egyházközség)"). A kozpontCimke a régi — a társ-forma
+ * előtt véglegesített — snapshotból hiányozhat: ilyenkor ANYAKOZPONT_CIMKE.
+ */
+type BontasAdat = JelentesBontas & { kozpontCimke?: string }
 // 2026-08-15 (Endre 4. szakasz): EGYSÉGES véglegesítés-gomb a fejléc-sáv jobb
 // szélén — ugyanaz a komponens, mint a többi öt irat-típusnál. A meglévő
 // wizard-flow változatlan (skipConfirm: a wizard maga vezet végig és erősít meg).
@@ -269,7 +276,7 @@ export function LelkesziJelentesDialog({
   // 2026-08-25 (gyülekezeti egységek): a „Gyülekezetenkénti bontás" adata —
   // csak akkor van, ha a gyülekezetnek aktív egysége van (különben a panel
   // meg sem jelenik). Véglegesített jelentésnél a snapshotból jön.
-  const [bontas, setBontas] = useState<JelentesBontas | null>(null)
+  const [bontas, setBontas] = useState<BontasAdat | null>(null)
   const [bontasNyitva, setBontasNyitva] = useState(true)
 
   // Szerkesztő-állapot (nyers értékek — mentéskor normalizálunk)
@@ -863,7 +870,7 @@ export function LelkesziJelentesDialog({
           value={value}
           onChange={(e) => setBontasCella(oszlopId, mezoId, e.target.value)}
           inputMode="decimal"
-          aria-label={`${mezoId} — kézi érték (${oszlopId === ANYA_OSZLOP_ID ? ANYAKOZPONT_CIMKE : 'egység'})`}
+          aria-label={`${mezoId} — kézi érték (${oszlopId === ANYA_OSZLOP_ID ? (bontas.kozpontCimke ?? ANYAKOZPONT_CIMKE) : 'egység'})`}
           placeholder="—"
           className="h-8 w-20 border-dashed text-right tabular-nums"
         />
@@ -922,8 +929,11 @@ export function LelkesziJelentesDialog({
    */
   function renderBontasTartalom() {
     if (!bontas || !currentData) return null
+    // 2026-08-25 (társegyházközség): a „központ" oszlop felirata a szerverről
+    // jön (társnál „Közös (egész egyházközség)"); régi snapshotnál fallback.
+    const kozpont = bontas.kozpontCimke ?? ANYAKOZPONT_CIMKE
     const oszlopok: Array<{ id: string; nev: string; tipusCimke: string | null }> = [
-      { id: ANYA_OSZLOP_ID, nev: ANYAKOZPONT_CIMKE, tipusCimke: null },
+      { id: ANYA_OSZLOP_ID, nev: kozpont, tipusCimke: null },
       ...bontas.egysegek.map((e) => ({
         id: e.id,
         nev: e.nev,
@@ -1042,8 +1052,8 @@ export function LelkesziJelentesDialog({
           </p>
           <p>
             <strong className="text-foreground">VII.1</strong> — a járulék-bontás a befizető személy
-            egysége szerinti <em>javaslat</em> (család-szintű vagy egység nélküli befizetés: Anyaegyházközség
-            oszlop).
+            egysége szerinti <em>javaslat</em> (család-szintű vagy egység nélküli befizetés:{' '}
+            {kozpont} oszlop).
           </p>
           <p>
             <strong className="text-foreground">VII.3</strong> — a persely-bontás a munkanapló

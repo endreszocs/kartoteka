@@ -3,12 +3,12 @@
 // 2026-08-25: Gyülekezetformák — lépésről lépésre útmutató lelkészeknek.
 // Önálló tartalom-komponens: a munkanapló-súgó „Gyülekezetformák" fejezete
 // rendereli, de bárhonnan beágyazható (saját wrapper-rel, nem függ a súgó
-// keretétől). A négy szervezeti forma (anya / leány / missziói / szórvány),
-// a Kartotéka-beállítás lépései és a gyakori kérdések.
+// keretétől). Az öt szervezeti forma (anya / leány / missziói / társ /
+// szórvány), a Kartotéka-beállítás lépései és a gyakori kérdések.
 // Kizárólag téma-tokenek (bg-card, bg-muted, text-foreground,
 // text-muted-foreground, border-border, text-primary) — nincs hardcode-olt szín.
 
-import { Church, HomeIcon, Map, MapPin } from 'lucide-react'
+import { Church, Handshake, HomeIcon, Map, MapPin } from 'lucide-react'
 
 function S({ children }: { children: React.ReactNode }) {
   return (
@@ -61,15 +61,79 @@ function Kerdes({ q, a }: { q: string; a: string }) {
   )
 }
 
+// „Társegyházközség vagy leányegyházközség?" — páros összevetés. A két forma
+// összetévesztése a leggyakoribb hiba: mindkettőnél több település, mindkettőnél
+// átjáró lelkész — a különbség az EGYENRANGÚSÁG.
+const TARS_LEANY_OSSZEVETES: ReadonlyArray<{
+  szempont: string
+  tars: string
+  leany: string
+}> = [
+  {
+    szempont: 'Alkotás',
+    tars: 'Egymással egyenrangú egyházrészek közös egyházközsége — nincs „központ" és „alárendelt".',
+    leany: 'Egy anyaegyházközséghez kapcsolódik, annak gondozásában.',
+  },
+  {
+    szempont: 'Presbitérium',
+    tars: 'Minden egyházrésznek külön presbitériuma van — helyben intézik a saját ügyeiket.',
+    leany: 'Van helyi presbitériuma, de igazgatásban az anyaegyházközséghez kötődik.',
+  },
+  {
+    szempont: 'Lelkész',
+    tars: 'Közösen fenntartott lelkészi állás — a lelkész minden társult településen szolgál.',
+    leany: 'Az anyaegyházközség lelkipásztora látja el.',
+  },
+  {
+    szempont: 'Viszony',
+    tars: 'Együttműködési megállapodás, amelyet az egyházmegyei közgyűlés hagy jóvá.',
+    leany: 'Az anyához rendelt szervezeti kapcsolat.',
+  },
+]
+
+// Mobilon kártyapárként (egymás alatt, mini-címkével), sm-től táblaszerű
+// rácsban — kizárólag téma-tokenekkel.
+function TarsLeanyOsszevetes() {
+  return (
+    <div className="overflow-hidden rounded-xl border border-border">
+      <div className="hidden gap-x-3 border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold text-foreground sm:grid sm:grid-cols-[6.5rem_1fr_1fr]">
+        <span aria-hidden />
+        <span>Társegyházközség</span>
+        <span>Leányegyházközség</span>
+      </div>
+      <div className="divide-y divide-border">
+        {TARS_LEANY_OSSZEVETES.map((sor) => (
+          <div
+            key={sor.szempont}
+            className="grid grid-cols-1 gap-1.5 bg-card px-4 py-3 sm:grid-cols-[6.5rem_1fr_1fr] sm:gap-x-3"
+          >
+            <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground sm:pt-0.5">
+              {sor.szempont}
+            </p>
+            <p className="text-sm leading-relaxed">
+              <span className="font-semibold text-foreground sm:hidden">Társ: </span>
+              {sor.tars}
+            </p>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              <span className="font-semibold text-foreground sm:hidden">Leány: </span>
+              {sor.leany}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function GyulekezetformakUtmutato() {
   return (
     <div className="space-y-4 text-sm leading-relaxed text-foreground/90">
-      {/* ───── (a) A négy szervezeti forma ───── */}
+      {/* ───── (a) Az öt szervezeti forma ───── */}
       <S>Milyen formában működhet egy egyházközség?</S>
       <p>
         A Romániai Református Egyház törvénytára szerint egy gyülekezet többféle
         szervezeti formában működhet. A forma azt mondja meg, mennyire önálló a
-        közösség, és ki gondoskodik róla lelkipásztorilag. A négy forma:
+        közösség, és ki gondoskodik róla lelkipásztorilag. Az öt forma:
       </p>
 
       <div className="space-y-3">
@@ -95,6 +159,13 @@ export function GyulekezetformakUtmutato() {
           pelda="egy vidék öt-hat kis települése együtt tart fenn egy lelkészi állást — a lelkész mindegyikbe rendszeresen kijár."
         />
         <FormaKartya
+          Icon={Handshake}
+          cim="Társegyházközség"
+          alcim="Egyenrangú egyházrészek közös egyházközsége"
+          leiras="Két vagy több, egymáshoz közel fekvő település református közösségének KÖZÖS egyházközsége. Nem anya–leány viszony: az egyházrészek egymással egyenrangúak, mindegyiknek külön presbitériuma van (helyben intézik saját ügyeiket), a lelkipásztori állást pedig együttesen tartják fenn — a közös lelkész minden társult településen szolgál. A társegyházközség jogi személy: egyházi és gazdasági ügyekben közösen jár el. Az egyházrészek viszonyát (fenntartási költségek, lelkész-javadalmazás, istentiszteleti rend, közös vagyon) írásos megállapodás rendezi, amelyet az egyházmegyei közgyűlés hagy jóvá."
+          pelda="két közeli falu külön templommal és presbitériummal, de egyik sem tudna külön lelkészt fenntartani — egy lelkész szolgál mindkét helyen, pl. vasárnap délelőtt az egyikben, délután a másikban."
+        />
+        <FormaKartya
           Icon={MapPin}
           cim="Szórvány"
           alcim="Kis közösség — nem önálló egyházközség"
@@ -115,6 +186,16 @@ export function GyulekezetformakUtmutato() {
         </p>
       </div>
 
+      {/* ───── Társegyházközség vagy leányegyházközség? ───── */}
+      <S>Társegyházközség vagy leányegyházközség?</S>
+      <p>
+        Mindkettőnél több település, mindkettőnél „átjáró" lelkész — a döntő
+        különbség az <strong>egyenrangúság</strong>: a társegyházközségben nincs
+        anya és alárendelt, a leányegyházközség viszont mindig egy
+        anyaegyházközséghez tartozik.
+      </p>
+      <TarsLeanyOsszevetes />
+
       {/* ───── (b) Beállítás lépésről lépésre ───── */}
       <S>Hogyan állítsd be a Kartotékában — lépésről lépésre</S>
       <p>
@@ -125,15 +206,20 @@ export function GyulekezetformakUtmutato() {
       </p>
       <ol className="list-decimal pl-5 space-y-2">
         <li>
-          <strong>A rendszergazda beállítja a hivatalos formát</strong> és az
-          anya-kapcsolatot (ki kihez tartozik). Ezt nem te állítod — ha
-          hiányzik vagy téves, jelezd a rendszergazdának.
+          <strong>Beállítod a szervezeti formát</strong> a Gyülekezet-beállító
+          varázsló „Áttekintés és alapadatok” paneljén — leányegyházközségnél
+          az anyaegyházközség kiválasztásával. A rendszergazda a Szervezeti
+          fán ugyanezt kezeli, és vitás besorolásnál felülbírál (minden
+          módosítás naplózott).
         </li>
         <li>
           <strong>Felveszed az egységeket</strong> a Gyülekezet-beállító
           varázsló „Egységek" paneljén: minden leány- és szórványközösségnek
           adsz egy nevet és típust (pl. „Páva — leányegyházközség",
-          „Kovászna-szórvány"). Az anyaközpontot nem kell felvenni.
+          „Kovászna-szórvány"). Az anyaközpontot nem kell felvenni.{' '}
+          <strong>Társegyházközségnél</strong> az egyházrészeket „Egyházrész"
+          típusú egységként vedd fel — ott mindegyik település saját egységet
+          kap, mert nincs kitüntetett központ.
         </li>
         <li>
           <strong>Besorolod a tagokat</strong>: tömegesen település szerint a
@@ -166,7 +252,10 @@ export function GyulekezetformakUtmutato() {
           Az egység-címke nélküli adat mindig az <strong>anyaközponthoz</strong>{' '}
           számít. Ezért a korábbi éveid adatai visszamenőleg is helyesek, és
           semmi nem romlik el, ha valamit nem címkézel meg — legfeljebb a
-          bontás lesz kevésbé részletes.
+          bontás lesz kevésbé részletes. <strong>Társegyházközségnél</strong>{' '}
+          nincs kitüntetett központ: ott a címke nélküli adat a{' '}
+          <strong>közös</strong> (az egész egyházközséget érintő) tételt
+          jelenti.
         </p>
       </div>
 
@@ -192,6 +281,10 @@ export function GyulekezetformakUtmutato() {
         <Kerdes
           q="Egyeznie kell-e a bontásnak a hivatalos űrlappal?"
           a="A bontás-tábla Kartotéka-többlet (belső használatra és vizitációra), az egyházmegyének beküldött hivatalos űrlap nem változik. Az automatikusan számolt soroknál az Összesen oszlop magától megegyezik a fő jelentéssel; kézzel kitöltött celláknál a rendszer jelzi, ha az oszlopok összege eltér a fő jelentés rovatától."
+        />
+        <Kerdes
+          q="Mi a különbség a társegyházközség és a leányegyházközség között?"
+          a="A leányegyházközség egy anyaegyházközséghez kapcsolódik: van saját presbitériuma, de a lelkipásztori ellátást és az egyházigazgatást az anya végzi. A társegyházközségben nincs anya: két vagy több egyenrangú egyházrész közösen tart fenn egy lelkészi állást, mindegyiknek külön presbitériuma van, a viszonyukat pedig az egyházmegyei közgyűlés által jóváhagyott írásos megállapodás rendezi. A Kartotékában a társegyházközség egy közös kartoték, az egyházrészek „Egyházrész” típusú egységek."
         />
         <Kerdes
           q="Missziói egyházközség vagyunk — mit vegyek fel egységnek?"

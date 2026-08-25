@@ -47,8 +47,8 @@ export interface CongregationSummaryData {
   /** 2026-08-14 (4. pont): a publikus oldal slugja (ha be van kapcsolva) — a Megosztás gombhoz. */
   publicSlug?: string
   /** 2026-08-25 (gyülekezeti egységek): hivatalos szervezeti forma
-   *  ('anya'|'leany'|'misszioi') — migráció előtt / régi hívónál null/undefined,
-   *  ilyenkor a sor nem jelenik meg. */
+   *  (a SZERVEZETI_TIPUS_CIMKEK katalógus kulcsai: 'anya'|'leany'|'misszioi'|'tars')
+   *  — migráció előtt / régi hívónál null/undefined, ilyenkor a sor nem jelenik meg. */
   szervezetiTipus?: string | null
   /** A kapcsolt anyaegyházközség neve (csak leánynál értelmes). */
   anyaNev?: string | null

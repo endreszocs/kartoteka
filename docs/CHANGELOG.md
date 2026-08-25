@@ -39,6 +39,11 @@ annak semmi teendője — minden úgy működik, mint eddig.
   szórvány tartozik, ezeket a Gyülekezet-beállító varázsló új „Egységek"
   paneljén lehet felvenni. Minden adat továbbra is egy közös kartotékban marad
   — az egység csak egy címke, amivel megjelölhető, mi hol történt.
+- **Társegyházközség**: a negyedik szervezeti forma is bekerült — két vagy több
+  egyenrangú egyházrész közös egyházközsége, közös lelkésszel és közös jogi
+  személyiséggel. Az egyházrészeket „Egyházrész" típusú egységként lehet
+  felvenni; a jelölés nélküli adat itt nem „anyaközpont", hanem a közös
+  (egész egyházközséget érintő) tétel, és a felület feliratai ezt követik.
 - **Munkanapló helyszín-jelölés**: minden alkalomnál megadható, melyik
   egységben történt (üresen hagyva az anyaegyházközséghez számít). Az
   Időszak-sávban egység szerint szűrhető a napló.

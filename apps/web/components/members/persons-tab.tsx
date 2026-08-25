@@ -76,7 +76,7 @@ import { cn } from '@/lib/utils'
 // Az egység-lista hibájánál (pl. a migráció még nem futott le) minden
 // egység-felület egyszerűen ELTŰNIK — hiba nélkül.
 import { listGyulekezetiEgysegek } from '@/app/(dashboard)/congregation/egysegek-actions'
-import type { GyulekezetiEgyseg } from '@/lib/gyulekezet/egysegek-shared'
+import { kozpontValasztoCimke, type GyulekezetiEgyseg } from '@/lib/gyulekezet/egysegek-shared'
 
 import { MemberStatusBadge } from './member-status-badge'
 import { useCrossCongregationNotifications } from './use-cross-congregation-notifications'
@@ -164,7 +164,13 @@ function formatAddress(member: MemberListItem): string {
   return [locality, streetLine].filter(Boolean).join(', ')
 }
 
-function createFilterChips(filters: PersonFilters, egysegek: GyulekezetiEgyseg[] = []): ActiveFilterChip[] {
+function createFilterChips(
+  filters: PersonFilters,
+  egysegek: GyulekezetiEgyseg[] = [],
+  // 2026-08-25 (társegyházközség): a „központ" chip felirata a szervezeti
+  // forma szerint — társnál a címke nélküli adat a közös állomány.
+  szervezetiTipus: string | null = null,
+): ActiveFilterChip[] {
   const chips: ActiveFilterChip[] = []
   const status = MEMBER_STATUS_FILTERS.find((item) => item.value === filters.status)
   if (filters.status !== 'mind' && status) chips.push({ key: 'status', label: status.label })
@@ -213,7 +219,7 @@ function createFilterChips(filters: PersonFilters, egysegek: GyulekezetiEgyseg[]
   // 2026-08-25 (gyülekezeti egységek): egység-szűrő chip.
   if (filters.egyseg) {
     const egysegNev = filters.egyseg === 'kozpont'
-      ? 'Anyaegyházközség (központ)'
+      ? kozpontValasztoCimke(szervezetiTipus)
       : egysegek.find((egyseg) => egyseg.id === filters.egyseg)?.nev ?? 'Kiválasztott egység'
     chips.push({ key: 'egyseg', label: `Egység: ${egysegNev}` })
   }
@@ -341,12 +347,19 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
   // (pl. a migráció még nem futott le) üres marad, és az egység-szűrő, a
   // tömeges besorolás gombja és a jelvények egyszerűen nem jelennek meg.
   const [egysegek, setEgysegek] = useState<GyulekezetiEgyseg[]>([])
+  // 2026-08-25 (társegyházközség): a szervezeti forma a „központ" feliratokhoz —
+  // társnál a címke nélküli adat a KÖZÖS állomány, nem az anyaközpont.
+  const [szervezetiTipus, setSzervezetiTipus] = useState<string | null>(null)
   const [egysegBesorolasOpen, setEgysegBesorolasOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     listGyulekezetiEgysegek()
-      .then((res) => { if (!cancelled) setEgysegek(res.egysegek ?? []) })
+      .then((res) => {
+        if (cancelled) return
+        setEgysegek(res.egysegek ?? [])
+        setSzervezetiTipus(res.szervezetiTipus ?? null)
+      })
       .catch(() => { /* az egység-felületek rejtve maradnak */ })
     return () => { cancelled = true }
   }, [])
@@ -409,7 +422,7 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
   const isSearchPending = searchQuery.trim() !== deferredSearchQuery
   const visibleMembers = members
   const hasMore = !isLoading && pageState.hasMore && Boolean(pageState.nextCursor)
-  const activeFilterChips = createFilterChips(filters, egysegek)
+  const activeFilterChips = createFilterChips(filters, egysegek, szervezetiTipus)
   const localityOptions = filterOptions?.localities ?? []
   const religionOptions = filterOptions?.religions ?? []
   const statusOptions = filterOptions?.statuses.length ? filterOptions.statuses : MEMBER_STATUS_FILTERS
@@ -417,7 +430,7 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
   const familyOptions = filterOptions?.families.length ? filterOptions.families : FALLBACK_FAMILY_OPTIONS
   const contactOptions = filterOptions?.contacts.length ? filterOptions.contacts : FALLBACK_CONTACT_OPTIONS
   const paymentOptions = filterOptions?.paymentStatuses.length ? filterOptions.paymentStatuses : PAYMENT_OPTIONS
-  const draftFilterCount = createFilterChips(draftFilters, egysegek).length
+  const draftFilterCount = createFilterChips(draftFilters, egysegek, szervezetiTipus).length
   const draftAgeError = getAgeFilterError(draftFilters)
 
   const fetchFirstPage = useCallback(async ({ preserveMembers = false } = {}) => {
@@ -1305,7 +1318,7 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                         className={filterControlClassName}
                       >
                         <option value="">Minden egység</option>
-                        <option value="kozpont">Anyaegyházközség (központ)</option>
+                        <option value="kozpont">{kozpontValasztoCimke(szervezetiTipus)}</option>
                         {egysegek.map((egyseg) => (
                           <option key={egyseg.id} value={egyseg.id}>{egyseg.nev}</option>
                         ))}
@@ -1394,6 +1407,7 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
           open={egysegBesorolasOpen}
           onOpenChange={setEgysegBesorolasOpen}
           onDone={() => void fetchFirstPage({ preserveMembers: true })}
+          szervezetiTipus={szervezetiTipus}
         />
       )}
       <HiddenMembersDialog

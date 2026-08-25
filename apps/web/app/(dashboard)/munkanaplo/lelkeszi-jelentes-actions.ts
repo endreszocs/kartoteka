@@ -51,6 +51,7 @@ import type { BontasEgyseg, JelentesBontas } from '@/lib/lelkeszi-jelentes/workl
 import {
   ANYA_OSZLOP_ID,
   BONTAS_MEZO_IDS,
+  kozpontCimke,
   parseEgysegMezoKulcs,
 } from '@/lib/gyulekezet/egysegek-shared'
 import { submitDocument } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
@@ -393,6 +394,26 @@ async function fetchSzemelyRows(
 }
 
 /**
+ * 2026-08-25 (társegyházközség): a gyülekezet-sor a jelentés fejlécéhez + a
+ * szervezeti forma (a bontás „központ" oszlopának feliratához) — OSZLOP-
+ * DRIFT-BIZTOSAN. A congregations.szervezeti_tipus a migráció előtt még
+ * hiányozhat: ha a bővített select hibázik, a régi (szűkített) select fut —
+ * a fő jelentés (gyülekezet-/egyházmegye-név) migráció előtt sem sérülhet,
+ * ilyenkor csak a központ-felirat esik vissza az alapértelmezettre.
+ */
+async function fetchCongRow(
+  supabase: Supa,
+  congId: string,
+): Promise<{ data: unknown; error: PgError }> {
+  const sor = (mezok: string) =>
+    supabase.from('congregations').select(mezok).eq('id', congId).maybeSingle()
+  const teljes = await sor('nev_hu, name, szervezeti_tipus, dioceses(name)')
+  if (!teljes.error) return { data: teljes.data, error: null }
+  const szukitett = await sor('nev_hu, name, dioceses(name)')
+  return { data: szukitett.data, error: szukitett.error }
+}
+
+/**
  * Az előző évi VÉGLEGESÍTETT jelentés dec. 31-i lélekszáma (I.10) a
  * snapshotból, a mezoErtek prioritásával (felulirasok > auto > kezi).
  */
@@ -653,8 +674,11 @@ async function computeAuto(
    * 2026-08-25 (gyülekezeti egységek): a „Gyülekezetenkénti bontás" auto-adata.
    * Csak akkor van, ha a gyülekezetnek van aktív egysége ÉS a gyulekezeti_
    * egysegek tábla létezik (migráció előtt / egység nélkül: undefined).
+   * A kozpontCimke a „központ" oszlop felirata a szervezeti forma szerint
+   * (társegyházközségnél „Közös (egész egyházközség)") — a snapshotba fagyó
+   * bontás automatikusan viszi.
    */
-  bontas?: JelentesBontas
+  bontas?: JelentesBontas & { kozpontCimke: string }
 }> {
   const yearStart = `${ev}-01-01`
   const yearEndExclusive = `${ev + 1}-01-01`
@@ -752,7 +776,9 @@ async function computeAuto(
       .eq('szemely.congregation_id', congId)
       .eq('szemely.meghalt', false),
     // Gyülekezet-név + egyházmegye-név (a jelentés fejlécéhez / címzettjéhez)
-    supabase.from('congregations').select('nev_hu, name, dioceses(name)').eq('id', congId).maybeSingle(),
+    // + szervezeti_tipus (2026-08-25: a bontás „központ" felirata) — oszlop-
+    // drift-biztosan (lásd fetchCongRow).
+    fetchCongRow(supabase, congId),
     // 2026-08-25: aktív gyülekezeti egységek — a „Gyülekezetenkénti bontás"
     // oszlopai. Hiányzó tábla (migráció előtt) = nincs bontás, NEM hiba.
     supabase
@@ -770,6 +796,8 @@ async function computeAuto(
   const congRow = congRes.data as {
     nev_hu?: string | null
     name?: string | null
+    /** 2026-08-25 (társegyházközség): a migráció előtt / szűkített selectnél hiányzik. */
+    szervezeti_tipus?: string | null
     dioceses?: { name?: string | null } | Array<{ name?: string | null }> | null
   } | null
   const congregationName = congRow?.nev_hu || congRow?.name || ''
@@ -1096,7 +1124,7 @@ async function computeAuto(
   }
 
   // ── Gyülekezetenkénti bontás (2026-08-25) — csak aktív egységeknél ──
-  let bontas: JelentesBontas | undefined
+  let bontas: (JelentesBontas & { kozpontCimke: string }) | undefined
   if (bontasAktiv) {
     // A járulék-bontáshoz a BEFIZETŐ személyek egység-címkéje is kell — a
     // közös lookupot pótoljuk a belőle még hiányzó azonosítókkal.
@@ -1112,18 +1140,26 @@ async function computeAuto(
         for (const [id, cimke] of potlas) ferfiMap.set(id, cimke)
       }
     }
-    bontas = bontasSzamitas({
-      egysegek,
-      worklog: worklogRes,
-      szemely: szemelyRes,
-      keresztseg: keresztsegRes,
-      temetes: temetesRes,
-      konfirmalas: konfirmalasRes,
-      hazassag: hazassagRes,
-      befizetes: befRes,
-      cimkek: ferfiMap,
-      cimkeEgysegOk,
-    })
+    bontas = {
+      ...bontasSzamitas({
+        egysegek,
+        worklog: worklogRes,
+        szemely: szemelyRes,
+        keresztseg: keresztsegRes,
+        temetes: temetesRes,
+        konfirmalas: konfirmalasRes,
+        hazassag: hazassagRes,
+        befizetes: befRes,
+        cimkek: ferfiMap,
+        cimkeEgysegOk,
+      }),
+      // 2026-08-25 (társegyházközség): a „központ" oszlop felirata a szervezeti
+      // forma szerint — társnál „Közös (egész egyházközség)", különben (és a
+      // migráció előtti / szűkített congregations-selectnél is) a hagyományos
+      // „Anyaegyházközség". A véglegesítéskor a snapshotba fagyó bontás ezt
+      // automatikusan viszi magával.
+      kozpontCimke: kozpontCimke(congRow?.szervezeti_tipus ?? null),
+    }
   }
 
   // ── Levezetett mezők (I.8, I.9, VII.8) — közös helper (types.ts) ──
@@ -1168,10 +1204,12 @@ function isValidSnapshot(s: Record<string, unknown> | null): s is Record<string,
  * ellenőrzéssel). Véglegesített jelentésnél NEM számolunk újra — a befagyott
  * adat a hiteles; a bontás nélkül véglegesített (régi) snapshotnál undefined.
  */
-function snapshotBontas(snapshot: Record<string, unknown>): JelentesBontas | undefined {
+function snapshotBontas(
+  snapshot: Record<string, unknown>,
+): (JelentesBontas & { kozpontCimke?: string }) | undefined {
   const b = snapshot.bontas
   if (!b || typeof b !== 'object' || Array.isArray(b)) return undefined
-  const o = b as { egysegek?: unknown; auto?: unknown; hibak?: unknown }
+  const o = b as { egysegek?: unknown; auto?: unknown; hibak?: unknown; kozpontCimke?: unknown }
   if (!Array.isArray(o.egysegek) || !o.auto || typeof o.auto !== 'object' || Array.isArray(o.auto)) {
     return undefined
   }
@@ -1179,6 +1217,10 @@ function snapshotBontas(snapshot: Record<string, unknown>): JelentesBontas | und
     egysegek: o.egysegek as JelentesBontas['egysegek'],
     auto: o.auto as JelentesBontas['auto'],
     hibak: Array.isArray(o.hibak) ? (o.hibak as unknown[]).filter((h): h is string => typeof h === 'string') : [],
+    // 2026-08-25 (társegyházközség): a kozpontCimke nélkül fagyasztott (régi)
+    // snapshotot TOLERÁLJUK — a mező ilyenkor hiányzik, a hívók (dialógus,
+    // nyomtatott melléklet) az ANYAKOZPONT_CIMKE-re esnek vissza.
+    ...(typeof o.kozpontCimke === 'string' ? { kozpontCimke: o.kozpontCimke } : {}),
   }
 }
 
@@ -1192,7 +1234,7 @@ async function buildJelentesData(
   autoHibak: string[]
   javaslatok: JelentesJavaslatok
   /** 2026-08-25: a gyülekezetenkénti bontás — csak aktív egységeknél. */
-  bontas?: JelentesBontas
+  bontas?: JelentesBontas & { kozpontCimke: string }
 }> {
   const kezi = sanitizeErtekek(row?.kezi_adatok)
   const felulirasok = sanitizeErtekek(row?.felulirasok)
@@ -1276,9 +1318,11 @@ export async function getLelkesziJelentes(ev: number): Promise<{
    * 2026-08-25 (gyülekezeti egységek): a „Gyülekezetenkénti bontás" adata.
    * Szerkesztés módban élőből számolt; VÉGLEGESÍTETT jelentésnél a snapshot
    * `bontas` kulcsából jön (nem számolunk újra). Egység nélküli gyülekezetnél
-   * / a migráció előtt hiányzik.
+   * / a migráció előtt hiányzik. A kozpontCimke a „központ" oszlop felirata
+   * (társegyházközségnél „Közös (egész egyházközség)"); a régi snapshotból
+   * hiányozhat — a hívó az ANYAKOZPONT_CIMKE-re essen vissza.
    */
-  bontas?: JelentesBontas
+  bontas?: JelentesBontas & { kozpontCimke?: string }
   error?: string
 }> {
   const { supabase, congregationId } = await getEffectiveCongregationContext()

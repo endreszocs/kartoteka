@@ -25,6 +25,7 @@ import { toast } from 'sonner'
 import { deleteWorklog, saveWorklog } from '@/app/(dashboard)/munkanaplo/actions'
 import { NAPSZAK_OPTIONS, WORKLOG_TYPES } from '@/lib/constants/worklog'
 import type { WorklogCategory, WorklogEntry } from '@/lib/constants/worklog'
+import { kozpontValasztoCimke } from '@/lib/gyulekezet/egysegek-shared'
 import type { GyulekezetiEgyseg } from '@/lib/gyulekezet/egysegek-shared'
 import type { WorklogInput } from '@/lib/validations/worklog'
 import { cn } from '@/lib/utils'
@@ -61,6 +62,30 @@ export interface WorklogTableEditorProps {
    * (a hónap-szűrés mintája).
    */
   egysegFilter?: string
+  /**
+   * 2026-08-25 (társegyházközség): a gyülekezet szervezeti formája. Társnál a
+   * címke nélküli sor nem az anyaközpont, hanem a KÖZÖS (egész egyházközséget
+   * érintő) adat — a központ-opció és a súgószövegek felirata ebből jön;
+   * nem-társ gyülekezetnél minden BETŰRE a régi marad.
+   */
+  szervezetiTipus?: string | null
+}
+
+/**
+ * 2026-08-25 (társegyházközség): a címke nélküli (központ) opció felirata a
+ * kompakt egység-cellában. Társnál a valódi felirat áll („Közös / egész
+ * egyházközség" — ott a NULL címke a közös adatot jelenti, nincs anyaközpont);
+ * nem-társ gyülekezetnél a kompakt „—" BETŰRE változatlan.
+ */
+function kozpontOpcioFelirat(szervezetiTipus?: string | null): string {
+  return szervezetiTipus === 'tars' ? kozpontValasztoCimke(szervezetiTipus) : '—'
+}
+
+/** Az egység-oszlop súgószövege (fejléc-title + cella aria-label/title). */
+function egysegOszlopSugo(szervezetiTipus?: string | null): string {
+  return szervezetiTipus === 'tars'
+    ? 'Egység / helyszín (üres = közös, egész egyházközség)'
+    : 'Egység / helyszín (üres = anyaközpont)'
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +327,8 @@ interface EditorRowProps {
    * a lista nem töltődött be).
    */
   egysegek: GyulekezetiEgyseg[]
+  /** 2026-08-25 (társegyházközség): a központ-opció feliratához (memo-biztos primitív). */
+  szervezetiTipus?: string | null
   /** CSAK a saját sor draftja — referencia-stabil, amíg a sort nem érintik (memo!). */
   draft: RowDraft
   /** Éven belüli folyamatos sorszám (csak megjelenítés); új sornál nem jelenik meg. */
@@ -322,7 +349,7 @@ interface EditorRowProps {
 }
 
 const EditorRow = memo(function EditorRow({
-  rowKey, category, egysegek, draft, ssz, dirty, saving, deleting, isNew,
+  rowKey, category, egysegek, szervezetiTipus, draft, ssz, dirty, saving, deleting, isNew,
   onField: onFieldProp, onCommit: onCommitProp, onRowLeave: onRowLeaveProp,
   onDelete: onDeleteProp, onEditForm: onEditFormProp, dateRef,
 }: EditorRowProps) {
@@ -434,12 +461,12 @@ const EditorRow = memo(function EditorRow({
         <td className={td}>
           <select
             value={draft.egyseg_id}
-            aria-label="Egység / helyszín (üres = anyaközpont)"
-            title="Egység / helyszín (üres = anyaközpont)"
+            aria-label={egysegOszlopSugo(szervezetiTipus)}
+            title={egysegOszlopSugo(szervezetiTipus)}
             onChange={(e) => onField('egyseg_id', e.target.value)}
             className={cn(CELL_INPUT, 'px-1', !draft.egyseg_id && 'text-muted-foreground/60')}
           >
-            <option value="">—</option>
+            <option value="">{kozpontOpcioFelirat(szervezetiTipus)}</option>
             {/* Inaktív/törölt egység címkéjének megőrzése — különben a select
                 üresre ugrana, és egy másik cella mentése némán anyaközpontra
                 írná át a sort (a jelleg-select legacy-mintája). */}
@@ -616,7 +643,7 @@ const EditorRow = memo(function EditorRow({
 // Fő komponens
 // ---------------------------------------------------------------------------
 
-export function WorklogTableEditor({ yearEntries, year, month, category, onChanged, onEditEntry, egysegek = [], egysegFilter = 'all' }: WorklogTableEditorProps) {
+export function WorklogTableEditor({ yearEntries, year, month, category, onChanged, onEditEntry, egysegek = [], egysegFilter = 'all', szervezetiTipus = null }: WorklogTableEditorProps) {
   // 2026-08-25: az Egység-oszlop (és a mentésbe kerülő egyseg_id) kapcsolója.
   const hasEgysegek = egysegek.length > 0
   // Konkrét egységre állított szűrőnél az új sor is oda kap alapértéket
@@ -847,7 +874,7 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
                 <Th className="min-w-[8.75rem]">Dátum</Th>
                 <Th className="min-w-[9.5rem]">Jelleg</Th>
                 {hasEgysegek && (
-                  <Th className="min-w-[7rem]" title="Egység / helyszín (üres = anyaközpont)">Egység</Th>
+                  <Th className="min-w-[7rem]" title={egysegOszlopSugo(szervezetiTipus)}>Egység</Th>
                 )}
                 <Th className="min-w-[6.5rem]">Napszak</Th>
                 <Th className="min-w-[8.5rem]" title="Bibliaolvasás (igehely)">Bibliaolvasás</Th>
@@ -868,7 +895,7 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
                 <Th className="min-w-[8.75rem]">Dátum</Th>
                 <Th className="min-w-[9.5rem]">Jelleg</Th>
                 {hasEgysegek && (
-                  <Th className="min-w-[7rem]" title="Egység / helyszín (üres = anyaközpont)">Egység</Th>
+                  <Th className="min-w-[7rem]" title={egysegOszlopSugo(szervezetiTipus)}>Egység</Th>
                 )}
                 <Th className="min-w-[10rem]">Cím</Th>
                 <Th className="w-12 min-w-[3rem] text-center" title="Jelenlét — férfi">F</Th>
@@ -884,7 +911,7 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
                 <Th className="min-w-[8.75rem]">Dátum</Th>
                 <Th className="min-w-[9.5rem]">Jelleg</Th>
                 {hasEgysegek && (
-                  <Th className="min-w-[7rem]" title="Egység / helyszín (üres = anyaközpont)">Egység</Th>
+                  <Th className="min-w-[7rem]" title={egysegOszlopSugo(szervezetiTipus)}>Egység</Th>
                 )}
                 <Th className="min-w-[10rem]">Cím / család</Th>
                 <Th className="min-w-[8rem]">Lelkész / látogató</Th>
@@ -919,6 +946,7 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
                   rowKey={entry.id}
                   category={category}
                   egysegek={egysegek}
+                  szervezetiTipus={szervezetiTipus}
                   draft={rowDraft ?? baseline}
                   ssz={ssz}
                   dirty={rowDraft !== undefined && isDirty(rowDraft, baseline)}
@@ -939,6 +967,7 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
               rowKey="new"
               category={category}
               egysegek={egysegek}
+              szervezetiTipus={szervezetiTipus}
               draft={newDraft}
               dirty={newRowDirty}
               saving={savingIds.has('new')}

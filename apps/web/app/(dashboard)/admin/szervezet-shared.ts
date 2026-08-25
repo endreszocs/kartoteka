@@ -55,17 +55,18 @@ export interface FaSzerepJelveny {
  *    `scripts/selftest-attekintes.mjs` direktben tölti), projekt-import ide nem
  *    kerülhet. A strukturális típusegyezés miatt a két deklaráció átjárható.
  */
-export type FaSzervezetiTipus = 'anya' | 'leany' | 'misszioi'
+export type FaSzervezetiTipus = 'anya' | 'leany' | 'misszioi' | 'tars'
 
 /**
- * Az anya kartotékán BELÜLI egység (leány/szórvány) — a `gyulekezeti_hierarchia()`
- * RPC `egysegek` jsonb-jéből. Strukturálisan a `HierarchiaEgyseg` megfelelője
- * (lásd a fenti import-mentességi megjegyzést).
+ * Az anya kartotékán BELÜLI egység (leány/szórvány/egyházrész) — a
+ * `gyulekezeti_hierarchia()` RPC `egysegek` jsonb-jéből. Strukturálisan a
+ * `HierarchiaEgyseg` megfelelője (lásd a fenti import-mentességi megjegyzést).
+ * Az 'egyhazresz' a társegyházközség ('tars') egyenrangú egyházrésze.
  */
 export interface FaEgyseg {
   id: string
   nev: string
-  tipus: 'leany' | 'szorvany'
+  tipus: 'leany' | 'szorvany' | 'egyhazresz'
   aktiv: boolean
   /**
    * ⚠️ `null` / hiányzó = NEM TUDJUK (a néző hatóköre nem jogosít élő
@@ -106,7 +107,7 @@ export interface FaGyulekezet {
   anyaId?: string | null
   /** Aktív, jóváhagyott lelkész(ek) neve vesszővel; `null`, ha nincs regisztrált. */
   lelkeszNevek?: string | null
-  /** Az anya kartotékán belüli AKTÍV egységek (leány/szórvány). */
+  /** Az anya kartotékán belüli AKTÍV egységek (leány/szórvány/egyházrész). */
   egysegek?: FaEgyseg[]
 }
 
@@ -326,9 +327,13 @@ export interface AnyaCsoportSor {
 }
 
 /**
- * A megye gyülekezetei anya-csoportokba rendezve: anya + az alárendelt leányai
- * közvetlenül utána (a leány behúzással az anyja alá kerül). Az anya nélküli
- * leány a saját helyén marad, „árva" jelzéssel.
+ * A megye gyülekezetei anya-csoportokba rendezve: a csoportfő + az alárendelt
+ * leányai közvetlenül utána (a leány behúzással az anyja alá kerül). Az anya
+ * nélküli leány a saját helyén marad, „árva" jelzéssel.
+ *
+ * CSOPORTFŐ minden nem-'leany' forma: 'anya', 'misszioi' és 'tars'
+ * (társegyházközség, 2026-08-25) — a DB-őr szerint mindhármukhoz kapcsolódhat
+ * leány, ezért a leányok mindhármuk alá befésülődnek.
  *
  * ⚠️ FAIL-CLOSED TELJESSÉG: minden bemeneti sor PONTOSAN EGYSZER jelenik meg a
  *    kimenetben. Ha adathibából (pl. a leány anyja maga is leány) egy sor a fő

@@ -15,7 +15,7 @@
  *   - Kattintásra a globális CongregationSetupBanner-ből (minden oldalon).
  */
 
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Banknote, Check, Church, FileText, Image as ImageIcon,
@@ -62,13 +62,16 @@ import {
 // 2026-08-15 (S4): a pecsét/aláírás-feltöltő UI a KÖZÖS komponensből — az
 // egyházmegyei wizard ugyanezt használja a megyei akciókkal.
 import { IratKepekSection } from '@/components/shared/irat-kepek-section'
-// 2026-08-25 (gyülekezeti egységek, terv 3.1–3.2): a szervezeti forma READ-ONLY
-// megjelenítése + a leány/szórvány egységek kezelő panelje.
+// 2026-08-25 (gyülekezeti egységek, terv 3.1–3.2; 2026-08-25/2 Endre kérése):
+// a szervezeti formát a lelkész MAGA állíthatja be (külön mentő-gombbal) +
+// a leány/szórvány egységek kezelő panelje.
 import {
   listGyulekezetiEgysegek,
   saveGyulekezetiEgyseg,
   deleteGyulekezetiEgyseg,
   getEgysegHasznalat,
+  listAnyaJeloltek,
+  saveSzervezetiForma,
 } from '@/app/(dashboard)/congregation/egysegek-actions'
 import {
   EGYSEG_TIPUS_CIMKEK,
@@ -224,9 +227,12 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
   const [bankAccounts, setBankAccounts] = useState<BankSlot[]>([])
   const [removedBankIds, setRemovedBankIds] = useState<number[]>([])
 
-  // Read-only kontextus: egyházkerület + egyházmegye név + (2026-08-25)
-  // a hivatalos szervezeti forma és az anyaegyházközség neve — az ADMIN kezeli,
-  // a wizard csak megjeleníti (SetupFormState-be szándékosan NEM került be).
+  // Kontextus: egyházkerület + egyházmegye név + (2026-08-25) a hivatalos
+  // szervezeti forma és az anyaegyházközség neve. A formát 2026-08-25/2 óta a
+  // lelkész MAGA is beállíthatja (SzervezetiFormaSzerkeszto, saját mentő-
+  // gombbal, saveSzervezetiForma) — a SetupFormState-be és a
+  // saveCongregationSetup payloadjába szándékosan NEM került be; sikeres
+  // forma-mentés után csak ez a display-state frissül.
   const [context, setContext] = useState<{
     dioceseName: string | null
     districtName: string | null
@@ -572,6 +578,9 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
                       diocesesError={diocesesError}
                       szervezetiTipus={context.szervezetiTipus}
                       anyaNev={context.anyaNev}
+                      onSzervezetChanged={(tipus, anyaNev) =>
+                        setContext((c) => ({ ...c, szervezetiTipus: tipus, anyaNev }))
+                      }
                     />
                     {/* 24. pont: pecsét + aláírás kép az iktató-nyomtatványokra —
                         a címer-feltöltő MELLÉ, saját (azonnal mentő) adatlánccal. */}
@@ -580,7 +589,7 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
                 )}
 
                 {activePane === 'egysegek' && (
-                  <SectionEgysegek />
+                  <SectionEgysegek szervezetiTipus={context.szervezetiTipus} />
                 )}
 
                 {activePane === 'penzugy' && (
@@ -717,7 +726,7 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
 
 function SectionBasics({
   form, setForm, onCimerUpload, uploading, fieldErrors, dioceseName, districtName, dioceses, diocesesError,
-  szervezetiTipus, anyaNev,
+  szervezetiTipus, anyaNev, onSzervezetChanged,
 }: {
   form: SetupFormState
   setForm: SetForm
@@ -729,10 +738,13 @@ function SectionBasics({
   dioceses: Array<{ id: string; name: string; district_id: string | null; district_name: string | null }>
   /** 2026-08-10: az egyházmegye-lista betöltési hibája (ha volt) — a select alatt jelenik meg. */
   diocesesError: string | null
-  /** 2026-08-25: hivatalos szervezeti forma (READ-ONLY — az admin kezeli); migráció előtt null. */
+  /** 2026-08-25/2: a hivatalos szervezeti forma — a lelkész itt MAGA állíthatja
+   *  be (külön mentő-gombbal); migráció előtt null → a blokk read-only. */
   szervezetiTipus: SzervezetiTipus | null
   /** A kapcsolt anyaegyházközség neve (csak leánynál). */
   anyaNev: string | null
+  /** Sikeres forma-mentés után a szülő display-state-jének frissítése. */
+  onSzervezetChanged: (tipus: SzervezetiTipus, anyaNev: string | null) => void
 }) {
   // A kiválasztott egyházmegye kerülete (a select alatt read-only megjelenítéshez).
   const selectedDistrictName = form.diocese_id
@@ -820,33 +832,14 @@ function SectionBasics({
                 )}
               </div>
             </div>
-            {/* 2026-08-25 (gyülekezeti egységek, terv 3.1): a hivatalos szervezeti
-                forma READ-ONLY — egyházmegyei javaslat + kerületi jóváhagyás után
-                az admin állítja, a wizard csak megjeleníti. */}
-            <div className="grid gap-2 border-t border-sky-100 pt-2 sm:grid-cols-2">
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-slate-500">Szervezeti forma</p>
-                <p
-                  className="text-sm font-semibold text-slate-800"
-                  title={szervezetiTipus ? SZERVEZETI_TIPUS_LEIRAS[szervezetiTipus] : undefined}
-                >
-                  {szervezetiTipus
-                    ? SZERVEZETI_TIPUS_CIMKEK[szervezetiTipus]
-                    : <span className="italic font-normal text-slate-400">még nincs beállítva</span>}
-                </p>
-              </div>
-              {szervezetiTipus === 'leany' && (
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-500">Anyaegyházközség</p>
-                  <p className="text-sm font-semibold text-slate-800">
-                    {anyaNev || <span className="italic font-normal text-slate-400">nincs megadva</span>}
-                  </p>
-                </div>
-              )}
-            </div>
-            <p className="text-[11px] text-slate-500">
-              A szervezeti formát és az anya-kapcsolatot a rendszergazda állítja be.
-            </p>
+            {/* 2026-08-25/2 (Endre kérése): a szervezeti formát a lelkész MAGA
+                állíthatja be — külön mentő-gombbal (saveSzervezetiForma), a fő
+                „Mentés" gombtól függetlenül. Migráció előtt read-only marad. */}
+            <SzervezetiFormaSzerkeszto
+              szervezetiTipus={szervezetiTipus}
+              anyaNev={anyaNev}
+              onChanged={onSzervezetChanged}
+            />
           </div>
         </div>
       </div>
@@ -939,6 +932,201 @@ function SectionBasics({
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// 2026-08-25/2 (Endre kérése): a szervezeti formát a lelkész MAGA állíthatja
+// be a saját gyülekezetére. Külön mentő-gomb (saveSzervezetiForma) — a fő
+// „Mentés" gombhoz és a saveCongregationSetup payloadjához NEM kapcsolódik.
+// A DB-őrtrigger a végső védelem (magyar hibaüzenete szó szerint jelenik
+// meg a toastban); vitás besorolást a rendszergazda a Szervezeti fán rendez,
+// és minden módosítás audit-naplóba kerül. Migráció előtt (szervezetiTipus
+// === null, az oszlop hiányzik) a blokk read-only marad.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** A diocese-selecttel azonos megjelenésű natív select. */
+const SZERVEZET_SELECT_CLASS =
+  'mt-0.5 h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-teal-500/25 disabled:cursor-not-allowed disabled:bg-slate-100'
+
+/** Az anya-jelöltek betöltési állapota — lusta: az első leány-választáskor indul. */
+interface AnyaJeloltekState {
+  status: 'ures' | 'toltodik' | 'kesz' | 'hiba'
+  lista: Array<{ id: string; nev: string }>
+  error?: string
+}
+
+function SzervezetiFormaSzerkeszto({
+  szervezetiTipus,
+  anyaNev,
+  onChanged,
+}: {
+  /** A mentett hivatalos forma; null = az oszlop még nincs migrálva → read-only. */
+  szervezetiTipus: SzervezetiTipus | null
+  /** A mentett anyaegyházközség neve (csak leánynál). */
+  anyaNev: string | null
+  /** Sikeres mentés után a szülő display-state-jének frissítése. */
+  onChanged: (tipus: SzervezetiTipus, anyaNev: string | null) => void
+}) {
+  const [tipus, setTipus] = useState<SzervezetiTipus>(szervezetiTipus ?? 'anya')
+  const [anyaId, setAnyaId] = useState('')
+  const [jeloltek, setJeloltek] = useState<AnyaJeloltekState>({ status: 'ures', lista: [] })
+  const [saving, setSaving] = useState(false)
+  // Ref-őr: egy betöltés fusson (StrictMode-ban is); hibánál visszanyitjuk,
+  // így egy másik formára váltás után a leány újra-választása újrapróbál.
+  const jeloltekKerve = useRef(false)
+
+  // Lusta betöltés: az első leány-választáskor indul (akkor is, ha a mentett
+  // érték eleve leány).
+  useEffect(() => {
+    if (tipus !== 'leany' || jeloltekKerve.current) return
+    jeloltekKerve.current = true
+    setJeloltek({ status: 'toltodik', lista: [] })
+    void listAnyaJeloltek()
+      .then((res) => {
+        if (res.error) {
+          jeloltekKerve.current = false
+          setJeloltek({ status: 'hiba', lista: [], error: res.error })
+          return
+        }
+        const lista = res.jeloltek || []
+        setJeloltek({ status: 'kesz', lista })
+        // Ha már van mentett anya (csak a NEVÉT ismerjük), előválasztjuk.
+        if (anyaNev) {
+          const talalat = lista.find((j) => j.nev === anyaNev)
+          if (talalat) setAnyaId((elozo) => elozo || talalat.id)
+        }
+      })
+      .catch((e) => {
+        jeloltekKerve.current = false
+        setJeloltek({
+          status: 'hiba',
+          lista: [],
+          error: e instanceof Error ? e.message : 'Az anyaegyházközség-jelöltek betöltése sikertelen.',
+        })
+      })
+  }, [tipus, anyaNev])
+
+  async function handleFormaMentes() {
+    const anyaKivalasztott = tipus === 'leany' ? anyaId || null : null
+    if (tipus === 'leany' && !anyaKivalasztott) {
+      toast.error('Leányegyházközségnél kötelező kiválasztani az anyaegyházközséget.')
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await saveSzervezetiForma({ tipus, anyaCongregationId: anyaKivalasztott })
+      if (res.error) {
+        // A DB-őrtrigger magyar üzenete is így, változtatás nélkül jelenik meg.
+        toast.error(res.error)
+        return
+      }
+      const ujAnyaNev = anyaKivalasztott
+        ? (jeloltek.lista.find((j) => j.id === anyaKivalasztott)?.nev ?? null)
+        : null
+      onChanged(tipus, ujAnyaNev)
+      toast.success(`Szervezeti forma elmentve: ${SZERVEZETI_TIPUS_CIMKEK[tipus]}.`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Migráció-előtti állapot: az oszlop hiányzik → read-only, migrációs tudnivalóval.
+  if (szervezetiTipus === null) {
+    return (
+      <div className="space-y-1.5 border-t border-sky-100 pt-2">
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-slate-500">Szervezeti forma</p>
+          <p className="text-sm font-semibold text-slate-800">
+            <span className="italic font-normal text-slate-400">még nincs beállítva</span>
+          </p>
+        </div>
+        <p className="text-[11px] text-slate-500">
+          A forma itt akkor lesz beállítható, ha a rendszergazda lefuttatta a{' '}
+          <code className="text-[10px]">2026-08-25-gyulekezeti-egysegek.sql</code> migrációt
+          az adatbázison.
+        </p>
+      </div>
+    )
+  }
+
+  const mentesTiltva =
+    saving || (tipus === 'leany' && (jeloltek.status !== 'kesz' || !anyaId))
+
+  return (
+    <div className="space-y-2 border-t border-sky-100 pt-2">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-slate-500">Szervezeti forma</p>
+          <select
+            value={tipus}
+            onChange={(e) => setTipus(e.target.value as SzervezetiTipus)}
+            className={SZERVEZET_SELECT_CLASS}
+          >
+            {(Object.keys(SZERVEZETI_TIPUS_CIMKEK) as SzervezetiTipus[]).map((t) => (
+              <option key={t} value={t}>{SZERVEZETI_TIPUS_CIMKEK[t]}</option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-muted-foreground">{SZERVEZETI_TIPUS_LEIRAS[tipus]}</p>
+          {tipus !== szervezetiTipus && (
+            <p className="mt-1 text-xs text-amber-700">
+              Jelenleg mentett: <b>{SZERVEZETI_TIPUS_CIMKEK[szervezetiTipus]}</b> — a mentés ezt írja felül.
+            </p>
+          )}
+        </div>
+        {tipus === 'leany' && (
+          <div>
+            <p className="text-[10px] uppercase tracking-wide text-slate-500">Anyaegyházközség *</p>
+            <select
+              value={anyaId}
+              onChange={(e) => setAnyaId(e.target.value)}
+              disabled={jeloltek.status !== 'kesz' || jeloltek.lista.length === 0}
+              className={SZERVEZET_SELECT_CLASS}
+            >
+              <option value="" disabled>
+                {jeloltek.status === 'toltodik'
+                  ? 'A jelöltek betöltése…'
+                  : '— válassz anyaegyházközséget —'}
+              </option>
+              {jeloltek.lista.map((j) => (
+                <option key={j.id} value={j.id}>{j.nev}</option>
+              ))}
+            </select>
+            {jeloltek.status === 'hiba' && (
+              <p className="mt-1 text-xs text-amber-700">{jeloltek.error}</p>
+            )}
+            {jeloltek.status === 'kesz' && jeloltek.lista.length === 0 && (
+              <p className="mt-1 text-xs text-amber-700">
+                A saját egyházmegyében nincs választható anyaegyházközség — kérd a
+                rendszergazda segítségét.
+              </p>
+            )}
+            {jeloltek.status === 'kesz' && anyaNev && !anyaId && (
+              <p className="mt-1 text-xs text-slate-500">
+                Jelenleg mentett: <b>{anyaNev}</b>
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="min-w-0 flex-1 basis-52 text-[11px] text-slate-500">
+          A formát itt te is beállíthatod; vitás besorolást a rendszergazda a Szervezeti
+          fán rendez (minden módosítás naplózott).
+        </p>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => void handleFormaMentes()}
+          disabled={mentesTiltva}
+          className="shrink-0 border-sky-300 bg-white text-sky-800 hover:bg-sky-100"
+        >
+          {saving ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : <Save className="mr-1 size-3.5" />}
+          Szervezeti forma mentése
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // 24. pont: Pecsét + aláírás kép az iktató-nyomtatványokra
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -984,7 +1172,38 @@ interface EgysegFormState {
   megjegyzes: string
 }
 
-function SectionEgysegek() {
+/**
+ * 2026-08-25/2: az „Új egység" típus-választék + alapérték a szervezeti forma
+ * szerint. Anyánál nincs egyházrész; társnál az egyházrész az alapérték (nincs
+ * leány); missziónál a szórvány az első, de a többi is választható. Ismeretlen
+ * (migráció előtti) formánál a teljes lista, leány alapértékkel.
+ */
+function egysegTipusValasztek(forma: SzervezetiTipus | null): {
+  tipusok: EgysegTipus[]
+  alapertelmezett: EgysegTipus
+} {
+  switch (forma) {
+    case 'anya':
+      return { tipusok: ['leany', 'szorvany'], alapertelmezett: 'szorvany' }
+    case 'misszioi':
+      return { tipusok: ['szorvany', 'leany', 'egyhazresz'], alapertelmezett: 'szorvany' }
+    case 'tars':
+      return { tipusok: ['egyhazresz', 'szorvany'], alapertelmezett: 'egyhazresz' }
+    case 'leany':
+      return { tipusok: ['szorvany', 'leany'], alapertelmezett: 'szorvany' }
+    default:
+      return { tipusok: ['leany', 'szorvany', 'egyhazresz'], alapertelmezett: 'leany' }
+  }
+}
+
+function SectionEgysegek({
+  szervezetiTipus,
+}: {
+  /** 2026-08-25: a hivatalos szervezeti forma — az intro-szöveg, a leány-
+   *  infódoboz és az „Új egység" típus-választék + alapérték ehhez igazodik
+   *  (egysegTipusValasztek). Migráció előtt null → teljes választék. */
+  szervezetiTipus: SzervezetiTipus | null
+}) {
   const [egysegek, setEgysegek] = useState<GyulekezetiEgyseg[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1114,8 +1333,20 @@ function SectionEgysegek() {
     ? (torlendo.tagok ?? 0) > 0 || (torlendo.naploSorok ?? 0) > 0
     : false
 
+  // 2026-08-25/2: az „Új egység" típus-választék és alapérték a szervezeti
+  // formához igazodik (az intro-szöveggel és a leány-infódobozzal együtt).
+  const valasztek = egysegTipusValasztek(szervezetiTipus)
+
   return (
     <section className="space-y-4">
+      {/* 2026-08-25/2: leány-forma — az egység-felvétel általában felesleges,
+          de az űrlap használható marad (nem tiltjuk le). */}
+      {szervezetiTipus === 'leany' && (
+        <div className="rounded-[1rem] border border-sky-200 bg-sky-50/60 px-3 py-2.5 text-xs text-sky-900">
+          Leányegyházközségként a gyülekezetetek egy anyaegyházközséghez tartozik —
+          saját egységekre általában nincs szükség.
+        </div>
+      )}
       <div className="card-raised p-4 bg-amber-50/30 border-amber-100">
         <div className="flex items-start gap-2">
           <Network className="size-5 text-amber-600 shrink-0 mt-0.5" />
@@ -1128,6 +1359,20 @@ function SectionEgysegek() {
               lelkészi jelentés „Gyülekezetenkénti bontás&rdquo; táblájában pedig minden egység
               külön oszlopot kap. Az egység nélküli (címkézetlen) adat mindig az
               anyaközpontot jelenti.
+              {szervezetiTipus === 'tars' && (
+                <>
+                  {' '}Társegyházközségnél az egyenrangú egyházrészeket „Egyházrész&rdquo;
+                  típusú egységként vedd fel — a címke nélküli adat a közös (egész
+                  egyházközséget érintő) tétel.
+                </>
+              )}
+              {szervezetiTipus === 'misszioi' && (
+                <>
+                  {' '}Missziói egyházközségként a gondozott településeket „Szórvány&rdquo;
+                  típusú egységként érdemes felvenni — a központi település marad az
+                  anyaközpont.
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -1291,7 +1536,12 @@ function SectionEgysegek() {
                 onChange={(ev) => setSzerkesztett({ ...szerkesztett, tipus: ev.target.value as EgysegTipus })}
                 className="mt-1 h-10 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/25"
               >
-                {(Object.keys(EGYSEG_TIPUS_CIMKEK) as EgysegTipus[]).map((t) => (
+                {/* A forma szerinti választék; meglévő egység eltérő típusát
+                    a lista végére vesszük fel, hogy a szerkesztés ne írja át némán. */}
+                {(valasztek.tipusok.includes(szerkesztett.tipus)
+                  ? valasztek.tipusok
+                  : [...valasztek.tipusok, szerkesztett.tipus]
+                ).map((t) => (
                   <option key={t} value={t}>{EGYSEG_TIPUS_CIMKEK[t]}</option>
                 ))}
               </select>
@@ -1326,7 +1576,8 @@ function SectionEgysegek() {
           disabled={busy}
           onClick={() => {
             setTorlendo(null)
-            setSzerkesztett({ nev: '', tipus: 'leany', megjegyzes: '' })
+            // 2026-08-25/2: az alapérték a szervezeti formához igazodik.
+            setSzerkesztett({ nev: '', tipus: valasztek.alapertelmezett, megjegyzes: '' })
           }}
           className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-amber-300 bg-white/50 p-3 text-sm font-medium text-amber-700 transition hover:bg-amber-50/40 disabled:opacity-50"
         >

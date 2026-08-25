@@ -103,6 +103,17 @@ try {
     Array.isArray(BONTAS_MEZO_IDS) && BONTAS_MEZO_IDS.includes('I.10') && BONTAS_MEZO_IDS.length >= 12,
     'E6: a bontás mutató-készlete nem üres és tartalmazza az I.10-et',
   )
+  assert(
+    shared.SZERVEZETI_TIPUS_CIMKEK?.tars === 'Társegyházközség' &&
+      shared.EGYSEG_TIPUS_CIMKEK?.egyhazresz === 'Egyházrész',
+    'E7: a társegyházközség és az egyházrész típus a katalógusban van',
+  )
+  assert(
+    typeof shared.kozpontCimke === 'function' &&
+      shared.kozpontCimke('tars') !== shared.kozpontCimke('anya') &&
+      shared.kozpontCimke('anya') === shared.ANYAKOZPONT_CIMKE,
+    'E8: társegyházközségnél a központ-felirat KÖZÖS, nem anyaközpont',
+  )
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true })
 }
@@ -230,6 +241,12 @@ function sqlVedelmekE(nyers) {
     return { rendben: false, uzenet: 'hiányzik a congregations őr-trigger' }
   if (!/profile_roles/.test(sql) || !/approval_status = 'approved'/.test(sql))
     return { rendben: false, uzenet: 'az RLS-policyk profile_roles-lába hiányzik (roles-first szabály)' }
+  // 2026-08-25/2 HIBAOSZTÁLY: a Supabase SQL editor nem garantál session-
+  // állapotot — TEMP tábla a migrációban 42P01-gyel elhasal (élesben elsült).
+  if (/CREATE\s+TEMP(ORARY)?\s+TABLE/i.test(sql))
+    return { rendben: false, uzenet: 'TEMP tábla a migrációban — a Supabase SQL editor alatt elhasal (42P01)' }
+  if (!/'tars'/.test(sql) || !/'egyhazresz'/.test(sql))
+    return { rendben: false, uzenet: 'a társegyházközség (tars/egyhazresz) értékek hiányoznak a CHECK-ekből' }
   return { rendben: true, uzenet: 'rendben' }
 }
 
@@ -241,6 +258,8 @@ const qMutansok = [
   ['RLS-bekapcsolás törölve', sqlNyers.replace(/ENABLE ROW LEVEL SECURITY/g, '')],
   ['anon-revoke törölve', sqlNyers.replace(/REVOKE ALL ON FUNCTION public\.gyulekezeti_hierarchia\(\) FROM anon;?/g, '')],
   ['csak kommentben marad a backup-besorolás', sqlNyers.replace(/INSERT INTO public\.backup_table_policy/g, 'INSERT INTO public.mutans_tabla').concat("\n-- INSERT INTO public.backup_table_policy ('gyulekezeti_egysegek')\n")],
+  ['TEMP tábla visszacsempészve (a 42P01-hibaosztály)', sqlNyers.replace(/BEGIN;/, "BEGIN;\nCREATE TEMP TABLE _mutans_futas AS SELECT true AS elso;")],
+  ['tars érték kivéve a CHECK-ből', sqlNyers.replace(/'tars'/g, "'anya'")],
 ]
 let qMindBukik = true
 for (const [nev, mutans] of qMutansok) {
@@ -254,7 +273,7 @@ for (const [nev, mutans] of qMutansok) {
     assert(false, `Q1n: az SQL-őrszem ZÖLD maradt az elrontott változaton („${nev}")`)
   }
 }
-if (qMindBukik) assert(true, 'Q1n: az SQL-őrszem mind a 4 mutánson BUKIK (tud pirosra váltani)')
+if (qMindBukik) assert(true, 'Q1n: az SQL-őrszem mind a 6 mutánson BUKIK (tud pirosra váltani)')
 
 // A refaktor-integritás: a fő jelentés a kiemelt tiszta magot hívja.
 const worklogAutoPath = path.join(ROOT, 'apps/web/lib/lelkeszi-jelentes/worklog-auto.ts')

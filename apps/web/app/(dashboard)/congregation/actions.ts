@@ -5,6 +5,7 @@ import { z } from 'zod'
 
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { normalizeDebtCalcMode } from '@/lib/constants/finance'
+import { SZERVEZETI_TIPUS_CIMKEK, type SzervezetiTipus } from '@/lib/gyulekezet/egysegek-shared'
 import { createClient } from '@/lib/supabase/server'
 import { sendEmail } from '@/lib/email/send'
 import {
@@ -1830,7 +1831,7 @@ export async function getCongregationForSetup(
     tva_alany_tol: string | null
     // 2026-08-25 (gyülekezeti egységek, terv 3.1): a hivatalos szervezeti forma —
     // READ-ONLY a wizardban, az ADMIN kezeli. Migráció előtt (oszlop-drift) null.
-    szervezeti_tipus: 'anya' | 'leany' | 'misszioi' | null
+    szervezeti_tipus: SzervezetiTipus | null
     /** A kapcsolt anyaegyházközség neve (csak leánynál); migráció előtt null. */
     anya_nev: string | null
   }
@@ -1904,11 +1905,15 @@ export async function getCongregationForSetup(
 
   // Szervezeti forma + az anyaegyházközség neve — a dioceses-kibontás mintája:
   // a beágyazott reláció tömb VAGY objektum alakban is érkezhet.
-  let szervezetiTipus: 'anya' | 'leany' | 'misszioi' | null = null
+  // 2026-08-25: a katalógus (SZERVEZETI_TIPUS_CIMKEK) a mérvadó — a 'tars'
+  // (társegyházközség) is érvényes; ismeretlen érték továbbra is null.
+  let szervezetiTipus: SzervezetiTipus | null = null
   let anyaNev: string | null = null
   if (szervezetElerheto) {
     const t = row.szervezeti_tipus
-    if (t === 'anya' || t === 'leany' || t === 'misszioi') szervezetiTipus = t
+    if (typeof t === 'string' && t in SZERVEZETI_TIPUS_CIMKEK) {
+      szervezetiTipus = t as SzervezetiTipus
+    }
     const aRaw = row.anya
     if (aRaw) {
       const a = Array.isArray(aRaw) ? aRaw[0] : (aRaw as Record<string, unknown>)

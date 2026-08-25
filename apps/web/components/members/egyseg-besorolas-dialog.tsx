@@ -11,6 +11,7 @@ import {
   getEgysegBesorolasInput,
   type EgysegBesorolasInput,
 } from '@/app/(dashboard)/tagnyilvantartas/egyseg-bulk-actions'
+import { EGYSEG_TIPUS_CIMKEK, kozpontValasztoCimke } from '@/lib/gyulekezet/egysegek-shared'
 import { cn } from '@/lib/utils'
 
 /**
@@ -27,11 +28,15 @@ export function EgysegBesorolasDialog({
   open,
   onOpenChange,
   onDone,
+  szervezetiTipus = null,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Sikeres alkalmazás után — a hívó frissítheti a taglistát. */
   onDone?: () => void
+  /** 2026-08-25 (társegyházközség): a szervezeti forma — társnál a „központ"
+   *  cél a KÖZÖS (címke nélküli) állomány, és a feliratok ehhez igazodnak. */
+  szervezetiTipus?: string | null
 }) {
   const [adat, setAdat] = useState<EgysegBesorolasInput | null>(null)
   const [lepes, setLepes] = useState<1 | 2>(1)
@@ -57,10 +62,14 @@ export function EgysegBesorolasDialog({
   const telepulesek = adat?.telepulesek ?? []
   const egysegek = adat?.egysegek ?? []
 
+  // Társegyházközségnél a „központ" a közös (címke nélküli) állomány.
+  const tars = szervezetiTipus === 'tars'
+  const kozpontFelirat = kozpontValasztoCimke(szervezetiTipus)
+
   const kivalasztottEgysegNev = useMemo(() => {
-    if (egysegId === 'kozpont') return 'Anyaegyházközség (központ)'
+    if (egysegId === 'kozpont') return kozpontFelirat
     return egysegek.find((egyseg) => egyseg.id === egysegId)?.nev ?? null
-  }, [egysegId, egysegek])
+  }, [egysegId, egysegek, kozpontFelirat])
 
   /**
    * Központ célnál a „csak besorolatlan" halmaz definíció szerint üres (a
@@ -167,7 +176,7 @@ export function EgysegBesorolasDialog({
 
         {adat && !adat.error && egysegek.length > 0 && lepes === 1 && (
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-            {[{ id: 'kozpont', nev: 'Anyaegyházközség (központ)', tipus: '' }, ...egysegek].map((egyseg) => (
+            {[{ id: 'kozpont', nev: kozpontFelirat, tipus: '' }, ...egysegek].map((egyseg) => (
               <button
                 key={egyseg.id}
                 type="button"
@@ -183,14 +192,17 @@ export function EgysegBesorolasDialog({
                 <span className="min-w-0 truncate">{egyseg.nev}</span>
                 {egyseg.tipus && (
                   <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    {egyseg.tipus === 'leany' ? 'Leányegyházközség' : 'Szórvány'}
+                    {/* Katalógus-alapú címke — az 'egyhazresz' típus is helyesen jelenik meg. */}
+                    {(EGYSEG_TIPUS_CIMKEK as Record<string, string | undefined>)[egyseg.tipus] ?? egyseg.tipus}
                   </span>
                 )}
               </button>
             ))}
             {typeof adat.besorolatlanSzam === 'number' && (
               <p className="pt-1 text-xs text-muted-foreground">
-                Jelenleg {adat.besorolatlanSzam} aktív tag tartozik az anyaközponthoz (nincs egység-címkéje).
+                {tars
+                  ? `Jelenleg ${adat.besorolatlanSzam} aktív tag tartozik a közös állományhoz (nincs egység-címkéje).`
+                  : `Jelenleg ${adat.besorolatlanSzam} aktív tag tartozik az anyaközponthoz (nincs egység-címkéje).`}
               </p>
             )}
           </div>
@@ -200,8 +212,9 @@ export function EgysegBesorolasDialog({
           <div className="flex min-h-0 flex-1 flex-col gap-3">
             {celKozpont ? (
               <p className="rounded-xl border border-border bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
-                A központba visszasorolás a kijelölt települések már egységbe sorolt tagjait
-                érinti — a besorolatlan tagok eleve az anyaközponthoz tartoznak.
+                {tars
+                  ? 'A közös állományba visszasorolás a kijelölt települések már egységbe sorolt tagjait érinti — a besorolatlan tagok eleve a közös állományhoz tartoznak.'
+                  : 'A központba visszasorolás a kijelölt települések már egységbe sorolt tagjait érinti — a besorolatlan tagok eleve az anyaközponthoz tartoznak.'}
               </p>
             ) : (
               <label className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-xl border border-border bg-muted/25 px-3 py-2 text-sm">

@@ -43,6 +43,7 @@ import { cn } from '@/lib/utils'
 import { csvCella } from '@/lib/utils/csv'
 import { getWorklogs, deleteWorklog } from '@/app/(dashboard)/munkanaplo/actions'
 import { listGyulekezetiEgysegek } from '@/app/(dashboard)/congregation/egysegek-actions'
+import { kozpontValasztoCimke } from '@/lib/gyulekezet/egysegek-shared'
 import type { GyulekezetiEgyseg } from '@/lib/gyulekezet/egysegek-shared'
 import { WorklogDialog } from '@/components/modals/worklog-dialog'
 import {
@@ -254,6 +255,10 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
   // Hibánál (pl. a migráció még nem futott le) csendes console.warn + üres
   // lista: az egység-funkció opcionális, a munkanapló nélküle is teljes értékű.
   const [egysegek, setEgysegek] = useState<GyulekezetiEgyseg[]>([])
+  // 2026-08-25 (társegyházközség): a gyülekezet szervezeti formája — a
+  // „központ" feliratokhoz (társnál „Közös / egész egyházközség"); null =
+  // ismeretlen vagy migráció előtti adatbázis (hagyományos felirat).
+  const [szervezetiTipus, setSzervezetiTipus] = useState<string | null>(null)
   // Egység-szűrő az időszak-sávban: 'all' = minden egység, 'anya' =
   // anyaközpont (egyseg_id nélküli sorok), különben egy egység uuid-ja.
   const [egysegFilter, setEgysegFilter] = useState<string>('all')
@@ -301,6 +306,7 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
           return
         }
         setEgysegek(res.egysegek)
+        setSzervezetiTipus(res.szervezetiTipus ?? null)
       })
       .catch((err) => {
         if (!cancelled) console.warn('[worklog] az egység-lista betöltése sikertelen:', err)
@@ -539,7 +545,10 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
                 className={SELECT_CLS}
               >
                 <option value="all">Minden egység</option>
-                <option value="anya">Anyaközpont</option>
+                {/* 2026-08-25 (társegyházközség): a „központ" felirata a
+                    szervezeti forma szerint — társnál „Közös / egész
+                    egyházközség" (nincs kitüntetett anyaközpont). */}
+                <option value="anya">{kozpontValasztoCimke(szervezetiTipus)}</option>
                 {egysegek.map((eg) => <option key={eg.id} value={eg.id}>{eg.nev}</option>)}
               </select>
             </>
@@ -713,6 +722,7 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
                 onEditEntry={(entry) => { setEditEntry(entry); setDialogOpen(true) }}
                 egysegek={egysegek}
                 egysegFilter={egysegek.length === 0 ? 'all' : egysegFilter}
+                szervezetiTipus={szervezetiTipus}
               />
             </div>
           )}
@@ -752,7 +762,7 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
         </div>
       )}
 
-      <WorklogDialog open={dialogOpen} onOpenChange={closeDialog} editEntry={editEntry} defaultCategory={dialogCategory} egysegek={egysegek} />
+      <WorklogDialog open={dialogOpen} onOpenChange={closeDialog} editEntry={editEntry} defaultCategory={dialogCategory} egysegek={egysegek} szervezetiTipus={szervezetiTipus} />
 
       {/* A nyomtatási központ saját maga tölti be a kiválasztott év TELJES
           adatait (getWorklogsForYear). */}

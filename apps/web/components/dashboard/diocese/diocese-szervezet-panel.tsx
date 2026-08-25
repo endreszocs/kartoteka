@@ -3,11 +3,11 @@
 /**
  * SZERVEZETI TÉRKÉP — a megye gyülekezeteinek anya→leány képe (2026-08-25).
  *
- * MIT MUTAT: anya-csoportokat (anyaegyházközség / missziói egyházközség), alattuk
- * behúzva a hozzájuk KAPCSOLT leányegyházközségeket (önálló kartoték, saját
- * sorral az RPC-ben) és a kartotékán BELÜLI egységeket (leány/szórvány címkék a
- * `gyulekezeti_egysegek` táblából). Az önálló (kapcsolat nélküli) anyák egyszerű
- * kártyasorban állnak.
+ * MIT MUTAT: anya-csoportokat (anyaegyházközség / missziói egyházközség /
+ * társegyházközség), alattuk behúzva a hozzájuk KAPCSOLT leányegyházközségeket
+ * (önálló kartoték, saját sorral az RPC-ben) és a kartotékán BELÜLI egységeket
+ * (leány/szórvány/egyházrész címkék a `gyulekezeti_egysegek` táblából). Az
+ * önálló (kapcsolat nélküli) anyák egyszerű kártyasorban állnak.
  *
  * ADATFORRÁS-HATÁR (ALAPELV 2026-04-17): kizárólag a `gyulekezeti_hierarchia()`
  * RPC sorai (szervezet + lelkész-nevek) + a már engedélyezett
@@ -37,16 +37,27 @@ import type { CongregationDetail } from './congregation-detail-modal'
 /**
  * Típus → jelvény-hangulat. A színek jelentést hordoznak, és a felül lévő
  * jelmagyarázat ugyanebből a leképezésből épül — a kettő nem húzhat szét.
+ *
+ * ⚠️ A StatusBadge-nek nincs teal intentje — a társegyházközség (és az
+ *    egyházrész) teal színe `className`-felülírással érvényesül, dark párral.
+ *    A leképezés a kerületi oldal (dashboard-kerulet/szervezet/page.tsx)
+ *    leképezésével BETŰRE azonos.
  */
-const TIPUS_INTENT: Record<SzervezetiTipus, StatusIntent> = {
-  anya: 'info',
-  leany: 'success',
-  misszioi: 'warning',
+const TEAL_JELVENY =
+  'bg-teal-50 text-teal-700 ring-teal-600/25 dark:bg-teal-950/50 dark:text-teal-300 dark:ring-teal-400/30'
+
+const TIPUS_META: Record<SzervezetiTipus, { intent: StatusIntent; className?: string }> = {
+  anya: { intent: 'info' },
+  leany: { intent: 'success' },
+  misszioi: { intent: 'warning' },
+  tars: { intent: 'neutral', className: TEAL_JELVENY },
 }
 
-const EGYSEG_INTENT: Record<EgysegTipus, StatusIntent> = {
-  leany: 'success',
-  szorvany: 'neutral',
+const EGYSEG_META: Record<EgysegTipus, { intent: StatusIntent; className?: string }> = {
+  leany: { intent: 'success' },
+  szorvany: { intent: 'neutral' },
+  // Az egyházrész a társegyházközség színnyelvét viseli.
+  egyhazresz: { intent: 'neutral', className: TEAL_JELVENY },
 }
 
 interface DioceseSzervezetPanelProps {
@@ -162,21 +173,33 @@ export function DioceseSzervezetPanel({
             <p className="text-sm leading-relaxed text-muted-foreground">
               Az egyházmegye gyülekezeteinek szervezeti képe: az anyaegyházközségek, a
               hozzájuk kapcsolt leányegyházközségek, a kartotékon belüli egységek
-              (leány/szórvány) és a szolgáló lelkészek. A választói létszám a beküldött
-              választók névjegyzékéből származik — ahol nincs beküldve, ott nem mutatunk
-              számot.
+              (leány/szórvány/egyházrész) és a szolgáló lelkészek. A választói létszám a
+              beküldött választók névjegyzékéből származik — ahol nincs beküldve, ott nem
+              mutatunk számot.
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Jelmagyarázat:
               </span>
-              {(Object.keys(TIPUS_INTENT) as SzervezetiTipus[]).map((t) => (
-                <StatusBadge key={t} intent={TIPUS_INTENT[t]} dot>
+              {(Object.keys(TIPUS_META) as SzervezetiTipus[]).map((t) => (
+                <StatusBadge
+                  key={t}
+                  intent={TIPUS_META[t].intent}
+                  className={TIPUS_META[t].className}
+                  dot
+                >
                   {SZERVEZETI_TIPUS_CIMKEK[t]}
                 </StatusBadge>
               ))}
-              <StatusBadge intent={EGYSEG_INTENT.szorvany} dot>
+              <StatusBadge intent={EGYSEG_META.szorvany.intent} dot>
                 {EGYSEG_TIPUS_CIMKEK.szorvany}
+              </StatusBadge>
+              <StatusBadge
+                intent={EGYSEG_META.egyhazresz.intent}
+                className={EGYSEG_META.egyhazresz.className}
+                dot
+              >
+                {EGYSEG_TIPUS_CIMKEK.egyhazresz}
               </StatusBadge>
             </div>
           </div>
@@ -254,7 +277,10 @@ function AnyaCsoportKartya({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-heading text-base text-foreground">{anya.name}</p>
-            <StatusBadge intent={TIPUS_INTENT[anya.szervezeti_tipus] ?? 'neutral'}>
+            <StatusBadge
+              intent={TIPUS_META[anya.szervezeti_tipus]?.intent ?? 'neutral'}
+              className={TIPUS_META[anya.szervezeti_tipus]?.className}
+            >
               {SZERVEZETI_TIPUS_CIMKEK[anya.szervezeti_tipus] ?? anya.szervezeti_tipus}
             </StatusBadge>
           </div>
@@ -269,7 +295,10 @@ function AnyaCsoportKartya({
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-sm font-medium text-foreground">{l.name}</p>
-                <StatusBadge intent={TIPUS_INTENT[l.szervezeti_tipus] ?? 'neutral'}>
+                <StatusBadge
+                  intent={TIPUS_META[l.szervezeti_tipus]?.intent ?? 'neutral'}
+                  className={TIPUS_META[l.szervezeti_tipus]?.className}
+                >
                   {SZERVEZETI_TIPUS_CIMKEK[l.szervezeti_tipus] ?? l.szervezeti_tipus}
                 </StatusBadge>
               </div>
@@ -308,7 +337,10 @@ function EgysegTartalom({ egyseg }: { egyseg: HierarchiaEgyseg }) {
     <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-sm text-foreground">{egyseg.nev}</p>
-        <StatusBadge intent={EGYSEG_INTENT[egyseg.tipus] ?? 'neutral'}>
+        <StatusBadge
+          intent={EGYSEG_META[egyseg.tipus]?.intent ?? 'neutral'}
+          className={EGYSEG_META[egyseg.tipus]?.className}
+        >
           {EGYSEG_TIPUS_CIMKEK[egyseg.tipus] ?? egyseg.tipus}
         </StatusBadge>
         {!egyseg.aktiv && (
@@ -371,7 +403,10 @@ function GyulekezetKartya({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm font-semibold text-foreground">{sor.name}</p>
-            <StatusBadge intent={TIPUS_INTENT[sor.szervezeti_tipus] ?? 'neutral'}>
+            <StatusBadge
+              intent={TIPUS_META[sor.szervezeti_tipus]?.intent ?? 'neutral'}
+              className={TIPUS_META[sor.szervezeti_tipus]?.className}
+            >
               {SZERVEZETI_TIPUS_CIMKEK[sor.szervezeti_tipus] ?? sor.szervezeti_tipus}
             </StatusBadge>
           </div>

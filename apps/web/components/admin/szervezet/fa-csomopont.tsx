@@ -80,12 +80,15 @@ function szerepFelirat(role: string, customLabel: string | null): string {
 /**
  * A HIVATALOS szervezeti forma jelvénye (2026-08-25). A felirat a kanonikus
  * `SZERVEZETI_TIPUS_CIMKEK`-ből jön; a színek: anya = semleges, leány = kék
- * (info), missziói = lila.
+ * (info), missziói = lila, társegyházközség = teal.
  *
- * ⚠️ A StatusBadge-nek nincs lila intentje — a lila a `className` felülírással
- *    érvényesül (a `cn()` tailwind-merge-e a később jövő szín-osztályt tartja
- *    meg), a dark: párokkal együtt.
+ * ⚠️ A StatusBadge-nek nincs lila/teal intentje — ezek a `className`
+ *    felülírással érvényesülnek (a `cn()` tailwind-merge-e a később jövő
+ *    szín-osztályt tartja meg), a dark: párokkal együtt.
  */
+const TEAL_JELVENY =
+  'bg-teal-50 text-teal-700 ring-teal-600/25 dark:bg-teal-950/50 dark:text-teal-300 dark:ring-teal-400/30'
+
 const TIPUS_META: Record<FaSzervezetiTipus, { intent: StatusIntent; className?: string }> = {
   anya: { intent: 'neutral' },
   leany: { intent: 'info' },
@@ -94,6 +97,18 @@ const TIPUS_META: Record<FaSzervezetiTipus, { intent: StatusIntent; className?: 
     className:
       'bg-violet-100 text-violet-700 ring-violet-600/25 dark:bg-violet-950/50 dark:text-violet-300 dark:ring-violet-400/30',
   },
+  tars: { intent: 'neutral', className: TEAL_JELVENY },
+}
+
+/**
+ * Az egység-sor típus-jelvénye: egység-leány = kék, szórvány = borostyán,
+ * egyházrész (a társegyházközség egyenrangú része) = teal — a 'tars'
+ * gyülekezet-jelvény színnyelvét viseli.
+ */
+const EGYSEG_META: Record<FaEgyseg['tipus'], { intent: StatusIntent; className?: string }> = {
+  leany: { intent: 'info' },
+  szorvany: { intent: 'warning' },
+  egyhazresz: { intent: 'neutral', className: TEAL_JELVENY },
 }
 
 /** „3 napja" / „ma" — rövid, magyar. `null`-ra `null` (nem írunk ki semmit). */
@@ -473,7 +488,7 @@ export function GyulekezetSor({
         )}
       </span>
 
-      {/* Az anya kartotékán BELÜLI egységek (leány/szórvány) kis sorai. */}
+      {/* Az anya kartotékán BELÜLI egységek (leány/szórvány/egyházrész) kis sorai. */}
       {egysegek.length > 0 && (
         <span className="mt-0.5 block w-full space-y-1 border-t border-border/50 pt-1.5">
           {egysegek.map((e) => (
@@ -487,20 +502,18 @@ export function GyulekezetSor({
 
 /**
  * Egy egység-sor az anya kartotékáján belül (2026-08-25): név + típus-jelvény
- * (egység-leány = kék, szórvány = borostyán) + élő létszám.
+ * (egység-leány = kék, szórvány = borostyán, egyházrész = teal) + élő létszám.
  *
  * ⚠️ A LÉTSZÁM a TagszamSzoveg-en megy át: a hiányzó érték (a megyei néző nem
  *    jogosult rá) „nem tudjuk" — SOHA nem 0.
  */
 function EgysegSor({ egyseg }: { egyseg: FaEgyseg }) {
+  const meta = EGYSEG_META[egyseg.tipus]
   return (
     <span className="flex items-center gap-2 rounded-md bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
       <CornerDownRight className="size-3 shrink-0" aria-hidden />
       <span className="min-w-0 flex-1 truncate font-medium text-foreground">{egyseg.nev}</span>
-      <StatusBadge
-        intent={egyseg.tipus === 'szorvany' ? 'warning' : 'info'}
-        className="px-1.5 text-[10px]"
-      >
+      <StatusBadge intent={meta.intent} className={cn('px-1.5 text-[10px]', meta.className)}>
         {EGYSEG_TIPUS_CIMKEK[egyseg.tipus]}
       </StatusBadge>
       <span className="inline-flex shrink-0 items-center gap-1">

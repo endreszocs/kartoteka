@@ -159,7 +159,9 @@ function szoveg(ertek: unknown): string | null {
  * nem „lefokozódik" anyává.
  */
 function ervenyesSzervezetiTipus(ertek: unknown): FaSzervezetiTipus | undefined {
-  return ertek === 'anya' || ertek === 'leany' || ertek === 'misszioi' ? ertek : undefined
+  return ertek === 'anya' || ertek === 'leany' || ertek === 'misszioi' || ertek === 'tars'
+    ? ertek
+    : undefined
 }
 
 /**
@@ -174,7 +176,10 @@ function egysegLista(ertek: unknown): FaEgyseg[] {
   const ki: FaEgyseg[] = []
   for (const e of ertek as Array<Record<string, unknown>>) {
     if (!e || typeof e.id !== 'string' || typeof e.nev !== 'string') continue
-    const tipus = e.tipus === 'leany' || e.tipus === 'szorvany' ? e.tipus : null
+    // 'egyhazresz' (2026-08-25): a társegyházközség egyenrangú egyházrésze —
+    // kihagyása némán eltüntetné a 'tars' gyülekezetek egység-sorait.
+    const tipus =
+      e.tipus === 'leany' || e.tipus === 'szorvany' || e.tipus === 'egyhazresz' ? e.tipus : null
     if (!tipus) continue
     ki.push({
       id: e.id,

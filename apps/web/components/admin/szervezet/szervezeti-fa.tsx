@@ -105,8 +105,9 @@ export function SzervezetiFa() {
   const keres = kereses.trim().length > 0
 
   // A kötés-dialógus anya-jelöltjei: a kiválasztott gyülekezet SAJÁT
-  // egyházmegyéjének 'anya'/'misszioi' (és anya-kötés nélküli) gyülekezetei —
-  // a fa MÁR BETÖLTÖTT adatából, külön lekérdezés nélkül.
+  // egyházmegyéjének 'anya'/'misszioi'/'tars' (és anya-kötés nélküli)
+  // gyülekezetei — a fa MÁR BETÖLTÖTT adatából, külön lekérdezés nélkül.
+  // (A DB-trigger is engedi: a társegyházközség is elláthat leányt.)
   const anyaJeloltek = useMemo<AnyaJelolt[]>(() => {
     if (!kotesGy) return []
     const sajatMegye = keruletek
@@ -117,7 +118,9 @@ export function SzervezetiFa() {
           .filter(
             (g) =>
               g.id !== kotesGy.id &&
-              (g.szervezetiTipus === 'anya' || g.szervezetiTipus === 'misszioi') &&
+              (g.szervezetiTipus === 'anya' ||
+                g.szervezetiTipus === 'misszioi' ||
+                g.szervezetiTipus === 'tars') &&
               !g.anyaId,
           )
           .map((g) => ({ id: g.id, nev: g.nev }))

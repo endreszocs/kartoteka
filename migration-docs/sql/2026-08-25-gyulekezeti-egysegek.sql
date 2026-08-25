@@ -25,17 +25,18 @@
 
 BEGIN;
 
--- Első futás-e? (A Missziói név-minta backfill CSAK ekkor futhat — újrafuttatás
--- nem írhatja felül az admin által kézzel átsorolt gyülekezeteket.)
-CREATE TEMP TABLE _gyul_egysegek_elso_futas ON COMMIT DROP AS
-SELECT NOT EXISTS (
-  SELECT 1 FROM information_schema.columns
-  WHERE table_schema = 'public' AND table_name = 'congregations'
-    AND column_name = 'szervezeti_tipus'
-) AS elso;
+-- ⚠️ 2026-08-25/2: az első változat TEMP táblával jelölte az első futást —
+-- a Supabase SQL editor végrehajtása alatt a munkamenet-állapot nem garantált
+-- (42P01: relation "_gyul_egysegek_elso_futas" does not exist), ezért ITT
+-- SEMMI nem támaszkodhat session-állapotra. Az első-futás-őr a Missziói
+-- backfillnél önhordó NOT EXISTS feltétel lett (5. szakasz).
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- 1. congregations — hivatalos szervezeti réteg
+--    Típusok: anya · leany · misszioi · tars (társegyházközség: két vagy
+--    több, egymással EGYENRANGÚ egyházrész közös egyházközsége — közös
+--    lelkészi állás, közös jogi személy; az egyházrészek a kartotékon belül
+--    'egyhazresz' típusú egységek).
 -- ─────────────────────────────────────────────────────────────────────────
 
 ALTER TABLE public.congregations
@@ -44,17 +45,17 @@ ALTER TABLE public.congregations
 ALTER TABLE public.congregations
   ADD COLUMN IF NOT EXISTS anya_congregation_id uuid NULL;
 
+-- A CHECK-et drop+add párossal frissítjük (conname szerint célzunk — a
+-- pg_get_constraintdef LIKE-keresés rögzített csapda): így egy korábbi,
+-- 'tars' nélküli futás után is a teljes értékkészletre bővül.
+ALTER TABLE public.congregations
+  DROP CONSTRAINT IF EXISTS congregations_szervezeti_tipus_check;
+ALTER TABLE public.congregations
+  ADD CONSTRAINT congregations_szervezeti_tipus_check
+  CHECK (szervezeti_tipus IN ('anya', 'leany', 'misszioi', 'tars'));
+
 DO $$
 BEGIN
-  -- conname szerint célzunk (a pg_get_constraintdef LIKE-keresés rögzített csapda)
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint
-                 WHERE conname = 'congregations_szervezeti_tipus_check'
-                   AND conrelid = 'public.congregations'::regclass) THEN
-    ALTER TABLE public.congregations
-      ADD CONSTRAINT congregations_szervezeti_tipus_check
-      CHECK (szervezeti_tipus IN ('anya', 'leany', 'misszioi'));
-  END IF;
-
   IF NOT EXISTS (SELECT 1 FROM pg_constraint
                  WHERE conname = 'congregations_anya_fk'
                    AND conrelid = 'public.congregations'::regclass) THEN
@@ -97,13 +98,14 @@ BEGIN
   END IF;
 
   IF NEW.anya_congregation_id IS NOT NULL THEN
-    -- Az anya csak önálló (anya nélküli) 'anya' vagy 'misszioi' lehet.
+    -- Az anya csak önálló (anya nélküli) 'anya', 'misszioi' vagy 'tars'
+    -- típusú egyházközség lehet (a társegyházközség is elláthat leányt/szórványt).
     PERFORM 1 FROM public.congregations a
      WHERE a.id = NEW.anya_congregation_id
-       AND a.szervezeti_tipus IN ('anya', 'misszioi')
+       AND a.szervezeti_tipus IN ('anya', 'misszioi', 'tars')
        AND a.anya_congregation_id IS NULL;
     IF NOT FOUND THEN
-      RAISE EXCEPTION 'Az anyaegyházközség csak önálló ''anya'' vagy ''misszioi'' típusú egyházközség lehet.';
+      RAISE EXCEPTION 'Az anyaegyházközség csak önálló ''anya'', ''misszioi'' vagy ''tars'' típusú egyházközség lehet.';
     END IF;
     -- Egyszintűség: akinek leánya van, maga nem lehet leány.
     IF EXISTS (SELECT 1 FROM public.congregations gy
@@ -130,7 +132,11 @@ CREATE TABLE IF NOT EXISTS public.gyulekezeti_egysegek (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   congregation_id uuid NOT NULL REFERENCES public.congregations(id) ON DELETE CASCADE,
   nev text NOT NULL,
-  tipus text NOT NULL CHECK (tipus IN ('leany', 'szorvany')),
+  -- 'egyhazresz': a társegyházközség egyenrangú egyházrésze (saját
+  -- presbitériummal); 'leany'/'szorvany': az anyához kapcsolt közösség.
+  tipus text NOT NULL
+    CONSTRAINT gyulekezeti_egysegek_tipus_check
+    CHECK (tipus IN ('leany', 'szorvany', 'egyhazresz')),
   adrlocality_id integer NULL REFERENCES public.adrlocality(id),
   linked_congregation_id uuid NULL REFERENCES public.congregations(id),
   sorrend integer NOT NULL DEFAULT 0,
@@ -145,7 +151,8 @@ CREATE TABLE IF NOT EXISTS public.gyulekezeti_egysegek (
   CONSTRAINT gyulekezeti_egysegek_id_cong_egyedi UNIQUE (id, congregation_id)
 );
 
--- Ha a tábla egy korábbi futásból már létezik, az id+congregation_id kulcs pótlása:
+-- Ha a tábla egy korábbi futásból már létezik: az id+congregation_id kulcs
+-- pótlása + a tipus-CHECK frissítése az 'egyhazresz' értékre (drop+add).
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint
@@ -155,6 +162,12 @@ BEGIN
       ADD CONSTRAINT gyulekezeti_egysegek_id_cong_egyedi UNIQUE (id, congregation_id);
   END IF;
 END $$;
+
+ALTER TABLE public.gyulekezeti_egysegek
+  DROP CONSTRAINT IF EXISTS gyulekezeti_egysegek_tipus_check;
+ALTER TABLE public.gyulekezeti_egysegek
+  ADD CONSTRAINT gyulekezeti_egysegek_tipus_check
+  CHECK (tipus IN ('leany', 'szorvany', 'egyhazresz'));
 
 CREATE INDEX IF NOT EXISTS idx_gyulekezeti_egysegek_congregation
   ON public.gyulekezeti_egysegek (congregation_id);
@@ -462,15 +475,19 @@ CREATE POLICY congregations_update_roles_first
 -- ─────────────────────────────────────────────────────────────────────────
 -- 5. Missziói backfill — a hivatalos név tartalmazza a „Missziói" szót,
 --    ezért ez nem találgatás, hanem a névből következő tény.
---    CSAK ELSŐ FUTÁSKOR: újrafuttatás nem írhatja felül az admin kézi,
---    auditált átsorolásait (az „idempotens" ígéret adat-szinten is álljon).
+--    ÖNHORDÓ első-futás-őr (session-állapot NÉLKÜL): a backfill csak addig
+--    fut, amíg MINDEN gyülekezet 'anya' (érintetlen kiinduló állapot). Amint
+--    bármelyik sor nem-'anya' (a backfill vagy egy admin átsorolta), az
+--    újrafuttatás nem ír felül semmit — az admin kézi, auditált döntése
+--    nem veszhet el.
 -- ─────────────────────────────────────────────────────────────────────────
 
 UPDATE public.congregations
    SET szervezeti_tipus = 'misszioi'
- WHERE (SELECT elso FROM _gyul_egysegek_elso_futas)
-   AND szervezeti_tipus = 'anya'
-   AND (name ILIKE '%misszi%' OR coalesce(nev_hu, '') ILIKE '%misszi%');
+ WHERE szervezeti_tipus = 'anya'
+   AND (name ILIKE '%misszi%' OR coalesce(nev_hu, '') ILIKE '%misszi%')
+   AND NOT EXISTS (SELECT 1 FROM public.congregations x
+                   WHERE x.szervezeti_tipus <> 'anya');
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- 6. Mentés-besorolás (fail-closed kapu — enélkül a napi mentés elhasal).
@@ -567,6 +584,20 @@ SELECT 'összetett FK: szemely.egyseg_id (saját gyülekezet egysége)',
                            AND conrelid='public.szemely'::regclass
                            AND array_length(conkey, 1) = 2)
             THEN '✅' ELSE '❌ HIÁNYZIK/EGYOSZLOPOS' END
+UNION ALL
+SELECT 'szervezeti_tipus CHECK: ''tars'' (társegyházközség) engedélyezve',
+       CASE WHEN EXISTS (SELECT 1 FROM pg_constraint
+                         WHERE conname='congregations_szervezeti_tipus_check'
+                           AND conrelid='public.congregations'::regclass
+                           AND pg_get_constraintdef(oid) LIKE '%tars%')
+            THEN '✅' ELSE '❌ RÉGI CHECK (tars nélkül)' END
+UNION ALL
+SELECT 'egység-típus CHECK: ''egyhazresz'' engedélyezve',
+       CASE WHEN EXISTS (SELECT 1 FROM pg_constraint
+                         WHERE conname='gyulekezeti_egysegek_tipus_check'
+                           AND conrelid=to_regclass('public.gyulekezeti_egysegek')
+                           AND pg_get_constraintdef(oid) LIKE '%egyhazresz%')
+            THEN '✅' ELSE '❌ RÉGI CHECK (egyhazresz nélkül)' END
 UNION ALL
 SELECT 'Missziói egyházközségek (backfill után)',
        '✅ ' || (SELECT count(*)::text FROM public.congregations

@@ -23,6 +23,13 @@ import {
 } from '@/lib/gyulekezet/egysegek-shared'
 import type { JelentesBontas } from './worklog-auto'
 
+/**
+ * 2026-08-25 (társegyházközség): a bontás + a „központ" oszlop felirata
+ * (társnál „Közös (egész egyházközség)"). A kozpontCimke a régi — a társ-forma
+ * előtt véglegesített — snapshotból hiányozhat: ilyenkor ANYAKOZPONT_CIMKE.
+ */
+type BontasAdat = JelentesBontas & { kozpontCimke?: string }
+
 // ---------------------------------------------------------------------------
 // Segédek (a ./print.ts bevált helperjeinek másolata)
 // ---------------------------------------------------------------------------
@@ -130,11 +137,13 @@ function osszesenSzoveg(data: LelkesziJelentesData, mezoId: string): string {
  */
 export function buildBontasMellekletHtml(
   data: LelkesziJelentesData,
-  bontas: JelentesBontas,
+  bontas: BontasAdat,
   ev: number,
 ): string {
   const oszlopok: Array<{ id: string; nev: string; altipus: string | null }> = [
-    { id: ANYA_OSZLOP_ID, nev: ANYAKOZPONT_CIMKE, altipus: null },
+    // 2026-08-25 (társegyházközség): a „központ" oszlop felirata a bontásból
+    // (társnál „Közös (egész egyházközség)"); régi snapshotnál fallback.
+    { id: ANYA_OSZLOP_ID, nev: bontas.kozpontCimke ?? ANYAKOZPONT_CIMKE, altipus: null },
     ...bontas.egysegek.map((e) => ({
       id: e.id,
       nev: e.nev,
@@ -193,7 +202,7 @@ export function buildBontasMellekletHtml(
       <tbody>${sorok}</tbody>
     </table>
     <div class="labjegyzetek">
-      <p><sup>1</sup> VII.1 — egyházfenntartói járulék: a bontás a befizető személy egység-besorolása szerinti <strong>javaslat</strong> (a család-szintű vagy egység nélküli befizetés az Anyaegyházközség oszlopában áll).</p>
+      <p><sup>1</sup> VII.1 — egyházfenntartói járulék: a bontás a befizető személy egység-besorolása szerinti <strong>javaslat</strong> (a család-szintű vagy egység nélküli befizetés a központi oszlophoz számít).</p>
       <p><sup>2</sup> VII.3 — perselypénz: a bontás a <strong>munkanapló</strong> alkalom-sorainak persely-rovatából számol; a fő jelentés VII.3 rubrikája a könyvelt befizetésekből — a kettő ismert módon eltérhet.</p>
       <p>Üres cella (—) = nincs rögzített adat az egységre — nem nulla. A Σ Összesen oszlop a fő jelentés hivatalos (feloldott) értéke.</p>
     </div>

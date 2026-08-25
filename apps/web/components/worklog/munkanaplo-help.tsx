@@ -34,7 +34,7 @@ const CATEGORIES: HelpCategory[] = [
   // 2026-08-25: gyülekezeti egységek (leány/szórvány helyszín-címke) + a
   // gyülekezetformák teljes útmutatója.
   { id: 'egysegek', label: 'Gyülekezeti egységek', Icon: Network, short: 'Leány, szórvány, helyszín-címke' },
-  { id: 'gyformak', label: 'Gyülekezetformák', Icon: Church, short: 'Anya, leány, missziói, szórvány' },
+  { id: 'gyformak', label: 'Gyülekezetformák', Icon: Church, short: 'Anya, leány, missziói, társ, szórvány' },
   { id: 'print', label: 'Export és nyomtatás', Icon: Printer, short: 'CSV export, hivatalos jelentés' },
 ]
 
@@ -440,6 +440,7 @@ function EgysegekContent() {
         <li>Alapértéke az <strong>anyaközpont</strong> — a központi alkalomnál nincs külön teendő.</li>
         <li>Ha a leányban vagy a szórványban szolgáltál, válaszd ki az egységet a listából.</li>
         <li>A címke nélküli (üresen hagyott) bejegyzés mindig az <strong>anyaközponthoz</strong> számít — a régi bejegyzéseid így visszamenőleg is helyesek.</li>
+        <li>Társegyházközségnél a helyszín-választó <strong>„Közös"</strong> opciója az egész egyházközséget érintő alkalmakat jelöli — az egyes egyházrészek alkalmait a saját egyházrész-címkéjükkel rögzítsd.</li>
       </ul>
 
       <S>Mire jó? — a lelkészi jelentés bontása</S>
@@ -461,9 +462,9 @@ function EgysegekContent() {
 
       <div className="rounded-xl border border-border bg-muted/40 p-4">
         <p>
-          A négy gyülekezetforma (anya, leány, missziói, szórvány) és a teljes
-          beállítási útmutató a <strong>„Gyülekezetformák"</strong> fejezetben
-          található, itt a bal oldali listában.
+          Az öt gyülekezetforma (anya, leány, missziói, társ, szórvány) és a
+          teljes beállítási útmutató a <strong>„Gyülekezetformák"</strong>{' '}
+          fejezetben található, itt a bal oldali listában.
         </p>
       </div>
     </>

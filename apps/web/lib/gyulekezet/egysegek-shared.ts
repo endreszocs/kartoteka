@@ -15,13 +15,14 @@
 // function-t exportálhat) a típusok/konstansok ITT élnek, az akciók a
 // megfelelő actions-fájlokban.
 
-export type SzervezetiTipus = 'anya' | 'leany' | 'misszioi'
-export type EgysegTipus = 'leany' | 'szorvany'
+export type SzervezetiTipus = 'anya' | 'leany' | 'misszioi' | 'tars'
+export type EgysegTipus = 'leany' | 'szorvany' | 'egyhazresz'
 
 export const SZERVEZETI_TIPUS_CIMKEK: Record<SzervezetiTipus, string> = {
   anya: 'Anyaegyházközség',
   leany: 'Leányegyházközség',
   misszioi: 'Missziói egyházközség',
+  tars: 'Társegyházközség',
 }
 
 /** Rövid magyarázat a súgókhoz / tooltipekhez. */
@@ -29,15 +30,35 @@ export const SZERVEZETI_TIPUS_LEIRAS: Record<SzervezetiTipus, string> = {
   anya: 'Önálló egyházközség saját lelkészi állással; leányegyházközségek és szórványok kapcsolódhatnak hozzá.',
   leany: 'Szervezett gyülekezet saját presbitériummal, amely lelkipásztori ellátás és egyházigazgatás tekintetében egy anyaegyházközséghez tartozik.',
   misszioi: 'Több település szórtan élő reformátusaiból szervezett egyházközség közös lelkészi állással, egyházi támogatással.',
+  tars: 'Két vagy több, egymással egyenrangú egyházrész közös egyházközsége: közösen fenntartott lelkészi állás, közös jogi személy; a viszonyukat az egyházmegyei közgyűlés által jóváhagyott írásos megállapodás rendezi.',
 }
 
 export const EGYSEG_TIPUS_CIMKEK: Record<EgysegTipus, string> = {
   leany: 'Leányegyházközség',
   szorvany: 'Szórvány',
+  egyhazresz: 'Egyházrész',
 }
 
 /** Az anyaközpont oszlop felirata a bontás-táblában (nem tárolt egység). */
 export const ANYAKOZPONT_CIMKE = 'Anyaegyházközség'
+
+/**
+ * A „központ" (NULL-címkés adat) felirata a szervezeti forma szerint:
+ * anya/missziói gyülekezetnél az anyaegyházközség maga; TÁRSEGYHÁZKÖZSÉGNÉL
+ * nincs kitüntetett központ — ott a címke nélküli adat a KÖZÖS (minden
+ * egyházrészt érintő) tétel. Ismeretlen/még-nem-beállított formánál a
+ * hagyományos felirat.
+ */
+export function kozpontCimke(szervezetiTipus?: string | null): string {
+  return szervezetiTipus === 'tars' ? 'Közös (egész egyházközség)' : ANYAKOZPONT_CIMKE
+}
+
+/** A központ rövid felirata a helyszín-választókhoz (munkanapló, tag-karton). */
+export function kozpontValasztoCimke(szervezetiTipus?: string | null): string {
+  return szervezetiTipus === 'tars'
+    ? 'Közös / egész egyházközség'
+    : 'Anyaegyházközség (központ)'
+}
 
 export interface GyulekezetiEgyseg {
   id: string

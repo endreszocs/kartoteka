@@ -1,8 +1,8 @@
 'use server'
 
 /**
- * Gyülekezet HIVATALOS szervezeti formája (anya–leány–missziói) — admin action
- * (2026-08-25, gyülekezeti egységek terv 3.1).
+ * Gyülekezet HIVATALOS szervezeti formája (anya–leány–missziói–társ) — admin
+ * action (2026-08-25, gyülekezeti egységek terv 3.1).
  *
  * A `congregations.szervezeti_tipus` + `anya_congregation_id` a hivatalos
  * (egyházmegyei javaslat + kerületi jóváhagyás szerinti) réteg — ezért NEM a
@@ -51,9 +51,10 @@ const MIGRACIO_UZENET =
  * A gyülekezet szervezeti formájának beállítása / módosítása.
  *
  * Validálás (fail-closed, a DB-trigger a végső őr):
- *   · `leany` ⇄ anya KÖTELEZŐ, `anya`/`misszioi` → anya-kötés TILOS,
+ *   · `leany` ⇄ anya KÖTELEZŐ, `anya`/`misszioi`/`tars` → anya-kötés TILOS,
  *   · a gyülekezet nem lehet önmaga anyja,
- *   · a választott anya csak önálló (anya nélküli) `anya`/`misszioi` lehet,
+ *   · a választott anya csak önálló (anya nélküli) `anya`/`misszioi`/`tars`
+ *     lehet (a társegyházközséghez is kapcsolódhat leány — a DB-trigger engedi),
  *   · akinek kapcsolt leánya van, maga nem sorolható leánynak.
  */
 export async function setCongregationSzervezet(
@@ -68,7 +69,12 @@ export async function setCongregationSzervezet(
   if (!UUID_RE.test(congregationId || '')) {
     return { error: 'Érvénytelen gyülekezet-azonosító.' }
   }
-  if (szervezetiTipus !== 'anya' && szervezetiTipus !== 'leany' && szervezetiTipus !== 'misszioi') {
+  if (
+    szervezetiTipus !== 'anya' &&
+    szervezetiTipus !== 'leany' &&
+    szervezetiTipus !== 'misszioi' &&
+    szervezetiTipus !== 'tars'
+  ) {
     return { error: 'Érvénytelen szervezeti típus.' }
   }
   if (szervezetiTipus === 'leany') {
@@ -147,11 +153,13 @@ export async function setCongregationSzervezet(
     }
     anyaNev = anya.nev_hu || anya.name || null
     if (
-      (anya.szervezeti_tipus !== 'anya' && anya.szervezeti_tipus !== 'misszioi') ||
+      (anya.szervezeti_tipus !== 'anya' &&
+        anya.szervezeti_tipus !== 'misszioi' &&
+        anya.szervezeti_tipus !== 'tars') ||
       anya.anya_congregation_id
     ) {
       return {
-        error: `${anyaNev || 'A választott gyülekezet'} nem lehet anyaegyházközség: csak önálló „anya" vagy „missziói" típusú egyházközség választható.`,
+        error: `${anyaNev || 'A választott gyülekezet'} nem lehet anyaegyházközség: csak önálló „anya", „missziói" vagy „társegyházközség" típusú egyházközség választható.`,
       }
     }
     // Egyszintűség: akinek kapcsolt leánya van, maga nem sorolható leánynak.

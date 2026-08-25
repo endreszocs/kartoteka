@@ -46,8 +46,18 @@ Két új oszlop:
 
 | Oszlop | Típus | Jelentés |
 |---|---|---|
-| `szervezeti_tipus` | text CHECK (`'anya'`, `'leany'`, `'misszioi'`), default `'anya'` | Az egyházközség hivatalos formája. Szórvány nem önálló egyházközség, ezért itt nem érték. |
-| `anya_congregation_id` | uuid FK → congregations(id), nullable | Csak `leany` típusnál kötelező; `anya`/`misszioi` sornál NULL (CHECK). |
+| `szervezeti_tipus` | text CHECK (`'anya'`, `'leany'`, `'misszioi'`, `'tars'`), default `'anya'` | Az egyházközség hivatalos formája. Szórvány nem önálló egyházközség, ezért itt nem érték. |
+| `anya_congregation_id` | uuid FK → congregations(id), nullable | Csak `leany` típusnál kötelező; `anya`/`misszioi`/`tars` sornál NULL. Az anya `anya`, `misszioi` vagy `tars` lehet. |
+
+**Társegyházközség (`'tars'`, 2026-08-25/2 kiegészítés):** két vagy több, egymással
+EGYENRANGÚ egyházrész közös egyházközsége — közösen fenntartott lelkészi állás, közös
+jogi személy, a viszonyukat az egyházmegyei közgyűlés által jóváhagyott írásos
+megállapodás rendezi. A Kartotékában a társegyházközség EGY kartoték, az egyházrészek
+`'egyhazresz'` típusú egységek a `gyulekezeti_egysegek` táblában (mindegyiknek saját
+presbitériuma van, de közös a nyilvántartás). Társnál nincs kitüntetett „anyaközpont":
+a címke nélküli (NULL `egyseg_id`) adat felirata mindenütt **„Közös"** — a
+`kozpontCimke()`/`kozpontValasztoCimke()` helperek (egysegek-shared.ts) adják a
+forma-függő feliratot. A bontás-táblában az oszlopok: Közös | egyházrészek | Σ.
 
 Ez a hivatalos (egyházmegyei javaslat + kerületi jóváhagyás szerinti) tény, ezért **nem a lelkész
 állítgatja**: az admin Gyülekezetek fül (`components/admin/congregations-tab.tsx`) kap típus- és

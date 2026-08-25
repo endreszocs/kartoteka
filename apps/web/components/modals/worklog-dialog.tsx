@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { saveWorklog } from '@/app/(dashboard)/munkanaplo/actions'
 import { WORKLOG_TYPES, NAPSZAK_OPTIONS, categorizeWorklogEntry } from '@/lib/constants/worklog'
 import type { WorklogCategory, WorklogEntry } from '@/lib/constants/worklog'
-import { EGYSEG_TIPUS_CIMKEK } from '@/lib/gyulekezet/egysegek-shared'
+import { EGYSEG_TIPUS_CIMKEK, kozpontValasztoCimke } from '@/lib/gyulekezet/egysegek-shared'
 import type { GyulekezetiEgyseg } from '@/lib/gyulekezet/egysegek-shared'
 import { toast } from 'sonner'
 
@@ -23,6 +23,12 @@ interface WorklogDialogProps {
    * ilyenkor küld egyseg_id-t (különben a meglévő címke érintetlen marad).
    */
   egysegek?: GyulekezetiEgyseg[]
+  /**
+   * 2026-08-25 (társegyházközség): a gyülekezet szervezeti formája — a
+   * központ-opció felirata ebből jön (társnál „Közös / egész egyházközség";
+   * nem-társnál változatlanul „Anyaegyházközség (központ)").
+   */
+  szervezetiTipus?: string | null
 }
 
 /** Opció-felirat: a név + típus-utótag, pl. „Páva (leányegyházközség)" —
@@ -33,7 +39,7 @@ function egysegFelirat(e: GyulekezetiEgyseg): string {
   return `${e.nev} (${cimke.toLowerCase()})`
 }
 
-export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory, egysegek = [] }: WorklogDialogProps) {
+export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory, egysegek = [], szervezetiTipus = null }: WorklogDialogProps) {
   const [loading, setLoading] = useState(false)
   const [category, setCategory] = useState<WorklogCategory>(defaultCategory)
   const [idopont, setIdopont] = useState('')
@@ -229,7 +235,9 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory, 
                 onChange={e => setEgysegId(e.target.value)}
                 className="w-full min-h-9 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground"
               >
-                <option value="">Anyaegyházközség (központ)</option>
+                {/* 2026-08-25 (társegyházközség): társnál a címke nélküli adat
+                    a KÖZÖS (egész egyházközséget érintő) tétel, nem az anya. */}
+                <option value="">{kozpontValasztoCimke(szervezetiTipus)}</option>
                 {/* Inaktív/törölt egység címkéjének megőrzése szerkesztéskor —
                     különben a select üresre ugrana, és a mentés némán az
                     anyaközpontra írná át (a Típus-select legacy-mintája). */}
