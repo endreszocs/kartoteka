@@ -35,7 +35,12 @@ import { revalidatePath } from 'next/cache'
 import { selectAllPaged } from '@kartoteka/supabase-client'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import type { WorklogEntry } from '@/lib/constants/worklog'
-import { ADATLAP_MEZO_IDS, JELENTES_MEZOK, deriveAutoMezok } from '@/lib/lelkeszi-jelentes/types'
+import {
+  ADATLAP_MEZO_IDS,
+  JELENTES_MEZOK,
+  SZARMAZTATOTT_EGYUTT_MEZOK,
+  deriveAutoMezok,
+} from '@/lib/lelkeszi-jelentes/types'
 import type {
   HatarozatAdatok,
   TobbEvesEv,
@@ -333,6 +338,8 @@ interface SzemelySor {
   member_status: string | null
   voter_eligible: boolean | null
   egyseg_id?: string | null
+  /** 2026-08-25 (jelentés-UX kör): a kor-mutatókhoz (I.24–I.26). */
+  sz_datum?: string | null
 }
 
 /**
@@ -361,6 +368,25 @@ function isMissingEgysegOszlop(error: PgError): boolean {
   )
 }
 
+/**
+ * 2026-08-25 (jelentés-UX kör): a szemely.sz_datum oszlop hiánya (42703 /
+ * PGRST204) — az élő sémában az oszlop régóta létezik, de a lekérdezés
+ * oszlop-drift-biztos marad: a hiány CSAK az I.24–I.26 kor-mutatókat ejti ki,
+ * az I.10/I.11 fő rubrikáit nem (fetchSzemelyRows visszaesési láncolata).
+ */
+function isMissingSzDatumOszlop(error: PgError): boolean {
+  if (!error) return false
+  const msg = (error.message || '').toLowerCase()
+  if (!msg.includes('sz_datum')) return false
+  return (
+    error.code === '42703' ||
+    error.code === 'PGRST204' ||
+    msg.includes('does not exist') ||
+    msg.includes('schema cache') ||
+    msg.includes('could not find')
+  )
+}
+
 /** A gyulekezeti_egysegek tábla hiánya (a 2026-08-25-ös migráció előtt). */
 function isMissingEgysegTabla(error: PgError): boolean {
   if (!error) return false
@@ -373,16 +399,17 @@ function isMissingEgysegTabla(error: PgError): boolean {
 }
 
 /**
- * Lélekszám-sorok lekérdezése — a bontáshoz egyseg_id-vel, a MIGRÁCIÓ ELŐTTI
- * adatbázist TÚLÉLŐ visszaeséssel (a fetchBealitasZaro bevált mintája): ha az
- * egyseg_id oszlop még nincs, a szűkített lekérdezés fut, és CSAK a bontás
- * marad el — az I.10/I.11 fő rubrikái nem sérülhetnek a bővítéstől. Bármilyen
- * MÁS hibát változatlanul továbbadunk (fail-closed, nincs elfedés).
+ * Lélekszám-sorok lekérdezése — a bontáshoz egyseg_id-vel, a kor-mutatókhoz
+ * (I.24–I.26, 2026-08-25 jelentés-UX kör) sz_datum-mal, a MIGRÁCIÓ ELŐTTI /
+ * eltérő sémájú adatbázist TÚLÉLŐ visszaeséssel (a fetchBealitasZaro bevált
+ * mintája): egy hiányzó bővítő oszlop CSAK a saját mutatóit ejti ki, az
+ * I.10/I.11 fő rubrikái nem sérülhetnek. Bármilyen MÁS hibát változatlanul
+ * továbbadunk (fail-closed, nincs elfedés).
  */
 async function fetchSzemelyRows(
   supabase: Supa,
   congId: string,
-): Promise<{ rows: SzemelySor[]; error: PgError; egysegOszlop: boolean }> {
+): Promise<{ rows: SzemelySor[]; error: PgError; egysegOszlop: boolean; szDatumOszlop: boolean }> {
   const build = (mezok: string) =>
     supabase
       .from('szemely')
@@ -390,11 +417,49 @@ async function fetchSzemelyRows(
       .eq('congregation_id', congId)
       .eq('isvisible', true)
       .order('id')
-  const teljes = await fetchAllRows<SzemelySor>(build('id, meghalt, member_status, voter_eligible, egyseg_id'))
-  if (!teljes.error) return { rows: teljes.rows, error: null, egysegOszlop: true }
-  if (!isMissingEgysegOszlop(teljes.error)) return { rows: [], error: teljes.error, egysegOszlop: false }
-  const szukitett = await fetchAllRows<SzemelySor>(build('id, meghalt, member_status, voter_eligible'))
-  return { rows: szukitett.rows, error: szukitett.error, egysegOszlop: false }
+  const ALAP = 'id, meghalt, member_status, voter_eligible'
+  // A bővítő oszlopok minden kombinációja, a legteljesebbtől a legszűkebbig —
+  // egy-egy oszlop bizonyított hiányát megjegyezzük, és az azt tartalmazó
+  // változatokat átugorjuk (nincs fölösleges kör).
+  const valtozatok: Array<{ mezok: string; egyseg: boolean; szdat: boolean }> = [
+    { mezok: `${ALAP}, egyseg_id, sz_datum`, egyseg: true, szdat: true },
+    { mezok: `${ALAP}, egyseg_id`, egyseg: true, szdat: false },
+    { mezok: `${ALAP}, sz_datum`, egyseg: false, szdat: true },
+    { mezok: ALAP, egyseg: false, szdat: false },
+  ]
+  let egysegHianyzik = false
+  let szDatumHianyzik = false
+  let utolsoHiba: PgError = null
+  for (const v of valtozatok) {
+    if (v.egyseg && egysegHianyzik) continue
+    if (v.szdat && szDatumHianyzik) continue
+    const res = await fetchAllRows<SzemelySor>(build(v.mezok))
+    if (!res.error) return { rows: res.rows, error: null, egysegOszlop: v.egyseg, szDatumOszlop: v.szdat }
+    utolsoHiba = res.error
+    if (isMissingEgysegOszlop(res.error)) {
+      egysegHianyzik = true
+      continue
+    }
+    if (isMissingSzDatumOszlop(res.error)) {
+      szDatumHianyzik = true
+      continue
+    }
+    // Nem oszlop-hiány → fail-closed: a hibát változatlanul továbbadjuk.
+    return { rows: [], error: res.error, egysegOszlop: false, szDatumOszlop: false }
+  }
+  return { rows: [], error: utolsoHiba, egysegOszlop: false, szDatumOszlop: false }
+}
+
+/**
+ * Születési év a szemely.sz_datum-ból ('YYYY-MM-DD' vagy timestamp alak) —
+ * nem értelmezhető / értelmetlen dátumra null (a hívó kihagyja a számításból).
+ */
+function szuletesiEv(szDatum: string | null | undefined): number | null {
+  if (typeof szDatum !== 'string') return null
+  const m = szDatum.match(/^(\d{4})-\d{2}-\d{2}/)
+  if (!m) return null
+  const ev = Number(m[1])
+  return Number.isFinite(ev) && ev > 1800 ? ev : null
 }
 
 /**
@@ -834,6 +899,14 @@ async function computeAuto(
   let lelekszam: number | null = null
   if (szemelyRes.error) {
     console.error('[lelkeszi-jelentes] Lélekszám-lekérdezés HIBA — I.10 null lesz:', szemelyRes.error.message)
+    // 2026-08-25 (jelentés-UX kör): a tagnyilvántartás-hiba HANGOSAN megy a
+    // felületre is — az érintett rubrikák (I.10, I.11, I.24–I.26) üresen
+    // maradnak, soha nem néma 0 (fail-closed).
+    autoHibak.push(
+      'A tagnyilvántartás lekérdezése hibázott, ezért a lélekszám (I.10), a választók (I.11), ' +
+        'az átlagéletkor és a korosztály-mutatók (I.24–I.26) üresen maradtak: ' +
+        (szemelyRes.error.message || 'ismeretlen hiba'),
+    )
   } else {
     // 2026-08-11 (6. kör): a KANONIKUS „aktív tag" szűrő — az I.10 és az I.11
     // MOSTANTÓL UGYANEZT használja (eddig az I.11 csak a `meghalt`-at nézte).
@@ -850,6 +923,50 @@ async function computeAuto(
     // számát — miközben az I.10 lélekszámban már NEM szerepelt. A hivatalos
     // nyomtatványon így több választó látszott, mint amennyi gyülekezeti tag.
     auto['I.11'] = szemelyRes.rows.filter((s) => s.voter_eligible === true && aktivTagSzuro(s)).length
+
+    // I.24–I.26 — kor-mutatók (2026-08-25, jelentés-UX kör): átlagéletkor,
+    // vallásórás korúak (6–14), IKE-korosztály (15–25) — az AKTÍV tagokból, a
+    // dec. 31-i korral (kor = tárgyév − születési év; dec. 31-én az évi
+    // születésnap már mindenkinél elmúlt). A sz_datum nélküli tag kimarad; ha
+    // az aktívak >20%-a ilyen, hangos autoHibak-jelzés megy (a mutatók a
+    // többiekből ettől még számolnak — de a lelkész tudja, mit ír alá).
+    if (!szemelyRes.szDatumOszlop) {
+      autoHibak.push(
+        'A születési dátum (szemely.sz_datum) oszlop nem volt lekérdezhető — az átlagéletkor és a ' +
+          'korosztály-mutatók (I.24–I.26) üresen maradtak.',
+      )
+    } else {
+      const aktivak = szemelyRes.rows.filter(aktivTagSzuro)
+      let korOsszeg = 0
+      let korDb = 0
+      let hianyzoSzDatum = 0
+      let vallasorasKoru = 0
+      let ikeKorosztaly = 0
+      for (const s of aktivak) {
+        const szEv = szuletesiEv(s.sz_datum)
+        const kor = szEv === null ? null : ev - szEv
+        if (kor === null || kor < 0 || kor > 120) {
+          hianyzoSzDatum += 1
+          continue
+        }
+        korOsszeg += kor
+        korDb += 1
+        if (kor >= 6 && kor <= 14) vallasorasKoru += 1
+        if (kor >= 15 && kor <= 25) ikeKorosztaly += 1
+      }
+      if (korDb > 0) {
+        auto['I.24'] = Math.round((korOsszeg / korDb) * 10) / 10
+        auto['I.25'] = vallasorasKoru
+        auto['I.26'] = ikeKorosztaly
+      }
+      if (aktivak.length > 0 && hianyzoSzDatum / aktivak.length > 0.2) {
+        autoHibak.push(
+          `Az aktív tagok ${Math.round((hianyzoSzDatum / aktivak.length) * 100)}%-ánál hiányzik vagy ` +
+            'értelmezhetetlen a születési dátum — az átlagéletkor és a korosztály-mutatók (I.24–I.26) ' +
+            'csak a többi tagból számolnak. Érdemes a születési dátumokat pótolni a tagnyilvántartásban.',
+        )
+      }
+    }
   }
 
   // I.1 — előző évi véglegesített jelentés I.10-e
@@ -1522,7 +1639,11 @@ export async function saveLelkesziJelentes(
   }
   const felulirasok: Record<string, number | string | null> = {}
   for (const [k, v] of Object.entries(sanitizeErtekek(input.felulirasok || {}))) {
-    if (autoMezok.has(k)) {
+    // 2026-08-25 (jelentés-UX kör): a SZÁMOLT „együtt" mezők (I.4c–I.7c) a
+    // katalógusban KÉZIK (auto: false), de a szerkesztő számolt mezőként
+    // mutatja őket, és a felülírásuk a felulirasok rekordba megy — a szűrő
+    // ezért őket is átengedi (különben a felülírás NÉMÁN elveszne).
+    if (autoMezok.has(k) || SZARMAZTATOTT_EGYUTT_MEZOK.has(k)) {
       felulirasok[k] = v
     } else {
       const p = parseEgysegMezoKulcs(k)
@@ -1797,4 +1918,36 @@ export async function submitLelkesziJelentes(ev: number): Promise<{ success?: bo
 
   revalidatePath('/munkanaplo')
   return { success: true }
+}
+
+/**
+ * 2026-08-25 (jelentés-UX kör): a gyülekezet MENTETT jelentés-évei a dialógus
+ * évválasztójához — könnyű lekérdezés (csak ev + statusz). A hívó ebből
+ * építi az opciókat (az aktuális + az előző naptári év akkor is felkerül, ha
+ * itt nem szerepel). Hiányzó tábla (migráció előtt) = üres lista, NEM hiba —
+ * az évválasztó ilyenkor a minimum-készletet mutatja.
+ */
+export async function listJelentesEvek(): Promise<{
+  evek?: Array<{ ev: number; statusz: 'szerkesztes' | 'veglegesitve' }>
+  error?: string
+}> {
+  const { supabase, congregationId } = await getEffectiveCongregationContext()
+  if (!congregationId) return { error: 'Nincs bejelentkezett felhasználó vagy aktív gyülekezet.' }
+
+  const { data, error } = await supabase
+    .from('lelkeszi_jelentes')
+    .select('ev, statusz')
+    .eq('congregation_id', congregationId)
+    .order('ev', { ascending: false })
+  if (error) {
+    if (isMissingJelentesTable(error)) return { evek: [] }
+    return { error: `Hiba a jelentés-évek lekérdezésekor: ${error.message}` }
+  }
+  const evek: Array<{ ev: number; statusz: 'szerkesztes' | 'veglegesitve' }> = []
+  for (const r of (data || []) as Array<{ ev: unknown; statusz: unknown }>) {
+    const ev = Number(r.ev)
+    if (!Number.isFinite(ev)) continue
+    evek.push({ ev, statusz: r.statusz === 'veglegesitve' ? 'veglegesitve' : 'szerkesztes' })
+  }
+  return { evek }
 }

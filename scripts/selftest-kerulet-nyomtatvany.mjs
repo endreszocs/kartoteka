@@ -115,6 +115,11 @@ const F_CHITANTA_PRINT = path.join(REPO_ROOT, 'packages', 'core', 'src', 'financ
 const F_CHITANTA_TPL = path.join(
   REPO_ROOT, 'apps', 'web', 'components', 'finance', 'chitanta-print-template.tsx',
 )
+// 2026-08-25: a nyugta háttér-vízjelének (EREK/KEREK címer) választója —
+// a sablonból kiemelt KÖZÖS helper, renderelés nélkül mérhető.
+const F_NYUGTA_VIZJEL = path.join(
+  REPO_ROOT, 'apps', 'web', 'lib', 'finance', 'nyugta-vizjel.ts',
+)
 // 2026-08-23 (kisebb rések, 4.): a hiányzó ROMÁN névre figyelmeztető sáv — a
 // KÖZÖS helperek a Költségvetés-központban élnek, a Pénzügyi központ importálja.
 const F_BUDGET_DIALOG = path.join(
@@ -133,7 +138,7 @@ const ok = (msg) => console.log(`OK:   ${msg}`)
 
 for (const f of [
   F_PRINT_SCOPE, F_REPORTING, F_ENTITY, F_FIN_REPORTING, F_CHITANTA_PRINT, F_CHITANTA_TPL,
-  F_BUDGET_DIALOG, F_FINANCE_DIALOG,
+  F_NYUGTA_VIZJEL, F_BUDGET_DIALOG, F_FINANCE_DIALOG,
 ]) {
   if (!fs.existsSync(f)) {
     fail(`hiányzik a fájl: ${f}`)
@@ -235,7 +240,14 @@ const ujNaplo = () => ({ tabla: null, select: null, eq: [] })
 // ────────────────────────────────────────────────────────────────────────────
 // A VALÓDI MODULOK BETÖLTÉSE
 // ────────────────────────────────────────────────────────────────────────────
-let scopeMod, reportMod, entityMod, finReportMod, chitantaTplMod
+let scopeMod, reportMod, entityMod, finReportMod, chitantaTplMod, vizjelMod
+/**
+ * 2026-08-25: a Chitanța-sablon a vízjel-választót (`districtEmblemSrc`) és a
+ * `stripDiacritics`-et a `@/lib/finance/nyugta-vizjel` helperből importálja.
+ * A pótlék itt sem hamisítvány: a VALÓDI, lefordított helper-modult adjuk
+ * vissza — a mérce a teljes láncot méri.
+ */
+let CHITANTA_TPL_STUBS = {}
 /**
  * 2026-08-22 (6. pont): a `budget-reporting.ts` és a `reporting.ts` MOSTANTÓL a
  * közös `./entity-name` helpert importálja. A pótlék NEM hamisítvány: a VALÓDI,
@@ -253,11 +265,17 @@ try {
     farok: 'exports.__wrapBudgetTeszthorog = typeof wrapBudget === "function" ? wrapBudget : null;',
   })
   finReportMod = loadTs(F_FIN_REPORTING, 'finance-reporting', { stubs: REPORTING_STUBS })
+  // A vízjel-választó helper — nincs futásidejű importja, tisztán betölthető.
+  vizjelMod = loadTs(F_NYUGTA_VIZJEL, 'nyugta-vizjel')
+  CHITANTA_TPL_STUBS = {
+    '@/lib/utils/number-to-words': { amountInWordsHu: () => '', amountInWordsRo: () => '' },
+    '@/lib/finance/nyugta-vizjel': vizjelMod,
+  }
   // A Chitanța-sablon fejléc-döntése (`fejlecNevek`) modul-belső — teszt-horoggal
   // tesszük láthatóvá. A React-komponenseket NEM rendereljük.
   chitantaTplMod = loadTs(F_CHITANTA_TPL, 'chitanta-tpl', {
     tsx: true,
-    stubs: { '@/lib/utils/number-to-words': { amountInWordsHu: () => '', amountInWordsRo: () => '' } },
+    stubs: CHITANTA_TPL_STUBS,
     farok: 'exports.__fejlecNevekTeszthorog = typeof fejlecNevek === "function" ? fejlecNevek : null;',
   })
 } catch (e) {
@@ -1077,7 +1095,7 @@ if (typeof fejlecNevek !== 'function') {
         ),
       {
         tsx: true,
-        stubs: { '@/lib/utils/number-to-words': { amountInWordsHu: () => '', amountInWordsRo: () => '' } },
+        stubs: CHITANTA_TPL_STUBS,
         farok: 'exports.__fejlecNevekTeszthorog = typeof fejlecNevek === "function" ? fejlecNevek : null;',
       },
     )
@@ -1413,6 +1431,95 @@ if (typeof fejlecNevek !== 'function') {
       }
     } catch (e) {
       fail(`K11/M14 mutáns hiba: ${e?.message || e}`)
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// K12 · A NYUGTA HÁTTÉR-VÍZJELE — KERÜLET SZERINTI CÍMER (EREK/KEREK)
+// ════════════════════════════════════════════════════════════════════════════
+// 2026-08-25: Endre jelezte, hogy a nyugta vízjele „mindig az erdélyi címer".
+// A választó (`districtEmblemSrc`) a `@/lib/finance/nyugta-vizjel` helperbe
+// került; ITT bizonyítjuk, hogy Királyhágómelléki kerületnél tényleg a KEREK
+// címert adja — és hogy ismeretlen/üres kerületnél FAIL-CLOSED marad (EREK,
+// a mai viselkedés), nem pedig címer nélküli vagy találgatott papír.
+{
+  const { districtEmblemSrc, EREK_VIZJEL, KEREK_VIZJEL } = vizjelMod || {}
+  if (typeof districtEmblemSrc !== 'function') {
+    fail(
+      'K12 a `nyugta-vizjel.ts` nem exportálja a `districtEmblemSrc`-t — a vízjel-mérce vak lett. ' +
+        'Ha átnevezted, igazítsd a mércét; NE hagyd zöldön mérés nélkül.',
+    )
+  } else if (EREK_VIZJEL !== '/EREK.png' || KEREK_VIZJEL !== '/KEREK.png') {
+    fail(
+      `K12 a vízjel-útvonalak elmozdultak (EREK=${JSON.stringify(EREK_VIZJEL)}, ` +
+        `KEREK=${JSON.stringify(KEREK_VIZJEL)}) — a public/ assetek neve rögzített`,
+    )
+  } else {
+    // ── K12a · Királyhágómelléki kerület → KEREK címer ───────────────────────
+    const kerekEsetek = [
+      // A valódi kerületnév (magyar) — ékezetekkel
+      { egyhazkeruletNevHu: 'Királyhágómelléki Református Egyházkerület', egyhazkeruletNevRo: null },
+      // A teszt-seed kerülete (2026-08-25-teszt-szervezeti-formak-seed.sql, 6. blokk)
+      { egyhazkeruletNevHu: 'Teszt Királyhágómelléki Egyházkerület', egyhazkeruletNevRo: null },
+      // Csak a ROMÁN név van meg
+      { egyhazkeruletNevHu: null, egyhazkeruletNevRo: 'Eparhia Reformată de pe lângă Piatra Craiului' },
+    ]
+    let a_ok = true
+    for (const eset of kerekEsetek) {
+      const src = districtEmblemSrc(eset)
+      if (src !== KEREK_VIZJEL) {
+        a_ok = false
+        fail(
+          `K12a Királyhágómelléki kerületnél NEM a KEREK címer a vízjel (${JSON.stringify(src)}) — ` +
+            `bemenet: ${JSON.stringify(eset)}`,
+        )
+      }
+    }
+    if (a_ok) ok('K12a Királyhágómelléki kerület (magyar VAGY román név) → KEREK címer-vízjel')
+
+    // ── K12b · Erdélyi + ismeretlen/üres kerület → EREK (FAIL-CLOSED) ────────
+    const erekEsetek = [
+      { egyhazkeruletNevHu: 'Erdélyi Református Egyházkerület', egyhazkeruletNevRo: 'Eparhia Reformată din Ardeal' },
+      { egyhazkeruletNevHu: null, egyhazkeruletNevRo: null }, // nincs kerület-adat
+      { egyhazkeruletNevHu: '', egyhazkeruletNevRo: '' },
+      { egyhazkeruletNevHu: 'Valami Ismeretlen Egyházkerület', egyhazkeruletNevRo: null },
+      {}, // teljesen üres bemenet
+    ]
+    let b_ok = true
+    for (const eset of erekEsetek) {
+      const src = districtEmblemSrc(eset)
+      if (src !== EREK_VIZJEL) {
+        b_ok = false
+        fail(
+          `K12b nem-Királyhágómelléki/ismeretlen kerületnél NEM az EREK a vízjel (${JSON.stringify(src)}) — ` +
+            `a fail-closed (mai) viselkedés sérült; bemenet: ${JSON.stringify(eset)}`,
+        )
+      }
+    }
+    if (b_ok) ok('K12b Erdélyi / ismeretlen / üres kerület → EREK címer (fail-closed, a mai viselkedés)')
+
+    // ── NEGATÍV ASSZERT (M15): a „mindig EREK" régi viselkedés visszaírása ───
+    // Pontosan az a hiba, amit Endre jelentett: a vízjel MINDIG az erdélyi
+    // címer. A mutáns a kerület-mintát iktatja ki — a K12a bukjon rajta.
+    try {
+      const m = mutans(
+        F_NYUGTA_VIZJEL,
+        'nyugta-vizjel-m15',
+        (kod) =>
+          kod.replace(
+            "kerulet.includes('kiralyhago') || kerulet.includes('piatra craiului')",
+            'false',
+          ),
+      )
+      const src = m.districtEmblemSrc({ egyhazkeruletNevHu: 'Királyhágómelléki Református Egyházkerület' })
+      if (src === KEREK_VIZJEL) {
+        fail('K12/M15 negatív asszert VAK: a „mindig EREK" mutáns is KEREK-et ad — a K12a nem mér semmit')
+      } else {
+        ok('K12/M15 negatív asszert: a „mindig EREK" (a bejelentett hiba) változaton a K12a elbukna')
+      }
+    } catch (e) {
+      fail(`K12/M15 mutáns hiba: ${e?.message || e}`)
     }
   }
 }

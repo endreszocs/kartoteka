@@ -5,7 +5,10 @@
 --   • a 3 új teszt-gyülekezet (leány …0004, missziói …0005, társ …0006)
 --     tagjai, naplósorai, egységei és maga a gyülekezet-sor,
 --   • a Teszt gyülekezet (…0003) 2 demo-egysége, a tag-besorolások és a
---     TESZT-EGYSEG-DEMO jelölésű naplósorok.
+--     TESZT-EGYSEG-DEMO jelölésű naplósorok,
+--   • a Királyhágómelléki teszt-hierarchia (6. blokk, nyugta-vízjel demó):
+--     gyülekezet …0013 → megye …0012 → kerület …0011 (ebben a sorrendben,
+--     az FK-lánc miatt).
 -- A Teszt gyülekezet (…0003) EGYÉB adatait NEM bántja (az a 2026-08-09-es
 -- seed hatásköre — annak saját wipe-fájlja van).
 -- Idempotens: többször futtatható; a végén ellenőrző SELECT.
@@ -43,12 +46,14 @@ DELETE FROM public.gyulekezeti_egysegek
       '7e570000-0000-4000-8000-000000000005',
       '7e570000-0000-4000-8000-000000000006');
 
--- 5) Kereszt-gyülekezeti értesítés-maradványok
+-- 5) Kereszt-gyülekezeti értesítés-maradványok (a …0013 tag nélküli, de a
+--    biztonság kedvéért azt is takarítjuk)
 DELETE FROM public.cross_congregation_match_notifications
  WHERE triggering_congregation_id IN
      ('7e570000-0000-4000-8000-000000000004',
       '7e570000-0000-4000-8000-000000000005',
-      '7e570000-0000-4000-8000-000000000006');
+      '7e570000-0000-4000-8000-000000000006',
+      '7e570000-0000-4000-8000-000000000013');
 
 -- 6) A 3 új teszt-gyülekezet sora (a leányt előbb — az anya-FK RESTRICT miatt
 --    mindegy is, de a 0003-at nem töröljük, csak a gyerekeit)
@@ -57,6 +62,18 @@ DELETE FROM public.congregations
      ('7e570000-0000-4000-8000-000000000004',
       '7e570000-0000-4000-8000-000000000005',
       '7e570000-0000-4000-8000-000000000006');
+
+-- 7) A Királyhágómelléki teszt-hierarchia (6. blokk, nyugta-vízjel demó) —
+--    ⚠️ SORREND: gyülekezet → megye → kerület (az FK-lánc alulról bontható).
+--    Tagja/naplósora a seed szerint nincs; ha kézzel mégis került alá adat,
+--    az FK itt HANGOSAN megállítja a törlést (fail-closed) — előbb azt kell
+--    kitakarítani, nem ezt a sorrendet megkerülni.
+DELETE FROM public.congregations
+ WHERE id = '7e570000-0000-4000-8000-000000000013';
+DELETE FROM public.dioceses
+ WHERE id = '7e570000-0000-4000-8000-000000000012';
+DELETE FROM public.districts
+ WHERE id = '7e570000-0000-4000-8000-000000000011';
 
 COMMIT;
 
@@ -85,4 +102,16 @@ UNION ALL
 SELECT 'besorolt tag a Teszt gyülekezetben', count(*)::text
   FROM public.szemely
  WHERE congregation_id = '7e570000-0000-4000-8000-000000000003'
-   AND egyseg_id IS NOT NULL;
+   AND egyseg_id IS NOT NULL
+UNION ALL
+SELECT 'maradék Királyhágómelléki teszt-sor (0011/0012/0013)', count(*)::text
+  FROM (
+    SELECT id FROM public.congregations
+     WHERE id = '7e570000-0000-4000-8000-000000000013'
+    UNION ALL
+    SELECT id FROM public.dioceses
+     WHERE id = '7e570000-0000-4000-8000-000000000012'
+    UNION ALL
+    SELECT id FROM public.districts
+     WHERE id = '7e570000-0000-4000-8000-000000000011'
+  ) kerek_maradek;

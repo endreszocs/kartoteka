@@ -6,6 +6,9 @@ import type { BaptismInput, MarriageInput, BurialInput, MovementInput, Confirmat
 import type { RegistryEntry } from '@/lib/constants/registry'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { softDeleteRegistryWorklog, syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
+// 2026-08-25 (munkanapló-előtöltés): a mentés után a kliens előtöltve nyitja
+// meg a munkanapló-rögzítőt — ehhez a szinkron által írt teljes sort adjuk vissza.
+import type { WorklogEntry } from '@/lib/constants/worklog'
 import { guessGender } from '@/lib/utils/member-helpers'
 import { closeMarriageEdgeBetween, findMembershipConflicts, foreignMembershipWarning, reconcileKinshipForPersons, syncHouseholdFromCsalad } from '@/lib/family/family-membership'
 import { describeMoves, ensureChildFamilyLink } from '@/lib/family/auto-family'
@@ -58,6 +61,32 @@ async function hivatalosNemTipus(
   const kNev = (data?.[0]?.k_nev as string | null) ?? null
   if (!kNev) return fallback
   return guessGender(kNev) === 'no' ? noTipus : ferfiTipus
+}
+
+/**
+ * 2026-08-25 (munkanapló-előtöltés): a szinkron által létrehozott/frissített
+ * munkanaplo sor TELJES beolvasása. A kliens ezzel nyitja meg előtöltve a
+ * munkanapló-rögzítőt a sikeres anyakönyvi mentés után (dátum + kanonikus
+ * jellege + cím már a szerver-szinkronból jön). Hibája nem blokkoló — ilyenkor
+ * a mentés eredménye pontosan a korábbi (worklogEntry nélküli) alak.
+ */
+async function fetchWorklogEntryById(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  congId: string,
+  worklogId: number,
+): Promise<WorklogEntry | null> {
+  const { data, error } = await supabase
+    .from('munkanaplo')
+    .select('*')
+    .eq('id', worklogId)
+    .eq('congregation_id', congId)
+    .maybeSingle()
+  if (error) {
+    console.warn('[worklog-prefill] a munkanaplo sor beolvasása sikertelen:', error.message)
+    return null
+  }
+  return (data as WorklogEntry | null) ?? null
 }
 
 // ── Adatbetöltés (fülváltáskor) ──────────────────────────────
@@ -816,9 +845,10 @@ export async function saveBaptism(data: BaptismInput) {
   //
   // KORÁBBI BUG: az itteni insert a jelenlet_osszesen NOT NULL oszlop miatt
   // NÉMÁN elbukott (nincs DB-default), így a pipa hatástalan volt.
+  let worklogEntry: WorklogEntry | null = null
   if (baptismRowId) {
     const names = await getSzemelyNames(supabase, [d.id_szemely])
-    await syncRegistryWorklogLink(supabase, congId, {
+    const worklogId = await syncRegistryWorklogLink(supabase, congId, {
       sourceTable: 'keresztseg',
       sourceId: baptismRowId,
       currentWorklogId,
@@ -832,11 +862,17 @@ export async function saveBaptism(data: BaptismInput) {
         szolgalt: d.lelkeszneve || null,
       },
     })
+    // 2026-08-25: BEkapcsolt pipánál a teljes sort visszaadjuk — a dialógus
+    // előtöltve nyitja meg a munkanapló-rögzítőt. KIkapcsolt pipánál semmi
+    // többlet nem fut, a visszatérési érték betűre a korábbi.
+    if (d.munkanaploba && worklogId) {
+      worklogEntry = await fetchWorklogEntryById(supabase, congId, worklogId)
+    }
   }
 
   revalidatePath('/anyakonyv')
   revalidatePath('/munkanaplo')
-  return { success: true, warning: familyWarning ?? undefined }
+  return { success: true, warning: familyWarning ?? undefined, worklogEntry: worklogEntry ?? undefined }
 }
 
 // ── Család automatikus létrehozás (keresztelés) ──────────────
@@ -1318,9 +1354,10 @@ export async function saveMarriage(data: MarriageInput) {
   // Munkanapló-szinkron (2026-06-12, Endre #3-4): az esketés EDDIG egyáltalán
   // nem került be a munkanaplóba (hiányzó integráció) — most a kereszteléssel
   // azonos, idempotens úton szinkronizál. Hibája nem blokkolja a mentést.
+  let worklogEntry: WorklogEntry | null = null
   if (marriageRowId) {
     const names = await getSzemelyNames(supabase, [d.id_ferfi, d.id_no])
-    await syncRegistryWorklogLink(supabase, congId, {
+    const worklogId = await syncRegistryWorklogLink(supabase, congId, {
       sourceTable: 'hazassag',
       sourceId: marriageRowId,
       currentWorklogId,
@@ -1334,12 +1371,17 @@ export async function saveMarriage(data: MarriageInput) {
         szolgalt: d.lelkeszneve || null,
       },
     })
+    // 2026-08-25: BEkapcsolt pipánál a teljes sort visszaadjuk — a dialógus
+    // előtöltve nyitja meg a munkanapló-rögzítőt.
+    if (d.munkanaploba && worklogId) {
+      worklogEntry = await fetchWorklogEntryById(supabase, congId, worklogId)
+    }
   }
 
   revalidatePath('/anyakonyv')
   revalidatePath('/tagnyilvantartas')
   revalidatePath('/munkanaplo')
-  return { success: true, warning: familyWarning ?? undefined }
+  return { success: true, warning: familyWarning ?? undefined, worklogEntry: worklogEntry ?? undefined }
 }
 
 // ── Temetés mentés ───────────────────────────────────────────
@@ -1410,9 +1452,10 @@ export async function saveBurial(data: BurialInput) {
   }
 
   // Munkanapló-szinkron (idempotens; hibája nem blokkol)
+  let worklogEntry: WorklogEntry | null = null
   if (burialRowId) {
     const names = await getSzemelyNames(supabase, [d.id_szemely])
-    await syncRegistryWorklogLink(supabase, congId, {
+    const worklogId = await syncRegistryWorklogLink(supabase, congId, {
       sourceTable: 'temetes',
       sourceId: burialRowId,
       currentWorklogId,
@@ -1425,6 +1468,11 @@ export async function saveBurial(data: BurialInput) {
         szolgalt: d.lelkeszneve || null,
       },
     })
+    // 2026-08-25: BEkapcsolt pipánál a teljes sort visszaadjuk — a dialógus
+    // előtöltve nyitja meg a munkanapló-rögzítőt.
+    if (d.munkanaploba && worklogId) {
+      worklogEntry = await fetchWorklogEntryById(supabase, congId, worklogId)
+    }
   }
 
   // 2026-05-02 (v0.9.33) — Felhasználó panasza: "a temetések rögzítve vannak az
@@ -1517,7 +1565,11 @@ export async function saveBurial(data: BurialInput) {
   revalidatePath('/anyakonyv')
   revalidatePath('/tagnyilvantartas')
   revalidatePath('/munkanaplo')
-  return { success: true, warning: figyelmeztetesek.length > 0 ? figyelmeztetesek.join(' ') : undefined }
+  return {
+    success: true,
+    warning: figyelmeztetesek.length > 0 ? figyelmeztetesek.join(' ') : undefined,
+    worklogEntry: worklogEntry ?? undefined,
+  }
 }
 
 // ── Tagmozgás mentés (4 típus) ──────────────────────────────

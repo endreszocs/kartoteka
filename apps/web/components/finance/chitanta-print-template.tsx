@@ -16,6 +16,9 @@
 
 import type { ChitantaPrintData } from '@kartoteka/validations'
 import { amountInWordsHu, amountInWordsRo } from '@/lib/utils/number-to-words'
+// 2026-08-25: a háttér-címer (vízjel) választása KÖZÖS helperbe került, hogy
+// renderelés nélkül, önállóan mérhető legyen (selftest-kerulet-nyomtatvany.mjs).
+import { districtEmblemSrc, stripDiacritics } from '@/lib/finance/nyugta-vizjel'
 
 type Props = {
   data: ChitantaPrintData
@@ -39,14 +42,8 @@ function padNumber(n: number, len = 7): string {
   return String(n).padStart(len, '0')
 }
 
-/**
- * Ékezet-érzéketlenül eltávolítja a diakritikusokat. Hasznos annak
- * ellenőrzésére, hogy egy név már tartalmazza-e a hivatalos prefixet
- * (pl. "Parohia Reformată Brateș" vs "parohia reformata brates").
- */
-function stripDiacritics(s: string): string {
-  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
-}
+// A `stripDiacritics` a közös `@/lib/finance/nyugta-vizjel` helperből jön —
+// a vízjel-választóval együtt költözött oda (2026-08-25), hogy egy példányban éljen.
 
 /**
  * Visszaadja a hivatalos román nevet uppercase-olva — ha a rendelkezésre
@@ -76,17 +73,9 @@ function formatRoHeaderName(
   return `${prefix.toUpperCase()} ${name.toUpperCase()}`
 }
 
-/**
- * 2026-07-17 (Q3 döntés): a háttér-címer egyházkerület-függő — Királyhágómelléki
- * (KREK / Eparhia Reformată de pe lângă Piatra Craiului) gyülekezetnél a KEREK
- * címer, különben az EREK. Mindkét asset a public-ban él (a splash is használja).
- */
-function districtEmblemSrc(data: ChitantaPrintData): string {
-  const district = stripDiacritics(`${data.egyhazkeruletNevHu || ''} ${data.egyhazkeruletNevRo || ''}`)
-  return district.includes('kiralyhago') || district.includes('piatra craiului')
-    ? '/KEREK.png'
-    : '/EREK.png'
-}
+// A háttér-címer (vízjel) választója — `districtEmblemSrc` — a közös
+// `@/lib/finance/nyugta-vizjel` helperben él (2026-07-17 Q3 döntés:
+// Királyhágómelléki kerület → KEREK.png, minden más → EREK.png, fail-closed).
 
 /**
  * A kerület ROMÁN fejléc-sora — KIZÁRÓLAG adatból (`districts.nev_ro`).

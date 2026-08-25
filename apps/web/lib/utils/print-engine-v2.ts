@@ -57,19 +57,36 @@ async function createPrintIframe(
   // tovább — a PDF-be csak az addig beparsolt lapok kerültek. Mostantól a
   // TÉNYLEGES készenlétet várjuk: load-esemény VAGY readyState==='complete',
   // legfeljebb 15 mp-ig pollozva; utána betű-betöltés + dupla layout-tick.
+  // ⛔ 2026-08-25 (Endre: „a lelkészi jelentés PDF-je MOST IS üres") — A VALÓDI
+  // GYÖKÉROK, a próbapadon reprodukálva: az iframe csatoláskor kapott KEZDETI
+  // about:blank dokumentum is readyState==='complete' ÉS van body-ja — a
+  // korábbi poll ezt AZONNAL „késznek" fogadta el, MIELŐTT a srcdoc-navigáció
+  // lefutott volna. Innentől minden az ÜRES dokumentumon dolgozott: 0 lap,
+  // nincs data-sheet-count (a lapszám-őr vak), a html2pdf üres body-t
+  // renderelt, és az üres-vászon őr sem szólt (üres szövegű forrásnál nem
+  // kiált) → NÉMA ÜRES PDF. Időzítés-függő verseny volt — gépenként hol jó,
+  // hol rossz. A készenlét mostantól CSAK akkor áll be, ha a body már a MI
+  // tartalmunkat hordozza (childElementCount > 0), és a referenciát a
+  // várakozás UTÁN, frissen vesszük.
   const deadline = Date.now() + 15000
   let ready = false
   const markReady = () => { ready = true }
   void loaded.then(markReady)
-  while (!ready && Date.now() < deadline) {
+  const bodyBetoltve = () => {
     const doc = iframe.contentDocument
-    if (doc && doc.readyState === 'complete' && doc.body) ready = true
-    else await new Promise((r) => window.setTimeout(r, 100))
+    return !!(doc && doc.body && doc.body.childElementCount > 0)
+  }
+  while (Date.now() < deadline) {
+    const doc = iframe.contentDocument
+    if ((ready || (doc && doc.readyState === 'complete')) && bodyBetoltve()) break
+    await new Promise((r) => window.setTimeout(r, 100))
   }
   const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document
-  if (!iframeDoc || !iframeDoc.body) {
+  if (!iframeDoc || !iframeDoc.body || iframeDoc.body.childElementCount === 0) {
     if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
-    throw new Error('A nyomtatási előnézet nem hozható létre.')
+    throw new Error(
+      'A nyomtatási előnézet nem töltött be (üres dokumentum) — kérlek, próbáld újra.',
+    )
   }
   // Betűtípusok (ha a böngésző támogatja) + két képkocka a layout stabilizálódásához.
   try {
@@ -162,7 +179,8 @@ function vaszonUresnekTunik(canvas: HTMLCanvasElement | null | undefined): boole
 async function renderSheetsToPdf(
   sheets: HTMLElement[],
   filename: string,
-): Promise<void> {
+  kimenet: 'mentes' | 'datauri' = 'mentes',
+): Promise<string | void> {
   const html2canvas = (await import('html2canvas')).default
   const { jsPDF } = await import('jspdf')
 
@@ -191,6 +209,7 @@ async function renderSheetsToPdf(
   if (pageCount !== sheets.length) {
     throw new Error(`PDF-oldalszám-eltérés (${pageCount}/${sheets.length}).`)
   }
+  if (kimenet === 'datauri') return pdf.output('datauristring')
   pdf.save(filename)
 }
 
@@ -303,7 +322,7 @@ export async function printToPdf(
       if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
     }
   }
-  return printToPdfLegacy(htmlContent, filename, options)
+  await printToPdfLegacy(htmlContent, filename, options)
 }
 
 async function printToPdfLegacy(
@@ -314,7 +333,8 @@ async function printToPdfLegacy(
     margin?: number[]
     format?: string
   },
-) {
+  kimenet: 'mentes' | 'datauri' = 'mentes',
+): Promise<string | void> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const html2pdf = (await import('html2pdf.js' as any)).default
   // 2026-08-14 (16. pont): a raszterizáló iframe a dokumentum tájolását kapja.
@@ -383,6 +403,9 @@ async function printToPdfLegacy(
     if ((iframeDoc.body.textContent || '').trim().length > 0 && vaszonUresnekTunik(canvas)) {
       throw new Error(URES_VASZON_HIBA)
     }
+    if (kimenet === 'datauri') {
+      return (await worker.outputPdf('datauristring')) as string
+    }
     await worker.save()
   } finally {
     veil.remove()
@@ -393,6 +416,56 @@ async function printToPdfLegacy(
     // fődokumentumban ragadhat (z-index 1000 — kattintás-blokkoló). Takarítás.
     document.querySelectorAll('.html2pdf__overlay').forEach((el) => el.remove())
   }
+}
+
+/**
+ * DIAGNOSZTIKAI PDF-render (2026-08-25, „üres PDF" hibavadászat) — a /dev-proba
+ * próbapad használja. UGYANAZOKON a belső utakon fut, mint a printToPdf, de a
+ * mentés helyett datauri-t ad vissza + részletes mérést (melyik út futott,
+ * lap-magasságok, skála) — így az eredmény a beépített böngészőben VIZUÁLISAN
+ * ellenőrizhető, letöltés nélkül. Éles hívója nincs; kicsi, és regressziós
+ * vadászathoz bármikor újra bevethető.
+ */
+export async function printToPdfProba(
+  htmlContent: string,
+  opts?: { forceLegacy?: boolean },
+): Promise<{ mod: 'laponkent' | 'legacy'; dataUri: string; reszletek: string[] }> {
+  const reszletek: string[] = []
+  if (!opts?.forceLegacy) {
+    const { iframe, iframeDoc } = await createPrintIframe(htmlContent)
+    try {
+      applyPrintStyles(iframeDoc)
+      const sheetEls = Array.from(
+        iframeDoc.querySelectorAll<HTMLElement>('body .sheet, body .page'),
+      )
+      const expected = Number(iframeDoc.body.dataset.sheetCount || '0')
+      reszletek.push(`lapok a DOM-ban: ${sheetEls.length}, data-sheet-count: ${expected || '—'}`)
+      if (expected > 0 && sheetEls.length !== expected) {
+        throw new Error(`lapszám-eltérés: ${sheetEls.length}/${expected}`)
+      }
+      if (sheetEls.length > 0) {
+        const pageHeightPx = sheetEls[0].offsetWidth * (297 / 210)
+        sheetEls.forEach((s, i) =>
+          reszletek.push(
+            `lap ${i + 1}: ${s.offsetHeight}px (plafon ${(pageHeightPx * 1.02).toFixed(0)}px)${
+              s.offsetHeight > pageHeightPx * 1.02 ? ' ⚠️ TÚLNŐTT' : ''
+            }`,
+          ),
+        )
+        const allPageSized = sheetEls.every((s) => s.offsetHeight <= pageHeightPx * 1.02)
+        reszletek.push(`allPageSized: ${allPageSized}`)
+        if ((sheetEls.length > 1 || expected > 0) && allPageSized) {
+          const dataUri = (await renderSheetsToPdf(sheetEls, 'proba.pdf', 'datauri')) as string
+          return { mod: 'laponkent', dataUri, reszletek }
+        }
+      }
+    } finally {
+      if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
+    }
+  }
+  reszletek.push('legacy (teljes-dokumentum) út fut')
+  const dataUri = (await printToPdfLegacy(htmlContent, 'proba.pdf', undefined, 'datauri')) as string
+  return { mod: 'legacy', dataUri, reszletek }
 }
 
 /**

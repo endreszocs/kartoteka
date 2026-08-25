@@ -23,6 +23,72 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-25] — Megújult lelkészi jelentés, PDF-hiba végleges javítása, anyakönyv→munkanapló és sok apró finomítás
+<!-- key: 2026-08-25-lelkeszi-jelentes-ux -->
+<!-- category: feature -->
+<!-- version: 0.9.177 -->
+<!-- targets: mindenki -->
+
+### 🐛 Javítások
+
+- **A lelkészi jelentés üres PDF-je — a VALÓDI gyökérok megtalálva és javítva**:
+  a nyomtató-motor egy időzítési verseny miatt időnként az üres, még be nem
+  töltött dokumentumon dolgozott — ezért készült néma, fehér PDF, gépenként
+  változó módon. A betöltés-ellenőrzés mostantól csak a ténylegesen betöltött
+  tartalmat fogadja el; a javítást élő próbapadon igazoltuk (6/6 lap,
+  tartalmas PDF), és őrszem-teszt védi a visszatérése ellen.
+- **A „Szervezeti forma" ablak levágta a szöveget**: a dialógus-ablakok egy
+  elrendezési hibája miatt a hosszú című ablakok tartalma vízszintesen
+  túlcsordult — az ablak-alap javításával minden dialógus rendesen tördel.
+
+### 🎨 UX javítások (Endre észrevételei)
+
+- **Munkanapló**: a táblázatos rögzítő beviteli mezői mostantól láthatóak
+  (keret + háttér + fókusz-jelzés) — látszik, hova kell írni.
+- **Dashboard**: a napi bátorító üzenet alapból összecsukva, kattintásra nyílik.
+- **Anyakönyv → munkanapló**: kereszteléskor, esküvőkor, temetéskor a
+  „Megjelenjen a munkanaplóban?" kapcsoló alapból BE, és mentés után rögtön
+  megnyílik a munkanapló-rögzítő előtöltve — csak a jelenlétet és a perselyt
+  kell kiegészíteni.
+- **Nyugta-vízjel kerület szerint**: a Királyhágómelléki Egyházkerület
+  gyülekezeteinél a Chitanță háttere mostantól a királyhágómelléki címer
+  (a logika kész volt, de élesben nem volt hozzá kerület-adat — teszt-
+  gyülekezet is készült hozzá).
+- **Leltár-importáló**: nagy, egyértelmű fájl-ejtőzóna lépés-sorral — látszik,
+  hová kell feltölteni a fájlt.
+- **Igehirdetési terv**: az Énekkereső és a Konkordancia gombok helyett két
+  szép, egymás melletti kártya lett.
+
+### ✨ Új funkciók
+
+- **Áttekinthető, 6 lapos nyomtatvány**: a lelkészi jelentés nyomtatványa a
+  korábbi 8 lap helyett 6 lapra tömörült, kategorizált, táblázatos
+  elrendezéssel — a keresztelési/temetési/betérési sorok férfi–nő–együtt
+  háromoszlopos táblában, az istentiszteletek alkalmak–átlagjelenlét–%
+  táblában, a sátoros ünnepek naponkénti rácsban jelennek meg.
+- **„Gyülekezetünk képe" összefoglaló**: a jelentés élén nyolc kulcsszám —
+  lélekszám, szaporulat/apadás, választók — és három ÚJ, magától számolt
+  mutató: a gyülekezet átlagéletkora, a vallásórás korú gyermekek (6–14 év)
+  és az IKE-korosztály (15–25 év) létszáma, mind a tagnyilvántartás születési
+  dátumaiból.
+- **Öt év tükrében**: ha van korábbi véglegesített jelentés, a nyomtatványon
+  kis összevető tábla és két mini-grafikon mutatja az elmúlt (legfeljebb öt)
+  év alakulását; adat híján a blokk egyszerűen elmarad.
+- **Évválasztó a jelentés-ablakban**: a fejlécben átváltható, melyik év
+  jelentését nézzük — a korábbi (véglegesített) évek csak-olvashatóan
+  nyithatók meg, és onnan is nyomtathatók, PDF-be menthetők.
+
+### 🎨 UX javítások
+
+- **Kevesebb gépelés az „együtt" rovatoknál**: a betért/kitért/beköltözött/
+  kiköltözött férfi + nő számokból az „együtt" értéket mostantól a rendszer
+  számolja (felülírható) — nem kell kézzel összeadni.
+- **Hangos jelzés a hiányzó születési dátumokról**: ha az aktív tagok több
+  mint 20%-ánál nincs születési dátum, a jelentés jelzi, hogy az életkor-
+  mutatók csak a többiekből számolnak.
+
+---
+
 ## [2026-08-25] — Napi ige és bibliaolvasó terv, program-sablonok, személyi szám védelme + két hibajavítás
 <!-- key: 2026-08-25-napi-ige-programok-cnp -->
 <!-- category: feature -->

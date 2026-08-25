@@ -19,7 +19,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } from 'react'
-import { Loader2, Pencil, Plus, Smartphone, Trash2 } from 'lucide-react'
+import { Info, Loader2, Pencil, Plus, Smartphone, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { deleteWorklog, saveWorklog } from '@/app/(dashboard)/munkanaplo/actions'
@@ -254,12 +254,19 @@ function toInput(
 }
 
 // ---------------------------------------------------------------------------
-// Cella-stílusok — token-alapú, kompakt (keret nélkül, fókusz-ringgel).
+// Cella-stílusok — token-alapú, kompakt. 2026-08-25 (UX-kör): a mezők LÁTHATÓ
+// beviteli mezőként jelennek meg (finom keret + enyhe háttér), hogy üresen is
+// felismerhető legyen, hova kell írni — a sormagasság (h-8) változatlan.
+// A dark: párok a smart mezők (Igehely/Enekek) compact-osztályainak
+// `dark:bg-transparent`-jét is felülírják (tw-merge: az utolsó győz).
 // ---------------------------------------------------------------------------
 
 const CELL_INPUT =
-  'h-8 w-full min-w-0 rounded-md border-0 bg-transparent px-2 text-sm text-foreground outline-none ' +
-  'placeholder:text-muted-foreground/50 focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-ring'
+  'h-8 w-full min-w-0 rounded-md border border-input bg-muted/40 px-2 text-sm text-foreground shadow-none outline-none ' +
+  'transition-[border-color,box-shadow,background-color] dark:bg-input/30 ' +
+  'placeholder:text-muted-foreground/60 ' +
+  'focus-visible:border-ring focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-ring/30 ' +
+  'dark:focus-visible:bg-input/50'
 
 const NUM_INPUT =
   'px-1 text-right tabular-nums [appearance:textfield] ' +
@@ -980,9 +987,14 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
         </table>
       </div>
 
-      <p className="px-1 text-xs text-muted-foreground">
-        A sorok automatikusan mentődnek, amikor a fókusz elhagyja a sort, vagy Entert nyom.
-        A piszkos (még nem mentett) sort bal oldali színes szegély jelzi.
+      {/* 2026-08-25 (UX-kör): a mentés-magyarázat a mobil-jelzéssel azonos,
+          jól látható info-sáv formát kapta (korábban diszkrét lábjegyzet volt). */}
+      <p className="flex items-start gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+        <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+        <span>
+          A sorok automatikusan mentődnek, amikor a fókusz elhagyja a sort, vagy Entert nyom.
+          A piszkos (még nem mentett) sort bal oldali színes szegély jelzi.
+        </span>
       </p>
     </div>
   )

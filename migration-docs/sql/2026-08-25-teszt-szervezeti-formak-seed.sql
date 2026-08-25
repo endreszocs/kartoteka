@@ -19,6 +19,11 @@
 --      2 egyházrész (Nagytesztfalvi / Kistesztfalvi), 12 tag (6-6),
 --      7 munkanapló-sor: vasárnap de. az egyik, du. a másik egyházrészben
 --      + 1 közös alkalom (a klasszikus társ-működés demója)
+--   5) KIRÁLYHÁGÓMELLÉKI TESZT-HIERARCHIA (2026-08-25, nyugta-vízjel demó) —
+--      ÚJ kerület (…0011) + megye (…0012) + gyülekezet (…0013), tagok nélkül.
+--      A kerület NEVÉBEN szerepel a „Királyhágómelléki" szó, hogy a nyugta
+--      vízjel-választója (apps/web/lib/finance/nyugta-vizjel.ts) a KEREK
+--      címert tegye a Chitanță háttérbe (minden más kerületnél EREK marad).
 --
 -- ELŐFELTÉTEL: a 2026-08-25-gyulekezeti-egysegek.sql LEFUTOTT (ellenőrizzük).
 -- IDEMPOTENS: újrafuttatható — fix UUID-k + ON CONFLICT + NOT EXISTS őrök;
@@ -41,6 +46,9 @@
 --   MISSZIÓI 7e570000-0000-4000-8000-000000000005
 --   TÁRS     7e570000-0000-4000-8000-000000000006
 --   egységek 7e570000-0000-4000-8000-0000000000a1 … a7
+--   KEREK kerület     7e570000-0000-4000-8000-000000000011
+--   KEREK megye       7e570000-0000-4000-8000-000000000012
+--   KEREK gyülekezet  7e570000-0000-4000-8000-000000000013
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- 0. BLOKK — Előfeltétel-őr + Teszt-hierarchia biztosítása (idempotens)
@@ -418,6 +426,64 @@ WHERE triggering_congregation_id IN
    '7e570000-0000-4000-8000-000000000006');
 
 -- ════════════════════════════════════════════════════════════════════════════
+-- 6. BLOKK — KIRÁLYHÁGÓMELLÉKI TESZT-HIERARCHIA (nyugta-vízjel demó, 2026-08-25)
+-- ════════════════════════════════════════════════════════════════════════════
+-- MIÉRT: a Chitanță háttér-vízjele kerület-függő (Királyhágómelléki → KEREK
+-- címer, minden más → EREK; apps/web/lib/finance/nyugta-vizjel.ts). Ehhez kell
+-- egy olyan teszt-gyülekezet, amelynek kerülete a NEVÉBEN hordozza a
+-- „Királyhágómelléki" szót — a vízjel-választó erre a mintára ismer rá
+-- (ékezet-érzéketlenül), mert a districts táblának nincs kerület-típus kulcsa.
+-- Tagot/naplósort SZÁNDÉKOSAN nem kap: a nyugta-nyomtatáshoz a hierarchia elég.
+
+INSERT INTO public.districts (id, name)
+VALUES ('7e570000-0000-4000-8000-000000000011', 'Teszt Királyhágómelléki Egyházkerület')
+ON CONFLICT (id) DO NOTHING;
+
+-- A kerület román neve — a nyugta ROMÁN fejléc-sorát és a vízjel-választó
+-- „piatra craiului" ágát is gyakoroltatja. Élesben a districts.nev_ro oszlop
+-- 2026-08-16 (S2 szelet) óta létezik; az őr csak fail-safe régi környezetre.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_schema='public' AND table_name='districts'
+               AND column_name='nev_ro') THEN
+    EXECUTE $sql$
+      UPDATE public.districts
+         SET nev_ro = 'Eparhia Reformată de pe lângă Piatra Craiului (Teszt)'
+       WHERE id = '7e570000-0000-4000-8000-000000000011'
+         AND (nev_ro IS NULL OR nev_ro = '')
+    $sql$;
+  END IF;
+END $$;
+
+INSERT INTO public.dioceses (id, district_id, name, cim_orszag)
+VALUES ('7e570000-0000-4000-8000-000000000012',
+        '7e570000-0000-4000-8000-000000000011',
+        'Teszt Királyhágómelléki Egyházmegye', 'Románia')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.congregations
+  (id, name, nev_hu, district, egyhazmegye, diocese_id, country,
+   varos, megye, cim, eves_jarulek, jarulek_hatarid, status, szervezeti_tipus)
+VALUES
+  ('7e570000-0000-4000-8000-000000000013',
+   'Teszt Királyhágómelléki Gyülekezet', 'Teszt Királyhágómelléki Gyülekezet',
+   'Teszt Királyhágómelléki Egyházkerület', 'Teszt Királyhágómelléki Egyházmegye',
+   '7e570000-0000-4000-8000-000000000012', 'Románia',
+   'Tesztvárad', 'Teszt megye', 'Partiumi út 1.', 100, '07-01', 'active', 'anya')
+ON CONFLICT (id) DO NOTHING;
+
+-- Ha a sor már korábban létezett forma nélkül / rossz kerület-lánccal: pótlás
+UPDATE public.congregations
+   SET szervezeti_tipus = 'anya',
+       anya_congregation_id = NULL,
+       diocese_id = '7e570000-0000-4000-8000-000000000012'
+ WHERE id = '7e570000-0000-4000-8000-000000000013'
+   AND (szervezeti_tipus IS DISTINCT FROM 'anya'
+        OR anya_congregation_id IS NOT NULL
+        OR diocese_id IS DISTINCT FROM '7e570000-0000-4000-8000-000000000012');
+
+-- ════════════════════════════════════════════════════════════════════════════
 -- VERIFIKÁCIÓ — gyülekezetenként: forma, egységek, tagok (címkézve), naplósorok
 -- ════════════════════════════════════════════════════════════════════════════
 SELECT
@@ -439,5 +505,18 @@ WHERE c.id IN
   ('7e570000-0000-4000-8000-000000000003',
    '7e570000-0000-4000-8000-000000000004',
    '7e570000-0000-4000-8000-000000000005',
-   '7e570000-0000-4000-8000-000000000006')
+   '7e570000-0000-4000-8000-000000000006',
+   '7e570000-0000-4000-8000-000000000013')
 ORDER BY c.id;
+
+-- VERIFIKÁCIÓ (6. blokk) — a vízjel-lánc: gyülekezet → megye → kerület, és a
+-- kerület nevében tényleg ott a „Királyhágómelléki" (erre ismer rá a választó)
+SELECT
+  c.name AS gyulekezet,
+  d.name AS megye,
+  k.name AS kerulet,
+  (k.name ILIKE '%királyhágó%') AS vizjel_minta_talal
+FROM public.congregations c
+JOIN public.dioceses d ON d.id = c.diocese_id
+JOIN public.districts k ON k.id = d.district_id
+WHERE c.id = '7e570000-0000-4000-8000-000000000013';

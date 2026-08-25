@@ -8,11 +8,16 @@
  * textus + lekció (IgehelyField), énekek (EnekekField), szolgálattevő,
  * emlékeztető (app-értesítés), gyülekezeti naptár-kapcsolat (ICS-feed).
  * Eszközök: Énekkereső (teljes szövegű keresés az énekeskönyvben) és
- * Konkordancia (szentiras.eu) — az eredmény egy kattintással beemelhető.
+ * Konkordancia (natív Károli-kereső) — az eredmény egy kattintással beemelhető.
+ * 2026-08-25: a két eszköz belépője a fül tetején két egyenrangú, egymás
+ * melletti KÁRTYA (a főoldali ToolTile-ok színkódjával: emerald + amber) —
+ * a szerkesztő-dialóguson belül maradnak a kis gombok (ott a találat a
+ * terv-űrlapba illeszthető).
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  type LucideIcon,
   BellRing,
   BookOpenText,
   CalendarDays,
@@ -272,7 +277,7 @@ export function SermonPlanTab({ year }: { year: number }) {
 
   return (
     <div className="space-y-4">
-      {/* ── Eszköz-sor: nézetváltó + eszközök + új alkalom ─────────────────── */}
+      {/* ── Fejléc-sor: nézetváltó + új alkalom ────────────────────────────── */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="inline-flex rounded-xl border border-border bg-muted/50 p-0.5">
           <button
@@ -299,17 +304,30 @@ export function SermonPlanTab({ year }: { year: number }) {
           </button>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setEnekKeresoOpen(true)}>
-            <Music className="mr-1.5 size-4" /> Énekkereső
-          </Button>
-          <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setKonkordanciaOpen(true)}>
-            <BookOpenText className="mr-1.5 size-4" /> Konkordancia
-          </Button>
-          <Button size="sm" className="rounded-xl" onClick={() => openEditor()}>
-            <Plus className="mr-1.5 size-4" /> Új alkalom
-          </Button>
-        </div>
+        <Button size="sm" className="rounded-xl" onClick={() => openEditor()}>
+          <Plus className="mr-1.5 size-4" /> Új alkalom
+        </Button>
+      </div>
+
+      {/* ── Eszköz-kártyák: énekkereső + konkordancia ──────────────────────
+          2026-08-25 (Endre kérése): a két eszköz nem gomb, hanem két
+          egyenrangú, egymás melletti kártya — mobilon egymás alatt. A
+          megnyitási logika változatlan (ugyanazok a dialógusok). */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <ToolCard
+          icon={Music}
+          tone="emerald"
+          title="Énekkereső"
+          description="Teljes szövegű keresés az énekeskönyvben — szám, cím vagy versszak-részlet alapján."
+          onClick={() => setEnekKeresoOpen(true)}
+        />
+        <ToolCard
+          icon={BookOpenText}
+          tone="amber"
+          title="Konkordancia"
+          description="Károli-konkordancia: szavak és igehelyek keresése a teljes Szentírásban."
+          onClick={() => setKonkordanciaOpen(true)}
+        />
       </div>
 
       {loading ? (
@@ -516,6 +534,69 @@ export function SermonPlanTab({ year }: { year: number }) {
         }
       />
     </div>
+  )
+}
+
+// ─── Eszköz-kártya: énekkereső / konkordancia belépő ────────────────────────
+//
+// Design-nyelv: card-raised (bg-card + border-border + hover-emelés a közös
+// CSS-ből), a district-belepo-kartyak.tsx mintája; a tónusok a munkanapló
+// főoldali ToolTile-jainak színkódját ismétlik (emerald = énekkereső,
+// amber = konkordancia), hogy a két felület vizuálisan összetartozzon.
+
+const TOOL_CARD_TONES = {
+  emerald: {
+    border: 'border-emerald-200/80 hover:border-emerald-300 dark:border-emerald-400/25 dark:hover:border-emerald-400/45',
+    icon: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300',
+    chevron: 'text-emerald-600 dark:text-emerald-400',
+  },
+  amber: {
+    border: 'border-amber-200/80 hover:border-amber-300 dark:border-amber-400/25 dark:hover:border-amber-400/45',
+    icon: 'bg-amber-50 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300',
+    chevron: 'text-amber-600 dark:text-amber-400',
+  },
+} as const
+
+function ToolCard({
+  icon: Icon,
+  tone,
+  title,
+  description,
+  onClick,
+}: {
+  icon: LucideIcon
+  tone: keyof typeof TOOL_CARD_TONES
+  title: string
+  description: string
+  onClick: () => void
+}) {
+  const t = TOOL_CARD_TONES[tone]
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        // min-h-[72px]: érintésbarát célfelület — az EGÉSZ kártya kattintható
+        'card-raised group flex min-h-[72px] items-center gap-3 rounded-2xl p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        t.border,
+      )}
+    >
+      <span
+        className={cn('flex size-11 shrink-0 items-center justify-center rounded-2xl', t.icon)}
+        aria-hidden
+      >
+        <Icon className="size-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-heading text-base leading-tight text-foreground">{title}</span>
+        <span className="mt-1 block text-xs leading-5 text-muted-foreground">{description}</span>
+      </span>
+      <ChevronRight
+        className={cn('size-4 shrink-0 transition-transform duration-200 group-hover:translate-x-0.5', t.chevron)}
+        aria-hidden
+      />
+    </button>
   )
 }
 
