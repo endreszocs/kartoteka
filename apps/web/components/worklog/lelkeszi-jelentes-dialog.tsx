@@ -29,6 +29,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  CalendarDays,
   CheckCircle2,
   ChevronDown,
   Download,
@@ -65,6 +66,7 @@ import {
   type JelentesJavaslatok,
   type JelentesMezo,
   type LelkesziJelentesData,
+  type ProgramJavaslat,
 } from '@/lib/lelkeszi-jelentes/types'
 import { buildLelkesziJelentesHtml } from '@/lib/lelkeszi-jelentes/print'
 // 2026-08-25 (gyülekezeti egységek): a „Gyülekezetenkénti bontás" panel —
@@ -200,6 +202,64 @@ function fmtSzam(n: number): string {
   return n.toLocaleString('hu-HU', { maximumFractionDigits: 2 })
 }
 
+/**
+ * 2026-08-25 (határidőnapló-javaslatok): magyar dátumtartomány a javaslat-
+ * kártyákra ÉS a IV.5/IV.6-ba komponált szövegbe. Azonos hónap: '2026. 09.
+ * 01–05.'; azonos év: '2026. 09. 28. – 10. 02.'; különben teljes tartomány.
+ * Nem ISO bemenetre a nyers szöveg megy vissza (sosem dobunk).
+ */
+function huDatumTartomany(datum: string, datumVege: string | null): string {
+  const m1 = datum.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m1) return datum
+  const [, e1, h1, n1] = m1
+  const alap = `${e1}. ${h1}. ${n1}.`
+  if (!datumVege || datumVege === datum) return alap
+  const m2 = datumVege.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m2) return alap
+  const [, e2, h2, n2] = m2
+  if (e1 === e2 && h1 === h2) return `${e1}. ${h1}. ${n1}–${n2}.`
+  if (e1 === e2) return `${e1}. ${h1}. ${n1}. – ${h2}. ${n2}.`
+  return `${e1}. ${h1}. ${n1}. – ${e2}. ${h2}. ${n2}.`
+}
+
+/** A javaslat-kártyák típus-feliratai. */
+const PROGRAM_JAVASLAT_CIMKEK: Record<ProgramJavaslat['tipus'], string> = {
+  vbh: 'Vakációs Bibliahét',
+  fit7: 'Ifjúsági hét (FIT7)',
+  imahet: 'Egyetemes imahét',
+}
+
+type Fit7Szint = '' | 'gyulekezeti' | 'egyhazmegyei' | 'mindketto'
+
+/** A FIT7 szervezés-szint felirata a IV.6-ba komponált szövegben. */
+const FIT7_SZINT_SZOVEG: Record<Exclude<Fit7Szint, ''>, string> = {
+  gyulekezeti: 'gyülekezeti szervezés',
+  egyhazmegyei: 'egyházmegyei szervezés',
+  mindketto: 'gyülekezeti és egyházmegyei szervezés',
+}
+
+/**
+ * FIT7 szervezés-szint előtöltése a program megjegyzéséből: ha abban
+ * 'Szervezés: …' szerepel (a sablon így írja), a szintválasztó előáll belőle.
+ * Nem felismerhető szövegre '' (a lelkész választ) — sosem tippelünk.
+ */
+function szintElotoltes(megjegyzes: string | null): Fit7Szint {
+  const m = (megjegyzes || '').match(/szervez[eé]s\s*:\s*([^\n.;]+)/i)
+  if (!m) return ''
+  const v = m[1].toLowerCase()
+  const gyulekezeti = v.includes('gyülekezet') || v.includes('gyulekezet')
+  const megyei = v.includes('megy')
+  if (v.includes('mind') || (gyulekezeti && megyei)) return 'mindketto'
+  if (megyei) return 'egyhazmegyei'
+  if (gyulekezeti) return 'gyulekezeti'
+  return ''
+}
+
+/** A javaslat-kártyák natív select-je (token-stílus, a repó Input-magasságával). */
+const JAVASLAT_SELECT_CLASS =
+  'mt-1 block h-9 rounded-lg border border-border bg-background px-2 text-sm text-foreground ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+
 /** Egy mező megjelenítendő szövege a UI-ban (üres string = nincs érték). */
 function displayErtek(mezo: JelentesMezo, v: number | string | null | undefined): string {
   if (v === null || v === undefined || v === '') return ''
@@ -278,6 +338,15 @@ export function LelkesziJelentesDialog({
   // meg sem jelenik). Véglegesített jelentésnél a snapshotból jön.
   const [bontas, setBontas] = useState<BontasAdat | null>(null)
   const [bontasNyitva, setBontasNyitva] = useState(true)
+  // 2026-08-25 (határidőnapló-javaslatok): a gyulekezeti_programok felismert
+  // VBH/FIT7/Imahét programjai — csak szerkesztés módban jön a szerverről
+  // (véglegesítettnél a snapshot a hiteles, javaslat ott nincs).
+  const [programJavaslatok, setProgramJavaslatok] = useState<ProgramJavaslat[]>([])
+  // A munkanapló Imahét-sorainak száma (az aggregátor III.5 értéke) — null,
+  // ha a szerver nem tudta megállapítani (worklog-hiba): ilyenkor nem
+  // állítunk 0-t (fail-closed).
+  const [imahetNaploSorok, setImahetNaploSorok] = useState<number | null>(null)
+  const [programPanelNyitva, setProgramPanelNyitva] = useState(true)
 
   // Szerkesztő-állapot (nyers értékek — mentéskor normalizálunk)
   const [kezi, setKezi] = useState<Ertekek>({})
@@ -335,6 +404,9 @@ export function LelkesziJelentesDialog({
       setJavaslatok({})
       setBontas(null)
       setBontasNyitva(true)
+      setProgramJavaslatok([])
+      setImahetNaploSorok(null)
+      setProgramPanelNyitva(true)
       setDirty(false)
       setOverrideOpen(new Set())
       setOpenChapters(new Set(['I']))
@@ -361,6 +433,8 @@ export function LelkesziJelentesDialog({
           setHatarozat({ ...res.data.hatarozat })
           setJavaslatok(res.javaslatok || {})
           setBontas(res.bontas ?? null)
+          setProgramJavaslatok(res.programJavaslatok || [])
+          setImahetNaploSorok(typeof res.imahetNaploSorok === 'number' ? res.imahetNaploSorok : null)
           setUnlockRequested(res.unlockRequested === true)
           // Beküldve-állapot a szerverről (korábban fixen false maradt)
           setSubmitted(Boolean(res.data.submission))
@@ -397,6 +471,8 @@ export function LelkesziJelentesDialog({
       setHatarozat({ ...res.data.hatarozat })
       setJavaslatok(res.javaslatok || {})
       setBontas(res.bontas ?? null)
+      setProgramJavaslatok(res.programJavaslatok || [])
+      setImahetNaploSorok(typeof res.imahetNaploSorok === 'number' ? res.imahetNaploSorok : null)
       setUnlockRequested(res.unlockRequested === true)
       setSubmitted(Boolean(res.data.submission))
       setDirty(false)
@@ -1834,6 +1910,65 @@ export function LelkesziJelentesDialog({
                   </section>
                 )}
 
+                {/* 2026-08-25 (határidőnapló-javaslatok): a gyulekezeti_programok
+                    felismert nagy programjai (VBH / FIT7 / Imahét) — a fejezet-
+                    akkordeonok FELETT, a bontás-panel után. CSAK szerkeszthető
+                    jelentésnél: véglegesítettnél a szerver nem is küld adatot,
+                    és a snapshotba javaslat sosem kerülhet. A beírás a közös
+                    setKeziErtek-en megy — a mentés a szokásos Mentés gomb. */}
+                {!readOnly && programJavaslatok.length > 0 && (
+                  <section className="rounded-2xl border border-border bg-card">
+                    <button
+                      type="button"
+                      onClick={() => setProgramPanelNyitva((v) => !v)}
+                      aria-expanded={programPanelNyitva}
+                      className="flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <CalendarDays className="size-4 shrink-0 text-primary" />
+                      <span className="min-w-0 flex-1 font-heading text-sm text-foreground sm:text-base">
+                        Határidőnapló-javaslatok
+                      </span>
+                      <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground">
+                        {programJavaslatok.length} program
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          'size-4 shrink-0 text-muted-foreground transition-transform',
+                          programPanelNyitva && 'rotate-180',
+                        )}
+                      />
+                    </button>
+                    {programPanelNyitva && (
+                      <div className="space-y-2.5 border-t border-border px-4 py-3.5">
+                        <p className="text-[11px] leading-4 text-muted-foreground">
+                          A határidőnapló felismert nagy programjai. A dátumot és a fő adatokat a
+                          rendszer hozza — a hiányzókat (résztvevők száma stb.) itt kérdezzük meg, és
+                          a beírás soha nem történik rákérdezés nélkül.
+                        </p>
+                        {programJavaslatok.map((j, idx) => (
+                          <ProgramJavaslatKartya
+                            key={`${j.tipus}|${j.datum}|${idx}`}
+                            javaslat={j}
+                            imahetNaploSorok={imahetNaploSorok}
+                            aktualisErtek={String(
+                              kezi[j.tipus === 'vbh' ? 'IV.5' : 'IV.6'] ?? '',
+                            )}
+                            onBeiras={(mezoId, szoveg) => {
+                              setKeziErtek(mezoId, szoveg)
+                              // A IV. fejezet kinyílik, hogy a beírt érték
+                              // azonnal látszódjon és szerkeszthető legyen.
+                              setOpenChapters((prev) => new Set(prev).add('IV'))
+                              toast.success(
+                                `Beírva a ${mezoId} mezőbe — a szöveg szabadon szerkeszthető, a mentés a Mentés gombbal történik.`,
+                              )
+                            }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                )}
+
                 {FEJEZETEK.map((fejezet) => {
                   const nyitva = openChapters.has(fejezet)
                   const mezok = FEJEZET_MEZOK.get(fejezet) || []
@@ -2108,6 +2243,194 @@ function EllenorzesLista({
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+/**
+ * 2026-08-25 (határidőnapló-javaslatok) — egy felismert program kártyája.
+ *
+ *  · vbh  → IV.5: a napló hozza a dátumot/helyszínt, a kártya RÁKÉRDEZ a
+ *    résztvevőkre + a programra (KOEN / más), és egy gombbal beírja a
+ *    komponált szöveget (pl. '2026. 09. 01–05., Kultúrotthon — KOEN program,
+ *    24 résztvevő').
+ *  · fit7 → IV.6: ugyanígy, rákérdezés a résztvevőkre + a szervezés
+ *    szintjére (a program 'Szervezés: …' megjegyzéséből előtöltve).
+ *  · imahet → NEM ír mezőt: tájékoztat, hogy a III.5–III.6 a munkanapló
+ *    Imahét-soraiból auto — és jelzi, hány ilyen sor van (0-nál borostyán
+ *    figyelmeztetés).
+ *
+ * FELÜLÍRÁS-VÉDELEM: ha a célmező már ki van töltve, a gomb kétállapotú —
+ * az első katt csak megerősítést kér ('Biztosan felülírja?'), beírás csak a
+ * másodikra történik. A javaslat SOHA nem ír felül kérdezés nélkül.
+ */
+function ProgramJavaslatKartya({
+  javaslat,
+  imahetNaploSorok,
+  aktualisErtek,
+  onBeiras,
+}: {
+  javaslat: ProgramJavaslat
+  /** A munkanapló Imahét-sorainak száma; null = nem megállapítható (worklog-hiba). */
+  imahetNaploSorok: number | null
+  /** A célmező (IV.5/IV.6) jelenlegi kézi értéke — a felülírás-megerősítéshez. */
+  aktualisErtek: string
+  onBeiras: (mezoId: 'IV.5' | 'IV.6', szoveg: string) => void
+}) {
+  const j = javaslat
+  const [resztvevok, setResztvevok] = useState('')
+  const [vbhProgram, setVbhProgram] = useState<'' | 'koen' | 'mas'>('')
+  const [szint, setSzint] = useState<Fit7Szint>(() =>
+    j.tipus === 'fit7' ? szintElotoltes(j.megjegyzes) : '',
+  )
+  // Kétállapotú felülírás-gomb: az első katt csak megerősítést kér.
+  const [megerositesVar, setMegerositesVar] = useState(false)
+
+  const tartomany = huDatumTartomany(j.datum, j.datumVege)
+
+  // ── Imahét: csak tájékoztató, mezőt nem ír ──
+  if (j.tipus === 'imahet') {
+    return (
+      <div className="rounded-xl border border-dashed border-border bg-muted/40 px-3 py-2.5 text-[11px] leading-5 text-muted-foreground">
+        <p className="text-xs font-semibold text-foreground">{PROGRAM_JAVASLAT_CIMKEK.imahet}</p>
+        <p className="mt-1">
+          Imahét a határidőnaplóban:{' '}
+          <strong className="text-foreground">{tartomany}</strong>
+          {j.helyszin ? `, ${j.helyszin}` : ''}. A jelentés III.5–III.6 sorait a munkanapló
+          Imahét-sorai adják —{' '}
+          {imahetNaploSorok === null ? (
+            <>a munkanapló Imahét-sorainak száma most nem volt megállapítható (a munkanapló lekérdezése hibázott).</>
+          ) : (
+            <>
+              jelenleg{' '}
+              <strong className="tabular-nums text-foreground">{imahetNaploSorok}</strong>{' '}
+              Imahét-sor van az évben.
+            </>
+          )}
+        </p>
+        {imahetNaploSorok === 0 && (
+          <p className="mt-1.5 rounded-md border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-foreground">
+            Nincs Imahét-sor a munkanaplóban — a határidőnapló Imahét-programjából létrehozhatók
+            (Új program → Imahét sablon).
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  // ── VBH / FIT7: rákérdezés + beírás a célmezőbe ──
+  const mezoId: 'IV.5' | 'IV.6' = j.tipus === 'vbh' ? 'IV.5' : 'IV.6'
+  const fejlec = `${PROGRAM_JAVASLAT_CIMKEK[j.tipus]} — ${tartomany}${j.helyszin ? `, ${j.helyszin}` : ''}`
+
+  // A komponált szöveg: dátumtartomány + helyszín, majd ' — ' után a
+  // rákérdezett részletek (üresen hagyott részlet egyszerűen kimarad).
+  let szoveg = tartomany
+  if (j.helyszin) szoveg += `, ${j.helyszin}`
+  const toldalek: string[] = []
+  if (j.tipus === 'vbh' && vbhProgram) {
+    toldalek.push(vbhProgram === 'koen' ? 'KOEN program' : 'más program')
+  }
+  if (j.tipus === 'fit7' && szint) toldalek.push(FIT7_SZINT_SZOVEG[szint])
+  if (resztvevok.trim()) toldalek.push(`${resztvevok.trim()} résztvevő`)
+  if (toldalek.length > 0) szoveg += ` — ${toldalek.join(', ')}`
+
+  const foglalt = aktualisErtek.trim() !== ''
+  const azonos = foglalt && aktualisErtek.trim() === szoveg
+
+  return (
+    <div className="rounded-xl border border-dashed border-border bg-muted/40 px-3 py-2.5">
+      <p className="text-xs font-semibold text-foreground">{fejlec}</p>
+      <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+        A határidőnapló programja: {j.cim}
+      </p>
+      <div className="mt-2 flex flex-wrap items-end gap-2">
+        <div>
+          <Label className="text-[11px] text-muted-foreground">Résztvevők (fő)</Label>
+          <Input
+            value={resztvevok}
+            onChange={(e) => {
+              setResztvevok(e.target.value)
+              setMegerositesVar(false)
+            }}
+            inputMode="numeric"
+            placeholder="pl. 24"
+            aria-label={`${PROGRAM_JAVASLAT_CIMKEK[j.tipus]} — résztvevők (fő)`}
+            className="mt-1 h-9 w-24 tabular-nums"
+          />
+        </div>
+        <div>
+          <Label className="text-[11px] text-muted-foreground">
+            {j.tipus === 'vbh' ? 'Program' : 'Szervezés szintje'}
+          </Label>
+          {j.tipus === 'vbh' ? (
+            <select
+              value={vbhProgram}
+              onChange={(e) => {
+                setVbhProgram(e.target.value as '' | 'koen' | 'mas')
+                setMegerositesVar(false)
+              }}
+              aria-label="Vakációs Bibliahét — program"
+              className={JAVASLAT_SELECT_CLASS}
+            >
+              <option value="">—</option>
+              <option value="koen">KOEN program</option>
+              <option value="mas">más program</option>
+            </select>
+          ) : (
+            <select
+              value={szint}
+              onChange={(e) => {
+                setSzint(e.target.value as Fit7Szint)
+                setMegerositesVar(false)
+              }}
+              aria-label="Ifjúsági hét — szervezés szintje"
+              className={JAVASLAT_SELECT_CLASS}
+            >
+              <option value="">—</option>
+              <option value="gyulekezeti">gyülekezeti</option>
+              <option value="egyhazmegyei">egyházmegyei</option>
+              <option value="mindketto">mindkettő</option>
+            </select>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={azonos}
+          title={azonos ? 'A mezőben már ez az érték áll' : undefined}
+          className={cn(
+            'min-h-11',
+            megerositesVar &&
+              'border-amber-400/60 text-amber-700 hover:text-amber-700 dark:text-amber-300 dark:hover:text-amber-300',
+          )}
+          onClick={() => {
+            // Kitöltött célmezőnél az első katt csak megerősítést kér —
+            // beírás (felülírás) kizárólag a második kattra.
+            if (foglalt && !megerositesVar) {
+              setMegerositesVar(true)
+              return
+            }
+            onBeiras(mezoId, szoveg)
+            setMegerositesVar(false)
+          }}
+        >
+          {megerositesVar
+            ? 'Biztosan felülírja?'
+            : foglalt
+              ? `Felülírás… (${mezoId})`
+              : `Beírás a jelentésbe (${mezoId})`}
+        </Button>
+      </div>
+      <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
+        Beírandó szöveg: <span className="text-foreground">{szoveg}</span>
+      </p>
+      {foglalt && !azonos && (
+        <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+          A {mezoId} jelenlegi értéke: <span className="italic">„{aktualisErtek.trim()}”</span> — a
+          beírás ezt cserélné le.
+        </p>
+      )}
     </div>
   )
 }

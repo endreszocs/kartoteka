@@ -79,6 +79,7 @@ import { isOzvegyAllapot, isPrefixLikeNamepattern } from '@/lib/utils/member-hel
 import { ageFromDate } from '@/lib/utils/date'
 import type { EnrichedMember } from '@/lib/constants/members'
 import { PersonCardPrintDialog } from '@/components/modals/person-card-print-dialog'
+import { CnpRejtett } from '@/components/members/cnp-rejtett'
 import { FamilyAssignDialog } from '@/components/modals/family-assign-dialog'
 // 2026-08-11: az útvonal-célpont a HIVATALOS román alakból épül, és a lelkész
 // egyszer meg is erősítheti a helyet (lásd a két modul fejlécét).
@@ -1294,8 +1295,15 @@ export function MemberDetailsDialogV2({
             <Field icon={<User className="size-4" />} label="Foglalkozás" value={member.foglalkozas || <Dash />} />
             {/* 2026-08-11 (D10): a CNP a FEJLÉCBŐL ide költözött. Nem látogatási
                 tény, viszont személyazonosító adat — nem való egy utcán felmutatott
-                telefon fejlécébe. */}
-            <Field icon={<IdCard className="size-4" />} label="Személyi szám (CNP)" value={member.cnp || <Dash />} mono />
+                telefon fejlécébe.
+                2026-08-25 (GDPR): az érték ALAPBÓL MASZKOLT — csak a szem-ikonnal
+                fedhető fel, és a megtekintés naplózódik (CnpRejtett). */}
+            <Field
+              icon={<IdCard className="size-4" />}
+              label="Személyi szám (CNP)"
+              value={member.cnp ? <CnpRejtett cnp={member.cnp} szemelyId={member.id} /> : <Dash />}
+              mono
+            />
           </FieldGroup>
         </SubBlock>
       </Section>

@@ -2,7 +2,12 @@ import { z } from 'zod'
 import { PROGRAM_TYPES, PROGRAM_PRIORITIES, ISMETLODES_TYPES } from '@/lib/constants/dashboard'
 
 const programBase = z.object({
-  id: z.string().uuid().optional(),
+  // 2026-08-25: '' is érvényes (= új program). A dialógus rejtett id-mezője
+  // új programnál üres sztringet ad — a szigorú uuid-séma ezen NÉMÁN elbukott
+  // (az id-nek nincs kirajzolt hibaüzenete), és a Mentés gomb „nem csinált
+  // semmit". A saveProgram `if (d.id)` ága az ''-t amúgy is új programként
+  // kezeli.
+  id: z.string().uuid().optional().or(z.literal('')),
   cim: z.string().min(1, 'A program neve kötelező'),
   datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Érvénytelen dátum formátum'),
   datum_vege: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal('')),

@@ -410,6 +410,15 @@ export function buildLelkesziJelentesHtml(data: LelkesziJelentesData): string {
   // 2026-08-14 (18. pont 4): záró Adatlap-lap — többéves tábla + grafikonok.
   const adatlap = adatlapHtml(data, LAP_KIOSZTAS.length + 2)
 
+  // 2026-08-25 (Endre: „a lelkészi jelentés PDF mentése ÜRES dokumentumot
+  // hozott") — LAPSZÁM-ŐR. A print-engine-v2 laponkénti (GPU-plafon-biztos)
+  // PDF-útja és a csonka-PDF-őre CSAK a body `data-sheet-count` attribútumára
+  // kapcsol be. Enélkül a jelentés bármely laponkénti render-hibája NÉMÁN a
+  // teljes-dokumentumos (egy-canvasos) tartalék útra esett vissza — egy 8 lapos
+  // dokumentum canvasa ott a GPU textúra-plafon (~16 384 px) fölé nőtt, és az
+  // eredmény hibaüzenet nélküli, fehér lapokból álló PDF volt.
+  const lapszam = 1 + LAP_KIOSZTAS.length + 1 // címlap + fejezet-lapok + Adatlap
+
   const title = `Lelkészi jelentés ${data.ev} — ${data.congregationName}`
-  return `<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8" /><title>${esc(title)}</title><style>${STYLES}</style></head><body>${cimlapHtml(data)}${lapok}${adatlap}</body></html>`
+  return `<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8" /><title>${esc(title)}</title><style>${STYLES}</style></head><body data-sheet-count="${lapszam}">${cimlapHtml(data)}${lapok}${adatlap}</body></html>`
 }

@@ -21,6 +21,7 @@ import {
   type TransferNotification,
 } from '@/lib/notifications/transfer-notifications-actions'
 import { BUKARESTI_ZONA_FELIRAT, huIdopontBukarest } from '@/lib/utils/idopont-bukarest'
+import { CnpRejtett } from '@/components/members/cnp-rejtett'
 
 interface TransferRequestCardProps {
   notification: TransferNotification
@@ -189,8 +190,12 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
               {member?.ferfi !== null && member?.ferfi !== undefined && (
                 <span>{member.ferfi ? '♂ Férfi' : '♀ Nő'}</span>
               )}
+              {/* 2026-08-25 (GDPR): a CNP alapból maszkolt, szem-ikonnal
+                  fedhető fel — a megtekintés naplózódik (CnpRejtett). */}
               {member?.cnp && (
-                <span className="font-mono">CNP: {member.cnp}</span>
+                <span className="inline-flex items-center gap-1">
+                  CNP: <CnpRejtett cnp={member.cnp} szemelyId={notification.szemely_id} kompakt />
+                </span>
               )}
             </div>
             {member?.cim && (

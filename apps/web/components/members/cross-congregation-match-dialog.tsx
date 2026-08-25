@@ -37,6 +37,7 @@ import type {
   CrossMatchConfidence,
   CrossMatchPastorContact,
 } from '@/lib/members/cross-congregation-actions'
+import { CnpRejtett } from '@/components/members/cnp-rejtett'
 
 // ─── Típusok ─────────────────────────────────────────────────────────────
 
@@ -158,9 +159,15 @@ export function CrossCongregationMatchDialog({
                           <Building2 className="size-3.5 shrink-0 text-amber-600" />
                           {c.matched_congregation_name}
                         </p>
+                        {/* 2026-08-25 (GDPR): a CNP itt STATIKUS maszk — a sor maga
+                            egy <button>, ezért a szem-ikonos felfedő (ami szintén
+                            gomb) érvénytelen beágyazás lenne. A kiválasztott
+                            találatnál lentebb, a kapcsolat-panelben fedhető fel. */}
                         <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
                           <KeyRound className="size-3.5 shrink-0 text-emerald-600" />
-                          Egyházi CNP: <span className="font-mono">{c.egyhazi_cnp}</span>
+                          Egyházi CNP:{' '}
+                          <span className="font-mono" aria-hidden>••••••••••••</span>
+                          <span className="sr-only">személyi szám elrejtve</span>
                         </p>
                       </div>
                       <ConfidenceBadge confidence={c.confidence} />
@@ -176,6 +183,18 @@ export function CrossCongregationMatchDialog({
             {/* Lelkész-elérhetőség — kapcsolatfelvételhez */}
             {selectedCandidate && (
               <div className="space-y-2 rounded-2xl bg-emerald-50/50 p-3.5 ring-1 ring-emerald-100">
+                {/* 2026-08-25 (GDPR): az egyházi CNP itt fedhető fel szem-ikonnal
+                    (a fenti találat-sor gombja miatt ott csak statikus maszk van);
+                    a megtekintés naplózódik. */}
+                <p className="flex items-center gap-1.5 text-xs text-slate-600">
+                  <KeyRound className="size-3.5 shrink-0 text-emerald-600" />
+                  Egyházi CNP:{' '}
+                  <CnpRejtett
+                    cnp={selectedCandidate.egyhazi_cnp}
+                    szemelyId={selectedCandidate.matched_szemely_id}
+                    kompakt
+                  />
+                </p>
                 <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-700">
                   <PhoneCall className="size-3.5" />
                   Vedd fel a kapcsolatot a(z) {selectedCandidate.matched_congregation_name} lelkészével
@@ -231,7 +250,8 @@ export function CrossCongregationMatchDialog({
         <p className="mt-2 text-xs italic text-slate-500">
           🔒 A másik tag SEMMILYEN személyes adatát (cím, születési dátum, családi viszony) NEM
           látjuk — csak a gyülekezet neve, az egyházi CNP, és a kapcsolatfelvételhez a lelkész
-          HIVATALOS elérhetősége jelenik meg.
+          HIVATALOS elérhetősége jelenik meg. Az egyházi CNP alapból rejtve van; a szem-ikonnal
+          fedhető fel, és a megtekintés naplózódik.
         </p>
 
         {/* Akció gombok */}

@@ -82,6 +82,71 @@ async function createPrintIframe(
 }
 
 /**
+ * 2026-08-25 (Endre: „a lelkészi jelentés PDF mentése ÜRES dokumentumot
+ * hozott") — HANGOS hiba a néma fehér PDF helyett. A hívók (toast) ezt a
+ * szöveget mutatják; a felhasználó azonnal tudja, hogy a mentés NEM sikerült,
+ * és van járható kerülőútja (böngészős nyomtatás → PDF-be mentés).
+ */
+const URES_VASZON_HIBA =
+  'A PDF-render üres (fehér) lapot adott — a gép grafikus vászon-korlátjába ütköztünk. ' +
+  'Kérjük, próbálja újra; ha ismétlődik, használja a „Nyomtatás” gombot ' +
+  '(a böngésző nyomtatási ablakából PDF-be is menthet), és jelezze a hibát.'
+
+/**
+ * 2026-08-25 — FAIL-LOUD ŐR: üres (fehér/kirajzolatlan) render-vászon
+ * felismerése a PDF-be írás ELŐTT.
+ *
+ * A GPU textúra-plafon (~16 384 px) fölötti canvas NÉMÁN romlik el: a
+ * html2canvas nem dob hibát, a toDataURL fehér/üres képet ad, a mentett PDF
+ * fehér lapokból áll. Ezt eddig semmi nem érzékelte — a lelkész csak a kész
+ * PDF-et megnyitva szembesült vele. Ez az őr mintavételez: a vásznat egy kis
+ * próba-vászonra kicsinyíti (a teljes getImageData egy 15 000 px magas vásznon
+ * ~120 MB lenne), és JELZŐSZÍN-alapra rajzol — így a „nem rajzolódott ki semmi"
+ * (a jelzőszín megmaradt) és a „csupa fehér lap" eset is fennakad.
+ *
+ * `true` = a vászon üresnek tűnik. Bizonytalan mérésnél (nincs 2d kontextus,
+ * getImageData-hiba) `false` — az őr működő gépen sosem ad téves riasztást.
+ * A hívó felelőssége, hogy csak TARTALMAS forrásnál (van szöveg) kiáltson.
+ */
+function vaszonUresnekTunik(canvas: HTMLCanvasElement | null | undefined): boolean {
+  if (!canvas || canvas.width === 0 || canvas.height === 0) return true
+  const PW = 128
+  const PH = 176
+  const proba = document.createElement('canvas')
+  proba.width = PW
+  proba.height = PH
+  const ctx = proba.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return false
+  ctx.fillStyle = '#ff00fe' // jelzőszín: ha a drawImage semmit sem rajzol, ez marad
+  ctx.fillRect(0, 0, PW, PH)
+  try {
+    ctx.drawImage(canvas, 0, 0, PW, PH)
+  } catch {
+    return true // kirajzolhatatlan (sérült) forrás-vászon
+  }
+  let adat: Uint8ClampedArray
+  try {
+    adat = ctx.getImageData(0, 0, PW, PH).data
+  } catch {
+    return false // nem mérhető — nem kiáltunk farkast
+  }
+  let jelzo = 0
+  let festett = 0
+  for (let i = 0; i < adat.length; i += 4) {
+    const r = adat[i]
+    const g = adat[i + 1]
+    const b = adat[i + 2]
+    if (r >= 250 && g <= 5 && b >= 250) {
+      jelzo++
+      continue
+    }
+    if (r < 245 || g < 245 || b < 245) festett++
+  }
+  if (jelzo >= PW * PH * 0.98) return true // a forrásról semmi sem rajzolódott
+  return festett === 0 // csupa (tört)fehér — tartalmas lap így sosem néz ki
+}
+
+/**
  * 2026-07-24 (PR-13, „üres PDF" gyökérok): laponkénti PDF-render.
  *
  * A html2pdf a TELJES dokumentumot EGYETLEN canvasra rasterizálja — egy
@@ -111,6 +176,11 @@ async function renderSheetsToPdf(
       backgroundColor: '#ffffff',
       logging: false,
     })
+    // 2026-08-25: üres-vászon őr — tartalmas lapról fehér/kirajzolatlan canvas
+    // SOHA nem mehet némán a PDF-be (fail-loud hibaosztály).
+    if ((sheets[i].textContent || '').trim().length > 0 && vaszonUresnekTunik(canvas)) {
+      throw new Error(URES_VASZON_HIBA)
+    }
     const img = canvas.toDataURL('image/jpeg', 0.85)
     if (i > 0) pdf.addPage('a4', 'portrait')
     pdf.addImage(img, 'JPEG', 0, 0, 210, 297)
@@ -260,10 +330,22 @@ async function printToPdfLegacy(
   document.head.appendChild(veil)
 
   // 2026-07-17 (PR-2 F2.2, canvas-limit őr): a html2canvas EGY canvasra rendereli
-  // a teljes dokumentumot; a Chromium canvas-dimenzió plafonja ~32 767px. Hosszú
-  // (10+ oldalas) nyomtatványnál a fix scale:3 ezt túllépné → csonka/üres PDF.
-  // A skálát a mért tartalom-magassághoz igazítjuk (rövid dokumentumnál marad 3).
-  const MAX_CANVAS_PX = 30000
+  // a teljes dokumentumot; a skálát a mért tartalom-magassághoz igazítjuk
+  // (rövid dokumentumnál marad 3).
+  //
+  // 2026-08-25 (Endre: „a lelkészi jelentés PDF mentése ÜRES dokumentumot
+  // hozott") — A PLAFON EDDIG A ROSSZ KORLÁTOT ŐRIZTE. A 30 000 a Chromium
+  // canvas-DIMENZIÓ plafonjához (~32 767 px) igazodott, csakhogy a valódi,
+  // élesben már KÉTSZER elsült korlát a GPU TEXTÚRA-plafon (~16 384 px — lásd
+  // a renderSheetsToPdf fölötti leírást): a fölötte lévő canvas nem hibát dob,
+  // hanem NÉMÁN ÜRES lesz. Egy 8 lapos lelkészi jelentés (~9 500 px tartalom)
+  // a régi plafonnal scale 3-at kapott → ~28 500 px magas canvas → fehér PDF.
+  // Az új plafon a GPU-korlát ALATT tart: hosszú dokumentumnál a skála
+  // arányosan csökken (a 8 lapos jelentésnél ~1,6 ≈ 150 DPI — nyomtatásban
+  // olvasható), rövidnél marad 3. A scale-alsókorlát (1,25) miatt ~12 000 px-nél
+  // hosszabb tartalom így is átlépheti a plafont — azt a mentés ELŐTTI
+  // üres-vászon őr fogja meg hangos hibával (lentebb).
+  const MAX_CANVAS_PX = 15000
   const contentHeight = Math.max(iframeDoc.body.scrollHeight, 1)
   const safeScale = Math.max(1.25, Math.min(3, MAX_CANVAS_PX / contentHeight))
 
@@ -291,13 +373,25 @@ async function printToPdfLegacy(
   }
 
   try {
+    // 2026-08-25: a mentés KÉT lépésben — előbb canvasra renderelünk, és a
+    // PDF-be írás ELŐTT lefut az üres-vászon őr. A html2pdf worker a canvast
+    // a láncon megosztott prop-ban cache-eli (worker.js: toPdf checkCanvas
+    // prereq), ezért a záró save() NEM renderel újra.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (html2pdf as any)().set(opt).from(iframeDoc.body).save()
+    const worker = (html2pdf as any)().set(opt).from(iframeDoc.body)
+    const canvas: HTMLCanvasElement | null = await worker.toCanvas().get('canvas')
+    if ((iframeDoc.body.textContent || '').trim().length > 0 && vaszonUresnekTunik(canvas)) {
+      throw new Error(URES_VASZON_HIBA)
+    }
+    await worker.save()
   } finally {
     veil.remove()
     if (iframe.parentNode) {
       iframe.parentNode.removeChild(iframe)
     }
+    // Ha a render hibával szakadt meg, a html2pdf láthatatlan overlay-e a
+    // fődokumentumban ragadhat (z-index 1000 — kattintás-blokkoló). Takarítás.
+    document.querySelectorAll('.html2pdf__overlay').forEach((el) => el.remove())
   }
 }
 

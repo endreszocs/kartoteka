@@ -6,18 +6,23 @@
 // validáció, valós mentés (saveProgram).
 import { useCallback, useEffect, useId, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { useForm, useWatch } from 'react-hook-form'
+import { useForm, useWatch, type FieldErrors } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import {
   CalendarDays, X, MapPin, Clock, ChevronDown, Star, Flag, Repeat, Check,
 } from 'lucide-react'
 import { programSchema, type ProgramInput } from '@/lib/validations/dashboard'
-import { saveProgram } from '@/app/(dashboard)/programs/actions'
+import { saveProgram, createImahetNaplosorok } from '@/app/(dashboard)/programs/actions'
 import {
   PROGRAM_TYPES, PROG_TIPUS_LABELS, PROG_TIPUS_COLOR,
   PROGRAM_PRIORITIES, PROG_PRIORITAS_LABELS,
-  ISMETLODES_TYPES, ISMETLODES_LABELS, EMOJI_LIST,
+  ISMETLODES_TYPES, ISMETLODES_LABELS, EMOJI_LIST, HU_DAYS_SHORT,
 } from '@/lib/constants/dashboard'
+import {
+  PROGRAM_SABLONOK, FIT7_SZINTEK, sablonFelismeres, sablonZaroDatum,
+  napokListaja, fit7MegjegyzesFrissit, fit7SzervezesSor,
+  type ProgramSablon, type SablonKulcs, type Fit7Szint,
+} from '@/lib/constants/program-sablonok'
 import type { Program, ProgramTipus } from '@/lib/constants/dashboard'
 import { PROG_TIPUS_ICON } from '@/components/dashboard/program-icons'
 import { useModalFocusTrap } from '@/components/modals/use-modal-focus-trap'
@@ -38,12 +43,20 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [multiDay, setMultiDay] = useState(false)
   const [allDay, setAllDay] = useState(false)
+  // 2026-08-25 (sablonok): a legutóbb rákattintott sablon-chip kulcsa — amíg
+  // aktív, a kezdő dátum megadásakor a záró dátum automatikusan számolódik.
+  const [aktivSablon, setAktivSablon] = useState<SablonKulcs | null>(null)
+  const [fit7Szint, setFit7Szint] = useState<Fit7Szint>('gyulekezeti')
+  // Imahét napi beosztás: dátum → szolgáló lelkész neve (dátum-kulcsos, így a
+  // kezdő dátum eltolása nem keveri össze a már beírt neveket).
+  const [imahetSzolgalok, setImahetSzolgalok] = useState<Record<string, string>>({})
+  const [naplosorokBe, setNaplosorokBe] = useState(true)
   const emojiRef = useRef<HTMLDivElement>(null)
   const modalRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
   const close = useCallback(() => onOpenChange(false), [onOpenChange])
 
-  const { register, handleSubmit, reset, control, setValue, formState: { errors } } =
+  const { register, handleSubmit, reset, control, setValue, getValues, formState: { errors } } =
     useForm<ProgramInput>({
       resolver: zodResolver(programSchema),
       defaultValues: { tipus: 'istentisztelet', prioritas: 'normal' },
@@ -54,6 +67,9 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
   const ismetlodes = useWatch({ control, name: 'ismetlodes_tipus' })
   const egyediEmoji = useWatch({ control, name: 'egyedi_emoji' })
   const egyediNev = useWatch({ control, name: 'egyedi_tipus_nev' })
+  const cim = useWatch({ control, name: 'cim' })
+  const datum = useWatch({ control, name: 'datum' })
+  const datumVege = useWatch({ control, name: 'datum_vege' })
 
   // Előtöltés / alapértékek megnyitáskor
   useEffect(() => {
@@ -91,9 +107,29 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
       }
       setTypeOpen(false)
       setEmojiOpen(false)
+      // 2026-08-25 (sablonok): a sablon-állapot tiszta lappal indul.
+      setAktivSablon(null)
+      setFit7Szint('gyulekezeti')
+      setImahetSzolgalok({})
+      setNaplosorokBe(true)
     })
     return () => { cancelled = true }
   }, [open, editProgram, defaultDate, reset])
+
+  // 2026-08-25 (sablonok): ha a chip-kattintáskor még nem volt kezdő dátum, a
+  // záró dátum akkor számolódik ki, amikor a lelkész beírja a kezdőt. A záró
+  // dátum kézi átírását nem bántjuk — csak a KEZDŐ dátum változása számol újra.
+  useEffect(() => {
+    if (!open || !aktivSablon || !datum) return
+    // Ha a lelkész időközben átnevezte a programot (a cím már nem a sablonra
+    // utal), az automatikus záró-dátum-számítás leáll — nem írunk felül semmit.
+    if (sablonFelismeres(getValues('cim') || '') !== aktivSablon) return
+    const sablon = PROGRAM_SABLONOK.find((s) => s.kulcs === aktivSablon)
+    if (!sablon) return
+    const zaro = sablonZaroDatum(datum, sablon.napok)
+    if (zaro) setValue('datum_vege', zaro)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, aktivSablon, datum])
 
   // Emoji-választó kívülre kattintás
   useEffect(() => {
@@ -113,6 +149,26 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
 
   if (!open || typeof document === 'undefined') return null
 
+  // 2026-08-25 (sablonok): a chip kitölti a nevet/típust/megjegyzést, bekapcsolja
+  // a többnapos kapcsolót, és ha van már kezdő dátum, a záró dátumot is számolja.
+  function applySablon(sablon: ProgramSablon) {
+    setAktivSablon(sablon.kulcs)
+    setValue('cim', sablon.cim, { shouldValidate: true })
+    setValue('tipus', sablon.tipus)
+    if (sablon.prioritas) setValue('prioritas', sablon.prioritas)
+    const megjegyzes = sablon.kulcs === 'fit7'
+      ? `${sablon.megjegyzes}\n${fit7SzervezesSor(fit7Szint)}`
+      : sablon.megjegyzes
+    setValue('megjegyzes', megjegyzes)
+    setMultiDay(true)
+    const kezdo = getValues('datum')
+    if (kezdo) {
+      const zaro = sablonZaroDatum(kezdo, sablon.napok)
+      if (zaro) setValue('datum_vege', zaro)
+    }
+    setTypeOpen(false)
+  }
+
   async function onSubmit(data: ProgramInput) {
     const payload: ProgramInput = {
       ...data,
@@ -122,13 +178,56 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
     }
     setLoading(true)
     const result = await saveProgram(payload)
-    setLoading(false)
     if (result.error) {
+      setLoading(false)
       toast.error(result.error)
-    } else {
-      toast.success(editProgram ? 'Program frissítve!' : 'Program létrehozva!')
-      onOpenChange(false)
+      return
     }
+
+    // 2026-08-25 (Imahét): a napi vendéglelkész-beosztásból munkanapló-sorok —
+    // CSAK a program sikeres mentése UTÁN, és csak kitöltött szolgálóval.
+    let naploUzenet = ''
+    if (
+      naplosorokBe &&
+      multiDay &&
+      sablonFelismeres(payload.cim || '') === 'imahet'
+    ) {
+      const napok = napokListaja(payload.datum, payload.datum_vege || '', 9)
+        .map((nap) => ({ datum: nap, szolgalo: (imahetSzolgalok[nap] || '').trim() }))
+        .filter((nap) => nap.szolgalo.length > 0)
+      if (napok.length > 0) {
+        const naploRes = await createImahetNaplosorok({ napok })
+        if ('error' in naploRes) {
+          setLoading(false)
+          toast.success(editProgram ? 'Program frissítve!' : 'Program létrehozva!')
+          toast.error(naploRes.error)
+          onOpenChange(false)
+          return
+        }
+        naploUzenet = ` + ${naploRes.letrehozva} munkanapló-sor létrehozva`
+        if (naploRes.kihagyva > 0) {
+          naploUzenet += ` (${naploRes.kihagyva} nap kihagyva — már szerepelt a munkanaplóban)`
+        }
+      }
+    }
+
+    setLoading(false)
+    toast.success(
+      naploUzenet
+        ? `Program mentve${naploUzenet}`
+        : (editProgram ? 'Program frissítve!' : 'Program létrehozva!'),
+    )
+    onOpenChange(false)
+  }
+
+  // 2026-08-25: a néma validációs bukás hibaosztálya ellen — ha olyan mező
+  // bukik, amelynek nincs kirajzolt hibaüzenete (így járt a rejtett `id`),
+  // a felhasználó eddig SEMMIT nem látott a Mentés-kattintás után.
+  function onInvalid(errs: FieldErrors<ProgramInput>) {
+    const elso = Object.values(errs).find(
+      (e): e is { message: string } => typeof (e as { message?: unknown })?.message === 'string',
+    )?.message
+    toast.error(elso || 'A program nem menthető — ellenőrizd a kitöltött mezőket.')
   }
 
   const selectedLabel = tipus === 'egyeb' && egyediNev
@@ -136,6 +235,19 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
     : PROG_TIPUS_LABELS[tipus] || 'Egyéb'
   const SelectedIcon = PROG_TIPUS_ICON[tipus]
   const selectedColor = PROG_TIPUS_COLOR[tipus]
+
+  // 2026-08-25 (Imahét): a napi beosztás sorai — cím-felismerés alapján (kézzel
+  // beírt „imahét" címre is megjelenik), többnapos programnál, legfeljebb 9 nap.
+  const imahetNapok =
+    sablonFelismeres(cim || '') === 'imahet' && multiDay
+      ? napokListaja(datum || '', datumVege || '', 9)
+      : []
+
+  function napCimke(iso: string): string {
+    const d = new Date(`${iso}T00:00:00`)
+    if (Number.isNaN(d.getTime())) return iso
+    return `${iso.slice(5, 7)}.${iso.slice(8, 10)}. ${HU_DAYS_SHORT[d.getDay()]}`
+  }
 
   return createPortal(
     /* 2026-08-11 (P2 #26): a háttérre kattintás TÖBBÉ NEM zár be. Eddig
@@ -167,7 +279,7 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
           </button>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="kt-modal-body">
+        <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="kt-modal-body">
           <input type="hidden" {...register('id')} />
 
           {/* Cím */}
@@ -176,6 +288,48 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
             <input className={`kt-input${errors.cim ? ' is-err' : ''}`} placeholder="Pl. Vasárnapi istentisztelet" autoFocus {...register('cim')} />
             {errors.cim && <p className="kt-err">{errors.cim.message}</p>}
           </div>
+
+          {/* Sablonok — csak ÚJ programnál (2026-08-25) */}
+          {!editProgram && (
+            <div className="kt-field">
+              <label className="kt-label">Sablonok</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {PROGRAM_SABLONOK.map((s) => (
+                  <button
+                    key={s.kulcs}
+                    type="button"
+                    className="kt-btn-sm"
+                    title={s.leiras}
+                    aria-pressed={aktivSablon === s.kulcs}
+                    style={aktivSablon === s.kulcs
+                      ? { borderColor: 'var(--primary)', color: 'var(--primary)' }
+                      : undefined}
+                    onClick={() => applySablon(s)}
+                  >
+                    {s.emoji} {s.cim}
+                  </button>
+                ))}
+              </div>
+              {aktivSablon === 'fit7' && (
+                <div className="kt-segmented" style={{ marginTop: 8 }}>
+                  {FIT7_SZINTEK.map((sz) => (
+                    <button
+                      key={sz.value}
+                      type="button"
+                      className={`kt-seg${fit7Szint === sz.value ? ' is-active' : ''}`}
+                      title={'A szervezés szintje — a megjegyzés „Szervezés: …" sorát frissíti.'}
+                      onClick={() => {
+                        setFit7Szint(sz.value)
+                        setValue('megjegyzes', fit7MegjegyzesFrissit(getValues('megjegyzes') || '', sz.value))
+                      }}
+                    >
+                      {sz.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Típus-választó */}
           <div className="kt-field">
@@ -331,6 +485,47 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
               ))}
             </div>
           </div>
+
+          {/* Imahét — napi vendéglelkész-beosztás (2026-08-25) */}
+          {imahetNapok.length > 0 && (
+            <div className="kt-field">
+              <div className="kt-label-row">
+                <label className="kt-label">Napi beosztás — vendéglelkészek</label>
+                <label
+                  className="kt-switch"
+                  title="Bekapcsolva a mentés a kitöltött napokra munkanapló-sorokat is létrehoz (jellege: Imahét)."
+                >
+                  <input
+                    type="checkbox"
+                    checked={naplosorokBe}
+                    onChange={(e) => setNaplosorokBe(e.target.checked)}
+                  />
+                  <span className="kt-switch-track"><span className="kt-switch-thumb" /></span>
+                  Munkanapló-sorok létrehozása
+                </label>
+              </div>
+              {imahetNapok.map((nap) => (
+                <div key={nap} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                  <span className="kt-label" style={{ width: 96, flexShrink: 0, fontWeight: 500 }}>
+                    {napCimke(nap)}
+                  </span>
+                  <input
+                    className="kt-input"
+                    placeholder="Szolgáló lelkész"
+                    maxLength={120}
+                    value={imahetSzolgalok[nap] || ''}
+                    onChange={(e) =>
+                      setImahetSzolgalok((prev) => ({ ...prev, [nap]: e.target.value }))
+                    }
+                  />
+                </div>
+              ))}
+              <p className="kt-modal-sub" style={{ marginTop: 6 }}>
+                Az üresen hagyott napokból nem készül munkanapló-sor. A jelenlétet és a
+                perselyt a munkanaplóban lehet utólag kitölteni.
+              </p>
+            </div>
+          )}
 
           {/* Megjegyzés */}
           <div className="kt-field">

@@ -41,7 +41,11 @@ import type {
   TobbEvesEv,
   JelentesJavaslatok,
   LelkesziJelentesData,
+  ProgramJavaslat,
 } from '@/lib/lelkeszi-jelentes/types'
+// 2026-08-25 (határidőnapló-javaslatok): a VBH/FIT7/Imahét programok tiszta
+// cím-felismerője — a sablon-definíciókkal KÖZÖS forrásból (nincs két igazság).
+import { sablonFelismeres } from '@/lib/constants/program-sablonok'
 // 2026-08-25 (gyülekezeti egységek, 3. ütem): a munkanapló-alapú auto-mezők
 // TISZTA magja (worklogAutoMezok) a worklog-auto.ts-be költözött — a fő
 // jelentés az ÖSSZES évi sorral hívja (viselkedés-azonos a korábbi ~250 soros
@@ -1291,6 +1295,64 @@ async function loadSubmission(
   return { status: row.status, submittedAt: typeof row.submitted_at === 'string' ? row.submitted_at : null }
 }
 
+/**
+ * 2026-08-25 (határidőnapló-javaslatok): az adott év gyulekezeti_programok
+ * sorai közül a sablonFelismeres által VBH / FIT7 / Imahét-ként felismert
+ * programok — a jelentés-dialógus „Határidőnapló-javaslatok" paneljéhez.
+ *
+ * CSAK szerkesztés módban hívjuk (véglegesített jelentésnél a snapshot a
+ * hiteles, ott javaslatnak nincs értelme). Lekérdezés-hibánál undefined +
+ * console.warn — a jelentés többi része nem sérülhet, de a kulcs ELMARAD
+ * (nem hazudunk üres listát: a hiányzó kulcsnál a panel meg sem jelenik).
+ */
+async function loadProgramJavaslatok(
+  supabase: Supa,
+  congId: string,
+  ev: number,
+): Promise<ProgramJavaslat[] | undefined> {
+  try {
+    const { data, error } = await supabase
+      .from('gyulekezeti_programok')
+      .select('cim, datum, datum_vege, helyszin, megjegyzes')
+      .eq('congregation_id', congId)
+      .gte('datum', `${ev}-01-01`)
+      .lte('datum', `${ev}-12-31`)
+      .order('datum')
+    if (error) {
+      console.warn(
+        '[lelkeszi-jelentes] gyulekezeti_programok lekérdezés hiba — a határidőnapló-javaslatok kimaradnak:',
+        error.message,
+      )
+      return undefined
+    }
+    const out: ProgramJavaslat[] = []
+    for (const r of (data || []) as Array<{
+      cim?: unknown
+      datum?: unknown
+      datum_vege?: unknown
+      helyszin?: unknown
+      megjegyzes?: unknown
+    }>) {
+      const cim = typeof r.cim === 'string' ? r.cim.trim() : ''
+      if (!cim || typeof r.datum !== 'string' || !r.datum) continue
+      const tipus = sablonFelismeres(cim)
+      if (!tipus) continue
+      out.push({
+        tipus,
+        cim,
+        datum: r.datum,
+        datumVege: typeof r.datum_vege === 'string' && r.datum_vege ? r.datum_vege : null,
+        helyszin: typeof r.helyszin === 'string' && r.helyszin.trim() ? r.helyszin.trim() : null,
+        megjegyzes: typeof r.megjegyzes === 'string' && r.megjegyzes.trim() ? r.megjegyzes.trim() : null,
+      })
+    }
+    return out
+  } catch (e) {
+    console.warn('[lelkeszi-jelentes] határidőnapló-javaslatok hiba — a panel kimarad:', e)
+    return undefined
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Exportált szerver-akciók
 // ─────────────────────────────────────────────────────────────────────────
@@ -1323,6 +1385,21 @@ export async function getLelkesziJelentes(ev: number): Promise<{
    * hiányozhat — a hívó az ANYAKOZPONT_CIMKE-re essen vissza.
    */
   bontas?: JelentesBontas & { kozpontCimke?: string }
+  /**
+   * 2026-08-25: HATÁRIDŐNAPLÓ-JAVASLATOK — az év gyulekezeti_programok
+   * soraiból felismert VBH / FIT7 / Imahét programok (sablonFelismeres).
+   * CSAK szerkesztés módban van (véglegesítettnél a snapshot a hiteles, ott
+   * SZÁNDÉKOSAN hiányzik); lekérdezés-hibánál is elmarad (console.warn) —
+   * a jelentés többi része ettől nem sérül.
+   */
+  programJavaslatok?: ProgramJavaslat[]
+  /**
+   * 2026-08-25: a munkanapló Imahét-jellegű sorainak száma az évben — az
+   * aggregátor III.5 értéke (imahet.db, worklog-auto.ts): NINCS két igazság.
+   * Az Imahét-javaslatkártya tájékoztatójához. Hiányzik, ha a munkanapló-
+   * lekérdezés hibázott (fail-closed: ilyenkor nem állítunk 0-t).
+   */
+  imahetNaploSorok?: number
   error?: string
 }> {
   const { supabase, congregationId } = await getEffectiveCongregationContext()
@@ -1360,12 +1437,23 @@ export async function getLelkesziJelentes(ev: number): Promise<{
   }
 
   const { data, autoHibak, javaslatok, bontas } = await buildJelentesData(supabase, congregationId, ev, row)
+
+  // 2026-08-25: határidőnapló-javaslatok — CSAK a szerkesztés módú ágban
+  // (a véglegesített ág fentebb már visszatért). Hibánál a kulcs elmarad.
+  const programJavaslatok = await loadProgramJavaslatok(supabase, congregationId, ev)
+  // Az Imahét-kártya tájékoztatója: a munkanapló Imahét-sorainak száma = a
+  // már kiszámolt III.5 auto-érték (worklog-hibánál null → a kulcs elmarad,
+  // nem állítunk hamis 0-t).
+  const iii5 = data.auto['III.5']
+
   return {
     data: { ...data, submission, tobbEvesAdatok },
     unlockRequested: row?.unlock_requested === true,
     autoHibak,
     javaslatok,
     bontas,
+    ...(programJavaslatok ? { programJavaslatok } : {}),
+    ...(typeof iii5 === 'number' ? { imahetNaploSorok: iii5 } : {}),
   }
 }
 
