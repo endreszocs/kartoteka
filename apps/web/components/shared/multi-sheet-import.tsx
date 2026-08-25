@@ -113,6 +113,19 @@ export function MultiSheetImport({
         const result = await parseAndPreview(formData)
         setParseResult(result)
 
+        // 2026-08-26: a hivatalos Leltar 3_43 munkafüzetet a szerver felismeri —
+        // annak a fejlécei a 3–4. sorban vannak, a generikus út rossz importot
+        // adna, ezért a dedikált importálóhoz irányítunk.
+        if (result.success && result.leltar343) {
+          setFile(null)
+          setParseResult(null)
+          toast.info(
+            'Ez a hivatalos Leltar 3_43 munkafüzet — a lap tetején lévő „Leltar 3_43 munkafüzet importálása" kártyával töltsd fel, ott minden lapját és celláját felismerjük.',
+            { duration: 12000 },
+          )
+          return
+        }
+
         if (result.success && result.sheets) {
           const configs: SheetConfig[] = result.sheets.map((s) => ({
             sheetName: s.sheetName,

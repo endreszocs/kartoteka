@@ -23,6 +23,56 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-26] — Leltár: a hivatalos Leltar 3_43 munkafüzet importja és kitöltött exportja + szabályos kivezetés
+<!-- key: 2026-08-26-leltar-343 -->
+<!-- category: feature -->
+<!-- version: 0.9.178 -->
+<!-- targets: mindenki -->
+
+### 🐛 Javítások
+
+- **A leltár rendszergazdai importálóján nem volt importálás gomb**: a felület
+  eddig csak előkészítő kártyákat mutatott, a tényleges feldolgozó nem volt
+  bekötve — ezért a fájl kiválasztása után nem történt semmi. Mostantól a
+  leltárnak valódi import-útja van (és az admin Import központban is él).
+
+### ✨ Új funkciók
+
+- **Leltar 3_43 munkafüzet importálása**: a hivatalos egyházmegyei
+  leltár-munkafüzet (Leltar 3_43.xlsx) minden kitöltendő lapját felismerjük —
+  a 7 tárgycsoportot, a Cimlap helyszín/felelős katalógusát, a Súgó szerinti
+  alapértelmezéseket (hiányzó hónap/nap → január 1., hiányzó mennyiség → 1 db),
+  a negatív sorokat (részleges kivezetés, alapeszköznél le-/felértékelés) és a
+  kivezetett tételeket is. Feltöltés előtt részletes előnézet mutatja
+  lapónként a tételszámot és a hibákat; a már létező leltári számú tételeket
+  nem írjuk felül.
+- **Kitöltött Leltar 3_43 exportálása**: a leltár egy gombbal a hivatalos
+  munkafüzetként tölthető le — az EREDETI sablonba írjuk a tételeket, így a
+  lapvédelem, a legördülők és az összes belső képlet (Hibak, Fisa, Leltáriv,
+  Vagyonleltári jelentés lapok) érintetlenül működik. A kivezetett tételek a
+  törlés dátumával és iratával együtt szerepelnek.
+- **Szabályos kivezetés**: a leltári tétel törlése mostantól kivezetés — a
+  rendszer bekéri a kivezetés dátumát, a törlési irat számát és az indoklást,
+  és a tétel sora (a hivatalos rend szerint) megmarad. A régi, adatok nélküli
+  Kukába dobás külön lehetőségként megmaradt.
+- **Le-/felértékelés és alapeszköz-főcsoport**: alapeszközöknél rögzíthető az
+  értékmódosítás (±RON, indoklással) és a HG 2139/2004 szerinti főcsoport;
+  könyveknél külön szerző-mező. (Ehhez egy rövid SQL-t kell futtatni:
+  `2026-08-26-leltar-343.sql`.)
+
+### 🎨 Finomítások
+
+- **Alapeszköz-értékhatár figyelmeztetés (OUG 8/2026)**: a rögzítésnél a
+  rendszer a beszerzés napján érvényes értékhatárral vet össze (2013 júliusáig
+  1800 lej, utána 2500 lej, 2026. február 25-től 5000 lej) — csak jelez, nem
+  tilt.
+- **Bővített amortizációs katalógus**: a HG 2139/2004 leggyakoribb egyházi
+  tételei (21 kód) választhatók a katalógusból, használati idő-sávokkal.
+- **Leltár-súgó**: új fejezetek a Leltar 3_43 importról/exportról és a
+  szabályos kivezetésről.
+
+---
+
 ## [2026-08-25] — Megújult lelkészi jelentés, PDF-hiba végleges javítása, anyakönyv→munkanapló és sok apró finomítás
 <!-- key: 2026-08-25-lelkeszi-jelentes-ux -->
 <!-- category: feature -->

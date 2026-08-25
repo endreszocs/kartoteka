@@ -152,6 +152,19 @@ export interface InventoryItem {
   torles_datuma: string | null
   torles_bizonylat: string | null
   torles_indoklasa: string | null
+  /**
+   * 2026-08-26 (Leltar 3_43 kör): halmozott le-/felértékelés (±RON, a TELJES
+   * tételsorra értve). A könyv szerinti érték = egységár × mennyiség + ez.
+   * Alapeszközöknél él (a hivatalos munkafüzet Fisa-lapjának megfelelője).
+   */
+  ertek_modositas: number
+  ertek_modositas_megjegyzes: string | null
+  /**
+   * 2026-08-26: HG 2139/2004 szerinti alapeszköz-főcsoport (1 = Épületek,
+   * 2 = Technikai és szállítóeszközök, állatok, ültetvények, 3 = Bútorzat,
+   * irodai felszerelés, védő berendezések, más alapeszközök).
+   */
+  alapeszkoz_csoport: number | null
   /** 2026-08-09: a kapcsolt kiadás xkey-e (pénzügy→leltár / leltár→pénzügy híd). */
   penzugy_xkey: string | null
   szerzo: string | null

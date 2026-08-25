@@ -25,9 +25,15 @@ export function getInventoryQuantity(item: InventoryItem) {
   return Number(item.mennyiseg || 1) || 1
 }
 
-/** Könyv szerinti érték = egységnyi beszerzési érték × mennyiség. */
+/**
+ * Könyv szerinti érték = egységnyi beszerzési érték × mennyiség + halmozott
+ * értékmódosítás (le-/felértékelés, 2026-08-26 Leltar 3_43 kör — a hivatalos
+ * munkafüzet a módosítást külön ±sorként vezeti, nálunk az `ertek_modositas`
+ * mező hordozza; 0-nál a viselkedés bitre a korábbi).
+ */
 export function getInventoryBookValue(item: InventoryItem) {
-  return (Number(item.beszerzes_erteke || 0) || 0) * getInventoryQuantity(item)
+  const alap = (Number(item.beszerzes_erteke || 0) || 0) * getInventoryQuantity(item)
+  return alap + (Number(item.ertek_modositas || 0) || 0)
 }
 
 export function getInventoryDisplayName(item: InventoryItem) {
@@ -62,5 +68,7 @@ export function calculateInventoryCurrentValue(item: InventoryItem, referenceDat
   const monthlyDepreciation = amortizationBase / (annualPeriod * 12)
   const currentUnitValue = Math.max(0, amortizationBase - months * monthlyDepreciation)
 
-  return currentUnitValue * getInventoryQuantity(item)
+  // 2026-08-26: az értékmódosítás (±) a jelenlegi értéket is tolja — negatívba
+  // itt sem mehet (egy leértékelt eszköz értéke legfeljebb 0).
+  return Math.max(0, currentUnitValue * getInventoryQuantity(item) + (Number(item.ertek_modositas || 0) || 0))
 }

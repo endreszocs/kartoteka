@@ -23,6 +23,8 @@ import {
   type AnyagraktarStats,
 } from '@/app/(dashboard)/leltar/anyagraktar-actions'
 import { InventoryPrintDialog } from '@/components/inventory/inventory-print-dialog-v2'
+// 2026-08-26 (Leltar 3_43 kör): a hivatalos munkafüzet kitöltött exportja.
+import { Leltar343ExportButton } from '@/components/inventory/leltar343-export-button'
 import {
   deleteInventoryItem,
   finalizeLeltar,
@@ -42,6 +44,7 @@ import {
   INVENTORY_CATEGORY_ROMANIAN_LABELS,
   getInventoryAmortizationCatalogEntry,
   getInventoryCategoryLabel,
+  alapeszkozKuszobFigyelmeztetes,
   type InventoryCategory,
   type InventoryItem,
 } from '@/lib/constants/inventory.next'
@@ -202,6 +205,18 @@ export function InventoryMain({
   const [fBizonylat, setFBizonylat] = useState('')
   const [fKatalogusKod, setFKatalogusKod] = useState('')
   const [fHasznalatiIdo, setFHasznalatiIdo] = useState<number | ''>('')
+  // 2026-08-26 (Leltar 3_43 kör): könyv-szerző + alapeszköz le-/felértékelés.
+  const [fSzerzo, setFSzerzo] = useState('')
+  const [fErtekModositas, setFErtekModositas] = useState<number | ''>('')
+  const [fErtekModositasMegj, setFErtekModositasMegj] = useState('')
+  // 2026-08-26: szabályos kivezetés-dialógus (dátum + irat + indoklás) — a
+  // korábbi window.confirm a kivezetési adatokat NÉMÁN üresen hagyta, pedig a
+  // DB-oszlopok (torles_datuma/…_bizonylat/…_indoklasa) régóta léteznek.
+  const [kivezetesItem, setKivezetesItem] = useState<InventoryItem | null>(null)
+  const [kDatum, setKDatum] = useState('')
+  const [kIrat, setKIrat] = useState('')
+  const [kIndoklas, setKIndoklas] = useState('')
+  const [kivezetesFolyamatban, setKivezetesFolyamatban] = useState(false)
   const [saving, setSaving] = useState(false)
   // 2026-08-09: élő fişă-előnézet a tétel-űrlaphoz (xl+ oldalsó oszlop /
   // kisebb kijelzőn gombbal nyíló réteg) — a person-card-print (PR-17) mintája.
@@ -478,6 +493,9 @@ export function InventoryMain({
       setFKatalogusKod(item.katalogus_kod || '')
       setFHasznalatiIdo(item.hasznalati_ido || '')
       setFPenzugyXkey(item.penzugy_xkey || '')
+      setFSzerzo(item.szerzo || '')
+      setFErtekModositas(item.ertek_modositas || '')
+      setFErtekModositasMegj(item.ertek_modositas_megjegyzes || '')
     } else {
       setEditItem(null)
       setFMegnevezes('')
@@ -493,6 +511,9 @@ export function InventoryMain({
       setFKatalogusKod('')
       setFHasznalatiIdo('')
       setFPenzugyXkey('')
+      setFSzerzo('')
+      setFErtekModositas('')
+      setFErtekModositasMegj('')
     }
 
     setDialogOpen(true)
@@ -585,6 +606,10 @@ export function InventoryMain({
       katalogus_kod: fKategoria === 'alapeszkoz' ? fKatalogusKod || null : null,
       hasznalati_ido: fKategoria === 'alapeszkoz' && fHasznalatiIdo !== '' ? Number(fHasznalatiIdo) : null,
       penzugy_xkey: fPenzugyXkey || null,
+      // 2026-08-26 (Leltar 3_43): szerző (könyv) + le-/felértékelés (alapeszköz).
+      szerzo: fKategoria === 'konyv' ? fSzerzo.trim() || null : null,
+      ertek_modositas: fKategoria === 'alapeszkoz' && fErtekModositas !== '' ? Number(fErtekModositas) : fKategoria === 'alapeszkoz' ? 0 : null,
+      ertek_modositas_megjegyzes: fKategoria === 'alapeszkoz' ? fErtekModositasMegj.trim() || null : null,
     })
 
     if (result.error) {
@@ -598,16 +623,40 @@ export function InventoryMain({
     setSaving(false)
   }
 
-  async function handleDelete(id: string) {
-    if (!window.confirm('Biztosan törli ezt a leltári tételt?')) return
+  // 2026-08-26 (Leltar 3_43 kör): a window.confirm helyett SZABÁLYOS
+  // kivezetés-dialógus — a hivatalos leltári rend szerint a törléshez dátum,
+  // iratszám és indoklás tartozik (a sor megmarad, csak kivezetetté válik).
+  function openKivezetesDialog(item: InventoryItem) {
+    setKivezetesItem(item)
+    setKDatum(new Date().toISOString().slice(0, 10))
+    setKIrat('')
+    setKIndoklas('')
+  }
 
-    const result = await deleteInventoryItem(id)
+  async function handleKivezetes(mod: 'kivezetes' | 'kuka') {
+    if (!kivezetesItem) return
+    if (mod === 'kivezetes' && !kDatum) {
+      toast.error('A kivezetés dátuma kötelező.')
+      return
+    }
+    setKivezetesFolyamatban(true)
+    const result = await deleteInventoryItem(
+      kivezetesItem.id,
+      mod === 'kivezetes'
+        ? { datum: kDatum, bizonylat: kIrat || null, indoklas: kIndoklas || null }
+        : undefined,
+    )
+    setKivezetesFolyamatban(false)
     if (result.error) {
       toast.error(result.error)
       return
     }
-
-    toast.success('A leltári tétel törölve lett.')
+    toast.success(
+      mod === 'kivezetes'
+        ? 'A tétel kivezetve — a sora megmarad, a törlés dátumával és indoklásával.'
+        : 'A leltári tétel a Kukába került.',
+    )
+    setKivezetesItem(null)
     await load()
   }
 
@@ -822,6 +871,15 @@ export function InventoryMain({
                 <Button size="sm" variant="outline" className="min-h-11 rounded-xl" onClick={() => setPrintDialogOpen(true)}>
                   Nyomtatási központ
                 </Button>
+                {/* 2026-08-26 (Leltar 3_43 kör): a hivatalos egyházmegyei
+                    munkafüzet KITÖLTÖTT letöltése — a sablon bájtra változatlan,
+                    csak a celláiba kerülnek a tételek (védelem/legördülők/
+                    képletek érintetlenek). */}
+                <Leltar343ExportButton
+                  items={items}
+                  congregationName={congregationName || ''}
+                  disabled={loading}
+                />
                 {/* 2026-08-15 (Endre 4. szakasz): EGYSÉGES véglegesítés-gomb a
                     fejléc-sáv (műveletsor) jobb szélén — mind a 6 irat-típusnál
                     ugyanez a komponens. A leltári tételek a véglegesítés után is
@@ -936,7 +994,7 @@ export function InventoryMain({
                     item={item}
                     onFisa={() => handleRowFisaPrint(item)}
                     onEdit={() => openDialog(item)}
-                    onDelete={() => void handleDelete(item.id)}
+                    onDelete={() => openKivezetesDialog(item)}
                     onAmortization={() => openAmortizationDialog(item)}
                   />
                 ))}
@@ -1031,9 +1089,9 @@ export function InventoryMain({
                             variant="ghost"
                             size="sm"
                             className="min-h-11 rounded-lg px-2 text-xs text-red-500"
-                            onClick={() => void handleDelete(item.id)}
-                            title="Tétel törlése"
-                            aria-label={`${item.megnevezes} törlése`}
+                            onClick={() => openKivezetesDialog(item)}
+                            title="Tétel kivezetése (törlése)"
+                            aria-label={`${item.megnevezes} kivezetése`}
                           >
                             Törlés
                           </Button>
@@ -1071,6 +1129,65 @@ export function InventoryMain({
         open={amortizationDialogOpen}
         onOpenChange={setAmortizationDialogOpen}
       />
+
+      {/* 2026-08-26 (Leltar 3_43 kör): szabályos kivezetés-dialógus. A tétel
+          sora MEGMARAD — a törlés dátuma, iratszáma és indoklása kerül rá
+          (a hivatalos munkafüzet P/Q/R/S oszlopainak megfelelője). */}
+      <Dialog open={!!kivezetesItem} onOpenChange={open => { if (!open) setKivezetesItem(null) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Tétel kivezetése a leltárból</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              <strong>{kivezetesItem?.megnevezes}</strong>
+              {kivezetesItem?.leltari_szam ? ` (${kivezetesItem.leltari_szam})` : ''} — a kivezetett
+              tétel sora megmarad a nyilvántartásban, a törlés adataival. Ez a hivatalos leltári rend
+              (és a Leltar 3_43 munkafüzet) szerinti út.
+            </p>
+            <div className="space-y-1.5">
+              <Label>Kivezetés dátuma *</Label>
+              <Input type="date" value={kDatum} onChange={event => setKDatum(event.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Törlési irat száma, típusa</Label>
+              <Input
+                value={kIrat}
+                onChange={event => setKIrat(event.target.value)}
+                placeholder="pl. Presbiteri határozat 12/2026"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Indoklás</Label>
+              <Input
+                value={kIndoklas}
+                onChange={event => setKIndoklas(event.target.value)}
+                placeholder="pl. elhasználódott, selejtezve"
+              />
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="min-h-11 rounded-xl text-xs text-muted-foreground"
+                disabled={kivezetesFolyamatban}
+                onClick={() => void handleKivezetes('kuka')}
+                title="Kivezetési adatok nélkül a Kukába kerül (visszaállítható)"
+              >
+                Csak Kukába (adatok nélkül)
+              </Button>
+              <Button
+                size="sm"
+                className="min-h-11 rounded-xl bg-red-600 font-semibold text-white hover:bg-red-700"
+                disabled={kivezetesFolyamatban}
+                onClick={() => void handleKivezetes('kivezetes')}
+              >
+                {kivezetesFolyamatban ? 'Kivezetés…' : 'Kivezetés'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 2026-08-15 (Endre 4. szakasz): a feloldás-kérés indoklás-dialógusa a
           közös FinalizeButton-ban él (kötelező, ≥10 karakteres indoklás). */}
@@ -1117,9 +1234,32 @@ export function InventoryMain({
                 </select>
               </div>
 
+              {/* 2026-08-26 (Leltar 3_43): könyveknél a szerző külön mező —
+                  a fişă és a hivatalos munkafüzet (Konyvek lap E oszlopa) is
+                  külön kezeli. */}
+              {fKategoria === 'konyv' && (
+                <div className="space-y-1.5">
+                  <Label>Szerző</Label>
+                  <Input value={fSzerzo} onChange={event => setFSzerzo(event.target.value)} placeholder="pl. Ravasz László" />
+                </div>
+              )}
+
               <div className="space-y-1.5">
                 <Label>Beszerzési érték (RON) *</Label>
                 <Input type="number" min={0.01} step={0.01} value={fErtek || ''} onChange={event => setFErtek(Number(event.target.value))} />
+                {/* 2026-08-26 (OUG 8/2026): dátumfüggő alapeszköz-értékhatár
+                    figyelmeztetés (1800 → 2500 → 2026.02.25-től 5000 lej) —
+                    csak jelez, sosem tilt (a besorolás könyvelői döntés). */}
+                {(() => {
+                  const kuszobUzenet = alapeszkozKuszobFigyelmeztetes({
+                    kategoria: fKategoria,
+                    egysegAr: fErtek,
+                    beszerzesDatuma: fDatum || null,
+                  })
+                  return kuszobUzenet ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">{kuszobUzenet}</p>
+                  ) : null
+                })()}
               </div>
 
               <div className="space-y-1.5">
@@ -1206,6 +1346,33 @@ export function InventoryMain({
                       placeholder="pl. 5"
                     />
                   </div>
+
+                  {/* 2026-08-26 (Leltar 3_43): le-/felértékelés — a hivatalos
+                      munkafüzet a Fisa-lapon vezeti; nálunk a könyv szerinti
+                      érték = egységár × mennyiség + ez az összeg. */}
+                  {editItem && (
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label>Le-/felértékelés (±RON, a teljes tételre)</Label>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Input
+                          type="number"
+                          step={0.01}
+                          value={fErtekModositas}
+                          onChange={event => setFErtekModositas(event.target.value === '' ? '' : Number(event.target.value))}
+                          placeholder="pl. -500 (leértékelés) vagy 1200 (felértékelés)"
+                        />
+                        <Input
+                          value={fErtekModositasMegj}
+                          onChange={event => setFErtekModositasMegj(event.target.value)}
+                          placeholder="Indoklás / határozat száma"
+                        />
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        Halmozott összeg: az összes eddigi le- és felértékelés együtt. Exportnál a
+                        munkafüzet Megjegyzés oszlopába kerül.
+                      </p>
+                    </div>
+                  )}
 
                   <div className="space-y-1.5">
                     <Label>Amortizációs összefoglaló</Label>

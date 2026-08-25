@@ -31,6 +31,14 @@ import { createClient } from '@/lib/supabase/server'
 import { assertDelegatedImportAllowed } from '@/app/(dashboard)/delegated-import/guard'
 import { resolveImportTargetCongregationId } from './import-target'
 import { resolveLookups, type ResolveStats } from './lookup-resolver'
+import {
+  normalizeInventoryCategory,
+  serializeInventoryCategory,
+  nextLeltariSzam,
+  INVENTORY_CATEGORY_PREFIXES,
+} from '@kartoteka/ui-app'
+import { selectAllPaged } from '@kartoteka/supabase-client'
+import { isLeltar343Workbook } from '@/lib/inventory/leltar343-shared'
 import type {
   ParsedSheetPreview,
   ParseResult,
@@ -104,6 +112,20 @@ export async function parseAndPreview(
     }
   } catch {
     return { error: 'A fájl olvasása sikertelen. Ellenőrizd a formátumot.' }
+  }
+
+  // 2026-08-26 (Leltar 3_43 kör): a HIVATALOS egyházmegyei munkafüzetet a
+  // lapnevekről ismerjük fel, és a dedikált importálóhoz irányítunk — a
+  // generikus út a 3–4. sorbeli fejléceket és a negatív (kivezetés-)sorokat
+  // nem érti, tehát innen csak NÉMÁN ROSSZ import születhetne.
+  if (importModule === 'inventory' && isLeltar343Workbook(workbook.sheets.map((s) => s.name))) {
+    return {
+      success: true,
+      fileName: workbook.fileName,
+      isCsv: workbook.isCsv,
+      sheets: [],
+      leltar343: true,
+    }
   }
 
   // Profil javaslatok
@@ -339,10 +361,32 @@ export async function executeBatchImport(
             })
           : resolvedRecords
 
+      // 2026-08-26 (Leltar 3_43 kör): leltár-célú profilnál a kategória-címkét
+      // kanonizáljuk, a hiányzó leltári számot a kategória-előtag szerint
+      // pótoljuk, a duplikált számot pedig HANGOSAN kihagyjuk (nem írunk felül).
+      let vegsoRekordok = recordsForInsert
+      if (profile.targetTable === 'leltar_tetelek') {
+        const prep = await prepareInventoryRecords(
+          supabase,
+          congregationId,
+          recordsForInsert,
+          config.sheetName,
+          allErrors,
+        )
+        if ('error' in prep) {
+          allErrors.push({ sheet: config.sheetName, row: 0, message: prep.error })
+          totalSkipped += recordsForInsert.length
+          perSheetLog.push({ sheet: config.sheetName, profile: profile.key, inserted: 0, skipped: recordsForInsert.length })
+          continue
+        }
+        vegsoRekordok = prep.records
+        totalSkipped += prep.skipped
+      }
+
       const insertResult = await batchInsertRecords(
         supabase,
         profile,
-        recordsForInsert,
+        vegsoRekordok,
         config.sheetName,
         allErrors,
       )
@@ -421,6 +465,83 @@ export async function executeBatchImport(
     errors: allErrors.length > 0 ? allErrors : undefined,
     lookupStats: allLookupStats,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Belső: leltár-rekordok előkészítése (2026-08-26, Leltar 3_43 kör)
+// ---------------------------------------------------------------------------
+
+/**
+ * A generikus leltár-import ('inventory_items' profil) DB-kész rekordjai:
+ *   - kategória-címke (HU/RO) → kanonikus szerializált alak; ismeretlen →
+ *     hangos sor-hiba (nem tippelünk kategóriát);
+ *   - hiányzó leltári szám → kategória-előtag szerinti következő szám (a
+ *     MÁR KIADOTT számok LAPOZOTT, fail-closed lekérdezésével — a PostgREST
+ *     1000 soros néma plafonja ismert hibaosztály);
+ *   - már létező / fájlon belül duplikált szám → a sor kimarad, hibával;
+ *   - kitöltött törlés-dátum → is_deleted (a kivezetett tétel sora megmarad).
+ */
+async function prepareInventoryRecords(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  congregationId: string,
+  records: Array<Record<string, string | number | boolean | null>>,
+  sheetName: string,
+  errors: Array<{ sheet: string; row: number; message: string }>,
+): Promise<{ records: Array<Record<string, string | number | boolean | null>>; skipped: number } | { error: string }> {
+  const { data: meglevoSorok, error } = await selectAllPaged<{ leltari_szam: string | null }>(
+    supabase
+      .from('leltar_tetelek')
+      .select('leltari_szam')
+      .eq('congregation_id', congregationId),
+  )
+  if (error) {
+    // Fail-closed: hiányos számlistából duplikált leltári szám születne.
+    return { error: `A meglévő leltári számok lekérdezése nem sikerült (${error.message}) — az importot nem indítottuk el.` }
+  }
+
+  const kiadottSzamok = new Set(
+    meglevoSorok.map((r) => String(r.leltari_szam || '').trim()).filter(Boolean),
+  )
+  const eredmeny: Array<Record<string, string | number | boolean | null>> = []
+  let skipped = 0
+
+  records.forEach((rec, index) => {
+    const sor = index + 1
+    const kategoriaKulcs = normalizeInventoryCategory(String(rec['kategoria'] ?? ''))
+    if (!kategoriaKulcs) {
+      errors.push({ sheet: sheetName, row: sor, message: `Ismeretlen kategória: „${rec['kategoria']}" — a sor kimaradt.` })
+      skipped += 1
+      return
+    }
+
+    let leltariSzam = String(rec['leltari_szam'] ?? '').trim()
+    if (leltariSzam && kiadottSzamok.has(leltariSzam)) {
+      errors.push({ sheet: sheetName, row: sor, message: `A(z) „${leltariSzam}" leltári szám már létezik — a sor kimaradt (nem írunk felül).` })
+      skipped += 1
+      return
+    }
+    if (!leltariSzam) {
+      // CSAK a saját kategória-előtag számai számítanak — a teljes készletből
+      // a nextLeltariSzam a MÁS előtagú számok suffixét is maximumnak venné.
+      const prefix = INVENTORY_CATEGORY_PREFIXES[kategoriaKulcs]
+      leltariSzam = nextLeltariSzam(
+        [...kiadottSzamok].filter((sz) => sz.startsWith(`${prefix}-`)),
+        kategoriaKulcs,
+      )
+    }
+    kiadottSzamok.add(leltariSzam)
+
+    eredmeny.push({
+      ...rec,
+      kategoria: serializeInventoryCategory(kategoriaKulcs),
+      leltari_szam: leltariSzam,
+      mennyiseg: Number(rec['mennyiseg'] ?? 1) > 0 ? Number(rec['mennyiseg'] ?? 1) : 1,
+      mertekegyseg: String(rec['mertekegyseg'] ?? '').trim() || 'db',
+      is_deleted: Boolean(rec['torles_datuma']),
+    })
+  })
+
+  return { records: eredmeny, skipped }
 }
 
 // ---------------------------------------------------------------------------

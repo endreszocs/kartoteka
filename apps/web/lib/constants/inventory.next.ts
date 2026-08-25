@@ -25,6 +25,10 @@ export {
   getInventoryCategoryRomanianLabel,
   INVENTORY_AMORTIZATION_CATALOG,
   getInventoryAmortizationCatalogEntry,
+  getAlapeszkozCsoportFromKod,
+  ALAPESZKOZ_ERTEKHATAROK,
+  getAlapeszkozErtekhatar,
+  alapeszkozKuszobFigyelmeztetes,
 } from '@kartoteka/ui-app'
 
 export type {

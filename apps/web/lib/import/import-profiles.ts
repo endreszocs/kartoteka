@@ -998,6 +998,60 @@ export const PROFILE_FILING: ImportProfile = {
 }
 
 // ---------------------------------------------------------------------------
+// LELTÁR (2026-08-26, Leltar 3_43 kör)
+// ---------------------------------------------------------------------------
+
+/**
+ * Egyszerű, „lapos" leltár-lista importja (kézzel készített Excel/CSV).
+ * A HIVATALOS Leltar 3_43 munkafüzetnek NEM ez az útja — azt a leltár-oldal
+ * dedikált importálója ismeri fel (a fejlécek ott a 3–4. sorban vannak, és a
+ * negatív sorok/összevont oszlopok külön szabályrendszert kérnek).
+ *
+ * A kategória magyar/román címkéként is jöhet — az executeBatchImport
+ * leltár-ága normalizálja (normalizeInventoryCategory), a hiányzó leltári
+ * számot pedig a kategória-előtag szerint pótolja (nextLeltariSzam).
+ */
+export const PROFILE_INVENTORY_ITEMS: ImportProfile = {
+  key: 'inventory_items',
+  module: 'inventory',
+  label: 'Leltári tételek',
+  description: 'Leltári tételek egyszerű listából (egy sor = egy tétel).',
+  targetTable: 'leltar_tetelek',
+  columnMap: [
+    { excelHeader: 'Megnevezés', excelAliases: ['Megnevezes', 'Nev', 'Név', 'Denumire'], dbColumn: 'megnevezes', type: 'string', required: true },
+    { excelHeader: 'Kategória', excelAliases: ['Kategoria', 'Tárgycsoport', 'Targycsoport', 'Kategorie'], dbColumn: 'kategoria', type: 'string', required: true, hint: 'Alapeszközök / Csekély értékű / Telkek / Könyvek / Kegyszerek / Kárpótlási / Bizományi' },
+    { excelHeader: 'Leltári szám', excelAliases: ['Leltari szam', 'Leltári sz.', 'Nr. inventar'], dbColumn: 'leltari_szam', type: 'string', required: false, hint: 'Üresen hagyható — a rendszer a kategória-előtag szerint sorszámoz' },
+    { excelHeader: 'Régi leltári szám', excelAliases: ['Regi leltari szam'], dbColumn: 'regi_leltari_szam', type: 'string', required: false },
+    { excelHeader: 'Helyszín', excelAliases: ['Helyszin', 'Hely'], dbColumn: 'helyszin', type: 'string', required: false },
+    { excelHeader: 'Felelős', excelAliases: ['Felelos', 'Felelős neve', 'Felelos neve'], dbColumn: 'felelos_neve', type: 'string', required: false },
+    { excelHeader: 'Beszerzés dátuma', excelAliases: ['Beszerzes datuma', 'Beszerzési dátum', 'Dátum', 'Datum'], dbColumn: 'beszerzes_datuma', type: 'date', required: false },
+    { excelHeader: 'Beszerzési érték', excelAliases: ['Beszerzesi ertek', 'Érték', 'Ertek', 'Egységár', 'Egysegar'], dbColumn: 'beszerzesi_ertek', type: 'number', required: true, hint: 'EGYSÉGÁR lejben (a mennyiséggel szorozva adja a könyv szerinti értéket)' },
+    { excelHeader: 'Mennyiség', excelAliases: ['Mennyiseg', 'Db', 'Darab'], dbColumn: 'mennyiseg', type: 'number', required: false },
+    { excelHeader: 'Mértékegység', excelAliases: ['Mertekegyseg', 'Me'], dbColumn: 'mertekegyseg', type: 'string', required: false },
+    { excelHeader: 'Beszerzési irat', excelAliases: ['Beszerzesi irat', 'Bizonylat', 'Irat'], dbColumn: 'beszerzes_bizonylat', type: 'string', required: false },
+    { excelHeader: 'Katalóguskód', excelAliases: ['Katalogus kod', 'Katalóguskód (HG 2139/2004)', 'Kod'], dbColumn: 'katalogus_kod', type: 'string', required: false, hint: 'HG 2139/2004 amortizációs kód (pl. 1.6.2)' },
+    { excelHeader: 'Használati idő (év)', excelAliases: ['Hasznalati ido', 'Használati idő', 'Elettartam'], dbColumn: 'hasznalati_ido_ev', type: 'number', required: false },
+    { excelHeader: 'Szerző', excelAliases: ['Szerzo'], dbColumn: 'szerzo', type: 'string', required: false, hint: 'Könyveknél' },
+    { excelHeader: 'Megjegyzés', excelAliases: ['Megjegyzes'], dbColumn: 'megjegyzes', type: 'string', required: false },
+    { excelHeader: 'Törlés dátuma', excelAliases: ['Torles datuma', 'Kivezetés dátuma'], dbColumn: 'torles_datuma', type: 'date', required: false, hint: 'Kivezetett tételnél' },
+    { excelHeader: 'Törlési irat', excelAliases: ['Torlesi irat'], dbColumn: 'torles_bizonylat', type: 'string', required: false },
+    { excelHeader: 'Törlés indoklása', excelAliases: ['Torles indoklasa', 'Indoklás'], dbColumn: 'torles_indoklasa', type: 'string', required: false },
+  ],
+  autoColumns: [
+    { dbColumn: 'congregation_id', source: 'congregation_id' },
+    { dbColumn: 'userid', source: 'user_id' },
+    { dbColumn: 'is_deleted', source: 'false' },
+  ],
+  hints: [
+    'A kategória magyarul vagy románul is megadható (pl. „Alapeszközök" vagy „Mijloace fixe").',
+    'A leltári szám üresen hagyható — a rendszer a kategória szerint automatikusan sorszámoz.',
+    'A már létező leltári számú sorokat a rendszer kihagyja és jelzi (nem ír felül).',
+    'A hivatalos Leltar 3_43 munkafüzetet NE ezzel, hanem a lap tetején lévő dedikált importálóval töltsd fel.',
+  ],
+  sheetHints: ['Leltar', 'Leltár', 'Tetelek', 'Tételek', 'Inventar', 'Eszkozok', 'Eszközök'],
+}
+
+// ---------------------------------------------------------------------------
 // Gyűjtemények modulonként
 // ---------------------------------------------------------------------------
 
@@ -1036,6 +1090,10 @@ export const FILING_PROFILES: ImportProfile[] = [
   PROFILE_FILING,
 ]
 
+export const INVENTORY_PROFILES: ImportProfile[] = [
+  PROFILE_INVENTORY_ITEMS,
+]
+
 /** Minden profil egyetlen tömbben */
 export const ALL_IMPORT_PROFILES: ImportProfile[] = [
   ...MEMBER_PROFILES,
@@ -1043,6 +1101,7 @@ export const ALL_IMPORT_PROFILES: ImportProfile[] = [
   ...REGISTRY_PROFILES,
   ...WORKLOG_PROFILES,
   ...FILING_PROFILES,
+  ...INVENTORY_PROFILES,
 ]
 
 /** Profil keresése kulcs alapján */
