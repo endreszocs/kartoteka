@@ -187,6 +187,14 @@ export const JELENTES_MEZOK: JelentesMezo[] = [
   { id: 'IV.2', fejezet: 'IV', label: 'Ifjúsági munka (IKE)', tipus: 'hosszu_szoveg', auto: false },
   { id: 'IV.3', fejezet: 'IV', label: 'Énekkar / kórus', tipus: 'szoveg', auto: false },
   { id: 'IV.4', fejezet: 'IV', label: 'Egyéb belmissziói tevékenység', tipus: 'hosszu_szoveg', auto: false },
+  // 2026-08-25: a HATÁRIDŐNAPLÓ-javaslatok célmezői (EREK-spec IV.1.b és
+  // IV.2.b) — a gyulekezeti_programok VBH/FIT7 programjaiból a rendszer
+  // javaslatot komponál ide (dátum + fő adatok a naplóból, a maradékra —
+  // résztvevők száma stb. — a felület RÁKÉRDEZ, sosem ír be kérdezés nélkül).
+  // KÉZI mezők (auto: false), append-only pótlás — az id-k jsonb-kulcsok,
+  // NEM átnevezhetők.
+  { id: 'IV.5', fejezet: 'IV', label: 'Vakációs bibliahét (időpont, program, résztvevők)', tipus: 'szoveg', auto: false },
+  { id: 'IV.6', fejezet: 'IV', label: 'Ifjúsági hét / FIT7 (szervezés szintje, időpont, résztvevők)', tipus: 'szoveg', auto: false },
 
   // ── V. Vallásoktatás ─────────────────────────────────────────────────────
   { id: 'V.1', fejezet: 'V', label: 'Vallásórás gyermekek száma', tipus: 'szam', auto: false, egyseg: 'fő' },
@@ -319,6 +327,30 @@ export type JelentesJavaslatok = Record<string, JelentesJavaslat>
  *    miatt. A javaslat-sor védőhálóból nem is jelenik meg auto-mező mellett.
  */
 export const MUNKANAPLO_JAVASLAT_MEZOK: ReadonlySet<string> = new Set(['III.17'])
+
+// ─────────────────────────────────────────────────────────────────────────
+// HATÁRIDŐNAPLÓ-ALAPÚ JAVASLAT a IV. fejezet kézi rubrikáihoz (2026-08-25)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// A gyulekezeti_programok (határidőnapló) felismert nagy programjai — VBH,
+// FIT7 ifjúsági hét, Egyetemes imahét (sablonFelismeres, lib/constants/
+// program-sablonok.ts) — SZERKESZTÉS módban javaslatként mennek a dialógusnak.
+// A minta ugyanaz, mint a MUNKANAPLO_JAVASLAT_MEZOK-nál: a célmező (IV.5/IV.6)
+// KÉZI marad, a rendszer a napló dátum- és fő adatait hozza, a hiányzókra
+// (résztvevők száma, program/szervezés szintje) a felület RÁKÉRDEZ, és a már
+// kitöltött értéket sosem írja felül megerősítés nélkül. Az imahet típus nem
+// ír mezőt — csak tájékoztat (a III.5–III.6 a munkanapló Imahét-soraiból auto).
+export interface ProgramJavaslat {
+  tipus: 'vbh' | 'fit7' | 'imahet'
+  /** A határidőnapló-program címe (a felismerés alapja). */
+  cim: string
+  /** 'YYYY-MM-DD' — a program kezdőnapja. */
+  datum: string
+  /** 'YYYY-MM-DD' vagy null — többnapos programnál a zárónap. */
+  datumVege: string | null
+  helyszin: string | null
+  megjegyzes: string | null
+}
 
 /**
  * Címlap / határozati adatok: iktatószámok, tárgyalási szám+dátum, aláírók.

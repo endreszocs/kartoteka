@@ -768,6 +768,33 @@ const EGYSEG_OSZLOP_HIANY_UZENET =
   'A tag mentve, de a gyülekezeti egység-besorolás nem került mentésre — ' +
   'az adatbázis-migráció (2026-08-25-gyulekezeti-egysegek.sql) még nem futott le.'
 
+// 2026-08-25 (CNP kézi bevitel): a kézzel megadott személyi szám két ismert
+// adatbázis-hibája MAGYAR üzenettel jön vissza (a nyers Postgres-szöveg
+// helyett) — minden más hiba a meglévő formátumban megy tovább, semmit nem
+// nyelünk el.
+const CNP_UNIQUE_UZENET = 'Ez a személyi szám már szerepel a nyilvántartásban.'
+const CNP_FK_UZENET =
+  'A személyi szám nem módosítható, mert családi kapcsolat (szülő-gyermek) hivatkozik rá. ' +
+  'Előbb a kapcsolatot kell rendezni.'
+
+/**
+ * A szemely-mentés hibaüzenete. Csak akkor fordítunk CNP-specifikus üzenetre,
+ * ha a mentés ténylegesen KÜLDÖTT kézi cnp-t (cnpKuldve):
+ * - 23505 + „cnp" a szövegben → az uniq_szemely_cnp_congregation_visible index
+ *   ütközése (ugyanaz a személyi szám már szerepel a gyülekezetben);
+ * - 23503 + „update or delete" → a HIVATKOZOTT cnp átírása (id_apja/id_anyja
+ *   FK-k mutatnak rá) — a referencing-oldali („insert or update") 23503, azaz
+ *   a nem létező szülő-cnp NEM ez az eset, az a nyers üzenettel megy tovább.
+ */
+function szemelyMentesHibaUzenet(
+  error: { code?: string; message: string },
+  cnpKuldve: boolean,
+): string {
+  if (cnpKuldve && error.code === '23505' && /cnp/i.test(error.message)) return CNP_UNIQUE_UZENET
+  if (cnpKuldve && error.code === '23503' && /update or delete/i.test(error.message)) return CNP_FK_UZENET
+  return `Hiba: ${error.message}`
+}
+
 export async function saveMember(data: MemberInput) {
   const parsed = memberSchema.safeParse(data)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -868,12 +895,21 @@ export async function saveMember(data: MemberInput) {
     // UPDATE
     const { data: prevNames } = await supabase
       .from('szemely')
-      .select('apjaneve, anyjaneve')
+      .select('apjaneve, anyjaneve, cnp')
       .eq('id', d.id)
       .eq('congregation_id', congregationId)
       .maybeSingle()
     prevApjaneve = (prevNames as { apjaneve: string | null } | null)?.apjaneve ?? null
     prevAnyjaneve = (prevNames as { anyjaneve: string | null } | null)?.anyjaneve ?? null
+
+    // 2026-08-25 (CNP kézi bevitel): a cnp CSAK akkor megy ki az UPDATE-tel,
+    // ha a lelkész NEM üres, a tárolttól ELTÉRŐ értéket írt be. Üres mező =
+    // „változatlan" (a mentés SOSEM nullázhatja a tárolt személyi számot), és
+    // az azonos érték újraküldését is kihagyjuk — a cnp-re családi FK-k
+    // (id_apja/id_anyja) mutathatnak, fölösleges kockázatot nem vállalunk.
+    const prevCnp = (prevNames as { cnp: string | null } | null)?.cnp ?? null
+    const ujCnp = d.cnp?.trim() || ''
+    if (ujCnp && ujCnp !== prevCnp) memberData.cnp = ujCnp
 
     let updateError = (
       await supabase.from('szemely').update(memberData).eq('id', d.id).eq('congregation_id', congregationId)
@@ -888,7 +924,7 @@ export async function saveMember(data: MemberInput) {
       updateError = retry.error
       if (!retry.error && d.egyseg_id != null) egysegWarning = EGYSEG_OSZLOP_HIANY_UZENET
     }
-    if (updateError) return { error: `Hiba: ${updateError.message}` }
+    if (updateError) return { error: szemelyMentesHibaUzenet(updateError, 'cnp' in memberData) }
 
     // 2026-07-24 (PR-4 F5.10): a Fizetési státusz eddig UPDATE-nél teljesen
     // figyelmen kívül maradt (halott vezérlő volt). Mostantól: 'felmentett'-re
@@ -919,7 +955,10 @@ export async function saveMember(data: MemberInput) {
     }
   } else {
     // INSERT
-    memberData.cnp = generateCnp()
+    // 2026-08-25 (CNP kézi bevitel): ha a lelkész megadott személyi számot, az
+    // kerül tárolásra; üresen hagyva marad a mai út — a rendszer generál
+    // egyházi azonosítót.
+    memberData.cnp = d.cnp?.trim() || generateCnp()
     memberData.congregation_id = congregationId
     memberData.isvisible = true
     memberData.type = 'E'
@@ -933,7 +972,9 @@ export async function saveMember(data: MemberInput) {
       insertRes = await supabase.from('szemely').insert([memberDataEgysegNelkul()]).select('id')
       if (!insertRes.error && d.egyseg_id != null) egysegWarning = EGYSEG_OSZLOP_HIANY_UZENET
     }
-    if (insertRes.error) return { error: `Hiba: ${insertRes.error.message}` }
+    // A CNP-specifikus fordítás CSAK kézzel megadott személyi számnál — a
+    // generált azonosító (elméleti) ütközése a nyers üzenettel megy tovább.
+    if (insertRes.error) return { error: szemelyMentesHibaUzenet(insertRes.error, !!d.cnp?.trim()) }
     const inserted = insertRes.data
     if (!inserted?.[0]) return { error: 'Nem kaptunk vissza azonosítót.' }
     savedId = inserted[0].id

@@ -15,6 +15,7 @@ import { printToBrowser } from '@/lib/utils/print-engine-v2'
 import { AvatarEditorDialog } from '@/components/modals/avatar-editor-dialog'
 import { ParentLinkResultDialog, type ParentLinkResultData } from '@/components/modals/parent-link-result-dialog'
 import { CrossCongregationMatchDialog, type CrossMatchAction } from '@/components/members/cross-congregation-match-dialog'
+import { CnpRejtett } from '@/components/members/cnp-rejtett'
 import {
   findPotentialCrossMatch,
   getCrossMatchPastorContacts,
@@ -37,7 +38,9 @@ import {
   ChevronRight,
   CreditCard,
   Eye,
+  EyeOff,
   MapPin,
+  Pencil,
   Printer,
   ShieldCheck,
   User,
@@ -72,7 +75,8 @@ const WIZARD_STEPS: { id: WizardStep; label: string; icon: typeof User }[] = [
 // erre a lépésre ugrunk vissza, különben a hibajelzés láthatatlan maradna
 // (a „nem történik semmi a mentésre" bug oka).
 // 2026-08-25 (gyülekezeti egységek): az 'egyseg_id' a Lakóhely blokk mezője (1. lépés).
-const STEP1_FIELDS: readonly (keyof MemberFormValues)[] = ['csaladnev', 'k_nev', 'szcs_nev', 'namepattern', 'ferfi', 'sz_datum', 'sz_hely_text', 'foglalkozas', 'vallas', 'c_helyseg_text', 'c_utca_text', 'c_szam', 'c_tombhaz', 'c_lepcsohaz', 'c_emelet', 'c_ajto', 'egyseg_id', 'telefon', 'email', 'megjegyzes', 'apjaneve', 'anyjaneve', 'id_apja_cnp', 'id_anyja_cnp', 'bek_datum', 'bek_honnan', 'bek_igazolas', 'att_datum', 'att_felekezet', 'att_honnan', 'belepes_oka']
+// 2026-08-25 (CNP kézi bevitel): a 'cnp' a Személyes blokk mezője (1. lépés).
+const STEP1_FIELDS: readonly (keyof MemberFormValues)[] = ['csaladnev', 'k_nev', 'szcs_nev', 'namepattern', 'cnp', 'ferfi', 'sz_datum', 'sz_hely_text', 'foglalkozas', 'vallas', 'c_helyseg_text', 'c_utca_text', 'c_szam', 'c_tombhaz', 'c_lepcsohaz', 'c_emelet', 'c_ajto', 'egyseg_id', 'telefon', 'email', 'megjegyzes', 'apjaneve', 'anyjaneve', 'id_apja_cnp', 'id_anyja_cnp', 'bek_datum', 'bek_honnan', 'bek_igazolas', 'att_datum', 'att_felekezet', 'att_honnan', 'belepes_oka']
 // 2026-07-24 (PR-4, D4 döntés): az esketés-mezők KIKERÜLTEK — a saveMember soha
 // nem mentette őket (néma adatvesztés volt), az esketés rögzítése kizárólag az
 // Anyakönyv → Esketés modulban történik.
@@ -113,6 +117,15 @@ export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged
   // Szülő-összekötés állapota.
   const apjaCnpWatch = useWatch({ control, name: 'id_apja_cnp' })
   const anyjaCnpWatch = useWatch({ control, name: 'id_anyja_cnp' })
+
+  // 2026-08-25 (CNP kézi bevitel): a tárolt személyi szám szerkesztésének
+  // feloldása (ceruza gomb) + a beírt érték láthatósága (szem-ikon — a mező
+  // alapból type="password", mint a CnpRejtett maszkja).
+  const [cnpSzerkesztes, setCnpSzerkesztes] = useState(false)
+  const [cnpLatszik, setCnpLatszik] = useState(false)
+  // Az élő „(változatlan)" jelzéshez: amíg a mező üres, a mentés nem nyúl a
+  // tárolt személyi számhoz.
+  const cnpWatch = useWatch({ control, name: 'cnp' })
 
   // ── 2026-07-25 (PR-17): ÉLŐ személyi karton-előnézet ────────────────────
   // Gépelés közben a jobb oldali (2xl+) oszlopban / kisebb kijelzőn a
@@ -199,6 +212,11 @@ export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged
         // bent, a select üresen mutatja; a szerveroldali mentés (saveMember)
         // csak előtag-szerű értéket tárol, a maradványt kitisztítja.
         namepattern: editMember.namepattern || '',
+        // 2026-08-25 (CNP kézi bevitel): szerkesztésnél a mező ÜRESEN indul
+        // („(változatlan)" jelzéssel) — a tárolt értéket SOSEM töltjük be az
+        // inputba (ne álljon plain textben a DOM-ban), és üresen hagyva a
+        // mentés nem is nyúl hozzá (saveMember-szabály).
+        cnp: '',
         ferfi: editMember.ferfi ?? undefined,
         sz_datum: editMember.sz_datum || '',
         sz_hely_text: editMember.birthLocality?.name || '',
@@ -237,10 +255,14 @@ export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged
       setStep('choose')
       setWizardStep(1)
       setMaxReachedStep(1)
-      reset({ belepes_oka: 'alap', vallas: '', ferfi: undefined, sz_datum: '', sz_hely_text: '', c_szam: '1', gdpr_consent: false, photo_consent: false, mailing_consent: false, social_profil_url: '', egyseg_id: null })
+      reset({ belepes_oka: 'alap', vallas: '', ferfi: undefined, sz_datum: '', sz_hely_text: '', c_szam: '1', cnp: '', gdpr_consent: false, photo_consent: false, mailing_consent: false, social_profil_url: '', egyseg_id: null })
     }
     setParentResults({ apa: [], anya: [] })
     setParentSearchVisible({ apa: false, anya: false })
+    // 2026-08-25 (CNP kézi bevitel): a feloldás/láthatóság nem élheti túl a
+    // dialógus újranyitását — mindig visszazárva indulunk.
+    setCnpSzerkesztes(false)
+    setCnpLatszik(false)
     })
     return () => {
       cancelled = true
@@ -595,6 +617,89 @@ export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged
                     <Label htmlFor="member-religion">Vallás *</Label>
                     <Input id="member-religion" {...register('vallas')} placeholder="Református" className={FIELD_CLASS} aria-invalid={!!errors.vallas} />
                     {errors.vallas && <p role="alert" className="text-xs text-destructive">{errors.vallas.message}</p>}
+                  </div>
+                </div>
+
+                {/* 2026-08-25 (GDPR + kézi bevitel): a személyi szám a
+                    SZERKESZTŐBEN is alapból rejtve — mint egy jelszó. A tárolt
+                    érték felfedése a szem-ikonnal történik és NAPLÓZÓDIK
+                    (CnpRejtett); az ÁTÍRÁS a ceruza gombbal oldható fel, az
+                    input pedig type="password" (a beírt érték is rejtve marad,
+                    a saját szem-ikonjával fedhető fel — az nem naplózódik, a
+                    lelkész a SAJÁT beírását nézi). Üres mező = „nem nyúlunk
+                    hozzá": új tagnál a rendszer generál egyházi azonosítót,
+                    meglévőnél a tárolt érték marad (saveMember-szabály — a
+                    mentés sosem nulláz). */}
+                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="member-cnp">
+                      Személyi szám (CNP)
+                      {editMember?.cnp && !(cnpWatch || '').trim() ? (
+                        <span className="ml-1.5 text-xs font-normal text-muted-foreground">(változatlan)</span>
+                      ) : null}
+                    </Label>
+                    {editMember?.cnp && !cnpSzerkesztes ? (
+                      <div className={`flex items-center justify-between gap-2 border px-3 py-1 text-sm ${FIELD_CLASS}`}>
+                        <CnpRejtett cnp={editMember.cnp} szemelyId={editMember.id} />
+                        <button
+                          type="button"
+                          onClick={() => setCnpSzerkesztes(true)}
+                          aria-label="Személyi szám szerkesztése"
+                          title="Személyi szám szerkesztése"
+                          className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-slate-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-slate-800"
+                        >
+                          <Pencil className="size-4" aria-hidden />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <Input
+                          id="member-cnp"
+                          type={cnpLatszik ? 'text' : 'password'}
+                          autoComplete="new-password"
+                          {...register('cnp')}
+                          placeholder={editMember ? '(változatlan)' : 'Üresen hagyva a rendszer tölti ki'}
+                          className={`${FIELD_CLASS} ${editMember?.cnp ? 'pr-20' : 'pr-11'}`}
+                          aria-invalid={!!errors.cnp}
+                        />
+                        <div className="absolute top-1/2 right-1 flex -translate-y-1/2 items-center">
+                          <button
+                            type="button"
+                            onClick={() => setCnpLatszik((v) => !v)}
+                            aria-label={cnpLatszik ? 'Beírt személyi szám elrejtése' : 'Beírt személyi szám megjelenítése'}
+                            aria-pressed={cnpLatszik}
+                            className="inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-slate-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-slate-800"
+                          >
+                            {cnpLatszik ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+                          </button>
+                          {editMember?.cnp ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // Mégse: a beírt érték törlődik, a tárolt marad
+                                // (üres mezőhöz a mentés nem nyúl).
+                                setValue('cnp', '', { shouldDirty: true })
+                                setCnpLatszik(false)
+                                setCnpSzerkesztes(false)
+                              }}
+                              aria-label="Szerkesztés elvetése — a tárolt személyi szám marad"
+                              title="Mégse"
+                              className="inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-slate-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-slate-800"
+                            >
+                              <X className="size-4" aria-hidden />
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    )}
+                    {errors.cnp && <p role="alert" className="text-xs text-destructive">{errors.cnp.message}</p>}
+                    <p className="text-xs text-muted-foreground">
+                      Országfüggő személyi szám (nem csak 13 jegyű román CNP) — mindig
+                      rejtve tárolódik és jelenik meg.{' '}
+                      {editMember?.cnp
+                        ? 'Üresen hagyva a tárolt érték változatlan marad.'
+                        : 'Üresen hagyva a rendszer generált egyházi azonosítót ad.'}
+                    </p>
                   </div>
                 </div>
                 </section>

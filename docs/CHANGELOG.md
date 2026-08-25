@@ -23,6 +23,49 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-25] — Napi ige és bibliaolvasó terv, program-sablonok, személyi szám védelme + két hibajavítás
+<!-- key: 2026-08-25-napi-ige-programok-cnp -->
+<!-- category: feature -->
+<!-- version: 0.9.176 -->
+<!-- targets: mindenki -->
+
+### 🐛 Javítások
+
+- **Az „Új program" mentése némán elakadt**: a mentés gombra kattintva semmi
+  sem történt, mert egy rejtett mező ellenőrzése csendben elbukott. Javítottuk,
+  és mostantól minden mentési akadály látható hibaüzenetet ad.
+- **A lelkészi jelentés PDF-je üres lapokat adott**: a többlapos jelentés egy
+  tartalék útvonalra esett, ahol a böngésző grafikus korlátja miatt fehér
+  oldalak készültek. A korlátot jól beállítottuk, és beépítettünk egy őrt is:
+  ha egy PDF-lap üresen renderelődne, a rendszer hangos hibát ad néma üres
+  dokumentum helyett.
+
+### ✨ Új funkciók
+
+- **Napi ige minden napra + bátorító üzenet**: az irányítópult megújult ige-
+  kártyáján az év mind a 366 napjára (szökőnapra is) saját igevers áll a
+  Károli-fordítás szövegével és egy rövid, a gyülekezeti munkatársaknak szóló
+  bátorítással — a lelkészi szolgálattól a könyvelés-zárásig.
+- **Egyéves bibliaolvasó terv**: ugyanitt napi olvasmány-adag (ószövetségi +
+  újszövetségi fejezetek), amellyel a teljes Szentírás egy év alatt
+  kiolvasható — mind az 1189 fejezet pontosan egyszer szerepel; szökőévben
+  február 29. „ráérő nap".
+- **Program-sablonok a határidőnaplóban**: egy kattintással felvehető a
+  Vakációs Bibliahét (5 nap), a FIT7 ifjúsági hét (5 nap, gyülekezeti /
+  egyházmegyei szervezés-jelöléssel) és az Egyetemes imahét (8 nap).
+- **Imahét napi beosztás**: az Imahét programnál naponként beírható a szolgáló
+  vendéglelkész, és a rendszer egy kattintással létrehozza a munkanapló
+  Imahét-sorait — ezekből számolódik a lelkészi jelentés imaheti rovata.
+- **Határidőnapló-javaslatok a lelkészi jelentésben**: a jelentés összeállítá-
+  sakor a rendszer felismeri az évi Bibliahét/FIT7/Imahét programokat, rákérdez
+  a résztvevők számára, és kész szöveget ír a jelentés új IV.5–IV.6 rovataiba.
+- **Személyi szám (CNP) — mindig rejtve**: a tagok személyi száma mostantól
+  jelszó módjára csillagozva jelenik meg mindenütt, és csak a szem-ikonnal,
+  külön kérésre fedhető fel — a megtekintés naplózódik. A szám kézzel is
+  rögzíthető (országfüggő formátumban), üresen hagyva a rendszer tölti ki.
+
+---
+
 ## [2026-08-25] — Gyülekezeti egységek: anya-, leány-, missziói egyházközség és szórvány
 <!-- key: 2026-08-25-gyulekezeti-egysegek -->
 <!-- category: feature -->

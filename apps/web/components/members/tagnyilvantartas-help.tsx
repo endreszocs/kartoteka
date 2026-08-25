@@ -242,6 +242,18 @@ function GeneralContent() {
         konfirmáció, esketés, temetés), <strong>Éves jelentés</strong> (statisztikák),
         valamint <strong>Választások</strong> esetén az aktív választói névjegyzék.
       </p>
+
+      {/* 2026-08-25 (GDPR): a személyi szám megjelenítési szabálya */}
+      <SectionTitle>Személyi szám (CNP) — mindig rejtve</SectionTitle>
+      <p>
+        A személyi szám (romániai CNP vagy más, <strong>országfüggő formátumú</strong> személyi
+        azonosító) tárolható a rendszerben, de a felületen <strong>mindig rejtve</strong> jelenik
+        meg — mint egy jelszó. A <strong>szem-ikonnal</strong> fedhető fel, és minden
+        megjelenítés <strong>naplózódik</strong> (ki és mikor nézte meg kinek a számát).
+        A rendszer által generált egyházi azonosítók (<code className="rounded bg-slate-100 px-1 text-xs dark:bg-slate-800">EC-…</code>)
+        ugyanígy rejtve maradnak. A hivatalos nyilvántartáshoz készülő Excel-exportok és a
+        nyomtatott kartonok a számot továbbra is tartalmazzák.
+      </p>
     </>
   )
 }
