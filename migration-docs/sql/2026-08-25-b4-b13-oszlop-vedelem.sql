@@ -823,7 +823,7 @@ trg AS (
 SELECT * FROM (
   SELECT 1 AS sorrend,
          'B4 · bealitas_veglegesites_vedelem_trg' AS mit,
-         COALESCE((SELECT CASE WHEN tgenabled = 'O' THEN 'AKTÍV' ELSE 'letiltva (' || tgenabled || ')' END
+         COALESCE((SELECT CASE WHEN tgenabled = 'O' THEN 'AKTÍV' ELSE 'letiltva (' || tgenabled::text || ')' END
                      || CASE WHEN (tgtype & 2) > 0 AND (tgtype & 16) > 0 AND (tgtype & 1) > 0
                              THEN ', BEFORE UPDATE, soronként' ELSE ', ⚠️ NEM BEFORE UPDATE ROW' END
                      FROM trg WHERE tgname = 'bealitas_veglegesites_vedelem_trg'), 'NINCS') AS ertek,
@@ -851,7 +851,7 @@ SELECT * FROM (
   UNION ALL
   SELECT 10,
          'B13 · profile_roles_jogosultsag_vedelem_trg',
-         COALESCE((SELECT CASE WHEN tgenabled = 'O' THEN 'AKTÍV' ELSE 'letiltva (' || tgenabled || ')' END
+         COALESCE((SELECT CASE WHEN tgenabled = 'O' THEN 'AKTÍV' ELSE 'letiltva (' || tgenabled::text || ')' END
                      FROM trg WHERE tgname = 'profile_roles_jogosultsag_vedelem_trg'), 'NINCS'),
          CASE WHEN EXISTS (SELECT 1 FROM trg WHERE tgname = 'profile_roles_jogosultsag_vedelem_trg' AND tgenabled = 'O')
               THEN '✅ Kész.' ELSE '⛔ Nem jött létre.' END

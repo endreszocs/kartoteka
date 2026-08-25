@@ -1041,7 +1041,9 @@ SELECT  7, 'A két CHECK constraint létezik?',
         'aar_approved_kell_jovahagyo, aar_approved_kell_lejarat'
 UNION ALL
 SELECT  8, 'A védő trigger létezik és BE VAN KAPCSOLVA?',
-        COALESCE((SELECT t.tgname || ' (tgenabled=' || t.tgenabled || ')' FROM pg_trigger t
+        -- ⚠️ 2026-08-25: a `tgenabled` oszlop `"char"` típusú, a `text || "char"`
+        -- pedig KÉTÉRTELMŰ operátor (42725) — kötelező az explicit `::text`.
+        COALESCE((SELECT t.tgname || ' (tgenabled=' || t.tgenabled::text || ')' FROM pg_trigger t
                    WHERE t.tgrelid='public.admin_access_requests'::regclass
                      AND t.tgname='trg_admin_access_requests_vedelem' AND NOT t.tgisinternal), '⛔ NINCS'),
         'trg_admin_access_requests_vedelem (tgenabled=O)'
