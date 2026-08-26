@@ -1,33 +1,42 @@
 -- ============================================================================
 -- GYÜLEKEZETI WEBOLDAL — címer, elérhetőségek és nyilvános naptár (2026-08-27)
+-- 2. KIADÁS — ÖNHORDÓ. Nem feltételezi a 2026-07-18-as lánc lefutását.
 --
--- MI VOLT A HIBA (Endre élesben látta a Barátosi oldalon)
--- ──────────────────────────────────────────────────────
---   1. „A gyülekezet címere látszódjon betöltéskor és egyébként is!"
---      A betöltő-képernyőn és a fejlécben a KARTOTÉKA termék-logója állt.
---      OK: a publikus oldal KIZÁRÓLAG a `public_sites.crest_image_url`-t
---      nézte. Endre viszont a címert a gyülekezeti adatoknál (setup
---      varázsló → `congregations.cimer_url`) töltötte fel — ott a mező
---      KÖTELEZŐ, tehát biztosan ki van töltve. A két mező soha nem
---      találkozott: a weboldal némán üresnek látta.
---   2. „Az elérhetőségek látszódjanak, amik le vannak mentve a gyülekezeti
---      adatoknál." UGYANEZ A HIBAOSZTÁLY: a `public_sites.contact_email /
---      contact_phone / address` üres, miközben a `congregations.email /
---      telefon / cim + hazszam + iranyitoszam + varos + megye` ki van töltve.
---   3. „A következő alkalom üres, pedig a határidőnaplóban mentettem a
---      vakációs bibliahetet… legyen egy naptár is, LEÍRÁSSAL együtt."
---      A `public_site_events` szándékosan NEM adta ki a leírást, és csak a
---      következő 90 napot nézte — éves naptárhoz kevés.
+-- ⛔ MIÉRT KELLETT ÚJRAÍRNI
+-- ────────────────────────
+-- Az első kiadás előfeltétel-őre élesben megállt:
+--   „a public_site_private.public_site_context_v2(text) nem létezik"
+-- Utánanézve kiderült, MIÉRT nem létezik — és ez nem véletlen elmaradás:
 --
--- MIT AD EZ A MIGRÁCIÓ
--- ────────────────────
---   A. `public_site_private.public_site_context_v2` — a címer és a három
---      elérhetőségi mező VISSZAESIK a gyülekezet saját, mentett adatára,
---      ha a weboldalon nincs külön megadva. A weboldali érték MINDIG erősebb
---      (ha ott beírtak valamit, az marad) — ez tehát tartalék, nem felülírás.
---   B. `public_site_events_v2(p_slug, p_ev)` — ÚJ: a nyilvánosnak jelölt
---      programok EGY TELJES ÉVRE (p_ev), vagy p_ev = NULL esetén a régi,
---      90 napos ablakkal. A `leiras` mostantól KIMEGY.
+--   A `2026-07-18-public-site-content-and-sitemap.sql` ELŐFELTÉTEL-ŐRE hat
+--   szerepkör meglétét követeli (`anon`, `authenticated`, `service_role`,
+--   `app_staff_user`, `app_pending_user`, `member_portal_user`), és a
+--   GRANT/REVOKE utasításai is mind a hatot nevesítik. Az utóbbi három a
+--   member-portál lánchoz tartozik, amely ÉLESBEN SOSEM FUTOTT LE — ezt a
+--   2026-08-26-i kör már megállapította (42704). Az a migráció tehát a
+--   produkciós adatbázisban SOHA nem tudott lefutni, és nem is fog, amíg
+--   szerep-toleránssá nem tesszük.
+--
+--   Következmények, amiket ez élesben okoz:
+--     · nincs `public_site_private` séma és nincs V2 kontextus-RPC
+--     · nincs `public_sites.service_times` oszlop → az adminban a
+--       „Rendszeres alkalmak" szerkesztő MEG SEM JELENIK (a felület
+--       kecsesen elrejti) — ezért üres az Alkalmaink oldal menetrendje
+--     · nincs `public_sitemap_entries` RPC → a sitemap.xml üres
+--
+-- EZ A MIGRÁCIÓ EZÉRT NEM MÓDOSÍT MEGLÉVŐ KONTEXTUS-FÜGGVÉNYT.
+-- Helyette ÖNHORDÓ, ÚJ függvényeket ad, amelyek MINDHÁROM élő állapotban
+-- működnek (V2 van / csak V1 van / egyik sincs, és az app közvetlenül olvas):
+--
+--   A. `public_site_congregation_fallback(p_slug)` — a gyülekezet SAJÁT,
+--      mentett címere és elérhetőségei. Az app ezt külön kéri le, és csak
+--      oda tölti be, ahol a weboldalon nincs megadva érték. Így teljesen
+--      mindegy, melyik úton érkezett a weboldal-adat.
+--   B. `public_site_events_v2(p_slug, p_ev)` — a nyilvános programok egy
+--      teljes évre, LEÍRÁSSAL.
+--   C. `public_sites.service_times` oszlop + validátor + CHECK — SZEREP-
+--      TOLERÁNSAN, hogy a „Rendszeres alkalmak" szerkesztő végre látszódjon.
+--      A validátor törzse BÁJTHŰ másolat a 2026-07-18-as fájlból.
 --
 -- ⚠️ SZÁNDÉKOS ADATVÉDELMI VÁLTOZÁS — ENDRE KIFEJEZETT KÉRÉSE
 --    A 2026-08-26-i kör azt rögzítette, hogy „a leiras és a megjegyzes SOHA
@@ -35,28 +44,32 @@
 --    naptárban a programok LEÍRÁSSAL együtt látszódjanak. Ezért:
 --      · `leiras`     → KIMEGY   (a látogatónak szánt ismertető)
 --      · `megjegyzes` → MARAD BENT (belső, lelkigondozói jegyzet lehet)
---    A kapu változatlanul a programonkénti `publikus` jelölés: leírás csak
---    onnan mehet ki, amit a gyülekezet TUDATOSAN nyilvánosnak jelölt. Az app
---    a jelölő kapcsolónál ezt ki is írja.
---    ⚠️ Ha valamelyik MÁR nyilvánosnak jelölt programnál a leírás nem való a
---    nyilvánosság elé, a migráció utáni ELLENŐRZÉS 5. pontja kilistázza őket.
+--    A kapu változatlanul a programonkénti `publikus` jelölés.
+--    Az érintett programokat a `2026-08-27-gyulekezeti-oldal-ELLENORZO-listak.sql`
+--    A. pontja listázza ki — a futtatás után nézd át.
 --
 -- FUTTATÁS: Supabase SQL editor, EGYBEN. Idempotens. Nincs TEMP tábla
--- (2026-08-25-i hibaosztály), nincs táblaszerkezet-változás, nincs
--- RLS-módosítás — csak két SECURITY DEFINER függvény és a jogosultságaik.
+-- (2026-08-25-i hibaosztály). MINDEN jogosultság-állítás SZEREP-TOLERÁNS:
+-- nem létező szerepkörre nem hivatkozunk.
 -- ============================================================================
 
 
 -- ────────────────────────────────────────────────────────────────────────────
--- 0. ELŐFELTÉTEL-ŐR — fail-closed. Ha a várt világ nincs meg, MEGÁLLUNK,
---    nem írunk félkész állapotot. (A migration-fájl nem bizonyíték arra,
---    hogy egy korábbi lánc élesben lefutott — 2026-08-11-i hibaosztály.)
+-- 0. ELŐFELTÉTEL-ŐR — fail-closed, de CSAK arra, ami tényleg kell.
+--    ⚠️ Az első kiadás itt hasalt el: olyat követelt (V2 kontextus-RPC),
+--    ami a működéshez nem is kellett volna.
 -- ────────────────────────────────────────────────────────────────────────────
 DO $elofeltetel$
+DECLARE
+  v_oszlop text;
+  v_service_tipus text;
 BEGIN
-  IF to_regprocedure('public_site_private.public_site_context_v2(text)') IS NULL THEN
-    RAISE EXCEPTION
-      'ELŐFELTÉTEL: a public_site_private.public_site_context_v2(text) nem létezik — előbb a 2026-07-18-public-site-content-and-sitemap.sql fusson le.';
+  IF to_regclass('public.public_sites') IS NULL THEN
+    RAISE EXCEPTION 'ELŐFELTÉTEL: a public.public_sites tábla hiányzik — előbb a 2026-04-12-public-site-tables.sql fusson le.';
+  END IF;
+
+  IF to_regclass('public.congregations') IS NULL THEN
+    RAISE EXCEPTION 'ELŐFELTÉTEL: a public.congregations tábla hiányzik.';
   END IF;
 
   IF NOT EXISTS (
@@ -78,130 +91,335 @@ BEGIN
 
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'public_sites'
+      AND column_name = 'show_events'
+  ) THEN
+    RAISE EXCEPTION
+      'ELŐFELTÉTEL: a public_sites.show_events oszlop hiányzik — előbb a 2026-08-26-presbiterium-tisztsegek.sql fusson le.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'gyulekezeti_programok'
       AND column_name = 'leiras'
   ) THEN
-    RAISE EXCEPTION 'ELŐFELTÉTEL: a gyulekezeti_programok.leiras oszlop hiányzik.';
+    RAISE EXCEPTION 'ELŐFELTÉTEL: a gyulekezeti_programok.leiras oszlop hiányzik — a nyilvános naptár leírás nélkül értelmetlen.';
+  END IF;
+
+  -- ⚠️ A tartalék-RPC MINDEN hivatkozott gyülekezeti mezőjét ellenőrizzük.
+  -- Egy `LANGUAGE sql` függvény törzsét a CREATE MÁR feloldja, tehát hiányzó
+  -- oszlopnál ott szállna el, jóval zavarosabb hibaüzenettel — és félkész
+  -- állapotot hagyva. Fail-closed, előre.
+  FOR v_oszlop IN
+    SELECT unnest(ARRAY['email', 'telefon', 'cim', 'hazszam', 'iranyitoszam', 'varos', 'megye'])
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'congregations'
+        AND column_name = v_oszlop
+    ) THEN
+      RAISE EXCEPTION 'ELŐFELTÉTEL: a congregations.% oszlop hiányzik — a tartalék-RPC nem építhető fel.', v_oszlop;
+    END IF;
+  END LOOP;
+
+  -- ⚠️ Az `ADD COLUMN IF NOT EXISTS` NEM ellenőrzi a TÍPUST. Ha a service_times
+  -- valamiért `json`/`text` néven már létezik, a jsonb-t váró CHECK 42883-mal
+  -- hasalna el — a hibás típust itt, előre fogjuk meg.
+  SELECT data_type INTO v_service_tipus
+  FROM information_schema.columns
+  WHERE table_schema = 'public' AND table_name = 'public_sites'
+    AND column_name = 'service_times';
+
+  IF v_service_tipus IS NOT NULL AND v_service_tipus <> 'jsonb' THEN
+    RAISE EXCEPTION
+      'ELŐFELTÉTEL: a public_sites.service_times MÁR létezik, de % típusú (jsonb kellene). Kézi rendezés szükséges.', v_service_tipus;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    RAISE EXCEPTION 'ELŐFELTÉTEL: az `anon` szerepkör hiányzik — ez nem Supabase adatbázis?';
   END IF;
 END
 $elofeltetel$;
 
 
 -- ────────────────────────────────────────────────────────────────────────────
--- 1. A KONTEXTUS-RPC — címer + elérhetőségek tartaléka a gyülekezeti adatból.
+-- 1. A belső séma és a service_times VALIDÁTOR.
 --
---    A visszatérési oszlopok NEM változnak (a `public.public_site_context_v2`
---    burkoló érintetlen marad), csak az értékük lesz kitöltött ott, ahol
---    eddig NULL jött. Az üres SZÖVEG is tartaléknak számít (`NULLIF(btrim…)`)
---    — a felületen a „mentettem, mégsem látszik" tünet tipikusan üres
---    stringből jön, nem NULL-ból.
+--    A validátor TÖRZSE bájthű másolat a
+--    `2026-07-18-public-site-content-and-sitemap.sql` fájlból (255–349. sor):
+--    ugyanaz a szemantika, csak a köré tett jogosultság-kezelés lett
+--    szerep-toleráns (lásd az 5. szakaszt). Így ha a 2026-07-18-as migráció
+--    később mégis lefut, ugyanezt a definíciót fogja találni.
+--
+--    ⚠️ A `public_site_private` sémába SZÁNDÉKOSAN csak a validátor kerül —
+--    a 2026-07-18-as előfeltétel-őr azt ellenőrzi, hogy a sémában csak a
+--    három ismert rutin egyike legyen. A validátor közülük való, tehát ez
+--    nem zárja el a későbbi futás útját.
+--
+--    ⚠️ AMIT SZÁNDÉKOSAN NEM MÁSOLUNK ÁT: az `ALTER DEFAULT PRIVILEGES …
+--    REVOKE EXECUTE ON FUNCTIONS` globális beállítást. Az MINDEN jövőbeli
+--    postgres-tulajdonú rutint fail-closeddá tenne az egész adatbázisban —
+--    ez jóval túlmutat ezen a körön, és külön döntést érdemel.
 -- ────────────────────────────────────────────────────────────────────────────
+CREATE SCHEMA IF NOT EXISTS public_site_private AUTHORIZATION postgres;
+
+-- Az OWNER-allitas FELTETELES: ha a futtato nem tagja a `postgres` szerepnek,
+-- egy feltetel nelkuli ALTER 42501-gyel az EGESZ migraciot megbuktatna. A
+-- Supabase SQL editor `postgres`-kent fut, tehat elesben lefut — de egy mas
+-- kornyezetben ne dolgunk elakadni rajta.
+DO $sema_tulajdonos$
+BEGIN
+  IF pg_has_role(current_user, 'postgres', 'MEMBER') THEN
+    ALTER SCHEMA public_site_private OWNER TO postgres;
+  END IF;
+END
+$sema_tulajdonos$;
+
 CREATE OR REPLACE FUNCTION
-  public_site_private.public_site_context_v2(p_slug text)
+  public_site_private.public_site_service_times_are_valid(p_value jsonb)
+RETURNS boolean
+LANGUAGE plpgsql
+IMMUTABLE
+SECURITY INVOKER
+SET search_path = ''
+AS $service_times_validator$
+DECLARE
+  v_item jsonb;
+  v_ids text[] := ARRAY[]::text[];
+  v_id text;
+BEGIN
+  IF p_value IS NULL
+     OR pg_catalog.jsonb_typeof(p_value) IS DISTINCT FROM 'array'
+  THEN
+    RETURN false;
+  END IF;
+
+  IF pg_catalog.jsonb_array_length(p_value) > 12 THEN
+    RETURN false;
+  END IF;
+
+  FOR v_item IN
+    SELECT value
+    FROM pg_catalog.jsonb_array_elements(p_value)
+  LOOP
+    IF pg_catalog.jsonb_typeof(v_item) IS DISTINCT FROM 'object' THEN
+      RETURN false;
+    END IF;
+
+    IF EXISTS (
+      SELECT 1
+      FROM pg_catalog.jsonb_object_keys(v_item) AS object_key(key_name)
+      WHERE object_key.key_name NOT IN (
+        'id', 'day', 'time', 'title', 'location', 'note'
+      )
+    ) THEN
+      RETURN false;
+    END IF;
+
+    IF pg_catalog.jsonb_typeof(v_item -> 'id') IS DISTINCT FROM 'string'
+       OR pg_catalog.jsonb_typeof(v_item -> 'day') IS DISTINCT FROM 'string'
+       OR pg_catalog.jsonb_typeof(v_item -> 'time') IS DISTINCT FROM 'string'
+       OR pg_catalog.jsonb_typeof(v_item -> 'title') IS DISTINCT FROM 'string'
+    THEN
+      RETURN false;
+    END IF;
+
+    v_id := pg_catalog.lower(v_item ->> 'id');
+    IF (v_item ->> 'id') IS DISTINCT FROM v_id
+       OR v_id !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+       OR v_id = ANY(v_ids)
+    THEN
+      RETURN false;
+    END IF;
+    v_ids := pg_catalog.array_append(v_ids, v_id);
+
+    IF (v_item ->> 'day') IS DISTINCT FROM pg_catalog.btrim(v_item ->> 'day')
+       OR pg_catalog.char_length(v_item ->> 'day') NOT BETWEEN 2 AND 80
+       OR (v_item ->> 'time') !~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+       OR (v_item ->> 'title') IS DISTINCT FROM pg_catalog.btrim(v_item ->> 'title')
+       OR pg_catalog.char_length(v_item ->> 'title') NOT BETWEEN 2 AND 80
+    THEN
+      RETURN false;
+    END IF;
+
+    IF v_item ? 'location'
+       AND v_item -> 'location' <> 'null'::jsonb
+       AND (
+         pg_catalog.jsonb_typeof(v_item -> 'location') IS DISTINCT FROM 'string'
+         OR (v_item ->> 'location') IS DISTINCT FROM
+           pg_catalog.btrim(v_item ->> 'location')
+         OR pg_catalog.char_length(v_item ->> 'location') > 120
+       )
+    THEN
+      RETURN false;
+    END IF;
+
+    IF v_item ? 'note'
+       AND v_item -> 'note' <> 'null'::jsonb
+       AND (
+         pg_catalog.jsonb_typeof(v_item -> 'note') IS DISTINCT FROM 'string'
+         OR (v_item ->> 'note') IS DISTINCT FROM
+           pg_catalog.btrim(v_item ->> 'note')
+         OR pg_catalog.char_length(v_item ->> 'note') > 160
+       )
+    THEN
+      RETURN false;
+    END IF;
+  END LOOP;
+
+  RETURN true;
+END
+$service_times_validator$;
+
+ALTER FUNCTION
+  public_site_private.public_site_service_times_are_valid(jsonb)
+  OWNER TO postgres;
+COMMENT ON FUNCTION
+  public_site_private.public_site_service_times_are_valid(jsonb) IS
+  'KARTOTEKA_PUBLIC_SERVICE_TIMES_VALIDATOR_V1';
+
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 2. A service_times OSZLOP — ettől jelenik meg az adminban a „Rendszeres
+--    alkalmak" szerkesztő. (A felület a hiányzó oszlopnál kecsesen elrejti
+--    a szekciót, ezért tűnt úgy, hogy nincs is ilyen lehetőség.)
+--
+--    Bájthű átvétel a 2026-07-18-as fájlból (369–386. sor).
+-- ────────────────────────────────────────────────────────────────────────────
+ALTER TABLE public.public_sites
+  ADD COLUMN IF NOT EXISTS service_times jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE public.public_sites
+  ALTER COLUMN service_times SET DEFAULT '[]'::jsonb;
+UPDATE public.public_sites
+SET service_times = '[]'::jsonb
+WHERE service_times IS NULL;
+ALTER TABLE public.public_sites
+  ALTER COLUMN service_times SET NOT NULL;
+
+-- CHECK-bővítés drop+add párossal (az ADD CONSTRAINT IF NOT EXISTS nem
+-- létezik; a drop+add idempotens és a definíció-változást is átviszi).
+ALTER TABLE public.public_sites
+  DROP CONSTRAINT IF EXISTS public_sites_service_times_valid;
+ALTER TABLE public.public_sites
+  ADD CONSTRAINT public_sites_service_times_valid
+  CHECK (
+    public_site_private.public_site_service_times_are_valid(service_times)
+  ) NOT VALID;
+-- ⚠️ A `VALIDATE CONSTRAINT` érvénytelen adaton elszáll, és a félbemaradt
+-- migráció ott hagyná a NOT VALID constraintet — az érintett `public_sites`
+-- sor ettől SZERKESZTHETETLENNÉ válna a felületen. Ezért ELŐBB megnézzük, van-e
+-- ilyen sor, és ha igen, ÉRTHETŐ üzenettel állunk meg, mielőtt bármit rontanánk.
+-- (Frissen létrehozott oszlopnál ez nem fordulhat elő — az alapérték `[]` —,
+-- de a fájl egy régebbi, kézzel bővített adatbázison is futhat.)
+DO $service_times_adat$
+DECLARE
+  v_rossz bigint;
+BEGIN
+  SELECT count(*) INTO v_rossz
+  FROM public.public_sites ps
+  WHERE NOT public_site_private.public_site_service_times_are_valid(ps.service_times);
+
+  IF v_rossz > 0 THEN
+    RAISE EXCEPTION
+      'ELŐFELTÉTEL: % public_sites sor service_times értéke nem felel meg a validátornak. Előbb ezeket kell rendezni (a CHECK érvényesítése enélkül szerkeszthetetlenné tenné őket).', v_rossz;
+  END IF;
+END
+$service_times_adat$;
+
+ALTER TABLE public.public_sites
+  VALIDATE CONSTRAINT public_sites_service_times_valid;
+
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 3. ÚJ, ÖNHORDÓ RPC: a gyülekezet saját címere és elérhetőségei.
+--
+--    ⛔ MI VOLT A HIBA (Endre élesben látta a Barátosi oldalon)
+--      · „A gyülekezet címere látszódjon betöltéskor és egyébként is!" —
+--        helyette a KARTOTÉKA termék-logója állt.
+--      · „Az elérhetőségek látszódjanak, amik le vannak mentve a gyülekezeti
+--        adatoknál." — helyette „hamarosan felkerülnek".
+--    OK: a publikus oldal KIZÁRÓLAG a `public_sites` SAJÁT mezőit nézte.
+--    Endre viszont a setup varázslóban töltötte ki ezeket (`congregations`),
+--    ahol a címer mező KÖTELEZŐ — tehát biztosan ki van töltve. A két
+--    adathalmaz soha nem találkozott: a weboldal némán üresnek látta.
+--
+--    MIÉRT KÜLÖN FÜGGVÉNY, ÉS NEM A KONTEXTUS-RPC MÓDOSÍTÁSA:
+--    élesben nem tudjuk, MELYIK kontextus-út fut (V2 / V1 / közvetlen
+--    táblaolvasás). Egy külön, önhordó lekérdezés mindháromban ugyanúgy
+--    működik, és nem nyúl hozzá működő éles objektumhoz.
+--
+--    A kapu ugyanaz, mint a weboldalé: publikált oldal + aktív gyülekezet.
+--    Ezen felül SEMMI mást nem ad ki a gyülekezetről — csak azt a négy
+--    mezőt, amit a weboldal amúgy is megjelenítene.
+-- ────────────────────────────────────────────────────────────────────────────
+-- ⚠️ A `CREATE OR REPLACE FUNCTION` NEM tud visszateresi oszloplistat valtoztatni:
+-- egy korabbi, mas szerzodesu valtozat mellett 42P13-mal elszallna. Ezert ha a
+-- fuggveny letezik, de MAS oszlopokat ad vissza, eldobjuk — a jogosultsagait
+-- az 5. szakasz ugyis ujra beallitja.
+DO $szerzodes_or$
+DECLARE
+  v_oid oid;
+BEGIN
+  v_oid := to_regprocedure('public.public_site_congregation_fallback(text)');
+  IF v_oid IS NOT NULL AND pg_get_function_result(v_oid) NOT LIKE '%crest_image_url text%' THEN
+    DROP FUNCTION public.public_site_congregation_fallback(text);
+  END IF;
+
+  v_oid := to_regprocedure('public.public_site_events_v2(text, integer)');
+  IF v_oid IS NOT NULL AND pg_get_function_result(v_oid) NOT LIKE '%leiras text%' THEN
+    DROP FUNCTION public.public_site_events_v2(text, integer);
+  END IF;
+END
+$szerzodes_or$;
+
+CREATE OR REPLACE FUNCTION public.public_site_congregation_fallback(p_slug text)
 RETURNS TABLE (
-  id uuid,
-  congregation_id uuid,
-  slug text,
-  display_name text,
-  tagline text,
-  hero_image_url text,
   crest_image_url text,
-  theme_id uuid,
-  custom_primary_color text,
-  custom_accent_color text,
   contact_email text,
   contact_phone text,
-  address text,
-  about_html text,
-  service_times jsonb,
-  robots_index boolean,
-  show_member_count boolean,
-  show_presbyter_count boolean,
-  show_family_count boolean,
-  show_age_distribution boolean,
-  override_member_count integer,
-  override_presbyter_count integer,
-  override_family_count integer
+  address text
 )
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = ''
-AS $public_site_context_v2_impl$
+AS $congregation_fallback$
   SELECT
-    ps.id,
-    ps.congregation_id,
-    ps.slug,
-    ps.display_name,
-    ps.tagline,
-    ps.hero_image_url,
-    -- (1) Címer: a weboldalon megadott az erősebb; ha ott nincs, a
-    --     gyülekezeti adatoknál mentett címer. Csak https URL mehet ki —
-    --     a felület is ezt várja (safePublicHttpsUrl).
-    NULLIF(
-      pg_catalog.btrim(
-        COALESCE(
-          NULLIF(pg_catalog.btrim(ps.crest_image_url), ''),
-          NULLIF(pg_catalog.btrim(c.cimer_url::text), '')
-        )
-      ),
-      ''
-    ) AS crest_image_url,
-    ps.theme_id,
-    ps.custom_primary_color,
-    ps.custom_accent_color,
-    -- (2) Elérhetőségek: ugyanez a tartalék-lánc.
-    COALESCE(
-      NULLIF(pg_catalog.btrim(ps.contact_email), ''),
-      NULLIF(pg_catalog.btrim(c.email::text), '')
-    ) AS contact_email,
-    COALESCE(
-      NULLIF(pg_catalog.btrim(ps.contact_phone), ''),
-      NULLIF(pg_catalog.btrim(c.telefon::text), '')
-    ) AS contact_phone,
+    -- Csak nem üres értéket adunk vissza: a felületen a „mentettem, mégsem
+    -- látszik" tünet tipikusan ÜRES SZÖVEGBŐL jön, nem NULL-ból.
+    NULLIF(pg_catalog.btrim(c.cimer_url::text), '') AS crest_image_url,
+    NULLIF(pg_catalog.btrim(c.email::text), '') AS contact_email,
+    NULLIF(pg_catalog.btrim(c.telefon::text), '') AS contact_phone,
     -- A cím a gyülekezeti adatok KÜLÖN mezőiből áll össze (utca + házszám,
     -- irányítószám + település, megye) — a setup varázsló ezeket külön
     -- kezeli, tehát nem duplázunk.
-    COALESCE(
-      NULLIF(pg_catalog.btrim(ps.address), ''),
-      NULLIF(
-        pg_catalog.concat_ws(
-          ', ',
-          NULLIF(
-            pg_catalog.btrim(
-              pg_catalog.concat_ws(
-                ' ',
-                NULLIF(pg_catalog.btrim(c.cim::text), ''),
-                NULLIF(pg_catalog.btrim(c.hazszam::text), '')
-              )
-            ),
-            ''
+    NULLIF(
+      pg_catalog.concat_ws(
+        ', ',
+        NULLIF(
+          pg_catalog.btrim(
+            pg_catalog.concat_ws(
+              ' ',
+              NULLIF(pg_catalog.btrim(c.cim::text), ''),
+              NULLIF(pg_catalog.btrim(c.hazszam::text), '')
+            )
           ),
-          NULLIF(
-            pg_catalog.btrim(
-              pg_catalog.concat_ws(
-                ' ',
-                NULLIF(pg_catalog.btrim(c.iranyitoszam::text), ''),
-                NULLIF(pg_catalog.btrim(c.varos::text), '')
-              )
-            ),
-            ''
-          ),
-          NULLIF(pg_catalog.btrim(c.megye::text), '')
+          ''
         ),
-        ''
-      )
-    ) AS address,
-    ps.about_html,
-    ps.service_times,
-    ps.robots_index,
-    ps.show_member_count,
-    ps.show_presbyter_count,
-    ps.show_family_count,
-    ps.show_age_distribution,
-    ps.override_member_count,
-    ps.override_presbyter_count,
-    ps.override_family_count
+        NULLIF(
+          pg_catalog.btrim(
+            pg_catalog.concat_ws(
+              ' ',
+              NULLIF(pg_catalog.btrim(c.iranyitoszam::text), ''),
+              NULLIF(pg_catalog.btrim(c.varos::text), '')
+            )
+          ),
+          ''
+        ),
+        NULLIF(pg_catalog.btrim(c.megye::text), '')
+      ),
+      ''
+    ) AS address
   FROM public.public_sites ps
   JOIN public.congregations c ON c.id = ps.congregation_id
   WHERE pg_catalog.lower(pg_catalog.btrim(p_slug)) ~
@@ -211,16 +429,15 @@ AS $public_site_context_v2_impl$
     AND c.status = 'active'
     AND c.public_site_enabled = true
   LIMIT 1;
-$public_site_context_v2_impl$;
+$congregation_fallback$;
 
-ALTER FUNCTION public_site_private.public_site_context_v2(text)
-  OWNER TO postgres;
-COMMENT ON FUNCTION public_site_private.public_site_context_v2(text) IS
-  'KARTOTEKA_PUBLIC_SITE_CONTEXT_V2_IMPL';
+ALTER FUNCTION public.public_site_congregation_fallback(text) OWNER TO postgres;
+COMMENT ON FUNCTION public.public_site_congregation_fallback(text) IS
+  'KARTOTEKA_PUBLIC_SITE_CONGREGATION_FALLBACK_V1';
 
 
 -- ────────────────────────────────────────────────────────────────────────────
--- 2. ÚJ RPC: nyilvános programok ÉVES ablakkal és LEÍRÁSSAL.
+-- 4. ÚJ RPC: nyilvános programok ÉVES ablakkal és LEÍRÁSSAL.
 --
 --    p_ev IS NULL → a régi viselkedés (mai naptól +90 nap) — a kezdőlap
 --                   „Következő alkalom" kártyájához és a közelgő szekcióhoz.
@@ -323,91 +540,219 @@ COMMENT ON FUNCTION public.public_site_events_v2(text, integer) IS
 
 
 -- ────────────────────────────────────────────────────────────────────────────
--- 3. JOGOSULTSÁGOK — SZEREP-TOLERÁNSAN.
---    Az app_staff_user / app_pending_user / member_portal_user egyéni
---    szerepkörök a member-portál lánc részei, amely ÉLESBEN NEM FUTOTT LE
---    (42704) — róluk CSAK akkor vonunk vissza, ha léteznek.
---    EXECUTE kizárólag az anon-nak jár.
+-- 5. JOGOSULTSÁGOK — SZEREP-TOLERÁNSAN.
+--
+--    ⚠️ EZ A KÜLÖNBSÉG tette futtathatatlanná a 2026-07-18-as migrációt: az
+--    `app_staff_user`, `app_pending_user` és `member_portal_user` szerepkörök
+--    a member-portál lánc részei, amely élesben NEM futott le. Egy
+--    `REVOKE … FROM app_staff_user` ilyenkor 42704-gyel elszáll, és MINDEN
+--    utána következő utasítás elmarad.
+--
+--    Itt ezért minden szerepkörre külön ellenőrizzük, hogy létezik-e.
+--    EXECUTE a két publikus RPC-re KIZÁRÓLAG az `anon`-nak jár; a validátor
+--    a bejelentkezett (író) oldalt szolgálja, mert a CHECK constraint az ő
+--    nevében fut a mentéskor.
 -- ────────────────────────────────────────────────────────────────────────────
-DO $publikus_acl$
+DO $jogosultsagok$
 DECLARE
-  v_fn constant text := 'public.public_site_events_v2(text, integer)';
-  v_role text;
+  v_szerep text;
+  v_fn text;
+  -- ⚠️ A `PUBLIC` MINDIG az első elem, és NEM szerepkör, hanem kulcsszó —
+  -- ezért nem is kell ellenőrizni. Így a lista SOSEM lehet üres, tehát a
+  -- `FROM PUBLIC, ` alakú, vesszővel végződő (szintaktikailag hibás) utasítás
+  -- elő sem állhat. (A `PUBLIC`-ot szándékosan NEM `quote_ident`-eljük: az
+  -- idézőjelezett "public" egy VALÓDI szerepkörre hivatkozna, nem a
+  -- kulcsszóra — ez csendes, nehezen észrevehető hiba lenne.)
+  v_letezo text[] := ARRAY['PUBLIC'];
+  v_lista text;
 BEGIN
-  EXECUTE format(
-    'REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated, service_role',
-    v_fn
-  );
-  FOREACH v_role IN ARRAY ARRAY['app_staff_user', 'app_pending_user', 'member_portal_user'] LOOP
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = v_role) THEN
-      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I', v_fn, v_role);
+  FOREACH v_szerep IN ARRAY ARRAY[
+    'anon', 'authenticated', 'service_role',
+    'app_staff_user', 'app_pending_user', 'member_portal_user'
+  ] LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = v_szerep) THEN
+      v_letezo := v_letezo || quote_ident(v_szerep);
     END IF;
   END LOOP;
-  EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO anon', v_fn);
+  v_lista := array_to_string(v_letezo, ', ');
+
+  -- 5/a. ⛔ ITT NINCS SÉMA-SZINTŰ REVOKE — ÉS EZ SZÁNDÉKOS.
+  --
+  -- Az első vázlat itt visszavonta volna a `public_site_private` sémára adott
+  -- jogokat MINDENKITŐL, az `anon`-t is beleértve. Ez EGY MŰKÖDŐ ÁLLAPOTOT
+  -- ROMBOLT VOLNA LE:
+  --   A `2026-07-18-...sql:610` KIFEJEZETTEN ad `GRANT USAGE ON SCHEMA
+  --   public_site_private TO anon`-t, mert a `public.public_site_context_v2`
+  --   burkoló SECURITY **INVOKER** (uo. 489. sor) — vagyis a privát
+  --   implementációt a HÍVÓ (anon) jogaival hívja meg. Az USAGE elvétele után
+  --   a hívás 42501-gyel (permission denied for schema) elszállna, amit a
+  --   betöltő tartalék-ága NEM ismer fel (csak PGRST202/42883-ra esik vissza)
+  --   → `notFound()` → az EGÉSZ gyülekezeti oldal 404-re menne. NÉMÁN.
+  --
+  -- Ma ez a séma élesben nem is létezik, tehát a REVOKE úgysem érne semmit;
+  -- egy FRISSEN létrehozott séma pedig alapból zárt (a `CREATE SCHEMA` senkinek
+  -- nem ad jogot). Vagyis a sor haszna nulla, a kockázata viszont a teljes
+  -- publikus oldal. Kihagyjuk.
+
+  -- 5/b. A két publikus RPC: mindenkitől vissza, majd CSAK az anon-nak.
+  FOREACH v_fn IN ARRAY ARRAY[
+    'public.public_site_congregation_fallback(text)',
+    'public.public_site_events_v2(text, integer)'
+  ] LOOP
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %s', v_fn, v_lista);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO anon', v_fn);
+  END LOOP;
+
+  -- 5/c. A validátor: a CHECK constraint a MENTŐ (bejelentkezett) szerepében
+  --      fut, ezért neki kell a séma-USAGE és a függvény-EXECUTE. Az anon
+  --      SOHA nem ír public_sites-ot, tehát ő nem kap semmit.
+  EXECUTE format(
+    'REVOKE ALL ON FUNCTION public_site_private.public_site_service_times_are_valid(jsonb) FROM %s',
+    v_lista
+  );
+  FOREACH v_szerep IN ARRAY ARRAY['authenticated', 'service_role', 'app_staff_user'] LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = v_szerep) THEN
+      EXECUTE format('GRANT USAGE ON SCHEMA public_site_private TO %I', v_szerep);
+      EXECUTE format(
+        'GRANT EXECUTE ON FUNCTION public_site_private.public_site_service_times_are_valid(jsonb) TO %I',
+        v_szerep
+      );
+    END IF;
+  END LOOP;
+
+  -- 5/d. HELYREÁLLÍTÓ HÁLÓ. Ha a sémában ÉL a V2 kontextus vagy a sitemap
+  --      implementációja, akkor az `anon`-nak MUSZÁJ USAGE-t adni rá: a
+  --      `public.public_site_context_v2` burkoló SECURITY INVOKER, tehát a
+  --      privát implementációt a HÍVÓ jogaival hívja. Enélkül 42501 jönne,
+  --      amit a betöltő nem ismer fel tartalékként → 404 az EGÉSZ gyülekezeti
+  --      oldalon, némán. Ez a sor akkor is helyrehozza, ha egy korábbi,
+  --      elhamarkodott REVOKE elvette volna.
+  IF to_regprocedure('public_site_private.public_site_context_v2(text)') IS NOT NULL
+     OR to_regprocedure('public_site_private.public_sitemap_entries()') IS NOT NULL THEN
+    GRANT USAGE ON SCHEMA public_site_private TO anon;
+  END IF;
 END
-$publikus_acl$;
+$jogosultsagok$;
+
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 6. A PostgREST SÉMA-GYORSÍTÓTÁRÁNAK ÚJRATÖLTÉSE.
+--
+--    ⚠️ ENÉLKÜL A MIGRÁCIÓ „HATÁSTALANNAK" LÁTSZANA: a PostgREST a séma-képét
+--    gyorsítótárazza, ezért az új RPC-kre percekig még `PGRST202`-t (nincs
+--    ilyen függvény) adna. Az app azt NÉMA tartaléknak veszi — vagyis Endre
+--    azt látná, hogy „lefutott, de semmi nem változott", és keresné a hibát
+--    ott, ahol nincs.
+-- ────────────────────────────────────────────────────────────────────────────
+NOTIFY pgrst, 'reload schema';
 
 
 -- ============================================================================
--- ELLENŐRZÉS — az 1–4. sor mind ✅ kell legyen; az 5. tájékoztató lista.
+-- ELLENŐRZÉS — EGYETLEN EREDMÉNYHALMAZ, ÉS EZ A FÁJL UTOLSÓ UTASÍTÁSA.
+--
+-- ⚠️ MIÉRT ÍGY: a Supabase SQL editor egy szkriptből CSAK AZ UTOLSÓ, sorokat
+--    visszaadó utasítás rácsát mutatja (a projekt saját tapasztalata,
+--    docs/CHANGELOG.md: „Studio »Run« csak az utolsó…"). Ha a kapuk külön
+--    SELECT-ek lennének, Endre pont a `❌`-eket NEM látná — előállna a
+--    „lefutott, nem hibázott" hamis jelentés, ami ellen ez a kiadás készült.
+--
+-- MIND A 7 SOR `✅` (vagy `➖ nem alkalmazható`) KELL LEGYEN.
+--
+-- A tájékoztató listák (mit publikál a tartalék, mely leírások mennek ki,
+-- miért üres a „Következő alkalom") KÜLÖN fájlban:
+--   migration-docs/sql/2026-08-27-gyulekezeti-oldal-ELLENORZO-listak.sql
 -- ============================================================================
+SELECT lepes, eredmeny FROM (
 
-SELECT '1. A kontextus-RPC visszaesik a gyülekezeti címerre/elérhetőségre' AS lepes,
-       CASE WHEN (
-         SELECT pg_catalog.pg_get_functiondef(
-           to_regprocedure('public_site_private.public_site_context_v2(text)')
-         )
-       ) LIKE '%c.cimer_url%' THEN '✅ OK' ELSE '❌ HIÁNYZIK' END AS eredmeny;
+  SELECT '1. A gyülekezeti tartalék-RPC létezik' AS lepes,
+         CASE WHEN to_regprocedure('public.public_site_congregation_fallback(text)') IS NOT NULL
+              THEN '✅ OK' ELSE '❌ HIÁNYZIK' END AS eredmeny
 
-SELECT '2. public_site_events_v2 létezik és a leírást is adja' AS lepes,
-       CASE WHEN to_regprocedure('public.public_site_events_v2(text, integer)') IS NOT NULL
-             AND (
-               SELECT pg_catalog.pg_get_functiondef(
-                 to_regprocedure('public.public_site_events_v2(text, integer)')
+  UNION ALL
+  SELECT '2. Az éves esemény-RPC létezik és a leírást is adja',
+         CASE WHEN to_regprocedure('public.public_site_events_v2(text, integer)') IS NULL
+                THEN '❌ HIÁNYZIK'
+              WHEN pg_get_functiondef(to_regprocedure('public.public_site_events_v2(text, integer)')) LIKE '%gp.leiras%'
+                THEN '✅ OK'
+              ELSE '❌ RÉGI VÁLTOZAT — nincs benne a leiras' END
+
+  UNION ALL
+  -- ⚠️ A `has_function_privilege` NEM LÉTEZŐ szerepkörre HIBÁT DOB, ezért a
+  --    tagadó ágat a pg_roles-ból vezetjük le: csak a ténylegesen létező
+  --    szerepköröket kérdezzük — viszont MINDEGYIKET, nem csak kettőt.
+  SELECT '3. A két publikus RPC-t CSAK az anon hívhatja',
+         CASE WHEN to_regprocedure('public.public_site_congregation_fallback(text)') IS NULL
+                   OR to_regprocedure('public.public_site_events_v2(text, integer)') IS NULL
+                THEN '❌ NINCS FÜGGVÉNY — nem értékelhető'
+              WHEN has_function_privilege('anon', 'public.public_site_congregation_fallback(text)', 'EXECUTE')
+               AND has_function_privilege('anon', 'public.public_site_events_v2(text, integer)', 'EXECUTE')
+               AND NOT EXISTS (
+                 SELECT 1 FROM pg_roles r
+                 WHERE r.rolname IN ('authenticated', 'service_role',
+                                     'app_staff_user', 'app_pending_user', 'member_portal_user')
+                   AND (
+                     has_function_privilege(r.rolname, 'public.public_site_congregation_fallback(text)', 'EXECUTE')
+                     OR has_function_privilege(r.rolname, 'public.public_site_events_v2(text, integer)', 'EXECUTE')
+                   )
                )
-             ) LIKE '%gp.leiras%'
-            THEN '✅ OK' ELSE '❌ HIÁNYZIK' END AS eredmeny;
+                THEN '✅ OK'
+              ELSE '❌ JOGOSULTSÁG-DRIFT' END
 
-SELECT '3. Az új RPC-t CSAK az anon hívhatja' AS lepes,
-       CASE WHEN has_function_privilege('anon', 'public.public_site_events_v2(text, integer)', 'EXECUTE')
-             AND NOT has_function_privilege('authenticated', 'public.public_site_events_v2(text, integer)', 'EXECUTE')
-             AND NOT has_function_privilege('service_role', 'public.public_site_events_v2(text, integer)', 'EXECUTE')
-            THEN '✅ OK' ELSE '❌ JOGOSULTSÁG-DRIFT' END AS eredmeny;
+  UNION ALL
+  SELECT '4. A belső megjegyzés NEM megy ki',
+         CASE WHEN to_regprocedure('public.public_site_events_v2(text, integer)') IS NULL
+                THEN '❌ NINCS FÜGGVÉNY — nem értékelhető'
+              WHEN pg_get_functiondef(to_regprocedure('public.public_site_events_v2(text, integer)'))
+                   NOT LIKE '%gp.megjegyzes%'
+                THEN '✅ OK'
+              ELSE '❌ KISZIVÁROG' END
 
-SELECT '4. A megjegyzés (belső jegyzet) NEM megy ki' AS lepes,
-       CASE WHEN (
-         SELECT pg_catalog.pg_get_functiondef(
-           to_regprocedure('public.public_site_events_v2(text, integer)')
-         )
-       ) NOT LIKE '%gp.megjegyzes%' THEN '✅ OK' ELSE '❌ KISZIVÁROG' END AS eredmeny;
+  UNION ALL
+  SELECT '5. A service_times oszlop (jsonb) + ÉRVÉNYESÍTETT CHECK megvan',
+         CASE WHEN EXISTS (
+           SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = 'public_sites'
+             AND column_name = 'service_times' AND data_type = 'jsonb'
+         ) AND EXISTS (
+           SELECT 1 FROM pg_constraint
+           WHERE conname = 'public_sites_service_times_valid'
+             AND conrelid = 'public.public_sites'::regclass
+             AND convalidated
+         ) THEN '✅ OK' ELSE '❌ HIÁNYZIK' END
 
--- 5. TÁJÉKOZTATÓ: mely NYILVÁNOSNAK JELÖLT programoknak van leírásuk?
---    Ezek szövege mostantól megjelenik a gyülekezet weboldalán. Ha valamelyik
---    nem való a nyilvánosság elé, vagy a leírást kell átírni, vagy a programot
---    kell kivenni a nyilvánosok közül (Határidőnapló → program → a kapcsoló).
-SELECT '5. Nyilvános program, aminek a LEÍRÁSA mostantól kimegy' AS lepes,
-       c.nev_hu AS gyulekezet,
-       gp.datum,
-       gp.cim,
-       left(gp.leiras, 120) AS leiras_eleje
-FROM public.gyulekezeti_programok gp
-JOIN public.congregations c ON c.id = gp.congregation_id
-WHERE gp.publikus = true
-  AND NULLIF(pg_catalog.btrim(gp.leiras), '') IS NOT NULL
-ORDER BY c.nev_hu, gp.datum;
+  UNION ALL
+  -- ⚠️ NEGATÍV ŐRSZEM: pontosan azt a hibát méri, amit e kiadás VÁZLATA
+  --    okozott volna. Ha él a V2, az `anon` séma-USAGE-ének MEG KELL maradnia:
+  --    a `public.public_site_context_v2` SECURITY INVOKER burkoló, tehát a
+  --    privát implementációt a HÍVÓ jogaival hívja. Elvéve 42501 jönne, azt
+  --    pedig a betöltő nem ismeri fel tartalékként → 404 az EGÉSZ oldalon.
+  SELECT '6. Ha él a V2/sitemap, az anon séma-USAGE-e megmaradt',
+         CASE WHEN to_regprocedure('public_site_private.public_site_context_v2(text)') IS NULL
+                   AND to_regprocedure('public_site_private.public_sitemap_entries()') IS NULL
+                THEN '➖ nincs V2/sitemap — nem alkalmazható'
+              WHEN has_schema_privilege('anon', 'public_site_private', 'USAGE')
+                THEN '✅ OK'
+              ELSE '❌ ELVETTÜK AZ ANON USAGE-T — A PUBLIKUS OLDAL 404-ELNE' END
 
--- 6. TÁJÉKOZTATÓ: miért üres a „Következő alkalom"? Gyülekezetenként megmutatja,
---    hány programot jelöltek nyilvánosnak, és be van-e kapcsolva az esemény-
---    szekció a weboldalon.
-SELECT '6. Nyilvános programok és a weboldal esemény-kapcsolója' AS lepes,
-       c.nev_hu AS gyulekezet,
-       ps.slug,
-       ps.show_events AS esemenyek_bekapcsolva,
-       count(gp.id) FILTER (WHERE gp.publikus) AS nyilvanos_program,
-       count(gp.id) AS osszes_program
-FROM public.public_sites ps
-JOIN public.congregations c ON c.id = ps.congregation_id
-LEFT JOIN public.gyulekezeti_programok gp ON gp.congregation_id = ps.congregation_id
-WHERE ps.is_published = true
-GROUP BY c.nev_hu, ps.slug, ps.show_events
-ORDER BY c.nev_hu;
+  UNION ALL
+  -- ⚠️ NEGATÍV ŐRSZEM: van-e PUBLIKÁLT oldal, amire a tartalék-RPC 0 sort ad?
+  --    A tartalék kapuja (aktív + engedélyezett gyülekezet) SZIGORÚBB, mint a
+  --    ma élő közvetlen olvasási ágé (az csak `is_published`-öt néz). Ahol a
+  --    kettő széthúz, ott az oldal LÁTSZIK, de a címer/elérhetőség NÉMÁN üres
+  --    marad — vagyis pont a bejelentett tünet térne vissza. Itt HANGOS.
+  SELECT '7. Minden publikált oldalnál ad sort a tartalék-RPC',
+         CASE WHEN to_regprocedure('public.public_site_congregation_fallback(text)') IS NULL
+                THEN '❌ NINCS FÜGGVÉNY — nem értékelhető'
+              WHEN NOT EXISTS (
+                SELECT 1
+                FROM public.public_sites ps
+                LEFT JOIN LATERAL (
+                  SELECT true AS talalt
+                  FROM public.public_site_congregation_fallback(ps.slug) x
+                ) f ON true
+                WHERE ps.is_published = true AND f.talalt IS NULL
+              ) THEN '✅ OK'
+              ELSE '❌ VAN PUBLIKÁLT OLDAL, AMIRE A TARTALÉK 0 SORT AD — a congregations.status / public_site_enabled szétcsúszott — futtasd az ELLENORZO-listak.sql B. pontját' END
+
+) AS kapuk
+ORDER BY lepes;

@@ -94,6 +94,30 @@ function fuggvenyTorzs(sql, jel) {
   return zar < 0 ? sql.slice(nyit) : sql.slice(nyit + hatarolo.length, zar)
 }
 
+/**
+ * Azok a GRANT/REVOKE sorok, amelyek DO blokkon KÍVÜL nevesítenek egy
+ * (esetleg nem létező) szerepkört.
+ *
+ * ⚠️ PONTOSAN CÉLZUNK: nem az EMLÍTÉS a baj — a pg_roles-lekérdezés és az
+ * ellenőrző SELECT jogosan nevezi meg őket. A baj az, ha egy jogosultsági
+ * utasítás KÖZVETLENÜL hivatkozik rájuk: az élesben 42704-gyel elszáll, és
+ * minden utána következő utasítás elmarad. Pontosan ezen bukott el a
+ * 2026-07-18-as migráció.
+ *
+ * Közös függvény, hogy az őrszem és a NEGATÍV mutánsa UGYANAZT a logikát
+ * futtassa — különben a mutáns nem bizonyítana semmit.
+ */
+function szereplekSzivargasa(sql, szerepek) {
+  const doBlokkNelkul = sql.replace(
+    /DO \$[a-zA-Z_][a-zA-Z0-9_]*\$[\s\S]*?\$[a-zA-Z_][a-zA-Z0-9_]*\$;/g,
+    '',
+  )
+  return doBlokkNelkul
+    .split(String.fromCharCode(10))
+    .filter(sor => /(GRANT|REVOKE)[ ]/.test(sor))
+    .filter(sor => szerepek.some(sz => sor.includes(sz)))
+}
+
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kartoteka-gyul-oldal-'))
 process.on('exit', () => {
   try {
@@ -197,13 +221,29 @@ const SLUG = 'baratosi-reformatus-egyhazkozseg'
   assert(/c\.email/.test(sql) && /c\.telefon/.test(sql), 'C1b: az e-mail és a telefon tartaléka is a gyülekezeti adat')
   assert(/c\.varos/.test(sql) && /c\.iranyitoszam/.test(sql), 'C1c: a cím a gyülekezeti adatok külön mezőiből áll össze')
 
-  // A weboldalon megadott érték MINDIG erősebb — a tartalék nem írhatja felül.
-  const cimerAg = /COALESCE\(\s*NULLIF\(pg_catalog\.btrim\(ps\.crest_image_url\)[\s\S]{0,120}?c\.cimer_url/.test(sql)
-  assert(cimerAg, 'C1d: a SORREND helyes — előbb a weboldalon megadott címer, csak utána a gyülekezeti')
+  // ⚠️ A SORRENDET (weboldali érték > gyülekezeti tartalék) itt NEM az SQL
+  // dönti el, hanem a betöltő — lásd a G2/G2b őrszemet. Ez SZÁNDÉKOS: élesben
+  // három különböző úton érkezhet a weboldal-adat, és csak az alkalmazásban
+  // van olyan pont, ahol mindhárom fölött ugyanaz a szabály érvényesül.
+  const tartalekTorzs = fuggvenyTorzs(sql, 'congregation_fallback')
+  assert(tartalekTorzs.includes('public.public_sites'), 'C1d-elo: a tartalék-RPC törzsének kivágása sikerült')
 
-  // Az ÜRES SZÖVEG is tartaléknak számít: a „mentettem, mégsem látszik" tünet
-  // tipikusan üres stringből jön, nem NULL-ból.
-  assert(/NULLIF\(pg_catalog\.btrim\(ps\.contact_email\), ''\)/.test(sql), 'C1e: az üres szöveg is tartalékot vált ki (nem csak a NULL)')
+  // Az ÜRES SZÖVEG nem érték: a „mentettem, mégsem látszik" tünet tipikusan
+  // üres stringből jön. Az RPC ezért csak nem üres értéket ad vissza.
+  const nullifDb = (tartalekTorzs.match(/NULLIF\(pg_catalog\.btrim\(/g) || []).length
+  assert(nullifDb >= 4, `C1e: a tartalék-RPC csak NEM ÜRES értéket ad vissza (${nullifDb} NULLIF(btrim(…)))`)
+
+  // A kapu ugyanaz, mint a weboldalé — nem publikált oldal adata nem szivároghat ki.
+  assert(
+    /ps\.is_published = true/.test(tartalekTorzs) &&
+      /c\.status = 'active'/.test(tartalekTorzs) &&
+      /c\.public_site_enabled = true/.test(tartalekTorzs),
+    'C1f: a tartalék-RPC ugyanazt a kaput használja, mint a weboldal (publikált + aktív + engedélyezett)',
+  )
+  assert(
+    /SET search_path = ''/.test(sql),
+    'C1g: a SECURITY DEFINER függvények üres search_path-tal futnak (nincs útvonal-alapú eszkaláció)',
+  )
 }
 
 // C1n (negatív): a MAI, éles RPC-definíción (a repó korábbi migrációja) az
@@ -357,6 +397,242 @@ const SLUG = 'baratosi-reformatus-egyhazkozseg'
     fs.readFileSync(path.join(ROOT, 'apps/web/components/dashboard/program-agenda-card.tsx'), 'utf8'),
   ).replace(/\{p\.publikus &&[\s\S]*?\)\}/, '')
   assert(!/kt-public-chip/.test(mutans), 'C7n: a jelzés nélküli kártyán a C7 őrszem BUKNA — nem vak')
+}
+
+// ---------------------------------------------------------------------------
+// F1–F5 — a migráció ÖNHORDÓ és SZEREP-TOLERÁNS
+//
+// ⛔ MI TÖRTÉNT: az első kiadás élesben elhasalt a SAJÁT előfeltétel-őrén:
+//    „a public_site_private.public_site_context_v2(text) nem létezik".
+//    A projekt migrációs naplója szerint sem a 2026-07-17-es, sem a
+//    2026-07-18-as publikus-oldal lánc nem futott le — az élő rendszer a
+//    közvetlen táblaolvasás ágán fut. Az őr olyat követelt, ami a
+//    működéshez nem is kellett.
+// ---------------------------------------------------------------------------
+const MIGRACIO = path.join(ROOT, 'migration-docs/sql/2026-08-27-gyulekezeti-oldal-naptar-cimer.sql')
+
+/** Az előfeltétel-őr DO blokkjának törzse. */
+function elofeltetelTorzs(sql) {
+  return fuggvenyTorzs(sql, 'elofeltetel')
+}
+
+{
+  const sql = sqlKommentNelkul(fs.readFileSync(MIGRACIO, 'utf8'))
+  const elofeltetel = elofeltetelTorzs(sql)
+
+  assert(elofeltetel.includes('public_sites'), 'F1-elo: az előfeltétel-őr törzsének kivágása sikerült')
+  assert(
+    !/public_site_context/.test(elofeltetel),
+    'F1: az előfeltétel-őr NEM követel kontextus-RPC-t (élesben egyik sem létezik — ezen hasalt el az 1. kiadás)',
+  )
+  assert(
+    !/public_site_private/.test(elofeltetel),
+    'F1b: az előfeltétel-őr a belső sémát sem követeli meg',
+  )
+
+  // Amit VISZONT meg KELL követelnie — ezek nélkül némán rossz eredményt adna.
+  for (const kell of ['public_sites', 'congregations', 'cimer_url', 'publikus', 'show_events']) {
+    assert(elofeltetel.includes(kell), `F1c: az őr ellenőrzi a(z) \`${kell}\` meglétét`)
+  }
+}
+
+// F1n (negatív): az „óvilági" előfeltétellel az őrszem BUKIK.
+// ⚠️ A régi világot a MAI forrásból állítjuk elő — `git show HEAD:` alapú
+// asszert a saját commitjától bukna meg (2026-08-23-i hibaosztály).
+{
+  const sql = sqlKommentNelkul(fs.readFileSync(MIGRACIO, 'utf8'))
+  const ovilagi = sql.replace(
+    "IF to_regclass('public.public_sites') IS NULL THEN",
+    "IF to_regprocedure('public_site_private.public_site_context_v2(text)') IS NULL THEN\n    RAISE EXCEPTION 'nem letezik';\n  END IF;\n  IF to_regclass('public.public_sites') IS NULL THEN",
+  )
+  assert(
+    /public_site_context/.test(elofeltetelTorzs(ovilagi)),
+    'F1n: az óvilági (kontextus-RPC-t követelő) előfeltétellel az F1 őrszem BUKNA — nem vak',
+  )
+}
+
+// F2 — SZEREP-TOLERANCIA. Ezen bukott el a 2026-07-18-as migráció (42704).
+{
+  const sql = sqlKommentNelkul(fs.readFileSync(MIGRACIO, 'utf8'))
+  const nemLetezoSzerepek = ['app_staff_user', 'app_pending_user', 'member_portal_user']
+
+  // ⚠️ PONTOSAN CÉLZUNK: nem az EMLÍTÉS a baj (a pg_roles-lekérdezés és az
+  // ellenőrző SELECT jogosan nevezi meg őket), hanem ha egy GRANT vagy REVOKE
+  // utasítás közvetlenül rájuk hivatkozik pg_roles-őr nélkül — az élesben
+  // 42704-gyel elszáll, és MINDEN utána következő utasítás elmarad.
+  // Pontosan ezen bukott el a 2026-07-18-as migráció.
+  const szivargas = szereplekSzivargasa(sql, nemLetezoSzerepek)
+  assert(
+    szivargas.length === 0,
+    `F2: DO blokkon KÍVÜL nincs olyan GRANT/REVOKE, ami nem létező szerepkört nevez meg (${szivargas.length} ilyen sor)`,
+  )
+
+  const aclBlokk = fuggvenyTorzs(sql, 'jogosultsagok')
+  assert(/pg_roles/.test(aclBlokk), 'F2b: az ACL-blokk tényleg ellenőrzi a szerepkörök létezését')
+
+  // ⚠️ Üres szereplistából `FROM PUBLIC, ` (vesszőre végződő) hibás SQL lenne.
+  // A `PUBLIC` ezért a lista ELSŐ, mindig meglévő eleme.
+  assert(
+    /v_letezo text\[\] := ARRAY\['PUBLIC'\]/.test(aclBlokk),
+    'F2c: a szereplista SOSEM lehet üres (a PUBLIC mindig benne van) — nincs vesszőre végződő REVOKE',
+  )
+  assert(
+    !/FROM PUBLIC, %s/.test(aclBlokk),
+    'F2d: nincs olyan format-minta, ami üres listánál vesszőre végződne',
+  )
+}
+
+// F2n (negatív): szerep-ellenőrzés nélküli ACL-lel az őrszem BUKIK.
+{
+  const mutans = sqlKommentNelkul(fs.readFileSync(MIGRACIO, 'utf8')).replace(
+    /DO \$jogosultsagok\$[\s\S]*?\$jogosultsagok\$;/,
+    "GRANT EXECUTE ON FUNCTION public.public_site_events_v2(text, integer) TO anon, app_staff_user;",
+  )
+  // ⚠️ Az őrszem SAJÁT LOGIKÁJÁT futtatjuk a mutánson — nem csak azt nézzük,
+  // hogy a szöveg tartalmazza-e a szerepnevet. Egy mutáns, ami nem a valódi
+  // ellenőrzést gyakorolja, semmit nem bizonyít.
+  const mutansSzivargas = szereplekSzivargasa(mutans, [
+    'app_staff_user',
+    'app_pending_user',
+    'member_portal_user',
+  ])
+  assert(
+    mutansSzivargas.length > 0,
+    `F2n: a szerep-ellenőrzés nélküli ACL-en az F2 őrszem TÉNYLEG megbukna (${mutansSzivargas.length} talált sor) — nem vak`,
+  )
+}
+
+// F3 — a migráció NEM nyúl hozzá működő éles kontextus-függvényhez
+{
+  const sql = sqlKommentNelkul(fs.readFileSync(MIGRACIO, 'utf8'))
+  assert(
+    !/CREATE OR REPLACE FUNCTION[\s\S]{0,80}public_site_context/.test(sql),
+    'F3: a migráció NEM ír felül kontextus-függvényt — önhordó, új RPC-t ad helyette',
+  )
+  assert(
+    /public_site_congregation_fallback/.test(sql),
+    'F3b: …és ez az önhordó tartalék-RPC tényleg létrejön',
+  )
+  assert(
+    /public_sites\s+ADD COLUMN IF NOT EXISTS service_times/.test(sql.replace(/\s+/g, ' ')),
+    'F3c: a service_times oszlop is létrejön (ettől látszik a „Rendszeres alkalmak" szerkesztő)',
+  )
+}
+
+// ---------------------------------------------------------------------------
+// F4 — a KAPUK egyetlen eredményhalmazban, a fájl UTOLSÓ utasításaként
+//
+// ⚠️ HIBAOSZTÁLY: a Supabase SQL editor egy szkriptből CSAK AZ UTOLSÓ, sorokat
+//    visszaadó utasítás rácsát mutatja (a projekt saját tapasztalata,
+//    docs/CHANGELOG.md: „Studio »Run« csak az utolsó…"). Ha a kapuk külön
+//    SELECT-ek lennének, a `❌`-ek NEM látszanának — előállna a „lefutott, nem
+//    hibázott" hamis jelentés. Ez a ház bevett mintája (UNION ALL riport-blokk),
+//    a `selftest:sql-union` őrszem is ezt a formát védi.
+// ---------------------------------------------------------------------------
+{
+  const nyers = fs.readFileSync(MIGRACIO, 'utf8')
+  const sql = sqlKommentNelkul(nyers)
+
+  // Hány önálló, sorokat visszaadó SELECT áll a fájlban? (A DO blokkokon és
+  // az al-lekérdezéseken kívül — azokat a sorkezdő SELECT szűri ki.)
+  const felsoSzintuSelectek = (sql.match(/^SELECT /gm) || []).length
+  assert(
+    felsoSzintuSelectek === 1,
+    `F4: a migráció EGYETLEN felső szintű SELECT-tel zárul (${felsoSzintuSelectek} db) — különben a kapuk nem látszanának`,
+  )
+
+  // …és ez tényleg az UTOLSÓ utasítás.
+  // ⚠️ Nem `split(';')`-tel: egy SQL sztringben is állhat pontosvessző, attól a
+  // naiv darabolás félrevágna. A fájl VÉGÉT nézzük.
+  assert(
+    /SELECT lepes, eredmeny FROM \([\s\S]*\) AS kapuk\s*ORDER BY lepes;\s*$/.test(sql),
+    'F4b: a kapu-blokk a fájl UTOLSÓ utasítása (ezt látja a Supabase editor)',
+  )
+  assert((sql.match(/UNION ALL/g) || []).length >= 6, 'F4c: mind a hét kapu egy UNION ALL blokkban áll')
+
+  // A tájékoztató listák KÜLÖN fájlban — a kapuk elé nem kerülhetnek.
+  const listak = path.join(ROOT, 'migration-docs/sql/2026-08-27-gyulekezeti-oldal-ELLENORZO-listak.sql')
+  assert(fs.existsSync(listak), 'F4d: a tájékoztató listák külön fájlban élnek')
+
+  // ⚠️ A CROSS JOIN LATERAL pont a BUKÓ sorokat tüntetné el (a függvény 0 sort
+  //    ad, ha a kapu zárva) — vagyis a diagnosztika épp ott vakulna meg, ahol
+  //    a legfontosabb lenne.
+  const listakSzoveg = sqlKommentNelkul(fs.readFileSync(listak, 'utf8'))
+  assert(
+    !/CROSS JOIN LATERAL/.test(listakSzoveg) && /LEFT JOIN LATERAL/.test(listakSzoveg),
+    'F4e: a listák LEFT JOIN LATERAL-t használnak — a CROSS JOIN elrejtené a bukó eseteket',
+  )
+}
+
+// F4n (negatív): CROSS JOIN LATERAL-lal az őrszem BUKIK.
+{
+  const mutans = sqlKommentNelkul(
+    fs.readFileSync(path.join(ROOT, 'migration-docs/sql/2026-08-27-gyulekezeti-oldal-ELLENORZO-listak.sql'), 'utf8'),
+  ).replace(/LEFT JOIN LATERAL/g, 'CROSS JOIN LATERAL')
+  assert(/CROSS JOIN LATERAL/.test(mutans), 'F4n: a bukó sorokat elrejtő változaton az F4e őrszem BUKNA — nem vak')
+}
+
+// F5 — az előfeltétel-őr MINDEN hivatkozott oszlopot ellenőriz (fail-closed)
+{
+  const sql = sqlKommentNelkul(fs.readFileSync(MIGRACIO, 'utf8'))
+  const elofeltetel = fuggvenyTorzs(sql, 'elofeltetel')
+
+  // ⚠️ Egy `LANGUAGE sql` függvény törzsét a CREATE MÁR feloldja: hiányzó
+  // oszlopnál OTT szállna el, zavaros hibával és félkész állapotot hagyva.
+  const tartalekMezok = ['email', 'telefon', 'cim', 'hazszam', 'iranyitoszam', 'varos', 'megye']
+  const hianyzok = tartalekMezok.filter(m => !new RegExp(`'${m}'`).test(elofeltetel))
+  assert(
+    hianyzok.length === 0,
+    `F5: az őr a tartalék-RPC MINDEN gyülekezeti mezőjét ellenőrzi (hiányzik: ${hianyzok.join(', ') || 'egy sem'})`,
+  )
+  assert(/'leiras'/.test(elofeltetel), 'F5b: …és a gyulekezeti_programok.leiras oszlopot is')
+  assert(/data_type/.test(elofeltetel), 'F5c: …és a service_times TÍPUSÁT is (az ADD COLUMN IF NOT EXISTS nem nézi)')
+}
+
+// ---------------------------------------------------------------------------
+// G1–G4 — az app-oldali tartalék MINDHÁROM betöltési ág fölött hat
+// ---------------------------------------------------------------------------
+{
+  const loader = kommentNelkul(fs.readFileSync(path.join(ROOT, 'apps/web/lib/public-site/site-loader.ts'), 'utf8'))
+
+  assert(/public_site_congregation_fallback/.test(loader), 'G1: a betöltő lekéri a gyülekezeti tartalékot')
+
+  // ⚠️ A weboldalon MEGADOTT érték mindig erősebb — a tartalék nem írhat felül.
+  assert(
+    /nemUres\(site\.contact_email\) \?\? tartalek/.test(loader),
+    'G2: a weboldalon megadott érték ERŐSEBB a gyülekezeti tartaléknál',
+  )
+  assert(
+    /safePublicHttpsUrl\(site\.crest_image_url\) \?\?/.test(loader),
+    'G2b: ugyanez a címernél',
+  )
+  assert(/function nemUres/.test(loader), 'G2c: az ÜRES SZÖVEG is tartalékot vált ki, nem csak a hiányzó érték')
+
+  // ⚠️ EZ AZ AZ ÁG, AMI MA ÉLESBEN FUT (a _RUN_LOG szerint egyik kontextus-RPC
+  // sem létezik): a közvetlen táblaolvasás. Ha az nem kéri le a service_times-t,
+  // a szerkesztő megjelenne, de az oldal továbbra sem mutatna menetrendet.
+  assert(
+    /PUBLIC_SITE_SAFE_COLUMNS\}, service_times/.test(loader),
+    'G3: a közvetlen (átmeneti) olvasási ág is lekéri a service_times-t',
+  )
+  assert(
+    /isMissingServiceTimesColumn/.test(loader),
+    'G3b: …és hiányzó oszlopnál kecsesen visszaesik (a migráció előtt sem törik el az oldal)',
+  )
+}
+
+// G4n (negatív): ha a tartalék FELÜLÍRNÁ a weboldali értéket, a G2 őrszem BUKIK.
+{
+  const mutans = kommentNelkul(
+    fs.readFileSync(path.join(ROOT, 'apps/web/lib/public-site/site-loader.ts'), 'utf8'),
+  ).replace(
+    'nemUres(site.contact_email) ?? tartalek?.contact_email ?? null',
+    'tartalek?.contact_email ?? nemUres(site.contact_email) ?? null',
+  )
+  assert(
+    !/nemUres\(site\.contact_email\) \?\? tartalek/.test(mutans),
+    'G4n: a tartalékot előre soroló (hibás) változaton a G2 őrszem BUKNA — nem vak',
+  )
 }
 
 console.log(`\n${total - failedCount}/${total} teszt zöld`)

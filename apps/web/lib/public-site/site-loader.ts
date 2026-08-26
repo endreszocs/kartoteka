@@ -57,7 +57,10 @@ const publicSiteRowSchema = z.object({
   address: z.string().nullable(),
   about_html: z.string().nullable(),
   // A V1 RPC és a migráció előtti közvetlen olvasás még nem adja vissza.
-  service_times: publicServiceTimesSchema.optional(),
+  // ⚠️ `.nullish()`, nem `.optional()`: az utóbbi a HIÁNYZÓ kulcsot fogadja
+  // el, a `null`-t NEM. Ma csak a DB NOT NULL megszorítása miatt biztonságos —
+  // egy jövőbeli NULL az EGÉSZ oldalt 404-elné.
+  service_times: publicServiceTimesSchema.nullish(),
   robots_index: z.boolean(),
   show_member_count: z.boolean(),
   show_presbyter_count: z.boolean(),
@@ -93,8 +96,102 @@ const PUBLIC_SITE_SAFE_COLUMNS = [
   'override_family_count',
 ].join(', ')
 
-function isMissingPublicContextRpc(code: string | undefined): boolean {
-  return code === 'PGRST202' || code === '42883'
+/**
+ * Hiányzó RPC felismerése.
+ *
+ * ⚠️ A hibakód ÖNMAGÁBAN kevés: a PostgREST proxy néha kód NÉLKÜL, csak
+ * üzenettel jelzi a hiányzó függvényt („Could not find the function …",
+ * „… does not exist", „schema cache"). Kód-only ellenőrzéssel ilyenkor NEM
+ * történne visszaesés, és a látogató 404-et kapna egy létező oldalra.
+ * A projekt kanonikus mintája (lib/profiles/officials.ts) is a kettőt együtt
+ * nézi.
+ */
+function isMissingPublicContextRpc(error: {
+  code?: string
+  message?: string
+} | null | undefined): boolean {
+  if (!error) return false
+  if (error.code === 'PGRST202' || error.code === '42883') return true
+  const uzenet = error.message?.toLowerCase() ?? ''
+  return (
+    uzenet.includes('could not find the function') ||
+    uzenet.includes('does not exist') ||
+    uzenet.includes('schema cache')
+  )
+}
+
+/**
+ * A `service_times` oszlop hiánya — és CSAK az.
+ *
+ * ⚠️ Szűken célzunk: a jogosultsági vagy hálózati hibát SOHA nem kerüljük meg
+ * egy szűkebb lekérdezéssel, mert az elfedné a valódi problémát. (Ugyanez a
+ * minta él az admin beállítás-oldalon is.)
+ */
+function isMissingServiceTimesColumn(
+  error: { code?: string; message?: string } | null,
+): boolean {
+  return Boolean(
+    error &&
+      (error.code === 'PGRST204' || error.code === '42703') &&
+      error.message?.includes('service_times'),
+  )
+}
+
+/** Üres/whitespace szöveg = nincs érték. Egyébként a levágott szöveg. */
+function nemUres(ertek: string | null | undefined): string | null {
+  const trimmelt = ertek?.trim()
+  return trimmelt ? trimmelt : null
+}
+
+/**
+ * A gyülekezet SAJÁT, mentett címere és elérhetőségei — tartaléknak (2026-08-27).
+ *
+ * A `public_site_congregation_fallback` RPC ugyanazt a kaput használja, mint a
+ * weboldal (publikált oldal + aktív gyülekezet), és a négy mezőn kívül semmit
+ * nem ad ki a gyülekezetről.
+ *
+ * ⚠️ CSAK AKKOR HÍVJUK MEG, ha tényleg hiányzik valami — a teljesen kitöltött
+ * weboldal ne fizessen meg egy fölösleges kört minden oldalletöltésnél.
+ *
+ * ⚠️ HIÁNYZÓ RPC = NÉMA TARTALÉK: a migráció a frontend UTÁN is telepíthető
+ * (expand/contract). Ilyenkor a weboldal pontosan úgy viselkedik, mint eddig —
+ * nem hibázik és nem is hazudik.
+ */
+async function loadCongregationFallback(
+  supabase: ReturnType<typeof createPublicServerClient>,
+  slug: string,
+  site: {
+    crest_image_url: string | null
+    contact_email: string | null
+    contact_phone: string | null
+    address: string | null
+  },
+): Promise<{
+  crest_image_url: string | null
+  contact_email: string | null
+  contact_phone: string | null
+  address: string | null
+} | null> {
+  const hianyzik =
+    !nemUres(site.crest_image_url) ||
+    !nemUres(site.contact_email) ||
+    !nemUres(site.contact_phone) ||
+    !nemUres(site.address)
+  if (!hianyzik) return null
+
+  const { data, error } = await supabase
+    .rpc('public_site_congregation_fallback', { p_slug: slug })
+    .maybeSingle()
+
+  if (error || !data) return null
+
+  const sor = data as Record<string, unknown>
+  return {
+    crest_image_url: nemUres(sor.crest_image_url as string | null),
+    contact_email: nemUres(sor.contact_email as string | null),
+    contact_phone: nemUres(sor.contact_phone as string | null),
+    address: nemUres(sor.address as string | null),
+  }
 }
 
 interface PublicSiteThemeRow {
@@ -134,7 +231,7 @@ export const loadPublicSiteBySlug = cache(
     // Expand/contract: a V2 frontend telepíthető a service_times migráció
     // előtt. Ilyenkor a már biztonságos V1 RPC adja vissza a régi mezőket,
     // az alkalomlista pedig becsületesen üres marad.
-    if (isMissingPublicContextRpc(v2ContextResult.error?.code)) {
+    if (isMissingPublicContextRpc(v2ContextResult.error)) {
       const v1ContextResult = await supabase
         .rpc('public_site_context', { p_slug: parsedSlug.data })
         .maybeSingle()
@@ -144,24 +241,60 @@ export const loadPublicSiteBySlug = cache(
 
       // Csak a V1 RPC hiányánál lépünk tovább a migráció előtti kompatibilis
       // közvetlen olvasásra. Jogosultsági vagy futási hibát nem kerülünk meg.
-      if (isMissingPublicContextRpc(v1ContextResult.error?.code)) {
+      if (isMissingPublicContextRpc(v1ContextResult.error)) {
         console.warn(
           '[public-site] A public_site_context RPC-k még nem érhetők el; átmeneti kompatibilitási olvasás fut.',
         )
-        const legacyResult = await supabase
+
+        // ⚠️ 2026-08-27 — ITT FUT MA AZ ÉLES RENDSZER. A projekt saját
+        // migrációs naplója (migration-docs/sql/_RUN_LOG.md) szerint sem a
+        // 2026-07-17-es, sem a 2026-07-18-as publikus-oldal lánc NEM futott
+        // le, tehát EGYIK kontextus-RPC sem létezik — a gyülekezeti oldalakat
+        // ez az „átmeneti" ág szolgálja ki. Ezért nem elég, ha egy javítás
+        // csak az RPC-kben él: itt is meg kell jelennie.
+        //
+        // A `service_times` oszlopot KÜLÖN próbáljuk: ha még nincs meg (a
+        // 2026-08-27-es migráció előtt), a hiányzó oszlop az EGÉSZ lekérdezést
+        // megbuktatná — vagyis a gyülekezeti oldal fehér lapra esne.
+        const legacyWithServiceTimes = await supabase
           .from('public_sites')
-          .select(PUBLIC_SITE_SAFE_COLUMNS)
+          .select(`${PUBLIC_SITE_SAFE_COLUMNS}, service_times`)
           .eq('slug', parsedSlug.data)
           .eq('is_published', true)
           .maybeSingle()
 
-        rawSite = legacyResult.data
-        loadError = legacyResult.error
+        if (isMissingServiceTimesColumn(legacyWithServiceTimes.error)) {
+          const legacyResult = await supabase
+            .from('public_sites')
+            .select(PUBLIC_SITE_SAFE_COLUMNS)
+            .eq('slug', parsedSlug.data)
+            .eq('is_published', true)
+            .maybeSingle()
+
+          rawSite = legacyResult.data
+          loadError = legacyResult.error
+        } else {
+          rawSite = legacyWithServiceTimes.data
+          loadError = legacyWithServiceTimes.error
+        }
       }
     }
 
     const parsedSite = publicSiteRowSchema.safeParse(rawSite)
-    if (loadError || !parsedSite.success) return null
+    if (loadError || !parsedSite.success) {
+      // ⚠️ EDDIG EZ AZ ÚT TELJESEN NÉMA VOLT: a hívó `notFound()`-ot hív, tehát
+      // a látogató 404-et lát — akkor is, ha valójában JOGOSULTSÁGI hiba
+      // (42501) történt, nem pedig „nincs ilyen gyülekezet". A kettő
+      // megkülönböztetése élesben másképp nem derülne ki.
+      if (loadError) {
+        console.error(
+          '[public-site] A gyülekezeti oldal betöltése hibázott (nem „nincs ilyen slug"):',
+          loadError.code,
+          loadError.message,
+        )
+      }
+      return null
+    }
     const site = parsedSite.data
 
     // Téma betöltése
@@ -180,6 +313,23 @@ export const loadPublicSiteBySlug = cache(
       }
     }
 
+    // ── Gyülekezeti tartalék: címer + elérhetőségek (2026-08-27) ──────────
+    //
+    // ⛔ MI VOLT A HIBA (Endre élesben látta): a betöltő-képernyőn a Kartotéka
+    // termék-logója állt a gyülekezet címere helyett, az elérhetőségeknél
+    // pedig „hamarosan felkerülnek". Az adat viszont MEG VOLT — csak nem itt:
+    // a setup varázsló a `congregations` táblába írja (ott a címer mező
+    // KÖTELEZŐ), a weboldal viszont csak a `public_sites` saját mezőit nézte.
+    //
+    // ⚠️ MIÉRT ITT, AZ ALKALMAZÁSBAN, ÉS NEM A KONTEXTUS-RPC-BEN:
+    // élesben HÁROM különböző úton érkezhet a weboldal-adat (V2 RPC / V1 RPC /
+    // közvetlen táblaolvasás), mert a `2026-07-18`-as migráció a produkciós
+    // adatbázisban sosem futott le (szerepkör-hiányon hasal el az őre). Ha a
+    // tartalékot valamelyik RPC-be építenénk, csak az egyik ágon hatna — és
+    // némán pont ott nem, ahol most a rendszer fut. Itt viszont mindhárom ág
+    // fölött ugyanaz a szabály érvényesül.
+    const tartalek = await loadCongregationFallback(supabase, parsedSlug.data, site)
+
     return {
       id: site.id,
       congregation_id: site.congregation_id,
@@ -187,13 +337,19 @@ export const loadPublicSiteBySlug = cache(
       display_name: site.display_name,
       tagline: site.tagline,
       hero_image_url: safePublicHttpsUrl(site.hero_image_url),
-      crest_image_url: safePublicHttpsUrl(site.crest_image_url),
+      // A weboldalon megadott érték MINDIG erősebb; a gyülekezeti adat csak
+      // tartalék. Az ÜRES SZÖVEG is tartalékot vált ki, nem csak a hiányzó
+      // érték — a „mentettem, mégsem látszik" tünet tipikusan üres stringből
+      // jön, és a régi kód azt valós értéknek vette.
+      crest_image_url:
+        safePublicHttpsUrl(site.crest_image_url) ??
+        safePublicHttpsUrl(tartalek?.crest_image_url),
       theme,
       custom_primary_color: site.custom_primary_color,
       custom_accent_color: site.custom_accent_color,
-      contact_email: site.contact_email,
-      contact_phone: site.contact_phone,
-      address: site.address,
+      contact_email: nemUres(site.contact_email) ?? tartalek?.contact_email ?? null,
+      contact_phone: nemUres(site.contact_phone) ?? tartalek?.contact_phone ?? null,
+      address: nemUres(site.address) ?? tartalek?.address ?? null,
       about_html: site.about_html,
       service_times: site.service_times ?? [],
       robots_index: site.robots_index,

@@ -62,6 +62,23 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   `docs/GYULEKEZETI-ALDOMAIN-BEALLITAS.md` fájlban. A régi cím továbbra is
   működik.
 
+### 🔧 Ami közben kiderült a rendszerről
+
+A javítás első változata az éles adatbázison megállt egy biztonsági ellenőrzésen.
+Utánanézve kiderült, hogy **két korábbi adatbázis-frissítés soha nem futott le**
+(olyan felhasználói szerepköröket vártak, amelyek élesben nem léteznek). Ennek
+három, addig észrevétlen következménye volt:
+
+- a **„Rendszeres alkalmak" szerkesztő meg sem jelent** a Publikus oldal
+  beállításai között — ezért volt üres az Alkalmaink menetrend. Ez a mostani
+  frissítéssel elérhetővé válik.
+- a **`sitemap.xml` üres volt**, tehát a keresők nem találták meg a gyülekezeti
+  oldalakat;
+- a gyülekezeti oldalak egy régi, „átmeneti" úton szolgálódtak ki.
+
+A mostani frissítés úgy készült, hogy **mindhárom lehetséges adatbázis-állapotban
+működjön**, és semmilyen már működő beállítást ne írjon felül.
+
 ### ⚠️ Fontos tudnivaló
 
 Egy alkalom **csak akkor** jelenik meg a weboldalon és a letölthető naptárban,

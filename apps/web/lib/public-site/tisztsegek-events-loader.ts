@@ -47,8 +47,19 @@ export interface PublicEsemeny {
   egyedi_emoji: string | null
 }
 
-function hianyzoRpc(code: string | undefined): boolean {
-  return code === 'PGRST202' || code === '42883'
+/**
+ * Hiányzó RPC — kód ÉS üzenet alapján.
+ * (A PostgREST néha kód nélkül, csak üzenettel jelzi; lásd a site-loader
+ * azonos nevű segédjének magyarázatát.)
+ */
+function hianyzoRpc(code: string | undefined, message?: string): boolean {
+  if (code === 'PGRST202' || code === '42883') return true
+  const uzenet = message?.toLowerCase() ?? ''
+  return (
+    uzenet.includes('could not find the function') ||
+    uzenet.includes('does not exist') ||
+    uzenet.includes('schema cache')
+  )
 }
 
 /**
@@ -67,7 +78,16 @@ async function hivEsemenyRpc(
 
   const v2 = await supabase.rpc('public_site_events_v2', { p_slug: slug, p_ev: ev })
   if (!v2.error && Array.isArray(v2.data)) return v2.data as Array<Record<string, unknown>>
-  if (!hianyzoRpc(v2.error?.code)) return []
+
+  // A V1-et KÉT esetben próbáljuk meg:
+  //   (a) az RPC hiányzik (a migráció még nem futott le), VAGY
+  //   (b) HIBA NÉLKÜL kaptunk értelmezhetetlen (nem tömb, pl. `null`) választ.
+  // ⚠️ A (b) ág korábban hiányzott: a kód üres listát adott, és a V1-et MEG SEM
+  // hívta (`hianyzoRpc(undefined)` = false) — a naptár némán üres maradt.
+  // Minden MÁS hiba (jogosultság, hálózat) valódi hiba: azt nem kerüljük meg.
+  const ertelmezhetetlenValasz = !v2.error && !Array.isArray(v2.data)
+  const erdemesV1 = ertelmezhetetlenValasz || hianyzoRpc(v2.error?.code, v2.error?.message)
+  if (!erdemesV1) return []
 
   const v1 = await supabase.rpc('public_site_events', { p_slug: slug })
   if (v1.error || !Array.isArray(v1.data)) return []

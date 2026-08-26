@@ -19,6 +19,73 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
+---
+
+## ✅ LEFUTOTT – presbitérium, tisztségek, naptár (2026-08-26)
+
+- [x] 2026-08-26 — **`2026-08-26-presbiterium-tisztsegek.sql`** ✅ LEFUTOTT (17/17 zöld)
+       Ez hozza a `gyulekezeti_programok.publikus` + `ismetlodes_vege` + `'evi'`
+       ismétlődést, a `public_sites.show_tisztsegek` / `show_events` kapcsolókat,
+       valamint a `public_site_tisztsegek` és `public_site_events` RPC-ket.
+       ⚠️ A `public_site_stats` ÉLES változatát is EZ frissítette V3-ra (aktív +
+       teljes értékű presbiter-számlálás). **Bármilyen későbbi `CREATE OR REPLACE`
+       a régebbi láncokból (pl. 2026-07-17) NÉMÁN visszaírná a V2 törzset.**
+       Az ACL-blokkja szerep-toleráns — ezért tudott lefutni ott, ahol a
+       2026-07-17/18-as lánc nem.
+
+---
+
+## 🔴 PENDING – gyülekezeti weboldal: címer, elérhetőség, éves naptár (2026-08-27)
+
+**⚠️ FONTOS ÉLES-TÉNY, AMI EBBEN A KÖRBEN DERÜLT KI.** A publikus gyülekezeti
+oldal ma a `site-loader.ts` HARMADIK, „átmeneti kompatibilitási" ágán fut:
+KÖZVETLEN `public_sites` táblaolvasáson. Sem a `public_site_context` (V1), sem
+a `public_site_context_v2` NEM létezik élesben, mert a hozzájuk tartozó
+2026-07-17-es és 2026-07-18-as lánc egyike sem futott le (lásd feljebb).
+Következmények, amikre eddig senki nem gondolt:
+
+- **nincs `public_sites.service_times` oszlop** → az adminban a „Rendszeres
+  alkalmak" szerkesztő MEG SEM JELENIK (a felület kecsesen elrejti), ezért
+  látszik üresnek az Alkalmaink menetrend
+- **nincs `public_sitemap_entries`** → a `sitemap.xml` ÜRES
+- minden javítás, ami csak a kontextus-RPC-kbe kerül, ÉLESBEN HATÁSTALAN
+
+⚠️ **A 2026-07-17/18-as láncot NE tegye senki „szerep-toleránssá" és futtassa
+le vakon.** A `2026-07-17-public-site-read-security.sql` `CREATE OR REPLACE`-szel
+újraírná a `public_site_stats` függvényt a RÉGI (V2) törzsre, némán visszavonva
+a 2026-08-26-i presbitérium-körben élesített V3 javítást (aktív + teljes
+presbiter-számlálás). Az a lánc külön, gondos kört érdemel.
+
+- [ ] **`2026-08-27-ALLAPOTFELMERES-publikus-oldal.sql`** — CSAK OLVAS
+       Bármikor futtatható, semmit nem módosít. Megmutatja, melyik publikus RPC
+       létezik, megvan-e a `service_times` oszlop, mi az `anon` jogosultsága a
+       `public_sites`-on, és gyülekezetenként hány program van nyilvánosnak
+       jelölve. Az alábbi migráció ELŐTT érdemes lefuttatni.
+
+- [ ] **`2026-08-27-gyulekezeti-oldal-naptar-cimer.sql`** — PENDING (még nem futott)
+       Indok: Endre SQL Editor-futtatására vár (PR #194 / v0.9.184).
+       **2. KIADÁS.** Az 1. kiadás élesben elhasalt a saját előfeltétel-őrén
+       (`public_site_private.public_site_context_v2` nem létezik) — az az őr
+       olyat követelt, ami a működéshez nem is kellett.
+       Hatás:
+         · `public.public_site_congregation_fallback(text)` — ÚJ, ÖNHORDÓ RPC:
+           a gyülekezet saját címere és elérhetőségei tartaléknak. Nem függ
+           semmilyen korábbi publikus-oldal migrációtól, ezért MINDHÁROM élő
+           betöltési ág fölött hat.
+         · `public.public_site_events_v2(text, integer)` — ÚJ: nyilvános
+           programok egy teljes évre, LEÍRÁSSAL (Endre kifejezett kérése; a
+           belső `megjegyzes` továbbra sem megy ki).
+         · `public_sites.service_times` oszlop + validátor + CHECK —
+           SZEREP-TOLERÁNSAN átvéve a 2026-07-18-as fájlból (a validátor törzse
+           bájthű másolat), hogy a „Rendszeres alkalmak" szerkesztő végre
+           látszódjon.
+       **Minden GRANT/REVOKE szerep-toleráns**: az `app_staff_user`,
+       `app_pending_user`, `member_portal_user` élesben nem létezik — pontosan
+       ezen bukott el a 2026-07-18-as migráció.
+       Amit SZÁNDÉKOSAN nem vesz át: az `ALTER DEFAULT PRIVILEGES … REVOKE
+       EXECUTE ON FUNCTIONS` globális beállítást (az minden jövőbeli rutint
+       érintene az egész adatbázisban — külön döntés kell hozzá).
+
 ## ✅ LEFUTOTT – Egyházkerületi S5: könyvelés + leltár + iktatás (2026-08-22)
 
 **⚠️ A SORREND KÖTÖTT: S5a → S5b → S5c.** Az S5c őrszeme ellenőrzi, hogy az S5a
