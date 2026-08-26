@@ -47,31 +47,61 @@ const PADDING_FELUL_MM = 12
 const PADDING_ALUL_MM = 16
 
 /** Egy táblázatsor becsült magassága px-ben (11px betű + 6px padding + keret). */
-const SOR_MAGASSAG_PX = 25
+const SOR_MAGASSAG_PX = 26
 /** Egy tördelt extra sor a cellán belül. */
 const EXTRA_SOR_PX = 14
-/** A táblázat fejléce (thead). */
-const THEAD_PX = 30
+/**
+ * Biztonsági sáv a lap alján, px.
+ *
+ * ⚠️ MIÉRT KELL (Endre élesben találta: „az előnézet hibás, egymásra vannak
+ * csúszva"): a becslés SOSEM lesz pixel-pontos — a betűszélesség, a szóközök
+ * helye és a cellák belső tördelése is beleszól. Ha alábecsüljük, a sorok
+ * túlcsordulnak a `.page` dobozon: a lap `overflow: hidden`, tehát a
+ * fölösleg LEVÁGÓDIK, az abszolút pozíciójú lábléc pedig RÁCSÚSZIK az utolsó
+ * sorokra. Ezért inkább hagyunk üresen egy sávot, mint hogy adat vesszen.
+ */
+const BIZTONSAGI_SAV_PX = 20
+/** A táblázat fejléce (thead) — böngészőben MÉRVE 39 px, +1 ráhagyással. */
+const THEAD_PX = 40
 /** Az összesítő sor (tfoot) — csak az utolsó lapon. */
 const TFOOT_PX = 28
 
-/** Egy lap hasznos belmagassága px-ben. */
+/** Egy lap hasznos belmagassága px-ben (a biztonsági sávval csökkentve). */
 export function lapBelmagassagPx(orientation: PrintOrientation): number {
-  return (LAP_MAGASSAG_MM[orientation] - PADDING_FELUL_MM - PADDING_ALUL_MM) * PX_PER_MM
+  const nyers = (LAP_MAGASSAG_MM[orientation] - PADDING_FELUL_MM - PADDING_ALUL_MM) * PX_PER_MM
+  return nyers - BIZTONSAGI_SAV_PX
+}
+
+/** Egy tördelődő cella a sorban: a szövege és az oszlop kb. hány karaktert bír. */
+export interface TordeloCella {
+  szoveg?: string | null
+  /** Hány karakter fér egy sorba EBBEN az oszlopban (konzervatív becslés). */
+  karakterPerSor: number
 }
 
 /**
  * Egy tartalmi sor becsült magassága.
  *
- * A `hosszuSzoveg` a leghosszabb, TÖRDELŐDŐ cella tartalma (tipikusan a
- * megjegyzés-oszlop). Konzervatívan felfelé kerekítünk: inkább maradjon üres
- * hely a lap alján, mint hogy a sor túlcsorduljon és a `.page` overflow
- * levágja. (A `react-to-print` dokumentált korlátja: a túlcsorduló tartalom
- * NEM tördelődik, hanem levágódik.)
+ * ⚠️ 2026-08-27 — A HIBA, AMIT ENDRE ÉLESBEN LÁTOTT: a becslés eredetileg
+ * EGYETLEN oszlop (a megjegyzés) tördelését nézte. A leltáríven viszont a
+ * MEGNEVEZÉS a leghosszabb szöveg — egy „KIPSTA Vest diferenere Sporturi
+ * deVerde turcoaz universal - 0.048 kg" két sorba fut. Így minden ilyen sort
+ * egysorosnak számoltunk, a lap alja túlcsordult, és a lábléc rácsúszott az
+ * utolsó sorokra. Mostantól MINDEN tördelődő oszlopot mérünk, és a
+ * legmagasabb dönt.
+ *
+ * Konzervatívan felfelé kerekítünk: inkább maradjon üres hely a lap alján,
+ * mint hogy a sor túlcsorduljon és a `.page` overflow levágja. (A
+ * `react-to-print` dokumentált korlátja is ez: a túlcsorduló tartalom NEM
+ * tördelődik, hanem levágódik.)
  */
-export function becsultSorMagassag(hosszuSzoveg?: string | null, oszlopKarakter = 26): number {
-  const hossz = String(hosszuSzoveg || '').length
-  const sorok = Math.max(1, Math.ceil(hossz / Math.max(1, oszlopKarakter)))
+export function becsultSorMagassag(cellak: TordeloCella[]): number {
+  let sorok = 1
+  for (const cella of cellak) {
+    const hossz = String(cella.szoveg || '').length
+    if (hossz === 0) continue
+    sorok = Math.max(sorok, Math.ceil(hossz / Math.max(1, cella.karakterPerSor)))
+  }
   return SOR_MAGASSAG_PX + (sorok - 1) * EXTRA_SOR_PX
 }
 
@@ -197,6 +227,8 @@ export function epitLapok(spec: LapSpec): LapEredmeny {
  */
 function becsultFejlecMagassag(fejlecHtml: string): number {
   if (!fejlecHtml) return 0
+  // A folytatás-fejléc (a további lapok tetején) mérve 13 px.
+  if (/class="continued"/.test(fejlecHtml)) return 16
   const cim = /class="title"/.test(fejlecHtml) ? 34 : 0
   const alcim = /class="subtitle"/.test(fejlecHtml) ? 26 : 0
   const metaSorok = (fejlecHtml.match(/<div><strong>/g) || []).length
@@ -316,20 +348,34 @@ function escapeHtmlAttr(value: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Kétnyelvű felirat: az ELSŐDLEGES nyelv elöl, a másik zárójelben.
+ * A nyomtatvány EGYNYELVŰ szövege.
  *
- * A hivatalos íveken mindkét nyelv rajta marad (a román hatóság a román
- * megnevezést várja, a lelkész a magyart érti) — csak a SORREND vált.
+ * ⚠️ 2026-08-27 (Endre döntése): „Magyar és a román verzió legyen, vagy csak
+ * román vagy csak magyar!" — a korábbi, „Dátum / Data" alakú vegyes feliratok
+ * megszűntek. Egy ív mostantól VÉGIG egy nyelven szól; a másik nyelvű
+ * változat külön nyomtatható.
  */
-export function ketNyelvu(lang: PrintLang, hu: string, ro: string): string {
-  if (!hu) return ro
-  if (!ro) return hu
-  return lang === 'hu' ? `${hu} / ${ro}` : `${ro} / ${hu}`
+export function egyNyelvu(lang: PrintLang, hu: string, ro: string): string {
+  if (lang === 'hu') return hu || ro
+  return ro || hu
 }
 
-/** Egynyelvű szöveg az elsődleges nyelven (megjegyzések, magyarázatok). */
-export function egyNyelvu(lang: PrintLang, hu: string, ro: string): string {
-  return lang === 'hu' ? hu : ro
+/**
+ * A kiállító neve a lap nyelvén.
+ *
+ * ⚠️ Ha a választott nyelven NINCS név (tipikusan hiányzik a `nev_ro`), a
+ * másik nyelvű név áll ott EGYEDÜL — kitalált nevet SOHA nem írunk hivatalos
+ * ívre.
+ */
+export function entitasNevEgyNyelven(
+  hu: string | null | undefined,
+  ro: string | null | undefined,
+  lang: PrintLang,
+): string {
+  const huNev = (hu || '').trim()
+  const roNev = (ro || '').trim()
+  if (lang === 'ro') return roNev || huNev
+  return huNev || roNev
 }
 
 export const PRINT_LANG_LABEL: Record<PrintLang, string> = {

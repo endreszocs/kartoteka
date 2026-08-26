@@ -13,18 +13,17 @@ import {
   getInventoryBookValue as getBookValue,
   getInventoryDisplayName,
   getInventoryQuantity as getQuantity,
-  hivatalosKetnyelvuNev,
   normalizeInventoryDate as normalizeDate,
 } from '@kartoteka/ui-app'
 
-// 2026-08-27: a lapokra bontás, az oldalszám és a kétnyelvűség a KÖZÖS
+// 2026-08-27: a lapokra bontás, az oldalszám és a NYELV a KÖZÖS
 // print-layout rétegből jön — egyetlen igazságforrás a képernyőnek, a
 // nyomtatásnak és a PDF-nek.
 import {
   becsultSorMagassag,
   egyNyelvu,
+  entitasNevEgyNyelven,
   epitLapok,
-  ketNyelvu,
   wrapPrintDocument,
   type PrintLang,
   type PrintSor,
@@ -286,7 +285,7 @@ function buildLeltarivReport(
   congregationNameRo?: string,
   lang: PrintLang = 'hu',
 ) {
-  const entitasNev = escapeHtml(hivatalosKetnyelvuNev(congregationName, congregationNameRo, { elol: lang }))
+  const entitasNev = escapeHtml(entitasNevEgyNyelven(congregationName, congregationNameRo, lang))
   const referenceDate = new Date(year, 11, 31)
   const scopedItems = applyInventoryFilters(items, filters, 'purchase')
   const activeItems = scopedItems.filter(item => isItemActiveOn(item, referenceDate))
@@ -295,9 +294,16 @@ function buildLeltarivReport(
   const sorok: PrintSor[] = activeItems.map((item, index) => {
     const megjegyzes = item.torles_indoklasa || item.megjegyzes || ''
     return {
-      // A megjegyzés-oszlop tördelődik — a lap-tördelő ezzel számol, hogy a
-      // sor ne csorduljon túl a lap alján (a túlcsordulás LEVÁGÁS lenne).
-      magassag: becsultSorMagassag(megjegyzes, 26),
+      // ⚠️ MINDKÉT tördelődő oszlop számít: a MEGNEVEZÉS a leghosszabb szöveg
+      // („KIPSTA Vest diferenere Sporturi deVerde turcoaz universal - 0.048
+      // kg" két sorba fut), és eddig csak a megjegyzést mértük — ettől
+      // csordult túl a lap alja, és csúszott rá a lábléc az utolsó sorokra.
+      magassag: becsultSorMagassag([
+        // Böngészőben MÉRVE: a megnevezés-oszlop 462 px (≈91 karakter/sor),
+        // a megjegyzés-oszlop 69 px (≈11 karakter/sor) — ráhagyással.
+        { szoveg: getInventoryDisplayName(item), karakterPerSor: 85 },
+        { szoveg: megjegyzes, karakterPerSor: 11 },
+      ]),
       html: `
         <tr>
           <td class="text-center">${index + 1}</td>
@@ -315,17 +321,16 @@ function buildLeltarivReport(
   })
 
   const cim = egyNyelvu(lang, 'Leltárív', 'Lista de inventariere')
-  const alcim = egyNyelvu(lang, 'Lista de inventariere', 'Leltárív')
 
   const fejlecElso = `
       <div class="title">${escapeHtml(cim)}</div>
-      <div class="subtitle">${escapeHtml(alcim)} · ${entitasNev}</div>
+      <div class="subtitle">${entitasNev} · ${year}</div>
       <div class="meta-grid">
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Dátum', 'Data'))}:</strong> 31.12.${year}</div>
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Helyszín / felelős', 'Locul / gestionar'))}:</strong> ${escapeHtml(filters?.locationFilter || egyNyelvu(lang, 'Minden helyszín', 'Toate locurile'))}</div>
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Kategória', 'Categoria'))}:</strong> ${escapeHtml(filters?.categoryLabel || egyNyelvu(lang, 'Minden tárgycsoport', 'Toate grupele'))}</div>
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Szűrt időszak', 'Perioada'))}:</strong> ${escapeHtml(formatPeriodLabel(filters))}</div>
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Látható aktív tétel', 'Poziții active'))}:</strong> ${activeItems.length} ${egyNyelvu(lang, 'db', 'buc')}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Dátum', 'Data'))}:</strong> 31.12.${year}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Helyszín / felelős', 'Locul / gestionar'))}:</strong> ${escapeHtml(filters?.locationFilter || egyNyelvu(lang, 'Minden helyszín', 'Toate locurile'))}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Kategória', 'Categoria'))}:</strong> ${escapeHtml(filters?.categoryLabel || egyNyelvu(lang, 'Minden tárgycsoport', 'Toate grupele'))}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Szűrt időszak', 'Perioada'))}:</strong> ${escapeHtml(formatPeriodLabel(filters))}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Látható aktív tétel', 'Poziții active'))}:</strong> ${activeItems.length} ${egyNyelvu(lang, 'db', 'buc')}</div>
       </div>`
 
   const fejlecFolytatas = `<div class="continued">${escapeHtml(cim)} — ${escapeHtml(egyNyelvu(lang, 'folytatás', 'continuare'))}</div>`
@@ -334,23 +339,23 @@ function buildLeltarivReport(
       <table>
         <thead>
           <tr>
-            <th>${escapeHtml(ketNyelvu(lang, 'S.sz.', 'Nr. crt.'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Felleltározott tárgyak', 'Denumirea bunurilor inventariate'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Leltári sz.', 'Cod'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'M.E.', 'U.M.'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Meny.', 'Cant.'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Egységár', 'Preț unitar contabil'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Könyv szerinti érték', 'Valoare contabilă'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Leltári érték', 'Valoare de inventar'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Értékcsökkenés', 'Deprecierea'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Megjegyzés', 'Observații'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'S.sz.', 'Nr. crt.'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Felleltározott tárgyak', 'Denumirea bunurilor inventariate'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Leltári sz.', 'Cod'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'M.E.', 'U.M.'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Meny.', 'Cant.'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Egységár', 'Preț unitar contabil'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Könyv szerinti érték', 'Valoare contabilă'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Leltári érték', 'Valoare de inventar'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Értékcsökkenés', 'Deprecierea'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Megjegyzés', 'Observații'))}</th>
           </tr>
         </thead>`
 
   const tfoot = `
         <tfoot>
           <tr class="totals">
-            <td colspan="7" class="text-right">${escapeHtml(ketNyelvu(lang, 'Összes leltári érték', 'Total valoare de inventar'))}</td>
+            <td colspan="7" class="text-right">${escapeHtml(egyNyelvu(lang, 'Összes leltári érték', 'Total valoare de inventar'))}</td>
             <td class="text-right">${formatNumber(totalCurrentValue)}</td>
             <td colspan="2"></td>
           </tr>
@@ -391,7 +396,7 @@ function buildRegistruReport(
   congregationNameRo?: string,
   lang: PrintLang = 'hu',
 ) {
-  const entitasNev = escapeHtml(hivatalosKetnyelvuNev(congregationName, congregationNameRo, { elol: lang }))
+  const entitasNev = escapeHtml(entitasNevEgyNyelven(congregationName, congregationNameRo, lang))
   const summary = getCategorySummary(applyInventoryFilters(items, filters, 'purchase'), year)
   const ertek = (category: InventoryCategory) =>
     summary.find(row => row.category === category)?.closingValue || 0
@@ -412,11 +417,11 @@ function buildRegistruReport(
   ]
 
   const sorok: PrintSor[] = sorDefiniciok.map(([nr, ro, hu, value]) => ({
-    magassag: becsultSorMagassag(ketNyelvu(lang, hu, ro), 40),
+    magassag: becsultSorMagassag([{ szoveg: egyNyelvu(lang, hu, ro), karakterPerSor: 60 }]),
     html: `
         <tr>
           <td class="text-center">${escapeHtml(nr)}</td>
-          <td>${escapeHtml(ketNyelvu(lang, hu, ro))}</td>
+          <td>${escapeHtml(egyNyelvu(lang, hu, ro))}</td>
           <td class="text-right">${formatNumber(value)}</td>
           <td class="text-right">${formatNumber(value)}</td>
         </tr>`,
@@ -427,20 +432,20 @@ function buildRegistruReport(
       <div class="title">${escapeHtml(cim)}</div>
       <div class="subtitle">${entitasNev} · ${escapeHtml(egyNyelvu(lang, 'a következő időpontra', 'la data de'))} 31.12.${year}</div>
       <div class="meta-grid">
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Kategória', 'Categoria'))}:</strong> ${escapeHtml(filters?.categoryLabel || egyNyelvu(lang, 'Minden tárgycsoport', 'Toate grupele'))}</div>
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Helyszín', 'Locul'))}:</strong> ${escapeHtml(filters?.locationFilter || egyNyelvu(lang, 'Minden helyszín', 'Toate locurile'))}</div>
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Szűrt időszak', 'Perioada'))}:</strong> ${escapeHtml(formatPeriodLabel(filters))}</div>
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Záró pénztár / követelés', 'Sold final casă / creanțe'))}:</strong> ${formatNumber(financeSummary?.closingCash || 0)} / ${formatNumber(financeSummary?.closingReceivables || 0)}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Kategória', 'Categoria'))}:</strong> ${escapeHtml(filters?.categoryLabel || egyNyelvu(lang, 'Minden tárgycsoport', 'Toate grupele'))}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Helyszín', 'Locul'))}:</strong> ${escapeHtml(filters?.locationFilter || egyNyelvu(lang, 'Minden helyszín', 'Toate locurile'))}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Szűrt időszak', 'Perioada'))}:</strong> ${escapeHtml(formatPeriodLabel(filters))}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Záró pénztár / követelés', 'Sold final casă / creanțe'))}:</strong> ${formatNumber(financeSummary?.closingCash || 0)} / ${formatNumber(financeSummary?.closingReceivables || 0)}</div>
       </div>`
 
   const tablaNyito = `
       <table>
         <thead>
           <tr>
-            <th>${escapeHtml(ketNyelvu(lang, 'Sz.', 'Nr.'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'A leltározott elemek összesítése', 'Recapitulația elementelor inventariate'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Könyv szerinti érték', 'Valoare contabilă'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Leltári érték', 'Valoare de inventar'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Sz.', 'Nr.'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'A leltározott elemek összesítése', 'Recapitulația elementelor inventariate'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Könyv szerinti érték', 'Valoare contabilă'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Leltári érték', 'Valoare de inventar'))}</th>
           </tr>
         </thead>`
 
@@ -485,7 +490,7 @@ function buildAktivPasszivReport(
   congregationNameRo?: string,
   lang: PrintLang = 'hu',
 ) {
-  const entitasNev = escapeHtml(hivatalosKetnyelvuNev(congregationName, congregationNameRo, { elol: lang }))
+  const entitasNev = escapeHtml(entitasNevEgyNyelven(congregationName, congregationNameRo, lang))
   const summary = getCategorySummary(applyInventoryFilters(items, filters, 'purchase'), year)
   const ertek = (category: InventoryCategory) =>
     summary.find(row => row.category === category)?.closingValue || 0
@@ -505,35 +510,34 @@ function buildAktivPasszivReport(
   ]
 
   const sorok: PrintSor[] = sorDefiniciok.map(([nr, ro, hu, value]) => ({
-    magassag: becsultSorMagassag(ketNyelvu(lang, hu, ro), 45),
+    magassag: becsultSorMagassag([{ szoveg: egyNyelvu(lang, hu, ro), karakterPerSor: 65 }]),
     html: `
         <tr>
           <td class="text-center">${escapeHtml(nr)}</td>
-          <td>${escapeHtml(ketNyelvu(lang, hu, ro))}</td>
+          <td>${escapeHtml(egyNyelvu(lang, hu, ro))}</td>
           <td class="text-right">${formatNumber(value)}</td>
         </tr>`,
   }))
 
   const cim = egyNyelvu(lang, 'Aktív és passzív elemek', 'Situația elementelor de activ și pasiv')
-  const alcim = egyNyelvu(lang, 'Situația elementelor de activ și pasiv', 'Az aktív és passzív elemek egyenlege')
 
   const fejlecElso = `
       <div class="title">${escapeHtml(cim)}</div>
-      <div class="subtitle">${escapeHtml(alcim)} · ${entitasNev} · ${year}</div>
+      <div class="subtitle">${entitasNev} · ${year}</div>
       <div class="meta-grid">
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Kategória', 'Categoria'))}:</strong> ${escapeHtml(filters?.categoryLabel || egyNyelvu(lang, 'Minden tárgycsoport', 'Toate grupele'))}</div>
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Helyszín', 'Locul'))}:</strong> ${escapeHtml(filters?.locationFilter || egyNyelvu(lang, 'Minden helyszín', 'Toate locurile'))}</div>
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Szűrt időszak', 'Perioada'))}:</strong> ${escapeHtml(formatPeriodLabel(filters))}</div>
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Összes pénzügyi forgalom', 'Rulaj total'))}:</strong> ${formatNumber(financeSummary?.periodIncome || 0)} / ${formatNumber(financeSummary?.periodExpense || 0)}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Kategória', 'Categoria'))}:</strong> ${escapeHtml(filters?.categoryLabel || egyNyelvu(lang, 'Minden tárgycsoport', 'Toate grupele'))}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Helyszín', 'Locul'))}:</strong> ${escapeHtml(filters?.locationFilter || egyNyelvu(lang, 'Minden helyszín', 'Toate locurile'))}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Szűrt időszak', 'Perioada'))}:</strong> ${escapeHtml(formatPeriodLabel(filters))}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Összes pénzügyi forgalom', 'Rulaj total'))}:</strong> ${formatNumber(financeSummary?.periodIncome || 0)} / ${formatNumber(financeSummary?.periodExpense || 0)}</div>
       </div>`
 
   const tablaNyito = `
       <table>
         <thead>
           <tr>
-            <th>${escapeHtml(ketNyelvu(lang, 'Sz.', 'Nr.'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Tétel', 'Element'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Záró érték', 'Valoare finală'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Sz.', 'Nr.'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Tétel', 'Element'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Záró érték', 'Valoare finală'))}</th>
           </tr>
         </thead>`
 
@@ -577,7 +581,7 @@ function buildDeletedItemsReport(
   congregationNameRo?: string,
   lang: PrintLang = 'hu',
 ) {
-  const entitasNev = escapeHtml(hivatalosKetnyelvuNev(congregationName, congregationNameRo, { elol: lang }))
+  const entitasNev = escapeHtml(entitasNevEgyNyelven(congregationName, congregationNameRo, lang))
   const start = new Date(year, 0, 1)
   const end = new Date(year, 11, 31)
   const deletedItems = applyInventoryFilters(items, filters, 'deleted').filter(item => {
@@ -589,7 +593,10 @@ function buildDeletedItemsReport(
   const sorok: PrintSor[] = deletedItems.map((item, index) => {
     const indoklas = item.torles_indoklasa || item.torles_bizonylat || egyNyelvu(lang, 'Nincs részletezve', 'Nedetaliat')
     return {
-      magassag: becsultSorMagassag(indoklas, 30),
+      magassag: becsultSorMagassag([
+        { szoveg: getInventoryDisplayName(item), karakterPerSor: 55 },
+        { szoveg: indoklas, karakterPerSor: 30 },
+      ]),
       html: `
         <tr>
           <td class="text-center">${index + 1}</td>
@@ -610,24 +617,24 @@ function buildDeletedItemsReport(
       <div class="title">${escapeHtml(cim)}</div>
       <div class="subtitle">${entitasNev} · ${year}.01.01 – ${year}.12.31.</div>
       <div class="meta-grid">
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Kategória', 'Categoria'))}:</strong> ${escapeHtml(filters?.categoryLabel || egyNyelvu(lang, 'Minden tárgycsoport', 'Toate grupele'))}</div>
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Helyszín', 'Locul'))}:</strong> ${escapeHtml(filters?.locationFilter || egyNyelvu(lang, 'Minden helyszín', 'Toate locurile'))}</div>
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Szűrt időszak', 'Perioada'))}:</strong> ${escapeHtml(formatPeriodLabel(filters))}</div>
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Törölt tételek', 'Poziții scoase'))}:</strong> ${deletedItems.length} ${egyNyelvu(lang, 'db', 'buc')}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Kategória', 'Categoria'))}:</strong> ${escapeHtml(filters?.categoryLabel || egyNyelvu(lang, 'Minden tárgycsoport', 'Toate grupele'))}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Helyszín', 'Locul'))}:</strong> ${escapeHtml(filters?.locationFilter || egyNyelvu(lang, 'Minden helyszín', 'Toate locurile'))}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Szűrt időszak', 'Perioada'))}:</strong> ${escapeHtml(formatPeriodLabel(filters))}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Törölt tételek', 'Poziții scoase'))}:</strong> ${deletedItems.length} ${egyNyelvu(lang, 'db', 'buc')}</div>
       </div>`
 
   const tablaNyito = `
       <table>
         <thead>
           <tr>
-            <th>${escapeHtml(ketNyelvu(lang, 'S.sz.', 'Nr. crt.'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Dátum', 'Data'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Felleltározott tárgyak elnevezése', 'Denumirea bunurilor'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Leltári sz.', 'Cod'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'M.E.', 'U.M.'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Meny.', 'Cant.'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Könyvelési érték', 'Valoare contabilă'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Indoklás / igazoló irat', 'Motivare / document'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'S.sz.', 'Nr. crt.'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Dátum', 'Data'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Felleltározott tárgyak elnevezése', 'Denumirea bunurilor'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Leltári sz.', 'Cod'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'M.E.', 'U.M.'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Meny.', 'Cant.'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Könyvelési érték', 'Valoare contabilă'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Indoklás / igazoló irat', 'Motivare / document'))}</th>
           </tr>
         </thead>`
 
@@ -666,7 +673,7 @@ function buildVagyonReport(
   congregationNameRo?: string,
   lang: PrintLang = 'hu',
 ) {
-  const entitasNev = escapeHtml(hivatalosKetnyelvuNev(congregationName, congregationNameRo, { elol: lang }))
+  const entitasNev = escapeHtml(entitasNevEgyNyelven(congregationName, congregationNameRo, lang))
   const summary = getCategorySummary(applyInventoryFilters(items, filters, 'purchase'), year)
   const receivableIncoming = Math.max(0, (financeSummary?.closingReceivables || 0) - (financeSummary?.openingReceivables || 0))
   const receivableOutgoing = Math.max(0, (financeSummary?.openingReceivables || 0) - (financeSummary?.closingReceivables || 0))
@@ -702,14 +709,15 @@ function buildVagyonReport(
   ]
 
   const sorok: PrintSor[] = osszesSor.map((row, index) => {
-    const elsodleges = lang === 'hu' ? row.labelHu : row.labelRo
-    const masodlagos = lang === 'hu' ? row.labelRo : row.labelHu
+    // 2026-08-27 (Endre döntése): a lap EGY nyelven szól — a másik nyelvű
+    // alcímke kikerült.
+    const cimke = egyNyelvu(lang, row.labelHu, row.labelRo)
     return {
-      magassag: becsultSorMagassag(elsodleges, 26) + 12,
+      magassag: becsultSorMagassag([{ szoveg: cimke, karakterPerSor: 30 }]),
       html: `
         <tr>
           <td class="text-center">${index + 1}</td>
-          <td>${escapeHtml(elsodleges)}<br><span style="font-size: 10px; color: #475569;">${escapeHtml(masodlagos)}</span></td>
+          <td>${escapeHtml(cimke)}</td>
           <td class="text-right">${formatNumber(row.opening)}</td>
           <td class="text-right">${formatNumber(row.incoming)}</td>
           <td class="text-right">${formatNumber(row.outgoing)}</td>
@@ -729,29 +737,29 @@ function buildVagyonReport(
       <div class="title">${escapeHtml(cim)}</div>
       <div class="subtitle">${entitasNev} · ${year} · 31.12.${year}</div>
       <div class="meta-grid">
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Kategória', 'Categoria'))}:</strong> ${escapeHtml(filters?.categoryLabel || egyNyelvu(lang, 'Minden tárgycsoport', 'Toate grupele'))}</div>
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Helyszín', 'Locul'))}:</strong> ${escapeHtml(filters?.locationFilter || egyNyelvu(lang, 'Minden helyszín', 'Toate locurile'))}</div>
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Szűrt időszak', 'Perioada'))}:</strong> ${escapeHtml(formatPeriodLabel(filters))}</div>
-        <div><strong>${escapeHtml(ketNyelvu(lang, 'Pénztár / követelés záró érték', 'Sold final casă / creanțe'))}:</strong> ${formatNumber(financeSummary?.closingCash || 0)} / ${formatNumber(financeSummary?.closingReceivables || 0)}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Kategória', 'Categoria'))}:</strong> ${escapeHtml(filters?.categoryLabel || egyNyelvu(lang, 'Minden tárgycsoport', 'Toate grupele'))}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Helyszín', 'Locul'))}:</strong> ${escapeHtml(filters?.locationFilter || egyNyelvu(lang, 'Minden helyszín', 'Toate locurile'))}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Szűrt időszak', 'Perioada'))}:</strong> ${escapeHtml(formatPeriodLabel(filters))}</div>
+        <div><strong>${escapeHtml(egyNyelvu(lang, 'Pénztár / követelés záró érték', 'Sold final casă / creanțe'))}:</strong> ${formatNumber(financeSummary?.closingCash || 0)} / ${formatNumber(financeSummary?.closingReceivables || 0)}</div>
       </div>`
 
   const tablaNyito = `
       <table>
         <thead>
           <tr>
-            <th>${escapeHtml(ketNyelvu(lang, 'Sz.', 'Nr.'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Tárgycsoport', 'Grupa de bunuri'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Előző évi egyenleg', 'Sold anul precedent'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Bejövetel / Bevétel', 'Intrări'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Törlés / Kiadás', 'Ieșiri'))}</th>
-            <th>${escapeHtml(ketNyelvu(lang, 'Év végi egyenleg', 'Sold final'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Sz.', 'Nr.'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Tárgycsoport', 'Grupa de bunuri'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Előző évi egyenleg', 'Sold anul precedent'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Bejövetel / Bevétel', 'Intrări'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Törlés / Kiadás', 'Ieșiri'))}</th>
+            <th>${escapeHtml(egyNyelvu(lang, 'Év végi egyenleg', 'Sold final'))}</th>
           </tr>
         </thead>`
 
   const tfoot = `
         <tfoot>
           <tr class="totals">
-            <td colspan="2" class="text-right">${escapeHtml(ketNyelvu(lang, 'Összesen', 'Total'))}</td>
+            <td colspan="2" class="text-right">${escapeHtml(egyNyelvu(lang, 'Összesen', 'Total'))}</td>
             <td class="text-right">${formatNumber(totalOpening)}</td>
             <td class="text-right">${formatNumber(totalIncoming)}</td>
             <td class="text-right">${formatNumber(totalDeleted)}</td>
@@ -762,15 +770,15 @@ function buildVagyonReport(
   const zaroBlokkok = `
       <div class="signature-grid">
         <div class="signature-box">
-          ${escapeHtml(ketNyelvu(lang, 'Lelkipásztor', 'Preot paroh'))}
+          ${escapeHtml(egyNyelvu(lang, 'Lelkipásztor', 'Preot paroh'))}
           <div class="signature-line"></div>
         </div>
         <div class="signature-box">
-          ${escapeHtml(ketNyelvu(lang, 'Gondnok', 'Curator'))}
+          ${escapeHtml(egyNyelvu(lang, 'Gondnok', 'Curator'))}
           <div class="signature-line"></div>
         </div>
         <div class="signature-box">
-          ${escapeHtml(ketNyelvu(lang, 'Ellenőr / számvevő', 'Cenzor'))}
+          ${escapeHtml(egyNyelvu(lang, 'Ellenőr / számvevő', 'Cenzor'))}
           <div class="signature-line"></div>
         </div>
       </div>`

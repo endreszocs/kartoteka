@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Printer, X } from 'lucide-react'
 import type { InventoryItem } from '@/lib/constants/inventory.next'
 import {
   buildInventoryPrintDocument,
@@ -50,10 +51,12 @@ export function InventoryPrintDialog({
   const [printType, setPrintType] = useState<InventoryPrintType>('leltariv')
   const [selectedYear, setSelectedYear] = useState(initialYear)
   /**
-   * 2026-08-27 (Endre 7. pontja): a nyomtatvány NYELVE. Az elsődleges nyelv
-   * vezet, a másik felirat mellette marad — a hivatalos ív mindkét nyelven
-   * azonosítható. A „Lapméret" legördülő ELTŰNT: egyetlen választható eleme
-   * volt (A4), tehát a választás illúzióját keltette.
+   * 2026-08-27 (Endre 7. pontja): a nyomtatvány NYELVE.
+   *
+   * ⚠️ A lap VÉGIG egy nyelven szól — Endre döntése: „Magyar és a román verzió
+   * legyen, vagy csak román vagy csak magyar!". A korábbi, „Dátum / Data"
+   * alakú vegyes feliratok megszűntek; a másik nyelvű változat külön
+   * nyomtatható. A „Lapméret" legördülő is eltűnt: egyetlen eleme volt (A4).
    */
   const [lang, setLang] = useState<PrintLang>('hu')
   const [printing, setPrinting] = useState(false)
@@ -155,12 +158,40 @@ export function InventoryPrintDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[96dvh] overflow-y-auto sm:max-w-7xl">
-        <DialogHeader className="sticky top-0 z-10 bg-background pb-2">
-          <DialogTitle>Nyomtatási központ</DialogTitle>
+      {/* ⚠️ 2026-08-27 (Endre: „a jobb felső sarokban legyen x"): a DialogContent
+          ALAPÉRTELMEZETT X-e `absolute top-2 right-2`, z-index NÉLKÜL — a
+          ragadós (sticky, z-10) fejléc SAJÁT háttere ELTAKARTA. Ezért a
+          beépített gombot kikapcsoljuk, és a fejlécbe teszünk egy sajátot,
+          ami mindig látszik és a fejléccel együtt marad a lap tetején. */}
+      <DialogContent className="max-h-[96dvh] overflow-y-auto p-0 sm:max-w-7xl" showCloseButton={false}>
+        <DialogHeader className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 py-3 backdrop-blur sm:px-5">
+          <div className="flex items-center gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-teal-500/10 text-teal-700 dark:text-teal-300">
+              <Printer className="size-4.5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="truncate text-base sm:text-lg">Nyomtatási központ</DialogTitle>
+              <p className="truncate text-xs text-muted-foreground">
+                {report.title} · {report.lapszam} oldal · {report.orientation === 'landscape' ? 'A4 fekvő' : 'A4 álló'}
+              </p>
+            </div>
+            <DialogClose
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-9 shrink-0 rounded-xl"
+                  aria-label="Nyomtatási központ bezárása"
+                />
+              }
+            >
+              <X className="size-4.5" />
+            </DialogClose>
+          </div>
         </DialogHeader>
 
-        <div className="grid gap-4 pb-2 lg:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="grid gap-4 px-4 pb-4 lg:grid-cols-[340px_minmax(0,1fr)] sm:px-5">
           <div className="space-y-4">
             <div className="card-raised space-y-3 p-4">
               <div>
@@ -211,11 +242,7 @@ export function InventoryPrintDialog({
                   </select>
                 </label>
 
-                {/* 2026-08-27 (Endre 7. pontja): a nyomtatvány NYELVE.
-                    Az elsődleges nyelv vezet, a másik felirat mellette marad —
-                    a hivatalos ív így mindkét nyelven azonosítható.
-                    (A korábbi „Lapméret" legördülő KIKERÜLT: egyetlen eleme
-                    volt, A4 — a választás illúzióját keltette.) */}
+                {/* A nyomtatvány nyelve — a lap VÉGIG ezen az egy nyelven szól. */}
                 <div className="block text-sm font-medium text-slate-700">
                   Nyelv
                   <div

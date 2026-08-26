@@ -23,6 +23,31 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-27] — Leltár-nyomtatás: egymásra csúszó sorok javítása, egynyelvű ívek
+<!-- key: 2026-08-27-leltar-nyomtatas-javitas -->
+<!-- category: bugfix -->
+<!-- version: 0.9.182 -->
+<!-- targets: lelkipásztorok -->
+
+### 🐛 Javítások
+
+- **A nyomtatási előnézetben egymásra csúsztak a sorok.** A lapokra bontás a
+  sor magasságát csak a Megjegyzés oszlop alapján becsülte, a hosszú
+  **megnevezéseket** (amelyek két sorba futnak) egysorosnak számolta. Emiatt a
+  lap alja túlcsordult: az utolsó sorok levágódtak, és rájuk csúszott a lábléc.
+  Mostantól minden tördelődő oszlop számít, és a lap alján biztonsági sáv is
+  marad. (Mérve: ugyanaz a 209 tételes leltár most hiánytalanul kifér, minden
+  lapon marad tartalék.)
+- **A nyomtatványok egy nyelven szólnak.** A feliratok eddig vegyesen jelentek
+  meg („Dátum / Data"). Mostantól a magyar ív végig magyar, a román ív végig
+  román — a másik nyelvű változat külön nyomtatható. Ha nincs román
+  gyülekezetnév, a magyar áll ott egyedül (kitalált nevet sosem írunk hivatalos
+  ívre).
+- **A Nyomtatási központ jobb felső sarkában megjelent a bezáró X.** A beépített
+  gombot a ragadós fejléc takarta el. A fejléc egyúttal megmutatja, melyik
+  nyomtatvány hány oldalas és milyen tájolású.
+
+---
 ## [2026-08-27] — Leltár: lapozható nyomtatási előnézet, nyelvválasztás, egyetlen importáló, megújult súgó
 <!-- key: 2026-08-27-leltar-nyomtatas-sugo -->
 <!-- category: improvement -->
