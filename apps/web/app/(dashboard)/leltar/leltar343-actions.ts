@@ -22,16 +22,26 @@ import { createClient } from '@/lib/supabase/server'
 import { assertDelegatedImportAllowed } from '@/app/(dashboard)/delegated-import/guard'
 import { resolveImportTargetCongregationId } from '@/lib/import/import-target'
 import { selectAllPaged } from '@kartoteka/supabase-client'
-import {
-  nextLeltariSzam,
-  serializeInventoryCategory,
-  INVENTORY_CATEGORY_PREFIXES,
-} from '@kartoteka/ui-app'
+import { serializeInventoryCategory } from '@kartoteka/ui-app'
 import {
   isLeltar343Workbook,
   feldolgozLeltar343Lap,
-  type Leltar343Rekord,
 } from '@/lib/inventory/leltar343-shared'
+// 2026-08-27 (javító-varázsló): a KÖZÖS review-réteg — ugyanez fut a kliensen
+// is, így a felület és a szerver betűre ugyanazt tartja hibának.
+import {
+  alkalmazJavitasok,
+  egyebHibak,
+  ellenorizSorok,
+  epitReviewSorok,
+  osztSzamokat,
+  LELTAR343_FELOLDASOK,
+  LELTAR343_SZERKESZTHETO_MEZOK,
+  type Leltar343Feloldas,
+  type Leltar343Javitas,
+  type Leltar343Javitasok,
+  type Leltar343ReviewSor,
+} from '@/lib/inventory/leltar343-review'
 import {
   parseLeltar343Workbook,
   leltar343LapNevek,
@@ -104,18 +114,93 @@ async function elokeszit(formData: FormData): Promise<Elokeszites | ElokeszitesH
   }
 }
 
-/** A már kiadott leltári számok fail-closed, lapozott lekérdezése. */
+/**
+ * A már kiadott leltári számok fail-closed, lapozott lekérdezése.
+ *
+ * 2026-08-27 (javító-varázsló): AKTÍV és KIVEZETETT bontásban, az aktívakhoz
+ * a tétel azonosítójával. MIÉRT: a DB egyediségi védelme RÉSZLEGES index
+ * (leltar_tetelek_cong_leltari_szam_key … WHERE COALESCE(is_deleted,false) =
+ * false), tehát egy KIVEZETETT tétel száma újra kiadható — a korábbi, mindent
+ * egy halomba söprő változat ezt is „foglalt"-nak mutatta, és a lelkész nem
+ * értette, miért ütközik. Az azonosító pedig a „meglévő tétel frissítése"
+ * feloldáshoz kell (UPDATE a beszúrás helyett).
+ */
+interface KiadottSzamok {
+  aktiv: Set<string>
+  kivezetett: Set<string>
+  /** Leltári szám → az AKTÍV tétel azonosítója. */
+  aktivId: Map<string, string>
+}
+
 async function kiadottSzamok(
   supabase: Awaited<ReturnType<typeof createClient>>,
   congregationId: string,
-): Promise<Set<string> | ElokeszitesHiba> {
-  const { data, error } = await selectAllPaged<{ leltari_szam: string | null }>(
-    supabase.from('leltar_tetelek').select('leltari_szam').eq('congregation_id', congregationId),
+): Promise<KiadottSzamok | ElokeszitesHiba> {
+  const { data, error } = await selectAllPaged<{
+    id: string
+    leltari_szam: string | null
+    is_deleted: boolean | null
+  }>(
+    supabase
+      .from('leltar_tetelek')
+      .select('id, leltari_szam, is_deleted')
+      .eq('congregation_id', congregationId),
   )
   if (error) {
     return { error: `A meglévő leltári számok lekérdezése nem sikerült (${error.message}) — az import nem indult el (különben duplikált szám születhetne).` }
   }
-  return new Set(data.map(r => String(r.leltari_szam || '').trim()).filter(Boolean))
+  const aktiv = new Set<string>()
+  const kivezetett = new Set<string>()
+  const aktivId = new Map<string, string>()
+  for (const r of data) {
+    const szam = String(r.leltari_szam || '').trim()
+    if (!szam) continue
+    if (r.is_deleted) {
+      kivezetett.add(szam)
+      continue
+    }
+    aktiv.add(szam)
+    if (!aktivId.has(szam)) aktivId.set(szam, String(r.id))
+  }
+  return { aktiv, kivezetett, aktivId }
+}
+
+function kiadottHiba(x: KiadottSzamok | ElokeszitesHiba): x is ElokeszitesHiba {
+  return 'error' in x
+}
+
+/**
+ * A CÉL-gyülekezet tárgyévi vagyonleltári jelentése véglegesítve van-e
+ * (2026-08-27, Endre döntése: lezárt évben a felülírás TILOS).
+ *
+ * ⚠️ MIÉRT NEM a `getLeltarFinalizationStatus()`: az a MODUL-hatókörből
+ * (`getScopeCtx`) dolgozik, az import viszont a CÉL-gyülekezetbe ír —
+ * rendszergazdaként akár egy MÁSIKBA. A lezárást annak az évsorán kell
+ * mérni, AHOVÁ írunk, különben a saját gyülekezet nyitott éve oldaná fel egy
+ * idegen gyülekezet lezárt leltárát.
+ *
+ * ⚠️ FAIL-CLOSED: ha a lekérdezés hibázik, VÉGLEGESÍTETTNEK tekintjük. Egy
+ * hálózati hiba után a „tegyünk úgy, mintha nyitva lenne" válasz hivatalos,
+ * már beküldött vagyonleltárt írna felül — a `bizonytalan` jelzővel pedig a
+ * felület meg tudja mondani az igazat (nem hazudik lezárást).
+ *
+ * Az év-kulcs BIT-AZONOS a véglegesítésével: `leltarReportYear()` maga is
+ * `documentSeasonYear()`-t ad (leltar/actions.ts).
+ */
+async function veglegesitesiAllapot(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  congregationId: string,
+): Promise<{ veglegesitve: boolean; bizonytalan: boolean }> {
+  const ev = documentSeasonYear()
+  const { data, error } = await supabase
+    .from('bealitas')
+    .select('leltar_finalized')
+    .eq('id', String(ev))
+    .eq('congregation_id', congregationId)
+    .maybeSingle()
+  if (error) return { veglegesitve: true, bizonytalan: true }
+  const sor = data as { leltar_finalized?: boolean | null } | null
+  return { veglegesitve: !!sor?.leltar_finalized, bizonytalan: false }
 }
 
 // ---------------------------------------------------------------------------
@@ -129,18 +214,19 @@ export async function previewLeltar343(formData: FormData): Promise<Leltar343Pre
 
   const supabase = await createClient()
   const meglevok = await kiadottSzamok(supabase, elo.congregationId)
-  if (!(meglevok instanceof Set)) return { error: meglevok.error }
-  const meglevoSet = meglevok
+  if (kiadottHiba(meglevok)) return { error: meglevok.error }
 
   const lapok: NonNullable<Leltar343Preview['lapok']> = []
+  const feldolgozott: Array<{ lap: (typeof parsed.lapok)[number]['lap']; eredmeny: ReturnType<typeof feldolgozLeltar343Lap> }> = []
   let osszesTetel = 0
   let dbDuplikatumok = 0
 
   for (const { lap, sorok } of parsed.lapok) {
     const eredmeny = feldolgozLeltar343Lap({ lap, sorok, helyszinKatalogus: parsed.helyszinKatalogus })
+    feldolgozott.push({ lap, eredmeny })
     osszesTetel += eredmeny.rekordok.length
     dbDuplikatumok += eredmeny.rekordok.filter(
-      r => r.leltari_szam && meglevoSet.has(r.leltari_szam),
+      r => r.leltari_szam && meglevok.aktiv.has(r.leltari_szam),
     ).length
     lapok.push({
       sheet: lap.sheet,
@@ -148,10 +234,24 @@ export async function previewLeltar343(formData: FormData): Promise<Leltar343Pre
       tetelek: eredmeny.rekordok.length,
       kivezetett: eredmeny.rekordok.filter(r => r.is_deleted).length,
       ertekModositott: eredmeny.rekordok.filter(r => r.ertek_modositas !== 0).length,
-      hibak: eredmeny.hibak.map(h => ({ sor: h.sor, uzenet: h.uzenet })).slice(0, 20),
-      figyelmeztetesek: eredmeny.figyelmeztetesek.map(h => ({ sor: h.sor, uzenet: h.uzenet })).slice(0, 20),
+      // 2026-08-27 (Endre kérése): „az ellenőrzést lássam TELJES EGÉSZÉBEN".
+      // A korábbi .slice(0, 20) NÉMÁN csonkolta a lapok hibalistáját — a
+      // felület így 20 fölött azt sugallta, hogy nincs több baj.
+      hibakSzama: eredmeny.hibak.length,
+      figyelmeztetesekSzama: eredmeny.figyelmeztetesek.length,
     })
   }
+
+  const sorok = epitReviewSorok({
+    lapok: feldolgozott,
+    helyszinKatalogus: parsed.helyszinKatalogus,
+  })
+
+  // A VÉGLEGESÍTETT év zára (Endre döntése, 2026-08-27): lezárt évben a
+  // meglévő tétel felülírása TILOS, csak az egyházmegye feloldásával. A
+  // felület ugyanezt az állapotot kapja meg, hogy a „Meglévő frissítése"
+  // választás eleve ne is legyen kínálva.
+  const veglegesites = await veglegesitesiAllapot(supabase, elo.congregationId)
 
   return {
     success: true,
@@ -164,6 +264,14 @@ export async function previewLeltar343(formData: FormData): Promise<Leltar343Pre
     osszesTetel,
     dbDuplikatumok,
     hianyzoLapok: parsed.hianyzoLapok,
+    sorok,
+    // A gyülekezet SAJÁT leltári számai — a varázsló ezekkel tud gépelés
+    // közben, szerver-körfordulás nélkül ütközést jelezni. (Nem idegen adat:
+    // ugyanezt a listát a felhasználó a leltár-fülön amúgy is látja.)
+    aktivSzamok: [...meglevok.aktiv],
+    kivezetettSzamok: [...meglevok.kivezetett],
+    veglegesitve: veglegesites.veglegesitve,
+    veglegesitesBizonytalan: veglegesites.bizonytalan,
   }
 }
 
@@ -175,7 +283,7 @@ export async function previewLeltar343(formData: FormData): Promise<Leltar343Pre
 const UJ_OSZLOP_RE = /ertek_modositas|alapeszkoz_csoport/
 
 function dbPayload(
-  r: Leltar343Rekord,
+  r: Leltar343ReviewSor,
   congregationId: string,
   userId: string,
   leltariSzam: string,
@@ -213,6 +321,100 @@ function ujOszlopNelkul(payload: Record<string, unknown>): Record<string, unknow
   return masolat
 }
 
+/** Legfeljebb ennyi üzenetet viszünk vissza a felületre (a csonkolás JELEZVE). */
+const UZENET_PLAFON = 500
+
+/**
+ * FELÜLÍRÁS-payload: az ÜRES munkafüzet-cella NEM ír felül meglévő adatot.
+ *
+ * ⚠️ HIBAOSZTÁLY-VÉDELEM: a beszúró payload 21 oszlopot ír. UPDATE-ként
+ * alkalmazva egy üres G/O/F cella NULL-ra törölné a felületen kézzel rögzített
+ * helyszínt, felelőst vagy megjegyzést, a hiányzó (0) érték pedig felülírná a
+ * valódi beszerzési árat — a lelkész számára NÉMA adatvesztés. Frissítéskor
+ * ezért csak a KITÖLTÖTT mezők mennek át; a kulcsok (hatókör-oszlop, rögzítő,
+ * leltári szám) pedig érintetlenek maradnak.
+ *
+ * A `false`/`0` szintén „nincs adat" ebben a munkafüzetben (nincs kivezetés,
+ * nincs értékmódosítás) — ezek sem billenthetik vissza a meglévő állapotot.
+ */
+function frissitesiPayload(
+  sor: Leltar343ReviewSor,
+  congregationId: string,
+  userId: string,
+  leltariSzam: string,
+): Record<string, unknown> {
+  const teljes = dbPayload(sor, congregationId, userId, leltariSzam)
+  delete teljes['congregation_id']
+  delete teljes['userid']
+  delete teljes['leltari_szam']
+  const ki: Record<string, unknown> = {}
+  for (const [kulcs, ertek] of Object.entries(teljes)) {
+    if (ertek === null || ertek === undefined || ertek === '') continue
+    if (ertek === false || ertek === 0) continue
+    ki[kulcs] = ertek
+  }
+  return ki
+}
+
+const UJ_OSZLOP_UZENET =
+  'A leltár-bővítő SQL (2026-08-26-leltar-343.sql) még nincs lefuttatva — az import az ' +
+  'alapeszköz-főcsoport és a le-/felértékelés mezők NÉLKÜL ment végbe. Futtasd le az SQL-t, ' +
+  'majd szükség esetén importáld újra a fájlt a teljes adathűségért.'
+
+/**
+ * A kliens javítás-térképének BIZTONSÁGOS beolvasása.
+ *
+ * A tétel-adatok forrása MINDIG a szerveren újraolvasott munkafüzet marad — a
+ * kliens csak (a) a feloldást és (b) a review-réteg whitelistjén szereplő
+ * mezőket tudja felülírni. Így a varázsló nem válik szabad írási csatornává a
+ * leltar_tetelek táblába, és a payload is nagyságrenddel kisebb marad.
+ */
+function olvasJavitasok(formData: FormData): Leltar343Javitasok {
+  const nyers = formData.get('javitasok')
+  if (typeof nyers !== 'string' || !nyers.trim()) return {}
+  let parsolt: unknown
+  try {
+    parsolt = JSON.parse(nyers)
+  } catch {
+    return {}
+  }
+  if (!parsolt || typeof parsolt !== 'object' || Array.isArray(parsolt)) return {}
+
+  const ki: Leltar343Javitasok = {}
+  let db = 0
+  for (const [id, ertek] of Object.entries(parsolt as Record<string, unknown>)) {
+    // Plafon: a legnagyobb lap 1496 sor, 7 lap — 12 000 fölött már nem valódi
+    // javítás-térkép érkezik.
+    if (db >= 12_000) break
+    if (!ertek || typeof ertek !== 'object' || Array.isArray(ertek)) continue
+    const j = ertek as { feloldas?: unknown; mezok?: unknown }
+    const tisztitott: Leltar343Javitas = {}
+
+    if (typeof j.feloldas === 'string' && (LELTAR343_FELOLDASOK as string[]).includes(j.feloldas)) {
+      tisztitott.feloldas = j.feloldas as Leltar343Feloldas
+    }
+
+    if (j.mezok && typeof j.mezok === 'object' && !Array.isArray(j.mezok)) {
+      const forras = j.mezok as Record<string, unknown>
+      const mezok: Record<string, string | number | null> = {}
+      for (const mezo of LELTAR343_SZERKESZTHETO_MEZOK) {
+        const v = forras[mezo]
+        if (v === undefined) continue
+        if (v === null) mezok[mezo] = null
+        else if (typeof v === 'number') mezok[mezo] = v
+        else if (typeof v === 'string') mezok[mezo] = v.slice(0, 500)
+      }
+      if (Object.keys(mezok).length > 0) tisztitott.mezok = mezok
+    }
+
+    if (tisztitott.feloldas || tisztitott.mezok) {
+      ki[id] = tisztitott
+      db += 1
+    }
+  }
+  return ki
+}
+
 export async function executeLeltar343Import(formData: FormData): Promise<Leltar343ImportResult> {
   const elo = await elokeszit(formData)
   if ('error' in elo) return { error: elo.error }
@@ -220,53 +422,113 @@ export async function executeLeltar343Import(formData: FormData): Promise<Leltar
 
   const supabase = await createClient()
   const meglevok = await kiadottSzamok(supabase, congregationId)
-  if (!(meglevok instanceof Set)) return { error: meglevok.error }
+  if (kiadottHiba(meglevok)) return { error: meglevok.error }
+
+  // ── 1. A munkafüzet ÚJRAOLVASÁSA + a kliens javításainak rávetítése ───────
+  const feldolgozott = parsed.lapok.map(({ lap, sorok }) => ({
+    lap,
+    eredmeny: feldolgozLeltar343Lap({ lap, sorok, helyszinKatalogus: parsed.helyszinKatalogus }),
+  }))
+  const sorok = alkalmazJavitasok(
+    epitReviewSorok({ lapok: feldolgozott, helyszinKatalogus: parsed.helyszinKatalogus }),
+    olvasJavitasok(formData),
+  )
+
+  // ── 2. UGYANAZ az ellenőrzés, amit a felület futtatott ────────────────────
+  // ⚠️ A lezárást ITT is (nem csak az előnézetben) megmérjük: a felület
+  // állapota elavulhatott, és a felülírás hivatalos, beküldött iratot érint.
+  const veglegesites = await veglegesitesiAllapot(supabase, congregationId)
+  const ctx = {
+    aktivSzamok: [...meglevok.aktiv],
+    kivezetettSzamok: [...meglevok.kivezetett],
+    veglegesitve: veglegesites.veglegesitve,
+  }
+  const ellenorzes = ellenorizSorok(sorok, ctx)
+  const kiosztott = osztSzamokat(sorok, ctx)
 
   const hibak: Array<{ lap: string; sor: number; uzenet: string }> = []
   const figyelmeztetesek: string[] = []
-  const payloadok: Array<{ lap: string; sor: number; payload: Record<string, unknown> }> = []
-  let kihagyott = 0
-
-  for (const { lap, sorok } of parsed.lapok) {
-    const eredmeny = feldolgozLeltar343Lap({ lap, sorok, helyszinKatalogus: parsed.helyszinKatalogus })
-    for (const h of eredmeny.hibak) {
-      kihagyott += 1
-      if (hibak.length < 50) hibak.push({ lap: h.lap, sor: h.sor, uzenet: h.uzenet })
-    }
-    for (const f of eredmeny.figyelmeztetesek) {
-      if (figyelmeztetesek.length < 50) figyelmeztetesek.push(`[${f.lap} ${f.sor}. sor] ${f.uzenet}`)
-    }
-    for (const r of eredmeny.rekordok) {
-      let leltariSzam = r.leltari_szam || ''
-      if (leltariSzam && meglevok.has(leltariSzam)) {
-        kihagyott += 1
-        if (hibak.length < 50) {
-          hibak.push({ lap: r.lap, sor: r.sor, uzenet: `A(z) „${leltariSzam}" leltári szám már létezik a rendszerben — a sor kimaradt (nem írunk felül).` })
-        }
-        continue
-      }
-      if (!leltariSzam) {
-        const prefix = INVENTORY_CATEGORY_PREFIXES[r.kategoria]
-        leltariSzam = nextLeltariSzam(
-          [...meglevok].filter(sz => sz.startsWith(`${prefix}-`)),
-          r.kategoria,
-        )
-        if (figyelmeztetesek.length < 50) {
-          figyelmeztetesek.push(`[${r.lap} ${r.sor}. sor] Hiányzó leltári szám — a rendszer a(z) ${leltariSzam} számot adta ki.`)
-        }
-      }
-      meglevok.add(leltariSzam)
-      payloadok.push({ lap: r.lap, sor: r.sor, payload: dbPayload(r, congregationId, userId, leltariSzam) })
-    }
+  let elnyeltHiba = 0
+  let elnyeltFigyelmeztetes = 0
+  const hiba = (lap: string, sor: number, uzenet: string) => {
+    if (hibak.length < UZENET_PLAFON) hibak.push({ lap, sor, uzenet })
+    else elnyeltHiba += 1
+  }
+  const figyelmeztet = (uzenet: string) => {
+    if (figyelmeztetesek.length < UZENET_PLAFON) figyelmeztetesek.push(uzenet)
+    else elnyeltFigyelmeztetes += 1
   }
 
-  // — Beszúrás 100-asával; új-oszlop hibánál (migráció előtt) lecsupaszított
-  //   payloaddal próbálunk újra, EGY hangos figyelmeztetéssel. —
+  if (veglegesites.bizonytalan) {
+    figyelmeztet(
+      'A tárgyévi jelentés lezárt állapotát nem sikerült lekérdezni, ezért — a hivatalos irat védelmében — ' +
+      'VÉGLEGESÍTETTNEK tekintettük: a „meglévő frissítése" sorok kimaradtak. Próbáld újra később.',
+    )
+  }
+
+  let kihagyott = 0
+  const beszurando: Array<{ lap: string; sor: number; payload: Record<string, unknown> }> = []
+  const frissitendo: Array<{ lap: string; sor: number; id: string; payload: Record<string, unknown> }> = []
+
+  // Rekordhoz nem köthető feldolgozási hibák (nincs javítható nyers sor).
+  for (const { lap, eredmeny } of feldolgozott) {
+    for (const h of egyebHibak(eredmeny.hibak)) hiba(lap.sheet, h.sor, h.uzenet)
+  }
+
+  for (const s of sorok) {
+    if (s.feloldas === 'kihagy') {
+      kihagyott += 1
+      const ok = s.uzenetek.find(u => u.szint === 'hiba')
+      if (ok) hiba(s.lap, s.sor, `${ok.uzenet} (kihagyva)`)
+      continue
+    }
+
+    const gondok = ellenorzes.gondok[s.id] || []
+    const blokkolo = gondok.filter(g => g.szint === 'hiba')
+    if (blokkolo.length > 0) {
+      // FAIL-CLOSED: a felület idáig el sem engedné, de ha mégis, a sor
+      // kimarad ÉS hangosan jelezzük — néma adatvesztés nincs.
+      kihagyott += 1
+      hiba(s.lap, s.sor, blokkolo.map(g => g.uzenet).join(' '))
+      continue
+    }
+    for (const g of gondok) figyelmeztet(`[${s.lap} ${s.sor}. sor] ${g.uzenet}`)
+
+    const ujSzam = kiosztott[s.id]
+    const leltariSzam = ujSzam || String(s.leltari_szam || '').trim()
+    if (ujSzam) figyelmeztet(`[${s.lap} ${s.sor}. sor] A rendszer a(z) ${ujSzam} leltári számot adta ki.`)
+
+    if (s.feloldas === 'felulir') {
+      const id = meglevok.aktivId.get(leltariSzam)
+      if (!id) {
+        kihagyott += 1
+        hiba(s.lap, s.sor, `A(z) „${leltariSzam}" leltári számú aktív tétel nem található — a sor kimaradt.`)
+        continue
+      }
+      const payload = frissitesiPayload(s, congregationId, userId, leltariSzam)
+      if (Object.keys(payload).length === 0) {
+        kihagyott += 1
+        hiba(s.lap, s.sor, `A(z) „${leltariSzam}" sorban nincs egyetlen kitöltött mező sem — nem írtunk felül semmit.`)
+        continue
+      }
+      frissitendo.push({ lap: s.lap, sor: s.sor, id, payload })
+      continue
+    }
+
+    beszurando.push({
+      lap: s.lap,
+      sor: s.sor,
+      payload: dbPayload(s, congregationId, userId, leltariSzam),
+    })
+  }
+
+  // ── 3. Beszúrás 100-asával; új-oszlop hibánál lecsupaszított payload ──────
   let beszurt = 0
+  let frissitett = 0
   let ujOszlopMod = false
   const BATCH = 100
-  for (let i = 0; i < payloadok.length; i += BATCH) {
-    const szelet = payloadok.slice(i, i + BATCH)
+  for (let i = 0; i < beszurando.length; i += BATCH) {
+    const szelet = beszurando.slice(i, i + BATCH)
     const batchPayload = szelet.map(p => (ujOszlopMod ? ujOszlopNelkul(p.payload) : p.payload))
     const { error } = await supabase.from('leltar_tetelek').insert(batchPayload)
     if (!error) {
@@ -275,11 +537,7 @@ export async function executeLeltar343Import(formData: FormData): Promise<Leltar
     }
     if (!ujOszlopMod && UJ_OSZLOP_RE.test(error.message || '')) {
       ujOszlopMod = true
-      figyelmeztetesek.push(
-        'A leltár-bővítő SQL (2026-08-26-leltar-343.sql) még nincs lefuttatva — az import az ' +
-        'alapeszköz-főcsoport és a le-/felértékelés mezők NÉLKÜL ment végbe. Futtasd le az SQL-t, ' +
-        'majd szükség esetén importáld újra a fájlt egy üres leltárba a teljes adathűségért.',
-      )
+      figyelmeztet(UJ_OSZLOP_UZENET)
       i -= BATCH // ugyanez a szelet újra, csupaszított payloaddal
       continue
     }
@@ -289,11 +547,50 @@ export async function executeLeltar343Import(formData: FormData): Promise<Leltar
       const { error: sorHiba } = await supabase.from('leltar_tetelek').insert([egyPayload])
       if (sorHiba) {
         kihagyott += 1
-        if (hibak.length < 50) hibak.push({ lap: p.lap, sor: p.sor, uzenet: sorHiba.message })
+        hiba(p.lap, p.sor, sorHiba.message)
       } else {
         beszurt += 1
       }
     }
+  }
+
+  // ── 4. „Meglévő frissítése" feloldás: UPDATE azonosító szerint ────────────
+  for (const f of frissitendo) {
+    let payload = ujOszlopMod ? ujOszlopNelkul(f.payload) : f.payload
+    let { error } = await supabase
+      .from('leltar_tetelek')
+      .update(payload)
+      .eq('id', f.id)
+      .eq('congregation_id', congregationId)
+    if (error && !ujOszlopMod && UJ_OSZLOP_RE.test(error.message || '')) {
+      ujOszlopMod = true
+      figyelmeztet(UJ_OSZLOP_UZENET)
+      payload = ujOszlopNelkul(f.payload)
+      ;({ error } = await supabase
+        .from('leltar_tetelek')
+        .update(payload)
+        .eq('id', f.id)
+        .eq('congregation_id', congregationId))
+    }
+    if (error) {
+      kihagyott += 1
+      hiba(f.lap, f.sor, error.message)
+    } else {
+      frissitett += 1
+    }
+  }
+
+  if (elnyeltHiba > 0) {
+    hibak.push({
+      lap: '—',
+      sor: 0,
+      uzenet: `… és további ${elnyeltHiba} hibaüzenet (a lista ${UZENET_PLAFON} tételnél megáll).`,
+    })
+  }
+  if (elnyeltFigyelmeztetes > 0) {
+    figyelmeztetesek.push(
+      `… és további ${elnyeltFigyelmeztetes} figyelmeztetés (a lista ${UZENET_PLAFON} tételnél megáll).`,
+    )
   }
 
   revalidatePath('/leltar')
@@ -306,6 +603,9 @@ export async function executeLeltar343Import(formData: FormData): Promise<Leltar
       userId,
       module: 'inventory',
       fileName: elo.fileName,
+      // ⚠️ Az import_logs táblában NINCS total_updated oszlop — a frissítéseket
+      // ezért NEM adjuk hozzá a beszúrtakhoz (az torzítaná a statisztikát),
+      // hanem külön, beszédes figyelmeztetés-sorként naplózzuk.
       totalInserted: beszurt,
       totalSkipped: kihagyott,
       perSheetLog: parsed.lapok.map(({ lap }) => ({
@@ -319,17 +619,31 @@ export async function executeLeltar343Import(formData: FormData): Promise<Leltar
         personUnresolved: 0,
         categoryResolved: 0,
         categoryUnresolved: 0,
-        warnings: figyelmeztetesek.slice(0, 50),
+        warnings: [
+          ...(frissitett > 0 ? [`${frissitett} meglévő tétel FELÜLÍRVA (a varázsló „meglévő frissítése" feloldásával).`] : []),
+          ...figyelmeztetesek.slice(0, 50),
+        ],
       },
-      errors: hibak.map(h => ({ sheet: h.lap, row: h.sor, message: h.uzenet })),
+      errors: hibak.slice(0, 200).map(h => ({ sheet: h.lap, row: h.sor, message: h.uzenet })),
     })
   } catch (e) {
+    // ⚠️ NEM némítjuk el: az import_logs_insert policy WITH CHECK-je
+    // (2026-04-15-import-logs.sql) global-access kivétel NÉLKÜL köti a sort a
+    // hívó saját gyülekezetéhez, ezért ADMIN-hatókörű importnál a naplózás
+    // elbukhat. Felülírásnál ez már nem statisztika-vesztés, hanem
+    // nyom nélküli adatmódosítás lenne — mondjuk ki a felületen is.
     console.warn('[executeLeltar343Import] Import log rögzítése sikertelen:', e)
+    figyelmeztet(
+      'Az import NAPLÓZÁSA nem sikerült (az import maga lefutott). Ha másik gyülekezetbe ' +
+      'importáltál rendszergazdaként, ez az import_logs jogosultsági szabályának ismert ' +
+      'korlátja — jelezd, hogy futtatni kelljen a javító SQL-t.',
+    )
   }
 
   return {
     success: true,
     beszurt,
+    frissitett,
     kihagyott,
     hibak: hibak.length > 0 ? hibak : undefined,
     figyelmeztetesek: figyelmeztetesek.length > 0 ? figyelmeztetesek : undefined,

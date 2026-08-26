@@ -23,6 +23,8 @@ import {
   type AnyagraktarStats,
 } from '@/app/(dashboard)/leltar/anyagraktar-actions'
 import { InventoryPrintDialog } from '@/components/inventory/inventory-print-dialog-v2'
+// 2026-08-27: a rendszergazdai importáló innen kéri a lista újratöltését.
+import { InventoryRefreshProvider } from '@/components/inventory/inventory-refresh-context'
 // 2026-08-26 (Leltar 3_43 kör): a hivatalos munkafüzet kitöltött exportja.
 import { Leltar343ExportButton } from '@/components/inventory/leltar343-export-button'
 import {
@@ -714,7 +716,21 @@ export function InventoryMain({
       />
 
       {activeView === 'admin-import' && showAdminImport ? (
-        adminImportContent
+        // 2026-08-27: a fül tartalma a szerveren készül (page.tsx), ezért
+        // propot nem tud kapni — a friss-lista csatorna kontextuson megy.
+        // E nélkül az import UTÁN a lista NEM töltődik újra (a `load` csak
+        // csatoláskor fut), és a lelkész azt hiszi, semmi nem ment be.
+        <InventoryRefreshProvider
+          api={{
+            frissit: load,
+            listaraUgras: () => {
+              setActiveView('tab')
+              setActiveTab('nyilvantartas')
+            },
+          }}
+        >
+          {adminImportContent}
+        </InventoryRefreshProvider>
       ) : activeTab === 'sugo' ? (
         <InventoryGuideTab />
       ) : activeTab === 'anyagraktar' ? (

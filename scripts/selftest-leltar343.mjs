@@ -353,7 +353,20 @@ assert(
   pageSrc.includes('importProfiles={INVENTORY_PROFILES}') && pageSrc.includes('importModule="inventory"'),
   'G1: a leltar/page.tsx a VALÓDI feldolgozót köti be (importProfiles + importModule)',
 )
-assert(pageSrc.includes('Leltar343ImportCard'), 'G1b: a dedikált Leltar 3_43 import-kártya a helyén van')
+// 2026-08-27: a dedikált importáló egylapos KÁRTYÁBÓL négylépéses VARÁZSLÓ lett
+// (Endre kérése). Az őrszem SZÁNDÉKA változatlan: a hivatalos munkafüzetnek
+// legyen dedikált, bekötött importálója a lapon — csak a komponens neve más.
+assert(
+  pageSrc.includes('Leltar343ImportWizard'),
+  'G1b: a dedikált Leltar 3_43 importáló (varázsló) a helyén van',
+)
+{
+  const mutans = pageSrc.replace(/Leltar343ImportWizard/g, '')
+  assert(
+    !mutans.includes('Leltar343ImportWizard') && !mutans.includes('Leltar343ImportCard'),
+    'G1b-n: dedikált importáló NÉLKÜLI oldalon az őrszem BUKNA — nem vak',
+  )
+}
 
 // G1n (negatív): a RÉGI (bekötetlen) világ mutánsán az őrszem BUKIK.
 {

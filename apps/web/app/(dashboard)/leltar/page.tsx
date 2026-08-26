@@ -1,6 +1,6 @@
 import { InventoryMain } from '@/components/inventory/inventory-main-v3'
 import { ModuleAdminImportTabV2 } from '@/components/shared/module-admin-import-tab-v2'
-import { Leltar343ImportCard } from '@/components/inventory/leltar343-import-card'
+import { Leltar343ImportWizard } from '@/components/inventory/leltar343-import-wizard'
 import { INVENTORY_PROFILES } from '@/lib/import/import-profiles'
 import { CongregationOnlyNotice } from '@/components/layout/congregation-only-notice'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
@@ -21,7 +21,7 @@ const LELTAR_IMPORT_PROFILES = [
   {
     value: 'items',
     label: 'Leltári tételek',
-    description: 'Egyszerű leltár-lista feltöltése (egy sor = egy tétel). A hivatalos Leltar 3_43 munkafüzetet a fenti dedikált kártya fogadja.',
+    description: 'Egyszerű leltár-lista feltöltése (egy sor = egy tétel). A hivatalos Leltar 3_43 munkafüzetet a fenti varázsló fogadja.',
     columns: ['Megnevezés', 'Kategória', 'Leltári szám', 'Helyszín', 'Felelős', 'Beszerzés dátuma', 'Beszerzési érték', 'Mennyiség'],
     hints: [
       'A kategória magyarul vagy románul is megadható (pl. „Alapeszközök")',
@@ -99,12 +99,12 @@ export default async function LeltarPage() {
                 renderelődött. Most (1) a hivatalos Leltar 3_43 munkafüzetnek
                 dedikált kártyája van, (2) az egyszerű listákat a közös
                 multi-sheet út dolgozza fel a VALÓDI 'inventory_items' profillal. */}
-            <Leltar343ImportCard />
+            <Leltar343ImportWizard />
             <ModuleAdminImportTabV2
               moduleKey="inventory"
               moduleLabel="Leltár"
               title="Leltári laborimport az aktuális gyülekezethez"
-              description="Egyszerű leltár-listák (Excel/CSV) védett rendszergazdai importja. A hivatalos Leltar 3_43 munkafüzetet a fenti kártya fogadja."
+              description="Egyszerű leltár-listák (Excel/CSV) védett rendszergazdai importja. A hivatalos Leltar 3_43 munkafüzetet a fenti varázsló fogadja."
               congregationName={congregationName}
               isGodMode={godMode.active}
               isDelegatedImport={delegatedImport.active}

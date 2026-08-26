@@ -93,6 +93,19 @@ export function normalizeInventoryCategory(value?: string | null): InventoryCate
   const token = normalizeInventoryToken(value)
 
   for (const category of INVENTORY_CATEGORIES) {
+    // ⚠️ 2026-08-27 (leltár-import kör) — NÉMA KIESÉS JAVÍTÁSA: a rendszer
+    // SAJÁT címkéinek MINDIG vissza kell normalizálódniuk. Eddig csak a kézzel
+    // karbantartott alias-lista döntött, és két magyar (》Csekély értékű
+    // leltári tárgyak《, 》Kárpótlási jegyek és részvények《) meg két román
+    // (》Terenuri si amplasamenturi《, 》Acțiuni și titluri de proprietate《)
+    // címke NEM szerepelt benne. Aki a leltár-listáról másolta ki a
+    // kategóriát az importfájlba, annak a sorai „Ismeretlen kategória"
+    // hibával kimaradtak — a felület tehát olyan értéket kínált, amit maga
+    // nem fogadott el. A körkörös egyezés (címke → kategória → címke) most
+    // szabály, nem karbantartási feladat.
+    if (normalizeInventoryToken(INVENTORY_CATEGORY_LABELS[category]) === token) return category
+    if (normalizeInventoryToken(INVENTORY_CATEGORY_ROMANIAN_LABELS[category]) === token) return category
+    if (normalizeInventoryToken(serializeInventoryCategory(category)) === token) return category
     if (INVENTORY_CATEGORY_ALIASES[category].some(alias => normalizeInventoryToken(alias) === token)) {
       return category
     }

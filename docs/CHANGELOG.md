@@ -23,6 +23,83 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-27] — Leltár-import: lépésről lépésre vezető varázsló, javítható hibákkal
+<!-- key: 2026-08-27-leltar-import-varazslo -->
+<!-- category: feature -->
+<!-- version: 0.9.180 -->
+<!-- targets: lelkipásztorok, rendszergazdák -->
+
+### 🐛 Javítások
+
+- **„Nem importált egyet sem" — a képernyő hazudott.** A hivatalos Leltar 3_43
+  munkafüzet importja eddig is lefutott és be is írta a tételeket, de a
+  Leltári nyilvántartás listája **nem töltődött újra**: a lista csak az oldal
+  megnyitásakor kérdezi le az adatokat, az importáló pedig egy másik fülön él
+  ugyanazon az oldalon. Fülváltás után tehát a régi (importálás előtti) lista
+  fogadott. Mostantól az import végén a rendszer magától frissíti a listát, és
+  egy gombbal át is visz rá.
+- **A leltári szám ütközése többé nem néma kihagyás.** Aki egyszer már
+  importálta a munkafüzetet, másodszorra ezt kapta: „0 tétel bekerült, 219
+  kimaradt" — magyarázat és választási lehetőség nélkül. Most soronként (vagy
+  egyetlen tömeges gombbal) eldönthető, hogy a tétel **új leltári számot**
+  kapjon, **frissítse a meglévőt**, vagy **maradjon ki**.
+- **A rendszergazdai importáló zsákutcái kitakarítva.** Eltűnt a nagy „Húzd ide
+  a fájlt" doboz, ami a fájlt sehova nem küldte tovább, a „Tovább az
+  importálásra" gomb, ami csak legörgetett, a hamis háromlépéses sáv (a 3.
+  lépés már a fájl beejtésétől „aktív" volt, és soha nem kapott pipát), a két
+  díszlet-készültségi doboz és a három ismétlő állapot-csempe. A fájlt
+  mostantól **egy** helyen kell kiválasztani.
+- **A „0 sor beszúrva" többé nem zöld siker.** Az importálók eddig akkor is
+  „Import sikeresen befejeződött!" fejlécet mutattak, ha minden sor kimaradt.
+- **Két kategória-név némán kiejtette a sorokat.** A „Csekély értékű leltári
+  tárgyak" és a „Kárpótlási jegyek és részvények" — vagyis a rendszer SAJÁT
+  címkéi, amiket a leltár-listáról lehet kimásolni — nem voltak
+  visszaismerhetők az importban, így az ezekkel kitöltött sorok kimaradtak.
+- **A minta-CSV nem tartalmaz többé helykitöltő sort** (az „<Megnevezés>"
+  minta-sor hibás sorként jelent meg az importban), és a letöltés a korábban
+  megbízhatatlan böngészőkben is elindul.
+
+### ✨ Új funkciók
+
+- **Négylépéses import-varázsló a hivatalos Leltar 3_43 munkafüzethez:**
+  **1. Fájl** → **2. Ellenőrzés** → **3. Javítás** → **4. Importálás**.
+- **Az ellenőrzés teljes egészében látszik.** Minden sor megjelenik (a korábbi
+  felület legfeljebb 12 üzenetet mutatott, a szerver pedig laponként 20-nál
+  elvágta a hibalistát), állapot szerint szűrhetően (Javítandó /
+  Figyelmeztetés / Rendben), lapra szűrve, kereséssel és lapozással.
+- **A hibás sorok javíthatók a felületen.** A hiányzó megnevezés, a rossz
+  mennyiség, a hiányzó dátum vagy érték helyben átírható — a beolvasáskor
+  elutasított sorok is, amelyek eddig egyszerűen eltűntek.
+- **Tömeges döntés az ütköző leltári számokra:** „Mind frissítse a meglévőt",
+  „Mind kapjon új számot", „Mind maradjon ki".
+- **A frissítés nem töröl.** A „meglévő frissítése" csak a munkafüzetben
+  kitöltött mezőket írja felül — az üres cella nem NULL-ozza a rendszerben
+  kézzel rögzített helyszínt, felelőst vagy megjegyzést, és a rögzítő
+  személye sem változik.
+- **Az import előtt látszik, mi fog történni:** hány új tétel kerül be, hány
+  meglévő frissül, hány sor marad ki, és hány vár még javításra. Ha a tárgyévi
+  leltár már véglegesítve van, arra külön figyelmeztetés hívja fel a figyelmet.
+- **A már kivezetett tételek leltári száma újra kiadható** — a rendszer ezt
+  már csak figyelmeztetésként jelzi, nem hibaként (a szabályos kivezetés után
+  a szám valóban felszabadul).
+
+### 🔒 Biztonsági javítások
+
+- **A véglegesített év leltári tételeit az import nem írhatja felül.** Ha a
+  tárgyévi vagyonleltári jelentés már véglegesítve van, a „meglévő tétel
+  frissítése" választás **zárolt** — a felületen nem is választható, a szerver
+  pedig akkor is elutasítja, ha valaki megkerülné. A feloldás útja a megszokott:
+  a lelkész feloldást kér a Leltári nyilvántartás fülön, és az **egyházmegye**
+  hagyja jóvá. **Új tétel bevitele nincs zárolva** — a véglegesítés a
+  *jelentést* zárja le, nem a tétel-rögzítést.
+- Ha a lezárt állapotot a rendszer valamiért **nem tudja lekérdezni**, a
+  hivatalos irat védelmében véglegesítettnek tekinti az évet (és ezt meg is
+  mondja — nem állítja tényként a lezárást).
+- A lezárást mindig annak a **gyülekezetnek** az évsorán méri, ahová az import
+  ír — rendszergazdaként másik gyülekezetbe importálva sem a sajátunk nyitott
+  éve dönt.
+
+---
 ## [2026-08-26] — Tisztségek: presbitérium mandátumokkal, bizottságok, weboldal-megjelenés + naptár-megújítás
 <!-- key: 2026-08-26-tisztsegek-naptar -->
 <!-- category: feature -->
