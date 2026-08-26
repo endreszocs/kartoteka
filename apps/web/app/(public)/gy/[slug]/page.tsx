@@ -69,7 +69,9 @@ export default async function CongregationHomePage({
   return (
     <>
       <PublicHero site={site} />
-      <PublicHomeHighlights site={site} />
+      {/* A „Következő alkalom" kártya a legközelebbi, nyilvánosnak jelölt
+          KONKRÉT alkalmat mutatja; ha nincs ilyen, a rendszeres alkalmat. */}
+      <PublicHomeHighlights site={site} kovetkezoEsemeny={esemenyek[0] ?? null} />
 
       {/* Közösségünk számokban — a számok szűk, aggregált RPC-ből jönnek */}
       <PublicHomeStats site={site} stats={stats} />
@@ -92,7 +94,7 @@ export default async function CongregationHomePage({
             <PublicEmptyState
               title="Hamarosan érkeznek az első hírek."
               description="Amíg feltöltjük a beszámolókat, szeretettel várunk a rendszeres alkalmainkon."
-              actionHref={`/gy/${site.slug}#alkalmak`}
+              actionHref={`/gy/${site.slug}/alkalmak`}
               actionLabel="Alkalmaink megtekintése"
             />
           ) : (
@@ -120,7 +122,7 @@ export default async function CongregationHomePage({
       </section>
 
       {/* Közelgő események — a határidőnaplóban publikusra jelölt alkalmak */}
-      <PublicEsemenyekSection esemenyek={esemenyek} />
+      <PublicEsemenyekSection esemenyek={esemenyek} slug={site.slug} />
 
       {/* A hét igéje */}
       <PublicVerseBlock site={site} />

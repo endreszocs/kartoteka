@@ -33,6 +33,9 @@ export function PublicSiteHeader({
   );
   const navItems = [
     { href: `/gy/${site.slug}`, label: "Kezdőlap", isHome: true },
+    // 2026-08-27: az „Alkalmaink" eddig csak horgony volt a kezdőlapon
+    // (`#alkalmak`); most saját oldal, éves naptárral és letöltéssel.
+    { href: `/gy/${site.slug}/alkalmak`, label: "Alkalmaink" },
     { href: `/gy/${site.slug}/posts`, label: "Hírek" },
     { href: `/gy/${site.slug}/magazin`, label: "Magazin" },
     { href: `/gy/${site.slug}/rolunk`, label: "Rólunk" },

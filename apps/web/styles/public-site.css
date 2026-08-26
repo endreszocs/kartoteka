@@ -551,3 +551,74 @@
     transition: none !important;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   NYOMTATAS — a gyulekezet eves programja (2026-08-27)
+
+   Endre kerese: „le is toltheto a teljes eves program". A bongeszo sajat
+   nyomtatasi parbeszede adja a PDF-et is (Mentes PDF-kent), tehat egy
+   PUBLIKUS oldalra nem kell PDF-motort behuzni — a latogatonak nem szabad
+   megfizetnie a betoltodeset.
+
+   ⚠️ A ragados fejlec nyomtatasban MINDEN lap tetejere rakerulne (a
+   `position: sticky` nyomtataskor `static`-ka esik ugyan, de a menu- es
+   gomb-sor akkor is felesleges papiron), ezert a fejlecet, lablecet,
+   evvalasztot es a letoltes-gombokat elrejtjuk. A szinek megorzesehez
+   `print-color-adjust: exact` kell — nelkule a bongeszo kifeheriti a
+   honap-fejleceket es a datum-horgonyokat.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Csak nyomtatasban latszo blokk (pl. a papir sajat fejlec-adatai). */
+.public-print-only {
+  display: none;
+}
+
+@media print {
+  .public-no-print,
+  .public-site-header,
+  .public-site-footer {
+    display: none !important;
+  }
+
+  .public-print-only {
+    display: block;
+  }
+
+  /* A nyomtatott lapon ne maradjon feleslegesen nagy fuggoleges levego. */
+  .public-section {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  .public-container {
+    max-width: none !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  /* Egy alkalom (es lehetoleg egy honap) ne torjon ket lap koze. */
+  .public-ev-naptar li {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .public-ev-naptar > section {
+    break-inside: auto;
+    margin-bottom: 8mm;
+  }
+
+  .public-ev-naptar > section > header {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .public-panel {
+    box-shadow: none !important;
+    border: 1px solid rgba(0, 0, 0, 0.18) !important;
+  }
+
+  :root {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}

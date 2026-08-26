@@ -26,10 +26,13 @@ const sitemapRpcRowSchema = z.object({
 })
 
 const ROUTE_METADATA: Record<
-  SitemapRouteKind,
+  SitemapRouteKind | 'alkalmak',
   Pick<MetadataRoute.Sitemap[number], 'changeFrequency' | 'priority'>
 > = {
   home: { changeFrequency: 'weekly', priority: 0.9 },
+  // Az Alkalmaink oldal nem az RPC felsorolásából jön (lásd lentebb) — de a
+  // gyakorisága/súlya itt, a többivel egy helyen lakik.
+  alkalmak: { changeFrequency: 'weekly', priority: 0.8 },
   posts: { changeFrequency: 'daily', priority: 0.7 },
   about: { changeFrequency: 'monthly', priority: 0.6 },
   magazine: { changeFrequency: 'monthly', priority: 0.6 },
@@ -113,6 +116,24 @@ function buildRpcSitemapEntries(
       ...(lastModified ? { lastModified } : {}),
       ...ROUTE_METADATA[row.route_kind],
     })
+
+    // 2026-08-27 — az Alkalmaink oldal (éves naptár) a `home` sorból
+    // SZÁRMAZTATVA kerül a sitemapbe.
+    // ⚠️ Miért nem az RPC adja: a `route_kind` felsorolás az adatbázisban él,
+    // bővítése újabb migrációt kívánna. Ez az oldal minden publikált
+    // gyülekezetnél létezik (üresen is: a rendszeres alkalmakat és az
+    // elérhetőséget mutatja), tehát nincs mit lekérdezni hozzá.
+    if (row.route_kind === 'home') {
+      const alkalmakUrl = `${siteBase}/alkalmak`
+      if (!seenUrls.has(alkalmakUrl)) {
+        seenUrls.add(alkalmakUrl)
+        entries.push({
+          url: alkalmakUrl,
+          ...(lastModified ? { lastModified } : {}),
+          ...ROUTE_METADATA.alkalmak,
+        })
+      }
+    }
   }
 
   return entries
@@ -148,6 +169,11 @@ async function loadLegacySitemap(baseUrl: string): Promise<MetadataRoute.Sitemap
         url: siteBase,
         ...(siteUpdatedAt ? { lastModified: siteUpdatedAt } : {}),
         ...ROUTE_METADATA.home,
+      },
+      {
+        url: `${siteBase}/alkalmak`,
+        ...(siteUpdatedAt ? { lastModified: siteUpdatedAt } : {}),
+        ...ROUTE_METADATA.alkalmak,
       },
       {
         url: `${siteBase}/posts`,

@@ -23,6 +23,88 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-27] — Gyülekezeti weboldal: címer, elérhetőségek, éves naptár, saját aldomain
+<!-- key: 2026-08-27-gyulekezeti-oldal-naptar-cimer -->
+<!-- category: feature -->
+<!-- version: 0.9.184 -->
+<!-- targets: lelkipásztorok -->
+
+### 🐛 Javítások
+
+- **A gyülekezet címere jelenik meg a weboldalon** — a betöltő képernyőn, a
+  fejlécben és a láblécben is. Eddig a Kartotéka saját logója állt ott.
+  Két oka volt: a weboldal csak a *Publikus oldal* alatt külön feltöltött
+  címert nézte (a **Gyülekezetünk adatai**-nál mentettről nem tudott), a
+  hiányzó címer helyére pedig a szoftver logója került. Mostantól a
+  gyülekezeti adatoknál mentett címer a tartalék, és ha az sincs, a gyülekezet
+  nevének kezdőbetűje — soha nem a szoftvergyártó jele.
+- **Az elérhetőségek is megjelennek** — e-mail, telefon és cím. Ugyanaz volt a
+  helyzet: a *Gyülekezetünk adatai*-nál mentett elérhetőségekről a weboldal nem
+  tudott, ezért „az elérhetőségi adatok hamarosan felkerülnek" felirat állt ott.
+- **A „Következő alkalom" a valódi következő alkalmat mutatja.** Eddig csak a
+  weboldalon külön szerkesztett, ismétlődő istentiszteleti rendet nézte — a
+  határidőnaplóban rögzített konkrét alkalomról (pl. vakációs bibliahét) nem
+  tudott.
+
+### ✨ Újdonságok
+
+- **Alkalmaink oldal éves naptárral.** A gyülekezet nyilvános alkalmai hónapról
+  hónapra, **leírással együtt**, évválasztóval. A menüből is elérhető.
+- **A teljes éves program letölthető** — nyomtatható (a böngésző „Mentés
+  PDF-ként" funkciójával PDF is lesz belőle), és menthető a telefon naptárába
+  (.ics fájl).
+- **A határidőnapló listájában látszik, mely alkalom van kitéve a weboldalra**
+  („weboldalon" jelzés). Eddig a kapcsoló a szerkesztő-ablak alján ült, alapból
+  kikapcsolva, és a listából nem lehetett megállapítani.
+- **Saját aldomain gyülekezetenként** —
+  `baratosi-reformatus-egyhazkozseg.kartoteka.app`. Az alkalmazás oldali rész
+  kész; a DNS- és a Railway-beállítás lépései a
+  `docs/GYULEKEZETI-ALDOMAIN-BEALLITAS.md` fájlban. A régi cím továbbra is
+  működik.
+
+### 🔧 Ami közben kiderült a rendszerről
+
+A javítás első változata az éles adatbázison megállt egy biztonsági ellenőrzésen.
+Utánanézve kiderült, hogy **két korábbi adatbázis-frissítés soha nem futott le**
+(olyan felhasználói szerepköröket vártak, amelyek élesben nem léteznek). Ennek
+három, addig észrevétlen következménye volt:
+
+- a **„Rendszeres alkalmak" szerkesztő meg sem jelent** a Publikus oldal
+  beállításai között — ezért volt üres az Alkalmaink menetrend. Ez a mostani
+  frissítéssel elérhetővé válik.
+- a **`sitemap.xml` üres volt**, tehát a keresők nem találták meg a gyülekezeti
+  oldalakat;
+- a gyülekezeti oldalak egy régi, „átmeneti" úton szolgálódtak ki.
+
+A mostani frissítés úgy készült, hogy **mindhárom lehetséges adatbázis-állapotban
+működjön**, és semmilyen már működő beállítást ne írjon felül.
+
+### ✨ Program-rögzítő: külön „Leírás" mező
+
+A határidőnapló program-ablakában eddig csak **Megjegyzés** volt. A weboldal
+naptára viszont a **leírást** jeleníti meg — azt a mezőt, amit a webes űrlapon
+nem lehetett kitölteni. Ezért a „leírással együtt" naptár üres szövegeket adott
+volna. Mostantól:
+
+- **Leírás** — a látogatónak szánt ismertető. Ez jelenik meg a weboldalon és a
+  letölthető naptárfájlban, ha az alkalom ki van téve. A mező felirata jelzi is,
+  ha az alkalom publikus.
+- **Megjegyzés (belső)** — csak nektek szóló jegyzet, a weboldalra **soha** nem
+  kerül ki.
+- A **sablonok** (Vakációs Bibliahét, FIT7, Egyetemes imahét) mostantól kész,
+  látogatóknak szóló ismertetőt is előtöltenek — szabadon átírható.
+
+### ⚠️ Fontos tudnivaló
+
+Egy alkalom **csak akkor** jelenik meg a weboldalon és a letölthető naptárban,
+ha a határidőnaplóban be van kapcsolva rajta a **„Megjelenhet a gyülekezet
+weboldalán"** kapcsoló. Ez alapból ki van kapcsolva — a lelkigondozói
+látogatások és a presbiteri ülések így nem kerülnek nyilvánosságra.
+
+A nyilvánosnak jelölt alkalmaknál mostantól a **leírás is kikerül** a
+weboldalra (ezt kérted). A **megjegyzés** továbbra sem hagyja el a rendszert.
+
+---
 ## [2026-08-27] — Leltár-nyomtatás: egyenletes oldalak, rögzített oszlopok
 <!-- key: 2026-08-27-leltar-nyomtatas-oszlopok -->
 <!-- category: bugfix -->

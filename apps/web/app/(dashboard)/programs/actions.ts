@@ -134,6 +134,9 @@ function buildProgramRecord(d: ProgramInput): Record<string, unknown> {
     'ismétlődő': !!d.ismetlodes_tipus,
     egyedi_tipus_nev: d.tipus === 'egyeb' ? (d.egyedi_tipus_nev || null) : null,
     egyedi_emoji: d.tipus === 'egyeb' ? (d.egyedi_emoji || null) : null,
+    // 2026-08-27: a nyilvános ismertető. Az oszlop régóta létezik, de a webes
+    // felület eddig SOHA nem írta — ezért maradt volna üres a weboldal naptára.
+    leiras: d.leiras?.trim() || null,
     megjegyzes: d.megjegyzes || null,
   }
 }

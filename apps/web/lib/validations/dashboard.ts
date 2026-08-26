@@ -24,6 +24,10 @@ const programBase = z.object({
   publikus: z.boolean().optional(),
   egyedi_tipus_nev: z.string().optional().or(z.literal('')),
   egyedi_emoji: z.string().optional().or(z.literal('')),
+  // 2026-08-27: a LÁTOGATÓNAK szánt ismertető. Ez kerül ki a nyilvános
+  // weboldalra (ha a program publikus); a `megjegyzes` továbbra sem.
+  // A hossz korlátozva: ez egy naptár-bejegyzés ismertetője, nem cikk.
+  leiras: z.string().max(2000, 'A leírás legfeljebb 2000 karakter lehet.').optional().or(z.literal('')),
   megjegyzes: z.string().optional().or(z.literal('')),
 })
 

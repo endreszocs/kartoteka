@@ -7,25 +7,13 @@
  * hozzájárulással kerülhet ide — a kaput az RPC kényszeríti ki.
  */
 
-import { CalendarDays, MapPin, Users } from 'lucide-react'
+import Link from 'next/link'
+import { ArrowRight, CalendarDays, MapPin, Users } from 'lucide-react'
 
 import { PublicSectionHeader } from '@/components/public/public-section-header'
 import { publikusTisztsegCimke } from '@/lib/tisztsegek/shared'
+import { formazIdopont } from '@/lib/public-site/esemeny-format'
 import type { PublicTisztseg, PublicEsemeny } from '@/lib/public-site/tisztsegek-events-loader'
-
-const HU_HONAPOK = [
-  'január', 'február', 'március', 'április', 'május', 'június',
-  'július', 'augusztus', 'szeptember', 'október', 'november', 'december',
-]
-const HU_NAPOK = ['vasárnap', 'hétfő', 'kedd', 'szerda', 'csütörtök', 'péntek', 'szombat']
-
-function formazDatum(iso: string): string {
-  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/)
-  if (!m) return iso
-  const [, y, mo, d] = m
-  const nap = HU_NAPOK[new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d))).getUTCDay()]
-  return `${y}. ${HU_HONAPOK[Number(mo) - 1]} ${Number(d)}. (${nap})`
-}
 
 export function PublicTisztsegekSection({ tisztsegek }: { tisztsegek: PublicTisztseg[] }) {
   if (tisztsegek.length === 0) return null
@@ -68,7 +56,14 @@ export function PublicTisztsegekSection({ tisztsegek }: { tisztsegek: PublicTisz
   )
 }
 
-export function PublicEsemenyekSection({ esemenyek }: { esemenyek: PublicEsemeny[] }) {
+export function PublicEsemenyekSection({
+  esemenyek,
+  slug,
+}: {
+  esemenyek: PublicEsemeny[]
+  /** Ha megvan, a szekció fejlécéből át lehet lépni a teljes éves naptárra. */
+  slug?: string
+}) {
   if (esemenyek.length === 0) return null
   return (
     <section className="public-section" id="esemenyek">
@@ -77,6 +72,8 @@ export function PublicEsemenyekSection({ esemenyek }: { esemenyek: PublicEsemeny
           eyebrow="Naptár"
           title="Közelgő események"
           subtitle="A következő hetek gyülekezeti alkalmai és eseményei — szeretettel várunk!"
+          linkHref={slug ? `/gy/${slug}/alkalmak` : undefined}
+          linkLabel="Teljes éves naptár"
         />
         <div className="grid gap-3 sm:grid-cols-2">
           {esemenyek.map((e, idx) => (
@@ -86,10 +83,7 @@ export function PublicEsemenyekSection({ esemenyek }: { esemenyek: PublicEsemeny
               </p>
               <p className="mt-1.5 flex items-center gap-1.5 text-xs" style={{ color: 'var(--public-muted)' }}>
                 <CalendarDays className="size-3.5 shrink-0" aria-hidden="true" />
-                {formazDatum(e.datum)}
-                {e.datum_vege && e.datum_vege !== e.datum ? ` – ${formazDatum(e.datum_vege)}` : ''}
-                {e.ido_kezdes ? ` · ${e.ido_kezdes.slice(0, 5)}` : ''}
-                {e.ido_befejezes ? `–${e.ido_befejezes.slice(0, 5)}` : ''}
+                {formazIdopont(e)}
               </p>
               {e.helyszin && (
                 <p className="mt-1 flex items-center gap-1.5 text-xs" style={{ color: 'var(--public-muted)' }}>
@@ -97,9 +91,25 @@ export function PublicEsemenyekSection({ esemenyek }: { esemenyek: PublicEsemeny
                   {e.helyszin}
                 </p>
               )}
+              {/* A leírás Endre 2026-08-27-i kérésére látszik — csak a
+                  nyilvánosnak JELÖLT programoké jut idáig. */}
+              {e.leiras && (
+                <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--public-muted)' }}>
+                  {e.leiras}
+                </p>
+              )}
             </div>
           ))}
         </div>
+
+        {slug && (
+          <div className="mt-7">
+            <Link href={`/gy/${slug}/alkalmak`} className="public-btn public-btn-outline">
+              A teljes éves program
+              <ArrowRight className="size-4" aria-hidden="true" />
+            </Link>
+          </div>
+        )}
       </div>
     </section>
   )

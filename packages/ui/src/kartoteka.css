@@ -1938,6 +1938,18 @@
   display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; line-height: 1.3;
   padding: 3px 8px; border-radius: 999px; color: var(--muted-foreground); background: var(--muted);
 }
+/* 2026-08-27 — „Megjelenhet a weboldalon" jelzés a határidőnaplóban.
+   ⚠️ MIÉRT KELL: Endre elmentette a vakációs bibliahetet, majd azt jelezte,
+   hogy a weboldalon „a következő alkalom üres". A publikálás programonkénti,
+   ALAPBÓL KIKAPCSOLT jelölés — a listában viszont semmi nem mutatta, hogy egy
+   alkalom ki van-e téve. Így a hiányzó jelölés némán úgy nézett ki, mint egy
+   weboldal-hiba. */
+.kt-public-chip {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; line-height: 1.3;
+  padding: 3px 8px; border-radius: 999px;
+  color: color-mix(in oklab, var(--primary) 92%, var(--foreground));
+  background: color-mix(in oklab, var(--primary) 13%, var(--card));
+}
 .kt-prio { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 700; padding: 3px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; line-height: 1.3; }
 .kt-prio-kiemelt { color: var(--accent-foreground); background: color-mix(in oklab, var(--accent) 60%, var(--card)); }
 .kt-prio-fontos { color: color-mix(in oklab, var(--destructive) 88%, var(--foreground)); background: color-mix(in oklab, var(--destructive) 14%, var(--card)); }

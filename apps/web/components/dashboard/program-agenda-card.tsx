@@ -1,7 +1,7 @@
 'use client'
 
 // ── Agenda esemény-kártya (Claude Design widget, 2026-06-07) ──
-import { Calendar, Clock, ArrowRight, MapPin, Repeat, Star, Flag, Check, Trash2 } from 'lucide-react'
+import { Calendar, Clock, ArrowRight, MapPin, Repeat, Star, Flag, Check, Trash2, Globe } from 'lucide-react'
 import { progColor, progLabel, ISMETLODES_LABELS } from '@/lib/constants/dashboard'
 import type { Program, IsmetlodesTipus } from '@/lib/constants/dashboard'
 import { fmtTime, fmtDateRange } from '@/lib/utils/program-day'
@@ -98,6 +98,15 @@ export function AgendaCard({ p, isToday, showDate, compact, onEdit, onToggleDone
           {recur && (
             <span className="kt-recur-chip" title="Ismétlődő alkalom">
               <Repeat size={11} /> {recur}
+            </span>
+          )}
+          {/* 2026-08-27 — a nyilvános jelölés LÁTSZÓDJON a listában is.
+              Enélkül a „miért nem látszik a weboldalon?" kérdésre a
+              határidőnaplóból nem lehetett válaszolni: a kapcsoló a
+              szerkesztő-ablak alján, alapból kikapcsolva ült. */}
+          {p.publikus && (
+            <span className="kt-public-chip" title="Ez az alkalom megjelenik a gyülekezet nyilvános weboldalán és a letölthető naptárban.">
+              <Globe size={11} /> weboldalon
             </span>
           )}
           <PriorityMark prioritas={p.prioritas} />

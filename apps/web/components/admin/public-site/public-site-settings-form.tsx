@@ -234,6 +234,18 @@ export function PublicSiteSettingsForm({ initial, themes }: Props) {
             placeholder="Gyülekezet címere"
           />
         </div>
+        {/* 2026-08-27 — Endre: „a gyülekezet címere látszódjon". A címer eddig
+            CSAK innen jöhetett; ha itt üres volt, a weboldalon a Kartotéka
+            termék-logója jelent meg. Mostantól a gyülekezeti adatoknál mentett
+            címer a tartalék — ezt itt is kiírjuk, hogy ne tűnjön hibának, ha
+            a mező üres, de az oldalon mégis ott a címer. */}
+        {!form.crest_image_url && (
+          <p className="mt-3 text-xs text-slate-500">
+            Ha ezt üresen hagyod, a weboldalon a <strong>Gyülekezetünk adatai</strong> alatt
+            mentett címer jelenik meg. Itt csak akkor tölts fel képet, ha a weboldalon
+            <em> mást</em> szeretnél mutatni.
+          </p>
+        )}
       </section>
 
       {/* Téma */}
@@ -341,6 +353,15 @@ export function PublicSiteSettingsForm({ initial, themes }: Props) {
       {/* Elérhetőség */}
       <section className="card-raised p-4 sm:p-6">
         <h2 className="font-heading text-xl text-slate-800 mb-4">Elérhetőség</h2>
+        {/* 2026-08-27 — Endre: „Az elérhetőségek látszódjanak, amik le vannak
+            mentve a gyülekezeti adatoknál." Ugyanaz a hibaosztály, mint a
+            címernél: ez a három mező a `public_sites` SAJÁT adata volt, és
+            üresen a weboldalon a „hamarosan felkerülnek" szöveg állt. */}
+        <p className="mb-4 text-xs text-slate-500">
+          Üresen hagyva a <strong>Gyülekezetünk adatai</strong> alatt mentett e-mail-cím,
+          telefonszám és cím jelenik meg a weboldalon. Itt csak akkor írj be adatot, ha a
+          nyilvános oldalon <em>más</em> elérhetőséget szeretnél közölni.
+        </p>
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="public-site-contact-email" className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">

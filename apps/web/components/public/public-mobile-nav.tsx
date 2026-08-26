@@ -8,6 +8,7 @@ import {
   X,
   Home,
   Newspaper,
+  CalendarDays,
   BookOpen,
   Users,
   UserRoundCheck,
@@ -91,6 +92,12 @@ export function PublicMobileNav({
       icon: Home,
       desc: 'Főoldal és hírek',
       isHome: true,
+    },
+    {
+      href: `/gy/${slug}/alkalmak`,
+      label: 'Alkalmaink',
+      icon: CalendarDays,
+      desc: 'Rendszeres alkalmak és éves program',
     },
     {
       href: `/gy/${slug}/posts`,
