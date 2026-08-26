@@ -12,7 +12,7 @@ import {
   CalendarDays, X, MapPin, Clock, ChevronDown, Star, Flag, Repeat, Check,
 } from 'lucide-react'
 import { programSchema, type ProgramInput } from '@/lib/validations/dashboard'
-import { saveProgram, createImahetNaplosorok } from '@/app/(dashboard)/programs/actions'
+import { saveProgram, createImahetNaplosorok, getWeboldalEsemenyKapu } from '@/app/(dashboard)/programs/actions'
 import {
   PROGRAM_TYPES, PROG_TIPUS_LABELS, PROG_TIPUS_COLOR,
   PROGRAM_PRIORITIES, PROG_PRIORITAS_LABELS,
@@ -73,6 +73,24 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
   // 2026-08-27: a leírás-mező felirata attól függ, hogy ki van-e téve az alkalom
   // — így a kettő összetartozása a felületen is látszik.
   const publikusBe = useWatch({ control, name: 'publikus' }) === true
+
+  // ⛔ KÉT KAPCSOLÓ KELL. A weboldalon külön be kell kapcsolni a „Közelgő
+  // események" szekciót is — és az ALAPBÓL KI VAN KAPCSOLVA. Enélkül a
+  // programon hiába van bepipálva a publikálás, a weboldalon nem jelenik meg
+  // semmi. Endre pontosan ebbe futott bele (2026-08-27).
+  // `null` = nem tudjuk (hiba vagy régi séma) — ilyenkor NEM állítunk semmit.
+  const [esemenyKapu, setEsemenyKapu] = useState<
+    { vanPublikaltOldal: boolean; esemenyekBekapcsolva: boolean } | null
+  >(null)
+
+  useEffect(() => {
+    if (!open) return
+    let ervenyes = true
+    getWeboldalEsemenyKapu()
+      .then(k => { if (ervenyes) setEsemenyKapu(k) })
+      .catch(() => { if (ervenyes) setEsemenyKapu(null) })
+    return () => { ervenyes = false }
+  }, [open])
 
   // Előtöltés / alapértékek megnyitáskor
   useEffect(() => {
@@ -524,6 +542,25 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
               a kezdőlap „Következő alkalom" kártyájára, az Alkalmaink oldal éves naptárába
               és a letölthető naptárfájlba. A <strong>megjegyzés</strong> soha nem kerül ki.
             </p>
+
+            {/* ⚠️ A MÁSIK KAPCSOLÓ. Csak akkor szólunk, ha BIZTOSAN tudjuk,
+                hogy zárva van — hamis riasztás rosszabb a hallgatásnál. */}
+            {publikusBe && esemenyKapu && !esemenyKapu.esemenyekBekapcsolva && (
+              <p className="kt-modal-sub" style={{ color: 'var(--destructive)', fontWeight: 600 }}>
+                ⚠️ Ez az alkalom MÉGSEM fog megjelenni: a weboldalon ki van kapcsolva a
+                „Közelgő események" szekció. Kapcsold be itt:{' '}
+                <a href="/publikus-oldal/beallitasok" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline' }}>
+                  Publikus oldal → Beállítások
+                </a>
+                .
+              </p>
+            )}
+            {publikusBe && esemenyKapu && esemenyKapu.esemenyekBekapcsolva && !esemenyKapu.vanPublikaltOldal && (
+              <p className="kt-modal-sub" style={{ color: 'var(--destructive)', fontWeight: 600 }}>
+                ⚠️ A gyülekezet weboldala még nincs közzétéve, ezért ez az alkalom sem látszik
+                senkinek. Közzététel: Publikus oldal → Beállítások.
+              </p>
+            )}
           </div>
 
           {/* 2026-08-27 — LEÍRÁS: a látogatónak szánt ismertető.

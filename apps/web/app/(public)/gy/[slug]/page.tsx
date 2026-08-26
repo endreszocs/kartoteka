@@ -24,6 +24,7 @@ import { isMemberPortalAuthEnabled } from './tagi-portal/auth-enabled'
 // 2026-08-26 (5. kör): tisztségviselők + közelgő események — a kapu (kapcsoló,
 // publikus jelölés, hozzájárulás) az RPC-ben él; üres listánál nem renderel.
 import { loadPublicTisztsegek, loadPublicEsemenyek } from '@/lib/public-site/tisztsegek-events-loader'
+import { loadPublicIdentitas } from '@/lib/public-site/identitas-loader'
 import { PublicTisztsegekSection, PublicEsemenyekSection } from '@/components/public/public-tisztsegek-events'
 
 export default async function CongregationHomePage({
@@ -35,12 +36,14 @@ export default async function CongregationHomePage({
   const site = await loadPublicSiteBySlug(slug)
   if (!site) notFound()
 
-  const [recentPosts, magazine, stats, tisztsegek, esemenyek] = await Promise.all([
+  const [recentPosts, magazine, stats, tisztsegek, esemenyek, identitas] = await Promise.all([
     loadPublishedPosts(site.congregation_id, 3),
     loadPublishedMagazine(site.congregation_id, { pageSize: 1 }),
     loadPublicSiteStats(site),
     loadPublicTisztsegek(site.slug),
     loadPublicEsemenyek(site.slug),
+    // 2026-08-27: hivatalos, kétnyelvű azonosító adatok az elérhetőség-blokkhoz
+    loadPublicIdentitas(site.slug),
   ])
   const latestIssue = magazine?.issues[0] || null
   // A DB-ben levo HTML-t minden rendereleskor ujra tisztitjuk. Igy egy
@@ -132,7 +135,7 @@ export default async function CongregationHomePage({
       )}
 
       {/* Istentiszteleti rend + elérhetőség */}
-      <PublicServiceTimes site={site} />
+      <PublicServiceTimes site={site} identitas={identitas} />
 
       {/* Tisztségviselőink — publikus jelölés + személyes hozzájárulás kell */}
       <PublicTisztsegekSection tisztsegek={tisztsegek} />
