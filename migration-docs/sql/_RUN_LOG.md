@@ -21,6 +21,31 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
+## ✅ LEFUTOTT / 🔴 PENDING – gyülekezeti weboldal 2. kör (2026-08-27)
+
+- [x] 2026-08-27 — **`2026-08-27-ALLAPOTFELMERES-publikus-oldal.sql`** ✅ LEFUTOTT
+       Eredmény: **C ÁLLAPOT** — sem a 2026-07-17-es, sem a 2026-07-18-as lánc
+       nem futott le; nincs `service_times`, nincs `public_site_private` séma,
+       az appot a KÖZVETLEN `public_sites` táblaolvasás szolgálja ki.
+
+- [x] 2026-08-27 — **`2026-08-27-gyulekezeti-oldal-naptar-cimer.sql`** ✅ LEFUTOTT
+       Mind a 7 kapu zöld (a 6. `➖`, mert nincs V2 — helyes). Élesben mérve:
+       a gyülekezet címere és elérhetőségei megjelennek a weboldalon.
+
+- [x] 2026-08-27 — **`2026-08-27-ALLAPOTFELMERES-ketnyelvu-elerhetoseg.sql`** ✅ LEFUTOTT
+       Eredmény: gyülekezet román neve ✅, kétnyelvű cím ✅ teljes,
+       **egyházmegye és egyházkerület román neve ❌ NINCS** (adathiány, nem
+       kódhiba — a felület ilyenkor a magyart mutatja egyedül).
+
+- [ ] **`2026-08-27-gyulekezeti-oldal-ketnyelvu-elerhetoseg.sql`** — PENDING
+       Indok: a v0.9.185 deploy megtörtént, Endre SQL Editor-futtatására vár.
+       Hatás: ÚJ, önhordó `public.public_site_identitas(text)` RPC — a
+       gyülekezet hivatalos neve, címe (kétnyelvűen), e-mail, telefon,
+       egyházmegye és egyházkerület. Nem módosít meglévő függvényt.
+       Amíg nem fut le, a weboldal az egynyelvű alakot mutatja (néma tartalék).
+
+---
+
 ## ✅ LEFUTOTT – presbitérium, tisztségek, naptár (2026-08-26)
 
 - [x] 2026-08-26 — **`2026-08-26-presbiterium-tisztsegek.sql`** ✅ LEFUTOTT (17/17 zöld)
@@ -56,13 +81,13 @@ le vakon.** A `2026-07-17-public-site-read-security.sql` `CREATE OR REPLACE`-sze
 a 2026-08-26-i presbitérium-körben élesített V3 javítást (aktív + teljes
 presbiter-számlálás). Az a lánc külön, gondos kört érdemel.
 
-- [ ] **`2026-08-27-ALLAPOTFELMERES-publikus-oldal.sql`** — CSAK OLVAS
+- [x] **`2026-08-27-ALLAPOTFELMERES-publikus-oldal.sql`** ✅ LEFUTOTT (lásd feljebb)
        Bármikor futtatható, semmit nem módosít. Megmutatja, melyik publikus RPC
        létezik, megvan-e a `service_times` oszlop, mi az `anon` jogosultsága a
        `public_sites`-on, és gyülekezetenként hány program van nyilvánosnak
        jelölve. Az alábbi migráció ELŐTT érdemes lefuttatni.
 
-- [ ] **`2026-08-27-gyulekezeti-oldal-naptar-cimer.sql`** — PENDING (még nem futott)
+- [x] **`2026-08-27-gyulekezeti-oldal-naptar-cimer.sql`** ✅ LEFUTOTT 2026-08-27 (lásd feljebb)
        Indok: Endre SQL Editor-futtatására vár (PR #194 / v0.9.184).
        **2. KIADÁS.** Az 1. kiadás élesben elhasalt a saját előfeltétel-őrén
        (`public_site_private.public_site_context_v2` nem létezik) — az az őr
