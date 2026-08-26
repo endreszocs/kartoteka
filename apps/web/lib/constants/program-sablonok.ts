@@ -22,6 +22,16 @@ export interface ProgramSablon {
   emoji: string
   /** 1 mondatos magyarázat — a chip `title`-attribútuma (mini súgó). */
   leiras: string
+  /**
+   * A LÁTOGATÓNAK szánt ismertető — a program „Leírás" mezőjét tölti elő,
+   * és ez jelenik meg a gyülekezet nyilvános weboldalán (ha ki van téve).
+   *
+   * ⚠️ SZÁNDÉKOSAN KÜLÖN a `leiras`-tól (az a chip súgója, a szerkesztőnek
+   * szól: „a záró dátum automatikusan kitöltődik") és a `megjegyzes`-től
+   * (az belső jegyzet). Egy hivatalos gyülekezeti oldalra nem való sem a
+   * felület használati útmutatója, sem a belső jegyzet.
+   */
+  nyilvanos_leiras: string
 }
 
 export const PROGRAM_SABLONOK: ProgramSablon[] = [
@@ -33,6 +43,7 @@ export const PROGRAM_SABLONOK: ProgramSablon[] = [
     megjegyzes: 'Vallásórás gyerekeknek szóló 5 napos program (KOEN vagy más program szerint).',
     emoji: '⛺',
     leiras: 'Vallásórás gyerekeknek szóló 5 napos nyári program — a kezdő dátumból a záró dátum automatikusan kitöltődik.',
+    nyilvanos_leiras: 'Egy héten át délelőttönként várjuk az iskolás gyermekeket bibliai történetekkel, énektanulással, kézműves foglalkozással és közös játékkal. Szeretettel hívunk minden gyermeket!',
   },
   {
     kulcs: 'fit7',
@@ -42,6 +53,7 @@ export const PROGRAM_SABLONOK: ProgramSablon[] = [
     megjegyzes: 'Konfirmandus és konfirmáció utáni korosztálynak szóló 5 napos program.',
     emoji: '🎯',
     leiras: 'Konfirmandus és konfirmáció utáni korosztálynak szóló 5 napos ifjúsági hét — a szervezés szintje (gyülekezeti / egyházmegyei) a megjegyzésbe kerül.',
+    nyilvanos_leiras: 'Öt napos ifjúsági hét a konfirmandus és a konfirmáció utáni korosztálynak: közös alkalmak, beszélgetések, játék és sok élmény. Minden fiatalt szeretettel várunk!',
   },
   {
     kulcs: 'imahet',
@@ -52,6 +64,7 @@ export const PROGRAM_SABLONOK: ProgramSablon[] = [
     megjegyzes: '',
     emoji: '🙏',
     leiras: 'Az egyetemes imahét 8 napos alkalomsorozata — a napi vendéglelkész-beosztás megadható, és a mentéskor munkanapló-sorok is készülhetnek belőle.',
+    nyilvanos_leiras: 'Nyolc estén át közösen imádkozunk a keresztyének egységéért. Minden alkalmon vendég szolgálattevő hirdeti az igét — szeretettel várunk mindenkit.',
   },
 ]
 

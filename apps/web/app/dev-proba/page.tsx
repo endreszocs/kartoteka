@@ -34,6 +34,7 @@ import { alkalmazJavitasok } from '@/lib/inventory/leltar343-review'
 // mock adatokkal — a valódi képernyő auth mögött van.
 import { PrintPreviewFrame } from '@/components/inventory/print-preview-frame'
 import { PublicEvNaptar } from '@/components/public/public-ev-naptar'
+import { ProgramDialog } from '@/components/modals/program-dialog'
 import type { PublicEsemeny } from '@/lib/public-site/tisztsegek-events-loader'
 import { buildInventoryPrintDocument, type InventoryPrintType } from '@/lib/inventory/reporting'
 import type { PrintLang } from '@/lib/inventory/print-layout'
@@ -260,6 +261,7 @@ export default function DevProbaPage() {
 }
 
 function ProbaTartalom() {
+  const [programNyitva, setProgramNyitva] = useState(false)
   const [pdfUri, setPdfUri] = useState<string | null>(null)
   const [reszletek, setReszletek] = useState<string[]>([])
   const [hiba, setHiba] = useState<string | null>(null)
@@ -446,6 +448,24 @@ function ProbaTartalom() {
             </div>
           )
         })()}
+      </section>
+
+      <section className="space-y-3 rounded-xl border border-border bg-card p-4">
+        <h2 className="font-semibold">6. Program-rögzítő — LEÍRÁS mező</h2>
+        <p className="text-sm text-muted-foreground">
+          ⛔ Endre 2026-08-27-én képernyőképpel jelezte, hogy az űrlapon csak „Megjegyzés" van.
+          A nyilvános naptár viszont a <code>leiras</code> mezőt publikálja — amit a webes űrlap
+          SOHA nem írt. A „leírással együtt" kérés így némán üres maradt volna.
+        </p>
+        <button
+          type="button"
+          className="rounded-md border border-primary bg-primary/10 px-3 py-2 text-sm"
+          onClick={() => setProgramNyitva(true)}
+          data-proba="program-dialogus-nyit"
+        >
+          Új program megnyitása
+        </button>
+        <ProgramDialog open={programNyitva} onOpenChange={setProgramNyitva} defaultDate="2026-08-03" />
       </section>
 
       <section className="space-y-3 rounded-xl border border-border bg-card p-4">

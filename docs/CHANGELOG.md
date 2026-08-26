@@ -79,6 +79,21 @@ három, addig észrevétlen következménye volt:
 A mostani frissítés úgy készült, hogy **mindhárom lehetséges adatbázis-állapotban
 működjön**, és semmilyen már működő beállítást ne írjon felül.
 
+### ✨ Program-rögzítő: külön „Leírás" mező
+
+A határidőnapló program-ablakában eddig csak **Megjegyzés** volt. A weboldal
+naptára viszont a **leírást** jeleníti meg — azt a mezőt, amit a webes űrlapon
+nem lehetett kitölteni. Ezért a „leírással együtt" naptár üres szövegeket adott
+volna. Mostantól:
+
+- **Leírás** — a látogatónak szánt ismertető. Ez jelenik meg a weboldalon és a
+  letölthető naptárfájlban, ha az alkalom ki van téve. A mező felirata jelzi is,
+  ha az alkalom publikus.
+- **Megjegyzés (belső)** — csak nektek szóló jegyzet, a weboldalra **soha** nem
+  kerül ki.
+- A **sablonok** (Vakációs Bibliahét, FIT7, Egyetemes imahét) mostantól kész,
+  látogatóknak szóló ismertetőt is előtöltenek — szabadon átírható.
+
 ### ⚠️ Fontos tudnivaló
 
 Egy alkalom **csak akkor** jelenik meg a weboldalon és a letölthető naptárban,

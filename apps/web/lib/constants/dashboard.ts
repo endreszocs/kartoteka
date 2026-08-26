@@ -117,6 +117,18 @@ export interface Program {
   publikus?: boolean | null
   egyedi_tipus_nev: string | null
   egyedi_emoji: string | null
+  /**
+   * A LÁTOGATÓNAK szánt ismertető — ez jelenik meg a gyülekezet nyilvános
+   * weboldalán, ha a program `publikus`.
+   *
+   * ⚠️ 2026-08-27: az oszlop a kezdetektől létezik az adatbázisban, de a WEBES
+   * felület soha nem írta (csak az asztali alkalmazás) — se a típusban, se a
+   * séma-ellenőrzésben, se a mentésben nem szerepelt. Emiatt a nyilvános
+   * naptár „leírással együtt" kérése némán ÜRES maradt volna: a mező, amit
+   * publikálunk, kitölthetetlen volt.
+   */
+  leiras?: string | null
+  /** BELSŐ jegyzet — SOHA nem hagyja el a rendszert. */
   megjegyzes: string | null
   teljesitett: boolean
   teljesites_datum: string | null

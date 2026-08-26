@@ -635,5 +635,87 @@ function elofeltetelTorzs(sql) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// H1–H5 — AMIT PUBLIKÁLUNK, AZT KI IS LEHET TÖLTENI
+//
+// ⛔ MI VOLT A HIBA (Endre képernyőképpel jelezte 2026-08-27-én): a program-
+//    rögzítő űrlapon CSAK „Megjegyzés" volt, „Leírás" nem. A nyilvános naptár
+//    viszont a `leiras` oszlopot publikálja — amit a webes felület SOHA nem
+//    írt (nem volt se a Program típusban, se a zod sémában, se a mentésben).
+//    Vagyis azt a mezőt tettük közzé, amit senki nem tudott kitölteni: a
+//    „leírással együtt" kérés némán ÜRES eredményt adott volna.
+//
+//    HIBAOSZTÁLY: ha egy funkció EGY mezőt olvas és egy MÁSIKAT ír, a hiba
+//    néma — minden réteg külön-külön helyesnek látszik.
+// ---------------------------------------------------------------------------
+{
+  const tipus = kommentNelkul(fs.readFileSync(path.join(ROOT, 'apps/web/lib/constants/dashboard.ts'), 'utf8'))
+  const sema = kommentNelkul(fs.readFileSync(path.join(ROOT, 'apps/web/lib/validations/dashboard.ts'), 'utf8'))
+  const mentes = kommentNelkul(fs.readFileSync(path.join(ROOT, 'apps/web/app/(dashboard)/programs/actions.ts'), 'utf8'))
+  const dialogus = kommentNelkul(fs.readFileSync(path.join(ROOT, 'apps/web/components/modals/program-dialog.tsx'), 'utf8'))
+
+  // A LÁNC MIND A NÉGY SZEME. Bármelyik hiánya némán elnyeli a leírást.
+  assert(/leiras\?:\s*string \| null/.test(tipus), 'H1: a `leiras` szerepel a Program típusban')
+  assert(/leiras:\s*z\.string\(\)/.test(sema), 'H1b: …a séma-ellenőrzésben is')
+  assert(/leiras:\s*d\.leiras/.test(mentes), 'H1c: …a MENTÉS tényleg ki is írja az adatbázisba')
+  assert(/register\('leiras'\)/.test(dialogus), 'H1d: …és az űrlapon VAN hozzá beviteli mező')
+
+  // ⚠️ EZ A LÉNYEGI INVARIÁNS: az a mező, amit az űrlap ÍR, ugyanaz legyen,
+  //    amit a nyilvános RPC PUBLIKÁL. Pontosan ez csúszott szét.
+  const migracio = sqlKommentNelkul(fs.readFileSync(MIGRACIO, 'utf8'))
+  const rpcTorzs = fuggvenyTorzs(migracio, 'public_site_events_v2')
+  const publikaltMezo = /gp\.(\w+)::text\)[\s\S]{0,24}?AS leiras/.exec(rpcTorzs)?.[1]
+  assert(
+    publikaltMezo === 'leiras',
+    `H2: a PUBLIKÁLT mező azonos az ŰRLAP által ÍRT mezővel (publikált: ${publikaltMezo || 'ismeretlen'})`,
+  )
+
+  // A belső jegyzet a lánc EGYETLEN pontján sem válhat nyilvánossá.
+  assert(!/gp\.megjegyzes/.test(rpcTorzs), 'H3: a `megjegyzes` továbbra sem megy ki')
+  assert(
+    /Megjegyzés \(belső\)/.test(dialogus),
+    'H3b: az űrlap KIMONDJA, hogy a megjegyzés belső — a két mező szerepe ne legyen találgatás kérdése',
+  )
+
+  // A sablonok nyilvános ismertetőt is adjanak — enélkül minden alkalomhoz
+  // kézzel kellene szöveget írni, és a naptár csak címeket sorolna.
+  const sablonok = fs.readFileSync(path.join(ROOT, 'apps/web/lib/constants/program-sablonok.ts'), 'utf8')
+  // ⚠️ Csak a tényleges bejegyzéseket számoljuk: a `kulcs:` / `nyilvanos_leiras:`
+  // a TÍPUSDEFINÍCIÓBAN is szerepel, érték nélkül. Az idézőjeles alak szűr.
+  const sablonDb = (sablonok.match(/kulcs: '/g) || []).length
+  const nyilvanosDb = (sablonok.match(/nyilvanos_leiras: '/g) || []).length
+  assert(
+    sablonDb > 0 && nyilvanosDb === sablonDb,
+    `H4: MINDEN sablonnak van nyilvános ismertetője (${nyilvanosDb}/${sablonDb})`,
+  )
+  assert(/setValue\('leiras', sablon\.nyilvanos_leiras\)/.test(dialogus), 'H4b: …és a sablon-gomb elő is tölti vele a Leírás mezőt')
+}
+
+// H5n (negatív): ha a mentésből kimarad a `leiras`, a H1c őrszem BUKIK.
+{
+  const mutans = kommentNelkul(
+    fs.readFileSync(path.join(ROOT, 'apps/web/app/(dashboard)/programs/actions.ts'), 'utf8'),
+  ).replace(/\s*leiras: d\.leiras[^\n]*\n/, '\n')
+  assert(
+    !/leiras:\s*d\.leiras/.test(mutans),
+    'H5n: a `leiras`-t nem mentő (óvilági) változaton a H1c őrszem BUKNA — nem vak',
+  )
+}
+
+// H6n (negatív): ha az RPC a `megjegyzes`-t publikálná a `leiras` helyett,
+//   a H2 invariáns-őr BUKIK — tehát tényleg a MEZŐ-AZONOSSÁGOT méri.
+{
+  // A valós alak: `NULLIF(pg_catalog.btrim(gp.leiras::text), '') AS leiras`
+  const eredeti = sqlKommentNelkul(fs.readFileSync(MIGRACIO, 'utf8'))
+  const mutans = eredeti.replace('gp.leiras::text', 'gp.megjegyzes::text')
+  assert(mutans !== eredeti, 'H6n-elo: a mutáció ténylegesen megtörtént (nem üres cserén állítunk)')
+  const rpcTorzs = fuggvenyTorzs(mutans, 'public_site_events_v2')
+  const publikaltMezo = /gp\.(\w+)::text\)[\s\S]{0,24}?AS leiras/.exec(rpcTorzs)?.[1]
+  assert(
+    publikaltMezo === 'megjegyzes',
+    'H6n: a rossz mezőt publikáló változaton a H2 őrszem BUKNA — nem vak',
+  )
+}
+
 console.log(`\n${total - failedCount}/${total} teszt zöld`)
 process.exit(failedCount > 0 ? 1 : 0)
