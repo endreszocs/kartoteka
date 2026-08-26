@@ -36,23 +36,45 @@
 -- ─────────────────────────────────────────────────────────────────────────
 DO $elofeltetel$
 DECLARE
+  v_comment text;
   v_src text;
 BEGIN
   IF to_regprocedure('public.tagnyilvantartas_tag_torles(integer)') IS NULL THEN
-    RAISE EXCEPTION 'ELŐFELTÉTEL-HIBA: a tagnyilvantartas_tag_torles(integer) nem létezik — előbb a 2026-07-17-es member-portal kompat migrációnak kell lefutnia.';
-  END IF;
-  IF COALESCE(obj_description(to_regprocedure('public.tagnyilvantartas_tag_torles(integer)'), 'pg_proc'), '')
-       <> 'KARTOTEKA_MEMBER_PORTAL_MEMBER_DELETE_COMPAT_V1' THEN
-    RAISE EXCEPTION 'ELŐFELTÉTEL-HIBA: a tagnyilvantartas_tag_torles marker-kommentje nem a várt (KARTOTEKA_MEMBER_PORTAL_MEMBER_DELETE_COMPAT_V1) — a függvényt valaki módosította, kézi ellenőrzés kell.';
+    RAISE EXCEPTION 'ELŐFELTÉTEL-HIBA: a tagnyilvantartas_tag_torles(integer) nem létezik — előbb a 2026-06-10-es tagnyilvántartás-biztonsági migrációnak kell lefutnia.';
   END IF;
   SELECT p.prosrc INTO v_src
   FROM pg_proc p
   WHERE p.oid = to_regprocedure('public.tagnyilvantartas_tag_torles(integer)');
-  IF v_src NOT LIKE '%DELETE FROM public.presbiter%'
-     OR v_src NOT LIKE '%hidden_fk%'
-     OR v_src NOT LIKE '%foreign_key_violation%' THEN
-    RAISE EXCEPTION 'ELŐFELTÉTEL-HIBA: a tagnyilvantartas_tag_torles törzse nem a várt alakú — kézi ellenőrzés kell a felülírás előtt.';
+  v_comment := COALESCE(obj_description(to_regprocedure('public.tagnyilvantartas_tag_torles(integer)'), 'pg_proc'), '(nincs komment)');
+
+  -- Már frissítve (idempotens újrafutás) -> rendben.
+  IF v_src LIKE '%DELETE FROM public.tisztsegek%' THEN
+    RETURN;
   END IF;
+
+  -- 1. ismert világ: a member-portál kompat változat (2026-07-17, marker V1).
+  IF v_comment = 'KARTOTEKA_MEMBER_PORTAL_MEMBER_DELETE_COMPAT_V1'
+     AND v_src LIKE '%member_person_links%'
+     AND v_src LIKE '%DELETE FROM public.presbiter%'
+     AND v_src LIKE '%hidden_fk%' THEN
+    RETURN;
+  END IF;
+
+  -- 2. ismert világ: az EREDETI (2026-06-10) változat — a member-portál lánc
+  --    élesben nem futott le (a „migration-fájl nem bizonyíték" hibaosztály).
+  IF v_src NOT LIKE '%member_person_links%'
+     AND v_src LIKE '%DELETE FROM public.presbiter%'
+     AND v_src LIKE '%hidden_fk%'
+     AND v_src LIKE '%foreign_key_violation%'
+     AND v_src LIKE '%hidden_registry%' THEN
+    RETURN;
+  END IF;
+
+  -- Ismeretlen állapot -> fail-closed, BEÉPÍTETT diagnózissal.
+  RAISE EXCEPTION 'ELŐFELTÉTEL-HIBA: a tagnyilvantartas_tag_torles törzse egyik ismert változattal sem egyezik — kézi ellenőrzés kell a felülírás előtt. Diagnózis: komment=% | prosrc-md5=% | hossz=% | member_person_links=% | presbiter-törlés=%',
+    v_comment, md5(v_src), length(v_src),
+    (v_src LIKE '%member_person_links%'),
+    (v_src LIKE '%DELETE FROM public.presbiter%');
 END
 $elofeltetel$;
 
@@ -583,11 +605,30 @@ REVOKE ALL ON FUNCTION public.public_site_events(text)
     app_pending_user, member_portal_user;
 GRANT EXECUTE ON FUNCTION public.public_site_events(text) TO anon;
 
--- ─────────────────────────────────────────────────────────────────────────
+-- ─────────────────────────────────────────────────────────────────────
 -- 9. tagnyilvantartas_tag_torles — a tisztsegek-sorok is a személlyel mennek.
---    A törzs BÁJTRA az élő (2026-07-17-es kompat) változat, EGYETLEN új
---    sorral: DELETE FROM public.tisztsegek a presbiter-törlés előtt.
--- ─────────────────────────────────────────────────────────────────────────
+--    ÖNADAPTÍV (2026-08-26 v2): az élő függvény KÉT ismert változata közül a
+--    megfelelőt bővítjük — (a) a member-portál kompat változat (2026-07-17,
+--    marker V1), VAGY (b) az EREDETI 2026-06-10-es változat, ha a member-portál
+--    lánc élesben nem futott le. Mindkét ágon a törzs BÁJTRA a forrás-fájlból
+--    származik, EGYETLEN új sorral (tisztsegek-DELETE a presbiter-törlés
+--    előtt). Ismeretlen állapotot a 0. szakasz előfeltétel-őre fogott meg.
+-- ─────────────────────────────────────────────────────────────────────
+DO $tagtorles_frissites$
+DECLARE
+  v_src text;
+BEGIN
+  SELECT p.prosrc INTO v_src
+  FROM pg_proc p
+  WHERE p.oid = to_regprocedure('public.tagnyilvantartas_tag_torles(integer)');
+
+  IF v_src LIKE '%DELETE FROM public.tisztsegek%' THEN
+    RETURN; -- már frissítve (idempotens)
+  END IF;
+
+  IF v_src LIKE '%member_person_links%' THEN
+    -- (a) member-portál kompat változat -> annak bővített törzse.
+    EXECUTE $compat_uj$
 CREATE OR REPLACE FUNCTION public.tagnyilvantartas_tag_torles(
   p_szemely_id integer
 )
@@ -757,9 +798,85 @@ BEGIN
   END;
 END;
 $function$;
+$compat_uj$;
+    EXECUTE $cm$COMMENT ON FUNCTION public.tagnyilvantartas_tag_torles(integer) IS 'KARTOTEKA_MEMBER_PORTAL_MEMBER_DELETE_COMPAT_V1'$cm$;
+  ELSE
+    -- (b) eredeti 2026-06-10-es változat -> annak bővített törzse. A marker
+    -- SZÁNDÉKOSAN nem a kompat V1 (az hazudná, hogy a member-portál lánc
+    -- lefutott) — saját, felismerhető jelölést kap.
+    EXECUTE $legacy_uj$
+CREATE OR REPLACE FUNCTION public.tagnyilvantartas_tag_torles(p_szemely_id integer)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_cong uuid;
+BEGIN
+  -- 1) Tulajdonjog: létezik-e a személy, és hozzáfér-e a hívó a gyülekezetéhez
+  SELECT congregation_id INTO v_cong
+  FROM public.szemely WHERE id = p_szemely_id;
 
-COMMENT ON FUNCTION public.tagnyilvantartas_tag_torles(integer) IS
-  'KARTOTEKA_MEMBER_PORTAL_MEMBER_DELETE_COMPAT_V1';
+  IF NOT FOUND OR v_cong IS NULL THEN
+    RETURN jsonb_build_object('status', 'not_found');
+  END IF;
+
+  IF NOT public.current_user_can_access_congregation(v_cong) THEN
+    RETURN jsonb_build_object('status', 'forbidden');
+  END IF;
+
+  -- 2) Pénzügyi védelem (deleted=false VAGY NULL számít élőnek)
+  IF EXISTS (
+    SELECT 1 FROM public.befizetes
+    WHERE id_szemely = p_szemely_id
+      AND congregation_id = v_cong
+      AND deleted IS DISTINCT FROM true
+  ) THEN
+    UPDATE public.szemely SET isvisible = false, member_status = 'törölt'
+    WHERE id = p_szemely_id;
+    RETURN jsonb_build_object('status', 'hidden_payments');
+  END IF;
+
+  -- 3) Anyakönyvi védelem (P0-3): anyakönyvi bejegyzés nem semmisülhet meg
+  IF EXISTS (SELECT 1 FROM public.keresztseg  WHERE id_szemely = p_szemely_id)
+     OR EXISTS (SELECT 1 FROM public.konfirmalas WHERE id_szemely = p_szemely_id)
+     OR EXISTS (SELECT 1 FROM public.hazassag WHERE id_ferfi = p_szemely_id OR id_no = p_szemely_id)
+     OR EXISTS (SELECT 1 FROM public.temetes  WHERE id_szemely = p_szemely_id)
+  THEN
+    UPDATE public.szemely SET isvisible = false, member_status = 'törölt'
+    WHERE id = p_szemely_id;
+    RETURN jsonb_build_object('status', 'hidden_registry');
+  END IF;
+
+  -- 4) Atomikus törlés (a belső blokk hibája MINDENT visszagörget)
+  BEGIN
+    -- szemely_id-re FK-zik cascade nélkül → explicit törlés
+    DELETE FROM public.member_transfer_notifications WHERE szemely_id = p_szemely_id;
+    DELETE FROM public.bekoltozott WHERE id_szemely = p_szemely_id;
+    DELETE FROM public.elkoltozott WHERE id_szemely = p_szemely_id;
+    DELETE FROM public.attert      WHERE id_szemely = p_szemely_id;
+    DELETE FROM public.kitert      WHERE id_szemely = p_szemely_id;
+    DELETE FROM public.felmentes   WHERE id_szemely = p_szemely_id;
+    DELETE FROM public.gyerek      WHERE id_szemely = p_szemely_id;
+    -- 2026-08-26 (5. kor): a nem-presbiteri tisztsegek is a szemellyel mennek.
+    DELETE FROM public.tisztsegek WHERE id_szemely = p_szemely_id;
+    DELETE FROM public.presbiter   WHERE id_szemely = p_szemely_id;
+    -- haztartas_tag, szemely_kapcsolat, member_validation_errors: CASCADE
+    DELETE FROM public.szemely WHERE id = p_szemely_id;
+    RETURN jsonb_build_object('status', 'deleted');
+  EXCEPTION WHEN foreign_key_violation THEN
+    UPDATE public.szemely SET isvisible = false, member_status = 'törölt'
+    WHERE id = p_szemely_id;
+    RETURN jsonb_build_object('status', 'hidden_fk');
+  END;
+END;
+$$;
+$legacy_uj$;
+    EXECUTE $cm$COMMENT ON FUNCTION public.tagnyilvantartas_tag_torles(integer) IS 'KARTOTEKA_TAG_TORLES_LEGACY_TISZTSEGEK_V1'$cm$;
+  END IF;
+END
+$tagtorles_frissites$;
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- 10. szemely_kapcsolat_lista — a katalógus új 'tisztsegek' sora (a függvény
@@ -863,6 +980,14 @@ COMMENT ON FUNCTION public.szemely_kapcsolat_lista(integer) IS
   '2026-08-14 (1. döntés): a személy összes ismert hivatkozásának katalógusa '
   '(blokkoló + vele törlődő). BELSŐ — a szemely_kapcsolatok hívja. '
   'Új szemely-FK-nál IDE is fel kell venni!';
+
+-- A BELSŐ lista-függvényen SENKINEK nincs közvetlen EXECUTE joga (a hívó a
+-- szemely_kapcsolatok wrapper) — ha a függvény MOST jött létre, e nélkül az
+-- alapértelmezett PUBLIC EXECUTE maradna rajta.
+REVOKE ALL ON FUNCTION public.szemely_kapcsolat_lista(integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.szemely_kapcsolat_lista(integer) FROM anon;
+REVOKE ALL ON FUNCTION public.szemely_kapcsolat_lista(integer) FROM authenticated;
+
 
 
 -- ─────────────────────────────────────────────────────────────────────────
