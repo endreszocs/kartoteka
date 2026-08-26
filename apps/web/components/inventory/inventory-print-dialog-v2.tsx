@@ -12,6 +12,8 @@ import {
   type InventoryReportFilters,
 } from '@/lib/inventory/reporting'
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
+import { PrintPreviewFrame } from '@/components/inventory/print-preview-frame'
+import { PRINT_LANG_LABEL, type PrintLang } from '@/lib/inventory/print-layout'
 import { getInventoryPrintFinanceSummary } from '@/app/(dashboard)/leltar/actions'
 import { toast } from 'sonner'
 
@@ -47,7 +49,13 @@ export function InventoryPrintDialog({
   const currentYear = new Date().getFullYear()
   const [printType, setPrintType] = useState<InventoryPrintType>('leltariv')
   const [selectedYear, setSelectedYear] = useState(initialYear)
-  const [paperSize, setPaperSize] = useState('a4')
+  /**
+   * 2026-08-27 (Endre 7. pontja): a nyomtatvány NYELVE. Az elsődleges nyelv
+   * vezet, a másik felirat mellette marad — a hivatalos ív mindkét nyelven
+   * azonosítható. A „Lapméret" legördülő ELTŰNT: egyetlen választható eleme
+   * volt (A4), tehát a választás illúzióját keltette.
+   */
+  const [lang, setLang] = useState<PrintLang>('hu')
   const [printing, setPrinting] = useState(false)
   const [sendingToPrinter, setSendingToPrinter] = useState(false)
   const [financeSummary, setFinanceSummary] = useState<InventoryPrintFinanceSummary | null>(null)
@@ -110,8 +118,9 @@ export function InventoryPrintDialog({
         year: selectedYear,
         filters,
         financeSummary,
+        lang,
       }),
-    [congregationName, congregationNameRo, filters, financeSummary, items, printType, selectedYear],
+    [congregationName, congregationNameRo, filters, financeSummary, items, lang, printType, selectedYear],
   )
 
   async function handlePdf() {
@@ -122,7 +131,7 @@ export function InventoryPrintDialog({
         // 2026-07-17 (F3): a lap-margót a dokumentum .page paddingje adja (WYSIWYG);
         // a motor-margó a stíluslap-javítás után teljes-szélességű lapnál szélvágást okozna.
         margin: [0, 0],
-        format: paperSize,
+        format: 'a4',
       })
       toast.success(`${report.title} PDF elkészült.`)
     } catch (error) {
@@ -202,16 +211,34 @@ export function InventoryPrintDialog({
                   </select>
                 </label>
 
-                <label className="block text-sm font-medium text-slate-700">
-                  Lapméret
-                  <select
-                    value={paperSize}
-                    onChange={event => setPaperSize(event.target.value)}
-                    className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
+                {/* 2026-08-27 (Endre 7. pontja): a nyomtatvány NYELVE.
+                    Az elsődleges nyelv vezet, a másik felirat mellette marad —
+                    a hivatalos ív így mindkét nyelven azonosítható.
+                    (A korábbi „Lapméret" legördülő KIKERÜLT: egyetlen eleme
+                    volt, A4 — a választás illúzióját keltette.) */}
+                <div className="block text-sm font-medium text-slate-700">
+                  Nyelv
+                  <div
+                    className="mt-1 inline-flex w-full overflow-hidden rounded-xl border border-input"
+                    role="group"
+                    aria-label="A nyomtatvány nyelve"
                   >
-                    <option value="a4">A4</option>
-                  </select>
-                </label>
+                    {(['hu', 'ro'] as const).map(l => (
+                      <button
+                        key={l}
+                        type="button"
+                        onClick={() => setLang(l)}
+                        className={`min-h-11 flex-1 px-2 text-sm font-semibold transition ${
+                          lang === l
+                            ? 'bg-teal-600 text-white'
+                            : 'bg-background text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {PRINT_LANG_LABEL[l]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               <div className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-600">
@@ -263,8 +290,9 @@ export function InventoryPrintDialog({
               )}
 
               <div className="rounded-2xl border border-sky-100 bg-sky-50/80 p-3 text-xs leading-5 text-slate-600">
-                A direkt nyomtatás a böngésző saját nyomtatási előnézetét nyitja meg. Ott a dokumentum több oldalra bontva
-                látszik, a táblafejlécek ismétlődnek, és ki lehet választani a nyomtatót is.
+                A nyomtatvány {report.lapszam} oldalas — az előnézetben lapozhatsz közöttük. A direkt
+                nyomtatás a böngésző nyomtatási ablakát nyitja meg (ott a nyomtató is választható);
+                a táblázat fejléce minden oldalon megismétlődik.
               </div>
 
               <div className="flex flex-wrap gap-2">
@@ -281,14 +309,17 @@ export function InventoryPrintDialog({
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-slate-100/80 p-3 shadow-inner">
-            <div className="rounded-[22px] border border-slate-200 bg-white shadow-sm">
-              <iframe
-                title={report.title}
-                srcDoc={report.html}
-                className="h-[78dvh] min-h-[760px] w-full rounded-[22px] bg-white"
-              />
-            </div>
+          {/* 2026-08-27: lapozható, az ablakhoz ILLESZTETT előnézet.
+              A régi iframe 1:1 méretben renderelt (fekvő ívnél 1123 px egy
+              ~700 px-es oszlopban), és a dokumentum egyetlen végtelen lapként
+              folyt — Endre 1. és 2. pontja. */}
+          <div className="min-h-[420px] lg:h-[74dvh]">
+            <PrintPreviewFrame
+              html={report.html}
+              orientation={report.orientation}
+              lapszam={report.lapszam}
+              cim={report.title}
+            />
           </div>
         </div>
       </DialogContent>
