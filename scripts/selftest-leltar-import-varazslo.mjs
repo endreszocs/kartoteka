@@ -266,6 +266,51 @@ function reviewSorok(sorok, modul = { shared, review }) {
 }
 
 // ---------------------------------------------------------------------------
+// R4v — VÉGLEGESÍTETT ÉV: a felülírás TILOS (Endre döntése, 2026-08-27)
+// ---------------------------------------------------------------------------
+{
+  const sorok = reviewSorok([nyersSor(5, { eOszlop: 'Szék', leltariSzam: 'CS-001', ertek: 300, ev: 2020 })])
+  const felulir = review.alkalmazJavitasok(sorok, { [sorok[0].id]: { feloldas: 'felulir' } })
+
+  const zart = review.ellenorizSorok(felulir, { aktivSzamok: ['CS-001'], veglegesitve: true })
+  const gondok = zart.gondok[sorok[0].id] || []
+  assert(
+    gondok.some((g) => g.szint === 'hiba' && g.kod === 'veglegesitett_ev'),
+    'R4v: véglegesített évben a MEGLÉVŐ tétel felülírása blokkoló hiba',
+  )
+  assert(zart.osszegzes.felulirando === 0, 'R4v-b: lezárt évben egyetlen sor sem számít felülírandónak')
+  assert(
+    gondok.some((g) => g.szint === 'hiba' && /egyházmegye/i.test(g.uzenet)),
+    'R4v-c: az üzenet megnevezi a kiutat (egyházmegyei feloldás) — nem fejlesztői zsákutca',
+  )
+
+  // Az egyházmegyei feloldás UTÁN (leltar_finalized → false) újra mehet:
+  const nyitott = review.ellenorizSorok(felulir, { aktivSzamok: ['CS-001'], veglegesitve: false })
+  assert(nyitott.osszegzes.hibas === 0, 'R4v-d: a feloldás után a felülírás ismét megengedett')
+  assert(nyitott.osszegzes.felulirando === 1, 'R4v-e: … és felülírásként számolódik')
+
+  // ÚJ tétel bevitele lezárt évben SEM tilos (a véglegesítés a JELENTÉST zárja).
+  const ujTetel = reviewSorok([nyersSor(5, { eOszlop: 'Új szék', leltariSzam: 'CS-500', ertek: 300, ev: 2020 })])
+  const ujEll = review.ellenorizSorok(ujTetel, { aktivSzamok: ['CS-001'], veglegesitve: true })
+  assert(ujEll.osszegzes.beszurando === 1, 'R4v-f: lezárt évben ÚJ tétel bevitele nincs zárolva')
+}
+
+// R4vn (negatív): a zár NÉLKÜLI (óvilági) ellenőrzőn az őrszem BUKIK.
+{
+  const mutans = fs
+    .readFileSync(SRC.review, 'utf8')
+    .replace('if (ctx.veglegesitve) {', 'if (false) {')
+  const modul = betolt({ reviewSrc: mutans })
+  const sorok = reviewSorok([nyersSor(5, { eOszlop: 'Szék', leltariSzam: 'CS-001', ertek: 300, ev: 2020 })], modul)
+  const felulir = modul.review.alkalmazJavitasok(sorok, { [sorok[0].id]: { feloldas: 'felulir' } })
+  const ell = modul.review.ellenorizSorok(felulir, { aktivSzamok: ['CS-001'], veglegesitve: true })
+  assert(
+    ell.osszegzes.felulirando === 1 && ell.osszegzes.hibas === 0,
+    'R4vn: a zár nélküli (óvilági) ellenőrző ÁTENGEDNÉ a lezárt év felülírását — az őrszem BUKNA, tehát nem vak',
+  )
+}
+
+// ---------------------------------------------------------------------------
 // R5 — a fájlon BELÜLI szám-ütközés is hiba
 // ---------------------------------------------------------------------------
 {
@@ -468,6 +513,58 @@ function reviewSorok(sorok, modul = { shared, review }) {
   )
   const mutans = torzs.replace(/if \(ertek === null[\s\S]*?continue\n/, '')
   assert(!/ertek === null/.test(mutans), 'G5n: az üres-szűrés nélküli mutánson az őrszem BUKNA — nem vak')
+}
+
+// ---------------------------------------------------------------------------
+// G7 — a véglegesített év zára a SZERVEREN is fail-closed
+// ---------------------------------------------------------------------------
+{
+  const actionsSrc = stripComments(fs.readFileSync(SRC.actions, 'utf8'))
+  const m = actionsSrc.match(/async function veglegesitesiAllapot\([\s\S]*?\n}/)
+  assert(!!m, 'G7: a szerver a CÉL-gyülekezet lezárt állapotát külön, kimérten olvassa')
+  const torzs = m ? m[0] : ''
+  assert(
+    /if \(error\) return \{ veglegesitve: true/.test(torzs),
+    'G7b: FAIL-CLOSED — lekérdezési hibánál VÉGLEGESÍTETTNEK tekinti az évet (nem enged felülírni)',
+  )
+  assert(
+    /\.eq\('congregation_id', congregationId\)/.test(torzs),
+    'G7c: a lezárást a CÉL-gyülekezet évsorán méri (nem a hívóén)',
+  )
+  // A szerver a review-rétegnek TOVÁBB is adja — enélkül a felület tiltana,
+  // a szerver viszont átengedné (a néma széthúzás hibaosztálya).
+  assert(
+    /veglegesitve:\s*veglegesites\.veglegesitve/.test(actionsSrc),
+    'G7d: az import-ellenőrzés ctx-e MEGKAPJA a lezárt állapotot',
+  )
+  const mutans = torzs.replace(/if \(error\) return \{ veglegesitve: true[^\n]*\n/, '')
+  assert(
+    !/if \(error\) return \{ veglegesitve: true/.test(mutans),
+    'G7n: a fail-closed ág nélküli mutánson az őrszem BUKNA — nem vak',
+  )
+  const mutans2 = actionsSrc.replace(/veglegesitve:\s*veglegesites\.veglegesitve/g, '')
+  assert(
+    !/veglegesitve:\s*veglegesites\.veglegesitve/.test(mutans2),
+    'G7n-b: a ctx-be nem továbbított lezárás esetén az őrszem BUKNA — nem vak',
+  )
+}
+
+// ---------------------------------------------------------------------------
+// G8 — a felület nem kínálja a zárolt felülírást
+// ---------------------------------------------------------------------------
+{
+  const wizardSrc = stripComments(fs.readFileSync(SRC.wizard, 'utf8'))
+  assert(
+    /veglegesitve:\s*!!preview\?\.veglegesitve/.test(wizardSrc),
+    'G8: a felület UGYANAZT a lezárt állapotot adja az ellenőrzőnek, amit a szerver mért',
+  )
+  assert(
+    /felulirhato=\{!zarolt/.test(wizardSrc),
+    'G8b: lezárt évben a „Meglévő frissítése" választás le van tiltva',
+  )
+  assert(/\{!zarolt && \(/.test(wizardSrc), 'G8c: a tömeges „Mind frissítse a meglévőt" gomb sem jelenik meg')
+  const mutans = wizardSrc.replace(/felulirhato=\{!zarolt/g, 'felulirhato={')
+  assert(!/felulirhato=\{!zarolt/.test(mutans), 'G8n: a tiltás nélküli felületen az őrszem BUKNA — nem vak')
 }
 
 // ---------------------------------------------------------------------------

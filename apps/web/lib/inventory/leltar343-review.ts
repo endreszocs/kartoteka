@@ -122,6 +122,7 @@ export type Leltar343GondKod =
   | 'szam_utkozes_kivezetett'
   | 'szam_utkozes_fajl'
   | 'felulirhatatlan'
+  | 'veglegesitett_ev'
   | 'automatikus_szam'
 
 export interface Leltar343Gond {
@@ -135,6 +136,18 @@ export interface Leltar343Gond {
 export interface Leltar343EllenorzesCtx {
   /** A rendszerben MÁR kiadott, AKTÍV leltári számok. */
   aktivSzamok: string[]
+  /**
+   * Véglegesítve van-e a CÉL-gyülekezet tárgyévi vagyonleltári jelentése?
+   *
+   * ⚠️ Endre döntése (2026-08-27): ilyenkor a MEGLÉVŐ tétel felülírása TILOS —
+   * „azt csak egyházmegyei engedéllyel lehetséges". Az engedély a rendszerben
+   * a meglévő feloldás-kérelem útja: a lelkész feloldást kér, az egyházmegye
+   * jóváhagyja, és ezzel a `leltar_finalized` visszaáll `false`-ra
+   * (dashboard-egyhazmegye/actions.ts) — vagyis ez a zászló EGYBEN az
+   * engedély állapota is. Új tétel bevitele NEM tilos: a véglegesítés a
+   * JELENTÉST zárja le, nem a tétel-rögzítést (a rendszer saját szövege).
+   */
+  veglegesitve?: boolean
   /**
    * KIVEZETETT (soft-deleted) tételek számai. A DB részleges egyediségi
    * indexe (leltar_tetelek_cong_leltari_szam_key … WHERE is_deleted = false)
@@ -494,7 +507,19 @@ export function ellenorizSorok(
         })
       }
     } else if (s.feloldas === 'felulir') {
-      if (!sz) {
+      if (ctx.veglegesitve) {
+        // ⚠️ A VÉGLEGESÍTETT ÉV ZÁRA (Endre döntése, 2026-08-27). Szándékosan
+        // az ELSŐ ellenőrzés a felülíró ágon: hiába létezik a szám, lezárt
+        // évben akkor sem nyúlhatunk a tételhez. A kiút NEM fejlesztői —
+        // az üzenet megnevezi az egyházmegyei feloldás útját.
+        lista.push({
+          szint: 'hiba',
+          kod: 'veglegesitett_ev',
+          mezo: 'leltari_szam',
+          uzenet:
+            'A tárgyévi vagyonleltári jelentés VÉGLEGESÍTVE van — meglévő tételt csak az egyházmegye feloldásával lehet felülírni. Kérj feloldást a Leltári nyilvántartás fülön, majd indítsd újra az importot. (Új tétel bevitele nincs zárolva.)',
+        })
+      } else if (!sz) {
         lista.push({
           szint: 'hiba',
           kod: 'felulirhatatlan',

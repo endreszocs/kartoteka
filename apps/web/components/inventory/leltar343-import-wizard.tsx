@@ -104,9 +104,13 @@ export function Leltar343ImportWizard() {
     () => ({
       aktivSzamok: preview?.aktivSzamok || [],
       kivezetettSzamok: preview?.kivezetettSzamok || [],
+      // A lezárt év zára: a szerver dönti el, a felület csak tükrözi (és
+      // ugyanezzel a réteggel számol, tehát nem ígérhet mást).
+      veglegesitve: !!preview?.veglegesitve,
     }),
     [preview],
   )
+  const zarolt = !!preview?.veglegesitve
 
   const sorok = useMemo(
     () => alkalmazJavitasok(preview?.sorok || [], javitasok),
@@ -453,6 +457,7 @@ export function Leltar343ImportWizard() {
               setFeloldas={setFeloldas}
               setMezo={setMezo}
               aktivSzamok={ctx.aktivSzamok}
+              zarolt={zarolt}
             />
 
             <Lapozo
@@ -495,6 +500,7 @@ export function Leltar343ImportWizard() {
                   ellenorzes={ellenorzes}
                   tomegesFeloldas={tomegesFeloldas}
                   mindenHibasKihagy={mindenHibasKihagy}
+                  zarolt={zarolt}
                 />
               </>
             )}
@@ -511,6 +517,7 @@ export function Leltar343ImportWizard() {
               setFeloldas={setFeloldas}
               setMezo={setMezo}
               aktivSzamok={ctx.aktivSzamok}
+              zarolt={zarolt}
               // Sok javítandó sornál a nyitott űrlapok (soronként 11 mező)
               // érezhetően lassítanák a gépelést — ott a „Javítás" gomb nyit.
               mindigNyitva={javitandoSorok.length <= 25}
@@ -576,12 +583,24 @@ export function Leltar343ImportWizard() {
               </p>
             )}
 
-            {preview.veglegesitve && (
+            {zarolt && (
               <p className="flex items-start gap-1.5 rounded-xl border border-amber-300 bg-amber-50/70 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
                 <TriangleAlert className="mt-0.5 size-4 shrink-0" />
                 <span>
-                  A tárgyévi leltár már <strong>véglegesítve</strong> van. Az import ettől még
-                  lefut — de a beküldött vagyonleltár és a rendszer adata így széthúzhat.
+                  {preview.veglegesitesBizonytalan ? (
+                    <>
+                      A jelentés lezárt állapotát <strong>nem sikerült lekérdezni</strong>, ezért a
+                      rendszer — a hivatalos irat védelmében — véglegesítettnek tekinti az évet:
+                      meglévő tételt most nem lehet felülírni. Új tétel bevitele nincs zárolva.
+                    </>
+                  ) : (
+                    <>
+                      A tárgyévi vagyonleltári jelentés <strong>véglegesítve</strong> van, ezért
+                      meglévő tételt <strong>nem lehet felülírni</strong> — ahhoz az egyházmegye
+                      feloldása kell (kérd a Leltári nyilvántartás fülön). Új tétel bevitele nincs
+                      zárolva.
+                    </>
+                  )}
                 </span>
               </p>
             )}
@@ -808,11 +827,13 @@ function TomegesGombok({
   ellenorzes,
   tomegesFeloldas,
   mindenHibasKihagy,
+  zarolt = false,
 }: {
   sorok: Leltar343ReviewSor[]
   ellenorzes: { gondok: Record<string, Leltar343Gond[]> }
   tomegesFeloldas: (kod: Leltar343Gond['kod'], feloldas: Leltar343Feloldas) => void
   mindenHibasKihagy: () => void
+  zarolt?: boolean
 }) {
   const utkozok = sorok.filter(s =>
     (ellenorzes.gondok[s.id] || []).some(g => g.szint === 'hiba' && g.kod === 'szam_utkozes_db'),
@@ -828,14 +849,18 @@ function TomegesGombok({
           <span className="text-sm text-muted-foreground">
             {utkozok} sor leltári száma már ki van adva:
           </span>
-          <Button
-            size="sm"
-            variant="outline"
-            className="rounded-full"
-            onClick={() => tomegesFeloldas('szam_utkozes_db', 'felulir')}
-          >
-            Mind frissítse a meglévőt
-          </Button>
+          {/* Lezárt évben a felülírás nem választható — a gombot sem
+              kínáljuk fel, hogy ne vezessen zsákutcába. */}
+          {!zarolt && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-full"
+              onClick={() => tomegesFeloldas('szam_utkozes_db', 'felulir')}
+            >
+              Mind frissítse a meglévőt
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -878,6 +903,7 @@ export function Leltar343SorLista({
   setFeloldas,
   setMezo,
   aktivSzamok,
+  zarolt = false,
   mindigNyitva = false,
 }: {
   sorok: Leltar343ReviewSor[]
@@ -889,6 +915,8 @@ export function Leltar343SorLista({
   setFeloldas: (id: string, f: Leltar343Feloldas) => void
   setMezo: (id: string, mezo: Leltar343Mezo, ertek: string) => void
   aktivSzamok: string[]
+  /** Lezárt (véglegesített) év: a „Meglévő frissítése" nem választható. */
+  zarolt?: boolean
   mindigNyitva?: boolean
 }) {
   if (sorok.length === 0) {
@@ -945,7 +973,8 @@ export function Leltar343SorLista({
                 <FeloldasValaszto
                   ertek={s.feloldas}
                   onChange={f => setFeloldas(s.id, f)}
-                  felulirhato={!!s.leltari_szam && aktivSzamok.includes(s.leltari_szam)}
+                  felulirhato={!zarolt && !!s.leltari_szam && aktivSzamok.includes(s.leltari_szam)}
+                  zarolt={zarolt}
                 />
                 {!mindigNyitva && (
                   <Button
@@ -1028,10 +1057,12 @@ function FeloldasValaszto({
   ertek,
   onChange,
   felulirhato,
+  zarolt = false,
 }: {
   ertek: Leltar343Feloldas
   onChange: (f: Leltar343Feloldas) => void
   felulirhato: boolean
+  zarolt?: boolean
 }) {
   return (
     <select
@@ -1043,7 +1074,9 @@ function FeloldasValaszto({
       <option value="import">{LELTAR343_FELOLDAS_CIMKE.import}</option>
       <option value="uj_szam">{LELTAR343_FELOLDAS_CIMKE.uj_szam}</option>
       <option value="felulir" disabled={!felulirhato}>
-        {LELTAR343_FELOLDAS_CIMKE.felulir}
+        {zarolt
+          ? `${LELTAR343_FELOLDAS_CIMKE.felulir} — zárolva`
+          : LELTAR343_FELOLDAS_CIMKE.felulir}
       </option>
       <option value="kihagy">{LELTAR343_FELOLDAS_CIMKE.kihagy}</option>
     </select>

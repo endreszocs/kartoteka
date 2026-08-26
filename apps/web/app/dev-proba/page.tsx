@@ -139,6 +139,7 @@ function ProbaTartalom() {
   const [probaLepes, setProbaLepes] = useState<1 | 2 | 3 | 4>(2)
   const [probaJavitasok, setProbaJavitasok] = useState<Leltar343Javitasok>({})
   const [nyitottSor, setNyitottSor] = useState<string | null>(null)
+  const [probaZarolt, setProbaZarolt] = useState(false)
 
   async function futtat(forceLegacy: boolean) {
     setFut(true)
@@ -216,10 +217,22 @@ function ProbaTartalom() {
               {n}. lépés
             </button>
           ))}
+          <label className="flex items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={probaZarolt}
+              onChange={(e) => setProbaZarolt(e.target.checked)}
+            />
+            Véglegesített év (zárolt felülírás)
+          </label>
         </div>
         {(() => {
           const sorok = alkalmazJavitasok(MOCK_SOROK, probaJavitasok)
-          const ctx = { aktivSzamok: ['II./B/e - 23'], kivezetettSzamok: [] as string[] }
+          const ctx = {
+            aktivSzamok: ['II./B/e - 23'],
+            kivezetettSzamok: [] as string[],
+            veglegesitve: probaZarolt,
+          }
           const ellenorzes = ellenorizSorok(sorok, ctx)
           const kiosztott = osztSzamokat(sorok, ctx)
           const sorAllapot = (s: Leltar343ReviewSor) => {
@@ -250,6 +263,7 @@ function ProbaTartalom() {
                   }))
                 }
                 aktivSzamok={ctx.aktivSzamok}
+                zarolt={probaZarolt}
               />
             </div>
           )

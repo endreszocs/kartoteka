@@ -53,7 +53,7 @@ import type {
   Leltar343ExportContext,
 } from '@/lib/inventory/leltar343-import-types'
 import { documentSeasonYear } from '@/lib/constants/documents'
-import { getInventoryPrintFinanceSummary, getLeltarFinalizationStatus } from './actions'
+import { getInventoryPrintFinanceSummary } from './actions'
 
 // ---------------------------------------------------------------------------
 // Közös: kapu + fájl + parse
@@ -169,6 +169,40 @@ function kiadottHiba(x: KiadottSzamok | ElokeszitesHiba): x is ElokeszitesHiba {
   return 'error' in x
 }
 
+/**
+ * A CÉL-gyülekezet tárgyévi vagyonleltári jelentése véglegesítve van-e
+ * (2026-08-27, Endre döntése: lezárt évben a felülírás TILOS).
+ *
+ * ⚠️ MIÉRT NEM a `getLeltarFinalizationStatus()`: az a MODUL-hatókörből
+ * (`getScopeCtx`) dolgozik, az import viszont a CÉL-gyülekezetbe ír —
+ * rendszergazdaként akár egy MÁSIKBA. A lezárást annak az évsorán kell
+ * mérni, AHOVÁ írunk, különben a saját gyülekezet nyitott éve oldaná fel egy
+ * idegen gyülekezet lezárt leltárát.
+ *
+ * ⚠️ FAIL-CLOSED: ha a lekérdezés hibázik, VÉGLEGESÍTETTNEK tekintjük. Egy
+ * hálózati hiba után a „tegyünk úgy, mintha nyitva lenne" válasz hivatalos,
+ * már beküldött vagyonleltárt írna felül — a `bizonytalan` jelzővel pedig a
+ * felület meg tudja mondani az igazat (nem hazudik lezárást).
+ *
+ * Az év-kulcs BIT-AZONOS a véglegesítésével: `leltarReportYear()` maga is
+ * `documentSeasonYear()`-t ad (leltar/actions.ts).
+ */
+async function veglegesitesiAllapot(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  congregationId: string,
+): Promise<{ veglegesitve: boolean; bizonytalan: boolean }> {
+  const ev = documentSeasonYear()
+  const { data, error } = await supabase
+    .from('bealitas')
+    .select('leltar_finalized')
+    .eq('id', String(ev))
+    .eq('congregation_id', congregationId)
+    .maybeSingle()
+  if (error) return { veglegesitve: true, bizonytalan: true }
+  const sor = data as { leltar_finalized?: boolean | null } | null
+  return { veglegesitve: !!sor?.leltar_finalized, bizonytalan: false }
+}
+
 // ---------------------------------------------------------------------------
 // 1. Előnézet
 // ---------------------------------------------------------------------------
@@ -213,17 +247,11 @@ export async function previewLeltar343(formData: FormData): Promise<Leltar343Pre
     helyszinKatalogus: parsed.helyszinKatalogus,
   })
 
-  // A VÉGLEGESÍTETT év figyelmeztetése. Ma egyetlen írási út sem zárja le a
-  // véglegesített leltárt (sem a kézi mentés, sem a törlés) — nem vezetünk be
-  // csendben új tiltást, de a felülíró import előtt LÁTSZANIA kell, hogy
-  // lezárt évhez nyúlunk. (Hiba esetén néma: a figyelmeztetés hiánya nem
-  // akadályozhatja meg az importot.)
-  let veglegesitve = false
-  try {
-    veglegesitve = (await getLeltarFinalizationStatus()).finalized
-  } catch {
-    veglegesitve = false
-  }
+  // A VÉGLEGESÍTETT év zára (Endre döntése, 2026-08-27): lezárt évben a
+  // meglévő tétel felülírása TILOS, csak az egyházmegye feloldásával. A
+  // felület ugyanezt az állapotot kapja meg, hogy a „Meglévő frissítése"
+  // választás eleve ne is legyen kínálva.
+  const veglegesites = await veglegesitesiAllapot(supabase, elo.congregationId)
 
   return {
     success: true,
@@ -242,7 +270,8 @@ export async function previewLeltar343(formData: FormData): Promise<Leltar343Pre
     // ugyanezt a listát a felhasználó a leltár-fülön amúgy is látja.)
     aktivSzamok: [...meglevok.aktiv],
     kivezetettSzamok: [...meglevok.kivezetett],
-    veglegesitve,
+    veglegesitve: veglegesites.veglegesitve,
+    veglegesitesBizonytalan: veglegesites.bizonytalan,
   }
 }
 
@@ -406,9 +435,13 @@ export async function executeLeltar343Import(formData: FormData): Promise<Leltar
   )
 
   // ── 2. UGYANAZ az ellenőrzés, amit a felület futtatott ────────────────────
+  // ⚠️ A lezárást ITT is (nem csak az előnézetben) megmérjük: a felület
+  // állapota elavulhatott, és a felülírás hivatalos, beküldött iratot érint.
+  const veglegesites = await veglegesitesiAllapot(supabase, congregationId)
   const ctx = {
     aktivSzamok: [...meglevok.aktiv],
     kivezetettSzamok: [...meglevok.kivezetett],
+    veglegesitve: veglegesites.veglegesitve,
   }
   const ellenorzes = ellenorizSorok(sorok, ctx)
   const kiosztott = osztSzamokat(sorok, ctx)
@@ -424,6 +457,13 @@ export async function executeLeltar343Import(formData: FormData): Promise<Leltar
   const figyelmeztet = (uzenet: string) => {
     if (figyelmeztetesek.length < UZENET_PLAFON) figyelmeztetesek.push(uzenet)
     else elnyeltFigyelmeztetes += 1
+  }
+
+  if (veglegesites.bizonytalan) {
+    figyelmeztet(
+      'A tárgyévi jelentés lezárt állapotát nem sikerült lekérdezni, ezért — a hivatalos irat védelmében — ' +
+      'VÉGLEGESÍTETTNEK tekintettük: a „meglévő frissítése" sorok kimaradtak. Próbáld újra később.',
+    )
   }
 
   let kihagyott = 0

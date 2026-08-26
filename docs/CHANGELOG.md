@@ -83,6 +83,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   már csak figyelmeztetésként jelzi, nem hibaként (a szabályos kivezetés után
   a szám valóban felszabadul).
 
+### 🔒 Biztonsági javítások
+
+- **A véglegesített év leltári tételeit az import nem írhatja felül.** Ha a
+  tárgyévi vagyonleltári jelentés már véglegesítve van, a „meglévő tétel
+  frissítése" választás **zárolt** — a felületen nem is választható, a szerver
+  pedig akkor is elutasítja, ha valaki megkerülné. A feloldás útja a megszokott:
+  a lelkész feloldást kér a Leltári nyilvántartás fülön, és az **egyházmegye**
+  hagyja jóvá. **Új tétel bevitele nincs zárolva** — a véglegesítés a
+  *jelentést* zárja le, nem a tétel-rögzítést.
+- Ha a lezárt állapotot a rendszer valamiért **nem tudja lekérdezni**, a
+  hivatalos irat védelmében véglegesítettnek tekinti az évet (és ezt meg is
+  mondja — nem állítja tényként a lezárást).
+- A lezárást mindig annak a **gyülekezetnek** az évsorán méri, ahová az import
+  ír — rendszergazdaként másik gyülekezetbe importálva sem a sajátunk nyitott
+  éve dönt.
+
 ---
 ## [2026-08-26] — Tisztségek: presbitérium mandátumokkal, bizottságok, weboldal-megjelenés + naptár-megújítás
 <!-- key: 2026-08-26-tisztsegek-naptar -->

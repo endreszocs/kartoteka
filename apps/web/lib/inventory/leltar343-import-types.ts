@@ -53,10 +53,17 @@ export interface Leltar343Preview {
   /** KIVEZETETT tételek számai — a DB részleges indexe miatt újra kiadhatók. */
   kivezetettSzamok?: string[]
   /**
-   * Véglegesítette-e már a gyülekezet a tárgyévi leltárát? Nem tiltás, csak
-   * figyelmeztetés: a felülíró import lezárt évhez is hozzányúlna.
+   * Véglegesítve van-e a CÉL-gyülekezet tárgyévi vagyonleltári jelentése?
+   * Ilyenkor a MEGLÉVŐ tétel felülírása TILOS (csak egyházmegyei feloldással);
+   * új tétel bevitele nincs zárolva.
    */
   veglegesitve?: boolean
+  /**
+   * Igaz, ha a lezárt állapotot NEM sikerült lekérdezni. Ilyenkor a rendszer
+   * fail-closed módon véglegesítettnek tekinti az évet — a felület viszont ne
+   * állítsa tényként a lezárást, hanem mondja meg, hogy nem tudta megmérni.
+   */
+  veglegesitesBizonytalan?: boolean
 }
 
 export interface Leltar343ImportResult {
