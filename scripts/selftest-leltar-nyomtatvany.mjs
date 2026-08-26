@@ -428,6 +428,125 @@ function osszesitoSorok(html) {
 }
 
 // ---------------------------------------------------------------------------
+// E1–E3 — a lapok EGYENLETESSÉGE és a rögzített oszlopszélesség
+// ---------------------------------------------------------------------------
+{
+  // Endre éles adatának vegyes mintázata: hosszú termékazonosítók, rövid
+  // magyar nevek, és részben tördelődő megjegyzések.
+  const vegyes = Array.from({ length: 160 }, (_, i) =>
+    tetel(i + 1, {
+      megnevezes:
+        i % 4 === 0
+          ? `KIPSTA Vest diferenere Sporturi deVerde turcoaz universal - 0.048 kg (${i + 1})`
+          : i % 4 === 1
+            ? `DS-2CE17D0T-IT5F(C) Camera exterior FULL HD, IR 80 metri, TurboHD/CVI/AHD/CVBS, Hikvision (${i + 1})`
+            : i % 4 === 2
+              ? `SP-RCAT5FTPCCA SP-RCAT5FTPCCA - CABLU FTP CCA CAT5 ROLA 305M (${i + 1})`
+              : `Szék ${i + 1}`,
+      megjegyzes: i % 3 === 0 ? 'RON értékében' : i % 3 === 1 ? 'Garázs: 6x8 m - RON értékében' : '',
+    }),
+  )
+  const doc = reporting.buildInventoryPrintDocument({
+    type: 'leltariv',
+    items: vegyes,
+    congregationName: 'Barátosi Református Egyházközség',
+    year: EV,
+  })
+  const lapSorok = doc.html
+    .split('<div class="page">')
+    .slice(1)
+    .map(lap => (lap.match(/<tr>/g) || []).length - 1) // a thead sora nem tartalom
+
+  // ⚠️ EZ AZ, AMIT ENDRE LÁTOTT: „az egyik oldalon kevesebb sor látszik mint a
+  // másikon, az egyiken van egy nagy üres fehér rész". A KÖZBÜLSŐ lapoknak
+  // (az első a nagy fejléc miatt, az utolsó a maradék miatt kivétel) közel
+  // azonos sorszámúaknak kell lenniük.
+  const kozbulso = lapSorok.slice(1, -1)
+  const min = Math.min(...kozbulso)
+  const max = Math.max(...kozbulso)
+  assert(kozbulso.length >= 2, `E1a: van legalább két közbülső lap (${lapSorok.join('/')})`)
+  assert(
+    max - min <= 3,
+    `E1: a közbülső lapok sorszáma EGYENLETES (min ${min}, max ${max}; lapok: ${lapSorok.join('/')})`,
+  )
+  assert(
+    lapSorok[0] > 0 && lapSorok[lapSorok.length - 1] > 0,
+    'E1b: sem az első, sem az utolsó lap nem üres',
+  )
+}
+
+// E2 — RÖGZÍTETT oszlopszélesség (ez teszi a becslést egyáltalán lehetségessé)
+{
+  const doc = reporting.buildInventoryPrintDocument({
+    type: 'leltariv',
+    items: SOK,
+    congregationName: 'Barátosi Református Egyházközség',
+    year: EV,
+  })
+  assert(
+    /table\s*\{[^}]*table-layout:\s*fixed/.test(doc.html),
+    'E2: a táblázat RÖGZÍTETT elrendezésű (az oszlopok minden lapon egy vonalban állnak)',
+  )
+  assert(/<colgroup>/.test(doc.html) && /<col style="width:/.test(doc.html), 'E2b: az oszlopszélességet <col> elemek adják (a Firefox csak ott veszi figyelembe)')
+  const colDb = (doc.html.match(/<col style="width:/g) || []).length
+  const lapDb = lapokSzama(doc.html)
+  const thDb = (doc.html.match(/<th>/g) || []).length
+  assert(colDb === thDb, `E2c: minden oszlophoz tartozik <col> (${colDb} col / ${thDb} th, ${lapDb} lap)`)
+  assert(/overflow-wrap:\s*anywhere/.test(doc.html), 'E2d: a hosszú, szóköz nélküli azonosító nem lóg ki a rögzített cellából')
+
+  // Mind az 5 nyomtatvány oszlop-százalékai 100-ra jönnek ki.
+  const tipusok = ['leltariv', 'registru_inventar', 'aktiv_passziv', 'torolt_targyak', 'vagyonleltari_jelentes']
+  const rosszOsszeg = []
+  for (const type of tipusok) {
+    const d = reporting.buildInventoryPrintDocument({
+      type,
+      items: SOK,
+      congregationName: 'Barátosi Református Egyházközség',
+      year: EV,
+    })
+    const lapDb2 = (d.html.match(/<div class="page">/g) || []).length || 1
+    const oszlopPerLap = ((d.html.match(/<th>/g) || []).length) / lapDb2
+    const szazalekok = [...d.html.matchAll(/<col style="width:(\d+(?:\.\d+)?)%/g)]
+      .map(m => Number(m[1]))
+      .slice(0, oszlopPerLap)
+    const osszeg = Math.round(szazalekok.reduce((a, b) => a + b, 0))
+    if (osszeg !== 100) rosszOsszeg.push(`${type}: ${osszeg}%`)
+  }
+  assert(rosszOsszeg.length === 0, `E2e: minden nyomtatvány oszlopai 100%-ot adnak ki (${rosszOsszeg.join(', ') || 'rendben'})`)
+}
+
+// E2n (negatív): a RÖGZÍTETT elrendezés nélküli (óvilági) dokumentumon az őrszem BUKIK.
+{
+  const mutansLayout = fs.readFileSync(SRC.layout, 'utf8').replace('table-layout: fixed; ', '')
+  const modul = betolt({ layoutSrc: mutansLayout })
+  const doc = modul.reporting.buildInventoryPrintDocument({
+    type: 'leltariv',
+    items: SOK,
+    congregationName: 'Barátosi Református Egyházközség',
+    year: EV,
+  })
+  // ⚠️ A SZABÁLYT nézzük, nem a szöveget: a stíluslap KOMMENTJE is tartalmazza
+  // a „table-layout: fixed" kifejezést, tehát a puszta szöveg-keresés vak lenne.
+  const szabaly = /table\s*\{[^}]*table-layout:\s*fixed/
+  assert(szabaly.test(fs.readFileSync(SRC.layout, 'utf8')), 'E2n-elo: az ÉLES stíluslapban ott a szabály')
+  assert(
+    !szabaly.test(doc.html),
+    'E2n: a rögzített elrendezés nélküli (óvilági) dokumentumon az őrszem BUKNA — nem vak',
+  )
+}
+
+// E3 — a karakter/sor becslés a RÖGZÍTETT szélességből jön, nem kézi számból
+{
+  const { layout } = betolt()
+  const szeles = layout.karakterPerSor('landscape', 26)
+  const keskeny = layout.karakterPerSor('landscape', 10)
+  assert(szeles > keskeny, `E3: a szélesebb oszlopba több karakter fér (${szeles} > ${keskeny})`)
+  assert(szeles > 30 && szeles < 80, `E3b: a 26%-os oszlop becslése hihető tartományban van (${szeles} karakter/sor)`)
+  const allo = layout.karakterPerSor('portrait', 26)
+  assert(allo < szeles, `E3c: álló lapon ugyanaz a százalék KEVESEBB karaktert jelent (${allo} < ${szeles})`)
+}
+
+// ---------------------------------------------------------------------------
 // G1–G3 — forrás-őrök
 // ---------------------------------------------------------------------------
 {

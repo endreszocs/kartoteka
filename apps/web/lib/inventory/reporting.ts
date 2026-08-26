@@ -21,13 +21,36 @@ import {
 // nyomtatásnak és a PDF-nek.
 import {
   becsultSorMagassag,
+  colgroup,
   egyNyelvu,
   entitasNevEgyNyelven,
   epitLapok,
+  karakterPerSor,
   wrapPrintDocument,
   type PrintLang,
   type PrintSor,
 } from './print-layout'
+
+/**
+ * A nyomtatványok RÖGZÍTETT oszlopszélességei (százalékban).
+ *
+ * ⚠️ EGYETLEN FORRÁS: ugyanezekből számoljuk a sormagasság-becsléshez a
+ * karakter/sor értéket is (`karakterPerSor`). Ha itt változik egy szám, a
+ * tördelés automatikusan követi — nincs külön, kézzel karbantartott lista,
+ * ami elcsúszhatna a valóságtól.
+ */
+const OSZLOPOK = {
+  // S.sz | Megnevezés | Leltári sz. | M.E. | Meny. | Egységár | Könyv sz. | Leltári | Écs. | Megjegyzés
+  leltariv: [4, 26, 9, 5, 6, 9, 11, 11, 9, 10],
+  // Nr | Megnevezés | Könyv szerinti | Leltári
+  registru: [6, 54, 20, 20],
+  // Nr | Tétel | Záró érték
+  aktivPasszix: [8, 62, 30],
+  // S.sz | Dátum | Megnevezés | Leltári sz. | M.E. | Meny. | Könyvelési érték | Indoklás
+  torolt: [4, 9, 30, 10, 6, 6, 12, 23],
+  // Sz | Tárgycsoport | 4 × érték
+  vagyon: [6, 34, 15, 15, 15, 15],
+} as const
 
 // A meglévő webes importok (inventory-main-v3, stb.) kompatibilitása.
 export { calculateInventoryCurrentValue, getInventoryDisplayName }
@@ -299,10 +322,9 @@ function buildLeltarivReport(
       // kg" két sorba fut), és eddig csak a megjegyzést mértük — ettől
       // csordult túl a lap alja, és csúszott rá a lábléc az utolsó sorokra.
       magassag: becsultSorMagassag([
-        // Böngészőben MÉRVE: a megnevezés-oszlop 462 px (≈91 karakter/sor),
-        // a megjegyzés-oszlop 69 px (≈11 karakter/sor) — ráhagyással.
-        { szoveg: getInventoryDisplayName(item), karakterPerSor: 85 },
-        { szoveg: megjegyzes, karakterPerSor: 11 },
+        // A karakterszám a RÖGZÍTETT oszlopszélességből jön — nem kézi becslés.
+        { szoveg: getInventoryDisplayName(item), karakterPerSor: karakterPerSor('landscape', OSZLOPOK.leltariv[1]) },
+        { szoveg: megjegyzes, karakterPerSor: karakterPerSor('landscape', OSZLOPOK.leltariv[9]) },
       ]),
       html: `
         <tr>
@@ -337,6 +359,7 @@ function buildLeltarivReport(
 
   const tablaNyito = `
       <table>
+        ${colgroup([...OSZLOPOK.leltariv])}
         <thead>
           <tr>
             <th>${escapeHtml(egyNyelvu(lang, 'S.sz.', 'Nr. crt.'))}</th>
@@ -417,7 +440,7 @@ function buildRegistruReport(
   ]
 
   const sorok: PrintSor[] = sorDefiniciok.map(([nr, ro, hu, value]) => ({
-    magassag: becsultSorMagassag([{ szoveg: egyNyelvu(lang, hu, ro), karakterPerSor: 60 }]),
+    magassag: becsultSorMagassag([{ szoveg: egyNyelvu(lang, hu, ro), karakterPerSor: karakterPerSor('portrait', OSZLOPOK.registru[1]) }]),
     html: `
         <tr>
           <td class="text-center">${escapeHtml(nr)}</td>
@@ -440,6 +463,7 @@ function buildRegistruReport(
 
   const tablaNyito = `
       <table>
+        ${colgroup([...OSZLOPOK.registru])}
         <thead>
           <tr>
             <th>${escapeHtml(egyNyelvu(lang, 'Sz.', 'Nr.'))}</th>
@@ -510,7 +534,7 @@ function buildAktivPasszivReport(
   ]
 
   const sorok: PrintSor[] = sorDefiniciok.map(([nr, ro, hu, value]) => ({
-    magassag: becsultSorMagassag([{ szoveg: egyNyelvu(lang, hu, ro), karakterPerSor: 65 }]),
+    magassag: becsultSorMagassag([{ szoveg: egyNyelvu(lang, hu, ro), karakterPerSor: karakterPerSor('portrait', OSZLOPOK.aktivPasszix[1]) }]),
     html: `
         <tr>
           <td class="text-center">${escapeHtml(nr)}</td>
@@ -533,6 +557,7 @@ function buildAktivPasszivReport(
 
   const tablaNyito = `
       <table>
+        ${colgroup([...OSZLOPOK.aktivPasszix])}
         <thead>
           <tr>
             <th>${escapeHtml(egyNyelvu(lang, 'Sz.', 'Nr.'))}</th>
@@ -594,8 +619,8 @@ function buildDeletedItemsReport(
     const indoklas = item.torles_indoklasa || item.torles_bizonylat || egyNyelvu(lang, 'Nincs részletezve', 'Nedetaliat')
     return {
       magassag: becsultSorMagassag([
-        { szoveg: getInventoryDisplayName(item), karakterPerSor: 55 },
-        { szoveg: indoklas, karakterPerSor: 30 },
+        { szoveg: getInventoryDisplayName(item), karakterPerSor: karakterPerSor('landscape', OSZLOPOK.torolt[2]) },
+        { szoveg: indoklas, karakterPerSor: karakterPerSor('landscape', OSZLOPOK.torolt[7]) },
       ]),
       html: `
         <tr>
@@ -625,6 +650,7 @@ function buildDeletedItemsReport(
 
   const tablaNyito = `
       <table>
+        ${colgroup([...OSZLOPOK.torolt])}
         <thead>
           <tr>
             <th>${escapeHtml(egyNyelvu(lang, 'S.sz.', 'Nr. crt.'))}</th>
@@ -713,7 +739,7 @@ function buildVagyonReport(
     // alcímke kikerült.
     const cimke = egyNyelvu(lang, row.labelHu, row.labelRo)
     return {
-      magassag: becsultSorMagassag([{ szoveg: cimke, karakterPerSor: 30 }]),
+      magassag: becsultSorMagassag([{ szoveg: cimke, karakterPerSor: karakterPerSor('portrait', OSZLOPOK.vagyon[1]) }]),
       html: `
         <tr>
           <td class="text-center">${index + 1}</td>
@@ -745,6 +771,7 @@ function buildVagyonReport(
 
   const tablaNyito = `
       <table>
+        ${colgroup([...OSZLOPOK.vagyon])}
         <thead>
           <tr>
             <th>${escapeHtml(egyNyelvu(lang, 'Sz.', 'Nr.'))}</th>

@@ -131,14 +131,17 @@ const MOCK_LELTAR: InventoryItem[] = Array.from({ length: 120 }, (_, i) => ({
   id: `p-${i}`,
   leltari_szam: `CS-${String(i + 1).padStart(3, '0')}`,
   regi_leltari_szam: null,
-  // ⚠️ HOSSZÚ nevek — Endre éles adatában is ilyenek vannak, és épp ezektől
-  // csordult túl a lap alja (a becslés csak a megjegyzést mérte).
+  // ⚠️ ENDRE ÉLES ADATÁNAK VEGYES MINTÁZATA: hosszú termékazonosítók, rövid
+  // magyar nevek, és megjegyzések, amelyek egy része tördelődik. Épp ettől
+  // lettek a lapok EGYENETLENEK (az egyiken 11 sor, a másikon 20).
   megnevezes:
-    i % 3 === 0
+    i % 4 === 0
       ? `KIPSTA Vest diferenere Sporturi deVerde turcoaz universal - 0.048 kg (${i + 1})`
-      : i % 3 === 1
+      : i % 4 === 1
         ? `DS-2CE17D0T-IT5F(C) Camera exterior FULL HD, IR 80 metri, TurboHD/CVI/AHD/CVBS, Hikvision (${i + 1})`
-        : `Szék ${i + 1}`,
+        : i % 4 === 2
+          ? `SP-RCAT5FTPCCA SP-RCAT5FTPCCA - CABLU FTP CCA CAT5 ROLA 305M (${i + 1})`
+          : `Szék ${i + 1}`,
   kategoria: 'Csekély értékű',
   kategoria_key: 'csekely',
   beszerzes_erteke: 250,
@@ -150,7 +153,7 @@ const MOCK_LELTAR: InventoryItem[] = Array.from({ length: 120 }, (_, i) => ({
   felelos_szemely_id: null,
   felelos_nev: 'Szőcs Endre',
   vonalkod: null,
-  megjegyzes: '',
+  megjegyzes: i % 3 === 0 ? 'RON értékében' : i % 3 === 1 ? 'Garázs: 6x8 m - RON értékében' : '',
   mennyiseg: 1,
   mertekegyseg: 'db',
   torles_datuma: null,

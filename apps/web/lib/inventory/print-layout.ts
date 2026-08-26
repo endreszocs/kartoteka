@@ -49,7 +49,7 @@ const PADDING_ALUL_MM = 16
 /** Egy táblázatsor becsült magassága px-ben (11px betű + 6px padding + keret). */
 const SOR_MAGASSAG_PX = 26
 /** Egy tördelt extra sor a cellán belül. */
-const EXTRA_SOR_PX = 14
+const EXTRA_SOR_PX = 13
 /**
  * Biztonsági sáv a lap alján, px.
  *
@@ -61,8 +61,8 @@ const EXTRA_SOR_PX = 14
  * sorokra. Ezért inkább hagyunk üresen egy sávot, mint hogy adat vesszen.
  */
 const BIZTONSAGI_SAV_PX = 20
-/** A táblázat fejléce (thead) — böngészőben MÉRVE 39 px, +1 ráhagyással. */
-const THEAD_PX = 40
+/** A táblázat fejléce (thead) — RÖGZÍTETT elrendezésnél mérve 25 px. */
+const THEAD_PX = 28
 /** Az összesítő sor (tfoot) — csak az utolsó lapon. */
 const TFOOT_PX = 28
 
@@ -70,6 +70,49 @@ const TFOOT_PX = 28
 export function lapBelmagassagPx(orientation: PrintOrientation): number {
   const nyers = (LAP_MAGASSAG_MM[orientation] - PADDING_FELUL_MM - PADDING_ALUL_MM) * PX_PER_MM
   return nyers - BIZTONSAGI_SAV_PX
+}
+
+/**
+ * Egy karakter átlagos szélessége px-ben, 11 px-es Times New Romannál.
+ *
+ * Böngészőben MÉRVE, a RÖGZÍTETT oszlopszélességek mellett: egy 253 px-es
+ * szövegterületben a 65 karakteres név két sorba fut, a 7 karakteres egybe →
+ * a sorhossz 47 és 64 karakter között van (≈4,6 px/karakter). Egy 88 px-es
+ * oszlopban a 13 karakteres „RON értékében" egy sor, a 29 karakteres kettő
+ * (≈4,4 px/karakter). A 4,9-es érték e fölött van egy kicsivel: inkább
+ * becsüljük magasabbra a sort, mint hogy túlcsorduljon (a túlcsordulás
+ * LEVÁGÁS lenne), de már nem pazarol fél lapot.
+ */
+const ATLAG_KARAKTER_PX = 4.9
+
+/** A cella belső bélése + kerete px-ben (6+7 padding, 1+1 keret, ráhagyással). */
+const CELLA_BELSO_PX = 18
+
+/**
+ * Hány karakter fér EGY SORBA egy adott szélességű oszlopban.
+ *
+ * ⚠️ EZ A JAVÍTÁS LÉNYEGE (Endre: „az egyik oldalon kevesebb sor látszik mint a
+ * másikon, az egyiken van egy nagy üres fehér rész"). Korábban minden oszlophoz
+ * KÉZZEL írt karakterszám tartozott, miközben a táblázat `table-layout: auto`
+ * volt: az oszlopszélesség a TARTALOMTÓL függött, tehát oldalanként ÉS
+ * adatkészletenként MÁS. Így a becslés hol alul-, hol felülbecsült — egy
+ * „RON értékében" megjegyzés az egyik lapon egy sor, a másikon kettő.
+ * Mostantól az oszlopszélesség RÖGZÍTETT (`table-layout: fixed` + `<col>`), és
+ * a karakterszám EBBŐL a szélességből számolódik — a becslés és a valóság
+ * ugyanabból az egy forrásból jön.
+ */
+export function karakterPerSor(orientation: PrintOrientation, szazalek: number): number {
+  const hasznosPx = (LAP_SZELESSEG_MM[orientation] - 2 * PADDING_FELUL_MM) * PX_PER_MM
+  const oszlopPx = hasznosPx * (szazalek / 100)
+  const szovegPx = Math.max(24, oszlopPx - CELLA_BELSO_PX)
+  return Math.max(4, Math.floor(szovegPx / ATLAG_KARAKTER_PX))
+}
+
+/** `<colgroup>` a megadott százalékos oszlopszélességekből. */
+export function colgroup(szazalekok: number[]): string {
+  // ⚠️ A szélesség a `<col>` ELEMEN kell legyen: a Firefox a `<colgroup>`-on
+  // megadott szélességet nem veszi figyelembe.
+  return `<colgroup>${szazalekok.map(sz => `<col style="width:${sz}%" />`).join('')}</colgroup>`
 }
 
 /** Egy tördelődő cella a sorban: a szövege és az oszlop kb. hány karaktert bír. */
@@ -272,8 +315,21 @@ export function printStyles(orientation: PrintOrientation): string {
     .continued { font-size: 11px; text-align: right; color: #64748b; margin-bottom: 8px; font-style: italic; }
     .meta-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px 24px; margin-bottom: 18px; font-size: 12px; }
     .meta-grid strong { color: #0f172a; }
-    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-    th, td { border: 1px solid #334155; padding: 6px 7px; vertical-align: top; font-size: 11px; }
+    /* ⚠️ RÖGZÍTETT elrendezés: e nélkül az oszlopszélesség a tartalomtól függ,
+       tehát LAPONKÉNT MÁS lenne — a hivatalos íven a rovatok nem állnának
+       egy vonalban, és a sormagasság sem lenne előre kiszámítható.
+       A table-layout: fixed CSAK explicit tábla-szélesség mellett hat. */
+    table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 8px; }
+    th, td {
+      border: 1px solid #334155;
+      padding: 6px 7px;
+      vertical-align: top;
+      font-size: 11px;
+      /* Rögzített oszlopban a hosszú, szóköz nélküli azonosító
+         (SP-RCAT5FTPCCA...) különben kilógna a cellából. */
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
     th { background: #e2e8f0; text-align: center; font-weight: bold; }
     /* A break-inside NÉLKÜL a Chrome NEM ismétli a fejlécet a következő lapon. */
     thead { display: table-header-group; break-inside: avoid; }

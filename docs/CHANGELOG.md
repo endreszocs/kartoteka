@@ -23,6 +23,32 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-27] — Leltár-nyomtatás: egyenletes oldalak, rögzített oszlopok
+<!-- key: 2026-08-27-leltar-nyomtatas-oszlopok -->
+<!-- category: bugfix -->
+<!-- version: 0.9.183 -->
+<!-- targets: lelkipásztorok -->
+
+### 🐛 Javítások
+
+- **Az oldalak egyenetlenek voltak: az egyiken 11 sor és nagy üres rész, a
+  másikon 20.** A gyökérok mélyebb volt, mint amilyennek látszott: a táblázat
+  oszlopszélessége a TARTALOMHOZ igazodott, tehát oldalanként és
+  adatkészletenként más volt — ugyanaz a „RON értékében" megjegyzés az egyik
+  lapon egy sorba fért, a másikon kettőbe. Emiatt a lapokra bontás sem tudta
+  előre kiszámolni, mennyi fér egy lapra. Mostantól az oszlopszélességek
+  rögzítettek, és a tördelés ugyanezekből számol — a lapok egyenletesen telnek,
+  és a rovatok minden oldalon egy vonalban állnak.
+- **Az oszlopok mostantól minden oldalon azonos szélességűek** — eddig
+  oldalanként elcsúsztak, ami egy aláírandó hivatalos íven zavaró.
+- A hosszú, szóköz nélküli termékazonosítók (pl. „SP-RCAT5FTPCCA…") nem lógnak
+  ki a rovatból.
+
+**Mérve** (209 tételes, éles jellegű adattal, mind az 5 nyomtatványon és
+mindkét nyelven): sehol nincs túlcsordulás vagy levágás, az oszlopok
+egységesek, és a közbülső oldalak azonos sorszámmal telnek.
+
+---
 ## [2026-08-27] — Leltár-nyomtatás: egymásra csúszó sorok javítása, egynyelvű ívek
 <!-- key: 2026-08-27-leltar-nyomtatas-javitas -->
 <!-- category: bugfix -->
