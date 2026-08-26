@@ -909,5 +909,79 @@ function elofeltetelTorzs(sql) {
   assert(/hiányzik/i.test(mutans), 'J5n: a hiányt kiíró változaton a J3c őrszem BUKNA — nem vak')
 }
 
+// ---------------------------------------------------------------------------
+// K1–K3 — A FÉLIG ELLENŐRZÖTT KAPU
+//
+// ⛔ MI TÖRTÉNT: a kétnyelvű felmérés ÍTÉLET-sora „✅ teljes"-t jelentett a
+//    címre, holott CSAK a `name_ro`-t nézte — a MAGYAR településnév hiányzott,
+//    és a magyar cím a román alakra esett vissza. Élesben ez úgy jelent meg,
+//    hogy a „magyar" cím is románul mutatta a települést.
+//
+//    HIBAOSZTÁLY: a félig ellenőrzött kapu ROSSZABB a nyitottnál — hamis
+//    biztonságot ad, és a rá épülő döntés is hibás lesz.
+// ---------------------------------------------------------------------------
+{
+  const felmero = sqlKommentNelkul(
+    fs.readFileSync(
+      path.join(ROOT, 'migration-docs/sql/2026-08-27-ALLAPOTFELMERES-ketnyelvu-elerhetoseg.sql'),
+      'utf8',
+    ),
+  )
+  const itelet = felmero.slice(felmero.indexOf('ÍTÉLET'))
+  const hianyzoEllenorzes = ['loc.name_hu', 'loc.name_ro', 'cnty.name_hu', 'cnty.name_ro'].filter(
+    mezo => !itelet.includes(mezo),
+  )
+  assert(
+    hianyzoEllenorzes.length === 0,
+    `K1: a felmérés ÍTÉLET-e MINDKÉT nyelvet nézi, mindkét szinten (hiányzik: ${hianyzoEllenorzes.join(', ') || 'egy sem'})`,
+  )
+  assert(
+    /hiányzik a MAGYAR/.test(itelet),
+    'K1b: …és MEGMONDJA, melyik nyelv hiányzik — nem csak annyit, hogy „hiányos"',
+  )
+
+  // A pótló segédlet SEMMILYEN nevet nem ír be magától.
+  const potlas = path.join(ROOT, 'migration-docs/sql/2026-08-27-magyar-telepulesnevek-potlasa.sql')
+  assert(fs.existsSync(potlas), 'K2: van pótló segédlet a hiányzó magyar településnevekhez')
+  const aktivUpdate = fs
+    .readFileSync(potlas, 'utf8')
+    .split(String.fromCharCode(10))
+    .filter(sor => /^\s*UPDATE /.test(sor))
+  assert(
+    aktivUpdate.length === 0,
+    `K2b: a pótló fájlban NINCS aktív UPDATE — a nevet a felhasználó írja be, nem mi találjuk ki (${aktivUpdate.length} aktív)`,
+  )
+
+  // ⚠️ Ugyanazon az oldalon NE álljon két KÜLÖNBÖZŐ cím és két különböző
+  //    térkép-link: a lábléc korábban a régi, vegyes címet mutatta.
+  const lablec = kommentNelkul(
+    fs.readFileSync(path.join(ROOT, 'apps/web/components/public/public-site-footer.tsx'), 'utf8'),
+  )
+  const layout = kommentNelkul(
+    fs.readFileSync(path.join(ROOT, 'apps/web/app/(public)/gy/[slug]/layout.tsx'), 'utf8'),
+  )
+  assert(/identitas/.test(lablec), 'K3: a lábléc is a hivatalos, kétnyelvű elérhetőséget használja')
+  assert(
+    /<PublicSiteFooter[^>]*identitas=/.test(layout),
+    'K3b: …és a layout át is adja (a prop nem marad kihasználatlan)',
+  )
+  // ⚠️ A `site.address` a TARTALÉK-LÁNCBAN legitim (`identitas?.cim_ro || …
+  //    || site.address`). A baj az lenne, ha a MEGJELENÍTÉS vagy az
+  //    ÜRES-ÁLLAPOT nézné a régi mezőket: akkor a „hamarosan felkerülnek"
+  //    felirat ott is megjelenne, ahol a hivatalos elérhetőség épp fölötte áll.
+  const lablecTorzs = lablec.slice(lablec.indexOf('return ('))
+  const regiMezok = ['site.address', 'site.contact_phone', 'site.contact_email'].filter(m =>
+    lablecTorzs.includes(m),
+  )
+  assert(
+    regiMezok.length === 0,
+    `K3c: a lábléc MEGJELENÍTŐ része már nem a régi mezőket nézi (${regiMezok.join(', ') || 'egy sem'})`,
+  )
+  assert(
+    /!cim && !telefon && !email/.test(lablecTorzs),
+    'K3d: az üres-állapot is a MEGJELENÍTETT értékekre néz',
+  )
+}
+
 console.log(`\n${total - failedCount}/${total} teszt zöld`)
 process.exit(failedCount > 0 ? 1 : 0)

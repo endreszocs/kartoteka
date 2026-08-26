@@ -23,6 +23,38 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-27] — A magyar cím és a lábléc rendbetétele
+<!-- key: 2026-08-27-magyar-cim-lablec -->
+<!-- category: bugfix -->
+<!-- version: 0.9.186 -->
+<!-- targets: lelkipásztorok -->
+
+### 🐛 Javítások
+
+- **A lábléc és az Elérhetőség-panel eddig KÉT KÜLÖNBÖZŐ címet mutatott**
+  ugyanazon az oldalon, két külön térkép-linkkel. Mostantól mindkettő a
+  hivatalos, kétnyelvű címet használja, és a térkép a román címmel keres —
+  a Google Maps a hivatalos helységnevet ismeri.
+
+### ⚠️ Amit tudni érdemes — a magyar cím még nem teljesen magyar
+
+Az élesbe került kétnyelvű blokkban a **település mindkét sorban románul**
+áll:
+
+- magyar: `Parohiei 214, 527050 Brateş, Kovászna megye`
+- román: `Parohiei 214, 527050 Brateş, jud. Covasna`
+
+A megye rendben van (Kovászna / Covasna), a **településnek viszont nincs
+magyar neve a cím-törzsben**, ezért a rendszer becsületesen a beírt „Brateş"
+szabad szövegre esik vissza. Ez **adathiány, nem hiba** — és pótolható:
+a `2026-08-27-magyar-telepulesnevek-potlasa.sql` megmutatja, mely települések
+magyar neve hiányzik, és készen áll a pótláshoz. **Nevet a rendszer nem talál
+ki** — azt neked kell megadnod.
+
+A pótlás után a magyar cím azonnal így néz ki: `Parohiei 214, 527050 Barátos,
+Kovászna megye`.
+
+---
 ## [2026-08-27] — Két kapcsoló csapdája + kétnyelvű elérhetőség
 <!-- key: 2026-08-27-ket-kapcsolo-ketnyelvu-elerhetoseg -->
 <!-- category: bugfix -->

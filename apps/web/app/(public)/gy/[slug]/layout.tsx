@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import type { Metadata, Viewport } from 'next'
 import { loadPublicSiteBySlug } from '@/lib/public-site/site-loader'
+import { loadPublicIdentitas } from '@/lib/public-site/identitas-loader'
 import {
   buildThemeCssVariables,
   resolveThemeColors,
@@ -98,6 +99,9 @@ export default async function CongregationSiteLayout({
   const site = await loadPublicSiteBySlug(slug)
   if (!site) notFound()
 
+  // 2026-08-27: a lábléc is a hivatalos, kétnyelvű elérhetőséget mutassa
+  const identitas = await loadPublicIdentitas(site.slug)
+
   const cssVariables = buildThemeCssVariables(
     site.theme,
     site.custom_primary_color,
@@ -164,7 +168,7 @@ export default async function CongregationSiteLayout({
 
   return (
     <PublicRouteFrame
-      publicFooter={<PublicSiteFooter site={site} />}
+      publicFooter={<PublicSiteFooter site={site} identitas={identitas} />}
       publicHeader={publicHeader}
       publicHomePath={`/gy/${site.slug}`}
       publicThemeBase={publicThemeBase}
