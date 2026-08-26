@@ -419,10 +419,7 @@ $$;
 COMMENT ON FUNCTION public.public_site_stats(text) IS
   'KARTOTEKA_PUBLIC_SITE_STATS_V3';
 
-REVOKE ALL ON FUNCTION public.public_site_stats(text)
-  FROM PUBLIC, anon, authenticated, service_role, app_staff_user,
-    app_pending_user, member_portal_user;
-GRANT EXECUTE ON FUNCTION public.public_site_stats(text) TO anon;
+-- (jogosultsagok: a 8/c szakasz szerep-tolerans ACL-blokkja allitja be)
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- 8/a. ÚJ publikus RPC: tisztségviselők a weboldalra.
@@ -522,10 +519,7 @@ $$;
 COMMENT ON FUNCTION public.public_site_tisztsegek(text) IS
   'KARTOTEKA_PUBLIC_SITE_TISZTSEGEK_V1';
 
-REVOKE ALL ON FUNCTION public.public_site_tisztsegek(text)
-  FROM PUBLIC, anon, authenticated, service_role, app_staff_user,
-    app_pending_user, member_portal_user;
-GRANT EXECUTE ON FUNCTION public.public_site_tisztsegek(text) TO anon;
+-- (jogosultsagok: a 8/c szakasz szerep-tolerans ACL-blokkja allitja be)
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- 8/b. ÚJ publikus RPC: közelgő PUBLIKUS események a weboldalra.
@@ -600,10 +594,37 @@ $$;
 COMMENT ON FUNCTION public.public_site_events(text) IS
   'KARTOTEKA_PUBLIC_SITE_EVENTS_V1';
 
-REVOKE ALL ON FUNCTION public.public_site_events(text)
-  FROM PUBLIC, anon, authenticated, service_role, app_staff_user,
-    app_pending_user, member_portal_user;
-GRANT EXECUTE ON FUNCTION public.public_site_events(text) TO anon;
+-- (jogosultsagok: a 8/c szakasz szerep-tolerans ACL-blokkja allitja be)
+
+-- ─────────────────────────────────────────────────────────────────────
+-- 8/c. A publikus RPC-k jogosultságai — SZEREP-TOLERÁNSAN (2026-08-26 v3).
+--      Az app_staff_user / app_pending_user / member_portal_user egyéni
+--      szerepkörök a member-portál lánc részei, amely ÉLESBEN NEM FUTOTT LE
+--      (42704 — élesben elsült) — róluk CSAK akkor vonunk vissza, ha
+--      léteznek. A standard szerepekről (PUBLIC/anon/authenticated/
+--      service_role) mindig; EXECUTE kizárólag az anon-nak jár vissza.
+-- ─────────────────────────────────────────────────────────────────────
+DO $publikus_acl$
+DECLARE
+  v_fn text;
+  v_role text;
+BEGIN
+  FOREACH v_fn IN ARRAY ARRAY[
+    'public.public_site_stats(text)',
+    'public.public_site_tisztsegek(text)',
+    'public.public_site_events(text)'
+  ] LOOP
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated, service_role', v_fn);
+    FOREACH v_role IN ARRAY ARRAY['app_staff_user', 'app_pending_user', 'member_portal_user'] LOOP
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = v_role) THEN
+        EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I', v_fn, v_role);
+      END IF;
+    END LOOP;
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO anon', v_fn);
+  END LOOP;
+END
+$publikus_acl$;
+
 
 -- ─────────────────────────────────────────────────────────────────────
 -- 9. tagnyilvantartas_tag_torles — a tisztsegek-sorok is a személlyel mennek.
