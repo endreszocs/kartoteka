@@ -23,6 +23,42 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-27] — Két kapcsoló csapdája + kétnyelvű elérhetőség
+<!-- key: 2026-08-27-ket-kapcsolo-ketnyelvu-elerhetoseg -->
+<!-- category: bugfix -->
+<!-- version: 0.9.185 -->
+<!-- targets: lelkipásztorok -->
+
+### 🐛 Javítások
+
+- **„Bepipáltam, mégsem jelent meg a weboldalon."** Két kapcsoló kell, és ezt
+  eddig semmi nem mondta meg: a programon a *„Megjelenhet a gyülekezet
+  weboldalán"*, ÉS a weboldalon a *Publikus oldal → Beállítások → Közelgő
+  események* — ez utóbbi **alapból ki van kapcsolva**. Mostantól a program
+  ablakában, a kapcsoló alatt piros figyelmeztetés jelenik meg, ha a weboldalon
+  a szekció ki van kapcsolva — a link is ott van hozzá. Így nem a weboldalon
+  kell rájönni.
+- A *Közelgő események* kapcsoló magyarázata is javítva: eddig azt írta, hogy a
+  leírás nem kerül ki (pedig kérésedre már kimegy), és csak 90 napról beszélt.
+
+### ✨ Újdonságok
+
+- **Kétnyelvű elérhetőség-blokk** a gyülekezeti weboldalon: a gyülekezet
+  hivatalos neve **magyarul és románul**, a **pontos cím két nyelven**
+  (a település és a megye a hivatalos cím-törzsből), az e-mail, a telefon,
+  valamint az **egyházmegye és az egyházkerület**.
+- A **térképre mutató link** mostantól a román címmel keres — a Google Maps a
+  hivatalos helységnevet ismeri, a magyarra gyakran nem talál rá.
+
+### ⚠️ Amit tudni érdemes
+
+Az egyházmegye és az egyházkerület **román neve jelenleg nincs kitöltve**.
+Ilyenkor a weboldalon a magyar név áll egyedül — **kitalált fordítást nem
+írunk oda**, mert egy hivatalos egyházi megnevezésnek pontos alakja van. Ha az
+Egyházmegye / Egyházkerület beállításainál kitöltöd a román nevet, a weboldal
+azonnal kétnyelvűen mutatja, minden további teendő nélkül.
+
+---
 ## [2026-08-27] — Gyülekezeti weboldal: címer, elérhetőségek, éves naptár, saját aldomain
 <!-- key: 2026-08-27-gyulekezeti-oldal-naptar-cimer -->
 <!-- category: feature -->

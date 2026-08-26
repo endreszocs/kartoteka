@@ -9,6 +9,53 @@ import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { logAuditEvent } from '@/lib/audit/log'
 import { isMissingDeletedColumn } from '@/lib/worklog/registry-sync'
 
+/**
+ * A gyülekezet weboldalának ESEMÉNY-KAPUJA (2026-08-27).
+ *
+ * ⛔ MI VOLT A HIBA (Endre jelezte): „a rögzített program nem jelent meg a
+ * weboldalon". A programon BE volt kapcsolva a „Megjelenhet a gyülekezet
+ * weboldalán", csakhogy KÉT kapcsoló kell: a weboldalon külön be kell
+ * kapcsolni a „Közelgő események" szekciót is (Publikus oldal → Beállítások),
+ * és az ALAPBÓL KI VAN KAPCSOLVA.
+ *
+ * A program-ablak kapcsolója viszont azt ígérte, hogy az alkalom „megjelenhet
+ * a weboldalon" — miközben egy másik, láthatatlan kapcsoló megvétózta. A
+ * felhasználó mentett, és nem történt semmi: néma hiba, ami szoftverhibának
+ * látszik.
+ *
+ * Ezért a program-ablak MEGKÉRDEZI ezt az állapotot, és ha a szekció ki van
+ * kapcsolva, ott helyben meg is mondja — nem a weboldalon kell rájönni.
+ *
+ * Hibánál `null`-t ad: ilyenkor a felület NEM állít semmit (nem ijesztget
+ * hamis figyelmeztetéssel, és nem is nyugtat meg tévesen).
+ */
+export async function getWeboldalEsemenyKapu(): Promise<{
+  vanPublikaltOldal: boolean
+  esemenyekBekapcsolva: boolean
+} | null> {
+  try {
+    const { supabase, congregationId } = await getEffectiveCongregationContext()
+    if (!congregationId) return null
+
+    const { data, error } = await supabase
+      .from('public_sites')
+      .select('is_published, show_events')
+      .eq('congregation_id', congregationId)
+      .maybeSingle()
+
+    // A `show_events` oszlop a 2026-08-26-i migrációval jött — ha egy
+    // adatbázisban még nincs meg, ne találgassunk.
+    if (error || !data) return null
+
+    return {
+      vanPublikaltOldal: data.is_published === true,
+      esemenyekBekapcsolva: data.show_events === true,
+    }
+  } catch {
+    return null
+  }
+}
+
 export async function getProgramsForYear(year: number): Promise<Program[]> {
   const { supabase, congregationId } = await getEffectiveCongregationContext()
   if (!congregationId) return []

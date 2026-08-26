@@ -717,5 +717,197 @@ function elofeltetelTorzs(sql) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// I1–I4 — A KÉT KAPCSOLÓ CSAPDÁJA
+//
+// ⛔ MI VOLT A HIBA (Endre jelezte 2026-08-27-én, a deploy után):
+//    „a rögzített program nem jelent meg a weboldalon". A programon BE volt
+//    kapcsolva a „Megjelenhet a gyülekezet weboldalán" — csakhogy KÉT kapcsoló
+//    kell: a weboldalon külön be kell kapcsolni a „Közelgő események" szekciót
+//    is (`public_sites.show_events`), és az ALAPBÓL KI VAN KAPCSOLVA.
+//    A program-ablak kapcsolója tehát olyat ígért, amit egy másik, LÁTHATATLAN
+//    kapcsoló megvétózott: a felhasználó mentett, és nem történt semmi.
+//
+//    HIBAOSZTÁLY: ha egy kapcsoló ígér valamit, de egy MÁSIK, máshol lakó
+//    kapcsoló felülbírálhatja, a hiba néma és szoftverhibának látszik.
+// ---------------------------------------------------------------------------
+{
+  const dialogus = kommentNelkul(fs.readFileSync(path.join(ROOT, 'apps/web/components/modals/program-dialog.tsx'), 'utf8'))
+  const actions = kommentNelkul(fs.readFileSync(path.join(ROOT, 'apps/web/app/(dashboard)/programs/actions.ts'), 'utf8'))
+  const adminUrlap = kommentNelkul(
+    fs.readFileSync(path.join(ROOT, 'apps/web/components/admin/public-site/public-site-settings-form.tsx'), 'utf8'),
+  )
+
+  assert(/getWeboldalEsemenyKapu/.test(actions), 'I1: van lekérdezés a weboldal esemény-kapujára')
+  assert(/getWeboldalEsemenyKapu\(\)/.test(dialogus), 'I1b: …és a program-ablak meg is kérdezi')
+  assert(/show_events/.test(actions), 'I1c: …a `show_events` kapcsolót nézi')
+
+  // ⚠️ CSAK BIZONYOSSÁG ESETÉN FIGYELMEZTETÜNK. A `null` (nem tudjuk) NEM
+  // válthat ki riasztást: a hamis riasztás rosszabb a hallgatásnál, mert
+  // elszoktat a figyelmeztetések olvasásától.
+  assert(
+    /esemenyKapu && !esemenyKapu\.esemenyekBekapcsolva/.test(dialogus),
+    'I2: a figyelmeztetés CSAK akkor jelenik meg, ha biztosan zárva a kapu (a `null` nem ijesztget)',
+  )
+  assert(
+    /publikusBe && esemenyKapu/.test(dialogus),
+    'I2b: …és csak akkor, ha a felhasználó tényleg ki akarja tenni az alkalmat',
+  )
+  assert(/publikus-oldal\/beallitasok/.test(dialogus), 'I2c: a figyelmeztetés MEGMONDJA, hol a másik kapcsoló')
+  assert(/catch/.test(actions.slice(actions.indexOf('getWeboldalEsemenyKapu'))), 'I2d: a lekérdezés hibája nem dönti el a program-ablakot')
+
+  // Az admin súgója ne mondjon valótlant: a leírás MOSTANTÓL kikerül.
+  const esemenyKapcsoloResz = adminUrlap.slice(
+    adminUrlap.indexOf('Közelgő események'),
+    adminUrlap.indexOf('Közelgő események') + 1200,
+  )
+  assert(
+    !/a leírás és a megjegyzés sosem kerül ki/.test(esemenyKapcsoloResz),
+    'I3: az admin súgója NEM állítja többé, hogy a leírás nem kerül ki (Endre kérésére kimegy)',
+  )
+  assert(
+    /EGYETLEN alkalom sem jelenik meg/.test(esemenyKapcsoloResz),
+    'I3b: …és kimondja, hogy kikapcsolva SEMMI nem látszik, a programonkénti pipától függetlenül',
+  )
+}
+
+// I4n (negatív): ha a figyelmeztetés a `null` (nem tudjuk) állapotra is
+//   megjelenne, az I2 őrszem BUKIK — tehát tényleg a bizonyosságot méri.
+{
+  const mutans = kommentNelkul(
+    fs.readFileSync(path.join(ROOT, 'apps/web/components/modals/program-dialog.tsx'), 'utf8'),
+  ).replace('esemenyKapu && !esemenyKapu.esemenyekBekapcsolva', '!esemenyKapu?.esemenyekBekapcsolva')
+  assert(
+    !/esemenyKapu && !esemenyKapu\.esemenyekBekapcsolva/.test(mutans),
+    'I4n: a bizonytalanságra is riasztó változaton az I2 őrszem BUKNA — nem vak',
+  )
+}
+
+// ---------------------------------------------------------------------------
+// J1–J5 — KÉTNYELVŰ ELÉRHETŐSÉG, KITALÁLT FORDÍTÁS NÉLKÜL
+//
+// Endre kérése: „az elérhetőségek az a gyülekezet román és magyar
+// megnevezése, a pontos cím két nyelven, a gyülekezeti e-mail és
+// telefonszám" + „lehet-e esetleg az egyházmegyét és a kerületet is".
+//
+// ⚠️ AZ ÉLES FELMÉRÉS SZERINT az egyházmegye és az egyházkerület ROMÁN neve
+//    NINCS kitöltve. Egy hivatalos egyházi megnevezésnek pontos alakja van —
+//    a kitalált fordítás rosszabb a hiánynál. Ezért a hiányzó nyelvnél a
+//    meglévő áll EGYEDÜL, jelölés nélkül.
+// ---------------------------------------------------------------------------
+{
+  // ⚠️ A SHARED modul FÜGGŐSÉG NÉLKÜLI — pont ezért van külön fájlban:
+  // a betöltő `server-only` Supabase-klienst importál, és ha a megjelenítő
+  // onnan venné a típust, a build elszállna („You're importing a module that
+  // depends on server-only"). Ezt a szétválasztást a J5e őrszem is méri.
+  const forras = fs.readFileSync(path.join(ROOT, 'apps/web/lib/public-site/identitas-shared.ts'), 'utf8')
+  assert(
+    !/^import /m.test(forras),
+    'J1-elo: a shared modulnak NINCS importja (különben visszakerülne a server-only függés)',
+  )
+  const modul = betolt('identitas', forras)
+  const k = modul.ketNyelvenMegjelenitve
+
+  const ketto = k('Barátosi Református Egyházközség', 'Parohia Reformata Brates')
+  assert(
+    ketto?.elsodleges === 'Barátosi Református Egyházközség' &&
+      ketto?.masodlagos === 'Parohia Reformata Brates',
+    'J1: ha mindkét nyelv megvan és eltér, MINDKETTŐ látszik',
+  )
+
+  const csakHu = k('Kézdi-Orbai Református Egyházmegye', null)
+  assert(
+    csakHu?.elsodleges === 'Kézdi-Orbai Református Egyházmegye' && csakHu?.masodlagos === null,
+    'J2: hiányzó román névnél a magyar áll EGYEDÜL — nem találunk ki fordítást',
+  )
+  const csakRo = k(null, 'Protopopiatul X')
+  assert(csakRo?.elsodleges === 'Protopopiatul X' && csakRo?.masodlagos === null, 'J2b: fordítva ugyanígy')
+
+  const azonos = k('Ugyanaz', 'Ugyanaz')
+  assert(
+    azonos?.elsodleges === 'Ugyanaz' && azonos?.masodlagos === null,
+    'J3: azonos szövegnél NEM ismételjük meg kétszer',
+  )
+  assert(k(null, null) === null, 'J3b: ha egyik sincs, a sor el is marad (nem írunk „hiányzik"-ot)')
+
+  // A felület a hiányt SOHA nem nevezi meg — egy gyülekezet hivatalos oldalán
+  // a hiány nem hibaüzenet.
+  const panel = kommentNelkul(
+    fs.readFileSync(path.join(ROOT, 'apps/web/components/public/public-service-times.tsx'), 'utf8'),
+  )
+  assert(!/hiányzik|nincs megadva|ismeretlen/i.test(panel), 'J3c: a panel nem ír ki hiány-feliratot a látogatónak')
+}
+
+// J4 — az RPC nem ejt ki sorokat, és nem talál ki fordítást
+{
+  const MIG2 = path.join(ROOT, 'migration-docs/sql/2026-08-27-gyulekezeti-oldal-ketnyelvu-elerhetoseg.sql')
+  assert(fs.existsSync(MIG2), 'J4-elo: a kétnyelvű migráció létezik')
+  const sql = sqlKommentNelkul(fs.readFileSync(MIG2, 'utf8'))
+  const torzs = fuggvenyTorzs(sql, 'public_site_identitas')
+
+  // ⚠️ MIND LEFT JOIN: egy hiányzó egyházmegye vagy cím-törzs kötés NEM
+  //    ejtheti ki az EGÉSZ sort — akkor a név és az e-mail is eltűnne, némán.
+  const belsoJoinok = (torzs.match(/\n\s+JOIN /g) || []).length
+  assert(
+    belsoJoinok === 1,
+    `J4: csak a congregations kötés BELSŐ JOIN, a többi LEFT (${belsoJoinok} belső join)`,
+  )
+  for (const t of ['dioceses', 'districts', 'adrlocality', 'adrcounty']) {
+    assert(
+      new RegExp(`LEFT JOIN public\\.${t}`).test(torzs),
+      `J4b: a(z) ${t} LEFT JOIN — hiánya nem tünteti el az egész blokkot`,
+    )
+  }
+  assert(
+    /c\.status = 'active'/.test(torzs) && /ps\.is_published = true/.test(torzs),
+    'J4c: ugyanaz a kapu, mint a weboldalé',
+  )
+  assert(/SET search_path = ''/.test(sql), 'J4d: a SECURITY DEFINER függvény üres search_path-tal fut')
+
+  // Szerep-tolerancia + a kapuk egyetlen, utolsó lekérdezésben (a ház mintája).
+  assert(
+    szereplekSzivargasa(sql, ['app_staff_user', 'app_pending_user', 'member_portal_user']).length === 0,
+    'J4e: nincs DO blokkon kívüli GRANT/REVOKE nem létező szerepkörre',
+  )
+  assert(
+    /SELECT lepes, eredmeny FROM \([\s\S]*\) AS kapuk\s*ORDER BY lepes;\s*$/.test(sql),
+    'J4f: a kapuk egyetlen UNION ALL blokkban, a fájl UTOLSÓ utasításaként állnak',
+  )
+  assert(/NOTIFY pgrst/.test(sql), 'J4g: a PostgREST séma-gyorsítótára újratöltődik')
+}
+
+// J5 — a felület tényleg használja is
+{
+  const panel = kommentNelkul(
+    fs.readFileSync(path.join(ROOT, 'apps/web/components/public/public-service-times.tsx'), 'utf8'),
+  )
+  const kezdolap = kommentNelkul(fs.readFileSync(SRC.home, 'utf8'))
+  const alkalmak = kommentNelkul(fs.readFileSync(SRC.alkalmak, 'utf8'))
+
+  assert(/ketNyelvenMegjelenitve/.test(panel), 'J5: a panel a kétnyelvű megjelenítőt használja')
+  assert(/egyhazmegye/.test(panel) && /egyhazkerulet/.test(panel), 'J5b: az egyházmegye és a kerület is megjelenik (Endre kérése)')
+  assert(
+    /<PublicServiceTimes[^>]*identitas=/.test(kezdolap) && /<PublicServiceTimes[^>]*identitas=/.test(alkalmak),
+    'J5c: MINDKÉT oldal át is adja az adatot (a prop nem marad kihasználatlan)',
+  )
+  // A térkép a ROMÁN címre keres: a Google Maps a hivatalos helységnevet ismeri.
+  assert(/buildMapSearchUrl\(identitas\?\.cim_ro/.test(panel), 'J5d: a térkép-link a hivatalos (román) címre mutat')
+  // ⚠️ A megjelenítő SOHA ne a szerver-oldali betöltőből importáljon: az
+  // `server-only` klienst húzna be, és a build elszállna.
+  assert(
+    /identitas-shared/.test(panel) && !/identitas-loader/.test(panel),
+    'J5e: a megjelenítő a FÜGGŐSÉG NÉLKÜLI shared modulból importál, nem a szerver-betöltőből',
+  )
+}
+
+// J5n (negatív): ha a hiányzó nyelvet „hiányzik" felirattal pótolnánk,
+//   a J3c őrszem BUKIK.
+{
+  const mutans = kommentNelkul(
+    fs.readFileSync(path.join(ROOT, 'apps/web/components/public/public-service-times.tsx'), 'utf8'),
+  ).replace('{nev.masodlagos}', "{nev.masodlagos || '(román név hiányzik)'}")
+  assert(/hiányzik/i.test(mutans), 'J5n: a hiányt kiíró változaton a J3c őrszem BUKNA — nem vak')
+}
+
 console.log(`\n${total - failedCount}/${total} teszt zöld`)
 process.exit(failedCount > 0 ? 1 : 0)

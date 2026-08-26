@@ -4,6 +4,7 @@ import type { Metadata } from 'next'
 
 import { loadPublicSiteBySlug } from '@/lib/public-site/site-loader'
 import { loadPublicEvProgram } from '@/lib/public-site/tisztsegek-events-loader'
+import { loadPublicIdentitas } from '@/lib/public-site/identitas-loader'
 import { PublicServiceTimes } from '@/components/public/public-service-times'
 import { PublicSectionHeader } from '@/components/public/public-section-header'
 import { PublicEmptyState } from '@/components/public/public-empty-state'
@@ -69,12 +70,15 @@ export default async function AlkalmainkPage({
   if (!site) notFound()
 
   const ev = biztonsagosEv(evParam)
-  const esemenyek = await loadPublicEvProgram(site.slug, ev)
+  const [esemenyek, identitas] = await Promise.all([
+    loadPublicEvProgram(site.slug, ev),
+    loadPublicIdentitas(site.slug),
+  ])
 
   return (
     <>
       {/* Rendszeres alkalmak + elérhetőség (a kezdőlapról ismert szekció) */}
-      <PublicServiceTimes site={site} />
+      <PublicServiceTimes site={site} identitas={identitas} />
 
       <section className="public-section" id="eves-program">
         <div className="public-container">

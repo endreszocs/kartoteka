@@ -1,6 +1,10 @@
-import { ExternalLink, Mail, MapPin, Phone } from 'lucide-react'
+import { Church, ExternalLink, Landmark, Mail, MapPin, Phone } from 'lucide-react'
 
 import type { PublicSiteData } from '@/lib/public-site/site-loader'
+import {
+  ketNyelvenMegjelenitve,
+  type PublicIdentitas,
+} from '@/lib/public-site/identitas-shared'
 import { buildMapSearchUrl } from '@/lib/public-site/map-link'
 
 import { PublicEmptyState } from './public-empty-state'
@@ -37,11 +41,35 @@ function dayAnchor(day: string): string {
  * elválasztva. Az alkalmak kizárólag a gyülekezet által mentett, validált
  * adatokból jönnek; üres listánál nem jelenítünk meg feltételezett időpontot.
  */
-export function PublicServiceTimes({ site }: { site: PublicSiteData }) {
-  const mapUrl = buildMapSearchUrl(site.address)
-  const hasContact = Boolean(
-    site.address || site.contact_phone || site.contact_email,
+export function PublicServiceTimes({
+  site,
+  identitas = null,
+}: {
+  site: PublicSiteData
+  /**
+   * A gyülekezet hivatalos, kétnyelvű azonosító adatai (2026-08-27).
+   * `null`, ha az RPC még nem érhető el — ilyenkor a blokk a korábbi,
+   * egynyelvű alakjában jelenik meg.
+   */
+  identitas?: PublicIdentitas | null
+}) {
+  // A térkép-link a ROMÁN címre mutat, ha van: a Google Maps a hivatalos,
+  // román helységnevet ismeri — a magyarra gyakran nem talál rá.
+  const mapUrl = buildMapSearchUrl(identitas?.cim_ro || site.address)
+  const nev = ketNyelvenMegjelenitve(identitas?.nev_hu ?? null, identitas?.nev_ro ?? null)
+  const cim = ketNyelvenMegjelenitve(identitas?.cim_hu ?? null, identitas?.cim_ro ?? site.address)
+  const egyhazmegye = ketNyelvenMegjelenitve(
+    identitas?.egyhazmegye_hu ?? null,
+    identitas?.egyhazmegye_ro ?? null,
   )
+  const egyhazkerulet = ketNyelvenMegjelenitve(
+    identitas?.egyhazkerulet_hu ?? null,
+    identitas?.egyhazkerulet_ro ?? null,
+  )
+  const telefon = identitas?.telefon || site.contact_phone
+  const email = identitas?.email || site.contact_email
+
+  const hasContact = Boolean(nev || cim || telefon || email || egyhazmegye || egyhazkerulet)
 
   return (
     <section className="public-section" id="alkalmak">
@@ -117,7 +145,28 @@ export function PublicServiceTimes({ site }: { site: PublicSiteData }) {
 
             {hasContact ? (
               <ul className="space-y-4">
-                {site.address && (
+                {/* HIVATALOS MEGNEVEZÉS — magyarul és románul.
+                    ⚠️ Ha csak az egyik nyelven van meg, az áll EGYEDÜL: egy
+                    hivatalos egyházi név pontos alakját nem találjuk ki. */}
+                {nev && (
+                  <li className="flex items-start gap-3">
+                    <Landmark
+                      className="mt-0.5 size-5 shrink-0"
+                      style={{ color: 'var(--public-accent-ink)' }}
+                      aria-hidden="true"
+                    />
+                    <span style={{ color: 'var(--public-ink)' }}>
+                      <span className="block font-semibold">{nev.elsodleges}</span>
+                      {nev.masodlagos && (
+                        <span className="mt-0.5 block text-sm italic" style={{ color: 'var(--public-muted)' }}>
+                          {nev.masodlagos}
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                )}
+
+                {cim && (
                   <li className="flex items-start gap-3">
                     <MapPin
                       className="mt-0.5 size-5 shrink-0"
@@ -125,7 +174,12 @@ export function PublicServiceTimes({ site }: { site: PublicSiteData }) {
                       aria-hidden="true"
                     />
                     <span style={{ color: 'var(--public-ink)' }}>
-                      {site.address}
+                      <span className="block">{cim.elsodleges}</span>
+                      {cim.masodlagos && (
+                        <span className="mt-0.5 block text-sm italic" style={{ color: 'var(--public-muted)' }}>
+                          {cim.masodlagos}
+                        </span>
+                      )}
                       {mapUrl && (
                         <a
                           href={mapUrl}
@@ -141,7 +195,8 @@ export function PublicServiceTimes({ site }: { site: PublicSiteData }) {
                     </span>
                   </li>
                 )}
-                {site.contact_phone && (
+
+                {telefon && (
                   <li className="flex items-start gap-3">
                     <Phone
                       className="mt-0.5 size-5 shrink-0"
@@ -149,15 +204,16 @@ export function PublicServiceTimes({ site }: { site: PublicSiteData }) {
                       aria-hidden="true"
                     />
                     <a
-                      href={`tel:${site.contact_phone.replace(/\s/g, '')}`}
+                      href={`tel:${telefon.replace(/\s/g, '')}`}
                       className="inline-flex min-h-11 items-center hover:underline"
                       style={{ color: 'var(--public-ink)' }}
                     >
-                      {site.contact_phone}
+                      {telefon}
                     </a>
                   </li>
                 )}
-                {site.contact_email && (
+
+                {email && (
                   <li className="flex items-start gap-3">
                     <Mail
                       className="mt-0.5 size-5 shrink-0"
@@ -165,12 +221,48 @@ export function PublicServiceTimes({ site }: { site: PublicSiteData }) {
                       aria-hidden="true"
                     />
                     <a
-                      href={`mailto:${site.contact_email}`}
+                      href={`mailto:${email}`}
                       className="inline-flex min-h-11 items-center break-all hover:underline"
                       style={{ color: 'var(--public-ink)' }}
                     >
-                      {site.contact_email}
+                      {email}
                     </a>
+                  </li>
+                )}
+
+                {/* EGYHÁZI HOVATARTOZÁS — Endre külön kérése. */}
+                {(egyhazmegye || egyhazkerulet) && (
+                  <li
+                    className="flex items-start gap-3 pt-4"
+                    style={{ borderTop: '1px solid var(--public-line, rgba(0,0,0,0.08))' }}
+                  >
+                    <Church
+                      className="mt-0.5 size-5 shrink-0"
+                      style={{ color: 'var(--public-accent-ink)' }}
+                      aria-hidden="true"
+                    />
+                    <span className="text-sm" style={{ color: 'var(--public-ink)' }}>
+                      {egyhazmegye && (
+                        <span className="block">
+                          {egyhazmegye.elsodleges}
+                          {egyhazmegye.masodlagos && (
+                            <span className="block italic" style={{ color: 'var(--public-muted)' }}>
+                              {egyhazmegye.masodlagos}
+                            </span>
+                          )}
+                        </span>
+                      )}
+                      {egyhazkerulet && (
+                        <span className={egyhazmegye ? 'mt-1 block' : 'block'}>
+                          {egyhazkerulet.elsodleges}
+                          {egyhazkerulet.masodlagos && (
+                            <span className="block italic" style={{ color: 'var(--public-muted)' }}>
+                              {egyhazkerulet.masodlagos}
+                            </span>
+                          )}
+                        </span>
+                      )}
+                    </span>
                   </li>
                 )}
               </ul>

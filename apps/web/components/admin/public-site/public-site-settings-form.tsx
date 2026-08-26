@@ -680,8 +680,19 @@ export function PublicSiteSettingsForm({ initial, themes }: Props) {
             <span>
               <span className="block text-sm font-medium text-slate-700">Közelgő események</span>
               <span className="mt-0.5 block text-xs leading-5 text-slate-500">
-                A határidőnaplóban publikusra jelölt események (cím, időpont, helyszín) a következő
-                90 napból — a leírás és a megjegyzés sosem kerül ki.
+                A határidőnaplóban publikusra jelölt alkalmak: <strong>cím, időpont, helyszín és
+                leírás</strong>. A kezdőlapon a következő 90 nap, az Alkalmaink oldalon a teljes
+                év — nyomtatható és naptárfájlként letölthető. A <strong>megjegyzés</strong> sosem
+                kerül ki.
+                {!form.show_events && (
+                  <>
+                    {' '}
+                    <strong className="text-amber-700">
+                      Amíg ez ki van kapcsolva, a weboldalon EGYETLEN alkalom sem jelenik meg —
+                      akkor sem, ha a határidőnaplóban be van pipálva rajtuk a publikálás.
+                    </strong>
+                  </>
+                )}
               </span>
             </span>
           </label>
