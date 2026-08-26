@@ -266,10 +266,37 @@ export interface Leltar343Rekord {
   ertek_modositas_megjegyzes: string | null
 }
 
+/**
+ * GÉPI hibakód (2026-08-27, javító-varázsló kör).
+ *
+ * MIÉRT KELL: a magyar `uzenet` a lelkésznek szól, de a varázsló javító
+ * lépésének azt kell tudnia, MELYIK mezőt kell javíttatni és milyen feloldás
+ * kínálható. Szöveg-egyeztetésre építeni (`uzenet.includes('duplikált')`)
+ * néma hibaosztály lenne — egy fogalmazási javítás kioltaná a javító-utat.
+ */
+export type Leltar343HibaKod =
+  | 'hianyzo_megnevezes'
+  | 'duplikalt_tetel'
+  | 'ismetlodo_ertek_nelkul'
+  | 'negativ_alap_nelkul'
+  | 'konyv_cim_hianyzik'
+  | 'hibas_mennyiseg'
+  | 'hianyzo_ertek'
+  | 'hianyzo_datum'
+  | 'ismeretlen_alapeszkoz_tipus'
+
 export interface Leltar343Hiba {
   lap: string
   sor: number
   uzenet: string
+  /** 2026-08-27: gépi kód a javító-varázslóhoz (a régi hívók nem használják). */
+  kod?: Leltar343HibaKod
+  /**
+   * 2026-08-27: a nyers Excel-sor — CSAK az ELUTASÍTOTT (rekordot nem adó)
+   * soroknál töltjük ki, hogy a varázsló szerkeszthető űrlapot tudjon
+   * építeni belőle. A többi hiba/figyelmeztetés sorához már tartozik rekord.
+   */
+  nyers?: Leltar343NyersSor
 }
 
 export interface Leltar343LapEredmeny {
@@ -329,9 +356,9 @@ export function feldolgozLeltar343Lap(params: {
       if (konyvLap && szerzo) {
         // Csak szerző van, cím nincs — importáljuk a szerzőt megnevezésként,
         // de hangosan jelezzük (a munkafüzet Hibak-lapja is szólna érte).
-        figyelmeztetesek.push({ lap: lap.sheet, sor: s.sor, uzenet: 'A könyv címe (F oszlop) hiányzik — a szerző került a megnevezésbe.' })
+        figyelmeztetesek.push({ lap: lap.sheet, sor: s.sor, kod: 'konyv_cim_hianyzik', uzenet: 'A könyv címe (F oszlop) hiányzik — a szerző került a megnevezésbe.' })
       } else {
-        hibak.push({ lap: lap.sheet, sor: s.sor, uzenet: 'Hiányzó megnevezés — a sor kimaradt.' })
+        hibak.push({ lap: lap.sheet, sor: s.sor, kod: 'hianyzo_megnevezes', nyers: s, uzenet: 'Hiányzó megnevezés — a sor kimaradt.' })
         continue
       }
     }
@@ -346,7 +373,7 @@ export function feldolgozLeltar343Lap(params: {
       if (lap.category === 'alapeszkoz') {
         const delta = Number(ertek || 0) || 0
         if (delta === 0) {
-          hibak.push({ lap: lap.sheet, sor: s.sor, uzenet: 'Ismétlődő alapeszköz-sor érték nélkül — a sor kimaradt.' })
+          hibak.push({ lap: lap.sheet, sor: s.sor, kod: 'ismetlodo_ertek_nelkul', nyers: s, uzenet: 'Ismétlődő alapeszköz-sor érték nélkül — a sor kimaradt.' })
           continue
         }
         alap.ertek_modositas = kerekit2(alap.ertek_modositas + delta)
@@ -362,7 +389,7 @@ export function feldolgozLeltar343Lap(params: {
       const mennyisegDelta = s.mennyiseg == null ? null : Number(s.mennyiseg)
       const negativ = (ertek != null && ertek < 0) || (mennyisegDelta != null && mennyisegDelta < 0)
       if (!negativ) {
-        hibak.push({ lap: lap.sheet, sor: s.sor, uzenet: `Duplikált tétel (azonos megnevezés és leltári szám: „${vegsoMegnevezes}") — a sor kimaradt.` })
+        hibak.push({ lap: lap.sheet, sor: s.sor, kod: 'duplikalt_tetel', nyers: s, uzenet: `Duplikált tétel (azonos megnevezés és leltári szám: „${vegsoMegnevezes}") — a sor kimaradt.` })
         continue
       }
       // Részleges/teljes kivezetés: a levont darabszám (ha nincs megadva, a
@@ -387,24 +414,24 @@ export function feldolgozLeltar343Lap(params: {
 
     // — Új tétel (alapsor) —
     if (ertek != null && ertek < 0) {
-      hibak.push({ lap: lap.sheet, sor: s.sor, uzenet: 'Negatív értékű sor, amelynek nincs meg az eredeti (pozitív) tétele — a sor kimaradt.' })
+      hibak.push({ lap: lap.sheet, sor: s.sor, kod: 'negativ_alap_nelkul', nyers: s, uzenet: 'Negatív értékű sor, amelynek nincs meg az eredeti (pozitív) tétele — a sor kimaradt.' })
       continue
     }
 
     let mennyiseg = s.mennyiseg == null ? 1 : Number(s.mennyiseg)
     if (!(mennyiseg > 0)) {
-      figyelmeztetesek.push({ lap: lap.sheet, sor: s.sor, uzenet: `Hibás mennyiség (${s.mennyiseg}) — 1 darabbal importáltuk.` })
+      figyelmeztetesek.push({ lap: lap.sheet, sor: s.sor, kod: 'hibas_mennyiseg', uzenet: `Hibás mennyiség (${s.mennyiseg}) — 1 darabbal importáltuk.` })
       mennyiseg = 1
     }
 
     const teljesErtek = Number(ertek || 0) || 0
     if (teljesErtek <= 0) {
-      figyelmeztetesek.push({ lap: lap.sheet, sor: s.sor, uzenet: 'Hiányzó vagy 0 beszerzési érték — a tétel 0 értékkel került be (a munkafüzet Hibak-lapja is jelezné).' })
+      figyelmeztetesek.push({ lap: lap.sheet, sor: s.sor, kod: 'hianyzo_ertek', uzenet: 'Hiányzó vagy 0 beszerzési érték — a tétel 0 értékkel került be (a munkafüzet Hibak-lapja is jelezné).' })
     }
 
     const beszerzesDatuma = osszerakDatum(s.ev, s.ho, s.nap)
     if (!beszerzesDatuma) {
-      figyelmeztetesek.push({ lap: lap.sheet, sor: s.sor, uzenet: 'Hiányzó/hibás beszerzési év — a tétel dátum nélkül került be.' })
+      figyelmeztetesek.push({ lap: lap.sheet, sor: s.sor, kod: 'hianyzo_datum', uzenet: 'Hiányzó/hibás beszerzési év — a tétel dátum nélkül került be.' })
     }
 
     const { helyszin, felelos } = splitHelyszinFelelos(s.helyszinFelelos, helyszinKatalogus)
@@ -416,7 +443,7 @@ export function feldolgozLeltar343Lap(params: {
     if (lap.alapeszkozOszlopok) {
       csoport = alapeszkozCsoportFromNev(s.tipusNev)
       if (!csoport && (s.tipusNev || '').trim()) {
-        figyelmeztetesek.push({ lap: lap.sheet, sor: s.sor, uzenet: `Ismeretlen alapeszköz-típus: „${s.tipusNev}" — a főcsoport üresen maradt.` })
+        figyelmeztetesek.push({ lap: lap.sheet, sor: s.sor, kod: 'ismeretlen_alapeszkoz_tipus', uzenet: `Ismeretlen alapeszköz-típus: „${s.tipusNev}" — a főcsoport üresen maradt.` })
       }
     }
 

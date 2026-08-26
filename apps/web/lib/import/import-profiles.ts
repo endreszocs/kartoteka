@@ -1052,7 +1052,7 @@ export const PROFILE_INVENTORY_ITEMS: ImportProfile = {
     'A kategória magyarul vagy románul is megadható (pl. „Alapeszközök" vagy „Mijloace fixe").',
     'A leltári szám üresen hagyható — a rendszer a kategória szerint automatikusan sorszámoz.',
     'A már létező leltári számú sorokat a rendszer kihagyja és jelzi (nem ír felül).',
-    'A hivatalos Leltar 3_43 munkafüzetet NE ezzel, hanem a lap tetején lévő dedikált importálóval töltsd fel.',
+    'A hivatalos Leltar 3_43 munkafüzetet NE ezzel, hanem a lap tetején lévő varázslóval töltsd fel.',
   ],
   sheetHints: ['Leltar', 'Leltár', 'Tetelek', 'Tételek', 'Inventar', 'Eszkozok', 'Eszközök'],
 }

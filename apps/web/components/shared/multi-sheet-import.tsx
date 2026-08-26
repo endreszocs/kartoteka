@@ -12,6 +12,7 @@
 
 import { useCallback, useState, useTransition } from 'react'
 import {
+  Check,
   CheckCircle2,
   AlertTriangle,
   FileSpreadsheet,
@@ -64,6 +65,15 @@ interface SheetConfig {
 
 type ImportStep = 'upload' | 'preview' | 'importing' | 'result'
 
+/** A lépés-jelző címkéi és a VALÓDI állapothoz kötése (nem díszlet). */
+const LEPESEK = ['Fájl', 'Ellenőrzés', 'Importálás'] as const
+const LEPES_SORSZAM: Record<ImportStep, number> = {
+  upload: 1,
+  preview: 2,
+  importing: 3,
+  result: 4,
+}
+
 // ---------------------------------------------------------------------------
 // Komponens
 // ---------------------------------------------------------------------------
@@ -79,14 +89,16 @@ export function MultiSheetImport({
   const [parseResult, setParseResult] = useState<ParseResult | null>(null)
   const [sheetConfigs, setSheetConfigs] = useState<SheetConfig[]>([])
   const [expandedSheet, setExpandedSheet] = useState<string | null>(null)
+  const [dragActive, setDragActive] = useState(false)
   const [importResult, setImportResult] = useState<BatchImportResult | null>(null)
   const [isParsing, startParsing] = useTransition()
   const [isImporting, startImporting] = useTransition()
 
   // ── Fájl kiválasztás ──────────────────────────────────────
-  const handleFileSelect = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const selected = event.target.files?.[0]
+  // 2026-08-27: a fájl FILE-ként érkezik (nem eseményből), hogy a
+  // drag-and-drop és a tallózás UGYANAZT az utat járja.
+  const handleFile = useCallback(
+    (selected: File | null | undefined) => {
       if (!selected) return
 
       const ext = selected.name.toLowerCase().split('.').pop()
@@ -120,18 +132,26 @@ export function MultiSheetImport({
           setFile(null)
           setParseResult(null)
           toast.info(
-            'Ez a hivatalos Leltar 3_43 munkafüzet — a lap tetején lévő „Leltar 3_43 munkafüzet importálása" kártyával töltsd fel, ott minden lapját és celláját felismerjük.',
+            'Ez a hivatalos Leltar 3_43 munkafüzet — a lap tetején lévő „Leltar 3_43 munkafüzet importálása" varázslóval töltsd fel, ott minden lapját és celláját felismerjük.',
             { duration: 12000 },
           )
           return
         }
 
         if (result.success && result.sheets) {
-          const configs: SheetConfig[] = result.sheets.map((s) => ({
-            sheetName: s.sheetName,
-            profileKey: s.suggestedProfileKey,
-            enabled: !!s.suggestedProfileKey && s.rowCount > 0 && !s.warning,
-          }))
+          // 2026-08-27: ha a modulnak PONTOSAN EGY profilja van (pl. Leltár),
+          // nincs mit eltalálni — a lap-név alapú javaslat CSV-nél amúgy is
+          // mindig üres ('Sheet1'), és a felhasználó tanácstalanul nézte a
+          // letiltott „Import indítása" gombot.
+          const egyProfil = profiles.length === 1 ? profiles[0].key : null
+          const configs: SheetConfig[] = result.sheets.map((s) => {
+            const profileKey = s.suggestedProfileKey ?? egyProfil
+            return {
+              sheetName: s.sheetName,
+              profileKey,
+              enabled: !!profileKey && s.rowCount > 0 && !s.warning,
+            }
+          })
           setSheetConfigs(configs)
           setStep('preview')
           if (result.sheets.length > 0) {
@@ -142,7 +162,7 @@ export function MultiSheetImport({
         }
       })
     },
-    [module],
+    [module, profiles],
   )
 
   // ── Sheet profil módosítás ──────────────────────────────────
@@ -188,10 +208,17 @@ export function MultiSheetImport({
       setImportResult(result)
       setStep('result')
 
-      if (result.success) {
+      if (result.success && (result.insertedCount ?? 0) > 0) {
         toast.success(
           `Import kész: ${result.insertedCount ?? 0} sor beszúrva` +
             (result.skippedCount ? `, ${result.skippedCount} kihagyva` : ''),
+        )
+      } else if (result.success) {
+        // 2026-08-27: a 0 beszúrt sor NEM siker. A korábbi úlak zöld
+        // „Import sikeresen befejeződött!" fejlécet adott akkor is, amikor
+        // MINDEN sor kimaradt — pontosan ettől hitte a lelkész, hogy rendben van.
+        toast.warning(
+          `Egyetlen sor sem került be${result.skippedCount ? ` — ${result.skippedCount} sor kimaradt` : ''}.`,
         )
       } else {
         toast.error(result.error || 'Az import sikertelen.')
@@ -246,34 +273,99 @@ export function MultiSheetImport({
       </div>
 
       {/* ── 1. Fájl feltöltés ──────────────────────── */}
+      {/* ── Lépés-jelző: a VALÓDI állapotból (nem díszlet) ─────────── */}
+      <ol
+        aria-label="Az import lépései"
+        className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-border bg-card px-3 py-2.5 sm:px-4"
+      >
+        {LEPESEK.map((cimke, index) => {
+          const szam = index + 1
+          const jelenlegi = LEPES_SORSZAM[step]
+          const kesz = jelenlegi > szam
+          const aktiv = jelenlegi === szam
+          return (
+            <li key={cimke} className="flex items-center gap-2">
+              {index > 0 && <span className="hidden h-px w-5 bg-border sm:block" aria-hidden />}
+              <span
+                className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                  kesz
+                    ? 'bg-emerald-500 text-white dark:bg-emerald-600'
+                    : aktiv
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-muted-foreground'
+                }`}
+                aria-hidden
+              >
+                {kesz ? <Check className="size-3.5" /> : szam}
+              </span>
+              <span
+                className={`text-xs font-semibold sm:text-sm ${aktiv ? 'text-foreground' : 'text-muted-foreground'}`}
+              >
+                {cimke}
+              </span>
+            </li>
+          )
+        })}
+      </ol>
+
+      {/* ── 1. Fájl feltöltés ──────────────────────── */}
       {(step === 'upload' || step === 'preview') && (
         <div className="card-raised p-5">
-          <label className="block text-sm font-semibold text-slate-700">
-            Excel / CSV fájl
-          </label>
-          <div className="mt-2 flex items-center gap-3">
-            <label className="flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50">
-              <Upload className="size-4" />
-              <span>{file ? 'Másik fájl' : 'Fájl választás'}</span>
-              <input
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                onChange={handleFileSelect}
-                className="hidden"
-              />
-            </label>
-            {file && (
-              <span className="text-sm text-slate-500">
-                {file.name} ({(file.size / 1024).toFixed(0)} KB)
-              </span>
-            )}
+          <p className="text-sm font-semibold text-slate-700">Excel / CSV fájl</p>
+          {/* 2026-08-27: EZ az egyetlen fájlfeltöltő a lapon — a fölötte lévő,
+              sehova nem vezető ejtőzóna megszűnt. Drag-and-drop + tallózás. */}
+          <label
+            onDragOver={(event) => {
+              event.preventDefault()
+              setDragActive(true)
+            }}
+            onDragEnter={(event) => {
+              event.preventDefault()
+              setDragActive(true)
+            }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={(event) => {
+              event.preventDefault()
+              setDragActive(false)
+              handleFile(event.dataTransfer.files?.[0])
+            }}
+            className={`mt-2 flex min-h-36 cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-6 text-center transition focus-within:ring-2 focus-within:ring-primary/40 ${
+              dragActive
+                ? 'border-primary bg-primary/10'
+                : file
+                  ? 'border-emerald-300 bg-emerald-50/50 dark:border-emerald-900/60 dark:bg-emerald-950/20'
+                  : 'border-primary/40 bg-primary/5 hover:border-primary/70 hover:bg-primary/10'
+            }`}
+          >
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={(event) => {
+                handleFile(event.target.files?.[0])
+                // Ugyanazt a fájlt újraválasztva is jöjjön change-esemény.
+                event.target.value = ''
+              }}
+              className="sr-only"
+              aria-label={`${moduleLabel} importfájl kiválasztása (.xlsx, .xls vagy .csv)`}
+            />
+            <span className="flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Upload className="size-5" />
+            </span>
+            <span className="max-w-full break-all text-sm font-semibold text-foreground">
+              {file ? file.name : `Húzd ide a(z) ${moduleLabel.toLowerCase()}-fájlt, vagy kattints a tallózáshoz`}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {file
+                ? `${(file.size / 1024).toFixed(0)} KB — kattints másik fájlért`
+                : 'Elfogadott: .xlsx, .xls, .csv — max. 10 MB'}
+            </span>
             {isParsing && (
-              <span className="flex items-center gap-1.5 text-sm text-violet-600">
-                <Loader2 className="size-4 animate-spin" />
-                Elemzés...
+              <span className="flex items-center gap-1.5 text-xs text-violet-600">
+                <Loader2 className="size-3.5 animate-spin" />
+                Elemzés…
               </span>
             )}
-          </div>
+          </label>
         </div>
       )}
 
@@ -355,22 +447,28 @@ export function MultiSheetImport({
         <div className="space-y-3">
           <div
             className={`card-raised p-5 ${
-              importResult.success
+              importResult.success && (importResult.insertedCount ?? 0) > 0
                 ? 'border-emerald-200 bg-emerald-50/50'
                 : 'border-red-200 bg-red-50/50'
             }`}
           >
             <div className="flex items-start gap-3">
-              {importResult.success ? (
+              {importResult.success && (importResult.insertedCount ?? 0) > 0 ? (
                 <CheckCircle2 className="mt-0.5 size-5 text-emerald-600" />
               ) : (
                 <AlertTriangle className="mt-0.5 size-5 text-red-600" />
               )}
               <div>
+                {/* 2026-08-27: a 0 besz\u00fart sor NEM siker. A r\u00e9gi alak z\u00f6ld
+                    \u201eImport sikeresen befejez\u0151d\u00f6tt!" fejl\u00e9cet adott akkor is,
+                    amikor MINDEN sor kimaradt \u2014 ett\u0151l hitte a lelk\u00e9sz, hogy
+                    rendben van, holott semmi nem ker\u00fclt be. */}
                 <p className="font-semibold text-slate-800">
-                  {importResult.success
-                    ? 'Import sikeresen befejez\u0151d\u00f6tt!'
-                    : importResult.error || 'Az import sikertelen.'}
+                  {!importResult.success
+                    ? importResult.error || 'Az import sikertelen.'
+                    : (importResult.insertedCount ?? 0) > 0
+                      ? 'Import sikeresen befejez\u0151d\u00f6tt!'
+                      : 'Egyetlen sor sem ker\u00fclt be \u2014 n\u00e9zd \u00e1t a kimaradt sorokat.'}
                 </p>
                 {importResult.success && (
                   <p className="mt-1 text-sm text-slate-600">
