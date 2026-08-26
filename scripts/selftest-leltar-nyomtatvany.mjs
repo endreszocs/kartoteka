@@ -309,14 +309,33 @@ function osszesitoSorok(html) {
   assert(/<html lang="ro">/.test(ro.html), 'N1b: a román nyomtatvány html lang-ja ro (eddig MINDIG hu volt)')
   assert(hu.title === 'Leltárív', `N2: magyar cím (${hu.title})`)
   assert(ro.title === 'Lista de inventariere', `N2b: román cím (${ro.title})`)
+  // ⚠️ 2026-08-27 (Endre döntése): egy ív VÉGIG EGY nyelven szól — a másik
+  // nyelvű felirat nem jelenik meg rajta.
   assert(
-    ro.html.indexOf('Parohia Reformată Brateș') < ro.html.indexOf('Barátosi Református Egyházközség'),
-    'N3: román íven a ROMÁN név áll elöl',
+    ro.html.includes('Parohia Reformată Brateș') && !ro.html.includes('Barátosi Református Egyházközség'),
+    'N3: a román íven CSAK a román név szerepel',
   )
   assert(
-    hu.html.indexOf('Barátosi Református Egyházközség') < hu.html.indexOf('Parohia Reformată Brateș'),
-    'N3b: magyar íven a MAGYAR név áll elöl',
+    hu.html.includes('Barátosi Református Egyházközség') && !hu.html.includes('Parohia Reformată Brateș'),
+    'N3b: a magyar íven CSAK a magyar név szerepel',
   )
+  assert(!hu.html.includes('Denumirea bunurilor'), 'N3c: a magyar ív fejléce nem tartalmaz román oszlopnevet')
+  assert(!ro.html.includes('Felleltározott tárgyak'), 'N3d: a román ív fejléce nem tartalmaz magyar oszlopnevet')
+
+  // Ha NINCS román név, a magyar áll ott EGYEDÜL (kitalált nevet sosem írunk).
+  {
+    const roNevNelkul = reporting.buildInventoryPrintDocument({
+      type: 'leltariv',
+      items: [tetel(1)],
+      congregationName: 'Barátosi Református Egyházközség',
+      year: EV,
+      lang: 'ro',
+    })
+    assert(
+      roNevNelkul.html.includes('Barátosi Református Egyházközség'),
+      'N3e: hiányzó román névnél a magyar név áll a román íven (nem kitalált név)',
+    )
+  }
 }
 
 // Mind az öt nyomtatvány mindkét nyelven felépül és lapszámot ad.
@@ -337,6 +356,75 @@ function osszesitoSorok(html) {
     }
   }
   assert(bukott.length === 0, `N4: mind az 5 nyomtatvány mindkét nyelven ép (bukott: ${bukott.join(', ') || 'nincs'})`)
+}
+
+// ---------------------------------------------------------------------------
+// T1 — a sormagasság-becslés MINDEN tördelődő oszlopot mér
+// ---------------------------------------------------------------------------
+{
+  const { layout } = betolt()
+  const egySoros = layout.becsultSorMagassag([{ szoveg: 'Szék', karakterPerSor: 85 }])
+  const ketSoros = layout.becsultSorMagassag([
+    { szoveg: 'x'.repeat(120), karakterPerSor: 85 },
+    { szoveg: '', karakterPerSor: 11 },
+  ])
+  assert(ketSoros > egySoros, 'T1: a hosszú MEGNEVEZÉS magasabb sort ad (eddig egysorosnak számolt)')
+  const megjegyzesTolMagas = layout.becsultSorMagassag([
+    { szoveg: 'Szék', karakterPerSor: 85 },
+    { szoveg: 'x'.repeat(60), karakterPerSor: 11 },
+  ])
+  assert(megjegyzesTolMagas > egySoros, 'T1b: a hosszú MEGJEGYZÉS is magasabb sort ad')
+
+  // A hosszú nevek TÖBB lapot adnak — a régi, egy-oszlopos becslés ugyanannyit.
+  const hosszuNevek = Array.from({ length: 120 }, (_, i) =>
+    tetel(i + 1, { megnevezes: `DS-2CE17D0T-IT5F(C) Camera exterior FULL HD, IR 80 metri, TurboHD/CVI/AHD/CVBS, Hikvision (${i + 1})` }),
+  )
+  const hosszuDoc = reporting.buildInventoryPrintDocument({
+    type: 'leltariv',
+    items: hosszuNevek,
+    congregationName: 'Barátosi Református Egyházközség',
+    year: EV,
+  })
+  const rovidDoc = reporting.buildInventoryPrintDocument({
+    type: 'leltariv',
+    items: SOK,
+    congregationName: 'Barátosi Református Egyházközség',
+    year: EV,
+  })
+  assert(
+    hosszuDoc.lapszam > rovidDoc.lapszam,
+    `T1c: a hosszú megnevezésű lista TÖBB lapra kerül (${hosszuDoc.lapszam} > ${rovidDoc.lapszam}) — a becslés érzékeny a névhosszra`,
+  )
+}
+
+// T1n (negatív): a CSAK a megjegyzést néző (óvilági) becslésen az őrszem BUKIK.
+{
+  const mutansLayout = fs
+    .readFileSync(SRC.layout, 'utf8')
+    .replace(
+      'sorok = Math.max(sorok, Math.ceil(hossz / Math.max(1, cella.karakterPerSor)))',
+      'sorok = Math.max(sorok, 1)',
+    )
+  const modul = betolt({ layoutSrc: mutansLayout })
+  const hosszuNevek = Array.from({ length: 120 }, (_, i) =>
+    tetel(i + 1, { megnevezes: `DS-2CE17D0T-IT5F(C) Camera exterior FULL HD, IR 80 metri, TurboHD/CVI/AHD/CVBS, Hikvision (${i + 1})` }),
+  )
+  const hosszuDoc = modul.reporting.buildInventoryPrintDocument({
+    type: 'leltariv',
+    items: hosszuNevek,
+    congregationName: 'Barátosi Református Egyházközség',
+    year: EV,
+  })
+  const rovidDoc = modul.reporting.buildInventoryPrintDocument({
+    type: 'leltariv',
+    items: SOK,
+    congregationName: 'Barátosi Református Egyházközség',
+    year: EV,
+  })
+  assert(
+    hosszuDoc.lapszam === rovidDoc.lapszam,
+    'T1n: a tördelést figyelmen kívül hagyó (óvilági) becslésen a hosszú lista UGYANANNYI lapra kerülne — az őrszem BUKNA, tehát nem vak',
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -374,6 +462,12 @@ function osszesitoSorok(html) {
   const dialogSrc = stripComments(fs.readFileSync(SRC.dialog, 'utf8'))
   assert(/PRINT_LANG_LABEL\[l\]/.test(dialogSrc), 'G3e: a nyomtatási központban van NYELVVÁLASZTÓ')
   assert(!/paperSize/.test(dialogSrc), 'G3f: a halott „Lapméret" legördülő eltűnt')
+  assert(
+    /showCloseButton=\{false\}/.test(dialogSrc) && /DialogClose/.test(dialogSrc),
+    'G3h: a nyomtatási központ fejlécében SAJÁT bezáró X van (a beépítettet a ragadós fejléc eltakarta)',
+  )
+  const layoutSrc2 = stripComments(fs.readFileSync(SRC.layout, 'utf8'))
+  assert(!/ketNyelvu/.test(layoutSrc2), 'G3i: nincs többé vegyes nyelvű felirat-építő (egy ív = egy nyelv)')
   assert(/lapszam=\{report\.lapszam\}/.test(dialogSrc), 'G3g: az előnézet a VALÓDI lapszámot kapja')
 }
 

@@ -17,7 +17,7 @@
  */
 
 import { useMemo, useState } from 'react'
-import { FileDown, Loader2, Printer } from 'lucide-react'
+import { FileDown, FileText, Loader2, Printer } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -83,8 +83,21 @@ export function FisaPrintDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[96dvh] overflow-y-auto sm:max-w-4xl">
-        <DialogHeader>
-          <DialogTitle>Nyilvántartási lap nyomtatása</DialogTitle>
+        <DialogHeader className="border-b border-border pb-3">
+          <div className="flex items-center gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+              <FileText className="size-4.5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="truncate text-base sm:text-lg">
+                Nyilvántartási lap nyomtatása
+              </DialogTitle>
+              <p className="truncate text-xs text-muted-foreground">
+                {cardData?.megnevezes || 'Leltári tétel'}
+                {cardData?.leltariSzam ? ` · ${cardData.leltariSzam}` : ''}
+              </p>
+            </div>
+          </div>
         </DialogHeader>
 
         <div className="space-y-3">
@@ -94,8 +107,7 @@ export function FisaPrintDialog({
                 A lap nyelve
               </p>
               <p className="text-xs text-muted-foreground">
-                Az elsődleges nyelv vezet, a másik felirat mellette marad — a lap mindkét nyelven
-                azonosítható.
+                A lap a választott nyelven készül. A másik nyelvű változat külön nyomtatható.
               </p>
             </div>
             <div className="inline-flex overflow-hidden rounded-xl border border-input" role="group" aria-label="A nyilvántartási lap nyelve">
