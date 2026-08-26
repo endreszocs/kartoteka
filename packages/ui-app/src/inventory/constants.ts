@@ -38,7 +38,10 @@ export const INVENTORY_CATEGORY_LABELS: Record<InventoryCategory, string> = {
 
 export const INVENTORY_CATEGORY_ROMANIAN_LABELS: Record<InventoryCategory, string> = {
   alapeszkoz: 'Mijloace fixe',
-  telek: 'Terenuri si amplasamenturi',
+  // 2026-08-27: diakritika-javítás („si" → „și"). A normalizáló a diakritikát
+  // leszedi, ezért a felismerés (alias-egyeztetés) VÁLTOZATLAN — csak a
+  // hivatalos íven megjelenő ROMÁN szöveg lesz helyes.
+  telek: 'Terenuri și amplasamenturi',
   csekely: 'Obiecte de inventar',
   konyv: 'Cărți',
   kegyszer: 'Obiecte de cult',

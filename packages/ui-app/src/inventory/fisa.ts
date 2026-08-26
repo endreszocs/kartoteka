@@ -184,14 +184,29 @@ export function buildInventoryItemCardHtml(data: InventoryItemCardData): Invento
   )
   const megnevezes = (data.megnevezes ?? '').trim()
   const roFormName = data.isAlapeszkoz ? 'Fișa mijlocului fix' : 'Fișa obiectului de inventar'
-  const huFormName = 'Leltári tárgy fișája'
+  /**
+   * 2026-08-27 (Endre kérése): a MAGYAR változat hivatalos magyar nevet visel.
+   *
+   * A korábbi „Leltári tárgy fișája" félig román, félig magyar szóalak volt —
+   * a „fișă" a ROMÁN nyomtatvány neve, magyar szövegben idegen test. A magyar
+   * megfelelő a NYILVÁNTARTÁSI LAP; a repó máshol már így is nevezi
+   * (finance/penzugy-help.tsx: „Az alapeszközök nyilvántartási lapja
+   * (Fisa mijlocului fix)"). A román alcímke változatlanul ott marad a lapon,
+   * tehát a hivatalos forma azonosíthatósága nem sérül.
+   */
+  const huFormName = data.isAlapeszkoz
+    ? 'Alapeszköz nyilvántartási lapja'
+    : 'Leltári tárgy nyilvántartási lapja'
   const title = megnevezes
-    ? `${lang === 'ro' ? 'Fișă' : 'Fișa'} — ${megnevezes}`
+    ? `${T('Nyilvántartási lap', 'Fișă')} — ${megnevezes}`
     : T(huFormName, roFormName)
 
   const mennyisegStr =
     data.mennyiseg != null && data.mennyiseg > 0
-      ? `${data.mennyiseg} ${(data.mertekegyseg || 'db').trim()}`
+      ? // 2026-08-27: a mértékegység ALAPÉRTÉKE is nyelvet vált — a román
+        // kartonon eddig „5 db" állt „5 buc" helyett (a fájl minden más
+        // szövege átment a fordítón, ez az egy nem).
+        `${data.mennyiseg} ${(data.mertekegyseg || T('db', 'buc')).trim()}`
       : null
   const unitValue = fmtRon(data.beszerzesErteke ?? null)
   const bookValue =

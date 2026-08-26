@@ -180,11 +180,22 @@ async function renderSheetsToPdf(
   sheets: HTMLElement[],
   filename: string,
   kimenet: 'mentes' | 'datauri' = 'mentes',
+  /**
+   * 2026-08-27: a tájolás mostantól PARAMÉTER. Korábban fixen 'portrait' volt,
+   * és emiatt a laponkénti (GPU-plafon-biztos) út CSAK álló dokumentumokra
+   * futhatott — a FEKVŐ nyomtatványok (leltárív, törölt tárgyak) mindig a régi,
+   * egy-canvasos útra estek. Épp azok a leghosszabbak: egy 200 tételes leltárív
+   * egyetlen, több tízezer pixel magas vászonra rasterizálódott, ami a GPU
+   * textúra-plafonja (~16 384 px) fölött NÉMÁN fehér PDF-et ad.
+   */
+  orientation: 'portrait' | 'landscape' = 'portrait',
 ): Promise<string | void> {
   const html2canvas = (await import('html2canvas')).default
   const { jsPDF } = await import('jspdf')
 
-  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true })
+  const lapSzelesseg = orientation === 'landscape' ? 297 : 210
+  const lapMagassag = orientation === 'landscape' ? 210 : 297
+  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation, compress: true })
   for (let i = 0; i < sheets.length; i++) {
     // Mért kompromisszum (2026-07-24, 292 soros teszt): scale 2.5 + JPEG 0.85
     // → 3 mp / 4,8 MB / ~240 DPI; a scale 3 + PNG 29 mp-et és 5,4 MB-ot adott.
@@ -200,8 +211,8 @@ async function renderSheetsToPdf(
       throw new Error(URES_VASZON_HIBA)
     }
     const img = canvas.toDataURL('image/jpeg', 0.85)
-    if (i > 0) pdf.addPage('a4', 'portrait')
-    pdf.addImage(img, 'JPEG', 0, 0, 210, 297)
+    if (i > 0) pdf.addPage('a4', orientation)
+    pdf.addImage(img, 'JPEG', 0, 0, lapSzelesseg, lapMagassag)
   }
   // Védőháló: a PDF-oldalszámnak BETŰRE egyeznie kell a lapszámmal — különben
   // inkább hiba, mint csonka hivatalos dokumentum.
@@ -262,7 +273,11 @@ export async function printToPdf(
   // 2026-07-24 (PR-13): lapozott (.sheet) A4-dokumentumnál laponkénti render —
   // csak akkor, ha MINDEN lap ténylegesen lap-méretű (a túlnövő lapokat — pl.
   // egy-lapos „vizuális" nézetek — a bevált teljes-dokumentum útvonal viszi).
-  if ((options?.orientation ?? 'portrait') === 'portrait') {
+  // 2026-08-27: a laponkénti út MINDKÉT tájolásra fut. A korábbi álló-kapu épp
+  // a leghosszabb (fekvő) leltár-nyomtatványokat zárta ki a GPU-plafon elleni
+  // védelemből.
+  const tajolas = options?.orientation ?? 'portrait'
+  {
     const { iframe, iframeDoc } = await createPrintIframe(htmlContent)
     try {
       applyPrintStyles(iframeDoc)
@@ -301,10 +316,14 @@ export async function printToPdf(
       // CSAK ott kell, ahol a plafon-kockázat valós: több lap, VAGY a dokumentum
       // maga kérte a lapszám-őrt (data-sheet-count).
       if (sheetEls.length > 1 || expected > 0) {
-        const pageHeightPx = sheetEls[0].offsetWidth * (297 / 210)
+        // ⚠️ A lap-magasság a TÁJOLÁSTÓL függ: fekvő lapnál a szélesség a
+        // 297 mm-es oldal, tehát a magasság-arány 210/297. A régi, fixen
+        // 297/210-es képlet fekvő lapra irreálisan magas plafont adott.
+        const aranySzorzo = tajolas === 'landscape' ? 210 / 297 : 297 / 210
+        const pageHeightPx = sheetEls[0].offsetWidth * aranySzorzo
         const allPageSized = sheetEls.every((s) => s.offsetHeight <= pageHeightPx * 1.02)
         if (allPageSized) {
-          await renderSheetsToPdf(sheetEls, filename)
+          await renderSheetsToPdf(sheetEls, filename, 'mentes', tajolas)
           return
         }
       }

@@ -439,13 +439,19 @@ function reviewSorok(sorok, modul = { shared, review }) {
 // ---------------------------------------------------------------------------
 {
   const pageSrc = stripComments(fs.readFileSync(SRC.page, 'utf8'))
-  assert(pageSrc.includes('<Leltar343ImportWizard />'), 'G1: a /leltar a varázslót rendereli')
+  assert(/<Leltar343ImportWizard[\s/>]/.test(pageSrc), 'G1: a /leltar a varázslót rendereli')
+  // 2026-08-27 (Endre 5. pontja): a fülön EGYETLEN importáló van — a második
+  // import-keret (saját fájlfeltöltővel) kikerült.
+  assert(
+    !pageSrc.includes('ModuleAdminImportTabV2'),
+    'G1c: a leltár-fülön nincs második import-keret (egy ejtőzóna van)',
+  )
   assert(
     !fs.existsSync(path.join(ROOT, 'apps/web/components/inventory/leltar343-import-card.tsx')),
     'G1b: a régi, egylapos import-kártya fájlja megszűnt (nincs két párhuzamos importáló)',
   )
-  const mutans = pageSrc.replace('<Leltar343ImportWizard />', '<Leltar343ImportCard />')
-  assert(!mutans.includes('<Leltar343ImportWizard />'), 'G1n: a régi kártyás oldalon az őrszem BUKNA — nem vak')
+  const mutans = pageSrc.replace(/Leltar343ImportWizard/g, 'Leltar343ImportCard')
+  assert(!/<Leltar343ImportWizard[\s/>]/.test(mutans), 'G1n: a régi kártyás oldalon az őrszem BUKNA — nem vak')
 }
 
 // ---------------------------------------------------------------------------

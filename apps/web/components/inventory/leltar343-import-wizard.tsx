@@ -63,6 +63,13 @@ import type {
   Leltar343Preview,
   Leltar343ImportResult,
 } from '@/lib/inventory/leltar343-import-types'
+// 2026-08-27 (Endre 5. pontja): EGYETLEN ejtőzóna. A generikus (egyszerű
+// listás) import ugyanebben a négylépéses keretben fut — a fájl fajtáját a
+// SZERVER ismeri fel, nem a felhasználónak kell eltalálnia, melyik dobozba
+// húzza.
+import { parseAndPreview, executeBatchImport } from '@/lib/import/batch-import-actions'
+import type { ParseResult, BatchImportResult } from '@/lib/import/batch-import-types'
+import type { ImportModule, ImportProfile } from '@/lib/import/import-profiles'
 
 const LEPESEK = ['Fájl', 'Ellenőrzés', 'Javítás', 'Importálás'] as const
 type Lepes = 1 | 2 | 3 | 4
@@ -81,7 +88,14 @@ function penz(n: number): string {
   return new Intl.NumberFormat('hu-HU', { maximumFractionDigits: 2 }).format(n)
 }
 
-export function Leltar343ImportWizard() {
+export function Leltar343ImportWizard({
+  importProfiles = [],
+  importModule = 'inventory',
+}: {
+  /** A generikus (egyszerű listás) ág profiljai. */
+  importProfiles?: ImportProfile[]
+  importModule?: ImportModule
+} = {}) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const refreshApi = useInventoryRefresh()
 
@@ -98,6 +112,11 @@ export function Leltar343ImportWizard() {
   const [kereses, setKereses] = useState('')
   const [oldal, setOldal] = useState(0)
   const [nyitottSor, setNyitottSor] = useState<string | null>(null)
+  /** Melyik ágon vagyunk: a hivatalos munkafüzet, vagy egyszerű lista? */
+  const [mod, setMod] = useState<'leltar343' | 'lista' | null>(null)
+  const [listaParse, setListaParse] = useState<ParseResult | null>(null)
+  const [listaLapok, setListaLapok] = useState<ListaLap[]>([])
+  const [listaEredmeny, setListaEredmeny] = useState<BatchImportResult | null>(null)
 
   // ── Élő ellenőrzés — UGYANAZZAL a réteggel, amit a szerver futtat ─────────
   const ctx = useMemo(
@@ -227,9 +246,9 @@ export function Leltar343ImportWizard() {
   // ── Fájl + szerver ───────────────────────────────────────────────────────
   const handleFileSelect = (selected: File | null) => {
     if (!selected) return
-    const ext = selected.name.toLowerCase().split('.').pop()
-    if (ext !== 'xlsx' && ext !== 'xls') {
-      toast.error('A Leltar 3_43 importáló Excel-munkafüzetet (.xlsx/.xls) vár.')
+    const ext = (selected.name.toLowerCase().split('.').pop() || '')
+    if (!['xlsx', 'xls', 'csv'].includes(ext)) {
+      toast.error('Elfogadott formátumok: .xlsx, .xls vagy .csv')
       return
     }
     if (selected.size > 10 * 1024 * 1024) {
@@ -240,6 +259,10 @@ export function Leltar343ImportWizard() {
     setPreview(null)
     setJavitasok({})
     setEredmeny(null)
+    setListaParse(null)
+    setListaLapok([])
+    setListaEredmeny(null)
+    setMod(null)
     setOldal(0)
 
     startPreviewing(async () => {
@@ -259,16 +282,84 @@ export function Leltar343ImportWizard() {
       }
       setFile(stabil)
 
-      const formData = new FormData()
-      formData.append('file', stabil)
-      const result = await previewLeltar343(formData)
-      if (result.error) {
-        toast.error(result.error)
+      // ── A FAJTÁT A SZERVER ISMERI FEL ──────────────────────────────────
+      // A `parseAndPreview` a lapnevekből eldönti, hogy a hivatalos Leltar
+      // 3_43 munkafüzetről van-e szó. Így a lelkésznek EGYETLEN ejtőzónája
+      // van, és nem neki kell eltalálnia, melyik dobozba húzza a fájlt.
+      const felismeroData = new FormData()
+      felismeroData.append('file', stabil)
+      felismeroData.append('module', importModule)
+      const felismert = await parseAndPreview(felismeroData)
+
+      if (felismert.error) {
+        toast.error(felismert.error)
         setFile(null)
         return
       }
-      setPreview(result)
+
+      if (felismert.leltar343) {
+        const formData = new FormData()
+        formData.append('file', stabil)
+        const result = await previewLeltar343(formData)
+        if (result.error) {
+          toast.error(result.error)
+          setFile(null)
+          return
+        }
+        setMod('leltar343')
+        setPreview(result)
+        setLepes(2)
+        return
+      }
+
+      // ── Egyszerű lista ág ──────────────────────────────────────────────
+      const lapok = (felismert.sheets || []).map(sheet => ({
+        sheetName: sheet.sheetName,
+        // ⚠️ A profil CSAK javaslat. Ha a lap nevéből nem következik, akkor
+        // egyprofilos modulnál felkínáljuk, de NEM kapcsoljuk be magától:
+        // egy munkafüzet több füle közül csak a felhasználó tudja, melyik a
+        // leltár — a vak bekapcsolás idegen adatot importálna.
+        profileKey: sheet.suggestedProfileKey ?? (importProfiles.length === 1 ? importProfiles[0].key : null),
+        enabled: !!sheet.suggestedProfileKey && sheet.rowCount > 0 && !sheet.warning,
+      }))
+      setMod('lista')
+      setListaParse(felismert)
+      setListaLapok(lapok)
       setLepes(2)
+    })
+  }
+
+  /** Az egyszerű lista ág importja (generikus multi-sheet út). */
+  const handleListaImport = () => {
+    if (!file) return
+    const kivalasztott = listaLapok.filter(l => l.enabled && l.profileKey)
+    if (kivalasztott.length === 0) {
+      toast.error('Legalább egy fület ki kell választani profillal.')
+      return
+    }
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('module', importModule)
+    formData.append(
+      'config',
+      JSON.stringify(kivalasztott.map(l => ({ sheetName: l.sheetName, profileKey: l.profileKey }))),
+    )
+    startImporting(async () => {
+      const result = await executeBatchImport(formData)
+      setListaEredmeny(result)
+      if (!result.success) {
+        toast.error(result.error || 'Az import sikertelen.')
+      } else if ((result.insertedCount ?? 0) > 0) {
+        toast.success(
+          `Import kész: ${result.insertedCount ?? 0} sor bekerült` +
+            (result.skippedCount ? `, ${result.skippedCount} kimaradt.` : '.'),
+        )
+      } else {
+        toast.warning(`Egyetlen sor sem került be — ${result.skippedCount ?? 0} sor kimaradt.`)
+      }
+      // ⚠️ UGYANAZ A GYÖKÉROK, mint a hivatalos ágon: a lista magától NEM
+      // töltődik újra, és a lelkész azt hiszi, semmi nem ment be.
+      await refreshApi?.frissit()
     })
   }
 
@@ -304,11 +395,18 @@ export function Leltar343ImportWizard() {
     setPreview(null)
     setJavitasok({})
     setEredmeny(null)
+    setMod(null)
+    setListaParse(null)
+    setListaLapok([])
+    setListaEredmeny(null)
     setSzuro('mind')
     setLapSzuro('')
     setKereses('')
     setOldal(0)
   }
+
+  /** Bármelyik ágon készen van-e az eredmény? */
+  const vanEredmeny = !!eredmeny || !!listaEredmeny
 
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -317,13 +415,20 @@ export function Leltar343ImportWizard() {
       <CardContent className="space-y-4 p-4 sm:p-6">
         <div className="flex flex-wrap items-center gap-2">
           <FileSpreadsheet className="size-5 shrink-0 text-emerald-700 dark:text-emerald-400" />
-          <h3 className="text-base font-semibold">Leltar 3_43 munkafüzet importálása</h3>
-          <Badge
-            variant="outline"
-            className="border-emerald-300 text-emerald-800 dark:border-emerald-800 dark:text-emerald-300"
-          >
-            hivatalos egyházmegyei formátum
-          </Badge>
+          <h3 className="text-base font-semibold">Leltár-import</h3>
+          {mod === 'leltar343' && (
+            <Badge
+              variant="outline"
+              className="border-emerald-300 text-emerald-800 dark:border-emerald-800 dark:text-emerald-300"
+            >
+              hivatalos Leltar 3_43 munkafüzet
+            </Badge>
+          )}
+          {mod === 'lista' && (
+            <Badge variant="outline" className="border-sky-300 text-sky-800 dark:border-sky-800 dark:text-sky-300">
+              egyszerű lista (Excel/CSV)
+            </Badge>
+          )}
         </div>
 
         <Leltar343Stepper lepes={lepes} />
@@ -332,11 +437,14 @@ export function Leltar343ImportWizard() {
         {lepes === 1 && (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              A hivatalos <strong>Leltar 3_43.xlsx</strong> munkafüzet minden kitöltendő lapját
-              felismerjük (Csekély értékű, Alapeszközök, Telkek, Könyvek, Kegyszerek, Kárpótlási
-              jegyek, Bizományi + a Cimlap helyszín/felelős katalógusa). A Súgó szabályai szerint
-              dolgozunk: hiányzó hónap/nap → január 1., hiányzó mennyiség → 1 db; a negatív sorok
-              részleges kivezetésként, alapeszköznél le-/felértékelésként kerülnek be.
+              Húzd ide a fájlt — a rendszer <strong>felismeri, milyen fájlt kapott</strong>, és a
+              megfelelő úton viszi tovább. A hivatalos <strong>Leltar 3_43.xlsx</strong> munkafüzet
+              minden kitöltendő lapját ismerjük (Csekély értékű, Alapeszközök, Telkek, Könyvek,
+              Kegyszerek, Kárpótlási jegyek, Bizományi + a Cimlap helyszín/felelős katalógusa); a
+              Súgó szabályai szerint dolgozunk: hiányzó hónap/nap → január 1., hiányzó mennyiség →
+              1 db, a negatív sorok részleges kivezetésként (alapeszköznél le-/felértékelésként)
+              kerülnek be. <strong>Egyszerű leltár-listát</strong> (Excel vagy CSV, egy sor = egy
+              tétel) ugyanide tölthetsz fel.
             </p>
             <div
               className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-emerald-300 bg-white/60 p-6 text-center transition hover:border-emerald-500 dark:border-emerald-800 dark:bg-transparent sm:p-8"
@@ -349,18 +457,20 @@ export function Leltar343ImportWizard() {
             >
               <Upload className="size-6 text-emerald-600" />
               <p className="text-sm font-medium">
-                {file ? file.name : 'Kattints ide, vagy húzd ide a Leltar 3_43.xlsx fájlt'}
+                {file ? file.name : 'Kattints ide, vagy húzd ide a leltár-fájlt'}
               </p>
-              <p className="text-xs text-muted-foreground">Elfogadott: .xlsx vagy .xls, max. 10 MB</p>
+              <p className="text-xs text-muted-foreground">
+                Elfogadott: .xlsx, .xls vagy .csv — max. 10 MB
+              </p>
               {isPreviewing && (
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Loader2 className="size-3.5 animate-spin" /> A munkafüzet elemzése…
+                  <Loader2 className="size-3.5 animate-spin" /> A fájl elemzése…
                 </p>
               )}
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".xlsx,.xls"
+                accept=".xlsx,.xls,.csv"
                 className="hidden"
                 onChange={event => {
                   handleFileSelect(event.target.files?.[0] || null)
@@ -372,7 +482,7 @@ export function Leltar343ImportWizard() {
         )}
 
         {/* ── 2. ELLENŐRZÉS ─────────────────────────────────────────── */}
-        {lepes === 2 && preview && (
+        {lepes === 2 && mod === 'leltar343' && preview && (
           <div className="space-y-4">
             <div className="grid gap-2 text-sm sm:grid-cols-2">
               <p>
@@ -471,7 +581,7 @@ export function Leltar343ImportWizard() {
         )}
 
         {/* ── 3. JAVÍTÁS ────────────────────────────────────────────── */}
-        {lepes === 3 && preview && (
+        {lepes === 3 && mod === 'leltar343' && preview && (
           <div className="space-y-4">
             {javitandoSorok.length === 0 ? (
               <div className="flex items-start gap-2 rounded-xl border border-emerald-300 bg-white/70 p-4 text-sm dark:border-emerald-800 dark:bg-transparent">
@@ -532,7 +642,7 @@ export function Leltar343ImportWizard() {
         )}
 
         {/* ── 4. IMPORTÁLÁS / EREDMÉNY ──────────────────────────────── */}
-        {lepes === 4 && preview && !eredmeny && (
+        {lepes === 4 && mod === 'leltar343' && preview && !eredmeny && (
           <div className="space-y-4">
             <div className="rounded-xl border bg-card p-4">
               <p className="text-sm font-semibold text-foreground">Mi fog történni?</p>
@@ -621,6 +731,70 @@ export function Leltar343ImportWizard() {
           </div>
         )}
 
+        {/* ── EGYSZERŰ LISTA ág: 2., 3. és 4. lépés ─────────────────── */}
+        {lepes === 2 && mod === 'lista' && listaParse && (
+          <ListaEllenorzes
+            parse={listaParse}
+            lapok={listaLapok}
+            setLapok={setListaLapok}
+            profiles={importProfiles}
+          />
+        )}
+
+        {lepes === 3 && mod === 'lista' && (
+          <div className="flex items-start gap-2 rounded-xl border border-emerald-300 bg-white/70 p-4 text-sm dark:border-emerald-800 dark:bg-transparent">
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" />
+            <p>
+              Az egyszerű listánál nincs soronkénti javító lépés: a hibás sorokat a rendszer az
+              import után tételesen felsorolja, és a fájl javítása után újra feltöltheted. A már
+              létező leltári számú sorokat nem írjuk felül.
+            </p>
+          </div>
+        )}
+
+        {lepes === 4 && mod === 'lista' && !listaEredmeny && (
+          <div className="space-y-4">
+            <div className="rounded-xl border bg-card p-4 text-sm">
+              <p className="font-semibold text-foreground">Mi fog történni?</p>
+              <ul className="mt-2 space-y-1.5">
+                {listaLapok
+                  .filter(l => l.enabled && l.profileKey)
+                  .map(l => {
+                    const sheet = (listaParse?.sheets || []).find(x => x.sheetName === l.sheetName)
+                    const profil = importProfiles.find(p => p.key === l.profileKey)
+                    return (
+                      <li key={l.sheetName} className="flex items-center gap-2">
+                        <span className="inline-block size-2 rounded-full bg-emerald-500" />
+                        <strong>{l.sheetName}</strong>
+                        <span className="text-muted-foreground">
+                          — {sheet?.rowCount ?? 0} sor, {profil?.label || l.profileKey} profillal
+                        </span>
+                      </li>
+                    )
+                  })}
+                {listaLapok.filter(l => l.enabled && l.profileKey).length === 0 && (
+                  <li className="text-amber-700 dark:text-amber-400">
+                    Egyetlen fül sincs kijelölve — lépj vissza az Ellenőrzés lépésre.
+                  </li>
+                )}
+              </ul>
+            </div>
+            <Button
+              onClick={handleListaImport}
+              disabled={isImporting || listaLapok.filter(l => l.enabled && l.profileKey).length === 0}
+              className="min-h-11 w-full rounded-xl bg-emerald-600 font-semibold text-white hover:bg-emerald-700 sm:w-auto"
+            >
+              {isImporting ? (
+                <>
+                  <Loader2 className="mr-1.5 size-4 animate-spin" /> Importálás folyamatban…
+                </>
+              ) : (
+                'Importálás indítása'
+              )}
+            </Button>
+          </div>
+        )}
+
         {lepes === 4 && eredmeny && (
           <EredmenyPanel
             eredmeny={eredmeny}
@@ -630,8 +804,27 @@ export function Leltar343ImportWizard() {
           />
         )}
 
+        {lepes === 4 && listaEredmeny && (
+          <EredmenyPanel
+            eredmeny={{
+              success: listaEredmeny.success,
+              beszurt: listaEredmeny.insertedCount ?? 0,
+              frissitett: 0,
+              kihagyott: listaEredmeny.skippedCount ?? 0,
+              hibak: (listaEredmeny.errors || []).map(e => ({
+                lap: e.sheet,
+                sor: e.row,
+                uzenet: e.message,
+              })),
+            }}
+            onUjra={ujrakezdes}
+            onLista={() => refreshApi?.listaraUgras()}
+            vanLista={!!refreshApi}
+          />
+        )}
+
         {/* ── Navigáció ─────────────────────────────────────────────── */}
-        {preview && !eredmeny && (
+        {(preview || listaParse) && !vanEredmeny && (
           <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
             <Button
               variant="outline"
@@ -1242,6 +1435,97 @@ function EredmenyPanel({
           Új import indítása
         </Button>
       </div>
+    </div>
+  )
+}
+
+// ── Az EGYSZERŰ LISTA (generikus multi-sheet) ág ─────────────────────────
+// Ugyanabban a négylépéses keretben fut, mint a hivatalos munkafüzet — a
+// felhasználónak egyetlen ejtőzónája van, a fajtát a SZERVER ismeri fel.
+
+interface ListaLap {
+  sheetName: string
+  profileKey: string | null
+  enabled: boolean
+}
+
+function ListaEllenorzes({
+  parse,
+  lapok,
+  setLapok,
+  profiles,
+}: {
+  parse: ParseResult
+  lapok: ListaLap[]
+  setLapok: (fn: (elozo: ListaLap[]) => ListaLap[]) => void
+  profiles: ImportProfile[]
+}) {
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        A fájl <strong>{(parse.sheets || []).length}</strong> fület tartalmaz. Jelöld ki, melyiket
+        importáljuk, és melyik profil szerint. A be nem jelölt fülek érintetlenül maradnak.
+      </p>
+      <ul className="space-y-2">
+        {(parse.sheets || []).map(sheet => {
+          const config = lapok.find(l => l.sheetName === sheet.sheetName)
+          const ures = sheet.rowCount === 0
+          return (
+            <li key={sheet.sheetName} className="rounded-xl border bg-card p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-2 text-sm font-semibold">
+                  <input
+                    type="checkbox"
+                    checked={!!config?.enabled}
+                    disabled={ures || !!sheet.warning}
+                    onChange={e =>
+                      setLapok(elozo =>
+                        elozo.map(l =>
+                          l.sheetName === sheet.sheetName ? { ...l, enabled: e.target.checked } : l,
+                        ),
+                      )
+                    }
+                  />
+                  {sheet.sheetName}
+                </label>
+                <span className="text-xs text-muted-foreground">
+                  {sheet.rowCount} sor · {sheet.headers.length} oszlop
+                </span>
+                {sheet.warning && (
+                  <span className="text-xs text-amber-700 dark:text-amber-400">{sheet.warning}</span>
+                )}
+                <select
+                  value={config?.profileKey || ''}
+                  onChange={e => {
+                    const key = e.target.value || null
+                    setLapok(elozo =>
+                      elozo.map(l =>
+                        l.sheetName === sheet.sheetName
+                          ? { ...l, profileKey: key, enabled: !!key && l.enabled }
+                          : l,
+                      ),
+                    )
+                  }}
+                  aria-label={`${sheet.sheetName} importprofilja`}
+                  className="ml-auto h-9 rounded-md border border-border bg-card px-2 text-xs"
+                >
+                  <option value="">— Kihagyás —</option>
+                  {profiles.map(p => (
+                    <option key={p.key} value={p.key}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {sheet.headers.length > 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Oszlopok: {sheet.headers.join(' · ')}
+                </p>
+              )}
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }

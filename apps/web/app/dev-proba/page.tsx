@@ -30,6 +30,12 @@ import {
   type Leltar343ReviewSor,
 } from '@/lib/inventory/leltar343-review'
 import { alkalmazJavitasok } from '@/lib/inventory/leltar343-review'
+// 2026-08-27 (nyomtatási központ): a lapozható, ablakhoz illesztett előnézet
+// mock adatokkal — a valódi képernyő auth mögött van.
+import { PrintPreviewFrame } from '@/components/inventory/print-preview-frame'
+import { buildInventoryPrintDocument, type InventoryPrintType } from '@/lib/inventory/reporting'
+import type { PrintLang } from '@/lib/inventory/print-layout'
+import type { InventoryItem } from '@/lib/constants/inventory.next'
 import type { FaGyulekezet } from '@/app/(dashboard)/admin/szervezet-shared'
 
 // Endre képernyőjéhez hasonló, jórészt üres jelentés-adat (I.10/I.11 kitöltve)
@@ -121,6 +127,43 @@ const MOCK_SOROK: Leltar343ReviewSor[] = [
     uzenetek: [{ szint: 'hiba', kod: 'hianyzo_megnevezes', uzenet: 'Hiányzó megnevezés — a sor kimaradt.' }] }),
 ]
 
+const MOCK_LELTAR: InventoryItem[] = Array.from({ length: 120 }, (_, i) => ({
+  id: `p-${i}`,
+  leltari_szam: `CS-${String(i + 1).padStart(3, '0')}`,
+  regi_leltari_szam: null,
+  megnevezes: `Próba leltári tétel ${i + 1}`,
+  kategoria: 'Csekély értékű',
+  kategoria_key: 'csekely',
+  beszerzes_erteke: 250,
+  beszerzes_datuma: '2019-05-05',
+  beszerzes_bizonylat: 'Sz-12',
+  katalogus_kod: null,
+  hasznalati_ido: null,
+  helyszin: 'Templom',
+  felelos_szemely_id: null,
+  felelos_nev: 'Szőcs Endre',
+  vonalkod: null,
+  megjegyzes: '',
+  mennyiseg: 1,
+  mertekegyseg: 'db',
+  torles_datuma: null,
+  torles_bizonylat: null,
+  torles_indoklasa: null,
+  ertek_modositas: 0,
+  ertek_modositas_megjegyzes: null,
+  alapeszkoz_csoport: null,
+  penzugy_xkey: null,
+  szerzo: null,
+  konyv_isbn: null,
+  konyv_kiado: null,
+  konyv_kiadas_helye: null,
+  konyv_kiadas_eve: null,
+  konyv_terjedelem: null,
+  konyv_sorozatcim: null,
+  created_at: null,
+  deleted: false,
+})) as unknown as InventoryItem[]
+
 export default function DevProbaPage() {
   // Éles buildben a lap üres tájékoztató — a middleware amúgy is auth mögé teszi.
   if (process.env.NODE_ENV !== 'development') {
@@ -140,6 +183,8 @@ function ProbaTartalom() {
   const [probaJavitasok, setProbaJavitasok] = useState<Leltar343Javitasok>({})
   const [nyitottSor, setNyitottSor] = useState<string | null>(null)
   const [probaZarolt, setProbaZarolt] = useState(false)
+  const [nyTipus, setNyTipus] = useState<InventoryPrintType>('leltariv')
+  const [nyNyelv, setNyNyelv] = useState<PrintLang>('hu')
 
   async function futtat(forceLegacy: boolean) {
     setFut(true)
@@ -264,6 +309,52 @@ function ProbaTartalom() {
                 }
                 aktivSzamok={ctx.aktivSzamok}
                 zarolt={probaZarolt}
+              />
+            </div>
+          )
+        })()}
+      </section>
+
+      <section className="space-y-3 rounded-xl border border-border bg-card p-4">
+        <h2 className="font-semibold">4. Nyomtatási előnézet (120 mock tétel)</h2>
+        <div className="flex flex-wrap gap-2">
+          {(['leltariv', 'registru_inventar', 'aktiv_passziv', 'torolt_targyak', 'vagyonleltari_jelentes'] as const).map(
+            (tipus) => (
+              <button
+                key={tipus}
+                className={`rounded-md border px-3 py-2 text-sm ${nyTipus === tipus ? 'border-primary bg-primary/10' : 'border-border bg-muted'}`}
+                onClick={() => setNyTipus(tipus)}
+              >
+                {tipus}
+              </button>
+            ),
+          )}
+          {(['hu', 'ro'] as const).map((l) => (
+            <button
+              key={l}
+              className={`rounded-md border px-3 py-2 text-sm uppercase ${nyNyelv === l ? 'border-primary bg-primary/10' : 'border-border bg-muted'}`}
+              onClick={() => setNyNyelv(l)}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+        {(() => {
+          const doc = buildInventoryPrintDocument({
+            type: nyTipus,
+            items: MOCK_LELTAR,
+            congregationName: 'Barátosi Református Egyházközség',
+            congregationNameRo: 'Parohia Reformată Brateș',
+            year: 2026,
+            lang: nyNyelv,
+          })
+          return (
+            <div className="h-[70dvh]" data-proba="nyomtatas-elonezet" data-lapszam={doc.lapszam}>
+              <PrintPreviewFrame
+                html={doc.html}
+                orientation={doc.orientation}
+                lapszam={doc.lapszam}
+                cim={doc.title}
               />
             </div>
           )

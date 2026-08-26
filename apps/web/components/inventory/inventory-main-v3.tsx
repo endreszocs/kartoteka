@@ -25,6 +25,9 @@ import {
 import { InventoryPrintDialog } from '@/components/inventory/inventory-print-dialog-v2'
 // 2026-08-27: a rendszergazdai importáló innen kéri a lista újratöltését.
 import { InventoryRefreshProvider } from '@/components/inventory/inventory-refresh-context'
+// 2026-08-27 (Endre 3. pontja): a nyilvántartási lap NEM nyomtatódik azonnal —
+// előbb kiválasztható a nyelve.
+import { FisaPrintDialog } from '@/components/inventory/fisa-print-dialog'
 // 2026-08-26 (Leltar 3_43 kör): a hivatalos munkafüzet kitöltött exportja.
 import { Leltar343ExportButton } from '@/components/inventory/leltar343-export-button'
 import {
@@ -225,6 +228,8 @@ export function InventoryMain({
   const [previewHtml, setPreviewHtml] = useState('')
   // 2026-08-14 (11. pont): a fisa nyelve — HU (alap) vagy RO (hivatalos forma).
   const [fisaLang, setFisaLang] = useState<'hu' | 'ro'>('hu')
+  const [fisaDialogOpen, setFisaDialogOpen] = useState(false)
+  const [fisaDialogData, setFisaDialogData] = useState<InventoryItemCardData | null>(null)
   const [previewOverlayOpen, setPreviewOverlayOpen] = useState(false)
   // 2026-08-09: „Kikeresés a könyvelésből" — kapcsolt kiadás (penzugy_xkey) +
   // a kiadás-választó állapota.
@@ -441,9 +446,18 @@ export function InventoryMain({
     }
   }, [congregationName, congregationNameRo])
 
+  /**
+   * 2026-08-27 (Endre 3. pontja) — A LISTA GOMBJA MÁR NEM NYOMTAT AZONNAL.
+   *
+   * Korábban ez a függvény egyetlen `printToBrowser` hívás volt: a lap a
+   * LEGUTÓBB beállított nyelven ment a nyomtatóra, a nyelvválasztó pedig csak
+   * az `xl:block` élő-előnézetben létezett, tehát kis képernyőn egyáltalán nem
+   * volt elérhető. Mostantól előnézetes dialógus nyílik, nyelvválasztóval és
+   * PDF-mentéssel.
+   */
   function handleRowFisaPrint(item: InventoryItem) {
-    // A fisa a legutobb valasztott nyelven nyomtatodik (HU az alap).
-    void printToBrowser(buildInventoryItemCardHtml({ ...itemToCardData(item), lang: fisaLang }).html)
+    setFisaDialogData(itemToCardData(item))
+    setFisaDialogOpen(true)
   }
 
   // 2026-08-15 (Endre 4. szakasz): a megerősítést az EGYSÉGES FinalizeButton
@@ -1086,10 +1100,10 @@ export function InventoryMain({
                             size="sm"
                             className="min-h-11 rounded-lg px-2 text-xs text-teal-700"
                             onClick={() => handleRowFisaPrint(item)}
-                            title="A tétel fişájának nyomtatása"
-                            aria-label={`${item.megnevezes} fişájának nyomtatása`}
+                            title="A tétel nyilvántartási lapjának nyomtatása"
+                            aria-label={`${item.megnevezes} nyilvántartási lapjának nyomtatása`}
                           >
-                            <FileText className="mr-1 size-3.5" /> Fişă
+                            <FileText className="mr-1 size-3.5" /> Nyilv. lap
                           </Button>
                           <Button
                             variant="ghost"
@@ -1122,6 +1136,16 @@ export function InventoryMain({
           )}
         </>
       )}
+
+      {/* 2026-08-27: a nyilvántartási lap (fişă) nyelvválasztós előnézete —
+          a lista sor-gombja ezt nyitja meg, nem nyomtat azonnal. */}
+      <FisaPrintDialog
+        open={fisaDialogOpen}
+        onOpenChange={setFisaDialogOpen}
+        cardData={fisaDialogData}
+        lang={fisaLang}
+        onLangChange={setFisaLang}
+      />
 
       <InventoryPrintDialog
         open={printDialogOpen}
@@ -1700,9 +1724,9 @@ function MobileInventoryCard({
           size="sm"
           className="min-h-11 flex-1 rounded-xl text-xs text-teal-700"
           onClick={onFisa}
-          aria-label={`${item.megnevezes} fişájának nyomtatása`}
+          aria-label={`${item.megnevezes} nyilvántartási lapjának nyomtatása`}
         >
-          <FileText className="mr-1 size-3.5" /> Fişă
+          <FileText className="mr-1 size-3.5" /> Nyilv. lap
         </Button>
         <Button
           variant="outline"

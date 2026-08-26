@@ -1,6 +1,6 @@
 import { InventoryMain } from '@/components/inventory/inventory-main-v3'
-import { ModuleAdminImportTabV2 } from '@/components/shared/module-admin-import-tab-v2'
 import { Leltar343ImportWizard } from '@/components/inventory/leltar343-import-wizard'
+import { LeltarImportAccessBanner } from '@/components/inventory/leltar-import-access-banner'
 import { INVENTORY_PROFILES } from '@/lib/import/import-profiles'
 import { CongregationOnlyNotice } from '@/components/layout/congregation-only-notice'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
@@ -12,24 +12,6 @@ import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 // EGYHÁZKERÜLETET is (district_id scope-oszlop) — a CongregationOnlyNotice így
 // már csak a feloldhatatlan hatókörnek és az admin/master profiloknak marad.
 import { getModuleScopeContext } from '@/lib/auth/module-scope'
-
-// 2026-08-26 (Leltar 3_43 kör): a korábbi három kártya közül kettő
-// ('categories', 'values') KITALÁLT, DB-hez nem kötött scaffold volt — ilyen
-// tábla/akció nem létezik, a kártyájuk csak félrevezetett. A megmaradt kártya
-// oszlopai a VALÓDI import-profil ('inventory_items') fejléceit mutatják.
-const LELTAR_IMPORT_PROFILES = [
-  {
-    value: 'items',
-    label: 'Leltári tételek',
-    description: 'Egyszerű leltár-lista feltöltése (egy sor = egy tétel). A hivatalos Leltar 3_43 munkafüzetet a fenti varázsló fogadja.',
-    columns: ['Megnevezés', 'Kategória', 'Leltári szám', 'Helyszín', 'Felelős', 'Beszerzés dátuma', 'Beszerzési érték', 'Mennyiség'],
-    hints: [
-      'A kategória magyarul vagy románul is megadható (pl. „Alapeszközök")',
-      'A leltári szám üresen hagyható — a rendszer automatikusan sorszámoz',
-      'A már létező leltári számú sorokat kihagyjuk (nem írunk felül)',
-    ],
-  },
-]
 
 export default async function LeltarPage() {
   const access = await getEffectiveAccessContext()
@@ -92,27 +74,20 @@ export default async function LeltarPage() {
         showAdminImport={showAdminImport}
         adminImportContent={
           <div className="space-y-4">
-            {/* 2026-08-26 (Leltar 3_43 kör, Endre hibajelzése): eddig CSAK a
-                dekoratív előkészítő felület élt itt — `importProfiles` és
-                `importModule` nélkül a ModuleAdminImportTabV2 `hasProcessor`
-                kapcsolója hamis volt, tehát az „Import indítása" gomb SOHA nem
-                renderelődött. Most (1) a hivatalos Leltar 3_43 munkafüzetnek
-                dedikált kártyája van, (2) az egyszerű listákat a közös
-                multi-sheet út dolgozza fel a VALÓDI 'inventory_items' profillal. */}
-            <Leltar343ImportWizard />
-            <ModuleAdminImportTabV2
-              moduleKey="inventory"
-              moduleLabel="Leltár"
-              title="Leltári laborimport az aktuális gyülekezethez"
-              description="Egyszerű leltár-listák (Excel/CSV) védett rendszergazdai importja. A hivatalos Leltar 3_43 munkafüzetet a fenti varázsló fogadja."
-              congregationName={congregationName}
+            {/* 2026-08-27 (Endre 5. pontja) — EGYETLEN IMPORTÁLÓ.
+                Korábban itt a varázsló ALATT egy teljes második import-keret
+                is állt (ModuleAdminImportTabV2), benne SAJÁT fájlfeltöltővel:
+                a fülön így három hely látszott, ahova fájlt lehet húzni.
+                A varázsló mostantól MINDKÉT fajtát fogadja — a hivatalos
+                Leltar 3_43 munkafüzetet és az egyszerű Excel/CSV listát is —,
+                és a fajtát a SZERVER ismeri fel. */}
+            <LeltarImportAccessBanner
               isGodMode={godMode.active}
               isDelegatedImport={delegatedImport.active}
               delegatedExpiresAt={delegatedImport.expiresAt}
-              profiles={LELTAR_IMPORT_PROFILES}
-              importProfiles={INVENTORY_PROFILES}
-              importModule="inventory"
+              congregationName={congregationName}
             />
+            <Leltar343ImportWizard importProfiles={INVENTORY_PROFILES} importModule="inventory" />
           </div>
         }
       />

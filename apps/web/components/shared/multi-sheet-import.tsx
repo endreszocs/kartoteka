@@ -122,6 +122,18 @@ export function MultiSheetImport({
       formData.append('module', module)
 
       startParsing(async () => {
+        // ⚠️ MEMÓRIAMÁSOLAT: a fájlválasztás és az import között percek
+        // telhetnek (fül-párosítás). Ha közben a fájlt mentik/mozgatják, az
+        // eredeti File-referencia elavul, és az import ERR_UPLOAD_FILE_CHANGED
+        // hibával hasal el. (A leltár-varázsló ezt már így csinálja.)
+        try {
+          const buffer = await selected.arrayBuffer()
+          setFile(new File([buffer], selected.name, { type: selected.type }))
+        } catch {
+          toast.error('A fájl beolvasása sikertelen — válaszd ki újra.')
+          setFile(null)
+          return
+        }
         const result = await parseAndPreview(formData)
         setParseResult(result)
 
@@ -139,19 +151,21 @@ export function MultiSheetImport({
         }
 
         if (result.success && result.sheets) {
-          // 2026-08-27: ha a modulnak PONTOSAN EGY profilja van (pl. Leltár),
-          // nincs mit eltalálni — a lap-név alapú javaslat CSV-nél amúgy is
-          // mindig üres ('Sheet1'), és a felhasználó tanácstalanul nézte a
-          // letiltott „Import indítása" gombot.
+          // 2026-08-27: ha a modulnak PONTOSAN EGY profilja van, felkínáljuk
+          // (a lap-név alapú javaslat CSV-nél amúgy is mindig üres, mert a lap
+          // neve 'Sheet1' — a felhasználó tanácstalanul nézte a letiltott
+          // „Import indítása" gombot).
+          //
+          // ⚠️ DE NEM KAPCSOLJUK BE MAGÁTÓL. Egy munkafüzetnek több füle lehet,
+          // és csak a felhasználó tudja, melyik az importálandó — a vak
+          // bekapcsolás idegen fül tartalmát írná a modul táblájába.
+          // Automatikusan CSAK a lap-név alapján felismert fül indul be.
           const egyProfil = profiles.length === 1 ? profiles[0].key : null
-          const configs: SheetConfig[] = result.sheets.map((s) => {
-            const profileKey = s.suggestedProfileKey ?? egyProfil
-            return {
-              sheetName: s.sheetName,
-              profileKey,
-              enabled: !!profileKey && s.rowCount > 0 && !s.warning,
-            }
-          })
+          const configs: SheetConfig[] = result.sheets.map((s) => ({
+            sheetName: s.sheetName,
+            profileKey: s.suggestedProfileKey ?? egyProfil,
+            enabled: !!s.suggestedProfileKey && s.rowCount > 0 && !s.warning,
+          }))
           setSheetConfigs(configs)
           setStep('preview')
           if (result.sheets.length > 0) {

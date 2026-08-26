@@ -23,6 +23,85 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-27] — Leltár: lapozható nyomtatási előnézet, nyelvválasztás, egyetlen importáló, megújult súgó
+<!-- key: 2026-08-27-leltar-nyomtatas-sugo -->
+<!-- category: improvement -->
+<!-- version: 0.9.181 -->
+<!-- targets: lelkipásztorok, rendszergazdák -->
+
+### 🐛 Javítások
+
+- **A nyomtatási előnézet valódi oldalakra bomlik, és igazat mond az
+  oldalszám.** Eddig minden nyomtatvány egyetlen, végtelen „lapként" folyt, az
+  előnézet pedig kivétel nélkül „Oldal 1 / 1"-et mutatott — akkor is, ha a
+  dokumentum hat oldal volt. A nyomtatott lap lábléce ráadásul CSS-számlálót
+  használt, ami a dokumentum tartalmában egyetlen böngészőben sem működik.
+  Mostantól a lapokat mi tördeljük, az oldalszám pedig szövegként szerepel a
+  lap alján — a képernyőn, a nyomtatásban és a PDF-ben ugyanaz.
+- **Az előnézet kifér az ablakba.** A fekvő nyomtatványok (Leltárív, Törölt
+  tárgyak) eddig szélesebbek voltak a rendelkezésre álló helynél, tehát
+  vízszintesen és függőlegesen is görgetni kellett. Most egy teljes oldal
+  látszik, kicsinyítve, és a lapok között nyilakkal lehet lépkedni.
+- **Nagy leltárnál eddig üres (fehér) PDF születhetett.** A több száz tételes
+  leltárív egyetlen óriási képként készült el, ami a gépek grafikus
+  korlátjába ütközött. Mostantól oldalanként készül — a fekvő nyomtatványoknál
+  is, amelyek eddig egyáltalán nem élveztek védelmet.
+- **A vagyonleltári jelentés négy oszlopa nem adta ki egymást.** Az „előző évi
+  egyenleg + bejövetel − törlés = év végi egyenleg" sor három különböző
+  értékalapot kevert (amortizált év elején, könyv szerinti, amortizált év
+  végén), ezért az összeg egy aláírandó, egyházmegyének küldött íven nem
+  stimmelt. Mostantól mind a négy oszlop a könyv szerinti értéken áll, ahogy a
+  hivatalos munkafüzet képlete is előírja. **Ez a korábbihoz képest más
+  számokat adhat — az első jelentés kinyomtatása előtt érdemes átnézni.**
+- **A beszerzési dátum nélküli tétel kiesett a mozgás-táblából.** Az import a
+  hiányzó évet megengedi (figyelmeztetéssel), az ilyen tétel viszont sem a
+  nyitó, sem a bejövetel oszlopban nem jelent meg — a záró egyenlegben igen.
+  Mostantól a nyitó állomány része.
+- **A táblázat fejléce minden oldalon megismétlődik** (Chrome-ban eddig csak az
+  első oldalon látszott), és megszűnt a nyomtatás végén megjelenő üres oldal.
+- **Az importálóban egy fülnek nem járó profil sem kapcsolódik be magától.**
+  Egyprofilos moduloknál a rendszer korábban minden fülre ráhúzta az egyetlen
+  profilt és be is kapcsolta — egy többfüles munkafüzetnél idegen fül tartalma
+  is bekerülhetett volna.
+- **Nem avul el a kiválasztott fájl.** Ha a feltöltés és az import között a
+  fájlt a lemezen mentették vagy mozgatták, az import hibával elszállt.
+
+### ✨ Új funkciók
+
+- **Nyelvválasztás a nyomtatási központban.** Minden nyomtatvány kérhető
+  magyar vagy román elsődleges nyelven; a másik nyelv felirata mellette marad,
+  így a hivatalos ív mindkét nyelven azonosítható. A román íven a gyülekezet
+  hivatalos román neve áll elöl, és a dokumentum nyelvi jelölése is helyes.
+- **A nyilvántartási lap (fişă) nyomtatása előtt választható a nyelv.** Eddig a
+  lista gombja azonnal nyomtatott, a nyelvkapcsoló pedig csak nagy képernyőn,
+  a tétel-ablak élő előnézetében létezett. Most előnézetes ablak nyílik,
+  nyelvválasztóval — és innen PDF-be is menthető, ami eddig egyáltalán nem
+  volt lehetséges.
+- **A magyar változat neve „Leltári tárgy nyilvántartási lapja"** (alapeszköznél
+  „Alapeszköz nyilvántartási lapja") a korábbi, félig román „fişája" helyett. A
+  román hivatalos elnevezés a lapon marad. A gombok felirata is ezt követi.
+- **Egyetlen importáló a Leltár rendszergazdai fülén.** Korábban a fülön több
+  helyre is lehetett fájlt húzni. Mostantól egy ejtőzóna van: a rendszer maga
+  ismeri fel, hogy a hivatalos Leltar 3_43 munkafüzetet kapta-e vagy egy
+  egyszerű Excel/CSV listát, és a megfelelő úton viszi tovább — ugyanabban a
+  négylépéses varázslóban.
+- **Megújult, lépésről lépésre vezető Súgó.** Kilenc fejezet ikonokkal, számozott
+  lépésekkel és ábrával: rögzítés, a hét kategória és az értékhatár, érték és
+  amortizáció, import, kivezetés kontra Kuka, nyomtatási központ, anyagraktár,
+  véglegesítés és egyházmegyei feloldás, gyakori hibák. A súgó eddig nem tudott
+  a Leltar 3_43 munkafüzetről, az import-varázslóról, az anyagraktárról és az
+  alapeszköz-értékhatárról, a véglegesítésről szóló fejezete pedig elavult
+  szabályt írt le. Sötét témán eddig olvashatatlan volt.
+
+### 🎨 UX javítások
+
+- A „Lapméret" legördülő eltűnt a nyomtatási központból: egyetlen választható
+  eleme volt (A4).
+- A román nyomtatványokon javítottuk a hiányzó ékezeteket („Terenuri și…",
+  „Recapitulația…", „Preț unitar contabil").
+- A román nyilvántartási lapon a mennyiség mértékegysége is románul jelenik meg.
+
+---
 ## [2026-08-27] — Leltár-import: lépésről lépésre vezető varázsló, javítható hibákkal
 <!-- key: 2026-08-27-leltar-import-varazslo -->
 <!-- category: feature -->
