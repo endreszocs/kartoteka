@@ -33,6 +33,8 @@ import { alkalmazJavitasok } from '@/lib/inventory/leltar343-review'
 // 2026-08-27 (nyomtatási központ): a lapozható, ablakhoz illesztett előnézet
 // mock adatokkal — a valódi képernyő auth mögött van.
 import { PrintPreviewFrame } from '@/components/inventory/print-preview-frame'
+import { PublicEvNaptar } from '@/components/public/public-ev-naptar'
+import type { PublicEsemeny } from '@/lib/public-site/tisztsegek-events-loader'
 import { buildInventoryPrintDocument, type InventoryPrintType } from '@/lib/inventory/reporting'
 import type { PrintLang } from '@/lib/inventory/print-layout'
 import type { InventoryItem } from '@/lib/constants/inventory.next'
@@ -173,6 +175,81 @@ const MOCK_LELTAR: InventoryItem[] = Array.from({ length: 120 }, (_, i) => ({
   created_at: null,
   deleted: false,
 })) as unknown as InventoryItem[]
+
+
+/**
+ * 5. szakasz — a gyülekezeti weboldal ÉVES NAPTÁRA (2026-08-27).
+ *
+ * MIÉRT KELL IDE: a naptárt csak akkor lehetne élő adaton látni, ha egy
+ * gyülekezet MÁR megjelölt programokat nyilvánosnak. Endre bejelentése épp az
+ * volt, hogy nem látszik semmi — tehát az „üres" állapotból nem derül ki, hogy
+ * a MEGJELENÍTÉS jó-e. Ez a próbapad a valós adatra jellemző vegyes esetekkel
+ * dolgozik: többnapos alkalom, idő nélküli alkalom, hosszú leírás, emoji,
+ * vasárnapi és hétköznapi nap.
+ */
+const MOCK_PUBLIKUS_ESEMENYEK: PublicEsemeny[] = [
+  {
+    cim: 'Vakációs bibliahét',
+    leiras:
+      'Egy héten át délelőttönként várjuk az iskolás gyermekeket bibliai történetekkel, kézműves foglalkozással, énektanulással és közös játékkal. A részvétel ingyenes, előzetes jelentkezés a lelkészi hivatalban.',
+    datum: '2026-08-03',
+    datum_vege: '2026-08-07',
+    ido_kezdes: '09:00:00',
+    ido_befejezes: '13:00:00',
+    helyszin: 'Gyülekezeti terem',
+    tipus: 'gyerekprogram',
+    egyedi_tipus_nev: null,
+    egyedi_emoji: '🧒',
+  },
+  {
+    cim: 'Vasárnapi istentisztelet',
+    leiras: null,
+    datum: '2026-08-09',
+    datum_vege: null,
+    ido_kezdes: '11:00:00',
+    ido_befejezes: null,
+    helyszin: 'Templom',
+    tipus: 'istentisztelet',
+    egyedi_tipus_nev: null,
+    egyedi_emoji: null,
+  },
+  {
+    cim: 'Gyülekezeti nap',
+    leiras: 'Közös ebéd, gyermekműsor és délutáni beszélgetés a templomkertben.',
+    datum: '2026-08-16',
+    datum_vege: null,
+    ido_kezdes: null,
+    ido_befejezes: null,
+    helyszin: 'Templomkert',
+    tipus: 'kozossegi',
+    egyedi_tipus_nev: null,
+    egyedi_emoji: '🎉',
+  },
+  {
+    cim: 'Evangelizációs hét',
+    leiras: 'Esténként vendéglelkészek szolgálnak igehirdetéssel.',
+    datum: '2026-09-14',
+    datum_vege: '2026-09-20',
+    ido_kezdes: '18:00:00',
+    ido_befejezes: '19:30:00',
+    helyszin: 'Templom',
+    tipus: 'evangelizacio',
+    egyedi_tipus_nev: null,
+    egyedi_emoji: null,
+  },
+  {
+    cim: 'Adventi gyertyagyújtás',
+    leiras: null,
+    datum: '2026-11-29',
+    datum_vege: null,
+    ido_kezdes: '17:00:00',
+    ido_befejezes: null,
+    helyszin: 'Templom',
+    tipus: 'unnep',
+    egyedi_tipus_nev: null,
+    egyedi_emoji: '🕯️',
+  },
+]
 
 export default function DevProbaPage() {
   // Éles buildben a lap üres tájékoztató — a middleware amúgy is auth mögé teszi.
@@ -369,6 +446,17 @@ function ProbaTartalom() {
             </div>
           )
         })()}
+      </section>
+
+      <section className="space-y-3 rounded-xl border border-border bg-card p-4">
+        <h2 className="font-semibold">5. Gyülekezeti weboldal — éves naptár</h2>
+        <p className="text-sm text-muted-foreground">
+          A publikus Alkalmaink oldal naptára. Vegyes eset: többnapos alkalom, idő nélküli
+          alkalom, hosszú leírás, emoji, vasárnap.
+        </p>
+        <div className="public-site-root rounded-xl bg-white p-4" data-proba="ev-naptar">
+          <PublicEvNaptar esemenyek={MOCK_PUBLIKUS_ESEMENYEK} ev={2026} />
+        </div>
       </section>
     </div>
   )

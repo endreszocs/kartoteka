@@ -499,15 +499,23 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
             </div>
           ) : null}
 
-          {/* 2026-08-26 (5. kör): weboldal-publikálás — az esemény címe,
-              időpontja és helyszíne kikerülhet a gyülekezet nyilvános
-              weboldalára (a leírás és a megjegyzés SOHA). */}
+          {/* 2026-08-26 (5. kör): weboldal-publikálás.
+              2026-08-27 — Endre kifejezett kérésére a LEÍRÁS is kikerül a
+              nyilvános naptárba („legyen egy naptár… leírással együtt").
+              A belső MEGJEGYZÉS továbbra sem hagyja el a rendszert. Mivel ez
+              tágítja azt, ami nyilvánossá válik, a kapcsoló alatt ki is írjuk
+              — a felhasználó ne utólag, a weboldalon szembesüljön vele. */}
           <div className="kt-field">
-            <label className="kt-switch" title="Bekapcsolva az esemény (cím, időpont, helyszín) megjelenik a gyülekezet nyilvános weboldalán — a leírás és a megjegyzés nem kerül ki.">
+            <label className="kt-switch" title="Bekapcsolva az esemény megjelenik a gyülekezet nyilvános weboldalán és letölthető naptárában.">
               <input type="checkbox" {...register('publikus')} />
               <span className="kt-switch-track"><span className="kt-switch-thumb" /></span>
               Megjelenhet a gyülekezet weboldalán
             </label>
+            <p className="kt-modal-sub">
+              Kikerül: a <strong>cím, időpont, helyszín</strong> és a <strong>leírás</strong> —
+              a kezdőlap „Következő alkalom" kártyájára, az Alkalmaink oldal éves naptárába
+              és a letölthető naptárfájlba. A <strong>megjegyzés</strong> soha nem kerül ki.
+            </p>
           </div>
 
           {/* Imahét — napi vendéglelkész-beosztás (2026-08-25) */}

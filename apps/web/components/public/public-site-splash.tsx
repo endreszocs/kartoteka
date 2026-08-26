@@ -5,11 +5,23 @@ import { PublicCrest } from './public-crest'
  *
  * Korábban a látogató a Kartotéka termék-logóját látta teal/amber kártyán
  * (app/loading.tsx → RouteLoadingScreen). Itt a GYÜLEKEZET címere és neve
- * fogadja, a választott téma színeivel; ha nincs feltöltött címer, a
- * Kartotéka-jel a tartalék, és ha az is elhasal, a névkezdőbetűs monogram.
+ * fogadja, a választott téma színeivel.
  *
- * Feloldási lánc: public_sites.crest_image_url → /kartoteka-logo.png →
- * monogram a téma színátmenetén.
+ * ⛔ 2026-08-27 — Endre: „A gyülekezet címere látszódjon betöltéskor és
+ * egyébként is!" A képernyőn a KARTOTÉKA termék-logója állt. KÉT oka volt,
+ * és MINDKETTŐT javítani kellett:
+ *   1. A `crest_image_url` üresen jött: a weboldal csak a `public_sites`
+ *      saját mezőjét nézte, Endre viszont a címert a gyülekezeti adatoknál
+ *      töltötte fel. A kontextus-RPC mostantól visszaesik a
+ *      `congregations.cimer_url`-re (2026-08-27-es migráció).
+ *   2. …de a TARTALÉK maga is hibás volt: hiányzó címernél a Kartotéka
+ *      termék-logója jelent meg a gyülekezet oldalán. Ez pont az, amit a
+ *      2026-08-10-i kör el akart kerülni. A tartalék innentől a gyülekezet
+ *      nevének kezdőbetűje (PublicCrest monogramja) — a saját identitása,
+ *      nem a szoftvergyártóé.
+ *
+ * Feloldási lánc: public_sites.crest_image_url → congregations.cimer_url
+ * (az RPC-ben) → névkezdőbetűs monogram a téma színátmenetén.
  */
 export function PublicSiteSplash({
   crestUrl,
@@ -29,7 +41,7 @@ export function PublicSiteSplash({
       className="flex min-h-[70dvh] flex-col items-center justify-center px-6 py-24 text-center"
     >
       <PublicCrest
-        src={crestUrl || '/kartoteka-logo.png'}
+        src={crestUrl}
         name={displayName}
         size={96}
         shape="shield"

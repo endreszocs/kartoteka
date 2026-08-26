@@ -18,7 +18,7 @@ export function PublicSiteFooter({ site }: { site: PublicSiteData }) {
 
   return (
     <footer
-      className="relative mt-24 border-t"
+      className="public-site-footer relative mt-24 border-t"
       style={{
         backgroundColor: 'color-mix(in srgb, var(--public-soft) 62%, transparent)',
         borderColor: 'var(--public-line)',

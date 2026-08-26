@@ -23,6 +23,56 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-27] — Gyülekezeti weboldal: címer, elérhetőségek, éves naptár, saját aldomain
+<!-- key: 2026-08-27-gyulekezeti-oldal-naptar-cimer -->
+<!-- category: feature -->
+<!-- version: 0.9.184 -->
+<!-- targets: lelkipásztorok -->
+
+### 🐛 Javítások
+
+- **A gyülekezet címere jelenik meg a weboldalon** — a betöltő képernyőn, a
+  fejlécben és a láblécben is. Eddig a Kartotéka saját logója állt ott.
+  Két oka volt: a weboldal csak a *Publikus oldal* alatt külön feltöltött
+  címert nézte (a **Gyülekezetünk adatai**-nál mentettről nem tudott), a
+  hiányzó címer helyére pedig a szoftver logója került. Mostantól a
+  gyülekezeti adatoknál mentett címer a tartalék, és ha az sincs, a gyülekezet
+  nevének kezdőbetűje — soha nem a szoftvergyártó jele.
+- **Az elérhetőségek is megjelennek** — e-mail, telefon és cím. Ugyanaz volt a
+  helyzet: a *Gyülekezetünk adatai*-nál mentett elérhetőségekről a weboldal nem
+  tudott, ezért „az elérhetőségi adatok hamarosan felkerülnek" felirat állt ott.
+- **A „Következő alkalom" a valódi következő alkalmat mutatja.** Eddig csak a
+  weboldalon külön szerkesztett, ismétlődő istentiszteleti rendet nézte — a
+  határidőnaplóban rögzített konkrét alkalomról (pl. vakációs bibliahét) nem
+  tudott.
+
+### ✨ Újdonságok
+
+- **Alkalmaink oldal éves naptárral.** A gyülekezet nyilvános alkalmai hónapról
+  hónapra, **leírással együtt**, évválasztóval. A menüből is elérhető.
+- **A teljes éves program letölthető** — nyomtatható (a böngésző „Mentés
+  PDF-ként" funkciójával PDF is lesz belőle), és menthető a telefon naptárába
+  (.ics fájl).
+- **A határidőnapló listájában látszik, mely alkalom van kitéve a weboldalra**
+  („weboldalon" jelzés). Eddig a kapcsoló a szerkesztő-ablak alján ült, alapból
+  kikapcsolva, és a listából nem lehetett megállapítani.
+- **Saját aldomain gyülekezetenként** —
+  `baratosi-reformatus-egyhazkozseg.kartoteka.app`. Az alkalmazás oldali rész
+  kész; a DNS- és a Railway-beállítás lépései a
+  `docs/GYULEKEZETI-ALDOMAIN-BEALLITAS.md` fájlban. A régi cím továbbra is
+  működik.
+
+### ⚠️ Fontos tudnivaló
+
+Egy alkalom **csak akkor** jelenik meg a weboldalon és a letölthető naptárban,
+ha a határidőnaplóban be van kapcsolva rajta a **„Megjelenhet a gyülekezet
+weboldalán"** kapcsoló. Ez alapból ki van kapcsolva — a lelkigondozói
+látogatások és a presbiteri ülések így nem kerülnek nyilvánosságra.
+
+A nyilvánosnak jelölt alkalmaknál mostantól a **leírás is kikerül** a
+weboldalra (ezt kérted). A **megjegyzés** továbbra sem hagyja el a rendszert.
+
+---
 ## [2026-08-27] — Leltár-nyomtatás: egyenletes oldalak, rögzített oszlopok
 <!-- key: 2026-08-27-leltar-nyomtatas-oszlopok -->
 <!-- category: bugfix -->
