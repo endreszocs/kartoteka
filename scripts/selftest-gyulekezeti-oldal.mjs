@@ -940,17 +940,42 @@ function elofeltetelTorzs(sql) {
     'K1b: …és MEGMONDJA, melyik nyelv hiányzik — nem csak annyit, hogy „hiányos"',
   )
 
-  // A pótló segédlet SEMMILYEN nevet nem ír be magától.
+  // A FELMÉRŐ segédlet semmilyen nevet nem ír be magától — az csak megmutatja,
+  // hol a hiány. (A kitöltés külön, INDOKOLT fájlban él, lásd K2c.)
   const potlas = path.join(ROOT, 'migration-docs/sql/2026-08-27-magyar-telepulesnevek-potlasa.sql')
-  assert(fs.existsSync(potlas), 'K2: van pótló segédlet a hiányzó magyar településnevekhez')
+  assert(fs.existsSync(potlas), 'K2: van felmérő segédlet a hiányzó magyar településnevekhez')
   const aktivUpdate = fs
     .readFileSync(potlas, 'utf8')
     .split(String.fromCharCode(10))
     .filter(sor => /^\s*UPDATE /.test(sor))
   assert(
     aktivUpdate.length === 0,
-    `K2b: a pótló fájlban NINCS aktív UPDATE — a nevet a felhasználó írja be, nem mi találjuk ki (${aktivUpdate.length} aktív)`,
+    `K2b: a FELMÉRŐ fájlban nincs aktív UPDATE — az csak diagnosztizál (${aktivUpdate.length} aktív)`,
   )
+
+  // ⚠️ A KITÖLTŐ fájl viszont ír — ezért SZIGORÚBB feltételeknek kell megfelelnie.
+  //    Az `adrlocality` ORSZÁGOS törzstábla: egy elszaladt UPDATE minden
+  //    gyülekezetet érintene, amelyik ahhoz a településhez van kötve.
+  const kitoltve = path.join(ROOT, 'migration-docs/sql/2026-08-27-magyar-telepulesnevek-KITOLTVE.sql')
+  if (fs.existsSync(kitoltve)) {
+    const szoveg = fs.readFileSync(kitoltve, 'utf8')
+    assert(
+      /AND NULLIF\(btrim\(l\.name_hu\), ''\) IS NULL/.test(szoveg),
+      'K2c: a kitöltő UPDATE MÁR KITÖLTÖTT nevet nem írhat felül',
+    )
+    assert(
+      /RAISE EXCEPTION/.test(szoveg) && /az azonosítók elcsúsztak/.test(szoveg),
+      'K2d: …és fail-closed őre van arra, ha a törzsbeli azonosítók elcsúsznak',
+    )
+    // Minden beírt névhez tartozzon INDOKLÁS a fájl fejlécében — a forrás a
+    // felhasználó által felvitt gyülekezeti név, nem külső tudás.
+    const nevek = [...szoveg.matchAll(/\(\d+, '([^']+)'\)/g)].map(m => m[1])
+    const indoklasNelkul = nevek.filter(n => !new RegExp(`→ ${n}\\b`).test(szoveg))
+    assert(
+      nevek.length > 0 && indoklasNelkul.length === 0,
+      `K2e: MINDEN beírt névhez van forrás-indoklás a fejlécben (${nevek.length} név, indoklás nélkül: ${indoklasNelkul.join(', ') || 'egy sem'})`,
+    )
+  }
 
   // ⚠️ Ugyanazon az oldalon NE álljon két KÜLÖNBÖZŐ cím és két különböző
   //    térkép-link: a lábléc korábban a régi, vegyes címet mutatta.
