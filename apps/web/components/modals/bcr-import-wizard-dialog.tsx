@@ -525,7 +525,9 @@ export function BcrImportWizardDialog({
           iratszam: finalIratszam,
         }
       })
-      const res = await importBcrTransactions(items)
+      // 2026-08-27: a fájlnév a naplózáshoz (import_logs) — enélkül a bejegyzés
+      // nem köthető a konkrét kivonathoz.
+      const res = await importBcrTransactions(items, { fileName: file?.name })
       if (res.error) {
         toast.error(res.error)
         return
