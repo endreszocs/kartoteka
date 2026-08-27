@@ -211,6 +211,55 @@ export async function importBcrTransactions(
     }
   }
 
+  // ── HATÓKÖR-ŐR a befizető tagra (2026-08-27) ─────────────────────────────
+  // A core VAKON írja az `id_szemely`-t (import-transactions.ts:592) — semmi nem
+  // ellenőrzi, hogy az a `szemely` sor a hívó gyülekezetéhez tartozik-e. Ez a
+  // projekt visszatérő hibaosztálya („skalár hatókör + if (id) filter"): egy
+  // manipulált vagy elavult azonosítóval MÁSIK gyülekezet tagjához lehetne
+  // befizetést kötni. FAIL-CLOSED: ha nem tudjuk ellenőrizni, NEM importálunk.
+  const personIds = Array.from(
+    new Set(
+      items
+        .filter((i) => i.action === 'income' && typeof i.personId === 'number')
+        .map((i) => i.personId as number),
+    ),
+  )
+  if (personIds.length > 0) {
+    // Darabolva: sok azonosító az URL-be kerülne, és ~100 fölött a proxy eldobja
+    // (414) — ez nálunk már megégett hibaosztály.
+    const sajat = new Set<number>()
+    for (let i = 0; i < personIds.length; i += 80) {
+      const darab = personIds.slice(i, i + 80)
+      const { data, error } = await access.supabase
+        .from('szemely')
+        .select('id')
+        .eq('congregation_id', access.effectiveCongregationId)
+        .in('id', darab)
+      if (error) {
+        return {
+          totalItems: items.length, imported: 0, skipped: 0, duplicates: 0,
+          errors: [], importedRows: [],
+          error:
+            `Nem sikerült ellenőrizni a befizetőkhöz rendelt tagokat (${error.message}), ` +
+            'ezért az importot biztonságból megszakítottuk. Próbáld újra; ha újra hibázik, ' +
+            'vedd ki a befizető-hozzárendeléseket, és jelezd a rendszergazdának.',
+        }
+      }
+      for (const r of (data || []) as Array<{ id: number }>) sajat.add(r.id)
+    }
+    const idegen = personIds.filter((id) => !sajat.has(id))
+    if (idegen.length > 0) {
+      return {
+        totalItems: items.length, imported: 0, skipped: 0, duplicates: 0,
+        errors: [], importedRows: [],
+        error:
+          `${idegen.length} tételnél olyan befizető van kiválasztva, aki nem a gyülekezet ` +
+          'tagja (vagy időközben törölték). Az importot megszakítottuk — vedd ki vagy ' +
+          'válaszd újra ezeket a befizetőket.',
+      }
+    }
+  }
+
   // 2026-07-10 (ÚJ #10): napi árfolyamok deviza-számlákhoz (RON-only
   // importnál üres map + üres warnings → viselkedés változatlan).
   const { dailyRates, warnings } = await collectDailyRates(

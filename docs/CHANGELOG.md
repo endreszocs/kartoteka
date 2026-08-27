@@ -23,6 +23,41 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-27] — Befizető hozzárendelése a banki importnál
+<!-- key: 2026-08-27-banki-import-befizeto -->
+<!-- category: feature -->
+<!-- version: 0.9.188 -->
+<!-- targets: lelkipásztorok, gondnokok -->
+
+### ✨ Új funkciók
+
+- **Befizető választható a banki importnál**: ha valaki átutalással fizet
+  egyházfenntartást vagy adományt, a kivonat feldolgozásakor mostantól
+  hozzárendelhető a tagnyilvántartásból az illető személyhez. Eddig ez csak a
+  kézi rögzítésnél ment — a banki importból érkező tételek mind „gazdátlanul"
+  maradtak, és nem számítottak bele a tag járulék-nyilvántartásába.
+
+- **A kereső a banki névformákhoz igazodik**: a bankok jellemzően NAGYBETŰVEL,
+  ékezet nélkül és gyakran fordított sorrendben küldik a nevet. A kereső ezért
+  ékezet- és sorrend-független, és megtalálja a tagot lánykori vagy férjezett
+  néven, lakcím vagy foglalkozás alapján is. A mező a banki közleménnyel indul,
+  hogy ne kelljen újra begépelni.
+
+### 🔒 Biztonsági javítások
+
+- **A befizető csak a saját gyülekezet tagja lehet**: az import mostantól
+  ellenőrzi, hogy a kiválasztott személy valóban a gyülekezethez tartozik-e.
+  Ha ez nem ellenőrizhető, az import inkább megáll, mintsem hibás adatot rögzítsen.
+
+### 🐛 Javítások
+
+- **Nem vész el némán a hozzárendelés**: a befizető csak bevételi tételhez
+  köthető. Ha egy tételt utólag kiadásra vagy belső mozgásra állítasz át, a
+  hozzárendelés most már a képernyőn is eltűnik — eddig ott maradt volna a név,
+  miközben a mentéskor a rendszer eldobta volna.
+
+---
+
 ## [2026-08-27] — A banki import kiadás-oldala és a néma átvezetés-figyelmeztetés
 <!-- key: 2026-08-27-banki-import-kiadas-oldal -->
 <!-- category: bugfix -->

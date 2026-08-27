@@ -38,6 +38,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { SearchableCategorySelect } from '@/components/ui/searchable-category-select'
+import { BankImportPersonPicker } from '@/components/finance/bank-import-person-picker'
 import { parseBcrExcel, type BcrTransaction } from '@/lib/finance/bank-import/bcr-parser'
 import {
   getLatestBankTransactionDate,
@@ -71,6 +72,17 @@ type RowDecision = {
   note?: string
   /** Iratszám (szerkeszthető a wizardban — pl. számla szám, nyugta szám). */
   iratszam?: string
+  /**
+   * 2026-08-27 (Endre 3. kérése): a befizető tag azonosítója.
+   * ⚠️ CSAK a BEVÉTEL-ágon hasznosul — a core `id_szemely`-t kizárólag a
+   * `befizetes` payloadba ír (import-transactions.ts:592). A kiadás-ág a
+   * partnert az `atvevo` szöveges oszlopba teszi, a belső mozgás pedig fix
+   * `id_szemely: null`-t. Ezért ha a művelet elmozdul a bevételtől, a
+   * hozzárendelést TÖRÖLNI kell — különben némán elveszne (lásd updateDecision).
+   */
+  personId?: number
+  /** A kiválasztott tag neve — csak megjelenítéshez (a DB-be nem megy). */
+  personName?: string
 }
 
 type Props = {
@@ -437,10 +449,16 @@ export function BcrImportWizardDialog({
   function updateDecision(rowIndex: number, patch: Partial<RowDecision>) {
     setDecisions((prev) => {
       const existing = prev[rowIndex] || { action: 'skip' as BankImportItemAction }
-      return {
-        ...prev,
-        [rowIndex]: { ...existing, ...patch },
+      const merged = { ...existing, ...patch }
+      // 2026-08-27: NÉMA ADATVESZTÉS ELLEN. A `personId` csak a bevétel-ágon
+      // hasznosul; ha a művelet elmozdul onnan, a hozzárendelés eldobódna a
+      // szerveren — szó nélkül. Inkább ITT töröljük, hogy a felületen is
+      // LÁTSZÓDJON: a befizető-cella kiürül, a lelkész nem hiszi azt, hogy megvan.
+      if (merged.action !== 'income') {
+        delete merged.personId
+        delete merged.personName
       }
+      return { ...prev, [rowIndex]: merged }
     })
   }
 
@@ -448,7 +466,14 @@ export function BcrImportWizardDialog({
     setDecisions((prev) => {
       const next = { ...prev }
       for (const t of transactions) {
-        next[t.rowIndex] = { ...(next[t.rowIndex] || { action: 'skip' }), action }
+        const merged = { ...(next[t.rowIndex] || { action: 'skip' }), action }
+        // Ua. mint az updateDecision-ben: a tömeges művelet-váltás sem hagyhat
+        // hátra olyan personId-t, amit a szerver úgyis eldobna.
+        if (merged.action !== 'income') {
+          delete merged.personId
+          delete merged.personName
+        }
+        next[t.rowIndex] = merged
       }
       return next
     })
@@ -522,6 +547,8 @@ export function BcrImportWizardDialog({
           categoryId: d.categoryId,
           transferTo: d.transferToKassza ? ('kassza' as const) : undefined,
           megjegyzes: d.note,
+          // 2026-08-27: a befizető tag — CSAK bevételnél (a core is csak ott írja).
+          personId: finalAction === 'income' ? d.personId : undefined,
           iratszam: finalIratszam,
         }
       })
@@ -1063,6 +1090,10 @@ export function BcrImportWizardDialog({
                             EDDIG IS LÉTEZETT — csak felület nem volt hozzá, ezért a
                             lelkész nem tudott megjegyzést fűzni egy-egy tételhez. */}
                         <th className="p-2 text-left font-medium text-slate-500">Megjegyzés</th>
+                        {/* 2026-08-27 (Endre 3. kérése): befizető tag. Csak bevételnél
+                            van értelme — a core `id_szemely`-t kizárólag a befizetes
+                            sorba ír. */}
+                        <th className="p-2 text-left font-medium text-slate-500">Befizető</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -1156,6 +1187,26 @@ export function BcrImportWizardDialog({
                                   }
                                   placeholder="saját megjegyzés…"
                                   className="h-8 text-xs"
+                                />
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </td>
+                            <td className="p-2 min-w-[200px]">
+                              {d.action === 'income' ? (
+                                <BankImportPersonPicker
+                                  value={
+                                    d.personId
+                                      ? { id: d.personId, name: d.personName || '' }
+                                      : null
+                                  }
+                                  onChange={(p) =>
+                                    updateDecision(t.rowIndex, {
+                                      personId: p?.id,
+                                      personName: p?.name,
+                                    })
+                                  }
+                                  suggestQuery={t.counterparty || t.description}
                                 />
                               ) : (
                                 <span className="text-slate-400">—</span>
