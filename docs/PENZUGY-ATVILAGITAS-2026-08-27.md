@@ -69,7 +69,26 @@ A 23-ból **hét** a `301.01` (*„Készpénzletétel a kasszából"*) kategóri
 
 Két független úton is kijön: a hét tétel összege 65 425, **és** a `301.01` összforgalma (153 280) mínusz a párjáé (`400.01` = 87 855) = **65 425** `[ADAT]`.
 
-**Következmény**: ez a pénz a kasszából ment a bankba. A banki oldal helyes, de a **kassza-oldali kimenő tétel sosem jött létre** — a kassza többet mutat a valóságnál, a bevétel-összesenbe pedig bekerült egy összeg, ami nem új bevétel.
+**Következmény**: ez a pénz a kasszából ment a bankba. A banki oldal helyes, de a
+**kassza-oldali kimenő tétel sosem jött létre**.
+
+⚠️ **KORREKCIÓ (2026-08-27):** korábban azt is állítottam, hogy „a bevétel-összesenbe
+bekerült egy összeg, ami nem új bevétel". **Ez téves volt.** A jelentések NEM a
+`belsotetel` zászló alapján zárják ki az átvezetéseket, hanem KÓD-ELŐTAG szerint
+`[KÓD]`:
+
+```ts
+const isInternal = (code, xkey) => !!xkey || /^[34]/.test(code) || code === '100' || …
+```
+
+A `301.01` hármassal kezdődik, tehát **párosító kulcs nélkül is kizáródik** — a
+szabály kommentje kifejezetten „a régi, xkey nélkül rögzített párok miatt" készült.
+Kilenc ilyen kizárási pont van hét fájlban (reporting.ts, AccountingTab,
+FinanceDashboard, a nyomtatási dialógusok, web és desktop egyaránt).
+
+**Tehát a Számadás bevétel-összesenje NEM felfújt.** Ami valóban fennáll: a
+kassza-oldali kiadás hiányzik, ezért a KÉSZPÉNZ-egyenleg lesz túl magas — de csak
+akkor, amikor a 2026-os készpénzkönyv betöltésre kerül (ma az üres).
 
 ### Az importot NEM szabad újrafuttatni
 
@@ -213,6 +232,24 @@ Az adomány/szponzor kategóriák `[ADAT]`:
 A fülhöz **két kész kapu-minta** van: hatókör-kapu (`gyulekezeti` prop) és jogosultság-kapu (`showAdminImport`) `[KÓD]`.
 
 ⚠️ A `DebtTab` több-éves oszlopos nézete **alvó képesség, nem működő minta** — egyetlen hívó sem adja át a `debtRowsByYear` propot `[KÓD]`. Ezt nem lehet mintaként másolni.
+
+---
+
+## ✅ LEZÁRVA — a `belsotetel` NULL-ok ártalmatlanok
+
+A 2. körben jeleztem, hogy a `szamadasicel.belsotetel` csak a `300.01`-nél és a
+`402.02`-nél van kitöltve, a `301.01` / `400.01` / `401.01` viszont aktív és
+JELÖLETLEN — és felvetettem a kettős számbavétel veszélyét.
+
+**Mérés után: nincs teendő** `[KÓD]`. A `szamadasicel.belsotetel` oszlopot az
+alkalmazásban **SEMMI nem olvassa** (grep: a `belsotetel` csak a `befizetescel` és
+`kiadascel` lekérdezésekben szerepel, és ott sem szűrésre). Az átvezetések kizárása
+mindenhol KÓD-ELŐTAG alapján történik (`/^[34]/`), ami a NULL zászlótól függetlenül
+helyesen működik.
+
+Az `UPDATE szamadasicel SET belsotetel = id` tehát **nem szükséges**, sőt fölösleges
+kockázat lenne: egy nem olvasott oszlop módosítása nem javít semmit, viszont a
+jövőben félrevezetheti azt, aki ráépít.
 
 ---
 
