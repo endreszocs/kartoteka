@@ -60,8 +60,12 @@ BEGIN
     END IF;
 
     IF v_ro IS DISTINCT FROM v_vart THEN
+      -- ⚠️ A `%%` a PL/pgSQL RAISE-ben LITERÁLIS százalékjel, NEM helyőrző.
+      --    Az első változatban `„%%"`-t írtam, így a formátumban egyetlen
+      --    helyőrző maradt, miközben három argumentumot adtam át:
+      --    „42601: too many parameters specified for RAISE".
       RAISE EXCEPTION
-        'ELŐFELTÉTEL: a % azonosítójú település neve „%%", nem „%%" — az azonosítók elcsúsztak, NE írjunk bele.',
+        'ELŐFELTÉTEL: a % azonosítójú település neve „%", nem „%" — az azonosítók elcsúsztak, NE írjunk bele.',
         v_id, v_ro, v_vart;
     END IF;
   END LOOP;
