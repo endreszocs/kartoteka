@@ -11,7 +11,16 @@ Ami nincs megjelölve, az következtetés — és ilyet szándékosan alig hagyt
 ## 0. A legfontosabb két mondat
 
 **A banki import kiadás-oldala 100%-ban elhasal, és a megbukott import 65 425 RON fantom bevételt hagyott a könyvben.**
-**Az importot javítás előtt újrafuttatni tilos — a duplikátum-védelem a banki sorokra nem működik, a 23 bement tétel megduplázódna.**
+
+A hét pár nélküli átvezetésről a rendszer **semmilyen figyelmeztetést nem adott**, mert a
+párosítatlan-átvezetés őre csak a MÁR párosított sorokat nézte — pontosan azokat szűrte
+ki, amiket jeleznie kellett volna.
+
+> **Két korábbi állításomat vissza kellett vonnom** (mindkettő repó-alapú következtetés
+> volt, nem mérés): (1) az újraimport **nem** duplikálna — alkalmazás-szinten van
+> fail-closed duplikátum-védelem; (2) az Excel és az app 2025-ös készpénz zárója
+> **egyezik** — a jelzett 4 795 lejes eltérés az én kevert év-fogalmú számításom hibája volt.
+> A részletek a megfelelő szakaszoknál.
 
 ---
 
@@ -72,7 +81,15 @@ WHERE deleted = false AND irattipus ~~* '%észpénz%' AND belso_mozgas_xkey IS N
 
 A tényleges `irattipus` értékek `[ADAT]`: kiadásnál `Extr` (142), `OP` (65), `Fact.+Bon.` (43), `Bon fiscal` (19), `Chit.` (8) — **egyik sem** tartalmazza, hogy „észpénz". Befizetésnél csak a 70 `Készpénz` sor.
 
-**Vagyis a `uniq_kiadas_iratszam_year_congregation` index jelenleg pontosan nulla sort véd.** Egy újraimport duplikálna.
+**Vagyis a `uniq_kiadas_iratszam_year_congregation` index jelenleg pontosan nulla sort véd.**
+
+⚠️ **KORREKCIÓ (2026-08-27):** ebből korábban azt vontam le, hogy az újraimport
+duplikálna. **Ez téves volt.** Az adatbázis-index valóban inert, DE alkalmazás-szinten
+VAN működő, **fail-closed** duplikátum-védelem `[KÓD]`: `hasExistingBankTransaction()`
+— `congregation_id` + `bankszamla_id` + `datum` + `osszeg` ±0,01, és a varázsló a
+találatot „N duplikátum (már szerepelt a rendszerben)" címkével ki is írja.
+Az első importnál azért mutatott nullát, mert még nem volt mihez képest duplikálni.
+**Az újraimport tehát biztonságos.**
 
 Ráadásul az iratszám erre **soha nem is lesz alkalmas**: az `Extr` a havi kivonatszám, ami természetesen ismétlődik, a `Chit.` nyugta pedig több tételsort fedhet — mindkettő szándékos. Új ujjlenyomat kell: **bankszámla + dátum + összeg + a közlemény normalizált kivonata**.
 
@@ -304,6 +321,38 @@ A kézi rögzítés **egy közös kapun** megy: `CombinedEntryBody.handleSave()`
 - ✅ `pg_trgm v1.6` és `unaccent v1.1` **telepítve** `[SÉMA]`
 - ❌ A teljesítmény-index (`idx_befizetes_dup_lookup`, `idx_kiadas_dup_lookup`) **NEM létezik élesben** `[SÉMA]` — a migrációs fájl megvan, de sosem futott le
 - ⚠️ A két kész fuzzy implementáció **web-only** — a megosztott `CombinedEntryBody` egyiket sem éri el `[KÓD]`
+
+---
+
+---
+
+## ✅ LEZÁRVA — az Excel és az app 2025-ös készpénz zárója EGYEZIK
+
+Korábban 4 795,00 lej eltérést jeleztem az app (1 668,74) és az Excel (6 463,74)
+között. **Ez az én mérési hibám volt, nem a rendszeré** — az 5. kör tisztázta `[ADAT]`:
+
+| Számítás | Eredmény |
+|---|---|
+| (A) `fizetettev` szerint | 12 519,86 + 101 952 − 112 803,12 = **1 668,74** |
+| (B) `datum` szerint | 12 519,86 + **106 747** − 112 803,12 = **6 463,74** |
+| Excel `Kassza!H3` | **6 463,74** ✅ |
+
+A 4b. körben a bevételt `fizetettev`, a kiadást viszont `datum` szerint összegeztem —
+két különböző év-fogalom keverve. A `datum` szerinti számítás **karakterre egyezik**
+az Excellel.
+
+A különbséget 35 db, 2025-ben befolyt, de korábbi évekre (2021–2024) szóló
+**hátralékos járulékfizetés** és 2 db 2026-ra szóló előre fizetés adja — összegük
+pontosan 4 795,00 `[ADAT]`.
+
+**A rendszer helyesen és következetesen használja a két fogalmat** `[KÓD]`:
+
+| Fogalom | Hol | Mire |
+|---|---|---|
+| `datum` | `getYearFinanceRecords`, `resolve-nyito` | pénzmozgás: egyenleg, Számadás, nyitó-áthozatal |
+| `fizetettev` | tagonkénti járulék-lekérdezések | „melyik évre szól" — hátralék-nyilvántartás |
+
+A 2026-os készpénz nyitó tehát **6 463,74** lesz, egyezően az Excellel.
 
 ---
 
