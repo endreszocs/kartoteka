@@ -1106,6 +1106,10 @@ export function BcrImportWizardBody({
                     <th className="p-2 text-left font-medium text-slate-500">Művelet</th>
                     <th className="p-2 text-left font-medium text-slate-500">Kategória</th>
                     <th className="p-2 text-left font-medium text-slate-500">Iratszám</th>
+                    {/* 2026-08-27 (Endre 4. kérése): szerkeszthető megjegyzés.
+                        A `note` mező és a szerver-átadás (`megjegyzes: d.note`)
+                        EDDIG IS LÉTEZETT — csak felület nem volt hozzá. */}
+                    <th className="p-2 text-left font-medium text-slate-500">Megjegyzés</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1183,6 +1187,21 @@ export function BcrImportWizardBody({
                                 updateDecision(t.rowIndex, { iratszam: e.target.value })
                               }
                               placeholder="pl. 123/2026"
+                              className="h-8 text-xs"
+                            />
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="p-2 min-w-[180px]">
+                          {d.action !== 'skip' ? (
+                            <Input
+                              type="text"
+                              value={d.note ?? ''}
+                              onChange={(e) =>
+                                updateDecision(t.rowIndex, { note: e.target.value })
+                              }
+                              placeholder="saját megjegyzés…"
                               className="h-8 text-xs"
                             />
                           ) : (
