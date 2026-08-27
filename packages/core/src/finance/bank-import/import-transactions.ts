@@ -299,26 +299,44 @@ async function findUnpairedCashCounterpart(
 }
 
 /**
- * Kiadás-sor beszúrása a legacy séma kétlépcsős (reference → canonical) fallback-jával.
+ * Kiadás-sor beszúrása a `kiadas` tábla MAI sémája szerint.
  * Az `id`-t `.select('id').single()`-lel kérjük vissza (Excel-write-through-hoz).
+ *
+ * 2026-08-27 — A KORÁBBI KÉTLÉPCSŐS „reference → canonical” FALLBACK ELTÁVOLÍTVA.
+ * Nulla védelmet adott, viszont elrejtette a valódi hibát, és élesben MINDEN
+ * banki kiadás-sort megbuktatott (93 hibás sor egyetlen importban). Három
+ * független okból volt halott:
+ *   1. a `reference` a `canonical` SPREADJE volt (`{ ...canonical, … }`), így egy
+ *      nem létező oszlop MINDKÉT próbálkozást ugyanúgy megbuktatta;
+ *   2. a hívók `kedvezmenyzett` néven adták át a partnert — ilyen oszlop a
+ *      `kiadas` táblán SOHA nem létezett (élesben igazolva, information_schema);
+ *   3. a `canonical` a NOT NULL `xkey` és `nyugta` oszlopokat nem is tartalmazta,
+ *      tehát a „tartalék” ág önmagában sem sikerülhetett volna.
+ *
+ * A `kiadas` partner-oszlopa `atvevo`, a személy-hivatkozásé `atvevoid`.
+ * NE tévesszen meg a `kedvezmenyezett_cui` (más cél) és a megyei/kerületi
+ * tükör-táblák `kedvezmenyezett` oszlopa (egy plusz „e”, MÁS tábla).
+ *
+ * A partnert KÜLÖN paraméterként kérjük, hogy a hívó ne tudja véletlenül
+ * rossz oszlopnéven becsempészni a mezők közé.
  */
-async function insertKiadasWithFallback(
+async function insertKiadas(
   supabase: SupabaseClient,
-  canonical: Record<string, unknown>,
+  fields: Record<string, unknown>,
+  partner: string | null,
   userId: string,
 ): Promise<{ error: { message: string } | null; id: number | null }> {
-  const reference: Record<string, unknown> = {
-    ...canonical,
-    nyugta: canonical.iratszam,
-    xkey: generateXkey20(),
-    atvevo: canonical.kedvezmenyzett ?? null,
+  const payload: Record<string, unknown> = {
+    ...fields,
+    // A `kiadas` NOT NULL oszlopai, alapérték nélkül: xkey, nyugta, userid,
+    // iratszam, irattipus, datum, osszeg, id_kiadascel, deleted.
+    atvevo: partner,
     atvevoid: null,
+    nyugta: fields.iratszam,
+    xkey: generateXkey20(),
     userid: userId,
   }
-  let ins = await supabase.from('kiadas').insert([reference]).select('id').single()
-  // 2026-07-11 (S6): a canonical fallback-ba is kell a userid (NOT NULL) —
-  // enélkül a fallback-ág garantáltan elbukott volna.
-  if (ins.error) ins = await supabase.from('kiadas').insert([{ ...canonical, userid: userId }]).select('id').single()
+  const ins = await supabase.from('kiadas').insert([payload]).select('id').single()
   if (ins.error) return { error: ins.error, id: null }
   return { error: null, id: (ins.data?.id as number | undefined) ?? null }
 }
@@ -620,34 +638,27 @@ export async function importBankTransactionsUseCase(
           })
           continue
         }
-        const canonical: Record<string, unknown> = {
-          osszeg: Math.abs(item.amount),
-          osszeg_ron: expOsszegRon,
-          arfolyam: expArfolyam,
-          datum: item.date,
-          id_kiadascel: item.categoryId,
-          kedvezmenyzett: item.counterparty || item.description.slice(0, 100),
-          iratszam: docNumber,
-          irattipus: 'banki',
-          bankszamla_id: item.bankszamlaId,
-          megjegyzes: item.megjegyzes || item.description,
-          deleted: false,
-          congregation_id: congregationId,
-          // 2026-07-11 (S6): a userid NEM legacy oszlop — a canonical változatban
-          // is kötelező (NOT NULL), különben a fallback-ág sosem sikerülhet.
-          userid: userId,
-        }
-        const reference: Record<string, unknown> = {
-          ...canonical,
-          nyugta: docNumber,
-          xkey: generateXkey20(),
-          atvevo: item.counterparty || item.description.slice(0, 100),
-          atvevoid: null,
-        }
-        let ins = await supabase.from('kiadas').insert([reference]).select('id').single()
-        if (ins.error) {
-          ins = await supabase.from('kiadas').insert([canonical]).select('id').single()
-        }
+        // 2026-08-27: a partner KÜLÖN megy az insertKiadas()-nak — a mezők közé
+        // korábban `kedvezmenyzett` néven került, ami nem létező oszlop.
+        const expPartner = item.counterparty || item.description.slice(0, 100)
+        const ins = await insertKiadas(
+          supabase,
+          {
+            osszeg: Math.abs(item.amount),
+            osszeg_ron: expOsszegRon,
+            arfolyam: expArfolyam,
+            datum: item.date,
+            id_kiadascel: item.categoryId,
+            iratszam: docNumber,
+            irattipus: 'banki',
+            bankszamla_id: item.bankszamlaId,
+            megjegyzes: item.megjegyzes || item.description,
+            deleted: false,
+            congregation_id: congregationId,
+          },
+          expPartner,
+          userId,
+        )
         if (ins.error) {
           result.errors.push({ rowIndex: item.rowIndex, error: ins.error.message })
         } else {
@@ -655,7 +666,7 @@ export async function importBankTransactionsUseCase(
           result.importedRows.push({
             rowIndex: item.rowIndex,
             side: 'expense',
-            id: (ins.data?.id as number | undefined) ?? 0,
+            id: ins.id ?? 0,
             iratszam: docNumber,
             bankszamlaId: item.bankszamlaId,
             date: item.date,
@@ -756,16 +767,19 @@ export async function importBankTransactionsUseCase(
             megjegyzes: item.megjegyzes || item.description || null,
           })
         } else {
-          const canonical: Record<string, unknown> = {
-            osszeg: absAmount, datum: item.date,
-            id_kiadascel: item.categoryId ?? null,
-            kedvezmenyzett: 'Belső mozgás — kasszába',
-            iratszam: docNumber, irattipus: 'banki',
-            bankszamla_id: item.bankszamlaId, belso_mozgas_xkey: xkey,
-            megjegyzes: item.megjegyzes || item.description,
-            deleted: false, congregation_id: congregationId,
-          }
-          const insRes = await insertKiadasWithFallback(supabase, canonical, userId)
+          const insRes = await insertKiadas(
+            supabase,
+            {
+              osszeg: absAmount, datum: item.date,
+              id_kiadascel: item.categoryId ?? null,
+              iratszam: docNumber, irattipus: 'banki',
+              bankszamla_id: item.bankszamlaId, belso_mozgas_xkey: xkey,
+              megjegyzes: item.megjegyzes || item.description,
+              deleted: false, congregation_id: congregationId,
+            },
+            'Belső mozgás — kasszába',
+            userId,
+          )
           if (insRes.error) {
             result.errors.push({ rowIndex: item.rowIndex, error: `Bank oldal: ${insRes.error.message}` })
             continue
@@ -809,16 +823,19 @@ export async function importBankTransactionsUseCase(
               continue
             }
           } else {
-            const canonical: Record<string, unknown> = {
-              osszeg: absAmount, datum: item.date,
-              id_kiadascel: item.categoryId ?? null,
-              kedvezmenyzett: isKasszaTarget ? 'Belső mozgás — bankba' : 'Belső mozgás — másik számlára',
-              iratszam: docNumber, irattipus: cpIrattipus,
-              bankszamla_id: counterpartBankId, belso_mozgas_xkey: xkey,
-              megjegyzes: item.megjegyzes || item.description,
-              deleted: false, congregation_id: congregationId,
-            }
-            const insRes = await insertKiadasWithFallback(supabase, canonical, userId)
+            const insRes = await insertKiadas(
+              supabase,
+              {
+                osszeg: absAmount, datum: item.date,
+                id_kiadascel: item.categoryId ?? null,
+                iratszam: docNumber, irattipus: cpIrattipus,
+                bankszamla_id: counterpartBankId, belso_mozgas_xkey: xkey,
+                megjegyzes: item.megjegyzes || item.description,
+                deleted: false, congregation_id: congregationId,
+              },
+              isKasszaTarget ? 'Belső mozgás — bankba' : 'Belső mozgás — másik számlára',
+              userId,
+            )
             if (insRes.error) {
               result.errors.push({ rowIndex: item.rowIndex, error: `Másik oldal: ${insRes.error.message}` })
               continue

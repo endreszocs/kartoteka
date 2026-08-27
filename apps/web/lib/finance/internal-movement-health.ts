@@ -19,6 +19,25 @@
  * mindig a valós adatból számolunk, nincs beragadó státusz.
  */
 
+/**
+ * A kanonikus belső-mozgás számadási kódok.
+ *
+ * SZÁNDÉKOSAN itt, helyben — ez a modul tiszta számítás, nem függhet a UI-csomagtól
+ * (a `@/lib/constants/finance` a teljes `@kartoteka/ui-app` barrelt re-exportálja,
+ * benne React-komponensekkel).
+ *
+ * A széthúzás ellen ŐRSZEM véd: a `scripts/selftest-belso-mozgas-figyelmeztetes.mjs`
+ * összeveti ezt a készletet a `BELSO_MOZGAS_ROGZITO_KODS`-szal
+ * (packages/ui-app/src/finance/types.ts), és bukik, ha eltérnek.
+ */
+export const BELSO_MOZGAS_KODOK: ReadonlySet<string> = new Set([
+  '300.01',
+  '301.01',
+  '400.01',
+  '401.01',
+  '402.02',
+])
+
 export interface InternalMovementRow {
   id: number
   osszeg: number
@@ -36,6 +55,11 @@ export interface InternalMovementRow {
   /** 2026-07-10 (ÚJ #1): kassza (null) vs bank (id) oldal — a párosítás CSAK ellentétes
    *  helyszínű feleket köthet össze (kassza↔bank, vagy két KÜLÖNBÖZŐ bankszámla). */
   bankszamla_id?: number | null
+  /** 2026-08-27: a tétel számadási kódja (pl. '301.01'). AZÉRT KELL, mert egy sor akkor is
+   *  belső mozgás, ha `belso_mozgas_xkey` NÉLKÜL keletkezett — élesben pontosan ez történt:
+   *  a banki import 7 db kassza→bank letétet SIMA BEVÉTELKÉNT írt be a 301.01 kódra,
+   *  párosító kulcs nélkül, és az egészség-ellenőrzés ezért NEM LÁTTA ŐKET. */
+  szamadasicelKod?: string | null
 }
 
 export interface UnpairedMovement {
@@ -45,10 +69,16 @@ export interface UnpairedMovement {
    *  'income'  = a BEFIZETÉS-oldal párja hiányzik (pl. banki jóváírás, de a kasszában/másik számlán nincs). */
   side: 'income' | 'expense'
   description: string
+  /** 2026-08-27: nincs párosító kulcsa — NEM a belső mozgás rögzítőn keresztül készült.
+   *  Ez NEM oldódik meg magától egy banki importtól: emberi döntés kell hozzá. */
+  orphan: boolean
 }
 
 export interface InternalMovementHealth {
   unpairedCount: number
+  /** 2026-08-27: ebből hány ÁRVA (párosító kulcs nélküli) — ezek NEM oldódnak meg
+   *  maguktól egy banki importtól, emberi döntést igényelnek. */
+  orphanCount: number
   items: UnpairedMovement[]
   /** A párosítatlan belső-mozgás sorok azonosítói (befizetes/kiadas id) — a táblában a piros
    *  „nincs banki párja" jelzéshez. Ami NINCS benne, az párosítva van (nem „várakozik"). */
@@ -69,7 +99,11 @@ const PAIRING_WINDOW_DAYS = 7
 
 /**
  * Kiszámolja a párosítatlan belső mozgásokat a befizetés + kiadás listából.
- * Csak a `belso_mozgas_xkey != null`, nem törölt, nem sztornózott sorok számítanak.
+ *
+ * Egy sor akkor belső mozgás, ha VAN `belso_mozgas_xkey`-e, VAGY a `szamadasicelKod`-ja
+ * a kanonikus belső-mozgás kódok egyike. (2026-08-27 előtt CSAK az első feltétel élt —
+ * ezért a párosító kulcs nélkül keletkezett sorok láthatatlanok voltak az őr számára,
+ * pedig épp azok a hibásak.) Törölt és sztornózott sorok mindkét esetben kimaradnak.
  *
  * Párosítás: minden KIADÁS-félhez megkeressük a legközelebbi, AZONOS ÖSSZEGŰ, még szabad
  * BEVÉTEL-felet, ha a dátumeltérés a `PAIRING_WINDOW_DAYS`-en belül van (a két fél dátuma
@@ -79,8 +113,16 @@ export function computeInternalMovementHealth(
   income: InternalMovementRow[],
   expense: InternalMovementRow[],
 ): InternalMovementHealth {
+  // 2026-08-27 — VAKFOLT JAVÍTVA. A korábbi feltétel `!!r.belso_mozgas_xkey` volt,
+  // vagyis az őr CSAK a MÁR PÁROSÍTOTT sorokat nézte, és pontosan azokat szűrte ki,
+  // amiket jeleznie kellett volna. Élesben így maradt néma 7 db kassza→bank letét
+  // (65 425 RON), amit a banki import sima bevételként írt be a 301.01 kódra.
+  // Egy sor MOSTANTÓL akkor is belső mozgás, ha csak a KATEGÓRIÁJA az.
+  const isInternal = (r: InternalMovementRow) =>
+    !!r.belso_mozgas_xkey ||
+    (!!r.szamadasicelKod && BELSO_MOZGAS_KODOK.has(r.szamadasicelKod))
   const isActive = (r: InternalMovementRow) =>
-    !!r.belso_mozgas_xkey && !r.deleted && !r.stornozott && !!r.datum
+    isInternal(r) && !r.deleted && !r.stornozott && !!r.datum
 
   type Half = {
     id: number
@@ -93,6 +135,10 @@ export function computeInternalMovementHealth(
     osszeg: number
     matched: boolean
     bank: number | null | undefined
+    /** 2026-08-27: nincs párosító kulcsa — vagyis NEM a belső mozgás rögzítőn
+     *  keresztül keletkezett (pl. a banki import sima bevételként hozta be).
+     *  Más üzenetet érdemel, mint a „a másik oldal még nincs importálva" eset. */
+    orphan: boolean
   }
   const toHalf = (r: InternalMovementRow): Half => {
     const ron = Number(r.osszeg_ron ?? r.osszeg) || 0
@@ -101,7 +147,10 @@ export function computeInternalMovementHealth(
     const foreign =
       (r.arfolyam != null && Number(r.arfolyam) !== 1) ||
       (r.osszeg_ron != null && ronCents !== cents)
-    return { id: r.id, datum: r.datum!, cents, ronCents, foreign, osszeg: r.osszeg, matched: false, bank: r.bankszamla_id }
+    return {
+      id: r.id, datum: r.datum!, cents, ronCents, foreign, osszeg: r.osszeg,
+      matched: false, bank: r.bankszamla_id, orphan: !r.belso_mozgas_xkey,
+    }
   }
   const incomes: Half[] = income.filter(isActive).map(toHalf)
   const expenses: Half[] = expense.filter(isActive).map(toHalf)
@@ -157,8 +206,10 @@ export function computeInternalMovementHealth(
       datum: e.datum.slice(0, 10),
       osszeg: e.osszeg,
       side: 'expense',
-      description:
-        'Belső mozgás kiadás-oldala rögzítve (pl. kasszai letétel a bankba), de a fogadó oldal (banki jóváírás) még nincs egyeztetve — importáld a banki kivonatot.',
+      orphan: e.orphan,
+      description: e.orphan
+        ? 'Ez a tétel belső mozgás kategóriába került (pénz átvezetése két saját számla között), de NINCS párja, és nem is a belső mozgás rögzítőn keresztül készült. Ellenőrizd: valóban átvezetés, vagy tévedésből került ebbe a kategóriába? Amíg pár nélkül áll, torzítja a kiadás-összesent.'
+        : 'Belső mozgás kiadás-oldala rögzítve (pl. kasszai letétel a bankba), de a fogadó oldal (banki jóváírás) még nincs egyeztetve — importáld a banki kivonatot.',
     })
   }
   for (const inc of incomes) {
@@ -168,13 +219,20 @@ export function computeInternalMovementHealth(
       datum: inc.datum.slice(0, 10),
       osszeg: inc.osszeg,
       side: 'income',
-      description:
-        'Belső mozgás befizetés-oldala rögzítve, de a kiadás-oldali párja (honnan érkezett a pénz) még hiányzik — importáld/egyeztesd a másik számlát.',
+      orphan: inc.orphan,
+      description: inc.orphan
+        ? 'Ez a tétel belső mozgás kategóriába került (pl. „Készpénzletétel a kasszából"), de NINCS párja, és nem is a belső mozgás rögzítőn keresztül készült — tipikusan banki importból származik. Amíg a kassza-oldali párja hiányzik, a rendszer ÚJ BEVÉTELNEK látja, pedig csak a saját pénz átvezetése: ez felfújja a bevétel-összesent.'
+        : 'Belső mozgás befizetés-oldala rögzítve, de a kiadás-oldali párja (honnan érkezett a pénz) még hiányzik — importáld/egyeztesd a másik számlát.',
     })
   }
 
   // Rendezés: legújabb dátum elöl
   items.sort((a, b) => (a.datum < b.datum ? 1 : a.datum > b.datum ? -1 : 0))
 
-  return { unpairedCount: items.length, items, unpairedIds }
+  return {
+    unpairedCount: items.length,
+    orphanCount: items.filter((i) => i.orphan).length,
+    items,
+    unpairedIds,
+  }
 }

@@ -23,6 +23,36 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-27] — A banki import kiadás-oldala és a néma átvezetés-figyelmeztetés
+<!-- key: 2026-08-27-banki-import-kiadas-oldal -->
+<!-- category: bugfix -->
+<!-- version: 0.9.187 -->
+<!-- targets: lelkipásztorok, gondnokok -->
+
+### 🐛 Javítások
+
+- **A banki import kiadás-oldala mostantól működik**: eddig a kivonatból importált
+  minden kiadás-tétel hibára futott („Could not find the 'kedvezmenyzett' column"),
+  és egyetlen kiadás sem került be. A rendszer rossz néven próbálta menteni a partner
+  nevét. Javítva — az importált kiadások innentől rendben rögzülnek.
+
+- **Eltávolítottuk a hamis biztonságot adó „tartalék mentést"**: a program két
+  lépésben próbálta menteni a kiadást, de a második próbálkozás ugyanazon a hibán
+  bukott el, mint az első. Ez elrejtette a valódi okot. Mostantól egyetlen, helyes
+  mentési út van, és a hiba — ha van — azonnal beszédesen kiderül.
+
+### 🎨 UX javítások
+
+- **Figyelmeztetés a párosítatlan átvezetésekre**: ha egy kassza ↔ bank átvezetésnek
+  csak az egyik oldala van meg, a Pénzügy oldal eddig is jelzett — de CSAK akkor, ha
+  a tétel az átvezetés-rögzítőn keresztül készült. A banki importból érkező, pár
+  nélküli átvezetések **láthatatlanok maradtak**, pedig épp azok a hibásak: a rendszer
+  új bevételnek látja őket, pedig csak a saját pénz átrakása egyik helyről a másikra,
+  és így felfújják a bevétel-összesent. Mostantól ezek is megjelennek a figyelmeztetésben,
+  külön kiemelve, hogy **nem rendeződnek maguktól** — ellenőrzést igényelnek.
+
+---
+
 ## [2026-08-27] — A magyar cím és a lábléc rendbetétele
 <!-- key: 2026-08-27-magyar-cim-lablec -->
 <!-- category: bugfix -->

@@ -406,9 +406,23 @@ export function FinanceTabs({
   const currentYearMissing = receiptHealth.missingNumbers.filter((n) => !prevYearMissingSet.has(n))
 
   // Belső mozgás párosítás-egészség — párosítatlan kassza↔bank letétel/felvét (red flag).
+  // 2026-08-27: a KATEGÓRIAKÓDOT is átadjuk. Enélkül az őr csak a már párosított
+  // (belso_mozgas_xkey-vel rendelkező) sorokat látta, és pontosan azokat szűrte ki,
+  // amiket jeleznie kellett volna — élesben így maradt néma 7 db kassza→bank letét,
+  // amit a banki import sima bevételként hozott be a 301.01 kódra.
   const internalMovementHealth = useMemo(
-    () => computeInternalMovementHealth(incomeRecords, expenseRecords),
-    [incomeRecords, expenseRecords],
+    () =>
+      computeInternalMovementHealth(
+        incomeRecords.map((r) => ({
+          ...r,
+          szamadasicelKod: r.id_befizetescel != null ? bevCelMap[r.id_befizetescel] ?? null : null,
+        })),
+        expenseRecords.map((r) => ({
+          ...r,
+          szamadasicelKod: r.id_kiadascel != null ? kiaCelMap[r.id_kiadascel] ?? null : null,
+        })),
+      ),
+    [incomeRecords, expenseRecords, bevCelMap, kiaCelMap],
   )
 
   return (
@@ -667,14 +681,34 @@ export function FinanceTabs({
                   oldala szerepel. A párja a banki kivonat importja és egyeztetése után
                   automatikusan létrejön, és ez a jelzés magától eltűnik.
                 </p>
+                {/* 2026-08-27: az ÁRVA sorok NEM oldódnak meg maguktól egy importtól —
+                    ezeket a felhasználónak kell eldöntenie, ezért külön mondatot kapnak.
+                    A fenti általános szöveg rájuk nézve félrevezető ígéret lenne. */}
+                {internalMovementHealth.orphanCount > 0 && (
+                  <p className="mt-2 rounded-xl bg-red-100/70 px-3 py-2 text-sm font-medium text-red-800">
+                    Ebből {internalMovementHealth.orphanCount} tétel belső mozgás
+                    kategóriában áll, de <strong>nem a belső mozgás rögzítőn keresztül</strong>{' '}
+                    készült — tipikusan banki importból. Ezek <strong>nem rendeződnek
+                    maguktól</strong>: amíg pár nélkül állnak, a rendszer új bevételnek
+                    látja őket, pedig csak a saját pénz átvezetése. Ellenőrizd őket.
+                  </p>
+                )}
               </div>
               <div className="space-y-1">
                 {internalMovementHealth.items.slice(0, 5).map((m, i) => (
                   <p key={`${m.datum}-${m.osszeg}-${i}`} className="text-xs text-slate-700">
                     <strong>{m.datum}</strong> · {m.osszeg.toLocaleString('hu-HU')} RON —{' '}
-                    {m.side === 'expense'
-                      ? 'kiadás-oldal rögzítve, a fogadó (banki) oldal hiányzik'
-                      : 'befizetés-oldal rögzítve, a küldő oldal hiányzik'}
+                    {m.orphan ? (
+                      <span className="font-medium text-red-700">
+                        {m.side === 'expense'
+                          ? 'belső mozgás kategória, pár és párosító kulcs nélkül — ellenőrizendő'
+                          : 'belső mozgás kategóriába importálva, pár nélkül — felfújja a bevételt'}
+                      </span>
+                    ) : m.side === 'expense' ? (
+                      'kiadás-oldal rögzítve, a fogadó (banki) oldal hiányzik'
+                    ) : (
+                      'befizetés-oldal rögzítve, a küldő oldal hiányzik'
+                    )}
                   </p>
                 ))}
                 {internalMovementHealth.items.length > 5 && (
