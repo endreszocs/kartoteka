@@ -10,17 +10,26 @@ Ami nincs megjelölve, az következtetés — és ilyet szándékosan alig hagyt
 
 ## 0. A legfontosabb két mondat
 
-**A banki import kiadás-oldala 100%-ban elhasal, és a megbukott import 65 425 RON fantom bevételt hagyott a könyvben.**
+**A banki import kiadás-oldala 100%-ban elhasal** — egyetlen importban 93 sor bukott el,
+és a bevétel-oldalon **hét pár nélküli átvezetés** (65 425 RON) maradt a könyvben.
 
 A hét pár nélküli átvezetésről a rendszer **semmilyen figyelmeztetést nem adott**, mert a
 párosítatlan-átvezetés őre csak a MÁR párosított sorokat nézte — pontosan azokat szűrte
 ki, amiket jeleznie kellett volna.
 
-> **Két korábbi állításomat vissza kellett vonnom** (mindkettő repó-alapú következtetés
-> volt, nem mérés): (1) az újraimport **nem** duplikálna — alkalmazás-szinten van
-> fail-closed duplikátum-védelem; (2) az Excel és az app 2025-ös készpénz zárója
-> **egyezik** — a jelzett 4 795 lejes eltérés az én kevert év-fogalmú számításom hibája volt.
-> A részletek a megfelelő szakaszoknál.
+> **HÁROM korábbi állításomat vissza kellett vonnom.** Mind a három ugyanabból fakadt:
+> a repóból következtettem a HATÁSRA, ahelyett hogy megmértem volna.
+>
+> 1. „Az újraimport duplikálna" — **nem duplikál**: alkalmazás-szinten van fail-closed
+>    duplikátum-védelem (a DB-index valóban inert, de nem az az egyetlen védelem).
+> 2. „Az Excel és az app 2025-ös készpénz zárója 4 795 lejjel eltér" — **egyezik**;
+>    az én számításom keverte a `fizetettev` és a `datum` év-fogalmat.
+> 3. „A 65 425 felfújja a Számadás bevétel-összesenjét" — **nem fújja fel**: minden
+>    jelentés kód-előtag szerint (`/^[34]/`) zárja ki az átvezetéseket, párosító
+>    kulcstól függetlenül.
+>
+> A részletek a megfelelő szakaszoknál. A tanulság: egy lelet LÉTEZÉSE és a HATÁSA
+> két külön kérdés — a másodikat is meg kell mérni.
 
 ---
 
