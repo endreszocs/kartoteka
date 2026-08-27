@@ -37,12 +37,34 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
        **egyházmegye és egyházkerület román neve ❌ NINCS** (adathiány, nem
        kódhiba — a felület ilyenkor a magyart mutatja egyedül).
 
-- [ ] **`2026-08-27-gyulekezeti-oldal-ketnyelvu-elerhetoseg.sql`** — PENDING
-       Indok: a v0.9.185 deploy megtörtént, Endre SQL Editor-futtatására vár.
+- [x] 2026-08-27 — **`2026-08-27-gyulekezeti-oldal-ketnyelvu-elerhetoseg.sql`** ✅ LEFUTOTT
+       Mind az 5 kapu zöld. A 4. kapu igazolta, hogy a kétnyelvű cím TÉNYLEG
+       két különböző szöveg. Az 5. sor jelezte a hiányzó román egyházmegye- és
+       egyházkerület-nevet (adathiány — a felület ilyenkor a magyart mutatja).
        Hatás: ÚJ, önhordó `public.public_site_identitas(text)` RPC — a
        gyülekezet hivatalos neve, címe (kétnyelvűen), e-mail, telefon,
        egyházmegye és egyházkerület. Nem módosít meglévő függvényt.
        Amíg nem fut le, a weboldal az egynyelvű alakot mutatja (néma tartalék).
+
+- [x] 2026-08-27 — **`2026-08-27-ALLAPOTFELMERES-ketnyelvu-elerhetoseg.sql`** ✅ LEFUTOTT
+       ⚠️ Az ÍTÉLET-sora ELŐSZÖR „✅ teljes"-t jelentett a címre, holott CSAK a
+       `name_ro`-t nézte — a `name_hu` hiányzott, és a magyar cím a román alakra
+       esett vissza. **A félig ellenőrzött kapu rosszabb a nyitottnál.**
+       Javítva: most mindkét nyelvet nézi, mindkét szinten, és megnevezi a
+       hiányzó felet.
+
+- [x] 2026-08-27 — **`2026-08-27-magyar-telepulesnevek-potlasa.sql`** ✅ LEFUTOTT (csak olvas)
+       3 települést talált, ahol gyülekezet van, de az `adrlocality.name_hu` üres.
+
+- [x] 2026-08-27 — **`2026-08-27-magyar-telepulesnevek-KITOLTVE.sql`** ✅ LEFUTOTT
+       Brateş → Barátos, Ozun → Uzon, Sfântu Gheorghe → Sepsiszentgyörgy.
+       Mindhárom név a gyülekezet SAJÁT magyar nevéből levezetve (nem külső
+       tudásból). Élesben igazolva: a magyar cím már
+       „Parohiei 214, 527050 **Barátos**, Kovászna megye".
+       ⚠️ Az első kiadás elszállt: `42601 too many parameters specified for RAISE`
+       — a `%%` a PL/pgSQL RAISE-ben LITERÁLIS százalékjel, nem helyőrző.
+       Ezért készült a `scripts/selftest-sql-raise-helyorzo.mjs` őrszem, ami
+       MINDEN migráció MINDEN RAISE-ét ellenőrzi (1468 utasítás, 471 fájl).
 
 ---
 
