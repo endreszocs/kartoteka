@@ -4,6 +4,7 @@ import { Mail, Phone, MapPin, ExternalLink } from 'lucide-react'
 import type { PublicSiteData } from '@/lib/public-site/site-loader'
 import { PublicCrest } from './public-crest'
 import { buildMapSearchUrl } from '@/lib/public-site/map-link'
+import type { PublicIdentitas } from '@/lib/public-site/identitas-shared'
 
 /**
  * 2026-08-10 — Szerkesztőségi lábléc.
@@ -12,9 +13,27 @@ import { buildMapSearchUrl } from '@/lib/public-site/map-link'
  * valóban olvasható `--public-accent-ink` tokennel, térkép-hivatkozás a
  * címhez, és korrekt kettős kredit (EREK + Kartotéka).
  */
-export function PublicSiteFooter({ site }: { site: PublicSiteData }) {
+export function PublicSiteFooter({
+  site,
+  identitas = null,
+}: {
+  site: PublicSiteData
+  /**
+   * 2026-08-27 — a hivatalos, kétnyelvű azonosító adatok.
+   * ⚠️ MIÉRT KELL IDE IS: a lábléc korábban a `site.address`-t mutatta, az
+   * elérhetőség-panel viszont már a hivatalos címet — így UGYANAZON az oldalon
+   * KÉT különböző cím és két különböző térkép-link állt. Egy hivatalos
+   * gyülekezeti oldalon ez zavaró.
+   */
+  identitas?: PublicIdentitas | null
+}) {
   const year = new Date().getFullYear()
-  const mapUrl = buildMapSearchUrl(site.address)
+  // A térkép a ROMÁN címre keres: a Google Maps a hivatalos helységnevet
+  // ismeri, a magyarra gyakran nem talál rá.
+  const cim = identitas?.cim_ro || identitas?.cim_hu || site.address
+  const mapUrl = buildMapSearchUrl(cim)
+  const telefon = identitas?.telefon || site.contact_phone
+  const email = identitas?.email || site.contact_email
 
   return (
     <footer
@@ -67,7 +86,7 @@ export function PublicSiteFooter({ site }: { site: PublicSiteData }) {
           <div>
             <h2 className="public-eyebrow mb-4">Elérhetőség</h2>
             <ul className="space-y-3">
-              {site.address && (
+              {cim && (
                 <li className="flex items-start gap-2.5">
                   <MapPin
                     className="mt-1 size-4 shrink-0"
@@ -75,7 +94,7 @@ export function PublicSiteFooter({ site }: { site: PublicSiteData }) {
                     aria-hidden="true"
                   />
                   <span className="text-sm" style={{ color: 'var(--public-ink)' }}>
-                    {site.address}
+                    {cim}
                     {mapUrl && (
                       <>
                         {' '}
@@ -94,7 +113,7 @@ export function PublicSiteFooter({ site }: { site: PublicSiteData }) {
                   </span>
                 </li>
               )}
-              {site.contact_phone && (
+              {telefon && (
                 <li className="flex items-start gap-2.5">
                   <Phone
                     className="mt-1 size-4 shrink-0"
@@ -102,15 +121,15 @@ export function PublicSiteFooter({ site }: { site: PublicSiteData }) {
                     aria-hidden="true"
                   />
                   <a
-                    href={`tel:${site.contact_phone.replace(/\s/g, '')}`}
+                    href={`tel:${telefon.replace(/\s/g, '')}`}
                     className="text-sm hover:underline"
                     style={{ color: 'var(--public-ink)' }}
                   >
-                    {site.contact_phone}
+                    {telefon}
                   </a>
                 </li>
               )}
-              {site.contact_email && (
+              {email && (
                 <li className="flex items-start gap-2.5">
                   <Mail
                     className="mt-1 size-4 shrink-0"
@@ -118,15 +137,19 @@ export function PublicSiteFooter({ site }: { site: PublicSiteData }) {
                     aria-hidden="true"
                   />
                   <a
-                    href={`mailto:${site.contact_email}`}
+                    href={`mailto:${email}`}
                     className="break-all text-sm hover:underline"
                     style={{ color: 'var(--public-ink)' }}
                   >
-                    {site.contact_email}
+                    {email}
                   </a>
                 </li>
               )}
-              {!site.address && !site.contact_phone && !site.contact_email && (
+              {/* ⚠️ A ÜRES-ÁLLAPOT is a MEGJELENÍTETT értékeket nézze. A régi
+                  feltétel a `site.*` mezőket vizsgálta — így a „hamarosan
+                  felkerülnek" felirat OTT IS megjelent volna, ahol a hivatalos
+                  elérhetőség épp fölötte áll. */}
+              {!cim && !telefon && !email && (
                 <li className="text-sm italic" style={{ color: 'var(--public-muted)' }}>
                   Az elérhetőségek hamarosan felkerülnek.
                 </li>

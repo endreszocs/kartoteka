@@ -119,10 +119,19 @@ SELECT 'ÍTÉLET' AS szakasz,
        c.nev_hu AS gyulekezet,
        CASE WHEN NULLIF(btrim(c.nev_ro), '') IS NOT NULL
             THEN '✅ van' ELSE '❌ NINCS' END AS gyulekezet_roman_neve,
-       CASE WHEN c.adrlocality_id IS NOT NULL
-                 AND NULLIF(btrim(loc.name_ro), '') IS NOT NULL
-                 AND NULLIF(btrim(cnty.name_ro), '') IS NOT NULL
-            THEN '✅ teljes' ELSE '❌ hiányos' END AS ketnyelvu_cim,
+       -- ⚠️ JAVÍTVA (2026-08-27): az első változat CSAK a `name_ro`-t nézte, a
+       --    `name_hu`-t NEM — ezért „✅ teljes"-t jelentett, miközben a MAGYAR
+       --    településnév hiányzott, és a magyar cím a román alakra esett vissza.
+       --    Egy félig ellenőrzött kapu rosszabb, mint a nyitott: hamis
+       --    biztonságot ad. Most MINDKÉT nyelvet nézi, és megmondja, melyik fele hiányzik.
+       CASE WHEN c.adrlocality_id IS NULL THEN '❌ nincs cím-törzs kötés'
+            WHEN NULLIF(btrim(loc.name_hu), '') IS NULL AND NULLIF(btrim(loc.name_ro), '') IS NULL
+              THEN '❌ a településnek EGYIK nyelven sincs neve'
+            WHEN NULLIF(btrim(loc.name_hu), '') IS NULL THEN '⚠️ hiányzik a MAGYAR településnév'
+            WHEN NULLIF(btrim(loc.name_ro), '') IS NULL THEN '⚠️ hiányzik a ROMÁN településnév'
+            WHEN NULLIF(btrim(cnty.name_hu), '') IS NULL THEN '⚠️ hiányzik a MAGYAR megyenév'
+            WHEN NULLIF(btrim(cnty.name_ro), '') IS NULL THEN '⚠️ hiányzik a ROMÁN megyenév'
+            ELSE '✅ teljes' END AS ketnyelvu_cim,
        CASE WHEN NULLIF(btrim(d.nev_ro), '') IS NOT NULL
             THEN '✅ van' ELSE '❌ NINCS' END AS egyhazmegye_roman,
        CASE WHEN NULLIF(btrim(di.nev_ro), '') IS NOT NULL
