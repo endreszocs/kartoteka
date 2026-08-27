@@ -34,12 +34,47 @@ import { alkalmazJavitasok } from '@/lib/inventory/leltar343-review'
 // mock adatokkal — a valódi képernyő auth mögött van.
 import { PrintPreviewFrame } from '@/components/inventory/print-preview-frame'
 import { PublicEvNaptar } from '@/components/public/public-ev-naptar'
+// 2026-08-27 (banki import kör): a párosítatlan belső mozgás figyelmeztető sávja.
+// A valódi képernyő auth mögött van; itt MOCK adattal ellenőrizhető a látvány —
+// külön a „várakozó" és az „árva" eset, ami eddig NÉMA volt.
+import { InternalMovementWarning } from '@/components/finance/internal-movement-warning'
+import type { InternalMovementHealth } from '@/lib/finance/internal-movement-health'
 import { ProgramDialog } from '@/components/modals/program-dialog'
 import type { PublicEsemeny } from '@/lib/public-site/tisztsegek-events-loader'
 import { buildInventoryPrintDocument, type InventoryPrintType } from '@/lib/inventory/reporting'
 import type { PrintLang } from '@/lib/inventory/print-layout'
 import type { InventoryItem } from '@/lib/constants/inventory.next'
 import type { FaGyulekezet } from '@/app/(dashboard)/admin/szervezet-shared'
+
+
+// ── Belső mozgás figyelmeztetés — mock egészség-állapotok ────────────────────
+// (A) az ÉLES eset kicsinyítve: 3 árva, banki importból, pár nélkül.
+const MOCK_BM_ARVA: InternalMovementHealth = {
+  unpairedCount: 3,
+  orphanCount: 3,
+  unpairedIds: new Set([5703, 5704, 5709]),
+  items: [
+    { datum: '2026-04-16', osszeg: 16300, side: 'income', orphan: true, description: '' },
+    { datum: '2026-02-18', osszeg: 15015, side: 'income', orphan: true, description: '' },
+    { datum: '2026-02-18', osszeg: 2055, side: 'income', orphan: true, description: '' },
+  ],
+}
+// (B) a RÉGI, ismert eset: a másik oldal még nincs importálva → magától megoldódik.
+const MOCK_BM_VARAKOZO: InternalMovementHealth = {
+  unpairedCount: 1,
+  orphanCount: 0,
+  unpairedIds: new Set([9001]),
+  items: [
+    { datum: '2026-03-10', osszeg: 500, side: 'expense', orphan: false, description: '' },
+  ],
+}
+// (C) VEGYES: mindkét fajta egyszerre — a sáv mindkét üzenetet mutatja.
+const MOCK_BM_VEGYES: InternalMovementHealth = {
+  unpairedCount: 4,
+  orphanCount: 3,
+  unpairedIds: new Set([5703, 5704, 5709, 9001]),
+  items: [...MOCK_BM_ARVA.items, ...MOCK_BM_VARAKOZO.items],
+}
 
 // Endre képernyőjéhez hasonló, jórészt üres jelentés-adat (I.10/I.11 kitöltve)
 function mockJelentes(): LelkesziJelentesData {
@@ -476,6 +511,30 @@ function ProbaTartalom() {
         </p>
         <div className="public-site-root rounded-xl bg-white p-4" data-proba="ev-naptar">
           <PublicEvNaptar esemenyek={MOCK_PUBLIKUS_ESEMENYEK} ev={2026} />
+        </div>
+      </section>
+
+      <section className="space-y-3 rounded-xl border border-border bg-card p-4">
+        <h2 className="font-semibold">6. Pénzügy — párosítatlan belső mozgás figyelmeztetés</h2>
+        <p className="text-sm text-muted-foreground">
+          A 2026-08-27-i javítás: az „árva" sorok (belső mozgás kategória, de párosító
+          kulcs nélkül — tipikusan banki importból) eddig LÁTHATATLANOK voltak, mert az őr
+          csak a már párosított sorokat nézte. Alul a három eset egymás alatt.
+        </p>
+
+        <p className="text-xs font-medium text-muted-foreground">(A) Csak ÁRVA sorok — az éles eset</p>
+        <div data-proba="bm-figyelmeztetes-arva">
+          <InternalMovementWarning health={MOCK_BM_ARVA} />
+        </div>
+
+        <p className="text-xs font-medium text-muted-foreground">(B) Csak VÁRAKOZÓ — magától megoldódik</p>
+        <div data-proba="bm-figyelmeztetes-varakozo">
+          <InternalMovementWarning health={MOCK_BM_VARAKOZO} />
+        </div>
+
+        <p className="text-xs font-medium text-muted-foreground">(C) VEGYES — mindkét üzenet</p>
+        <div data-proba="bm-figyelmeztetes-vegyes">
+          <InternalMovementWarning health={MOCK_BM_VEGYES} />
         </div>
       </section>
     </div>
