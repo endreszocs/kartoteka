@@ -76,6 +76,17 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   inkább megáll egy magyarázattal, mint hogy hibás hivatalos papír
   készüljön.
 
+- **A lezárt évet mostantól maga az adatbázis is védi**: eddig a
+  véglegesített évbe új tétel rögzítését csak a programfelület akadályozta
+  meg — egy elavult programverzió vagy egy közvetlen adatbázis-hívás
+  mellette elmehetett, és a beküldött számadás csendben elavulhatott.
+  Mostantól az adatbázis maga is elutasítja az ilyen beírást, méghozzá a
+  beírás pillanatában — így az az eset is kizárt, amikor a rögzítés és a
+  véglegesítés éppen egyszerre történt. A feloldás (javítási engedély)
+  után minden a megszokott módon működik. (Ehhez a
+  2026-08-28-zart-ev-insert-trigger.sql lefuttatása szükséges — bármikor
+  futtatható, a program nem függ tőle.)
+
 ## [2026-08-28] — Pénzügyi átvilágítás: a B-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-b-blokk -->
 <!-- category: security -->
