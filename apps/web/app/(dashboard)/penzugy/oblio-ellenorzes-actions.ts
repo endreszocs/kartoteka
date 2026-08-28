@@ -13,6 +13,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { randomUUID } from 'crypto'
+import { readYearFinalized } from '@kartoteka/core'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { logAuditEvent } from '@/lib/audit/log'
 
@@ -512,6 +513,35 @@ export async function createKiadasFromXmlAndMatch(input: CreateKiadasFromXmlInpu
   if (!input.invoiceDate) return { error: 'A számla dátuma kötelező.' }
   if (!input.invoiceAmount || input.invoiceAmount <= 0)
     return { error: 'Az összeg pozitív szám legyen.' }
+
+  // 1.b Év-zár kapu (P1-5, audit 2026-08-28): a varázsló eddig kapu NÉLKÜL
+  // írt a kiadas táblába — a felületről egy már véglegesített (beküldött)
+  // évbe is lehetett könyvelni, a beadott számadás és az adatbázis némán
+  // széthúzott. Fail-closed: az ISMERETLEN zár-állapot is elutasítás.
+  // (A financeWriteBlock itt szándékosan nincs: gyülekezeti hatókörben a
+  // readOnly mindig false — a számvevő-írás kérdése a P1-2, külön kör.)
+  const szamlaEv = new Date(input.invoiceDate).getFullYear()
+  if (!Number.isFinite(szamlaEv)) return { error: 'Érvénytelen számla-dátum.' }
+  const evZar = await readYearFinalized(
+    access.supabase,
+    access.effectiveCongregationId,
+    szamlaEv,
+  )
+  if (evZar.unknown) {
+    return {
+      error:
+        `A ${szamlaEv}. évi számadás zárás-állapotát most nem sikerült ellenőrizni ` +
+        `(${evZar.errorMessage || 'ismeretlen hiba'}), ezért a rögzítést biztonságból ` +
+        'megszakítottuk — egy már lezárt évbe nem könyvelhetünk véletlenül. Próbáld újra.',
+    }
+  }
+  if (evZar.finalized) {
+    return {
+      error:
+        `A ${szamlaEv}. évi számadás már véglegesítve (és beküldve) van, ezért ebbe az ` +
+        'évbe nem rögzíthető új kiadás. Kérj feloldást (javítási engedélyt) az egyházmegyétől.',
+    }
+  }
 
   // 2. Új kiadás insert
   const partnerName = input.supplierName?.trim() || 'Ismeretlen beszállító'

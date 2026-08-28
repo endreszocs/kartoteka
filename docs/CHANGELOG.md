@@ -41,6 +41,14 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   még fel nem töltött offline rögzítések ettől nem vesznek el: sima
   ki-bejelentkezésnél a program nem töröl semmit.
 
+- **A számla-bevezető varázsló sem könyvelhet lezárt évbe**: az elektronikus
+  számlák (Oblio/ANAF) bevezető varázslója eddig ellenőrzés nélkül rögzített
+  kiadást — egy már véglegesített és az egyházmegyének beküldött évbe is. Így
+  a beadott számadás és a rendszer csendben eltérhetett egymástól. Mostantól
+  a varázsló is ugyanazzal a kapuval áll meg, mint a többi rögzítő felület:
+  lezárt évbe nem enged könyvelni, és ha a zárás állapotát nem tudja
+  ellenőrizni, biztonságból inkább nem rögzít.
+
 ## [2026-08-28] — Pénzügyi átvilágítás: az A-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-a-blokk -->
 <!-- category: bugfix -->
