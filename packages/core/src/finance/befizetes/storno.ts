@@ -169,17 +169,37 @@ export async function stornoIncomeUseCase(
     // 5) Belső-mozgás pár sztornózása (ha engedélyezett + van)
     let cascadedInternalTransfer = false
     if (cascadeInternalTransfer && r.belso_mozgas_xkey) {
-      const { error: bErr } = await ctx.supabase
-        .from('befizetes')
-        .update(payload)
-        .eq('belso_mozgas_xkey', r.belso_mozgas_xkey)
-        .eq('congregation_id', clean.congregationId)
-        .neq('id', clean.befizetesId) // a már sztornózott fő sort ne zavarjuk
-      if (bErr) {
+      // ⛔ 2026-08-27 — ÉLESBEN ELSÜLŐ ADATHIBA JAVÍTÁSA.
+      // Ez a kaszkád KORÁBBAN CSAK a `befizetes` táblát frissítette. De egy
+      // belső mozgás MINDIG egy bevétel + egy kiadás PÁR: a másik láb ezért
+      // MINDIG a `kiadas` táblában van. A régi lekérdezés (`befizetes` +
+      // `.neq('id', …)`) tehát NULLA sort érintett, a függvény mégis
+      // `cascadedInternalTransfer = true`-t jelentett — a felület pedig kiírta,
+      // hogy a pár is sztornózódott. Eredmény: a bank-bevétel sor sztornózva,
+      // a kassza-kiadás sor ÉLVE marad → a pénz eltűnik az összesítésből
+      // (a kassza csökkent, a bank nem nőtt).
+      // A testvérfüggvény (kiadas/storno.ts) MINDIG helyesen csinálta: MINDKÉT
+      // táblát frissíti. Ez itt most ugyanaz — a `.neq('id', …)` a SAJÁT
+      // táblánkon marad, a `kiadas`-on nincs rá szükség (ott nincs a mi sorunk).
+      const [kiaRes, befRes] = await Promise.all([
+        ctx.supabase
+          .from('kiadas')
+          .update(payload)
+          .eq('belso_mozgas_xkey', r.belso_mozgas_xkey)
+          .eq('congregation_id', clean.congregationId),
+        ctx.supabase
+          .from('befizetes')
+          .update(payload)
+          .eq('belso_mozgas_xkey', r.belso_mozgas_xkey)
+          .eq('congregation_id', clean.congregationId)
+          .neq('id', clean.befizetesId), // a már sztornózott fő sort ne zavarjuk
+      ])
+      if (kiaRes.error || befRes.error) {
         // A fő sztornó már megtörtént, de a pár nem — logoljuk a hibát a response-ba
+        const msg = kiaRes.error?.message || befRes.error?.message || 'ismeretlen'
         return {
           success: false,
-          error: `Fő befizetés sztornózva, de a belső-mozgás pár NEM (${bErr.message}). Kérlek ellenőrizd manuálisan.`,
+          error: `Fő befizetés sztornózva, de a belső-mozgás pár NEM (${msg}). Kérlek ellenőrizd manuálisan.`,
         }
       }
       cascadedInternalTransfer = true
