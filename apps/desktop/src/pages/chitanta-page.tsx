@@ -59,7 +59,9 @@ import {
 import { ActiveChitantaTombPanel } from '../components/active-chitanta-tomb-panel'
 import { ChitantaConflictDialog } from '../components/chitanta-conflict-dialog'
 import { ChitantaPrintDialog } from '../components/chitanta-print-dialog'
-import { PageHero } from '@kartoteka/ui-app'
+// P3-25 (audit 2026-08-28): pénz-formázás a KÖZÖS formatCurrency-vel — a
+// toLocaleString('hu') nem fix 2 tizedes (150,5 / 1234,567 alakot adott).
+import { PageHero, formatCurrency } from '@kartoteka/ui-app'
 import { runChitantaSyncManually } from '../lib/chitanta-sync'
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
@@ -305,7 +307,7 @@ export function ChitantaPage() {
                     {' · '}
                     Összeg:{' '}
                     <span className="font-semibold">
-                      {success.osszeg.toLocaleString('hu')} RON
+                      {formatCurrency(success.osszeg)} RON
                     </span>
                   </p>
                   <p
@@ -786,7 +788,7 @@ function RecentChitantasSection({
                           <p className="text-sm font-medium text-amber-900">
                             {r.sorozat} / {r.szam}
                             <span className="ml-2 text-xs font-normal text-amber-700">
-                              {r.szamla_datum} · {r.osszeg_brut.toLocaleString('hu')} RON
+                              {r.szamla_datum} · {formatCurrency(r.osszeg_brut)} RON
                             </span>
                             {isConflict && (
                               <span className="ml-2 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rose-800">
@@ -827,7 +829,7 @@ function RecentChitantasSection({
                   <p className="text-sm font-medium">
                     {r.sorozat} / {r.szam}
                     <span className="ml-2 text-xs font-normal text-muted-foreground">
-                      {r.szamla_datum} · {r.osszeg_brut.toLocaleString('hu')} RON
+                      {r.szamla_datum} · {formatCurrency(r.osszeg_brut)} RON
                     </span>
                   </p>
                   <p className="text-xs text-muted-foreground">
@@ -890,7 +892,7 @@ function RecentChitantasSection({
               Biztosan sztornózod a {stornoFor.sorozat} / {stornoFor.szam} chitantát?
             </p>
             <p className="mt-1 text-xs text-amber-800">
-              Átvevő: {stornoFor.klienesseg_nev} · {stornoFor.osszeg_brut.toLocaleString('hu')} RON ·{' '}
+              Átvevő: {stornoFor.klienesseg_nev} · {formatCurrency(stornoFor.osszeg_brut)} RON ·{' '}
               {stornoFor.szamla_datum}
             </p>
             <div className="mt-3 space-y-1.5">

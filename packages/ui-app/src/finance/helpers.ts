@@ -17,7 +17,10 @@ import type {
 
 export function formatCurrency(num: number | null | undefined): string {
   if (num === null || num === undefined || isNaN(num)) return '0,00'
-  const parts = Number(num).toFixed(2).split('.')
+  // P3-3 (audit 2026-08-28): bani-kerekítés + a „+ 0" a NEGATÍV NULLÁT
+  // normalizálja (apró negatív float „-0,00"-ként jelent meg az egyenlegen).
+  const n = Math.round(Number(num) * 100) / 100 + 0
+  const parts = n.toFixed(2).split('.')
   parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
   return parts[0] + ',' + parts[1]
 }
