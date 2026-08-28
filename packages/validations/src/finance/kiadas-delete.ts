@@ -42,9 +42,7 @@ export const stornoExpenseInputSchema = z.object({
    * `belso_mozgas_xkey`). Default true.
    */
   cascadeInternalTransfer: z.boolean().optional(),
-  /**
-   * Évzárás check átugrása (admin-override). Default false.
-   */
-  skipYearFinalizedCheck: z.boolean().optional(),
+  // P4-27 (audit 2026-08-28): a `skipYearFinalizedCheck` bypass-mező KIVEZETVE
+  // (nyitott, hívatlan hátsó ajtó volt az év-záron).
 })
 export type StornoExpenseInput = z.infer<typeof stornoExpenseInputSchema>

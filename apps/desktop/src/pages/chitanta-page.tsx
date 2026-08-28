@@ -341,6 +341,7 @@ export function ChitantaPage() {
         {user && congregationId && (
           <RecentChitantasSection
             congregationId={congregationId}
+            userId={user.id}
             refreshKey={success?.chitantaId ?? null}
           />
         )}
@@ -563,9 +564,12 @@ interface LocalPendingChitanta {
 
 function RecentChitantasSection({
   congregationId,
+  userId,
   refreshKey,
 }: {
   congregationId: string
+  /** P3-11: a stornózó user — `stornozott_by` audit-mező. */
+  userId: string
   /** Ha változik, a lista újratöltődik (pl. sikeres kiállítás után). */
   refreshKey: string | null
 }) {
@@ -579,6 +583,9 @@ function RecentChitantasSection({
   const [stornoIndok, setStornoIndok] = useState('')
   const [stornoSubmitting, setStornoSubmitting] = useState(false)
   const [stornoError, setStornoError] = useState<string | null>(null)
+  // P3-11: a stornó utáni figyelmeztetés (kapcsolt befizetés / audit-oszlop) —
+  // saját, mindig látható sávban, nem a sync-doboz belsejében.
+  const [stornoWarning, setStornoWarning] = useState<string | null>(null)
 
   // Nyomtatás-állapot (A-M7.2f)
   const [printFor, setPrintFor] = useState<string | null>(null)
@@ -676,11 +683,15 @@ function RecentChitantasSection({
           chitantaId: stornoFor.id,
           indok: stornoIndok.trim(),
         },
-        { supabase, runtime: 'desktop' },
+        // P3-11: userId → stornozott_by audit-mező.
+        { supabase, runtime: 'desktop', userId },
       )
       if (result.success) {
         setStornoFor(null)
         setStornoIndok('')
+        // P3-11: a kapcsolt befizetésről / hiányzó audit-oszlopról szóló
+        // figyelmeztetés nem némulhat el.
+        setStornoWarning(result.figyelmeztetes ? `Nyugta stornózva. ⚠️ ${result.figyelmeztetes}` : null)
         void loadRecent()
       } else {
         setStornoError(result.error)
@@ -717,6 +728,14 @@ function RecentChitantasSection({
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
+        {stornoWarning && (
+          <div
+            role="status"
+            className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          >
+            {stornoWarning}
+          </div>
+        )}
         {loading ? (
           <p className="text-sm text-muted-foreground">Lista betöltése…</p>
         ) : error ? (

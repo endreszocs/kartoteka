@@ -543,7 +543,7 @@ export async function getChitantakForBefizetesek(
 export async function stornoChitanta(args: {
   chitantaId: string
   indok: string
-}): Promise<{ success?: boolean; error?: string }> {
+}): Promise<{ success?: boolean; error?: string; figyelmeztetes?: string }> {
   // A-M7.2e óta: a @kartoteka/core use-case intézi a zod-validálást +
   // RLS-védett UPDATE-et.
   const access = await getEffectiveAccessContext()
@@ -556,10 +556,12 @@ export async function stornoChitanta(args: {
       chitantaId: args.chitantaId,
       indok: args.indok,
     },
-    { supabase: access.supabase, runtime: 'web' },
+    // P3-11: userId → stornozott_by audit-mező.
+    { supabase: access.supabase, runtime: 'web', userId: access.user.id },
   )
 
   if (!result.success) return { error: result.error }
   revalidatePath('/penzugy')
+  if (result.figyelmeztetes) return { success: true, figyelmeztetes: result.figyelmeztetes }
   return { success: true }
 }

@@ -29,6 +29,8 @@
  *    hogy egy rekord törlés alatt áll — NEM kerül megjelenítésre a normál listákban.
  */
 
+import { createClient as createBrowserSupabase } from '@/lib/supabase/client'
+
 import { getDb } from './db'
 import { enqueue } from './mutation-queue'
 import {
@@ -132,6 +134,72 @@ export async function restoreRecord(
 
   const record = await dexieTable.get(id)
   if (!record) throw new Error(`A(z) ${table}#${id} rekord nem található.`)
+
+  // P3-13 (audit 2026-08-28): a törölt PÉNZÜGYI tétel iratszáma időközben
+  // ÚJRA KIADHATÓ volt — a visszaállítás duplikált iratszámot vagy 23505
+  // ütközést szült, ÉS a zárt évbe is visszaállított. FAIL-CLOSED online
+  // előellenőrzés: hálózat nélkül a pénzügyi visszaállítás nem fut.
+  if (table === 'befizetes' || table === 'kiadas') {
+    const rec = record as {
+      congregation_id?: string
+      iratszam?: string | null
+      datum?: string | null
+      bankszamla_id?: number | null
+    }
+    let elozetes:
+      | { zart: boolean; duplikalt: boolean }
+      | null = null
+    try {
+      const supabase = createBrowserSupabase()
+      const ev = String(rec.datum || '').slice(0, 4)
+      const [zarRes, dupRes] = await Promise.all([
+        ev && rec.congregation_id
+          ? supabase
+              .from('bealitas')
+              .select('accounting_finalized')
+              .eq('id', ev)
+              .eq('congregation_id', rec.congregation_id)
+              .maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
+        rec.iratszam && rec.congregation_id
+          ? supabase
+              .from(table)
+              .select('id')
+              .eq('congregation_id', rec.congregation_id)
+              .eq('iratszam', rec.iratszam)
+              .eq('deleted', false)
+              .neq('id', id)
+              .limit(1)
+          : Promise.resolve({ data: [], error: null }),
+      ])
+      if (zarRes.error || dupRes.error) {
+        throw new Error(zarRes.error?.message || dupRes.error?.message || 'ismeretlen hiba')
+      }
+      elozetes = {
+        zart: Boolean((zarRes.data as { accounting_finalized?: boolean } | null)?.accounting_finalized),
+        duplikalt: Array.isArray(dupRes.data) && dupRes.data.length > 0,
+      }
+    } catch (e) {
+      throw new Error(
+        `A pénzügyi tétel visszaállítása előtti ellenőrzés nem sikerült ` +
+          `(${e instanceof Error ? e.message : 'nincs hálózat'}) — a visszaállítás ` +
+          'biztonságból nem fut le. Próbáld újra online.',
+      )
+    }
+    if (elozetes.zart) {
+      throw new Error(
+        `A tétel éve (${String(rec.datum || '').slice(0, 4)}) már véglegesítve van — ` +
+          'a visszaállítás elmozdítaná a beküldött számadást. Kérj feloldást az egyházmegyétől.',
+      )
+    }
+    if (elozetes.duplikalt) {
+      throw new Error(
+        `A(z) „${rec.iratszam}" iratszámot időközben egy másik aktív tétel használja — ` +
+          'a visszaállítás duplikált iratszámot szülne. Előbb rendezd az élő tétel számát, ' +
+          'vagy rögzítsd újra a tételt új számmal.',
+      )
+    }
+  }
 
   const baseRevision = (record as { revision?: number }).revision ?? 0
 

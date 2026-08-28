@@ -111,7 +111,9 @@ export async function stornoExpenseUseCase(
     // 2) Év-véglegesítés check (fail-CLOSED, lásd a fenti 2026-08-11 megjegyzést)
     // D6 (audit 2026-08-28, web-paritás): kaszkádnál a pár MINDKÉT lábának
     // évére — évfordulós átvezetésnél a másik láb MÁS (akár lezárt) évre eshet.
-    if (!clean.skipYearFinalizedCheck && r.datum) {
+    // P4-27 (audit 2026-08-28): a skipYearFinalizedCheck bypass kivezetve —
+    // az év-zár mindig érvényes.
+    if (r.datum) {
       const evek = new Set<number>([new Date(r.datum).getFullYear()])
       if (cascadeInternalTransfer && r.belso_mozgas_xkey) {
         const par = await belsoMozgasParEvei(
