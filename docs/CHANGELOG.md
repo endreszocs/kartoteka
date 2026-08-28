@@ -44,6 +44,12 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   az egész köteg nyugodtan újramenthető. Ugyanezt a védelmet megkapta a
   megyei/kerületi kiadás-rögzítés is.
 
+- **A desktop banki importja sem csúsztathat dátumot** (P0-23): a webes
+  bank-import 2026 júniusában kapott egy dátum-javítást (bizonyos Excel-cellák
+  egy nappal korábbra csúsztak román időzónában) — ez a javítás a desktop
+  által használt közös kódba eddig nem került át. Most átkerült: a két
+  változat ugyanarra a kivonatra ugyanazokat a napokat könyveli.
+
 - **Az offline Excel-visszatöltés nem csúsztatja el a dátumokat** (P0-22): ha
   az offline munkafájlba kézzel, szövegként írt dátum került (pl.
   „2025.01.07"), a visszatöltés eddig egy nappal korábbra — év elején az
