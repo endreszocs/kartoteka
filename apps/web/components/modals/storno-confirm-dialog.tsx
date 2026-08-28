@@ -61,6 +61,8 @@ export function StornoConfirmDialog({
         toast.error(res.error)
         return
       }
+      // P3-12: a kapcsolt számla-kaszkád hibája nem némulhat el.
+      if (res.figyelmeztetes) toast.warning(res.figyelmeztetes, { duration: 15000 })
       toast.success('Tétel stornózva.')
       setIndok('')
       onOpenChange(false)

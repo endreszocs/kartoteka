@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import dynamic from 'next/dynamic'
 import { AlertTriangle, Building2, Eye, FileCheck, FileText, Plus, Printer, Receipt, ShieldCheck, Wallet } from 'lucide-react'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
@@ -363,14 +364,38 @@ export function FinanceTabs({
     window.history.replaceState(null, '', newUrl)
   }, [activeTab])
 
+  // P3-9 (audit 2026-08-28): az importáló fülről BÁRMELY másik fülre váltva a
+  // listák frissülnek — a bevétel-import al-varázslóinak nincs saját
+  // onImported-horga, és a dokumentált fülváltás-hibaosztály szerint a
+  // useEffect-alapú betöltés magától nem fut újra.
+  const elozoFulRef = useRef(activeTab)
+  useEffect(() => {
+    if (elozoFulRef.current === 'admin_import' && activeTab !== 'admin_import') {
+      void refreshData()
+    }
+    elozoFulRef.current = activeTab
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a refreshData a
+    // legfrissebb closure-rel fusson, de csak fülváltásra.
+  }, [activeTab])
+
   async function refreshData() {
-    const { initFinance } = await import('@/app/(dashboard)/penzugy/actions')
-    const data = await initFinance(currentYear)
-    if (data) {
-      setIncomeRecords(data.initialIncome)
-      setExpenseRecords(data.initialExpense)
-      setDebtRows(data.debtRows)
-      setReceiptHealth(data.receiptHealth)
+    // P3-8 (audit 2026-08-28): az initFinance mostantól HIBÁT DOB, ha egy
+    // kritikus lekérdezés elhasal — itt a régi (utolsó jó) lista marad, és a
+    // hibát KIMONDJUK, nem cseréljük némán üresre.
+    try {
+      const { initFinance } = await import('@/app/(dashboard)/penzugy/actions')
+      const data = await initFinance(currentYear)
+      if (data) {
+        setIncomeRecords(data.initialIncome)
+        setExpenseRecords(data.initialExpense)
+        setDebtRows(data.debtRows)
+        setReceiptHealth(data.receiptHealth)
+      }
+    } catch (e) {
+      toast.error(
+        `A pénzügyi listák frissítése nem sikerült: ${e instanceof Error ? e.message : 'ismeretlen hiba'} — a képernyőn az utolsó betöltött állapot látszik.`,
+        { duration: 10000 },
+      )
     }
     // Bérleti adatok is frissülnek, hogy a hátralék követhesse a befizetéseket
     await refreshRentals()
@@ -941,6 +966,7 @@ export function FinanceTabs({
               congregationId={congregationId}
               congregationName={congregationName}
               showDanger={isGodMode}
+              onImported={refreshData}
             />
           </TabsContent>
         )}

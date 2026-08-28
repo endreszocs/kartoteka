@@ -558,7 +558,7 @@ export async function stornoTransaction(args: {
   type: TransactionType
   id: number
   indok: string
-}): Promise<{ success?: boolean; error?: string }> {
+}): Promise<{ success?: boolean; error?: string; figyelmeztetes?: string }> {
   const ctx = await getFinanceScopeContext()
   if ('error' in ctx) return { error: ctx.error }
   // 2026-08-11 (számvevő-kör): ÍRÁSI KAPU — ellenőri (számvevői) nézetben a
@@ -662,9 +662,14 @@ export async function stornoTransaction(args: {
     if (error) return { error: `Stornózás sikertelen: ${error.message}` }
   }
 
-  // Ha a befizetéshez tartozott oblio számla, azt is stornózzuk — csak congregation scope
+  // Ha a befizetéshez tartozott oblio számla, azt is stornózzuk — csak congregation scope.
+  // P3-12 (audit 2026-08-28): a kaszkád hibáját eddig SENKI nem olvasta — egy
+  // AKTÍV számla maradhatott a stornózott tétel mögött, némán. A tétel-stornó
+  // ekkorra már megtörtént, ezért nem hibát adunk (az félrevezető lenne), hanem
+  // figyelmeztetést, amit a felület KIMOND.
+  let kaszkadFigyelmeztetes: string | undefined
   if (args.type === 'befizetes' && ctx.scope === 'congregation') {
-    await ctx.supabase
+    const oblioKaszkad = await ctx.supabase
       .from('oblio_szamlak')
       .update({
         stornozott: true,
@@ -674,6 +679,13 @@ export async function stornoTransaction(args: {
       .eq('befizetes_id', args.id)
       .eq('congregation_id', ctx.scopeId)
       .eq('stornozott', false)
+      .select('id')
+    if (oblioKaszkad.error) {
+      kaszkadFigyelmeztetes =
+        `A tétel stornózva, de a kapcsolt Oblio-számla stornója NEM sikerült ` +
+        `(${oblioKaszkad.error.message}) — a Dokumentumtárban a számla AKTÍVNAK látszik. ` +
+        'Stornózd kézzel, vagy jelezd a rendszergazdának.'
+    }
   }
 
   // P0-3 (audit 2026-08-28): carryover-frissítés (best-effort) — a pár lábait
@@ -695,6 +707,7 @@ export async function stornoTransaction(args: {
   }
 
   revalidatePath('/penzugy')
+  if (kaszkadFigyelmeztetes) return { success: true, figyelmeztetes: kaszkadFigyelmeztetes }
   return { success: true }
 }
 

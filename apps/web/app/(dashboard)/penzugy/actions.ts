@@ -1598,6 +1598,28 @@ export async function initFinance(year: number) {
     ),
   ])
 
+  // P3-8 (audit 2026-08-28): a fő pénzügy-képernyő eddig NEM ellenőrizte a
+  // kritikus lekérdezések hibáját — RLS-tagadás/hálózati hiba esetén NÉMA üres
+  // listát és hamis 0-egyenleget mutatott (a nyomtatási út getYearFinanceRecords-e
+  // ellenőriz). FAIL-LOUD: hibánál nem adunk vissza „üres, de sikeres" állapotot.
+  const kritikusLekerdezesek: Array<[string, { error: { message?: string } | null }]> = [
+    ['befizetések', bevRes],
+    ['kiadások', kiaRes],
+    ['előző évi befizetések', prevBevRes],
+    ['előző évi kiadások', prevKiaRes],
+    ['taglista', membersRes],
+    ['járulék-befizetések', debtPaymentsRes],
+  ]
+  for (const [lekNev, lekRes] of kritikusLekerdezesek) {
+    if (lekRes.error) {
+      throw new Error(
+        `A pénzügyi adatok betöltése nem sikerült (${lekNev}): ` +
+          `${lekRes.error.message || 'ismeretlen hiba'} — az oldal inkább hibát mutat, ` +
+          'mint hamis üres listát. Frissíts, vagy jelezd a rendszergazdának.',
+      )
+    }
+  }
+
   let internalTransfers: InternalTransferRow[] = []
   if (!transferRes.error) {
     internalTransfers = normalizeInternalTransfers((transferRes.data || []) as Record<string, unknown>[])
@@ -5944,23 +5966,31 @@ export async function getPreviousYearActuals(year: number): Promise<{
       const { T } = scope
       const bevKatOszlop = T.categoryColBefizetes
       const kiaKatOszlop = T.categoryColKiadas
+      // P3-17 (audit 2026-08-28): LAPOZOTT lekérés — a PostgREST 1000-es
+      // plafonja fölött az „Előző évi tény" oszlop némán alulmért volna.
       const [bevRes, kiaRes] = await Promise.all([
-        scope.supabase
-          .from(T.befizetes)
-          .select(`${bevKatOszlop}, osszeg, osszeg_ron`)
-          .eq(T.scopeCol, scope.scopeId)
-          .eq('deleted', false)
-          .eq('stornozott', false)
-          .gte('datum', `${prevYear}-01-01`)
-          .lte('datum', `${prevYear}-12-31`),
-        scope.supabase
-          .from(T.kiadas)
-          .select(`${kiaKatOszlop}, osszeg, osszeg_ron`)
-          .eq(T.scopeCol, scope.scopeId)
-          .eq('deleted', false)
-          .eq('stornozott', false)
-          .gte('datum', `${prevYear}-01-01`)
-          .lt('datum', `${prevYear + 1}-01-01`),
+        fetchAllPaged(
+          scope.supabase
+            .from(T.befizetes)
+            .select(`id, ${bevKatOszlop}, osszeg, osszeg_ron`)
+            .eq(T.scopeCol, scope.scopeId)
+            .eq('deleted', false)
+            .eq('stornozott', false)
+            .gte('datum', `${prevYear}-01-01`)
+            .lte('datum', `${prevYear}-12-31`)
+            .order('id', { ascending: true }),
+        ),
+        fetchAllPaged(
+          scope.supabase
+            .from(T.kiadas)
+            .select(`id, ${kiaKatOszlop}, osszeg, osszeg_ron`)
+            .eq(T.scopeCol, scope.scopeId)
+            .eq('deleted', false)
+            .eq('stornozott', false)
+            .gte('datum', `${prevYear}-01-01`)
+            .lt('datum', `${prevYear + 1}-01-01`)
+            .order('id', { ascending: true }),
+        ),
       ])
       const felsoError = bevRes.error || kiaRes.error
       if (felsoError) {
@@ -5988,23 +6018,31 @@ export async function getPreviousYearActuals(year: number): Promise<{
     const congregationId = scope.scopeId
 
     // 2026-07-10 (S3 audit KRITIKUS #1): stornózott tétel a referencia-ténybe sem számít.
+    // P3-17 (audit 2026-08-28): LAPOZOTT lekérés — 1000+ tételes előző évnél
+    // az „Előző évi tény" referencia-oszlop némán alulmért.
     const [bevRes, kiaRes, bevCelRes, kiaCelRes] = await Promise.all([
-      supabase
-        .from('befizetes')
-        .select('id_befizetescel, osszeg, osszeg_ron')
-        .eq('congregation_id', congregationId)
-        .eq('deleted', false)
-        .eq('stornozott', false)
-        .gte('datum', `${prevYear}-01-01`)
-        .lte('datum', `${prevYear}-12-31`),
-      supabase
-        .from('kiadas')
-        .select('id_kiadascel, osszeg, osszeg_ron')
-        .eq('congregation_id', congregationId)
-        .eq('deleted', false)
-        .eq('stornozott', false)
-        .gte('datum', `${prevYear}-01-01`)
-        .lt('datum', `${prevYear + 1}-01-01`),
+      fetchAllPaged(
+        supabase
+          .from('befizetes')
+          .select('id, id_befizetescel, osszeg, osszeg_ron')
+          .eq('congregation_id', congregationId)
+          .eq('deleted', false)
+          .eq('stornozott', false)
+          .gte('datum', `${prevYear}-01-01`)
+          .lte('datum', `${prevYear}-12-31`)
+          .order('id', { ascending: true }),
+      ),
+      fetchAllPaged(
+        supabase
+          .from('kiadas')
+          .select('id, id_kiadascel, osszeg, osszeg_ron')
+          .eq('congregation_id', congregationId)
+          .eq('deleted', false)
+          .eq('stornozott', false)
+          .gte('datum', `${prevYear}-01-01`)
+          .lt('datum', `${prevYear + 1}-01-01`)
+          .order('id', { ascending: true }),
+      ),
       supabase.from('befizetescel').select('id, id_szamadasicel'),
       supabase.from('kiadascel').select('id, id_szamadasicel'),
     ])

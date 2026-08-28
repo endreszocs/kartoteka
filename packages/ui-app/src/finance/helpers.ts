@@ -233,8 +233,12 @@ export function calculateBalances(
   // 2026-07-11 (S9): a könyvelés RON-ban — az egyenlegek/totálok a RON-ekvivalenst
   // (osszeg_ron) használják, nem a deviza-összeget (osszeg). RON számlán a kettő
   // egyenlő (fallback), devizás számlán a osszeg_ron az átváltott lej-érték.
+  // P4-28 (audit 2026-08-28): a TÖRÖLT sor sem számít — ma minden hívó
+  // előszűr, de a közös helper legyen önvédő: egy jövőbeli hívó könnyen benne
+  // hagyná a törölt sorokat az egyenlegben.
   income.forEach((r) => {
     if ((r as { stornozott?: boolean }).stornozott) return
+    if ((r as { deleted?: boolean }).deleted) return
     const amt = Number(r.osszeg_ron ?? r.osszeg) || 0
     const internal =
       !!r.belso_mozgas_xkey ||
@@ -246,6 +250,7 @@ export function calculateBalances(
 
   expense.forEach((r) => {
     if ((r as { stornozott?: boolean }).stornozott) return
+    if ((r as { deleted?: boolean }).deleted) return
     const amt = Number(r.osszeg_ron ?? r.osszeg) || 0
     const internal =
       !!r.belso_mozgas_xkey ||

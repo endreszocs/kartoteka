@@ -24,6 +24,10 @@ interface FinanceImportTabsProps {
   congregationName: string
   /** Ha true, a pénzügyi adat-törlés veszélyzóna megjelenik (god mode). */
   showDanger?: boolean
+  /** P3-9 (audit 2026-08-28): sikeres import után a Pénzügy-fülek listáinak
+   *  frissítése — enélkül a felhasználó a RÉGI listát látta, és azt hihette,
+   *  az import nem csinált semmit (a dokumentált fülváltás-hibaosztály). */
+  onImported?: () => void
 }
 
 interface NavItem {
@@ -39,6 +43,7 @@ export function FinanceImportTabs({
   congregationId,
   congregationName,
   showDanger = false,
+  onImported,
 }: FinanceImportTabsProps) {
   const [section, setSection] = useState<SectionId>('kassza')
 
@@ -121,7 +126,7 @@ export function FinanceImportTabs({
             </header>
           )}
 
-          {section === 'kassza' && <PenzugyImportWizard />}
+          {section === 'kassza' && <PenzugyImportWizard onImported={onImported} />}
           {section === 'income' && <IncomeImportSection />}
           {section === 'danger' && showDanger && (
             <FinanceDataDangerZone
