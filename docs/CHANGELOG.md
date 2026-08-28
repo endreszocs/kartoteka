@@ -26,6 +26,7 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 ## [2026-08-28] — Pénzügyi átvilágítás: a B-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-b-blokk -->
 <!-- category: security -->
+<!-- version: 0.9.194 -->
 <!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
 
 ### 🔒 Biztonsági javítások
