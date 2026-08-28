@@ -23,6 +23,68 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-28] — Adományozók fül, duplikátum-figyelmeztetés és a belső mozgás rendbetétele
+<!-- key: 2026-08-28-adomanyozok-duplikatum-belso-mozgas -->
+<!-- category: feature -->
+<!-- version: 0.9.191 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### ✨ Új funkciók
+
+- **Adományozók és szponzorok fül**: a Pénzügy modulban új fül mutatja, ki
+  adományozott — személyek és cégek egyaránt, **készpénzben és bankon át is**.
+  Kiválasztható, hogy egyetlen évet vagy több évet visszamenőleg nézünk. Minden
+  adományozónál látszik az összeg, hogy hányszor és mikor adott, a készpénz/bank
+  bontás, és lenyitva a tételes lista is. A táblázat kereshető, kategória és
+  besorolás szerint szűrhető, és menthető táblázat-fájlba (Excelben megnyitható).
+
+- **A besorolás nem tippel**: „Személy" az, akit a tagnyilvántartáshoz kötöttünk;
+  „Szervezet" az, ahol maga a számadási kód szervezeti forrás (szponzortámogatás,
+  segélyszervezet, egyházi vagy állami intézmény). A névből fakadó „cég?" jelzés
+  külön, halványan jelenik meg — mert a bevételi oldalon nincs cégnyilvántartás,
+  csak szabad szöveg. A persely névtelen tételei nem tűnnek el, de külön
+  csoportban, a lista végén állnak.
+
+- **Figyelmeztetés hasonló tételre**: ha kézzel olyan tételt rögzítünk, amilyen
+  összeggel, hasonló névvel és ±3 napon belül **már szerepel egy banki tétel**, a
+  rendszer mentés előtt megmutatja a gyanús tételt, és rákérdez, hogy tényleg
+  folytatjuk-e. Ez figyelmeztetés, nem tiltás — a „Mégis rögzítem" gomb
+  továbbenged. A kassza↔bank átvezetések nem riasztanak (azok két lába
+  természetesen azonos összegű és napú).
+
+- **Készpénz nyitó egyenleg átvezetése**: a Nyitó egyenlegek felületen azoknál az
+  éveknél, ahol nincs rögzített készpénz-nyitó, a rendszer előre beírja az előző
+  év zárásából számolt értéket, és megmondja, honnan vette. **Menteni kell** —
+  szándékosan nem ír be magától semmit a hivatalos számadás kiindulópontjába.
+
+### 🐛 Javítások
+
+- **A belső mozgás (átvezetés) párja többé nem marad árván**: sztornózásnál és
+  törlésnél eddig csak az egyik láb tűnt el, a másik ott maradt, és a
+  bevétel-összesítőkbe is beleszámított. Ez a webet és az asztali programot
+  egyaránt érintette.
+
+- **Az évhatáron átnyúló átvezetés** (december 31. / január 1.) sztornózásnál és
+  visszavonásnál eddig csak az egyik évben történt meg.
+
+- **A banki import átvezetés-ága rossz kategóriát írt**: a bevétel- és a
+  kiadás-oldal két külön kategória-tábla, és a varázslótól kapott egyetlen
+  azonosító mindkettőbe bekerült — így a bevétel-oldal néma módon másra
+  mutathatott. Mostantól az EREK szerinti kódpárt kapja mindkét láb, és a
+  devizás átvezetés is helyes lej-értéken könyvelődik.
+
+- **A jegyzőkönyv pénzügyi melléklete** eddig a sztornózott tételeket is
+  beleszámolta, az átvezetéseket bevételnek vette, devizánál a deviza-összeget
+  adta össze, és 1000 tétel fölött csendben abbahagyta a számolást.
+
+- **Asztali program: a belső mozgás mostantól ténylegesen könyvelődik** —
+  korábban csak nyilvántartásba került, könyvelési sorok nélkül.
+
+- **Diagram-hiba a konzolban**: a rejtett fülön lévő grafikonok mérete
+  „-1"-ként érkezett; a szülő elemek szélesség-korlátja javítva.
+
+---
+
 ## [2026-08-27] — Befizető hozzárendelése a banki importnál
 <!-- key: 2026-08-27-banki-import-befizeto -->
 <!-- category: feature -->
