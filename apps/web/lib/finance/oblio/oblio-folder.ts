@@ -20,6 +20,8 @@ import {
   ensurePermission,
   isFileSystemAccessSupported,
 } from '@/lib/offline/fs-handle-store'
+// Függőség-mentes (a jszip lazy-importját nem rontja el).
+import { SEMNATURA_TOKEN_RE } from '@/lib/oblio/ubl-parser'
 
 // ─────────────────────────────────────────────────────────────
 // Típusok
@@ -402,8 +404,11 @@ export async function processAllZipsInFolder(
         const baseName = entryPath.split(/[/\\]/).pop() || entryPath
         const lowerBase = baseName.toLowerCase()
 
-        // Aláírás-XML kihagyása (semnatura_*.xml)
-        if (/^semnatura[_-]/i.test(baseName)) continue
+        // Aláírás-XML kihagyása — 2026-08-28: TOKEN-alapú minta (a közös
+        // SEMNATURA_TOKEN_RE), mert az ANAF tömeges ZIP-jében a `semnatura`
+        // a fájlnév KÖZEPÉN áll (<CÉG>_<SOROZAT>_semnatura_<index>.xml) —
+        // a régi prefix-ellenőrzés mellett ezek átcsúsztak.
+        if (SEMNATURA_TOKEN_RE.test(baseName)) continue
 
         if (lowerBase.endsWith('.xml')) {
           xmlEntries.push({ baseName, entry })

@@ -95,6 +95,19 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   viszont átengedte őket. Mostantól a két felület azonos szabályok szerint
   ellenőriz rögzítéskor.
 
+- **A számla-ZIP feltöltése nem mutat álhibákat**: az ANAF-ból letöltött
+  tömeges ZIP minden számla mellé egy aláírás-fájlt is tesz, aminek a
+  nevében a „semnatura" szó középen áll — a rendszer ezeket számlaként
+  próbálta beolvasni, és egy tökéletesen sikeres feltöltésre is piros
+  hibalistát mutatott. Mostantól az aláírás-fájlokat felismeri és
+  csendben félreteszi (a „kihagyott" számlálóban látszanak), a hibalista
+  csak valódi hibát mutat.
+
+- **A dokumentumtár nem ragadhat be a „Betöltés…" feliraton**: ha a lista
+  betöltése közben megszakadt a kapcsolat (vagy épp frissült a rendszer),
+  az oldal eddig szó nélkül, örökre a betöltés-feliraton állt. Mostantól
+  ilyenkor érthető hibaüzenet és Újrapróbálás gomb jelenik meg.
+
 ## [2026-08-28] — Pénzügyi átvilágítás: a B-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-b-blokk -->
 <!-- category: security -->

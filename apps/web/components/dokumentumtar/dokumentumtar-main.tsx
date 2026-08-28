@@ -190,24 +190,38 @@ export function DokumentumtarMain({ congregationName, onOpenKifizetetlen }: Doku
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [lista, osszesites] = await Promise.all([
-      listDokumentumok({
-        kategoria: isGydokKategoria(nezet) ? nezet : null,
-        kuka: nezet === 'kuka',
-        kereses: kereses || null,
-        oldal,
-        oldalMeret: OLDAL_MERET,
-        irany,
-      }),
-      getDokumentumKategoriaSzamok(),
-    ])
-    // FAIL-CLOSED: a hibát hangosan mutatjuk a lista helyén, nem nyeljük el.
-    setListaHiba(lista.error || osszesites.error)
-    setRows(lista.rows)
-    setOsszesen(lista.osszesen)
-    setSzamok(osszesites.szamok)
-    setKukaSzam(osszesites.kukaSzam)
-    setLoading(false)
+    // 2026-08-28 (Endre hibajelzése, élesben elsült): ha az akció-hívás maga
+    // DOB (hálózat-kiesés, deploy-váltás közbeni "Failed to fetch"), a
+    // setLoading(false) sosem futott le — a lista ÖRÖKRE a „Dokumentumok
+    // betöltése…" feliraton ragadt, hiba-jelzés nélkül. A kivétel most a
+    // meglévő hangos hiba-panelre (+ Újrapróbálás) fut.
+    try {
+      const [lista, osszesites] = await Promise.all([
+        listDokumentumok({
+          kategoria: isGydokKategoria(nezet) ? nezet : null,
+          kuka: nezet === 'kuka',
+          kereses: kereses || null,
+          oldal,
+          oldalMeret: OLDAL_MERET,
+          irany,
+        }),
+        getDokumentumKategoriaSzamok(),
+      ])
+      // FAIL-CLOSED: a hibát hangosan mutatjuk a lista helyén, nem nyeljük el.
+      setListaHiba(lista.error || osszesites.error)
+      setRows(lista.rows)
+      setOsszesen(lista.osszesen)
+      setSzamok(osszesites.szamok)
+      setKukaSzam(osszesites.kukaSzam)
+    } catch (e) {
+      setListaHiba(
+        `A dokumentumtár betöltése váratlan hibával állt le (${
+          e instanceof Error ? e.message : 'ismeretlen hiba'
+        }) — ellenőrizd az internetkapcsolatot, és nyomd meg az Újrapróbálást.`,
+      )
+    } finally {
+      setLoading(false)
+    }
   }, [nezet, kereses, oldal, irany])
 
   useEffect(() => {

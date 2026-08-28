@@ -18,7 +18,7 @@
 
 import JSZip from 'jszip'
 import { GYDOK_MAX_BYTES } from '@/lib/dokumentumtar/dokumentum-types'
-import { fajlnevGyoker } from './ubl-parser'
+import { fajlnevGyoker, SEMNATURA_TOKEN_RE } from './ubl-parser'
 
 // ─────────────────────────────────────────────────────────────────
 // Típusok
@@ -63,8 +63,10 @@ function csakFajlnev(ut: string): string {
 }
 
 function alairasXml(fajlnev: string): boolean {
-  const kis = fajlnev.toLowerCase()
-  return kis.startsWith('semnatura_') || kis.startsWith('semnatura-')
+  // 2026-08-28 (Endre hibajelzése): token-alapú minta — az ANAF tömeges
+  // ZIP-jében a `semnatura` a fájlnév KÖZEPÉN áll, a régi prefix-ellenőrzés
+  // mellett átcsúszott. A minta a közös SEMNATURA_TOKEN_RE (ubl-parser).
+  return SEMNATURA_TOKEN_RE.test(fajlnev)
 }
 
 /**
