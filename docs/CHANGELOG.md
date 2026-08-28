@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-28] — Pénzügyi átvilágítás: az A-blokk javításai
+<!-- key: 2026-08-28-penzugy-audit-a-blokk -->
+<!-- category: bugfix -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🐛 Javítások
+
+- **A Mentés gomb már nem enged dupla rögzítést** (P0-9): a Tétel rögzítő
+  ablakban a mentés indítása után a rendszer eddig egy rövid ideig — amíg a
+  háttérben a hasonló tételek ellenőrzése futott — még elfogadott egy második
+  kattintást, és ilyenkor ugyanazok a tételek kétszer kerültek be. Mostantól
+  az első kattintás azonnal zárol, a második kattintás nem csinál semmit.
+
+---
+
 ## [2026-08-28] — A nyitó egyenlegnek egyetlen helye lett
 <!-- key: 2026-08-28-nyito-egyenleg-egyseges-forras -->
 <!-- category: improvement -->
