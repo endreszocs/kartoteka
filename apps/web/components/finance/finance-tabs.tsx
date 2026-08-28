@@ -36,6 +36,9 @@ const AccountingTabV2 = dynamic(() => import('./accounting-tab-v2').then((m) => 
 const DebtTabV2 = dynamic(() => import('./debt-tab-v2').then((m) => m.DebtTabV2), { ssr: false, loading: tabLoading })
 const TransactionsTab = dynamic(() => import('./transactions-tab').then((m) => m.TransactionsTab), { ssr: false, loading: tabLoading })
 const RentalTab = dynamic(() => import('./rental-tab').then((m) => m.RentalTab), { ssr: false, loading: tabLoading })
+// 2026-08-27 (Endre 5. kérése): Adományozók és szponzorok fül. Dynamic, mert a
+// saját szerver-hívása több év adományait hozza — ne terhelje a kezdeti bundle-t.
+const AdomanyozokTab = dynamic(() => import('./adomanyozok-tab').then((m) => m.AdomanyozokTab), { ssr: false, loading: tabLoading })
 // 2026-08-11 (K5 #5): a Súgó fül a KÖZÖS `FinanceSugoTab` wrappert mountolja
 // (`finance-sugo-tab.tsx`) a korábbi, csak-webes `PenzugyHelp` helyett. Az eddigi
 // állapotban a wrapper halott kód volt, a web pedig egy külön fejlődő súgó-doksit
@@ -690,6 +693,7 @@ export function FinanceTabs({
             ...(gyulekezeti ? [
               { value: 'debt', label: 'Tartozások', color: 'orange' },
               { value: 'rental', label: 'Bérleti szerződések', color: 'amber' },
+              { value: 'adomanyozok', label: 'Adományozók és szponzorok', color: 'indigo' },
             ] : []),
             { value: 'sugo', label: 'Súgó', color: 'teal' },
             // 2026-05-25: Rendszergazdai importáló a sor VÉGÉN, mindig piros háttérrel
@@ -884,6 +888,15 @@ export function FinanceTabs({
 
             <TabsContent value="rental" className="mt-4">
               <RentalTab contracts={rentalContracts} onChanged={refreshRentals} />
+            </TabsContent>
+
+            {/* Adományozók és szponzorok (Endre 5. kérése, 2026-08-27).
+                A `gyulekezeti` kapun belül áll, mert a megyei/kerületi tábla
+                kategória-oszlopa mÁS (`id_szamadasicel` a junction helyett), és
+                felsőbb szinten tagnyilvántartás sincs — egy „scope-független"
+                változat némán rossz számot adna. */}
+            <TabsContent value="adomanyozok" className="mt-4">
+              <AdomanyozokTab currentYear={currentYear} />
             </TabsContent>
 
             {/* 2026-07-10 (S3 #2+#4): a Monetár TabsContent a lebegő widgetbe

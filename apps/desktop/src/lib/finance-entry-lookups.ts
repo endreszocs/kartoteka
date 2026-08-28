@@ -32,6 +32,10 @@ import {
 } from '@kartoteka/ui-app'
 
 import {
+  ADOMANY_KODOK,
+  osszesitAdomanyozok,
+  type AdomanyTetel,
+  type AdomanyozokOsszesito,
   hasonloDatumAblak,
   hasonloTetelekKeresese,
   type HasonloTetelKerdes,
@@ -466,4 +470,123 @@ export async function similarBankEntriesOnline(
     ((bev.data || []) as Array<Record<string, unknown>>).map((r) => mapSor(r, 'forrasa')),
     ((kia.data || []) as Array<Record<string, unknown>>).map((r) => mapSor(r, 'atvevo')),
   )
+}
+
+// ── ADOMÁNYOZÓK ÉS SZPONZOROK — Endre 5. kérése (2026-08-27) ─────────────
+//
+// A web `adomanyozok-actions.ts` desktop-párja. Az ÖSSZESÍTÉS a közös
+// `@kartoteka/core` `osszesitAdomanyozok` — a két felület nem adhat két
+// különböző végösszeget ugyanarra az évre.
+//
+// ONLINE-only: a fül több év adományait olvassa, ami a helyi offline tükörben
+// nem áll rendelkezésre. Offline üres összesítőt adunk, és a felület ezt
+// kimondja — NEM úgy tesz, mintha senki nem adományozott volna.
+export async function adomanyozokOnline(
+  congregationId: string,
+  evTol: number,
+  evIg: number,
+): Promise<{ osszesito: AdomanyozokOsszesito } | { error: string }> {
+  if (!(await isOnlineWithSession())) {
+    return { error: 'Az adományozói lista online kapcsolatot igényel (több év adatát olvassa).' }
+  }
+  const supabase = getDesktopSupabase()
+  const tol = Math.min(evTol, evIg)
+  const ig = Math.max(evTol, evIg)
+
+  const celRes = await supabase
+    .from('befizetescel')
+    .select('id, id_szamadasicel')
+    .in('id_szamadasicel', ADOMANY_KODOK.map((k) => k.kod))
+  if (celRes.error) return { error: `A befizetési célok nem olvashatók: ${celRes.error.message}` }
+  const kodById = new Map<number, string>()
+  for (const c of (celRes.data || []) as Array<{ id: number; id_szamadasicel: string | null }>) {
+    kodById.set(Number(c.id), String(c.id_szamadasicel ?? ''))
+  }
+  const celIds = [...kodById.keys()]
+  // FAIL-LOUD: üres katalógusnál NEM „0 adomány" a hír, hanem hogy hiányzik a katalógus.
+  if (!celIds.length) return { error: 'A 10 adomány-kategória egyike sincs feloldva a befizetescel táblában.' }
+
+  type Sor = {
+    id: number; datum: string; osszeg: number | null; osszeg_ron: number | null
+    forrasa: string | null; id_szemely: number | null; id_befizetescel: number
+    bankszamla_id: number | null; iratszam: string | null; megjegyzes: string | null
+  }
+  const sorok: Sor[] = []
+  // 80-asával: sok azonosítós `.in()` az URL-hossz miatt 414-et adna.
+  for (let i = 0; i < celIds.length; i += 80) {
+    const { data, error } = await selectAllPaged<Sor>(
+      supabase
+        .from('befizetes')
+        .select('id, datum, osszeg, osszeg_ron, forrasa, id_szemely, id_befizetescel, bankszamla_id, iratszam, megjegyzes')
+        .eq('congregation_id', congregationId)
+        .in('id_befizetescel', celIds.slice(i, i + 80))
+        .is('belso_mozgas_xkey', null)
+        .eq('deleted', false)
+        .eq('stornozott', false)
+        .gte('datum', `${tol}-01-01`)
+        .lt('datum', `${ig + 1}-01-01`),
+    )
+    if (error) return { error: `A befizetések nem olvashatók: ${error.message}` }
+    sorok.push(...(data ?? []))
+  }
+
+  // A tagnyilvántartási név a hitelesebb ott, ahol van kapcsolat.
+  const szemelyIds = [...new Set(sorok.map((s) => s.id_szemely).filter((x): x is number => x != null))]
+  const nevById = new Map<number, string>()
+  for (let i = 0; i < szemelyIds.length; i += 80) {
+    const { data, error } = await supabase
+      .from('szemely')
+      .select('id, csaladnev, k_nev')
+      .in('id', szemelyIds.slice(i, i + 80))
+    if (error) break // a `forrasa` marad — egy név-feloldás nem állíthatja meg a fület
+    for (const r of (data || []) as Array<{ id: number; csaladnev: string | null; k_nev: string | null }>) {
+      const nev = `${r.csaladnev ?? ''} ${r.k_nev ?? ''}`.trim()
+      if (nev) nevById.set(Number(r.id), nev)
+    }
+  }
+
+  const tetelek: AdomanyTetel[] = sorok.map((s) => ({
+    id: Number(s.id),
+    datum: String(s.datum ?? '').slice(0, 10),
+    osszeg: Number(s.osszeg_ron ?? s.osszeg) || 0,
+    nev: (s.id_szemely != null ? nevById.get(s.id_szemely) : null) || String(s.forrasa ?? '').trim(),
+    szemelyId: s.id_szemely ?? null,
+    kod: kodById.get(Number(s.id_befizetescel)) ?? '',
+    banki: s.bankszamla_id != null,
+    iratszam: s.iratszam ?? null,
+    megjegyzes: s.megjegyzes ?? null,
+  }))
+
+  return { osszesito: osszesitAdomanyozok(tetelek) }
+}
+
+/** Mely évekre van adomány-adat (az évválasztóhoz). Offline: üres. */
+export async function adomanyEvekOnline(congregationId: string): Promise<number[]> {
+  if (!(await isOnlineWithSession())) return []
+  const supabase = getDesktopSupabase()
+  const celRes = await supabase
+    .from('befizetescel')
+    .select('id')
+    .in('id_szamadasicel', ADOMANY_KODOK.map((k) => k.kod))
+  if (celRes.error) return []
+  const celIds = ((celRes.data || []) as Array<{ id: number }>).map((r) => Number(r.id))
+  if (!celIds.length) return []
+  const evek = new Set<number>()
+  for (let i = 0; i < celIds.length; i += 80) {
+    const { data, error } = await selectAllPaged<{ id: number; datum: string }>(
+      supabase
+        .from('befizetes')
+        .select('id, datum')
+        .eq('congregation_id', congregationId)
+        .in('id_befizetescel', celIds.slice(i, i + 80))
+        .eq('deleted', false)
+        .eq('stornozott', false),
+    )
+    if (error) return []
+    for (const r of data ?? []) {
+      const ev = Number(String(r.datum ?? '').slice(0, 4))
+      if (ev) evek.add(ev)
+    }
+  }
+  return [...evek].sort((a, b) => b - a)
 }

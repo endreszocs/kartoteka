@@ -161,6 +161,23 @@ export {
   normalizeNameForMatch,
 } from './finance/hasonlo-tetel/jaro-winkler'
 
+// ── ADOMÁNYOZÓK ÉS SZPONZOROK — Endre 5. kérése (2026-08-27) ─────────────
+// A 10 adomány/szponzor kód + a tiszta összesítő. A web és a desktop fül
+// UGYANEZT használja — külön aggregálás két eltérő végösszeget adna.
+export {
+  ADOMANY_KODOK,
+  adomanyKodE,
+  adomanyKodNev,
+  adomanyozoKulcsNev,
+  cegGyanusNev,
+  osszesitAdomanyozok,
+  type AdomanyKod,
+  type AdomanyTetel,
+  type Adomanyozo,
+  type AdomanyozoTipus,
+  type AdomanyozokOsszesito,
+} from './finance/adomanyozok/aggregate'
+
 export {
   listIncomeUseCase,
   type ListIncomeCtx,

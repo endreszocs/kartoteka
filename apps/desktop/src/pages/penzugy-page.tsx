@@ -80,6 +80,7 @@ import { DesktopTransactionEditDialog } from '../components/transaction-edit-dia
 import { DesktopBankTab } from '../components/desktop-bank-tab'
 import { DesktopOblioTab } from '../components/desktop-oblio-tab'
 import { DesktopRentalTab } from '../components/desktop-rental-tab'
+import { DesktopAdomanyozokTab } from '../components/desktop-adomanyozok-tab'
 import { DesktopBudgetTab } from '../components/desktop-budget-tab'
 import { DesktopMonetaryTab } from '../components/desktop-monetary-tab'
 import { DesktopFinancePrintDialog } from '../components/finance-print-dialog'
@@ -103,6 +104,7 @@ const TAB_DEFS = [
   { value: 'debt', label: 'Tartozások', color: 'orange' },
   { value: 'oblio', label: 'Oblio ellenőrzés', color: 'cyan' },
   { value: 'rental', label: 'Bérleti szerződések', color: 'amber' },
+  { value: 'adomanyozok', label: 'Adományozók és szponzorok', color: 'indigo' },
   { value: 'monetary', label: 'Monetár', color: 'slate' },
   { value: 'sugo', label: 'Súgó', color: 'teal' },
 ]
@@ -913,6 +915,11 @@ export function PenzugyPage() {
               congregationId={congregationId}
               onToast={(msg, kind) => setPageToast({ kind, msg })}
             />
+          ) : activeTab === 'adomanyozok' ? (
+            // Endre 5. kérése (2026-08-27): web-azonos Adományozók és szponzorok fül.
+            // A megjelenítő és az összesítő KÖZÖS a webbel — ugyanarra az évre nem
+            // adhat két különböző végösszeget. Több év adata → online-only.
+            <DesktopAdomanyozokTab congregationId={congregationId} currentYear={year} />
           ) : null}
         </div>
       </div>
