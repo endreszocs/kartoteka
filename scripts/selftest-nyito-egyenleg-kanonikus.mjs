@@ -310,5 +310,47 @@ for (const o of OROK) {
   else fail('NEGATÍV — a pásztázó mintája nem illeszkedik: az őr VAK')
 }
 
+// ── (D) E-blokk utókör (P3-6 + P3-22, 2026-08-29) ─────────────────────────
+// P3-6: a deviza-egyenleg (getBankCurrencyBalance) nyitója a KANONIKUS
+// évenkénti táblából jön — a legacy skalár csak kanonikus sor híján él.
+// P3-22: a lelkészi jelentés VII.5-je keresztellenőrzött a kanonikus
+// nyitó-feloldóval (eltérésnél hangos autoHibak-üzenet).
+{
+  const BANK_BALANCE = P('apps', 'web', 'lib', 'finance', 'bank-balance.ts')
+  const LELKESZI = P('apps', 'web', 'app', '(dashboard)', 'munkanaplo', 'lelkeszi-jelentes-actions.ts')
+  const kodCsakD = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+
+  const bb = kodCsakD(olvas(BANK_BALANCE))
+  if (/nyitoOverride/.test(bb) && /fromDate/.test(bb)) {
+    ok('(D) calculateBankCurrencyBalance fogadja a kanonikus nyitót (nyitoOverride + fromDate)')
+  } else {
+    fail('(D) P3-6: a deviza-egyenleg nem fogadja a kanonikus nyitót — csak a legacy skalárból tud indulni')
+  }
+
+  const fa = kodCsakD(olvas(FELSO_INIT))
+  const gbcb = fa.indexOf('export async function getBankCurrencyBalance')
+  const gbcbW = gbcb >= 0 ? fa.slice(gbcb, gbcb + 4000) : ''
+  if (/bankszamla_nyito_egyenleg/.test(gbcbW) && /nyitoOverride/.test(gbcbW)) {
+    ok('(D) getBankCurrencyBalance a kanonikus évenkénti táblából oldja fel a nyitót')
+  } else {
+    fail('(D) P3-6: a getBankCurrencyBalance nem a kanonikus táblából indul — a legacy skalár szivárog')
+  }
+
+  const lj = kodCsakD(olvas(LELKESZI))
+  if (/resolveNyitoEgyenlegekUseCase/.test(lj) && /kanonikusNyito/.test(lj)) {
+    ok('(D) a lelkészi jelentés VII.5-je keresztellenőrzött a kanonikus nyitó-feloldóval')
+  } else {
+    fail('(D) P3-22: a VII.5 nincs a kanonikus nyitóval keresztellenőrizve — a lánc némán elcsúszhat')
+  }
+
+  // NEGATÍV ASSZERT: a minták tényleg buknának a régi világon.
+  const regiGbcb = "const result = calculateBankCurrencyBalance(bank, transfers, uptoDate)"
+  if (!/bankszamla_nyito_egyenleg/.test(regiGbcb)) {
+    ok('(D) NEGATÍV — a régi (kanonikus tábla nélküli) hívásforma tényleg elbukna az őrön')
+  } else {
+    fail('(D) NEGATÍV — az őr mintája nem különbözteti meg a régi világot: VAK')
+  }
+}
+
 if (failed) { console.error('\nA nyitó egyenleg önellenőrzés ELBUKOTT.'); process.exit(1) }
 console.log('\nA nyitó egyenleg önellenőrzés rendben.')

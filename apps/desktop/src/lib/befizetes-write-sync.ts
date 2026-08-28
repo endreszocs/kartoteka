@@ -196,20 +196,33 @@ export async function pushPendingBefizetes(
     const nowIso = new Date().toISOString()
     const payload = (mutation.payload ?? {}) as Record<string, unknown>
 
+    // P3-21 (audit 2026-08-28): tartós HÁLÓZATI hibánál NEM billenünk végleges
+    // „ütközés"-re — a tétel nem hibás, csak a kapcsolat; plafonos (15 perces)
+    // backoffal tovább próbálkozunk. Végleges konfliktus csak nem-hálózati,
+    // tartós hibára jár, a VALÓDI hibaüzenettel — az iratszám-ütközésnek
+    // (23505) saját, azonnali ága van lentebb.
     if (mutation.attempts >= MAX_ATTEMPTS) {
-      try {
-        await backend.markBefizetesConflict(
-          mutation.pk,
-          `Max próbálkozás elérve (${mutation.attempts}). Utolsó hiba: ${mutation.lastError ?? 'ismeretlen'}. Kérlek nyisd meg a befizetést és ellenőrizd az iratszámot.`,
-        )
-        await backend.removeMutation(mutation.id)
-        result.conflicts += 1
-      } catch (err) {
-        result.errors.push(
-          `Conflict-jelölés hiba: ${err instanceof Error ? err.message : 'ismeretlen'}`,
-        )
+      const halozatiHiba = /fetch|network|connect|timeout|econnrefused|offline/i.test(
+        mutation.lastError ?? '',
+      )
+      if (!halozatiHiba) {
+        try {
+          await backend.markBefizetesConflict(
+            mutation.pk,
+            `Többszöri próbálkozás (${mutation.attempts}×) után sem sikerült felküldeni. ` +
+              `Utolsó hiba: ${mutation.lastError ?? 'ismeretlen'}. Nyisd meg a befizetést, ` +
+              'és a hibaüzenet szerint javítsd vagy rögzítsd újra.',
+          )
+          await backend.removeMutation(mutation.id)
+          result.conflicts += 1
+        } catch (err) {
+          result.errors.push(
+            `Conflict-jelölés hiba: ${err instanceof Error ? err.message : 'ismeretlen'}`,
+          )
+        }
+        continue
       }
-      continue
+      // hálózati: átesünk a normál push-ágra — újrapróbálás plafonos backoffal
     }
 
     // P0-5 (audit 2026-08-28): zárt-év újra-ellenőrzés KÖZVETLENÜL a push

@@ -815,18 +815,33 @@ function parseComparableDate(value?: string | null) {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
-function sumAmountsBetween<T extends { datum?: string | null; osszeg: number; irattipus?: string | null }>(
+/** P3-5 (audit 2026-08-28): a hivatalos leltár-jelentés pénzügyi sora a
+ *  calculateBalances SZEMANTIKÁJÁVAL számol — korábban (1) a stornózott tételt
+ *  is összeadta, (2) a nyers deviza-összeget (osszeg) a RON-ekvivalens
+ *  (osszeg_ron) helyett, (3) a kasszát az irattipus SZÖVEGE alapján válogatta,
+ *  így az importált (Chit./Extr) tételek kimaradtak. */
+function sumAmountsBetween<
+  T extends {
+    datum?: string | null
+    osszeg: number
+    osszeg_ron?: number | null
+    bankszamla_id?: number | null
+    stornozott?: boolean | null
+    deleted?: boolean | null
+  },
+>(
   rows: T[],
   startDate: Date,
   endDate: Date,
   mode: 'cash' | 'all',
 ) {
   return rows.reduce((sum, row) => {
+    if (row.stornozott || row.deleted) return sum
     const date = parseComparableDate(row.datum)
     if (!date) return sum
     if (date.getTime() < startDate.getTime() || date.getTime() > endDate.getTime()) return sum
-    if (mode === 'cash' && row.irattipus !== 'Készpénz') return sum
-    return sum + (Number(row.osszeg) || 0)
+    if (mode === 'cash' && row.bankszamla_id != null) return sum
+    return sum + (Number(row.osszeg_ron ?? row.osszeg) || 0)
   }, 0)
 }
 

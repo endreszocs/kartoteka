@@ -109,6 +109,33 @@ async function syncLightBundle(userId: string): Promise<void> {
   ])
 }
 
+// P3-7 (audit 2026-08-28): a PÉNZÜGYI tükör (befizetes/kiadas/bealitas) is
+// frissül a háttérben — eddig csak az oldal-betöltés pull-olt, így a nyitva
+// hagyott desktop-oldal egy webes módosítás után tartósan a régi egyenleget
+// mutatta, a bealitas-tükör (évzárás-állapot!) pedig napokig elavult lehetett.
+// Best-effort, dinamikus importtal (a finance-sync nem kerül a light-út
+// bundle-jébe); a folyó ÉV a tükör hatóköre — mint az oldal-load pullja.
+async function pullFinanceOfOwnCongregation(userId: string): Promise<void> {
+  try {
+    const { getLocalOwnProfile } = await import('./sync')
+    const profile = await getLocalOwnProfile(userId)
+    const congregationId = profile?.congregation_id
+    if (!congregationId) return
+    const ev = new Date().getFullYear()
+    const [financeSync, settingsSync] = await Promise.all([
+      import('./finance-sync'),
+      import('./finance-settings-sync'),
+    ])
+    await Promise.allSettled([
+      financeSync.pullBefizetesek(congregationId, ev),
+      financeSync.pullKiadasok(congregationId, ev),
+      settingsSync.pullFinanceSettings(congregationId, ev),
+    ])
+  } catch {
+    /* best-effort — a pénzügyi pull hibája nem buktatja a bundle-t */
+  }
+}
+
 // ── Full bundle: 5 percenként + indításkor ───────────────────────────────
 async function syncFullBundle(userId: string): Promise<void> {
   await syncLightBundle(userId)
@@ -120,6 +147,8 @@ async function syncFullBundle(userId: string): Promise<void> {
     pullMinutesOfOwnCongregation(userId),
     pullCemeteriesOfOwnCongregation(userId),
     pullAnnualReportsOfOwnCongregation(userId),
+    // P3-7: pénzügyi tükör-frissítés (befizetes + kiadas + bealitas, folyó év)
+    pullFinanceOfOwnCongregation(userId),
     pullAdrlocalityCatalog(),
     // 2026-06-12 (Endre #5): névnap-katalógus a dashboard „Ma köszöntjük" kártyához
     pullNevnapCatalog(),

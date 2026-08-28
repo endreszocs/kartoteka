@@ -41,6 +41,9 @@ export async function checkExpenseReceiptDuplicateUseCase(
       .eq('congregation_id', congregationId)
       .eq('iratszam', iratszam)
       .eq('deleted', false)
+      // D3 (audit 2026-08-28): a STORNÓZOTT sor NEM duplikátum (S3-#12) —
+      // lásd a befizetés-oldali párját.
+      .or('stornozott.eq.false,stornozott.is.null')
       .limit(1)
 
     if (excludeId !== undefined) {

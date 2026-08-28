@@ -328,15 +328,9 @@ export interface BudgetPrintData {
   periodFrom?: string
   periodTo?: string
 
-  // ── 2026-08-14 (K2): a hivatalos 113–134. záró blokk adatai ─────────────
-  /** Év végi KÉSZPÉNZ egyenleg (114. sor). Ha nincs, a papíron „—" áll. */
-  zaroCasa?: number
-  /** Év végi BANKI egyenleg (115. sor). Ha nincs, a papíron „—" áll. */
-  zaroBanca?: number
-  /** Tartozások (Datorii) — hivatalos sorszám (117–127) → összeg. Hiányzó sor = 0. */
-  tartozasok?: Record<number, number>
-  /** Kintlévőségek (Creanțe) — hivatalos sorszám (129–133) → összeg. Hiányzó sor = 0. */
-  kintlevosegek?: Record<number, number>
+  // P3-24 (audit 2026-08-28): a korábbi K2-es 113–134. mezőnégyes
+  // (zaroCasa/zaroBanca/tartozasok/kintlevosegek) KIVEZETVE — a renderelő
+  // 2026-08-15 óta (Endre döntése) nem olvasta őket, halott adat-út volt.
   /** Véglegesítve van-e (költségvetés/számadás). Csak ekkor jelenik meg a
    *  presbitériumi határozat + egyházközségi iktatószám a nyomtatványon. */
   finalized?: boolean
@@ -470,8 +464,15 @@ function cmpId(a: string, b: string): number {
 function getVal(data: BudgetPrintData, celId: string): number {
   return data.budgetRows[celId]?.tervezett || 0
 }
-function getModVal(data: BudgetPrintData, celId: string): number {
-  return data.budgetRows[celId]?.modositott || 0
+/** P3-16 (audit 2026-08-28): a TÁROLT 0 valós módosítás (kinullázott jogcím)
+ *  — csak a null/undefined jelent „még nincs módosítás"-t. */
+function getModValOrNull(data: BudgetPrintData, celId: string): number | null {
+  return data.budgetRows[celId]?.modositott ?? null
+}
+/** A jogcím VÉGLEGES értéke módosítási módban: a tárolt módosítás, ha van
+ *  (a 0 is az!), különben az eredeti előirányzat. */
+function getFinalVal(data: BudgetPrintData, celId: string): number {
+  return getModValOrNull(data, celId) ?? getVal(data, celId)
 }
 function getActual(data: BudgetPrintData, celId: string): number {
   const cel = data.cellek.find((c) => c.id === celId)
@@ -920,9 +921,11 @@ function valueHeads(mode: BudgetMode, partial?: PartialInfo): string {
 function valueCells(data: BudgetPrintData, c: SzamadasiCel, isGroup: boolean, mode: BudgetMode): string {
   const val = isGroup ? sumGroup(data, c.id, getVal) : getVal(data, c.id)
   if (mode === 'modification') {
-    const modVal = isGroup ? sumGroup(data, c.id, getModVal) : getModVal(data, c.id)
-    const finalVal = modVal || val
-    return `<td class="r">${fmtNum(val)}</td><td class="r">${fmtNum(modVal - val)}</td><td class="r">${fmtNum(finalVal)}</td>`
+    // P3-16: a végleges érték soronként `modositott ?? tervezett` — a tárolt
+    // 0 (kinullázott jogcím) is megjelenik, és a Módosítás oszlop a valódi
+    // különbség (módosítatlan sornál 0, nem −tervezett).
+    const finalVal = isGroup ? sumGroup(data, c.id, getFinalVal) : getFinalVal(data, c.id)
+    return `<td class="r">${fmtNum(val)}</td><td class="r">${fmtNum(finalVal - val)}</td><td class="r">${fmtNum(finalVal)}</td>`
   }
   if (mode === 'szamadas') {
     const actual = isGroup ? sumGroup(data, c.id, getActual) : getActual(data, c.id)
@@ -1219,7 +1222,7 @@ function collectBudgetRows(
   const sumGroups = (ids: string[], getter: (d: BudgetPrintData, celId: string) => number): number =>
     ids.reduce((s, gid) => s + sumGroup(data, gid, getter), 0)
   const getFinalValL = (d: BudgetPrintData, celId: string): number =>
-    d.budgetRows[celId]?.modositott || d.budgetRows[celId]?.tervezett || 0
+    d.budgetRows[celId]?.modositott ?? d.budgetRows[celId]?.tervezett ?? 0
 
   /** Hivatalos összesítő sor a mód értékoszlop-konvenciójával. */
   const officialSummaryRow = (nr: number, labelRo: string, labelHu: string, plan: number, actual: number, final: number): string => {

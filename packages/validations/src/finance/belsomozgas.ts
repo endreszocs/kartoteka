@@ -95,6 +95,12 @@ export const saveInternalTransferInputSchema = z
      * a use-case letrehozza a konyvelesi part is.
      */
     bankszamlaId: z.number().int().positive().optional().nullable(),
+    /**
+     * 2026-08-29 (D5): bank→bank átvezetésnél a CÉL-számla azonosítója —
+     * ezzel a use-case a könyvelési párt is létrehozza (kiadás a forrás-,
+     * bevétel a cél-bankon, 402.02), RON↔RON számlapárnál.
+     */
+    celBankszamlaId: z.number().int().positive().optional().nullable(),
   })
   .refine((d) => d.datum <= today(), {
     message: 'Jövőbeli dátum nem engedélyezett',

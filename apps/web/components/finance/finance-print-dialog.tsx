@@ -643,43 +643,12 @@ export function FinancePrintDialog({
         ...hivatalosHatarozatMezok(settingsUse, isSzamadas ? 'szamadas' : 'koltsegvetes'),
       }
 
-      // ── 2026-08-14 (K2): a hivatalos 113–134. záró blokk adatai ──
-      if (isSzamadas && !isReszszamadas) {
-        // Tartozások/Kintlévőségek a bealitas.szamadas_tartozasok-ból
-        // (a Könyvelés fül rögzítője írja). Kulcs: hivatalos Nr. rând.
-        const toNumMap = (m?: Record<string, number>): Record<number, number> => {
-          const ki: Record<number, number> = {}
-          for (const [nr, v] of Object.entries(m || {})) {
-            const n = Number(nr)
-            if (Number.isFinite(n)) ki[n] = Number(v) || 0
-          }
-          return ki
-        }
-        // 2026-08-15 (átvilágítás 13.): a KIVÁLASZTOTT év sorából.
-        const stored = settingsUse?.szamadas_tartozasok
-        printData.tartozasok = toNumMap(stored?.tartozasok ?? undefined)
-        printData.kintlevosegek = toNumMap(stored?.kintlevosegek ?? undefined)
-
-        // Év végi Casa/Banca (114–115. sor): ugyanazzal a levezetéssel,
-        // mint a részszámadás, csak a teljes évre. Ha a levezetés
-        // hibázik, a mezők üresen maradnak → a papíron „—" áll (őszinte
-        // fallback), az ÉVES Számadást nem blokkoljuk miatta.
-        const evesBalances = computePeriodBalances({
-          income: incomeUse as unknown as PeriodRow[],
-          expense: expenseUse as unknown as PeriodRow[],
-          year: filters.selectedYear,
-          periodFrom: `${filters.selectedYear}-01-01`,
-          periodTo: `${filters.selectedYear}-12-31`,
-          yearOpeningCash: carryoverCashUse,
-          yearOpeningBankById: bankNyitoMapUse || {},
-          actualIncomeByCode: actualIncome,
-          actualExpenseByCode: actualExpense,
-        })
-        if (!('error' in evesBalances)) {
-          printData.zaroCasa = evesBalances.cash.closing
-          printData.zaroBanca = evesBalances.bank.closing
-        }
-      }
+      // P3-24 (audit 2026-08-28): a korábbi K2-es 113–134. záró blokk
+      // ADAT-ÚTJA (tartozasok/kintlevosegek/zaroCasa/zaroBanca) KIVEZETVE —
+      // a renderelő 2026-08-15 (Endre döntése: a 113–134 blokk törlése) óta
+      // nem olvasta, csak kiszámolt és átadott halott mezőket. A Könyvelés
+      // fül tartozás-RÖGZÍTŐJE változatlanul él (bealitas.szamadas_tartozasok);
+      // ha az esperesi hivatal kéri a 134. sort, a blokk onnan visszaépíthető.
 
       // ── RÉSZSZÁMADÁS: időszaki nyitó/záró levezetés + fail-closed ──
       if (isReszszamadas) {

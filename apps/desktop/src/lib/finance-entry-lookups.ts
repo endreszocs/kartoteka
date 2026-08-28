@@ -85,7 +85,10 @@ export async function nextReceiptNumbersOnline(
     supabase.from('befizetes')
       .select('id, iratszam, nyugta')
       .eq('congregation_id', congregationId).eq('deleted', false)
-      .is('bankszamla_id', null).is('belso_mozgas_xkey', null),
+      .is('bankszamla_id', null).is('belso_mozgas_xkey', null)
+      // D3 (audit 2026-08-28): a stornózott szám újra kiadható (S3-#12) — a
+      // web ezt már szűrte, a desktop nem: mást ajánlott, mint a web.
+      .or('stornozott.eq.false,stornozott.is.null'),
   )
   // 2026-07-25 (F6.1 review, P1): a lapozó HIBÁJÁT TILOS elnyelni — hibánál a
   // régi kód üres/„1" javaslatot adott, ami DUPLIKÁLT nyugtaszámot okozott volna.
@@ -107,6 +110,7 @@ export async function nextReceiptNumbersOnline(
       .select('id, iratszam, nyugta')
       .eq('congregation_id', congregationId).eq('deleted', false)
       .is('bankszamla_id', null).is('belso_mozgas_xkey', null)
+      .or('stornozott.eq.false,stornozott.is.null')
       .gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
   )
   if (yearErr) {
@@ -127,6 +131,7 @@ export async function nextReceiptNumbersOnline(
       .select('id, iratszam, nyugta, datum')
       .eq('congregation_id', congregationId).eq('deleted', false)
       .is('bankszamla_id', null).is('belso_mozgas_xkey', null)
+      .or('stornozott.eq.false,stornozott.is.null')
       .lt('datum', `${year}-01-01`),
   )
   if (prevErr) {

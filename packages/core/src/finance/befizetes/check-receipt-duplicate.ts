@@ -48,6 +48,10 @@ export async function checkReceiptDuplicateUseCase(
       .eq('congregation_id', congregationId)
       .eq('iratszam', iratszam)
       .eq('deleted', false)
+      // D3 (audit 2026-08-28): a STORNÓZOTT sor NEM duplikátum — a szám az
+      // S3-#12 döntés szerint újra kiadható. Eddig a generátor felajánlotta a
+      // stornózott számot, ez az ellenőrzés meg elutasította: zsákutca.
+      .or('stornozott.eq.false,stornozott.is.null')
       .limit(1)
 
     if (excludeId !== undefined) {

@@ -477,7 +477,17 @@ function IncomeForm({
           id_befizetescel: celId,
           id_szemely: useFamilyMode ? null : selectedTag?.id ?? null,
           id_csalad: useFamilyMode ? familyId : null,
-          forrasa: isOnline ? 'Desktop rögzítés' : 'Desktop offline rögzítés',
+          // P4-31 (audit 2026-08-28): a forrasa a TÉNYLEGES befizető neve —
+          // a kiválasztott tag, vagy a begépelt szabad szöveg. A korábbi fix
+          // „Desktop rögzítés" címkével a partner visszakereshetetlen volt
+          // (a webes név-alapú párosítások — bérleti, banki — sem találták).
+          forrasa:
+            (useFamilyMode
+              ? null
+              : selectedTag
+                ? [selectedTag.csaladnev, selectedTag.k_nev].filter(Boolean).join(' ').trim() || null
+                : tagQuery.trim() || null) ??
+            (isOnline ? 'Desktop rögzítés' : 'Desktop offline rögzítés'),
           iratszam: isOnline ? (iratszam.trim() || null) : null,
           irattipus,
           fizetettev,

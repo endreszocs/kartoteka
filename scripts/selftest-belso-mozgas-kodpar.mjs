@@ -112,27 +112,34 @@ for (const e of ESETEK) {
 }
 
 // ── (C) A KÉZI RÖGZÍTŐ ────────────────────────────────────────────────────
-// A saveInternalTransfer BETŰRE ugyanezt a párosítást használja. Ha a kettő
-// széthúz, ugyanaz a művelet két különböző kódot kapna aszerint, hogy kézzel
-// vagy importból rögzítik — ezt kell megakadályozni.
-if (fs.existsSync(ROGZITO)) {
+// D5 (2026-08-29) ÓTA: a webes saveInternalTransfer a KÖZÖS core use-case-re
+// delegál (packages/core .../belsomozgas/save.ts), és a kódokat OTT a
+// kanonikus belsoMozgasKodpar() oldja fel — hardcode-olt kódpár sehol nincs.
+// Ha a rögzítő (web VAGY core) újra literál kódokat írna, ugyanaz a művelet
+// két különböző kódot kapna aszerint, hogy kézzel vagy importból rögzítik.
+const CORE_ROGZITO = path.join(REPO, 'packages', 'core', 'src', 'finance', 'belsomozgas', 'save.ts')
+if (fs.existsSync(ROGZITO) && fs.existsSync(CORE_ROGZITO)) {
   const r = fs.readFileSync(ROGZITO, 'utf8')
-  const bev = r.match(/bevKod\s*=\s*isDeposit\s*\?\s*'([^']+)'\s*:\s*'([^']+)'/)
-  const kia = r.match(/kiaKod\s*=\s*isDeposit\s*\?\s*'([^']+)'\s*:\s*'([^']+)'/)
-  if (!bev || !kia) {
-    fail('(C) nem található a kézi rögzítő bevKod/kiaKod párosítása — az összevetés nem végezhető el')
+  const c = fs.readFileSync(CORE_ROGZITO, 'utf8')
+  if (/bevKod\s*=\s*isDeposit\s*\?\s*'/.test(r) || /kiaKod\s*=\s*isDeposit\s*\?\s*'/.test(r)) {
+    fail('(C) a webes rögzítőben ÚJRA hardcode-olt kódpár van — a kanonikus belsoMozgasKodpar()-t kell hívni (core-on át)')
+  } else if (!/\bsaveInternalTransferUseCase\(/.test(r)) {
+    fail('(C) a webes saveInternalTransfer nem a core use-case-re delegál — a kódpár-forrás kettévált')
+  } else if (!/const \{ bevKod, kiaKod \} = belsoMozgasKodpar\(/.test(c)) {
+    fail('(C) a core rögzítő NEM a kanonikus belsoMozgasKodpar()-ból old fel')
   } else {
-    // isDeposit = kassza→bank (letét) ; !isDeposit = bank→kassza (felvét)
-    const letet = belsoMozgasKodpar(true, false)
-    const felvet = belsoMozgasKodpar(true, true)
-    const egyezik =
-      bev[1] === letet.bevKod && kia[1] === letet.kiaKod &&
-      bev[2] === felvet.bevKod && kia[2] === felvet.kiaKod
-    if (egyezik) ok(`(C) a kézi rögzítő UGYANEZT a párosítást használja (letét ${bev[1]}/${kia[1]}, felvét ${bev[2]}/${kia[2]})`)
-    else fail(`(C) SZÉTHÚZÁS a kézi rögzítővel: rögzítő letét=${bev[1]}/${kia[1]} felvét=${bev[2]}/${kia[2]}, import letét=${letet.bevKod}/${letet.kiaKod} felvét=${felvet.bevKod}/${felvet.kiaKod}`)
+    ok('(C) a kézi rögzítő (web→core) a kanonikus belsoMozgasKodpar()-ból old fel — nincs párhuzamos kódpár')
+  }
+  // NEGATÍV ASSZERT (C): a RÉGI világ — web-oldali hardcode-olt kódpár —
+  // elbukna-e ezen a checken? A régi actions.ts sorát fűzzük hozzá mutánsként.
+  const rMutans = r + "\nconst bevKod = isDeposit ? '301.01' : '300.01'\n"
+  if (/bevKod\s*=\s*isDeposit\s*\?\s*'/.test(rMutans)) {
+    ok('(C) mutáns (web-oldali hardcode visszatér) → az őr elbuktatná')
+  } else {
+    fail('(C) mutáns: a hardcode-visszabontást az őr NEM venné észre — vak')
   }
 } else {
-  fail(`(C) hiányzik a kézi rögzítő: ${ROGZITO}`)
+  fail(`(C) hiányzik a kézi rögzítő: ${ROGZITO} / ${CORE_ROGZITO}`)
 }
 
 // ── (D) A HASZNÁLÓ: nem maradt-e kereszt-táblás categoryId ───────────────

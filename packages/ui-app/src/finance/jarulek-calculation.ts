@@ -691,10 +691,16 @@ export function computeJarulekForMemberYear(params: {
   const expected = Math.min(baseFee, ageAdjusted.amount, occupationAdjusted.amount, earlyAdjusted.amount)
   const appliedRules = [...ageAdjusted.labels, ...occupationAdjusted.labels, ...earlyAdjusted.labels]
 
+  // P3-1 (audit 2026-08-28): a nyers `expected - paid` float-maradéka
+  // (0.01+2.32+0.67 = 2.9999999999999996) fantom-hátralékost csinált egy
+  // rendezett tagból — fél-bani alatt a tartozás NULLA, fölötte banira kerek.
+  const FEL_BANI = 0.005
+  const debtRaw = expected - paid
+
   return {
     expected,
     paid,
-    debt: Math.max(0, expected - paid),
+    debt: debtRaw > FEL_BANI ? Math.round(debtRaw * 100) / 100 : 0,
     appliedRules,
     usedYear,
   } satisfies JarulekComputationResult

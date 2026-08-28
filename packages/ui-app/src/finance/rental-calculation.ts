@@ -91,7 +91,10 @@ export function calculateAranyosDij(contract: RentalContractRow, year: number): 
   // Hibás adat (vege < kezdet ugyanabban az évben) ellen védve: min. 0 hónap
   const aktivHonapok = Math.max(0, utolsoAktivHonap - elsoAktivHonap + 1)
 
-  return (evesDij * aktivHonapok) / 12
+  // P3-2 (audit 2026-08-28): az évesDíj×hónap/12 törtbanit ad (1000×7/12 =
+  // 583.333…) — a kerek befizetés SOSEM érné el, a fantom-hátralék sosem
+  // tűnne el. Az elvárt díj banira kerekítve értelmezett.
+  return Math.round(((evesDij * aktivHonapok) / 12) * 100) / 100
 }
 
 // ── Bérleti hátralék számítás ────────────────────────────────
@@ -168,7 +171,11 @@ export function calculateRentalDebts(
       if (idEgyezik || nevEgyezik) fizett += p.osszeg
     }
 
-    const hatralek = Math.max(0, elvart - fizett)
+    // P3-1/P3-2 (audit 2026-08-28): fél-bani alatt a hátralék NULLA — a
+    // float-maradék nem csinálhat fantom-hátralékost.
+    const FEL_BANI = 0.005
+    const hatralekRaw = elvart - fizett
+    const hatralek = hatralekRaw > FEL_BANI ? Math.round(hatralekRaw * 100) / 100 : 0
 
     result.push({
       contractId: contract.id,

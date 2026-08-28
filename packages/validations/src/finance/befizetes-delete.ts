@@ -53,11 +53,8 @@ export const stornoIncomeInputSchema = z.object({
    * A `belso_mozgas_xkey` alapján keresi a másik oldalt.
    */
   cascadeInternalTransfer: z.boolean().optional(),
-  /**
-   * Ha true, kihagyja a `bealitas.accounting_finalized` évzárási checket.
-   * DEFAULT: false — a normál flow a véglegesített éveket nem engedi módosítani.
-   * Csak admin-override-hoz használandó (A-M7.4 terv).
-   */
-  skipYearFinalizedCheck: z.boolean().optional(),
+  // P4-27 (audit 2026-08-28): a `skipYearFinalizedCheck` bypass-mező KIVEZETVE.
+  // Soha senki nem hívta true-val, de nyitott hátsó ajtó volt az év-záron —
+  // egy jövőbeli admin-override auditált, explicit útként épüljön, ne néma flaggel.
 })
 export type StornoIncomeInput = z.infer<typeof stornoIncomeInputSchema>

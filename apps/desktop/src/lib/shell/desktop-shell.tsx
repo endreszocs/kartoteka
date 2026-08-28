@@ -155,6 +155,18 @@ export function DesktopShell({ children }: DesktopShellProps) {
     return () => window.removeEventListener('kartoteka:excel-elteres', onExcelElteres)
   }, [])
 
+  // P3-20 (audit 2026-08-28): beragadt ('blocked') Excel-főkönyv-sorok —
+  // állandó, kézzel zárható sáv, a Beállítások → Könyvelés felé mutatva.
+  const [excelBlocked, setExcelBlocked] = useState<number>(0)
+  useEffect(() => {
+    function onExcelBlocked(e: Event) {
+      const darab = Number((e as CustomEvent<{ darab?: number }>).detail?.darab) || 0
+      setExcelBlocked(darab)
+    }
+    window.addEventListener('kartoteka:excel-blocked', onExcelBlocked)
+    return () => window.removeEventListener('kartoteka:excel-blocked', onExcelBlocked)
+  }, [])
+
   // Felhasználó feloldása — OFFLINE-barát (2026-06-11 fix): PIN-es belépésnél
   // nincs Supabase session, ezért a getDesktopUser a cache-elt/lokális userre
   // esik vissza. Ha az SEM megy, LÁTHATÓ hibát mutatunk (sosem végtelen töltést).
@@ -399,6 +411,39 @@ export function DesktopShell({ children }: DesktopShellProps) {
               aria-label="Figyelmeztetés bezárása"
               className="shrink-0 rounded p-0.5 text-amber-700 hover:bg-amber-100"
               onClick={() => setExcelElteres(null)}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+        {excelBlocked > 0 && (
+          <div
+            role="alert"
+            className="mb-4 flex items-start justify-between gap-3 rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-900"
+          >
+            <div>
+              <strong>
+                {excelBlocked} tétel beragadt az Excel-főkönyv várólistáján.
+              </strong>{' '}
+              Ezek a sorok nem kerültek be a hivatalos Excelbe — nézd meg az okot, és
+              indítsd újra őket.{' '}
+              <button
+                type="button"
+                className="font-semibold underline underline-offset-2"
+                onClick={() => {
+                  window.dispatchEvent(
+                    new CustomEvent('kartoteka:open-settings', { detail: { tab: 'konyveles' } }),
+                  )
+                }}
+              >
+                Várólista megnyitása
+              </button>
+            </div>
+            <button
+              type="button"
+              aria-label="Figyelmeztetés bezárása"
+              className="shrink-0 rounded p-0.5 text-rose-700 hover:bg-rose-100"
+              onClick={() => setExcelBlocked(0)}
             >
               ✕
             </button>

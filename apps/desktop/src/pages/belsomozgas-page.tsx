@@ -289,6 +289,19 @@ function TransferForm({
         )
         return
       }
+      // D5 (2026-08-29): bank→bank átvezetésnél a CÉL-számla azonosítója is
+      // kell — ezzel a core a 402.02-es könyvelési párt is elkészíti (RON↔RON;
+      // devizás párnál mester-only marad, `figyelmeztetes`-sel).
+      const celBank = tipus === 'bank_bank'
+        ? banks.find((b) => b.bank_neve === cel.trim())
+        : undefined
+      if (tipus === 'bank_bank' && (!valasztottBank || !celBank)) {
+        setError(
+          'A bank→bank átvezetéshez mindkét számlát a listából válaszd ki — ' +
+            'enélkül a könyvelési sorok nem jönnének létre.',
+        )
+        return
+      }
 
       const result: SaveInternalTransferResultOrError = await saveInternalTransferUseCase(
         {
@@ -302,6 +315,7 @@ function TransferForm({
           arfolyam: arfolyamNum,
           megjegyzes: megjegyzes.trim() || null,
           bankszamlaId: valasztottBank?.id ?? null,
+          celBankszamlaId: celBank?.id ?? null,
         },
         { supabase, runtime: 'desktop', userId },
       )
@@ -325,21 +339,27 @@ function TransferForm({
         celBankNeve: tipus === 'bank_bank' ? cel.trim() : undefined,
         megjegyzes: megjegyzes.trim() || null,
       })
-      // 2026-08-27: a visszajelzés MONDJA MEG, könyvelés történt-e. A
-      // bank↔bank és a valutacsere EGYELŐRE csak nyilvántartásba kerül (két
-      // különböző számla/deviza párosítása külön kört igényel) — nem szabad úgy
-      // tenni, mintha a pénz mozdult volna a könyvben.
-      const konyvelt = tipus === 'kassza_bank' || tipus === 'bank_kassza'
+      // 2026-08-27: a visszajelzés MONDJA MEG, könyvelés történt-e.
+      // D5 (2026-08-29): a bank→bank is könyvelődik (RON↔RON) — devizás párnál
+      // a core `figyelmeztetes`-t ad, azt szó szerint mutatjuk. A valutacsere
+      // továbbra is csak nyilvántartásba kerül — nem szabad úgy tenni, mintha
+      // a pénz mozdult volna a könyvben.
+      const konyvelt =
+        (tipus === 'kassza_bank' || tipus === 'bank_kassza' || tipus === 'bank_bank') &&
+        !result.figyelmeztetes
       setSuccessMsg(
-        konyvelt
-          ? `Belső mozgás rögzítve és KÖNYVELVE (${TYPE_LABELS[tipus]}, ${osszegNum.toLocaleString('hu')} RON) — a kassza és a bank egyenlege is frissült.`
-          : `Belső mozgás NYILVÁNTARTÁSBA véve (${TYPE_LABELS[tipus]}, ${osszegNum.toLocaleString('hu')} RON). ⚠️ Könyvelési sorok NEM készültek: ezt a típust a Pénzügy oldalon kell könyvelni.`,
+        result.figyelmeztetes
+          ? `Belső mozgás NYILVÁNTARTÁSBA véve (${TYPE_LABELS[tipus]}, ${osszegNum.toLocaleString('hu')} RON). ⚠️ ${result.figyelmeztetes}`
+          : konyvelt
+            ? `Belső mozgás rögzítve és KÖNYVELVE (${TYPE_LABELS[tipus]}, ${osszegNum.toLocaleString('hu')} RON) — az érintett egyenlegek frissültek.`
+            : `Belső mozgás NYILVÁNTARTÁSBA véve (${TYPE_LABELS[tipus]}, ${osszegNum.toLocaleString('hu')} RON). ⚠️ Könyvelési sorok NEM készültek: ezt a típust a Pénzügy oldalon kell könyvelni.`,
       )
       setOsszeg('')
       setCelOsszeg('')
       setArfolyam('')
       setMegjegyzes('')
-      setTimeout(() => setSuccessMsg(null), 5000)
+      // Figyelmeztetéses üzenet NEM tűnik el magától — kézi teendőt ír le.
+      if (!result.figyelmeztetes) setTimeout(() => setSuccessMsg(null), 5000)
       onSaved()
     } catch (err) {
       setError(`Váratlan hiba: ${errorMessage(err)}`)

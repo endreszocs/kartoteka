@@ -68,7 +68,12 @@ type LedgerUnit = {
   headers: string[]
 }
 
-export function PenzugyImportWizard() {
+export function PenzugyImportWizard({
+  onImported,
+}: {
+  /** P3-9 (audit 2026-08-28): sikeres import után a hívó frissíti a listáit. */
+  onImported?: () => void
+} = {}) {
   const [stage, setStage] = useState<WizardStage>('welcome')
   const [file, setFile] = useState<File | null>(null)
   // Opcionális bevételek-XML referencia (Befizetett év + hivatalos iratszám).
@@ -492,18 +497,30 @@ export function PenzugyImportWizard() {
       const result = await executeFinanceImport(builtItems.items, fileName, keszpenzNyito)
 
       // Minden importált bankszámla éves nyitójának rögzítése (forrasa='import').
+      // P3-10 (audit 2026-08-28): a kassza-nyitó hangos-hiba javítása után a
+      // BANK-nyitó ág néma maradt — a hibát mostantól összegyűjtjük és KIMONDJUK
+      // (az import attól még sikeres, de a nyitót kézzel kell pótolni).
       if (!result.error && eve != null) {
+        const nyitoHibak: string[] = []
         for (const u of bankNyitok) {
           try {
-            await upsertBankszamlaNyitoEgyenleg({
+            const nyitoRes = await upsertBankszamlaNyitoEgyenleg({
               bankszamla_id: u.bankszamlaId as number,
               eve,
               nyito_egyenleg_valuta: u.opening as number,
               forrasa: 'import',
             })
-          } catch {
-            // best-effort — az import attól még sikeres
+            if (nyitoRes.error) nyitoHibak.push(`${u.label}: ${nyitoRes.error}`)
+          } catch (e) {
+            nyitoHibak.push(`${u.label}: ${e instanceof Error ? e.message : 'ismeretlen hiba'}`)
           }
+        }
+        if (nyitoHibak.length > 0) {
+          toast.error(
+            `A tételek importja sikerült, de ${nyitoHibak.length} bank NYITÓ egyenlege NEM mentődött: ` +
+              `${nyitoHibak.join(' · ')} — rögzítsd kézzel a Pénzügy → Bank fülön.`,
+            { duration: 15000 },
+          )
         }
       }
 
@@ -513,9 +530,12 @@ export function PenzugyImportWizard() {
         toast.error(result.error)
       } else if (result.inserted) {
         toast.success(`Sikeresen mentve: ${result.inserted} tétel.`)
+        // P3-9: a Pénzügy-fülek listái AZONNAL frissülnek — a felhasználó ne a
+        // régi listából következtessen arra, hogy „nem importált semmit".
+        onImported?.()
       }
     })
-  }, [builtItems.items, file, kasszaAnalysis, units])
+  }, [builtItems.items, file, kasszaAnalysis, units, onImported])
 
   const currentStep: 1 | 2 | 3 =
     stage === 'welcome' || stage === 'source' ? 1 : stage === 'result' ? 3 : 2

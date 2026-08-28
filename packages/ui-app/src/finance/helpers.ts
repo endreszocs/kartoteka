@@ -17,7 +17,10 @@ import type {
 
 export function formatCurrency(num: number | null | undefined): string {
   if (num === null || num === undefined || isNaN(num)) return '0,00'
-  const parts = Number(num).toFixed(2).split('.')
+  // P3-3 (audit 2026-08-28): bani-kerekítés + a „+ 0" a NEGATÍV NULLÁT
+  // normalizálja (apró negatív float „-0,00"-ként jelent meg az egyenlegen).
+  const n = Math.round(Number(num) * 100) / 100 + 0
+  const parts = n.toFixed(2).split('.')
   parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
   return parts[0] + ',' + parts[1]
 }
@@ -230,8 +233,12 @@ export function calculateBalances(
   // 2026-07-11 (S9): a könyvelés RON-ban — az egyenlegek/totálok a RON-ekvivalenst
   // (osszeg_ron) használják, nem a deviza-összeget (osszeg). RON számlán a kettő
   // egyenlő (fallback), devizás számlán a osszeg_ron az átváltott lej-érték.
+  // P4-28 (audit 2026-08-28): a TÖRÖLT sor sem számít — ma minden hívó
+  // előszűr, de a közös helper legyen önvédő: egy jövőbeli hívó könnyen benne
+  // hagyná a törölt sorokat az egyenlegben.
   income.forEach((r) => {
     if ((r as { stornozott?: boolean }).stornozott) return
+    if ((r as { deleted?: boolean }).deleted) return
     const amt = Number(r.osszeg_ron ?? r.osszeg) || 0
     const internal =
       !!r.belso_mozgas_xkey ||
@@ -243,6 +250,7 @@ export function calculateBalances(
 
   expense.forEach((r) => {
     if ((r as { stornozott?: boolean }).stornozott) return
+    if ((r as { deleted?: boolean }).deleted) return
     const amt = Number(r.osszeg_ron ?? r.osszeg) || 0
     const internal =
       !!r.belso_mozgas_xkey ||

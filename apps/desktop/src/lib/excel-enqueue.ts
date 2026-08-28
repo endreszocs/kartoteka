@@ -50,6 +50,19 @@ function logEnqueueError(scope: string, err: unknown): void {
     `[excel-enqueue] ${scope} sikertelen:`,
     err instanceof Error ? err.message : err,
   )
+  // P3-20 (audit 2026-08-28): az enqueue-hiba eddig CSAK console.error volt —
+  // a tétel a Kartotékában megvolt, az Excelbe viszont sosem került be, és
+  // senki nem tudott róla. A shell figyelmeztető sávja ugyanazt az eseményt
+  // kapja, mint a beragadt várólista-sorok.
+  try {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('kartoteka:excel-blocked', { detail: { darab: 1 } }),
+      )
+    }
+  } catch {
+    /* best-effort */
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────

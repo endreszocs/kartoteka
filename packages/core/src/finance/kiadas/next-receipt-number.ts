@@ -13,6 +13,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { selectAllPaged } from '@kartoteka/supabase-client'
 import {
   nextExpenseReceiptNumberInputSchema,
   type NextExpenseReceiptNumberInput,
@@ -41,15 +42,25 @@ export async function getNextReceiptNumberForExpenseUseCase(
   const { congregationId, year } = parsed.data
 
   try {
-    const { data, error } = await ctx.supabase
-      .from('kiadas')
-      .select('iratszam')
-      .eq('congregation_id', congregationId)
-      .eq('deleted', false)
-      .ilike('irattipus', '%észpénz%')
-      .is('belso_mozgas_xkey', null)
-      .gte('datum', `${year}-01-01`)
-      .lt('datum', `${year + 1}-01-01`)
+    // D3 (audit 2026-08-28): a KÁNON a befizetés-oldali generátor 2026-08-11-es
+    // hármas javítása — ez az oldal eddig egyiket sem kapta meg:
+    //  (1) LAPOZOTT lekérés (a PostgREST 1000-es plafonja némán levágta a MAX-ot),
+    //  (2) készpénz = bankszamla_id IS NULL (az importált tételek irattipusa
+    //      tetszőleges — az ilike-szűrő kihagyta őket),
+    //  (3) a STORNÓZOTT szám újra kiadható (S3-#12) → nem tolja a MAX-ot.
+    const { data, error } = await selectAllPaged<{ iratszam?: string | null }>(
+      ctx.supabase
+        .from('kiadas')
+        .select('iratszam')
+        .eq('congregation_id', congregationId)
+        .eq('deleted', false)
+        .is('bankszamla_id', null)
+        .or('stornozott.eq.false,stornozott.is.null')
+        .is('belso_mozgas_xkey', null)
+        .gte('datum', `${year}-01-01`)
+        .lt('datum', `${year + 1}-01-01`),
+      { dedupeBy: null },
+    )
 
     if (error) {
       return { success: false, error: `Iratszám-lekérdezés hiba: ${error.message}` }
