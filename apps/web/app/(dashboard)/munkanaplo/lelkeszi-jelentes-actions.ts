@@ -32,6 +32,7 @@
 // is visszamennek a hívónak (getLelkesziJelentes).
 
 import { revalidatePath } from 'next/cache'
+import { resolveNyitoEgyenlegekUseCase } from '@kartoteka/core'
 import { selectAllPaged } from '@kartoteka/supabase-client'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import type { WorklogEntry } from '@/lib/constants/worklog'
@@ -1016,6 +1017,34 @@ async function computeAuto(
       // (VII.8 = a + b − c). Véglegesített előző jelentés nélkül null (kézi).
       auto['VII.5'] = snapshotMezoErtek(elozo.snapshot, 'VII.8')
     }
+  }
+
+  // P3-22 (audit 2026-08-28): a VII.5 KERESZTELLENŐRZÉSE a kanonikus
+  // nyitó-forrással (Endre 2026-08-28-i döntése: a 2 évenkénti tábla az
+  // egyetlen forrás). A jelentés-lánc számát NEM írjuk át (az a hivatalos,
+  // véglegesített dokumentumból jön) — de ha eltér a valós pénzkészlettől,
+  // HANGOSAN jelezzük; hiányzó előző jelentésnél pedig a kanonikus nyitó a
+  // javasolt auto-érték a néma null helyett.
+  try {
+    const nyito = await resolveNyitoEgyenlegekUseCase(
+      { congregationId: congId, eve: ev },
+      { supabase, runtime: 'web' },
+    )
+    if (nyito.success) {
+      const kanonikusNyito = Math.round(((nyito.cash?.value || 0) + (nyito.bankTotal || 0)) * 100) / 100
+      const lancErtek = auto['VII.5']
+      if (lancErtek == null) {
+        auto['VII.5'] = kanonikusNyito
+      } else if (Math.abs(Number(lancErtek) - kanonikusNyito) > 0.005) {
+        autoHibak.push(
+          `A VII.5 (előző évi maradvány) az előző jelentés láncából ${Number(lancErtek).toFixed(2)} lej, ` +
+            `a kanonikus nyitó-nyilvántartás szerint viszont ${kanonikusNyito.toFixed(2)} lej a ${ev}. évi ` +
+            'nyitó pénzkészlet — a kettőnek egyeznie kellene. Ellenőrizd az előző évi jelentést és a nyitó egyenlegeket.',
+        )
+      }
+    }
+  } catch (e) {
+    console.error('[lelkeszi-jelentes] VII.5 kanonikus keresztellenőrzés hiba:', e instanceof Error ? e.message : e)
   }
 
   // I.2 / I.3 / V.7 — férfi/nő bontás közös szemely-lookuppal. 2026-08-25:

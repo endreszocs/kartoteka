@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache'
 // 2026-07-11 (S6): visszamenőleges kassza↔bank átvezetésnél a következő évi
 // automatikus ('carryover') nyitó újraszámolása.
 import { refreshCarryoverBestEffort, resolveNyitoEgyenlegekUseCase, saveInternalTransferUseCase } from '@kartoteka/core'
+import { localTodayIso } from '@kartoteka/validations'
 // 2026-08-11 (5. kör, P3 #15): a lapozott „hozd le a TELJES halmazt" helper közös forrása.
 import { selectAllPaged } from '@kartoteka/supabase-client'
 // 2026-08-11 (5. kör, P3 #4): a járulék-besoroló pár közös forrása (web ⇄ desktop).
@@ -5616,10 +5617,30 @@ export async function getBankCurrencyBalance(
     return { error: `Belső mozgások lekérése sikertelen: ${transfersError.message}` }
   }
 
+  // P3-6 (audit 2026-08-28): a deviza-nyitó a KANONIKUS évenkénti táblából
+  // (Endre 2026-08-28-i döntése: EGYETLEN nyitó-forrás) — a legacy
+  // bankszamlak.nyito_egyenleg skalár csak akkor él, ha kanonikus sor még nincs.
+  const targetYear = Number((uptoDate || localTodayIso()).slice(0, 4))
+  const { data: kanonNyito } = await supabase
+    .from('bankszamla_nyito_egyenleg')
+    .select('eve, nyito_egyenleg_valuta')
+    .eq('congregation_id', congregationId)
+    .eq('bankszamla_id', bankId)
+    .lte('eve', targetYear)
+    .order('eve', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
   const result = calculateBankCurrencyBalance(
     bank as BankAccount,
     (transfers || []) as InternalTransferRow[],
     uptoDate,
+    kanonNyito
+      ? {
+          nyitoOverride: Number(kanonNyito.nyito_egyenleg_valuta) || 0,
+          fromDate: `${kanonNyito.eve}-01-01`,
+        }
+      : undefined,
   )
 
   return { result }

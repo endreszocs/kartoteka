@@ -54,8 +54,13 @@ export function calculateBankCurrencyBalance(
   bank: BankAccount,
   transfers: InternalTransferRow[],
   uptoDate?: string,
+  /** P3-6 (audit 2026-08-28): a hívó a KANONIKUS évenkénti nyitóval hívhat —
+   *  `nyitoOverride` a nyitó a saját devizában, `fromDate` a nyitó évének
+   *  jan. 1-je (az az előtti valutacserék már a nyitóban benne vannak). A
+   *  legacy `bankszamlak.nyito_egyenleg` skalár csak fallback. */
+  opts?: { nyitoOverride?: number; fromDate?: string },
 ): BankBalanceResult {
-  const nyitoEgyenleg = Number(bank.nyito_egyenleg) || 0
+  const nyitoEgyenleg = opts?.nyitoOverride ?? (Number(bank.nyito_egyenleg) || 0)
   let balance = nyitoEgyenleg
   let modositoCount = 0
   const bankIdStr = String(bank.id)
@@ -64,6 +69,7 @@ export function calculateBankCurrencyBalance(
     if (t.deleted) continue
     if (t.tipus !== 'valutacsere') continue
     if (uptoDate && t.datum > uptoDate) continue
+    if (opts?.fromDate && t.datum < opts.fromDate) continue
 
     // valutacsere: forras = egyik számla, cel = másik számla
     // A `cel_osszeg` a cél deviza, az `osszeg` a forrás deviza.
