@@ -329,6 +329,11 @@ export function DesktopFinancePrintDialog({
       carryoverCash: carryoverCashUse,
       carryoverBank: carryoverBankUse,
       bankNyitoMap: bankNyitoMapUse,
+      // 2026-08-28 (Endre döntése): az asztali program KIZÁRÓLAG gyülekezeti hatókörű,
+      // ezért a legacy, év nélküli `bankszamlak.nyito_egyenleg` itt SOSEM számolhat.
+      // A kanonikus forrás a `bankszamla_nyito_egyenleg` évenkénti tábla.
+      // (Kiirva, nem elhagyva: így egy későbbi olvasó látja, hogy ez DÖNTÉS, nem feledékenyég.)
+      felsoSzintLegacyNyito: false,
       nyugtatombok:
         filters.printType === 'nyugtatomb_kimutatas'
           ? filters.nyugtatombok

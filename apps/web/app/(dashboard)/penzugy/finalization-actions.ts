@@ -221,8 +221,14 @@ export async function runFinalizationChecks(year: number): Promise<{
         ? `Mind a ${banks.length} aktív bankszámlához van ${year} januári nyitó egyenleg.`
         : `${banksWithoutNyito.length} bankszámlán hiányzik: ${banksWithoutNyito.map((b) => b.bank_neve).join(', ')}`,
     blocking: false,
-    fixUrl: '/penzugy#bank',
-    fixLabel: banksWithoutNyito.length > 0 ? 'Bank fülön rögzíts nyitót' : undefined,
+    // 2026-08-28 (Endre döntése): a kanonikus nyitó-panelre mutatunk, nem a Bank fülre.
+    // A Bank fül „add meg kézzel itt" gombja CSAK addig látszik, amíg se rögzített,
+    // se levezetett nyitó nincs — a véglegesités előtti utolsó figyelmeztetés tehát
+    // zsákutcába küldött. A `#nyito_egyenlegek` hash a panelt nyitja meg
+    // (apps/web/components/finance/finance-tabs.tsx).
+    fixUrl: '/penzugy#nyito_egyenlegek',
+    fixLabel:
+      banksWithoutNyito.length > 0 ? 'Nyitó egyenlegek megnyitása' : undefined,
   })
 
   // ── 2. Valutás számlák december 31-i FX revaluation-je ──

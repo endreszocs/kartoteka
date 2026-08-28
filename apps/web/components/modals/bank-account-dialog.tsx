@@ -621,15 +621,16 @@ export function BankAccountDialog({
               💡 Nyitó egyenleget hol adhatod meg?
             </p>
             <p className="text-[11px] text-slate-600 leading-relaxed">
-              A bankszámla létrehozásakor NEM kötelező a nyitó egyenleg. Az első
-              banki Excel import során (<strong>Pénzügy → Bank → Excel import</strong>)
-              a wizard megkérdezi az <strong>év eleji nyitó egyenleget</strong> (évenként).
-              Valutás számlánál <strong>RON ekvivalenst is</strong> megad (árfolyammal).
+              A bankszámla létrehozásakor NEM kötelező a nyitó egyenleg. A hivatalos,
+              ÉVENKÉNTI nyitó egyenlegek egyetlen helyen élnek:{' '}
+              <strong>Gyülekezet beállításai → Nyitó egyenlegek</strong>. Innen számol a
+              Számadás, a Bank fül és a hivatalos banknapló is. (A banki Excel import
+              továbbra is fel tudja ajánlani az év eleji értéket, de a végső szó ott van.)
             </p>
             {account && (
               <p className="text-[11px] text-slate-500 mt-2">
-                Szerkesztési módban: a korábban rögzített induló érték megmarad,
-                az éves nyitók kezelése a Bank fülre költözött.
+                Szerkesztési módban a lentebb látható „Régi (kivezetett) nyitó egyenleg" egy
+                ÉV NÉLKÜLI, régi érték — a rendszer 2026-08-28 óta NEM ebből számol.
               </p>
             )}
           </div>
@@ -678,8 +679,8 @@ export function BankAccountDialog({
                 <p className="truncate text-[11px] text-slate-400">
                   {iban || 'Nincs IBAN'} · {valuta}
                 </p>
-                <p className="text-[11px] text-slate-500">
-                  Nyitó egyenleg:{' '}
+                <p className="text-[11px] text-slate-400">
+                  Régi (kivezetett) nyitó egyenleg:{' '}
                   {typeof nyitoEgyenleg === 'number'
                     ? nyitoEgyenleg.toLocaleString('hu-HU', { maximumFractionDigits: 2 })
                     : '0'}{' '}

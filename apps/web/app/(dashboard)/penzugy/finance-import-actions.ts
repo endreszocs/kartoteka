@@ -788,7 +788,7 @@ export async function executeFinanceImport(
   if (importYears.length > 0) {
     const { data: lockRows, error: lockErr } = await auth.access.supabase
       .from('bealitas')
-      .select('id, accounting_finalized')
+      .select('id, accounting_finalized, budget_finalized')
       .eq('congregation_id', auth.congregationId)
       .in('id', importYears.map(String))
     // 2026-08-11 (5. kör, K5-#32 hibaosztály-lezárás): FAIL-CLOSED. Az `error`
@@ -805,13 +805,22 @@ export async function executeFinanceImport(
           'próbáld újra; ha újra hibázik, jelezd a rendszergazdának.',
       }
     }
-    const closedYears = ((lockRows || []) as Array<{ id: string; accounting_finalized: boolean | null }>)
-      .filter((r) => r.accounting_finalized)
+    // 2026-08-28 (Endre döntése: „egy hely, és onnan számoljon mindent"): a
+    // `budget_finalized`-ot is nézzük. A NYITÓ-EGYENLEG PANEL már ma MINDKETTőRE zár
+    // (nyito-egyenleg-settings-actions.ts), az import viszont csak a számadásra — így
+    // egy véglegesitett KÖLTSÉGVETÉSŰ évbe az import még be tudott írni. Ha a panel a
+    // kanonikus hely, a mellette futó utak nem lehetnek gyengébbek nála.
+    const closedYears = ((lockRows || []) as Array<{
+      id: string
+      accounting_finalized: boolean | null
+      budget_finalized: boolean | null
+    }>)
+      .filter((r) => r.accounting_finalized || r.budget_finalized)
       .map((r) => Number(r.id))
       .sort((a, b) => a - b)
     if (closedYears.length > 0) {
       return {
-        error: `A ${closedYears.join(', ')}. évi számadás már véglegesítve van — az import blokkolva. Először kérj javítási engedélyt az egyházmegyétől (feloldás), utána próbáld újra.`,
+        error: `A ${closedYears.join(', ')}. évi számadás vagy költségvetés már véglegesítve van — az import blokkolva. Először kérj javítási engedélyt az egyházmegyétől (feloldás), utána próbáld újra.`,
       }
     }
   }
@@ -915,28 +924,74 @@ export async function executeFinanceImport(
     // Naplózás hiba nem blocker — az import sikeres lefutott
   }
 
-  // Készpénz éves nyitó egyenleg rögzítése (forrasa='import') — enélkül a
-  // készpénz-egyenleg 0-ról indulna és az év végi egyenleg nem lenne hiteles.
-  // Best-effort: ha elbukik, az import attól még sikeres maradt.
+  // ── Készpénz éves nyitó egyenleg rögzítése ───────────────────────────────
+  // Enélkül a készpénz-egyenleg 0-ról indulna és az év végi egyenleg nem lenne hiteles.
+  //
+  // ⛔ 2026-08-28 (Endre döntése: „a gyülekezet beállításainál legyenek a nyitó
+  //    egyenlegek, EGY [helyen], és onnan számoljon mindent"):
+  //    FORRÁS-VÉDELEM. Ez az upsert eddig `onConflict`-tal FELÜLÍRTA a lelkész által
+  //    a Gyülekezet beállításai → Nyitó egyenlegek panelen jóváhagyott (`forrasa='manual'`)
+  //    értéket — ráadásul NÉMÁN, mert a hibát egy üres `catch {}` nyelte el.
+  //    Egy újraimport így visszavonta volna a kézi döntést, és senki nem tudott róla.
+  //    A bank-oldali párja (packages/core/.../nyito-egyenleg.ts) MÁR ma is védett:
+  //    csak `forrasa='carryover'` sort ír felül. A két út nem húzhat szét.
+  let nyitoFigyelmeztetes: string | null = null
   if (
     keszpenzNyito &&
     Number.isFinite(keszpenzNyito.eve) &&
     Number.isFinite(keszpenzNyito.nyito)
   ) {
     try {
-      await auth.access.supabase.from('keszpenz_nyito_egyenleg').upsert(
-        {
-          congregation_id: auth.congregationId,
-          eve: keszpenzNyito.eve,
-          nyito_egyenleg: keszpenzNyito.nyito,
-          forrasa: 'import',
-          updated_by: auth.userId,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'congregation_id,eve' },
-      )
-    } catch {
-      // best-effort — nem blokkolja az importot
+      const { data: meglevo, error: olvasErr } = await auth.access.supabase
+        .from('keszpenz_nyito_egyenleg')
+        .select('forrasa, nyito_egyenleg')
+        .eq('congregation_id', auth.congregationId)
+        .eq('eve', keszpenzNyito.eve)
+        .maybeSingle()
+
+      if (olvasErr) {
+        // FAIL-CLOSED a FELÜLÍRÁSRA: ha nem tudjuk megnézni, kézi-e a meglévő sor,
+        // NEM írunk rá. Egy elveszett import-nyitót a lelkész pótolni tud; egy
+        // felülírt kézi nyitót észre sem venne.
+        nyitoFigyelmeztetes =
+          `A ${keszpenzNyito.eve}. évi készpénz nyitó egyenleget nem sikerült ellenőrizni ` +
+          `(${olvasErr.message}), ezért biztonságból NEM írtuk felül. Nézd meg a ` +
+          'Gyülekezet beállításai → Nyitó egyenlegek felületen.'
+        console.error('[finance-import] kassza-nyitó olvasás hiba:', olvasErr.message)
+      } else if (meglevo && (meglevo as { forrasa?: string | null }).forrasa === 'manual') {
+        nyitoFigyelmeztetes =
+          `A ${keszpenzNyito.eve}. évi készpénz nyitó egyenleget a Gyülekezet beállításaiban ` +
+          `rögzítették (${Number((meglevo as { nyito_egyenleg?: number }).nyito_egyenleg ?? 0).toLocaleString('hu-HU')} RON), ` +
+          `ezért az importból származó ${Number(keszpenzNyito.nyito).toLocaleString('hu-HU')} RON ` +
+          'NEM került átírásra. Ha mégis az importált értéket szeretnéd, írd át ott.'
+      } else {
+        const { error: irasErr } = await auth.access.supabase.from('keszpenz_nyito_egyenleg').upsert(
+          {
+            congregation_id: auth.congregationId,
+            eve: keszpenzNyito.eve,
+            nyito_egyenleg: keszpenzNyito.nyito,
+            forrasa: 'import',
+            updated_by: auth.userId,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'congregation_id,eve' },
+        )
+        if (irasErr) {
+          // A korábbi néma `catch {}` helyett: a lelkész MEGTUDJA, ha a nyitó nem ment be.
+          nyitoFigyelmeztetes =
+            `A ${keszpenzNyito.eve}. évi készpénz nyitó egyenleget nem sikerült rögzíteni ` +
+            `(${irasErr.message}). A tételek importja sikeres — a nyitót a Gyülekezet ` +
+            'beállításai → Nyitó egyenlegek felületen add meg.'
+          console.error('[finance-import] kassza-nyitó írás hiba:', irasErr.message)
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'ismeretlen hiba'
+      nyitoFigyelmeztetes =
+        `A ${keszpenzNyito.eve}. évi készpénz nyitó egyenleg rögzítése váratlan hibába ütközött ` +
+        `(${msg}). A tételek importja sikeres — a nyitót a Gyülekezet beállításai → ` +
+        'Nyitó egyenlegek felületen add meg.'
+      console.error('[finance-import] kassza-nyitó váratlan hiba:', msg)
     }
   }
 
@@ -949,6 +1004,8 @@ export async function executeFinanceImport(
       rowIndex: e.rowIndex ?? 0,
       reason: e.reason ?? 'Ismeretlen hiba',
     })),
+    /** Ha a kassza-nyitó nem íródott be (védett kézi érték vagy hiba) — a hívó mutassa. */
+    nyitoFigyelmeztetes: nyitoFigyelmeztetes ?? undefined,
   }
 }
 

@@ -64,6 +64,9 @@ export * from './SearchableSelect'
 export * from './SearchableCategorySelect'
 export * from './BcrImportWizardBody'
 export * from './CombinedEntryBody'
+// 2026-08-27 (Endre 5. kérése): Adományozók és szponzorok fül — KÖZÖS
+// megjelenítő (web + desktop). Adatot nem kér le, mindent propsból kap.
+export * from './AdomanyozokBody'
 export * from './FamilyReceiptModal'
 export * from './DispozitieDialogBody'
 export * from './inventory'

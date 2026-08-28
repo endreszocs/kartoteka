@@ -2291,7 +2291,19 @@ async function initFinanceFelsoSzint(
     initialExpense,
     carryoverCash,
     carryoverBank,
-    bankNyitoMap: {} as Record<number, number>, // diocese módban nincs per-számla nyitó-tábla
+    // ⚠️ SÉMA-KORLÁT, nem szándék: a `bankszamla_nyito_egyenleg.congregation_id`
+    // **NOT NULL** (Database_schema.sql), a `bankszamlak` viszont mind a három szint
+    // KÖZÖS táblája (`scope` oszloppal). Egy megyei/kerületi számla nyitója tehát
+    // FIZIKAILAG nem vehető fel a kanonikus táblába — ezért marad itt üres a térkép.
+    bankNyitoMap: {} as Record<number, number>,
+    // Ezért ÉS CSAK EZÉRT engedünk a legacy, év nélküli `bankszamlak.nyito_egyenleg`
+    // oszlopnak a felsőbb szinten (packages/ui-app/src/finance/reporting.ts).
+    // Endre 2026-08-28-i döntése szerint GYÜLEKEZETI hatókörben a kanonikus tábla az
+    // EGYETLEN forrás — ott ez a flag hiányzik, tehát a legacy ág SOSEM fut.
+    // A flag nélkül a MEGYEI Registru Banca nyitó sora 0-ra esne.
+    // ⏳ ADÓSSÁG, NEM VÉGÁLLAPOT: a következő kör feladata a felsőbb szint saját
+    //    nyitó-tárolója. Ez a mező addig a greppelhető jelzőkaró.
+    felsoSzintLegacyNyito: true,
     internalTransfers: [] as InternalTransferRow[], // Phase 5-re halasztott
     congregationName: szintNev, // UI label: felső szinten a megye/kerület neve
     congregationNameRo: szintNevRo, // a szint hivatalos ROMÁN neve a nyomtatvány-fejléchez
@@ -3718,8 +3730,14 @@ export async function createYearlySettings(
     accounting_unlock_reason: null,
     leltar_unlock_reason: null,
     szamadas_zaro_adatok: {},
-    nyito_keszpenz: 0,
-    nyito_bank: 0,
+    // ⛔ 2026-08-28 (Endre döntése: EGY nyitó-egyenleg forrás): a `nyito_keszpenz`
+    //    és a `nyito_bank` oszlop KIVEZETVE. MÉRVE: az apps/ + packages/ alatt
+    //    NULLA olvasójuk van (minden találat írás vagy típus-deklaráció), és a közös
+    //    `BealitasRow` típus nem is ismeri őket — halott tároló. Élesben 0,00 állt
+    //    bennuk, miközben a valós banki nyitó 107 771,39 volt.
+    //    Az oszlop DB-oldali DEFAULT-ja 0, tehát a mező elhagyása UGYANAZT a tárolt
+    //    számot adja — NULLA adathatás —, viszont a halott tároló nem éled újra.
+    //    Kanonikus: `keszpenz_nyito_egyenleg` és `bankszamla_nyito_egyenleg`.
   }
 
   // 2026-07-17 (F1 hardening): ignoreDuplicates — ez a függvény LÉTREHOZ, sosem ír

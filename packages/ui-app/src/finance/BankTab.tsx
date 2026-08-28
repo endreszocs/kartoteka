@@ -474,7 +474,13 @@ export function BankTab({
         irattipus: record.irattipus || '',
         fizetettev: record.fizetettev ?? null,
         isBm: !!record.belso_mozgas_xkey,
-        unpaired: !!record.belso_mozgas_xkey && !!unpairedInternalIds?.has(record.id),
+        // 2026-08-27: a `belso_mozgas_xkey` ELŐFELTÉTEL ELTÁVOLÍTVA. Az
+        // `unpairedInternalIds` halmazt az egészség-ellenőrző állítja elő, és az
+        // MÁR ELDÖNTÖTTE, hogy a sor párosítatlan-e — a kód-alapú (xkey nélküli)
+        // árva sorok is benne vannak. Az extra `xkey` feltétel PONT azokat szűrte
+        // ki: a figyelmeztető sávban benne voltak, a listában viszont semmi nem
+        // jelölte őket, így megtalálhatatlanok maradtak.
+        unpaired: !!unpairedInternalIds?.has(record.id),
         hasMissingPerson,
         hasMissingCategory: !record.id_befizetescel,
         stornozott: record.stornozott === true,
@@ -505,7 +511,7 @@ export function BankTab({
         irattipus: record.irattipus || '',
         fizetettev: null,
         isBm: !!record.belso_mozgas_xkey,
-        unpaired: !!record.belso_mozgas_xkey && !!unpairedInternalIds?.has(record.id),
+        unpaired: !!unpairedInternalIds?.has(record.id),
         hasMissingPerson: false, // kiadásnál nem kötelező személy
         hasMissingCategory: !record.id_kiadascel,
         stornozott: record.stornozott === true,

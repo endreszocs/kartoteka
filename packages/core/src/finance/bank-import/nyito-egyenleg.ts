@@ -102,6 +102,47 @@ export async function upsertBankszamlaNyitoEgyenlegUseCase(
 
   const supabase: SupabaseClient = ctx.supabase
 
+  // ── ZÁRT-ÉV VÉDELEM (2026-08-28, Endre döntése: EGY nyitó-egyenleg forrás) ──
+  //
+  // MIÉRT ITT, A MAGBAN: a nyitó egyenleget három úton lehet írni — a Gyülekezet
+  // beállításai panelről, a WEBES banki importból és az ASZTALI banki importból.
+  // A panelen 2026-08-11 óta van zárt-év védelem, a másik kettőn NEM volt: mérve,
+  // a `finalized` szó egyikükben sem fordult elő. Vagyis egy VÉGLEGESÍTETT év banki
+  // nyitója az importon át felülírható volt, miközben a panel ugyanezt megtagadta.
+  // Ha a panel a kanonikus hely, a mellette futó utak nem lehetnek gyengébbek nála —
+  // és ezt csak a KÖZÖS magban lehet egyszer, mindenkinek megoldani.
+  //
+  // FAIL-CLOSED: ha a zárás-állapotot nem tudjuk lekérdezni, NEM írunk. A „nincs
+  // bealitas sor" NEM hiba (`maybeSingle` → data: null, error: null) — az évet még
+  // nem konfigurálták, tehát nincs is véglegesítve.
+  const { data: evZaras, error: evZarasErr } = await supabase
+    .from('bealitas')
+    .select('accounting_finalized, budget_finalized')
+    .eq('congregation_id', input.congregationId)
+    .eq('id', String(input.eve))
+    .maybeSingle()
+  if (evZarasErr) {
+    console.error(
+      `[nyito-egyenleg] A(z) ${input.eve}. évi zárás-állapot lekérdezése HIBÁRA FUTOTT ` +
+        '— fail-closed, a banki nyitó mentése nem futhat le.',
+      evZarasErr,
+    )
+    return {
+      error:
+        `Nem sikerült ellenőrizni, hogy a(z) ${input.eve}. év véglegesítve van-e ` +
+        `(${evZarasErr.message}), ezért a banki nyitó egyenleg mentését biztonságból ` +
+        'megszakítottuk — egy már lezárt év nyitóját nem írhatjuk felül véletlenül.',
+    }
+  }
+  const zaras = evZaras as { accounting_finalized?: boolean | null; budget_finalized?: boolean | null } | null
+  if (zaras?.accounting_finalized === true || zaras?.budget_finalized === true) {
+    return {
+      error:
+        `A(z) ${input.eve}. év véglegesítve van — a banki nyitó egyenlege a beküldött ` +
+        'számadás kiindulópontja. Módosításhoz kérj javítási engedélyt az egyházmegyétől.',
+    }
+  }
+
   // Kikérdezzük a bankszámla valutáját (RON vagy más)
   const { data: bs, error: bsErr } = await supabase
     .from('bankszamlak')
@@ -509,6 +550,12 @@ export async function refreshNextYearCarryoverUseCase(
     },
     ctx,
   )
+  // ⚠️ 2026-08-28: ez az upsert MOSTANTÓL ZÁRT-ÉV VÉDETT (lásd a use-case elejét).
+  // Ha a KÖVETKEZŐ év számadása vagy költségvetése már véglegesítve van, a
+  // carryover NEM íródik felül, és `refreshed: false` jön vissza.
+  // Ez VISELKEDÉS-VÁLTOZÁS, és szándékos: egy már beküldött számadás
+  // kiindulópontját egy visszamenőleges könyvelés nem mozdíthatja el csendben.
+  // A lelkész a zárolt évet a szokásos feloldás-kéréssel tudja javítani.
   return { refreshed: !!res.success }
 }
 

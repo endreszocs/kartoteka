@@ -79,6 +79,18 @@ export const saveInternalTransferInputSchema = z
     cel_osszeg: z.number().positive().optional().nullable(),
     arfolyam: z.number().positive().optional().nullable(),
     megjegyzes: z.string().trim().max(500).optional().nullable(),
+    /**
+     * 2026-08-27: az ERINTETT bankszamla azonositoja.
+     *
+     * MIERT KELL: a `forras`/`cel` SZABAD SZOVEG („Kassza", „Bank XYZ"), abbol a
+     * konyveles tukor-sorainak `bankszamla_id`-ja nem allithato be. Enelkul a
+     * desktopon rogzitett atvezetes CSAK a `belsomozgas` mestertablaba kerult,
+     * a `befizetes`/`kiadas` par NEM jott letre — vagyis a penz NEM MOZDULT a
+     * konyvben: sem a kassza, sem a bank egyenlege nem valtozott.
+     * Opcionalis, hogy a meglevo hivok valtozatlanul mukodjenek; ha meg van adva,
+     * a use-case letrehozza a konyvelesi part is.
+     */
+    bankszamlaId: z.number().int().positive().optional().nullable(),
   })
   .refine((d) => d.datum <= today(), {
     message: 'Jövőbeli dátum nem engedélyezett',

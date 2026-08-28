@@ -441,7 +441,13 @@ export function CashbookTab({
         // Irat sz. = gyülekezeti saját sorszám (nyugta); csak ha valódi (nem a kerületivel tükrözött).
         gyulekezetiSzam: r.nyugta && r.nyugta !== r.iratszam ? r.nyugta : '',
         isBm: !!r.belso_mozgas_xkey,
-        unpaired: !!r.belso_mozgas_xkey && !!unpairedInternalIds?.has(r.id),
+        // 2026-08-27: a `belso_mozgas_xkey` ELŐFELTÉTEL ELTÁVOLÍTVA. Az
+        // `unpairedInternalIds` halmazt az egészség-ellenőrző állítja elő, és az
+        // MÁR ELDÖNTÖTTE, hogy a sor párosítatlan-e — a kód-alapú (xkey nélküli)
+        // árva sorok is benne vannak. Az extra `xkey` feltétel PONT azokat szűrte
+        // ki: a figyelmeztető sávban benne voltak, a listában viszont semmi nem
+        // jelölte őket, így megtalálhatatlanok maradtak.
+        unpaired: !!unpairedInternalIds?.has(r.id),
         megjegyzes: r.megjegyzes || undefined,
         hasMissingPerson: !r.id_szemely && !r.id_csalad && !r.belso_mozgas_xkey,
         hasMissingCategory: !r.id_befizetescel,
@@ -466,7 +472,7 @@ export function CashbookTab({
         iratszam: getTransactionDocumentNumber(r) || '',
         gyulekezetiSzam: '', // kiadásnál nincs külön gyülekezeti sorszám
         isBm: !!r.belso_mozgas_xkey,
-        unpaired: !!r.belso_mozgas_xkey && !!unpairedInternalIds?.has(r.id),
+        unpaired: !!unpairedInternalIds?.has(r.id),
         megjegyzes: r.megjegyzes || undefined,
         hasMissingPerson: false,
         hasMissingCategory: !r.id_kiadascel,

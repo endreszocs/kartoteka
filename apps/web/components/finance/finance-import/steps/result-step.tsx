@@ -99,6 +99,17 @@ export function ResultStep({
         </div>
       )}
 
+      {/* Nyitó egyenleg figyelmeztetés (2026-08-28, Endre döntése).
+          Eddig ez a lépés néma volt: az import „sikeres"-t jelentett, miközben a
+          Gyülekezet beállításaiban jóváhagyott kassza-nyitót felülírta — vagy egy
+          elnyelt hiba miatt el sem mentette. Most a lelkész MEGTUDJA. */}
+      {result.nyitoFigyelmeztetes && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <p className="text-sm font-medium text-amber-900">Nyitó egyenleg — figyelj rá</p>
+          <p className="mt-1 text-sm text-amber-800">{result.nyitoFigyelmeztetes}</p>
+        </div>
+      )}
+
       {/* KPI-k */}
       <div className="grid gap-3 sm:grid-cols-4">
         <ResultKpi

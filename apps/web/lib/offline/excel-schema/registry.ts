@@ -218,7 +218,13 @@ const PENZUGY_SCHEMA: ExcelModuleSchema = {
         { displayName: 'Bank neve', technical: 'bank_neve', type: 'string', width: 22 },
         { displayName: 'IBAN', technical: 'iban', type: 'string', width: 28 },
         { displayName: 'Valuta', technical: 'valuta', type: 'string', width: 8 },
-        { displayName: 'Nyitó egyenleg', technical: 'nyito_egyenleg', type: 'currency', width: 14 },
+        // ⛔ 2026-08-28 (Endre döntése): a „Nyitó egyenleg" oszlop KIVEZETVE.
+        //    Szerkeszthető cella volt egy olyan értékhez, aminek NINCS ÉVE, és az
+        //    „Alkalmaz" a mutation_queue-n keresztül minden ellenőrzés megkerulésével
+        //    írta vissza. A hivatalos nyitót a Gyülekezet beállításai → Nyitó
+        //    egyenlegek felület adja (évenkénti, zárt-év védett).
+        //    RÉGI MUNKAFÜZETEK: az import-diff a SÉMÁBÓL iterál (excel-import-diff.ts),
+        //    ezért egy korábban exportált fájl fölös oszlopa egyszerűen kimarad — mérve.
       ],
     },
     {

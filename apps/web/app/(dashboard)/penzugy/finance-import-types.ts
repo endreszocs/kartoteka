@@ -235,5 +235,17 @@ export interface FinanceImportResult {
   /** Duplikáció miatt kihagyott tételek (újraimportnál a már létező sorok). */
   skippedDuplicates?: number
   errors?: Array<{ rowIndex: number; reason: string }>
+  /**
+   * 2026-08-28 (Endre döntése: egyetlen nyitó-egyenleg forrás).
+   *
+   * Akkor van kitöltve, ha a KASSZA-NYITÓ nem íródott be: vagy azért, mert a
+   * Gyülekezet beállításaiban rögzített (`forrasa='manual'`) értéket védtük meg a
+   * felülírástól, vagy mert az írás/olvasás hibázott.
+   *
+   * Eddig ez a lépés egy néma `catch {}` mögött futott — az import „sikeres"-t
+   * jelentett, miközben a jóváhagyott nyitót felülírta vagy elvesztette.
+   * A hívó felület KÖTELESSÉGE megjeleníteni.
+   */
+  nyitoFigyelmeztetes?: string
 }
 

@@ -141,6 +141,43 @@ export {
   type MatchBankTransactionsResultOrError,
 } from './finance/bank-import'
 
+// ── HASONLÓ (esetleg duplikált) TÉTEL FIGYELMEZTETÉS — Endre 8. kérése (2026-08-27)
+// A párosítás tiszta magja + a név-hasonlóság. A web (serveraction) ÉS a desktop
+// (online lookup) UGYANINNEN dönt, hogy mi számít „kb. ugyanaz"-nak.
+export {
+  HASONLO_NAP_ABLAK,
+  HASONLO_NEV_KUSZOB,
+  hasonloDatumAblak,
+  hasonloIsoNap,
+  hasonloNapEltres,
+  hasonloTetelekKeresese,
+  type HasonloTetelKerdes,
+  type HasonloTetelMeglevo,
+  type HasonloTetelTalalat,
+} from './finance/hasonlo-tetel/match'
+export {
+  jaroWinkler,
+  nameSimilarity,
+  normalizeNameForMatch,
+} from './finance/hasonlo-tetel/jaro-winkler'
+
+// ── ADOMÁNYOZÓK ÉS SZPONZOROK — Endre 5. kérése (2026-08-27) ─────────────
+// A 10 adomány/szponzor kód + a tiszta összesítő. A web és a desktop fül
+// UGYANEZT használja — külön aggregálás két eltérő végösszeget adna.
+export {
+  ADOMANY_KODOK,
+  adomanyKodE,
+  adomanyKodNev,
+  adomanyozoKulcsNev,
+  cegGyanusNev,
+  osszesitAdomanyozok,
+  type AdomanyKod,
+  type AdomanyTetel,
+  type Adomanyozo,
+  type AdomanyozoTipus,
+  type AdomanyozokOsszesito,
+} from './finance/adomanyozok/aggregate'
+
 export {
   listIncomeUseCase,
   type ListIncomeCtx,

@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { loadBelsoMozgasCelIds, notInLista } from '@/lib/finance/belso-mozgas-cel-ids'
 import { selectAllPaged } from '@kartoteka/supabase-client'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { presbiterSzerepCimke } from '@/lib/tisztsegek/shared'
@@ -398,14 +399,60 @@ export async function getFinancialSummaryForAttachment(year: number): Promise<{
   const { supabase } = access
   const congId = access.effectiveCongregationId
 
-  // Számadás adatok (bevétel/kiadás az adott évre)
+  // ── Számadás adatok (bevétel/kiadás az adott évre) ─────────────────────
+  // ⛔ 2026-08-27 — NÉGY HIBA EGY HIVATALOS MELLÉKLETBEN. Ez a szám a
+  // JEGYZŐKÖNYV mellékletébe kerül, tehát aláírt iratba. A korábbi lekérdezés:
+  //   (1) NEM szűrt `stornozott`-ra → egy érvénytelenített tétel is beleszámolt,
+  //       miközben minden más hivatalos kimutatásból ki van zárva;
+  //   (2) NEM zárta ki a BELSŐ MOZGÁST (se xkey, se kód szerint) → egy
+  //       kassza↔bank átvezetés bevételként ÉS kiadásként is felduzzasztotta a
+  //       számot (élesben: 7 db árva 301.01 sor, 65 425 RON);
+  //   (3) a NYERS `osszeg`-et adta össze az `osszeg_ron` helyett → devizás
+  //       sornál nagyságrendi hiba (1000 EUR papíron 1000 lejként);
+  //   (4) NEM VOLT LAPOZVA — a PostgREST 1000 soros plafonja NÉMÁN csonkolta
+  //       volna 1000+ tételes évnél. (A leltár-rész alatta MÁR lapozott, és
+  //       külön komment magyarázza, miért — a pénzügyi rész kimaradt belőle.)
+  const bmCel = await loadBelsoMozgasCelIds(supabase)
+  if ('error' in bmCel) {
+    // FAIL-CLOSED: aláírt iratba nem teszünk olyan számot, amiről nem tudjuk,
+    // hogy tartalmaz-e átvezetést.
+    console.error('[jegyzokonyv-melleklet] a belső mozgás kategóriáinak feloldása hibázott:', bmCel.error)
+    return null
+  }
+  const bevNotIn = notInLista(bmCel.bev)
+  const kiaNotIn = notInLista(bmCel.kia)
+
+  let bevQ = supabase
+    .from('befizetes')
+    .select('osszeg, osszeg_ron')
+    .eq('congregation_id', congId)
+    .eq('deleted', false)
+    .or('stornozott.eq.false,stornozott.is.null')
+    .is('belso_mozgas_xkey', null)
+    .gte('datum', `${year}-01-01`)
+    .lte('datum', `${year}-12-31`)
+  if (bevNotIn) bevQ = bevQ.not('id_befizetescel', 'in', bevNotIn)
+
+  let kiaQ = supabase
+    .from('kiadas')
+    .select('osszeg, osszeg_ron')
+    .eq('congregation_id', congId)
+    .eq('deleted', false)
+    .or('stornozott.eq.false,stornozott.is.null')
+    .is('belso_mozgas_xkey', null)
+    .gte('datum', `${year}-01-01`)
+    .lte('datum', `${year}-12-31`)
+  if (kiaNotIn) kiaQ = kiaQ.not('id_kiadascel', 'in', kiaNotIn)
+
   const [incResult, expResult] = await Promise.all([
-    supabase.from('befizetes').select('osszeg').eq('congregation_id', congId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
-    supabase.from('kiadas').select('osszeg').eq('congregation_id', congId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
+    selectAllPaged<{ osszeg: number | null; osszeg_ron: number | null }>(bevQ, { dedupeBy: null }),
+    selectAllPaged<{ osszeg: number | null; osszeg_ron: number | null }>(kiaQ, { dedupeBy: null }),
   ])
 
-  const totalIncome = (incResult.data || []).reduce((s, r: { osszeg: number }) => s + Number(r.osszeg || 0), 0)
-  const totalExpense = (expResult.data || []).reduce((s, r: { osszeg: number }) => s + Number(r.osszeg || 0), 0)
+  const ronOf = (r: { osszeg: number | null; osszeg_ron: number | null }) =>
+    Number(r.osszeg_ron ?? r.osszeg ?? 0) || 0
+  const totalIncome = (incResult.data || []).reduce((s, r) => s + ronOf(r), 0)
+  const totalExpense = (expResult.data || []).reduce((s, r) => s + ronOf(r), 0)
 
   // Leltár adatok (helyes oszlopnevek: beszerzesi_ertek, is_deleted, kategoria)
   // 2026-08-14 (10. pont): LAPOZVA — lapozás nélkül a PostgREST 1000 soros

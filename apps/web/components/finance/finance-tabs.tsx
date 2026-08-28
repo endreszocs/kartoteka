@@ -36,6 +36,9 @@ const AccountingTabV2 = dynamic(() => import('./accounting-tab-v2').then((m) => 
 const DebtTabV2 = dynamic(() => import('./debt-tab-v2').then((m) => m.DebtTabV2), { ssr: false, loading: tabLoading })
 const TransactionsTab = dynamic(() => import('./transactions-tab').then((m) => m.TransactionsTab), { ssr: false, loading: tabLoading })
 const RentalTab = dynamic(() => import('./rental-tab').then((m) => m.RentalTab), { ssr: false, loading: tabLoading })
+// 2026-08-27 (Endre 5. kérése): Adományozók és szponzorok fül. Dynamic, mert a
+// saját szerver-hívása több év adományait hozza — ne terhelje a kezdeti bundle-t.
+const AdomanyozokTab = dynamic(() => import('./adomanyozok-tab').then((m) => m.AdomanyozokTab), { ssr: false, loading: tabLoading })
 // 2026-08-11 (K5 #5): a Súgó fül a KÖZÖS `FinanceSugoTab` wrappert mountolja
 // (`finance-sugo-tab.tsx`) a korábbi, csak-webes `PenzugyHelp` helyett. Az eddigi
 // állapotban a wrapper halott kód volt, a web pedig egy külön fejlődő súgó-doksit
@@ -53,6 +56,7 @@ import { OpeningBalancesDialog } from '@/components/finance/opening-balances-dia
 import { BudgetPrintDialog } from '@/components/finance/budget-print-dialog'
 import { calculateBalances } from '@/lib/utils/finance-helpers'
 import { computeInternalMovementHealth } from '@/lib/finance/internal-movement-health'
+import { InternalMovementWarning } from '@/components/finance/internal-movement-warning'
 // 2026-08-17 (kerületi S5): a hatókör KANONIKUS típusa. Itt eddig kézi
 // `'congregation' | 'diocese'` unió-másolat állt — pontosan az, ami miatt a
 // harmadik szint fordítási hiba nélkül maradhatott volna ki a felületből.
@@ -295,6 +299,16 @@ export function FinanceTabs({
         window.history.replaceState(null, '', window.location.pathname + window.location.search)
         return
       }
+      // 2026-08-28 (Endre döntése: EGY nyitó-egyenleg forrás): a kanonikus panel
+      // MEGNYITÁSA URL-ből. A véglegesités előtti ellenőrző-lista eddig a
+      // `/penzugy#bank`-ra küldött, ahol a „nyitó megadása" gomb CSAK addig
+      // látszik, amíg se rögzített, se levezetett nyitó nincs — vagyis a
+      // figyelmeztetés zsákutcába mutatott.
+      if (hash === 'nyito_egyenlegek') {
+        setOpeningBalancesOpen(true)
+        window.history.replaceState(null, '', window.location.pathname + window.location.search)
+        return
+      }
       if (hash === 'oblio_ellenorzes') {
         // A hash-t ELŐBB kiürítjük (replaceState), hogy a böngésző Vissza
         // gombja ne pattogjon vissza ide, majd átnavigálunk a hubra.
@@ -312,6 +326,9 @@ export function FinanceTabs({
         'accounting',
         'debt',
         'rental',
+        // 2026-08-28: az Adományozók fül kimaradt ebből a listából — egy
+        // `/penzugy#adomanyozok` könyvjelző némán az Áttekintésre esett volna.
+        'adomanyozok',
         'sugo',
         'admin_import',
       ] as const
@@ -406,9 +423,23 @@ export function FinanceTabs({
   const currentYearMissing = receiptHealth.missingNumbers.filter((n) => !prevYearMissingSet.has(n))
 
   // Belső mozgás párosítás-egészség — párosítatlan kassza↔bank letétel/felvét (red flag).
+  // 2026-08-27: a KATEGÓRIAKÓDOT is átadjuk. Enélkül az őr csak a már párosított
+  // (belso_mozgas_xkey-vel rendelkező) sorokat látta, és pontosan azokat szűrte ki,
+  // amiket jeleznie kellett volna — élesben így maradt néma 7 db kassza→bank letét,
+  // amit a banki import sima bevételként hozott be a 301.01 kódra.
   const internalMovementHealth = useMemo(
-    () => computeInternalMovementHealth(incomeRecords, expenseRecords),
-    [incomeRecords, expenseRecords],
+    () =>
+      computeInternalMovementHealth(
+        incomeRecords.map((r) => ({
+          ...r,
+          szamadasicelKod: r.id_befizetescel != null ? bevCelMap[r.id_befizetescel] ?? null : null,
+        })),
+        expenseRecords.map((r) => ({
+          ...r,
+          szamadasicelKod: r.id_kiadascel != null ? kiaCelMap[r.id_kiadascel] ?? null : null,
+        })),
+      ),
+    [incomeRecords, expenseRecords, bevCelMap, kiaCelMap],
   )
 
   return (
@@ -651,42 +682,7 @@ export function FinanceTabs({
         </div>
       )}
 
-      {internalMovementHealth.unpairedCount > 0 && (
-        <div className="card-raised mb-4 border border-red-200 bg-red-50/80 p-4">
-          <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl bg-red-500 text-white shadow-sm">
-              <AlertTriangle className="size-5" />
-            </div>
-            <div className="space-y-2">
-              <div>
-                <h3 className="text-sm font-semibold text-red-700">
-                  Párosítatlan belső mozgás ({internalMovementHealth.unpairedCount})
-                </h3>
-                <p className="text-sm text-red-600/90">
-                  Olyan kassza ↔ bank (vagy bank ↔ bank) mozgás van, aminek csak az egyik
-                  oldala szerepel. A párja a banki kivonat importja és egyeztetése után
-                  automatikusan létrejön, és ez a jelzés magától eltűnik.
-                </p>
-              </div>
-              <div className="space-y-1">
-                {internalMovementHealth.items.slice(0, 5).map((m, i) => (
-                  <p key={`${m.datum}-${m.osszeg}-${i}`} className="text-xs text-slate-700">
-                    <strong>{m.datum}</strong> · {m.osszeg.toLocaleString('hu-HU')} RON —{' '}
-                    {m.side === 'expense'
-                      ? 'kiadás-oldal rögzítve, a fogadó (banki) oldal hiányzik'
-                      : 'befizetés-oldal rögzítve, a küldő oldal hiányzik'}
-                  </p>
-                ))}
-                {internalMovementHealth.items.length > 5 && (
-                  <p className="text-xs text-slate-500">
-                    … és további {internalMovementHealth.items.length - 5} tétel.
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <InternalMovementWarning health={internalMovementHealth} />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <ColorTabs
@@ -710,6 +706,7 @@ export function FinanceTabs({
             ...(gyulekezeti ? [
               { value: 'debt', label: 'Tartozások', color: 'orange' },
               { value: 'rental', label: 'Bérleti szerződések', color: 'amber' },
+              { value: 'adomanyozok', label: 'Adományozók és szponzorok', color: 'indigo' },
             ] : []),
             { value: 'sugo', label: 'Súgó', color: 'teal' },
             // 2026-05-25: Rendszergazdai importáló a sor VÉGÉN, mindig piros háttérrel
@@ -904,6 +901,15 @@ export function FinanceTabs({
 
             <TabsContent value="rental" className="mt-4">
               <RentalTab contracts={rentalContracts} onChanged={refreshRentals} />
+            </TabsContent>
+
+            {/* Adományozók és szponzorok (Endre 5. kérése, 2026-08-27).
+                A `gyulekezeti` kapun belül áll, mert a megyei/kerületi tábla
+                kategória-oszlopa mÁS (`id_szamadasicel` a junction helyett), és
+                felsőbb szinten tagnyilvántartás sincs — egy „scope-független"
+                változat némán rossz számot adna. */}
+            <TabsContent value="adomanyozok" className="mt-4">
+              <AdomanyozokTab currentYear={currentYear} />
             </TabsContent>
 
             {/* 2026-07-10 (S3 #2+#4): a Monetár TabsContent a lebegő widgetbe

@@ -288,9 +288,33 @@ export interface FinanceReportData {
   carryoverBank: number
   /** 2026-07-17 (F4): a kiválasztott év RÖGZÍTETT nyitó egyenlegei bankszámlánként
    *  (bankszamla_nyito_egyenleg.nyito_egyenleg_ron, bankszamla_id → RON). A Registru
-   *  Banca ebből veszi az egy-számlás nyitót — a legacy bankszamlak.nyito_egyenleg
-   *  (egyoszlopos, év nélküli) csak fallback. */
+   *  Banca ebből veszi az egy-számlás nyitót.
+   *
+   *  2026-08-28 (Endre döntése): GYÜLEKEZETI hatókörben ez az EGYETLEN forrás — a
+   *  legacy `bankszamlak.nyito_egyenleg` már nem fallback, lásd `felsoSzintLegacyNyito`. */
   bankNyitoMap?: Record<number, number>
+  /**
+   * ⚠️ CSAK EGYHÁZMEGYEI / EGYHÁZKERÜLETI hatókörben igaz — SÉMA-KORLÁT, nem szándék.
+   *
+   * Endre 2026-08-28-i döntése: „A gyülekezet beállításainál legyenek a nyitó
+   * egyenlegek, egy [helyen], és onnan számoljon mindent." Ezt gyülekezeti szinten
+   * végre is hajtottuk: a `bankNyitoMap` (= `bankszamla_nyito_egyenleg` évenkénti
+   * tábla) az egyetlen forrás.
+   *
+   * A FELSŐBB SZINT viszont FIZIKAILAG nem tud oda rögzíteni:
+   * `bankszamla_nyito_egyenleg.congregation_id` **NOT NULL**, a `bankszamlak` viszont
+   * mind a három szint közös táblája (`scope` oszloppal). Ezért az
+   * `initFinanceFelsoSzint` fixen ÜRES `bankNyitoMap`-et ad, és a megyei Registru
+   * Banca nyitója 100%-ban a legacy skalárból jön.
+   *
+   * Ha ezt a flaget feltétel nélkül elhagynánk, a MEGYEI banknapló nyitó sora
+   * 0-ra esne — ez a kör legdrágább elkerülhető hibája.
+   *
+   * ADÓSSÁG, NEM VÉGÁLLAPOT: a következő kör feladata a felsőbb szint saját
+   * nyitó-tárolója (a `congregation_id` NOT NULL feloldása vagy scope-oszlopos
+   * tábla). Ez a mező addig a greppelhető jelzőkaró.
+   */
+  felsoSzintLegacyNyito?: boolean
   /** Nyugtatömb kimutatás soradatai — csak a `nyugtatomb_kimutatas` típushoz kötelező. */
   nyugtatombok?: NyugtatombReportRow[]
 }
@@ -445,16 +469,29 @@ function buildRegistruBanca(data: FinanceReportData, f: MonthFilters): FinancePr
   const mExpense = bankFilter(filterByMonth(data.expense, f.year, f.month))
 
   const bank = data.bankAccounts.find((b) => b.id === f.bankAccountId)
-  // 2026-07-17 (F4): a per-éves rögzített nyitó az elsődleges — a legacy
-  // bankszamlak.nyito_egyenleg év nélküli, elavult érték (torzította a regisztert).
+  // 2026-07-17 (F4): a per-éves rögzített nyitó az elsődleges.
   // EGY-számlás módban az aggregát carryoverBank-ra SOHA nem esünk vissza (az egy
   // MÁSIK számla rögzített nyitóját mutatná ennek a számlának a nyitójaként).
+  //
+  // 2026-08-28 (Endre döntése — „egy hely, és onnan számoljon mindent"):
+  // a legacy, ÉV NÉLKÜLI `bankszamlak.nyito_egyenleg` KIVEZETVE a gyülekezeti
+  // számításból. Élesben ott 15 000 áll, miközben a kanonikus 2025-ös sor
+  // 107 771,39 — két különböző szám ugyanarra a számlára.
+  //
+  // ⚠️ A legacy ág NEM törölhető, csak HATÓKÖRRE SZŰKÍTHETŐ: a felsőbb szintnek
+  // nincs hova rögzítenie a nyitót (`bankszamla_nyito_egyenleg.congregation_id`
+  // NOT NULL), ezért ott a skalár az EGYETLEN forrás. Lásd `felsoSzintLegacyNyito`.
+  //
+  // Gyülekezeti hatókörben a flag hiányzik → 0 jön, és a nyomtatvány `nyitoBizonytalan`
+  // jelzést kap. Ez CSAK a hibaágon látszik (ha a nyitó-feloldás lekérdezése elbukik);
+  // normál működésben a `bankNyitoMap` MINDEN számlára tartalmaz bejegyzést.
   const recordedNyito = f.bankAccountId != null ? data.bankNyitoMap?.[f.bankAccountId] : undefined
+  const legacyNyito = data.felsoSzintLegacyNyito === true ? Number(bank?.nyito_egyenleg ?? 0) || 0 : 0
   const openBal =
     recordedNyito != null
       ? recordedNyito
       : f.bankAccountId != null
-        ? Number(bank?.nyito_egyenleg ?? 0) || 0
+        ? legacyNyito
         : data.carryoverBank
   const carry = computeCarryover(data.income, data.expense, f.year, f.month, bankFilter, openBal)
 

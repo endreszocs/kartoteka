@@ -168,6 +168,15 @@ type RowDecision = {
   note?: string
   /** Iratszám (szerkeszthető a wizardban — pl. számla szám, nyugta szám). */
   iratszam?: string
+  /**
+   * 2026-08-27 (Endre 3. kérése): a befizető tag azonosítója.
+   * ⚠️ CSAK a BEVÉTEL-ágon hasznosul — a core `id_szemely`-t kizárólag a
+   * `befizetes` payloadba írja. Ha a művelet elmozdul a bevételtől, a
+   * hozzárendelést TÖRÖLNI kell, különben némán elveszne.
+   */
+  personId?: number
+  /** A kiválasztott tag neve — csak megjelenítéshez. */
+  personName?: string
 }
 
 export interface BcrImportWizardBodyProps {
@@ -206,6 +215,20 @@ export interface BcrImportWizardBodyProps {
   }) => Promise<{ data?: WizardYearStartCheckResult | null; error?: string }>
   /** BNR/ECB árfolyam-lekérdezés (targetDate: historikus ISO-dátum vagy undefined = friss). */
   onFetchBnrRate: (targetDate?: string) => Promise<BnrRateResult>
+  /**
+   * 2026-08-27 (Endre 3. kérése): a „Befizető" cella tartalma BEVÉTEL-soron.
+   *
+   * Miért prop és nem beépített komponens: ez a fájl platform-független, NEM
+   * importálhat webes szerver-akciót (a tag-kereső ott él). A gazda adja be a
+   * kész választót. Ha nincs megadva (ma: a desktop), a cella jelzi, hogy a
+   * funkció azon a felületen még nincs bekötve — NEM tesszük úgy, mintha lenne.
+   */
+  renderPersonPicker?: (args: {
+    value: { id: number; name: string } | null
+    onChange: (p: { id: number; name: string } | null) => void
+    /** A banki közlemény — ezzel indulhat a keresés. */
+    suggestQuery: string
+  }) => ReactNode
   /** 2026-07-10 (nyitó-carryover): az előző évi záróból számolt nyitó —
    *  ha megadva és van tavalyi adat, a nyitó lépés kitöltve jelenik meg. */
   onComputeCarryoverNyito?: (
@@ -231,6 +254,7 @@ export function BcrImportWizardBody({
   onUpsertNyitoEgyenleg,
   onCheckYearStart,
   onFetchBnrRate,
+  renderPersonPicker,
   onComputeCarryoverNyito,
   onImport,
 }: BcrImportWizardBodyProps) {
@@ -530,10 +554,14 @@ export function BcrImportWizardBody({
   function updateDecision(rowIndex: number, patch: Partial<RowDecision>) {
     setDecisions((prev) => {
       const existing = prev[rowIndex] || { action: 'skip' as BankImportItemAction }
-      return {
-        ...prev,
-        [rowIndex]: { ...existing, ...patch },
+      const merged = { ...existing, ...patch }
+      // 2026-08-27: NÉMA ADATVESZTÉS ELLEN — a personId csak bevételnél hasznosul.
+      // Ha a művelet elmozdul onnan, a felületen is LÁTSZÓDJON az elvesztése.
+      if (merged.action !== 'income') {
+        delete merged.personId
+        delete merged.personName
       }
+      return { ...prev, [rowIndex]: merged }
     })
   }
 
@@ -541,7 +569,14 @@ export function BcrImportWizardBody({
     setDecisions((prev) => {
       const next = { ...prev }
       for (const t of transactions) {
-        next[t.rowIndex] = { ...(next[t.rowIndex] || { action: 'skip' }), action }
+        const merged = { ...(next[t.rowIndex] || { action: 'skip' }), action }
+        // Ua. mint az updateDecision-ben: a tömeges művelet-váltás sem hagyhat
+        // hátra olyan personId-t, amit a szerver úgyis eldobna.
+        if (merged.action !== 'income') {
+          delete merged.personId
+          delete merged.personName
+        }
+        next[t.rowIndex] = merged
       }
       return next
     })
@@ -616,6 +651,8 @@ export function BcrImportWizardBody({
           categoryId: d.categoryId,
           transferTo: d.transferToKassza ? ('kassza' as const) : undefined,
           megjegyzes: d.note,
+          // 2026-08-27: befizető tag — CSAK bevételnél (a core is csak ott írja).
+          personId: finalAction === 'income' ? d.personId : undefined,
           iratszam: finalIratszam,
         }
       })
@@ -1106,14 +1143,29 @@ export function BcrImportWizardBody({
                     <th className="p-2 text-left font-medium text-slate-500">Művelet</th>
                     <th className="p-2 text-left font-medium text-slate-500">Kategória</th>
                     <th className="p-2 text-left font-medium text-slate-500">Iratszám</th>
+                    {/* 2026-08-27 (Endre 4. kérése): szerkeszthető megjegyzés.
+                        A `note` mező és a szerver-átadás (`megjegyzes: d.note`)
+                        EDDIG IS LÉTEZETT — csak felület nem volt hozzá. */}
+                    <th className="p-2 text-left font-medium text-slate-500">Megjegyzés</th>
+                    {/* 2026-08-27 (Endre 3. kérése): befizető tag. A választót a
+                        GAZDA adja `renderPersonPicker` propként — ez a fájl nem
+                        importálhat webes szerver-akciót. Ha a gazda nem ad ilyet
+                        (ma: desktop), a cella jelzi, hogy a funkció ott még nincs. */}
+                    <th className="p-2 text-left font-medium text-slate-500">Befizető</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {visibleTransactions.map((t) => {
                     const d = decisions[t.rowIndex] || { action: 'skip' as const }
                     const cats = d.action === 'income' ? incomeCategories : expenseCategories
-                    const needsCategory =
-                      d.action === 'income' || d.action === 'expense' || d.action === 'internal-transfer'
+                    // 2026-08-27: a BELSŐ MOZGÁS KIKERÜLT a kategória-kérésből.
+                    // Eddig az `internal-transfer` az ELSE ágra esett, tehát a lelkész IRÁNYTÓL
+                    // FÜGGETLENÜL a KIADÁS-listából választott — a rendszer pedig ugyanazt az
+                    // egy azonosítót írta a pár MINDKÉT oldalára, az egyiket rossz tábla
+                    // azonosítójaként. A mag mostantól a KANONIKUS KÓDBÓL oldja fel mindkét
+                    // oldal kategóriáját (belsoMozgasKodpar), ezért itt kérni sem kell —
+                    // egy mezőt mutatni, aminek nincs hatása, félrevezető.
+                    const needsCategory = d.action === 'income' || d.action === 'expense'
                     return (
                       <tr key={t.rowIndex} className="hover:bg-slate-50/50">
                         <td className="p-2 text-slate-600 whitespace-nowrap">{t.date}</td>
@@ -1170,6 +1222,10 @@ export function BcrImportWizardBody({
                                 allowClear
                               />
                             </div>
+                          ) : d.action === 'internal-transfer' ? (
+                            <span className="text-[11px] text-slate-500">
+                              automatikus (átvezetés)
+                            </span>
                           ) : (
                             <span className="text-slate-400">—</span>
                           )}
@@ -1187,6 +1243,42 @@ export function BcrImportWizardBody({
                             />
                           ) : (
                             <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="p-2 min-w-[180px]">
+                          {d.action !== 'skip' ? (
+                            <Input
+                              type="text"
+                              value={d.note ?? ''}
+                              onChange={(e) =>
+                                updateDecision(t.rowIndex, { note: e.target.value })
+                              }
+                              placeholder="saját megjegyzés…"
+                              className="h-8 text-xs"
+                            />
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="p-2 min-w-[200px]">
+                          {d.action !== 'income' ? (
+                            <span className="text-slate-400">—</span>
+                          ) : renderPersonPicker ? (
+                            renderPersonPicker({
+                              value: d.personId
+                                ? { id: d.personId, name: d.personName || '' }
+                                : null,
+                              onChange: (pp) =>
+                                updateDecision(t.rowIndex, {
+                                  personId: pp?.id,
+                                  personName: pp?.name,
+                                }),
+                              suggestQuery: t.counterparty || t.description || '',
+                            })
+                          ) : (
+                            <span className="text-[11px] text-slate-400">
+                              (ezen a felületen még nincs)
+                            </span>
                           )}
                         </td>
                       </tr>

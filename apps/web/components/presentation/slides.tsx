@@ -449,8 +449,8 @@ function DemographicsSlide({ data, title, subtitle, commentary, projection }: Sl
     <SlideFrame projection={projection} orbVariant="teal">
       <SlideHeader title={title} subtitle={noteSubtitle} icon={<Users className="size-5" />} projection={projection} accentClass="from-teal-500 to-cyan-600" />
       <motion.div variants={slideStagger} className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-2">
-        <MotionItem variants={scaleIn} className="flex items-center justify-center rounded-2xl bg-white/90 p-4 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
-          <ResponsiveContainer width="100%" height={projection ? 400 : 240}>
+        <MotionItem variants={scaleIn} className="flex min-w-0 items-center justify-center rounded-2xl bg-white/90 p-4 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
+          <ResponsiveContainer minWidth={0} width="100%" height={projection ? 400 : 240}>
             <PieChart>
               <Pie data={chartData} dataKey="value" nameKey="name" outerRadius={projection ? 150 : 90} label animationDuration={1200} isAnimationActive={!staticRender}>
                 {chartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
@@ -521,8 +521,8 @@ function AgeDistributionSlide({ data, title, subtitle, commentary, projection }:
         projection={projection}
         accentClass="from-sky-500 to-indigo-600"
       />
-      <MotionItem variants={scaleIn} className="flex-1 rounded-2xl bg-white/90 p-4 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
-        <ResponsiveContainer width="100%" height={projection ? 500 : 320}>
+      <MotionItem variants={scaleIn} className="min-w-0 flex-1 rounded-2xl bg-white/90 p-4 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
+        <ResponsiveContainer minWidth={0} width="100%" height={projection ? 500 : 320}>
           <BarChart data={data.members.ageGroups}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis dataKey="label" stroke="#64748b" />
@@ -587,8 +587,8 @@ function AnyakonyvHistorySlide({ data, title, subtitle, commentary, projection }
   return (
     <SlideFrame projection={projection} orbVariant="sky">
       <SlideHeader title={title} subtitle={subtitle} icon={<BookOpen className="size-5" />} projection={projection} accentClass="from-sky-500 to-blue-600" />
-      <MotionItem variants={scaleIn} className="flex-1 rounded-2xl bg-white/90 p-4 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
-        <ResponsiveContainer width="100%" height={projection ? 500 : 320}>
+      <MotionItem variants={scaleIn} className="min-w-0 flex-1 rounded-2xl bg-white/90 p-4 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
+        <ResponsiveContainer minWidth={0} width="100%" height={projection ? 500 : 320}>
           <BarChart data={data.anyakonyv.byYear}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis dataKey="year" stroke="#64748b" />
@@ -885,8 +885,8 @@ function FinanceTrendSlide({ data, title, subtitle, commentary, projection }: Sl
   return (
     <SlideFrame projection={projection} orbVariant="amber">
       <SlideHeader title={title} subtitle={subtitle} icon={<Coins className="size-5" />} projection={projection} accentClass="from-amber-500 to-orange-500" />
-      <MotionItem variants={scaleIn} className="flex-1 rounded-2xl bg-white/90 p-4 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
-        <ResponsiveContainer width="100%" height={projection ? 500 : 320}>
+      <MotionItem variants={scaleIn} className="min-w-0 flex-1 rounded-2xl bg-white/90 p-4 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
+        <ResponsiveContainer minWidth={0} width="100%" height={projection ? 500 : 320}>
           <LineChart data={data.finance.byYear}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis dataKey="year" stroke="#64748b" />
@@ -1041,7 +1041,7 @@ function ProgramsSlide({ data, title, subtitle, commentary, projection }: SlideP
         </div>
         <MotionItem variants={scaleIn} className="rounded-2xl bg-white/90 p-4 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
           <h4 className={cn('mb-2 font-semibold text-slate-700', projection ? 'text-xl' : 'text-sm')}>Típus szerint</h4>
-          <ResponsiveContainer width="100%" height={projection ? 420 : 260}>
+          <ResponsiveContainer minWidth={0} width="100%" height={projection ? 420 : 260}>
             <BarChart data={chartData} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis type="number" stroke="#64748b" allowDecimals={false} />
@@ -1620,7 +1620,7 @@ function MembershipTrendSlide({ data, title, subtitle, commentary, projection }:
 
         {/* Jobb: kombinált diagram — lélekszám vonal + keresztelés/temetés oszlopok */}
         <MotionItem variants={scaleIn} className="rounded-2xl bg-white/90 p-4 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
-          <ResponsiveContainer width="100%" height={projection ? 460 : 300}>
+          <ResponsiveContainer minWidth={0} width="100%" height={projection ? 460 : 300}>
             <ComposedChart data={merged}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis dataKey="year" stroke="#64748b" />
@@ -1762,8 +1762,8 @@ function ForecastSlide({ data, title, subtitle, commentary, projection }: SlideP
     <SlideFrame projection={projection} orbVariant="amber">
       <SlideHeader title={title} subtitle={subtitle} icon={<Sparkles className="size-5" />} projection={projection} accentClass="from-amber-500 to-orange-500" />
       <motion.div variants={slideStagger} className="flex flex-1 flex-col gap-3">
-        <MotionItem variants={scaleIn} className="flex-1 rounded-2xl bg-white/90 p-4 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
-          <ResponsiveContainer width="100%" height={projection ? 400 : 260}>
+        <MotionItem variants={scaleIn} className="min-w-0 flex-1 rounded-2xl bg-white/90 p-4 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
+          <ResponsiveContainer minWidth={0} width="100%" height={projection ? 400 : 260}>
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis dataKey="year" stroke="#64748b" />

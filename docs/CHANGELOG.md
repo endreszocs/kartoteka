@@ -23,6 +23,194 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-28] — A nyitó egyenlegnek egyetlen helye lett
+<!-- key: 2026-08-28-nyito-egyenleg-egyseges-forras -->
+<!-- category: improvement -->
+<!-- version: 0.9.192 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🎨 UX javítások
+
+- **Egy hely, és onnan számol minden**: a nyitó egyenleg eddig négy különböző
+  helyen élt, és élesben három különböző szám állt ugyanarra a bankszámlára.
+  Mostantól egyetlen hely van: **Gyülekezet beállításai → Nyitó egyenlegek**,
+  évenkénti bontásban. A Számadás, a Bank fül, a hivatalos banknapló és a
+  Költségvetés kivétel nélkül innen dolgozik.
+
+- **A bankszámla-kártyán látható régi érték átcímkézve**: ott „Régi (kivezetett)
+  nyitó egyenleg" felirat áll, alatta pedig az útmutatás, hogy a hivatalos nyitót
+  hol kell megadni. Eddig ez „a" nyitó egyenlegként látszott, miközben a rendszer
+  már máshonnan számolt — a képernyőn 15 000 állt, a számításban 107 771,39.
+
+- **A bank-mező is előre kitöltődik**: ha egy évre még nincs rögzített banki
+  nyitó, a mezőbe a korábbi záró egyenlegből **levezetett** érték kerül, sárga
+  „levezetett — mentsd el" jelöléssel. Eddig üresen állt, pedig a rendszer már
+  számolt vele. **Menteni továbbra is kézzel kell** — a nyitó a hivatalos
+  számadás kiindulópontja, oda nem kerülhet olyan szám, amit senki nem nézett meg.
+
+- **A véglegesítés előtti figyelmeztetés már oda visz, ahol javítani lehet**:
+  a „Banki nyitó egyenleg" ellenőrző pont eddig a Bank fülre küldött, ahol a
+  megadó gomb csak bizonyos esetben látszott — vagyis zsákutcába vitt.
+
+### 🐛 Javítások
+
+- **Az Excel-import többé nem írja felül némán a jóváhagyott nyitót**: ha a
+  Gyülekezet beállításaiban kézzel rögzítettél kassza-nyitót, egy újraimport
+  eddig szó nélkül felülírta. Mostantól megvédi, és az import végén meg is mondja,
+  hogy nem írta át. Ha az import nem tudta elmenteni a nyitót, arról is szól —
+  eddig ez a hiba nyomtalanul eltűnt, és az import „sikeres"-t jelentett.
+
+- **Véglegesített év nyitója többé nem írható felül a banki importból**: a
+  beállítás-panel eddig is megtagadta, a banki import viszont (weben és az
+  asztali programban egyaránt) átengedte. Most a közös védelem mindhárom úton fut.
+
+- **Az import zárt-év védelme a költségvetésre is figyel**: eddig csak a számadás
+  véglegesítését nézte, így egy lezárt költségvetésű évbe még be tudott írni.
+
+- **Az offline Excel-körút nem tudja megkerülni az ellenőrzéseket**: a
+  „Bankszámlák" munkalap szerkeszthető „Nyitó egyenleg" oszlopa kivezetve — azon
+  keresztül év nélkül, zárt-év védelem nélkül vissza lehetett írni a régi értéket.
+
+- **Visszamenőleges átvezetés az asztali programból**: a következő év automatikusan
+  áthozott banki nyitója eddig elavult maradt (a weben frissült, a desktopon nem).
+
+- **Nagyon régi nyitó sem vész el többé**: ha egy évre nincs rögzített nyitó, a
+  rendszer visszafelé láncol a legutolsó rögzített értékig. Ez eddig legfeljebb
+  8 évet ment vissza, és egy annál régebbi alapot csendben eldobott, 0-ról indulva.
+  Mostantól a lánc mindig eléri a saját kiindulópontját.
+
+- **A bankszámla mentése nem nullázza le véletlenül a régi értéket**: ha egy
+  mentés nem küldi a mezőt, az érték változatlan marad (eddig némán 0 lett).
+
+---
+
+## [2026-08-28] — Adományozók fül, duplikátum-figyelmeztetés és a belső mozgás rendbetétele
+<!-- key: 2026-08-28-adomanyozok-duplikatum-belso-mozgas -->
+<!-- category: feature -->
+<!-- version: 0.9.191 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### ✨ Új funkciók
+
+- **Adományozók és szponzorok fül**: a Pénzügy modulban új fül mutatja, ki
+  adományozott — személyek és cégek egyaránt, **készpénzben és bankon át is**.
+  Kiválasztható, hogy egyetlen évet vagy több évet visszamenőleg nézünk. Minden
+  adományozónál látszik az összeg, hogy hányszor és mikor adott, a készpénz/bank
+  bontás, és lenyitva a tételes lista is. A táblázat kereshető, kategória és
+  besorolás szerint szűrhető, és menthető táblázat-fájlba (Excelben megnyitható).
+
+- **A besorolás nem tippel**: „Személy" az, akit a tagnyilvántartáshoz kötöttünk;
+  „Szervezet" az, ahol maga a számadási kód szervezeti forrás (szponzortámogatás,
+  segélyszervezet, egyházi vagy állami intézmény). A névből fakadó „cég?" jelzés
+  külön, halványan jelenik meg — mert a bevételi oldalon nincs cégnyilvántartás,
+  csak szabad szöveg. A persely névtelen tételei nem tűnnek el, de külön
+  csoportban, a lista végén állnak.
+
+- **Figyelmeztetés hasonló tételre**: ha kézzel olyan tételt rögzítünk, amilyen
+  összeggel, hasonló névvel és ±3 napon belül **már szerepel egy banki tétel**, a
+  rendszer mentés előtt megmutatja a gyanús tételt, és rákérdez, hogy tényleg
+  folytatjuk-e. Ez figyelmeztetés, nem tiltás — a „Mégis rögzítem" gomb
+  továbbenged. A kassza↔bank átvezetések nem riasztanak (azok két lába
+  természetesen azonos összegű és napú).
+
+- **Készpénz nyitó egyenleg átvezetése**: a Nyitó egyenlegek felületen azoknál az
+  éveknél, ahol nincs rögzített készpénz-nyitó, a rendszer előre beírja az előző
+  év zárásából számolt értéket, és megmondja, honnan vette. **Menteni kell** —
+  szándékosan nem ír be magától semmit a hivatalos számadás kiindulópontjába.
+
+### 🐛 Javítások
+
+- **A belső mozgás (átvezetés) párja többé nem marad árván**: sztornózásnál és
+  törlésnél eddig csak az egyik láb tűnt el, a másik ott maradt, és a
+  bevétel-összesítőkbe is beleszámított. Ez a webet és az asztali programot
+  egyaránt érintette.
+
+- **Az évhatáron átnyúló átvezetés** (december 31. / január 1.) sztornózásnál és
+  visszavonásnál eddig csak az egyik évben történt meg.
+
+- **A banki import átvezetés-ága rossz kategóriát írt**: a bevétel- és a
+  kiadás-oldal két külön kategória-tábla, és a varázslótól kapott egyetlen
+  azonosító mindkettőbe bekerült — így a bevétel-oldal néma módon másra
+  mutathatott. Mostantól az EREK szerinti kódpárt kapja mindkét láb, és a
+  devizás átvezetés is helyes lej-értéken könyvelődik.
+
+- **A jegyzőkönyv pénzügyi melléklete** eddig a sztornózott tételeket is
+  beleszámolta, az átvezetéseket bevételnek vette, devizánál a deviza-összeget
+  adta össze, és 1000 tétel fölött csendben abbahagyta a számolást.
+
+- **Asztali program: a belső mozgás mostantól ténylegesen könyvelődik** —
+  korábban csak nyilvántartásba került, könyvelési sorok nélkül.
+
+- **Diagram-hiba a konzolban**: a rejtett fülön lévő grafikonok mérete
+  „-1"-ként érkezett; a szülő elemek szélesség-korlátja javítva.
+
+---
+
+## [2026-08-27] — Befizető hozzárendelése a banki importnál
+<!-- key: 2026-08-27-banki-import-befizeto -->
+<!-- category: feature -->
+<!-- version: 0.9.188 -->
+<!-- targets: lelkipásztorok, gondnokok -->
+
+### ✨ Új funkciók
+
+- **Befizető választható a banki importnál**: ha valaki átutalással fizet
+  egyházfenntartást vagy adományt, a kivonat feldolgozásakor mostantól
+  hozzárendelhető a tagnyilvántartásból az illető személyhez. Eddig ez csak a
+  kézi rögzítésnél ment — a banki importból érkező tételek mind „gazdátlanul"
+  maradtak, és nem számítottak bele a tag járulék-nyilvántartásába.
+
+- **A kereső a banki névformákhoz igazodik**: a bankok jellemzően NAGYBETŰVEL,
+  ékezet nélkül és gyakran fordított sorrendben küldik a nevet. A kereső ezért
+  ékezet- és sorrend-független, és megtalálja a tagot lánykori vagy férjezett
+  néven, lakcím vagy foglalkozás alapján is. A mező a banki közleménnyel indul,
+  hogy ne kelljen újra begépelni.
+
+### 🔒 Biztonsági javítások
+
+- **A befizető csak a saját gyülekezet tagja lehet**: az import mostantól
+  ellenőrzi, hogy a kiválasztott személy valóban a gyülekezethez tartozik-e.
+  Ha ez nem ellenőrizhető, az import inkább megáll, mintsem hibás adatot rögzítsen.
+
+### 🐛 Javítások
+
+- **Nem vész el némán a hozzárendelés**: a befizető csak bevételi tételhez
+  köthető. Ha egy tételt utólag kiadásra vagy belső mozgásra állítasz át, a
+  hozzárendelés most már a képernyőn is eltűnik — eddig ott maradt volna a név,
+  miközben a mentéskor a rendszer eldobta volna.
+
+---
+
+## [2026-08-27] — A banki import kiadás-oldala és a néma átvezetés-figyelmeztetés
+<!-- key: 2026-08-27-banki-import-kiadas-oldal -->
+<!-- category: bugfix -->
+<!-- version: 0.9.187 -->
+<!-- targets: lelkipásztorok, gondnokok -->
+
+### 🐛 Javítások
+
+- **A banki import kiadás-oldala mostantól működik**: eddig a kivonatból importált
+  minden kiadás-tétel hibára futott („Could not find the 'kedvezmenyzett' column"),
+  és egyetlen kiadás sem került be. A rendszer rossz néven próbálta menteni a partner
+  nevét. Javítva — az importált kiadások innentől rendben rögzülnek.
+
+- **Eltávolítottuk a hamis biztonságot adó „tartalék mentést"**: a program két
+  lépésben próbálta menteni a kiadást, de a második próbálkozás ugyanazon a hibán
+  bukott el, mint az első. Ez elrejtette a valódi okot. Mostantól egyetlen, helyes
+  mentési út van, és a hiba — ha van — azonnal beszédesen kiderül.
+
+### 🎨 UX javítások
+
+- **Figyelmeztetés a párosítatlan átvezetésekre**: ha egy kassza ↔ bank átvezetésnek
+  csak az egyik oldala van meg, a Pénzügy oldal eddig is jelzett — de CSAK akkor, ha
+  a tétel az átvezetés-rögzítőn keresztül készült. A banki importból érkező, pár
+  nélküli átvezetések **láthatatlanok maradtak**, pedig épp azok a hibásak: a rendszer
+  új bevételnek látja őket, pedig csak a saját pénz átrakása egyik helyről a másikra,
+  és így felfújják a bevétel-összesent. Mostantól ezek is megjelennek a figyelmeztetésben,
+  külön kiemelve, hogy **nem rendeződnek maguktól** — ellenőrzést igényelnek.
+
+---
+
 ## [2026-08-27] — A magyar cím és a lábléc rendbetétele
 <!-- key: 2026-08-27-magyar-cim-lablec -->
 <!-- category: bugfix -->

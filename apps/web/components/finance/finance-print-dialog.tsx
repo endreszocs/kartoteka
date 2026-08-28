@@ -748,6 +748,12 @@ export function FinancePrintDialog({
       carryoverCash: carryoverCashUse,
       carryoverBank: carryoverBankUse,
       bankNyitoMap: bankNyitoMapUse,
+      // 2026-08-28 (Endre döntése): a legacy, év nélküli `bankszamlak.nyito_egyenleg`
+      // CSAK a felsőbb szinten használható, mert ott a kanonikus tábla
+      // (`bankszamla_nyito_egyenleg`) `congregation_id`-je NOT NULL — a megyének nincs
+      // hova rögzítenie. A flaget a HATÓKÖRBŐL vezetjük le, nem külön propból: így nem
+      // lehet elfelejteni átadni, és a megyei ív nem tud némán 0-ra esni.
+      felsoSzintLegacyNyito: scope !== 'congregation',
       nyugtatombok:
         filters.printType === 'nyugtatomb_kimutatas'
           ? filters.nyugtatombok
@@ -761,6 +767,11 @@ export function FinancePrintDialog({
     })
   }, [
     keszScope,
+    // 2026-08-28: a nyers `scope` is függőség lett (a `felsoSzintLegacyNyito` flag
+    // ebből származik). A React Compiler HIBÁT ad, ha a kézi memoizáció függőségei
+    // nem fedik a ténylegesen olvasott értékeket — és jogosan: a hiányzó
+    // függőség miatt egy hatókör-váltás a RÉGI flaggel építené a nyomtatványt.
+    scope,
     keruleti,
     nevHianyzik,
     income,

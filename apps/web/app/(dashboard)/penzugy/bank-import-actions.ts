@@ -142,6 +142,13 @@ async function collectDailyRates(
 
 export async function importBcrTransactions(
   items: BankImportItem[],
+  /**
+   * 2026-08-27: a naplózáshoz. A banki import eddig EGYÁLTALÁN NEM írt az
+   * `import_logs` táblába — élesben igazolva: egy 93 hibás sort produkáló
+   * import után SEMMILYEN nyoma nem maradt a rendszerben, csak a felhasználó
+   * képernyőképén. Opcionális, hogy a meglévő hívók változatlanul működjenek.
+   */
+  meta?: { fileName?: string },
 ): Promise<BankImportResult & { error?: string; warnings?: string[] }> {
   const access = await getEffectiveAccessContext()
   if (!access.user)
@@ -204,6 +211,55 @@ export async function importBcrTransactions(
     }
   }
 
+  // ── HATÓKÖR-ŐR a befizető tagra (2026-08-27) ─────────────────────────────
+  // A core VAKON írja az `id_szemely`-t (import-transactions.ts:592) — semmi nem
+  // ellenőrzi, hogy az a `szemely` sor a hívó gyülekezetéhez tartozik-e. Ez a
+  // projekt visszatérő hibaosztálya („skalár hatókör + if (id) filter"): egy
+  // manipulált vagy elavult azonosítóval MÁSIK gyülekezet tagjához lehetne
+  // befizetést kötni. FAIL-CLOSED: ha nem tudjuk ellenőrizni, NEM importálunk.
+  const personIds = Array.from(
+    new Set(
+      items
+        .filter((i) => i.action === 'income' && typeof i.personId === 'number')
+        .map((i) => i.personId as number),
+    ),
+  )
+  if (personIds.length > 0) {
+    // Darabolva: sok azonosító az URL-be kerülne, és ~100 fölött a proxy eldobja
+    // (414) — ez nálunk már megégett hibaosztály.
+    const sajat = new Set<number>()
+    for (let i = 0; i < personIds.length; i += 80) {
+      const darab = personIds.slice(i, i + 80)
+      const { data, error } = await access.supabase
+        .from('szemely')
+        .select('id')
+        .eq('congregation_id', access.effectiveCongregationId)
+        .in('id', darab)
+      if (error) {
+        return {
+          totalItems: items.length, imported: 0, skipped: 0, duplicates: 0,
+          errors: [], importedRows: [],
+          error:
+            `Nem sikerült ellenőrizni a befizetőkhöz rendelt tagokat (${error.message}), ` +
+            'ezért az importot biztonságból megszakítottuk. Próbáld újra; ha újra hibázik, ' +
+            'vedd ki a befizető-hozzárendeléseket, és jelezd a rendszergazdának.',
+        }
+      }
+      for (const r of (data || []) as Array<{ id: number }>) sajat.add(r.id)
+    }
+    const idegen = personIds.filter((id) => !sajat.has(id))
+    if (idegen.length > 0) {
+      return {
+        totalItems: items.length, imported: 0, skipped: 0, duplicates: 0,
+        errors: [], importedRows: [],
+        error:
+          `${idegen.length} tételnél olyan befizető van kiválasztva, aki nem a gyülekezet ` +
+          'tagja (vagy időközben törölték). Az importot megszakítottuk — vedd ki vagy ' +
+          'válaszd újra ezeket a befizetőket.',
+      }
+    }
+  }
+
   // 2026-07-10 (ÚJ #10): napi árfolyamok deviza-számlákhoz (RON-only
   // importnál üres map + üres warnings → viselkedés változatlan).
   const { dailyRates, warnings } = await collectDailyRates(
@@ -218,5 +274,58 @@ export async function importBcrTransactions(
   )
 
   revalidatePath('/penzugy')
-  return warnings.length > 0 ? { ...result, warnings } : result
+
+  // ── NAPLÓZÁS (2026-08-27) ────────────────────────────────────────────────
+  // A banki import eddig nyomtalan volt: a 2026-08-27-i, 93 hibás sort adó
+  // futásnak SEMMILYEN bejegyzése nem maradt az `import_logs`-ban. Egy import,
+  // ami tömegesen bukik, de nem hagy nyomot, utólag nem vizsgálható ki —
+  // se azt nem tudjuk, mi ment be, se azt, min bukott el.
+  const naplozasHibak: string[] = []
+  try {
+    const { logImportRun } = await import('@/lib/import/import-log')
+    await logImportRun({
+      supabase: access.supabase,
+      congregationId: access.effectiveCongregationId,
+      userId: access.user.id,
+      module: 'finance',
+      fileName: meta?.fileName || 'banki kivonat',
+      totalInserted: result.imported,
+      // A `duplicates` NEM hiba: a duplikáció-védelem szándékosan hagyta ki.
+      // Egy kalap alá venni a `skipped`-del elmosná, mi miért maradt ki.
+      totalSkipped: result.skipped + result.duplicates,
+      perSheetLog: [
+        { sheet: 'bank', profile: 'bcr', inserted: result.imported, skipped: result.skipped },
+      ],
+      lookupStats: {
+        personResolved: 0,
+        personUnresolved: 0,
+        categoryResolved: 0,
+        categoryUnresolved: 0,
+        warnings: [
+          `Duplikátumként kihagyva: ${result.duplicates} tétel.`,
+          `Felhasználó által kihagyva: ${result.skipped} tétel.`,
+          ...warnings.slice(0, 20),
+        ],
+      },
+      errors: result.errors.slice(0, 200).map((e) => ({
+        sheet: 'bank',
+        row: e.rowIndex,
+        message: e.error,
+      })),
+    })
+  } catch (e) {
+    // Nem némítjuk el, de az importot SEM buktatjuk el miatta: a tételek már
+    // bent vannak. (Az `import_logs_insert` policy WITH CHECK-je a hívó saját
+    // gyülekezetéhez köti a sort, ezért admin-hatókörű importnál elbukhat.)
+    console.warn('[importBcrTransactions] Import log rögzítése sikertelen:', e)
+    naplozasHibak.push(
+      'Az import NAPLÓZÁSA nem sikerült (az import maga lefutott). Ha másik gyülekezetbe ' +
+      'importáltál rendszergazdaként, ez az import_logs jogosultsági szabályának ismert korlátja.',
+    )
+  }
+
+  const osszesFigyelmeztetes = [...warnings, ...naplozasHibak]
+  return osszesFigyelmeztetes.length > 0
+    ? { ...result, warnings: osszesFigyelmeztetes }
+    : result
 }

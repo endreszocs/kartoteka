@@ -76,12 +76,37 @@ export function OpeningBalancesManager({
   useEffect(() => {
     if (!data || year == null) return
     const cashRow = data.cashRows.find((r) => r.eve === year)
-    setCash(cashRow ? String(cashRow.nyito_egyenleg) : '')
+    // 2026-08-27 (Endre 2. kérése): ha NINCS rögzített készpénz-nyitó erre az
+    // évre, az előző év zárójából LEVEZETETT javaslattal töltjük ki — de csak
+    // KIÍRJUK, nem mentjük magától. A nyitó a hivatalos számadás kiindulópontja;
+    // egy magától keletkező szám, amit senki nem nézett meg, pontosan az a
+    // hibaosztály, ami az Excelben is megvan.
+    const javaslat = data.cashSuggestions?.find((x) => x.eve === year)
+    setCash(
+      cashRow
+        ? String(cashRow.nyito_egyenleg)
+        : javaslat
+          ? String(javaslat.ertek)
+          : '',
+    )
     const vals: Record<number, string> = {}
     const rates: Record<number, string> = {}
     for (const b of activeBanks) {
       const row = data.bankRows.find((r) => r.bankszamla_id === b.id && r.eve === year)
-      vals[b.id] = row ? String(row.nyito_egyenleg_valuta) : ''
+      // 2026-08-28 (Endre döntése: EGY nyitó-egyenleg forrás): a BANK-mező is
+      // előtöltődik a levezetett értékkel — ugyanúgy, ahogy a készpénz.
+      // Eddig ÜRESEN állt rögzítetlen évben, miközben a Számadás és a Registru
+      // Banca már a levezetett számmal dolgozott: a lelkész azt hihette, hogy
+      // nincs nyitója. Ha ez „az egy hely", nem mutathat üreset olyan számhoz,
+      // amivel a rendszer már számol. MENTENI továbbra is KÉZZEL kell.
+      const bankJavaslat = data.bankSuggestions?.find(
+        (x) => x.bankszamla_id === b.id && x.eve === year,
+      )
+      vals[b.id] = row
+        ? String(row.nyito_egyenleg_valuta)
+        : bankJavaslat
+          ? String(bankJavaslat.ertek)
+          : ''
       rates[b.id] = row?.arfolyam != null ? String(row.arfolyam) : ''
     }
     setBankVals(vals)
@@ -106,6 +131,14 @@ export function OpeningBalancesManager({
 
   const isFinalized = data.finalizedYears.includes(year)
   const cashRow = data.cashRows.find((r) => r.eve === year)
+  // Javaslat CSAK akkor releváns, ha még nincs rögzített sor erre az évre.
+  const cashJavaslat = cashRow ? null : data.cashSuggestions?.find((x) => x.eve === year)
+  // 2026-08-28: számla-azonosító → javaslat, hogy a sor-render ne keressen újra.
+  const bankJavaslatById: Record<number, { ertek: number; forrasEv: number | null }> = {}
+  for (const x of data.bankSuggestions ?? []) {
+    if (x.eve === year) bankJavaslatById[x.bankszamla_id] = { ertek: x.ertek, forrasEv: x.forrasEv }
+  }
+  const vanBankJavaslat = Object.keys(bankJavaslatById).length > 0
 
   async function handleSave() {
     if (year == null) return
@@ -226,6 +259,20 @@ export function OpeningBalancesManager({
           />
           <span className="text-sm text-slate-500">RON</span>
         </div>
+        {/* 2026-08-27 (Endre 2. kérése): „automatikusan hozza át a tavalyi évből,
+            csak ellenőrzésképpen írja ki az értéket". A mező ELŐRE KI VAN TÖLTVE
+            a levezetett értékkel, de a mentés a lelkész döntése — a nyitó a
+            hivatalos számadás kiindulópontja, oda nem kerülhet olyan szám,
+            amit senki nem nézett meg. */}
+        {cashJavaslat && (
+          <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-amber-200">
+            <strong>Erre az évre még nincs rögzített készpénz-nyitó.</strong> A mezőbe a{' '}
+            {cashJavaslat.forrasEv ? `${cashJavaslat.forrasEv}. évi` : 'korábbi'} záró egyenlegből
+            levezetett <strong>{cashJavaslat.ertek.toLocaleString('hu-HU')} RON</strong> került —{' '}
+            <strong>ellenőrizd, és ha egyezik, mentsd el.</strong> Amíg nem mented, a rendszer
+            minden alkalommal újraszámolja.
+          </p>
+        )}
       </div>
 
       {/* Bankszámlák */}
@@ -251,6 +298,14 @@ export function OpeningBalancesManager({
                     {row && (
                       <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-normal text-slate-500">
                         {FORRASA_LABEL[row.forrasa] || row.forrasa}
+                      </span>
+                    )}
+                    {/* 2026-08-28: ha nincs rögzített sor, a mezőben LEVEZETETT
+                        érték áll — ezt meg kell különböztetni a mentetttől, különben
+                        a lelkész azt hinné, hogy már jóváhagyta. */}
+                    {!row && bankJavaslatById[b.id] && (
+                      <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-normal text-amber-800">
+                        levezetett — mentsd el
                       </span>
                     )}
                   </span>
@@ -281,6 +336,17 @@ export function OpeningBalancesManager({
                 </div>
               )
             })}
+            {/* 2026-08-28 (Endre döntése: EGY nyitó-egyenleg forrás) — a készpénz-savval
+                azonos minta. Ennélkül az előtöltött szám ugyanúgy nézne ki, mint egy
+                mentett érték. */}
+            {vanBankJavaslat && (
+              <p className="mt-1 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-amber-200">
+                <strong>A sárgával jelölt számlákra még nincs rögzített nyitó.</strong> A
+                mezőbe a korábbi záró egyenlegből <strong>levezetett</strong> érték került —
+                ellenőrizd, és ha egyezik, mentsd el. Amíg nem mented, a rendszer minden
+                alkalommal újraszámolja.
+              </p>
+            )}
           </div>
         )}
       </div>

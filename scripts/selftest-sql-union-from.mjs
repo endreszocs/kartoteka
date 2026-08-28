@@ -47,6 +47,12 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
 const SQL_DIR = path.join(REPO_ROOT, 'migration-docs', 'sql')
+// 2026-08-28: a `docs/` alatti, KÉZZEL FUTTATANDÓ diagnosztikai/javító SQL-ek eddig
+// KIMARADTAK az őrből — pedig pontosan ugyanaz a hibaosztály fenyegeti őket (egy
+// UNION ALL ág saját FROM nélkül 42P01-gyel az EGÉSZ lekérdezést eldobja), és ezeket
+// a lelkész futtatja élesben. A 2026-08-27-i pénzügy-átvilágítás óta 8+ ilyen fájl áll
+// a `docs/`-ban, és az őr „zöld"-et jelentett rájuk anélkül, hogy megnézte volna őket.
+const DOCS_DIR = path.join(REPO_ROOT, 'docs')
 
 let failed = false
 const fail = (msg) => {
@@ -222,16 +228,23 @@ if (!fs.existsSync(SQL_DIR)) {
   process.exit(1)
 }
 
-const fajlok = fs
-  .readdirSync(SQL_DIR)
-  .filter((f) => f.toLowerCase().endsWith('.sql'))
-  .sort()
+// Mindkét gyökér — teljes útakkal, hogy a hibaüzenetben is látszódjék, melyikből jött.
+const fajlok = [
+  ...fs.readdirSync(SQL_DIR)
+    .filter((f) => f.toLowerCase().endsWith('.sql'))
+    .map((f) => path.join(SQL_DIR, f)),
+  ...(fs.existsSync(DOCS_DIR)
+    ? fs.readdirSync(DOCS_DIR)
+        .filter((f) => f.toLowerCase().endsWith('.sql'))
+        .map((f) => path.join(DOCS_DIR, f))
+    : []),
+].sort()
 
 let hibasFajlok = 0
 let vizsgalt = 0
 
 for (const f of fajlok) {
-  const { rel, talalatok } = ellenorizFajl(path.join(SQL_DIR, f))
+  const { rel, talalatok } = ellenorizFajl(f)
   vizsgalt++
   if (talalatok.length === 0) continue
   hibasFajlok++
