@@ -181,6 +181,10 @@ export function PenzugyPage() {
   // van — ezek a szerver-tükörben még nincsenek benne, tehát a lenti számok
   // NEM tartalmazzák őket. Enélkül a lelkész némán kevesebbet látott.
   const [pendingCount, setPendingCount] = useState(0)
+  // P0-16 (audit 2026-08-28): mely szerver-pullok buktak el a legutóbbi
+  // betöltéskor — ha nem üres, a lenti számok (és minden nyomtatvány) a
+  // legutóbbi SIKERES szinkron állapotát mutatják, ezt sáv jelzi.
+  const [elavultPullok, setElavultPullok] = useState<string[]>([])
   const [pageToast, setPageToast] = useState<
     { kind: 'success' | 'error' | 'info' | 'warning'; msg: string } | null
   >(null)
@@ -227,7 +231,11 @@ export function PenzugyPage() {
       setUserId(user.id)
       setCongregationId(congId)
 
-      await Promise.allSettled([
+      // P0-16 (audit 2026-08-28): a pull-eredményeket eddig senki nem olvasta —
+      // a pullok hibánál nem dobnak, hanem { success: false }-szal térnek
+      // vissza, így offline vagy hibázó szinkron után az oldal némán a régi
+      // helyi tükröt mutatta. A bukott pullokat összegyűjtjük a sávhoz.
+      const pullEredmenyek = await Promise.allSettled([
         pullBefizetesek(congId, year),
         pullKiadasok(congId, year),
         pullBefizetesek(congId, year - 1),
@@ -236,6 +244,24 @@ export function PenzugyPage() {
         pullFinanceSettings(congId, year),
         pullDebtData(congId),
       ])
+      const pullCimkek = [
+        `${year}. évi bevételek`,
+        `${year}. évi kiadások`,
+        `${year - 1}. évi bevételek`,
+        `${year - 1}. évi kiadások`,
+        'jogcímek',
+        'évbeállítások',
+        'tartozás-adatok',
+      ]
+      const bukottPullok: string[] = []
+      pullEredmenyek.forEach((r, i) => {
+        const sikertelen =
+          r.status === 'rejected' ||
+          (r.status === 'fulfilled' &&
+            (r.value as { success?: boolean } | null | undefined)?.success === false)
+        if (sikertelen) bukottPullok.push(pullCimkek[i])
+      })
+      setElavultPullok(bukottPullok)
 
       // 2026-07-10 (S2-#5 perf): a getLocalOwnCongregation eddig KÜLÖN await-ként
       // futott a lokális olvasások előtt — bevonva a párhuzamos hullámba
@@ -634,6 +660,24 @@ export function PenzugyPage() {
             </>
           }
         />
+
+        {/* P0-16 (audit 2026-08-28): ha a szerver-szinkron (részben) elbukott,
+            a lenti számok és MINDEN nyomtatvány a legutóbbi sikeres szinkron
+            állapotát mutatja — ezt ki kell mondani, különben a lelkész elavult
+            adatból nyomtat hivatalos ívet. Endre döntése: sáv, nem tiltás. */}
+        {elavultPullok.length > 0 && (
+          <div
+            role="alert"
+            className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          >
+            <strong>
+              Nem sikerült frissíteni a szerverről: {elavultPullok.join(', ')}.
+            </strong>{' '}
+            A lenti számok és a nyomtatványok a legutóbbi sikeres szinkron állapotát
+            mutatják — elavultak lehetnek. Ellenőrizd az internetkapcsolatot, majd
+            töltsd újra az oldalt.
+          </div>
+        )}
 
         {/* 2026-07-25 (F6.4): az offline rögzített tételek NINCSENEK benne a lenti
             számokban (a szerver-tükörből dolgozunk) — ezt ki kell mondani, mert

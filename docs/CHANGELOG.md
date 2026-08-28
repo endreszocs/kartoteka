@@ -65,6 +65,16 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   2026-08-28-chitanta-atomic-rpc.sql lefuttatása szükséges — a kód-frissítés
   ÉLESÍTÉSE ELŐTT.)
 
+- **Az asztali program szól, ha elavult adatot mutat** (P0-16): az asztali
+  pénzügy-oldal betöltéskor lekéri a friss adatokat a szerverről, de ha ez
+  nem sikerült (nincs internet, vagy a szerver hibázott), eddig szó nélkül
+  a gépen tárolt korábbi másolatot mutatta — így akár elavult számokból is
+  készülhetett hivatalos nyomtatvány. Mostantól ilyenkor jól látható
+  figyelmeztető sáv jelenik meg: felsorolja, mit nem sikerült frissíteni,
+  és kimondja, hogy a számok és a nyomtatványok a legutóbbi sikeres
+  szinkron állapotát mutatják. Semmi nem tiltódik le — a munka mehet
+  tovább, de már tudatos döntésként.
+
 - **A megszakadt szinkronizáció nem duplikálhat tételt** (P0-10): ha az
   offline tétel felküldése közben a hálózat pont a válasz előtt szakadt meg,
   az újrapróbálkozás eddig még egyszer beszúrhatta ugyanazt a tételt.
