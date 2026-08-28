@@ -406,6 +406,21 @@ export async function pushPendingExcelRows(ignoreBackoff = false): Promise<Excel
     void autoEgyeztetes(items[0].congregation_id, items[0].ev, adatokPathFor)
   }
 
+  // P3-20 (audit 2026-08-28): a 'blocked' Excel-sorok PROAKTÍV jelzése — eddig
+  // csak a Beállítások → Könyvelés panel mélyén látszottak, az enqueue-hiba
+  // pedig csak console.error volt: egy beragadt hivatalos főkönyv-sor
+  // észrevétlen maradt. A shell állandó (kézzel zárható) sávot mutat.
+  try {
+    const szamok = await backend.getExcelOutboxCounts()
+    if (szamok.blocked > 0 && typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('kartoteka:excel-blocked', { detail: { darab: szamok.blocked } }),
+      )
+    }
+  } catch {
+    /* best-effort — a számláló hibája nem hibáztatja a syncet */
+  }
+
   return result
 }
 

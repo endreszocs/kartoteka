@@ -4222,6 +4222,35 @@ export async function finalizeAccounting(
   const incomeData = incomeRes.data
   const expenseData = expenseRes.data
 
+  // P4-29 (audit 2026-08-28): a KÓD-ALAPÚ (xkey nélküli) belső mozgás is
+  // kimarad az összesítőből — egyes importált belső sorok cél-kód szerint
+  // (100/3xx/4xx) belső mozgások, de nincs xkey-párjuk; a calculateBalances
+  // mindkét jelet nézi, a szerver-összesítő eddig csak az xkey-t. Enélkül a
+  // keresztellenőrzés „íven kívüli" száma torzult.
+  const belsoBevCelIds = new Set<number>()
+  const belsoKiaCelIds = new Set<number>()
+  if (scope.scope === 'congregation') {
+    const [bevCelRes2, kiaCelRes2] = await Promise.all([
+      supabase.from('befizetescel').select('id, id_szamadasicel'),
+      supabase.from('kiadascel').select('id, id_szamadasicel'),
+    ])
+    const celErr = bevCelRes2.error || kiaCelRes2.error
+    if (celErr) {
+      return {
+        error:
+          'A belső-mozgás kódok feloldása nem sikerült, ezért az évet NEM zártuk le ' +
+          `(részlet: ${celErr.message}). Próbáld újra.`,
+      }
+    }
+    const belsoKod = (k: unknown) => /^(100|[34])/.test(String(k || ''))
+    for (const c of (bevCelRes2.data || []) as Array<{ id: number; id_szamadasicel: string | null }>) {
+      if (belsoKod(c.id_szamadasicel)) belsoBevCelIds.add(Number(c.id))
+    }
+    for (const c of (kiaCelRes2.data || []) as Array<{ id: number; id_szamadasicel: string | null }>) {
+      if (belsoKod(c.id_szamadasicel)) belsoKiaCelIds.add(Number(c.id))
+    }
+  }
+
   // 2026-08-11 (6. kör, P0): SZÁNDÉKOSAN átnevezve `snapshot` → `szerverOsszesito`.
   // Ez NEM a hivatalos záró-adat: nyers junction-FK-id-kkal kulcsolt, a hivatalos
   // ív végpont-kódjaira NEM szűrt szerveroldali összesítés. Gyülekezeti ágon
@@ -4247,12 +4276,15 @@ export async function finalizeAccounting(
   let totalInc = 0
   let totalExp = 0
   for (const r of (incomeData || []) as Array<Record<string, unknown>>) {
+    // P4-29: kód-alapú belső mozgás kihagyva (congregation scope-ban).
+    if (scope.scope === 'congregation' && belsoBevCelIds.has(Number(r[categoryColBef]))) continue
     const key = String(r[categoryColBef] || 0)
     const amt = Number((r.osszeg_ron ?? r.osszeg) as number | string | null) || 0
     ;(szerverOsszesito.income as Record<string, number>)[key] = ((szerverOsszesito.income as Record<string, number>)[key] || 0) + amt
     totalInc += amt
   }
   for (const r of (expenseData || []) as Array<Record<string, unknown>>) {
+    if (scope.scope === 'congregation' && belsoKiaCelIds.has(Number(r[categoryColKia]))) continue
     const key = String(r[categoryColKia] || 0)
     const amt = Number((r.osszeg_ron ?? r.osszeg) as number | string | null) || 0
     ;(szerverOsszesito.expense as Record<string, number>)[key] = ((szerverOsszesito.expense as Record<string, number>)[key] || 0) + amt
