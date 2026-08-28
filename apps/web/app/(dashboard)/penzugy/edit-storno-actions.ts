@@ -26,6 +26,8 @@
  */
 
 import { revalidatePath } from 'next/cache'
+
+import { refreshCarryoverBestEffort } from '@kartoteka/core'
 import {
   financeWriteBlock,
   getFinanceScopeContext,
@@ -232,7 +234,7 @@ export async function updateTransactionBasic(
   // ugyanolyan súlyos, mint egy zárt évből kimozgatás).
   const { data: currentRow, error: currentErr } = await ctx.supabase
     .from(table)
-    .select(ctx.scope === 'congregation' ? 'datum, belso_mozgas_xkey' : 'datum')
+    .select(ctx.scope === 'congregation' ? 'datum, belso_mozgas_xkey, bankszamla_id' : 'datum')
     .eq('id', input.id)
     .eq(T.scopeCol, ctx.scopeId)
     .maybeSingle()
@@ -346,6 +348,23 @@ export async function updateTransactionBasic(
     .eq(T.scopeCol, ctx.scopeId)
 
   if (error) return { error: `Mentés sikertelen: ${error.message}` }
+
+  // P0-3 (audit 2026-08-28): carryover-frissítés (best-effort) — a régi és az
+  // új dátum évére. Csak gyülekezeti hatókör (a banki nyitó évenkénti táblája
+  // gyülekezethez kötött).
+  if (ctx.scope === 'congregation') {
+    const bid = (currentRow as { bankszamla_id?: number | null }).bankszamla_id ?? null
+    await refreshCarryoverBestEffort(
+      {
+        congregationId: ctx.scopeId,
+        tetelek: [
+          { bankszamla_id: bid, datum: currentDatum },
+          { bankszamla_id: bid, datum: input.datum ?? currentDatum },
+        ],
+      },
+      { supabase: ctx.supabase, runtime: 'web', userId: ctx.userId },
+    )
+  }
 
   revalidatePath('/penzugy')
   return { success: true }
@@ -463,7 +482,7 @@ export async function stornoTransaction(args: {
   // Ezért a kapu mostantól a GYÜLEKEZETI sajátosságot nevezi meg. A gyülekezeti
   // és a megyei oszloplista BETŰRE változatlan.
   const selectCols =
-    ctx.scope === 'congregation' ? 'datum, belso_mozgas_xkey, stornozott' : 'datum, stornozott'
+    ctx.scope === 'congregation' ? 'datum, belso_mozgas_xkey, stornozott, bankszamla_id' : 'datum, stornozott'
 
   const { data: row } = await ctx.supabase
     .from(table)
@@ -553,6 +572,24 @@ export async function stornoTransaction(args: {
       .eq('stornozott', false)
   }
 
+  // P0-3 (audit 2026-08-28): carryover-frissítés (best-effort) — a pár lábait
+  // a helper deríti fel a közös kulcs alapján.
+  if (ctx.scope === 'congregation') {
+    await refreshCarryoverBestEffort(
+      {
+        congregationId: ctx.scopeId,
+        tetelek: [
+          {
+            bankszamla_id: (row as { bankszamla_id?: number | null }).bankszamla_id,
+            datum: r.datum,
+          },
+        ],
+        belsoMozgasXkey: r.belso_mozgas_xkey ?? null,
+      },
+      { supabase: ctx.supabase, runtime: 'web', userId: ctx.userId },
+    )
+  }
+
   revalidatePath('/penzugy')
   return { success: true }
 }
@@ -576,7 +613,7 @@ export async function undoStornoTransaction(args: {
   // Enélkül a kerületi stornó visszavonása „A tétel nem található."-val bukott
   // volna el egy létező tételen.
   const selectCols =
-    ctx.scope === 'congregation' ? 'stornozott_by, belso_mozgas_xkey, datum' : 'stornozott_by, datum'
+    ctx.scope === 'congregation' ? 'stornozott_by, belso_mozgas_xkey, datum, bankszamla_id' : 'stornozott_by, datum'
 
   const { data: row } = await ctx.supabase
     .from(table)
@@ -648,6 +685,23 @@ export async function undoStornoTransaction(args: {
       .eq('id', args.id)
       .eq(T.scopeCol, ctx.scopeId)
     if (error) return { error: `Visszavonás sikertelen: ${error.message}` }
+  }
+
+  // P0-3 (audit 2026-08-28): carryover-frissítés (best-effort).
+  if (ctx.scope === 'congregation') {
+    await refreshCarryoverBestEffort(
+      {
+        congregationId: ctx.scopeId,
+        tetelek: [
+          {
+            bankszamla_id: (row as { bankszamla_id?: number | null }).bankszamla_id,
+            datum: r.datum,
+          },
+        ],
+        belsoMozgasXkey: r.belso_mozgas_xkey ?? null,
+      },
+      { supabase: ctx.supabase, runtime: 'web', userId: ctx.userId },
+    )
   }
 
   revalidatePath('/penzugy')

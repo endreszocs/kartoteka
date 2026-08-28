@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto'
 import { revalidatePath } from 'next/cache'
 // 2026-07-11 (S6): visszamenőleges kassza↔bank átvezetésnél a következő évi
 // automatikus ('carryover') nyitó újraszámolása.
-import { refreshNextYearCarryoverUseCase, resolveNyitoEgyenlegekUseCase } from '@kartoteka/core'
+import { refreshCarryoverBestEffort, refreshNextYearCarryoverUseCase, resolveNyitoEgyenlegekUseCase } from '@kartoteka/core'
 // 2026-08-11 (5. kör, P3 #15): a lapozott „hozd le a TELJES halmazt" helper közös forrása.
 import { selectAllPaged } from '@kartoteka/supabase-client'
 // 2026-08-11 (5. kör, P3 #4): a járulék-besoroló pár közös forrása (web ⇄ desktop).
@@ -2729,7 +2729,7 @@ export async function deleteTransaction(type: 'befizetes' | 'kiadas', id: number
   // „nincs belső mozgás"-nak látszott, és a törlés a végén szó nélkül lefutott.
   const { data: rec, error: recErr } = await supabase
     .from(type)
-    .select('datum, belso_mozgas_xkey')
+    .select('datum, belso_mozgas_xkey, bankszamla_id')
     .eq('id', id)
     .eq('congregation_id', congregationId)
     .maybeSingle()
@@ -2801,12 +2801,31 @@ export async function deleteTransaction(type: 'befizetes' | 'kiadas', id: number
           'Kérlek nézd meg a Belső mozgások listát, és jelezd a rendszergazdának.',
       }
     }
+    // P0-3 (audit 2026-08-28): carryover-frissítés (best-effort) — a pár
+    // lábait a helper deríti fel a közös kulcs alapján.
+    await refreshCarryoverBestEffort(
+      { congregationId, belsoMozgasXkey: r.belso_mozgas_xkey },
+      { supabase, runtime: 'web', userId: scope.userId },
+    )
     revalidatePath('/penzugy')
     return { success: true }
   }
 
   const { error } = await supabase.from(type).update({ deleted: true }).eq('id', id).eq('congregation_id', congregationId)
   if (error) return { error: `Hiba: ${error.message}` }
+  // P0-3 (audit 2026-08-28): carryover-frissítés (best-effort).
+  await refreshCarryoverBestEffort(
+    {
+      congregationId,
+      tetelek: [
+        {
+          bankszamla_id: (rec as { bankszamla_id?: number | null }).bankszamla_id,
+          datum: r.datum,
+        },
+      ],
+    },
+    { supabase, runtime: 'web', userId: scope.userId },
+  )
   revalidatePath('/penzugy')
   return { success: true }
 }

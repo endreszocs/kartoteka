@@ -44,6 +44,14 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   az egész köteg nyugodtan újramenthető. Ugyanezt a védelmet megkapta a
   megyei/kerületi kiadás-rögzítés is.
 
+- **A következő évi banki nyitó a javítások után is friss marad** (P0-3): ha
+  egy tavalyi banki tételt utólag stornóztak, töröltek vagy szerkesztettek, a
+  rendszer az idei automatikusan áthozott nyitó egyenleget eddig nem
+  számolta újra — a régi szám maradt érvényben. Mostantól minden ilyen
+  művelet után frissül az érintett számla következő évi nyitója, a weben és
+  a desktopon egyaránt. (Az éles adatok ellenőrzése szerint elavult nyitó
+  jelenleg nincs — a védelem megelőző.)
+
 - **Egységes évhatár a kiadásokon** (P0-2): a kiadások év végi határa eddig
   háromféleképpen volt megírva a rendszerben — szélsőséges esetben egy
   december 31-i tétel az egyik kimutatásból kimaradhatott volna, a másikban

@@ -1054,7 +1054,7 @@ function RecentIncomeSection({
       if (!congregationId) return
       const result: SoftDeleteIncomeResult = await softDeleteIncomeUseCase(
         { congregationId, befizetesId: row.id },
-        { supabase, runtime: 'desktop' },
+        { supabase, runtime: 'desktop', userId },
       )
       if (!result.success) {
         alert(`Törlés sikertelen: ${result.error}`)

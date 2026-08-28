@@ -388,6 +388,7 @@ export {
   checkYearStartStateUseCase,
   computeCarryoverNyitoEgyenlegUseCase,
   refreshNextYearCarryoverUseCase,
+  refreshCarryoverBestEffort,
   type CarryoverNyitoResult,
   type CheckYearStartStateInput,
   type ComputeCarryoverNyitoInput,

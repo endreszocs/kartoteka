@@ -23,6 +23,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { refreshCarryoverBestEffort } from './bank-import/nyito-egyenleg'
 import { readYearFinalized } from './year-lock'
 
 export type UndoStornoType = 'befizetes' | 'kiadas'
@@ -92,7 +93,7 @@ export async function undoStornoUseCase(
     // 2) Tétel lekérdezése
     const { data: row, error: fetchErr } = await ctx.supabase
       .from(table)
-      .select('id, datum, belso_mozgas_xkey, stornozott')
+      .select('id, datum, belso_mozgas_xkey, stornozott, bankszamla_id')
       .eq('id', input.id)
       .eq('congregation_id', input.congregationId)
       .maybeSingle()
@@ -113,6 +114,7 @@ export async function undoStornoUseCase(
       datum: string | null
       belso_mozgas_xkey: string | null
       stornozott: boolean
+      bankszamla_id: number | null
     }
 
     if (!r.stornozott) {
@@ -186,6 +188,17 @@ export async function undoStornoUseCase(
         return { success: false, error: `Visszavonás sikertelen: ${updErr.message}` }
       }
     }
+
+    // P0-3 (audit 2026-08-28): a köv. évi carryover banki nyitó frissítése
+    // (best-effort — hibája nem buktatja a visszavonást).
+    await refreshCarryoverBestEffort(
+      {
+        congregationId: input.congregationId,
+        tetelek: [{ bankszamla_id: r.bankszamla_id, datum: r.datum }],
+        belsoMozgasXkey: cascadedInternalTransfer ? r.belso_mozgas_xkey : null,
+      },
+      ctx,
+    )
 
     return { success: true, cascadedInternalTransfer }
   } catch (err) {

@@ -26,11 +26,14 @@ import {
   type SoftDeleteIncomeInput,
 } from '@kartoteka/validations'
 
+import { refreshCarryoverBestEffort } from '../bank-import/nyito-egyenleg'
 import { assertYearsNotFinalizedForDelete } from '../year-lock'
 
 export interface SoftDeleteIncomeCtx {
   supabase: SupabaseClient
   runtime: 'web' | 'desktop'
+  /** P0-3: a carryover-frissítés audit-oszlopaihoz — ha nincs, a frissítés kimarad. */
+  userId?: string
 }
 
 export type SoftDeleteIncomeResult =
@@ -60,7 +63,7 @@ export async function softDeleteIncomeUseCase(
     // 1) A sor dátuma — ez alapján tudjuk, melyik év számadását érintené a törlés.
     const { data: row, error: fetchErr } = await ctx.supabase
       .from('befizetes')
-      .select('id, datum, belso_mozgas_xkey')
+      .select('id, datum, belso_mozgas_xkey, bankszamla_id')
       .eq('id', befizetesId)
       .eq('congregation_id', congregationId)
       .maybeSingle()
@@ -139,6 +142,9 @@ export async function softDeleteIncomeUseCase(
             `(${kiaDel.error.message}). Nézd meg a Belső mozgások listát, és jelezd a rendszergazdának.`,
         }
       }
+      // P0-3 (audit 2026-08-28): carryover-frissítés (best-effort) — a pár
+      // lábait a helper deríti fel a közös kulcs alapján.
+      await refreshCarryoverBestEffort({ congregationId, belsoMozgasXkey: bmXkey }, ctx)
       return { success: true }
     }
 
@@ -161,6 +167,20 @@ export async function softDeleteIncomeUseCase(
         notFound: true,
       }
     }
+
+    // P0-3 (audit 2026-08-28): carryover-frissítés (best-effort).
+    await refreshCarryoverBestEffort(
+      {
+        congregationId,
+        tetelek: [
+          {
+            bankszamla_id: (row as { bankszamla_id?: number | null }).bankszamla_id,
+            datum: (row as { datum?: string | null }).datum,
+          },
+        ],
+      },
+      ctx,
+    )
 
     return { success: true }
   } catch (err) {

@@ -20,6 +20,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { refreshCarryoverBestEffort } from './bank-import/nyito-egyenleg'
 import { readYearFinalized } from './year-lock'
 
 export type UpdateTransactionType = 'befizetes' | 'kiadas'
@@ -195,7 +196,7 @@ export async function updateTransactionUseCase(
   // ellenőrzünk; ha új dátum is jön, a régi ÉS az új évre is.
   const { data: currentRow, error: currentErr } = await ctx.supabase
     .from(table)
-    .select('datum')
+    .select('datum, bankszamla_id')
     .eq('id', input.id)
     .eq('congregation_id', input.congregationId)
     .maybeSingle()
@@ -273,6 +274,22 @@ export async function updateTransactionUseCase(
     if (error) {
       return { success: false, error: `Mentés sikertelen: ${error.message}` }
     }
+
+    // P0-3 (audit 2026-08-28): carryover-frissítés (best-effort) — a régi ÉS
+    // az új dátum évére (átdatálásnál mindkét év nyitója érintett lehet).
+    const rowBankszamlaId =
+      (currentRow as { bankszamla_id?: number | null }).bankszamla_id ?? null
+    await refreshCarryoverBestEffort(
+      {
+        congregationId: input.congregationId,
+        tetelek: [
+          { bankszamla_id: rowBankszamlaId, datum: currentDatum },
+          { bankszamla_id: rowBankszamlaId, datum: input.datum ?? currentDatum },
+        ],
+      },
+      ctx,
+    )
+
     return { success: true }
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'ismeretlen'
