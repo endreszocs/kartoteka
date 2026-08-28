@@ -35,6 +35,12 @@ const BudgetTab = dynamic(() => import('./budget-tab').then((m) => m.BudgetTab),
 const AccountingTabV2 = dynamic(() => import('./accounting-tab-v2').then((m) => m.AccountingTabV2), { ssr: false, loading: tabLoading })
 const DebtTabV2 = dynamic(() => import('./debt-tab-v2').then((m) => m.DebtTabV2), { ssr: false, loading: tabLoading })
 const TransactionsTab = dynamic(() => import('./transactions-tab').then((m) => m.TransactionsTab), { ssr: false, loading: tabLoading })
+// 2026-08-28 (Endre UX-köre): a „Számlák egyeztetése" oldalról KIGÖRDÜLŐ
+// panelként nyílik a Pénzügyből — navigáció nélkül, a munka megszakítása nélkül.
+const SzamlaEgyeztetesMain = dynamic(
+  () => import('@/components/dokumentumtar/szamla-egyeztetes-main').then((m) => m.SzamlaEgyeztetesMain),
+  { ssr: false, loading: tabLoading },
+)
 const RentalTab = dynamic(() => import('./rental-tab').then((m) => m.RentalTab), { ssr: false, loading: tabLoading })
 // 2026-08-27 (Endre 5. kérése): Adományozók és szponzorok fül. Dynamic, mert a
 // saját szerver-hívása több év adományait hozza — ne terhelje a kezdeti bundle-t.
@@ -213,6 +219,8 @@ export function FinanceTabs({
   // vezérli, hogy a bejövő #monetary hash / a 'finance-tab-switch' event is
   // ki tudja nyitni.
   const [monetarWidgetOpen, setMonetarWidgetOpen] = useState(false)
+  // 2026-08-28 (Endre): a Számlák egyeztetése oldalról kigördülő panelje.
+  const [szamlaEgyeztetesOpen, setSzamlaEgyeztetesOpen] = useState(false)
   // 2026-08-15 (Endre): az Oblio-ellenőrzés modál (oblioModalOpen) KIVEZETVE —
   // a „Számlák egyeztetése" hub (/dokumentumtar) vette át; a régi hívóhelyek
   // (hash, custom event) oda navigálnak.
@@ -268,7 +276,8 @@ export function FinanceTabs({
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail
       if (typeof detail !== 'string') return
-      if (detail === 'oblio_ellenorzes') { router.push('/dokumentumtar#oblio'); return }
+      // 2026-08-28 (Endre): navigáció helyett KIGÖRDÜLŐ panel.
+      if (detail === 'oblio_ellenorzes') { setSzamlaEgyeztetesOpen(true); return }
       if (detail === 'monetary' || detail === 'monetar') { setMonetarWidgetOpen(true); return }
       setActiveTab(detail)
     }
@@ -310,10 +319,10 @@ export function FinanceTabs({
         return
       }
       if (hash === 'oblio_ellenorzes') {
-        // A hash-t ELŐBB kiürítjük (replaceState), hogy a böngésző Vissza
-        // gombja ne pattogjon vissza ide, majd átnavigálunk a hubra.
+        // 2026-08-28 (Endre): navigáció helyett KIGÖRDÜLŐ panel — a hash-t
+        // kiürítjük, hogy az ismételt kattintás újra hashchange-t adjon.
         window.history.replaceState(null, '', window.location.pathname + window.location.search)
-        router.push('/dokumentumtar#oblio')
+        setSzamlaEgyeztetesOpen(true)
         return
       }
       // Validáljuk hogy létező fül-érték — egyébként figyelmen kívül hagyjuk.
@@ -1100,6 +1109,57 @@ export function FinanceTabs({
           // 2026-08-22 (6. pont): a MONETAR fejléce is kétnyelvű.
           congregationNameRo={congregationNameRo}
         />
+      )}
+
+      {/* 2026-08-28 (Endre): Számlák egyeztetése — oldalról kigördülő panel.
+          A teljes oldal (/dokumentumtar) továbbra is él mélylinkként. */}
+      {gyulekezeti && szamlaEgyeztetesOpen && (
+        <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Számlák egyeztetése">
+          <style
+            // eslint-disable-next-line react/no-danger
+            dangerouslySetInnerHTML={{
+              __html:
+                '@keyframes szamlaPanelBe { from { transform: translateX(100%); } to { transform: translateX(0); } }',
+            }}
+          />
+          <button
+            type="button"
+            aria-label="Bezárás"
+            className="absolute inset-0 bg-black/30"
+            onClick={() => setSzamlaEgyeztetesOpen(false)}
+          />
+          <div
+            className="absolute inset-y-0 right-0 w-full max-w-3xl overflow-y-auto bg-white p-5 shadow-2xl"
+            style={{ animation: 'szamlaPanelBe 0.25s ease-out' }}
+          >
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="font-heading text-xl text-slate-800">Számlák egyeztetése</h2>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSzamlaEgyeztetesOpen(false)
+                    router.push('/dokumentumtar')
+                  }}
+                >
+                  Megnyitás teljes oldalon
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Panel bezárása"
+                  onClick={() => setSzamlaEgyeztetesOpen(false)}
+                >
+                  ✕
+                </Button>
+              </div>
+            </div>
+            <SzamlaEgyeztetesMain congregationName={congregationName} />
+          </div>
+        </div>
       )}
     </>
   )

@@ -35,6 +35,7 @@ import type {
   SzallitoiSzamlaListaInput,
   SzamlaFeldolgozasEredmeny,
   SzamlaKiadasKapcsolat,
+  SzamlaParositasBejegyzes,
 } from '@/lib/dokumentumtar/szamla-types'
 import { parseUblSzamla, anafUuidFajlnevbol, SEMNATURA_TOKEN_RE, type UblSzamlaMeta } from '@/lib/oblio/ubl-parser'
 import {
@@ -574,6 +575,67 @@ export async function listSzamlaKiadasKapcsolatok(
     return { rows: [], error: friendlyDbError('A kapcsolatok betöltése sikertelen', error) }
   }
   return { rows: (data || []) as SzamlaKiadasKapcsolat[], error: null }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Köteg-párosítás állapot (2026-08-28, Endre UX-köre): egy oldalnyi számla
+// MINDEN kapcsolatát egy körben — a listán így azonnal látszik, melyiknek
+// van meg a párja a könyvelésben, és HOL (bank vagy kassza).
+// ─────────────────────────────────────────────────────────────────
+
+export async function listSzamlaParositasok(szamlaIds: string[]): Promise<{
+  data: Record<string, SzamlaParositasBejegyzes[]>
+  error: string | null
+}> {
+  const { supabase, congId } = await getCongId()
+  if (!congId) return { data: {}, error: NINCS_GYULEKEZET }
+  if (!szamlaIds || szamlaIds.length === 0) return { data: {}, error: null }
+
+  // A bank-nevek egyben (kis tábla).
+  const { data: bankok, error: bankErr } = await supabase
+    .from('bankszamlak')
+    .select('id, bank_neve')
+    .eq('congregation_id', congId)
+  if (bankErr) {
+    return { data: {}, error: friendlyDbError('A bankszámlák betöltése sikertelen', bankErr) }
+  }
+  const bankNevById = new Map(
+    ((bankok || []) as Array<{ id: number; bank_neve: string }>).map((b) => [b.id, b.bank_neve]),
+  )
+
+  // ⚠️ A `.in()` szűrő az URL-be kerül — ~100 azonosító fölött a proxy 414-et
+  // dob, és az őr „nem tudjuk igazolni"-t írna. 80-asával darabolunk, és a
+  // hibát MINDIG továbbadjuk (a repó dokumentált hibaosztálya).
+  const eredmeny: Record<string, SzamlaParositasBejegyzes[]> = {}
+  for (let i = 0; i < szamlaIds.length; i += 80) {
+    const szelet = szamlaIds.slice(i, i + 80)
+    const { data, error } = await supabase
+      .from('szallitoi_szamla_kiadas')
+      .select('szamla_id, kiadas:kiadas_id (id, datum, osszeg, bankszamla_id)')
+      .in('szamla_id', szelet)
+      .eq('congregation_id', congId)
+    if (error) {
+      return { data: {}, error: friendlyDbError('A párosítások betöltése sikertelen', error) }
+    }
+    for (const sor of (data || []) as unknown as Array<{
+      szamla_id: string
+      kiadas: { id: number; datum: string | null; osszeg: number; bankszamla_id: number | null } | null
+    }>) {
+      if (!sor.kiadas) continue
+      const lista = eredmeny[sor.szamla_id] ?? (eredmeny[sor.szamla_id] = [])
+      lista.push({
+        kiadasId: sor.kiadas.id,
+        datum: sor.kiadas.datum,
+        osszeg: Number(sor.kiadas.osszeg) || 0,
+        bankszamlaId: sor.kiadas.bankszamla_id,
+        bankNev:
+          sor.kiadas.bankszamla_id != null
+            ? bankNevById.get(sor.kiadas.bankszamla_id) ?? `#${sor.kiadas.bankszamla_id}`
+            : null,
+      })
+    }
+  }
+  return { data: eredmeny, error: null }
 }
 
 // ─────────────────────────────────────────────────────────────────

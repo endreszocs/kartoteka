@@ -43,6 +43,17 @@ export interface SzallitoiSzamla {
 // Számla ↔ kiadás kapcsolat (egy számla TÖBB kiadáshoz, összeg-résszel)
 // ─────────────────────────────────────────────────────────────────
 
+/** Egy számla könyvelési párja a köteg-lekérdezésben (2026-08-28, UX-kör). */
+export interface SzamlaParositasBejegyzes {
+  kiadasId: number
+  datum: string | null
+  osszeg: number
+  /** null = kassza; szám = bankszámla-id. */
+  bankszamlaId: number | null
+  /** A bank neve (kasszánál null). */
+  bankNev: string | null
+}
+
 export interface SzamlaKiadasKapcsolat {
   id: string
   szamla_id: string
