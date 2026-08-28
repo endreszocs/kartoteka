@@ -168,13 +168,15 @@ export async function importBcrTransactions(
     ),
   )
   if (activeYears.length > 0) {
-    // D8 (audit 2026-08-28, Endre döntése: „egy hely, és onnan számoljon
-    // mindent"): a budget_finalized-ot is nézzük — a testvér Adatok-importáló
-    // és a nyitó-egyenleg panel MINDKÉT zárra blokkol, a bank-import eddig
-    // csak a számadásra. A mellettük futó út nem lehet gyengébb náluk.
+    // D8 (audit 2026-08-28, pontosítva ugyanaznap): a bank-import CSAK a
+    // SZÁMADÁS-zárra (accounting_finalized) blokkol. AZ ELV: a költségvetés-
+    // zár a NYITÓ EGYENLEGET védi — ezért a nyitó-panel és az Adatok-importáló
+    // (amely nyitót IS ír) mindkét zárra figyel, a bank-import viszont csak
+    // tranzakciót ír, és a költségvetés az év ELEJÉN véglegesül: a budget-zár
+    // itt az egész évi rutin banki importot fogta volna.
     const { data: lockRows, error: lockErr } = await access.supabase
       .from('bealitas')
-      .select('id, accounting_finalized, budget_finalized')
+      .select('id, accounting_finalized')
       .eq('congregation_id', access.effectiveCongregationId)
       .in('id', activeYears.map(String))
     // 2026-08-11 (5. kör, K5-#32 hibaosztály-lezárás): FAIL-CLOSED. Korábban az
@@ -201,9 +203,8 @@ export async function importBcrTransactions(
     const closedYears = ((lockRows || []) as Array<{
       id: string
       accounting_finalized: boolean | null
-      budget_finalized: boolean | null
     }>)
-      .filter((r) => r.accounting_finalized || r.budget_finalized)
+      .filter((r) => r.accounting_finalized)
       .map((r) => Number(r.id))
       .sort((a, b) => a - b)
     if (closedYears.length > 0) {
@@ -214,7 +215,7 @@ export async function importBcrTransactions(
         duplicates: 0,
         errors: [],
         importedRows: [],
-        error: `A ${closedYears.join(', ')}. évi számadás vagy költségvetés már véglegesítve van — az importban ilyen évre eső tétel van, ezért az import blokkolva. Először kérj javítási engedélyt az egyházmegyétől (feloldás), utána próbáld újra.`,
+        error: `A ${closedYears.join(', ')}. évi számadás már véglegesítve van — az importban ilyen évre eső tétel van, ezért az import blokkolva. Először kérj javítási engedélyt az egyházmegyétől (feloldás), utána próbáld újra.`,
       }
     }
   }

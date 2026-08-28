@@ -60,12 +60,13 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   megtörtént: fillérpontatlan összeg nincs a rendszerben, javítani semmit
   nem kellett.
 
-- **A banki kivonat-import is tiszteli a költségvetés zárását**: az
-  Excel-adatimportáló és a nyitó egyenleg panel már eddig is megállt, ha az
-  év számadása VAGY költségvetése véglegesítve volt — a banki kivonat
-  importja viszont csak a számadás-zárat nézte, így egy véglegesített
-  költségvetésű évbe még be tudott írni. Mostantól mindhárom út ugyanarra
-  a két zárra figyel („egy hely, és onnan számoljon mindent").
+- **Egyértelmű szabály: melyik zár mit véd az importoknál**: a költségvetés
+  véglegesítése a NYITÓ EGYENLEGET védi (a költségvetés arra épül) — ezért
+  a nyitó egyenleg panel és az Excel-adatimportáló (amely nyitót is ír)
+  mindkét zárra figyel. A banki kivonat-import viszont csak tételeket
+  rögzít, ezért az — a többi tétel-rögzítővel azonosan — a számadás-zárra
+  figyel: az év elején véglegesített költségvetés így nem akasztja meg az
+  évközi rutin banki importot.
 
 - **Az asztali nyomtatványok a kiválasztott év adataival készülnek**: ha az
   asztali programban egy KORÁBBI év számadását vagy költségvetését
