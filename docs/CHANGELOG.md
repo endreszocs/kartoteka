@@ -44,6 +44,15 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   az egész köteg nyugodtan újramenthető. Ugyanezt a védelmet megkapta a
   megyei/kerületi kiadás-rögzítés is.
 
+- **A kassza–bank átvezetés egyben mozog: rögzítés, törlés, szerkesztés**
+  (P0-7): a desktopon rögzített átvezetésnél eddig három rés is volt — ha a
+  mentés félúton hibázott, féloldalas könyvelés maradhatott; a Belső mozgások
+  listából törölt átvezetés könyvelési sorai életben maradtak (és fordítva);
+  és az átvezetés egyik lába külön szerkeszthető volt, amitől a két oldal
+  szétcsúszhatott. Mostantól a mentés hibánál mindent visszavon, a törlés
+  mindkét irányban a teljes átvezetést viszi, a lábak külön szerkesztése
+  pedig mindkét változatban tiltott (törlés + újrarögzítés a helyes út).
+
 - **A megszakadt szinkronizáció nem duplikálhat tételt** (P0-10): ha az
   offline tétel felküldése közben a hálózat pont a válasz előtt szakadt meg,
   az újrapróbálkozás eddig még egyszer beszúrhatta ugyanazt a tételt.

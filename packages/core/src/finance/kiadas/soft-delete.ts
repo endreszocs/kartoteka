@@ -55,7 +55,7 @@ export async function softDeleteExpenseUseCase(
     // 1) A sor dátuma — ez alapján tudjuk, melyik év számadását érintené a törlés.
     const { data: row, error: fetchErr } = await ctx.supabase
       .from('kiadas')
-      .select('id, datum, belso_mozgas_xkey, bankszamla_id')
+      .select('id, datum, belso_mozgas_xkey, bankszamla_id, iratszam')
       .eq('id', kiadasId)
       .eq('congregation_id', congregationId)
       .maybeSingle()
@@ -125,6 +125,25 @@ export async function softDeleteExpenseUseCase(
           error:
             `A belső mozgás kiadás-oldala törlődött, a bevétel-oldala viszont NEM ` +
             `(${befDel.error.message}). Nézd meg a Belső mozgások listát, és jelezd a rendszergazdának.`,
+        }
+      }
+      // P0-7 (audit 2026-08-28): ha a párt a desktop hozta létre, van hozzá
+      // nyilvántartó mester-sor (a pár iratszáma 'BM-<YYYYMMDD>-<mesterId>') —
+      // azt is töröljük, különben a Belső mozgások listában élőként maradna.
+      const bmMester = /^BM-\d{8}-(\d+)$/.exec(String((row as { iratszam?: string | null }).iratszam ?? ''))
+      if (bmMester) {
+        const mesterDel = await ctx.supabase
+          .from('belsomozgas')
+          .update({ deleted: true })
+          .eq('id', Number(bmMester[1]))
+          .eq('congregation_id', congregationId)
+        if (mesterDel.error) {
+          return {
+            success: false,
+            error:
+              `A pár törlődött, de a belső-mozgás nyilvántartó sora NEM (${mesterDel.error.message}) — ` +
+              'a Belső mozgások listában élőként látszik; jelezd a rendszergazdának.',
+          }
         }
       }
       // P0-3 (audit 2026-08-28): carryover-frissítés (best-effort) — a pár

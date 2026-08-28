@@ -206,7 +206,7 @@ export async function updateTransactionUseCase(
   // ellenőrzünk; ha új dátum is jön, a régi ÉS az új évre is.
   const { data: currentRow, error: currentErr } = await ctx.supabase
     .from(table)
-    .select('datum, bankszamla_id, arfolyam')
+    .select('datum, bankszamla_id, arfolyam, belso_mozgas_xkey')
     .eq('id', input.id)
     .eq('congregation_id', input.congregationId)
     .maybeSingle()
@@ -216,6 +216,21 @@ export async function updateTransactionUseCase(
   }
   if (!currentRow) {
     return { success: false, error: 'A tétel nem található.' }
+  }
+
+  // P0-7 (audit 2026-08-28, a web 2026-08-27-i kapujának paritása): a belső
+  // mozgás KÉT sor közös kulccsal — egyetlen láb átírása szétcsúsztatná a
+  // párt, és mindkét láb hamis „párosítatlan" riasztást kapna. A felületen a
+  // ceruza rejtve van, de ez a use-case a desktopról közvetlenül hívható volt.
+  const bmXkeyEdit = (currentRow as { belso_mozgas_xkey?: string | null }).belso_mozgas_xkey
+  if (bmXkeyEdit) {
+    return {
+      success: false,
+      error:
+        'Ez a tétel egy kassza ↔ bank átvezetés része, ezért külön nem szerkeszthető — ' +
+        'a párja némán elcsúszna tőle. Töröld az átvezetést (a rendszer mindkét oldalát ' +
+        'törli), és rögzítsd újra a helyes adatokkal.',
+    }
   }
 
   const yearsToCheck = new Set<number>()

@@ -2729,7 +2729,7 @@ export async function deleteTransaction(type: 'befizetes' | 'kiadas', id: number
   // „nincs belső mozgás"-nak látszott, és a törlés a végén szó nélkül lefutott.
   const { data: rec, error: recErr } = await supabase
     .from(type)
-    .select('datum, belso_mozgas_xkey, bankszamla_id')
+    .select('datum, belso_mozgas_xkey, bankszamla_id, iratszam')
     .eq('id', id)
     .eq('congregation_id', congregationId)
     .maybeSingle()
@@ -2799,6 +2799,23 @@ export async function deleteTransaction(type: 'befizetes' | 'kiadas', id: number
         error:
           `A belső mozgás bevétel-oldala törlődött, a kiadás-oldala viszont NEM (${kiaErr.message}). ` +
           'Kérlek nézd meg a Belső mozgások listát, és jelezd a rendszergazdának.',
+      }
+    }
+    // P0-7 (audit 2026-08-28): desktopról rögzített párnál a nyilvántartó
+    // mester-sor is törlődik (a pár iratszáma 'BM-<YYYYMMDD>-<mesterId>').
+    const bmMester = /^BM-\d{8}-(\d+)$/.exec(String((rec as { iratszam?: string | null }).iratszam ?? ''))
+    if (bmMester) {
+      const mesterDel = await supabase
+        .from('belsomozgas')
+        .update({ deleted: true })
+        .eq('id', Number(bmMester[1]))
+        .eq('congregation_id', congregationId)
+      if (mesterDel.error) {
+        return {
+          error:
+            `A pár törlődött, de a belső-mozgás nyilvántartó sora NEM (${mesterDel.error.message}) — ` +
+            'a Belső mozgások listában élőként látszik; jelezd a rendszergazdának.',
+        }
       }
     }
     // P0-3 (audit 2026-08-28): carryover-frissítés (best-effort) — a pár
