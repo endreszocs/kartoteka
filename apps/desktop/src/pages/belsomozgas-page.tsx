@@ -273,6 +273,23 @@ function TransferForm({
         setError('Nincs aktív gyülekezet-hozzáférés.')
         return
       }
+      // 2026-08-27: az ÉRINTETT bankszámla azonosítója — enélkül a use-case
+      // csak a nyilvántartási sort tudja létrehozni, a KÖNYVELÉSI párt nem
+      // (a `forras`/`cel` szabad szöveg, abból a `bankszamla_id` nem áll elő).
+      // kassza_bank → a bank a CÉL; bank_kassza → a bank a FORRÁS.
+      const bankNev = tipus === 'kassza_bank' ? cel.trim() : forras.trim()
+      const valasztottBank = banks.find((b) => b.bank_neve === bankNev)
+      if (
+        (tipus === 'kassza_bank' || tipus === 'bank_kassza') &&
+        !valasztottBank
+      ) {
+        setError(
+          `A(z) „${bankNev}" bankszámla nem azonosítható, ezért a könyvelési sorok nem jönnének létre — ` +
+            'válaszd ki a bankot a listából.',
+        )
+        return
+      }
+
       const result: SaveInternalTransferResultOrError = await saveInternalTransferUseCase(
         {
           congregationId,
@@ -284,6 +301,7 @@ function TransferForm({
           cel_osszeg: celOsszegNum,
           arfolyam: arfolyamNum,
           megjegyzes: megjegyzes.trim() || null,
+          bankszamlaId: valasztottBank?.id ?? null,
         },
         { supabase, runtime: 'desktop', userId },
       )
@@ -307,8 +325,15 @@ function TransferForm({
         celBankNeve: tipus === 'bank_bank' ? cel.trim() : undefined,
         megjegyzes: megjegyzes.trim() || null,
       })
+      // 2026-08-27: a visszajelzés MONDJA MEG, könyvelés történt-e. A
+      // bank↔bank és a valutacsere EGYELŐRE csak nyilvántartásba kerül (két
+      // különböző számla/deviza párosítása külön kört igényel) — nem szabad úgy
+      // tenni, mintha a pénz mozdult volna a könyvben.
+      const konyvelt = tipus === 'kassza_bank' || tipus === 'bank_kassza'
       setSuccessMsg(
-        `Belső mozgás rögzítve (${TYPE_LABELS[tipus]}, ${osszegNum.toLocaleString('hu')} RON).`,
+        konyvelt
+          ? `Belső mozgás rögzítve és KÖNYVELVE (${TYPE_LABELS[tipus]}, ${osszegNum.toLocaleString('hu')} RON) — a kassza és a bank egyenlege is frissült.`
+          : `Belső mozgás NYILVÁNTARTÁSBA véve (${TYPE_LABELS[tipus]}, ${osszegNum.toLocaleString('hu')} RON). ⚠️ Könyvelési sorok NEM készültek: ezt a típust a Pénzügy oldalon kell könyvelni.`,
       )
       setOsszeg('')
       setCelOsszeg('')
