@@ -44,6 +44,13 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   az egész köteg nyugodtan újramenthető. Ugyanezt a védelmet megkapta a
   megyei/kerületi kiadás-rögzítés is.
 
+- **Éjfél után is a helyes napra könyvel a rögzítő** (P0-1): a Tétel rögzítő
+  alapértelmezett dátuma és a „jövőbeli dátum" ellenőrzés eddig a világórához
+  (UTC) igazodott — éjfél és hajnali 3 óra között ezért az ELŐZŐ napot
+  ajánlotta fel (január 1-jén hajnalban az előző évet!), a mai dátumot pedig
+  „jövőbeliként" elutasította. Mostantól minden „mai nap" a romániai
+  (bukaresti) naptár szerint számít, a weben és a desktopon egyaránt.
+
 - **Az importált összegek nem zsugorodhatnak többé az ezredükre** (P0-17): ha
   egy Excel-cellában az összeg SZÖVEGKÉNT, ezres elválasztóval állt (pl.
   „1.234,56" vagy „1 234,56"), az importáló eddig 1,234-nek — az ezredének —

@@ -25,6 +25,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, typ
 import { createPortal } from 'react-dom'
 import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight, TrendingUp, TrendingDown, Boxes, AlertTriangle, CalendarRange } from 'lucide-react'
 import { keszpenzKorlatFigyelmeztetesek, type KeszpenzTetel } from '@kartoteka/core'
+import { localTodayIso } from '@kartoteka/validations'
 import { formatRon } from './ron-in-words'
 import { parseFlexibleDate } from './date-parse'
 import { inventoryKategoriaForExpenseKod } from './helpers'
@@ -334,7 +335,7 @@ const INTAKE_CATEGORY_OPTIONS = [
   { value: 'bizomanyi', label: 'Bizományi' },
 ] as const
 
-const todayIso = () => new Date().toISOString().slice(0, 10)
+const todayIso = () => localTodayIso()
 // 2026-08-14 (13. pont): az új sor alapértelmezett dátuma a NÉZETT pénzügyi
 // évhez igazodik. Korábban mindig a MAI nap volt — ha a lelkész egy KORÁBBI
 // évet nézett (visszamenőleges könyvelés), a mentett tétel a folyó évhez
