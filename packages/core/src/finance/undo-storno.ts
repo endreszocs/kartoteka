@@ -24,6 +24,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { refreshCarryoverBestEffort } from './bank-import/nyito-egyenleg'
+import { belsoMozgasParEvei } from './belsomozgas/par-evei'
 import { readYearFinalized } from './year-lock'
 
 export type UndoStornoType = 'befizetes' | 'kiadas'
@@ -126,25 +127,36 @@ export async function undoStornoUseCase(
     }
 
     // 3) Év-véglegesítés check (fail-CLOSED, lásd a fenti 2026-08-11 megjegyzést)
+    // D6 (audit 2026-08-28, web-paritás): párnál a visszavonás MINDKÉT lábat
+    // átírja — a másik láb MÁS (akár lezárt) évre eshet, azt is ellenőrizzük.
     if (r.datum) {
-      const year = new Date(r.datum).getFullYear()
-      const lock = await readYearFinalized(ctx.supabase, input.congregationId, year)
-      if (lock.unknown) {
-        return {
-          success: false,
-          error:
-            `A ${year}. évi számadás zárás-állapotát most nem sikerült ellenőrizni ` +
-            `(${lock.errorMessage || 'ismeretlen hiba'}), ezért a sztornó visszavonását ` +
-            'biztonságból megszakítottuk — egy már lezárt évet nem nyithatunk ki véletlenül. ' +
-            'Ellenőrizd az internetkapcsolatot, és próbáld újra; ha újra hibázik, jelezd a ' +
-            'rendszergazdának.',
-        }
+      const evek = new Set<number>([new Date(r.datum).getFullYear()])
+      if (r.belso_mozgas_xkey) {
+        const par = await belsoMozgasParEvei(
+          ctx.supabase, input.congregationId, r.belso_mozgas_xkey, r.datum,
+        )
+        if ('error' in par) return { success: false, error: par.error }
+        for (const y of par.evek) evek.add(y)
       }
-      if (lock.finalized) {
-        return {
-          success: false,
-          error: `A ${year}. évi számadás véglegesítve van — a sztornó nem vonható vissza. Kérj feloldást (javítási engedélyt) az egyházmegyétől.`,
-          yearFinalized: true,
+      for (const year of evek) {
+        const lock = await readYearFinalized(ctx.supabase, input.congregationId, year)
+        if (lock.unknown) {
+          return {
+            success: false,
+            error:
+              `A ${year}. évi számadás zárás-állapotát most nem sikerült ellenőrizni ` +
+              `(${lock.errorMessage || 'ismeretlen hiba'}), ezért a sztornó visszavonását ` +
+              'biztonságból megszakítottuk — egy már lezárt évet nem nyithatunk ki véletlenül. ' +
+              'Ellenőrizd az internetkapcsolatot, és próbáld újra; ha újra hibázik, jelezd a ' +
+              'rendszergazdának.',
+          }
+        }
+        if (lock.finalized) {
+          return {
+            success: false,
+            error: `A ${year}. évi számadás véglegesítve van — a sztornó nem vonható vissza. Kérj feloldást (javítási engedélyt) az egyházmegyétől.`,
+            yearFinalized: true,
+          }
         }
       }
     }

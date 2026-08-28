@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-28] — Pénzügyi átvilágítás: a D-blokk javításai
+<!-- key: 2026-08-28-penzugy-audit-d-blokk -->
+<!-- category: bugfix -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🐛 Javítások
+
+- **Az asztali sztornó is figyeli az átvezetés mindkét oldalának évét**: egy
+  kassza–bank átvezetés két lába évfordulónál két KÜLÖNBÖZŐ évre eshet
+  (kassza-oldal december 31., bank-oldal január 2.). A böngészős felület már
+  eddig is mindkét oldal évét ellenőrizte sztornó előtt — az asztali program
+  viszont csak a kattintott sorét, így egy már véglegesített és beküldött év
+  tételét is csendben módosíthatta. Mostantól a két változat azonosan
+  viselkedik: ha az átvezetés bármelyik oldala lezárt évre esik, a sztornó
+  (és a visszavonása) érthető üzenettel megáll.
+
 ## [2026-08-28] — Pénzügyi átvilágítás: a B-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-b-blokk -->
 <!-- category: security -->
