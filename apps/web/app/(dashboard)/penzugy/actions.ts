@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto'
 import { revalidatePath } from 'next/cache'
 // 2026-07-11 (S6): visszamenőleges kassza↔bank átvezetésnél a következő évi
 // automatikus ('carryover') nyitó újraszámolása.
-import { refreshCarryoverBestEffort, refreshNextYearCarryoverUseCase, resolveNyitoEgyenlegekUseCase } from '@kartoteka/core'
+import { refreshCarryoverBestEffort, resolveNyitoEgyenlegekUseCase, saveInternalTransferUseCase } from '@kartoteka/core'
 // 2026-08-11 (5. kör, P3 #15): a lapozott „hozd le a TELJES halmazt" helper közös forrása.
 import { selectAllPaged } from '@kartoteka/supabase-client'
 // 2026-08-11 (5. kör, P3 #4): a járulék-besoroló pár közös forrása (web ⇄ desktop).
@@ -5179,154 +5179,16 @@ export async function linkPaymentToPerson(paymentId: number, personId: number) {
 // ── Belső mozgás rögzítés ────────────────────────────────────
 
 /**
- * 2026-07-10 (#3/B+#3/C): kassza↔bank belső mozgás → befizetes/kiadas PÁR közös
- * `belso_mozgas_xkey`-vel, irányfüggő + számla-neves címkével — pontosan az import
- * kanonikus modellje szerint (import-transactions.ts internal-transfer ág):
- *   - LETÉTEL  (kassza_bank): kassza-KIADÁS 400.01 + bank-BEVÉTEL 301.01
- *   - FELVÉTEL (bank_kassza): bank-KIADÁS 401.01 + kassza-BEVÉTEL 300.01
- * Így a calculateBalances (kassza/bank egyenleg), a Registru Casa/Banca és a
- * carryover-lánc automatikusan helyes — a korábbi mester-táblás út ezekből kimaradt.
+ * D5 (audit 2026-08-28): a webes átvezetés a KÖZÖS core
+ * `saveInternalTransferUseCase`-re delegál — a mester (nyilvántartó) sor, a
+ * kanonikus befizetes/kiadas könyvelési pár és a P0-7-es ellenőrzött rollback
+ * EGY implementációban él, a web és a desktop nem húzhat szét.
+ *
+ * A webes hívó (CombinedEntryBody) a bankot ID-STRINGKÉNT küldi a
+ * `forras`/`cel` mezőben ('kassza' ↔ String(bankId)) — itt oldjuk fel
+ * megjelenítendő névre + numerikus bankszamlaId-ra, mert a mester-táblában
+ * a forras/cel OLVASHATÓ szöveg (a desktop is nevet ír oda).
  */
-async function saveKasszaBankTransferPair(
-  supabase: Awaited<ReturnType<typeof getProfileCongregation>>['supabase'],
-  congregationId: string,
-  userId: string,
-  data: {
-    tipus: 'kassza_bank' | 'bank_kassza'
-    datum: string
-    forras: string
-    cel: string
-    osszeg: number
-    megjegyzes?: string
-  },
-) {
-  const isDeposit = data.tipus === 'kassza_bank' // letétel: kassza → bank
-  const bankIdRaw = isDeposit ? data.cel : data.forras
-  const bankId = Number(bankIdRaw)
-  if (!Number.isFinite(bankId) || bankId <= 0) {
-    return { error: 'Érvénytelen bankszámla-azonosító a belső mozgáshoz.' }
-  }
-
-  // Bankszámla neve az irányfüggő címkéhez ("Készpénzletétel a(z) X számlára")
-  const { data: bank } = await supabase
-    .from('bankszamlak')
-    .select('bank_neve')
-    .eq('id', bankId)
-    .maybeSingle()
-  const bankNeve = (bank?.bank_neve as string | undefined) || 'bank'
-
-  // Kanonikus kód → befizetescel/kiadascel id feloldás
-  const bevKod = isDeposit ? '301.01' : '300.01'
-  const kiaKod = isDeposit ? '400.01' : '401.01'
-  const [befCelRes, kiaCelRes] = await Promise.all([
-    supabase.from('befizetescel').select('id').eq('id_szamadasicel', bevKod).maybeSingle(),
-    supabase.from('kiadascel').select('id').eq('id_szamadasicel', kiaKod).maybeSingle(),
-  ])
-  const befCelId = befCelRes.data?.id ? Number(befCelRes.data.id) : null
-  const kiaCelId = kiaCelRes.data?.id ? Number(kiaCelRes.data.id) : null
-  if (!befCelId || !kiaCelId) {
-    return {
-      error: `Hiányzik a belső mozgás könyvelési célja (${bevKod} / ${kiaKod}) — futtasd le a 2026-06-10-belso-mozgas-kodok-INSTALL.sql-t.`,
-    }
-  }
-
-  const label = isDeposit
-    ? `Készpénzletétel a(z) ${bankNeve} számlára`
-    : `Készpénzfelvétel a(z) ${bankNeve} számláról`
-  const pairXkey = randomUUID() // közös belso_mozgas_xkey — a pár két oldalát linkeli
-  const docNumber = buildDocumentNumber(null, data.datum)
-  const fizetettev = Number(data.datum.slice(0, 4))
-
-  // 1) KIADÁS-oldal (letételnél kassza, felvételnél bank)
-  const kiadasPayload = {
-    osszeg: data.osszeg,
-    datum: data.datum,
-    id_kiadascel: kiaCelId,
-    iratszam: docNumber,
-    nyugta: docNumber,
-    irattipus: isDeposit ? 'készpénz' : 'banki',
-    bankszamla_id: isDeposit ? null : bankId,
-    belso_mozgas_xkey: pairXkey,
-    megjegyzes: data.megjegyzes || null,
-    deleted: false,
-    congregation_id: congregationId,
-    xkey: randomUUID().replace(/-/g, '').slice(0, 20),
-    atvevo: label,
-    userid: userId,
-  }
-  const kiaIns = await supabase.from('kiadas').insert([kiadasPayload]).select('id').single()
-  if (kiaIns.error) return { error: `Belső mozgás (kiadás-oldal): ${kiaIns.error.message}` }
-
-  // 2) BEVÉTEL-oldal (letételnél bank, felvételnél kassza)
-  const befizetesPayload = {
-    osszeg: data.osszeg,
-    datum: data.datum,
-    id_befizetescel: befCelId,
-    id_szemely: null,
-    id_csalad: null,
-    forrasa: label,
-    iratszam: docNumber,
-    nyugta: docNumber,
-    irattipus: isDeposit ? 'banki' : 'készpénz',
-    bankszamla_id: isDeposit ? bankId : null,
-    belso_mozgas_xkey: pairXkey,
-    megjegyzes: data.megjegyzes || null,
-    deleted: false,
-    congregation_id: congregationId,
-    fizetettev,
-    is_potlas: false,
-    csalad: false,
-    xkey: randomUUID().replace(/-/g, '').slice(0, 20),
-    userid: userId,
-  }
-  const befIns = await supabase.from('befizetes').insert([befizetesPayload]).select('id').single()
-  if (befIns.error) {
-    // Rollback: ne maradjon fél pár — a már beszúrt kiadás-oldalt töröljük.
-    // P0-13 (audit 2026-08-28): a visszavonás EREDMÉNYÉT is ellenőrizzük — ha
-    // az is elhasal (hálózat/RLS/0 érintett sor), a kiadás-láb bent maradt, és
-    // ezt KI KELL mondani, különben a fél átvezetés némán torzítja az egyenleget.
-    let rbOk = false
-    try {
-      const rb = await supabase
-        .from('kiadas')
-        .update({ deleted: true })
-        .eq('id', kiaIns.data?.id as number)
-        .eq('congregation_id', congregationId)
-        .select('id')
-      rbOk = !rb.error && Array.isArray(rb.data) && rb.data.length === 1
-    } catch {
-      rbOk = false
-    }
-    if (!rbOk) {
-      return {
-        error:
-          `Belső mozgás (bevétel-oldal): ${befIns.error.message} — FIGYELEM: a már beszúrt kiadás-oldal visszavonása sem sikerült, ` +
-          `egy fél átvezetés maradt a könyvben. Töröld kézzel a(z) „${label}" kiadás-sort (${data.datum}, ${data.osszeg} RON), majd rögzítsd újra az átvezetést.`,
-      }
-    }
-    return { error: `Belső mozgás (bevétel-oldal): ${befIns.error.message} — a kiadás-oldal visszavonva, fél pár nem maradt.` }
-  }
-
-  // 2026-07-11 (S6): ha VISSZAMENŐLEGESEN (pl. 2026-os nézetben 2025-ös dátummal)
-  // rögzítünk átvezetést, a KÖVETKEZŐ évi automatikusan áthozott ('carryover')
-  // banki nyitó elavul — újraszámoljuk. Kézzel rögzített nyitót nem bántunk.
-  // Best-effort: hibája nem buktatja a mentést.
-  try {
-    const changedYear = Number(String(data.datum).slice(0, 4))
-    if (Number.isFinite(changedYear) && changedYear >= 2000) {
-      await refreshNextYearCarryoverUseCase(
-        { congregationId, bankszamlaId: bankId, changedYear },
-        { supabase, runtime: 'web', userId },
-      )
-    }
-  } catch {
-    // néma — kényelmi frissítés
-  }
-
-  revalidatePath('/penzugy')
-  return { success: true }
-}
-
 export async function saveInternalTransfer(data: {
   tipus: 'kassza_bank' | 'bank_kassza' | 'bank_bank' | 'valutacsere'
   datum: string
@@ -5344,46 +5206,82 @@ export async function saveInternalTransfer(data: {
   if (data.forras === data.cel) return { error: 'A forrás és a cél nem lehet ugyanaz.' }
   if (data.osszeg <= 0) return { error: 'Az összeg 0-nál nagyobb kell legyen.' }
 
-  // 2026-07-10 (S3-#3): véglegesített évbe belső mozgás sem rögzíthető — a
-  // kassza↔bank pár KÉT könyvelt sort (kiadas+befizetes) hoz létre, a
-  // belsomozgas-ág pedig az egyenlegekbe számít. A pár mindkét oldala a
-  // data.datum-ra könyvelődik, ezért egyetlen dátum-ellenőrzés elég.
+  // 2026-07-10 (S3-#3): véglegesített évbe belső mozgás sem rögzíthető. A core
+  // use-case is ellenőrzi (assertYearsNotFinalizedForCreate) — ez itt a webes
+  // hatókör-tudatos első vonal, hogy a hibaüzenet a megszokott maradjon.
   const transferLockError = await assertYearsNotFinalizedDirect(supabase, congregationId, [data.datum])
   if (transferLockError) return { error: transferLockError }
 
   const { data: { user } } = await supabase.auth.getUser()
   if (!user?.id) return { error: 'Nincs bejelentkezett felhasználó.' }
 
-  // 2026-07-10 (#3/B): kassza↔bank → kanonikus befizetes/kiadas PÁR (lásd fent).
-  // A `belsomozgas` mester-tábla KIZÁRÓLAG a valutacsere + bank_bank mozgásoké marad
-  // (azok deviza-logikáját a bank-balance.ts / FX-átértékelés kezeli).
-  if (data.tipus === 'kassza_bank' || data.tipus === 'bank_kassza') {
-    return await saveKasszaBankTransferPair(supabase, congregationId, user.id, {
-      tipus: data.tipus,
-      datum: data.datum,
-      forras: data.forras,
-      cel: data.cel,
-      osszeg: data.osszeg,
-      megjegyzes: data.megjegyzes,
-    })
+  // Bank-hivatkozás feloldása: ID-string → { id, név }. Nem numerikus értéknél
+  // (pl. 'kassza', vagy szabad szöveg) nincs bank-id — a szöveg megy tovább.
+  const resolveBank = async (raw: string): Promise<{ id: number | null; nev: string }> => {
+    const n = Number(raw)
+    if (!Number.isFinite(n) || n <= 0 || !/^\d+$/.test(raw.trim())) {
+      return { id: null, nev: raw.trim() }
+    }
+    const { data: bank } = await supabase
+      .from('bankszamlak')
+      .select('id, bank_neve')
+      .eq('id', n)
+      .eq('congregation_id', congregationId)
+      .maybeSingle()
+    if (!bank) return { id: null, nev: raw.trim() }
+    return { id: Number(bank.id), nev: (bank.bank_neve as string | null) || `Bank #${n}` }
   }
 
-  const { error } = await supabase.from('belsomozgas').insert({
-    congregation_id: congregationId,
-    datum: data.datum,
-    tipus: data.tipus,
-    forras: data.forras,
-    cel: data.cel,
-    osszeg: data.osszeg,
-    cel_osszeg: data.celOsszeg || null,
-    arfolyam: data.arfolyam || null,
-    megjegyzes: data.megjegyzes || null,
-    created_by: user.id,
-    deleted: false,
-  })
+  let forrasNev = data.forras.trim()
+  let celNev = data.cel.trim()
+  let bankszamlaId: number | null = null
+  let celBankszamlaId: number | null = null
 
-  if (error) return { error: `Hiba: ${error.message}` }
+  if (data.tipus === 'kassza_bank') {
+    const bank = await resolveBank(data.cel)
+    if (!bank.id) return { error: 'Érvénytelen bankszámla-azonosító a belső mozgáshoz.' }
+    forrasNev = 'Kassza'
+    celNev = bank.nev
+    bankszamlaId = bank.id
+  } else if (data.tipus === 'bank_kassza') {
+    const bank = await resolveBank(data.forras)
+    if (!bank.id) return { error: 'Érvénytelen bankszámla-azonosító a belső mozgáshoz.' }
+    forrasNev = bank.nev
+    celNev = 'Kassza'
+    bankszamlaId = bank.id
+  } else if (data.tipus === 'bank_bank') {
+    // Ha mindkét oldal feloldható bankra, a core a könyvelési párt is elkészíti
+    // (402.02, RON↔RON) — különben mester-only marad, és ezt a core kimondja.
+    const [forrasBank, celBank] = await Promise.all([
+      resolveBank(data.forras),
+      resolveBank(data.cel),
+    ])
+    forrasNev = forrasBank.nev
+    celNev = celBank.nev
+    bankszamlaId = forrasBank.id
+    celBankszamlaId = celBank.id
+  }
+
+  const result = await saveInternalTransferUseCase(
+    {
+      congregationId,
+      datum: data.datum,
+      tipus: data.tipus,
+      forras: forrasNev,
+      cel: celNev,
+      osszeg: data.osszeg,
+      cel_osszeg: data.celOsszeg ?? null,
+      arfolyam: data.arfolyam ?? null,
+      megjegyzes: data.megjegyzes?.trim() || null,
+      bankszamlaId,
+      celBankszamlaId,
+    },
+    { supabase, runtime: 'web', userId: user.id },
+  )
+
+  if (!result.success) return { error: result.error }
   revalidatePath('/penzugy')
+  if (result.figyelmeztetes) return { success: true, figyelmeztetes: result.figyelmeztetes }
   return { success: true }
 }
 

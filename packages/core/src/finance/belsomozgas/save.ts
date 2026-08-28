@@ -17,9 +17,12 @@
  * MOSTANTÓL: ha a hívó megadja a `bankszamlaId`-t, a use-case a mestersor MELLETT
  * létrehozza a kanonikus `befizetes` + `kiadas` PÁRT is, közös `belso_mozgas_xkey`-jel
  * és a kanonikus kódokkal — pontosan úgy, ahogy a webes `saveInternalTransfer`.
- * A `bank_bank` és a `valutacsere` típus EGYELŐRE csak a mestersort kapja (két
- * különböző számla/deviza párosítása külön kört igényel) — ezt a hívó felületnek
- * KI KELL MONDANIA, nem szabad úgy tenni, mintha könyvelés történt volna.
+ * D5 (audit 2026-08-28): a `bank_bank` típus is kap könyvelési párt, ha a hívó
+ * a `bankszamlaId` (forrás) MELLETT a `celBankszamlaId`-t is megadja és mindkét
+ * számla RON — devizás párnál mester-only marad, `figyelmeztetes`-sel. A
+ * `valutacsere` továbbra is csak a mestersort kapja (árfolyamos könyvelése
+ * külön kört igényel) — ezt a hívó felületnek KI KELL MONDANIA, nem szabad úgy
+ * tenni, mintha könyvelés történt volna.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -55,7 +58,13 @@ export interface SaveInternalTransferCtx {
 }
 
 export type SaveInternalTransferResultOrError =
-  | { success: true; data: SaveInternalTransferResult }
+  | {
+      success: true
+      data: SaveInternalTransferResult
+      /** D5 (2026-08-29): siker, de a könyvelési pár NEM készült el (pl.
+       *  devizás bank→bank) — a felület mutassa meg a felhasználónak. */
+      figyelmeztetes?: string
+    }
   | {
       success: false
       error: string
@@ -240,6 +249,151 @@ export async function saveInternalTransferUseCase(
       }
     }
 
+    // ── BANK → BANK KÖNYVELÉSI PÁR (D5, audit 2026-08-28) ────────────────
+    // Eddig a bank→bank átvezetés CSAK a mester-táblába került — a
+    // számlánkénti egyenleg, a Registru Banca és a carryover nem látta,
+    // miközben az Excel-oldal (buildBankBankExcelRows) mindkét betű-lapra
+    // könyvelt: a DB és a hivatalos főkönyv széthúzott.
+    // PÉNZNEM-ŐR: automatikusan csak RON↔RON párt könyvelünk — devizás
+    // számlánál a helyes RON-ekvivalenshez árfolyam kell, ott a mester-only
+    // marad, HANGOS jelzéssel (mint a valutacsere).
+    if (clean.tipus === 'bank_bank' && clean.bankszamlaId && clean.celBankszamlaId) {
+      const { data: bankok, error: bankErr } = await ctx.supabase
+        .from('bankszamlak')
+        .select('id, valuta')
+        .in('id', [clean.bankszamlaId, clean.celBankszamlaId])
+        .eq('congregation_id', clean.congregationId)
+      if (bankErr || (bankok || []).length < 2) {
+        return {
+          success: false,
+          error:
+            'A bank→bank átvezetés bekerült a nyilvántartásba, de a számlák ellenőrzése nem ' +
+            `sikerült (${bankErr?.message || 'hiányzó számla'}) — a KÖNYVELÉSI pár nem jött létre. ` +
+            'Töröld a tételt, és rögzítsd újra.',
+        }
+      }
+      const nemRon = (bankok as Array<{ id: number; valuta?: string | null }>).some(
+        (b) => ((b.valuta || 'RON') as string).toUpperCase() !== 'RON',
+      )
+      if (nemRon) {
+        return {
+          success: true,
+          data: { id: Number(data.id) },
+          figyelmeztetes:
+            'Devizás számlát érintő bank→bank átvezetés: a nyilvántartásba bekerült, de a ' +
+            'könyvelési pár NEM készült el automatikusan (árfolyam kellene hozzá) — a két ' +
+            'számla tételeit kézzel rögzítsd, vagy használd a banki kivonat-importot.',
+        }
+      }
+
+      const { bevKod, kiaKod } = belsoMozgasKodpar(false, false)
+      const [bevCelRes, kiaCelRes] = await Promise.all([
+        ctx.supabase.from('befizetescel').select('id').eq('id_szamadasicel', bevKod).maybeSingle(),
+        ctx.supabase.from('kiadascel').select('id').eq('id_szamadasicel', kiaKod).maybeSingle(),
+      ])
+      const bevCelId = bevCelRes.data?.id ? Number(bevCelRes.data.id) : null
+      const kiaCelId = kiaCelRes.data?.id ? Number(kiaCelRes.data.id) : null
+      if (!bevCelId || !kiaCelId) {
+        return {
+          success: false,
+          error:
+            `A bank→bank átvezetés a nyilvántartásba bekerült, de a KÖNYVELÉSI sorok nem: ` +
+            `hiányzik a ${bevKod} könyvelési cél. Futtasd le a ` +
+            '2026-06-10-belso-mozgas-kodok-INSTALL.sql-t, majd rögzítsd újra.',
+        }
+      }
+
+      const pairXkey = ujBelsoMozgasXkey()
+      const iratszam = `BM-${clean.datum.replace(/-/g, '')}-${String(data.id)}`
+      const fizetettev = Number(clean.datum.slice(0, 4))
+
+      const befIns = await ctx.supabase.from('befizetes').insert([{
+        osszeg: clean.osszeg, osszeg_ron: clean.osszeg, arfolyam: 1,
+        datum: clean.datum,
+        id_befizetescel: bevCelId,
+        id_szemely: null, id_csalad: null, csalad: false,
+        forrasa: 'Belső mozgás — másik számláról',
+        iratszam, nyugta: iratszam,
+        irattipus: 'banki',
+        bankszamla_id: clean.celBankszamlaId,
+        belso_mozgas_xkey: pairXkey,
+        megjegyzes: clean.megjegyzes || null,
+        deleted: false, congregation_id: clean.congregationId,
+        fizetettev, is_potlas: false,
+        xkey: ujXkey20(), userid: ctx.userId,
+      }])
+      if (befIns.error) {
+        const mesterVissza = await ctx.supabase
+          .from('belsomozgas')
+          .update({ deleted: true })
+          .eq('id', data.id)
+          .eq('congregation_id', clean.congregationId)
+          .select('id')
+        if (mesterVissza.error || !mesterVissza.data?.length) {
+          return {
+            success: false,
+            error:
+              `A cél-számla bevétel-sora nem jött létre (${befIns.error.message}), és a ` +
+              'nyilvántartó sor visszavonása sem sikerült — töröld kézzel a Belső mozgások ' +
+              'listából, majd rögzítsd újra.',
+          }
+        }
+        return {
+          success: false,
+          error:
+            `A cél-számla bevétel-sora nem jött létre (${befIns.error.message}) — az átvezetés ` +
+            'teljes egészében visszavonva. Rögzítsd újra.',
+        }
+      }
+
+      const kiaIns = await ctx.supabase.from('kiadas').insert([{
+        osszeg: clean.osszeg, osszeg_ron: clean.osszeg, arfolyam: 1,
+        datum: clean.datum,
+        id_kiadascel: kiaCelId,
+        atvevo: 'Belső mozgás — másik számlára',
+        atvevoid: null,
+        iratszam, nyugta: iratszam,
+        irattipus: 'banki',
+        bankszamla_id: clean.bankszamlaId,
+        belso_mozgas_xkey: pairXkey,
+        megjegyzes: clean.megjegyzes || null,
+        deleted: false, congregation_id: clean.congregationId,
+        xkey: ujXkey20(), userid: ctx.userId,
+      }])
+      if (kiaIns.error) {
+        let rendben = true
+        const befVissza = await ctx.supabase
+          .from('befizetes')
+          .update({ deleted: true })
+          .eq('belso_mozgas_xkey', pairXkey)
+          .eq('congregation_id', clean.congregationId)
+          .select('id')
+        if (befVissza.error || !befVissza.data?.length) rendben = false
+        const mesterVissza = await ctx.supabase
+          .from('belsomozgas')
+          .update({ deleted: true })
+          .eq('id', data.id)
+          .eq('congregation_id', clean.congregationId)
+          .select('id')
+        if (mesterVissza.error || !mesterVissza.data?.length) rendben = false
+        if (!rendben) {
+          return {
+            success: false,
+            error:
+              `A forrás-számla kiadás-sora nem jött létre (${kiaIns.error.message}), és a ` +
+              'visszavonás sem teljes — FÉLOLDALAS átvezetés maradhatott. Nézd meg a Pénzügy ' +
+              'oldalt (párosítatlan-jelzés), és jelezd a rendszergazdának.',
+          }
+        }
+        return {
+          success: false,
+          error:
+            `A forrás-számla kiadás-sora nem jött létre (${kiaIns.error.message}) — az átvezetés ` +
+            'teljes egészében visszavonva, a könyvben semmi nem mozdult. Rögzítsd újra.',
+        }
+      }
+    }
+
     // 2026-08-28 (Endre döntése: EGY nyitó-egyenleg forrás): ha VISSZAMENŐLEGESEN
     // rögzítünk átvezetést, a KÖVETKEZŐ évi automatikusan áthozott ('carryover')
     // banki nyitó elavul — újraszámoljuk. Kézzel rögzített ('manual') nyitót a
@@ -261,6 +415,17 @@ export async function saveInternalTransferUseCase(
             { congregationId: clean.congregationId, bankszamlaId: clean.bankszamlaId, changedYear },
             ctx as unknown as Parameters<typeof refreshNextYearCarryoverUseCase>[1],
           )
+          // D5 (2026-08-29): bank→bank párnál a CÉL-számla nyitója is érintett.
+          if (clean.celBankszamlaId != null) {
+            await refreshNextYearCarryoverUseCase(
+              {
+                congregationId: clean.congregationId,
+                bankszamlaId: clean.celBankszamlaId,
+                changedYear,
+              },
+              ctx as unknown as Parameters<typeof refreshNextYearCarryoverUseCase>[1],
+            )
+          }
         }
       } catch (e) {
         console.error(

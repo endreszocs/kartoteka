@@ -1,22 +1,23 @@
 #!/usr/bin/env node
 /**
- * ÁTVEZETÉS-PÁR ROLLBACK-ELLENŐRZÉS önellenőrzés (P0-13, 2026-08-28)
+ * ÁTVEZETÉS — EGY KÖZÖS ÚT önellenőrzés (P0-13 utóda + D5, 2026-08-29)
  *
- * MIT ŐRIZ — a 2026-08-28-i pénzügyi audit P0-13 találata:
- *   A webes kassza↔bank átvezetés két külön insert (kiadás, majd bevétel). A
- *   bevétel-láb hibájánál a kód visszavonja a már beszúrt kiadás-lábat — de a
- *   visszavonó UPDATE eredményét SENKI nem olvasta. Ha a rollback is elhasal
- *   (hálózat, RLS), a kiadás-láb bent marad (fél átvezetés → téves kassza/bank
- *   egyenleg), és a hibaüzenet ezt elhallgatja.
+ * TÖRTÉNET: a P0-13 a webes saveKasszaBankTransferPair ellenőrizetlen
+ * rollbackjét javította. A D5 (audit-divergencia) óta a webes átvezetés a
+ * KÖZÖS core saveInternalTransferUseCase-en megy — a mester (nyilvántartó)
+ * sor + a könyvelési pár + a P0-7-es ellenőrzött rollback EGY helyen él
+ * (azt a selftest-belsomozgas-integritas őrzi). Ez az őr azt biztosítja,
+ * hogy a web ne térhessen vissza a saját, párhuzamos pár-írására.
  *
- * A JAVÍTOTT VILÁG INVARIÁNSAI:
- *   (1) a rollback eredménye VÁLTOZÓBA kerül (nem fire-and-forget),
- *   (2) az érintett sorok száma ellenőrizhető (.select('id') az update után),
- *   (3) az eredményt tényleg ellenőrzi (rb.error / sor-szám),
- *   (4) kettős hibánál a felhasználó EXPLICIT üzenetet kap arról, hogy fél pár
- *       maradt ("sem sikerült").
+ * MIT ŐRIZ:
+ *   (1) a web saveInternalTransfer a core use-case-re delegál — a régi
+ *       saveKasszaBankTransferPair NEM létezik többé;
+ *   (2) a core use-case a bank→bank átvezetést is KÖNYVELI (402.02 kódpár,
+ *       kiadás a forrás-bankon + bevétel a cél-bankon), de CSAK RON↔RON
+ *       számlapárnál — devizásnál mester-only marad, hangos jelzéssel;
+ *   (3) a séma fogadja a cél-bank azonosítót (celBankszamlaId).
  *
- * NEGATÍV ASSZERT: a régi világ visszajátszása mutánsokkal.
+ * NEGATÍV ASSZERT: visszabontó mutánsok.
  *
  * Futtatás:  node scripts/selftest-atvezetes-par-rollback.mjs
  */
@@ -27,7 +28,9 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(__dirname, '..')
-const ACTIONS = path.join(REPO, 'apps', 'web', 'app', '(dashboard)', 'penzugy', 'actions.ts')
+const WEB = path.join(REPO, 'apps', 'web', 'app', '(dashboard)', 'penzugy', 'actions.ts')
+const CORE = path.join(REPO, 'packages', 'core', 'src', 'finance', 'belsomozgas', 'save.ts')
+const SEMA = path.join(REPO, 'packages', 'validations', 'src', 'finance', 'belsomozgas.ts')
 
 let fail = 0
 let ok = 0
@@ -40,77 +43,71 @@ function stripComments(src) {
     .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
 }
 
-function ellenoriz(src) {
-  const s = stripComments(src)
+function ellenoriz(files) {
   const hibak = []
 
-  const iFn = s.indexOf('async function saveKasszaBankTransferPair')
-  const iVege = s.indexOf('export async function saveInternalTransfer')
-  if (iFn < 0 || iVege < 0 || iVege < iFn) {
-    hibak.push('a saveKasszaBankTransferPair régió nem található (fail-closed)')
-    return hibak
+  // (1) a web a közös úton jár
+  const w = stripComments(files.get(WEB))
+  if (/saveKasszaBankTransferPair/.test(w)) {
+    hibak.push('web: a saját pár-író (saveKasszaBankTransferPair) visszatért — két széthúzó implementáció')
   }
-  const fn = s.slice(iFn, iVege)
+  const iSave = w.indexOf('export async function saveInternalTransfer')
+  const saveBlokk = iSave >= 0 ? w.slice(iSave, iSave + 5000) : ''
+  if (!/saveInternalTransferUseCase\(/.test(saveBlokk)) {
+    hibak.push('web: a saveInternalTransfer nem a core use-case-re delegál')
+  }
 
-  const iHiba = fn.indexOf('if (befIns.error)')
-  const iUtana = fn.indexOf('refreshNextYearCarryoverUseCase', iHiba)
-  if (iHiba < 0 || iUtana < 0) {
-    hibak.push('a bevétel-oldali hibaág régiója nem található (fail-closed)')
-    return hibak
+  // (2) a core a bank→bank párt is könyveli, RON-őrrel
+  const c = stripComments(files.get(CORE))
+  if (!/clean\.tipus === 'bank_bank'/.test(c) || !/celBankszamlaId/.test(c)) {
+    hibak.push('core: nincs bank→bank pár-könyvelés — a számlánkénti egyenleg nem látja az átutalást')
   }
-  const blokk = fn.slice(iHiba, iUtana)
+  if (!/'RON'/.test(c) || !/valuta/.test(c)) {
+    hibak.push('core: nincs pénznem-őr a bank→bank páron — devizás számlára nyers összeg könyvelődne')
+  }
 
-  const varMatch = /const (\w+) = await supabase\s*[\s\S]{0,200}?\.update\(\{ deleted: true \}\)/.exec(blokk)
-  if (!varMatch) {
-    hibak.push('a kiadás-láb visszavonása fire-and-forget — az eredménye nincs változóba kötve')
-    return hibak
-  }
-  const rbNev = varMatch[1]
-
-  if (!blokk.includes(".select('id')")) {
-    hibak.push('a visszavonó UPDATE után nincs .select(\'id\') — az érintett sorszám nem ellenőrizhető (0 sor = néma nem-történt-semmi)')
-  }
-  if (!new RegExp(`${rbNev}\\.error`).test(blokk)) {
-    hibak.push(`a visszavonás eredménye (${rbNev}.error) nincs ellenőrizve`)
-  }
-  if (!/sem sikerült/.test(blokk)) {
-    hibak.push('kettős hibánál nincs explicit "a visszavonás sem sikerült" üzenet — a fél pár néma maradna')
+  // (3) a séma fogadja a cél-bankot
+  const s = stripComments(files.get(SEMA))
+  if (!/celBankszamlaId/.test(s)) {
+    hibak.push('séma: nincs celBankszamlaId — a bank→bank pár nem kaphat cél-számlát')
   }
 
   return hibak
 }
 
-const src = fs.readFileSync(ACTIONS, 'utf8')
+function beolvas() {
+  const m = new Map()
+  for (const fp of [WEB, CORE, SEMA]) m.set(fp, fs.readFileSync(fp, 'utf8'))
+  return m
+}
 
-const hibak = ellenoriz(src)
+const files = beolvas()
+const hibak = ellenoriz(files)
 if (hibak.length === 0) {
-  pass('átvezetés-pár: a rollback eredménye ellenőrzött, kettős hibánál hangos fél-pár jelzés')
+  pass('átvezetés: egyetlen közös út (web→core) + bank→bank pár RON-őrrel')
 } else {
   for (const h of hibak) bukik(h)
 }
 
+// ── NEGATÍV — mutánsok ──────────────────────────────────────────────────────
 if (hibak.length === 0) {
-  // M1: vissza a fire-and-forget világba
-  const m1 = src.replace(/const (\w+) = (await supabase\s*\n\s*\.from\('kiadas'\)\s*\n\s*\.update\(\{ deleted: true \}\))/, '$2')
-  if (m1 === src) bukik('M1 mutáció nem változtatott a forráson (fail-closed)')
-  else if (ellenoriz(m1).length === 0) bukik('M1: a fire-and-forget mutánsra az őr NEM bukik — vak')
-  else pass('M1 mutáns (eredmény változó nélkül) → az őr elbuktatja')
+  // M1: a web visszabontása saját pár-írásra
+  const m1files = beolvas()
+  const w1 = m1files.get(WEB)
+  const w1mut = w1.replace(/saveInternalTransferUseCase\(/, 'sajatParIro_saveKasszaBankTransferPair(')
+  m1files.set(WEB, w1mut)
+  if (w1mut === w1) bukik('M1 mutáció nem változtatott (fail-closed)')
+  else if (ellenoriz(m1files).length === 0) bukik('M1: a web-visszabontásra az őr NEM bukik — vak')
+  else pass('M1 mutáns (web saját pár-írásra vissza) → az őr elbuktatja')
 
-  // M2: a sorszám-ellenőrzés (.select) elhagyása a rollback-blokkban
-  const iFnRaw = src.indexOf('async function saveKasszaBankTransferPair')
-  const iVegeRaw = src.indexOf('export async function saveInternalTransfer')
-  const iHibaRaw = src.indexOf('if (befIns.error)', iFnRaw)
-  const iUtanaRaw = src.indexOf('refreshNextYearCarryoverUseCase', iHibaRaw)
-  if (iHibaRaw < 0 || iUtanaRaw < 0 || iVegeRaw < iFnRaw) {
-    bukik('M2 mutáció: a hibaág nem található (fail-closed)')
-  } else {
-    const blokkRaw = src.slice(iHibaRaw, iUtanaRaw)
-    const blokkMut = blokkRaw.replace(/\s*\.select\('id'\)/, '')
-    const m2 = src.slice(0, iHibaRaw) + blokkMut + src.slice(iUtanaRaw)
-    if (m2 === src) bukik('M2 mutáció nem változtatott a forráson (fail-closed)')
-    else if (ellenoriz(m2).length === 0) bukik('M2: a select-elhagyó mutánsra az őr NEM bukik — vak')
-    else pass('M2 mutáns (.select nélkül) → az őr elbuktatja')
-  }
+  // M2: a core bank→bank ág törlése
+  const m2files = beolvas()
+  const c2 = m2files.get(CORE)
+  const c2mut = c2.replace(/clean\.tipus === 'bank_bank'/g, "clean.tipus === 'bank_bank_KIKAPCSOLVA'")
+  m2files.set(CORE, c2mut)
+  if (c2mut === c2) bukik('M2 mutáció nem változtatott (fail-closed)')
+  else if (ellenoriz(m2files).length === 0) bukik('M2: a bank→bank ág törlésére az őr NEM bukik — vak')
+  else pass('M2 mutáns (core bank→bank ág kilőve) → az őr elbuktatja')
 }
 
 console.log('')
@@ -118,4 +115,4 @@ if (fail) {
   console.error(`${fail} teszt HIBÁS, ${ok} zöld`)
   process.exit(1)
 }
-console.log(`${ok}/${ok} teszt zöld — átvezetés-pár rollback rendben`)
+console.log(`${ok}/${ok} teszt zöld — átvezetés közös útja rendben`)
