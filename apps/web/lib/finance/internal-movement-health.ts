@@ -98,6 +98,34 @@ function dayDiff(a: string, b: string): number {
 const PAIRING_WINDOW_DAYS = 7
 
 /**
+ * Az adott nap a SAJÁT évének határához közel esik-e (a párosítási ablakon belül)?
+ *
+ * ⛔ MIÉRT KELL (2026-08-27): a Pénzügy fül az adott ÉV sorait tölti be, és erre
+ * a halmazra hívja az egészség-ellenőrzőt. Egy évfordulós átvezetés két lába
+ * viszont ELTÉRŐ évre eshet — a kassza-láb december 31., a banki jóváírás
+ * január 2. („úton lévő pénz"). Ilyenkor a ±7 napos ablak SOHA nem tud átnyúlni
+ * az évhatáron: a kassza-láb a régi év nézetében, a bank-láb az új év nézetében
+ * áll, MINDKETTŐ párosítatlanként — és a jelzés SOHA nem tűnik el magától,
+ * mert nincs mit importálni. Örökké villogó piros riasztás egy HELYES páron.
+ *
+ * Ezért az évhatár közelébe eső, PÁROSÍTÓ KULCCSAL rendelkező sorokra nem
+ * riasztunk: a kulcs léte bizonyítja, hogy a pár szabályosan létrejött, csak a
+ * másik lába a szomszédos év nézetében van. (A kulcs NÉLKÜLI „árva" sorokra
+ * továbbra is riasztunk — azok valóban hibásak, és nem oldódnak meg maguktól.)
+ */
+function evhatarKozeleben(datum: string): boolean {
+  const d = (datum || '').slice(0, 10)
+  const t = Date.parse(d)
+  if (Number.isNaN(t)) return false
+  const ev = Number(d.slice(0, 4))
+  if (!Number.isFinite(ev)) return false
+  const evElso = Date.parse(`${ev}-01-01`)
+  const evUtolso = Date.parse(`${ev}-12-31`)
+  const nap = 86_400_000
+  return (t - evElso) / nap <= PAIRING_WINDOW_DAYS || (evUtolso - t) / nap <= PAIRING_WINDOW_DAYS
+}
+
+/**
  * Kiszámolja a párosítatlan belső mozgásokat a befizetés + kiadás listából.
  *
  * Egy sor akkor belső mozgás, ha VAN `belso_mozgas_xkey`-e, VAGY a `szamadasicelKod`-ja
@@ -201,6 +229,9 @@ export function computeInternalMovementHealth(
   const items: UnpairedMovement[] = []
   for (const e of expenses) {
     if (e.matched) continue
+    // Évhatáron átnyúló, SZABÁLYOS pár (van kulcsa) → nem riasztunk, lásd
+    // az `evhatarKozeleben` magyarázatát. Az ÁRVA sorokra viszont igen.
+    if (!e.orphan && evhatarKozeleben(e.datum)) continue
     unpairedIds.add(e.id)
     items.push({
       datum: e.datum.slice(0, 10),
@@ -214,6 +245,7 @@ export function computeInternalMovementHealth(
   }
   for (const inc of incomes) {
     if (inc.matched) continue
+    if (!inc.orphan && evhatarKozeleben(inc.datum)) continue
     unpairedIds.add(inc.id)
     items.push({
       datum: inc.datum.slice(0, 10),

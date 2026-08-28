@@ -1158,8 +1158,14 @@ export function BcrImportWizardBody({
                   {visibleTransactions.map((t) => {
                     const d = decisions[t.rowIndex] || { action: 'skip' as const }
                     const cats = d.action === 'income' ? incomeCategories : expenseCategories
-                    const needsCategory =
-                      d.action === 'income' || d.action === 'expense' || d.action === 'internal-transfer'
+                    // 2026-08-27: a BELSŐ MOZGÁS KIKERÜLT a kategória-kérésből.
+                    // Eddig az `internal-transfer` az ELSE ágra esett, tehát a lelkész IRÁNYTÓL
+                    // FÜGGETLENÜL a KIADÁS-listából választott — a rendszer pedig ugyanazt az
+                    // egy azonosítót írta a pár MINDKÉT oldalára, az egyiket rossz tábla
+                    // azonosítójaként. A mag mostantól a KANONIKUS KÓDBÓL oldja fel mindkét
+                    // oldal kategóriáját (belsoMozgasKodpar), ezért itt kérni sem kell —
+                    // egy mezőt mutatni, aminek nincs hatása, félrevezető.
+                    const needsCategory = d.action === 'income' || d.action === 'expense'
                     return (
                       <tr key={t.rowIndex} className="hover:bg-slate-50/50">
                         <td className="p-2 text-slate-600 whitespace-nowrap">{t.date}</td>
@@ -1216,6 +1222,10 @@ export function BcrImportWizardBody({
                                 allowClear
                               />
                             </div>
+                          ) : d.action === 'internal-transfer' ? (
+                            <span className="text-[11px] text-slate-500">
+                              automatikus (átvezetés)
+                            </span>
                           ) : (
                             <span className="text-slate-400">—</span>
                           )}

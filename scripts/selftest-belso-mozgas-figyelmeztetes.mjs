@@ -125,6 +125,31 @@ if (!fs.existsSync(UI_TYPES)) {
   }
 }
 
+// ── 6. próba: ÉVHATÁRON átnyúló, SZABÁLYOS pár → NINCS riasztás ─────────
+// A Pénzügy fül az adott ÉV sorait tölti be. Egy évfordulós átvezetés két lába
+// eltérő évre eshet (kassza-láb dec. 31., banki jóváírás jan. 2.), ezért a
+// ±7 napos ablak SOHA nem tud átnyúlni az évhatáron — a jelzés soha nem tűnne
+// el magától. A párosító KULCS léte bizonyítja, hogy a pár szabályosan létrejött.
+const evhatarKulccsal = [
+  { id: 701, osszeg: 9000, datum: '2026-12-30', belso_mozgas_xkey: 'ev-1', bankszamla_id: 1, szamadasicelKod: '301.01' },
+]
+const r6 = mod.computeInternalMovementHealth(evhatarKulccsal, [])
+if (r6.unpairedCount === 0) ok('az évhatár közeli, KULCCSAL bíró pár nem ad örökös hamis riasztást')
+else fail(`hamis riasztás évhatáron (unpairedCount=${r6.unpairedCount}) — a jelzés soha nem tűnne el`)
+
+// ── 7. próba: az ÉVHATÁR NEM fedheti el az ÁRVA sort ─────────────────────
+// Ez a fontos ellenpróba: az elnyomás CSAK a kulccsal bíró sorokra szól.
+// Egy árva (kulcs nélküli) sor december 30-án is HIBÁS, és jeleznie kell.
+const evhatarArva = [
+  { id: 702, osszeg: 9000, datum: '2026-12-30', belso_mozgas_xkey: null, bankszamla_id: 1, szamadasicelKod: '301.01' },
+]
+const r7 = mod.computeInternalMovementHealth(evhatarArva, [])
+if (r7.unpairedCount === 1 && r7.orphanCount === 1) {
+  ok('az évhatár-elnyomás NEM fedi el az árva sort (az továbbra is jelez)')
+} else {
+  fail(`az évhatár-elnyomás ELFEDTE az árva sort (unpaired=${r7.unpairedCount}, orphan=${r7.orphanCount}) — pont a hibás sort némítanánk el`)
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 //  NEGATÍV ASSZERT — a RÉGI világ visszajátszása a MAI forrásból
 // ══════════════════════════════════════════════════════════════════════════
