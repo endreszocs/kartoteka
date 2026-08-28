@@ -42,6 +42,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import { localTodayIso } from '@kartoteka/validations'
 import { ArrowLeftRight, Building2, Landmark, Plus, Search, Trash2, X } from 'lucide-react'
 import type { BankAccount, RentalContractRow } from './types'
 import {
@@ -185,7 +186,7 @@ type BatchIncomeRow = {
 function createBatchIncomeRow(currentYear: number): BatchIncomeRow {
   return {
     key: crypto.randomUUID(),
-    datum: new Date().toISOString().slice(0, 10),
+    datum: localTodayIso(),
     categoryId: '',
     source: '',
     amount: '',
@@ -268,7 +269,7 @@ export function IncomeDialogBody({
 }: IncomeDialogBodyProps) {
   const [mode, setMode] = useState<EntryMode>('single')
   const [loading, setLoading] = useState(false)
-  const [datum, setDatum] = useState(new Date().toISOString().slice(0, 10))
+  const [datum, setDatum] = useState(localTodayIso())
   const [categoryValue, setCategoryValue] = useState<number | '' | SpecialIncomeCategory>('')
   const [personId, setPersonId] = useState<number | null>(null)
   const [personName, setPersonName] = useState('')
@@ -314,7 +315,7 @@ export function IncomeDialogBody({
       if (cancelled) return
       setMode('single')
       setLoading(false)
-      setDatum(new Date().toISOString().slice(0, 10))
+      setDatum(localTodayIso())
       setCategoryValue('')
       setPersonId(null)
       setPersonName('')
@@ -393,7 +394,7 @@ export function IncomeDialogBody({
 
   function checkDate(value: string) {
     setDatum(value)
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localTodayIso()
     if (value > today) {
       setDateError('Jövőbeli dátum nem engedélyezett.')
       setDateWarning('')

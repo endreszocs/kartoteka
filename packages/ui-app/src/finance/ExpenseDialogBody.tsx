@@ -35,6 +35,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import { localTodayIso } from '@kartoteka/validations'
 import { ArrowLeftRight, Building2, Plus, Trash2 } from 'lucide-react'
 import type { BankAccount } from './types'
 import { RECEIPT_TYPES } from './types'
@@ -132,7 +133,7 @@ type BatchExpenseRow = {
 function createBatchExpenseRow(): BatchExpenseRow {
   return {
     key: crypto.randomUUID(),
-    datum: new Date().toISOString().slice(0, 10),
+    datum: localTodayIso(),
     categoryId: '',
     partner: '',
     amount: '',
@@ -205,7 +206,7 @@ export function ExpenseDialogBody({
 }: ExpenseDialogBodyProps) {
   const [mode, setMode] = useState<EntryMode>('single')
   const [loading, setLoading] = useState(false)
-  const [datum, setDatum] = useState(new Date().toISOString().slice(0, 10))
+  const [datum, setDatum] = useState(localTodayIso())
   const [categoryValue, setCategoryValue] = useState<number | '' | SpecialExpenseCategory>('')
   const [partner, setPartner] = useState('')
   const [amount, setAmount] = useState<number>(0)
@@ -221,7 +222,7 @@ export function ExpenseDialogBody({
     queueMicrotask(() => {
       setMode('single')
       setLoading(false)
-      setDatum(new Date().toISOString().slice(0, 10))
+      setDatum(localTodayIso())
       setCategoryValue('')
       setPartner('')
       setAmount(0)
@@ -244,7 +245,7 @@ export function ExpenseDialogBody({
 
   function checkDate(value: string) {
     setDatum(value)
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localTodayIso()
     setDateError(value > today ? 'Jövőbeli dátum nem engedélyezett.' : '')
   }
 

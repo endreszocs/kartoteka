@@ -7,8 +7,9 @@ import {
   RENTAL_BERLO_TIPUS,
   FX_ARFOLYAM_FORRAS,
 } from '@/lib/constants/finance'
+import { localTodayIso } from '@kartoteka/validations'
 
-const today = () => new Date().toISOString().slice(0, 10)
+const today = () => localTodayIso()
 
 // #5 (Endre): az irattipus szabad szöveges BIZONYLATTÍPUS-címke (Chitanță/Factură/Bon fiscal/
 // Készpénz/Banki/Extras/OP…). A régi z.enum(['Készpénz','Banki']) túl szűk volt — a DB-oszlop

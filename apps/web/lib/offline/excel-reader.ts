@@ -13,6 +13,8 @@
 
 import ExcelJS from 'exceljs'
 
+import { toLocalIsoDate } from '@/lib/import/date-utils'
+
 import {
   type ExcelFieldDef,
   type ExcelModuleSchema,
@@ -115,28 +117,13 @@ function parseCellValue(
     }
 
     case 'date': {
-      if (value instanceof Date) {
-        // ISO YYYY-MM-DD
-        return value.toISOString().slice(0, 10)
-      }
-      if (typeof value === 'string') {
-        const trimmed = value.trim()
-        if (!trimmed) return null
-        const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
-        if (isoMatch) {
-          const [, y, m, d] = isoMatch
-          return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
-        }
-        const parsed = new Date(trimmed)
-        if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10)
-      }
-      if (typeof value === 'number') {
-        // Excel serial date
-        const epochMs = Date.UTC(1900, 0, 1) - 2 * 24 * 60 * 60 * 1000
-        const date = new Date(epochMs + value * 24 * 60 * 60 * 1000)
-        if (!Number.isNaN(date.getTime())) return date.toISOString().slice(0, 10)
-      }
-      return null
+      // P0-22 (audit 2026-08-28): a kanonikus toLocalIsoDate-re delegálunk.
+      // A korábbi saját út a szöveges cellát ('2025.01.07') a naiv
+      // `new Date(str).toISOString()` ágon Bukarestben −1 napra (év-határon
+      // −1 ÉVRE) csúsztatta; a kanonikus helper regex-úton (időzóna nélkül)
+      // olvassa a magyar/fordított/ISO alakot, a Date-cellát +12 órás
+      // kerekítéssel, a serialt UTC-matekkal kezeli.
+      return toLocalIsoDate(value)
     }
 
     case 'string':

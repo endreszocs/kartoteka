@@ -25,6 +25,7 @@
  */
 
 import * as XLSX from 'xlsx'
+import { parseImportAmount } from '@/lib/import/amount-parse'
 import { toLocalIsoDate } from '@/lib/import/date-utils'
 
 export interface XmlBevetelekRow {
@@ -186,15 +187,10 @@ export async function parseXmlBevetelek(
 // Helpers — itt is, mert a két parser-fájl független (no shared module)
 // ──────────────────────────────────────────────────────────────────────
 
+// P0-17 (audit 2026-08-28): a korábbi naiv vessző→pont csere az „1.234,56"
+// alakot 1.234-re zsugorította — a kanonikus parser a lib/import/amount-parse.
 function parseAmount(value: unknown): number | null {
-  if (value === null || value === undefined) return null
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null
-  if (typeof value === 'string') {
-    const trimmed = value.trim().replace(/\s/g, '').replace(',', '.')
-    const num = parseFloat(trimmed)
-    return Number.isFinite(num) ? num : null
-  }
-  return null
+  return parseImportAmount(value)
 }
 
 function parseInteger(value: unknown): number | null {

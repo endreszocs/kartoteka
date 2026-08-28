@@ -228,10 +228,12 @@ for (const [cimke, ut] of [['web', WEB], ['desktop', DESKTOP]]) {
 
   // (a) FAIL-OPEN: ha az ellenőrzés elhasal, a mentés NEM állhat meg.
   //     Ez figyelmeztetés, nem védelem — a lelkész munkája fontosabb.
-  // A kapu-régió a `setBusy(true)`-ig tart. FONTOS, hogy itt álljon meg: a
-  // handleSave alatt van másik try/catch is, és egy túlnyúló régió azt találná
-  // meg — vagyis az őr akkor is „fail-open"-t jelentene, ha a kapunkból hiányzik.
-  const kapuRegex = /if \(onCheckSimilarEntries && !hasonloMegerositve\)[\s\S]*?setBusy\(true\)/
+  // A kapu-régió az ELSŐ tényleges mentés-hívásig (`await onSaveIncomeBatch(`)
+  // tart. (2026-08-28, P0-9: a `setBusy(true)` korábbi határoló a kapu ELÉ, a
+  // handleSave zárjába költözött, ezért új, a kapu UTÁNI horgony kell.)
+  // A túlnyúlás-veszélyt a fail-open minta fogja: az PARAMÉTER NÉLKÜLI
+  // `} catch {`-et követel, a mentés-blokk `catch (e)`-je nem elégíti ki.
+  const kapuRegex = /if \(onCheckSimilarEntries && !hasonloMegerositve\)[\s\S]*?await onSaveIncomeBatch\(/
   const kapu = kod.match(kapuRegex)
   if (!kapu) fail('rögzítő — a hasonló-tétel kapu nem található')
   else if (!/try\s*\{[\s\S]{0,400}?\}\s*catch\s*\{/.test(kapu[0])) {

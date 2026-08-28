@@ -111,7 +111,9 @@ export async function runFinalizationChecks(year: number): Promise<{
 
   const congregationId = access.effectiveCongregationId
   const yearStart = `${year}-01-01`
-  const yearEnd = `${year}-12-31`
+  // P0-2 (audit 2026-08-28): KIZÁRÓ felső határ — a kiadas.datum TIMESTAMP,
+  // az inkluzív '12-31' ott éjfélt jelentene. DATE-oszlopon ekvivalens.
+  const yearEnd = `${year + 1}-01-01`
 
   // Párhuzamosan kérünk le minden szükséges adatot
   const [
@@ -150,7 +152,7 @@ export async function runFinalizationChecks(year: number): Promise<{
       .eq('congregation_id', congregationId)
       .eq('deleted', false)
       .gte('datum', yearStart)
-      .lte('datum', yearEnd),
+      .lt('datum', yearEnd),
     // Kiadások
     access.supabase
       .from('kiadas')
@@ -158,14 +160,14 @@ export async function runFinalizationChecks(year: number): Promise<{
       .eq('congregation_id', congregationId)
       .eq('deleted', false)
       .gte('datum', yearStart)
-      .lte('datum', yearEnd),
+      .lt('datum', yearEnd),
     // Oblio beérkezett számlák (xml match rekordok)
     access.supabase
       .from('oblio_kiadas_match')
       .select('id, kiadas_id, invoice_date')
       .eq('congregation_id', congregationId)
       .gte('invoice_date', yearStart)
-      .lte('invoice_date', yearEnd),
+      .lt('invoice_date', yearEnd),
     // Oblio match-ek összesen (átfedés ellenőrzéshez)
     access.supabase
       .from('oblio_kiadas_match')
@@ -495,7 +497,9 @@ async function runFelsoSzintFinalizationChecks(
   year: number,
 ): Promise<{ data: FinalizationChecksResult; error?: undefined }> {
   const yearStart = `${year}-01-01`
-  const yearEnd = `${year}-12-31`
+  // P0-2 (audit 2026-08-28): KIZÁRÓ felső határ — a kiadas.datum TIMESTAMP,
+  // az inkluzív '12-31' ott éjfélt jelentene. DATE-oszlopon ekvivalens.
+  const yearEnd = `${year + 1}-01-01`
   const T = tablesFor(scope)
 
   // A `select` oszloplistája SZÁNDÉKOSAN literál marad: mindkét felső szint
@@ -509,14 +513,14 @@ async function runFelsoSzintFinalizationChecks(
       .eq(T.scopeCol, scopeId)
       .eq('deleted', false)
       .gte('datum', yearStart)
-      .lte('datum', yearEnd),
+      .lt('datum', yearEnd),
     supabase
       .from(T.kiadas)
       .select('id, id_szamadasicel, stornozott')
       .eq(T.scopeCol, scopeId)
       .eq('deleted', false)
       .gte('datum', yearStart)
-      .lte('datum', yearEnd),
+      .lt('datum', yearEnd),
   ])
 
   const befizetesek = (befRes.data || []) as Array<{ id: number; id_szamadasicel: string | null; stornozott?: boolean }>

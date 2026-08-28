@@ -69,6 +69,10 @@ export function DesktopTransactionEditDialog({
   // A dátum csak az év utolsó (azonos típusú) tételénél szerkeszthető.
   const [dateEditable, setDateEditable] = useState(false)
   const [checkingLast, setCheckingLast] = useState(false)
+  // P0-11 (audit 2026-08-28): optimista zár bázisa — a sor revision-je a
+  // dialógus megnyitásakor. A mentés ezt küldi vissza; ha időközben más
+  // mentett (web vagy másik gép), a use-case konfliktust jelez.
+  const [baseRevision, setBaseRevision] = useState<number | null>(null)
 
   // Kiinduló értékek betöltése nyitáskor
   useEffect(() => {
@@ -87,6 +91,7 @@ export function DesktopTransactionEditDialog({
     let cancelled = false
     setCheckingLast(true)
     setDateEditable(false)
+    setBaseRevision(null)
     void isLastTransactionOfTypeUseCase(
       { congregationId, type, id },
       { supabase: getDesktopSupabase(), runtime: 'desktop' },
@@ -94,6 +99,7 @@ export function DesktopTransactionEditDialog({
       if (cancelled) return
       setCheckingLast(false)
       setDateEditable(!!res.isLast)
+      setBaseRevision(typeof res.revision === 'number' ? res.revision : null)
     })
     return () => {
       cancelled = true
@@ -128,6 +134,7 @@ export function DesktopTransactionEditDialog({
           id_cel: idCel,
           iratszam: iratszam.trim() || null,
           megjegyzes: megjegyzes.trim() || null,
+          revision: baseRevision ?? undefined,
         },
         { supabase: getDesktopSupabase(), runtime: 'desktop', userId },
       )

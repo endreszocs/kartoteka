@@ -23,6 +23,170 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-28] — Pénzügyi átvilágítás: az A-blokk javításai
+<!-- key: 2026-08-28-penzugy-audit-a-blokk -->
+<!-- category: bugfix -->
+<!-- version: 0.9.193 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🐛 Javítások
+
+- **A Mentés gomb már nem enged dupla rögzítést** (P0-9): a Tétel rögzítő
+  ablakban a mentés indítása után a rendszer eddig egy rövid ideig — amíg a
+  háttérben a hasonló tételek ellenőrzése futott — még elfogadott egy második
+  kattintást, és ilyenkor ugyanazok a tételek kétszer kerültek be. Mostantól
+  az első kattintás azonnal zárol, a második kattintás nem csinál semmit.
+
+- **Ha a köteges mentés félúton hibázik, semmi nem marad bent félig** (P0-8):
+  ha egy több soros bevétel-rögzítésben az egyik sor hibás volt, a rendszer
+  eddig a hibás sor ELŐTTI sorokat már elmentette — és az újramentés ezeket
+  duplán rögzítette. Mostantól hibánál a köteg MINDEN sora visszavonódik
+  (ahogy a kiadásoknál eddig is), és az üzenet ezt ki is mondja; javítás után
+  az egész köteg nyugodtan újramenthető. Ugyanezt a védelmet megkapta a
+  megyei/kerületi kiadás-rögzítés is.
+
+- **A kassza–bank átvezetés egyben mozog: rögzítés, törlés, szerkesztés**
+  (P0-7): a desktopon rögzített átvezetésnél eddig három rés is volt — ha a
+  mentés félúton hibázott, féloldalas könyvelés maradhatott; a Belső mozgások
+  listából törölt átvezetés könyvelési sorai életben maradtak (és fordítva);
+  és az átvezetés egyik lába külön szerkeszthető volt, amitől a két oldal
+  szétcsúszhatott. Mostantól a mentés hibánál mindent visszavon, a törlés
+  mindkét irányban a teljes átvezetést viszi, a lábak külön szerkesztése
+  pedig mindkét változatban tiltott (törlés + újrarögzítés a helyes út).
+
+- **Nyugta-kiállításnál nem éghet el nyomdai szám** (P0-12): a nyugta
+  (chitanță) kiállítása eddig két lépésben történt — a rendszer előbb
+  lefoglalta a következő nyomdai számot a tömbből, és csak utána mentette a
+  nyugtát. Ha a mentés bármiért elhasalt, a lefoglalt szám elveszett: lyuk
+  maradt a szigorú számadású papírtömbben. Mostantól a foglalás és a mentés
+  EGYETLEN szerver-oldali műveletben fut — hibánál a szám is visszakerül.
+  Ugyanez a művelet zárja ki, hogy két egyszerre indított kiállítás ugyanazt
+  a számot kapja, és a dupla kattintás sem készít második nyugtát ugyanarra
+  a befizetésre: ilyenkor a már meglévő nyugta jön vissza. (Ehhez a
+  2026-08-28-chitanta-atomic-rpc.sql lefuttatása szükséges — a kód-frissítés
+  ÉLESÍTÉSE ELŐTT.)
+
+- **Az asztali program szól, ha elavult adatot mutat** (P0-16): az asztali
+  pénzügy-oldal betöltéskor lekéri a friss adatokat a szerverről, de ha ez
+  nem sikerült (nincs internet, vagy a szerver hibázott), eddig szó nélkül
+  a gépen tárolt korábbi másolatot mutatta — így akár elavult számokból is
+  készülhetett hivatalos nyomtatvány. Mostantól ilyenkor jól látható
+  figyelmeztető sáv jelenik meg: felsorolja, mit nem sikerült frissíteni,
+  és kimondja, hogy a számok és a nyomtatványok a legutóbbi sikeres
+  szinkron állapotát mutatják. Semmi nem tiltódik le — a munka mehet
+  tovább, de már tudatos döntésként.
+
+- **Két egyszerre nyitott szerkesztő nem írhatja felül egymást némán**
+  (P0-11): ha ugyanazt a tételt két helyen szerkesztették egyszerre (két
+  gépen, vagy a böngészőben és az asztali programban), eddig az utolsó
+  mentés szó nélkül felülírta a másikét — és senki nem tudta meg. Mostantól
+  a szerkesztő ablak megjegyzi, milyen állapotban látta a tételt
+  megnyitáskor, és ha időközben valaki más mentett rá, a mentés megáll egy
+  érthető üzenettel: frissítsd a listát, és nézd át a tételt újra. A
+  védelem a webes és az asztali szerkesztőben egyszerre él.
+
+- **A megszakadt szinkronizáció nem duplikálhat tételt** (P0-10): ha az
+  offline tétel felküldése közben a hálózat pont a válasz előtt szakadt meg,
+  az újrapróbálkozás eddig még egyszer beszúrhatta ugyanazt a tételt.
+  Mostantól a felküldés előtt a rendszer ellenőrzi, fent van-e már a tétel —
+  ha igen, nem szúr be újra, hanem rendben lezárja. (Ehhez tartozik egy
+  adatbázis-védőindex is, amelyet külön SQL-lel kell élesíteni.)
+
+- **Devizás tétel szerkesztésekor a lej-érték is frissül** (P0-6): ha egy
+  devizás (pl. eurós) tétel összegét a desktopon módosították, a lejben
+  számolt ellenérték eddig a régi maradt — az egyenleg a régi összeget
+  mutatta. Mostantól az összeg módosításakor a rendszer a tétel tárolt
+  árfolyamával automatikusan újraszámolja a lej-értéket is.
+
+- **A következő évi banki nyitó a javítások után is friss marad** (P0-3): ha
+  egy tavalyi banki tételt utólag stornóztak, töröltek vagy szerkesztettek, a
+  rendszer az idei automatikusan áthozott nyitó egyenleget eddig nem
+  számolta újra — a régi szám maradt érvényben. Mostantól minden ilyen
+  művelet után frissül az érintett számla következő évi nyitója, a weben és
+  a desktopon egyaránt. (Az éles adatok ellenőrzése szerint elavult nyitó
+  jelenleg nincs — a védelem megelőző.)
+
+- **Egységes évhatár a kiadásokon** (P0-2): a kiadások év végi határa eddig
+  háromféleképpen volt megírva a rendszerben — szélsőséges esetben egy
+  december 31-i tétel az egyik kimutatásból kimaradhatott volna, a másikban
+  benne lett volna. Az éles adatok ellenőrzése szerint ilyen tétel ma nincs;
+  a határ mostantól mindenhol ugyanaz az egyetlen, biztos szabály.
+
+- **A megyei és kerületi kimutatás 1000 tétel felett sem csonkulhat** (P0-14):
+  az egyházmegyei/kerületi pénzügy-oldal betöltője eddig legfeljebb 1000
+  tételt olvasott be — e fölött a képernyő és a hivatalos ívek szó nélkül
+  kevesebbet mutattak. Mostantól ugyanaz a lapozott betöltés fut, mint a
+  gyülekezeti oldalon: minden tétel bekerül, akárhány van.
+
+- **Offline rögzítésnél is él a lezárt év védelme** (P0-5): eddig internet
+  nélkül a desktop egy már véglegesített és beküldött évbe is engedett
+  készpénzes tételt rögzíteni, és a későbbi szinkronizáció szó nélkül be is
+  küldte. Mostantól két réteg véd: a gép a legutóbbi szinkron alapján már
+  rögzítéskor jelzi a zárt évet, a felküldés előtt pedig a rendszer a
+  szerveren is újra ellenőriz — ha az évet időközben lezárták, a tétel nem
+  megy fel, hanem feloldandó ütközésként jelenik meg.
+
+- **A desktop banki importja is tiszteli a lezárt évet** (P0-4): a
+  véglegesített és beküldött évbe a webes importáló eddig sem engedett
+  tételt — a desktop banki importja viszont igen. A védelem most a közös
+  magba került: lezárt évbe egyik változatból sem lehet kivonatot importálni,
+  feloldást (javítási engedélyt) az egyházmegyétől kell kérni.
+
+- **Az offline rögzített tétel nem ragadhat be véglegesen** (P0-20): ritka
+  esetben (ha a mentés két belső lépése között az alkalmazás összeomlott) az
+  offline rögzített tétel a gépen látszott, de a szinkronizáció soha nem
+  küldte fel a felhőbe — és ezt semmi nem jelezte. Mostantól minden
+  szinkronizáció elején a rendszer megkeresi az így beragadt tételeket és
+  automatikusan sorba állítja őket — a régebben beragadtakat is.
+
+- **Devizás tételek a tétel NAPJÁNAK árfolyamán** (P0-18): az idei devizás
+  banki tételek eddig a MAI árfolyamon váltódtak lejre a tétel napjának
+  árfolyama helyett; a desktop pedig egyáltalán nem kért napi árfolyamot.
+  Mostantól mindkét változat a tétel napjához tartozó hivatalos BNR/ECB
+  kurzust használja — a web és a desktop ugyanarra a kivonatra ugyanazt a
+  lej-értéket könyveli. (Csak devizás — EUR/HUF — bankszámlát érint.)
+
+- **A desktop banki importja sem csúsztathat dátumot** (P0-23): a webes
+  bank-import 2026 júniusában kapott egy dátum-javítást (bizonyos Excel-cellák
+  egy nappal korábbra csúsztak román időzónában) — ez a javítás a desktop
+  által használt közös kódba eddig nem került át. Most átkerült: a két
+  változat ugyanarra a kivonatra ugyanazokat a napokat könyveli.
+
+- **Az offline Excel-visszatöltés nem csúsztatja el a dátumokat** (P0-22): ha
+  az offline munkafájlba kézzel, szövegként írt dátum került (pl.
+  „2025.01.07"), a visszatöltés eddig egy nappal korábbra — év elején az
+  ELŐZŐ ÉVRE — olvashatta. Mostantól ugyanaz a bevált dátum-értelmező fut itt
+  is, mint a pénzügyi importban.
+
+- **Éjfél után is a helyes napra könyvel a rögzítő** (P0-1): a Tétel rögzítő
+  alapértelmezett dátuma és a „jövőbeli dátum" ellenőrzés eddig a világórához
+  (UTC) igazodott — éjfél és hajnali 3 óra között ezért az ELŐZŐ napot
+  ajánlotta fel (január 1-jén hajnalban az előző évet!), a mai dátumot pedig
+  „jövőbeliként" elutasította. Mostantól minden „mai nap" a romániai
+  (bukaresti) naptár szerint számít, a weben és a desktopon egyaránt.
+
+- **Az importált összegek nem zsugorodhatnak többé az ezredükre** (P0-17): ha
+  egy Excel-cellában az összeg SZÖVEGKÉNT, ezres elválasztóval állt (pl.
+  „1.234,56" vagy „1 234,56"), az importáló eddig 1,234-nek — az ezredének —
+  olvasta, vagy némán nullának vette. Mostantól egyetlen közös számértelmező
+  kezeli az összes import-utat és a Számadás-tartozások ablakot is: a magyar,
+  román és angol számformátumot egyaránt helyesen olvassa, az értelmezhetetlen
+  bemenetet pedig hibaként jelzi, nem tippeli meg.
+
+- **Fél kassza–bank átvezetés nem maradhat némán a könyvben** (P0-13): ha az
+  átvezetés rögzítésekor a második láb mentése hibázott, a rendszer eddig
+  megpróbálta visszavonni az első lábat, de nem ellenőrizte, hogy a
+  visszavonás sikerült-e. Mostantól ellenőrzi, és ha a visszavonás sem megy,
+  pontosan megmondja, melyik sort kell kézzel rendezni.
+
+- **Az egyházfenntartás-import nem duplikál hibázó ellenőrzés mellett** (P0-19):
+  ha az importban a „szerepel-e már?" ellenőrzés maga hibázott (pl. hálózati
+  akadozás), a rendszer eddig úgy vette, hogy a tétel új, és beszúrta — így az
+  újraimport duplázhatott. Mostantól ilyenkor a tétel biztonságból kimarad, és
+  az import végén hibaüzenet mondja meg, melyik sort kell újra futtatni.
+
+---
+
 ## [2026-08-28] — A nyitó egyenlegnek egyetlen helye lett
 <!-- key: 2026-08-28-nyito-egyenleg-egyseges-forras -->
 <!-- category: improvement -->

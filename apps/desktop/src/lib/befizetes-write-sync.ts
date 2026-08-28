@@ -22,7 +22,10 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { readYearFinalized } from '@kartoteka/core'
+
 import { enqueueEntryExcelRow } from './excel-enqueue'
+import { dbSelect } from './local-db'
 import { getDesktopSupabase } from './supabase'
 import { getTauriSqliteBackend } from './tauri-sqlite-backend'
 import { getVerifiedSession } from './verified-session'
@@ -59,6 +62,88 @@ export interface BefizetesPushResult {
 }
 
 /**
+ * P0-20 (audit 2026-08-28): ÁRVA pending-sorok visszasorolása. A core offline
+ * mentése két külön lokális írás (pending-sor + outbox-mutation) — a kettő
+ * közti crash/hiba árva pending sort hagyott, amit a pusher (amely kizárólag
+ * az outboxot olvassa) sosem küldött fel. Minden futás elején az outbox-
+ * referencia nélküli 'pending' sorokat újra-enqueue-oljuk a mentéskori
+ * payload-alakban. A nyugta a crash-ben elveszett (csak memóriában élt) —
+ * az iratszám-fallback áll be, ami a mentéskori default volt.
+ */
+async function sweepOrphanBefizetesPending(
+  backend: ReturnType<typeof getTauriSqliteBackend>,
+  errors: string[],
+): Promise<void> {
+  try {
+    const orphans = await dbSelect<{
+      id: string
+      congregation_id: string
+      xkey: string
+      osszeg: number
+      datum: string
+      id_befizetescel: number
+      id_szemely: number | null
+      id_csalad: number | null
+      forrasa: string | null
+      iratszam: string
+      irattipus: string
+      fizetettev: number
+      megjegyzes: string | null
+      csalad: number
+      is_potlas: number
+      bankszamla_id: number | null
+      userid: string
+      created_at: string
+    }>(
+      `SELECT id, congregation_id, xkey, osszeg, datum, id_befizetescel,
+              id_szemely, id_csalad, forrasa, iratszam, irattipus, fizetettev,
+              megjegyzes, csalad, is_potlas, bankszamla_id, userid, created_at
+         FROM befizetes_pending_local
+        WHERE sync_state = 'pending'
+          AND server_id IS NULL
+          AND id NOT IN (
+            SELECT target_id FROM outbox
+             WHERE target_table = 'befizetes' AND mutation_id IS NOT NULL
+          )`,
+    )
+    for (const r of orphans) {
+      await backend.enqueueMutation({
+        id: r.id,
+        table: 'befizetes',
+        pk: r.id,
+        kind: 'insert',
+        payload: {
+          xkey: r.xkey,
+          osszeg: r.osszeg,
+          datum: r.datum,
+          id_befizetescel: r.id_befizetescel,
+          id_szemely: r.id_szemely ?? null,
+          id_csalad: r.id_csalad ?? null,
+          forrasa: r.forrasa || 'Desktop offline rögzítés',
+          iratszam: r.iratszam,
+          nyugta: r.iratszam,
+          irattipus: r.irattipus,
+          fizetettev: r.fizetettev,
+          megjegyzes: r.megjegyzes ?? null,
+          csalad: Boolean(r.csalad),
+          deleted: false,
+          congregation_id: r.congregation_id,
+          is_potlas: Boolean(r.is_potlas),
+          bankszamla_id: r.bankszamla_id ?? null,
+          userid: r.userid,
+        },
+        attempts: 0,
+        createdAt: r.created_at,
+      })
+    }
+  } catch (err) {
+    errors.push(
+      `Árva pending-söprés hiba (befizetés): ${err instanceof Error ? err.message : 'ismeretlen'}`,
+    )
+  }
+}
+
+/**
  * Egyszer lefut, push-olja a pending befizetés-mutation-öket.
  * Nem dob — minden hiba a result.errors-ba kerül.
  */
@@ -83,6 +168,10 @@ export async function pushPendingBefizetes(
   }
 
   const backend = getTauriSqliteBackend()
+
+  // P0-20: az árva (outbox nélküli) pending sorok visszasorolása, MIELŐTT
+  // az outboxot olvasnánk — így ugyanebben a futásban fel is megy a tétel.
+  await sweepOrphanBefizetesPending(backend, result.errors)
 
   let mutations: Awaited<ReturnType<typeof backend.getPendingMutations>>
   try {
@@ -121,6 +210,112 @@ export async function pushPendingBefizetes(
         )
       }
       continue
+    }
+
+    // P0-5 (audit 2026-08-28): zárt-év újra-ellenőrzés KÖZVETLENÜL a push
+    // előtt. Az offline rögzítés óta az évet a weben véglegesíthették — a
+    // rögzítéskori (lokális tükrös) kapu csak a tükör frissességéig lát.
+    // Véglegesített év → konfliktus (nem néma insert); nem-olvasható
+    // állapot → fail-closed retry (backoff), most nem push-olunk.
+    const evSzam = Number(String(payload.datum ?? '').slice(0, 4))
+    if (Number.isFinite(evSzam) && evSzam >= 2000) {
+      const evZar = await readYearFinalized(
+        supabase,
+        String(payload.congregation_id ?? ''),
+        evSzam,
+      )
+      if (evZar.unknown) {
+        try {
+          await backend.updateMutationAttempt(mutation.id, {
+            attempts: mutation.attempts + 1,
+            lastAttemptAt: nowIso,
+            lastError: `Év-zár ellenőrzés sikertelen: ${evZar.errorMessage ?? 'ismeretlen'}`,
+          })
+          result.retrying += 1
+        } catch (err) {
+          result.errors.push(
+            `Mutation-frissítés hiba: ${err instanceof Error ? err.message : 'ismeretlen'}`,
+          )
+        }
+        continue
+      }
+      if (evZar.finalized) {
+        try {
+          await backend.markBefizetesConflict(
+            mutation.pk,
+            `A(z) ${evSzam}. évi számadás időközben véglegesítve lett — az offline rögzített tétel nem küldhető fel. Kérj feloldást (javítási engedélyt) az egyházmegyétől.`,
+          )
+          await backend.removeMutation(mutation.id)
+          result.conflicts += 1
+        } catch (err) {
+          result.errors.push(
+            `Conflict-jelölés hiba: ${err instanceof Error ? err.message : 'ismeretlen'}`,
+          )
+        }
+        continue
+      }
+    }
+
+    // P0-10 (audit 2026-08-28): idempotencia-kapu az insert ELŐTT. Ha egy
+    // korábbi push insertje SIKERÜLT, de a válasz elveszett (timeout), a retry
+    // eddig MÁSODSZOR is beszúrta a tételt. Az xkey kliens-generált és stabil:
+    // ha a szerveren már van sor vele, a tétel fent van — sikerként zárjuk,
+    // insert nélkül. A kapu hibája fail-closed retry (nem vak insert).
+    const xkeyErtek = String(payload.xkey ?? '')
+    if (xkeyErtek) {
+      const letezo = await supabase
+        .from('befizetes')
+        .select('id')
+        .eq('xkey', xkeyErtek)
+        .eq('congregation_id', String(payload.congregation_id ?? ''))
+        .limit(1)
+        .maybeSingle()
+      if (letezo.error) {
+        try {
+          await backend.updateMutationAttempt(mutation.id, {
+            attempts: mutation.attempts + 1,
+            lastAttemptAt: nowIso,
+            lastError: `Idempotencia-ellenőrzés sikertelen: ${letezo.error.message}`,
+          })
+          result.retrying += 1
+        } catch (err) {
+          result.errors.push(
+            `Mutation-frissítés hiba: ${err instanceof Error ? err.message : 'ismeretlen'}`,
+          )
+        }
+        continue
+      }
+      if (letezo.data?.id) {
+        try {
+          await backend.markBefizetesSynced(mutation.pk, Number(letezo.data.id))
+          void enqueueEntryExcelRow({
+            type: 'befizetes',
+            serverId: Number(letezo.data.id),
+            congregationId: String(payload.congregation_id ?? ''),
+            datum: String(payload.datum ?? ''),
+            iratszam: String(payload.iratszam ?? ''),
+            irattipus: String(payload.irattipus ?? ''),
+            nev: String(payload.forrasa ?? ''),
+            osszeg: Number(payload.osszeg ?? 0),
+            celId: Number(payload.id_befizetescel ?? 0),
+            megjegyzes: (payload.megjegyzes as string | null) ?? null,
+            bankszamlaId: (payload.bankszamla_id as number | null) ?? null,
+            ev: (payload.fizetettev as number | null) ?? null,
+          })
+          await backend.removeMutation(mutation.id)
+          result.succeeded += 1
+        } catch (err) {
+          try {
+            await backend.removeMutation(mutation.id)
+          } catch {
+            /* csendes */
+          }
+          result.errors.push(
+            `Lokális sync-jelölés sikertelen (szerver-sor megvan: ${letezo.data.id}): ${err instanceof Error ? err.message : 'ismeretlen'}`,
+          )
+        }
+        continue
+      }
     }
 
     try {

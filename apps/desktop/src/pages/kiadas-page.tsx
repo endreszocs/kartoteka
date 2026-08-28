@@ -957,7 +957,7 @@ function RecentExpenseSection({
       if (!congregationId) return
       const result: SoftDeleteExpenseResult = await softDeleteExpenseUseCase(
         { congregationId, kiadasId: row.id },
-        { supabase, runtime: 'desktop' },
+        { supabase, runtime: 'desktop', userId },
       )
       if (!result.success) {
         alert(`Törlés sikertelen: ${result.error}`)

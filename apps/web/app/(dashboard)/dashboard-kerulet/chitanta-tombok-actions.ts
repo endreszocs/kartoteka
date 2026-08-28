@@ -70,8 +70,8 @@
  * ⚠️ AMI SZÁNDÉKOSAN NINCS BENNE
  * ────────────────────────────────────────────────────────────────────────────
  * A `felhasznalt_darabszam` mezőt ez a modul SOHA nem írja (a nyitáskor 0).
- * A gyülekezeti szinten ezt kizárólag a `next_chitanta_full` RPC (hivatalos
- * auto-kiállítás) növeli, és mellette a `@kartoteka/core`
+ * A gyülekezeti szinten ezt kizárólag az `issue_chitanta_atomic` RPC (hivatalos
+ * auto-kiállítás, P0-12 óta) növeli, és mellette a `@kartoteka/core`
  * `getChitantaTombUsageUseCase` SZÁMÍTOTT elhasználtságot ad a berögzített
  * nyugtaszámokból. Egyik sem terjed ki a felsőbb szintekre: a megyei ág sem
  * számol, és a `penzugy/actions.ts` is kimondja, hogy a „nyugta-kronológia

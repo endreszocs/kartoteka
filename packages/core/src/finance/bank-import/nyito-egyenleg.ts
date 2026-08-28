@@ -661,3 +661,71 @@ export async function checkYearStartStateUseCase(
     },
   }
 }
+
+/**
+ * P0-3 (audit 2026-08-28): best-effort carryover-frissítés MUTÁCIÓ után.
+ *
+ * MIÉRT: a következő évi 'carryover' forrású banki nyitót korábban CSAK a
+ * mentés-utak frissítették (kassza↔bank pár, belső mozgás, bank-import) — a
+ * stornó, a visszavonás, a szerkesztés és a törlés SOHA. Egy visszamenőleges
+ * banki művelet után a következő év tárolt nyitója elavult, és a kanonikus
+ * feloldó azt hitelesnek vette minden felületen.
+ *
+ * A hívó a KÉZBEN LÉVŐ sor(oka)t adja át (bankszamla_id + datum), és/vagy a
+ * belső-mozgás kulcsot — utóbbinál a pár lábait ez a helper deríti fel. A
+ * frissítés SOSEM buktatja a fő műveletet: minden hibája lenyelt (a nyitó a
+ * következő mentés-úton úgyis újraszámolódik).
+ */
+export async function refreshCarryoverBestEffort(
+  input: {
+    congregationId: string
+    tetelek?: Array<{ bankszamla_id?: number | null; datum?: string | null }>
+    belsoMozgasXkey?: string | null
+  },
+  ctx: { supabase: SupabaseClient; runtime: 'web' | 'desktop'; userId?: string },
+): Promise<void> {
+  try {
+    // Az upsert audit-oszlopaihoz (updated_by/created_by) user kell — nélküle
+    // a frissítést kihagyjuk (a hívó felelőssége átadni, ahol elérhető).
+    if (!ctx.userId) return
+    const sorok = [...(input.tetelek ?? [])]
+    if (input.belsoMozgasXkey) {
+      const [befRes, kiaRes] = await Promise.all([
+        ctx.supabase
+          .from('befizetes')
+          .select('bankszamla_id, datum')
+          .eq('belso_mozgas_xkey', input.belsoMozgasXkey)
+          .eq('congregation_id', input.congregationId),
+        ctx.supabase
+          .from('kiadas')
+          .select('bankszamla_id, datum')
+          .eq('belso_mozgas_xkey', input.belsoMozgasXkey)
+          .eq('congregation_id', input.congregationId),
+      ])
+      for (const r of [...(befRes.data ?? []), ...(kiaRes.data ?? [])]) {
+        sorok.push(r as { bankszamla_id?: number | null; datum?: string | null })
+      }
+    }
+    const kulcsok = new Set<string>()
+    for (const t of sorok) {
+      const bid = Number(t.bankszamla_id)
+      const y = Number(String(t.datum ?? '').slice(0, 4))
+      if (Number.isFinite(bid) && bid > 0 && Number.isFinite(y) && y >= 2000) {
+        kulcsok.add(`${bid}:${y}`)
+      }
+    }
+    for (const k of kulcsok) {
+      const [bid, y] = k.split(':').map(Number)
+      try {
+        await refreshNextYearCarryoverUseCase(
+          { congregationId: input.congregationId, bankszamlaId: bid, changedYear: y },
+          { supabase: ctx.supabase, runtime: ctx.runtime, userId: ctx.userId },
+        )
+      } catch {
+        /* best-effort — kényelmi frissítés, hibája nem buktathat */
+      }
+    }
+  } catch {
+    /* best-effort — a fő művelet (stornó/törlés/szerkesztés) már sikerült */
+  }
+}

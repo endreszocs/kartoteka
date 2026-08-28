@@ -200,8 +200,8 @@ export async function pullBefizetesek(
     const serverIds = new Set((data || []).map((row) => String((row as Record<string, unknown>).id)))
     const removed = await reconcileLocalRows(
       'befizetes_local',
-      'congregation_id = ?1 AND (fizetettev = ?2 OR (datum >= ?3 AND datum <= ?4))',
-      [congregationId, year, `${year}-01-01`, `${year}-12-31T23:59:59`],
+      'congregation_id = ?1 AND (fizetettev = ?2 OR (datum >= ?3 AND datum < ?4))',
+      [congregationId, year, `${year}-01-01`, `${year + 1}-01-01`],
       serverIds,
     )
     if (removed > 0) {
@@ -234,7 +234,7 @@ export async function pullKiadasok(
         )
         .eq('congregation_id', congregationId)
         .gte('datum', `${year}-01-01`)
-        .lte('datum', `${year}-12-31T23:59:59`)
+        .lt('datum', `${year + 1}-01-01`)
         .eq('deleted', false),
     )
 
@@ -326,8 +326,8 @@ export async function pullKiadasok(
     const serverIds = new Set((data || []).map((row) => String((row as Record<string, unknown>).id)))
     const removed = await reconcileLocalRows(
       'kiadas_local',
-      'congregation_id = ?1 AND datum >= ?2 AND datum <= ?3',
-      [congregationId, `${year}-01-01`, `${year}-12-31T23:59:59`],
+      'congregation_id = ?1 AND datum >= ?2 AND datum < ?3',
+      [congregationId, `${year}-01-01`, `${year + 1}-01-01`],
       serverIds,
     )
     if (removed > 0) {
@@ -388,11 +388,11 @@ export async function getLocalBefizetesek(
     // a tartozás pedig továbbra is a jogcím-évet.
     `SELECT * FROM befizetes_local
        WHERE congregation_id = ?1 AND deleted = 0
-         AND (fizetettev = ?2 OR (datum >= ?3 AND datum <= ?4))
+         AND (fizetettev = ?2 OR (datum >= ?3 AND datum < ?4))
        ORDER BY datum DESC, id DESC`,
     // 2026-07-25 (F6.1): a LIMIT 500 TÖRÖLVE — a lokális olvasás is csonkolt
     // (van index congregation_id/fizetettev/datum-ra, table-scan nincs).
-    [congregationId, year, `${year}-01-01`, `${year}-12-31T23:59:59`],
+    [congregationId, year, `${year}-01-01`, `${year + 1}-01-01`],
   )
 }
 
@@ -434,9 +434,9 @@ export async function getLocalKiadasok(
   return dbSelect<LocalKiadasRow>(
     `SELECT * FROM kiadas_local
        WHERE congregation_id = ?1 AND deleted = 0
-       AND datum >= ?3 AND datum <= ?4
+       AND datum >= ?3 AND datum < ?4
        ORDER BY datum DESC, id DESC`,
     // 2026-07-25 (F6.1): a LIMIT 500 TÖRÖLVE (lásd fent).
-    [congregationId, year, `${year}-01-01`, `${year}-12-31T23:59:59`],
+    [congregationId, year, `${year}-01-01`, `${year + 1}-01-01`],
   )
 }

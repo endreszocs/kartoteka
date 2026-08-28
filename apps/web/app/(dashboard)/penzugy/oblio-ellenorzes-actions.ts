@@ -71,7 +71,9 @@ export async function listOblioMatchesAndKiadasok(year: number): Promise<{
   if (!access.effectiveCongregationId) return { error: 'Nincs aktív gyülekezet.' }
 
   const yearStart = `${year}-01-01`
-  const yearEnd = `${year}-12-31`
+  // P0-2 (audit 2026-08-28): KIZÁRÓ felső határ — a kiadas.datum TIMESTAMP,
+  // az inkluzív '12-31' ott éjfélt jelentene. DATE-oszlopon ekvivalens.
+  const yearEnd = `${year + 1}-01-01`
 
   const [matchesRes, kiadasokRes, oblioRes] = await Promise.all([
     access.supabase
@@ -89,7 +91,7 @@ export async function listOblioMatchesAndKiadasok(year: number): Promise<{
       .eq('congregation_id', access.effectiveCongregationId)
       .eq('deleted', false)
       .gte('datum', yearStart)
-      .lte('datum', yearEnd)
+      .lt('datum', yearEnd)
       .order('datum', { ascending: false }),
     access.supabase
       .from('oblio_fiokok')

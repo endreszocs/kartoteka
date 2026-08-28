@@ -17,6 +17,8 @@
 
 import { invoke } from '@tauri-apps/api/core'
 
+import { localTodayIso } from '@kartoteka/validations'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { BnrRateResult } from '@kartoteka/ui-app'
 
 const BNR_URL = 'https://www.bnr.ro/nbrfxrates.xml'
@@ -115,12 +117,12 @@ function parseBnrYearlyXml(xml: string, targetDate: string): BnrRateResult | nul
 export async function fetchBnrRatesDesktop(targetDate?: string): Promise<BnrRateResult> {
   const isHistorical = !!targetDate
   const targetYear = targetDate ? Number(targetDate.slice(0, 4)) : new Date().getFullYear()
-  const currentYear = new Date().getFullYear()
-  const isCurrentYear = targetYear === currentYear
 
-  // 1. kísérlet: BNR (napi vagy éves XML)
+  // 1. kísérlet: BNR (napi vagy éves XML).
+  // P0-18 (audit 2026-08-28): a NAPI XML kizárólag a TÉNYLEG mai kérésé —
+  // korábban az aktuális év BÁRMELY történelmi dátuma a mai kurzust kapta.
   try {
-    if (!isHistorical || isCurrentYear) {
+    if (!isHistorical || targetDate === localTodayIso()) {
       const xml = await fetchTextViaRust(BNR_URL)
       const parsed = parseBnrXml(xml)
       if (parsed.eur || parsed.huf) {
@@ -174,5 +176,82 @@ export async function fetchBnrRatesDesktop(targetDate?: string): Promise<BnrRate
         'Lehetséges okok: nincs internet-kapcsolat, tűzfal/antivirus blokkol, ' +
         'vagy a BNR/ECB API ideiglenes hibája. Írd be az árfolyamot manuálisan a BNR honlapról: https://www.bnr.ro/Exchange-rates-1224.aspx',
     }
+  }
+}
+
+/**
+ * P0-18 (audit 2026-08-28): deviza (nem-RON) számlákra menő tételekhez NAPI
+ * árfolyam-map (dátum → 1 deviza = X RON) — a webes `collectDailyRates`
+ * (apps/web/.../bank-import-actions.ts) tükre desktopra. Enélkül a desktop
+ * bank-import dailyRates nélkül hívta a közös use-case-t, és devizás számlán
+ * a két változat KÜLÖNBÖZŐ osszeg_ron-t könyvelt ugyanarra a kivonatra.
+ * Csak EUR/HUF-ra van napi forrás; hiányzó dátum → a core éves fallbackje.
+ */
+export async function collectDailyRatesDesktop(
+  supabase: SupabaseClient,
+  congregationId: string,
+  items: Array<{ action?: string; bankszamlaId: number; date: string }>,
+): Promise<{ dailyRates?: Record<string, number>; warnings: string[] }> {
+  const warnings: string[] = []
+  const activeItems = items.filter((i) => i.action !== 'skip')
+  const uniqueBankIds = Array.from(new Set(activeItems.map((i) => i.bankszamlaId)))
+  if (uniqueBankIds.length === 0) return { warnings }
+
+  const { data: banksData } = await supabase
+    .from('bankszamlak')
+    .select('id, valuta')
+    .in('id', uniqueBankIds)
+    .eq('congregation_id', congregationId)
+  const valutaMap = new Map<number, string>()
+  for (const b of banksData || []) {
+    valutaMap.set(b.id as number, ((b.valuta as string) || 'RON').toUpperCase())
+  }
+
+  const nonRonIds = uniqueBankIds.filter((id) => (valutaMap.get(id) || 'RON') !== 'RON')
+  if (nonRonIds.length === 0) return { warnings }
+
+  const currencies = Array.from(new Set(nonRonIds.map((id) => valutaMap.get(id) as string)))
+  if (currencies.length > 1) {
+    warnings.push(
+      `Több különböző devizájú számla (${currencies.join(', ')}) egy importban — a napi árfolyam nem alkalmazható, az éves nyitó-árfolyam marad.`,
+    )
+    return { warnings }
+  }
+  const currency = currencies[0]
+  if (currency !== 'EUR' && currency !== 'HUF') {
+    warnings.push(
+      `A(z) ${currency} devizához nincs napi árfolyam-forrás (csak EUR/HUF, BNR/ECB) — az éves nyitó-árfolyam marad.`,
+    )
+    return { warnings }
+  }
+
+  const nonRonIdSet = new Set(nonRonIds)
+  const dates = Array.from(
+    new Set(activeItems.filter((i) => nonRonIdSet.has(i.bankszamlaId)).map((i) => i.date)),
+  ).sort()
+
+  // Kis batch-ekben (max 3 párhuzamos) — ne terheljük burst-tel a BNR-t.
+  const dailyRates: Record<string, number> = {}
+  const BATCH_SIZE = 3
+  for (let i = 0; i < dates.length; i += BATCH_SIZE) {
+    const chunk = dates.slice(i, i + BATCH_SIZE)
+    const chunkResults = await Promise.all(
+      chunk.map(async (d) => ({ date: d, rates: await fetchBnrRatesDesktop(d) })),
+    )
+    for (const { date, rates } of chunkResults) {
+      const rate = currency === 'EUR' ? rates.eur : rates.huf
+      if (rate != null && rate > 0) {
+        dailyRates[date] = rate
+      } else {
+        warnings.push(
+          `${date}: nem érhető el napi ${currency} árfolyam${rates.error ? ` (${rates.error})` : ''} — éves nyitó-árfolyam fallback.`,
+        )
+      }
+    }
+  }
+
+  return {
+    dailyRates: Object.keys(dailyRates).length > 0 ? dailyRates : undefined,
+    warnings,
   }
 }

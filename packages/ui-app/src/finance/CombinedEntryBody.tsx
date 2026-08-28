@@ -25,6 +25,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, typ
 import { createPortal } from 'react-dom'
 import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight, TrendingUp, TrendingDown, Boxes, AlertTriangle, CalendarRange } from 'lucide-react'
 import { keszpenzKorlatFigyelmeztetesek, type KeszpenzTetel } from '@kartoteka/core'
+import { localTodayIso } from '@kartoteka/validations'
 import { formatRon } from './ron-in-words'
 import { parseFlexibleDate } from './date-parse'
 import { inventoryKategoriaForExpenseKod } from './helpers'
@@ -334,7 +335,7 @@ const INTAKE_CATEGORY_OPTIONS = [
   { value: 'bizomanyi', label: 'Bizományi' },
 ] as const
 
-const todayIso = () => new Date().toISOString().slice(0, 10)
+const todayIso = () => localTodayIso()
 // 2026-08-14 (13. pont): az új sor alapértelmezett dátuma a NÉZETT pénzügyi
 // évhez igazodik. Korábban mindig a MAI nap volt — ha a lelkész egy KORÁBBI
 // évet nézett (visszamenőleges könyvelés), a mentett tétel a folyó évhez
@@ -403,6 +404,9 @@ export function CombinedEntryBody({
   const [incomeRows, setIncomeRows] = useState<EntryRow[]>(() => [newRow(currentYear)])
   const [expenseRows, setExpenseRows] = useState<EntryRow[]>(() => [newRow(currentYear)])
   const [busy, setBusy] = useState(false)
+  // P0-9 (audit 2026-08-28): szinkron újra-belépési zár a mentésre. A state
+  // frissítése aszinkron, ezért a gyors dupla kattintást csak ref tudja fogni.
+  const busyRef = useRef(false)
   // 2026-08-27 (8. kérés): a hasonló-tétel megerősítés állapota. A `megerositve`
   // egyszeri: a felhasználó „Igen, rögzítem" válasza után a mentés újraindul,
   // és a kapu átengedi. Új mentésnél (új sorokkal) újra kérdez.
@@ -1297,6 +1301,23 @@ export function CombinedEntryBody({
   }
 
   async function handleSave() {
+    // P0-9 (audit 2026-08-28): a zárnak MINDEN await ELŐTT kell állnia — a
+    // hasonló-tétel kapu szerver-hívása alatt a gomb korábban aktív maradt, és
+    // a dupla kattintás mindkét ága teljes mentést futtatott (duplikátum). A
+    // feloldás finally-ben garantált, így a kapu korai return-je után a
+    // „Mégis rögzítem" újrahívás nem ragad be.
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    try {
+      await handleSaveInner()
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
+  }
+
+  async function handleSaveInner() {
     if (incomeValid === 0 && expenseValid === 0) {
       onToast('error', 'Legalább egy érvényes sor szükséges (összeg + kategória + dátum; belső mozgásnál bankszámla is).')
       return
@@ -1453,7 +1474,6 @@ export function CombinedEntryBody({
       }
     }
 
-    setBusy(true)
     try {
       if (incomeBatch.length) {
         const res = await onSaveIncomeBatch(incomeBatch)
@@ -1487,8 +1507,6 @@ export function CombinedEntryBody({
       onClose()
     } catch (e) {
       onToast('error', e instanceof Error ? e.message : 'A mentés nem sikerült.')
-    } finally {
-      setBusy(false)
     }
   }
 

@@ -18,11 +18,14 @@ import {
   type SoftDeleteExpenseInput,
 } from '@kartoteka/validations'
 
+import { refreshCarryoverBestEffort } from '../bank-import/nyito-egyenleg'
 import { assertYearsNotFinalizedForDelete } from '../year-lock'
 
 export interface SoftDeleteExpenseCtx {
   supabase: SupabaseClient
   runtime: 'web' | 'desktop'
+  /** P0-3: a carryover-frissítés audit-oszlopaihoz — ha nincs, a frissítés kimarad. */
+  userId?: string
 }
 
 export type SoftDeleteExpenseResult =
@@ -52,7 +55,7 @@ export async function softDeleteExpenseUseCase(
     // 1) A sor dátuma — ez alapján tudjuk, melyik év számadását érintené a törlés.
     const { data: row, error: fetchErr } = await ctx.supabase
       .from('kiadas')
-      .select('id, datum, belso_mozgas_xkey')
+      .select('id, datum, belso_mozgas_xkey, bankszamla_id, iratszam')
       .eq('id', kiadasId)
       .eq('congregation_id', congregationId)
       .maybeSingle()
@@ -124,6 +127,28 @@ export async function softDeleteExpenseUseCase(
             `(${befDel.error.message}). Nézd meg a Belső mozgások listát, és jelezd a rendszergazdának.`,
         }
       }
+      // P0-7 (audit 2026-08-28): ha a párt a desktop hozta létre, van hozzá
+      // nyilvántartó mester-sor (a pár iratszáma 'BM-<YYYYMMDD>-<mesterId>') —
+      // azt is töröljük, különben a Belső mozgások listában élőként maradna.
+      const bmMester = /^BM-\d{8}-(\d+)$/.exec(String((row as { iratszam?: string | null }).iratszam ?? ''))
+      if (bmMester) {
+        const mesterDel = await ctx.supabase
+          .from('belsomozgas')
+          .update({ deleted: true })
+          .eq('id', Number(bmMester[1]))
+          .eq('congregation_id', congregationId)
+        if (mesterDel.error) {
+          return {
+            success: false,
+            error:
+              `A pár törlődött, de a belső-mozgás nyilvántartó sora NEM (${mesterDel.error.message}) — ` +
+              'a Belső mozgások listában élőként látszik; jelezd a rendszergazdának.',
+          }
+        }
+      }
+      // P0-3 (audit 2026-08-28): carryover-frissítés (best-effort) — a pár
+      // lábait a helper deríti fel a közös kulcs alapján.
+      await refreshCarryoverBestEffort({ congregationId, belsoMozgasXkey: bmXkey }, ctx)
       return { success: true }
     }
 
@@ -146,6 +171,20 @@ export async function softDeleteExpenseUseCase(
         notFound: true,
       }
     }
+
+    // P0-3 (audit 2026-08-28): carryover-frissítés (best-effort).
+    await refreshCarryoverBestEffort(
+      {
+        congregationId,
+        tetelek: [
+          {
+            bankszamla_id: (row as { bankszamla_id?: number | null }).bankszamla_id,
+            datum: (row as { datum?: string | null }).datum,
+          },
+        ],
+      },
+      ctx,
+    )
 
     return { success: true }
   } catch (err) {

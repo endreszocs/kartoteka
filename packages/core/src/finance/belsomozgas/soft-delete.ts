@@ -82,7 +82,47 @@ export async function softDeleteInternalTransferUseCase(
       return { success: false, error: lockError, yearFinalized: true }
     }
 
-    // 3) Maga a soft delete
+    // 3) P0-7 (audit 2026-08-28, Endre döntése: a KÖNYVELÉSI PÁR a kanonikus):
+    // a mester törlése a párra is kaszkádol. A híd a pár iratszáma:
+    // 'BM-<YYYYMMDD>-<mesterId>' (a mentés így írja). SORREND: előbb a pár,
+    // aztán a mester — ha a pár-törlés hibázik, a mester élve marad
+    // (konzisztens állapot), és a hiba hangos. A webről rögzített kassza↔bank
+    // átvezetésnek nincs mester-sora, ott ez az ág 0 sort érint (rendben).
+    const parIratszam = `BM-${String((row as { datum?: string | null }).datum ?? '')
+      .slice(0, 10)
+      .replace(/-/g, '')}-${transferId}`
+    {
+      const befDel = await ctx.supabase
+        .from('befizetes')
+        .update({ deleted: true })
+        .eq('iratszam', parIratszam)
+        .eq('congregation_id', congregationId)
+        .not('belso_mozgas_xkey', 'is', null)
+      if (befDel.error) {
+        return {
+          success: false,
+          error:
+            `A könyvelési pár bevétel-oldalának törlése nem sikerült (${befDel.error.message}) — ` +
+            'a belső mozgás NEM törlődött, próbáld újra.',
+        }
+      }
+      const kiaDel = await ctx.supabase
+        .from('kiadas')
+        .update({ deleted: true })
+        .eq('iratszam', parIratszam)
+        .eq('congregation_id', congregationId)
+        .not('belso_mozgas_xkey', 'is', null)
+      if (kiaDel.error) {
+        return {
+          success: false,
+          error:
+            `A könyvelési pár bevétel-oldala törlődött, a kiadás-oldala viszont NEM ` +
+            `(${kiaDel.error.message}) — nézd meg a Pénzügy oldalt, és jelezd a rendszergazdának.`,
+        }
+      }
+    }
+
+    // 4) Maga a mester soft delete
     const { data, error } = await ctx.supabase
       .from('belsomozgas')
       .update({ deleted: true })

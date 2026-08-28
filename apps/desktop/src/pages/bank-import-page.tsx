@@ -51,7 +51,7 @@ import {
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
 import { enqueueEntryExcelRow } from '../lib/excel-enqueue'
-import { fetchBnrRatesDesktop } from '../lib/bnr-rate'
+import { collectDailyRatesDesktop, fetchBnrRatesDesktop } from '../lib/bnr-rate'
 import { getDesktopSupabase } from '../lib/supabase'
 import { getDesktopUser } from '../lib/desktop-user'
 import { getLocalOwnProfile } from '../lib/sync'
@@ -320,8 +320,18 @@ export function BankImportPage() {
       if (!verified.ok) return emptyImportResult(verified.message)
 
       try {
+        // P0-18 (audit 2026-08-28): napi árfolyam-map a deviza-számlás
+        // tételekhez — a webes út tükre. Hibája nem blokkol: hiányzó dátumnál
+        // a core az éves nyitó-árfolyamra esik vissza (saját jelzéssel).
+        const { dailyRates, warnings: rateWarnings } = await collectDailyRatesDesktop(
+          getDesktopSupabase(),
+          congregationId,
+          items,
+        )
+        for (const w of rateWarnings) console.warn('[bank-import] napi árfolyam:', w)
+
         const result = await importBankTransactionsUseCase(
-          { congregationId, items },
+          { congregationId, items, dailyRates },
           {
             supabase: getDesktopSupabase(),
             runtime: 'desktop',

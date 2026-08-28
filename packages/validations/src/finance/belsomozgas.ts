@@ -14,10 +14,12 @@
 
 import { z } from 'zod'
 
+import { localTodayIso } from '../local-date'
+
 const TRANSFER_TYPES = ['kassza_bank', 'bank_kassza', 'bank_bank', 'valutacsere'] as const
 export type TransferType = (typeof TRANSFER_TYPES)[number]
 
-const today = () => new Date().toISOString().slice(0, 10)
+const today = () => localTodayIso()
 
 // ─────────────────────────────────────────────────────────────────────────
 // List-row

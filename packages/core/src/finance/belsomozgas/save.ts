@@ -165,11 +165,28 @@ export async function saveInternalTransferUseCase(
         xkey: ujXkey20(), userid: ctx.userId,
       }])
       if (befIns.error) {
+        // P0-7 (audit 2026-08-28): kompenzáció — ne maradjon árva mester-sor.
+        // A visszavonás EREDMÉNYE ellenőrzött; kettős hibánál kimondjuk.
+        const mesterVissza = await ctx.supabase
+          .from('belsomozgas')
+          .update({ deleted: true })
+          .eq('id', data.id)
+          .eq('congregation_id', clean.congregationId)
+          .select('id')
+        if (mesterVissza.error || !mesterVissza.data?.length) {
+          return {
+            success: false,
+            error:
+              `A könyvelési bevétel-sor nem jött létre (${befIns.error.message}), és a nyilvántartó ` +
+              'sor visszavonása sem sikerült — a Belső mozgások listában maradt egy pár nélküli sor. ' +
+              'Töröld kézzel, majd rögzítsd újra az átvezetést.',
+          }
+        }
         return {
           success: false,
           error:
-            `A belső mozgás bekerült a nyilvántartásba, de a KÖNYVELÉSI bevétel-sor NEM ` +
-            `(${befIns.error.message}). A pénz a könyvben még nem mozdult — jelezd a rendszergazdának.`,
+            `A könyvelési bevétel-sor nem jött létre (${befIns.error.message}) — az átvezetés ` +
+            'teljes egészében visszavonva, a könyvben semmi nem mozdult. Rögzítsd újra.',
         }
       }
 
@@ -188,12 +205,37 @@ export async function saveInternalTransferUseCase(
         xkey: ujXkey20(), userid: ctx.userId,
       }])
       if (kiaIns.error) {
+        // P0-7 (audit 2026-08-28): kompenzáció — a bevétel-láb ÉS a mester
+        // visszavonása, ellenőrzött eredménnyel. Így nem marad féloldalas könyv.
+        let rendben = true
+        const befVissza = await ctx.supabase
+          .from('befizetes')
+          .update({ deleted: true })
+          .eq('belso_mozgas_xkey', pairXkey)
+          .eq('congregation_id', clean.congregationId)
+          .select('id')
+        if (befVissza.error || !befVissza.data?.length) rendben = false
+        const mesterVissza = await ctx.supabase
+          .from('belsomozgas')
+          .update({ deleted: true })
+          .eq('id', data.id)
+          .eq('congregation_id', clean.congregationId)
+          .select('id')
+        if (mesterVissza.error || !mesterVissza.data?.length) rendben = false
+        if (!rendben) {
+          return {
+            success: false,
+            error:
+              `A könyvelési kiadás-sor nem jött létre (${kiaIns.error.message}), és a visszavonás ` +
+              'sem teljes — FÉLOLDALAS átvezetés maradhatott. Nézd meg a Pénzügy oldalt ' +
+              '(párosítatlan-jelzés), és jelezd a rendszergazdának.',
+          }
+        }
         return {
           success: false,
           error:
-            `A belső mozgás bevétel-oldala könyvelve, a KIADÁS-oldala viszont NEM ` +
-            `(${kiaIns.error.message}). A két oldal így féloldalas — nézd meg a Pénzügy ` +
-            'oldalon, és jelezd a rendszergazdának.',
+            `A könyvelési kiadás-sor nem jött létre (${kiaIns.error.message}) — az átvezetés ` +
+            'teljes egészében visszavonva, a könyvben semmi nem mozdult. Rögzítsd újra.',
         }
       }
     }

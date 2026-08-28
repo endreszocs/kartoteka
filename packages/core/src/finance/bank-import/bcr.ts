@@ -17,6 +17,7 @@
 
 import * as XLSX from 'xlsx'
 
+import { dateToLocalIso } from '@kartoteka/validations'
 import type { BankParseResult, BankTransaction } from '@kartoteka/validations'
 
 // ─────────────────────────────────────────────────────────────
@@ -98,16 +99,11 @@ function expandYear(yy: string): string {
 function parseDateValue(value: unknown): string | null {
   if (value === null || value === undefined || value === '') return null
   if (value instanceof Date) {
-    const d = value
-    const localY = d.getFullYear()
-    const localM = d.getMonth() + 1
-    const localD = d.getDate()
-    const utcY = d.getUTCFullYear()
-    const utcM = d.getUTCMonth() + 1
-    const utcD = d.getUTCDate()
-    const useUtc = d.getUTCHours() < 12
-    const [y, m, day] = useUtc ? [utcY, utcM, utcD] : [localY, localM, localD]
-    return `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    // P0-23 (audit 2026-08-28): a korábbi getUTCHours()<12 heurisztika a
+    // SheetJS-artifacton (a szándékolt D nap → helyi D−1 23:59:36, UTC-óra
+    // 21/20) a HELYI komponenst olvasta → D−1, évhatáron rossz év. A webes,
+    // 563/563 tételen igazolt +12 órás kerekítés közös példányára delegálunk.
+    return dateToLocalIso(value)
   }
   if (typeof value === 'number') {
     const epoch = new Date(Date.UTC(1899, 11, 30))

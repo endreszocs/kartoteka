@@ -19,7 +19,10 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { readYearFinalized } from '@kartoteka/core'
+
 import { enqueueEntryExcelRow } from './excel-enqueue'
+import { dbSelect } from './local-db'
 import { getDesktopSupabase } from './supabase'
 import { getTauriSqliteBackend } from './tauri-sqlite-backend'
 import { getVerifiedSession } from './verified-session'
@@ -55,6 +58,82 @@ export interface KiadasPushResult {
   errors: string[]
 }
 
+/**
+ * P0-20 (audit 2026-08-28): árva pending-sorok visszasorolása — a
+ * befizetes-write-sync söprőjének kiadás-oldali tükre (részletes indoklás ott).
+ */
+async function sweepOrphanKiadasPending(
+  backend: ReturnType<typeof getTauriSqliteBackend>,
+  errors: string[],
+): Promise<void> {
+  try {
+    const orphans = await dbSelect<{
+      id: string
+      congregation_id: string
+      xkey: string
+      osszeg: number
+      datum: string
+      id_kiadascel: number
+      atvevoid: number | null
+      atvevo: string | null
+      iratszam: string
+      irattipus: string
+      megjegyzes: string | null
+      vonatkozo_idoszak: string | null
+      kedvezmenyezett_cui: string | null
+      is_potlas: number
+      bankszamla_id: number | null
+      userid: string
+      created_at: string
+    }>(
+      `SELECT id, congregation_id, xkey, osszeg, datum, id_kiadascel,
+              atvevoid, atvevo, iratszam, irattipus, megjegyzes,
+              vonatkozo_idoszak, kedvezmenyezett_cui, is_potlas,
+              bankszamla_id, userid, created_at
+         FROM kiadas_pending_local
+        WHERE sync_state = 'pending'
+          AND server_id IS NULL
+          AND id NOT IN (
+            SELECT target_id FROM outbox
+             WHERE target_table = 'kiadas' AND mutation_id IS NOT NULL
+          )`,
+    )
+    for (const r of orphans) {
+      await backend.enqueueMutation({
+        id: r.id,
+        table: 'kiadas',
+        pk: r.id,
+        kind: 'insert',
+        payload: {
+          xkey: r.xkey,
+          osszeg: r.osszeg,
+          datum: r.datum,
+          id_kiadascel: r.id_kiadascel,
+          iratszam: r.iratszam,
+          nyugta: r.iratszam,
+          irattipus: r.irattipus,
+          megjegyzes: r.megjegyzes ?? null,
+          deleted: false,
+          congregation_id: r.congregation_id,
+          atvevoid: r.atvevoid ?? null,
+          atvevo: r.atvevo || null,
+          kedvezmenyezett_cui: r.kedvezmenyezett_cui || null,
+          vonatkozo_idoszak: r.vonatkozo_idoszak || null,
+          is_potlas: Boolean(r.is_potlas),
+          bankszamla_id: r.bankszamla_id ?? null,
+          userid: r.userid,
+        },
+        attempts: 0,
+        createdAt: r.created_at,
+      })
+    }
+  } catch (err) {
+    errors.push(
+      `Árva pending-söprés hiba (kiadás): ${err instanceof Error ? err.message : 'ismeretlen'}`,
+    )
+  }
+}
+
 export async function pushPendingKiadas(
   supabase: SupabaseClient = getDesktopSupabase(),
   ignoreBackoff = false,
@@ -75,6 +154,10 @@ export async function pushPendingKiadas(
   }
 
   const backend = getTauriSqliteBackend()
+
+  // P0-20: az árva (outbox nélküli) pending sorok visszasorolása, MIELŐTT
+  // az outboxot olvasnánk — így ugyanebben a futásban fel is megy a tétel.
+  await sweepOrphanKiadasPending(backend, result.errors)
 
   let mutations: Awaited<ReturnType<typeof backend.getPendingMutations>>
   try {
@@ -113,6 +196,105 @@ export async function pushPendingKiadas(
         )
       }
       continue
+    }
+
+    // P0-5 (audit 2026-08-28): zárt-év újra-ellenőrzés KÖZVETLENÜL a push
+    // előtt — részletes indoklás a befizetes-write-sync azonos blokkjánál.
+    const evSzam = Number(String(payload.datum ?? '').slice(0, 4))
+    if (Number.isFinite(evSzam) && evSzam >= 2000) {
+      const evZar = await readYearFinalized(
+        supabase,
+        String(payload.congregation_id ?? ''),
+        evSzam,
+      )
+      if (evZar.unknown) {
+        try {
+          await backend.updateMutationAttempt(mutation.id, {
+            attempts: mutation.attempts + 1,
+            lastAttemptAt: nowIso,
+            lastError: `Év-zár ellenőrzés sikertelen: ${evZar.errorMessage ?? 'ismeretlen'}`,
+          })
+          result.retrying += 1
+        } catch (err) {
+          result.errors.push(
+            `Mutation-frissítés hiba: ${err instanceof Error ? err.message : 'ismeretlen'}`,
+          )
+        }
+        continue
+      }
+      if (evZar.finalized) {
+        try {
+          await backend.markKiadasConflict(
+            mutation.pk,
+            `A(z) ${evSzam}. évi számadás időközben véglegesítve lett — az offline rögzített tétel nem küldhető fel. Kérj feloldást (javítási engedélyt) az egyházmegyétől.`,
+          )
+          await backend.removeMutation(mutation.id)
+          result.conflicts += 1
+        } catch (err) {
+          result.errors.push(
+            `Conflict-jelölés hiba: ${err instanceof Error ? err.message : 'ismeretlen'}`,
+          )
+        }
+        continue
+      }
+    }
+
+    // P0-10 (audit 2026-08-28): xkey-alapú idempotencia-kapu az insert ELŐTT —
+    // részletes indoklás a befizetes-write-sync azonos blokkjánál.
+    const xkeyErtek = String(payload.xkey ?? '')
+    if (xkeyErtek) {
+      const letezo = await supabase
+        .from('kiadas')
+        .select('id')
+        .eq('xkey', xkeyErtek)
+        .eq('congregation_id', String(payload.congregation_id ?? ''))
+        .limit(1)
+        .maybeSingle()
+      if (letezo.error) {
+        try {
+          await backend.updateMutationAttempt(mutation.id, {
+            attempts: mutation.attempts + 1,
+            lastAttemptAt: nowIso,
+            lastError: `Idempotencia-ellenőrzés sikertelen: ${letezo.error.message}`,
+          })
+          result.retrying += 1
+        } catch (err) {
+          result.errors.push(
+            `Mutation-frissítés hiba: ${err instanceof Error ? err.message : 'ismeretlen'}`,
+          )
+        }
+        continue
+      }
+      if (letezo.data?.id) {
+        try {
+          await backend.markKiadasSynced(mutation.pk, Number(letezo.data.id))
+          void enqueueEntryExcelRow({
+            type: 'kiadas',
+            serverId: Number(letezo.data.id),
+            congregationId: String(payload.congregation_id ?? ''),
+            datum: String(payload.datum ?? ''),
+            iratszam: String(payload.iratszam ?? ''),
+            irattipus: String(payload.irattipus ?? ''),
+            nev: String(payload.atvevo ?? ''),
+            osszeg: Number(payload.osszeg ?? 0),
+            celId: Number(payload.id_kiadascel ?? 0),
+            megjegyzes: (payload.megjegyzes as string | null) ?? null,
+            bankszamlaId: (payload.bankszamla_id as number | null) ?? null,
+          })
+          await backend.removeMutation(mutation.id)
+          result.succeeded += 1
+        } catch (err) {
+          try {
+            await backend.removeMutation(mutation.id)
+          } catch {
+            /* csendes */
+          }
+          result.errors.push(
+            `Lokális sync-jelölés sikertelen (szerver-sor megvan: ${letezo.data.id}): ${err instanceof Error ? err.message : 'ismeretlen'}`,
+          )
+        }
+        continue
+      }
     }
 
     try {

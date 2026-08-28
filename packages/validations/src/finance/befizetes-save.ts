@@ -15,12 +15,14 @@
 
 import { z } from 'zod'
 
+import { localTodayIso } from '../local-date'
+
 // #5 (Endre): az irattipus szabad szöveges bizonylattípus-címke (Chitanță/Factură/Készpénz/
 // Banki/Extras/OP…). A régi 2-értékű enum túl szűk volt — a DB-oszlop `text`, nincs CHECK.
 const irattipusSchema = z.string().trim().min(1, 'Az irattípus kötelező').max(50)
 
 /** Jövőbeli dátum-prevenció — a refine() alatt kell. */
-const today = () => new Date().toISOString().slice(0, 10)
+const today = () => localTodayIso()
 
 // ─────────────────────────────────────────────────────────────────────────
 // 1. Save — új befizetés rögzítése

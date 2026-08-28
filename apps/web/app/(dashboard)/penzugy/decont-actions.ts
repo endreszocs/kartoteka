@@ -35,6 +35,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
+import { localTodayIso } from '@kartoteka/validations'
 import {
   financeWriteBlock,
   getFinanceScopeContext,
@@ -211,7 +212,7 @@ export async function listDecontReprint(year: number): Promise<DecontReprintOpti
     .eq('deleted', false)
     .ilike('irattipus', '%decont%')
     .gte('datum', `${year}-01-01`)
-    .lte('datum', `${year}-12-31`)
+    .lt('datum', `${year + 1}-01-01`)
     .order('datum', { ascending: true })
   const imported: DecontReprintOption[] = ((kiaDec || []) as Record<string, unknown>[]).map((r) => {
     const datum = String(r.datum).slice(0, 10)
@@ -267,7 +268,7 @@ export async function saveDecont(input: SaveDecontInput): Promise<
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) return { error: 'Érvénytelen dátum.' }
   // 2026-07-10 (S3-#9): jövőbeli dátum tiltása — ugyanaz a szabály, mint az
   // incomeSchema zod-refine-ja (lib/validations/finance.ts: datum <= today()).
-  if (input.date > new Date().toISOString().slice(0, 10)) {
+  if (input.date > localTodayIso()) {
     return { error: 'Jövőbeli dátum nem engedélyezett' }
   }
   if (!input.personName.trim()) return { error: 'Az elszámoló neve kötelező.' }

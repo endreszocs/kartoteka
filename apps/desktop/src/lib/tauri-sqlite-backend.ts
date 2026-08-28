@@ -708,6 +708,25 @@ export class TauriSqliteBackend implements StorageBackend {
   }
 
   /**
+   * P0-5 (audit 2026-08-28): a core year-lock OFFLINE hookja — eddig SOSEM
+   * volt implementálva, ezért a rögzítéskori zárt-év kapu offline fail-open
+   * módon mindig átengedett. A lokális bealitas_local tükörből (a
+   * finance-settings-sync tölti) válaszolunk: ha a legutóbbi szinkron szerint
+   * az év véglegesítve van, az offline rögzítés is megáll. A tükör
+   * elavultsága ellen a push-oldali szerver-újraellenőrzés a második réteg.
+   */
+  async isYearFinalizedLocal(congregationId: string, year: number): Promise<boolean> {
+    const rows = await dbSelect<{ accounting_finalized: number | null }>(
+      `SELECT accounting_finalized
+         FROM bealitas_local
+        WHERE congregation_id = ?1 AND id = ?2
+        LIMIT 1`,
+      [congregationId, String(year)],
+    )
+    return rows.length > 0 && Number(rows[0].accounting_finalized) === 1
+  }
+
+  /**
    * Atomikusan kivesz egy szabad iratszámot az iratszám-walletből.
    *
    * Rust-oldali tranzakció garantálja a race-mentességet (lásd

@@ -1,8 +1,9 @@
 /**
  * Nyugtatömb VALÓS elhasználtság — származtatott (derived) számítás (G4, 2026-07-25).
  *
- * MIÉRT: a `chitanta_tombok.felhasznalt_darabszam`-ot kizárólag a
- * `next_chitanta_full` RPC (hivatalos auto-kiállítás) növeli — a lelkészek
+ * MIÉRT: a `chitanta_tombok.felhasznalt_darabszam`-ot kizárólag a hivatalos
+ * auto-kiállítás RPC-je növeli (2026-08-28 / P0-12 óta `issue_chitanta_atomic`,
+ * korábban `next_chitanta_full`) — a lelkészek
  * viszont a tétel-rögzítővel dolgoznak, ami a kerületi (nyomdai) számot a
  * `befizetes.iratszam` szöveg-mezőbe írja („Chitanță 0115032", több
  * befizetőnél „…/1", „…/2"). Emiatt a tömb-kártyák örökké 0 elhasználtat
@@ -16,8 +17,8 @@
  *   - a 0 értékű nyugta = ANULÁLT (szintén elhasznált lap, külön számolva);
  *   - a hivatalos auto-kiállítás (oblio_szamlak.nyomdai_szam) UNIÓ-ban —
  *     egyik út se vesszen el;
- *   - a `felhasznalt_darabszam` DB-mezőt SOHA nem írjuk vissza (a CHECK és a
- *     next_chitanta_full számozása sérülne) — a kijelzett érték:
+ *   - a `felhasznalt_darabszam` DB-mezőt SOHA nem írjuk vissza (a CHECK és az
+ *     issue_chitanta_atomic számozása sérülne) — a kijelzett érték:
  *     max(DB-mező, számított).
  */
 

@@ -14,10 +14,12 @@
 
 import { z } from 'zod'
 
+import { localTodayIso } from '../local-date'
+
 // #5 (Endre): az irattipus szabad szöveges bizonylattípus-címke (lásd befizetes-save.ts).
 const irattipusSchema = z.string().trim().min(1, 'Az irattípus kötelező').max(50)
 
-const today = () => new Date().toISOString().slice(0, 10)
+const today = () => localTodayIso()
 
 // ─────────────────────────────────────────────────────────────────────────
 // Save — új kiadás

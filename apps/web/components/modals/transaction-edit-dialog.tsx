@@ -94,6 +94,10 @@ export function TransactionEditDialog({
    *  (azonos típusú) tétel. Egyéb esetben elrejtjük / lezárjuk. */
   const [dateEditable, setDateEditable] = useState(false)
   const [checkingLast, setCheckingLast] = useState(false)
+  // P0-11 (audit 2026-08-28): optimista zár bázisa — a sor revision-je a
+  // dialógus megnyitásakor. A mentés ezt küldi vissza; ha időközben más
+  // mentett, a szerver konfliktust jelez néma felülírás helyett.
+  const [baseRevision, setBaseRevision] = useState<number | null>(null)
   // Befizető (tag) — jelenlegi hozzárendelés + új választás.
   // `pendingPerson`: undefined = nincs változás; { id } = új (id) vagy törlés (null).
   const [personNev, setPersonNev] = useState<string | null>(null)
@@ -137,10 +141,12 @@ export function TransactionEditDialog({
     let cancelled = false
     setCheckingLast(true)
     setDateEditable(false)
+    setBaseRevision(null)
     void isLastTransactionOfType({ type, id }).then((res) => {
       if (cancelled) return
       setCheckingLast(false)
       setDateEditable(!!res.isLast)
+      setBaseRevision(typeof res.revision === 'number' ? res.revision : null)
     })
     return () => {
       cancelled = true
@@ -187,6 +193,7 @@ export function TransactionEditDialog({
         id_cel: idCel,
         iratszam: iratszam.trim() || null,
         megjegyzes: megjegyzes.trim() || null,
+        revision: baseRevision ?? undefined,
         // Tag-hozzárendelés (csak bevételnél, és csak ha a felhasználó módosította).
         ...(type === 'befizetes' && pendingPerson !== undefined
           ? { id_szemely: pendingPerson.id, id_csalad: null }

@@ -27,6 +27,7 @@ import {
   type StornoIncomeInput,
 } from '@kartoteka/validations'
 
+import { refreshCarryoverBestEffort } from '../bank-import/nyito-egyenleg'
 import { readYearFinalized } from '../year-lock'
 
 export interface StornoIncomeCtx {
@@ -92,7 +93,7 @@ export async function stornoIncomeUseCase(
     // 2) Befizetés lekérdezése
     const { data: row, error: fetchErr } = await ctx.supabase
       .from('befizetes')
-      .select('id, datum, belso_mozgas_xkey, stornozott, deleted')
+      .select('id, datum, belso_mozgas_xkey, stornozott, deleted, bankszamla_id')
       .eq('id', clean.befizetesId)
       .eq('congregation_id', clean.congregationId)
       .maybeSingle()
@@ -114,6 +115,7 @@ export async function stornoIncomeUseCase(
       belso_mozgas_xkey: string | null
       stornozott: boolean
       deleted: boolean
+      bankszamla_id: number | null
     }
 
     if (r.stornozott) {
@@ -228,6 +230,17 @@ export async function stornoIncomeUseCase(
       }
       cascadedChitantas = chCount?.length ?? 0
     }
+
+    // P0-3 (audit 2026-08-28): a köv. évi carryover banki nyitó frissítése
+    // (best-effort — hibája nem buktatja a sztornót).
+    await refreshCarryoverBestEffort(
+      {
+        congregationId: clean.congregationId,
+        tetelek: [{ bankszamla_id: r.bankszamla_id, datum: r.datum }],
+        belsoMozgasXkey: cascadedInternalTransfer ? r.belso_mozgas_xkey : null,
+      },
+      ctx,
+    )
 
     return {
       success: true,

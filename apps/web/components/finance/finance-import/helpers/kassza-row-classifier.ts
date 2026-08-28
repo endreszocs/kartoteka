@@ -18,6 +18,9 @@
  *   - 400.01 költségvetési kód
  */
 
+// Relatív import (nem @/): a tsx-alapú teszt-runnerek közvetlenül töltik be.
+import { parseImportAmount } from '../../../../lib/import/amount-parse'
+
 export type KasszaRowKind =
   | {
       kind: 'income'
@@ -172,18 +175,12 @@ export function splitKasszaRow(row: Record<string, unknown>): KasszaRowKind {
 }
 
 /**
- * Szám-konverzió, null-tűréssel és magyar tizedesvessző-elfogadással.
+ * Szám-konverzió, null-tűréssel — a KÖZÖS import-összeg parserrel.
+ * P0-17 (audit 2026-08-28): a korábbi naiv vessző→pont csere az „1.234,56"
+ * alakot 1.234-re zsugorította; a kanonikus parser a lib/import/amount-parse.
  */
 function toNumberOrNull(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') return null
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string') {
-    const normalized = value.replace(/,/g, '.').replace(/\s/g, '').trim()
-    if (!normalized) return null
-    const n = Number.parseFloat(normalized)
-    return Number.isFinite(n) ? n : null
-  }
-  return null
+  return parseImportAmount(value)
 }
 
 /* ───────────────────────────────────────────────────────────────────────

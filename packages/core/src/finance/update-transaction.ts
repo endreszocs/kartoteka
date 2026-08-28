@@ -20,6 +20,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { refreshCarryoverBestEffort } from './bank-import/nyito-egyenleg'
 import { readYearFinalized } from './year-lock'
 
 export type UpdateTransactionType = 'befizetes' | 'kiadas'
@@ -31,6 +32,14 @@ export interface UpdateTransactionInput {
   /** Csak akkor küldd, ha módosítható (az év utolsó tétele) — egyébként marad. */
   datum?: string
   osszeg?: number
+  /**
+   * P0-6 (audit 2026-08-28): devizás sor RON-ekvivalense és árfolyama.
+   * Ha a hívó nem küldi, az összeg módosításakor a use-case a sor TÁROLT
+   * árfolyamából számolja újra az osszeg_ron-t — enélkül az egyenleg a
+   * régi átváltott értéken maradt.
+   */
+  osszeg_ron?: number | null
+  arfolyam?: number | null
   megjegyzes?: string | null
   /** Jogcím: befizetes → id_befizetescel, kiadas → id_kiadascel. */
   id_cel?: number | null
@@ -39,6 +48,13 @@ export interface UpdateTransactionInput {
   id_szemely?: number | null
   id_csalad?: number | null
   forrasa?: string | null
+  /**
+   * P0-11 (audit 2026-08-28): optimista zár — a sor revision-je a dialógus
+   * MEGNYITÁSAKOR (az isLastTransactionOfTypeUseCase adja vissza). Ha küldöd,
+   * az UPDATE csak akkor fut le, ha a sort azóta senki nem módosította;
+   * különben beszédes konfliktus jön vissza néma felülírás helyett.
+   */
+  revision?: number
 }
 
 export interface UpdateTransactionCtx {
@@ -90,7 +106,17 @@ export interface IsLastTransactionCtx {
   runtime: 'web' | 'desktop'
 }
 
-export type IsLastTransactionResult = { isLast: boolean; error?: string }
+export type IsLastTransactionResult = {
+  isLast: boolean
+  error?: string
+  /**
+   * P0-11 (audit 2026-08-28): a sor AKTUÁLIS revision-je — a szerkesztő
+   * dialógus ezt tárolja el nyitáskor, és küldi vissza a mentéskor
+   * (optimista zár bázisa). A sync_tracking_touch trigger minden UPDATE-nél
+   * lépteti.
+   */
+  revision?: number | null
+}
 
 /**
  * Megmondja, hogy a tétel az ADOTT TÍPUSÚ utolsó-e az évében + gyülekezetben.
@@ -109,7 +135,7 @@ export async function isLastTransactionOfTypeUseCase(
   try {
     const { data: current, error: currentErr } = await ctx.supabase
       .from(table)
-      .select('datum')
+      .select('datum, revision')
       .eq('id', input.id)
       .eq('congregation_id', input.congregationId)
       .maybeSingle()
@@ -121,12 +147,16 @@ export async function isLastTransactionOfTypeUseCase(
       return { isLast: false, error: `A tétel dátumát nem sikerült lekérdezni: ${currentErr.message}` }
     }
 
+    const aktualisRevision =
+      (current as { revision?: number | null } | null)?.revision ?? null
     const datum = (current as { datum?: string } | null)?.datum
-    if (!datum) return { isLast: false }
+    if (!datum) return { isLast: false, revision: aktualisRevision }
 
     const year = new Date(datum).getFullYear()
     const yearStart = `${year}-01-01`
-    const yearEnd = `${year}-12-31`
+    // P0-2 (audit 2026-08-28): KIZÁRÓ felső határ — a kiadas.datum TIMESTAMP,
+    // az inkluzív '12-31' ott éjfélt jelentene. DATE-oszlopon ekvivalens.
+    const yearEnd = `${year + 1}-01-01`
 
     const { data: later, error: laterErr } = await ctx.supabase
       .from(table)
@@ -134,7 +164,7 @@ export async function isLastTransactionOfTypeUseCase(
       .eq('congregation_id', input.congregationId)
       .eq('deleted', false)
       .gt('datum', datum)
-      .lte('datum', yearEnd)
+      .lt('datum', yearEnd)
       .gte('datum', yearStart)
       .limit(1)
 
@@ -154,7 +184,7 @@ export async function isLastTransactionOfTypeUseCase(
       }
     }
 
-    return { isLast: !later || later.length === 0 }
+    return { isLast: !later || later.length === 0, revision: aktualisRevision }
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'ismeretlen'
     return { isLast: false, error: `Ellenőrzési hiba: ${msg}` }
@@ -195,7 +225,7 @@ export async function updateTransactionUseCase(
   // ellenőrzünk; ha új dátum is jön, a régi ÉS az új évre is.
   const { data: currentRow, error: currentErr } = await ctx.supabase
     .from(table)
-    .select('datum')
+    .select('datum, bankszamla_id, arfolyam, belso_mozgas_xkey')
     .eq('id', input.id)
     .eq('congregation_id', input.congregationId)
     .maybeSingle()
@@ -205,6 +235,21 @@ export async function updateTransactionUseCase(
   }
   if (!currentRow) {
     return { success: false, error: 'A tétel nem található.' }
+  }
+
+  // P0-7 (audit 2026-08-28, a web 2026-08-27-i kapujának paritása): a belső
+  // mozgás KÉT sor közös kulccsal — egyetlen láb átírása szétcsúsztatná a
+  // párt, és mindkét láb hamis „párosítatlan" riasztást kapna. A felületen a
+  // ceruza rejtve van, de ez a use-case a desktopról közvetlenül hívható volt.
+  const bmXkeyEdit = (currentRow as { belso_mozgas_xkey?: string | null }).belso_mozgas_xkey
+  if (bmXkeyEdit) {
+    return {
+      success: false,
+      error:
+        'Ez a tétel egy kassza ↔ bank átvezetés része, ezért külön nem szerkeszthető — ' +
+        'a párja némán elcsúszna tőle. Töröld az átvezetést (a rendszer mindkét oldalát ' +
+        'törli), és rögzítsd újra a helyes adatokkal.',
+    }
   }
 
   const yearsToCheck = new Set<number>()
@@ -244,6 +289,22 @@ export async function updateTransactionUseCase(
   const updateData: Record<string, unknown> = {}
   if (input.datum !== undefined) updateData.datum = input.datum
   if (input.osszeg !== undefined) updateData.osszeg = input.osszeg
+  // P0-6 (audit 2026-08-28): devizás (árfolyamos) soron az összeg módosítása a
+  // RON-ekvivalenst is frissíti — enélkül az egyenleg és a totál (amely az
+  // osszeg_ron-t olvassa) a RÉGI átváltott értéken maradt. Az explicit hívói
+  // érték elsőbbséget élvez (a web S11-es útjának paritása).
+  if (input.osszeg_ron !== undefined) updateData.osszeg_ron = input.osszeg_ron
+  if (input.arfolyam !== undefined) updateData.arfolyam = input.arfolyam
+  if (
+    input.osszeg !== undefined &&
+    input.osszeg_ron === undefined &&
+    input.arfolyam === undefined
+  ) {
+    const aktArfolyam = Number((currentRow as { arfolyam?: number | null }).arfolyam)
+    if (Number.isFinite(aktArfolyam) && aktArfolyam > 0) {
+      updateData.osszeg_ron = Math.round(input.osszeg * aktArfolyam * 100) / 100
+    }
+  }
   if (input.megjegyzes !== undefined) updateData.megjegyzes = input.megjegyzes?.trim() || null
   if (input.iratszam !== undefined) updateData.iratszam = input.iratszam?.trim() || null
   if (input.id_cel !== undefined) {
@@ -264,15 +325,61 @@ export async function updateTransactionUseCase(
   }
 
   try {
-    const { error } = await ctx.supabase
-      .from(table)
-      .update(updateData)
-      .eq('id', input.id)
-      .eq('congregation_id', input.congregationId)
-
-    if (error) {
-      return { success: false, error: `Mentés sikertelen: ${error.message}` }
+    // P0-11 (audit 2026-08-28): optimista zár — ha a hívó elküldte a dialógus
+    // nyitásakor látott revision-t, az UPDATE csak a változatlan sorra fut le.
+    // 0 érintett sor = valaki időközben mentett (másik gép / web) → beszédes
+    // konfliktus, NEM néma felülírás. Revision nélkül (régi hívók) a
+    // viselkedés változatlan.
+    const revisionGate = typeof input.revision === 'number'
+    let updError: { message: string } | null = null
+    let updRows: unknown[] | null = null
+    if (revisionGate) {
+      const res = await ctx.supabase
+        .from(table)
+        .update(updateData)
+        .eq('id', input.id)
+        .eq('congregation_id', input.congregationId)
+        .eq('revision', input.revision as number)
+        .select('id')
+      updError = res.error
+      updRows = res.data
+    } else {
+      const res = await ctx.supabase
+        .from(table)
+        .update(updateData)
+        .eq('id', input.id)
+        .eq('congregation_id', input.congregationId)
+      updError = res.error
     }
+
+    if (updError) {
+      return { success: false, error: `Mentés sikertelen: ${updError.message}` }
+    }
+    if (revisionGate && (updRows?.length ?? 0) === 0) {
+      return {
+        success: false,
+        error:
+          'Időközben valaki más módosította (vagy törölte) ezt a tételt — másik gépen vagy ' +
+          'a webes felületen. A mentés nem történt meg, hogy ne írjuk felül némán az ő ' +
+          'változtatását. Zárd be az ablakot, frissítsd a listát, és nézd át a tételt újra.',
+      }
+    }
+
+    // P0-3 (audit 2026-08-28): carryover-frissítés (best-effort) — a régi ÉS
+    // az új dátum évére (átdatálásnál mindkét év nyitója érintett lehet).
+    const rowBankszamlaId =
+      (currentRow as { bankszamla_id?: number | null }).bankszamla_id ?? null
+    await refreshCarryoverBestEffort(
+      {
+        congregationId: input.congregationId,
+        tetelek: [
+          { bankszamla_id: rowBankszamlaId, datum: currentDatum },
+          { bankszamla_id: rowBankszamlaId, datum: input.datum ?? currentDatum },
+        ],
+      },
+      ctx,
+    )
+
     return { success: true }
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'ismeretlen'
