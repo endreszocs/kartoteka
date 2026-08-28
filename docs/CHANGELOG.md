@@ -26,6 +26,7 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 ## [2026-08-28] — Banki tételek: fizetett év + célzott jelzések + kísérőív
 <!-- key: 2026-08-28-banki-fizetettev-eszrevetelek -->
 <!-- category: improvement -->
+<!-- version: 0.9.196 -->
 <!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
 
 ### 🎨 UX javítások
