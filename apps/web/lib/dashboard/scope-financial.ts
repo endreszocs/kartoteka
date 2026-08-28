@@ -13,6 +13,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { loadBelsoMozgasCelIds, notInLista } from '@/lib/finance/belso-mozgas-cel-ids'
 
 export interface ScopeFinancialCongregationRow {
   congregationId: string
@@ -134,36 +135,59 @@ export async function getScopeFinancialData(
   //       kiadást mutatott, mint a Pénzügy modul ugyanarra az évre;
   //   (c) a nyers `osszeg` (deviza!) összegződött a RON-ekvivalens helyett;
   //   (d) lapozatlan volt (lásd `fetchAllPagedRows`).
-  // MARADÉK (tudatosan): a `calculateBalances` a belső mozgást a `belso_mozgas_xkey`
-  // MELLETT a belső CÉL-KÓD (3xx/4xx, legacy 100.xx) alapján is kizárja. Az itteni
-  // szűrő csak az xkey-t nézi, mert a kód-szűréshez cél-join kellene; a régi,
-  // IMPORTÁLT (xkey nélküli, csak kód-alapú) belső mozgások ezért még benne
-  // maradhatnak. Ha ez előjön, itt kell befizetescel/kiadascel embed-et bevezetni.
+  // 2026-08-27: A FENTI „MARADÉK" LEZÁRVA — és elő is jött. A korábbi komment
+  // pontosan ezt írta: „a régi, IMPORTÁLT (xkey nélküli, csak kód-alapú) belső
+  // mozgások ezért még benne maradhatnak. Ha ez előjön, itt kell
+  // befizetescel/kiadascel embed-et bevezetni." Elő is jött: egy hibás banki
+  // import 7 db `301.01` kódú sort hozott be párosító kulcs NÉLKÜL (65 425 RON),
+  // amik itt VALÓDI BEVÉTELKÉNT számítottak — miközben a Pénzügy fülön helyesen
+  // kimaradtak. Ugyanarra az évre KÉT KÜLÖNBÖZŐ végösszeg látszott.
+  // Mostantól a KÓD alapján is kizárunk, a `calculateBalances`-szal azonos
+  // predikátummal. FAIL-CLOSED: ha a cél-azonosítókat nem tudjuk feloldani,
+  // inkább hibázunk, mint hogy rossz számot mutassunk.
+  // FAIL-CLOSED, a fájl bevált mintája szerint (DOBUNK, nem adunk néma 0-t):
+  // ez az aggregátor táplálja a NYOMTATOTT Éves jelentés VI. szekcióját.
+  const bmCel = await loadBelsoMozgasCelIds(supabase)
+  if ('error' in bmCel) {
+    throw new Error(
+      `A belső mozgás kategóriáinak feloldása nem sikerült (${bmCel.error}), ezért a pénzügyi ` +
+        'összesítőt nem számoljuk ki — egy hibás szám rosszabb, mint a hiánya. Próbáld újra ' +
+        'néhány perc múlva; ha újra hibázik, jelezd a rendszergazdának.',
+    )
+  }
+  const bmBevNotIn = notInLista(bmCel.bev)
+  const bmKiaNotIn = notInLista(bmCel.kia)
+
+  // A kód-alapú kizárás FELTÉTELES: üres id-listánál nem teszünk rá szűrőt
+  // (egy `in.()` üres lista szintaktikai hiba lenne). Ezért a lekérdezéseket
+  // előbb felépítjük, és csak utána adjuk a Promise.all-nak.
+  const bevBase = supabase
+    .from('befizetes')
+    .select('id, congregation_id, osszeg, osszeg_ron')
+    .in('congregation_id', congregationIds)
+    .gte('datum', yearStart)
+    .lt('datum', yearEndExclusive)
+    .or('deleted.eq.false,deleted.is.null')
+    .eq('stornozott', false)
+    .is('belso_mozgas_xkey', null)
+  const bevQuery = (bmBevNotIn ? bevBase.not('id_befizetescel', 'in', bmBevNotIn) : bevBase)
+    .order('id', { ascending: true })
+
+  const kiaBase = supabase
+    .from('kiadas')
+    .select('id, congregation_id, osszeg, osszeg_ron')
+    .in('congregation_id', congregationIds)
+    .gte('datum', yearStart)
+    .lt('datum', yearEndExclusive)
+    .or('deleted.eq.false,deleted.is.null')
+    .eq('stornozott', false)
+    .is('belso_mozgas_xkey', null)
+  const kiaQuery = (bmKiaNotIn ? kiaBase.not('id_kiadascel', 'in', bmKiaNotIn) : kiaBase)
+    .order('id', { ascending: true })
+
   const [bevRes, kiaRes, congRes, dioRes] = await Promise.all([
-    fetchAllPagedRows<BefitetesAggRow>(
-      supabase
-        .from('befizetes')
-        .select('id, congregation_id, osszeg, osszeg_ron')
-        .in('congregation_id', congregationIds)
-        .gte('datum', yearStart)
-        .lt('datum', yearEndExclusive)
-        .or('deleted.eq.false,deleted.is.null')
-        .eq('stornozott', false)
-        .is('belso_mozgas_xkey', null)
-        .order('id', { ascending: true }),
-    ),
-    fetchAllPagedRows<KiadasAggRow>(
-      supabase
-        .from('kiadas')
-        .select('id, congregation_id, osszeg, osszeg_ron')
-        .in('congregation_id', congregationIds)
-        .gte('datum', yearStart)
-        .lt('datum', yearEndExclusive)
-        .or('deleted.eq.false,deleted.is.null')
-        .eq('stornozott', false)
-        .is('belso_mozgas_xkey', null)
-        .order('id', { ascending: true }),
-    ),
+    fetchAllPagedRows<BefitetesAggRow>(bevQuery),
+    fetchAllPagedRows<KiadasAggRow>(kiaQuery),
     congregations
       ? Promise.resolve({ data: congregations, error: null })
       : supabase
