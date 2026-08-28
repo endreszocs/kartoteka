@@ -76,6 +76,7 @@ SELECT * FROM (
    AND g.atvevo IS NOT DISTINCT FROM k.atvevo
    AND g.nyugta IS NOT DISTINCT FROM k.nyugta
    AND g.iratszam IS NOT DISTINCT FROM k.iratszam
+  LEFT JOIN public.kiadascel kc ON kc.id = k.id_kiadascel
   WHERE k.deleted = false AND k.stornozott = false
 ) x
 ORDER BY tabla, datum, osszeg, iratszam, id;
