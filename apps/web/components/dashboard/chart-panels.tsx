@@ -84,7 +84,7 @@ export function FinanceOverviewChart({ monthlyData }: FinanceOverviewChartProps)
         </div>
       </div>
       {hasData ? (
-        <ResponsiveContainer width="100%" height={280}>
+        <ResponsiveContainer minWidth={0} width="100%" height={280}>
           <BarChart data={monthlyData} barGap={2}>
             {/* 2026-08-15 (9. pont): a rács/tengely/tooltip a közös diagram-témából —
                 a korábbi fix világos színek (#d9ebe7 rács, fehér tooltip) sötét
@@ -183,7 +183,7 @@ export function AgeDistributionCard({ ageGroups, detailedAgeGroups, stats }: Age
               ResponsiveContainer 0-ra omlana), xl-en viszont felveszi a
               maradék helyet, hogy a kártya szépen kitöltse a sormagasságot. */}
           <div className="relative h-[148px] sm:h-[160px] xl:h-auto xl:min-h-[150px] xl:flex-1">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer minWidth={0} width="100%" height="100%">
               <PieChart>
                 <Pie data={ageData} cx="50%" cy="50%" innerRadius="62%" outerRadius="92%" paddingAngle={3} dataKey="value" strokeWidth={0}>
                   {ageData.map((_, index) => <Cell key={index} fill={AGE_COLORS[index % AGE_COLORS.length]} />)}
