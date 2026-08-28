@@ -45,6 +45,12 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   jelenik meg; az egyházfenntartásnál tag/család hozzárendelést kér (a
   tartozás-nyilvántartás miatt), a többinél a név vagy cégnév is elég.
 
+- **A kiadási kísérőív ablaka rendezett, a cím középen**: a nyomtatási
+  előnézetben eddig két görgetősáv is megjelent, a lap oldalra csúszott,
+  és a nyomtatvány címe (BORDEROU DE PLĂȚI) a hosszú gyülekezetnév miatt
+  nem középen állt. Mostantól egyetlen görgetés van, a lap középre
+  igazítva jelenik meg, és a cím a papíron is valódi középen áll.
+
 ## [2026-08-28] — Pénzügyi átvilágítás: a D-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-d-blokk -->
 <!-- category: bugfix -->

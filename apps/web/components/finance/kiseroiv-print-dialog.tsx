@@ -148,7 +148,11 @@ export function KiseroivPrintDialog({
   const docW = A4_PORTRAIT_W
   // A dokumentumot a konténernél kicsivel keskenyebbre méretezzük, hogy
   // legyen levegő a szélén (ne lógjon ki a széléig).
-  const targetW = boxW > 0 ? Math.max(0, boxW - 24) : docW
+  // 2026-08-28 (Endre): a régi 24px levegő KEVESEBB volt, mint a doboz
+  // paddingje + keretei — a lap 1-2 px-szel túllógott, vízszintes csúszka
+  // jelent meg, és a lap balra csúszott a középről. 40px ráhagyással a lap
+  // garantáltan belül marad, és a mx-auto középre teszi.
+  const targetW = boxW > 0 ? Math.max(0, boxW - 40) : docW
   const scale = Math.min(1, targetW / docW)
   const scaledW = Math.round(docW * scale)
   const scaledH = Math.round(contentH * scale)
@@ -257,10 +261,14 @@ export function KiseroivPrintDialog({
             </div>
           </div>
 
-          {/* Jobb oldal: előnézet — 2026-07-10 (ÚJ #7b): fit-to-width, scroll-mentes A4 kép */}
+          {/* Jobb oldal: előnézet — 2026-07-10 (ÚJ #7b): fit-to-width, scroll-mentes A4 kép.
+              2026-08-28 (Endre): EGYETLEN görgetés — az előnézet-doboz saját
+              overflow-y-auto-ja a DialogContent görgetésével DUPLA csúszkát
+              adott; a doboz mostantól a tartalomhoz simul, és csak a dialógus
+              görget. */}
           <div
             ref={previewRef}
-            className="max-h-[80dvh] overflow-y-auto rounded-[28px] border border-slate-200 bg-slate-100/80 p-3 shadow-inner"
+            className="self-start overflow-hidden rounded-[28px] border border-slate-200 bg-slate-100/80 p-3 shadow-inner"
           >
             <div
               className="mx-auto overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
