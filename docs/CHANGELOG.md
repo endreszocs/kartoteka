@@ -44,6 +44,12 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   az egész köteg nyugodtan újramenthető. Ugyanezt a védelmet megkapta a
   megyei/kerületi kiadás-rögzítés is.
 
+- **Az egyházfenntartás-import nem duplikál hibázó ellenőrzés mellett** (P0-19):
+  ha az importban a „szerepel-e már?" ellenőrzés maga hibázott (pl. hálózati
+  akadozás), a rendszer eddig úgy vette, hogy a tétel új, és beszúrta — így az
+  újraimport duplázhatott. Mostantól ilyenkor a tétel biztonságból kimarad, és
+  az import végén hibaüzenet mondja meg, melyik sort kell újra futtatni.
+
 ---
 
 ## [2026-08-28] — A nyitó egyenlegnek egyetlen helye lett

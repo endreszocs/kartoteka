@@ -604,7 +604,17 @@ export async function executeEgyhfImport(
       finalSzemelyId === null
         ? dupQuery.is('id_szemely', null)
         : dupQuery.eq('id_szemely', finalSzemelyId)
-    const { data: existing } = await dupQuery.limit(1).maybeSingle()
+    const { data: existing, error: dupErr } = await dupQuery.limit(1).maybeSingle()
+    // P0-19 (audit 2026-08-28): FAIL-CLOSED — ha maga a duplikátum-ellenőrzés
+    // hibázik, az NEM „nincs duplikátum". Korábban a hiba eldobódott, a sor a
+    // hibázó ellenőrzés mellett beszúródott (néma duplikátum). A tétel kimarad,
+    // a hiba hangos; a javított körben újraimportálható (a dedup megvédi).
+    if (dupErr) {
+      result.errors.push(
+        `${item.clientKey}: a duplikátum-ellenőrzés hibázott (${dupErr.message}) — a tétel a biztonság kedvéért NEM került be; futtasd újra az importot.`,
+      )
+      continue
+    }
 
     if (existing) {
       result.skippedDuplicateCount++
