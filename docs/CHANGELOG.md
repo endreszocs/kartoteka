@@ -44,6 +44,12 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   az egész köteg nyugodtan újramenthető. Ugyanezt a védelmet megkapta a
   megyei/kerületi kiadás-rögzítés is.
 
+- **A megyei és kerületi kimutatás 1000 tétel felett sem csonkulhat** (P0-14):
+  az egyházmegyei/kerületi pénzügy-oldal betöltője eddig legfeljebb 1000
+  tételt olvasott be — e fölött a képernyő és a hivatalos ívek szó nélkül
+  kevesebbet mutattak. Mostantól ugyanaz a lapozott betöltés fut, mint a
+  gyülekezeti oldalon: minden tétel bekerül, akárhány van.
+
 - **Offline rögzítésnél is él a lezárt év védelme** (P0-5): eddig internet
   nélkül a desktop egy már véglegesített és beküldött évbe is engedett
   készpénzes tételt rögzíteni, és a későbbi szinkronizáció szó nélkül be is

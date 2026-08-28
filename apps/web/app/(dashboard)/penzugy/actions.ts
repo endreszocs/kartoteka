@@ -2114,34 +2114,50 @@ async function initFinanceFelsoSzint(
       .eq('scope', bankSzamlaScope)
       .eq(T.scopeCol, scopeId)
       .eq('aktiv', true),
-    supabase
-      .from(T.befizetes)
-      .select('*')
-      .eq(T.scopeCol, scopeId)
-      .eq('deleted', false)
-      .gte('datum', `${year}-01-01`)
-      .lte('datum', `${year}-12-31`),
-    supabase
-      .from(T.kiadas)
-      .select('*')
-      .eq(T.scopeCol, scopeId)
-      .eq('deleted', false)
-      .gte('datum', `${year}-01-01`)
-      .lte('datum', `${year}-12-31`),
-    supabase
-      .from(T.befizetes)
-      .select('osszeg, irattipus')
-      .eq(T.scopeCol, scopeId)
-      .eq('deleted', false)
-      .gte('datum', `${year - 1}-01-01`)
-      .lte('datum', `${year - 1}-12-31`),
-    supabase
-      .from(T.kiadas)
-      .select('osszeg, irattipus')
-      .eq(T.scopeCol, scopeId)
-      .eq('deleted', false)
-      .gte('datum', `${year - 1}-01-01`)
-      .lte('datum', `${year - 1}-12-31`),
+    // P0-14 (audit 2026-08-28): a 4 tétel-lekérdezés eddig lapozatlan volt —
+    // a PostgREST 1000-es plafonja HIBA NÉLKÜL vág, vagyis 1000 tétel fölött a
+    // megyei/kerületi képernyő ÉS a hivatalos ívek némán alulmértek. A
+    // gyülekezeti ág (initFinance) mintája szerint fetchAllPaged + order('id').
+    fetchAllPaged(
+      supabase
+        .from(T.befizetes)
+        .select('*')
+        .eq(T.scopeCol, scopeId)
+        .eq('deleted', false)
+        .gte('datum', `${year}-01-01`)
+        .lte('datum', `${year}-12-31`)
+        .order('id', { ascending: true }),
+    ),
+    fetchAllPaged(
+      supabase
+        .from(T.kiadas)
+        .select('*')
+        .eq(T.scopeCol, scopeId)
+        .eq('deleted', false)
+        .gte('datum', `${year}-01-01`)
+        .lte('datum', `${year}-12-31`)
+        .order('id', { ascending: true }),
+    ),
+    fetchAllPaged(
+      supabase
+        .from(T.befizetes)
+        .select('osszeg, irattipus')
+        .eq(T.scopeCol, scopeId)
+        .eq('deleted', false)
+        .gte('datum', `${year - 1}-01-01`)
+        .lte('datum', `${year - 1}-12-31`)
+        .order('id', { ascending: true }),
+    ),
+    fetchAllPaged(
+      supabase
+        .from(T.kiadas)
+        .select('osszeg, irattipus')
+        .eq(T.scopeCol, scopeId)
+        .eq('deleted', false)
+        .gte('datum', `${year - 1}-01-01`)
+        .lte('datum', `${year - 1}-12-31`)
+        .order('id', { ascending: true }),
+    ),
   ])
 
   // ── Szamadasicel: ugyanaz mint a gyülekezeti path ──
