@@ -12,7 +12,24 @@
  *   Kiad. - Összeg | Kiadás - költ.vet. név | Megjegyzés
  *
  * Tiszta függvény — NEM importál platform-API-t (web + desktop egyaránt).
- */
+ *
+ * ⚠️ ISMERT KORLÁT (2026-08-27, mérve) — BELSŐ MOZGÁS SOROK ÚJRAIMPORTJA:
+ * A `celNev` a rendszer GENERIKUS kategórianeve (pl. „Készpénzletétel a kasszáról
+ * a banki számlára"). A hivatalos Excel viszont SZÁMLAFÜGGŐ nevet vár
+ * („Készpénzletétel a(z) A számlára"), és NÉV szerint keresi ki a kódot
+ * (`VLOOKUP(I&K, fi, 2, FALSE)`). Egy visszaimportált belső-mozgás sor ezért a
+ * kód-oszlopban `#N/A`-t adna — LÁTHATÓ hiba, nem néma, de kézi javítást igényel.
+ *
+ * MIÉRT NINCS ITT MEGOLDVA: a helyes névhez a bankszámla → Excel BETŰ-LAP (A–T)
+ * párosítás kell, amit maga a mag is külön, megerősített lépésben old fel
+ * (`packages/core/src/finance/excel/row-builder.ts` + a 840 tételes
+ * `belso-mozgas-nevek.ts`). Ez a modul viszont SZÁNDÉKOSAN nem importál a
+ * core-ból (platform-függetlenség). A teljes megoldás tehát a betű-párosítás
+ * kiterjesztése ide — külön kör.
+ *
+ * ADDIG IS: a Kassza/Bank fül a belső mozgás sorokat a Megjegyzés oszlopban
+ * megjelöli („Belső mozgás — párosítva" / „Várakozik…"), tehát az exportban
+ * felismerhetők.
 
 /** A hivatalos Adatok_2025.xlsx oszlop-fejléce (kassza + banki lapok r4 sora). */
 export const FINANCE_EXPORT_HEADERS = [

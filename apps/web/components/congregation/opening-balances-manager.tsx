@@ -76,7 +76,19 @@ export function OpeningBalancesManager({
   useEffect(() => {
     if (!data || year == null) return
     const cashRow = data.cashRows.find((r) => r.eve === year)
-    setCash(cashRow ? String(cashRow.nyito_egyenleg) : '')
+    // 2026-08-27 (Endre 2. kérése): ha NINCS rögzített készpénz-nyitó erre az
+    // évre, az előző év zárójából LEVEZETETT javaslattal töltjük ki — de csak
+    // KIÍRJUK, nem mentjük magától. A nyitó a hivatalos számadás kiindulópontja;
+    // egy magától keletkező szám, amit senki nem nézett meg, pontosan az a
+    // hibaosztály, ami az Excelben is megvan.
+    const javaslat = data.cashSuggestions?.find((x) => x.eve === year)
+    setCash(
+      cashRow
+        ? String(cashRow.nyito_egyenleg)
+        : javaslat
+          ? String(javaslat.ertek)
+          : '',
+    )
     const vals: Record<number, string> = {}
     const rates: Record<number, string> = {}
     for (const b of activeBanks) {
@@ -106,6 +118,8 @@ export function OpeningBalancesManager({
 
   const isFinalized = data.finalizedYears.includes(year)
   const cashRow = data.cashRows.find((r) => r.eve === year)
+  // Javaslat CSAK akkor releváns, ha még nincs rögzített sor erre az évre.
+  const cashJavaslat = cashRow ? null : data.cashSuggestions?.find((x) => x.eve === year)
 
   async function handleSave() {
     if (year == null) return
@@ -226,6 +240,20 @@ export function OpeningBalancesManager({
           />
           <span className="text-sm text-slate-500">RON</span>
         </div>
+        {/* 2026-08-27 (Endre 2. kérése): „automatikusan hozza át a tavalyi évből,
+            csak ellenőrzésképpen írja ki az értéket". A mező ELŐRE KI VAN TÖLTVE
+            a levezetett értékkel, de a mentés a lelkész döntése — a nyitó a
+            hivatalos számadás kiindulópontja, oda nem kerülhet olyan szám,
+            amit senki nem nézett meg. */}
+        {cashJavaslat && (
+          <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-amber-200">
+            <strong>Erre az évre még nincs rögzített készpénz-nyitó.</strong> A mezőbe a{' '}
+            {cashJavaslat.forrasEv ? `${cashJavaslat.forrasEv}. évi` : 'korábbi'} záró egyenlegből
+            levezetett <strong>{cashJavaslat.ertek.toLocaleString('hu-HU')} RON</strong> került —{' '}
+            <strong>ellenőrizd, és ha egyezik, mentsd el.</strong> Amíg nem mented, a rendszer
+            minden alkalommal újraszámolja.
+          </p>
+        )}
       </div>
 
       {/* Bankszámlák */}

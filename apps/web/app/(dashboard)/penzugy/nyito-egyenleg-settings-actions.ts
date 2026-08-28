@@ -16,7 +16,7 @@
 
 import { revalidatePath } from 'next/cache'
 
-import { upsertBankszamlaNyitoEgyenlegUseCase } from '@kartoteka/core'
+import { resolveNyitoEgyenlegekUseCase, upsertBankszamlaNyitoEgyenlegUseCase } from '@kartoteka/core'
 
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 
@@ -38,6 +38,20 @@ export interface OpeningBalancesSettings {
   }>
   /** Véglegesített évek (számadás VAGY költségvetés zárva) — ezek nyitója nem szerkeszthető. */
   finalizedYears: number[]
+  /**
+   * 2026-08-27 (Endre 2. kérése: „automatikusan hozza át a tavalyi évből, csak
+   * ellenőrzésképpen írja ki az értéket").
+   *
+   * AZOKRA az évekre, amelyekre NINCS rögzített készpénz-nyitó, itt adjuk vissza
+   * az ELŐZŐ ÉV ZÁRÓJÁBÓL levezetett javaslatot. A felület ezt előre kitölti és
+   * megjelöli — de NEM ír a DB-be magától: a lelkész ellenőrzi és menti.
+   *
+   * MIÉRT NEM ÍRUNK AUTOMATIKUSAN: a nyitó egyenleg a hivatalos számadás
+   * kiindulópontja. Egy magától keletkező szám, amit senki nem nézett meg,
+   * pontosan az a hibaosztály, ami az Excelben is megvan (kézzel írt nyitó,
+   * amit az önellenőrzés nem lát). Inkább KIÍRJUK és jóváhagyatjuk.
+   */
+  cashSuggestions: Array<{ eve: number; ertek: number; forrasEv: number | null }>
 }
 
 export async function getOpeningBalancesSettings(
@@ -113,10 +127,35 @@ export async function getOpeningBalancesSettings(
     .map((b) => Number(b.id))
     .filter((y) => Number.isFinite(y))
 
+  // ── KÉSZPÉNZ-NYITÓ JAVASLATOK (2026-08-27) ─────────────────────────────
+  // Csak azokra az évekre, ahol NINCS rögzített sor — és csak a 3 legutóbbira,
+  // hogy egy 8 éves lista ne indítson lekérdezés-záport. A levezetést a meglévő
+  // `resolveNyitoEgyenlegekUseCase` végzi (ugyanaz, ami a Számadás nyitóját is
+  // adja), tehát a javaslat és a tényleges számítás NEM tud széthúzni.
+  const rogzitettEvek = new Set(
+    ((cashRes.data || []) as Array<{ eve: number }>).map((r) => r.eve),
+  )
+  const hianyzoEvek = availableYears
+    .filter((y) => !rogzitettEvek.has(y))
+    .slice(-3)
+  const cashSuggestions: Array<{ eve: number; ertek: number; forrasEv: number | null }> = []
+  for (const y of hianyzoEvek) {
+    const r = await resolveNyitoEgyenlegekUseCase(
+      { congregationId, eve: y },
+      { supabase, runtime: 'web' },
+    )
+    // Csak akkor javaslunk, ha a feloldás sikerült ÉS van mire alapozni.
+    // (A `derived` azt jelenti: nem rögzített sorból, hanem a forgalomból jött.)
+    if (r.success) {
+      cashSuggestions.push({ eve: y, ertek: r.cash.value, forrasEv: r.cash.baseYear })
+    }
+  }
+
   return {
     data: {
       earliestYear,
       availableYears,
+      cashSuggestions,
       cashRows: ((cashRes.data || []) as Array<{ eve: number; nyito_egyenleg: number | string; forrasa: string }>).map(
         (r) => ({ eve: r.eve, nyito_egyenleg: Number(r.nyito_egyenleg) || 0, forrasa: r.forrasa }),
       ),
