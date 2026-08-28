@@ -23,6 +23,34 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-29] — Számlák egyeztetése: új, feltöltés-első felület
+<!-- key: 2026-08-29-szamlak-egyeztetese-ux -->
+<!-- category: feature -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### ✨ Új funkciók
+
+- **A Számlák egyeztetése oldalról kigördülő panelként nyílik**: a Pénzügy
+  felől a számla-egyeztetés mostantól nem visz el másik oldalra — egy
+  oldalsó panel gördül ki, a munkád megszakítása nélkül. (A teljes oldal
+  továbbra is elérhető az oldalmenüből.)
+
+- **Feltöltés-első nézet, azonnali párosítás-jelzőkkel**: a felület tetején
+  egy nagy, jól látható feltöltő-sáv fogadja az ANAF-ból letöltött ZIP-et,
+  XML-t vagy PDF-et. A feltöltött számlák listáján minden soron azonnal
+  látszik, hogy a számlának megvan-e a párja a könyvelésben, és HOL — a
+  kasszában vagy melyik bankszámlán. A külön „Kifizetetlen számlák" fül
+  megszűnt: a kifizetetlenség és a lejárt határidő (pirossal) ugyanitt
+  látszik, a kifizetve-pipa is itt billenthető. A mappa-alapú
+  Oblio-egyeztetés az asztali programban él tovább — a webes felület a
+  feltöltött számlákkal dolgozik.
+
+- **Szép, nyomtatható számla-adatlap**: a számla megnyitása új fülön többé
+  nem nyers kódot mutat, hanem egy rendezett, kétnyelvű adatlapot — a
+  szállítóval, az összeggel, a határidővel, a kifizetve/könyvelve
+  állapottal és a könyvelési tételekkel. Egy gombbal nyomtatható, és
+  nyomtatáskor csak maga a lap kerül papírra.
+
 ## [2026-08-28] — Banki tételek: fizetett év + célzott jelzések + kísérőív
 <!-- key: 2026-08-28-banki-fizetettev-eszrevetelek -->
 <!-- category: improvement -->

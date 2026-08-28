@@ -35,25 +35,24 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { ColorTabs } from '@/components/ui/color-tabs'
 import { ModuleHero } from '@/components/shared/module-hero'
-import { slugifyCongregationName } from '@/lib/utils/slugify'
 
 const tabLoading = () => <div className="mt-4 h-64 animate-pulse rounded-2xl bg-slate-100" />
 // A MEGLÉVŐ komponensek élnek tovább — nem másolat készült (Endre kérése).
-const OblioEllenorzesTab = dynamic(
-  () => import('@/components/finance/oblio-ellenorzes-tab').then((m) => m.OblioEllenorzesTab),
+// 2026-08-28 (Endre UX-köre): a webes Oblio-mappás fül és a külön
+// „Kifizetetlen számlák" fül MEGSZŰNT — a feltöltés-első „Számlák" nézet
+// mutatja a párosítást és a kifizetetlenséget is; a mappás egyeztetés az
+// asztali programban él.
+const SzamlaEgyeztetesMain = dynamic(
+  () => import('@/components/dokumentumtar/szamla-egyeztetes-main').then((m) => m.SzamlaEgyeztetesMain),
   { ssr: false, loading: tabLoading },
 )
 const DokumentumtarMain = dynamic(
   () => import('@/components/dokumentumtar/dokumentumtar-main').then((m) => m.DokumentumtarMain),
   { ssr: false, loading: tabLoading },
 )
-const KifizetetlenMain = dynamic(
-  () => import('@/components/dokumentumtar/kifizetetlen-main').then((m) => m.KifizetetlenMain),
-  { ssr: false, loading: tabLoading },
-)
 
-type TabValue = 'oblio' | 'dokumentumtar' | 'kifizetetlen'
-const TAB_VALUES = ['oblio', 'dokumentumtar', 'kifizetetlen'] as const
+type TabValue = 'szamlak' | 'dokumentumtar'
+const TAB_VALUES = ['szamlak', 'dokumentumtar'] as const
 
 interface SzamlakEgyeztetesTabsProps {
   congregationName: string
@@ -64,11 +63,10 @@ interface SzamlakEgyeztetesTabsProps {
 
 export function SzamlakEgyeztetesTabs({
   congregationName,
-  congregationId,
   currentYear,
 }: SzamlakEgyeztetesTabsProps) {
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState<TabValue>('oblio')
+  const [activeTab, setActiveTab] = useState<TabValue>('szamlak')
 
   // Hash-alapú fülváltás (a finance-tabs.tsx applyHashToTab mintája) — így a
   // könyvjelzők és a sidebar-linkek fülre pontosan tudnak mutatni. A régi
@@ -79,7 +77,11 @@ export function SzamlakEgyeztetesTabs({
       if (typeof window === 'undefined') return
       const hash = window.location.hash.replace(/^#/, '')
       if (!hash) return
-      const mapped = hash === 'oblio_ellenorzes' ? 'oblio' : hash
+      // A régi #oblio / #oblio_ellenorzes / #kifizetetlen könyvjelzők mind az
+      // új „Számlák" nézetre futnak be — ott van minden, amit kerestek.
+      const mapped = ['oblio', 'oblio_ellenorzes', 'kifizetetlen'].includes(hash)
+        ? 'szamlak'
+        : hash
       if ((TAB_VALUES as readonly string[]).includes(mapped)) {
         setActiveTab(mapped as TabValue)
       }
@@ -125,11 +127,11 @@ export function SzamlakEgyeztetesTabs({
       <ModuleHero
         eyebrow="Pénzügy"
         title="Számlák egyeztetése"
-        description="A gyülekezet számláinak közös munkaterülete: az Oblio-ból letöltött e-Factura fájlok egyeztetése a könyveléssel, a feltöltött dokumentumok tára, és a még kifizetetlen számlák listája — egy helyen, három fülön."
+        description="Töltsd fel a befogadott számlákat, és azonnal látod, melyiknek van meg a párja a könyvelésben — és hol (bank vagy kassza)."
         pills={[
           { label: congregationName, icon: <Building2 className="size-3.5 text-teal-600" /> },
           {
-            label: `Oblio-egyeztetés éve: ${currentYear}`,
+            label: `${currentYear}. év`,
             icon: <FileCheck className="size-3.5" />,
             tone: 'sky',
           },
@@ -142,42 +144,24 @@ export function SzamlakEgyeztetesTabs({
       >
         <ColorTabs
           tabs={[
-            // Az Oblio egyeztetés az ELSŐ és alapértelmezett fül — ez a
-            // „sablonos Oblio-feltöltő felület", amit Endre visszakért.
-            { value: 'oblio', label: 'Oblio egyeztetés', color: 'cyan' },
-            { value: 'dokumentumtar', label: 'Dokumentumtár', color: 'emerald' },
-            { value: 'kifizetetlen', label: 'Kifizetetlen számlák', color: 'amber' },
+            // 2026-08-28 (Endre): a FELTÖLTÉS-első „Számlák" nézet az
+            // alapértelmezett — a párosítás és a kifizetetlenség itt látszik.
+            { value: 'szamlak', label: 'Számlák', color: 'emerald' },
+            { value: 'dokumentumtar', label: 'Dokumentumtár', color: 'cyan' },
           ]}
           active={activeTab}
           onChange={(v) => setActiveTab(v as TabValue)}
         />
 
-        <TabsContent value="oblio" className="mt-4">
-          {/* A /penzugy modáljából ideköltözött MEGLÉVŐ Oblio-felület —
-              kliens-oldali, saját server-action adatlekérésekkel dolgozik. */}
-          <OblioEllenorzesTab
-            congregationSlug={slugifyCongregationName(congregationName)}
-            congregationName={congregationName}
-            currentYear={currentYear}
-          />
+        <TabsContent value="szamlak" className="mt-4">
+          <SzamlaEgyeztetesMain congregationName={congregationName} />
         </TabsContent>
 
         <TabsContent value="dokumentumtar" className="mt-4">
           <DokumentumtarMain
             congregationName={congregationName}
-            // A hubon belül a „Kifizetetlen számlák" belépő fülváltás legyen,
-            // ne külön oldalra navigálás — a felhasználó ne „essen ki" a hubból.
-            onOpenKifizetetlen={() => setActiveTab('kifizetetlen')}
-          />
-        </TabsContent>
-
-        <TabsContent value="kifizetetlen" className="mt-4">
-          <KifizetetlenMain
-            congregationName={congregationName}
-            congregationId={congregationId}
-            // Beágyazva a saját „Dokumentumtár" vissza-gombja fölösleges
-            // (ugyanezen az oldalon vagyunk) — elrejtjük.
-            embedded
+            // A kifizetetlen-infó a „Számlák" nézetben él — a belépő odavisz.
+            onOpenKifizetetlen={() => setActiveTab('szamlak')}
           />
         </TabsContent>
       </Tabs>
