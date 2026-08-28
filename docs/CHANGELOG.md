@@ -23,6 +23,20 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-28] — Banki tételek: fizetett év + célzott jelzések + kísérőív
+<!-- key: 2026-08-28-banki-fizetettev-eszrevetelek -->
+<!-- category: improvement -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🎨 UX javítások
+
+- **A banki befizetésnél is rögzíthető, melyik évre szól**: az
+  egyházfenntartói járulék banki átutalásánál eddig nem lehetett megadni
+  vagy javítani, hogy a befizető az elmaradását vagy az aktuális évét
+  fizette-e. Mostantól a tétel szerkesztőjében (a ceruza gombnál) ott a
+  „Melyik évre szól (fizetett év)" mező — a böngészőben és az asztali
+  programban is —, és a tartozás-nyilvántartás ebből számol.
+
 ## [2026-08-28] — Pénzügyi átvilágítás: a D-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-d-blokk -->
 <!-- category: bugfix -->

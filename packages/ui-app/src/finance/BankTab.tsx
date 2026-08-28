@@ -225,6 +225,8 @@ export interface BankTabProps {
       valuta?: string | null
       osszeg_ron?: number | null
       arfolyam?: number | null
+      /** 2026-08-28 (Endre): a fizetett év szerkesztéséhez (csak bevétel). */
+      fizetettev?: number | null
     }
     categories: { id: number; kod: string; nev: string }[]
     onSaved: () => void | Promise<void>
@@ -351,6 +353,8 @@ export function BankTab({
       valuta?: string | null
       osszeg_ron?: number | null
       arfolyam?: number | null
+      /** 2026-08-28 (Endre): a fizetett év szerkesztéséhez (csak bevétel). */
+      fizetettev?: number | null
     }
   }>({ open: false, type: 'befizetes', id: null })
   const [stornoDialog, setStornoDialog] = useState<{
@@ -386,6 +390,8 @@ export function BankTab({
         valuta: r.bankszamlaId != null ? bankValutaById.get(r.bankszamlaId) || 'RON' : 'RON',
         osszeg_ron: r.osszegRon,
         arfolyam: r.arfolyam,
+        // 2026-08-28 (Endre): a fizetett év is szerkeszthető a dialógusban.
+        fizetettev: r.fizetettev ?? null,
       },
     })
   }

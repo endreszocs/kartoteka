@@ -212,6 +212,12 @@ export interface UpdateTransactionInput {
   id_csalad?: number | null
   forrasa?: string | null
   /**
+   * 2026-08-28 (Endre): melyik évre szól a befizetés (fizetett év) — banki
+   * egyházfenntartásnál enélkül nem látszik, elmaradást vagy az aktuális
+   * évet fizette-e a befizető. Csak bevételnél, gyülekezeti hatókörben.
+   */
+  fizetettev?: number | null
+  /**
    * P0-11 (audit 2026-08-28): optimista zár — a sor revision-je a dialógus
    * MEGNYITÁSAKOR (az isLastTransactionOfType adja vissza). Ha küldöd, az
    * UPDATE csak a változatlan sorra fut le; különben beszédes konfliktus jön
@@ -356,6 +362,18 @@ export async function updateTransactionBasic(
     if (ctx.scope === 'congregation') {
       if (input.id_szemely !== undefined) updateData.id_szemely = input.id_szemely
       if (input.id_csalad !== undefined) updateData.id_csalad = input.id_csalad
+      // 2026-08-28 (Endre): a fizetett év — validált tartománnyal, csak a
+      // gyülekezeti befizetes táblán (a felső szinteken nincs ilyen oszlop).
+      if (input.fizetettev !== undefined && input.fizetettev !== null) {
+        if (
+          !Number.isInteger(input.fizetettev) ||
+          input.fizetettev < 2000 ||
+          input.fizetettev > 2100
+        ) {
+          return { error: 'A fizetett év 2000 és 2100 közötti egész szám legyen.' }
+        }
+        updateData.fizetettev = input.fizetettev
+      }
     }
     if (input.forrasa !== undefined) updateData.forrasa = input.forrasa?.trim() || null
   } else {

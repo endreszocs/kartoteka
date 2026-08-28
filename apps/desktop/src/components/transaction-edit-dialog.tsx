@@ -40,6 +40,8 @@ interface Props {
     id_cel: number | null
     iratszam: string | null
     megjegyzes: string | null
+    /** 2026-08-28 (Endre): melyik évre szól a befizetés (fizetett év). */
+    fizetettev?: number | null
   }
   categories: Category[]
   onSaved: () => void | Promise<void>
@@ -63,6 +65,9 @@ export function DesktopTransactionEditDialog({
   const [idCel, setIdCel] = useState<number | null>(null)
   const [iratszam, setIratszam] = useState('')
   const [megjegyzes, setMegjegyzes] = useState('')
+  // 2026-08-28 (Endre): melyik évre szól a befizetés — banki egyházfenntartásnál
+  // enélkül nem látszik, elmaradást vagy az aktuális évet fizette-e.
+  const [fizetettevStr, setFizetettevStr] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -82,6 +87,7 @@ export function DesktopTransactionEditDialog({
     setIdCel(initial.id_cel ?? null)
     setIratszam(initial.iratszam || '')
     setMegjegyzes(initial.megjegyzes || '')
+    setFizetettevStr(initial.fizetettev != null ? String(initial.fizetettev) : '')
     setError(null)
   }, [open, initial])
 
@@ -117,6 +123,16 @@ export function DesktopTransactionEditDialog({
       setError('Az összeg pozitív szám legyen.')
       return
     }
+    // 2026-08-28 (Endre): a fizetett év — csak bevételnél, validált tartománnyal.
+    let fizetettevSzam: number | undefined
+    if (type === 'befizetes' && fizetettevStr.trim() !== '') {
+      const ev = Number(fizetettevStr)
+      if (!Number.isInteger(ev) || ev < 2000 || ev > 2100) {
+        setError('A fizetett év 2000 és 2100 közötti egész szám legyen.')
+        return
+      }
+      fizetettevSzam = ev
+    }
     setSaving(true)
     try {
       // E3: a szerkesztés ELŐTTI állapot pillanatképe — a hivatalos Excel
@@ -134,6 +150,7 @@ export function DesktopTransactionEditDialog({
           id_cel: idCel,
           iratszam: iratszam.trim() || null,
           megjegyzes: megjegyzes.trim() || null,
+          ...(fizetettevSzam !== undefined ? { fizetettev: fizetettevSzam } : {}),
           revision: baseRevision ?? undefined,
         },
         { supabase: getDesktopSupabase(), runtime: 'desktop', userId },
@@ -210,6 +227,29 @@ export function DesktopTransactionEditDialog({
               </p>
             )}
           </div>
+
+          {/* 2026-08-28 (Endre): melyik évre szól a befizetés (fizetett év) */}
+          {type === 'befizetes' && (
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-fizetettev" className="text-xs">
+                Melyik évre szól (fizetett év)
+              </Label>
+              <Input
+                id="edit-fizetettev"
+                type="number"
+                min={2000}
+                max={2100}
+                step={1}
+                value={fizetettevStr}
+                onChange={(e) => setFizetettevStr(e.currentTarget.value)}
+                disabled={saving}
+                placeholder={datum ? datum.slice(0, 4) : ''}
+              />
+              <p className="text-[11px] text-slate-500">
+                Elmaradás rendezésénél a KORÁBBI évet add meg — a tartozás-nyilvántartás ebből számol.
+              </p>
+            </div>
+          )}
 
           {/* Összeg */}
           <div className="space-y-1.5">
