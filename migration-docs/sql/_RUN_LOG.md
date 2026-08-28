@@ -21,6 +21,26 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
+## ✅ LEFUTOTT – pénzügy-átvilágítás (2026-08-27 / 2026-08-28)
+
+- [x] 2026-08-27 — **`docs/2026-08-27-belsotetel-1-meres.sql`** ✅ LEFUTOTT (mérés)
+- [x] 2026-08-27 — **`docs/2026-08-27-belsotetel-2-javitas.sql`** ✅ LEFUTOTT
+       A `szamadasicel.belsotetel` NULL-ok kitöltve. Endre külön kérése volt — a
+       mérés szerint semmi nem OLVASSA az oszlopot, tehát nem hibajavítás, hanem
+       az Excellel való egyezés helyreállítása.
+
+- [x] 2026-08-28 — **`docs/2026-08-27-hasonlo-tetel-indexek.sql`** ✅ LEFUTOTT
+       Mind a 4 kapu zöld: `idx_befizetes_dup_lookup` és `idx_kiadas_dup_lookup`
+       létrejött, **partial (`deleted = false`)** definícióval — tehát nem egy
+       korábbi, azonos nevű index maradt a helyükben.
+       Érintett sorszám (banki, nem belső mozgás, élő): **befizetés 36 · kiadás 196**.
+       ⚠️ A fájl definíciója 2026-05-02 óta állt a repóban, de **élesben sosem futott
+       le** — lásd a „a migrációs fájl nem bizonyíték" hibaosztályt.
+
+---
+
+---
+
 ## ✅ LEFUTOTT / 🔴 PENDING – gyülekezeti weboldal 2. kör (2026-08-27)
 
 - [x] 2026-08-27 — **`2026-08-27-ALLAPOTFELMERES-publikus-oldal.sql`** ✅ LEFUTOTT
