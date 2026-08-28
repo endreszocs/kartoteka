@@ -36,6 +36,14 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   kattintást, és ilyenkor ugyanazok a tételek kétszer kerültek be. Mostantól
   az első kattintás azonnal zárol, a második kattintás nem csinál semmit.
 
+- **Ha a köteges mentés félúton hibázik, semmi nem marad bent félig** (P0-8):
+  ha egy több soros bevétel-rögzítésben az egyik sor hibás volt, a rendszer
+  eddig a hibás sor ELŐTTI sorokat már elmentette — és az újramentés ezeket
+  duplán rögzítette. Mostantól hibánál a köteg MINDEN sora visszavonódik
+  (ahogy a kiadásoknál eddig is), és az üzenet ezt ki is mondja; javítás után
+  az egész köteg nyugodtan újramenthető. Ugyanezt a védelmet megkapta a
+  megyei/kerületi kiadás-rögzítés is.
+
 ---
 
 ## [2026-08-28] — A nyitó egyenlegnek egyetlen helye lett

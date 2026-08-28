@@ -791,8 +791,12 @@ async function insertIncomeRecord(params: {
     userid: userId,
   }
 
+  // P0-8: a beszúrt sor xkey-ét visszaadjuk (rollback-fallback azonosító, a
+  // kiadás-insert mintájára). A séma-drift ágon (modernPayload) nincs xkey.
+  let usedXkey: string | null = legacyCompatiblePayload.xkey
   let insertResult = await supabase.from('befizetes').insert([legacyCompatiblePayload]).select('id').single()
   if (insertResult.error && isMissingColumnError(insertResult.error.message)) {
+    usedXkey = null
     insertResult = await supabase.from('befizetes').insert([modernPayload]).select('id').single()
   }
 
@@ -802,6 +806,7 @@ async function insertIncomeRecord(params: {
 
   return {
     id: Number(insertResult.data?.id),
+    xkey: usedXkey,
     documentNumber,
   }
 }
@@ -2459,6 +2464,27 @@ export async function saveIncomeBatch(rows: IncomeBatchRowInput[]) {
   // bemeneti sorrendet megőrzi.
   const nyersSorok = (Array.isArray(rows) ? rows : []) as unknown[]
 
+  // P0-8 (audit 2026-08-28): a köteg MINDEN-VAGY-SEMMI — a kiadás-köteg
+  // 2026-08-09-i mintája szerint. Köztes sorhibánál az addig beszúrt bevételek
+  // is visszavonódnak, különben az újrapróbálkozás duplikálná őket. A tábla és
+  // a scope-oszlop a `scope.T`-ből jön, így a megyei/kerületi ág is a SAJÁT
+  // tábláján von vissza. (A 2026-08-11-én törölt `rollbackInsertedIncome` nem
+  // elvi döntés volt — csak az egyetlen hívója szűnt meg.)
+  const insertedIncomes: Array<{ id: number | null; xkey: string | null }> = []
+  const rollbackInsertedIncomes = async () => {
+    for (const rec of insertedIncomes) {
+      try {
+        if (Number.isFinite(rec.id) && (rec.id as number) > 0) {
+          await scope.supabase.from(scope.T.befizetes).update({ deleted: true }).eq('id', rec.id).eq(scope.T.scopeCol, scope.scopeId)
+        } else if (rec.xkey) {
+          await scope.supabase.from(scope.T.befizetes).update({ deleted: true }).eq('xkey', rec.xkey).eq(scope.T.scopeCol, scope.scopeId)
+        }
+      } catch {
+        /* best-effort — a többi sort ettől még visszavonjuk */
+      }
+    }
+  }
+
   for (let index = 0; index < parsed.data.length; index += 1) {
     const row = parsed.data[index]
     const result = scope.scope !== 'congregation'
@@ -2486,8 +2512,18 @@ export async function saveIncomeBatch(rows: IncomeBatchRowInput[]) {
         })
 
     if ('error' in result) {
-      return { error: `${index + 1}. sor: ${result.error}` }
+      await rollbackInsertedIncomes()
+      return {
+        error: insertedIncomes.length
+          ? `${index + 1}. sor: ${result.error} — a köteg minden bevétele visszavonva; javítsd a hibát és mentsd újra.`
+          : `${index + 1}. sor: ${result.error}`,
+      }
     }
+    insertedIncomes.push({
+      id: Number.isFinite(result.id) ? result.id : null,
+      // A felső szintű insert nem ad xkey-t — ott az id az azonosító.
+      xkey: 'xkey' in result && typeof result.xkey === 'string' ? result.xkey : null,
+    })
   }
 
   revalidatePath('/penzugy')
@@ -2521,13 +2557,16 @@ export async function saveExpenseBatch(rows: ExpenseBatchRowInput[]) {
   let anyInventory = false
   const insertedExpenses: Array<{ id: number | null; xkey: string | null }> = []
 
+  // P0-8 (audit 2026-08-28): a tábla és a scope-oszlop a `scope.T`-ből jön —
+  // így a FELSŐ SZINTŰ (megyei/kerületi) ág is a saját tábláján von vissza.
+  // Gyülekezeti scope-ban bitre azonos a korábbival ('kiadas' + congregation_id).
   const rollbackInsertedExpenses = async () => {
     for (const rec of insertedExpenses) {
       try {
         if (Number.isFinite(rec.id) && (rec.id as number) > 0) {
-          await scope.supabase.from('kiadas').update({ deleted: true }).eq('id', rec.id).eq('congregation_id', scope.scopeId)
+          await scope.supabase.from(scope.T.kiadas).update({ deleted: true }).eq('id', rec.id).eq(scope.T.scopeCol, scope.scopeId)
         } else if (rec.xkey) {
-          await scope.supabase.from('kiadas').update({ deleted: true }).eq('xkey', rec.xkey).eq('congregation_id', scope.scopeId)
+          await scope.supabase.from(scope.T.kiadas).update({ deleted: true }).eq('xkey', rec.xkey).eq(scope.T.scopeCol, scope.scopeId)
         }
       } catch {
         /* best-effort — a többi sort ettől még visszavonjuk */
@@ -2539,8 +2578,15 @@ export async function saveExpenseBatch(rows: ExpenseBatchRowInput[]) {
     const row = parsed.data[index]
 
     if (scope.scope !== 'congregation') {
+      // P0-8: a felső szintű ág is MINDEN-VAGY-SEMMI — korábban sem követés,
+      // sem visszavonás nem volt itt, a részleges köteg újramentése duplikált.
       if (row.inventory) {
-        return { error: `${index + 1}. sor: a leltárba vétel ${szintNeveRagozva(scope.scope)} módban nem elérhető — külön rögzítsd a kiadást és a leltári tételt.` }
+        await rollbackInsertedExpenses()
+        return {
+          error: insertedExpenses.length
+            ? `${index + 1}. sor: a leltárba vétel ${szintNeveRagozva(scope.scope)} módban nem elérhető — a köteg minden kiadása visszavonva; külön rögzítsd a kiadást és a leltári tételt.`
+            : `${index + 1}. sor: a leltárba vétel ${szintNeveRagozva(scope.scope)} módban nem elérhető — külön rögzítsd a kiadást és a leltári tételt.`,
+        }
       }
       const result = await insertFelsoSzintExpenseRecord({
         supabase: scope.supabase,
@@ -2550,8 +2596,17 @@ export async function saveExpenseBatch(rows: ExpenseBatchRowInput[]) {
         input: row,
       })
       if ('error' in result) {
-        return { error: `${index + 1}. sor: ${result.error}` }
+        await rollbackInsertedExpenses()
+        return {
+          error: insertedExpenses.length
+            ? `${index + 1}. sor: ${result.error} — a köteg minden kiadása visszavonva; javítsd a hibát és mentsd újra.`
+            : `${index + 1}. sor: ${result.error}`,
+        }
       }
+      insertedExpenses.push({
+        id: Number.isFinite(result.id) ? result.id : null,
+        xkey: null,
+      })
       continue
     }
 
