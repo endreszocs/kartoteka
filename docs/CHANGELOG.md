@@ -26,6 +26,7 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 ## [2026-08-29] — Számlák egyeztetése: új, feltöltés-első felület
 <!-- key: 2026-08-29-szamlak-egyeztetese-ux -->
 <!-- category: feature -->
+<!-- version: 0.9.197 -->
 <!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
 
 ### ✨ Új funkciók
