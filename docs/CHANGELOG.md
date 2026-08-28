@@ -44,6 +44,12 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   az egész köteg nyugodtan újramenthető. Ugyanezt a védelmet megkapta a
   megyei/kerületi kiadás-rögzítés is.
 
+- **Devizás tétel szerkesztésekor a lej-érték is frissül** (P0-6): ha egy
+  devizás (pl. eurós) tétel összegét a desktopon módosították, a lejben
+  számolt ellenérték eddig a régi maradt — az egyenleg a régi összeget
+  mutatta. Mostantól az összeg módosításakor a rendszer a tétel tárolt
+  árfolyamával automatikusan újraszámolja a lej-értéket is.
+
 - **A következő évi banki nyitó a javítások után is friss marad** (P0-3): ha
   egy tavalyi banki tételt utólag stornóztak, töröltek vagy szerkesztettek, a
   rendszer az idei automatikusan áthozott nyitó egyenleget eddig nem

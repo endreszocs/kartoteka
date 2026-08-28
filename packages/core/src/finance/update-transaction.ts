@@ -32,6 +32,14 @@ export interface UpdateTransactionInput {
   /** Csak akkor küldd, ha módosítható (az év utolsó tétele) — egyébként marad. */
   datum?: string
   osszeg?: number
+  /**
+   * P0-6 (audit 2026-08-28): devizás sor RON-ekvivalense és árfolyama.
+   * Ha a hívó nem küldi, az összeg módosításakor a use-case a sor TÁROLT
+   * árfolyamából számolja újra az osszeg_ron-t — enélkül az egyenleg a
+   * régi átváltott értéken maradt.
+   */
+  osszeg_ron?: number | null
+  arfolyam?: number | null
   megjegyzes?: string | null
   /** Jogcím: befizetes → id_befizetescel, kiadas → id_kiadascel. */
   id_cel?: number | null
@@ -198,7 +206,7 @@ export async function updateTransactionUseCase(
   // ellenőrzünk; ha új dátum is jön, a régi ÉS az új évre is.
   const { data: currentRow, error: currentErr } = await ctx.supabase
     .from(table)
-    .select('datum, bankszamla_id')
+    .select('datum, bankszamla_id, arfolyam')
     .eq('id', input.id)
     .eq('congregation_id', input.congregationId)
     .maybeSingle()
@@ -247,6 +255,22 @@ export async function updateTransactionUseCase(
   const updateData: Record<string, unknown> = {}
   if (input.datum !== undefined) updateData.datum = input.datum
   if (input.osszeg !== undefined) updateData.osszeg = input.osszeg
+  // P0-6 (audit 2026-08-28): devizás (árfolyamos) soron az összeg módosítása a
+  // RON-ekvivalenst is frissíti — enélkül az egyenleg és a totál (amely az
+  // osszeg_ron-t olvassa) a RÉGI átváltott értéken maradt. Az explicit hívói
+  // érték elsőbbséget élvez (a web S11-es útjának paritása).
+  if (input.osszeg_ron !== undefined) updateData.osszeg_ron = input.osszeg_ron
+  if (input.arfolyam !== undefined) updateData.arfolyam = input.arfolyam
+  if (
+    input.osszeg !== undefined &&
+    input.osszeg_ron === undefined &&
+    input.arfolyam === undefined
+  ) {
+    const aktArfolyam = Number((currentRow as { arfolyam?: number | null }).arfolyam)
+    if (Number.isFinite(aktArfolyam) && aktArfolyam > 0) {
+      updateData.osszeg_ron = Math.round(input.osszeg * aktArfolyam * 100) / 100
+    }
+  }
   if (input.megjegyzes !== undefined) updateData.megjegyzes = input.megjegyzes?.trim() || null
   if (input.iratszam !== undefined) updateData.iratszam = input.iratszam?.trim() || null
   if (input.id_cel !== undefined) {
