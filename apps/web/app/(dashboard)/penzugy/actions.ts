@@ -5215,13 +5215,30 @@ async function saveKasszaBankTransferPair(
   }
   const befIns = await supabase.from('befizetes').insert([befizetesPayload]).select('id').single()
   if (befIns.error) {
-    // Rollback: ne maradjon fél pár — a már beszúrt kiadás-oldalt töröljük
-    await supabase
-      .from('kiadas')
-      .update({ deleted: true })
-      .eq('id', kiaIns.data?.id as number)
-      .eq('congregation_id', congregationId)
-    return { error: `Belső mozgás (bevétel-oldal): ${befIns.error.message}` }
+    // Rollback: ne maradjon fél pár — a már beszúrt kiadás-oldalt töröljük.
+    // P0-13 (audit 2026-08-28): a visszavonás EREDMÉNYÉT is ellenőrizzük — ha
+    // az is elhasal (hálózat/RLS/0 érintett sor), a kiadás-láb bent maradt, és
+    // ezt KI KELL mondani, különben a fél átvezetés némán torzítja az egyenleget.
+    let rbOk = false
+    try {
+      const rb = await supabase
+        .from('kiadas')
+        .update({ deleted: true })
+        .eq('id', kiaIns.data?.id as number)
+        .eq('congregation_id', congregationId)
+        .select('id')
+      rbOk = !rb.error && Array.isArray(rb.data) && rb.data.length === 1
+    } catch {
+      rbOk = false
+    }
+    if (!rbOk) {
+      return {
+        error:
+          `Belső mozgás (bevétel-oldal): ${befIns.error.message} — FIGYELEM: a már beszúrt kiadás-oldal visszavonása sem sikerült, ` +
+          `egy fél átvezetés maradt a könyvben. Töröld kézzel a(z) „${label}" kiadás-sort (${data.datum}, ${data.osszeg} RON), majd rögzítsd újra az átvezetést.`,
+      }
+    }
+    return { error: `Belső mozgás (bevétel-oldal): ${befIns.error.message} — a kiadás-oldal visszavonva, fél pár nem maradt.` }
   }
 
   // 2026-07-11 (S6): ha VISSZAMENŐLEGESEN (pl. 2026-os nézetben 2025-ös dátummal)

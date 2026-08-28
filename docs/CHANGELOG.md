@@ -44,6 +44,12 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   az egész köteg nyugodtan újramenthető. Ugyanezt a védelmet megkapta a
   megyei/kerületi kiadás-rögzítés is.
 
+- **Fél kassza–bank átvezetés nem maradhat némán a könyvben** (P0-13): ha az
+  átvezetés rögzítésekor a második láb mentése hibázott, a rendszer eddig
+  megpróbálta visszavonni az első lábat, de nem ellenőrizte, hogy a
+  visszavonás sikerült-e. Mostantól ellenőrzi, és ha a visszavonás sem megy,
+  pontosan megmondja, melyik sort kell kézzel rendezni.
+
 - **Az egyházfenntartás-import nem duplikál hibázó ellenőrzés mellett** (P0-19):
   ha az importban a „szerepel-e már?" ellenőrzés maga hibázott (pl. hálózati
   akadozás), a rendszer eddig úgy vette, hogy a tétel új, és beszúrta — így az
