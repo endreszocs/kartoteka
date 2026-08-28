@@ -37,6 +37,7 @@
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { ADOMANY_KODOK } from '@kartoteka/core'
 import {
   AlertTriangle,
   ArrowDownRight,
@@ -453,19 +454,30 @@ export function BankTab({
       const cellId = bevCelMap[record.id_befizetescel || 0]
       const cellKod = cellId || ''
 
-      // Bank→személy feltételes logika:
-      //   - Járulék (101.01) esetén KELL tudnunk, ki fizetett → ha nincs személy/család, hiányos
-      //   - Egyéb bank-bevétel (adomány, bérleti díj, kamat) esetén a személy OPCIONÁLIS
-      //     (cég/szervezet átutalásnál a forrasa mező tartalmazza a partnert)
+      // Bank→személy feltételes logika (Endre 2026-08-28-i szabálya): a
+      // hiányzó-befizető jelzés CSAK ott indokolt, ahol tudni kell, KI
+      // fizetett — máshol (készpénzletét/belső mozgás, kamat, díjbevétel)
+      // eddig MINDEN bevételen világított, és csak zaj volt.
+      //   - Járulék (101.01): SZIGORÚ — személy/család kell (a tartozás-
+      //     nyilvántartás miatt; a szabad szöveges név nem elég);
+      //   - adomány/szponzor kódcsalád + bérjövedelmek: személy/család VAGY
+      //     név/cég szöveg elég (a cégnevet a rendszer megjegyzi);
+      //   - minden más kód: nincs jelzés.
       const requiresPerson = cellKod.startsWith('101.01')
+      const befizetoJelzesKell =
+        requiresPerson ||
+        ADOMANY_KODOK.some((k) => k.kod === cellKod) ||
+        ['101.06', '104.04', '104.05'].includes(cellKod)
       const hasSomeSource =
         !!record.id_szemely ||
         !!record.id_csalad ||
         !!(record.forrasa && record.forrasa.trim()) ||
         !!record.belso_mozgas_xkey
-      const hasMissingPerson = requiresPerson
-        ? !record.id_szemely && !record.id_csalad && !record.belso_mozgas_xkey
-        : !hasSomeSource
+      const hasMissingPerson = !befizetoJelzesKell
+        ? false
+        : requiresPerson
+          ? !record.id_szemely && !record.id_csalad && !record.belso_mozgas_xkey
+          : !hasSomeSource
 
       rows.push({
         id: record.id,

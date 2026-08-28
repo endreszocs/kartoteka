@@ -37,6 +37,14 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   „Melyik évre szól (fizetett év)" mező — a böngészőben és az asztali
   programban is —, és a tartozás-nyilvántartás ebből számol.
 
+- **A „nincs befizető" jelzés csak ott világít, ahol tényleg számít**: a
+  banki bevételek listáján eddig minden soron ott volt a narancssárga
+  felkiáltójel — a készpénzletéten és a kamaton is, ahol befizetőt
+  hozzárendelni nem is kell. Mostantól a jelzés csak az adományoknál, az
+  egyházfenntartásnál, a szponzortámogatásoknál és a bérjövedelmeknél
+  jelenik meg; az egyházfenntartásnál tag/család hozzárendelést kér (a
+  tartozás-nyilvántartás miatt), a többinél a név vagy cégnév is elég.
+
 ## [2026-08-28] — Pénzügyi átvilágítás: a D-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-d-blokk -->
 <!-- category: bugfix -->
