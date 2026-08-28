@@ -23,6 +23,47 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-29] — Pénzügyi nagytakarítás: pontos számok, hangos hibák, közös átvezetés-út
+<!-- key: 2026-08-29-penzugy-audit-d-e-blokk -->
+<!-- category: bugfix -->
+<!-- version: 0.9.198 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok, egyházmegyei adminok -->
+
+### 🐛 Javítások
+
+- **Egy közös út minden átvezetésnek**: a kassza↔bank és bank→bank átvezetés
+  a webben és az asztali programban mostantól ugyanazon a motoron fut. A
+  bank→bank átutalás végre KÖNYVELŐDIK is (kiadás a küldő, bevétel a fogadó
+  számlán) — eddig csak a nyilvántartásba került, és a számlánkénti egyenleg
+  nem látta. Devizás számlapárnál a rendszer őszintén megmondja, hogy kézi
+  könyvelés kell.
+- **Egységes nyugtaszám-logika**: a következő nyugtaszámot mind a négy
+  számoló ugyanazzal a szabállyal adja (stornózott szám újra kiadható, az
+  importált tételek is számítanak) — web és asztali program nem ajánl többé
+  eltérő számot.
+- **Vége a fantom-hátraléknak**: a járulék- és bérletidíj-számítás fillérre
+  kerekít — egy rendezett tag többé nem látszik „0,00 lej tartozás"-sal
+  hátralékosnak, és az egyenleg nem mutat „-0,00"-t.
+- **A hibák nem némák többé**: ha a Pénzügy oldal adatai nem tölthetők be, a
+  rendszer hibát mutat a hamis üres lista helyett; az import utáni listák
+  azonnal frissülnek; a bank-nyitó mentési hibája és a stornó számla-kaszkád
+  hibája hangos üzenetet kap.
+- **Zárt év védelme mindenhol**: a papírnyugta (chitanță) stornója év-zárat
+  ellenőriz és rögzíti a stornózó személyét; a Kukából való visszaállítás nem
+  enged zárt évbe visszaállítani, és foglalt iratszámra sem; a rejtett
+  év-zár-megkerülő kapcsolók végleg törölve.
+- **Pontosabb hivatalos nyomtatványok**: a leltár-jelentés pénzügyi sora a
+  könyvelési szabályokkal számol (stornó nélkül, lej-értéken); az éves
+  regiszter lapszámozása 10+ lapnál sem romlik el; a költségvetés-módosításban
+  a jogcím kinullázása is megjeleníthető.
+- **Asztali program**: a nyomtatás megvárja a teljes dokumentumot (nincs több
+  csonka ív); a szinkron-jelvény a régebbi évek rekedt tételeit is mutatja;
+  tartós internet-hiba nem billenti a tételeket téves „ütközés" állapotba;
+  a befizető neve ténylegesen mentésre kerül; a beragadt Excel-sorokról
+  látható figyelmeztető sáv szól; a pénzügyi adatok a háttérben is frissülnek.
+
+---
+
 ## [2026-08-29] — Számlák egyeztetése: új, feltöltés-első felület
 <!-- key: 2026-08-29-szamlak-egyeztetese-ux -->
 <!-- category: feature -->
