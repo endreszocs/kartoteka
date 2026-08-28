@@ -1018,6 +1018,7 @@ export function PenzugyPage() {
           incomeRecords={income}
           expenseRecords={expense}
           congregationName={congregationName}
+          congregationNameRo={congregationNameRo || undefined}
           carryoverCash={carryoverCash}
           carryoverBank={carryoverBank}
           currentYear={year}

@@ -48,7 +48,7 @@ import type { BelsomozgasListRow, TransferType } from '@kartoteka/validations'
 import { PageHero } from '@kartoteka/ui-app'
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
-import { enqueueTransferExcelRows } from '../lib/excel-enqueue'
+import { enqueueTransferExcelRows, enqueueTransferReversal } from '../lib/excel-enqueue'
 import { getDesktopSupabase } from '../lib/supabase'
 import { getDesktopUser } from '../lib/desktop-user'
 import { useSessionOnline } from '../lib/use-session-online'
@@ -654,6 +654,20 @@ function RecentTransfersSection({
         alert(`Törlés sikertelen: ${result.error}`)
         return
       }
+      // D12 (2026-08-28, Endre döntése): ha az átvezetés az Excel-úton volt,
+      // a törlés ellensort kap MINDKÉT érintett lapra — enélkül a törölt
+      // átvezetés bent maradt a hivatalos főkönyv összegeiben.
+      void enqueueTransferReversal({
+        belsomozgasId: row.id,
+        congregationId,
+        tipus: row.tipus,
+        datum: row.datum,
+        osszeg: row.osszeg,
+        bankNeve: row.tipus === 'kassza_bank' ? row.cel : row.forras,
+        celBankNeve: row.tipus === 'bank_bank' ? row.cel : undefined,
+        megjegyzes: row.megjegyzes,
+        reverzOk: 'torles',
+      })
       void loadList()
     } catch (err) {
       alert(`Törlési hiba: ${errorMessage(err)}`)

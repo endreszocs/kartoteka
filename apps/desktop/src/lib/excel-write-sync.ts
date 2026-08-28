@@ -24,6 +24,7 @@
 import { buildBankBankExcelRows, buildTransferExcelRows, type ExcelKasszaRow } from '@kartoteka/core'
 
 import { excelAppendRows } from './excel'
+import { excelKartotekaOsszevetes } from './excel-egyeztetes'
 import {
   getConfirmedLetterForBankId,
   getConfirmedLetterForBankName,
@@ -396,7 +397,44 @@ export async function pushPendingExcelRows(ignoreBackoff = false): Promise<Excel
     lastNote = `Az Excel-fájl nyitva van — ${lockedCount} tétel várakozik. Zárd be a fájlt, és magától bekerülnek.`
   }
 
+  // D12 (2026-08-28, Endre döntése): sikeres írás után — legfeljebb
+  // félóránként — AUTOMATIKUS Excel ↔ Kartotéka összevetés. Ez az EGYETLEN
+  // jelzés, ami a webes rögzítés Excel-kimaradását is megmutatja; eltérésnél
+  // a shell figyelmeztető sávot kap. Best-effort: a hibája nem állítja meg
+  // a syncet.
+  if (result.written > 0 && items.length > 0) {
+    void autoEgyeztetes(items[0].congregation_id, items[0].ev, adatokPathFor)
+  }
+
   return result
+}
+
+let utolsoAutoEgyeztetes = 0
+const AUTO_EGYEZTETES_KOZ_MS = 30 * 60 * 1000
+
+async function autoEgyeztetes(
+  congregationId: string,
+  ev: number,
+  adatokPathFor: (ev: number) => Promise<string | null>,
+): Promise<void> {
+  try {
+    const most = Date.now()
+    if (most - utolsoAutoEgyeztetes < AUTO_EGYEZTETES_KOZ_MS) return
+    utolsoAutoEgyeztetes = most
+    const adatokPath = await adatokPathFor(ev)
+    if (!adatokPath) return
+    const sorok = await excelKartotekaOsszevetes(adatokPath, congregationId, ev)
+    const eltero = sorok.filter((s) => s.egyezik === false)
+    if (eltero.length > 0 && typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('kartoteka:excel-elteres', {
+          detail: { ev, lapok: eltero.map((s) => s.lap) },
+        }),
+      )
+    }
+  } catch {
+    /* best-effort — az egyeztetés hibája nem hibáztatja a syncet */
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────

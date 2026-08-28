@@ -18,6 +18,7 @@ import {
 } from '@kartoteka/validations'
 
 import { refreshCarryoverBestEffort } from '../bank-import/nyito-egyenleg'
+import { belsoMozgasParEvei } from '../belsomozgas/par-evei'
 import { readYearFinalized } from '../year-lock'
 
 export interface StornoExpenseCtx {
@@ -108,24 +109,35 @@ export async function stornoExpenseUseCase(
     }
 
     // 2) Év-véglegesítés check (fail-CLOSED, lásd a fenti 2026-08-11 megjegyzést)
+    // D6 (audit 2026-08-28, web-paritás): kaszkádnál a pár MINDKÉT lábának
+    // évére — évfordulós átvezetésnél a másik láb MÁS (akár lezárt) évre eshet.
     if (!clean.skipYearFinalizedCheck && r.datum) {
-      const year = new Date(r.datum).getFullYear()
-      const lock = await readYearFinalized(ctx.supabase, clean.congregationId, year)
-      if (lock.unknown) {
-        return {
-          success: false,
-          error:
-            `A ${year}. évi számadás zárás-állapotát most nem sikerült ellenőrizni ` +
-            `(${lock.errorMessage || 'ismeretlen hiba'}), ezért a sztornót biztonságból ` +
-            'megszakítottuk — egy már lezárt évet nem nyithatunk ki véletlenül. Ellenőrizd ' +
-            'az internetkapcsolatot, és próbáld újra; ha újra hibázik, jelezd a rendszergazdának.',
-        }
+      const evek = new Set<number>([new Date(r.datum).getFullYear()])
+      if (cascadeInternalTransfer && r.belso_mozgas_xkey) {
+        const par = await belsoMozgasParEvei(
+          ctx.supabase, clean.congregationId, r.belso_mozgas_xkey, r.datum,
+        )
+        if ('error' in par) return { success: false, error: par.error }
+        for (const y of par.evek) evek.add(y)
       }
-      if (lock.finalized) {
-        return {
-          success: false,
-          error: `A ${year}. évi számadás már véglegesítve van. Kérj javítási engedélyt az egyházmegyétől, mielőtt sztornózol.`,
-          yearFinalized: true,
+      for (const year of evek) {
+        const lock = await readYearFinalized(ctx.supabase, clean.congregationId, year)
+        if (lock.unknown) {
+          return {
+            success: false,
+            error:
+              `A ${year}. évi számadás zárás-állapotát most nem sikerült ellenőrizni ` +
+              `(${lock.errorMessage || 'ismeretlen hiba'}), ezért a sztornót biztonságból ` +
+              'megszakítottuk — egy már lezárt évet nem nyithatunk ki véletlenül. Ellenőrizd ' +
+              'az internetkapcsolatot, és próbáld újra; ha újra hibázik, jelezd a rendszergazdának.',
+          }
+        }
+        if (lock.finalized) {
+          return {
+            success: false,
+            error: `A ${year}. évi számadás már véglegesítve van. Kérj javítási engedélyt az egyházmegyétől, mielőtt sztornózol.`,
+            yearFinalized: true,
+          }
         }
       }
     }

@@ -168,6 +168,12 @@ export async function importBcrTransactions(
     ),
   )
   if (activeYears.length > 0) {
+    // D8 (audit 2026-08-28, pontosítva ugyanaznap): a bank-import CSAK a
+    // SZÁMADÁS-zárra (accounting_finalized) blokkol. AZ ELV: a költségvetés-
+    // zár a NYITÓ EGYENLEGET védi — ezért a nyitó-panel és az Adatok-importáló
+    // (amely nyitót IS ír) mindkét zárra figyel, a bank-import viszont csak
+    // tranzakciót ír, és a költségvetés az év ELEJÉN véglegesül: a budget-zár
+    // itt az egész évi rutin banki importot fogta volna.
     const { data: lockRows, error: lockErr } = await access.supabase
       .from('bealitas')
       .select('id, accounting_finalized')
@@ -194,7 +200,10 @@ export async function importBcrTransactions(
           'próbáld újra; ha újra hibázik, jelezd a rendszergazdának.',
       }
     }
-    const closedYears = ((lockRows || []) as Array<{ id: string; accounting_finalized: boolean | null }>)
+    const closedYears = ((lockRows || []) as Array<{
+      id: string
+      accounting_finalized: boolean | null
+    }>)
       .filter((r) => r.accounting_finalized)
       .map((r) => Number(r.id))
       .sort((a, b) => a - b)

@@ -36,7 +36,7 @@ import type {
   SzamlaFeldolgozasEredmeny,
   SzamlaKiadasKapcsolat,
 } from '@/lib/dokumentumtar/szamla-types'
-import { parseUblSzamla, anafUuidFajlnevbol, type UblSzamlaMeta } from '@/lib/oblio/ubl-parser'
+import { parseUblSzamla, anafUuidFajlnevbol, SEMNATURA_TOKEN_RE, type UblSzamlaMeta } from '@/lib/oblio/ubl-parser'
 import {
   kibontSzamlaZip,
   parositSzamlaFajlok,
@@ -172,6 +172,15 @@ export async function feldolgozSzamlaZipDokumentum(
       continue
     }
     if (meta.tipus === 'ismeretlen') {
+      // 2026-08-28 (Endre hibajelzése): az ANAF aláírás-XML NEM hiba — kísérő
+      // fájl. A fájlnév-szűrő (zip-kibonto, token-minta) a tipikus neveket a
+      // kibontáskor már kiszűri; ez a GYÖKÉR-alapú háló a nem-szabványos
+      // nevűeket fogja (Signature gyökér-elem), hogy egy sikeres import ne
+      // mutasson piros hibákat.
+      if (/signature/i.test(meta.gyokerNev || '') || SEMNATURA_TOKEN_RE.test(par.xml.fajlnev)) {
+        eredmeny.kihagyott.push(`${par.xml.fajlnev} (ANAF aláírás-fájl — nem számla)`)
+        continue
+      }
       eredmeny.hibak.push(
         `${par.xml.fajlnev}: nem e-Factura számla-XML (a gyökér-elem nem Invoice/CreditNote).`,
       )

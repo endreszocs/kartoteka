@@ -28,6 +28,9 @@
 export interface UblSzamlaMeta {
   /** Az XML gyökere: Invoice = számla, CreditNote = jóváíró. */
   tipus: 'szamla' | 'jovairo' | 'ismeretlen'
+  /** A gyökér-elem neve — az 'ismeretlen' típus osztályozásához (pl. a
+   *  Signature-gyökerű ANAF aláírás-fájl nem hiba, hanem kísérő fájl). */
+  gyokerNev: string | null
   /** Számlaszám (a gyökér-szintű cbc:ID). */
   szamlaszam: string | null
   /** Kiállítás dátuma (YYYY-MM-DD). */
@@ -336,6 +339,7 @@ function normalizalDatum(s: string | null): string | null {
 export function parseUblSzamla(xmlText: string, fallbackUuid?: string | null): UblSzamlaMeta {
   const meta: UblSzamlaMeta = {
     tipus: 'ismeretlen',
+    gyokerNev: null,
     szamlaszam: null,
     kiallitasDatum: null,
     fizetesiHatarido: null,
@@ -367,6 +371,7 @@ export function parseUblSzamla(xmlText: string, fallbackUuid?: string | null): U
   }
 
   // ─── Dokumentum-típus ───
+  meta.gyokerNev = root.nev || null
   if (root.nev === 'Invoice') meta.tipus = 'szamla'
   else if (root.nev === 'CreditNote') meta.tipus = 'jovairo'
 
@@ -438,6 +443,18 @@ export function parseUblSzamla(xmlText: string, fallbackUuid?: string | null): U
 // ─────────────────────────────────────────────────────────────────
 // Fájlnév-segédek (a böngészős parserrel azonos szemantika, regex nélkül)
 // ─────────────────────────────────────────────────────────────────
+
+/**
+ * 2026-08-28 (Endre hibajelzése, élesben elsült): az ANAF SPV tömeges ZIP-je
+ * (Documente_*.zip) az aláírás-fájlokat `<CÉG>_<SOROZAT>_semnatura_<index>.xml`
+ * néven adja — a `semnatura` a fájlnév KÖZEPÉN áll. A korábbi szűrők csak a
+ * `semnatura_` KEZDETŰ nevet fogták, így 14 aláírás-fájl számlaként próbált
+ * parszolódni, és a felület 14 piros hibát mutatott egy sikeres importra.
+ * A token-minta a `semnatura` szót _ / - / . határolók közt fogja, a név
+ * elején VAGY közepén — a hasonló, de más szavakat (semnificativ) nem.
+ * KÖZÖS minta: a zip-kibonto és az oblio-folder is ezt importálja.
+ */
+export const SEMNATURA_TOKEN_RE = /(^|[_\-.])semnatura([_\-.]|$)/i
 
 /**
  * Fájlnév-gyök: kiterjesztés(ek) levágva (akár .xml.zip halmozva), az ANAF

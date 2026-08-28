@@ -15,6 +15,7 @@
 import { z } from 'zod'
 
 import { localTodayIso } from '../local-date'
+import { CENT_UZENET, isCentPontos } from '../money'
 
 const TRANSFER_TYPES = ['kassza_bank', 'bank_kassza', 'bank_bank', 'valutacsere'] as const
 export type TransferType = (typeof TRANSFER_TYPES)[number]
@@ -77,8 +78,9 @@ export const saveInternalTransferInputSchema = z
     cel: z.string().trim().min(1, 'A cél kötelező').max(100),
     osszeg: z
       .number({ message: 'Az összeg kötelező' })
-      .positive('Az összeg pozitív szám kell legyen'),
-    cel_osszeg: z.number().positive().optional().nullable(),
+      .positive('Az összeg pozitív szám kell legyen')
+      .refine(isCentPontos, CENT_UZENET),
+    cel_osszeg: z.number().positive().refine(isCentPontos, CENT_UZENET).optional().nullable(),
     arfolyam: z.number().positive().optional().nullable(),
     megjegyzes: z.string().trim().max(500).optional().nullable(),
     /**

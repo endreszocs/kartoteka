@@ -23,6 +23,113 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-28] — Pénzügyi átvilágítás: a D-blokk javításai
+<!-- key: 2026-08-28-penzugy-audit-d-blokk -->
+<!-- category: bugfix -->
+<!-- version: 0.9.195 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🐛 Javítások
+
+- **Az asztali sztornó is figyeli az átvezetés mindkét oldalának évét**: egy
+  kassza–bank átvezetés két lába évfordulónál két KÜLÖNBÖZŐ évre eshet
+  (kassza-oldal december 31., bank-oldal január 2.). A böngészős felület már
+  eddig is mindkét oldal évét ellenőrizte sztornó előtt — az asztali program
+  viszont csak a kattintott sorét, így egy már véglegesített és beküldött év
+  tételét is csendben módosíthatta. Mostantól a két változat azonosan
+  viselkedik: ha az átvezetés bármelyik oldala lezárt évre esik, a sztornó
+  (és a visszavonása) érthető üzenettel megáll.
+
+- **Pótlás rögzítésekor az iratszám a helyes év sorozatából jön (offline)**:
+  ha valaki egy korábbi évre szóló elmaradást (pótlást) rögzített internet
+  nélkül, az asztali program az iratszámot tévedésből a KORÁBBI év
+  számsorozatából vette el — lyukat ütve annak az évnek a hézagmentes,
+  hivatalos sorozatába. Mostantól az iratszám mindig a rögzítés könyvelési
+  évének (a pénztári nap évének) sorozatából jön, ahogy internettel is;
+  a „melyik évre szól" jelölés természetesen marad a korábbi év.
+
+- **Fillérnél (baninál) pontosabb összeg nem menthető**: a rendszer eddig
+  elfogadott két tizedesnél pontosabb összeget is (ilyen kézzel nem, csak
+  számított értékből — pl. deviza-átváltásból — keletkezhetett). Az ilyen
+  összegnél a képernyő, az adatbázis és az Excel-főkönyv kerekítése
+  széthúzhatott, és a hivatalos ív oszlopösszege banira elcsúszhatott.
+  Mostantól minden rögzítő és szerkesztő felület baniban pontos összeget
+  vár, és érthető üzenettel jelez, ha nem az. A szerkesztő ablak összegét
+  ráadásul eddig csak a böngésző ellenőrizte — mostantól a szerver is
+  (nulla és negatív összeg sem csúszhat át). A tárolt adatok ellenőrzése
+  megtörtént: fillérpontatlan összeg nincs a rendszerben, javítani semmit
+  nem kellett.
+
+- **Egyértelmű szabály: melyik zár mit véd az importoknál**: a költségvetés
+  véglegesítése a NYITÓ EGYENLEGET védi (a költségvetés arra épül) — ezért
+  a nyitó egyenleg panel és az Excel-adatimportáló (amely nyitót is ír)
+  mindkét zárra figyel. A banki kivonat-import viszont csak tételeket
+  rögzít, ezért az — a többi tétel-rögzítővel azonosan — a számadás-zárra
+  figyel: az év elején véglegesített költségvetés így nem akasztja meg az
+  évközi rutin banki importot.
+
+- **Az asztali nyomtatványok a kiválasztott év adataival készülnek**: ha az
+  asztali programban egy KORÁBBI év számadását vagy költségvetését
+  nyomtattad, az ív a mostani év véglegesítés-állapotával ment ki, a
+  presbitériumi határozat száma és dátuma nélkül, és csak magyar fejléccel.
+  Mostantól — a böngészős felülettel azonosan — a kiválasztott év saját
+  beállításai kerülnek az ívre (véglegesítés, határozat), a fejléc és a
+  lábléc kétnyelvű, és ha az év adatai nem tölthetők be, a nyomtatás
+  inkább megáll egy magyarázattal, mint hogy hibás hivatalos papír
+  készüljön.
+
+- **A lezárt évet mostantól maga az adatbázis is védi**: eddig a
+  véglegesített évbe új tétel rögzítését csak a programfelület akadályozta
+  meg — egy elavult programverzió vagy egy közvetlen adatbázis-hívás
+  mellette elmehetett, és a beküldött számadás csendben elavulhatott.
+  Mostantól az adatbázis maga is elutasítja az ilyen beírást, méghozzá a
+  beírás pillanatában — így az az eset is kizárt, amikor a rögzítés és a
+  véglegesítés éppen egyszerre történt. A feloldás (javítási engedély)
+  után minden a megszokott módon működik. (Ehhez a
+  2026-08-28-zart-ev-insert-trigger.sql lefuttatása szükséges — bármikor
+  futtatható, a program nem függ tőle.)
+
+- **A böngészős rögzítés is ugyanolyan szigorúan ellenőriz, mint az
+  asztali**: az asztali program eddig is elutasította a hibás „melyik évre
+  szól" értéket (pl. elgépelt 20026), a tag ÉS család egyszerre
+  hozzárendelését, meg a túl hosszú szövegeket — a böngészős felület
+  viszont átengedte őket. Mostantól a két felület azonos szabályok szerint
+  ellenőriz rögzítéskor.
+
+- **A számla-ZIP feltöltése nem mutat álhibákat**: az ANAF-ból letöltött
+  tömeges ZIP minden számla mellé egy aláírás-fájlt is tesz, aminek a
+  nevében a „semnatura" szó középen áll — a rendszer ezeket számlaként
+  próbálta beolvasni, és egy tökéletesen sikeres feltöltésre is piros
+  hibalistát mutatott. Mostantól az aláírás-fájlokat felismeri és
+  csendben félreteszi (a „kihagyott" számlálóban látszanak), a hibalista
+  csak valódi hibát mutat.
+
+- **A dokumentumtár nem ragadhat be a „Betöltés…" feliraton**: ha a lista
+  betöltése közben megszakadt a kapcsolat (vagy épp frissült a rendszer),
+  az oldal eddig szó nélkül, örökre a betöltés-feliraton állt. Mostantól
+  ilyenkor érthető hibaüzenet és Újrapróbálás gomb jelenik meg.
+
+- **Egységes szabály: tételt nem törlünk, hanem sztornózunk**: a böngészős
+  felület szabálya (2026. június óta) mostantól az asztali programban is
+  érvényes — a bevétel- és kiadás-listák Törlés gombja megszűnt, helyette
+  a Sztornó használandó. A sztornó indoklással érvénytelenít: a tétel
+  áthúzva, a sztornózás okával együtt látható marad a listában, de az
+  egyenlegekből és az összesítőkből kimarad — így a könyvelés utólag is
+  nyomon követhető, ellenőrizhető. A kassza–bank átvezetés eltávolítása
+  továbbra is a Belső mozgások listából megy (ott a rendszer a pár mindkét
+  oldalát egyszerre viszi).
+
+- **A hivatalos Excel-főkönyv nem húzhat szét csendben a Kartotékától**:
+  eddig a kassza–bank átvezetés törlése vagy sztornója az Excelben nem
+  kapott ellensort — a törölt átvezetés bent maradt az Excel összegeiben.
+  Mostantól az átvezetés törlése és sztornója is ellensort ír mindkét
+  érintett lapra (Kassza + bank betű-lap). Ezen felül az asztali program a
+  sikeres Excel-írások után — legfeljebb félóránként — automatikusan
+  összeveti az Excel és a Kartotéka összegeit, és ha eltérést talál (pl.
+  mert egy tétel a böngészőben rögzült, ami az Excelbe nem kerül be),
+  jól látható figyelmeztető sávot mutat, egy kattintással megnyitható
+  egyeztetéssel.
+
 ## [2026-08-28] — Pénzügyi átvilágítás: a B-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-b-blokk -->
 <!-- category: security -->

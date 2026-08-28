@@ -23,6 +23,7 @@
  */
 
 export * from './local-date'
+export * from './money'
 export * from './finance/chitanta-tomb'
 export * from './finance/chitanta-issue'
 export * from './finance/chitanta-row'

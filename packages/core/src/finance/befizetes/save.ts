@@ -400,17 +400,23 @@ async function saveIncomeOfflineBranch(
 ): Promise<SaveIncomeResultOrError> {
   const localId = generateLocalBefizetesId()
 
-  // 1) Atomikus szám-kivétel a wallet-ből
+  // 1) Atomikus szám-kivétel a wallet-ből.
+  // D15 (audit 2026-08-28): az iratszám ÉVE a könyvelési (datum-) év — az
+  // online generátor is abból számol. A `year` a fizetettev (pótlásnál pl.
+  // 2024), és a foglalás eddig ABBÓL a pool-ból vett: a rossz év hivatalos,
+  // hézagmentes sorozatából égett el szám. A fizetettev mező lentebb
+  // változatlanul a jogcím-évet tárolja.
+  const iratszamEv = new Date(clean.datum).getFullYear()
   const claim = await backend.claimNextIratszamNumber(
     clean.congregationId,
     'befizetes',
-    year,
+    iratszamEv,
     localId,
   )
   if (!claim) {
     return {
       success: false,
-      error: `Üres az offline iratszám-tárca a(z) ${year}-as évre. Csatlakozz a hálózatra, és tölts fel legalább egy sorszámot (Iratszám-tárca panel → +10 szám).`,
+      error: `Üres az offline iratszám-tárca a(z) ${iratszamEv}-es évre. Csatlakozz a hálózatra, és tölts fel legalább egy sorszámot (Iratszám-tárca panel → +10 szám).`,
       walletEmpty: true,
     }
   }

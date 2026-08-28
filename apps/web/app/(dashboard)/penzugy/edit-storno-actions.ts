@@ -28,6 +28,7 @@
 import { revalidatePath } from 'next/cache'
 
 import { refreshCarryoverBestEffort } from '@kartoteka/core'
+import { CENT_UZENET, isCentPontos } from '@kartoteka/validations'
 import {
   financeWriteBlock,
   getFinanceScopeContext,
@@ -231,6 +232,23 @@ export async function updateTransactionBasic(
   if (writeBlock) return writeBlock
   const T = tablesFor(ctx.scope)
   const table = input.type === 'befizetes' ? T.befizetes : T.kiadas
+
+  // D2 (audit 2026-08-28): szerver-oldali összeg-validálás — eddig SEMMI nem
+  // ellenőrizte itt az összeget (a kliens-oldali toast megkerülhető): negatív,
+  // nulla és sub-centes érték is átment. A core use-case (desktop-út) paritása.
+  if (input.osszeg !== undefined) {
+    if (!Number.isFinite(input.osszeg) || input.osszeg <= 0) {
+      return { error: 'Az összeg pozitív szám legyen.' }
+    }
+    if (!isCentPontos(input.osszeg)) return { error: CENT_UZENET }
+  }
+  if (
+    input.osszeg_ron !== undefined &&
+    input.osszeg_ron !== null &&
+    !isCentPontos(input.osszeg_ron)
+  ) {
+    return { error: CENT_UZENET }
+  }
 
   // 2026-08-11 (5. kör, P0 adat-integritás): HIBA VOLT — a véglegesített-év
   // ellenőrzés az `if (input.datum)` ágon BELÜL futott, a hívó szerkesztő
