@@ -44,6 +44,13 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   az egész köteg nyugodtan újramenthető. Ugyanezt a védelmet megkapta a
   megyei/kerületi kiadás-rögzítés is.
 
+- **Devizás tételek a tétel NAPJÁNAK árfolyamán** (P0-18): az idei devizás
+  banki tételek eddig a MAI árfolyamon váltódtak lejre a tétel napjának
+  árfolyama helyett; a desktop pedig egyáltalán nem kért napi árfolyamot.
+  Mostantól mindkét változat a tétel napjához tartozó hivatalos BNR/ECB
+  kurzust használja — a web és a desktop ugyanarra a kivonatra ugyanazt a
+  lej-értéket könyveli. (Csak devizás — EUR/HUF — bankszámlát érint.)
+
 - **A desktop banki importja sem csúsztathat dátumot** (P0-23): a webes
   bank-import 2026 júniusában kapott egy dátum-javítást (bizonyos Excel-cellák
   egy nappal korábbra csúsztak román időzónában) — ez a javítás a desktop

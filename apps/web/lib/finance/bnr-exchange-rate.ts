@@ -25,6 +25,8 @@
  * visszaadódik, és a UI-ban a felhasználó manuálisan adhat meg árfolyamot.
  */
 
+import { localTodayIso } from '@kartoteka/validations'
+
 const BNR_URL = 'https://www.bnr.ro/nbrfxrates.xml'
 /** BNR éves historikus XML — pl. 2025-ra: nbrfxrates2025.xml. */
 const BNR_YEARLY_URL = (year: number) =>
@@ -92,15 +94,17 @@ async function fetchWithTimeout(
 export async function fetchBnrRates(targetDate?: string): Promise<BnrFetchResult> {
   const isHistorical = !!targetDate
   const targetYear = targetDate ? Number(targetDate.slice(0, 4)) : new Date().getFullYear()
-  const currentYear = new Date().getFullYear()
-  const isCurrentYear = targetYear === currentYear
 
   // 1. kísérlet: BNR
-  //   - AKTUÁLIS évre a napi XML (közvetlen, frissebb)
-  //   - HISTORIKUS évre az éves XML + esetleg az ELŐZŐ év utolsó napi
-  //     publikációja (mert január 1-2 ünnep, a nyitót december 31 zárja)
+  //   - a MAI kérésre a napi XML (közvetlen, frissebb)
+  //   - MINDEN történelmi dátumra (az ideiekre is!) az éves XML + január 1-re
+  //     az ELŐZŐ év utolsó publikációja (a nyitót december 31 zárja)
+  //
+  // P0-18 (audit 2026-08-28): korábban az AKTUÁLIS ÉV BÁRMELY történelmi
+  // dátuma is a napi (MAI) XML-t kapta — az idei devizás bank-import minden
+  // tétele a mai kurzuson konvertálódott a tétel-napi árfolyam helyett.
   try {
-    if (!isHistorical || isCurrentYear) {
+    if (!isHistorical || targetDate === localTodayIso()) {
       const resp = await fetchWithTimeout(BNR_URL, {
         next: { revalidate: 3600 },
         headers: {
