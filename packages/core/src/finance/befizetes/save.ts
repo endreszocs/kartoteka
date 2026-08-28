@@ -485,9 +485,11 @@ async function saveIncomeOfflineBranch(
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'ismeretlen'
-    // A lokális sor megmarad, a wallet-szám foglalt — a user „Sync most"-tal
-    // újra-enqueue-olhatja. A `walletEmpty`-t nem hozzuk vissza, mert nem a
-    // wallet a hibás.
+    // A lokális sor megmarad, a wallet-szám foglalt. P0-20 (2026-08-28) óta a
+    // pusher árva-söprője (befizetes-write-sync sweepOrphanBefizetesPending)
+    // a következő futáskor — online-esemény / 30 mp poll / „Sync most" —
+    // automatikusan újra-enqueue-olja. A `walletEmpty`-t nem hozzuk vissza,
+    // mert nem a wallet a hibás.
     return {
       success: false,
       error: `Offline outbox-mentés hiba: ${msg}. A befizetés lokálisan elmentve, de a szinkronizációs sor frissítése sikertelen.`,

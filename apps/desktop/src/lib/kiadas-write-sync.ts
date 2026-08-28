@@ -20,6 +20,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { enqueueEntryExcelRow } from './excel-enqueue'
+import { dbSelect } from './local-db'
 import { getDesktopSupabase } from './supabase'
 import { getTauriSqliteBackend } from './tauri-sqlite-backend'
 import { getVerifiedSession } from './verified-session'
@@ -55,6 +56,82 @@ export interface KiadasPushResult {
   errors: string[]
 }
 
+/**
+ * P0-20 (audit 2026-08-28): árva pending-sorok visszasorolása — a
+ * befizetes-write-sync söprőjének kiadás-oldali tükre (részletes indoklás ott).
+ */
+async function sweepOrphanKiadasPending(
+  backend: ReturnType<typeof getTauriSqliteBackend>,
+  errors: string[],
+): Promise<void> {
+  try {
+    const orphans = await dbSelect<{
+      id: string
+      congregation_id: string
+      xkey: string
+      osszeg: number
+      datum: string
+      id_kiadascel: number
+      atvevoid: number | null
+      atvevo: string | null
+      iratszam: string
+      irattipus: string
+      megjegyzes: string | null
+      vonatkozo_idoszak: string | null
+      kedvezmenyezett_cui: string | null
+      is_potlas: number
+      bankszamla_id: number | null
+      userid: string
+      created_at: string
+    }>(
+      `SELECT id, congregation_id, xkey, osszeg, datum, id_kiadascel,
+              atvevoid, atvevo, iratszam, irattipus, megjegyzes,
+              vonatkozo_idoszak, kedvezmenyezett_cui, is_potlas,
+              bankszamla_id, userid, created_at
+         FROM kiadas_pending_local
+        WHERE sync_state = 'pending'
+          AND server_id IS NULL
+          AND id NOT IN (
+            SELECT target_id FROM outbox
+             WHERE target_table = 'kiadas' AND mutation_id IS NOT NULL
+          )`,
+    )
+    for (const r of orphans) {
+      await backend.enqueueMutation({
+        id: r.id,
+        table: 'kiadas',
+        pk: r.id,
+        kind: 'insert',
+        payload: {
+          xkey: r.xkey,
+          osszeg: r.osszeg,
+          datum: r.datum,
+          id_kiadascel: r.id_kiadascel,
+          iratszam: r.iratszam,
+          nyugta: r.iratszam,
+          irattipus: r.irattipus,
+          megjegyzes: r.megjegyzes ?? null,
+          deleted: false,
+          congregation_id: r.congregation_id,
+          atvevoid: r.atvevoid ?? null,
+          atvevo: r.atvevo || null,
+          kedvezmenyezett_cui: r.kedvezmenyezett_cui || null,
+          vonatkozo_idoszak: r.vonatkozo_idoszak || null,
+          is_potlas: Boolean(r.is_potlas),
+          bankszamla_id: r.bankszamla_id ?? null,
+          userid: r.userid,
+        },
+        attempts: 0,
+        createdAt: r.created_at,
+      })
+    }
+  } catch (err) {
+    errors.push(
+      `Árva pending-söprés hiba (kiadás): ${err instanceof Error ? err.message : 'ismeretlen'}`,
+    )
+  }
+}
+
 export async function pushPendingKiadas(
   supabase: SupabaseClient = getDesktopSupabase(),
   ignoreBackoff = false,
@@ -75,6 +152,10 @@ export async function pushPendingKiadas(
   }
 
   const backend = getTauriSqliteBackend()
+
+  // P0-20: az árva (outbox nélküli) pending sorok visszasorolása, MIELŐTT
+  // az outboxot olvasnánk — így ugyanebben a futásban fel is megy a tétel.
+  await sweepOrphanKiadasPending(backend, result.errors)
 
   let mutations: Awaited<ReturnType<typeof backend.getPendingMutations>>
   try {

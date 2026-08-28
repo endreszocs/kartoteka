@@ -44,6 +44,13 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   az egész köteg nyugodtan újramenthető. Ugyanezt a védelmet megkapta a
   megyei/kerületi kiadás-rögzítés is.
 
+- **Az offline rögzített tétel nem ragadhat be véglegesen** (P0-20): ritka
+  esetben (ha a mentés két belső lépése között az alkalmazás összeomlott) az
+  offline rögzített tétel a gépen látszott, de a szinkronizáció soha nem
+  küldte fel a felhőbe — és ezt semmi nem jelezte. Mostantól minden
+  szinkronizáció elején a rendszer megkeresi az így beragadt tételeket és
+  automatikusan sorba állítja őket — a régebben beragadtakat is.
+
 - **Devizás tételek a tétel NAPJÁNAK árfolyamán** (P0-18): az idei devizás
   banki tételek eddig a MAI árfolyamon váltódtak lejre a tétel napjának
   árfolyama helyett; a desktop pedig egyáltalán nem kért napi árfolyamot.
