@@ -44,6 +44,12 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   az egész köteg nyugodtan újramenthető. Ugyanezt a védelmet megkapta a
   megyei/kerületi kiadás-rögzítés is.
 
+- **A desktop banki importja is tiszteli a lezárt évet** (P0-4): a
+  véglegesített és beküldött évbe a webes importáló eddig sem engedett
+  tételt — a desktop banki importja viszont igen. A védelem most a közös
+  magba került: lezárt évbe egyik változatból sem lehet kivonatot importálni,
+  feloldást (javítási engedélyt) az egyházmegyétől kell kérni.
+
 - **Az offline rögzített tétel nem ragadhat be véglegesen** (P0-20): ritka
   esetben (ha a mentés két belső lépése között az alkalmazás összeomlott) az
   offline rögzített tétel a gépen látszott, de a szinkronizáció soha nem

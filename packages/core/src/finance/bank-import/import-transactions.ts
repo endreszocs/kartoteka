@@ -25,6 +25,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // 2026-07-11 (S6): visszamenőleges rögzítésnél a következő évi 'carryover'
 // nyitó újraszámolásához. (A nyito-egyenleg.ts CSAK típusokat importál innen,
 // így futásidejű kör-import nem keletkezik.)
+import { assertYearsNotFinalizedForCreate } from '../year-lock'
 import { refreshNextYearCarryoverUseCase } from './nyito-egyenleg'
 // 2026-08-27: a kanonikus belső-mozgás kódpár — TISZTA, import nélküli modul,
 // hogy FUTTATHATÓ teszttel legyen bizonyítható (selftest-belso-mozgas-kodpar.mjs),
@@ -451,6 +452,21 @@ export async function importBankTransactionsUseCase(
   }
   if (!ctx.userId) return { ...emptyResult, error: 'Nincs bejelentkezve.' }
   if (!input.congregationId) return { ...emptyResult, error: 'Nincs aktív gyülekezet.' }
+
+  // P0-4 (audit 2026-08-28): ÉV-ZÁR a KÖZÖS magban — a webes wrapper eddig is
+  // ellenőrzött a saját rétegében, de a desktop hívó semmit: véglegesített
+  // (beküldött) évbe is be lehetett importálni a kivonatot, némán elévültetve
+  // a beadott számadás-pillanatképet. A nyito-egyenleg.ts elve szerint a
+  // mellékutak nem lehetnek gyengébbek a kanonikus helynél, ezért a kapu itt,
+  // az ELSŐ insert előtt fut (fail-closed a core year-lock szerint).
+  const evZarHiba = await assertYearsNotFinalizedForCreate(
+    ctx.supabase,
+    input.congregationId,
+    input.items.filter((i) => i.action !== 'skip').map((i) => i.date),
+  )
+  if (evZarHiba) {
+    return { ...emptyResult, totalItems: input.items.length, error: evZarHiba }
+  }
 
   const items = input.items
   const result: BankImportResult = {
