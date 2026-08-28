@@ -65,6 +65,18 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   egyeztetése felületen töltötted fel és kapcsoltad a kiadáshoz — nem csak
   a mappa-alapú Oblio-egyezéseknél.
 
+### 🐛 Javítások
+
+- **A nyugtaszám-javaslat mindenhol ugyanazt a számot adja**: eddig négy,
+  kissé eltérő számítás élt (böngésző, asztali program, bevétel- és
+  kiadás-oldal), ezért ugyanarra a helyzetre más-más következő iratszám
+  jöhetett — a kiadás-oldalon ráadásul 1000 tétel fölött már használt
+  szám is felajánlódhatott. Mostantól egy szabály él mindenhol: a
+  sztornózott tétel száma újra kiadható, az importált tételek is a
+  sorozat részei, és a teljes állomány számít (nincs néma levágás).
+  A duplikátum-ellenőrzés is ugyanezt a szabályt követi — megszűnt az a
+  zsákutca, hogy a rendszer felajánl egy számot, majd elutasítja.
+
 ## [2026-08-28] — Banki tételek: fizetett év + célzott jelzések + kísérőív
 <!-- key: 2026-08-28-banki-fizetettev-eszrevetelek -->
 <!-- category: improvement -->
