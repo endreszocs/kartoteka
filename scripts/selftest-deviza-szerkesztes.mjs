@@ -56,7 +56,10 @@ function ellenoriz(src) {
   const fn = iFn >= 0 ? s.slice(iFn) : ''
   if (!fn) { hibak.push('az updateTransactionUseCase nem található (fail-closed)'); return hibak }
 
-  if (!/\.select\('datum, bankszamla_id, arfolyam'\)/.test(fn)) {
+  // 2026-08-28 (P0-7 után): a select-lista azóta bővült (belso_mozgas_xkey) —
+  // itt azt őrizzük, hogy az `arfolyam` BENNE VAN a beolvasott oszlopok közt,
+  // a lista további bővülését tűrve. Az arfolyam kivétele továbbra is bukás.
+  if (!/\.select\('datum, bankszamla_id, arfolyam[^']*'\)/.test(fn)) {
     hibak.push('a sor-lekérdezés nem olvassa be az arfolyam-ot — az újraszámoláshoz kell')
   }
   if (!/if \(input\.osszeg_ron !== undefined\) updateData\.osszeg_ron = input\.osszeg_ron/.test(fn)) {
