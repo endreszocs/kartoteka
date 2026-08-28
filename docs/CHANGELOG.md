@@ -26,6 +26,7 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 ## [2026-08-28] — Pénzügyi átvilágítás: a D-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-d-blokk -->
 <!-- category: bugfix -->
+<!-- version: 0.9.195 -->
 <!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
 
 ### 🐛 Javítások
