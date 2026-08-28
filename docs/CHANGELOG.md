@@ -66,6 +66,16 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   költségvetésű évbe még be tudott írni. Mostantól mindhárom út ugyanarra
   a két zárra figyel („egy hely, és onnan számoljon mindent").
 
+- **Az asztali nyomtatványok a kiválasztott év adataival készülnek**: ha az
+  asztali programban egy KORÁBBI év számadását vagy költségvetését
+  nyomtattad, az ív a mostani év véglegesítés-állapotával ment ki, a
+  presbitériumi határozat száma és dátuma nélkül, és csak magyar fejléccel.
+  Mostantól — a böngészős felülettel azonosan — a kiválasztott év saját
+  beállításai kerülnek az ívre (véglegesítés, határozat), a fejléc és a
+  lábléc kétnyelvű, és ha az év adatai nem tölthetők be, a nyomtatás
+  inkább megáll egy magyarázattal, mint hogy hibás hivatalos papír
+  készüljön.
+
 ## [2026-08-28] — Pénzügyi átvilágítás: a B-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-b-blokk -->
 <!-- category: security -->

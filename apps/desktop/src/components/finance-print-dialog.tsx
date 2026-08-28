@@ -21,6 +21,7 @@ import {
   buildDispozitieHtml,
   buildFinancePrintDocument,
   buildBudgetPrintDocument,
+  hivatalosHatarozatMezok,
   FINANCE_PRINT_TYPES,
   BUDGET_PRINT_TYPES,
   type BefitetesRow,
@@ -84,6 +85,14 @@ type YearRecordsPayload = {
   /** 2026-08-11 (6. kör, web-paritás): sikerült-e a nyitók FELOLDÁSA. A
    *  részszámadás minden száma a nyitóra épül — `false` esetén nem nyomtatunk. */
   nyitoOk?: boolean
+  /** D11 (2026-08-28, a web 2026-08-15-i javításának paritása): a KIVÁLASZTOTT
+   *  év bealitas-sora — a véglegesítés-zászló és a presbitériumi határozat
+   *  ebből jön, nem a lap évének settings-éből. `null` = az évhez nincs sor
+   *  (tehát tényszerűen nincs véglegesítés sem). */
+  evBealitas?: BealitasRow | null
+  /** false = a bealitas-sor lekérése hibázott — a budget-típusú ívek fail-closed
+   *  blokkolódnak (hamis véglegesítés-állapottal nem készül aláírható papír). */
+  evBealitasOk?: boolean
   nyitoBizonytalan?: boolean
 }
 
@@ -255,16 +264,35 @@ export function DesktopFinancePrintDialog({
         const code = r.id_kiadascel ? kiaCelMap[r.id_kiadascel] : undefined
         if (code) actualExpense[code] = (actualExpense[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
       }
+      // D11 (audit 2026-08-28, a web 2026-08-15-i javításának paritása): a
+      // véglegesítés-zászló és a presbitériumi határozat a KIVÁLASZTOTT évé —
+      // eddig a LAP évének settings-e ment MINDEN évre, határozat-mezők nélkül.
+      // Fail-closed: ha az év sora nem tölthető be, nem készül aláírható ív
+      // hamis véglegesítés-állapottal.
+      let evSettings: BealitasRow | null
+      if (yr) {
+        if (yr.evBealitasOk !== true) {
+          return blockedPreview(
+            'A nyomtatvány most nem készíthető el',
+            `A(z) ${filters.selectedYear}. évi pénzügyi beállítások (véglegesítés, presbitériumi határozat) nem tölthetők be, ezért az ív hamis véglegesítés-állapottal készülne. Ellenőrizd az internetkapcsolatot, és próbáld újra.`,
+          )
+        }
+        evSettings = yr.evBealitas ?? null
+      } else {
+        evSettings = settings
+      }
       const printData: BudgetPrintData = {
         cellek,
         budgetRows: filters.budgetRows as Record<string, BudgetCompatRow>,
         actualIncome,
         actualExpense,
         congregationName,
+        congregationNameRo,
         year: filters.selectedYear,
         carryoverCash: carryoverCashUse,
         carryoverBank: carryoverBankUse,
-        finalized: isSzamadas ? !!settings.accounting_finalized : !!settings.budget_finalized,
+        finalized: isSzamadas ? !!evSettings?.accounting_finalized : !!evSettings?.budget_finalized,
+        ...hivatalosHatarozatMezok(evSettings, isSzamadas ? 'szamadas' : 'koltsegvetes'),
       }
 
       // ── RÉSZSZÁMADÁS: időszaki nyitó/záró + fail-closed kapuk ──
@@ -357,8 +385,9 @@ export function DesktopFinancePrintDialog({
     carryoverCash,
     carryoverBank,
     bankNyitoMap,
-    settings.accounting_finalized,
-    settings.budget_finalized,
+    // D11: a teljes settings-objektum — a határozat-mezők is innen jönnek a
+    // folyó évnél; a két zászló-dep önmagában BEFAGYASZTOTT határozatot adna.
+    settings,
   ])
 
   const onLoadYearRecords = useCallback(async (year: number): Promise<unknown> => {
@@ -371,6 +400,8 @@ export function DesktopFinancePrintDialog({
       carryoverCash: 0,
       carryoverBank: 0,
       nyitoOk: false,
+      evBealitas: null,
+      evBealitasOk: false,
     }
     if (!(await isOnlineWithSession())) {
       onToastRef.current?.('A múltbeli évek nyomtatásához internetkapcsolat és belépés szükséges.', 'warning')
@@ -400,6 +431,15 @@ export function DesktopFinancePrintDialog({
         supabase.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron, bankszamla_id')
           .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
       ])
+      // D11 (2026-08-28): a KIVÁLASZTOTT év bealitas-sora — a véglegesítés
+      // zászlaja és a presbitériumi határozat ebből jön az ívre, nem a lap
+      // évének settings-éből. (A `bealitas.id` az év, stringként.)
+      const evBealitasRes = await supabase
+        .from('bealitas')
+        .select('*')
+        .eq('congregation_id', congregationId)
+        .eq('id', String(year))
+        .maybeSingle()
       const firstErr = bevRes.error || kiaRes.error || prevBevRes.error || prevKiaRes.error
       if (firstErr) {
         onToastRef.current?.(`A(z) ${year}. évi tételek betöltése sikertelen: ${firstErr.message}`, 'error')
@@ -465,6 +505,8 @@ export function DesktopFinancePrintDialog({
         bankNyitoMap: resolvedBankMap,
         nyitoOk: resolved.success,
         nyitoBizonytalan,
+        evBealitas: (evBealitasRes.data as BealitasRow | null) ?? null,
+        evBealitasOk: !evBealitasRes.error,
       } satisfies YearRecordsPayload
     } catch (e) {
       onToastRef.current?.(`A(z) ${year}. évi tételek betöltése sikertelen: ${errorMessage(e)}`, 'error')
