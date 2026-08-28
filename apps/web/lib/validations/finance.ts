@@ -18,22 +18,30 @@ const irattipusSchema = z.string().trim().min(1, 'Az irattípus kötelező').max
 
 // ── Bevétel ──────────────────────────────────────────────────
 
+// D1 (audit 2026-08-28): a web-sémák a pkg (desktop-út) sémáival AZONOS
+// kényszereket kapnak — fizetettev-tartomány, tag∧család kölcsönös kizárás,
+// szöveghossz-plafonok. A két felület széthúzása a repó visszatérő
+// hibaosztálya; a lazább web-oldal korlátlan szöveget és 20026-os
+// fizetett évet is átengedett.
 export const incomeSchema = z.object({
   osszeg: z.number({ message: 'Az összeg kötelező' }).positive('Az összeg pozitív szám kell legyen').refine(isCentPontos, CENT_UZENET),
   datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Érvénytelen dátum'),
   id_befizetescel: z.number({ message: 'Válasszon kategóriát' }),
-  id_szemely: z.number().nullable().optional(),
-  id_csalad: z.number().nullable().optional(),
-  forrasa: z.string().nullable().optional(),
-  iratszam: z.string().nullable().optional(),
+  id_szemely: z.number().int().positive().nullable().optional(),
+  id_csalad: z.number().int().positive().nullable().optional(),
+  forrasa: z.string().trim().max(100).nullable().optional(),
+  iratszam: z.string().trim().max(50).nullable().optional(),
   // #3 (Endre): gyülekezeti saját sorszám → befizetes.nyugta (a kerületi = iratszam mellett).
-  nyugta: z.string().nullable().optional(),
+  nyugta: z.string().trim().max(50).nullable().optional(),
   irattipus: irattipusSchema,
-  fizetettev: z.number().nullable().optional(),
-  megjegyzes: z.string().nullable().optional(),
+  fizetettev: z.number().int().min(2000).max(2100).nullable().optional(),
+  megjegyzes: z.string().trim().max(500).nullable().optional(),
 }).refine(
   data => data.datum <= today(),
   { message: 'Jövőbeli dátum nem engedélyezett', path: ['datum'] }
+).refine(
+  data => !(data.id_szemely && data.id_csalad),
+  { message: 'Egy befizetés vagy tag vagy család — nem mindkettő.', path: ['id_szemely'] }
 )
 
 export type IncomeInput = z.infer<typeof incomeSchema>
@@ -68,14 +76,14 @@ export type LinkedInventoryFromExpenseInput = z.infer<typeof linkedInventoryFrom
 export const incomeBatchRowSchema = z.object({
   datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Érvénytelen dátum'),
   id_befizetescel: z.number({ message: 'Válasszon kategóriát' }),
-  forrasa: z.string().nullable().optional(),
+  forrasa: z.string().trim().max(100).nullable().optional(),
   osszeg: z.number({ message: 'Az összeg kötelező' }).positive('Az összeg pozitív szám kell legyen').refine(isCentPontos, CENT_UZENET),
-  iratszam: z.string().nullable().optional(),
+  iratszam: z.string().trim().max(50).nullable().optional(),
   // #3 (Endre): gyülekezeti saját sorszám → befizetes.nyugta (a kerületi = iratszam mellett).
-  nyugta: z.string().nullable().optional(),
+  nyugta: z.string().trim().max(50).nullable().optional(),
   irattipus: irattipusSchema,
-  fizetettev: z.number().nullable().optional(),
-  megjegyzes: z.string().nullable().optional(),
+  fizetettev: z.number().int().min(2000).max(2100).nullable().optional(),
+  megjegyzes: z.string().trim().max(500).nullable().optional(),
   // #4b / B1 (Endre): a befizetés személyhez vagy családhoz kapcsolása (kölcsönösen
   // kizáró). A Tétel rögzítője küldi (tag-kereső / Családi nyugta); a séma eddig
   // kistrippelte, ezért a kapcsolás nem mentődött — most átengedjük.
@@ -84,6 +92,9 @@ export const incomeBatchRowSchema = z.object({
 }).refine(
   data => data.datum <= today(),
   { message: 'Jövőbeli dátum nem engedélyezett', path: ['datum'] }
+).refine(
+  data => !(data.id_szemely && data.id_csalad),
+  { message: 'Egy befizetés vagy tag vagy család — nem mindkettő.', path: ['id_szemely'] }
 )
 
 export const incomeBatchSchema = z.array(incomeBatchRowSchema).min(1, 'Legalább egy bevételi sor szükséges')
@@ -96,12 +107,12 @@ export const expenseSchema = z.object({
   osszeg: z.number({ message: 'Az összeg kötelező' }).positive('Az összeg pozitív szám kell legyen').refine(isCentPontos, CENT_UZENET),
   datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Érvénytelen dátum'),
   id_kiadascel: z.number({ message: 'Válasszon kategóriát' }),
-  kedvezmenyzett: z.string().nullable().optional(),
-  id_szemely: z.number().nullable().optional(),
-  iratszam: z.string().nullable().optional(),
-  bizonylatszam: z.string().nullable().optional(),
+  kedvezmenyzett: z.string().trim().max(200).nullable().optional(),
+  id_szemely: z.number().int().positive().nullable().optional(),
+  iratszam: z.string().trim().max(50).nullable().optional(),
+  bizonylatszam: z.string().trim().max(50).nullable().optional(),
   irattipus: irattipusSchema,
-  megjegyzes: z.string().nullable().optional(),
+  megjegyzes: z.string().trim().max(500).nullable().optional(),
   is_inventory: z.boolean().optional(),
 }).refine(
   data => data.datum <= today(),
@@ -113,11 +124,11 @@ export type ExpenseInput = z.infer<typeof expenseSchema>
 export const expenseBatchRowSchema = z.object({
   datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Érvénytelen dátum'),
   id_kiadascel: z.number({ message: 'Válasszon kategóriát' }),
-  kedvezmenyzett: z.string().nullable().optional(),
+  kedvezmenyzett: z.string().trim().max(200).nullable().optional(),
   osszeg: z.number({ message: 'Az összeg kötelező' }).positive('Az összeg pozitív szám kell legyen').refine(isCentPontos, CENT_UZENET),
-  iratszam: z.string().nullable().optional(),
+  iratszam: z.string().trim().max(50).nullable().optional(),
   irattipus: irattipusSchema,
-  megjegyzes: z.string().nullable().optional(),
+  megjegyzes: z.string().trim().max(500).nullable().optional(),
   is_inventory: z.boolean().optional(),
   // 2026-08-09: pénzügy→leltár híd — a sorhoz kapcsolt leltári tétel adatai.
   inventory: linkedInventoryFromExpenseSchema.nullable().optional(),

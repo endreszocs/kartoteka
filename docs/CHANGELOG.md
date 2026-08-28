@@ -87,6 +87,13 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   2026-08-28-zart-ev-insert-trigger.sql lefuttatása szükséges — bármikor
   futtatható, a program nem függ tőle.)
 
+- **A böngészős rögzítés is ugyanolyan szigorúan ellenőriz, mint az
+  asztali**: az asztali program eddig is elutasította a hibás „melyik évre
+  szól" értéket (pl. elgépelt 20026), a tag ÉS család egyszerre
+  hozzárendelését, meg a túl hosszú szövegeket — a böngészős felület
+  viszont átengedte őket. Mostantól a két felület azonos szabályok szerint
+  ellenőriz rögzítéskor.
+
 ## [2026-08-28] — Pénzügyi átvilágítás: a B-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-b-blokk -->
 <!-- category: security -->
