@@ -39,6 +39,14 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   viselkedik: ha az átvezetés bármelyik oldala lezárt évre esik, a sztornó
   (és a visszavonása) érthető üzenettel megáll.
 
+- **Pótlás rögzítésekor az iratszám a helyes év sorozatából jön (offline)**:
+  ha valaki egy korábbi évre szóló elmaradást (pótlást) rögzített internet
+  nélkül, az asztali program az iratszámot tévedésből a KORÁBBI év
+  számsorozatából vette el — lyukat ütve annak az évnek a hézagmentes,
+  hivatalos sorozatába. Mostantól az iratszám mindig a rögzítés könyvelési
+  évének (a pénztári nap évének) sorozatából jön, ahogy internettel is;
+  a „melyik évre szól" jelölés természetesen marad a korábbi év.
+
 ## [2026-08-28] — Pénzügyi átvilágítás: a B-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-b-blokk -->
 <!-- category: security -->
