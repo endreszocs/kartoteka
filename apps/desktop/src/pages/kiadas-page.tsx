@@ -25,7 +25,6 @@ import {
   Download,
   RefreshCw,
   Search,
-  Trash2,
   WifiOff,
 } from 'lucide-react'
 
@@ -45,11 +44,9 @@ import {
   listKiadasCelekUseCase,
   saveExpenseUseCase,
   searchMembersForFinanceUseCase,
-  softDeleteExpenseUseCase,
   stornoExpenseUseCase,
   type ListExpenseResult,
   type SaveExpenseResultOrError,
-  type SoftDeleteExpenseResult,
   type StornoExpenseResult,
 } from '@kartoteka/core'
 import {
@@ -816,7 +813,8 @@ function RecentExpenseSection({
   const [stornoError, setStornoError] = useState<string | null>(null)
   const [stornoSuccessMsg, setStornoSuccessMsg] = useState<string | null>(null)
 
-  const [deleteSubmitting, setDeleteSubmitting] = useState<number | null>(null)
+  // D13 (Endre döntése, 2026-08-28): a sor-szintű Törlés MEGSZŰNT — a webes
+  // szabály (2026-06-20) a kánon: tételt nem törlünk, hanem sztornózunk.
 
   // A-M7.9b — pending lokál sorok (offline-rögzített, sync-re vár / conflict)
   const [pendingRows, setPendingRows] = useState<PendingKiadasRow[]>([])
@@ -938,36 +936,6 @@ function RecentExpenseSection({
       setStornoError(`Sztornó-hiba: ${errorMessage(err)}`)
     } finally {
       setStornoSubmitting(false)
-    }
-  }
-
-  async function handleDelete(row: KiadasListRow) {
-    if (
-      !window.confirm(
-        `Biztosan törlöd a ${row.iratszam} sz. kiadást (${row.osszeg.toLocaleString('hu')} RON)? Visszaállítható.`,
-      )
-    ) {
-      return
-    }
-    setDeleteSubmitting(row.id)
-    try {
-      const supabase = getDesktopSupabase()
-      const profile = await getLocalOwnProfile(userId)
-      const congregationId = profile?.congregation_id
-      if (!congregationId) return
-      const result: SoftDeleteExpenseResult = await softDeleteExpenseUseCase(
-        { congregationId, kiadasId: row.id },
-        { supabase, runtime: 'desktop', userId },
-      )
-      if (!result.success) {
-        alert(`Törlés sikertelen: ${result.error}`)
-        return
-      }
-      void loadList()
-    } catch (err) {
-      alert(`Törlési hiba: ${errorMessage(err)}`)
-    } finally {
-      setDeleteSubmitting(null)
     }
   }
 
@@ -1187,17 +1155,6 @@ function RecentExpenseSection({
                           >
                             <Ban className="mr-1.5 size-3.5" />
                             Sztornó
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void handleDelete(r)}
-                            disabled={deleteSubmitting === r.id}
-                            className="border-rose-200 text-rose-800 hover:bg-rose-50"
-                          >
-                            <Trash2 className="mr-1.5 size-3.5" />
-                            {deleteSubmitting === r.id ? 'Törlés…' : 'Törlés'}
                           </Button>
                         </>
                       )}

@@ -2745,6 +2745,20 @@ export async function deleteTransaction(type: 'befizetes' | 'kiadas', id: number
   }
   const r = rec as { datum: string | null; belso_mozgas_xkey: string | null }
 
+  // D13 (Endre döntése, 2026-08-28): a weben 2026-06-20 óta nincs törlés-gomb
+  // (csak sztornó) — ez a végpont mégis élt, és egy nyers POST-tal BÁRMELY
+  // tételt törölt volna. Mostantól KIZÁRÓLAG a kassza↔bank átvezetés lábát
+  // fogadja el (annak az eltávolítása a hivatalos út: a rendszer a pár
+  // mindkét oldalát viszi) — minden másra a sztornó a szabály.
+  if (!r.belso_mozgas_xkey) {
+    return {
+      error:
+        'Pénzügyi tételt nem törlünk, hanem sztornózunk — így a könyvelés nyomon követhető ' +
+        'marad. Használd a Sztornó gombot (indoklással): a sztornózott tétel áthúzva látszik, ' +
+        'és az összesítőkből kimarad.',
+    }
+  }
+
   // Belső mozgás: a törlés MINDKÉT oldalt (bevétel + kiadás sort) érinti, ezért
   // MINDKETTŐ évét ellenőrizni kell — egy év végi kassza↔bank átvezetés két
   // oldala eltérő évre eshet, és ilyenkor a zárt év oldalának eltüntetése

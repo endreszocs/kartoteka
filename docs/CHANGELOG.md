@@ -109,6 +109,16 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   az oldal eddig szó nélkül, örökre a betöltés-feliraton állt. Mostantól
   ilyenkor érthető hibaüzenet és Újrapróbálás gomb jelenik meg.
 
+- **Egységes szabály: tételt nem törlünk, hanem sztornózunk**: a böngészős
+  felület szabálya (2026. június óta) mostantól az asztali programban is
+  érvényes — a bevétel- és kiadás-listák Törlés gombja megszűnt, helyette
+  a Sztornó használandó. A sztornó indoklással érvénytelenít: a tétel
+  áthúzva, a sztornózás okával együtt látható marad a listában, de az
+  egyenlegekből és az összesítőkből kimarad — így a könyvelés utólag is
+  nyomon követhető, ellenőrizhető. A kassza–bank átvezetés eltávolítása
+  továbbra is a Belső mozgások listából megy (ott a rendszer a pár mindkét
+  oldalát egyszerre viszi).
+
 ## [2026-08-28] — Pénzügyi átvilágítás: a B-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-b-blokk -->
 <!-- category: security -->

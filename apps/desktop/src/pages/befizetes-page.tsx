@@ -25,7 +25,6 @@ import {
   Download,
   RefreshCw,
   Search,
-  Trash2,
   WifiOff,
 } from 'lucide-react'
 
@@ -46,11 +45,9 @@ import {
   listIncomeUseCase,
   saveIncomeUseCase,
   searchMembersForFinanceUseCase,
-  softDeleteIncomeUseCase,
   stornoIncomeUseCase,
   type ListIncomeResult,
   type SaveIncomeResultOrError,
-  type SoftDeleteIncomeResult,
   type StornoIncomeResult,
 } from '@kartoteka/core'
 import {
@@ -877,8 +874,10 @@ function RecentIncomeSection({
   // Sztornó cascade-visszajelzés (A-M7.3d3) — pár mp-ig látható success-üzenet
   const [stornoSuccessMsg, setStornoSuccessMsg] = useState<string | null>(null)
 
-  // Törlés állapot
-  const [deleteSubmitting, setDeleteSubmitting] = useState<number | null>(null)
+  // D13 (Endre döntése, 2026-08-28): a sor-szintű Törlés MEGSZŰNT — a webes
+  // szabály (2026-06-20) a kánon: tételt nem törlünk, hanem sztornózunk
+  // (indoklással, nyomon követhetően). A kassza↔bank átvezetés eltávolítása
+  // a Belső mozgások listából megy (a mester törlése mindkét lábat viszi).
 
   // Cél-ID → név map (a lista-megjelenítéshez, ha az use-case join nem adott nevet)
   const celNevById = new Map(celek.map((c) => [c.id, c.nev]))
@@ -1035,36 +1034,6 @@ function RecentIncomeSection({
       setStornoError(`Sztornó-hiba: ${errorMessage(err)}`)
     } finally {
       setStornoSubmitting(false)
-    }
-  }
-
-  async function handleDelete(row: BefizetesListRow) {
-    if (
-      !window.confirm(
-        `Biztosan törlöd a ${row.iratszam} sz. befizetést (${row.osszeg.toLocaleString('hu')} RON)? Visszaállítható — a sor a DB-ben marad „törölve" jelzéssel.`,
-      )
-    ) {
-      return
-    }
-    setDeleteSubmitting(row.id)
-    try {
-      const supabase = getDesktopSupabase()
-      const profile = await getLocalOwnProfile(userId)
-      const congregationId = profile?.congregation_id
-      if (!congregationId) return
-      const result: SoftDeleteIncomeResult = await softDeleteIncomeUseCase(
-        { congregationId, befizetesId: row.id },
-        { supabase, runtime: 'desktop', userId },
-      )
-      if (!result.success) {
-        alert(`Törlés sikertelen: ${result.error}`)
-        return
-      }
-      void loadList()
-    } catch (err) {
-      alert(`Törlési hiba: ${errorMessage(err)}`)
-    } finally {
-      setDeleteSubmitting(null)
     }
   }
 
@@ -1339,17 +1308,6 @@ function RecentIncomeSection({
                         >
                           <Ban className="mr-1.5 size-3.5" />
                           Sztornó
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void handleDelete(r)}
-                          disabled={deleteSubmitting === r.id}
-                          className="border-rose-200 text-rose-800 hover:bg-rose-50"
-                        >
-                          <Trash2 className="mr-1.5 size-3.5" />
-                          {deleteSubmitting === r.id ? 'Törlés…' : 'Törlés'}
                         </Button>
                       </>
                     )}
