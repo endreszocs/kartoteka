@@ -44,6 +44,14 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   az egész köteg nyugodtan újramenthető. Ugyanezt a védelmet megkapta a
   megyei/kerületi kiadás-rögzítés is.
 
+- **Offline rögzítésnél is él a lezárt év védelme** (P0-5): eddig internet
+  nélkül a desktop egy már véglegesített és beküldött évbe is engedett
+  készpénzes tételt rögzíteni, és a későbbi szinkronizáció szó nélkül be is
+  küldte. Mostantól két réteg véd: a gép a legutóbbi szinkron alapján már
+  rögzítéskor jelzi a zárt évet, a felküldés előtt pedig a rendszer a
+  szerveren is újra ellenőriz — ha az évet időközben lezárták, a tétel nem
+  megy fel, hanem feloldandó ütközésként jelenik meg.
+
 - **A desktop banki importja is tiszteli a lezárt évet** (P0-4): a
   véglegesített és beküldött évbe a webes importáló eddig sem engedett
   tételt — a desktop banki importja viszont igen. A védelem most a közös

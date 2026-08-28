@@ -22,6 +22,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { readYearFinalized } from '@kartoteka/core'
+
 import { enqueueEntryExcelRow } from './excel-enqueue'
 import { dbSelect } from './local-db'
 import { getDesktopSupabase } from './supabase'
@@ -208,6 +210,50 @@ export async function pushPendingBefizetes(
         )
       }
       continue
+    }
+
+    // P0-5 (audit 2026-08-28): zárt-év újra-ellenőrzés KÖZVETLENÜL a push
+    // előtt. Az offline rögzítés óta az évet a weben véglegesíthették — a
+    // rögzítéskori (lokális tükrös) kapu csak a tükör frissességéig lát.
+    // Véglegesített év → konfliktus (nem néma insert); nem-olvasható
+    // állapot → fail-closed retry (backoff), most nem push-olunk.
+    const evSzam = Number(String(payload.datum ?? '').slice(0, 4))
+    if (Number.isFinite(evSzam) && evSzam >= 2000) {
+      const evZar = await readYearFinalized(
+        supabase,
+        String(payload.congregation_id ?? ''),
+        evSzam,
+      )
+      if (evZar.unknown) {
+        try {
+          await backend.updateMutationAttempt(mutation.id, {
+            attempts: mutation.attempts + 1,
+            lastAttemptAt: nowIso,
+            lastError: `Év-zár ellenőrzés sikertelen: ${evZar.errorMessage ?? 'ismeretlen'}`,
+          })
+          result.retrying += 1
+        } catch (err) {
+          result.errors.push(
+            `Mutation-frissítés hiba: ${err instanceof Error ? err.message : 'ismeretlen'}`,
+          )
+        }
+        continue
+      }
+      if (evZar.finalized) {
+        try {
+          await backend.markBefizetesConflict(
+            mutation.pk,
+            `A(z) ${evSzam}. évi számadás időközben véglegesítve lett — az offline rögzített tétel nem küldhető fel. Kérj feloldást (javítási engedélyt) az egyházmegyétől.`,
+          )
+          await backend.removeMutation(mutation.id)
+          result.conflicts += 1
+        } catch (err) {
+          result.errors.push(
+            `Conflict-jelölés hiba: ${err instanceof Error ? err.message : 'ismeretlen'}`,
+          )
+        }
+        continue
+      }
     }
 
     try {
