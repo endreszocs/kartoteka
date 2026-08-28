@@ -81,3 +81,16 @@ SELECT tipus, szoveg FROM (
   WHERE NOT EXISTS (SELECT 1 FROM bef_dup) AND NOT EXISTS (SELECT 1 FROM kia_dup)
 ) osszes
 ORDER BY rendezo, szoveg;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- DÖNTÉS (2026-08-28, a fenti felmérés éles eredménye alapján — D4 LEZÁRVA):
+-- az index-predikátum NEM szigorítható. Az élő ismétlődések LEGITIMEK:
+--   · Chit. (104 csoport / 271 sor): EGY nyomtatott chitanță TÖBB befizetőt
+--     fed (családi/többsoros nyugta) — a sorok jogosan osztoznak a számon;
+--   · Extr (5+12 csoport): a havi kivonatszám dokumentáltan ismétlődik
+--     (lásd: bank_iratszam_extr_op_semantika — „NE javítsd");
+--   · banki (3 csoport): kivonaton belüli díjcsoportok (pl. incasare-comision).
+-- A chitanță-kiállítás duplikátum-védelme az issue_chitanta_atomic RPC-ben
+-- (FOR UPDATE + idempotencia-kapu, P0-12) és az app-oldali dup-checkben él.
+-- A meglévő '%észpénz%' partial UNIQUE index változatlanul marad.
+-- ═══════════════════════════════════════════════════════════════════════════
