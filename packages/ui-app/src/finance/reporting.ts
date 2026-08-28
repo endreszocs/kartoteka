@@ -1346,10 +1346,16 @@ export function buildFinancePrintDocument(
     return buildNyugtatombKimutatas(data, filters.year)
   }
 
-  // A kiadási kísérőívet külön kell hívni (buildKiadasiKiseroiv)
+  // P4-37 (audit 2026-08-28): a kiadási kísérőív SAJÁT buildert igényel
+  // (buildKiadasiKiseroiv, más paraméter-szerkezettel). Korábban ez az ág
+  // NÉMÁN Registru Casát adott vissza — ma mindkét dialógus kiszűri a
+  // típust, de egy jövőbeli hívó rossz HIVATALOS dokumentumot kapott volna
+  // hibajelzés nélkül. Hangos hiba a néma csapda helyett.
   if (type === 'kiadasi_kiseroiv') {
-    const monthToUse = filters.month || new Date().getMonth() + 1
-    return buildRegistruCasa(data, { ...filters, month: monthToUse })
+    throw new Error(
+      'A kiadási kísérőívet a buildKiadasiKiseroiv() készíti (saját paraméterekkel) — ' +
+        'a buildFinancePrintDocument erre a típusra nem használható.',
+    )
   }
 
   // Csoportnapló — jogcímenként, az EGÉSZ időszakra csoportosítva (NEM hónaponként iterálva)
@@ -1383,8 +1389,13 @@ export function buildFinancePrintDocument(
     const bodyMatch = monthResult.html.match(/<body>([\s\S]*)<\/body>/)
     if (bodyMatch) {
       pageNum += 1
-      // Cseréljük a pg. 1-et pg. {pageNum}-re
-      const pageContent = bodyMatch[1].replace(/pg\.\s*1/, `pg. ${pageNum}`)
+      // P3-15 (audit 2026-08-28): HATÁROLT csere — a korábbi /pg\.\s*1/ a
+      // „pg. 10", „pg. 11"… lapszámok ELEJÉT is találta, és a Jurnal
+      // folytatólagos (builder-számozta) lapszámait hónap-sorszámmal rontotta
+      // el 10+ lapnál. A \b miatt csak a MAGÁBAN ÁLLÓ „pg. 1" cserélődik
+      // (az egylapos havi ívek bedrótozott száma); a saját folytatólagos
+      // számozást hordozó lapokhoz nem nyúlunk.
+      const pageContent = bodyMatch[1].replace(/pg\.\s*1\b/, `pg. ${pageNum}`)
       pages.push(pageContent)
     }
   }

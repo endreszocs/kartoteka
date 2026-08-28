@@ -328,15 +328,9 @@ export interface BudgetPrintData {
   periodFrom?: string
   periodTo?: string
 
-  // ── 2026-08-14 (K2): a hivatalos 113–134. záró blokk adatai ─────────────
-  /** Év végi KÉSZPÉNZ egyenleg (114. sor). Ha nincs, a papíron „—" áll. */
-  zaroCasa?: number
-  /** Év végi BANKI egyenleg (115. sor). Ha nincs, a papíron „—" áll. */
-  zaroBanca?: number
-  /** Tartozások (Datorii) — hivatalos sorszám (117–127) → összeg. Hiányzó sor = 0. */
-  tartozasok?: Record<number, number>
-  /** Kintlévőségek (Creanțe) — hivatalos sorszám (129–133) → összeg. Hiányzó sor = 0. */
-  kintlevosegek?: Record<number, number>
+  // P3-24 (audit 2026-08-28): a korábbi K2-es 113–134. mezőnégyes
+  // (zaroCasa/zaroBanca/tartozasok/kintlevosegek) KIVEZETVE — a renderelő
+  // 2026-08-15 óta (Endre döntése) nem olvasta őket, halott adat-út volt.
   /** Véglegesítve van-e (költségvetés/számadás). Csak ekkor jelenik meg a
    *  presbitériumi határozat + egyházközségi iktatószám a nyomtatványon. */
   finalized?: boolean
