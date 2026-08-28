@@ -44,6 +44,12 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   az egész köteg nyugodtan újramenthető. Ugyanezt a védelmet megkapta a
   megyei/kerületi kiadás-rögzítés is.
 
+- **Az offline Excel-visszatöltés nem csúsztatja el a dátumokat** (P0-22): ha
+  az offline munkafájlba kézzel, szövegként írt dátum került (pl.
+  „2025.01.07"), a visszatöltés eddig egy nappal korábbra — év elején az
+  ELŐZŐ ÉVRE — olvashatta. Mostantól ugyanaz a bevált dátum-értelmező fut itt
+  is, mint a pénzügyi importban.
+
 - **Éjfél után is a helyes napra könyvel a rögzítő** (P0-1): a Tétel rögzítő
   alapértelmezett dátuma és a „jövőbeli dátum" ellenőrzés eddig a világórához
   (UTC) igazodott — éjfél és hajnali 3 óra között ezért az ELŐZŐ napot
