@@ -44,6 +44,12 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   az egész köteg nyugodtan újramenthető. Ugyanezt a védelmet megkapta a
   megyei/kerületi kiadás-rögzítés is.
 
+- **Egységes évhatár a kiadásokon** (P0-2): a kiadások év végi határa eddig
+  háromféleképpen volt megírva a rendszerben — szélsőséges esetben egy
+  december 31-i tétel az egyik kimutatásból kimaradhatott volna, a másikban
+  benne lett volna. Az éles adatok ellenőrzése szerint ilyen tétel ma nincs;
+  a határ mostantól mindenhol ugyanaz az egyetlen, biztos szabály.
+
 - **A megyei és kerületi kimutatás 1000 tétel felett sem csonkulhat** (P0-14):
   az egyházmegyei/kerületi pénzügy-oldal betöltője eddig legfeljebb 1000
   tételt olvasott be — e fölött a képernyő és a hivatalos ívek szó nélkül

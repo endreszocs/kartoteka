@@ -392,9 +392,9 @@ export function DesktopFinancePrintDialog({
         // (`osszeg_ron !== osszeg`) SOHA nem sült el. A részszámadás MINDIG
         // ezen az úton jön (`needsYearRecords`), a múltbeli évi Számadás is.
         selectAllPaged(supabase.from('befizetes').select('id, osszeg, osszeg_ron, arfolyam, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`)),
-        selectAllPaged(supabase.from('kiadas').select('id, osszeg, osszeg_ron, arfolyam, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`)),
+        selectAllPaged(supabase.from('kiadas').select('id, osszeg, osszeg_ron, arfolyam, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lt('datum', `${year + 1}-01-01`)),
         selectAllPaged(supabase.from('befizetes').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`)),
-        selectAllPaged(supabase.from('kiadas').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`)),
+        selectAllPaged(supabase.from('kiadas').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lt('datum', `${year}-01-01`)),
         supabase.from('keszpenz_nyito_egyenleg').select('eve, nyito_egyenleg')
           .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
         supabase.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron, bankszamla_id')

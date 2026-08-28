@@ -650,9 +650,9 @@ export async function getYearFinanceRecords(year: number): Promise<{
   // KÉTSZER is beeshet (dupla összeg) vagy kimaradhat — némán hamis Számadás/Registru.
   const [bevRes, kiaRes, prevBevRes, prevKiaRes, cashNyitoRes, bankNyitoRes] = await Promise.all([
     fetchAllPaged(supabase.from('befizetes').select('id, osszeg, osszeg_ron, arfolyam, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`).order('id', { ascending: true })),
-    fetchAllPaged(supabase.from('kiadas').select('id, osszeg, osszeg_ron, arfolyam, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`).order('id', { ascending: true })),
+    fetchAllPaged(supabase.from('kiadas').select('id, osszeg, osszeg_ron, arfolyam, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lt('datum', `${year + 1}-01-01`).order('id', { ascending: true })),
     fetchAllPaged(supabase.from('befizetes').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`).order('id', { ascending: true })),
-    fetchAllPaged(supabase.from('kiadas').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`).order('id', { ascending: true })),
+    fetchAllPaged(supabase.from('kiadas').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lt('datum', `${year}-01-01`).order('id', { ascending: true })),
     supabase.from('keszpenz_nyito_egyenleg').select('eve, nyito_egyenleg')
       .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
     supabase.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron, bankszamla_id')
@@ -1501,12 +1501,12 @@ export async function initFinance(year: number) {
     // a .range() ablakok átfedhetnek/kihagyhatnak sorokat — a Pénzügy nyitóképernyője
     // és a belőle készülő nyomtatványok némán dupláztak vagy vesztettek egy-egy tételt.
     fetchAllPaged(supabase.from('befizetes').select('id, osszeg, osszeg_ron, arfolyam, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`).order('id', { ascending: true })),
-    fetchAllPaged(supabase.from('kiadas').select('id, osszeg, osszeg_ron, arfolyam, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`).order('id', { ascending: true })),
+    fetchAllPaged(supabase.from('kiadas').select('id, osszeg, osszeg_ron, arfolyam, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lt('datum', `${year + 1}-01-01`).order('id', { ascending: true })),
     // Előző évi adatok az átviteli egyenleghez (bankszamla_id: NULL=kassza, egyébként bank)
     // 2026-07-10 (S3 audit KRITIKUS #1): a carryover-lánc a stornózott tételeket
     // is kihagyja — a calculateBalances-szel azonos szemantika.
     fetchAllPaged(supabase.from('befizetes').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`).order('id', { ascending: true })),
-    fetchAllPaged(supabase.from('kiadas').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`).order('id', { ascending: true })),
+    fetchAllPaged(supabase.from('kiadas').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lt('datum', `${year}-01-01`).order('id', { ascending: true })),
     supabase.from('bealitas').select('id, eves_jarulek').eq('congregation_id', congregationId),
     // 2026-07-16 (P0 JAVÍTÁS): a select KÉT NEM LÉTEZŐ oszlopot kért — `prefix` és
     // `elkoltozott`. A `szemely`-nek egyik sem oszlopa (information_schema-val
@@ -2135,7 +2135,7 @@ async function initFinanceFelsoSzint(
         .eq(T.scopeCol, scopeId)
         .eq('deleted', false)
         .gte('datum', `${year}-01-01`)
-        .lte('datum', `${year}-12-31`)
+        .lt('datum', `${year + 1}-01-01`)
         .order('id', { ascending: true }),
     ),
     fetchAllPaged(
@@ -2155,7 +2155,7 @@ async function initFinanceFelsoSzint(
         .eq(T.scopeCol, scopeId)
         .eq('deleted', false)
         .gte('datum', `${year - 1}-01-01`)
-        .lte('datum', `${year - 1}-12-31`)
+        .lt('datum', `${year}-01-01`)
         .order('id', { ascending: true }),
     ),
   ])
@@ -4129,7 +4129,7 @@ export async function finalizeAccounting(
     .eq(T.scopeCol, scope.scopeId)
     .eq('deleted', false)
     .eq('stornozott', false)
-    .gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`)
+    .gte('datum', `${year}-01-01`).lt('datum', `${year + 1}-01-01`)
     .order('id', { ascending: true })
   if (scope.scope === 'congregation') expenseQ = expenseQ.is('belso_mozgas_xkey', null)
   const [incomeRes, expenseRes] = await Promise.all([
@@ -6012,7 +6012,7 @@ export async function getPreviousYearActuals(year: number): Promise<{
           .eq('deleted', false)
           .eq('stornozott', false)
           .gte('datum', `${prevYear}-01-01`)
-          .lte('datum', `${prevYear}-12-31`),
+          .lt('datum', `${prevYear + 1}-01-01`),
       ])
       const felsoError = bevRes.error || kiaRes.error
       if (felsoError) {
@@ -6056,7 +6056,7 @@ export async function getPreviousYearActuals(year: number): Promise<{
         .eq('deleted', false)
         .eq('stornozott', false)
         .gte('datum', `${prevYear}-01-01`)
-        .lte('datum', `${prevYear}-12-31`),
+        .lt('datum', `${prevYear + 1}-01-01`),
       supabase.from('befizetescel').select('id, id_szamadasicel'),
       supabase.from('kiadascel').select('id, id_szamadasicel'),
     ])

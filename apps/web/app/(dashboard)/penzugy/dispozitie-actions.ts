@@ -109,7 +109,7 @@ export async function listCashTransactionsForDispozitie(
     // alapján, mert az importált tételek irattípusa „Chit."/„Extr" (nem „Készpénz").
     .is('bankszamla_id', null)
     .gte('datum', `${year}-01-01`)
-    .lte('datum', `${year}-12-31`)
+    .lt('datum', `${year + 1}-01-01`)
     .order('datum', { ascending: false })
     .limit(200)
 
@@ -242,7 +242,7 @@ export async function listDispozitieReprint(year: number): Promise<DispozitieRep
       .is('dispozitie_id', null)
       .ilike('irattipus', '%disp%')
       .gte('datum', `${year}-01-01`)
-      .lte('datum', `${year}-12-31`),
+      .lt('datum', `${year + 1}-01-01`),
     ctx.supabase
       .from('befizetes')
       .select('id, datum, osszeg, iratszam, forrasa, megjegyzes, id_befizetescel')

@@ -381,7 +381,7 @@ export function KonyvelesPanel() {
             .eq('stornozott', false)
             .is('bankszamla_id', null)
             .gte('datum', `${ev}-01-01`)
-            .lte('datum', `${ev}-12-31`),
+            .lt('datum', `${ev + 1}-01-01`),
         ])
         if (!bevRes.error && !kiadRes.error) {
           const bevList = (bevRes.data ?? []) as Array<{ osszeg: number }>
@@ -435,7 +435,7 @@ export function KonyvelesPanel() {
                 .eq('stornozott', false)
                 .eq('bankszamla_id', entry.bankszamlaId)
                 .gte('datum', `${ev}-01-01`)
-                .lte('datum', `${ev}-12-31`),
+                .lt('datum', `${ev + 1}-01-01`),
             ])
             if (!bevRes.error && !kiadRes.error) {
               const bevList = (bevRes.data ?? []) as Array<{ osszeg: number }>

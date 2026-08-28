@@ -212,7 +212,7 @@ export async function listDecontReprint(year: number): Promise<DecontReprintOpti
     .eq('deleted', false)
     .ilike('irattipus', '%decont%')
     .gte('datum', `${year}-01-01`)
-    .lte('datum', `${year}-12-31`)
+    .lt('datum', `${year + 1}-01-01`)
     .order('datum', { ascending: true })
   const imported: DecontReprintOption[] = ((kiaDec || []) as Record<string, unknown>[]).map((r) => {
     const datum = String(r.datum).slice(0, 10)

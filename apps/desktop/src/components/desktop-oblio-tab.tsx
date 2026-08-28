@@ -242,7 +242,7 @@ export function DesktopOblioTab({
               .eq('congregation_id', congregationId)
               .eq('deleted', false)
               .gte('datum', `${currentYear}-01-01`)
-              .lte('datum', `${currentYear}-12-31`)
+              .lt('datum', `${currentYear + 1}-01-01`)
               .order('datum', { ascending: false }),
           ])
           if (!matchesRes.error && matchesRes.data) mRows = matchesRes.data as OblioKiadasMatchRow[]

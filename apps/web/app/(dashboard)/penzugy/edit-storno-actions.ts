@@ -113,7 +113,9 @@ export async function isLastTransactionOfType(args: {
   // Van-e ugyanabban az évben és a jelen tételnél későbbi dátumú tétel?
   const year = new Date(current.datum as string).getFullYear()
   const yearStart = `${year}-01-01`
-  const yearEnd = `${year}-12-31`
+  // P0-2 (audit 2026-08-28): KIZÁRÓ felső határ — a kiadas.datum TIMESTAMP,
+  // az inkluzív '12-31' ott éjfélt jelentene. DATE-oszlopon ekvivalens.
+  const yearEnd = `${year + 1}-01-01`
 
   const { data: later, error: laterErr } = await ctx.supabase
     .from(table)
@@ -121,7 +123,7 @@ export async function isLastTransactionOfType(args: {
     .eq(T.scopeCol, ctx.scopeId)
     .eq('deleted', false)
     .gt('datum', current.datum as string)
-    .lte('datum', yearEnd)
+    .lt('datum', yearEnd)
     .gte('datum', yearStart)
     .limit(1)
 

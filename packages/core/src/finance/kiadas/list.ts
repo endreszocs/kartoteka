@@ -137,7 +137,7 @@ export async function listExpenseUseCase(
     if (clean.year !== undefined) {
       query = query
         .gte('datum', `${clean.year}-01-01`)
-        .lte('datum', `${clean.year}-12-31T23:59:59`)
+        .lt('datum', `${clean.year + 1}-01-01`)
     }
 
     if (clean.atvevoId) {

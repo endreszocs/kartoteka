@@ -49,7 +49,7 @@ export async function getNextReceiptNumberForExpenseUseCase(
       .ilike('irattipus', '%észpénz%')
       .is('belso_mozgas_xkey', null)
       .gte('datum', `${year}-01-01`)
-      .lte('datum', `${year}-12-31T23:59:59`)
+      .lt('datum', `${year + 1}-01-01`)
 
     if (error) {
       return { success: false, error: `Iratszám-lekérdezés hiba: ${error.message}` }
