@@ -367,7 +367,13 @@ export function TransactionsTab({
         irattipus: r.irattipus || '—',
         megjegyzes: r.megjegyzes || '',
         isBm: !!r.belso_mozgas_xkey,
-        unpaired: !!r.belso_mozgas_xkey && !!unpairedInternalIds?.has(r.id), // 2026-07-11 (S6-#1)
+        // 2026-08-27: a `belso_mozgas_xkey` ELŐFELTÉTEL ELTÁVOLÍTVA. Az
+        // `unpairedInternalIds` halmazt az egészség-ellenőrző állítja elő, és az
+        // MÁR ELDÖNTÖTTE, hogy a sor párosítatlan-e — a kód-alapú (xkey nélküli)
+        // árva sorok is benne vannak. Az extra `xkey` feltétel PONT azokat szűrte
+        // ki: a figyelmeztető sávban benne voltak, a listában viszont semmi nem
+        // jelölte őket, így megtalálhatatlanok maradtak.
+        unpaired: !!unpairedInternalIds?.has(r.id), // 2026-07-11 (S6-#1)
         bankszamlaId: r.bankszamla_id ?? null, // 2026-07-10 (ÚJ #8)
         stornozott: r.stornozott === true, // 2026-07-10 (S3 audit #1)
         hasMissingPerson: !r.id_szemely && !r.id_csalad && !r.belso_mozgas_xkey,
@@ -388,7 +394,7 @@ export function TransactionsTab({
         irattipus: r.irattipus || '—',
         megjegyzes: r.megjegyzes || '',
         isBm: !!r.belso_mozgas_xkey,
-        unpaired: !!r.belso_mozgas_xkey && !!unpairedInternalIds?.has(r.id), // 2026-07-11 (S6-#1)
+        unpaired: !!unpairedInternalIds?.has(r.id), // 2026-07-11 (S6-#1)
         bankszamlaId: r.bankszamla_id ?? null, // 2026-07-10 (ÚJ #8)
         stornozott: r.stornozott === true, // 2026-07-10 (S3 audit #1)
         hasMissingPerson: false,

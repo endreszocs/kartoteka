@@ -771,6 +771,49 @@ export async function importBankTransactionsUseCase(
         // az mondja meg, hova kerül ténylegesen a pár másik lába.
         const counterpartIsKassza = counterpartBankId === null
         const { bevKod, kiaKod } = belsoMozgasKodpar(counterpartIsKassza, isBankToKassza)
+
+        // ── DEVIZA (2026-08-27) ───────────────────────────────────────────
+        // A belső mozgás sorok EDDIG SEM kaptak `osszeg_ron`/`arfolyam` értéket
+        // — a séma nem ad defaultot, tehát NULL maradt. A `calculateBalances`
+        // `osszeg_ron ?? osszeg`-et számol, így devizás számlán a NYERS deviza-
+        // összeg került lejként az egyenlegbe (1000 EUR → 1000 lej).
+        //
+        // A helyes modell (amit az egészség-ellenőrző MÁR MA IS elvár, lásd az
+        // internal-movement-health.ts kereszt-devizás ágát): a két fél NYERS
+        // összege KÜLÖNBÖZŐ, a RON-ekvivalensük viszont AZONOS.
+        //   · bank-oldal: osszeg = a számla devizájában, osszeg_ron = átváltva
+        //   · kassza-oldal: a kassza lejt tart → osszeg = osszeg_ron = a RON-érték
+        const bmRon = computeOsszegRon(item)
+        if (bmRon.unconverted) {
+          result.errors.push({
+            rowIndex: item.rowIndex,
+            error:
+              `Nincs ${bmRon.valuta} → RON árfolyam a ${item.date} dátumra, ezért ezt a belső ` +
+              'mozgást nem tudjuk átvezetni — enélkül a kassza és a bank egyenlege elcsúszna. ' +
+              'Add meg a bankszámla nyitó árfolyamát (vagy ellenőrizd a BNR-kapcsolatot), ' +
+              'majd indítsd újra az importot erre a sorra.',
+          })
+          continue
+        }
+        // A counterpart deviza-neme: kassza = mindig RON; másik bankszámla = a sajátja.
+        const cpValuta = counterpartBankId === null
+          ? 'RON'
+          : (bankValutaMap.get(counterpartBankId) || 'RON')
+        if (cpValuta !== 'RON') {
+          // Bank↔bank KÉT KÜLÖNBÖZŐ devizában: ehhez a fogadó számla saját napi
+          // árfolyama kellene. Nem tippelünk — inkább kihagyjuk a sort.
+          result.errors.push({
+            rowIndex: item.rowIndex,
+            error:
+              `Ez az átvezetés két KÜLÖNBÖZŐ devizájú számla között menne (${cpValuta}), amit az ` +
+              'import még nem tud helyesen átváltani. Rögzítsd kézzel a Tétel rögzítésével, ' +
+              'hogy az árfolyam biztosan helyes legyen.',
+          })
+          continue
+        }
+        // A bank-oldal a saját devizájában, a counterpart (RON) a RON-értéken áll.
+        const bmBankOsszeg = absAmount
+        const bmCpOsszeg = bmRon.osszegRon
         const bmBevCelId = bmCelIds?.bev.get(bevKod) ?? null
         const bmKiaCelId = bmCelIds?.kia.get(kiaKod) ?? null
         if (bmBevCelId == null || bmKiaCelId == null) {
@@ -826,7 +869,8 @@ export async function importBankTransactionsUseCase(
         // ── 1. Bank-oldali sor (az item.bankszamlaId számlán) ──
         if (bankSide === 'income') {
           const befPayload = {
-            osszeg: absAmount, datum: item.date,
+            osszeg: bmBankOsszeg, datum: item.date,
+            osszeg_ron: bmRon.osszegRon, arfolyam: bmRon.arfolyam,
             id_befizetescel: bmBevCelId,
             id_szemely: null, id_csalad: null,
             csalad: false, // 2026-07-10 (S4 #8): NOT NULL oszlop — enélkül elbukott
@@ -863,7 +907,8 @@ export async function importBankTransactionsUseCase(
           const insRes = await insertKiadas(
             supabase,
             {
-              osszeg: absAmount, datum: item.date,
+              osszeg: bmBankOsszeg, datum: item.date,
+              osszeg_ron: bmRon.osszegRon, arfolyam: bmRon.arfolyam,
               id_kiadascel: bmKiaCelId,
               iratszam: docNumber, irattipus: 'banki',
               bankszamla_id: item.bankszamlaId, belso_mozgas_xkey: xkey,
@@ -896,7 +941,8 @@ export async function importBankTransactionsUseCase(
           const cpIrattipus = counterpartBankId === null ? 'készpénz' : 'banki'
           if (counterpartSide === 'income') {
             const befPayload = {
-              osszeg: absAmount, datum: item.date,
+              osszeg: bmCpOsszeg, datum: item.date,
+              osszeg_ron: bmRon.osszegRon, arfolyam: 1,
               id_befizetescel: bmBevCelId,
               id_szemely: null, id_csalad: null,
               csalad: false, // 2026-07-10 (S4 #8): NOT NULL oszlop — enélkül elbukott
@@ -919,7 +965,8 @@ export async function importBankTransactionsUseCase(
             const insRes = await insertKiadas(
               supabase,
               {
-                osszeg: absAmount, datum: item.date,
+                osszeg: bmCpOsszeg, datum: item.date,
+                osszeg_ron: bmRon.osszegRon, arfolyam: 1,
                 id_kiadascel: bmKiaCelId,
                 iratszam: docNumber, irattipus: cpIrattipus,
                 bankszamla_id: counterpartBankId, belso_mozgas_xkey: xkey,
