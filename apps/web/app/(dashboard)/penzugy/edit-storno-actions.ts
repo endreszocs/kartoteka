@@ -230,7 +230,7 @@ export async function updateTransactionBasic(
   // ugyanolyan súlyos, mint egy zárt évből kimozgatás).
   const { data: currentRow, error: currentErr } = await ctx.supabase
     .from(table)
-    .select('datum')
+    .select(ctx.scope === 'congregation' ? 'datum, belso_mozgas_xkey' : 'datum')
     .eq('id', input.id)
     .eq(T.scopeCol, ctx.scopeId)
     .maybeSingle()
@@ -239,6 +239,26 @@ export async function updateTransactionBasic(
     return { error: `A tétel ellenőrzése nem sikerült: ${currentErr.message}` }
   }
   if (!currentRow) return { error: 'A tétel nem található.' }
+
+  // 2026-08-27 — BELSO MOZGAS: A SZERKESZTES ITT ALL MEG.
+  // Egy belső mozgás KÉT sorból áll (bevétel + kiadás), közös kulccsal. Ez a
+  // függvény EGYETLEN sort ír át, a párt nem is olvassa — egy összeg- vagy
+  // dátum-módosítás tehát SZÉTHÚZNÁ a párt. A következmény nem kozmetikai: az
+  // egészség-ellenőrző az összeg és a dátum egyezésére párosít, ezért a
+  // széthúzott pár MINDKÉT lába hamis „párosítatlan" riasztást kapna, rossz
+  // tanáccsal („importáld a banki kivonatot") — miközben a pár megvan, csak
+  // elrontottuk.
+  // A FELÜLETEN a ceruza el van rejtve az ilyen sorokon, DE ez egy use-server
+  // végpont: a POST attól még élt. Most itt is bezárul.
+  const bmXkeyEdit = (currentRow as { belso_mozgas_xkey?: string | null }).belso_mozgas_xkey
+  if (ctx.scope === 'congregation' && bmXkeyEdit) {
+    return {
+      error:
+        'Ez a tétel egy kassza ↔ bank átvezetés része, ezért külön nem szerkeszthető — ' +
+        'a párja némán elcsúszna tőle. Ha az összeg vagy a dátum hibás, töröld az ' +
+        'átvezetést (a rendszer mindkét oldalát törli), és rögzítsd újra a helyes adatokkal.',
+    }
+  }
 
   const yearsToCheck = new Set<number>()
   const currentDatum = (currentRow as { datum?: string | null }).datum
@@ -341,6 +361,54 @@ export async function updateTransactionBasic(
  * (kód-konvertáló) ágra esik. Ha itt `=== 'diocese'` állna, a kerületi jogcím
  * némán int-ként kerülne a `district_*.id_szamadasicel` szöveges oszlopba.
  */
+
+/**
+ * A belső mozgás pár MINDKÉT lábának évei (2026-08-27).
+ *
+ * MIÉRT KELL: a sztornó és a sztornó-visszavonás az UPDATE-et a közös
+ * `belso_mozgas_xkey`-re adja ki, tehát MINDKÉT lábat átírja — az év-zár
+ * ellenőrzés viszont CSAK a kattintott sor dátumára futott. Egy évfordulós
+ * átvezetés két oldala ELTÉRŐ évre eshet (kassza-láb dec. 31., bank-láb
+ * jan. 2. — „úton lévő pénz"), és ilyenkor a friss év lábának sztornózása
+ * NÉMÁN átbillentette volna a MÁR VÉGLEGESÍTETT és beküldött év egyenlegét is.
+ * A törlési ág (deleteTransaction) ezt mindig helyesen csinálta.
+ *
+ * FAIL-CLOSED: ha a párt nem tudjuk felderíteni, azt sem tudjuk, mely éveket
+ * érintené a művelet — ilyenkor hibát adunk vissza, nem tippelünk.
+ */
+async function belsoMozgasParEvei(
+  ctx: FinanceScopeContext,
+  xkey: string,
+  sajatDatum: string | null | undefined,
+): Promise<{ evek: number[] } | { error: string }> {
+  const [befRes, kiaRes] = await Promise.all([
+    ctx.supabase.from('befizetes').select('datum')
+      .eq('belso_mozgas_xkey', xkey).eq('congregation_id', ctx.scopeId),
+    ctx.supabase.from('kiadas').select('datum')
+      .eq('belso_mozgas_xkey', xkey).eq('congregation_id', ctx.scopeId),
+  ])
+  if (befRes.error || kiaRes.error) {
+    const msg = befRes.error?.message || kiaRes.error?.message || 'ismeretlen'
+    return {
+      error:
+        `A belső mozgás párjának ellenőrzése nem sikerült (${msg}), ezért a műveletet ` +
+        'biztonságból megszakítottuk — egy lezárt év másik lába némán elmozdulhatna. ' +
+        'Próbáld újra; ha újra hibázik, jelezd a rendszergazdának.',
+    }
+  }
+  const evek = new Set<number>()
+  const hozzaad = (d: string | null | undefined) => {
+    if (!d) return
+    const y = new Date(d).getFullYear()
+    if (Number.isFinite(y)) evek.add(y)
+  }
+  hozzaad(sajatDatum)
+  for (const x of [...(befRes.data || []), ...(kiaRes.data || [])]) {
+    hozzaad((x as { datum?: string | null }).datum)
+  }
+  return { evek: [...evek].sort() }
+}
+
 async function resolveCategoryValue(
   ctx: FinanceScopeContext,
   id_cel: number | null,
@@ -406,8 +474,17 @@ export async function stornoTransaction(args: {
   const r = row as { datum?: string; belso_mozgas_xkey?: string | null; stornozott?: boolean }
   if (r.stornozott) return { error: 'Ez a tétel már stornózva van.' }
 
-  if (r.datum) {
-    const year = new Date(r.datum).getFullYear()
+  // 2026-08-27: a pár MINDKÉT lábának évét ellenőrizzük (lásd belsoMozgasParEvei).
+  let ellenorzendoEvek: number[] = []
+  if (ctx.scope === 'congregation' && r.belso_mozgas_xkey) {
+    const par = await belsoMozgasParEvei(ctx, r.belso_mozgas_xkey, r.datum)
+    if ('error' in par) return { error: par.error }
+    ellenorzendoEvek = par.evek
+  } else if (r.datum) {
+    const y = new Date(r.datum).getFullYear()
+    if (Number.isFinite(y)) ellenorzendoEvek = [y]
+  }
+  for (const year of ellenorzendoEvek) {
     // 2026-08-11 (K5-#32, 2. lépés): fail-closed dobás → magyar `{ error }` alak.
     let finalized: boolean
     try {
@@ -509,8 +586,17 @@ export async function undoStornoTransaction(args: {
   if (!row) return { error: 'A tétel nem található.' }
   const r = row as { stornozott_by?: string | null; belso_mozgas_xkey?: string | null; datum?: string }
 
-  if (r.datum) {
-    const year = new Date(r.datum).getFullYear()
+  // 2026-08-27: a pár MINDKÉT lábának évét ellenőrizzük (lásd belsoMozgasParEvei).
+  let visszaEvek: number[] = []
+  if (ctx.scope === 'congregation' && r.belso_mozgas_xkey) {
+    const par = await belsoMozgasParEvei(ctx, r.belso_mozgas_xkey, r.datum)
+    if ('error' in par) return { error: par.error }
+    visszaEvek = par.evek
+  } else if (r.datum) {
+    const y = new Date(r.datum).getFullYear()
+    if (Number.isFinite(y)) visszaEvek = [y]
+  }
+  for (const year of visszaEvek) {
     // 2026-08-11 (K5-#32, 2. lépés): fail-closed dobás → magyar `{ error }` alak.
     let finalized: boolean
     try {
@@ -532,16 +618,27 @@ export async function undoStornoTransaction(args: {
   }
 
   if (ctx.scope === 'congregation' && r.belso_mozgas_xkey) {
-    await ctx.supabase
+    // 2026-08-27: a hibákat EDDIG SENKI NEM NÉZTE (await érték nélkül) — egy
+    // RLS- vagy hálózati hiba némán elnyelődött, a felület pedig sikert jelzett,
+    // miközben a pár egyik (vagy mindkét) lába stornózva maradt.
+    const befRes = await ctx.supabase
       .from('befizetes')
       .update(payload)
       .eq('belso_mozgas_xkey', r.belso_mozgas_xkey)
       .eq('congregation_id', ctx.scopeId)
-    await ctx.supabase
+    if (befRes.error) return { error: `Visszavonás sikertelen: ${befRes.error.message}` }
+    const kiaRes = await ctx.supabase
       .from('kiadas')
       .update(payload)
       .eq('belso_mozgas_xkey', r.belso_mozgas_xkey)
       .eq('congregation_id', ctx.scopeId)
+    if (kiaRes.error) {
+      return {
+        error:
+          `A belső mozgás bevétel-oldalán a stornó visszavonva, a kiadás-oldalán viszont NEM ` +
+          `(${kiaRes.error.message}). Nézd meg a tételt, és jelezd a rendszergazdának.`,
+      }
+    }
   } else {
     const { error } = await ctx.supabase
       .from(table)
