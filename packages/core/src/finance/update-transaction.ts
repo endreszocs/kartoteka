@@ -127,7 +127,9 @@ export async function isLastTransactionOfTypeUseCase(
 
     const year = new Date(datum).getFullYear()
     const yearStart = `${year}-01-01`
-    const yearEnd = `${year}-12-31`
+    // P0-2 (audit 2026-08-28): KIZÁRÓ felső határ — a kiadas.datum TIMESTAMP,
+    // az inkluzív '12-31' ott éjfélt jelentene. DATE-oszlopon ekvivalens.
+    const yearEnd = `${year + 1}-01-01`
 
     const { data: later, error: laterErr } = await ctx.supabase
       .from(table)
@@ -135,7 +137,7 @@ export async function isLastTransactionOfTypeUseCase(
       .eq('congregation_id', input.congregationId)
       .eq('deleted', false)
       .gt('datum', datum)
-      .lte('datum', yearEnd)
+      .lt('datum', yearEnd)
       .gte('datum', yearStart)
       .limit(1)
 

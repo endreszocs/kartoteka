@@ -47,6 +47,7 @@ const FAJLOK = [
   'apps/desktop/src/lib/finance-sync.ts',
   'packages/core/src/finance/kiadas/list.ts',
   'packages/core/src/finance/kiadas/next-receipt-number.ts',
+  'packages/core/src/finance/update-transaction.ts',
 ].map((p) => [p, path.join(REPO, ...p.split('/'))])
 
 /** DATE-táblák, ahol az inkluzív `.lte '12-31'` helyes. */
