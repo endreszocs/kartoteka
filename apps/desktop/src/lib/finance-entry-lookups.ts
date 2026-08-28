@@ -31,6 +31,14 @@ import {
   type PaymentGoalCodeRef,
 } from '@kartoteka/ui-app'
 
+import {
+  hasonloDatumAblak,
+  hasonloTetelekKeresese,
+  type HasonloTetelKerdes,
+  type HasonloTetelMeglevo,
+  type HasonloTetelTalalat,
+} from '@kartoteka/core'
+
 import { getDesktopSupabase } from './supabase'
 import { isOnlineWithSession } from './use-session-online'
 import { selectAllPaged } from './sync'
@@ -391,4 +399,71 @@ export async function expectedJarulekOnline(
     prospectiveDate: prospectiveDate && !Number.isNaN(prospectiveDate.getTime()) ? prospectiveDate : null,
   })
   return { expected: result.expected, paid: result.paid, debt: result.debt, hasBase }
+}
+
+// ── HASONLÓ (esetleg duplikált) TÉTEL FIGYELMEZTETÉS — Endre 8. kérése (2026-08-27) ──
+//
+// A web `hasonlo-tetel-actions.ts` desktop-párja. A DÖNTÉS (küszöbök, párosítás)
+// a `@kartoteka/core` `hasonloTetelekKeresese`-ből jön — UGYANONNAN, ahonnan a
+// webé. Itt csak az adat-lekérdezés felület-specifikus.
+//
+// OFFLINE: üres tömb. Ez SZÁNDÉKOS fail-open — a figyelmeztetés kényelmi jelzés,
+// nem védelem; offline nem akadályozhatja meg a rögzítést.
+export async function similarBankEntriesOnline(
+  congregationId: string,
+  sorok: HasonloTetelKerdes[],
+): Promise<HasonloTetelTalalat[]> {
+  if (!sorok.length) return []
+  if (!(await isOnlineWithSession())) return []
+  const ablak = hasonloDatumAblak(sorok)
+  if (!ablak) return []
+  const supabase = getDesktopSupabase()
+
+  const kellBev = sorok.some((s) => s.type === 'income')
+  const kellKia = sorok.some((s) => s.type === 'expense')
+
+  // `bankszamla_id IS NOT NULL` = banki eredet (SOHA nem az irattipus szövege),
+  // `belso_mozgas_xkey IS NULL` = az átvezetés két lába ne riasszon egymásra.
+  const [bev, kia] = await Promise.all([
+    kellBev
+      ? supabase
+          .from('befizetes')
+          .select('datum, osszeg, osszeg_ron, forrasa, iratszam')
+          .eq('congregation_id', congregationId)
+          .not('bankszamla_id', 'is', null)
+          .is('belso_mozgas_xkey', null)
+          .eq('deleted', false)
+          .eq('stornozott', false)
+          .gte('datum', ablak.tol)
+          .lt('datum', ablak.igExkl)
+      : Promise.resolve({ data: [], error: null }),
+    kellKia
+      ? supabase
+          .from('kiadas')
+          .select('datum, osszeg, osszeg_ron, atvevo, iratszam')
+          .eq('congregation_id', congregationId)
+          .not('bankszamla_id', 'is', null)
+          .is('belso_mozgas_xkey', null)
+          .eq('deleted', false)
+          .eq('stornozott', false)
+          .gte('datum', ablak.tol)
+          .lt('datum', ablak.igExkl)
+      : Promise.resolve({ data: [], error: null }),
+  ])
+
+  // FAIL-OPEN: ha a lekérdezés elhasal, NEM riasztunk (és nem is blokkolunk).
+  if (bev.error || kia.error) return []
+
+  const mapSor = (r: Record<string, unknown>, nevOszlop: string): HasonloTetelMeglevo => ({
+    datum: String(r.datum ?? '').slice(0, 10),
+    osszeg: Number((r.osszeg_ron ?? r.osszeg) as number) || 0,
+    nev: String(r[nevOszlop] ?? ''),
+    iratszam: (r.iratszam as string | null) ?? null,
+  })
+
+  return hasonloTetelekKeresese(
+    sorok,
+    ((bev.data || []) as Array<Record<string, unknown>>).map((r) => mapSor(r, 'forrasa')),
+    ((kia.data || []) as Array<Record<string, unknown>>).map((r) => mapSor(r, 'atvevo')),
+  )
 }

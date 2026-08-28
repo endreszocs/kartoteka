@@ -47,6 +47,7 @@ import { errorMessage } from '../lib/error'
 import { enqueueEntryExcelRow } from '../lib/excel-enqueue'
 import {
   nextReceiptNumbersOnline,
+  similarBankEntriesOnline,
   searchFamiliesOnline,
   familyMembersOnline,
   familyMembersForPersonOnline,
@@ -292,6 +293,10 @@ export function DesktopCombinedEntryDialog({
             onGetFamilyMembers={async (familyId) => await familyMembersOnline(congregationId, familyId)}
             onGetFamilyMembersForPerson={async (personId) => await familyMembersForPersonOnline(congregationId, personId)}
             onGetNextReceiptNumbers={async (year) => await nextReceiptNumbersOnline(congregationId, year)}
+            /* 2026-08-27 (Endre 8. kérése): mentés ELŐTT jelezzük, ha ugyanolyan
+               összegű, hasonló nevű, ±3 napon belüli BANKI tétel már van.
+               A döntés magja közös a webbel (@kartoteka/core). Offline néma. */
+            onCheckSimilarEntries={async (sorok) => await similarBankEntriesOnline(congregationId, sorok)}
             onGetExpectedJarulek={async (personId, year, prospectiveDateIso) => await expectedJarulekOnline(congregationId, personId, year, prospectiveDateIso)}
             onSaveIncomeBatch={handleIncomeBatch}
             onSaveExpenseBatch={handleExpenseBatch}

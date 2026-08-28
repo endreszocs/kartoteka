@@ -180,6 +180,22 @@ export interface CombinedEntryBodyProps {
    */
   onSearchMembers?: (query: string) => Promise<CombinedMemberHit[]>
   /**
+   * 2026-08-27 (Endre 8. kérése): hasonló (esetleg duplikált) banki tétel keresése
+   * MENTÉS ELŐTT. Ha talál, megerősítést kérünk — de NEM blokkolunk.
+   * Ha a gazda nem adja meg, a rögzítés viselkedése VÁLTOZATLAN.
+   */
+  onCheckSimilarEntries?: (
+    sorok: Array<{ rowId: string; type: 'income' | 'expense'; datum: string; osszeg: number; nev: string }>,
+  ) => Promise<Array<{
+    rowId: string
+    datum: string
+    osszeg: number
+    nev: string
+    iratszam: string | null
+    hasonlosag: number
+    napEltres: number
+  }>>
+  /**
    * #5 (Endre, 2026-06-21): kiadás-partner autocomplete — a korábban már rögzített
    * átvevők (cég/személy) közül ajánl a kiadás fülön gépelés közben; kiválasztáskor
    * a nevet kitölti. Ha nincs megadva, a kiadás-partner sima szövegmező marad.
@@ -379,7 +395,7 @@ function isElementVisible(el: HTMLElement | null): boolean {
 export function CombinedEntryBody({
   incomeCategories, expenseCategories, bankAccounts, currentYear,
   onSaveIncomeBatch, onSaveExpenseBatch, onSaveInternalTransfer, onClose, onToast,
-  onSearchMembers, onSearchExpensePartners,
+  onSearchMembers, onSearchExpensePartners, onCheckSimilarEntries,
   onSearchFamilies, onGetFamilyMembers, onGetFamilyMembersForPerson, onGetExpectedJarulek, onGetNextReceiptNumbers,
   onCheckReceiptDuplicate, onGetLastRecordedDate, draftStorageKey, offerExpenseInventory,
 }: CombinedEntryBodyProps) {
@@ -387,6 +403,14 @@ export function CombinedEntryBody({
   const [incomeRows, setIncomeRows] = useState<EntryRow[]>(() => [newRow(currentYear)])
   const [expenseRows, setExpenseRows] = useState<EntryRow[]>(() => [newRow(currentYear)])
   const [busy, setBusy] = useState(false)
+  // 2026-08-27 (8. kérés): a hasonló-tétel megerősítés állapota. A `megerositve`
+  // egyszeri: a felhasználó „Igen, rögzítem" válasza után a mentés újraindul,
+  // és a kapu átengedi. Új mentésnél (új sorokkal) újra kérdez.
+  const [hasonloTalalatok, setHasonloTalalatok] = useState<Array<{
+    rowId: string; datum: string; osszeg: number; nev: string
+    iratszam: string | null; hasonlosag: number; napEltres: number
+  }> | null>(null)
+  const [hasonloMegerositve, setHasonloMegerositve] = useState(false)
   /** #5: a Családi nyugta tag-választó melyik SORHOZ van nyitva (null = zárva). */
   const [familyPickerRowId, setFamilyPickerRowId] = useState<string | null>(null)
   /** #3 auto-vázlat: ha visszaállítottunk egy mentett vázlatot, ennek időpontja. */
@@ -1397,6 +1421,38 @@ export function CombinedEntryBody({
     incomeBatch.sort((a, b) => a.datum.localeCompare(b.datum))
     expenseBatch.sort((a, b) => a.datum.localeCompare(b.datum))
 
+    // ── HASONLÓ TÉTEL KAPU (2026-08-27, Endre 8. kérése) ──────────────────
+    // „ha valaki pont abban az összegben, pont azon a cégnévvel (kb. egyezés is
+    //  elég) és kb. ugyanazon a napon (±3 nap) akarja bevezetni, akkor jelezze a
+    //  rendszer, hogy egy hasonló tételt már rögzítettünk a banki résznél"
+    // FIGYELMEZTETÉS, NEM TILTÁS: a „Mégis rögzítem" gomb továbbenged.
+    if (onCheckSimilarEntries && !hasonloMegerositve) {
+      const kerdesek = [
+        ...incomeBatch.map((b, i) => ({
+          rowId: `income-${i}`, type: 'income' as const,
+          datum: b.datum, osszeg: Number(b.osszeg) || 0,
+          nev: String((b as { forrasa?: string | null }).forrasa ?? ''),
+        })),
+        ...expenseBatch.map((b, i) => ({
+          rowId: `expense-${i}`, type: 'expense' as const,
+          datum: b.datum, osszeg: Number(b.osszeg) || 0,
+          nev: String((b as { kedvezmenyzett?: string | null }).kedvezmenyzett ?? ''),
+        })),
+      ]
+      if (kerdesek.length) {
+        try {
+          const talalatok = await onCheckSimilarEntries(kerdesek)
+          if (talalatok.length) {
+            setHasonloTalalatok(talalatok)
+            return // a modal dönt — a mentés onnan indul újra
+          }
+        } catch {
+          // FAIL-OPEN, SZÁNDÉKOSAN: ez figyelmeztetés, nem védelem. Ha az
+          // ellenőrzés elhasal, NEM akadályozzuk meg a rögzítést.
+        }
+      }
+    }
+
     setBusy(true)
     try {
       if (incomeBatch.length) {
@@ -1422,6 +1478,10 @@ export function CombinedEntryBody({
       const invCount = expenseBatch.filter((b) => b.inventory).length
       if (invCount) parts.push(`${invCount} leltári tétel`)
       if (transfers.length) parts.push(`${transfers.length} belső mozgás`)
+      // 2026-08-27: a hasonló-tétel megerősítés EGYSZERI — a következő mentés
+      // (más sorokkal) újra kérdez. Enélkül egy megerősítés után a figyelmeztetés
+      // a munkamenet végéig néma maradna.
+      setHasonloMegerositve(false)
       onToast('success', `Mentve: ${parts.join(', ')} — dátum szerint rendezve.`)
       clearDraft() // #3: sikeres mentés után a vázlat törlődik
       onClose()
@@ -1970,6 +2030,73 @@ export function CombinedEntryBody({
           />
         )
       })()}
+
+      {/* ── HASONLÓ TÉTEL MEGERŐSÍTÉS (2026-08-27, Endre 8. kérése) ─────────
+          PORTÁL, mert a rögzítő maga is dialógusban ül: egy `fixed inset-0`
+          overlay a transzformált ősre igazodna és levágódna. Ugyanaz az ok,
+          amiért a FamilyReceiptModal is portálozik.
+          FIGYELMEZTETÉS, NEM TILTÁS: a „Mégis rögzítem" gomb továbbenged. */}
+      {hasonloTalalatok && hasonloTalalatok.length > 0 &&
+        createPortal(
+          <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-900/40 p-4 sm:p-8">
+            <div className="max-h-[80dvh] w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+              <div className="border-b border-amber-200 bg-amber-50 px-5 py-4">
+                <h3 className="text-base font-semibold text-amber-900">
+                  Hasonló tételt már rögzítettünk a banki résznél
+                </h3>
+                <p className="mt-1 text-sm text-amber-800">
+                  {hasonloTalalatok.length === 1
+                    ? 'Egy tétel'
+                    : `${hasonloTalalatok.length} tétel`}{' '}
+                  ugyanazzal az összeggel, hasonló névvel és néhány napon belüli dátummal
+                  már szerepel a könyvben. Lehet, hogy ez ugyanaz a befizetés — nézd meg,
+                  mielőtt rögzíted.
+                </p>
+              </div>
+              <div className="max-h-[46dvh] space-y-2 overflow-y-auto px-5 py-4">
+                {hasonloTalalatok.map((t, i) => (
+                  <div
+                    key={`${t.rowId}-${i}`}
+                    className="rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2 text-sm"
+                  >
+                    <div className="font-medium text-slate-800">
+                      {t.datum} · {t.osszeg.toLocaleString('hu-HU')} RON
+                    </div>
+                    <div className="text-slate-600">{t.nev || '(nincs név)'}</div>
+                    <div className="mt-0.5 text-xs text-slate-500">
+                      {t.iratszam ? `Iratszám: ${t.iratszam} · ` : ''}
+                      {t.napEltres === 0
+                        ? 'ugyanazon a napon'
+                        : `${t.napEltres} nap eltéréssel`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-col gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row-reverse">
+                <button
+                  type="button"
+                  className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700"
+                  onClick={() => {
+                    // A felhasználó megerősítette → a kapu egyszer átenged.
+                    setHasonloTalalatok(null)
+                    setHasonloMegerositve(true)
+                    void handleSave()
+                  }}
+                >
+                  Mégis rögzítem
+                </button>
+                <button
+                  type="button"
+                  className="rounded-xl border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                  onClick={() => setHasonloTalalatok(null)}
+                >
+                  Mégsem — átnézem
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }

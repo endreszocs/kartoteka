@@ -141,6 +141,26 @@ export {
   type MatchBankTransactionsResultOrError,
 } from './finance/bank-import'
 
+// ── HASONLÓ (esetleg duplikált) TÉTEL FIGYELMEZTETÉS — Endre 8. kérése (2026-08-27)
+// A párosítás tiszta magja + a név-hasonlóság. A web (serveraction) ÉS a desktop
+// (online lookup) UGYANINNEN dönt, hogy mi számít „kb. ugyanaz"-nak.
+export {
+  HASONLO_NAP_ABLAK,
+  HASONLO_NEV_KUSZOB,
+  hasonloDatumAblak,
+  hasonloIsoNap,
+  hasonloNapEltres,
+  hasonloTetelekKeresese,
+  type HasonloTetelKerdes,
+  type HasonloTetelMeglevo,
+  type HasonloTetelTalalat,
+} from './finance/hasonlo-tetel/match'
+export {
+  jaroWinkler,
+  nameSimilarity,
+  normalizeNameForMatch,
+} from './finance/hasonlo-tetel/jaro-winkler'
+
 export {
   listIncomeUseCase,
   type ListIncomeCtx,

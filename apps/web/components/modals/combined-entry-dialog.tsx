@@ -20,6 +20,7 @@ import type { FinanceScope } from '@/lib/auth/finance-scope-core'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { RogzitesBiztato } from '@/components/finance/kassza-biztato'
 import { ListPlus } from 'lucide-react'
+import { checkSimilarBankEntries } from '@/app/(dashboard)/penzugy/hasonlo-tetel-actions'
 import {
   saveIncomeBatch,
   saveExpenseBatch,
@@ -150,6 +151,13 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
               }))
             }}
             onSearchExpensePartners={async (query) => await searchExpensePartners(query)}
+            /* 2026-08-27 (Endre 8. kérése): mentés ELŐTT megnézzük, van-e már
+               ugyanolyan összegű, hasonló nevű, ±3 napon belüli BANKI tétel.
+               Ha igen, a rögzítő megerősítést kér — de nem tilt. */
+            onCheckSimilarEntries={async (sorok) => {
+              const res = await checkSimilarBankEntries(sorok)
+              return res.talalatok
+            }}
             /* A családi nyugta és a járulék-ajánló GYÜLEKEZETI fogalmak: a `csalad`,
                a `haztartas` és a járulék-beállítás mind gyülekezet-kötött. Felső szinten
                a hívásuk némán üres listát adna (a „Család csatolása" gomb nem csinálna
