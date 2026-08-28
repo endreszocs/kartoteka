@@ -119,6 +119,17 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   továbbra is a Belső mozgások listából megy (ott a rendszer a pár mindkét
   oldalát egyszerre viszi).
 
+- **A hivatalos Excel-főkönyv nem húzhat szét csendben a Kartotékától**:
+  eddig a kassza–bank átvezetés törlése vagy sztornója az Excelben nem
+  kapott ellensort — a törölt átvezetés bent maradt az Excel összegeiben.
+  Mostantól az átvezetés törlése és sztornója is ellensort ír mindkét
+  érintett lapra (Kassza + bank betű-lap). Ezen felül az asztali program a
+  sikeres Excel-írások után — legfeljebb félóránként — automatikusan
+  összeveti az Excel és a Kartotéka összegeit, és ha eltérést talál (pl.
+  mert egy tétel a böngészőben rögzült, ami az Excelbe nem kerül be),
+  jól látható figyelmeztető sávot mutat, egy kattintással megnyitható
+  egyeztetéssel.
+
 ## [2026-08-28] — Pénzügyi átvilágítás: a B-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-b-blokk -->
 <!-- category: security -->

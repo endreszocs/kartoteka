@@ -142,6 +142,19 @@ export function DesktopShell({ children }: DesktopShellProps) {
     return () => window.removeEventListener('kartoteka:open-excel-wizard', onOpenExcelWizardEvent)
   }, [])
 
+  // D12 (2026-08-28, Endre döntése): az Excel write-sync auto-egyeztetése
+  // eltérést talált az Excel-főkönyv és a Kartotéka közt — állandó (kézzel
+  // zárható) figyelmeztető sáv, a Beállítások → Könyvelés fül felé mutatva.
+  const [excelElteres, setExcelElteres] = useState<{ ev: number; lapok: string[] } | null>(null)
+  useEffect(() => {
+    function onExcelElteres(e: Event) {
+      const detail = (e as CustomEvent<{ ev?: number; lapok?: string[] }>).detail
+      setExcelElteres({ ev: Number(detail?.ev) || 0, lapok: detail?.lapok ?? [] })
+    }
+    window.addEventListener('kartoteka:excel-elteres', onExcelElteres)
+    return () => window.removeEventListener('kartoteka:excel-elteres', onExcelElteres)
+  }, [])
+
   // Felhasználó feloldása — OFFLINE-barát (2026-06-11 fix): PIN-es belépésnél
   // nincs Supabase session, ezért a getDesktopUser a cache-elt/lokális userre
   // esik vissza. Ha az SEM megy, LÁTHATÓ hibát mutatunk (sosem végtelen töltést).
@@ -357,6 +370,40 @@ export function DesktopShell({ children }: DesktopShellProps) {
           </div>
         }
       >
+        {excelElteres && (
+          <div
+            role="alert"
+            className="mb-4 flex items-start justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          >
+            <div>
+              <strong>
+                Az Excel-főkönyv és a Kartotéka összege eltér ({excelElteres.ev}. év
+                {excelElteres.lapok.length > 0 ? ` — lap: ${excelElteres.lapok.join(', ')}` : ''}).
+              </strong>{' '}
+              A böngészőben rögzített tételek nem kerülnek az Excelbe — futtasd az
+              egyeztetést, és vezesd át a hiányzó sorokat.{' '}
+              <button
+                type="button"
+                className="font-semibold underline underline-offset-2"
+                onClick={() => {
+                  window.dispatchEvent(
+                    new CustomEvent('kartoteka:open-settings', { detail: { tab: 'konyveles' } }),
+                  )
+                }}
+              >
+                Egyeztetés megnyitása
+              </button>
+            </div>
+            <button
+              type="button"
+              aria-label="Figyelmeztetés bezárása"
+              className="shrink-0 rounded p-0.5 text-amber-700 hover:bg-amber-100"
+              onClick={() => setExcelElteres(null)}
+            >
+              ✕
+            </button>
+          </div>
+        )}
         {children}
       </KartotekaShell>
 

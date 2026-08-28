@@ -168,7 +168,53 @@ export async function enqueueStornoReversal(input: EnqueueStornoInput): Promise<
       backend.hasExcelRowMap(identityKey, 'main'),
       backend.hasExcelOutboxRow(identityKey, 'main'),
     ])
-    if (!hadMap && !hadOutbox) return
+    if (!hadMap && !hadOutbox) {
+      // D12 (2026-08-28): a belső-mozgás PÁR-LÁB sorai a `belsomozgas:<mesterId>`
+      // kulcs alatt élnek — erre a fenti ellenőrzés vak volt, ezért a pár
+      // sztornója SOSEM kapott ellensort. A `BM-<dátum>-<mesterId>` iratszám-
+      // hídon a MESTER átvezetés-reverzáljára delegálunk (mindkét lapot fedi,
+      // és a reverz-kulcs dedupja miatt a kaszkád két lába is csak EGY
+      // ellensort eredményez).
+      const { data: legRow } = await getDesktopSupabase()
+        .from(input.type)
+        .select('iratszam')
+        .eq('id', input.serverId)
+        .maybeSingle()
+      const bmMeccs = /^BM-\d{8}-(\d+)$/.exec(
+        String((legRow as { iratszam?: string | null } | null)?.iratszam ?? ''),
+      )
+      if (bmMeccs) {
+        const mesterId = Number(bmMeccs[1])
+        const { data: mester } = await getDesktopSupabase()
+          .from('belsomozgas')
+          .select('tipus, datum, osszeg, forras, cel, megjegyzes')
+          .eq('id', mesterId)
+          .eq('congregation_id', input.congregationId)
+          .maybeSingle()
+        if (mester) {
+          const m = mester as {
+            tipus: 'kassza_bank' | 'bank_kassza' | 'bank_bank' | 'valutacsere'
+            datum: string
+            osszeg: number
+            forras: string
+            cel: string
+            megjegyzes: string | null
+          }
+          await enqueueTransferReversal({
+            belsomozgasId: mesterId,
+            congregationId: input.congregationId,
+            tipus: m.tipus,
+            datum: m.datum,
+            osszeg: Number(m.osszeg),
+            bankNeve: m.tipus === 'kassza_bank' ? m.cel : m.forras,
+            celBankNeve: m.tipus === 'bank_bank' ? m.cel : undefined,
+            megjegyzes: m.megjegyzes,
+            reverzOk: 'storno',
+          })
+        }
+      }
+      return
+    }
 
     const supabase = getDesktopSupabase()
     const celCol = input.type === 'befizetes' ? 'id_befizetescel' : 'id_kiadascel'
@@ -492,9 +538,20 @@ export interface EnqueueTransferInput {
  * automatikusan feloldja a várakozó sorokat.
  */
 export async function enqueueTransferExcelRows(input: EnqueueTransferInput): Promise<void> {
+  await enqueueTransferRowsKulccsal(input, `belsomozgas:${input.belsomozgasId}`)
+}
+
+/**
+ * A tényleges enqueue-törzs, paraméterezhető identity-kulccsal — az eredeti
+ * rögzítés a `belsomozgas:<id>` kulcsot, a reverzál a `…:<ok>-reverz`
+ * kulcsot használja (D12, 2026-08-28).
+ */
+async function enqueueTransferRowsKulccsal(
+  input: EnqueueTransferInput,
+  identityKey: string,
+): Promise<void> {
   try {
     const backend = getTauriSqliteBackend()
-    const identityKey = `belsomozgas:${input.belsomozgasId}`
     const ev = yearOf(input.datum)
 
     if (input.tipus === 'valutacsere') {
@@ -606,6 +663,74 @@ export async function enqueueTransferExcelRows(input: EnqueueTransferInput): Pro
     })
   } catch (err) {
     logEnqueueError(`belsomozgas:${input.belsomozgasId} enqueue`, err)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Átvezetés-reverzál (törlés / pár-sztornó) — D12, 2026-08-28
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface EnqueueTransferReversalInput extends EnqueueTransferInput {
+  /** Miért készül a reverzál — a dedup-kulcs és a megjegyzés-címke része. */
+  reverzOk: 'torles' | 'storno'
+}
+
+/** Az átvezetés-sorok lehetséges oldalai (kassza_bank/bank_kassza/bank_bank). */
+const TRANSFER_OLDALAK = ['kassza', 'bank', 'bank-forras', 'bank-cel', 'main'] as const
+
+/**
+ * Az átvezetés (belső mozgás) TÖRLÉSE/SZTORNÓJA utáni Excel-ellensor —
+ * MINDKÉT érintett lapra, negált összeggel (a SUMIF nettóz).
+ *
+ * MIÉRT KELL: az átvezetés-sorok a `belsomozgas:<mesterId>` kulcs alatt
+ * élnek, az egyedi tétel-reverzáló viszont `befizetes/kiadas:<id>` kulcsot
+ * keres — ezért a törölt/sztornózott átvezetés eddig BENT MARADT az
+ * Excel-összegekben, és a hivatalos főkönyv némán széthúzott a DB-től.
+ *
+ * Csak akkor reverzál, ha az eredeti átvezetés az Excel-úton volt; a
+ * `:…-reverz` dedup-kulcs garantálja, hogy egy átvezetéshez okonként
+ * legfeljebb EGY ellensor készül.
+ */
+export async function enqueueTransferReversal(
+  input: EnqueueTransferReversalInput,
+): Promise<void> {
+  try {
+    // A valutacsere eredetileg is 'blocked' kézi tétel volt — nincs mit
+    // reverzálni (a kézi átvezetést kézzel kell visszavenni).
+    if (input.tipus === 'valutacsere') return
+    const backend = getTauriSqliteBackend()
+    const eredetiKulcs = `belsomozgas:${input.belsomozgasId}`
+    let voltExcel = false
+    for (const oldal of TRANSFER_OLDALAK) {
+      if (
+        (await backend.hasExcelRowMap(eredetiKulcs, oldal)) ||
+        (await backend.hasExcelOutboxRow(eredetiKulcs, oldal))
+      ) {
+        voltExcel = true
+        break
+      }
+    }
+    if (!voltExcel) return
+    const reverzKulcs = `${eredetiKulcs}:${input.reverzOk}-reverz`
+    for (const oldal of TRANSFER_OLDALAK) {
+      if (
+        (await backend.hasExcelRowMap(reverzKulcs, oldal)) ||
+        (await backend.hasExcelOutboxRow(reverzKulcs, oldal))
+      ) {
+        return // már van ellensor — nem duplázunk
+      }
+    }
+    const cimke = input.reverzOk === 'torles' ? 'TÖRÖLVE' : 'SZTORNÓ'
+    await enqueueTransferRowsKulccsal(
+      {
+        ...input,
+        osszeg: -Math.abs(input.osszeg),
+        megjegyzes: `${cimke}${input.megjegyzes ? ` — ${input.megjegyzes}` : ''}`,
+      },
+      reverzKulcs,
+    )
+  } catch (err) {
+    logEnqueueError(`belsomozgas:${input.belsomozgasId} reverz`, err)
   }
 }
 

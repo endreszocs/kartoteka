@@ -34,12 +34,11 @@ import { BANK_LETTERS } from '@kartoteka/core'
 
 import {
   excelOpenFolder,
-  excelReadSheetSums,
   type ExcelFolderInfo,
   type SheetMeta,
 } from '../../lib/excel'
+import { excelKartotekaOsszevetes, type E4Sor } from '../../lib/excel-egyeztetes'
 import {
-  getBankMap,
   isExcelSyncEnabled,
   EXCEL_EGYHAZMEGYEK,
 } from '../../lib/excel-settings'
@@ -61,7 +60,6 @@ import {
   runExcelWriteSyncManually,
   retryBlockedExcelRows,
 } from '../../lib/excel-write-sync'
-import { getDesktopSupabase } from '../../lib/supabase'
 import { getTauriSqliteBackend } from '../../lib/tauri-sqlite-backend'
 import { OblioMappaPanel } from './oblio-mappa-panel'
 
@@ -333,17 +331,10 @@ export function KonyvelesPanel() {
   }
 
   // ── E4: Excel ↔ Kartotéka egyeztetés (tájékoztató összevetés) ──
-  interface E4Row {
-    lap: string
-    excelDb: number
-    excelBev: number
-    excelKiad: number
-    kartotekaDb: number | null
-    kartotekaBev: number | null
-    kartotekaKiad: number | null
-    egyezik: boolean | null
-  }
-  const [e4Rows, setE4Rows] = useState<E4Row[] | null>(null)
+  // D12 (2026-08-28): a logika a KÖZÖS magba költözött (lib/excel-egyeztetes),
+  // amit az Excel write-sync auto-futása is ugyanígy hív — a kézi és az
+  // automatikus egyeztetés nem húzhat szét.
+  const [e4Rows, setE4Rows] = useState<E4Sor[] | null>(null)
   const [e4Busy, setE4Busy] = useState(false)
 
   async function handleE4Check() {
@@ -351,120 +342,7 @@ export function KonyvelesPanel() {
     setE4Busy(true)
     setError(null)
     try {
-      const supabase = getDesktopSupabase()
-      const ev = year
-      const rows: E4Row[] = []
-
-      // Kassza-lap ↔ készpénzes tételek (nem sztornózott — az Excel a tükör-
-      // sorokkal nettóz, így az összegnek a nem-sztornózott DB-összeggel kell
-      // nagyságrendileg egyeznie; kézzel vezetett sorok eltérést adhatnak).
-      const kasszaSums = await excelReadSheetSums(info.adatokPath, 'Kassza')
-      let kBev: number | null = null
-      let kKiad: number | null = null
-      let kDb: number | null = null
-      try {
-        const [bevRes, kiadRes] = await Promise.all([
-          supabase
-            .from('befizetes')
-            .select('osszeg')
-            .eq('congregation_id', congregationId)
-            .eq('deleted', false)
-            .eq('stornozott', false)
-            .is('bankszamla_id', null)
-            .gte('datum', `${ev}-01-01`)
-            .lte('datum', `${ev}-12-31`),
-          supabase
-            .from('kiadas')
-            .select('osszeg')
-            .eq('congregation_id', congregationId)
-            .eq('deleted', false)
-            .eq('stornozott', false)
-            .is('bankszamla_id', null)
-            .gte('datum', `${ev}-01-01`)
-            .lt('datum', `${ev + 1}-01-01`),
-        ])
-        if (!bevRes.error && !kiadRes.error) {
-          const bevList = (bevRes.data ?? []) as Array<{ osszeg: number }>
-          const kiadList = (kiadRes.data ?? []) as Array<{ osszeg: number }>
-          kBev = Math.round(bevList.reduce((t, r) => t + Number(r.osszeg || 0), 0) * 100) / 100
-          kKiad = Math.round(kiadList.reduce((t, r) => t + Number(r.osszeg || 0), 0) * 100) / 100
-          kDb = bevList.length + kiadList.length
-        }
-      } catch {
-        /* offline — csak az Excel-oldal látszik */
-      }
-      rows.push({
-        lap: 'Kassza',
-        excelDb: kasszaSums.rowCount,
-        excelBev: kasszaSums.bevSum,
-        excelKiad: kasszaSums.kiadSum,
-        kartotekaDb: kDb,
-        kartotekaBev: kBev,
-        kartotekaKiad: kKiad,
-        egyezik:
-          kBev == null || kKiad == null
-            ? null
-            : Math.abs(kasszaSums.bevSum - kBev) < 0.005 &&
-              Math.abs(kasszaSums.kiadSum - kKiad) < 0.005,
-      })
-
-      // Megerősített bank-lapok ↔ az adott bankszámla tételei
-      const map = getBankMap(congregationId, ev)
-      if (map?.confirmed) {
-        for (const entry of map.entries) {
-          const sums = await excelReadSheetSums(info.adatokPath, entry.letter)
-          let bBev: number | null = null
-          let bKiad: number | null = null
-          let bDb: number | null = null
-          try {
-            const [bevRes, kiadRes] = await Promise.all([
-              supabase
-                .from('befizetes')
-                .select('osszeg')
-                .eq('congregation_id', congregationId)
-                .eq('deleted', false)
-                .eq('stornozott', false)
-                .eq('bankszamla_id', entry.bankszamlaId)
-                .gte('datum', `${ev}-01-01`)
-                .lte('datum', `${ev}-12-31`),
-              supabase
-                .from('kiadas')
-                .select('osszeg')
-                .eq('congregation_id', congregationId)
-                .eq('deleted', false)
-                .eq('stornozott', false)
-                .eq('bankszamla_id', entry.bankszamlaId)
-                .gte('datum', `${ev}-01-01`)
-                .lt('datum', `${ev + 1}-01-01`),
-            ])
-            if (!bevRes.error && !kiadRes.error) {
-              const bevList = (bevRes.data ?? []) as Array<{ osszeg: number }>
-              const kiadList = (kiadRes.data ?? []) as Array<{ osszeg: number }>
-              bBev = Math.round(bevList.reduce((t, r) => t + Number(r.osszeg || 0), 0) * 100) / 100
-              bKiad = Math.round(kiadList.reduce((t, r) => t + Number(r.osszeg || 0), 0) * 100) / 100
-              bDb = bevList.length + kiadList.length
-            }
-          } catch {
-            /* offline */
-          }
-          rows.push({
-            lap: `${entry.letter} (${entry.bankNeve})`,
-            excelDb: sums.rowCount,
-            excelBev: sums.bevSum,
-            excelKiad: sums.kiadSum,
-            kartotekaDb: bDb,
-            kartotekaBev: bBev,
-            kartotekaKiad: bKiad,
-            egyezik:
-              bBev == null || bKiad == null
-                ? null
-                : Math.abs(sums.bevSum - bBev) < 0.005 &&
-                  Math.abs(sums.kiadSum - bKiad) < 0.005,
-          })
-        }
-      }
-
-      setE4Rows(rows)
+      setE4Rows(await excelKartotekaOsszevetes(info.adatokPath, congregationId, year))
     } catch (e) {
       setError(`Egyeztetés-hiba: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
