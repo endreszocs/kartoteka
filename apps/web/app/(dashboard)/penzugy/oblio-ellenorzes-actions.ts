@@ -65,6 +65,13 @@ export async function listOblioMatchesAndKiadasok(year: number): Promise<{
   matches?: OblioKiadasMatchRow[]
   kiadasok?: OblioMinimalKiadas[]
   utolsoLetoltes?: string | null
+  /**
+   * 2026-08-29 (Endre UX-köre, „a megbeszéltek szerint"): a FELTÖLTÖTT
+   * számla-adatlapokhoz (szallitoi_szamla_kiadas) kapcsolt kiadás-id-k —
+   * a Tranzakciók fül jelzője ezekre is zöldet mutat, nem csak a mappás
+   * Oblio-egyezésekre.
+   */
+  feltoltottParok?: number[]
   error?: string
 }> {
   const access = await getEffectiveAccessContext()
@@ -76,7 +83,7 @@ export async function listOblioMatchesAndKiadasok(year: number): Promise<{
   // az inkluzív '12-31' ott éjfélt jelentene. DATE-oszlopon ekvivalens.
   const yearEnd = `${year + 1}-01-01`
 
-  const [matchesRes, kiadasokRes, oblioRes] = await Promise.all([
+  const [matchesRes, kiadasokRes, oblioRes, feltoltottRes] = await Promise.all([
     access.supabase
       .from('oblio_kiadas_match')
       .select(
@@ -100,6 +107,11 @@ export async function listOblioMatchesAndKiadasok(year: number): Promise<{
       .eq('congregation_id', access.effectiveCongregationId)
       .eq('aktiv', true)
       .maybeSingle(),
+    // 2026-08-29: a feltöltött számla-adatlapokhoz kötött kiadások.
+    access.supabase
+      .from('szallitoi_szamla_kiadas')
+      .select('kiadas_id')
+      .eq('congregation_id', access.effectiveCongregationId),
   ])
 
   if (matchesRes.error) return { error: `Match-ek lekérése: ${matchesRes.error.message}` }
@@ -109,6 +121,10 @@ export async function listOblioMatchesAndKiadasok(year: number): Promise<{
     matches: (matchesRes.data ?? []) as OblioKiadasMatchRow[],
     kiadasok: (kiadasokRes.data ?? []) as OblioMinimalKiadas[],
     utolsoLetoltes: oblioRes.data?.utolso_xml_letoltes_at ?? null,
+    // Best-effort: ha a lekérés hibázott, a mappás egyezések akkor is élnek.
+    feltoltottParok: feltoltottRes.error
+      ? []
+      : ((feltoltottRes.data ?? []) as Array<{ kiadas_id: number }>).map((s) => s.kiadas_id),
   }
 }
 

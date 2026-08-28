@@ -26,6 +26,8 @@ import {
 
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { fetchBnrRates } from '@/lib/finance/bnr-exchange-rate'
+import { normalizaltBankiNev } from '@/lib/finance/bevetel-partner-nev'
+import { getBevetelPartnerMemoria } from './bevetel-partner-actions'
 
 // Típus re-exportok — a meglévő import-helyek (pl. bcr-import-wizard-dialog)
 // változatlanul működnek. (`export type` fordításkor törlődik, így a
@@ -267,6 +269,33 @@ export async function importBcrTransactions(
           'válaszd újra ezeket a befizetőket.',
       }
     }
+  }
+
+  // 2026-08-29 (Endre): a bevétel-oldali PARTNER-MEMÓRIA alkalmazása — ha a
+  // kivonat partner-nevéhez korábban tagot vagy nevet/cégnevet jegyeztünk
+  // meg, az import magától beállítja (a kézi hozzárendelést egyszer kell
+  // elvégezni, utána a rendszer emlékszik). Best-effort: a memória hibája
+  // nem állítja meg az importot.
+  try {
+    const memoria = await getBevetelPartnerMemoria()
+    if (!memoria.error) {
+      for (const item of items) {
+        if (item.action !== 'income') continue
+        const kulcs = normalizaltBankiNev(item.counterparty ?? '')
+        const emlek = kulcs ? memoria.data[kulcs] : undefined
+        if (!emlek) continue
+        if (item.personId == null && emlek.szemelyId != null) {
+          item.personId = emlek.szemelyId
+        }
+        // A megjegyzett (gondozott) megjelenítés-név a nyers banki string
+        // helyett — csak ha tag-hozzárendelés nincs (annál a tag neve a fő).
+        if (item.personId == null && emlek.megjelenitesNev) {
+          item.counterparty = emlek.megjelenitesNev
+        }
+      }
+    }
+  } catch {
+    /* best-effort — a memória nélkül az import változatlanul fut */
   }
 
   // 2026-07-10 (ÚJ #10): napi árfolyamok deviza-számlákhoz (RON-only

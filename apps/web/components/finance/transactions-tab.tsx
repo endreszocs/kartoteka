@@ -79,10 +79,12 @@ export function TransactionsTabWeb(props: WebTransactionsTabProps) {
       // `onDeleteTransaction`-t → a törlés gomb nem jelenik meg.
       loadOblioMatchedExpenseIds={async (year) => {
         const res = await listOblioMatchesAndKiadasok(year)
-        if (res.matches) {
-          return new Set(res.matches.map((m) => m.kiadas_id))
-        }
-        return new Set()
+        // 2026-08-29 (Endre, „a megbeszéltek szerint"): a jelző a FELTÖLTÖTT
+        // számla-adatlapokhoz kötött kiadásokra is zöldet mutat — nem csak a
+        // mappás Oblio-egyezésekre.
+        const ids = new Set<number>(res.matches?.map((m) => m.kiadas_id) ?? [])
+        for (const id of res.feltoltottParok ?? []) ids.add(id)
+        return ids
       }}
       onToast={(msg, kind) => {
         if (kind === 'error') toast.error(msg)

@@ -29,6 +29,7 @@ import { revalidatePath } from 'next/cache'
 
 import { refreshCarryoverBestEffort } from '@kartoteka/core'
 import { CENT_UZENET, isCentPontos } from '@kartoteka/validations'
+import { rememberBevetelPartner } from './bevetel-partner-actions'
 import {
   financeWriteBlock,
   getFinanceScopeContext,
@@ -271,7 +272,9 @@ export async function updateTransactionBasic(
   // ugyanolyan súlyos, mint egy zárt évből kimozgatás).
   const { data: currentRow, error: currentErr } = await ctx.supabase
     .from(table)
-    .select(ctx.scope === 'congregation' ? 'datum, belso_mozgas_xkey, bankszamla_id' : 'datum')
+    // 2026-08-29: a forrasa is kell — a banki bevétel EREDETI kivonat-neve a
+    // partner-memória kulcsa (tag-hozzárendeléskor jegyezzük meg).
+    .select(ctx.scope === 'congregation' ? 'datum, belso_mozgas_xkey, bankszamla_id, forrasa' : 'datum')
     .eq('id', input.id)
     .eq(T.scopeCol, ctx.scopeId)
     .maybeSingle()
@@ -443,6 +446,28 @@ export async function updateTransactionBasic(
       },
       { supabase: ctx.supabase, runtime: 'web', userId: ctx.userId },
     )
+  }
+
+  // 2026-08-29 (Endre): PARTNER-MEMÓRIA — banki bevételen a tag-hozzárendelés
+  // vagy a beírt név/cégnév megjegyzése a kivonatbeli EREDETI névhez kötve.
+  // A következő banki import ugyanennél a névnél magától alkalmazza.
+  // Best-effort: a memória hibája nem boríthatja a sikeres mentést.
+  if (ctx.scope === 'congregation' && input.type === 'befizetes') {
+    const bid = (currentRow as { bankszamla_id?: number | null }).bankszamla_id ?? null
+    const eredetiNev = (currentRow as { forrasa?: string | null }).forrasa ?? null
+    const valasztottSzemely = input.id_szemely != null ? input.id_szemely : null
+    const beirtNev = input.forrasa !== undefined ? input.forrasa?.trim() || null : null
+    if (bid != null && eredetiNev && (valasztottSzemely != null || beirtNev)) {
+      try {
+        await rememberBevetelPartner({
+          nyersNev: eredetiNev,
+          szemelyId: valasztottSzemely,
+          megjelenitesNev: beirtNev,
+        })
+      } catch {
+        /* best-effort */
+      }
+    }
   }
 
   revalidatePath('/penzugy')

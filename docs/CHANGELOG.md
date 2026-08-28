@@ -51,6 +51,19 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   állapottal és a könyvelési tételekkel. Egy gombbal nyomtatható, és
   nyomtatáskor csak maga a lap kerül papírra.
 
+- **A rendszer megjegyzi a banki befizetőket**: ha a banki bevételnél
+  egyszer hozzárendeled a taghoz (vagy beírod a nevet/cégnevet) a
+  kivonatban szereplő befizetőt, a rendszer megjegyzi — és a következő
+  banki importnál ugyanannál a névnél már magától beállítja. Így év végén
+  az Adományozók és szponzorok áttekintés teljes képet ad arról, ki
+  adományozott, ki támogatta a gyülekezetet. (Ehhez a
+  2026-08-29-bevetel-partner.sql lefuttatása szükséges, a deploy előtt.)
+
+- **A Tranzakciók lista jelzi a feltöltött számlákat is**: a kiadás-sorok
+  számla-jelzője mostantól akkor is zöldet mutat, ha a számlát a Számlák
+  egyeztetése felületen töltötted fel és kapcsoltad a kiadáshoz — nem csak
+  a mappa-alapú Oblio-egyezéseknél.
+
 ## [2026-08-28] — Banki tételek: fizetett év + célzott jelzések + kísérőív
 <!-- key: 2026-08-28-banki-fizetettev-eszrevetelek -->
 <!-- category: improvement -->
