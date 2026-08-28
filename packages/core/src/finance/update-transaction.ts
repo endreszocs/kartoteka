@@ -48,6 +48,13 @@ export interface UpdateTransactionInput {
   id_szemely?: number | null
   id_csalad?: number | null
   forrasa?: string | null
+  /**
+   * P0-11 (audit 2026-08-28): optimista zár — a sor revision-je a dialógus
+   * MEGNYITÁSAKOR (az isLastTransactionOfTypeUseCase adja vissza). Ha küldöd,
+   * az UPDATE csak akkor fut le, ha a sort azóta senki nem módosította;
+   * különben beszédes konfliktus jön vissza néma felülírás helyett.
+   */
+  revision?: number
 }
 
 export interface UpdateTransactionCtx {
@@ -99,7 +106,17 @@ export interface IsLastTransactionCtx {
   runtime: 'web' | 'desktop'
 }
 
-export type IsLastTransactionResult = { isLast: boolean; error?: string }
+export type IsLastTransactionResult = {
+  isLast: boolean
+  error?: string
+  /**
+   * P0-11 (audit 2026-08-28): a sor AKTUÁLIS revision-je — a szerkesztő
+   * dialógus ezt tárolja el nyitáskor, és küldi vissza a mentéskor
+   * (optimista zár bázisa). A sync_tracking_touch trigger minden UPDATE-nél
+   * lépteti.
+   */
+  revision?: number | null
+}
 
 /**
  * Megmondja, hogy a tétel az ADOTT TÍPUSÚ utolsó-e az évében + gyülekezetben.
@@ -118,7 +135,7 @@ export async function isLastTransactionOfTypeUseCase(
   try {
     const { data: current, error: currentErr } = await ctx.supabase
       .from(table)
-      .select('datum')
+      .select('datum, revision')
       .eq('id', input.id)
       .eq('congregation_id', input.congregationId)
       .maybeSingle()
@@ -130,8 +147,10 @@ export async function isLastTransactionOfTypeUseCase(
       return { isLast: false, error: `A tétel dátumát nem sikerült lekérdezni: ${currentErr.message}` }
     }
 
+    const aktualisRevision =
+      (current as { revision?: number | null } | null)?.revision ?? null
     const datum = (current as { datum?: string } | null)?.datum
-    if (!datum) return { isLast: false }
+    if (!datum) return { isLast: false, revision: aktualisRevision }
 
     const year = new Date(datum).getFullYear()
     const yearStart = `${year}-01-01`
@@ -165,7 +184,7 @@ export async function isLastTransactionOfTypeUseCase(
       }
     }
 
-    return { isLast: !later || later.length === 0 }
+    return { isLast: !later || later.length === 0, revision: aktualisRevision }
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'ismeretlen'
     return { isLast: false, error: `Ellenőrzési hiba: ${msg}` }
@@ -306,14 +325,44 @@ export async function updateTransactionUseCase(
   }
 
   try {
-    const { error } = await ctx.supabase
-      .from(table)
-      .update(updateData)
-      .eq('id', input.id)
-      .eq('congregation_id', input.congregationId)
+    // P0-11 (audit 2026-08-28): optimista zár — ha a hívó elküldte a dialógus
+    // nyitásakor látott revision-t, az UPDATE csak a változatlan sorra fut le.
+    // 0 érintett sor = valaki időközben mentett (másik gép / web) → beszédes
+    // konfliktus, NEM néma felülírás. Revision nélkül (régi hívók) a
+    // viselkedés változatlan.
+    const revisionGate = typeof input.revision === 'number'
+    let updError: { message: string } | null = null
+    let updRows: unknown[] | null = null
+    if (revisionGate) {
+      const res = await ctx.supabase
+        .from(table)
+        .update(updateData)
+        .eq('id', input.id)
+        .eq('congregation_id', input.congregationId)
+        .eq('revision', input.revision as number)
+        .select('id')
+      updError = res.error
+      updRows = res.data
+    } else {
+      const res = await ctx.supabase
+        .from(table)
+        .update(updateData)
+        .eq('id', input.id)
+        .eq('congregation_id', input.congregationId)
+      updError = res.error
+    }
 
-    if (error) {
-      return { success: false, error: `Mentés sikertelen: ${error.message}` }
+    if (updError) {
+      return { success: false, error: `Mentés sikertelen: ${updError.message}` }
+    }
+    if (revisionGate && (updRows?.length ?? 0) === 0) {
+      return {
+        success: false,
+        error:
+          'Időközben valaki más módosította (vagy törölte) ezt a tételt — másik gépen vagy ' +
+          'a webes felületen. A mentés nem történt meg, hogy ne írjuk felül némán az ő ' +
+          'változtatását. Zárd be az ablakot, frissítsd a listát, és nézd át a tételt újra.',
+      }
     }
 
     // P0-3 (audit 2026-08-28): carryover-frissítés (best-effort) — a régi ÉS

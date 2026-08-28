@@ -90,16 +90,17 @@ function javitasiEngedelyForrasa(scope: FinanceScope): string | null {
 export async function isLastTransactionOfType(args: {
   type: TransactionType
   id: number
-}): Promise<{ isLast?: boolean; error?: string }> {
+}): Promise<{ isLast?: boolean; error?: string; revision?: number | null }> {
   const ctx = await getFinanceScopeContext()
   if ('error' in ctx) return { error: ctx.error }
   const T = tablesFor(ctx.scope)
   const table = args.type === 'befizetes' ? T.befizetes : T.kiadas
 
-  // Lekérjük a tétel dátumát
+  // Lekérjük a tétel dátumát — gyülekezeti hatókörben a revision-t is
+  // (P0-11: az optimista zár bázisa; a felső szintek tábláin nincs revision).
   const { data: current, error: currentErr } = await ctx.supabase
     .from(table)
-    .select('datum')
+    .select(ctx.scope === 'congregation' ? 'datum, revision' : 'datum')
     .eq('id', args.id)
     .eq(T.scopeCol, ctx.scopeId)
     .maybeSingle()
@@ -110,10 +111,14 @@ export async function isLastTransactionOfType(args: {
   if (currentErr) {
     return { error: `A tétel dátumát nem sikerült lekérdezni: ${currentErr.message}` }
   }
-  if (!current?.datum) return { isLast: false }
+  // A feltételes select miatt a supabase típus-parser nem tudja a sor alakját —
+  // a modul bevett mintája szerint cast-tal olvassuk (ld. updateTransactionBasic).
+  const cur = current as { datum?: string | null; revision?: number | null } | null
+  const aktualisRevision = cur?.revision ?? null
+  if (!cur?.datum) return { isLast: false, revision: aktualisRevision }
 
   // Van-e ugyanabban az évben és a jelen tételnél későbbi dátumú tétel?
-  const year = new Date(current.datum as string).getFullYear()
+  const year = new Date(cur.datum).getFullYear()
   const yearStart = `${year}-01-01`
   // P0-2 (audit 2026-08-28): KIZÁRÓ felső határ — a kiadas.datum TIMESTAMP,
   // az inkluzív '12-31' ott éjfélt jelentene. DATE-oszlopon ekvivalens.
@@ -124,7 +129,7 @@ export async function isLastTransactionOfType(args: {
     .select('id')
     .eq(T.scopeCol, ctx.scopeId)
     .eq('deleted', false)
-    .gt('datum', current.datum as string)
+    .gt('datum', cur.datum)
     .lt('datum', yearEnd)
     .gte('datum', yearStart)
     .limit(1)
@@ -145,7 +150,7 @@ export async function isLastTransactionOfType(args: {
     }
   }
 
-  return { isLast: !later || later.length === 0 }
+  return { isLast: !later || later.length === 0, revision: aktualisRevision }
 }
 
 /**
@@ -205,6 +210,14 @@ export interface UpdateTransactionInput {
   id_szemely?: number | null
   id_csalad?: number | null
   forrasa?: string | null
+  /**
+   * P0-11 (audit 2026-08-28): optimista zár — a sor revision-je a dialógus
+   * MEGNYITÁSAKOR (az isLastTransactionOfType adja vissza). Ha küldöd, az
+   * UPDATE csak a változatlan sorra fut le; különben beszédes konfliktus jön
+   * néma felülírás helyett. Csak gyülekezeti hatókörben él (a felső szintek
+   * tábláin nincs revision oszlop).
+   */
+  revision?: number
 }
 
 export async function updateTransactionBasic(
@@ -341,13 +354,43 @@ export async function updateTransactionBasic(
     return { error: 'Nem adtál meg módosítandó mezőt.' }
   }
 
-  const { error } = await ctx.supabase
-    .from(table)
-    .update(updateData)
-    .eq('id', input.id)
-    .eq(T.scopeCol, ctx.scopeId)
+  // P0-11 (audit 2026-08-28): optimista zár — ha a hívó elküldte a dialógus
+  // nyitásakor látott revision-t, az UPDATE csak a változatlan sorra fut le.
+  // 0 érintett sor = valaki időközben mentett (másik gép / desktop) →
+  // beszédes konfliktus, NEM néma felülírás. Csak gyülekezeti hatókörben
+  // (a felső szintek tábláin nincs revision oszlop); revision nélkül a
+  // viselkedés változatlan.
+  const revisionGate = ctx.scope === 'congregation' && typeof input.revision === 'number'
+  let updError: { message: string } | null = null
+  let updRows: unknown[] | null = null
+  if (revisionGate) {
+    const res = await ctx.supabase
+      .from(table)
+      .update(updateData)
+      .eq('id', input.id)
+      .eq(T.scopeCol, ctx.scopeId)
+      .eq('revision', input.revision as number)
+      .select('id')
+    updError = res.error
+    updRows = res.data
+  } else {
+    const res = await ctx.supabase
+      .from(table)
+      .update(updateData)
+      .eq('id', input.id)
+      .eq(T.scopeCol, ctx.scopeId)
+    updError = res.error
+  }
 
-  if (error) return { error: `Mentés sikertelen: ${error.message}` }
+  if (updError) return { error: `Mentés sikertelen: ${updError.message}` }
+  if (revisionGate && (updRows?.length ?? 0) === 0) {
+    return {
+      error:
+        'Időközben valaki más módosította (vagy törölte) ezt a tételt — másik gépen vagy ' +
+        'az asztali programban. A mentés nem történt meg, hogy ne írjuk felül némán az ő ' +
+        'változtatását. Zárd be az ablakot, frissítsd a listát, és nézd át a tételt újra.',
+    }
+  }
 
   // P0-3 (audit 2026-08-28): carryover-frissítés (best-effort) — a régi és az
   // új dátum évére. Csak gyülekezeti hatókör (a banki nyitó évenkénti táblája

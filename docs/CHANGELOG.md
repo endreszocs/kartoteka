@@ -75,6 +75,15 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   szinkron állapotát mutatják. Semmi nem tiltódik le — a munka mehet
   tovább, de már tudatos döntésként.
 
+- **Két egyszerre nyitott szerkesztő nem írhatja felül egymást némán**
+  (P0-11): ha ugyanazt a tételt két helyen szerkesztették egyszerre (két
+  gépen, vagy a böngészőben és az asztali programban), eddig az utolsó
+  mentés szó nélkül felülírta a másikét — és senki nem tudta meg. Mostantól
+  a szerkesztő ablak megjegyzi, milyen állapotban látta a tételt
+  megnyitáskor, és ha időközben valaki más mentett rá, a mentés megáll egy
+  érthető üzenettel: frissítsd a listát, és nézd át a tételt újra. A
+  védelem a webes és az asztali szerkesztőben egyszerre él.
+
 - **A megszakadt szinkronizáció nem duplikálhat tételt** (P0-10): ha az
   offline tétel felküldése közben a hálózat pont a válasz előtt szakadt meg,
   az újrapróbálkozás eddig még egyszer beszúrhatta ugyanazt a tételt.
