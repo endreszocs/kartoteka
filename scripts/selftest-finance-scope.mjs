@@ -412,12 +412,37 @@ const VART_KERULET = {
   const kodCsak = (szoveg) =>
     szoveg.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
 
-  /** Egy top-level `export async function NEV(` törzsének kivágása a záró `}`-ig. */
+  /**
+   * Egy top-level `export async function NEV(` törzsének kivágása a záró `}`-ig.
+   *
+   * ⚠️ 2026-08-28 — KÉT VAKSÁGI CSAPDA JAVÍTVA, mindkettő élesben elsült:
+   *
+   * 1. CRLF: a `\n}\n` minta CRLF sorvégű munkapéldányon SOSEM illeszkedik
+   *    (`\r\n}\r\n`). A régi alak ilyenkor `szoveg.slice(kezd)`-et adott — vagyis
+   *    a FÁJL EGÉSZ HÁTRALÉVŐ RÉSZÉT „a függvény törzseként". Ez két irányba
+   *    hazudik: (a) hamis riasztás, mert egy MÁSIK függvény tiltott hívása
+   *    bekerül a „törzsbe"; (b) — sokkal rosszabb — NÉMA ÁTENGEDÉS, mert egy
+   *    kötelező minta (pl. `getFinanceScope(`) máshonnan is előkerül, és az
+   *    asszert vakon zöld lesz. A repó `.gitattributes`-a `eol=lf`-et ír elő,
+   *    de az őr nem függhet attól, hogy azt mindenki betartotta-e.
+   *
+   * 2. `veg < 0` esetén a hívó `slice(kezd, veg + 3)` = `slice(kezd, 2)` = ÜRES
+   *    sztringet kapott (lásd F10c), amit a hibalista „nincs meg a function"-ként
+   *    jelentett — vagyis egy KIVÁGÁSI hiba FUNKCIÓ-HIÁNYNAK látszott, és a
+   *    fejlesztő rossz helyen kereste a bajt.
+   *
+   * MOSTANTÓL: sorvég-normalizálás, és ha a záró `}` nem található, `undefined`
+   * jön vissza — a hívók ezt megkülönböztetik a `null`-tól (= nincs ilyen
+   * függvény), és HANGOS hibát adnak a néma fél-igazság helyett.
+   */
+  const NORM = (szoveg) => szoveg.split(String.fromCharCode(13)).join('')
   const fuggvenyTorzs = (szoveg, nev) => {
-    const kezd = szoveg.indexOf(`export async function ${nev}(`)
+    const sz = NORM(szoveg)
+    const kezd = sz.indexOf(`export async function ${nev}(`)
     if (kezd < 0) return null
-    const veg = szoveg.indexOf('\n}\n', kezd)
-    return veg < 0 ? szoveg.slice(kezd) : szoveg.slice(kezd, veg + 3)
+    const veg = sz.indexOf('\n}\n', kezd)
+    if (veg < 0) return undefined
+    return sz.slice(kezd, veg + 3)
   }
 
   /**
@@ -426,6 +451,9 @@ const VART_KERULET = {
    */
   const hibakSearch = (torzs) => {
     const h = []
+    // `undefined` = a KIVÁGÁS bukott el (nem a függvény hiányzik) — ezt külön
+    // kell mondani, különben a fejlesztő rossz helyen keresi a bajt.
+    if (torzs === undefined) return ['a searchIncomePartners TÖRZS-KIVÁGÁSA nem sikerült (nincs záró `}` a várt alakban) — az őr NEM tud mérni']
     if (!torzs) return ['nincs meg a searchIncomePartners function']
     if (!/switch\s*\(\s*scope\.scope\s*\)/.test(torzs)) h.push('nincs `switch (scope.scope)` — visszaírták if/else-re?')
     for (const ag of ['congregation', 'diocese', 'district']) {
@@ -486,6 +514,7 @@ const VART_KERULET = {
     const mentesTorzs = fuggvenyTorzs(forras, 'saveIncomeBatch')
     const hibakMentes = (t) => {
       const h = []
+      if (t === undefined) return ['a saveIncomeBatch TÖRZS-KIVÁGÁSA nem sikerült — az őr NEM tud mérni']
       if (!t) return ['nincs meg a saveIncomeBatch function']
       if (!/feloldBefizetoPartner\s*\(/.test(t)) h.push('nem hívja a feloldBefizetoPartner()-t — a kliens-prop vakon íródna FK-ba')
       return h
@@ -503,10 +532,20 @@ const VART_KERULET = {
     }
 
     // ── F10c: a feloldó MAGA hatókörre köt (eq diocese_id / district_id) ────
-    const feloldoKezd = forras.indexOf('async function feloldBefizetoPartner(')
-    const feloldo = feloldoKezd < 0 ? null : forras.slice(feloldoKezd, forras.indexOf('\n}\n', feloldoKezd) + 3)
+    // 2026-08-28: ugyanaz a `-1 + 3` csapda, mint a `fuggvenyTorzs`-ben — a
+    // `slice(kezd, 2)` ÜRES sztringet adott, amit a hibalista „nincs meg a
+    // function"-ként jelentett: egy KIVÁGÁSI hiba FÜGGVÉNY-HIÁNYNAK látszott.
+    // Most sorvég-semleges, és a kivágási hiba megkülönböztethető.
+    const forrasNorm = NORM(forras)
+    const feloldoKezd = forrasNorm.indexOf('async function feloldBefizetoPartner(')
+    let feloldo = null
+    if (feloldoKezd >= 0) {
+      const feloldoVeg = forrasNorm.indexOf('\n}\n', feloldoKezd)
+      feloldo = feloldoVeg < 0 ? undefined : forrasNorm.slice(feloldoKezd, feloldoVeg + 3)
+    }
     const hibakFeloldo = (t) => {
       const h = []
+      if (t === undefined) return ['a feloldBefizetoPartner TÖRZS-KIVÁGÁSA nem sikerült — az őr NEM tud mérni']
       if (!t) return ['nincs meg a feloldBefizetoPartner function']
       if (!/\.eq\('diocese_id',\s*scopeId\)/.test(t)) h.push("a gyülekezet-partner nincs a SAJÁT megyéhez kötve (.eq('diocese_id', scopeId))")
       if (!/\.eq\('district_id',\s*scopeId\)/.test(t)) h.push("az egyházmegye-partner nincs a SAJÁT kerülethez kötve (.eq('district_id', scopeId))")

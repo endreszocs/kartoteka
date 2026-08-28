@@ -52,6 +52,25 @@ export interface OpeningBalancesSettings {
    * amit az önellenőrzés nem lát). Inkább KIÍRJUK és jóváhagyatjuk.
    */
   cashSuggestions: Array<{ eve: number; ertek: number; forrasEv: number | null }>
+  /**
+   * 2026-08-28 (Endre döntése: „a gyülekezet beállításainál legyenek a nyitó
+   * egyenlegek, EGY [helyen], és onnan számoljon mindent").
+   *
+   * A készpénz-javaslat BANKSZÁMLÁS párja. Ha ez az EGY hely, akkor nem mutathat
+   * ÜRES mezőt olyan számhoz, amivel a Számadás és a Registru Banca már dolgozik:
+   * eddig a bank-mező rögzítetlen évben üresen állt, miközben a rendszer a
+   * levezetett értékkel számolt — a lelkész azt hihette, hogy nincs nyitója.
+   *
+   * Ugyanaz a `resolveNyitoEgyenlegekUseCase` adja, mint a készpénz-javaslatot és
+   * mint a tényleges számítást — tehát a javaslat és a valóság nem tud széthúzni.
+   * A mentés továbbra is KÉZI: nem írunk a DB-be magunktól.
+   */
+  bankSuggestions: Array<{
+    bankszamla_id: number
+    eve: number
+    ertek: number
+    forrasEv: number | null
+  }>
 }
 
 export async function getOpeningBalancesSettings(
@@ -71,7 +90,7 @@ export async function getOpeningBalancesSettings(
   }
   const supabase = access.supabase
 
-  const [bevMinRes, kiaMinRes, cashRes, bankRes, bealitasRes] = await Promise.all([
+  const [bevMinRes, kiaMinRes, cashRes, bankRes, bealitasRes, banksRes] = await Promise.all([
     supabase.from('befizetes').select('datum').eq('congregation_id', congregationId)
       .eq('deleted', false).order('datum', { ascending: true }).limit(1).maybeSingle(),
     supabase.from('kiadas').select('datum').eq('congregation_id', congregationId)
@@ -83,6 +102,11 @@ export async function getOpeningBalancesSettings(
       .eq('congregation_id', congregationId).order('eve', { ascending: true }),
     supabase.from('bealitas').select('id, accounting_finalized, budget_finalized')
       .eq('congregation_id', congregationId),
+    // 2026-08-28: az AKTÍV bankszámlák — a bank-nyitó javaslatokhoz kell tudni,
+    // mely számláknak hiányzik sora az adott évre. (A megszűnt/inaktív számlára
+    // nincs értelme javaslatot kínálni — azt a lelkész nem is szerkeszti.)
+    supabase.from('bankszamlak').select('id')
+      .eq('congregation_id', congregationId).eq('aktiv', true),
   ])
 
   const currentYear = new Date().getFullYear()
@@ -139,15 +163,51 @@ export async function getOpeningBalancesSettings(
     .filter((y) => !rogzitettEvek.has(y))
     .slice(-3)
   const cashSuggestions: Array<{ eve: number; ertek: number; forrasEv: number | null }> = []
-  for (const y of hianyzoEvek) {
+  // 2026-08-28: a BANK-javaslatok UGYANEBBŐL a feloldásból jönnek — nem indul újabb
+  // lekérdezés-kör. A `resolveNyitoEgyenlegekUseCase` számlánként is visszaadja az
+  // értéket (`bank[id]`), ez eddig kihasználatlan volt.
+  const bankSuggestions: Array<{
+    bankszamla_id: number
+    eve: number
+    ertek: number
+    forrasEv: number | null
+  }> = []
+  // A bank-oldalon MINDEN hiányzó (számla, év) párt nézünk, nem csak a hiányzó éveket:
+  // előfordul, hogy egy évre az egyik számlának van sora, a másiknak nincs.
+  const rogzitettBankParok = new Set(
+    ((bankRes.data || []) as Array<{ bankszamla_id: number; eve: number }>).map(
+      (r) => `${r.bankszamla_id}:${r.eve}`,
+    ),
+  )
+  // A javaslat-évek halmaza: a készpénznél hiányzó évek + azok az évek, ahol
+  // bármelyik számlának hiányzik a sora. Ugyanúgy a 3 legutóbbira szűkitve.
+  const bankHianyEvek = availableYears.filter((y) =>
+    ((banksRes.data || []) as Array<{ id: number }>).some(
+      (b) => !rogzitettBankParok.has(`${b.id}:${y}`),
+    ),
+  )
+  const javaslatEvek = [...new Set([...hianyzoEvek, ...bankHianyEvek.slice(-3)])].sort()
+  for (const y of javaslatEvek) {
     const r = await resolveNyitoEgyenlegekUseCase(
       { congregationId, eve: y },
       { supabase, runtime: 'web' },
     )
     // Csak akkor javaslunk, ha a feloldás sikerült ÉS van mire alapozni.
     // (A `derived` azt jelenti: nem rögzített sorból, hanem a forgalomból jött.)
-    if (r.success) {
+    if (!r.success) continue
+    if (!rogzitettEvek.has(y)) {
       cashSuggestions.push({ eve: y, ertek: r.cash.value, forrasEv: r.cash.baseYear })
+    }
+    for (const b of (banksRes.data || []) as Array<{ id: number }>) {
+      if (rogzitettBankParok.has(`${b.id}:${y}`)) continue
+      const feloldott = r.bank[b.id]
+      if (!feloldott) continue
+      bankSuggestions.push({
+        bankszamla_id: b.id,
+        eve: y,
+        ertek: feloldott.value,
+        forrasEv: feloldott.baseYear,
+      })
     }
   }
 
@@ -156,6 +216,7 @@ export async function getOpeningBalancesSettings(
       earliestYear,
       availableYears,
       cashSuggestions,
+      bankSuggestions,
       cashRows: ((cashRes.data || []) as Array<{ eve: number; nyito_egyenleg: number | string; forrasa: string }>).map(
         (r) => ({ eve: r.eve, nyito_egyenleg: Number(r.nyito_egyenleg) || 0, forrasa: r.forrasa }),
       ),

@@ -23,6 +23,67 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-28] — A nyitó egyenlegnek egyetlen helye lett
+<!-- key: 2026-08-28-nyito-egyenleg-egyseges-forras -->
+<!-- category: improvement -->
+<!-- version: 0.9.192 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🎨 UX javítások
+
+- **Egy hely, és onnan számol minden**: a nyitó egyenleg eddig négy különböző
+  helyen élt, és élesben három különböző szám állt ugyanarra a bankszámlára.
+  Mostantól egyetlen hely van: **Gyülekezet beállításai → Nyitó egyenlegek**,
+  évenkénti bontásban. A Számadás, a Bank fül, a hivatalos banknapló és a
+  Költségvetés kivétel nélkül innen dolgozik.
+
+- **A bankszámla-kártyán látható régi érték átcímkézve**: ott „Régi (kivezetett)
+  nyitó egyenleg" felirat áll, alatta pedig az útmutatás, hogy a hivatalos nyitót
+  hol kell megadni. Eddig ez „a" nyitó egyenlegként látszott, miközben a rendszer
+  már máshonnan számolt — a képernyőn 15 000 állt, a számításban 107 771,39.
+
+- **A bank-mező is előre kitöltődik**: ha egy évre még nincs rögzített banki
+  nyitó, a mezőbe a korábbi záró egyenlegből **levezetett** érték kerül, sárga
+  „levezetett — mentsd el" jelöléssel. Eddig üresen állt, pedig a rendszer már
+  számolt vele. **Menteni továbbra is kézzel kell** — a nyitó a hivatalos
+  számadás kiindulópontja, oda nem kerülhet olyan szám, amit senki nem nézett meg.
+
+- **A véglegesítés előtti figyelmeztetés már oda visz, ahol javítani lehet**:
+  a „Banki nyitó egyenleg" ellenőrző pont eddig a Bank fülre küldött, ahol a
+  megadó gomb csak bizonyos esetben látszott — vagyis zsákutcába vitt.
+
+### 🐛 Javítások
+
+- **Az Excel-import többé nem írja felül némán a jóváhagyott nyitót**: ha a
+  Gyülekezet beállításaiban kézzel rögzítettél kassza-nyitót, egy újraimport
+  eddig szó nélkül felülírta. Mostantól megvédi, és az import végén meg is mondja,
+  hogy nem írta át. Ha az import nem tudta elmenteni a nyitót, arról is szól —
+  eddig ez a hiba nyomtalanul eltűnt, és az import „sikeres"-t jelentett.
+
+- **Véglegesített év nyitója többé nem írható felül a banki importból**: a
+  beállítás-panel eddig is megtagadta, a banki import viszont (weben és az
+  asztali programban egyaránt) átengedte. Most a közös védelem mindhárom úton fut.
+
+- **Az import zárt-év védelme a költségvetésre is figyel**: eddig csak a számadás
+  véglegesítését nézte, így egy lezárt költségvetésű évbe még be tudott írni.
+
+- **Az offline Excel-körút nem tudja megkerülni az ellenőrzéseket**: a
+  „Bankszámlák" munkalap szerkeszthető „Nyitó egyenleg" oszlopa kivezetve — azon
+  keresztül év nélkül, zárt-év védelem nélkül vissza lehetett írni a régi értéket.
+
+- **Visszamenőleges átvezetés az asztali programból**: a következő év automatikusan
+  áthozott banki nyitója eddig elavult maradt (a weben frissült, a desktopon nem).
+
+- **Nagyon régi nyitó sem vész el többé**: ha egy évre nincs rögzített nyitó, a
+  rendszer visszafelé láncol a legutolsó rögzített értékig. Ez eddig legfeljebb
+  8 évet ment vissza, és egy annál régebbi alapot csendben eldobott, 0-ról indulva.
+  Mostantól a lánc mindig eléri a saját kiindulópontját.
+
+- **A bankszámla mentése nem nullázza le véletlenül a régi értéket**: ha egy
+  mentés nem küldi a mezőt, az érték változatlan marad (eddig némán 0 lett).
+
+---
+
 ## [2026-08-28] — Adományozók fül, duplikátum-figyelmeztetés és a belső mozgás rendbetétele
 <!-- key: 2026-08-28-adomanyozok-duplikatum-belso-mozgas -->
 <!-- category: feature -->

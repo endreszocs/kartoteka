@@ -204,7 +204,28 @@ export async function resolveNyitoEgyenlegekUseCase(
   input: ResolveNyitoInput,
   ctx: ResolveNyitoCtx,
 ): Promise<ResolveNyitoResult> {
-  const maxDepth = input.maxDepth ?? 8
+  // ── A LÁNC-ABLAK ÖNADAPTÍV (2026-08-28, Endre döntése) ────────────────────
+  //
+  // A fix 8 éves ablak azt jelentette, hogy egy 8 évnél RÉGEBBI bázis-sort a
+  // feloldó ELDOB, és 0-ról indul (lásd `resolveNyitoForYear`: `useBase`).
+  // Amíg négy különböző nyitó-tároló versengett, ez elrejtőzött — az egyik
+  // úgyis adott valamilyen számot. Endre 2026-08-28-i döntése után viszont a
+  // `bankszamla_nyito_egyenleg` / `keszpenz_nyito_egyenleg` az EGYETLEN forrás:
+  // ha innen esik ki a bázis, nincs másik esély a helyes számra — a nyitó
+  // NÉMÁN 0 lesz a hivatalos számadáson.
+  //
+  // Konkrétan: a 2018-as bázissal rendelkező gyülekezet 2027-ben csendben
+  // elvesztette volna a nyitóját. Idén még nem sül el; most olcsóbb javítani.
+  //
+  // A megoldás NEM egy nagyobb fix szám (az ugyanezt tolja el pár évvel), hanem
+  // az, hogy az ablakot a TÉNYLEGES legkorábbi rögzített sorhoz igazítjuk: a
+  // lánc mindig eléri a saját bázisát. Az explicit `maxDepth` (ha a hívó megad
+  // egyet) továbbra is felülír — ez a teszt- és a szűkítő eset.
+  //
+  // A felső korlát (`ABSZOLUT_MAX_MELYSEG`) megmarad: elszállt adat (pl. 1900-as
+  // évszám egy elgépelt sorban) ne indítson több száz éves forgalom-lekérdezést.
+  const ABSZOLUT_MAX_MELYSEG = 60
+  const ALAP_MELYSEG = 8
   const fallback: ResolveNyitoResult = {
     success: false,
     cash: { ...EMPTY },
@@ -233,6 +254,20 @@ export async function resolveNyitoEgyenlegekUseCase(
       console.error('[resolve-nyito] nyitó-lekérdezés hiba:', firstErr.message)
       return { ...fallback, error: firstErr.message }
     }
+
+    // A ténylegesen betöltött legkorábbi rögzített év — ebből számoljuk az ablakot.
+    // (A lekérdezések `lte('eve', input.eve)`-vel szűrnek, tehát ez a lánc valódi alja.)
+    const rogzitettEvek: number[] = [
+      ...((cashRowsRes.data || []) as Array<{ eve: number }>).map((r) => Number(r.eve)),
+      ...((bankRowsRes.data || []) as Array<{ eve: number }>).map((r) => Number(r.eve)),
+    ].filter((e) => Number.isFinite(e))
+    const legkorabbiBazis = rogzitettEvek.length ? Math.min(...rogzitettEvek) : input.eve
+    const maxDepth =
+      input.maxDepth ??
+      Math.min(
+        ABSZOLUT_MAX_MELYSEG,
+        Math.max(ALAP_MELYSEG, input.eve - legkorabbiBazis),
+      )
 
     const cashRows: NyitoRecordedRow[] = (cashRowsRes.data || []).map(
       (r: { eve: number; nyito_egyenleg: number; forrasa?: string | null }) => ({

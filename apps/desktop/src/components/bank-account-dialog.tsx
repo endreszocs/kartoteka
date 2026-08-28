@@ -201,9 +201,10 @@ export function DesktopBankAccountDialog({
               💡 Nyitó egyenleget hol adhatod meg?
             </p>
             <p className="text-[11px] leading-relaxed text-slate-600">
-              A bankszámla létrehozásakor NEM kötelező a nyitó egyenleg. Az éves
-              nyitó egyenlegeket a Bank fül / banki Excel-import kezeli (évenként,
-              valutás számlánál RON-ekvivalenssel).
+              A bankszámla létrehozásakor NEM kötelező a nyitó egyenleg. A hivatalos,
+              ÉVENKÉNTI nyitó egyenlegek egyetlen helyen élnek:{' '}
+              <strong>Gyülekezet beállításai → Nyitó egyenlegek</strong> (2026-08-28).
+              Innen számol a Számadás, a Bank fül és a hivatalos banknapló is.
             </p>
           </div>
 

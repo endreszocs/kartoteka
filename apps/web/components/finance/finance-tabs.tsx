@@ -299,6 +299,16 @@ export function FinanceTabs({
         window.history.replaceState(null, '', window.location.pathname + window.location.search)
         return
       }
+      // 2026-08-28 (Endre döntése: EGY nyitó-egyenleg forrás): a kanonikus panel
+      // MEGNYITÁSA URL-ből. A véglegesités előtti ellenőrző-lista eddig a
+      // `/penzugy#bank`-ra küldött, ahol a „nyitó megadása" gomb CSAK addig
+      // látszik, amíg se rögzített, se levezetett nyitó nincs — vagyis a
+      // figyelmeztetés zsákutcába mutatott.
+      if (hash === 'nyito_egyenlegek') {
+        setOpeningBalancesOpen(true)
+        window.history.replaceState(null, '', window.location.pathname + window.location.search)
+        return
+      }
       if (hash === 'oblio_ellenorzes') {
         // A hash-t ELŐBB kiürítjük (replaceState), hogy a böngésző Vissza
         // gombja ne pattogjon vissza ide, majd átnavigálunk a hubra.
@@ -316,6 +326,9 @@ export function FinanceTabs({
         'accounting',
         'debt',
         'rental',
+        // 2026-08-28: az Adományozók fül kimaradt ebből a listából — egy
+        // `/penzugy#adomanyozok` könyvjelző némán az Áttekintésre esett volna.
+        'adomanyozok',
         'sugo',
         'admin_import',
       ] as const

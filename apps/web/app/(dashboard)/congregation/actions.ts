@@ -56,7 +56,16 @@ const bankAccountSchema = z.object({
   bankNeve: z.string().min(2, 'A bankszámla nevéhez legalább 2 karakter kell.'),
   iban: z.string().optional(),
   valuta: z.string().min(1).default('RON'),
-  nyitoEgyenleg: z.number().default(0),
+  /**
+   * ⛔ 2026-08-28 (Endre döntése: EGY nyitó-egyenleg forrás) — `.optional()`,
+   *    NEM `.default(0)`. A default miatt egy olyan hívó, amelyik elfelejti a mezőt,
+   *    NÉMÁN 0-t írt a `bankszamlak.nyito_egyenleg`-re. Gyülekezeti szinten ez ma már
+   *    ártalmatlan (a számítás a kanonikus évenkénti táblából jön), de a MEGYEI/KERÜLETI
+   *    szinten ez az oszlop az EGYETLEN banki nyitó-tároló (a kanonikus tábla
+   *    `congregation_id`-je NOT NULL) — ott egy ilyen néma nullázás VALÓDI számot ront.
+   *    Az oszlopot ezért nem dobjuk el, hanem megédjük a véletlen felülirástól.
+   */
+  nyitoEgyenleg: z.number().optional(),
   szin: z.string().default('#206bc4'),
   ikon: z.string().default('building-2'),
   isDefault: z.boolean().default(false),
@@ -875,10 +884,15 @@ export async function saveCongregationBankAccount(
     iban: parsed.data.iban?.trim() || null,
     valuta: parsed.data.valuta.trim().toUpperCase(),
     aktiv: parsed.data.aktiv,
-    nyito_egyenleg: parsed.data.nyitoEgyenleg,
     szin: parsed.data.szin || '#206bc4',
     ikon: parsed.data.ikon || 'building-2',
     is_default: parsed.data.isDefault,
+    // A `nyito_egyenleg` CSAK akkor kerül a rekordba, ha a hívó ténylegesen küldött
+    // értéket — `undefined`-nál a mező kimarad, tehát az UPDATE nem ír rá. Lásd a
+    // `nyitoEgyenleg` zod-mező kommentét: a néma 0 a megyei szinten számot rontana.
+    ...(parsed.data.nyitoEgyenleg !== undefined
+      ? { nyito_egyenleg: parsed.data.nyitoEgyenleg }
+      : {}),
   }
 
   if (parsed.data.isDefault) {

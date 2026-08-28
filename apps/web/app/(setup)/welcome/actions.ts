@@ -181,8 +181,10 @@ const wizardFinanceSchema = z.object({
   jarulek_kedvezmenyes: z.number().finite().min(0).max(1_000_000_000).optional(),
   jarulek_hatarid: z.string().regex(DATE_MM_DD).or(z.literal('')).optional(),
   tartozas_szamitas_mod: z.enum(['akkori', 'aktualis']).optional(),
-  nyito_keszpenz: z.number().finite().optional(),
-  nyito_bank: z.number().finite().optional(),
+  // ⛔ 2026-08-28: a nyitó-egyenleg mezők kivezetve a varázslóból (lásd a
+  //    `completeWizard` kommentét). A zod-sémából is kivesszük, hogy egy régi,
+  //    még értéket tartalmazó `wizard_progress` sor se tudja újraéleszteni az ágat.
+  //    A TS-típuson (`WizardFinance`) @deprecated-ként megmarad a backward-compat.
 })
 
 const wizardDiscountPeriodSchema = z.object({
@@ -1102,12 +1104,14 @@ export async function completeWizard(): Promise<
     if (wd.finance.jarulek_hatarid) {
       bealitasUpsert.jarulek_hatarid = wd.finance.jarulek_hatarid
     }
-    if (wd.finance.nyito_keszpenz !== undefined) {
-      bealitasUpsert.nyito_keszpenz = wd.finance.nyito_keszpenz
-    }
-    if (wd.finance.nyito_bank !== undefined) {
-      bealitasUpsert.nyito_bank = wd.finance.nyito_bank
-    }
+    // ⛔ 2026-08-28 (Endre döntése: EGY nyitó-egyenleg forrás): a `nyito_keszpenz` /
+    //    `nyito_bank` ÍRÁSA KIVEZETVE. Ez volt az EGYETLEN olyan út, amelyik
+    //    service-role klienssel, `ignoreDuplicates` NÉLKÜL írt — vagyis egy MÁR
+    //    LÉTEZŐ év-sorra is rá tudott írni. A felület 2026-05-05 óta nem gyűjti
+    //    ezeket (step-4-finance.tsx), de a csővezeték élt: egy félbehagyott, régi
+    //    `wizard_progress` sor újra tudta éleszteni.
+    //    Kanonikus: `keszpenz_nyito_egyenleg` / `bankszamla_nyito_egyenleg`, amit a
+    //    Gyülekezet beállításai → Nyitó egyenlegek felület ír.
     if (wd.congregation?.bejegyzesiszam) {
       // Ha a congregations-be nem ment, itt megpróbáljuk
       bealitasUpsert.bejegyzesiszam = wd.congregation.bejegyzesiszam

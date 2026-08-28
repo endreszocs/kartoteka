@@ -31,6 +31,7 @@ import {
 
 import { assertYearsNotFinalizedForCreate } from '../year-lock'
 import { belsoMozgasKodpar } from '../bank-import/belso-mozgas-kodok'
+import { refreshNextYearCarryoverUseCase } from '../bank-import/nyito-egyenleg'
 
 /** 20 hex karakteres xkey (a befizetes/kiadas NOT NULL oszlopa). */
 function ujXkey20(): string {
@@ -194,6 +195,36 @@ export async function saveInternalTransferUseCase(
             `(${kiaIns.error.message}). A két oldal így féloldalas — nézd meg a Pénzügy ` +
             'oldalon, és jelezd a rendszergazdának.',
         }
+      }
+    }
+
+    // 2026-08-28 (Endre döntése: EGY nyitó-egyenleg forrás): ha VISSZAMENŐLEGESEN
+    // rögzítünk átvezetést, a KÖVETKEZŐ évi automatikusan áthozott ('carryover')
+    // banki nyitó elavul — újraszámoljuk. Kézzel rögzített ('manual') nyitót a
+    // use-case definíció szerint nem bánt.
+    //
+    // MIÉRT ITT, A MAGBAN: eddig CSAK a webes `saveInternalTransfer` hívta meg
+    // (apps/web/.../penzugy/actions.ts), a DESKTOP viszont ezt a közös use-case-t
+    // használja — vagyis egy asztali programból rögzített visszamenőleges átvezetés
+    // elavultan hagyta a következő év nyitóját, ugyanaz a művelet a weben pedig
+    // frissítette. Kanonizálás közben épp a kanonikus tábla tartalma húzott szét.
+    //
+    // BEST-EFFORT: a hibája NEM buktatja a mentést (a pénz már könyvelve van), de
+    // — a korábbi néma `catch {}`-tel ellentétben — naplózzuk.
+    if (clean.bankszamlaId != null) {
+      try {
+        const changedYear = Number(String(clean.datum).slice(0, 4))
+        if (Number.isFinite(changedYear) && changedYear >= 2000) {
+          await refreshNextYearCarryoverUseCase(
+            { congregationId: clean.congregationId, bankszamlaId: clean.bankszamlaId, changedYear },
+            ctx as unknown as Parameters<typeof refreshNextYearCarryoverUseCase>[1],
+          )
+        }
+      } catch (e) {
+        console.error(
+          '[belsomozgas] a következő évi carryover nyitó frissítése nem sikerült:',
+          e instanceof Error ? e.message : e,
+        )
       }
     }
 

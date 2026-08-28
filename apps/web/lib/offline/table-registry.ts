@@ -259,9 +259,17 @@ const PENZUGY_TABLES: TableRegistryEntry[] = [
     softDelete: false,
     // 2026-08-11: KIHAGYVA a megjelenítési (`szin`, `ikon`, `is_default`) és
     // az egyházmegyei scope-mezők (`scope`, `diocese_id`) + `created_at`.
+    //
+    // ⛔ 2026-08-28 (Endre döntése: EGY nyitó-egyenleg forrás): a `nyito_egyenleg`
+    //    KIVEZETVE erről a listáról. A push a select-listából építi a payloadot
+    //    (`lib/offline/push.ts`), és közvetlenül `update()`-el ír — megkerulve a
+    //    server actiont, a zod-sémát, a hatókör- és a zárt-év ellenőrzést.
+    //    Így az offline Excel-körút év nélkül és védelem nélkül felül tudta írni a
+    //    hivatalos nyitó egyenleget. A kanonikus tároló a `bankszamla_nyito_egyenleg`
+    //    évenkénti tábla, amit a Gyülekezet beállításai → Nyitó egyenlegek felület ír.
     select: [
       'id', 'revision', 'updated_at', 'congregation_id',
-      'bank_neve', 'iban', 'valuta', 'nyito_egyenleg', 'aktiv',
+      'bank_neve', 'iban', 'valuta', 'aktiv',
     ].join(', '),
     module: 'penzugy',
     label: 'Bankszámlák',

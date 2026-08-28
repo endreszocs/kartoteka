@@ -1133,7 +1133,18 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
                           ))}
                         </select>
                       </Field>
-                      <Field label="Nyitó egyenleg"><Input type="number" value={bankForm.nyitoEgyenleg} onChange={(event) => setBankForm((prev) => ({ ...prev, nyitoEgyenleg: Number(event.target.value) }))} /></Field>
+                      {/* ⛔ 2026-08-28 (Endre döntése: „a gyülekezet beállításainál legyenek
+                          a nyitó egyenlegek, EGY [helyen], és onnan számoljon mindent"):
+                          a szerkeszthető „Nyitó egyenleg" mező ELTÁVOLÍTVA.
+                          Az érték ÉV NÉLKÜLI volt, és ugyanennek a dialógusnak a SZOMSZÉDOS
+                          al-fülén fut a kanonikus `OpeningBalancesManager` — két, egymásnak
+                          ellentmondó beviteli hely EGY ablakban.
+                          (MÉRVE: a mező ma is elérhetetlen — az `advanced-edit` variánst senki
+                          nem adja át —, de a kód élt; kivezetéskor pont az ilyen alvó
+                          felület éled újra.)
+                          A mentési út marad: a `bankForm.nyitoEgyenleg` a betöltött értéket
+                          írja vissza változatlanul, tehát a megyei szint (ahol ez az oszlop az
+                          EGYETLEN nyitó-tároló) nem sérül. */}
                       <Field label="Szín">
                         <div className="flex items-center gap-3">
                           <input type="color" value={bankForm.szin} onChange={(event) => setBankForm((prev) => ({ ...prev, szin: event.target.value }))} className="h-10 w-14 rounded-md border border-slate-200 bg-white" />
@@ -1265,8 +1276,16 @@ function BankAccountCard({
               )}
             </div>
             <p className="mt-1 text-xs text-slate-500">{account.iban || 'Nincs IBAN megadva'}</p>
-            <p className="mt-2 text-sm text-slate-600">
+            {/* 2026-08-28: EGYÉRTELMŰ címke. Korábban ez „a" nyitó egyenlegként állt itt,
+                miközben a számítás másik (évenkénti) tárolóból dolgozik — élesben 15 000
+                látszott, miközben a rendszer 107 771,39-cel számolt. Egy kivezetés, ami a
+                régi számot ugyanolyan hangsúllyal hagyja a képernyőn, nem kivezetés. */}
+            <p className="mt-2 text-xs text-slate-500">
+              Régi (kivezetett) nyitó egyenleg:{' '}
               {Number(account.nyito_egyenleg || 0).toLocaleString('hu-HU')} {account.valuta}
+            </p>
+            <p className="text-xs text-slate-400">
+              A hivatalos nyitót a Gyülekezet beállításai → Nyitó egyenlegek adja (évenként).
             </p>
           </div>
         </div>
