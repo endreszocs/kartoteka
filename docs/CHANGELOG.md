@@ -53,6 +53,18 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   mindkét irányban a teljes átvezetést viszi, a lábak külön szerkesztése
   pedig mindkét változatban tiltott (törlés + újrarögzítés a helyes út).
 
+- **Nyugta-kiállításnál nem éghet el nyomdai szám** (P0-12): a nyugta
+  (chitanță) kiállítása eddig két lépésben történt — a rendszer előbb
+  lefoglalta a következő nyomdai számot a tömbből, és csak utána mentette a
+  nyugtát. Ha a mentés bármiért elhasalt, a lefoglalt szám elveszett: lyuk
+  maradt a szigorú számadású papírtömbben. Mostantól a foglalás és a mentés
+  EGYETLEN szerver-oldali műveletben fut — hibánál a szám is visszakerül.
+  Ugyanez a művelet zárja ki, hogy két egyszerre indított kiállítás ugyanazt
+  a számot kapja, és a dupla kattintás sem készít második nyugtát ugyanarra
+  a befizetésre: ilyenkor a már meglévő nyugta jön vissza. (Ehhez a
+  2026-08-28-chitanta-atomic-rpc.sql lefuttatása szükséges — a kód-frissítés
+  ÉLESÍTÉSE ELŐTT.)
+
 - **A megszakadt szinkronizáció nem duplikálhat tételt** (P0-10): ha az
   offline tétel felküldése közben a hálózat pont a válasz előtt szakadt meg,
   az újrapróbálkozás eddig még egyszer beszúrhatta ugyanazt a tételt.

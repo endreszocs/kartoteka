@@ -10,10 +10,10 @@
  *   2. Befizető név + cím feloldás: szemely (FK adrlocality/adrstreet) → haztartas
  *      (legacy_csalad_id, FK cím) → forrasa szöveg → „Gyülekezeti tag" fallback
  *   3. Reprezentand (jogcím neve hu+ro) a befizetescel-ből
- *   4. ATOMIKUS `next_chitanta_full(p_congregation_id, p_szamla_datum)` RPC →
- *      { tomb_id, nyomdai_szam, gyulekezeti_szam, sorozat, maradek };
+ *   4+5. ATOMIKUS `issue_chitanta_atomic(...)` RPC (P0-12, 2026-08-28) —
+ *      foglalás + oblio_szamlak INSERT EGY szerver-oldali tranzakcióban
+ *      (FOR UPDATE a tömb-soron + idempotencia-kapu a befizetes_id-n);
  *      ha nincs aktív tömb → 'no_active_block' → errorCode 'NO_ACTIVE_BLOCK'
- *   5. INSERT az oblio_szamlak-ba (tipus='chitanta_papir', 15 oszlop)
  *
  * ONLINE művelet — az atomikus RPC szerver-oldali; offline nem rögzítünk nyugtát
  * a Kassza-fülről (a Nyugta oldalon van offline-tárcás kiállítás).
@@ -129,13 +129,27 @@ export async function autoIssueChitantaForBefizetesUseCase(
     if (reprezentandRo && !reprezentandRo.includes(String(fizetettEv))) reprezentandRo = `${reprezentandRo} ${fizetettEv}`
   }
 
-  // 4. Atomikus szám-lefoglalás az aktív tömbből
+  // 4+5. Foglalás + INSERT EGY szerver-oldali tranzakcióban (P0-12, audit
+  // 2026-08-28): a korábbi kétlépcsős út (next_chitanta_full + külön insert)
+  // hibánál ELÉGETTE a nyomdai számot, és FOR UPDATE híján párhuzamosan
+  // dupla számot adhatott. Az RPC idempotens: dupla-kattintásnál a MÁR
+  // MEGLÉVŐ nyugtát adja vissza új szám nélkül. Bit-azonos a web actionnel.
   const szamlaDatum =
     (befizetes.datum as string)?.split('T')[0] || new Date().toISOString().slice(0, 10)
 
-  const { data: szamokRaw, error: rpcErr } = await ctx.supabase.rpc('next_chitanta_full', {
+  const osszeg = Number(befizetes.osszeg) || 0
+  const { data: kiallitasRaw, error: rpcErr } = await ctx.supabase.rpc('issue_chitanta_atomic', {
     p_congregation_id: input.congregationId,
+    p_befizetes_id: input.befizetesId,
     p_szamla_datum: szamlaDatum,
+    p_klienesseg_nev: befizetoNev,
+    p_klienesseg_cim: befizetoCim,
+    // A desktop Kassza-fülön nincs cégnyilvántartás-feloldás (a webes 5b
+    // jogi-személy ág web-only) — a CUI itt mindig null.
+    p_klienesseg_cui: null,
+    p_osszeg: osszeg,
+    p_reprezentand: reprezentand || null,
+    p_reprezentand_ro: reprezentandRo || null,
   })
 
   if (rpcErr) {
@@ -145,56 +159,21 @@ export async function autoIssueChitantaForBefizetesUseCase(
         errorCode: 'NO_ACTIVE_BLOCK',
       }
     }
-    return { error: `Szám-lefoglalási hiba: ${rpcErr.message}` }
+    return { error: `Nyugta-kiállítási hiba: ${rpcErr.message}` }
   }
 
-  const szamok = Array.isArray(szamokRaw) ? szamokRaw[0] : szamokRaw
-  if (!szamok) {
-    return { error: 'Nem sikerült lefoglalni a következő nyugtaszámot.', errorCode: 'NO_ACTIVE_BLOCK' }
-  }
-
-  const tombId: string = szamok.tomb_id
-  const nyomdaiSzam: number = szamok.nyomdai_szam
-  const gyulekezetiSzam: number = szamok.gyulekezeti_szam
-  const sorozat: string = szamok.sorozat
-  const maradek: number = szamok.maradek
-
-  // 5. INSERT az oblio_szamlak-ba
-  const osszeg = Number(befizetes.osszeg) || 0
-  const { data: inserted, error: insErr } = await ctx.supabase
-    .from('oblio_szamlak')
-    .insert({
-      congregation_id: input.congregationId,
-      tipus: 'chitanta_papir',
-      sorozat,
-      szam: nyomdaiSzam, // backward-compat: a régi `szam` mező is a nyomdai számot tárolja
-      nyomdai_szam: nyomdaiSzam,
-      gyulekezeti_szam: gyulekezetiSzam,
-      tomb_id: tombId,
-      szamla_datum: szamlaDatum,
-      klienesseg_nev: befizetoNev,
-      klienesseg_cim: befizetoCim,
-      osszeg_net: osszeg,
-      osszeg_brut: osszeg,
-      osszeg_tva: 0,
-      reprezentand: reprezentand || null,
-      reprezentand_ro: reprezentandRo || null,
-      befizetes_id: input.befizetesId,
-      issued_by: ctx.userId,
-    })
-    .select('id')
-    .single()
-
-  if (insErr || !inserted) {
-    return { error: `Hiba a nyugta mentésekor: ${insErr?.message || 'ismeretlen'}` }
+  const kiallitas = Array.isArray(kiallitasRaw) ? kiallitasRaw[0] : kiallitasRaw
+  if (!kiallitas) {
+    return { error: 'Nem sikerült kiállítani a nyugtát.' }
   }
 
   return {
-    chitantaId: inserted.id as string,
-    sorozat,
-    nyomdaiSzam,
-    gyulekezetiSzam,
-    maradek,
+    chitantaId: kiallitas.chitanta_id as string,
+    sorozat: kiallitas.sorozat as string,
+    nyomdaiSzam: Number(kiallitas.nyomdai_szam),
+    gyulekezetiSzam:
+      kiallitas.gyulekezeti_szam == null ? undefined : Number(kiallitas.gyulekezeti_szam),
+    maradek: kiallitas.maradek == null ? undefined : Number(kiallitas.maradek),
   }
 }
 

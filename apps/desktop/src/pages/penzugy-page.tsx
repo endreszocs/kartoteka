@@ -750,7 +750,7 @@ export function PenzugyPage() {
                 />
               )}
               // C1c: nyugta (chitanță) auto-kiállítás befizetésből (a web
-              // autoIssueChitantaForBefizetes tükre, atomikus next_chitanta_full RPC).
+              // autoIssueChitantaForBefizetes tükre, atomikus issue_chitanta_atomic RPC).
               onAutoIssueChitanta={async (befizetesId) => {
                 const r = await autoIssueChitantaForBefizetesUseCase(
                   { congregationId, befizetesId },

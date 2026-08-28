@@ -332,13 +332,29 @@ export async function autoIssueChitantaForBefizetes(
     if (reprezentandRo && !reprezentandRo.includes(String(fizetettEv))) reprezentandRo = `${reprezentandRo} ${fizetettEv}`
   }
 
-  // 4. Nyomdai + gyülekezeti szám lefoglalása az aktív tömbből (atomi RPC)
+  // 4+5. Foglalás + INSERT EGY szerver-oldali tranzakcióban (P0-12, audit
+  // 2026-08-28): a korábbi kétlépcsős út (next_chitanta_full + külön insert)
+  // hibánál ELÉGETTE a nyomdai számot (lyuk a szigorú számadású tömbben), és
+  // FOR UPDATE híján párhuzamosan dupla számot adhatott. Az RPC idempotens:
+  // dupla-kattintásnál a MÁR MEGLÉVŐ nyugtát adja vissza új szám nélkül.
+  // ⚠️ PILLANATFELVÉTEL: a partner adószáma (klienesseg_cui) ÉRTÉKKÉNT
+  // mentődik a nyugta sorába. A nyomtatás SOHA nem olvashatja futásidejű
+  // JOIN-nal, különben egy későbbi CIF-változás visszamenőleg átírná a már
+  // kiadott nyugtát.
   const szamlaDatum = (befizetes.datum as string)?.split('T')[0] || new Date().toISOString().slice(0, 10)
 
-  const { data: szamokRaw, error: rpcErr } = await access.supabase
-    .rpc('next_chitanta_full', {
+  const osszeg = Number(befizetes.osszeg) || 0
+  const { data: kiallitasRaw, error: rpcErr } = await access.supabase
+    .rpc('issue_chitanta_atomic', {
       p_congregation_id: access.effectiveCongregationId,
+      p_befizetes_id: befizetesId,
       p_szamla_datum: szamlaDatum,
+      p_klienesseg_nev: befizetoNev,
+      p_klienesseg_cim: befizetoCim,
+      p_klienesseg_cui: befizetoCui,
+      p_osszeg: osszeg,
+      p_reprezentand: reprezentand || null,
+      p_reprezentand_ro: reprezentandRo || null,
     })
 
   if (rpcErr) {
@@ -349,60 +365,21 @@ export async function autoIssueChitantaForBefizetes(
         errorCode: 'NO_ACTIVE_BLOCK',
       }
     }
-    return { error: `Szám-lefoglalási hiba: ${rpcErr.message}` }
+    return { error: `Nyugta-kiállítási hiba: ${rpcErr.message}` }
   }
 
-  const szamok = Array.isArray(szamokRaw) ? szamokRaw[0] : szamokRaw
-  if (!szamok) {
-    return { error: 'Nem sikerült lefoglalni a következő nyugtaszámot.', errorCode: 'NO_ACTIVE_BLOCK' }
-  }
-
-  const tombId: string = szamok.tomb_id
-  const nyomdaiSzam: number = szamok.nyomdai_szam
-  const gyulekezetiSzam: number = szamok.gyulekezeti_szam
-  const sorozat: string = szamok.sorozat
-  const maradek: number = szamok.maradek
-
-  // 5. Insert az oblio_szamlak-ba
-  const osszeg = Number(befizetes.osszeg) || 0
-  const { data: inserted, error: insErr } = await access.supabase
-    .from('oblio_szamlak')
-    .insert({
-      congregation_id: access.effectiveCongregationId,
-      tipus: 'chitanta_papir',
-      sorozat,
-      szam: nyomdaiSzam, // backward-compat: a régi `szam` mező is a nyomdai számot tárolja
-      nyomdai_szam: nyomdaiSzam,
-      gyulekezeti_szam: gyulekezetiSzam,
-      tomb_id: tombId,
-      szamla_datum: szamlaDatum,
-      klienesseg_nev: befizetoNev,
-      klienesseg_cim: befizetoCim,
-      // ⚠️ PILLANATFELVÉTEL: a partner adószáma ÉRTÉKKÉNT mentődik a nyugta
-      // sorába. A nyomtatás SOHA nem olvashatja futásidejű JOIN-nal, különben
-      // egy későbbi CIF-változás visszamenőleg átírná a már kiadott nyugtát.
-      klienesseg_cui: befizetoCui,
-      osszeg_net: osszeg,
-      osszeg_brut: osszeg,
-      osszeg_tva: 0,
-      reprezentand: reprezentand || null,
-      reprezentand_ro: reprezentandRo || null,
-      befizetes_id: befizetesId,
-      issued_by: access.user.id,
-    })
-    .select('id')
-    .single()
-
-  if (insErr || !inserted) {
-    return { error: `Hiba a nyugta mentésekor: ${insErr?.message || 'ismeretlen'}` }
+  const kiallitas = Array.isArray(kiallitasRaw) ? kiallitasRaw[0] : kiallitasRaw
+  if (!kiallitas) {
+    return { error: 'Nem sikerült kiállítani a nyugtát.' }
   }
 
   return {
-    chitantaId: inserted.id,
-    sorozat,
-    nyomdaiSzam,
-    gyulekezetiSzam,
-    maradek,
+    chitantaId: kiallitas.chitanta_id as string,
+    sorozat: kiallitas.sorozat as string,
+    nyomdaiSzam: Number(kiallitas.nyomdai_szam),
+    gyulekezetiSzam:
+      kiallitas.gyulekezeti_szam == null ? undefined : Number(kiallitas.gyulekezeti_szam),
+    maradek: kiallitas.maradek == null ? undefined : Number(kiallitas.maradek),
   }
 }
 
