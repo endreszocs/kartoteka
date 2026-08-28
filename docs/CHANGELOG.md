@@ -47,6 +47,18 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   évének (a pénztári nap évének) sorozatából jön, ahogy internettel is;
   a „melyik évre szól" jelölés természetesen marad a korábbi év.
 
+- **Fillérnél (baninál) pontosabb összeg nem menthető**: a rendszer eddig
+  elfogadott két tizedesnél pontosabb összeget is (ilyen kézzel nem, csak
+  számított értékből — pl. deviza-átváltásból — keletkezhetett). Az ilyen
+  összegnél a képernyő, az adatbázis és az Excel-főkönyv kerekítése
+  széthúzhatott, és a hivatalos ív oszlopösszege banira elcsúszhatott.
+  Mostantól minden rögzítő és szerkesztő felület baniban pontos összeget
+  vár, és érthető üzenettel jelez, ha nem az. A szerkesztő ablak összegét
+  ráadásul eddig csak a böngésző ellenőrizte — mostantól a szerver is
+  (nulla és negatív összeg sem csúszhat át). A tárolt adatok ellenőrzése
+  megtörtént: fillérpontatlan összeg nincs a rendszerben, javítani semmit
+  nem kellett.
+
 ## [2026-08-28] — Pénzügyi átvilágítás: a B-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-b-blokk -->
 <!-- category: security -->

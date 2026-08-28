@@ -16,6 +16,7 @@
 import { z } from 'zod'
 
 import { localTodayIso } from '../local-date'
+import { CENT_UZENET, isCentPontos } from '../money'
 
 // #5 (Endre): az irattipus szabad szöveges bizonylattípus-címke (Chitanță/Factură/Készpénz/
 // Banki/Extras/OP…). A régi 2-értékű enum túl szűk volt — a DB-oszlop `text`, nincs CHECK.
@@ -35,7 +36,8 @@ export const saveIncomeInputSchema = z
     /** Bruttó összeg (a rögzített pénznemben, általában RON). */
     osszeg: z
       .number({ message: 'Az összeg kötelező' })
-      .positive('Az összeg pozitív szám kell legyen'),
+      .positive('Az összeg pozitív szám kell legyen')
+      .refine(isCentPontos, CENT_UZENET),
 
     /** A befizetés dátuma (YYYY-MM-DD). */
     datum: z

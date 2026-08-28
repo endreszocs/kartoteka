@@ -19,6 +19,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { CENT_UZENET, isCentPontos } from '@kartoteka/validations'
 
 import { refreshCarryoverBestEffort } from './bank-import/nyito-egyenleg'
 import { readYearFinalized } from './year-lock'
@@ -211,6 +212,18 @@ export async function updateTransactionUseCase(
   }
   if (input.osszeg !== undefined && (!Number.isFinite(input.osszeg) || input.osszeg <= 0)) {
     return { success: false, error: 'Az összeg pozitív szám legyen.' }
+  }
+  // D2 (audit 2026-08-28): sub-centes összeg tiltása — a képernyő (toFixed),
+  // a DB és a desktop-Excel (roundCent) széthúzna rajta.
+  if (input.osszeg !== undefined && !isCentPontos(input.osszeg)) {
+    return { success: false, error: CENT_UZENET }
+  }
+  if (
+    input.osszeg_ron !== undefined &&
+    input.osszeg_ron !== null &&
+    !isCentPontos(input.osszeg_ron)
+  ) {
+    return { success: false, error: CENT_UZENET }
   }
 
   const table = input.type === 'befizetes' ? 'befizetes' : 'kiadas'

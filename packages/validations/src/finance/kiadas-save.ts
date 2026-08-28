@@ -15,6 +15,7 @@
 import { z } from 'zod'
 
 import { localTodayIso } from '../local-date'
+import { CENT_UZENET, isCentPontos } from '../money'
 
 // #5 (Endre): az irattipus szabad szöveges bizonylattípus-címke (lásd befizetes-save.ts).
 const irattipusSchema = z.string().trim().min(1, 'Az irattípus kötelező').max(50)
@@ -31,7 +32,8 @@ export const saveExpenseInputSchema = z
 
     osszeg: z
       .number({ message: 'Az összeg kötelező' })
-      .positive('Az összeg pozitív szám kell legyen'),
+      .positive('Az összeg pozitív szám kell legyen')
+      .refine(isCentPontos, CENT_UZENET),
 
     /** Dátum (YYYY-MM-DD — a timestamp-mezőben a 00:00:00 sufix-szel kerül). */
     datum: z

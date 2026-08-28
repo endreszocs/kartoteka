@@ -7,7 +7,7 @@ import {
   RENTAL_BERLO_TIPUS,
   FX_ARFOLYAM_FORRAS,
 } from '@/lib/constants/finance'
-import { localTodayIso } from '@kartoteka/validations'
+import { CENT_UZENET, isCentPontos, localTodayIso } from '@kartoteka/validations'
 
 const today = () => localTodayIso()
 
@@ -19,7 +19,7 @@ const irattipusSchema = z.string().trim().min(1, 'Az irattípus kötelező').max
 // ── Bevétel ──────────────────────────────────────────────────
 
 export const incomeSchema = z.object({
-  osszeg: z.number({ message: 'Az összeg kötelező' }).positive('Az összeg pozitív szám kell legyen'),
+  osszeg: z.number({ message: 'Az összeg kötelező' }).positive('Az összeg pozitív szám kell legyen').refine(isCentPontos, CENT_UZENET),
   datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Érvénytelen dátum'),
   id_befizetescel: z.number({ message: 'Válasszon kategóriát' }),
   id_szemely: z.number().nullable().optional(),
@@ -69,7 +69,7 @@ export const incomeBatchRowSchema = z.object({
   datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Érvénytelen dátum'),
   id_befizetescel: z.number({ message: 'Válasszon kategóriát' }),
   forrasa: z.string().nullable().optional(),
-  osszeg: z.number({ message: 'Az összeg kötelező' }).positive('Az összeg pozitív szám kell legyen'),
+  osszeg: z.number({ message: 'Az összeg kötelező' }).positive('Az összeg pozitív szám kell legyen').refine(isCentPontos, CENT_UZENET),
   iratszam: z.string().nullable().optional(),
   // #3 (Endre): gyülekezeti saját sorszám → befizetes.nyugta (a kerületi = iratszam mellett).
   nyugta: z.string().nullable().optional(),
@@ -93,7 +93,7 @@ export type IncomeBatchRowInput = z.infer<typeof incomeBatchRowSchema>
 // ── Kiadás ───────────────────────────────────────────────────
 
 export const expenseSchema = z.object({
-  osszeg: z.number({ message: 'Az összeg kötelező' }).positive('Az összeg pozitív szám kell legyen'),
+  osszeg: z.number({ message: 'Az összeg kötelező' }).positive('Az összeg pozitív szám kell legyen').refine(isCentPontos, CENT_UZENET),
   datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Érvénytelen dátum'),
   id_kiadascel: z.number({ message: 'Válasszon kategóriát' }),
   kedvezmenyzett: z.string().nullable().optional(),
@@ -114,7 +114,7 @@ export const expenseBatchRowSchema = z.object({
   datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Érvénytelen dátum'),
   id_kiadascel: z.number({ message: 'Válasszon kategóriát' }),
   kedvezmenyzett: z.string().nullable().optional(),
-  osszeg: z.number({ message: 'Az összeg kötelező' }).positive('Az összeg pozitív szám kell legyen'),
+  osszeg: z.number({ message: 'Az összeg kötelező' }).positive('Az összeg pozitív szám kell legyen').refine(isCentPontos, CENT_UZENET),
   iratszam: z.string().nullable().optional(),
   irattipus: irattipusSchema,
   megjegyzes: z.string().nullable().optional(),
@@ -134,12 +134,12 @@ export type ExpenseBatchRowInput = z.infer<typeof expenseBatchRowSchema>
 
 export const transferSchema = z.object({
   tipus: z.enum(TRANSFER_TYPES),
-  osszeg: z.number().positive('Az összeg pozitív szám kell legyen'),
+  osszeg: z.number().positive('Az összeg pozitív szám kell legyen').refine(isCentPontos, CENT_UZENET),
   datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   forras: z.string().min(1, 'Válasszon forrást'),
   cel: z.string().min(1, 'Válasszon célt'),
   arfolyam: z.number().nullable().optional(),
-  cel_osszeg: z.number().nullable().optional(),
+  cel_osszeg: z.number().refine(isCentPontos, CENT_UZENET).nullable().optional(),
   megjegyzes: z.string().nullable().optional(),
 }).refine(
   data => data.forras !== data.cel,
