@@ -22,6 +22,7 @@ import {
   type BealitasRow,
 } from '@kartoteka/ui-app'
 
+import { parseImportAmount } from '@/lib/import/amount-parse'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { saveSzamadasTartozasok } from '@/app/(dashboard)/penzugy/actions'
@@ -59,9 +60,12 @@ export function SzamadasTartozasokDialog({
     setKintlevosegek(toStr(stored?.kintlevosegek ?? undefined))
   }, [open, settings.szamadas_tartozasok])
 
+  // P0-17 (audit 2026-08-28): a korábbi naiv vessző→pont csere az ezres-
+  // elválasztós beírást („1 234,56", „1.234") némán 0-ra vagy ezredére vitte —
+  // a kanonikus parser a lib/import/amount-parse.
   const num = (v: string | undefined): number => {
-    const n = Number(String(v ?? '').replace(',', '.'))
-    return Number.isFinite(n) && n >= 0 ? n : 0
+    const n = parseImportAmount(v ?? '')
+    return n !== null && n >= 0 ? n : 0
   }
   const datoriiTotal = useMemo(
     () => SZAMADAS_DATORII_SOROK.reduce((s, [nr]) => s + num(tartozasok[String(nr)]), 0),

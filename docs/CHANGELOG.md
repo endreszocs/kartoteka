@@ -44,6 +44,14 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   az egész köteg nyugodtan újramenthető. Ugyanezt a védelmet megkapta a
   megyei/kerületi kiadás-rögzítés is.
 
+- **Az importált összegek nem zsugorodhatnak többé az ezredükre** (P0-17): ha
+  egy Excel-cellában az összeg SZÖVEGKÉNT, ezres elválasztóval állt (pl.
+  „1.234,56" vagy „1 234,56"), az importáló eddig 1,234-nek — az ezredének —
+  olvasta, vagy némán nullának vette. Mostantól egyetlen közös számértelmező
+  kezeli az összes import-utat és a Számadás-tartozások ablakot is: a magyar,
+  román és angol számformátumot egyaránt helyesen olvassa, az értelmezhetetlen
+  bemenetet pedig hibaként jelzi, nem tippeli meg.
+
 - **Fél kassza–bank átvezetés nem maradhat némán a könyvben** (P0-13): ha az
   átvezetés rögzítésekor a második láb mentése hibázott, a rendszer eddig
   megpróbálta visszavonni az első lábat, de nem ellenőrizte, hogy a
