@@ -899,6 +899,36 @@ export class TauriSqliteBackend implements StorageBackend {
   }
 
   /**
+   * P3-19 (audit 2026-08-28): a globális sync-badge ÉV-FÜGGETLEN számai.
+   * A korábbi, év-szűrt listázással a MÚLT évre szóló, pushra váró vagy
+   * konfliktusos tétel a badge-en láthatatlan volt — a lelkész azt hitte,
+   * minden szinkronban van.
+   */
+  async countLocalPendingPenzugyOsszes(congregationId: string): Promise<{
+    befizetes: { pending: number; conflict: number }
+    kiadas: { pending: number; conflict: number }
+  }> {
+    const szamol = async (table: 'befizetes_pending_local' | 'kiadas_pending_local') => {
+      const rows = await dbSelect<{ sync_state: string; n: number }>(
+        `SELECT sync_state, COUNT(*) AS n FROM ${table}
+          WHERE congregation_id = ?1 AND sync_state IN ('pending','conflict')
+          GROUP BY sync_state`,
+        [congregationId],
+      )
+      const ki = { pending: 0, conflict: 0 }
+      for (const r of rows) {
+        if (r.sync_state === 'pending') ki.pending = Number(r.n) || 0
+        if (r.sync_state === 'conflict') ki.conflict = Number(r.n) || 0
+      }
+      return ki
+    }
+    return {
+      befizetes: await szamol('befizetes_pending_local'),
+      kiadas: await szamol('kiadas_pending_local'),
+    }
+  }
+
+  /**
    * Egyetlen lokális befizetés lekérdezése ID-ra (sync-payload újraépítéshez,
    * vagy konfliktus-feloldáshoz a következő alfázisban).
    */

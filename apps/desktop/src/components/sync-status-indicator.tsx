@@ -64,18 +64,19 @@ export function SyncStatusIndicator({ position = 'fixed' }: { position?: 'fixed'
     }
     try {
       const backend = getTauriSqliteBackend()
-      const currentYear = new Date().getFullYear()
-      const [chitantaRows, befizetesRows, kiadasRows] = await Promise.all([
+      // P3-19 (audit 2026-08-28): ÉV-FÜGGETLEN számolás — a korábbi, folyó
+      // fizetettev-re szűrt listázással a múlt évre szóló rekedt tétel a
+      // globális badge-en láthatatlan volt.
+      const [chitantaRows, penzugySzamok] = await Promise.all([
         backend.listLocalPendingChitantas(congregationId),
-        backend.listLocalPendingBefizetes(congregationId, currentYear),
-        backend.listLocalPendingKiadas(congregationId, currentYear),
+        backend.countLocalPendingPenzugyOsszes(congregationId),
       ])
       const chitantaPending = chitantaRows.filter((r) => r.sync_state === 'pending').length
       const chitantaConflict = chitantaRows.filter((r) => r.sync_state === 'conflict').length
-      const befizetesPending = befizetesRows.filter((r) => r.sync_state === 'pending').length
-      const befizetesConflict = befizetesRows.filter((r) => r.sync_state === 'conflict').length
-      const kiadasPending = kiadasRows.filter((r) => r.sync_state === 'pending').length
-      const kiadasConflict = kiadasRows.filter((r) => r.sync_state === 'conflict').length
+      const befizetesPending = penzugySzamok.befizetes.pending
+      const befizetesConflict = penzugySzamok.befizetes.conflict
+      const kiadasPending = penzugySzamok.kiadas.pending
+      const kiadasConflict = penzugySzamok.kiadas.conflict
 
       const totalPending = chitantaPending + befizetesPending + kiadasPending
       const totalConflict = chitantaConflict + befizetesConflict + kiadasConflict
