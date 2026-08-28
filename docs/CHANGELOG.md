@@ -59,6 +59,13 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   megtörtént: fillérpontatlan összeg nincs a rendszerben, javítani semmit
   nem kellett.
 
+- **A banki kivonat-import is tiszteli a költségvetés zárását**: az
+  Excel-adatimportáló és a nyitó egyenleg panel már eddig is megállt, ha az
+  év számadása VAGY költségvetése véglegesítve volt — a banki kivonat
+  importja viszont csak a számadás-zárat nézte, így egy véglegesített
+  költségvetésű évbe még be tudott írni. Mostantól mindhárom út ugyanarra
+  a két zárra figyel („egy hely, és onnan számoljon mindent").
+
 ## [2026-08-28] — Pénzügyi átvilágítás: a B-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-b-blokk -->
 <!-- category: security -->

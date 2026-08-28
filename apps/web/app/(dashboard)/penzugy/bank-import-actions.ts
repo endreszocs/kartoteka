@@ -168,9 +168,13 @@ export async function importBcrTransactions(
     ),
   )
   if (activeYears.length > 0) {
+    // D8 (audit 2026-08-28, Endre döntése: „egy hely, és onnan számoljon
+    // mindent"): a budget_finalized-ot is nézzük — a testvér Adatok-importáló
+    // és a nyitó-egyenleg panel MINDKÉT zárra blokkol, a bank-import eddig
+    // csak a számadásra. A mellettük futó út nem lehet gyengébb náluk.
     const { data: lockRows, error: lockErr } = await access.supabase
       .from('bealitas')
-      .select('id, accounting_finalized')
+      .select('id, accounting_finalized, budget_finalized')
       .eq('congregation_id', access.effectiveCongregationId)
       .in('id', activeYears.map(String))
     // 2026-08-11 (5. kör, K5-#32 hibaosztály-lezárás): FAIL-CLOSED. Korábban az
@@ -194,8 +198,12 @@ export async function importBcrTransactions(
           'próbáld újra; ha újra hibázik, jelezd a rendszergazdának.',
       }
     }
-    const closedYears = ((lockRows || []) as Array<{ id: string; accounting_finalized: boolean | null }>)
-      .filter((r) => r.accounting_finalized)
+    const closedYears = ((lockRows || []) as Array<{
+      id: string
+      accounting_finalized: boolean | null
+      budget_finalized: boolean | null
+    }>)
+      .filter((r) => r.accounting_finalized || r.budget_finalized)
       .map((r) => Number(r.id))
       .sort((a, b) => a - b)
     if (closedYears.length > 0) {
@@ -206,7 +214,7 @@ export async function importBcrTransactions(
         duplicates: 0,
         errors: [],
         importedRows: [],
-        error: `A ${closedYears.join(', ')}. évi számadás már véglegesítve van — az importban ilyen évre eső tétel van, ezért az import blokkolva. Először kérj javítási engedélyt az egyházmegyétől (feloldás), utána próbáld újra.`,
+        error: `A ${closedYears.join(', ')}. évi számadás vagy költségvetés már véglegesítve van — az importban ilyen évre eső tétel van, ezért az import blokkolva. Először kérj javítási engedélyt az egyházmegyétől (feloldás), utána próbáld újra.`,
       }
     }
   }
