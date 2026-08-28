@@ -31,9 +31,19 @@ export function DesktopAdomanyozokTab({ congregationId, currentYear }: Props) {
   const [evek, setEvek] = useState<number[]>([currentYear])
   const [evTol, setEvTol] = useState(currentYear)
   const [evIg, setEvIg] = useState(currentYear)
-  const [osszesito, setOsszesito] = useState<AdomanyozokOsszesito | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [betoltes, setBetoltes] = useState(true)
+  // A betöltött adat a SAJÁT kulcsával áll, a „tölt éppen?" ebből LEVEZETETT.
+  // Egy `setBetoltes(true)` az effekt törzsében szinkron setState lenne — kaszkádoló
+  // újrarenderelés, amit a `react-hooks/set-state-in-effect` szabály hibának is vesz.
+  // (A webes párjával AZONOS minta, hogy a két fül ne kezdjen el széthúzódni.)
+  const [adat, setAdat] = useState<{
+    kulcs: string
+    osszesito: AdomanyozokOsszesito | null
+    error: string | null
+  } | null>(null)
+  const kulcs = `${evTol}-${evIg}`
+  const betoltes = adat?.kulcs !== kulcs
+  const osszesito = adat?.osszesito ?? null
+  const error = adat?.error ?? null
 
   useEffect(() => {
     let el = true
@@ -47,13 +57,14 @@ export function DesktopAdomanyozokTab({ congregationId, currentYear }: Props) {
 
   useEffect(() => {
     let el = true
-    setBetoltes(true)
     void (async () => {
       const res = await adomanyozokOnline(congregationId, evTol, evIg)
       if (!el) return
-      if ('error' in res) { setError(res.error); setOsszesito(null) }
-      else { setError(null); setOsszesito(res.osszesito) }
-      setBetoltes(false)
+      setAdat({
+        kulcs: `${evTol}-${evIg}`,
+        osszesito: 'error' in res ? null : res.osszesito,
+        error: 'error' in res ? res.error : null,
+      })
     })()
     return () => { el = false }
   }, [congregationId, evTol, evIg])

@@ -27,9 +27,22 @@ export function AdomanyozokTab({ currentYear }: Props) {
   const [evek, setEvek] = useState<number[]>([currentYear])
   const [evTol, setEvTol] = useState(currentYear)
   const [evIg, setEvIg] = useState(currentYear)
-  const [osszesito, setOsszesito] = useState<AdomanyozokOsszesito | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [betoltes, setBetoltes] = useState(true)
+  // A betöltött adat a SAJÁT kulcsával együtt áll — a „tölt éppen?" ebből
+  // LEVEZETETT, nem külön tárolt állapot.
+  //
+  // MIÉRT ÍGY: egy `setBetoltes(true)` az effekt törzsében szinkron setState
+  // lenne, ami kaszkádoló újrarenderelést okoz (a `react-hooks/set-state-in-effect`
+  // szabály HIBAKÉNT tiltja is). A kulcs-összevetés ugyanazt adja, mellékhatás
+  // nélkül: amíg a betöltött kulcs nem az aktuális évpár, addig tölt.
+  const [adat, setAdat] = useState<{
+    kulcs: string
+    osszesito: AdomanyozokOsszesito | null
+    error: string | null
+  } | null>(null)
+  const kulcs = `${evTol}-${evIg}`
+  const betoltes = adat?.kulcs !== kulcs
+  const osszesito = adat?.osszesito ?? null
+  const error = adat?.error ?? null
 
   // Az évválasztó a VALÓS adatból töltődik — nem egy kitalált év-listából.
   useEffect(() => {
@@ -45,13 +58,14 @@ export function AdomanyozokTab({ currentYear }: Props) {
 
   useEffect(() => {
     let el = true
-    setBetoltes(true)
     void (async () => {
       const res = await getAdomanyozok({ evTol, evIg })
       if (!el) return
-      if (res.error) { setError(res.error); setOsszesito(null) }
-      else { setError(null); setOsszesito(res.osszesito ?? null) }
-      setBetoltes(false)
+      setAdat({
+        kulcs: `${evTol}-${evIg}`,
+        osszesito: res.osszesito ?? null,
+        error: res.error ?? null,
+      })
     })()
     return () => { el = false }
   }, [evTol, evIg])
