@@ -10,8 +10,9 @@ import {
 } from './auth-pin'
 import { runBefizetesSyncManually, startBefizetesAutoSync } from './befizetes-write-sync'
 import { runChitantaSyncManually, startChitantaAutoSync } from './chitanta-sync'
-import { clearLastUser, saveLastUser } from './desktop-user'
+import { clearLastUser, getLastUser, saveLastUser } from './desktop-user'
 import { startExcelWriteAutoSync } from './excel-write-sync'
+import { ensureLocalMirrorOwner } from './local-mirror-owner'
 import { runKiadasSyncManually, startKiadasAutoSync } from './kiadas-write-sync'
 import { getDesktopSupabase } from './supabase'
 import { startOutboxAutoSync } from './sync'
@@ -49,6 +50,31 @@ export function AuthGate() {
   // ellenőrzött 2FA-faktora, de a munkamenet még aal1-es → a kód-lépcső
   // (login-oldal) kell. null = még nem tudjuk (ellenőrzés fut).
   const [mfaSzukseges, setMfaSzukseges] = useState<boolean | null>(null)
+
+  // P1-4 (audit 2026-08-28): a lokális tükör tulajdonos-ellenőrzése a
+  // beengedés ELŐTT. Ha a gépen előzőleg MÁS user dolgozott, a tükör kiürül,
+  // mielőtt az új belépő bármit olvasna belőle (közös Windows-loginon az
+  // előző gyülekezet pénzügyi + tag-adatai eddig elérhetők maradtak).
+  // A state az ELLENŐRZÖTT user id-ját tartja; a render-kapuk erre várnak.
+  const [tukorOwnerOk, setTukorOwnerOk] = useState<string | null>(null)
+  const offlineUid = !session && offlineActive ? (getLastUser()?.id ?? null) : null
+  useEffect(() => {
+    const uid = session?.user.id ?? offlineUid
+    if (!uid || tukorOwnerOk === uid) return
+    let cancelled = false
+    void ensureLocalMirrorOwner(uid).then((res) => {
+      if (cancelled) return
+      if (!res.ok) {
+        // A DB nem érhető el (böngésző dev-mód / IPC-hiba) — ilyenkor a tükör
+        // OLVASÁSA sem működik, tehát nincs mit védeni; nem zárjuk ki a usert.
+        console.error('[auth-gate] tükör-tulajdonos ellenőrzési hiba:', res.error)
+      }
+      setTukorOwnerOk(uid)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [session, offlineUid, tukorOwnerOk])
 
   // Az aal-ellenőrzés a session változásakor fut (lokális, gyors — a JWT-ből
   // és a session-ből olvas, nem hálózatról).
@@ -188,6 +214,15 @@ export function AuthGate() {
         </div>
       )
     }
+    // P1-4: amíg a tükör-tulajdonos ellenőrzés nem zárult le erre a userre,
+    // nem engedünk be — az új belépő ne olvashassa az előző user tükrét.
+    if (tukorOwnerOk !== session.user.id) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
+          <div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      )
+    }
     return <Outlet />
   }
 
@@ -196,6 +231,16 @@ export function AuthGate() {
   // jön: a mentett kódos belépésnek nem szabad a getSession()-re várnia —
   // ha közben mégis megjön a session, a state-frissítés átvált online módra.
   if (offlineActive) {
+    // P1-4: az offline (PIN) ág is kapuzott — ha az utolsó ismert user nem a
+    // tükör tulajdonosa, az ellenőrzés (és szükség esetén a wipe) előbb fut le.
+    // Ha nincs feloldható user-id (üres telepítés), a viselkedés változatlan.
+    if (offlineUid && tukorOwnerOk !== offlineUid) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
+          <div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      )
+    }
     return <Outlet />
   }
 

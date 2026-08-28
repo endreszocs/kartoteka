@@ -23,6 +23,33 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-28] — Pénzügyi átvilágítás: a B-blokk javításai
+<!-- key: 2026-08-28-penzugy-audit-b-blokk -->
+<!-- category: security -->
+<!-- version: 0.9.194 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🔒 Biztonsági javítások
+
+- **Közös gépen a következő belépő nem látja az előző gyülekezet adatait**:
+  az asztali program a gyors offline működéshez helyi másolatot tart a
+  gyülekezet adatairól. Eddig ez a másolat kijelentkezés után is a gépen
+  maradt — ha egy közös számítógépen másik gyülekezet munkatársa lépett be,
+  az alkalmazásból elérhette az előző gyülekezet pénzügyi és tagadatait.
+  Mostantól a program belépéskor ellenőrzi, ki a helyi adatok gazdája: ha
+  más felhasználó lép be, a helyi másolat még a beengedés előtt teljesen
+  kiürül (és a szerverről az ő saját gyülekezete töltődik le). A saját,
+  még fel nem töltött offline rögzítések ettől nem vesznek el: sima
+  ki-bejelentkezésnél a program nem töröl semmit.
+
+- **A számla-bevezető varázsló sem könyvelhet lezárt évbe**: az elektronikus
+  számlák (Oblio/ANAF) bevezető varázslója eddig ellenőrzés nélkül rögzített
+  kiadást — egy már véglegesített és az egyházmegyének beküldött évbe is. Így
+  a beadott számadás és a rendszer csendben eltérhetett egymástól. Mostantól
+  a varázsló is ugyanazzal a kapuval áll meg, mint a többi rögzítő felület:
+  lezárt évbe nem enged könyvelni, és ha a zárás állapotát nem tudja
+  ellenőrizni, biztonságból inkább nem rögzít.
+
 ## [2026-08-28] — Pénzügyi átvilágítás: az A-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-a-blokk -->
 <!-- category: bugfix -->
