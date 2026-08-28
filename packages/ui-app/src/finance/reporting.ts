@@ -788,9 +788,12 @@ export function buildKiadasiKiseroiv(params: {
     : ''
 
   const html = `<div class="page page--bottom-footer">
-    <div class="header">
+    <!-- 2026-08-28 (Endre): a közös .header flexében a hosszú bal oldali név
+         KITOLTA a címet a középről. Itt rács (1fr / auto / 1fr): a két
+         szélső oszlop egyenlő, a cím így VALÓDI középen áll. -->
+    <div class="header" style="display:grid;grid-template-columns:1fr auto 1fr;column-gap:10px;align-items:start;">
       <div class="header-left"><div class="entity">${entitasNev({ congregationName, congregationNameRo })}</div></div>
-      <div class="header-center">
+      <div class="header-center" style="flex:none;">
         <div class="title" style="text-decoration:underline">BORDEROU DE PL&#258;&#538;I</div>
         <div style="font-size:12px;font-weight:bold;">KIAD&Aacute;SI K&Iacute;S&Eacute;R&Odblac;&Iacute;V</div>
       </div>

@@ -196,6 +196,8 @@ export interface CashbookTabProps {
       id_cel: number | null
       iratszam: string | null
       megjegyzes: string | null
+      /** 2026-08-28 (Endre): a fizetett év szerkesztéséhez (csak bevétel). */
+      fizetettev?: number | null
     }
     categories: { id: number; kod: string; nev: string }[]
     onSaved: () => void | Promise<void>
@@ -273,6 +275,8 @@ export function CashbookTab({
       id_cel: number | null
       iratszam: string | null
       megjegyzes: string | null
+      /** 2026-08-28 (Endre): a fizetett év szerkesztéséhez (csak bevétel). */
+      fizetettev?: number | null
     }
   }>({ open: false, type: 'befizetes', id: null })
   const [stornoDialog, setStornoDialog] = useState<{
@@ -308,6 +312,8 @@ export function CashbookTab({
         id_cel: r.idCel,
         iratszam: r.iratszam,
         megjegyzes: r.megjegyzes || null,
+        // 2026-08-28 (Endre): a fizetett év is szerkeszthető a dialógusban.
+        fizetettev: r.fizetettev ?? null,
       },
     })
   }

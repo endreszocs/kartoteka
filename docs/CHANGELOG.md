@@ -23,6 +23,35 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-28] — Banki tételek: fizetett év + célzott jelzések + kísérőív
+<!-- key: 2026-08-28-banki-fizetettev-eszrevetelek -->
+<!-- category: improvement -->
+<!-- version: 0.9.196 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🎨 UX javítások
+
+- **A banki befizetésnél is rögzíthető, melyik évre szól**: az
+  egyházfenntartói járulék banki átutalásánál eddig nem lehetett megadni
+  vagy javítani, hogy a befizető az elmaradását vagy az aktuális évét
+  fizette-e. Mostantól a tétel szerkesztőjében (a ceruza gombnál) ott a
+  „Melyik évre szól (fizetett év)" mező — a böngészőben és az asztali
+  programban is —, és a tartozás-nyilvántartás ebből számol.
+
+- **A „nincs befizető" jelzés csak ott világít, ahol tényleg számít**: a
+  banki bevételek listáján eddig minden soron ott volt a narancssárga
+  felkiáltójel — a készpénzletéten és a kamaton is, ahol befizetőt
+  hozzárendelni nem is kell. Mostantól a jelzés csak az adományoknál, az
+  egyházfenntartásnál, a szponzortámogatásoknál és a bérjövedelmeknél
+  jelenik meg; az egyházfenntartásnál tag/család hozzárendelést kér (a
+  tartozás-nyilvántartás miatt), a többinél a név vagy cégnév is elég.
+
+- **A kiadási kísérőív ablaka rendezett, a cím középen**: a nyomtatási
+  előnézetben eddig két görgetősáv is megjelent, a lap oldalra csúszott,
+  és a nyomtatvány címe (BORDEROU DE PLĂȚI) a hosszú gyülekezetnév miatt
+  nem középen állt. Mostantól egyetlen görgetés van, a lap középre
+  igazítva jelenik meg, és a cím a papíron is valódi középen áll.
+
 ## [2026-08-28] — Pénzügyi átvilágítás: a D-blokk javításai
 <!-- key: 2026-08-28-penzugy-audit-d-blokk -->
 <!-- category: bugfix -->

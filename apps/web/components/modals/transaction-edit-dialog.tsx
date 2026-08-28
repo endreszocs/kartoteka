@@ -65,6 +65,8 @@ type Props = {
     osszeg_ron?: number | null
     /** Átváltási árfolyam (devizás számlánál). */
     arfolyam?: number | null
+    /** 2026-08-28 (Endre): melyik évre szól a befizetés (fizetett év). */
+    fizetettev?: number | null
   }
   categories: Category[]
   onSaved?: () => void | Promise<void>
@@ -89,6 +91,9 @@ export function TransactionEditDialog({
   const [idCel, setIdCel] = useState<number | null>(null)
   const [iratszam, setIratszam] = useState('')
   const [megjegyzes, setMegjegyzes] = useState('')
+  // 2026-08-28 (Endre): melyik évre szól a befizetés — banki egyházfenntartásnál
+  // enélkül nem látszik, hogy elmaradást vagy az aktuális évet fizette-e.
+  const [fizetettevStr, setFizetettevStr] = useState('')
   const [saving, setSaving] = useState(false)
   /** A dátum csak akkor szerkeszthető, ha ez az éven belüli utolsó
    *  (azonos típusú) tétel. Egyéb esetben elrejtjük / lezárjuk. */
@@ -133,6 +138,7 @@ export function TransactionEditDialog({
     setIdCel(initial.id_cel ?? null)
     setIratszam(initial.iratszam || '')
     setMegjegyzes(initial.megjegyzes || '')
+    setFizetettevStr(initial.fizetettev != null ? String(initial.fizetettev) : '')
   }, [open, initial])
 
   // Megvizsgáljuk, hogy ez az utolsó tétel-e — ettől függ a dátum szerkeszthetősége
@@ -162,6 +168,16 @@ export function TransactionEditDialog({
     if (typeof osszeg !== 'number' || osszeg <= 0) {
       toast.error('Az összeg pozitív szám legyen.')
       return
+    }
+    // 2026-08-28 (Endre): a fizetett év — csak bevételnél, validált tartománnyal.
+    let fizetettevSzam: number | undefined
+    if (type === 'befizetes' && fizetettevStr.trim() !== '') {
+      const ev = Number(fizetettevStr)
+      if (!Number.isInteger(ev) || ev < 2000 || ev > 2100) {
+        toast.error('A fizetett év 2000 és 2100 közötti egész szám legyen.')
+        return
+      }
+      fizetettevSzam = ev
     }
     setSaving(true)
     try {
@@ -193,6 +209,7 @@ export function TransactionEditDialog({
         id_cel: idCel,
         iratszam: iratszam.trim() || null,
         megjegyzes: megjegyzes.trim() || null,
+        ...(fizetettevSzam !== undefined ? { fizetettev: fizetettevSzam } : {}),
         revision: baseRevision ?? undefined,
         // Tag-hozzárendelés (csak bevételnél, és csak ha a felhasználó módosította).
         ...(type === 'befizetes' && pendingPerson !== undefined
@@ -272,6 +289,26 @@ export function TransactionEditDialog({
               </p>
             )}
           </ModalField>
+
+          {/* 2026-08-28 (Endre): melyik évre szól a befizetés — banki
+              egyházfenntartásnál enélkül nem dönthető el, hogy elmaradást
+              vagy az aktuális évet fizette-e a befizető. */}
+          {type === 'befizetes' && (
+            <ModalField
+              label="Melyik évre szól (fizetett év)"
+              hint="Elmaradás rendezésénél a KORÁBBI évet add meg — a tartozás-nyilvántartás ebből számol."
+            >
+              <Input
+                type="number"
+                min={2000}
+                max={2100}
+                step={1}
+                value={fizetettevStr}
+                onChange={(e) => setFizetettevStr(e.target.value)}
+                placeholder={datum ? datum.slice(0, 4) : ''}
+              />
+            </ModalField>
+          )}
 
           {/* 2026-07-11 (S11): a felirat a SZÁMLA valutáját mutatja (nem fix RON). */}
           <ModalField label={`Összeg (${valuta})`} required>
