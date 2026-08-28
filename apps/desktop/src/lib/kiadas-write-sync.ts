@@ -239,6 +239,64 @@ export async function pushPendingKiadas(
       }
     }
 
+    // P0-10 (audit 2026-08-28): xkey-alapú idempotencia-kapu az insert ELŐTT —
+    // részletes indoklás a befizetes-write-sync azonos blokkjánál.
+    const xkeyErtek = String(payload.xkey ?? '')
+    if (xkeyErtek) {
+      const letezo = await supabase
+        .from('kiadas')
+        .select('id')
+        .eq('xkey', xkeyErtek)
+        .eq('congregation_id', String(payload.congregation_id ?? ''))
+        .limit(1)
+        .maybeSingle()
+      if (letezo.error) {
+        try {
+          await backend.updateMutationAttempt(mutation.id, {
+            attempts: mutation.attempts + 1,
+            lastAttemptAt: nowIso,
+            lastError: `Idempotencia-ellenőrzés sikertelen: ${letezo.error.message}`,
+          })
+          result.retrying += 1
+        } catch (err) {
+          result.errors.push(
+            `Mutation-frissítés hiba: ${err instanceof Error ? err.message : 'ismeretlen'}`,
+          )
+        }
+        continue
+      }
+      if (letezo.data?.id) {
+        try {
+          await backend.markKiadasSynced(mutation.pk, Number(letezo.data.id))
+          void enqueueEntryExcelRow({
+            type: 'kiadas',
+            serverId: Number(letezo.data.id),
+            congregationId: String(payload.congregation_id ?? ''),
+            datum: String(payload.datum ?? ''),
+            iratszam: String(payload.iratszam ?? ''),
+            irattipus: String(payload.irattipus ?? ''),
+            nev: String(payload.atvevo ?? ''),
+            osszeg: Number(payload.osszeg ?? 0),
+            celId: Number(payload.id_kiadascel ?? 0),
+            megjegyzes: (payload.megjegyzes as string | null) ?? null,
+            bankszamlaId: (payload.bankszamla_id as number | null) ?? null,
+          })
+          await backend.removeMutation(mutation.id)
+          result.succeeded += 1
+        } catch (err) {
+          try {
+            await backend.removeMutation(mutation.id)
+          } catch {
+            /* csendes */
+          }
+          result.errors.push(
+            `Lokális sync-jelölés sikertelen (szerver-sor megvan: ${letezo.data.id}): ${err instanceof Error ? err.message : 'ismeretlen'}`,
+          )
+        }
+        continue
+      }
+    }
+
     try {
       const { data, error } = await supabase
         .from('kiadas')

@@ -256,6 +256,68 @@ export async function pushPendingBefizetes(
       }
     }
 
+    // P0-10 (audit 2026-08-28): idempotencia-kapu az insert ELŐTT. Ha egy
+    // korábbi push insertje SIKERÜLT, de a válasz elveszett (timeout), a retry
+    // eddig MÁSODSZOR is beszúrta a tételt. Az xkey kliens-generált és stabil:
+    // ha a szerveren már van sor vele, a tétel fent van — sikerként zárjuk,
+    // insert nélkül. A kapu hibája fail-closed retry (nem vak insert).
+    const xkeyErtek = String(payload.xkey ?? '')
+    if (xkeyErtek) {
+      const letezo = await supabase
+        .from('befizetes')
+        .select('id')
+        .eq('xkey', xkeyErtek)
+        .eq('congregation_id', String(payload.congregation_id ?? ''))
+        .limit(1)
+        .maybeSingle()
+      if (letezo.error) {
+        try {
+          await backend.updateMutationAttempt(mutation.id, {
+            attempts: mutation.attempts + 1,
+            lastAttemptAt: nowIso,
+            lastError: `Idempotencia-ellenőrzés sikertelen: ${letezo.error.message}`,
+          })
+          result.retrying += 1
+        } catch (err) {
+          result.errors.push(
+            `Mutation-frissítés hiba: ${err instanceof Error ? err.message : 'ismeretlen'}`,
+          )
+        }
+        continue
+      }
+      if (letezo.data?.id) {
+        try {
+          await backend.markBefizetesSynced(mutation.pk, Number(letezo.data.id))
+          void enqueueEntryExcelRow({
+            type: 'befizetes',
+            serverId: Number(letezo.data.id),
+            congregationId: String(payload.congregation_id ?? ''),
+            datum: String(payload.datum ?? ''),
+            iratszam: String(payload.iratszam ?? ''),
+            irattipus: String(payload.irattipus ?? ''),
+            nev: String(payload.forrasa ?? ''),
+            osszeg: Number(payload.osszeg ?? 0),
+            celId: Number(payload.id_befizetescel ?? 0),
+            megjegyzes: (payload.megjegyzes as string | null) ?? null,
+            bankszamlaId: (payload.bankszamla_id as number | null) ?? null,
+            ev: (payload.fizetettev as number | null) ?? null,
+          })
+          await backend.removeMutation(mutation.id)
+          result.succeeded += 1
+        } catch (err) {
+          try {
+            await backend.removeMutation(mutation.id)
+          } catch {
+            /* csendes */
+          }
+          result.errors.push(
+            `Lokális sync-jelölés sikertelen (szerver-sor megvan: ${letezo.data.id}): ${err instanceof Error ? err.message : 'ismeretlen'}`,
+          )
+        }
+        continue
+      }
+    }
+
     try {
       const { data, error } = await supabase
         .from('befizetes')

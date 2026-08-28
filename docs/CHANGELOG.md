@@ -44,6 +44,13 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   az egész köteg nyugodtan újramenthető. Ugyanezt a védelmet megkapta a
   megyei/kerületi kiadás-rögzítés is.
 
+- **A megszakadt szinkronizáció nem duplikálhat tételt** (P0-10): ha az
+  offline tétel felküldése közben a hálózat pont a válasz előtt szakadt meg,
+  az újrapróbálkozás eddig még egyszer beszúrhatta ugyanazt a tételt.
+  Mostantól a felküldés előtt a rendszer ellenőrzi, fent van-e már a tétel —
+  ha igen, nem szúr be újra, hanem rendben lezárja. (Ehhez tartozik egy
+  adatbázis-védőindex is, amelyet külön SQL-lel kell élesíteni.)
+
 - **Devizás tétel szerkesztésekor a lej-érték is frissül** (P0-6): ha egy
   devizás (pl. eurós) tétel összegét a desktopon módosították, a lejben
   számolt ellenérték eddig a régi maradt — az egyenleg a régi összeget
