@@ -122,7 +122,9 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
               return { error: 'error' in res ? res.error ?? null : null }
             }}
             onSaveExpenseBatch={async (rows) => {
-              const res = await saveExpenseBatch(rows)
+              // D1: az átvevő a rögzítő kapuja miatt nem üres; a megosztott
+              // sor-típus még string|null — a zod min(1) a szerveren backstopol.
+              const res = await saveExpenseBatch(rows.map((r) => ({ ...r, kedvezmenyzett: r.kedvezmenyzett ?? '' })))
               return { error: 'error' in res ? res.error ?? null : null }
             }}
             onSaveInternalTransfer={async (payload) => {

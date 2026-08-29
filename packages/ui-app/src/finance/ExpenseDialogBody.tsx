@@ -86,6 +86,9 @@ export interface SaveExpenseBatchRow {
   is_inventory: boolean
   /** 2026-08-09: ha megadva, a mentés a kiadással EGYÜTT leltári tételt is rögzít. */
   inventory?: ExpenseInventoryIntake | null
+  /** P4-30 (audit 2026-08-28): banki bizonylatnál (Ordin de plată) az érintett
+   *  bankszámla — enélkül a tétel a KASSZÁBA sorolódott. null = készpénz. */
+  bankszamla_id?: number | null
 }
 
 export interface SaveInternalTransferPayload {

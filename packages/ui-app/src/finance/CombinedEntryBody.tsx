@@ -1365,6 +1365,13 @@ export function CombinedEntryBody({
       const people = r.people ?? []
       const commonNyugta = r.gyulekezetiSzam.trim() || null
       const commonMegj = r.megjegyzes.trim() || null
+      // P4-30 (audit 2026-08-28): banki bizonylat (Ordin de plată) bankszámla
+      // nélkül a KASSZÁBA sorolódna — hangosan megállunk, nem mentünk félre.
+      if (r.docType === 'Ordin de plată' && r.bankId === '') {
+        onToast('error', 'Az Ordin de plată (banki) tételhez válaszd ki, melyik bankszámlát érinti — enélkül a tétel tévesen a kasszába kerülne.')
+        return
+      }
+      const rowBankId = r.bankId === '' ? null : Number(r.bankId)
       if (people.length >= 1) {
         const validPayers = people.filter((p) => Number(p.osszeg) > 0)
         const multi = validPayers.length > 1
@@ -1387,6 +1394,7 @@ export function CombinedEntryBody({
             // a saját hatókörére visszaellenőrzi, mielőtt FK-ként beírja.
             befizeto_scope_id: p.refId ?? null,
             befizeto_kind: p.kind ?? null,
+            bankszamla_id: rowBankId,
           })
         })
       } else {
@@ -1398,6 +1406,7 @@ export function CombinedEntryBody({
           fizetettev: Number(r.evre) || Number(datum.slice(0, 4)) || currentYear,
           megjegyzes: commonMegj,
           id_szemely: null, id_csalad: null,
+          bankszamla_id: rowBankId,
         })
       }
     }
@@ -1406,6 +1415,18 @@ export function CombinedEntryBody({
       const datum = parseFlexibleDate(r.datum)!
       const dir = dirFor('expense', r)
       if (dir) { pushTransfer(dir, datum, r, 'expense'); continue }
+      // D1 (audit 2026-08-28, Endre döntése): a kiadás ÁTVEVŐJE kötelező —
+      // a hivatalos kiadási kísérőívnek is szüksége van rá, és a desktop is
+      // megköveteli. Hangos hiba, nem néma sor-kihagyás.
+      if (!r.partner.trim()) {
+        onToast('error', `A kiadás átvevője kötelező — add meg, ki kapta a pénzt (${parseFlexibleDate(r.datum)} · ${Number(r.amount).toLocaleString('hu')} RON sor).`)
+        return
+      }
+      // P4-30: banki bizonylat bankszámla nélkül nem mehet a kasszába.
+      if (r.docType === 'Ordin de plată' && r.bankId === '') {
+        onToast('error', 'Az Ordin de plată (banki) kiadáshoz válaszd ki, melyik bankszámláról ment — enélkül a tétel tévesen a kasszába kerülne.')
+        return
+      }
       savedExpenseRowIds.push(r.id)
       // 2026-08-09: leltár-köteles jogcím (205.01 / 201.12) → kapcsolt leltári tétel.
       let inventory: ExpenseInventoryIntake | null = null
@@ -1432,10 +1453,12 @@ export function CombinedEntryBody({
         }
       }
       expenseBatch.push({
-        datum, id_kiadascel: Number(r.categoryId), kedvezmenyzett: r.partner.trim() || null,
+        // D1: a partner a fenti kapu miatt garantáltan nem üres.
+        datum, id_kiadascel: Number(r.categoryId), kedvezmenyzett: r.partner.trim(),
         osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: docTypeForSave(r),
         megjegyzes: r.megjegyzes.trim() || null, is_inventory: !!inventory,
         inventory,
+        bankszamla_id: r.bankId === '' ? null : Number(r.bankId),
       })
     }
 
@@ -1553,11 +1576,17 @@ export function CombinedEntryBody({
 
   function renderBankSelect(r: EntryRow) {
     const dir = belsoDir(r)
-    if (!dir) return null
+    // P4-30 (audit 2026-08-28): banki bizonylatnál (Ordin de plată) is kell a
+    // bankszámla — eddig a kézzel rögzített OP-tétel némán a KASSZÁBA
+    // sorolódott (kassza = bankszamla_id IS NULL a kanonikus szabály szerint).
+    const banki = !dir && r.docType === 'Ordin de plată'
+    if (!dir && !banki) return null
     return (
       <div className="mt-1 flex items-center gap-1.5 rounded-md bg-sky-50 px-2 py-1 text-xs text-sky-800">
         <ArrowLeftRight className="size-3.5 shrink-0" />
-        <span className="shrink-0">{dir === 'deposit' ? 'Melyik bankszámlára:' : 'Melyik bankszámláról:'}</span>
+        <span className="shrink-0">
+          {dir === 'deposit' ? 'Melyik bankszámlára:' : dir === 'withdraw' ? 'Melyik bankszámláról:' : 'Melyik bankszámlát érinti:'}
+        </span>
         <select className={inputClass + ' h-7'} value={r.bankId} onChange={(e) => updateRow(r.id, { bankId: e.target.value ? Number(e.target.value) : '' })}>
           <option value="">— Válassz —</option>
           {bankAccounts.map((b) => (<option key={b.id} value={b.id}>{b.bank_neve}</option>))}
@@ -1877,8 +1906,9 @@ export function CombinedEntryBody({
                 <label className="col-span-2 text-xs text-slate-500">Kategória
                   <SearchableSelect options={categoryOptions} value={r.categoryId} onChange={(id) => updateRow(r.id, { categoryId: id })} />
                 </label>
-                {dir && (
-                  <label className="col-span-2 text-xs text-sky-800">{dir === 'deposit' ? 'Melyik bankszámlára' : 'Melyik bankszámláról'}
+                {(dir || r.docType === 'Ordin de plată') && (
+                  <label className="col-span-2 text-xs text-sky-800">
+                    {dir === 'deposit' ? 'Melyik bankszámlára' : dir === 'withdraw' ? 'Melyik bankszámláról' : 'Melyik bankszámlát érinti'}
                     <select className={inputClass} value={r.bankId} onChange={(e) => updateRow(r.id, { bankId: e.target.value ? Number(e.target.value) : '' })}>
                       <option value="">— Válassz —</option>
                       {bankAccounts.map((b) => (<option key={b.id} value={b.id}>{b.bank_neve}</option>))}

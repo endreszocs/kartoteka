@@ -117,6 +117,8 @@ export function DesktopCombinedEntryDialog({
             irattipus: row.irattipus,
             fizetettev: row.fizetettev,
             megjegyzes: row.megjegyzes,
+            // P4-30 (audit 2026-08-28): banki bizonylatnál (OP) a bankszámla.
+            bankszamla_id: row.bankszamla_id ?? null,
           },
           { supabase, runtime: 'desktop', userId, isOnline, offlineBackend },
         )
@@ -174,6 +176,8 @@ export function DesktopCombinedEntryDialog({
             irattipus: row.irattipus,
             megjegyzes: row.megjegyzes,
             vonatkozo_idoszak: null,
+            // P4-30 (audit 2026-08-28): banki bizonylatnál (OP) a bankszámla.
+            bankszamla_id: row.bankszamla_id ?? null,
           },
           { supabase, runtime: 'desktop', userId, isOnline, offlineBackend },
         )

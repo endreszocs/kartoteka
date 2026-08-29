@@ -36,6 +36,9 @@ export const incomeSchema = z.object({
   irattipus: irattipusSchema,
   fizetettev: z.number().int().min(2000).max(2100).nullable().optional(),
   megjegyzes: z.string().trim().max(500).nullable().optional(),
+  /** P4-30 (audit 2026-08-28): banki bizonylatnál az érintett bankszámla —
+   *  null = készpénz (kassza = bankszamla_id IS NULL a kanonikus szabály). */
+  bankszamla_id: z.number().int().positive().nullable().optional(),
 }).refine(
   data => data.datum <= today(),
   { message: 'Jövőbeli dátum nem engedélyezett', path: ['datum'] }
@@ -89,6 +92,8 @@ export const incomeBatchRowSchema = z.object({
   // kistrippelte, ezért a kapcsolás nem mentődött — most átengedjük.
   id_szemely: z.number().int().positive().nullable().optional(),
   id_csalad: z.number().int().positive().nullable().optional(),
+  /** P4-30 (audit 2026-08-28): banki bizonylatnál az érintett bankszámla. */
+  bankszamla_id: z.number().int().positive().nullable().optional(),
 }).refine(
   data => data.datum <= today(),
   { message: 'Jövőbeli dátum nem engedélyezett', path: ['datum'] }
@@ -107,13 +112,18 @@ export const expenseSchema = z.object({
   osszeg: z.number({ message: 'Az összeg kötelező' }).positive('Az összeg pozitív szám kell legyen').refine(isCentPontos, CENT_UZENET),
   datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Érvénytelen dátum'),
   id_kiadascel: z.number({ message: 'Válasszon kategóriát' }),
-  kedvezmenyzett: z.string().trim().max(200).nullable().optional(),
+  // D1 (audit 2026-08-28, Endre döntése): az átvevő KÖTELEZŐ — a hivatalos
+  // kiadási kísérőívnek is kell, és a desktop (core) is megköveteli. A régi
+  // néma „Kézi rögzítés" placeholder visszakereshetetlen partnert hagyott.
+  kedvezmenyzett: z.string().trim().min(1, 'Az átvevő megadása kötelező — ki kapta a pénzt?').max(200),
   id_szemely: z.number().int().positive().nullable().optional(),
   iratszam: z.string().trim().max(50).nullable().optional(),
   bizonylatszam: z.string().trim().max(50).nullable().optional(),
   irattipus: irattipusSchema,
   megjegyzes: z.string().trim().max(500).nullable().optional(),
   is_inventory: z.boolean().optional(),
+  /** P4-30 (audit 2026-08-28): banki bizonylatnál az érintett bankszámla. */
+  bankszamla_id: z.number().int().positive().nullable().optional(),
 }).refine(
   data => data.datum <= today(),
   { message: 'Jövőbeli dátum nem engedélyezett', path: ['datum'] }
@@ -124,7 +134,8 @@ export type ExpenseInput = z.infer<typeof expenseSchema>
 export const expenseBatchRowSchema = z.object({
   datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Érvénytelen dátum'),
   id_kiadascel: z.number({ message: 'Válasszon kategóriát' }),
-  kedvezmenyzett: z.string().trim().max(200).nullable().optional(),
+  // D1 (audit 2026-08-28, Endre döntése): az átvevő KÖTELEZŐ (desktop-paritás).
+  kedvezmenyzett: z.string().trim().min(1, 'Az átvevő megadása kötelező — ki kapta a pénzt?').max(200),
   osszeg: z.number({ message: 'Az összeg kötelező' }).positive('Az összeg pozitív szám kell legyen').refine(isCentPontos, CENT_UZENET),
   iratszam: z.string().trim().max(50).nullable().optional(),
   irattipus: irattipusSchema,
@@ -132,6 +143,8 @@ export const expenseBatchRowSchema = z.object({
   is_inventory: z.boolean().optional(),
   // 2026-08-09: pénzügy→leltár híd — a sorhoz kapcsolt leltári tétel adatai.
   inventory: linkedInventoryFromExpenseSchema.nullable().optional(),
+  /** P4-30 (audit 2026-08-28): banki bizonylatnál az érintett bankszámla. */
+  bankszamla_id: z.number().int().positive().nullable().optional(),
 }).refine(
   data => data.datum <= today(),
   { message: 'Jövőbeli dátum nem engedélyezett', path: ['datum'] }
