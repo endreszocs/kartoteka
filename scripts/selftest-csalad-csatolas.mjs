@@ -79,7 +79,14 @@ function ellenoriz(files) {
   }
 
   // (3) globális folyamatjelző
-  const ind = stripComments(files.get(INDICATOR))
+  const indRaw = files.get(INDICATOR)
+  // 2026-08-29 deploy-bukás tanulsága: a hook-os ui-app barrel-modulnak
+  // KÖTELEZŐ a 'use client' az 1. sorban — a CI nem buildel, a hiba csak a
+  // deploy `next build`-jénél robbanna (szerver-komponens importálja a barrelt).
+  if (!/^'use client'/.test(indRaw)) {
+    hibak.push("jelző: a GlobalPendingIndicator NEM 'use client'-tel indul — a next build (deploy) elhasal rajta")
+  }
+  const ind = stripComments(indRaw)
   if (!/__kartotekaFetchFigyelo/.test(ind) || !/window\.fetch = /.test(ind)) {
     hibak.push('jelző: a GlobalPendingIndicator nem csomagolja a fetch-et (idempotens őrrel)')
   }
@@ -139,6 +146,15 @@ if (hibak.length === 0) {
   if (a2mut === a2) bukik('M2 mutáció nem változtatott (fail-closed)')
   else if (ellenoriz(m2).length === 0) bukik('M2: az új-modelles ág kilövésére NEM bukik — vak')
   else pass('M2 mutáns (haztartas-ág kilőve a feloldásból) → az őr elbuktatja')
+
+  // M4: a 'use client' letörlése (a 2026-08-29-i deploy-bukás visszajátszása)
+  const m4 = beolvas()
+  const i4raw = m4.get(INDICATOR)
+  const i4mut = i4raw.replace(/^'use client'\r?\n/, '')
+  m4.set(INDICATOR, i4mut)
+  if (i4mut === i4raw) bukik('M4 mutáció nem változtatott (fail-closed)')
+  else if (ellenoriz(m4).length === 0) bukik("M4: a 'use client' letörlésére NEM bukik — vak")
+  else pass("M4 mutáns ('use client' letörölve) → az őr elbuktatja")
 
   // M3: a folyamatjelző lecsatolása a web layoutról
   const m3 = beolvas()
