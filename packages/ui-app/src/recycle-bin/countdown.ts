@@ -24,33 +24,50 @@
  */
 export const RECYCLE_BIN_RETENTION_DAYS = 30
 
+/**
+ * P4-26 (audit 2026-08-28, Endre döntése 2026-08-29): a PÉNZÜGYI bizonylat-
+ * sorok 5 ÉVIG maradnak a Kukában (bizonylat-megőrzés) — a purge_recycle_bin
+ * táblánkénti megőrzési térképének kliens-oldali tükre.
+ */
+export const PENZUGYI_RETENTION_DAYS = 1825
+const PENZUGYI_TABLAK = new Set(['befizetes', 'kiadas', 'belsomozgas'])
+
+/** A tábla szerver-oldali megőrzési ideje napokban (a purge-térkép tükre). */
+export function retentionDaysFor(table: string): number {
+  return PENZUGYI_TABLAK.has(table) ? PENZUGYI_RETENTION_DAYS : RECYCLE_BIN_RETENTION_DAYS
+}
+
 const NAP_MS = 24 * 60 * 60 * 1000
 
 /**
  * Hány nap van hátra a végleges törlésig.
  * A felső vágás azért kell, mert a kliens órája járhat a szerveré MÖGÖTT:
  * egy frissen bélyegzett deleted_at ilyenkor „jövőbeli", és vágás nélkül
- * 31 nap jönne ki — miközben mindenhol 30 napot ígérünk.
- * @returns 0..30 közti egész, vagy null, ha nincs értelmezhető dátum.
+ * eggyel több nap jönne ki, mint amennyit ígérünk.
+ * @param retentionDays a tábla megőrzési ideje — `retentionDaysFor(table)`;
+ *        elhagyva a 30 napos alapérték (visszafelé kompatibilis).
+ * @returns 0..retentionDays közti egész, vagy null, ha nincs értelmezhető dátum.
  */
 export function purgeCountdownDays(
   deletedAtIso: string | null | undefined,
   nowMs: number,
+  retentionDays: number = RECYCLE_BIN_RETENTION_DAYS,
 ): number | null {
   if (!deletedAtIso) return null
   const t = new Date(deletedAtIso).getTime()
   if (!Number.isFinite(t)) return null
   const elapsedDays = (nowMs - t) / NAP_MS
   return Math.min(
-    RECYCLE_BIN_RETENTION_DAYS,
-    Math.max(0, Math.ceil(RECYCLE_BIN_RETENTION_DAYS - elapsedDays)),
+    retentionDays,
+    Math.max(0, Math.ceil(retentionDays - elapsedDays)),
   )
 }
 
 /**
  * A visszaszámláló felirata. Pontos dátumnál nem ígérünk „legfeljebb"-et,
  * becslésnél viszont KÖTELEZŐ a „legfeljebb" — nem hazudunk pontosságot,
- * amink nincs.
+ * amink nincs. Egy évnél hosszabb hátralévő időnél évben beszélünk
+ * (P4-26: a pénzügyi sorok 5 éves megőrzése napokban olvashatatlan volna).
  */
 export function purgeCountdownLabel(
   days: number | null,
@@ -58,6 +75,12 @@ export function purgeCountdownLabel(
 ): string | null {
   if (days === null) return null
   if (days === 0) return 'Bármikor törlődhet véglegesen!'
+  if (days > 365) {
+    const evek = Math.round((days / 365) * 10) / 10
+    return exact
+      ? `kb. ${evek} év múlva törlődik véglegesen`
+      : `legfeljebb kb. ${evek} év múlva törlődik véglegesen`
+  }
   return exact
     ? `${days} nap múlva törlődik véglegesen`
     : `legfeljebb ${days} nap múlva törlődik véglegesen`
