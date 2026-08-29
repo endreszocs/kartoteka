@@ -14,6 +14,7 @@ import { MonetaryTab, type MonetaryTabProps } from '@kartoteka/ui-app'
 
 import { softDeleteInternalTransferAction } from '@/app/(dashboard)/penzugy/belsomozgas-actions'
 import {
+  getMonetarEvZar,
   getMonetarySnapshot,
   saveMonetarySnapshot,
 } from '@/app/(dashboard)/penzugy/monetary-actions'
@@ -62,6 +63,22 @@ export function MonetaryTabV2(props: WebMonetaryTabProps) {
         return { denominations: result.denominations, counts: result.counts }
       }}
       saveSnapshot={async (year, items) => {
+        // P3-14 (audit 2026-08-28, Endre döntése): véglegesített évnél
+        // FIGYELMEZTETÉS + megerősítés — nem tiltás. A címletjegyzék nem
+        // mozdít egyenleget, de hivatalos év végi dokumentum.
+        const zarInfo = await getMonetarEvZar(year)
+        if (zarInfo.finalized) {
+          const mehet = window.confirm(
+            `A(z) ${year}. évi számadás már VÉGLEGESÍTVE van. A címletjegyzék ` +
+              'felülírása a lezárt év hivatalos év végi dokumentumát változtatja meg.\n\n' +
+              'Biztosan felülírod?',
+          )
+          if (!mehet) {
+            return {
+              error: `A mentés megszakítva — a(z) ${year}. évi címletjegyzék változatlan maradt.`,
+            }
+          }
+        }
         const result = await saveMonetarySnapshot(year, items)
         return { error: 'error' in result ? result.error : null }
       }}

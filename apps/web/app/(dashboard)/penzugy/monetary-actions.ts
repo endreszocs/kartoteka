@@ -127,6 +127,28 @@ export async function getMonetarySnapshot(year: number): Promise<MonetarySnapsho
   }
 }
 
+/**
+ * P3-14 (audit 2026-08-28, Endre döntése): a Monetár mentése VÉGLEGESÍTETT
+ * évnél NEM tiltott, de a felület figyelmeztetést ajánl fel — ez a csak-olvasó
+ * ellenőrzés adja hozzá az év-zár állapotát. FAIL-OPEN: figyelmeztetés, nem
+ * védelem — hibánál nem akadályozzuk a mentést.
+ */
+export async function getMonetarEvZar(year: number): Promise<{ finalized: boolean }> {
+  try {
+    const { supabase, congregationId } = await getEffectiveCongregationContext()
+    if (!congregationId) return { finalized: false }
+    const { data } = await supabase
+      .from('bealitas')
+      .select('accounting_finalized')
+      .eq('id', String(year))
+      .eq('congregation_id', congregationId)
+      .maybeSingle()
+    return { finalized: Boolean((data as { accounting_finalized?: boolean } | null)?.accounting_finalized) }
+  } catch {
+    return { finalized: false }
+  }
+}
+
 export async function saveMonetarySnapshot(
   year: number,
   counts: Array<{ denominationId: number; count: number }>,

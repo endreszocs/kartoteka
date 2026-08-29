@@ -18,6 +18,8 @@ import {
   type MonetaryDenomination,
 } from '@kartoteka/ui-app'
 
+import { readYearFinalized } from '@kartoteka/core'
+
 import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
 import { getVerifiedSession } from '../lib/verified-session'
@@ -134,6 +136,27 @@ export function DesktopMonetaryTab({ congregationId, ...props }: DesktopMonetary
         if (!verified.ok) return { error: verified.message }
         try {
           const supabase = getDesktopSupabase()
+          // P3-14 (audit 2026-08-28, Endre döntése): véglegesített évnél
+          // FIGYELMEZTETÉS + megerősítés — nem tiltás. FAIL-OPEN: az
+          // ellenőrzés hibája nem akadályozza a mentést (figyelmeztetés ez,
+          // nem védelem) — a Monetár-mentés amúgy is online-only.
+          try {
+            const zar = await readYearFinalized(supabase, congregationId, year)
+            if (zar.finalized) {
+              const mehet = window.confirm(
+                `A(z) ${year}. évi számadás már VÉGLEGESÍTVE van. A címletjegyzék ` +
+                  'felülírása a lezárt év hivatalos év végi dokumentumát változtatja meg.\n\n' +
+                  'Biztosan felülírod?',
+              )
+              if (!mehet) {
+                return {
+                  error: `A mentés megszakítva — a(z) ${year}. évi címletjegyzék változatlan maradt.`,
+                }
+              }
+            }
+          } catch {
+            /* fail-open — figyelmeztetés, nem védelem */
+          }
           const sourceId = `${congregationId}:${year}`
           const sanitized = items
             .map((item) => ({
