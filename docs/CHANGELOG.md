@@ -23,6 +23,30 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-29] — Család csatolása javítva + globális folyamatjelző
+<!-- key: 2026-08-29-csalad-csatolas-folyamatjelzo -->
+<!-- category: bugfix -->
+<!-- version: 0.9.201 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🐛 Javítások
+
+- **„Család csatolása" a Tétel rögzítőben**: a családtagok feloldása mostantól
+  MINDKÉT család-nyilvántartási modellből gyűjt (az újabb háztartás-modellből
+  akkor is, ha nincs régi típusú család-kapcsolat) — eddig egyes családoknál
+  a gomb sikerről szólt, miközben senki nem került az almenübe. A visszajelzés
+  is őszinte lett: pontosan megmondja, hány tag került be, és ha a családban
+  nincs további rögzített tag, a család-keresőt nyitja fel.
+
+### ✨ Új funkció
+
+- **Globális „gondolkodó jel"**: amíg a rendszer bármilyen adatot tölt vagy
+  ment (mentés, keresés, listák frissítése), a képernyő tetején vékony futó
+  fénycsík jelzi, hogy dolgozik — a webes és az asztali változatban egyaránt.
+  A „Család csatolása" gomb a keresés alatt külön is pörög.
+
+---
+
 ## [2026-08-29] — A bevétel- és kiadás-mentés közös motorra állt
 <!-- key: 2026-08-29-mentes-kozos-motor -->
 <!-- category: improvement -->

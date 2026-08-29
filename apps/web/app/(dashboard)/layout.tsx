@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { DashboardLayoutClient } from '@/components/layout/dashboard-layout-client'
+import { GlobalPendingIndicator } from '@/components/layout/global-pending-indicator'
 import { SyncProvider } from '@/components/offline/sync-provider'
 import { WalkthroughClient } from '@/components/onboarding/walkthrough/walkthrough-client'
 import { SubscriptionSuspendedScreen } from '@/components/layout/subscription-suspended-screen'
@@ -279,6 +280,10 @@ export default async function DashboardLayout({
       congregationId={access.effectiveCongregationId}
       congregationName={congregationName}
     >
+      {/* 2026-08-29 (Endre kérése): globális „gondolkodó jel" — amíg bármilyen
+          hálózati hívás fut (mentés, keresés, betöltés), a képernyő tetején
+          vékony futó csík jelzi. pointer-events: none — semmit nem takar. */}
+      <GlobalPendingIndicator />
       {/* 2026-08-11: a lebegő szinkron-pirula MEGSZŰNT. `fixed top-2 right-2
           z-50`-ként pontosan a fejléc jobb oldali ikonsorára került (súgó,
           harang, avatár), és `pointer-events-none` híján a kattintást is

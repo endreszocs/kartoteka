@@ -36,6 +36,7 @@ import {
 } from 'lucide-react'
 
 import { KartotekaShell, type MenuItem } from '@kartoteka/ui'
+import { GlobalPendingIndicator } from '@kartoteka/ui-app'
 
 /**
  * A Pénzügy menüpont kibontható almenüje a desktop-on (Sprint Q F1.6, v0.7.6).
@@ -347,6 +348,9 @@ export function DesktopShell({ children }: DesktopShellProps) {
 
   return (
     <>
+      {/* 2026-08-29 (Endre kérése): globális „gondolkodó jel" — minden
+          hálózati hívás alatt vékony futó csík a képernyő tetején. */}
+      <GlobalPendingIndicator />
       <KartotekaShell
         Link={DesktopLink}
         currentPath={location.pathname}

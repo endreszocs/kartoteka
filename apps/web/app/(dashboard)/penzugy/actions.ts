@@ -3523,9 +3523,13 @@ export async function getFamilyMembers(
     `${p.csaladnev ?? ''} ${p.k_nev ?? ''}`.trim() || `#${p.id}`
 
   // Családfők
-  const { data: fam } = await supabase.from('csalad')
+  // 2026-08-29: a lekérdezés-hibák eddig NÉMÁK voltak (FK-hint elírás vagy
+  // séma-drift esetén a tagok kommentár nélkül tűntek el a listából) —
+  // mostantól a szerver-log hangosan jelzi.
+  const { data: fam, error: famErr } = await supabase.from('csalad')
     .select('ferfi:szemely!csalad_id_ferfi_fk(id, csaladnev, k_nev), no:szemely!csalad_id_no_fk(id, csaladnev, k_nev)')
     .eq('id', familyId).maybeSingle()
+  if (famErr) console.error('[getFamilyMembers] családfő-lekérdezés hiba:', famErr.message)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const famAny = fam as any
   if (famAny) {
@@ -3536,8 +3540,9 @@ export async function getFamilyMembers(
   }
 
   // Gyermekek
-  const { data: kids } = await supabase.from('gyerek')
+  const { data: kids, error: kidsErr } = await supabase.from('gyerek')
     .select('szemely:szemely!gyerek_id_szemely_fk(id, csaladnev, k_nev)').eq('id_csalad', familyId)
+  if (kidsErr) console.error('[getFamilyMembers] gyermek-lekérdezés hiba:', kidsErr.message)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const k of (kids || []) as any[]) {
     const s = Array.isArray(k.szemely) ? k.szemely[0] : k.szemely
@@ -3550,9 +3555,10 @@ export async function getFamilyMembers(
       .select('id').eq('congregation_id', congregationId).eq('legacy_csalad_id', familyId).limit(1)
     const haztartasId = (hh?.[0] as { id: string } | undefined)?.id
     if (haztartasId) {
-      const { data: tags } = await supabase.from('haztartas_tag')
+      const { data: tags, error: tagsErr } = await supabase.from('haztartas_tag')
         .select('szerep, szemely:szemely!id_szemely(id, csaladnev, k_nev)')
         .eq('id_haztartas', haztartasId).is('ervenyes_ig', null)
+      if (tagsErr) console.error('[getFamilyMembers] háztartás-tag lekérdezés hiba:', tagsErr.message)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for (const t of (tags || []) as any[]) {
         const s = Array.isArray(t.szemely) ? t.szemely[0] : t.szemely
@@ -3570,9 +3576,65 @@ export async function getFamilyMembers(
 export async function getFamilyMembersForPerson(
   personId: number,
 ): Promise<Array<{ id: number; name: string; role?: string }>> {
+  // 2026-08-29 (Endre hibajelzése: „a család csatolása gombra nem jelentek
+  // meg a családtagok"): a feloldás eddig CSAK a legacy-linkelt utat járta
+  // (haztartas.legacy_csalad_id → csalad/gyerek), és minden lekérdezés-hibát
+  // némán nyelt. Mostantól MINDKÉT modellből gyűjtünk és összefésülünk:
+  //  (a) ÚJ modell: a személy AKTÍV háztartásainak ÖSSZES aktív tagja —
+  //      legacy_csalad_id NÉLKÜL is (a csak-új-modelles család eddig kimaradt);
+  //  (b) legacy modell: csalad (családfők) + gyerek — a meglévő úton.
+  // A hibák HANGOSAK a szerver-logban (fail-open a másik modellre).
+  const { supabase, congregationId } = await getProfileCongregation()
+  if (!congregationId) return []
+  const members = new Map<number, { id: number; name: string; role?: string }>()
+  const nameOf = (p: { id: number; csaladnev?: string | null; k_nev?: string | null }) =>
+    `${p.csaladnev ?? ''} ${p.k_nev ?? ''}`.trim() || `#${p.id}`
+
+  // (a) ÚJ modell — a személy aktív háztartás-tagságai
+  const tagsag = await supabase
+    .from('haztartas_tag')
+    .select('id_haztartas, haztartas:haztartas!id_haztartas(isaktiv, ervenyes_ig)')
+    .eq('congregation_id', congregationId)
+    .eq('id_szemely', personId)
+    .is('ervenyes_ig', null)
+  if (tagsag.error) {
+    console.error('[getFamilyMembersForPerson] háztartás-tagság lekérdezés hiba:', tagsag.error.message)
+  }
+  const haztartasIds: string[] = []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const row of (tagsag.data || []) as any[]) {
+    const h = Array.isArray(row.haztartas) ? row.haztartas[0] : row.haztartas
+    if (h && h.isaktiv === true && h.ervenyes_ig == null && row.id_haztartas) {
+      haztartasIds.push(String(row.id_haztartas))
+    }
+  }
+  if (haztartasIds.length > 0) {
+    const tags = await supabase
+      .from('haztartas_tag')
+      .select('szerep, szemely:szemely!id_szemely(id, csaladnev, k_nev)')
+      .in('id_haztartas', haztartasIds)
+      .is('ervenyes_ig', null)
+    if (tags.error) {
+      console.error('[getFamilyMembersForPerson] háztartás-tagok lekérdezés hiba:', tags.error.message)
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const t of (tags.data || []) as any[]) {
+      const s = Array.isArray(t.szemely) ? t.szemely[0] : t.szemely
+      if (s?.id && !members.has(s.id)) {
+        members.set(s.id, { id: s.id, name: nameOf(s), role: t.szerep || 'tag' })
+      }
+    }
+  }
+
+  // (b) legacy modell — a meglévő úton (családfők + gyermekek + hibrid tagok)
   const familyId = await getFamilyIdForPerson(personId)
-  if (familyId == null) return []
-  return getFamilyMembers(familyId)
+  if (familyId != null) {
+    for (const m of await getFamilyMembers(familyId)) {
+      if (!members.has(m.id)) members.set(m.id, m)
+    }
+  }
+
+  return [...members.values()]
 }
 
 // (B) Egyházfenntartói járulék AUTO-ÖSSZEG (Endre, 2026-06-21): EGY tag adott évi járuléka a

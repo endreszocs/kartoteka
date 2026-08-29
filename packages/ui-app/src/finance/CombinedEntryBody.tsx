@@ -23,7 +23,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight, TrendingUp, TrendingDown, Boxes, AlertTriangle, CalendarRange } from 'lucide-react'
+import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight, TrendingUp, TrendingDown, Boxes, AlertTriangle, CalendarRange, Loader2 } from 'lucide-react'
 import { keszpenzKorlatFigyelmeztetesek, type KeszpenzTetel } from '@kartoteka/core'
 import { localTodayIso } from '@kartoteka/validations'
 import { formatRon } from './ron-in-words'
@@ -417,6 +417,9 @@ export function CombinedEntryBody({
   const [hasonloMegerositve, setHasonloMegerositve] = useState(false)
   /** #5: a Családi nyugta tag-választó melyik SORHOZ van nyitva (null = zárva). */
   const [familyPickerRowId, setFamilyPickerRowId] = useState<string | null>(null)
+  // 2026-08-29: a „Család csatolása" hálózati feloldása alatt a gomb pörög —
+  // lassú kapcsolaton is látszik, hogy a rendszer dolgozik.
+  const [familyLoadingRowId, setFamilyLoadingRowId] = useState<string | null>(null)
   /** #3 auto-vázlat: ha visszaállítottunk egy mentett vázlatot, ennek időpontja. */
   const [draftRestoredAt, setDraftRestoredAt] = useState<string | null>(null)
   /** #2 (Endre): az utolsó automatikus mentés időpontja (null = nincs mentendő tartalom). */
@@ -1278,22 +1281,36 @@ export function CombinedEntryBody({
   // Okos „Család csatolása": ha a sorban MÁR ki van választva egy regisztrált tag, annak a
   // CSALÁDJÁT oldjuk fel és tesszük az almenübe (ablak nélkül). Ha nincs kiválasztott tag (üres a
   // mező) vagy nincs család, a család-kereső ABLAKra esünk vissza.
+  //
+  // 2026-08-29 (Endre hibajelzése): a siker-toast eddig a DEDUP ELŐTT sült el —
+  // ha a szerver csak a kiválasztott tagot (vagy már bent lévőket) adta vissza,
+  // a felület „családja az almenübe került"-et mondott, miközben SEMMI nem
+  // változott. Mostantól a toast a TÉNYLEGESEN hozzáadott tagokról szól; ha
+  // nincs ÚJ tag, őszintén mondjuk ki, és a család-keresőt nyitjuk. A gomb a
+  // lekérés alatt pörgő állapotot mutat (lassú hálózaton is látszik a munka).
   function handleFamilyClick(rowId: string) {
     const r = incomeRows.find((x) => x.id === rowId)
     const linked = r?.people?.find((p) => p.id != null)
     if (linked?.id != null && onGetFamilyMembersForPerson) {
+      setFamilyLoadingRowId(rowId)
       void onGetFamilyMembersForPerson(linked.id)
         .then((members) => {
-          if (members && members.length > 0) {
-            appendPayers(rowId, members.map((m) => ({ id: m.id, name: m.name })))
+          const meglevo = new Set((r?.people ?? []).filter((p) => p.id != null).map((p) => p.id))
+          const ujak = (members || []).filter((m) => m.id != null && !meglevo.has(m.id))
+          if (ujak.length > 0) {
+            appendPayers(rowId, ujak.map((m) => ({ id: m.id, name: m.name })))
             setCollapsedPayerRows((s) => { if (!s.has(rowId)) return s; const n = new Set(s); n.delete(rowId); return n })
-            onToast('success', `${linked.name} családja az almenübe került — töltsd ki az összegeket.`)
+            onToast('success', `${ujak.length} családtag került az almenübe (${linked.name} családja) — töltsd ki az összegeket.`)
+          } else if ((members || []).length > 0) {
+            onToast('error', `${linked.name} családjában nincs TOVÁBBI rögzített tag — a keresőből kézzel is hozzáadhatsz befizetőt.`)
+            setFamilyPickerRowId(rowId)
           } else {
             onToast('error', 'Ehhez a személyhez nincs rögzített család — keresd ki kézzel.')
             setFamilyPickerRowId(rowId)
           }
         })
         .catch(() => setFamilyPickerRowId(rowId))
+        .finally(() => setFamilyLoadingRowId((cur) => (cur === rowId ? null : cur)))
     } else {
       // Üres mező → a megszokott család-kereső ablak.
       setFamilyPickerRowId(rowId)
@@ -1817,6 +1834,7 @@ export function CombinedEntryBody({
                             ? () => handleFamilyClick(r.id)
                             : undefined
                         }
+                        familyLoading={familyLoadingRowId === r.id}
                         updateRow={updateRow}
                         expanded={!collapsedPayerRows.has(r.id)}
                         onToggleExpand={() => togglePayerRow(r.id)}
@@ -1949,6 +1967,7 @@ export function CombinedEntryBody({
                             ? () => handleFamilyClick(r.id)
                             : undefined
                         }
+                        familyLoading={familyLoadingRowId === r.id}
                         updateRow={updateRow}
                         expanded={!collapsedPayerRows.has(r.id)}
                         onToggleExpand={() => togglePayerRow(r.id)}
@@ -2167,6 +2186,7 @@ function PartnerCell({
   onSearchMembers,
   onSearchExpense,
   onOpenFamily,
+  familyLoading,
   updateRow,
   expanded,
   onToggleExpand,
@@ -2185,6 +2205,8 @@ function PartnerCell({
   onSearchExpense?: (query: string) => Promise<string[]>
   /** #5: ha megadva (bevétel), „Család csatolása" gomb — a tagokat a sor befizető-almenüjéhez fűzi. */
   onOpenFamily?: () => void
+  /** 2026-08-29: a család-feloldás hálózati hívása fut — a gomb pörög. */
+  familyLoading?: boolean
   updateRow: (id: string, patch: Partial<EntryRow>) => void
   /** #4: a befizető-almenü (people[] 2+) nyitva van-e + a chevron-váltás. */
   expanded: boolean
@@ -2422,10 +2444,12 @@ function PartnerCell({
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={onOpenFamily}
-                  className="inline-flex items-center gap-1 rounded-full border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100"
+                  disabled={familyLoading}
+                  className="inline-flex items-center gap-1 rounded-full border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100 disabled:opacity-60"
                   title="Családi nyugta — a tagok a befizető-almenübe kerülnek (tagonként összeg)"
                 >
-                  <Users className="size-3.5" /> Család csatolása
+                  {familyLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Users className="size-3.5" />}
+                  {familyLoading ? 'Család keresése…' : 'Család csatolása'}
                 </button>
               )}
             </div>
@@ -2554,9 +2578,11 @@ function PartnerCell({
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={onOpenFamily}
-            className="inline-flex items-center gap-1 rounded-full border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100"
+            disabled={familyLoading}
+            className="inline-flex items-center gap-1 rounded-full border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100 disabled:opacity-60"
           >
-            <Users className="size-3.5" /> Család csatolása
+            {familyLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Users className="size-3.5" />}
+            {familyLoading ? 'Család keresése…' : 'Család csatolása'}
           </button>
         )}
       </div>
