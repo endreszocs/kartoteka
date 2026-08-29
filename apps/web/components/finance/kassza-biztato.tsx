@@ -36,18 +36,18 @@ export function RogzitesBiztato() {
   const evNapja = Math.floor((Date.UTC(most.getFullYear(), most.getMonth(), most.getDate()) - evKezdete) / 86_400_000)
   const ige = SAFARSAG_IGEK[evNapja % SAFARSAG_IGEK.length]
 
+  // 2026-08-29 (Endre: „scrollozás nélkül lehessen mindent megoldani"): a blokk
+  // EGYETLEN tömör sorra fogva — cím + igevers egymás mellett (szűk helyen törik),
+  // a harmadik mondat pedig kikerült: a dialóg alcíme szó szerint ugyanezt mondja.
   return (
-    <div className="rounded-xl border border-emerald-200/80 bg-gradient-to-r from-emerald-50 to-teal-50/70 px-4 py-3 dark:border-emerald-900/50 dark:from-emerald-950/40 dark:to-teal-950/30">
-      <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-200">
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded-xl border border-emerald-200/80 bg-gradient-to-r from-emerald-50 to-teal-50/70 px-4 py-2 dark:border-emerald-900/50 dark:from-emerald-950/40 dark:to-teal-950/30">
+      <p className="text-[13px] font-semibold text-emerald-900 dark:text-emerald-200">
         Vezesd naprakészen a bevételt és a kiadást is!
       </p>
-      <blockquote className="mt-1.5 border-l-2 border-emerald-400/70 pl-3 text-[13px] italic leading-relaxed text-emerald-800/90 dark:border-emerald-600/60 dark:text-emerald-300/85">
+      <blockquote className="border-l-2 border-emerald-400/70 pl-2.5 text-xs italic leading-relaxed text-emerald-800/90 dark:border-emerald-600/60 dark:text-emerald-300/85">
         „{ige.szoveg}"{' '}
         <span className="not-italic font-medium">({ige.hivatkozas})</span>
       </blockquote>
-      <p className="mt-1.5 text-[11px] leading-relaxed text-emerald-700/80 dark:text-emerald-300/60">
-        A mentés után a tételek dátum szerint rendezve kerülnek a helyükre.
-      </p>
     </div>
   )
 }

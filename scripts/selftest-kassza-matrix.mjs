@@ -171,12 +171,12 @@ function asszertek(rawSrc, jelent) {
     } else {
       hiba('a mátrix-sor kulcsa nem stabil (base.uid remount-csapda: fókuszvesztés + név-mezőbe lopott leütések)')
     }
-    if (nezet.includes('w-0 min-w-full')) {
-      jo('mátrix: w-0/min-w-full konténer — a külső tétel-tábla nem esik szét, a belső görgető él')
+    if (!nezet.includes('w-0 min-w-full')) {
+      jo('mátrix: nincs percentage-min-width hack a konténeren (friss layoutnál 0-ra is oldódhatott)')
     } else {
-      hiba('a mátrix konténeréből hiányzik a w-0 min-w-full (a külső tábla szétesne, a görgető sosem aktiválódna)')
+      hiba('a mátrix konténerén percentage-min-width hack van — nem determinisztikus (0 széles görgető!)')
     }
-    if (nezet.includes('sm:min-w-[11rem]') && nezet.includes('sm:sticky')) {
+    if (nezet.includes('sm:min-w-[9rem]') && nezet.includes('sm:sticky')) {
       jo('mátrix: mobilon keskenyebb név-oszlop + csak sm-től ragadó Összesen (375px-en is látszik év-cella)')
     } else {
       hiba('a mátrix ragadó oszlopai nem reszponzívak — mobilon a két fal közt nem férne el év-cella')
@@ -196,11 +196,47 @@ function asszertek(rawSrc, jelent) {
   } else {
     hiba('mobil: a PartnerCell label-ben ül(het) — a koppintás a Kikapcsol gombot aktiválná (adatvesztés)')
   }
-  // (4c) az asztali partner-oszlop a rugalmas oszlop (w-full) — enélkül a mátrix cellája összeesik
-  if (src.includes('"w-full px-2 py-1.5"')) {
-    jo('asztali partner-oszlop: w-full — a mátrix valós szélességet kap')
+  // (4c) az asztali partner-oszlop CSAK mátrix-aktív sornál rugalmas (w-full) — a feltétel
+  // nélküli w-full az ÖSSZES többi oszlopot összenyomta (Endre 2026-08-29: „nem látszanak
+  // az adatok!" — az év „20."-ra, a megjegyzés „Decemb"-re csonkult).
+  if (src.includes("isMatrixActive(r) ? 'w-full max-w-0 min-w-[26rem] '") && !src.includes('"w-full px-2 py-1.5"')) {
+    jo('asztali partner-oszlop: feltételes w-full max-w-0 min-w-[26rem] (laptopon sem 0 a látható év-terület)')
   } else {
-    hiba('az asztali partner-cella nem w-full — a mátrix görgetője pár pixelre esne össze')
+    hiba('az asztali partner-cella nem feltételes w-full max-w-0 min-w-[26rem] (csonkulás VAGY 0 px év-terület)')
+  }
+  // (4d) min-szélesség-őrök a többi oszlopon — mátrix-módban se csonkulhat dátum/év/összeg/megjegyzés
+  if (src.includes('min-w-[7.5rem]') && src.includes('w-[90px] min-w-[4.5rem]')) {
+    jo('oszlop min-szélesség-őrök: dátum/év (és társaik) mátrix-módban sem csonkulnak')
+  } else {
+    hiba('hiányzó oszlop min-szélesség-őr (min-w-[7.5rem] dátum / w-[90px] min-w-[4.5rem] év)')
+  }
+  // (4e) a Mentés-sáv RAGAD a dialóg aljára — görgetés nélkül elérhető (Endre kérése)
+  const lab = ablak(rawSrc, 'FOOTER-MENTES-SAV', ['Mentés ('])
+  if (lab && lab.includes('sticky bottom-0')) {
+    jo('Mentés-sáv: sticky bottom-0 — görgetés nélkül mindig elérhető')
+  } else {
+    hiba('a Mentés-sáv nem ragad a dialóg aljára (görgetni kellene a mentéshez)')
+  }
+
+  // (4f) Endre 2026-08-29: a kiválasztott személy életkora + lakhelye is látszódjon
+  const hitFn = ablak(src, 'function payerFromHit', ['\nfunction ', '\ntype '])
+  if (hitFn && hitFn.includes('kor:') && hitFn.includes('lakhely:') && src.includes('payerInfoText(')) {
+    jo('kiválasztott befizető: életkor + lakhely eltárolva és kiírva (azonos nevűek megkülönböztetése)')
+  } else {
+    hiba('a kiválasztott befizető életkora/lakhelye nem tárolódik vagy nem jelenik meg')
+  }
+  // (4f2) a kor/lakhely a LEGGYAKORIBB úton (üres sor → kereső → appendPayers) sem veszhet el
+  const appFn = ablak(src, 'function appendPayers', ['\n  function '])
+  if (appFn && appFn.includes('kor: a.kor ?? null') && appFn.includes('lakhely: a.lakhely ?? null')) {
+    jo('appendPayers: a kor/lakhely átvezetve (a fő kiválasztási út sem ejti el)')
+  } else {
+    hiba('appendPayers elejti a kor/lakhely mezőket — az info-sor a fő úton nem jelenne meg')
+  }
+  // (4g) Endre 2026-08-29: zebra-csíkozás — váltakozó sor-háttér, index-alapú
+  if (src.includes('sorIdx % 2') && src.includes('${sorBg}')) {
+    jo('zebra: váltakozó sor-háttér index-alapon (a leltár-alsor a saját sora hátterét kapja)')
+  } else {
+    hiba('nincs index-alapú zebra-csíkozás a tétel-sorokon')
   }
 
   // (5) a mentési út érintetlen (a mátrix csak nézet)
@@ -249,20 +285,21 @@ const mutansok = [
     },
   },
   {
-    nev: 'M5: a w-0/min-w-full konténer-trükk törlése — a külső tábla szétesne 10 évnél',
-    alkalmaz: (s) => {
-      const kezdet = s.indexOf('MATRIX-NEZET-KEZDET')
-      const veg = s.indexOf('MATRIX-NEZET-VEG')
-      if (kezdet < 0 || veg < 0) return null
-      const bent = s.slice(kezdet, veg)
-      if (!bent.includes('w-0 min-w-full')) return null
-      return s.slice(0, kezdet) + bent.replace('w-0 min-w-full', 'w-full') + s.slice(veg)
-    },
+    nev: 'M5: a max-w-0/min-w szélesség-fegyelem törlése a partner-celláról — széteső tábla / 0 px év-terület',
+    alkalmaz: (s) => (s.includes("isMatrixActive(r) ? 'w-full max-w-0 min-w-[26rem] '")
+      ? s.replace("isMatrixActive(r) ? 'w-full max-w-0 min-w-[26rem] '", "isMatrixActive(r) ? 'w-full '")
+      : null),
   },
   {
     nev: 'M6: a kiürített-cella őr törlése az auto-kitöltésből — a „nem fizet" cella visszatöltődne',
     alkalmaz: (s) => (s.includes('if (userUresRef.current.has(payerUid)) return')
       ? s.replace('if (userUresRef.current.has(payerUid)) return', '')
+      : null),
+  },
+  {
+    nev: 'M7: a partner-oszlop w-full-ja feltétel nélkülivé rontva — minden más oszlop összenyomódna',
+    alkalmaz: (s) => (s.includes("isMatrixActive(r) ? 'w-full")
+      ? s.replace(/isMatrixActive\(r\) \? 'w-full[^:]*: ''/, "'w-full '")
       : null),
   },
   {
