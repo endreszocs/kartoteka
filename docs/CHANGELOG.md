@@ -23,6 +23,20 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-30] — Rögzítő: gépelhető mezők, visszatért családtagok, kiférő oszlopok
+<!-- key: 2026-08-30-rogzito-harom-javitas -->
+<!-- category: bugfix -->
+<!-- version: 0.9.208 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🐛 Javítások
+
+- **Nem ugrik ki a kurzor gépelés közben**: a több-éves befizető-rácsban minden leütés után elveszett a fókusz (vissza kellett kattintani a mezőre). A sorok belső azonosítója a beírt névből képződött, ezért a rendszer minden betűnél újraépítette a sort — mostantól állandó azonosítót használ.
+- **A Család csatolása megint megtalálja a tagokat**: a tegnapi „életkor és lakhely" bővítés hibás adatbázis-oszlopra hivatkozott, ezért a lekérdezés üresen tért vissza, és a rendszer azt írta, hogy a családhoz nincs rögzített tag — holott volt. A lakhely mostantól a helyes forrásból jön, és ha egy ilyen kényelmi adat bármikor hibázna, a rendszer automatikusan újrapróbálja a tagok listáját a kényelmi mezők nélkül: a tagok soha többé nem tűnhetnek el emiatt.
+- **Kiférnek az oszlopok**: a dátum, az irattípus, a kerületi szám, az „melyik évre" és a megjegyzés mezők szélesebbek lettek — a beírt érték nem csonkul.
+
+---
+
 ## [2026-08-30] — Költségvetés: olvasható számok gépelés közben
 <!-- key: 2026-08-30-koltsegvetes-szamcsoportok -->
 <!-- category: improvement -->

@@ -78,6 +78,26 @@ function ellenoriz(files) {
     hibak.push('szerver: a getFamilyMembers lekérdezés-hibái némák maradtak')
   }
 
+  // (2b) 2026-08-29 SAJÁT REGRESSZIÓ tanulsága: a `cim_telepules` a DIOCESES táblán van,
+  // a `szemely`-n NINCS. A rossz oszlopnév 400-at adott, és a családtagok NÉMÁN eltűntek
+  // („Ehhez a családhoz nincs rögzített tag"), holott ott voltak. Két kapu:
+  //   (a) a család-lekérdezés SOHA ne kérjen `cim_telepules`-t a szemely-ről;
+  //   (b) a KÉNYELMI mezők (kor/lakhely) hibájánál legyen MINIMÁL újrapróbálkozás —
+  //       a kényelmi adat elmaradhat, a TAGOK soha.
+  const iFam = a.indexOf('export async function getFamilyMembers(')
+  const jFam = iFam >= 0 ? a.indexOf('export async function getFamilyMembersForPerson', iFam) : -1
+  const famFn = iFam >= 0 ? a.slice(iFam, jFam > iFam ? jFam : iFam + 8000) : ''
+  if (!famFn) {
+    hibak.push('szerver: nincs getFamilyMembers függvény')
+  } else {
+    if (/cim_telepules/.test(famFn)) {
+      hibak.push('szerver: a család-lekérdezés `cim_telepules`-t kér a szemely-ről (az a dioceses oszlopa) — 400, a tagok némán eltűnnek')
+    }
+    if (!/\(minimál\)/.test(famFn) || !/bovitett\.error/.test(famFn)) {
+      hibak.push('szerver: nincs MINIMÁL fallback a család-lekérdezésben — egy kényelmi mező elírása megint elnyelné a tagokat')
+    }
+  }
+
   // (3) globális folyamatjelző
   const indRaw = files.get(INDICATOR)
   // 2026-08-29 deploy-bukás tanulsága: a hook-os ui-app barrel-modulnak
@@ -164,6 +184,27 @@ if (hibak.length === 0) {
   if (w3mut === w3) bukik('M3 mutáció nem változtatott (fail-closed)')
   else if (ellenoriz(m3).length === 0) bukik('M3: a jelző lecsatolására NEM bukik — vak')
   else pass('M3 mutáns (jelző lecsatolva a layoutról) → az őr elbuktatja')
+}
+
+// M5/M6 (2026-08-29): a család-lekérdezés két új kapuja
+{
+  const m5 = beolvas()
+  const a5 = m5.get(ACTIONS)
+  const a5mut = a5.replace('adrlocality!c_helysegid(name)), no:', 'cim_telepules), no:')
+  m5.set(ACTIONS, a5mut)
+  if (a5mut === a5) bukik('M5 mutáció nem változtatott (fail-closed)')
+  else if (ellenoriz(m5).length === 0) bukik('M5: a rossz oszlopnév (cim_telepules) visszatételére NEM bukik — vak')
+  else pass('M5 mutáns (cim_telepules a szemely-ről) → az őr elbuktatja')
+
+  const m6 = beolvas()
+  const a6 = m6.get(ACTIONS)
+  // replaceAll: a `(minimál)` KÉT helyen áll (családfő + gyermek); egyetlen csere
+  // után a másik előfordulás kielégítené az asszertet — a mutáns vak lett volna.
+  const a6mut = a6.replaceAll('(minimál)', '(masodik)')
+  m6.set(ACTIONS, a6mut)
+  if (a6mut === a6) bukik('M6 mutáció nem változtatott (fail-closed)')
+  else if (ellenoriz(m6).length === 0) bukik('M6: a minimál fallback eltüntetésére NEM bukik — vak')
+  else pass('M6 mutáns (minimál fallback nélkül) → az őr elbuktatja')
 }
 
 console.log('')

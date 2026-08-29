@@ -319,6 +319,11 @@ type EntryRow = {
      *  (linkelt) befizető alatt kiírjuk, hogy azonos nevűeknél is látszódjon, KI ő. */
     kor?: number | null
     lakhely?: string | null
+    /** 2026-08-29 (Endre: „minden betű után rá kell kattintsak"): STABIL sor-azonosító a
+     *  mátrix React-kulcsához. A kulcs SOHA nem jöhet szerkeszthető tartalomból (a régi,
+     *  névből képzett kulcs minden leütésre remountolta a sort → fókuszvesztés). Egy
+     *  befizető ÖSSZES év-bejegyzése ugyanazt a sorUid-ot viseli. */
+    sorUid?: string
   }>
   /** Legacy (B1) — már a people[] váltja ki; csak régi vázlat visszaállításához tartjuk meg. */
   szemelyId?: number | null
@@ -407,6 +412,8 @@ type MatrixCsoport = {
    *  ERRE céloznak, nem a kulcsra: azonos kulcsú két sor-példánynál (pl. két azonos nevű
    *  befizető) egy művelet így CSAK a saját sorát érinti, a másikét nem. */
   uids: string[]
+  /** A sor STABIL React-kulcsa — a base bejegyzés sorUid-ja (régi vázlatnál az uid-ja). */
+  sorUid: string
 }
 /** Csoportosítás mátrix-sorokká. Ütközésnél (ugyanaz a kulcs ugyanarra az évre kétszer)
  *  ÚJ sor-példány nyílik — bejegyzés SOSEM tűnhet el a nézetből. Az `idx` a people[]
@@ -429,7 +436,7 @@ function matrixCsoportok(people: PayerLike[]): MatrixCsoport[] {
       cs = out.find((c) => c.kulcs === kulcs && !c.cellak.has(ev))
     }
     if (!cs) {
-      cs = { kulcs, base: p, cellak: new Map(), uids: [] }
+      cs = { kulcs, base: p, cellak: new Map(), uids: [], sorUid: p.sorUid ?? p.uid }
       out.push(cs)
     }
     cs.cellak.set(ev, { p, idx })
@@ -609,6 +616,8 @@ export function CombinedEntryBody({
             // a migráció némán elejtette, és a felső szintű befizető FK nélkül mentődött volna.
             refId: typeof (p as { refId?: unknown }).refId === 'string' ? (p as { refId: string }).refId : null,
             kind: typeof (p as { kind?: unknown }).kind === 'string' ? ((p as { kind: string }).kind as CombinedPartnerKind) : 'szemely',
+            sorUid: typeof (p as { sorUid?: unknown }).sorUid === 'string' ? (p as { sorUid: string }).sorUid
+              : (typeof (p as { uid?: unknown }).uid === 'string' ? (p as { uid: string }).uid : crypto.randomUUID()),
             kor: typeof (p as { kor?: unknown }).kor === 'number' ? (p as { kor: number }).kor : null,
             lakhely: typeof (p as { lakhely?: unknown }).lakhely === 'string' ? (p as { lakhely: string }).lakhely : null,
           }))
@@ -1102,7 +1111,7 @@ export function CombinedEntryBody({
         const seed = curPeople.length === 0 ? (r.amount.trim() || '') : ''
         const newPeople = [
           ...curPeople,
-          ...add.map((a, i) => ({ uid: crypto.randomUUID(), id: a.id, name: a.name, refId: a.refId ?? null, kind: a.kind ?? 'szemely', kor: a.kor ?? null, lakhely: a.lakhely ?? null, osszeg: i === 0 ? seed : '', evre: evreDefault })),
+          ...add.map((a, i) => ({ uid: crypto.randomUUID(), sorUid: crypto.randomUUID(), id: a.id, name: a.name, refId: a.refId ?? null, kind: a.kind ?? 'szemely', kor: a.kor ?? null, lakhely: a.lakhely ?? null, osszeg: i === 0 ? seed : '', evre: evreDefault })),
         ]
         return { ...r, people: newPeople, partner: '', ...(curPeople.length === 0 ? { amount: '' } : {}) }
       }),
@@ -1119,9 +1128,9 @@ export function CombinedEntryBody({
         if (r.id !== rowId) return r
         const curPeople = r.people ?? []
         const evreDefault = curPeople[0]?.evre || r.evre || String(currentYear)
-        const empty = { uid: newUid, id: null as number | null, name: '', osszeg: '', evre: evreDefault }
+        const empty = { uid: newUid, sorUid: crypto.randomUUID(), id: null as number | null, name: '', osszeg: '', evre: evreDefault }
         if (curPeople.length === 0) {
-          const first = { uid: crypto.randomUUID(), id: null as number | null, name: r.partner.trim(), osszeg: r.amount.trim(), evre: evreDefault }
+          const first = { uid: crypto.randomUUID(), sorUid: crypto.randomUUID(), id: null as number | null, name: r.partner.trim(), osszeg: r.amount.trim(), evre: evreDefault }
           return { ...r, people: [first, empty], partner: '', amount: '' }
         }
         return { ...r, people: [...curPeople, empty] }
@@ -1245,7 +1254,7 @@ export function CombinedEntryBody({
           // Névtelen (azonosság nélküli) sor NEM sokszorozódik évre — előbb nevet kap.
           if (cs.kulcs.startsWith('uid:')) continue
           if (cs.cellak.has(year)) continue
-          ujak.push({ uid: crypto.randomUUID(), id: cs.base.id, name: cs.base.name, refId: cs.base.refId ?? null, kind: cs.base.kind ?? 'szemely', kor: cs.base.kor ?? null, lakhely: cs.base.lakhely ?? null, osszeg: '', evre: String(year) })
+          ujak.push({ uid: crypto.randomUUID(), sorUid: cs.sorUid, id: cs.base.id, name: cs.base.name, refId: cs.base.refId ?? null, kind: cs.base.kind ?? 'szemely', kor: cs.base.kor ?? null, lakhely: cs.base.lakhely ?? null, osszeg: '', evre: String(year) })
         }
         if (ujak.length === 0) return r
         return { ...r, people: matrixRendez([...ps, ...ujak]) }
@@ -1293,7 +1302,7 @@ export function CombinedEntryBody({
   /** Üres mátrix-cella kitöltése: új bejegyzés a csoport TELJES azonosságával (id + refId +
    *  kind — jogi személynél a partner-FK nem veszhet el) az adott évre. */
   function addPayerCell(rowId: string, base: PayerLike, year: number, osszeg: string) {
-    const uj: PayerLike = { uid: crypto.randomUUID(), id: base.id, name: base.name, refId: base.refId ?? null, kind: base.kind ?? 'szemely', kor: base.kor ?? null, lakhely: base.lakhely ?? null, osszeg, evre: String(year) }
+    const uj: PayerLike = { uid: crypto.randomUUID(), sorUid: base.sorUid ?? base.uid, id: base.id, name: base.name, refId: base.refId ?? null, kind: base.kind ?? 'szemely', kor: base.kor ?? null, lakhely: base.lakhely ?? null, osszeg, evre: String(year) }
     setIncomeRows((cur) => cur.map((r) => (r.id === rowId ? { ...r, people: matrixRendez([...(r.people ?? []), uj]) } : r)))
   }
   /** A PartnerCell „Több évre fizet" propja — CSAK egyházfenntartás-jogcímű bevétel-soron. */
@@ -1819,7 +1828,7 @@ export function CombinedEntryBody({
     return (
       <div className="flex items-center gap-1">
         <input
-          className={`${inputClass} ${dateInvalid(r) ? 'border-red-400' : ''}`}
+          className={`${inputClass} min-w-[7rem] ${dateInvalid(r) ? 'border-red-400' : ''}`}
           value={r.datum}
           placeholder="pl. 2026.01.04"
           onChange={(e) => handleDatumChange(r, e.target.value)}
@@ -1991,12 +2000,12 @@ export function CombinedEntryBody({
               <th className="px-2 py-2 text-left">Dátum</th>
               <th className="px-2 py-2 text-left">Irattípus</th>
               {(tab === 'expense' || showIncomeReceiptCols) && (
-                <th className="px-2 py-2 text-left">{tab === 'income' ? 'Kerületi sz.' : 'Irat sz.'}</th>
+                <th className="whitespace-nowrap px-2 py-2 text-left">{tab === 'income' ? 'Kerületi sz.' : 'Irat sz.'}</th>
               )}
               {showIncomeReceiptCols && <th className="px-2 py-2 text-left">Irat sz.</th>}
               <th className="px-2 py-2 text-left">Jogcím</th>
               <th className="px-2 py-2 text-left">{partnerLabel}</th>
-              {tab === 'income' && <th className="px-2 py-2 text-left">Melyik évre</th>}
+              {tab === 'income' && <th className="whitespace-nowrap px-2 py-2 text-left">Melyik évre</th>}
               <th className="px-2 py-2 text-right">Összeg</th>
               <th className="px-2 py-2 text-left">Megjegyzés</th>
               <th className="px-2 py-2"></th>
@@ -2017,11 +2026,11 @@ export function CombinedEntryBody({
               return (
                 <Fragment key={r.id}>
                 <tr className={`border-t border-slate-200 align-top ${sorBg}`} onKeyDown={focusNextField}>
-                  <td className="px-2 py-1.5 w-[160px] min-w-[7.5rem]">
+                  <td className="px-2 py-1.5 w-[170px] min-w-[11rem]">
                     {renderDateField(r)}
                     {dWarn && <div className="mt-0.5 text-[10px] leading-tight text-amber-600">⚠ {dWarn}</div>}
                   </td>
-                  <td className="px-2 py-1.5 w-[130px] min-w-[5rem]">
+                  <td className="px-2 py-1.5 w-[130px] min-w-[7.5rem]">
                     <input
                       className={inputClass}
                       list="combined-doctypes"
@@ -2032,7 +2041,7 @@ export function CombinedEntryBody({
                     />
                   </td>
                   {(tab === 'expense' || showIncomeReceiptCols) && (
-                    <td className="px-2 py-1.5 w-[100px] min-w-[4rem]">
+                    <td className="px-2 py-1.5 w-[100px] min-w-[5.5rem]">
                       {dir || (tab === 'income' && !isChitanta) ? (
                         <span className="text-xs text-slate-400">—</span>
                       ) : (
@@ -2051,7 +2060,7 @@ export function CombinedEntryBody({
                     </td>
                   )}
                   {showIncomeReceiptCols && (
-                    <td className="px-2 py-1.5 w-[100px] min-w-[4rem]">
+                    <td className="px-2 py-1.5 w-[100px] min-w-[5.5rem]">
                       {dir || !isChitanta ? (
                         <span className="text-xs text-slate-400">—</span>
                       ) : (
@@ -2064,7 +2073,7 @@ export function CombinedEntryBody({
                       )}
                     </td>
                   )}
-                  <td className="px-2 py-1.5 min-w-[180px]">
+                  <td className="px-2 py-1.5 min-w-[13rem]">
                     <SearchableSelect options={categoryOptions} value={r.categoryId} onChange={(id) => updateRow(r.id, { categoryId: id })} />
                     {renderBankSelect(r)}
                   </td>
@@ -2104,7 +2113,7 @@ export function CombinedEntryBody({
                     )}
                   </td>
                   {tab === 'income' && (
-                    <td className="px-2 py-1.5 w-[90px] min-w-[4.5rem]">
+                    <td className="px-2 py-1.5 w-[90px] min-w-[5.5rem]">
                       {dir ? (
                         <span className="text-xs text-slate-400">—</span>
                       ) : (r.people?.length ?? 0) >= 2 ? (
@@ -2128,7 +2137,7 @@ export function CombinedEntryBody({
                       )}
                     </td>
                   )}
-                  <td className="px-2 py-1.5 w-[120px] min-w-[5.5rem]">
+                  <td className="px-2 py-1.5 w-[120px] min-w-[7rem]">
                     {tab === 'income' && (r.people?.length ?? 0) >= 2 ? (
                       <div className="flex h-9 items-center justify-end rounded-md border border-emerald-200 bg-emerald-50/60 px-2 text-sm font-semibold tabular-nums text-emerald-900" title="A befizetők összegeinek összege (automatikus)">
                         {formatRon(payerSum(r))}
@@ -2141,7 +2150,7 @@ export function CombinedEntryBody({
                       </>
                     )}
                   </td>
-                  <td className="px-2 py-1.5 min-w-[6.5rem]"><input className={inputClass} value={r.megjegyzes} onChange={(e) => updateRow(r.id, { megjegyzes: e.target.value })} /></td>
+                  <td className="px-2 py-1.5 min-w-[9rem]"><input className={inputClass} value={r.megjegyzes} onChange={(e) => updateRow(r.id, { megjegyzes: e.target.value })} /></td>
                   <td className="px-2 py-1.5 text-right">
                     <button type="button" aria-label="Sor törlése" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-500" onClick={() => removeRow(r.id)}>
                       <Trash2 className="size-4" />
@@ -2534,15 +2543,10 @@ function PartnerCell({
     chips.sort((a, b) => a - b)
     const evOsszeg = (ev: number) => csoportok.reduce((s, cs) => s + (Number(cs.cellak.get(ev)?.p.osszeg) || 0), 0)
     const tobbSoros = csoportok.length >= 2
-    // A sor kulcsa a csoport STABIL azonossága + példány-sorszám — NEM a base uid-ja:
-    // korábbi év cellájának kitöltésekor a rendezés új base-t adna, és a sor remountolna
-    // (fókuszvesztés az első leütés után). Azonos kulcsú második példány #1-et kap.
-    const peldanySzam = new Map<string, number>()
-    const sorok = csoportok.map((cs) => {
-      const n = peldanySzam.get(cs.kulcs) ?? 0
-      peldanySzam.set(cs.kulcs, n + 1)
-      return { cs, sorKulcs: `${cs.kulcs}#${n}` }
-    })
+    // ⚠️ A sor React-kulcsa a STABIL `sorUid` — SOHA nem a payerKulcs (az a GÉPELT NEVET
+    // tartalmazza nem párosított befizetőnél, így minden leütésre változna, a React pedig
+    // eldobná és újraépítené a sort: pontosan ez volt a 2026-08-29-i fókuszvesztés).
+
     return (
       // A szélesség-fegyelmet a BEFOGADÓ td adja (w-full max-w-0, csak mátrix-aktív sornál):
       // az intrinsic méret-járulék 0, így a belső min-w-max nem nyomja szét a külső táblát,
@@ -2626,11 +2630,11 @@ function PartnerCell({
                 </tr>
               </thead>
               <tbody>
-                {sorok.map(({ cs, sorKulcs }) => {
+                {csoportok.map((cs) => {
                   const sorOsszeg = [...cs.cellak.values()].reduce((s, c) => s + (Number(c.p.osszeg) || 0), 0)
                   const azonositott = cs.base.id != null || !!cs.base.refId || cs.base.name.trim() !== ''
                   return (
-                    <tr key={sorKulcs}>
+                    <tr key={cs.sorUid}>
                       <td className="sticky left-0 z-10 min-w-[7rem] border-b border-slate-100 bg-white px-2 py-1 sm:min-w-[9rem]">
                         <div className="flex items-center gap-1">
                           <div className="min-w-0 flex-1">
@@ -2663,7 +2667,7 @@ function PartnerCell({
                       {evek.map((ev) => {
                         const cella = cs.cellak.get(ev)
                         return (
-                          <td key={`${cs.kulcs}:${ev}`} className="border-b border-slate-100 px-1.5 py-1 align-top">
+                          <td key={`${cs.sorUid}:${ev}`} className="border-b border-slate-100 px-1.5 py-1 align-top">
                             <input
                               className={`${inputClass} h-8 w-[4.5rem] text-right tabular-nums sm:w-[5.5rem]`}
                               type="number"
