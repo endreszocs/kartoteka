@@ -6,10 +6,11 @@ import { revalidatePath } from 'next/cache'
 // 2026-07-11 (S6): visszamenőleges kassza↔bank átvezetésnél a következő évi
 // automatikus ('carryover') nyitó újraszámolása.
 import {
-  checkExpenseReceiptDuplicateUseCase,
   checkReceiptDuplicateUseCase,
   refreshCarryoverBestEffort,
   resolveNyitoEgyenlegekUseCase,
+  saveExpenseUseCase,
+  saveIncomeUseCase,
   saveInternalTransferUseCase,
 } from '@kartoteka/core'
 import { localTodayIso } from '@kartoteka/validations'
@@ -764,6 +765,18 @@ function shouldRetryLegacySettingsInsert(message?: string) {
   )
 }
 
+/**
+ * P4-30 teljes kör (2026-08-29, Endre döntése): a webes kézi bevétel-mentés a
+ * KÖZÖS core `saveIncomeUseCase`-re delegál — a validálás, az év-zár, a
+ * duplikátum-kapu (D3-kánon), a payload (modern + legacy fallback) és a
+ * 23505-kezelés EGY implementációban él; a web és a desktop nem húzhat szét.
+ *
+ * A webes SZÁMOZÁSI viselkedés VÁLTOZATLAN: üres iratszámnál a wrapper
+ * AUTO-<dátum>-<időbélyeg> helyőrzőt képez és KITÖLTVE adja át — így a core
+ * hézagmentes nyugtaszám-generátora a weben nem fut (nem-Chitanță bizonylatra
+ * nem éghet el szám a hivatalos sorozatból; a Chitanță-sorok számát a rögzítő
+ * kéri le előre).
+ */
 async function insertIncomeRecord(params: {
   supabase: Awaited<ReturnType<typeof createClient>>
   congregationId: string
@@ -773,70 +786,36 @@ async function insertIncomeRecord(params: {
   const { supabase, congregationId, userId, input } = params
   const documentNumber = buildDocumentNumber(input.iratszam, input.datum)
 
-  // D1 (audit 2026-08-28, Endre döntése): MENTÉSKORI duplikátum-kapu — a
-  // desktop (core save) régóta blokkolja a foglalt iratszámot, a web eddig
-  // csak gépelés közben figyelmeztetett. A közös core-ellenőrzés a D3-as
-  // kánont követi (a stornózott szám nem duplikátum). Az AUTO- előtagú
-  // (rendszer-generált, időbélyeges) számot nem ellenőrizzük.
-  if (!documentNumber.startsWith('AUTO-')) {
-    const dupla = await checkReceiptDuplicateUseCase(
-      { congregationId, iratszam: documentNumber },
-      { supabase, runtime: 'web' },
-    )
-    if (!dupla.success) {
-      return { error: `Az iratszám-ellenőrzés nem sikerült (${dupla.error}) — a mentés biztonságból nem futott le. Próbáld újra.` as string }
-    }
-    if (dupla.isDuplicate) {
-      return { error: `A(z) „${documentNumber}" iratszám már foglalt egy aktív befizetésen — válassz másik számot (a stornózott szám újra kiadható).` as string }
-    }
-  }
+  const result = await saveIncomeUseCase(
+    {
+      congregationId,
+      osszeg: input.osszeg,
+      datum: input.datum,
+      id_befizetescel: input.id_befizetescel,
+      id_szemely: input.id_szemely ?? null,
+      id_csalad: input.id_csalad ?? null,
+      forrasa: input.forrasa ?? null,
+      iratszam: documentNumber,
+      // #3 (Endre): a `nyugta` a GYÜLEKEZETI saját sorszám — üresnél a core
+      // az iratszámmal tölti (a régi webes viselkedéssel azonosan).
+      nyugta: input.nyugta ?? null,
+      irattipus: input.irattipus,
+      fizetettev: input.fizetettev ?? null,
+      megjegyzes: input.megjegyzes ?? null,
+      is_potlas: false,
+      bankszamla_id: input.bankszamla_id ?? null,
+    },
+    { supabase, runtime: 'web', userId },
+  )
 
-  const modernPayload = {
-    osszeg: input.osszeg,
-    datum: input.datum,
-    id_befizetescel: input.id_befizetescel,
-    id_szemely: input.id_szemely || null,
-    id_csalad: input.id_csalad || null,
-    forrasa: input.forrasa || null,
-    iratszam: documentNumber,
-    irattipus: input.irattipus,
-    fizetettev: input.fizetettev || new Date(input.datum).getFullYear(),
-    megjegyzes: input.megjegyzes || null,
-    deleted: false,
-    congregation_id: congregationId,
-    // P4-30 (audit 2026-08-28): banki bizonylatnál az érintett bankszámla —
-    // enélkül a kézzel rögzített banki tétel a KASSZÁBA sorolódott.
-    bankszamla_id: input.bankszamla_id ?? null,
+  if (!result.success) {
+    return { error: result.error as string }
   }
-
-  const legacyCompatiblePayload = {
-    ...modernPayload,
-    xkey: randomUUID().replace(/-/g, '').slice(0, 20),
-    // #3 (Endre): a `nyugta` a GYÜLEKEZETI saját sorszám (a kerületi = iratszam mellett).
-    // Ha nincs megadva, a régi viselkedés szerint az iratszámmal egyezik (a NOT NULL miatt is).
-    nyugta: input.nyugta?.trim() || documentNumber,
-    csalad: Boolean(input.id_csalad),
-    forrasa: input.forrasa || 'Kézi rögzítés',
-    userid: userId,
-  }
-
-  // P0-8: a beszúrt sor xkey-ét visszaadjuk (rollback-fallback azonosító, a
-  // kiadás-insert mintájára). A séma-drift ágon (modernPayload) nincs xkey.
-  let usedXkey: string | null = legacyCompatiblePayload.xkey
-  let insertResult = await supabase.from('befizetes').insert([legacyCompatiblePayload]).select('id').single()
-  if (insertResult.error && isMissingColumnError(insertResult.error.message)) {
-    usedXkey = null
-    insertResult = await supabase.from('befizetes').insert([modernPayload]).select('id').single()
-  }
-
-  if (insertResult.error) {
-    return { error: `Hiba: ${insertResult.error.message}` as string }
-  }
-
   return {
-    id: Number(insertResult.data?.id),
-    xkey: usedXkey,
-    documentNumber,
+    id: result.data.id,
+    // P0-8: rollback-fallback azonosító; a séma-drift (modern-payload) ágon null.
+    xkey: result.data.xkey ?? null,
+    documentNumber: result.data.iratszam,
   }
 }
 
@@ -844,6 +823,13 @@ async function insertIncomeRecord(params: {
 // szintén törölt `saveIncomeWithLinkedInventory` volt (a soha be nem kötött v1
 // pénzügy→leltár híd).
 
+/**
+ * P4-30 teljes kör (2026-08-29, Endre döntése): a webes kézi kiadás-mentés a
+ * KÖZÖS core `saveExpenseUseCase`-re delegál — validálás (átvevő-kötelezőség
+ * a core zod-refine-jában is), év-zár, duplikátum-kapu (D3-kánon), payload és
+ * 23505-kezelés egy implementációban. A webes AUTO-számozás megőrizve: a
+ * documentNumber itt képződik, és KITÖLTVE megy át (a core generátor nem fut).
+ */
 async function insertExpenseRecord(params: {
   supabase: Awaited<ReturnType<typeof createClient>>
   congregationId: string
@@ -854,80 +840,39 @@ async function insertExpenseRecord(params: {
   const documentNumber = buildDocumentNumber(input.iratszam || ('bizonylatszam' in input ? input.bizonylatszam : null), input.datum)
 
   // D1 (audit 2026-08-28, Endre döntése): az átvevő KÖTELEZŐ — a régi néma
-  // „Kézi rögzítés" placeholder visszakereshetetlen partnert hagyott.
+  // „Kézi rögzítés" placeholder visszakereshetetlen partnert hagyott. (A core
+  // zod-refine-ja is elutasítja; ez a beszédesebb webes első vonal.)
   if (!input.kedvezmenyzett?.trim()) {
     return { error: 'Az átvevő megadása kötelező — add meg, ki kapta a pénzt.' as string }
   }
 
-  // D1: mentéskori duplikátum-kapu (a befizetés-oldali kapu párja, D3-kánon).
-  if (!documentNumber.startsWith('AUTO-')) {
-    const dupla = await checkExpenseReceiptDuplicateUseCase(
-      { congregationId, iratszam: documentNumber },
-      { supabase, runtime: 'web' },
-    )
-    if (!dupla.success) {
-      return { error: `Az iratszám-ellenőrzés nem sikerült (${dupla.error}) — a mentés biztonságból nem futott le. Próbáld újra.` as string }
-    }
-    if (dupla.isDuplicate) {
-      return { error: `A(z) „${documentNumber}" iratszám már foglalt egy aktív kiadáson — válassz másik számot (a stornózott szám újra kiadható).` as string }
-    }
-  }
+  const result = await saveExpenseUseCase(
+    {
+      congregationId,
+      osszeg: input.osszeg,
+      datum: input.datum,
+      id_kiadascel: input.id_kiadascel,
+      atvevo: input.kedvezmenyzett.trim(),
+      atvevoid: 'id_szemely' in input ? input.id_szemely ?? null : null,
+      kedvezmenyezett_cui: null,
+      iratszam: documentNumber,
+      irattipus: input.irattipus,
+      megjegyzes: input.megjegyzes ?? null,
+      vonatkozo_idoszak: null,
+      is_potlas: false,
+      bankszamla_id: 'bankszamla_id' in input ? (input.bankszamla_id ?? null) : null,
+    },
+    { supabase, runtime: 'web', userId },
+  )
 
-  const canonicalPayload = {
-    osszeg: input.osszeg,
-    datum: input.datum,
-    id_kiadascel: input.id_kiadascel,
-    // A partner/kedvezményezett a `atvevo`/`atvevoid` oszlopba kerül (lent, referencePayload) —
-    // a `kiadas` táblában NINCS `kedvezmenyzett` és NINCS `id_szemely` oszlop sem (a személy =
-    // `atvevoid`). Ezért ezeket TILOS beszúrni: a PostgREST akkor is elutasít (schema cache),
-    // ha az érték null. Enélkül a canonical/reference payload eddig MINDIG elbukott (→ a hiba a
-    // végső bizonylatszam-fallbackot mutatta).
-    iratszam: documentNumber,
-    irattipus: input.irattipus,
-    megjegyzes: input.megjegyzes || null,
-    deleted: false,
-    congregation_id: congregationId,
-    // P4-30 (audit 2026-08-28): banki bizonylatnál az érintett bankszámla.
-    bankszamla_id: 'bankszamla_id' in input ? (input.bankszamla_id ?? null) : null,
+  if (!result.success) {
+    return { error: result.error as string }
   }
-
-  // 2026-08-09: az xkey-t kiemelve tartjuk számon — a pénzügy→leltár híd a
-  // leltar_tetelek.penzugy_xkey mezőbe ezt írja (legacy-kompatibilis kapcsolat).
-  const referenceXkey = randomUUID().replace(/-/g, '').slice(0, 20)
-  const referencePayload = {
-    ...canonicalPayload,
-    nyugta: documentNumber,
-    xkey: referenceXkey,
-    // D1: a fenti kapu miatt garantáltan nem üres — a placeholder kivezetve.
-    atvevo: input.kedvezmenyzett.trim(),
-    atvevoid: 'id_szemely' in input ? input.id_szemely || null : null,
-    userid: userId,
-  }
-
-  const legacyAliasPayload = {
-    ...canonicalPayload,
-    bizonylatszam: documentNumber,
-  }
-
-  let usedXkey: string | null = referenceXkey
-  let insertResult = await supabase.from('kiadas').insert([referencePayload]).select('id')
-  if (insertResult.error && isMissingColumnError(insertResult.error.message)) {
-    usedXkey = null
-    insertResult = await supabase.from('kiadas').insert([canonicalPayload]).select('id')
-  }
-  if (insertResult.error && isMissingColumnError(insertResult.error.message)) {
-    insertResult = await supabase.from('kiadas').insert([legacyAliasPayload]).select('id')
-  }
-
-  const { data, error } = insertResult
-  if (error) {
-    return { error: `Hiba: ${error.message}` as string }
-  }
-
   return {
-    id: Number(data?.[0]?.id),
-    documentNumber,
-    xkey: usedXkey,
+    id: result.data.id,
+    documentNumber: result.data.iratszam,
+    // 2026-08-09: a pénzügy→leltár híd a leltar_tetelek.penzugy_xkey-be ezt írja.
+    xkey: result.data.xkey ?? null,
   }
 }
 

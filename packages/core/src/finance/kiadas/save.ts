@@ -291,9 +291,12 @@ export async function saveExpenseUseCase(
     bankszamla_id: clean.bankszamla_id ?? null,
   }
 
+  // P4-30 (2026-08-29): az xkey kiemelt változóban — a hívó visszakapja
+  // (a pénzügy→leltár híd a leltar_tetelek.penzugy_xkey-be ezt írja).
+  const insertXkey = generateXkey()
   const legacyCompatiblePayload: Record<string, unknown> = {
     ...modernPayload,
-    xkey: generateXkey(),
+    xkey: insertXkey,
     nyugta: documentNumber,
     // Ha nincs atvevo de van atvevoid, hagyjuk null-on; ha sem atvevo sem atvevoid,
     // a zod refine már elutasította.
@@ -302,6 +305,7 @@ export async function saveExpenseUseCase(
 
   // 5) Insert
   try {
+    let usedXkey: string | null = insertXkey
     let { data, error } = await ctx.supabase
       .from('kiadas')
       .insert([legacyCompatiblePayload])
@@ -309,6 +313,7 @@ export async function saveExpenseUseCase(
       .single()
 
     if (error && isMissingColumnError(error.message)) {
+      usedXkey = null
       const retry = await ctx.supabase
         .from('kiadas')
         .insert([modernPayload])
@@ -338,6 +343,7 @@ export async function saveExpenseUseCase(
       data: {
         id: Number(data.id),
         iratszam: documentNumber,
+        xkey: usedXkey,
       },
     }
   } catch (err) {
