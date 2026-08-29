@@ -27,6 +27,9 @@ export interface CombinedFamilyMember {
   id: number
   name: string
   role?: string
+  /** 2026-08-29 (Endre): életkor + lakhely a beillesztett befizető alá — a família-úton is. */
+  szDatum?: string | null
+  telepules?: string | null
 }
 
 const inputClass =

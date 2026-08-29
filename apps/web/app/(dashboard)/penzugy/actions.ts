@@ -3516,18 +3516,22 @@ export async function searchFamilies(
 
 export async function getFamilyMembers(
   familyId: number,
-): Promise<Array<{ id: number; name: string; role?: string }>> {
+): Promise<Array<{ id: number; name: string; role?: string; szDatum?: string | null; telepules?: string | null }>> {
   const { supabase, congregationId } = await getProfileCongregation()
-  const members = new Map<number, { id: number; name: string; role?: string }>()
+  const members = new Map<number, { id: number; name: string; role?: string; szDatum?: string | null; telepules?: string | null }>()
   const nameOf = (p: { id: number; csaladnev?: string | null; k_nev?: string | null }) =>
     `${p.csaladnev ?? ''} ${p.k_nev ?? ''}`.trim() || `#${p.id}`
+  // 2026-08-29 (Endre): életkor + lakhely a beillesztett befizető alá — azonos nevű
+  // családtagoknál (pl. apa és fia) e nélkül nem tudni, KI lett kiválasztva.
+  const extraOf = (p: { sz_datum?: string | null; cim_telepules?: string | null }) =>
+    ({ szDatum: p.sz_datum ?? null, telepules: p.cim_telepules ?? null })
 
   // Családfők
   // 2026-08-29: a lekérdezés-hibák eddig NÉMÁK voltak (FK-hint elírás vagy
   // séma-drift esetén a tagok kommentár nélkül tűntek el a listából) —
   // mostantól a szerver-log hangosan jelzi.
   const { data: fam, error: famErr } = await supabase.from('csalad')
-    .select('ferfi:szemely!csalad_id_ferfi_fk(id, csaladnev, k_nev), no:szemely!csalad_id_no_fk(id, csaladnev, k_nev)')
+    .select('ferfi:szemely!csalad_id_ferfi_fk(id, csaladnev, k_nev, sz_datum, cim_telepules), no:szemely!csalad_id_no_fk(id, csaladnev, k_nev, sz_datum, cim_telepules)')
     .eq('id', familyId).maybeSingle()
   if (famErr) console.error('[getFamilyMembers] családfő-lekérdezés hiba:', famErr.message)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -3535,18 +3539,18 @@ export async function getFamilyMembers(
   if (famAny) {
     const ferfi = Array.isArray(famAny.ferfi) ? famAny.ferfi[0] : famAny.ferfi
     const no = Array.isArray(famAny.no) ? famAny.no[0] : famAny.no
-    if (ferfi?.id) members.set(ferfi.id, { id: ferfi.id, name: nameOf(ferfi), role: 'családfő' })
-    if (no?.id) members.set(no.id, { id: no.id, name: nameOf(no), role: 'házastárs' })
+    if (ferfi?.id) members.set(ferfi.id, { id: ferfi.id, name: nameOf(ferfi), role: 'családfő', ...extraOf(ferfi) })
+    if (no?.id) members.set(no.id, { id: no.id, name: nameOf(no), role: 'házastárs', ...extraOf(no) })
   }
 
   // Gyermekek
   const { data: kids, error: kidsErr } = await supabase.from('gyerek')
-    .select('szemely:szemely!gyerek_id_szemely_fk(id, csaladnev, k_nev)').eq('id_csalad', familyId)
+    .select('szemely:szemely!gyerek_id_szemely_fk(id, csaladnev, k_nev, sz_datum, cim_telepules)').eq('id_csalad', familyId)
   if (kidsErr) console.error('[getFamilyMembers] gyermek-lekérdezés hiba:', kidsErr.message)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const k of (kids || []) as any[]) {
     const s = Array.isArray(k.szemely) ? k.szemely[0] : k.szemely
-    if (s?.id && !members.has(s.id)) members.set(s.id, { id: s.id, name: nameOf(s), role: 'gyermek' })
+    if (s?.id && !members.has(s.id)) members.set(s.id, { id: s.id, name: nameOf(s), role: 'gyermek', ...extraOf(s) })
   }
 
   // Hibrid háztartás-tagok (legacy_csalad_id alapján) — pl. lakótárs, nagyszülő
@@ -3556,13 +3560,13 @@ export async function getFamilyMembers(
     const haztartasId = (hh?.[0] as { id: string } | undefined)?.id
     if (haztartasId) {
       const { data: tags, error: tagsErr } = await supabase.from('haztartas_tag')
-        .select('szerep, szemely:szemely!id_szemely(id, csaladnev, k_nev)')
+        .select('szerep, szemely:szemely!id_szemely(id, csaladnev, k_nev, sz_datum, cim_telepules)')
         .eq('id_haztartas', haztartasId).is('ervenyes_ig', null)
       if (tagsErr) console.error('[getFamilyMembers] háztartás-tag lekérdezés hiba:', tagsErr.message)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for (const t of (tags || []) as any[]) {
         const s = Array.isArray(t.szemely) ? t.szemely[0] : t.szemely
-        if (s?.id && !members.has(s.id)) members.set(s.id, { id: s.id, name: nameOf(s), role: t.szerep || 'tag' })
+        if (s?.id && !members.has(s.id)) members.set(s.id, { id: s.id, name: nameOf(s), role: t.szerep || 'tag', ...extraOf(s) })
       }
     }
   }
@@ -3575,7 +3579,7 @@ export async function getFamilyMembers(
 // Üres / nincs család → üres lista (a hívó ilyenkor a család-kereső ablakra esik vissza).
 export async function getFamilyMembersForPerson(
   personId: number,
-): Promise<Array<{ id: number; name: string; role?: string }>> {
+): Promise<Array<{ id: number; name: string; role?: string; szDatum?: string | null; telepules?: string | null }>> {
   // 2026-08-29 (Endre hibajelzése: „a család csatolása gombra nem jelentek
   // meg a családtagok"): a feloldás eddig CSAK a legacy-linkelt utat járta
   // (haztartas.legacy_csalad_id → csalad/gyerek), és minden lekérdezés-hibát
@@ -3586,7 +3590,7 @@ export async function getFamilyMembersForPerson(
   // A hibák HANGOSAK a szerver-logban (fail-open a másik modellre).
   const { supabase, congregationId } = await getProfileCongregation()
   if (!congregationId) return []
-  const members = new Map<number, { id: number; name: string; role?: string }>()
+  const members = new Map<number, { id: number; name: string; role?: string; szDatum?: string | null; telepules?: string | null }>()
   const nameOf = (p: { id: number; csaladnev?: string | null; k_nev?: string | null }) =>
     `${p.csaladnev ?? ''} ${p.k_nev ?? ''}`.trim() || `#${p.id}`
 
@@ -3611,7 +3615,7 @@ export async function getFamilyMembersForPerson(
   if (haztartasIds.length > 0) {
     const tags = await supabase
       .from('haztartas_tag')
-      .select('szerep, szemely:szemely!id_szemely(id, csaladnev, k_nev)')
+      .select('szerep, szemely:szemely!id_szemely(id, csaladnev, k_nev, sz_datum, cim_telepules)')
       .in('id_haztartas', haztartasIds)
       .is('ervenyes_ig', null)
     if (tags.error) {
@@ -3621,7 +3625,7 @@ export async function getFamilyMembersForPerson(
     for (const t of (tags.data || []) as any[]) {
       const s = Array.isArray(t.szemely) ? t.szemely[0] : t.szemely
       if (s?.id && !members.has(s.id)) {
-        members.set(s.id, { id: s.id, name: nameOf(s), role: t.szerep || 'tag' })
+        members.set(s.id, { id: s.id, name: nameOf(s), role: t.szerep || 'tag', szDatum: s.sz_datum ?? null, telepules: s.cim_telepules ?? null })
       }
     }
   }

@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-30] — Rögzítő: minden adat látszik, mentés görgetés nélkül
+<!-- key: 2026-08-30-rogzito-helykihasznalas -->
+<!-- category: improvement -->
+<!-- version: 0.9.206 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🎨 UX javítások
+
+- **Minden oszlop adata látszik**: a Tétel rögzítőben a befizető-oszlop csak akkor kap extra szélességet, amikor a több-éves rács nyitva van — a dátum, az év, az összeg és a megjegyzés többé nem csonkul.
+- **Mentés görgetés nélkül**: a Mégse/Mentés sáv az ablak aljára ragad — hosszú listánál sem kell legörgetni.
+- **Csíkozott sorok**: a tételek váltakozó világos/sötét háttérrel jelennek meg, így jól látszik, mi melyik sorhoz tartozik.
+- **Ki lett beillesztve?** A kiválasztott befizető neve alatt megjelenik az életkora és a lakhelye — azonos nevűeknél (pl. apa és fia) is egyértelmű, ki fizet.
+- Tömörebb fejléc-blokk — több tétel fér a képernyőre.
+
+---
+
 ## [2026-08-30] — Kassza: több befizető, több évre — átlátható rácsban
 <!-- key: 2026-08-30-kassza-matrix -->
 <!-- category: feature -->

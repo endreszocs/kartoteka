@@ -153,14 +153,35 @@ const PARTNER_CSOPORT_SORREND: CombinedPartnerKind[] = ['gyulekezet', 'egyhazmeg
  *    ez az öv-és-nadrágtartó a kliens oldalon: így a járulék-ajánló sem indul el
  *    egy nem létező személy-azonosítóra.)
  */
-function payerFromHit(h: CombinedMemberHit): { id: number | null; name: string; refId: string | null; kind: CombinedPartnerKind } {
+function payerFromHit(h: CombinedMemberHit): { id: number | null; name: string; refId: string | null; kind: CombinedPartnerKind; kor: number | null; lakhely: string | null } {
   const kind = h.kind ?? 'szemely'
   return {
     id: kind === 'szemely' ? h.id : null,
     name: h.name,
     refId: kind === 'szemely' ? null : (h.refId ?? null),
     kind,
+    // 2026-08-29 (Endre): életkor + lakhely a kiválasztott befizető alá.
+    kor: kind === 'szemely' ? (h.age ?? null) : null,
+    lakhely: h.detail ?? null,
   }
+}
+
+/** Teljes években vett életkor a születési dátumból — a família-úton érkező tagokhoz. */
+function korSzDatumbol(szDatum: string | null | undefined): number | null {
+  if (!szDatum) return null
+  const b = new Date(String(szDatum))
+  if (Number.isNaN(b.getTime())) return null
+  const most = new Date()
+  let kor = most.getFullYear() - b.getFullYear()
+  const m = most.getMonth() - b.getMonth()
+  if (m < 0 || (m === 0 && most.getDate() < b.getDate())) kor--
+  return kor >= 0 && kor < 130 ? kor : null
+}
+
+/** A beillesztett befizető azonosító-sora: „68 éves · Székelyudvarhely". */
+function payerInfoText(p: PayerLike): string {
+  if (p.id == null && !p.refId) return ''
+  return [p.kor != null ? `${p.kor} éves` : null, (p.lakhely || '').trim() || null].filter(Boolean).join(' · ')
 }
 
 export interface CombinedEntryBodyProps {
@@ -294,6 +315,10 @@ type EntryRow = {
     evre: string
     refId?: string | null
     kind?: CombinedPartnerKind
+    /** 2026-08-29 (Endre): a kiválasztáskor ismert életkor + lakhely — a beillesztett
+     *  (linkelt) befizető alatt kiírjuk, hogy azonos nevűeknél is látszódjon, KI ő. */
+    kor?: number | null
+    lakhely?: string | null
   }>
   /** Legacy (B1) — már a people[] váltja ki; csak régi vázlat visszaállításához tartjuk meg. */
   szemelyId?: number | null
@@ -440,7 +465,7 @@ type MultiYearProps = {
   onToggleYear: (year: number) => void
   /** Egy mátrix-SOR-PÉLDÁNY bejegyzéseinek közös azonosság-mezői — uid-listára célzott
    *  (azonos kulcsú másik sor-példányt SOSEM érinthet). */
-  onUpdateGroup: (uids: string[], patch: Partial<{ id: number | null; name: string; refId: string | null; kind: CombinedPartnerKind }>) => void
+  onUpdateGroup: (uids: string[], patch: Partial<{ id: number | null; name: string; refId: string | null; kind: CombinedPartnerKind; kor: number | null; lakhely: string | null }>) => void
   /** Egy befizető sor-példányának eltávolítása — csak a SAJÁT bejegyzései (uid szerint). */
   onRemoveGroup: (uids: string[]) => void
   /** Üres cella kitöltése: új bejegyzés a csoport TELJES azonosságával az adott évre. */
@@ -584,6 +609,8 @@ export function CombinedEntryBody({
             // a migráció némán elejtette, és a felső szintű befizető FK nélkül mentődött volna.
             refId: typeof (p as { refId?: unknown }).refId === 'string' ? (p as { refId: string }).refId : null,
             kind: typeof (p as { kind?: unknown }).kind === 'string' ? ((p as { kind: string }).kind as CombinedPartnerKind) : 'szemely',
+            kor: typeof (p as { kor?: unknown }).kor === 'number' ? (p as { kor: number }).kor : null,
+            lakhely: typeof (p as { lakhely?: unknown }).lakhely === 'string' ? (p as { lakhely: string }).lakhely : null,
           }))
           return { ...r, people }
         })
@@ -1053,7 +1080,7 @@ export function CombinedEntryBody({
 
   // ── #4 befizető-almenü műveletek (a sor people[] listáján) ────────────────
   /** Új befizetők hozzáfűzése (kereső-találat vagy család) — id szerint dedupolva. */
-  function appendPayers(rowId: string, additions: Array<{ id: number | null; name: string; refId?: string | null; kind?: CombinedPartnerKind }>) {
+  function appendPayers(rowId: string, additions: Array<{ id: number | null; name: string; refId?: string | null; kind?: CombinedPartnerKind; kor?: number | null; lakhely?: string | null }>) {
     setRows((cur) =>
       cur.map((r) => {
         if (r.id !== rowId) return r
@@ -1075,7 +1102,7 @@ export function CombinedEntryBody({
         const seed = curPeople.length === 0 ? (r.amount.trim() || '') : ''
         const newPeople = [
           ...curPeople,
-          ...add.map((a, i) => ({ uid: crypto.randomUUID(), id: a.id, name: a.name, refId: a.refId ?? null, kind: a.kind ?? 'szemely', osszeg: i === 0 ? seed : '', evre: evreDefault })),
+          ...add.map((a, i) => ({ uid: crypto.randomUUID(), id: a.id, name: a.name, refId: a.refId ?? null, kind: a.kind ?? 'szemely', kor: a.kor ?? null, lakhely: a.lakhely ?? null, osszeg: i === 0 ? seed : '', evre: evreDefault })),
         ]
         return { ...r, people: newPeople, partner: '', ...(curPeople.length === 0 ? { amount: '' } : {}) }
       }),
@@ -1104,7 +1131,7 @@ export function CombinedEntryBody({
     setFocusPayerUid(newUid)
   }
   /** Egy befizető mezőjének frissítése (név / összeg / év). */
-  function updatePayer(rowId: string, idx: number, patch: Partial<{ id: number | null; name: string; osszeg: string; evre: string; refId: string | null; kind: CombinedPartnerKind }>) {
+  function updatePayer(rowId: string, idx: number, patch: Partial<{ id: number | null; name: string; osszeg: string; evre: string; refId: string | null; kind: CombinedPartnerKind; kor: number | null; lakhely: string | null }>) {
     setRows((cur) => cur.map((r) => (r.id === rowId ? { ...r, people: (r.people ?? []).map((p, i) => (i === idx ? { ...p, ...patch } : p)) } : r)))
   }
   /** Egy befizető törlése az almenüből. */
@@ -1218,7 +1245,7 @@ export function CombinedEntryBody({
           // Névtelen (azonosság nélküli) sor NEM sokszorozódik évre — előbb nevet kap.
           if (cs.kulcs.startsWith('uid:')) continue
           if (cs.cellak.has(year)) continue
-          ujak.push({ uid: crypto.randomUUID(), id: cs.base.id, name: cs.base.name, refId: cs.base.refId ?? null, kind: cs.base.kind ?? 'szemely', osszeg: '', evre: String(year) })
+          ujak.push({ uid: crypto.randomUUID(), id: cs.base.id, name: cs.base.name, refId: cs.base.refId ?? null, kind: cs.base.kind ?? 'szemely', kor: cs.base.kor ?? null, lakhely: cs.base.lakhely ?? null, osszeg: '', evre: String(year) })
         }
         if (ujak.length === 0) return r
         return { ...r, people: matrixRendez([...ps, ...ujak]) }
@@ -1230,7 +1257,7 @@ export function CombinedEntryBody({
    *  Tag-CSERÉNÉL (új regisztrált id) az ELŐZŐ tag auto-kitöltött összegei ürülnek (a
    *  hint-tel egyező összeg = automatikus volt), hogy az új tag hátraléka töltődhessen —
    *  a kézzel beírt (eltérő) összeghez nem nyúlunk. */
-  function updatePayerGroup(rowId: string, uids: string[], patch: Partial<{ id: number | null; name: string; refId: string | null; kind: CombinedPartnerKind }>) {
+  function updatePayerGroup(rowId: string, uids: string[], patch: Partial<{ id: number | null; name: string; refId: string | null; kind: CombinedPartnerKind; kor: number | null; lakhely: string | null }>) {
     const halmaz = new Set(uids)
     setIncomeRows((cur) =>
       cur.map((r) => {
@@ -1266,7 +1293,7 @@ export function CombinedEntryBody({
   /** Üres mátrix-cella kitöltése: új bejegyzés a csoport TELJES azonosságával (id + refId +
    *  kind — jogi személynél a partner-FK nem veszhet el) az adott évre. */
   function addPayerCell(rowId: string, base: PayerLike, year: number, osszeg: string) {
-    const uj: PayerLike = { uid: crypto.randomUUID(), id: base.id, name: base.name, refId: base.refId ?? null, kind: base.kind ?? 'szemely', osszeg, evre: String(year) }
+    const uj: PayerLike = { uid: crypto.randomUUID(), id: base.id, name: base.name, refId: base.refId ?? null, kind: base.kind ?? 'szemely', kor: base.kor ?? null, lakhely: base.lakhely ?? null, osszeg, evre: String(year) }
     setIncomeRows((cur) => cur.map((r) => (r.id === rowId ? { ...r, people: matrixRendez([...(r.people ?? []), uj]) } : r)))
   }
   /** A PartnerCell „Több évre fizet" propja — CSAK egyházfenntartás-jogcímű bevétel-soron. */
@@ -1490,7 +1517,7 @@ export function CombinedEntryBody({
     const rowId = familyPickerRowId
     setFamilyPickerRowId(null)
     if (!rowId || members.length === 0) return
-    appendPayers(rowId, members.map((m) => ({ id: m.id, name: m.name })))
+    appendPayers(rowId, members.map((m) => ({ id: m.id, name: m.name, kor: korSzDatumbol(m.szDatum), lakhely: m.telepules ?? null })))
     // az almenü maradjon NYITVA — itt tölti a felhasználó az összegeket befizetőnként.
     setCollapsedPayerRows((s) => { if (!s.has(rowId)) return s; const n = new Set(s); n.delete(rowId); return n })
     onToast('success', 'Családtagok hozzáadva — töltsd ki az összegeket befizetőnként az almenüben.')
@@ -1516,7 +1543,7 @@ export function CombinedEntryBody({
           const meglevo = new Set((r?.people ?? []).filter((p) => p.id != null).map((p) => p.id))
           const ujak = (members || []).filter((m) => m.id != null && !meglevo.has(m.id))
           if (ujak.length > 0) {
-            appendPayers(rowId, ujak.map((m) => ({ id: m.id, name: m.name })))
+            appendPayers(rowId, ujak.map((m) => ({ id: m.id, name: m.name, kor: korSzDatumbol(m.szDatum), lakhely: m.telepules ?? null })))
             setCollapsedPayerRows((s) => { if (!s.has(rowId)) return s; const n = new Set(s); n.delete(rowId); return n })
             onToast('success', `${ujak.length} családtag került az almenübe (${linked.name} családja) — töltsd ki az összegeket.`)
           } else if ((members || []).length > 0) {
@@ -1869,9 +1896,10 @@ export function CombinedEntryBody({
           Kiadás{expenseValid > 0 && <span className={`rounded-full px-2 py-0.5 text-xs ${tab === 'expense' ? 'bg-white/25' : 'bg-white/80 text-rose-600'}`}>{expenseValid}</span>}
         </button>
       </div>
-      <p className="text-xs text-slate-400">
-        <span className="font-medium text-slate-600">Egy mentéssel több bevétel ÉS kiadás is rögzíthető</span> — válts a fülek közt, a számláló a rögzítésre kész sorokat mutatja.{' '}
-        Csak készpénzes tételek — a banki tételeket banki kivonatból importáljuk. Készpénzfelvétel/-letétel esetén válaszd ki a bankszámlát is.
+      {/* 2026-08-29 (Endre: kevesebb görgetés): egyetlen tömör sor — az „egy mentéssel
+          bevétel ÉS kiadás" már a dialóg alcímében áll, itt csak az egyedi tudnivaló. */}
+      <p className="text-[11px] leading-snug text-slate-400">
+        Csak készpénzes tételek — a banki tételeket kivonatból importáljuk; készpénzfelvétel/-letétel esetén bankszámlát is válassz.
       </p>
 
       {/* #3 — visszaállított vázlat jelzése */}
@@ -1975,8 +2003,11 @@ export function CombinedEntryBody({
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
+            {rows.map((r, sorIdx) => {
               const dir = belsoDir(r)
+              // Zebra: index-alapú (a leltár-alsor UGYANAZT a hátteret kapja, a CSS
+              // odd/even azt külön sorként számolná, és felborulna a paritás).
+              const sorBg = sorIdx % 2 === 1 ? 'bg-slate-100/80' : 'bg-white'
               const dWarn = dateWarning(r)
               const rWarn = receiptWarning(r)
               // #1: a kerületi + gyülekezeti szám-mező CSAK Chitanță (nyugta) esetén jelenik meg.
@@ -1985,12 +2016,12 @@ export function CombinedEntryBody({
               const invKat = tab === 'expense' && !dir ? invKategoriaForRow(r) : null
               return (
                 <Fragment key={r.id}>
-                <tr className="border-t border-slate-100 align-top" onKeyDown={focusNextField}>
-                  <td className="px-2 py-1.5 w-[160px]">
+                <tr className={`border-t border-slate-200 align-top ${sorBg}`} onKeyDown={focusNextField}>
+                  <td className="px-2 py-1.5 w-[160px] min-w-[7.5rem]">
                     {renderDateField(r)}
                     {dWarn && <div className="mt-0.5 text-[10px] leading-tight text-amber-600">⚠ {dWarn}</div>}
                   </td>
-                  <td className="px-2 py-1.5 w-[130px]">
+                  <td className="px-2 py-1.5 w-[130px] min-w-[5rem]">
                     <input
                       className={inputClass}
                       list="combined-doctypes"
@@ -2001,7 +2032,7 @@ export function CombinedEntryBody({
                     />
                   </td>
                   {(tab === 'expense' || showIncomeReceiptCols) && (
-                    <td className="px-2 py-1.5 w-[100px]">
+                    <td className="px-2 py-1.5 w-[100px] min-w-[4rem]">
                       {dir || (tab === 'income' && !isChitanta) ? (
                         <span className="text-xs text-slate-400">—</span>
                       ) : (
@@ -2020,7 +2051,7 @@ export function CombinedEntryBody({
                     </td>
                   )}
                   {showIncomeReceiptCols && (
-                    <td className="px-2 py-1.5 w-[100px]">
+                    <td className="px-2 py-1.5 w-[100px] min-w-[4rem]">
                       {dir || !isChitanta ? (
                         <span className="text-xs text-slate-400">—</span>
                       ) : (
@@ -2037,10 +2068,11 @@ export function CombinedEntryBody({
                     <SearchableSelect options={categoryOptions} value={r.categoryId} onChange={(id) => updateRow(r.id, { categoryId: id })} />
                     {renderBankSelect(r)}
                   </td>
-                  {/* w-full: a partner-oszlop a RUGALMAS oszlop — a mátrix w-0/min-w-full
-                      trükkje csak így kap valós szélességet (különben a cella összeesne,
-                      és a belső görgető használhatatlanul keskeny lenne). */}
-                  <td className="w-full px-2 py-1.5">
+                  {/* A partner-oszlop CSAK mátrix-aktív sornál rugalmas (w-full) — a mátrix
+                      w-0/min-w-full trükkje így kap valós szélességet. Feltétel NÉLKÜL a
+                      w-full az összes többi oszlopot összenyomta (2026-08-29, Endre: „nem
+                      látszanak az adatok!" — az év „20."-ra, a megjegyzés csonkra tört). */}
+                  <td className={`${isMatrixActive(r) ? 'w-full max-w-0 min-w-[26rem] ' : ''}px-2 py-1.5`}>
                     {dir ? (
                       <span className="text-xs text-slate-400">—</span>
                     ) : (
@@ -2072,7 +2104,7 @@ export function CombinedEntryBody({
                     )}
                   </td>
                   {tab === 'income' && (
-                    <td className="px-2 py-1.5 w-[90px]">
+                    <td className="px-2 py-1.5 w-[90px] min-w-[4.5rem]">
                       {dir ? (
                         <span className="text-xs text-slate-400">—</span>
                       ) : (r.people?.length ?? 0) >= 2 ? (
@@ -2096,7 +2128,7 @@ export function CombinedEntryBody({
                       )}
                     </td>
                   )}
-                  <td className="px-2 py-1.5 w-[120px]">
+                  <td className="px-2 py-1.5 w-[120px] min-w-[5.5rem]">
                     {tab === 'income' && (r.people?.length ?? 0) >= 2 ? (
                       <div className="flex h-9 items-center justify-end rounded-md border border-emerald-200 bg-emerald-50/60 px-2 text-sm font-semibold tabular-nums text-emerald-900" title="A befizetők összegeinek összege (automatikus)">
                         {formatRon(payerSum(r))}
@@ -2109,7 +2141,7 @@ export function CombinedEntryBody({
                       </>
                     )}
                   </td>
-                  <td className="px-2 py-1.5"><input className={inputClass} value={r.megjegyzes} onChange={(e) => updateRow(r.id, { megjegyzes: e.target.value })} /></td>
+                  <td className="px-2 py-1.5 min-w-[6.5rem]"><input className={inputClass} value={r.megjegyzes} onChange={(e) => updateRow(r.id, { megjegyzes: e.target.value })} /></td>
                   <td className="px-2 py-1.5 text-right">
                     <button type="button" aria-label="Sor törlése" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-500" onClick={() => removeRow(r.id)}>
                       <Trash2 className="size-4" />
@@ -2117,7 +2149,7 @@ export function CombinedEntryBody({
                   </td>
                 </tr>
                 {invKat && (
-                  <tr>
+                  <tr className={sorBg}>
                     <td colSpan={9} className="px-2 pb-2 pt-0">
                       {renderInventoryPanel(r, invKat)}
                     </td>
@@ -2138,7 +2170,7 @@ export function CombinedEntryBody({
           const rWarn = receiptWarning(r)
           const isChitanta = r.docType === 'Chitanță'
           return (
-            <div key={r.id} data-entry-card className="rounded-xl border border-slate-200 bg-white p-3" onKeyDown={focusNextField}>
+            <div key={r.id} data-entry-card className={`rounded-xl border border-slate-200 p-3 ${i % 2 === 1 ? 'bg-slate-100/80' : 'bg-white'}`} onKeyDown={focusNextField}>
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-400">{i + 1}. tétel</span>
                 <button type="button" aria-label="Sor törlése" className="text-slate-400 hover:text-red-500" onClick={() => removeRow(r.id)}><Trash2 className="size-4" /></button>
@@ -2279,7 +2311,10 @@ export function CombinedEntryBody({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-4">
+      {/* FOOTER-MENTES-SAV (2026-08-29, Endre: „scrollozás nélkül lehessen mindent
+          megoldani"): a sáv a dialóg aljára RAGAD — hosszú listánál sem kell a
+          mentéshez legörgetni. A -mx-6/px-6 a dialóg szélére húzza a fehér hátteret. */}
+      <div className="sticky bottom-0 z-20 -mx-6 -mb-6 flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-white/95 px-6 py-3 backdrop-blur">
         {draftStorageKey && (
           lastSavedAt ? (
             <span
@@ -2442,9 +2477,9 @@ function PartnerCell({
   expanded: boolean
   onToggleExpand: () => void
   /** #4: befizetők hozzáfűzése / üres sor / mező-frissítés / törlés a sor almenüjén. */
-  appendPayers: (rowId: string, additions: Array<{ id: number | null; name: string; refId?: string | null; kind?: CombinedPartnerKind }>) => void
+  appendPayers: (rowId: string, additions: Array<{ id: number | null; name: string; refId?: string | null; kind?: CombinedPartnerKind; kor?: number | null; lakhely?: string | null }>) => void
   addEmptyPayer: (rowId: string) => void
-  updatePayer: (rowId: string, idx: number, patch: Partial<{ id: number | null; name: string; osszeg: string; evre: string; refId: string | null; kind: CombinedPartnerKind }>) => void
+  updatePayer: (rowId: string, idx: number, patch: Partial<{ id: number | null; name: string; osszeg: string; evre: string; refId: string | null; kind: CombinedPartnerKind; kor: number | null; lakhely: string | null }>) => void
   removePayer: (rowId: string, idx: number) => void
   /** #5: az újonnan hozzáadott befizető uid-je — annak NÉV-mezője fókuszt kap. */
   focusPayerUid?: string | null
@@ -2509,10 +2544,10 @@ function PartnerCell({
       return { cs, sorKulcs: `${cs.kulcs}#${n}` }
     })
     return (
-      // w-0 + min-w-full: a mátrix a KÜLSŐ (auto-elrendezésű) tétel-táblázat cellájában ül —
-      // enélkül a belső min-w-max kinyomná a cellát, a külső tábla szétesne, és a belső
-      // görgető/sticky SOHA nem aktiválódna (10 évnél ez Endre fő kérése).
-      <div className="relative w-0 min-w-full space-y-1.5">
+      // A szélesség-fegyelmet a BEFOGADÓ td adja (w-full max-w-0, csak mátrix-aktív sornál):
+      // az intrinsic méret-járulék 0, így a belső min-w-max nem nyomja szét a külső táblát,
+      // a görgető/sticky pedig a td valós szélességén él (10 évnél ez Endre fő kérése).
+      <div className="relative space-y-1.5">
         <div className="overflow-visible rounded-lg border border-emerald-200 bg-white shadow-sm">
           <div className="flex items-center justify-between gap-2 border-b border-emerald-100 bg-emerald-50/70 px-2.5 py-1.5">
             <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-900">
@@ -2564,7 +2599,7 @@ function PartnerCell({
                 <tr>
                   {/* Mobilon keskenyebb név-oszlop, és az Összesen csak sm-től ragad —
                       különben a két ragadó fal közt egyetlen év-cella sem férne el (375px). */}
-                  <th className="sticky left-0 z-10 min-w-[7rem] bg-emerald-50 px-2.5 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide text-emerald-700/80 sm:min-w-[11rem]">
+                  <th className="sticky left-0 z-10 min-w-[7rem] bg-emerald-50 px-2.5 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide text-emerald-700/80 sm:min-w-[9rem]">
                     Befizető
                   </th>
                   {evek.map((ev) => (
@@ -2596,7 +2631,7 @@ function PartnerCell({
                   const azonositott = cs.base.id != null || !!cs.base.refId || cs.base.name.trim() !== ''
                   return (
                     <tr key={sorKulcs}>
-                      <td className="sticky left-0 z-10 min-w-[7rem] border-b border-slate-100 bg-white px-2 py-1 sm:min-w-[11rem]">
+                      <td className="sticky left-0 z-10 min-w-[7rem] border-b border-slate-100 bg-white px-2 py-1 sm:min-w-[9rem]">
                         <div className="flex items-center gap-1">
                           <div className="min-w-0 flex-1">
                             <PayerNameSearch
@@ -2610,6 +2645,9 @@ function PartnerCell({
                               onAutoFocused={onFocusConsumed}
                               showUnlinkedBadge
                             />
+                            {payerInfoText(cs.base) !== '' && (
+                              <p className="truncate pl-1 text-[10px] leading-tight text-slate-500">{payerInfoText(cs.base)}</p>
+                            )}
                           </div>
                           <button
                             type="button"
@@ -2763,6 +2801,11 @@ function PartnerCell({
             </button>
           )}
         </div>
+        {/* 2026-08-29 (Endre): a kiválasztott személy életkora + lakhelye is látszódjon —
+            azonos nevűeknél (pl. apa és fia) e nélkül nem tudni, KI lett beillesztve. */}
+        {single && payerInfoText(single) !== '' && (
+          <p className="truncate pl-1 text-[10px] leading-tight text-slate-500">{payerInfoText(single)}</p>
+        )}
         {mode === 'income' && (
           <div className="space-y-1">
             {/* #4 (Endre): a „Még egy befizető" mindig látható, kiemelt pill-gomb, és már
@@ -2869,6 +2912,9 @@ function PartnerCell({
                         onAutoFocused={onFocusConsumed}
                         showUnlinkedBadge
                       />
+                      {payerInfoText(p) !== '' && (
+                        <p className="truncate pl-1 text-[10px] leading-tight text-slate-500">{payerInfoText(p)}</p>
+                      )}
                     </div>
                   </div>
                   <input
