@@ -23,6 +23,26 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-29] — A járulék-ajánló megnevezi az árazó szabályt
+<!-- key: 2026-08-29-jarulek-szabaly-cimke -->
+<!-- category: improvement -->
+<!-- version: 0.9.203 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🎨 UX javítás
+
+- **A Tétel rögzítő „Ajánlott összeg" jelzése mostantól megnevezi, MELYIK
+  szabály árazta az összeget** — pl. „✓ Ajánlott összeg (Időszaki kedvezmény
+  (07-01))" vagy „(teljes éves díj)" a korábbi általános „(kedvezménnyel)"
+  helyett. Így ránézésre látszik, ha egy beállított kedvezmény-lépcső mást
+  áraz, mint amire számítasz — a buborék-súgó azt is megmondja, hol tudod a
+  szabály összegét átírni.
+- **Kedvezmény „Szerkesztés" gombja**: kattintásra az oldal odagördül a
+  kitöltött szerkesztő-űrlaphoz és megvillantja — eddig az űrlap a látótéren
+  kívül töltődött ki, így úgy tűnt, a gomb nem csinál semmit.
+
+---
+
 ## [2026-08-29] — Megjegyzés-szűrő az Adományozók fülön
 <!-- key: 2026-08-29-adomanyozok-megjegyzes-szuro -->
 <!-- category: improvement -->

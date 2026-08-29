@@ -223,7 +223,7 @@ export interface CombinedEntryBodyProps {
    * (a még fizetendőt, kedvezményekkel/felmentéssel). A kézzel beírt összeget SOHA nem írja felül. Ha
    * nincs megadva (pl. desktop), nincs automatikus kitöltés.
    */
-  onGetExpectedJarulek?: (personId: number, year: number, prospectiveDateIso?: string) => Promise<{ expected: number; paid: number; debt: number; hasBase?: boolean } | null>
+  onGetExpectedJarulek?: (personId: number, year: number, prospectiveDateIso?: string) => Promise<{ expected: number; paid: number; debt: number; hasBase?: boolean; szabalyok?: string[] } | null>
   /**
    * #3 (Endre, 2026-06-20): Chitanță választásakor a következő nyugtaszámok lekérése —
    * `keruleti` (kerülettől kapott/nyomdai → iratszam) és `gyulekezeti` (saját sorszám →
@@ -360,7 +360,10 @@ type PayerLike = EntryRow['people'][number]
 /** 2026-07-10 (S2-#1b): a tagra lekért éves járulék (a BEÁLLÍTOTT kedvezményekkel, a rögzítés
  *  dátuma szerint) — az összeg-mező melletti „Ajánlott összeg" jelzés adata. A reqKey a
  *  (tag, év, dátum) hármast kódolja: csak a JELENLEGI állapothoz tartozó hint jelenik meg. */
-type JarulekHint = { reqKey: string; expected: number; paid: number; debt: number; hasBase: boolean }
+type JarulekHint = { reqKey: string; expected: number; paid: number; debt: number; hasBase: boolean;
+  /** 2026-08-29 (Endre kérdése nyomán): MELYIK szabály árazta az összeget —
+   *  pl. 'Időszaki kedvezmény (07-01)'. Üres = a teljes éves díj. */
+  szabalyok: string[] }
 
 /** 2026-08-15 (23. pont): a „Több évre fizet" mód PartnerCell-propja. Csak egyházfenntartói
  *  járulék jogcímű bevétel-soron adjuk át; `active` = a panel látszik (év-chipek + évenkénti
@@ -699,7 +702,7 @@ export function CombinedEntryBody({
             // 2026-07-10 (S2-#1b): a hint eltárolása — az összeg-mező melletti „Ajánlott" jelzéshez.
             setJarulekHints((cur) => {
               const next = new Map(cur)
-              next.set(payerUid, { reqKey, expected: res.expected, paid: res.paid, debt: res.debt, hasBase: res.hasBase !== false })
+              next.set(payerUid, { reqKey, expected: res.expected, paid: res.paid, debt: res.debt, hasBase: res.hasBase !== false, szabalyok: res.szabalyok ?? [] })
               return next
             })
             if (res.debt > 0) {
@@ -748,13 +751,17 @@ export function CombinedEntryBody({
     if (!h) return null
     const entered = Number(p.osszeg) || 0
     if (h.debt > 0) {
+      // 2026-08-29 (Endre kérdése nyomán): a jelzés NEVEZZE MEG az árazó
+      // szabályt — a puszta „kedvezménnyel" felirat megtévesztő volt, amikor a
+      // beállított kedvezmény-lépcső mást árazott, mint amire a lelkész számított.
+      const cimke = h.szabalyok.length > 0 ? h.szabalyok.join(' + ') : 'teljes éves díj'
       const detail = h.paid > 0
-        ? `Éves díj a rögzítés dátumán érvényes kedvezménnyel: ${formatRon(h.expected)} RON · ebből már befizetve: ${formatRon(h.paid)} RON · még fizetendő: ${formatRon(h.debt)} RON.`
-        : 'A tag éves díja a rögzítés dátumán érvényes kedvezménnyel (korai-fizetési ablak, kor- és foglalkozás-kedvezmény beszámítva).'
+        ? `Alkalmazott szabály: ${cimke}. Éves díj így: ${formatRon(h.expected)} RON · ebből már befizetve: ${formatRon(h.paid)} RON · még fizetendő: ${formatRon(h.debt)} RON.`
+        : `Alkalmazott szabály: ${cimke}. Ha az összeg nem stimmel, a szabály összegét a Gyülekezetünk adatai → Pénzügy → járulék-kedvezmények alatt tudod átírni.`
       if (entered === h.debt) {
         return (
           <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600" title={detail}>
-            ✓ Ajánlott összeg (kedvezménnyel)
+            ✓ Ajánlott összeg ({cimke})
           </span>
         )
       }
