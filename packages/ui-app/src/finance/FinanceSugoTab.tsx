@@ -19,7 +19,7 @@
  *     a wrapper (web: html2pdf.js, desktop: WebView2 native print, iOS: jövőben
  *     UIPrintInteractionController) végzi a tényleges renderelést
  * - Toast callback-en (`onToast`)
- * - Véglegesítés-link `finalizeHref` prop-on (web: `/penzugy?tab=accounting`,
+ * - Véglegesítés-link `finalizeHref` prop-on (web: `/penzugy#accounting`,
  *   desktop: `/penzugy/szamadas` vagy hasonló)
  *
  * 2026-07-10 (S3-sugo): új „Mi változott (2026. július)?" szekció (a lista elején,
@@ -140,10 +140,57 @@ const SECTIONS: Section[] = [
   // friss, a súgó megnyitásakor ez a téma fogadja a felhasználót.
   {
     key: 'mi-valtozott-2026-07',
-    label: 'Mi változott (2026. július)?',
-    description: 'A júliusi fejlesztések — röviden, érthetően',
+    label: 'Mi változott?',
+    description: 'A legutóbbi fejlesztések — röviden, érthetően',
     icon: Sparkles,
     topics: [
+      // 2026-08-29 (súgó-átdolgozás): az augusztusi pénzügyi nagytakarítás
+      // összefoglalója — a legfrissebb hír áll elöl.
+      {
+        key: 'valtozas-2026-08-nagytakaritas',
+        label: '2026. augusztus: pénzügyi nagytakarítás',
+        icon: Sparkles,
+        color: 'teal',
+        shortDescription: 'Átvilágítás utáni javítás-sorozat — pontosabb számok, hangos hibák, új funkciók',
+        intro:
+          'Augusztusban a teljes pénzügyi modult átvilágítottuk, és több körben minden talált hibát kijavítottunk. A legtöbb változást észre sem veszed — csak azt, hogy a számok mindenhol stimmelnek, és a rendszer szól, ha valami nem sikerült.',
+        whenNeeded:
+          'Nem kell tenned semmit — olvasd el, hogy tudd, mi lett jobb, és mi az a néhány új dolog, amit érdemes használnod.',
+        whatItDoes:
+          'Pontosabb egyenlegek és nyomtatványok, hangos hibajelzések a néma elakadások helyett, közös motor a webes és az asztali változatban, és új kényelmi funkciók.',
+        howItWorks: [
+          {
+            text: 'Számlák egyeztetése új felülettel: az ANAF-ból letöltött ZIP-et egy oldalról kigördülő panelen töltöd fel, és minden számlán azonnal látszik, párosítva van-e a könyveléssel. A tárolt számla szép, nyomtatható formában nyílik meg.',
+          },
+          {
+            text: 'A rendszer MEGJEGYZI a banki befizetőket: ha egy banki bevételhez egyszer kiválasztod, ki a befizető (tag vagy cég), a következő importnál már magától felajánlja. Az új „Adományozók és szponzorok" fülön az év minden adakozója és cégtámogatója egy helyen látszik.',
+          },
+          {
+            text: 'A bank→bank átutalás mostantól rendesen KÖNYVELŐDIK is (kiadás a küldő, bevétel a fogadó számlán) — eddig csak a nyilvántartásba került, és a számlánkénti egyenleg nem látta.',
+          },
+          {
+            text: 'Vége a fantom-hátraléknak: a járulék- és bérletidíj-számítás fillérre kerekít — egy rendezett tag többé nem látszik „0,00 lej tartozással" hátralékosnak.',
+          },
+          {
+            text: 'A hibák nem némák többé: ha egy lista nem tölthető be, a rendszer hibát mutat (nem hamis üres listát); ha egy mentés részben nem sikerült, pontosan megmondja, mi maradt ki és mit tegyél.',
+          },
+          {
+            text: 'Zárt év védelme mindenhol: véglegesített évbe se rögzíteni, se stornózni, se a Kukából visszaállítani nem lehet — feloldást az egyházmegyétől kérhetsz.',
+          },
+          {
+            text: 'A kiadás átvevője mostantól kötelező, és a rendszer mentéskor a foglalt iratszámra is figyelmeztet — így a hivatalos kísérőív mindig kitölthető, és nem születik két azonos számú bizonylat.',
+          },
+          {
+            text: 'A törölt pénzügyi tételek 5 ÉVIG maradnak a Kukában (a többi modul 30 napja helyett), és minden módosításról-törlésről belső napló készül — a bizonylat-megőrzés szabályai szerint.',
+          },
+        ],
+        tips: [
+          {
+            kind: 'tip',
+            text: 'Ha valamelyik új funkcióról többet szeretnél tudni, a súgó megfelelő témájánál részletes leírást találsz — pl. a „Hivatalos szabályok 2026" szekcióban a készpénz-korlátokról.',
+          },
+        ],
+      },
       {
         key: 'valtozas-pontos-szamok',
         label: 'Pontosabb egyenlegek és számadás',
@@ -344,6 +391,70 @@ const SECTIONS: Section[] = [
     description: 'Az első lépések — mi a pénzügy modul szerkezete',
     icon: BookOpen,
     topics: [
+      // 2026-08-29 (Endre kérése): lépésről lépésre, könyveléshez nem értőknek
+      // is — MIELŐTT a felület részleteibe mennénk, a MŰKÖDÉS maga.
+      {
+        key: 'hogyan-mukodik',
+        label: 'Hogyan működik a könyvelés? (kezdőknek)',
+        icon: Lightbulb,
+        color: 'emerald',
+        shortDescription: 'A pénz útja a gyülekezetben — egyszerűen, könyvelési előismeret nélkül',
+        intro:
+          'Ha még sosem könyveltél, kezdd itt. A gyülekezeti könyvelés valójában egyetlen egyszerű kérdésre válaszol minden nap: honnan jött pénz, hová ment pénz, és mennyi van most? A KARTOTEKA ezt a három kérdést tartja rendben helyetted.',
+        whenNeeded: 'Amikor először ülsz le a Pénzügy modul elé — vagy amikor el akarod magyarázni valakinek, mi történik itt.',
+        whatItDoes:
+          'Elmagyarázza a négy alapfogalmat (kassza, bank, bevétel, kiadás), és azt, hogy mi történik a háttérben, amikor megnyomod a Mentés gombot.',
+        flow: [
+          { label: 'Pénz érkezik vagy megy', sub: 'persely, járulék, számla, átutalás' },
+          { label: 'Rögzíted a tételt', sub: '+ Tétel rögzítése / bank-import' },
+          { label: 'A rendszer könyvel', sub: 'iratszám, egyenleg, nyomtatvány' },
+          { label: 'Te ellenőrzöl és nyomtatsz', sub: 'havi kasszakönyv, év végi számadás' },
+        ],
+        howItWorks: [
+          {
+            text: 'A gyülekezet pénze KÉT helyen lehet: a KASSZÁBAN (a fizikai készpénz — persely, nyugtás befizetések) és a BANKBAN (a számlákon lévő pénz). A kettőt a rendszer mindig külön tartja számon, mert a hivatalos nyomtatványok is külön kérik.',
+          },
+          {
+            text: 'Minden pénzmozgás vagy BEVÉTEL (pénz jön be: járulék, persely, adomány, bérleti díj), vagy KIADÁS (pénz megy ki: fizetés, villanyszámla, javítás), vagy BELSŐ MOZGÁS (a pénz csak helyet vált: a kasszából a bankba teszed vagy fordítva — ez se nem bevétel, se nem kiadás).',
+            hint: 'A belső mozgástól az összes pénz nem változik — ezért a Számadásban sosem szerepel tételként.',
+          },
+          {
+            text: 'Minden tételnek van KÖNYVELÉSI CÉLJA (egy hivatalos kód, pl. 101.01 = egyházfenntartói járulék, 201.03 = villany-víz-gáz). Ez mondja meg, a Számadás melyik sorába számít bele. A rögzítőben csak kiválasztod a listából — a kódot a rendszer kezeli.',
+          },
+          {
+            text: 'Amikor a Mentés gombra kattintasz, a rendszer több dolgot tesz egyszerre: iratszámot ad a tételnek (vagy ellenőrzi, hogy a beírt szám szabad-e), frissíti a kassza vagy a bank egyenlegét, hozzáadja a tételt a Számadás megfelelő sorához — az asztali változat pedig a hivatalos Excel-főkönyvbe is beírja.',
+          },
+          {
+            text: 'A papír a végén készül: a hónap végén kinyomtatod a havi kasszakönyvet, év végén a Számadást és a többi hivatalos ívet — mindezt a Nyomtatási központból, a rendszer által számolt számokkal. Kézzel semmit nem kell összeadnod.',
+          },
+        ],
+        tips: [
+          {
+            kind: 'tip',
+            text: 'Aranyszabály: MINDEN pénzmozgást rögzíts, amikor megtörténik — a naprakész könyvelés tíz perc naponta; az elmaradt könyvelés pótlása egy hétvége.',
+          },
+          {
+            kind: 'tip',
+            text: 'Ha nem tudod, melyik könyvelési célra tartozik egy tétel, nézd meg a „Hivatalos szabályok 2026" szekció „Gyakori könyvelési tévedések" témáját — a leggyakoribb eseteket ott találod.',
+          },
+          {
+            kind: 'warning',
+            text: 'Sosem kell semmit kézzel kiszámolnod vagy átmásolnod — ha valahol mégis eltérést látsz két szám között, az hibajelzés: nézd meg a Súgó megfelelő témáját, vagy jelezd a rendszergazdának.',
+          },
+        ],
+        examples: [
+          {
+            situation: 'Vasárnap 350 lej gyűlt a perselybe.',
+            solution:
+              'A persely felbontásáról jegyzőkönyv készül (két aláíróval), majd: + Tétel rögzítése → zöld (bevétel) fül → cél: persely, összeg: 350, bizonylat: Chitanță. A pénz a kasszába kerül — a rendszer a kassza-egyenleget növeli.',
+          },
+          {
+            situation: 'A kasszában már 4 000 lej van, ebből 3 000-et beteszel a bankba.',
+            solution:
+              'Ez BELSŐ MOZGÁS: + Tétel rögzítése → a kategória-listából a „Készpénzletétel a bankba" sort választod, kijelölöd a bankszámlát. A kassza csökken, a bank nő — a Számadás összegei nem változnak.',
+          },
+        ],
+      },
       {
         key: 'attekintes',
         label: 'Áttekintés',
@@ -381,23 +492,30 @@ const SECTIONS: Section[] = [
         label: 'A fülek szerkezete',
         icon: Files,
         color: 'slate',
-        shortDescription: 'Mi mire való a 11 Pénzügy fül közül',
+        shortDescription: 'Mi mire való a Pénzügy fülek közül — és mi költözött máshová',
         intro:
-          'A Pénzügy modulban 11 fül van. Ez a térkép segít, hogy melyiket mikor használd.',
+          'Ez a térkép segít, hogy melyik fület mikor használd. Két korábbi fül (Monetár, Oblio) már nem fül: a Monetár lebegő ablakként, az Oblio-ellenőrzés a Számlák egyeztetése felől nyílik.',
         whatItDoes:
           'A balról jobbra haladó sorrend a leggyakoribbtól a legritkábbig — kezdve az áttekintéssel, végül a súgóval.',
         howItWorks: [
           { text: '🔵 Áttekintés — napi pillantás, KPI-k, legutóbbi mozgások' },
           { text: '🟢 Kassza — készpénzes mozgások, nyugta-kiállítás' },
-          { text: '🟣 Bank — banki mozgások, FX átértékelés' },
+          { text: '🟣 Bank — banki mozgások, kivonat-import, FX átértékelés' },
           { text: '🌸 Tranzakciók — minden bevétel és kiadás egy listában, hónaponként' },
           { text: '🟡 Költségvetés — éves terv és módosítások (max 3 / év)' },
           { text: '🔵 Számadás — terv ↔ tényleges összevetés, év végi zárás' },
           { text: '🟠 Tartozások — kik nincsenek naprakész a járulékkal' },
           { text: '🟡 Bérleti szerződések — földek, épületek bérbeadása + e-Factura' },
-          { text: '⚪ Monetár — készpénz fizikai ellenőrzése címletenként' },
-          { text: '🔵 Oblio ellenőrzés — befogadott e-Factura számlák párosítása' },
+          {
+            text: '💜 Adományozók és szponzorok — az év adakozói és cégtámogatói egy helyen (2026. augusztus óta)',
+          },
           { text: '🟢 Súgó — ez itt' },
+          {
+            text: '⚪ Monetár — a készpénz címletenkénti megszámolása. Nem fül: a Kassza fül lebegő „Monetár" gombja nyitja, kis ablakban.',
+          },
+          {
+            text: '🔵 Számlák egyeztetése — az ANAF-ból letöltött e-Factura számlák feltöltése és párosítása a könyveléssel. A Pénzügy fejlécéből oldalsó panelként gördül ki (a teljes oldal a Dokumentumtárból is elérhető).',
+          },
         ],
       },
       {
@@ -405,25 +523,290 @@ const SECTIONS: Section[] = [
         label: 'A fejléc gombjai',
         icon: Sparkles,
         color: 'amber',
-        shortDescription: 'A 4+1 fő művelet, ami minden fülön elérhető',
+        shortDescription: 'A fő műveletek, amik minden fülön elérhetők',
         intro:
-          'A Pénzügy modul fejlécében (a fülek felett) öt gomb van — ezek a leggyakoribb műveletek.',
-        whatItDoes: 'Bevétel, kiadás, decont (elszámolás), pénztári és költségvetés-nyomtatás.',
+          'A Pénzügy modul fejlécében (a fülek felett) találod a leggyakoribb műveleteket. A bevétel és a kiadás rögzítése EGYETLEN közös gombra került — egy mentéssel több tételt is felvihetsz.',
+        whatItDoes:
+          'Tétel-rögzítés (bevétel ÉS kiadás), decont, dispoziție, nyomtatási központ, számlák egyeztetése.',
         howItWorks: [
           {
-            text: '🟢 + Bevétel — új befizetés rögzítése (személyhez vagy családhoz). Itt választod ki a célt (egyházfenntartó, persely, stb.).',
+            text: '🟢 + Tétel rögzítése — EGY ablak a bevételekhez és a kiadásokhoz. Felül váltasz a zöld (bevétel) és a piros (kiadás) fül között, és egy mentéssel akár több sort is rögzítesz — a rendszer dátum szerint rendezi őket.',
+            hint: 'A régi külön „+ Bevétel" / „+ Kiadás" gombok ebbe az egy ablakba olvadtak össze.',
           },
           {
-            text: '🔴 + Kiadás — új kiadás rögzítése (kedvezményezett, dátum, költségvetési cél).',
+            text: '🟣 Decont — előleg-elszámolás: a kiküldött személy számláit egy hivatalos „Decont de cheltuieli" íven számolod el.',
           },
           {
-            text: '🟣 Decont — átvevő által elköltött előleg részletes elszámolása. Sablon a hivatalos „Decont de cheltuieli"-hez.',
+            text: '🟡 Dispoziție — „Dispoziție de plată/încasare către casierie": hivatalos pénztári ki- és befizetési rendelvény készítése.',
           },
           {
-            text: '🔵 Pénztár nyomtatás — pénztári napló (cassă) hivatalos formátumban.',
+            text: '🔵 Nyomtatási központ — minden hivatalos nyomtatvány egy helyen: kasszakönyv, banknapló, Főkönyv (Registru Jurnal), csoportnapló, kísérőív.',
           },
           {
-            text: '🟢 Költségvetés nyomtatás — éves terv hivatalos formátumban.',
+            text: '🔵 Számlák egyeztetése — az e-Factura számlák feltöltő-párosító panelje gördül ki oldalról.',
+          },
+        ],
+      },
+    ],
+  },
+
+  // ============= 1/B. HIVATALOS SZABÁLYOK 2026 (EREK) =============
+  // 2026-08-29 (Endre kérése): a Konyveles_2026_a hivatalos csomag (Változások
+  // 2026 · Útmutató az EREK számadásához · Pénzügyi vizsgálat · Súgó ·
+  // Egyházi adminisztráció az EREK-ben) FONTOS TUDNIVALÓI — lelkészi nyelven,
+  // lépésről lépésre. A megosztott súgóban él, így a desktop is megkapja.
+  {
+    key: 'hivatalos-szabalyok-2026',
+    label: 'Hivatalos szabályok 2026',
+    description: 'Amit az egyházkerületi csomag előír — készpénz, zárás, aláírások',
+    icon: Scale,
+    topics: [
+      {
+        key: 'keszpenz-szabalyok',
+        label: 'Készpénz-szabályok (törvényi korlátok)',
+        icon: Wallet,
+        color: 'rose',
+        shortDescription: 'Az összegek, amiket TILOS átlépni — bírságolható törvényi korlátok',
+        intro:
+          'Ezek nem egyházi belső szabályok, hanem román törvényi előírások (Legea 70/2015) — megszegésük bírságolható. A rögzítő figyelmeztet rájuk, de a döntés és a felelősség a pénzkezelőé. A „Változások 2026" hivatalos segédlet (Beke Tivadar, 2025. november) állapota szerint.',
+        whenNeeded: 'Minden készpénzes ki- és befizetés előtt — különösen nagyobb összegeknél.',
+        whatItDoes:
+          'A hat legfontosabb készpénz-korlát, érthetően — és hogy mit tegyél, ha egy kifizetés túllépné őket.',
+        howItWorks: [
+          {
+            text: 'KASSZA-PLAFON: a pénztárban legfeljebb 50 000 lej készpénz lehet. Ami e fölött van, azt be kell tenni a bankba — a biztonság kedvéért 2 munkanapon belül.',
+            hint: 'A két hivatalos forrás itt eltér (az Útmutató 2 munkanapot, a Változások 2026 3 napot ír) — a szigorúbbat követve nem hibázhatsz.',
+          },
+          {
+            text: 'ELŐLEG (decont): vásárlási célra készpénzben legfeljebb 1 000 lej/nap/személy adható ki — konferencia- vagy táborszervezésnél is.',
+            hint: 'A korábbi 5 000 lejes érték elavult — az újabb hivatalos segédlet (Változások 2026) az 1 000 lejt írja.',
+          },
+          {
+            text: 'CÉGNEK KIFIZETÉS: készpénzben egy cégnek legfeljebb 5 000 lej/nap, az összes cégnek együtt legfeljebb 10 000 lej/nap. Az 5 000 lej feletti számla különbözetét KÖTELEZŐ banki átutalással fizetni.',
+          },
+          {
+            text: 'CÉGTŐL BEVÉTEL: egy jogi személytől (cégtől, másik egyházközségtől) naponta legfeljebb 5 000 lej készpénz fogadható el.',
+          },
+          {
+            text: 'MAGÁNSZEMÉLY: naponta legfeljebb 10 000 lej fogadható el tőle, és legfeljebb 10 000 lej fizethető ki neki. Kivétel: az alkalmazott havi fizetése.',
+          },
+          {
+            text: 'KÖLCSÖN KÉSZPÉNZBEN: TILOS. Kölcsönt adni és visszafizetni kizárólag bankszámlán keresztül lehet (2023 novembere óta). Magánszemélynek egyházközségi hitel egyáltalán nem adható.',
+          },
+        ],
+        tips: [
+          {
+            kind: 'warning',
+            text: 'FELDARABOLNI TILOS: egy nagy kifizetést nem szabad több kisebb részre bontani a korlátok kikerülésére — az ellenőr a szándékos kijátszást súlyosabban ítéli meg, mint magát a túllépést.',
+          },
+          {
+            kind: 'warning',
+            text: 'A kassza nem mehet mínuszba — nagyobb kifizetés előtt nézd meg az egyenleget. Ha nincs elég készpénz, előbb vegyél fel a bankból (belső mozgás).',
+          },
+          {
+            kind: 'tip',
+            text: 'A „+ Tétel rögzítése" ablak magától figyelmeztet, ha egy köteg átlépné ezeket a korlátokat — a jelzés nem tiltás, mert a partner jogi státuszát (cég vagy magánszemély) te ismered.',
+          },
+        ],
+        examples: [
+          {
+            situation: 'A tetőjavításról 8 000 lejes számla érkezik, a mester készpénzt kérne.',
+            solution:
+              'Készpénzben legfeljebb 5 000 lejt adhatsz — a fennmaradó 3 000 lejt KÖTELEZŐ átutalni. Két 4 000-es „részletre" bontani tilos (feldarabolás).',
+          },
+          {
+            situation: 'Karácsony után 62 000 lej gyűlt össze a kasszában.',
+            solution:
+              'A plafon 50 000 lej — a többletet (legalább 12 000 lejt) tedd be a bankba 2 munkanapon belül. Rögzítés: belső mozgás („Készpénzletétel a bankba").',
+          },
+        ],
+      },
+      {
+        key: 'honap-zarasa',
+        label: 'A hónap zárása lépésről lépésre',
+        icon: Printer,
+        color: 'blue',
+        shortDescription: 'Mit kell kinyomtatni és lefűzni minden hónap végén',
+        intro:
+          'A 2026-os hivatalos rend szerint a hónapot a kinyomtatott HAVI kasszakönyv zárja le. Napi lapokat nem kell nyomtatni — de a kassza vezetése naponta kötelező, a bankot pedig kizárólag a kivonat alapján könyveljük.',
+        whenNeeded: 'Minden hónap utolsó napjaiban, amikor a hónap összes tétele már rögzítve van.',
+        whatItDoes: 'A havi papírmunka pontos listája — mit, honnan nyomtatsz, és hová fűzöd le.',
+        flow: [
+          { label: 'Minden tétel rögzítve', sub: 'kassza naponta, bank a kivonatból' },
+          { label: 'Havi kasszakönyv', sub: '1 példány, ezzel zárul a hónap' },
+          { label: 'Főkönyv (Registru Jurnal)', sub: 'havonta, lehetőleg kétoldalasan' },
+          { label: 'Lefűzés', sub: 'kassza és bank KÜLÖN iratgyűjtőbe' },
+        ],
+        howItWorks: [
+          {
+            text: 'Ellenőrizd, hogy a hónap MINDEN tétele rögzítve van — a kassza tételei naponta kerülnek be, a banki tételek a kivonat (extras) alapján, legegyszerűbben a kivonat-importtal.',
+          },
+          {
+            text: 'Nyomtasd ki a HAVI kasszakönyvet egy példányban (Nyomtatási központ → Registru Casa, hónap kiválasztva) — a hivatalos rend szerint „ezzel zárjuk le a hónapot". Napi lapokat nem kell nyomtatni.',
+          },
+          {
+            text: 'Nyomtasd ki a Főkönyvet (Registru Jurnal) a hónapról — lehetőleg kétoldalasan. Ez az EGYETLEN kötelezően bekötendő nyomtatvány: 5 évente vagy 200 lap után keményfedeles kötésbe kerül, és SOHA nem selejtezhető.',
+            hint: 'A lapszámozás éven belül folytatólagos — a rendszer magától számozza, laponkénti átvitel-sorokkal.',
+          },
+          {
+            text: 'MINDEN kiadás mellé kiadási kísérőív kell — a készpénzes ÉS a banki kifizetésekhez is. A kassza és a bank iratait KÜLÖN-KÜLÖN iratgyűjtőbe fűzd le.',
+          },
+          {
+            text: 'A banki iratgyűjtőbe a HAVI kivonatot (extras) tedd — a napi kivonatokat nem kell nyomtatni.',
+          },
+        ],
+        tips: [
+          {
+            kind: 'warning',
+            text: 'A kinyomtatott és lefűzött hónap lezárt hónap — utólag ne szerkeszd a tételeit. Ha mégis javítani kell, stornózz (indoklással), és a javítást a következő nyomtatáskor vezesd át a papíron is.',
+          },
+          {
+            kind: 'tip',
+            text: 'A kiadási kísérőív fejléce a napi kiadások évi futó sorszám-tartományát mutatja (pl. „12–14. sz. kiadások") — ez köti össze a kasszakönyvet, a Főkönyvet és a lefűzött bizonylatot.',
+          },
+        ],
+      },
+      {
+        key: 'ev-zarasa',
+        label: 'Az év zárása lépésről lépésre',
+        icon: ScrollText,
+        color: 'cyan',
+        shortDescription: 'A december–januári teendők sorrendje a beadható Számadásig',
+        intro:
+          'Az év végi zárás a legfontosabb könyvelési feladat: ekkor készül a Számadás, amit az egyházmegye ellenőriz és összesít. A lépések sorrendje számít — az Útmutató az EREK számadásához alapján.',
+        whenNeeded: 'December közepétől a Számadás beadásáig.',
+        whatItDoes: 'A hét kötelező év végi lépés, sorrendben — és a két kapu, amin a Számadást visszadobhatják.',
+        flow: [
+          { label: 'Minden tétel rögzítve', sub: 'dec. 31-ig' },
+          { label: 'Valuta-átértékelés', sub: 'ha van devizás számla' },
+          { label: 'Tartozások + kintlévőségek', sub: 'jegyzőkönyvvel!' },
+          { label: 'Éves nyomtatványok', sub: 'banknapló, csoportnapló' },
+          { label: 'Presbiteri határozat', sub: 'a Számadásról' },
+          { label: 'Véglegesítés + beadás', sub: 'az egyházmegyének' },
+        ],
+        howItWorks: [
+          {
+            text: '1. Rögzíts minden december 31-ig történt tételt — az utolsó banki kezelési költséget is (a bank az év utolsó napján is vonhat díjat; a záró egyenlegnek az év végi kivonattal kell egyeznie).',
+          },
+          {
+            text: '2. Ha van devizás (EUR, HUF) számlád: futtasd le a valuta-átértékelést a december 31-i BNR-árfolyammal (Bank fül → FX átértékelés). A nyereség a 103.04-re, a veszteség a 203.03-ra könyvelődik — a rendszer ezt magától intézi.',
+          },
+          {
+            text: '3. Leltározd fel a TARTOZÁSOKAT (amivel a gyülekezet tartozik: központi járulék, bérjövedelem 10%-a, ki nem fizetett számlák) és a KINTLÉVŐSÉGEKET (amivel NEKED tartoznak: kiszámlázott, behajtható követelések). Ezek a Számadás 116–133. soraiba kerülnek.',
+            hint: 'Kintlévőségnek NEM számít a be nem folyt egyházfenntartói járulék, a megígért adomány és a perselypénz — csak a kiszámlázott vagy szerződéses követelés.',
+          },
+          {
+            text: '4. A presbiteri határozatba VEDD BELE a tartozásokat — a jegyzőkönyvbe nem vett tartozást a következő évben NEM lehet kifizetni. Ha nincs tartozás, azt is jegyzőkönyvezni kell, hogy nincs.',
+          },
+          {
+            text: '5. Nyomtasd ki az éves nyomtatványokat: a banknaplót éves (Jan–Dec) változatban és a csoportnaplót — mindkettő CSAK év végén készül, havonta nem kell.',
+          },
+          {
+            text: '6. Ellenőrizd a két kaput, amin a Számadást visszadobhatják: (a) a NYITÓ egyenlegnek fillérre egyeznie kell az ELŐZŐ ÉV LEADOTT Számadásának záró egyenlegével — az egyházmegye ezt mindig ellenőrzi; (b) a záró egyenlegnek egyeznie kell a kassza + bank tényleges egyenlegével. A rendszer mindkettőt magától számolja és jelzi az eltérést.',
+          },
+          {
+            text: '7. Véglegesítsd a Számadást (Számadás fül → véglegesítés), nyomtasd ki a borítóval (presbiteri határozat száma + iktatószám), és add be az egyházmegyének. A véglegesített évbe a rendszer többé nem enged rögzíteni.',
+          },
+        ],
+        tips: [
+          {
+            kind: 'warning',
+            text: 'Egy elfogadott és leadott Számadást utólag CSAK esperesi vagy püspöki vizitáció ellenőrzése alkalmával lehet kiigazítani — ezért zárás előtt mindent ellenőrizz.',
+          },
+          {
+            kind: 'tip',
+            text: 'A Monetárral (címletszámolóval) év végén számold meg fizikailag is a kasszát — a címletjegyzék a hivatalos év végi dokumentumok része.',
+          },
+          {
+            kind: 'tip',
+            text: 'A súgó jobb oldalán élő év végi CHECKLISTA van — kipipálhatod, mi van kész; a rendszer megjegyzi.',
+          },
+        ],
+      },
+      {
+        key: 'alairasok-vizsgalat',
+        label: 'Aláírások, határozatok, vizsgálat',
+        icon: ClipboardList,
+        color: 'violet',
+        shortDescription: 'Mihez kell presbiteri határozat, és mit kér a pénzügyi vizsgálat',
+        intro:
+          'A könyvelés számai mellett a JÓVÁHAGYÁSOK rendje is vizsgálati tétel: a pénzügyi ellenőrzés első kérdése mindig az, megvan-e a papírja annak, ami történt. A „Pénzügyi vizsgálat" hivatalos iratlistája (Ungvári Éva) alapján.',
+        whenNeeded: 'Költségvetés és Számadás beadása előtt, segélyek kifizetésekor, és a pénzügyi vizsgálatra készülve.',
+        whatItDoes: 'A kötelező aláírások és határozatok listája — hogy a vizsgálaton ne érjen meglepetés.',
+        howItWorks: [
+          {
+            text: 'KÖLTSÉGVETÉS és SZÁMADÁS: presbiteri határozattal (a jegyzőkönyv számával), egyházközségi iktatószámmal, majd az esperesi hivatal iktatószámával és az esperes + számvevő aláírásával érvényes. A borító mezőit a rendszer kitölti — a határozat számát a véglegesítéskor kell megadnod.',
+          },
+          {
+            text: 'SEGÉLY: minden segélykifizetés mellé presbiteri határozat kell. Egyháztagnak segély csak mélyszegénység, betegség vagy természeti csapás címén adható — kérvénnyel és igazoló dokumentumokkal.',
+          },
+          {
+            text: 'GAZDASÁGI BIZOTTSÁG: félévenként pénzügyi ellenőrzést tart, jegyzőkönyvvel. A vizsgálat legelső tétele az ELŐZŐ ellenőrzés jegyzőkönyve és a meghagyások teljesítéséről szóló jelentés.',
+          },
+          {
+            text: 'KIADÁSI KÍSÉRŐÍV: a lelkipásztor és a (fő)gondnok írja alá; a Dispoziție de plată hivatalos nyomtatványán három vízum-blokk kötelező.',
+          },
+          {
+            text: 'NYUGTA: kizárólag az EREK iratterjesztőjéből vásárolt, sorszámozott nyugtatömb (Chitanță) használható — a nyugtatömbökről külön nyilvántartást kell vezetni (a rendszer Nyugtatömb-nyilvántartása pontosan ezt szolgálja). Adományról NÉVRE SZÓLÓ nyugta kötelező; névtelen adakozónak nyugta nem állítható ki.',
+          },
+          {
+            text: 'BÉRLETI SZERZŐDÉS: az Esperesi Hivatalban be kell iktatni, és az ÉPÜLET-bérjövedelem 10%-ának befizetését okmányokkal igazolni (terület-bérjövedelem után nem kell 10%).',
+          },
+          {
+            text: 'PERSELYPÉNZ: felbontásakor jegyzőkönyv készül, és annak alapján kerül nyugtára — nem közvetlenül a kasszába.',
+          },
+        ],
+        tips: [
+          {
+            kind: 'tip',
+            text: 'A pénzügyi vizsgálat 41 bemutatandó iratot sorol fel négy blokkban (pénzügyvitel, leltár, alkalmazottak, segélyszállítmányok) — a teljes lista a webes súgó „EREK szabályok" nézetében, a Pénzügyi vizsgálat kategóriában olvasható.',
+          },
+          {
+            kind: 'warning',
+            text: 'Segélyszállítmánynál hat dolog kötelező: iktatott adománylevél, presbiteri határozat a kiosztásról, raktárbavételi jegyzék (NIR), fogyasztási jegyzék (bon de consum), névre szóló kiosztási lista, és a maradék leltári nyilvántartása.',
+          },
+        ],
+      },
+      {
+        key: 'gyakori-tevedes',
+        label: 'Gyakori könyvelési tévedések',
+        icon: AlertCircle,
+        color: 'orange',
+        shortDescription: 'Melyik tételre NE könyveld — a hivatalos útmutató piros figyelmeztetései',
+        intro:
+          'Az Útmutató az EREK számadásához visszatérően ugyanazokra a tévedésekre figyelmeztet: jó összeg, rossz sor. A rossz tételre könyvelt összeg a Számadásban hibás sorokat ad, és az egyházmegyei összesítésben is tovább gyűrűzik.',
+        whenNeeded: 'Amikor bizonytalan vagy, melyik könyvelési célt válaszd egy tételhez.',
+        whatItDoes: 'A leggyakoribb besorolási hibák — és a helyes cél mindegyikhez.',
+        howItWorks: [
+          {
+            text: 'SZPONZORPÉNZ és a 3,5%-os adófelajánlás NEM adomány: a 103.09-re megy, nem a 101.04-re. Az adomány (101.04) a hívek önkéntes, névre szóló nyugtázott adakozása.',
+          },
+          {
+            text: 'ÉPÍTKEZÉSI, JAVÍTÁSI számla akkor sem „Szolgáltatás" (201.10), ha a számlán „Prestări servicii" áll — javításra vagy beruházásra (205.01/205.02) könyveld, a tartalom szerint.',
+          },
+          {
+            text: 'A 2 500 LEJES HATÁR dönt eszközvásárlásnál: 2 500 lej fölött beruházás/alapeszköz (205.01), alatta kis értékű leltári tárgy (201.12) — mindkettő leltárba kerül (a rögzítő fel is ajánlja).',
+          },
+          {
+            text: 'SZERETETVENDÉGSÉG a 203.04-re megy, NEM protokollra (201.11). Rendezvényi catering a rendezvény tételéhez tartozik.',
+          },
+          {
+            text: 'GÉPKOCSI adója-biztosítása a 201.05-re megy, nem az épületadóra (201.04). Ha az autó nem a gyülekezeté, üzemeltetési költség CSAK használati (comodat) vagy bérleti szerződés alapján számolható el.',
+          },
+          {
+            text: 'ERDŐ- és MEZŐGAZDASÁGI bevétel a 104-es gazdasági bevételekhez tartozik, nem a „javak értékesítése" (103.07) sorhoz — és ahol gazdasági bevétel van, ott gazdasági kiadásnak is lennie kellene.',
+          },
+          {
+            text: 'CSILLAGOS (*) tételek: a román nevükben csillagot viselő sorok az EGYHÁZMEGYÉNEK fenntartottak (pl. 105.03 kongrua, 201.15 nettó fizetések) — egyházközség oda nem könyvelhet, kivéve ahol helyben számfejtenek.',
+          },
+          {
+            text: 'ELŐLEG (decont): kiadáskor a 207.02-re (kiadott hitelek), elszámoláskor a 107.02-n vissza, a tényleges költségek pedig a saját tételeikre — az el nem számolt különbözet év végén a kintlévőségek közé kerül. A rendszer Decont-funkciója ezt a láncot magától így könyveli.',
+          },
+        ],
+        tips: [
+          {
+            kind: 'tip',
+            text: 'Bizonytalanságnál a webes súgó „EREK szabályok" nézete a teljes 101–207-es kódtáblázatot magyarázza tételenként — vagy kérdezd meg az egyházmegye számvevőjét: egy jó kérdés olcsóbb, mint egy visszadobott Számadás.',
           },
         ],
       },
@@ -556,7 +939,7 @@ const SECTIONS: Section[] = [
           'Hónaponkénti listázás dátum szerint, nyitó- és záró-egyenleg, hiányos adatok jelzése, **nyugta (chitanță) kiállítás** közvetlenül a sorból.',
         howItWorks: [
           {
-            text: 'Az új sor felvitele a Pénzügy fejléc „+ Bevétel" / „+ Kiadás" gombbal történik. Az „irattípus" mező legyen „készpénz" — ekkor a sor ide kerül.',
+            text: 'Az új sor felvitele a Pénzügy fejléc „+ Tétel rögzítése" gombjával történik (zöld fül = bevétel, piros fül = kiadás). Ha nem választasz bankszámlát a sorhoz, a tétel a KASSZÁBA kerül — ez a készpénz szabálya.',
           },
           {
             text: 'A táblázatban minden befizetés sornál van egy 🧾 gomb. Ha még nincs nyugta → kiállíthatsz egyet (Receipt ikon). Ha már van → újranyomtathatod (Printer ikon).',
@@ -602,7 +985,7 @@ const SECTIONS: Section[] = [
           'Banki bevételek és kiadások (nem készpénzes), nyitó- és záró-egyenleg, FX átértékelés év végén.',
         howItWorks: [
           {
-            text: 'Új sor: Pénzügy fejléc „+ Bevétel" / „+ Kiadás" → irattípus: „banki" / „átutalás" → bankszámla választás.',
+            text: 'A banki tételek nagy része a KIVONAT-IMPORTTAL érkezik (Bank fül → import) — ez a pontos és ajánlott út. Kézi rögzítésnél („+ Tétel rögzítése") válaszd az „Ordin de plată" bizonylattípust, és jelöld ki, melyik bankszámlát érinti.',
           },
           {
             text: 'A táblázat minden bankszámlához külön egyenleget mutat, plus egy összesítő egyenleget.',
@@ -1291,7 +1674,7 @@ export interface FinanceSugoTabProps {
 
   /**
    * Belső véglegesítés-link a checklist banner-en („Véglegesítés indítása").
-   * Web: `/penzugy?tab=accounting`. Desktop: pl. `/penzugy/szamadas`.
+   * Web: `/penzugy#accounting`. Desktop: pl. `/penzugy/szamadas`.
    * Ha nincs megadva, a banner csak szöveges (link nélkül).
    */
   finalizeHref?: string
