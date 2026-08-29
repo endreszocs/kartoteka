@@ -23,6 +23,18 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-29] — Jobban látható folyamatjelző
+<!-- key: 2026-08-29-folyamatjelzo-lathatosag -->
+<!-- category: improvement -->
+<!-- version: 0.9.204 -->
+<!-- targets: minden felhasználó -->
+
+### 🎨 UX javítások
+
+- **Feltűnőbb „gondolkodó jel"**: a képernyő tetején futó fénycsík vastagabb és fényesebb lett, és megjelent mellette egy kis „Dolgozom…" jelvény felül középen, pörgő ikonnal — így akkor is látszik, hogy a rendszer dolgozik, ha épp a képernyő közepét nézed. A jelzés semmit nem takar és nem kattintható.
+
+---
+
 ## [2026-08-29] — A járulék-ajánló megnevezi az árazó szabályt
 <!-- key: 2026-08-29-jarulek-szabaly-cimke -->
 <!-- category: improvement -->
