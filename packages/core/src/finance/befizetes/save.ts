@@ -313,9 +313,12 @@ export async function saveIncomeUseCase(
     bankszamla_id: clean.bankszamla_id ?? null,
   }
 
+  // P4-30 (2026-08-29): az xkey kiemelt változóban — a hívó visszakapja
+  // (a pénzügy→leltár híd a leltar_tetelek.penzugy_xkey-be ezt írja).
+  const insertXkey = generateXkey()
   const legacyCompatiblePayload: Record<string, unknown> = {
     ...modernPayload,
-    xkey: generateXkey(),
+    xkey: insertXkey,
     nyugta: clean.nyugta?.trim() || documentNumber,
     csalad: Boolean(clean.id_csalad),
     forrasa: clean.forrasa || 'Kézi rögzítés',
@@ -324,6 +327,7 @@ export async function saveIncomeUseCase(
 
   // 5) Insert — legacy payload először (a valódi séma ezt várja), fallback modern-re
   try {
+    let usedXkey: string | null = insertXkey
     let { data, error } = await ctx.supabase
       .from('befizetes')
       .insert([legacyCompatiblePayload])
@@ -331,7 +335,8 @@ export async function saveIncomeUseCase(
       .single()
 
     if (error && isMissingColumnError(error.message)) {
-      // A séma modernizálódott — próbáljuk a kisebb payload-ot
+      // A séma modernizálódott — próbáljuk a kisebb payload-ot (nincs xkey)
+      usedXkey = null
       const retry = await ctx.supabase
         .from('befizetes')
         .insert([modernPayload])
@@ -362,6 +367,7 @@ export async function saveIncomeUseCase(
       data: {
         id: Number(data.id),
         iratszam: documentNumber,
+        xkey: usedXkey,
       },
     }
   } catch (err) {

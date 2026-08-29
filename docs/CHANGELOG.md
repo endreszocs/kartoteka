@@ -23,6 +23,24 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-29] — A bevétel- és kiadás-mentés közös motorra állt
+<!-- key: 2026-08-29-mentes-kozos-motor -->
+<!-- category: improvement -->
+<!-- version: 0.9.200 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🛠️ Fejlesztés
+
+- **A webes és az asztali tétel-mentés mostantól ugyanazon a motoron fut** —
+  az ellenőrzések (zárt év, foglalt iratszám, kötelező mezők) és a mentett
+  adatok köre a két felületen garantáltan azonos. A webes rögzítés eddig
+  szegényebb rekordot írt, mint az asztali; ez megszűnt.
+- A számozás viselkedése nem változott: az automatikus bizonylatszámok
+  ugyanúgy készülnek, mint eddig.
+- A kiadáshoz kapcsolt leltári tétel összekötése változatlanul működik.
+
+---
+
 ## [2026-08-29] — Megújult súgó, kötelező átvevő, 5 éves bizonylat-megőrzés
 <!-- key: 2026-08-29-sugo-dontesek -->
 <!-- category: improvement -->

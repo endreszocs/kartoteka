@@ -82,6 +82,10 @@ export type SaveExpenseInput = z.infer<typeof saveExpenseInputSchema>
 export interface SaveExpenseResult {
   id: number
   iratszam: string
+  /** P4-30 (2026-08-29): a beszúrt sor xkey-e — a pénzügy→leltár híd
+   *  (leltar_tetelek.penzugy_xkey) kapcsolatához. null, ha a modern-payload
+   *  fallback futott. */
+  xkey?: string | null
 }
 
 // ─────────────────────────────────────────────────────────────────────────

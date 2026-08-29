@@ -91,6 +91,10 @@ export type SaveIncomeInput = z.infer<typeof saveIncomeInputSchema>
 export interface SaveIncomeResult {
   id: number
   iratszam: string
+  /** P4-30 (2026-08-29): a beszúrt sor xkey-e — a pénzügy→leltár híd
+   *  (leltar_tetelek.penzugy_xkey) kapcsolatához. null, ha a legacy-séma
+   *  fallback (xkey-oszlop nélküli modern payload) futott. */
+  xkey?: string | null
 }
 
 // ─────────────────────────────────────────────────────────────────────────
