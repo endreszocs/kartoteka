@@ -19,7 +19,7 @@ import {
   restoreRecord,
   type DeletedRecordSummary,
 } from '@/lib/offline/recycle-bin-actions'
-import { exactKey, purgeCountdownDays } from '@/lib/offline/recycle-bin-countdown'
+import { exactKey, purgeCountdownDays, retentionDaysFor } from '@/lib/offline/recycle-bin-countdown'
 import { buildRecycleBinLabel } from '@/lib/offline/recycle-bin-labels'
 
 /**
@@ -182,7 +182,7 @@ export function RecycleBinView({
         ...r,
         deletedAt: exact,
         deletedAtIsExact: true,
-        daysUntilPurge: purgeCountdownDays(exact, now),
+        daysUntilPurge: purgeCountdownDays(exact, now, retentionDaysFor(r.table)),
       }
     })
   }, [allDeleted, exactMap])

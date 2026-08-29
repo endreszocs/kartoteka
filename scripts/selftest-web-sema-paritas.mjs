@@ -59,8 +59,10 @@ function ellenoriz(src) {
   if (db(s, /megjegyzes: z\.string\(\)\.trim\(\)\.max\(500\)/g) < 4) {
     hibak.push('a megjegyzes 500-as plafonja nincs meg mind a 4 sémán')
   }
-  if (db(s, /kedvezmenyzett: z\.string\(\)\.trim\(\)\.max\(200\)/g) < 2) {
-    hibak.push('a kedvezmenyzett 200-as plafonja nincs meg mindkét kiadás-sémán')
+  // D1 (2026-08-29): a kedvezmenyzett mostantól KÖTELEZŐ is (min(1)) — a
+  // plafon-őr a szigorúbb alakot várja el mindkét kiadás-sémán.
+  if (db(s, /kedvezmenyzett: z\.string\(\)\.trim\(\)\.min\(1,[^)]*\)\.max\(200\)/g) < 2) {
+    hibak.push('a kedvezmenyzett kötelezőség (min 1) + 200-as plafon nincs meg mindkét kiadás-sémán')
   }
   if (db(s, /iratszam: z\.string\(\)\.trim\(\)\.max\(50\)/g) < 4) {
     hibak.push('az iratszam 50-es plafonja nincs meg mind a 4 sémán')

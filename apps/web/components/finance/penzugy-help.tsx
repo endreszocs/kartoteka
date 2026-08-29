@@ -1052,7 +1052,13 @@ function CashRulesContent() {
       <CalloutWarning>
         A pénztárban lévő készpénz összege <strong>nem haladhatja meg az 50 000 (ötvenezer)
         lejt</strong>. Amennyiben ezt az összeget meghaladja a kasszában lévő készpénz, a
-        többletet be kell helyezni a bankba <strong>3 napon belül</strong>.
+        többletet be kell helyezni a bankba <strong>2 munkanapon belül</strong>.
+        {/* 2026-08-29 (súgó-átdolgozás): a két hivatalos forrás eltér — az
+            Útmutató 2 munkanapot, a Változások 2026 3 napot ír. A súgó
+            EGYSÉGESEN a szigorúbbat mondja, hogy ne mondjon ellent önmagának
+            (a 2026-08-14-es audit ismert, feloldatlan ellentmondása volt). */}
+        {' '}<em>(A hivatalos segédletek 2 munkanapot, illetve 3 napot írnak — a
+        szigorúbbat követve nem hibázhatsz.)</em>
       </CalloutWarning>
       <ul className="list-disc pl-5 space-y-1.5">
         <li>

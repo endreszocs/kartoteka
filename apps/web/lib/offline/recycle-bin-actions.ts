@@ -36,6 +36,7 @@ import { enqueue } from './mutation-queue'
 import {
   purgeCountdownDays,
   RECYCLE_BIN_RETENTION_DAYS,
+  retentionDaysFor,
 } from './recycle-bin-countdown'
 import { getTableEntry } from './table-registry'
 
@@ -115,7 +116,8 @@ export async function listDeletedRecords(
         : `#${record.id ?? '?'}`,
       deletedAt,
       deletedAtIsExact: Boolean(exactDeletedAt),
-      daysUntilPurge: purgeCountdownDays(deletedAt, now),
+      // P4-26: a pénzügyi táblák 5 éves megőrzést kapnak — tábla-tudatos számláló.
+      daysUntilPurge: purgeCountdownDays(deletedAt, now, retentionDaysFor(table)),
       record,
     }
   })

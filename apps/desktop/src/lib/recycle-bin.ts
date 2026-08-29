@@ -32,6 +32,7 @@ import {
   buildRecycleBinLabel,
   purgeCountdownDays,
   RECYCLE_BIN_TABLES,
+  retentionDaysFor,
   type RecycleBinDisplayRow,
   type RecycleBinTableDef,
 } from '@kartoteka/ui-app'
@@ -305,7 +306,8 @@ export async function listDeletedRecordsDesktop(
           displayLabel: labeler(record),
           deletedAt,
           deletedAtIsExact: Boolean(exactDeletedAt),
-          daysUntilPurge: purgeCountdownDays(deletedAt, now),
+          // P4-26: tábla-tudatos megőrzés (pénzügyi táblák: 5 év).
+          daysUntilPurge: purgeCountdownDays(deletedAt, now, retentionDaysFor(def.table)),
         })
       }
     } catch (err) {

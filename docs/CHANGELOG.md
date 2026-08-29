@@ -23,6 +23,42 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-29] — Megújult súgó, kötelező átvevő, 5 éves bizonylat-megőrzés
+<!-- key: 2026-08-29-sugo-dontesek -->
+<!-- category: improvement -->
+<!-- version: 0.9.199 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### ✨ Új funkciók
+
+- **Megújult Pénzügy-súgó**: új „Hogyan működik a könyvelés? (kezdőknek)"
+  téma lépésről lépésre, könyvelési előismeret nélkül is érthetően; és új
+  „Hivatalos szabályok 2026" szekció az egyházkerületi csomag fontos
+  tudnivalóival — készpénz-korlátok pontos összegekkel, a hónap és az év
+  zárásának lépései, kötelező aláírások és határozatok, a leggyakoribb
+  könyvelési tévedések. Az asztali program súgója is ugyanezt kapja.
+- **Pénzügyi változásnapló**: mostantól minden pénzügyi tétel módosításáról
+  és törléséről belső napló készül (ki, mikor, mit) — a bejegyzések 5 évig
+  őrződnek.
+- **5 éves Kuka-megőrzés**: a törölt pénzügyi tételek 5 évig maradnak a
+  Kukában a korábbi 30 nap helyett (bizonylat-megőrzés) — a visszaszámláló
+  ezt mutatja.
+
+### 🐛 Javítások és szigorítások
+
+- **A kiadás átvevője kötelező** a webes rögzítőben is (eddig üresen
+  maradhatott, és „Kézi rögzítés" felirat került a hivatalos ívre).
+- **Foglalt iratszámra a mentés figyelmeztet és megáll** — nem születhet
+  két azonos számú bizonylat (a stornózott szám továbbra is újra kiadható).
+- **Banki bizonylat (Ordin de plată) kézi rögzítésénél** ki kell választani
+  az érintett bankszámlát — eddig a tétel tévesen a kasszába sorolódott.
+- **Címletjegyzék (Monetár) lezárt évnél**: mentés előtt a rendszer
+  megerősítést kér (nem tiltja — az a döntésed).
+- A súgó kasszaplafon-határidő ellentmondása feloldva (egységesen a
+  szigorúbb 2 munkanap).
+
+---
+
 ## [2026-08-29] — Pénzügyi nagytakarítás: pontos számok, hangos hibák, közös átvezetés-út
 <!-- key: 2026-08-29-penzugy-audit-d-e-blokk -->
 <!-- category: bugfix -->

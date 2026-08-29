@@ -11,6 +11,8 @@
 
 export {
   RECYCLE_BIN_RETENTION_DAYS,
+  PENZUGYI_RETENTION_DAYS,
+  retentionDaysFor,
   purgeCountdownDays,
   purgeCountdownLabel,
   deletedDateSuffix,

@@ -99,6 +99,10 @@ export interface SaveIncomeBatchRow {
   id_szemely?: number | null
   /** B1: családi befizetésnél a család azonosítója. */
   id_csalad?: number | null
+  /** P4-30 (audit 2026-08-28): banki bizonylatnál (Ordin de plată) az érintett
+   *  bankszámla — enélkül a tétel a KASSZÁBA sorolódott (kassza = bankszamla_id
+   *  IS NULL a kanonikus szabály szerint). null = készpénz. */
+  bankszamla_id?: number | null
 }
 
 export interface SaveLinkedInventoryPayload {

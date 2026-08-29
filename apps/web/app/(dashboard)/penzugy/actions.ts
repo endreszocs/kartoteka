@@ -5,7 +5,13 @@ import { randomUUID } from 'crypto'
 import { revalidatePath } from 'next/cache'
 // 2026-07-11 (S6): visszamenőleges kassza↔bank átvezetésnél a következő évi
 // automatikus ('carryover') nyitó újraszámolása.
-import { refreshCarryoverBestEffort, resolveNyitoEgyenlegekUseCase, saveInternalTransferUseCase } from '@kartoteka/core'
+import {
+  checkExpenseReceiptDuplicateUseCase,
+  checkReceiptDuplicateUseCase,
+  refreshCarryoverBestEffort,
+  resolveNyitoEgyenlegekUseCase,
+  saveInternalTransferUseCase,
+} from '@kartoteka/core'
 import { localTodayIso } from '@kartoteka/validations'
 // 2026-08-11 (5. kör, P3 #15): a lapozott „hozd le a TELJES halmazt" helper közös forrása.
 import { selectAllPaged } from '@kartoteka/supabase-client'
@@ -766,6 +772,25 @@ async function insertIncomeRecord(params: {
 }) {
   const { supabase, congregationId, userId, input } = params
   const documentNumber = buildDocumentNumber(input.iratszam, input.datum)
+
+  // D1 (audit 2026-08-28, Endre döntése): MENTÉSKORI duplikátum-kapu — a
+  // desktop (core save) régóta blokkolja a foglalt iratszámot, a web eddig
+  // csak gépelés közben figyelmeztetett. A közös core-ellenőrzés a D3-as
+  // kánont követi (a stornózott szám nem duplikátum). Az AUTO- előtagú
+  // (rendszer-generált, időbélyeges) számot nem ellenőrizzük.
+  if (!documentNumber.startsWith('AUTO-')) {
+    const dupla = await checkReceiptDuplicateUseCase(
+      { congregationId, iratszam: documentNumber },
+      { supabase, runtime: 'web' },
+    )
+    if (!dupla.success) {
+      return { error: `Az iratszám-ellenőrzés nem sikerült (${dupla.error}) — a mentés biztonságból nem futott le. Próbáld újra.` as string }
+    }
+    if (dupla.isDuplicate) {
+      return { error: `A(z) „${documentNumber}" iratszám már foglalt egy aktív befizetésen — válassz másik számot (a stornózott szám újra kiadható).` as string }
+    }
+  }
+
   const modernPayload = {
     osszeg: input.osszeg,
     datum: input.datum,
@@ -779,6 +804,9 @@ async function insertIncomeRecord(params: {
     megjegyzes: input.megjegyzes || null,
     deleted: false,
     congregation_id: congregationId,
+    // P4-30 (audit 2026-08-28): banki bizonylatnál az érintett bankszámla —
+    // enélkül a kézzel rögzített banki tétel a KASSZÁBA sorolódott.
+    bankszamla_id: input.bankszamla_id ?? null,
   }
 
   const legacyCompatiblePayload = {
@@ -825,6 +853,26 @@ async function insertExpenseRecord(params: {
   const { supabase, congregationId, userId, input } = params
   const documentNumber = buildDocumentNumber(input.iratszam || ('bizonylatszam' in input ? input.bizonylatszam : null), input.datum)
 
+  // D1 (audit 2026-08-28, Endre döntése): az átvevő KÖTELEZŐ — a régi néma
+  // „Kézi rögzítés" placeholder visszakereshetetlen partnert hagyott.
+  if (!input.kedvezmenyzett?.trim()) {
+    return { error: 'Az átvevő megadása kötelező — add meg, ki kapta a pénzt.' as string }
+  }
+
+  // D1: mentéskori duplikátum-kapu (a befizetés-oldali kapu párja, D3-kánon).
+  if (!documentNumber.startsWith('AUTO-')) {
+    const dupla = await checkExpenseReceiptDuplicateUseCase(
+      { congregationId, iratszam: documentNumber },
+      { supabase, runtime: 'web' },
+    )
+    if (!dupla.success) {
+      return { error: `Az iratszám-ellenőrzés nem sikerült (${dupla.error}) — a mentés biztonságból nem futott le. Próbáld újra.` as string }
+    }
+    if (dupla.isDuplicate) {
+      return { error: `A(z) „${documentNumber}" iratszám már foglalt egy aktív kiadáson — válassz másik számot (a stornózott szám újra kiadható).` as string }
+    }
+  }
+
   const canonicalPayload = {
     osszeg: input.osszeg,
     datum: input.datum,
@@ -839,6 +887,8 @@ async function insertExpenseRecord(params: {
     megjegyzes: input.megjegyzes || null,
     deleted: false,
     congregation_id: congregationId,
+    // P4-30 (audit 2026-08-28): banki bizonylatnál az érintett bankszámla.
+    bankszamla_id: 'bankszamla_id' in input ? (input.bankszamla_id ?? null) : null,
   }
 
   // 2026-08-09: az xkey-t kiemelve tartjuk számon — a pénzügy→leltár híd a
@@ -848,7 +898,8 @@ async function insertExpenseRecord(params: {
     ...canonicalPayload,
     nyugta: documentNumber,
     xkey: referenceXkey,
-    atvevo: input.kedvezmenyzett || 'Kézi rögzítés',
+    // D1: a fenti kapu miatt garantáltan nem üres — a placeholder kivezetve.
+    atvevo: input.kedvezmenyzett.trim(),
     atvevoid: 'id_szemely' in input ? input.id_szemely || null : null,
     userid: userId,
   }
@@ -3794,17 +3845,23 @@ export async function checkReceiptDuplicate(iratszam: string): Promise<boolean> 
   if (!iratszam.trim()) return false
   const { supabase, congregationId } = await getProfileCongregation()
   if (!congregationId) return false
-  const { data, error } = await supabase.from('befizetes')
-    .select('id').eq('congregation_id', congregationId).eq('iratszam', iratszam.trim()).eq('deleted', false).limit(1)
-  if (error) {
+  // D1 (audit 2026-08-28): a gépelés-közbeni jelzés is a KÖZÖS core-ellenőrzést
+  // futtatja (D3-kánon: a stornózott szám NEM duplikátum) — a régi helyi
+  // lekérdezés a stornózott sorra is duplikátumot jelzett, eltérve a
+  // mentéskori kaputól. Fail-open: figyelmeztetés, nem védelem.
+  const res = await checkReceiptDuplicateUseCase(
+    { congregationId, iratszam: iratszam.trim() },
+    { supabase, runtime: 'web' },
+  )
+  if (!res.success) {
     console.error(
       '[penzugy] Az iratszám-duplikáció ellenőrzése hibára futott — a figyelmeztető ' +
-        'jelzés ezért kimarad (a mentést ez nem befolyásolja).',
-      error,
+        'jelzés ezért kimarad (a mentéskori kapu ettől független).',
+      res.error,
     )
     return false
   }
-  return (data?.length || 0) > 0
+  return res.isDuplicate
 }
 
 // ── H7 javítás: Éves beállítás létrehozás ────────────────────
