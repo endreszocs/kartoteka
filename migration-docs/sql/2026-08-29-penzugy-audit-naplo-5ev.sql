@@ -55,14 +55,25 @@ BEGIN
     WHERE schemaname = 'public' AND tablename = 'penzugy_valtozas_naplo'
       AND policyname = 'pvn_admin_select'
   ) THEN
+    -- 2026-08-29 JAVÍTÁS: a profiles táblán NINCS `approved` oszlop — az aktív
+    -- admin jelzője a `status = 'active'` + a profile_roles system-admin ág
+    -- (a data_wipe_log 2026-08-11-es, élesben bevált policy-mintája betűhűen).
     CREATE POLICY pvn_admin_select ON public.penzugy_valtozas_naplo
       FOR SELECT TO authenticated
       USING (
         EXISTS (
           SELECT 1 FROM public.profiles p
           WHERE p.id = auth.uid()
+            AND p.status = 'active'
             AND p.role IN ('admin', 'master')
-            AND COALESCE(p.approved, true) = true
+        )
+        OR EXISTS (
+          SELECT 1 FROM public.profile_roles pr
+          WHERE pr.profile_id = auth.uid()
+            AND pr.scope = 'system'
+            AND pr.role = 'admin'
+            AND pr.active = true
+            AND pr.approval_status = 'approved'
         )
       );
   END IF;
