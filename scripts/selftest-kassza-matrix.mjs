@@ -161,16 +161,6 @@ function asszertek(rawSrc, jelent) {
     } else {
       hiba('a mátrix ragadó oszlopai hiányoznak (sticky left-0 / sm:sticky sm:right-0)')
     }
-    if (nezet.includes('kulcs}:${ev')) {
-      jo('mátrix-cella kulcsa (csoport, év) — bejegyzés-létrejöttekor nem vész el a fókusz')
-    } else {
-      hiba('a mátrix-cella nem (csoport, év) kulcsú — az első leütés után elveszne a fókusz')
-    }
-    if (nezet.includes('kulcs}#${')) {
-      jo('mátrix-SOR kulcsa (kulcs + példány-sorszám) — korábbi év beírása nem remountolja a sort')
-    } else {
-      hiba('a mátrix-sor kulcsa nem stabil (base.uid remount-csapda: fókuszvesztés + név-mezőbe lopott leütések)')
-    }
     if (!nezet.includes('w-0 min-w-full')) {
       jo('mátrix: nincs percentage-min-width hack a konténeren (friss layoutnál 0-ra is oldódhatott)')
     } else {
@@ -180,6 +170,19 @@ function asszertek(rawSrc, jelent) {
       jo('mátrix: mobilon keskenyebb név-oszlop + csak sm-től ragadó Összesen (375px-en is látszik év-cella)')
     } else {
       hiba('a mátrix ragadó oszlopai nem reszponzívak — mobilon a két fal közt nem férne el év-cella')
+    }
+    // 2026-08-29 (Endre: „minden betű után rá kell kattintsak") — MÉRT gyökérok:
+    // a sor/cella React-kulcsa a payerKulcs-ból (= a GÉPELT NÉVBŐL) jött, ezért minden
+    // leütésre unmount+mount → fókuszvesztés. A kulcs csak STABIL sor-azonosító lehet.
+    if (nezet.includes('key={cs.sorUid}') && nezet.includes('${cs.sorUid}:${ev}')) {
+      jo('mátrix React-kulcsok: stabil sorUid (a gépelt név SOSEM megy a kulcsba)')
+    } else {
+      hiba('a mátrix sor/cella kulcsa nem stabil sorUid — gépelés közben remountolna (fókuszvesztés!)')
+    }
+    if (!nezet.includes('key={sorKulcs}') && !nezet.includes('${cs.kulcs}:${ev}')) {
+      jo('a névfüggő payerKulcs nincs benne egyetlen React-kulcsban sem')
+    } else {
+      hiba('a névfüggő payerKulcs MÉG MINDIG React-kulcs (fókuszvesztés minden leütésnél)')
     }
     if (nezet.includes('onCellaUrites(')) {
       jo('mátrix-cella: az ürítés jelölést kap (az auto-kitöltés nem töltheti vissza)')
@@ -205,10 +208,12 @@ function asszertek(rawSrc, jelent) {
     hiba('az asztali partner-cella nem feltételes w-full max-w-0 min-w-[26rem] (csonkulás VAGY 0 px év-terület)')
   }
   // (4d) min-szélesség-őrök a többi oszlopon — mátrix-módban se csonkulhat dátum/év/összeg/megjegyzés
-  if (src.includes('min-w-[7.5rem]') && src.includes('w-[90px] min-w-[4.5rem]')) {
-    jo('oszlop min-szélesség-őrök: dátum/év (és társaik) mátrix-módban sem csonkulnak')
+  // 2026-08-29 (Endre: „nem látszik a dátum") — a minimumok a TÉNYLEGES tartalomhoz
+  // igazítva: a dátum-cellában a szöveges mező + a 36 px-es naptár-gomb együtt ~11rem.
+  if (src.includes('w-[170px] min-w-[11rem]') && src.includes('w-[90px] min-w-[5.5rem]')) {
+    jo('oszlop min-szélességek: a dátum/év mező tartalma kifér (nem csonkul „2026-C"-re)')
   } else {
-    hiba('hiányzó oszlop min-szélesség-őr (min-w-[7.5rem] dátum / w-[90px] min-w-[4.5rem] év)')
+    hiba('a dátum/év oszlop minimuma túl szűk — a beírt érték csonkulna')
   }
   // (4e) a Mentés-sáv RAGAD a dialóg aljára — görgetés nélkül elérhető (Endre kérése)
   const lab = ablak(rawSrc, 'FOOTER-MENTES-SAV', ['Mentés ('])
@@ -231,6 +236,13 @@ function asszertek(rawSrc, jelent) {
     jo('appendPayers: a kor/lakhely átvezetve (a fő kiválasztási út sem ejti el)')
   } else {
     hiba('appendPayers elejti a kor/lakhely mezőket — az info-sor a fő úton nem jelenne meg')
+  }
+  // (4f3) a sorUid minden bejegyzés-létrehozó úton öröklődik/keletkezik
+  const cellaFn = ablak(src, 'function addPayerCell', ['\n  function ', '\n  const '])
+  if (cellaFn && cellaFn.includes('sorUid: base.sorUid')) {
+    jo('addPayerCell: a cella a csoport sorUid-ját örökli (a sor kulcsa nem változik)')
+  } else {
+    hiba('addPayerCell nem örökli a sorUid-ot — új cellánál remountolna a sor')
   }
   // (4g) Endre 2026-08-29: zebra-csíkozás — váltakozó sor-háttér, index-alapú
   if (src.includes('sorIdx % 2') && src.includes('${sorBg}')) {
@@ -297,21 +309,22 @@ const mutansok = [
       : null),
   },
   {
+    nev: 'M8: a névfüggő payerKulcs visszatétele a sor-kulcsba — fókuszvesztés minden leütésnél',
+    alkalmaz: (s) => (s.includes('key={cs.sorUid}')
+      ? s.replace('key={cs.sorUid}', 'key={cs.kulcs}')
+      : null),
+  },
+  {
     nev: 'M7: a partner-oszlop w-full-ja feltétel nélkülivé rontva — minden más oszlop összenyomódna',
     alkalmaz: (s) => (s.includes("isMatrixActive(r) ? 'w-full")
       ? s.replace(/isMatrixActive\(r\) \? 'w-full[^:]*: ''/, "'w-full '")
       : null),
   },
   {
-    nev: 'M4: a cella-kulcs uid-ra rontása — az első leütés után elveszne a fókusz',
-    alkalmaz: (s) => {
-      const kezdet = s.indexOf('MATRIX-NEZET-KEZDET')
-      const veg = s.indexOf('MATRIX-NEZET-VEG')
-      if (kezdet < 0 || veg < 0) return null
-      const bent = s.slice(kezdet, veg)
-      if (!bent.includes('kulcs}:${ev')) return null
-      return s.slice(0, kezdet) + bent.replaceAll('kulcs}:${ev', 'veletlen}:${x') + s.slice(veg)
-    },
+    nev: 'M4: a cella-kulcs visszarontása a névfüggő payerKulcsra — fókuszvesztés gépelés közben',
+    alkalmaz: (s) => (s.includes('${cs.sorUid}:${ev}')
+      ? s.replace('${cs.sorUid}:${ev}', '${cs.kulcs}:${ev}')
+      : null),
   },
 ]
 

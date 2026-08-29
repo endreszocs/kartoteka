@@ -3523,17 +3523,42 @@ export async function getFamilyMembers(
     `${p.csaladnev ?? ''} ${p.k_nev ?? ''}`.trim() || `#${p.id}`
   // 2026-08-29 (Endre): életkor + lakhely a beillesztett befizető alá — azonos nevű
   // családtagoknál (pl. apa és fia) e nélkül nem tudni, KI lett kiválasztva.
-  const extraOf = (p: { sz_datum?: string | null; cim_telepules?: string | null }) =>
-    ({ szDatum: p.sz_datum ?? null, telepules: p.cim_telepules ?? null })
+  // ⚠️ 2026-08-29 HIBAOSZTÁLY: a `cim_telepules` a DIOCESES táblán van, a `szemely`-n NINCS.
+  // A rossz oszlopnév 400-at adott, és a családtagok NÉMÁN eltűntek („nincs rögzített tag").
+  // A személy lakhelye a kapcsolt `adrlocality` (c_helysegid) `name` mezője.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const telepulesOf = (p: any): string | null => {
+    const loc = Array.isArray(p?.adrlocality) ? p.adrlocality[0] : p?.adrlocality
+    const nev = loc?.name
+    return typeof nev === 'string' && nev.trim() ? nev.trim() : null
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const extraOf = (p: any) => ({ szDatum: p?.sz_datum ?? null, telepules: telepulesOf(p) })
 
   // Családfők
   // 2026-08-29: a lekérdezés-hibák eddig NÉMÁK voltak (FK-hint elírás vagy
   // séma-drift esetén a tagok kommentár nélkül tűntek el a listából) —
   // mostantól a szerver-log hangosan jelzi.
-  const { data: fam, error: famErr } = await supabase.from('csalad')
-    .select('ferfi:szemely!csalad_id_ferfi_fk(id, csaladnev, k_nev, sz_datum, cim_telepules), no:szemely!csalad_id_no_fk(id, csaladnev, k_nev, sz_datum, cim_telepules)')
-    .eq('id', familyId).maybeSingle()
-  if (famErr) console.error('[getFamilyMembers] családfő-lekérdezés hiba:', famErr.message)
+  // FAIL-SAFE (2026-08-29): ha a BŐVÍTETT (kor/lakhely) lekérdezés bármiért hibázik —
+  // séma-drift, elírt oszlopnév, jogosultság —, MÁSODSZOR lekérdezzük a MINIMÁLIS
+  // mezőkkel. A kényelmi adat elmaradhat, a TAGOK SOHA. (Ezt a kaput az én 2026-08-29-i
+  // `cim_telepules` elírásom hívta életre: a tagok némán eltűntek a családi nyugtából.)
+  let fam: unknown = null
+  {
+    const bovitett = await supabase.from('csalad')
+      .select('ferfi:szemely!csalad_id_ferfi_fk(id, csaladnev, k_nev, sz_datum, adrlocality!c_helysegid(name)), no:szemely!csalad_id_no_fk(id, csaladnev, k_nev, sz_datum, adrlocality!c_helysegid(name))')
+      .eq('id', familyId).maybeSingle()
+    if (bovitett.error) {
+      console.error('[getFamilyMembers] családfő-lekérdezés hiba (bővített):', bovitett.error.message)
+      const minimal = await supabase.from('csalad')
+        .select('ferfi:szemely!csalad_id_ferfi_fk(id, csaladnev, k_nev), no:szemely!csalad_id_no_fk(id, csaladnev, k_nev)')
+        .eq('id', familyId).maybeSingle()
+      if (minimal.error) console.error('[getFamilyMembers] családfő-lekérdezés hiba (minimál):', minimal.error.message)
+      fam = minimal.data
+    } else {
+      fam = bovitett.data
+    }
+  }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const famAny = fam as any
   if (famAny) {
@@ -3544,9 +3569,20 @@ export async function getFamilyMembers(
   }
 
   // Gyermekek
-  const { data: kids, error: kidsErr } = await supabase.from('gyerek')
-    .select('szemely:szemely!gyerek_id_szemely_fk(id, csaladnev, k_nev, sz_datum, cim_telepules)').eq('id_csalad', familyId)
-  if (kidsErr) console.error('[getFamilyMembers] gyermek-lekérdezés hiba:', kidsErr.message)
+  let kids: unknown[] | null = null
+  {
+    const bovitett = await supabase.from('gyerek')
+      .select('szemely:szemely!gyerek_id_szemely_fk(id, csaladnev, k_nev, sz_datum, adrlocality!c_helysegid(name))').eq('id_csalad', familyId)
+    if (bovitett.error) {
+      console.error('[getFamilyMembers] gyermek-lekérdezés hiba (bővített):', bovitett.error.message)
+      const minimal = await supabase.from('gyerek')
+        .select('szemely:szemely!gyerek_id_szemely_fk(id, csaladnev, k_nev)').eq('id_csalad', familyId)
+      if (minimal.error) console.error('[getFamilyMembers] gyermek-lekérdezés hiba (minimál):', minimal.error.message)
+      kids = minimal.data
+    } else {
+      kids = bovitett.data
+    }
+  }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const k of (kids || []) as any[]) {
     const s = Array.isArray(k.szemely) ? k.szemely[0] : k.szemely
@@ -3560,7 +3596,7 @@ export async function getFamilyMembers(
     const haztartasId = (hh?.[0] as { id: string } | undefined)?.id
     if (haztartasId) {
       const { data: tags, error: tagsErr } = await supabase.from('haztartas_tag')
-        .select('szerep, szemely:szemely!id_szemely(id, csaladnev, k_nev, sz_datum, cim_telepules)')
+        .select('szerep, szemely:szemely!id_szemely(id, csaladnev, k_nev, sz_datum, adrlocality!c_helysegid(name))')
         .eq('id_haztartas', haztartasId).is('ervenyes_ig', null)
       if (tagsErr) console.error('[getFamilyMembers] háztartás-tag lekérdezés hiba:', tagsErr.message)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -3615,7 +3651,7 @@ export async function getFamilyMembersForPerson(
   if (haztartasIds.length > 0) {
     const tags = await supabase
       .from('haztartas_tag')
-      .select('szerep, szemely:szemely!id_szemely(id, csaladnev, k_nev, sz_datum, cim_telepules)')
+      .select('szerep, szemely:szemely!id_szemely(id, csaladnev, k_nev, sz_datum, adrlocality!c_helysegid(name))')
       .in('id_haztartas', haztartasIds)
       .is('ervenyes_ig', null)
     if (tags.error) {
@@ -3625,7 +3661,8 @@ export async function getFamilyMembersForPerson(
     for (const t of (tags.data || []) as any[]) {
       const s = Array.isArray(t.szemely) ? t.szemely[0] : t.szemely
       if (s?.id && !members.has(s.id)) {
-        members.set(s.id, { id: s.id, name: nameOf(s), role: t.szerep || 'tag', szDatum: s.sz_datum ?? null, telepules: s.cim_telepules ?? null })
+        const loc = Array.isArray(s.adrlocality) ? s.adrlocality[0] : s.adrlocality
+        members.set(s.id, { id: s.id, name: nameOf(s), role: t.szerep || 'tag', szDatum: s.sz_datum ?? null, telepules: (typeof loc?.name === 'string' && loc.name.trim()) ? loc.name.trim() : null })
       }
     }
   }
