@@ -1,6 +1,14 @@
+'use client'
+
 /**
  * Globális folyamatjelző (2026-08-29, Endre kérése: „legyen valami kis
  * gondolkodó jel, hogy tudja a felhasználó, hogy várnia kell").
+ *
+ * ⚠️ A 'use client' KÖTELEZŐ az 1. sorban: a ui-app barrel-jét szerver-
+ * komponensek is importálják (pl. notifications/page.tsx), és a direktíva
+ * nélküli hook-használat a `next build`-et buktatja — a CI ezt NEM fogja meg
+ * (ott csak lint+típusok+önellenőrzések futnak), a hiba a DEPLOY-nál robban
+ * (2026-08-29-i éles deploy-bukás tanulsága).
  *
  * MŰKÖDÉS: a `window.fetch`-et EGYSZER becsomagoljuk, és számoljuk a folyamatban
  * lévő hálózati hívásokat. Amíg legalább egy fut — és már legalább `delayMs`
