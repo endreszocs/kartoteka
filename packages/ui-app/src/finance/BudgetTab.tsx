@@ -17,7 +17,7 @@
  *   - `onToast(msg, kind)` — UI-feedback
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDownCircle, ArrowUpCircle, Check, Lock, Scale } from 'lucide-react'
 
 import { Badge, Button } from '@kartoteka/ui'
@@ -1009,6 +1009,80 @@ interface BudgetCellTableProps {
   openingRows?: Array<{ nr: string; nev: string; value: number; group: boolean }>
 }
 
+// ── 2026-08-30 (Endre kérése): „ha írom be az értékeket, akkor 3 számjegyenként
+// hagyjon egy kis szünetet" — a Terv (RON) mező gépelés KÖZBEN ezres-csoportokkal
+// (szóköz) jelenik meg, tizedes vesszővel. A type="number" input szóközt nem tud
+// mutatni, ezért szöveg-mező + saját formázó, kurzor-megőrzéssel.
+function TervOsszegInput({
+  value,
+  onValue,
+  placeholder,
+}: {
+  value: number
+  onValue: (n: number) => void
+  placeholder?: string
+}) {
+  // Megjelenítés: egész rész 3-as szóköz-csoportokban, tizedes vesszővel.
+  const formaz = (nyers: string): string => {
+    let t = nyers.replace(/[.]/g, ',').replace(/[^\d,]/g, '')
+    const elsoVesszo = t.indexOf(',')
+    if (elsoVesszo >= 0) {
+      t = t.slice(0, elsoVesszo + 1) + t.slice(elsoVesszo + 1).replace(/,/g, '')
+    }
+    const [egesz, tizedes] = t.split(',')
+    const csoportositott = (egesz || '').replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+    return tizedes != null ? `${csoportositott},${tizedes.slice(0, 2)}` : csoportositott
+  }
+  // Visszafejtés: szóköz ki, vessző → pont — a mentett szám így helyes.
+  const fejt = (t: string): number => Number(t.replace(/\s/g, '').replace(',', '.')) || 0
+  const szambol = (n: number): string => (n ? formaz(String(n).replace('.', ',')) : '')
+
+  const [szoveg, setSzoveg] = useState(() => szambol(value))
+  const [fokusz, setFokusz] = useState(false)
+  const ref = useRef<HTMLInputElement | null>(null)
+  // Külső érték-változás (pl. „Alap költségvetés" gomb) csak fókusz NÉLKÜL veszi át
+  // a mezőt — fókusz alatt nem írjuk át a gépelést a kéz alól.
+  useEffect(() => {
+    if (!fokusz) setSzoveg(szambol(value))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, fokusz])
+
+  return (
+    <input
+      ref={ref}
+      type="text"
+      inputMode="decimal"
+      value={szoveg}
+      onFocus={() => setFokusz(true)}
+      onBlur={() => { setFokusz(false); setSzoveg(szambol(fejt(szoveg))) }}
+      onChange={(e) => {
+        const nyers = e.target.value
+        const kurzor = e.target.selectionStart ?? nyers.length
+        // Jelentős karakterek (számjegy + vessző) a kurzorig — a formázás után
+        // ugyanennyi jelentős karakter MÖGÉ áll vissza a kurzor.
+        const jelentosEdig = nyers.slice(0, kurzor).replace(/[^\d,]/g, '').length
+        const uj = formaz(nyers)
+        setSzoveg(uj)
+        onValue(fejt(uj))
+        requestAnimationFrame(() => {
+          const el = ref.current
+          if (!el) return
+          let db = 0
+          let pos = uj.length
+          for (let i = 0; i < uj.length; i++) {
+            if (/[\d,]/.test(uj[i])) db++
+            if (db >= jelentosEdig) { pos = i + 1; break }
+          }
+          if (jelentosEdig === 0) pos = 0
+          el.setSelectionRange(pos, pos)
+        })
+      }}
+      className="w-28 max-sm:min-h-10 rounded-lg border border-slate-200 bg-white px-2 py-1 text-right text-sm tabular-nums placeholder:text-slate-300"
+      placeholder={placeholder}
+    />
+  )
+}
+
 function BudgetCellTable({
   icon,
   title,
@@ -1154,13 +1228,9 @@ function BudgetCellTable({
                       </span>
                     ) : canEdit ? (
                       // 2026-07-10 (S4-mobil): min-h-10 telefonon + tabular-nums a bevitelben.
-                      <input
-                        type="number"
-                        value={val || ''}
-                        onChange={(e) => setValue(c.id, Number(e.target.value) || 0)}
-                        className="w-28 max-sm:min-h-10 rounded-lg border border-slate-200 bg-white px-2 py-1 text-right text-sm tabular-nums placeholder:text-slate-300"
-                        step="0.01"
-                        min="0"
+                      <TervOsszegInput
+                        value={val}
+                        onValue={(n) => setValue(c.id, n)}
                         placeholder={
                           showPrevYear && prevYearVal !== 0
                             ? formatCurrency(prevYearVal)

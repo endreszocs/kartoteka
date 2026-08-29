@@ -23,6 +23,18 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-30] — Költségvetés: olvasható számok gépelés közben
+<!-- key: 2026-08-30-koltsegvetes-szamcsoportok -->
+<!-- category: improvement -->
+<!-- version: 0.9.207 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🎨 UX javítások
+
+- **Ezres-csoportok a költségvetés beírásakor**: a Terv (RON) mezőben gépelés közben a szám 3 számjegyenként kis szünettel (szóközzel) tagolódik — az „50 000" így ránézésre is ötvenezer, nem kell számolgatni a nullákat. A tizedeshez vessző használható, a mentett érték pontos marad.
+
+---
+
 ## [2026-08-30] — Rögzítő: minden adat látszik, mentés görgetés nélkül
 <!-- key: 2026-08-30-rogzito-helykihasznalas -->
 <!-- category: improvement -->
