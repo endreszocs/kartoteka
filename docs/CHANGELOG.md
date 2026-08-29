@@ -23,6 +23,25 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-29] — Megjegyzés-szűrő az Adományozók fülön
+<!-- key: 2026-08-29-adomanyozok-megjegyzes-szuro -->
+<!-- category: improvement -->
+<!-- version: 0.9.202 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### ✨ Új funkció
+
+- **Megjegyzés-szűrő az Adományozók és szponzorok fülön**: a beírt szövegre
+  (pl. „emlékére") szűrhetsz két módban — „tartalmazza" (csak az
+  emlékadományok maradnak) vagy „NEM tartalmazza" (épp azok esnek ki, és a
+  többi különleges adomány marad). A szűrő tételenként működik: az
+  adományozó csak az illeszkedő tételeivel és azok újraszámolt összegével
+  jelenik meg, a táblázat-mentés (CSV) is pontosan ezt viszi ki. A meglévő
+  besorolás- és kategória-szűrővel (pl. csak szponzortámogatások — 103.09)
+  együtt is használható.
+
+---
+
 ## [2026-08-29] — Család csatolása javítva + globális folyamatjelző
 <!-- key: 2026-08-29-csalad-csatolas-folyamatjelzo -->
 <!-- category: bugfix -->

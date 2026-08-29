@@ -83,6 +83,12 @@ export function AdomanyozokBody({
   const [kereses, setKereses] = useState('')
   const [tipusSzuro, setTipusSzuro] = useState<AdomanyozoTipus | 'mind'>('mind')
   const [kodSzuro, setKodSzuro] = useState<string>('mind')
+  // 2026-08-29 (Endre kérése): MEGJEGYZÉS-szűrő tartalmazza/kizárja móddal —
+  // pl. „emlékére" → csak az emlékadományok; kizárva → a többi különleges
+  // adomány. TÉTEL-szinten szűr: az adományozó csak az illeszkedő tételeivel
+  // (és azok újraszámolt összegével) jelenik meg.
+  const [megjegyzesSzuro, setMegjegyzesSzuro] = useState('')
+  const [megjegyzesMod, setMegjegyzesMod] = useState<'tartalmazza' | 'kizarja'>('tartalmazza')
   const [nyitott, setNyitott] = useState<Set<string>>(new Set())
 
   const evLista = valaszthatoEvek.length ? valaszthatoEvek : [new Date().getFullYear()]
@@ -90,13 +96,42 @@ export function AdomanyozokBody({
   const szurt = useMemo(() => {
     const lista = osszesito?.adomanyozok ?? []
     const q = kereses.trim().toLowerCase()
-    return lista.filter((a) => {
+    const mq = megjegyzesSzuro.trim().toLowerCase()
+    const eloszurt = lista.filter((a) => {
       if (tipusSzuro !== 'mind' && a.tipus !== tipusSzuro) return false
       if (kodSzuro !== 'mind' && !(kodSzuro in a.kodonkent)) return false
       if (q && !a.nev.toLowerCase().includes(q)) return false
       return true
     })
-  }, [osszesito, kereses, tipusSzuro, kodSzuro])
+    if (!mq) return eloszurt
+    const illik = (t: { megjegyzes: string | null }) => {
+      const talal = (t.megjegyzes ?? '').toLowerCase().includes(mq)
+      return megjegyzesMod === 'tartalmazza' ? talal : !talal
+    }
+    const eredmeny: typeof eloszurt = []
+    for (const a of eloszurt) {
+      const tetelek = a.tetelek.filter(illik)
+      if (tetelek.length === 0) continue
+      // Az adományozó a SZŰRT tételeivel + újraszámolt fő számokkal jelenik
+      // meg — a lista és a „látott sorok összege" azt mutatja, amit a szűrő
+      // ténylegesen kiválasztott, nem a teljes történetét.
+      eredmeny.push({
+        ...a,
+        tetelek,
+        osszesen: tetelek.reduce((s, t) => s + t.osszeg, 0),
+        alkalmak: tetelek.length,
+        keszpenz: tetelek.filter((t) => !t.banki).reduce((s, t) => s + t.osszeg, 0),
+        bank: tetelek.filter((t) => t.banki).reduce((s, t) => s + t.osszeg, 0),
+      })
+    }
+    // A szűrt összeg szerint újrarendezzük (a névtelen marad a végén).
+    eredmeny.sort((a, b) => {
+      if (a.tipus === 'nevtelen' && b.tipus !== 'nevtelen') return 1
+      if (b.tipus === 'nevtelen' && a.tipus !== 'nevtelen') return -1
+      return b.osszesen - a.osszesen
+    })
+    return eredmeny
+  }, [osszesito, kereses, tipusSzuro, kodSzuro, megjegyzesSzuro, megjegyzesMod])
 
   // A szűrt lista SAJÁT végösszege — a fejléc kártyái a TELJES időszakot mutatják,
   // ez pedig azt, amit a felhasználó éppen lát. A kettő keverése félrevezetne.
@@ -278,6 +313,28 @@ export function AdomanyozokBody({
                 <option key={k.kod} value={k.kod}>{k.kod} — {k.nev}</option>
               ))}
             </select>
+            {/* 2026-08-29 (Endre): megjegyzés-szűrő — pl. „emlékére" az
+                emlékadományokra; kizárva a többi különleges adományra. */}
+            <div className="flex items-center gap-1.5">
+              <select
+                aria-label="Megjegyzés-szűrő módja"
+                className="rounded-xl border border-slate-300 px-2 py-2 text-sm"
+                value={megjegyzesMod}
+                onChange={(e) => setMegjegyzesMod(e.target.value as 'tartalmazza' | 'kizarja')}
+                title="A megjegyzés-szűrő módja: a beírt szöveget TARTALMAZÓ tételek maradjanak, vagy épp azok essenek KI"
+              >
+                <option value="tartalmazza">Megjegyzés tartalmazza</option>
+                <option value="kizarja">Megjegyzés NEM tartalmazza</option>
+              </select>
+              <input
+                type="search"
+                className="w-40 rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                placeholder="pl. emlékére"
+                aria-label="Megjegyzés-szűrő szövege"
+                value={megjegyzesSzuro}
+                onChange={(e) => setMegjegyzesSzuro(e.target.value)}
+              />
+            </div>
             {onCsvExport && (
               <button
                 type="button"
