@@ -357,6 +357,66 @@ const payerSum = (r: EntryRow): number => (r.people ?? []).reduce((s, p) => s + 
 /** 2026-07-10 (S2-#1b): egy befizető sora a people[] listából — a hint-helperek közös típusa. */
 type PayerLike = EntryRow['people'][number]
 
+// ── 2026-08-30 (Endre jóváhagyott terve): befizető-MÁTRIX — több befizető × több év ──
+// EGY nyugtán. Az adat marad a lapos people[]-modell (bejegyzés = (befizető, év, összeg));
+// a mátrix CSAK nézet: sorok = befizetők (csoportok), oszlopok = évek. Így a mentés,
+// a /N iratszám-utótag, a járulék-hint (uid-kulcsú!) és a vázlat-mentés érintetlen.
+/** A befizető azonossága a mátrix-sorhoz: tag-id → jogi személy refId → normalizált név.
+ *  Névtelen bejegyzés a SAJÁT uid-ját kapja — két üres, új sor sosem olvadhat össze. */
+function payerKulcs(p: PayerLike): string {
+  if (p.id != null) return `id:${p.id}`
+  if (p.refId) return `ref:${p.refId}`
+  const nev = (p.name || '').trim().toLowerCase()
+  return nev ? `nev:${nev}` : `uid:${p.uid}`
+}
+/** Érvényes „melyik évre" érték — a mátrix minden bejegyzéstől megköveteli. */
+function matrixEv(s: string | undefined): number | null {
+  const y = Number((s ?? '').trim())
+  return Number.isFinite(y) && y > 1900 ? y : null
+}
+type MatrixCsoport = {
+  kulcs: string
+  base: PayerLike
+  cellak: Map<number, { p: PayerLike; idx: number }>
+  /** A sor-példány SAJÁT bejegyzéseinek uid-jai — a csoport-műveletek (név-átírás, törlés)
+   *  ERRE céloznak, nem a kulcsra: azonos kulcsú két sor-példánynál (pl. két azonos nevű
+   *  befizető) egy művelet így CSAK a saját sorát érinti, a másikét nem. */
+  uids: string[]
+}
+/** Csoportosítás mátrix-sorokká. Ütközésnél (ugyanaz a kulcs ugyanarra az évre kétszer)
+ *  ÚJ sor-példány nyílik — bejegyzés SOSEM tűnhet el a nézetből. Az `idx` a people[]
+ *  LAPOS indexe (az updatePayer/hint-lánc erre épül — nem szabad átszámozni). */
+function matrixCsoportok(people: PayerLike[]): MatrixCsoport[] {
+  const out: MatrixCsoport[] = []
+  people.forEach((p, idx) => {
+    const ev = matrixEv(p.evre)
+    if (ev == null) return // a kapu (isMatrixActive) érvénytelen évnél a klasszikus listát mutatja
+    const kulcs = payerKulcs(p)
+    const nevtelen = kulcs.startsWith('uid:')
+    let cs: MatrixCsoport | undefined
+    if (nevtelen) {
+      // Névtelenné vált bejegyzések (pl. a név törlése közben) NE essenek szét soronként:
+      // az utolsó csoporthoz csatlakozik, ha az is névtelen és nincs még cellája erre az
+      // évre — így a név visszagépelésekor a sor egyben újra-nevesíthető.
+      const utolso = out[out.length - 1]
+      if (utolso && utolso.kulcs.startsWith('uid:') && !utolso.cellak.has(ev)) cs = utolso
+    } else {
+      cs = out.find((c) => c.kulcs === kulcs && !c.cellak.has(ev))
+    }
+    if (!cs) {
+      cs = { kulcs, base: p, cellak: new Map(), uids: [] }
+      out.push(cs)
+    }
+    cs.cellak.set(ev, { p, idx })
+    cs.uids.push(p.uid)
+  })
+  return out
+}
+/** A mátrix év-oszlopai növekvő sorrendben. */
+function matrixEvek(people: PayerLike[]): number[] {
+  return [...new Set(people.map((p) => matrixEv(p.evre)).filter((y): y is number => y != null))].sort((a, b) => a - b)
+}
+
 /** 2026-07-10 (S2-#1b): a tagra lekért éves járulék (a BEÁLLÍTOTT kedvezményekkel, a rögzítés
  *  dátuma szerint) — az összeg-mező melletti „Ajánlott összeg" jelzés adata. A reqKey a
  *  (tag, év, dátum) hármast kódolja: csak a JELENLEGI állapothoz tartozó hint jelenik meg. */
@@ -365,21 +425,29 @@ type JarulekHint = { reqKey: string; expected: number; paid: number; debt: numbe
    *  pl. 'Időszaki kedvezmény (07-01)'. Üres = a teljes éves díj. */
   szabalyok: string[] }
 
-/** 2026-08-15 (23. pont): a „Több évre fizet" mód PartnerCell-propja. Csak egyházfenntartói
- *  járulék jogcímű bevétel-soron adjuk át; `active` = a panel látszik (év-chipek + évenkénti
- *  összegek), különben a kapcsoló-pill jelenik meg (1 regisztrált befizetőnél). */
+/** 2026-08-15 (23. pont) + 2026-08-30 (mátrix): a „Több évre fizet" mód PartnerCell-propja.
+ *  Csak egyházfenntartói járulék jogcímű bevétel-soron adjuk át; `active` = a befizető-mátrix
+ *  látszik (sorok = befizetők, oszlopok = évek), különben a kapcsoló-pill jelenik meg. */
 type MultiYearProps = {
   active: boolean
   /** A felajánlott év-chipek (az utolsó ~10 év) — a már kiválasztott évekkel uniózva jelenik meg. */
   yearChips: number[]
   onEnable: () => void
-  /** Vissza az egy-éves módba: csak az első kijelölt év-bejegyzés marad meg. */
+  /** Vissza az egy-éves módba: befizetőnként csak az ELSŐ év-bejegyzés marad meg. */
   onDisable: () => void
-  /** A befizető leválasztása: üres, szabad-szöveges sor marad (minden év-bejegyzés törlődik). */
-  onDetach: () => void
-  /** Név-átírás a több-éves módban = másik személy → biztonságos visszaesés egy-éves módba. */
-  onEditName: (name: string) => void
+  /** Egy év oszlopa ki/be: hozzáadásnál MINDEN befizető kap egy üres cellát (az auto-kitöltés
+   *  tölti az adott évi járulékkal); kivételnél az év MINDEN bejegyzése törlődik. */
   onToggleYear: (year: number) => void
+  /** Egy mátrix-SOR-PÉLDÁNY bejegyzéseinek közös azonosság-mezői — uid-listára célzott
+   *  (azonos kulcsú másik sor-példányt SOSEM érinthet). */
+  onUpdateGroup: (uids: string[], patch: Partial<{ id: number | null; name: string; refId: string | null; kind: CombinedPartnerKind }>) => void
+  /** Egy befizető sor-példányának eltávolítása — csak a SAJÁT bejegyzései (uid szerint). */
+  onRemoveGroup: (uids: string[]) => void
+  /** Üres cella kitöltése: új bejegyzés a csoport TELJES azonosságával az adott évre. */
+  onAddCell: (base: PayerLike, year: number, osszeg: string) => void
+  /** A felhasználó által kiürített cella jelölése (ures=true) / a jelölés törlése — az
+   *  auto-kitöltés a jelölt cellába SOHA nem ír vissza („üres = arra az évre nem fizet"). */
+  onCellaUrites: (uid: string, ures: boolean) => void
 }
 
 const inputClass =
@@ -461,6 +529,28 @@ export function CombinedEntryBody({
     !!(r.amount.trim() || r.partner.trim() || (r.people && r.people.length > 0) || r.categoryId !== '' || r.iratszam.trim() || r.megjegyzes.trim())
   const anyContent = (rs: EntryRow[]) => rs.some(rowHasContent)
 
+  // ── 2026-08-30 (Endre kérése): FANTOM-SOR — mindig legyen alul egy üres új sor ──
+  // Amint a felhasználó az utolsó sorba írni kezd, magától megjelenik a következő üres
+  // sor — nem kell az „Új sor" gombra kattintani. A fantom-jelleghez a rowHasContent-nél
+  // TÁGABB érintettség kell (a docType/gyulekezetiSzam gépelése is számítson), különben az
+  // irattípussal kezdő felhasználó nem kapna új sort. Az üres sort a mentés (rowValidIn)
+  // és a vázlat-mentés (rowHasContent) amúgy is átugorja, ezért mellékhatása nincs.
+  const fantomErintett = (r: EntryRow) => rowHasContent(r) || !!r.docType.trim() || !!r.gyulekezetiSzam.trim()
+  useEffect(() => {
+    const rows = tab === 'income' ? incomeRows : expenseRows
+    const utolso = rows[rows.length - 1]
+    if (utolso && !fantomErintett(utolso)) return
+    const setter = tab === 'income' ? setIncomeRows : setExpenseRows
+    setter((cur) => {
+      const u = cur[cur.length - 1]
+      if (u && !fantomErintett(u)) return cur // közben már van üres sor a végén
+      const r = newRow(currentYear)
+      if (u?.datum) r.datum = u.datum // az új sor az előző dátumát örökli (mint az „Új sor" gomb)
+      return [...cur, r]
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomeRows, expenseRows, tab, currentYear])
+
   function clearDraft() {
     if (draftStorageKey && typeof window !== 'undefined') {
       try { window.localStorage.removeItem(draftStorageKey) } catch { /* ignore */ }
@@ -490,6 +580,10 @@ export function CombinedEntryBody({
             name: p.name ?? '',
             osszeg: typeof (p as { osszeg?: unknown }).osszeg === 'string' ? (p as { osszeg: string }).osszeg : '',
             evre: typeof (p as { evre?: unknown }).evre === 'string' ? (p as { evre: string }).evre : (r.evre ?? ''),
+            // 2026-08-30: a refId/kind (jogi személy partner-FK) is túléli a vázlatot — korábban
+            // a migráció némán elejtette, és a felső szintű befizető FK nélkül mentődött volna.
+            refId: typeof (p as { refId?: unknown }).refId === 'string' ? (p as { refId: string }).refId : null,
+            kind: typeof (p as { kind?: unknown }).kind === 'string' ? ((p as { kind: string }).kind as CombinedPartnerKind) : 'szemely',
           }))
           return { ...r, people }
         })
@@ -500,6 +594,13 @@ export function CombinedEntryBody({
         if (exp.length) setExpenseRows(exp)
         if (d.tab === 'income' || d.tab === 'expense') setTab(d.tab)
         setDraftRestoredAt(d.savedAt || '')
+        // 2026-08-30 (mátrix-magvetés): a több-éves sor a VISSZAÁLLÍTOTT ADATBÓL éled fel —
+        // itt (és csak itt) aktiválunk automatikusan, hogy élő gépelés közben a nézet sose
+        // váltson át magától a kéz alól (az isMatrixActive a kapcsolóból olvas).
+        const matrixMagok = inc
+          .filter((r) => new Set((r.people ?? []).map((p) => matrixEv(p.evre)).filter((y) => y != null)).size >= 2)
+          .map((r) => r.id)
+        if (matrixMagok.length > 0) setMultiYearRowIds((s) => new Set([...s, ...matrixMagok]))
       }
     } catch { /* sérült vázlat — kihagyjuk */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -674,6 +775,11 @@ export function CombinedEntryBody({
   // dátum-váltáskor (kedvezmény-ablak határa!) újraszámol.
   const jarulekReqRef = useRef<Map<string, string>>(new Map()) // payer.uid → `${id}:${year}:${datum}` (már lekérve)
   const [jarulekHints, setJarulekHints] = useState<Map<string, JarulekHint>>(() => new Map())
+  /** 2026-08-30 (mátrix): a felhasználó által SZÁNDÉKOSAN kiürített cellák (uid-k). Az
+   *  „üres cella = arra az évre nem fizet" ígéretet az auto-kitöltés nem írhatja felül:
+   *  dátum-/tagváltás utáni újraszámoláskor a kiürített mezőbe NEM írunk vissza összeget
+   *  (a hint attól még frissül). Új érték gépelése törli a jelölést. */
+  const userUresRef = useRef<Set<string>>(new Set())
   useEffect(() => {
     if (tab !== 'income' || !onGetExpectedJarulek) return
     for (const row of incomeRows) {
@@ -707,6 +813,7 @@ export function CombinedEntryBody({
             })
             if (res.debt > 0) {
               if (!wasEmpty) return // kézi összeg — a hint jelzi az eltérést, nem írunk felül
+              if (userUresRef.current.has(payerUid)) return // szándékosan kiürített cella — nem töltjük vissza
               const amount = String(res.debt)
               setIncomeRows((cur) => cur.map((r) => (r.id !== rowId ? r : {
                 ...r,
@@ -788,6 +895,43 @@ export function CombinedEntryBody({
     return (
       <span className="mt-0.5 inline-flex text-[10px] text-slate-400">
         {h.expected <= 0 ? 'Felmentett — nincs járulék erre az évre.' : `A(z) ${Number(p.evre || row.evre)}. évi járulék rendezve.`}
+      </span>
+    )
+  }
+
+  /** 2026-08-30 (mátrix): TÖMÖR járulék-jelzés egy mátrix-cellához — a teljes hint nem fér el
+   *  az ~5,5 rem széles cella alatt; a részletek (szabály neve, hol írható át) a title-ben. */
+  function renderJarulekHintKompakt(row: EntryRow, p: PayerLike, idx: number): ReactNode {
+    const h = jarulekHintFor(row, p)
+    if (!h) return null
+    const entered = Number(p.osszeg) || 0
+    if (h.debt > 0) {
+      const cimke = h.szabalyok.length > 0 ? h.szabalyok.join(' + ') : 'teljes éves díj'
+      if (entered === h.debt) {
+        return (
+          <span className="mt-0.5 block text-right text-[9.5px] font-medium text-emerald-600" title={`Ajánlott összeg (${cimke})`}>
+            ✓ ajánlott
+          </span>
+        )
+      }
+      return (
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => updatePayer(row.id, idx, { osszeg: String(h.debt) })}
+          className="mt-0.5 block w-full text-right text-[9.5px] font-semibold text-emerald-700 underline decoration-dotted underline-offset-2 transition hover:text-emerald-900"
+          title={`Ajánlott: ${formatRon(h.debt)} RON (${cimke}) — kattints az átvételhez. Az eltérő összeg megengedett (pl. részletfizetés).`}
+        >
+          ↳ {formatRon(h.debt)}
+        </button>
+      )
+    }
+    return (
+      <span
+        className="mt-0.5 block text-right text-[9.5px] text-slate-400"
+        title={h.expected <= 0 ? 'Felmentett — nincs járulék erre az évre.' : 'Az évi járulék már rendezve.'}
+      >
+        {h.expected <= 0 ? 'felmentett' : 'rendezve'}
       </span>
     )
   }
@@ -982,14 +1126,14 @@ export function CombinedEntryBody({
     )
   }
 
-  // ── 2026-08-15 (Endre, 23. pont): „Több évre fizet" — egy befizető TÖBB ÉV járuléka ──
-  // EGY nyugtán. A megvalósítás a MEGLÉVŐ people[] almenü-modellre épül: minden kiválasztott
-  // év = egy people[]-bejegyzés UGYANAZZAL a regisztrált taggal (id+név), saját `evre`+`osszeg`
-  // mezővel. Így a teljes lánc VÁLTOZATLANUL működik: az auto-kitöltés (onGetExpectedJarulek —
-  // évenként az ADOTT ÉV még fizetendő járuléka), a mentés (évenként külön befizetés-sor,
-  // fizetettev helyesen) és a nyugtaszám-kezelés (közös nyugta, kerületi iratszám /N utótaggal).
-  /** Mely sorokon kapcsolta BE a felhasználó a több-éves módot (UI-állapot; 2+ évnél az
-   *  adatból is levezethető — lásd isSamePersonYears —, ezért vázlat-visszaállítás után is él). */
+  // ── 2026-08-15 (Endre, 23. pont) + 2026-08-30 (mátrix): „Több évre fizet" ──
+  // EGY nyugtán TÖBB befizető × TÖBB év. A megvalósítás a MEGLÉVŐ people[] almenü-modellre
+  // épül: minden (befizető, év) cella = egy people[]-bejegyzés saját `evre`+`osszeg` mezővel.
+  // Így a teljes lánc VÁLTOZATLANUL működik: az auto-kitöltés (onGetExpectedJarulek —
+  // évenként az ADOTT ÉV még fizetendő járuléka, uid-kulcsú hint-cache), a mentés (cellánként
+  // külön befizetés-sor, fizetettev helyesen) és a nyugtaszám (közös nyugta, /N utótag).
+  /** Mely sorokon kapcsolta BE a felhasználó a mátrixot (UI-állapot; 2+ évnél az adatból
+   *  is levezethető — lásd isMatrixActive —, ezért vázlat-visszaállítás után is él). */
   const [multiYearRowIds, setMultiYearRowIds] = useState<Set<string>>(() => new Set())
   /** Az év-chipek: az utolsó ~10 év. A NÉZETT pénzügyi év ÉS a mai év közül a nagyobbtól
    *  visszafelé — régebbi évet nézve a folyó évre is fizethessen előre. */
@@ -997,89 +1141,156 @@ export function CombinedEntryBody({
     const top = Math.max(Number.isFinite(currentYear) ? currentYear : 0, new Date().getFullYear())
     return Array.from({ length: 10 }, (_, i) => top - 9 + i)
   }, [currentYear])
-  /** A sor ADATA szerint több-éves-e: 2+ bejegyzés, MIND ugyanaz a REGISZTRÁLT tag. */
-  const isSamePersonYears = (r: EntryRow): boolean => {
+  /** Aktív-e a befizető-mátrix. FAIL-CLOSED: csak akkor, ha MINDEN bejegyzésnek érvényes
+   *  éve van — különben a klasszikus lista mutat mindent (bejegyzés nem tűnhet el a nézetből).
+   *  A kapcsolót a felhasználó (pill/chip) VAGY a vázlat-visszaállítás magvetése állítja —
+   *  élő gépelés közben SOSEM vált át magától (az Év-mező nem tűnhet el a kéz alól). */
+  const isMatrixActive = (r: EntryRow): boolean => {
     const ps = r.people ?? []
-    if (ps.length < 2) return false
-    const id0 = ps[0].id
-    return id0 != null && ps.every((p) => p.id === id0)
+    if (ps.length === 0) return false
+    if (!ps.every((p) => matrixEv(p.evre) != null)) return false
+    return multiYearRowIds.has(r.id)
   }
-  /** Aktív-e a több-éves panel: az adatból (2+ év) VAGY a kapcsolóból (még csak 1 év). */
-  const isMultiYearActive = (r: EntryRow): boolean => {
-    if (isSamePersonYears(r)) return true
-    const ps = r.people ?? []
-    return multiYearRowIds.has(r.id) && ps.length === 1 && ps[0].id != null
+  /** A mátrix people[]-sorrendje: befizető (első előfordulás) szerint, azon belül év szerint —
+   *  a mentett sorok (és a /N kerületi iratszám-utótag) determinisztikusan követik. Az év
+   *  nélküli bejegyzés a lista VÉGÉRE kerül, de SOSEM veszhet el (fail-closed rendezés). */
+  function matrixRendez(ps: PayerLike[]): PayerLike[] {
+    const rendezett = matrixCsoportok(ps).flatMap((cs) =>
+      [...cs.cellak.entries()].sort((a, b) => a[0] - b[0]).map(([, c]) => c.p),
+    )
+    if (rendezett.length === ps.length) return rendezett
+    const megvan = new Set(rendezett.map((p) => p.uid))
+    return [...rendezett, ...ps.filter((p) => !megvan.has(p.uid))]
   }
-  /** Több-éves mód BE — csak 1 regisztrált befizetőnél ajánljuk fel (a kapcsoló-pill). */
+  /** Mátrix BE — bármely (1+) befizetőnél: az érvénytelen év-mezőket a sor alapértelmezett
+   *  évére töltjük (a kapu minden bejegyzéstől érvényes évet követel). */
   function enableMultiYear(rowId: string) {
     setIncomeRows((cur) =>
       cur.map((r) => {
         if (r.id !== rowId) return r
         const ps = r.people ?? []
-        if (ps.length !== 1 || ps[0].id == null) return r
-        // A bázis-év mindenképp legyen kitöltve — az év-chip kijelölése ebből olvas.
-        const evre = (ps[0].evre || '').trim() || (r.evre || '').trim() || String(currentYear)
-        return evre === ps[0].evre ? r : { ...r, people: [{ ...ps[0], evre }] }
+        if (ps.length === 0) return r
+        const evreDefault =
+          ps.find((p) => matrixEv(p.evre) != null)?.evre ??
+          (matrixEv(r.evre) != null ? r.evre : String(currentYear))
+        return { ...r, people: ps.map((p) => (matrixEv(p.evre) != null ? p : { ...p, evre: evreDefault })) }
       }),
     )
     setMultiYearRowIds((s) => { const n = new Set(s); n.add(rowId); return n })
   }
-  /** Több-éves mód KI: csak az ELSŐ év-bejegyzés marad (összegével); a többi év-sor törlődik.
-   *  `typedName` (név-átírás): a megmaradó bejegyzés szabad-szövegessé válik (id=null). */
-  function disableMultiYear(rowId: string, typedName?: string) {
+  /** Mátrix KI: sor-példányonként csak a LEGKORÁBBI év bejegyzése marad (összegével) —
+   *  azonos kulcsú második példány (pl. két részlet) bejegyzése is megmarad, és az
+   *  érvénytelen évű bejegyzéshez sem nyúlunk (bejegyzés nem veszhet el némán). */
+  function disableMultiYear(rowId: string) {
     setIncomeRows((cur) =>
       cur.map((r) => {
         if (r.id !== rowId) return r
         const ps = r.people ?? []
-        if (ps.length === 0) return r
-        const first = typedName != null ? { ...ps[0], name: typedName, id: null, refId: null, kind: 'szemely' as const } : ps[0]
-        return { ...r, people: [first] }
+        const tartott = new Set<string>()
+        for (const cs of matrixCsoportok(ps)) {
+          const legkisebbEv = Math.min(...cs.cellak.keys())
+          const cella = cs.cellak.get(legkisebbEv)
+          if (cella) tartott.add(cella.p.uid)
+        }
+        const people = ps.filter((p) => matrixEv(p.evre) == null || tartott.has(p.uid))
+        return people.length === ps.length ? r : { ...r, people }
       }),
     )
     setMultiYearRowIds((s) => { if (!s.has(rowId)) return s; const n = new Set(s); n.delete(rowId); return n })
   }
-  /** A befizető leválasztása több-éves módban: üres, szabad-szöveges sor marad. */
-  function detachMultiYear(rowId: string) {
-    setIncomeRows((cur) => cur.map((r) => (r.id === rowId ? { ...r, people: [], partner: '', amount: '' } : r)))
-    setMultiYearRowIds((s) => { if (!s.has(rowId)) return s; const n = new Set(s); n.delete(rowId); return n })
-  }
-  /** Egy év-chip ki-/bekapcsolása: bejegyzés hozzáadása/törlése ugyanazzal a taggal. Az ÚJ év
-   *  összege ÜRESEN indul → a meglévő auto-kitöltés (onGetExpectedJarulek) az ADOTT ÉV még
-   *  fizetendő járulékát írja bele; a kézzel már beírt összegekhez nem nyúlunk. */
+  /** Egy év-oszlop ki-/bekapcsolása. Hozzáadásnál MINDEN befizető (csoport) kap egy üres
+   *  bejegyzést az új évre → a meglévő auto-kitöltés (onGetExpectedJarulek) az ADOTT ÉV még
+   *  fizetendő járulékát írja bele; a kézzel már beírt összegekhez nem nyúlunk. Kivételnél
+   *  az év MINDEN bejegyzése törlődik (a fejléc/chip felirata figyelmeztet erre). */
   function toggleMultiYearYear(rowId: string, year: number) {
     setIncomeRows((cur) =>
       cur.map((r) => {
         if (r.id !== rowId) return r
         const ps = r.people ?? []
-        const base = ps[0]
-        if (!base || base.id == null) return r
-        const idx = ps.findIndex((p) => Number(p.evre) === year)
-        if (idx >= 0) {
-          if (ps.length === 1) return r // az utolsó kijelölt év nem vehető el
-          return { ...r, people: ps.filter((_, i) => i !== idx) }
+        const van = ps.some((p) => matrixEv(p.evre) === year)
+        if (van) {
+          const marad = ps.filter((p) => matrixEv(p.evre) !== year)
+          if (marad.length === 0) return r // az utolsó kijelölt év nem vehető el
+          return { ...r, people: marad }
         }
-        const added = { uid: crypto.randomUUID(), id: base.id, name: base.name, osszeg: '', evre: String(year) }
-        // Év szerint növekvő sorrend — a mentett sorok (és a kerületi /N utótag) is így követik egymást.
-        const people = [...ps, added].sort((a, b) => (Number(a.evre) || 0) - (Number(b.evre) || 0))
-        return { ...r, people }
+        const ujak: PayerLike[] = []
+        for (const cs of matrixCsoportok(ps)) {
+          // Névtelen (azonosság nélküli) sor NEM sokszorozódik évre — előbb nevet kap.
+          if (cs.kulcs.startsWith('uid:')) continue
+          if (cs.cellak.has(year)) continue
+          ujak.push({ uid: crypto.randomUUID(), id: cs.base.id, name: cs.base.name, refId: cs.base.refId ?? null, kind: cs.base.kind ?? 'szemely', osszeg: '', evre: String(year) })
+        }
+        if (ujak.length === 0) return r
+        return { ...r, people: matrixRendez([...ps, ...ujak]) }
       }),
     )
+  }
+  /** Egy mátrix-SOR-PÉLDÁNY bejegyzéseinek közös azonosság-mezői (név-átírás, tag-
+   *  beillesztés) — uid-listára célzott: azonos kulcsú MÁSIK sor-példányt nem érinthet.
+   *  Tag-CSERÉNÉL (új regisztrált id) az ELŐZŐ tag auto-kitöltött összegei ürülnek (a
+   *  hint-tel egyező összeg = automatikus volt), hogy az új tag hátraléka töltődhessen —
+   *  a kézzel beírt (eltérő) összeghez nem nyúlunk. */
+  function updatePayerGroup(rowId: string, uids: string[], patch: Partial<{ id: number | null; name: string; refId: string | null; kind: CombinedPartnerKind }>) {
+    const halmaz = new Set(uids)
+    setIncomeRows((cur) =>
+      cur.map((r) => {
+        if (r.id !== rowId) return r
+        return {
+          ...r,
+          people: (r.people ?? []).map((p) => {
+            if (!halmaz.has(p.uid)) return p
+            const uj = { ...p, ...patch }
+            if (patch.id != null && patch.id !== p.id) {
+              const h = jarulekHints.get(p.uid)
+              if (h && Number(p.osszeg) === h.debt) uj.osszeg = ''
+            }
+            return uj
+          }),
+        }
+      }),
+    )
+  }
+  /** Egy befizető sor-példányának eltávolítása — CSAK a saját (uid szerinti) bejegyzései. */
+  function removePayerGroup(rowId: string, uids: string[]) {
+    const halmaz = new Set(uids)
+    setIncomeRows((cur) =>
+      cur.map((r) => {
+        if (r.id !== rowId) return r
+        const people = (r.people ?? []).filter((p) => !halmaz.has(p.uid))
+        if (people.length === (r.people ?? []).length) return r
+        // Az utolsó befizető is elment → üres, szabad-szöveges sor marad (mint a leválasztásnál).
+        return people.length === 0 ? { ...r, people, partner: '', amount: '' } : { ...r, people }
+      }),
+    )
+  }
+  /** Üres mátrix-cella kitöltése: új bejegyzés a csoport TELJES azonosságával (id + refId +
+   *  kind — jogi személynél a partner-FK nem veszhet el) az adott évre. */
+  function addPayerCell(rowId: string, base: PayerLike, year: number, osszeg: string) {
+    const uj: PayerLike = { uid: crypto.randomUUID(), id: base.id, name: base.name, refId: base.refId ?? null, kind: base.kind ?? 'szemely', osszeg, evre: String(year) }
+    setIncomeRows((cur) => cur.map((r) => (r.id === rowId ? { ...r, people: matrixRendez([...(r.people ?? []), uj]) } : r)))
   }
   /** A PartnerCell „Több évre fizet" propja — CSAK egyházfenntartás-jogcímű bevétel-soron. */
   function multiYearFor(r: EntryRow): MultiYearProps | undefined {
     if (tab !== 'income' || !isChurchMaintenance(r.categoryId)) return undefined
     const ps = r.people ?? []
-    const active = isMultiYearActive(r)
-    const offer = ps.length === 1 && ps[0].id != null
+    const active = isMatrixActive(r)
+    // A pill (offer): 1+ befizető, MINDEGYIKNEK van azonossága (tag, jogi személy vagy név) —
+    // névtelen bejegyzésnél nincs mit több évre szorozni.
+    const offer = ps.length >= 1 && ps.every((p) => p.id != null || !!p.refId || p.name.trim() !== '')
     if (!active && !offer) return undefined
     return {
       active,
       yearChips: multiYearChoices,
       onEnable: () => enableMultiYear(r.id),
       onDisable: () => disableMultiYear(r.id),
-      onDetach: () => detachMultiYear(r.id),
-      onEditName: (name: string) => disableMultiYear(r.id, name),
       onToggleYear: (year: number) => toggleMultiYearYear(r.id, year),
+      onUpdateGroup: (uids, patch) => updatePayerGroup(r.id, uids, patch),
+      onRemoveGroup: (uids) => removePayerGroup(r.id, uids),
+      onAddCell: (base, year, osszeg) => addPayerCell(r.id, base, year, osszeg),
+      onCellaUrites: (uid, ures) => {
+        if (ures) userUresRef.current.add(uid)
+        else userUresRef.current.delete(uid)
+      },
     }
   }
 
@@ -1826,7 +2037,10 @@ export function CombinedEntryBody({
                     <SearchableSelect options={categoryOptions} value={r.categoryId} onChange={(id) => updateRow(r.id, { categoryId: id })} />
                     {renderBankSelect(r)}
                   </td>
-                  <td className="px-2 py-1.5">
+                  {/* w-full: a partner-oszlop a RUGALMAS oszlop — a mátrix w-0/min-w-full
+                      trükkje csak így kap valós szélességet (különben a cella összeesne,
+                      és a belső görgető használhatatlanul keskeny lenne). */}
+                  <td className="w-full px-2 py-1.5">
                     {dir ? (
                       <span className="text-xs text-slate-400">—</span>
                     ) : (
@@ -1850,7 +2064,9 @@ export function CombinedEntryBody({
                         updatePayer={updatePayer}
                         removePayer={removePayer}
                         focusPayerUid={focusPayerUid}
+                        onFocusConsumed={() => setFocusPayerUid(null)}
                         renderPayerHint={renderJarulekHint}
+                        renderPayerHintCompact={renderJarulekHintKompakt}
                         multiYear={multiYearFor(r)}
                       />
                     )}
@@ -1863,9 +2079,9 @@ export function CombinedEntryBody({
                         // 2026-08-15 (23. pont): több-éves sornál a címke is ezt mondja ki.
                         <span
                           className="text-[11px] text-slate-400"
-                          title={isMultiYearActive(r) ? 'Évenként külön tétel — a „Több évre fizet" panelben' : 'Befizetőnként külön év — az almenüben'}
+                          title={isMatrixActive(r) ? 'Évenként külön tétel — a befizető-mátrixban' : 'Befizetőnként külön év — az almenüben'}
                         >
-                          {isMultiYearActive(r) ? 'több évre' : 'tagonként'}
+                          {isMatrixActive(r) ? 'több évre' : 'tagonként'}
                         </span>
                       ) : (
                         <input
@@ -1962,7 +2178,10 @@ export function CombinedEntryBody({
                 )}
                 {!dir && (
                   <>
-                    <label className="col-span-2 text-xs text-slate-500">{partnerLabel}
+                    {/* MOBIL-PARTNERCELL-DIV: szándékosan NEM label-elem — a label-koppintás
+                        az első gombot (mátrixban: Kikapcsol) aktiválná, ami adatot dobna el. */}
+                    <div className="col-span-2 text-xs text-slate-500">
+                      <span className="block">{partnerLabel}</span>
                       <PartnerCell
                         row={r}
                         mode={tab}
@@ -1983,10 +2202,12 @@ export function CombinedEntryBody({
                         updatePayer={updatePayer}
                         removePayer={removePayer}
                         focusPayerUid={focusPayerUid}
+                        onFocusConsumed={() => setFocusPayerUid(null)}
                         renderPayerHint={renderJarulekHint}
+                        renderPayerHintCompact={renderJarulekHintKompakt}
                         multiYear={multiYearFor(r)}
                       />
-                    </label>
+                    </div>
                     <label className="text-xs text-slate-500">Irattípus
                       <input
                         className={inputClass}
@@ -2202,7 +2423,9 @@ function PartnerCell({
   updatePayer,
   removePayer,
   focusPayerUid,
+  onFocusConsumed,
   renderPayerHint,
+  renderPayerHintCompact,
   multiYear,
 }: {
   row: EntryRow
@@ -2225,9 +2448,14 @@ function PartnerCell({
   removePayer: (rowId: string, idx: number) => void
   /** #5: az újonnan hozzáadott befizető uid-je — annak NÉV-mezője fókuszt kap. */
   focusPayerUid?: string | null
+  /** 2026-08-30: az autofókusz EGYSZERI — megtörténte után a szülő nullázza a focusPayerUid-ot,
+   *  hogy egy későbbi sor-remount ne lophassa a fókuszt a név-mezőbe (id/refId-nullázás!). */
+  onFocusConsumed?: () => void
   /** 2026-07-10 (S2-#1b): befizetőnkénti „Ajánlott összeg" jelzés a többfizetős almenüben. */
   renderPayerHint?: (row: EntryRow, p: PayerLike, idx: number) => ReactNode
-  /** 2026-08-15 (23. pont): „Több évre fizet" — csak egyházfenntartás-jogcímű bevétel-soron. */
+  /** 2026-08-30 (mátrix): tömör járulék-jelzés egy mátrix-cella alá. */
+  renderPayerHintCompact?: (row: EntryRow, p: PayerLike, idx: number) => ReactNode
+  /** 2026-08-15 (23. pont) + 2026-08-30: „Több évre fizet" mátrix — csak egyházfenntartás-jogcímen. */
   multiYear?: MultiYearProps
 }) {
   // mode szerinti kereső-függvény: bevétel → tag-keresés; kiadás → korábbi partnerek (névlista).
@@ -2256,61 +2484,54 @@ function PartnerCell({
   const sum = people.reduce((s, p) => s + (Number(p.osszeg) || 0), 0)
   const isMulti = mode === 'income' && people.length >= 2
 
-  // ── 2026-08-15 (23. pont): „Több évre fizet" — egy tag, több év EGY nyugtán ──────────
-  // A generikus többfizetős almenü HELYETT év-választó chipek + évenként szerkeszthető,
-  // automatikusan előtöltött összeg. Az adat ugyanaz a people[]-modell (év = bejegyzés),
-  // ezért a mentés/nyugtaszám-lánc érintetlen.
+  // ── MATRIX-NEZET-KEZDET (2026-08-30, Endre jóváhagyott terve): befizető-mátrix ──
+  // Több befizető × több év EGY nyugtán: sorok = befizetők, oszlopok = évek. Endre kérése:
+  // „ha 10 évet fizet… akkor is szépen átláthatóan férjen el minden" → a rács SAJÁT vízszintes
+  // görgetőben ül, a Befizető-oszlop balra, az Összesen jobbra RAGAD — görgetve is látszik,
+  // ki mennyit fizet. Üres cella = arra az évre nem fizet (nem mentődik). Az adat ugyanaz a
+  // lapos people[]-modell — a mátrix csak nézet, a mentés/nyugtaszám-lánc érintetlen.
   if (multiYear?.active && people.length >= 1) {
-    const base = people[0]
-    const selectedYears = new Set(people.map((p) => Number(p.evre)).filter((y) => Number.isFinite(y) && y > 1900))
+    const csoportok = matrixCsoportok(people)
+    const evek = matrixEvek(people)
     // A chip-lista az utolsó ~10 év + a már kiválasztott (akár régebbi) évek uniója.
     const chips = [...multiYear.yearChips]
-    selectedYears.forEach((y) => { if (!chips.includes(y)) chips.push(y) })
+    evek.forEach((y) => { if (!chips.includes(y)) chips.push(y) })
     chips.sort((a, b) => a - b)
-    const missing = people.some((p) => !(Number(p.osszeg) > 0))
+    const evOsszeg = (ev: number) => csoportok.reduce((s, cs) => s + (Number(cs.cellak.get(ev)?.p.osszeg) || 0), 0)
+    const tobbSoros = csoportok.length >= 2
+    // A sor kulcsa a csoport STABIL azonossága + példány-sorszám — NEM a base uid-ja:
+    // korábbi év cellájának kitöltésekor a rendezés új base-t adna, és a sor remountolna
+    // (fókuszvesztés az első leütés után). Azonos kulcsú második példány #1-et kap.
+    const peldanySzam = new Map<string, number>()
+    const sorok = csoportok.map((cs) => {
+      const n = peldanySzam.get(cs.kulcs) ?? 0
+      peldanySzam.set(cs.kulcs, n + 1)
+      return { cs, sorKulcs: `${cs.kulcs}#${n}` }
+    })
     return (
-      <div className="relative space-y-1.5">
-        <div className="flex items-center gap-1">
-          <div className="min-w-0 flex-1">
-            <PayerNameSearch
-              value={base.name}
-              linked={base.id != null || !!base.refId}
-              onSearch={searchFn}
-              placeholder="Befizető neve"
-              // Név-átírás = másik személy → biztonságos visszaesés az egy-éves módba.
-              onType={(t) => multiYear.onEditName(t)}
-              onPick={(h) => updatePayer(row.id, 0, payerFromHit(h))}
-            />
-          </div>
-          <button
-            type="button"
-            aria-label="Befizető leválasztása"
-            title="Befizető leválasztása (a kijelölt évek is törlődnek)"
-            className="flex h-9 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
-            onClick={multiYear.onDetach}
-          >
-            <Trash2 className="size-4" />
-          </button>
-        </div>
+      // w-0 + min-w-full: a mátrix a KÜLSŐ (auto-elrendezésű) tétel-táblázat cellájában ül —
+      // enélkül a belső min-w-max kinyomná a cellát, a külső tábla szétesne, és a belső
+      // görgető/sticky SOHA nem aktiválódna (10 évnél ez Endre fő kérése).
+      <div className="relative w-0 min-w-full space-y-1.5">
         <div className="overflow-visible rounded-lg border border-emerald-200 bg-white shadow-sm">
           <div className="flex items-center justify-between gap-2 border-b border-emerald-100 bg-emerald-50/70 px-2.5 py-1.5">
             <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-900">
               <CalendarRange className="size-3.5 shrink-0 text-emerald-600" aria-hidden />
-              Több évre fizet — jelöld ki az éveket
+              Több évre fizet — {csoportok.length} befizető × {evek.length} év
             </span>
             <button
               type="button"
               onClick={multiYear.onDisable}
               className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium text-emerald-700/70 transition hover:bg-emerald-100"
-              title="Vissza az egy-éves rögzítéshez (csak az első kijelölt év marad meg)"
+              title="Vissza az egy-éves rögzítéshez (befizetőnként csak az első év marad meg)"
             >
               Kikapcsol
             </button>
           </div>
           <div className="flex flex-wrap gap-1 px-2.5 py-2">
             {chips.map((y) => {
-              const on = selectedYears.has(y)
-              const last = on && people.length === 1
+              const on = evek.includes(y)
+              const last = on && evek.length === 1
               return (
                 <button
                   key={y}
@@ -2322,8 +2543,8 @@ function PartnerCell({
                     last
                       ? 'Legalább egy évnek kijelölve kell maradnia'
                       : on
-                        ? 'Év kivétele'
-                        : 'Év hozzáadása — az összeg az adott évi járulékkal töltődik ki'
+                        ? 'Év kivétele — az oszlop MINDEN összege törlődik'
+                        : 'Év hozzáadása — minden befizető kap egy cellát, az összeg az adott évi járulékkal töltődik ki'
                   }
                   className={`rounded-full border px-2.5 py-1 text-xs font-semibold tabular-nums transition ${
                     on
@@ -2336,47 +2557,169 @@ function PartnerCell({
               )
             })}
           </div>
-          <div>
-            {people.map((p, i) => {
-              const zero = !(Number(p.osszeg) > 0)
-              const hint = renderPayerHint?.(row, p, i)
-              return (
-                <div key={p.uid} className="border-t border-slate-100 px-2.5 py-1.5 odd:bg-slate-50/40">
-                  <div className="flex items-center gap-2">
-                    <span className="w-16 shrink-0 text-xs font-semibold tabular-nums text-slate-600">
-                      {(p.evre || '').trim() ? `${p.evre}. év` : '— év'}
-                    </span>
-                    <input
-                      className={`${inputClass} h-8 flex-1 text-right tabular-nums ${zero ? 'border-amber-300 bg-amber-50/40' : ''}`}
-                      type="number"
-                      min={0}
-                      step={0.01}
-                      value={p.osszeg}
-                      placeholder="auto"
-                      title={`A(z) ${p.evre}. évre fizetett összeg — automatikusan az adott évi járulékkal töltődik, de átírható`}
-                      onChange={(e) => updatePayer(row.id, i, { osszeg: e.target.value })}
-                    />
-                  </div>
-                  {hint && <div className="flex justify-end pt-0.5">{hint}</div>}
-                </div>
-              )
-            })}
+          {/* A RÁCS — 10+ évnél vízszintesen görgethető, a szélső oszlopok ragadnak. */}
+          <div className="overflow-x-auto border-t border-emerald-100">
+            <table className="w-full min-w-max border-collapse text-xs">
+              <thead>
+                <tr>
+                  {/* Mobilon keskenyebb név-oszlop, és az Összesen csak sm-től ragad —
+                      különben a két ragadó fal közt egyetlen év-cella sem férne el (375px). */}
+                  <th className="sticky left-0 z-10 min-w-[7rem] bg-emerald-50 px-2.5 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide text-emerald-700/80 sm:min-w-[11rem]">
+                    Befizető
+                  </th>
+                  {evek.map((ev) => (
+                    <th key={ev} className="min-w-[4.5rem] bg-emerald-50/60 px-2 py-1.5 text-right text-[11px] font-semibold tabular-nums text-emerald-900 sm:min-w-[5.5rem]">
+                      <span className="inline-flex items-center gap-1">
+                        {ev}
+                        {evek.length > 1 && (
+                          <button
+                            type="button"
+                            aria-label={`A(z) ${ev}. év oszlopának törlése`}
+                            title="Az év oszlopa és MINDEN benne lévő összeg törlődik"
+                            className="rounded px-0.5 text-[10px] font-normal text-emerald-700/50 transition hover:bg-rose-50 hover:text-rose-600"
+                            onClick={() => multiYear.onToggleYear(ev)}
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </span>
+                    </th>
+                  ))}
+                  <th className="z-10 bg-emerald-50 px-2.5 py-1.5 text-right text-[10px] font-semibold uppercase tracking-wide text-emerald-700/80 sm:sticky sm:right-0">
+                    Összesen
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorok.map(({ cs, sorKulcs }) => {
+                  const sorOsszeg = [...cs.cellak.values()].reduce((s, c) => s + (Number(c.p.osszeg) || 0), 0)
+                  const azonositott = cs.base.id != null || !!cs.base.refId || cs.base.name.trim() !== ''
+                  return (
+                    <tr key={sorKulcs}>
+                      <td className="sticky left-0 z-10 min-w-[7rem] border-b border-slate-100 bg-white px-2 py-1 sm:min-w-[11rem]">
+                        <div className="flex items-center gap-1">
+                          <div className="min-w-0 flex-1">
+                            <PayerNameSearch
+                              value={cs.base.name}
+                              linked={cs.base.id != null || !!cs.base.refId}
+                              onSearch={searchFn}
+                              placeholder="Befizető neve"
+                              onType={(t) => multiYear.onUpdateGroup(cs.uids, { name: t, id: null, refId: null, kind: 'szemely' })}
+                              onPick={(h) => multiYear.onUpdateGroup(cs.uids, payerFromHit(h))}
+                              autoFocus={[...cs.cellak.values()].some((c) => c.p.uid === focusPayerUid)}
+                              onAutoFocused={onFocusConsumed}
+                              showUnlinkedBadge
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            aria-label="Befizető törlése"
+                            title="Befizető törlése — minden évével együtt"
+                            className="flex h-8 w-6 shrink-0 items-center justify-center rounded text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+                            onClick={() => multiYear.onRemoveGroup(cs.uids)}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                      {evek.map((ev) => {
+                        const cella = cs.cellak.get(ev)
+                        return (
+                          <td key={`${cs.kulcs}:${ev}`} className="border-b border-slate-100 px-1.5 py-1 align-top">
+                            <input
+                              className={`${inputClass} h-8 w-[4.5rem] text-right tabular-nums sm:w-[5.5rem]`}
+                              type="number"
+                              min={0}
+                              step={0.01}
+                              value={cella?.p.osszeg ?? ''}
+                              placeholder="—"
+                              disabled={!cella && !azonositott}
+                              title={
+                                !cella && !azonositott
+                                  ? 'Előbb írd be a befizető nevét'
+                                  : `${cs.base.name || 'A befizető'} — ${ev}. évi összeg (üresen hagyva: erre az évre nem fizet)`
+                              }
+                              onChange={(e) => {
+                                const v = e.target.value
+                                if (cella) {
+                                  // A kiürített cella jelölést kap: az auto-kitöltés (dátum-/
+                                  // tagváltás után se) nem töltheti vissza — „üres = nem fizet".
+                                  multiYear.onCellaUrites(cella.p.uid, v === '')
+                                  updatePayer(row.id, cella.idx, { osszeg: v })
+                                } else if (v !== '') {
+                                  multiYear.onAddCell(cs.base, ev, v)
+                                }
+                              }}
+                            />
+                            {cella && renderPayerHintCompact?.(row, cella.p, cella.idx)}
+                          </td>
+                        )
+                      })}
+                      <td className={`z-10 border-b border-slate-100 bg-white px-2.5 py-1 text-right font-semibold tabular-nums sm:sticky sm:right-0 ${sorOsszeg > 0 ? 'text-emerald-900' : 'text-amber-600'}`}>
+                        <span title={sorOsszeg > 0 ? undefined : 'Minden cella üres — ez a befizető nem mentődik'}>
+                          {formatRon(sorOsszeg)}
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+              {tobbSoros && (
+                <tfoot>
+                  <tr>
+                    <td className="sticky left-0 z-10 bg-emerald-50 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700/80">
+                      Évente
+                    </td>
+                    {evek.map((ev) => (
+                      <td key={ev} className="bg-emerald-50/60 px-2 py-1.5 text-right font-semibold tabular-nums text-emerald-900">
+                        {formatRon(evOsszeg(ev))}
+                      </td>
+                    ))}
+                    <td className="z-10 bg-emerald-50 px-2.5 py-1.5 text-right font-bold tabular-nums text-emerald-900 sm:sticky sm:right-0">
+                      {formatRon(sum)}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
           </div>
           <div className="flex items-center justify-between gap-2 border-t border-emerald-100 bg-emerald-50/70 px-2.5 py-2">
             <span className="text-[11px] font-medium text-emerald-700/80">
-              {people.length} év — egy nyugta, évenként külön tétel
+              Üres cella = arra az évre nem fizet (nem mentődik)
             </span>
-            <span
-              className={`text-sm font-bold tabular-nums ${missing ? 'text-amber-600' : 'text-emerald-800'}`}
-              title={missing ? 'Van összeg nélküli év — az nem mentődik' : undefined}
-            >
-              Összesen: {formatRon(sum)} RON{missing ? ' ⚠' : ''}
+            <span className="text-sm font-bold tabular-nums text-emerald-800">
+              Nyugta összesen: {formatRon(sum)} RON
             </span>
           </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => addEmptyPayer(row.id)}
+            className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
+            title="Még egy befizető ugyanarra a nyugtára — új sor a mátrixban"
+          >
+            <Plus className="size-3.5" /> Még egy befizető
+          </button>
+          {onOpenFamily && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onOpenFamily}
+              disabled={familyLoading}
+              className="inline-flex items-center gap-1 rounded-full border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100 disabled:opacity-60"
+              title="Családi nyugta — a tagok a mátrix soraiba kerülnek"
+            >
+              {familyLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Users className="size-3.5" />}
+              {familyLoading ? 'Család keresése…' : 'Család csatolása'}
+            </button>
+          )}
         </div>
       </div>
     )
   }
+  // ── MATRIX-NEZET-VEG ──
 
   // ── Üres / egyszemélyes / kiadás: a befizető NEVE maga a kereső-mező ────────
   if (!isMulti) {
@@ -2523,6 +2866,7 @@ function PartnerCell({
                         onType={(t) => updatePayer(row.id, i, { name: t, id: null, refId: null, kind: 'szemely' })}
                         onPick={(h) => updatePayer(row.id, i, payerFromHit(h))}
                         autoFocus={focusPayerUid === p.uid}
+                        onAutoFocused={onFocusConsumed}
                         showUnlinkedBadge
                       />
                     </div>
@@ -2580,6 +2924,19 @@ function PartnerCell({
         >
           <Plus className="size-3.5" /> Még egy befizető
         </button>
+        {/* 2026-08-30 (mátrix): több befizetőnél is felajánljuk — a lista áttekinthető
+            ráccsá alakul (sorok = befizetők, oszlopok = évek). */}
+        {multiYear && !multiYear.active && (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={multiYear.onEnable}
+            className="inline-flex items-center gap-1 rounded-full border border-sky-300 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700 shadow-sm transition hover:bg-sky-100"
+            title="Több év egy nyugtán — a lista áttekinthető ráccsá alakul (sorok = befizetők, oszlopok = évek), az összegek az adott évi járulékkal automatikusan kitöltve"
+          >
+            <CalendarRange className="size-3.5" /> Több évre fizet
+          </button>
+        )}
         {onOpenFamily && (
           <button
             type="button"
@@ -2615,6 +2972,7 @@ function PayerNameSearch({
   onSearch,
   placeholder,
   autoFocus,
+  onAutoFocused,
   showUnlinkedBadge,
 }: {
   value: string
@@ -2625,6 +2983,8 @@ function PayerNameSearch({
   placeholder: string
   /** #5: mountkor fókusz — a „Még egy befizető" után azonnal írható az új név. */
   autoFocus?: boolean
+  /** A fókusz megtörtént — a szülő ebből tudja egyszerivé tenni (stale re-fókusz ellen). */
+  onAutoFocused?: () => void
   /** #5: „nem tag" jelvény szabad-szöveges (nem párosított) névnél — csak bevételnél. */
   showUnlinkedBadge?: boolean
 }) {
@@ -2646,7 +3006,8 @@ function PayerNameSearch({
 
   // #5: az újonnan hozzáadott befizető mezője automatikus fókuszt kap.
   useEffect(() => {
-    if (autoFocus) queueMicrotask(() => inputRef.current?.focus())
+    if (autoFocus) queueMicrotask(() => { inputRef.current?.focus(); onAutoFocused?.() })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoFocus])
 
   useEffect(() => {

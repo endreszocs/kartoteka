@@ -23,6 +23,23 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-30] — Kassza: több befizető, több évre — átlátható rácsban
+<!-- key: 2026-08-30-kassza-matrix -->
+<!-- category: feature -->
+<!-- version: 0.9.205 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### ✨ Új funkciók
+
+- **Befizető-mátrix a Tétel rögzítőben**: ha egy nyugtán többen több évre fizetnek (pl. egy házaspár 2025-re és 2026-ra), a befizető-lista áttekinthető ráccsá alakul — a sorokban a befizetők, az oszlopokban az évek, minden cellában az adott évi összeg. A cellák az adott évi járulékkal automatikusan kitöltődnek (a kedvezmény-szabály nevével), a sor- és év-összesenek, valamint a nyugta végösszege mindig látszanak. Sok évnél (akár 10) a rács vízszintesen görgethető, a Befizető és az Összesen oszlop pedig görgetés közben is a helyén marad. Üres cella = arra az évre nem fizet. A „Több évre fizet" gomb mostantól több befizetőnél is elérhető.
+- **Mindig van üres új sor**: a tétel-lista alján mindig áll egy üres sor — amint írni kezdesz bele, magától megjelenik a következő. Nem kell többé az „Új sor" gombra kattintani.
+
+### 🐛 Javítások
+
+- **Vázlat-visszaállítás**: a felső szintű (jogi személy) befizető hivatalos partner-kapcsolata mostantól a vázlat mentése-visszaállítása után is megmarad (eddig némán elveszett).
+
+---
+
 ## [2026-08-29] — Jobban látható folyamatjelző
 <!-- key: 2026-08-29-folyamatjelzo-lathatosag -->
 <!-- category: improvement -->
