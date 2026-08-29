@@ -273,7 +273,7 @@ export async function expectedJarulekOnline(
   personId: number,
   year: number,
   prospectiveDateIso?: string, // (B/J6) a befizetés dátuma a korai-fizetés kedvezmény prospektív alkalmazásához
-): Promise<{ expected: number; paid: number; debt: number; hasBase: boolean } | null> {
+): Promise<{ expected: number; paid: number; debt: number; hasBase: boolean; szabalyok: string[] } | null> {
   if (!(await isOnlineWithSession())) return null
   const supabase = getDesktopSupabase()
 
@@ -407,7 +407,7 @@ export async function expectedJarulekOnline(
     payments: paymentsForCalc,
     prospectiveDate: prospectiveDate && !Number.isNaN(prospectiveDate.getTime()) ? prospectiveDate : null,
   })
-  return { expected: result.expected, paid: result.paid, debt: result.debt, hasBase }
+  return { expected: result.expected, paid: result.paid, debt: result.debt, hasBase, szabalyok: result.appliedRules }
 }
 
 // ── HASONLÓ (esetleg duplikált) TÉTEL FIGYELMEZTETÉS — Endre 8. kérése (2026-08-27) ──

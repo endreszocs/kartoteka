@@ -3649,7 +3649,7 @@ export async function getExpectedJarulek(
   // PROSPEKTÍV alkalmazásához (a dátum a határidő előtt van-e), hogy az auto-összeg a kedvezményes
   // célt ajánlja. A Tartozás-lista NEM adja meg → ott a retrospektív (bit-azonos) viselkedés marad.
   prospectiveDateIso?: string,
-): Promise<{ expected: number; paid: number; debt: number; hasBase: boolean } | null> {
+): Promise<{ expected: number; paid: number; debt: number; hasBase: boolean; szabalyok: string[] } | null> {
   const { supabase, congregationId } = await getProfileCongregation()
   if (!congregationId) return null
 
@@ -3832,7 +3832,7 @@ export async function getExpectedJarulek(
     payments: paymentsForCalc,
     prospectiveDate: prospectiveDate && !Number.isNaN(prospectiveDate.getTime()) ? prospectiveDate : null,
   })
-  return { expected: result.expected, paid: result.paid, debt: result.debt, hasBase }
+  return { expected: result.expected, paid: result.paid, debt: result.debt, hasBase, szabalyok: result.appliedRules }
 }
 
 // ── H2 javítás: Iratszám duplikáció ellenőrzés ──────────────

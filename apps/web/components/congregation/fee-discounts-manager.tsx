@@ -1,6 +1,6 @@
 'use client'
 
-import { type ReactNode, useCallback, useEffect, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import {
   BadgePercent,
   CalendarDays,
@@ -105,6 +105,8 @@ export function FeeDiscountsManager({
   const [discountSchemaReady, setDiscountSchemaReady] = useState(true)
   const [discountWarning, setDiscountWarning] = useState<string | null>(null)
   const [discountForm, setDiscountForm] = useState(getEmptyDiscountForm(new Date().getFullYear()))
+  // 2026-08-29: a szerkesztő-panel horgonya — a „Szerkesztés" gomb ide gördít.
+  const editPanelRef = useRef<HTMLDivElement>(null)
   // 2026-07-25 (G1): TÖBB időszaki kedvezmény egyszerre — a welcome-varázsló
   // DiscountPeriodSlot-mintája szerint. Csak ÚJ rögzítésnél (szerkesztésnél a
   // meglévő egy sorra fókuszálunk), a mentés soronkénti upsert.
@@ -340,6 +342,17 @@ export function FeeDiscountsManager({
                           discount={discount}
                           onEdit={() => {
                             setExtraPeriods([])
+                            // 2026-08-29 (Endre hibajelzése: „nem történik semmi"):
+                            // a gomb eddig is kitöltötte az ALUL lévő űrlapot, de nem
+                            // gördített oda — a felhasználó nem látta, hogy történt
+                            // valami. Mostantól odagördül és megvillan a panel.
+                            requestAnimationFrame(() => {
+                              const el = editPanelRef.current
+                              if (!el) return
+                              el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                              el.classList.add('ring-2', 'ring-emerald-400', 'rounded-2xl')
+                              window.setTimeout(() => el.classList.remove('ring-2', 'ring-emerald-400', 'rounded-2xl'), 1600)
+                            })
                             setDiscountForm({
                               id: discount.id,
                               ev: discount.ev,
@@ -370,6 +383,7 @@ export function FeeDiscountsManager({
         )}
       </Panel>
 
+      <div ref={editPanelRef} className="scroll-mt-4 transition-shadow">
       <Panel title={discountForm.id ? 'Kedvezmény szerkesztése' : 'Új kedvezmény létrehozása'}>
         {/* 3 kártyás típus-választó */}
         <div className="mb-4">
@@ -662,6 +676,7 @@ export function FeeDiscountsManager({
           </Button>
         </div>
       </Panel>
+      </div>
     </div>
   )
 }
