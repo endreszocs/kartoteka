@@ -45,6 +45,7 @@ export * from './loading'
 export * from './onboarding'
 // Sprint R · Vizuális megújulás (v0.8.5) — Telepítő wizard UI (preview)
 export * from './installer'
+export * from './GlobalPendingIndicator'
 export * from './indicators/SessionStatusBadge'
 export * from './indicators/SyncStatusBadge'
 export * from './indicators/OnlineStatePill'
