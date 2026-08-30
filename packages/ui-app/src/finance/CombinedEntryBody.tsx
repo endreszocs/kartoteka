@@ -23,7 +23,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight, TrendingUp, TrendingDown, Boxes, AlertTriangle, CalendarRange, Loader2 } from 'lucide-react'
+import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight, TrendingUp, TrendingDown, Boxes, AlertTriangle, CalendarRange, Loader2, Check } from 'lucide-react'
 import { keszpenzKorlatFigyelmeztetesek, type KeszpenzTetel } from '@kartoteka/core'
 import { localTodayIso } from '@kartoteka/validations'
 import { formatRon } from './ron-in-words'
@@ -331,6 +331,13 @@ type EntryRow = {
   /** 2026-08-09: a kiadás-sor „Leltárba vétel" al-űrlapjának állapota (csak kiadás-fül,
    *  leltár-köteles jogcímnél; undefined = még nem nyúlt hozzá → alapból BEKAPCSOLVA). */
   inventory?: RowInventoryState
+  /** 2026-08-30 (Endre): a sor MÁR EL VAN MENTVE (ISO időbélyeg). A sor NEM tűnik el —
+   *  bent marad az űrlapon és a VÁZLATBAN is, csak jelölt és a mentésből kizárt.
+   *  ENDRE KÖVETELMÉNYE: „addig nem tűnhet el a vázlat, amíg minden tétel el nem
+   *  mentődött" — több száz sornál semmi nem veszhet el egy részleges mentés miatt.
+   *  A régi világ ELTÁVOLÍTOTTA az elmentett sorokat: ettől csonkult a vázlat, és a
+   *  nyugtaszám-számláló elvesztette a köteg-előzményt (→ „elölről kezdte"). */
+  mentveAt?: string | null
 }
 
 /** 2026-08-09: a „Leltárba vétel" al-űrlap sor-szintű állapota. */
@@ -504,6 +511,8 @@ export function CombinedEntryBody({
   onCheckReceiptDuplicate, onGetLastRecordedDate, draftStorageKey, offerExpenseInventory,
 }: CombinedEntryBodyProps) {
   const [tab, setTab] = useState<'income' | 'expense'>('income')
+  /** 2026-08-30: a már elkönyvelt (mentveAt) sorok elrejtése a listából — csak nézet. */
+  const [mentettekRejtve, setMentettekRejtve] = useState(false)
   const [incomeRows, setIncomeRows] = useState<EntryRow[]>(() => [newRow(currentYear)])
   const [expenseRows, setExpenseRows] = useState<EntryRow[]>(() => [newRow(currentYear)])
   const [busy, setBusy] = useState(false)
@@ -583,7 +592,13 @@ export function CombinedEntryBody({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomeRows, expenseRows, tab, currentYear])
 
+  /** 2026-08-30: teljes siker + zárás alatt a vázlat-mentő effekt NE írja vissza a
+   *  törölt vázlatot (a mentett sorok bent maradnak, ezért `anyContent` igaz lenne, és
+   *  a dialógus a záró animáció idejére még mountolva van). */
+  const zarasFolyamatbanRef = useRef(false)
+
   function clearDraft() {
+    zarasFolyamatbanRef.current = true
     if (draftStorageKey && typeof window !== 'undefined') {
       try { window.localStorage.removeItem(draftStorageKey) } catch { /* ignore */ }
     }
@@ -621,7 +636,10 @@ export function CombinedEntryBody({
             kor: typeof (p as { kor?: unknown }).kor === 'number' ? (p as { kor: number }).kor : null,
             lakhely: typeof (p as { lakhely?: unknown }).lakhely === 'string' ? (p as { lakhely: string }).lakhely : null,
           }))
-          return { ...r, people }
+          // 2026-08-30: a `mentveAt` MEGMARAD — újranyitás után is látszik, mi ment már el,
+          // és a rowValidIn kizárja őket (nem könyvelünk duplán).
+          const mentveAt = typeof (r as { mentveAt?: unknown }).mentveAt === 'string' ? (r as { mentveAt: string }).mentveAt : null
+          return { ...r, people, mentveAt }
         })
       const inc = migrate(Array.isArray(d.incomeRows) ? d.incomeRows : [])
       const exp = migrate(Array.isArray(d.expenseRows) ? d.expenseRows : [])
@@ -645,6 +663,10 @@ export function CombinedEntryBody({
   // Vázlat MENTÉSE minden változáskor (gépelés közben azonnal). Üres állapotnál törlünk.
   useEffect(() => {
     if (!draftStorageKey || typeof window === 'undefined') return
+    // 2026-08-30: TELJES siker után a clearDraft() törölt — a mentett sorok viszont bent
+    // maradtak, ezért ez az effekt visszaírná a vázlatot, és minden megnyitáskor
+    // feltámadna a már lekönyvelt köteg. A zárás-őr ezt megakadályozza.
+    if (zarasFolyamatbanRef.current) return
     try {
       if (anyContent(incomeRows) || anyContent(expenseRows)) {
         const savedAt = new Date().toISOString()
@@ -662,6 +684,19 @@ export function CombinedEntryBody({
   }, [draftStorageKey, incomeRows, expenseRows, tab])
 
   function discardDraft() {
+    // 2026-08-30: az elvetés a MÁR ELKÖNYVELT sorok nyomát is eldobná — ilyenkor
+    // megerősítést kérünk, különben a felhasználó jóhiszeműen duplán könyvelne.
+    const mentettek = [...incomeRows, ...expenseRows].filter((r) => r.mentveAt).length
+    if (mentettek > 0 && typeof window !== 'undefined') {
+      const ok = window.confirm([
+        `A vázlatban ${mentettek} MÁR ELKÖNYVELT tétel is szerepel (zöld „elmentve" jelölés).`,
+        '',
+        'Az elvetés után nem fogod látni, melyeket rögzítetted már — és ha újra beviszed őket, DUPLÁN kerülnek a könyvbe.',
+        '',
+        'Biztosan elveted a vázlatot?',
+      ].join('\n'))
+      if (!ok) return
+    }
     setIncomeRows([newRow(currentYear)])
     setExpenseRows([newRow(currentYear)])
     setTab('income')
@@ -671,6 +706,12 @@ export function CombinedEntryBody({
 
   const rows = tab === 'income' ? incomeRows : expenseRows
   const setRows = tab === 'income' ? setIncomeRows : setExpenseRows
+  // 2026-08-30 (Endre: „több száz sort vezet be"): a MÁR ELKÖNYVELT sorok bent maradnak
+  // (vázlat-védelem), de a listát elnyomnák — ezért ELREJTHETŐK. A rejtés CSAK a
+  // megjelenítést érinti: az állapotban és a vázlatban minden sor megmarad.
+  const mentettDb = rows.filter((r) => r.mentveAt).length
+  const mentettOsszesen = incomeRows.filter((r) => r.mentveAt).length + expenseRows.filter((r) => r.mentveAt).length
+  const lathatoRows = mentettekRejtve ? rows.filter((r) => !r.mentveAt) : rows
   const partnerLabel = tab === 'income' ? 'Befizető / forrás' : 'Kedvezményezett'
   // #1 (Endre): a Kerületi sz. + Irat sz. OSZLOP csak akkor látszik (bevétel), ha legalább
   // egy sorban Chitanță az irattípus — különben teljesen eltűnik (nem csak „—").
@@ -973,6 +1014,10 @@ export function CombinedEntryBody({
   }
 
   function rowValidIn(tabName: 'income' | 'expense', r: EntryRow): boolean {
+    // 2026-08-30: a MÁR ELMENTETT sor sosem mehet ki mégegyszer. Mivel a sorok mostantól
+    // bent MARADNAK (vázlat-védelem), ez a kapu véd a dupla könyveléstől — és egyben a
+    // „Mentés (N tétel)" számlálót is helyesen tartja.
+    if (r.mentveAt) return false
     // #4: ha vannak befizetők (people[]), a sor összege a tagok összegeinek summája (per-tag
     // összeg az almenüben); különben a fősor `amount` (szabad-szöveges egyszemélyes / kiadás).
     const effAmount = tabName === 'income' && (r.people?.length ?? 0) >= 1 ? payerSum(r) : Number(r.amount)
@@ -1083,7 +1128,17 @@ export function CombinedEntryBody({
   const togglePayerRow = (id: string) =>
     setCollapsedPayerRows((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
 
+  /** 2026-08-30: a MÁR ELKÖNYVELT sor nem szerkeszthető — a javítás úgysem menne ki
+   *  (a rowValidIn kizárja), tehát némán elveszne. A mutátorok itt, EGY helyen állnak meg. */
+  function mentettSor(id: string): boolean {
+    return [...incomeRows, ...expenseRows].some((r) => r.id === id && !!r.mentveAt)
+  }
+
   function updateRow(id: string, patch: Partial<EntryRow>) {
+    if (mentettSor(id) && !('mentveAt' in patch)) {
+      onToast('warning', 'Ez a tétel MÁR EL VAN KÖNYVELVE — itt már nem módosítható. A javítást a Kassza listában, a tételen végezd el.')
+      return
+    }
     setRows((cur) => cur.map((r) => (r.id === id ? { ...r, ...patch } : r)))
   }
 
@@ -1354,11 +1409,27 @@ export function CombinedEntryBody({
       return [...cur, r]
     })
   }
-  function removeRow(id: string) { setRows((cur) => (cur.length === 1 ? [newRow(currentYear)] : cur.filter((r) => r.id !== id))) }
+  function removeRow(id: string) {
+    // 2026-08-30: elkönyvelt sort NEM engedünk eltüntetni — az űrlapról eltűnne, a
+    // KÖNYVELT tétel viszont bent maradna, és elveszne az egyetlen jelzés arról, hogy
+    // ez a sor már elment (utána egy újbóli bevitel duplán könyvelne).
+    if (mentettSor(id)) {
+      onToast('error', 'Ez a tétel MÁR EL VAN KÖNYVELVE — a sor eltávolítása csak az űrlapról tüntetné el. Ha törölni szeretnéd, a Kassza listában sztornózd.')
+      return
+    }
+    setRows((cur) => (cur.length === 1 ? [newRow(currentYear)] : cur.filter((r) => r.id !== id)))
+  }
 
   function combinedIratszam(r: EntryRow): string | null {
-    const parts = [r.docType.trim(), r.iratszam.trim()].filter(Boolean)
-    return parts.length ? parts.join(' ') : null
+    // ⚠️ 2026-08-30: ha az „Irat sz." mező ÜRES, NEM képzünk iratszámot a puszta
+    // irattípusból. A régi világ ilyenkor magát a szót mentette (pl. „Factură"), és mivel
+    // az egyediség-ellenőrzés ÉV NÉLKÜL, pontos egyezésre fut, a második ilyen tétel
+    // MINDIG ütközött („A »Factură« iratszám már létezik") — ez buktatta a kiadás-köteget.
+    // Üres iratszámnál a szerver képez egyedi AUTO-azonosítót.
+    const szam = r.iratszam.trim()
+    if (!szam) return null
+    const tipus = r.docType.trim()
+    return tipus ? `${tipus} ${szam}` : szam
   }
 
   // #5 (Endre): az IRATTÍPUS oszlop a VÁLASZTOTT bizonylattípust mutassa (Chitanță/Factură/…),
@@ -1604,14 +1675,16 @@ export function CombinedEntryBody({
     const savedIncomeRowIds: string[] = []
     const savedExpenseRowIds: string[] = []
 
-    const removeRowsFromTab = (tabName: 'income' | 'expense', ids: string[]) => {
+    // 2026-08-30 (Endre kérése): a sikeresen elmentett sorokat MEGJELÖLJÜK, NEM töröljük.
+    // Így a vázlat teljes marad (semmi nem veszhet el egy részleges mentésnél), a
+    // nyugtaszám-számláló látja a köteg-előzményt, a `rowValidIn` pedig kizárja őket a
+    // következő mentésből (dupla könyvelés ellen).
+    const jelolMentettnek = (tabName: 'income' | 'expense', ids: string[]) => {
       if (ids.length === 0) return
       const idSet = new Set(ids)
+      const mikor = new Date().toISOString()
       const setter = tabName === 'income' ? setIncomeRows : setExpenseRows
-      setter((cur) => {
-        const kept = cur.filter((row) => !idSet.has(row.id))
-        return kept.length ? kept : [newRow(currentYear)]
-      })
+      setter((cur) => cur.map((row) => (idSet.has(row.id) && !row.mentveAt ? { ...row, mentveAt: mikor } : row)))
     }
 
     function pushTransfer(dir: 'deposit' | 'withdraw', datum: string, r: EntryRow, tabName: 'income' | 'expense') {
@@ -1636,6 +1709,15 @@ export function CombinedEntryBody({
       const people = r.people ?? []
       const commonNyugta = r.gyulekezetiSzam.trim() || null
       const commonMegj = r.megjegyzes.trim() || null
+      // ⛔ 2026-08-30 (a nyugtaszám-diagnosztika nyomán): Chitanță ÜRES gyülekezeti
+      // nyugtaszámmal nem menthető. A szerver ilyenkor a kerületi iratszámot másolja a
+      // nyugta helyére (`nyugta = iratszam`), a sorozat-számítás pedig PONT az ilyen
+      // sorokat hagyja ki — így a rendszer egy idő után újra 1-et ajánl, kérdés nélkül.
+      // Ez ÖNGERJESZTŐ mérgezés, ezért itt hangosan megállunk.
+      if (r.docType === 'Chitanță' && r.gyulekezetiSzam.trim() === '') {
+        onToast('error', 'A nyugtához (Chitanță) kötelező a gyülekezeti nyugtaszám — enélkül a rendszer elveszíti a sorozatot, és egy idő után újra 1-től kezdené a számozást.')
+        return
+      }
       // P4-30 (audit 2026-08-28): banki bizonylat (Ordin de plată) bankszámla
       // nélkül a KASSZÁBA sorolódna — hangosan megállunk, nem mentünk félre.
       if (r.docType === 'Ordin de plată' && r.bankId === '') {
@@ -1769,22 +1851,37 @@ export function CombinedEntryBody({
     }
 
     try {
+      // 2026-08-30: a fázis-hiba MONDJA KI, mi ment már el véglegesen — a régi üzenet
+      // elhallgatta, és aki azt hitte, semmi nem mentődött, duplán könyvelt.
+      // ⚠️ CSAK a TÉNYLEGESEN lezárt fázisokat soroljuk! A `savedIncomeRowIds` a köteg
+      // ÖSSZEÁLLÍTÁSAKOR telik meg, nem a mentéskor — abból üzenetet építeni HAZUGSÁG
+      // lenne (a bukott fázis sorait is elmentettnek mondaná, és a könyvelő kihagyná őket).
+      const mentettFazisok: string[] = []
+      const mar = () => (mentettFazisok.length > 0
+        ? ` — FIGYELEM: ${mentettFazisok.join(' és ')} MÁR EL VAN MENTVE (a listában zöld „elmentve" jelöléssel), ezeket NE rögzítsd újra!`
+        : '')
       if (incomeBatch.length) {
         const res = await onSaveIncomeBatch(incomeBatch)
-        if (res.error) { onToast('error', `Bevétel: ${res.error}`); return }
-        // A bevételek elmentve — kivesszük őket, hogy egy későbbi hiba utáni
-        // újra-mentés ne rögzítse duplán ugyanazokat a sorokat.
-        removeRowsFromTab('income', savedIncomeRowIds)
+        if (res.error) { onToast('error', `Bevétel: ${res.error}${mar()}`); return }
+        // A bevételek elmentve — MEGJELÖLJÜK (nem töröljük): a vázlat teljes marad.
+        jelolMentettnek('income', savedIncomeRowIds)
+        mentettFazisok.push(`${incomeBatch.length} bevétel`)
+        // A nyugtaszám-cache elavult: a most kiosztott számok már foglaltak. Ürítjük, hogy
+        // a következő sor FRISS szervervéleményt kapjon (a befagyott számláló volt az
+        // „elölről kezdte" átmeneti oka).
+        receiptCacheRef.current.clear()
       }
       if (expenseBatch.length) {
         const res = await onSaveExpenseBatch(expenseBatch)
-        if (res.error) { onToast('error', `Kiadás: ${res.error}`); return }
-        removeRowsFromTab('expense', savedExpenseRowIds)
+        if (res.error) { onToast('error', `Kiadás: ${res.error}${mar()}`); return }
+        jelolMentettnek('expense', savedExpenseRowIds)
+        mentettFazisok.push(`${expenseBatch.length} kiadás`)
+        receiptCacheRef.current.clear()
       }
       for (const t of transfers) {
         const res = await onSaveInternalTransfer(t.payload)
-        if (res.error) { onToast('error', `Belső mozgás: ${res.error}`); return }
-        removeRowsFromTab(t.tab, [t.rowId])
+        if (res.error) { onToast('error', `Belső mozgás: ${res.error}${mar()}`); return }
+        jelolMentettnek(t.tab, [t.rowId])
       }
       const parts = []
       if (incomeBatch.length) parts.push(`${incomeBatch.length} bevétel`)
@@ -1792,13 +1889,29 @@ export function CombinedEntryBody({
       const invCount = expenseBatch.filter((b) => b.inventory).length
       if (invCount) parts.push(`${invCount} leltári tétel`)
       if (transfers.length) parts.push(`${transfers.length} belső mozgás`)
+      // Minden menthető sor tényleg kiment? (A jelölés aszinkron, ezért a MOST elmentett
+      // sorok azonosítóival együtt nézzük.) Csak TELJES siker esetén záruljon a vázlat.
+      const mostMentett = new Set([...savedIncomeRowIds, ...savedExpenseRowIds, ...transfers.map((t) => t.rowId)])
+      // ⚠️ A kapu TARTALMAT mér, nem érvényességet: Endre követelménye a TÉTELRE szól —
+      // a félkész sor (pl. hiányzó jogcím) is megtartja a vázlatot, különben némán
+      // elveszne. És a sor SAJÁT fülének szabályát nézzük: a kereszt-validálás
+      // (income-sort expense-szabállyal) hamis „hátralévőt" adna, amiből nincs kiút.
+      const hatravan = (rs: EntryRow[]) => rs.filter((r) => !r.mentveAt && !mostMentett.has(r.id) && rowHasContent(r))
+      const maradt = [...hatravan(incomeRows), ...hatravan(expenseRows)]
+      const mindenMentve = maradt.length === 0
       // 2026-08-27: a hasonló-tétel megerősítés EGYSZERI — a következő mentés
       // (más sorokkal) újra kérdez. Enélkül egy megerősítés után a figyelmeztetés
       // a munkamenet végéig néma maradna.
       setHasonloMegerositve(false)
-      onToast('success', `Mentve: ${parts.join(', ')} — dátum szerint rendezve.`)
-      clearDraft() // #3: sikeres mentés után a vázlat törlődik
-      onClose()
+      // 2026-08-30 (Endre): a VÁZLAT csak akkor törlődhet, ha MINDEN tétel elment. Ha akár
+      // egy is kimaradt, a teljes vázlat bent marad — több száz sornál semmi nem veszhet el.
+      if (mindenMentve) {
+        onToast('success', `Mentve: ${parts.join(', ')} — dátum szerint rendezve.`)
+        clearDraft()
+        onClose()
+      } else {
+        onToast('warning', `Mentve: ${parts.join(', ')}. MÉG ${maradt.length} sor van hátra — a vázlat megmarad, az elmentett sorok „elmentve" jelölést kaptak.`)
+      }
     } catch (e) {
       onToast('error', e instanceof Error ? e.message : 'A mentés nem sikerült.')
     }
@@ -1917,6 +2030,13 @@ export function CombinedEntryBody({
           <span>
             📝 <strong>Félbehagyott vázlat visszaállítva</strong>
             {draftRestoredAt ? ` (mentve: ${new Date(draftRestoredAt).toLocaleString('hu-HU')})` : ''} — folytathatod, ahol abbahagytad.
+            {/* 2026-08-30: ha a vázlatban MÁR ELKÖNYVELT sorok is vannak, ezt hangosan
+                kimondjuk — enélkül a „Vázlat elvetése" után újra bediktálná őket. */}
+            {mentettOsszesen > 0 && (
+              <strong className="mt-0.5 block text-rose-700">
+                Ebből {mentettOsszesen} tétel MÁR EL VAN KÖNYVELVE (zöld „elmentve" jelölés) — ezeket NE rögzítsd újra!
+              </strong>
+            )}
           </span>
           <button
             type="button"
@@ -2012,7 +2132,7 @@ export function CombinedEntryBody({
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, sorIdx) => {
+            {lathatoRows.map((r, sorIdx) => {
               const dir = belsoDir(r)
               // Zebra: index-alapú (a leltár-alsor UGYANAZT a hátteret kapja, a CSS
               // odd/even azt külön sorként számolná, és felborulna a paritás).
@@ -2025,8 +2145,19 @@ export function CombinedEntryBody({
               const invKat = tab === 'expense' && !dir ? invKategoriaForRow(r) : null
               return (
                 <Fragment key={r.id}>
-                <tr className={`border-t border-slate-200 align-top ${sorBg}`} onKeyDown={focusNextField}>
+                <tr
+                  className={`border-t border-slate-200 align-top ${r.mentveAt ? 'bg-emerald-100/80' : sorBg}`}
+                  title={r.mentveAt ? 'Ez a sor már el van mentve — nem mentődik újra.' : undefined}
+                  onKeyDown={focusNextField}
+                >
                   <td className="px-2 py-1.5 w-[170px] min-w-[11rem]">
+                    {/* 2026-08-30: a MÁR ELMENTETT sor látható jelölése — bent marad a
+                        listában és a vázlatban, de nem mentődik újra. */}
+                    {r.mentveAt && (
+                      <span className="mb-1 inline-flex items-center gap-1 rounded-full bg-emerald-700 px-2 py-0.5 text-[10px] font-semibold text-white">
+                        <Check className="size-3" aria-hidden /> elmentve
+                      </span>
+                    )}
                     {renderDateField(r)}
                     {dWarn && <div className="mt-0.5 text-[10px] leading-tight text-amber-600">⚠ {dWarn}</div>}
                   </td>
@@ -2158,7 +2289,7 @@ export function CombinedEntryBody({
                   </td>
                 </tr>
                 {invKat && (
-                  <tr className={sorBg}>
+                  <tr className={r.mentveAt ? 'bg-emerald-100/80' : sorBg}>
                     <td colSpan={9} className="px-2 pb-2 pt-0">
                       {renderInventoryPanel(r, invKat)}
                     </td>
@@ -2173,15 +2304,22 @@ export function CombinedEntryBody({
 
       {/* Kis/közepes képernyő: kártyák */}
       <div className="space-y-3 lg:hidden">
-        {rows.map((r, i) => {
+        {lathatoRows.map((r, i) => {
           const dir = belsoDir(r)
           const dWarn = dateWarning(r)
           const rWarn = receiptWarning(r)
           const isChitanta = r.docType === 'Chitanță'
           return (
-            <div key={r.id} data-entry-card className={`rounded-xl border border-slate-200 p-3 ${i % 2 === 1 ? 'bg-slate-100/80' : 'bg-white'}`} onKeyDown={focusNextField}>
+            <div key={r.id} data-entry-card className={`rounded-xl border p-3 ${r.mentveAt ? 'border-emerald-400 bg-emerald-100/80' : `border-slate-200 ${i % 2 === 1 ? 'bg-slate-100/80' : 'bg-white'}`}`} onKeyDown={focusNextField}>
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs font-medium text-slate-400">{i + 1}. tétel</span>
+                <span className="text-xs font-medium text-slate-400">
+                  {i + 1}. tétel
+                  {r.mentveAt && (
+                    <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-emerald-700 px-2 py-0.5 text-[10px] font-semibold text-white">
+                      <Check className="size-3" aria-hidden /> elmentve
+                    </span>
+                  )}
+                </span>
                 <button type="button" aria-label="Sor törlése" className="text-slate-400 hover:text-red-500" onClick={() => removeRow(r.id)}><Trash2 className="size-4" /></button>
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -2292,9 +2430,24 @@ export function CombinedEntryBody({
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <button type="button" className="inline-flex items-center gap-2 rounded-xl border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-accent" onClick={addRow}>
-          <Plus className="size-4" /> Új sor
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="inline-flex items-center gap-2 rounded-xl border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-accent" onClick={addRow}>
+            <Plus className="size-4" /> Új sor
+          </button>
+          {/* 2026-08-30 (Endre: több száz sor): az elkönyvelt sorok bent maradnak a
+              vázlatban, de a listából elrejthetők — így a friss munka marad szem előtt. */}
+          {mentettDb > 0 && (
+            <button
+              type="button"
+              onClick={() => setMentettekRejtve((v) => !v)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-100"
+              title="Az elkönyvelt sorok a vázlatban maradnak — ez csak a lista megjelenítését szűri."
+            >
+              <Check className="size-3.5" />
+              {mentettekRejtve ? `Elmentett sorok mutatása (${mentettDb})` : `Elmentett sorok elrejtése (${mentettDb})`}
+            </button>
+          )}
+        </div>
         <div className="text-sm">
           <span className="text-slate-500">{tab === 'income' ? 'Bevételek' : 'Kiadások'} összege:</span>{' '}
           <strong className={tab === 'income' ? 'text-emerald-600' : 'text-red-500'}>{formatRon(tabTotal)} RON</strong>

@@ -245,7 +245,10 @@ function asszertek(rawSrc, jelent) {
     hiba('addPayerCell nem örökli a sorUid-ot — új cellánál remountolna a sor')
   }
   // (4g) Endre 2026-08-29: zebra-csíkozás — váltakozó sor-háttér, index-alapú
-  if (src.includes('sorIdx % 2') && src.includes('${sorBg}')) {
+  // A `sorBg` FELHASZNÁLÁSÁT nézzük, nem a beszúrás pontos alakját: a 2026-08-30-i
+  // vázlat-védelemnél a tr-osztály feltételessé vált (`… : sorBg}`), és a régi,
+  // alak-függő minta bukott — az őr a VISELKEDÉST védje.
+  if (src.includes('sorIdx % 2') && src.includes('sorBg}')) {
     jo('zebra: váltakozó sor-háttér index-alapon (a leltár-alsor a saját sora hátterét kapja)')
   } else {
     hiba('nincs index-alapú zebra-csíkozás a tétel-sorokon')
