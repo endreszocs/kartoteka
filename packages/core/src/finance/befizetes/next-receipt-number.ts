@@ -98,9 +98,15 @@ export async function getNextReceiptNumberUseCase(
       return { success: false, error: `Iratszám-lekérdezés hiba: ${error.message}` }
     }
 
+    // ⚠️ 2026-08-30: az AUTO-<dátum>-<ms> HELYŐRZŐ iratszámot KI KELL ZÁRNI. A regex az
+    // első számcsoportot veszi, ami az AUTO-nál a DÁTUM (pl. 20260830) — ettől a következő
+    // kiosztott sorszám 20260831 lenne, és a sorozat örökre elszállna. A webes
+    // getNextReceiptNumbers ezt már szűri (actions.ts), a core eddig nem.
     let maxNum = 0
     for (const row of data) {
-      const match = String(row.iratszam || '').match(/(\d+)/)
+      const nyers = String(row.iratszam || '')
+      if (/^AUTO/i.test(nyers.trim())) continue
+      const match = nyers.match(/(\d+)/)
       if (match) {
         const n = Number.parseInt(match[1], 10)
         if (Number.isFinite(n) && n > maxNum) maxNum = n

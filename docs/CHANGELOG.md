@@ -23,6 +23,23 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-30] — A vázlat addig nem tűnik el, amíg minden tétel el nem mentődött
+<!-- key: 2026-08-30-vazlat-vedelem -->
+<!-- category: bugfix -->
+<!-- version: 0.9.209 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🐛 Javítások
+
+- **Semmi nem veszhet el a mentésnél**: ha a mentés bármelyik tételen elakad, a **teljes vázlat bent marad** — akkor is, ha több száz sort vittél be. A már elmentett tételek nem tűnnek el a listából, hanem zöld **„elmentve"** jelölést kapnak: látod, mi van már a könyvben, és a rendszer nem könyveli el őket még egyszer. Az ablak és a vázlat csak akkor záródik, ha **minden** tétel elment.
+- **A hibaüzenet megmondja, mi ment már el**: eddig csak a hibázó részről szólt, így aki azt hitte, semmi nem mentődött, duplán könyvelhetett.
+- **Az elkönyvelt sor védett**: nem írható át és nem törölhető az űrlapról (a módosítás úgysem menne ki) — a rendszer megmondja, hogy a javítást a Kassza listában kell elvégezni. A „Vázlat elvetése" is figyelmeztet, ha már elkönyvelt tételek is vannak benne.
+- **Elmentett sorok elrejtése**: egy kattintással eltüntethetők a listából (a vázlatban maradnak) — sok száz soros rögzítésnél a friss munka marad szem előtt.
+- **A nyugtaszámozás nem kezd elölről**: a rendszer minden mentés után friss sorszámot kér, és a nyugta (Chitanță) mostantól **nem menthető gyülekezeti nyugtaszám nélkül** — az ilyen tétel korábban megzavarta a sorozat számítását.
+- **Nem lesz iratszám az irattípusból**: ha az „Irat sz." mező üres, a rendszer többé nem menti magát az irattípust (pl. „Factură") iratszámként — ez okozta az „ez az iratszám már létezik" hibát a kiadásoknál.
+
+---
+
 ## [2026-08-30] — Rögzítő: gépelhető mezők, visszatért családtagok, kiférő oszlopok
 <!-- key: 2026-08-30-rogzito-harom-javitas -->
 <!-- category: bugfix -->
