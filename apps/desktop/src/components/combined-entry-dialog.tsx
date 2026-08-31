@@ -33,15 +33,25 @@ import {
   type IncomeCategory,
   type ExpenseCategory,
   type CombinedBankAccount,
-  type SaveIncomeBatchRow,
-  type SaveExpenseBatchRow,
+  type CombinedIncomeBatchRow,
+  type CombinedExpenseBatchRow,
   type CombinedInternalTransferPayload,
 } from '@kartoteka/ui-app'
 import {
+  assertYearNotFinalizedOffline,
+  assertYearsNotFinalizedForCreate,
+  checkExpenseReceiptDuplicatesBatchUseCase,
+  checkReceiptDuplicatesBatchUseCase,
   saveExpenseUseCase,
   saveIncomeUseCase,
   searchMembersForFinanceUseCase,
 } from '@kartoteka/core'
+import {
+  saveExpenseInputSchema,
+  saveIncomeInputSchema,
+  type SaveExpenseInput,
+  type SaveIncomeInput,
+} from '@kartoteka/validations'
 
 import { errorMessage } from '../lib/error'
 import { enqueueEntryExcelRow } from '../lib/excel-enqueue'
@@ -82,49 +92,85 @@ export function DesktopCombinedEntryDialog({
 }: Props) {
   const [toast, setToast] = useState<ToastState>(null)
 
+  // ── KÖZÖS input-építés: a MENTÉS és az ELŐELLENŐRZÉS ugyanebből dolgozik ──
+  // ⛔ Ha a kettő külön építené az inputot, az előellenőrzés MÁST vizsgálna, mint
+  //    amit a mentés kiír — éppen az a néma széthúzás, ami miatt a felemás mentés
+  //    egyáltalán előfordulhat. EGY forrás, két felhasználó.
+  function bevetelInput(row: CombinedIncomeBatchRow, isOnline: boolean): SaveIncomeInput {
+    return {
+      congregationId,
+      osszeg: row.osszeg,
+      datum: row.datum,
+      id_befizetescel: row.id_befizetescel,
+      // B1: a rögzítő tag-keresőjéből (kölcsönösen kizáró pár)
+      id_szemely: row.id_szemely ?? null,
+      id_csalad: row.id_csalad ?? null,
+      forrasa: row.forrasa,
+      // Offline-ban a backend a tárcából választ iratszámot.
+      iratszam: isOnline ? row.iratszam : null,
+      // #3 (Endre): gyülekezeti saját sorszám → befizetes.nyugta (a kerületi mellett).
+      nyugta: row.nyugta ?? null,
+      irattipus: row.irattipus,
+      fizetettev: row.fizetettev,
+      megjegyzes: row.megjegyzes,
+      // P4-30 (audit 2026-08-28): banki bizonylatnál (OP) a bankszámla.
+      bankszamla_id: row.bankszamla_id ?? null,
+    }
+  }
+
+  function kiadasInput(row: CombinedExpenseBatchRow, isOnline: boolean): SaveExpenseInput {
+    return {
+      congregationId,
+      osszeg: row.osszeg,
+      datum: row.datum,
+      id_kiadascel: row.id_kiadascel,
+      atvevoid: null,
+      // A web batch a `kedvezmenyzett`-et szövegként rögzíti → desktop `atvevo`.
+      // A desktop `saveExpenseUseCase` kötelezővé teszi az átvevőt (teljesebb
+      // kiadás-nyilvántartás) — üres átvevőnél a sor egyértelmű hibát ad.
+      atvevo: row.kedvezmenyzett,
+      kedvezmenyezett_cui: null,
+      iratszam: isOnline ? row.iratszam : null,
+      irattipus: row.irattipus,
+      megjegyzes: row.megjegyzes,
+      vonatkozo_idoszak: null,
+      // P4-30 (audit 2026-08-28): banki bizonylatnál (OP) a bankszámla.
+      bankszamla_id: row.bankszamla_id ?? null,
+    }
+  }
+
   // ── Bevétel-batch → soronként saveIncomeUseCase (online + offline) ──
-  // A web `saveIncomeBatch` mintájára: az ELSŐ hibás sornál megállunk és a sor
-  // sorszámával jelezzük (a már mentett sorok bent maradnak — azonos a web
-  // viselkedésével, mert a megosztott komponens hibánál nyitva hagyja a modalt).
+  // A desktop SORONKÉNT ír (offline is), és az első hibás sornál megáll — az
+  // addigiak VÉGLEGESEN bent maradnak a könyvben. 2026-08-31: ezért minden
+  // sikeres sor forrás-azonosítóját VISSZAADJUK (`savedRowIds`), így a rögzítő
+  // meg tudja jelölni őket „elmentve”-ként. Enélkül jelöletlenül maradnának, és
+  // az újramentés MÁSODSZOR is elkönyvelné őket (dupla könyvelés).
   //
   // 2026-06-11 fix: az online-döntés SESSION-tudatos (isOnlineWithSession) —
   // PIN-es munkamenetben működő internettel is az offline (tárcás) ág fut,
-  // különben a kérés anon-szerepkörrel menne („permission denied").
+  // különben a kérés anon-szerepkörrel menne („permission denied”).
   async function handleIncomeBatch(
-    rows: SaveIncomeBatchRow[],
-  ): Promise<{ error?: string | null }> {
+    rows: CombinedIncomeBatchRow[],
+  ): Promise<{ error?: string | null; savedRowIds?: string[] }> {
     const supabase = getDesktopSupabase()
     const isOnline = await isOnlineWithSession()
     const offlineBackend = isOnline ? undefined : getTauriSqliteBackend()
+    const savedRowIds: string[] = []
 
     for (let i = 0; i < rows.length; i += 1) {
       const row = rows[i]
       try {
-        const result = await saveIncomeUseCase(
-          {
-            congregationId,
-            osszeg: row.osszeg,
-            datum: row.datum,
-            id_befizetescel: row.id_befizetescel,
-            // B1: a rögzítő tag-keresőjéből (kölcsönösen kizáró pár)
-            id_szemely: row.id_szemely ?? null,
-            id_csalad: row.id_csalad ?? null,
-            forrasa: row.forrasa,
-            // Offline-ban a backend a tárcából választ iratszámot.
-            iratszam: isOnline ? row.iratszam : null,
-            // #3 (Endre): gyülekezeti saját sorszám → befizetes.nyugta (a kerületi mellett).
-            nyugta: row.nyugta ?? null,
-            irattipus: row.irattipus,
-            fizetettev: row.fizetettev,
-            megjegyzes: row.megjegyzes,
-            // P4-30 (audit 2026-08-28): banki bizonylatnál (OP) a bankszámla.
-            bankszamla_id: row.bankszamla_id ?? null,
-          },
-          { supabase, runtime: 'desktop', userId, isOnline, offlineBackend },
-        )
+        const result = await saveIncomeUseCase(bevetelInput(row, isOnline), {
+          supabase,
+          runtime: 'desktop',
+          userId,
+          isOnline,
+          offlineBackend,
+        })
         if (!result.success) {
-          return { error: `${i + 1}. bevétel-sor: ${result.error}` }
+          return { error: `${i + 1}. bevétel-sor: ${result.error}`, savedRowIds }
         }
+        if (row.sourceRowId) savedRowIds.push(row.sourceRowId)
         // E3: online mentés sikerkor a hivatalos Excelbe is (várólistán át).
         // Offline tételt a push-sync enqueue-ol, amikor már van szerver-id.
         if (!result.pending && result.data.id > 0) {
@@ -143,47 +189,35 @@ export function DesktopCombinedEntryDialog({
           })
         }
       } catch (err) {
-        return { error: `${i + 1}. bevétel-sor: ${errorMessage(err)}` }
+        return { error: `${i + 1}. bevétel-sor: ${errorMessage(err)}`, savedRowIds }
       }
     }
-    return { error: null }
+    return { error: null, savedRowIds }
   }
 
   // ── Kiadás-batch → soronként saveExpenseUseCase (online + offline) ──
   async function handleExpenseBatch(
-    rows: SaveExpenseBatchRow[],
-  ): Promise<{ error?: string | null }> {
+    rows: CombinedExpenseBatchRow[],
+  ): Promise<{ error?: string | null; savedRowIds?: string[] }> {
     const supabase = getDesktopSupabase()
     const isOnline = await isOnlineWithSession()
     const offlineBackend = isOnline ? undefined : getTauriSqliteBackend()
+    const savedRowIds: string[] = []
 
     for (let i = 0; i < rows.length; i += 1) {
       const row = rows[i]
       try {
-        const result = await saveExpenseUseCase(
-          {
-            congregationId,
-            osszeg: row.osszeg,
-            datum: row.datum,
-            id_kiadascel: row.id_kiadascel,
-            atvevoid: null,
-            // A web batch a `kedvezmenyzett`-et szövegként rögzíti → desktop `atvevo`.
-            // A desktop `saveExpenseUseCase` kötelezővé teszi az átvevőt (teljesebb
-            // kiadás-nyilvántartás) — üres átvevőnél a sor egyértelmű hibát ad.
-            atvevo: row.kedvezmenyzett,
-            kedvezmenyezett_cui: null,
-            iratszam: isOnline ? row.iratszam : null,
-            irattipus: row.irattipus,
-            megjegyzes: row.megjegyzes,
-            vonatkozo_idoszak: null,
-            // P4-30 (audit 2026-08-28): banki bizonylatnál (OP) a bankszámla.
-            bankszamla_id: row.bankszamla_id ?? null,
-          },
-          { supabase, runtime: 'desktop', userId, isOnline, offlineBackend },
-        )
+        const result = await saveExpenseUseCase(kiadasInput(row, isOnline), {
+          supabase,
+          runtime: 'desktop',
+          userId,
+          isOnline,
+          offlineBackend,
+        })
         if (!result.success) {
-          return { error: `${i + 1}. kiadás-sor: ${result.error}` }
+          return { error: `${i + 1}. kiadás-sor: ${result.error}`, savedRowIds }
         }
+        if (row.sourceRowId) savedRowIds.push(row.sourceRowId)
         // E3: online mentés sikerkor a hivatalos Excelbe is (várólistán át).
         if (!result.pending && result.data.id > 0) {
           void enqueueEntryExcelRow({
@@ -200,7 +234,134 @@ export function DesktopCombinedEntryDialog({
           })
         }
       } catch (err) {
-        return { error: `${i + 1}. kiadás-sor: ${errorMessage(err)}` }
+        return { error: `${i + 1}. kiadás-sor: ${errorMessage(err)}`, savedRowIds }
+      }
+    }
+    return { error: null, savedRowIds }
+  }
+
+  // ── ELŐELLENŐRZÉS (2026-08-31) — a részleges mentés MEGELŐZÉSE ───────
+  //
+  // A web ugyanezt szerver-akcióként teszi (`ellenorizMentesElore`). A desktopon
+  // nincs tranzakció és nincs szerver-oldali visszavonás sem, ezért itt még
+  // fontosabb: MINDEN ÍRÁS ELŐTT végigfuttatjuk a köteg minden során ugyanazokat
+  // a kapukat, amelyeken a mentés elbukna. Ha bármi hibás, a mentés EL SEM INDUL.
+  //
+  // ⛔ TISZTÁN OLVASÓ: itt SOHA nem hívunk mentő use-case-t, nem foglalunk
+  //    iratszámot a tárcából, és nem írunk a lokális adatbázisba sem.
+  // ⚠️ ELOELLENORZES-FAIL-OPEN: ha maga az ellenőrzés elhasal, a mentés a régi
+  //    úton megy tovább (a hívó CombinedEntryBody kapja el) — kényelem, nem védelem.
+  async function handlePreflight(
+    income: CombinedIncomeBatchRow[],
+    expense: CombinedExpenseBatchRow[],
+  ): Promise<{ error?: string | null }> {
+    const supabase = getDesktopSupabase()
+    const isOnline = await isOnlineWithSession()
+    const offlineBackend = isOnline ? undefined : getTauriSqliteBackend()
+
+    // 1) Zod — pontosan az a séma, amelyen a use-case is átengedi a sort.
+    for (let i = 0; i < income.length; i += 1) {
+      const parsed = saveIncomeInputSchema.safeParse(bevetelInput(income[i], isOnline))
+      if (!parsed.success) {
+        return { error: `${i + 1}. bevétel-sor: ${parsed.error.issues[0]?.message || 'Érvénytelen adat.'}` }
+      }
+    }
+    for (let i = 0; i < expense.length; i += 1) {
+      const parsed = saveExpenseInputSchema.safeParse(kiadasInput(expense[i], isOnline))
+      if (!parsed.success) {
+        return { error: `${i + 1}. kiadás-sor: ${parsed.error.issues[0]?.message || 'Érvénytelen adat.'}` }
+      }
+    }
+
+    // 2) Kötegen BELÜLI iratszám-ütközés — ezt a mentés csak a MÁSODIK sornál
+    //    venné észre, amikor az első már bent van (pont a felemás állapot).
+    const utkozes = (sorok: Array<{ iratszam: string | null }>, cimke: string): string | null => {
+      const latott = new Set<string>()
+      for (const r of sorok) {
+        const szam = (r.iratszam ?? '').trim()
+        if (!szam) continue
+        if (latott.has(szam)) {
+          return `A(z) „${szam}” iratszám a kötegben KÉTSZER szerepel (${cimke}) — a második sor elbukna, az első már bent lenne. Javítsd, mielőtt mentesz.`
+        }
+        latott.add(szam)
+      }
+      return null
+    }
+    const incUtkozes = utkozes(income, 'bevétel')
+    if (incUtkozes) return { error: incUtkozes }
+    const expUtkozes = utkozes(expense, 'kiadás')
+    if (expUtkozes) return { error: expUtkozes }
+
+    if (!isOnline) {
+      // 3/a) OFFLINE kapuk — ugyanazok, mint a use-case offline ágán.
+      if (!offlineBackend) {
+        return { error: 'A rögzítéshez most internetes kapcsolat szükséges. Csatlakozz a hálózatra, és próbáld újra.' }
+      }
+      const bankiSor = [...income, ...expense].find(
+        (r) => r.bankszamla_id != null && !/észpénz/i.test(r.irattipus),
+      )
+      if (bankiSor) {
+        return { error: 'Offline módban csak KÉSZPÉNZES tételt rögzíthetsz — a banki tételek a kivonatból jönnek be online-mód alatt. Vedd ki a banki sorokat, vagy csatlakozz a hálózatra.' }
+      }
+      // Offline év-zár a lokális tükörből (a use-case is ezt hívja).
+      const evek = new Set<number>()
+      for (const r of [...income, ...expense]) evek.add(new Date(r.datum).getFullYear())
+      for (const ev of evek) {
+        const zar = await assertYearNotFinalizedOffline(
+          offlineBackend.isYearFinalizedLocal?.bind(offlineBackend),
+          congregationId,
+          ev,
+        )
+        if (zar) return { error: zar }
+      }
+      // Elég sorszám van-e a tárcában? (Az utolsó sornál elfogyó tárca az egyik
+      // legvalószínűbb ok, amitől a köteg félúton megállna.)
+      const kell = new Map<string, number>()
+      const szamol = (sorok: Array<{ datum: string }>, tipus: 'befizetes' | 'kiadas') => {
+        for (const r of sorok) {
+          const kulcs = `${tipus}:${new Date(r.datum).getFullYear()}`
+          kell.set(kulcs, (kell.get(kulcs) ?? 0) + 1)
+        }
+      }
+      szamol(income, 'befizetes')
+      szamol(expense, 'kiadas')
+      for (const [kulcs, db] of kell) {
+        const [tipus, evStr] = kulcs.split(':')
+        const allapot = await offlineBackend.getIratszamWalletStatus(
+          congregationId,
+          tipus as 'befizetes' | 'kiadas',
+          Number(evStr),
+        )
+        if (allapot.availableCount < db) {
+          return {
+            error: `Nincs elég offline sorszám: a(z) ${evStr}-es ${tipus === 'befizetes' ? 'bevételekhez' : 'kiadásokhoz'} ${db} kellene, a tárcában ${allapot.availableCount} van. Tölts fel sorszámot (Iratszám-tárca panel → +10 szám), vagy csatlakozz a hálózatra.`,
+          }
+        }
+      }
+      return { error: null }
+    }
+
+    // 3/b) ONLINE kapuk — év-zár + iratszám-duplikátum (a use-case ugyanezeket futtatja).
+    const datumok = [...income, ...expense].map((r) => r.datum)
+    const evZar = await assertYearsNotFinalizedForCreate(supabase, congregationId, datumok)
+    if (evZar) return { error: evZar }
+
+    // KÖTEGESEN: soronként egy-egy kör-út több száz soros rögzítésnél percekig
+    // tartana. A köteges változat UGYANAZZAL a szűrő-lánccal dolgozik (közös
+    // core-fájl), csak 80-asával kérdez.
+    const ctx = { supabase, runtime: 'desktop' as const }
+    const incSzamok = income.map((r) => (r.iratszam ?? '').trim()).filter(Boolean)
+    if (incSzamok.length > 0) {
+      const dup = await checkReceiptDuplicatesBatchUseCase({ congregationId, iratszamok: incSzamok }, ctx)
+      if (dup.success && dup.duplicates.length > 0) {
+        return { error: `A(z) „${dup.duplicates[0]}” iratszám már létezik a bevételeknél. Válassz másik számot.` }
+      }
+    }
+    const expSzamok = expense.map((r) => (r.iratszam ?? '').trim()).filter(Boolean)
+    if (expSzamok.length > 0) {
+      const dup = await checkExpenseReceiptDuplicatesBatchUseCase({ congregationId, iratszamok: expSzamok }, ctx)
+      if (dup.success && dup.duplicates.length > 0) {
+        return { error: `A(z) „${dup.duplicates[0]}” iratszám már létezik a kiadásoknál. Válassz másik számot.` }
       }
     }
     return { error: null }
@@ -304,6 +465,9 @@ export function DesktopCombinedEntryDialog({
             onGetExpectedJarulek={async (personId, year, prospectiveDateIso) => await expectedJarulekOnline(congregationId, personId, year, prospectiveDateIso)}
             onSaveIncomeBatch={handleIncomeBatch}
             onSaveExpenseBatch={handleExpenseBatch}
+            /* 2026-08-31: a desktop soronként ment — az előellenőrzés MINDEN ÍRÁS
+               ELŐTT végigfut, hogy ne keletkezhessen félig elmentett köteg. */
+            onPreflightCheck={handlePreflight}
             onSaveInternalTransfer={handleInternalTransfer}
             onClose={() => onOpenChange(false)}
             onToast={(type, message) =>

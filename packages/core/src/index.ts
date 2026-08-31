@@ -201,6 +201,7 @@ export {
 
 export {
   checkReceiptDuplicateUseCase,
+  checkReceiptDuplicatesBatchUseCase,
   type CheckReceiptDuplicateCtx,
   type CheckReceiptDuplicateResult,
 } from './finance/befizetes/check-receipt-duplicate'
@@ -264,6 +265,7 @@ export {
 
 export {
   checkExpenseReceiptDuplicateUseCase,
+  checkExpenseReceiptDuplicatesBatchUseCase,
   type CheckExpenseReceiptDuplicateCtx,
   type CheckExpenseReceiptDuplicateResult,
 } from './finance/kiadas/check-receipt-duplicate'

@@ -61,11 +61,21 @@ function ellenoriz(files) {
     hibak.push('befizetés-generátor: a kánon visszabomlott')
   }
 
-  // (3) a dup-checkek a stornózott sort NEM számítják duplikátumnak
-  for (const [nev, fajl] of [['befizetés dup-check', BEF_DUP], ['kiadás dup-check', KIA_DUP]]) {
+  // (3) a dup-checkek a stornózott sort NEM számítják duplikátumnak.
+  //     ⚠️ 2026-08-31: LEKÉRDEZÉSENKÉNT mérünk, nem fájlonként. A fájlban immár KÉT
+  //     lekérdezés van (egyszemélyes + KÖTEGES előellenőrzés); a „van-e valahol a
+  //     fájlban" alakú asszert az egyikük vakítására már nem bukott volna el.
+  for (const [nev, fajl, tabla] of [
+    ['befizetés dup-check', BEF_DUP, 'befizetes'],
+    ['kiadás dup-check', KIA_DUP, 'kiadas'],
+  ]) {
     const s = stripComments(files.get(fajl))
-    if (!s.includes(STORNO_SZURO)) {
-      hibak.push(`${nev}: a stornózott sorra is duplikátumot jelez — a generátorral zsákutcába kerül`)
+    const lekerdezesek = (s.match(new RegExp(`\\.from\\('${tabla}'\\)`, 'g')) || []).length
+    const szurok = (s.match(/\.or\('stornozott\.eq\.false,stornozott\.is\.null'\)/g) || []).length
+    if (lekerdezesek === 0) {
+      hibak.push(`${nev}: nem található lekérdezés (fail-closed)`)
+    } else if (szurok < lekerdezesek) {
+      hibak.push(`${nev}: ${lekerdezesek} lekérdezésből csak ${szurok} szűri ki a stornózott sort — az egyszemélyes és a KÖTEGES változat széthúzott, az előellenőrzés mást mondana, mint a mentés`)
     }
   }
 
@@ -106,7 +116,9 @@ if (hibak.length === 0) {
   else if (ellenoriz(m1files).length === 0) bukik('M1: a stornó-szűrő törlésére az őr NEM bukik — vak')
   else pass('M1 mutáns (kiadás-generátor stornó-szűrő törölve) → az őr elbuktatja')
 
-  // M2: a dup-check visszavakítása
+  // M2: a dup-check visszavakítása — SZÁNDÉKOSAN csak az ELSŐ előfordulás
+  //     (`replace`, nem `replaceAll`): éppen azt játssza vissza, amikor a köteges
+  //     és az egyszemélyes lekérdezés SZÉTHÚZ egymástól.
   const m2files = beolvas()
   const b2 = m2files.get(BEF_DUP)
   const b2mut = b2.replace(".or('stornozott.eq.false,stornozott.is.null')", '')

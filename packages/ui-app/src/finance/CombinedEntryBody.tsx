@@ -130,6 +130,38 @@ export interface CombinedIncomeBatchRow extends SaveIncomeBatchRow {
   befizeto_scope_id?: string | null
   /** A partner fajtája — a szerver ebből tudja, MELYIK FK-oszlopot töltheti. */
   befizeto_kind?: CombinedPartnerKind | null
+  /**
+   * 2026-08-31 (DESKTOP SORONKÉNTI MENTÉS): a köteg-tételt LÉTREHOZÓ űrlapsor
+   * azonosítója. Egy sorból TÖBB köteg-tétel is lehet (egy nyugta, több befizető),
+   * és a `sort` is átrendezi a köteget — ezért a visszajelzés SOSEM lehet
+   * index-alapú. A hívó ezzel tudja megmondani, MELYIK sorok kerültek ténylegesen
+   * a könyvbe (`savedRowIds`). A szerver-séma az ismeretlen kulcsot levágja.
+   */
+  sourceRowId?: string
+}
+
+/**
+ * 2026-08-31: ugyanaz a kiadás-oldalon. Külön kiterjesztés, mert a
+ * `SaveExpenseBatchRow`-t a gyülekezeti ExpenseDialogBody is használja.
+ */
+export interface CombinedExpenseBatchRow extends SaveExpenseBatchRow {
+  /** A köteg-tételt létrehozó űrlapsor azonosítója — lásd `CombinedIncomeBatchRow`. */
+  sourceRowId?: string
+}
+
+/**
+ * A mentő-visszahívások eredménye.
+ *
+ * ⚠️ `savedRowIds` — a RÉSZLEGES mentés becsületes visszajelzése. A web köteg
+ * minden-vagy-semmi (szerver-oldali visszavonással), a DESKTOP viszont SORONKÉNT
+ * ment (offline is), tehát egy köztes hibánál az addigi sorok BENT MARADNAK a
+ * könyvben. Ha a hívó megmondja, mely FORRÁS-SOROK mentek ki, a rögzítő megjelöli
+ * őket („elmentve"), és az újramentés nem könyveli el őket MÁSODSZOR is.
+ * Aki nem tölti ki: a régi (minden-vagy-semmi) viselkedést kapja.
+ */
+export interface CombinedBatchSaveResult {
+  error?: string | null
+  savedRowIds?: string[]
 }
 
 /** A találati csoportok magyar fejlécei (a felső szintű, csoportosított listához). */
@@ -184,13 +216,63 @@ function payerInfoText(p: PayerLike): string {
   return [p.kor != null ? `${p.kor} éves` : null, (p.lakhely || '').trim() || null].filter(Boolean).join(' · ')
 }
 
+/**
+ * 2026-08-31 (DESKTOP SORONKÉNTI MENTÉS): a részlegesen elmentett köteg kiértékelése.
+ *
+ * A desktop `onSaveIncomeBatch`/`onSaveExpenseBatch` SORONKÉNT ír (online és offline
+ * is), és az első hibás sornál megáll — az addigiak VÉGLEGESEN bent maradnak a
+ * könyvben. Ha a hívó visszaadja a ténylegesen elmentett tételek FORRÁS-SORAIT,
+ * ebből tudjuk, mely sorokat kell „elmentve" jelöléssel lezárni.
+ *
+ * ⛔ FAIL-CLOSED a több befizetős nyugtára: egy űrlapsorból TÖBB köteg-tétel lesz
+ * (egy nyugta, több befizető). Csak azt a sort jelöljük mentettnek, amelyiknek
+ * MINDEN tétele kiment. A félig kiment sor JELÖLETLEN marad (tehát szerkeszthető,
+ * a felhasználó ki tudja venni belőle a már bekönyvelt befizetőket), de külön,
+ * nevesített figyelmeztetést kap — jelölve némán elveszne a maradék befizető,
+ * jelöletlenül és figyelmeztetés nélkül pedig duplán könyvelné a bentieket.
+ */
+export function reszlegesenMentettSorok(
+  batch: Array<{ sourceRowId?: string }>,
+  savedRowIds: string[] | undefined,
+): { teljes: string[]; felig: number } {
+  if (!savedRowIds || savedRowIds.length === 0) return { teljes: [], felig: 0 }
+  const kell = new Map<string, number>()
+  for (const b of batch) {
+    if (!b.sourceRowId) continue
+    kell.set(b.sourceRowId, (kell.get(b.sourceRowId) ?? 0) + 1)
+  }
+  const ment = new Map<string, number>()
+  for (const id of savedRowIds) ment.set(id, (ment.get(id) ?? 0) + 1)
+  const teljes: string[] = []
+  let felig = 0
+  for (const [id, db] of ment) {
+    const osszes = kell.get(id) ?? 0
+    // Ismeretlen azonosító (osszes === 0) SEM jelölhető — az is a „nézd át kézzel" ágra megy.
+    if (osszes > 0 && db >= osszes) teljes.push(id)
+    else felig += 1
+  }
+  return { teljes, felig }
+}
+
+/** A részleges mentés BECSÜLETES üzenete — a hibaüzenet végére fűzve. */
+function reszlegesUzenet(r: { teljes: string[]; felig: number }): string {
+  const d: string[] = []
+  if (r.teljes.length > 0) {
+    d.push(`${r.teljes.length} sor MÁR BEKERÜLT a könyvbe (a listában „elmentve" jelölést kapott) — ezeket NE rögzítsd újra`)
+  }
+  if (r.felig > 0) {
+    d.push(`${r.felig} sor RÉSZBEN került be (a több befizetős nyugtából csak egyes befizetők) — ezt a sort nézd át kézzel, mert újramentésnél a már bekönyvelt befizetők DUPLÁN kerülnének be`)
+  }
+  return d.length > 0 ? ` — FIGYELEM: ${d.join('; ')}.` : ''
+}
+
 export interface CombinedEntryBodyProps {
   incomeCategories: IncomeCategory[]
   expenseCategories: ExpenseCategory[]
   bankAccounts: CombinedBankAccount[]
   currentYear: number
-  onSaveIncomeBatch: (rows: CombinedIncomeBatchRow[]) => Promise<{ error?: string | null }>
-  onSaveExpenseBatch: (rows: SaveExpenseBatchRow[]) => Promise<{ error?: string | null }>
+  onSaveIncomeBatch: (rows: CombinedIncomeBatchRow[]) => Promise<CombinedBatchSaveResult>
+  onSaveExpenseBatch: (rows: CombinedExpenseBatchRow[]) => Promise<CombinedBatchSaveResult>
   onSaveInternalTransfer: (payload: CombinedInternalTransferPayload) => Promise<{ error?: string | null }>
   /** 2026-08-31 (RÉSZLEGES MENTÉS MEGELŐZÉSE): a mentés MEGKEZDÉSE ELŐTT lefuttatott,
    *  tisztán OLVASÓ ellenőrzés MINDKÉT kötegre — ha valami hibás, a mentés el sem indul,
@@ -198,7 +280,7 @@ export interface CombinedEntryBodyProps {
    *  desktop) vagy nem fut le, a mentés a régi úton megy tovább (FAIL-OPEN). */
   onPreflightCheck?: (
     income: CombinedIncomeBatchRow[],
-    expense: SaveExpenseBatchRow[],
+    expense: CombinedExpenseBatchRow[],
   ) => Promise<{ error?: string | null }>
   onClose: () => void
   onToast: CombinedToastFn
@@ -1679,7 +1761,7 @@ export function CombinedEntryBody({
     // hibája utáni ÚJRA-mentés nem rögzíti duplán a már elmentett tételeket.
     const transfers: Array<{ payload: CombinedInternalTransferPayload; rowId: string; tab: 'income' | 'expense' }> = []
     const incomeBatch: CombinedIncomeBatchRow[] = []
-    const expenseBatch: SaveExpenseBatchRow[] = []
+    const expenseBatch: CombinedExpenseBatchRow[] = []
     const savedIncomeRowIds: string[] = []
     const savedExpenseRowIds: string[] = []
 
@@ -1756,10 +1838,13 @@ export function CombinedEntryBody({
             befizeto_scope_id: p.refId ?? null,
             befizeto_kind: p.kind ?? null,
             bankszamla_id: rowBankId,
+            // 2026-08-31: melyik ŰRLAPSOR szülte ezt a tételt (soronkénti mentés visszajelzése).
+            sourceRowId: r.id,
           })
         })
       } else {
         incomeBatch.push({
+          sourceRowId: r.id,
           datum, id_befizetescel: Number(r.categoryId),
           forrasa: r.partner.trim() || null,
           osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: docTypeForSave(r),
@@ -1814,6 +1899,7 @@ export function CombinedEntryBody({
         }
       }
       expenseBatch.push({
+        sourceRowId: r.id,
         // D1: a partner a fenti kapu miatt garantáltan nem üres.
         datum, id_kiadascel: Number(r.categoryId), kedvezmenyzett: r.partner.trim(),
         osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: docTypeForSave(r),
@@ -1827,13 +1913,19 @@ export function CombinedEntryBody({
     expenseBatch.sort((a, b) => a.datum.localeCompare(b.datum))
 
     // ── RÉSZLEGES MENTÉS MEGELŐZÉSE (2026-08-31) ──────────────────────────────
-    // A mentés három külön szerver-hívás, tranzakció nélkül: ha a második bukik, az
-    // első már bent van. Ezért MINDEN ÍRÁS ELŐTT egyetlen olvasó hívással átnézetjük
-    // MINDKÉT köteget ugyanazokkal a kapukkal (zod, év-zár, iratszám-duplikátum,
-    // kötegen belüli ütközés). Ha itt hiba van, EL SEM INDUL a mentés.
+    // A mentés több külön írás, tranzakció nélkül: ha egy későbbi bukik, a korábbi
+    // már bent van. Ezért MINDEN ÍRÁS ELŐTT egyetlen olvasó hívással átnézetjük a
+    // köteget ugyanazokkal a kapukkal (zod, év-zár, iratszám-duplikátum, kötegen
+    // belüli ütközés). Ha itt hiba van, EL SEM INDUL a mentés.
+    //
+    // ⛔ A KAPU FELTÉTELE: EGYNÉL TÖBB mentendő tétel — NEM az, hogy „mindkét fül
+    //    tele van". A desktop SORONKÉNT ír, ott a felemás állapot EGYETLEN fülön
+    //    belül is előáll (5 bevételből a 3. bukik → kettő bent marad). A korábbi
+    //    „mindkét oldal nem üres" feltétel épp a leggyakoribb esetet (csak bevétel)
+    //    hagyta ki. Egyetlen tételnél nincs mit felemásra hagyni → ott nem kérdezünk.
     // ⚠️ ELOELLENORZES-FAIL-OPEN: ha maga az ellenőrzés nem fut le (offline, hálózat,
     // nincs bekötve), NEM akadályozzuk meg a rögzítést — ez kényelem, nem védelem.
-    if (onPreflightCheck && incomeBatch.length > 0 && expenseBatch.length > 0) {
+    if (onPreflightCheck && incomeBatch.length + expenseBatch.length > 1) {
       try {
         const elo = await onPreflightCheck(incomeBatch, expenseBatch)
         if (elo?.error) {
@@ -1889,7 +1981,17 @@ export function CombinedEntryBody({
         : '')
       if (incomeBatch.length) {
         const res = await onSaveIncomeBatch(incomeBatch)
-        if (res.error) { onToast('error', `Bevétel: ${res.error}${mar()}`); return }
+        if (res.error) {
+          // 2026-08-31: a DESKTOP soronként ment — a hiba ELŐTTI sorok bent maradtak a
+          // könyvben. Ha a hívó megmondta, melyek ezek, MOST jelöljük meg őket: enélkül
+          // jelöletlenül maradnának, és az újramentés MÁSODSZOR is elkönyvelné őket.
+          const resz = reszlegesenMentettSorok(incomeBatch, res.savedRowIds)
+          if (resz.teljes.length > 0) jelolMentettnek('income', resz.teljes)
+          // Ha BÁRMI kiment, a nyugtaszám-számláló elavult (számok elkeltek).
+          if (resz.teljes.length > 0 || resz.felig > 0) receiptCacheRef.current.clear()
+          onToast('error', `Bevétel: ${res.error}${reszlegesUzenet(resz)}${mar()}`)
+          return
+        }
         // A bevételek elmentve — MEGJELÖLJÜK (nem töröljük): a vázlat teljes marad.
         jelolMentettnek('income', savedIncomeRowIds)
         mentettFazisok.push(`${incomeBatch.length} bevétel`)
@@ -1900,7 +2002,13 @@ export function CombinedEntryBody({
       }
       if (expenseBatch.length) {
         const res = await onSaveExpenseBatch(expenseBatch)
-        if (res.error) { onToast('error', `Kiadás: ${res.error}${mar()}`); return }
+        if (res.error) {
+          const resz = reszlegesenMentettSorok(expenseBatch, res.savedRowIds)
+          if (resz.teljes.length > 0) jelolMentettnek('expense', resz.teljes)
+          if (resz.teljes.length > 0 || resz.felig > 0) receiptCacheRef.current.clear()
+          onToast('error', `Kiadás: ${res.error}${reszlegesUzenet(resz)}${mar()}`)
+          return
+        }
         jelolMentettnek('expense', savedExpenseRowIds)
         mentettFazisok.push(`${expenseBatch.length} kiadás`)
         receiptCacheRef.current.clear()

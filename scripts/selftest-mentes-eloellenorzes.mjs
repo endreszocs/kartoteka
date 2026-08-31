@@ -109,7 +109,9 @@ function asszertek(files, jelent) {
   }
 
   // (3) iratszám-duplikátum: DB-ben ÉS a kötegen BELÜL is
-  if (elo.includes('checkReceiptDuplicateUseCase') && elo.includes('checkExpenseReceiptDuplicateUseCase')) {
+  // A nev-elotag eleg: az egyszemelyes ES a koteges valtozat is megfelel (mindketto
+  // ugyanabban a core-fajlban, azonos szuro-lanccal).
+  if (elo.includes('checkReceiptDuplicate') && elo.includes('checkExpenseReceiptDuplicate')) {
     jo('előellenőrzés: iratszám-duplikátum mindkét oldalon (a leggyakoribb bukás-ok)')
   } else {
     hiba('az előellenőrzés nem nézi az iratszám-duplikátumot — pont a leggyakoribb bukás maradna félútra')

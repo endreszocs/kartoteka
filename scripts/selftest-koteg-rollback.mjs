@@ -17,7 +17,13 @@
  *   (I4) a rollback SCOPE-TUDATOS: tablesFor-alapú tábla + scope-oszlop
  *        (T.befizetes / T.scopeCol) — különben a felső szintű visszavonás a
  *        rossz táblán némán 0 sorra futna,
- *   (I5) a felhasználó megtudja, hogy a köteg visszavonódott ("visszavonva").
+ *   (I5) a felhasználó megtudja, hogy a köteg visszavonódott ("visszavonva"),
+ *   (I6) 2026-08-31: a visszavonás EREDMÉNYE MÉRVE van (`.select()` + számláló) —
+ *        a `.update()` 0 illeszkedő sorra NEM hiba, a régi alak pedig a kivételt
+ *        is elnyelte, majd MINDIG azt írta, hogy „visszavonva". Aki ennek hitt,
+ *        újra mentett, és a bent maradt tételek DUPLÁN kerültek be,
+ *   (I7) ezért a hibaüzenetnek KÉT ága van: sikeres visszavonás, illetve
+ *        „NEM sikerült maradéktalanul — NE mentsd újra".
  *   (E1) a saveExpenseBatch felső szintű ága hibánál rollbackol,
  *   (E2) a felső szintű beszúrt sorok is követve vannak,
  *   (E3) a kiadás-rollback is scope-tudatos (T.kiadas / T.scopeCol).
@@ -83,6 +89,17 @@ function ellenoriz(src) {
   if (!/visszavonva/.test(r.income)) {
     hibak.push('I5: a bevétel-köteg hibaüzenete nem mondja ki, hogy a köteg visszavonódott')
   }
+  // I6/I7 (2026-08-31): mért visszavonás + becsületes, KÉT ágú üzenet.
+  for (const [nev, regio, cimke] of [['bevétel', r.income, 'I'], ['kiadás', r.expense, 'E']]) {
+    const szam = cimke === 'I' ? '6' : '4'
+    const szam2 = cimke === 'I' ? '7' : '5'
+    if (!(/sikertelen \+= 1/.test(regio) && /\.select\('id'\)/.test(regio))) {
+      hibak.push(`${cimke}${szam}: a ${nev}-visszavonás nem MÉRI az eredményét (nincs .select('id') + számláló) — a 0 sorra futó update is „sikernek" számítana`)
+    }
+    if (!/NEM sikerült maradéktalanul/.test(regio)) {
+      hibak.push(`${cimke}${szam2}: a ${nev}-köteg üzenete MINDIG azt állítja, hogy visszavontuk — sikertelen visszavonásnál ez hazugság, és dupla könyvelést okoz`)
+    }
+  }
 
   // ── kiadás-köteg: felső szintű ág ──
   const iBlokk = r.expense.indexOf("if (scope.scope !== 'congregation')")
@@ -138,6 +155,21 @@ if (hibak.length === 0) {
     else if (ellenoriz(m2).length === 0) bukik('M2: a felső szintű kiadás-rollback eltávolítására az őr NEM bukik — vak')
     else pass('M2 mutáns (felső szintű kiadás-rollback nélkül) → az őr elbuktatja')
   }
+
+  // M4: a visszavonás EREDMÉNYÉNEK mérése kiiktatva (a régi, néma alak)
+  const m4 = src.replace(
+    /const \{ data, error \} = await q\.select\('id'\)\n\s*if \(error \|\| \(data\?\.length \?\? 0\) === 0\) sikertelen \+= 1/g,
+    'await q',
+  )
+  if (m4 === src) bukik('M4 mutáció nem változtatott a forráson (fail-closed)')
+  else if (ellenoriz(m4).length === 0) bukik('M4: a mérés kiiktatására az őr NEM bukik — vak')
+  else pass('M4 mutáns (a visszavonás eredményét nem mérjük) → az őr elbuktatja')
+
+  // M5: az üzenet visszabutítása „mindig visszavonva"-ra
+  const m5 = src.replace(/NEM sikerült maradéktalanul/g, 'rendben lezajlott')
+  if (m5 === src) bukik('M5 mutáció nem változtatott a forráson (fail-closed)')
+  else if (ellenoriz(m5).length === 0) bukik('M5: a hazug üzenetre az őr NEM bukik — vak')
+  else pass('M5 mutáns (az üzenet mindig „visszavonva"-t állít) → az őr elbuktatja')
 
   // M3: a scope-tudatosság visszabutítása (hardcoded tábla)
   const m3 = src.replace(/T\.kiadas/g, "'kiadas'")

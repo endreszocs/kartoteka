@@ -6,8 +6,9 @@ import { revalidatePath } from 'next/cache'
 // 2026-07-11 (S6): visszamenőleges kassza↔bank átvezetésnél a következő évi
 // automatikus ('carryover') nyitó újraszámolása.
 import {
-  checkExpenseReceiptDuplicateUseCase,
+  checkExpenseReceiptDuplicatesBatchUseCase,
   checkReceiptDuplicateUseCase,
+  checkReceiptDuplicatesBatchUseCase,
   refreshCarryoverBestEffort,
   resolveNyitoEgyenlegekUseCase,
   saveExpenseUseCase,
@@ -2507,18 +2508,33 @@ export async function saveIncomeBatch(rows: IncomeBatchRowInput[]) {
   // tábláján von vissza. (A 2026-08-11-én törölt `rollbackInsertedIncome` nem
   // elvi döntés volt — csak az egyetlen hívója szűnt meg.)
   const insertedIncomes: Array<{ id: number | null; xkey: string | null }> = []
-  const rollbackInsertedIncomes = async () => {
+  // ⛔ 2026-08-31: a visszavonás EREDMÉNYÉT MEGMÉRJÜK, és a hibaüzenet ezt mondja
+  // ki. A régi alak elnyelte a hibát, majd MINDIG azt írta, hogy „a köteg minden
+  // bevétele visszavonva" — ha a visszavonás elhasalt, a könyvelő ennek hitt,
+  // újra mentett, és a bent maradt tételek DUPLÁN kerültek be. A `.update()`
+  // MAGÁTÓL nem hiba, ha 0 sorra illeszkedik, ezért `.select('id')`-vel mérünk:
+  // ami nem jött vissza, azt nem tekintjük visszavontnak.
+  const rollbackInsertedIncomes = async (): Promise<string> => {
+    if (insertedIncomes.length === 0) return ''
+    let sikertelen = 0
     for (const rec of insertedIncomes) {
       try {
-        if (Number.isFinite(rec.id) && (rec.id as number) > 0) {
-          await scope.supabase.from(scope.T.befizetes).update({ deleted: true }).eq('id', rec.id).eq(scope.T.scopeCol, scope.scopeId)
-        } else if (rec.xkey) {
-          await scope.supabase.from(scope.T.befizetes).update({ deleted: true }).eq('xkey', rec.xkey).eq(scope.T.scopeCol, scope.scopeId)
-        }
+        const alap = scope.supabase.from(scope.T.befizetes).update({ deleted: true })
+        const q = Number.isFinite(rec.id) && (rec.id as number) > 0
+          ? alap.eq('id', rec.id).eq(scope.T.scopeCol, scope.scopeId)
+          : rec.xkey
+            ? alap.eq('xkey', rec.xkey).eq(scope.T.scopeCol, scope.scopeId)
+            : null
+        if (!q) { sikertelen += 1; continue }
+        const { data, error } = await q.select('id')
+        if (error || (data?.length ?? 0) === 0) sikertelen += 1
       } catch {
-        /* best-effort — a többi sort ettől még visszavonjuk */
+        sikertelen += 1
       }
     }
+    return sikertelen === 0
+      ? ' — a köteg minden bevétele visszavonva; javítsd a hibát és mentsd újra.'
+      : ` — ⚠️ FIGYELEM: a köteg visszavonása NEM sikerült maradéktalanul (${sikertelen} tétel a könyvben maradhatott). NE mentsd újra, amíg a listán nem ellenőrizted!`
   }
 
   for (let index = 0; index < parsed.data.length; index += 1) {
@@ -2548,12 +2564,8 @@ export async function saveIncomeBatch(rows: IncomeBatchRowInput[]) {
         })
 
     if ('error' in result) {
-      await rollbackInsertedIncomes()
-      return {
-        error: insertedIncomes.length
-          ? `${index + 1}. sor: ${result.error} — a köteg minden bevétele visszavonva; javítsd a hibát és mentsd újra.`
-          : `${index + 1}. sor: ${result.error}`,
-      }
+      const vissza = await rollbackInsertedIncomes()
+      return { error: `${index + 1}. sor: ${result.error}${vissza}` }
     }
     insertedIncomes.push({
       id: Number.isFinite(result.id) ? result.id : null,
@@ -2596,18 +2608,28 @@ export async function saveExpenseBatch(rows: ExpenseBatchRowInput[]) {
   // P0-8 (audit 2026-08-28): a tábla és a scope-oszlop a `scope.T`-ből jön —
   // így a FELSŐ SZINTŰ (megyei/kerületi) ág is a saját tábláján von vissza.
   // Gyülekezeti scope-ban bitre azonos a korábbival ('kiadas' + congregation_id).
-  const rollbackInsertedExpenses = async () => {
+  // ⛔ 2026-08-31: mért visszavonás + becsületes üzenet — lásd a bevétel-oldali párját.
+  const rollbackInsertedExpenses = async (): Promise<string> => {
+    if (insertedExpenses.length === 0) return ''
+    let sikertelen = 0
     for (const rec of insertedExpenses) {
       try {
-        if (Number.isFinite(rec.id) && (rec.id as number) > 0) {
-          await scope.supabase.from(scope.T.kiadas).update({ deleted: true }).eq('id', rec.id).eq(scope.T.scopeCol, scope.scopeId)
-        } else if (rec.xkey) {
-          await scope.supabase.from(scope.T.kiadas).update({ deleted: true }).eq('xkey', rec.xkey).eq(scope.T.scopeCol, scope.scopeId)
-        }
+        const alap = scope.supabase.from(scope.T.kiadas).update({ deleted: true })
+        const q = Number.isFinite(rec.id) && (rec.id as number) > 0
+          ? alap.eq('id', rec.id).eq(scope.T.scopeCol, scope.scopeId)
+          : rec.xkey
+            ? alap.eq('xkey', rec.xkey).eq(scope.T.scopeCol, scope.scopeId)
+            : null
+        if (!q) { sikertelen += 1; continue }
+        const { data, error } = await q.select('id')
+        if (error || (data?.length ?? 0) === 0) sikertelen += 1
       } catch {
-        /* best-effort — a többi sort ettől még visszavonjuk */
+        sikertelen += 1
       }
     }
+    return sikertelen === 0
+      ? ' — a köteg minden kiadása visszavonva; javítsd a hibát és mentsd újra.'
+      : ` — ⚠️ FIGYELEM: a köteg visszavonása NEM sikerült maradéktalanul (${sikertelen} tétel a könyvben maradhatott). NE mentsd újra, amíg a listán nem ellenőrizted!`
   }
 
   for (let index = 0; index < parsed.data.length; index += 1) {
@@ -2617,11 +2639,9 @@ export async function saveExpenseBatch(rows: ExpenseBatchRowInput[]) {
       // P0-8: a felső szintű ág is MINDEN-VAGY-SEMMI — korábban sem követés,
       // sem visszavonás nem volt itt, a részleges köteg újramentése duplikált.
       if (row.inventory) {
-        await rollbackInsertedExpenses()
+        const vissza = await rollbackInsertedExpenses()
         return {
-          error: insertedExpenses.length
-            ? `${index + 1}. sor: a leltárba vétel ${szintNeveRagozva(scope.scope)} módban nem elérhető — a köteg minden kiadása visszavonva; külön rögzítsd a kiadást és a leltári tételt.`
-            : `${index + 1}. sor: a leltárba vétel ${szintNeveRagozva(scope.scope)} módban nem elérhető — külön rögzítsd a kiadást és a leltári tételt.`,
+          error: `${index + 1}. sor: a leltárba vétel ${szintNeveRagozva(scope.scope)} módban nem elérhető — külön rögzítsd a kiadást és a leltári tételt.${vissza}`,
         }
       }
       const result = await insertFelsoSzintExpenseRecord({
@@ -2632,12 +2652,8 @@ export async function saveExpenseBatch(rows: ExpenseBatchRowInput[]) {
         input: row,
       })
       if ('error' in result) {
-        await rollbackInsertedExpenses()
-        return {
-          error: insertedExpenses.length
-            ? `${index + 1}. sor: ${result.error} — a köteg minden kiadása visszavonva; javítsd a hibát és mentsd újra.`
-            : `${index + 1}. sor: ${result.error}`,
-        }
+        const vissza = await rollbackInsertedExpenses()
+        return { error: `${index + 1}. sor: ${result.error}${vissza}` }
       }
       insertedExpenses.push({
         id: Number.isFinite(result.id) ? result.id : null,
@@ -2653,12 +2669,8 @@ export async function saveExpenseBatch(rows: ExpenseBatchRowInput[]) {
       input: row,
     })
     if ('error' in result) {
-      await rollbackInsertedExpenses()
-      return {
-        error: insertedExpenses.length
-          ? `${index + 1}. sor: ${result.error} — a köteg minden kiadása visszavonva; javítsd a hibát és mentsd újra.`
-          : `${index + 1}. sor: ${result.error}`,
-      }
+      const vissza = await rollbackInsertedExpenses()
+      return { error: `${index + 1}. sor: ${result.error}${vissza}` }
     }
     insertedExpenses.push({
       id: Number.isFinite(result.id) ? result.id : null,
@@ -2676,8 +2688,8 @@ export async function saveExpenseBatch(rows: ExpenseBatchRowInput[]) {
         expenseXkey: result.xkey ?? null,
       })
       if (invResult.error) {
-        await rollbackInsertedExpenses()
-        return { error: `${index + 1}. sor: a kapcsolt leltári tétel mentése nem sikerült, ezért a köteg minden kiadása visszavonva. ${invResult.error}` }
+        const vissza = await rollbackInsertedExpenses()
+        return { error: `${index + 1}. sor: a kapcsolt leltári tétel mentése nem sikerült. ${invResult.error}${vissza}` }
       }
       anyInventory = true
     }
@@ -2711,10 +2723,13 @@ export async function ellenorizMentesElore(
 ) {
   const inc = Array.isArray(incomeRows) ? incomeRows : []
   const exp = Array.isArray(expenseRows) ? expenseRows : []
-  if (inc.length === 0 || exp.length === 0) {
-    // Csak EGYFÉLE köteg van → nem keletkezhet fázisok közti részleges állapot.
-    return { ok: true }
-  }
+  // ⛔ 2026-08-31: EGYOLDALAS köteget is átnézünk. Az eredeti „csak akkor, ha
+  //    mindkét oldal tele van" feltétel abból indult ki, hogy a felemás állapot
+  //    csak FÁZISOK KÖZÖTT keletkezhet — a desktop viszont SORONKÉNT ír, ott egy
+  //    csak-bevétel köteg közepén is megállhat. Egyetlen tételnél nincs mit
+  //    átnézni (a hívó sem kérdez), de nulla sorra sem bukhatunk el a
+  //    `.min(1)` sémán: az ÜRES oldalt átugorjuk, nem hibának vesszük.
+  if (inc.length + exp.length === 0) return { ok: true }
 
   const scope = await getFinanceScope()
   if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
@@ -2723,15 +2738,19 @@ export async function ellenorizMentesElore(
 
   // 1) UGYANAZ a zod-séma, mint a mentésnél — a jövőbeli dátum, a nem cent-pontos
   //    összeg, a túl hosszú iratszám itt derül ki, nem a köteg közepén.
-  const incParsed = incomeBatchSchema.safeParse(inc)
-  if (!incParsed.success) return { error: `Bevétel: ${incParsed.error.issues[0].message}` }
-  const expParsed = expenseBatchSchema.safeParse(exp)
-  if (!expParsed.success) return { error: `Kiadás: ${expParsed.error.issues[0].message}` }
+  //    (Az ÜRES oldalt átugorjuk: a köteg-séma `.min(1)`-je különben „legalább egy
+  //    sor szükséges" hibával blokkolna egy tökéletesen érvényes, csak-bevétel mentést.)
+  const incParsed = inc.length > 0 ? incomeBatchSchema.safeParse(inc) : null
+  if (incParsed && !incParsed.success) return { error: `Bevétel: ${incParsed.error.issues[0].message}` }
+  const expParsed = exp.length > 0 ? expenseBatchSchema.safeParse(exp) : null
+  if (expParsed && !expParsed.success) return { error: `Kiadás: ${expParsed.error.issues[0].message}` }
+  const incSorok = incParsed?.success ? incParsed.data : []
+  const expSorok = expParsed?.success ? expParsed.data : []
 
   // 2) Véglegesített év — MINDKÉT köteg minden dátumára.
-  const incLock = await assertYearsNotFinalizedForCreate(scope, incParsed.data.map((r) => r.datum))
+  const incLock = await assertYearsNotFinalizedForCreate(scope, incSorok.map((r) => r.datum))
   if (incLock) return { error: `Bevétel: ${incLock}` }
-  const expLock = await assertYearsNotFinalizedForCreate(scope, expParsed.data.map((r) => r.datum))
+  const expLock = await assertYearsNotFinalizedForCreate(scope, expSorok.map((r) => r.datum))
   if (expLock) return { error: `Kiadás: ${expLock}` }
 
   // 3) KÖTEGEN BELÜLI iratszám-ütközés: a szerver ezt csak a MÁSODIK sornál venné
@@ -2746,29 +2765,30 @@ export async function ellenorizMentesElore(
     }
     return null
   }
-  const incUtkozes = kotegenBeluliIratszamUtkozes(incParsed.data)
+  const incUtkozes = kotegenBeluliIratszamUtkozes(incSorok)
   if (incUtkozes) return { error: `Bevétel: a(z) „${incUtkozes}" iratszám KÉTSZER szerepel ebben a mentésben — adj egyedi számot.` }
-  const expUtkozes = kotegenBeluliIratszamUtkozes(expParsed.data)
+  const expUtkozes = kotegenBeluliIratszamUtkozes(expSorok)
   if (expUtkozes) return { error: `Kiadás: a(z) „${expUtkozes}" iratszám KÉTSZER szerepel ebben a mentésben — adj egyedi számot.` }
 
   // 4) Iratszám-duplikátum az ADATBÁZISBAN — ez a leggyakoribb bukás-ok. Csak
   //    gyülekezeti hatókörben (a felső szintű táblákon nincs ilyen use-case).
+  //    ⚡ KÖTEGESEN (2026-08-31): soronként egy-egy kör-út több száz soros
+  //    rögzítésnél percekig tartana — a köteges változat 80-asával kérdez, de
+  //    UGYANAZZAL a szűrő-lánccal (közös fájl, egymás melletti függvények).
   if (scope.scope === 'congregation') {
     const ctx = { supabase: scope.supabase, runtime: 'web' as const }
-    for (const r of incParsed.data) {
-      const sz = (r.iratszam ?? '').trim()
-      if (!sz) continue
-      const res = await checkReceiptDuplicateUseCase({ congregationId: scope.scopeId, iratszam: sz }, ctx)
-      if (res.success && res.isDuplicate) {
-        return { error: `Bevétel: a(z) „${sz}" iratszám MÁR LÉTEZIK — válassz másik számot.` }
+    const incSzamok = incSorok.map((r) => (r.iratszam ?? '').trim()).filter(Boolean)
+    if (incSzamok.length > 0) {
+      const res = await checkReceiptDuplicatesBatchUseCase({ congregationId: scope.scopeId, iratszamok: incSzamok }, ctx)
+      if (res.success && res.duplicates.length > 0) {
+        return { error: `Bevétel: a(z) „${res.duplicates[0]}" iratszám MÁR LÉTEZIK — válassz másik számot.` }
       }
     }
-    for (const r of expParsed.data) {
-      const sz = (r.iratszam ?? '').trim()
-      if (!sz) continue
-      const res = await checkExpenseReceiptDuplicateUseCase({ congregationId: scope.scopeId, iratszam: sz }, ctx)
-      if (res.success && res.isDuplicate) {
-        return { error: `Kiadás: a(z) „${sz}" iratszám MÁR LÉTEZIK — válassz másik számot.` }
+    const expSzamok = expSorok.map((r) => (r.iratszam ?? '').trim()).filter(Boolean)
+    if (expSzamok.length > 0) {
+      const res = await checkExpenseReceiptDuplicatesBatchUseCase({ congregationId: scope.scopeId, iratszamok: expSzamok }, ctx)
+      if (res.success && res.duplicates.length > 0) {
+        return { error: `Kiadás: a(z) „${res.duplicates[0]}" iratszám MÁR LÉTEZIK — válassz másik számot.` }
       }
     }
   }
