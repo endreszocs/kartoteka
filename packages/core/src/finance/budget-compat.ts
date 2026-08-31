@@ -157,20 +157,24 @@ export async function loadBudgetRowsCompat(
   // Congregation path (eredeti logika)
   const congregationId = scopeId
   // Próbáljuk a teljes oszlopkészlettel (canonical + mod oszlopok)
+  // 2026-08-30: a VALÓDI oszlopnevekkel kezdünk. A `tervezett`/`modositott` a
+  // gyülekezeti `koltsegvetes` táblán SOHA nem létezett (azok a FELSŐ SZINTŰ táblák
+  // oszlopai) — a régi sorrend minden betöltésnél egy fölösleges 400-as kört futtatott,
+  // ami a böngésző konzoljában riasztónak látszott.
   let result: {
     data: RawRow[] | null
     error: Error | null
   } = await supabase
     .from('koltsegvetes')
-    .select('szamadasicelid, tervezett, modositott, osszeg_mod_2, osszeg_mod_3')
+    .select('szamadasicelid, osszeg, osszeg_modositott, osszeg_mod_2, osszeg_mod_3')
     .eq('bealitasid', String(year))
     .eq('congregation_id', congregationId)
 
   if (result.error && isMissingColumnError(result.error.message)) {
-    // Fallback: alap oszlopok
+    // Fallback: a felső szintű elnevezés (eltérő sémájú környezetekhez)
     result = await supabase
       .from('koltsegvetes')
-      .select('szamadasicelid, osszeg, osszeg_modositott, osszeg_mod_2, osszeg_mod_3')
+      .select('szamadasicelid, tervezett, modositott, osszeg_mod_2, osszeg_mod_3')
       .eq('bealitasid', String(year))
       .eq('congregation_id', congregationId)
   }
@@ -188,6 +192,51 @@ export async function loadBudgetRowsCompat(
   return (result.data || []).map(normalizeBudgetRow)
 }
 
+/** Egész lejre kerekít — a gyülekezeti terv-oszlopok INTEGER típusúak. */
+function egeszre(ertek: number | null | undefined): number {
+  const n = Number(ertek)
+  return Number.isFinite(n) ? Math.round(n) : 0
+}
+
+/**
+ * A kihagyott (kinullázott) sorok takarítása a BESZÚRÁS UTÁN — fail-safe: ha ez a
+ * lépés elakad, az érdemi adat MÁR bent van, legfeljebb néhány fölösleges sor marad.
+ *
+ * ⚠️ DARAB-olva törlünk: a `.in()` szűrő ~100 azonosító fölött 414-be fut (a proxy
+ * eldobja a hosszú URL-t) — a repó visszatérő hibaosztálya.
+ */
+const TAKARITAS_DARAB = 80
+async function takaritsFolosleges(
+  supabase: SupabaseClient,
+  tabla: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  szurok: (q: any) => any,
+  megtartandok: string[],
+): Promise<void> {
+  // ⛔ ÜRES MEGTARTANDÓ-LISTA = NEM TAKARÍTUNK. Ha a betöltés elhasalt (503-vihar,
+  // hálózat), a képernyő ÜRES sorokkal jön fel — a mentés ilyenkor a takarítással
+  // kisöpörné az ÉV TELJES TERVÉT, és a felhasználó „sikeres mentést" látna.
+  // A „mindent törlünk" szándékot a hívónak kell kimondania, nem itt találgatjuk.
+  if (megtartandok.length === 0) {
+    console.error('[saveBudgetRowsCompat] ÜRES terv-lista — a takarítás kihagyva (nem söpörjük ki az évet).')
+    return
+  }
+  const letezo = await szurok(supabase.from(tabla).select('szamadasicelid'))
+  // ⚠️ FAIL-LOUD: a takarítás hibáját NEM nyelhetjük el — a régi (DELETE-elöl) kód
+  // hangosan megállt. Ha csak logolnánk, a felhasználó „mentve" üzenetet kapna,
+  // miközben a kinullázott sor a régi összeggel bent maradt.
+  if (letezo.error) throw new Error(`A kivett sorok takarítása nem sikerült (lekérdezés): ${letezo.error.message}`)
+  const megtart = new Set(megtartandok)
+  const torlendo = ((letezo.data || []) as Array<{ szamadasicelid: string }>)
+    .map((r) => r.szamadasicelid)
+    .filter((id) => !megtart.has(id))
+  for (let i = 0; i < torlendo.length; i += TAKARITAS_DARAB) {
+    const darab = torlendo.slice(i, i + TAKARITAS_DARAB)
+    const res = await szurok(supabase.from(tabla).delete()).in('szamadasicelid', darab)
+    if (res.error) throw new Error(`A kivett sorok takarítása nem sikerült (törlés): ${res.error.message}`)
+  }
+}
+
 export async function saveBudgetRowsCompat(
   supabase: SupabaseClient,
   year: number,
@@ -199,16 +248,7 @@ export async function saveBudgetRowsCompat(
   // 2026-08-17 (kerületi S5): + kerületi ág a district_koltsegvetes-re.
   const felso = felsoSzintTerv(scope)
   if (felso) {
-    const { error: deleteError } = await supabase
-      .from(felso.tabla)
-      .delete()
-      .eq('eve', year)
-      .eq(felso.scopeCol, scopeId)
-    if (deleteError) throw deleteError
-
     const activeRows = rows.filter((row) => row.tervezett > 0 || (row.modositott && row.modositott > 0) || (row.mod2 && row.mod2 > 0) || (row.mod3 && row.mod3 > 0))
-    if (activeRows.length === 0) return
-
     const payload = activeRows.map((row) => ({
       [felso.scopeCol]: scopeId,
       eve: year,
@@ -218,51 +258,57 @@ export async function saveBudgetRowsCompat(
       osszeg_mod_2: row.mod2 ?? 0,
       osszeg_mod_3: row.mod3 ?? 0,
     }))
-
-    const { error } = await supabase.from(felso.tabla).insert(payload)
-    if (error) throw error
+    // ⛔ 2026-08-30: ELŐSZÖR ÍRUNK, csak UTÁNA takarítunk. A régi sorrend (DELETE →
+    // INSERT) egy elakadt beszúrásnál az ÉV TELJES TERVÉT törölve hagyta, miközben a
+    // felhasználó csak egy hibaüzenetet látott.
+    if (payload.length > 0) {
+      const { error } = await supabase
+        .from(felso.tabla)
+        .upsert(payload, { onConflict: felso.scopeCol + ',eve,szamadasicelid' })
+      if (error) throw error
+    }
+    await takaritsFolosleges(
+      supabase,
+      felso.tabla,
+      (q) => q.eq('eve', year).eq(felso.scopeCol, scopeId),
+      activeRows.map((r) => r.szamadasicelid),
+    )
     return
   }
 
   // Congregation path (eredeti)
   const congregationId = scopeId
   const yearId = String(year)
-  const { error: deleteError } = await supabase
-    .from('koltsegvetes')
-    .delete()
-    .eq('bealitasid', yearId)
-    .eq('congregation_id', congregationId)
-
-  if (deleteError) throw deleteError
-
   const activeRows = rows.filter((row) => row.tervezett > 0 || (row.modositott && row.modositott > 0) || (row.mod2 && row.mod2 > 0) || (row.mod3 && row.mod3 > 0))
-  if (activeRows.length === 0) return
 
-  const canonicalPayload = activeRows.map((row) => ({
+  // ⚠️ A `koltsegvetes.osszeg` és `osszeg_modositott` INTEGER oszlop (a mod_2/mod_3
+  // numeric). Tizedes írása Postgres-hibát ad — és a RÉGI sorrendben (DELETE → INSERT)
+  // ez az egész évi tervet törölve hagyta. A 2026-08-30-i hármas számjegy-csoportosítás
+  // óta a beviteli mező tizedest is elfogad, ezért itt KEREKÍTÜNK.
+  const payload = activeRows.map((row) => ({
     bealitasid: yearId,
     szamadasicelid: row.szamadasicelid,
-    tervezett: row.tervezett,
-    modositott: row.modositott,
+    osszeg: egeszre(row.tervezett),
+    osszeg_modositott: row.modositott == null ? null : egeszre(row.modositott),
     osszeg_mod_2: row.mod2 ?? 0,
     osszeg_mod_3: row.mod3 ?? 0,
     congregation_id: congregationId,
   }))
 
-  let insertResult = await supabase.from('koltsegvetes').insert(canonicalPayload)
-  if (insertResult.error && isMissingColumnError(insertResult.error.message)) {
-    const fallbackPayload = activeRows.map((row) => ({
-      bealitasid: yearId,
-      szamadasicelid: row.szamadasicelid,
-      osszeg: row.tervezett,
-      osszeg_modositott: row.modositott,
-      osszeg_mod_2: row.mod2 ?? 0,
-      osszeg_mod_3: row.mod3 ?? 0,
-      congregation_id: congregationId,
-    }))
-    insertResult = await supabase.from('koltsegvetes').insert(fallbackPayload)
+  // ⛔ ELŐSZÖR ÍRUNK (upsert az elsődleges kulcsra), csak UTÁNA takarítunk — lásd a
+  // felső szintű ág kommentjét. A régi „előbb mindent törlünk" sorrend adatvesztő volt.
+  if (payload.length > 0) {
+    const { error } = await supabase
+      .from('koltsegvetes')
+      .upsert(payload, { onConflict: 'bealitasid,szamadasicelid,congregation_id' })
+    if (error) throw error
   }
-
-  if (insertResult.error) throw insertResult.error
+  await takaritsFolosleges(
+    supabase,
+    'koltsegvetes',
+    (q) => q.eq('bealitasid', yearId).eq('congregation_id', congregationId),
+    activeRows.map((r) => r.szamadasicelid),
+  )
 }
 
 /**
@@ -308,28 +354,25 @@ export async function saveBudgetModification(
 
   const congregationId = scopeId
   const yearId = String(year)
-  const column = modNumber === 1 ? 'modositott' : modNumber === 2 ? 'osszeg_mod_2' : 'osszeg_mod_3'
+  // ⚠️ A gyülekezeti táblán az 1. módosítás oszlopa `osszeg_modositott` (INTEGER) — a
+  // `modositott` NÉV SOHA nem létezett itt (az a felső szintű táblák elnevezése). A régi
+  // kód azzal kezdett, ezért minden jogcímnél egy fölösleges 400-as kört futtatott.
+  const column = modNumber === 1 ? 'osszeg_modositott' : modNumber === 2 ? 'osszeg_mod_2' : 'osszeg_mod_3'
+  // Az 1. módosítás INTEGER oszlop → kerekítünk; a mod_2/mod_3 numeric, ott nem.
+  const egeszOszlop = modNumber === 1
 
-  // Fallback oszlopnév
-  const fallbackColumn = modNumber === 1 ? 'osszeg_modositott' : column
-
-  for (const row of rows) {
-    let result = await supabase
-      .from('koltsegvetes')
-      .update({ [column]: row.value })
-      .eq('bealitasid', yearId)
-      .eq('congregation_id', congregationId)
-      .eq('szamadasicelid', row.szamadasicelid)
-
-    if (result.error && isMissingColumnError(result.error.message) && column !== fallbackColumn) {
-      result = await supabase
-        .from('koltsegvetes')
-        .update({ [fallbackColumn]: row.value })
-        .eq('bealitasid', yearId)
-        .eq('congregation_id', congregationId)
-        .eq('szamadasicelid', row.szamadasicelid)
-    }
-
-    if (result.error) throw result.error
-  }
+  // ⛔ UPSERT, nem UPDATE: a sima UPDATE 0 érintett sorra NEM ad hibát, tehát ha a
+  // jogcímhez még nincs terv-sor (pl. az alap-körben kinullázták és a takarítás
+  // eltávolította), a beírt módosítás NÉMÁN elveszett volna.
+  const payload = rows.map((row) => ({
+    bealitasid: yearId,
+    szamadasicelid: row.szamadasicelid,
+    congregation_id: congregationId,
+    [column]: egeszOszlop ? egeszre(row.value) : row.value,
+  }))
+  if (payload.length === 0) return
+  const { error } = await supabase
+    .from('koltsegvetes')
+    .upsert(payload, { onConflict: 'bealitasid,szamadasicelid,congregation_id' })
+  if (error) throw error
 }
