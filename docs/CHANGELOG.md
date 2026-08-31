@@ -23,6 +23,26 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-31] — Az asztali programban sem veszhet el (és nem duplázódhat) tétel
+<!-- key: 2026-08-31-desktop-soronkenti-mentes -->
+<!-- category: bugfix -->
+<!-- version: 0.9.212 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🐛 Javítások
+
+- **Az asztali program megmondja, mi került már a könyvbe.** Az asztali (offline is működő) rögzítő a tételeket **egyesével** menti. Ha a köteg közepén elakadt, az addigi tételek bent maradtak a könyvben — a képernyőn viszont **egyetlen sor sem kapott „elmentve" jelölést**. Aki ilyenkor javított és újra mentett, azt a néhány tételt **másodszor is elkönyvelte**. Mostantól a program pontosan visszajelzi, mely sorok mentek ki, és azok azonnal megkapják a zöld „elmentve" jelölést.
+- **Több befizetős nyugtánál óvatosabb.** Ha egy nyugtából csak egyes befizetők kerültek be, a sor **nem** kap „elmentve" jelölést (hogy a maradék ne vesszen el), de a program **külön figyelmeztet**, hogy azt a sort kézzel nézzük át — így nem lesz belőle sem hiány, sem duplázás.
+- **Az asztali program is előre ellenőriz.** Mentés előtt végigfut ugyanazokon a kapukon, amelyeken a mentés elbukna: hiányzó adat, jövőbeli dátum, lezárt év, már létező vagy a kötegben kétszer szereplő iratszám — offline pedig azt is megnézi, hogy **elég sorszám van-e az iratszám-tárcában**, és hogy nincs-e banki tétel a köteg között. Ha valami hibás, a mentés **el sem indul**.
+
+### 🎨 UX javítások
+
+- **Az előellenőrzés a csak-bevétel (vagy csak-kiadás) mentéseknél is fut.** Eddig csak akkor indult, ha mindkét fülön volt tétel — pedig a leggyakoribb eset épp a csak-bevételes köteg.
+- **Gyorsabb ellenőrzés**: az iratszámok vizsgálata mostantól kötegelt (nem soronkénti), így több száz soros rögzítésnél sem lassít érezhetően.
+- **Őszintébb hibaüzenet a webes mentésnél**: ha egy köteg elakad, a rendszer eddig **mindig** azt írta, hogy „a köteg minden tétele visszavonva" — akkor is, ha a visszavonás maga nem sikerült. Mostantól megméri, és ha valami bent maradhatott, azt kimondja: **ne mentsd újra, előbb ellenőrizd a listát.**
+
+---
+
 ## [2026-08-31] — A mentés már el sem indul, ha valami hibás
 <!-- key: 2026-08-31-mentes-eloellenorzes -->
 <!-- category: improvement -->
