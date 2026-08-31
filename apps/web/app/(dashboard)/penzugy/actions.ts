@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache'
 // 2026-07-11 (S6): visszamenőleges kassza↔bank átvezetésnél a következő évi
 // automatikus ('carryover') nyitó újraszámolása.
 import {
+  checkExpenseReceiptDuplicateUseCase,
   checkReceiptDuplicateUseCase,
   refreshCarryoverBestEffort,
   resolveNyitoEgyenlegekUseCase,
@@ -2685,6 +2686,94 @@ export async function saveExpenseBatch(rows: ExpenseBatchRowInput[]) {
   revalidatePath('/penzugy')
   if (anyInventory) revalidatePath('/leltar')
   return { success: true }
+}
+
+/**
+ * MENTÉS-ELŐELLENŐRZÉS (2026-08-31, az átvilágító diagnosztika 3. pontja).
+ *
+ * A rögzítő HÁROM külön hívással ment (bevétel → kiadás → belső mozgás), tranzakció
+ * nélkül: ha egy KÉSŐBBI fázis bukott, a korábbi véglegesen bent maradt. A „mentsük,
+ * majd hiba esetén vonjuk vissza" (kompenzáció) útja ELLENŐRZÖTTEN rosszabb volt a
+ * réginél — részleges visszavonásnál sorok vesztek volna el, és egy új törlő végpont
+ * megkerülte volna a sztornó-politikát. Ezért MEGELŐZÜNK: a mentés MEGKEZDÉSE ELŐTT
+ * egyetlen, tisztán OLVASÓ hívás átvizsgálja MINDKÉT köteget ugyanazokkal a kapukkal,
+ * amelyeken a mentés elbukna. Ha valami hibás, a mentés EL SEM INDUL — nincs mit
+ * visszagörgetni.
+ *
+ * ⛔ EZ A FÜGGVÉNY SOHA NEM ÍRHAT ÉS NEM TÖRÖLHET (őrszem asszertálja): a célja a
+ * részleges állapot MEGELŐZÉSE, nem újabb írási felület nyitása.
+ * ⚠️ FAIL-OPEN a hívónál: ha az előellenőrzés maga nem fut le, a mentés a régi úton
+ * megy tovább — ez kényelem, nem védelem.
+ */
+export async function ellenorizMentesElore(
+  incomeRows: IncomeBatchRowInput[],
+  expenseRows: ExpenseBatchRowInput[],
+) {
+  const inc = Array.isArray(incomeRows) ? incomeRows : []
+  const exp = Array.isArray(expenseRows) ? expenseRows : []
+  if (inc.length === 0 || exp.length === 0) {
+    // Csak EGYFÉLE köteg van → nem keletkezhet fázisok közti részleges állapot.
+    return { ok: true }
+  }
+
+  const scope = await getFinanceScope()
+  if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const writeBlock = financeWriteBlock(scope)
+  if (writeBlock) return writeBlock
+
+  // 1) UGYANAZ a zod-séma, mint a mentésnél — a jövőbeli dátum, a nem cent-pontos
+  //    összeg, a túl hosszú iratszám itt derül ki, nem a köteg közepén.
+  const incParsed = incomeBatchSchema.safeParse(inc)
+  if (!incParsed.success) return { error: `Bevétel: ${incParsed.error.issues[0].message}` }
+  const expParsed = expenseBatchSchema.safeParse(exp)
+  if (!expParsed.success) return { error: `Kiadás: ${expParsed.error.issues[0].message}` }
+
+  // 2) Véglegesített év — MINDKÉT köteg minden dátumára.
+  const incLock = await assertYearsNotFinalizedForCreate(scope, incParsed.data.map((r) => r.datum))
+  if (incLock) return { error: `Bevétel: ${incLock}` }
+  const expLock = await assertYearsNotFinalizedForCreate(scope, expParsed.data.map((r) => r.datum))
+  if (expLock) return { error: `Kiadás: ${expLock}` }
+
+  // 3) KÖTEGEN BELÜLI iratszám-ütközés: a szerver ezt csak a MÁSODIK sornál venné
+  //    észre — amikor az első már bent van. Itt előre elkapjuk.
+  const kotegenBeluliIratszamUtkozes = (sorok: Array<{ iratszam?: string | null }>): string | null => {
+    const latott = new Set<string>()
+    for (const r of sorok) {
+      const sz = (r.iratszam ?? '').trim()
+      if (!sz) continue
+      if (latott.has(sz)) return sz
+      latott.add(sz)
+    }
+    return null
+  }
+  const incUtkozes = kotegenBeluliIratszamUtkozes(incParsed.data)
+  if (incUtkozes) return { error: `Bevétel: a(z) „${incUtkozes}" iratszám KÉTSZER szerepel ebben a mentésben — adj egyedi számot.` }
+  const expUtkozes = kotegenBeluliIratszamUtkozes(expParsed.data)
+  if (expUtkozes) return { error: `Kiadás: a(z) „${expUtkozes}" iratszám KÉTSZER szerepel ebben a mentésben — adj egyedi számot.` }
+
+  // 4) Iratszám-duplikátum az ADATBÁZISBAN — ez a leggyakoribb bukás-ok. Csak
+  //    gyülekezeti hatókörben (a felső szintű táblákon nincs ilyen use-case).
+  if (scope.scope === 'congregation') {
+    const ctx = { supabase: scope.supabase, runtime: 'web' as const }
+    for (const r of incParsed.data) {
+      const sz = (r.iratszam ?? '').trim()
+      if (!sz) continue
+      const res = await checkReceiptDuplicateUseCase({ congregationId: scope.scopeId, iratszam: sz }, ctx)
+      if (res.success && res.isDuplicate) {
+        return { error: `Bevétel: a(z) „${sz}" iratszám MÁR LÉTEZIK — válassz másik számot.` }
+      }
+    }
+    for (const r of expParsed.data) {
+      const sz = (r.iratszam ?? '').trim()
+      if (!sz) continue
+      const res = await checkExpenseReceiptDuplicateUseCase({ congregationId: scope.scopeId, iratszam: sz }, ctx)
+      if (res.success && res.isDuplicate) {
+        return { error: `Kiadás: a(z) „${sz}" iratszám MÁR LÉTEZIK — válassz másik számot.` }
+      }
+    }
+  }
+
+  return { ok: true }
 }
 
 // ── Tranzakció törlés (soft delete) ──────────────────────────

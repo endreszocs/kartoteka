@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-31] — A mentés már el sem indul, ha valami hibás
+<!-- key: 2026-08-31-mentes-eloellenorzes -->
+<!-- category: improvement -->
+<!-- version: 0.9.211 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🎨 UX javítások
+
+- **Nem lehet félig elmenteni a tételeket**: ha egy mentésben bevétel és kiadás is van, a rendszer **a mentés megkezdése előtt** átvizsgálja mindkettőt ugyanazokkal az ellenőrzésekkel, amelyeken a mentés elbukna (dátum, összeg, jogcím, lezárt év, ismétlődő iratszám). Ha valami hibás, a mentés **el sem indul** — így nem fordulhat elő, hogy a bevételek már bekerültek, a kiadások pedig nem.
+- **Az ismétlődő iratszám előre kiderül**: a rendszer azt is észreveszi, ha egy iratszám kétszer szerepel ugyanabban a mentésben — eddig ezt csak a második tételnél vette észre, amikor az első már bent volt.
+- A hasonló-tétel kérdés csak azután jön, hogy az ellenőrzés rendben lezajlott — nem kell megerősíteni egy mentést, ami úgyis elakadna.
+- Ha maga az ellenőrzés nem fut le (pl. gyenge hálózat), a mentés a megszokott módon megy tovább — ez kényelmi funkció, nem akadály.
+
+---
+
 ## [2026-08-30] — Költségvetés: nem veszhet el az éves terv
 <!-- key: 2026-08-30-koltsegvetes-mentes-vedelem -->
 <!-- category: bugfix -->

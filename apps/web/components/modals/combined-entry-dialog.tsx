@@ -25,6 +25,7 @@ import {
   saveIncomeBatch,
   saveExpenseBatch,
   saveInternalTransfer,
+  ellenorizMentesElore,
   searchIncomePartners,
   searchExpensePartners,
   searchFamilies,
@@ -125,6 +126,15 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
               // D1: az átvevő a rögzítő kapuja miatt nem üres; a megosztott
               // sor-típus még string|null — a zod min(1) a szerveren backstopol.
               const res = await saveExpenseBatch(rows.map((r) => ({ ...r, kedvezmenyzett: r.kedvezmenyzett ?? '' })))
+              return { error: 'error' in res ? res.error ?? null : null }
+            }}
+            /* 2026-08-31: a mentés ELŐTTI, tisztán olvasó ellenőrzés — így nem
+               keletkezhet félig elmentett állapot (nincs mit visszagörgetni). */
+            onPreflightCheck={async (income, expense) => {
+              const res = await ellenorizMentesElore(
+                income,
+                expense.map((r) => ({ ...r, kedvezmenyzett: r.kedvezmenyzett ?? '' })),
+              )
               return { error: 'error' in res ? res.error ?? null : null }
             }}
             onSaveInternalTransfer={async (payload) => {
