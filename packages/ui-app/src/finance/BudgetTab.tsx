@@ -280,6 +280,10 @@ export function BudgetTab({
   const [budgetData, setBudgetData] = useState<Record<string, BudgetCompatRow>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  /** 2026-08-30 FAIL-CLOSED: ha a betöltés elhasalt (503-vihar, hálózat), a tábla ÜRES
+   *  sorokkal jön fel — mentéskor a takarítás kisöpörné az ÉV TELJES TERVÉT. Ilyenkor
+   *  a Mentés/Véglegesítés TILTOTT, amíg a betöltés nem sikerül. */
+  const [betoltesHiba, setBetoltesHiba] = useState(false)
   const [mode, setMode] = useState<BudgetMode>('base')
   // 2026-07-10 (#2): előző évi (currentYear-1) TÉNY kódonként — szürke referencia.
   const [prevActuals, setPrevActuals] = useState<{
@@ -391,8 +395,10 @@ export function BudgetTab({
       const result = await loadBudgetRows(currentYear, settings.congregation_id)
       if (cancelled) return
       if (result.error) {
-        onToast?.('Hiba a költségvetés betöltésekor.', 'error')
+        setBetoltesHiba(true)
+        onToast?.('Hiba a költségvetés betöltésekor — a mentés letiltva, amíg az adatok nem töltődnek be. Frissítsd az oldalt.', 'error')
       } else {
+        setBetoltesHiba(false)
         const map: Record<string, BudgetCompatRow> = {}
         result.rows.forEach((b) => {
           map[b.szamadasicelid] = b
@@ -842,7 +848,7 @@ export function BudgetTab({
               unlockAuthorityLabel={feliratok.elbiralo}
               // Csak a folyamatban lévő mentés tilt — a canEdit véglegesített
               // szinten mindig false, és az NEM tilthatja a „Feloldás kérése" utat.
-              disabled={saving}
+              disabled={saving || betoltesHiba}
               onFinalize={() => void handleFinalizeAndSubmit()}
               onRequestUnlock={unlockAvailable ? submitUnlockRequest : undefined}
               unlockPlaceholder="Pl. A 101.01 egyházfenntartói járulék tervezett összege elírás miatt 1000 lejjel kevesebb."
@@ -860,7 +866,8 @@ export function BudgetTab({
               size="sm"
               className="rounded-xl max-sm:min-h-10"
               onClick={() => void handleSave()}
-              disabled={saving}
+              disabled={saving || betoltesHiba}
+              title={betoltesHiba ? 'A költségvetés betöltése nem sikerült — mentés előtt frissítsd az oldalt (különben a mentés kitörölhetné az évi tervet).' : undefined}
             >
               {saving ? 'Mentés...' : 'Mentés'}
             </Button>
@@ -885,6 +892,7 @@ export function BudgetTab({
           automatikus, nem szerkeszthető sorokként. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <BudgetCellTable
+          egeszSzam={scope === 'congregation' && (mode === 'base' || mode === 'mod1')}
           icon={<ArrowDownCircle className="size-4 text-emerald-600" />}
           title="Bevételek"
           headerBg="bg-emerald-50 border-emerald-100"
@@ -917,6 +925,7 @@ export function BudgetTab({
           }
         />
         <BudgetCellTable
+          egeszSzam={scope === 'congregation' && (mode === 'base' || mode === 'mod1')}
           icon={<ArrowUpCircle className="size-4 text-rose-500" />}
           title="Kiadások"
           headerBg="bg-rose-50 border-rose-100"
@@ -999,6 +1008,8 @@ interface BudgetCellTableProps {
   /** 2026-07-10 (#2): előző évi tény érték (csoportnál levelek összege). */
   getPrevYearActual: (celId: string) => number
   canEdit: boolean
+  /** 2026-08-30: gyülekezeti szinten a terv-oszlop INTEGER a DB-ben → nincs tizedes. */
+  egeszSzam?: boolean
   setValue: (celId: string, val: number) => void
   isIncome: boolean
   /** 2026-08-11 (6. kör): zárolt (egyházmegyei szintű) sor — látszik, de nem
@@ -1017,13 +1028,23 @@ function TervOsszegInput({
   value,
   onValue,
   placeholder,
+  egeszSzam,
 }: {
   value: number
   onValue: (n: number) => void
   placeholder?: string
+  /** 2026-08-30: a GYÜLEKEZETI terv-oszlop INTEGER az adatbázisban — ott a tizedes
+   *  csak félrevezetne (mentéskor kerekítve tárolódna), ezért be sem gépelhető.
+   *  A felső szintű (megyei/kerületi) tábla numeric(14,2), ott engedjük. */
+  egeszSzam?: boolean
 }) {
   // Megjelenítés: egész rész 3-as szóköz-csoportokban, tizedes vesszővel.
   const formaz = (nyers: string): string => {
+    if (egeszSzam) {
+      // Csak számjegyek: a vessző/pont be sem kerül, így nincs néma kerekítés.
+      const csak = nyers.replace(/[^\d]/g, '').replace(/^0+(?=\d)/, '')
+      return csak.replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+    }
     let t = nyers.replace(/[.]/g, ',').replace(/[^\d,]/g, '')
     const elsoVesszo = t.indexOf(',')
     if (elsoVesszo >= 0) {
@@ -1035,7 +1056,11 @@ function TervOsszegInput({
   }
   // Visszafejtés: szóköz ki, vessző → pont — a mentett szám így helyes.
   const fejt = (t: string): number => Number(t.replace(/\s/g, '').replace(',', '.')) || 0
-  const szambol = (n: number): string => (n ? formaz(String(n).replace('.', ',')) : '')
+  // ⚠️ A külső értékből épített szöveg egész módban KEREKÍT — a `formaz` számjegy-only
+  // ága különben a tizedes-elválasztót kidobná, és az 1234,5-ből „12 345" lenne
+  // (tízszeres összeg, amit egy érintés a mentésbe is átvinne).
+  const szambol = (n: number): string =>
+    (n ? formaz(String(egeszSzam ? Math.round(n) : n).replace('.', ',')) : '')
 
   const [szoveg, setSzoveg] = useState(() => szambol(value))
   const [fokusz, setFokusz] = useState(false)
@@ -1084,6 +1109,7 @@ function TervOsszegInput({
 }
 
 function BudgetCellTable({
+  egeszSzam,
   icon,
   title,
   headerBg,
@@ -1231,6 +1257,7 @@ function BudgetCellTable({
                       <TervOsszegInput
                         value={val}
                         onValue={(n) => setValue(c.id, n)}
+                        egeszSzam={egeszSzam}
                         placeholder={
                           showPrevYear && prevYearVal !== 0
                             ? formatCurrency(prevYearVal)

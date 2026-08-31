@@ -104,7 +104,9 @@ const mutansok = [
     alkalmaz: (s) => {
       const a = ablak(s, 'function TervOsszegInput', ['\nexport function', '\nfunction BudgetTab'])
       if (!a || !a.includes('{3}')) return null
-      return s.replace(a, a.replace('{3}', '{9}'))
+      // replaceAll: a 2026-08-30-i `egeszSzam` ág óta KÉT csoportosító minta van a
+      // komponensben — egyetlen csere után a másik kielégítené az asszertet (vak mutáns).
+      return s.replace(a, a.replaceAll('{3}', '{9}'))
     },
   },
   {

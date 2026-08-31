@@ -23,6 +23,23 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-08-30] — Költségvetés: nem veszhet el az éves terv
+<!-- key: 2026-08-30-koltsegvetes-mentes-vedelem -->
+<!-- category: bugfix -->
+<!-- version: 0.9.210 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🐛 Javítások
+
+- **A mentés nem törli többé az évet**: eddig a költségvetés mentése **először kitörölte az adott év összes sorát**, és csak utána írta be az újakat. Ha a beírás bármiért elakadt (hálózat, elgépelt tizedes, jogosultság), a **teljes éves terv törölve maradt**, miközben a képernyőn csak egy hibaüzenet jelent meg. Mostantól a rendszer **először ír, és csak utána takarít** — ha bármi megszakad, az adat már bent van.
+- **Sikertelen betöltés után a Mentés le van tiltva.** Ha a terv nem töltődött be (pl. hálózati hiba), a tábla üresen jelent meg — és a mentés kisöpörte volna az évet. Most a gomb tiltott, amíg az adatok meg nem érkeznek.
+- **A tizedes nem visz el semmit**: a gyülekezeti terv-oszlop egész számot tárol, ezért a beírt tizedes korábban hibát okozott (a törlés után!). Mostantól a mező gyülekezeti szinten egész számot kér, a mentés pedig kerekít. A 2./3. módosítási körben — ahol az adatbázis engedi — a tizedes továbbra is használható.
+- **A módosítások nem vesznek el**: ha egy jogcímhez még nem volt terv-sor, a beírt 1./2./3. módosítás korábban némán eltűnt. Most létrejön a sor.
+- **Őszinte visszajelzés**: ha a mentés utáni takarítás elakad, a rendszer ezt megmondja — eddig „mentve" üzenetet adott, miközben a kivett tétel bent maradt.
+- Megszűnt a Számadás fülre lépéskor futó fölösleges hibás lekérdezés is (a böngésző-konzolban látszó 400-as üzenet).
+
+---
+
 ## [2026-08-30] — A vázlat addig nem tűnik el, amíg minden tétel el nem mentődött
 <!-- key: 2026-08-30-vazlat-vedelem -->
 <!-- category: bugfix -->
