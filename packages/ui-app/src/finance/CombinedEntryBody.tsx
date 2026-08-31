@@ -192,6 +192,14 @@ export interface CombinedEntryBodyProps {
   onSaveIncomeBatch: (rows: CombinedIncomeBatchRow[]) => Promise<{ error?: string | null }>
   onSaveExpenseBatch: (rows: SaveExpenseBatchRow[]) => Promise<{ error?: string | null }>
   onSaveInternalTransfer: (payload: CombinedInternalTransferPayload) => Promise<{ error?: string | null }>
+  /** 2026-08-31 (RÉSZLEGES MENTÉS MEGELŐZÉSE): a mentés MEGKEZDÉSE ELŐTT lefuttatott,
+   *  tisztán OLVASÓ ellenőrzés MINDKÉT kötegre — ha valami hibás, a mentés el sem indul,
+   *  tehát nem keletkezhet félig elmentett állapot. Opcionális: ha nincs bekötve (pl.
+   *  desktop) vagy nem fut le, a mentés a régi úton megy tovább (FAIL-OPEN). */
+  onPreflightCheck?: (
+    income: CombinedIncomeBatchRow[],
+    expense: SaveExpenseBatchRow[],
+  ) => Promise<{ error?: string | null }>
   onClose: () => void
   onToast: CombinedToastFn
   /**
@@ -505,7 +513,7 @@ function isElementVisible(el: HTMLElement | null): boolean {
 
 export function CombinedEntryBody({
   incomeCategories, expenseCategories, bankAccounts, currentYear,
-  onSaveIncomeBatch, onSaveExpenseBatch, onSaveInternalTransfer, onClose, onToast,
+  onSaveIncomeBatch, onSaveExpenseBatch, onSaveInternalTransfer, onPreflightCheck, onClose, onToast,
   onSearchMembers, onSearchExpensePartners, onCheckSimilarEntries,
   onSearchFamilies, onGetFamilyMembers, onGetFamilyMembersForPerson, onGetExpectedJarulek, onGetNextReceiptNumbers,
   onCheckReceiptDuplicate, onGetLastRecordedDate, draftStorageKey, offerExpenseInventory,
@@ -1817,6 +1825,25 @@ export function CombinedEntryBody({
 
     incomeBatch.sort((a, b) => a.datum.localeCompare(b.datum))
     expenseBatch.sort((a, b) => a.datum.localeCompare(b.datum))
+
+    // ── RÉSZLEGES MENTÉS MEGELŐZÉSE (2026-08-31) ──────────────────────────────
+    // A mentés három külön szerver-hívás, tranzakció nélkül: ha a második bukik, az
+    // első már bent van. Ezért MINDEN ÍRÁS ELŐTT egyetlen olvasó hívással átnézetjük
+    // MINDKÉT köteget ugyanazokkal a kapukkal (zod, év-zár, iratszám-duplikátum,
+    // kötegen belüli ütközés). Ha itt hiba van, EL SEM INDUL a mentés.
+    // ⚠️ ELOELLENORZES-FAIL-OPEN: ha maga az ellenőrzés nem fut le (offline, hálózat,
+    // nincs bekötve), NEM akadályozzuk meg a rögzítést — ez kényelem, nem védelem.
+    if (onPreflightCheck && incomeBatch.length > 0 && expenseBatch.length > 0) {
+      try {
+        const elo = await onPreflightCheck(incomeBatch, expenseBatch)
+        if (elo?.error) {
+          onToast('error', `${elo.error} — a mentés EL SEM INDULT, semmi nem került a könyvbe. Javítsd, és mentsd újra.`)
+          return
+        }
+      } catch {
+        /* ELOELLENORZES-FAIL-OPEN: az ellenőrzés hibája nem állíthatja meg a mentést */
+      }
+    }
 
     // ── HASONLÓ TÉTEL KAPU (2026-08-27, Endre 8. kérése) ──────────────────
     // „ha valaki pont abban az összegben, pont azon a cégnévvel (kb. egyezés is
