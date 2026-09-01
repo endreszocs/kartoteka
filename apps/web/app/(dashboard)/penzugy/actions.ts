@@ -2565,7 +2565,11 @@ export async function saveIncomeBatch(rows: IncomeBatchRowInput[]) {
 
     if ('error' in result) {
       const vissza = await rollbackInsertedIncomes()
-      return { error: `${index + 1}. sor: ${result.error}${vissza}` }
+      // 2026-09-01: a „N. sor:" ELŐTAG ELMARAD, helyette a köteg-INDEXET adjuk vissza.
+      // Az index a RENDEZETT és befizetőnként szétbontott kötegé — a felhasználó ilyen
+      // sorszámot sehol nem lát. A rögzítő a `sourceRowId`-n át megtalálja a VALÓDI
+      // űrlapsort, és arra hivatkozik (dátum, név, összeg, iratszám) + meg is jelöli.
+      return { error: `${result.error}${vissza}`, failedIndex: index }
     }
     insertedIncomes.push({
       id: Number.isFinite(result.id) ? result.id : null,
@@ -2641,7 +2645,8 @@ export async function saveExpenseBatch(rows: ExpenseBatchRowInput[]) {
       if (row.inventory) {
         const vissza = await rollbackInsertedExpenses()
         return {
-          error: `${index + 1}. sor: a leltárba vétel ${szintNeveRagozva(scope.scope)} módban nem elérhető — külön rögzítsd a kiadást és a leltári tételt.${vissza}`,
+          error: `A leltárba vétel ${szintNeveRagozva(scope.scope)} módban nem elérhető — külön rögzítsd a kiadást és a leltári tételt.${vissza}`,
+          failedIndex: index,
         }
       }
       const result = await insertFelsoSzintExpenseRecord({
@@ -2653,7 +2658,7 @@ export async function saveExpenseBatch(rows: ExpenseBatchRowInput[]) {
       })
       if ('error' in result) {
         const vissza = await rollbackInsertedExpenses()
-        return { error: `${index + 1}. sor: ${result.error}${vissza}` }
+        return { error: `${result.error}${vissza}`, failedIndex: index }
       }
       insertedExpenses.push({
         id: Number.isFinite(result.id) ? result.id : null,
@@ -2670,7 +2675,7 @@ export async function saveExpenseBatch(rows: ExpenseBatchRowInput[]) {
     })
     if ('error' in result) {
       const vissza = await rollbackInsertedExpenses()
-      return { error: `${index + 1}. sor: ${result.error}${vissza}` }
+      return { error: `${result.error}${vissza}`, failedIndex: index }
     }
     insertedExpenses.push({
       id: Number.isFinite(result.id) ? result.id : null,
@@ -2689,7 +2694,7 @@ export async function saveExpenseBatch(rows: ExpenseBatchRowInput[]) {
       })
       if (invResult.error) {
         const vissza = await rollbackInsertedExpenses()
-        return { error: `${index + 1}. sor: a kapcsolt leltári tétel mentése nem sikerült. ${invResult.error}${vissza}` }
+        return { error: `A kapcsolt leltári tétel mentése nem sikerült. ${invResult.error}${vissza}`, failedIndex: index }
       }
       anyInventory = true
     }
@@ -2740,10 +2745,23 @@ export async function ellenorizMentesElore(
   //    összeg, a túl hosszú iratszám itt derül ki, nem a köteg közepén.
   //    (Az ÜRES oldalt átugorjuk: a köteg-séma `.min(1)`-je különben „legalább egy
   //    sor szükséges" hibával blokkolna egy tökéletesen érvényes, csak-bevétel mentést.)
+  //    2026-09-01: a zod hiba ÚTVONALÁBÓL kiolvasható, HÁNYADIK köteg-tétel bukott
+  //    (tömb-sémánál a path első eleme az index) — ezt adjuk vissza a rögzítőnek,
+  //    hogy a LÁTHATÓ sorra tudjon mutatni (és meg is jelölje).
+  const zodIndex = (issue: { path?: Array<string | number | symbol> } | undefined): number | null => {
+    const elso = issue?.path?.[0]
+    return typeof elso === 'number' ? elso : null
+  }
   const incParsed = inc.length > 0 ? incomeBatchSchema.safeParse(inc) : null
-  if (incParsed && !incParsed.success) return { error: `Bevétel: ${incParsed.error.issues[0].message}` }
+  if (incParsed && !incParsed.success) {
+    const issue = incParsed.error.issues[0]
+    return { error: issue.message, failedIndex: zodIndex(issue), failedSide: 'income' as const }
+  }
   const expParsed = exp.length > 0 ? expenseBatchSchema.safeParse(exp) : null
-  if (expParsed && !expParsed.success) return { error: `Kiadás: ${expParsed.error.issues[0].message}` }
+  if (expParsed && !expParsed.success) {
+    const issue = expParsed.error.issues[0]
+    return { error: issue.message, failedIndex: zodIndex(issue), failedSide: 'expense' as const }
+  }
   const incSorok = incParsed?.success ? incParsed.data : []
   const expSorok = expParsed?.success ? expParsed.data : []
 
@@ -2755,20 +2773,35 @@ export async function ellenorizMentesElore(
 
   // 3) KÖTEGEN BELÜLI iratszám-ütközés: a szerver ezt csak a MÁSODIK sornál venné
   //    észre — amikor az első már bent van. Itt előre elkapjuk.
-  const kotegenBeluliIratszamUtkozes = (sorok: Array<{ iratszam?: string | null }>): string | null => {
+  const kotegenBeluliIratszamUtkozes = (
+    sorok: Array<{ iratszam?: string | null }>,
+  ): { szam: string; index: number } | null => {
     const latott = new Set<string>()
-    for (const r of sorok) {
-      const sz = (r.iratszam ?? '').trim()
+    for (let i = 0; i < sorok.length; i += 1) {
+      const sz = (sorok[i].iratszam ?? '').trim()
       if (!sz) continue
-      if (latott.has(sz)) return sz
+      // A MÁSODIK (ütköző) tételre mutatunk: az elsőt nem kell javítani.
+      if (latott.has(sz)) return { szam: sz, index: i }
       latott.add(sz)
     }
     return null
   }
   const incUtkozes = kotegenBeluliIratszamUtkozes(incSorok)
-  if (incUtkozes) return { error: `Bevétel: a(z) „${incUtkozes}" iratszám KÉTSZER szerepel ebben a mentésben — adj egyedi számot.` }
+  if (incUtkozes) {
+    return {
+      error: `A(z) „${incUtkozes.szam}" iratszám KÉTSZER szerepel ebben a mentésben — adj egyedi számot.`,
+      failedIndex: incUtkozes.index,
+      failedSide: 'income' as const,
+    }
+  }
   const expUtkozes = kotegenBeluliIratszamUtkozes(expSorok)
-  if (expUtkozes) return { error: `Kiadás: a(z) „${expUtkozes}" iratszám KÉTSZER szerepel ebben a mentésben — adj egyedi számot.` }
+  if (expUtkozes) {
+    return {
+      error: `A(z) „${expUtkozes.szam}" iratszám KÉTSZER szerepel ebben a mentésben — adj egyedi számot.`,
+      failedIndex: expUtkozes.index,
+      failedSide: 'expense' as const,
+    }
+  }
 
   // 4) Iratszám-duplikátum az ADATBÁZISBAN — ez a leggyakoribb bukás-ok. Csak
   //    gyülekezeti hatókörben (a felső szintű táblákon nincs ilyen use-case).
@@ -2781,14 +2814,24 @@ export async function ellenorizMentesElore(
     if (incSzamok.length > 0) {
       const res = await checkReceiptDuplicatesBatchUseCase({ congregationId: scope.scopeId, iratszamok: incSzamok }, ctx)
       if (res.success && res.duplicates.length > 0) {
-        return { error: `Bevétel: a(z) „${res.duplicates[0]}" iratszám MÁR LÉTEZIK — válassz másik számot.` }
+        const utkozo = res.duplicates[0]
+        return {
+          error: `A(z) „${utkozo}" iratszám MÁR LÉTEZIK — válassz másik számot.`,
+          failedIndex: incSorok.findIndex((r) => (r.iratszam ?? '').trim() === utkozo),
+          failedSide: 'income' as const,
+        }
       }
     }
     const expSzamok = expSorok.map((r) => (r.iratszam ?? '').trim()).filter(Boolean)
     if (expSzamok.length > 0) {
       const res = await checkExpenseReceiptDuplicatesBatchUseCase({ congregationId: scope.scopeId, iratszamok: expSzamok }, ctx)
       if (res.success && res.duplicates.length > 0) {
-        return { error: `Kiadás: a(z) „${res.duplicates[0]}" iratszám MÁR LÉTEZIK — válassz másik számot.` }
+        const utkozo = res.duplicates[0]
+        return {
+          error: `A(z) „${utkozo}" iratszám MÁR LÉTEZIK — válassz másik számot.`,
+          failedIndex: expSorok.findIndex((r) => (r.iratszam ?? '').trim() === utkozo),
+          failedSide: 'expense' as const,
+        }
       }
     }
   }

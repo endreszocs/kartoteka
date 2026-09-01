@@ -162,6 +162,16 @@ export interface CombinedExpenseBatchRow extends SaveExpenseBatchRow {
 export interface CombinedBatchSaveResult {
   error?: string | null
   savedRowIds?: string[]
+  /**
+   * 2026-09-01: a köteg HÁNYADIK tételén bukott el (0-alapú index a KAPOTT tömbben).
+   *
+   * MIÉRT KELL: a hívók eddig a saját üzenetükbe égették a „3. sor:" előtagot — de az
+   * a RENDEZETT és befizetőnként SZÉTBONTOTT köteg indexe, amit a felhasználó a
+   * képernyőn sehol nem lát így (egy két befizetős nyugta két tétel). Az indexből a
+   * rögzítő a `sourceRowId`-n át megtalálja a VALÓDI űrlapsort, és arra hivatkozik
+   * (sorszám + dátum + név + összeg + iratszám), sőt meg is jelöli a képernyőn.
+   */
+  failedIndex?: number | null
 }
 
 /** A találati csoportok magyar fejlécei (a felső szintű, csoportosított listához). */
@@ -281,7 +291,13 @@ export interface CombinedEntryBodyProps {
   onPreflightCheck?: (
     income: CombinedIncomeBatchRow[],
     expense: CombinedExpenseBatchRow[],
-  ) => Promise<{ error?: string | null }>
+  ) => Promise<{
+    error?: string | null
+    /** 2026-09-01: melyik köteg HÁNYADIK tételén akadt el (ha egyetlen sor a felelős). */
+    failedIndex?: number | null
+    /** Melyik köteget indexeli a `failedIndex` — enélkül a szám kétértelmű. */
+    failedSide?: 'income' | 'expense' | null
+  }>
   onClose: () => void
   onToast: CombinedToastFn
   /**
@@ -481,6 +497,22 @@ const newRow = (year?: number): EntryRow => ({
 // használjuk a read-only fő-összeghez (>=2 befizető) és az érvényesség-/total-számításhoz.
 const payerSum = (r: EntryRow): number => (r.people ?? []).reduce((s, p) => s + (Number(p.osszeg) || 0), 0)
 
+/**
+ * 2026-09-01: a sor TARTALMI ujjlenyomata — a „itt akadt el" piros jelölés ehhez kötött.
+ *
+ * ⛔ MIÉRT NEM a mutátorokba kötjük a jelölés törlését: a sor tartalmát TÍZ különböző
+ *    függvény írja (updateRow, appendPayers, addEmptyPayer, updatePayer, removePayer,
+ *    updatePayerGroup, removePayerGroup és a mátrix-cella szerkesztők) — ezek nagy része
+ *    KÖZVETLENÜL settert hív, az updateRow-t megkerülve. Egyetlen kifelejtett mutátornál
+ *    a javított sor pirosan ragadna. Tartalom-alapon EGY helyen, mindegyikre igaz.
+ */
+function sorUjjlenyomat(r: EntryRow): string {
+  return JSON.stringify([
+    r.datum, r.categoryId, r.docType, r.iratszam, r.gyulekezetiSzam,
+    r.partner, r.amount, r.evre, r.bankId, r.megjegyzes, r.people ?? [],
+  ])
+}
+
 /** 2026-07-10 (S2-#1b): egy befizető sora a people[] listából — a hint-helperek közös típusa. */
 type PayerLike = EntryRow['people'][number]
 
@@ -603,6 +635,10 @@ export function CombinedEntryBody({
   const [tab, setTab] = useState<'income' | 'expense'>('income')
   /** 2026-08-30: a már elkönyvelt (mentveAt) sorok elrejtése a listából — csak nézet. */
   const [mentettekRejtve, setMentettekRejtve] = useState(false)
+  /** 2026-09-01: a mentést megbuktató ŰRLAPSOR — pirossal jelölve és képre görgetve.
+   *  A hibaüzenet így nem egy belső köteg-indexre hivatkozik, hanem arra a sorra,
+   *  amelyet a felhasználó lát és javítani tud. */
+  const [hibasSor, setHibasSor] = useState<{ tab: 'income' | 'expense'; id: string; ujjlenyomat: string } | null>(null)
   const [incomeRows, setIncomeRows] = useState<EntryRow[]>(() => [newRow(currentYear)])
   const [expenseRows, setExpenseRows] = useState<EntryRow[]>(() => [newRow(currentYear)])
   const [busy, setBusy] = useState(false)
@@ -1749,7 +1785,36 @@ export function CombinedEntryBody({
     }
   }
 
+  // 2026-09-01: a piros jelölés ELTŰNIK, amint a sor tartalma megváltozik (bármelyik
+  // mutátoron át — a befizető-almenü és a mátrix is ide fut be), vagy ha a sort törlik.
+  useEffect(() => {
+    if (!hibasSor) return
+    const lista = hibasSor.tab === 'income' ? incomeRows : expenseRows
+    const r = lista.find((x) => x.id === hibasSor.id)
+    if (!r || sorUjjlenyomat(r) !== hibasSor.ujjlenyomat) setHibasSor(null)
+  }, [hibasSor, incomeRows, expenseRows])
+
+  // 2026-09-01: a megjelölt hibás sort GÖRGESSÜK KÉPRE — több száz soros rögzítésnél
+  // a puszta piros háttér a képernyőn kívül semmit nem ér.
+  // ⚠️ Nem attribútum-szelektorral keresünk (a sor-azonosító adat, nem szelektor):
+  //    végigmegyünk a jelölt elemeken, és a dataset-et hasonlítjuk össze.
+  useEffect(() => {
+    if (!hibasSor || typeof document === 'undefined') return
+    const jeloltek = Array.from(document.querySelectorAll<HTMLElement>('[data-row-id]'))
+      .filter((el) => el.dataset.rowId === hibasSor.id)
+    // ⚠️ A táblázat- ÉS a kártya-nézet IS a DOM-ban van (csak CSS rejti az egyiket) —
+    //    a rejtett elemre a görgetés NÉMA. Ezért a LÁTHATÓ-t választjuk
+    //    (offsetParent === null ⇒ display:none); ha egyik sem látszik, az elsőt.
+    const cel = jeloltek.find((el) => el.offsetParent !== null) ?? jeloltek[0]
+    if (cel && typeof cel.scrollIntoView === 'function') {
+      cel.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }
+  }, [hibasSor])
+
   async function handleSaveInner() {
+    // Új kísérlet → a korábbi hibás-sor jelölés eltűnik (különben egy már javított
+    // sor maradna pirosan, és a következő hiba mellett félrevezetne).
+    setHibasSor(null)
     if (incomeValid === 0 && expenseValid === 0) {
       onToast('error', 'Legalább egy érvényes sor szükséges (összeg + kategória + dátum; belső mozgásnál bankszámla is).')
       return
@@ -1764,6 +1829,65 @@ export function CombinedEntryBody({
     const expenseBatch: CombinedExpenseBatchRow[] = []
     const savedIncomeRowIds: string[] = []
     const savedExpenseRowIds: string[] = []
+
+    // ── A HIBA CÍMZÉSE (2026-09-01) ────────────────────────────────────────
+    // A hívók a köteg indexét ismerik (`failedIndex`), a felhasználó viszont az
+    // ŰRLAPSOROKAT látja — és a kettő NEM ugyanaz: a köteg dátum szerint rendezett,
+    // és egy két befizetős nyugta KÉT köteg-tétel. Az indexből a `sourceRowId`-n át
+    // megtaláljuk a valódi sort, és arra hivatkozunk (sorszám a saját fülén belül +
+    // dátum + név + összeg + iratszám), majd meg is jelöljük a képernyőn.
+    const bukottSorId = (
+      batch: Array<{ sourceRowId?: string }>,
+      failedIndex: number | null | undefined,
+    ): string | null => {
+      if (typeof failedIndex !== 'number' || !Number.isInteger(failedIndex)) return null
+      const tetel = batch[failedIndex]
+      return tetel?.sourceRowId ?? null
+    }
+
+    /** A sor EMBERI azonosítója — csak a képernyőn is látható adatokból. */
+    const sorCimke = (tabName: 'income' | 'expense', rowId: string | null): string | null => {
+      if (!rowId) return null
+      const lista = tabName === 'income' ? incomeRows : expenseRows
+      const idx = lista.findIndex((r) => r.id === rowId)
+      if (idx < 0) return null
+      const r = lista[idx]
+      // ⛔ NÉV: a mentéssel AZONOS sorrendben — előbb a befizetők, és csak utánuk az
+      //    `r.partner`, ami befizetős sornál csak az ÁRVA keresőpuffer (a mentés is
+      //    tiltja fallbackként). Fordítva egy félig gépelt keresőszó kerülne az üzenetbe.
+      const nevek = (r.people ?? []).map((x) => x.name.trim()).filter(Boolean)
+      const nev = nevek.length > 0 ? nevek.join(', ') : r.partner.trim()
+      // ⛔ ÖSSZEG: befizetős sornál az `r.amount` SZÁNDÉKOSAN üres (az érték a
+      //    people[].osszeg-ben van, a képernyőn az összegük látszik) — a nyers
+      //    `r.amount` olvasása épp a leggyakoribb esetből hagyná ki az összeget.
+      const osszeg = tabName === 'income' && (r.people?.length ?? 0) >= 1
+        ? payerSum(r)
+        : Number(r.amount)
+      const reszek = [
+        `${idx + 1}. ${tabName === 'income' ? 'bevétel' : 'kiadás'}-sor`,
+        r.datum.trim() || null,
+        nev || null,
+        Number.isFinite(osszeg) && osszeg > 0 ? `${formatRon(osszeg)} RON` : null,
+        combinedIratszam(r),
+      ].filter(Boolean)
+      return reszek.join(' · ')
+    }
+
+    /** A hibás sor megjelölése + a fül átváltása, hogy a felhasználó LÁSSA is. */
+    const jelolHibasSort = (tabName: 'income' | 'expense', rowId: string | null) => {
+      if (!rowId) return
+      const lista = tabName === 'income' ? incomeRows : expenseRows
+      const r = lista.find((x) => x.id === rowId)
+      if (!r) return
+      // ⛔ A SORSZÁM a TELJES listából jön, a képernyő viszont a SZŰRT listát számozza
+      //    („Elmentett sorok elrejtése") — a kettő eltérne, és pont azt a sorszámot
+      //    mondanánk rosszul, amiért az egész átalakítás készült. Ezért a jelöléskor
+      //    FELOLDJUK az elrejtést: a felhasználó a teljes listát látja (részleges
+      //    mentés után amúgy is ez a hasznos nézet), és a sorszám stimmel.
+      setMentettekRejtve(false)
+      setHibasSor({ tab: tabName, id: rowId, ujjlenyomat: sorUjjlenyomat(r) })
+      setTab(tabName)
+    }
 
     // 2026-08-30 (Endre kérése): a sikeresen elmentett sorokat MEGJELÖLJÜK, NEM töröljük.
     // Így a vázlat teljes marad (semmi nem veszhet el egy részleges mentésnél), a
@@ -1911,6 +2035,12 @@ export function CombinedEntryBody({
 
     incomeBatch.sort((a, b) => a.datum.localeCompare(b.datum))
     expenseBatch.sort((a, b) => a.datum.localeCompare(b.datum))
+    // 2026-09-01: a belső mozgások is — eddig egyedül ezek maradtak rendezetlenül,
+    // miközben a siker-üzenet („dátum szerint rendezve") rájuk is vonatkozott. A
+    // `datum` itt is a normalizált ÉÉÉÉ-HH-NN (parseFlexibleDate), tehát a szöveges
+    // összehasonlítás valódi időrendet ad; a rendezés stabil, így az azonos napi
+    // mozgások a bevitel sorrendjét tartják.
+    transfers.sort((a, b) => a.payload.datum.localeCompare(b.payload.datum))
 
     // ── RÉSZLEGES MENTÉS MEGELŐZÉSE (2026-08-31) ──────────────────────────────
     // A mentés több külön írás, tranzakció nélkül: ha egy későbbi bukik, a korábbi
@@ -1929,7 +2059,14 @@ export function CombinedEntryBody({
       try {
         const elo = await onPreflightCheck(incomeBatch, expenseBatch)
         if (elo?.error) {
-          onToast('error', `${elo.error} — a mentés EL SEM INDULT, semmi nem került a könyvbe. Javítsd, és mentsd újra.`)
+          // 2026-09-01: az előellenőrzés is a LÁTHATÓ sorra mutasson, ne köteg-indexre.
+          const oldal = elo.failedSide === 'expense' ? 'expense' : elo.failedSide === 'income' ? 'income' : null
+          const bukott = oldal
+            ? bukottSorId(oldal === 'income' ? incomeBatch : expenseBatch, elo.failedIndex)
+            : null
+          const cimke = oldal ? sorCimke(oldal, bukott) : null
+          if (oldal) jelolHibasSort(oldal, bukott)
+          onToast('error', `${cimke ? `${cimke} — ` : ''}${elo.error} — a mentés EL SEM INDULT, semmi nem került a könyvbe. Javítsd, és mentsd újra.`)
           return
         }
       } catch {
@@ -1989,7 +2126,11 @@ export function CombinedEntryBody({
           if (resz.teljes.length > 0) jelolMentettnek('income', resz.teljes)
           // Ha BÁRMI kiment, a nyugtaszám-számláló elavult (számok elkeltek).
           if (resz.teljes.length > 0 || resz.felig > 0) receiptCacheRef.current.clear()
-          onToast('error', `Bevétel: ${res.error}${reszlegesUzenet(resz)}${mar()}`)
+          // 2026-09-01: a hiba a LÁTHATÓ sorra hivatkozzon, ne a belső köteg-indexre.
+          const bukott = bukottSorId(incomeBatch, res.failedIndex)
+          const cimke = sorCimke('income', bukott)
+          jelolHibasSort('income', bukott)
+          onToast('error', `${cimke ? `${cimke} — ` : 'Bevétel: '}${res.error}${reszlegesUzenet(resz)}${mar()}`)
           return
         }
         // A bevételek elmentve — MEGJELÖLJÜK (nem töröljük): a vázlat teljes marad.
@@ -2006,7 +2147,10 @@ export function CombinedEntryBody({
           const resz = reszlegesenMentettSorok(expenseBatch, res.savedRowIds)
           if (resz.teljes.length > 0) jelolMentettnek('expense', resz.teljes)
           if (resz.teljes.length > 0 || resz.felig > 0) receiptCacheRef.current.clear()
-          onToast('error', `Kiadás: ${res.error}${reszlegesUzenet(resz)}${mar()}`)
+          const bukott = bukottSorId(expenseBatch, res.failedIndex)
+          const cimke = sorCimke('expense', bukott)
+          jelolHibasSort('expense', bukott)
+          onToast('error', `${cimke ? `${cimke} — ` : 'Kiadás: '}${res.error}${reszlegesUzenet(resz)}${mar()}`)
           return
         }
         jelolMentettnek('expense', savedExpenseRowIds)
@@ -2015,7 +2159,13 @@ export function CombinedEntryBody({
       }
       for (const t of transfers) {
         const res = await onSaveInternalTransfer(t.payload)
-        if (res.error) { onToast('error', `Belső mozgás: ${res.error}${mar()}`); return }
+        if (res.error) {
+          // Itt a forrás-sor KÖZVETLENÜL ismert (a transfers minden eleme egy sorból jött).
+          const cimke = sorCimke(t.tab, t.rowId)
+          jelolHibasSort(t.tab, t.rowId)
+          onToast('error', `${cimke ? `${cimke} (belső mozgás) — ` : 'Belső mozgás: '}${res.error}${mar()}`)
+          return
+        }
         jelolMentettnek(t.tab, [t.rowId])
       }
       const parts = []
@@ -2281,8 +2431,17 @@ export function CombinedEntryBody({
               return (
                 <Fragment key={r.id}>
                 <tr
-                  className={`border-t border-slate-200 align-top ${r.mentveAt ? 'bg-emerald-100/80' : sorBg}`}
-                  title={r.mentveAt ? 'Ez a sor már el van mentve — nem mentődik újra.' : undefined}
+                  data-row-id={r.id}
+                  className={`border-t border-slate-200 align-top ${
+                    hibasSor?.id === r.id ? 'bg-red-100/80 ring-2 ring-inset ring-red-400' : r.mentveAt ? 'bg-emerald-100/80' : sorBg
+                  }`}
+                  title={
+                    hibasSor?.id === r.id
+                      ? 'Ezen a soron akadt el a mentés — javítsd, és mentsd újra.'
+                      : r.mentveAt
+                        ? 'Ez a sor már el van mentve — nem mentődik újra.'
+                        : undefined
+                  }
                   onKeyDown={focusNextField}
                 >
                   <td className="px-2 py-1.5 w-[170px] min-w-[11rem]">
@@ -2291,6 +2450,12 @@ export function CombinedEntryBody({
                     {r.mentveAt && (
                       <span className="mb-1 inline-flex items-center gap-1 rounded-full bg-emerald-700 px-2 py-0.5 text-[10px] font-semibold text-white">
                         <Check className="size-3" aria-hidden /> elmentve
+                      </span>
+                    )}
+                    {/* 2026-09-01: ezen a soron akadt el a mentés — a hibaüzenet erre hivatkozik. */}
+                    {hibasSor?.id === r.id && (
+                      <span className="mb-1 inline-flex items-center gap-1 rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+                        <AlertTriangle className="size-3" aria-hidden /> itt akadt el
                       </span>
                     )}
                     {renderDateField(r)}
@@ -2445,13 +2610,24 @@ export function CombinedEntryBody({
           const rWarn = receiptWarning(r)
           const isChitanta = r.docType === 'Chitanță'
           return (
-            <div key={r.id} data-entry-card className={`rounded-xl border p-3 ${r.mentveAt ? 'border-emerald-400 bg-emerald-100/80' : `border-slate-200 ${i % 2 === 1 ? 'bg-slate-100/80' : 'bg-white'}`}`} onKeyDown={focusNextField}>
+            <div key={r.id} data-entry-card data-row-id={r.id} className={`rounded-xl border p-3 ${
+              hibasSor?.id === r.id
+                ? 'border-red-500 bg-red-100/80'
+                : r.mentveAt
+                  ? 'border-emerald-400 bg-emerald-100/80'
+                  : `border-slate-200 ${i % 2 === 1 ? 'bg-slate-100/80' : 'bg-white'}`
+            }`} onKeyDown={focusNextField}>
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-400">
                   {i + 1}. tétel
                   {r.mentveAt && (
                     <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-emerald-700 px-2 py-0.5 text-[10px] font-semibold text-white">
                       <Check className="size-3" aria-hidden /> elmentve
+                    </span>
+                  )}
+                  {hibasSor?.id === r.id && (
+                    <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+                      <AlertTriangle className="size-3" aria-hidden /> itt akadt el
                     </span>
                   )}
                 </span>

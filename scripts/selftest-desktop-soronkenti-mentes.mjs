@@ -238,8 +238,8 @@ const mutansok = [
   {
     nev: 'D2: a desktop hiba-ága nem adja vissza az addig elmentett sorokat (a RÉGI viselkedés)',
     fajl: DESKTOP,
-    alkalmaz: (s) => (s.includes(', savedRowIds }')
-      ? s.replaceAll('`, savedRowIds }', '` }')
+    alkalmaz: (s) => (s.includes(', savedRowIds, failedIndex: i }')
+      ? s.replaceAll(', savedRowIds, failedIndex: i }', ', failedIndex: i }')
       : null),
   },
   {
