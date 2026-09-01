@@ -535,7 +535,15 @@ export function DispozitieIncasareWizard({
       }
       const res = await saveIncomeBatch(batch)
       if ('error' in res && res.error) {
-        toast.error(`A könyvelés nem sikerült — ${res.error}`)
+        // 2026-09-01: a szerver már nem égeti a „N. sor:" előtagot az üzenetbe (az a
+        // szétbontott köteg indexe volt, amit itt senki nem lát) — helyette a bukott
+        // tétel INDEXÉT adja vissza. Abból a NYUGTÁRA hivatkozunk, amit a felhasználó lát.
+        const bukottIdx = 'failedIndex' in res && typeof res.failedIndex === 'number' ? res.failedIndex : null
+        const bukott = bukottIdx == null ? null : batch[bukottIdx]
+        const cimke = bukott
+          ? `A(z) „${String(bukott.nyugta || bukott.iratszam || '').trim() || '?'}" nyugtánál${bukott.forrasa ? ` (${bukott.forrasa})` : ''}: `
+          : ''
+        toast.error(`A könyvelés nem sikerült — ${cimke}${res.error}`)
         return
       }
       toast.success(

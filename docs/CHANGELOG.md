@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-09-01] — A hibaüzenet megmutatja, MELYIK sorral van baj
+<!-- key: 2026-09-01-hibas-sor-cimzes -->
+<!-- category: improvement -->
+<!-- version: 0.9.213 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🎨 UX javítások
+
+- **A hiba megmutatja a sort, nem egy számot.** Ha a mentés elakadt, eddig ilyen üzenet jött: „3. bevétel-sor: …" — csakhogy ez a *belső* sorszám volt: a rendszer mentés előtt **dátum szerint átrendezi** a tételeket, egy több befizetős nyugta pedig **több tételnek** számít. Több száz soros rögzítésnél gyakorlatilag lehetetlen volt megtalálni, mit kell javítani. Mostantól az üzenet a **képernyőn látható sorra** hivatkozik — sorszám, dátum, név, összeg és iratszám együtt (pl. „7. bevétel-sor · 2026.01.05 · Kovács Gyula · 150,00 RON · Chitanță 124").
+- **A hibás sor pirosan kigyullad, és a program odagörget.** „Itt akadt el" jelzést kap, a program átvált a megfelelő fülre és a képre görgeti. Amint hozzányúlsz a sorhoz, a jelölés eltűnik.
+- **Ugyanez a mentés előtti ellenőrzésnél is**: ha az előellenőrzés talál hibát (hiányzó adat, jövőbeli dátum, már létező vagy kétszer szereplő iratszám), szintén a konkrét sort mutatja meg.
+- **A belső mozgások (kassza ↔ bank) is dátum szerint mentődnek.** Eddig egyedül ezek maradtak ki a rendezésből, miközben a mentés üzenete „dátum szerint rendezve"-t írt. Most már igaz.
+
+---
+
 ## [2026-08-31] — Az asztali programban sem veszhet el (és nem duplázódhat) tétel
 <!-- key: 2026-08-31-desktop-soronkenti-mentes -->
 <!-- category: bugfix -->

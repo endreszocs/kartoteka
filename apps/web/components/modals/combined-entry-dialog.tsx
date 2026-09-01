@@ -120,13 +120,21 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
             currentYear={currentYear}
             onSaveIncomeBatch={async (rows) => {
               const res = await saveIncomeBatch(rows)
-              return { error: 'error' in res ? res.error ?? null : null }
+              // 2026-09-01: a köteg-index továbbadása — ebből a rögzítő megtalálja és
+              // MEGJELÖLI a valódi űrlapsort, amelyiken a mentés elakadt.
+              return {
+                error: 'error' in res ? res.error ?? null : null,
+                failedIndex: 'failedIndex' in res ? res.failedIndex : null,
+              }
             }}
             onSaveExpenseBatch={async (rows) => {
               // D1: az átvevő a rögzítő kapuja miatt nem üres; a megosztott
               // sor-típus még string|null — a zod min(1) a szerveren backstopol.
               const res = await saveExpenseBatch(rows.map((r) => ({ ...r, kedvezmenyzett: r.kedvezmenyzett ?? '' })))
-              return { error: 'error' in res ? res.error ?? null : null }
+              return {
+                error: 'error' in res ? res.error ?? null : null,
+                failedIndex: 'failedIndex' in res ? res.failedIndex : null,
+              }
             }}
             /* 2026-08-31: a mentés ELŐTTI, tisztán olvasó ellenőrzés — így nem
                keletkezhet félig elmentett állapot (nincs mit visszagörgetni). */
@@ -135,7 +143,11 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
                 income,
                 expense.map((r) => ({ ...r, kedvezmenyzett: r.kedvezmenyzett ?? '' })),
               )
-              return { error: 'error' in res ? res.error ?? null : null }
+              return {
+                error: 'error' in res ? res.error ?? null : null,
+                failedIndex: 'failedIndex' in res ? res.failedIndex : null,
+                failedSide: 'failedSide' in res ? res.failedSide : null,
+              }
             }}
             onSaveInternalTransfer={async (payload) => {
               const res = await saveInternalTransfer(payload)

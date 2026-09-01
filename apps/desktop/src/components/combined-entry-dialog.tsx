@@ -151,7 +151,7 @@ export function DesktopCombinedEntryDialog({
   // különben a kérés anon-szerepkörrel menne („permission denied”).
   async function handleIncomeBatch(
     rows: CombinedIncomeBatchRow[],
-  ): Promise<{ error?: string | null; savedRowIds?: string[] }> {
+  ): Promise<{ error?: string | null; savedRowIds?: string[]; failedIndex?: number | null }> {
     const supabase = getDesktopSupabase()
     const isOnline = await isOnlineWithSession()
     const offlineBackend = isOnline ? undefined : getTauriSqliteBackend()
@@ -168,7 +168,12 @@ export function DesktopCombinedEntryDialog({
           offlineBackend,
         })
         if (!result.success) {
-          return { error: `${i + 1}. bevétel-sor: ${result.error}`, savedRowIds }
+          // 2026-09-01: a „N. bevétel-sor" ELŐTAG ELMARAD — az `i` a RENDEZETT és
+          // befizetőnként szétbontott köteg indexe, amit a felhasználó sehol nem lát.
+          // A rögzítő a `failedIndex` → `sourceRowId` úton a VALÓDI sorra hivatkozik.
+          return {
+            error: result.error,
+          }
         }
         if (row.sourceRowId) savedRowIds.push(row.sourceRowId)
         // E3: online mentés sikerkor a hivatalos Excelbe is (várólistán át).
@@ -189,7 +194,7 @@ export function DesktopCombinedEntryDialog({
           })
         }
       } catch (err) {
-        return { error: `${i + 1}. bevétel-sor: ${errorMessage(err)}`, savedRowIds }
+        return { error: errorMessage(err), savedRowIds, failedIndex: i }
       }
     }
     return { error: null, savedRowIds }
@@ -198,7 +203,7 @@ export function DesktopCombinedEntryDialog({
   // ── Kiadás-batch → soronként saveExpenseUseCase (online + offline) ──
   async function handleExpenseBatch(
     rows: CombinedExpenseBatchRow[],
-  ): Promise<{ error?: string | null; savedRowIds?: string[] }> {
+  ): Promise<{ error?: string | null; savedRowIds?: string[]; failedIndex?: number | null }> {
     const supabase = getDesktopSupabase()
     const isOnline = await isOnlineWithSession()
     const offlineBackend = isOnline ? undefined : getTauriSqliteBackend()
@@ -215,7 +220,7 @@ export function DesktopCombinedEntryDialog({
           offlineBackend,
         })
         if (!result.success) {
-          return { error: `${i + 1}. kiadás-sor: ${result.error}`, savedRowIds }
+          return { error: result.error, savedRowIds, failedIndex: i }
         }
         if (row.sourceRowId) savedRowIds.push(row.sourceRowId)
         // E3: online mentés sikerkor a hivatalos Excelbe is (várólistán át).
@@ -234,7 +239,7 @@ export function DesktopCombinedEntryDialog({
           })
         }
       } catch (err) {
-        return { error: `${i + 1}. kiadás-sor: ${errorMessage(err)}`, savedRowIds }
+        return { error: errorMessage(err), savedRowIds, failedIndex: i }
       }
     }
     return { error: null, savedRowIds }
@@ -254,7 +259,11 @@ export function DesktopCombinedEntryDialog({
   async function handlePreflight(
     income: CombinedIncomeBatchRow[],
     expense: CombinedExpenseBatchRow[],
-  ): Promise<{ error?: string | null }> {
+  ): Promise<{
+    error?: string | null
+    failedIndex?: number | null
+    failedSide?: 'income' | 'expense' | null
+  }> {
     const supabase = getDesktopSupabase()
     const isOnline = await isOnlineWithSession()
     const offlineBackend = isOnline ? undefined : getTauriSqliteBackend()
@@ -263,34 +272,50 @@ export function DesktopCombinedEntryDialog({
     for (let i = 0; i < income.length; i += 1) {
       const parsed = saveIncomeInputSchema.safeParse(bevetelInput(income[i], isOnline))
       if (!parsed.success) {
-        return { error: `${i + 1}. bevétel-sor: ${parsed.error.issues[0]?.message || 'Érvénytelen adat.'}` }
+        // 2026-09-01: a köteg-index visszaadva (a rögzítő a LÁTHATÓ sorra fordítja).
+        return {
+          error: parsed.error.issues[0]?.message || 'Érvénytelen adat.',
+          failedIndex: i,
+          failedSide: 'income',
+        }
       }
     }
     for (let i = 0; i < expense.length; i += 1) {
       const parsed = saveExpenseInputSchema.safeParse(kiadasInput(expense[i], isOnline))
       if (!parsed.success) {
-        return { error: `${i + 1}. kiadás-sor: ${parsed.error.issues[0]?.message || 'Érvénytelen adat.'}` }
+        return {
+          error: parsed.error.issues[0]?.message || 'Érvénytelen adat.',
+          failedIndex: i,
+          failedSide: 'expense',
+        }
       }
     }
 
     // 2) Kötegen BELÜLI iratszám-ütközés — ezt a mentés csak a MÁSODIK sornál
     //    venné észre, amikor az első már bent van (pont a felemás állapot).
-    const utkozes = (sorok: Array<{ iratszam: string | null }>, cimke: string): string | null => {
+    const utkozes = (
+      sorok: Array<{ iratszam: string | null }>,
+      cimke: string,
+    ): { error: string; failedIndex: number } | null => {
       const latott = new Set<string>()
-      for (const r of sorok) {
-        const szam = (r.iratszam ?? '').trim()
+      for (let i = 0; i < sorok.length; i += 1) {
+        const szam = (sorok[i].iratszam ?? '').trim()
         if (!szam) continue
         if (latott.has(szam)) {
-          return `A(z) „${szam}” iratszám a kötegben KÉTSZER szerepel (${cimke}) — a második sor elbukna, az első már bent lenne. Javítsd, mielőtt mentesz.`
+          // A MÁSODIK (ütköző) tételre mutatunk: az elsőt nem kell javítani.
+          return {
+            error: `A(z) „${szam}” iratszám a kötegben KÉTSZER szerepel (${cimke}) — a második sor elbukna, az első már bent lenne. Javítsd, mielőtt mentesz.`,
+            failedIndex: i,
+          }
         }
         latott.add(szam)
       }
       return null
     }
     const incUtkozes = utkozes(income, 'bevétel')
-    if (incUtkozes) return { error: incUtkozes }
+    if (incUtkozes) return { ...incUtkozes, failedSide: 'income' }
     const expUtkozes = utkozes(expense, 'kiadás')
-    if (expUtkozes) return { error: expUtkozes }
+    if (expUtkozes) return { ...expUtkozes, failedSide: 'expense' }
 
     if (!isOnline) {
       // 3/a) OFFLINE kapuk — ugyanazok, mint a use-case offline ágán.
@@ -354,14 +379,24 @@ export function DesktopCombinedEntryDialog({
     if (incSzamok.length > 0) {
       const dup = await checkReceiptDuplicatesBatchUseCase({ congregationId, iratszamok: incSzamok }, ctx)
       if (dup.success && dup.duplicates.length > 0) {
-        return { error: `A(z) „${dup.duplicates[0]}” iratszám már létezik a bevételeknél. Válassz másik számot.` }
+        const utkozo = dup.duplicates[0]
+        return {
+          error: `A(z) „${utkozo}” iratszám már létezik a bevételeknél. Válassz másik számot.`,
+          failedIndex: income.findIndex((r) => (r.iratszam ?? '').trim() === utkozo),
+          failedSide: 'income',
+        }
       }
     }
     const expSzamok = expense.map((r) => (r.iratszam ?? '').trim()).filter(Boolean)
     if (expSzamok.length > 0) {
       const dup = await checkExpenseReceiptDuplicatesBatchUseCase({ congregationId, iratszamok: expSzamok }, ctx)
       if (dup.success && dup.duplicates.length > 0) {
-        return { error: `A(z) „${dup.duplicates[0]}” iratszám már létezik a kiadásoknál. Válassz másik számot.` }
+        const utkozo = dup.duplicates[0]
+        return {
+          error: `A(z) „${utkozo}” iratszám már létezik a kiadásoknál. Válassz másik számot.`,
+          failedIndex: expense.findIndex((r) => (r.iratszam ?? '').trim() === utkozo),
+          failedSide: 'expense',
+        }
       }
     }
     return { error: null }
