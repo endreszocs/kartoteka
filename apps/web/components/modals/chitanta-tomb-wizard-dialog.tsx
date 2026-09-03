@@ -8,9 +8,12 @@
  *   - Közös adatok (seria, vásárlás dátuma, összesített ár)
  *   - Tömbök tartománya: +Új tömb gombbal kibővíthető lista
  *   - Automatikus tartomány-javaslat: a 2. tömb kezdete = 1. tömb vége + 1
+ *   - A kezdőszám beírásakor a záró szám magától kitöltődik 50 lapra
+ *     (Endre, 2026-09-02: „a nyugtatömbökben nem 100, hanem 50 lap van") —
+ *     de felülírható, nem kényszer.
  *
  * Validáció:
- *   - Minden tömbben max. 100 nyugta
+ *   - Minden tömbben max. MAX_NYUGTA_TOMBBEN (50) nyugta
  *   - Batch-en belüli átfedés ellenőrzés
  *   - Meglévő tömbökkel is átfedés ellenőrzés
  */
@@ -29,6 +32,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { ModalField } from '@/components/ui/modal-field'
+import { MAX_NYUGTA_TOMBBEN } from '@kartoteka/validations'
 import { createChitantaTombokBatch } from '@/app/(dashboard)/penzugy/chitanta-tombok-actions'
 
 type Props = {
@@ -93,15 +97,16 @@ export function ChitantaTombWizardDialog({
     setTombok((prev) => {
       const utolso = prev[prev.length - 1]
       // Intelligens default: a következő tömb kezdete = előző végpont + 1,
-      // hossza azonos az előzővel (jellemzően 100 db)
+      // hossza azonos az előzővel (alapesetben MAX_NYUGTA_TOMBBEN = 50 lap)
       let nextKezdet: number | '' = ''
       let nextVeg: number | '' = ''
       if (typeof utolso?.szamVeg === 'number') {
         nextKezdet = utolso.szamVeg + 1
-        if (typeof utolso.szamKezdet === 'number') {
-          const meret = utolso.szamVeg - utolso.szamKezdet
-          nextVeg = nextKezdet + meret
-        }
+        const meret =
+          typeof utolso.szamKezdet === 'number'
+            ? utolso.szamVeg - utolso.szamKezdet
+            : MAX_NYUGTA_TOMBBEN - 1
+        nextVeg = nextKezdet + meret
       }
       return [
         ...prev,
@@ -153,7 +158,7 @@ export function ChitantaTombWizardDialog({
       if (typeof t.szamKezdet !== 'number' || typeof t.szamVeg !== 'number') return false
       if (t.szamVeg < t.szamKezdet) return false
       const d = darabszamok[i]
-      return d !== null && d > 0 && d <= 100
+      return d !== null && d > 0 && d <= MAX_NYUGTA_TOMBBEN
     }) &&
     overlapIndices.size === 0
 
@@ -221,6 +226,8 @@ export function ChitantaTombWizardDialog({
             A nyomdai kezdő és záró számot a tömb első és utolsó nyugtájáról
             olvasd le. Egyszerre több tömböt is rögzíthetsz (&bdquo;+ Újabb tömb&rdquo;
             gombbal) — a rendszer automatikusan felajánlja a folytatódó tartományt.
+            Egy tömb <strong>{MAX_NYUGTA_TOMBBEN} lapos</strong>, ezért a kezdőszám beírásakor
+            a záró szám magától kitöltődik — ha eltér, nyugodtan írd felül.
             A gyülekezeti saját szám minden év elején 1-től indul.
           </div>
 
@@ -285,8 +292,8 @@ export function ChitantaTombWizardDialog({
               const err =
                 db === null
                   ? null
-                  : db > 100
-                    ? `Egy tömbben max. 100 nyugta (most ${db})`
+                  : db > MAX_NYUGTA_TOMBBEN
+                    ? `Egy nyugtatömb ${MAX_NYUGTA_TOMBBEN} lapos (most ${db})`
                     : isOverlap
                       ? 'Tartomány-átfedés más tömbbel!'
                       : null
@@ -329,11 +336,17 @@ export function ChitantaTombWizardDialog({
                       <Input
                         type="number"
                         value={t.szamKezdet}
-                        onChange={(e) =>
-                          updateTomb(t.key, {
-                            szamKezdet: e.target.value === '' ? '' : Number(e.target.value),
-                          })
-                        }
+                        onChange={(e) => {
+                          const ertek = e.target.value === '' ? '' : Number(e.target.value)
+                          // 50 lapos tömb: a záró számot felajánljuk, de CSAK
+                          // amíg a lelkész nem írt bele — a saját értékét soha
+                          // nem írjuk felül.
+                          const veg =
+                            typeof ertek === 'number' && Number.isFinite(ertek) && t.szamVeg === ''
+                              ? ertek + MAX_NYUGTA_TOMBBEN - 1
+                              : t.szamVeg
+                          updateTomb(t.key, { szamKezdet: ertek, szamVeg: veg })
+                        }}
                         placeholder="115356"
                         min={0}
                       />

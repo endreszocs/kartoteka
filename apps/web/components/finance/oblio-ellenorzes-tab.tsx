@@ -21,6 +21,7 @@ import { toast } from 'sonner'
 
 import { OblioEllenorzesTab as SharedOblioEllenorzesTab } from '@kartoteka/ui-app'
 import { BrowserOblioFileSystem } from '@/lib/finance/oblio/oblio-folder'
+import { OblioHataridoEmlekezteto } from '@/components/finance/oblio-hatarido-emlekezteto'
 import { isFileSystemAccessSupported, pickRootDirectory } from '@/lib/offline/fs-handle-store'
 import {
   bulkSaveOblioMatches,
@@ -47,6 +48,11 @@ export function OblioEllenorzesTab({
   currentYear,
 }: OblioEllenorzesTabProps) {
   return (
+    <>
+      {/* 2026-09-03 (Endre kérése): ha közeledik vagy lejárt az ANAF 60 napos
+          határideje, itt szólunk — és a lelkész KÉRÉSÉRE emlékeztető e-mailt is
+          küldhet róla. A rendszer magától nem küld levelet. */}
+      <OblioHataridoEmlekezteto />
     <SharedOblioEllenorzesTab
       congregationSlug={congregationSlug}
       congregationName={congregationName}
@@ -142,5 +148,6 @@ export function OblioEllenorzesTab({
         />
       )}
     />
+    </>
   )
 }

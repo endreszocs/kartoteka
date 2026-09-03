@@ -42,6 +42,7 @@ import {
   normalizeFileBaseName,
   matchXmlsToKiadas,
   batchMatchPdfsToXmls,
+  isRon,
   type UblInvoiceMeta,
   type MinimalKiadas,
   type XmlMatchResult,
@@ -595,6 +596,29 @@ export function DesktopOblioTab({
       onToast('A számla bruttó összege hiányzik vagy érvénytelen — nem vezethető be.', 'error')
       return
     }
+
+    // ── FAIL-CLOSED KAPUK (2026-09-03, átvilágítás P0) ────────────────────
+    // A párosító motor SZÁNDÉKOSAN kihagyja a devizás és a jóváíró számlákat
+    // (oblio-matcher.ts) — épp ezért maradtak ezek „nincs párosítva" állapotban,
+    // és épp ezeken világított a zöld „Bevezetés új kiadásként" gomb. A varázsló
+    // viszont a NYERS összeget könyvelte el, átváltás nélkül: egy 500 EUR-s
+    // számlából 500 RON-os kiadás lett. Amit a matcher nem mer, azt a varázsló
+    // sem teheti meg magától.
+    if (!isRon(target.meta.currency)) {
+      onToast(
+        `Ez a számla ${target.meta.currency} devizában szól — a bevezetés RON-ban könyvelne, átváltás nélkül. ` +
+          'Rögzítsd kézzel a Pénzügy → Tétel rögzítése ablakban, a helyes árfolyammal, majd itt párosítsd hozzá.',
+        'error',
+      )
+      return
+    }
+    if (target.meta.documentType === 'credit_note') {
+      onToast(
+        'Ez egy jóváíró számla (CreditNote) — a pénz VISSZAJÁR, nem kiadás. Kiadásként bevezetve a főkönyv rosszul mutatna.',
+        'error',
+      )
+      return
+    }
     const datum = (target.meta.issueDate || new Date().toISOString().slice(0, 10)).slice(0, 10)
     const partner = target.meta.supplier.name?.trim() || 'Ismeretlen beszállító'
     const cui = target.meta.supplier.cui?.trim().slice(0, 32) || null
@@ -604,6 +628,45 @@ export function DesktopOblioTab({
     setWizardBusy(true)
     try {
       const supabase = getDesktopSupabase()
+
+      // ── KETTŐS KÖNYVELÉS ELLENI KAPU (2026-09-03, átvilágítás P0) ────────
+      // A gyülekezet KÉT úton fogadhat be szállítói számlát: itt, a mappa-alapú
+      // egyeztetésen (`oblio_kiadas_match`), és a webes Dokumentumtárban
+      // (`szallitoi_szamla`). Ez a fül a webes táblát SOSEM nézte, ezért egy ott
+      // már rögzített és kifizetéshez kapcsolt számláról MÁSODIK kiadás
+      // keletkezhetett — és utána mindkét felület zöld pipát mutatott.
+      //
+      // FAIL-CLOSED: ha az ellenőrzés nem futtatható, NEM vezetünk be. Egy
+      // átcsúszott duplikátum a főkönyvben valódi pénzt jelent kétszer.
+      if (uuid) {
+        const { data: mar, error: ellenorzesHiba } = await supabase
+          .from('szallitoi_szamla')
+          .select('id, szamla_szam, szallito_nev')
+          .eq('congregation_id', congregationId)
+          .eq('anaf_uuid', uuid)
+          .limit(1)
+        if (ellenorzesHiba) {
+          onToast(
+            'Nem sikerült ellenőrizni, hogy ez a számla szerepel-e már a Dokumentumtárban — ' +
+              `a bevezetés biztonsági okból elmaradt. (${ellenorzesHiba.message})`,
+            'error',
+          )
+          return
+        }
+        if (mar && mar.length > 0) {
+          const s = mar[0] as { szamla_szam: string | null; szallito_nev: string | null }
+          onToast(
+            `Ezt a számlát a webes Dokumentumtárban már rögzítették${
+              s.szamla_szam ? ` (${s.szamla_szam}` : ''
+            }${s.szallito_nev ? `${s.szamla_szam ? ' · ' : ' ('}${s.szallito_nev}` : ''}${
+              s.szamla_szam || s.szallito_nev ? ')' : ''
+            }. Ha a kifizetés is megvan, OTT kapcsold hozzá — ne vezesd be újra, mert kétszer kerülne a főkönyvbe.`,
+            'error',
+          )
+          return
+        }
+      }
+
       const result = await saveExpenseUseCase(
         {
           congregationId,

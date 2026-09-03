@@ -164,9 +164,13 @@ export {
 // ── ADOMÁNYOZÓK ÉS SZPONZOROK — Endre 5. kérése (2026-08-27) ─────────────
 // A 10 adomány/szponzor kód + a tiszta összesítő. A web és a desktop fül
 // UGYANEZT használja — külön aggregálás két eltérő végösszeget adna.
+// A NÉVSORHOZ az `ADOMANY_NEVSOR_KODOK` szűkebb listája való (persely nélkül,
+// Endre 2026-09-02-i szabálya); a teljes család marad a BankTab jelzéséhez.
 export {
   ADOMANY_KODOK,
+  ADOMANY_NEVSOR_KODOK,
   adomanyKodE,
+  adomanyNevsorKodE,
   adomanyKodNev,
   adomanyozoKulcsNev,
   cegGyanusNev,
@@ -176,6 +180,7 @@ export {
   type Adomanyozo,
   type AdomanyozoTipus,
   type AdomanyozokOsszesito,
+  type PerselyOsszesito,
 } from './finance/adomanyozok/aggregate'
 
 export {

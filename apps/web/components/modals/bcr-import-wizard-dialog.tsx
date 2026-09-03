@@ -108,6 +108,8 @@ export function BcrImportWizardDialog({
   onImported,
 }: Props) {
   const [step, setStep] = useState<WizardStep>('upload')
+  /** 2026-09-02 (Endre 8.): a videó útmutató saját ablakban játszik le. */
+  const [videoNyitva, setVideoNyitva] = useState(false)
   const [file, setFile] = useState<File | null>(null)
   const [selectedBankId, setSelectedBankId] = useState<number | null>(null)
   const [parsing, setParsing] = useState(false)
@@ -641,11 +643,13 @@ export function BcrImportWizardDialog({
               {/* 2026-07-10 (S4): videó útmutató a banki importhoz — a felhasználó
                   által készített tutorial (public/tutorials). Új lapon nyílik,
                   a böngésző natívan lejátssza. */}
-              <a
-                href="/tutorials/BANK_IMPORT_TUTORIAL.mp4"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 rounded-xl border border-violet-200 bg-violet-50/60 px-4 py-3 text-sm text-violet-800 transition hover:bg-violet-100/60"
+              {/* 2026-09-02 (Endre 8.): a videó IDE, egy szép ablakba nyílik —
+                  eddig új lapra dobta a nyers .mp4-et, ahol a lelkész elvesztette
+                  a varázsló szálát, és vissza kellett navigálnia. */}
+              <button
+                type="button"
+                onClick={() => setVideoNyitva(true)}
+                className="flex w-full items-center gap-3 rounded-xl border border-violet-200 bg-violet-50/60 px-4 py-3 text-left text-sm text-violet-800 transition hover:bg-violet-100/60"
               >
                 <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white">
                   ▶
@@ -654,10 +658,59 @@ export function BcrImportWizardDialog({
                   <span className="font-semibold">Videó útmutató a banki importhoz</span>
                   <span className="block text-xs text-violet-600/80">
                     Lépésről lépésre megmutatja a fájl letöltését, a nyitó egyenleget és a
-                    kategorizálást — új lapon nyílik.
+                    kategorizálást — itt, ebben az ablakban játszódik le.
                   </span>
                 </span>
-              </a>
+              </button>
+
+              {videoNyitva && (
+                <div
+                  className="fixed inset-0 z-[300] flex items-center justify-center bg-black/70 p-3 sm:p-6"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Videó útmutató a banki importhoz"
+                  onClick={() => setVideoNyitva(false)}
+                >
+                  <div
+                    className="w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5">
+                      <span className="font-heading text-sm font-semibold text-slate-800">
+                        Videó útmutató — banki import
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setVideoNyitva(false)}
+                        aria-label="Videó bezárása"
+                        className="rounded-full px-2 py-0.5 text-lg leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    {/* `autoPlay` NINCS: hang nélkül is meglepné a felhasználót,
+                        és a böngészők úgyis blokkolják. A `controls` elég. */}
+                    <video
+                      src="/tutorials/BANK_IMPORT_TUTORIAL.mp4"
+                      controls
+                      playsInline
+                      preload="metadata"
+                      className="block max-h-[75dvh] w-full bg-black"
+                    />
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 px-4 py-2 text-xs text-slate-500">
+                      <span>Ha a videó nem indul el, nyisd meg külön lapon:</span>
+                      <a
+                        href="/tutorials/BANK_IMPORT_TUTORIAL.mp4"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-violet-700 underline underline-offset-2"
+                      >
+                        Megnyitás új lapon
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="space-y-2">
                 <label className="block">
                   <span className="text-sm font-medium text-slate-700">

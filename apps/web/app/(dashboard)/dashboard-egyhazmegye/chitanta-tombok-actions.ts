@@ -16,6 +16,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
+import { MAX_NYUGTA_TOMBBEN } from '@kartoteka/validations'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { assertDioceseInScope } from '@/lib/auth/admin-scope'
 import {
@@ -215,6 +216,11 @@ export async function createDioceseChitantaTomb(
   const computedDarab = parsed.data.szam_veg - parsed.data.szam_kezdet + 1
   if (computedDarab !== parsed.data.darabszam_ossz) {
     return { error: `A darabszám (${parsed.data.darabszam_ossz}) nem egyezik a kezdő-vég szám közötti darabokkal (${computedDarab}).` }
+  }
+  // Egy nyugtatömb 50 lapos (Endre, 2026-09-02) — közös konstans, hogy a
+  // gyülekezeti, a megyei és a kerületi rögzítő ne húzhasson szét.
+  if (computedDarab > MAX_NYUGTA_TOMBBEN) {
+    return { error: `Egy nyugtatömb ${MAX_NYUGTA_TOMBBEN} lapos, a megadott tartomány ${computedDarab} db. Ellenőrizd a kezdő- és a végszámot.` }
   }
 
   const ctx = await requireDioceseAccess()

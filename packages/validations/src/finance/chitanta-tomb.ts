@@ -102,7 +102,7 @@ export function computeChitantaTombStatus(
  * Üzleti szabályok (a use-case érvényesíti):
  *   - `seria` nem üres, trim-elve
  *   - `szam_veg >= szam_kezdet`
- *   - `szam_veg - szam_kezdet + 1 <= 100` — egy tömbben max 100 nyugta
+ *   - `szam_veg - szam_kezdet + 1 <= MAX_NYUGTA_TOMBBEN` — egy tömbben max 50 nyugta
  *   - Nincs átfedés a congregation meglévő tömbjeivel (ua. seria + tartomány)
  *   - `vasarlas_datuma` ISO date (YYYY-MM-DD)
  */
@@ -131,13 +131,30 @@ export const createChitantaTombInputSchema = z.object({
 
 export type CreateChitantaTombInput = z.infer<typeof createChitantaTombInputSchema>
 
+/**
+ * EGY NYUGTATÖMB LAPSZÁMA — a fizikai valóság.
+ *
+ * Endre javítása (2026-09-02): „A nyugtatömbökben nem 100, hanem 50 lap van."
+ * Az EREK-től (Egyházkerület) vásárolt, sorszámozott nyugtatömb 50 lapos.
+ *
+ * ⚠️ EGYETLEN FORRÁS: a webes varázsló, a kerületi és az egyházmegyei rögzítő
+ * MIND ezt a konstanst használja. Korábban három helyen élt külön a 100-as
+ * korlát — egy javítás így némán kihagyhatott volna egy felületet.
+ *
+ * ⚠️ CSAK A RÖGZÍTÉSRE vonatkozik. A már rögzített tömbök (köztük a régi,
+ * 100-as tartománnyal felvittek) érintetlenek maradnak: a `chitantaTombRowSchema`
+ * SZÁNDÉKOSAN nem tartalmazza ezt a korlátot, különben a meglévő sorok
+ * beolvasása bukna el.
+ */
+export const MAX_NYUGTA_TOMBBEN = 50
+
 /** Bővített séma az üzleti szabályokkal (számtartomány, tömb-méret). */
 export const createChitantaTombInputFullSchema = createChitantaTombInputSchema
   .refine((v) => v.szam_veg >= v.szam_kezdet, {
     message: 'A záró szám nem lehet kisebb, mint a kezdő szám.',
     path: ['szam_veg'],
   })
-  .refine((v) => v.szam_veg - v.szam_kezdet + 1 <= 100, {
-    message: 'Egy tömbben legfeljebb 100 nyugta lehet — ellenőrizd a számokat.',
+  .refine((v) => v.szam_veg - v.szam_kezdet + 1 <= MAX_NYUGTA_TOMBBEN, {
+    message: `Egy nyugtatömb ${MAX_NYUGTA_TOMBBEN} lapos — ellenőrizd a kezdő- és a végszámot.`,
     path: ['szam_veg'],
   })

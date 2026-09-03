@@ -501,6 +501,8 @@ export async function adomanyozokOnline(
   const celRes = await supabase
     .from('befizetescel')
     .select('id, id_szamadasicel')
+    // A TELJES kódcsalád jön le; a perselyt a közös mag választja le külön
+    // kategóriába (Endre, 2026-09-02) — így a web és a desktop nem húzhat szét.
     .in('id_szamadasicel', ADOMANY_KODOK.map((k) => k.kod))
   if (celRes.error) return { error: `A befizetési célok nem olvashatók: ${celRes.error.message}` }
   const kodById = new Map<number, string>()
@@ -509,7 +511,7 @@ export async function adomanyozokOnline(
   }
   const celIds = [...kodById.keys()]
   // FAIL-LOUD: üres katalógusnál NEM „0 adomány" a hír, hanem hogy hiányzik a katalógus.
-  if (!celIds.length) return { error: 'A 10 adomány-kategória egyike sincs feloldva a befizetescel táblában.' }
+  if (!celIds.length) return { error: 'Az adomány-kategóriák egyike sincs feloldva a befizetescel táblában.' }
 
   type Sor = {
     id: number; datum: string; osszeg: number | null; osszeg_ron: number | null

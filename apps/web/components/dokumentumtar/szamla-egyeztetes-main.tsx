@@ -201,7 +201,10 @@ export function SzamlaEgyeztetesMain({ congregationName }: SzamlaEgyeztetesMainP
 
   const megjelenitett = useMemo(() => {
     if (szuro !== 'konyveletlen') return rows
-    return rows.filter((r) => !(parositasok[r.id]?.length))
+    // 2026-09-03 (átvilágítás P1): a HALOTT kapcsolat (sztornózott/törölt
+    // kiadás) nem számít könyvelésnek — a számla maradjon a „Nincs a
+    // könyvelésben" szűrőben, különben némán kiesne a látókörből.
+    return rows.filter((r) => !(parositasok[r.id] ?? []).some((p) => !p.ervenytelen))
   }, [rows, szuro, parositasok])
 
   const utolsoOldal = Math.max(1, Math.ceil(osszesen / OLDAL_MERET))
@@ -320,7 +323,10 @@ export function SzamlaEgyeztetesMain({ congregationName }: SzamlaEgyeztetesMainP
       ) : (
         <ul className="space-y-2">
           {megjelenitett.map((r) => {
-            const parok = parositasok[r.id] ?? []
+            const osszesPar = parositasok[r.id] ?? []
+            // Élő vs. HALOTT kapcsolat (a kapcsolt kiadást sztornózták/törölték).
+            const parok = osszesPar.filter((p) => !p.ervenytelen)
+            const halottParok = osszesPar.filter((p) => p.ervenytelen)
             const lejart = !r.kifizetve && !!r.fizetesi_hatarido && r.fizetesi_hatarido < ma
             const helyek = [...new Set(parok.map((p) => p.bankNev ?? 'Kassza'))]
             return (
@@ -354,6 +360,26 @@ export function SzamlaEgyeztetesMain({ congregationName }: SzamlaEgyeztetesMainP
                 <div className="text-sm font-semibold tabular-nums text-slate-800">
                   {osszegSzoveg(r.osszeg, r.penznem)}
                 </div>
+
+                {/* 2026-09-03 (átvilágítás P1): HALOTT KAPCSOLAT jelzése.
+                    A kapcsolt kiadást sztornózták vagy törölték — a számla
+                    eddig csendben „Könyvelve" és „Kifizetve" maradt, sőt a
+                    nyomtatott adatlapra is rákerült. Most pirosan szól, és a
+                    kattintás egyenesen a kapcsolás-ablakba visz, ahol bontható. */}
+                {halottParok.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setKapcsolasSzamla(kapcsolasTetel(r))}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 ring-1 ring-red-200 transition hover:bg-red-100"
+                    title="A hozzákapcsolt kiadást sztornózták vagy törölték. Bontsd a kapcsolatot, és ha a számla valójában nincs kifizetve, vedd le a „Kifizetve” jelölést is."
+                  >
+                    <AlertCircle className="size-3.5" aria-hidden />
+                    {halottParok.length === 1
+                      ? 'A kapcsolt kiadás sztornózva — bontsd'
+                      : `${halottParok.length} kapcsolt kiadás sztornózva — bontsd`}
+                    <Link2 className="size-3.5" aria-hidden />
+                  </button>
+                )}
 
                 {/* Párosítás-jelző: hol van a könyvelésben? */}
                 {parok.length > 0 ? (

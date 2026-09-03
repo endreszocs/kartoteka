@@ -1,0 +1,1840 @@
+<title>Kartotéka számla-lánc átvilágítás</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --papir:#fbfbf8; --lap:#ffffff; --tinta:#191c16; --halvany:#6c7268; --vonal:#e3e6df;
+  --kiemeles:#5f7f45; --kiemeles-halk:#eef2e8;
+  --p0:#9d2b2b; --p1:#a2660f; --p2:#43647f; --p3:#6c7268;
+  --p0-halk:#fbeeee; --p1-halk:#fbf3e6; --p2-halk:#edf2f6; --p3-halk:#f1f2ef;
+  --mertek:70ch;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --papir:#12140f; --lap:#181b14; --tinta:#e7eae1; --halvany:#99a191; --vonal:#282c22;
+    --kiemeles:#a3c383; --kiemeles-halk:#1d2418;
+    --p0:#e88b8b; --p1:#dfab5e; --p2:#8fb4cf; --p3:#99a191;
+    --p0-halk:#241614; --p1-halk:#241d10; --p2-halk:#141d24; --p3-halk:#1b1e18;
+  }
+}
+:root[data-theme="dark"]{
+  --papir:#12140f; --lap:#181b14; --tinta:#e7eae1; --halvany:#99a191; --vonal:#282c22;
+  --kiemeles:#a3c383; --kiemeles-halk:#1d2418;
+  --p0:#e88b8b; --p1:#dfab5e; --p2:#8fb4cf; --p3:#99a191;
+  --p0-halk:#241614; --p1-halk:#241d10; --p2-halk:#141d24; --p3-halk:#1b1e18;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--papir); color:var(--tinta);
+  font-family:"Source Sans 3","Segoe UI",system-ui,sans-serif;
+  font-size:16.5px; line-height:1.65; -webkit-font-smoothing:antialiased;
+}
+.keret{display:grid; grid-template-columns:1fr; max-width:1400px; margin:0 auto}
+@media(min-width:1060px){ .keret{grid-template-columns:266px minmax(0,1fr); gap:0} }
+
+/* ── Bal sáv ───────────────────────────────────────────────── */
+.sav{border-bottom:1px solid var(--vonal); background:var(--lap)}
+@media(min-width:1060px){
+  .sav{
+    position:sticky; top:0; align-self:start; height:100dvh; overflow-y:auto;
+    border-bottom:0; border-right:1px solid var(--vonal); padding:26px 20px 40px;
+  }
+}
+@media(max-width:1059px){ .sav{padding:16px} }
+.marka{font-family:Spectral,Georgia,serif; font-weight:700; font-size:19px; line-height:1.25; letter-spacing:-.01em; margin:0}
+.marka span{display:block; font-family:"JetBrains Mono",ui-monospace,monospace; font-size:10px; font-weight:400;
+  letter-spacing:.14em; text-transform:uppercase; color:var(--halvany); margin-top:7px}
+
+.valto{display:flex; flex-direction:column; gap:2px; margin:22px 0 6px}
+.valto button{
+  display:flex; flex-direction:column; gap:2px; text-align:left; cursor:pointer;
+  background:none; border:0; border-left:2px solid transparent; padding:8px 10px;
+  color:var(--halvany); font:inherit; font-size:14.5px; border-radius:0 4px 4px 0;
+}
+.valto button:hover{background:var(--kiemeles-halk); color:var(--tinta)}
+.valto button[aria-current="true"]{border-left-color:var(--kiemeles); color:var(--tinta); font-weight:600; background:var(--kiemeles-halk)}
+.valto small{font-family:"JetBrains Mono",monospace; font-size:10.5px; font-weight:400; color:var(--halvany); letter-spacing:.02em}
+
+.szuro{display:flex; flex-wrap:wrap; gap:5px; margin:18px 0 4px}
+.szuro button{
+  font-family:"JetBrains Mono",monospace; font-size:11px; letter-spacing:.04em; cursor:pointer;
+  border:1px solid var(--vonal); background:var(--lap); color:var(--halvany);
+  padding:4px 8px; border-radius:3px;
+}
+.szuro button[aria-pressed="true"]{border-color:currentColor; font-weight:600}
+.szuro button.f-P0[aria-pressed="true"]{color:var(--p0); background:var(--p0-halk)}
+.szuro button.f-P1[aria-pressed="true"]{color:var(--p1); background:var(--p1-halk)}
+.szuro button.f-P2[aria-pressed="true"]{color:var(--p2); background:var(--p2-halk)}
+.szuro button.f-P3[aria-pressed="true"]{color:var(--p3); background:var(--p3-halk)}
+
+.cimke{font-family:"JetBrains Mono",monospace; font-size:10px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--halvany); margin:22px 0 8px}
+nav{display:flex; flex-direction:column; gap:1px; font-size:13.5px; line-height:1.4}
+nav a{color:var(--halvany); text-decoration:none; padding:4px 8px; border-radius:3px;
+  display:flex; gap:7px; align-items:baseline; border-left:2px solid transparent}
+nav a:hover{background:var(--kiemeles-halk); color:var(--tinta)}
+nav a.aktiv{color:var(--tinta); border-left-color:var(--kiemeles); background:var(--kiemeles-halk)}
+nav a.toc-3{padding-left:18px; font-size:12.5px}
+.pont{width:6px; height:6px; border-radius:50%; flex:0 0 auto; margin-top:.42em}
+.pont.sev-P0{background:var(--p0)} .pont.sev-P1{background:var(--p1)}
+.pont.sev-P2{background:var(--p2)} .pont.sev-P3{background:var(--p3)}
+
+/* ── Törzs ─────────────────────────────────────────────────── */
+main{padding:34px 20px 90px; min-width:0}
+@media(min-width:1060px){ main{padding:52px 56px 120px} }
+.dok{display:none} .dok.aktiv{display:block}
+.dok > *{max-width:var(--mertek)}
+.dok h1{font-family:Spectral,Georgia,serif; font-weight:700; font-size:clamp(27px,4vw,38px);
+  line-height:1.15; letter-spacing:-.015em; margin:0 0 18px; text-wrap:balance}
+.dok h2{font-family:Spectral,Georgia,serif; font-weight:600; font-size:clamp(21px,2.6vw,26px);
+  line-height:1.25; margin:52px 0 14px; padding-top:20px; border-top:1px solid var(--vonal); text-wrap:balance}
+.dok h3{font-family:Spectral,Georgia,serif; font-weight:600; font-size:18.5px; line-height:1.3;
+  margin:32px 0 10px; text-wrap:balance}
+.dok h3.talalat-cim{
+  padding:10px 0 10px 14px; border-left:3px solid var(--halvany); margin-top:38px;
+}
+.dok h3.sev-P0{border-left-color:var(--p0)} .dok h3.sev-P1{border-left-color:var(--p1)}
+.dok h3.sev-P2{border-left-color:var(--p2)} .dok h3.sev-P3{border-left-color:var(--p3)}
+.dok p{margin:0 0 14px}
+.dok strong{font-weight:600}
+.dok ul,.dok ol{margin:0 0 14px; padding-left:22px}
+.dok li{margin-bottom:6px}
+.dok li::marker{color:var(--halvany)}
+.dok a{color:var(--kiemeles); text-underline-offset:2px}
+.dok hr{border:0; border-top:1px solid var(--vonal); margin:38px 0; max-width:var(--mertek)}
+.dok blockquote{
+  margin:20px 0; padding:14px 18px; border-left:3px solid var(--p1);
+  background:var(--p1-halk); border-radius:0 4px 4px 0;
+}
+.dok blockquote p:last-child{margin-bottom:0}
+.dok code{
+  font-family:"JetBrains Mono",ui-monospace,monospace; font-size:.86em;
+  background:var(--kiemeles-halk); padding:1px 5px; border-radius:3px;
+  overflow-wrap:anywhere;
+}
+.dok pre{background:var(--lap); border:1px solid var(--vonal); border-radius:5px;
+  padding:14px 16px; overflow-x:auto; max-width:100%}
+.dok pre code{background:none; padding:0; font-size:13px}
+.dok > .tabla-doboz{max-width:min(100%,104ch)}
+.tabla-doboz{overflow-x:auto; margin:0 0 18px; border:1px solid var(--vonal); border-radius:5px}
+.dok table{border-collapse:collapse; width:100%; font-size:14.5px; background:var(--lap)}
+.dok th,.dok td{text-align:left; padding:8px 12px; border-bottom:1px solid var(--vonal); vertical-align:top}
+.dok th{font-family:"JetBrains Mono",monospace; font-size:11px; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--halvany); font-weight:600; white-space:nowrap}
+.dok tr:last-child td{border-bottom:0}
+.dok td{font-variant-numeric:tabular-nums}
+.rejtve{display:none !important}
+
+.ures{color:var(--halvany); font-style:italic; padding:20px 0}
+:focus-visible{outline:2px solid var(--kiemeles); outline-offset:2px; border-radius:2px}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto !important}}
+html{scroll-behavior:smooth}
+.dok h2,.dok h3{scroll-margin-top:20px}
+@media(max-width:1059px){ .dok h2,.dok h3{scroll-margin-top:12px} }
+</style>
+
+<div class="keret">
+  <aside class="sav">
+    <h1 class="marka">Számla-lánc átvilágítás<span>Kartotéka · 2026-09-03</span></h1>
+
+    <div class="valto" role="tablist" aria-label="Jelentés választása">
+      <button role="tab" data-dok="oblio" aria-current="true">
+        Oblio-lánc
+        <small>9 P0 · 43 P1 · 66 P2 · 21 P3</small>
+      </button>
+      <button role="tab" data-dok="feltoltes" aria-current="false">
+        Feltöltés-első lánc
+        <small>3 P0 · 37 P1 · 42 P2 · 9 P3</small>
+      </button>
+    </div>
+
+    <p class="cimke">Súlyosság szerint</p>
+    <div class="szuro">
+      <button class="f-P0" data-sev="P0" aria-pressed="false">P0 · 12</button>
+      <button class="f-P1" data-sev="P1" aria-pressed="false">P1 · 80</button>
+      <button class="f-P2" data-sev="P2" aria-pressed="false">P2 · 108</button>
+      <button class="f-P3" data-sev="P3" aria-pressed="false">P3 · 30</button>
+      <button data-sev="mind" aria-pressed="true">mind</button>
+    </div>
+
+    <p class="cimke">Tartalom</p>
+    <nav data-toc="oblio">
+<a class="toc-1" href="#s1-kartoteka-az-oblio-lanc-atvilagitasa"><span>KARTOTEKA — az Oblio-lánc átvilágítása</span></a>
+<a class="toc-2" href="#s2-1-vezetoi-osszefoglalo"><span>1. Vezetői összefoglaló</span></a>
+<a class="toc-2" href="#s3-2-hogyan-mukodik-ma-a-lanc"><span>2. Hogyan működik ma a lánc</span></a>
+<a class="toc-3" href="#s4-a-bejovo-szallitoi-e-factura-harom-ut"><span>(A) Bejövő (szállítói) e-Factura — HÁROM út</span></a>
+<a class="toc-3" href="#s5-b-kimeno-e-factura"><span>(B) Kimenő e-Factura</span></a>
+<a class="toc-3" href="#s6-c-a-ket-igazsag-forras"><span>(C) A két igazság-forrás</span></a>
+<a class="toc-2 toc-sev" href="#s7-3-p0-azonnali-beavatkozas" data-sev="P0"><i class="pont sev-P0"></i><span>3. P0 — azonnali beavatkozás</span></a>
+<a class="toc-3 toc-sev" href="#s8-p0-1-az-oblio-api-titok-visszafejtheto-a-bongesz" data-sev="P0"><i class="pont sev-P0"></i><span>1 · Az Oblio API-titok visszafejthető a böngészőből (kliens-hívható orákulum + oszlop-szintű védelem hiánya)</span></a>
+<a class="toc-3 toc-sev" href="#s9-p0-2-az-oblio-token-cache-kulcsa-csak-az-e-mail-" data-sev="P0"><i class="pont sev-P0"></i><span>2 · Az Oblio token-cache kulcsa csak az e-mail → cross-tenant hívás</span></a>
+<a class="toc-3 toc-sev" href="#s10-p0-3-a-szamla-kiallitas-nem-idempotens-es-nem-at" data-sev="P0"><i class="pont sev-P0"></i><span>3 · A számla-kiállítás nem idempotens és nem atomikus → dupla, jogilag érvényes e-Factura</span></a>
+<a class="toc-3 toc-sev" href="#s11-p0-4-az-afa-kulcs-ket-helyen-beegetve-19-es-a-be" data-sev="P0"><i class="pont sev-P0"></i><span>4 · Az ÁFA-kulcs két helyen beégetve 19%, és a bérleti számla jogi hivatkozása önellentmondó</span></a>
+<a class="toc-3 toc-sev" href="#s12-p0-5-deviza-eur-szamla-atvaltas-nelkul-ron-kent-" data-sev="P0"><i class="pont sev-P0"></i><span>5 · Deviza (EUR) számla átváltás nélkül, RON-ként könyvelődik</span></a>
+<a class="toc-3 toc-sev" href="#s13-p0-6-desktop-beolvasas-nevutkozeskor-a-bedobott-" data-sev="P0"><i class="pont sev-P0"></i><span>6 · Desktop beolvasás: névütközéskor a bedobott fájl VÉGLEGESEN törlődik</span></a>
+<a class="toc-2 toc-sev" href="#s14-4-p1-hibas-adat-vagy-elakado-munkafolyamat" data-sev="P1"><i class="pont sev-P1"></i><span>4. P1 — hibás adat vagy elakadó munkafolyamat</span></a>
+<a class="toc-3 toc-sev" href="#s15-4-1-befogadott-szamla-elveszik-vagy-duplikalodik" data-sev="P1"><i class="pont sev-P1"></i><span>4.1 Befogadott számla elveszik vagy duplikálódik</span></a>
+<a class="toc-3 toc-sev" href="#s16-4-2-hibas-osszeg-hibas-tipus-hibas-partner" data-sev="P1"><i class="pont sev-P1"></i><span>4.2 Hibás összeg, hibás típus, hibás partner</span></a>
+<a class="toc-3 toc-sev" href="#s17-4-3-parosito-motor-teves-automatikus-parositas-m" data-sev="P1"><i class="pont sev-P1"></i><span>4.3 Párosító-motor: téves automatikus párosítás (mind megerősítés nélkül perzisztálódik)</span></a>
+<a class="toc-3 toc-sev" href="#s18-4-4-tranzakcio-integritas-duplikalt-kiadas-arva-" data-sev="P1"><i class="pont sev-P1"></i><span>4.4 Tranzakció-integritás: duplikált kiadás, árva tétel</span></a>
+<a class="toc-3 toc-sev" href="#s19-4-5-kimeno-szamlazas-oblio-rest" data-sev="P1"><i class="pont sev-P1"></i><span>4.5 Kimenő számlázás (Oblio REST)</span></a>
+<a class="toc-3 toc-sev" href="#s20-4-6-megfeleloseg-es-megorzes" data-sev="P1"><i class="pont sev-P1"></i><span>4.6 Megfelelőség és megőrzés</span></a>
+<a class="toc-3 toc-sev" href="#s21-4-7-a-felulet-hazudik-a-munkafolyamat-elakad" data-sev="P1"><i class="pont sev-P1"></i><span>4.7 A felület hazudik / a munkafolyamat elakad</span></a>
+<a class="toc-2 toc-sev" href="#s22-5-p2-robusztussagi-es-ux-hianyok" data-sev="P2"><i class="pont sev-P2"></i><span>5. P2 — robusztussági és UX-hiányok</span></a>
+<a class="toc-3 toc-sev" href="#s23-5-1-belepes-mappa-zip" data-sev="P2"><i class="pont sev-P2"></i><span>5.1 Belépés / mappa / ZIP</span></a>
+<a class="toc-3 toc-sev" href="#s24-5-2-parse" data-sev="P2"><i class="pont sev-P2"></i><span>5.2 Parse</span></a>
+<a class="toc-3 toc-sev" href="#s25-5-3-parositas" data-sev="P2"><i class="pont sev-P2"></i><span>5.3 Párosítás</span></a>
+<a class="toc-3 toc-sev" href="#s26-5-4-perzisztalas-hatokor-audit" data-sev="P2"><i class="pont sev-P2"></i><span>5.4 Perzisztálás / hatókör / audit</span></a>
+<a class="toc-3 toc-sev" href="#s27-5-5-ui-ux" data-sev="P2"><i class="pont sev-P2"></i><span>5.5 UI / UX</span></a>
+<a class="toc-3 toc-sev" href="#s28-5-6-desktop-paritas" data-sev="P2"><i class="pont sev-P2"></i><span>5.6 Desktop-paritás</span></a>
+<a class="toc-3 toc-sev" href="#s29-5-7-teljesitmeny" data-sev="P2"><i class="pont sev-P2"></i><span>5.7 Teljesítmény</span></a>
+<a class="toc-3 toc-sev" href="#s30-5-8-cache" data-sev="P2"><i class="pont sev-P2"></i><span>5.8 Cache</span></a>
+<a class="toc-2 toc-sev" href="#s31-6-p3-higienia" data-sev="P3"><i class="pont sev-P3"></i><span>6. P3 — higiénia</span></a>
+<a class="toc-2" href="#s32-7-fejlesztesi-javaslatok-nem-hibak"><span>7. Fejlesztési javaslatok (nem hibák)</span></a>
+<a class="toc-2" href="#s33-8-architekturalis-megfigyelesek"><span>8. Architekturális megfigyelések</span></a>
+<a class="toc-2" href="#s34-9-javasolt-cselekvesi-sorrend"><span>9. Javasolt cselekvési sorrend</span></a>
+<a class="toc-2" href="#s35-10-amit-nem-tudtunk-ellenorizni"><span>10. Amit NEM tudtunk ellenőrizni</span></a>
+<a class="toc-3" href="#s36-az-ellenorzesi-lanc-csonka"><span>⚠️ Az ellenőrzési lánc CSONKA</span></a>
+<a class="toc-3" href="#s37-amit-a-forraskodbol-elvileg-sem-lehetett-ellenor"><span>Amit a forráskódból elvileg sem lehetett ellenőrizni</span></a>
+<a class="toc-3" href="#s38-bizonytalan-tovabbi-vizsgalatot-igenyel"><span>Bizonytalan / további vizsgálatot igényel</span></a>
+</nav>
+    <nav data-toc="feltoltes">
+<a class="toc-1" href="#s39-kartoteka-a-feltoltes-elso-szamla-egyeztetesi-la"><span>KARTOTEKA — a feltöltés-első számla-egyeztetési lánc átvilágítása</span></a>
+<a class="toc-2" href="#s40-targy"><span>Tárgy</span></a>
+<a class="toc-2" href="#s41-1-vezetoi-osszefoglalo"><span>1. Vezetői összefoglaló</span></a>
+<a class="toc-2" href="#s42-2-hogyan-mukodik-ma-az-adatfolyam"><span>2. Hogyan működik ma — az adatfolyam</span></a>
+<a class="toc-2" href="#s43-3-a-ket-parhuzamos-egyeztetesi-ut-a-brief-kiemel"><span>3. A két párhuzamos egyeztetési út — a brief kiemelt kérdése</span></a>
+<a class="toc-3" href="#s44-3-1-mit-deritettunk-ki"><span>3.1 Mit derítettünk ki</span></a>
+<a class="toc-3" href="#s45-3-2-utkozhetnek-e-igen-harom-uton"><span>3.2 Ütközhetnek-e? — Igen, három úton</span></a>
+<a class="toc-3" href="#s46-3-3-javaslat"><span>3.3 Javaslat</span></a>
+<a class="toc-2 toc-sev" href="#s47-4-p0-azonnali" data-sev="P0"><i class="pont sev-P0"></i><span>4. P0 — azonnali</span></a>
+<a class="toc-3 toc-sev" href="#s48-p0-1-a-desktop-bevezetes-uj-kiadaskent-vak-a-web" data-sev="P0"><i class="pont sev-P0"></i><span>1 · A desktop „Bevezetés új kiadásként&quot; vak a webes párosításra → kettős könyvelés</span></a>
+<a class="toc-3 toc-sev" href="#s49-p0-2-az-anaf-uuid-nem-azonosito-fajlnev-alapu-vi" data-sev="P0"><i class="pont sev-P0"></i><span>2 · Az `anaf_uuid` nem azonosító: fájlnév-alapú visszaesés → kettős rögzítés VAGY néma számlavesztés</span></a>
+<a class="toc-3 toc-sev" href="#s50-p0-3-a-kiadas-stornoja-torlese-nem-bontja-a-kapc" data-sev="P0"><i class="pont sev-P0"></i><span>3 · A kiadás stornója/törlése nem bontja a kapcsolatot és nem vonja vissza a „kifizetve&quot;-t</span></a>
+<a class="toc-2 toc-sev" href="#s51-5-p1-surgos" data-sev="P1"><i class="pont sev-P1"></i><span>5. P1 — sürgős</span></a>
+<a class="toc-3 toc-sev" href="#s52-5-1-a-ket-igazsagforras-kovetkezmenyei" data-sev="P1"><i class="pont sev-P1"></i><span>5.1 A két igazságforrás következményei</span></a>
+<a class="toc-3 toc-sev" href="#s53-5-2-kapcsolas-integritas" data-sev="P1"><i class="pont sev-P1"></i><span>5.2 Kapcsolás-integritás</span></a>
+<a class="toc-3 toc-sev" href="#s54-5-3-adatminoseg-a-parser-es-a-rogzites" data-sev="P1"><i class="pont sev-P1"></i><span>5.3 Adatminőség — a parser és a rögzítés</span></a>
+<a class="toc-3 toc-sev" href="#s55-5-4-robusztussag-a-lanc-elakadasai" data-sev="P1"><i class="pont sev-P1"></i><span>5.4 Robusztusság — a lánc elakadásai</span></a>
+<a class="toc-3 toc-sev" href="#s56-5-5-igazsag-es-teljesseg-a-listakban" data-sev="P1"><i class="pont sev-P1"></i><span>5.5 Igazság és teljesség a listákban</span></a>
+<a class="toc-3 toc-sev" href="#s57-5-6-biztonsag-jogosultsag-megfeleloseg" data-sev="P1"><i class="pont sev-P1"></i><span>5.6 Biztonság, jogosultság, megfelelőség</span></a>
+<a class="toc-2 toc-sev" href="#s58-6-p2-robusztussagi-es-ux-hianyok" data-sev="P2"><i class="pont sev-P2"></i><span>6. P2 — robusztussági és UX-hiányok</span></a>
+<a class="toc-3 toc-sev" href="#s59-6-1-feltoltes-es-bemeneti-kapuk" data-sev="P2"><i class="pont sev-P2"></i><span>6.1 Feltöltés és bemeneti kapuk</span></a>
+<a class="toc-3 toc-sev" href="#s60-6-2-feldolgozas-es-parser" data-sev="P2"><i class="pont sev-P2"></i><span>6.2 Feldolgozás és parser</span></a>
+<a class="toc-3 toc-sev" href="#s61-6-3-versenyhelyzet-es-tranzakcio" data-sev="P2"><i class="pont sev-P2"></i><span>6.3 Versenyhelyzet és tranzakció</span></a>
+<a class="toc-3 toc-sev" href="#s62-6-4-kifizetetlen-ablak" data-sev="P2"><i class="pont sev-P2"></i><span>6.4 Kifizetetlen ablak</span></a>
+<a class="toc-3 toc-sev" href="#s63-6-5-teljesitmeny-es-ux" data-sev="P2"><i class="pont sev-P2"></i><span>6.5 Teljesítmény és UX</span></a>
+<a class="toc-3 toc-sev" href="#s64-6-6-mentes-es-visszaallitas" data-sev="P2"><i class="pont sev-P2"></i><span>6.6 Mentés és visszaállítás</span></a>
+<a class="toc-3 toc-sev" href="#s65-6-7-az-orszemek-vaksaga" data-sev="P2"><i class="pont sev-P2"></i><span>6.7 Az őrszemek vaksága</span></a>
+<a class="toc-2 toc-sev" href="#s66-7-p3-higienia" data-sev="P3"><i class="pont sev-P3"></i><span>7. P3 — higiénia</span></a>
+<a class="toc-2" href="#s67-8-fejlesztesi-javaslatok-a-hibaktol-elkulonitve"><span>8. Fejlesztési javaslatok (a hibáktól elkülönítve)</span></a>
+<a class="toc-2" href="#s68-9-javasolt-cselekvesi-sorrend"><span>9. Javasolt cselekvési sorrend</span></a>
+<a class="toc-2" href="#s69-10-amit-nem-tudtunk-ellenorizni"><span>10. Amit NEM tudtunk ellenőrizni</span></a>
+<a class="toc-3" href="#s70-10-1-az-ellenorzesi-lanc-csonka-ezt-olvasd-el-a-"><span>⚠️ 10.1 Az ellenőrzési lánc CSONKA — ezt olvasd el a javítás megkezdése előtt</span></a>
+<a class="toc-3" href="#s71-10-2-elo-rendszer-helyett-forraskod"><span>10.2 Élő rendszer helyett forráskód</span></a>
+<a class="toc-3" href="#s72-10-3-kulso-rendszerek"><span>10.3 Külső rendszerek</span></a>
+<a class="toc-3" href="#s73-10-4-ami-merve-lett-es-ami-nem"><span>10.4 Ami mérve lett (és ami nem)</span></a>
+<a class="toc-3" href="#s74-10-5-bizonytalan-gyengebb-labakon-allo"><span>10.5 Bizonytalan / gyengébb lábakon álló</span></a>
+</nav>
+  </aside>
+
+  <main>
+    <article class="dok aktiv" data-dok="oblio"><h1 id="s1-kartoteka-az-oblio-lanc-atvilagitasa">KARTOTEKA — az Oblio-lánc átvilágítása</h1>
+<p><strong>Dátum</strong>: 2026-09-03
+<strong>Módszer</strong>: 198-ágenses workflow (7 térképező + 18 párhuzamos vizsgálati szempont + soronkénti adversariális cáfolat + 3 hiánykritika + szintézis), ~19,2M token, 2225 eszközhívás
+<strong>Futás</strong>: <code>wf_1d8a5dc4-0ca</code> · <strong>139 megerősített + 25 pótlólagos találat</strong> (9 P0 · 43 P1 · 66 P2 · 21 P3)
+<strong>Állapot</strong>: felmérés kész, implementáció nem kezdődött el
+<strong>Előzmény</strong>: <a href="./KARTOTEKA-oblio-ellenorzes-audit-2026-06-14.md">KARTOTEKA-oblio-ellenorzes-audit-2026-06-14.md</a> — a jelentés külön szempontként ellenőrizte, hogy annak megállapításai ma is fennállnak-e</p>
+<blockquote>
+<p>⚠️ <strong>AZ ELLENŐRZÉS CSONKA.</strong> Minden találat átment EGY adversariális cáfolat-körön (külön ágens
+próbálta megcáfolni a forráskódban, „bizonytalanság esetén cáfolva&quot; alapértelmezéssel). A tervezett
+MÁSODIK kör — a P0/P1 találatok kereszttüze két további, független lencsével (reprodukálhatóság,
+következmény) — az első futásban a munkamenet token-limitjén elbukott, és az újrafuttatásból
+szándékosan kimaradt. <strong>A P0/P1 besorolások tehát egy ellenőrzésen alapulnak, nem hármon</strong> —
+javítás előtt a legsúlyosabbakat érdemes emberi szemmel visszaellenőrizni.</p>
+</blockquote>
+<p><strong>Melléklet</strong>: <a href="./KARTOTEKA-oblio-lanc-audit-2026-09-03-talalatok.json">talalatok.json</a> — mind a 139 találat gépi formában (bizonyíték-idézet, bukási forgatókönyv, javítási javaslat, a cáfoló ágens indoklása).
+<strong>Testvér-jelentés</strong>: <a href="./KARTOTEKA-szamla-feltoltes-lanc-audit-2026-09-03.md">a feltöltés-első lánc átvilágítása</a>.</p>
+<hr>
+<h2 id="s2-1-vezetoi-osszefoglalo">1. Vezetői összefoglaló</h2>
+<p>Az Oblio-lánc ma <strong>három, egymástól függetlenül fejlődő ágon</strong> fut, és ez a szétcsúszás a legtöbb súlyos hiba gyökere. A webes mappa-alapú fül (673 sor <code>oblio-folder.ts</code> + 1785 sor <code>OblioEllenorzesTab.tsx</code>) 2026-08-28 óta <strong>halott kód</strong> — sehonnan nincs importálva —, miközben az őrszemek még mindig ezt őrzik. A ténylegesen használt mappa-út a <strong>desktop Rust-implementáció</strong> (<code>excel.rs</code>), amit egyetlen őrszem sem véd, és amiből hiányzik minden 2026-ban a weben elvégzett javítás. A harmadik ág a dokumentumtári feltöltéses út, ami egy <strong>második, teljesen külön UBL-parserrel</strong> és külön táblákkal (<code>szallitoi_szamla</code>) dolgozik — vagyis ugyanarra a kérdésre („van-e ehhez a kiadáshoz befogadott számla?&quot;) két, egymást nem látó igazság-forrás felel.</p>
+<p><strong>A három legfontosabb kockázat:</strong></p>
+<ol>
+<li><strong>Titok-kezelés (biztonság).</strong> Az Oblio API-titok rejtjelezett értéke a böngészőből olvasható, a <code>vault_decrypt</code> pedig tetszőleges kulccsal hívható visszafejtő orákulum — a régi, üres vagy 6 jegyű PIN-kulccsal titkosított sorok azonnal, illetve 10⁶ online próbálkozásból nyílnak. A nyeremény nemcsak az Oblio-kulcs (valódi, ANAF SPV-re felmenő számla állítható ki a gyülekezet nevében), hanem maga a god-mode PIN is. Emellett az e-mail-alapú token-cache miatt egy gyülekezet a másik élő Bearer tokenjével hívhatja az Oblio-t.</li>
+<li><strong>Adatvesztés a desktop beolvasásnál.</strong> A <code>move_into</code> névütközéskor a bedobott fájlt <strong>véglegesen törli</strong> (nem a Lomtárba), az ANAF tömeges (ZIP-ben-ZIP) exportjából <strong>nulla számlát</strong> olvas be miközben sikert jelez, és a <code>semnatura_</code> prefix-szűrő egyszerre engedi át a valódi aláírás-XML-eket (fantom számlák) és törli a lelkész saját <code>semnatura-*.pdf</code> fájljait.</li>
+<li><strong>Megfelelőségi némaság.</strong> Az ANAF 60 napos SPV-figyelmeztetés <strong>soha nem szólal meg</strong> (a <code>check_oblio_deadline_for_user()</code> nem létező <code>ertesitesek.megjegyzes</code> oszlopból olvas, és a hibát a hívólánc kétszer elnyeli); a kiállított e-Factura státusza soha nem frissül (a <code>syncInvoiceStatus</code>/<code>markInvoicePaid</code>/<code>stornoInvoice</code> actionöknek nulla hívójuk van); az ÁFA-kulcs két helyen beégetve 19% a 2025-08-01 óta hatályos 21% helyett; és a mappás úton beolvasott hiteles XML kizárólag a lelkész gépén létezik, holott a törvény 5–10 év megőrzést ír elő.</li>
+</ol>
+<p><strong>Javasolt sorrend:</strong> először a biztonsági zárás (élesben futtatandó SQL, kis munka, nagy hatás), utána a desktop adatvesztés megállítása, majd az ÁFA/idempotencia a kimenő számlázásban, végül a párosító-motor helyessége és a felület hazug jelzései. A részletes, lépésekre bontott sorrend a 9. fejezetben.</p>
+<p><strong>Egy dolgot előre kell bocsátani:</strong> a tervezett ellenőrzési lánc CSONKA maradt — lásd a 10. fejezetet. A P0/P1 besorolások <strong>egyetlen</strong> adversariális cáfolat-körön mentek át, nem hármon.</p>
+<hr>
+<h2 id="s3-2-hogyan-mukodik-ma-a-lanc">2. Hogyan működik ma a lánc</h2>
+<h3 id="s4-a-bejovo-szallitoi-e-factura-harom-ut">(A) Bejövő (szállítói) e-Factura — HÁROM út</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Web / File System Access</th>
+<th>Web / feltöltés</th>
+<th><strong>Desktop (ÉLES)</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Belépés</td>
+<td><code>showDirectoryPicker</code> → Dexie handle</td>
+<td>Dokumentumtár feltöltés → Supabase Storage</td>
+<td>fix mappa: <code>Documents/Kartoteka/Oblio/befogadott</code></td>
+</tr>
+<tr>
+<td>Kibontás</td>
+<td><code>oblio-folder.ts:370-555</code> (JSZip, böngésző)</td>
+<td><code>zip-kibonto.ts:76</code> (szerver, ZIP-bomba-őrökkel)</td>
+<td><code>excel.rs:814 ingest_zip</code> (Rust, őrök nélkül)</td>
+</tr>
+<tr>
+<td>Parse</td>
+<td><code>packages/ui-app/.../ubl-parser.ts</code> (DOMParser)</td>
+<td><code>apps/web/lib/oblio/ubl-parser.ts</code> (saját tokenizáló)</td>
+<td>ugyanaz, mint a web-FSA</td>
+</tr>
+<tr>
+<td>Cél-tábla</td>
+<td><code>oblio_kiadas_match</code></td>
+<td><code>szallitoi_szamla</code> + <code>szallitoi_szamla_kiadas</code></td>
+<td><code>oblio_kiadas_match</code> (közvetlen Supabase, audit nélkül)</td>
+</tr>
+<tr>
+<td>Állapot</td>
+<td><strong>HALOTT KÓD</strong> (nulla import)</td>
+<td>ÉLŐ</td>
+<td><strong>ÉLŐ</strong></td>
+</tr>
+</tbody>
+</table>
+<p>A párosítás motorja mindkét mappás ágon közös: <code>matchXmlsToKiadas</code> (<code>oblio-matcher.ts:272-606</code>), ötlépcsős waterfall — (1) korábban perzisztált match, (2) CUI+összeg+dátum, (3) név-hasonlóság+összeg+dátum, (4) csak összeg+dátum egyetlen jelöltre, (5) nincs. Az összeg-tolerancia <code>max(1 RON, brut×0,1%)</code>, a dátum-ablak irányérzékeny (−5…+60 nap). A <code>high</code> konfidenciájú találatokat mindkét hívó <strong>megerősítés nélkül azonnal DB-be írja</strong>, és a következő futáson az 1. lépcső ezeket már „Korábban kézzel megerősített párosítás&quot; felirattal adja vissza — az auto-eredet eltűnik.</p>
+<h3 id="s5-b-kimeno-e-factura">(B) Kimenő e-Factura</h3>
+<p>Server action → <code>loadOblioCredentials</code> (<code>oblio_fiokok</code> RLS-en át) → <code>decryptSecret</code> (Supabase RPC <code>vault_decrypt</code>) → <code>getOblioToken</code> (OAuth2 client_credentials, memória-cache) → <code>oblioFetch</code> → <code>createInvoice</code> → <code>oblio_szamlak</code> INSERT. Öt művelet van implementálva (<code>issueInvoice</code>, <code>syncInvoiceStatus</code>, <code>markInvoicePaid</code>, <code>stornoInvoice</code>, <code>listRentalInvoices</code>), de <strong>csak az elsőnek van hívója</strong>.</p>
+<h3 id="s6-c-a-ket-igazsag-forras">(C) A két igazság-forrás</h3>
+<p>A webes Tranzakciók fül MINDKETTŐT olvassa (<code>transactions-tab.tsx:80-88</code>), a desktop Oblio-fül csak az <code>oblio_kiadas_match</code>-et (<code>desktop-oblio-tab.tsx:232-238</code>), a desktop Tranzakciók fül <strong>egyiket sem</strong> (<code>penzugy-page.tsx:908-921</code>). Ezért adja a desktop „Nincs SPV-ben&quot; piros riasztása rendszeresen a rossz számot.</p>
+<hr>
+<h2 data-sev="P0" id="s7-3-p0-azonnali-beavatkozas" class="sev-P0">3. P0 — azonnali beavatkozás</h2>
+<h3 data-sev="P0" id="s8-p0-1-az-oblio-api-titok-visszafejtheto-a-bongesz" class="sev-P0">P0-1 · Az Oblio API-titok visszafejthető a böngészőből (kliens-hívható orákulum + oszlop-szintű védelem hiánya)</h3>
+<p data-sev="P0"><strong>Hol:</strong> <code>migration-docs/sql/2026-04-16-wc2-vault-functions.sql:43</code> · <code>migration-docs/sql/2026-04-16-wc2-oblio-integracio.sql:218,236</code> · <code>apps/web/lib/supabase/secret-vault.ts:85,153-154</code></p>
+<p data-sev="P0"><strong>Mi:</strong> Három tény együtt:</p>
+<ul data-sev="P0">
+<li>A <code>vault_decrypt(encrypted_input, key_input)</code> <code>SECURITY DEFINER</code>, a <strong>kulcsot paraméterben kapja</strong>, és a létrehozó fájlban nulla <code>GRANT</code>/<code>REVOKE</code> van → PostgreSQL alapértelmezés szerint <code>PUBLIC EXECUTE</code>. A 2026-07-17-es keményítés ráadásul kifejezetten a frontend-RPC allowlistre teszi (<code>2026-07-17-member-portal-p0-auth-isolation.sql:182-183</code>, GRANT-ciklus :1652-1671).</li>
+<li><code>GRANT SELECT … ON public.oblio_fiokok TO authenticated</code> teljes táblára szól; az RLS <strong>sor</strong>-szintű, oszlop-szintű megszorítás nincs → az <code>api_secret_encrypted</code> benne van minden <code>select('*')</code>-ban.</li>
+<li>Az olvasó kulcslánc tartalmazza a 6 jegyű god-mode PIN-t és az <strong>ÜRES kulcsot</strong> (<code>secret-vault.ts:153-154</code>) — a modul saját docblockja mondja ki, hogy ilyen sorok léteznek.</li>
+</ul>
+<p data-sev="P0"><strong>Bukási forgatókönyv:</strong> A gyülekezet könyvelője (jogosult szerep, de a titokhoz nem jogosult) a böngésző konzoljából: <code>supabase.from('oblio_fiokok').select('api_secret_encrypted')</code> → <code>supabase.rpc('vault_decrypt', { encrypted_input: ct, key_input: '' })</code>. Ha a sor a VAULT_ENCRYPTION_KEY beállítása előtt keletkezett, az <strong>első próbálkozásra</strong> megkapja a nyers Oblio API-secretet. Ha nem, 10⁶ online próbálkozás — a nyeremény az Oblio-kulcs ÉS a god-mode PIN. A kulcs birtokában valódi, ANAF SPV-re felmenő e-Facturák állíthatók ki és sztornózhatók a gyülekezet nevében, a KARTOTEKA naplóiban nyom nélkül. Rendszergazdai JWT-vel mindez országosan, minden gyülekezetre.</p>
+<p data-sev="P0"><strong>Mit kell tenni (mindhárom réteg kell):</strong></p>
+<ol data-sev="P0">
+<li><code>REVOKE EXECUTE ON FUNCTION public.vault_encrypt(text,text), public.vault_decrypt(text,text) FROM PUBLIC, anon, authenticated, app_staff_user, app_pending_user, member_portal_user;</code> + <code>GRANT … TO service_role;</code>, és a két nevet <strong>ki kell venni</strong> a <code>2026-07-17-…sql:182-183</code> frontend-allowlistából (különben a következő futás visszaadja).</li>
+<li><code>REVOKE SELECT ON public.oblio_fiokok FROM authenticated;</code> + oszlop-listás <code>GRANT SELECT (id, congregation_id, email, cif, sorozat_default, nev_default_service, aktiv, utolso_teszt_at, utolso_teszt_ok, utolso_teszt_hiba, utolso_xml_letoltes_at, chitanta_sorozat_default, chitanta_kovetkezo_szam, created_at, updated_at)</code>. A repóban minden Oblio-lekérés explicit oszloplistás, tehát nem tör el semmit.</li>
+<li><code>secret-vault.ts</code> az <code>access.supabase</code> helyett a <code>createAdminClient()</code>-et kapja (<code>apps/web/lib/supabase/admin.ts</code> már létezik); a hatókör-ellenőrzés előbb fut az RLS-kliensen, a visszafejtés utána service-role-lal.</li>
+<li>Kulcsforgatás: VAULT_ENCRYPTION_KEY beállítása után minden gyülekezet mentse újra a kulcsát, és az Oblio-oldali secreteket <strong>cserélni kell</strong>, mert lehet, hogy már kiszivárgott.</li>
+</ol>
+<p data-sev="P0"><strong>Élő ellenőrzés (a migrációs fájl nem bizonyíték):</strong></p>
+<pre><code data-sev="P0" class="language-sql">SELECT p.oid::regprocedure, pg_catalog.array_to_string(p.proacl,' | ') AS acl
+FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+WHERE n.nspname='public' AND p.proname IN ('vault_encrypt','vault_decrypt');
+
+SELECT grantee, privilege_type, column_name FROM information_schema.column_privileges
+WHERE table_name='oblio_fiokok' AND column_name='api_secret_encrypted';
+</code></pre>
+<p data-sev="P0"><strong>Ráfordítás:</strong> S (SQL) + M (service-role átvezetés) · <em>Ide tartozik még: P2-„vault_decrypt hibásan STABLE&quot; (131), P3-„nincs kulcsrotációs út és kimutatás&quot; (81), P3-„nincs entrópia-minimum az írási kapun&quot; (130).</em></p>
+<hr data-sev="P0">
+<h3 data-sev="P0" id="s9-p0-2-az-oblio-token-cache-kulcsa-csak-az-e-mail-" class="sev-P0">P0-2 · Az Oblio token-cache kulcsa csak az e-mail → cross-tenant hívás</h3>
+<p data-sev="P0"><strong>Hol:</strong> <code>apps/web/lib/finance/oblio/oblio-auth.ts:32-34</code> (<code>return \</code>oblio:${email}`<code>), :56-58 (cache-találatnál az </code>apiSecret` <strong>fel sem használódik</strong>)</p>
+<p data-sev="P0"><strong>Mi:</strong> A cache-kulcsban nincs sem gyülekezet-azonosító, sem a secret lenyomata. A <code>saveOblioConfig</code> (<code>oblio-config-actions.ts:90-102</code>) semmivel nem köti az e-mailt a gyülekezethez — csak azt nézi, hogy tartalmaz-e <code>@</code>-ot, és a secret ≥20 karakter. A <code>testOblioConnection</code>-nek ráadásul <strong>nincs szerepkör-kapuja</strong> (<code>:150-152</code>), szemben a <code>saveOblioConfig</code>-gal (<code>:81-87</code>).</p>
+<p data-sev="P0"><strong>Bukási forgatókönyv:</strong> Az „A&quot; gyülekezet lelkésze kiállít egy számlát → a folyamat memóriájában ~55 percre bemelegszik az <code>oblio:penzugy@a-gyulekezet.ro</code> kulcsú token. A „B&quot; gyülekezet lelkésze beírja ugyanezt az e-mailt és 20 tetszőleges karaktert secretnek, majd „Kapcsolat tesztelése&quot;. A hívás <strong>A élő tokenjével</strong> fut le; a hibaüzenet kiírja A Oblio-fiókjának ÖSSZES CIF-jét (<code>oblio-client.ts:216</code>), ami visszamegy a böngészőbe ÉS beíródik a <code>oblio_fiokok.utolso_teszt_hiba</code> oszlopba. Második kör: B beírja A egyik CIF-jét, és az <code>issueInvoice</code> valódi, ANAF-ra felmenő számlát állít ki A nevében.</p>
+<p data-sev="P0"><strong>Mit kell tenni:</strong></p>
+<ol data-sev="P0">
+<li>Kulcs: <code>oblio:${congregationId}:${sha256(email + '\0' + apiSecret).slice(0,32)}</code> — a <code>congregationId</code> mind a négy hívónál rendelkezésre áll (<code>oblio-actions.ts:147</code>, <code>oblio-config-actions.ts:158</code>, <code>oblio-lookup-actions.ts:116</code>, <code>kifizetetlen-actions.ts:372</code>).</li>
+<li><code>clearTokenCache</code> prefix-alapon ürítsen.</li>
+<li><code>oblio-client.ts:216</code> ne visszhangozza az idegen CIF-listát („A megadott CIF nem tartozik ehhez az Oblio-fiókhoz.&quot;).</li>
+<li><code>testOblioConnection</code> kapja meg ugyanazt a szerepkör-kaput, mint a <code>saveOblioConfig</code>.</li>
+<li>A <code>saveOblioConfig</code> utasítsa el (vagy legalább naplózza) azt az e-mailt, ami már egy másik gyülekezet sorában szerepel.</li>
+</ol>
+<p data-sev="P0"><strong>Ráfordítás:</strong> M</p>
+<hr data-sev="P0">
+<h3 data-sev="P0" id="s10-p0-3-a-szamla-kiallitas-nem-idempotens-es-nem-at" class="sev-P0">P0-3 · A számla-kiállítás nem idempotens és nem atomikus → dupla, jogilag érvényes e-Factura</h3>
+<p data-sev="P0"><strong>Hol:</strong> <code>apps/web/app/(dashboard)/penzugy/oblio-actions.ts:189</code> (<code>createInvoice</code>), :236 (<code>if (insErr) return { error: … }</code>) · <code>oblio-client.ts:25,40-52</code> (20 s <code>AbortSignal.timeout</code>, a timeout egyszerű hálózati hibává fordul)</p>
+<p data-sev="P0"><strong>Mi:</strong> A kérésben szándékosan nincs <code>number</code> (<code>oblio-types.ts:114</code> — automatikus sorszámozás), tehát minden hívás új sorszámot kap. Nincs előellenőrzés (<code>issueInvoice</code> egyetlen SELECT-je a szerződésre megy, <code>:132-137</code> — az <code>oblio_szamlak</code>-ot nem kérdezi), nincs idempotencia-kulcs, és a deklarált <code>DUPLICATE</code> hibakódnak (<code>oblio-errors.ts:17</code>) <strong>nulla használója</strong> van. A UI hibánál nem záródik be és a gomb újra aktív (<code>oblio-issue-invoice-dialog.tsx:91-96</code>).</p>
+<p data-sev="P0"><strong>Bukási forgatókönyv:</strong> Az Oblio 22 mp alatt állítja ki a számlát és tölti fel az SPV-re, a mi 20 mp-es timeoutunk előbb üt. A lelkész „Kapcsolódási hiba&quot; üzenetet lát, ezért újra megnyomja a gombot → <strong>második, jogilag érvényes e-Factura</strong> ugyanarra a bérleti időszakra, szintén az SPV-n. A KARTOTEKÁBAN csak a második jelenik meg — az elsőről semmi nyom, mert a DB-írás sosem futott le. Ugyanez, ha a <code>createInvoice</code> sikerül, de a rákövetkező INSERT bukik (<code>:236</code>, pl. <code>szam: Number(invoiceData.number)</code> NaN egy nem tisztán numerikus sorszámnál).</p>
+<p data-sev="P0"><strong>Mit kell tenni:</strong></p>
+<ol data-sev="P0">
+<li>Előellenőrzés a hívás előtt: van-e már <code>oblio_szamlak</code> sor <code>berleti_szerzodes_id</code> + <code>szamla_datum</code> + <code>stornozott=false</code> alapján → beszédes <code>DUPLICATE</code> hiba.</li>
+<li>Szándék-sor a REST-hívás <strong>előtt</strong>, <code>UNIQUE (congregation_id, berleti_szerzodes_id, szamla_datum, idoszak)</code> kulccsal.</li>
+<li>Egyeztetés timeout után: <code>NETWORK_ERROR</code> esetén hívd meg a <code>listInvoices</code>-t (cif + issuedAfter/Before + client[name]), és ha a számla létrejött, pótold a DB-írást siker helyett hiba helyett.</li>
+<li>A hibaüzenet MONDJA KI: „A számla LEHET, hogy elkészült — előbb frissítsd a listát, csak akkor próbáld újra.&quot; Ha a DB-INSERT bukik sikeres Oblio-hívás után, ez legyen explicit tiltás az újrapróbálkozásra.</li>
+<li>POST-ra hosszabb timeout (45 s).</li>
+<li><code>handleSubmit</code> try/catch/finally (különben a dialógus véglegesen befagy — lásd P1-37).</li>
+</ol>
+<p data-sev="P0"><strong>Ráfordítás:</strong> M</p>
+<hr data-sev="P0">
+<h3 data-sev="P0" id="s11-p0-4-az-afa-kulcs-ket-helyen-beegetve-19-es-a-be" class="sev-P0">P0-4 · Az ÁFA-kulcs két helyen beégetve 19%, és a bérleti számla jogi hivatkozása önellentmondó</h3>
+<p data-sev="P0"><strong>Hol:</strong> <code>apps/web/lib/finance/oblio/oblio-invoice-builder.ts:82-93</code> · <code>apps/web/app/(dashboard)/penzugy/oblio-actions.ts:203-205</code></p>
+<p data-sev="P0"><strong>Mi:</strong> Két, egymást erősítő megfelelőségi hiba:</p>
+<ul data-sev="P0">
+<li><strong>(a) Kulcs:</strong> <code>vatPercentage: tvaAlany ? 19 : 0</code> és <code>const osszegTva = tvaAlany ? Math.round(osszegNet * 0.19 * 100) / 100 : 0</code>. A repó teljes grepje csak ezt a két írási pontot adja; a <code>congregations</code> táblában nincs ÁFA-kulcs mező. A 2025-08-01-jén hatályba lépett román emelés (19%→21%) óta a 19 hibás. Az Oblio <code>nomenclature/vat_rates</code> végpontja (<code>docs/OBLIO_API_KUTATAS_2026-07-10.md:55</code>) létezik, de nincs meghívva. Ellenpont: a repó máshol bizonyítottan követi a jogszabályt (<code>tva-plafon-constants.ts:5</code>, „OG nr. 22/2025&quot;).</li>
+<li><strong>(b) Jogi hivatkozás:</strong> ugyanez a <code>tvaAlany</code> boolean a Menţiuni rovatba az <code>art. 331 Cod fiscal</code>-t (fordított adózás!) írja, miközben 19% TVA-t is felszámít. A projekt saját jogi kutatása szerint a bérbeadás az <code>art. 292 alin. (2) lit. e)</code> alá esik (<code>docs/project-tracking/KARTOTEKA-penzugy-jogi-pontositasok-2026-04-16.md:69</code>) — a mentesség az ÜGYLETHEZ tapad, nem az alany státuszához.</li>
+<li><strong>(c) Dátumfüggetlenség:</strong> a <code>congregations.tva_alany_tol</code> létezik (<code>Database_schema.sql:735-736</code>), de az <code>issueInvoice</code> csak a boolean flaget kéri le (<code>:152-157</code>) — visszamenőleg kiállított számlára is a mai státuszt alkalmazza. <em>(= a korábbi P1-41.)</em></li>
+</ul>
+<p data-sev="P0"><strong>Bukási forgatókönyv:</strong> ÁFA-alany gyülekezet 1000 RON nettó bérleti számlája: 190 RON TVA kerül rá 210 helyett (évi 240 RON hiányzó ÁFA havi számlázásnál), és a Menţiuni azt írja a bérlő könyvelőjének, hogy neki kell önbevallania — miközben a számlán fel is van tüntetve a TVA. Kettős adózás vagy ÁFA-levonási vita, ANAF-ellenőrzésen kifogásolható számla; ha nem volt opciónyilatkozat, a 190 RON jogosulatlanul felszámított adó. Fordított ág: ha az Oblio a már nem létező kulcs miatt 422-t ad, a bérleti számlázás <strong>teljesen leáll</strong>, és a hibaüzenetből nem derül ki, hogy az ÁFA a baj.</p>
+<p data-sev="P0"><strong>Mit kell tenni:</strong></p>
+<ol data-sev="P0">
+<li>Egyetlen, dátumhoz kötött igazság-forrás az ÁFA-kulcsra (<code>TVA_KULCSOK: [{ tol, szazalek }]</code> a <code>tva-plafon-constants.ts</code> mintájára), amiből a builder ÉS a DB-mentés is olvas; a számla dátuma dönt.</li>
+<li>A <code>oblio-actions.ts:204</code> lokális 0.19-es újraszámítását töröld — a mentendő ÁFA/bruttó az <code>invoiceData.total</code>-ból jöjjön (<code>oblio-types.ts:161</code>), amit ma a kód eldob.</li>
+<li><code>tvaAlany = Boolean(cong.tva_alany) &amp;&amp; (!cong.tva_alany_tol || input.szamlaDatum &gt;= cong.tva_alany_tol)</code>; ha <code>tva_alany=true</code> de <code>tva_alany_tol</code> NULL → fail-closed hiba.</li>
+<li>A TVA-döntés az ÜGYLET típusából + explicit opciónyilatkozat-mezőből szülessen; a <code>mentions</code> art. 331 hivatkozását töröld.</li>
+<li>Őrszem (<code>selftest-oblio-afa.mjs</code>) negatív asszerttel: bukjon, ha bárhol újra megjelenik beégetett ÁFA-literál.</li>
+</ol>
+<p data-sev="P0"><strong>Élő ellenőrzés:</strong> <code>SELECT id, nev, tva_alany, tva_alany_tol, tva_kod FROM public.congregations WHERE tva_alany = true;</code></p>
+<p data-sev="P0"><strong>Ráfordítás:</strong> M</p>
+<hr data-sev="P0">
+<h3 data-sev="P0" id="s12-p0-5-deviza-eur-szamla-atvaltas-nelkul-ron-kent-" class="sev-P0">P0-5 · Deviza (EUR) számla átváltás nélkül, RON-ként könyvelődik</h3>
+<p data-sev="P0"><strong>Hol:</strong> <code>apps/desktop/src/components/desktop-oblio-tab.tsx:593-611,960-969</code> · <code>packages/ui-app/src/finance/oblio/OblioKiadasWizardDialogBody.tsx:169-181</code> · <code>apps/web/app/(dashboard)/penzugy/oblio-ellenorzes-actions.ts:566-567</code></p>
+<p data-sev="P0"><strong>Mi:</strong> Árfolyam-kezelés a repóban <strong>nincs</strong>: a <code>TaxExchangeRate</code>/<code>CalculationRate</code> (EN 16931 BT-6/BT-110) egyetlen kódsorban sem szerepel. A parser helyesen kinyeri a pénznemet, a matcher helyesen <strong>kihagyja</strong> a deviza-számlát az auto-párosításból (<code>oblio-matcher.ts:324,385,444</code>) — és éppen ezért az EUR-számla garantáltan párosítatlan marad, tehát garantáltan felkínálódik „bevezetés új kiadásként&quot;-ra. A mentés semmilyen pénznem-kaput nem tartalmaz.</p>
+<p data-sev="P0"><strong>Bukási forgatókönyv:</strong> 120,00 EUR-os szállítói e-Factura (külföldi szoftver-előfizetés). A sor „Nincs kiadás&quot; marad, a lelkész a zöld „Bevezetés új kiadásként&quot; gombra kattint → a <code>kiadas</code> táblába <strong>120,00 RON</strong> kerül a valós ~600 RON helyett, <code>osszeg_ron</code>/<code>arfolyam</code> üresen; ugyanez a 120-as szám átmegy a hivatalos Excel-várólistára is. Az éves számadás ~480 RON-nal kevesebbet mutat, a kassza/bank egyeztetés nem stimmel, és semmi nem jelzi — a listában a sor helyesen „120,00 EUR&quot;-ként jelent meg. Fordítva: a <code>linkSzamlaKiadas</code> fedezet-őre (<code>szamla-actions.ts:507</code>) a valós 600 RON-os kiadást elutasítja ehhez a 120-as számlához → zsákutca.</p>
+<p data-sev="P0"><strong>Mit kell tenni:</strong></p>
+<ol data-sev="P0">
+<li><strong>Fail-closed kapu</strong> mindkét varázslóba (desktop <code>:594</code>, web <code>:169</code>) ÉS <strong>szerveroldalon</strong> a <code>createKiadasFromXmlAndMatch</code>-be (a <code>CreateKiadasFromXmlInput</code> kapjon <code>currency</code> mezőt): nem-RON pénznemnél magyar üzenettel álljon meg.</li>
+<li>Középtávon: a parser olvassa ki a <code>cac:TaxExchangeRate/cbc:CalculationRate</code>-et, és a varázsló ajánlja fel a szerkeszthető RON-összeget, forrás-megjelöléssel.</li>
+<li><code>linkSzamlaKiadas</code>-ban a fedezet-őr elé pénznem-kapu (<code>szamla-actions.ts:505</code>).</li>
+</ol>
+<p data-sev="P0"><strong>Ráfordítás:</strong> S (kapu) + M (árfolyam)</p>
+<hr data-sev="P0">
+<h3 data-sev="P0" id="s13-p0-6-desktop-beolvasas-nevutkozeskor-a-bedobott-" class="sev-P0">P0-6 · Desktop beolvasás: névütközéskor a bedobott fájl VÉGLEGESEN törlődik</h3>
+<p data-sev="P0"><strong>Hol:</strong> <code>apps/desktop/src-tauri/src/excel.rs:785-798</code> (<code>move_into</code> doc-kommentje maga rögzíti) és <code>:958-971</code> (<code>let _ = std::fs::remove_file(path);</code>)</p>
+<p data-sev="P0"><em>(Ez a találat négyszer került elő az átvilágításban — #8, #11, #29, #47 —, itt összevonva.)</em></p>
+<p data-sev="P0"><strong>Mi:</strong> A <code>move_into</code> ütközéskor <code>Ok(false)</code>-t ad, a hívó viszont a forrást <strong>ettől függetlenül törli</strong>, a törlés hibáját is elnyelve (<code>let _ =</code>). Nincs archívum, nincs Lomtár, nincs visszaállítás (a desktopon a webes <code>reprocessZipsFromArchive</code> megfelelője sem létezik). Ugyanez a minta a <code>semnatura_</code> prefixű fájloknál (<code>:954-956</code>), ahol a fájl semmilyen számlálóba nem is kerül. A <strong>webes ágon ezt már 2026-06-14-én kijavították</strong> (<code>oblio-folder.ts:283-287,299-309</code> — P0-2: „ha a célnév MÁR létezik, NEM írjuk felül ÉS NEM töröljük a forrást&quot;); a javítás a duplikált logika egyik ágára ment be.</p>
+<p data-sev="P0"><strong>Bukási forgatókönyv:</strong> A <code>feldolgozott/</code> mappában már van egy <code>factura.xml</code> (A beszállító). A lelkész e-mailből lement egy MÁSIK szállító <code>factura.xml</code> nevű számláját (B, 3.480 RON) és bedobja. „Beolvasás&quot; → <code>dest.exists()</code> → <code>Ok(false)</code> → <code>remove_file</code> → a B számla <strong>nyomtalanul megszűnik a lemezéről</strong>. A toast: „Beolvasás kész — 1 már korábban beolvasva.&quot; A számla soha nem jelenik meg, nem állítható vissza, és semmilyen naplóbejegyzés nem marad. Ugyanez javított/újraküldött számlánál (azonos ANAF-fájlnév) — a hibás régi példány marad a rendszerben.</p>
+<p data-sev="P0"><strong>Mit kell tenni:</strong></p>
+<ol data-sev="P0">
+<li>A <code>remove_file</code> kerüljön BE az <code>if moved { … }</code> ágba.</li>
+<li>Ütközéskor vagy egyedi utótag (<code>&lt;alap&gt;_(2).&lt;kit&gt;</code>, a <code>zip-arhivum</code> epoch-prefixes mintája már ott van <code>:886-901</code>), vagy a forrás maradjon a <code>befogadott/</code>-ban + <code>report.errors</code> magyar üzenettel.</li>
+<li>A <code>let _ =</code> szűnjön meg — a törlési hiba is <code>report.errors</code>-ba.</li>
+<li>A <code>skipped</code> számláló szövege pontosodjon: ma „már korábban beolvasva&quot;-t ír, holott csak a NEVET hasonlítja (bájtméret/hash összevetés kellene az állításhoz).</li>
+<li><code>write_if_absent</code> ZIP-ág + a desktop „Újra-feldolgozás a zip-arhivumból&quot; parancs pótlása.</li>
+</ol>
+<p data-sev="P0"><strong>Ráfordítás:</strong> S</p>
+<hr data-sev="P0">
+<h2 data-sev="P1" id="s14-4-p1-hibas-adat-vagy-elakado-munkafolyamat" class="sev-P1">4. P1 — hibás adat vagy elakadó munkafolyamat</h2>
+<h3 data-sev="P1" id="s15-4-1-befogadott-szamla-elveszik-vagy-duplikalodik" class="sev-P1">4.1 Befogadott számla elveszik vagy duplikálódik</h3>
+<table data-sev="P1">
+<thead>
+<tr>
+<th>#</th>
+<th>Találat</th>
+<th>Hol</th>
+<th>Bukás</th>
+<th>Teendő</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P1-1</td>
+<td><strong>ANAF/Oblio tömeges (ZIP-ben-ZIP) export a desktopon 0 számlát ad</strong>, a külső ZIP mégis archiválódik és a toast zölden sikert jelez</td>
+<td><code>excel.rs:842-847</code>, <code>:882</code>, <code>:941-948</code></td>
+<td>14 belső ZIP → 0 fájl a <code>feldolgozott/</code>-ban, a bedobó mappa kiürül, „Beolvasás kész — 1 ZIP archiválva&quot;</td>
+<td>Rekurzió <code>MAX_ZIP_MELYSEG=2</code>-ig (a <code>zip-kibonto.ts:122-133</code> mintájára) + fail-closed: ha nincs XML/PDF, <code>Err</code>, ne archiváljon. <strong>S</strong></td>
+</tr>
+<tr>
+<td>P1-2</td>
+<td><strong>Rust aláírás-szűrő prefix-alapú</strong>, nem a közös <code>SEMNATURA_TOKEN_RE</code></td>
+<td><code>excel.rs:839</code>, <code>:954</code></td>
+<td>(a) <code>&lt;CÉG&gt;_&lt;SOR&gt;_semnatura_&lt;idx&gt;.xml</code> <strong>átcsúszik</strong> → fantom sorok a párosítási listában, felfújt KPI; (b) a lelkész <code>semnatura-presbiteri-2026.pdf</code> fájlját <strong>véglegesen törli</strong>, számláló nélkül</td>
+<td>Token-alapú felismerés Rustban; az aláírás-fájl <code>alairasok/</code> almappába, ne törlésre; <code>deleted_signatures</code> mező a jelentésbe. <strong>S</strong></td>
+</tr>
+<tr>
+<td>P1-3</td>
+<td><strong>Fallback <code>anaf_uuid</code> ütközés</strong>: <code>cbc:UUID</code> nélküli számláknál a fájlnév-alap a kulcs → a MÁSODIK, teljesen más számlát „duplikátumként&quot; eldobja, és a UI az ELSŐ számlaszámát írja ki mellé</td>
+<td><code>szamla-actions.ts:247</code>, <code>ubl-parser.ts:490-515</code>, <code>szamla-feldolgozas-eredmeny.tsx:78,83</code></td>
+<td>Két <code>factura.xml</code> nevű számla két szállítótól → a 12.900 RON-os B számla sosem kerül be, a hiteles XML fel sem töltődik, a lelkész azt hiszi, kétszer töltötte fel ugyanazt</td>
+<td>Az <code>anaf_uuid</code> egyezés csak akkor számítson duplikátumnak, ha <code>szallito_cui</code> + <code>szamla_szam</code> + <code>osszeg</code> is egyezik; részleges egyezés → <code>hibak</code> tömb. A duplikátum-listában az ÉPPEN feltöltött fájl száma jelenjen meg. <strong>M</strong></td>
+</tr>
+<tr>
+<td>P1-4</td>
+<td><strong>Desktop: parse-hibás XML és UUID-duplikátum némán eltűnik</strong> — nincs számláló, nincs sáv (a web P0-1-ként kezelte ugyanezt)</td>
+<td><code>desktop-oblio-tab.tsx:294-313</code></td>
+<td>40-ből 39 számla látszik, semmi nem utal az elveszettre</td>
+<td><code>parseHibas</code> és <code>dupla</code> számlálók + borostyán sáv fájlnevekkel. <strong>S</strong></td>
+</tr>
+<tr>
+<td>P1-5</td>
+<td><strong>Desktop: a törzsadat-lekérés hibája néma</strong> — (a) minden számla „Nincs kiadás&quot; → dupla bevezetés; (b) ha CSAK a match-lekérés bukik, a matcher nulláról újraszámol és <strong>néma upsert-tel felülírja a kézi párosításokat</strong> (<code>match_method</code> 'manual'→'auto_cui', <code>matched_by</code> átíródik, audit nincs)</td>
+<td><code>desktop-oblio-tab.tsx:248-262</code>, <code>:326-330</code>, <code>:338-345</code>, <code>:371-373</code></td>
+<td>PostgREST 503-vihar alatt 40 kézi párosítás felülíródik, és a következő indításkor már „Korábban kézzel megerősített&quot;-ként jön vissza — a kár láthatatlan</td>
+<td><code>matchesLoaded</code> jelző; a perzisztálás kapuja <code>if (isOnline &amp;&amp; matchesLoaded)</code>; az upsert <code>{ error }</code>-ját ellenőrizni és toast-olni; a lokális tükörre eső ág soha ne perzisztáljon. <strong>M</strong></td>
+</tr>
+<tr>
+<td>P1-6</td>
+<td><strong>A <code>.in()</code> szűrő darabolatlan</strong> a szállítói-számla duplikátum-előszűrésben — 400 GUID ≈ 18 kB URL → 414, és az EGÉSZ import elbukik a teljes kibontás után</td>
+<td><code>szamla-actions.ts:217</code> (vö. ugyanezen fájl <code>:606-615</code>, ahol 80-asával darabol)</td>
+<td>Éves ANAF-csomag feltöltése minden alkalommal ugyanígy bukik, az üzenetből nem derül ki, hogy darabolni kellene</td>
+<td>80-as darabolás; közös <code>chunkedIn</code> helper (a láncban legalább 3 ilyen hívás van). <strong>S</strong></td>
+</tr>
+<tr>
+<td>P1-7</td>
+<td><strong>Desktop tartalom-elemzés: a jelöltek közt már párosított XML-ek is szerepelnek</strong> → ütközéses átnevezés, amit üres <code>catch</code> nyel el; a lista mégis zöld nyilat mutat, a toast „0 párosítva&quot;-t</td>
+<td><code>desktop-oblio-tab.tsx:683</code>, <code>:688-698</code>, <code>:861-869</code></td>
+<td>Két ellentmondó állítás egyszerre; a PDF árva marad, a felhasználó nem tud továbblépni</td>
+<td><code>enriched.filter(e =&gt; !e.pdfPath)</code>; <code>alreadyPairedXmlNames</code> a matchernek; a render a TÉNYLEGES kimenetet mutassa. <strong>S</strong></td>
+</tr>
+</tbody>
+</table>
+<h3 data-sev="P1" id="s16-4-2-hibas-osszeg-hibas-tipus-hibas-partner" class="sev-P1">4.2 Hibás összeg, hibás típus, hibás partner</h3>
+<table data-sev="P1">
+<thead>
+<tr>
+<th>#</th>
+<th>Találat</th>
+<th>Hol</th>
+<th>Bukás</th>
+<th>Teendő</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P1-8</td>
+<td><strong><code>||</code> vs <code>??</code> a bruttó fallbackban</strong> — a böngészős parser a <code>PayableAmount=0.00</code>-t elveti és a <code>TaxInclusiveAmount</code>-ot veszi; a szerveres <code>??</code>-t használ</td>
+<td><code>packages/ui-app/.../ubl-parser.ts:281-283</code> vs <code>apps/web/lib/oblio/ubl-parser.ts:435-437</code></td>
+<td>Előre kifizetett (avans-elszámoló) számla: a desktop 119-et párosít <strong>high</strong> konfidenciával az előleg-kiadáshoz (kétszeres lefedés), a szerveres ág 0-t ír a <code>szallitoi_szamla.osszeg</code>-be, amitől a fedezet-őr <strong>minden</strong> kapcsolást elutasít</td>
+<td><code>??</code>-ra cserélni; <strong>jobb</strong>: külön <code>brut</code> (BT-112), <code>fizetendo</code> (BT-115), <code>elolegLevonva</code> (BT-113) mező; a matcher a <code>fizetendo</code>-t hasonlítsa, <code>fizetendo === 0</code>-nál ne auto-párosítson. Selftest mindkét parserre. <strong>S/M</strong></td>
+</tr>
+<tr>
+<td>P1-9</td>
+<td><strong>CUI ↔ cégjegyzékszám összekeverése</strong>: <code>PartyTaxScheme</code> hiányában a <code>PartyLegalEntity/CompanyID</code> (pl. <code>J40/8974/2011</code>) kerül a <code>kedvezmenyezett_cui</code>-ba; a <code>syncCuiToKiadas</code> hardkódolva <code>true</code></td>
+<td><code>packages/ui-app/.../ubl-parser.ts:205-220</code>, <code>apps/web/lib/oblio/ubl-parser.ts:399-408</code>, <code>OblioManualMatchDialogBody.tsx:161</code></td>
+<td>A hamis adószám (<code>normalizeCui</code> → <code>4089742011</code>) beíródik az üres kiadásra, és a következő körben <strong>önmagát erősítve</strong> auto-párosít; két cég összemosódhat</td>
+<td><code>TaxScheme/ID</code> szűrés (VAT / NOT_EU_VAT); a BT-30 külön <code>regNumber</code> mezőbe; alakfelismerő őr (<code>/^[A-Z]\d{1,2}\//</code> → sosem CUI); a <code>syncCuiToKiadas</code> legyen jelölőnégyzet. <strong>M</strong></td>
+</tr>
+<tr>
+<td>P1-10</td>
+<td><strong>Jóváíró (CreditNote) e-Factura pozitív kiadásként bevezethető</strong> — a matcher szándékos kihagyása pont a varázslóba tereli, ahol a <code>documentType</code> sehol nem látszik</td>
+<td><code>OblioEllenorzesTab.tsx:1479</code>, <code>desktop-oblio-tab.tsx:960</code>, <code>oblio-ellenorzes-actions.ts:530</code></td>
+<td>−50 RON jóváírás helyett +50 RON kiadás → 100 RON eltérés, és felkerül a hivatalos Excel-várólistára is</td>
+<td>A varázsló bemenetéből zárd ki; <strong>szerveroldali</strong> őr a <code>createKiadasFromXmlAndMatch</code>-ben; „JÓVÁÍRÓ&quot; jelvény a táblában. <strong>S</strong></td>
+</tr>
+<tr>
+<td>P1-11</td>
+<td><strong>Negatív összegű román sztornó</strong> (<code>&lt;Invoice&gt;</code> gyökér + <code>InvoiceTypeCode 384</code>) pozitív tartozásként rögzül: a típus csak a gyökér-elemből jön, a <code>Math.abs</code> elveszi az utolsó jelet</td>
+<td><code>szamla-actions.ts:294</code>, <code>ubl-parser.ts:374-376</code></td>
+<td>„Kifizetetlen számlák&quot; +119 RON-t mutat −119 helyett → 238 RON téves tartozás; a lelkész kifizeti, amit visszakapna</td>
+<td>Olvasd ki az <code>InvoiceTypeCode</code>/<code>CreditNoteTypeCode</code>-ot (381/384 → jóváíró); ha <code>vegosszeg &lt; 0</code> és a típus 'szamla', állítsd jóváíróra a <code>Math.abs</code> ELŐTT; a matcher kihagyó kapuja bővüljön <code>|| brut &lt; 0</code>-val. <strong>M</strong></td>
+</tr>
+</tbody>
+</table>
+<h3 data-sev="P1" id="s17-4-3-parosito-motor-teves-automatikus-parositas-m" class="sev-P1">4.3 Párosító-motor: téves automatikus párosítás (mind megerősítés nélkül perzisztálódik)</h3>
+<p data-sev="P1">Ezek mind ugyanabba a hibaosztályba tartoznak: <strong>a <code>high</code> konfidencia szerződés — a hívó azonnal DB-be írja</strong>, és a következő futáson „Korábban kézzel megerősített&quot;-ként jön vissza (<code>oblio-matcher.ts:302-308</code>).</p>
+<table data-sev="P1">
+<thead>
+<tr>
+<th>#</th>
+<th>Találat</th>
+<th>Hol</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P1-12</td>
+<td>A 2. lépcső kétértelműség-kapuja (<code>secondBestCost - bestCost &lt; 0.5</code>) <strong>azonos összegeknél csak 5 napnál közelebbi jelöltekre zár</strong> — futtatva igazolva: 5 nap eltérésnél már <code>high</code>. Havi ismétlődő szállítónál (villany, gáz) keresztezett hozzárendelés.</td>
+<td><code>oblio-matcher.ts:358</code></td>
+</tr>
+<tr>
+<td>P1-13</td>
+<td>A <strong>3. lépcsőben nincs kétértelműség-kapu</strong> — a konfidencia kizárólag a névhasonlóságból jön; N azonos partnernevű kiadás mind 0,9-et kap, a legkisebb költségű <code>high</code>-ként nyer. A kiadások &gt;50%-án nincs CUI, tehát ez a FŐ auto-párosítási út.</td>
+<td><code>oblio-matcher.ts:402-414</code></td>
+</tr>
+<tr>
+<td>P1-14</td>
+<td>A <strong>Jaccard-fallback megkerüli a generikus cégszó-szűrőt</strong> — egyetlen közös töltelékszó (33%) elég; a mohó foglalás elveszi a kiadást a valódi szállítótól, aki utána hazug „a kiadás még nincs rögzítve&quot; üzenetet kap → dupla bevezetés. Futtatva igazolva („TOTAL IMPEX&quot; vs „Total Prod&quot;).</td>
+<td><code>oblio-matcher.ts:174</code></td>
+</tr>
+<tr>
+<td>P1-15</td>
+<td>A <strong>4. lépcső egyediség-vizsgálata egyirányú</strong> — több azonos összegű XML közül a tömb-sorrendben első viszi el az egyetlen kiadást; a győztest a fájlnév-rendezés dönti el. A 3. és 4. lépcső a DB-ben ráadásul <strong>megkülönböztethetetlen</strong> (azonos <code>method</code> címke).</td>
+<td><code>oblio-matcher.ts:458</code>, <code>:473</code></td>
+</tr>
+<tr>
+<td>P1-16</td>
+<td>Az összeg-összevetés a <strong>nyers <code>k.osszeg</code></strong>-gel megy a kanonikus <code>osszeg_ron ?? osszeg</code> helyett; a <code>MinimalKiadas.currency</code> halott mező. 500 EUR-s kiadás 0,00 eltéréssel illeszkedik egy 500 RON-os számlára.</td>
+<td><code>oblio-matcher.ts:340,392</code>, <code>:26-27</code></td>
+</tr>
+<tr>
+<td>P1-17</td>
+<td><strong>Sztornózott kiadás bent marad a jelöltek közt</strong> — sem a lekérés, sem a matcher, sem a DB nem szűr <code>stornozott</code>-ra, miközben a repó minden más pénzügyi lekérése igen.</td>
+<td><code>oblio-ellenorzes-actions.ts:100</code>, <code>desktop-oblio-tab.tsx:239-246</code></td>
+</tr>
+</tbody>
+</table>
+<p data-sev="P1"><strong>Teendő (egyben):</strong> dimenziónkénti kétértelműség-vizsgálat (hány jelölt esik az összeg-toleranciába) mindhárom lépcsőben; a 3. lépcső legfeljebb <code>medium</code>-ot adjon a javítás megérkezéséig (a <code>medium</code> nem perzisztálódik); a Jaccard-ág vagy szűrjön a <code>GENERIC_NAME_STEMS</code>-re, vagy ne minősüljön találatnak; kétirányú (globális) hozzárendelés a mohó helyett; <code>osszegRon</code> + <code>stornozott</code> a <code>MinimalKiadas</code>-ba, mindkét hívó töltse ki; a 4. lépcső kapjon saját <code>method</code> címkét; az <code>ExistingMatch</code> hordozza a tárolt <code>match_method</code>/<code>match_confidence</code> értéket, hogy az auto-eredet ne tűnjön kézi megerősítésnek. <strong>Ráfordítás: M–L. Kötelező mellé: <code>scripts/selftest-oblio-matcher.mjs</code> mutáns-alapú őrszem</strong> — ma ez az EGYETLEN automatán perzisztáló pénzügyi függvény őr nélkül a ~120 selftestes repóban.</p>
+<h3 data-sev="P1" id="s18-4-4-tranzakcio-integritas-duplikalt-kiadas-arva-" class="sev-P1">4.4 Tranzakció-integritás: duplikált kiadás, árva tétel</h3>
+<table data-sev="P1">
+<thead>
+<tr>
+<th>#</th>
+<th>Találat</th>
+<th>Hol</th>
+<th>Teendő</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P1-18</td>
+<td><strong>A Bevezetés-varázsló újrafuttatása néma duplikált kiadást hagy</strong>: a <code>saveOblioMatch</code> feltétel nélküli upsertje (<code>merge-duplicates</code>) átcímzi a párosítást az ÚJ kiadásra, a régi élve marad, és a kompenzáló visszagörgetés emiatt el sem indul. Elveszett válasz (Cloudflare 524) a kliensnek hibának látszik (<code>PostgrestBuilder.ts:240</code>).</td>
+<td><code>oblio-ellenorzes-actions.ts:624</code>, <code>:193-197</code></td>
+<td>Idempotencia-kapu az insert ELŐTT (ha van már match erre az uuid-ra → a meglévő <code>kiadasId</code> visszaadása); <code>allowRepoint</code> kapcsoló; az audit rögzítse a RÉGI <code>kiadas_id</code>-t. <strong>M</strong></td>
+</tr>
+<tr>
+<td>P1-19</td>
+<td><strong>A kompenzáló rollback eredményét senki nem nézi meg</strong>, a hibaüzenet mégis feltétel nélkül „visszavontuk&quot;-at állít és újrapróbálkozásra hív → árva, párosítatlan kiadás marad a könyvelésben, audit-nyom nélkül.</td>
+<td><code>oblio-ellenorzes-actions.ts:643-651</code></td>
+<td><code>.select('id')</code> + eltérő üzenet kudarcnál („NE rögzítsd újra: a #NNN tételt keresd meg&quot;); mindkét ág auditáljon; hosszabb távon SECURITY DEFINER RPC egy tranzakcióban (a repó a zárt-év triggernél már így oldotta meg). <strong>M</strong></td>
+</tr>
+<tr>
+<td>P1-20</td>
+<td><strong>A varázsló SOHA nem tudott kiadást létrehozni</strong>: mindkét insert-payload a nem létező <code>kiadas.kedvezmenyzett</code> oszlopot írja, a „canonical&quot; fallback ugyanazt a kulcsot küldi újra, ráadásul a NOT NULL <code>xkey</code>/<code>nyugta</code>/<code>userid</code> nélkül.</td>
+<td><code>oblio-ellenorzes-actions.ts:570</code>, <code>:586-593</code>, <code>:601</code></td>
+<td><code>kedvezmenyzett</code> → <code>atvevo</code>; a fallback feltétele legyen hibakód-alapú (<code>isMissingColumnError</code>, nem minden hiba); <strong>jobb</strong>: a varázsló a közös <code>saveExpenseUseCase</code>-t hívja, mint a desktop. Őrszem-asszert a payload kulcsaira. <strong>S</strong></td>
+</tr>
+<tr>
+<td>P1-21</td>
+<td><strong>Desktop bevezetés év-határon</strong>: a kiadás a számla kibocsátási dátumával jön létre, a kiadás-lekérés viszont év-szűrt → a párosítás soha nem következik be, miközben a zöld toast megígéri. A lelkész újra megnyomja → duplikált kiadás.</td>
+<td><code>desktop-oblio-tab.tsx:597</code>, <code>:645-647</code>, <code>:239-246</code></td>
+<td>Fail-closed kapu: eltérő év → „előbb válts át a 2025-ös évre&quot;; a toast ELLENŐRIZZE a párosítást; hosszabb távon a bevezetés írja meg közvetlenül az <code>oblio_kiadas_match</code> sort. <strong>S</strong></td>
+</tr>
+<tr>
+<td>P1-22</td>
+<td><strong>Kiadás-sztornó nem bontja el az e-Factura párosítást</strong> — sem a core use-case, sem a webes storno nem kaszkádol; a tükör-use-case (befizetés) viszont igen. A sor „kézi · biztos&quot; zöld jelvénnyel marad a sztornózott kiadáson, az újrarögzített tételhez pedig nincs számla.</td>
+<td><code>packages/core/src/finance/kiadas/storno.ts:156</code>, <code>soft-delete.ts</code></td>
+<td>Kaszkád a <code>stornoIncomeUseCase:224-245</code> mintájára (törlés vagy megjelölés), a hibát hangosan visszaadva; <code>.eq('stornozott', false)</code> a jelölt-lekérésekbe; <code>stornozott</code> mező a <code>MinimalKiadas</code>-ba; mutáns-alapú őrszem. <strong>M</strong></td>
+</tr>
+<tr>
+<td>P1-23</td>
+<td><strong>A befizetés sztornója kaszkádolja a KIMENŐ e-Facturát is</strong> (<code>tipus</code> szűrő NÉLKÜL), miközben az ANAF-nál a számla él — a papír-nyugta use-case három helyen szűr <code>chitanta_papir</code>-ra, ez egyszer sem. <code>stornozott_by</code> sem íródik. A desktop UI „1 chitanța is sztornózva&quot;-t mond.</td>
+<td><code>edit-storno-actions.ts:671-682</code>, <code>packages/core/src/finance/befizetes/storno.ts:227-237</code></td>
+<td><code>.eq('tipus','chitanta_papir')</code> mindkét ágra; fail-loud figyelmeztetés a kimaradó e-Facturáról; <code>stornozott_by</code> a payloadba; a mező- és UI-szöveg átnevezése. Élő felmérés: <code>WHERE tipus='e_factura' AND stornozott AND stornozott_indok LIKE 'A befizetés stornózva:%'</code>. <strong>M</strong></td>
+</tr>
+</tbody>
+</table>
+<h3 data-sev="P1" id="s19-4-5-kimeno-szamlazas-oblio-rest" class="sev-P1">4.5 Kimenő számlázás (Oblio REST)</h3>
+<table data-sev="P1">
+<thead>
+<tr>
+<th>#</th>
+<th>Találat</th>
+<th>Hol</th>
+<th>Teendő</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P1-24</td>
+<td><strong>Az e-Factura életciklusa nincs bekötve</strong>: a <code>syncInvoiceStatus</code>, <code>markInvoicePaid</code>, <code>stornoInvoice</code> és <code>listRentalInvoices</code> actionöknek <strong>nulla hívójuk</strong> van, cron sincs — a státusz a kiállításkori <code>nepreluat</code>-on fagy, miközben a kiállító ablak azt ígéri, hogy „1-24 órán belül frissül&quot;. Egy ANAF-elutasítás (<code>nok</code>) sehol nem jelenik meg.</td>
+<td><code>oblio-actions.ts:246,304,367</code> · <code>oblio-issue-invoice-dialog.tsx:196-200</code> · <code>oblio-status-labels.ts:18-24</code></td>
+<td>Számla-lista a Bérlet fülre soronkénti „Státusz frissítése&quot;/„Kifizetve&quot;/„Sztornó&quot; gombbal; a <code>getInvoice</code> küldje a <code>withEInvoiceStatus</code> paramétert; <code>after()</code>-alapú kötegelt szinkron a <code>nepreluat</code>/<code>in_prelucrare</code> sorokra; amíg nincs kész, a UI ne ígérjen automatizmust. Őrszem: exportált Oblio-action hívó nélkül → bukjon. <strong>M–L</strong></td>
+</tr>
+<tr>
+<td>P1-25</td>
+<td><strong>A válasz-boríték <code>status</code> mezőjét az <code>oblioFetch</code> nem nézi</strong> — a <code>listInvoices</code> hívói ezért 200-as HTTP + <code>{&quot;status&quot;:401}</code> törzsnél <code>items = []</code>-t kapnak, <code>hiba: null</code> mellett, 60 mp-re cache-elve. A „Kifizetetlen számlák&quot; ablak azt állítja, nincs kintlévőség — pontosan a fájl saját fejlécében (<code>:13-16</code>) megtiltott „néma üres lista&quot;.</td>
+<td><code>oblio-client.ts:89</code> (gyökér) · <code>kifizetetlen-actions.ts:376</code> · <code>oblio-lookup-actions.ts:233</code></td>
+<td>Központi boríték-ellenőrzés az <code>oblioFetch</code>-be (egyszerre védi mind a 7 hívási pontot); a hibás eredményt ne cache-eld 60 mp-re. <strong>S</strong></td>
+</tr>
+<tr>
+<td>P1-26</td>
+<td><strong>A „Törlés&quot; csak jelzőbitet állít</strong>: az <code>api_secret_encrypted</code> érintetlen marad, a <code>clearTokenCache</code> sem fut, és a <code>getOblioConfig</code>/<code>testOblioConnection</code> nem szűr <code>aktiv</code>-ra → a chip élőnek mutatja a törölt konfigot, és a teszt-gomb valóban hitelesít vele.</td>
+<td><code>oblio-config-actions.ts:216-219</code>, <code>:47-51</code>, <code>:155-159</code></td>
+<td>A titok tényleges megsemmisítése; <code>clearTokenCache</code> hívása; <code>.eq('aktiv', true)</code> mindkét olvasóra (a másik három hívó már helyesen szűr); audit-napló a törlésről. <strong>S</strong></td>
+</tr>
+<tr>
+<td>P1-27</td>
+<td><strong>A <code>congregations.e_factura_kotelezett</code> mezőt egyetlen kódsor sem olvassa</strong> — a comodat kivételével MINDEN jogi típus <code>tipus:'e_factura'</code>-ként rögzül, holott a projekt saját jogi elemzése szerint a locatiune/arendare/concesiune ki van véve (OUG 120/2021), és a szerződés-szerkesztő hintje azt ígéri, hogy a jogi típus dönt.</td>
+<td><code>oblio-actions.ts:213</code>, <code>:142</code> · <code>2026-04-16-wc1-tva-figyelo-schema.sql:95-96</code></td>
+<td>A mező tegyék szerkeszthetővé; valódi kapu az <code>issueInvoice</code>-ba; nem kötelezett + mentes ügylet → kérdezzen rá (papír chitanță ág már létezik); a döntés kerüljön a <code>megjegyzes</code>-be. <strong>M</strong></td>
+</tr>
+</tbody>
+</table>
+<h3 data-sev="P1" id="s20-4-6-megfeleloseg-es-megorzes" class="sev-P1">4.6 Megfelelőség és megőrzés</h3>
+<table data-sev="P1">
+<thead>
+<tr>
+<th>#</th>
+<th>Találat</th>
+<th>Hol</th>
+<th>Teendő</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P1-28</td>
+<td><strong>Az ANAF 60 napos SPV-figyelmeztetés SOHA nem szólal meg.</strong> A <code>check_oblio_deadline_for_user()</code> a nem létező <code>ertesitesek.megjegyzes</code> oszlopból olvas és abba ír (42703). A függvény a 0–49. napon a korai <code>RETURN 'ok'</code> ágon tér vissza — tehát <strong>pontosan akkor és csak akkor bukik, amikor működnie kellene</strong>, és a fejlesztői teszt zöld. A hibát a server action (<code>minden RPC-hiba → 'no_congregation'</code>) és a <code>page.tsx:57 .catch(()=&gt;{})</code> kétszer elnyeli.</td>
+<td><code>2026-04-16-wc2-10-oblio-ellenorzes.sql:249,262</code> · <code>oblio-ellenorzes-actions.ts:682-685</code> · <code>penzugy/page.tsx:57</code></td>
+<td>Élő állapotfelmérés (SQL lent); a meglévő <code>hivatkozas</code> oszlop használata VAGY <code>ADD COLUMN IF NOT EXISTS megjegyzes text</code>; fail-loud <code>status:'error'</code> ág; <code>after()</code> a floating promise helyett; őrszem az RPC oszlophivatkozásaira. <strong>S</strong></td>
+</tr>
+<tr>
+<td>P1-29</td>
+<td><strong><code>recordOblioDownloadNow</code> nulla érintett sornál is sikert jelent</strong> → aki nem állított be Oblio REST-fiókot (a mappás út enélkül is működik), annál az <code>utolso_xml_letoltes_at</code> sosem íródik, tehát a visszaszámláló <strong>soha nem indul el</strong>; a UI viszont lokálisan kiírja a dátumot, ami újratöltéskor eltűnik.</td>
+<td><code>oblio-ellenorzes-actions.ts:440-447</code> · <code>OblioEllenorzesTab.tsx:696-699</code></td>
+<td><code>.select()</code> + zéró-sor őr, cselekvésre bíró hibaüzenettel; a kliens csak visszaigazolt írásra állítson állapotot; megfontolandó a mező áthelyezése Oblio-konfigtól független helyre. <strong>S</strong></td>
+</tr>
+<tr>
+<td>P1-30</td>
+<td><strong>A desktop mappás úton a hiteles XML csak a lelkész gépén létezik</strong> — a rendszer és a napi mentés kizárólag metaadatot őriz (<code>oblio_kiadas_match</code>), miközben az ANAF 60 nap után nem adja vissza, a törvény 5–10 évet ír elő. A desktopon nulla Storage-feltöltés van (<code>szallitoi_szamla</code> 0 találat).</td>
+<td><code>desktop-oblio-tab.tsx:353-373</code></td>
+<td>A <code>feldolgozott/</code> új XML-jei (és PDF-jei) töltődjenek fel a MEGLÉVŐ <code>szallitoi-szamlak</code> dokumentumtár-kategóriába + <code>szallitoi_szamla</code> sor; offline a meglévő outbox-minta. Addig is állandó figyelmeztető sáv. <strong>L</strong></td>
+</tr>
+<tr>
+<td>P1-31</td>
+<td><strong>A véglegesítő wizard Oblio-ellenőrzése szerkezetileg halott</strong>: NOT NULL oszlopra szűr (<code>!x.kiadas_id</code>), ráadásul abban a táblában keresi a hiányzókat, amely definíció szerint csak a MÁR párosítottakat tartalmazza. A tervezett átfedés-ellenőrzés (<code>oblioMatchesRes</code>) sosem készült el.</td>
+<td><code>finalization-actions.ts:318</code>, <code>:126,171-175</code></td>
+<td>A populáció a <code>szallitoi_szamla</code> + anti-join a <code>szallitoi_szamla_kiadas</code>-ra; a halott destrukturálás törlése; a <code>detail</code> mondja ki, mit NEM lát az ellenőrzés. <strong>M</strong></td>
+</tr>
+<tr>
+<td>P1-32</td>
+<td><strong>A véglegesítő ellenőrző-lista FAIL-OPEN</strong>: a nyolc lekérés <code>.error</code> mezőjét senki nem nézi → egy 503 alatt csupa zöld pipa és <code>hasBlocker=false</code>, „Mind a 0 kiadáshoz van kategória&quot;. A lelkész ellenőrizetlen évet zár le és küld be.</td>
+<td><code>finalization-actions.ts:187-210</code>, <code>:337</code></td>
+<td>Fail-closed a szomszéd action mintájára (<code>oblio-ellenorzes-actions.ts:117-118</code>); nulla tételnél beszédes szöveg; mutáns-alapú őrszem. <strong>S</strong></td>
+</tr>
+</tbody>
+</table>
+<h3 data-sev="P1" id="s21-4-7-a-felulet-hazudik-a-munkafolyamat-elakad" class="sev-P1">4.7 A felület hazudik / a munkafolyamat elakad</h3>
+<table data-sev="P1">
+<thead>
+<tr>
+<th>#</th>
+<th>Találat</th>
+<th>Hol</th>
+<th>Teendő</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P1-33</td>
+<td><strong>A „Nincs a könyvelésben&quot; szűrő csak a betöltött 30-as oldalon szűr</strong>, a darabszám és a lapozó a szűretlen összesent használja → „Nincs a szűrésnek megfelelő számla&quot;, miközben a 3. oldalon 12 könyveletlen vár.</td>
+<td><code>szamla-egyeztetes-main.tsx:96-101,202-205,294,422</code></td>
+<td>A szűrés menjen a szerverre (<code>NOT EXISTS</code> anti-join), az <code>osszesen</code> is ehhez tartozzon. <strong>M</strong></td>
+</tr>
+<tr>
+<td>P1-34</td>
+<td><strong>Részleges fedezetnél is zöld „Könyvelve&quot;/„SPV-ben rendben&quot;</strong> — a jelző csak a kapcsolatok LÉTÉT nézi, az <code>osszeg_resz</code>-t egyik lekérés sem olvassa, holott a részleges kapcsolás elsőrangú, támogatott eset. Az 5.000 RON-os gyűjtőszámla 350 RON kapcsolása után „elintézett&quot;-nek látszik és kiesik a szűrőből.</td>
+<td><code>szamla-egyeztetes-main.tsx:359</code> · <code>szamla-actions.ts:613-614</code> · <code>oblio-ellenorzes-actions.ts:111-114</code></td>
+<td>Három állapot (teljesen / részben / nincs), fedezet-aránnyal; a szűrő a „nem teljesen fedezett&quot; halmazra. <strong>M</strong></td>
+</tr>
+<tr>
+<td>P1-35</td>
+<td><strong>A bevétel-soros SPV-ikon összeg-szűrője fail-open</strong>: ha egyetlen jelölt sem esik a ±0,5 RON-os ablakba, a <code>best</code> marad az első találat → egy 250 RON-os adomány zöld „SPV-n elfogadva&quot; pipát kap a 1.200 RON-os bérleti számlától, és a „+ Számla&quot;/„Nyugta&quot; gomb <strong>eltűnik</strong>.</td>
+<td><code>oblio-lookup-actions.ts:172-195</code>, <code>:252-257</code> · <code>oblio-status-icon.tsx:126</code></td>
+<td>Fail-closed: üres <code>inRange</code> → <code>found:false</code>; determinisztikus rendezés a <code>.limit(5)</code>-höz; konfidencia-megkülönböztetés (exact vs. heuristic), és a gombok maradjanak elérhetők. <strong>S</strong></td>
+</tr>
+<tr>
+<td>P1-36</td>
+<td><strong>Partnernév nélküli befizetésnél (persely) a lookup partner-szűrő nélkül kérdezi az Oblio-t</strong> és az első ±2 napos számlát „megtaláltnak&quot; veszi — ráadásul <strong>át is írja annak <code>befizetes_id</code>-ját</strong> erre a sorra (egy OLVASÁSI út ír).</td>
+<td><code>oblio-lookup-actions.ts:229</code>, <code>:261-281</code></td>
+<td>Üres partnernévnél ne induljon API-lookup; a lookup ne írjon <code>befizetes_id</code>-t (vagy csak NULL-ra); a jelöltekből zárd ki a foglaltakat. <strong>S</strong></td>
+</tr>
+<tr>
+<td>P1-37</td>
+<td><strong>Három dialógus véglegesen befagy</strong>, ha a server action promise-a elutasításra fut (nincs try/catch/finally): a feltöltő (X, ESC, háttér, Mégse — mind halott), a számla↔kiadás kapcsoló (fókusz-csapdás modál <code>busy=true</code>-ban ragad), és az <strong>e-Factura kiállító</strong> (a gomb örökre „Kiállítás…&quot;, hibaüzenet nélkül → a lelkész újranyit és <strong>másodszor is kiállítja</strong>).</td>
+<td><code>dokumentumtar-upload-dialog.tsx:218</code> · <code>szamla-kapcsolas-dialog.tsx:147</code> · <code>oblio-issue-invoice-dialog.tsx:83</code></td>
+<td>try/catch/finally mindhárom helyre; a kiállítónál a <code>catch</code> szövege <strong>explicit tiltsa</strong> a vak újrapróbálkozást. A testvér-fájl már rögzíti a tanulságot (<code>szamla-egyeztetes-main.tsx:93-95</code>). <strong>S</strong></td>
+</tr>
+<tr>
+<td>P1-38</td>
+<td><strong>A Tranzakciók fül minden bevétel-sorra külön server actiont indít</strong>, amiket a Next.js sorosítva futtat (<code>node_modules/next/dist/docs/…/07-mutating-data.md:206</code>). 500 sor ≈ 3000 sorosított hálózati körút (~2,5 perc), és minden más server action mögéjük sorol; Oblio-konfiggal 429-vihar. A lista sem lapozott, sem virtualizált.</td>
+<td><code>oblio-status-icon.tsx:87</code> · <code>TransactionsTab.tsx:782</code> · <code>transactions-tab.tsx:101-118</code></td>
+<td>Egyetlen előtöltő action (<code>loadOblioMatchedIncomeIds(year)</code>) a kiadás-oldal MÁR MEGLÉVŐ mintájára; az Oblio REST-lookup kerüljön ki a render-útból (kézi gomb); addig is windowing + korlátozott párhuzamosság. <strong>M</strong></td>
+</tr>
+<tr>
+<td>P1-39</td>
+<td><strong>Heurisztikus („közepes&quot;) tartalom-egyezés megerősítés nélkül, fizikailag átnevezi a PDF-et</strong> — web ÉS desktop —, és a következő frissítés már „biztos párnak&quot; látja. Nincs pénznem-ellenőrzés, a kötőjeles dátum sosem parse-olódik, a <code>TOTAL</code> minta a „Subtotal&quot;-ba is beleillik.</td>
+<td><code>pdf-xml-content-matcher.ts:138</code> · <code>desktop-oblio-tab.tsx:688-697</code> · <code>pdf-content-parser.ts:84,224</code></td>
+<td>Az átnevezés küszöbe <strong>allow-lista</strong> és csak <code>'high'</code>; a substring-ág szigorítása; <code>parseDate</code> karakterosztályába a kötőjel; szóhatár a TOTAL-mintába; Y-koordináta szerinti sorképzés; pénznem-kinyerés. <strong>M</strong></td>
+</tr>
+</tbody>
+</table>
+<hr data-sev="P1">
+<h2 data-sev="P2" id="s22-5-p2-robusztussagi-es-ux-hianyok" class="sev-P2">5. P2 — robusztussági és UX-hiányok</h2>
+<h3 data-sev="P2" id="s23-5-1-belepes-mappa-zip" class="sev-P2">5.1 Belépés / mappa / ZIP</h3>
+<ul data-sev="P2">
+<li><strong>Web-FSA ZIP-kibontóban nincsenek méret/darabszám-őrök</strong> (a szerveroldali párjában igen: 500 fájl / 100 MB / 2 mélység) — <code>oblio-folder.ts:391</code>. <em>(P3-besorolású, mert a fül halott — lásd 6. fejezet.)</em></li>
+<li><strong>Mappa-listázás plafon, haladásjelző és megszakítás nélkül</strong>, egy frissítés alatt kétszer bejárva ugyanazt a mappát; a <code>getFile()</code> hibája némán kiesik — <code>oblio-folder.ts:186</code>.</li>
+<li><strong>A helyi mappa útvonala a szerkeszthető gyülekezetnévből képzett slugon áll</strong> — átnevezés után az offline Excel-lánc (export/import/watcher) néma módon új, üres mappát nyit; a „kanonikus&quot; <code>slugifyCongregationName</code> halott kód, három bemásolt <code>slugify</code> él helyette — <code>fs-handle-store.ts:150</code>, <code>slugify.ts:15</code>.</li>
+<li><strong>Rust prefix-szűrő elrontja a <code>single_pair</code> feltételt</strong> 1-számlás ANAF ZIP-nél → a PDF átnevezetlen marad és árva lesz; a desktop nem importálja a <code>batchMatchPdfsToXmlsByName</code>-t — <code>excel.rs:839</code>.</li>
+<li><strong>Félbehagyott ZIP-kibontás után a hiba csak a konzolba kerül</strong>, a toast „ismeretlen fájl&quot;-nak titulálja a bent ragadt saját ZIP-et; a <code>report.errors</code> sehol nem jelenik meg — <code>excel.rs:853</code>, <code>desktop-oblio-tab.tsx:421-429</code>.</li>
+<li><strong>A szerveroldali kibontó a beágyazott/mappázott bejegyzéseket lapos listába olvasztja</strong> → azonos alapnevű fájloknál a párosítás pozíció szerintivé degenerálódik, és téves PDF csatolódik a <code>szallitoi_szamla</code> sorra — <code>zip-kibonto.ts:212</code>.</li>
+<li><strong>Elavult „KARTOTEKA mappa szükséges&quot; kapu</strong> a Tranzakciók fül SPV-ikonján: a cél (Számlák egyeztetése) már feltöltés-alapú, így Firefox/Safari/mobil alatt zsákutca — <code>transactions-tab.tsx:60</code>, <code>TransactionsTab.tsx:803</code>.</li>
+<li><strong>A mappa-állapot betöltése védtelen</strong> (Dexie/<code>queryPermission</code> try/catch nélkül) → az egész fül néma „betöltés&quot; állapotban ragad — <code>oblio-folder.ts:120</code>.</li>
+</ul>
+<h3 data-sev="P2" id="s24-5-2-parse" class="sev-P2">5.2 Parse</h3>
+<ul data-sev="P2">
+<li><strong>A <code>parseError</code>-t egyetlen fogyasztó sem olvassa</strong> → az olvashatatlan XML néma, csupa „—&quot; sorként jelenik meg „Nincs kiadás&quot; jelvénnyel, sőt cache-elődik is; ugyanez a fájl a szerveres ágon hangos magyar hibát adna. A böngészős parsernek ráadásul <strong>semmilyen méret- vagy mélység-plafonja nincs</strong> — <code>ubl-parser.ts:146</code>, <code>OblioEllenorzesTab.tsx:449-473</code>, <code>desktop-oblio-tab.tsx:294-304</code>.</li>
+<li><strong>A nyomtatott nettó/ÁFA/bruttó három eltérő szemantikájú UBL-mezőből áll</strong> (BT-109/BT-110/BT-115), konzisztencia-ellenőrzés és <code>currencyID</code>-tudat nélkül → részleges előlegnél önellentmondó számhármas egy hivatalos kinézetű nyomtatványon — <code>ubl-parser.ts:280</code>.</li>
+<li><strong>A <code>normalizeFileBaseName</code> regexe csak az UTOLSÓ kiterjesztést vágja</strong> (<code>+</code> a csoportra vonatkozik), szemben a saját JSDoc-jával és a szerveres ikerpárjával; a selftest CSAK a szerveres példányt fedi — <code>ubl-parser.ts:335</code>, <code>selftest-ubl-parser.mjs:30</code>.</li>
+<li><strong><code>isRon(null) === true</code></strong> — a hiányzó pénznemet RON-nak veszi, tehát a deviza-kapu átengedi; a <code>MinimalKiadas.currency</code>-t senki nem tölti ki — <code>oblio-matcher.ts:124</code>.</li>
+<li><strong>PDF-parser:</strong> a <code>TOTAL</code> minta a „Subtotal&quot;-ba illik (a nettót veszi bruttónak); a kötőjeles DD-MM-YYYY sosem parse-olódik; a saját <code>parseAmount</code> a román ezres-pontot tizedespontnak veszi (<code>&quot;1.500&quot;</code> → 1,5); a pdfjs dokumentum <strong>sosem kap <code>destroy()</code>-t</strong> (worker + PDF-másolat szivárgás minden hívásnál); csak az első 3 oldalt olvassa (közműszámlán a végösszeg lejjebb van); az elbukott <code>import('pdfjs-dist')</code> véglegesen beragad a singletonba — <code>pdf-content-parser.ts:224,84,64,138,146,100</code>.</li>
+</ul>
+<h3 data-sev="P2" id="s25-5-3-parositas" class="sev-P2">5.3 Párosítás</h3>
+<ul data-sev="P2">
+<li><strong>A perzisztált auto-párosítás „kézi · biztos&quot; címkét kap</strong> — az eredet és a valódi konfidencia elvész, holott a DB tárolja és mindkét hívó le is kéri — <code>oblio-matcher.ts:305</code>.</li>
+<li><strong>Az összeg-tolerancia arányos tagjának nincs felső plafonja</strong> (0,1%): 100.000 RON-nál 100 RON eltérés is „biztos&quot; — <code>oblio-matcher.ts:212</code>.</li>
+<li><strong>Semmi nem védi a kiadás „foglaltságát&quot;</strong>: egy kiadáshoz két e-Factura is menthető (a <code>(congregation_id, kiadas_id)</code> index NEM unique), és a matcher mindkettőt zölden mutatja — <code>oblio-matcher.ts:286</code>, <code>2026-04-16-wc2-10-oblio-ellenorzes.sql:101-102</code>.</li>
+<li><strong>A megosztott webes fül nyers <code>timestamp</code>-et ad a matchernek</strong> (<code>.slice(0,10)</code> nélkül) → NaN → Infinity → a 2–4. lépcső némán kiiktatódik. Ma latens (halott fül), de a matcher szerződését sérti — <code>OblioEllenorzesTab.tsx:538</code>, <code>oblio-matcher.ts:199</code>.</li>
+<li><strong>A diagnosztikai jelöltlista dátum-ablak nélkül, összeg-elsődlegesen rendez</strong> és a foglaltakat is beengedi a top 5-be → a „Párosít összest&quot; 300+ nap távolságú tételt is rögzíthet — <code>oblio-matcher.ts:486</code>, <code>OblioMatchDiagnosticDialogBody.tsx:106-127</code>.</li>
+<li><strong>Nulla önellenőrzés őrzi a matcher küszöbeit</strong> — <code>oblio-matcher.ts:272</code>.</li>
+</ul>
+<h3 data-sev="P2" id="s26-5-4-perzisztalas-hatokor-audit" class="sev-P2">5.4 Perzisztálás / hatókör / audit</h3>
+<ul data-sev="P2">
+<li><strong>Nincs DB-szintű keresztoszlop-integritás az <code>oblio_kiadas_match</code>-en</strong>: a policy csak a <code>congregation_id</code>-t nézi, a FK az RLS-t megkerüli → tetszőleges idegen <code>kiadas_id</code> beszúrható, és a saját felületen „párosítottnak&quot; látszik — <code>2026-04-16-wc2-10-oblio-ellenorzes.sql:134</code>.</li>
+<li><strong>A csengő-értesítéses ANAF-figyelő a profil skalár gyülekezetére néz</strong>, nem az effective hatókörre — profilváltás alatt a rossz gyülekezetet figyeli, és a valódi soha nem kap értesítést — <code>oblio-ellenorzes-actions.ts:680</code>, SQL <code>:187-191</code>.</li>
+<li><strong>A <code>testOblioConnection</code> az EGYETLEN kapuzatlan Oblio-config action</strong> — a read-only számvevő is kiválthatja a titok visszafejtését, az éles hívást és a nyers hibaszöveg (idegen CIF-lista) DB-be írását — <code>oblio-config-actions.ts:150</code>.</li>
+<li><strong>A desktop 4 <code>oblio_kiadas_match</code> írása/törlése audit-napló nélkül megy</strong>, míg a webes megfelelője naplóz — <code>desktop-oblio-tab.tsx:154,371,506,554</code>.</li>
+<li><strong>A <code>saveOblioMatch</code> CUI-mellékírása ellenőrizetlen és <code>congregation_id</code> szűrő nélküli</strong> (fire-and-forget), miközben a dialógus ígéretet tesz rá — <code>oblio-ellenorzes-actions.ts:202-207</code>.</li>
+<li><strong>Az <code>updateKiadasCui</code> halott, exportált szerver-akció</strong> zéró-sor őr nélkül, valótlan audit-bejegyzéssel — <code>oblio-ellenorzes-actions.ts:382</code>.</li>
+<li><strong>A <code>listOblioMatchesAndKiadasok</code> négy lekérése lapozatlan</strong> (a match-lekérés ráadásul év-szűrő nélkül) → 1000 fölött néma vágás, ami dupla rögzítéshez vezet; a <code>select('*')</code> 6 mező helyett ~30 oszlopot hoz — <code>oblio-ellenorzes-actions.ts:87</code>.</li>
+<li><strong>A <code>getExpenseCategoriesForOblio</code> nem szűr <code>aktiv</code>-ra, szintre, és nem lapoz</strong> — kivezetett és nem gyülekezeti célok is választhatók, ~927 kategória mellett a plafon közel — <code>oblio-ellenorzes-actions.ts:472-475</code>.</li>
+<li><strong>A hiteles e-Factura XML véglegesen törölhető</strong> a Dokumentumtárból hivatkozás-ellenőrzés nélkül, és a törlés után SEMMILYEN felület nem jelzi a hiányt (az adatlap még ki is írja, hogy „a hiteles bizonylat az XML&quot;) — <code>dokumentumtar/actions.ts:367</code>.</li>
+<li><strong>Az ÉLŐ webes szállítói-számla út teljesen audit-napló nélküli</strong> (rögzítés, kifizetve-váltás, kapcsolás, végleges törlés), és a <code>szallitoi_szamla</code>-n nincs <code>updated_by</code>/<code>updated_at</code> — <code>szamla-actions.ts:422</code>.</li>
+<li><strong>A „Könyvelve&quot; jelvény megmarad törölt/sztornózott kiadás után is</strong> — a visszaolvasó lekérdezések nem szűrnek, kaszkád nincs — <code>szamla-actions.ts:614</code>.</li>
+</ul>
+<h3 data-sev="P2" id="s27-5-5-ui-ux" class="sev-P2">5.5 UI / UX</h3>
+<ul data-sev="P2">
+<li><strong>A tömeges párosítás gomb a „Nem valószínű (&lt;40%)&quot; fülön is aktív, megerősítés nélkül</strong>, és a ciklus befagyasztott pillanatképet jár be → két XML ugyanarra a kiadásra — <code>OblioMatchDiagnosticDialogBody.tsx:106-127</code>, <code>:111-121</code>.</li>
+<li><strong>Halott „Párosít&quot; gomb</strong>: a láthatóság <code>candidates.find(c =&gt; !c.alreadyMatched)</code>, a kattintás mindig <code>candidates[0]</code> → örök hibatoast — <code>:352</code> vs <code>:254-257</code>.</li>
+<li><strong>Visszaállíthatatlan „Mellőzés&quot;</strong>: a visszaállító gomb a <code>filteredDiag.length &gt; 0</code> sávon BELÜL van → ha mindent mellőzöl, eltűnik — <code>OblioEllenorzesTab.tsx:1259</code>.</li>
+<li><strong>A wizard reset-effektje inline arrow propokra fűzve</strong> (<code>[open, onLoadCategories, onToast]</code>) → bármely szülő-render visszaugrik az 1. számlára és eldobja a kiválasztott kategóriákat; a per-tétel állapot <strong>lépés-indexszel</strong> kulcsolt egy élő listán → rossz kategóriára könyvelés — <code>OblioKiadasWizardDialogBody.tsx:129,88-93</code>.</li>
+<li><strong>Néma számla-eltűnés</strong>: az <code>uniqueParsedXmls</code> UUID-nként az elsőt tartja meg, de a duplikátum-figyelmeztetés csak azonos bájtméretnél születik — <code>OblioEllenorzesTab.tsx:506-512</code> vs <code>487-501</code>.</li>
+<li><strong>Stale closure</strong> a <code>previousXmlCount</code>-nál → minden frissítéskor DB-írás — <code>:686,710</code>.</li>
+<li><strong>28×28 px akciógombok</strong> (a repó saját, kommentben rögzített 40 px-es mobil minimuma alatt), 4 px réssel a piros „Párosítás eltávolítása&quot; mellett — <code>:1650</code>.</li>
+<li><strong>Belső-görgetős tábla <code>w-full</code>-lal</strong> (<code>w-0</code>/<code>min-w-full</code> helyett) <code>whitespace-nowrap</code> cellákkal — <code>:1359-1361</code>.</li>
+<li><strong>A „Nincs SPV-ben&quot; piros StatCard nem lefúrható</strong> — a <code>FilterMode</code>-ban deklarált <code>'kiadas-nelkul'</code> érték halott — <code>:204,726-730,1324-1329</code>.</li>
+<li><strong>A blob-URL effekt inline <code>onToast</code>-ra fűzve</strong> a nyomtatási előnézetben → a cleanup visszavonja az élő URL-t → üres iframe nyomtatása (ismerős hibaosztály) — <code>OblioInvoicePrintDialogBody.tsx:83-111</code>.</li>
+<li><strong>A két desktop modál kilóg a dialógus-konvencióból</strong>: nincs <code>role=&quot;dialog&quot;</code>/<code>aria-modal</code>, nincs ESC, nincs fókusz-csapda, és a háttér-kattintás mentés közben is elveti a kitöltött űrlapot (szövegkijelölés-húzás is elég hozzá) — <code>desktop-oblio-tab.tsx:1166,1060</code>.</li>
+<li><strong>Elavult súgószöveg</strong> az SPV-ikonban: nem létező „Oblio ellenőrzés&quot; fülre küld — <code>oblio-expense-status-icon.tsx:34</code>.</li>
+<li><strong>A záró toast a matcher memóriabeli számát írja ki</strong> akkor is, ha a batch mentés nulla sort perzisztált (és a <code>saved</code> a szándékra esik vissza) — <code>oblio-ellenorzes-actions.ts:348</code>, <code>OblioEllenorzesTab.tsx:702</code>.</li>
+<li><strong>A desktop tartalom-elemzés összesítője nem fedi le az összes árva PDF-et</strong> (olvasási és átnevezési hibák láthatatlanok), mégis 'success' — <code>desktop-oblio-tab.tsx:702</code>.</li>
+</ul>
+<h3 data-sev="P2" id="s28-5-6-desktop-paritas" class="sev-P2">5.6 Desktop-paritás</h3>
+<ul data-sev="P2">
+<li><strong>Halott „PDF/XML megnyitása&quot; gombok</strong>: az <code>openPath</code> a <code>plugin:opener|open_path</code> parancsot hívja, amit egyetlen capability sem enged (<code>opener:default</code> = csak <code>open-url</code>, <code>reveal-item-in-dir</code>, <code>default-urls</code>) → minden kattintás hibatoast — <code>desktop-oblio-tab.tsx:481</code>, <code>capabilities/default.json:8</code>.</li>
+<li><strong>A desktop „Nincs SPV-ben&quot; a HELYI feldolgozott mappából számol</strong> (a web a DB-párosításokból) → üres mappánál az év minden kiadását tévesen riasztja — <code>desktop-oblio-tab.tsx:718</code>.</li>
+<li><strong>Nincs ZIP-bomba-őr a Rust oldalon</strong> (bejegyzés-méret plafon nélküli <code>read_to_end</code>) — <code>excel.rs:801</code>.</li>
+<li><strong>Path-traversal rés</strong>: a meghajtó-prefixes bejegyzés-név (<code>C:szamla.xml</code>) kiszökik a <code>feldolgozott/</code> mappából (a <code>/</code>, <code>\</code>, <code>..</code> őrök nem fogják) — <code>excel.rs:1062</code>, <code>:833</code>.</li>
+<li><strong>Az ANAF 60 napos óra a gombnyomás idejére áll</strong> (<code>new Date()</code>), bármely bedobott XML/PDF újraindítja, és a desktopon <strong>egyáltalán nincs visszaszámláló-kijelzés</strong> — <code>desktop-oblio-tab.tsx:415,435</code>.</li>
+<li><strong>Nem-UTF8 / BOM-os XML</strong> néma kiesése vagy fantom-sora — <code>excel.rs:1030-1037</code>.</li>
+<li><strong>Örökké várakozó offline párosítás</strong> (a hiba oka sehol nem látszik) és <strong>offline rögzített kiadás nem párosítható</strong> (a <code>kiadas_pending_local</code> nem jön be) — <code>desktop-oblio-tab.tsx:143-179</code>, <code>finance-sync.ts:430-442</code>.</li>
+<li><strong>Belső-mozgás kódok (300.01/301.01/400.01/401.01/402.02) a számla-bevezető varázslóban</strong> → fél lábú belső mozgás — <code>penzugy-page.tsx:590-594</code>.</li>
+<li><strong>A desktop Tranzakciók fülén nincs számla-jelző</strong> — <code>penzugy-page.tsx:908-921</code>.</li>
+<li><strong>Régi kiadáshoz nem lehet számlát kapcsolni</strong>: a jelöltek fixen az utolsó 25 élő kiadás, keresés nélkül — <code>kifizetetlen-actions.ts:286-297</code>.</li>
+</ul>
+<h3 data-sev="P2" id="s29-5-7-teljesitmeny" class="sev-P2">5.7 Teljesítmény</h3>
+<ul data-sev="P2">
+<li><strong>Desktop: minden mentés/törlés után a TELJES feldolgozott állomány újraolvasása és újraparse-olása</strong> (sorosan, Tauri IPC-n, cache nélkül) — 50 kézi párosítás = 20.000 fájlolvasás + 20.000 DOMParser-futás — <code>desktop-oblio-tab.tsx:293</code>.</li>
+<li><strong>Az inline <code>loadOblioMatchedExpenseIds</code> callback minden renderkor új identitást kap</strong> → minden dialógus-nyitás újra lefuttatja a teljes évi, lapozatlan lekérést — <code>transactions-tab.tsx:80</code>.</li>
+<li><strong>A matcher diagnosztikai ága összeg nélküli XML-nél minden kiadást jelöltnek vesz</strong>, memoizálatlan névnormalizálással (13 <code>new RegExp</code> hívásonként) — mérve 400×2000-nél 14,4 s a fő szálon — <code>oblio-matcher.ts:486</code>.</li>
+<li><strong>Az Oblio-lista virtualizáció és <code>React.memo</code> nélkül renderel</strong>, és a <code>feldolgozott/</code> mappa évekig nő — <code>OblioEllenorzesTab.tsx:1383</code>, <code>desktop-oblio-tab.tsx:921</code>.</li>
+<li><strong>Nincs backoff és nincs in-flight dedup</strong> a REST-kliensben (retry csak 401-re) — <code>oblio-client.ts:54-87</code>, <code>oblio-auth.ts:49-100</code>.</li>
+</ul>
+<h3 data-sev="P2" id="s30-5-8-cache" class="sev-P2">5.8 Cache</h3>
+<ul data-sev="P2">
+<li><strong>Kijelentkezéskor a második IndexedDB (<code>kartoteka_oblio_cache</code>) sehol nem törlődik</strong> — a szállítói számlák fejadatai (szállító, CUI, cím, összeg) a közös gépen maradnak, és az adatvédelmi őrszem CSAK egy DB-nevet mér — <code>helyi-tarolo-urites.ts:49</code>, <code>selftest-adatvedelmi-fedezet.mjs:381-395</code>.</li>
+<li><strong>Aszimmetrikus cache-kulcs</strong>: olvasás a fájlnévből, írás a <code>cbc:UUID</code>-ből → a gyorstár a többtagú ANAF-neveken <strong>soha nem talál</strong> (mérve), minden frissítés újraparse-ol — <code>OblioEllenorzesTab.tsx:433</code> vs <code>:461</code>.</li>
+<li><strong>Nincs parser-verzió a rekordban, nincs TTL, nincs felhasználói cache-ürítés</strong> → egy jövőbeli parser-javítás nem éri el a már gyorstárazott számlákat — <code>oblio-cache.ts:21,48</code>.</li>
+</ul>
+<hr data-sev="P2">
+<h2 data-sev="P3" id="s31-6-p3-higienia" class="sev-P3">6. P3 — higiénia</h2>
+<table data-sev="P3">
+<thead>
+<tr>
+<th>Terület</th>
+<th>Találat</th>
+<th>Hol</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Halott kód</td>
+<td><code>apps/web/components/finance/oblio-ellenorzes-tab.tsx</code> (146 sor) + <code>packages/ui-app/.../OblioEllenorzesTab.tsx</code> (1785 sor) + <code>oblio-folder.ts</code> (673 sor) — nulla import; a <code>selftest-oblio-evzar.mjs</code> is halott utat őriz</td>
+<td>több</td>
+</tr>
+<tr>
+<td>Halott kód</td>
+<td><code>kiadasResults</code> nézet a matcherben (O(n·m), nulla fogyasztó)</td>
+<td><code>oblio-matcher.ts:593</code></td>
+</tr>
+<tr>
+<td>Halott kód</td>
+<td><code>downloadLocalFile</code>, <code>listCachedXmls</code>, <code>removeCachedXml</code>, <code>clearCacheForCongregation</code> — exportált, sehol nem hívott</td>
+<td><code>oblio-folder.ts:248</code>, <code>oblio-cache.ts:85,102,133</code></td>
+</tr>
+<tr>
+<td>Halott oszlop</td>
+<td><code>oblio_fiokok.utolso_token</code> / <code>utolso_token_expires_at</code> — sosem írva/olvasva, de csábítás plaintext Bearer tárolásra</td>
+<td><code>2026-04-16-wc2-oblio-integracio.sql:50-51</code></td>
+</tr>
+<tr>
+<td>Vak őrszem</td>
+<td><code>selftest-szamla-zip-alairas.mjs:59-62,83</code> a WEBES olvasót ellenőrzi „desktop mappaolvasó&quot; néven, az <code>excel.rs</code> nincs a listában</td>
+<td>script</td>
+</tr>
+<tr>
+<td>Gyenge őrszem</td>
+<td><code>selftest-oblio-evzar.mjs:66</code> a véglegesített-ágnál csak szöveg-jelenlétet néz, <code>return</code>-t nem; az év forrását sem köti — két mutáns bizonyítottan átcsúszik</td>
+<td>script</td>
+</tr>
+<tr>
+<td>Naplózás</td>
+<td>A matcher NODE_ENV-kapu nélkül konzolra írja a teljes párosítási riportot (beszállítók, CUI-k, összegek) — a lánc többi log-ja kapuzva van</td>
+<td><code>oblio-matcher.ts:526</code></td>
+</tr>
+<tr>
+<td>Naplózás</td>
+<td>A 401-ág elnyeli az eredeti hibatörzset (diagnosztikai vakfolt)</td>
+<td><code>oblio-client.ts:55</code></td>
+</tr>
+<tr>
+<td>Kerekítés</td>
+<td><code>osszegNet + osszegTva</code> visszakerekítés nélkül → <code>1469.1299999999999</code> a <code>numeric</code> oszlopban, és ezt küldi vissza a <code>markInvoicePaid</code></td>
+<td><code>oblio-actions.ts:203</code></td>
+</tr>
+<tr>
+<td>Séma</td>
+<td>Az Oblio→DB szinkron-upsert kihagyja a NOT NULL <code>osszeg_net</code>-et, és a hibát haszontalan <code>try/catch</code> nyeli el → új sor SOHA nem jön létre</td>
+<td><code>oblio-lookup-actions.ts:264</code></td>
+</tr>
+<tr>
+<td>Barrelek</td>
+<td><code>apps/web/lib/finance/oblio/*.ts</code> a GYÖKÉR <code>@kartoteka/ui-app</code> barrelre mutat, és három szerver-action importál belőle → a <code>'use client'</code>-csapda klasszikus felállása</td>
+<td><code>oblio-errors.ts:4</code>, <code>oblio-types.ts:6</code></td>
+</tr>
+<tr>
+<td>Dokumentáció</td>
+<td><code>oblio-mappa-panel.tsx:10-11</code> és a súgó Oblio-szakasza (<code>FinanceSugoTab.tsx:1528</code>) a 2026-08-28 óta nem létező webes mappa-utat tanítja</td>
+<td>több</td>
+</tr>
+<tr>
+<td>Dokumentáció</td>
+<td>Ellentmondó JSDoc a web-FSA kibontóban (index-alapú párosítást ír le, a kód fájlnév-mintát használ) és az <code>ubl-parser.ts:50</code> kommentben (<code>LineExtensionAmount</code> vs. <code>TaxExclusiveAmount</code>)</td>
+<td><code>oblio-folder.ts:357</code>, <code>ubl-parser.ts:50</code></td>
+</tr>
+<tr>
+<td>Inkonzisztencia</td>
+<td><code>match_confidence</code> alapértéke a két íróban eltér ('medium' vs 'high'); a <code>bulkSave</code> a szándékot jelenti mentettként</td>
+<td><code>oblio-ellenorzes-actions.ts:186,329,348</code></td>
+</tr>
+<tr>
+<td>Év-zár</td>
+<td>A <code>saveOblioMatch</code> / <code>removeOblioMatch</code> / <code>updateKiadasCui</code> év-zár kapu nélkül ír (a varázslóban van csak)</td>
+<td><code>oblio-ellenorzes-actions.ts:151,230,372</code></td>
+</tr>
+<tr>
+<td>Halott prop</td>
+<td><code>szamlak-egyeztetese-tabs.tsx:59</code> deklarálja és a <code>page.tsx:39</code> átadja a <code>congregationId</code>-t, a komponens nem destrukturálja</td>
+<td>UI</td>
+</tr>
+<tr>
+<td>Fájlnév-segédek</td>
+<td>A böngészős <code>normalizeFileBaseName</code>/<code>extractAnafUuidFromFilename</code> regexe eltér a szerveres ikerpártól; az egyetlen selftest csak a szerverest fedi</td>
+<td><code>ubl-parser.ts:335</code>, <code>selftest-ubl-parser.mjs:31</code></td>
+</tr>
+<tr>
+<td>Halott ág</td>
+<td>A <code>stornoInvoice</code> fail-open ága (rossz végpont: DELETE csak tervezetre; a hibát elnyeli, lokálisan mégis sztornóz) — ma hívó nélkül, tehát latens</td>
+<td><code>oblio-actions.ts:401</code></td>
+</tr>
+<tr>
+<td>Nyers hibaszöveg</td>
+<td>A nem leképezett Oblio HTTP-státuszok nyers törzse csonkítatlanul a felhasználói üzenetbe és a <code>utolso_teszt_hiba</code> oszlopba kerül</td>
+<td><code>oblio-errors.ts:75,94</code></td>
+</tr>
+<tr>
+<td>Számolási hiba</td>
+<td>A shared fül „N PDF mind biztosan párosítva&quot; üzenete kivonással számol → egy PDF több XML-hez is beszámítódik, ellentmondva a saját árva-listájának</td>
+<td><code>OblioEllenorzesTab.tsx:652</code></td>
+</tr>
+<tr>
+<td>Séma</td>
+<td>A <code>resp.json()</code> védtelen az <code>oblioFetch</code>-ben (a token-ág helyesen kezeli) → nyers <code>SyntaxError</code>/<code>TimeoutError</code> a lelkésznek</td>
+<td><code>oblio-client.ts:89</code></td>
+</tr>
+<tr>
+<td>e-Factura mező</td>
+<td>A builder <code>client</code> objektumába csak <code>cif</code> és <code>name</code> kerül (cím/város/ország soha), a <code>vatPayer</code> sincs kitöltve → RO CIUS-elutasítás kockázata</td>
+<td><code>oblio-invoice-builder.ts:59-68</code></td>
+</tr>
+</tbody>
+</table>
+<hr data-sev="P3">
+<h2 id="s32-7-fejlesztesi-javaslatok-nem-hibak">7. Fejlesztési javaslatok (nem hibák)</h2>
+<p>Hatás/ráfordítás szerint rangsorolva. Ezek <strong>nem</strong> a lánc hibái, hanem hiányzó képességek.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Javaslat</th>
+<th>Hatás</th>
+<th>Ráfordítás</th>
+<th>Hol kezdeni</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>F1</td>
+<td><strong>Beszállító (CUI) szerinti tanuló kategória-javaslat.</strong> A <code>kiadas_kedvezmenyezett_cui_idx</code> részleges index MÁR létezik (<code>2026-04-16-wc2-10-…sql:32-34</code>), mégsem hívja senki. Új action: legutóbbi 3 <code>id_kiadascel</code> CUI szerint, gyakorisággal → elő-választás + a lista tetején „Legutóbb: 201.03 Villany (11 számla)&quot;. Ma minden számlánál nulláról indul a ~900 elemű lista.</td>
+<td><strong>Nagy</strong> (órákban mérhető időmegtakarítás évente + kevesebb téves kategória)</td>
+<td>S–M</td>
+<td><code>OblioKiadasWizardDialogBody.tsx:113</code>, <code>desktop-oblio-tab.tsx:1143</code></td>
+</tr>
+<tr>
+<td>F2</td>
+<td><strong>A desktop mappás út írja a <code>szallitoi_szamla</code> táblát is</strong> (új tábla helyett a meglévőt!) és töltse fel az XML/PDF-et a <code>szallitoi-szamlak</code> dokumentumtár-kategóriába. Egy csapásra megoldja a törvényi megőrzést (P1-30), a webes láthatóságot és a két igazság-forrás egyesítését.</td>
+<td><strong>Nagy</strong></td>
+<td>M–L</td>
+<td><code>desktop-oblio-tab.tsx:353</code></td>
+</tr>
+<tr>
+<td>F3</td>
+<td><strong>Fizetési határidő (<code>dueDate</code>) megjelenítése.</strong> A parser már kiolvassa (<code>ubl-parser.ts:174</code>), egyetlen fogyasztója a nyomtatvány. Kell: oszlop a táblába, „Fizetendő (határidő szerint)&quot; szűrő, „Lejáró 7 napon belül: N&quot; StatCard.</td>
+<td><strong>Nagy</strong> (késedelmi kamat elkerülése)</td>
+<td>S</td>
+<td><code>desktop-oblio-tab.tsx:912</code></td>
+</tr>
+<tr>
+<td>F4</td>
+<td><strong>Kötegelt bevezetés a desktopon.</strong> A kész, lépcsős varázsló (<code>OblioKiadasWizardDialogBody</code>, 434 sor, haladásjelzővel) a közös csomagban van, csak a kivezetett fül wrappeli. Mountolni kell, plusz a fizetési mód/bankszámla választót beemelni a body-ba, és a köztes teljes <code>loadData()</code>-t elhagyni.</td>
+<td><strong>Nagy</strong></td>
+<td>M</td>
+<td><code>desktop-oblio-tab.tsx:960</code></td>
+</tr>
+<tr>
+<td>F5</td>
+<td><strong>Tételsorok (<code>InvoiceLine</code>) kiolvasása és megjelenítése</strong> a kategória-döntés pillanatában. Ma a lelkész csak a szállító nevét és az összeget látja („SC MULTISERV SRL&quot; — takarítószer? kazánjavítás? irodaszer?). Max. 20 sor, csak képernyőre.</td>
+<td>Közepes</td>
+<td>M</td>
+<td><code>ubl-parser.ts:121</code></td>
+</tr>
+<tr>
+<td>F6</td>
+<td><strong>Számla-előnézet a döntés pillanatában</strong> (osztott nézet a bevezető/kézi párosító modálban). A teljes olvasó-lánc (<code>oblioReadBase64</code> + <code>base64ToBlob</code>) már megvan a tartalom-elemzéshez.</td>
+<td>Közepes</td>
+<td>M</td>
+<td><code>desktop-oblio-tab.tsx:180</code></td>
+</tr>
+<tr>
+<td>F7</td>
+<td><strong>Kereső + havi bontás a számla-listában.</strong> Ma három szűrő-chip és egyetlen éves lista; a lelkész havonta zár. A <code>groupedByMonth</code> minta a Tranzakciók fülön kész.</td>
+<td>Közepes</td>
+<td>S–M</td>
+<td><code>desktop-oblio-tab.tsx:880</code></td>
+</tr>
+<tr>
+<td>F8</td>
+<td><strong>A „Nincs SPV-ben&quot; kártya legyen lefúrható</strong> — a <code>'kiadas-nelkul'</code> FilterMode már deklarálva van, csak halott. Soronként „Számla bekérése&quot; művelet + export.</td>
+<td>Közepes</td>
+<td>S</td>
+<td><code>OblioEllenorzesTab.tsx:204</code>, <code>desktop-oblio-tab.tsx:806</code></td>
+</tr>
+<tr>
+<td>F9</td>
+<td><strong>ANAF 60 napos visszaszámláló + letöltési rutin a desktopon.</strong> A <code>DeadlineCard</code> kész komponens, csak a kivezetett webes fül rendereli. Mellé „Oblio Wallet megnyitása&quot; gomb + 3 lépéses rutin-csík.</td>
+<td>Közepes</td>
+<td>S</td>
+<td><code>OblioEllenorzesFolderCard.tsx:274-330</code></td>
+</tr>
+<tr>
+<td>F10</td>
+<td><strong>Ismétlődő beszállító hiánya-jelzés</strong>: „az elmúlt 6 hónapból 4-ben jött számla az Electricától — márciusban NINCS&quot;. Az adat (<code>supplier_cui</code> + <code>invoice_date</code>) rendelkezésre áll.</td>
+<td>Közepes</td>
+<td>M</td>
+<td>új elemzés</td>
+</tr>
+<tr>
+<td>F11</td>
+<td><strong>Egyeztetési jegyzőkönyv</strong> (nyomtatás + CSV) a számvevő és az egyházmegye számára: párosított párok / párosítatlan számlák / számla nélküli kiadások. Ma csak EGY számla nyomtatványa létezik.</td>
+<td>Közepes</td>
+<td>M</td>
+<td><code>oblio-print-builder.ts</code></td>
+</tr>
+<tr>
+<td>F12</td>
+<td><strong>„Fizetés dátuma&quot; mező a bevezetésnél</strong> — ma automatikusan a kibocsátási dátum lesz a kiadás dátuma, ami hónapfordulón elrontja a kassza/bank egyeztetést. Az év-zár kapu ekkor a fizetési dátum évére vonatkozzon.</td>
+<td>Kicsi–közepes</td>
+<td>S</td>
+<td><code>desktop-oblio-tab.tsx:597</code></td>
+</tr>
+<tr>
+<td>F13</td>
+<td><strong>A súgó Oblio-szakaszának átírása az ÉLŐ desktop-útra</strong> (a Chrome-követelmény és a „Mappa beállítása&quot; lépés törlendő).</td>
+<td>Kicsi</td>
+<td>S</td>
+<td><code>FinanceSugoTab.tsx:1513-1550</code></td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="s33-8-architekturalis-megfigyelesek">8. Architekturális megfigyelések</h2>
+<ol>
+<li>
+<p><strong>A „közös codebase&quot; ígéret itt nem teljesül.</strong> A shared <code>OblioEllenorzesTab</code> (1785 sor) senkit nem szolgál ki, a desktop párhuzamosan fejlődő 1393 soros saját implementációt futtat. A megosztott tiszta függvényeket (<code>parseUblXml</code>, <code>matchXmlsToKiadas</code>) a desktop importálja, de a <strong>teljes vezérlést</strong> újraírja — így minden javítás pontosan felezve ér célba. Ez a lánc első számú strukturális problémája: a 2026-08-28-i <code>semnatura</code>-javítás, a 2026-06-14-i P0-2 adatvesztés-javítás, a duplikátum-figyelmeztetés és a valós mtime mind csak az egyik ágra ment be.</p>
+</li>
+<li>
+<p><strong>Két UBL-parser, két igazság.</strong> <code>packages/ui-app/.../ubl-parser.ts</code> (DOMParser, 340 sor) és <code>apps/web/lib/oblio/ubl-parser.ts</code> (saját tokenizáló, 516 sor). Bizonyítottan eltérnek: <code>||</code> vs <code>??</code> a bruttónál, <code>gyokerNev</code> mező megléte, méret- és mélység-plafon megléte, fájlnév-segédek viselkedése, hibakezelés (néma vs. fail-closed). <strong>Javaslat:</strong> a KÖZÖS, DOM-független magot (mezőnevek, összeg-szemantika, CUI-lánc, fájlnév-segédek) egy <code>@kartoteka/core</code>-beli modulba emelni; a két parser csak a bemenet-olvasásban különbözzön.</p>
+</li>
+<li>
+<p><strong>Két igazság-forrás ugyanarra a kérdésre.</strong> <code>oblio_kiadas_match</code> (mappás út, desktop-only) és <code>szallitoi_szamla_kiadas</code> (feltöltéses út, web-only). A webes Tranzakciók fül mindkettőt olvassa, a desktop egyiket sem teljesen — ezért ad a desktop „Nincs SPV-ben&quot; riasztása rendszeresen hamis számot. Az F2 javaslat ezt szünteti meg.</p>
+</li>
+<li>
+<p><strong>Monolit <code>OblioEllenorzesTab</code>.</strong> 1785 sor, benne egyetlen <code>handleRefresh</code> (338 sor), ami scan → kibontás → parse → cache → DB-lekérés → matcher → auto-perzisztálás → mtime-írás láncot futtat, hiányos <code>useCallback</code> függőségekkel. Ez a fájl ma halott; <strong>ne javítsuk, hanem döntsük el a sorsát</strong> (törlés vagy újraaktiválás), mert amíg ott áll, minden későbbi javítás ide megy a valóban futó Rust-ág helyett.</p>
+</li>
+<li>
+<p><strong>Kétrétegű, de nem azonos hatókör.</strong> Az app minden Oblio-lekérésre explicit <code>.eq('congregation_id', effectiveCongregationId)</code>-et tesz (fail-closed, a NULL-skalár hibaosztály itt <strong>nem</strong> áll fenn), az RLS viszont a jóval tágabb <code>current_user_can_access_congregation()</code>-t engedi. A helyesség feltétele, hogy az app-oldali szűrő SOHA ne maradjon le — az RLS nem fogja megfogni. Két helyen már le is maradt (<code>saveOblioMatch</code> CUI-mellékírás, desktop közvetlen írások).</p>
+</li>
+<li>
+<p><strong>Az őrszemek nem oda néznek, ahol a kód fut.</strong> <code>selftest-szamla-zip-alairas.mjs</code> a webes (halott) olvasót ellenőrzi „desktop mappaolvasó&quot; néven; <code>selftest-oblio-evzar.mjs</code> egy halott utat őriz, és két mutáns bizonyítottan átcsúszik rajta; a <code>selftest-ubl-parser.mjs</code> csak a szerveres parsert tölti be, miközben a másik szolgálja ki a desktopot; a <code>selftest-adatvedelmi-fedezet.mjs</code> egyetlen IndexedDB-nevet ismer. <strong>A projekt saját, memóriában rögzített hibaosztálya („őrszem negatív asszert nélkül vak&quot;) itt négyszer sült el.</strong></p>
+</li>
+<li>
+<p><strong>A <code>high</code> konfidencia mint íratlan szerződés.</strong> A matcher <code>confidence:'high'</code> kimenetét mindkét hívó megerősítés nélkül DB-be írja, és a következő futáson az 1. lépcső „kézzel megerősített&quot;-ként adja vissza. Ez azt jelenti, hogy <strong>minden <code>high</code>-ág fals pozitívja azonnal és visszafordíthatatlanul bebetonozódik</strong>. A matcher küszöbein bármilyen jövőbeli módosítás pénzügyi hatású — és ez az egyetlen automatán perzisztáló pénzügyi függvény, amit nulla önteszt véd.</p>
+</li>
+</ol>
+<hr>
+<h2 id="s34-9-javasolt-cselekvesi-sorrend">9. Javasolt cselekvési sorrend</h2>
+<p><strong>0. lépés — élő állapotfelmérés (a migrációs fájl nem bizonyíték).</strong> Futtatandó SQL-csomag, mielőtt bármit javítunk:</p>
+<pre><code class="language-sql">-- (a) vault ACL
+SELECT p.oid::regprocedure, pg_catalog.array_to_string(p.proacl,' | ') FROM pg_proc p
+JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public'
+  AND p.proname IN ('vault_encrypt','vault_decrypt');
+-- (b) oszlop-jogok a titkon
+SELECT grantee, privilege_type, column_name FROM information_schema.column_privileges
+WHERE table_name='oblio_fiokok' AND column_name='api_secret_encrypted';
+-- (c) hiányzik-e az ertesitesek.megjegyzes?
+SELECT column_name FROM information_schema.columns
+WHERE table_schema='public' AND table_name='ertesitesek' AND column_name='megjegyzes';
+SELECT public.check_oblio_deadline_for_user();
+-- (d) létezik-e a match unique constraint (minden upsert erre épül)?
+SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
+WHERE conrelid='public.oblio_kiadas_match'::regclass;
+-- (e) kitettség-mérők
+SELECT congregation_id, utolso_teszt_hiba FROM public.oblio_fiokok WHERE utolso_teszt_hiba IS NOT NULL;
+SELECT e_factura_status, count(*) FROM public.oblio_szamlak WHERE tipus='e_factura' GROUP BY 1;
+SELECT congregation_id, anaf_uuid, count(*) FROM public.szallitoi_szamla
+  WHERE anaf_uuid !~ '^[0-9]{8,}$' GROUP BY 1,2 ORDER BY 3 DESC;
+SELECT m.id FROM oblio_kiadas_match m JOIN kiadas k ON k.id=m.kiadas_id
+  WHERE k.congregation_id &lt;&gt; m.congregation_id;
+SELECT id, nev, tva_alany, tva_alany_tol FROM public.congregations WHERE tva_alany = true;
+</code></pre>
+<p><strong>1. Biztonsági zárás (P0-1, P0-2).</strong> REVOKE-ok élesben; service-role kliens a széfhez; oszlop-szintű GRANT; a <code>2026-07-17-…sql</code> allowlist tisztítása; token-cache kulcs javítása; CIF-lista kiszedése a hibaüzenetből; <code>testOblioConnection</code> szerepkör-kapu. Utána <strong>kulcsforgatás + Oblio-oldali secret-csere</strong>. <em>(Zárja: P0-1, P0-2, P2-„vault STABLE&quot;, P2-„kapuzatlan testOblioConnection&quot;, P3-„nyers hibaszöveg&quot;, P1-26.)</em></p>
+<p><strong>2. Desktop adatvesztés megállítása (P0-6, P1-1, P1-2).</strong> <code>move_into</code> ütközés-ág, <code>remove_file</code> beemelése az <code>if moved</code> ágba, <code>let _</code> felszámolása; token-alapú <code>semnatura</code>-felismerés Rustban; beágyazott ZIP rekurzió + fail-closed; <code>report.errors</code> megjelenítése a felületen; <code>skipped</code> szétbontása. <strong>Emellé: az <code>excel.rs</code> felvétele a <code>selftest-szamla-zip-alairas.mjs</code> fájllistájába, mutáns-alapú negatív asszerttel.</strong> <em>(Zárja: P0-6, P1-1, P1-2, P2-„félbehagyott kibontás&quot;, P2-„Rust ZIP-bomba&quot;, P2-„path-traversal&quot;, P3-vak őrszem.)</em></p>
+<p><strong>3. Kimenő számlázás megfelelősége (P0-3, P0-4).</strong> ÁFA-kulcs egyetlen dátumhoz kötött forrásból; <code>art. 331</code> hivatkozás törlése; <code>tva_alany_tol</code> figyelembevétele; a bruttó az Oblio válaszából; idempotencia-kapu + szándék-sor + timeout-egyeztetés; <code>try/catch/finally</code> a kiállító dialógusban; ÁFA-őrszem. <em>(Zárja: P0-3, P0-4, P1-37 egy része, P3-kerekítés.)</em></p>
+<p><strong>4. Deviza- és típus-kapuk (P0-5, P1-10, P1-11, P1-8).</strong> Fail-closed pénznem-kapu a bevezető varázslókba <strong>és szerveroldalra</strong>; jóváíró kizárása + szerveroldali őr; <code>InvoiceTypeCode</code> olvasása és a negatív-összeg szabály; <code>||</code> → <code>??</code>, majd a <code>brut</code>/<code>fizetendo</code>/<code>elolegLevonva</code> szétválasztása. Selftest mindkét parserre. <em>(Zárja: P0-5, P1-8, P1-10, P1-11.)</em></p>
+<p><strong>5. Az ANAF-óra üzembe helyezése (P1-28, P1-29).</strong> Az <code>ertesitesek</code> oszlop rendezése (vagy a meglévő <code>hivatkozas</code> használata); fail-loud <code>status:'error'</code>; <code>after()</code>; <code>recordOblioDownloadNow</code> zéró-sor őr; a desktop óra valós mtime-ra állítása és a visszaszámláló kijelzése (F9). <em>(Zárja: P1-28, P1-29, P2-„desktop óra&quot;, részben F9.)</em></p>
+<p><strong>6. Tranzakció-integritás (P1-18, P1-19, P1-20, P1-21, P1-22, P1-23).</strong> A varázsló <code>kedvezmenyzett</code> hibájának javítása (vagy áttérés a közös <code>saveExpenseUseCase</code>-re); idempotencia-kapu; ellenőrzött rollback + audit; a sztornó-kaszkádok mindkét irányban (kiadás → match; befizetés → csak <code>chitanta_papir</code>); <code>stornozott</code> szűrők; DB-szintű <code>UNIQUE (congregation_id, kiadas_id)</code> a duplikátumok kitakarítása után. <em>(Zárja: P1-18…P1-23, P2-„foglaltság&quot;, P2-„keresztoszlop-integritás&quot;.)</em></p>
+<p><strong>7. Párosító-motor helyessége (P1-12…P1-17) — CSAK őrszemmel együtt.</strong> Először <code>scripts/selftest-oblio-matcher.mjs</code> a fenti 6 esetre, mutáns-próbával; utána a küszöbök javítása. Ez a lépés önmagában nem indítható, mert minden változtatás pénzügyi hatású és azonnal perzisztálódik. <em>(Zárja: P1-12…P1-17, P2-matcher-csoport.)</em></p>
+<p><strong>8. A felület hazug jelzései (P1-33…P1-36, P1-39, P1-34).</strong> Fedezet-arány a jelvényekbe; szerveroldali <code>konyveletlen</code> szűrő; fail-closed összeg-szűrő a lookupban; a lookup ne írjon; az átnevezés csak <code>high</code>-ra; PDF-parser regex-javítások. <em>(Zárja: P1-33…P1-36, P1-39, P2-UI-csoport egy része.)</em></p>
+<p><strong>9. Teljesítmény (P1-38 + P2-teljesítmény).</strong> Előtöltő action a bevétel-sorokra; <code>useCallback</code>; lapozás/darabolás mindenhol (<code>selectAllPaged</code>); a desktop kötegelt olvasó parancsa és lokális parse-cache; a diagnosztikai ág vágása; <code>pdfjs</code> <code>destroy()</code>.</p>
+<p><strong>10. Halott kód és dokumentáció rendezése (P3).</strong> A webes mappás fül sorsának eldöntése; az őrszemek célpontjainak javítása; a súgó és a panel-szövegek átírása; a <code>kartoteka_oblio_cache</code> felvétele a kijelentkezési törlésbe (+ egyszeri purge-jelölő).</p>
+<p><strong>11. Fejlesztések (F1–F13).</strong> Az F1 (tanuló kategória), F3 (fizetési határidő) és F4 (kötegelt bevezetés) hozza a legnagyobb napi hasznot; az F2 (szallitoi_szamla-szinkron) egyszerre zárja a P1-30-at és egyesíti a két igazság-forrást.</p>
+<hr>
+<h2 id="s35-10-amit-nem-tudtunk-ellenorizni">10. Amit NEM tudtunk ellenőrizni</h2>
+<h3 id="s36-az-ellenorzesi-lanc-csonka">⚠️ Az ellenőrzési lánc CSONKA</h3>
+<p><strong>Minden találat átment EGY adversariális cáfolat-körön</strong> (külön ágens próbálta megcáfolni a forráskódban), <strong>de a tervezett MÁSODIK kör — a P0/P1 találatok kereszttüze két további, független lencsével — a munkamenet token-limitje miatt NEM futott le.</strong></p>
+<p>Ez konkrétan azt jelenti:</p>
+<ul>
+<li>A <strong>P0/P1 besorolások egyetlen ellenőrzésen alapulnak, nem hármon.</strong> Egy-egy találat súlyossága felfelé vagy lefelé tévedhet, és nem zárható ki, hogy egy P0 valójában elérhetetlen kódúton fekszik, vagy hogy egy P2 valójában élesben sül el.</li>
+<li><strong>A javítás megkezdése előtt a legsúlyosabbakat — kiemelten a hat P0-t és a 4.4/4.6 csoport P1-jeit — érdemes emberi szemmel is visszaellenőrizni</strong>, mielőtt élesben SQL-t futtatunk vagy a Rust-ághoz nyúlunk.</li>
+<li>Ez nem a találatok érvénytelensége: minden állítás mögött konkrét, idézett forráskód van, és több esetben Node-dal/rustc-vel futtatott bizonyíték is. De a „két független lencse&quot; biztosítéka hiányzik.</li>
+</ul>
+<h3 id="s37-amit-a-forraskodbol-elvileg-sem-lehetett-ellenor">Amit a forráskódból elvileg sem lehetett ellenőrizni</h3>
+<ol>
+<li><strong>Az ÉLŐ adatbázis-állapot.</strong> A repó és a produkció bizonyítottan széthúzhat (ez a projekt saját, rögzített hibaosztálya). Nem ellenőriztük: a <code>vault_encrypt</code>/<code>vault_decrypt</code> tényleges ACL-jét; az <code>oblio_fiokok</code> oszlop-szintű jogait; hogy létezik-e élesben az <code>oblio_kiadas_match_uuid_unique</code> constraint (ha hiányzik, <strong>MINDEN párosítás-mentés 42P10-zel bukik</strong>, és ezt a desktop némán elnyeli); hogy tényleg hiányzik-e az <code>ertesitesek.megjegyzes</code>; hogy hány <code>oblio_fiokok</code> sor van még legacy (üres/PIN) kulcson.</li>
+<li><strong>A produkciós séma.</strong> A <code>Database_schema.sql</code> dump bizonyítottan <strong>nem</strong> rendereli a többoszlopos UNIQUE-okat és a CREATE INDEX-eket, tehát belőle constraint-hiány nem bizonyítható. A <code>kiadas.kedvezmenyzett</code> oszlop hiányát három független forrás támasztja alá (dump + projekt-dokumentáció + CHANGELOG-beli élő hibaüzenet), de élő <code>information_schema</code> lekérdezés nem futott.</li>
+<li><strong>Az Oblio API tényleges viselkedése.</strong> Nem hívtuk az API-t. Feltevés maradt: mikor ad 200-as HTTP-t hibás borítékkal; visszhangozza-e valaha a <code>client_secret</code>-et hibaválaszban; elfogadja-e még a 19%-os kulcsot; mit ad a <code>DELETE /api/docs/invoice</code> SPV-re felment számlára; létezik-e és hogyan viselkedik a <code>PUT …/cancel</code>. A <code>withEInvoiceStatus</code> paraméter hiányának hatása szintén csak a saját típus-doksink alapján állítható.</li>
+<li><strong>Futásidejű mérés éles adaton.</strong> A teljesítmény-számok (matcher 14,4 s, <code>kiadasResults</code> 8 ms, 500-soros Tranzakciók fül ~2,5 perc) <strong>szintetikus, Node-ban újrajátszott</strong> mérések vagy a Next.js dokumentációjából vezetett következtetések — nem éles profilozás.</li>
+<li><strong>A valódi ANAF SPV / Oblio Wallet ZIP-formátumok.</strong> A beágyazott ZIP, a <code>semnatura</code>-nevezéktan és a PDF-nevezéktan a repó saját fixtúráiból és kommentjeiből ismert. Egy éles, mai SPV-letöltésen érdemes visszamérni — kiemelten a nem-UTF8/BOM-os XML esetet, ami ma némán kiesik.</li>
+<li><strong>A desktop capability-viselkedés.</strong> Az <code>openPath</code> hiányzó engedélye a <code>tauri-plugin-opener-2.5.3/permissions/default.toml</code> olvasásából következik; futó buildben nem próbáltuk ki.</li>
+<li><strong>Kliens-oldali böngésző-viselkedés.</strong> A File System Access permission-életciklus, a Dexie-hibák és a mobil érintőfelület-mérések (a 28 px-es gombok, a <code>w-full</code> táblázat 375 px-en) nem futó böngészőben lettek ellenőrizve — a repó saját, kommentben rögzített 40 px-es szabványához mértük őket.</li>
+</ol>
+<h3 id="s38-bizonytalan-tovabbi-vizsgalatot-igenyel">Bizonytalan / további vizsgálatot igényel</h3>
+<ul>
+<li><strong>A <code>stornoInvoice</code> fail-open ága</strong> (<code>oblio-actions.ts:401</code>) ma hívó nélküli, tehát latens. A besorolása (P3) azon áll, hogy az action nincs bekötve — ha bárki bekötné a P1-24 javítása során, az azonnal P0-vá válik. <strong>A bekötés ELŐTT javítani kell.</strong></li>
+<li><strong>A <code>kartoteka_oblio_cache</code> maradványainak tényleges tartalma</strong> a már telepített gépeken: nem tudjuk, hány gépen és mennyi szállítói fejadat ül benne 2026-08-15 és 08-28 között.</li>
+<li><strong>A <code>PayableAmount=0</code> és a <code>cbc:UUID</code>-hiány gyakorisága</strong> az éles adatban: a 0. lépés (c) és a fallback-uuid felmérő SQL-je adja meg, mekkora a valós kitettség.</li>
+<li><strong>Az e-Factura státusz-eloszlás</strong> (<code>nepreluat</code> sorok aránya és koruk) mutatja meg, hány számla nem ért el ténylegesen az ANAF-hoz — ez a P1-24 prioritását dönti el.</li>
+</ul>
+<hr>
+<p><em>A jelentés a <code>feat/hibas-sor-cimzes</code> ágon, a 2026-09-02-i forrásállapot alapján készült. Minden útvonal a repó gyökeréhez képest relatív; a jelentés készítése során egyetlen fájl sem módosult.</em></p>
+</article>
+    <article class="dok" data-dok="feltoltes"><h1 id="s39-kartoteka-a-feltoltes-elso-szamla-egyeztetesi-la">KARTOTEKA — a feltöltés-első számla-egyeztetési lánc átvilágítása</h1>
+<p><strong>Dátum</strong>: 2026-09-03
+<strong>Módszer</strong>: 131-ágenses workflow (4 térképező + 13 párhuzamos vizsgálati szempont + soronkénti adversariális cáfolat + 3 hiánykritika + szintézis), ~12,2M token, 1476 eszközhívás
+<strong>Futás</strong>: <code>wf_bc0ea48c-1a8</code> · nyers 92 találat → cáfolat után 92 → deduplikálás után <strong>91</strong>
+<strong>Állapot</strong>: felmérés kész, implementáció nem kezdődött el</p>
+<blockquote>
+<p>⚠️ <strong>AZ ELLENŐRZÉS CSONKA.</strong> Minden találat átment EGY adversariális cáfolat-körön (külön ágens
+próbálta megcáfolni a forráskódban, „bizonytalanság esetén cáfolva&quot; alapértelmezéssel). A tervezett
+MÁSODIK kör — a P0/P1 találatok kereszttüze két további, független lencsével (reprodukálhatóság,
+következmény) — az első futásban a munkamenet token-limitjén elbukott, és az újrafuttatásból
+szándékosan kimaradt. <strong>A P0/P1 besorolások tehát egy ellenőrzésen alapulnak, nem hármon</strong> —
+javítás előtt a legsúlyosabbakat érdemes emberi szemmel visszaellenőrizni.</p>
+</blockquote>
+<p><strong>Melléklet</strong>: <a href="./KARTOTEKA-szamla-feltoltes-lanc-audit-2026-09-03-talalatok.json">talalatok.json</a> — mind a 91 találat gépi formában (bizonyíték-idézet, bukási forgatókönyv, javítási javaslat, a cáfoló ágens indoklása).
+<strong>Testvér-jelentés</strong>: az Oblio (mappa-alapú) lánc átvilágítása — külön fájlban.</p>
+<hr>
+<h2 id="s40-targy">Tárgy</h2>
+<p>A webes (feltöltés-első) szállítói számla-lánc és viszonya az asztali (mappa-alapú) Oblio-egyeztetéshez.
+<strong>91 megerősített találat</strong> — a fejezet-számok szerinti bontás: <strong>3 P0 · 37 P1 · 42 P2 · 9 P3</strong>.</p>
+<hr>
+<h2 id="s41-1-vezetoi-osszefoglalo">1. Vezetői összefoglaló</h2>
+<p>A feltöltés-első lánc alapszerkezete jó: a hatókör-kezelés végig <strong>fail-closed</strong> (minden action <code>getCongId()</code>-vel kezd, és <code>!congId</code> esetén azonnal visszatér — szamla-actions.ts:65, :364, :418, :456, :543, :566, :591), a Storage-út három helyen kikényszerített, az XML-parser saját, biztonságos tokenizálót használ (entitás-bomba ellen véd), és a feldolgozás újrafuttatható. A repó legfájóbb hibaosztálya — a NULL skalár hatókör miatti cross-tenant szivárgás — <strong>ebben a láncban nem áll fenn</strong>.</p>
+<p>A baj máshol van: <strong>a rendszer két külön igazságforrást tart ugyanarról a valóságról</strong> (a webes <code>szallitoi_szamla</code> + <code>szallitoi_szamla_kiadas</code>, és az asztali <code>oblio_kiadas_match</code>), amelyek között nincs FK, nincs közös kulcs-ellenőrzés, és <strong>egyetlen kódhely sem olvassa a kettőt együtt egyeztetési céllal</strong>. Ebből kettős könyvelés keletkezhet: ugyanaz az e-Factura egyszerre lehet az asztali úton a #A, a webes úton a #B kiadáshoz kötve, és <strong>mindkét felület zöld pipát mutat</strong> (F1, F5).</p>
+<p>A számlák azonosítása ingatag: az <code>anaf_uuid</code> a gyakori esetben <strong>nem az XML-ből, hanem a fájlnévből</strong> származik, és a végső visszaesés maga a csupasz fájlnév — így két különböző szállító <code>factura.xml</code>-je egyetlen kulcson ütközik, a második pedig „már rögzítve&quot; felirattal <strong>nyom nélkül elvész</strong> (F2, F10). A könyvelési kapcsolatnak nincs kiadás-oldali fedezet-őre: egy 500 RON-os kifizetés <strong>korlátlan számú</strong> 500 RON-os számlát „fedezhet&quot;, és mindegyik kifizetettként rejtőzik el (F17). A kiadás stornója vagy törlése pedig nem bontja a kapcsolatot és nem vonja vissza a „kifizetve&quot; jelzőt — a számla tévesen „Könyvelve&quot; marad, sőt a nyomtatott, kifelé menő adatlap egy stornózott tételt sorol fel könyvelési tételként (F3).</p>
+<p>A megfelelőségi kapuk közül kettő szerkezetileg vak: az év-záró „minden e-Factura bevezetve?&quot; ellenőrzés <strong>mindig zöld</strong> (a forrása egy <code>kiadas_id NOT NULL</code> tábla, F6), a 60 napos ANAF-csengő pedig a webes útra vak (F36). A törvény által 5–10 évig megőrzendő számla-fájlok <strong>nincsenek a napi mentésben</strong> (F63), a gyülekezeti adattörlés pedig a metaadatot törli, a fájlt a bucketben hagyja (F7, F28).</p>
+<p>Az őrszemek nagy része <strong>látszat-védelem</strong>: a kapcsolás pénzügyi szemantikájára (fedezet, stornó, deviza, jóváíró) <strong>egyetlen asszert sincs</strong> (F76, F87), az aláírás-őr egy halott webes modulra horgonyoz, miközben az igazi desktop ingest (Rust) máig a régi, hibás prefix-szűrőt futtatja (F34), és a 414-es darabolás-őr egy bizonyíthatóan elérhetetlen ágat véd, miközben a valóban korlátlan <code>.in()</code> őrizetlen (F35).</p>
+<p><strong>Javaslat:</strong> az F1, F2, F3, F17 és F6 a lánc gerince — ezek nélkül a rendszer pénzügyi állításai nem megbízhatók. Ezek javítása egy fókuszált körben (≈2 hét) elvégezhető, és a többi találat nagy része már csak ezek után nyer értelmet.</p>
+<hr>
+<h2 id="s42-2-hogyan-mukodik-ma-az-adatfolyam">2. Hogyan működik ma — az adatfolyam</h2>
+<p><strong>(1) Feltöltés.</strong> Két belépő (Dokumentumtár fül; „Számlák egyeztetése&quot; nagy dropzone), közös <code>DokumentumtarUploadDialog</code>. A kliens elő-validál (MIME-whitelist, 0 bájt, 25 MB — dokumentumtar-upload-dialog.tsx:100-114), majd fájlonként: <code>prepareDokumentumUpload</code> kiszámolja az utat <code>${congId}/${kategoria}/${uuid}-${tisztított_név}</code> (actions.ts:180-181), a fájl a <strong>böngészőből</strong> megy a privát bucketbe a felhasználó saját JWT-jével (upload-dialog.tsx:152-158), végül <code>registerDokumentum</code> írja a metaadat-sort prefix-őrrel (actions.ts:216-222). A szerver a bájtokat ebben a szakaszban soha nem látja.</p>
+<p><strong>(2) Feldolgozás.</strong> Ha <code>kategoria === 'szallitoi-szamlak'</code> és a név <code>.zip</code>/<code>.xml</code>, indul a <code>feldolgozSzamlaZipDokumentum</code> (szamla-actions.ts:61). Letölti a fájlt, <code>kibontSzamlaZip</code>-pel max 2 szint mélyen kibontja (aláírás-fájlok kiszűrve), párosítja az XML–PDF párokat, majd <code>parseUblSzamla</code>-val kinyeri a ~8 mezőt, és <strong>5 validációs kapun</strong> átengedve (parse-hiba / ismeretlen típus / nincs anaf_uuid / nincs végösszeg / rossz pénznem) számlánként <strong>egyenként</strong> insertel a <code>szallitoi_szamla</code>-ba. Tranzakció nincs; a védelem az idempotencia (UNIQUE + <code>.is(mezo, null)</code> őr).</p>
+<p><strong>(3) Kapcsolás.</strong> A „Számlák&quot; nézet sárga „Nincs a könyvelésben&quot; jelzőt ad, ha nincs <code>szallitoi_szamla_kiadas</code> sor. A <code>SzamlaKapcsolasDialog</code> a legutóbbi 25 élő kiadást kínálja, összeg- és név-pontozással; a <code>linkSzamlaKiadas</code> fillérre pontos fedezet-őrrel ír (szamla-actions.ts:493-513). Teljes fedezetnél a <strong>kliens</strong> hívja a <code>setSzamlaKifizetve(true)</code>-t.</p>
+<p><strong>(4) Visszacsatolás.</strong> A Tranzakciók fül zöld pipája a két forrás <strong>uniójából</strong> épül (transactions-tab.tsx:85-87) — ez az egyetlen összefésülés, és az is csak megjelenítési célú. Az év-záró <code>finalization-actions.ts</code> a <code>szallitoi_szamla</code>-t <strong>egyáltalán nem olvassa</strong>.</p>
+<hr>
+<h2 id="s43-3-a-ket-parhuzamos-egyeztetesi-ut-a-brief-kiemel">3. A két párhuzamos egyeztetési út — a brief kiemelt kérdése</h2>
+<h3 id="s44-3-1-mit-deritettunk-ki">3.1 Mit derítettünk ki</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><strong>(B) Webes, feltöltés-első</strong></th>
+<th><strong>(A) Asztali, mappa-alapú</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Tábla</td>
+<td><code>szallitoi_szamla</code> + <code>szallitoi_szamla_kiadas</code></td>
+<td><code>oblio_kiadas_match</code></td>
+</tr>
+<tr>
+<td>Kardinalitás</td>
+<td><strong>n:m</strong>, összeg-résszel (<code>UNIQUE (szamla_id, kiadas_id)</code>, SQL:146)</td>
+<td>1:1 az <code>anaf_uuid</code>-ra (SQL:75-76); <code>kiadas_id</code>-ra nincs unique</td>
+</tr>
+<tr>
+<td>Fájl-megőrzés</td>
+<td>Supabase Storage (de nincs a mentésben)</td>
+<td><strong>csak a lelkész gépén</strong> (<code>local_file_relpath</code>, SQL:53)</td>
+</tr>
+<tr>
+<td>Deviza</td>
+<td>nincs szűrő — bármit átenged</td>
+<td><code>if (!isRon(...)) continue</code> (oblio-matcher.ts:324, :385, :444)</td>
+</tr>
+<tr>
+<td>Jóváíró</td>
+<td>nincs szűrő</td>
+<td><code>if (documentType === 'credit_note') continue</code> (:327, :386, :445)</td>
+</tr>
+<tr>
+<td>Kulcs-levezetés</td>
+<td><code>anafUuidFajlnevbol</code> (ubl-parser.ts:490)</td>
+<td><code>extractAnafUuidFromFilename</code> (ui-app/.../ubl-parser.ts:310)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>A két tábla között semmilyen kapcsolat nincs</strong>: nincs FK, nincs közös unique, nincs join, és egyetlen kódhely sem olvassa a kettőt együtt (a <code>szallitoi_szamla</code> szó egyik Oblio-migrációban sem szerepel; a <code>szamla-actions.ts</code>-ben az <code>oblio_kiadas_match</code> szó egyszer sem).</p>
+<h3 id="s45-3-2-utkozhetnek-e-igen-harom-uton">3.2 Ütközhetnek-e? — Igen, három úton</h3>
+<ol>
+<li><strong>Kettős kiadás-könyvelés (F1, P0).</strong> A desktop „Bevezetés új kiadásként&quot; gombja (desktop-oblio-tab.tsx:587) feltétel nélkül ír új <code>kiadas</code> sort, és a <code>szallitoi_szamla</code>-t soha nem nézi. Három szerkezeti ok garantálja, hogy épp a weben rögzített kifizetést ne találja meg: (a) a webes kiadás-mentés a CUI-t mindig <code>null</code>-ra írja (penzugy/actions.ts:859), így az <code>auto_cui</code> ág sosem sül el; (b) deviza kihagyva; (c) jóváíró kihagyva.</li>
+<li><strong>Ugyanaz a számla két kiadáshoz (F5, P1).</strong> A webes jelző csak a saját tábláját olvassa, a <code>linkSzamlaKiadas</code> sem néz rá az <code>oblio_kiadas_match</code>-re — az asztali úton már párosított számla „Nincs a könyvelésben&quot;-ként kapcsolható egy másik kiadáshoz. Mindkét felület zöld marad.</li>
+<li><strong>Ellentmondó KPI-k (F4, P1).</strong> Az Oblio-fül „Nincs SPV-ben&quot; piros kártyája csak az <code>oblio_kiadas_match</code>-ből számol (OblioEllenorzesTab.tsx:718-722), a Tranzakciók fül viszont a két forrás uniójából (transactions-tab.tsx:85-87). Ugyanarra a 40 kiadásra az egyik képernyő „40 · Nincs SPV-ben · Kifizetés előtt ellenőrizd!&quot;, a másik 40 zöld pipát mutat.</li>
+</ol>
+<p><strong>Súlyosbító (F15, F2):</strong> a két út <strong>két külön implementációból</strong> vezeti le a közös <code>anaf_uuid</code> kulcsot, és ezek eltérő értéket adnak — futtatva: <code>4214783.xml.zip</code> → web <code>&quot;4214783&quot;</code>, ui-app <code>&quot;4214783.xml&quot;</code>. A webes komment (ubl-parser.ts:486-488) azt állítja, hogy „azonos szemantika&quot; — <strong>ez nem igaz</strong>. Vagyis egy jövőbeli kereszt-ellenőrzés <strong>hamis „nincs ütközés&quot;-t adna</strong>.</p>
+<h3 id="s46-3-3-javaslat">3.3 Javaslat</h3>
+<p><strong>Rövid távon (a döntés előtt is elvégezhető):</strong></p>
+<ul>
+<li>A <code>matchXmlsToKiadas</code> <code>existing</code> listájába (desktop-oblio-tab.tsx:326) kerüljenek be a <code>szallitoi_szamla ⋈ szallitoi_szamla_kiadas</code> párok is → a weben lekötött kiadás ne legyen szabad jelölt.</li>
+<li>A <code>handleIntroduceExpense</code> (desktop-oblio-tab.tsx:587) insert előtt kérdezze le a <code>szallitoi_szamla</code>-t az <code>anaf_uuid</code>-ra, és fail-closed módon tiltsa a bevezetést, ha találat van.</li>
+<li>A <code>linkSzamlaKiadas</code> (szamla-actions.ts:450) és a <code>saveOblioMatch</code> (oblio-ellenorzes-actions.ts:151) szimmetrikusan nézzen rá a másik táblára.</li>
+<li><strong>Előfeltétel:</strong> a két kulcs-levezetést <strong>egy közös implementációra</strong> kell húzni, különben a kereszt-ellenőrzés némán vak.</li>
+</ul>
+<p><strong>Középtávon — döntés kell Endrétől:</strong> vagy (a) a két tábla egyesítése (a <code>oblio_kiadas_match</code> legyen a <code>szallitoi_szamla</code> egy <code>forras='mappa'</code> változata), vagy (b) egy felügyeleti nézet, amely azonos <code>anaf_uuid</code>-ot eltérő <code>kiadas_id</code>-vel talál a két táblában, és <strong>hangos sávot mutat mindkét felületen</strong>.</p>
+<hr>
+<h2 data-sev="P0" id="s47-4-p0-azonnali" class="sev-P0">4. P0 — azonnali</h2>
+<h3 data-sev="P0" id="s48-p0-1-a-desktop-bevezetes-uj-kiadaskent-vak-a-web" class="sev-P0">P0-1 · A desktop „Bevezetés új kiadásként&quot; vak a webes párosításra → kettős könyvelés</h3>
+<p data-sev="P0"><strong>Hol:</strong> <code>apps/desktop/src/components/desktop-oblio-tab.tsx:587</code> (a gomb: :960-969; a <code>loadData</code> csak két táblát olvas: :232-247; az <code>existing</code> halmaz: :326-329)
+<strong>Miért baj a lelkész munkájában:</strong> A gyülekezet 500 EUR-s számlát kap. A lelkész a weben feltölti, rögzíti a kifizetést, összekapcsolja → „Könyvelve — BCR EUR&quot; + „Kifizetve&quot;. Egy hét múlva ugyanezt az ANAF-ZIP-et az asztali programban is beolvassa. A matcher a <code>!isRon('EUR')</code> miatt mind a három ágon átugorja (oblio-matcher.ts:324, :385, :444), tehát a sor „nincs párosítva&quot;, ott a zöld gomb, és a magyarázat <strong>kifejezetten kezdeményezésre buzdít</strong> (oblio-matcher.ts:581). Rákattint → <strong>kiadas #B keletkezik 500 RON összeggel</strong> (a <code>brut</code> a nyers EUR-érték, átváltás nélkül — desktop-oblio-tab.tsx:610). A főkönyvben most <strong>két kiadás</strong> áll ugyanarról a számláról, a következő frissítéskor a matcher a #B-hez auto-párosítja (a #B-n már van CUI, :615), és a Tranzakciók fülön <strong>mindkét sor zöld pipát kap</strong>. Az éves Számadás 500 RON-nal túlkölt. Ugyanez áll jóváírónál (visszajáró pénz könyvelődik kiadásként) és minden RON-os számlánál, ahol a kifizetés 60 napnál későbbi a számla keltétől (oblio-matcher.ts:343) — ami épp a webes úton tipikus, mert az előkitöltés a <strong>mai napot</strong> írja (kifizetetlen-main.tsx:205).
+<strong>Mit kell tenni:</strong> (1) fail-closed <code>szallitoi_szamla</code> duplikátum-kapu a <code>handleIntroduceExpense</code> insertje elé, beszédes magyar üzenettel; (2) az <code>existing</code> listába a webes párok; (3) a varázsló utasítsa el a devizás és jóváíró számlát; (4) felügyeleti lekérdezés az ütközésekre.
+<strong>Ráfordítás:</strong> <strong>M</strong></p>
+<h3 data-sev="P0" id="s49-p0-2-az-anaf-uuid-nem-azonosito-fajlnev-alapu-vi" class="sev-P0">P0-2 · Az <code>anaf_uuid</code> nem azonosító: fájlnév-alapú visszaesés → kettős rögzítés VAGY néma számlavesztés</h3>
+<p data-sev="P0"><strong>Hol:</strong> <code>apps/web/lib/oblio/ubl-parser.ts:514</code> (a visszaesés); a védelem egyetlen lába: <code>2026-08-15-szallitoi-szamlak.sql:85-86</code>; a lookup: <code>szamla-actions.ts:213-221</code>
+<strong>Miért baj:</strong> Ha az XML-ben nincs gyökér-szintű <code>cbc:UUID</code> (<strong>az RO_CIUS számlákon jellemzően nincs</strong> — ez a normál, nem a kivételes út), a kulcs a fájlnévből jön, és az utolsó visszaesés maga a csupasz alapnév. A projekt saját selftestje ezt <strong>elvárásként rögzíti</strong> (selftest-ubl-parser.mjs:273: <code>anafUuidFajlnevbol('abc.pdf') === 'abc'</code>).</p>
+<ul data-sev="P0">
+<li><strong>(A) Kettős rögzítés:</strong> ugyanaz a valós számla két úton érkezik — SPV-ből <code>SUPPLIER_EFI123_6245906283.xml</code> (kulcs: <code>6245906283</code>), a szállítótól e-mailben <code>Factura_martie.xml</code> (kulcs: <code>Factura_martie</code>). <strong>Két sor egy tartozásról</strong>, mindkettő a Fizetendő kártyán, mindkettő külön kiadáshoz kapcsolható.</li>
+<li><strong>(B) Néma vesztés:</strong> két <strong>különböző</strong> szállító <code>factura.xml</code>-je azonos kulcsot kap (a <code>csakFajlnev</code> eldobja a mappa-utat, zip-kibonto.ts:60-63). Az első bekerül; a második „Már korábban rögzített számlák (nem duplikáltuk)&quot; felirattal jelenik meg (szamla-feldolgozas-eredmeny.tsx:78), és <strong>soha nem rögzül</strong>. A második szállító követelése nyom nélkül eltűnik.</li>
+<li><strong>Kis-nagybetű-érzékeny</strong> is: <code>factura.xml</code> ≠ <code>Factura.xml</code> → két sor (F10).</li>
+<li><strong>A hivatalos íven</strong> „ANAF-azonosító: factura&quot; jelenik meg (szamla/[id]/page.tsx) — fájlnév-töredék hivatalos rovatban.
+<strong>Mit kell tenni:</strong> Ha nincs valódi <code>cbc:UUID</code>, <strong>ne essünk vissza a csupasz fájlnévre</strong>. A kulcs legyen az identitás — <code>${szallito_cui}|${szamla_szam}|${kiallitas_datum}</code> normalizálva —, a fájlnév-futam csak 8+ jegyű szám esetén. Ha egyik sem áll elő: hangos hiba (a :190-es mintára). DB-szintű második vonal: <code>CREATE UNIQUE INDEX ... (congregation_id, upper(btrim(szallito_cui)), upper(btrim(szamla_szam))) WHERE ... IS NOT NULL</code>. A <code>selftest-ubl-parser.mjs:273</code> <strong>át kell írni</strong>, különben az őr a hibát őrzi.
+<strong>Ráfordítás:</strong> <strong>M</strong> (+ egyszeri diagnosztikai SQL a már bent lévő sorokra)</li>
+</ul>
+<h3 data-sev="P0" id="s50-p0-3-a-kiadas-stornoja-torlese-nem-bontja-a-kapc" class="sev-P0">P0-3 · A kiadás stornója/törlése nem bontja a kapcsolatot és nem vonja vissza a „kifizetve&quot;-t</h3>
+<p data-sev="P0"><strong>Hol:</strong> <code>apps/web/app/(dashboard)/dokumentumtar/szamla-actions.ts:612</code> (a zöld jelző forrása, szűrő nélkül); a mentéskori szűrő: <code>:481-484</code>; <code>listSzamlaKiadasKapcsolatok</code>: <code>:568-573</code>; adatlap: <code>szamla/[id]/page.tsx:40-43</code>
+<strong>Miért baj:</strong> A <code>deleted</code>/<code>stornozott</code> szűrő <strong>csak a mentés pillanatában</strong> él. A <code>ON DELETE CASCADE</code> (SQL:143-144) sosem sül el, mert a kiadás mindig <strong>soft</strong> delete (<code>penzugy/actions.ts:2886</code>) illetve storno (<code>edit-storno-actions.ts:633-634</code>); a storno-kaszkád explicit csak az <code>oblio_szamlak</code>-ig ér el (:673-675). A lelkész elgépeli a kiadást (5000 helyett 500), összekapcsolja → kifizetve=true. Másnap stornózza és rögzíti a helyeset. <strong>Eredmény:</strong> (a) a lista zöld „Könyvelve — Kassza&quot;; (b) a számla kiesik a „Nincs a könyvelésben&quot; szűrőből; (c) <strong>a nyomtatható, kifelé menő adatlap egy stornózott tételt sorol fel „Könyvelési tétel(ek)&quot; cím alatt</strong> (page.tsx:179-211); (d) a számla „Kifizetve&quot;-ként rejtve marad; (e) az <strong>új, helyes kiadás nem kapcsolható</strong>, mert a halott kapcsolat lefedi a teljes összeget. Semmi nem utal arra, hogy előbb bontani kell.
+<strong>Mit kell tenni:</strong> <strong>Olvasás:</strong> minden kapcsolat-olvasó szűrjön élő kiadásra — de a kiszűrt sort <strong>ne tüntesse el némán</strong>, hanem piros „a kapcsolt kiadás stornózva — bontsd a kapcsolatot&quot; állapotként mutassa. <strong>Írás:</strong> a <code>stornoTransaction</code>/<code>deleteTransaction</code> kaszkádoljon a <code>szallitoi_szamla_kiadas</code>-ra, és állítsa vissza a <code>kifizetve</code>-t; a kaszkád hibája hangos <code>figyelmeztetes</code>-ként érjen vissza (az <code>oblio_szamlak</code> mintájára, :685-690). Egyszeri SQL a már meglévő halott kapcsolatokra.
+<strong>Ráfordítás:</strong> <strong>M</strong></p>
+<hr data-sev="P0">
+<h2 data-sev="P1" id="s51-5-p1-surgos" class="sev-P1">5. P1 — sürgős</h2>
+<h3 data-sev="P1" id="s52-5-1-a-ket-igazsagforras-kovetkezmenyei" class="sev-P1">5.1 A két igazságforrás következményei</h3>
+<table data-sev="P1">
+<thead>
+<tr>
+<th>#</th>
+<th>Találat</th>
+<th>Hol</th>
+<th>Ráford.</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>F4</td>
+<td>A „Nincs SPV-ben&quot; piros KPI csak az <code>oblio_kiadas_match</code>-ből számol, a Tranzakciók fül a két forrás uniójából → <strong>ugyanarra a 40 kiadásra ellentmondó képernyők</strong>. A megosztott komponens típusa nem is ismeri a hidat (<code>feltoltottParok</code> hiányzik).</td>
+<td><code>OblioEllenorzesTab.tsx:718-722</code> ⇄ <code>transactions-tab.tsx:85-87</code></td>
+<td>S</td>
+</tr>
+<tr>
+<td>F5</td>
+<td>A webes párosítás-jelző és a <code>linkSzamlaKiadas</code> vak az <code>oblio_kiadas_match</code>-re → az asztali úton már párosított számla egy <strong>másik</strong> kiadáshoz kapcsolható; mindkét felület zöld.</td>
+<td><code>szamla-actions.ts:612</code>, <code>:450-536</code></td>
+<td>M</td>
+</tr>
+<tr>
+<td>F6</td>
+<td><strong>Az év-záró e-Factura kapu szerkezetileg soha nem tud jelezni</strong>: <code>oblioXmls.filter(x =&gt; !x.kiadas_id)</code> egy <code>kiadas_id NOT NULL</code> táblán — mindig üres, mindig „Mind a N bevezetve&quot;. A <code>szallitoi_szamla</code>-t a fájl nem is olvassa. Az ígért átfedés-ellenőrzés (<code>oblioMatchesRes</code>) soha nem íródott meg.</td>
+<td><code>finalization-actions.ts:318</code>, forrás :164-170; <code>wc2-10-oblio-ellenorzes.sql:43</code></td>
+<td>M</td>
+</tr>
+<tr>
+<td>F15</td>
+<td>A két út <strong>két külön implementációból</strong> vezeti le a kulcsot, eltérő eredménnyel; a „azonos szemantika&quot; komment hamis.</td>
+<td><code>ubl-parser.ts:490</code> ⇄ <code>ui-app/.../ubl-parser.ts:310</code></td>
+<td>S</td>
+</tr>
+</tbody>
+</table>
+<h3 data-sev="P1" id="s53-5-2-kapcsolas-integritas" class="sev-P1">5.2 Kapcsolás-integritás</h3>
+<table data-sev="P1">
+<thead>
+<tr>
+<th>#</th>
+<th>Találat</th>
+<th>Hol</th>
+<th>Ráford.</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>F17</strong></td>
+<td><strong>Nincs kiadás-oldali fedezet-őr</strong>: egy 500 RON-os kifizetéshez korlátlan sok 500 RON-os számla köthető, mindegyik „Könyvelve&quot; + „Kifizetve&quot;. 1500 RON tartozás rejtőzik el 500 RON mögött. Az egész repóban egyetlen lekérdezés sem aggregál <code>kiadas_id</code> szerint.</td>
+<td><code>szamla-actions.ts:494</code>; <code>SQL:146</code></td>
+<td>M</td>
+</tr>
+<tr>
+<td>F18</td>
+<td>A „Könyvelve&quot; jelző <strong>puszta létezés-alapú</strong>: egy 50 RON-os részkapcsolás egy 5000 RON-os számlán is teljes zöldet ad, és kiveszi a „Nincs a könyvelésben&quot; szűrőből. A mező alapértéke egy kattintással kitölthető.</td>
+<td><code>szamla-egyeztetes-main.tsx:359</code>; <code>szamla-kapcsolas-dialog.tsx:136</code></td>
+<td>M</td>
+</tr>
+<tr>
+<td>F19</td>
+<td><strong>Pénznem-vak fedezet-őr</strong>: 100 EUR-s számlát egy 100 RON-os kiadás „teljesen kifizet&quot; (<code>10000 &gt;= 10000</code>), a számla eltűnik a kifizetetlen listából. Az asztali matcher ezt explicit tiltja.</td>
+<td><code>szamla-actions.ts:507</code>; vö. <code>oblio-matcher.ts:385</code></td>
+<td>M</td>
+</tr>
+<tr>
+<td>F20</td>
+<td><strong>A jóváíró (CreditNote) kiadáshoz kapcsolható</strong> és kifizetettnek jelölhető — fordított irányú könyvelés. A soron ott a „Kifizetés rögzítése&quot; gomb, holott a szállító tartozik nekünk. A rendszer máshol tudja az előjelet (<code>kifizetetlen-main.tsx:144</code>).</td>
+<td><code>szamla-actions.ts:450</code>; <code>kifizetetlen-main.tsx:567</code></td>
+<td>S</td>
+</tr>
+<tr>
+<td>F53*(P2)*</td>
+<td>Véglegesített év kiadásához is szabadon kapcsolható/bontható — év-kapu, megerősítés és változásnapló nélkül, <strong>hard DELETE</strong>.</td>
+<td><code>szamla-actions.ts:477</code>, <code>:539-559</code></td>
+<td>M</td>
+</tr>
+</tbody>
+</table>
+<h3 data-sev="P1" id="s54-5-3-adatminoseg-a-parser-es-a-rogzites" class="sev-P1">5.3 Adatminőség — a parser és a rögzítés</h3>
+<table data-sev="P1">
+<thead>
+<tr>
+<th>#</th>
+<th>Találat</th>
+<th>Hol</th>
+<th>Ráford.</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>F11</td>
+<td><strong>Negatív végösszegű <code>&lt;Invoice&gt;</code> (román storno, InvoiceTypeCode=384) pozitív tartozásként rögzül</strong>: az irány csak a gyökér-elemnévből jön, az előjel <code>Math.abs</code>-szal elvész, az <code>InvoiceTypeCode</code>-ot a parser sehol nem olvassa. A −119 RON-ból +119 RON tartozás lesz, javíthatatlanul (nincs UPDATE grant az <code>osszeg</code>-re).</td>
+<td><code>szamla-actions.ts:294</code>; <code>ubl-parser.ts:374-376</code>, <code>:433-438</code></td>
+<td>M</td>
+</tr>
+<tr>
+<td>F12</td>
+<td><strong>Az összeg-parszolóban nincs alak-ellenőrzés</strong>: <code>1,234</code> → <strong>1.234</strong> (1000× kevesebb, hiba nélkül); <code>1,234.56</code> és <code>1.234,56</code> → a számla elutasítva; <code>0x64</code> → 100; <code>1e3</code> → 1000. Ugyanez a testvér-parserben is. Az <code>osszeg</code> utólag nem javítható.</td>
+<td><code>ubl-parser.ts:309</code>; <code>ui-app/.../ubl-parser.ts:98-103</code></td>
+<td>S</td>
+</tr>
+<tr>
+<td>F13</td>
+<td><strong>PayableAmount=0.00 (teljes előleg) → 0 Ft-os számla</strong>, amihez egyetlen kiadás sem kapcsolható (<code>CHECK (osszeg_resz &gt; 0)</code>), örökre a kifizetetlen listában. A böngészős testvér ugyanarra a fájlra 595-öt ad (<code>??</code> vs `</td>
+<td></td>
+<td>`).</td>
+</tr>
+<tr>
+<td>F14</td>
+<td>Kulcs-ütközéskor a duplikátum-ág <strong>tartalmi ellenőrzés nélkül</strong> a MÁSIK számla XML/PDF-jét köti a meglévő sorhoz, és a <strong>tárolt</strong> számlaszámot jelenti → az A számla adatalapja mögött a B szállító hiteles bizonylata áll.</td>
+<td><code>szamla-actions.ts:251</code>, <code>:271-276</code></td>
+<td>S</td>
+</tr>
+</tbody>
+</table>
+<h3 data-sev="P1" id="s55-5-4-robusztussag-a-lanc-elakadasai" class="sev-P1">5.4 Robusztusság — a lánc elakadásai</h3>
+<table data-sev="P1">
+<thead>
+<tr>
+<th>#</th>
+<th>Találat</th>
+<th>Hol</th>
+<th>Ráford.</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>F16/F33/F78</td>
+<td><strong>A feltöltő dialógus véglegesen befagy</strong>: <code>handleUpload</code> teljes törzse try/catch/finally nélkül; a lezáró <code>setUploading(null)</code> / <code>setFeldolgozasFut(false)</code> csak a boldog ágon fut, a bezárás <code>if (isUploading) return</code>-nel tiltott. A már feltöltött objektum kompenzáció nélkül árván marad. <strong>Ez pontosan az a hibaosztály, amit a lista-betöltőn már javítottak</strong> — de az őr kizárólag a <code>const load = useCallback</code> blokkot nézi. A repóban <strong>nincs <code>vercel.json</code> és nincs <code>maxDuration</code></strong> a láncban; a mért kiváltó ok a ~100 mp-es proxy-elvágás.</td>
+<td><code>dokumentumtar-upload-dialog.tsx:119</code>, <code>:218</code>, <code>:251-256</code></td>
+<td>S</td>
+</tr>
+<tr>
+<td>F8</td>
+<td><strong>Egyetlen sérült vagy 0 bájtos BELSŐ ZIP megsemmisíti az egész köteget</strong>: a rekurzió elutasítása a legkülső catch-ig fut, ami a már kibontott fájlokat eldobja. 40-ből 39 hibátlan számla vész el, angol JSZip-üzenettel. Az XML/PDF-ág ugyanezekre az esetekre csak bejegyzés-szinten áll meg.</td>
+<td><code>zip-kibonto.ts:132</code>, <code>:85-89</code>; <code>szamla-actions.ts:135</code></td>
+<td>S</td>
+</tr>
+<tr>
+<td>F9/F68</td>
+<td><strong>ZIP-bomba: a 100 MB-os őr a teljes kicsomagolás UTÁN mér.</strong> Mérve: 2 MB-os ZIP → 3,65 GB csúcs-RSS; a kicsomagolt méret a központi könyvtárból <strong>előre olvasható</strong> lenne (<code>_data.uncompressedSize</code>). A <code>next start</code> egyetlen Node-folyamat → az OOM <strong>minden gyülekezetet</strong> érint.</td>
+<td><code>zip-kibonto.ts:141</code>, <code>:127-131</code></td>
+<td>S</td>
+</tr>
+<tr>
+<td>F31</td>
+<td><strong>Számlánként 7 szekvenciális Supabase-kör</strong>: 100 számlánál 702 egymás utáni kör, kötegelés nélkül. A dialógus közben zárolva.</td>
+<td><code>szamla-actions.ts:281</code></td>
+<td>M</td>
+</tr>
+<tr>
+<td>F35</td>
+<td>A <strong>414-es darabolás-őr elérhetetlen ágat véd</strong> (≤30 azonosító), miközben a ZIP-feldolgozó <code>.in('anaf_uuid', …)</code>-ja <strong>darabolatlan</strong>, akár 250 azonosítóval → 150 számlás éves ZIP-nél 414, az egész köteg feldolgozhatatlan.</td>
+<td><code>szamla-actions.ts:213-217</code> vs <code>:610</code>; <code>selftest-…-ux.mjs:88</code></td>
+<td>S</td>
+</tr>
+<tr>
+<td>F67</td>
+<td>A ZIP-bejegyzés-számláló <strong>az aláírás-fájlokat és a belső ZIP-eket is beleszámolja</strong> az 500-as őrbe → az ANAF lapos formátumnál ~250, az Oblio Wallet-exportnál ~125 számlánál áll le. A lelkész nem tud SPV-ZIP-et darabolni.</td>
+<td><code>zip-kibonto.ts:106</code></td>
+<td>S</td>
+</tr>
+</tbody>
+</table>
+<h3 data-sev="P1" id="s56-5-5-igazsag-es-teljesseg-a-listakban" class="sev-P1">5.5 Igazság és teljesség a listákban</h3>
+<table data-sev="P1">
+<thead>
+<tr>
+<th>#</th>
+<th>Találat</th>
+<th>Hol</th>
+<th>Ráford.</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>F21/F30</td>
+<td><strong>A kifizetetlen helyi lista 200 tételnél némán csonkul</strong>, jelző nélkül — az eredmény-típusban nincs <code>helyiTobbLehet</code>, miközben az Oblio-ágnak van sávja. A „Fizetendő&quot; kártya ~13%-kal kevesebbet mutat, a fejléc magabiztosan „200 tétel&quot;.</td>
+<td><code>kifizetetlen-actions.ts:41</code>, <code>:96</code>; <code>kifizetetlen-types.ts:47-58</code></td>
+<td>S</td>
+</tr>
+<tr>
+<td>F22</td>
+<td><strong>Túlbecsült tartozás</strong>: a részben kapcsolt számla <strong>bruttó</strong> összege szerepel a listában, az összegzésben és a rögzítő-előkitöltésben — 1000 RON-ból 600 már könyvelve, mégis 1000 látszik, és a rögzítő 1000-et tölt elő.</td>
+<td><code>kifizetetlen-actions.ts:89</code>, <code>:122</code>; <code>kifizetetlen-main.tsx:211</code></td>
+<td>M</td>
+</tr>
+<tr>
+<td>F23</td>
+<td><strong>A számla iránya a forrásból következik, nem a tartalomból</strong>: a parser kinyeri a <code>vevoCui</code>-t „ellenőrzéshez&quot;, de a rendszer eldobja → a saját, KIÁLLÍTOTT számla is „fizetendő&quot; szállítói számlává válik, és az Oblio-ág ugyanazt kintlévőségként is hozza → <strong>kétszer számolva</strong>.</td>
+<td><code>kifizetetlen-actions.ts:115</code>; <code>ubl-parser.ts:48-51</code></td>
+<td>M</td>
+</tr>
+<tr>
+<td>F32</td>
+<td>A „Nincs a könyvelésben&quot; szűrő <strong>csak a betöltött 30 soron fut</strong>, a lapozó a szűretlen összesből → „Nincs a szűrésnek megfelelő számla&quot; 350 számla és „1 / 12&quot; mellett. A képernyő fő rendeltetése hiúsul meg.</td>
+<td><code>szamla-egyeztetes-main.tsx:202</code></td>
+<td>M</td>
+</tr>
+<tr>
+<td>F39</td>
+<td>A jelölt-lista <strong>fixen a legutóbbi 25 kiadás, kereső nélkül</strong> → visszamenőleges ZIP-feltöltésnél a helyes kiadás elérhetetlen, és a felület azt tanácsolja: „előbb rögzítsd a kifizetést&quot; — <strong>kettős kiadás-rögzítés felé terel</strong>. A repóban él egy tesztelt, használatlan matcher (<code>oblio-matcher.ts:272</code>).</td>
+<td><code>kifizetetlen-actions.ts:294</code>; <code>szamla-kapcsolas-dialog.tsx:296-297</code></td>
+<td>M</td>
+</tr>
+<tr>
+<td>F55*(P2)*</td>
+<td>A kifizetetlen-jelvény az Oblio-kintlévőségeket is számolja, de a célfül (Számlák) csak a feltöltött számlákat mutatja → „3 kifizetetlen&quot; → <strong>üres képernyő</strong>.</td>
+<td><code>kifizetetlen-belepo.tsx:59</code>; <code>szamlak-egyeztetese-tabs.tsx:164</code></td>
+<td>S</td>
+</tr>
+</tbody>
+</table>
+<h3 data-sev="P1" id="s57-5-6-biztonsag-jogosultsag-megfeleloseg" class="sev-P1">5.6 Biztonság, jogosultság, megfelelőség</h3>
+<table data-sev="P1">
+<thead>
+<tr>
+<th>#</th>
+<th>Találat</th>
+<th>Hol</th>
+<th>Ráford.</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>F24</strong></td>
+<td><strong>A pénzügyi irat-táblák profile_roles RLS-lába szerep-szűrő nélküli</strong>: egy <code>custom</code> gyülekezeti szerep <strong>üres permissions-szel is</strong> teljes olvasás/írás/<strong>törlés</strong> jogot kap a szállítói számlákra és a dokumentumtárra. A repó ugyanezt a lábat <strong>négy nappal korábban</strong> megszigorította a tagnyilvántartásnál (<code>AND pr.role IN ('lelkesz','konyvelo')</code>), és a COMMENT a felelősséget az appra hárította — <strong>az app ezt soha nem vette át</strong> (nulla <code>permissions.*</code> a láncban). A CNP védve van, a pénzügyi irat nem.</td>
+<td><code>szallitoi-szamlak.sql:206</code> (+ 10 további policy); vö. <code>2026-08-11-globalis-hozzaferes-szukites.sql:2347</code></td>
+<td>M</td>
+</tr>
+<tr>
+<td><strong>F25</strong></td>
+<td>Ugyanezen policyk profile_roles-lába <strong>nem visel <code>profiles.status='active'</code> szűrőt sem</strong> — az első láb (<code>current_user_congregation_id()</code>) igen. Egy 'pending'-re állított fiók élő sessionnel megtartja a teljes számla- és irattár-hozzáférést, DELETE-tel együtt (a layout <code>redirect('/pending')</code>-el, de <strong>nem jelentkeztet ki</strong>).</td>
+<td><code>szallitoi-szamlak.sql:208</code>; <code>layout.tsx:144</code></td>
+<td>S</td>
+</tr>
+<tr>
+<td>F26</td>
+<td><strong>Scope-divergencia:</strong> a kerületi admin „Belépés a gyülekezetbe&quot; után a Pénzügyet látja, a Dokumentumtárat <strong>némán üresnek</strong> — az app-hatókör három forrásból jöhet, az RLS kettőt ismer. Nincs hibaüzenet: a lista <code>error: null</code>-lal 0 sort ad.</td>
+<td><code>szallitoi-szamlak.sql:214</code>; <code>effective-access.ts:423-424, 446-453</code></td>
+<td>M</td>
+</tr>
+<tr>
+<td>F27</td>
+<td><strong>A végleges dokumentum-törlés audit-naplózás és jogosultsági kapu nélkül fut</strong> — a megőrzési kötelezettség alatt álló e-Factura nyom nélkül semmisül meg. A testvér-action-fájl minden párosítást naplóz (<code>oblio_match_save/remove/bulk_save</code>), a dokumentumtár <strong>nulla</strong> <code>logAuditEvent</code>-et tartalmaz.</td>
+<td><code>dokumentumtar/actions.ts:419</code></td>
+<td>S</td>
+</tr>
+<tr>
+<td>F7/F28</td>
+<td><strong>A wipe és a gyülekezet-törlés minden dokumentum-metaadatot töröl, de egyetlen fájlt sem a bucketből.</strong> A napló teljes törlést jelent; a fájlok (5 év szállítói számlája, szerződések, kivonatok) a felületről <strong>elérhetetlen és törölhetetlen</strong> módon maradnak. A séma számított az árvákra („a takarítást funkcionálisan akadályozná&quot;), a takarító <strong>soha nem íródott meg</strong>. Ha egy érintett GDPR 17. szerinti törlést kér, a napló és a valóság ellentmond.</td>
+<td><code>admin/wipe-actions.ts:49</code>; <code>dokumentumtar-gyulekezeti-fajlok.sql:289-290</code></td>
+<td>M</td>
+</tr>
+<tr>
+<td>F29</td>
+<td><strong>A <code>wipe_finance_data</code> allowlistjéből kimaradt a szállítói számla</strong> (az <code>oblio_kiadas_match</code> benne van): a <code>kiadas</code> törlése <strong>némán kaszkádol</strong> a kapcsolatokra, az audit alulszámol, és marad 47 <code>kifizetve=true</code> fantom-számla NULLA kapcsolattal — amiket a duplikátum-védelem miatt újratölteni sem lehet.</td>
+<td><code>2026-08-29-wipe-monetar.sql:34</code></td>
+<td>S</td>
+</tr>
+<tr>
+<td>F36</td>
+<td><strong>A 60 napos ANAF-csengő vak a feltöltés-első útra</strong>: a webes feltöltés nem nyúl a <code>utolso_xml_letoltes_at</code>-hoz. Csak webet használó gyülekezetnél a csengő <strong>soha nem szól</strong>; átállásnál viszont <strong>hamisan riaszt</strong>, és a lelkész megtanulja figyelmen kívül hagyni.</td>
+<td><code>szamla-actions.ts:352</code>; <code>wc2-10-oblio-ellenorzes.sql:194-201</code></td>
+<td>S</td>
+</tr>
+<tr>
+<td>F40</td>
+<td><strong>A PDF/papír szállítói számla néma sikerrel eltűnik</strong>: nincs kézi rögzítés, a <code>szallitoi_szamla</code>-ba az egyetlen út az UBL-XML — miközben a dropzone <code>accept=&quot;.zip,.xml,.pdf&quot;</code> és a szöveg PDF-et ígér. A kisvállalkozó papírszámlája sehol nem jelenik meg.</td>
+<td><code>szamla-actions.ts:281</code>; <code>szamla-egyeztetes-main.tsx:246</code></td>
+<td>M</td>
+</tr>
+<tr>
+<td>F34</td>
+<td><strong>Az aláírás-őr „desktop mappaolvasó&quot; lába HALOTT webes modult néz</strong>, az IGAZI desktop ingest (Rust) máig a <strong>régi prefix-szűrőt</strong> futtatja (<code>starts_with(&quot;semnatura_&quot;)</code>) → a <code>..._semnatura_...</code> nevű ANAF-aláírások <strong>mind a 14</strong> párosítatlan „számlaként&quot; jelennek meg. <strong>Ez pontosan az a tünet, amit az őr javítottnak nyilvánít</strong>, és a <code>npm run selftest</code> közben zöld.</td>
+<td><code>selftest-szamla-zip-alairas.mjs:59</code>; <code>src-tauri/src/excel.rs:839</code>, <code>:954</code></td>
+<td>M</td>
+</tr>
+</tbody>
+</table>
+<hr data-sev="P1">
+<h2 data-sev="P2" id="s58-6-p2-robusztussagi-es-ux-hianyok" class="sev-P2">6. P2 — robusztussági és UX-hiányok</h2>
+<h3 data-sev="P2" id="s59-6-1-feltoltes-es-bemeneti-kapuk" class="sev-P2">6.1 Feltöltés és bemeneti kapuk</h3>
+<ul data-sev="P2">
+<li><strong>A dropzone PDF-et ígér, a feldolgozó soha nem nézi meg</strong> → zöld toast, számla nem keletkezik, visszaút nincs (<code>szamla-egyeztetes-main.tsx:246</code> vs <code>upload-dialog.tsx:203-206</code>).</li>
+<li><strong>Rossz mappa-választás = néma zsákutca</strong>: átkategorizálás nem létezik, a <code>kategoria</code> oszlopra nincs UPDATE grant (<code>SQL:130-133</code>).</li>
+<li><strong><code>accept</code> kiterjesztés-alapú, a validáció MIME-alapú</strong> → a picker felajánl olyat, amit a következő képernyő elutasít (7-Zippel mentett ZIP <code>file.type</code>-ja üres).</li>
+<li><strong>Nincs szerver-oldali tekintély a bucket fölött (F43)</strong>: a gyülekezeti tag a konzolból közvetlenül <strong>törölhet</strong> objektumot (a sor bent marad, a lista hazudik) és a <code>registerDokumentum</code> megkerülésével <strong>feltölthet</strong> — láthatatlan, törölhetetlen tartalom halmozódhat. Javítás: <code>createSignedUploadUrl</code> + szűkített DELETE-policy.</li>
+<li><strong>Ál-„defense in depth&quot; (F83)</strong>: mindhárom kapu ugyanazt a kliens-küldte <code>file.type</code>-ot nézi, sosem a tartalmat; a <code>mime_type</code> utólag javíthatatlan.</li>
+<li><strong>Árva Storage-objektumok</strong>: a kompenzáció a <code>remove()</code> néma üres-lista no-op esetére vak (amit a <code>purgeDokumentum</code> explicit kezel, <code>actions.ts:400-417</code>); a hivatkozás-mentés bukása kompenzálatlan → <strong>minden újrafuttatás új másolatot hagy</strong> (F50).</li>
+<li><strong><code>registerDokumentum</code> nem ellenőrzi, hogy az objektum feltöltődött-e</strong>; a <code>meretBytes</code> a klienstől jön.</li>
+</ul>
+<h3 data-sev="P2" id="s60-6-2-feldolgozas-es-parser" class="sev-P2">6.2 Feldolgozás és parser</h3>
+<ul data-sev="P2">
+<li><strong>Fix UTF-8 dekódolás</strong> — ISO-8859-2/CP1250 XML-nél U+FFFD a szállítónévben, javíthatatlanul (nincs UPDATE grant).</li>
+<li><strong>Pénznem-szemantika széthúz (F48)</strong>: a webes út a <code>LEI</code>-t nem normalizálja RON-ra és a hiányzó pénznemet elutasítja; az asztali mindkettőt RON-ként kezeli → „1 000 RON + 500 LEI&quot; összegzés, és a két felület ugyanarról a számláról ellentmond.</li>
+<li><strong>Dátum-ellenőrzés csak alak-szintű (F49)</strong>: <code>2026-02-30</code> a Postgresig jut, 22008-cal <strong>az egész számlát eldobja</strong> egyetlen nem kötelező mező miatt, nyers angol üzenettel.</li>
+<li><strong>Nincs kriptográfiai aláírás-ellenőrzés és vevő-CUI egyeztetés (F45)</strong>: bármely well-formed <code>&lt;Invoice&gt;</code> szállítói számlává válik, az aláírás-XML nem őrződik meg, a nyomtatott ív mégis azt állítja: „a hiteles bizonylat az ANAF e-Factura XML&quot;.</li>
+<li><strong>Nincs jele, hogy egy ZIP-et már feldolgoztak</strong> — az állapot csak újrafeldolgozással deríthető ki.</li>
+<li><strong>A piros „NEM kerültek be&quot; panel a fájl-csatolási hibákra is illik (F51)</strong>, pedig a sor rögzült → a lelkész újratölt, és „14 duplikátum&quot;-ot kap.</li>
+<li><strong>A JSZip angol üzenete fordítatlanul jut a lelkészhez (F47)</strong>, és a részeredmény (<code>kihagyott</code>) elvész.</li>
+</ul>
+<h3 data-sev="P2" id="s61-6-3-versenyhelyzet-es-tranzakcio" class="sev-P2">6.3 Versenyhelyzet és tranzakció</h3>
+<ul data-sev="P2">
+<li><strong>A fedezet-őr zár nélküli read-then-write</strong> (F54): két fül egyszerre 1000+1000 RON-t kapcsolhat egy 1000 RON-os számlára. DB-szintű aggregáló CHECK nem lehetséges — <strong>trigger igen, és nincs</strong>.</li>
+<li><strong>A kifizetve-döntést a KLIENS hozza</strong> a megnyitáskori, elavulható összegből → a teljesen lefedett számla kifizetetlen maradhat.</li>
+<li><strong>A kapcsolótábla nem ellenőrzi DB-szinten a kiadás gyülekezetét</strong> (F86, F89): a számla-oldalon összetett FK áll, a kiadás-oldalon sima. Idegen-adat szivárgás nincs, de a saját sorra nézve önsértő állapot előállítható, és a 23503 létezés-orákulumot ad.</li>
+</ul>
+<h3 data-sev="P2" id="s62-6-4-kifizetetlen-ablak" class="sev-P2">6.4 Kifizetetlen ablak</h3>
+<ul data-sev="P2">
+<li><strong>Az Oblio body-szintű <code>status</code> ellenőrizetlen (F57)</strong>: HTTP 200 + <code>{status:401}</code> → néma üres kintlévőség-lista, hibajelzés nélkül, 60 mp-re cache-elve. A repó másik hívója explicit őrt tesz (<code>penzugy/oblio-actions.ts:196</code>).</li>
+<li><strong>A cache negatív eredményt is tárol, gyülekezet-kulccsal (F59)</strong>: egy felhasználó timeoutja 60 mp-ig <strong>mindenkinek</strong> kiszolgálódik.</li>
+<li><strong>A <code>!cfg</code> ág nem különbözteti meg az „nincs Oblio-fiók&quot;-ot az RLS-megtagadástól (F60)</strong> — scope-divergenciánál némán „nincs beállítva&quot;.</li>
+<li><strong>A lejárat UTC-ből számol (F58)</strong>: hajnali 1–3 között a lejárt-jelzés egy napot csúszik; <strong>év-fordulón az előkitöltött dátum az előző évbe esik</strong>, miközben az <code>evre</code> mező az újat mondja.</li>
+<li><strong>Az Oblio-lista 100 eleme nem determinált (F61)</strong>: nincs <code>orderBy</code>/<code>offset</code>; épp a legrégebben lejárt kintlévőségek maradhatnak ki, és a UI csak a mennyiségről figyelmeztet.</li>
+<li><strong>A jelvény némán elhallgatja a levágást (F56)</strong>: az <code>oblioTobbLehet</code>-et nem olvassa.</li>
+</ul>
+<h3 data-sev="P2" id="s63-6-5-teljesitmeny-es-ux" class="sev-P2">6.5 Teljesítmény és UX</h3>
+<ul data-sev="P2">
+<li><strong>A számla-kereső nem debounce-ol (F69)</strong>: 9 karakter → 27 DB-kör, és <strong>elavult válasz felülírhatja a frisset</strong> (nincs generációs őr). A testvér-képernyő ugyanebben a modulban helyesen csinálja (<code>dokumentumtar-main.tsx:169-173</code>).</li>
+<li><strong>A párosítás-lekérdezés hibája elrejti az egész számla-listát</strong>, a közvetlenül fölötte álló komment állításával <strong>ellentétben</strong> (<code>szamla-egyeztetes-main.tsx:107-108</code> vs <code>:303-310</code>).</li>
+<li><strong>A „Kifizetve&quot; pipa elvesztette a figyelmeztetést (F70)</strong>: a lecserélt képernyőn AdminConfirmDialog magyarázta („Kiadás-kapcsolat NEM készül&quot;), a fő nézetben csupasz, ~20 px-es checkbox — telefonon egy súrolás kifizetettre állítja a számlát.</li>
+<li><strong>Érintőfelület-regresszió (F73)</strong>: a Számlák nézetben egyetlen <code>min-h-11</code> sincs (28–30 px célpontok), miközben a modul többi része explicit 44 px; a <code>dokumentumtar-main.tsx:644</code> komment 40 px-et állít, a kód 28-at ad.</li>
+<li><strong>Elkapatlan Promise-elutasítások (F74)</strong>: örökre pörgő „PDF&quot; gomb, véglegesen beragadó „Kifizetetlen számlák betöltése…&quot;, mobilon üres about:blank fülön ragadó felhasználó.</li>
+<li><strong>Nincs bájt-szintű haladásjelzés és nincs megszakítás (F72)</strong>: 24 MB-os ZIP-nél a csík percekig „0 / 1 fájl kész&quot;-en áll, a „pár másodperc&quot; ígéret mellett.</li>
+<li><strong>A nyomtatható adatlap átmeneti DB-hibára is néma 404-et ad (F71)</strong> — a DDL utáni 503-ablakban a lelkész azt hiszi, eltűnt a számlája.</li>
+<li><strong>A <code>window.open</code> opener-rel nyit (F44)</strong> a mindig lefutó ágon (a tartalék ágon már van <code>noopener</code>).</li>
+<li><strong>A letöltési link <code>&amp;</code>/<code>#</code>-et tartalmazó fájlnévnél elrontja a mentett nevet (F84)</strong> — a <code>file_name</code> utólag nem javítható.</li>
+<li><strong>Második, élő kapcsoló felület maradt</strong> (<code>/dokumentumtar/kifizetetlen</code>), amit az őr épp a fülekről tiltott ki → a javítások könnyen csak az egyik felületen történnek meg.</li>
+<li><strong>A desktopra mutató kivezetés link nélküli, <code>text-slate-400</code> (~2,5:1 kontraszt, WCAG AA alatt)</strong> — pedig van kész <code>/offline</code> letöltő oldal.</li>
+</ul>
+<h3 data-sev="P2" id="s64-6-6-mentes-es-visszaallitas" class="sev-P2">6.6 Mentés és visszaállítás</h3>
+<ul data-sev="P2">
+<li><strong>A megőrzési archívum kimarad a mentésből (F63)</strong>: a bucket egyetlen táblát sem ment, a panel ezt ki is mondja — de a Dokumentumtárban erről semmi nem szól. A törvény által megkövetelt fájl <strong>egyetlen példányban</strong> létezik.</li>
+<li><strong>A besorolás <code>ON CONFLICT DO NOTHING</code> (F64)</strong>: egy már bent lévő <code>reteg = NULL</code> sort nem tud javítani, és az <strong>véglegesen blokkolja a gyülekezet visszaállítását</strong> (a preview egyetlen blokkoló táblánál megtagadja az egészet). A repó ezt a hibaosztályt már megfizette és le is írta; a későbbi migráció helyesen <code>DO UPDATE</code>-et használ.</li>
+<li><strong>Az asztali út semmilyen fájlt nem archivál a szerveren (F65)</strong> — a <code>local_file_relpath</code> egy meghalt gép mappájára mutat, és a rendszer sehol nem figyelmezteti a lelkészt.</li>
+<li><strong>A visszaállítás-előnézet mintacímkéje nyers UUID (F66)</strong>: a fehérlista nem ismeri a <code>file_name</code> / <code>szallito_nev</code> / <code>szamla_szam</code> mezőket — „mit veszítek, ha megnyomom?&quot; itt megválaszolhatatlan.</li>
+</ul>
+<h3 data-sev="P2" id="s65-6-7-az-orszemek-vaksaga" class="sev-P2">6.7 Az őrszemek vaksága</h3>
+<ul data-sev="P2">
+<li><strong>A kapcsolás pénzügyi szemantikájára NULLA asszert</strong> (F76, F87): a <code>linkSzamlaKiadas</code>, <code>unlinkSzamlaKiadas</code>, <code>setSzamlaKifizetve</code> egyike sincs megnevezve egyetlen selftestben sem. A P0-k bármelyike bevezethető zöld CI mellett.</li>
+<li><strong>A Signature-háló őre két független regexet néz a teljes fájlon (F46, F75)</strong> — mérve: a <code>kihagyott.push</code> → <code>hibak.push</code> csere, a <code>||</code> → <code>&amp;&amp;</code> csere és a teljes blokk törlése <strong>mind zöld marad</strong>.</li>
+<li><strong>A „betöltő nem ragadhat be&quot; asszert egész fájlra fut (F77)</strong> — a fájlban két <code>finally</code> van; a régi minta zöld őr mellett visszaállítható, és <strong>két testvérfájl ma is azt viseli</strong>.</li>
+<li><strong>A hatókör (fail-closed <code>getCongId()</code>, <code>.eq('congregation_id')</code>) egyetlen őrben sem szerepel</strong> (F62): a <code>congregation</code> szó előfordulása mindkét őrben <strong>0</strong>.</li>
+<li><strong>A duplikátum-védelem és az idempotencia lefedetlen (F52)</strong>, sőt a <code>selftest-ubl-parser.mjs:273</code> <strong>elvárásként rögzíti a hibás visszaesést</strong> — a helyes javítás pirosra futtatja az őrt.</li>
+<li><strong>Az egyetlen Oblio-varázsló őr halott kódútra horgonyoz (F42)</strong>; a halott <code>createKiadasFromXmlAndMatch</code> mégis <strong>élő <code>'use server'</code> végpont</strong>, ami a <code>kiadas</code>-ba közvetlenül insertel, megkerülve az iratszám-duplikátum kaput.</li>
+<li><strong>Az őr a fül-fájlt nézi, a route-ot nem (F79)</strong> — a <code>KifizetetlenMain</code> saját útvonalon él és ugyanabba a kapcsolótáblába ír.</li>
+<li><strong>A Kifizetetlen ablak egyetlen invariánsát sem őrzi selftest (F88).</strong></li>
+<li><strong>Az egyetlen valódi viselkedés-mérő őr némán <code>exit(0)</code>-zik (F91)</strong>, ha a <code>typescript</code> nem oldható fel — a gyökér package.json nem is deklarálja.</li>
+</ul>
+<hr data-sev="P2">
+<h2 data-sev="P3" id="s66-7-p3-higienia" class="sev-P3">7. P3 — higiénia</h2>
+<ol data-sev="P3">
+<li><strong>Kétszeres lista-újratöltés</strong> a számla-úton (<code>onUploaded()</code> a :189-en és a :231-en).</li>
+<li><strong>A feldolgozás-eredmény elrejti a sikertelen feltöltések újrapróbálását</strong> — a lábléc gombjai lecserélődnek.</li>
+<li><strong>A számla-képernyő nem üríti a függő fájllistát bezáráskor</strong> (a dokumentumtár-oldal igen).</li>
+<li><strong>A ZIP-kibontás hibájánál a részeredmény elvész</strong> (<code>szamla-actions.ts:135</code> korai visszatérése).</li>
+<li><strong>A parser kinyeri a <code>vevoNev</code>/<code>vevoCui</code>-t, a rendszer eldobja</strong> — a beépített ellenőrzési lehetőség kihasználatlan.</li>
+<li><strong>Nincs ÁFA-bontás a szerver-oldali parserben (F85)</strong> — a testvér-parser kinyeri; ráadásul annak doc-kommentje rossz mezőt nevez meg (<code>LineExtensionAmount</code> helyett <code>TaxExclusiveAmount</code> a kód).</li>
+<li><strong>A hibás számla-adatlap nem törölhető, holott a jog megvan</strong> — <code>GRANT DELETE</code> + policy létezik, de a kódbázisban egyetlen <code>.delete()</code> sincs a <code>szallitoi_szamla</code>-n.</li>
+</ol>
+<hr data-sev="P3">
+<h2 id="s67-8-fejlesztesi-javaslatok-a-hibaktol-elkulonitve">8. Fejlesztési javaslatok (a hibáktól elkülönítve)</h2>
+<table>
+<thead>
+<tr>
+<th>Javaslat</th>
+<th>Hatás</th>
+<th>Ráford.</th>
+<th>Hol</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Párosítási javaslat-motor</strong>: a repóban <strong>már él</strong> egy tiszta, tesztelt, DOM-mentes matcher (CUI + összeg + dátum tűrés, deviza/jóváíró kizárással) — csak a webes út nem használja. Új action <code>javasoltSzamlaParositasok(ev)</code> + „Párosítási javaslatok (N)&quot; sáv Elfogadás/Elvetés gombokkal. ⚠️ mély import (<code>@kartoteka/ui-app/src/finance/oblio/oblio-matcher</code>), <strong>soha a barrelből</strong>.</td>
+<td><strong>Nagy</strong> — 40 dialógus helyett 1 képernyő</td>
+<td>M</td>
+<td><code>oblio-matcher.ts:272</code></td>
+</tr>
+<tr>
+<td><strong>CUI-visszaírás a kapcsoláskor</strong>: a mappás út a sikeres párosításkor visszaírja a szállító CUI-ját a kiadásra (<code>syncCuiToKiadas</code>), a <code>linkSzamlaKiadas</code> soha — így a javaslat-motor a saját tanulási adatát dobja el.</td>
+<td>Nagy</td>
+<td>S</td>
+<td><code>oblio-ellenorzes-actions.ts:202-206</code></td>
+</tr>
+<tr>
+<td><strong>Kiadás-felőli nézet</strong>: „ehhez a kifizetéshez mely számlák tartoznak?&quot; — <strong>az index már megvan</strong> (<code>szallitoi_szamla_kiadas_kiadas_idx</code>, SQL:155-157), egyetlen lekérdezés sem használja. Egy lekérdezés, két haszon: UI-adat + a hiányzó kiadás-oldali fedezet-őr.</td>
+<td>Nagy</td>
+<td>M</td>
+<td><code>SQL:155-157</code></td>
+</tr>
+<tr>
+<td><strong>Kézi számla-rögzítés</strong> (PDF/papír): <code>createSzallitoiSzamlaKezi</code>, <code>anaf_uuid = 'kezi:&lt;uuid&gt;'</code> + „kézi&quot; címke a soron.</td>
+<td>Nagy</td>
+<td>M</td>
+<td><code>szamla-actions.ts:281</code></td>
+</tr>
+<tr>
+<td><strong>Fizetési határidő + megjegyzés kézi pótlása</strong>: <strong>a DB-jog megvan</strong> (<code>GRANT UPDATE (… fizetesi_hatarido, megjegyzes …)</code>), felület nincs — a DueDate nélküli számla kiesik a lejárt-jelzésből és a sürgősségi sorrendből. <strong>Migráció nem kell.</strong></td>
+<td>Közepes</td>
+<td>S</td>
+<td><code>SQL:175-177</code></td>
+</tr>
+<tr>
+<td><strong>Lista-szűrők</strong>: <code>ev</code>, <code>szallitoCui</code>, <code>rendezes</code>, <code>parositatlan</code> (szerver-oldalon); az <code>irany</code> mező ma <strong>halott kontraktus</strong>. + XLSX-export (a helper már él).</td>
+<td>Közepes</td>
+<td>M</td>
+<td><code>szamla-types.ts:81</code></td>
+</tr>
+<tr>
+<td><strong>Új év-záró pont</strong>: „Lejárt határidejű, kifizetetlen szállítói számla&quot; — a mai év-záró erről semmit nem tud.</td>
+<td>Közepes</td>
+<td>S</td>
+<td><code>finalization-actions.ts</code></td>
+</tr>
+<tr>
+<td><strong>Vevő-CUI ellenőrzés</strong> (<code>vevo_cui</code> oszlop + összevetés a gyülekezet CIF-jével) — a parser már kinyeri.</td>
+<td>Közepes</td>
+<td>S</td>
+<td><code>ubl-parser.ts:412-430</code></td>
+</tr>
+<tr>
+<td><strong>ÁFA-bontás</strong> (<code>netto</code>, <code>afa</code> oszlopok) — a nyomtatott ív ma csak bruttót közöl.</td>
+<td>Kicsi</td>
+<td>S</td>
+<td><code>ubl-parser.ts:433</code></td>
+</tr>
+<tr>
+<td><strong>Dokumentum-archívum letöltése (év)</strong> — amíg a Storage nincs a mentésben.</td>
+<td>Nagy</td>
+<td>M</td>
+<td><code>backup/export.ts</code></td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="s68-9-javasolt-cselekvesi-sorrend">9. Javasolt cselekvési sorrend</h2>
+<p><strong>0. lépés — élő ellenőrzés SQL-lel (a javítás ELŐTT).</strong>
+Lezárja: F24, F25, F26, F60, F64 bizonytalanságát. Kell: az élő <code>szallitoi_szamla</code> / <code>gyulekezeti_dokumentum</code> / <code>storage.objects</code> policy-törzsek; <code>SELECT tabla, reteg FROM backup_table_policy WHERE reteg IS NULL AND hatokor='gyulekezet'</code>; <code>SELECT pr.role, count(*) FROM profile_roles WHERE scope='congregation' AND active AND approval_status='approved' GROUP BY 1</code>; egy kerületi admin sessionből <code>SELECT public.current_user_has_global_access(); SELECT public.felettes_szint_hozzaferese('&lt;cong-id&gt;');</code>. <strong>A migrációs fájl nem bizonyíték.</strong></p>
+<p><strong>1. lépés — a kettős könyvelés lezárása.</strong>
+Lezárja: <strong>F1 (P0)</strong>, F5, F4, F15. Kereszt-kapu mindkét irányban + közös kulcs-levezetés + a KPI uniója.</p>
+<p><strong>2. lépés — az azonosítás megjavítása.</strong>
+Lezárja: <strong>F2 (P0)</strong>, F10, F14, F52. Identitás-alapú kulcs + DB-szintű második vonal + a duplikátum-ág azonosság-kapuja + a <code>selftest-ubl-parser.mjs:273</code> átírása.</p>
+<p><strong>3. lépés — a kapcsolat integritása.</strong>
+Lezárja: <strong>F3 (P0)</strong>, F17, F18, F19, F20, F54, F86. Kiadás-oldali fedezet-őr + storno/törlés kaszkád + kifizetve-visszavonás + pénznem- és jóváíró-kapu + DB-trigger a versenyhelyzetre. <strong>Egy trigger sok találatot zár.</strong></p>
+<p><strong>4. lépés — a megfelelőségi kapuk.</strong>
+Lezárja: F6, F36, F27, F29, F63, F64. Az év-záró forrása a <code>szallitoi_szamla</code> legyen; a webes feldolgozás frissítse az ANAF-határidő nyomát; audit-naplózás a lánc állapotváltó actionjeibe; a wipe allowlist bővítése; a besorolás <code>DO UPDATE</code>-re; hangos sáv a mentésből kimaradó fájlokról.</p>
+<p><strong>5. lépés — a beragadások és a köteg-robusztusság.</strong>
+Lezárja: F16/F33/F78, F8, F9/F68, F31, F35, F67, F74. try/catch/finally mindenhová + a ZIP-ág bejegyzés-szintű hibatűrése + előzetes méret-mérés + kötegelés + darabolás + a számláló javítása.</p>
+<p><strong>6. lépés — az igazság a listákban.</strong>
+Lezárja: F21/F30, F22, F23, F32, F55, F56, F57, F59, F61. Csonkítás-jelzők, hátralék-számítás, szerver-oldali szűrés, vevő-ellenőrzés, Oblio body-státusz őr.</p>
+<p><strong>7. lépés — a jogosultsági réteg.</strong>
+Lezárja: F24, F25, F26, F43. Az SQL-szigorítás (szerep-szűrő + <code>status='active'</code>) <strong>és</strong> az app-oldali <code>permissions.penzugy.*</code> kapu — a kettő együtt, a 0. lépés eredménye alapján.</p>
+<p><strong>8. lépés — az őrszemek megjavítása.</strong>
+Lezárja: F34, F35, F42, F46, F52, F62, F75, F76, F77, F79, F87, F88, F91. <strong>Minden új asszerthez mutáns</strong>, ami a régi hibás viselkedést játssza vissza — enélkül csak látszat-védelem. Külön kiemelve: a Rust <code>excel.rs:839</code> és <code>:954</code> token-alapú szűrője.</p>
+<p><strong>9. lépés — UX és fejlesztések.</strong>
+A 6. fejezet 6.5-ös csoportja + a 8. fejezet javaslatai, hatás/ráfordítás szerint.</p>
+<hr>
+<h2 id="s69-10-amit-nem-tudtunk-ellenorizni">10. Amit NEM tudtunk ellenőrizni</h2>
+<h3 id="s70-10-1-az-ellenorzesi-lanc-csonka-ezt-olvasd-el-a-">⚠️ 10.1 Az ellenőrzési lánc CSONKA — ezt olvasd el a javítás megkezdése előtt</h3>
+<p><strong>Minden találat átment EGY adversariális cáfolat-körön</strong> (külön ágens próbálta megcáfolni a forráskódban, és a megcáfoltak kiestek). A tervezett <strong>MÁSODIK kör — a P0/P1 találatok kereszttüze két további, független lencsével — a munkamenet token-limitje miatt NEM futott le.</strong></p>
+<p>Ez konkrétan azt jelenti: <strong>a P0 és P1 besorolások EGY ellenőrzésen alapulnak, nem hármon.</strong> A bizonyíték-idézetek a forrásból származnak és fájl:sor pontossággal ellenőrizhetők, de a <em>súlyosság</em> és a <em>bukási forgatókönyv teljessége</em> nem kapta meg a tervezett második és harmadik olvasatot. Ezért <strong>a három P0 és a legsúlyosabb P1-ek (F17, F6, F24, F25, F7/F28) javításának megkezdése előtt érdemes emberi szemmel visszaellenőrizni</strong> a megnevezett sorokat — különösen ott, ahol a javítás sémát vagy RLS-t érint.</p>
+<h3 id="s71-10-2-elo-rendszer-helyett-forraskod">10.2 Élő rendszer helyett forráskód</h3>
+<ul>
+<li><strong>A migrációs fájl nem bizonyíték az élő törzsre</strong> (a repó saját, dokumentált hibaosztálya). Minden RLS-, policy-, trigger- és <code>backup_table_policy</code>-állítás <strong>a fájlokból</strong> származik. Az éles adatbázis állapotát nem láttuk.</li>
+<li><strong>Nem futott le egyetlen éles lekérdezés sem</strong> — a 0. lépés SQL-jei nélkül az F24, F25, F26, F60, F64 státusza „valószínű, de nem igazolt&quot;.</li>
+<li><strong>A Supabase Storage tényleges tartalmát</strong> (árva objektumok száma, meglévő fájlok) nem tudtuk megnézni.</li>
+</ul>
+<h3 id="s72-10-3-kulso-rendszerek">10.3 Külső rendszerek</h3>
+<ul>
+<li><strong>Az Oblio API tényleges alapértelmezett rendezése</strong> (F61) a forrásból nem bizonyítható — csak az bizonyított, hogy a kód nem ad <code>orderBy</code>-t. Hogy ez ténylegesen a legsürgősebb kintlévőségeket ejti-e ki, az az Oblio szerverén dől el.</li>
+<li><strong>Az ANAF SPV ZIP-formátumainak valós eloszlása</strong> (lapos vs. beágyazott, semnatura-elnevezési konvenciók) a repó dokumentációjából és a selftestekből származik, nem éles mintákból.</li>
+<li><strong>A futtatókörnyezet pontos időkorlátja</strong> (F16, F31): a repóban nincs <code>vercel.json</code> és nincs <code>maxDuration</code> a láncban; a ~100 mp-es elvágást mérésből ismerjük, de a pontos platform-viselkedést nem tudtuk reprodukálni.</li>
+</ul>
+<h3 id="s73-10-4-ami-merve-lett-es-ami-nem">10.4 Ami mérve lett (és ami nem)</h3>
+<p><strong>Mérve, futtatva:</strong> az <code>anafUuidFajlnevbol</code> és az <code>extractAnafUuidFromFilename</code> eltérése; a <code>szamErtek</code> hat bemenete; a <code>PayableAmount=0</code> <code>??</code>/<code>||</code> divergencia; a negatív <code>&lt;Invoice&gt;</code> viselkedése; a <code>normalizalDatum</code> négy bemenete; a JSZip hibaüzenetei; a ZIP-bomba csúcs-RSS (3,65 GB); a selftest-mutánsok (A/B/C zölden átment).</p>
+<p><strong>Nem mérve:</strong> a teljes lánc végponttól végpontig, valódi ANAF-ZIP-pel; a versenyhelyzetek (két böngészőfül); a mobil érintőfelület valós eszközön; a 200/500/1000-es plafonok átlépése éles adaton.</p>
+<h3 id="s74-10-5-bizonytalan-gyengebb-labakon-allo">10.5 Bizonytalan / gyengébb lábakon álló</h3>
+<ul>
+<li><strong>F26 (kerületi admin scope-divergencia)</strong> — a bukási forgatókönyv logikailag következik a policy-lábakból, de élő ellenőrzés nélkül nem igazolt, hogy a kerületi admin ténylegesen 0 sort kap.</li>
+<li><strong>F60 (<code>oblio_fiokok</code> RLS szűkebb)</strong> — ugyanez: a <code>current_user_can_access_congregation</code> élő törzse ismeretlen.</li>
+<li><strong>A <code>current_user_has_global_access()</code> országos hatóköre</strong> (esperes/egyházmegyei_admin) — a forrásból következik, de ez <strong>rendszerszintű döntés-kérdés</strong>, nem elszigetelt hiba; ütközik a memóriában rögzített „az esperes nem lát országosan&quot; elvvel. <strong>Endre döntése kell hozzá.</strong></li>
+<li><strong>F44 (<code>noopener</code>)</strong> — a támadhatóság insider-feltételes (a tartalék ág már véd); a védelem szándéka megvan, csak a mindig lefutó ágról hiányzik.</li>
+<li><strong>F89/F86 (kapcsolótábla kiadás-oldali FK)</strong> — idegen-adat szivárgás <strong>nem</strong> áll fenn; mély-védelmi hiány, kimutatható kár nélkül.</li>
+</ul>
+</article>
+  </main>
+</div>
+
+<script>
+(function(){
+  // A táblákat saját görgető dobozba tesszük — a lap teste sosem görög oldalra.
+  document.querySelectorAll('.dok table').forEach(function(t){
+    var d=document.createElement('div'); d.className='tabla-doboz';
+    // A szakasz súlyosságát ÁT KELL VINNI a burkolóra, különben a szűrő
+    // a táblát bent hagyná a rejtett fejezetből.
+    if(t.dataset.sev) d.dataset.sev=t.dataset.sev;
+    t.parentNode.insertBefore(d,t); d.appendChild(t);
+  });
+
+  var gombok=[].slice.call(document.querySelectorAll('.valto button'));
+  var dokok=[].slice.call(document.querySelectorAll('.dok'));
+  var navok=[].slice.call(document.querySelectorAll('nav[data-toc]'));
+
+  function valt(id){
+    gombok.forEach(function(g){ g.setAttribute('aria-current', String(g.dataset.dok===id)); });
+    dokok.forEach(function(d){ d.classList.toggle('aktiv', d.dataset.dok===id); });
+    navok.forEach(function(n){ n.style.display = n.dataset.toc===id ? '' : 'none'; });
+    window.scrollTo({top:0});
+  }
+  gombok.forEach(function(g){ g.addEventListener('click', function(){ valt(g.dataset.dok); }); });
+  if(navok.length) valt(gombok[0].dataset.dok);
+
+  // ── Súlyosság-szűrő: a nem illő találatokat elrejti (a keretszöveg marad).
+  var szurok=[].slice.call(document.querySelectorAll('.szuro button'));
+  // A szűrő SZAKASZ-szintű: a jelentés a P0-t külön címsorokkal, a P1–P3-at
+  // táblákban és listákban hozza, ezért találatonként nem lehet szűrni — a
+  // fejezet viszont pontosan annyit rejt, amennyit kell. A keretszöveg
+  // (összefoglaló, adatfolyam, cselekvési sorrend, fenntartások) mindig marad:
+  // súlyosság nélküli blokkot sosem rejtünk el.
+  function szur(sev){
+    szurok.forEach(function(s){ s.setAttribute('aria-pressed', String(s.dataset.sev===sev)); });
+    dokok.forEach(function(dok){
+      [].slice.call(dok.children).forEach(function(el){
+        var s=el.dataset.sev||null;
+        el.classList.toggle('rejtve', sev!=='mind' && !!s && s!==sev);
+      });
+    });
+    navok.forEach(function(n){
+      [].slice.call(n.querySelectorAll('a')).forEach(function(a){
+        var s=a.dataset.sev||null;
+        a.classList.toggle('rejtve', sev!=='mind' && !!s && s!==sev);
+      });
+    });
+  }
+  szurok.forEach(function(s){ s.addEventListener('click', function(){ szur(s.dataset.sev); }); });
+
+  // ── Olvasás-jelölő a tartalomjegyzékben.
+  var figyelo=new IntersectionObserver(function(be){
+    be.forEach(function(e){
+      if(!e.isIntersecting) return;
+      var id=e.target.id; if(!id) return;
+      navok.forEach(function(n){
+        [].slice.call(n.querySelectorAll('a')).forEach(function(a){
+          a.classList.toggle('aktiv', a.getAttribute('href')==='#'+id);
+        });
+      });
+    });
+  },{rootMargin:'0px 0px -78% 0px'});
+  document.querySelectorAll('.dok h2[id], .dok h3[id]').forEach(function(h){ figyelo.observe(h); });
+})();
+</script>

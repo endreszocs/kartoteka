@@ -72,6 +72,12 @@ export interface UnpairedMovement {
   /** 2026-08-27: nincs párosító kulcsa — NEM a belső mozgás rögzítőn keresztül készült.
    *  Ez NEM oldódik meg magától egy banki importtól: emberi döntés kell hozzá. */
   orphan: boolean
+  /** 2026-09-02 (Endre 4.): a párosítatlan sor azonosítója — a rögzítőben
+   *  felkínált „párját rögzítem" listához (a kiválasztott tételt kell átvenni). */
+  id: number
+  /** Melyik számlán áll a párosítatlan fél (`null` = kassza). A rögzítő ebből
+   *  tudja előre kitölteni a bankszámla-választót. */
+  bankszamlaId: number | null
 }
 
 export interface InternalMovementHealth {
@@ -238,6 +244,8 @@ export function computeInternalMovementHealth(
       osszeg: e.osszeg,
       side: 'expense',
       orphan: e.orphan,
+      id: e.id,
+      bankszamlaId: e.bank ?? null,
       description: e.orphan
         ? 'Ez a tétel belső mozgás kategóriába került (pénz átvezetése két saját számla között), de NINCS párja, és nem is a belső mozgás rögzítőn keresztül készült. Ellenőrizd: valóban átvezetés, vagy tévedésből került ebbe a kategóriába? Amíg pár nélkül áll, torzítja a kiadás-összesent.'
         : 'Belső mozgás kiadás-oldala rögzítve (pl. kasszai letétel a bankba), de a fogadó oldal (banki jóváírás) még nincs egyeztetve — importáld a banki kivonatot.',
@@ -252,6 +260,8 @@ export function computeInternalMovementHealth(
       osszeg: inc.osszeg,
       side: 'income',
       orphan: inc.orphan,
+      id: inc.id,
+      bankszamlaId: inc.bank ?? null,
       description: inc.orphan
         ? 'Ez a tétel belső mozgás kategóriába került (pl. „Készpénzletétel a kasszából"), de NINCS párja, és nem is a belső mozgás rögzítőn keresztül készült — tipikusan banki importból származik. Amíg a kassza-oldali párja hiányzik, a rendszer ÚJ BEVÉTELNEK látja, pedig csak a saját pénz átvezetése: ez felfújja a bevétel-összesent.'
         : 'Belső mozgás befizetés-oldala rögzítve, de a kiadás-oldali párja (honnan érkezett a pénz) még hiányzik — importáld/egyeztesd a másik számlát.',

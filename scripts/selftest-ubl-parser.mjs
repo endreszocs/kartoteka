@@ -71,7 +71,7 @@ try {
   process.exit(1)
 }
 
-const { parseUblSzamla, anafUuidFajlnevbol, fajlnevGyoker } = mod
+const { parseUblSzamla, anafUuidFajlnevbol, fajlnevGyoker, azonositoSzamlaIdentitasbol } = mod
 if (typeof parseUblSzamla !== 'function') {
   fail('parseUblSzamla nem exportált függvény')
   process.exit(1)
@@ -270,8 +270,30 @@ const jovairo = `<?xml version="1.0"?>
 {
   expect(`7. anafUuidFajlnevbol('5852740042.xml')`, anafUuidFajlnevbol('5852740042.xml'), '5852740042')
   expect(`7. anafUuidFajlnevbol('factura_4214783999.xml.zip')`, anafUuidFajlnevbol('factura_4214783999.xml.zip'), '4214783999')
-  expect(`7. anafUuidFajlnevbol('abc.pdf') (fallback: alapnév)`, anafUuidFajlnevbol('abc.pdf'), 'abc')
+  // ⛔ 2026-09-03 (átvilágítás): a CSUPASZ FÁJLNÉV-VISSZAESÉS MEGSZŰNT.
+  // Ez az asszert korábban ELVÁRÁSKÉNT rögzítette a hibát: `'abc.pdf' → 'abc'`.
+  // Attól két különböző szállító `factura.xml`-je azonos kulcsot kapott, és a
+  // második NÉMÁN elveszett (UNIQUE (congregation_id, anaf_uuid)).
+  expect(`7. anafUuidFajlnevbol('abc.pdf') → null (NINCS fájlnév-visszaesés)`, anafUuidFajlnevbol('abc.pdf'), null)
+  expect(`7. anafUuidFajlnevbol('factura.xml') → null (a klasszikus ütköző név)`, anafUuidFajlnevbol('factura.xml'), null)
   expect(`7. anafUuidFajlnevbol('.xml') (üres alap → null)`, anafUuidFajlnevbol('.xml'), null)
+  // A számla IDENTITÁSÁBÓL képzett kulcs — ez lép a fájlnév helyére.
+  expect(
+    `7. azonositoSzamlaIdentitasbol(RO123, ' f-17 ', '2026-03-14')`,
+    azonositoSzamlaIdentitasbol('ro123', ' f-17 ', '2026-03-14'),
+    'azon:RO123|F-17|2026-03-14',
+  )
+  expect(
+    `7. azonositoSzamlaIdentitasbol — hiányzó számlaszám → null`,
+    azonositoSzamlaIdentitasbol('RO123', '', '2026-03-14'),
+    null,
+  )
+  expect(
+    `7. két KÜLÖNBÖZŐ szállító azonos fájlnévvel ELTÉRŐ kulcsot kap`,
+    azonositoSzamlaIdentitasbol('RO111', 'F-1', '2026-03-14') ===
+      azonositoSzamlaIdentitasbol('RO222', 'F-1', '2026-03-14'),
+    false,
+  )
   expect(`7. fajlnevGyoker('semnatura_5884883600.xml')`, fajlnevGyoker('semnatura_5884883600.xml'), '5884883600')
   expect(`7. fajlnevGyoker('Factura_RO123.pdf')`, fajlnevGyoker('Factura_RO123.pdf'), 'factura_ro123')
   expect(`7. fajlnevGyoker('5884883600.xml.zip')`, fajlnevGyoker('5884883600.xml.zip'), '5884883600')

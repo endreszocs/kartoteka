@@ -7,9 +7,16 @@
  * Fontos jogi kontextus:
  * - Ha a gyülekezet NEM ÁFA-alany (tva_alany = false), akkor a számla
  *   `vatPercentage = 0` és `vatName = 'Scutit fără drept de deducere'`
- * - Ha a gyülekezet ÁFA-alany (tva_alany = true), akkor `vatPercentage = 19`
- *   és `vatName = 'Normala'`
+ * - Ha a gyülekezet ÁFA-alany (tva_alany = true), akkor a BEÁLLÍTOTT
+ *   TVA-kulcs (`congregations.tva_kulcs_szazalek`) és `vatName = 'Normala'`
  * - A `mentions` mezőben jogi hivatkozást jelölünk
+ *
+ * ⚠️ A TVA-KULCS NEM ÉGETHETŐ BE (Endre, 2026-09-03: „az áfa kulcs értékét
+ * lehessen beállítani, mert az bármikor változhat"). Korábban két helyen állt
+ * fixen 19% — a számlán és a DB-be mentett `osszeg_tva`-ban —, így a
+ * 2025-08-01-i 19%→21% emelés óta hibás adótartalmú hivatalos számla ment az
+ * ANAF SPV-re. A kulcs mostantól KÖTELEZŐ paraméter, és a hívó ugyanazt az
+ * értéket használja a mentéshez is: a kettő nem tud széthúzni.
  */
 
 import 'server-only'
@@ -46,13 +53,21 @@ interface BuildInvoiceArgs {
 
   /** A gyülekezet TVA-alany-e? */
   tvaAlany: boolean
+
+  /**
+   * A normál TVA-kulcs SZÁZALÉKBAN (pl. 21). KÖTELEZŐ — szándékosan nincs
+   * alapértéke: egy „elfelejtett" paraméter így nem tud némán régi kulccsal
+   * hivatalos számlát kiállítani. A hívó a gyülekezet beállításából adja.
+   * `tvaAlany === false` esetén az érték nem számít (a számla 0%-os).
+   */
+  tvaKulcsSzazalek: number
 }
 
 /**
  * Oblio-kompatibilis számla-request felépítése.
  */
 export function buildOblioInvoiceRequest(args: BuildInvoiceArgs): OblioInvoiceCreateRequest {
-  const { contract, oblioConfig, invoice, tvaAlany } = args
+  const { contract, oblioConfig, invoice, tvaAlany, tvaKulcsSzazalek } = args
 
   // 1. Partner (client) — cég vagy magánszemély
   const isCeg = !!contract.ceg_nev && !!contract.ceg_adoszam
@@ -79,7 +94,7 @@ export function buildOblioInvoiceRequest(args: BuildInvoiceArgs): OblioInvoiceCr
     quantity: 1,
     price: invoice.osszeg,
     productType: 'Serviciu',
-    vatPercentage: tvaAlany ? 19 : 0,
+    vatPercentage: tvaAlany ? tvaKulcsSzazalek : 0,
     vatName: tvaAlany
       ? 'Normala'
       : 'Scutit fără drept de deducere',

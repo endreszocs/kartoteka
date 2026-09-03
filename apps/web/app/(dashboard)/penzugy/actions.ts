@@ -3224,14 +3224,29 @@ export async function getNextReceiptNumbers(
 
 // ── Utolsó rögzített dátum ───────────────────────────────────
 
+/**
+ * Az utolsó rögzített KÉSZPÉNZES tétel dátuma.
+ *
+ * ⚠️ CSAK KÉSZPÉNZ (2026-09-02, Endre 5. észrevétele).
+ * A hívó a KÉSZPÉNZES rögzítő ablak, ahol ez a dátum egyetlen célt szolgál:
+ * szóljon, ha a lelkész a kasszában visszafelé kezd rögzíteni. Eddig a
+ * lekérdezés a BANKI tételeket is nézte — a banki kivonat-import viszont
+ * hónapokkal előrébb tart (Endre esetében 2026-08-28), így MINDEN kasszába írt
+ * márciusi sor alatt kigyulladt a „Korábbi, mint az utolsó rögzített"
+ * figyelmeztetés. Egy figyelmeztetés, ami mindig világít, nem figyelmeztetés:
+ * a lelkész megtanulja átnézni rajta, és épp akkor nem szól, amikor kellene.
+ *
+ * A készpénz/bank határ a rendszer kanonikus szabálya: `bankszamla_id IS NULL`
+ * = kassza (SOHA nem az `irattipus` szövege — az élő adatban az kevert).
+ */
 export async function getLastRecordedDate(): Promise<string | null> {
   const scope = await getFinanceScope()
   if (!scope) return null
   const { supabase, T } = scope
 
   const [bevRes, kiaRes] = await Promise.all([
-    supabase.from(T.befizetes).select('datum').eq(T.scopeCol, scope.scopeId).eq('deleted', false).order('datum', { ascending: false }).limit(1),
-    supabase.from(T.kiadas).select('datum').eq(T.scopeCol, scope.scopeId).eq('deleted', false).order('datum', { ascending: false }).limit(1),
+    supabase.from(T.befizetes).select('datum').eq(T.scopeCol, scope.scopeId).eq('deleted', false).is('bankszamla_id', null).order('datum', { ascending: false }).limit(1),
+    supabase.from(T.kiadas).select('datum').eq(T.scopeCol, scope.scopeId).eq('deleted', false).is('bankszamla_id', null).order('datum', { ascending: false }).limit(1),
   ])
   const bevDate = bevRes.data?.[0]?.datum || null
   const kiaDate = kiaRes.data?.[0]?.datum || null
@@ -3568,6 +3583,45 @@ export async function searchExpensePartners(query: string): Promise<string[]> {
       names.push(n)
       if (names.length >= 8) break
     }
+  }
+  return names
+}
+
+// ── 2026-09-02 (Endre): a gyülekezet ISMERT kiadás-partnerei ──
+/**
+ * A korábbi kiadásokon szereplő átvevő-nevek (a gyülekezet „cég-nyilvántartása").
+ *
+ * MIÉRT KELL: a rögzítőben a név melletti PASSZÍV jelzés („ismert" / „új") ebből
+ * dolgozik. Endre észrevétele (2026-09-02): a vázlat visszaállítása után a
+ * legördülő minden soron újranyílt, és végig kellett kattintgatni a MÁR
+ * egyeztetett cégeken. A jelzés kattintás nélkül mondja meg, hogy a partner
+ * ismert-e; ha nem, a mentés pontosan úgy rögzíti, ahogy be van írva.
+ *
+ * ⚠️ LAPOZUNK. A PostgREST 1000 soros alapértelmezése némán csonkítana, és a
+ * levágott partnerek tévesen „új"-ként világítanának — ez helyességi hiba,
+ * nem teljesítmény-kérdés.
+ */
+export async function listExpensePartnerNames(): Promise<string[]> {
+  const { supabase, congregationId } = await getProfileCongregation()
+  if (!congregationId) return []
+  const { data, error } = await selectAllPaged<{ atvevo: string | null }>(
+    supabase
+      .from('kiadas')
+      .select('atvevo')
+      .eq('congregation_id', congregationId)
+      .eq('deleted', false)
+      .not('atvevo', 'is', null),
+  )
+  if (error) return []
+  const seen = new Set<string>()
+  const names: string[] = []
+  for (const r of data) {
+    const n = (r.atvevo || '').trim()
+    if (!n) continue
+    const key = n.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    names.push(n)
   }
   return names
 }

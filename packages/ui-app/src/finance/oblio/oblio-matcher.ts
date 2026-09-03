@@ -121,7 +121,7 @@ function normalizeCui(raw: string | null | undefined): string {
  * RON-e a pénznem? A hiányzó pénznemet RON-nak vesszük (a könyvelés RON-ban
  * van). Az ANAF "LEI" jelölést is RON-ként kezeljük.
  */
-function isRon(cur: string | null | undefined): boolean {
+export function isRon(cur: string | null | undefined): boolean {
   if (!cur) return true
   const c = cur.trim().toUpperCase()
   return c === 'RON' || c === 'LEI'

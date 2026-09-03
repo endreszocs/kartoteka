@@ -15,8 +15,11 @@
  * A bevétel-oldalon NINCS cégnyilvántartás. Ezért a besorolás mérhető jelekből
  * áll (tagnyilvántartási kapcsolat / szervezeti számadási kód), a névből fakadó
  * cég-gyanú pedig KÜLÖN, halványan jelölt — hogy senki ne higgye ténynek.
- * A persely (101.03) sorai névtelenek: nem tüntetjük el őket, de a lista végén,
- * külön csoportban állnak, hogy ne nyomják el a valódi adományozókat.
+ * A persely (101.03) SAJÁT, külön kártyát kap — Endre szabálya (2026-09-02):
+ * „az külön tétel" + „vedd fel mindegyiket, de legyen külön kategorizálva".
+ * Gyűjtés, nem adományozói befizetés: nincs adományozója, ezért nem kerül a
+ * névsorba és az adományozói végösszegekbe — de a fülön ott van, láthatóan.
+ * A leválasztást a közös mag (`osszesitAdomanyozok`) végzi, nem ez a nézet.
  */
 
 import { useMemo, useState } from 'react'
@@ -275,6 +278,62 @@ export function AdomanyozokBody({
                   </tbody>
                 </table>
               </div>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Ez a bontás az <strong>adományozói</strong> tételeket összegzi — a perselypénz külön,
+                alatta szerepel, és a fenti végösszegekben nincs benne.
+              </p>
+            </div>
+          )}
+
+          {/* ── Perselypénz — KÜLÖN kategória ───────────────────────────── */}
+          {/* Endre szabálya (2026-09-02): „a perselypénzt ne számítsuk az adományozók/
+              szponzorok oldalhoz, az külön tétel" + „vedd fel mindegyiket, de legyen
+              külön kategorizálva". Ezért itt VAN, de a saját kártyáján — az
+              adományozói névsorba és összegekbe nem számít bele. */}
+          {osszesito.persely.alkalmak > 0 && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="text-sm font-semibold text-amber-900">
+                  {osszesito.persely.nev}{' '}
+                  <span className="font-mono text-xs font-normal text-amber-700/70">
+                    {osszesito.persely.kod}
+                  </span>
+                </h3>
+                <span className="text-base font-semibold tabular-nums text-amber-900">
+                  {penz(osszesito.persely.osszeg)} RON
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-amber-800">
+                Külön kategória — a persely <strong>gyűjtés</strong>, nincs adományozója, ezért nem
+                szerepel az adományozói névsorban, és a fenti végösszegekbe sem számít bele.
+                A számadásban természetesen ott van.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-amber-900">
+                <span>
+                  Tételek: <strong className="tabular-nums">{osszesito.persely.alkalmak}</strong>
+                </span>
+                <span>
+                  Készpénz:{' '}
+                  <strong className="tabular-nums">{penz(osszesito.persely.keszpenz)} RON</strong>
+                </span>
+                <span>
+                  Bank: <strong className="tabular-nums">{penz(osszesito.persely.bank)} RON</strong>
+                </span>
+              </div>
+              {Object.keys(osszesito.persely.evenkent).length > 1 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {Object.entries(osszesito.persely.evenkent)
+                    .sort((a, b) => Number(b[0]) - Number(a[0]))
+                    .map(([ev, ossz]) => (
+                      <span
+                        key={ev}
+                        className="rounded-full border border-amber-300 bg-white px-2 py-0.5 text-[11px] tabular-nums text-amber-900"
+                      >
+                        {ev}: {penz(ossz)}
+                      </span>
+                    ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -384,6 +443,7 @@ export function AdomanyozokBody({
             szervezeti forrás (103.01, 103.09, 105.01, 105.02). A bevétel-oldalon nincs
             cégnyilvántartás, ezért a névből fakadó „cég?" jelzés csak figyelmeztetés — nem tény.
           </p>
+
         </>
       )}
     </div>

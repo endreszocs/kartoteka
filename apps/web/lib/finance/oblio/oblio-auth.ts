@@ -12,6 +12,8 @@
 
 import 'server-only'
 import type { OblioTokenResponse } from './oblio-types'
+import { createHash } from 'node:crypto'
+
 import { OblioError, oblioErrorFromStatus, oblioNetworkError } from './oblio-errors'
 
 const OBLIO_API_BASE = 'https://www.oblio.eu'
@@ -29,8 +31,30 @@ interface CachedToken {
 
 const tokenCache = new Map<string, CachedToken>()
 
-function cacheKey(email: string): string {
-  return `oblio:${email}`
+/**
+ * A cache KULCSA: e-mail + a titok UJJLENYOMATA.
+ *
+ * ⚠️ 2026-09-03 (átvilágítás P0): a kulcs korábban CSAK az e-mail volt. Ez két
+ * módon tudott hazudni:
+ *  1. Ha két gyülekezet ugyanazt az Oblio e-mailt használja MÁS titokkal (pl.
+ *     ugyanaz a könyvelő szolgálja ki mindkettőt), a második hívás az ELSŐ
+ *     gyülekezet ÉLŐ Bearer tokenjével futott — idegen CIF-lista és idegen
+ *     kintlévőség szivároghatott át.
+ *  2. Titok-cserénél a régi token a lejáratáig érvényben maradt.
+ *
+ * A titok maga SOSEM kerül a kulcsba (memória-dump / hibaüzenet kockázat) —
+ * csak egy rövidített SHA-256 ujjlenyomat, ami a szétválasztáshoz elég.
+ */
+function titokUjjlenyomat(apiSecret: string): string {
+  return createHash('sha256').update(apiSecret, 'utf8').digest('hex').slice(0, 16)
+}
+
+function cacheElotag(email: string): string {
+  return `oblio:${encodeURIComponent(email)}:`
+}
+
+function cacheKey(email: string, apiSecret: string): string {
+  return cacheElotag(email) + titokUjjlenyomat(apiSecret)
 }
 
 function isTokenValid(cached: CachedToken | undefined): cached is CachedToken {
@@ -50,7 +74,7 @@ export async function getOblioToken(
   email: string,
   apiSecret: string,
 ): Promise<string> {
-  const key = cacheKey(email)
+  const key = cacheKey(email, apiSecret)
   const cached = tokenCache.get(key)
 
   if (isTokenValid(cached)) {
@@ -100,10 +124,18 @@ export async function getOblioToken(
 }
 
 /**
- * Token cache törlése (pl. ha a user új API secret-et ad meg).
+ * Token cache törlése (pl. ha a user új API secret-et ad meg, vagy 401 jött).
+ *
+ * Az e-mailhez tartozó ÖSSZES bejegyzést törli — a hívó csak az e-mailt ismeri,
+ * és titok-cserénél épp az a cél, hogy a RÉGI titokhoz tartozó token se éljen
+ * tovább. (A kulcs a titok ujjlenyomatát is tartalmazza, ezért előtag szerint
+ * kell takarítani, nem egyetlen kulcsra.)
  */
 export function clearTokenCache(email: string): void {
-  tokenCache.delete(cacheKey(email))
+  const elotag = cacheElotag(email)
+  for (const k of [...tokenCache.keys()]) {
+    if (k.startsWith(elotag)) tokenCache.delete(k)
+  }
 }
 
 /**

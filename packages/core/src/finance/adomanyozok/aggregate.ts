@@ -6,11 +6,18 @@
  * is), mely személyek, mely cégek adtak szponzorpénzt, adományt, ki mennyit és
  * mikor." — és külön kérés: **bankit és készpénzeset egyaránt**.
  *
- * ── A KÖDÖK, MÉRVE ────────────────────────────────────────────────────────
+ * ── A KÓDOK, MÉRVE ────────────────────────────────────────────────────────
  * A 10 kód az EREK hivatalos 2026-os katalógusából jön
  * (`migration-docs/excel-2026-katalogus.json`, 927 kategória), nem emlékezetből.
  * A 2xx kódok (202.04, 203.01) SZÁNDÉKOSAN nincsenek benne: azok KIADÁSOK —
  * amit MI adunk másnak, nem amit kapunk.
+ *
+ * ── A PERSELY NEM NÉVSOR-TÉTEL (Endre, 2026-09-02) ────────────────────────
+ * A perselypénz (101.03) adomány-kategória marad, de az adományozói NÉVSORBÓL
+ * kimarad: „az külön tétel". Gyűjtés, nem adományozói befizetés — nincs
+ * adományozója, így a fülön csak egy nagy névtelen sorként jelent meg, és
+ * felfelé torzította az összesítést. A szűkebb listát az `ADOMANY_NEVSOR_KODOK`
+ * adja; a `BankTab` hiányzó-befizető jelzése továbbra is a teljes családot nézi.
  *
  * ── A BESOROLÁS TÉNY, NEM TIPP ────────────────────────────────────────────
  * A bevétel-oldalon NINCS cégnyilvántartás: a `befizetes.forrasa` szabad szöveg,
@@ -20,8 +27,8 @@
  *   · `szervezet` — a SZÁMADÁSI KÓD maga szervezeti forrás (103.01 segélyszervezet
  *                   / alapítvány, 103.09 szponzor + adó 3,5%, 105.01 egyházi
  *                   intézmény, 105.02 állami intézmény);
- *   · `nevtelen`  — nincs név (jellemzően persely: ennek definíció szerint
- *                   nincs adományozója, de a PÉNZ nem tűnhet el a képből);
+ *   · `nevtelen`  — nincs név (a névtelenül leadott borítékok; a PÉNZ nem
+ *                   tűnhet el a képből, ezért külön csoportot kap);
  *   · `egyeb`     — van név, de sem regiszter-kapcsolat, sem szervezeti kód.
  *
  * A névminta (SRL/SA/Fundația/…) CSAK másodlagos JELZÉS (`cegGyanu`), külön
@@ -43,31 +50,66 @@ export interface AdomanyKod {
   nev: string
   /** Igaz, ha a kód maga szervezeti forrást jelöl (nem magánszemélyt). */
   szervezeti: boolean
+  /**
+   * Igaz, ha a kód az ADOMÁNYOZÓI NÉVSORBA való (Adományozók és szponzorok fül).
+   *
+   * A perselypénz (101.03) SZÁNDÉKOSAN `false` — Endre szabálya (2026-09-02):
+   * „A perselypénzt ne számítsuk az adományozók/szponzorok oldalhoz, az külön
+   * tétel." A persely gyűjtés, nem adományozói tétel: definíció szerint nincs
+   * adományozója, így a névsorban csak egy nagy „névtelen" sorként jelent meg,
+   * és felfelé torzította a fül végösszegét.
+   *
+   * FIGYELEM: a kód ettől még adomány-kategória marad — a BankTab „hiányzó
+   * befizető" jelzése és minden más fogyasztó a TELJES `ADOMANY_KODOK` listát
+   * használja. Csak a névsor szűkül.
+   */
+  nevsorhoz: boolean
 }
 
 /**
  * A 10 bevételi adomány/szponzor kód — az `excel-2026-katalogus.json`-ból mérve.
  * A magyar nevek BETŰRE a katalógusból valók, hogy a fül és a Számadás
  * ugyanazt a szót használja.
+ *
+ * ⚠️ Ez a TELJES kódcsalád. Az adományozói NÉVSORHOZ az `ADOMANY_NEVSOR_KODOK`
+ * szűkebb listáját használd (a persely nélkül).
  */
 export const ADOMANY_KODOK: readonly AdomanyKod[] = [
-  { kod: '101.03', nev: 'Perselypénz', szervezeti: false },
-  { kod: '101.04', nev: 'Adományok hívektől, egyházi intézményektől', szervezeti: false },
-  { kod: '101.05', nev: 'Úrasztali adományok', szervezeti: false },
-  { kod: '102.04', nev: 'Diakóniai célú adományok', szervezeti: false },
-  { kod: '102.05', nev: 'Missziós célú adományok', szervezeti: false },
-  { kod: '102.06', nev: 'Legátumok - adományok teológiai hallgatók támogatására', szervezeti: false },
-  { kod: '103.01', nev: 'Segélyszervezetektől, alapítványoktól, helyi szervezetektől származó adományok', szervezeti: true },
-  { kod: '103.09', nev: 'Szponzortámogatások, adók 3,5 %-a', szervezeti: true },
-  { kod: '105.01', nev: 'Más egyházi intézményektől kapott támogatás', szervezeti: true },
-  { kod: '105.02', nev: 'Állami intézménytől kapott támogatás (APIA, stb.)', szervezeti: true },
+  { kod: '101.03', nev: 'Perselypénz', szervezeti: false, nevsorhoz: false },
+  { kod: '101.04', nev: 'Adományok hívektől, egyházi intézményektől', szervezeti: false, nevsorhoz: true },
+  { kod: '101.05', nev: 'Úrasztali adományok', szervezeti: false, nevsorhoz: true },
+  { kod: '102.04', nev: 'Diakóniai célú adományok', szervezeti: false, nevsorhoz: true },
+  { kod: '102.05', nev: 'Missziós célú adományok', szervezeti: false, nevsorhoz: true },
+  { kod: '102.06', nev: 'Legátumok - adományok teológiai hallgatók támogatására', szervezeti: false, nevsorhoz: true },
+  { kod: '103.01', nev: 'Segélyszervezetektől, alapítványoktól, helyi szervezetektől származó adományok', szervezeti: true, nevsorhoz: true },
+  { kod: '103.09', nev: 'Szponzortámogatások, adók 3,5 %-a', szervezeti: true, nevsorhoz: true },
+  { kod: '105.01', nev: 'Más egyházi intézményektől kapott támogatás', szervezeti: true, nevsorhoz: true },
+  { kod: '105.02', nev: 'Állami intézménytől kapott támogatás (APIA, stb.)', szervezeti: true, nevsorhoz: true },
 ]
 
-const KOD_MAP = new Map(ADOMANY_KODOK.map((k) => [k.kod, k]))
+/**
+ * Az ADOMÁNYOZÓI NÉVSOR kódjai — a persely nélkül.
+ *
+ * Ezt kéri le az Adományozók és szponzorok fül (web ÉS desktop). Külön
+ * konstans, nem szűrés a hívó oldalán: ha a hívó szűrne, a két felület
+ * némán széthúzhatna.
+ */
+export const ADOMANY_NEVSOR_KODOK: readonly AdomanyKod[] = ADOMANY_KODOK.filter((k) => k.nevsorhoz)
 
-/** Igaz, ha a számadási kód adomány/szponzor bevétel. */
+const KOD_MAP = new Map(ADOMANY_KODOK.map((k) => [k.kod, k]))
+const NEVSOR_KOD_MAP = new Map(ADOMANY_NEVSOR_KODOK.map((k) => [k.kod, k]))
+
+/** Igaz, ha a számadási kód adomány/szponzor bevétel (a TELJES kódcsalád). */
 export function adomanyKodE(kod: string | null | undefined): boolean {
   return KOD_MAP.has((kod ?? '').toString().trim())
+}
+
+/**
+ * Igaz, ha a kód az adományozói NÉVSORBA való (persely nélkül).
+ * Az Adományozók és szponzorok fül ezt a szűkebb kaput használja.
+ */
+export function adomanyNevsorKodE(kod: string | null | undefined): boolean {
+  return NEVSOR_KOD_MAP.has((kod ?? '').toString().trim())
 }
 
 /** Egy adomány-kód magyar neve (ismeretlennél maga a kód). */
@@ -169,18 +211,42 @@ export interface Adomanyozo {
   tetelek: AdomanyTetel[]
 }
 
+/**
+ * A PERSELYPÉNZ külön összesítője.
+ *
+ * Endre szabálya (2026-09-02): „A perselypénzt ne számítsuk az adományozók/
+ * szponzorok oldalhoz, az külön tétel" — majd: „Vedd fel mindegyiket, de legyen
+ * külön kategorizálva." Vagyis: a persely OTT VAN a fülön, de SAJÁT
+ * kategóriaként; nem kerül be a névsorba, és nem növeli az adományozói
+ * végösszegeket. (Gyűjtés, nem adományozói befizetés — nincs adományozója.)
+ */
+export interface PerselyOsszesito {
+  osszeg: number
+  alkalmak: number
+  keszpenz: number
+  bank: number
+  /** Évenkénti bontás (a „visszamenőleg is" kéréshez). */
+  evenkent: Record<number, number>
+  /** A számadási kód és neve — hogy a felület ne írja be kézzel. */
+  kod: string
+  nev: string
+}
+
 /** A teljes összesítő. */
 export interface AdomanyozokOsszesito {
   adomanyozok: Adomanyozo[]
   /** Az évek, amelyekre adat van — csökkenő sorrendben. */
   evek: number[]
-  /** Kódonkénti végösszeg. */
+  /** Kódonkénti végösszeg — CSAK a névsor-kódok (persely nélkül). */
   kodonkent: Array<{ kod: string; nev: string; osszeg: number; alkalmak: number }>
+  /** Az adományozói végösszeg — a perselyt NEM tartalmazza. */
   osszesen: number
   keszpenzOsszesen: number
   bankOsszesen: number
   /** Hány adományozó (a névtelen csoport NEM számít bele). */
   adomanyozoDb: number
+  /** A perselypénz KÜLÖN — a fenti összegek egyikében sincs benne. */
+  persely: PerselyOsszesito
 }
 
 const evOf = (datum: string): number => Number((datum || '').slice(0, 4)) || 0
@@ -191,7 +257,35 @@ const evOf = (datum: string): number => Number((datum || '').slice(0, 4)) || 0
  * A sorrend: összeg szerint csökkenő; a névtelen csoport MINDIG a lista végén,
  * hogy ne nyomja el a valódi adományozókat.
  */
-export function osszesitAdomanyozok(tetelek: AdomanyTetel[]): AdomanyozokOsszesito {
+export function osszesitAdomanyozok(osszesTetel: AdomanyTetel[]): AdomanyozokOsszesito {
+  // ── A PERSELY LEVÁLASZTÁSA — a KÖZÖS MAGBAN, nem a hívóban ──────────────
+  // A web és a desktop ugyanezt a függvényt hívja: ha a szűrés a hívó oldalán
+  // lenne, a két felület némán széthúzhatna (más végösszeg ugyanarra az évre).
+  // A hívók a TELJES `ADOMANY_KODOK` családot kérik le — így a persely nem
+  // vész el, csak a saját kategóriájába kerül.
+  const tetelek = osszesTetel.filter((t) => adomanyNevsorKodE(t.kod))
+  const perselyTetelek = osszesTetel.filter((t) => !adomanyNevsorKodE(t.kod))
+
+  const perselyKod = ADOMANY_KODOK.find((k) => !k.nevsorhoz)?.kod ?? '101.03'
+  const persely: PerselyOsszesito = {
+    osszeg: 0,
+    alkalmak: 0,
+    keszpenz: 0,
+    bank: 0,
+    evenkent: {},
+    kod: perselyKod,
+    nev: adomanyKodNev(perselyKod),
+  }
+  for (const t of perselyTetelek) {
+    const osszeg = Number.isFinite(t.osszeg) ? t.osszeg : 0
+    persely.osszeg += osszeg
+    persely.alkalmak += 1
+    if (t.banki) persely.bank += osszeg
+    else persely.keszpenz += osszeg
+    const ev = evOf(t.datum)
+    if (ev) persely.evenkent[ev] = (persely.evenkent[ev] ?? 0) + osszeg
+  }
+
   const csoportok = new Map<string, Adomanyozo>()
   // A megjelenítendő névhez a leggyakoribb eredeti írásmódot választjuk:
   // ugyanaz az adományozó szerepelhet „ELECTRICA SA" és „Electrica S.A." alakban.
@@ -277,7 +371,9 @@ export function osszesitAdomanyozok(tetelek: AdomanyTetel[]): AdomanyozokOsszesi
     return b.osszesen - a.osszesen
   })
 
-  const evek = [...new Set(tetelek.map((t) => evOf(t.datum)).filter(Boolean))].sort((a, b) => b - a)
+  // Az évválasztó a persely éveit IS ismerje: különben egy csak-perselyes évre
+  // a fül üres évet kínálna, és a persely-kártya elérhetetlen lenne.
+  const evek = [...new Set(osszesTetel.map((t) => evOf(t.datum)).filter(Boolean))].sort((a, b) => b - a)
 
   const kodAgg = new Map<string, { osszeg: number; alkalmak: number }>()
   for (const t of tetelek) {
@@ -298,5 +394,6 @@ export function osszesitAdomanyozok(tetelek: AdomanyTetel[]): AdomanyozokOsszesi
     keszpenzOsszesen: adomanyozok.reduce((s, a) => s + a.keszpenz, 0),
     bankOsszesen: adomanyozok.reduce((s, a) => s + a.bank, 0),
     adomanyozoDb: adomanyozok.filter((a) => a.tipus !== 'nevtelen').length,
+    persely,
   }
 }
