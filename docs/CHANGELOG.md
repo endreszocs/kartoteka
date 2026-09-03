@@ -23,6 +23,38 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-09-04] — Szigorúbb kapuk a fiókok körül
+<!-- key: 2026-09-04-auth-kapuk-szigoritasa -->
+<!-- category: security -->
+<!-- version: 0.9.221 -->
+<!-- targets: minden felhasználó; a lelkipásztorokat a jelszóváltás és a naptár-hivatkozás érinti -->
+
+### 🔒 Biztonsági javítások
+
+- **A jóváhagyás mostantól mindenhol kapu**: eddig egy még jóvá nem hagyott fiók
+  bizonyos műveleteknél átcsúszhatott, mert a rendszer csak a szerepkörét nézte, az
+  állapotát nem. Mostantól minden adminisztratív művelethez aktív, jóváhagyott fiók kell.
+- **Új fiók nem kérhet magának rangot**: a regisztrációkor küldött adatok többé nem
+  befolyásolják, milyen szerepkörrel jön létre a fiók. Minden új fiók lelkészi
+  szerepkörrel és „jóváhagyásra vár" állapottal születik, ahogy eddig is szánták.
+- **Jelszóváltás után a többi eszköz kilép**: ha jelszót változtatsz vagy visszaállítasz,
+  a rendszer megszünteti a bejelentkezést minden más eszközön (desktop, telefon, másik
+  böngésző). Ott az új jelszóval kell újra belépni. Eddig a régi bejelentkezések
+  érvényben maradtak — ami épp akkor volt baj, amikor valaki azért váltott jelszót,
+  mert illetéktelen hozzáférésre gyanakodott.
+- **A pénzügyi import a bejelentkezett felhasználó nevében fut**: eddig a művelet
+  elfogadta, ha a kérés más felhasználót nevezett meg. Mostantól a rendszer a saját
+  bejelentkezésedből azonosít, és a naplóba is az kerül.
+- **A tagfotók csak a saját gyülekezetben szerkeszthetők**: a fotótár írási szabályai
+  eddig nem vizsgálták a gyülekezetet.
+
+### ✨ Új funkciók
+
+- **Cserélhető naptár-hivatkozás**: a Google Naptár összekötésénél mostantól kérhetsz
+  új hivatkozást (Programok → Google Naptár → „Új hivatkozás kérése"). A régi azonnal
+  érvénytelen lesz — akkor hasznos, ha a link rossz kezekbe került. Figyelem: aki
+  felvette a naptárába, annak újra fel kell vennie az újat.
+
 ## [2026-09-03] — Megszólal az ANAF-csengő, és beolvasható a tömeges ZIP
 <!-- key: 2026-09-03-anaf-csengo-es-zip -->
 <!-- category: bugfix -->

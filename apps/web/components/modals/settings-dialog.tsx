@@ -763,7 +763,18 @@ function PasswordChangeForm() {
       toast.error(res.error)
       return
     }
-    toast.success('A jelszó sikeresen frissítve. A következő bejelentkezésnél már ezzel léphet be.')
+    // 2026-09-04 (P1): a jelszóváltás mostantól a TÖBBI eszközön lévő
+    // bejelentkezést is megszünteti. Ezt ki KELL mondani: a lelkész különben
+    // csak annyit lát, hogy a desktop és a telefon váratlanul újra belépést
+    // kér, és azt hiszi, elromlott valami.
+    if (res.warning) {
+      toast.warning(res.warning)
+    } else {
+      toast.success(
+        'A jelszó sikeresen frissítve. A többi eszközön (desktop, telefon) ki lettünk jelentkezve — ' +
+          'ott az új jelszóval lehet újra belépni.',
+      )
+    }
     setPwd('')
     setPwd2('')
   }

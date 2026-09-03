@@ -17,7 +17,12 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { getCalendarFeedToken, getCalendarFeedReszletes, setCalendarFeedReszletes } from '@/app/(dashboard)/programs/actions'
+import {
+  getCalendarFeedToken,
+  getCalendarFeedReszletes,
+  setCalendarFeedReszletes,
+  forgatCalendarFeedToken,
+} from '@/app/(dashboard)/programs/actions'
 
 interface GoogleCalendarDialogProps {
   open: boolean
@@ -30,6 +35,7 @@ export function GoogleCalendarDialog({ open, onOpenChange }: GoogleCalendarDialo
   const [loading, setLoading] = useState(false)
   const [includeHolidays, setIncludeHolidays] = useState(true)
   const [copied, setCopied] = useState(false)
+  const [forgatas, setForgatas] = useState(false)
   // 2026-08-26 (5. kör): a feed alapból MEGJEGYZÉS NÉLKÜL megy ki — a lelkészi
   // jegyzet lelkigondozói adatot hordozhat, a hivatkozás pedig Google/Apple
   // szerverére szinkronizálódik. A teljes tartalom tudatos opt-in.
@@ -67,6 +73,38 @@ export function GoogleCalendarDialog({ open, onOpenChange }: GoogleCalendarDialo
   const feedUrl = token && !loading
     ? `${typeof window !== 'undefined' ? window.location.origin : 'https://kartoteka.app'}/api/calendar/${token}${includeHolidays ? '' : '?unnepek=0'}`
     : null
+
+  /**
+   * Új naptár-hivatkozás kérése (2026-09-04, P0·9).
+   *
+   * Megerősítést kérünk, mert a művelet MÁSOKAT is érint: mindenki, aki a
+   * régi hivatkozást felvette a naptárába, üres naptárat fog látni, amíg újra
+   * fel nem veszi. A visszavonhatatlanság miatt ez nem egy „hoppá" gomb.
+   */
+  async function handleForgatas() {
+    if (forgatas) return
+    const megerosites = window.confirm(
+      'Biztosan új naptár-hivatkozást kérsz?\n\n' +
+        'A mostani hivatkozás AZONNAL érvénytelen lesz. Akinek a naptárában szerepel ' +
+        '(neked, a presbitereknek, a gyülekezeti tagoknak), annak újra fel kell vennie ' +
+        'az újat, különben üres naptárat lát.',
+    )
+    if (!megerosites) return
+
+    setForgatas(true)
+    try {
+      const res = await forgatCalendarFeedToken()
+      if (!res.ok || !res.token) {
+        toast.error(res.error || 'Az új hivatkozás létrehozása nem sikerült.')
+        return
+      }
+      setToken(res.token)
+      setCopied(false)
+      toast.success('Kész — a régi hivatkozás mostantól érvénytelen. Vedd fel az újat a naptáradban.')
+    } finally {
+      setForgatas(false)
+    }
+  }
 
   async function handleCopy() {
     if (!feedUrl) return
@@ -126,6 +164,23 @@ export function GoogleCalendarDialog({ open, onOpenChange }: GoogleCalendarDialo
                     {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
                     {copied ? 'Másolva' : 'Másolás'}
                   </Button>
+                </div>
+
+                {/* 2026-09-04 (P0·9): a hivatkozás CSERÉLHETŐ. Eddig nem volt rá
+                    semmilyen kódút — egy kiszivárgott link örökre érvényes maradt. */}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1">
+                  <button
+                    type="button"
+                    disabled={forgatas}
+                    onClick={() => void handleForgatas()}
+                    className="min-h-9 rounded-lg text-xs font-medium text-muted-foreground underline underline-offset-4 hover:text-foreground disabled:opacity-60"
+                  >
+                    {forgatas ? 'Új hivatkozás készül…' : 'Új hivatkozás kérése'}
+                  </button>
+                  <span className="text-xs text-muted-foreground">
+                    Ha a régi rossz kezekbe került. A csere után a korábbi hivatkozás
+                    azonnal érvénytelen, és minden naptárban újra fel kell venni.
+                  </span>
                 </div>
               </div>
 

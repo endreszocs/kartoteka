@@ -301,9 +301,32 @@ const LISTAK = {}
 // Ó2 — AZ `overrideAllowed` KIFEJEZÉS ALAKJA ÉS TÉNYEZŐI
 // ════════════════════════════════════════════════════════════════════════════
 
-/** `const admin = isAdminRole(role, user.email)` → { admin: 'isAdminRole', … } */
+/**
+ * `const admin = statusActive && isAdminRole(role, user.email)`
+ *   → { admin: 'isAdminRole', … }
+ *
+ * ⚠️ 2026-09-04 — MIÉRT LETT OPCIONÁLIS ELŐTAG (és miért CSAK ez az egy):
+ * A P0·2 javítás óta minden származtatott jog egy státusz-kapun keresztül
+ * keletkezik (`statusActive && isXRole(role, …)`), mert a `profiles.status`
+ * ellenőrzése eddig csak a dashboard-layoutban élt, a szerver-akciókra nem
+ * hatott. Ez az őrszem eddig a csupasz `= isXRole(` alakot kereste, és a
+ * javítás után NEM TALÁLTA a leképezést — helyesen meg is állt
+ * („ISMERETLEN tényező… mérd újra"), mert egy nem mérhető mátrixról nem
+ * szabad zöldet mondani.
+ *
+ * A megengedett előtag SZÁNDÉKOSAN egyetlen, konkrét azonosító: `statusActive`.
+ * Nem `[\s\S]*?`, nem tetszőleges kifejezés — különben az őrszem bármilyen
+ * jövőbeli tényezőt elfogadna a jog elé, és pont azt a TÁGÍTÁST engedné át,
+ * aminek a kiszűrése a dolga. A `statusActive` bizonyítottan SZŰKÍT (egy
+ * `&&`-dal kötött további feltétel soha nem ad több jogot), ezért biztonságos.
+ *
+ * Ha valaha más előtag jelenik meg, ez az őrszem újra megáll — és az akkor is
+ * a helyes viselkedés lesz.
+ */
 const FLAG_PREDIKATUM = {}
-for (const m of SRC.effective.matchAll(/const\s+(\w+)\s*=\s*(is\w+Role)\s*\(\s*role\b[^)]*\)/g)) {
+for (const m of SRC.effective.matchAll(
+  /const\s+(\w+)\s*=\s*(?:statusActive\s*&&\s*)?(is\w+Role)\s*\(\s*role\b[^)]*\)/g,
+)) {
   FLAG_PREDIKATUM[m[1]] = m[2]
 }
 
