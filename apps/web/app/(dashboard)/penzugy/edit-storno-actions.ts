@@ -688,6 +688,32 @@ export async function stornoTransaction(args: {
     }
   }
 
+  // 2026-09-03 (átvilágítás P1): SZÁLLÍTÓI SZÁMLA-KAPCSOLAT.
+  //
+  // A kiadás stornója nem bontja a `szallitoi_szamla_kiadas` kapcsolatot, és
+  // nem vonja vissza a számla „kifizetve" jelölését — nem is szabad, mert a
+  // számla ATTÓL MÉG ki lehet fizetve, csak a KÖNYVELÉSI tétel volt hibás.
+  // Ez emberi döntés. Amit viszont nem hagyhatunk: hogy a lelkész NE TUDJON
+  // róla. Ezért itt, a döntés helyén szólunk.
+  if (args.type === 'kiadas' && ctx.scope === 'congregation') {
+    const kapcs = await ctx.supabase
+      .from('szallitoi_szamla_kiadas')
+      .select('szamla_id')
+      .eq('kiadas_id', args.id)
+      .eq('congregation_id', ctx.scopeId)
+    if (kapcs.error) {
+      kaszkadFigyelmeztetes =
+        'A tétel stornózva, de nem tudtuk ellenőrizni, van-e hozzá kapcsolt szállítói számla ' +
+        `(${kapcs.error.message}). Nézd meg a Dokumentumtár → Számlák nézetben.`
+    } else if ((kapcs.data ?? []).length > 0) {
+      const db = (kapcs.data ?? []).length
+      kaszkadFigyelmeztetes =
+        `A tétel stornózva, de ${db} szállítói számla van hozzá kapcsolva. ` +
+        'A Dokumentumtár → Számlák nézetben pirosan jelezzük őket („a kapcsolt kiadás sztornózva — bontsd"). ' +
+        'Bontsd ott a kapcsolatot, és ha a számla valójában nincs kifizetve, vedd le a „Kifizetve" jelölést is.'
+    }
+  }
+
   // P0-3 (audit 2026-08-28): carryover-frissítés (best-effort) — a pár lábait
   // a helper deríti fel a közös kulcs alapján.
   if (ctx.scope === 'congregation') {

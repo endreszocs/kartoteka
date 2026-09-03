@@ -212,6 +212,51 @@ naplozFigyelmeztetest(szefAllapot())
  * @returns A titkosított string (PGP armor formátum).
  * @throws Ha nincs erős kulcs, vagy ha a pgcrypto hibázik.
  */
+/**
+ * A SZÉF-MŰVELETEK KLIENSE — 2026-09-03 biztonsági javítás.
+ *
+ * ⛔ MIÉRT: a `vault_encrypt`/`vault_decrypt` `SECURITY DEFINER` függvények, és a
+ * KULCSOT PARAMÉTERBEN kapják. Amíg a hívó a bejelentkezett felhasználó
+ * (anon-kulcsú, `authenticated` szerepű) kliense volt, addig a böngésző
+ * konzoljából bárki, aki be tud lépni, TETSZŐLEGES kulccsal hívhatta őket —
+ * vagyis a `vault_decrypt` egy visszafejtő ORÁKULUM volt. A 6 jegyű örökölt
+ * PIN-kulcs 10^6 online próbálkozásból, az örökölt ÜRES kulcs pedig azonnal
+ * kinyílt volna.
+ *
+ * A javítás két lába (mindkettő kell):
+ *  1. ITT: a széf a SERVICE-ROLE klienssel hívja az RPC-t. A hatókör-ellenőrzés
+ *     változatlanul a hívó RLS-kliensén történik ELŐBB (a titkosított sort az
+ *     RLS adja ki) — ez a lépés csak a visszafejtést emeli ki a böngésző
+ *     hatóköréből, jogosultságot NEM tágít.
+ *  2. ÉLESBEN: `migration-docs/sql/2026-09-03-vault-orakulum-zaras.sql` —
+ *     REVOKE a PUBLIC/authenticated szerepekről + oszlop-szintű GRANT az
+ *     `oblio_fiokok`-ra (a rejtjelszöveg se legyen kliensről olvasható).
+ *
+ * Ha a service-role kulcs nem érhető el (hiányzó env), a hívó kliensére esünk
+ * vissza, de HANGOSAN naplózunk: a (2) lépés után az ilyen hívás a DB-ben fog
+ * elbukni — ami a helyes viselkedés, nem néma siker.
+ */
+async function szefKliens(hivoKliens: SupabaseClient): Promise<SupabaseClient> {
+  // ⚠️ LUSTA import: a `./admin` statikus importja betöltéskor futna, és a
+  // `scripts/selftest-titok-szef.mjs` a széf TISZTA MAGJÁT izoláltan fordítja
+  // és tölti be — ott ez a modul nem létezik. A dinamikus import csak akkor
+  // fut, amikor tényleg titkot kezelünk. (Ugyanez a minta él az
+  // `oblio-client.ts`-ben a token-cache ürítésénél.)
+  try {
+    const { createAdminClient } = await import('./admin')
+    const admin = createAdminClient()
+    if (admin) return admin as unknown as SupabaseClient
+  } catch {
+    // A modul nem tölthető be (pl. izolált önellenőrzés) — a hívó kliense marad.
+  }
+  console.warn(
+    '[secret-vault] Nincs elérhető service-role kliens — a széf a hívó kliensével dolgozik. ' +
+      'Állítsd be a SUPABASE_SERVICE_ROLE_KEY env-et, különben a vault-orákulum zárása után ' +
+      'a titok-műveletek elbuknak (ami a helyes viselkedés, nem néma siker).',
+  )
+  return hivoKliens
+}
+
 export async function encryptSecret(
   supabase: SupabaseClient,
   plaintext: string,
@@ -223,7 +268,7 @@ export async function encryptSecret(
     throw new Error(IRAS_TILTVA_UZENET)
   }
 
-  const { data, error } = await supabase.rpc('vault_encrypt', {
+  const { data, error } = await (await szefKliens(supabase)).rpc('vault_encrypt', {
     plaintext_input: plaintext,
     key_input: allapot.irasKulcs,
   })
@@ -263,8 +308,9 @@ export async function decryptSecret(
 
   let utolsoHibaUzenet = 'ismeretlen hiba'
 
+  const kliens = await szefKliens(supabase)
   for (const kulcs of allapot.olvasoKulcsok) {
-    const { data, error } = await supabase.rpc('vault_decrypt', {
+    const { data, error } = await kliens.rpc('vault_decrypt', {
       encrypted_input: encryptedText,
       key_input: kulcs,
     })

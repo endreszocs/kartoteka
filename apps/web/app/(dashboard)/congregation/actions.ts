@@ -1363,6 +1363,17 @@ const congregationSetupSchema = z.object({
   tva_alany: z.boolean().optional(),
   tva_kod: z.string().optional().or(z.literal('')),
   tva_alany_tol: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formátum: ÉÉÉÉ-HH-NN (pl. 2026-01-01)').optional().or(z.literal('')),
+  // 2026-09-03 (Endre): „az áfa kulcs értékét lehessen beállítani, mert az
+  // bármikor változhat!" A kimenő e-Factura kulcsa eddig két helyen volt
+  // beégetve 19%-kal; a román normál kulcs 2025-08-01 óta 21%. Üres string =
+  // „nincs beállítva" → az alkalmazás a dokumentált tartalék-értéket használja.
+  tva_kulcs_szazalek: z
+    .union([z.number(), z.string()])
+    .optional()
+    .refine(
+      (v) => v === undefined || v === '' || (Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 100),
+      { message: 'Az ÁFA-kulcs 0 és 100 között lehet (pl. 21).' },
+    ),
 })
 
 export type CongregationSetupInput = z.infer<typeof congregationSetupSchema>
@@ -1505,6 +1516,15 @@ export async function saveCongregationSetup(
           tva_alany_tol: parsed.data.tva_alany_tol || null,
         }
       : {}),
+    // A kulcs FÜGGETLENÜL menthető a kapcsolótól: a lelkész átírhatja a kulcsot
+    // anélkül, hogy az ÁFA-alanyiságot piszkálná. `undefined` = a régi kliens nem
+    // küldte → ne nyúljunk hozzá; `''` = kifejezetten kiürítette → NULL.
+    ...(parsed.data.tva_kulcs_szazalek !== undefined
+      ? {
+          tva_kulcs_szazalek:
+            parsed.data.tva_kulcs_szazalek === '' ? null : Number(parsed.data.tva_kulcs_szazalek),
+        }
+      : {}),
   }
 
   // 2026-08-25 (gyülekezeti egységek): `.select('id')`-vel kérjük vissza a
@@ -1533,7 +1553,7 @@ export async function saveCongregationSetup(
   if (updateError && /column|does not exist|schema cache|could not find/i.test(updateError.message)) {
     const safe = { ...payload } as Record<string, unknown>
     const stripped: string[] = []
-    for (const k of ['diocese_id', 'eves_jarulek', 'jarulek_kedvezmenyes', 'jarulek_hatarid', 'tartozas_szamitas_mod', 'tva_alany', 'tva_kod', 'tva_alany_tol']) {
+    for (const k of ['diocese_id', 'eves_jarulek', 'jarulek_kedvezmenyes', 'jarulek_hatarid', 'tartozas_szamitas_mod', 'tva_alany', 'tva_kod', 'tva_alany_tol', 'tva_kulcs_szazalek']) {
       if (k in safe) stripped.push(k)
       delete safe[k]
     }
@@ -1843,6 +1863,8 @@ export async function getCongregationForSetup(
     tva_alany: boolean
     tva_kod: string | null
     tva_alany_tol: string | null
+    /** 2026-09-03 (Endre): a beállított normál TVA-kulcs %-ban. Migráció előtt null. */
+    tva_kulcs_szazalek: number | null
     // 2026-08-25 (gyülekezeti egységek, terv 3.1): a hivatalos szervezeti forma —
     // READ-ONLY a wizardban, az ADMIN kezeli. Migráció előtt (oszlop-drift) null.
     szervezeti_tipus: SzervezetiTipus | null
@@ -1868,8 +1890,13 @@ export async function getCongregationForSetup(
     `
   // 2026-08-25 (gyülekezeti egységek, terv 3.1): szervezeti forma + anya-kapcsolat
   // (az anya nevét a congregations_anya_fk önreláción át hozzuk).
+  // Az „új oszlopok" rétege: ezeket a migráció-drift esetén EGYBEN elhagyjuk, és
+  // null-lal térünk vissza. 2026-09-03: ide került a beállítható TVA-kulcs is —
+  // ha a `2026-09-03-tva-kulcs-beallithato.sql` még nem futott le élesben, a
+  // beállítás-felület ettől még megnyílik (a kulcs „nincs beállítva" lesz).
   const szervezetMezok = `
       szervezeti_tipus, anya_congregation_id,
+      tva_kulcs_szazalek,
       anya:congregations!congregations_anya_fk ( nev_hu, name ),
     `
 
@@ -2006,6 +2033,10 @@ export async function getCongregationForSetup(
       tva_alany: Boolean(row.tva_alany),
       tva_kod: (row.tva_kod as string | null) || null,
       tva_alany_tol: (row.tva_alany_tol as string | null) || null,
+      // Migráció előtt (oszlop-drift) null → a felület „nincs beállítva"-t mutat,
+      // az Oblio pedig a dokumentált tartalék-kulccsal számol.
+      tva_kulcs_szazalek:
+        szervezetElerheto && row.tva_kulcs_szazalek != null ? Number(row.tva_kulcs_szazalek) : null,
       // 2026-08-25: migráció előtt (oszlop-drift) mindkettő null — a felület
       // ilyenkor „még nincs beállítva"-t mutat, nem hasal el.
       szervezeti_tipus: szervezetiTipus,

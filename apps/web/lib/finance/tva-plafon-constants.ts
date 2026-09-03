@@ -14,6 +14,28 @@
 /** A TVA-alany plafon: 395 000 RON 2025.09.01-től (OG 22/2025). */
 export const TVA_PLAFON_RON = 395_000
 
+/**
+ * A NORMÁL TVA-KULCS TARTALÉK-ÉRTÉKE (%) — a kimenő (Oblio) e-Facturához.
+ *
+ * ⚠️ EZ CSAK TARTALÉK. A tényleges kulcs a gyülekezet beállítása
+ * (`congregations.tva_kulcs_szazalek`), mert a román normál TVA-kulcs
+ * bármikor változhat — 2025-08-01-én épp 19%-ról 21%-ra emelkedett, és a
+ * rendszer akkor hónapokig 19%-os hivatalos számlát küldött az ANAF SPV-re.
+ * Ezt a konstansot AKKOR használjuk, ha a beállítás még nem érhető el
+ * (pl. a séma-migráció nem futott le a produkción — a repóban lévő migrációs
+ * fájl nem bizonyíték az élő oszlopra).
+ *
+ * A kulcsot a lelkész a Gyülekezetünk adatai → ÁFA-alanyiság panelen írja át;
+ * ITT KÉZZEL ÁTÍRNI NEM KELL és nem is elég.
+ */
+export const TVA_NORMAL_SZAZALEK_ALAP = 21
+
+/** Elfogadható TVA-kulcs? (0–100, két tizedesig — a román kulcsok egészek, de a kapu legyen bőkezű.) */
+export function ervenyesTvaKulcs(ertek: unknown): boolean {
+  const n = Number(ertek)
+  return Number.isFinite(n) && n >= 0 && n <= 100
+}
+
 /** Figyelmeztetés sárga szintje (a plafon 80%-ánál): 316 000 RON. */
 export const TVA_FIGYELMEZTETES_SARGA_SZAZALEK = 0.80
 

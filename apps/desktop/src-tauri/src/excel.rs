@@ -17,7 +17,7 @@
 // ezért ugyanaz az append-mechanizmus célozható bármelyik lapra (`sheet` paraméter).
 
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -649,6 +649,38 @@ fn oblio_zip_archive(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(oblio_base(app)?.join("zip-arhivum"))
 }
 
+/// Ütköző nevű, NEM feldolgozott fájlok gyűjtője:
+/// `…\Documents\Kartoteka\Oblio\nem-egyertelmu`.
+///
+/// ⛔ MIÉRT LÉTEZIK (2026-09-03, átvilágítás P0): a beolvasás korábban
+/// névütközéskor `std::fs::remove_file`-lal VÉGLEGESEN törölte a bedobott
+/// fájlt — nem a Lomtárba, és a hibát is elnyelte (`let _ =`). Két különböző
+/// szállító `factura.xml`-je azonos nevű: az elsőt átvitte, a MÁSODIKAT
+/// megsemmisítette, és csak a „kihagyott" számlálót növelte. Egy hivatalos
+/// e-Factura visszaállíthatatlan elvesztése.
+fn oblio_utkozes(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(oblio_base(app)?.join("nem-egyertelmu"))
+}
+
+/// Fájl félretétele az ütközés-mappába, időbélyeg-előtaggal (az `archive_zip`
+/// mintájára). SOHA nem töröl: ha a félretétel nem sikerül, a forrás marad a
+/// helyén, és a hívó hangos hibát ad.
+fn set_aside(src: &Path, utkozes_dir: &Path, name: &str) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(utkozes_dir)
+        .map_err(|e| format!("A nem-egyertelmu mappa nem hozható létre: {e}"))?;
+    let epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let dest = utkozes_dir.join(format!("{epoch}_{name}"));
+    if std::fs::rename(src, &dest).is_err() {
+        // Eltérő kötet — másolás, és CSAK sikeres másolás után törlés.
+        std::fs::copy(src, &dest).map_err(|e| format!("Félretétel másolás hiba: {e}"))?;
+        std::fs::remove_file(src).map_err(|e| format!("Félretétel forrás-törlés hiba: {e}"))?;
+    }
+    Ok(dest)
+}
+
 /// Egy Oblio-mappa állapota — a UI visszajelzéséhez (létezik-e + mit tartalmaz).
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -798,14 +830,63 @@ fn move_into(src: &Path, dst_dir: &Path, name: &str) -> Result<bool, String> {
 }
 
 /// Egy ZIP-bejegyzés bájtjainak kiolvasása (a `recalc_patch` mintájára).
-fn read_zip_entry(archive: &mut zip::ZipArchive<File>, i: usize) -> Result<Vec<u8>, String> {
+// ── ZIP-BOMBA ŐRÖK (2026-09-03, átvilágítás) ────────────────────────────────
+//
+// ⚠️ EZEK A REKURZIÓ ELŐFELTÉTELEI. A beolvasó a lelkész gépén fut; egy nyers
+// `read_to_end` méret-korlát nélkül egyetlen rosszindulatú (vagy csak hibás)
+// ZIP-pel kimeríthetné a memóriát. Rekurzió bevezetése ilyen őrök nélkül
+// ROSSZABB lenne a mai állapotnál, ezért ezek NEM opcionálisak.
+
+/// Egyetlen bejegyzés kicsomagolt mérete. Egy e-Factura XML néhány kB, a
+/// kísérő PDF néhány száz kB — a 64 MB nagyvonalú, de véges felső korlát.
+const MAX_ZIP_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
+/// Egy beolvasási menetben (a beágyazottakkal együtt) kicsomagolt összes bájt.
+const MAX_ZIP_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
+/// Hány szinten megyünk le a ZIP-ben-ZIP szerkezetben. Az ANAF tömeges
+/// exportja egy szint; a 3 bőven elég, és megállítja a végtelen ágyazást.
+const MAX_ZIP_DEPTH: u8 = 3;
+
+/// Egy ZIP-bejegyzés bájtjainak kiolvasása, MÉRET-ŐRREL.
+///
+/// A DEKLARÁLT méretet előre ellenőrizzük (`entry.size()`), és a tényleges
+/// olvasást is korlátozzuk (`take`) — egy hazudós fejléc így sem tud átverni.
+fn read_zip_entry<R: Read + Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    i: usize,
+    total_bytes: &mut u64,
+) -> Result<Vec<u8>, String> {
     let mut entry = archive
         .by_index(i)
         .map_err(|e| format!("ZIP bejegyzés hiba: {e}"))?;
+    let nev = entry.name().to_string();
+    let deklaralt = entry.size();
+    if deklaralt > MAX_ZIP_ENTRY_BYTES {
+        return Err(format!(
+            "„{nev}” kicsomagolva {} MB lenne — a biztonsági korlát {} MB. A fájlt nem bontjuk ki.",
+            deklaralt / (1024 * 1024),
+            MAX_ZIP_ENTRY_BYTES / (1024 * 1024)
+        ));
+    }
+    if *total_bytes + deklaralt > MAX_ZIP_TOTAL_BYTES {
+        return Err(format!(
+            "A beolvasás elérte a {} MB-os összméret-korlátot — a maradék bejegyzést nem bontjuk ki. \
+             Bontsd kisebb részekre a ZIP-et.",
+            MAX_ZIP_TOTAL_BYTES / (1024 * 1024)
+        ));
+    }
     let mut bytes = Vec::new();
+    // `take(...+1)`: ha a fejléc hazudott, a plusz egy bájt elárulja.
     entry
+        .by_ref()
+        .take(MAX_ZIP_ENTRY_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| format!("ZIP bejegyzés olvasás hiba: {e}"))?;
+    if bytes.len() as u64 > MAX_ZIP_ENTRY_BYTES {
+        return Err(format!(
+            "„{nev}” a fejlécben megadottnál nagyobb (gyanús ZIP) — nem bontjuk ki."
+        ));
+    }
+    *total_bytes += bytes.len() as u64;
     Ok(bytes)
 }
 
@@ -817,11 +898,37 @@ fn ingest_zip(
     report: &mut OblioIngestReport,
 ) -> Result<(), String> {
     let f = File::open(zip_path).map_err(|e| format!("ZIP megnyitás hiba: {e}"))?;
-    let mut archive = zip::ZipArchive::new(f).map_err(|e| format!("ZIP olvasás hiba: {e}"))?;
+    let archive = zip::ZipArchive::new(f).map_err(|e| format!("ZIP olvasás hiba: {e}"))?;
+    let mut total_bytes: u64 = 0;
+    let nev = zip_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("export.zip")
+        .to_string();
+    ingest_archive(archive, processed, report, 1, &mut total_bytes, &nev)
+}
 
+/// Egy megnyitott ZIP feldolgozása — a BEÁGYAZOTT ZIP-eket is beleértve.
+///
+/// ⛔ 2026-09-03 (átvilágítás P1): a régi változat CSAK `.xml` és `.pdf`
+/// bejegyzéseket nézett. Az ANAF tömeges exportja viszont ZIP-ben ZIP: abból
+/// NULLA számla olvasódott be, a függvény mégis `Ok(())`-t adott, a hívó pedig
+/// sikerként archiválta a külső ZIP-et. A lelkész azt hitte, megvan minden.
+///
+/// Mostantól a beágyazott ZIP-eket is kibontjuk (mélység- és méret-korláttal),
+/// és ha egy ZIP-ből SEMMI nem jött ki, azt HANGOSAN megmondjuk.
+fn ingest_archive<R: Read + Seek>(
+    mut archive: zip::ZipArchive<R>,
+    processed: &Path,
+    report: &mut OblioIngestReport,
+    depth: u8,
+    total_bytes: &mut u64,
+    forras_nev: &str,
+) -> Result<(), String> {
     // 1. lépés: bejegyzés-nevek begyűjtése (aláírás-XML kihagyva).
     let mut xml_entries: Vec<(usize, String)> = Vec::new();
     let mut pdf_entries: Vec<(usize, String)> = Vec::new();
+    let mut zip_entries: Vec<(usize, String)> = Vec::new();
     for i in 0..archive.len() {
         let entry = archive
             .by_index(i)
@@ -843,6 +950,9 @@ fn ingest_zip(
             xml_entries.push((i, base));
         } else if lower.ends_with(".pdf") {
             pdf_entries.push((i, base));
+        } else if lower.ends_with(".zip") {
+            // ⛔ EZ HIÁNYZOTT: az ANAF tömeges exportja ZIP-ben ZIP.
+            zip_entries.push((i, base));
         }
     }
 
@@ -850,7 +960,7 @@ fn ingest_zip(
 
     // 2. lépés: XML-ek kibontása (eredeti néven).
     for (i, base) in &xml_entries {
-        let bytes = read_zip_entry(&mut archive, *i)?;
+        let bytes = read_zip_entry(&mut archive, *i, total_bytes)?;
         if write_if_absent(processed, base, &bytes)? {
             report.extracted_xml += 1;
         } else {
@@ -871,12 +981,66 @@ fn ingest_zip(
         } else {
             base.clone()
         };
-        let bytes = read_zip_entry(&mut archive, *i)?;
+        let bytes = read_zip_entry(&mut archive, *i, total_bytes)?;
         if write_if_absent(processed, &target, &bytes)? {
             report.extracted_pdf += 1;
         } else {
             report.skipped += 1;
         }
+    }
+
+    // 4. lépés: BEÁGYAZOTT ZIP-ek (az ANAF tömeges exportja ilyen).
+    let mut beagyazottbol_jott = 0u32;
+    for (i, base) in &zip_entries {
+        if depth >= MAX_ZIP_DEPTH {
+            report.errors.push(format!(
+                "„{forras_nev}” → „{base}”: {MAX_ZIP_DEPTH} szintnél mélyebb ZIP-ben-ZIP — \
+                 ezt már nem bontjuk ki. Csomagold ki kézzel, és tedd a fájlokat a mappába."
+            ));
+            continue;
+        }
+        let bytes = match read_zip_entry(&mut archive, *i, total_bytes) {
+            Ok(b) => b,
+            Err(e) => {
+                report
+                    .errors
+                    .push(format!("„{forras_nev}” → „{base}”: {e}"));
+                continue;
+            }
+        };
+        let belso = match zip::ZipArchive::new(std::io::Cursor::new(bytes)) {
+            Ok(a) => a,
+            Err(e) => {
+                report.errors.push(format!(
+                    "„{forras_nev}” → „{base}”: a beágyazott ZIP nem olvasható ({e})."
+                ));
+                continue;
+            }
+        };
+        let elotte = report.extracted_xml + report.extracted_pdf + report.skipped;
+        let belso_nev = format!("{forras_nev} → {base}");
+        if let Err(e) = ingest_archive(belso, processed, report, depth + 1, total_bytes, &belso_nev)
+        {
+            report.errors.push(format!("„{belso_nev}”: {e}"));
+            continue;
+        }
+        beagyazottbol_jott += (report.extracted_xml + report.extracted_pdf + report.skipped) - elotte;
+    }
+
+    // 5. lépés: NÉMA SIKER TILOS. Ha ebből a ZIP-ből semmi nem jött ki, azt
+    // meg kell mondani — eddig a lelkész sikeres beolvasást látott, és azt
+    // hitte, a számlái megvannak.
+    let sajat = xml_entries.len() + pdf_entries.len();
+    if sajat == 0 && zip_entries.is_empty() {
+        report.errors.push(format!(
+            "„{forras_nev}”: a ZIP nem tartalmaz sem számla-XML-t, sem PDF-et, sem beágyazott ZIP-et — \
+             semmit nem tudtunk beolvasni belőle."
+        ));
+    } else if sajat == 0 && beagyazottbol_jott == 0 {
+        report.errors.push(format!(
+            "„{forras_nev}”: a beágyazott ZIP-ekből SEM jött be egyetlen számla sem. \
+             Ellenőrizd, hogy tényleg befogadott e-Facturákat tartalmaz-e."
+        ));
     }
 
     Ok(())
@@ -907,6 +1071,10 @@ pub fn oblio_ingest(app: tauri::AppHandle) -> Result<OblioIngestReport, String> 
     let befogadott = oblio_folder(&app)?;
     let processed = oblio_processed(&app)?;
     let archive = oblio_zip_archive(&app)?;
+    // 2026-09-03: ütköző nevű fájlok gyűjtője — ide kerül, ami korábban
+    // véglegesen törlődött volna. A mappát a `set_aside` hozza létre igény
+    // szerint, hogy üresen ne zavarja a lelkészt.
+    let utkozes = oblio_utkozes(&app)?;
     std::fs::create_dir_all(&befogadott).map_err(|e| format!("Mappa-létrehozás hiba: {e}"))?;
     std::fs::create_dir_all(&processed).map_err(|e| format!("Mappa-létrehozás hiba: {e}"))?;
     std::fs::create_dir_all(&archive).map_err(|e| format!("Mappa-létrehozás hiba: {e}"))?;
@@ -950,9 +1118,18 @@ pub fn oblio_ingest(app: tauri::AppHandle) -> Result<OblioIngestReport, String> 
                 Err(e) => report.errors.push(format!("ZIP feldolgozás hiba ({name}): {e}")),
             }
         } else if lower.ends_with(".xml") || lower.ends_with(".pdf") {
-            // Aláírás-XML: nem visszük át, csak eltávolítjuk a bedobó mappából.
-            if lower.starts_with("semnatura_") || lower.starts_with("semnatura-") {
-                let _ = std::fs::remove_file(path);
+            // ANAF aláírás-XML: nem tartozik a könyveléshez, de NEM töröljük —
+            // félretesszük. (2026-09-03: a szűrő korábban a `.pdf`-re is állt,
+            // így a lelkész saját `semnatura-presbiteri.pdf`-jét is kidobta.)
+            if lower.ends_with(".xml")
+                && (lower.starts_with("semnatura_") || lower.starts_with("semnatura-"))
+            {
+                match set_aside(path, &utkozes, &name) {
+                    Ok(_) => report.skipped += 1,
+                    Err(e) => report
+                        .errors
+                        .push(format!("Aláírás-XML félretétele nem sikerült ({name}): {e}")),
+                }
                 continue;
             }
             match move_into(path, &processed, &name) {
@@ -963,11 +1140,32 @@ pub fn oblio_ingest(app: tauri::AppHandle) -> Result<OblioIngestReport, String> 
                         } else {
                             report.moved_pdf += 1;
                         }
+                        // Sikeres áthelyezés után a forrás MÁR NINCS ott
+                        // (rename), vagy a move_into maga törölte (copy+remove).
                     } else {
+                        // ⛔ NÉVÜTKÖZÉS — ITT VOLT A P0.
+                        // Korábban itt `let _ = std::fs::remove_file(path)` állt,
+                        // FELTÉTEL NÉLKÜL: két különböző szállító azonos nevű
+                        // `factura.xml`-je közül a másodikat VÉGLEGESEN
+                        // megsemmisítette (nem a Lomtárba), a hibát elnyelve, és
+                        // csak a „kihagyott" számlálót növelte. Egy hivatalos
+                        // e-Factura visszaállíthatatlanul elveszett.
+                        //
+                        // Mostantól félretesszük — a bedobó mappa így is kiürül,
+                        // de a fájl megmarad, időbélyeggel megkülönböztetve.
                         report.skipped += 1;
+                        match set_aside(path, &utkozes, &name) {
+                            Ok(dest) => report.errors.push(format!(
+                                "„{name}” — ilyen nevű fájl már fel van dolgozva, ezért NEM írtuk felül. \
+                                 Félretettük ide: {}. Nézd meg, valóban ugyanaz a számla-e.",
+                                dest.display()
+                            )),
+                            Err(e) => report.errors.push(format!(
+                                "„{name}” — ütköző nevű fájl, és a félretétel sem sikerült ({e}). \
+                                 A fájl a bedobó mappában maradt, semmi nem veszett el."
+                            )),
+                        }
                     }
-                    // A bedobó mappa ürüljön ki akkor is, ha a cél már létezett.
-                    let _ = std::fs::remove_file(path);
                 }
                 Err(e) => report.errors.push(format!("Áthelyezés hiba ({name}): {e}")),
             }

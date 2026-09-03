@@ -130,6 +130,8 @@ interface SetupFormState {
   tva_alany: boolean
   tva_kod: string
   tva_alany_tol: string
+  /** 2026-09-03 (Endre): a normál TVA-kulcs %-ban — beállítható, mert változhat. */
+  tva_kulcs_szazalek: string
 }
 
 type SetForm = (f: SetupFormState) => void
@@ -216,7 +218,7 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
     bank: '', iban: '', iranyitoszam: '', hazszam: '', country: 'Románia',
     adrlocality_id: null, adrstreet_id: null, isForeign: false,
     diocese_id: '', eves_jarulek: 100, jarulek_kedvezmenyes: 0, jarulek_hatarid: '07-01', tartozas_szamitas_mod: 'akkori',
-    tva_alany: false, tva_kod: '', tva_alany_tol: '',
+    tva_alany: false, tva_kod: '', tva_alany_tol: '', tva_kulcs_szazalek: '',
   })
   const [dioceses, setDioceses] = useState<Array<{ id: string; name: string; district_id: string | null; district_name: string | null }>>([])
   // 2026-08-10: ha az egyházmegye-lista betöltése hibázik, a választó NEM
@@ -291,6 +293,7 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
             tva_alany: d.tva_alany ?? false,
             tva_kod: d.tva_kod || '',
             tva_alany_tol: d.tva_alany_tol || '',
+            tva_kulcs_szazalek: d.tva_kulcs_szazalek != null ? String(d.tva_kulcs_szazalek) : '',
           })
           setContext({
             dioceseName: d.diocese_name,
@@ -1696,6 +1699,27 @@ function SectionFinance({ form, setForm }: { form: SetupFormState; setForm: SetF
                 onChange={(e) => setForm({ ...form, tva_alany_tol: e.target.value })}
               />
             </WizardField>
+            {/* 2026-09-03 (Endre): „az áfa kulcs értékét lehessen beállítani, mert
+                az bármikor változhat" — a kimenő e-Factura ÁFA-kulcsa eddig két
+                helyen volt beégetve 19%-kal, a román normál kulcs viszont
+                2025-08-01 óta 21%. */}
+            <WizardField
+              id="tva_kulcs_szazalek"
+              label="ÁFA-kulcs (%)"
+              hint="A kimenő számlákra kerülő normál TVA-kulcs. A román normál kulcs 2025-08-01 óta 21% (előtte 19%) — ha a jogszabály változik, ITT írod át."
+            >
+              <WizardInput
+                id="tva_kulcs_szazalek"
+                type="number"
+                inputMode="decimal"
+                step="0.5"
+                min={0}
+                max={100}
+                value={form.tva_kulcs_szazalek}
+                onChange={(e) => setForm({ ...form, tva_kulcs_szazalek: e.target.value })}
+                placeholder="21"
+              />
+            </WizardField>
           </WizardInputGrid>
         )}
 
@@ -1703,7 +1727,14 @@ function SectionFinance({ form, setForm }: { form: SetupFormState; setForm: SetF
           {form.tva_alany ? (
             <p>
               A gyülekezet <strong>ÁFA-alanyként</strong> van beállítva — a mentés után a
-              kimenő (Oblio) számlák <strong>19% ÁFÁ-val</strong> készülnek.
+              kimenő (Oblio) számlák{' '}
+              <strong>
+                {form.tva_kulcs_szazalek.trim() ? `${form.tva_kulcs_szazalek.trim()}% ÁFÁ-val` : '21% ÁFÁ-val'}
+              </strong>{' '}
+              készülnek.
+              {!form.tva_kulcs_szazalek.trim() && (
+                <> Az ÁFA-kulcs mezőt üresen hagytad, ezért a jelenleg hatályos 21%-kal számolunk.</>
+              )}
             </p>
           ) : (
             <p>

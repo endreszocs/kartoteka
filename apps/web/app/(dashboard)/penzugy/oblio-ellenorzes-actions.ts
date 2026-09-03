@@ -50,11 +50,26 @@ export type OblioMinimalKiadas = {
 }
 
 export type OblioDeadlineStatus = {
-  status: 'no_user' | 'no_congregation' | 'never_downloaded' | 'ok' | 'notified' | 'already_notified'
+  status:
+    | 'no_user'
+    | 'no_congregation'
+    | 'never_downloaded'
+    | 'ok'
+    | 'notified'
+    | 'already_notified'
+    /**
+     * 2026-09-03 (átvilágítás P1): az RPC HIBÁRA futott. Korábban ez
+     * `no_congregation`-ként jelent meg — egy adatbázis-hiba „nincs
+     * gyülekezet"-nek álcázva. Emiatt a 60 napos ANAF-csengő ÉVEKIG néma volt,
+     * és senki nem tudott róla.
+     */
+    | 'hiba'
   daysSince?: number
   daysRemaining?: number
   kind?: string
   severity?: 'info' | 'warning' | 'danger'
+  /** `hiba` státusznál az adatbázis üzenete — a naplóba, nem a felhasználónak. */
+  hibaUzenet?: string
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -674,6 +689,75 @@ export async function createKiadasFromXmlAndMatch(input: CreateKiadasFromXmlInpu
 // ANAF 60 napos határidő ellenőrzés (csengő-értesítés)
 // ─────────────────────────────────────────────────────────────
 
+/**
+ * ANAF-határidő EMLÉKEZTETŐ E-MAIL — kizárólag a lelkész KÉRÉSÉRE.
+ *
+ * Endre kérése (2026-09-03): tudjon e-mailt küldeni arról, hogy régóta (pl. két
+ * hónapja) nem volt Oblio-import.
+ *
+ * ⚠️ EZ SOHA NEM INDUL EL MAGÁTÓL. Csak a felületen indított, tudatos
+ * kattintásra fut le. A rendszer magától nem küld levelet.
+ *
+ * A címzett alapból a KÉRŐ SAJÁT e-mail-címe (emlékeztető önmagának); ha
+ * megadnak másikat (pl. a könyvelőét), azt használjuk — a küldést mindkét
+ * esetben a felhasználó kezdeményezi.
+ */
+export async function sendOblioDeadlineEmail(input?: {
+  /** Ha megadva, ide megy a levél; egyébként a bejelentkezett felhasználó címére. */
+  cimzettEmail?: string
+}): Promise<{ success?: boolean; cimzett?: string; error?: string }> {
+  const access = await getEffectiveAccessContext()
+  if (!access.user) return { error: 'Nincs bejelentkezve.' }
+  if (!access.effectiveCongregationId) return { error: 'Nincs aktív gyülekezet.' }
+
+  // 1) A címzett. Alapból a saját cím — így egy elgépelés sem küld levelet idegennek.
+  const sajatEmail = (access.user.email || '').trim()
+  const cimzettEmail = (input?.cimzettEmail || '').trim() || sajatEmail
+  if (!cimzettEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cimzettEmail)) {
+    return { error: 'Nincs érvényes e-mail-cím, ahová küldhetnénk az emlékeztetőt.' }
+  }
+
+  // 2) Az ADAT, amiről a levél szól. Fail-loud: nem küldünk „valószínűleg" levelet.
+  const { data: fiok, error: fiokErr } = await access.supabase
+    .from('oblio_fiokok')
+    .select('utolso_xml_letoltes_at')
+    .eq('congregation_id', access.effectiveCongregationId)
+    .eq('aktiv', true)
+    .maybeSingle()
+  if (fiokErr) {
+    return { error: `Az Oblio-beállítás nem olvasható: ${fiokErr.message}` }
+  }
+
+  const { data: cong } = await access.supabase
+    .from('congregations')
+    .select('nev_hu, name')
+    .eq('id', access.effectiveCongregationId)
+    .maybeSingle()
+  const gyulekezet =
+    (cong?.nev_hu as string | null) || (cong?.name as string | null) || 'a gyülekezet'
+
+  const utolso = (fiok?.utolso_xml_letoltes_at as string | null) ?? null
+  const eltelt = utolso
+    ? Math.floor((Date.now() - new Date(utolso).getTime()) / 86_400_000)
+    : null
+
+  // 3) Küldés. A sablon maga mondja ki, hogy ezt KÉRTÉK, nem a rendszer küldte.
+  const { sendEmail } = await import('@/lib/email/send')
+  const { oblioHataridoEmail } = await import('@/lib/email/templates/oblio-hatarido')
+  const eredmeny = await sendEmail(
+    oblioHataridoEmail({
+      cimzett: { email: cimzettEmail },
+      gyulekezet,
+      eltelt,
+      utolsoLetoltes: utolso ? utolso.slice(0, 10) : null,
+    }),
+  )
+  if (!eredmeny.success) {
+    return { error: `Az e-mail küldése nem sikerült: ${eredmeny.error ?? 'ismeretlen hiba'}` }
+  }
+  return { success: true, cimzett: cimzettEmail }
+}
+
 export async function checkOblioDeadline(): Promise<OblioDeadlineStatus> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { status: 'no_user' }
@@ -681,7 +765,16 @@ export async function checkOblioDeadline(): Promise<OblioDeadlineStatus> {
 
   const { data, error } = await access.supabase.rpc('check_oblio_deadline_for_user')
   if (error) {
-    return { status: 'no_congregation' }
+    // ⛔ NEM `no_congregation`. Az RPC hibája ADATBÁZIS-hiba, nem hiányzó
+    // gyülekezet — a kettő összemosása miatt maradt néma a csengő 2026-04 óta.
+    // (A konkrét ok: az `ertesitesek.megjegyzes` oszlop nem létezett; javítás:
+    //  migration-docs/sql/2026-09-03-anaf-60-napos-csengo.sql)
+    console.error(
+      '[checkOblioDeadline] Az ANAF 60 napos határidő-figyelő RPC HIBÁRA FUTOTT — ' +
+        'a lelkész NEM kap figyelmeztetést a letöltési határidőről:',
+      error.message,
+    )
+    return { status: 'hiba', hibaUzenet: error.message }
   }
 
   // A RPC jsonb-t ad vissza

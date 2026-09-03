@@ -84,6 +84,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
+import { MAX_NYUGTA_TOMBBEN } from '@kartoteka/validations'
 
 import {
   getEffectiveAccessContext,
@@ -444,6 +445,16 @@ export async function createKeruletiChitantaTomb(
       error:
         `A darabszám (${parsed.data.darabszam_ossz}) nem egyezik a kezdő- és végszám közötti ` +
         `darabokkal (${computedDarab}).`,
+    }
+  }
+  // Egy nyugtatömb 50 lapos (Endre, 2026-09-02). A korlát a közös
+  // MAX_NYUGTA_TOMBBEN konstansból jön, hogy a három rögzítő felület
+  // (gyülekezet / egyházmegye / egyházkerület) ne húzhasson szét.
+  if (computedDarab > MAX_NYUGTA_TOMBBEN) {
+    return {
+      error:
+        `Egy nyugtatömb ${MAX_NYUGTA_TOMBBEN} lapos, a megadott tartomány ${computedDarab} db. ` +
+        `Ellenőrizd a kezdő- és a végszámot.`,
     }
   }
 

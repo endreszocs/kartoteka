@@ -11,6 +11,8 @@ import {
 } from '@/lib/finance/oblio/oblio-client'
 import { buildOblioInvoiceRequest } from '@/lib/finance/oblio/oblio-invoice-builder'
 import { OblioError } from '@/lib/finance/oblio/oblio-errors'
+import { TVA_NORMAL_SZAZALEK_ALAP, ervenyesTvaKulcs } from '@/lib/finance/tva-plafon-constants'
+import { isMissingColumnError } from '@/lib/utils/schema-errors'
 
 /**
  * Oblio számla lifecycle server actions.
@@ -117,12 +119,20 @@ export type IssueInvoiceInput = {
   idoszak: string // pl. "martie 2026"
   osszeg: number
   megjegyzes?: string
+  /**
+   * 2026-09-03 (átvilágítás P0): a felhasználó TUDATOSAN vállalja, hogy már van
+   * ilyen számla, és mégis újat állít ki. Enélkül a duplikátum-kapu megállítja.
+   * A felület CSAK akkor kínálja fel, ha a szerver már jelezte az ütközést.
+   */
+  megerositettDuplikatum?: boolean
 }
 
 export async function issueInvoice(input: IssueInvoiceInput): Promise<{
   success?: boolean
   oblioSzamlaId?: string
   error?: string
+  /** 2026-09-03: a hiba oka duplikátum-gyanú — a felület felajánlhatja a tudatos felülbírálást. */
+  duplikatumGyanu?: boolean
 }> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
@@ -148,13 +158,50 @@ export async function issueInvoice(input: IssueInvoiceInput): Promise<{
   if ('error' in credsOrError) return credsOrError
   const creds = credsOrError
 
-  // 3. Gyülekezet TVA-alany státusz (a TVA% döntéshez)
-  const { data: cong } = await access.supabase
-    .from('congregations')
-    .select('tva_alany')
-    .eq('id', access.effectiveCongregationId)
-    .maybeSingle()
-  const tvaAlany = Boolean(cong?.tva_alany)
+  // 3. Gyülekezet TVA-alanyiság ÉS a BEÁLLÍTOTT TVA-kulcs.
+  //
+  // ⚠️ A kulcs nem lehet beégetve (Endre, 2026-09-03) — a román normál kulcs
+  // 2025-08-01-én 19%-ról 21%-ra emelkedett, és a rendszer addig fixen 19%-kal
+  // számolt. SÉMA-DRIFT-TŰRŐ olvasás: ha a `tva_kulcs_szazalek` oszlop a
+  // produkción még nincs meg (a repóban lévő migráció nem bizonyíték), a
+  // lekérdezés nem bukhat el — visszaesünk a dokumentált tartalék-értékre.
+  let tvaAlany = false
+  let tvaKulcsSzazalek: number = TVA_NORMAL_SZAZALEK_ALAP
+  {
+    const teljes = await access.supabase
+      .from('congregations')
+      .select('tva_alany, tva_kulcs_szazalek')
+      .eq('id', access.effectiveCongregationId)
+      .maybeSingle()
+    if (teljes.error && isMissingColumnError(teljes.error.message)) {
+      const szuk = await access.supabase
+        .from('congregations')
+        .select('tva_alany')
+        .eq('id', access.effectiveCongregationId)
+        .maybeSingle()
+      tvaAlany = Boolean(szuk.data?.tva_alany)
+      console.warn(
+        '[issueInvoice] A congregations.tva_kulcs_szazalek oszlop hiányzik — a számla a tartalék ' +
+          `${TVA_NORMAL_SZAZALEK_ALAP}%-os kulccsal készül. Futtatandó: migration-docs/sql/2026-09-03-tva-kulcs-beallithato.sql`,
+      )
+    } else if (teljes.error) {
+      return { error: `A gyülekezet ÁFA-beállítása nem olvasható: ${teljes.error.message}` }
+    } else {
+      tvaAlany = Boolean(teljes.data?.tva_alany)
+      const beallitott = teljes.data?.tva_kulcs_szazalek
+      if (beallitott != null && ervenyesTvaKulcs(beallitott)) tvaKulcsSzazalek = Number(beallitott)
+    }
+  }
+
+  // FAIL-LOUD: ÁFA-alanyként 0%-os kulccsal NEM állítunk ki hivatalos számlát —
+  // az néma adóhiányt jelentene egy ANAF SPV-re felmenő bizonylaton.
+  if (tvaAlany && !(tvaKulcsSzazalek > 0)) {
+    return {
+      error:
+        'A gyülekezet ÁFA-alany, de a TVA-kulcs 0% vagy nincs beállítva. ' +
+        'Állítsd be a Gyülekezetünk adatai → ÁFA-alanyiság panelen, mielőtt számlát állítasz ki.',
+    }
+  }
 
   // 4. Oblio DTO
   const oblioRequest = buildOblioInvoiceRequest({
@@ -181,7 +228,60 @@ export async function issueInvoice(input: IssueInvoiceInput): Promise<{
       megjegyzes: input.megjegyzes,
     },
     tvaAlany,
+    tvaKulcsSzazalek,
   })
+
+  // ── 4b. DUPLIKÁTUM-KAPU (2026-09-03, átvilágítás P0) ───────────────────
+  //
+  // ⛔ A HIBA: az `issueInvoice` nem volt idempotens. Az Oblio-hívásnak 20 mp
+  // timeoutja van (`oblio-client.ts`), és a megszakítás után a POST már REG az
+  // Oblio-nál lehet — a lelkész viszont csak annyit lát, hogy „Kapcsolódási
+  // hiba", a gomb újra aktív, a dialógus nyitva marad. Egy kattintás, és
+  // MÁSODIK, jogilag érvényes, ANAF SPV-re felmenő e-Factura keletkezik. A
+  // KARTOTEKÁBAN az elsőről semmi nyom, mert a DB-írás elmaradt.
+  //
+  // Ugyanez áll elő, ha az Oblio-hívás sikerül, de az INSERT bukik el (a
+  // `e_factura_status` nyersen megy egy CHECK-be, a `szam` pedig NaN lehet).
+  //
+  // A KAPU: természetes kulcs séma-változtatás NÉLKÜL — ugyanahhoz a
+  // szerződéshez, ugyanazzal a számla-dátummal és nettó összeggel már van-e
+  // élő (nem sztornózott) számla. FAIL-CLOSED: ha az ellenőrzés nem
+  // futtatható, NEM állítunk ki számlát. Egy fölösleges e-Factura az ANAF-nál
+  // sokkal drágább, mint egy elhalasztott kiállítás.
+  //
+  // ⚠️ Ez a kapu a SORRENDI (retry) duplikátumot fogja meg. A dupla kattintást
+  // a dialógus `loading` állapota gátolja — a kettő együtt kell.
+  if (!input.megerositettDuplikatum) {
+    const { data: mar, error: dupErr } = await access.supabase
+      .from('oblio_szamlak')
+      .select('id, sorozat, szam, szamla_datum')
+      .eq('congregation_id', access.effectiveCongregationId)
+      .eq('berleti_szerzodes_id', input.berletiSzerzodesId)
+      .eq('tipus', 'e_factura')
+      .eq('stornozott', false)
+      .eq('szamla_datum', input.szamlaDatum)
+      .eq('osszeg_net', input.osszeg)
+      .limit(1)
+
+    if (dupErr) {
+      return {
+        error:
+          'Nem sikerült ellenőrizni, készült-e már számla erre a tételre — ezért biztonsági okból ' +
+          `NEM állítottunk ki újat. (${dupErr.message}) Próbáld újra pár perc múlva.`,
+      }
+    }
+    if (mar && mar.length > 0) {
+      const s = mar[0] as { sorozat: string | null; szam: number | null }
+      return {
+        duplikatumGyanu: true,
+        error:
+          `Ehhez a szerződéshez ${input.szamlaDatum} dátummal, ${input.osszeg} RON nettó összeggel ` +
+          `MÁR van kiállított számla (${s.sorozat ?? '?'}-${s.szam ?? '?'}). ` +
+          'Ha az előző kísérlet hibaüzenettel állt le, valószínűleg AKKOR is elkészült a számla az Oblio-ban. ' +
+          'Csak akkor állíts ki újat, ha tudatosan másodikat akarsz.',
+      }
+    }
+  }
 
   // 5. Oblio API hívás
   let oblioResp
@@ -201,7 +301,9 @@ export async function issueInvoice(input: IssueInvoiceInput): Promise<{
 
   // 6. Mentés a DB-be
   const osszegNet = input.osszeg
-  const osszegTva = tvaAlany ? Math.round(osszegNet * 0.19 * 100) / 100 : 0
+  // UGYANAZ a kulcs, mint amit a számlára írtunk — külön szám itt azt jelentené,
+  // hogy a KARTOTEKA mást tart nyilván, mint ami az ANAF-hoz felment.
+  const osszegTva = tvaAlany ? Math.round(osszegNet * (tvaKulcsSzazalek / 100) * 100) / 100 : 0
   const osszegBrut = osszegNet + osszegTva
 
   const { data: inserted, error: insErr } = await access.supabase
@@ -233,7 +335,25 @@ export async function issueInvoice(input: IssueInvoiceInput): Promise<{
     .select('id')
     .maybeSingle()
 
-  if (insErr) return { error: `DB hiba: ${insErr.message}` }
+  if (insErr) {
+    // ⛔ A LEGVESZÉLYESEBB ÁLLAPOT (2026-09-03): a számla az Oblio-ban MÁR
+    // ELKÉSZÜLT, csak a mi nyilvántartásunkba nem került be. A régi üzenet
+    // („DB hiba: …") azt sugallta, hogy semmi nem történt — a lelkész pedig
+    // újra megnyomta a gombot, és MÁSODIK adóügyi számla keletkezett.
+    // Most KIMONDJUK a számla azonosítóját, és megtiltjuk az újrapróbálkozást.
+    console.error('[issueInvoice] Az Oblio-számla elkészült, de a DB-írás elbukott:', {
+      sorozat: invoiceData.seriesName,
+      szam: invoiceData.number,
+      hiba: insErr.message,
+    })
+    return {
+      error:
+        `⚠️ A számla az Oblio-ban ELKÉSZÜLT (${invoiceData.seriesName}-${invoiceData.number}), ` +
+        'de a Kartotékába nem sikerült bejegyezni. ' +
+        'NE állíts ki újat — az kétszeres, hatóságnak felmenő számlát jelentene. ' +
+        `Jegyezd fel a számla számát, és jelezd a fejlesztőnek. (Technikai ok: ${insErr.message})`,
+    }
+  }
 
   revalidatePath('/penzugy')
   return { success: true, oblioSzamlaId: inserted?.id }
@@ -400,12 +520,21 @@ export async function stornoInvoice(args: {
       })
     } catch (err) {
       if (err instanceof OblioError) {
-        // A DELETE az Oblio-ban csak tervezetre működik. Ha már SPV-n van,
-        // itt hibát kap — akkor a lokális DB-ben jelöljük sztornózottnak,
-        // és az alkalmazás szintjén a könyvelőnek kell külön sztornó-számlát
-        // kiállítania. Ez külön fejlesztés (WC-2 Phase B).
-        // Most: jelöljük sztornózottnak, és logoljuk az Oblio hibát.
-        console.warn('[oblio] Sztornó az Oblio-ban sikertelen, lokálisan jelöljük:', err.message)
+        // ⛔ 2026-09-03 (átvilágítás): FAIL-CLOSED. A DELETE az Oblio-ban csak
+        // TERVEZET számlára működik. Ha a számla már felment az ANAF SPV-re, az
+        // Oblio hibát ad — a régi kód ilyenkor MÉGIS sztornózottnak jelölte
+        // lokálisan. Ettől a KARTOTEKA azt állította, hogy a számla sztornózva
+        // van, miközben a hatóságnál ÉLŐ, érvényes bizonylat maradt. Ez a
+        // legrosszabb fajta hazugság: csendes és hivatalos.
+        //
+        // Mostantól nem írunk semmit — hangosan megmondjuk, mi a teendő.
+        return {
+          error:
+            'Az Oblio nem tudta sztornózni a számlát — valószínűleg már felment az ANAF SPV-re, ' +
+            'és onnan nem visszavonható. Ilyenkor SZTORNÓ-SZÁMLÁT kell kiállítani (a könyvelővel egyeztetve); ' +
+            'a Kartotékában szándékosan NEM jelöljük sztornózottnak, hogy a nyilvántartás ne mondjon mást, ' +
+            `mint a hatóság. (Oblio üzenete: ${err.message})`,
+        }
       } else {
         return { error: String(err) }
       }

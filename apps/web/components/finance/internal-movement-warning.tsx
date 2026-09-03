@@ -16,10 +16,15 @@
  * nézve ez félrevezető volt.
  */
 
+import { useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import type { InternalMovementHealth } from '@/lib/finance/internal-movement-health'
 
 export function InternalMovementWarning({ health }: { health: InternalMovementHealth }) {
+  // ⚠️ A hook a KORAI RETURN ELŐTT áll — különben a hook-sorrend a
+  // `unpairedCount` változásakor eltérne (React szabály).
+  const [mindetMutat, setMindetMutat] = useState(false)
+
   if (health.unpairedCount <= 0) return null
 
   // 2026-08-27 (próbapadon derült ki): ha MINDEN tétel árva, akkor az általános
@@ -63,7 +68,7 @@ export function InternalMovementWarning({ health }: { health: InternalMovementHe
             )}
           </div>
           <div className="space-y-1">
-            {health.items.slice(0, 5).map((m, i) => (
+            {(mindetMutat ? health.items : health.items.slice(0, 5)).map((m, i) => (
               <p key={`${m.datum}-${m.osszeg}-${i}`} className="text-xs text-slate-700">
                 <strong>{m.datum}</strong> · {m.osszeg.toLocaleString('hu-HU')} RON —{' '}
                 {m.orphan ? (
@@ -79,10 +84,19 @@ export function InternalMovementWarning({ health }: { health: InternalMovementHe
                 )}
               </p>
             ))}
+            {/* 2026-09-02 (Endre 10.): a „további N tétel" eddig zsákutca volt —
+                a lelkész látta, hogy van még, de nem tudta megnézni. Most kinyitható. */}
             {health.items.length > 5 && (
-              <p className="text-xs text-slate-500">
-                … és további {health.items.length - 5} tétel.
-              </p>
+              <button
+                type="button"
+                onClick={() => setMindetMutat((v) => !v)}
+                className="mt-1 inline-flex items-center gap-1 rounded-full border border-red-300 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 transition hover:bg-red-50"
+                aria-expanded={mindetMutat}
+              >
+                {mindetMutat
+                  ? '▲ Kevesebb — csak az első 5'
+                  : `▼ … és további ${health.items.length - 5} tétel — mutasd mind`}
+              </button>
             )}
           </div>
         </div>

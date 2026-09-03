@@ -476,6 +476,26 @@ export function FinanceTabs({
     [incomeRecords, expenseRecords, bevCelMap, kiaCelMap],
   )
 
+  /**
+   * 2026-09-02 (Endre 4.): a rögzítőnek átadott, pár nélkül álló belső mozgások.
+   * A bankszámla NEVÉT itt oldjuk fel, hogy a rögzítő listája beszédes legyen
+   * („2026-06-03 · 1 710,00 RON · BCR"), és a lelkésznek ne kelljen azonosítót
+   * fejben tartania.
+   */
+  const unpairedForRecorder = useMemo(
+    () =>
+      internalMovementHealth.items.map((m) => ({
+        id: m.id,
+        datum: m.datum,
+        osszeg: m.osszeg,
+        side: m.side,
+        orphan: m.orphan,
+        bankszamlaId: m.bankszamlaId,
+        bankNev: bankAccounts.find((b) => b.id === m.bankszamlaId)?.bank_neve,
+      })),
+    [internalMovementHealth, bankAccounts],
+  )
+
   return (
     <>
       {/* 2026-08-11 (számvevő-kör): ellenőri nézet magyarázó sávja — a
@@ -986,6 +1006,10 @@ export function FinanceTabs({
         // gyülekezet-specifikus extrákat (család csatolása, járulék-ajánló)
         // kínálta — miközben a befizető-kereső már hatókör-tudatos.
         scope={scope}
+        // 2026-09-02 (Endre 4.): a pár nélkül álló belső mozgások — a rögzítő
+        // ezekből kínál átvehető listát, és a kiválasztott tétel dátumát,
+        // ÖSSZEGÉT és bankszámláját magától kitölti.
+        unpairedMovements={unpairedForRecorder}
         // 2026-08-09: pénzügy→leltár híd — csak gyülekezeti módban (az egyházmegyei
         // könyvelésnek nincs leltár-integrációja).
         // ⛔ 2026-08-17 (kerületi S5): a kapu `!== 'diocese'`-ről

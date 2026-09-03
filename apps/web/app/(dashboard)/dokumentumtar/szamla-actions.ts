@@ -37,7 +37,13 @@ import type {
   SzamlaKiadasKapcsolat,
   SzamlaParositasBejegyzes,
 } from '@/lib/dokumentumtar/szamla-types'
-import { parseUblSzamla, anafUuidFajlnevbol, SEMNATURA_TOKEN_RE, type UblSzamlaMeta } from '@/lib/oblio/ubl-parser'
+import {
+  parseUblSzamla,
+  anafUuidFajlnevbol,
+  azonositoSzamlaIdentitasbol,
+  SEMNATURA_TOKEN_RE,
+  type UblSzamlaMeta,
+} from '@/lib/oblio/ubl-parser'
 import {
   kibontSzamlaZip,
   parositSzamlaFajlok,
@@ -187,9 +193,23 @@ export async function feldolgozSzamlaZipDokumentum(
       )
       continue
     }
+    // 2026-09-03 (átvilágítás): ha sem az XML `cbc:UUID`-je, sem a fájlnév
+    // 8+ jegyű futama nem ad azonosítót, a SZÁMLA IDENTITÁSÁBÓL képezünk
+    // kulcsot (szállító CUI + számlaszám + kelte). Korábban itt a CSUPASZ
+    // FÁJLNÉV lépett be — attól két különböző szállító `factura.xml`-je
+    // azonos kulcsot kapott, és a második NÉMÁN elveszett.
+    if (!meta.anafUuid) {
+      meta.anafUuid = azonositoSzamlaIdentitasbol(
+        meta.szallitoCui,
+        meta.szamlaszam,
+        meta.kiallitasDatum,
+      )
+    }
     if (!meta.anafUuid) {
       eredmeny.hibak.push(
-        `${par.xml.fajlnev}: nincs ANAF-azonosító (sem az XML-ben, sem a fájlnévben) — duplikátum-védelem nélkül nem rögzítjük.`,
+        `${par.xml.fajlnev}: nincs azonosítható ANAF-azonosító, és a szállító adószáma / számlaszám / ` +
+          'kelte közül is hiányzik valamelyik — azonosító nélkül nem rögzítjük, mert nem tudnánk ' +
+          'megvédeni a kétszeres bevitel ellen.',
       )
       continue
     }
@@ -492,16 +512,22 @@ export async function linkSzamlaKiadas(input: {
   // Fillérre pontos fedezet-őr: a meglévő részek + az új rész ≤ számla-összeg.
   const { data: reszek, error: reszErr } = await supabase
     .from('szallitoi_szamla_kiadas')
-    .select('osszeg_resz')
+    .select('osszeg_resz, kiadas:kiadas_id (deleted, stornozott)')
     .eq('szamla_id', input.szamlaId)
     .eq('congregation_id', congId)
   if (reszErr) {
     return { kapcsolat: null, error: friendlyDbError('A meglévő kapcsolatok lekérése sikertelen', reszErr) }
   }
-  const eddigFiller = ((reszek || []) as { osszeg_resz: number }[]).reduce(
-    (osszesen, r) => osszesen + Math.round(Number(r.osszeg_resz) * 100),
-    0,
-  )
+  // ⚠️ 2026-09-03 (átvilágítás P1): a HALOTT kapcsolatok (törölt/sztornózott
+  // kiadás) NEM foglalják a fedezetet. Enélkül egy elgépelt és utóbb
+  // sztornózott kiadás örökre lezárta a számlát: az ÚJ, helyes kiadást már nem
+  // lehetett hozzákapcsolni, és semmi nem árulta el, miért.
+  const eddigFiller = ((reszek || []) as unknown as Array<{
+    osszeg_resz: number
+    kiadas: { deleted?: boolean | null; stornozott?: boolean | null } | null
+  }>)
+    .filter((r) => !(r.kiadas?.deleted || r.kiadas?.stornozott))
+    .reduce((osszesen, r) => osszesen + Math.round(Number(r.osszeg_resz) * 100), 0)
   const szamlaOsszeg = Number((szamla as { osszeg: number }).osszeg)
   const ujOsszesenFiller = eddigFiller + Math.round(osszegResz * 100)
   if (ujOsszesenFiller > Math.round(szamlaOsszeg * 100)) {
@@ -611,7 +637,11 @@ export async function listSzamlaParositasok(szamlaIds: string[]): Promise<{
     const szelet = szamlaIds.slice(i, i + 80)
     const { data, error } = await supabase
       .from('szallitoi_szamla_kiadas')
-      .select('szamla_id, kiadas:kiadas_id (id, datum, osszeg, bankszamla_id)')
+      // 2026-09-03 (átvilágítás P1): a `deleted`/`stornozott` zászlót IS lekérjük.
+      // A szűrés SZÁNDÉKOSAN TS-ben történik, nem beágyazott PostgREST-szűrővel
+      // (`!inner`): az ELREJTENÉ a sort, és a lelkész sosem tudná meg, hogy
+      // bontania kell a kapcsolatot. Látszódnia kell — pirosan.
+      .select('szamla_id, kiadas:kiadas_id (id, datum, osszeg, bankszamla_id, deleted, stornozott)')
       .in('szamla_id', szelet)
       .eq('congregation_id', congId)
     if (error) {
@@ -619,7 +649,14 @@ export async function listSzamlaParositasok(szamlaIds: string[]): Promise<{
     }
     for (const sor of (data || []) as unknown as Array<{
       szamla_id: string
-      kiadas: { id: number; datum: string | null; osszeg: number; bankszamla_id: number | null } | null
+      kiadas: {
+        id: number
+        datum: string | null
+        osszeg: number
+        bankszamla_id: number | null
+        deleted?: boolean | null
+        stornozott?: boolean | null
+      } | null
     }>) {
       if (!sor.kiadas) continue
       const lista = eredmeny[sor.szamla_id] ?? (eredmeny[sor.szamla_id] = [])
@@ -628,6 +665,8 @@ export async function listSzamlaParositasok(szamlaIds: string[]): Promise<{
         datum: sor.kiadas.datum,
         osszeg: Number(sor.kiadas.osszeg) || 0,
         bankszamlaId: sor.kiadas.bankszamla_id,
+        // HALOTT KAPCSOLAT: a kiadást azóta törölték vagy sztornózták.
+        ervenytelen: !!sor.kiadas.deleted || !!sor.kiadas.stornozott,
         bankNev:
           sor.kiadas.bankszamla_id != null
             ? bankNevById.get(sor.kiadas.bankszamla_id) ?? `#${sor.kiadas.bankszamla_id}`

@@ -23,6 +23,121 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-09-03] — Megszólal az ANAF-csengő, és beolvasható a tömeges ZIP
+<!-- key: 2026-09-03-anaf-csengo-es-zip -->
+<!-- category: bugfix -->
+<!-- version: 0.9.220 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🐛 Javítások
+
+- **Végre szól a 60 napos ANAF-figyelmeztetés.** A figyelő 2026 áprilisa óta **minden alkalommal hibára futott** (egy hiányzó adatbázis-oszlop miatt), a hibát pedig a program két helyen is elnyelte — így senki nem tudta meg, hogy a csengő elromlott. Mostantól működik, és ha mégis hibázna, az a naplóba kerül. ⚠️ Futtatandó SQL: `migration-docs/sql/2026-09-03-anaf-60-napos-csengo.sql`. **A futtatás után az érintettek azonnal megkapják a visszatartott figyelmeztetést** — ezek eddig is esedékesek voltak, csak néma volt a jelzés.
+- **A tömeges ANAF-export végre beolvasható.** Ha a letöltött ZIP további ZIP-eket tartalmazott (az ANAF így adja a köteget), a program **nulla számlát olvasott be, miközben sikert jelzett**, és archiválta a fájlt — a lelkész azt hitte, minden megvan. Mostantól a beágyazott ZIP-eket is kibontja (legfeljebb 3 szint mélyen), és ha egy ZIP-ből **semmi nem jött ki, azt hangosan megmondja**.
+- **Méret-őr a beolvasásban.** A kibontásnak eddig semmilyen korlátja nem volt. Most bejegyzésenként 64 MB, összesen 512 MB a felső határ — egy hibás vagy rosszindulatú ZIP nem tudja megbénítani a gépet.
+
+### ✨ Új funkciók
+
+- **Emlékeztető e-mail az elmaradt beolvasásról.** A Pénzügy → Oblio ellenőrzés felületen, ha közeledik vagy lejárt a 60 napos határidő, megjelenik egy figyelmeztető sáv **„Emlékeztető e-mail"** gombbal. A levél megírja, hány napja (hány hónapja) nem volt beolvasás, és mi a teendő lépésről lépésre. Alapból a **saját címedre** megy — más címzettet (például a könyvelőét) külön be kell írni. **A rendszer magától soha nem küld ilyen levelet**, csak erre a kattintásra.
+
+---
+
+## [2026-09-03] — Az ANAF-azonosító többé nem a fájlnév
+<!-- key: 2026-09-03-anaf-azonosito -->
+<!-- category: bugfix -->
+<!-- version: 0.9.219 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🐛 Javítások
+
+- **Két szállító azonos nevű számlája nem tünteti el egymást.** A befogadott e-Facturák azonosítója eddig végső esetben **maga a fájlnév** volt. Ha két különböző szállító `factura.xml` néven küldött számlát, a második nem került be — „Már korábban rögzített" felirattal nyugtázta a program, és **a második szállító követelése nyomtalanul eltűnt**. Fordítva ugyanez: ugyanaz a számla két néven érkezve két külön tartozásként jelent meg.
+- **Mostantól a számla saját adatai azonosítanak.** Ha sem az XML-ben, sem a fájlnévben nincs ANAF-azonosító, a kulcsot a **szállító adószáma + számlaszám + kiállítás dátuma** adja — vagyis pontosan az, ami a bizonylaton is szerepel. Ha ezek közül is hiányzik valamelyik, a program **hangosan elutasítja** a sort, ahelyett hogy azonosítót találna ki magának.
+- **A hivatalos adatlapra nem kerül többé fájlnév-töredék** „ANAF-azonosító" gyanánt.
+
+**Meglévő adat:** érintetlen. Az élesben futtatott diagnosztika szerint mind a 14 rögzített szállítói számla valódi szám-azonosítón áll, egyetlen fájlnév-alapú kulcs sincs — a javítás tisztán megelőző, migráció nem kellett.
+
+---
+
+## [2026-09-03] — Számla-integritás: nem keletkezhet kétszer ugyanaz a számla
+<!-- key: 2026-09-03-oblio-szamla-integritas -->
+<!-- category: bugfix -->
+<!-- version: 0.9.218 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🐛 Javítások
+
+- **Nem állítható ki kétszer ugyanaz az e-Factura.** Ha az Oblio-hívás időtúllépéssel állt le, a számla akkor is elkészülhetett — a program viszont csak annyit írt, hogy „kapcsolódási hiba", és a gomb újra aktív volt. Egy kattintás, és **második, hatóságnak felmenő számla** keletkezett. Mostantól a kiállítás előtt ellenőrizzük, van-e már ugyanahhoz a szerződéshez azonos dátumú és összegű számla; ha van, a program megáll és megmondja, melyik az. Tudatosan felül lehet bírálni, de csak külön jelölő bepipálásával.
+- **Ha a számla elkészült, de a Kartotékába nem került be, azt most kimondjuk.** Eddig „DB hiba" jelent meg, ami azt sugallta, hogy semmi sem történt. Most a hibaüzenet **kiírja a számla sorozatát és számát**, és figyelmeztet, hogy ne állíts ki újat.
+- **A sztornózott kiadás nem tünteti el a számlát a látókörből.** Ha egy kiadást sztornóztál, a hozzá kapcsolt szállítói számla eddig csendben „Könyvelve" és „Kifizetve" maradt, kiesett a „Nincs a könyvelésben" szűrőből, sőt a **nyomtatott adatlapra is rákerült** könyvelési tételként. Mostantól a lista **pirosan jelzi**, hogy a kapcsolt kiadás sztornózva van és bontani kell; a nyomtatott íven a sor áthúzva, „SZTORNÓZOTT" jelöléssel szerepel; a sztornózáskor pedig a program szól, hogy van kapcsolt számla.
+- **A sztornózott kapcsolat nem zárja le többé a számlát.** Eddig a halott kapcsolat lefoglalta a teljes összeget, ezért az **új, helyes kiadást nem lehetett hozzákapcsolni** — és semmi nem árulta el, miért. Most a törölt vagy sztornózott kapcsolatok nem számítanak a fedezetbe.
+- **Nem jelöljük sztornózottnak azt, amit az Oblio nem tudott sztornózni.** Ha a számla már felment az ANAF SPV-re, az Oblio hibát ad — a program eddig ettől függetlenül sztornózottnak jelölte nálunk. Így a Kartotéka mást állított, mint a hatóság. Mostantól hangosan megmondja, hogy **sztornó-számlát** kell kiállítani.
+- **A számla-kiállító ablak nem ígér olyat, amit nem tart be.** Eddig azt írta, hogy a státusz „1-24 órán belül frissül" — a Kartotéka viszont sosem kérdezte le. Most kimondja, hogy az aktuális állapot az Oblio felületén nézhető meg.
+
+---
+
+## [2026-09-03] — Átvilágítás után: beállítható ÁFA-kulcs és négy komoly hiba javítása
+<!-- key: 2026-09-03-oblio-atvilagitas-p0 -->
+<!-- category: security -->
+<!-- version: 0.9.216 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok, rendszergazda -->
+
+### 🔒 Biztonsági javítások
+
+- **Az Oblio API-kulcs többé nem fejthető vissza a böngészőből.** A titkosítást és a visszafejtést mostantól kizárólag a szerver végzi (service-role), nem a bejelentkezett felhasználó kapcsolata. ⚠️ **A teljes záráshoz futtatandó SQL**: `migration-docs/sql/2026-09-03-vault-orakulum-zaras.sql` — ez veszi el a jogot a böngészőtől, és teszi olvashatatlanná magát a titkosított értéket is. Előbb ez a verzió menjen élesbe, csak utána az SQL.
+- **Nem keveredhet össze két gyülekezet Oblio-kapcsolata.** A rendszer a bejelentkezési tokent eddig csak az e-mail alapján tárolta — ha két gyülekezet ugyanazt az Oblio e-mailt használja (például közös könyvelő), a második hívás az elsőnek a tokenjével futhatott. Mostantól a titok is része az azonosításnak, és API-kulcs cseréjekor a régi token azonnal érvényét veszti.
+
+### 🐛 Javítások
+
+- **Az asztali beolvasás többé nem semmisít meg fájlt.** Ha a bedobott mappába két azonos nevű fájl kerül (például két szállító factura.xml-je), a program eddig a másodikat **véglegesen törölte** — nem a Lomtárba —, és csak annyit írt, hogy „kihagyva". Egy hivatalos e-Factura tűnhetett el nyomtalanul. Mostantól az ütköző fájl az **Oblio → nem-egyertelmu** mappába kerül időbélyeggel, és a beolvasási jelentés kiírja, hova tettük.
+- **A saját, „semnatura" kezdetű PDF-jeid megmaradnak.** Az ANAF aláírás-szűrő eddig a PDF-ekre is állt, így például a semnatura-presbiteri.pdf is kidobásra került. Most csak a valódi aláírás-**XML**-t teszi félre — és azt sem törli.
+- **Az ÁFA-kulcs mostantól beállítható** (Gyülekezetünk adatai → ÁFA-alanyiság). Eddig a kód két helyén volt beégetve 19%, miközben a román normál kulcs 2025-08-01 óta 21% — a kimenő e-Factura tehát hibás adótartalommal ment az ANAF-hoz, és a nyilvántartott ÁFA is ezt követte. Most egyetlen beállított érték kerül a számlára **és** a könyvelésbe, tehát a kettő nem tud széthúzni. Ha ÁFA-alany a gyülekezet, de a kulcs 0 vagy hiányzik, a rendszer inkább **nem állít ki számlát**, semmint hibásat. ⚠️ Futtatandó SQL: `migration-docs/sql/2026-09-03-tva-kulcs-beallithato.sql`.
+- **Devizás számlát nem lehet többé lejként bevezetni.** Az asztali Oblio-fül „Bevezetés új kiadásként" gombja egy 500 eurós számlából 500 lejes kiadást csinált, átváltás nélkül. Mostantól a program elutasítja, és megmondja, hogyan rögzítsd helyesen (kézi rögzítés a valós árfolyammal, majd párosítás).
+- **Jóváíró számlából nem lesz kiadás.** A visszajáró pénzt eddig kiadásként lehetett bevezetni — most a program megállítja.
+- **Nem kerülhet ugyanaz a számla kétszer a főkönyvbe.** Az asztali bevezetés eddig nem tudott arról, hogy a számlát a webes Dokumentumtárban már rögzítették. Mostantól ellenőrzi, és ha megtalálja, megmondja, hol kapcsold hozzá a kifizetést. Ha az ellenőrzés valamiért nem futtatható, a program inkább nem vezet be — kétszer könyvelt kiadást utólag nehéz észrevenni.
+
+---
+
+## [2026-09-03] — Készpénzes rögzítő: ragadó fülek, beszédesebb jelzések, párosítatlan tételek átvétele
+<!-- key: 2026-09-03-kassza-rogzito-jelzesek -->
+<!-- category: improvement -->
+<!-- version: 0.9.215 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok -->
+
+### 🐛 Javítások
+
+- **A „Korábbi, mint az utolsó rögzített" figyelmeztetés végre értelmes.** Eddig a *banki* tételeket is nézte — mivel a kivonat-import hónapokkal előrébb tart, minden korábbi kasszás soron kigyulladt. Mostantól kizárólag az utolsó **készpénzes** tételhez viszonyít, és a szöveg is ezt mondja.
+- **Kiderül, miért kisebb az ajánlott összeg.** Az egyházfenntartói járuléknál a rendszer mindig a **maradékot** ajánlotta (éves díj mínusz az évre már befizetett összeg), de ezt csak az egérrel fölé állva lehetett megtudni — a képernyőn úgy tűnt, mintha hirtelen más díjat számolna. Most kiírja: „maradék — erre az évre már fizetett X RON (éves díj Y)".
+- **Ha valaki már kifizette az évi járulékot, azt a rögzítő hangosan jelzi.** Eddig ez egy halványszürke mondat volt; most borostyán jelvény: „⚠ A 2026. évi járulékot MÁR KIFIZETTE (X RON)".
+- **A Monetárban látszik, hogy az eltérés hiány vagy többlet.** Eddig előjel nélkül állt ott a szám — a hiány és a többlet betűre egyformán nézett ki, és nyomtatásban a szín sem segített. Most **+** vagy **−** jel van előtte, a magyarázat pedig kiírja: TÖBBLET vagy HIÁNY.
+- **A vázlat visszaállítása után nem kell újra végigkattintgatni a cégeket.** Eddig minden sor legördülője magától kinyílt. Mostantól a kereső csak gépelésre indul, a név mellett pedig egy kis **„ismert" / „új"** jel mutatja, hogy a partner szerepel-e már a gyülekezet korábbi kiadásai közt. Ami új, az a mentéssel pontosan úgy kerül be, ahogy beírtad.
+
+### ✨ Új funkciók
+
+- **A Bevétel/Kiadás gombok mindig a képernyő tetején maradnak** — sok sor után sem kell felgörgetni a fülváltáshoz. Mellettük ott a **tételszám és az összeg** is: mennyi bevétel és mennyi kiadás kerül mentésre.
+- **Párosítatlan belső mozgás átvétele egy kattintással.** Ha a bankban már rögzítve van egy átvezetés, de a kassza-oldali párja hiányzik, a belső mozgás soron megjelenik a **pár nélküli tételek listája** — a kiválasztott tétel **dátumát, összegét és bankszámláját** a rendszer magától kitölti.
+- **Nyilakkal lehet választani a nevek közül.** A befizető-keresőben ↓/↑ lépteti a találatokat, **Enter** kiválasztja, **Esc** bezárja.
+- **Régebbi évek is felvehetők a „Több évre fizet" nézetben.** A „← korábbi évek" gombbal a lista visszafelé nyílik, így a több éve elmaradt egyházfenntartói járulék is rögzíthető.
+- **A párosítatlan belső mozgások figyelmeztetésénél kinyitható a teljes lista** — eddig a „… és további N tétel" zsákutca volt.
+
+### 🎨 UX javítások
+
+- **A rögzítő ablak neve: „Készpénzes tételek rögzítése"** — a cím mellett egy **i** ikon mondja el, hogy a banki tételek a bankból exportált kivonatból importálódnak (Pénzügy → Bank → Kivonat importálása), nem itt.
+- **A banki import videó útmutatója szép ablakban játszik le** — eddig új lapon nyílt meg a nyers videófájl, és a lelkész elvesztette a varázsló szálát.
+
+---
+
+## [2026-09-02] — 50 lapos nyugtatömb, és a persely lekerül az adományozói névsorról
+<!-- key: 2026-09-02-nyugtatomb-50-persely -->
+<!-- category: bugfix -->
+<!-- version: 0.9.214 -->
+<!-- targets: lelkipásztorok, gondnokok, pénztárosok, esperesi és püspöki hivatal -->
+
+### 🐛 Javítások
+
+- **Egy nyugtatömb 50 lapos — nem 100.** Az Egyházkerülettől vásárolt, sorszámozott nyugtatömb 50 lapot tartalmaz, a rendszer viszont 100-ig engedte a tartományt. Mostantól a kezdőszám beírásakor a **záró szám magától kitöltődik 50 lapra** (felülírható), és a program nem enged 50-nél hosszabb tömböt rögzíteni — a gyülekezeti, az **egyházmegyei** és az **egyházkerületi** felületen egyaránt. A már rögzített tömbök változatlanok maradnak: a régi bejegyzések továbbra is megnyílnak és használhatók.
+- **A perselypénz nem adományozó.** Az „Adományozók és szponzorok" fülön eddig a perselypénz is szerepelt — csakhogy a persely gyűjtés, nincs adományozója, így csak egy nagy névtelen sorként ült a listán, és felfelé torzította az összesítést. Mostantól **kimarad a névsorból**: a fülre csak a valódi adományozói és szponzori tételek kerülnek. A perselypénz természetesen ott van a számadásban és minden kimutatásban — csak a névsort nem torzítja. A hiányzó-befizető figyelmeztetés a banki tételeknél változatlan.
+
+---
+
 ## [2026-09-01] — A hibaüzenet megmutatja, MELYIK sorral van baj
 <!-- key: 2026-09-01-hibas-sor-cimzes -->
 <!-- category: improvement -->

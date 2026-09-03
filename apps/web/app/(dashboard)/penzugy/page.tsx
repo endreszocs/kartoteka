@@ -54,9 +54,23 @@ export default async function PenzugyPage({
 
   // ANAF SPV 60 napos határidő figyelő — csak congregation scope-ban releváns
   if (scope === 'congregation') {
-    void checkOblioDeadline().catch(() => {
-      /* csendes — nem kritikus */
-    })
+    // 2026-09-03 (átvilágítás P1): a hibát NEM nyeljük el némán. A csengő
+    // 2026-04 óta hallgatott, mert az RPC hibáját itt is, a hívott függvényben
+    // is elnyeltük — és így senki nem tudta meg, hogy a bírság-kockázatú
+    // 60 napos ANAF-határidőről nem érkezik figyelmeztetés.
+    void checkOblioDeadline()
+      .then((r) => {
+        if (r.status === 'hiba') {
+          console.error(
+            '[penzugy] Az ANAF 60 napos csengő nem működik — a lelkész nem kap ' +
+              'figyelmeztetést a letöltési határidőről. Ok:',
+            r.hibaUzenet,
+          )
+        }
+      })
+      .catch((e) => {
+        console.error('[penzugy] Az ANAF 60 napos csengő hívása elhasalt:', e)
+      })
   }
 
   // A megjelenített év a `?year=` URL-paraméterből (hero-beli év-választó); ha nincs

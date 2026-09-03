@@ -8,8 +8,10 @@
  * (saveIncomeBatch + saveExpenseBatch).
  */
 
+import { useEffect, useState } from 'react'
 import {
   CombinedEntryBody,
+  type CombinedEntryBodyProps,
   type IncomeCategory,
   type ExpenseCategory,
   type CombinedBankAccount,
@@ -35,6 +37,7 @@ import {
   getNextReceiptNumbers,
   checkReceiptDuplicate,
   getLastRecordedDate,
+  listExpensePartnerNames,
 } from '@/app/(dashboard)/penzugy/actions'
 import { toast } from 'sonner'
 
@@ -71,10 +74,38 @@ interface Props {
    * gyülekezeti hívója változatlan marad.
    */
   scope?: FinanceScope
+  /**
+   * 2026-09-02 (Endre 4.): a még pár nélkül álló belső mozgások — a rögzítő
+   * ebből kínál választható „párját rögzítem" listát a belső mozgás soron.
+   */
+  unpairedMovements?: CombinedEntryBodyProps['unpairedMovements']
 }
 
-export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expenseCategories, bankAccounts, currentYear, congregationId, offerExpenseInventory, scope = 'congregation' }: Props) {
+export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expenseCategories, bankAccounts, currentYear, congregationId, offerExpenseInventory, scope = 'congregation', unpairedMovements }: Props) {
   const gyulekezeti = scope === 'congregation'
+
+  /**
+   * 2026-09-02 (Endre): a gyülekezet ismert kiadás-partnerei — EGYSZER, a
+   * rögzítő megnyitásakor. Ebből lesz a név melletti passzív „ismert"/„új"
+   * jelzés, a soronkénti kattintgatás helyett.
+   *
+   * `undefined` amíg tölt → a jelzés NEM jelenik meg. Egy még be nem töltött
+   * lista nem mondhatja egy régi partnerre, hogy „új".
+   */
+  /** 2026-09-02 (Endre 7.): a banki-import magyarázó buborék (érintésre is). */
+  const [bankiSugoNyitva, setBankiSugoNyitva] = useState(false)
+  const [ismertPartnerek, setIsmertPartnerek] = useState<string[] | undefined>(undefined)
+  useEffect(() => {
+    if (!open || !gyulekezeti) return
+    let ervenyes = true
+    void listExpensePartnerNames()
+      .then((nevek) => { if (ervenyes) setIsmertPartnerek(nevek) })
+      // Hiba esetén marad `undefined` → nincs jelzés. Ez a helyes fail-safe:
+      // egy sikertelen betöltés nem állíthatja minden partnerről, hogy „új".
+      .catch(() => { if (ervenyes) setIsmertPartnerek(undefined) })
+    return () => { ervenyes = false }
+  }, [open, gyulekezeti])
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[94dvh] overflow-y-auto p-0 w-[calc(100%-1rem)] sm:max-w-5xl xl:max-w-[90vw] 2xl:max-w-[84vw]">
@@ -85,7 +116,31 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
                 <ListPlus className="h-5 w-5 text-white" />
               </div>
               <div>
-                <DialogTitle className="font-heading text-lg">Tétel rögzítése</DialogTitle>
+                {/* 2026-09-02 (Endre 7.): a cím mondja ki, hogy ez a KÉSZPÉNZ útja —
+                    a banki tételek kivonat-importból jönnek, nem itt. */}
+                <DialogTitle className="font-heading text-lg flex flex-wrap items-center gap-1.5">
+                  Készpénzes tételek rögzítése
+                  <button
+                    type="button"
+                    onClick={() => setBankiSugoNyitva((v) => !v)}
+                    aria-expanded={bankiSugoNyitva}
+                    aria-label="Hogyan kerülnek be a banki tételek?"
+                    title="A BANKI tételeket nem itt rögzítjük: azok a bankból exportált kivonatból (CSV/MT940) importálódnak — Pénzügy → Bank → Kivonat importálása. Így a banki sorok az eredeti bankadatból jönnek, elgépelés nélkül."
+                    className="inline-flex size-5 items-center justify-center rounded-full border border-teal-300 bg-teal-50 text-[11px] font-bold text-teal-700 transition hover:bg-teal-100"
+                  >
+                    i
+                  </button>
+                </DialogTitle>
+                {bankiSugoNyitva && (
+                  <p className="mt-1.5 rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2 text-xs leading-relaxed text-teal-900">
+                    <strong>A banki tételeket nem itt rögzítjük.</strong> Azok a bankból <strong>exportált
+                    kivonatból</strong> (CSV / MT940) importálódnak: <strong>Pénzügy → Bank → Kivonat
+                    importálása</strong>. Így a banki sorok az eredeti bankadatból jönnek, elgépelés nélkül —
+                    itt csak a <strong>készpénzes</strong> (kassza) tételek helye van. Kivétel a
+                    készpénzfelvétel/-letétel: ott bankszámlát is választani kell, mert a pénz a kassza és a
+                    bank között mozog.
+                  </p>
+                )}
                 {/* 2026-07-10 (S2-#2): színkódolt jelmagyarázat — egyértelmű, hogy EGY mentéssel
                     bevétel (zöld) ÉS kiadás (piros) is rögzíthető, tömegesen. */}
                 <p className="mt-0.5 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-zinc-400">
@@ -175,6 +230,8 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
               }))
             }}
             onSearchExpensePartners={async (query) => await searchExpensePartners(query)}
+            knownExpensePartners={ismertPartnerek}
+            unpairedMovements={unpairedMovements}
             /* 2026-08-27 (Endre 8. kérése): mentés ELŐTT megnézzük, van-e már
                ugyanolyan összegű, hasonló nevű, ±3 napon belüli BANKI tétel.
                Ha igen, a rögzítő megerősítést kér — de nem tilt. */

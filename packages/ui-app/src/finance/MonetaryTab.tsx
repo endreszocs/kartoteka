@@ -387,16 +387,20 @@ export function MonetaryTab({
                 hint="Az itt rögzített címletek összege"
                 compact={compact}
               />
+              {/* 2026-09-02 (Endre 11.): „látszódjon, hogy az eltérés mínusz vagy plusz".
+                  Eddig `Math.abs` állt itt, tehát a 8 978,24 RON HIÁNY és a 8 978,24 RON
+                  TÖBBLET a képernyőn BETŰRE ugyanúgy nézett ki — a szín volt az egyetlen
+                  különbség, ami nyomtatásban és színtévesztéssel elveszik. */}
               <MetricCard
                 label="Eltérés"
-                value={formatRon(Math.abs(difference))}
+                value={`${difference > 0 ? '+' : difference < 0 ? '−' : ''}${formatRon(Math.abs(difference))}`}
                 tone={difference === 0 ? 'emerald' : difference > 0 ? 'sky' : 'rose'}
                 hint={
                   difference === 0
                     ? 'A pénztár pontosan egyezik.'
                     : difference > 0
-                      ? 'Többlet látható a kasszában.'
-                      : 'Hiány mutatkozik a kasszában.'
+                      ? 'TÖBBLET — több készpénz van a kasszában, mint amennyit a könyvelés mutat.'
+                      : 'HIÁNY — kevesebb készpénz van a kasszában, mint amennyit a könyvelés mutat.'
                 }
                 compact={compact}
               />

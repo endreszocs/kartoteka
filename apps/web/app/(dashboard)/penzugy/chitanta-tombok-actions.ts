@@ -17,6 +17,7 @@ import {
   getChitantaTombUsageUseCase,
   listChitantaTombokUseCase,
 } from '@kartoteka/core'
+import { MAX_NYUGTA_TOMBBEN } from '@kartoteka/validations'
 
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 
@@ -246,8 +247,10 @@ export async function createChitantaTombokBatch(
       return { error: `${i + 1}. tömb: a záró szám nem lehet kisebb a kezdőnél.` }
     }
     const darabszam = t.szam_veg - t.szam_kezdet + 1
-    if (darabszam > 100) {
-      return { error: `${i + 1}. tömb: egy tömbben max. 100 nyugta lehet (${darabszam} db).` }
+    if (darabszam > MAX_NYUGTA_TOMBBEN) {
+      return {
+        error: `${i + 1}. tömb: egy nyugtatömb ${MAX_NYUGTA_TOMBBEN} lapos, a megadott tartomány ${darabszam} db. Ellenőrizd a kezdő- és a végszámot.`,
+      }
     }
     darabszamok.push(darabszam)
   }

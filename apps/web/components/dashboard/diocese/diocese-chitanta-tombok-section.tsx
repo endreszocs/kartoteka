@@ -20,6 +20,7 @@ import {
   Sparkles, Calendar,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { MAX_NYUGTA_TOMBBEN } from '@kartoteka/validations'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -234,6 +235,20 @@ function CreateTombDialog({
     }
   }
 
+  /**
+   * A KEZDŐ szám elmozdításakor a tömb HOSSZA marad (alapesetben 50 lap) —
+   * különben a lelkész átírja a kezdőszámot, és a darabszám némán elcsúszik.
+   * Endre szabálya (2026-09-02): egy nyugtatömb 50 lapos.
+   */
+  function kezdetValtozik(kezdet: number) {
+    if (!Number.isFinite(kezdet)) return
+    const hossz =
+      form.szam_veg >= form.szam_kezdet ? form.szam_veg - form.szam_kezdet + 1 : MAX_NYUGTA_TOMBBEN
+    syncDarabszam(kezdet, kezdet + hossz - 1)
+  }
+
+  const tulHosszu = form.darabszam_ossz > MAX_NYUGTA_TOMBBEN
+
   function handleCreate() {
     startTransition(async () => {
       const res = await createDioceseChitantaTomb({
@@ -273,7 +288,7 @@ function CreateTombDialog({
               <Input
                 type="number"
                 value={form.szam_kezdet}
-                onChange={(e) => syncDarabszam(Number(e.target.value), form.szam_veg)}
+                onChange={(e) => kezdetValtozik(Number(e.target.value))}
               />
             </ModalField>
             <ModalField label="Vég szám *">
@@ -284,9 +299,20 @@ function CreateTombDialog({
               />
             </ModalField>
             <ModalField label="Darabszám (auto)">
-              <Input type="number" value={form.darabszam_ossz} readOnly className="bg-slate-50" />
+              <Input
+                type="number"
+                value={form.darabszam_ossz}
+                readOnly
+                className={tulHosszu ? 'bg-rose-50 text-rose-700' : 'bg-slate-50'}
+              />
             </ModalField>
           </div>
+          {tulHosszu && (
+            <p className="text-xs text-rose-600">
+              Egy nyugtatömb {MAX_NYUGTA_TOMBBEN} lapos, a megadott tartomány {form.darabszam_ossz} db.
+              Ellenőrizd a kezdő- és a végszámot.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <ModalField label="Vásárlás dátuma *">
               <Input type="date" value={form.vasarlas_datuma} onChange={(e) => setForm({ ...form, vasarlas_datuma: e.target.value })} />
@@ -306,7 +332,7 @@ function CreateTombDialog({
         </div>
         <div className="flex gap-2 justify-end border-t border-slate-100 pt-3 -mx-6 px-6">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>Mégse</Button>
-          <Button onClick={handleCreate} disabled={isPending} className="rounded-xl bg-amber-500 text-white hover:bg-amber-600">
+          <Button onClick={handleCreate} disabled={isPending || tulHosszu} className="rounded-xl bg-amber-500 text-white hover:bg-amber-600">
             {isPending ? 'Rögzítés…' : 'Rögzítés'}
           </Button>
         </div>

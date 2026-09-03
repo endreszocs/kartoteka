@@ -44,6 +44,9 @@ export function OblioIssueInvoiceDialog({ open, onOpenChange, contract, onIssued
   const [osszeg, setOsszeg] = useState<number | ''>('')
   const [megjegyzes, setMegjegyzes] = useState('')
   const [loading, setLoading] = useState(false)
+  /** 2026-09-03: duplikátum-gyanú — a szerver üzenete + a tudatos felülbírálás. */
+  const [duplikatumFigyelmeztetes, setDuplikatumFigyelmeztetes] = useState<string | null>(null)
+  const [duplikatumVallalva, setDuplikatumVallalva] = useState(false)
 
   useEffect(() => {
     if (!open || !contract) return
@@ -87,15 +90,23 @@ export function OblioIssueInvoiceDialog({ open, onOpenChange, contract, onIssued
       idoszak: idoszak.trim(),
       osszeg: numOsszeg,
       megjegyzes: megjegyzes.trim() || undefined,
+      // Csak akkor megy át a kapun, ha a lelkész EXPLICIT bepipálta.
+      megerositettDuplikatum: duplikatumVallalva || undefined,
     })
     setLoading(false)
 
     if (res.error) {
+      // 2026-09-03 (átvilágítás P0): duplikátum-gyanúnál nem elég egy toast —
+      // a jelölőt is fel kell kínálni, különben a lelkész csak annyit lát,
+      // hogy „nem sikerült", és keresi, mit rontott el.
+      if (res.duplikatumGyanu) setDuplikatumFigyelmeztetes(res.error)
       toast.error(res.error)
       return
     }
 
     toast.success('Számla kiállítva az Oblio-n keresztül!')
+    setDuplikatumFigyelmeztetes(null)
+    setDuplikatumVallalva(false)
     onOpenChange(false)
     if (onIssued) await onIssued()
   }
@@ -195,18 +206,54 @@ export function OblioIssueInvoiceDialog({ open, onOpenChange, contract, onIssued
             </p>
             <p className="mt-1">
               A számla kiállítása után az Oblio automatikusan továbbítja az ANAF SPV-be. A státusz
-              (&bdquo;függőben&rdquo; → &bdquo;elfogadva&rdquo;) 1-24 órán belül frissül. Sztornó csak külön
+              (&bdquo;függőben&rdquo; → &bdquo;elfogadva&rdquo;) 1-24 óra alatt áll be az ANAF-nál — de a
+              Kartotéka ezt NEM kérdezi le magától, az aktuális állapot az Oblio felületén nézhető meg.
+              Sztornó csak külön
               sztornó-számlával lehetséges (könyvelővel egyeztetve).
             </p>
           </div>
+
+          {/* 2026-09-03 (átvilágítás P0): duplikátum-gyanú — a felülbírálást
+              KÜLÖN, tudatos lépésként kell megtenni. A jelölő csak akkor
+              jelenik meg, ha a szerver ütközést talált; alapból nincs ott,
+              hogy senki ne pipálja be „csak úgy". */}
+          {duplikatumFigyelmeztetes && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-semibold">Lehet, hogy ez a számla már elkészült</p>
+              <p className="mt-1 leading-relaxed">{duplikatumFigyelmeztetes}</p>
+              <p className="mt-2 leading-relaxed">
+                Mielőtt újat állítasz ki, <strong>nézd meg az Oblio felületén</strong>, hogy tényleg
+                hiányzik-e. Egy fölöslegesen kiállított e-Factura az ANAF-hoz is felmegy, és csak
+                sztornó-számlával vonható vissza.
+              </p>
+              <label className="mt-2 flex items-start gap-2 font-medium">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={duplikatumVallalva}
+                  onChange={(e) => setDuplikatumVallalva(e.target.checked)}
+                />
+                <span>Ellenőriztem, és tudatosan újabb számlát állítok ki.</span>
+              </label>
+            </div>
+          )}
 
           {/* Gombok */}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
               Mégse
             </Button>
-            <Button onClick={handleSubmit} disabled={loading} className="bg-teal-600 text-white hover:bg-teal-700">
-              {loading ? 'Kiállítás...' : 'Számla kiállítása'}
+            <Button
+              onClick={handleSubmit}
+              // Duplikátum-gyanú után a gomb CSAK a tudatos vállalással él újra.
+              disabled={loading || (!!duplikatumFigyelmeztetes && !duplikatumVallalva)}
+              className="bg-teal-600 text-white hover:bg-teal-700"
+            >
+              {loading
+                ? 'Kiállítás...'
+                : duplikatumFigyelmeztetes
+                  ? 'Mégis kiállítom'
+                  : 'Számla kiállítása'}
             </Button>
           </div>
         </div>

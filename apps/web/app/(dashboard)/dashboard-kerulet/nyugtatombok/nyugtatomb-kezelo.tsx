@@ -50,6 +50,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { MAX_NYUGTA_TOMBBEN } from '@kartoteka/validations'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -496,6 +497,9 @@ function UjTombDialog({
   if (!seria.trim()) mezoHiba = 'A széria kötelező — a nyugtatömbre nyomtatott betűjel.'
   else if (!kezdet.trim() || !veg.trim()) mezoHiba = 'Add meg a kezdő- és a végszámot.'
   else if (!tartomanyOk) mezoHiba = 'A végszám nem lehet kisebb a kezdőszámnál, és mindkettő pozitív egész.'
+  // Egy nyugtatömb 50 lapos (Endre, 2026-09-02) — a szerver ugyanezt ellenőrzi.
+  else if (darabszam != null && darabszam > MAX_NYUGTA_TOMBBEN)
+    mezoHiba = `Egy nyugtatömb ${MAX_NYUGTA_TOMBBEN} lapos, a megadott tartomány ${darabszam} db. Ellenőrizd a kezdő- és a végszámot.`
   else if (!/^\d{4}-\d{2}-\d{2}$/.test(vasarlasDatuma)) mezoHiba = 'A vásárlás dátuma kötelező.'
 
   function mentesInditasa() {
@@ -563,7 +567,16 @@ function UjTombDialog({
                 type="number"
                 inputMode="numeric"
                 value={kezdet}
-                onChange={(e) => setKezdet(e.target.value)}
+                onChange={(e) => {
+                  const ertek = e.target.value
+                  setKezdet(ertek)
+                  // 50 lapos tömb: a végszámot felajánljuk, de CSAK amíg üres —
+                  // a kézzel beírt értéket soha nem írjuk felül.
+                  const k = Number.parseInt(ertek, 10)
+                  if (Number.isFinite(k) && k > 0 && !veg.trim()) {
+                    setVeg(String(k + MAX_NYUGTA_TOMBBEN - 1))
+                  }
+                }}
                 placeholder="pl. 1"
               />
             </ModalField>

@@ -52,6 +52,13 @@ export interface SzamlaParositasBejegyzes {
   bankszamlaId: number | null
   /** A bank neve (kasszánál null). */
   bankNev: string | null
+  /**
+   * 2026-09-03 (átvilágítás P1): HALOTT KAPCSOLAT — a kapcsolt kiadást azóta
+   * törölték vagy sztornózták. A sort SZÁNDÉKOSAN nem rejtjük el: a felület
+   * pirosan jelzi, hogy bontani kell. (Az elrejtés azzal járna, hogy a számla
+   * csendben „kifizetve" marad, és a lelkész sosem tudná meg, miért.)
+   */
+  ervenytelen: boolean
 }
 
 export interface SzamlaKiadasKapcsolat {

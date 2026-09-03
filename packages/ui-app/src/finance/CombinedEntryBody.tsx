@@ -21,10 +21,10 @@
  * Mobil-barát: kis/közepes képernyőn kártyák (nincs oldalirányú görgetés).
  */
 
-import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight, TrendingUp, TrendingDown, Boxes, AlertTriangle, CalendarRange, Loader2, Check } from 'lucide-react'
-import { keszpenzKorlatFigyelmeztetesek, type KeszpenzTetel } from '@kartoteka/core'
+import { keszpenzKorlatFigyelmeztetesek, normalizeNameForMatch, type KeszpenzTetel } from '@kartoteka/core'
 import { localTodayIso } from '@kartoteka/validations'
 import { formatRon } from './ron-in-words'
 import { parseFlexibleDate } from './date-parse'
@@ -330,6 +330,32 @@ export interface CombinedEntryBodyProps {
    */
   onSearchExpensePartners?: (query: string) => Promise<string[]>
   /**
+   * 2026-09-02 (Endre észrevétele): a gyülekezet MÁR ISMERT kiadás-partnerei
+   * (a korábbi `kiadas.atvevo` nevek). Ebből a felület egy PASSZÍV jelzést rak
+   * a név mellé — „ismert" / „új" —, kattintás nélkül. Enélkül a vázlat
+   * visszaállítása után a lelkésznek újra végig kellett kattintgatnia a már
+   * egyszer egyeztetett cégeken.
+   *
+   * Ha nincs megadva, a jelzés nem jelenik meg (a látvány változatlan).
+   */
+  knownExpensePartners?: string[]
+  /**
+   * 2026-09-02 (Endre 4.): a még PÁR NÉLKÜL álló belső mozgások — a rögzítő
+   * ezekből kínál választható „párját rögzítem" listát a belső mozgás soron.
+   * Kiválasztáskor a dátum, az összeg és a bankszámla magától kitöltődik.
+   * Ha nincs megadva, a választó nem jelenik meg (a látvány változatlan).
+   */
+  unpairedMovements?: Array<{
+    id: number
+    datum: string
+    osszeg: number
+    side: 'income' | 'expense'
+    orphan: boolean
+    bankszamlaId: number | null
+    /** A bankszámla megjelenítendő neve — a listában segít azonosítani. */
+    bankNev?: string
+  }>
+  /**
    * #4b (Endre, 2026-06-20): családi nyugta. Ha MINDKETTŐ megadva, a Bevétel
    * fülön megjelenik a „Család" gomb → közös nyugtaszám + a család tagjainak
    * összegei → személyenként KÜLÖN bevétel-sor (közös alapszám + `/N` utótag,
@@ -593,6 +619,8 @@ type MultiYearProps = {
   active: boolean
   /** A felajánlott év-chipek (az utolsó ~10 év) — a már kiválasztott évekkel uniózva jelenik meg. */
   yearChips: number[]
+  /** 2026-09-02 (Endre 6.): további 5 évvel visszamenőleg bővíti a chip-listát. */
+  onKorabbiEvek: () => void
   onEnable: () => void
   /** Vissza az egy-éves módba: befizetőnként csak az ELSŐ év-bejegyzés marad meg. */
   onDisable: () => void
@@ -631,7 +659,39 @@ export function CombinedEntryBody({
   onSearchMembers, onSearchExpensePartners, onCheckSimilarEntries,
   onSearchFamilies, onGetFamilyMembers, onGetFamilyMembersForPerson, onGetExpectedJarulek, onGetNextReceiptNumbers,
   onCheckReceiptDuplicate, onGetLastRecordedDate, draftStorageKey, offerExpenseInventory,
+  knownExpensePartners, unpairedMovements,
 }: CombinedEntryBodyProps) {
+  /**
+   * 2026-09-02 (Endre): a gyülekezet ismert kiadás-partnereinek normalizált
+   * halmaza. Normalizálva, mert ugyanaz a cég szerepelhet „ELECTRICA SA" és
+   * „Electrica S.A." alakban — egy nyers összehasonlítás fölöslegesen „új"-nak
+   * mondaná. A `normalizeNameForMatch` a közös magból jön (csak OLVASSUK, nem
+   * bővítjük: azon fut az import-egyeztetés küszöbe is).
+   *
+   * `undefined` bemenetnél `null` a halmaz → NINCS jelzés (a régi látvány),
+   * nem pedig „minden új" — egy még be nem töltött lista nem állíthat semmit.
+   */
+  const ismertPartnerek = useMemo(() => {
+    if (!knownExpensePartners) return null
+    const s = new Set<string>()
+    for (const n of knownExpensePartners) {
+      const k = normalizeNameForMatch(n || '')
+      if (k) s.add(k)
+    }
+    return s
+  }, [knownExpensePartners])
+
+  /** A passzív jelzés egy kiadás-partner névhez. `null` = ne jelenjen meg jelzés. */
+  const partnerJelzes = useCallback(
+    (nev: string): 'ismert' | 'uj' | null => {
+      if (!ismertPartnerek) return null
+      const k = normalizeNameForMatch(nev || '')
+      if (k.length < 2) return null
+      return ismertPartnerek.has(k) ? 'ismert' : 'uj'
+    },
+    [ismertPartnerek],
+  )
+
   const [tab, setTab] = useState<'income' | 'expense'>('income')
   /** 2026-08-30: a már elkönyvelt (mentveAt) sorok elrejtése a listából — csak nézet. */
   const [mentettekRejtve, setMentettekRejtve] = useState(false)
@@ -1070,8 +1130,17 @@ export function CombinedEntryBody({
         : `Alkalmazott szabály: ${cimke}. Ha az összeg nem stimmel, a szabály összegét a Gyülekezetünk adatai → Pénzügy → járulék-kedvezmények alatt tudod átírni.`
       if (entered === h.debt) {
         return (
-          <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600" title={detail}>
+          <span className="mt-0.5 inline-flex flex-wrap items-center gap-1 text-[10px] font-medium text-emerald-600" title={detail}>
             ✓ Ajánlott összeg ({cimke})
+            {/* 2026-09-02 (Endre 9. észrevétele): ha az ajánlott összeg azért
+                KISEBB az éves díjnál, mert az évből MÁR FIZETETT, azt LÁTNI kell.
+                Eddig ez csak a title-ben volt — a képernyőn úgy tűnt, mintha a
+                rendszer „egyik pillanatról a másikra" más díjat ajánlana. */}
+            {h.paid > 0 && (
+              <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9.5px] font-semibold text-emerald-800">
+                maradék — erre az évre már fizetett {formatRon(h.paid)} RON (éves díj {formatRon(h.expected)})
+              </span>
+            )}
           </span>
         )
       }
@@ -1094,10 +1163,25 @@ export function CombinedEntryBody({
         </span>
       )
     }
-    // debt = 0: rendezve vagy felmentett — kicsi, semleges jelzés (nem hiba, nem blokkol).
+    // debt = 0: felmentett VAGY az évi járulék már rendezve.
+    // 2026-09-02 (Endre 1. észrevétele): „ha valaki már arra az évre kifizette
+    // az egyházfenntartói járulékát, akkor azt jelezze a rendszer!" — eddig ez
+    // egy halványszürke sor volt, ami a rögzítés hevében észrevétlen maradt.
+    // Most HANGSÚLYOS (borostyán), és kiírja a már befizetett összeget is.
+    if (h.expected <= 0) {
+      return (
+        <span className="mt-0.5 inline-flex text-[10px] text-slate-400">
+          Felmentett — nincs járulék erre az évre.
+        </span>
+      )
+    }
     return (
-      <span className="mt-0.5 inline-flex text-[10px] text-slate-400">
-        {h.expected <= 0 ? 'Felmentett — nincs járulék erre az évre.' : `A(z) ${Number(p.evre || row.evre)}. évi járulék rendezve.`}
+      <span
+        className="mt-0.5 inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800"
+        title={`A(z) ${Number(p.evre || row.evre)}. évi egyházfenntartói járulék teljesítve: éves díj ${formatRon(h.expected)} RON, befizetve ${formatRon(h.paid)} RON. Új befizetés rögzítése nem hiba (pl. felülfizetés vagy adomány), de ellenőrizd, hogy nem duplikátum-e.`}
+      >
+        ⚠ A(z) {Number(p.evre || row.evre)}. évi járulékot MÁR KIFIZETTE
+        {h.paid > 0 ? ` (${formatRon(h.paid)} RON)` : ''}
       </span>
     )
   }
@@ -1112,8 +1196,15 @@ export function CombinedEntryBody({
       const cimke = h.szabalyok.length > 0 ? h.szabalyok.join(' + ') : 'teljes éves díj'
       if (entered === h.debt) {
         return (
-          <span className="mt-0.5 block text-right text-[9.5px] font-medium text-emerald-600" title={`Ajánlott összeg (${cimke})`}>
-            ✓ ajánlott
+          <span
+            className="mt-0.5 block text-right text-[9.5px] font-medium text-emerald-600"
+            title={
+              h.paid > 0
+                ? `Ajánlott összeg (${cimke}) — MARADÉK: éves díj ${formatRon(h.expected)} RON, ebből már fizetett ${formatRon(h.paid)} RON.`
+                : `Ajánlott összeg (${cimke})`
+            }
+          >
+            {h.paid > 0 ? '✓ maradék' : '✓ ajánlott'}
           </span>
         )
       }
@@ -1131,10 +1222,17 @@ export function CombinedEntryBody({
     }
     return (
       <span
-        className="mt-0.5 block text-right text-[9.5px] text-slate-400"
-        title={h.expected <= 0 ? 'Felmentett — nincs járulék erre az évre.' : 'Az évi járulék már rendezve.'}
+        className={
+          'mt-0.5 block text-right text-[9.5px] ' +
+          (h.expected <= 0 ? 'text-slate-400' : 'font-semibold text-amber-700')
+        }
+        title={
+          h.expected <= 0
+            ? 'Felmentett — nincs járulék erre az évre.'
+            : `Az évi járulékot MÁR KIFIZETTE: éves díj ${formatRon(h.expected)} RON, befizetve ${formatRon(h.paid)} RON.`
+        }
       >
-        {h.expected <= 0 ? 'felmentett' : 'rendezve'}
+        {h.expected <= 0 ? 'felmentett' : '⚠ már kifizette'}
       </span>
     )
   }
@@ -1153,6 +1251,21 @@ export function CombinedEntryBody({
   }
   const incomeValid = incomeRows.filter((r) => rowValidIn('income', r)).length
   const expenseValid = expenseRows.filter((r) => rowValidIn('expense', r)).length
+
+  /**
+   * 2026-09-02 (Endre 3. észrevétele): a fül-sáv mutassa MENNYIT is rögzítünk,
+   * ne csak hány tételt. „Az is látszódjon, mennyi a bevétel és mennyi kiadás
+   * kerül rögzítésre, hány tétel és mekkora összege összesen."
+   *
+   * A többfizetős nyugtánál a sor összege a befizetők summája (a fősor
+   * összeg-mezője ilyenkor read-only), ezért ugyanazt a `payerSum`-ot kell
+   * használni, amit a mentés is — különben a fejléc mást mondana, mint a
+   * ténylegesen elkönyvelt összeg.
+   */
+  const sorOsszege = (r: EntryRow): number =>
+    (r.people && r.people.length > 0 ? payerSum(r) : Number(r.amount) || 0)
+  const incomeOsszeg = incomeRows.filter((r) => rowValidIn('income', r)).reduce((s, r) => s + sorOsszege(r), 0)
+  const expenseOsszeg = expenseRows.filter((r) => rowValidIn('expense', r)).reduce((s, r) => s + sorOsszege(r), 0)
 
   // ── Készpénz-korlát figyelmeztetések (2026-08-14, Endre kérése) ──────────
   // A „Változások 2026" törvényi korlátai a MOSTANI beviteli kötegre:
@@ -1354,10 +1467,19 @@ export function CombinedEntryBody({
   const [multiYearRowIds, setMultiYearRowIds] = useState<Set<string>>(() => new Set())
   /** Az év-chipek: az utolsó ~10 év. A NÉZETT pénzügyi év ÉS a mai év közül a nagyobbtól
    *  visszafelé — régebbi évet nézve a folyó évre is fizethessen előre. */
+  /**
+   * 2026-09-02 (Endre 6.): „lehessen még hozzáadni visszamenőleg éveket".
+   * Alapból 10 év látszik; ennyivel MÉG korábbra nyitható a lista. Régi
+   * hátralékot (akár 15-20 éve elmaradt egyházfenntartói járulékot) így is
+   * rögzíteni lehet — az adatmodell (people[].evre → `fizetettev`) eddig is
+   * bírta, csak a chip-lista nem kínálta fel.
+   */
+  const [extraRegiEvek, setExtraRegiEvek] = useState(0)
   const multiYearChoices = useMemo(() => {
     const top = Math.max(Number.isFinite(currentYear) ? currentYear : 0, new Date().getFullYear())
-    return Array.from({ length: 10 }, (_, i) => top - 9 + i)
-  }, [currentYear])
+    const db = 10 + extraRegiEvek
+    return Array.from({ length: db }, (_, i) => top - db + 1 + i)
+  }, [currentYear, extraRegiEvek])
   /** Aktív-e a befizető-mátrix. FAIL-CLOSED: csak akkor, ha MINDEN bejegyzésnek érvényes
    *  éve van — különben a klasszikus lista mutat mindent (bejegyzés nem tűnhet el a nézetből).
    *  A kapcsolót a felhasználó (pill/chip) VAGY a vázlat-visszaállítás magvetése állítja —
@@ -1498,6 +1620,7 @@ export function CombinedEntryBody({
     return {
       active,
       yearChips: multiYearChoices,
+      onKorabbiEvek: () => setExtraRegiEvek((n) => n + 5),
       onEnable: () => enableMultiYear(r.id),
       onDisable: () => disableMultiYear(r.id),
       onToggleYear: (year: number) => toggleMultiYearYear(r.id, year),
@@ -1578,7 +1701,9 @@ export function CombinedEntryBody({
       return `A(z) ${rowYear}. évhez könyvelődik — most a ${currentYear}. évet nézed, mentés után nem ezen a listán jelenik meg`
     }
     if (iso > todayIso()) return 'Jövőbeli dátum'
-    if (lastRecordedDate && iso < lastRecordedDate) return `Korábbi, mint az utolsó rögzített (${lastRecordedDate})`
+    // 2026-09-02 (Endre 5.): a viszonyítás az utolsó KÉSZPÉNZES tétel — a banki
+    // import hónapokkal előrébb tart, és korábban minden kasszás soron világított.
+    if (lastRecordedDate && iso < lastRecordedDate) return `Korábbi, mint az utolsó készpénzes tétel (${lastRecordedDate})`
     return null
   }
 
@@ -2264,6 +2389,72 @@ export function CombinedEntryBody({
     )
   }
 
+  /**
+   * 2026-09-02 (Endre 4.): PÁROSÍTATLAN BELSŐ MOZGÁS ÁTVÉTELE.
+   *
+   * Endre kérdése: „ha van összeegyeztethetetlen belső mozgás — a kasszából
+   * vezetem ki a párját a már bankban rögzített tételnek —, akkor lehessen
+   * választani a lehetőségek közül; ahogy kiválasztja a dátumot és a
+   * készpénzletételt, automatikusan írja is be az összeget."
+   *
+   * Megoldás: amint a soron BELSŐ MOZGÁS jogcím áll, felkínáljuk a még pár
+   * nélkül álló ELLENOLDALI tételeket. Egy kattintás átveszi a DÁTUMOT, az
+   * ÖSSZEGET és a BANKSZÁMLÁT — pontosan azokat, amiket eddig kézzel kellett
+   * átgépelni a figyelmeztető sávból.
+   *
+   * ⚠️ Csak az ELLENOLDALT ajánljuk: kassza-oldali kiadást (letétel) a banki
+   * BEFIZETÉS párjaként, kassza-oldali bevételt (felvét) a banki KIADÁS
+   * párjaként. A saját oldalunk tételei nem párok, azok felajánlása épp a
+   * kettős könyvelés felé vinne.
+   */
+  function renderParositatlanValaszto(r: EntryRow) {
+    const dir = belsoDir(r)
+    if (!dir || !unpairedMovements || unpairedMovements.length === 0) return null
+    // A KASSZA-oldal, amit most rögzítünk: bevételnél 'income', kiadásnál 'expense'.
+    // A párja a MÁSIK oldal — azt keressük a párosítatlanok közt.
+    const keresettOldal: 'income' | 'expense' = tab === 'income' ? 'expense' : 'income'
+    const jeloltek = unpairedMovements
+      .filter((m) => m.side === keresettOldal)
+      .slice(0, 25)
+    if (jeloltek.length === 0) return null
+    return (
+      <div className="mt-1 rounded-md border border-amber-200 bg-amber-50/70 px-2 py-1.5 text-xs text-amber-900">
+        <div className="flex items-center gap-1.5">
+          <ArrowLeftRight className="size-3.5 shrink-0" />
+          <span className="font-medium">Párosítatlan tétel átvétele</span>
+          <span className="text-amber-700/80">({jeloltek.length} lehetőség)</span>
+        </div>
+        <select
+          className={inputClass + ' mt-1 h-7'}
+          value=""
+          aria-label="Párosítatlan belső mozgás átvétele"
+          onChange={(e) => {
+            const id = Number(e.target.value)
+            if (!id) return
+            const m = jeloltek.find((x) => x.id === id)
+            if (!m) return
+            // A dátum, az ÖSSZEG és a bankszámla egyszerre — ez a lényeg:
+            // a lelkésznek nem kell semmit átgépelnie a figyelmeztető sávból.
+            updateRow(r.id, {
+              datum: m.datum,
+              amount: String(m.osszeg),
+              ...(m.bankszamlaId != null ? { bankId: m.bankszamlaId } : {}),
+            })
+          }}
+        >
+          <option value="">— Válassz a pár nélküli tételek közül —</option>
+          {jeloltek.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.datum} · {formatRon(m.osszeg)} RON
+              {m.bankNev ? ` · ${m.bankNev}` : ''}
+              {m.orphan ? ' · árva' : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+    )
+  }
+
   // #3: Enter → a sor KÖVETKEZŐ mezőjére ugrik (gyorsabb tömeges bevitel). A naptár-választót
   // (type=date) és a textareát kihagyjuk; csak a soron belüli látható input/select mezők számítanak.
   function focusNextField(e: KeyboardEvent<HTMLElement>) {
@@ -2291,17 +2482,40 @@ export function CombinedEntryBody({
       {/* Kiemelt fülek — 2026-07-10 (S2-#2): a KÉT szekció (Bevétel = zöld, Kiadás = piros)
           INAKTÍVAN is színkódolt és ikonos, hogy első pillantásra látsszon: egy mentéssel
           MINDKETTŐ rögzíthető (a számláló-badge a másik fülön is mutatja a kész sorokat). */}
-      <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1.5">
-        <button type="button" onClick={() => setTab('income')} aria-pressed={tab === 'income'}
-          className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-base font-semibold transition ${tab === 'income' ? 'bg-emerald-600 text-white shadow-md' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}>
-          <TrendingUp className="size-5 shrink-0" aria-hidden />
-          Bevétel{incomeValid > 0 && <span className={`rounded-full px-2 py-0.5 text-xs ${tab === 'income' ? 'bg-white/25' : 'bg-white/80 text-emerald-700'}`}>{incomeValid}</span>}
-        </button>
-        <button type="button" onClick={() => setTab('expense')} aria-pressed={tab === 'expense'}
-          className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-base font-semibold transition ${tab === 'expense' ? 'bg-red-500 text-white shadow-md' : 'bg-rose-100 text-rose-600 hover:bg-rose-200'}`}>
-          <TrendingDown className="size-5 shrink-0" aria-hidden />
-          Kiadás{expenseValid > 0 && <span className={`rounded-full px-2 py-0.5 text-xs ${tab === 'expense' ? 'bg-white/25' : 'bg-white/80 text-rose-600'}`}>{expenseValid}</span>}
-        </button>
+      {/* 2026-09-02 (Endre 3.): a fül-sáv RAGAD a görgetés tetején. Sok sor
+          rögzítése után eddig vissza kellett görgetni a lap tetejére ahhoz, hogy
+          a bevételről a kiadásra lehessen váltani. A sáv a dialóg saját görgető
+          dobozában ül, ezért a `sticky top-0` elég — és mivel a `space-y-4` a
+          szülőn van, saját hátteret és kis alsó árnyékot kap, hogy a mögötte
+          átfutó sorok ne látszódjanak ki alóla. */}
+      <div className="sticky top-0 z-30 -mx-1 space-y-1.5 rounded-2xl bg-white/95 px-1 pb-1.5 pt-1 shadow-[0_6px_10px_-8px_rgba(0,0,0,0.35)] backdrop-blur supports-[backdrop-filter]:bg-white/80">
+        <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1.5">
+          <button type="button" onClick={() => setTab('income')} aria-pressed={tab === 'income'}
+            className={`flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl px-3 py-2.5 text-base font-semibold transition ${tab === 'income' ? 'bg-emerald-600 text-white shadow-md' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}>
+            <span className="flex items-center gap-2">
+              <TrendingUp className="size-5 shrink-0" aria-hidden />
+              Bevétel{incomeValid > 0 && <span className={`rounded-full px-2 py-0.5 text-xs ${tab === 'income' ? 'bg-white/25' : 'bg-white/80 text-emerald-700'}`}>{incomeValid}</span>}
+            </span>
+            {/* Tételszám + ÖSSZEG — hogy mentés előtt látszódjon, mit könyvelünk el. */}
+            {incomeValid > 0 && (
+              <span className={`text-[11px] font-medium tabular-nums ${tab === 'income' ? 'text-white/85' : 'text-emerald-700/80'}`}>
+                {incomeValid} tétel · {formatRon(incomeOsszeg)} RON
+              </span>
+            )}
+          </button>
+          <button type="button" onClick={() => setTab('expense')} aria-pressed={tab === 'expense'}
+            className={`flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl px-3 py-2.5 text-base font-semibold transition ${tab === 'expense' ? 'bg-red-500 text-white shadow-md' : 'bg-rose-100 text-rose-600 hover:bg-rose-200'}`}>
+            <span className="flex items-center gap-2">
+              <TrendingDown className="size-5 shrink-0" aria-hidden />
+              Kiadás{expenseValid > 0 && <span className={`rounded-full px-2 py-0.5 text-xs ${tab === 'expense' ? 'bg-white/25' : 'bg-white/80 text-rose-600'}`}>{expenseValid}</span>}
+            </span>
+            {expenseValid > 0 && (
+              <span className={`text-[11px] font-medium tabular-nums ${tab === 'expense' ? 'text-white/85' : 'text-rose-600/80'}`}>
+                {expenseValid} tétel · {formatRon(expenseOsszeg)} RON
+              </span>
+            )}
+          </button>
+        </div>
       </div>
       {/* 2026-08-29 (Endre: kevesebb görgetés): egyetlen tömör sor — az „egy mentéssel
           bevétel ÉS kiadás" már a dialóg alcímében áll, itt csak az egyedi tudnivaló. */}
@@ -2507,6 +2721,7 @@ export function CombinedEntryBody({
                   <td className="px-2 py-1.5 min-w-[13rem]">
                     <SearchableSelect options={categoryOptions} value={r.categoryId} onChange={(id) => updateRow(r.id, { categoryId: id })} />
                     {renderBankSelect(r)}
+                    {renderParositatlanValaszto(r)}
                   </td>
                   {/* A partner-oszlop CSAK mátrix-aktív sornál rugalmas (w-full) — a mátrix
                       w-0/min-w-full trükkje így kap valós szélességet. Feltétel NÉLKÜL a
@@ -2522,6 +2737,7 @@ export function CombinedEntryBody({
                         searchable={tab === 'income' ? !!onSearchMembers : !!onSearchExpensePartners}
                         onSearchMembers={onSearchMembers}
                         onSearchExpense={onSearchExpensePartners}
+                        partnerJelzes={partnerJelzes}
                         onOpenFamily={
                           tab === 'income' && onSearchFamilies && onGetFamilyMembers
                             ? () => handleFamilyClick(r.id)
@@ -2646,6 +2862,8 @@ export function CombinedEntryBody({
                     </select>
                   </label>
                 )}
+                {/* 2026-09-02 (Endre 4.): mobilon is ott a párosítatlan-választó. */}
+                {dir && <div className="col-span-2">{renderParositatlanValaszto(r)}</div>}
                 <label className="text-xs text-slate-500">Dátum
                   {renderDateField(r)}
                   {dWarn && <span className="mt-0.5 block text-[10px] leading-tight text-amber-600">⚠ {dWarn}</span>}
@@ -2678,6 +2896,7 @@ export function CombinedEntryBody({
                         searchable={tab === 'income' ? !!onSearchMembers : !!onSearchExpensePartners}
                         onSearchMembers={onSearchMembers}
                         onSearchExpense={onSearchExpensePartners}
+                        partnerJelzes={partnerJelzes}
                         onOpenFamily={
                           tab === 'income' && onSearchFamilies && onGetFamilyMembers
                             ? () => handleFamilyClick(r.id)
@@ -2921,6 +3140,7 @@ function PartnerCell({
   searchable,
   onSearchMembers,
   onSearchExpense,
+  partnerJelzes,
   onOpenFamily,
   familyLoading,
   updateRow,
@@ -2941,6 +3161,8 @@ function PartnerCell({
   searchable: boolean
   onSearchMembers?: (query: string) => Promise<CombinedMemberHit[]>
   onSearchExpense?: (query: string) => Promise<string[]>
+  /** 2026-09-02 (Endre): passzív partner-jelzés a kiadás-oldali néven („ismert"/„új"). */
+  partnerJelzes?: (nev: string) => 'ismert' | 'uj' | null
   /** #5: ha megadva (bevétel), „Család csatolása" gomb — a tagokat a sor befizető-almenüjéhez fűzi. */
   onOpenFamily?: () => void
   /** 2026-08-29: a család-feloldás hálózati hívása fut — a gomb pörög. */
@@ -3059,6 +3281,17 @@ function PartnerCell({
                 </button>
               )
             })}
+            {/* 2026-09-02 (Endre 6.): régi, elmaradt évek is rögzíthetők —
+                a lista igény szerint nyílik visszafelé. */}
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={multiYear.onKorabbiEvek}
+              title="További 5 korábbi évet ajánl fel — régebbi, elmaradt egyházfenntartói járulék rögzítéséhez"
+              className="rounded-full border border-dashed border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+            >
+              ← korábbi évek
+            </button>
           </div>
           {/* A RÁCS — 10+ évnél vízszintesen görgethető, a szélső oszlopok ragadnak. */}
           <div className="overflow-x-auto border-t border-emerald-100">
@@ -3239,6 +3472,9 @@ function PartnerCell({
               linked={!!single && (single.id != null || !!single.refId)}
               onSearch={searchFn}
               showUnlinkedBadge={mode === 'income'}
+              // A partner-jelzés CSAK a kiadás-oldalon értelmes: a bevételi
+              // oldalnak saját „nem tag" jelvénye és tag-párosítása van.
+              partnerStatus={mode === 'expense' ? (partnerJelzes?.(row.partner) ?? null) : null}
               placeholder={
                 mode === 'income'
                   ? 'Befizető neve — itt keres a tagok közt (vagy szabad szöveg)'
@@ -3488,6 +3724,7 @@ function PayerNameSearch({
   autoFocus,
   onAutoFocused,
   showUnlinkedBadge,
+  partnerStatus,
 }: {
   value: string
   linked: boolean
@@ -3501,6 +3738,13 @@ function PayerNameSearch({
   onAutoFocused?: () => void
   /** #5: „nem tag" jelvény szabad-szöveges (nem párosított) névnél — csak bevételnél. */
   showUnlinkedBadge?: boolean
+  /**
+   * 2026-09-02 (Endre): kiadás-oldali PARTNER-JELZÉS a legördülő HELYETT.
+   * `'ismert'` — a név már szerepel a gyülekezet partnerei közt;
+   * `'uj'` — még nem, a mentéssel úgy kerül be, ahogy be van írva.
+   * A jelzés PASSZÍV: nem kér kattintást, nem nyit listát.
+   */
+  partnerStatus?: 'ismert' | 'uj' | null
 }) {
   const [hits, setHits] = useState<CombinedMemberHit[]>([])
   const [open, setOpen] = useState(false)
@@ -3509,6 +3753,23 @@ function PayerNameSearch({
   // #3-fix: a kiválasztás (onPick) után a value a kiválasztott névre vált — ez NE indítson
   // azonnal új keresést (különben a lista visszanyílna, főleg kiadásnál, ahol nincs `linked`).
   const justPickedRef = useRef(false)
+  /**
+   * 2026-09-02 (Endre észrevétele): a kereső CSAK GÉPELÉSRE induljon.
+   *
+   * A hiba: a kereső-effekt a `value`-ra fut, tehát MOUNTKOR is — vázlat
+   * visszaállításakor minden sor kitöltött névvel születik újra, mindegyik
+   * lefuttat egy keresést, és mindegyik legördülője kinyílik. A lelkésznek
+   * végig kellett kattintgatnia a már egyszer egyeztetett cégeken.
+   * Ezzel a jelzővel a programból érkező érték (vázlat, sor-remount, külső
+   * frissítés) NEM nyit listát — csak a tényleges gépelés.
+   */
+  const gepeltRef = useRef(false)
+  /**
+   * 2026-09-02 (Endre 2.): „a nevek között lehessen vinni nyilakkal is".
+   * A kijelölt találat indexe a LAPOS listában (a csoport-fejlécek nem
+   * számítanak bele). −1 = nincs kijelölés, ilyenkor az Enter nem választ.
+   */
+  const [aktivIdx, setAktivIdx] = useState(-1)
   const [dropRect, setDropRect] = useState<{ left: number; top: number; width: number } | null>(null)
 
   const measure = () => {
@@ -3541,6 +3802,10 @@ function PayerNameSearch({
   useEffect(() => {
     if (linked) { setHits([]); setOpen(false); return }
     if (justPickedRef.current) { justPickedRef.current = false; return } // friss kiválasztás → ne nyisson vissza
+    // ⚠️ CSAK GÉPELÉSRE keresünk. Mountkor (vázlat-visszaállítás, sor-remount) a
+    // `value` már ki van töltve — ilyenkor NEM nyitunk legördülőt, hanem a
+    // passzív partner-jelzés mondja meg, ismert-e a név. (Endre, 2026-09-02.)
+    if (!gepeltRef.current) return
     const q = value.trim()
     if (q.length < 2) { setHits([]); setOpen(false); return }
     if (debounceRef.current) window.clearTimeout(debounceRef.current)
@@ -3550,7 +3815,7 @@ function PayerNameSearch({
         // 2026-08-22 (5a): 8 → 12. A gyülekezeti kereső látványa NEM változik
         // (a szerver ott `limit(8)`-cal jön), a felső szintű, CSOPORTOSÍTOTT
         // lista viszont 8-nál elvágná a második csoportot (pl. a lelkészeket).
-        .then((res) => { setHits(res.slice(0, 12)); setOpen(res.length > 0) })
+        .then((res) => { setHits(res.slice(0, 12)); setOpen(res.length > 0); setAktivIdx(-1) })
         .catch(() => { setHits([]); setOpen(false) })
     }, 300)
     return () => { if (debounceRef.current) window.clearTimeout(debounceRef.current) }
@@ -3571,6 +3836,35 @@ function PayerNameSearch({
     .map((kind) => ({ kind, elemek: hits.filter((h) => (h.kind ?? 'szemely') === kind) }))
     .filter((cs) => cs.elemek.length > 0)
 
+  // A billentyűzet-navigáció a MEGJELENÍTÉSI sorrenden fut (csoportok szerint),
+  // nem a nyers `hits` tömbön — különben a lefelé nyíl a képernyőn ugrálna.
+  const laposTalalatok = csoportok.flatMap((cs) => cs.elemek)
+
+  /** ↓/↑ lépteti a kijelölést, Enter választ, Esc zár. */
+  function billentyu(e: KeyboardEvent<HTMLInputElement>) {
+    if (!open || laposTalalatok.length === 0) return
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault() // a kurzor NE ugorjon a mező elejére/végére
+      setAktivIdx((i) => {
+        const n = laposTalalatok.length
+        if (e.key === 'ArrowDown') return i < 0 ? 0 : (i + 1) % n
+        return i <= 0 ? n - 1 : i - 1
+      })
+      return
+    }
+    if (e.key === 'Enter' && aktivIdx >= 0 && aktivIdx < laposTalalatok.length) {
+      e.preventDefault()
+      justPickedRef.current = true
+      onPick(laposTalalatok[aktivIdx])
+      setHits([]); setOpen(false); setAktivIdx(-1)
+      return
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      setOpen(false); setAktivIdx(-1)
+    }
+  }
+
   return (
     <div className="relative flex items-center gap-1.5">
       {linked && (
@@ -3584,10 +3878,35 @@ function PayerNameSearch({
         className={inputClass + ' h-8' + (linked ? ' border-emerald-300 bg-emerald-50/50 font-medium text-emerald-900' : '')}
         value={value}
         placeholder={placeholder}
-        onChange={(e) => onType(e.target.value)}
-        onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+        onChange={(e) => { gepeltRef.current = true; setAktivIdx(-1); onType(e.target.value) }}
+        onKeyDown={billentyu}
+        onBlur={() => window.setTimeout(() => { setOpen(false); setAktivIdx(-1) }, 150)}
         onFocus={() => hits.length > 0 && setOpen(true)}
+        role="combobox"
+        aria-expanded={open && hits.length > 0}
+        aria-autocomplete="list"
       />
+      {/* 2026-09-02 (Endre): kiadás-oldali PARTNER-JELZÉS — kattintás nélkül.
+          „inkább csak egy kis jel legyen ott, hogy ez a cég már benne van a
+          gyülekezet cégeinek a nyilvántartásában; ha nincs, akkor most a
+          mentéssel bekerül abban a formában, ahogy beírta a felhasználó." */}
+      {partnerStatus && !open && (
+        <span
+          className={
+            'shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium ' +
+            (partnerStatus === 'ismert'
+              ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+              : 'bg-amber-50 text-amber-700 ring-1 ring-amber-200')
+          }
+          title={
+            partnerStatus === 'ismert'
+              ? 'Ez a partner már szerepel a gyülekezet korábbi kiadásai között — nincs teendőd vele.'
+              : 'Új partner — a mentéssel pontosan így kerül be a gyülekezet nyilvántartásába.'
+          }
+        >
+          {partnerStatus === 'ismert' ? 'ismert' : 'új'}
+        </span>
+      )}
       {/* #5: nem párosított (szabad-szöveges) név — nem gyülekezeti tag is adhat adományt. */}
       {showUnlinkedBadge && !linked && value.trim().length >= 2 && !open && (
         <span
@@ -3612,13 +3931,24 @@ function PayerNameSearch({
                     {PARTNER_CSOPORT_FELIRAT[kind]}
                   </div>
                 )}
-                {elemek.map((h) => (
+                {elemek.map((h) => {
+                  // A kijelölés a LAPOS sorrend szerinti index — ugyanaz, amin a
+                  // ↓/↑ lépked (lásd `laposTalalatok`).
+                  const idx = laposTalalatok.indexOf(h)
+                  const kijelolt = idx === aktivIdx
+                  return (
                   <button
                     key={h.id}
                     type="button"
-                    className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-emerald-50"
+                    aria-selected={kijelolt}
+                    ref={kijelolt ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
+                    className={
+                      'group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ' +
+                      (kijelolt ? 'bg-emerald-100 ring-1 ring-emerald-300' : 'hover:bg-emerald-50')
+                    }
+                    onMouseEnter={() => setAktivIdx(idx)}
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => { justPickedRef.current = true; onPick(h); setHits([]); setOpen(false) }}
+                    onClick={() => { justPickedRef.current = true; onPick(h); setHits([]); setOpen(false); setAktivIdx(-1) }}
                   >
                     {/* Kezdőbetűs avatar — letisztult, „apple" jelleg */}
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-100 to-teal-100 text-xs font-semibold text-emerald-700">
@@ -3639,7 +3969,8 @@ function PayerNameSearch({
                       {h.detail && <span className="mt-0.5 block truncate text-[11px] text-slate-400">{h.detail}</span>}
                     </span>
                   </button>
-                ))}
+                  )
+                })}
               </div>
             ))}
           </div>,

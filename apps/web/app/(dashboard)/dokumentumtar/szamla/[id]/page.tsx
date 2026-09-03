@@ -38,7 +38,10 @@ export default async function SzamlaAdatlapPage({
   const [{ data: kapcsolatok }, { data: bankok }] = await Promise.all([
     access.supabase
       .from('szallitoi_szamla_kiadas')
-      .select('osszeg_resz, kiadas:kiadas_id (id, datum, osszeg, iratszam, bankszamla_id)')
+      // 2026-09-03 (átvilágítás P1): a törölt/sztornózott zászló IS kell — ez az
+      // adatlap KIFELÉ megy (nyomtatva, könyvelőnek), és eddig sztornózott
+      // tételt sorolt fel „Könyvelési tétel"-ként.
+      .select('osszeg_resz, kiadas:kiadas_id (id, datum, osszeg, iratszam, bankszamla_id, deleted, stornozott)')
       .eq('szamla_id', id)
       .eq('congregation_id', congId),
     access.supabase.from('bankszamlak').select('id, bank_neve').eq('congregation_id', congId),
@@ -48,17 +51,29 @@ export default async function SzamlaAdatlapPage({
   )
   const parok = ((kapcsolatok || []) as unknown as Array<{
     osszeg_resz: number
-    kiadas: { id: number; datum: string | null; osszeg: number; iratszam: string | null; bankszamla_id: number | null } | null
+    kiadas: {
+      id: number
+      datum: string | null
+      osszeg: number
+      iratszam: string | null
+      bankszamla_id: number | null
+      deleted?: boolean | null
+      stornozott?: boolean | null
+    } | null
   }>)
     .filter((k) => k.kiadas)
     .map((k) => ({
       datum: k.kiadas!.datum,
       iratszam: k.kiadas!.iratszam,
       osszegResz: Number(k.osszeg_resz) || 0,
+      ervenytelen: !!k.kiadas!.deleted || !!k.kiadas!.stornozott,
       hely: k.kiadas!.bankszamla_id != null
         ? bankNevById.get(k.kiadas!.bankszamla_id) ?? `#${k.kiadas!.bankszamla_id}`
         : 'Kassza',
     }))
+  // Az ÉLŐ párok döntik el a „Könyvelve" állítást; a halottakat KIÍRJUK, de
+  // láthatóan megjelölve — egy hivatalos íven nem szerepelhet néma valótlanság.
+  const eloParok = parok.filter((p) => !p.ervenytelen)
 
   const datum = (iso: string | null) =>
     iso ? new Date(iso).toLocaleDateString('hu-HU') : '—'
@@ -169,8 +184,8 @@ export default async function SzamlaAdatlapPage({
                 : 'bg-slate-50 text-slate-600 ring-slate-200'
             }`}
           >
-            {parok.length > 0
-              ? `Könyvelve — ${[...new Set(parok.map((p) => p.hely))].join(', ')}`
+            {eloParok.length > 0
+              ? `Könyvelve — ${[...new Set(eloParok.map((p) => p.hely))].join(', ')}`
               : 'Még nincs a könyvelésben'}
           </span>
         </div>
@@ -192,9 +207,19 @@ export default async function SzamlaAdatlapPage({
               </thead>
               <tbody>
                 {parok.map((p, i) => (
-                  <tr key={i} className="border-b border-slate-100">
+                  <tr
+                    key={i}
+                    className={`border-b border-slate-100 ${p.ervenytelen ? 'text-slate-400 line-through' : ''}`}
+                  >
                     <td className="py-1.5 pr-3">{datum(p.datum)}</td>
-                    <td className="py-1.5 pr-3">{p.iratszam || '—'}</td>
+                    <td className="py-1.5 pr-3">
+                      {p.iratszam || '—'}
+                      {p.ervenytelen && (
+                        <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700 no-underline">
+                          sztornózott
+                        </span>
+                      )}
+                    </td>
                     <td className="py-1.5 pr-3">{p.hely}</td>
                     <td className="py-1.5 text-right tabular-nums">
                       {p.osszegResz.toLocaleString('hu-HU', {

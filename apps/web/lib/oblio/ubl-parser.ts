@@ -39,7 +39,9 @@ export interface UblSzamlaMeta {
   fizetesiHatarido: string | null
   /** Devizanem (RON / EUR / ...). */
   penznem: string | null
-  /** ANAF SPV egyedi azonosító — cbc:UUID, ennek híján a fallback (fájlnév). */
+  /** ANAF SPV egyedi azonosító — cbc:UUID, ennek híján a fájlnév 8+ jegyű
+   *  szám-futama. Ha egyik sincs, `null`; a hívó ilyenkor a számla
+   *  identitásából képez kulcsot (`azonositoSzamlaIdentitasbol`). */
   anafUuid: string | null
   /** Beszállító neve (PartyName/Name, ennek híján RegistrationName). */
   szallitoNev: string | null
@@ -483,9 +485,31 @@ export function fajlnevGyoker(fajlnev: string): string {
 }
 
 /**
- * ANAF UUID a fájlnévből: az ELSŐ legalább 8 jegyű szám-futam (a böngészős
- * extractAnafUuidFromFilename-nel azonos szemantika); ha nincs, maga a
- * fájlnév-alap a fallback (üresnél null).
+ * ANAF-azonosító a fájlnévből: az ELSŐ legalább 8 jegyű szám-futam.
+ *
+ * ⛔ 2026-09-03 (átvilágítás): A CSUPASZ FÁJLNÉV-VISSZAESÉS MEGSZŰNT.
+ *
+ * A függvény korábban — ha nem talált 8+ jegyű futamot — MAGÁT A FÁJLNEVET adta
+ * vissza azonosítóként. Mivel a `szallitoi_szamla` táblán
+ * `UNIQUE (congregation_id, anaf_uuid)` áll, ez két irányba tudott rombolni:
+ *
+ *   (A) két KÜLÖNBÖZŐ szállító `factura.xml`-je AZONOS kulcsot kapott → a
+ *       második sosem került be, „Már korábban rögzített" felirattal
+ *       nyugtázva. A második szállító követelése NYOMTALANUL eltűnt.
+ *   (B) ugyanaz a számla két úton (SPV / e-mail) két KÜLÖNBÖZŐ néven érkezve
+ *       két kulcsot kapott → kettős tartozás-nyilvántartás.
+ *
+ * Ráadásul a hivatalos, nyomtatható adatlapra „ANAF-azonosító: factura" került.
+ *
+ * MOSTANTÓL: ha nincs 8+ jegyű futam, `null` a válasz. A hívó ilyenkor a
+ * SZÁMLA IDENTITÁSÁBÓL képez kulcsot (szállító CUI + számlaszám + kelte, lásd
+ * `azonositoSzamlaIdentitasbol`), és ha az sem áll elő, a rendszer HANGOSAN
+ * elutasítja a sort — nem talál ki azonosítót.
+ *
+ * ⚠️ MIGRÁCIÓ NEM KELLETT: a 2026-09-03-i éles diagnosztika
+ * (`docs/2026-09-03-anaf-uuid-diagnosztika.sql`) szerint mind a 14 rögzített
+ * számla 8+ jegyű szám-azonosítón áll, EGYETLEN fájlnév-alapú kulcs sincs.
+ * A változás tehát tisztán megelőző; meglévő sor kulcsa nem mozdul.
  */
 export function anafUuidFajlnevbol(fajlnev: string): string | null {
   let alap = fajlnev
@@ -511,6 +535,36 @@ export function anafUuidFajlnevbol(fajlnev: string): string | null {
       futam = ''
     }
   }
-  const trimmelt = alap.trim()
-  return trimmelt.length > 0 ? trimmelt : null
+  // ⛔ NINCS visszaesés a csupasz fájlnévre (lásd a fenti magyarázatot).
+  return null
+}
+
+/**
+ * Azonosító a SZÁMLA IDENTITÁSÁBÓL, ha sem az XML-ben, sem a fájlnévben nincs
+ * ANAF-azonosító.
+ *
+ * A kulcs három, a bizonylaton is szereplő adatból áll: szállító adószáma +
+ * számlaszám + kiállítás dátuma. Ez pontosan azt fejezi ki, amit az
+ * azonosítónak jelentenie kell: „ugyanaz a számla". Két különböző szállító
+ * azonos nevű fájlja így KÜLÖN kulcsot kap, ugyanaz a számla két úton pedig
+ * AZONOSAT.
+ *
+ * A `azon:` előtag SZÁNDÉKOS: ránézésre megkülönbözteti a valódi ANAF-
+ * azonosítótól (a hivatalos adatlapon is látszik, hogy ez a mi képzett
+ * kulcsunk, nem a hatóságé).
+ *
+ * `null`, ha bármelyik összetevő hiányzik — ilyenkor a hívó HANGOSAN utasít el.
+ */
+export function azonositoSzamlaIdentitasbol(
+  szallitoCui: string | null | undefined,
+  szamlaSzam: string | null | undefined,
+  kiallitasDatum: string | null | undefined,
+): string | null {
+  const norm = (s: string | null | undefined): string =>
+    (s ?? '').trim().toUpperCase().replace(/\s+/g, ' ')
+  const cui = norm(szallitoCui)
+  const szam = norm(szamlaSzam)
+  const datum = norm(kiallitasDatum).slice(0, 10)
+  if (!cui || !szam || !datum) return null
+  return `azon:${cui}|${szam}|${datum}`
 }

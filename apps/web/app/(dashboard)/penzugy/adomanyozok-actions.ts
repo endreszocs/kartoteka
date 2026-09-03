@@ -39,6 +39,15 @@ import { selectAllPaged } from '@kartoteka/supabase-client'
 import { getFinanceScopeContext, tablesFor } from '@/lib/auth/finance-scope'
 import type { AdomanyozokValasz } from './adomanyozok-types'
 
+/**
+ * A TELJES adomány-kódcsalád (10 kód, a perselypénzzel együtt).
+ *
+ * A perselyt NEM itt szűrjük ki: a leválasztás a közös magban
+ * (`osszesitAdomanyozok`) történik, hogy a web és a desktop garantáltan
+ * ugyanazt a végösszeget adja. Endre szabálya (2026-09-02): a persely külön
+ * tétel — legyen ott a fülön, de SAJÁT kategóriaként, a névsoron és az
+ * adományozói összegeken kívül.
+ */
 const KODOK = ADOMANY_KODOK.map((k) => k.kod)
 /** Egy `.in()` szűrő az URL-be kerül; ~100 azonosító fölött a proxy 414-et ad. */
 const IN_DARAB = 80
@@ -57,7 +66,7 @@ export async function getAdomanyozok(input: {
   const evTol = Math.min(input.evTol, input.evIg)
   const evIg = Math.max(input.evTol, input.evIg)
 
-  // ── 1) A 10 adomány-kód junction-azonosítói ─────────────────────────────
+  // ── 1) A 10 adomány-kód junction-azonosítói (a perselyt a mag választja le) ──
   // Nem `!inner` embed: az embed a NULL kategóriájú sorokat NÉMÁN eldobná.
   const celRes = await ctx.supabase
     .from('befizetescel')
@@ -74,7 +83,7 @@ export async function getAdomanyozok(input: {
   if (!celIds.length) {
     // FAIL-LOUD: üres lista esetén NEM adunk vissza „0 adomány"-t. Ha a
     // katalógus hiányzik, azt tudni kell — nem az a hír, hogy senki nem adott.
-    return { error: 'A 10 adomány-kategória egyike sincs feloldva a befizetescel táblában. Ellenőrizni kell a kategória-katalógust.' }
+    return { error: 'Az adomány-kategóriák egyike sincs feloldva a befizetescel táblában. Ellenőrizni kell a kategória-katalógust.' }
   }
 
   // ── 2) A tételek (lapozva, több éven át) ────────────────────────────────

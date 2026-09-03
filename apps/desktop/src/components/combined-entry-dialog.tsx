@@ -427,7 +427,8 @@ export function DesktopCombinedEntryDialog({
                 <ListPlus className="h-5 w-5 text-white" />
               </div>
               <div>
-                <DialogTitle className="font-heading text-lg">Tétel rögzítése</DialogTitle>
+                {/* 2026-09-02 (Endre 7.): webbel azonos cím — ez a KÉSZPÉNZ útja. */}
+                <DialogTitle className="font-heading text-lg">Készpénzes tételek rögzítése</DialogTitle>
                 <p className="mt-0.5 text-xs text-zinc-400">
                   Bevételek és kiadások egyszerre, tömegesen — a Mentés dátum szerint rendez.
                 </p>
