@@ -98,5 +98,52 @@ export async function setNewPassword(newPassword: string): Promise<{
   const { error } = await supabase.auth.updateUser({ password: newPassword })
   if (error) return { error: `A jelszó frissítése nem sikerült: ${error.message}` }
 
-  return { success: 'A jelszót sikeresen beállítottuk. Most már be tud lépni az új jelszóval.' }
+  // ══════════════════════════════════════════════════════════════════════════
+  // A TÖBBI MUNKAMENET VISSZAVONÁSA (2026-09-04, P1)
+  // ══════════════════════════════════════════════════════════════════════════
+  //
+  // ⛔ AMI ROSSZ VOLT: a jelszóváltás után SEMMILYEN munkamenet-visszavonás
+  //    nem történt a mi oldalunkról — a repóban egyetlen `scope: 'global'` vagy
+  //    `scope: 'others'` kiléptetés sem volt. Aki jelszót állított vissza, mert
+  //    attól tartott, hogy valaki hozzáfért a fiókjához, PONTOSAN azt nem érte
+  //    el, amiért csinálta: a betolakodó munkamenete tovább élt.
+  //
+  // ⛔ MIÉRT NEM ELÉG A PROJEKT-BEÁLLÍTÁSRA HAGYATKOZNI: a Supabase-nek van
+  //    ilyen kapcsolója, de (a) nem a kódban van, tehát egy projekt-migráció
+  //    vagy egy új környezet némán elveszítheti, és (b) a 2026-09-04-i mérés
+  //    szerint a munkameneteknek NINCS abszolút lejáratuk (`not_after` mind
+  //    NULL, a legrégebbi élő munkamenet 122 napos) — vagyis ami nem lesz
+  //    kifejezetten visszavonva, az gyakorlatilag örökké él.
+  //
+  // ✅ MIÉRT `others` ÉS NEM `global`: a `global` a MOSTANI munkamenetet is
+  //    megölné, tehát a felhasználót azonnal kidobná arról az oldalról, ahol
+  //    épp az új jelszót állította be — és a siker-üzenetet már nem is látná.
+  //    Az `others` mindent visszavon, KIVÉVE ezt az egyet.
+  //
+  // ⚠️ SZÁNDÉKOLT MELLÉKHATÁS: a desktop kliens tárolt munkamenete is
+  //    megszűnik, tehát jelszóváltás után a lelkésznek a desktopon újra be
+  //    kell lépnie. Ez helyes: pont ez a lényeg.
+  //
+  // A hiba NEM buktatja meg a műveletet — a jelszó ekkor MÁR meg van változtatva,
+  // a visszagörgetés nem lehetséges. De NEM is hallgatjuk el: a felhasználónak
+  // tudnia kell, ha a régi munkamenetek esetleg élve maradtak.
+  const { error: kileptetesHiba } = await supabase.auth.signOut({ scope: 'others' })
+  if (kileptetesHiba) {
+    console.error(
+      '[reset-password] A többi munkamenet visszavonása nem sikerült:',
+      kileptetesHiba.message,
+    )
+    return {
+      success:
+        'A jelszót sikeresen beállítottuk. ' +
+        'FIGYELEM: a többi eszközön lévő bejelentkezéseket most nem sikerült megszüntetni — ' +
+        'ha attól tart, hogy valaki hozzáfért a fiókjához, jelezze a rendszergazdának.',
+    }
+  }
+
+  return {
+    success:
+      'A jelszót sikeresen beállítottuk, és a többi eszközön lévő bejelentkezéseket megszüntettük. ' +
+      'Most már be tud lépni az új jelszóval.',
+  }
 }
