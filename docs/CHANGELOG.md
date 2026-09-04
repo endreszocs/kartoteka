@@ -23,6 +23,50 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-09-05] — Látod, kik vannak a családban; a személyi szám külön mezőbe került
+<!-- key: 2026-09-05-csalad-valaszto-es-szemelyi-szam -->
+<!-- category: improvement -->
+<!-- version: 0.9.225 -->
+<!-- targets: lelkipásztorok — családhoz rendelés a személyi kartonon, személyi szám -->
+
+### 🎨 UX javítások
+
+- **A családhoz rendelésnél látod, kik vannak a családban**: eddig a találat
+  csak ennyit mutatott: „Csoma család · Vasút 189 · 0 gyermek". Három azonos
+  vezetéknevű család mellett ebből nem derült ki, kit választasz. Mostantól ott
+  a férj és a feleség teljes neve születési évvel, és a gyermekek neve is.
+- **A gyermekszám végre igazat mond**: a kereső eddig a régi táblából számolt, a
+  személyi karton viszont az újból — ezért egy gyerekes család „0 gyermek"-et
+  mutathatott a keresőben. Most mindkét forrásból számol.
+- **A gyermek nevére is találsz**: eddig csak a szülők neve szerint keresett a
+  rendszer. Ha a gyerek nevét írtad be, azt hitted, nincs ilyen család — és újat
+  hoztál létre. Innen származik a több egyforma „Csoma család".
+- **Mielőtt hozzárendelsz, megnevezzük a családot**: a gomb fölött ott áll, kikhez
+  kerül a tag. Az áthelyezés a korábbi tagságot lezárja, ezért ez az a pont, ahol
+  a legtöbbet ér a visszaigazolás.
+- **A hibát kimondjuk**: ha a keresés elakad, a rendszer megmondja — eddig
+  ugyanazt a „Nincs találat"-ot írta ki, mint amikor tényleg nincs.
+
+### 🔒 Biztonsági javítások
+
+- **A személyi szám (CNP) külön mezőt kapott**: amit eddig „Személyi szám (CNP)"
+  címke alatt láttál a kartonon, az valójában a rendszer saját, generált
+  azonosítója (`EC-2026-…` vagy `999…`). Ez mostantól „Egyházi azonosító" néven
+  szerepel — a hivatalos személyi szám pedig külön rögzíthető alatta.
+- **A hivatalos szám szigorúbb védelmet kap**: nem tölt le a listával (csak akkor
+  jön le a szerverről, ha a szem-ikonnal ténylegesen elkéred), minden
+  megjelenítése naplózódik, és csak a tag saját gyülekezete látja. Az Excel-be és
+  a kapcsolat nélküli másolatba nem kerül bele.
+- **A 13 jegyű romániai CNP ellenőrző számjegyét megvizsgáljuk** — az elgépelt
+  szám rosszabb, mint a hiányzó. Külföldi azonosító betűt is tartalmazhat.
+- **Az Excel-export fejléce sem hazudik többé**: eddig „CNP" állt az oszlop
+  fölött, miközben a generált azonosító volt benne. Mostantól „Egyházi azonosító".
+- **A tagnyilvántartás naplója végre tényleg ír**: egy típus-eltérés miatt a
+  tag-törlés, a megjegyzés- és hozzájárulás-módosítás, valamint a személyi szám
+  megtekintése SOHA nem került be a naplóba — a rendszer csendben elnyelte.
+
+---
+
 ## [2026-09-04] — Az anyakönyv nyomvonalat kapott, és érthető hibát ad
 <!-- key: 2026-09-04-anyakonyv-audit-integritas -->
 <!-- category: security -->

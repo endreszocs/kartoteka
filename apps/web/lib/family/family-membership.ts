@@ -12,6 +12,8 @@
  * (legacy_csalad_id) adja, ezért minden őr az allowed-halmazzal metsz.
  */
 
+import { selectAllPaged } from '@kartoteka/supabase-client'
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = any
 
@@ -63,16 +65,22 @@ export async function getAllowedFamilyIds(
   congregationId: string,
   opts?: { throwOnError?: boolean },
 ): Promise<Set<number>> {
-  const { data, error } = await supabase
-    .from('haztartas')
-    .select('legacy_csalad_id')
-    .eq('congregation_id', congregationId)
-    .not('legacy_csalad_id', 'is', null)
+  // ⚠️ 2026-09-05: LAPOZVA. Eddig egyetlen lekérdezés volt — a PostgREST néma
+  // 1000 soros plafonja fölött tehát a gyülekezet háztartásainak egy része
+  // kimaradt, és a hozzájuk tartozó családokra a mentés/hozzárendelés
+  // „Nincs jogosultsága ehhez a családhoz."-val bukott, miközben a kereső
+  // megmutatta őket. Ez a helper 16 helyről hívódik ebben a fájlban.
+  const { data, error } = await selectAllPaged<{ legacy_csalad_id: number | null }>(
+    supabase
+      .from('haztartas')
+      .select('id, legacy_csalad_id')
+      .eq('congregation_id', congregationId)
+      .not('legacy_csalad_id', 'is', null),
+  )
   if (error && opts?.throwOnError) throw new Error(`haztartas-olvasas: ${error.message}`)
 
   return new Set(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ((data || []) as any[])
+    (data || [])
       .map((row) => row.legacy_csalad_id as number)
       .filter((id): id is number => id != null),
   )

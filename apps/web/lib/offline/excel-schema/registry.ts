@@ -78,7 +78,12 @@ const TAGNYILVANTARTAS_SCHEMA: ExcelModuleSchema = {
       tabColor: '10b981', // emerald-500
       fields: [
         { displayName: 'ID', technical: 'id', type: 'number', width: 7 },
-        { displayName: 'CNP', technical: 'cnp', type: 'string', width: 15 },
+        // 2026-09-05: a fejléc eddig „CNP" volt, de az oszlop a rendszer által
+        // GENERÁLT egyházi azonosítót tartalmazza (EC-…, 999…). A lelkész abban
+        // a hitben adta tovább a fájlt, hogy abban személyi szám van. A
+        // HIVATALOS személyi szám külön, szűkebb hozzáférésű táblában él, és
+        // SZÁNDÉKOSAN nem kerül az Excel-tükörbe (a `szig`/`taj` precedense).
+        { displayName: 'Egyházi azonosító', technical: 'cnp', type: 'string', width: 20 },
         { displayName: 'Családnév', technical: 'csaladnev', type: 'string', width: 18 },
         { displayName: 'Keresztnév', technical: 'k_nev', type: 'string', width: 18 },
         { displayName: 'Születéskori név', technical: 'szcs_nev', type: 'string', width: 18 },
