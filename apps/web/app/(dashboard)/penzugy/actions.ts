@@ -3360,7 +3360,7 @@ function beagyazottNev(v: unknown): string {
 }
 
 /** A találat FAJTÁJA — a csoportosított listához ÉS a mentés FK-jához. */
-type BefizetoPartnerFajta = 'szemely' | 'gyulekezet' | 'lelkesz' | 'egyhazmegye'
+type BefizetoPartnerFajta = 'szemely' | 'gyulekezet' | 'lelkesz' | 'egyhazmegye' | 'ceg'
 
 interface BefizetoPartnerTalalat {
   kind: BefizetoPartnerFajta
@@ -3554,6 +3554,138 @@ async function keresKeruletiPartnerek(
   return talalatok
 }
 
+/**
+ * ── BEVÉTELI CÉG-/SZERVEZET-PARTNEREK (2026-09-04, Endre észrevétele) ──────
+ *
+ * Endre szó szerint: „A kasszánál a cégeket nem ismeri fel! Ha a kasszába adnak
+ * a cégek szponzort, akkor tudjuk bevezetni!"
+ *
+ * ⛔ AMI ROSSZ VOLT: a gyülekezeti szintű befizető-kereső KIZÁRÓLAG a `szemely`
+ *    táblát nézte. Egy szponzoráló cég (pl. „SC Kiacom SRL") így SOHA nem jött
+ *    elő találatként, a rögzítő pedig „nem tag"-ot írt mellé — pedig nem is tag,
+ *    hanem jogi személy. A lelkész minden alkalommal újragépelte a cégnevet,
+ *    elgépelésekkel, és a Szponzortámogatások jogcím alatt ugyanaz a cég
+ *    háromféle írásmóddal állt.
+ *
+ * KÉT FORRÁS, mert a cég kétféle úton kerül a rendszerbe:
+ *   1. `bevetel_partner.megjelenites_nev` — a BANKI KIVONAT-import memóriája:
+ *      a nyers banki partner-névhez rendelt megjelenítendő cégnév. Aki átutalt,
+ *      az később készpénzben is adhat.
+ *   2. `befizetes.forrasa` a KORÁBBI, taghoz NEM kötött bevételi sorokon — ez a
+ *      gyülekezet tényleges „cég-nyilvántartása" (ugyanaz az elv, mint a kiadás-
+ *      oldali `searchExpensePartners`, ami a `kiadas.atvevo`-ból dolgozik).
+ *
+ * ⚠️ A BELSŐ MOZGÁS SOROKAT KISZŰRJÜK: a `forrasa` ott rendszer-generált
+ *    („Belső mozgás — kasszából"), nem partner-név.
+ *
+ * ⚠️ A találat `kind: 'ceg'`, `refId: null`. A cégnek NINCS FK-célja a
+ *    `befizetes`-en: szabad szövegként (`forrasa`) mentődik, `id_szemely` NÉLKÜL.
+ *    A negatív ál-azonosító CSAK lista-kulcs — a `payerFromHit` a nem-`szemely`
+ *    fajtáknál `id: null`-t ad, tehát sosem kerülhet `id_szemely` FK-ba.
+ */
+function cegNevTiszta(v: unknown): string {
+  const s = typeof v === 'string' ? v.trim() : ''
+  if (!s) return ''
+  // Rendszer-generált belső mozgás megnevezések — nem partnerek.
+  if (s.startsWith('Belső mozgás')) return ''
+  return s
+}
+
+/** A gyülekezet ismert bevételi cég-/szervezet-partnerei, gépelt töredékre szűrve. */
+async function keresBevetelCegek(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  congregationId: string,
+  term: string,
+  maxDb = 6,
+): Promise<string[]> {
+  const talalt = new Map<string, string>() // normalizált kulcs → megjelenítendő név
+
+  // (1) Banki import-memória — a `megjelenites_nev` a CÉGNÉV.
+  {
+    const { data, error } = await supabase
+      .from('bevetel_partner')
+      .select('megjelenites_nev')
+      .eq('congregation_id', congregationId)
+      .not('megjelenites_nev', 'is', null)
+      .ilike('megjelenites_nev', `%${term}%`)
+      .limit(40)
+    // A hibát KIMONDJUK, de nem dobunk: a másik forrás így is szolgál.
+    if (error) console.error('[keresBevetelCegek] bevetel_partner:', error.message)
+    for (const r of (data || []) as Array<{ megjelenites_nev: string | null }>) {
+      const n = cegNevTiszta(r.megjelenites_nev)
+      if (n) talalt.set(n.toLowerCase(), n)
+    }
+  }
+
+  // (2) Korábbi, taghoz NEM kötött bevételi sorok — a tényleges cég-nyilvántartás.
+  {
+    const { data, error } = await supabase
+      .from('befizetes')
+      .select('forrasa, datum')
+      .eq('congregation_id', congregationId)
+      .eq('deleted', false)
+      .is('id_szemely', null)
+      .is('id_csalad', null)
+      .not('forrasa', 'is', null)
+      .ilike('forrasa', `%${term}%`)
+      .order('datum', { ascending: false })
+      .limit(60)
+    if (error) console.error('[keresBevetelCegek] befizetes:', error.message)
+    for (const r of (data || []) as Array<{ forrasa: string | null }>) {
+      const n = cegNevTiszta(r.forrasa)
+      if (n && !talalt.has(n.toLowerCase())) talalt.set(n.toLowerCase(), n)
+    }
+  }
+
+  return [...talalt.values()].slice(0, maxDb)
+}
+
+/**
+ * A gyülekezet ÖSSZES ismert bevételi cég-partnere — a rögzítőben a név melletti
+ * PASSZÍV „cég" jelzéshez (a kiadás-oldali `listExpensePartnerNames` párja).
+ *
+ * ⚠️ LAPOZUNK: a PostgREST 1000 soros alapértelmezése némán csonkítana, és a
+ * levágott cégek tévesen „nem tag"-ként világítanának — helyességi kérdés.
+ */
+export async function listIncomePartnerNames(): Promise<string[]> {
+  const { supabase, congregationId } = await getProfileCongregation()
+  if (!congregationId) return []
+  const nevek = new Map<string, string>()
+
+  {
+    const { data, error } = await selectAllPaged<{ megjelenites_nev: string | null }>(
+      supabase
+        .from('bevetel_partner')
+        .select('megjelenites_nev')
+        .eq('congregation_id', congregationId)
+        .not('megjelenites_nev', 'is', null),
+    )
+    if (error) console.error('[listIncomePartnerNames] bevetel_partner:', error.message)
+    for (const r of data ?? []) {
+      const n = cegNevTiszta(r.megjelenites_nev)
+      if (n) nevek.set(n.toLowerCase(), n)
+    }
+  }
+  {
+    const { data, error } = await selectAllPaged<{ forrasa: string | null }>(
+      supabase
+        .from('befizetes')
+        .select('forrasa')
+        .eq('congregation_id', congregationId)
+        .eq('deleted', false)
+        .is('id_szemely', null)
+        .is('id_csalad', null)
+        .not('forrasa', 'is', null),
+    )
+    if (error) console.error('[listIncomePartnerNames] befizetes:', error.message)
+    for (const r of data ?? []) {
+      const n = cegNevTiszta(r.forrasa)
+      if (n && !nevek.has(n.toLowerCase())) nevek.set(n.toLowerCase(), n)
+    }
+  }
+  return [...nevek.values()]
+}
+
 export async function searchIncomePartners(query: string): Promise<BefizetoPartnerTalalat[]> {
   const term = query.trim()
   if (term.length < 2) return []
@@ -3563,8 +3695,13 @@ export async function searchIncomePartners(query: string): Promise<BefizetoPartn
 
   switch (scope.scope) {
     case 'congregation': {
-      const rows = (await queryCongregationMembers(supabase, scope.scopeId, term)) as Array<Record<string, unknown>>
-      return rows.map((m) => ({
+      // A TAGOK és a CÉGEK párhuzamosan — egy szponzoráló cég ugyanúgy fizethet
+      // a kasszába, mint egy tag (Endre, 2026-09-04).
+      const [rows, cegek] = await Promise.all([
+        queryCongregationMembers(supabase, scope.scopeId, term) as Promise<Array<Record<string, unknown>>>,
+        keresBevetelCegek(supabase, scope.scopeId, term),
+      ])
+      const tagTalalatok = rows.map((m) => ({
         kind: 'szemely' as const,
         id: Number(m.id),
         refId: null,
@@ -3576,6 +3713,21 @@ export async function searchIncomePartners(query: string): Promise<BefizetoPartn
             .join(' · ') || null,
         szDatum: m.sz_datum ? String(m.sz_datum) : null,
       }))
+      // ⚠️ NEGATÍV ál-azonosító: CSAK lista-kulcs. A `payerFromHit` a nem-`szemely`
+      // fajtáknál `id: null`-t ad, tehát ez SOSEM kerülhet `id_szemely` FK-ba.
+      let alAzon = 0
+      const cegTalalatok = cegek.map((nev) => {
+        alAzon += 1
+        return {
+          kind: 'ceg' as const,
+          id: -alAzon,
+          refId: null,
+          name: nev,
+          detail: 'cég / szervezet — szabad szövegként mentődik',
+          szDatum: null,
+        }
+      })
+      return [...tagTalalatok, ...cegTalalatok]
     }
     case 'diocese':
       return await keresMegyeiPartnerek(supabase, scope.scopeId, term)

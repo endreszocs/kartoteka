@@ -23,6 +23,30 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-09-04] — A kassza felismeri a cégeket
+<!-- key: 2026-09-04-kassza-ceg-partner -->
+<!-- category: improvement -->
+<!-- version: 0.9.223 -->
+<!-- targets: lelkipásztorok és pénztárosok, akik szponzori támogatást vesznek be a kasszába -->
+
+### ✨ Új funkciók
+
+- **A befizető-kereső megtalálja a cégeket is**: eddig csak a gyülekezeti tagok
+  között keresett, ezért egy szponzoráló cég (pl. „SC Kiacom SRL") sosem jött elő
+  találatként, és a rendszer „nem tag"-ot írt mellé. Mostantól a kereső két
+  forrásból ajánlja a cégeket: a banki kivonat-importból már ismert partnerekből,
+  és a korábbi, taghoz nem kötött készpénzes bevételekből. A találati listában
+  külön „Cégek, szervezetek" csoportban jelennek meg.
+- **„cég" jelzés a „nem tag" helyett**: ha a begépelt név ismert cég, a mező
+  mellett zöld helyett indigó „cég" jelvény jelenik meg — kattintás nélkül is
+  látszik, hogy a partner korábban már adott, tehát nem elgépelés. Ismeretlen
+  névnél marad a régi „nem tag" jelzés.
+- A cég a könyvben továbbra is **szabad szövegként** rögzül (nincs taghoz kötve),
+  és **nem indul rá járulék-ajánló** — egy cégtől nem várunk egyházfenntartói
+  járulékot.
+
+---
+
 ## [2026-09-04] — Kassza-rögzítő: örökbefogadott átvezetés, tömörebb sorok, gyorsabb keresés; ANAF-számlák nyomtatási képe
 <!-- key: 2026-09-04-kassza-faktura-spv-kor -->
 <!-- category: bugfix -->

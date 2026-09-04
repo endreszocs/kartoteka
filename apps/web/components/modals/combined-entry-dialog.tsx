@@ -38,6 +38,7 @@ import {
   checkReceiptDuplicate,
   getLastRecordedDate,
   listExpensePartnerNames,
+  listIncomePartnerNames,
 } from '@/app/(dashboard)/penzugy/actions'
 import { toast } from 'sonner'
 
@@ -95,6 +96,8 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
   /** 2026-09-02 (Endre 7.): a banki-import magyarázó buborék (érintésre is). */
   const [bankiSugoNyitva, setBankiSugoNyitva] = useState(false)
   const [ismertPartnerek, setIsmertPartnerek] = useState<string[] | undefined>(undefined)
+  /** 2026-09-04 (Endre): a gyülekezet ismert BEVÉTELI cég-partnerei — a „cég" jelvényhez. */
+  const [ismertCegek, setIsmertCegek] = useState<string[] | undefined>(undefined)
   useEffect(() => {
     if (!open || !gyulekezeti) return
     let ervenyes = true
@@ -103,6 +106,10 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
       // Hiba esetén marad `undefined` → nincs jelzés. Ez a helyes fail-safe:
       // egy sikertelen betöltés nem állíthatja minden partnerről, hogy „új".
       .catch(() => { if (ervenyes) setIsmertPartnerek(undefined) })
+    // A két lista FÜGGETLEN: az egyik bukása ne vigye el a másik jelzését sem.
+    void listIncomePartnerNames()
+      .then((nevek) => { if (ervenyes) setIsmertCegek(nevek) })
+      .catch(() => { if (ervenyes) setIsmertCegek(undefined) })
     return () => { ervenyes = false }
   }, [open, gyulekezeti])
 
@@ -237,6 +244,7 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
             }}
             onSearchExpensePartners={async (query) => await searchExpensePartners(query)}
             knownExpensePartners={ismertPartnerek}
+            knownIncomePartners={ismertCegek}
             unpairedMovements={unpairedMovements}
             /* 2026-08-27 (Endre 8. kérése): mentés ELŐTT megnézzük, van-e már
                ugyanolyan összegű, hasonló nevű, ±3 napon belüli BANKI tétel.

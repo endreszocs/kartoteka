@@ -96,7 +96,13 @@ export interface CombinedInternalTransferPayload {
  * külön csoportba kerül, és FK-t sem kap (Endre D5 döntése: elég a `forrasa`
  * szabad szöveg).
  */
-export type CombinedPartnerKind = 'szemely' | 'gyulekezet' | 'lelkesz' | 'egyhazmegye'
+/**
+ * A befizető FAJTÁJA. 2026-09-04 (Endre): `'ceg'` — szponzoráló cég / szervezet
+ * a KASSZÁBAN. Nincs FK-célja a `befizetes`-en: szabad szövegként (`forrasa`)
+ * mentődik, `id_szemely` és `befizeto_scope_id` NÉLKÜL — de a rögzítő FELISMERI,
+ * tehát nem „nem tag"-ként jelöli, és nem indít rá járulék-ajánlót.
+ */
+export type CombinedPartnerKind = 'szemely' | 'gyulekezet' | 'lelkesz' | 'egyhazmegye' | 'ceg'
 
 /** Tag-találat a Befizető-keresőhöz (B1, 2026-06-11). */
 export interface CombinedMemberHit {
@@ -187,10 +193,11 @@ const PARTNER_CSOPORT_FELIRAT: Record<CombinedPartnerKind, string> = {
   gyulekezet: 'Gyülekezetek',
   lelkesz: 'Lelkipásztorok',
   egyhazmegye: 'Egyházmegyék',
+  ceg: 'Cégek, szervezetek',
 }
 
 /** A csoportok MEGJELENÍTÉSI SORRENDJE a találati listában. */
-const PARTNER_CSOPORT_SORREND: CombinedPartnerKind[] = ['gyulekezet', 'egyhazmegye', 'lelkesz', 'szemely']
+const PARTNER_CSOPORT_SORREND: CombinedPartnerKind[] = ['gyulekezet', 'egyhazmegye', 'lelkesz', 'szemely', 'ceg']
 
 /**
  * Egy találatból a befizető-bejegyzés mezői.
@@ -390,6 +397,17 @@ export interface CombinedEntryBodyProps {
    * Ha nincs megadva, a jelzés nem jelenik meg (a látvány változatlan).
    */
   knownExpensePartners?: string[]
+  /**
+   * 2026-09-04 (Endre): a gyülekezet ismert BEVÉTELI cég-/szervezet-partnerei.
+   *
+   * ⛔ MIÉRT KELL: egy szponzoráló cég (pl. „SC Kiacom SRL") nem gyülekezeti tag,
+   * ezért a rögzítő „nem tag"-ot írt mellé — ami igaz, de haszontalan: nem derült
+   * ki, hogy a cég ISMERT-e, vagy most gépelte el a nevét. Ezzel a listával a
+   * jelzés kattintás nélkül megmondja, hogy korábban már adott.
+   *
+   * Ha nincs megadva, a jelzés a MAI alakban marad (nincs „cég" jelvény).
+   */
+  knownIncomePartners?: string[]
   /**
    * 2026-09-02 (Endre 4.): a még PÁR NÉLKÜL álló belső mozgások — a rögzítő
    * ezekből kínál választható „párját rögzítem" listát a belső mozgás soron.
@@ -729,7 +747,7 @@ export function CombinedEntryBody({
   onSearchMembers, onSearchExpensePartners, onCheckSimilarEntries,
   onSearchFamilies, onGetFamilyMembers, onGetFamilyMembersForPerson, onGetExpectedJarulek, onGetNextReceiptNumbers,
   onCheckReceiptDuplicate, onGetLastRecordedDate, draftStorageKey, offerExpenseInventory,
-  knownExpensePartners, unpairedMovements,
+  knownExpensePartners, knownIncomePartners, unpairedMovements,
 }: CombinedEntryBodyProps) {
   /**
    * 2026-09-02 (Endre): a gyülekezet ismert kiadás-partnereinek normalizált
@@ -760,6 +778,32 @@ export function CombinedEntryBody({
       return ismertPartnerek.has(k) ? 'ismert' : 'uj'
     },
     [ismertPartnerek],
+  )
+
+  /**
+   * 2026-09-04 (Endre): ugyanez a BEVÉTELI oldalon — az ismert cég-partnerek
+   * normalizált halmaza. Ugyanaz a normalizálás, mint a kiadás-oldalon: „SC
+   * KIACOM SRL" és „SC Kiacom S.R.L." ugyanaz a cég.
+   */
+  const ismertCegek = useMemo(() => {
+    if (!knownIncomePartners) return null
+    const s = new Set<string>()
+    for (const n of knownIncomePartners) {
+      const k = normalizeNameForMatch(n || '')
+      if (k) s.add(k)
+    }
+    return s
+  }, [knownIncomePartners])
+
+  /** Ismert bevételi cég-e a begépelt név? `false` = ne írjuk ki a „cég" jelvényt. */
+  const cegJelzes = useCallback(
+    (nev: string): boolean => {
+      if (!ismertCegek) return false
+      const k = normalizeNameForMatch(nev || '')
+      if (k.length < 2) return false
+      return ismertCegek.has(k)
+    },
+    [ismertCegek],
   )
 
   const [tab, setTab] = useState<'income' | 'expense'>('income')
@@ -2975,6 +3019,7 @@ export function CombinedEntryBody({
                         onSearchMembers={onSearchMembers}
                         onSearchExpense={onSearchExpensePartners}
                         partnerJelzes={partnerJelzes}
+                        cegJelzes={cegJelzes}
                         onOpenFamily={
                           tab === 'income' && onSearchFamilies && onGetFamilyMembers
                             ? () => handleFamilyClick(r.id)
@@ -3135,6 +3180,7 @@ export function CombinedEntryBody({
                         onSearchMembers={onSearchMembers}
                         onSearchExpense={onSearchExpensePartners}
                         partnerJelzes={partnerJelzes}
+                        cegJelzes={cegJelzes}
                         onOpenFamily={
                           tab === 'income' && onSearchFamilies && onGetFamilyMembers
                             ? () => handleFamilyClick(r.id)
@@ -3380,6 +3426,7 @@ function PartnerCell({
   onSearchMembers,
   onSearchExpense,
   partnerJelzes,
+  cegJelzes,
   onOpenFamily,
   familyLoading,
   updateRow,
@@ -3403,6 +3450,8 @@ function PartnerCell({
   onSearchExpense?: (query: string) => Promise<string[]>
   /** 2026-09-02 (Endre): passzív partner-jelzés a kiadás-oldali néven („ismert"/„új"). */
   partnerJelzes?: (nev: string) => 'ismert' | 'uj' | null
+  /** 2026-09-04: ismert bevételi cég-e a begépelt név (a „cég" jelvényhez). */
+  cegJelzes?: (nev: string) => boolean
   /** #5: ha megadva (bevétel), „Család csatolása" gomb — a tagokat a sor befizető-almenüjéhez fűzi. */
   onOpenFamily?: () => void
   /** 2026-08-29: a család-feloldás hálózati hívása fut — a gomb pörög. */
@@ -3746,9 +3795,15 @@ function PartnerCell({
           <div className="min-w-0 flex-1">
             <PayerNameSearch
               value={single ? single.name : row.partner}
-              linked={!!single && (single.id != null || !!single.refId)}
+              // 2026-09-04 (Endre): a kiválasztott CÉG is FELISMERT partner — zöld
+              // jelölést kap, és nem világít rá a „nem tag". FK-ja nincs
+              // (`id`/`refId` null), a `forrasa` szabad szövegében mentődik.
+              linked={!!single && (single.id != null || !!single.refId || single.kind === 'ceg')}
               onSearch={searchFn}
               showUnlinkedBadge={mode === 'income'}
+              // 2026-09-04 (Endre): ha a begépelt név ISMERT cég, „cég" jelvény
+              // kerül a „nem tag" helyére — kattintás nélkül is felismerjük.
+              ismertCeg={mode === 'income' && !!cegJelzes?.(single ? single.name : row.partner)}
               // A partner-jelzés CSAK a kiadás-oldalon értelmes: a bevételi
               // oldalnak saját „nem tag" jelvénye és tag-párosítása van.
               partnerStatus={mode === 'expense' ? (partnerJelzes?.(row.partner) ?? null) : null}
@@ -3931,6 +3986,7 @@ function PayerNameSearch({
   autoFocus,
   onAutoFocused,
   showUnlinkedBadge,
+  ismertCeg,
   partnerStatus,
 }: {
   value: string
@@ -3945,6 +4001,8 @@ function PayerNameSearch({
   onAutoFocused?: () => void
   /** #5: „nem tag" jelvény szabad-szöveges (nem párosított) névnél — csak bevételnél. */
   showUnlinkedBadge?: boolean
+  /** 2026-09-04: a név ISMERT bevételi cég → „cég" jelvény a „nem tag" helyett. */
+  ismertCeg?: boolean
   /**
    * 2026-09-02 (Endre): kiadás-oldali PARTNER-JELZÉS a legördülő HELYETT.
    * `'ismert'` — a név már szerepel a gyülekezet partnerei közt;
@@ -4157,7 +4215,19 @@ function PayerNameSearch({
         </span>
       )}
       {/* #5: nem párosított (szabad-szöveges) név — nem gyülekezeti tag is adhat adományt. */}
-      {showUnlinkedBadge && !linked && value.trim().length >= 2 && !open && (
+      {/* 2026-09-04 (Endre): „A kasszánál a cégeket nem ismeri fel!" — ha a név
+          ISMERT bevételi cég/szervezet, POZITÍV jelvényt kap. A „nem tag" igaz
+          volt, de haszontalan: nem derült ki, hogy a cég korábban adott-e már,
+          vagy most gépelték el a nevét. */}
+      {showUnlinkedBadge && !linked && ismertCeg && value.trim().length >= 2 && !open && (
+        <span
+          className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[9px] font-medium text-indigo-700 ring-1 ring-indigo-200"
+          title="Ismert cég / szervezet — korábban már adott. Szabad szövegként mentődik (nincs taghoz kötve)."
+        >
+          cég
+        </span>
+      )}
+      {showUnlinkedBadge && !linked && !ismertCeg && value.trim().length >= 2 && !open && (
         <span
           className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-500"
           title="Nincs taghoz kötve — szabad szövegként mentődik (nem gyülekezeti tag is adhat)"
