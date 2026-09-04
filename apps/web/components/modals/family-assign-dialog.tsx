@@ -26,6 +26,7 @@ import {
   searchAssignableFamilies,
   type AssignableFamily,
 } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
+import { felnottekFelirat, gyermekekFelirat } from '@/lib/family/csalad-kereses'
 import type { AssignConflict, FamilyMembershipInfo } from '@/lib/family/family-membership'
 import type { EnrichedMember } from '@/lib/constants/members'
 
@@ -44,6 +45,13 @@ type Mode = 'felnott' | 'gyermek'
 export function FamilyAssignDialog({ open, onOpenChange, member, currentFamilyId, onAssigned }: FamilyAssignDialogProps) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<AssignableFamily[]>([])
+  // A TELJES találatszám — a listánál több is lehet, és ezt ki kell mondani.
+  const [osszesTalalat, setOsszesTalalat] = useState(0)
+  // A keresés HIBÁZOTT-e. Enélkül az üres lista megkülönböztethetetlen attól,
+  // hogy tényleg nincs ilyen család — és a lelkész új, duplikált családot nyit.
+  const [keresesHibas, setKeresesHibas] = useState(false)
+  // A találatszám ALSÓ becslés-e (belefutottunk valamelyik plafonba).
+  const [vagott, setVagott] = useState(false)
   const [searching, setSearching] = useState(false)
   const [selected, setSelected] = useState<AssignableFamily | null>(null)
   const [mode, setMode] = useState<Mode>('felnott')
@@ -66,6 +74,9 @@ export function FamilyAssignDialog({ open, onOpenChange, member, currentFamilyId
     let cancelled = false
     setQuery('')
     setResults([])
+    setOsszesTalalat(0)
+    setKeresesHibas(false)
+    setVagott(false)
     setSelected(null)
     setMode(age != null && age < 18 ? 'gyermek' : 'felnott')
     setConflicts(null)
@@ -88,20 +99,29 @@ export function FamilyAssignDialog({ open, onOpenChange, member, currentFamilyId
     const q = query.trim()
     if (q.length < 2) {
       setResults([])
+      setOsszesTalalat(0)
+      setKeresesHibas(false)
+      setVagott(false)
       setSearching(false)
       return
     }
     setSearching(true)
     const t = setTimeout(() => {
       searchAssignableFamilies(q)
-        .then((rows) => {
+        .then((res) => {
           if (searchTokenRef.current !== token) return
-          setResults(rows)
+          setResults(res.csaladok)
+          setOsszesTalalat(res.osszesTalalat)
+          setKeresesHibas(res.keresesHibas)
+          setVagott(res.vagott)
           setSearching(false)
         })
         .catch(() => {
           if (searchTokenRef.current !== token) return
           setResults([])
+          setOsszesTalalat(0)
+          setKeresesHibas(true)
+          setVagott(false)
           setSearching(false)
         })
     }, 300)
@@ -159,7 +179,8 @@ export function FamilyAssignDialog({ open, onOpenChange, member, currentFamilyId
         return
       }
       if (res.success && res.familyId) {
-        toast.success(`${memberName} hozzárendelve: ${selected.displayName}.`)
+        const kikhez = felnottekFelirat(selected.ferfi, selected.no)
+        toast.success(`${memberName} hozzárendelve: ${selected.displayName}${kikhez ? ` — ${kikhez}` : ''}.`)
         if (res.warning) toast.warning(res.warning, { duration: 8000 })
         onAssigned(res.familyId)
         onOpenChange(false)
@@ -292,38 +313,102 @@ export function FamilyAssignDialog({ open, onOpenChange, member, currentFamilyId
                   />
                 </div>
                 {searching && <p className="text-xs text-muted-foreground">Keresés…</p>}
-                {!searching && query.trim().length >= 2 && results.length === 0 && (
+                {!searching && keresesHibas && (
+                  <p className="flex items-start gap-1.5 text-xs leading-[1.35] text-amber-700 dark:text-amber-400">
+                    <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+                    A keresés most nem sikerült — ez NEM azt jelenti, hogy nincs ilyen család. Próbáld újra,
+                    és csak akkor hozz létre újat, ha a keresés lefutott.
+                  </p>
+                )}
+                {!searching && !keresesHibas && query.trim().length >= 2 && results.length === 0 && (
                   <p className="text-xs text-muted-foreground">Nincs találat — próbáld a családfő vezetéknevével.</p>
                 )}
                 {results.length > 0 && (
-                  <div className="max-h-56 space-y-1.5 overflow-y-auto overscroll-contain pr-0.5" role="listbox" aria-label="Család-találatok">
-                    {results.map((fam) => (
-                      <button
-                        key={fam.id}
-                        type="button"
-                        role="option"
-                        aria-selected={selected?.id === fam.id}
-                        onClick={() => setSelected(fam)}
-                        className={`flex min-h-11 w-full items-center gap-3 rounded-xl border px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
-                          selected?.id === fam.id
-                            ? 'border-primary bg-primary/10'
-                            : 'border-border/60 bg-background/60 hover:border-primary/30 hover:bg-primary/5'
-                        }`}
-                      >
-                        <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                          <Users className="size-4" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-semibold text-foreground">{fam.displayName}</span>
-                          <span className="block truncate text-xs text-muted-foreground">
-                            {[fam.address, `${fam.childrenCount} gyermek`].filter(Boolean).join(' · ')}
-                          </span>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+                  <>
+                    <div className="max-h-[19rem] space-y-1.5 overflow-y-auto overscroll-contain pr-0.5" role="listbox" aria-label="Család-találatok">
+                      {results.map((fam) => {
+                        const felnottek = felnottekFelirat(fam.ferfi, fam.no)
+                        return (
+                          <button
+                            key={fam.id}
+                            type="button"
+                            role="option"
+                            aria-selected={selected?.id === fam.id}
+                            onClick={() => setSelected(fam)}
+                            className={`flex min-h-11 w-full items-start gap-3 rounded-xl border px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
+                              selected?.id === fam.id
+                                ? 'border-primary bg-primary/10'
+                                : 'border-border/60 bg-background/60 hover:border-primary/30 hover:bg-primary/5'
+                            }`}
+                          >
+                            <span className="mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                              <Users className="size-4" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-semibold leading-[1.3] text-foreground">{fam.displayName}</span>
+                              {/* A DÖNTŐ SOR: kik a felnőtt tagok. Szándékosan NEM
+                                  vágjuk el — épp ezt kellett eddig kitalálni. */}
+                              {felnottek ? (
+                                <span className="mt-0.5 block break-words text-[0.8rem] leading-[1.35] text-foreground/85">{felnottek}</span>
+                              ) : fam.felnottRejtve ? (
+                                // VAN rögzített felnőtt, de az adatai nem érhetők el.
+                                // Nem állíthatjuk, hogy „nincs" — az hamis volna.
+                                <span className="mt-0.5 block text-[0.8rem] leading-[1.35] text-amber-700 dark:text-amber-400">
+                                  A felnőtt tag adatai nem érhetők el
+                                </span>
+                              ) : (
+                                <span className="mt-0.5 block text-[0.8rem] italic leading-[1.35] text-muted-foreground">
+                                  Nincs rögzített felnőtt tag
+                                </span>
+                              )}
+                              <span className="mt-0.5 block break-words text-xs leading-[1.35] text-muted-foreground">
+                                {[fam.address, gyermekekFelirat(fam.childrenCount, fam.gyermekek)].filter(Boolean).join(' · ')}
+                              </span>
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {(osszesTalalat > results.length || vagott) && (
+                      <p className="text-xs leading-[1.35] text-muted-foreground">
+                        {vagott ? `Több mint ${osszesTalalat} találat` : `${osszesTalalat} találat`} — az első{' '}
+                        {results.length} látszik. Írj be többet a névből (például a keresztnevet is), hogy a
+                        keresett család előrébb kerüljön.
+                      </p>
+                    )}
+                    {results.some((fam) => !fam.tagokIsmertek) && (
+                      <p className="flex items-start gap-1.5 text-xs leading-[1.35] text-amber-700 dark:text-amber-400">
+                        <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+                        A családtagok nevét most nem sikerült betölteni, ezért a sorok hiányosak. Frissíts rá, vagy
+                        a Családok fülön ellenőrizd, melyik családot választod.
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
+
+              {/* A VÁLASZTÁS VISSZAIGAZOLÁSA — az áthelyezés a korábbi tagságot
+                  lezárja, tehát itt a legdrágább, ha csak „Csoma család" áll. */}
+              {selected && (
+                <div className="rounded-2xl border border-primary/40 bg-primary/5 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-primary">Ezt a családot választottad</p>
+                  <p className="mt-1 text-sm font-semibold leading-[1.3] text-foreground">{selected.displayName}</p>
+                  {felnottekFelirat(selected.ferfi, selected.no) ? (
+                    <p className="mt-0.5 break-words text-[0.8rem] leading-[1.35] text-foreground/85">
+                      {felnottekFelirat(selected.ferfi, selected.no)}
+                    </p>
+                  ) : selected.felnottRejtve ? (
+                    <p className="mt-0.5 text-[0.8rem] leading-[1.35] text-amber-700 dark:text-amber-400">
+                      A felnőtt tag adatai nem érhetők el — ellenőrizd a Családok fülön, mielőtt hozzárendelsz.
+                    </p>
+                  ) : (
+                    <p className="mt-0.5 text-[0.8rem] italic leading-[1.35] text-muted-foreground">Nincs rögzített felnőtt tag</p>
+                  )}
+                  <p className="mt-0.5 break-words text-xs leading-[1.35] text-muted-foreground">
+                    {[selected.address, gyermekekFelirat(selected.childrenCount, selected.gyermekek)].filter(Boolean).join(' · ')}
+                  </p>
+                </div>
+              )}
 
               {/* Szerep-választás */}
               {selected && (

@@ -7,6 +7,11 @@ import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { fetchFamilyPaymentsCompat, fetchPaymentsByMemberIdsCompat } from '@/lib/finance/payment-compat'
 import { getVisibleDistrictState, sanitizeDistrictReference } from '@/lib/members/district-visibility'
 import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallback'
+import {
+  CSALAD_KERESES_CSALAD_LIMIT,
+  CSALAD_KERESES_MEGJELENITETT,
+  CSALAD_KERESES_SZEMELY_LIMIT,
+} from '@/lib/family/csalad-kereses'
 import { logAuditEvent } from '@/lib/audit/log'
 import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
 import {
@@ -85,6 +90,21 @@ export async function getMemberFamilyMemberships(personId: number): Promise<Fami
   return map.get(personId) ?? []
 }
 
+/** Egy megjelenítendő családtag a találati sorban (2026-09-04). */
+export interface AssignableFamilyPerson {
+  id: number
+  /** Teljes név — „Csoma János" */
+  name: string
+  /**
+   * A vezetéknév KÜLÖN. ⚠️ NEM a `name` első szava: a magyar vezetéknév két
+   * tagú is lehet („Nagy Szabó Péter"), a szó szerinti szétvágás elrontaná a
+   * család nevét.
+   */
+  surname: string | null
+  /** Születési év, ha ismert. Két azonos nevű rokonnál EZ dönt. */
+  bornYear: number | null
+}
+
 export interface AssignableFamily {
   id: number
   displayName: string
@@ -92,67 +112,399 @@ export interface AssignableFamily {
   hasFerfi: boolean
   hasNo: boolean
   childrenCount: number
+  /** A férj/családfő, ha van. */
+  ferfi: AssignableFamilyPerson | null
+  /** A feleség/házastárs, ha van. */
+  no: AssignableFamilyPerson | null
+  /** A család gyermekei név szerint (születési év szerint, a legidősebbel kezdve). */
+  gyermekek: AssignableFamilyPerson[]
+  /**
+   * false, ha a tagnevek lekérése elbukott VAGY egy rögzített felnőtt adatai
+   * nem érhetők el (RLS-szűrt beágyazás). A sor ilyenkor a szűkebb képet
+   * mutatja, de a felület MEGMONDJA, hogy hiányos — nem hallgat róla.
+   */
+  tagokIsmertek: boolean
+  /**
+   * true, ha a családnak VAN rögzített felnőttje, de az adatai nem jöttek le.
+   * ⚠️ A PostgREST ilyenkor NEM hibázik, csak NULL-t ágyaz be — enélkül a sor
+   * magabiztosan „Nincs rögzített felnőtt tag"-ot állítana, ami HAMIS.
+   */
+  felnottRejtve: boolean
+}
+
+/** A család-kereső válasza: a megjelenítendő sorok + a TELJES találatszám. */
+export interface AssignableFamilySearchResult {
+  csaladok: AssignableFamily[]
+  /**
+   * true, ha a keresés valamelyik lépése HIBÁZOTT. Ilyenkor az üres lista NEM
+   * azt jelenti, hogy nincs ilyen család — és ezt ki KELL mondani, különben a
+   * lelkész új, duplikált családot hoz létre.
+   */
+  keresesHibas: boolean
+  /** true, ha valamelyik plafonba beleütköztünk (a találatszám alsó becslés). */
+  vagott: boolean
+  /**
+   * Hány család illeszkedett összesen. Ha ez több, mint a `csaladok` hossza,
+   * a felület KIÍRJA a levágást — a néma vágás pont azt a bizonytalanságot
+   * hozná vissza, ami miatt ez a kör elindult.
+   */
+  osszesTalalat: number
 }
 
 /**
- * Család-kereső a személyi karton „Családhoz rendelés" dialógusához: a felnőtt
- * tagok neve alapján keres az aktuális gyülekezet AKTÍV családjai között.
+ * Család-kereső a személyi karton „Családhoz rendelés" dialógusához.
+ *
+ * 2026-09-04 — Endre észrevétele: több azonos vezetéknevű család (pl. három
+ * „Csoma család") esetén a sor CSAK a címet és a gyermekszámot mutatta
+ * („Vasút 189 · 0 gyermek"), tehát a lelkész nem látta, KIKET választ. Egy
+ * elvétett hozzárendelés viszont a `csalad`, `gyerek`, `haztartas`,
+ * `haztartas_tag` és `szemely_kapcsolat` sorokat is mozgatja, áthelyezésnél
+ * pedig a KORÁBBI tagságot lezárja — nem egy gombnyom visszacsinálni.
+ *
+ * Ezért négy dolog változott:
+ *  1. a találat viszi a felnőtt tagok TELJES NEVÉT (születési évvel) és a
+ *     gyermekek nevét is;
+ *  2. a gyermekszám ugyanabból a forrásból jön, mint a személyi kartoné
+ *     (`haztartas_tag`, gyermek+unoka, nyitott tagság) — a legacy `gyerek`
+ *     tábla ehhez UNIÓBAN adódik, tehát „0 gyermek" csak akkor jelenik meg,
+ *     ha EGYIK forrás sem tud gyermekről;
+ *  3. a keresés a GYERMEK nevére is talál — eddig csak `id_ferfi`/`id_no`
+ *     szerint szűrt, így a gyerek nevét beíró lelkész azt hitte, nincs ilyen
+ *     család, és ÚJAT hozott létre (innen a több egyforma „Csoma család");
+ *  4. determinisztikus sorrend (`.order('id')`) és LÁTHATÓ levágás — eddig a
+ *     `.limit(12)` némán vágott, ráadásul a gyülekezet-szűrés UTÁNA futott.
+ *
+ * ⚠️ HIBAOSZTÁLY, amire itt figyelünk: a kényelmi mező a select-ben néma üres
+ * listát okozhat (a PostgREST az egész lekérdezést elutasítja, a felület pedig
+ * „Nincs találat"-ot mutat — megkülönböztethetetlenül attól, hogy tényleg
+ * nincs). Ezért minden bővített lekérdezésnek van fail-safe minimál
+ * újrapróbálkozása: rosszabb esetben szegényebb sort kapunk, de sosem üreset.
  */
-export async function searchAssignableFamilies(query: string): Promise<AssignableFamily[]> {
+export async function searchAssignableFamilies(query: string): Promise<AssignableFamilySearchResult> {
+  const ures: AssignableFamilySearchResult = { csaladok: [], keresesHibas: false, vagott: false, osszesTalalat: 0 }
+  const hibas: AssignableFamilySearchResult = { csaladok: [], keresesHibas: true, vagott: false, osszesTalalat: 0 }
   // A PostgREST .or() szűrő a vesszőt/zárójelet szintaxisként értelmezné —
   // az ilyen karaktereket szóközre cseréljük (különben néma „Nincs találat").
   const q = query.trim().replace(/[,()"\\]/g, ' ').replace(/\s+/g, ' ').trim()
-  if (q.length < 2) return []
+  if (q.length < 2) return ures
   const { supabase, congregationId } = await getFamilyAccessContext()
-  if (!congregationId) return []
+  if (!congregationId) return ures
 
-  const { data: persons } = await supabase
+  // `.order('id')`: rendezés nélkül két egymás utáni AZONOS keresés MÁS
+  // halmazt adhatna (a Postgres terve dönt), és a plafon mást vágna le.
+  // `isvisible`: a szándékosan elrejtett sorok ne fogyasszák a keretet — a
+  // ELHUNYTAKAT viszont NEM zárjuk ki, mert egy özvegy családfője is találat.
+  const { data: persons, error: personError } = await supabase
     .from('szemely')
     .select('id')
     .eq('congregation_id', congregationId)
+    .eq('isvisible', true)
     .or(`csaladnev.ilike.%${q}%,k_nev.ilike.%${q}%`)
-    .limit(40)
+    .order('id', { ascending: true })
+    .limit(CSALAD_KERESES_SZEMELY_LIMIT)
+  if (personError) {
+    // ⛔ NEM néma: az üres lista itt megkülönböztethetetlen volna attól, hogy
+    // tényleg nincs ilyen nevű ember — és pont ez szüli a duplikált családokat.
+    console.error('[searchAssignableFamilies] személy-keresés hiba:', personError.message)
+    return hibas
+  }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const personIds = ((persons || []) as any[]).map((p) => p.id as number)
-  if (personIds.length === 0) return []
+  if (personIds.length === 0) return ures
 
-  const { data: familiesRaw } = await supabase
-    .from('csalad')
-    .select('id, id_ferfi, id_no, c_szam, utca:adrstreet!c_utcaid(name)')
-    .eq('isaktiv', true)
-    .or(`id_ferfi.in.(${personIds.join(',')}),id_no.in.(${personIds.join(',')})`)
-    .limit(12)
+  // ── JELÖLTEK két irányból ────────────────────────────────────────────────
+  // (a) a felnőtt tagok felől, (b) a GYERMEKEK felől. A (b) ág nélkül a
+  // gyerek nevére keresve a család nem jött elő — ez a duplikált családok
+  // egyik gyökéroka.
+  const [felnottJelolt, gyerekJelolt] = await Promise.all([
+    supabase
+      .from('csalad')
+      .select('id')
+      .eq('isaktiv', true)
+      .or(`id_ferfi.in.(${personIds.join(',')}),id_no.in.(${personIds.join(',')})`)
+      .order('id', { ascending: true })
+      .limit(CSALAD_KERESES_CSALAD_LIMIT),
+    supabase
+      .from('gyerek')
+      .select('id_csalad')
+      .in('id_szemely', personIds)
+      .order('id_csalad', { ascending: true })
+      .limit(CSALAD_KERESES_CSALAD_LIMIT),
+  ])
+  if (felnottJelolt.error) {
+    console.error('[searchAssignableFamilies] jelölt-keresés hiba (felnőtt):', felnottJelolt.error.message)
+    return hibas
+  }
+  if (gyerekJelolt.error) {
+    // A gyermek-ág elvesztése CSAK a recall-t rontaná — de némán, ezért ezt is
+    // kimondjuk. (⚠️ MFA-csapda: a `gyerek` táblán RESTRICTIVE aal2-policy ül,
+    // ami aal1 munkamenetnél nem hibázik, hanem ÜRESET ad — arra ez az ág vak.)
+    console.error('[searchAssignableFamilies] jelölt-keresés hiba (gyermek):', gyerekJelolt.error.message)
+    return hibas
+  }
+  const osszesJelolt = [
+    ...new Set([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...((felnottJelolt.data || []) as any[]).map((r) => r.id as number),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...((gyerekJelolt.data || []) as any[]).map((r) => r.id_csalad as number),
+    ]),
+  ].filter((id) => Number.isInteger(id))
+  // ⚠️ A találatszám ALSÓ BECSLÉS: három plafon van a lánc elején (személy-,
+  // felnőtt-jelölt- és gyermek-jelölt-limit). Ha bármelyikbe beleértünk, a
+  // felület „több mint N"-t ír, nem pontos számot — a hamis pontosság rosszabb,
+  // mint a bevallott bizonytalanság.
+  const vagott =
+    personIds.length >= CSALAD_KERESES_SZEMELY_LIMIT ||
+    (felnottJelolt.data?.length ?? 0) >= CSALAD_KERESES_CSALAD_LIMIT ||
+    (gyerekJelolt.data?.length ?? 0) >= CSALAD_KERESES_CSALAD_LIMIT ||
+    osszesJelolt.length > CSALAD_KERESES_CSALAD_LIMIT
+  const jeloltIds = osszesJelolt.slice(0, CSALAD_KERESES_CSALAD_LIMIT)
+  if (jeloltIds.length === 0) return ures
+
+  // ── HATÓKÖR + a háztartás-azonosítók egy menetben ────────────────────────
+  // A `csalad` táblán nincs congregation_id, ezért a hovatartozást a
+  // `haztartas.legacy_csalad_id` dönti el — ugyanaz a szabály, mint a közös
+  // getAllowedFamilyIds-ben, csak a jelöltekre szűkítve. (Így a teljes
+  // háztartás-lista néma 1000 soros PostgREST-plafonjába sem futhatunk bele.)
+  const { data: hhRows, error: hhError } = await supabase
+    .from('haztartas')
+    .select('id, legacy_csalad_id, ervenyes_ig')
+    .eq('congregation_id', congregationId)
+    .in('legacy_csalad_id', jeloltIds)
+  if (hhError) {
+    // fail-closed: hatókör nélkül idegen gyülekezet családja is kicsúszhatna —
+    // de a felület MEGMONDJA, hogy hiba volt, nem azt, hogy nincs találat.
+    console.error('[searchAssignableFamilies] háztartás-hatókör hiba:', hhError.message)
+    return hibas
+  }
+  const allowedFamilyIds = new Set<number>()
+  const haztartasOf = new Map<number, string>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const h of (hhRows || []) as any[]) {
+    const csaladId = h.legacy_csalad_id as number | null
+    if (csaladId == null) continue
+    allowedFamilyIds.add(csaladId)
+    // A NYITOTT háztartás az igazi — lezárt sor csak akkor, ha más nincs.
+    if (h.ervenyes_ig == null || !haztartasOf.has(csaladId)) haztartasOf.set(csaladId, h.id as string)
+  }
+  const scopedIds = jeloltIds.filter((id) => allowedFamilyIds.has(id))
+  if (scopedIds.length === 0) return ures
+
+  // ── A CSALÁDOK ADATAI — a felnőttek TELJES nevével ────────────────────────
+  const CSALAD_BOVITETT =
+    'id, id_ferfi, id_no, c_szam, utca:adrstreet!c_utcaid(name),' +
+    ' ferfi:szemely!id_ferfi(id, csaladnev, k_nev, sz_datum),' +
+    ' no:szemely!id_no(id, csaladnev, k_nev, sz_datum)'
+  const CSALAD_MINIMAL = 'id, id_ferfi, id_no, c_szam, utca:adrstreet!c_utcaid(name)'
+  let felnottNevekIsmertek = true
+  let familiesRaw: unknown[] | null = null
+  {
+    const bovitett = await supabase
+      .from('csalad')
+      .select(CSALAD_BOVITETT)
+      .eq('isaktiv', true)
+      .in('id', scopedIds)
+      .order('id', { ascending: true })
+    if (bovitett.error) {
+      console.error('[searchAssignableFamilies] család-lekérdezés hiba (bővített):', bovitett.error.message)
+      felnottNevekIsmertek = false
+      const minimal = await supabase
+        .from('csalad')
+        .select(CSALAD_MINIMAL)
+        .eq('isaktiv', true)
+        .in('id', scopedIds)
+        .order('id', { ascending: true })
+      if (minimal.error) console.error('[searchAssignableFamilies] család-lekérdezés hiba (minimál):', minimal.error.message)
+      familiesRaw = minimal.data
+    } else {
+      familiesRaw = bovitett.data
+    }
+  }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const families = (familiesRaw || []) as any[]
-  if (families.length === 0) return []
+  if (families.length === 0) return ures
 
-  // Csak a saját gyülekezet családjai (a csalad táblán nincs congregation_id)
-  const allowedFamilyIds = await getAllowedFamilyIds(supabase, congregationId)
-  const scoped = families.filter((f) => allowedFamilyIds.has(f.id as number))
-  if (scoped.length === 0) return []
+  const osszesTalalat = families.length
+  // A gyermek-lekérést CSAK a megjelenítendő sorokra futtatjuk — így az `.in()`
+  // szűrő URL-je rövid marad (a hosszú azonosító-lista 414-et kapna).
+  const mutatott = families.slice(0, CSALAD_KERESES_MEGJELENITETT)
+  const mutatottIds = mutatott.map((f) => f.id as number)
 
-  const familyIds = scoped.map((f) => f.id as number)
-  const [names, gyerekRes] = await Promise.all([
-    loadFamilyDisplayNames(supabase, familyIds),
-    supabase.from('gyerek').select('id_csalad').in('id_csalad', familyIds),
+  const haztartasIds = mutatottIds.map((id) => haztartasOf.get(id)).filter((v): v is string => !!v)
+  // A megjelenítendő nevet a MÁR LEKÉRT beágyazásból építjük — a külön
+  // `loadFamilyDisplayNames` kör-út csak akkor kell, ha a bővített select
+  // elbukott. (Az a helper a hibáját TELJESEN elnyeli, és minden sort
+  // „Család #412"-re ejtene, jelzés nélkül.)
+  const [tartalekNevek, gyermekAdat] = await Promise.all([
+    felnottNevekIsmertek ? Promise.resolve(new Map<number, string>()) : loadFamilyDisplayNames(supabase, mutatottIds),
+    gyermekeketGyujt(supabase, congregationId, mutatottIds, haztartasIds, haztartasOf),
   ])
-  const childCount = new Map<number, number>()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const g of (gyerekRes.data || []) as any[]) {
-    childCount.set(g.id_csalad, (childCount.get(g.id_csalad) ?? 0) + 1)
-  }
 
-  return scoped.map((f) => {
+  const csaladok: AssignableFamily[] = mutatott.map((f) => {
     const utca = Array.isArray(f.utca) ? f.utca[0] : f.utca
+    const ferfiNyers = Array.isArray(f.ferfi) ? f.ferfi[0] : f.ferfi
+    const noNyers = Array.isArray(f.no) ? f.no[0] : f.no
+    const ferfi = szemelybolTag(ferfiNyers)
+    const no = szemelybolTag(noNyers)
+    const hasFerfi = f.id_ferfi != null
+    const hasNo = f.id_no != null
+    // ⚠️ A LEGFONTOSABB ŐR EBBEN A SORBAN. Ha a családnak VAN rögzített
+    // felnőttje, de a személy-sor nem jött le (RLS-szűrt beágyazás → a
+    // PostgREST NEM hibázik, csak NULL-t ad), akkor a sor „Nincs rögzített
+    // felnőtt tag"-ot állítana. Az HAMIS — és pont az a hallgatás, ami miatt
+    // ez a kör elindult.
+    const felnottRejtve = (hasFerfi && !ferfi) || (hasNo && !no)
     return {
       id: f.id as number,
-      displayName: names.get(f.id) ?? `Család #${f.id}`,
+      displayName: csaladNev(f.id as number, ferfi, no, tartalekNevek),
       address: [utca?.name, f.c_szam].filter(Boolean).join(' ') || null,
-      hasFerfi: f.id_ferfi != null,
-      hasNo: f.id_no != null,
-      childrenCount: childCount.get(f.id) ?? 0,
+      hasFerfi,
+      hasNo,
+      childrenCount: gyermekAdat.darab.get(f.id as number) ?? 0,
+      ferfi,
+      no,
+      gyermekek: gyermekAdat.gyermekek.get(f.id as number) ?? [],
+      tagokIsmertek: felnottNevekIsmertek && gyermekAdat.ismert && !felnottRejtve,
+      felnottRejtve,
     }
   })
+
+  return { csaladok, keresesHibas: false, vagott, osszesTalalat }
+}
+
+/**
+ * A megjelenítendő családok gyermekei — a személyi kartonnal AZONOS forrásból.
+ *
+ * A karton a `haztartas_tag`-ból számol ('gyermek' és 'unoka' szerep, nyitott
+ * tagság), a régi kereső viszont a legacy `gyerek` kapcsolótáblát számolta.
+ * Emiatt ugyanaz a család a keresőben „0 gyermek"-et mutathatott, miközben a
+ * kartonján gyerekek látszottak — és a lelkész épp a JÓ családot zárta ki.
+ * Ezért a kettő UNIÓJÁT adjuk vissza, személy-azonosító szerint egyesítve.
+ */
+async function gyermekeketGyujt(
+  supabase: Awaited<ReturnType<typeof getFamilyAccessContext>>['supabase'],
+  congregationId: string,
+  csaladIds: number[],
+  haztartasIds: string[],
+  haztartasOf: Map<number, string>,
+): Promise<{ darab: Map<number, number>; gyermekek: Map<number, AssignableFamilyPerson[]>; ismert: boolean }> {
+  const perCsalad = new Map<number, Map<number, AssignableFamilyPerson>>()
+  const nevtelenek = new Map<number, Set<number>>()
+  let ismert = true
+  if (csaladIds.length === 0) return { darab: new Map(), gyermekek: new Map(), ismert }
+
+  const felvesz = (csaladId: number, szemelyId: number | null, tag: AssignableFamilyPerson | null) => {
+    if (tag) {
+      const eddig = perCsalad.get(csaladId) ?? new Map<number, AssignableFamilyPerson>()
+      eddig.set(tag.id, tag)
+      perCsalad.set(csaladId, eddig)
+      return
+    }
+    // Név nélküli sor: a DARABSZÁMBA így is beleszámít, csak nem tudjuk kiírni.
+    if (szemelyId == null) return
+    const eddig = nevtelenek.get(csaladId) ?? new Set<number>()
+    eddig.add(szemelyId)
+    nevtelenek.set(csaladId, eddig)
+  }
+
+  // (1) A LEGACY `gyerek` kapcsolótábla — ez a gyermekek írási forrása.
+  {
+    const bovitett = await supabase
+      .from('gyerek')
+      .select('id_csalad, id_szemely, szemely:szemely!gyerek_id_szemely_fk(id, csaladnev, k_nev, sz_datum)')
+      .in('id_csalad', csaladIds)
+    let sorok: unknown[] | null = bovitett.data
+    if (bovitett.error) {
+      console.error('[searchAssignableFamilies] gyermek-lekérdezés hiba (bővített):', bovitett.error.message)
+      ismert = false
+      const minimal = await supabase.from('gyerek').select('id_csalad, id_szemely').in('id_csalad', csaladIds)
+      if (minimal.error) console.error('[searchAssignableFamilies] gyermek-lekérdezés hiba (minimál):', minimal.error.message)
+      sorok = minimal.data
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const g of (sorok || []) as any[]) {
+      const sz = Array.isArray(g.szemely) ? g.szemely[0] : g.szemely
+      felvesz(g.id_csalad as number, (g.id_szemely as number | null) ?? null, szemelybolTag(sz))
+    }
+  }
+
+  // (2) A MODERN `haztartas_tag` — a személyi karton forrása (gyermek + unoka).
+  if (haztartasIds.length > 0) {
+    const csaladOf = new Map<string, number>()
+    for (const [csaladId, hhId] of haztartasOf) csaladOf.set(hhId, csaladId)
+    const { data, error } = await supabase
+      .from('haztartas_tag')
+      .select('id_haztartas, id_szemely, szemely:szemely!id_szemely(id, csaladnev, k_nev, sz_datum)')
+      .eq('congregation_id', congregationId)
+      .in('id_haztartas', haztartasIds)
+      .is('ervenyes_ig', null)
+      .in('szerep', ['gyermek', 'unoka'])
+    if (error) {
+      console.error('[searchAssignableFamilies] háztartás-tag lekérdezés hiba:', error.message)
+      ismert = false
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const t of (data || []) as any[]) {
+      const csaladId = csaladOf.get(t.id_haztartas as string)
+      if (csaladId == null) continue
+      const sz = Array.isArray(t.szemely) ? t.szemely[0] : t.szemely
+      felvesz(csaladId, (t.id_szemely as number | null) ?? null, szemelybolTag(sz))
+    }
+  }
+
+  const darab = new Map<number, number>()
+  const gyermekek = new Map<number, AssignableFamilyPerson[]>()
+  for (const csaladId of csaladIds) {
+    const nevesek = perCsalad.get(csaladId) ?? new Map<number, AssignableFamilyPerson>()
+    const nevtelenIds = [...(nevtelenek.get(csaladId) ?? new Set<number>())].filter((id) => !nevesek.has(id))
+    darab.set(csaladId, nevesek.size + nevtelenIds.length)
+    gyermekek.set(
+      csaladId,
+      // A legidősebb elöl — az ismeretlen születésű a sor végére kerül.
+      [...nevesek.values()].sort((a, b) => (a.bornYear ?? 9999) - (b.bornYear ?? 9999)),
+    )
+  }
+  return { darab, gyermekek, ismert }
+}
+
+/**
+ * A család megjelenítendő neve. Elsődlegesen a MÁR lekért felnőtt-nevekből
+ * („Csoma–Kis család"), ugyanazzal a formátummal, amit a közös
+ * `loadFamilyDisplayNames` ad — így a kettő nem húz szét. Ha a beágyazás nem
+ * jött le, a tartalék térképből, végül a technikai `Család #id`-ből.
+ */
+function csaladNev(
+  id: number,
+  ferfi: AssignableFamilyPerson | null,
+  no: AssignableFamilyPerson | null,
+  tartalek: Map<number, string>,
+): string {
+  const vezeteknevek = [
+    ...new Set(
+      [ferfi, no]
+        .filter((t): t is AssignableFamilyPerson => t != null)
+        .map((t) => t.surname)
+        .filter((v): v is string => !!v),
+    ),
+  ]
+  if (vezeteknevek.length > 0) return `${vezeteknevek.join('–')} család`
+  return tartalek.get(id) ?? `Család #${id}`
+}
+
+/** Beágyazott `szemely` sorból megjelenítendő tag. Név nélkül nincs mit mutatni. */
+function szemelybolTag(sz: unknown): AssignableFamilyPerson | null {
+  if (!sz || typeof sz !== 'object') return null
+  const s = sz as { id?: number | null; csaladnev?: string | null; k_nev?: string | null; sz_datum?: string | null }
+  const name = [s.csaladnev, s.k_nev].filter(Boolean).join(' ').trim()
+  if (!s.id || !name) return null
+  const ev = s.sz_datum ? Number(String(s.sz_datum).slice(0, 4)) : NaN
+  return {
+    id: s.id,
+    name,
+    surname: s.csaladnev?.trim() || null,
+    bornYear: Number.isFinite(ev) && ev > 1800 ? ev : null,
+  }
 }
 
 export interface AssignMemberInput {

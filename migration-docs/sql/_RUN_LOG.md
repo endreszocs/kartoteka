@@ -717,3 +717,4 @@ Eddig nem volt katasztrofális PITR-rollback. Ha jövőben szükség lesz, ide j
 - **DIAGNOSTICS P2-9 + P2-10**: a _RUN_LOG.md hiánya és pending SQL-ek
 - **DIAGNOSTICS P2-11**: SECURITY DEFINER search_path → `2026-05-17-security-definer-search-path-pin.sql`
 - **DIAGNOSTICS P2-12**: a RPC-installer migrációk BEGIN/COMMIT csomagolása — új migrációknál betartani
+- [ ] 2026-09-05-szemelyi-szam-kulon-tabla.sql — PENDING (a hivatalos személyi szám külön, szűkebb hozzáférésű táblába kerül; a szemely.cnp ÉRINTETLEN marad)
