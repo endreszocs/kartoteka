@@ -30,6 +30,7 @@ import { AlertCircle, CheckCircle2, ListPlus } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@kartoteka/ui'
 import {
   CombinedEntryBody,
+  RogzitesBiztato,
   type IncomeCategory,
   type ExpenseCategory,
   type CombinedBankAccount,
@@ -429,10 +430,19 @@ export function DesktopCombinedEntryDialog({
               <div>
                 {/* 2026-09-02 (Endre 7.): webbel azonos cím — ez a KÉSZPÉNZ útja. */}
                 <DialogTitle className="font-heading text-lg">Készpénzes tételek rögzítése</DialogTitle>
+                {/* 2026-09-03 (Endre 2.): a webbel AZONOS alcím — eddig a desktop
+                    mást írt, és a webes igevers erre az alcímre felel. */}
                 <p className="mt-0.5 text-xs text-zinc-400">
-                  Bevételek és kiadások egyszerre, tömegesen — a Mentés dátum szerint rendez.
+                  Egy mentéssel több bevétel és kiadás is rögzíthető — a Mentés dátum szerint rendez.
                 </p>
               </div>
+            </div>
+            {/* 2026-09-03 (Endre 2.): a desktopon EDDIG EGYÁLTALÁN NEM VOLT igevers —
+                a komponens az apps/web-ben élt, ahonnan a desktop nem tud importálni.
+                Átkerült a közös @kartoteka/ui-app csomagba (saját 'use client'-tel),
+                így a két felület végre ugyanazt mutatja. */}
+            <div className="mt-3">
+              <RogzitesBiztato />
             </div>
           </DialogHeader>
         </div>

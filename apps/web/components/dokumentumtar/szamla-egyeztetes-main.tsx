@@ -55,6 +55,7 @@ import type {
 import type { KifizetetlenTetel } from '@/lib/dokumentumtar/kifizetetlen-types'
 import { DokumentumtarUploadDialog } from '@/components/dokumentumtar/dokumentumtar-upload-dialog'
 import { SzamlaKapcsolasDialog } from '@/components/dokumentumtar/szamla-kapcsolas-dialog'
+import { SzamlaNyomtatasDialog } from '@/components/dokumentumtar/szamla-nyomtatas-dialog'
 
 const OLDAL_MERET = 30
 
@@ -80,6 +81,9 @@ interface SzamlaEgyeztetesMainProps {
 
 export function SzamlaEgyeztetesMain({ congregationName }: SzamlaEgyeztetesMainProps) {
   const [rows, setRows] = useState<SzallitoiSzamla[]>([])
+  // 2026-09-04 (Endre 3.): a „Megnyitás" ELŐNÉZET-dialógust nyit, nem új fület —
+  // a nyomtatás maga a dialógusból indul, és AZ nyílik új lapon.
+  const [nyomtat, setNyomtat] = useState<{ id: string; szam: string | null } | null>(null)
   const [osszesen, setOsszesen] = useState(0)
   const [oldal, setOldal] = useState(1)
   const [kereses, setKereses] = useState('')
@@ -418,8 +422,8 @@ export function SzamlaEgyeztetesMain({ congregationName }: SzamlaEgyeztetesMainP
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => window.open(`/dokumentumtar/szamla/${r.id}`, '_blank', 'noopener')}
-                    title="Szépen formázott, nyomtatható számla-nézet új fülön"
+                    onClick={() => setNyomtat({ id: r.id, szam: r.szamla_szam })}
+                    title="Nyomtatási előnézet — a számla ANAF-szerű adatlapja sortételekkel; a nyomtatás új lapon nyílik"
                   >
                     <Printer className="mr-1.5 size-3.5" aria-hidden />
                     Megnyitás
@@ -493,6 +497,11 @@ export function SzamlaEgyeztetesMain({ congregationName }: SzamlaEgyeztetesMainP
         }}
         szamla={kapcsolasSzamla}
         onChanged={() => void load()}
+      />
+      <SzamlaNyomtatasDialog
+        szamlaId={nyomtat?.id ?? null}
+        szamlaSzam={nyomtat?.szam ?? null}
+        onClose={() => setNyomtat(null)}
       />
       {/* A gyülekezet neve a fejlécből jön — itt csak a hozzáférés jelzésére. */}
       <span className="sr-only">{congregationName}</span>

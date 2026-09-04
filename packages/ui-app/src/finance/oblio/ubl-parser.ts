@@ -30,6 +30,13 @@ export type UblInvoiceMeta = {
   currency: string | null
   /** ANAF SPV egyedi ID — a fájlnévből vagy a `cbc:UUID` mezőből. */
   anafUuid: string | null
+  /**
+   * 2026-09-04: a sztornó/jóváírás által hivatkozott EREDETI számla száma
+   * (cac:BillingReference/cac:InvoiceDocumentReference/cbc:ID). A román
+   * gyakorlatban a sztornó gyakran `InvoiceTypeCode 380`-as Invoice negatív
+   * tételekkel — a gyökér-elem nem mondja meg a szerepét, ez igen.
+   */
+  referencedInvoice: string | null
 
   /** Beszállító (kibocsátó). */
   supplier: {
@@ -129,6 +136,7 @@ export function parseUblXml(
     dueDate: null,
     currency: null,
     anafUuid: fallbackUuid || null,
+    referencedInvoice: null,
     supplier: { cui: null, name: null, address: null, countryCode: null },
     customer: { cui: null, name: null },
     amounts: { netto: null, tva: null, brut: null },
@@ -283,6 +291,24 @@ export function parseUblXml(
       readNumber(findFirstWithin(total, 'TaxInclusiveAmount'))
   }
 
+  // ─── ELŐJEL-TUDATOS TÍPUS (2026-09-04, valódi ANAF-exporton mérve) ───
+  // A MIND ELECTROSERV MSV2785 (−22 010, a MSV2763 előleg sztornója) gyökere
+  // `Invoice`, típuskódja 380 — a gyökér HAZUDIK a szerepről. Negatív bruttó =
+  // jóváírás. E nélkül a desktop párosító 4 helyen és a bevezetés-varázsló
+  // `credit_note`-kapuja normál számlaként engedte volna át → kettős könyvelés.
+  if (result.amounts.brut !== null && result.amounts.brut < 0 && result.documentType === 'invoice') {
+    result.documentType = 'credit_note'
+  }
+  // ─── Hivatkozott eredeti számla (dokumentum-szintű BillingReference) ───
+  if (root) {
+    for (const gy of Array.from(root.children)) {
+      if (gy.localName !== 'BillingReference') continue
+      const ref = Array.from(gy.children).find((c) => c.localName === 'InvoiceDocumentReference')
+      const id = ref ? Array.from(ref.children).find((c) => c.localName === 'ID')?.textContent?.trim() : null
+      if (id) { result.referencedInvoice = id; break }
+    }
+  }
+
   // <cac:TaxTotal><cbc:TaxAmount currencyID="RON">19.00</cbc:TaxAmount></cac:TaxTotal>
   const taxTotal = findFirst(doc, 'TaxTotal')
   if (taxTotal) {
@@ -309,11 +335,37 @@ export function parseUblXml(
  */
 export function extractAnafUuidFromFilename(fileName: string): string | null {
   const base = fileName.replace(/\.(zip|xml|pdf)+$/i, '')
-  // ANAF UUID-k jellemzően nagyon hosszú számok (10+ digit)
-  const numMatch = base.match(/(\d{8,})/)
-  if (numMatch) return numMatch[1]
-  // Fallback: a fájlnév maga
-  return base.length > 0 ? base : null
+  // 2026-09-04 (valódi ANAF SPV-exporton mérve): az UTOLSÓ 8+ jegyű futam. Az
+  // ANAF neve `<CÉG>_<SOROZAT>_<INDEX>.xml` — az INDEX az utolsó rész. Az ELSŐ
+  // futam a SOROZAT belsejéből is jöhet (LIDL `1038726021242`, Electrica
+  // `EFI2613512321`): az a szállító számlaszáma, nem ANAF-index, és eltér attól,
+  // amit a PDF-párosító (utolsó rész) használ. A webes `anafUuidFajlnevbol`
+  // UGYANEZT a szabályt követi — a két út nem húzhat szét.
+  const runs = base.match(/\d{8,}/g)
+  if (runs && runs.length > 0) return runs[runs.length - 1]
+  // ⛔ NINCS visszaesés a csupasz fájlnévre (2026-09-04 — a webes út 2026-09-03-i
+  //    P0-javításával azonosan): két különböző szállító `factura.xml`-je AZONOS
+  //    kulcsot kapott, a második NÉMÁN elveszett. A hívó a számla IDENTITÁSÁBÓL
+  //    képezzen kulcsot (`identityKeyFromInvoice`), vagy mondja ki a hibát.
+  return null
+}
+
+/**
+ * Kulcs a számla IDENTITÁSÁBÓL (szállító CUI + számlaszám + kelte) — a csupasz
+ * fájlnév helyébe lép, ha sem cbc:UUID, sem fájlnév-index nincs. Alakja a
+ * webes `azonositoSzamlaIdentitasbol`-lal BETŰRE azonos (`azon:CUI|SZÁM|DÁTUM`),
+ * hogy a desktop és a web ugyanarra a számlára ugyanazt a kulcsot adja.
+ */
+export function identityKeyFromInvoice(
+  supplierCui: string | null | undefined,
+  invoiceNumber: string | null | undefined,
+  issueDate: string | null | undefined,
+): string | null {
+  const cui = (supplierCui ?? '').trim().toUpperCase()
+  const num = (invoiceNumber ?? '').trim().toUpperCase()
+  const date = (issueDate ?? '').trim().slice(0, 10)
+  if (!cui || !num || !date) return null
+  return `azon:${cui}|${num}|${date}`
 }
 
 /**

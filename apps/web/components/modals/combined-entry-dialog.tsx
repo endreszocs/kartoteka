@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react'
 import {
   CombinedEntryBody,
+  RogzitesBiztato,
   type CombinedEntryBodyProps,
   type IncomeCategory,
   type ExpenseCategory,
@@ -20,7 +21,6 @@ import {
 // biztonságos (a `finance-scope.ts` gazda-modul `server-only` láncot húzna be).
 import type { FinanceScope } from '@/lib/auth/finance-scope-core'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { RogzitesBiztato } from '@/components/finance/kassza-biztato'
 import { ListPlus } from 'lucide-react'
 import { checkSimilarBankEntries } from '@/app/(dashboard)/penzugy/hasonlo-tetel-actions'
 import {
@@ -156,15 +156,21 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
                 </p>
               </div>
             </div>
+            {/* 2026-09-03 (Endre 2.): az igevers KÖZVETLENÜL az alcím alá került,
+                a fejléc-blokkon BELÜLRE — eddig a fejléc alsó szegélye ALATT ült,
+                vagyis vizuálisan a törzshöz tartozott, pedig a szövege az alcímre
+                felel. A DialogHeader MÁSODIK gyerekeként teljes szélességű marad
+                (a cím szöveg-oszlopába téve az ikon + gap miatt beljebb kezdődne
+                és összezsugorodna).
+                ⛔ SZÁNDÉKOSAN NEM kap a fejléc és a törzs közös új szülőt: a
+                ragadó Bevétel/Kiadás fül-sáv (CombinedEntryBody `sticky top-0`)
+                görgető-őse a DialogContent popupja. Egy közös wrapper bármilyen
+                overflow/transform/filter osztállyal NÉMÁN megszüntetné a ragadást
+                — hibaüzenet nélkül, zöld CI mellett. */}
+            <div className="mt-3">
+              <RogzitesBiztato />
+            </div>
           </DialogHeader>
-        </div>
-
-        {/* 2026-08-15 (Endre kérése): az igevers és a bátorítás a Kassza fülről
-            IDE, a rögzítő ablakba költözött — kiemelten, mindjárt a fejléc alatt.
-            (A Kassza fül párhuzamos sávja megszűnt: a gombja megkettőzte a hero
-            „Tétel rögzítése" gombját.) */}
-        <div className="px-6 pt-4">
-          <RogzitesBiztato />
         </div>
 
         <div className="px-6 pb-6 pt-4">
