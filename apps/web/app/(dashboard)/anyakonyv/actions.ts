@@ -15,6 +15,7 @@ import { describeMoves, ensureChildFamilyLink } from '@/lib/family/auto-family'
 // 2026-08-15 (átvilágítás 23.): a választói jogosultság újraszámításának KÖZÖS
 // hívója — a temetés, a tagmozgás és a konfirmáció után is le kell futnia.
 import { refreshVoterEligibility } from '@/lib/members/voter-eligibility'
+import { anyakonyviHibaUzenet } from '@/lib/anyakonyv/szam-utkozes'
 
 async function getCongregation() {
   const { supabase, congregationId } = await getEffectiveCongregationContext()
@@ -739,7 +740,7 @@ export async function saveBaptism(data: BaptismInput) {
       .eq('congregation_id', congId)
       .select('id, munkanaplo_id')
     console.log('[saveBaptism] UPDATE eredmény:', { id: d.id, count, updData, error: error?.message })
-    if (error) return { error: `Hiba: ${error.message}` }
+    if (error) return { error: anyakonyviHibaUzenet(error, 'keresztseg', egyhaziSzam) }
     if (!count || count === 0) {
       console.error('[saveBaptism] ⚠️ UPDATE 0 sort érintett! id=', d.id, 'congId=', congId)
       return { error: `A bejegyzés nem található (id=${d.id}). Vagy törölve lett, vagy más gyülekezeté.` }
@@ -748,7 +749,7 @@ export async function saveBaptism(data: BaptismInput) {
     currentWorklogId = (updData?.[0]?.munkanaplo_id as number | null) ?? null
   } else {
     const { error, data: insData } = await supabase.from('keresztseg').insert([record]).select('id')
-    if (error) return { error: `Hiba: ${error.message}` }
+    if (error) return { error: anyakonyviHibaUzenet(error, 'keresztseg', egyhaziSzam) }
     baptismRowId = (insData?.[0]?.id as number | undefined) ?? null
   }
 
@@ -1280,7 +1281,7 @@ export async function saveMarriage(data: MarriageInput) {
 
     const { error, data: updData } = await supabase.from('hazassag').update(record)
       .eq('id', d.id).eq('congregation_id', congId).select('id, munkanaplo_id')
-    if (error) return { error: `Hiba: ${error.message}` }
+    if (error) return { error: anyakonyviHibaUzenet(error, 'hazassag', egyhaziSzam) }
     marriageRowId = d.id
     currentWorklogId = (updData?.[0]?.munkanaplo_id as number | null) ?? null
 
@@ -1302,7 +1303,7 @@ export async function saveMarriage(data: MarriageInput) {
     }
   } else {
     const { error, data: insData } = await supabase.from('hazassag').insert([record]).select('id')
-    if (error) return { error: `Hiba: ${error.message}` }
+    if (error) return { error: anyakonyviHibaUzenet(error, 'hazassag', egyhaziSzam) }
     marriageRowId = (insData?.[0]?.id as number | undefined) ?? null
   }
 
@@ -1442,12 +1443,12 @@ export async function saveBurial(data: BurialInput) {
   if (d.id) {
     const { error, data: updData } = await supabase.from('temetes').update(record)
       .eq('id', d.id).eq('congregation_id', congId).select('id, munkanaplo_id')
-    if (error) return { error: `Hiba: ${error.message}` }
+    if (error) return { error: anyakonyviHibaUzenet(error, 'temetes', egyhaziSzam) }
     burialRowId = d.id
     currentWorklogId = (updData?.[0]?.munkanaplo_id as number | null) ?? null
   } else {
     const { error, data: insData } = await supabase.from('temetes').insert([record]).select('id')
-    if (error) return { error: `Hiba: ${error.message}` }
+    if (error) return { error: anyakonyviHibaUzenet(error, 'temetes', egyhaziSzam) }
     burialRowId = (insData?.[0]?.id as number | undefined) ?? null
   }
 
@@ -1605,8 +1606,8 @@ export async function saveMovement(data: MovementInput) {
   if (d.tipus === 'bekoltozott') { record.honnanid = d.helyid || null; record.igazolas = d.igazolas || null }
   if (d.tipus === 'elkoltozott') { record.hovaid = d.helyid || null; record.kulfoldre = d.kulfoldre || false; record.hova_congregation_id = d.hova_congregation_id || null }
   if (d.tipus === 'attert' || d.tipus === 'kitert') { record.felekezet = d.felekezet || null; if (d.tipus === 'attert') record.honnanid = d.helyid || null; else record.hovaid = d.helyid || null }
-  if (d.id) { const { error } = await supabase.from(table).update(record).eq('id', d.id).eq('congregation_id', congId); if (error) return { error: `Hiba: ${error.message}` } }
-  else { const { error } = await supabase.from(table).insert([record]); if (error) return { error: `Hiba: ${error.message}` } }
+  if (d.id) { const { error } = await supabase.from(table).update(record).eq('id', d.id).eq('congregation_id', congId); if (error) return { error: anyakonyviHibaUzenet(error, table, egyhaziSzam) } }
+  else { const { error } = await supabase.from(table).insert([record]); if (error) return { error: anyakonyviHibaUzenet(error, table, egyhaziSzam) } }
 
   // 2026-08-15 (átvilágítás 23.): a tagmozgás közvetlenül hat a választói
   // jogosultságra — az `elkoltozott` tábla puszta LÉTE kizárja a tagot a
@@ -1663,7 +1664,7 @@ export async function saveConfirmationBatch(data: ConfirmationBatchInput) {
     congregation_id: congId,
   }))
   const { error, data: insData } = await supabase.from('konfirmalas').insert(records).select('id')
-  if (error) return { error: `Hiba: ${error.message}` }
+  if (error) return { error: anyakonyviHibaUzenet(error, 'konfirmalas', firstSzam) }
 
   // Munkanapló-szinkron (2026-06-12, Endre #3-4): a teljes batch EGYETLEN
   // szolgálati alkalom — egy munkanapló-bejegyzés készül, és MINDEN beszúrt
@@ -1727,7 +1728,7 @@ export async function saveConfirmationSingle(data: ConfirmationSingleInput) {
     megjegyzes: d.megjegyzes || null,
   }
   const { error } = await supabase.from('konfirmalas').update(record).eq('id', d.id).eq('congregation_id', congId)
-  if (error) return { error: `Hiba: ${error.message}` }
+  if (error) return { error: anyakonyviHibaUzenet(error, 'konfirmalas', d.egyhazi_szam || null) }
 
   // 2026-08-15 (átvilágítás 23.): a szerkesztés át is írhatja, KIRE szól a
   // konfirmációs bejegyzés (`id_szemely`), ezért ez is mozdíthatja a választói

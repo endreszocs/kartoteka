@@ -23,6 +23,40 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-09-04] — Az anyakönyv nyomvonalat kapott, és érthető hibát ad
+<!-- key: 2026-09-04-anyakonyv-audit-integritas -->
+<!-- category: security -->
+<!-- version: 0.9.224 -->
+<!-- targets: lelkipásztorok — az anyakönyvi bejegyzések rögzítése és szerkesztése -->
+
+### 🔒 Biztonsági javítások
+
+- **Az anyakönyv mostantól nyomvonalat hagy**: a keresztelési, konfirmálási,
+  házassági, temetési és mozgás-bejegyzések eddig változás-napló nélkül álltak —
+  egy bejegyzés átírható vagy törölhető volt anélkül, hogy bármi nyoma maradt
+  volna. A személyi és a pénzügyi adatok már régóta naplózva vannak; mostantól
+  az anyakönyv is.
+- **A tagok névsora nem látszik más gyülekezetnek**: egy régi, fejlesztés-kori
+  szabály miatt minden bejelentkezett fiók elolvashatta az összes gyülekezet
+  teljes névsorát. A szabály megszűnt; a saját gyülekezet és a felettes szintek
+  hozzáférése változatlan.
+
+### 🐛 Javítások
+
+- **Egy sorszám nem szerepelhet kétszer**: az egyházi anyakönyvi számra eddig
+  semmilyen egyediségi védelem nem volt. Mostantól a rendszer nem engedi
+  ugyanazt a sorszámot két bejegyzésre.
+- **Érthető üzenet foglalt sorszámnál**: ha a beírt szám már foglalt, a mentés
+  nem nyers adatbázis-hibát ír ki, hanem megmondja, mi történt és mit tegyél.
+  A begépelt adatok megmaradnak.
+- **Az eltemetettek átvezetése**: 55 temetési bejegyzés mellett a rendszer
+  egyetlen embert tartott elhunytnak — a többi „aktív" tag maradt, ami torzította
+  a létszámot, a választói névjegyzéket és a járulék-elvárást (halott tagtól is
+  várt volna befizetést). A meglévő adat átvezetve, és a temetés rögzítése
+  mostantól magától is átvezeti.
+
+---
+
 ## [2026-09-04] — A kassza felismeri a cégeket
 <!-- key: 2026-09-04-kassza-ceg-partner -->
 <!-- category: improvement -->
