@@ -190,7 +190,12 @@ if (hibak.length === 0) {
 {
   const m5 = beolvas()
   const a5 = m5.get(ACTIONS)
-  const a5mut = a5.replace('adrlocality!c_helysegid(name)), no:', 'cim_telepules), no:')
+  // 2026-09-03: a családfő-select kibővült utcával és házszámmal (Endre 5. kérése:
+  // „az utca, helység és házszám … vesszővel a neve mellett"), ezért a mutáns
+  // HORGONYA is változott. A védett VISELKEDÉS ugyanaz: a személy lakhelye a
+  // kapcsolt `adrlocality` (c_helysegid), NEM a `cim_telepules` — az a DIOCESES
+  // tábla oszlopa, és a 2026-08-29-i elírás miatt a családtagok NÉMÁN eltűntek.
+  const a5mut = a5.replace('adrlocality!c_helysegid(name), adrstreet!c_utcaid(name)), no:', 'cim_telepules), no:')
   m5.set(ACTIONS, a5mut)
   if (a5mut === a5) bukik('M5 mutáció nem változtatott (fail-closed)')
   else if (ellenoriz(m5).length === 0) bukik('M5: a rossz oszlopnév (cim_telepules) visszatételére NEM bukik — vak')

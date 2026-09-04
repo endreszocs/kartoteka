@@ -54,7 +54,16 @@ function ellenoriz(files) {
   if (!/Számlák feltöltése/.test(m)) hibak.push('főnézet: nincs szembetűnő feltöltő-sáv')
   if (!/Könyvelve —/.test(m)) hibak.push('főnézet: nincs párosítás-jelző (Könyvelve — hol)')
   if (!/SzamlaKapcsolasDialog/.test(m)) hibak.push('főnézet: nincs Kapcsolás a párosítatlan számlán')
-  if (!/\/dokumentumtar\/szamla\//.test(m)) hibak.push('főnézet: a Megnyitás nem a nyomtatható adatlapot nyitja')
+  // 2026-09-04 (Endre 3.): a „Megnyitás" mostantól ELŐNÉZET-dialógust nyit (nem
+  // új fület), és a nyomtatás abból indul új lapon. A védett SZÁNDÉK ugyanaz:
+  // a formázott, nyomtatható lapot kapja a lelkész, nem nyers XML-t. Az
+  // előnézet és a szamla/[id] lap UGYANAZT a HTML-t kapja (közös betöltő).
+  if (!/<SzamlaNyomtatasDialog/.test(m) || !/setNyomtat\(\{ id: r\.id/.test(m)) {
+    hibak.push('főnézet: a Megnyitás nem a nyomtatható adatlapot nyitja')
+  }
+  if (/window\.open\(`\/dokumentumtar\/szamla\//.test(m)) {
+    hibak.push('főnézet: a Megnyitás visszaállt az új-fül navigációra (az előnézet-dialógus a kérés)')
+  }
   if (!/finally/.test(m) || !/setLoading\(false\)/.test(m)) {
     hibak.push('főnézet: a betöltő nincs try/catch/finally-ben — örök spinner jöhet')
   }
@@ -127,6 +136,15 @@ if (hibak.length === 0) {
   if (m2mut === m2) bukik('M2 mutáció nem változtatott (fail-closed)')
   else if (ellenoriz(m2files).length === 0) bukik('M2: a jelző-törlésre az őr NEM bukik — vak')
   else pass('M2 mutáns (párosítás-jelző törölve) → az őr elbuktatja')
+
+  // M3: a Megnyitás-dialógus kiszedése a főnézetből → a Megnyitásnak nincs célja
+  const m3files = beolvas()
+  const m3 = m3files.get(MAIN)
+  const m3mut = m3.replace(/<SzamlaNyomtatasDialog[\s\S]*?\/>/, '')
+  m3files.set(MAIN, m3mut)
+  if (m3mut === m3) bukik('M3 mutáció nem változtatott (fail-closed)')
+  else if (ellenoriz(m3files).length === 0) bukik('M3: az előnézet-dialógus törlésére az őr NEM bukik — vak')
+  else pass('M3 mutáns (előnézet-dialógus törölve) → az őr elbuktatja')
 }
 
 console.log('')

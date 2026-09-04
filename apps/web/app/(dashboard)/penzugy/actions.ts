@@ -3288,8 +3288,39 @@ async function queryCongregationMembers(
   if (parts.length === 1) q = q.or(`csaladnev.ilike.%${parts[0]}%,k_nev.ilike.%${parts[0]}%`)
   else q = q.ilike('csaladnev', `%${parts[0]}%`).ilike('k_nev', `%${parts.slice(1).join(' ')}%`)
 
-  const { data } = await q.limit(8)
-  return data || []
+  const { data, error } = await q.limit(8)
+  if (!error) return data || []
+
+  // ── FAIL-SAFE MINIMÁL ÚJRAPRÓBÁLKOZÁS (2026-09-03) ─────────────────────
+  //
+  // ⛔ AMI ROSSZ VOLT: a lezárás `const { data } = await q.limit(8); return data || []`
+  //    volt — az `error` DESTRUKTURÁLVA EL VOLT DOBVA. Egyetlen elgépelt kényelmi
+  //    oszlop vagy embed (a select ma HÉT mezőt kér, köztük két join-t) → PostgREST
+  //    400 → `data` undefined → ÜRES LISTA, hangtalanul. A lelkész azt látta volna,
+  //    hogy „nincs ilyen tag", és kézzel gépeli be a nevet — szabad szövegként,
+  //    tag-kapcsolat nélkül.
+  //
+  // ⛔ MIÉRT SÚLYOS: ez a törzs NÉGY felületet szolgál ki (searchMembersForFinance,
+  //    searchIncomePartners, dispozitie-incasare-wizard, rental-contract-dialog).
+  //    Egy rossz oszlopnév mind a négyet egyszerre blankolná — pontosan az a
+  //    hibaosztály, ami a `szemely.prefix`/`elkoltozott` esetben már megtörtént.
+  //
+  // ✅ A MEGOLDÁS: a kényelmi mezők (életkor, cím) nélkül ÚJRA lekérdezünk. Így a
+  //    kereső a legrosszabb esetben is MŰKÖDIK, csak szegényebb — az azonosító-sor
+  //    marad el, nem a találat. A hibát KIMONDJUK a naplóban, hogy ne maradjon néma.
+  console.error('[queryCongregationMembers] a bővített lekérdezés hibázott, minimál újrapróbálkozás:', error.message)
+  let alap = supabase.from('szemely')
+    .select('id, csaladnev, k_nev')
+    .eq('congregation_id', congregationId).eq('isvisible', true).eq('meghalt', false)
+  if (parts.length === 1) alap = alap.or(`csaladnev.ilike.%${parts[0]}%,k_nev.ilike.%${parts[0]}%`)
+  else alap = alap.ilike('csaladnev', `%${parts[0]}%`).ilike('k_nev', `%${parts.slice(1).join(' ')}%`)
+  const { data: alapData, error: alapErr } = await alap.limit(8)
+  if (alapErr) {
+    // Itt már NEM hallgatunk: ha a minimál lekérdezés is bukik, az nem „nincs
+    // találat", hanem hiba — a hívó dobjon, ne üres listát adjon.
+    throw new Error(`A tag-kereső nem futtatható: ${alapErr.message}`)
+  }
+  return alapData || []
 }
 
 export async function searchMembersForFinance(query: string) {
@@ -3734,9 +3765,18 @@ export async function getFamilyMembers(
   // A személy lakhelye a kapcsolt `adrlocality` (c_helysegid) `name` mezője.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const telepulesOf = (p: any): string | null => {
-    const loc = Array.isArray(p?.adrlocality) ? p.adrlocality[0] : p?.adrlocality
-    const nev = loc?.name
-    return typeof nev === 'string' && nev.trim() ? nev.trim() : null
+    // 2026-09-03 (Endre 5.): a családi nyugtán a lakhely eddig CSAK település volt —
+    // épp ott hiányzott az utca és a házszám, ahol a legtöbbet érne: négy azonos
+    // vezetéknevű ember egymás alatt, ahol a cím az egyetlen megkülönböztető.
+    // Az alak SZÁNDÉKOSAN azonos a tag-keresőével („helység · utca · házszám"),
+    // hogy a kliens-oldali vesszősítés mindkét úton ugyanazt adja.
+    const egy = (v: unknown) => (Array.isArray(v) ? v[0] : v) as { name?: unknown } | null | undefined
+    const loc = egy(p?.adrlocality)
+    const utca = egy(p?.adrstreet)
+    const reszek = [loc?.name, utca?.name, p?.c_szam]
+      .map((x) => (x == null ? '' : String(x).trim()))
+      .filter(Boolean)
+    return reszek.length > 0 ? reszek.join(' · ') : null
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const extraOf = (p: any) => ({ szDatum: p?.sz_datum ?? null, telepules: telepulesOf(p) })
@@ -3752,7 +3792,7 @@ export async function getFamilyMembers(
   let fam: unknown = null
   {
     const bovitett = await supabase.from('csalad')
-      .select('ferfi:szemely!csalad_id_ferfi_fk(id, csaladnev, k_nev, sz_datum, adrlocality!c_helysegid(name)), no:szemely!csalad_id_no_fk(id, csaladnev, k_nev, sz_datum, adrlocality!c_helysegid(name))')
+      .select('ferfi:szemely!csalad_id_ferfi_fk(id, csaladnev, k_nev, sz_datum, c_szam, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name)), no:szemely!csalad_id_no_fk(id, csaladnev, k_nev, sz_datum, c_szam, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name))')
       .eq('id', familyId).maybeSingle()
     if (bovitett.error) {
       console.error('[getFamilyMembers] családfő-lekérdezés hiba (bővített):', bovitett.error.message)
@@ -3778,7 +3818,7 @@ export async function getFamilyMembers(
   let kids: unknown[] | null = null
   {
     const bovitett = await supabase.from('gyerek')
-      .select('szemely:szemely!gyerek_id_szemely_fk(id, csaladnev, k_nev, sz_datum, adrlocality!c_helysegid(name))').eq('id_csalad', familyId)
+      .select('szemely:szemely!gyerek_id_szemely_fk(id, csaladnev, k_nev, sz_datum, c_szam, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name))').eq('id_csalad', familyId)
     if (bovitett.error) {
       console.error('[getFamilyMembers] gyermek-lekérdezés hiba (bővített):', bovitett.error.message)
       const minimal = await supabase.from('gyerek')
@@ -3802,7 +3842,7 @@ export async function getFamilyMembers(
     const haztartasId = (hh?.[0] as { id: string } | undefined)?.id
     if (haztartasId) {
       const { data: tags, error: tagsErr } = await supabase.from('haztartas_tag')
-        .select('szerep, szemely:szemely!id_szemely(id, csaladnev, k_nev, sz_datum, adrlocality!c_helysegid(name))')
+        .select('szerep, szemely:szemely!id_szemely(id, csaladnev, k_nev, sz_datum, c_szam, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name))')
         .eq('id_haztartas', haztartasId).is('ervenyes_ig', null)
       if (tagsErr) console.error('[getFamilyMembers] háztartás-tag lekérdezés hiba:', tagsErr.message)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -3857,7 +3897,7 @@ export async function getFamilyMembersForPerson(
   if (haztartasIds.length > 0) {
     const tags = await supabase
       .from('haztartas_tag')
-      .select('szerep, szemely:szemely!id_szemely(id, csaladnev, k_nev, sz_datum, adrlocality!c_helysegid(name))')
+      .select('szerep, szemely:szemely!id_szemely(id, csaladnev, k_nev, sz_datum, c_szam, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name))')
       .in('id_haztartas', haztartasIds)
       .is('ervenyes_ig', null)
     if (tags.error) {
@@ -5564,6 +5604,12 @@ export async function saveInternalTransfer(data: {
   celOsszeg?: number
   arfolyam?: number
   megjegyzes?: string
+  /**
+   * 2026-09-03 (Endre 1., P0): a rögzítő „Párosítatlan tétel átvétele"
+   * választójával kijelölt, MÁR LÉTEZŐ könyvelési sor. Ha meg van adva, a
+   * use-case CSAK a hiányzó lábat hozza létre — e nélkül duplikált.
+   */
+  parositando?: { oldal: 'income' | 'expense'; id: number } | null
 }) {
   const { supabase, congregationId } = await getProfileCongregation()
   if (!congregationId) return { error: 'Nincs bejelentkezett felhasználó.' }
@@ -5641,6 +5687,7 @@ export async function saveInternalTransfer(data: {
       megjegyzes: data.megjegyzes?.trim() || null,
       bankszamlaId,
       celBankszamlaId,
+      parositando: data.parositando ?? null,
     },
     { supabase, runtime: 'web', userId: user.id },
   )

@@ -492,6 +492,10 @@ export function FinanceTabs({
         orphan: m.orphan,
         bankszamlaId: m.bankszamlaId,
         bankNev: bankAccounts.find((b) => b.id === m.bankszamlaId)?.bank_neve,
+        // 2026-09-03: a devizás tételt a rögzítő NEM kínálja fel (arfolyam: 1-gyel
+        // könyvelne, azaz a nyers EUR-összeg menne RON-ként a könyvbe).
+        osszegRon: m.osszegRon,
+        devizas: m.devizas,
       })),
     [internalMovementHealth, bankAccounts],
   )

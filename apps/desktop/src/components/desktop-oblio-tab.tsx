@@ -39,6 +39,7 @@ import { Button, Input } from '@kartoteka/ui'
 import {
   parseUblXml,
   extractAnafUuidFromFilename,
+  identityKeyFromInvoice,
   normalizeFileBaseName,
   matchXmlsToKiadas,
   batchMatchPdfsToXmls,
@@ -295,9 +296,17 @@ export function DesktopOblioTab({
       for (const f of xmlFiles) {
         try {
           const text = await oblioReadText(f.name)
-          const fallback = extractAnafUuidFromFilename(f.name) || f.name
-          const meta = parseUblXml(text, fallback)
-          if (!meta.anafUuid) meta.anafUuid = fallback
+          // 2026-09-04: NINCS csupasz fájlnév-visszaesés az anafUuid-ban (lásd a
+          // webes fül azonos javítását). Kulcs: fájlnév-index → identitás → kihagyás.
+          const fajlnevIndex = extractAnafUuidFromFilename(f.name)
+          const meta = parseUblXml(text, fajlnevIndex ?? undefined)
+          if (!meta.anafUuid) {
+            meta.anafUuid = identityKeyFromInvoice(meta.supplier.cui, meta.invoiceNumber, meta.issueDate)
+          }
+          if (!meta.anafUuid) {
+            console.warn(`[oblio] ${f.name}: nincs azonosítható kulcs — kihagyva`)
+            continue
+          }
           parsed.push({ meta, fileName: f.name, xmlPath: f.path })
         } catch {
           /* hibás XML — kihagyjuk */

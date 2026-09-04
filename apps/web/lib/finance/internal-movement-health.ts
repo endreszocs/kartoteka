@@ -78,6 +78,14 @@ export interface UnpairedMovement {
   /** Melyik számlán áll a párosítatlan fél (`null` = kassza). A rögzítő ebből
    *  tudja előre kitölteni a bankszámla-választót. */
   bankszamlaId: number | null
+  /**
+   * 2026-09-03: RON-ekvivalens és deviza-jelző. ⛔ MIÉRT KELL: a `toHalf` (177-188)
+   * MÁR KISZÁMOLJA a `ronCents`-et és a `foreign` jelzőt, de eddig egyiket sem
+   * vitte tovább az `items`-be — így a rögzítő választója a NYERS deviza-összeget
+   * kínálta fel „RON" címkével, a mentés pedig `arfolyam: 1`-gyel könyvelte el.
+   */
+  osszegRon: number
+  devizas: boolean
 }
 
 export interface InternalMovementHealth {
@@ -246,6 +254,8 @@ export function computeInternalMovementHealth(
       orphan: e.orphan,
       id: e.id,
       bankszamlaId: e.bank ?? null,
+      osszegRon: e.ronCents / 100,
+      devizas: e.foreign,
       description: e.orphan
         ? 'Ez a tétel belső mozgás kategóriába került (pénz átvezetése két saját számla között), de NINCS párja, és nem is a belső mozgás rögzítőn keresztül készült. Ellenőrizd: valóban átvezetés, vagy tévedésből került ebbe a kategóriába? Amíg pár nélkül áll, torzítja a kiadás-összesent.'
         : 'Belső mozgás kiadás-oldala rögzítve (pl. kasszai letétel a bankba), de a fogadó oldal (banki jóváírás) még nincs egyeztetve — importáld a banki kivonatot.',
@@ -262,6 +272,8 @@ export function computeInternalMovementHealth(
       orphan: inc.orphan,
       id: inc.id,
       bankszamlaId: inc.bank ?? null,
+      osszegRon: inc.ronCents / 100,
+      devizas: inc.foreign,
       description: inc.orphan
         ? 'Ez a tétel belső mozgás kategóriába került (pl. „Készpénzletétel a kasszából"), de NINCS párja, és nem is a belső mozgás rögzítőn keresztül készült — tipikusan banki importból származik. Amíg a kassza-oldali párja hiányzik, a rendszer ÚJ BEVÉTELNEK látja, pedig csak a saját pénz átvezetése: ez felfújja a bevétel-összesent.'
         : 'Belső mozgás befizetés-oldala rögzítve, de a kiadás-oldali párja (honnan érkezett a pénz) még hiányzik — importáld/egyeztesd a másik számlát.',

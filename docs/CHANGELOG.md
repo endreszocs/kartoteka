@@ -23,6 +23,59 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-09-04] — Kassza-rögzítő: örökbefogadott átvezetés, tömörebb sorok, gyorsabb keresés; ANAF-számlák nyomtatási képe
+<!-- key: 2026-09-04-kassza-faktura-spv-kor -->
+<!-- category: bugfix -->
+<!-- version: 0.9.222 -->
+<!-- targets: lelkipásztorok és pénztárosok, akik a készpénzes rögzítőt és a szállítói számlákat használják -->
+
+### 🐛 Javítások
+
+- **A „Párosítatlan tétel átvétele" nem duplikál többé**: eddig a bankban már
+  meglévő tétel átvétele egy *teljes új* átvezetést mentett el, így ugyanaz a pénz
+  kétszer szerepelt a könyvben, a piros figyelmeztetés pedig nem tűnt el. Mostantól
+  a rendszer a meglévő tételhez *csatolja* az újat — csak a hiányzó oldalt hozza
+  létre, és mentés előtt ellenőrzi, hogy a kiválasztott tétel közben nem változott-e.
+  (Élesben ilyen duplikátum nem keletkezett — a diagnosztika ezt igazolta.)
+- **A sztornó-számla nem tartozás**: a román kiállítók a sztornót gyakran rendes
+  számlaként küldik, negatív összeggel. Eddig ez pozitív, *második* tartozásként
+  jelent meg. Mostantól jóváírásként kerül be, és a megjegyzés megmondja, melyik
+  számlát érvényteleníti.
+- **ANAF-számla azonosítója**: az ANAF-exportból jövő fájloknál az azonosító eddig a
+  fájlnév *első* számsorából jött, ami néhány szállítónál (LIDL, Electrica) a saját
+  számlaszámuk volt, nem az ANAF-index. Most az utolsó számsor az azonosító; a
+  korábban rögzített számlákat a rendszer a régi azonosítón is felismeri, tehát az
+  újraimport nem hoz létre második sort.
+- **A tag-kereső nem ad többé néma üres listát**: ha egy kényelmi mező (cím, kor)
+  lekérdezése hibázott, eddig „nincs ilyen tag" látszott. Mostantól a kereső a
+  kényelmi adat nélkül is megtalálja a tagot, és a hibát naplózza.
+- **Gyors gépelésnél nem keveredhetnek a találatok**: a név-kereső csak a legutolsó
+  keresés eredményét mutatja — eddig egy lassabban beérkező régi válasz felülírhatta
+  az újat, és rossz tag kerülhetett a nyugtára.
+
+### ✨ Új funkciók
+
+- **Szállítói számla nyomtatási képe**: a „Megnyitás" mostantól előnézetet nyit az
+  ANAF-számlalap szerkezetével — szállító és vevő adatai, cégjegyzékszám, IBAN,
+  **sortételek**, ÁFA-bontás, összesítő. A nyomtatás új lapon indul, PDF-be is
+  menthető. A lap jelöli, hogy a Kartotékából készült, és hogy nem a hiteles
+  bizonylat (az az ANAF e-Factura XML).
+
+### 🎨 UX javítások
+
+- **Tömörebb tétel-sorok a készpénzes rögzítőben**: a befizető életkora és címe
+  vesszővel a neve mellett (utca, házszám is látszik — eddig levágódott), a három
+  gomb (Még egy befizető · Több évre · Család csatolása) mindig ugyanott, a járulék-
+  ajánló legfeljebb két sor — de a „maradék — erre az évre már fizetett…" indoklás
+  a képernyőn marad. A sor nem ugrik meg, amikor az ajánló megérkezik.
+- **Az igevers közvetlenül az alcím alatt**, és a desktopon is látszik (eddig ott
+  egyáltalán nem volt).
+- **A párosítatlan-választó megmondja, mi van**: hány tétel választható, melyik
+  van már kiválasztva, mikor könyvelték a bankban — és ha nincs ilyen, azt is kiírja.
+- **A kereső mutatja, hogy dolgozik** — nem kell újragépelni, amíg a találat úton van.
+
+---
+
 ## [2026-09-04] — Szigorúbb kapuk a fiókok körül
 <!-- key: 2026-09-04-auth-kapuk-szigoritasa -->
 <!-- category: security -->

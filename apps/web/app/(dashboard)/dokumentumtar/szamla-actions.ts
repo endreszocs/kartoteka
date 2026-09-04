@@ -40,6 +40,7 @@ import type {
 import {
   parseUblSzamla,
   anafUuidFajlnevbol,
+  anafUuidFajlnevbolElso,
   azonositoSzamlaIdentitasbol,
   SEMNATURA_TOKEN_RE,
   type UblSzamlaMeta,
@@ -164,6 +165,8 @@ export async function feldolgozSzamlaZipDokumentum(
   type Jelolt = {
     fajlnev: string
     anafUuid: string
+    /** A 2026-09-04 ELŐTTI kulcsképzés (első futam) — CSAK a duplikátum-keresés régi ágához. */
+    regiKulcs: string | null
     meta: UblSzamlaMeta
     penznem: string
     xml: KibontottSzamlaFajl
@@ -224,7 +227,15 @@ export async function feldolgozSzamlaZipDokumentum(
       )
       continue
     }
-    jeloltek.push({ fajlnev: par.xml.fajlnev, anafUuid: meta.anafUuid, meta, penznem, xml: par.xml, pdf: par.pdf })
+    // 2026-09-04: a RÉGI (első-futam) kulcs is megy a duplikátum-keresésbe. Az
+    // élesben már rögzített sorok azzal a kulccsal állnak; ha csak az újat néznénk,
+    // egy újraimport nem találná őket, és MÁSODIK tartozást szúrna be.
+    const regiKulcs = anafUuidFajlnevbolElso(par.xml.fajlnev)
+    jeloltek.push({
+      fajlnev: par.xml.fajlnev, anafUuid: meta.anafUuid,
+      regiKulcs: regiKulcs && regiKulcs !== meta.anafUuid ? regiKulcs : null,
+      meta, penznem, xml: par.xml, pdf: par.pdf,
+    })
   }
 
   if (jeloltek.length === 0) return { eredmeny, error: null }
@@ -234,7 +245,8 @@ export async function feldolgozSzamlaZipDokumentum(
     .from('szallitoi_szamla')
     .select('id, anaf_uuid, szamla_szam, xml_dokumentum_id, pdf_dokumentum_id')
     .eq('congregation_id', congId)
-    .in('anaf_uuid', jeloltek.map((j) => j.anafUuid))
+    // Az ÚJ és a RÉGI kulcs is — lásd a Jelolt.regiKulcs magyarázatát.
+    .in('anaf_uuid', [...new Set(jeloltek.flatMap((j) => (j.regiKulcs ? [j.anafUuid, j.regiKulcs] : [j.anafUuid])))])
   if (letezoErr) {
     return { eredmeny: null, error: friendlyDbError('A duplikátum-ellenőrzés sikertelen', letezoErr) }
   }
@@ -264,7 +276,8 @@ export async function feldolgozSzamlaZipDokumentum(
     }
     futasonBelul.add(jelolt.anafUuid)
 
-    const letezo = letezoMap.get(jelolt.anafUuid)
+    const letezoRegi = jelolt.regiKulcs ? letezoMap.get(jelolt.regiKulcs) : undefined
+    const letezo = letezoMap.get(jelolt.anafUuid) ?? letezoRegi
     if (letezo) {
       // ── Duplikátum → nem duplikálunk, de a hiányzó fájl-hivatkozást pótoljuk ──
       let potolva = false
@@ -293,6 +306,7 @@ export async function feldolgozSzamlaZipDokumentum(
         anafUuid: jelolt.anafUuid,
         szamlaSzam: letezo.szamla_szam ?? jelolt.meta.szamlaszam,
         fajlPotolva: potolva,
+        regiKulcs: !!letezoRegi && !letezoMap.has(jelolt.anafUuid),
       })
       continue
     }
@@ -304,6 +318,8 @@ export async function feldolgozSzamlaZipDokumentum(
         {
           congregation_id: congId,
           anaf_uuid: jelolt.anafUuid,
+          // 2026-09-04: a típus a parser ELŐJEL-TUDATOS döntése — egy negatív
+          // végösszegű `Invoice` (380-as sztornó) is jóváíró, nem tartozás.
           tipus: jelolt.meta.tipus === 'jovairo' ? 'jovairo' : 'szamla',
           szallito_nev: jelolt.meta.szallitoNev,
           szallito_cui: jelolt.meta.szallitoCui,
@@ -315,6 +331,11 @@ export async function feldolgozSzamlaZipDokumentum(
           penznem: jelolt.penznem,
           xml_dokumentum_id: egyetlenXmlDokumentumId,
           created_by_profile_id: userId ?? null,
+          // Nincs külön oszlop a hivatkozott eredetinek — a megjegyzés viszi,
+          // és az a nyomtatott adatlapon is megjelenik.
+          megjegyzes: jelolt.meta.hivatkozottSzamla
+            ? `Sztornó / jóváírás — a(z) ${jelolt.meta.hivatkozottSzamla} számlára hivatkozik.`
+            : null,
         },
       ])
       .select('id')

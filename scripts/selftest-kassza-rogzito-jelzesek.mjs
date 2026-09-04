@@ -186,5 +186,61 @@ orzo(
   (s) => s.replace(/e\.key === 'Enter' && aktivIdx >= 0/g, 'false'),
 )
 
+// ── (6) AZ IGEVERS HELYE + A RAGADÁS ŐS-LÁNCA (2026-09-03, Endre 2.) ─────
+// A meglévő (4)-es őr csak az OSZTÁLY-SZÖVEGET grepeli a CombinedEntryBody-ban.
+// A ragadás valódi, NÉMA törése viszont a DIALÓGUS-fájlban keletkezik: a
+// `sticky top-0` görgető-őse a DialogContent popupja, és ha a fejléc + a törzs
+// közös új szülőt kap BÁRMILYEN overflow/transform/filter/contain osztállyal,
+// AZ lesz a legközelebbi görgető-ős, a top-0 egy soha nem görgő dobozhoz tapad,
+// és a fül-sáv csendben megszűnik ragadni. Hibaüzenet nincs, a CI zöld marad.
+{
+  const DIALOG = path.join(REPO, 'apps', 'web', 'components', 'modals', 'combined-entry-dialog.tsx')
+  const DESKTOP = path.join(REPO, 'apps', 'desktop', 'src', 'components', 'combined-entry-dialog.tsx')
+  if (!fs.existsSync(DIALOG)) fail('(6) hiányzik a webes rögzítő-dialógus')
+  else {
+    const d = kodCsak(olvas(DIALOG))
+    const iBiztato = d.indexOf('<RogzitesBiztato />')
+    const iHeaderVege = d.indexOf('</DialogHeader>')
+    if (iBiztato >= 0 && iHeaderVege > iBiztato) {
+      ok('(6) az igevers a fejléc-blokkon BELÜL, az alcím alatt áll')
+    } else {
+      fail('(6) az igevers nem a DialogHeaderen belül van — vizuálisan a törzshöz tartozna, pedig az alcímre felel')
+    }
+    const TORO = /\b(overflow-[a-z-]+|transform|backdrop-filter|will-change-[a-z-]+|contain-[a-z-]+)\b/
+    const gyanusSorok = (forras) => {
+      const ki = []
+      for (const sor of forras.split('\n')) {
+        if (!/className=/.test(sor)) continue
+        if (/<DialogContent/.test(sor)) continue
+        if (TORO.test(sor)) ki.push(sor.trim().slice(0, 90))
+      }
+      return ki
+    }
+    const gyanus = gyanusSorok(d)
+    if (gyanus.length === 0) {
+      ok('(6) a DialogContenten kívül semmi nem lesz görgető-ős (a ragadás ép marad)')
+    } else {
+      fail(`(6) görgető-őssé tévő osztály a dialógusban: ${gyanus.join(' | ')} — a ragadó fül-sáv NÉMÁN elromlana`)
+    }
+    const mutans = kodCsak(olvas(DIALOG).replace('<div className="mt-3">', '<div className="mt-3 overflow-hidden">'))
+    if (gyanusSorok(mutans).length > 0) ok('NEGATÍV — az ős-láncot törő wrappert az őr elkapná')
+    else fail('NEGATÍV — az őr VAK: egy overflow-hidden wrapper átmenne')
+    if (/className="px-6 pb-6 pt-4"/.test(d)) {
+      ok('(6) a törzs-wrapper paddingje változatlan (a mentés-sáv erre támaszkodik)')
+    } else {
+      fail('(6) a törzs-wrapper paddingje megváltozott — a mentés-sáv fehér háttere elcsúszna')
+    }
+  }
+  if (!fs.existsSync(DESKTOP)) fail('(6) hiányzik a desktop rögzítő-dialógus')
+  else {
+    const dd = kodCsak(olvas(DESKTOP))
+    if (/<RogzitesBiztato \/>/.test(dd)) ok('(6) a desktop is mutatja az igeverset (paritás)')
+    else fail('(6) a desktopon nincs igevers — a két felület széthúz')
+    if (/Egy mentéssel több bevétel és kiadás is rögzíthető/.test(dd)) {
+      ok('(6) a desktop alcíme a webbel azonos')
+    } else fail('(6) a desktop alcíme eltér a webtől')
+  }
+}
+
 if (failed) { console.error('\nA rögzítő-jelzések önellenőrzés ELBUKOTT.'); process.exit(1) }
 console.log('\nA rögzítő-jelzések önellenőrzés rendben.')
