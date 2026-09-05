@@ -71,10 +71,19 @@ function targetSzetvalasztas(input: AuditEventInput): { targetId: string | null;
   }
 }
 
+/**
+ * Naplóz egy audit-eseményt.
+ *
+ * @returns `true`, ha a sor TÉNYLEGESEN létrejött. A hívók többsége figyelmen
+ * kívül hagyhatja — de ahol a naplózás maga az ígéret (pl. a hivatalos
+ * személyi szám felfedése), ott a `false`-ra REAGÁLNI KELL. Enélkül a
+ * „minden megjelenítés naplózódik" mondat csendben hamissá válhat: a hibát
+ * eddig kizárólag `console.warn` jelezte.
+ */
 export async function logAuditEvent(
   input: AuditEventInput,
   client?: SupabaseClient,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const supabase = client ?? (await createClient())
     const { ip, userAgent } = await requestClientInfo()
@@ -108,13 +117,17 @@ export async function logAuditEvent(
           console.warn(
             `[AUDIT] log_audit_event sikertelen (${input.action}): ${legacy.error.message}`,
           )
+          return false
         }
-        return
+        return true
       }
       console.warn(`[AUDIT] log_audit_event sikertelen (${input.action}): ${error.message}`)
+      return false
     }
+    return true
   } catch (err) {
     const message = err instanceof Error ? err.message : 'ismeretlen'
     console.warn(`[AUDIT] log_audit_event kivétel (${input.action}): ${message}`)
+    return false
   }
 }

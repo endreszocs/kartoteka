@@ -1312,7 +1312,12 @@ export function MemberDetailsDialogV2({
                   cnpMaszkolando(member.cnp) ? (
                     // Ismeretlen alak → SZEMÉLYES ADATNAK vesszük (fail-safe).
                     // Ilyet a desktop új-tag űrlapja írhatott ide valódi CNP-ként.
-                    <CnpRejtett cnp={member.cnp} szemelyId={member.id} />
+                    // ⛔ `key`: a karton NEM remountol személyváltáskor (a dialógust
+                    // a host `key` nélkül rendereli), ezért a `CnpRejtett` belső
+                    // „felfedve" állapota ÁTÖRÖKLŐDNE a következő személyre — annak
+                    // azonosítója azonnal csupaszon látszana, ÉS naplóbejegyzés
+                    // nélkül (a `naplozva` ref is életben maradna).
+                    <CnpRejtett key={member.id} cnp={member.cnp} szemelyId={member.id} />
                   ) : (
                     <span className="break-all">{member.cnp}</span>
                   )
@@ -1322,10 +1327,12 @@ export function MemberDetailsDialogV2({
               }
               mono
             />
+            {/* `key={member.id}`: ugyanaz az ok, mint fent — a felfedett érték ne
+                éljen túl egy személyváltást. */}
             <Field
               icon={<IdCard className="size-4" />}
               label="Személyi szám (CNP)"
-              value={<SzemelyiSzamMezo szemelyId={member.id} />}
+              value={<SzemelyiSzamMezo key={member.id} szemelyId={member.id} />}
               mono
             />
           </FieldGroup>

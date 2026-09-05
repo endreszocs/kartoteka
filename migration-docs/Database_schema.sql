@@ -614,6 +614,16 @@ CREATE TABLE public.szemely (
   CONSTRAINT szemely_pkey PRIMARY KEY (id),
   CONSTRAINT szemely_c_utcaid_fk FOREIGN KEY (c_utcaid) REFERENCES public.adrstreet(id),
   CONSTRAINT szemely_sz_helyid_fk FOREIGN KEY (sz_helyid) REFERENCES public.adrlocality(id),
+  -- ⚠️ 2026-09-05 — EZ A KÉT SOR HIÁNYOS. Az ÉLŐ adatbázis mérése szerint
+  --    MINDKÉT idegen kulcson van záradék, amit ez a dump ELHAGY:
+  --        szemely_id_apja_fk  · ON UPDATE CASCADE · ON DELETE NO ACTION
+  --        szemely_id_anyja_fk · ON UPDATE CASCADE · ON DELETE NO ACTION
+  --    A záradék nélküli alakból NO ACTION következne — és pontosan ezt a
+  --    téves következtetést vontuk le belőle egyszer már. Ha a szülő-kapcsolat
+  --    viselkedése számít, MÉRD MEG (pg_constraint.confupdtype / confdeltype),
+  --    ne ebből a fájlból olvasd ki. Ugyanígy hiányzik innen a `szemely_cnp_idx`
+  --    (globális, feltétel nélküli egyediségi index a cnp-n), ami nélkül ez a
+  --    két idegen kulcs nem is létezhetne.
   CONSTRAINT szemely_id_apja_fk FOREIGN KEY (id_apja) REFERENCES public.szemely(cnp),
   CONSTRAINT szemely_id_anyja_fk FOREIGN KEY (id_anyja) REFERENCES public.szemely(cnp),
   CONSTRAINT szemely_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id),

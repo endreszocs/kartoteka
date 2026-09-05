@@ -12,32 +12,82 @@
 --    · valódi 13 jegyű CNP   — a DESKTOP új-tag űrlapja EZT KÖVETELI MEG.
 --  A felület viszont mind a hármat „Személyi szám (CNP)" címkével mutatja.
 --
---  ⛔ MIÉRT NEM ÚJ OSZLOP A `szemely` TÁBLÁN?
---     Három, egymástól független ok — mindegyik önmagában is elég volna:
+--  ⛔ MIÉRT KÜLÖN TÁBLA, ÉS NEM ÚJ OSZLOP A `szemely`-EN?
 --
---     1. A `szemely.cnp` NEM adatmező, hanem KULCS. Az `id_apja` és az
---        `id_anyja` VALÓDI idegen kulcs a `szemely(cnp)`-re. ⚠️ ÉS NINCS
---        rajta ON UPDATE CASCADE (a repóban egyetlen migráció sem ad hozzá),
---        tehát egy hivatkozott CNP átírása MA 23503-mal ELBUKIK. A `cnp`-hez
---        ezért hozzá sem nyúlunk — se átnevezéssel, se átvezetéssel.
+--     ⚠️ HELYESBÍTÉS (2026-09-05, adversariális felülvizsgálat): a fájl első
+--     változata három indokot sorolt, és az ELSŐ KETTŐ pontatlan volt.
+--     Alább a MÉRT, helytálló indoklás.
 --
---     2. A `szemely` sorait a felület TÖMEGESEN olvassa: a taglista
---        (`getMembers`) az EGÉSZ gyülekezet `cnp` értékét beleteszi a szerver-
---        válaszba. A maszkolás (`CnpRejtett`) így ma pusztán LÁTVÁNY — az
---        értéket a hálózati válaszban a szem-ikon megnyomása nélkül is látni.
---        Egy állami azonosító ide nem kerülhet. Az új tábla sorait KIZÁRÓLAG
---        egyetlen személyre, kérésre töltjük be.
+--     1. A `szemely`-en ÜL AZ `audit_trg`, és az `audit.log_change()` a
+--        `to_jsonb(NEW)`-t írja — vagyis a TELJES SORT. Minden egyes
+--        tag-módosításnál bemásolódna az állami azonosító az `audit_log`-ba,
+--        ami RENDSZERSZINTŰ tábla: nincs `congregation_id`-ja, a globális
+--        (rendszergazdai) mentésbe kerül, és a gyülekezeti hatókör nem védi.
+--        Egy külön tábla nem esik bele ebbe.
 --
---     3. A `szemely`-en van egy szűk kivétel-policy (`szemely_cross_match_
+--     2. A `szemely`-en van egy szűk kivétel-policy (`szemely_cross_match_
 --        select`), ami a kereszt-gyülekezeti egyeztetéshez a MÁSIK gyülekezet
 --        lelkészének is kiadja az érintett SOR EGÉSZÉT. Egy oszlop ezen
 --        keresztül automatikusan átszivárogna; egy külön tábla nem.
 --
+--     3. A `szemely` oszlopait FÉL TUCAT felület olvassa saját, kézzel írt
+--        oszlop-listával (taglista, offline Dexie-tükör, Excel-séma, desktop
+--        szinkron, nyomtatott karton, adatexport). Egy új oszlopot MINDEGYIKBŐL
+--        külön ki kellene hagyni, és egyetlen kifelejtés némán kiszivárogtatná.
+--        Egy külön tábla FORDÍTVA működik: alapból kimarad, és ott kell
+--        felvenni, ahol tényleg kell (az adatexportban fel is vettük).
+--
+--     ⛔ AMI NEM INDOK — és amit az első változat tévesen állított:
+--        · „a `cnp` KULCS, NO ACTION-nel, ezért nem költöztethető" — a
+--          szülő-FK valójában ON UPDATE CASCADE (mérve), és ez az érv amúgy is
+--          csak a MEGLÉVŐ `cnp` ÚJRAHASZNOSÍTÁSA ellen szólt, egy ÚJ oszlop
+--          ellen nem. (Az FK-tényt lásd lent.)
+--        · „a taglista `select('*')`-gal viszi a `cnp`-t" — a taglista EXPLICIT
+--          oszlop-listát kér, tehát egy ÚJ oszlop nem utazna vele magától. Ami
+--          IGAZ: maga a `cnp` BENNE VAN abban a listában (és a szabadszavas
+--          keresés haystackjében is), tehát a `cnp` mai maszkolása látszat —
+--          de ez a `cnp`-ről szól, nem egy új oszlopról.
+--
+--  ── A SZÜLŐ-IDEGENKULCSOK MÉRT VISELKEDÉSE ────────────────────────────────
+--     szemely_id_apja_fk  · UPDATE: CASCADE · DELETE: NO ACTION
+--     szemely_id_anyja_fk · UPDATE: CASCADE · DELETE: NO ACTION
+--     A `szemely.cnp`-n van GLOBÁLIS, feltétel nélküli egyediségi index
+--     (`szemely_cnp_idx`) — enélkül a két idegen kulcs nem is létezhetne.
+--     A `cnp` oszlop típusa: `character varying(20)`.
+--
+--     ⚠️ A SÉMA-DUMP MINDHÁRMAT ELHALLGATJA. A `Database_schema.sql:617-618`
+--     (és a `source-links/` másolata) ZÁRADÉK NÉLKÜL írja le az idegen
+--     kulcsokat, amiből NO ACTION következne — pontosan ezt a téves
+--     következtetést vontuk le belőle. Rögzített hibaosztály: „a
+--     migration-fájl NEM bizonyíték". FK-t, indexet, típust MÉRNI kell.
+--
+--     KÖVETKEZMÉNY, amivel számolni kell: a `cnp` átírása NEM hangos hibával
+--     áll meg, hanem NÉMÁN átkulcsolja a gyermekek `id_apja`/`id_anyja`
+--     hivatkozását — és a kaszkád az FK-n keresztül fut, tehát az RLS és a
+--     gyülekezeti szűrő NEM vonatkozik rá. Ezért ugyanebben a körben lezártuk
+--     az Excel-visszaírás útját (a `cnp` csak olvasható oszlop lett), és a
+--     webes mentés sem enged valódi CNP-t a mezőbe.
+--
 --  ⛔ AMIT SZÁNDÉKOSAN NEM TESZÜNK EBBEN A KÖRBEN:
---     · Nem vezetünk át adatot. A `cnp`-ben ma is bent lévő valódi (13 jegyű)
---       számokat NEM másoljuk ide automatikusan — előbb MÉRNI kell, mennyi
---       van és melyikre hivatkozik szülőként egy gyermek. A mérő SQL:
+--     · Nem vezetünk át adatot — és a MÉRÉS SZERINT NEM IS KELL, DE CSAK A
+--       `szemely.cnp` OSZLOPRA. Az élő adatban NULLA 13 jegyű (valódi CNP
+--       alakú) érték van ott, sem a látható, sem a rejtett sorokon; a 18
+--       szülőként hivatkozott érték közül is 0. A 661 sor megoszlása:
+--       613 `EC-2026-…` + 48 `EC-TSZT-…` (a teszt-gyülekezet seedje,
+--       `2026-08-09-teszt-gyulekezet-seed.sql`) = 661, tehát minden érték
+--       RENDSZER ÁLTAL GENERÁLT.
+--
+--       ⚠️ AMI NINCS MEGMÉRVE (a megállapításnak lejárati ideje van):
+--         · a `szig`, `taj` és `megjegyzes` oszlopok — a legacy tömeges import
+--           épp ezeket kínálta, és ma egyetlen felület sem olvassa őket;
+--         · a desktop gépeken ÜLŐ, még fel nem szinkronizált sorok: az új-tag
+--           űrlap VALÓDI 13 jegyű CNP-t követel meg, és a következő sikeres
+--           szinkron beírná a `cnp`-be. Amíg ez az út nyitva van, a nulla
+--           eredmény bármikor megszűnhet.
+--       Mérő SQL-ek:
 --       docs/2026-09-05-szemelyi-szam-allapotfelmeres.sql
+--       docs/2026-09-05-egyeb-azonositok-alakja.sql
+--       docs/2026-09-05-egyeb-azonositok-elotag.sql
 --     · Nem tesszük rá az `audit_trg`-t. Az `audit.log_change()` a TELJES sort
 --       beírja az `audit_log`-ba — vagyis magát az állami azonosítót másolná
 --       egy rendszerszintű (gyülekezet-független) táblába. A ki-mit-nézett és
