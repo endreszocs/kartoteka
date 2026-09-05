@@ -28,13 +28,27 @@ interface FeedPayload {
   programs?: Program[]
 }
 
+/**
+ * A HIBA-ágak fejléce (2026-09-05).
+ *
+ * A siker-ág szándékosan CDN-cache-elhető (`s-maxage=3600`), a hibák viszont
+ * NEM: a 2026-09-05-naptar-feed-kapuk.sql óta a `status='active'` kapu ÚJ
+ * 404-eket termelhet (inaktívvá vált gyülekezet), és egy közbeeső CDN órákig
+ * kiszolgálná a 404-et azután is, hogy a gyülekezet visszakerült aktívba.
+ * A lelkészi feed (`lelkeszi/[token]/route.ts`) már így csinálja minden ágon.
+ */
+const HIBA_FEJLEC = { 'Cache-Control': 'no-store' } as const
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> },
 ) {
   const { token } = await params
   if (!UUID_RE.test(token)) {
-    return NextResponse.json({ error: 'Érvénytelen naptár-hivatkozás.' }, { status: 400 })
+    return NextResponse.json(
+      { error: 'Érvénytelen naptár-hivatkozás.' },
+      { status: 400, headers: HIBA_FEJLEC },
+    )
   }
 
   const supabase = createPublicServerClient()
@@ -43,13 +57,16 @@ export async function GET(
     console.error('[api/calendar] feed RPC hiba:', error.message)
     return NextResponse.json(
       { error: 'A naptár most nem érhető el. (Lefutott már a 2026-08-02-es naptár-feed adatbázis-migráció?)' },
-      { status: 503 },
+      { status: 503, headers: HIBA_FEJLEC },
     )
   }
 
   const payload = data as FeedPayload | null
   if (!payload || payload.status !== 'ok') {
-    return NextResponse.json({ error: 'Ismeretlen naptár-hivatkozás.' }, { status: 404 })
+    return NextResponse.json(
+      { error: 'Ismeretlen naptár-hivatkozás.' },
+      { status: 404, headers: HIBA_FEJLEC },
+    )
   }
 
   const includeHolidays = request.nextUrl.searchParams.get('unnepek') !== '0'

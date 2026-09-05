@@ -35,6 +35,28 @@ Mind a 4 fájl ebben a sorrendben futott le (Endre, 2026-09-05), az ellenőrző 
        „ozv.kovacsnagy"), `naptar_szemely_alap/nevnapok` (anon NEM, authenticated IGEN),
        `lelkeszi_naptar_feed` V2 csak service_role, névnap-egyeztetés próba (Anna Mária → Anna).
 
+- [x] 2026-09-05 — **`2026-09-05-naptar-feed-kapuk.sql`** ✅ LEFUTOTT
+       Rács 18/18 ✅: `public_calendar_feed` V4 — `c.status='active'` kapu, a MAGÁN típusok
+       kizárása MEGMARADT (V3 vívmány), a `megjegyzes` ÉS a `leiras` mostantól CSAK a
+       `calendar_feed_reszletes` opt-innel megy ki (eddig az adatbázis feltétel nélkül kiadta,
+       a szűrés csak az app-rétegben élt → PostgREST-en megkerülhető volt).
+       `lelkeszi_naptar_feed` V3 — `profiles.status='active'` kapu + fail-closed fallback.
+       Mérés: 0 gyülekezetnél áll BE a részletes feed · 0 gyülekezet esik ki a státusz-kaputól ·
+       0 új token-kiesés · a fallback ág BIZONYÍTOTTAN HALOTT KÓD (0 db `scope=congregation`
+       + `scope_id IS NULL` sor, a CHECK áll).
+
+       ⛔⛔ **A `2026-09-05-naptar-anyakonyv-szabadsag-nevnap.sql` ETTŐL KEZDVE NEM
+       FUTTATHATÓ ÚJRA VÁLTOZATLANUL.** A benne lévő `CREATE OR REPLACE` a két feedet
+       visszavinné V3/V2-re, és NÉMÁN visszavenné a fenti négy kaput — miközben a saját
+       15/15-ös rácsa VÉGIG ZÖLD MARADNA, tehát semmi nem figyelmeztetne rá.
+       Ha mégis újra kell futtatni: UTÁNA a `2026-09-05-naptar-feed-kapuk.sql`-t is futtasd le.
+
+       ⏳ Kísérő app-oldali teendő: `apps/web/lib/auth/effective-access.ts:509-511` ugyanazt a
+       szűretlen `profiles.congregation_id` fallbackot használja a lelkészi token KIADÁSAKOR,
+       mint amit a feedben most bezártunk. Ma ártalmatlan (a fallback halott kód), de ha a
+       `profile_roles_scope_id_check` valaha megszűnik, az app kiadhat olyan linket, amit a
+       feed elutasít.
+
 - [x] 2026-09-05 — **`2026-09-05-ertesitesek-felado.sql`** ✅ LEFUTOTT
        Rács 10/10 ✅: feladó-oszlopok + CHECK, levezető függvény + INSERT-trigger, 0 feladó
        nélküli sor, eloszlás: rendszergazda=76 · rendszer=12 · felhasznalo=1; index; írásvédelmi
