@@ -38,6 +38,32 @@
 //   G16    getPastorProfileCompat nem dob (readError); a betöltés/mentés fail-closed; a dialógus
 //          MINDEN szerver-akció hívását try/catch-ben tartja (+ mutáns)
 //
+//   2026-09-05 P3-UTÓMUNKA (a bírálat nem blokkoló találatai):
+//   P1     a forrás-váltás (Google / feltöltött / monogram) CSAK a döntést írja — nem töröl fájlt,
+//          a photo_url érintetlen; vissza lehet váltani (+ mutáns)
+//   P2     a Storage remove() visszaadott listája ELLENŐRZÖTT (RLS-néma no-op ≠ siker); a törlésnél a
+//          hivatkozott fájl toröletlensége HIBA; egység-tesztek toroletlenUtak / profilkepObjektumUt (+ mutáns)
+//   P3     „örökölt szerep" = approved_by NULL ÉS approved_at ≈ created_at (±5 mp), nem napra-egyezés;
+//          a régi napra-egyezés az aznapi admin-jóváhagyásra is igazat adott — bizonyítva (+ mutáns)
+//   P4     a Kapcsolatok-döntés EGY feloldóból (lelkesziSzerepbenE) mind a 4 helyen (+ mutáns)
+//   P5     a fülek érintőfelülete min-h-11 (44 px) (+ mutáns)
+//   P6     nincs megjelenített tartalomból képzett React-kulcs (+ mutáns)
+//   P7     ProfileStatus a 4 élő DB-értékkel; PROFILE_STATUS_LABELS kimerítő (Record<ProfileStatus,…>) (+ mutáns)
+//   P8     a végleges törlés kétlépéses megerősítő dialógusból; nincs window.confirm (+ mutáns)
+//   P9     (ellenőrzés-ügynök) a Felhasználók-oldal státusz-látványa Record<ProfileStatus,…>, a CÍMKE a
+//          PROFILE_STATUS_LABELS-ből (eddig két forrás: „Törölve" ⇄ „Törölt"); futtatva (+ mutáns)
+//   P3c    a napra-egyezésnek (ugyanazABukarestiNap) NINCS app-oldali hívója — az örökölt-szerep döntése
+//          kizárólag az orokoltSzerepE (+ mutáns); a date.ts docblock-SZÖVEGÉT nem asszertáljuk (más terület)
+//
+//   2026-09-05 BÍRÁLAT UTÁNI JAVÍTÁSOK (profil-p3 javító):
+//   P2b/P2f a törlésnél a HIVATKOZOTT fájlt a list() nélkül is kérjük (a list() is RLS-néma); a folyamat a
+//          tiszta függvényekkel szimulálva: üres list() + üres remove() → HIBA, a RÉGI folyamat „törölve" (+ mutáns)
+//   P4c    a kapcsolatokElerheto a szerveren UGYANAZZAL a bemenettel (access), mint a másik három hely (+ mutáns);
+//          missingPrimaryRole → fail-closed false (+ forrás-mutáns)
+//   P10    a forrás-váltó az EFFEKTÍV forrásból jelöl; a gombsor örökölt metaadat-képnél is látszik; a törlés-toast
+//          csak igazolt tárhely-törlésnél „végleges" (+ mutánsok)
+//   P11    effektivAvatarSource EGY szabály a képnek és a gomboknak, a szerver adja (+ mutánsok)
+//
 // Futtatás:  node scripts/selftest-profil-pontossag.mjs
 
 import fs from 'node:fs'
@@ -93,6 +119,12 @@ const F = {
   layout: path.join(ROOT, 'apps/web/app/(dashboard)/layout.tsx'),
   sql: path.join(ROOT, 'migration-docs/sql/2026-09-05-profil-pontossag.sql'),
   shared: path.join(ROOT, 'apps/web/app/(dashboard)/profile/profile-dialog-shared.ts'),
+  // P3-utómunka (2026-09-05)
+  authTypes: path.join(ROOT, 'apps/web/lib/types/auth.ts'),
+  orokolt: path.join(ROOT, 'apps/web/lib/profile-roles/orokolt-szerep.ts'),
+  aktivSzerep: path.join(ROOT, 'apps/web/lib/profile-roles/aktiv-szerep.ts'),
+  kapcsPage: path.join(ROOT, 'apps/web/app/(dashboard)/profile/kapcsolatok/page.tsx'),
+  kapcsActions: path.join(ROOT, 'apps/web/app/(dashboard)/profile/kapcsolatok/actions.ts'),
 }
 for (const [k, f] of Object.entries(F)) {
   if (!fs.existsSync(f)) {
@@ -115,7 +147,12 @@ function ir(nev, forras, cserek = []) {
 const konstP = ir('dashboard-const.cjs', olvas(F.konst))
 const dateP = ir('date.cjs', olvas(F.date), [['@/lib/constants/dashboard', konstP]])
 const typesP = ir('types.cjs', olvas(F.types))
-const labelsP = ir('labels.cjs', olvas(F.labels), [['@/lib/profile-roles/types', typesP]])
+// A labels.ts a ProfileStatus típus-guardot (isProfileStatus) a lib/types/auth-ból hozza (P7).
+const authTypesP = ir('auth-types.cjs', olvas(F.authTypes))
+const labelsP = ir('labels.cjs', olvas(F.labels), [
+  ['@/lib/profile-roles/types', typesP],
+  ['@/lib/types/auth', authTypesP],
+])
 const avatarP = ir('avatar.cjs', olvas(F.avatar))
 const nameP = ir('name.cjs', olvas(F.name))
 
@@ -125,6 +162,9 @@ const nameP = ir('name.cjs', olvas(F.name))
 {
   const script = `
     const d = require(${JSON.stringify(dateP)});
+    // A RÉGI napra-egyezés a MAI forrásból újraépítve (formatTimestampHu-egyezés): a hibaosztály
+    // bizonyítéka nem függ attól, hogy a date.ts (más terület tulajdona) őrzi-e még a régi segédet.
+    const regiNapraEgyezes = (a, b) => { const na = d.formatTimestampHu(a); return Boolean(na) && na === d.formatTimestampHu(b) };
     const out = {
       a: d.formatDateOnlyHu('2019-09-01'),
       b: d.formatDateOnlyHu('1975-03-02'),
@@ -135,8 +175,8 @@ const nameP = ir('name.cjs', olvas(F.name))
       g: d.formatTimestampHu('2026-01-14T22:30:00Z', { time: true }),
       h: d.formatTimestampHu('nem-datum'),
       regi: d.formatHuDate('2019-09-01'),
-      napEgyezik: d.ugyanazABukarestiNap('2026-04-25T21:30:00Z', '2026-04-26T05:00:00Z'),
-      napKulon: d.ugyanazABukarestiNap('2026-04-25T20:30:00Z', '2026-04-26T05:00:00Z'),
+      napEgyezik: regiNapraEgyezes('2026-04-25T21:30:00Z', '2026-04-26T05:00:00Z'),
+      napKulon: regiNapraEgyezes('2026-04-25T20:30:00Z', '2026-04-26T05:00:00Z'),
       tzNap: new Date('2019-09-01').getDate(),
     };
     process.stdout.write(JSON.stringify(out));
@@ -156,7 +196,7 @@ const nameP = ir('name.cjs', olvas(F.name))
   assert(r.h === '', `T6b: érvénytelen időbélyeg → üres ('${r.h}')`)
   // A HIBAOSZTÁLY bizonyítéka: a régi, Date-alapú formázó ugyanitt az ELŐZŐ napot adja.
   assert(r.regi.includes('31'), `T7n: a régi formatHuDate('2019-09-01') nyugati zónában '${r.regi}' — augusztus 31-et ír (ezért kellett a string-split)`)
-  assert(r.napEgyezik === true && r.napKulon === false, `T8: ugyanazABukarestiNap a bukaresti naptári napot nézi (${r.napEgyezik}/${r.napKulon})`)
+  assert(r.napEgyezik === true && r.napKulon === false, `T8: a régi napra-egyezés (formatTimestampHu-egyezés) a bukaresti naptári napot nézi (${r.napEgyezik}/${r.napKulon})`)
 }
 
 // ── S: státusz-címkék ─────────────────────────────────────────────────────────
@@ -422,6 +462,315 @@ function szakasz(forras, kezdet, hossz = 2000) {
   assert(/hibaSzoveg\(e\)/.test(dkod) && /setLoadError\(/.test(dkod) && /Újra/.test(dkod), 'G16e: a dobott hiba magyar szöveggel a felületre (toast + a dialógus törzsében „Újra" gombbal)')
   const mutans2 = dkod.replace(/\} catch \(e\) \{\s*if \(cancelled\) return[\s\S]*?toast\.error\(uzenet\)\s*\} finally \{/, '} finally {')
   assert(mutans2 !== dkod && !tryCatchBen(mutans2, 'await getProfileDialogData()'), 'G16n2: a betöltő catch-ágának törlésével az őr BUKIK')
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// P3-UTÓMUNKA (2026-09-05) — a bírálat nem blokkoló találatai
+// ═══════════════════════════════════════════════════════════════════════════
+
+// P1 — a forrás-váltás (Google / feltöltött / monogram) NEM töröl fájlt, a photo_url-hoz nem nyúl
+{
+  const kod = kodCsak(actions)
+  const valt = szakasz(kod, 'async function valtAvatarForras', 2600)
+  const google = szakasz(kod, 'export async function applyGooglePhoto', 400)
+  const or = (k) => !/torolProfilkepFajlokat\(/.test(k) && !/torolRegiProfilkepeket/.test(k) && /irAvatarDontes\(supabase, user\.id, source, undefined\)/.test(k)
+  assert(
+    valt.length > 0 && google.length > 0 && or(valt) && /valtAvatarForras\(supabase, user, 'google'\)/.test(google) && !/torolProfilkepFajlokat/.test(google),
+    'P1: applyGooglePhoto a közös valtAvatarForras-on át CSAK a döntést írja — nem töröl fájlt, a photo_url érintetlen',
+  )
+  const mutans = valt.replace('irAvatarDontes(supabase, user.id, source, undefined)', 'irAvatarDontes(supabase, user.id, source, null)\n  await torolProfilkepFajlokat(supabase, user.id)')
+  assert(mutans !== valt && !or(mutans), 'P1n: a fájl-törlés + photo_url-nullázás visszaírásával az őr BUKIK')
+  const ir_ = szakasz(kod, 'async function irAvatarDontes', 1600)
+  assert(/if \(photoUrl !== undefined\) sor\.photo_url = photoUrl/.test(ir_) && /avatar_source: source/.test(ir_), 'P1b: irAvatarDontes csak megadott photoUrl-t ír (undefined = érintetlen), a döntést mindig')
+  assert(
+    /export async function applyUploadedPhoto/.test(kod) && /export async function applyNoPhoto/.test(kod) && /Nincs feltöltött profilkép, amire vissza lehetne váltani/.test(kod),
+    'P1c: vissza lehet váltani a feltöltött képre (fail-closed: csak ha van) és a monogramra — törlés nélkül',
+  )
+}
+
+// P2 — a Storage remove() visszaadott listája ELLENŐRZÖTT (RLS-néma no-op ≠ siker)
+{
+  const kod = kodCsak(actions)
+  const torol = szakasz(kod, 'async function torolProfilkepFajlokat', 1400)
+  const or = (k) => /const \{ data: torolt, error: rmErr \} = await supabase\.storage\.from\('logos'\)\.remove\(kert\)/.test(k) && /toroletlen: toroletlenUtak\(kert, torolt\)/.test(k)
+  assert(torol.length > 0 && or(torol), 'P2: a remove() eredményét a kért listával összevetjük (toroletlenUtak), nem csak az error-t nézzük')
+  const mutans = torol.replace('const { data: torolt, error: rmErr }', 'const { error: rmErr }').replace('toroletlen: toroletlenUtak(kert, torolt)', 'toroletlen: []')
+  assert(mutans !== torol && !or(mutans), 'P2n: az eredmény-ellenőrzés kivételével (a régi néma siker) az őr BUKIK')
+  const rm = szakasz(kod, 'export async function removeProfilePhoto', 6000)
+  const rmOr = (k) =>
+    /profilkepObjektumUt\(photoUrl\)/.test(k) &&
+    /torolProfilkepFajlokat\(supabase, user\.id, \{ kotelezo: sajatFajl \?\? undefined \}\)/.test(k) &&
+    /if \(sajatFajl && torles\.toroletlen\.includes\(sajatFajl\)\)/.test(k)
+  assert(rm.length > 0 && rmOr(rm), 'P2b: a törlésnél a HIVATKOZOTT (saját mappabeli) fájlt a lista NÉLKÜL is kérjük, és a toröletlensége HIBA (fail-closed), semmi sem változik')
+  // Bírálat P3: a régi alak a kért listát CSAK a list()-ből vette — RLS-néma üres listázásnál a hivatkozott
+  // fájl kérése kimaradt, a törlés „igazoltnak" számított, a hivatkozás nullázódott, a fájl maradt.
+  const rmMutans = rm.replace('torolProfilkepFajlokat(supabase, user.id, { kotelezo: sajatFajl ?? undefined })', 'torolProfilkepFajlokat(supabase, user.id)')
+  assert(rmMutans !== rm && !rmOr(rmMutans), 'P2bn: a „csak a lista" (kötelező út nélküli) törlés-kérés visszaírásával az őr BUKIK')
+  assert(/torlesFigyelmeztetes\(/.test(kod) && /nem igazolta vissza/.test(kod), 'P2c: az eltérés figyelmeztetésként ér a hívóhoz (néma siker tilos)')
+  const rmTarhely = rm.indexOf('torolProfilkepFajlokat(supabase, user.id, { kotelezo: sajatFajl ?? undefined })')
+  const rmDb = rm.indexOf('irAvatarDontes(supabase, user.id, ujForras, null)')
+  assert(rmTarhely >= 0 && rmDb > rmTarhely, 'P2d: sorrend — előbb a tárhely (igazolt törlés), csak utána az adatbázis')
+  assert(/const fajlTorolve = Boolean\(sajatFajl\)/.test(rm) && /\n\s+fajlTorolve,\n/.test(rm) && /fajlTorolve\?: boolean/.test(olvas(F.shared)), 'P2e: a válasz kimondja, IGAZOLT-e a tárhely-törlés (fajlTorolve) — a felület csak ebből mond „véglegesen törölve"-t')
+  assert(/listabanHianyzott/.test(rm) && /nem szerepelt a tárhely-mappa listájában/.test(rm), 'P2e2: a listából hiányzó, de töröletlen hivatkozott fájl külön (érthető) hibaszöveget kap')
+
+  const S = require_(ir('profile-shared-p3.cjs', olvas(F.shared), [['zod', path.join(ROOT, 'node_modules/zod')]]))
+  assert(
+    JSON.stringify(S.toroletlenUtak(['profiles/u/avatar.jpg', 'profiles/u/avatar.png'], [{ name: 'profiles/u/avatar.jpg' }])) === JSON.stringify(['profiles/u/avatar.png']),
+    'P2u1: toroletlenUtak — a vissza nem igazolt út marad',
+  )
+  assert(S.toroletlenUtak(['profiles/u/avatar.jpg'], []).length === 1 && S.toroletlenUtak(['profiles/u/avatar.jpg'], null).length === 1, 'P2u2: üres / null válasz → MINDEN kért út toröletlen (RLS-néma no-op nem siker)')
+  assert(S.toroletlenUtak([], []).length === 0 && S.toroletlenUtak(['a'], [{ name: 'a' }]).length === 0, 'P2u3: teljes egyezés → nincs toröletlen')
+  assert(S.profilkepObjektumUt('https://x.supabase.co/storage/v1/object/public/logos/profiles/u1/avatar.jpg?v=1725') === 'profiles/u1/avatar.jpg', 'P2u4: profilkepObjektumUt a nyilvános URL-ből az objektum-utat adja (a ?v= nélkül)')
+  assert(S.profilkepObjektumUt('https://lh3.googleusercontent.com/a/b') === null && S.profilkepObjektumUt(null) === null, 'P2u5: nem logos-URL / üres → null')
+  // P2u6–P2u8 — a törlésre kért lista: a hivatkozott fájl a list() nélkül is kért (a list() RLS-néma)
+  assert(JSON.stringify(S.torlesreKertUtak([], { kotelezo: 'profiles/u/avatar.jpg' })) === JSON.stringify(['profiles/u/avatar.jpg']), 'P2u6: torlesreKertUtak — ÜRES listázásnál is kéri a hivatkozott fájlt')
+  assert(JSON.stringify(S.torlesreKertUtak(['profiles/u/avatar.jpg', 'profiles/u/avatar.png'], { kotelezo: 'profiles/u/avatar.jpg' })) === JSON.stringify(['profiles/u/avatar.jpg', 'profiles/u/avatar.png']), 'P2u7: a listázott hivatkozott fájl nem duplázódik')
+  assert(JSON.stringify(S.torlesreKertUtak(['profiles/u/avatar.jpg', 'profiles/u/avatar.png'], { kivetel: 'profiles/u/avatar.png', kotelezo: 'profiles/u/avatar.png' })) === JSON.stringify(['profiles/u/avatar.jpg']), 'P2u8: a kivétel (az épp feltöltött fájl) akkor sem kért, ha kötelezőként is meg van adva')
+  // P2f — A FOLYAMAT SZIMULÁLVA a tiszta függvényekkel: RLS-néma ÜRES list() + a saját mappára mutató photo_url.
+  const hivatkozottUt = S.profilkepObjektumUt('https://x.supabase.co/storage/v1/object/public/logos/profiles/u1/avatar.jpg?v=1')
+  const ujFolyamat = (listazott, toroltValasz) => {
+    const kert = S.torlesreKertUtak(listazott, { kotelezo: hivatkozottUt })
+    const toroletlen = kert.length === 0 ? [] : S.toroletlenUtak(kert, toroltValasz)
+    return toroletlen.includes(hivatkozottUt) ? 'HIBA' : 'torolve'
+  }
+  assert(ujFolyamat([], []) === 'HIBA', 'P2f: üres listázás + a remove() üres válasza → HIBA (a hivatkozás NEM nullázódik, a toast nem mond törlést)')
+  assert(ujFolyamat([], [{ name: hivatkozottUt }]) === 'torolve', 'P2f2: üres listázás, de a remove() igazolja a hivatkozott fájl törlését → törölve')
+  // A HIBAOSZTÁLY bizonyítéka: a RÉGI folyamat a kért listát CSAK a list()-ből vette.
+  const regiFolyamat = (listazott, toroltValasz) => {
+    const kert = listazott
+    const toroletlen = kert.length === 0 ? [] : S.toroletlenUtak(kert, toroltValasz)
+    return toroletlen.includes(hivatkozottUt) ? 'HIBA' : 'torolve'
+  }
+  assert(regiFolyamat([], []) === 'torolve', 'P2fn: a RÉGI folyamat ugyanerre „törölve"-t mondott (a fájl maradt, a hivatkozás nullázódott) — ezért kell a kötelező út')
+}
+
+// P3 — „örökölt szerep": pontos aláírás (approved_by NULL ÉS approved_at ≈ created_at, ±5 mp)
+{
+  const O = require_(ir('orokolt-szerep.cjs', olvas(F.orokolt)))
+  const be = (approvedAt, fiok, approvedBy = null) => ({ approvedBy, approvedAt, fiokLetrejott: fiok })
+  assert(O.orokoltSzerepE(be('2026-04-17T10:00:00Z', '2026-04-17T10:00:00Z')) === true, 'P3u1: azonos időbélyeg + approved_by NULL → örökölt')
+  assert(O.orokoltSzerepE(be('2026-04-17T10:00:04.500Z', '2026-04-17T10:00:00Z')) === true, 'P3u2: 4,5 mp eltérés a tűrésen belül → örökölt')
+  assert(O.orokoltSzerepE(be('2026-04-17T10:00:06Z', '2026-04-17T10:00:00Z')) === false, 'P3u3: 6 mp → NEM örökölt')
+  assert(O.orokoltSzerepE(be('2026-04-17T13:00:00Z', '2026-04-17T10:00:00Z')) === false, 'P3u4: AZNAP, 3 órával később admin által kiosztott szerep → NEM örökölt')
+  assert(O.orokoltSzerepE(be('2026-04-17T10:00:00Z', '2026-04-17T10:00:00Z', 'admin-uuid')) === false, 'P3u5: approved_by kitöltve → NEM örökölt, akkor sem, ha az időbélyeg egyezik')
+  assert(
+    O.orokoltSzerepE(be(null, '2026-04-17T10:00:00Z')) === false && O.orokoltSzerepE(be('nem-datum', '2026-04-17T10:00:00Z')) === false && O.orokoltSzerepE(be('2026-04-17T10:00:00Z', null)) === false,
+    'P3u6: hiányzó / érvénytelen időbélyeg → false (bizonytalanul nem állítjuk)',
+  )
+  assert(O.OROKOLT_SZEREP_TURES_MS === 5000, 'P3u7: a tűrés 5 mp')
+  // A HIBAOSZTÁLY bizonyítéka: a régi napra-egyezés az aznapi admin-jóváhagyást is örököltnek látta.
+  const D = require_(dateP)
+  // A régi minta a MAI forrásból (formatTimestampHu-egyezés) — nem a date.ts régi segédjét hívjuk.
+  const regiNapraEgyezes = (a, b) => Boolean(D.formatTimestampHu(a)) && D.formatTimestampHu(a) === D.formatTimestampHu(b)
+  assert(regiNapraEgyezes('2026-04-17T13:00:00Z', '2026-04-17T10:00:00Z') === true, 'P3n0: a RÉGI napra-egyezés a 3 órával későbbi (aznapi) jóváhagyásra is igazat ad — ezért kellett a pontos aláírás')
+  const kod = kodCsak(actions)
+  const or = (k) => /orokolt: orokoltSzerepE\(\{ approvedBy: r\.approved_by, approvedAt: r\.approved_at, fiokLetrejott: createdAt \}\)/.test(k) && !/ugyanazABukarestiNap/.test(k)
+  assert(or(kod) && /from '@\/lib\/profile-roles\/orokolt-szerep'/.test(actions), 'P3: az actions az orokoltSzerepE-t hívja, a napra-egyezés kikerült')
+  const mutans = kod.replace('orokolt: orokoltSzerepE({ approvedBy: r.approved_by, approvedAt: r.approved_at, fiokLetrejott: createdAt })', 'orokolt: r.approved_by == null && ugyanazABukarestiNap(r.approved_at, createdAt)')
+  assert(mutans !== kod && !or(mutans), 'P3n: a napra-egyezés visszaírásával az őr BUKIK')
+}
+
+// P4 — a Kapcsolatok-döntés EGY feloldóból (lelkesziSzerepbenE) mind a 4 helyen
+{
+  const A = require_(ir('aktiv-szerep.cjs', olvas(F.aktivSzerep)))
+  assert(A.lelkesziSzerepbenE({ activeProfileRole: { role: 'lelkesz' }, role: 'konyvelo' }) === true, 'P4u1: az aktív profil-szerep dönt')
+  assert(A.lelkesziSzerepbenE({ activeProfileRole: { role: 'konyvelo' }, role: 'lelkesz' }) === false, 'P4u2: könyvelői profilra váltott lelkész → NEM lelkészi szerepben (a skalár nem előzi meg az aktívat)')
+  assert(A.lelkesziSzerepbenE({ activeProfileRole: null, role: 'lelkesz' }) === true, 'P4u3: aktív sor nélkül a legacy skalár a fallback')
+  assert(A.lelkesziSzerepbenE({ activeProfileRole: null, role: null }) === false && A.aktivSzerepKulcs({ activeProfileRole: null, role: undefined }) === null, 'P4u4: semmi → false / null')
+  // Bírálat P2: az access.role ISMERETLEN skalárnál 'lelkesz'-re esik vissza (kijelző-célra) — a feloldó ezt
+  // NEM veheti jognak: missingPrimaryRole → fail-closed false/null.
+  assert(
+    A.lelkesziSzerepbenE({ activeProfileRole: null, role: 'lelkesz', missingPrimaryRole: true }) === false &&
+      A.aktivSzerepKulcs({ activeProfileRole: null, role: 'lelkesz', missingPrimaryRole: true }) === null,
+    "P4u5: ISMERETLEN elsődleges szerepnél (missingPrimaryRole) a kontextus 'lelkesz' visszaesése NEM jog → false/null (fail-closed)",
+  )
+  const Am = require_(ir('aktiv-szerep-mutans.cjs', olvas(F.aktivSzerep).replace('if (ctx.missingPrimaryRole) return null', '')))
+  assert(Am.lelkesziSzerepbenE({ activeProfileRole: null, role: 'lelkesz', missingPrimaryRole: true }) === true, 'P4u5n: a missingPrimaryRole-kapu kivételével a feloldó fail-open (true) lenne — a P4u5 őr ezt BUKÁSKÉNT látja')
+  const dkod = kodCsak(dialog)
+  const pkod = kodCsak(page)
+  const kp = kodCsak(olvas(F.kapcsPage))
+  const ka = kodCsak(olvas(F.kapcsActions))
+  const regi = /\brole\s*(?:===|!==)\s*'lelkesz'/
+  const or = (k) => /lelkesziSzerepbenE\(access\)/.test(k) && !regi.test(k)
+  assert(or(pkod) && or(kp) && or(ka), 'P4: a /profile oldal, a /profile/kapcsolatok oldal és annak akciói a közös lelkesziSzerepbenE(access)-ből döntenek — nincs saját role === lelkesz szabály')
+  assert(!regi.test(dkod) && !/isLelkesz/.test(dkod) && /kapcsolatokElerheto=\{data\.kapcsolatokElerheto\}/.test(dkod), 'P4b: a dialógus linkje a szerver által számolt kapcsolatokElerheto-ból él (nem számol újra)')
+  // Bírálat P2: a dialógus-adat eddig a NYERS profile?.role-t adta át, a másik három hely az access-t —
+  // ismeretlen/hiányzó skalárnál a két forrás széthúzott. EGY bemenet mind a négy helyen.
+  const akod = kodCsak(actions)
+  const orC = (k) => /kapcsolatokElerheto: lelkesziSzerepbenE\(access\)/.test(k) && !/lelkesziSzerepbenE\(\{ activeProfileRole/.test(k)
+  assert(orC(akod), 'P4c: a kapcsolatokElerheto a szerveren UGYANAZZAL a bemenettel (access), mint a másik három hely — nem a nyers profile.role-lal')
+  const mutansC = akod.replace('kapcsolatokElerheto: lelkesziSzerepbenE(access)', 'kapcsolatokElerheto: lelkesziSzerepbenE({ activeProfileRole: aktivRole, role: profile?.role })')
+  assert(mutansC !== akod && !orC(mutansC), 'P4cn: a nyers profile.role-os (széttartó) alak visszaírásával az őr BUKIK')
+  const mutans = kp.replace('if (!lelkesziSzerepbenE(access)) {', "if (access.role !== 'lelkesz') {")
+  assert(mutans !== kp && !or(mutans), 'P4n: a skalár-alapú döntés visszaírásával az őr BUKIK')
+}
+
+// P5 — a fülek érintőfelülete 44 px (min-h-11), nincs min-h-10
+{
+  const kod = kodCsak(dialog)
+  const or = (k) => {
+    const f = k.match(/<TabsTrigger [^>]*className="([^"]+)"/g) || []
+    return f.length === 3 && f.every((x) => /\bmin-h-11\b/.test(x) && !/\bmin-h-10\b/.test(x))
+  }
+  assert(or(kod), 'P5: mind a 3 fül min-h-11 (44 px), nincs min-h-10')
+  const mutans = kod.replace('<TabsTrigger value="attekintes" className="min-h-11', '<TabsTrigger value="attekintes" className="min-h-10')
+  assert(mutans !== kod && !or(mutans), 'P5n: a min-h-10 visszaírásával az őr BUKIK')
+}
+
+// P6 — React-kulcs nem a megjelenített tartalomból
+{
+  const kod = kodCsak(dialog)
+  const or = (k) => !/key=\{item\}/.test(k) && (k.match(/\.map\(\(item, i\) => \(/g) || []).length === 2 && (k.match(/<span key=\{i\}/g) || []).length === 2
+  assert(or(kod), 'P6: a két chip-lista (régi helyek, korábbi szerepek) kulcsa az index, nem a szöveg')
+  const mutans = kod.replace('legacyHelyek.map((item, i) => (', 'legacyHelyek.map((item) => (').replace('<span key={i} className="max-w-full break-words rounded-full bg-secondary', '<span key={item} className="max-w-full break-words rounded-full bg-secondary')
+  assert(mutans !== kod && !or(mutans), 'P6n: a tartalom-kulcs visszaírásával az őr BUKIK')
+}
+
+// P7 — ProfileStatus a 4 élő DB-értékkel; a címke-térkép kimerítő
+{
+  const akod = kodCsak(olvas(F.authTypes))
+  const or = (k) => /PROFILE_STATUS_VALUES = \['pending', 'active', 'rejected', 'deleted'\] as const/.test(k) && /export type ProfileStatus = \(typeof PROFILE_STATUS_VALUES\)\[number\]/.test(k)
+  assert(or(akod), 'P7: ProfileStatus = pending | active | rejected | deleted (egy forrásból, a DB íróival egyezően)')
+  const lkod = kodCsak(labelsSrc)
+  assert(/PROFILE_STATUS_LABELS: Record<ProfileStatus, string>/.test(lkod) && /isProfileStatus\(status\)/.test(lkod), 'P7b: a címke-térkép a ProfileStatus-ra KIMERÍTŐ (új érték → fordítási hiba), a feloldó típus-guarddal')
+  const mutans = akod.replace("PROFILE_STATUS_VALUES = ['pending', 'active', 'rejected', 'deleted'] as const", "PROFILE_STATUS_VALUES = ['pending', 'active'] as const")
+  assert(mutans !== akod && !or(mutans), 'P7n: a kétértékű unió visszaírásával az őr BUKIK')
+  const T = require_(authTypesP)
+  assert(
+    T.isProfileStatus('rejected') && T.isProfileStatus('deleted') && T.isProfileStatus('pending') && T.isProfileStatus('active') && !T.isProfileStatus('approved') && !T.isProfileStatus(null),
+    'P7u: isProfileStatus a 4 értéket ismeri; az örökölt approved-ot és a null-t nem',
+  )
+  const L = require_(labelsP)
+  assert(L.getProfileStatusLabel('rejected').label === 'Elutasítva' && L.getProfileStatusLabel('approved').ismeretlen === true, 'P7u2: rejected → Elutasítva; approved → ismeretlen (⚠️), nem hamis címke')
+}
+
+// P8 — a végleges törlés kétlépéses megerősítő dialógusból; nincs window.confirm
+{
+  const kod = kodCsak(dialog)
+  const or = (k) => !/window\.confirm\(/.test(k) && /<AdminConfirmDialog/.test(k) && /tone="danger"/.test(k) && /onConfirm=\{\(\) => void handlePhotoDelete\(\)\}/.test(k)
+  assert(or(kod) && /from '@\/components\/admin\/admin-confirm-dialog'/.test(dialog), 'P8: a végleges törlés a meglévő megerősítő dialógusból indul (danger), nincs window.confirm')
+  assert((kod.match(/await removeProfilePhoto\(\)/g) || []).length === 1 && (kod.match(/void handlePhotoDelete\(\)/g) || []).length === 1, 'P8b: removeProfilePhoto egyetlen hívója a handlePhotoDelete, azt egyedül a dialógus onConfirm-ja hívja')
+  const mutans = kod.replace('onConfirm={() => void handlePhotoDelete()}', 'onConfirm={() => {}}').replace('onClick={() => setTorlesMegerosites(true)}', "onClick={() => { if (window.confirm('Törlöd?')) void handlePhotoDelete() }}")
+  assert(mutans !== kod && !or(mutans), 'P8n: a window.confirm visszaírásával az őr BUKIK')
+  const valt = szakasz(kod, 'async function handleForrasValtas', 1400)
+  assert(valt.length > 0 && !/removeProfilePhoto/.test(valt) && /await applyUploadedPhoto\(\)/.test(valt) && /await applyNoPhoto\(\)/.test(valt) && /await applyGooglePhoto\(\)/.test(valt), 'P8c: a forrás-váltó a három nem-destruktív akciót hívja, törlést nem')
+  assert(/Feltöltött kép törlése/.test(kod) && /data\.feltoltottKepVan/.test(kod) && /<ForrasGomb/.test(kod) && /aria-pressed=\{aktiv\}/.test(kod), 'P8d: külön „Feltöltött kép törlése" gomb + forrás-váltó gombok (aria-pressed)')
+}
+
+// P9 — (ellenőrzés-ügynök, 2026-09-05) a Felhasználók-oldal státusz-látványa a ProfileStatus-ra
+//      KIMERÍTŐ térkép, a CÍMKE a PROFILE_STATUS_LABELS-ből (eddig két forrás: „Törölve" ⇄ „Törölt")
+{
+  const uvP = path.join(ROOT, 'apps/web/components/admin/users/user-visuals.ts')
+  const uv = olvas(uvP)
+  const kod = kodCsak(uv)
+  const or = (k) =>
+    /USER_STATUS_VISUALS: Record<ProfileStatus, Omit<UserStatusMeta, 'label'>>/.test(k) &&
+    /if \(isProfileStatus\(status\)\) return \{ label: PROFILE_STATUS_LABELS\[status\], \.\.\.USER_STATUS_VISUALS\[status\] \}/.test(k) &&
+    !/case 'active':/.test(k) &&
+    !/label: 'Törölve'/.test(k)
+  assert(or(kod), 'P9: getUserStatusMeta — Record<ProfileStatus,…> látvány-térkép + címke a PROFILE_STATUS_LABELS-ből, nincs saját switch / saját címke')
+  const mutans = kod.replace(
+    'if (isProfileStatus(status)) return { label: PROFILE_STATUS_LABELS[status], ...USER_STATUS_VISUALS[status] }',
+    "switch (status) { case 'active': return { label: 'Aktív', intent: 'success', accent: '' }; case 'deleted': return { label: 'Törölve', intent: 'neutral', accent: '' } }",
+  )
+  assert(mutans !== kod && !or(mutans), 'P9n: a saját switch-es / saját címkés (régi) mutánson az őr BUKIK')
+  // P9u — FUTTATVA: a címke a labels-térképpel azonos; ismeretlen érték nyersen, semleges színnel
+  const UV = require_(ir('user-visuals.cjs', uv, [
+    ['@/lib/profile-roles/labels', labelsP],
+    ['@/lib/types/auth', authTypesP],
+  ]))
+  const L = require_(labelsP)
+  assert(
+    ['pending', 'active', 'rejected', 'deleted'].every((s) => UV.getUserStatusMeta(s).label === L.PROFILE_STATUS_LABELS[s]) &&
+      UV.getUserStatusMeta('deleted').label === 'Törölt' &&
+      UV.getUserStatusMeta('pending').intent === 'warning' && UV.getUserStatusMeta('rejected').intent === 'danger' && UV.getUserStatusMeta('active').intent === 'success' &&
+      UV.getUserStatusMeta('approved').label === 'approved' && UV.getUserStatusMeta('approved').intent === 'neutral' &&
+      UV.getUserStatusMeta(null).label === 'Ismeretlen',
+    'P9u: mind a 4 státusz címkéje = PROFILE_STATUS_LABELS (deleted → „Törölt"); az örökölt approved nyersen, semlegesen; null → Ismeretlen',
+  )
+}
+
+// P10 — (bírálat P3) a forrás-váltó az EFFEKTÍV forrásból jelöl; a gombsor örökölt metaadat-képnél is látszik;
+//       a törlés-toast csak IGAZOLT tárhely-törlésnél „végleges"
+{
+  const kod = kodCsak(dialog)
+  const aktivJelolesek = (k) => k.match(/aktiv=\{data\.(\w+) === '(?:upload|google|none)'\}/g) || []
+  const or = (k) => {
+    const a = aktivJelolesek(k)
+    return a.length === 3 && a.every((x) => /data\.effektivAvatarSource ===/.test(x)) && !/aktiv=\{data\.avatarSource ===/.test(k)
+  }
+  assert(or(kod), `P10: mind a 3 forrás-gomb aktiv jelölése az effektivAvatarSource-ból (${aktivJelolesek(kod).length} gomb) — NULL döntésű, örökölt soron is jelöl`)
+  const mutans = kod.replace("aktiv={data.effektivAvatarSource === 'upload'}", "aktiv={data.avatarSource === 'upload'}")
+  assert(mutans !== kod && !or(mutans), 'P10n: a döntés-alapú (NULL-nál „semmi sincs kiválasztva") jelölés visszaírásával az őr BUKIK')
+  assert(/effektivAvatarSource: res\.effektivAvatarSource \?\? null/.test(kod), 'P10b: a fotó-akciók eredménye az effektív forrást is átveszi (a kliens nem vezeti le újra)')
+  const sav = /\(data\.feltoltottKepVan \|\| data\.googlePictureElerheto \|\| Boolean\(data\.avatarUrl\)\) && \(/
+  assert(sav.test(kod), 'P10c: a forrás-gombsor akkor is látszik, ha CSAK örökölt metaadat-kép van (a Monogram = az egyetlen elrejtés)')
+  const mutans2 = kod.replace('(data.feltoltottKepVan || data.googlePictureElerheto || Boolean(data.avatarUrl)) && (', '(data.feltoltottKepVan || data.googlePictureElerheto) && (')
+  assert(mutans2 !== kod && !sav.test(mutans2), 'P10cn: a szűkebb (metaadat-képnél gomb nélküli) feltétel visszaírásával az őr BUKIK')
+  const del = szakasz(kod, 'async function handlePhotoDelete', 1400)
+  const delOr = (k) => /res\.fajlTorolve\s*\?\s*'A feltöltött profilkép véglegesen törölve\.'/.test(k) && !/toast\.success\('A feltöltött profilkép véglegesen törölve\.'\)/.test(k)
+  assert(del.length > 0 && delOr(del), 'P10d: a „véglegesen törölve" toast CSAK igazolt tárhely-törlésnél (fajlTorolve), különben „a hivatkozás törölve"')
+  const mutans3 = del.replace(/toast\.success\(\s*res\.fajlTorolve\s*\?\s*'A feltöltött profilkép véglegesen törölve\.'\s*:\s*'[^']*',?\s*\)/, "toast.success('A feltöltött profilkép véglegesen törölve.')")
+  assert(mutans3 !== del && !delOr(mutans3), 'P10dn: a feltétel nélküli „véglegesen törölve" visszaírásával az őr BUKIK')
+}
+
+// P11 — (bírálat P3) az EFFEKTÍV forrás EGY szabályból: a kép ÉS a gombok jelölése ugyanabból (effektivAvatarSource), a szerver adja
+{
+  const { effektivAvatarSource, resolveAvatarUrl } = require_(avatarP)
+  const F_ = { photoUrl: 'https://x.test/feltoltott.jpg', metadataAvatarUrl: 'https://x.test/meta.jpg', picture: 'https://lh3.test/google.jpg' }
+  assert(effektivAvatarSource({ source: 'google', ...F_ }) === 'google' && effektivAvatarSource({ source: 'none', ...F_ }) === 'none', 'P11u1: explicit döntés → maga a döntés')
+  assert(effektivAvatarSource({ source: null, ...F_ }) === 'upload', 'P11u2: örökölt (NULL) sor feltöltött képpel → upload (a „Feltöltött kép" gomb jelölve)')
+  assert(effektivAvatarSource({ source: null, photoUrl: null, metadataAvatarUrl: F_.picture, picture: F_.picture }) === 'google', 'P11u3: örökölt, a metaadat = a Google-kép → google')
+  assert(effektivAvatarSource({ source: null, photoUrl: null, metadataAvatarUrl: F_.metadataAvatarUrl, picture: null }) === null, 'P11u4: örökölt, ismeretlen eredetű metaadat-kép → null (nincs rá gomb, csak a Monogram)')
+  assert(
+    effektivAvatarSource({ source: null, photoUrl: null, metadataAvatarUrl: null, picture: null }) === 'none' &&
+      effektivAvatarSource({ source: 'furcsa', photoUrl: null, metadataAvatarUrl: null, picture: F_.picture }) === 'google',
+    'P11u5: semmi → none; ismeretlen döntés-érték = örökölt szabály',
+  )
+  for (const source of ['upload', 'google', 'none', null]) {
+    const eff = effektivAvatarSource({ source, ...F_ })
+    const url = resolveAvatarUrl({ source, ...F_ })
+    const vart = eff === 'upload' ? F_.photoUrl : eff === 'google' ? F_.picture : eff === 'none' ? null : F_.metadataAvatarUrl
+    assert(url === vart, `P11u6: a kép és az effektív forrás EGY szabályból (source=${source}: ${eff} → ${url})`)
+  }
+  const avkod = kodCsak(olvas(F.avatar))
+  assert(/switch \(effektivAvatarSource\(input\)\)/.test(avkod), 'P11: resolveAvatarUrl az effektivAvatarSource-ból dönt (a sorrend EGY helyen él)')
+  const mutans = avkod.replace('switch (effektivAvatarSource(input))', 'switch (input.source)')
+  assert(mutans !== avkod && !/switch \(effektivAvatarSource\(input\)\)/.test(mutans), 'P11n: a döntés-skalár szerinti (második sorrendet szülő) switch visszaírásával az őr BUKIK')
+  const betolt = kodCsak(szakasz(actions, 'export async function getProfileDialogData', 20000))
+  assert(/effektivAvatarSource: effektivAvatarSource\(avatarForrasok\)/.test(betolt) && /const avatarUrl = resolveAvatarUrl\(avatarForrasok\)/.test(betolt), 'P11b: a szerver UGYANABBÓL a bemenetből adja a képet ÉS az effektív forrást')
+  assert(/effektivAvatarSource: AvatarSource \| null/.test(olvas(F.shared)), 'P11c: az adatszerződésben az effektív forrás külön mező (a döntés — avatarSource — írása változatlan)')
+  const mutans2 = betolt.replace('effektivAvatarSource: effektivAvatarSource(avatarForrasok),', '')
+  assert(mutans2 !== betolt && !/effektivAvatarSource: effektivAvatarSource\(avatarForrasok\)/.test(mutans2), 'P11bn: a szerver-oldali effektív forrás elhagyásával az őr BUKIK')
+}
+
+// P3c — az „örökölt szerep" döntése KIZÁRÓLAG az orokoltSzerepE; a napra-egyezésnek (ugyanazABukarestiNap)
+//       nincs app-oldali hívója. A date.ts docblock-SZÖVEGÉT szándékosan NEM asszertáljuk (más terület tulajdona —
+//       egy átfogalmazás ott nem buktathatja a profil-őrt); az invariáns a hívók hiánya.
+{
+  /** apps/web TS/TSX fájljai (node_modules, .next és rejtett mappák nélkül). */
+  function tsFajlok(dir, acc = []) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === 'node_modules' || e.name === '.next' || e.name.startsWith('.')) continue
+      const p = path.join(dir, e.name)
+      if (e.isDirectory()) tsFajlok(p, acc)
+      else if (/\.(ts|tsx)$/.test(e.name)) acc.push(p)
+    }
+    return acc
+  }
+  const napraEgyezoHivo = (forras) => /ugyanazABukarestiNap\(/.test(kodCsak(forras))
+  const hivok = tsFajlok(path.join(ROOT, 'apps/web'))
+    .filter((p) => path.resolve(p) !== path.resolve(F.date))
+    .filter((p) => napraEgyezoHivo(olvas(p)))
+    .map((p) => path.relative(ROOT, p))
+  assert(hivok.length === 0, `P3c: az apps/web-ben NINCS app-oldali hívója az ugyanazABukarestiNap-nak (${hivok.join(', ') || 'rendben'})`)
+  // Mutáns: egy app-oldali forrás, amely a napra-egyezésből dönt — a hívó-szűrő megtalálja (az őr nem vak);
+  // a kommentbeli említést viszont nem számolja hívónak.
+  assert(
+    napraEgyezoHivo('const orokolt = r.approved_by == null && ugyanazABukarestiNap(r.approved_at, createdAt)') === true &&
+      napraEgyezoHivo('// ugyanazABukarestiNap(a, b) csak kommentben') === false,
+    'P3cn: a napra-egyezésből döntő forrást a hívó-szűrő megtalálja (a kommentet nem) — a régi alak visszaírásával az őr BUKNA',
+  )
 }
 
 fs.rmSync(TMP, { recursive: true, force: true })

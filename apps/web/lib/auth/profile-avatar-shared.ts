@@ -50,22 +50,39 @@ export function isAvatarSource(value: unknown): value is AvatarSource {
   return value === 'upload' || value === 'google' || value === 'none'
 }
 
-export function resolveAvatarUrl(input: AvatarForrasok): string | null {
-  const photoUrl = normalizeAvatarUrl(input.photoUrl)
+/**
+ * Az EFFEKTÍV forrás — amit a felület a forrás-váltón jelöl (2026-09-05,
+ * bírálat P3): explicit döntésnél maga a döntés; örökölt (NULL) sornál a
+ * `resolveAvatarUrl` sorrendjéből levezetve (photo_url → metaadat → picture),
+ * hogy a SQL előtti sorok se mondjanak „semmi sincs kiválasztva"-t, miközben a
+ * feltöltött kép látszik. `null` = örökölt metaadat-kép ISMERETLEN eredettel
+ * (nem a feltöltött, nem a Google `picture`): erre nincs gomb, csak a
+ * „Monogram" (elrejtés) vagy egy új feltöltés.
+ *
+ * A sorrend EGY helyen él: a `resolveAvatarUrl` ebből dönt, nem mellette.
+ */
+export function effektivAvatarSource(input: AvatarForrasok): AvatarSource | null {
+  if (isAvatarSource(input.source)) return input.source
+  if (normalizeAvatarUrl(input.photoUrl)) return 'upload'
   const metadataAvatarUrl = normalizeAvatarUrl(input.metadataAvatarUrl)
   const picture = normalizeAvatarUrl(input.picture)
+  if (metadataAvatarUrl) return picture && metadataAvatarUrl === picture ? 'google' : null
+  if (picture) return 'google'
+  return 'none'
+}
 
-  switch (input.source) {
+export function resolveAvatarUrl(input: AvatarForrasok): string | null {
+  switch (effektivAvatarSource(input)) {
     case 'upload':
       // Ha a döntés „feltöltött", de a fájl URL-je hiányzik (pl. törölt
       // objektum), NEM esünk vissza a Google-képre: a felhasználó nem azt kérte.
-      return photoUrl
+      return normalizeAvatarUrl(input.photoUrl)
     case 'google':
-      return picture
+      return normalizeAvatarUrl(input.picture)
     case 'none':
       return null
     default:
-      // Örökölt sor (nincs döntés): az explicit feltöltés az első.
-      return photoUrl || metadataAvatarUrl || picture
+      // Örökölt metaadat-kép (nincs döntés, nincs feltöltés, nem a Google-kép).
+      return normalizeAvatarUrl(input.metadataAvatarUrl)
   }
 }

@@ -22,11 +22,28 @@
  *    a felirat ezt őszintén mondja („A napló indulása"), adatot nem írunk át.
  *  · Szerkesztés: a strukturált `pastor_service_history` a kanonikus; a legacy
  *    vesszős lista csak olvasható „Régi (szöveges) bejegyzés".
- *  · Profilkép: szerver-akció, fix objektumnév, „Kép eltávolítása" és
- *    „Google-fotó használata" — az explicit feltöltés győz.
+ *  · Profilkép: szerver-akció, fix objektumnév. 2026-09-05 (P3-utómunka): a
+ *    MEGJELENŐ kép forrása (feltöltött / Google-fotó / monogram) egy váltó —
+ *    a váltás CSAK a döntést írja, a feltöltött fájl megmarad (vissza lehet
+ *    váltani). A feltöltött kép TÖRLÉSE külön gomb, kétlépéses megerősítő
+ *    dialógussal (nem window.confirm) — a visszafordíthatatlan lépés sosem
+ *    egy kattintás.
+ *  · (bírálat P3) A forrás-váltó gombjai az EFFEKTÍV forrásból jelölnek
+ *    (`effektivAvatarSource` — a szerver számolja, UGYANABBÓL a szabályból,
+ *    amiből a képet): örökölt, NULL döntésű soron is látszik, mi látszik. A
+ *    gombsor akkor is megjelenik, ha CSAK örökölt metaadat-kép van (nincs
+ *    feltöltés, nincs Google-kép) — ott a „Monogram" az egyetlen elrejtési
+ *    lehetőség, különben a kép sem törölhető, sem elrejthető nem lenne. A
+ *    törlés sikerét a felület csak IGAZOLT tárhely-törlésnél mondja
+ *    „véglegesen törölve"-nek (`fajlTorolve`), különben „a hivatkozás törölve".
+ *  · A „Kapcsolatok" link a szerver által számolt `kapcsolatokElerheto`-ból él
+ *    (EGY feloldó: `lelkesziSzerepbenE`), ugyanabból, amiből a
+ *    /profile/kapcsolatok oldal és akciói — a kliens nem számol saját szabályt.
+ *  · React-kulcs SOHA nem a megjelenített tartalomból (`key={item}` → index):
+ *    két azonos szöveg ütközne, a kulcs pedig nem hordoz információt.
  *
  * Mobil-first: a 3 fül egy sorban, vízszintesen görgethetően; minden
- * érintőfelület legalább 44 px; a hero 375 px-en is rendezett.
+ * érintőfelület legalább 44 px (`min-h-11`); a hero 375 px-en is rendezett.
  */
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
@@ -39,6 +56,7 @@ import {
   Check,
   Church,
   Globe,
+  Image as ImageIcon,
   ImageOff,
   Landmark,
   Loader2,
@@ -47,6 +65,7 @@ import {
   Phone,
   ShieldCheck,
   Sparkles,
+  Trash2,
   UserRound,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -57,6 +76,8 @@ import {
   saveProfileDetails,
   uploadProfilePhoto,
   applyGooglePhoto,
+  applyNoPhoto,
+  applyUploadedPhoto,
 } from '@/app/(dashboard)/profile/actions'
 import { switchActiveProfileRole } from '@/app/(dashboard)/profile/switch-context-action'
 import {
@@ -67,6 +88,7 @@ import {
   PROFILE_PHOTO_MAX_BYTES,
   PROFILE_PHOTO_MIME,
   type ProfileDialogData,
+  type ProfilePhotoResult,
   type ProfileSaveInput,
 } from '@/app/(dashboard)/profile/profile-dialog-shared'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -77,6 +99,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { AdminConfirmDialog } from '@/components/admin/admin-confirm-dialog'
 import {
   ServiceHistoryEditor,
   createEmptyServiceHistory,
@@ -170,6 +193,8 @@ export function ProfileDialog({ open, onOpenChange, profile }: ProfileDialogProp
   const [reloadKey, setReloadKey] = useState(0)
   const [saving, setSaving] = useState(false)
   const [photoBusy, setPhotoBusy] = useState(false)
+  // A feltöltött kép VÉGLEGES törlésének megerősítő dialógusa (kétlépéses).
+  const [torlesMegerosites, setTorlesMegerosites] = useState(false)
   const [data, setData] = useState<ProfileDialogData | null>(null)
   const [form, setForm] = useState<FormState>({
     fullName: profile.full_name || '',
@@ -236,7 +261,6 @@ export function ProfileDialog({ open, onOpenChange, profile }: ProfileDialogProp
   const aktivRoleLabel = aktiv ? getRoleLabel(aktiv.role, aktiv.customLabel) : getRoleLabel(data?.role)
   const eyebrow = getProfileEyebrow(aktiv?.role ?? data?.role)
   const statusz = getProfileStatusLabel(data?.status)
-  const isLelkesz = aktiv ? aktiv.role === 'lelkesz' : data?.role === 'lelkesz'
 
   // Legacy szöveges helyek, amelyek NINCSENEK a strukturált sorok között.
   const legacyHelyek = useMemo(() => {
@@ -252,6 +276,25 @@ export function ProfileDialog({ open, onOpenChange, profile }: ProfileDialogProp
   }
 
   // ── Profilkép ──────────────────────────────────────────────────────────────
+
+  /** A fotó-akció eredménye a helyi állapotra (kép, döntés, van-e még feltöltött fájl) + figyelmeztetés. */
+  function alkalmazFotoEredmeny(res: ProfilePhotoResult) {
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            avatarUrl: res.avatarUrl ?? null,
+            avatarSource: res.avatarSource ?? null,
+            // Az effektív forrás a SZERVER számítása (egy szabály a képpel) — a
+            // kliens nem vezeti le újra a gombok jelöléséhez.
+            effektivAvatarSource: res.effektivAvatarSource ?? null,
+            feltoltottKepVan: res.feltoltottKepVan ?? prev.feltoltottKepVan,
+          }
+        : prev,
+    )
+    if (res.warning) toast.warning(res.warning, { duration: 12000 })
+  }
+
   async function handlePhotoUpload(file: File) {
     // Kliens-oldali előszűrés — a szerver ugyanezt ellenőrzi (egy szabály).
     if (!PROFILE_PHOTO_MIME[file.type]) {
@@ -271,9 +314,8 @@ export function ProfileDialog({ open, onOpenChange, profile }: ProfileDialogProp
         toast.error(res.error)
         return
       }
-      setData((prev) => (prev ? { ...prev, avatarUrl: res.avatarUrl ?? null, avatarSource: res.avatarSource ?? null } : prev))
+      alkalmazFotoEredmeny(res)
       toast.success('A profilkép feltöltése sikerült.')
-      if (res.warning) toast.warning(res.warning, { duration: 12000 })
     } catch (e) {
       toast.error(`A profilkép feltöltése nem sikerült: ${hibaSzoveg(e)}`)
     } finally {
@@ -281,8 +323,12 @@ export function ProfileDialog({ open, onOpenChange, profile }: ProfileDialogProp
     }
   }
 
-  async function handlePhotoRemove() {
-    if (!window.confirm('Eltávolítod a profilképet? A helyén a monogramod jelenik meg.')) return
+  /**
+   * A feltöltött kép VÉGLEGES törlése — KIZÁRÓLAG a megerősítő dialógus
+   * `onConfirm`-jából hívható (kétlépéses; a visszafordíthatatlan lépés sosem
+   * egy kattintás). A dialógus hibánál nyitva marad, hogy a hiba látszódjon.
+   */
+  async function handlePhotoDelete() {
     setPhotoBusy(true)
     try {
       const res = await removeProfilePhoto()
@@ -290,29 +336,45 @@ export function ProfileDialog({ open, onOpenChange, profile }: ProfileDialogProp
         toast.error(res.error)
         return
       }
-      setData((prev) => (prev ? { ...prev, avatarUrl: res.avatarUrl ?? null, avatarSource: res.avatarSource ?? null } : prev))
-      toast.success('A profilkép eltávolítva.')
-      if (res.warning) toast.warning(res.warning, { duration: 12000 })
+      setTorlesMegerosites(false)
+      alkalmazFotoEredmeny(res)
+      // Csak IGAZOLT tárhely-törlésnél mondunk „véglegesen törölve"-t: ha a
+      // hivatkozás nem a saját mappára mutatott, a tárhelyen semmi sem tűnt el
+      // (a szerver figyelmeztetése ezt külön kimondja).
+      toast.success(
+        res.fajlTorolve
+          ? 'A feltöltött profilkép véglegesen törölve.'
+          : 'A profilkép hivatkozása törölve — a tárhelyről saját fájl nem törlődött.',
+      )
     } catch (e) {
-      toast.error(`A profilkép eltávolítása nem sikerült: ${hibaSzoveg(e)}`)
+      toast.error(`A profilkép törlése nem sikerült: ${hibaSzoveg(e)}`)
     } finally {
       setPhotoBusy(false)
     }
   }
 
-  async function handleGooglePhoto() {
+  /** Forrás-váltás: CSAK a döntés változik (avatar_source), a feltöltött fájl megmarad. */
+  async function handleForrasValtas(source: 'upload' | 'google' | 'none') {
     setPhotoBusy(true)
     try {
-      const res = await applyGooglePhoto()
+      let res: ProfilePhotoResult
+      if (source === 'google') res = await applyGooglePhoto()
+      else if (source === 'upload') res = await applyUploadedPhoto()
+      else res = await applyNoPhoto()
       if (res.error) {
         toast.error(res.error)
         return
       }
-      setData((prev) => (prev ? { ...prev, avatarUrl: res.avatarUrl ?? null, avatarSource: res.avatarSource ?? null } : prev))
-      toast.success('A Google-fiókod képe lett a profilképed.')
-      if (res.warning) toast.warning(res.warning, { duration: 12000 })
+      alkalmazFotoEredmeny(res)
+      toast.success(
+        source === 'google'
+          ? 'A Google-fiókod képe látszik profilképként.'
+          : source === 'upload'
+            ? 'A feltöltött képed látszik profilképként.'
+            : 'A profilkép helyén a monogramod látszik — a feltöltött kép megmaradt.',
+      )
     } catch (e) {
-      toast.error(`A Google-fotó beállítása nem sikerült: ${hibaSzoveg(e)}`)
+      toast.error(`A profilkép forrásának váltása nem sikerült: ${hibaSzoveg(e)}`)
     } finally {
       setPhotoBusy(false)
     }
@@ -468,17 +530,51 @@ export function ProfileDialog({ open, onOpenChange, profile }: ProfileDialogProp
                           }}
                         />
                       </label>
-                      {data.avatarUrl && (
-                        <Button type="button" variant="ghost" className="min-h-11 gap-1.5 text-xs" disabled={photoBusy} onClick={handlePhotoRemove}>
-                          <ImageOff className="size-3.5" /> Eltávolítás
-                        </Button>
-                      )}
-                      {data.googlePictureElerheto && data.avatarSource !== 'google' && (
-                        <Button type="button" variant="ghost" className="min-h-11 text-xs" disabled={photoBusy} onClick={handleGooglePhoto}>
-                          Google-fotó használata
+                      {data.feltoltottKepVan && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="min-h-11 gap-1.5 text-xs text-destructive hover:text-destructive"
+                          disabled={photoBusy}
+                          onClick={() => setTorlesMegerosites(true)}
+                        >
+                          <Trash2 className="size-3.5" /> Feltöltött kép törlése
                         </Button>
                       )}
                     </div>
+                    {/* A MEGJELENŐ kép forrása — a váltás nem töröl semmit, vissza lehet váltani.
+                        Akkor is látszik, ha CSAK örökölt metaadat-kép van (bírálat P3): ott a
+                        „Monogram" az egyetlen elrejtési lehetőség. Az aktív jelölés az EFFEKTÍV
+                        forrásból (NULL döntésű, örökölt soron is jelöl valamit). */}
+                    {(data.feltoltottKepVan || data.googlePictureElerheto || Boolean(data.avatarUrl)) && (
+                      <div className="flex flex-wrap justify-center gap-1.5 sm:justify-start" role="group" aria-label="A profilkép forrása">
+                        {data.feltoltottKepVan && (
+                          <ForrasGomb
+                            aktiv={data.effektivAvatarSource === 'upload'}
+                            disabled={photoBusy}
+                            onClick={() => void handleForrasValtas('upload')}
+                            icon={<ImageIcon className="size-3.5" />}
+                            label="Feltöltött kép"
+                          />
+                        )}
+                        {data.googlePictureElerheto && (
+                          <ForrasGomb
+                            aktiv={data.effektivAvatarSource === 'google'}
+                            disabled={photoBusy}
+                            onClick={() => void handleForrasValtas('google')}
+                            icon={<Globe className="size-3.5" />}
+                            label="Google-fotó"
+                          />
+                        )}
+                        <ForrasGomb
+                          aktiv={data.effektivAvatarSource === 'none'}
+                          disabled={photoBusy}
+                          onClick={() => void handleForrasValtas('none')}
+                          icon={<ImageOff className="size-3.5" />}
+                          label="Monogram"
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <div className="min-w-0 space-y-2">
@@ -572,6 +668,30 @@ export function ProfileDialog({ open, onOpenChange, profile }: ProfileDialogProp
               </div>
             </div>
 
+            {/* Kétlépéses megerősítés a VÉGLEGES törléshez — a meglévő dialógus-minta, nem window.confirm. */}
+            <AdminConfirmDialog
+              open={torlesMegerosites}
+              onOpenChange={(o) => {
+                if (!photoBusy) setTorlesMegerosites(o)
+              }}
+              title="Feltöltött profilkép végleges törlése"
+              description={
+                <>
+                  A feltöltött kép <strong>véglegesen törlődik</strong> a tárhelyről — ez nem vonható vissza, később csak
+                  új feltöltéssel pótolható.
+                  {/* A szerver döntése: a Google-DÖNTÉS marad (ha van Google-kép), minden más → monogram. */}
+                  {data.avatarSource === 'google' && data.googlePictureElerheto ? ' A Google-fiókod képe marad a profilképed.' : ' A helyén a monogramod jelenik meg.'}
+                  {data.effektivAvatarSource === 'upload'
+                    ? ' Ha csak nem szeretnéd látni, válaszd inkább a „Monogram" forrást — az nem töröl semmit.'
+                    : ''}
+                </>
+              }
+              confirmLabel="Végleges törlés"
+              tone="danger"
+              loading={photoBusy}
+              onConfirm={() => void handlePhotoDelete()}
+            />
+
             {!data.extensionReady && (
               <Figyelmeztetes>
                 {data.extensionMessage ||
@@ -582,9 +702,9 @@ export function ProfileDialog({ open, onOpenChange, profile }: ProfileDialogProp
             {/* ── FÜLEK — mobilon egy sorban, görgethetően ─────────────────── */}
             <Tabs defaultValue="attekintes" className="w-full">
               <TabsList className="flex w-full snap-x justify-start gap-1 overflow-x-auto rounded-[1.4rem] border-border bg-muted/60 p-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                <TabsTrigger value="attekintes" className="min-h-10 shrink-0 snap-start px-3 text-sm">Áttekintés</TabsTrigger>
-                <TabsTrigger value="szolgalat" className="min-h-10 shrink-0 snap-start px-3 text-sm">Szolgálat</TabsTrigger>
-                <TabsTrigger value="szerkesztes" className="min-h-10 shrink-0 snap-start px-3 text-sm">Szerkesztés</TabsTrigger>
+                <TabsTrigger value="attekintes" className="min-h-11 shrink-0 snap-start px-3 text-sm">Áttekintés</TabsTrigger>
+                <TabsTrigger value="szolgalat" className="min-h-11 shrink-0 snap-start px-3 text-sm">Szolgálat</TabsTrigger>
+                <TabsTrigger value="szerkesztes" className="min-h-11 shrink-0 snap-start px-3 text-sm">Szerkesztés</TabsTrigger>
               </TabsList>
 
               {/* ── ÁTTEKINTÉS ────────────────────────────────────────────── */}
@@ -682,7 +802,7 @@ export function ProfileDialog({ open, onOpenChange, profile }: ProfileDialogProp
                   </ProfileCard>
                 )}
 
-                <ProfilLinksor isLelkesz={isLelkesz} onNavigate={closeAndGo} />
+                <ProfilLinksor kapcsolatokElerheto={data.kapcsolatokElerheto} onNavigate={closeAndGo} />
               </TabsContent>
 
               {/* ── SZOLGÁLAT ─────────────────────────────────────────────── */}
@@ -760,8 +880,8 @@ export function ProfileDialog({ open, onOpenChange, profile }: ProfileDialogProp
                           <div className="min-w-0 rounded-[1rem] border border-dashed border-border px-4 py-3">
                             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Régi (szöveges) bejegyzés</p>
                             <div className="mt-2 flex flex-wrap gap-2">
-                              {legacyHelyek.map((item) => (
-                                <span key={item} className="max-w-full break-words rounded-full bg-secondary px-3 py-1 text-xs font-medium text-secondary-foreground">
+                              {legacyHelyek.map((item, i) => (
+                                <span key={i} className="max-w-full break-words rounded-full bg-secondary px-3 py-1 text-xs font-medium text-secondary-foreground">
                                   {item}
                                 </span>
                               ))}
@@ -947,8 +1067,8 @@ function TagGroup({ title, items, emptyText }: { title: string; items: string[];
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{title}</p>
       {items.length > 0 ? (
         <div className="mt-2 flex flex-wrap gap-2">
-          {items.map((item) => (
-            <span key={item} className="max-w-full break-words rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+          {items.map((item, i) => (
+            <span key={i} className="max-w-full break-words rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
               {item}
             </span>
           ))}
@@ -960,8 +1080,46 @@ function TagGroup({ title, items, emptyText }: { title: string; items: string[];
   )
 }
 
-/** D10: átjárás a /profile oldal részei felé — a két felület nem sziget. */
-function ProfilLinksor({ isLelkesz, onNavigate }: { isLelkesz: boolean; onNavigate: () => void }) {
+/**
+ * A profilkép FORRÁSÁNAK egy gombja (feltöltött / Google / monogram). Az aktív
+ * forrás jelölve (`aria-pressed`) és nem kattintható; minden gomb ≥ 44 px.
+ */
+function ForrasGomb({
+  aktiv,
+  disabled,
+  onClick,
+  icon,
+  label,
+}: {
+  aktiv: boolean
+  disabled: boolean
+  onClick: () => void
+  icon: React.ReactNode
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={aktiv}
+      disabled={disabled || aktiv}
+      onClick={onClick}
+      className={`inline-flex min-h-11 items-center gap-1.5 rounded-xl border px-3 text-xs font-medium transition disabled:cursor-default ${
+        aktiv
+          ? 'border-primary/40 bg-primary/10 text-primary'
+          : 'border-border bg-card text-foreground shadow-sm hover:bg-muted disabled:opacity-60'
+      }`}
+    >
+      {aktiv ? <Check className="size-3.5" /> : icon}
+      {label}
+    </button>
+  )
+}
+
+/**
+ * D10: átjárás a /profile oldal részei felé — a két felület nem sziget. A
+ * „Kapcsolatok" láthatósága a szerver döntése (`kapcsolatokElerheto`, EGY feloldó).
+ */
+function ProfilLinksor({ kapcsolatokElerheto, onNavigate }: { kapcsolatokElerheto: boolean; onNavigate: () => void }) {
   const linkClass =
     'inline-flex min-h-11 items-center rounded-xl px-3 text-sm font-medium text-primary underline-offset-4 transition hover:bg-muted hover:underline'
   return (
@@ -969,7 +1127,7 @@ function ProfilLinksor({ isLelkesz, onNavigate }: { isLelkesz: boolean; onNaviga
       <Link href="/profile/biztonsag" className={linkClass} onClick={onNavigate}>Biztonság</Link>
       <span className="text-muted-foreground">·</span>
       <Link href="/profile/adatvedelem" className={linkClass} onClick={onNavigate}>Adatvédelem</Link>
-      {isLelkesz && (
+      {kapcsolatokElerheto && (
         <>
           <span className="text-muted-foreground">·</span>
           <Link href="/profile/kapcsolatok" className={linkClass} onClick={onNavigate}>Kapcsolatok</Link>

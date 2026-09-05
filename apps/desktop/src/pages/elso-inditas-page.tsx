@@ -31,6 +31,7 @@ import { getDbStatus } from '../lib/local-db'
 import { ensureLocalMirrorOwner } from '../lib/local-mirror-owner'
 import { pullNevnapCatalog } from '../lib/nevnap-sync'
 import { getDesktopSupabase } from '../lib/supabase'
+import { stopAllWriteSyncs } from '../lib/write-sync-registry'
 import {
   getLocalOwnCongregation,
   getLocalOwnProfile,
@@ -126,6 +127,12 @@ export function ElsoInditasPage() {
   const [keres, setKeres] = useState<KapcsolasKeres | null>(null)
   const [hatraMp, setHatraMp] = useState<number | null>(null)
   const [belepesHiba, setBelepesHiba] = useState<string | null>(null)
+  // 2026-09-05 (P3-utómunka): a hiba mellé egy „újraindítás" gomb, ha egy ÚJ
+  // kapcsolás a kiút (lejárt / elhalt belépő / felhasznált token).
+  const [belepesUjrainditas, setBelepesUjrainditas] = useState(false)
+  // Átmeneti zavar a várakozás ALATT (a szerver nem válaszol, az app újra
+  // próbálja) — nem hiba, a várakozás folytatódik; a szöveg a felületen.
+  const [kapcsolasZavar, setKapcsolasZavar] = useState<string | null>(null)
   const [belepesFut, setBelepesFut] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -254,6 +261,8 @@ export function ElsoInditasPage() {
   // ── 2. lépés: device-flow ─────────────────────────────────────────────────
   async function inditWebesKapcsolast() {
     setBelepesHiba(null)
+    setBelepesUjrainditas(false)
+    setKapcsolasZavar(null)
     setBelepesFut(true)
     abortRef.current?.abort()
     const ac = new AbortController()
@@ -269,16 +278,30 @@ export function ElsoInditasPage() {
       const k = await inditKapcsolast(eszkozNev)
       setKeres(k)
       await nyitJovahagyoOldalt(k)
-      const eredmeny = await varjJovahagyasra(k, { signal: ac.signal, onTick: setHatraMp })
+      const eredmeny = await varjJovahagyasra(k, {
+        signal: ac.signal,
+        onTick: setHatraMp,
+        // Átmeneti zavar (5xx / hálózat): a várakozás folytatódik, a felület
+        // csak jelzi — nem hibaüzenet, nem szakad meg.
+        onZavar: setKapcsolasZavar,
+      })
       if (ac.signal.aborted) return
+      setKapcsolasZavar(null)
       if (!eredmeny.ok) {
-        if (eredmeny.ok_tipus !== 'megszakitva') setBelepesHiba(eredmeny.uzenet)
+        if (eredmeny.ok_tipus !== 'megszakitva') {
+          setBelepesHiba(eredmeny.uzenet)
+          // Elhalt / lejárt belépő: egy gombbal újraindítható az összekapcsolás.
+          setBelepesUjrainditas(eredmeny.ujrainditas === true)
+        }
         setKeres(null)
         return
       }
       await belepesUtan()
     } catch (err: unknown) {
-      if (!ac.signal.aborted) setBelepesHiba(errorMessage(err))
+      if (!ac.signal.aborted) {
+        setBelepesHiba(errorMessage(err))
+        setBelepesUjrainditas(true)
+      }
       setKeres(null)
     } finally {
       if (abortRef.current === ac) setBelepesFut(false)
@@ -291,6 +314,7 @@ export function ElsoInditasPage() {
     setKeres(null)
     setBelepesFut(false)
     setHatraMp(null)
+    setKapcsolasZavar(null)
   }
 
   /** Közös folytatás a belépés után (device-flow VAGY jelszavas visszatérés). */
@@ -395,6 +419,9 @@ export function ElsoInditasPage() {
    */
   async function kilep() {
     megszakit()
+    // 2026-09-05 (P3-utómunka): a „másik fiók" a kijelentkezés párja — az
+    // előző fiók push-erei (poll, online listener) sem futhatnak tovább.
+    stopAllWriteSyncs()
     try {
       await getDesktopSupabase().auth.signOut({ scope: 'local' })
     } catch {
@@ -600,6 +627,12 @@ export function ElsoInditasPage() {
                     )}
                   </p>
                   <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Várakozás a jóváhagyásra…</p>
+                  {kapcsolasZavar && (
+                    <p role="status" className="mx-auto flex max-w-md items-start justify-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-left text-sm text-foreground">
+                      <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                      <span>{kapcsolasZavar} A várakozás folytatódik, a kérés lejáratáig újra próbáljuk.</span>
+                    </p>
+                  )}
                   <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
                     <Button type="button" variant="outline" onClick={() => void nyitJovahagyoOldalt(keres)}>Böngésző újranyitása</Button>
                     <Button type="button" variant="ghost" onClick={megszakit}>Mégse</Button>
@@ -607,8 +640,20 @@ export function ElsoInditasPage() {
                 </div>
               )}
               {belepesHiba && (
-                <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  {belepesHiba}
+                <div role="alert" className="space-y-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  <p>{belepesHiba}</p>
+                  {belepesUjrainditas && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-11 w-full sm:w-auto"
+                      disabled={belepesFut}
+                      onClick={() => void inditWebesKapcsolast()}
+                    >
+                      <RefreshCw className="mr-2 size-4" />
+                      Összekapcsolás újraindítása
+                    </Button>
+                  )}
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
@@ -622,7 +667,7 @@ export function ElsoInditasPage() {
           {aktualis.key === 'gyulekezet' && (
             <div className="space-y-4">
               {tukorDontes ? (
-                <div className="space-y-3 rounded-xl border border-amber-300/70 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-100">
+                <div className="space-y-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-foreground">
                   <p className="font-semibold">Ezen a gépen egy MÁSIK felhasználó{tukorDontes.elozoEmail ? ` (${tukorDontes.elozoEmail})` : ''} még fel nem töltött adatai vannak.</p>
                   <p>
                     Szinkronizálatlan rögzítés: <strong>{tukorDontes.fuggo}</strong>
@@ -670,13 +715,13 @@ export function ElsoInditasPage() {
                   </div>
 
                   {!profilAktiv && (
-                    <div className="rounded-xl border border-amber-300/70 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-100">
+                    <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-foreground">
                       <p className="font-semibold">A fiókod még nem aktív.</p>
                       <p>A rendszergazda jóváhagyása után folytatható az első indítás. Ha már jóváhagyták, kattints az Újraellenőrzésre.</p>
                     </div>
                   )}
                   {profilAktiv && !vanGyulekezet && (
-                    <div className="rounded-xl border border-amber-300/70 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-100">
+                    <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-foreground">
                       <p className="font-semibold">Nincs hozzárendelt gyülekezet.</p>
                       <p>
                         A gyülekezetet a webes felületen a rendszergazda rendeli a fiókodhoz. Amíg ez nem történik meg, az asztali
@@ -717,7 +762,7 @@ export function ElsoInditasPage() {
                 </div>
               )}
               {pinElozetesHiba && (
-                <div role="alert" className="rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-100">
+                <div role="alert" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-foreground">
                   {pinElozetesHiba} — a mentés ettől még megpróbálható.
                 </div>
               )}

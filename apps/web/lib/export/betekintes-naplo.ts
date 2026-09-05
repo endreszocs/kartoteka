@@ -79,6 +79,9 @@ export const MUVELET_MONDATOK: Record<string, string> = {
   // 2026-09-05: asztali eszköz-kapcsolás, naptár-nyomtatvány, anyakönyv-összekötés
   'desktop.kapcsolas_jovahagyva': 'jóváhagyta egy asztali gép összekapcsolását a fiókjával',
   'desktop.kapcsolas_elutasitva': 'elutasított egy asztali gép összekapcsolási kérését',
+  // 2026-09-05 (P3-utómunka): a szerver-réteg (lib/desktop-kapcsolas/szerver.ts) írja,
+  // amikor egy újabb jóváhagyás a korábbi, még át nem vett jóváhagyást lezárja.
+  'desktop.kapcsolas_felulirva': 'lezárta egy asztali gép korábbi, még át nem vett összekapcsolási jóváhagyását (egy újabb jóváhagyás felülírta)',
   'desktop.eszkoz_elfelejtve': 'kivett egy asztali gépet az összekapcsolt eszközök listájából',
   'auth.mas_eszkozok_kijelentkeztetve': 'kijelentkeztette a fiókját minden más eszközről',
   'naptar.szuletesnapos_nyomtatas': 'kinyomtatott egy születésnapos/névnapos naptárat',

@@ -260,7 +260,8 @@ export const SYNC_KERELEM_ESEMENY = 'kartoteka:sync-kerelem'
 
 let engedelyezettUserId: string | null = null
 let pollInterval: ReturnType<typeof setInterval> | null = null
-let onlineListenerAttached = false
+/** Az `online` listener referenciája — a `stopAllWriteSyncs` ezzel veszi le (null = nincs felrakva). */
+let onlineListener: (() => void) | null = null
 let running = false
 let lastRunAt: string | null = null
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -373,12 +374,12 @@ export function startAllWriteSyncs(userId: string): Promise<void> {
   if (typeof window === 'undefined') return Promise.resolve()
   engedelyezettUserId = userId
 
-  if (!onlineListenerAttached) {
-    window.addEventListener('online', () => {
+  if (!onlineListener) {
+    onlineListener = () => {
       // Visszatért a hálózat → a várakozók azonnal, visszalépés nélkül.
       void runAllWriteSyncsNow()
-    })
-    onlineListenerAttached = true
+    }
+    window.addEventListener('online', onlineListener)
   }
   if (!pollInterval) {
     pollInterval = setInterval(() => {
@@ -386,6 +387,42 @@ export function startAllWriteSyncs(userId: string): Promise<void> {
     }, POLL_MS)
   }
   return runAllWriteSyncsNow()
+}
+
+/**
+ * MINDEN regisztrált push-er leállítása — a KIJELENTKEZÉS párja (2026-09-05,
+ * P3-utómunka).
+ *
+ * MI VOLT A HIBA: a `felfuggesztWriteSyncs()` csak az engedélyt vonta vissza,
+ * a 30 mp-es poll és az `online` listener a modul életében megmaradt. Explicit
+ * kijelentkezés után a következő belépő (másik lelkész ugyanazon a gépen) a
+ * `startAllWriteSyncs`-szal új engedélyt kapott, de a régi triggerkészlet és
+ * egy még ketyegő 1,5 mp-es összevonó időzítő az ELŐZŐ felhasználó mentése
+ * után indított kört — a push-erek pedig a helyi táblák MINDEN függő sorát
+ * viszik, nem a felhasználóét.
+ *
+ * A JAVÍTÁS: a kijelentkezés (desktop-shell `handleSignOut`, az AuthGate
+ * `kilepes`-e, a varázsló „másik fiók" gombja, a visszavont eszköz automatikus
+ * kiléptetése) a `clearPin`/`clearLastUser` MELLÉ ezt hívja: az engedély
+ * null, a poll és az `online` listener LEVÉVE, a függő összevonó időzítő
+ * törölve. Egy épp futó kör a következő lépésnél magától megáll (a `lepes`
+ * az engedély-egyezést nézi). A `startAllWriteSyncs` utána tiszta lapról
+ * indítja újra a triggerkészletet (idempotens marad).
+ */
+export function stopAllWriteSyncs(): void {
+  engedelyezettUserId = null
+  if (debounceTimer) {
+    clearTimeout(debounceTimer)
+    debounceTimer = null
+  }
+  if (pollInterval) {
+    clearInterval(pollInterval)
+    pollInterval = null
+  }
+  if (onlineListener && typeof window !== 'undefined') {
+    window.removeEventListener('online', onlineListener)
+  }
+  onlineListener = null
 }
 
 /**

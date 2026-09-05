@@ -25,6 +25,39 @@
 //          kliensen; R1n a közös-topic mutáns
 //   L1     (bírálói P2) a támogatási válasz mélylinkje a VALÓDI szál-kulcsból
 //          épül; a küldő kulcsa = az olvasó kulcsa (két független út)
+//   K1–K7  (P3, bírálói P3) a „megoldva" EGY szabálya (uzenetek-shared →
+//          megoldasLevezetes): a 2026-09-05 ELŐTTI kérelem-sor ELDŐLT kérelemmel
+//          megoldottként jelenik meg (nincs „Válaszra vár", nincs gombpár);
+//          ismeretlen kérelem → fail-closed függő; a mellék-lekérés hibája →
+//          figyelmeztetés-szöveg, nem néma függő
+//   K1n/K3n negatív: a kérelem-ág nélküli és a fail-open mutánson az őr BUKIK
+//   K3/K3w (P3-utómunka, bírálói P3) FEHÉRLISTA: egy ismeretlen (a CHECK-en kívüli)
+//          állapot NEM döntés; K3w a feketelistás („bármi, ami nem pending") mutáns
+//   K6/K6n (bírálói P3) a régi `admin_access:<id>` hivatkozásból CSAK szabályos UUID
+//          (a TS és az SQL EGY szabálya — egy rossz alak 22P02-vel az egész darabot
+//          elbuktatná); K6n az UUID-szűrő nélküli mutáns
+//   K8/K8n (bírálói P2) a KÉRELMEZŐ döntés-sora (success/danger + kérelem-hivatkozás)
+//          MAGA A DÖNTÉS: a tartalék-ágon (ismeretlen kérelem, hiányzó oszlop) SEM
+//          kap „Válaszra vár" pillt / gombpárt; a lelkész warning-sora ugyanott
+//          függő marad (a típus dönt); K8n a döntés-ág nélküli mutáns
+//   K9/K9n (bírálói P3) a döntés-soron NINCS „Ez a baj azóta elmúlt … időközben
+//          elutasításra került" (mondat/idő null, dontesSor true); K9n a mutáns,
+//          amely a döntés-sorra is mondatot ad
+//   K10    (bírálói P3) a BEKÖTÉS end-to-end: nyers kérelem-sor → kerelemAllapotTerkep
+//          (ugyanaz, amit a kerelemAllapotok hív) → kerelemAzonosito kulcs → szabály
+//   S1–S5  forrás-őr: az alakit() az egy szabályt hívja (nincs második); a
+//          kérelem-lekérés darabolt, a hibája a válasz `warning` mezőjébe megy
+//          — a listában ÉS a csengőben, a számláló-hibától függetlenül (S3n a
+//          néma mutáns; S3b/S3bn: a csengő borostyán dobozban kiírja); a nézet
+//          kiírja; a pill/gombpár/számláló CSAK a valaszraVarE-n át dönt (S5n a
+//          csupasz-adminRequestId mutáns)
+//   S1n    (bírálói P3) a `kerelem: undefined` és a saját-térképes mutánson az
+//          őr BUKIK — az integrációs pont többé nem vakfolt
+//   S6/S6n (bírálói P2) a döntés-sor már BESZÚRÁSKOR megoldva (mindkét döntési
+//          ágon, a döntés idejével), az insert-segéd írja, a sémán visszaesik;
+//          S6n a megoldva nélkül beszúró mutáns
+//   S7/S7n (bírálói P3) a buborék zöld sávja CSAK megoldva ∧ ¬döntés-soron; a
+//          Megoldva pill marad; S7n a döntés-soron is sávot rajzoló mutáns
 
 import fs from 'node:fs'
 import os from 'node:os'
@@ -104,6 +137,20 @@ function betoltFelado() {
     const feladoCjs = path.join(tmp, 'felado.cjs')
     fs.writeFileSync(feladoCjs, t(fs.readFileSync(FELADO_SRC, 'utf8')))
     return require_(feladoCjs)
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  }
+}
+
+/** Az uzenetek-shared modul ADOTT forrásszöveggel (a megoldva-szabály mutánsaihoz is). */
+function betoltShared(sharedForras) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kartoteka-shared-'))
+  try {
+    const feladoCjs = path.join(tmp, 'felado.cjs')
+    fs.writeFileSync(feladoCjs, t(fs.readFileSync(FELADO_SRC, 'utf8')))
+    const sharedCjs = path.join(tmp, 'uzenetek-shared.cjs')
+    fs.writeFileSync(sharedCjs, t(sharedForras).replace(/require\(["']\.\/felado["']\)/g, `require(${JSON.stringify(feladoCjs)})`))
+    return require_(sharedCjs)
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true })
   }
@@ -355,6 +402,317 @@ assert(/hivatkozas:\s*ertesitesUrl\(\{\s*felado:\s*feladoMezokKulcsa\(feladoAdat
   const allapot = lib.urlAllapot((k) => new URL(`https://x${url}`).searchParams.get(k))
   const nyit = lib.valasztSzal(szalak, szalak, [sorAdmin], allapot)
   assert(nyit.valasztott === true && nyit.aktiv?.sorok[0]?.id === 's1', `L1: a mélylink (${url}) a támogatási válasz szálát nyitja`)
+}
+
+// ── K1–K7: a „megoldva" EGY szabálya — a kérelem TÉNYLEGES állapotából (P3) ──
+// A régi világ: a 2026-09-05 előtti döntés a lelkész kérelem-sorát nem jelölte
+// meg, a felület pedig CSAK a sor saját jelöléséből döntött → a „Válaszra vár"
+// pill és a Jóváhagyás/Elutasítás gombpár örökre ott maradt (a gombok már csak
+// „A kérelem már elbírálásra került." hibát adtak).
+const sharedNyers = fs.readFileSync(SHARED_SRC, 'utf8')
+const shared = betoltShared(sharedNyers)
+const K_APPROVED = { status: 'approved', approvedAt: '2026-06-01T10:00:00Z', deniedAt: null, expiresAt: '2026-06-02T10:00:00Z' }
+const K_DENIED = { status: 'denied', approvedAt: null, deniedAt: '2026-06-03T10:00:00Z', expiresAt: null }
+const K_PENDING = { status: 'pending', approvedAt: null, deniedAt: null, expiresAt: null }
+const K_CIM = 'Rendszergazdai hozzáférés kérése'
+// Szabályos UUID-k: a kerelemAzonosito CSAK ilyet fogad el (bírálói P3) — a
+// térkép kulcsa és az SQL castja ugyanezt az alakot várja.
+const REQ_OLD = '0f3c1a2b-4d5e-4f60-8a71-9b82c3d4e5f6'
+const REQ_NEW = '7e57c0de-1234-4abc-9def-0123456789ab'
+{
+  // K1: RÉGI sor (oszlop false / hiányzik, nincs cím-előtag) + ELDŐLT kérelem → megoldott
+  // A lelkész KÉRELEM-sora: `warning` + kérelem-hivatkozás (admin/actions.ts írja így).
+  const k1 = shared.megoldasLevezetes({ megoldvaOszlop: false, cim: K_CIM, tipus: 'warning', adminRequestId: REQ_OLD, kerelem: K_APPROVED })
+  assert(k1.megoldva === true && k1.dontesSor === false, 'K1: régi kérelem-sor ELDŐLT (approved) kérelemmel → megoldva (és NEM döntés-sor)')
+  assert(k1.megoldvaAt === '2026-06-01T10:00:00Z', 'K1: a „mikor" a DÖNTÉS ideje (approved_at), nem a mai nap')
+  assert(/jóváhagyásra/.test(k1.megoldasUzenet ?? ''), 'K1: a zöld sáv mondata a döntés fajtáját mondja (jóváhagyás)')
+  const k1d = shared.megoldasLevezetes({ megoldvaOszlop: undefined, cim: K_CIM, tipus: 'warning', adminRequestId: REQ_OLD, kerelem: K_DENIED })
+  assert(
+    k1d.megoldva === true && k1d.megoldvaAt === '2026-06-03T10:00:00Z' && /elutasításra/.test(k1d.megoldasUzenet ?? ''),
+    'K1: elutasított kérelem → megoldva, denied_at, elutasítás-mondat (a megoldva oszlop hiánya — undefined — sem zavar)',
+  )
+  // …és a FELÜLET ugyanebből az EGY mezőből dönt: nincs pill, nincs gombpár, a szál számlálója 0
+  const regiSor = sor('k1', { felado: GYUL, tipus: 'warning', adminRequestId: REQ_OLD, megoldva: k1.megoldva, megoldvaAt: k1.megoldvaAt, megoldasUzenet: k1.megoldasUzenet })
+  assert(lib.valaszraVarE(regiSor) === false, 'K1: valaszraVarE → false a megoldott kérelem-soron (nincs „Válaszra vár", nincs gombpár)')
+  assert(lib.csoportositBeszelgetesek([regiSor])[0].valaszraVar === 0, 'K1: a szál „válaszra vár" számlálója 0')
+
+  // K2: FÜGGŐ kérelem → válaszra vár (a jogos eset változatlan)
+  const k2 = shared.megoldasLevezetes({ megoldvaOszlop: false, cim: K_CIM, kerelem: K_PENDING })
+  assert(k2.megoldva === false && k2.megoldvaAt === null && k2.megoldasUzenet === null, 'K2: függő kérelem → nem megoldott, nincs levezetett idő/mondat')
+  assert(lib.valaszraVarE(sor('k2', { adminRequestId: 'req-p', megoldva: k2.megoldva })) === true, 'K2: valaszraVarE → true a függő kérelmen')
+
+  // K3: ISMERETLEN kérelem (RLS elrejtette / törölték / a lekérés hibája → üres térkép) → FAIL-CLOSED függő
+  const k3 = shared.megoldasLevezetes({ megoldvaOszlop: false, cim: K_CIM, kerelem: undefined })
+  assert(k3.megoldva === false, 'K3: ismeretlen kérelem → NEM megoldott (fail-closed: valódi függőt sosem rejtünk el)')
+  assert(shared.kerelemEldoltE({ status: '', approvedAt: null, deniedAt: null, expiresAt: null }) === false, 'K3: üres státusz → nem eldőlt')
+  assert(shared.kerelemEldoltE(null) === false && shared.kerelemEldoltE({ status: 'expired', approvedAt: null, deniedAt: null, expiresAt: null }) === true, 'K3: null → nem eldőlt; expired → eldőlt')
+  // K3 (bírálói P3): FEHÉRLISTA — egy ISMERETLEN (a CHECK-en kívüli) állapot NEM döntés,
+  // a komment és a kód ugyanazt mondja; a lista = az élő CHECK három döntés-állapota
+  assert(shared.kerelemEldoltE({ status: 'foo', approvedAt: null, deniedAt: null, expiresAt: null }) === false, 'K3: ISMERETLEN állapot („foo") → NEM eldőlt (fehérlista, nem „bármi, ami nem pending")')
+  assert(shared.kerelemEldoltE({ status: ' Approved ', approvedAt: null, deniedAt: null, expiresAt: null }) === true, 'K3: a fehérlista kisbetű- és szóköz-tűrő („ Approved " → eldőlt)')
+  assert([...shared.KERELEM_ELDOLT_ALLAPOTOK].sort().join(',') === 'approved,denied,expired', `K3: KERELEM_ELDOLT_ALLAPOTOK = az élő CHECK döntés-állapotai (approved, denied, expired; kapott: ${[...shared.KERELEM_ELDOLT_ALLAPOTOK].join(',')})`)
+  assert(
+    shared.megoldasLevezetes({ megoldvaOszlop: false, cim: K_CIM, tipus: 'warning', adminRequestId: REQ_OLD, kerelem: { status: 'foo', approvedAt: '2026-06-01T10:00:00Z', deniedAt: null, expiresAt: null } }).megoldva === false,
+    'K3: ismeretlen állapotú kérelem → a lelkész sora FÜGGŐ marad (fail-closed), akkor is, ha időbélyeg van rajta',
+  )
+
+  // K4: a sor SAJÁT oszlopa és a cím-előtag továbbra is elég (a régi két forrás él)
+  const k4 = shared.megoldasLevezetes({ megoldvaOszlop: true, cim: 'X', kerelem: K_PENDING })
+  assert(k4.megoldva === true, 'K4: megoldva oszlop true → megoldva (a kérelem-ág nem veszi el)')
+  assert(k4.megoldvaAt === null && k4.megoldasUzenet === null, 'K4: a levezetett idő/mondat CSAK a kérelem-ágból jön (függő kérelemnél null)')
+  assert(shared.megoldasLevezetes({ megoldvaOszlop: false, cim: `${shared.MEGOLDVA_CIM_ELOTAG}Mentés`, kerelem: undefined }).megoldva === true, 'K4: cím-előtag → megoldva')
+
+  // K5: expired → a lejárat ideje, „lejárt vagy visszavonták"
+  const k5 = shared.megoldasLevezetes({ megoldvaOszlop: false, cim: 'X', kerelem: { status: 'expired', approvedAt: '2026-05-01T00:00:00Z', deniedAt: null, expiresAt: '2026-05-02T00:00:00Z' } })
+  assert(k5.megoldva === true && k5.megoldvaAt === '2026-05-02T00:00:00Z' && /lejárt/.test(k5.megoldasUzenet ?? ''), 'K5: expired → megoldva, expires_at, lejárt-mondat')
+
+  // K6: az azonosító EGY szabálya — oszlop elsőbbség, régi `admin_access:<uuid>` hivatkozás,
+  // CSAK szabályos UUID (bírálói P3: egy rossz alak 22P02-vel az EGÉSZ darabot elbuktatná,
+  // és minden kérelem-sor a saját jelölésére esne vissza — a rossz alak ezért már itt null)
+  assert(shared.kerelemAzonosito(REQ_NEW, `admin_access:${REQ_OLD}`) === REQ_NEW, 'K6: az admin_request_id oszlop az első')
+  assert(shared.kerelemAzonosito(null, `admin_access:${REQ_OLD}`) === REQ_OLD, 'K6: régi sor: a hivatkozás `admin_access:<uuid>` alakjából')
+  assert(shared.kerelemAzonosito(null, `admin_access:${REQ_OLD.toUpperCase()}`) === REQ_OLD, 'K6: nagybetűs UUID → kisbetűsen (a térkép kulcsa a PostgREST alakja)')
+  assert(shared.kerelemAzonosito(null, 'admin_access:hiv-1') === null && shared.kerelemAzonosito('hiv-1', null) === null, 'K6: ROSSZ alakú azonosító (nem UUID) → null — oszlopból és hivatkozásból egyaránt')
+  assert(shared.kerelemAzonosito(null, `admin_access:${REQ_OLD}x`) === null, 'K6: UUID + farok → null (pontos alak, nem előtag-egyezés)')
+  assert(
+    shared.kerelemAzonosito(null, '/notifications?x=1') === null && shared.kerelemAzonosito(null, 'admin_access:') === null && shared.kerelemAzonosito(undefined, null) === null,
+    'K6: más hivatkozás / üres azonosító → null',
+  )
+  assert(shared.UUID_MINTA.test(REQ_OLD) && !shared.UUID_MINTA.test('hiv-1') && !shared.UUID_MINTA.test(`${REQ_OLD}x`), 'K6: UUID_MINTA = pontos 8-4-4-4-12 hexa alak (az SQL ugyanebből a konstansból castol)')
+
+  // K7: a mellék-lekérés hibája → HANGOS figyelmeztetés (nem néma függő); a rejtett kérelem is nevén nevezve
+  const allapotok = new Map([['req-ok', K_APPROVED]])
+  const fuggo = { kerelemId: 'req-x', sajatMegoldva: false, archived: false }
+  const f1 = shared.kerelemFigyelmeztetes({ hiba: 'permission denied', sorok: [fuggo, { kerelemId: null, sajatMegoldva: false, archived: false }], allapotok: new Map() })
+  assert(typeof f1 === 'string' && f1.includes('permission denied') && /1 üzenetnél/.test(f1), `K7: lekérés-hiba + érintett sor → a hibaüzenet és a darabszám a szövegben (kapott: „${f1}")`)
+  assert(
+    shared.kerelemFigyelmeztetes({ hiba: 'permission denied', sorok: [{ kerelemId: null, sajatMegoldva: false, archived: false }], allapotok: new Map() }) === null,
+    'K7: hiba, de egyetlen sor sem hivatkozik kérelemre → nincs mit mondani',
+  )
+  const f2 = shared.kerelemFigyelmeztetes({ hiba: null, sorok: [fuggo, { kerelemId: 'req-ok', sajatMegoldva: false, archived: false }], allapotok })
+  assert(typeof f2 === 'string' && /^1 üzenet/.test(f2) && /nem látsz/.test(f2), `K7: hiba nélkül, de REJTETT (nem látható) kérelem → figyelmeztetés a darabszámmal (kapott: „${f2}")`)
+  assert(
+    shared.kerelemFigyelmeztetes({ hiba: null, sorok: [{ kerelemId: 'req-x', sajatMegoldva: true, archived: false }, { kerelemId: 'req-y', sajatMegoldva: false, archived: true }], allapotok }) === null,
+    'K7: rejtett kérelem, de a sor saját jele megoldva / archivált → nincs figyelmeztetés (nem zaj)',
+  )
+  assert(shared.kerelemFigyelmeztetes({ hiba: null, sorok: [{ kerelemId: 'req-ok', sajatMegoldva: false, archived: false }], allapotok }) === null, 'K7: minden hivatkozott kérelem látható → nincs figyelmeztetés')
+
+  // K8 (bírálói P2): a KÉRELMEZŐ DÖNTÉS-SORA (success/danger + kérelem-hivatkozás) MAGA A DÖNTÉS.
+  // A régi világ: a valaszraVarE MINDEN nem-megoldott, kérelem-hivatkozásos sort válaszra várónak
+  // vett → a TARTALÉK-ÁGON (a kérelem-lekérés hibája → üres térkép, ÉS a megoldva oszlop
+  // hiányzik / nincs jelölve) a kérelmező a SAJÁT elutasításán kapott „Válaszra vár" pillt és
+  // Jóváhagyás/Elutasítás gombot. Most: nincs mire várni — a típus dönt.
+  for (const tipus of ['success', 'danger']) {
+    const cim = tipus === 'success' ? 'Hozzáférés jóváhagyva' : 'Hozzáférés elutasítva'
+    const k8 = shared.megoldasLevezetes({ megoldvaOszlop: undefined, cim, tipus, adminRequestId: REQ_NEW, kerelem: undefined })
+    assert(k8.megoldva === true && k8.dontesSor === true, `K8: a kérelmező ${tipus} döntés-sora a tartalék-ágon (ismeretlen kérelem, hiányzó oszlop) is MEGOLDOTT`)
+    assert(lib.valaszraVarE(sor(`k8-${tipus}`, { tipus, adminRequestId: REQ_NEW, megoldva: k8.megoldva })) === false, `K8: valaszraVarE → false a kérelmező ${tipus} során (nincs pill, nincs gombpár)`)
+  }
+  // …a bíráló K-esete: success + adminRequestId + kerelem: undefined + megoldva oszlop true → nem vár válaszra
+  const k8o = shared.megoldasLevezetes({ megoldvaOszlop: true, cim: 'Hozzáférés jóváhagyva', tipus: 'success', adminRequestId: REQ_NEW, kerelem: undefined })
+  assert(k8o.megoldva === true && lib.valaszraVarE(sor('k8o', { tipus: 'success', adminRequestId: REQ_NEW, megoldva: k8o.megoldva })) === false, 'K8: success + kérelem-hivatkozás + ismeretlen kérelem + megoldva oszlop true → valaszraVarE false')
+  // …de a LELKÉSZ kérelem-sora (warning) ugyanezen a tartalék-ágon FÜGGŐ marad — a típus dönt, nem az azonosító
+  const k8w = shared.megoldasLevezetes({ megoldvaOszlop: false, cim: K_CIM, tipus: 'warning', adminRequestId: REQ_NEW, kerelem: undefined })
+  assert(k8w.megoldva === false && k8w.dontesSor === false && lib.valaszraVarE(sor('k8w', { tipus: 'warning', adminRequestId: REQ_NEW, megoldva: k8w.megoldva })) === true, 'K8: a lelkész warning kérelem-sora ismeretlen kérelemmel FÜGGŐ marad (fail-closed) — a típus dönt')
+  assert(
+    shared.kerelemDontesSorE('success', REQ_NEW) && shared.kerelemDontesSorE('danger', REQ_NEW) && !shared.kerelemDontesSorE('warning', REQ_NEW) && !shared.kerelemDontesSorE('success', null) && !shared.kerelemDontesSorE('info', REQ_NEW),
+    'K8: kerelemDontesSorE = (success | danger) ∧ kérelem-hivatkozás — más típus / hivatkozás nélkül nem döntés-sor',
+  )
+  assert([...shared.KERELEM_DONTES_TIPUSOK].sort().join(',') === 'danger,success', 'K8: a döntés-típusok = a notifications/actions.ts két döntés-értesítése (success, danger)')
+
+  // K9 (bírálói P3): a döntés-soron NINCS „Ez a baj azóta elmúlt … időközben elutasításra került"
+  // — a sor maga a döntés: megoldva, de sáv nélkül (mondat/idő null, dontesSor true)
+  const k9 = shared.megoldasLevezetes({ megoldvaOszlop: false, cim: 'Hozzáférés elutasítva', tipus: 'danger', adminRequestId: REQ_NEW, kerelem: K_DENIED })
+  assert(k9.megoldva === true && k9.dontesSor === true && k9.megoldasUzenet === null && k9.megoldvaAt === null, 'K9: a kérelmező danger döntés-sora ELDŐLT kérelemmel: megoldva, de NINCS levezetett mondat/idő (a buborék sávot nem rajzol)')
+  const k9s = shared.megoldasLevezetes({ megoldvaOszlop: true, cim: 'Hozzáférés jóváhagyva', tipus: 'success', adminRequestId: REQ_NEW, kerelem: K_APPROVED })
+  assert(k9s.dontesSor === true && k9s.megoldasUzenet === null && k9s.megoldvaAt === null, 'K9: a success döntés-sor sem kap „időközben jóváhagyásra került" mondatot')
+  const k9w = shared.megoldasLevezetes({ megoldvaOszlop: false, cim: K_CIM, tipus: 'warning', adminRequestId: REQ_NEW, kerelem: K_DENIED })
+  assert(k9w.dontesSor === false && /elutasításra/.test(k9w.megoldasUzenet ?? '') && k9w.megoldvaAt === '2026-06-03T10:00:00Z', 'K9: ugyanaz a kérelem a LELKÉSZ kérelem-során: a sáv mondata és ideje megvan (ott jogos)')
+
+  // K10 (bírálói P3): a BEKÖTÉS end-to-end — a nyers kérelem-sorokból épülő térkép (kerelemAllapotTerkep,
+  // UGYANAZ a függvény, amit a kerelemAllapotok hív) kulcsa = a kerelemAzonosito alakja, és a láncon
+  // át a régi sor megoldódik. Eddig a `kerelem: undefined` mutáns az alakit()-ban zölden átment.
+  const terkep = shared.kerelemAllapotTerkep([
+    { id: REQ_OLD.toUpperCase(), status: 'approved', approved_at: '2026-06-01T10:00:00Z', denied_at: null, expires_at: null },
+    { id: REQ_NEW, status: null, approved_at: null, denied_at: null, expires_at: null },
+  ])
+  assert(
+    terkep.size === 2 && terkep.has(REQ_OLD) && terkep.get(REQ_OLD).status === 'approved' && terkep.get(REQ_OLD).approvedAt === '2026-06-01T10:00:00Z',
+    'K10: a térkép kulcsa KISBETŰS (a nagybetűs id is a kerelemAzonosito alakjára kerül) és az állapot-mezők átjönnek',
+  )
+  assert(terkep.get(REQ_NEW).status === '' && shared.kerelemEldoltE(terkep.get(REQ_NEW)) === false, 'K10: NULL státusz → üres sztring (nem dob, nem eldőlt)')
+  const regiId = shared.kerelemAzonosito(null, `admin_access:${REQ_OLD.toUpperCase()}`)
+  const lanc = shared.megoldasLevezetes({ megoldvaOszlop: false, cim: K_CIM, tipus: 'warning', adminRequestId: regiId, kerelem: regiId ? terkep.get(regiId) : undefined })
+  assert(lanc.megoldva === true && lanc.megoldvaAt === '2026-06-01T10:00:00Z' && lanc.dontesSor === false, 'K10: a lánc végig (nyers sor → térkép → azonosító → szabály): a régi sor megoldott, a döntés idejével')
+  const tovabb = shared.kerelemAllapotTerkep([{ id: 'ffffffff-0000-4000-8000-000000000001', status: 'pending', approved_at: null, denied_at: null, expires_at: null }], terkep)
+  assert(tovabb === terkep && terkep.size === 3 && terkep.has(REQ_OLD), 'K10: a darabolt lekérés UGYANABBA a térképbe ír (a második darab nem törli az elsőt)')
+}
+
+// K1n / K3n NEGATÍV: a régi világ és a fail-open világ — a MAI forrásból
+{
+  const regi = sharedNyers.replace('startsWith(MEGOLDVA_CIM_ELOTAG) || dontesSor || eldolt', 'startsWith(MEGOLDVA_CIM_ELOTAG) || dontesSor')
+  if (regi === sharedNyers) assert(false, 'K1n: a kérelem-ág mutáns NEM különbözik az eredetitől — a negatív asszert vak')
+  else {
+    const r = betoltShared(regi).megoldasLevezetes({ megoldvaOszlop: false, cim: K_CIM, tipus: 'warning', adminRequestId: REQ_OLD, kerelem: K_APPROVED })
+    assert(r.megoldva === false, 'K1n: a kérelem-ág NÉLKÜLI mutánson a régi sor FÜGGŐ marad — az őrszem tud pirosra váltani')
+  }
+  const nyitott = sharedNyers.replace('if (!k) return false', 'if (!k) return true')
+  if (nyitott === sharedNyers) assert(false, 'K3n: a fail-open mutáns NEM különbözik az eredetitől — a negatív asszert vak')
+  else {
+    const r = betoltShared(nyitott).megoldasLevezetes({ megoldvaOszlop: false, cim: 'X', kerelem: undefined })
+    assert(r.megoldva === true, 'K3n: a FAIL-OPEN mutáns az ismeretlen kérelmet MEGOLDOTTNAK mondja — az őrszem tud pirosra váltani')
+  }
+  // K3w NEGATÍV (bírálói P3): a FEKETELISTÁS világ — „bármi, ami nem pending" = döntés
+  const feketelista = sharedNyers.replace('return KERELEM_ELDOLT_ALLAPOTOK.includes(s)', "return s !== '' && s !== 'pending'")
+  if (feketelista === sharedNyers) assert(false, 'K3w: a feketelista-mutáns NEM különbözik az eredetitől — a negatív asszert vak')
+  else {
+    const r = betoltShared(feketelista).kerelemEldoltE({ status: 'foo', approvedAt: null, deniedAt: null, expiresAt: null })
+    assert(r === true, 'K3w: a FEKETELISTÁS mutáns az ismeretlen állapotot DÖNTÉSNEK veszi — az őrszem tud pirosra váltani')
+  }
+  // K6n NEGATÍV (bírálói P3): az UUID-szűrő nélküli azonosító — a rossz alak is átmegy (→ 22P02 a lekérésben)
+  const laza = sharedNyers.replace('return UUID_MINTA.test(s) ? s.toLowerCase() : null', 'return s ? s.toLowerCase() : null')
+  if (laza === sharedNyers) assert(false, 'K6n: az UUID-szűrő nélküli mutáns NEM különbözik az eredetitől — a negatív asszert vak')
+  else {
+    const r = betoltShared(laza).kerelemAzonosito(null, 'admin_access:hiv-1')
+    assert(r === 'hiv-1', 'K6n: az UUID-szűrő NÉLKÜLI mutáns a rossz alakot is átengedi — az őrszem tud pirosra váltani')
+  }
+  // K8n NEGATÍV (bírálói P2): a döntés-ág nélküli szabály — a kérelmező a tartalék-ágon gombot kap
+  const dontesNelkul = sharedNyers.replace('startsWith(MEGOLDVA_CIM_ELOTAG) || dontesSor || eldolt', 'startsWith(MEGOLDVA_CIM_ELOTAG) || eldolt')
+  if (dontesNelkul === sharedNyers) assert(false, 'K8n: a döntés-ág mutáns NEM különbözik az eredetitől — a negatív asszert vak')
+  else {
+    const r = betoltShared(dontesNelkul).megoldasLevezetes({ megoldvaOszlop: undefined, cim: 'Hozzáférés elutasítva', tipus: 'danger', adminRequestId: REQ_NEW, kerelem: undefined })
+    assert(r.megoldva === false && lib.valaszraVarE(sor('k8n', { tipus: 'danger', adminRequestId: REQ_NEW, megoldva: r.megoldva })) === true, 'K8n: a döntés-ág NÉLKÜLI mutánson a kérelmező elutasítás-sora „Válaszra vár" — az őrszem tud pirosra váltani')
+  }
+  // K9n NEGATÍV (bírálói P3): a döntés-sorra is mondatot adó szabály — „Ez a baj azóta elmúlt. … elutasításra került."
+  const savMindenhol = sharedNyers.replace('const kerelem = eldolt && !dontesSor ? (input.kerelem ?? null) : null', 'const kerelem = eldolt ? (input.kerelem ?? null) : null')
+  if (savMindenhol === sharedNyers) assert(false, 'K9n: a sáv-mutáns NEM különbözik az eredetitől — a negatív asszert vak')
+  else {
+    const r = betoltShared(savMindenhol).megoldasLevezetes({ megoldvaOszlop: false, cim: 'Hozzáférés elutasítva', tipus: 'danger', adminRequestId: REQ_NEW, kerelem: K_DENIED })
+    assert(typeof r.megoldasUzenet === 'string' && /elutasításra/.test(r.megoldasUzenet), 'K9n: a döntés-sorra is mondatot adó mutánson az önellentmondó sáv visszajön — az őrszem tud pirosra váltani')
+  }
+}
+
+// ── S1–S5: forrás-őr — az adatréteg és a nézet EGY szabályból dönt (P3) ────
+const ACTIONS_SRC = path.join(WEB, 'lib/notifications/uzenetek-actions.ts')
+const DONTES_SRC = path.join(WEB, 'app/(dashboard)/notifications/actions.ts')
+const INSERT_SRC = path.join(WEB, 'lib/notifications/ertesites-insert.ts')
+const PAGE_SRC = path.join(WEB, 'app/(dashboard)/notifications/page.tsx')
+const BUBOREK_SRC = path.join(WEB, 'components/notifications/uzenet-buborek.tsx')
+const LISTA_SRC = path.join(WEB, 'components/notifications/beszelgetes-lista.tsx')
+{
+  const actionsSrc = fs.readFileSync(ACTIONS_SRC, 'utf8')
+  // S1: az alakit() az egy szabályt hívja — nincs saját (második) szabály
+  assert(/const adminRequestId = kerelemAzonosito\(r\.admin_request_id, r\.hivatkozas\)/.test(actionsSrc), 'S1: az alakit() az azonosítót a kerelemAzonosito egy szabályából veszi')
+  assert(/const megoldas = megoldasLevezetes\(\{/.test(actionsSrc) && /megoldva: megoldas\.megoldva/.test(actionsSrc), 'S1: az alakit() a megoldva mezőt a megoldasLevezetes egy szabályából tölti')
+  assert(/megoldvaAt: r\.megoldva_at \?\? megoldas\.megoldvaAt/.test(actionsSrc) && /megoldasUzenet: r\.megoldas_uzenet \?\? megoldas\.megoldasUzenet/.test(actionsSrc), 'S1: a sor saját időbélyege/mondata az első, a kérelemből levezetett a tartalék')
+  assert(!/cim\.startsWith\(MEGOLDVA_CIM_ELOTAG\)/.test(actionsSrc) && !/r\.admin_request_id \?\?/.test(actionsSrc), 'S1: az akció-fájlban NINCS második szabály (a régi cím-előtag / hivatkozás-parse alak)')
+  // S1 (bírálói P3 — a BEKÖTÉS): az alakit() a kérelem állapotát a térképből, a típust és az
+  // azonosítót is átadja; a kerelemAllapotok a shared tiszta térkép-építőjét hívja (K10 futtatja)
+  const bekotesOk = (src) =>
+    /kerelem: adminRequestId \? kerelmek\.get\(adminRequestId\) : undefined,/.test(src) &&
+    /tipus: r\.tipus,\s*\n\s*adminRequestId,\s*\n\s*kerelem:/.test(src) &&
+    /kerelemAllapotTerkep\(\(data \?\? \[\]\) as NyersKerelemSor\[\], allapotok\)/.test(src) &&
+    !/allapotok\.set\(/.test(src)
+  assert(bekotesOk(actionsSrc), 'S1: az alakit() a hivatkozott kérelem állapotát a térképből adja át (kerelem: kerelmek.get(adminRequestId)), a típussal és az azonosítóval; a térképet a shared kerelemAllapotTerkep építi (nincs saját második)')
+  assert(/dontesSor: megoldas\.dontesSor/.test(actionsSrc), 'S1: a dontesSor jel is a szabályból jön (a buborék sávja ebből dönt)')
+  {
+    // S1n NEGATÍV: a `kerelem: undefined` mutáns — a RÉGI hibás világ az integrációs ponton
+    const vakBekotes = actionsSrc.replace('kerelem: adminRequestId ? kerelmek.get(adminRequestId) : undefined,', 'kerelem: undefined,')
+    assert(vakBekotes !== actionsSrc && !bekotesOk(vakBekotes), 'S1n: a `kerelem: undefined` (bekötés nélküli) mutánson az őr BUKIK')
+    // …és a saját (második) térkép-építős mutáns
+    const sajatTerkep = actionsSrc.replace('kerelemAllapotTerkep((data ?? []) as NyersKerelemSor[], allapotok)', "for (const k of data ?? []) allapotok.set(k.id, { status: k.status ?? '', approvedAt: null, deniedAt: null, expiresAt: null })")
+    assert(sajatTerkep !== actionsSrc && !bekotesOk(sajatTerkep), 'S1n: a saját (második) térkép-építős mutánson az őr BUKIK')
+  }
+  // S2: a kérelem-állapotok lekérése darabolt, és a hibája NEM néma
+  assert(
+    /\.from\('admin_access_requests'\)\s*\n\s*\.select\('id, status, approved_at, denied_at, expires_at'\)\s*\n\s*\.in\('id', idk\.slice\(i, i \+ KERELEM_DARAB\)\)/.test(actionsSrc),
+    'S2: a kérelem-állapot az admin_access_requests-ből, KERELEM_DARAB-os darabokban (414-őr)',
+  )
+  const darab = /const KERELEM_DARAB = (\d+)/.exec(actionsSrc)
+  assert(!!darab && Number(darab[1]) <= 100, 'S2: a darab legfeljebb 100 (a proxy URL-korlátja)')
+  assert(/if \(error\) return \{ allapotok: new Map\(\), hiba: error\.message \}/.test(actionsSrc), 'S2: a lekérés hibája ÜRES térképpel + hiba-szöveggel tér vissza (nem catch, nem néma)')
+  assert(!/catch\s*\{[^}]*return \{ allapotok/.test(actionsSrc), 'S2: nincs néma catch a kérelem-lekérés körül')
+  // S3: a hiba a válaszban utazik — a listában ÉS a csengőben a NEM VÉGZETES `warning` mezőben
+  assert(
+    /const figyelmeztetes = kerelemAllapotFigyelmeztetes\(nyers, kerelmek\)\s*\n\s*if \(figyelmeztetes\) eredmeny\.warning = figyelmeztetes/.test(actionsSrc),
+    'S3: listErtesitesekAction → a figyelmeztetés a válasz `warning` mezőjébe',
+  )
+  // 2026-09-05 (ellenőrzés-ügynök): a csengőben is a `warning` mezőbe — a számláló-hibától
+  // FÜGGETLENÜL (a régi `else if` lánc elnyelte, ha a számláló is hibázott), nem az error-ba
+  assert(
+    /if \(kerelemFigyelmeztetesSzoveg\) eredmeny\.warning = kerelemFigyelmeztetesSzoveg/.test(actionsSrc) && !/eredmeny\.error = kerelemFigyelmeztetesSzoveg/.test(actionsSrc) && !/else if \(kerelemFigyelmeztetesSzoveg\)/.test(actionsSrc),
+    'S3: listFrissErtesitesekAction → a figyelmeztetés a csengő `warning` mezőjébe (nem az error-ba, nem else-if mögött)',
+  )
+  assert(
+    /friss\?\.warning \? \(\s*\n\s*<p role="status"[^\n]*amber[^\n]*>\s*\n\s*\{friss\.warning\}/.test(bellSrc),
+    'S3b: a csengő KIÍRJA a friss.warning-ot (borostyán role=status doboz, mint a listában)',
+  )
+  {
+    const bellNema = bellSrc.replace(/\{friss\?\.warning \? \([\s\S]*?\) : null\}\n/, '')
+    assert(bellNema !== bellSrc && !/\{friss\.warning\}/.test(bellNema), 'S3bn: a warning-dobozt nem rajzoló (néma) csengő-mutánson az őr BUKIK')
+  }
+  // S3n NEGATÍV: a néma mutáns — a warning-sor törölve
+  const nema = actionsSrc.replace(/\s*if \(figyelmeztetes\) eredmeny\.warning = figyelmeztetes/, '')
+  assert(nema !== actionsSrc && !/if \(figyelmeztetes\) eredmeny\.warning = figyelmeztetes/.test(nema), 'S3n: a warning nélküli (néma) mutánson az őr BUKIK')
+  // S4: a nézet KIÍRJA
+  const pageSrc = fs.readFileSync(PAGE_SRC, 'utf8')
+  assert(/kezdoFigyelmeztetes=\{uzenetek\.warning \?\? null\}/.test(pageSrc), 'S4: a /notifications oldal átadja a warning-ot az inboxnak')
+  assert(/setFigyelmeztetes\(r\.warning \?\? null\)/.test(inboxSrc) && /\{figyelmeztetes \? \(\s*\n\s*<p role="status"/.test(inboxSrc), 'S4: az inbox frissíti és role="status" dobozban kiírja a figyelmeztetést')
+  // S5: a pill, a gombpár és a számláló CSAK a valaszraVarE-n át (= az egy `megoldva` mező) dönt
+  const buborekSrc = fs.readFileSync(BUBOREK_SRC, 'utf8')
+  const listaSrc = fs.readFileSync(LISTA_SRC, 'utf8')
+  assert(/const valaszraVar = valaszraVarE\(sor\)/.test(buborekSrc) && /\{valaszraVar \? \(\s*\n\s*<span[^\n]*\n\s*Válaszra vár/.test(buborekSrc), 'S5: a buborék „Válaszra vár" pillje a valaszraVarE-ből dönt')
+  assert(/\{valaszraVar && sor\.adminRequestId \? \(/.test(buborekSrc), 'S5: a Jóváhagyás/Elutasítás gombpár is a valaszraVarE mögött áll')
+  assert(!/\{sor\.adminRequestId \? \(/.test(buborekSrc) && !/!sor\.megoldva/.test(buborekSrc), 'S5: a buborékban NINCS második szabály (csupasz adminRequestId / !megoldva feltétel)')
+  assert(/b\.valaszraVar > 0 \?/.test(listaSrc) && !/adminRequestId/.test(listaSrc), 'S5: a beszélgetés-lista a szál valaszraVar számlálójából dönt, nem az azonosítóból')
+  assert(/const valaszraVar = valaszraVarE\(sor\)/.test(bellSrc) && !/\{sor\.adminRequestId \? \(/.test(bellSrc), 'S5: a csengő pillje is a valaszraVarE-ből dönt')
+  assert(/return !!sor\.adminRequestId && !sor\.megoldva && !sor\.archived/.test(libNyers), 'S5: valaszraVarE = adminRequestId ∧ ¬megoldva ∧ ¬archivált — az egyetlen `megoldva` mezőből')
+  // S5n NEGATÍV: a buborék-mutáns, amely az azonosítóból dönt (a régi, két-szabályos világ)
+  const ketSzabaly = buborekSrc.replace('{valaszraVar ? (', '{sor.adminRequestId ? (')
+  assert(ketSzabaly !== buborekSrc && /\{sor\.adminRequestId \? \(/.test(ketSzabaly), 'S5n: a csupasz-adminRequestId mutánson az őr BUKIK')
+
+  // S6 (bírálói P2): a TÁROLT jel EGY szabály szerint — a kérelmező döntés-sora már BESZÚRÁSKOR
+  // megoldva, MINDKÉT döntési ágon (jóváhagyás: success, elutasítás: danger), a döntés idejével;
+  // az insert-segéd írja is, és a 2026-08-11-es SQL előtti sémán az oszlop nélkül esik vissza.
+  // (A kerelemErtesitesMegoldva `.neq('user_id', kérelmező)` szűrője ezért maradhat: a kérelmező
+  // sorát nem a döntés utáni frissítés, hanem a beszúrás jelöli — a visszatöltéssel egyezően.)
+  const dontesSrc = fs.readFileSync(DONTES_SRC, 'utf8')
+  const insertSrc = fs.readFileSync(INSERT_SRC, 'utf8')
+  const dontesBeszurasOk = (src) => {
+    const blokkok = [...src.matchAll(/await insertErtesites\(\s*\n\s*supabase,\s*\n\s*\{([\s\S]*?)\},\s*\n\s*\{ forras: '(admin-access-[a-z]+)' \}/g)]
+    if (blokkok.length !== 2) return { ok: false, miert: `${blokkok.length} döntési beszúrás (2 kell: jóváhagyás + elutasítás)` }
+    for (const b of blokkok) {
+      const torzs = b[1]
+      if (!/admin_request_id: request\.id,/.test(torzs)) return { ok: false, miert: `${b[2]}: nincs admin_request_id` }
+      if (!/megoldva: true,/.test(torzs)) return { ok: false, miert: `${b[2]}: nincs megoldva: true` }
+      if (!/megoldva_at: dontesIdeje,/.test(torzs)) return { ok: false, miert: `${b[2]}: nincs megoldva_at: dontesIdeje` }
+    }
+    return { ok: true }
+  }
+  const s6 = dontesBeszurasOk(dontesSrc)
+  assert(s6.ok, `S6: a jóváhagyás ÉS az elutasítás döntés-sora beszúráskor megoldva: true + megoldva_at: dontesIdeje (${s6.ok ? 'mindkét ág' : s6.miert})`)
+  assert(/tipus: 'success',[\s\S]*?megoldva: true,/.test(dontesSrc) && /tipus: 'danger',[\s\S]*?megoldva: true,/.test(dontesSrc), 'S6: a success (jóváhagyva) és a danger (elutasítva) sor egyaránt jelölt')
+  assert(
+    /if \(sor\.megoldva === true\) \{\s*\n\s*rekord\.megoldva = true\s*\n\s*rekord\.megoldva_at = sor\.megoldva_at \?\? new Date\(\)\.toISOString\(\)/.test(insertSrc),
+    'S6: az insertErtesites a megoldva + megoldva_at oszlopot írja (időbélyeg nélküli jelölés nincs — a rács 03. sora)',
+  )
+  assert(/'megoldva',\s*\n\s*'megoldva_at',/.test(insertSrc), 'S6: a megoldva / megoldva_at az ELHAGYHATO_OSZLOPOK-ban (a 2026-08-11-es SQL előtti sémán a sor nélkülük megy be, nem hasal el)')
+  {
+    // S6n NEGATÍV: az EGYIK ágon megoldva nélkül beszúró mutáns (a RÉGI világ) — a tárolt jel két szabály szerint állna
+    const regiBeszuras = dontesSrc.replace(/\s*megoldva: true,\n\s*megoldva_at: dontesIdeje,/, '')
+    assert(regiBeszuras !== dontesSrc && !dontesBeszurasOk(regiBeszuras).ok, 'S6n: a megoldva NÉLKÜL beszúró mutánson az őr BUKIK')
+    const idoNelkul = insertSrc.replace('rekord.megoldva_at = sor.megoldva_at ?? new Date().toISOString()', '')
+    assert(idoNelkul !== insertSrc && !/rekord\.megoldva = true\s*\n\s*rekord\.megoldva_at = /.test(idoNelkul), 'S6n: az időbélyeg nélkül jelölő insert-mutánson az őr BUKIK')
+  }
+
+  // S7 (bírálói P3): a zöld „Ez a baj azóta elmúlt" sáv NEM a döntés-soron — a Megoldva pill igen
+  assert(/\{sor\.megoldva && !sor\.dontesSor \? \(\s*\n\s*<p[^\n]*emerald/.test(buborekSrc), 'S7: a buborék zöld sávja CSAK megoldva ∧ ¬döntés-soron (a kérelmező elutasításán nincs „elmúlt a baj")')
+  assert(/\{sor\.megoldva \? \(\s*\n\s*<span[^\n]*emerald[^\n]*\n[^\n]*\n\s*Megoldva/.test(buborekSrc), 'S7: a Megoldva pill a döntés-soron is látszik (csak a sáv marad el)')
+  assert(!/\{sor\.megoldva \? \(\s*\n\s*<p/.test(buborekSrc), 'S7: NINCS csupasz `sor.megoldva`-ra rajzolt sáv')
+  {
+    const savMindig = buborekSrc.replace('{sor.megoldva && !sor.dontesSor ? (', '{sor.megoldva ? (')
+    assert(savMindig !== buborekSrc && (!/\{sor\.megoldva && !sor\.dontesSor \? \(/.test(savMindig) || /\{sor\.megoldva \? \(\s*\n\s*<p/.test(savMindig)), 'S7n: a döntés-soron is sávot rajzoló mutánson az őr BUKIK')
+  }
 }
 
 // ── Összegzés ──────────────────────────────────────────────────────────────

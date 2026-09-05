@@ -69,8 +69,35 @@ function isPublicCalendarRoute(pathname: string): boolean {
 // van: 256 bites, csak hash-ben tárolt kód + IP-hash spam-fék + 10 perces
 // lejárat; jóváhagyni CSAK bejelentkezve, a /desktop-kapcsolas oldalon lehet,
 // ami a rendes (dashboard) kapuk mögött él.
+//
+// ⛔ PONTOS ALLOWLIST, NEM ELŐTAG (2026-09-05, a bíráló P3 találata): az első
+// változat `startsWith('/api/desktop-kapcsolas/')` alapon engedett át, tehát
+// egy JÖVŐBELI útvonal (pl. egy `/api/desktop-kapcsolas/torles`) magától,
+// döntés nélkül lett volna munkamenet nélkül elérhető. Itt CSAK az a három
+// útvonal nyilvános, amelyik a saját kapujával (kód-hash, spam-fék, lejárat)
+// védi magát; minden más — al-útvonal, záró perjeles alak, új végpont —
+// ALAPBÓL a bejelentkezés-kapura esik (fail-closed). Új nyilvános útvonal
+// csak ide beírva lesz az. (A záró perjeles alakot a Next beépített
+// átirányítása a proxy ELŐTT leveszi — a pontos egyezés emiatt nem szigorúbb
+// a kelleténél.) Őrszem: scripts/selftest-desktop-kapcsolas.mjs M1/M1n.
+//
+// ⚠️ AZ ÚTVONAL-SZÖVEG HÁROM HELYEN ÉL (itt, az asztali kliensben —
+// apps/desktop/src/lib/desktop-kapcsolas.ts — és a route-mappák nevében). A
+// pontos allowlist a prefixnél SZOROSABBAN kötődik a fájlrendszerhez: egy
+// átnevezett mappa vagy egy elgépelt bejegyzés NÉMÁN a bejelentkezés-kapura
+// ejtené az asztali POST-ot (307 → /login HTML → az app a lejáratig újrapróbál).
+// Ezért az őr (M1b/M1bn/M1c) minden bejegyzéshez LÉTEZŐ route.ts-t követel,
+// és minden létező route-mappához döntést (nyilvános VAGY munkamenet-köteles).
+// Egy közös `DESKTOP_KAPCSOLAS_UTVONALAK` konstans a @kartoteka/supabase-client
+// csomagban (az asztali kliens és a proxy ugyanonnan) egy későbbi kör dolga —
+// barrel-bővítés, helyi web build a push előtt.
+const DESKTOP_KAPCSOLAS_NYILVANOS_UTVONALAK: ReadonlySet<string> = new Set([
+  '/api/desktop-kapcsolas/inditas',
+  '/api/desktop-kapcsolas/allapot',
+  '/api/desktop-kapcsolas/nyit',
+])
 function isDesktopKapcsolasApiRoute(pathname: string): boolean {
-  return pathname.startsWith('/api/desktop-kapcsolas/')
+  return DESKTOP_KAPCSOLAS_NYILVANOS_UTVONALAK.has(pathname)
 }
 
 // Éves beszámoló kivetítő/prezenter oldalak — más eszközről (telefon/tablet/

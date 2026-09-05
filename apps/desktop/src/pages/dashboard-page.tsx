@@ -65,6 +65,7 @@ import {
   type OutboxRow,
   type ProfileLocalRow,
 } from '../lib/sync'
+import { stopAllWriteSyncs } from '../lib/write-sync-registry'
 
 /**
  * Dashboard — M2.5 + M2.6 push-sync + konfliktus-kezelés demo.
@@ -339,6 +340,9 @@ export function DashboardPage() {
             reason +
             '\n\nA kliens automatikusan kijelentkezik.',
         )
+        // 2026-09-05 (P3-utómunka): a visszavont eszközön a push-erek is leállnak
+        // (a kijelentkezés párja — a poll ne vigyen fel többé semmit).
+        stopAllWriteSyncs()
         try {
           const supabase = getDesktopSupabase()
           await supabase.auth.signOut()

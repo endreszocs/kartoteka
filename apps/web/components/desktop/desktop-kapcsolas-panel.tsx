@@ -29,7 +29,8 @@ type Allapot =
   | { fazis: 'betolt' }
   | { fazis: 'nincs'; uzenet: string }
   | { fazis: 'keres'; keres: KapcsolasKeresNezet }
-  | { fazis: 'jovahagyva' }
+  /** `felulirva`: hány MÉG ÉLŐ korábbi jóváhagyást zárt le ez a jóváhagyás (a másik gépen újraindítás kell). */
+  | { fazis: 'jovahagyva'; felulirva: number }
   | { fazis: 'elutasitva' }
 
 export function DesktopKapcsolasPanel({ id, hiba }: { id: string | null; hiba: string | null }) {
@@ -81,7 +82,7 @@ export function DesktopKapcsolasPanel({ id, hiba }: { id: string | null; hiba: s
         toast.error(res.error || 'A jóváhagyás nem sikerült.')
         return
       }
-      setAllapot({ fazis: 'jovahagyva' })
+      setAllapot({ fazis: 'jovahagyva', felulirva: res.felulirva ?? 0 })
     })
   }
 
@@ -129,6 +130,15 @@ export function DesktopKapcsolasPanel({ id, hiba }: { id: string | null; hiba: s
           Menj vissza az asztali gépedhez: pár másodpercen belül folytatja a beállítást
           (kétlépcsős belépés, ha van; PIN-kód; első szinkronizálás). Ezt a lapot bezárhatod.
         </p>
+        {allapot.felulirva > 0 && (
+          <div className="flex items-start gap-2 rounded-xl border border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-100">
+            <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+            <span>
+              A korábbi gép várakozása megszakadt — ott indítsd újra az összekapcsolást.
+              {allapot.felulirva > 1 ? ` (${allapot.felulirva} korábbi jóváhagyás zárult le.)` : ''}
+            </span>
+          </div>
+        )}
         <Link href="/dashboard" className="inline-flex min-h-11 items-center text-sm font-medium text-primary underline underline-offset-4">
           Vissza a kezdőlapra
         </Link>
@@ -193,6 +203,22 @@ export function DesktopKapcsolasPanel({ id, hiba }: { id: string | null; hiba: s
                 : keres.allapot === 'elutasitva'
                   ? 'Ezt a kérést korábban elutasítottad.'
                   : 'A kérés lejárt (10 perc). Az asztali alkalmazásban indíts újat.'}
+            </span>
+          </div>
+        )}
+
+        {/* Egy MÁSIK gép jóváhagyása még nincs átvéve: ez a jóváhagyás azt felülírná — a lelkész
+            a döntés ELŐTT lássa. Az `ismeretlen` nem néma: kimondjuk, hogy nem tudtuk ellenőrizni. */}
+        {!nemFolytathato && keres.masikGepVarakozik && (
+          <div
+            role="status"
+            className="flex items-start gap-2 rounded-xl border border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-100"
+          >
+            <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+            <span>
+              {keres.masikGepVarakozik === 'ismeretlen'
+                ? 'Nem sikerült ellenőrizni, van-e másik függő jóváhagyásod. Ha egy másik gépen épp az összekapcsolásra vársz, ez a jóváhagyás annak a várakozását megszakíthatja.'
+                : `Egy másik gép (${keres.masikGepVarakozik.eszkozNev || 'Kartotéka asztali alkalmazás'}) jóváhagyását az asztali alkalmazás még nem vette át — ha ezt jóváhagyod, annak a várakozása megszakad, ott újra kell indítani az összekapcsolást.`}
             </span>
           </div>
         )}

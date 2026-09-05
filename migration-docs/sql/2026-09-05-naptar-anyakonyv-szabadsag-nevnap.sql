@@ -1,6 +1,15 @@
 -- ============================================================================
 -- 2026-09-05 — NAPTÁR: SZABADSÁG + ANYAKÖNYVI ALKALMAK + NÉVNAP-EGYEZTETÉS
 -- ============================================================================
+-- ⚠️ 2026-09-05 UTÓLAGOS KOMMENT-JAVÍTÁS (P3-utómunka, bíráló P3):
+--    a fejléc 4) pontja és a `public_calendar_feed` COMMENT ON FUNCTION
+--    szövege azt állította, hogy az ICS-feedből CSAK a szabadság van kizárva —
+--    a törzs (4/c) viszont kezdettől MIND AZ 5 magán típust kizárja, és a
+--    verifikációs rács 09. sora is ezt méri. A SQL-TÖRZS NEM VÁLTOZOTT;
+--    ÚJRAFUTTATÁS NEM SZÜKSÉGES (a fájl már lefutott élesben). Az adatbázisban
+--    tárolt függvény-komment a régi szöveggel marad, amíg valaki újra nem
+--    futtatja — kozmetikai eltérés, a viselkedést nem érinti.
+-- ============================================================================
 -- MIT AD
 -- ──────
 --  1) Öt új programtípus a `gyulekezeti_programok.tipus` CHECK-ben:
@@ -16,13 +25,16 @@
 --     `publikus` mezője az adatbázisban SOHA nem lehet igaz — akkor sem, ha
 --     egy kliens kihagyná az alkalmazás-szintű kaput.
 --  4) A nyilvános weboldal RPC-i (public_site_events V1 + V2) és a gyülekezeti
---     ICS-feed (public_calendar_feed) a magán-típusokat KIZÁRJÁK a WHERE-ben
---     — a kapu a lekérdezésben van, nem a kliensben.
+--     ICS-feed (public_calendar_feed) MIND AZ 5 magán-típust KIZÁRJÁK a
+--     WHERE-ben — a kapu a lekérdezésben van, nem a kliensben:
 --       · weboldal: szabadság + mind a 4 anyakönyvi típus kizárva
 --         (személynevek egy nyilvános oldalon nem jelenhetnek meg automatikusan);
---       · gyülekezeti ICS-feed: CSAK a szabadság kizárva (a lelkész pihenése
---         nem a tagok naptárába való); a tervezett keresztelő/esküvő/temetés
---         a gyülekezet alkalma — a lelkész maga írja a címét.
+--       · gyülekezeti ICS-feed: UGYANÚGY szabadság + mind a 4 anyakönyvi típus
+--         kizárva (fail-closed: a tervezett keresztelő/esküvő/konfirmáció/
+--         temetés címe személynevet hordozhat, a feed pedig külső naptár-
+--         szolgáltatóra szinkronizálódik; a lelkészi PRIVÁT feedbe később
+--         opt-in kerülhetnek). [2026-09-05 utólagos komment-javítás — a
+--         korábbi „CSAK a szabadság kizárva" szöveg nem a törzset írta le.]
 --  5) KÖZÖS névnap-egyeztető (`naptar_szemely_nevnapok`) és személy-alap
 --     (`naptar_szemely_alap`) függvény — SECURITY INVOKER, az RLS érvényes —,
 --     amelyet a webes születésnapos/névnapos naptár ÉS a lelkészi Google-feed
@@ -331,8 +343,10 @@ COMMENT ON FUNCTION public.public_site_events_v2(text, integer) IS
   'KARTOTEKA_PUBLIC_SITE_EVENTS_V2_MAGAN_KIZARAS';
 
 -- ─────────────────────────────────────────────────────────────────────────
--- 4/c) public_calendar_feed (V3) — a SZABADSÁG kizárva a gyülekezeti ICS-ből.
---      A törzs a 2026-08-26-os V2, egyetlen plusz feltétellel.
+-- 4/c) public_calendar_feed (V3) — MIND AZ 5 MAGÁN TÍPUS (szabadság + a 4
+--      tervezett anyakönyvi alkalom) kizárva a gyülekezeti ICS-ből.
+--      A törzs a 2026-08-26-os V2, egyetlen plusz feltétellel (a NOT IN).
+--      [2026-09-05 utólagos komment-javítás; a törzs érintetlen.]
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.public_calendar_feed(p_token uuid)
 RETURNS jsonb
@@ -393,7 +407,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.public_calendar_feed(uuid) IS
-  'Nyilvános naptár-feed adatforrás (V3, 2026-09-05): a calendar_feed_token alapján a gyülekezet programjait adja a szabadság-típus NÉLKÜL az /api/calendar/<token> ICS-feedhez.';
+  'Nyilvános naptár-feed adatforrás (V3, 2026-09-05): a calendar_feed_token alapján a gyülekezet programjait adja az /api/calendar/<token> ICS-feedhez — az 5 magán típus (szabadsag, kereszteles, eskuvo, konfirmacio, temetes) NÉLKÜL.';
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- 5) KÖZÖS személy-alap + névnap-egyeztető függvények (SECURITY INVOKER — az

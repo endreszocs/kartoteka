@@ -8,7 +8,8 @@ import { z } from 'zod'
 import { programSchema, batchRowSchema, type ProgramInput } from '@/lib/validations/dashboard'
 import type { Program } from '@/lib/constants/dashboard'
 import { isAnyakonyviProgramTipus, isMaganProgramTipus } from '@/lib/constants/dashboard'
-import { PROGRAM_TIPUS_ANYAKONYV_TABLA } from '@/lib/calendar/naptar-retegek-types'
+import { ISMETLODO_SOROZAT_ANYAKONYV_HIBA, PROGRAM_TIPUS_ANYAKONYV_TABLA } from '@/lib/calendar/naptar-retegek-types'
+import { programEvMetszetSzuro } from '@/lib/calendar/program-ev-metszet'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { logAuditEvent } from '@/lib/audit/log'
 import { isMissingDeletedColumn } from '@/lib/worklog/registry-sync'
@@ -66,14 +67,20 @@ export async function getProgramsForYear(year: number): Promise<Program[]> {
   // 2026-08-26 (5. kör): LAPOZVA — a korábbi limit nélküli lekérdezést a
   // PostgREST 1000 soros néma plafonja csonkolhatta (ismert hibaosztály:
   // sűrűn programozó gyülekezetnél a naptár fele hang nélkül eltűnt volna).
+  // 2026-09-05 (cal-print-11, P3-utómunka): az ÉV METSZETE, nem a kezdő nap éve.
+  // Az előző év végén kezdődő, nem ismétlődő, többnapos program (dec. 30. –
+  // jan. 2.) eddig januárban SEHOL nem volt (csempe, éves programterv). A
+  // szabály egy helyen él (lib/calendar/program-ev-metszet.ts): kezdő nap ≤ év
+  // vége ÉS (záró nap VAGY kezdő nap) ≥ év eleje — NULL záró napnál a kezdő dönt.
+  const evSzuro = programEvMetszetSzuro(year)
   const [evesRes, recurringRes] = await Promise.all([
     selectAllPaged<Program>(
       supabase
         .from('gyulekezeti_programok')
         .select('*')
         .eq('congregation_id', congregationId)
-        .gte('datum', `${year}-01-01`)
-        .lte('datum', `${year}-12-31`)
+        .lte('datum', evSzuro.datumLegfeljebb)
+        .or(evSzuro.vagySzuro)
         .order('datum')
         .order('ido_kezdes'),
     ),
@@ -97,7 +104,12 @@ export async function getProgramsForYear(year: number): Promise<Program[]> {
   // egyértelmű üzenetet adhasson és a „Betöltés…" ne ragadjon be.
   if (evesRes.error) throw new Error(evesRes.error.message)
   if (recurringRes.error) throw new Error(recurringRes.error.message)
-  return [...recurringRes.data, ...evesRes.data]
+  // Egy sor MINDKÉT lekérdezésből jöhet: az előző évben indult, az évbe átnyúló
+  // ISMÉTLŐDŐ sorozatot a metszet-szűrő ÉS a sorozat-lekérdezés is hozza. Id
+  // szerint egyszer tartjuk meg — különben a kibontás megduplázná az alkalmait.
+  const egyszer = new Map<string, Program>()
+  for (const p of [...recurringRes.data, ...evesRes.data]) egyszer.set(p.id, p)
+  return [...egyszer.values()]
 }
 
 /**
@@ -576,15 +588,23 @@ export async function kapcsolProgramAnyakonyvhoz(input: {
 
   const { data: program, error: readError } = await supabase
     .from('gyulekezeti_programok')
-    .select('id, tipus, anyakonyv_id')
+    .select('id, tipus, anyakonyv_id, ismetlodes_tipus')
     .eq('id', input.programId)
     .eq('congregation_id', congregationId)
     .maybeSingle()
   if (readError) return { ok: false, error: `A program nem olvasható: ${readError.message}` }
-  const p = program as { id: string; tipus: string; anyakonyv_id?: number | null } | null
+  const p = program as { id: string; tipus: string; anyakonyv_id?: number | null; ismetlodes_tipus?: string | null } | null
   if (!p) return { ok: false, error: 'A program nem található ebben a gyülekezetben.' }
   if (!isAnyakonyviProgramTipus(p.tipus)) {
     return { ok: false, error: 'Csak keresztelő/esküvő/konfirmáció/temetés típusú program köthető anyakönyvi bejegyzéshez.' }
+  }
+  // 2026-09-05 (P3-utómunka): ISMÉTLŐDŐ sorozat — ugyanaz a kapu, mint a
+  // toggleProgramDone-ban. A kibontott alkalmak a sorozat EGY adatbázis-sorát
+  // öröklik: az összekötés + „teljesített" az ÖSSZES alkalmat jelölné meg, és
+  // egy anyakönyvi bejegyzés egy egész sorozathoz kötődne. Hangosan tiltjuk;
+  // a felület a dialógus megnyitása ELŐTT is ezt mondja (program-scheduler).
+  if (p.ismetlodes_tipus) {
+    return { ok: false, error: ISMETLODO_SOROZAT_ANYAKONYV_HIBA }
   }
   if (p.anyakonyv_id && p.anyakonyv_id !== input.anyakonyvId) {
     return { ok: false, error: 'Ez a program már egy MÁSIK anyakönyvi bejegyzéshez van kötve.' }

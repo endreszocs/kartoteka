@@ -2090,8 +2090,35 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("v33 migráció (voter_manual_override) sikertelen: {e}"))?;
     }
 
+    // v34 (2026-09-05, P3-utómunka — desktop 2. fázis, programok): a Supabase
+    // `gyulekezeti_programok` 2026-08-26-os és 2026-09-05-ös oszlopainak
+    // lokális tükre, hogy a helyi közelgő programok a webbel azonosan
+    // viselkedjenek:
+    //   - ismetlodes_vege TEXT — a sorozat utolsó napja (YYYY-MM-DD); e nélkül
+    //     a weben lezárt heti sorozat a gépen tovább futott
+    //   - publikus INTEGER 0/1 — nyilvános jelölés; MAGÁN típuson (szabadság +
+    //     anyakönyvi) a TS-oldali pull mindig 0-t ír (fail-closed)
+    //   - anyakonyv_tabla TEXT / anyakonyv_id INTEGER — a tervezett anyakönyvi
+    //     alkalom kapcsolata a megtörtént anyakönyvi sorral
+    // Idempotencia: a `PRAGMA user_version` kapuzás garantálja, hogy az
+    // ALTER TABLE-ök csak egyszer futnak (a v28/v33 ALTER-minta betűre követve).
+    if current < 34 {
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            ALTER TABLE gyulekezeti_programok_local ADD COLUMN ismetlodes_vege TEXT;
+            ALTER TABLE gyulekezeti_programok_local ADD COLUMN publikus INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE gyulekezeti_programok_local ADD COLUMN anyakonyv_tabla TEXT;
+            ALTER TABLE gyulekezeti_programok_local ADD COLUMN anyakonyv_id INTEGER;
+            PRAGMA user_version = 34;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v34 migráció (programok: ismetlodes_vege/publikus/anyakönyv-kapcsolat) sikertelen: {e}"))?;
+    }
+
     // Jövőbeli migrációk ide:
-    // if current < 34 { ... PRAGMA user_version = 34; }
+    // if current < 35 { ... PRAGMA user_version = 35; }
 
     Ok(())
 }

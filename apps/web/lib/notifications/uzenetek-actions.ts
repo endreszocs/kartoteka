@@ -27,6 +27,27 @@
  * él (5 friss sor + VALÓDI olvasatlan-szám + függő átjelentkezési kérelmek).
  *
  * ════════════════════════════════════════════════════════════════════════════
+ * 2026-09-05 (P3) — A „VÁLASZRA VÁR" A KÉRELEM TÉNYLEGES ÁLLAPOTÁBÓL
+ * ════════════════════════════════════════════════════════════════════════════
+ * A 2026-09-05 előtti hozzáférés-kérelem sorok (`admin_request_id` kitöltve)
+ * „Válaszra vár" pillje és Jóváhagyás/Elutasítás gombpárja SOSEM oldódott fel:
+ * a „megoldva" jelölés csak az új döntési úton történik (notifications/
+ * actions.ts → kerelemErtesitesMegoldva). Olvasáskor ezért a hivatkozott
+ * `admin_access_requests` sor állapotát is lekérjük (`kerelemAllapotok`), és a
+ * `megoldva` mezőt EGY szabállyal vezetjük le (uzenetek-shared →
+ * `megoldasLevezetes`: oszlop VAGY cím-előtag VAGY a kérelem eldőlt). A
+ * felület csak ezt az egy mezőt nézi. A mellék-lekérés hibája HANGOS: a
+ * válasz NEM VÉGZETES `warning` mezőjében utazik (a listában és a csengőben
+ * egyaránt, a számláló-hibától függetlenül), néma függő nincs.
+ *
+ * 2026-09-05 (P3-utómunka, bírálói P2): a KÉRELMEZŐ döntés-sora (success/
+ * danger + kérelem-hivatkozás) MAGA A DÖNTÉS — a szabály negyedik ága
+ * (`kerelemDontesSorE`) ezért a tartalék-ágon (üres térkép) is megoldottnak
+ * veszi: a kérelmező a saját elutasításán nem kaphat „Válaszra vár" pillt és
+ * Jóváhagyás/Elutasítás gombot. A tárolt jel ezzel egyezik: a döntés-sor már
+ * beszúráskor `megoldva` (notifications/actions.ts), mint a visszatöltés után.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
  * ⚠️ MINDEN `'use server'` EXPORT ÉLŐ POST-VÉGPONT
  * ════════════════════════════════════════════════════════════════════════════
  * A védelem NEM a felület, hanem az RLS + a saját `user_id` szűrő:
@@ -42,8 +63,8 @@ import { createClient } from '@/lib/supabase/server'
 import { renderUzenetHtml } from './ertesites-render'
 import { feladoBontas } from './felado'
 import { countPendingTransferNotifications } from './transfer-notifications-actions'
-import type { FrissErtesitesek, UzenetLista, UzenetMuveletEredmeny, UzenetSor } from './uzenetek-shared'
-import { MEGOLDVA_CIM_ELOTAG, markdownSzoveg, szovegKivonat } from './uzenetek-shared'
+import type { FrissErtesitesek, KerelemAllapot, NyersKerelemSor, UzenetLista, UzenetMuveletEredmeny, UzenetSor } from './uzenetek-shared'
+import { kerelemAllapotTerkep, kerelemAzonosito, kerelemFigyelmeztetes, markdownSzoveg, megoldasLevezetes, szovegKivonat } from './uzenetek-shared'
 
 /** Egyszerre ennyi üzenetet töltünk be. A felület kiírja, ha több van. */
 const ALAP_LIMIT = 200
@@ -103,12 +124,18 @@ export async function listErtesitesekAction(): Promise<UzenetLista> {
   if (error) return { error: `Az üzenetek nem tölthetők be: ${error.message}` }
 
   const nyers = ((data ?? []) as unknown as NyersSor[]).slice(0, ALAP_LIMIT)
-  const nevek = await gyulekezetNevek(supabase, nyers)
+  const [nevek, kerelmek] = await Promise.all([gyulekezetNevek(supabase, nyers), kerelemAllapotok(supabase, nyers)])
 
-  return {
-    rows: nyers.map((r) => alakit(r, nevek)),
+  const eredmeny: UzenetLista = {
+    rows: nyers.map((r) => alakit(r, nevek, kerelmek.allapotok)),
     tobbVan: (data ?? []).length > ALAP_LIMIT,
   }
+  // NEM NÉMA: a kérelem-állapotok lekérésének hibája (vagy a nem látható
+  // kérelem) a válaszban utazik — a felület kiírja, a sorok a saját
+  // jelölésükre esnek vissza (fail-closed: függő marad, nem lesz „megoldva").
+  const figyelmeztetes = kerelemAllapotFigyelmeztetes(nyers, kerelmek)
+  if (figyelmeztetes) eredmeny.warning = figyelmeztetes
+  return eredmeny
 }
 
 /**
@@ -160,9 +187,9 @@ export async function listFrissErtesitesekAction(): Promise<FrissErtesitesek> {
   }
 
   const nyers = (lista.data ?? []) as unknown as NyersSor[]
-  const nevek = await gyulekezetNevek(supabase, nyers)
+  const [nevek, hozzaferesKerelmek] = await Promise.all([gyulekezetNevek(supabase, nyers), kerelemAllapotok(supabase, nyers)])
   const eredmeny: FrissErtesitesek = {
-    sorok: nyers.map((r) => alakit(r, nevek)),
+    sorok: nyers.map((r) => alakit(r, nevek, hozzaferesKerelmek.allapotok)),
     olvasatlan: szamlalo.error ? 0 : (szamlalo.count ?? 0),
     fuggoKerelmek: kerelmek.count,
   }
@@ -172,6 +199,12 @@ export async function listFrissErtesitesekAction(): Promise<FrissErtesitesek> {
   } else if (kerelmek.error) {
     eredmeny.error = `A függő átjelentkezési kérelmek száma nem kérdezhető le: ${kerelmek.error}`
   }
+  // Ugyanígy a hozzáférés-kérelmek állapotának hibája: a „Válaszra vár" ilyenkor
+  // a sor saját jelöléséből jön — ezt a csengő is kiírja, nem hallgatja el.
+  // 2026-09-05 (P3-utómunka): a `warning` mezőben, a listával azonos módon (nem
+  // végzetes → borostyán), és a számláló-hibától FÜGGETLENÜL — egyik sem nyeli el a másikat.
+  const kerelemFigyelmeztetesSzoveg = kerelemAllapotFigyelmeztetes(nyers, hozzaferesKerelmek)
+  if (kerelemFigyelmeztetesSzoveg) eredmeny.warning = kerelemFigyelmeztetesSzoveg
   return eredmeny
 }
 
@@ -191,10 +224,24 @@ function uzenetMarkdownE(r: NyersSor, cim: string): boolean {
   return (r.tipus ?? '') === 'release' || /^kartotéka\s+[—–-]/i.test(cim)
 }
 
-function alakit(r: NyersSor, nevek: Map<string, string>): UzenetSor {
+function alakit(r: NyersSor, nevek: Map<string, string>, kerelmek: ReadonlyMap<string, KerelemAllapot>): UzenetSor {
   const cim = (r.cim ?? '').trim()
   const uzenet = r.uzenet ?? ''
   const congregationNev = r.congregation_id ? (nevek.get(r.congregation_id) ?? null) : null
+
+  // HOZZÁFÉRÉS-KÉRELEM: az azonosító EGY szabályból (oszlop, vagy a régi sorok
+  // `admin_access:<uuid>` hivatkozása — csak szabályos UUID), a „megoldva" pedig
+  // EGY szabályból — oszlop VAGY cím-előtag VAGY a sor maga a döntés (a
+  // kérelmező success/danger értesítése) VAGY a hivatkozott kérelem már eldőlt.
+  // A felület minden helye (valaszraVarE, pill, gombpár, zöld sáv) ebből az egy mezőből dönt.
+  const adminRequestId = kerelemAzonosito(r.admin_request_id, r.hivatkozas)
+  const megoldas = megoldasLevezetes({
+    megoldvaOszlop: r.megoldva,
+    cim,
+    tipus: r.tipus,
+    adminRequestId,
+    kerelem: adminRequestId ? kerelmek.get(adminRequestId) : undefined,
+  })
 
   // FELADÓ: oszlop-először, régi sornál levezetés. A `felado_levezetett` jelet a
   // trigger/visszatöltés is állíthatja — az ilyen sor a felületen „valószínű
@@ -229,17 +276,16 @@ function alakit(r: NyersSor, nevek: Map<string, string>): UzenetSor {
     createdAt: r.created_at,
     readAt: r.read_at ?? null,
     hivatkozas: r.hivatkozas ?? null,
-    adminRequestId:
-      r.admin_request_id ??
-      (r.hivatkozas?.startsWith('admin_access:')
-        ? r.hivatkozas.replace('admin_access:', '')
-        : null),
+    adminRequestId,
     congregationNev,
-    // ⚠️ KÉT FORRÁS. Oszlop, ha van; egyébként a cím-előtag (a feloldás
-    //    fail-closed ága azt írja be, ha a migráció még nem futott le).
-    megoldva: r.megoldva === true || cim.startsWith(MEGOLDVA_CIM_ELOTAG),
-    megoldvaAt: r.megoldva_at ?? null,
-    megoldasUzenet: r.megoldas_uzenet ?? null,
+    // ⚠️ NÉGY FORRÁS, EGY SZABÁLY (`megoldasLevezetes`): az oszlop, ha van; a
+    //    cím-előtag (a feloldás fail-closed ága azt írja be, ha a migráció még
+    //    nem futott le); a sor maga a döntés; és a kérelem tényleges állapota.
+    //    A sor saját időbélyege/mondata az első, a kérelemből levezetett a tartalék.
+    megoldva: megoldas.megoldva,
+    megoldvaAt: r.megoldva_at ?? megoldas.megoldvaAt,
+    megoldasUzenet: r.megoldas_uzenet ?? megoldas.megoldasUzenet,
+    dontesSor: megoldas.dontesSor,
     felado,
     uzenetHtml,
     kivonat,
@@ -270,6 +316,73 @@ async function gyulekezetNevek(
   } catch {
     return new Map()
   }
+}
+
+/** Egyszerre ennyi kérelem-azonosító egy `.in()` szűrőben (~100 fölött a proxy 414-et adhat). */
+const KERELEM_DARAB = 80
+
+interface KerelemAllapotok {
+  allapotok: Map<string, KerelemAllapot>
+  /** A lekérés hibája magyarul. Hibánál a térkép ÜRES — minden sor egységesen a saját jelölésére esik vissza. */
+  hiba: string | null
+}
+
+/**
+ * A sorok által hivatkozott hozzáférés-kérelmek TÉNYLEGES állapota (2026-09-05, P3).
+ *
+ * MIÉRT: a 2026-09-05 előtti döntések a lelkész kérelem-értesítését nem jelölték
+ * „megoldva"-nak (a jelölés csak az új döntési úton történik — notifications/
+ * actions.ts, kerelemErtesitesMegoldva), így a „Válaszra vár" pill és a gombpár
+ * sosem oldódott fel. Olvasáskor a kérelem SAJÁT sorából tudjuk meg az igazságot —
+ * ez az egy igazságforrás; a sor jelölése csak gyorsítótár.
+ *
+ * A BEJELENTKEZETT felhasználó kliensével fut: az `aar_olvasas` policy a
+ * kérelmezőt, a megszólított lelkészt és a globális jogút engedi — pontosan
+ * azokat, akik értesítést kaptak róla. Amit az RLS elrejt, az a térképből
+ * HIÁNYZIK (nem hiba!) — a `kerelemFigyelmeztetes` a hiányt is nevén nevezi,
+ * a sor pedig függő marad (fail-closed: valódi függő kérelmet sosem rejtünk el).
+ *
+ * ⚠️ HIBÁNÁL ÜRES TÉRKÉP + `hiba`: a hívó warning-ot ad, néma függő nincs.
+ */
+async function kerelemAllapotok(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  sorok: NyersSor[],
+): Promise<KerelemAllapotok> {
+  const idk = [
+    ...new Set(sorok.map((s) => kerelemAzonosito(s.admin_request_id, s.hivatkozas)).filter((v): v is string => !!v)),
+  ]
+  const allapotok = new Map<string, KerelemAllapot>()
+  if (idk.length === 0) return { allapotok, hiba: null }
+
+  for (let i = 0; i < idk.length; i += KERELEM_DARAB) {
+    const { data, error } = await supabase
+      .from('admin_access_requests')
+      .select('id, status, approved_at, denied_at, expires_at')
+      .in('id', idk.slice(i, i + KERELEM_DARAB))
+    if (error) return { allapotok: new Map(), hiba: error.message }
+    // A térkép-építő tiszta függvény az uzenetek-shared-ben (a selftest futtatja).
+    kerelemAllapotTerkep((data ?? []) as NyersKerelemSor[], allapotok)
+  }
+  return { allapotok, hiba: null }
+}
+
+/** A nem végzetes figyelmeztetés szövege a nyers sorokból (a szabály: uzenetek-shared → kerelemFigyelmeztetes). */
+function kerelemAllapotFigyelmeztetes(nyers: NyersSor[], kerelmek: KerelemAllapotok): string | null {
+  return kerelemFigyelmeztetes({
+    hiba: kerelmek.hiba,
+    allapotok: kerelmek.allapotok,
+    sorok: nyers.map((r) => {
+      const kerelemId = kerelemAzonosito(r.admin_request_id, r.hivatkozas)
+      return {
+        kerelemId,
+        // A sor SAJÁT jelölése (kérelem nélkül) — ugyanaz az egy szabály, kérelem-ág
+        // nélkül. A kérelmező döntés-sora (success/danger) itt is „megoldott": a
+        // lekérés hibája őt nem érinti, a figyelmeztetés nem számolja.
+        sajatMegoldva: megoldasLevezetes({ megoldvaOszlop: r.megoldva, cim: (r.cim ?? '').trim(), tipus: r.tipus, adminRequestId: kerelemId, kerelem: null }).megoldva,
+        archived: r.archived === true,
+      }
+    }),
+  })
 }
 
 /** Olvasottnak jelöl. A `read_at`-ot adatbázis-trigger tölti ki. */

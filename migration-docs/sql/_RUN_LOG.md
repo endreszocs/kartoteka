@@ -19,6 +19,28 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
+## 🔴 PENDING – P3-utómunka: értesítések visszatöltés + EXECUTE (2026-09-05, este)
+
+- [ ] `2026-09-05-ertesitesek-p3.sql` — PENDING
+       Indok: (1) a 2026-09-05 ELŐTTI hozzáférés-kérelem sorok tárolt `megoldva` jele — a
+       hivatkozott `admin_access_requests` sor már eldőlt (approved/denied/expired), de a lelkész
+       kérelem-értesítése sosem lett megjelölve, ezért a „Válaszra vár" pill + gombpár ottragadt.
+       Az alkalmazás OLVASÁSKOR ettől függetlenül is a kérelem tényleges állapotából vezeti le a
+       jelet (v0.9.229 óta), a fájl a TÁROLT jelet hozza szintre (szűrhetőség, csengő-számláló).
+       (2) `ertesites_felado_levezetes(text,text,text,uuid,text)` explicit GRANT EXECUTE az
+       authenticated + service_role szerepnek. Nem hoz létre táblát → mentés-besorolás nem kell.
+       ELŐFELTÉTEL (a fájl 0) lépése fail-closed méri, hiánynál RAISE-zel megáll): a
+       `2026-08-11-ertesites-megoldva.sql` (megoldva/megoldva_at oszlopok) már lefutott — a
+       v0.9.227-es értesítés-nézet ezeket használja, tehát élesben megvan.
+
+- [ ] KOZMETIKA (egy sor, opcionális): a `2026-09-05-naptar-anyakonyv-szabadsag-nevnap.sql`
+       2026-09-05 esti változata CSAK a fejléc-kommentet és a `COMMENT ON FUNCTION
+       public.public_calendar_feed` szövegét javítja (mind az 5 magán típus kizárva, nem csak a
+       szabadság) — ÚJRAFUTTATÁS NEM SZÜKSÉGES. Ha az élő DB-ben is a helyes szöveg kell, elég a
+       fájl `COMMENT ON FUNCTION public.public_calendar_feed(...)` sorát egyedül lefuttatni.
+
+---
+
 ## ✅ LEFUTOTT – asztali első indítás + naptár + értesítések + profil (2026-09-05)
 
 Mind a 4 fájl ebben a sorrendben futott le (Endre, 2026-09-05), az ellenőrző rácsok tiszták:
