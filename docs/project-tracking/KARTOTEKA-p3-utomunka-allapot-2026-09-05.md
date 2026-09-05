@@ -49,9 +49,14 @@ Utána: ellenőrzés-ügynök (typecheck/lint/selftest + javítás) → 5 bírá
       CHANGELOG-bejegyzés (`2026-09-05-p3-utomunka-desktop-naptar-profil`); `_RUN_LOG` PENDING a `2026-09-05-ertesitesek-p3.sql`-re
       + kozmetikai megjegyzés a naptár-SQL komment-javításáról
 - [x] Rust: `cargo check` zöld (desktop v0.9.14, db.rs v34 migráció fordul), `cargo test auth` 28/28 — a `C:\kartoteka-target` közös target-mappával
-- [ ] `npm run typecheck` · web lint · `lint:imports` · `cargo check` + `cargo test auth` · teljes `npm run selftest` · web build
-- [ ] Commit → push → PR (a main-re push blokkolt) → Endre engedélyével merge
-- [ ] Asztali build: a 0.9.13 aláírt build elkészült (külön fa) → a 0.9.14 ebből a körből (újra `ops/release-build.ps1`)
+- [x] Teljes ellenőrzés a merge ELŐTT és UTÁN is: `npm run typecheck` 11/11 · web lint 0 hiba (a 4 figyelmeztetés a main-ről örökölt
+      fájlokban: finance-tabs, tagnyilvantartas-help — az ágon nem módosultak) · `lint:imports` 124 fájl OK · `cargo check` + `cargo test auth`
+      28/28 · **146/146 őrszem** · web build 85/85
+- [x] Kör-commit `ca7dc847` → merge `origin/main` (v0.9.229: #232 docs, #233 betöltés-jelző, #234 GYIK-súgó; 2 ütközés feloldva: lánc +
+      CHANGELOG) → merge-commit `2b343d7c` → push → **PR #235: https://github.com/endreszocs/kartoteka/pull/235** — Endre engedélyére vár
+      a merge (a main-re push blokkolt). Squash után a következő kör előtt `git reset --hard origin/main`.
+- [ ] Asztali build 0.9.14: a p3 fából (`2b343d7c`) INDÍTVA (`ops/release-build.ps1 -Version 0.9.14 -SkipUpload`, napló a scratchpadban:
+      `release-0.9.14.log`); a feltöltés az updater-bucketbe KÜLÖN igen-re (érdemes a PR merge-e után)
 
 ## 3. HONNAN FOLYTASD, ha félbeszakadt
 
@@ -70,7 +75,7 @@ Utána: ellenőrzés-ügynök (typecheck/lint/selftest + javítás) → 5 bírá
 ## 5. AUTOMATIKUS ÜGYNÖK-STÁTUSZ
 
 <!-- AUTO-START — ezt a szakaszt a KARTOTEKA-p3-utomunka-allapot-frissites-2026-09-05.py írja; kézzel ne szerkeszd -->
-_Utolsó automatikus frissítés: 2026-09-05 21:44_
+_Utolsó automatikus frissítés: 2026-09-05 21:58_
 
 ### P3-utómunka (5 impl + ellenőrzés + 5 bíráló + javítók) — `wf_b6205211-63d`
 Ügynökök: **17 kész · 0 fut · 4 elhalt** (összesen 21).
