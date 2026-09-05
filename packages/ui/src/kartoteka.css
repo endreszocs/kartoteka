@@ -2554,9 +2554,21 @@
   70%      { box-shadow: 0 0 0 7px rgba(47,182,164,0); }
 }
 .kt-live-dot { animation: kt-livePulse 2.4s ease-out infinite; }
-@keyframes kt-spin { to { transform: rotate(360deg); } }
-.kt-spin { animation: kt-spin 1s linear infinite; }
-@media (prefers-reduced-motion: reduce) { .kt-live-dot, .kt-spin { animation: none; } }
+/* 2026-09-05: a `.kt-spin` MASODIK, szo szerint azonos definicioja INNEN
+   ELTAVOLITVA. Ket helyen allt (817. es itt), a kesobbi nyert — es kozben
+   NEMAN elvitte a `transform-origin: center`-t. Aki a 817-est javitotta,
+   azt hitte, dolgozott. A kanonikus definicio a 817. sornal van. */
+@media (prefers-reduced-motion: reduce) {
+  /* A pulzalo elo-pottyot MEGALLITJUK: az csak dekoracio. */
+  .kt-live-dot { animation: none; }
+  /* ⚠️ A TOLTESJELZOT NEM. Ez a fajl 480-484. sora IRASBAN kimondja:
+     „a toltesjelzo nem all meg, csak LELASSUL (1 s → 3 s). Egy mozdulatlan
+     toltesjelzo »megfagyottnak« latszik, es a felhasznalo ujra megnyomna a
+     gombot." A `.kt-spin` viszont eddig itt `animation: none`-t kapott —
+     vagyis a sajat, leirt szabalyunkkal ment szembe. A csillag mostantol
+     lassan, de FOROG. */
+  .kt-spin { animation-duration: 3s; }
+}
 
 /* ── Éves terv előnézet — alkalmazáson belüli reszponzív ablak (2026-06-08) ── */
 .kt-eves-overlay { align-items: center; padding: 2.5vh 2vw; }

@@ -97,6 +97,42 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   a strukturált előzménybe) — mind idempotens, a végén ellenőrző ráccsal. Az asztali változásokhoz új asztali kiadás
   (0.9.13) kell.
 
+## [2026-09-05] — Látod, ha a rendszer dolgozik
+<!-- key: 2026-09-05-betoltes-jelzo -->
+<!-- category: improvement -->
+<!-- version: 0.9.228 -->
+<!-- targets: mindenki — pénzügy, tagnyilvántartás, anyakönyv, bérlemények -->
+
+### 🎨 UX javítások
+
+- **A forgó csillag megjelent a többi modulban is**: eddig csak a
+  tagnyilvántartás Személyek fülén látszott, hogy a rendszer épp tölt. Most a
+  **11 pénzügyi fül**, a **6 tagnyilvántartási fül** és mind a **8 anyakönyvi
+  típus** ugyanazt a feliratos jelzőt kapja. Eddig egy néma szürke doboz vagy
+  egy mozdulatlan „Betöltés..." felirat állt ott — abból nem derült ki, hogy
+  vársz-e valamire, vagy üres a fül.
+- **Gyors betöltésnél nem villan fel**: ahol a fül azonnal megnyílik, a jelző
+  meg sem jelenik. A felvillanó sáv nyugtalanítóbb lenne, mint a rövid semmi.
+
+### 🐛 Javítások
+
+- **A Bérleti szerződések fül nem állítja többé, hogy nincs szerződésed**:
+  betöltés közben eddig a „Még nincs bérleti szerződés rögzítve." felirat
+  jelent meg. Aki ezt elhitte, **másodszor is felvehette ugyanazt a
+  szerződést**. Az üres felirat mostantól csak akkor jelenik meg, ha a
+  betöltés befejeződött és tényleg nincs adat.
+- **Ugyanez a személyi szám mezőjén**: betöltés közben „nincs rögzítve"-t írt
+  ki, és fel is kínálta a Rögzítés gombot — akkor is, ha volt már szám.
+
+### 🔒 Biztonsági javítások
+
+- **A töltésjelző nem fagy meg**: aki a rendszerében bekapcsolta a „csökkentett
+  mozgás" beállítást, annál a csillag eddig teljesen megállt. A mozdulatlan
+  jelző megfagyottnak látszik, és a felhasználó újra rákattint — ezért
+  mostantól lassan, de forog.
+
+---
+
 ## [2026-09-05] — A személyi szám védelmének megerősítése
 <!-- key: 2026-09-05-szemelyi-szam-megerosites -->
 <!-- category: security -->

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect, useRef } from 'react'
+import { BetoltesSav } from '@kartoteka/ui-app'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import dynamic from 'next/dynamic'
@@ -29,7 +30,20 @@ import { MonetarFloatingWidget } from './monetar-floating-widget'
 // /dokumentumtar „Számlák egyeztetése" hub „Oblio egyeztetés" fülén él tovább
 // (szamlak-egyeztetese-tabs.tsx); a hero gombja és a régi hash/event
 // belépési pontok oda navigálnak.
-const tabLoading = () => <div className="mt-4 h-64 animate-pulse rounded-2xl bg-slate-100" />
+// 2026-09-05: eddig egy CSUPASZ szürke doboz állt itt, felirat nélkül — a
+// fülre kattintó lelkész nem tudta, hogy tölt-e, vagy üres a fül. Ez az EGY
+// sor 11 pénzügyi fület és a számlaegyeztetés-panelt szolgálja ki.
+//
+// ⚠️ Ez `next/dynamic` chunk-fallback, NEM adatbetöltés: meleg gyorsítótárból
+// ~0 ms alatt lefut. Ezért `keslelteto` — enélkül minden fülváltásnál
+// felvillanna, ami rosszabb volna a mai néma doboznál.
+// ⚠️ `csendes`: a fül SAJÁT betöltője (a chunk után) is bemondja magát; két
+// egymás utáni felolvasás zavaró.
+const tabLoading = () => (
+  <div className="mt-4">
+    <BetoltesSav keslelteto={250} csendes reszlet="— egy pillanat, a fül megnyílik" />
+  </div>
+)
 const CashbookTab = dynamic(() => import('./cashbook-tab').then((m) => m.CashbookTab), { ssr: false, loading: tabLoading })
 const BankTab = dynamic(() => import('./bank-tab').then((m) => m.BankTab), { ssr: false, loading: tabLoading })
 const BudgetTab = dynamic(() => import('./budget-tab').then((m) => m.BudgetTab), { ssr: false, loading: tabLoading })
@@ -252,14 +266,26 @@ export function FinanceTabs({
   )
 
   // Bérleti szerződések + hátralék betöltése (lazy, client-oldalon)
+  //
+  // ⛔ 2026-09-05: a `rentalBetoltes` NEM kozmetika. A `rentalContracts`
+  // kezdőértéke `[]`, ezért a betöltés alatt a fül a „Még nincs bérleti
+  // szerződés rögzítve." üres-állapotot mutatta — HATÁROZOTT, HAMIS állítás.
+  // A lelkész elhihette, hogy nincs szerződése, és másodszor is felvehette
+  // ugyanazt. Az üres-állapot mostantól csak befejezett betöltés után jön.
+  const [rentalBetoltes, setRentalBetoltes] = useState(true)
   async function refreshRentals() {
-    const { getRentalContracts, getRentalDebtRows } = await import('@/app/(dashboard)/penzugy/actions')
-    const [contractsRes, debtsRes] = await Promise.all([
-      getRentalContracts(false),
-      getRentalDebtRows(currentYear - 1, currentYear),
-    ])
-    if (contractsRes.data) setRentalContracts(contractsRes.data)
-    if (debtsRes.rows) setRentalDebtRows(debtsRes.rows)
+    setRentalBetoltes(true)
+    try {
+      const { getRentalContracts, getRentalDebtRows } = await import('@/app/(dashboard)/penzugy/actions')
+      const [contractsRes, debtsRes] = await Promise.all([
+        getRentalContracts(false),
+        getRentalDebtRows(currentYear - 1, currentYear),
+      ])
+      if (contractsRes.data) setRentalContracts(contractsRes.data)
+      if (debtsRes.rows) setRentalDebtRows(debtsRes.rows)
+    } finally {
+      setRentalBetoltes(false)
+    }
   }
 
   useEffect(() => {
@@ -958,7 +984,7 @@ export function FinanceTabs({
             </TabsContent>
 
             <TabsContent value="rental" className="mt-4">
-              <RentalTab contracts={rentalContracts} onChanged={refreshRentals} />
+              <RentalTab contracts={rentalContracts} betoltes={rentalBetoltes} onChanged={refreshRentals} />
             </TabsContent>
 
             {/* Adományozók és szponzorok (Endre 5. kérése, 2026-08-27).
