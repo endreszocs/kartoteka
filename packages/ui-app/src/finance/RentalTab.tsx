@@ -30,6 +30,7 @@ import {
 
 import { Badge, Button } from '@kartoteka/ui'
 
+import { BetoltesSav } from '../loading'
 import { calculateEvesDij, formatCurrency } from './helpers'
 import {
   RENTAL_FREQ_LABELS,
@@ -44,6 +45,16 @@ type StatusFilter = 'aktiv' | 'mind'
 
 export interface RentalTabProps {
   contracts: RentalContractRow[]
+  /**
+   * 2026-09-05 — Igaz, amíg a szerződések töltődnek.
+   *
+   * ⛔ ENÉLKÜL A FÜL HAZUDOTT: a `contracts` kezdőértéke `[]`, tehát a
+   * betöltés alatt a „Még nincs bérleti szerződés rögzítve." üres-állapot
+   * jelent meg. A lelkész elhihette, hogy nincs egyetlen szerződése sem, és
+   * MÁSODSZOR is felvehette ugyanazt. Az üres-állapot mostantól CSAK
+   * befejezett betöltés után jelenhet meg.
+   */
+  betoltes?: boolean
 
   /** Sikeres művelet után callback (web: refresh, desktop: notifyLocalDataChanged). */
   onChanged?: () => void | Promise<void>
@@ -79,6 +90,7 @@ export interface RentalTabProps {
 
 export function RentalTab({
   contracts,
+  betoltes = false,
   onChanged,
   onDeleteContract,
   onToast,
@@ -399,7 +411,11 @@ export function RentalTab({
         </>
       )}
 
-      {filtered.length === 0 && (
+      {filtered.length === 0 && betoltes && (
+        <BetoltesSav reszlet="— egy pillanat, a bérleti szerződések töltődnek" />
+      )}
+
+      {filtered.length === 0 && !betoltes && (
         <div className="card-raised p-8 text-center">
           <Building2 className="mx-auto mb-3 h-10 w-10 text-amber-200" />
           {contracts.length === 0 ? (

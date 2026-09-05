@@ -61,6 +61,130 @@ export function RingSpinner({ size = 24, color = 'currentColor' }: SpinnerProps 
 }
 
 // ──────────────────────────────────────────────────────────────────────
+// BetoltesSav — a modulokon ÁTÍVELŐ, feliratos betöltés-jelző
+//
+// 2026-09-05 (Endre kérése): „A tagnyilvántartás adatok betöltésénél van egy
+// szép forgó csillag, ezt mindegyik modulhoz be lehet tenni?"
+//
+// A minta a `persons-tab.tsx`-ből származik, ahol egy korábbi kör (PR-37) már
+// kimondta a lényeget: „a csontváz önmagában félrevezető volt — úgy nézett ki,
+// mintha tartalom lenne". A csupasz skeleton NEM mondja meg, hogy VÁRNI kell;
+// ez a sáv megmondja.
+//
+// ⚠️ MOZGÁS-CSÖKKENTÉS: a `kt-spin` animációt a `kartoteka.css` leállítja
+// `prefers-reduced-motion: reduce` mellett. A csillag ilyenkor ÁLLVA marad —
+// és ez rendben van, mert a JELENTÉST a felirat hordozza, nem a mozgás.
+//
+// ⚠️ MIKOR NE HASZNÁLD: gombon belüli művelet-visszajelzéshez („Mentés…"),
+// és olyan helyen, ahol a tartalom MÁR LÁTSZIK és csak frissül — ott a
+// felbukkanó sáv elviszi a helyet és villog. Arra a `RingSpinner` vagy egy
+// diszkrét, helyben maradó jelzés való.
+// ──────────────────────────────────────────────────────────────────────
+
+export interface BetoltesSavProps {
+  /**
+   * Melyik helyzetben áll a sáv.
+   *  · `'blokk'` (alap) — a TARTALOM HELYÉN áll (fül-váltás, első betöltés).
+   *  · `'sor'` — a MÉG LÁTSZÓ tartalom fölé kerülő, nem-blokkoló csík
+   *    (csendes újratöltés mentés után). Enélkül minden ilyen hely újra
+   *    kézzel gyártana egyet — pontosan így született a mai sokféle
+   *    betöltés-arculat.
+   */
+  valtozat?: 'blokk' | 'sor'
+  /**
+   * Ha igaz, a sáv NEM élő régió (nincs `role="status"`/`aria-live`), hanem
+   * `aria-hidden`. Akkor kell, ha a sáv MELLETT már van egy másik élő régió
+   * (pl. egy `role="status"`-os skeleton) — különben a képernyőolvasó
+   * KÉTSZER mondja be ugyanazt.
+   */
+  csendes?: boolean
+  /** A fő üzenet. Default: „Adatok betöltése…". */
+  szoveg?: string
+  /**
+   * Kiegészítő fél mondat, ami MEGMONDJA, MI töltődik — modulonként más
+   * („a nyilvántartás frissül", „a könyvelés frissül", „az anyakönyv frissül").
+   * Kis képernyőn elrejtve, hogy ne törje a sort.
+   */
+  reszlet?: string
+  /** A csillag mérete képpontban. Default: 28. */
+  meret?: number
+  /**
+   * Csak ennyi ezredmásodperc után jelenjen meg. Default: 0 (azonnal).
+   *
+   * ⚠️ A 0 SZÁNDÉKOS ALAPÉRTÉK: a tagnyilvántartásban ma is azonnal megjelenik,
+   * és Endre pont ezt kérte mindenhová. Ahol viszont a lekérdezés tipikusan
+   * pár tized másodperc, ott adj meg 200-300 ms-ot — a felvillanó sáv
+   * nyugtalanítóbb, mint a rövid semmi.
+   */
+  keslelteto?: number
+  /** További osztályok a külső sávra. */
+  className?: string
+}
+
+export function BetoltesSav({
+  szoveg = 'Adatok betöltése…',
+  reszlet,
+  meret,
+  keslelteto = 0,
+  valtozat = 'blokk',
+  csendes = false,
+  className,
+}: BetoltesSavProps) {
+  const [lathato, setLathato] = useState(keslelteto <= 0)
+  useEffect(() => {
+    if (keslelteto <= 0) {
+      setLathato(true)
+      return
+    }
+    setLathato(false)
+    const id = window.setTimeout(() => setLathato(true), keslelteto)
+    return () => window.clearTimeout(id)
+  }, [keslelteto])
+
+  if (!lathato) return null
+
+  const blokk = valtozat === 'blokk'
+  const alap = blokk
+    ? 'flex items-center justify-center gap-3 rounded-2xl border border-border/60 bg-card/70 px-4 py-5 text-sm'
+    : 'flex items-center justify-start gap-2 rounded-xl border border-border/50 bg-card/60 px-3 py-2 text-xs'
+  // A képernyőolvasó-attribútumok CSAK akkor, ha nem vagyunk csendesek.
+  const olvaso = csendes
+    ? ({ 'aria-hidden': true } as const)
+    : ({ role: 'status', 'aria-live': 'polite' } as const)
+
+  return (
+    <div className={`${alap} leading-[1.35] text-muted-foreground${className ? ` ${className}` : ''}`} {...olvaso}>
+      <CalvinSpinner size={meret ?? (blokk ? 28 : 18)} />
+      <span className="font-medium text-foreground">{szoveg}</span>
+      {reszlet && <span className="hidden sm:inline">{reszlet}</span>}
+    </div>
+  )
+}
+
+/**
+ * BetoltesBlokk — a sáv ÉS a csontváz együtt, helyesen felolvasva.
+ *
+ * ⚠️ MIÉRT KELL WRAPPER: a minta ma KÉT élő régiót tesz egymás mellé (a sáv
+ * `role="status"`, és a legtöbb skeleton is az) — a képernyőolvasó kétszer
+ * mondja be ugyanazt. Ez egy helyen apró bosszúság; harminc helyre másolva
+ * folyamatos bemondás-özön. Ez a wrapper a gyerekeket KÖTELEZŐEN
+ * `aria-hidden` burokba teszi, tehát a hívó nem tudja újra előállítani a hibát.
+ */
+export interface BetoltesBlokkProps extends Omit<BetoltesSavProps, 'csendes' | 'valtozat'> {
+  /** A csontváz. Kizárólag látvány — a képernyőolvasó elől elrejtve. */
+  children?: ReactNode
+}
+
+export function BetoltesBlokk({ children, ...sav }: BetoltesBlokkProps) {
+  return (
+    <div className="space-y-3">
+      <BetoltesSav {...sav} />
+      {children && <div aria-hidden="true">{children}</div>}
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────
 // Skeleton primitívek
 // ──────────────────────────────────────────────────────────────────────
 

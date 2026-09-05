@@ -18,12 +18,13 @@ import { deleteRentalContract } from '@/app/(dashboard)/penzugy/actions'
 import { OblioIssueInvoiceDialog } from '@/components/modals/oblio-issue-invoice-dialog'
 import { RentalContractDialog } from '@/components/modals/rental-contract-dialog'
 
-type WebRentalTabProps = Pick<RentalTabProps, 'contracts' | 'onChanged'>
+type WebRentalTabProps = Pick<RentalTabProps, 'contracts' | 'onChanged' | 'betoltes'>
 
-export function RentalTabWeb({ contracts, onChanged }: WebRentalTabProps) {
+export function RentalTabWeb({ contracts, onChanged, betoltes }: WebRentalTabProps) {
   return (
     <RentalTab
       contracts={contracts}
+      betoltes={betoltes}
       onChanged={onChanged}
       onDeleteContract={async (id) => {
         const result = await deleteRentalContract(id)

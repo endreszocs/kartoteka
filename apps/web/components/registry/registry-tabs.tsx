@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { BetoltesSav } from '@kartoteka/ui-app'
 import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { ColorTabs } from '@/components/ui/color-tabs'
@@ -611,7 +612,10 @@ export function RegistryTabs({ congregationName, showAdminImport = false, adminI
               )}
             </div>
 
-            {loading ? <div className="py-8 text-center text-sm text-muted-foreground">Betöltés...</div> : renderTable()}
+            {/* 2026-09-05: eddig egy mozdulatlan „Betöltés..." felirat állt itt —
+                a lelkész nem tudta megkülönböztetni a beragadt állapottól.
+                Ez az EGY sor mind a 8 anyakönyvi típust kiszolgálja. */}
+            {loading ? <BetoltesSav reszlet="— egy pillanat, az anyakönyv frissül" /> : renderTable()}
           </TabsContent>
         ))}
       </Tabs>
