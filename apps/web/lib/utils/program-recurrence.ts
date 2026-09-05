@@ -13,10 +13,12 @@ import type { Program } from '@/lib/constants/dashboard'
  *  - A visszaadott alkalmak megtartják a valódi adatbázis-`id`-t, így a
  *    szerkesztés / törlés / „teljesítve" továbbra is a sorozat egészére hat.
  *    (React-kulcsként ezért `id`+`datum` kombinációt kell használni.)
- *  - Az ismétlődés horizontja a kezdő ÉV vége (`YYYY-12-31`). A programokat
- *    amúgy is évenként töltjük be, így ez fedi a tényleges használatot
- *    (egy adott év heti bibliaórájának megtervezése). Évhatáron túli,
- *    „örök" ismétlődés nincs (nincs hozzá záró-dátum mező sem).
+ *  - Az ismétlődés horizontja alapból a kezdő ÉV vége (`YYYY-12-31`), de a
+ *    hívó `horizonYear`-rel a NÉZETT év végéig kérheti a kibontást (2026-08-02,
+ *    PR-20: az előző évben indult heti sorozat a következő évben is látszik),
+ *    és a sorozat SAJÁT záró napja (`ismetlodes_vege`, 2026-08-26) mindkettőt
+ *    rövidíti. Záró nap nélküli sorozat tehát átnyúlik az évhatáron — a
+ *    MAX_OCCURRENCES védőkorlát ezért 400.
  *  - Többnapos ismétlődő program esetén a `datum_vege` minden alkalomnál
  *    ugyanannyi nappal tolódik, mint az eredeti hossz.
  */

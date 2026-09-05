@@ -101,10 +101,14 @@ export function formatTimestampHu(
 }
 
 /**
- * Két időbélyeg UGYANARRA a bukaresti naptári napra esik-e. A profil
- * „örökölt szerepkör" jelzéséhez: a Fázis-1 backfill az `approved_at`-ot a
- * fiók `created_at`-jára állította, ezért az „X óta" a fiók létrejöttét
- * mutatná, nem a szerep jóváhagyását.
+ * Két időbélyeg UGYANARRA a bukaresti naptári napra esik-e.
+ *
+ * ⚠️ 2026-09-05 (P3-utómunka): az alkalmazás MÁR NEM ezzel dönti el a profil
+ * „örökölt szerepkör" jelzését — az a `lib/profile-roles/orokolt-szerep.ts`
+ * (`orokoltSzerepE`: approved_by NULL ÉS |approved_at − created_at| ≤ 5 mp),
+ * mert a napra-egyezés az aznapi, órákkal későbbi admin-jóváhagyást is
+ * „örökölt"-nek látta. A függvény a hibaosztály bizonyítékaként marad
+ * (`scripts/selftest-profil-pontossag.mjs` T8/P3n0 futtatja); új hívót NE kapjon.
  */
 export function ugyanazABukarestiNap(a: string | null | undefined, b: string | null | undefined): boolean {
   if (!a || !b) return false

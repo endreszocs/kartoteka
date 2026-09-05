@@ -11,7 +11,7 @@ import { fmtTime, fmtDateRange } from '@/lib/utils/program-day'
 import { GlyphTile, RetegGlyphTile } from './program-icons'
 import type { NaptarNapTetel, ProgramAnyakonyvLink } from '@/lib/calendar/naptar-retegek-osszefesules'
 import { anyakonyvEmoji, anyakonyvSzin, programAnyakonyvezve } from '@/lib/calendar/naptar-retegek-osszefesules'
-import { ANYAKONYV_TABLA_CIMKE } from '@/lib/calendar/naptar-retegek-types'
+import { ANYAKONYV_TABLA_CIMKE, ISMETLODO_SOROZAT_ANYAKONYV_HIBA } from '@/lib/calendar/naptar-retegek-types'
 import type { AnyakonyviEsemeny } from '@/lib/calendar/naptar-retegek-types'
 
 function PriorityMark({ prioritas }: { prioritas: Program['prioritas'] }) {
@@ -149,7 +149,10 @@ export function AgendaCard({
                 type="button"
                 className="kt-linkbtn kt-linkbtn-primary"
                 onClick={() => onAnyakonyvezes(p)}
-                title="A megfelelő anyakönyvi bejegyzés rögzítése ezzel a dátummal; mentés után a program megkapja a kapcsolatot."
+                // 2026-09-05 (P3-utómunka): ismétlődő sorozatnál a gomb marad (a lelkész
+                // lássa, hogy van ilyen művelet), a címke viszont az okot mondja — a
+                // kattintás a scheduler kapuján ugyanazt toastolja.
+                title={p.ismetlodes_tipus ? ISMETLODO_SOROZAT_ANYAKONYV_HIBA : 'A megfelelő anyakönyvi bejegyzés rögzítése ezzel a dátummal; mentés után a program megkapja a kapcsolatot.'}
               >
                 <BookMarked size={13} /> Anyakönyvezés
               </button>

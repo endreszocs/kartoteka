@@ -54,3 +54,21 @@ export {
   type MemberRemoveDialogProps,
   type MemberRemoveToastKind,
 } from './MemberRemoveDialog'
+// 2026-09-05 (P3-utómunka): a KÖSZÖNTŐ (születésnapos/névnapos) naptár
+// DOM-mentes építője a barrelből — a desktop ugyanezt hívja. TISZTA modul
+// (nincs hook, nincs böngésző-API; egyetlen importja a szintén tiszta
+// dashboard/eves-naptar-print), ezért 'use client' nélkül is deploy-biztos.
+// A web mély importtal hívja (@kartoteka/ui-app/src/members/koszonto-naptar).
+export {
+  buildKoszontoNaptar,
+  korFelirat,
+  KOSZONTO_OPCIOK_ALAP,
+  KOSZONTO_NAGYKORU_KOR,
+  KOSZONTO_LAP_KAPACITAS,
+  type KoszontoSzuletesnap,
+  type KoszontoNevnap,
+  type KoszontoMod,
+  type KoszontoNaptarOpciok,
+  type KoszontoNaptarInput,
+  type KoszontoNaptarEredmeny,
+} from './koszonto-naptar'

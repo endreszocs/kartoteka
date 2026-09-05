@@ -704,6 +704,657 @@ function pusherOr(src) {
   )
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 2026-09-05 — P3-UTÓMUNKA (desk-p3)
+//
+// ⛔ MI VOLT A HIBA
+//   (1) a kijelentkezés csak a PIN-t / lastUser-t törölte — a regiszter 30 mp-es
+//       pollja, `online` listenere és a ketyegő 1,5 mp-es összevonó időzítő az
+//       ELŐZŐ felhasználóé maradt, és a következő belépő alatt is futott;
+//   (2) az ONLINE mentések (profil, munkanapló, tag) a tükröt frissítették, de a
+//       regiszter összevont körét NEM indították — csak az offline/outbox ág;
+//   (3) a helyi közelgő programok `datum >= ma` szűrője a MÁR ELKEZDŐDÖTT
+//       többnapos alkalmat (szabadság) kidobta, a tükör nem ismerte az
+//       ismetlodes_vege / publikus / anyakönyv-kapcsolat oszlopokat, és a
+//       program-típusok címkéi/színei a desktopon két helyen, a webtől
+//       függetlenül éltek.
+//
+// ŐRSZEMEK
+//   R3   stopAllWriteSyncs FUTTATVA: engedély null, online-listener levéve,
+//        összevonó időzítő törölve, a következő kör NEM indít push-ert; utána a
+//        start tiszta lapról újraindít (listener nem duplázódik)
+//   R3n  két mutáns (engedély marad / listener marad) → BUKIK
+//   R4   forrás-őr: a 4 kijelentkezési út (shell, AuthGate kilépés, varázsló
+//        „másik fiók", visszavont eszköz) a signOut ELŐTT hívja
+//   R4n  mutáns (a shell nem hívja) → BUKIK
+//   N1   forrás-őr: az 5 online mentési ág (profil, munkanapló ×3, tag) a siker
+//        után notifyLocalWriteCommitted-et hív; az offline ág NEM duplázik
+//   N1n  mutáns (a tag-ág jelzése kivéve) → BUKIK
+//   PR1  program-tipusok ⇄ webes constants/dashboard.ts: 21 típus, 5 magán, 4
+//        anyakönyvi BETŰRE azonos; magán típuson a nyilvános jelölés SOHA nem
+//        igaz (funkcionális); a fájlban NINCS címke/emoji/szín térkép (bíráló P3,
+//        2026-09-05: a harmadik, senki által nem olvasott másolat törölve — a
+//        rajzoló forrás az ui-app UpcomingPrograms, azt a PR1f méri)
+//   PR1n három mutáns (a desktop magán-listája eltér / a web bővül / egy térkép
+//        visszakerül a fájlba) → BUKIK
+//   PR1f (ellenőrzés-ügynök) az ui-app UpcomingPrograms NEM exportált címke/szín-
+//        tükre is a webes dashboard.ts-hez MÉRT (kulcs-sorrend + érték); PR1fn két
+//        mutáns (ui-app címke eltér / a web bővül) → BUKIK
+//   PR2  (node:sqlite) a db.rs CREATE + v28/v31/v34 ALTER-ek lefutnak; a pull
+//        INSERT 27 oszlopa bemegy; az ÉLŐ kezdőlap-út FUTTATVA (getLocalPrograms
+//        SQL + az ui-app expandUpcomingProgramOccurrences kibontója, rögzített
+//        órával — a kezdőlap év-választása és id-dedupja tükrözve): jan. 2-án az
+//        ELŐZŐ ÉV dec. 27-én kezdődő, jan. 5-ig tartó szabadság LÁTSZIK (bíráló
+//        P2), a magán típus látszik, a novemberben indult HETI sorozat januári
+//        alkalmai látszanak, a távoli / szilveszterkor lejárt / lezárt sorozat
+//        kimarad, a teljesített marad (áthúzva); dec. 25-én az évhatáron átnyúló
+//        alkalom és a sorozat alkalmai EGYSZER szerepelnek (id-dedup); a magán
+//        sor publikus-a a tükörben 0, a ragadt 1-et az olvasás normalizálja
+//   PR2n három mutáns (a régi `datum >= év-01-01` év-szűrő / a kibontó a KEZDŐ
+//        napra szűr / a kezdőlap nem dedupál) → BUKIK
+//   PR2j forrás-őr: a SQL-oldali második ablak-szabály (getLocalUpcomingPrograms,
+//        hívó nélkül) NINCS többé a sync.ts-ben; PR2jn mutáns (visszakerül) → BUKIK
+//   PR3  forrás-őr: a pull a publikus-t a szabályon át írja, az olvasó normalizál
+//        és a közös oszloplistából olvas, a kezdőlap átadja az ismetlodes_vege-t,
+//        évhatárnál a következő évet is kéri és id szerint dedupál; PR3n két
+//        mutáns (nyers publikus / nincs dedup) → BUKIK
+//   PR4  (bíráló P2, cal-print-11 desktop-paritás, 2026-09-05) a getLocalPrograms
+//        év-szűrője az INTERVALLUM METSZETE — datum ≤ év vége ÉS (datum_vege VAGY
+//        datum) ≥ év eleje — a webes program-ev-metszet.ts tükre, PLUSZ a korábbi
+//        években indult ISMÉTLŐDŐ sorozatok (5 évre vissza — a webes
+//        getProgramsForYear második lekérdezésének tükre, ami a desktopról eddig
+//        hiányzott). (node:sqlite) FUTTATVA: a dec. 30. – jan. 2. tábor januárban
+//        LÁTSZIK, az előző évi egynapos és a hibás (kezdő előtti) záró napú sor
+//        nem; a NEM-COALESCE ok (a kezdő nap utáni hibás záró napnál a kezdő dönt)
+//        is mérve; a 2030-ban indult heti sorozat 2031-ben LÁTSZIK, a 6+ éve
+//        indult és a régi nem-ismétlődő sor nem
+//   PR4n mutáns (a régi `datum >= év-01-01` alak) → a tábor eltűnik → BUKIK;
+//        PR4nc mutáns (COALESCE-alak) → a webtől eltér → BUKIK; PR4nr mutáns (a
+//        sorozat-ág kivéve) → a heti sorozat eltűnik → BUKIK
+//   PR4s forrás-őr ugyanerre (node:sqlite nélkül is él); PR4sn / PR4sn/b / PR4sn/c
+//        mutánsok → BUKIK
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** A regiszter betöltése ADOTT forrással, a tmp-mappa MEGTARTÁSÁVAL (a dinamikus importok végig élnek). */
+function betoltRegisztert(regSrc) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kartoteka-stop-'))
+  const hivott = new Set()
+  const kulcs = `__hivott_${Date.now()}_${Math.random().toString(36).slice(2)}`
+  global[kulcs] = hivott
+  const stub = (nev, fnNevek) =>
+    fnNevek.map((fn) => `exports.${fn} = async () => { global['${kulcs}'].add('${nev}'); return {}; };`).join('\n')
+  fs.writeFileSync(path.join(tmp, 'chitanta-sync.js'), stub('chitanta', ['runChitantaSyncManually', 'runChitantaSyncGuarded']))
+  fs.writeFileSync(path.join(tmp, 'befizetes-write-sync.js'), stub('befizetes', ['runBefizetesSyncManually', 'runBefizetesSyncGuarded']))
+  fs.writeFileSync(path.join(tmp, 'kiadas-write-sync.js'), stub('kiadas', ['runKiadasSyncManually', 'runKiadasSyncGuarded']))
+  fs.writeFileSync(path.join(tmp, 'szemely-write-sync.js'), stub('szemely', ['runSzemelySyncManually', 'runSzemelySyncGuarded']))
+  fs.writeFileSync(path.join(tmp, 'csalad-write-sync.js'), stub('csalad', ['runCsaladSyncManually', 'runCsaladSyncGuarded']))
+  fs.writeFileSync(path.join(tmp, 'gyerek-write-sync.js'), stub('gyerek', ['runGyerekSyncManually', 'runGyerekSyncGuarded']))
+  fs.writeFileSync(path.join(tmp, 'excel-write-sync.js'), stub('excel', ['runExcelWriteSyncManually', 'runExcelWriteSyncGuarded']))
+  fs.writeFileSync(
+    path.join(tmp, 'sync.js'),
+    stub('outbox', ['processOutbox', 'runOutboxSyncGuarded']) + `\nexports.getLocalOwnProfile = async () => ({ congregation_id: 'gy-1' });`,
+  )
+  const regPath = path.join(tmp, `registry-${Date.now()}-${Math.random().toString(36).slice(2)}.cjs`)
+  fs.writeFileSync(regPath, t(regSrc))
+  const reg = require_(regPath)
+  return { reg, hivott, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) }
+}
+
+/**
+ * Az R3 forgatókönyv ADOTT regiszter-forrással: start → stop → „most" kör →
+ * újrastart. Rögzített window (a listener-számot méri) és ál-időzítők (a
+ * függő összevonó időzítőt méri) — determinisztikus, nem vár 1,5 mp-et.
+ */
+async function stopForgatokonyv(regSrc) {
+  const eredetiWindow = globalThis.window
+  const eredetiSetTimeout = globalThis.setTimeout
+  const eredetiClearTimeout = globalThis.clearTimeout
+  const eredetiSetInterval = globalThis.setInterval
+  const eredetiClearInterval = globalThis.clearInterval
+  const listenerek = new Map()
+  const idozitok = new Map()
+  const intervalok = new Set()
+  let kovId = 1
+  globalThis.window = {
+    addEventListener(nev, fn) {
+      listenerek.set(nev, [...(listenerek.get(nev) ?? []), fn])
+    },
+    removeEventListener(nev, fn) {
+      listenerek.set(nev, (listenerek.get(nev) ?? []).filter((f) => f !== fn))
+    },
+    dispatchEvent() {},
+  }
+  // Csak a regiszter modul-példánya látja az ál-időzítőket (a betöltés a csere
+  // ALATT történik; a `tick` segédünk az eredeti setTimeout-ot használja).
+  globalThis.setTimeout = (fn, ms) => {
+    const id = kovId++
+    idozitok.set(id, { fn, ms })
+    return id
+  }
+  globalThis.clearTimeout = (id) => {
+    idozitok.delete(id)
+  }
+  globalThis.setInterval = (fn, ms) => {
+    const id = kovId++
+    intervalok.add(id)
+    return id
+  }
+  globalThis.clearInterval = (id) => {
+    intervalok.delete(id)
+  }
+  const { reg, hivott, cleanup } = betoltRegisztert(regSrc)
+  const tick = () => new Promise((r) => eredetiSetTimeout(r, 5))
+  try {
+    await reg.startAllWriteSyncs('u-1')
+    const indulas = {
+      pusherek: hivott.size,
+      listener: (listenerek.get('online') ?? []).length,
+      interval: intervalok.size,
+      engedely: reg.getWriteSyncRegistryStatus().engedelyezettUserId,
+    }
+    // Egy lokális mentés jelzése — a debounce időzítő felfegyverkezik…
+    reg.notifyLocalWriteCommitted()
+    const fuggoIdozitoStopElott = idozitok.size
+    // …majd KIJELENTKEZÉS.
+    reg.stopAllWriteSyncs()
+    const stopUtan = {
+      engedely: reg.getWriteSyncRegistryStatus().engedelyezettUserId,
+      listener: (listenerek.get('online') ?? []).length,
+      interval: intervalok.size,
+      fuggoIdozito: idozitok.size,
+    }
+    // A még függő (ál-)időzítőket elsütjük — a törölt debounce nem futhat.
+    for (const { fn } of [...idozitok.values()]) fn()
+    idozitok.clear()
+    hivott.clear()
+    await reg.runAllWriteSyncsNow()
+    await tick()
+    const stopUtanPusherek = hivott.size
+    // Újrastart tiszta lapról (a következő belépő).
+    hivott.clear()
+    await reg.startAllWriteSyncs('u-2')
+    const ujra = {
+      pusherek: hivott.size,
+      listener: (listenerek.get('online') ?? []).length,
+      interval: intervalok.size,
+      engedely: reg.getWriteSyncRegistryStatus().engedelyezettUserId,
+    }
+    return { indulas, fuggoIdozitoStopElott, stopUtan, stopUtanPusherek, ujra }
+  } finally {
+    globalThis.window = eredetiWindow
+    globalThis.setTimeout = eredetiSetTimeout
+    globalThis.clearTimeout = eredetiClearTimeout
+    globalThis.setInterval = eredetiSetInterval
+    globalThis.clearInterval = eredetiClearInterval
+    cleanup()
+  }
+}
+
+function stopRendben(r) {
+  const hibak = []
+  if (r.indulas.pusherek !== 8) hibak.push(`induláskor ${r.indulas.pusherek}/8 push-er`)
+  if (r.indulas.listener !== 1 || r.indulas.interval !== 1) hibak.push('induláskor nincs 1 listener + 1 poll')
+  if (r.fuggoIdozitoStopElott !== 1) hibak.push(`a notify után ${r.fuggoIdozitoStopElott} függő időzítő (1 kell)`)
+  if (r.stopUtan.engedely !== null) hibak.push('stop után az engedély megmaradt')
+  if (r.stopUtan.listener !== 0) hibak.push('stop után az online-listener fent maradt')
+  if (r.stopUtan.interval !== 0) hibak.push('stop után a poll fut tovább')
+  if (r.stopUtan.fuggoIdozito !== 0) hibak.push('stop után az összevonó időzítő nem törlődött')
+  if (r.stopUtanPusherek !== 0) hibak.push(`stop után a „most" kör ${r.stopUtanPusherek} push-ert indított`)
+  if (r.ujra.pusherek !== 8 || r.ujra.engedely !== 'u-2') hibak.push('újrastart után nem indul mind a 8 push-er az új usernek')
+  if (r.ujra.listener !== 1 || r.ujra.interval !== 1) hibak.push(`újrastart után ${r.ujra.listener} listener / ${r.ujra.interval} poll (1/1 kell)`)
+  return hibak
+}
+
+{
+  const r = await stopForgatokonyv(REG_SRC)
+  const hibak = stopRendben(r)
+  assert(hibak.length === 0, `R3 stopAllWriteSyncs: engedély null + listener le + poll le + időzítő törölve + a kör üres + tiszta újrastart (${hibak.join('; ') || 'rendben'})`)
+
+  // R3n/a — az engedély megmarad (csak a triggerek mennek le)
+  const mutA = REG_SRC.replace(/export function stopAllWriteSyncs\(\): void \{\n  engedelyezettUserId = null\n/, 'export function stopAllWriteSyncs(): void {\n')
+  assert(mutA !== REG_SRC, 'R3n/a a mutáció változtatott (fail-closed)')
+  assert(stopRendben(await stopForgatokonyv(mutA)).length > 0, 'R3n/a mutáns (az engedély megmarad a stop után) → az őr BUKIK')
+
+  // R3n/b — a listener fent marad
+  const mutB = REG_SRC.replace(/\n  if \(onlineListener && typeof window !== 'undefined'\) \{\n    window\.removeEventListener\('online', onlineListener\)\n  \}\n/, '\n')
+  assert(mutB !== REG_SRC, 'R3n/b a mutáció változtatott (fail-closed)')
+  assert(stopRendben(await stopForgatokonyv(mutB)).length > 0, 'R3n/b mutáns (az online-listener fent marad) → az őr BUKIK')
+}
+
+// ── R4: a kijelentkezési utak a signOut ELŐTT állítják le a push-ereket ────
+const SHELL_SRC = fs.readFileSync(path.join(LIB, 'shell', 'desktop-shell.tsx'), 'utf8')
+const WIZARD_SRC = fs.readFileSync(path.join(ROOT, 'apps', 'desktop', 'src', 'pages', 'elso-inditas-page.tsx'), 'utf8')
+const DASH_SRC = fs.readFileSync(path.join(ROOT, 'apps', 'desktop', 'src', 'pages', 'dashboard-page.tsx'), 'utf8')
+
+/** A `kezdet` mintától az első `auth.signOut(` hívásig terjedő szakaszban van-e stopAllWriteSyncs()? */
+function stopASignOutElott(src, kezdet) {
+  const s = stripComments(src)
+  const i = s.indexOf(kezdet)
+  if (i < 0) return `nincs meg: ${kezdet}`
+  const j = s.indexOf('auth.signOut(', i)
+  if (j < 0) return `nincs signOut a(z) ${kezdet} után`
+  return /stopAllWriteSyncs\(\)/.test(s.slice(i, j)) ? null : `a(z) ${kezdet} nem hívja a stopAllWriteSyncs()-et a signOut előtt`
+}
+function kijelentkezesOr({ shell, gate, wizard, dash }) {
+  const hibak = []
+  if (!/import \{ stopAllWriteSyncs \} from '\.\.\/write-sync-registry'/.test(shell)) hibak.push('a shell nem importálja a stopAllWriteSyncs-et')
+  for (const [src, kezdet] of [
+    [shell, 'const handleSignOut = useCallback(async () => {'],
+    [gate, 'const kilepes = useCallback(async () => {'],
+    [wizard, 'async function kilep() {'],
+    [dash, 'A kliens automatikusan kijelentkezik.'],
+  ]) {
+    const h = stopASignOutElott(src, kezdet)
+    if (h) hibak.push(h)
+  }
+  return hibak
+}
+{
+  const hibak = kijelentkezesOr({ shell: SHELL_SRC, gate: GATE_SRC, wizard: WIZARD_SRC, dash: DASH_SRC })
+  assert(hibak.length === 0, `R4 mind a 4 kijelentkezési út a signOut ELŐTT állítja le a push-ereket (${hibak.join('; ') || 'rendben'})`)
+  const mut = SHELL_SRC.replace(/\n\s*stopAllWriteSyncs\(\)\n/, '\n')
+  assert(mut !== SHELL_SRC && kijelentkezesOr({ shell: mut, gate: GATE_SRC, wizard: WIZARD_SRC, dash: DASH_SRC }).length > 0, 'R4n mutáns (a shell handleSignOut nem hívja) → az őr BUKIK')
+}
+
+// ── N1: az ONLINE mentési ágak is jeleznek a regiszternek ─────────────────
+const ONLINE_MENTOK = ['updateOwnProfile', 'createWorklogEntry', 'updateWorklogEntry', 'deleteWorklogEntry', 'updateSzemelyEntry']
+/** Egy exportált függvény törzse (a következő top-level deklarációig). */
+function fnTorzs(src, nev) {
+  const i = src.indexOf(`export async function ${nev}(`)
+  if (i < 0) return null
+  const j = src.slice(i + 1).search(/\n(export |async function |function |const [A-Za-z_]+ = )/)
+  return j < 0 ? src.slice(i) : src.slice(i, i + 1 + j)
+}
+function onlineJelzesOr(syncSrc) {
+  const s = stripComments(syncSrc)
+  const hibak = []
+  for (const nev of ONLINE_MENTOK) {
+    const torzs = fnTorzs(s, nev)
+    if (!torzs) {
+      hibak.push(`${nev}: nincs meg`)
+      continue
+    }
+    const k = torzs.indexOf('if (await isOnlineWithSession()) {')
+    if (k < 0) {
+      hibak.push(`${nev}: nincs online ág`)
+      continue
+    }
+    // Az online `if` blokk a függvénytörzs szintjén (2 szóköz) záródik — a
+    // belső try/catch-ek (pl. a munkanapló delta-pull catch-e) mélyebben.
+    const blokkVege = torzs.indexOf('\n  }\n', k)
+    const onlineBlokk = torzs.slice(k, blokkVege < 0 ? undefined : blokkVege)
+    const jelzes = onlineBlokk.indexOf('notifyLocalWriteCommitted()')
+    if (jelzes < 0) {
+      hibak.push(`${nev}: az online siker-ág nem jelez`)
+      continue
+    }
+    // Dupla jelzés tilos: a siker-ág (a jelzésig) NEM az outboxon át jelez —
+    // az outbox-ág (`enqueueOutbox` / `fallbackToOutbox`) maga jelez.
+    if (/enqueueOutbox\(|fallbackToOutbox\(/.test(onlineBlokk.slice(0, jelzes))) hibak.push(`${nev}: az online siker-ág outboxba is ír (dupla jelzés)`)
+  }
+  return hibak
+}
+{
+  const hibak = onlineJelzesOr(SYNC_SRC)
+  assert(hibak.length === 0, `N1 az 5 online mentési ág a siker után notifyLocalWriteCommitted-et hív, outbox-dupla nélkül (${hibak.join('; ') || 'rendben'})`)
+  const torzs = fnTorzs(SYNC_SRC, 'updateSzemelyEntry')
+  const mut = SYNC_SRC.replace(torzs, torzs.replace(/\n\s*notifyLocalWriteCommitted\(\)\n/, '\n'))
+  assert(mut !== SYNC_SRC && onlineJelzesOr(mut).length > 0, 'N1n mutáns (a tag online ága nem jelez) → az őr BUKIK')
+}
+
+// ── PR1: program-típusok — a webes forrás BETŰRE azonos tükre ─────────────
+const WEB_DASH_SRC = fs.readFileSync(path.join(ROOT, 'apps', 'web', 'lib', 'constants', 'dashboard.ts'), 'utf8')
+const PROGTIP_SRC = fs.readFileSync(path.join(LIB, 'program-tipusok.ts'), 'utf8')
+/** Import-mentes TS modul betöltése (transpile → CJS). */
+function betoltTiszta(src, nev) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `kartoteka-${nev}-`))
+  const p = path.join(tmp, `${nev}.cjs`)
+  fs.writeFileSync(p, t(src))
+  const mod = require_(p)
+  fs.rmSync(tmp, { recursive: true, force: true })
+  return mod
+}
+function paritasHibak(webSrc, desktopSrc) {
+  const web = betoltTiszta(webSrc, 'web-dashboard')
+  const dt = betoltTiszta(desktopSrc, 'program-tipusok')
+  const hibak = []
+  const parok = [
+    ['PROGRAM_TYPES', 'PROGRAM_TIPUSOK'],
+    ['MAGAN_PROGRAM_TIPUSOK', 'MAGAN_PROGRAM_TIPUSOK'],
+    ['ANYAKONYVI_PROGRAM_TIPUSOK', 'ANYAKONYVI_PROGRAM_TIPUSOK'],
+  ]
+  for (const [w, d] of parok) {
+    if (JSON.stringify(web[w]) !== JSON.stringify(dt[d])) hibak.push(`${d} ≠ web ${w}`)
+  }
+  // Bíráló P3 (2026-09-05): a címke/emoji/szín térkép és a rajzoló segédek NEM
+  // élhetnek itt — a desktopon senki nem olvasta őket (a kezdőlap az ui-app
+  // UpcomingPrograms tükréből rajzol, azt a PR1f méri a webhez). Egy visszakerülő
+  // térkép harmadik, mért-de-holt másolat lenne.
+  const tiltott = ['PROG_TIPUS_EMOJI', 'PROG_TIPUS_LABELS', 'PROG_TIPUS_COLOR', 'programTipusCimke', 'programTipusEmoji', 'programTipusSzin']
+  const tisztaDesktop = stripComments(desktopSrc)
+  for (const nev of tiltott) {
+    if (nev in dt || new RegExp(`\\b${nev}\\b`).test(tisztaDesktop)) hibak.push(`${nev}: harmadik másolat a desktopon (holt adat)`)
+  }
+  return { hibak, dt, web }
+}
+{
+  const { hibak, dt, web } = paritasHibak(WEB_DASH_SRC, PROGTIP_SRC)
+  assert(hibak.length === 0, `PR1 program-tipusok = a webes constants/dashboard.ts tükre (lista, magán, anyakönyvi), címke/emoji/szín térkép NÉLKÜL (${hibak.join('; ') || 'rendben'})`)
+  const uj5 = ['kereszteles', 'eskuvo', 'konfirmacio', 'temetes', 'szabadsag']
+  assert(dt.PROGRAM_TIPUSOK.length === 21 && uj5.every((x) => dt.PROGRAM_TIPUSOK.includes(x)), 'PR1a 21 típus, az 5 új (anyakönyvi + szabadság) benne')
+  assert(
+    uj5.every((x) => dt.programNyilvanos(x, true) === false && dt.programNyilvanos(x, 1) === false && dt.programPublikusTukorErtek(x, true) === 0),
+    'PR1b magán típuson a nyilvános jelölés SOHA nem igaz — akármit mond a tárolt érték',
+  )
+  assert(
+    dt.programNyilvanos('istentisztelet', true) === true && dt.programNyilvanos('bibliaora', 1) === true && dt.programNyilvanos('bibliaora', 0) === false && dt.programNyilvanos('kozossegi', null) === false,
+    'PR1c nem-magán típuson a tárolt érték dönt (true/1 → igaz; 0/null → nem)',
+  )
+  assert(web.isMaganProgramTipus('szabadsag') === dt.isMaganProgramTipus('szabadsag') && dt.isAnyakonyviProgramTipus('szabadsag') === false, 'PR1e isMagan/isAnyakonyvi a webbel egyezik')
+
+  // PR1n/a — a desktop magán-listája eltér (egy magán típus kimarad → a temetés publikus lehetne)
+  const mutA = PROGTIP_SRC.replace("['szabadsag', 'kereszteles', 'eskuvo', 'konfirmacio', 'temetes'] as const", "['szabadsag', 'kereszteles', 'eskuvo', 'konfirmacio'] as const")
+  assert(mutA !== PROGTIP_SRC && paritasHibak(WEB_DASH_SRC, mutA).hibak.length > 0, 'PR1n/a mutáns (a desktop magán-listájából kimarad a temetés) → az őr BUKIK')
+  // PR1n/c — egy címke-térkép visszakerül a desktopra (harmadik másolat)
+  const mutC = `${PROGTIP_SRC}\nexport const PROG_TIPUS_LABELS: Record<string, string> = { egyeb: 'Egyéb' }\n`
+  assert(paritasHibak(WEB_DASH_SRC, mutC).hibak.length > 0, 'PR1n/c mutáns (címke-térkép visszakerül a desktopra) → az őr BUKIK')
+  // PR1n/b — a WEB bővül egy típussal, a desktop nem követi
+  const mutB = WEB_DASH_SRC.replace("'kereszteles', 'eskuvo', 'konfirmacio', 'temetes', 'szabadsag',\n] as const", "'kereszteles', 'eskuvo', 'konfirmacio', 'temetes', 'szabadsag', 'zarandoklat',\n] as const")
+  assert(mutB !== WEB_DASH_SRC && paritasHibak(mutB, PROGTIP_SRC).hibak.length > 0, 'PR1n/b mutáns (a web bővül, a desktop nem) → az őr BUKIK')
+}
+
+// ── PR1f: az ui-app UpcomingPrograms belső tükre is MÉRT (nem csak a desktop-é) ──
+// (ellenőrzés-ügynök, 2026-09-05) A közös widget a webes dashboard.ts címke- és
+// szín-térképének NEM exportált másolatát tartja; a desktop a webhez van mérve
+// (PR1), az ui-app eddig senkihez — egy ott elcsúszó címke némán maradt volna.
+// (A U1 őr a naptár-rétegek selftestben csak a kulcsok MEGLÉTÉT nézi.)
+{
+  const UPCOMING_SRC = fs.readFileSync(path.join(ROOT, 'packages', 'ui-app', 'src', 'dashboard', 'UpcomingPrograms.tsx'), 'utf8')
+  /** A két térkép objektum-literálja kivágva, önálló modulként betöltve (a widget React/lucide importjai nélkül). */
+  function uiAppTerkepek(src) {
+    const labels = src.match(/const PROG_TIPUS_LABELS: Record<string, string> = \{[\s\S]*?\n\}/)?.[0]
+    const color = src.match(/const PROG_TIPUS_COLOR: Record<string, string> = \{[\s\S]*?\n\}/)?.[0]
+    if (!labels || !color) return null
+    return betoltTiszta(`${labels}\n${color}\nexport { PROG_TIPUS_LABELS, PROG_TIPUS_COLOR }`, 'ui-app-terkepek')
+  }
+  function uiAppParitasHibak(uiSrc, webSrc) {
+    const ui = uiAppTerkepek(uiSrc)
+    if (!ui) return ['a térképek nem vághatók ki az UpcomingPrograms.tsx-ből']
+    const web = betoltTiszta(webSrc, 'web-dashboard-ui')
+    const hibak = []
+    if (JSON.stringify(web.PROGRAM_TYPES) !== JSON.stringify(Object.keys(ui.PROG_TIPUS_LABELS))) hibak.push('ui-app PROG_TIPUS_LABELS kulcsai ≠ web PROGRAM_TYPES')
+    for (const k of ['PROG_TIPUS_LABELS', 'PROG_TIPUS_COLOR']) {
+      if (JSON.stringify(web[k]) !== JSON.stringify(ui[k])) hibak.push(`ui-app ${k} ≠ web ${k}`)
+    }
+    return hibak
+  }
+  const hibak = uiAppParitasHibak(UPCOMING_SRC, WEB_DASH_SRC)
+  assert(hibak.length === 0, `PR1f az ui-app UpcomingPrograms címke- és szín-térképe BETŰRE a webes dashboard.ts tükre (${hibak.join('; ') || 'rendben'})`)
+  const mutUi = UPCOMING_SRC.replace("temetes: 'Temetés', szabadsag: 'Szabadság',", "temetes: 'Temetes', szabadsag: 'Szabadság',")
+  assert(mutUi !== UPCOMING_SRC && uiAppParitasHibak(mutUi, WEB_DASH_SRC).length > 0, 'PR1fn/a mutáns (az ui-app egy címkéje eltér a webtől) → az őr BUKIK')
+  const webBovul = WEB_DASH_SRC.replace("'kereszteles', 'eskuvo', 'konfirmacio', 'temetes', 'szabadsag',\n] as const", "'kereszteles', 'eskuvo', 'konfirmacio', 'temetes', 'szabadsag', 'zarandoklat',\n] as const")
+  assert(webBovul !== WEB_DASH_SRC && uiAppParitasHibak(UPCOMING_SRC, webBovul).length > 0, 'PR1fn/b mutáns (a web bővül egy típussal, az ui-app nem követi) → az őr BUKIK')
+}
+
+// ── PR2: helyi közelgő programok VALÓDI SQLite-on (node:sqlite) ────────────
+const DB_RS = fs.readFileSync(path.join(ROOT, 'apps', 'desktop', 'src-tauri', 'src', 'db.rs'), 'utf8')
+{
+  let DatabaseSync = null
+  try {
+    ;({ DatabaseSync } = require_('node:sqlite'))
+  } catch {
+    DatabaseSync = null
+  }
+  const oszlopokM = SYNC_SRC.match(/const PROGRAM_LOCAL_OSZLOPOK = `([\s\S]*?)`\n/)
+  const evesTorzs = fnTorzs(SYNC_SRC, 'getLocalPrograms')
+  const evesSqlM = evesTorzs && evesTorzs.match(/dbSelect<ProgramLocalRow>\(\n\s*`([\s\S]*?)`,/)
+  const pullTorzsSrc = fnTorzs(SYNC_SRC, 'pullProgramsOfOwnCongregation')
+  const insertSqlM = pullTorzsSrc && pullTorzsSrc.match(/dbExecuteMany\(\n\s*`([\s\S]*?)`,/)
+  assert(Boolean(oszlopokM && evesSqlM && insertSqlM), 'PR2 a PROGRAM_LOCAL_OSZLOPOK, a getLocalPrograms SELECT-je és a pull-INSERT SQL-je megtalálható')
+
+  // Az ÉLŐ kezdőlap-út kibontója: az ui-app UpcomingPrograms.tsx React-mentes
+  // szelete (Dátum-segédek … Részkomponensek) — benne az
+  // expandUpcomingProgramOccurrences és a dátum-segédei. A widget rajzoló része
+  // (React, lucide) kimarad; a kivágott szelet önálló modulként töltődik.
+  const UPCOMING_TSX = fs.readFileSync(path.join(ROOT, 'packages', 'ui-app', 'src', 'dashboard', 'UpcomingPrograms.tsx'), 'utf8')
+  function kibontoModul(tsxSrc) {
+    const a = tsxSrc.indexOf('// ── Dátum-segédek')
+    const b = tsxSrc.indexOf('// ── Részkomponensek')
+    if (a < 0 || b < 0 || b <= a) return null
+    return betoltTiszta(tsxSrc.slice(a, b), 'ui-app-kibonto')
+  }
+  /** A kibontó `new Date()`-je rögzített napra áll (helyi idő, dél); az argumentumos Date-hívások érintetlenek. */
+  function rogzitettOraval(iso, fn) {
+    const Valodi = globalThis.Date
+    const fixMs = new Valodi(`${iso}T12:00:00`).getTime()
+    class RogzitettDate extends Valodi {
+      constructor(...a) {
+        if (a.length === 0) super(fixMs)
+        else super(...a)
+      }
+      static now() {
+        return fixMs
+      }
+    }
+    globalThis.Date = RogzitettDate
+    try {
+      return fn()
+    } finally {
+      globalThis.Date = Valodi
+    }
+  }
+  const createM = DB_RS.match(/CREATE TABLE IF NOT EXISTS gyulekezeti_programok_local \([\s\S]*?\);/)
+  const alterek = [...DB_RS.matchAll(/ALTER TABLE gyulekezeti_programok_local ADD COLUMN [^;]+;/g)].map((m) => m[0])
+  assert(Boolean(createM) && alterek.length >= 7, `PR2a db.rs: CREATE + ${alterek.length} ALTER a programok tükrén (v28: leiras/szin, v31: revision, v34: ismetlodes_vege/publikus/anyakonyv_tabla/anyakonyv_id)`)
+  assert(
+    /if current < 34 \{[\s\S]*?ismetlodes_vege TEXT;[\s\S]*?publikus INTEGER NOT NULL DEFAULT 0;[\s\S]*?anyakonyv_tabla TEXT;[\s\S]*?anyakonyv_id INTEGER;[\s\S]*?PRAGMA user_version = 34;/.test(DB_RS),
+    'PR2b a v34 migráció a 4 oszlopot adja hozzá és a user_version-t 34-re lépteti',
+  )
+
+  if (!DatabaseSync) {
+    console.log('PR2 kihagyva: node:sqlite nem elérhető ebben a Node-ban (nem hiba).')
+  } else if (oszlopokM && evesSqlM && insertSqlM && createM) {
+    const oszlopok = oszlopokM[1]
+    const insertSql = insertSqlM[1].replace('${PROGRAM_LOCAL_OSZLOPOK}', oszlopok)
+    const evesSqlSablon = evesSqlM[1].replace('${PROGRAM_LOCAL_OSZLOPOK}', oszlopok)
+    const oszlopLista = oszlopok.split(',').map((c) => c.trim()).filter(Boolean)
+    const dt = betoltTiszta(PROGTIP_SRC, 'program-tipusok-pr2')
+
+    const db = new DatabaseSync(':memory:')
+    db.exec(createM[0])
+    for (const a of alterek) db.exec(a)
+    const st = db.prepare(insertSql)
+    /** Egy sor a pull-INSERT-nek — a batch-építő oszlopsorrendje szerint. */
+    const sor = (id, tipus, datum, datumVege, extra = {}) => {
+      const ertek = {
+        id, congregation_id: 'gy-1', cim: `${tipus}-${id}`, datum, datum_vege: datumVege, ido_kezdes: null, ido_befejezes: null,
+        helyszin: null, tipus, prioritas: 'normal', ismetlodes_tipus: null, egyedi_tipus_nev: null, egyedi_emoji: null,
+        megjegyzes: null, teljesitett: 0, teljesites_datum: null, letrehozta_id: null, letrehozta_nev: null,
+        leiras: null, szin: null, revision: 1, ismetlodes_vege: null,
+        // A pull a szabályon át ír: magán típuson 0, akármit mond a szerver.
+        publikus: dt.programPublikusTukorErtek(tipus, true),
+        anyakonyv_tabla: null, anyakonyv_id: null, created_at: null, updated_at: null,
+        ...extra,
+      }
+      return oszlopLista.map((c) => ertek[c])
+    }
+    /** Az év-SELECT futtatása: annyi paramétert kötünk, ahányat a (mutáns) SQL hivatkozik. */
+    const evSorok = (sql, gy, ev) => {
+      const n = Math.max(0, ...[...sql.matchAll(/\?(\d+)/g)].map((m) => Number(m[1])))
+      return db.prepare(sql).all(...[gy, `${ev}-01-01`, `${ev}-12-31`, `${ev - 5}-01-01`].slice(0, n))
+    }
+    const kibonto = kibontoModul(UPCOMING_TSX)
+    assert(Boolean(kibonto && typeof kibonto.expandUpcomingProgramOccurrences === 'function'), 'PR2-előfeltétel: az ui-app kibontója (expandUpcomingProgramOccurrences) betölthető a Dátum-segédek … Részkomponensek szeletből')
+    /**
+     * Az ÉLŐ kezdőlap-út (home-page.tsx tükre): tárgyév (+ évhatárnál a következő
+     * év) → id szerinti dedup → a tükör sorai bejegyzésként → kibontás + 14 napos
+     * ablak, rögzített „ma"-val.
+     */
+    const kezdolapUt = (sql, kib, gy, ma, { dedup = true } = {}) => {
+      const ev = Number(ma.slice(0, 4))
+      const ablakVege = new Date(new Date(`${ma}T12:00:00`).getTime() + 14 * 86400000)
+      const osszes = [...evSorok(sql, gy, ev), ...(ablakVege.getFullYear() !== ev ? evSorok(sql, gy, ev + 1) : [])]
+      const sorok = dedup ? [...new Map(osszes.map((p) => [p.id, p])).values()] : osszes
+      const bejegyzesek = sorok.map((p) => ({ ...p, teljesitett: p.teljesitett === 1 }))
+      return rogzitettOraval(ma, () => kib.expandUpcomingProgramOccurrences(bejegyzesek, 14))
+    }
+
+    // ── A forgatókönyv: „ma" = 2031. január 2. — bíráló P2: az ELŐZŐ évben kezdődő, még tartó szabadság ──
+    const gyA = { congregation_id: 'gy-elo' }
+    st.run(...sor('szab', 'szabadsag', '2030-12-27', '2031-01-05', gyA))                                  // dec. 27. → jan. 5.: ELKEZDŐDÖTT, még tart → LÁTSZIK
+    st.run(...sor('tem', 'temetes', '2031-01-03', null, gyA))                                              // magán, holnapután → látszik, publikus 0
+    st.run(...sor('ist', 'istentisztelet', '2031-01-04', null, gyA))                                       // nyilvános → látszik
+    st.run(...sor('heti', 'bibliaora', '2030-11-05', null, { ...gyA, ismetlodes_tipus: 'heti' }))          // 2030 novemberében indult HETI sorozat → jan. 7. és 14. LÁTSZIK
+    st.run(...sor('lezart', 'imaora', '2030-10-01', null, { ...gyA, ismetlodes_tipus: 'heti', ismetlodes_vege: '2030-12-31' })) // 2030 végén lezárt sorozat → NEM
+    st.run(...sor('tavoli', 'bibliaora', '2031-01-25', null, gyA))                                         // az ablakon túl → kimarad
+    st.run(...sor('regi', 'tabor', '2030-12-28', '2030-12-31', gyA))                                       // szilveszterkor véget ért → kimarad
+    st.run(...sor('kesz', 'imaora', '2031-01-05', null, { ...gyA, teljesitett: 1 }))                       // teljesített → az agenda áthúzva mutatja: BENT, teljesitett=true
+    st.run(...sor('kezi', 'kereszteles', '2031-01-06', null, { ...gyA, publikus: 1 }))                     // tükörben ragadt hibás jelölés → olvasáskor 0
+
+    const A = kezdolapUt(evesSqlSablon, kibonto, 'gy-elo', '2031-01-02')
+    const idA = A.map((r) => r.id)
+    const szab = A.find((r) => r.id === 'szab')
+    assert(Boolean(szab) && szab.datum === '2030-12-27' && szab.datum_vege === '2031-01-05', `PR2c az ÉLŐ úton jan. 2-án a dec. 27. – jan. 5. szabadság (az előző évben kezdődött, még tart) LÁTSZIK (kapott: ${idA.join(',')})`)
+    assert(['tem', 'kezi', 'ist'].every((x) => idA.includes(x)), 'PR2d a magán típusok (temetés, keresztelő) a lelkész gépén LÁTSZANAK, a nyilvános alkalommal együtt')
+    assert(!idA.includes('tavoli') && !idA.includes('regi') && !idA.includes('lezart'), 'PR2e az ablakon túli, a szilveszterkor véget ért alkalom és a lezárt sorozat kimarad')
+    const heti = A.filter((r) => r.id === 'heti').map((r) => r.datum)
+    assert(JSON.stringify(heti) === JSON.stringify(['2031-01-07', '2031-01-14']), `PR2e2 a 2030 novemberében indult HETI sorozat januári alkalmai (jan. 7., 14.) látszanak — a korábbi évben indult sorozat az új évben nem tűnik el (kapott: ${heti.join(',') || '—'})`)
+    const kesz = A.find((r) => r.id === 'kesz')
+    assert(Boolean(kesz) && kesz.teljesitett === true, 'PR2e3 a teljesített alkalom az agendában marad, teljesitett=true (a webes agenda áthúzva mutatja)')
+    const nyers = (id) => db.prepare('SELECT publikus, tipus FROM gyulekezeti_programok_local WHERE id = ?').get(id)
+    assert(nyers('tem').publikus === 0, 'PR2f a pull a magán sor publikus-át 0-val írta (a szerver true-ja ellenére)')
+    assert(nyers('kezi').publikus === 1 && dt.programPublikusTukorErtek(nyers('kezi').tipus, nyers('kezi').publikus) === 0, 'PR2g a tükörben ragadt publikus=1 magán sort az olvasás-oldali szabály 0-ra normalizálja')
+    assert(oszlopLista.length === 27 && (insertSql.match(/\?\d+/g) ?? []).length === 27, `PR2h a pull-INSERT 27 oszlop / 27 paraméter (kapott: ${oszlopLista.length} / ${(insertSql.match(/\?\d+/g) ?? []).length})`)
+
+    // ── B forgatókönyv: „ma" = 2031. december 25. — évhatár: a következő évet is kéri, id szerint dedupál ──
+    const gyB = { congregation_id: 'gy-evhatar' }
+    st.run(...sor('b-atnyulo', 'szabadsag', '2031-12-28', '2032-01-03', gyB))                              // évhatáron átnyúló: MINDKÉT évi lekérdezés hozza → EGYSZER
+    st.run(...sor('b-ujev', 'istentisztelet', '2032-01-02', null, gyB))                                    // a következő évi → látszik
+    st.run(...sor('heti2', 'bibliaora', '2031-09-03', null, { ...gyB, ismetlodes_tipus: 'heti' }))         // sorozat: mindkét lekérdezés hozza → alkalmanként EGYSZER
+    const B = kezdolapUt(evesSqlSablon, kibonto, 'gy-evhatar', '2031-12-25')
+    const napokB = (id) => B.filter((r) => r.id === id).map((r) => r.datum)
+    assert(JSON.stringify(napokB('b-atnyulo')) === JSON.stringify(['2031-12-28']) && napokB('b-ujev').length === 1, `PR2i dec. 25-én az évhatáron átnyúló szabadság EGYSZER szerepel, a jan. 2-i (következő évi) alkalom látszik (kapott: ${napokB('b-atnyulo').join(',')} / ${napokB('b-ujev').join(',')})`)
+    assert(JSON.stringify(napokB('heti2')) === JSON.stringify(['2031-12-31', '2032-01-07']), `PR2i2 a szeptemberben indult heti sorozat két alkalma (dec. 31., jan. 7.) EGYSZER-EGYSZER — nincs dupla a két évi lekérdezésből (kapott: ${napokB('heti2').join(',') || '—'})`)
+
+    // PR2n/a — a RÉGI világ: a kezdő nap éve (SQL)
+    const regiSql = evesSqlSablon.replace(/AND datum <= \?3\s+AND \(datum_vege >= \?2 OR datum >= \?2\s+OR \(ismetlodes_tipus IS NOT NULL AND datum >= \?4\)\)/, 'AND datum >= ?2\n        AND datum <= ?3')
+    assert(regiSql !== evesSqlSablon, 'PR2n/a-előfeltétel: a régi év-szűrő előállítható')
+    assert(!kezdolapUt(regiSql, kibonto, 'gy-elo', '2031-01-02').some((r) => r.id === 'szab'), 'PR2n/a a régi `datum >= év-01-01` szűrőn a szabadság januárban ELTŰNIK az élő útról — az őr tud pirosra váltani')
+    // PR2n/b — a kibontó ablak-szűrője a KEZDŐ napot nézi (a régi ablak-szabály)
+    const regiKibonto = kibontoModul(UPCOMING_TSX.replace('return start <= windowEnd && end >= todayStr', 'return start <= windowEnd && start >= todayStr'))
+    assert(Boolean(regiKibonto) && !kezdolapUt(evesSqlSablon, regiKibonto, 'gy-elo', '2031-01-02').some((r) => r.id === 'szab'), 'PR2n/b mutáns (a kibontó a kezdő napra szűr) → az elkezdődött szabadság KIESIK — az őr BUKIK')
+    // PR2n/c — a kezdőlap nem dedupál
+    assert(kezdolapUt(evesSqlSablon, kibonto, 'gy-evhatar', '2031-12-25', { dedup: false }).filter((r) => r.id === 'b-atnyulo').length === 2, 'PR2n/c dedup nélkül az átnyúló alkalom KÉTSZER szerepel — az őr tud pirosra váltani')
+
+    // PR4 (bíráló P2, 2026-09-05): a getLocalPrograms év-szűrője ÖNMAGÁBAN futtatva —
+    // az intervallum metszete (a webes program-ev-metszet.ts tükre) + a korábbi
+    // években indult sorozatok (a webes getProgramsForYear második lekérdezésének
+    // tükre). Külön gyülekezet-azonosító ('gy-ev') és fix évek.
+    {
+      const gy = { congregation_id: 'gy-ev' }
+      st.run(...sor('tabor', 'tabor', '2030-12-30', '2031-01-02', gy))          // előző év végén kezdődő, többnapos → 2031-ben LÁTSZIK
+      st.run(...sor('ujev', 'istentisztelet', '2031-01-01', null, gy))          // jan. 1. egynapos → látszik
+      st.run(...sor('szilveszter', 'imaora', '2030-12-31', null, gy))           // előző évi egynapos → NEM
+      st.run(...sor('kovetkezo', 'bibliaora', '2032-01-01', null, gy))          // következő évi → NEM
+      st.run(...sor('atnyulo', 'szabadsag', '2031-12-28', '2032-01-03', gy))    // az év végén kezdődő, átnyúló → látszik
+      st.run(...sor('hibas', 'egyeb', '2030-12-30', '2030-12-20', gy))          // hibás (kezdő előtti) záró nap, előző évi kezdő → NEM (a kezdő dönt)
+      st.run(...sor('hibas2', 'egyeb', '2031-03-01', '2030-02-01', gy))         // hibás záró nap, de a kezdő az évben → LÁTSZIK (a webes programZaroNapja is a kezdőre esik)
+      st.run(...sor('heti-regi', 'bibliaora', '2030-11-05', null, { ...gy, ismetlodes_tipus: 'heti' }))  // előző évben indult sorozat → LÁTSZIK (5 éven belül)
+      st.run(...sor('heti-osi', 'bibliaora', '2020-01-01', null, { ...gy, ismetlodes_tipus: 'heti' }))   // 6+ éve indult sorozat → NEM (a webes 5 éves plafon)
+      st.run(...sor('nem-sorozat-regi', 'imaora', '2029-06-01', null, gy))                                // régi, NEM ismétlődő egynapos → NEM
+      const evFuttat = (sql) => evSorok(sql, 'gy-ev', 2031).map((r) => r.id)
+      const evIdk = evFuttat(evesSqlSablon)
+      assert(evIdk.includes('tabor') && evIdk.includes('ujev') && evIdk.includes('atnyulo'), 'PR4 a dec. 30. – jan. 2. tábor, a jan. 1-jei alkalom és az év végén kezdődő szabadság a 2031-es listában van (az intervallum metszi az évet)')
+      assert(!evIdk.includes('szilveszter') && !evIdk.includes('kovetkezo') && !evIdk.includes('hibas'), 'PR4b az előző évi egynapos, a következő évi és a hibás (kezdő előtti) záró napú, előző évi sor kimarad — a kezdő nap dönt, nem szivárog át')
+      assert(evIdk.includes('hibas2'), 'PR4c a hibás záró napú, de az évben kezdődő sor LÁTSZIK — a kezdő nap dönt, mint a webes programZaroNapja')
+      assert(evIdk.includes('heti-regi') && !evIdk.includes('heti-osi') && !evIdk.includes('nem-sorozat-regi'), 'PR4d a 2030-ban indult heti sorozat a 2031-es listában van; a 6+ éve indult sorozat és a régi nem-ismétlődő sor nincs (a webes második lekérdezés tükre)')
+      // PR4n — a RÉGI világ: a kezdő nap éve
+      const evRegi = evesSqlSablon.replace(/AND datum <= \?3\s+AND \(datum_vege >= \?2 OR datum >= \?2\s+OR \(ismetlodes_tipus IS NOT NULL AND datum >= \?4\)\)/, 'AND datum >= ?2\n        AND datum <= ?3')
+      assert(evRegi !== evesSqlSablon, 'PR4n-előfeltétel: a régi (kezdő nap éve) szűrő előállítható')
+      assert(!evFuttat(evRegi).includes('tabor'), 'PR4n a régi `datum >= év-01-01` szűrőn a tábor januárból ELTŰNIK — az őr tud pirosra váltani')
+      // PR4nc — a COALESCE-alak MÁS: a hibás (kezdő előtti) záró napot venné
+      const evCoalesce = evesSqlSablon.replace('(datum_vege >= ?2 OR datum >= ?2', '(COALESCE(datum_vege, datum) >= ?2')
+      assert(evCoalesce !== evesSqlSablon && !evFuttat(evCoalesce).includes('hibas2'), 'PR4nc a COALESCE-alakon az évben kezdődő, hibás záró napú sor KIESIK (eltér a webes szabálytól) — ezért nem COALESCE')
+      // PR4nr — a sorozat-ág nélkül (a 2026-09-05 előtti desktop)
+      const evNemSorozat = evesSqlSablon.replace(/\s+OR \(ismetlodes_tipus IS NOT NULL AND datum >= \?4\)/, '')
+      assert(evNemSorozat !== evesSqlSablon && !evFuttat(evNemSorozat).includes('heti-regi'), 'PR4nr a sorozat-ág nélkül a 2030-ban indult heti sorozat 2031-ből ELTŰNIK — az őr tud pirosra váltani')
+    }
+    db.close()
+  }
+}
+
+// ── PR4s: getLocalPrograms év-szűrője — forrás-őr (node:sqlite nélkül is él) ──
+function evMetszetOr(syncSrc) {
+  const torzs = fnTorzs(stripComments(syncSrc), 'getLocalPrograms') ?? ''
+  const hibak = []
+  if (!torzs) hibak.push('getLocalPrograms nincs meg')
+  if (!/AND datum <= \?3\s+AND \(datum_vege >= \?2 OR datum >= \?2\s+OR \(ismetlodes_tipus IS NOT NULL AND datum >= \?4\)\)/.test(torzs)) hibak.push('nem az intervallum-metszet + sorozat alak (datum ≤ ?3 ÉS (datum_vege ≥ ?2 VAGY datum ≥ ?2 VAGY (ismétlődő ÉS datum ≥ ?4)))')
+  if (/AND datum >= \?2\s+AND datum <= \?3/.test(torzs)) hibak.push('a régi „kezdő nap éve" szűrő')
+  if (/COALESCE\(datum_vege, datum\) >= \?2/.test(torzs)) hibak.push('COALESCE-alak (a hibás, kezdő előtti záró napot venné — eltér a webes programZaroNapja-tól)')
+  if (!/`\$\{targetYear\}-01-01`, `\$\{targetYear\}-12-31`, `\$\{targetYear - 5\}-01-01`/.test(torzs)) hibak.push('a ?2/?3/?4 paraméter nem az év első és utolsó napja + az 5 évvel korábbi év eleje')
+  return hibak
+}
+{
+  const hibak = evMetszetOr(SYNC_SRC)
+  assert(hibak.length === 0, `PR4s getLocalPrograms: az év METSZETE (datum ≤ ?3 ÉS (datum_vege ≥ ?2 VAGY datum ≥ ?2)) + a korábbi években indult sorozatok (ismétlődő ÉS datum ≥ ?4) — a webes program-ev-metszet.ts és a getProgramsForYear második lekérdezésének tükre (${hibak.join('; ') || 'rendben'})`)
+  const mut = SYNC_SRC.replace(/AND datum <= \?3\s+AND \(datum_vege >= \?2 OR datum >= \?2\s+OR \(ismetlodes_tipus IS NOT NULL AND datum >= \?4\)\)/, 'AND datum >= ?2\n        AND datum <= ?3')
+  assert(mut !== SYNC_SRC && evMetszetOr(mut).length > 0, 'PR4sn mutáns (a régi `datum >= év-01-01` alak) → az őr BUKIK')
+  const mutC = SYNC_SRC.replace('(datum_vege >= ?2 OR datum >= ?2', '(COALESCE(datum_vege, datum) >= ?2')
+  assert(mutC !== SYNC_SRC && evMetszetOr(mutC).length > 0, 'PR4sn/b mutáns (COALESCE-alak) → az őr BUKIK')
+  const mutR = SYNC_SRC.replace(/\s+OR \(ismetlodes_tipus IS NOT NULL AND datum >= \?4\)/, '')
+  assert(mutR !== SYNC_SRC && evMetszetOr(mutR).length > 0, 'PR4sn/c mutáns (a sorozat-ág kivéve — a korábbi évben indult heti sorozat januártól eltűnne) → az őr BUKIK')
+}
+
+// ── PR2j: a SQL-oldali MÁSODIK ablak-szabály (getLocalUpcomingPrograms) nincs többé ──
+// (bíráló P3, 2026-09-05) A függvénynek egyetlen felület sem volt hívója; a „már
+// elkezdődött többnapos alkalom benne marad" szabály EGY helyen él: az ui-app
+// kibontójában (a PR2 azt futtatja). Egy visszakerülő SQL-oldali példány holt
+// kód lenne, amit egy őr „véd", miközben az élő út mást tehet.
+function holtKodOr(syncSrc) {
+  const s = stripComments(syncSrc)
+  const hibak = []
+  if (/getLocalUpcomingPrograms/.test(s)) hibak.push('getLocalUpcomingPrograms visszakerült (hívó nélküli második ablak-szabály)')
+  if (/COALESCE\(datum_vege, datum\) >= \?/.test(s)) hibak.push('SQL-oldali „záró nap ≥ ma" ablak-szűrő a sync.ts-ben (a szabály helye az ui-app kibontója)')
+  return hibak
+}
+{
+  const hibak = holtKodOr(SYNC_SRC)
+  assert(hibak.length === 0, `PR2j a sync.ts-ben nincs getLocalUpcomingPrograms és nincs SQL-oldali ablak-szűrő — az ablak-szabály egyetlen helye az ui-app kibontója (${hibak.join('; ') || 'rendben'})`)
+  const mut = `${SYNC_SRC}\nexport async function getLocalUpcomingPrograms(userId: string): Promise<ProgramLocalRow[]> {\n  return []\n}\n`
+  assert(holtKodOr(mut).length > 0, 'PR2jn mutáns (a hívó nélküli függvény visszakerül) → az őr BUKIK')
+}
+
+// ── PR3: forrás-őrök a programok tükrén ────────────────────────────────────
+const HOME_SRC = fs.readFileSync(path.join(ROOT, 'apps', 'desktop', 'src', 'pages', 'home-page.tsx'), 'utf8')
+function programTukorOr(syncSrc, homeSrc) {
+  const s = stripComments(syncSrc)
+  const hibak = []
+  const pull = fnTorzs(s, 'pullProgramsOfOwnCongregation') ?? ''
+  if (!/programPublikusTukorErtek\(String\(r\.tipus \?\? 'egyeb'\), r\.publikus/.test(pull)) hibak.push('a pull nem a szabályon át írja a publikus-t')
+  if (!/r\.ismetlodes_vege/.test(pull) || !/r\.anyakonyv_tabla/.test(pull) || !/r\.anyakonyv_id/.test(pull)) hibak.push('a pull nem viszi az ismetlodes_vege / anyakönyv-kapcsolat oszlopokat')
+  for (const nev of ['getLocalPrograms']) {
+    const torzs = fnTorzs(s, nev) ?? ''
+    if (!/rows\.map\(normalizaltProgramSor\)/.test(torzs)) hibak.push(`${nev}: nincs olvasás-oldali normalizálás`)
+    if (!/\$\{PROGRAM_LOCAL_OSZLOPOK\}/.test(torzs)) hibak.push(`${nev}: nem a közös oszloplistából olvas`)
+  }
+  const h = stripComments(homeSrc)
+  if (!/ismetlodes_vege: p\.ismetlodes_vege/.test(h)) hibak.push('a kezdőlap nem adja át az ismetlodes_vege-t a kibontónak')
+  if (!/needNextYear \? getLocalPrograms\(user\.id, curYear \+ 1\)/.test(h)) hibak.push('a kezdőlap évhatárnál nem kéri a következő évet')
+  // 2026-09-05: a két évi lekérdezés (tárgyév + évhatárnál a következő) ugyanazt a
+  // sort hozhatja (átnyúló alkalom, korábbi évben indult sorozat) — id szerint
+  // EGYSZER, különben a kibontó duplázná (a webes getProgramsForYear `egyszer` Map-je).
+  if (!/const egyszer = new Map\(\[\.\.\.programsThisYear, \.\.\.programsNextYear\]\.map\(\(p\) => \[p\.id, p\] as const\)\)/.test(h) || !/\[\.\.\.egyszer\.values\(\)\]\.map\(/.test(h)) hibak.push('a kezdőlap nem dedupál id szerint a két évi lekérdezés után (a kibontó megduplázná az alkalmakat)')
+  return hibak
+}
+{
+  const hibak = programTukorOr(SYNC_SRC, HOME_SRC)
+  assert(hibak.length === 0, `PR3 pull a szabályon át ír, az olvasó normalizál és a közös oszloplistából olvas, a kezdőlap átadja az ismetlodes_vege-t, évhatárnál a következő évet is kéri és id szerint dedupál (${hibak.join('; ') || 'rendben'})`)
+  const mut = SYNC_SRC.replace("programPublikusTukorErtek(String(r.tipus ?? 'egyeb'), r.publikus as boolean | null)", "(r.publikus as boolean | null) ? 1 : 0")
+  assert(mut !== SYNC_SRC && programTukorOr(mut, HOME_SRC).length > 0, 'PR3n/a mutáns (a pull nyersen írja a publikus-t) → az őr BUKIK')
+  const mutH = HOME_SRC.replace('[...egyszer.values()].map(', '[...programsThisYear, ...programsNextYear].map(')
+  assert(mutH !== HOME_SRC && programTukorOr(SYNC_SRC, mutH).length > 0, 'PR3n/b mutáns (a kezdőlap nem dedupál) → az őr BUKIK')
+}
+
 console.log('')
 if (failedCount > 0) {
   console.error(`${failedCount}/${total} teszt HIBÁS`)

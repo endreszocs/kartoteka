@@ -91,6 +91,7 @@ export default async function NotificationsPage() {
             <ErtesitesInbox
               kezdoSorok={uzenetSorok}
               kezdoHiba={uzenetek.error ?? null}
+              kezdoFigyelmeztetes={uzenetek.warning ?? null}
               tobbVan={uzenetek.tobbVan}
               userId={user?.id ?? null}
             />

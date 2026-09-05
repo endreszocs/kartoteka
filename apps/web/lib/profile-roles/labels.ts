@@ -13,6 +13,7 @@
  */
 
 import { ROLE_LABELS, SCOPE_LABELS, type ProfileRoleScope, type ProfileRoleType } from '@/lib/profile-roles/types'
+import { isProfileStatus, type ProfileStatus } from '@/lib/types/auth'
 
 /**
  * A `profiles.role` LEGACY kulcsai, amelyek NINCSENEK a kanonikus ROLE_LABELS-ben
@@ -88,7 +89,10 @@ export function getProfileEyebrow(role: string | null | undefined): string {
  * A felmérés (data-4): a dialógus eddig `=== 'active' ? 'Aktív' : 'Várakozik'`
  * volt — az elutasított és a törölt profil is „Várakozik"-nak látszott.
  */
-export const PROFILE_STATUS_LABELS: Record<string, string> = {
+// 2026-09-05 (P3-utómunka): a térkép a `ProfileStatus` unióra KIMERÍTŐ —
+// egy új DB-érték a típusban (lib/types/auth.ts) fordítási hibával kényszeríti
+// ki a címkét itt is, nem egy futásidejű „ismeretlen" jelzéssel derül ki.
+export const PROFILE_STATUS_LABELS: Record<ProfileStatus, string> = {
   pending: 'Jóváhagyásra vár',
   active: 'Aktív',
   rejected: 'Elutasítva',
@@ -101,8 +105,8 @@ export const PROFILE_STATUS_LABELS: Record<string, string> = {
  */
 export function getProfileStatusLabel(status: string | null | undefined): { label: string; ismeretlen: boolean } {
   if (!status) return { label: 'Nincs státusz', ismeretlen: true }
-  const label = PROFILE_STATUS_LABELS[status]
-  return label ? { label, ismeretlen: false } : { label: status, ismeretlen: true }
+  if (!isProfileStatus(status)) return { label: status, ismeretlen: true }
+  return { label: PROFILE_STATUS_LABELS[status], ismeretlen: false }
 }
 
 export type { ProfileRoleScope, ProfileRoleType }

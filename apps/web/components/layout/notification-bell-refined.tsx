@@ -261,6 +261,13 @@ export function NotificationBellRefined({ userId }: { userId: string }) {
                 {friss.error}
               </p>
             ) : null}
+            {/* ── Nem végzetes, de HANGOS (P3): a kérelem-állapotok mellék-lekérése nem sikerült —
+                a „Válaszra vár" a sor saját jelöléséből jön; borostyán, mint a listában ── */}
+            {friss?.warning ? (
+              <p role="status" className="border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs leading-relaxed text-foreground">
+                {friss.warning}
+              </p>
+            ) : null}
 
             {/* ── Az 5 legfrissebb ──────────────────────────────────────── */}
             {friss !== null && sorok.length === 0 ? (

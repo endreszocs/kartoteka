@@ -90,7 +90,16 @@ export function sorKivonata(sor: UzenetSor, max?: number): string {
   return sorMarkdownE(sor) ? markdownSzoveg(sor.uzenet, max) : szovegKivonat(sor.uzenet, max)
 }
 
-/** „Válaszra vár": hozzáférés-kérelem, amiről még nem született döntés. */
+/**
+ * „Válaszra vár": hozzáférés-kérelem, amiről még nem született döntés.
+ *
+ * ⚠️ EGYETLEN MEZŐBŐL DÖNT: `sor.megoldva` — amely az `alakit()`-ban EGY
+ *    szabályból jön (oszlop VAGY cím-előtag VAGY a kérelem tényleges állapota;
+ *    uzenetek-shared → `megoldasLevezetes`). A buborék pillje és gombpárja, a
+ *    lista számlálója és a csengő pillje MIND ezen a függvényen át dönt — itt
+ *    nincs második szabály (2026-09-05, P3: a régi kérelem-sorok pillje
+ *    sosem oldódott fel, mert a nézet csak a sor saját jelölését nézte).
+ */
 export function valaszraVarE(sor: Pick<UzenetSor, 'adminRequestId' | 'megoldva' | 'archived'>): boolean {
   return !!sor.adminRequestId && !sor.megoldva && !sor.archived
 }

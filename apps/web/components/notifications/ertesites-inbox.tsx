@@ -80,17 +80,26 @@ const UJRAOLVASAS_MS = 600
 export function ErtesitesInbox({
   kezdoSorok,
   kezdoHiba,
+  kezdoFigyelmeztetes,
   tobbVan,
   userId,
 }: {
   kezdoSorok: UzenetSor[]
   kezdoHiba?: string | null
+  /**
+   * 2026-09-05 (P3): NEM végzetes figyelmeztetés a szerver-akcióból (a
+   * hozzáférés-kérelmek tényleges állapota nem olvasható) — a lista megvan,
+   * de a „Válaszra vár" az érintett soroknál a sor saját jelöléséből jön.
+   * KIÍRJUK; néma függő nincs.
+   */
+  kezdoFigyelmeztetes?: string | null
   tobbVan?: boolean
   /** A bejelentkezett felhasználó — az élő frissítés (realtime) szűrője. */
   userId?: string | null
 }) {
   const [sorok, setSorok] = useState<UzenetSor[]>(kezdoSorok)
   const [hiba, setHiba] = useState<string | null>(kezdoHiba ?? null)
+  const [figyelmeztetes, setFigyelmeztetes] = useState<string | null>(kezdoFigyelmeztetes ?? null)
   const [kereses, setKereses] = useState('')
   const [fut, indit] = useTransition()
 
@@ -134,6 +143,8 @@ export function ErtesitesInbox({
       return
     }
     setHiba(null)
+    // A figyelmeztetés a friss válaszé: ha a mellék-lekérés most sikerült, eltűnik.
+    setFigyelmeztetes(r.warning ?? null)
     setSorok(r.rows ?? [])
   }, [])
 
@@ -262,6 +273,12 @@ export function ErtesitesInbox({
       {hiba ? (
         <p role="alert" className="rounded-2xl border border-destructive/40 bg-destructive/10 p-3 text-sm leading-relaxed text-foreground">
           {hiba}
+        </p>
+      ) : null}
+      {/* ── Nem végzetes, de HANGOS: a kérelem-állapotok mellék-lekérése nem sikerült ── */}
+      {figyelmeztetes ? (
+        <p role="status" className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm leading-relaxed text-foreground">
+          {figyelmeztetes}
         </p>
       ) : null}
 

@@ -65,6 +65,16 @@ export interface ErtesitesBemenet extends Partial<FeladoMezok> {
   broadcast_id?: string | null
   /** Alap 'text'. CSAK a rendszergazdai hírlevél 'markdown' — felhasználói szöveg SOHA. */
   uzenet_format?: UzenetFormat
+  /**
+   * 2026-09-05 (P3-utómunka, bírálói P2): a sor már BESZÚRÁSKOR „megoldva" —
+   * a kérelmező döntés-értesítése (a sor MAGA a döntés, nincs mire várni), hogy
+   * a tárolt jel EGY szabály szerint álljon elő (mint az SQL-visszatöltés után).
+   * Oszlop: 2026-08-11-ertesites-megoldva.sql; hiányánál a sor nélküle megy be,
+   * és a felület a típus + kérelem-hivatkozás párból tudja (uzenetek-shared →
+   * kerelemDontesSorE). Csak `true` ír; a `megoldva_at` alapból a beszúrás ideje.
+   */
+  megoldva?: boolean
+  megoldva_at?: string | null
 }
 
 export interface ErtesitesBeszurasEredmeny {
@@ -92,6 +102,9 @@ export interface ErtesitesBeszurasOpciok {
  *  · megjegyzes                              — 2026-09-03-anaf-60-napos-csengo.sql
  *  · admin_request_id                        — 2026-04-09 (régi, de a hivatkozás
  *                                              előtagja nélküle is hordozza az id-t)
+ *  · megoldva / megoldva_at                  — 2026-08-11-ertesites-megoldva.sql
+ *                                              (a döntés-sor jele; nélküle a
+ *                                              felület a típusból tudja)
  */
 const ELHAGYHATO_OSZLOPOK: ReadonlySet<string> = new Set([
   'felado_tipus',
@@ -102,6 +115,8 @@ const ELHAGYHATO_OSZLOPOK: ReadonlySet<string> = new Set([
   'broadcast_id',
   'megjegyzes',
   'admin_request_id',
+  'megoldva',
+  'megoldva_at',
 ])
 
 /** Oszloponként EGYSZER figyelmeztetünk folyamatonként — ne árassza el a naplót. */
@@ -167,6 +182,12 @@ function dbSor(sor: ErtesitesBemenet): Record<string, unknown> {
   if (sor.admin_request_id) rekord.admin_request_id = sor.admin_request_id
   if (sor.megjegyzes != null) rekord.megjegyzes = sor.megjegyzes
   if (sor.broadcast_id) rekord.broadcast_id = sor.broadcast_id
+  // Csak a „megoldva" írása értelmes beszúráskor (döntés-sor); false-t nem írunk —
+  // az oszlop alapértéke az, és a rács 03. sora időbélyeg nélküli jelölést nem tűr.
+  if (sor.megoldva === true) {
+    rekord.megoldva = true
+    rekord.megoldva_at = sor.megoldva_at ?? new Date().toISOString()
+  }
   return rekord
 }
 
@@ -223,7 +244,7 @@ export async function insertErtesites(
         marFigyelmeztetett.add(oszlop)
         console.warn(
           `[ertesitesek] a(z) "${oszlop}" oszlop még nincs az adatbázisban — az értesítés nélküle ment be. ` +
-            'Futtasd a migration-docs/sql/2026-09-05-ertesitesek-felado.sql fájlt (a megjegyzes oszlophoz a 2026-09-03-anaf-60-napos-csengo.sql-t).',
+            'Futtasd a migration-docs/sql/2026-09-05-ertesitesek-felado.sql fájlt (a megjegyzes oszlophoz a 2026-09-03-anaf-60-napos-csengo.sql-t, a megoldva/megoldva_at oszlophoz a 2026-08-11-ertesites-megoldva.sql-t).',
         )
       }
       rekordok = rekordok.map((r) => {

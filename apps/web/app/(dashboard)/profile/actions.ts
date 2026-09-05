@@ -5,13 +5,17 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { logAuditEvent } from '@/lib/audit/log'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
-import { resolveAvatarUrl } from '@/lib/auth/profile-avatar-shared'
-import { ugyanazABukarestiNap } from '@/lib/utils/date'
+import { effektivAvatarSource, normalizeAvatarUrl, resolveAvatarUrl } from '@/lib/auth/profile-avatar-shared'
+import { lelkesziSzerepbenE } from '@/lib/profile-roles/aktiv-szerep'
+import { orokoltSzerepE } from '@/lib/profile-roles/orokolt-szerep'
 import {
   jovobeliDatumHibak,
   maiNapKulcs,
   profileSaveSchema,
+  profilkepObjektumUt,
   shValtozottE,
+  torlesreKertUtak,
+  toroletlenUtak,
   zodHibakMezonkent,
   PROFILE_PHOTO_MAX_BYTES,
   PROFILE_PHOTO_MIME,
@@ -484,8 +488,10 @@ export async function getProfileDialogData(): Promise<{ error: string } | { data
       grantedAt: r.granted_at,
       approvedAt: r.approved_at,
       approvedBy: r.approved_by,
-      // A Fázis-1 backfill: approved_by NULL + approved_at = a fiók created_at-ja.
-      orokolt: r.approved_by == null && ugyanazABukarestiNap(r.approved_at, createdAt),
+      // A Fázis-1 backfill PONTOS aláírása: approved_by NULL ÉS approved_at = a
+      // fiók created_at-ja (±5 mp) — nem napra-egyezés, mert egy aznap admin
+      // által kiosztott szerep is „örökölt"-nek látszott (2026-09-05, P3).
+      orokolt: orokoltSzerepE({ approvedBy: r.approved_by, approvedAt: r.approved_at, fiokLetrejott: createdAt }),
       aktiv: aktivRole?.id === r.id,
     }))
     .sort((a, b) => (ROLE_ORDER[a.role] || 99) - (ROLE_ORDER[b.role] || 99))
@@ -538,12 +544,16 @@ export async function getProfileDialogData(): Promise<{ error: string } | { data
   // ── Profilkép: EGY feloldó (D5) ─────────────────────────────────────────────
   const picture = (user.user_metadata?.picture as string | undefined) || null
   const avatarSource = pastorProfileCompat.row?.avatar_source ?? null
-  const avatarUrl = resolveAvatarUrl({
+  // EGY bemenet a képnek ÉS az effektív forrásnak: a forrás-váltó gombjai az
+  // effektívből jelölnek (örökölt, NULL döntésű soron is), a döntés
+  // (`avatarSource`) írása változatlan.
+  const avatarForrasok = {
     source: avatarSource,
     photoUrl: pastorProfileCompat.row?.photo_url ?? null,
     metadataAvatarUrl: (user.user_metadata?.avatar_url as string | undefined) || null,
     picture,
-  })
+  }
+  const avatarUrl = resolveAvatarUrl(avatarForrasok)
 
   const aktivScopeName = aktivRole
     ? aktivRole.scope === 'congregation'
@@ -585,7 +595,14 @@ export async function getProfileDialogData(): Promise<{ error: string } | { data
       nyilvantartottCongregationName: nyilvantartottLanc ? nyilvantartottLanc.nevHu || nyilvantartottLanc.name : null,
       avatarUrl,
       avatarSource,
+      effektivAvatarSource: effektivAvatarSource(avatarForrasok),
       googlePictureElerheto: Boolean(picture),
+      feltoltottKepVan: Boolean(normalizeAvatarUrl(pastorProfileCompat.row?.photo_url)),
+      // EGY feloldó ÉS EGY bemenet a „Kapcsolatok" döntéshez — ugyanaz az
+      // `access`, amiből a /profile oldal, a /profile/kapcsolatok oldal és
+      // akciói döntenek (2026-09-05, P3; bírálat P2: a nyers `profile.role`
+      // átadása ismeretlen skalárnál más választ adott, mint a többi három hely).
+      kapcsolatokElerheto: lelkesziSzerepbenE(access),
       extensionReady: pastorProfileCompat.extensionReady,
       extensionMessage: pastorProfileCompat.extensionMessage || null,
       pastorProfile: {
@@ -804,43 +821,96 @@ export async function saveProfileDetails(payload: ProfileSaveInput): Promise<Pro
 // D6: szerver-akció, a felhasználó SAJÁT szerver-kliensével (a `logos` vödör
 // B6-policyjának `profiles/{auth.uid()}` ága), FIX objektumnévvel
 // (`profiles/{uid}/avatar.{ext}`) — így az upsert valóban felülír, nem gyűlnek
-// a timestamp-nevű árvák. A régi variánsok (más kiterjesztés, régi
-// `{timestamp}-{név}` fájlok) törlése FAIL-SOFT: a döntés (`avatar_source`) az
-// adatbázisban él, a tárhely-higiénia nem blokkolhat — de a hívó a
-// figyelmeztetést megkapja (néma hiba tilos).
+// a timestamp-nevű árvák.
+//
+// 2026-09-05 (P3-utómunka) — A DÖNTÉS ÉS A FÁJL KÜLÖNVÁLIK:
+//  · A forrás-váltás (Google-fotó / feltöltött kép / monogram) CSAK az
+//    `avatar_source` döntést írja (CHECK: 'upload' | 'google' | 'none'); a
+//    feltöltött fájl és a `photo_url` MEGMARAD, hogy vissza lehessen váltani.
+//    Korábban a „Google-fotó használata" egy kattintásra, megerősítés nélkül
+//    nullázta a photo_url-t ÉS törölte a fájlt — visszafordíthatatlanul.
+//  · A feltöltött kép TÖRLÉSE külön akció (`removeProfilePhoto`), a felületen
+//    kétlépéses megerősítéssel; a törlés a Google-fotó döntést nem bántja.
+//  · A Storage `remove()` RLS-tiltásnál NEM ad hibát, csak a ténylegesen törölt
+//    objektumok listáját — a kért és a visszaadott listát összevetjük
+//    (`toroletlenUtak`): eltérés = figyelmeztetés a hívónak; a törlésnél HIBA,
+//    ha épp a profil által hivatkozott fájl maradt meg (fail-closed).
+//  · A `list()` UGYANÚGY RLS-néma (SELECT-tiltásnál üres tömb, hiba nélkül) —
+//    a hivatkozott fájlt ezért akkor is töröltetjük, ha a lista nem hozta
+//    (`torlesreKertUtak`); a felület csak IGAZOLT tárhely-törlésnél mond
+//    „véglegesen törölve"-t (`fajlTorolve`).
+//  · A régi variánsok (más kiterjesztés, régi `{timestamp}-{név}` fájlok)
+//    takarítása egy ÚJ feltöltés után FAIL-SOFT: a döntés az adatbázisban él,
+//    a tárhely-higiénia nem blokkolhat — de a hívó a figyelmeztetést megkapja.
 //
 // ⚠️ A vödör PUBLIKUS (a címer a /gy/[slug] oldalon kell). A profilkép privát
 //    vödörbe költöztetése (aláírt URL) KÜLÖN döntés — lásd a brief 8. pontját.
 
 const PROFILKEP_MAPPA = (uid: string) => `profiles/${uid}`
 
-async function torolRegiProfilkepeket(supabase: SupabaseServerClient, uid: string, kivetel?: string): Promise<string | undefined> {
+type ProfilkepTorlesEredmeny = {
+  /** A törlésre kért objektum-utak (a listázott mappa-tartalom a kivétel nélkül ∪ a kötelező). */
+  kert: string[]
+  /** Amit a Storage NEM igazolt vissza töröltként (RLS-néma no-op, hiányzó objektum). */
+  toroletlen: string[]
+  /** A kötelező (hivatkozott) út NEM szerepelt a mappa listájában — RLS-néma listázás vagy eltűnt fájl. */
+  listabanHianyzott: boolean
+  /** Listázási vagy törlési HIBA szövege — ilyenkor semmi sem biztos. */
+  hiba?: string
+}
+
+/**
+ * A saját profilkép-mappa fájljainak törlése (a `kivetel` kivételével, a
+ * `kotelezo`-t a lista nélkül is kérve), a Storage válaszának ELLENŐRZÉSÉVEL.
+ * Nem dob; a hívó dönti el, hogy az eredmény figyelmeztetés (takarítás) vagy
+ * hiba (a hivatkozott fájl törlése).
+ */
+async function torolProfilkepFajlokat(
+  supabase: SupabaseServerClient,
+  uid: string,
+  opts: { kivetel?: string; kotelezo?: string } = {},
+): Promise<ProfilkepTorlesEredmeny> {
   const mappa = PROFILKEP_MAPPA(uid)
   const { data: lista, error: listErr } = await supabase.storage.from('logos').list(mappa, { limit: 100 })
-  if (listErr) return `A korábbi képfájlok listázása nem sikerült (a kép beállítása ettől független): ${listErr.message}`
-  const utak = (lista || [])
-    .map((o) => `${mappa}/${o.name}`)
-    .filter((p) => p !== kivetel)
-  if (utak.length === 0) return undefined
-  const { error: rmErr } = await supabase.storage.from('logos').remove(utak)
-  if (rmErr) {
-    return `A korábbi képfájl(ok) törlése nem sikerült — a tárhelyen maradtak, a profilról eltűntek: ${rmErr.message}`
+  if (listErr) return { kert: [], toroletlen: [], listabanHianyzott: false, hiba: `a képfájlok listázása nem sikerült: ${listErr.message}` }
+  const listazott = (lista || []).map((o) => `${mappa}/${o.name}`)
+  const listabanHianyzott = opts.kotelezo !== undefined && !listazott.includes(opts.kotelezo)
+  // A lista RLS-néma: a hivatkozott fájlt akkor is kérjük, ha nem hozta.
+  const kert = torlesreKertUtak(listazott, opts)
+  if (kert.length === 0) return { kert, toroletlen: [], listabanHianyzott }
+  const { data: torolt, error: rmErr } = await supabase.storage.from('logos').remove(kert)
+  if (rmErr) return { kert, toroletlen: kert, listabanHianyzott, hiba: `a képfájl(ok) törlése nem sikerült: ${rmErr.message}` }
+  // RLS-tiltásnál `error: null` és ÜRES lista jön — ez nem siker, hanem néma no-op.
+  return { kert, toroletlen: toroletlenUtak(kert, torolt), listabanHianyzott }
+}
+
+/** A takarítás eredménye → figyelmeztetés a hívónak (néma siker tilos), vagy `undefined`. */
+function torlesFigyelmeztetes(e: ProfilkepTorlesEredmeny): string | undefined {
+  if (e.hiba) return `A korábbi képfájl(ok) takarítása nem sikerült — a tárhelyen maradtak, a profilról eltűntek (${e.hiba}).`
+  if (e.toroletlen.length > 0) {
+    return `A tárhely ${e.toroletlen.length} korábbi képfájl törlését nem igazolta vissza (valószínűleg hiányzik a saját-mappa törlési jogosultság — futtasd a 2026-09-05-profil-pontossag.sql fájlt): ${e.toroletlen.join(', ')}.`
   }
   return undefined
 }
 
-/** `avatar_source` + `photo_url` írása; ha az oszlop még hiányzik, csak a photo_url-t írjuk és figyelmeztetünk. */
+/**
+ * `avatar_source` (+ opcionálisan `photo_url`) írása. `photoUrl === undefined`
+ * = a photo_url-hoz NEM nyúlunk (forrás-váltás: a feltöltött kép megmarad).
+ * Ha az `avatar_source` oszlop még hiányzik: a photo_url-t (ha kaptunk) írjuk
+ * és figyelmeztetünk — a döntés ilyenkor nem menthető.
+ */
 async function irAvatarDontes(
   supabase: SupabaseServerClient,
   uid: string,
   source: 'upload' | 'google' | 'none',
-  photoUrl: string | null,
+  photoUrl: string | null | undefined,
 ): Promise<{ error?: string; warning?: string; sourceMentve: boolean }> {
-  const teljes = await supabase
-    .from('pastor_profiles')
-    .upsert({ user_id: uid, photo_url: photoUrl, avatar_source: source }, { onConflict: 'user_id' })
+  const sor: { user_id: string; avatar_source: string; photo_url?: string | null } = { user_id: uid, avatar_source: source }
+  if (photoUrl !== undefined) sor.photo_url = photoUrl
+  const teljes = await supabase.from('pastor_profiles').upsert(sor, { onConflict: 'user_id' })
   if (!teljes.error) return { sourceMentve: true }
   if (isMissingColumnError(teljes.error, 'avatar_source')) {
+    if (photoUrl === undefined) return { warning: AVATAR_SOURCE_SQL_HINT, sourceMentve: false }
     const csakUrl = await supabase
       .from('pastor_profiles')
       .upsert({ user_id: uid, photo_url: photoUrl }, { onConflict: 'user_id' })
@@ -892,7 +962,8 @@ export async function uploadProfilePhoto(formData: FormData): Promise<ProfilePho
   // A fejléc gyors forrása (SSR) — a metaadat is a feltöltött képre áll.
   const { error: authErr } = await supabase.auth.updateUser({ data: { avatar_url: publicUrl } })
   const warnings = [dontes.warning, authErr ? `A metaadat frissítése nem sikerült: ${authErr.message}` : undefined]
-  warnings.push(await torolRegiProfilkepeket(supabase, user.id, path))
+  // A régi variánsok takarítása (más kiterjesztés) — az ÚJ fájl a kivétel.
+  warnings.push(torlesFigyelmeztetes(await torolProfilkepFajlokat(supabase, user.id, { kivetel: path })))
 
   await logAuditEvent({ action: 'profile.update', targetTable: 'pastor_profiles', targetId: user.id, metadata: { changed: ['photo_url', 'avatar_source'] } }, supabase)
   revalidatePath('/', 'layout')
@@ -900,55 +971,172 @@ export async function uploadProfilePhoto(formData: FormData): Promise<ProfilePho
     ok: true,
     avatarUrl: publicUrl,
     avatarSource: dontes.sourceMentve ? 'upload' : null,
+    // Az effektív forrás a művelet UTÁNI állapotból, ugyanabból a szabályból,
+    // mint a betöltés (nem kézzel levezetve).
+    effektivAvatarSource: effektivAvatarSource({
+      source: dontes.sourceMentve ? 'upload' : null,
+      photoUrl: publicUrl,
+      metadataAvatarUrl: authErr ? null : publicUrl,
+      picture: normalizeAvatarUrl(user.user_metadata?.picture),
+    }),
+    feltoltottKepVan: true,
     warning: warnings.filter(Boolean).join(' ') || undefined,
   }
 }
 
+/**
+ * A FELTÖLTÖTT kép VÉGLEGES törlése (a tárhelyről és a `photo_url`-ból). A
+ * felületen kétlépéses megerősítés előzi meg. Ha a látható kép a feltöltött
+ * volt (vagy nem volt explicit döntés), a döntés `none` lesz (monogram); ha a
+ * Google-fotó volt beállítva, az marad — a törlés csak a saját fájlt érinti.
+ *
+ * SORREND: előbb a tárhely, és csak IGAZOLT törlés után az adatbázis — ha a
+ * Storage a hivatkozott fájlt nem törölte (RLS-néma no-op), semmi sem változik,
+ * a felhasználó a hibából tudja meg, miért (fail-closed).
+ */
 export async function removeProfilePhoto(): Promise<ProfilePhotoResult> {
   const { user, supabase } = await getEffectiveAccessContext()
   if (!user) return { error: 'Nincs bejelentkezve.' }
 
-  const dontes = await irAvatarDontes(supabase, user.id, 'none', null)
-  if (dontes.error) return { error: dontes.error }
-  // A régi döntés ('avatar_url' a metaadatban) sem maradhat aktív.
-  const { error: authErr } = await supabase.auth.updateUser({ data: { avatar_url: null } })
-  const warnings = [dontes.warning, authErr ? `A metaadat frissítése nem sikerült: ${authErr.message}` : undefined]
-  warnings.push(await torolRegiProfilkepeket(supabase, user.id))
+  // FAIL-CLOSED: ismeretlen állapotra nem törlünk.
+  const elozo = await getPastorProfileCompat(supabase, user.id)
+  if (elozo.readError) {
+    return { error: `A profilkép adatai most nem olvashatók (${elozo.readError}) — a törlés nem indult el. Próbáld újra.` }
+  }
+  const photoUrl = normalizeAvatarUrl(elozo.row?.photo_url)
+  if (!photoUrl) return { error: 'Nincs feltöltött profilkép, amit törölni lehetne.' }
+  const elozoForras = elozo.row?.avatar_source ?? null
+  const picture = normalizeAvatarUrl(user.user_metadata?.picture)
+
+  // 1) A fájl(ok) törlése — a Storage válaszának ellenőrzésével.
+  //
+  // 2026-09-05 (bírálat, P3): a `list()` ugyanúgy RLS-néma, mint a `remove()` —
+  // SELECT-tiltásnál hiba nélkül ÜRES listát ad. Eddig „ami nincs a listában, az
+  // nem létezik" volt a szabály: a hivatkozott fájl a tárhelyen maradt, a
+  // hivatkozás mégis nullázódott, a felület „véglegesen törölve"-t mondott.
+  // Mostantól a HIVATKOZOTT fájlt (ha a saját mappában él) akkor is töröltetjük,
+  // ha a lista nem hozta — a `remove()` válasza dönt, nem a lista (fail-closed).
+  const hivatkozott = profilkepObjektumUt(photoUrl)
+  const sajatFajl = hivatkozott && hivatkozott.startsWith(`${PROFILKEP_MAPPA(user.id)}/`) ? hivatkozott : null
+  const torles = await torolProfilkepFajlokat(supabase, user.id, { kotelezo: sajatFajl ?? undefined })
+  if (torles.hiba) return { error: `A feltöltött kép törlése nem sikerült — semmi sem változott (${torles.hiba}).` }
+  if (sajatFajl && torles.toroletlen.includes(sajatFajl)) {
+    return {
+      error: torles.listabanHianyzott
+        ? 'A hivatkozott profilkép nem szerepelt a tárhely-mappa listájában, és a tárhely a törlését sem igazolta vissza — vagy a `logos` vödör saját-mappa jogosultsága hiányzik (futtasd a 2026-09-05-profil-pontossag.sql fájlt), vagy a fájl már korábban eltűnt. Semmi sem változott; ha csak nem szeretnéd látni, válts „Monogram" forrásra, vagy tölts fel új képet.'
+        : 'A tárhely nem törölte a profilképet (a `logos` vödör saját-mappa törlési jogosultsága hiányzik — futtasd a 2026-09-05-profil-pontossag.sql fájlt). A kép és a hivatkozás változatlanul megmaradt.',
+    }
+  }
+  // A tárhely-törlés IGAZOLT: a saját fájl kért volt, és nincs a toröletlenek között.
+  const fajlTorolve = Boolean(sajatFajl)
+  const warnings: Array<string | undefined> = [
+    torlesFigyelmeztetes(torles),
+    sajatFajl
+      ? torles.listabanHianyzott
+        ? 'A tárhely-mappa listázása nem hozta a hivatkozott fájlt (a listázási jogosultság hiányozhat — futtasd a 2026-09-05-profil-pontossag.sql fájlt); a fájl törlése ettől függetlenül igazolt, de a régi variánsok takarítása nem futhatott le.'
+        : undefined
+      : 'A profilkép hivatkozása nem a saját tárhely-mappára mutatott — a tárhelyen semmi sem törlődött, csak a hivatkozás.',
+  ]
+
+  // 2) A hivatkozás törlése; a döntés: a Google-fotó marad, minden más → monogram.
+  const ujForras: 'google' | 'none' = elozoForras === 'google' && picture ? 'google' : 'none'
+  const dontes = await irAvatarDontes(supabase, user.id, ujForras, null)
+  if (dontes.error) return { error: `${dontes.error}${fajlTorolve ? ' (A fájl a tárhelyről már törlődött — töltsd újra az ablakot.)' : ''}` }
+  warnings.push(dontes.warning)
+
+  // 3) A metaadat (a fejléc gyors forrása): a törölt fájl URL-je nem maradhat benne.
+  const { error: authErr } = await supabase.auth.updateUser({ data: { avatar_url: ujForras === 'google' ? picture : null } })
+  if (authErr) warnings.push(`A metaadat frissítése nem sikerült: ${authErr.message}`)
 
   await logAuditEvent({ action: 'profile.update', targetTable: 'pastor_profiles', targetId: user.id, metadata: { changed: ['photo_url', 'avatar_source'] } }, supabase)
   revalidatePath('/', 'layout')
   // Ha az avatar_source oszlop még hiányzik, a Google-kép az örökölt szabállyal
   // VISSZAJÖNNE — ezt a hívó a figyelmeztetésből tudja meg, nem néma meglepetésből.
-  const picture = (user.user_metadata?.picture as string | undefined) || null
-  const visszaesik = !dontes.sourceMentve && picture
+  const avatarUrl = ujForras === 'google' || (!dontes.sourceMentve && picture) ? picture : null
   return {
     ok: true,
-    avatarUrl: visszaesik ? picture : null,
-    avatarSource: dontes.sourceMentve ? 'none' : null,
+    avatarUrl,
+    avatarSource: dontes.sourceMentve ? ujForras : null,
+    // A művelet UTÁNI állapotból, ugyanabból a szabályból, mint a betöltés — az
+    // oszlop nélküli (örökölt) ágon ez a Google-kép visszatérését is jelöli.
+    effektivAvatarSource: effektivAvatarSource({
+      source: dontes.sourceMentve ? ujForras : null,
+      photoUrl: null,
+      metadataAvatarUrl: authErr ? null : ujForras === 'google' ? picture : null,
+      picture,
+    }),
+    feltoltottKepVan: false,
+    fajlTorolve,
     warning: warnings.filter(Boolean).join(' ') || undefined,
   }
 }
 
+/**
+ * FORRÁS-VÁLTÁS: csak az `avatar_source` döntés íródik; a feltöltött fájl és a
+ * `photo_url` érintetlen (vissza lehet váltani). A metaadat `avatar_url` — a
+ * fejléc gyors forrása — a kiválasztott képre áll (monogramnál null).
+ * Fail-closed: 'upload' csak meglévő feltöltött képpel, 'google' csak meglévő
+ * Google-képpel; az `avatar_source` oszlop nélkül a döntés NEM menthető → hiba
+ * (a régi szabály maradna, a felület hamisan mutatna sikert).
+ */
+async function valtAvatarForras(
+  supabase: SupabaseServerClient,
+  user: { id: string; user_metadata?: Record<string, unknown> },
+  source: 'upload' | 'google' | 'none',
+): Promise<ProfilePhotoResult> {
+  const elozo = await getPastorProfileCompat(supabase, user.id)
+  if (elozo.readError) {
+    return { error: `A profilkép adatai most nem olvashatók (${elozo.readError}) — a váltás nem indult el. Próbáld újra.` }
+  }
+  const photoUrl = normalizeAvatarUrl(elozo.row?.photo_url)
+  const picture = normalizeAvatarUrl(user.user_metadata?.picture)
+  let megjeleno: string | null = null
+  if (source === 'upload') {
+    if (!photoUrl) return { error: 'Nincs feltöltött profilkép, amire vissza lehetne váltani — tölts fel egyet.' }
+    megjeleno = photoUrl
+  } else if (source === 'google') {
+    if (!picture) return { error: 'Ehhez a fiókhoz nem tartozik Google-fiók-kép.' }
+    megjeleno = picture
+  }
+
+  // A Google-URL-t sosem írjuk a photo_url-ba (mulandó lh3-hivatkozás): a döntés
+  // az avatar_source, a kép forrása mindig a friss metaadat `picture`.
+  const dontes = await irAvatarDontes(supabase, user.id, source, undefined)
+  if (dontes.error) return { error: dontes.error }
+  if (!dontes.sourceMentve) return { error: dontes.warning || AVATAR_SOURCE_SQL_HINT }
+
+  const { error: authErr } = await supabase.auth.updateUser({ data: { avatar_url: megjeleno } })
+  await logAuditEvent({ action: 'profile.update', targetTable: 'pastor_profiles', targetId: user.id, metadata: { changed: ['avatar_source'] } }, supabase)
+  revalidatePath('/', 'layout')
+  return {
+    ok: true,
+    avatarUrl: megjeleno,
+    avatarSource: source,
+    effektivAvatarSource: effektivAvatarSource({ source, photoUrl, metadataAvatarUrl: authErr ? null : megjeleno, picture }),
+    feltoltottKepVan: Boolean(photoUrl),
+    warning: authErr ? `A metaadat frissítése nem sikerült: ${authErr.message}` : undefined,
+  }
+}
+
+/** A Google-fiók képe legyen a profilkép — CSAK a döntést váltja, a feltöltött kép megmarad. */
 export async function applyGooglePhoto(): Promise<ProfilePhotoResult> {
   const { user, supabase } = await getEffectiveAccessContext()
   if (!user) return { error: 'Nincs bejelentkezve.' }
-  const picture = (user.user_metadata?.picture as string | undefined) || null
-  if (!picture) return { error: 'Ehhez a fiókhoz nem tartozik Google-fiók-kép.' }
+  return valtAvatarForras(supabase, user, 'google')
+}
 
-  // A Google-URL-t NEM írjuk a photo_url-ba (mulandó lh3-hivatkozás): a döntés
-  // az avatar_source, a kép forrása mindig a friss metaadat `picture`.
-  const dontes = await irAvatarDontes(supabase, user.id, 'google', null)
-  if (dontes.error) return { error: dontes.error }
-  if (!dontes.sourceMentve) {
-    return { error: AVATAR_SOURCE_SQL_HINT }
-  }
-  const { error: authErr } = await supabase.auth.updateUser({ data: { avatar_url: picture } })
-  const warnings = [authErr ? `A metaadat frissítése nem sikerült: ${authErr.message}` : undefined]
-  warnings.push(await torolRegiProfilkepeket(supabase, user.id))
+/** Vissza a FELTÖLTÖTT képre — csak ha van (fail-closed), a Google-fotó döntést felváltja. */
+export async function applyUploadedPhoto(): Promise<ProfilePhotoResult> {
+  const { user, supabase } = await getEffectiveAccessContext()
+  if (!user) return { error: 'Nincs bejelentkezve.' }
+  return valtAvatarForras(supabase, user, 'upload')
+}
 
-  await logAuditEvent({ action: 'profile.update', targetTable: 'pastor_profiles', targetId: user.id, metadata: { changed: ['avatar_source'] } }, supabase)
-  revalidatePath('/', 'layout')
-  return { ok: true, avatarUrl: picture, avatarSource: 'google', warning: warnings.filter(Boolean).join(' ') || undefined }
+/** Monogram (nincs kép) — a feltöltött fájl MEGMARAD, csak nem látszik; nem törlés. */
+export async function applyNoPhoto(): Promise<ProfilePhotoResult> {
+  const { user, supabase } = await getEffectiveAccessContext()
+  if (!user) return { error: 'Nincs bejelentkezve.' }
+  return valtAvatarForras(supabase, user, 'none')
 }
 
 // ──────────────────────────────────────────────────────────────────────────

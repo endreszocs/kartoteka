@@ -9,6 +9,7 @@ import {
   elutasitKapcsolast,
   jovahagyKapcsolast,
   olvasKapcsolasKeres,
+  type KapcsolasKeresOlvasat,
 } from '@/lib/desktop-kapcsolas/szerver'
 import { kellEMasodikFaktor } from '@/lib/supabase/middleware'
 import { createClient } from '@/lib/supabase/server'
@@ -26,6 +27,15 @@ import { KAPCSOLAS_ID_MINTA } from '@kartoteka/supabase-client'
  *     megkerülhető lenne egy asztali gép hozzácsatolásával.
  */
 
+/**
+ * 2026-09-05 (P3-utómunka, ellenőrzés): a jóváhagyó LÁSSA, ha egy MÁSIK gép
+ * jóváhagyását az asztali app még nem vette át — a mostani jóváhagyás azt
+ * felülírja (a GoTrue fiókonként EGY recovery-tokent tart), ott újra kell
+ * indítani az összekapcsolást. `'ismeretlen'` = a vizsgálat hibázott (nem
+ * állítjuk hamisan, hogy nincs); `null` = nincs ilyen függő jóváhagyás.
+ */
+export type MasikGepVarakozik = { eszkozNev: string | null; jovahagyvaAt: string | null } | 'ismeretlen' | null
+
 export interface KapcsolasKeresNezet {
   id: string
   eszkozNev: string | null
@@ -33,6 +43,14 @@ export interface KapcsolasKeresNezet {
   allapot: 'varakozik' | 'jovahagyva' | 'felhasznalva' | 'lejart' | 'elutasitva'
   lejar: string
   lejartE: boolean
+  masikGepVarakozik: MasikGepVarakozik
+}
+
+/** A szerver-réteg jelzése → a felület alakja (modul-privát: a 'use server' fájl csak async függvényt exportálhat). */
+function masikGepVarakozikNezet(jelzes: KapcsolasKeresOlvasat['masikFuggoJovahagyas']): MasikGepVarakozik {
+  if (!jelzes || jelzes.allapot === 'nincs') return null
+  if (jelzes.allapot === 'ismeretlen') return 'ismeretlen'
+  return { eszkozNev: jelzes.eszkoz_nev, jovahagyvaAt: jelzes.jovahagyva_at }
 }
 
 async function aktivFelhasznalo(): Promise<
@@ -74,7 +92,9 @@ export async function getKapcsolasKeres(id: string): Promise<{ keres?: Kapcsolas
   if (!KAPCSOLAS_ID_MINTA.test(id)) return { error: 'Érvénytelen kérés-azonosító.' }
   const f = await aktivFelhasznalo()
   if (!f.ok) return { error: f.error }
-  const sor = await olvasKapcsolasKeres(id.toLowerCase())
+  // A userId-vel a szerver azt is megmondja, van-e a felhasználónak MÁSIK, még át
+  // nem vett jóváhagyása — a lelkész a jóváhagyás ELŐTT lássa, hogy azt felülírná.
+  const sor = await olvasKapcsolasKeres(id.toLowerCase(), f.userId)
   if (!sor) return { error: 'A kérés nem található — az asztali alkalmazásban indíts újat.' }
   return {
     keres: {
@@ -84,6 +104,7 @@ export async function getKapcsolasKeres(id: string): Promise<{ keres?: Kapcsolas
       allapot: sor.allapot,
       lejar: sor.lejar,
       lejartE: new Date(sor.lejar).getTime() < Date.now(),
+      masikGepVarakozik: masikGepVarakozikNezet(sor.masikFuggoJovahagyas),
     },
   }
 }
@@ -97,7 +118,14 @@ async function torolSutit(): Promise<void> {
   }
 }
 
-export async function jovahagyDesktopKapcsolas(id: string): Promise<{ ok: boolean; error?: string; masodikFaktor?: boolean }> {
+/**
+ * Jóváhagyás. A `felulirva` a MÉG ÉLŐ korábbi jóváhagyások száma, amelyeket ez
+ * a jóváhagyás lezárt (a másik gépen újra kell indítani az összekapcsolást) —
+ * a felület ezt kiírja, nem hallgatja el.
+ */
+export async function jovahagyDesktopKapcsolas(
+  id: string,
+): Promise<{ ok: boolean; error?: string; masodikFaktor?: boolean; felulirva?: number }> {
   if (!KAPCSOLAS_ID_MINTA.test(id)) return { ok: false, error: 'Érvénytelen kérés-azonosító.' }
   const f = await aktivFelhasznalo()
   if (!f.ok) return { ok: false, error: f.error, masodikFaktor: f.masodikFaktor }
@@ -114,7 +142,7 @@ export async function jovahagyDesktopKapcsolas(id: string): Promise<{ ok: boolea
     targetId: id.toLowerCase(),
     metadata: { eszkoz_nev: sor?.eszkoz_nev ?? null },
   })
-  return { ok: true }
+  return { ok: true, felulirva: eredmeny.felulirva }
 }
 
 export async function elutasitDesktopKapcsolas(id: string): Promise<{ ok: boolean; error?: string }> {

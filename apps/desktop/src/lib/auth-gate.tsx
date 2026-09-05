@@ -16,7 +16,7 @@ import { ELSO_INDITAS_UT } from './elso-inditas'
 import { ensureLocalMirrorOwner, type MirrorOwnerResult } from './local-mirror-owner'
 import { getDesktopSupabase } from './supabase'
 import { getLocalOwnProfile, pullOwnProfile, type ProfileLocalRow } from './sync'
-import { felfuggesztWriteSyncs, startAllWriteSyncs, withSyncTimeout } from './write-sync-registry'
+import { felfuggesztWriteSyncs, startAllWriteSyncs, stopAllWriteSyncs, withSyncTimeout } from './write-sync-registry'
 
 /**
  * AuthGate — védett útvonalak wrapper-e a desktop app router-ben.
@@ -307,6 +307,9 @@ export function AuthGate() {
     setOfflineMode(false)
     clearRememberOffline()
     clearLastUser()
+    // 2026-09-05 (P3-utómunka): a push-erek is leállnak — a következő belépő
+    // ne örökölje az előző felhasználó poll-ját / online listenerét.
+    stopAllWriteSyncs()
     try {
       await getDesktopSupabase().auth.signOut({ scope: 'local' })
     } catch {

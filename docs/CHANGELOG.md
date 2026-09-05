@@ -23,6 +23,53 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-09-05] — Utómunka: biztosabb asztali szinkron és összekapcsolás, pontosabb naptár, kíméletesebb profilkép-kezelés
+<!-- key: 2026-09-05-p3-utomunka-desktop-naptar-profil -->
+<!-- category: improvement -->
+<!-- version: 0.9.230 (web) · 0.9.14 (asztali) -->
+<!-- targets: lelkipásztorok (asztali alkalmazás, naptár, profil, értesítések); a rendszergazdát 1 adatbázis-lépés érinti -->
+
+### 🐛 Javítások
+
+- **Asztali: a mentés azonnal szinkronizál**: a munkanapló, a személyi adatlap és a saját profil
+  online mentése után a szinkron azonnal elindul (eddig a következő időzített körig várt).
+  Kijelentkezéskor az előző felhasználó háttér-szinkronja biztosan leáll.
+- **Asztali: az összekapcsolás nem adja fel átmeneti hibánál**: ha a jóváhagyásra várva a
+  szerver pillanatnyilag nem válaszol (hálózati zavar, 5xx), az app tovább vár a kérés lejáratáig,
+  és a zavart borostyán sávban mutatja. Ha a jóváhagyás érvényét vesztette (például egy másik gépen
+  újabb jóváhagyás történt), érthető üzenetet és „Összekapcsolás újraindítása" gombot kapsz.
+- **Két gép, egy fiók**: ha ugyanazt a fiókot két gépen egymás után hagyod jóvá, az első gép
+  várakozása nem hal el némán, hanem világos üzenettel kéri az újraindítást; a webes jóváhagyó
+  oldal előre jelzi, ha egy másik gép jóváhagyása még nincs átvéve.
+- **Asztali közelgő programok**: az új programtípusok (keresztelés, esküvő, konfirmáció, temetés,
+  szabadság) az asztali kezdőlapon is látszanak; az elkezdődött, még tartó többnapos alkalom (pl.
+  szabadság) nem tűnik el a listából.
+- **Naptár: az évhatáron átnyúló program**: az előző év végén kezdődő, januárba átnyúló program
+  januárban is látszik a csempén és a nyomtatványon.
+- **Naptár: ismétlődő sorozat nem anyakönyvezhető egyben**: sorozatnál az anyakönyvezés érthető
+  hibát ad (hozz létre egyedi alkalmat), ahogy a teljesítés-jelölés is.
+- **Köszöntő naptár**: ha a születésnapi/névnapi réteg nem tölthető be, nem nyomtatható üres papír —
+  a hiba látszik, az Újratöltés gomb segít.
+- **Profilkép**: a „Google-fotó használata" már nem törli a feltöltött képet, csak a forrást váltja,
+  így vissza lehet váltani; a feltöltött kép törlése külön, megerősítéssel történik. A régi
+  képfájlok takarításának eredményét a rendszer ellenőrzi (nincs néma „sikerült").
+- **Profil: örökölt szerep jelölése**: csak a valóban átemelt (aznap kiosztott admin-szerep nem)
+  szerep kapja az „örökölt" jelet; a Kapcsolatok link és a Kapcsolatok oldal ugyanabból a
+  szerep-forrásból dönt.
+- **Értesítések: a régi hozzáférés-kérelmek**: a 2026. szeptember 5. előtti kérelmek „Válaszra
+  vár" jele és gombpárja eldőlt kérelemnél feloldódik (a kérelem tényleges állapotából).
+
+### 🎨 UX javítások
+
+- A profil fülei 44 px-es érintőfelületet kaptak; a nyomtatvány-ablak mérete egy helyen, a
+  stíluslapban van (nagy képernyőn széles, telefonon teljes szélesség).
+
+### 🔧 Rendszergazdának
+
+- Egy adatbázis-lépés fut fájlból: `2026-09-05-ertesitesek-p3.sql` (a régi kérelem-értesítések
+  tárolt „megoldva" jele + a feladó-levezető függvény explicit jogosultsága; idempotens, ráccsal).
+  Az asztali változásokhoz új asztali kiadás (0.9.14) kell.
+
 ## [2026-09-05] — Gyakori kérdések a Tagnyilvántartás súgójában: a lelkipásztor 38 válasza az anyakönyvezés és a tagnyilvántartás szabályairól
 <!-- key: 2026-09-05-tagnyilvantartas-gyik -->
 <!-- category: improvement -->

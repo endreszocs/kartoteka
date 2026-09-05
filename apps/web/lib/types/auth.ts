@@ -13,7 +13,28 @@ export type Role =
   // megyei szinten az esperes ⇄ egyházmegyei számvevő páros.
   | 'egyhazkeruleti_szamvevo'
 
-export type ProfileStatus = 'pending' | 'active'
+/**
+ * A `profiles.status` ÉLŐ értékkészlete (2026-09-05, P3-utómunka).
+ *
+ * A táblán NINCS CHECK (a migration-docs/sql egyetlen fájlja sem tesz rá) — az
+ * értékkészletet az ÍRÓK adják, és a típus eddig csak kettőt ismert belőlük:
+ *   · 'pending'  — handle_new_user (2026-05-02 / 2026-09-04 auth-P0),
+ *   · 'active'   — admin_activate_user (2026-05-04, 2026-07-01), transfer_execute,
+ *   · 'rejected' — admin_reject_user (2026-05-04-admin-user-status-rpc.sql:183),
+ *   · 'deleted'  — erase_my_account / admin-törlés (2026-06-05f/h).
+ * A régi 'approved' értéket a 2026-05-02-profiles-approved-to-active.sql
+ * egyszer s mindenkorra 'active'-ra írta át — a típusban nem szerepel.
+ *
+ * A `PROFILE_STATUS_VALUES` a futásidejű őr (típus-guard + kimerítő
+ * címke-térkép a `lib/profile-roles/labels.ts`-ben: `Record<ProfileStatus, …>`,
+ * így egy új érték fordítási hibával kényszeríti ki a címkét).
+ */
+export const PROFILE_STATUS_VALUES = ['pending', 'active', 'rejected', 'deleted'] as const
+export type ProfileStatus = (typeof PROFILE_STATUS_VALUES)[number]
+
+export function isProfileStatus(value: unknown): value is ProfileStatus {
+  return typeof value === 'string' && (PROFILE_STATUS_VALUES as readonly string[]).includes(value)
+}
 
 export interface Profile {
   /** 2026-09-05: optimista egyidejűség-kapu a profil-mentéshez (profiles.revision). */
