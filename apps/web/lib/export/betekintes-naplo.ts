@@ -76,6 +76,15 @@ export const NAPLO_KORLATOK: string[] = [
  * legyen csúnya, mint hamis.
  */
 export const MUVELET_MONDATOK: Record<string, string> = {
+  // 2026-09-05: asztali eszköz-kapcsolás, naptár-nyomtatvány, anyakönyv-összekötés
+  'desktop.kapcsolas_jovahagyva': 'jóváhagyta egy asztali gép összekapcsolását a fiókjával',
+  'desktop.kapcsolas_elutasitva': 'elutasított egy asztali gép összekapcsolási kérését',
+  'desktop.eszkoz_elfelejtve': 'kivett egy asztali gépet az összekapcsolt eszközök listájából',
+  'auth.mas_eszkozok_kijelentkeztetve': 'kijelentkeztette a fiókját minden más eszközről',
+  'naptar.szuletesnapos_nyomtatas': 'kinyomtatott egy születésnapos/névnapos naptárat',
+  'naptar.eves_terv_nyomtatas': 'kinyomtatott egy lelkészi éves programtervet személyes réteggel (anyakönyvi esemény, születésnap vagy névnap)',
+  'program.anyakonyv_osszekotes': 'összekötött egy tervezett alkalmat az anyakönyvi bejegyzésével',
+  'program.anyakonyv_bontas': 'bontotta egy alkalom anyakönyvi összekötését',
   login: 'belépett a rendszerbe',
   logout: 'kilépett a rendszerből',
   login_failed: 'sikertelenül próbált belépni',

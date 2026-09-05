@@ -14,6 +14,8 @@ import {
   transferInviteEmail,
 } from '@/lib/email/templates/congregation-transfer'
 import { logAuditEvent } from '@/lib/audit/log'
+import { feladoMezok } from '@/lib/notifications/felado'
+import { insertErtesites } from '@/lib/notifications/ertesites-insert'
 
 // 2026-07-17 (F5): HH-NN érvényes tartománnyal (hónap 01-12, nap 01-31) — a puszta
 // \d{2}-\d{2} a '13-01'-et is átengedte, amit a motor a KÖVETKEZŐ évre görgetett
@@ -591,7 +593,9 @@ export async function initiateCongregationTransfer(input: {
       const targetPath = r.role === 'rendszergazda' ? ADMIN_PORTAL_PATH : AUDITOR_PORTAL_PATH
       const portalUrl = appBaseUrl + targetPath
 
-      await admin.from('ertesitesek').insert([
+      // A feladó az átadást kezdeményező lelkész (a fromName-et a törzs is hordozza).
+      await insertErtesites(
+        admin,
         {
           congregation_id: congregationId,
           user_id: r.id,
@@ -599,8 +603,10 @@ export async function initiateCongregationTransfer(input: {
           uzenet: `${fromName} elindította a(z) ${congName} gyülekezet átadását. Kérjük, nézd át a gyülekezet adatait, és hagyd jóvá vagy rögzíts meghagyásokat.`,
           tipus: 'warning',
           hivatkozas: targetPath,
+          ...feladoMezok('felhasznalo', fromName, user?.id ?? null),
         },
-      ])
+        { forras: 'lelkeszcsere-atadas' },
+      )
 
       const emailRes = await sendEmail(
         transferInitiatedEmail({

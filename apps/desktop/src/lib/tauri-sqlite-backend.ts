@@ -47,7 +47,14 @@ import type { SzemelyListInput, SzemelyListRow } from '@kartoteka/validations'
 
 import { invoke } from '@tauri-apps/api/core'
 
-import { dbExecute, dbSelect, getSetting as getSettingRaw, setSetting as setSettingRaw } from './local-db'
+import {
+  dbExecute,
+  dbSelect,
+  getSetting as getSettingRaw,
+  setSetting as setSettingRaw,
+  type SqlParam,
+} from './local-db'
+import { notifyLocalWriteCommitted } from './write-sync-registry'
 
 // ─────────────────────────────────────────────────────────────────────────
 // Safety helper — csak a-z, 0-9 és _ karaktereket engedünk a table/col nevekben
@@ -276,9 +283,22 @@ export class TauriSqliteBackend implements StorageBackend {
         m.lastAttemptAt ?? null,
       ],
     )
+    // 2026-09-05: minden lokális írás után összevont push + light pull (registry).
+    notifyLocalWriteCommitted()
   }
 
-  async getPendingMutations(limit = 50): Promise<Mutation[]> {
+  /**
+   * 2026-09-05 (desk-sync-8): opcionális TÁBLA-szűrő az SQL-ben. Eddig az 50-es
+   * ablak a szűrés ELŐTT vágott: egy nagy nyugta-sor kiéheztethette a
+   * befizetés-push-ert (az ő sorai a 50-en túl estek, és sosem kerültek sorra).
+   */
+  async getPendingMutations(limit = 50, table?: string): Promise<Mutation[]> {
+    const params: SqlParam[] = [Math.floor(limit)]
+    let tableSql = ''
+    if (table) {
+      params.push(table)
+      tableSql = ' AND target_table = ?2'
+    }
     const rows = await dbSelect<{
       mutation_id: string
       target_table: string
@@ -294,10 +314,10 @@ export class TauriSqliteBackend implements StorageBackend {
       `SELECT mutation_id, target_table, target_id, op, payload, expected_revision,
               retry_count, last_attempt_at, last_error, created_at
          FROM outbox
-         WHERE status = 'pending' AND mutation_id IS NOT NULL
+         WHERE status = 'pending' AND mutation_id IS NOT NULL${tableSql}
          ORDER BY created_at ASC
          LIMIT ?1`,
-      [Math.floor(limit)],
+      params,
     )
     return rows.map((r) => ({
       id: r.mutation_id,
@@ -435,12 +455,27 @@ export class TauriSqliteBackend implements StorageBackend {
     // (a chitanta sor továbbra is látszik conflict-ben). Ha a chitanta-delete
     // lefut de a wallet-release nem, a szám a walletben ragad `used=1`
     // referenciával — ami statikus ghost-sor, de nem korrumpálja a rendszert.
-    await dbExecute(
-      `UPDATE chitanta_wallet_local
-         SET used = 0, used_at = NULL, used_for_chitanta_local_id = NULL
-       WHERE used_for_chitanta_local_id = ?1`,
-      [localId],
-    )
+    //
+    // 2026-09-05 (desk-sync-9): ha az ütközés SORSZÁM-foglaltság volt (23505 —
+    // a számot a szerveren MÁS bizonylat viseli), a tárca-sor NEM szabadul fel,
+    // hanem „elégetve" marad — különben a következő offline tétel ugyanazt a
+    // számot kapná, és ugyanígy ütközne (hurok).
+    if (await this.sorszamUtkozesVolt('chitantak_local', localId)) {
+      await dbExecute(
+        `UPDATE chitanta_wallet_local
+           SET used = 1, used_at = datetime('now'),
+               used_for_chitanta_local_id = 'elegetett:' || ?1
+         WHERE used_for_chitanta_local_id = ?1`,
+        [localId],
+      )
+    } else {
+      await dbExecute(
+        `UPDATE chitanta_wallet_local
+           SET used = 0, used_at = NULL, used_for_chitanta_local_id = NULL
+         WHERE used_for_chitanta_local_id = ?1`,
+        [localId],
+      )
+    }
     await dbExecute(
       `DELETE FROM chitantak_local WHERE id = ?1`,
       [localId],
@@ -899,36 +934,6 @@ export class TauriSqliteBackend implements StorageBackend {
   }
 
   /**
-   * P3-19 (audit 2026-08-28): a globális sync-badge ÉV-FÜGGETLEN számai.
-   * A korábbi, év-szűrt listázással a MÚLT évre szóló, pushra váró vagy
-   * konfliktusos tétel a badge-en láthatatlan volt — a lelkész azt hitte,
-   * minden szinkronban van.
-   */
-  async countLocalPendingPenzugyOsszes(congregationId: string): Promise<{
-    befizetes: { pending: number; conflict: number }
-    kiadas: { pending: number; conflict: number }
-  }> {
-    const szamol = async (table: 'befizetes_pending_local' | 'kiadas_pending_local') => {
-      const rows = await dbSelect<{ sync_state: string; n: number }>(
-        `SELECT sync_state, COUNT(*) AS n FROM ${table}
-          WHERE congregation_id = ?1 AND sync_state IN ('pending','conflict')
-          GROUP BY sync_state`,
-        [congregationId],
-      )
-      const ki = { pending: 0, conflict: 0 }
-      for (const r of rows) {
-        if (r.sync_state === 'pending') ki.pending = Number(r.n) || 0
-        if (r.sync_state === 'conflict') ki.conflict = Number(r.n) || 0
-      }
-      return ki
-    }
-    return {
-      befizetes: await szamol('befizetes_pending_local'),
-      kiadas: await szamol('kiadas_pending_local'),
-    }
-  }
-
-  /**
    * Egyetlen lokális befizetés lekérdezése ID-ra (sync-payload újraépítéshez,
    * vagy konfliktus-feloldáshoz a következő alfázisban).
    */
@@ -1028,14 +1033,51 @@ export class TauriSqliteBackend implements StorageBackend {
    * újra-futtatható; ghost-sor a walletben legrosszabb esetben).
    */
   async deleteLocalBefizetes(localId: string): Promise<void> {
+    // desk-sync-9: sorszám-ütközésnél (23505) a szám elégetve marad, nem
+    // kerül vissza a tárcába (különben a következő tétel ugyanígy ütközne).
+    await this.iratszamTarcaSorRendezese('befizetes_pending_local', localId)
+    await dbExecute(
+      `DELETE FROM befizetes_pending_local WHERE id = ?1`,
+      [localId],
+    )
+  }
+
+  /**
+   * 2026-09-05 (desk-sync-9): volt-e SORSZÁM-foglaltsági ütközés a pending
+   * soron? A push-erek a 23505-öt „a szerveren már foglalt" szöveggel
+   * jelölik — ilyenkor a szám a szerveren MÁS bizonylaté, a tárcába
+   * visszaadni hurok lenne.
+   */
+  private async sorszamUtkozesVolt(
+    table: 'chitantak_local' | 'befizetes_pending_local' | 'kiadas_pending_local',
+    localId: string,
+  ): Promise<boolean> {
+    const rows = await dbSelect<{ sync_error: string | null }>(
+      `SELECT sync_error FROM ${table} WHERE id = ?1`,
+      [localId],
+    )
+    const hiba = rows[0]?.sync_error ?? ''
+    return /23505|már foglalt|közben elkelt|duplicate key/i.test(hiba)
+  }
+
+  /** Iratszám-tárca sor: elégetés (23505) vagy felszabadítás (minden más ok). */
+  private async iratszamTarcaSorRendezese(
+    table: 'befizetes_pending_local' | 'kiadas_pending_local',
+    localId: string,
+  ): Promise<void> {
+    if (await this.sorszamUtkozesVolt(table, localId)) {
+      await dbExecute(
+        `UPDATE iratszam_wallet_local
+           SET used = 1, used_at = datetime('now'), used_for_local_id = 'elegetett:' || ?1
+         WHERE used_for_local_id = ?1`,
+        [localId],
+      )
+      return
+    }
     await dbExecute(
       `UPDATE iratszam_wallet_local
          SET used = 0, used_at = NULL, used_for_local_id = NULL
        WHERE used_for_local_id = ?1`,
-      [localId],
-    )
-    await dbExecute(
-      `DELETE FROM befizetes_pending_local WHERE id = ?1`,
       [localId],
     )
   }
@@ -1366,12 +1408,8 @@ export class TauriSqliteBackend implements StorageBackend {
    * hozzá tartozó wallet-szám felszabadítása.
    */
   async deleteLocalKiadas(localId: string): Promise<void> {
-    await dbExecute(
-      `UPDATE iratszam_wallet_local
-         SET used = 0, used_at = NULL, used_for_local_id = NULL
-       WHERE used_for_local_id = ?1`,
-      [localId],
-    )
+    // desk-sync-9: sorszám-ütközésnél (23505) a szám elégetve marad.
+    await this.iratszamTarcaSorRendezese('kiadas_pending_local', localId)
     await dbExecute(
       `DELETE FROM kiadas_pending_local WHERE id = ?1`,
       [localId],
@@ -1501,6 +1539,8 @@ export class TauriSqliteBackend implements StorageBackend {
         row.voter_manual_override ?? null,
       ],
     )
+    // 2026-09-05: minden lokális írás után összevont push + light pull (registry).
+    notifyLocalWriteCommitted()
   }
 
   /**
@@ -1974,6 +2014,8 @@ export class TauriSqliteBackend implements StorageBackend {
         row.userid,
       ],
     )
+    // 2026-09-05: minden lokális írás után összevont push + light pull (registry).
+    notifyLocalWriteCommitted()
   }
 
   /**
@@ -2029,6 +2071,8 @@ export class TauriSqliteBackend implements StorageBackend {
         row.userid,
       ],
     )
+    // 2026-09-05: minden lokális írás után összevont push + light pull (registry).
+    notifyLocalWriteCommitted()
   }
 
   /**
@@ -2164,6 +2208,8 @@ export class TauriSqliteBackend implements StorageBackend {
       ) VALUES (?1, 'insert', ?2, ?3, ?4, 'pending', datetime('now'), datetime('now'))`,
       [row.id, row.id_csalad, row.id_szemely, row.userid],
     )
+    // 2026-09-05: minden lokális írás után összevont push + light pull (registry).
+    notifyLocalWriteCommitted()
   }
 
   async insertPendingGyerekRemove(row: {
@@ -2177,6 +2223,8 @@ export class TauriSqliteBackend implements StorageBackend {
       ) VALUES (?1, 'delete', ?2, ?3, 'pending', datetime('now'), datetime('now'))`,
       [row.id, row.target_gyerek_id, row.userid],
     )
+    // 2026-09-05: minden lokális írás után összevont push + light pull (registry).
+    notifyLocalWriteCommitted()
   }
 
   /**
@@ -2315,6 +2363,8 @@ export class TauriSqliteBackend implements StorageBackend {
         row.lastError ?? null,
       ],
     )
+    // 2026-09-05: minden lokális írás után összevont push + light pull (registry).
+    notifyLocalWriteCommitted()
   }
 
   /** A feldolgozandó sorok, created_at sorrendben (a belső-mozgás 2 oldala együtt). */

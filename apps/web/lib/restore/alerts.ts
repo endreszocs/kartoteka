@@ -25,6 +25,8 @@ import 'server-only'
 import { escHtml } from '@/lib/email/escape'
 import { sendEmail } from '@/lib/email/send'
 import { loadAlertRecipient } from '@/lib/google-drive/settings'
+import { feladoMezok } from '@/lib/notifications/felado'
+import { insertErtesites } from '@/lib/notifications/ertesites-insert'
 import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
 
 export type RestoreAlertKind = 'sikeres' | 'sikertelen' | 'letoltes'
@@ -226,10 +228,12 @@ export async function sendRestoreAlert(args: RestoreAlertArgs): Promise<string[]
         uzenet: sorok.join('\n'),
         tipus: destruktiv ? 'warning' : 'info',
         hivatkozas,
+        // Gépi értesítés (service_role) — a feladó a rendszer; a cselekvő neve a törzsben.
+        ...feladoMezok('rendszer'),
       }))
 
-      const { error: insertHiba } = await supabase.from('ertesitesek').insert(rows)
-      if (insertHiba) throw new Error(insertHiba.message)
+      const beszuras = await insertErtesites(supabase, rows, { forras: 'visszaallitas-ertesites' })
+      if (beszuras.error) throw new Error(beszuras.error)
     }
   } catch (error: unknown) {
     figyelmeztetesek.push(

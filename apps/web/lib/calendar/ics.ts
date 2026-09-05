@@ -15,8 +15,8 @@
  *  - A sor-hajtás (RFC 5545: 75 oktett) a hosszú leírásokra is le van kezelve.
  */
 
-import type { Program } from '@/lib/constants/dashboard'
-import { progEmoji, progLabel } from '@/lib/constants/dashboard'
+import type { IsmetlodesTipus, Program } from '@/lib/constants/dashboard'
+import { ISMETLODES_TYPES, isMaganProgramTipus, progEmoji, progLabel } from '@/lib/constants/dashboard'
 import { expandProgramOccurrences } from '@/lib/utils/program-recurrence'
 import { getUnnepnapokForYear } from '@/lib/utils/reformed-holidays'
 
@@ -174,6 +174,25 @@ const PRIORITY_LABELS: Record<string, string> = {
   kiemelt: 'kiemelt',
 }
 
+/**
+ * 2026-09-05 (cal-ux-7): az ismétlődés HATÁROZÓI alakja a leírásba — eddig egy
+ * kézi hármas elágazás volt, amiben az 'evi' (2026-08-26 óta létezik) NEM
+ * szerepelt, ezért az évente visszatérő alkalom „havonta" felirattal ment ki.
+ * A `satisfies` miatt egy ÚJ ismétlődés-típus itt fordítási hibát ad, nem néma
+ * rossz feliratot.
+ */
+const ISMETLODES_HATAROZO = {
+  heti: 'hetente',
+  ketheti: 'kéthetente',
+  havi: 'havonta',
+  evi: 'évente',
+} satisfies Record<IsmetlodesTipus, string>
+function ismetlodesHatarozo(tipus: string): string {
+  return (ISMETLODES_TYPES as readonly string[]).includes(tipus)
+    ? ISMETLODES_HATAROZO[tipus as IsmetlodesTipus]
+    : tipus
+}
+
 export function buildCalendarIcs(input: BuildIcsInput): string {
   const { congregationName, programs, fromYear, toYear, includeHolidays, includeNotes = false } = input
   const calendarName = input.calendarName?.trim() || `${congregationName} — gyülekezeti naptár`
@@ -195,7 +214,14 @@ export function buildCalendarIcs(input: BuildIcsInput): string {
   const dtstamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z'
 
   // ── Programok (ismétlődés kibontva, az app-pal azonos alkalmak) ──
-  const occurrences = (expandProgramOccurrences(programs, toYear) as CalendarFeedProgram[])
+  // 2026-09-05 (D3, MÁSODIK kapu): a MAGÁN típusok — szabadság + a tervezett
+  // anyakönyvi alkalmak (keresztelő/esküvő/konfirmáció/temetés, a címben
+  // személynév lehet) — SOHA nem mennek a gyülekezeti feedbe. Az SQL-RPC
+  // (public_calendar_feed) is kizárja őket; ez a szűrő a RÉGEBBI RPC-verzió
+  // ellen véd, amíg a migráció nem futott le. Fail-closed: a kizárás a
+  // KÖZÖS `isMaganProgramTipus` listából jön, nem egy itteni másolatból.
+  const nyilvanosProgramok = programs.filter((p) => !isMaganProgramTipus(p.tipus))
+  const occurrences = (expandProgramOccurrences(nyilvanosProgramok, toYear) as CalendarFeedProgram[])
     .filter((p) => p.datum >= windowStart && p.datum <= windowEnd)
 
   for (const p of occurrences) {
@@ -206,7 +232,7 @@ export function buildCalendarIcs(input: BuildIcsInput): string {
       includeNotes ? p.megjegyzes?.trim() || null : null,
       `Típus: ${label}`,
       p.prioritas && p.prioritas !== 'normal' ? `Prioritás: ${PRIORITY_LABELS[p.prioritas] ?? p.prioritas}` : null,
-      p.ismetlodes_tipus ? `Ismétlődés: ${p.ismetlodes_tipus === 'heti' ? 'hetente' : p.ismetlodes_tipus === 'ketheti' ? 'kéthetente' : 'havonta'}` : null,
+      p.ismetlodes_tipus ? `Ismétlődés: ${ismetlodesHatarozo(p.ismetlodes_tipus)}` : null,
       `Forrás: Kartotéka — ${congregationName}`,
     ].filter(Boolean) as string[]
 

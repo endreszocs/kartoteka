@@ -3,46 +3,47 @@ import 'server-only'
 import { cache } from 'react'
 
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { resolveAvatarUrl } from '@/lib/auth/profile-avatar-shared'
 
-function normalizeAvatarUrl(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-
-  const candidate = value.trim()
-  if (!candidate) return null
-
-  try {
-    const url = new URL(candidate)
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null
-  } catch {
-    return null
-  }
-}
+export { resolveAvatarUrl, normalizeAvatarUrl, isAvatarSource } from '@/lib/auth/profile-avatar-shared'
+export type { AvatarSource, AvatarForrasok } from '@/lib/auth/profile-avatar-shared'
 
 /**
  * A bejelentkezett felhasználó megjelenítési célú profilfotója.
  *
- * Az auth metadata a frissen mentett és OAuth-fotók gyors forrása. A
- * `pastor_profiles.photo_url` csak a régebbi, még metadata-szinkron előtti
- * profilok kompatibilitási tartaléka. Az érték soha nem használható
- * jogosultsági döntéshez.
+ * 2026-09-05 (profil-kör D5): a feloldás EGY helyen él
+ * (`profile-avatar-shared.ts` → `resolveAvatarUrl`), a
+ * `pastor_profiles.avatar_source` döntéséből indulva. Korábban a metaadat
+ * (Google `picture`) MEGELŐZTE a saját feltöltést, és a képet nem lehetett
+ * eltávolítani — a részleteket lásd a shared modul fejlécében.
+ *
+ * FAIL-SOFT: ha a `pastor_profiles` nem olvasható (RLS, hiányzó tábla, a még
+ * le nem futott `avatar_source` oszlop), az örökölt szabállyal — a metaadatból
+ * — oldunk. Az érték SOHA nem használható jogosultsági döntéshez.
  */
 export const getProfileAvatarUrl = cache(async (): Promise<string | null> => {
   const { user, supabase } = await getEffectiveAccessContext()
   if (!user) return null
 
-  const metadataUrl =
-    normalizeAvatarUrl(user.user_metadata?.avatar_url) ||
-    normalizeAvatarUrl(user.user_metadata?.picture)
+  const metadataAvatarUrl = user.user_metadata?.avatar_url as string | undefined
+  const picture = user.user_metadata?.picture as string | undefined
 
-  if (metadataUrl) return metadataUrl
-
+  // A `select('*')` szándékos: ha az `avatar_source` oszlop még nem létezik
+  // élesben (a 2026-09-05-ös SQL előtt), egy nevesített select 400-at adna, és
+  // a fejléc kép nélkül maradna. Így csak a mező hiányzik, a szabály az
+  // örökölt ágra esik.
   const { data, error } = await supabase
     .from('pastor_profiles')
-    .select('photo_url')
+    .select('*')
     .eq('user_id', user.id)
     .maybeSingle()
 
-  if (error) return null
+  const row = error ? null : (data as { photo_url?: string | null; avatar_source?: string | null } | null)
 
-  return normalizeAvatarUrl((data as { photo_url: string | null } | null)?.photo_url)
+  return resolveAvatarUrl({
+    source: row?.avatar_source ?? null,
+    photoUrl: row?.photo_url ?? null,
+    metadataAvatarUrl,
+    picture,
+  })
 })

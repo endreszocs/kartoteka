@@ -14,6 +14,8 @@
  *    csoportosítást használja — két másolat előbb-utóbb széthúzna.
  */
 
+import type { Felado } from './felado'
+
 /** Egy harang-üzenet a felületnek. Titkot, mentett adatot SOHA nem hordoz. */
 export interface UzenetSor {
   id: string
@@ -43,6 +45,41 @@ export interface UzenetSor {
   megoldvaAt: string | null
   /** EGY mondat arról, MIÉRT nincs már baj. */
   megoldasUzenet: string | null
+  /**
+   * 2026-09-05: KITŐL jön az üzenet — az új felado_* oszlopokból, vagy régi
+   * sornál a `feladoBontas()` levezetéséből (lib/notifications/felado.ts).
+   * A beszélgetés-nézet ezek szerint csoportosít.
+   */
+  felado?: Felado
+  /**
+   * 2026-09-05: a törzs SZERVEREN renderelt, megtisztított HTML-je (marked +
+   * sanitize-html) — a hírlevél markdownja eddig nyers szövegként jelent meg.
+   * null = sima szöveg (a felület sortörésekkel mutatja).
+   */
+  uzenetHtml?: string | null
+  /**
+   * 2026-09-05: EGYSOROS kivonat a listákhoz (csengő-panel, beszélgetés-lista).
+   * Markdown-sornál a jelek lecsupaszítva (`markdownSzoveg`), szöveg-sornál az
+   * első tartalmas sor — a `##` és `**` így a kivonatban sem látszik.
+   */
+  kivonat?: string
+  /** 2026-09-05: `ertesitesek.uzenet_format` — 'text' (alap) vagy 'markdown' (csak hírlevél). */
+  uzenetFormat?: 'text' | 'markdown'
+  /** 2026-09-05: a körlevél azonosítója (system_broadcasts.id), ha a sor hírlevél. */
+  broadcastId?: string | null
+}
+
+/**
+ * A CSENGŐ-PANEL adata (2026-09-05, D3): a legfrissebb néhány sor (olvasatlanok
+ * elöl), a VALÓDI olvasatlan-szám (count, nem a lista hossza — a régi panel
+ * 30-nál nem tudott többet mondani), és a függő átjelentkezési kérelmek száma.
+ */
+export interface FrissErtesitesek {
+  sorok: UzenetSor[]
+  olvasatlan: number
+  fuggoKerelmek: number
+  /** Magyar hibaüzenet — a felület KIÍRJA, nem 0-t mutat helyette. */
+  error?: string
 }
 
 export interface UzenetLista {
@@ -174,4 +211,51 @@ export function bontUzenet(uzenet: string): { torzs: string; teendo: string | nu
     .replace(/^\s*Teendő:\s*/, '')
     .trim()
   return { torzs: sorok.slice(0, i).join('\n').trim(), teendo: teendo || null }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KIVONAT — egy sor a listákhoz (2026-09-05)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Legfeljebb ennyi karakter egy lista-kivonatban. */
+export const KIVONAT_HOSSZ = 160
+
+/**
+ * Markdown → egysoros, JELEK NÉLKÜLI szöveg (a csengő-panel és a beszélgetés-
+ * lista kivonatához). NEM renderelő — csak a `##`, `**`, `-`, `[…](…)` jeleket
+ * csupaszítja le, hogy a hírlevél első sora ne `## A hírlevélben…` legyen.
+ *
+ * Direktíva-mentes és függőség nélküli: a szerver-akció és a kliens-lista is
+ * ugyanezt használja. A HTML-renderelés (marked + sanitize-html) a szerver-
+ * oldali `ertesites-render.ts`-ben él, amely ezt innen re-exportálja.
+ */
+export function markdownSzoveg(md: string, max = KIVONAT_HOSSZ): string {
+  let s = String(md ?? '')
+  s = s.replace(/```[\s\S]*?```/g, ' ') // kódblokk
+  s = s.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1') // kép → alt-szöveg
+  s = s.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // link → a link szövege
+  s = s.replace(/^\s{0,3}#{1,6}\s+/gm, '') // címsor-jel
+  s = s.replace(/^\s{0,3}>\s?/gm, '') // idézet-jel
+  s = s.replace(/^\s*(?:[-*+]|\d+[.)])\s+/gm, '') // lista-jel
+  s = s.replace(/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/gm, ' ') // vízszintes vonal
+  s = s.replace(/(\*\*|__)(.*?)\1/g, '$2') // félkövér
+  s = s.replace(/\*([^*\n]+)\*/g, '$1') // dőlt (csak csillaggal — az aláhúzás szavakban is előfordul)
+  s = s.replace(/`([^`]*)`/g, '$1') // kód
+  s = s.replace(/<[^>]+>/g, ' ') // nyers HTML-címke
+  return rovidit(s, max)
+}
+
+/**
+ * Sima szöveg → egysoros kivonat: a törzs a `Teendő:` sor nélkül (az a
+ * részletes nézet külön doboza), összevont szóközökkel, hossz-plafonnal.
+ */
+export function szovegKivonat(uzenet: string, max = KIVONAT_HOSSZ): string {
+  const { torzs } = bontUzenet(String(uzenet ?? ''))
+  return rovidit(torzs, max)
+}
+
+function rovidit(s: string, max: number): string {
+  const egySor = s.replace(/\s+/g, ' ').trim()
+  if (egySor.length <= max) return egySor
+  return `${egySor.slice(0, Math.max(1, max - 1)).trimEnd()}…`
 }

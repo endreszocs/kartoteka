@@ -34,3 +34,21 @@ export {
   type SelectAllPagedOptions,
   type SelectAllPagedResult,
 } from './select-all-paged'
+
+// 2026-09-05: az asztali eszköz-kapcsolás (device-flow) kód-aritmetikája —
+// EGY helyen a web és az asztali app számára (kód, hash, ellenőrző kód).
+export {
+  KAPCSOLASI_KOD_BAJT,
+  ESZKOZ_NEV_MAX,
+  KAPCSOLAS_LEJARAT_MS,
+  KAPCSOLAS_LEKERDEZES_MS,
+  KAPCSOLAS_ID_MINTA,
+  ujKapcsolasiKod,
+  kapcsolasiKodErvenyes,
+  kapcsolasiKodHash,
+  ellenorzoKod,
+  ellenorzoKodFormazott,
+  type DesktopKapcsolasAllapot,
+  type DesktopKapcsolasInditasValasz,
+  type DesktopKapcsolasAllapotValasz,
+} from './desktop-kapcsolas-kod'

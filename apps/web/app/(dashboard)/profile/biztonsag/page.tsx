@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { ArrowLeftCircle } from 'lucide-react'
 
+import { DesktopEszkozokCard } from '@/components/profile/desktop-eszkozok-card'
 import { TwoFactorCard } from '@/components/profile/two-factor-card'
 import { createClient } from '@/lib/supabase/server'
 
@@ -26,6 +27,8 @@ export default async function BiztonsagPage() {
         </a>
       </div>
       <TwoFactorCard />
+      {/* 2026-09-05: az asztali alkalmazás összekapcsolt gépei + elfelejtett PIN útja */}
+      <DesktopEszkozokCard />
     </div>
   )
 }

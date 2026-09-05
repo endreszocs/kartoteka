@@ -280,7 +280,10 @@ export function FamilyDetailDialog({
       setAddChildOpen(false)
       setChildSearch('')
       await load()
-      void runGyerekSyncManually()
+      // Háttér-push; az időtúllépés nem néma (konzol), de a mentést nem buktatja el.
+      runGyerekSyncManually().catch((err: unknown) => {
+        console.warn('[family-detail-dialog] a mentés utáni háttér-push jelzett:', err instanceof Error ? err.message : String(err))
+      })
     } catch (err) {
       setBanner({
         kind: 'error',
@@ -315,7 +318,10 @@ export function FamilyDetailDialog({
         })
       }
       await load()
-      void runGyerekSyncManually()
+      // Háttér-push; az időtúllépés nem néma (konzol), de a mentést nem buktatja el.
+      runGyerekSyncManually().catch((err: unknown) => {
+        console.warn('[family-detail-dialog] a mentés utáni háttér-push jelzett:', err instanceof Error ? err.message : String(err))
+      })
     } catch (err) {
       setBanner({
         kind: 'error',

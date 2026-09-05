@@ -12,7 +12,9 @@ import {
   Label,
 } from '@kartoteka/ui'
 
-import { hasPin, setOfflineMode } from '../lib/auth-pin'
+import { clearPin, pinTulajdonosEllenorzes, setOfflineMode } from '../lib/auth-pin'
+import { saveLastUser } from '../lib/desktop-user'
+import { ELSO_INDITAS_UT, varazsloFolyamatban } from '../lib/elso-inditas'
 import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
 
@@ -24,7 +26,9 @@ import { getDesktopSupabase } from '../lib/supabase'
  * használja (a Vite `import.meta.env.VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY`
  * értékeivel — `.env` fájlt `cp .env.example .env`-vel lehet létrehozni).
  *
- * Sikeres bejelentkezés: redirect `/` (auth-gate mögötti dashboard).
+ * Sikeres bejelentkezés: redirect `/` (auth-gate mögötti dashboard) — de
+ * ELŐTTE a PIN-tulajdonos egyeztetése (2026-09-05, desk-auth-2): ha a gépen
+ * MÁSIK fiók kódja van, azt töröljük, és a belépő a sajátját állítja be.
  */
 export function LoginPage() {
   const [email, setEmail] = useState('')
@@ -61,17 +65,53 @@ export function LoginPage() {
     // innentől a "rendes" Supabase session az auth-forrás.
     setOfflineMode(false)
 
-    // Ha még nincs beállítva offline PIN, átirányítunk a setup-ra.
-    // A-M6.9: a lelkészt informáljuk az offline-védelemről (memory:
-    // feedback_lelkesz_informalas — "mindenről informálva legyen").
+    // 2026-09-05: ha az Első indítás varázslóból jöttünk (e-mail+jelszó út),
+    // a belépés után a varázsló következő lépése jön (gyülekezet, PIN, szinkron).
+    if (varazsloFolyamatban()) {
+      navigate(ELSO_INDITAS_UT, { replace: true })
+      return
+    }
+
+    // A PIN a FELHASZNÁLÓHOZ kötött (2026-09-05, desk-auth-2 / P1):
+    //   'nincs'  → a belépő még nem adott kódot → /pin-setup;
+    //   'idegen' → a gépen MÁSIK fiók kódja (vagy tulajdonos nélküli, frissítés
+    //              előtti kód) → TÖRÖLJÜK (a remember-jelzővel együtt), és a
+    //              belépő a sajátját állítja be → /pin-setup;
+    //   'sajat'  → mehet a főoldal.
+    // MIÉRT itt: a régi `hasPin()` igaz volt az előző lelkész kódjára is, így
+    // B user sosem kapott PIN-beállítást, és A kódja nyitotta B tükrét.
+    const supabase = getDesktopSupabase()
+    const { data: sessionData } = await supabase.auth.getSession()
+    const uid = sessionData.session?.user.id ?? null
+    if (!uid) {
+      setError('A belépés nem hozott létre munkamenetet — próbáld újra.')
+      return
+    }
+    // A gép utolsó ismert felhasználója MÁR ITT a belépő (a varázsló
+    // `belepesUtan`-jával azonos szabály): a PIN-belépő tulajdonos-kapuja és a
+    // tükör-tulajdonos örökbefogadási ága ebből old fel — az AuthGate a
+    // /pin-setup kitérő miatt csak később mountol (bíráló P1 kísérője).
+    saveLastUser({ id: uid, email: sessionData.session?.user.email ?? null })
     try {
-      const pinExists = await hasPin()
-      if (!pinExists) {
+      const allapot = await pinTulajdonosEllenorzes(uid)
+      if (allapot === 'idegen') {
+        await clearPin()
         navigate('/pin-setup', { replace: true })
         return
       }
-    } catch {
-      // Ha a keyring nem válaszol, ne blokkoljuk az alap-login flow-t
+      if (allapot === 'nincs') {
+        navigate('/pin-setup', { replace: true })
+        return
+      }
+    } catch (err: unknown) {
+      // A kulcstár nem válaszol: a felhő-belépés sikerült, ezt NEM blokkoljuk,
+      // de a hiba LÁTHATÓ — a kódot a Beállításokban kell később rendezni.
+      setError(
+        `A belépés sikerült, de a biztonsági kód nem ellenőrizhető (a kulcstár nem válaszol: ${errorMessage(err)}). ` +
+          'A Beállítások → Fiók / Kapcsolat → Biztonsági kód kártyán később ellenőrizd. Továbbítunk a főoldalra…',
+      )
+      setTimeout(() => navigate('/', { replace: true }), 3000)
+      return
     }
 
     navigate('/', { replace: true })
@@ -154,8 +194,11 @@ export function LoginPage() {
   }
 
   async function mfaMegse() {
+    // Csak ENNEK a gépnek a félkész (aal1) munkamenetét dobjuk el — a
+    // paraméter nélküli signOut 'global' lenne: a lelkész minden más eszközét
+    // (web, telefon) is kijelentkeztetné egy „Mégse" gombbal.
     const supabase = getDesktopSupabase()
-    await supabase.auth.signOut()
+    await supabase.auth.signOut({ scope: 'local' })
     setMfaKod('')
     setFazis('jelszo')
   }
@@ -258,6 +301,17 @@ export function LoginPage() {
 
             <Button type="submit" disabled={loading} className="w-full">
               {loading ? 'Bejelentkezés…' : 'Bejelentkezés'}
+            </Button>
+
+            {/* 2026-09-05: a jelszó nélküli (Google-fiókos) lelkész útja */}
+            <Button
+              type="button"
+              variant="outline"
+              disabled={loading}
+              className="w-full"
+              onClick={() => navigate(`${ELSO_INDITAS_UT}?lepes=belepes`)}
+            >
+              Összekapcsolás a webes fiókkal (Google-belépés is)
             </Button>
 
             <p className="text-xs text-muted-foreground">

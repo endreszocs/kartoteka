@@ -5,6 +5,8 @@ import {
   removeAccessRequestDocument,
   storeAccessRequestDocument,
 } from '@/lib/access-requests/document-storage'
+import { feladoMezok } from '@/lib/notifications/felado'
+import { insertErtesites } from '@/lib/notifications/ertesites-insert'
 import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
 import { createClient } from '@/lib/supabase/server'
 import { oauthCompleteSchema, type OAuthCompleteInput } from '@/lib/validations/auth'
@@ -188,13 +190,19 @@ export async function completeOAuthProfile(
           .maybeSingle()
 
         if (adminProfile) {
-          await adminClient.from('ertesitesek').insert({
-            user_id: adminProfile.id,
-            tipus: 'registration',
-            cim: 'Új regisztráció (Google)',
-            uzenet: `${parsed.data.fullName} (${email}) regisztrált Google-fiókkal a(z) ${parsed.data.congregation} gyülekezetből. Jóváhagyásra vár.`,
-            olvasva: false,
-          })
+          // A feladó a REGISZTRÁLÓ felhasználó (a profil-azonosító = auth user id).
+          await insertErtesites(
+            adminClient,
+            {
+              user_id: adminProfile.id,
+              tipus: 'registration',
+              cim: 'Új regisztráció (Google)',
+              uzenet: `${parsed.data.fullName} (${email}) regisztrált Google-fiókkal a(z) ${parsed.data.congregation} gyülekezetből. Jóváhagyásra vár.`,
+              olvasva: false,
+              ...feladoMezok('felhasznalo', parsed.data.fullName, user.id),
+            },
+            { forras: 'oauth-regisztracio' },
+          )
         }
       }
     } catch (error) {

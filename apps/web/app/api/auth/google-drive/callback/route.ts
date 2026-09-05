@@ -11,6 +11,7 @@ import {
 } from '@/lib/google-drive/drive-client'
 import { exchangeCodeForTokens, loadGoogleOAuthConfig, verifyOAuthState } from '@/lib/google-drive/oauth'
 import { loadDriveRefreshToken, saveDriveConnection } from '@/lib/google-drive/settings'
+import { getPublicOrigin } from '@/lib/utils/public-origin'
 
 /**
  * GOOGLE DRIVE ÖSSZEKÖTÉS — 2. lépés: a visszatérés (2026-08-11).
@@ -53,7 +54,9 @@ type Kimenetel =
   | 'mentes'
 
 function iranyit(request: NextRequest, kimenetel: Kimenetel): NextResponse {
-  const url = new URL('/admin/biztonsagi-mentes', request.nextUrl.origin)
+  // A KIFELÉ látható origó — Railway mögött a nextUrl.origin a belső
+  // localhost:8080 lenne (lásd lib/utils/public-origin.ts).
+  const url = new URL('/admin/biztonsagi-mentes', getPublicOrigin(request))
   url.searchParams.set('google', kimenetel === 'ok' ? 'ok' : 'hiba')
   url.searchParams.set('ok', kimenetel)
   const response = NextResponse.redirect(url)

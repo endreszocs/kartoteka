@@ -51,6 +51,8 @@ import {
 } from '@/lib/auth/level-scope'
 import type { DocumentType, DocumentStatus, DocumentSubmission } from '@/lib/constants/documents'
 import { DOCUMENT_TYPE_LABELS, documentSeasonYear } from '@/lib/constants/documents'
+import { feladoMezok } from '@/lib/notifications/felado'
+import { insertErtesites } from '@/lib/notifications/ertesites-insert'
 import type {
   DocumentActionResult,
   DocumentCenterCongregation,
@@ -63,7 +65,6 @@ import type {
 
 type Supa = EffectiveAccessContext['supabase']
 
-const PAGE_SIZE = 1000
 /** Az .in() lista darabolása — a PostgREST URL-hossz plafonja miatt. */
 const IN_CHUNK = 120
 
@@ -510,11 +511,15 @@ export async function submitDocument(
           uzenet,
           tipus: 'info',
           hivatkozas: '/dashboard-egyhazmegye',
+          // A FELADÓ a beküldő gyülekezet (a congregation_id itt egyben a küldő is).
+          ...feladoMezok('gyulekezet', congName, congregationId),
         }))
-        await supabase.from('ertesitesek').insert(rows)
+        // A hibát a közös segéd naplózza — a beküldés megtörtént.
+        await insertErtesites(supabase, rows, { forras: 'dokumentum-bekuldes' })
       }
-    } catch {
-      // Nem kritikus — a beküldés megtörtént.
+    } catch (e) {
+      // A beküldés megtörtént — de a hallgatás tilos.
+      console.warn('[document-actions] a beküldés-értesítés nem ment ki:', e instanceof Error ? e.message : e)
     }
   }
 
@@ -673,6 +678,17 @@ export async function updateSubmissionStatus(
         .eq('role', 'lelkesz')
         .eq('congregation_id', sub.congregation_id)
       if (pastors && pastors.length > 0) {
+        // 2026-09-05: a FELADÓ az egyházmegye — a gyülekezet saját megyéje, névvel.
+        // A név feloldása fail-soft: ha nem jön össze, a típus-címke marad.
+        const { data: congMegye } = await supabase
+          .from('congregations')
+          .select('diocese_id, dioceses:diocese_id(name)')
+          .eq('id', sub.congregation_id)
+          .maybeSingle()
+        const megye = congMegye as { diocese_id?: string | null; dioceses?: { name?: string | null } | { name?: string | null }[] | null } | null
+        const megyeRow = Array.isArray(megye?.dioceses) ? megye?.dioceses[0] : megye?.dioceses
+        const feladoAdat = feladoMezok('egyhazmegye', megyeRow?.name ?? null, megye?.diocese_id ?? null)
+
         const rows = pastors.map((p) => ({
           user_id: p.id,
           congregation_id: sub.congregation_id,
@@ -683,11 +699,14 @@ export async function updateSubmissionStatus(
             `A javítás után a dokumentum újra beküldhető.`,
           tipus: 'warning',
           hivatkozas: RETURN_LINKS[docType] || '/dashboard',
+          ...feladoAdat,
         }))
-        await supabase.from('ertesitesek').insert(rows)
+        // A hibát a közös segéd naplózza — a visszaküldés megtörtént.
+        await insertErtesites(supabase, rows, { forras: 'dokumentum-visszakuldes' })
       }
-    } catch {
-      // Nem kritikus — a visszaküldés megtörtént.
+    } catch (e) {
+      // A visszaküldés megtörtént — de a hallgatás tilos.
+      console.warn('[document-actions] a visszaküldés-értesítés nem ment ki:', e instanceof Error ? e.message : e)
     }
   }
 

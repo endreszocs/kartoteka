@@ -47,6 +47,8 @@ import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 // részletes MIÉRT a fájl végén, a `hatokorEltres()` docblockjában él.
 import { getModuleScopeContext, type ModuleScope } from '@/lib/auth/module-scope'
 import { personSearchScore, tokenize } from '@/lib/import/person-search-match'
+import { feladoMezok } from '@/lib/notifications/felado'
+import { insertErtesites } from '@/lib/notifications/ertesites-insert'
 import { getCongregationOfficials } from '@/lib/profiles/officials'
 import type {
   CongregationSearchHit,
@@ -322,11 +324,15 @@ export async function registerAtadas(input: RegisterAtadasInput): Promise<Regist
         cim: `Egyháztag-átadási igazolás érkezett: ${tagNev}`,
         uzenet,
         tipus: 'info',
-        hivatkozas: '/notifications',
+        // A kérelem a /notifications kérelmek fülén él (a trigger hozza létre).
+        hivatkozas: '/notifications?ful=kerelmek',
+        // 2026-09-05: a FELADÓ a KÜLDŐ (saját) gyülekezet — a congregation_id itt a
+        // CÉL, ezért a régi levezetés a címzett saját gyülekezetét mondta volna.
+        ...feladoMezok('gyulekezet', sajatNev, congId),
       }))
-      const { error: notifErr } = await supabase.from('ertesitesek').insert(rows)
-      if (notifErr) {
-        warnings.push(`A részletes in-app üzenetet az értesítés-tábla jogosultsági szabálya (RLS) elutasította (${notifErr.message}) — a cél-gyülekezet a beépített átjelentkezési kérelmet (iktatószámmal) ettől függetlenül megkapja.`)
+      const ertesites = await insertErtesites(supabase, rows, { forras: 'iktato-atadas' })
+      if (ertesites.error) {
+        warnings.push(`A részletes in-app üzenet nem ment ki (${ertesites.error}) — a cél-gyülekezet a beépített átjelentkezési kérelmet (iktatószámmal) ettől függetlenül megkapja.`)
       }
     }
   } catch (e) {

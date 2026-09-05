@@ -23,6 +23,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getDesktopSupabase } from './supabase'
 import { getTauriSqliteBackend } from './tauri-sqlite-backend'
+import { getVerifiedSession } from './verified-session'
+import { FutoOr, withSyncTimeout } from './write-sync-registry'
 
 const MAX_ATTEMPTS = 5
 
@@ -60,11 +62,13 @@ export async function pushPendingSzemely(
     errors: [],
   }
 
-  // Session-check (offline-PIN belépésnél nincs JWT → 401-spam védelem)
-  try {
-    const sessionRes = await supabase.auth.getSession()
-    if (!sessionRes.data.session) return result
-  } catch {
+  // Session-check (offline-PIN belépésnél nincs JWT → 401-spam védelem).
+  // 2026-09-05: a repó közös őre (`getVerifiedSession`) — lejárat + FIÓK-
+  // EGYEZŐSÉG is (a pénzügyi push-erekkel azonos szabály; a csupasz
+  // getSession más fiókkal belépve is felküldte volna a gépen ragadt tagot).
+  const verified = await getVerifiedSession()
+  if (!verified.ok) {
+    if (verified.reason === 'user-mismatch') result.errors.push(verified.message)
     return result
   }
 
@@ -253,12 +257,16 @@ function pushErrorDedup(list: string[], msg: string): void {
 //  Auto-trigger háttér-pusher (a congregation-id nélkül nem tud futni!)
 // ─────────────────────────────────────────────────────────────────────────
 
-let pusherInterval: ReturnType<typeof setInterval> | null = null
-let onlineListenerAttached = false
 let lastRunAt: string | null = null
-let inFlight = false
 let lastResult: SzemelyPushResult | null = null
 let currentCongregationId: string | null = null
+/**
+ * A futó push őre — a TÉNYLEGES befejezésig tart, nem az időkorlátig
+ * (bíráló P1, 2026-09-05): a szemely-insertnek NINCS idempotencia-kulcsa
+ * (csak a 23505 CNP-ütközést kezeli), egy CNP nélküli tag két párhuzamos
+ * körből KÉTSZER került volna a szerverre. Részletek: `FutoOr`.
+ */
+const futoOr = new FutoOr<SzemelyPushResult>()
 
 export interface SzemelySyncStatus {
   running: boolean
@@ -268,76 +276,65 @@ export interface SzemelySyncStatus {
 
 export function getSzemelySyncStatus(): SzemelySyncStatus {
   return {
-    running: inFlight,
+    running: futoOr.fut,
     lastRunAt,
     lastResult,
   }
 }
 
-async function runOnceGuarded(): Promise<void> {
-  if (inFlight) return
+/** Egy push indítása — vagy a már futó megosztása. Az eredmény-cache a VALÓDI végén frissül. */
+function inditPush(congregationId: string, ignoreBackoff: boolean): Promise<SzemelyPushResult> {
+  return futoOr.futtat(
+    () => pushPendingSzemely(congregationId, getDesktopSupabase(), ignoreBackoff),
+    (r) => {
+      lastResult = r
+      lastRunAt = new Date().toISOString()
+    },
+  )
+}
+
+/**
+ * Egy őrzött kör: saját visszalépéssel, 30 mp-es időkorláttal. Sosem dob.
+ * 2026-09-05: EXPORTÁLT — a `write-sync-registry` pollja hívja a LOKÁLIS
+ * profilból feloldott gyülekezettel (nem az oldal mountjától függ többé —
+ * desk-sync-2); a saját `online` listener + interval innen kikerült.
+ */
+export async function runSzemelySyncGuarded(congregationId?: string): Promise<void> {
+  if (futoOr.fut) return
   if (typeof navigator !== 'undefined' && !navigator.onLine) return
-  if (!currentCongregationId) return
-  inFlight = true
+  const cid = congregationId ?? currentCongregationId
+  if (!cid) return
+  currentCongregationId = cid
   try {
-    lastResult = await pushPendingSzemely(currentCongregationId)
-    lastRunAt = new Date().toISOString()
-  } finally {
-    inFlight = false
+    await withSyncTimeout(inditPush(cid, false), 'Új tag-szinkron')
+  } catch (err) {
+    // Időtúllépés VAGY hiba: a hívó itt visszakapja a kezét, de a push a
+    // háttérben fut tovább az őr alatt — a következő kör NEM indít újat.
+    const msg = err instanceof Error ? err.message : String(err)
+    console.warn('[szemely-write-sync] a háttér-kör hibára futott:', msg)
+    lastResult = { attempted: 0, succeeded: 0, retrying: 0, conflicts: 0, errors: [msg] }
   }
 }
 
 /**
- * Beállítja az auto-triggereket egy adott gyülekezetre.
- * Idempotens — többszöri hívás nem duplikálja a listener-t, csak frissíti
- * a congregation-id-t.
+ * Kompatibilitási belépő (members-page): a gyülekezet-id frissítése + egyetlen
+ * azonnali őrzött kör. A triggerkészlet a `write-sync-registry`-ben él.
  */
 export function startSzemelyAutoSync(congregationId: string): void {
   if (typeof window === 'undefined') return
   currentCongregationId = congregationId
-
-  if (!onlineListenerAttached) {
-    window.addEventListener('online', () => {
-      void runOnceGuarded()
-    })
-    onlineListenerAttached = true
-  }
-
-  if (!pusherInterval) {
-    pusherInterval = setInterval(() => {
-      void runOnceGuarded()
-    }, 30_000)
-  }
-
-  void runOnceGuarded()
+  void runSzemelySyncGuarded(congregationId)
 }
 
 /**
  * Manuális push-kiváltás. Ignorálja az exp-backoff-ot.
+ *
+ * Ha már fut egy kör (akár egy időtúllépés UTÁN is), NEM indítunk újat —
+ * ugyanazt várjuk meg, időkorláttal: időtúllépésnél a hívó hibát kap (a
+ * felületen látszik), de a függő sorok nem mennek fel kétszer.
  */
 export async function runSzemelySyncManually(
   congregationId: string,
 ): Promise<SzemelyPushResult> {
-  if (inFlight) {
-    while (inFlight) {
-      await new Promise((r) => setTimeout(r, 100))
-    }
-    return (
-      lastResult ?? {
-        attempted: 0,
-        succeeded: 0,
-        retrying: 0,
-        conflicts: 0,
-        errors: [],
-      }
-    )
-  }
-  inFlight = true
-  try {
-    lastResult = await pushPendingSzemely(congregationId, getDesktopSupabase(), true)
-    lastRunAt = new Date().toISOString()
-    return lastResult
-  } finally {
-    inFlight = false
-  }
+  return withSyncTimeout(inditPush(congregationId, true), 'Új tag-szinkron')
 }

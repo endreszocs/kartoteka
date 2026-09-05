@@ -24,14 +24,21 @@
 import type { LucideIcon } from 'lucide-react'
 import {
   AlertTriangle,
+  Bell,
+  Building2,
   CheckCircle2,
+  Church,
   Info,
+  Landmark,
   LifeBuoy,
   ShieldAlert,
+  ShieldCheck,
   Sparkles,
+  UserRound,
   UserRoundPlus,
 } from 'lucide-react'
 
+import type { FeladoTipus } from '@/lib/notifications/felado'
 import { huRelativIdo } from '@/lib/utils/idopont-bukarest'
 
 export interface TypeVisual {
@@ -100,6 +107,57 @@ export const TYPE_VISUALS: Record<string, TypeVisual> = {
 
 export function getTypeVisual(tipus?: string | null): TypeVisual {
   return (tipus && TYPE_VISUALS[tipus]) || TYPE_VISUALS.info
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FELADÓ-VIZUÁL (2026-09-05) — a beszélgetés-nézet és a csengő avatarja
+//
+// A típus-vizuál (fent) az ÜZENETRŐL beszél (figyelem / sikeres / újdonság),
+// ez a készlet a KÜLDŐRŐL (rendszergazda / egyházmegye / gyülekezet…). A kettő
+// együtt jelenik meg: az avatar a feladóé, a pill a típusé. Ugyanaz a
+// `-500/12` alfás színcsalád, ugyanazért: a `-50`/`-100` osztályokat a sötét
+// téma felülírja vagy figyelmen kívül hagyja.
+//
+// ⚠️ A `rendszer` szándékosan token-alapú (bg-muted): a gépi riasztás nem
+//    „személy", ne kapjon márkaszínt — a lelkész első pillantásra lássa, hogy
+//    ez automata, nem ember írta.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface FeladoVisual {
+  icon: LucideIcon
+  /** Avatar-chip: halvány felület + azonos színcsaládú ikon és gyűrű. */
+  chip: string
+}
+
+export const FELADO_VISUALS: Record<FeladoTipus, FeladoVisual> = {
+  rendszer: {
+    icon: Bell,
+    chip: 'bg-muted text-muted-foreground ring-border',
+  },
+  rendszergazda: {
+    icon: ShieldCheck,
+    chip: 'bg-violet-500/12 text-violet-700 ring-violet-500/20 dark:text-violet-300 dark:ring-violet-400/25',
+  },
+  egyhazkerulet: {
+    icon: Landmark,
+    chip: 'bg-indigo-500/12 text-indigo-700 ring-indigo-500/20 dark:text-indigo-300 dark:ring-indigo-400/25',
+  },
+  egyhazmegye: {
+    icon: Building2,
+    chip: 'bg-teal-500/12 text-teal-700 ring-teal-500/20 dark:text-teal-300 dark:ring-teal-400/25',
+  },
+  gyulekezet: {
+    icon: Church,
+    chip: 'bg-emerald-500/12 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300 dark:ring-emerald-400/25',
+  },
+  felhasznalo: {
+    icon: UserRound,
+    chip: 'bg-sky-500/12 text-sky-700 ring-sky-500/20 dark:text-sky-300 dark:ring-sky-400/25',
+  },
+}
+
+export function getFeladoVisual(tipus?: FeladoTipus | string | null): FeladoVisual {
+  return (tipus && (FELADO_VISUALS as Record<string, FeladoVisual>)[tipus]) || FELADO_VISUALS.rendszer
 }
 
 /**

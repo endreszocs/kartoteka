@@ -26,6 +26,13 @@ import { Button } from '@kartoteka/ui'
 import { resolveBefizetesConflict } from '../lib/befizetes-write-sync'
 import { resolveKiadasConflict } from '../lib/kiadas-write-sync'
 import { errorMessage } from '../lib/error'
+import {
+  elvetOutboxSorSzerverValtozattal,
+  retryOutboxRowFrissRevisionnel,
+  type OutboxRow,
+} from '../lib/sync'
+import { notifyLocalDataChanged } from '../lib/sync-orchestrator'
+import { runAllWriteSyncsNow } from '../lib/write-sync-registry'
 
 export type WriteSyncEntity = 'befizetes' | 'kiadas'
 
@@ -112,7 +119,7 @@ export function WriteSyncConflictDialog({
   async function handleDelete() {
     if (
       !window.confirm(
-        `Biztosan törlöd a ${display.iratszam} sz. ${entityLabel.nameAcc}? Ez visszaadja a sorszámot a walletbe, de a tételt teljesen eltávolítja a lokális adatbázisból. (A szerveren lévő tételeket nem érinti.)`,
+        `Biztosan törlöd a ${display.iratszam} sz. ${entityLabel.nameAcc}? A tétel teljesen eltávolítódik a lokális adatbázisból. A sorszám csak akkor kerül vissza a tárcába, ha nem a szerveren már foglalt szám okozta az ütközést — foglalt számot nem adunk ki újra. (A szerveren lévő tételeket nem érinti.)`,
       )
     ) {
       return
@@ -129,7 +136,7 @@ export function WriteSyncConflictDialog({
         setError(res.error)
         return
       }
-      setSuccessMsg(`A ${entityLabel.name} törölve. A wallet-szám visszakerült a pool-ba.`)
+      setSuccessMsg(`A ${entityLabel.name} törölve a gépről.`)
       setTimeout(() => {
         onResolved()
         onClose()
@@ -268,8 +275,8 @@ export function WriteSyncConflictDialog({
                   : `Lokális ${entityLabel.name} törlése`}
               </p>
               <p className="text-[11px] font-normal opacity-80">
-                A {entityLabel.name} eltűnik a gépedről, a wallet-szám visszakerül
-                a tárcába. Újra-rögzítés kézzel.
+                A {entityLabel.name} eltűnik a gépedről (a szerveren foglalt sorszám
+                nem kerül vissza a tárcába). Újra-rögzítés kézzel.
               </p>
             </div>
           </Button>
@@ -284,6 +291,216 @@ export function WriteSyncConflictDialog({
             disabled={submitting !== null}
           >
             Mégse
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  OutboxConflictDialog — a KLASSZIKUS outbox revision-ütközése (2026-09-05,
+//  desk-sync-6). Tag-módosítás / munkanapló / saját profil: a szerveren a sor
+//  időközben változott, a feltételes UPDATE 0 sort ért. Eddig ez néma `failed`
+//  volt, és a következő delta-pull felülírta a lelkész módosítását.
+//
+//  Két út — egyik sem néma felülírás:
+//    1. „Megtartom az enyémet": a patch újraküldése a FRISS szerver-változat-
+//       számmal (csak a módosított mezők; ha közben megint változik, újra
+//       ütközik és újra kérdezünk).
+//    2. „A szerver változata marad": a várólista-sor törlése + a szerver-sor
+//       célzott újratöltése a tükörbe.
+// ─────────────────────────────────────────────────────────────────────────
+
+const OUTBOX_TABLA_CIMKE: Record<string, string> = {
+  szemely: 'tag adatlapja',
+  munkanaplo: 'munkanapló-bejegyzés',
+  profiles: 'saját profil',
+}
+
+export function OutboxConflictDialog({
+  row,
+  userId,
+  onClose,
+  onResolved,
+}: {
+  row: Pick<OutboxRow, 'id' | 'op' | 'target_table' | 'target_id' | 'last_error' | 'created_at' | 'payload'>
+  userId: string
+  onClose: () => void
+  onResolved: () => void
+}) {
+  const [submitting, setSubmitting] = useState<null | 'enyem' | 'szerver'>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [successMsg, setSuccessMsg] = useState<string | null>(null)
+
+  const cimke = OUTBOX_TABLA_CIMKE[row.target_table] ?? row.target_table
+  let mezok: string[] = []
+  try {
+    const p = JSON.parse(row.payload) as { patch?: Record<string, unknown> }
+    mezok = Object.keys(p.patch ?? {})
+  } catch {
+    mezok = []
+  }
+
+  async function megtartom() {
+    setSubmitting('enyem')
+    setError(null)
+    try {
+      const res = await retryOutboxRowFrissRevisionnel(row.id)
+      if (!res.ok) {
+        setError(res.error)
+        return
+      }
+      setSuccessMsg(`Újraküldés a friss szerver-változattal (${res.ujRevision}). A felküldés azonnal indul.`)
+      void runAllWriteSyncsNow()
+      setTimeout(() => {
+        onResolved()
+        onClose()
+      }, 1200)
+    } catch (err) {
+      setError(`Váratlan hiba: ${errorMessage(err)}`)
+    } finally {
+      setSubmitting(null)
+    }
+  }
+
+  async function szerverValtozat() {
+    setSubmitting('szerver')
+    setError(null)
+    try {
+      const res = await elvetOutboxSorSzerverValtozattal(row.id, userId)
+      notifyLocalDataChanged()
+      if (!res.ok) {
+        setError(res.error)
+        return
+      }
+      setSuccessMsg('A helyi módosítás elvetve, a szerver változata visszatöltve.')
+      setTimeout(() => {
+        onResolved()
+        onClose()
+      }, 1200)
+    } catch (err) {
+      setError(`Váratlan hiba: ${errorMessage(err)}`)
+    } finally {
+      setSubmitting(null)
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="outbox-conflict-title"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !submitting) onClose()
+      }}
+    >
+      <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 text-foreground shadow-2xl sm:p-6">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-1 size-6 shrink-0 text-rose-600" />
+            <div>
+              <h2 id="outbox-conflict-title" className="font-serif text-xl font-semibold">
+                Ütközés a szerverrel
+              </h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {cimke} · azonosító {row.target_id ?? '—'} · rögzítve{' '}
+                {row.created_at.slice(0, 16).replace('T', ' ')}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitting !== null}
+            className="min-h-11 min-w-11 rounded p-1 text-muted-foreground hover:bg-secondary disabled:opacity-40"
+            aria-label="Bezárás"
+          >
+            <X className="size-5" />
+          </button>
+        </div>
+
+        <p className="text-sm leading-relaxed">
+          Ezt a sort a gépeden módosítottad, de közben a szerveren is változott (valaki más, vagy
+          te a weben). A módosításod NEM veszett el — döntsd el, melyik maradjon.
+        </p>
+        {mezok.length > 0 && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            A gépeden módosított mezők: {mezok.join(', ')}
+          </p>
+        )}
+        {row.last_error && (
+          <div className="mt-3 rounded-md border border-rose-500/30 bg-rose-500/10 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-rose-700 dark:text-rose-300">
+              A szinkron üzenete
+            </p>
+            <p className="mt-1 text-sm">{row.last_error}</p>
+          </div>
+        )}
+
+        {error && (
+          <div
+            role="alert"
+            className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+          >
+            {error}
+          </div>
+        )}
+        {successMsg && (
+          <div
+            role="status"
+            className="mt-3 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs"
+          >
+            {successMsg}
+          </div>
+        )}
+
+        <div className="mt-4 space-y-2">
+          <Button
+            type="button"
+            onClick={megtartom}
+            disabled={submitting !== null}
+            className="min-h-11 w-full justify-start"
+          >
+            <RefreshCw className={`mr-2 size-4 ${submitting === 'enyem' ? 'animate-spin' : ''}`} />
+            <div className="text-left">
+              <p className="font-semibold">
+                {submitting === 'enyem' ? 'Újraküldés…' : 'Megtartom az enyémet'}
+              </p>
+              <p className="text-[11px] font-normal opacity-80">
+                A módosított mezők újra felmennek a szerver friss változatára.
+              </p>
+            </div>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={szerverValtozat}
+            disabled={submitting !== null}
+            className="min-h-11 w-full justify-start"
+          >
+            <Trash2 className={`mr-2 size-4 ${submitting === 'szerver' ? 'animate-pulse' : ''}`} />
+            <div className="text-left">
+              <p className="font-semibold">
+                {submitting === 'szerver' ? 'Visszatöltés…' : 'A szerver változata marad'}
+              </p>
+              <p className="text-[11px] font-normal opacity-80">
+                A helyi módosítás elvetése, a szerver sora visszakerül a gépre.
+              </p>
+            </div>
+          </Button>
+        </div>
+
+        <div className="mt-4 flex justify-end">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            disabled={submitting !== null}
+          >
+            Később döntök
           </Button>
         </div>
       </div>

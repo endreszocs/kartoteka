@@ -20,6 +20,8 @@ import {
   formatHungarianDate,
 } from '@/lib/utils/emleklap-data-mapper'
 import { toast } from 'sonner'
+// 2026-09-05: HELYI „ma" — az UTC-s toISOString() éjfél és hajnali 3 között az előző napot adta.
+import { todayYmd } from '@/lib/utils/program-day'
 
 const FIELD_INPUT_CLASS = 'bg-white shadow-sm border-slate-300'
 
@@ -36,6 +38,18 @@ interface ConfirmationDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   congregationName?: string
+  /**
+   * 2026-09-05 (naptár ⇄ anyakönyv, D1): a naptár-csempéről indított
+   * anyakönyvezés a TERVEZETT program napjával nyitja a dialógust. Csak ÚJ
+   * rögzítésnél számít; szerkesztéskor a bejegyzés saját dátuma az úr.
+   */
+  initialDate?: string | null
+  /**
+   * Sikeres mentés után a bejegyzés `id`-jával hívódik (a bezárás ELŐTT) — a
+   * naptár ezzel köti a programot a bejegyzéshez. Az Anyakönyv fülön nincs
+   * megadva, ott a viselkedés betűre a korábbi.
+   */
+  onSaved?: (id: number) => void
   /** Szerkesztés módban: egy meglévő konfirmáció bejegyzés. */
   editEntry?: {
     id: number
@@ -55,7 +69,7 @@ function age(szDatum: string | null): number | null {
   return new Date().getFullYear() - parseInt(m[1])
 }
 
-export function ConfirmationDialog({ open, onOpenChange, congregationName = '', editEntry }: ConfirmationDialogProps) {
+export function ConfirmationDialog({ open, onOpenChange, congregationName = '', editEntry, initialDate, onSaved }: ConfirmationDialogProps) {
   // Szerkesztés módban egyetlen személy szerkeszthető — batch módot
   // csak új-rögzítésnél engedjük (Endre kérése: a szerkesztésnél is
   // kitöltött mezők látszanak).
@@ -146,18 +160,20 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
       // Új batch
       setEditPerson(null)
       setCandidates([])
-      setDatum(new Date().toISOString().slice(0, 10))
+      // 2026-09-05: a naptárból a tervezett program napja, különben a HELYI mai nap.
+      const kezdoDatum = initialDate || todayYmd()
+      setDatum(kezdoDatum)
       setLelkesz(''); setMegj(''); setMunkanaploba(false)
       try {
         const saved = localStorage.getItem('kartoteka.emleklap.gondnokName')
         if (saved) setFogondnok(saved)
       } catch {}
-      getNextEgyhaziSzam('confirmation', new Date().getFullYear()).then(v => {
+      getNextEgyhaziSzam('confirmation', Number(kezdoDatum.slice(0, 4)) || new Date().getFullYear()).then(v => {
         if (!cancelled) setEgyhaziSzam(v)
       })
     })
     return () => { cancelled = true }
-  }, [open, editEntry])
+  }, [open, editEntry, initialDate])
 
   function handlePick(picker: MemberSearchResult | null) {
     if (!picker) return
@@ -194,6 +210,7 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
     setLoading(false)
     if (result.error) { toast.error(result.error); return false }
     toast.success('Konfirmáció szerkesztve!')
+    onSaved?.(typeof result.id === 'number' ? result.id : editEntry.id)
     return true
   }
 
@@ -209,7 +226,12 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
       candidates: candidates.map(c => c.id),
     })
     if (result.error) toast.error(result.error)
-    else { toast.success(`${result.count} konfirmáció rögzítve!`); onOpenChange(false) }
+    else {
+      toast.success(`${result.count} konfirmáció rögzítve!`)
+      // 2026-09-05: a tömeges konfirmáció EGY alkalom — a kötés az első sor id-ján (a réteg bármelyiket felismeri).
+      if (typeof result.id === 'number') onSaved?.(result.id)
+      onOpenChange(false)
+    }
     setLoading(false)
   }
 
@@ -261,6 +283,10 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
     </head><body>${html}<script>window.onload = () => { setTimeout(() => window.print(), 200); };</script></body></html>`)
     win.document.close()
   }
+
+  // 2026-09-05: a jövőbeli dátum NEM tiltott (a naptárból a tervezett napra
+  // nyílik a dialógus), csak JELEZZÜK — az anyakönyv a megtörtént eseményt rögzíti.
+  const jovobeli = !!datum && datum > todayYmd()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -407,6 +433,11 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
                   <div className="space-y-1.5"><Label>Dátum *</Label><Input type="date" value={datum} onChange={e => setDatum(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
                   <div className="space-y-1.5"><Label>Lelkész</Label><Input value={lelkesz} onChange={e => setLelkesz(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
                 </div>
+                {jovobeli && (
+                  <p className="text-[11px] font-medium text-destructive">
+                    ⚠️ A dátum a jövőben van — az anyakönyv a MEGTÖRTÉNT eseményt rögzíti. Ha még csak tervezed az alkalmat, a naptárban programként is rögzítheted, és a megtörténte után anyakönyvezheted.
+                  </p>
+                )}
                 <div className="space-y-1.5">
                   <Label>Főgondnok <span className="text-[10px] font-normal text-slate-500">(az emléklapra)</span></Label>
                   <Input

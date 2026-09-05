@@ -11,6 +11,9 @@ import {
   getScopedDioceseIds,
 } from '@/lib/auth/admin-scope'
 import { logAuditEvent } from '@/lib/audit/log'
+import { ertesitesUrl } from '@/lib/notifications/beszelgetesek'
+import { feladoMezok, feladoMezokKulcsa } from '@/lib/notifications/felado'
+import { insertErtesites } from '@/lib/notifications/ertesites-insert'
 import { revalidatePath } from 'next/cache'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import {
@@ -511,17 +514,33 @@ export async function enterCongregation(congId: string, reason?: string) {
 
   if (error) return { error: error.message }
 
-  await supabase.from('ertesitesek').insert({
-    user_id: approvalTarget.id,
-    congregation_id: congId,
-    tipus: 'warning',
-    cim: 'Rendszergazdai hozzáférés kérése',
-    uzenet: `Egy rendszergazda hozzáférést kér a gyülekezet adataihoz. Indoklás: ${cleanedReason}`,
-    olvasva: false,
-    hivatkozas: requestRow?.id ? `admin_access:${requestRow.id}` : null,
-  })
+  // 2026-09-05: feladó = a kérő rendszergazda; az `admin_request_id` FK is
+  // kitöltve (eddig csak a hivatkozás előtagjából parseolták az olvasók).
+  const ertesites = await insertErtesites(
+    supabase,
+    {
+      user_id: approvalTarget.id,
+      congregation_id: congId,
+      tipus: 'warning',
+      cim: 'Rendszergazdai hozzáférés kérése',
+      uzenet: `Egy rendszergazda hozzáférést kér a gyülekezet adataihoz. Indoklás: ${cleanedReason}`,
+      olvasva: false,
+      hivatkozas: requestRow?.id ? `admin_access:${requestRow.id}` : null,
+      admin_request_id: requestRow?.id ?? null,
+      ...feladoMezok('rendszergazda', access.fullName, user.id),
+    },
+    { forras: 'admin-hozzaferes-keres' },
+  )
 
   revalidatePath('/', 'layout')
+  if (ertesites.error) {
+    // A kérelem rögzült, de a lelkész nem tud róla — ezt NEM hallgatjuk el.
+    return {
+      success: true,
+      mode: 'pending',
+      message: `A hozzáférési kérelem rögzült, de a gyülekezet felelős felhasználójának értesítése nem ment ki (${ertesites.error}). Szólj neki más úton.`,
+    }
+  }
   return { success: true, mode: 'pending', message: 'A hozzáférési kérelem elküldve a gyülekezet felelős felhasználójának.' }
 }
 
@@ -977,7 +996,7 @@ export async function deleteUser(userId: string): Promise<{ success?: boolean; e
 //   - NEM kér gyülekezetet — a user később onboard-ol
 //   - Megnyitja a wizard-utat (next login)
 export async function quickApproveUser(userId: string) {
-  const { supabase, access } = await requireMasterAdmin()
+  const { supabase, user, access } = await requireMasterAdmin()
   // #2: kerületi admin csak a saját kerületébe jelentkezőt hagyhatja jóvá.
   try {
     await assertUserInScope(access, userId)
@@ -1080,19 +1099,21 @@ export async function quickApproveUser(userId: string) {
     return { error: `A fiók státusza már nem várakozó (jelenlegi: ${currentStatus || 'ismeretlen'}).` }
   }
 
-  // Értesítés (best-effort, nem blokkol) — javított mezőnevek
-  try {
-    await supabase.from('ertesitesek').insert({
+  // Értesítés (best-effort, nem blokkol) — a hibát a közös segéd naplózza,
+  // a fő művelet (aktiválás) ettől már sikeres.
+  await insertErtesites(
+    supabase,
+    {
       user_id: userId,
       tipus: 'success',
       cim: 'Hozzáférése aktiválva',
       uzenet:
         'A rendszergazda elfogadta a hozzáférés-kérelmét. A bejelentkezés után az induló wizard segít beállítani a gyülekezetet és a többi adatot.',
       olvasva: false,
-    })
-  } catch {
-    // ertesitesek tábla esetlegesen nem érhető el, de a fő művelet sikeres
-  }
+      ...feladoMezok('rendszergazda', access.fullName, user.id),
+    },
+    { forras: 'admin-aktivalas' },
+  )
 
   await logAuditEvent({
     action: 'user.quick_approve',
@@ -1110,7 +1131,7 @@ export async function quickApproveUser(userId: string) {
 // A user `status` 'rejected'-re vált, értesítést kap a kapott indoklással
 // (pasztorális hangnem). A regisztráció törlésére külön deleteUser hívható.
 export async function rejectPendingUser(userId: string, reason: string) {
-  const { supabase, access } = await requireMasterAdmin()
+  const { supabase, user, access } = await requireMasterAdmin()
   if (!userId) return { error: 'A felhasználó azonosítója kötelező.' }
   // #2: kerületi admin csak a saját kerületébe jelentkezőt utasíthatja el.
   try {
@@ -1138,17 +1159,19 @@ export async function rejectPendingUser(userId: string, reason: string) {
     return { error: `A felhasználó már nem várakozó (jelenlegi: ${result?.new_status || 'ismeretlen'}).` }
   }
 
-  try {
-    await supabase.from('ertesitesek').insert({
+  // Best-effort: a hibát a közös segéd naplózza, az elutasítás már megtörtént.
+  await insertErtesites(
+    supabase,
+    {
       user_id: userId,
       tipus: 'warning',
       cim: 'Hozzáférés-kérelme nem került elfogadásra',
       uzenet: `A regisztrációs kérelmét sajnos nem tudtuk elfogadni. Indoklás: ${cleanedReason}`,
       olvasva: false,
-    })
-  } catch {
-    // ertesitesek best-effort
-  }
+      ...feladoMezok('rendszergazda', access.fullName, user.id),
+    },
+    { forras: 'admin-elutasitas' },
+  )
 
   await logAuditEvent({
     action: 'user.reject',
@@ -1203,7 +1226,7 @@ export async function getSupportTickets() {
 }
 
 export async function replySupportTicket(ticketId: string, replyContent: string) {
-  const { supabase } = await requireMasterAdmin()
+  const { supabase, user, access } = await requireMasterAdmin()
   let ticketUserId: string | null = null
   let ticketSubject = ''
   let replyError: string | null = null
@@ -1243,16 +1266,40 @@ export async function replySupportTicket(ticketId: string, replyContent: string)
     return { success: true }
   }
 
-  // Értesítés (mezőnév-fix: cim/uzenet/tipus/olvasva)
-  await supabase.from('ertesitesek').insert({
-    user_id: ticketUserId,
-    tipus: 'info',
-    cim: 'Válasz a támogatási kérdésre',
-    uzenet: `Válasz érkezett a "${ticketSubject}" témájú kérdésére.`,
-    olvasva: false,
-  })
+  // Értesítés — 2026-09-05 (H2): a típus `support_reply` (eddig `info`, így a
+  // „Válasz" vizuál és a „Kérelem, döntés" csoport SOHA nem aktiválódott), a
+  // törzsben MAGA A VÁLASZ is benne van (eddig csak a tény — a lelkésznek a
+  // Súgó „Előzmények" fülén kellett megkeresnie), és van hivatkozás a
+  // rendszergazdai szálra. A válasz felhasználói szöveg → 'text' formátum,
+  // a felület escape-elve mutatja; a plafon a levágott-jelzéssel őszinte.
+  const VALASZ_PLAFON = 6000
+  const valaszSzoveg = replyContent.trim()
+  const valaszTorzs =
+    valaszSzoveg.length > VALASZ_PLAFON
+      ? `${valaszSzoveg.slice(0, VALASZ_PLAFON)}\n… (a válasz levágva — a teljes szöveg a Súgó → Előzmények fülön olvasható)`
+      : valaszSzoveg
+  // A mélylink a VALÓDI szál-kulccsal (`rendszergazda:<uuid>`), ugyanabból a
+  // képletből, amellyel az olvasó a szálat képzi — a csupasz
+  // `?felado=rendszergazda` soha nem talált szálat (2026-09-05, bírálói P2).
+  const feladoAdat = feladoMezok('rendszergazda', access.fullName, user.id)
+  const ertesites = await insertErtesites(
+    supabase,
+    {
+      user_id: ticketUserId,
+      tipus: 'support_reply',
+      cim: 'Válasz a támogatási kérdésre',
+      uzenet: `Válasz érkezett a "${ticketSubject}" témájú kérdésére.\n\n${valaszTorzs}`,
+      olvasva: false,
+      hivatkozas: ertesitesUrl({ felado: feladoMezokKulcsa(feladoAdat) }),
+      ...feladoAdat,
+    },
+    { forras: 'support-valasz' },
+  )
 
   revalidatePath('/admin')
+  if (ertesites.error) {
+    return { success: true, warning: `A válasz mentve, de a kérdező értesítése nem ment ki: ${ertesites.error}` }
+  }
   return { success: true }
 }
 

@@ -38,6 +38,18 @@
  *     cellaméretet, és a KÖVETKEZMÉNYT mérjük: szélesebb csempe SOSEM adhat
  *     kisebb naptárat.
  *
+ * 2026-09-05 (Endre 2. pontja, D8) — CSEMPESOR-ARÁNY:
+ *   A `.kt-dash-trio` középső (naptáras) csempéje `1fr 1.1fr 1fr` aránnyal
+ *   1920px-en ≈548px volt, így a két hasábos mód (`TWO_COL_MIN`) csak ~2300px-es
+ *   ablaknál kapcsolt be. Az új arány (1280px: .85/1.4/.85, 1536px: .8/1.6/.8)
+ *   1920px-en ≈772px-et ad. Az ESETEK csempeszélességét a LAYOUT-MODELL számolja
+ *   a CSS-ből olvasott fr-arányokból (sidebar 288px + main padding 2×28px +
+ *   2×16px rácsköz — dashboard-shell.tsx / sidebar-adaptive-v4.tsx), és a
+ *   modellt a régi, kimért számok (321 / 412 / 548) hitelesítik (G5m).
+ *   G5   1920px-en a csempe ≥ TWO_COL_MIN → az `is-2col` a VALÓS szélességre kapcsol
+ *   G5n  a régi `1fr 1.1fr 1fr` arány visszaírva → a G5 mérce ELBUKIK
+ *   T9   `.kt-modal` max-width nem fix px (clamp), a mobil 100%-os szélesség marad
+ *
  * NEGATÍV ASSZERTEK (a fájl végén, „N" jelzéssel) — mutánsok, amiknek BUKNIA KELL:
  *   M1  a régi CSS-sorok visszaírása (`--kt-cell: 38px`, a régi `max-width`,
  *       és a `@media (min-width: 1280px) { .kt-cal--compact { --kt-cell: 32px } }`)
@@ -193,11 +205,24 @@ function szovegesEllenorzes(cssKod) {
     else if (svh < vh) hibak.push('T6: a `100svh` a `100vh` ELŐTT áll — a tartalék felülírja a jó értéket')
   }
 
+  // T9 · a program-modál szélessége: clamp() (nagy képernyőn szélesebb), nem fix 480px
+  const modal = blokkTorzs(cssKod, '.kt-modal {')
+  if (modal == null) {
+    hibak.push('T9: nem találom a `.kt-modal {` blokkot')
+  } else {
+    const mw = modal.match(/max-width:\s*([^;]+);/)
+    if (!mw) hibak.push('T9: a `.kt-modal` blokkban nincs max-width')
+    else if (/^\s*[0-9.]+px\s*$/.test(mw[1]) && Number(mw[1]) <= 480) {
+      hibak.push(`T9: a program-modál fix ${mw[1].trim()} — nagy képernyőn 21 típus 10 sorra tör (cal-ux-2)`)
+    }
+    if (!/width:\s*100%/.test(modal)) hibak.push('T9: a `.kt-modal` nem `width: 100%` — telefonon nem tölti ki a helyet')
+  }
+
   return hibak
 }
 
 for (const h of szovegesEllenorzes(css)) fail(h)
-if (!failed) ok('T1–T6 szöveges ellenőrzések: a régi, kemény cellakorlát nem tért vissza')
+if (!failed) ok('T1–T6 + T9 szöveges ellenőrzések: a régi, kemény cellakorlát nem tért vissza, a modál nem fix 480px')
 
 // T7 · a komponens és a CSS UGYANARRÓL az állapot-osztályról beszél
 if (/kt-widget--tile\$\{twoCol \? ' is-2col' : ''\}/.test(scheduler) || /' is-2col'/.test(scheduler)) {
@@ -310,17 +335,68 @@ if (hianyzo.length) {
   // (a hármas sor 1280px alatt EGY hasáb → a csempe teljes szélességű;
   //  1280 fölött három hasáb → a csempe SZŰKEBB lesz, ezért mérünk, nem
   //  viewportot nézünk)
+  //
+  // 2026-09-05: a csempe szélessége a LAYOUT-MODELLBŐL, a `.kt-dash-trio`
+  // fr-arányait a CSS-ből olvasva — így az arány változása itt azonnal mér.
+  const LAYOUT = { sidebar: 288, mainPadX: 28 * 2, trioGap: 16 }
+
+  /** A `@media (min-width: Npx) { … .kt-dash-trio { grid-template-columns: … } }` fr-hármasa. */
+  function trioArany(cssKod, minWidth) {
+    const re = new RegExp(`@media \\(min-width:\\s*${minWidth}px\\)\\s*\\{[\\s\\S]*?\\.kt-dash-trio\\s*\\{([\\s\\S]*?)\\}`)
+    const m = cssKod.match(re)
+    if (!m) return null
+    const g = m[1].match(/grid-template-columns:\s*minmax\(0,\s*([0-9.]*)fr\)\s*minmax\(0,\s*([0-9.]*)fr\)\s*minmax\(0,\s*([0-9.]*)fr\)/)
+    if (!g) return null
+    return [1, 2, 3].map((i) => (g[i] === '' ? 1 : Number(g[i])))
+  }
+  /** A KÖZÉPSŐ (naptáras) csempe szélessége egy adott viewportnál, adott aránnyal. */
+  function csempeSzelesseg(viewport, arany) {
+    if (viewport < 1280) return viewport - 32 // egy hasáb: teljes szélesség, 16px oldalmargó
+    const tartalom = viewport - LAYOUT.sidebar - LAYOUT.mainPadX - 2 * LAYOUT.trioGap
+    const [a, b, c] = arany
+    return tartalom * (b / (a + b + c))
+  }
+  const arany1280 = trioArany(css, 1280)
+  const arany1536 = trioArany(css, 1536) ?? arany1280
+  if (!arany1280) {
+    fail('G5: a `.kt-dash-trio` 1280px-es fr-aránya nem olvasható ki a CSS-ből — a csempesor-mérce vak')
+  }
+  const aranyViewportra = (vp) => (vp >= 1536 ? arany1536 : arany1280) ?? [1, 1, 1]
   const ESETEK = [
     { nev: 'telefon 375px',  csempe: 343, viewport: 375 },
     { nev: 'tablet 768px',   csempe: 720, viewport: 768 },
-    { nev: 'laptop 1280px',  csempe: 414, viewport: 1280 },
-    { nev: 'asztali 1920px', csempe: 627, viewport: 1920 },
+    { nev: 'laptop 1280px',  csempe: csempeSzelesseg(1280, aranyViewportra(1280)), viewport: 1280 },
+    { nev: 'asztali 1536px', csempe: csempeSzelesseg(1536, aranyViewportra(1536)), viewport: 1536 },
+    { nev: 'asztali 1920px', csempe: csempeSzelesseg(1920, aranyViewportra(1920)), viewport: 1920 },
   ]
+  const asztaliCsempe = ESETEK.find((e) => e.viewport === 1920).csempe
+
+  // G5m · a layout-modell HITELESÍTÉSE: a RÉGI aránnyal a kimért régi számokat adja
+  {
+    const regi = [1, 1.1, 1]
+    const v = [[1280, 321], [1536, 412], [1920, 548]]
+    const rossz = v.filter(([vp, mert]) => Math.abs(csempeSzelesseg(vp, regi) - mert) > 2)
+    if (rossz.length === 0) ok('G5m a layout-modell a régi `1fr 1.1fr 1fr` aránnyal visszaadja a kimért 321 / 412 / 548px-et')
+    else fail(`G5m a layout-modell NEM egyezik a kimért régi számokkal: ${rossz.map(([vp, mert]) => `${vp}px→${csempeSzelesseg(vp, regi).toFixed(0)} (mért ${mert})`).join(', ')}`)
+  }
+
+  // G5 · a csempesor-arány (D8): 1920px-en a csempe eléri a két hasábos küszöböt
+  if (asztaliCsempe >= cfg.ketHasabMin) {
+    ok(`G5 1920px-es ablakban a naptár-csempe ${asztaliCsempe.toFixed(0)}px >= ${cfg.ketHasabMin}px — az \`is-2col\` a VALÓS szélességre kapcsol`)
+  } else {
+    fail(`G5 1920px-es ablakban a naptár-csempe csak ${asztaliCsempe.toFixed(0)}px < ${cfg.ketHasabMin}px — a két hasábos mód nagy monitoron sem kapcsol be (D8)`)
+  }
+  // G5n · negatív: a RÉGI arány visszaírva a mérce ELBUKIK
+  {
+    const regiAsztali = csempeSzelesseg(1920, [1, 1.1, 1])
+    if (regiAsztali < cfg.ketHasabMin) ok(`G5n negatív asszert: a régi aránnyal ${regiAsztali.toFixed(0)}px < ${cfg.ketHasabMin}px — a G5 mérce elbukna rajta`)
+    else fail(`G5n negatív asszert: a régi arány is átmenne a G5 mércén (${regiAsztali.toFixed(0)}px) — a mérce nem mér semmit`)
+  }
 
   // G2 · a nagy képernyő NEM kaphat kisebb naptárat a telefonnál
   {
     const telefon = cella(343)
-    const asztali = cella(627)
+    const asztali = cella(asztaliCsempe)
     if (asztali >= telefon) ok(`G2 asztali (${asztali.toFixed(1)}px) >= telefon (${telefon.toFixed(1)}px)`)
     else fail(`G2 az ASZTALI naptár kisebb a telefonénál (${asztali.toFixed(1)}px < ${telefon.toFixed(1)}px) — ez volt a bejelentett hiba`)
   }

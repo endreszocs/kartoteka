@@ -93,6 +93,21 @@ async function getSingleLocalProfile(): Promise<LastUser | null> {
 }
 
 /**
+ * A gép UTOLSÓ ISMERT felhasználója — session nélkül, hálózat nélkül
+ * (2026-09-05, a PIN-tulajdonos egyeztetéséhez).
+ *
+ * Forrás-sorrend: a belépés-cache (`kartoteka-last-user-v1`) → az egyetlen
+ * lokális `profiles_local` sor. Ha egyik sem oldható fel, null — a hívó
+ * ilyenkor FAIL-CLOSED dönt (a PIN-belépő nem enged, hanem újra-összekapcsolást
+ * kér), mert nem bizonyítható, kinek a kódja van a gépen.
+ */
+export async function getGepUtolsoUser(): Promise<LastUser | null> {
+  const cached = getLastUser()
+  if (cached) return cached
+  return getSingleLocalProfile()
+}
+
+/**
  * Felhasználó feloldása online VAGY offline. SOSEM blokkol 4 mp-nél tovább.
  * Null csak akkor, ha sem session, sem offline-mód+cache/lokális profil nincs —
  * ilyenkor a hívó LÁTHATÓ hibát mutasson (ne végtelen töltést!).

@@ -21,6 +21,9 @@ import {
   type ProfileRoleScope,
 } from '@/lib/profile-roles/types'
 import { getStartPathForScope } from '@/lib/auth/scope-start-path'
+// 2026-09-05 (profil-kör D7): a monogram EGY helyen él — a helyi másolat az
+// „Nt. Kovács János" előtagot nem szűrte („NK" lett „KJ" helyett).
+import { getInitials } from '@/lib/utils/name'
 
 const SCOPE_ICONS: Record<ProfileRoleScope, React.ComponentType<{ className?: string }>> = {
   system: Globe,
@@ -73,13 +76,6 @@ export interface ProfileChooserProps {
   activeProfileRoleId: string | null
   scopeNames: Record<string, string>
   fullName: string
-}
-
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '?'
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
 function resolveScopeName(row: ProfileRoleRow, scopeNames: Record<string, string>): string {

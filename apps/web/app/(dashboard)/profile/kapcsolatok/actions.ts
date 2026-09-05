@@ -6,6 +6,8 @@ import {
   type EffectiveAccessContext,
 } from '@/lib/auth/effective-access'
 import { logAuditEvent } from '@/lib/audit/log'
+import { feladoMezok } from '@/lib/notifications/felado'
+import { insertErtesites } from '@/lib/notifications/ertesites-insert'
 import { getProfileDisplayNames } from '@/lib/profiles/officials'
 
 /**
@@ -245,16 +247,21 @@ export async function approveAssignment(
 
   if (error) return { error: `Hiba: ${error.message}` }
 
-  // Értesítés az érintett könyvelőnek / számvevőnek
-  await access.supabase.from('ertesitesek').insert({
-    user_id: existing.profile_id,
-    congregation_id: existing.congregation_id,
-    cim: 'Hozzáférés jóváhagyva',
-    uzenet:
-      'A lelkész jóváhagyta a hozzáférésedet a gyülekezethez. Most már dolgozhatsz a pénzügyi modulban.',
-    tipus: 'success',
-    hivatkozas: '/penzugy',
-  })
+  // Értesítés az érintett könyvelőnek / számvevőnek — a feladó a döntő gyülekezet.
+  await insertErtesites(
+    access.supabase,
+    {
+      user_id: existing.profile_id,
+      congregation_id: existing.congregation_id,
+      cim: 'Hozzáférés jóváhagyva',
+      uzenet:
+        'A lelkész jóváhagyta a hozzáférésedet a gyülekezethez. Most már dolgozhatsz a pénzügyi modulban.',
+      tipus: 'success',
+      hivatkozas: '/penzugy',
+      ...feladoMezok('gyulekezet', access.congregationName, existing.congregation_id),
+    },
+    { forras: 'kapcsolat-jovahagyas' },
+  )
 
   await logAuditEvent({
     action: 'profile_congregation.approve',
@@ -308,14 +315,19 @@ export async function rejectAssignment(
 
   if (error) return { error: `Hiba: ${error.message}` }
 
-  await access.supabase.from('ertesitesek').insert({
-    user_id: existing.profile_id,
-    congregation_id: existing.congregation_id,
-    cim: 'Hozzáférés elutasítva',
-    uzenet: `A lelkész elutasította a hozzáférési kérést. Indok: "${trimmed}".`,
-    tipus: 'warning',
-    hivatkozas: '/profile',
-  })
+  await insertErtesites(
+    access.supabase,
+    {
+      user_id: existing.profile_id,
+      congregation_id: existing.congregation_id,
+      cim: 'Hozzáférés elutasítva',
+      uzenet: `A lelkész elutasította a hozzáférési kérést. Indok: "${trimmed}".`,
+      tipus: 'warning',
+      hivatkozas: '/profile',
+      ...feladoMezok('gyulekezet', access.congregationName, existing.congregation_id),
+    },
+    { forras: 'kapcsolat-elutasitas' },
+  )
 
   await logAuditEvent({
     action: 'profile_congregation.reject',
@@ -376,14 +388,19 @@ export async function revokeAssignmentByPastor(
 
   if (error) return { error: `Hiba: ${error.message}` }
 
-  await access.supabase.from('ertesitesek').insert({
-    user_id: existing.profile_id,
-    congregation_id: existing.congregation_id,
-    cim: 'Hozzáférés visszavonva',
-    uzenet: `A lelkész visszavonta a korábban adott hozzáférést. Indok: "${trimmed}".`,
-    tipus: 'warning',
-    hivatkozas: '/profile',
-  })
+  await insertErtesites(
+    access.supabase,
+    {
+      user_id: existing.profile_id,
+      congregation_id: existing.congregation_id,
+      cim: 'Hozzáférés visszavonva',
+      uzenet: `A lelkész visszavonta a korábban adott hozzáférést. Indok: "${trimmed}".`,
+      tipus: 'warning',
+      hivatkozas: '/profile',
+      ...feladoMezok('gyulekezet', access.congregationName, existing.congregation_id),
+    },
+    { forras: 'kapcsolat-visszavonas' },
+  )
 
   await logAuditEvent({
     action: 'profile_congregation.revoke',

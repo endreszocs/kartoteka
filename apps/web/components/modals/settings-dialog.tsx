@@ -4,8 +4,8 @@
  * Settings Dialog — rendszerbeállítások modal.
  *
  * 5 tab:
- *   1. Értesítések  — 2026-08-15 óta csak tájékoztató szöveg (a hatástalan
- *      e-mail kapcsolók rejtve — lásd EMAIL_ERTESITES_KAPCSOLOK_BEKOTVE)
+ *   1. Értesítések  — csak tájékoztató szöveg + link az /notifications oldalra
+ *      (a soha nem működő típus-kapcsolók 2026-09-05-én végleg kivezetve)
  *   2. Megjelenés   — világos / sötét / rendszer mód, betűméret
  *   3. Nyelv        — UI nyelv (HU / RO) — jelenleg placeholder
  *   4. Publikus oldal  — gyors link + státusz
@@ -17,6 +17,7 @@
 
 import { useEffect, useState } from 'react'
 import { useTheme } from 'next-themes'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   Bell,
@@ -63,29 +64,24 @@ interface SettingsDialogProps {
 const LS_KEY = 'kartoteka-user-prefs-v1'
 
 // ──────────────────────────────────────────────────────────────
-// 2026-08-15 (beállítás-felmérés 1.1–1.2, P0 — KIVEZETÉS-JELÖLÉS):
-// Az e-mail értesítési kapcsolók REJTVE vannak a felületről, mert
-// HATÁSTALANOK voltak: az értékük csak a böngésző localStorage-ába került
-// (kartoteka-user-prefs-v1), amit a szerveroldali levélküldés
-// (lib/email/send.ts) elvből nem lát és egyetlen sora sem olvas. A lelkész
-// azt hitte, leiratkozott — de ugyanúgy kapta a leveleket.
-// A kapcsolók kódja (ToggleRow-blokk lent + a prefs mezők) szándékosan
-// MEGMARAD: a majdani valódi bekötésnél (értesítés-prefek a
-// profile_preferences táblába + a levélküldés szűrjön rájuk) ez a zászló
-// visszabillenthető true-ra. Addig a helyükön őszinte tájékoztató áll.
+// 2026-08-15 (beállítás-felmérés 1.1–1.2): az e-mail értesítési kapcsolók
+// HATÁSTALANOK voltak — az értékük csak a böngésző localStorage-ába került,
+// amit a szerveroldali levélküldés (lib/email/send.ts) sosem olvasott. A
+// lelkész azt hitte, leiratkozott, de ugyanúgy kapta a leveleket.
+// 2026-09-05 (U4, D13): a rejtett kapcsoló-blokk és a `notificationTypes` /
+// `emailNotifications` mezők VÉGLEG KIVEZETVE — egy soha nem működő kapcsoló
+// kódban tartva is néma hazugság. A majdani valódi bekötés (értesítés-prefek a
+// profile_preferences táblába + a levélküldés szűrjön rájuk) tiszta lappal
+// indul. A régi localStorage-kulcsok többlet-mezőit a `loadPrefs` figyelmen
+// kívül hagyja (spread az alapértelmezésekre).
 // ──────────────────────────────────────────────────────────────
-const EMAIL_ERTESITES_KAPCSOLOK_BEKOTVE: boolean = false
 
 interface UserPrefs {
-  emailNotifications: boolean
-  notificationTypes: string[]
   fontSize: 'sm' | 'base' | 'lg'
   language: 'hu' | 'ro'
 }
 
 const DEFAULT_PREFS: UserPrefs = {
-  emailNotifications: true,
-  notificationTypes: ['admin', 'support_reply', 'info', 'warning', 'danger'],
   fontSize: 'base',
   language: 'hu',
 }
@@ -137,14 +133,6 @@ export function SettingsDialog({
     setPrefs(next)
     savePrefs(next)
     toast.success('Beállítás mentve', { duration: 1500 })
-  }
-
-  function toggleNotificationType(type: string) {
-    const has = prefs.notificationTypes.includes(type)
-    const next = has
-      ? prefs.notificationTypes.filter((t) => t !== type)
-      : [...prefs.notificationTypes, type]
-    updatePrefs({ notificationTypes: next })
   }
 
   return (
@@ -213,55 +201,27 @@ export function SettingsDialog({
           <div className="flex-1 min-w-0">
             {/* ─── ÉRTESÍTÉSEK ─── */}
             <TabsContent value="ertesitesek" className="space-y-4">
-              {/* 2026-08-15 (beállítás-felmérés 1.1–1.2): a lenti kapcsoló-blokk
-                  REJTVE — hatástalan volt (részletek a EMAIL_ERTESITES_KAPCSOLOK_BEKOTVE
-                  konstansnál). A kód a visszakötésig szándékosan itt marad. */}
-              {EMAIL_ERTESITES_KAPCSOLOK_BEKOTVE ? (
-                <>
-                  <SettingsSection title="E-mail értesítés" icon={<Bell className="size-4" />}>
-                    <ToggleRow
-                      label="E-mailben is megkapom az értesítéseket"
-                      description={
-                        userEmail
-                          ? `Címzett: ${userEmail}`
-                          : 'A regisztrált e-mail cím kapja majd a leveleket.'
-                      }
-                      checked={prefs.emailNotifications}
-                      onChange={(v) => updatePrefs({ emailNotifications: v })}
-                    />
-                  </SettingsSection>
-
-                  <SettingsSection title="Milyen típusú értesítéseket kapjak?" icon={<Bell className="size-4" />}>
-                    <div className="space-y-2">
-                      {[
-                        { key: 'admin', label: 'Adminisztratív kérések (hozzáférés, jóváhagyás)' },
-                        { key: 'warning', label: 'Figyelmeztetések (TVA plafon, tartozások)' },
-                        { key: 'danger', label: 'Kritikus hibák (biztonsági esemény)' },
-                        { key: 'support_reply', label: 'Válasz támogatási kérdésre' },
-                        { key: 'info', label: 'Általános információk (frissítések)' },
-                      ].map((item) => (
-                        <ToggleRow
-                          key={item.key}
-                          label={item.label}
-                          checked={prefs.notificationTypes.includes(item.key)}
-                          onChange={() => toggleNotificationType(item.key)}
-                          compact
-                        />
-                      ))}
-                    </div>
-                  </SettingsSection>
-                </>
-              ) : (
-                <SettingsSection title="E-mail értesítések" icon={<Bell className="size-4" />}>
-                  <p className="text-sm leading-relaxed text-slate-600">
-                    Az e-mail értesítések beállítása <strong>később érkezik</strong>. Addig a
-                    rendszer a fontos eseményekről (pl. hozzáférési kérések, biztonsági
-                    események) automatikusan küld e-mailt
-                    {userEmail ? <> a(z) <strong>{userEmail}</strong> címre</> : null} — ez itt
-                    egyelőre nem kapcsolható ki.
-                  </p>
-                </SettingsSection>
-              )}
+              {/* 2026-09-05 (U4, D13): a hatástalan értesítés-típus kapcsolók VÉGLEG
+                  kivezetve — az üzenetek kezelése az /notifications oldalon történik. */}
+              <SettingsSection title="Értesítések" icon={<Bell className="size-4" />}>
+                <p className="text-sm leading-relaxed text-foreground">
+                  Az értesítéseidet — olvasás, archiválás, hozzáférés-kérelmek elbírálása — az{' '}
+                  <Link
+                    href="/notifications"
+                    onClick={() => onOpenChange(false)}
+                    className="font-semibold text-primary underline underline-offset-2"
+                  >
+                    Üzenetek oldalon
+                  </Link>{' '}
+                  kezelheted, feladónként beszélgetésekbe rendezve.
+                </p>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                  Az e-mail értesítések beállítása <strong>később érkezik</strong>. Addig a rendszer a
+                  fontos eseményekről (pl. hozzáférési kérések, biztonsági események) automatikusan
+                  küld e-mailt{userEmail ? <> a(z) <strong>{userEmail}</strong> címre</> : null} — ez itt
+                  egyelőre nem kapcsolható ki.
+                </p>
+              </SettingsSection>
             </TabsContent>
 
             {/* ─── MEGJELENÉS ─── */}
@@ -550,43 +510,6 @@ function SettingsSection({
       </div>
       {children}
     </div>
-  )
-}
-
-function ToggleRow({
-  label,
-  description,
-  checked,
-  onChange,
-  compact = false,
-}: {
-  label: string
-  description?: string
-  checked: boolean
-  onChange: (v: boolean) => void
-  compact?: boolean
-}) {
-  return (
-    <label
-      className={cn(
-        'flex cursor-pointer items-start gap-3 rounded-[1rem] border p-3 transition',
-        checked
-          ? 'border-emerald-200 bg-emerald-50/40'
-          : 'border-slate-200 bg-slate-50/40 hover:border-slate-300',
-        compact && 'py-2',
-      )}
-    >
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 size-4"
-      />
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium text-slate-800">{label}</div>
-        {description && <div className="mt-0.5 text-[11px] text-slate-500">{description}</div>}
-      </div>
-    </label>
   )
 }
 

@@ -1,12 +1,14 @@
 /**
- * Offline PIN hitelesítés TS wrapper (A-M6.9, 2026-04-22).
+ * Offline PIN hitelesítés TS wrapper (A-M6.9, 2026-04-22; 2026-09-05
+ * PIN-tulajdonos + remember-jelző PIN-hez kötése).
  *
  * A Rust auth_pin modul Tauri command-jait hívjuk meg ezen a vékony
- * rétegen keresztül. Minden függvény **async** és **nem dob** — a hibát
- * a hívó kód a `try/catch` vagy a Result-object alapján kezeli.
+ * rétegen keresztül. Az invoke-hívások hibát DOBNAK (keyring-hiba) — a hívó
+ * kód a `try/catch` vagy a Result-object alapján kezeli, LÁTHATÓ üzenettel.
  *
  * Ld. apps/desktop/src-tauri/src/auth_pin.rs a részletekért (lockout-szabályzat,
- * biztonsági határok, argon2 paraméterek).
+ * biztonsági határok, argon2 paraméterek); a tulajdonos-bejegyzés az
+ * auth.rs `auth_*_item` parancsain át él (`auth-pin-owner` slot).
  */
 
 import { invoke } from '@tauri-apps/api/core'
@@ -34,9 +36,75 @@ export async function hasPin(): Promise<boolean> {
   return invoke<boolean>('auth_pin_has')
 }
 
-/** Új PIN beállítása (csak online-módban hívható, pl. sikeres Supabase login után). */
-export async function setPin(pin: string): Promise<void> {
+// ────────────────────────────────────────────────────────────────────────
+// PIN-TULAJDONOS (2026-09-05, desk-auth-2 / P1)
+// ────────────────────────────────────────────────────────────────────────
+//
+// MI VOLT A HIBA: a PIN-hash egyetlen, felhasználó nélküli keyring-slot volt.
+// Ha A lelkész gépén később B lépett be online, B sosem kapott PIN-beállítást
+// (a `hasPin()` igaz volt), és A kódjával bárki offline beléphetett B tükrébe.
+//
+// A JAVÍTÁS: a PIN mellé a tulajdonos user-id-ját is a keyringbe írjuk
+// (`auth-pin-owner` — a Rust `auth_store_item` az `auth-` előtagú kulcsokat
+// engedi). A PIN-belépő CSAK akkor enged, ha a tulajdonos megegyezik a gép
+// utolsó ismert felhasználójával; online belépéskor az idegen PIN törlődik.
+//
+// FAIL-CLOSED: egy tulajdonos NÉLKÜLI PIN (a frissítés előtti telepítésekről
+// örökölt) „idegen"-nek számít — nincs örökbefogadás a lastUser alapján, mert
+// pont az a hibaeset, hogy a lastUser (B) nem az, aki a PIN-t adta (A).
+
+const PIN_OWNER_KEY = 'auth-pin-owner'
+
+/** A PIN tulajdonosának user-id-ja a keyringből (null = nincs bejegyezve). */
+export async function getPinOwner(): Promise<string | null> {
+  const raw = await invoke<string | null>('auth_read_item', { key: PIN_OWNER_KEY })
+  return raw && raw.trim() ? raw.trim() : null
+}
+
+async function setPinOwner(userId: string): Promise<void> {
+  await invoke<void>('auth_store_item', { key: PIN_OWNER_KEY, value: userId })
+}
+
+async function clearPinOwner(): Promise<void> {
+  await invoke<void>('auth_clear_item', { key: PIN_OWNER_KEY })
+}
+
+/**
+ * Új PIN beállítása a TULAJDONOSÁVAL együtt (csak online belépés után, a
+ * bejelentkezett user id-jával hívható).
+ *
+ * Sorrend: előbb a hash, aztán a tulajdonos. Ha a tulajdonos írása elbukik,
+ * a frissen írt hash-t is visszavonjuk — így SOHA nem marad tulajdonos
+ * nélküli (= idegennek számító) PIN a gépen.
+ */
+export async function setPin(pin: string, ownerUserId: string): Promise<void> {
+  if (!ownerUserId) throw new Error('A kód beállításához a bejelentkezett felhasználó azonosítója kell.')
   await invoke<void>('auth_pin_set', { pin })
+  try {
+    await setPinOwner(ownerUserId)
+  } catch (err) {
+    try {
+      await invoke<void>('auth_pin_clear')
+    } catch {
+      /* a visszavonás best-effort — a hívó a tulajdonos-hibát kapja */
+    }
+    throw err
+  }
+}
+
+export type PinTulajdonosAllapot = 'nincs' | 'sajat' | 'idegen'
+
+/**
+ * Kinek a PIN-je van a gépen az adott userhez képest?
+ *   'nincs'  — nincs PIN-hash;
+ *   'sajat'  — van, és a tulajdonos ez a user;
+ *   'idegen' — van, de a tulajdonos más (vagy nincs bejegyezve — fail-closed).
+ */
+export async function pinTulajdonosEllenorzes(userId: string): Promise<PinTulajdonosAllapot> {
+  const van = await hasPin()
+  if (!van) return 'nincs'
+  const owner = await getPinOwner()
+  return owner !== null && owner === userId ? 'sajat' : 'idegen'
 }
 
 /** PIN ellenőrzése (offline-belépéshez). */
@@ -55,9 +123,15 @@ export async function verifyPin(pin: string): Promise<PinVerifyResult> {
   }
 }
 
-/** PIN teljes törlése (logout / reset). */
+/**
+ * PIN teljes törlése (logout / reset / tulajdonos-váltás): a hash, a
+ * tulajdonos-bejegyzés ÉS az „Emlékezz erre a gépre" jelző együtt — a
+ * remember-jelző PIN nélkül érvénytelen (ld. `offlineBelepesEngedett`).
+ */
 export async function clearPin(): Promise<void> {
   await invoke<void>('auth_pin_clear')
+  await clearPinOwner()
+  clearRememberOffline()
 }
 
 /** Aktuális PIN-státusz (UI-feedback-hez: lockout-counter, hátralévő kísérletek). */
@@ -157,6 +231,35 @@ export function getRememberOfflineExpiresAt(): number | null {
   return expiresAt
 }
 
+/**
+ * Érvényes-e az offline (PIN-es) munkamenet ezen az indításon? (2026-09-05)
+ *
+ * MIÉRT: az „Emlékezz erre a gépre" jelző a localStorage-ban él, a PIN-hash
+ * a keyringben — a kettő széthúzhat (a PIN törlődött: tulajdonos-váltás,
+ * 10 hibás próbálkozás, „Elfelejtettem"; a jelző maradt). Egy PIN NÉLKÜLI
+ * remember-jelző kulcs nélküli ajtó lenne, ezért itt ÖNJAVÍTÓAN töröljük.
+ *
+ * = isOfflineMode() ÉS van PIN. A pin-entry és a főoldal ezt kérdezi; az
+ * AuthGate 2. kapuja ma még a puszta `isOfflineMode()`-ot nézi (más ügynök
+ * fájlja — nyitott kérdésként jelezve).
+ */
+export async function offlineBelepesEngedett(): Promise<boolean> {
+  if (!isOfflineMode()) return false
+  let van = false
+  try {
+    van = await hasPin()
+  } catch {
+    // A kulcstár nem válaszol → nem bizonyítható a PIN → fail-closed.
+    van = false
+  }
+  if (!van) {
+    clearRememberOffline()
+    setOfflineMode(false)
+    return false
+  }
+  return true
+}
+
 // ────────────────────────────────────────────────────────────────────────
 // "Elfelejtettem a kódot" reset flow
 // ────────────────────────────────────────────────────────────────────────
@@ -168,8 +271,8 @@ export function getRememberOfflineExpiresAt(): number | null {
  * folyamatra kell vinni a felhasználót.
  */
 export async function requestPinReset(): Promise<void> {
+  // A clearPin a tulajdonost és a remember-jelzőt is törli.
   await clearPin()
-  clearRememberOffline()
   setOfflineMode(false)
   if (typeof window !== 'undefined') {
     window.localStorage.setItem(PIN_RESET_PENDING_KEY, 'true')

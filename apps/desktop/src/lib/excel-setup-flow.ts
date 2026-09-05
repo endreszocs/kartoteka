@@ -438,7 +438,10 @@ export function confirmExcelBankMapping(
   }
   saveBankMap(congregationId, year, { confirmed: true, entries })
   // A várakozó banki tételek a megerősítés után azonnal mehetnek a fájlba.
-  void runExcelWriteSyncManually()
+  // Az időtúllépés / hiba nem néma (konzol), de a megerősítést nem buktatja el.
+  runExcelWriteSyncManually().catch((err: unknown) => {
+    console.warn('[excel-setup-flow] a megerősítés utáni Excel-írás jelzett:', err instanceof Error ? err.message : String(err))
+  })
   return { ok: true, count: entries.length }
 }
 

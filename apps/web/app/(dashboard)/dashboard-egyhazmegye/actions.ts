@@ -16,6 +16,8 @@ import {
   resolveDioceseWriteScopeIds,
 } from '@/lib/auth/level-scope'
 import { documentSeasonYear, type UnlockRequest } from '@/lib/constants/documents'
+import { feladoMezok } from '@/lib/notifications/felado'
+import { insertErtesites } from '@/lib/notifications/ertesites-insert'
 
 // ---------------------------------------------------------------------------
 // 2026-08-11 (K5 P2 #6) — TÖRÖLVE: `getUnlockRequests` (106 sor).
@@ -426,6 +428,17 @@ async function sendUnlockDecisionNotification(
           ? '/tagnyilvantartas'
           : '/penzugy'
 
+    // 2026-09-05: a FELADÓ az egyházmegye (a gyülekezet saját megyéje, névvel).
+    // A név feloldása fail-soft: ha nem jön össze, a típus-címke marad.
+    const { data: congMegye } = await supabase
+      .from('congregations')
+      .select('diocese_id, dioceses:diocese_id(name)')
+      .eq('id', args.congregationId)
+      .maybeSingle()
+    const megye = congMegye as { diocese_id?: string | null; dioceses?: { name?: string | null } | { name?: string | null }[] | null } | null
+    const megyeRow = Array.isArray(megye?.dioceses) ? megye?.dioceses[0] : megye?.dioceses
+    const feladoAdat = feladoMezok('egyhazmegye', megyeRow?.name ?? null, megye?.diocese_id ?? null)
+
     const rows = Array.from(recipientIds).map((userId) => ({
       user_id: userId,
       congregation_id: args.congregationId,
@@ -433,11 +446,14 @@ async function sendUnlockDecisionNotification(
       uzenet,
       tipus: args.decision === 'approved' ? 'success' : 'warning',
       hivatkozas,
+      ...feladoAdat,
     }))
 
-    await supabase.from('ertesitesek').insert(rows)
-  } catch {
-    // Csendes — az elbírálás már megtörtént.
+    // A hibát a közös segéd naplózza — az elbírálás már megtörtént.
+    await insertErtesites(supabase, rows, { forras: 'megyei-feloldas-dontes' })
+  } catch (e) {
+    // Az elbírálás már megtörtént — de a hallgatás tilos.
+    console.warn('[dashboard-egyhazmegye] a döntés-értesítés nem ment ki:', e instanceof Error ? e.message : e)
   }
 }
 

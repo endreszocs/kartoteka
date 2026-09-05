@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { requireAdminAccess } from '@/lib/auth/admin-access'
 import { buildAuthorizationUrl, issueOAuthState, loadGoogleOAuthConfig } from '@/lib/google-drive/oauth'
 import { hasServerBackupKey } from '@/lib/google-drive/keys'
+import { getPublicOrigin } from '@/lib/utils/public-origin'
 
 /**
  * GOOGLE DRIVE ÖSSZEKÖTÉS — 1. lépés: átirányítás a Google engedélyező oldalára
@@ -22,7 +23,9 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 function hibaraIranyit(request: NextRequest, kod: string): NextResponse {
-  const url = new URL('/admin/biztonsagi-mentes', request.nextUrl.origin)
+  // A KIFELÉ látható origó — Railway mögött a nextUrl.origin a belső
+  // localhost:8080 lenne (lásd lib/utils/public-origin.ts).
+  const url = new URL('/admin/biztonsagi-mentes', getPublicOrigin(request))
   url.searchParams.set('google', 'hiba')
   url.searchParams.set('ok', kod)
   return NextResponse.redirect(url)

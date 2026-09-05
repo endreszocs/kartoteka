@@ -32,6 +32,7 @@ import {
   isExcelSyncEnabled,
 } from './excel-settings'
 import { getTauriSqliteBackend } from './tauri-sqlite-backend'
+import { FutoOr, withSyncTimeout } from './write-sync-registry'
 
 const MAX_RETRY = 8
 
@@ -106,9 +107,12 @@ export interface ExcelWriteSyncResult {
   errors: string[]
 }
 
-let inFlight = false
-let pusherInterval: ReturnType<typeof setInterval> | null = null
-let onlineListenerAttached = false
+/**
+ * A futó kör őre — a TÉNYLEGES befejezésig tart, nem az időkorlátig (bíráló
+ * P1, 2026-09-05): két párhuzamos kör ugyanazt a tételt kétszer írta volna az
+ * Excel-főkönyvbe (a fájl-írásnak nincs idempotencia-kulcsa). Ld. `FutoOr`.
+ */
+const futoOr = new FutoOr<ExcelWriteSyncResult>()
 let lastRunAt: string | null = null
 let lastResult: ExcelWriteSyncResult | null = null
 let lastNote: string | null = null
@@ -122,7 +126,18 @@ export interface ExcelWriteSyncStatus {
 }
 
 export function getExcelWriteSyncStatus(): ExcelWriteSyncStatus {
-  return { running: inFlight, lastRunAt, lastResult, lastNote }
+  return { running: futoOr.fut, lastRunAt, lastResult, lastNote }
+}
+
+/** Egy kör indítása — vagy a már futó megosztása. Az eredmény-cache a VALÓDI végén frissül. */
+function inditKor(ignoreBackoff: boolean): Promise<ExcelWriteSyncResult> {
+  return futoOr.futtat(
+    () => pushPendingExcelRows(ignoreBackoff),
+    (r) => {
+      lastResult = r
+      lastRunAt = new Date().toISOString()
+    },
+  )
 }
 
 /** Egy „várakozó" hibaüzenet — a backoff-kihagyás felismeri a tagjét. */
@@ -456,58 +471,41 @@ async function autoEgyeztetes(
 //  Auto-trigger háttér-worker (a befizetes-write-sync mintájára)
 // ─────────────────────────────────────────────────────────────────────────
 
-async function runOnceGuarded(): Promise<void> {
-  if (inFlight) return
-  inFlight = true
+/**
+ * Egy őrzött kör 30 mp-es időkorláttal. Sosem dob. A worker maga ellenőrzi
+ * az Excel-szinkron kapcsolót — kikapcsolt állapotban no-op.
+ * 2026-09-05: EXPORTÁLT — a `write-sync-registry` pollja hívja; a saját
+ * `online` listener + interval innen kikerült (egy triggerkészlet).
+ */
+export async function runExcelWriteSyncGuarded(): Promise<void> {
+  if (futoOr.fut) return
   try {
-    lastResult = await pushPendingExcelRows()
-    lastRunAt = new Date().toISOString()
-  } finally {
-    inFlight = false
+    await withSyncTimeout(inditKor(false), 'Excel-főkönyv')
+  } catch (err) {
+    // Időtúllépés VAGY hiba: a kör a háttérben az őr alatt fut tovább —
+    // a következő NEM indít újat.
+    const msg = err instanceof Error ? err.message : String(err)
+    console.warn('[excel-write-sync] a háttér-kör hibára futott:', msg)
+    lastResult = { attempted: 0, written: 0, waiting: 0, blocked: 0, errors: [msg] }
   }
 }
 
 /**
- * Auto-triggerek: 30 mp-es poll + online-event. Idempotens. A worker maga
- * ellenőrzi az Excel-szinkron kapcsolót — kikapcsolt állapotban no-op.
+ * Kompatibilitási belépő (Excel-varázsló bekapcsolás): egyetlen azonnali
+ * őrzött kör. A triggerkészlet a `write-sync-registry`-ben él.
  */
 export function startExcelWriteAutoSync(): void {
   if (typeof window === 'undefined') return
-
-  if (!onlineListenerAttached) {
-    window.addEventListener('online', () => {
-      void runOnceGuarded()
-    })
-    onlineListenerAttached = true
-  }
-
-  if (!pusherInterval) {
-    pusherInterval = setInterval(() => {
-      void runOnceGuarded()
-    }, 30_000)
-  }
-
-  void runOnceGuarded()
+  void runExcelWriteSyncGuarded()
 }
 
-/** Manuális futtatás („Szinkron most") — a backoff-ot ignorálja. */
+/**
+ * Manuális futtatás („Szinkron most") — a backoff-ot ignorálja. Ha már fut
+ * egy kör (időtúllépés után is), NEM indít újat — ugyanazt várja meg,
+ * időkorláttal.
+ */
 export async function runExcelWriteSyncManually(): Promise<ExcelWriteSyncResult> {
-  if (inFlight) {
-    while (inFlight) {
-      await new Promise((r) => setTimeout(r, 100))
-    }
-    return (
-      lastResult ?? { attempted: 0, written: 0, waiting: 0, blocked: 0, errors: [] }
-    )
-  }
-  inFlight = true
-  try {
-    lastResult = await pushPendingExcelRows(true)
-    lastRunAt = new Date().toISOString()
-    return lastResult
-  } finally {
-    inFlight = false
-  }
+  return withSyncTimeout(inditKor(true), 'Excel-főkönyv')
 }
 
 /** Blokkolt tételek visszaengedése + azonnali újrapróbálás (panel-gomb). */

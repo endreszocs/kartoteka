@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation'
 import type { LucideIcon } from 'lucide-react'
 import {
   Archive,
+  Bell,
   BookOpen,
   Building2,
   Castle,
@@ -86,8 +87,22 @@ interface MenuSection {
   items: MenuItem[]
 }
 
+/**
+ * 2026-09-05 — „Üzenetek" menüpont (U1). A `/notifications` oldal eddig CSAK a
+ * csengőből és az admin áttekintésből volt elérhető; a bal navigációban nem
+ * szerepelt. Minden szinten a második helyen áll (az irányítópult után), mert
+ * az üzenet mindenkinek szól — a könyvelő/számvevő a „Profilom" szakaszban kapja.
+ */
+const uzenetekMenuItem: MenuItem = {
+  label: 'Üzenetek',
+  href: '/notifications',
+  icon: Bell,
+  gradient: 'from-amber-400 to-orange-500',
+}
+
 const mainItems: MenuItem[] = [
   { label: 'Irányítópult', href: '/dashboard', icon: LayoutDashboard, gradient: 'from-teal-400 to-emerald-500' },
+  uzenetekMenuItem,
   { label: 'Tagnyilvántartás', href: '/tagnyilvantartas', icon: Users, gradient: 'from-emerald-400 to-teal-500' },
   { label: 'Pénzügy', href: '/penzugy', icon: Wallet, gradient: 'from-amber-400 to-orange-500' },
   { label: 'Anyakönyv', href: '/anyakonyv', icon: BookOpen, gradient: 'from-rose-400 to-fuchsia-500' },
@@ -716,6 +731,7 @@ function SidebarNav({
   // célponthoz kerül be (halott link soha).
   const dioceseMainItems: MenuItem[] = [
     dynamicDashboardItem,
+    uzenetekMenuItem,
     financeMenuItem,
     { label: 'Iratok archívuma', href: '/dashboard-egyhazmegye/iratok', icon: Archive, gradient: 'from-emerald-400 to-teal-500' },
     { label: 'Összesítő', href: '/dashboard-egyhazmegye/osszesito', icon: ClipboardList, gradient: 'from-teal-400 to-cyan-500' },
@@ -763,6 +779,7 @@ function SidebarNav({
   // kerület sajátja, a megyének nincs párja.
   const districtMainItems: MenuItem[] = [
     dynamicDashboardItem,
+    uzenetekMenuItem,
     financeMenuItem,
     { label: 'Iratok archívuma', href: '/dashboard-kerulet/iratok', icon: Archive, gradient: 'from-emerald-400 to-teal-500' },
     { label: 'Összesítő', href: '/dashboard-kerulet/osszesito', icon: ClipboardList, gradient: 'from-teal-400 to-cyan-500' },
@@ -881,7 +898,8 @@ function SidebarNav({
   // amúgy is elvezet a profilhoz). A könyvelő / számvevő számára viszont külön
   // menüpontként is jó kiemelni.
   if (isFinancialReviewer) {
-    sections.push({ title: 'Profilom', items: profileItems })
+    // Az „Üzenetek" a könyvelőnek/számvevőnek is jár (pl. „Hozzáférés jóváhagyva").
+    sections.push({ title: 'Profilom', items: [...profileItems, uzenetekMenuItem] })
   }
 
   if (showDioceseSection) {

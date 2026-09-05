@@ -19,6 +19,34 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
+## 🔴 PENDING – asztali első indítás + naptár + értesítések (2026-09-05)
+
+Futtatási SORREND (mind idempotens, a végén EGY ellenőrző rács — csak az utolsó rács látszik a szerkesztőben):
+
+- [ ] `2026-09-05-desktop-kapcsolas.sql` — PENDING
+       Indok: az asztali alkalmazás webes fiókkal (Google-lel is) való összekapcsolásának
+       táblája (device-flow). Enélkül az asztali „Összekapcsolás" 503-at ad, a
+       Profil → Biztonság eszközlistája hibát mutat. ÚJ TÁBLA → `kizart_titok`
+       mentés-besorolással (a fájl teszi be).
+
+- [ ] `2026-09-05-naptar-anyakonyv-szabadsag-nevnap.sql` — PENDING
+       Indok: az 5 új programtípus (keresztelő/esküvő/konfirmáció/temetés/szabadság)
+       CHECK-je, az anyakönyvi kapcsolat oszlopai, a magán-típus kapu (trigger + a
+       nyilvános RPC-k), a közös személy-alap/névnap-egyeztető függvények és a lelkészi
+       feed V2. Enélkül: az új típusú program mentése 23514-gyel bukik, a születésnapos/
+       névnapos réteg „még nincs bekapcsolva" üzenetet ad (fail-soft), az anyakönyvezés
+       összekötése hibát jelez.
+
+- [ ] `2026-09-05-ertesitesek-felado.sql` — PENDING
+       Indok: a feladó-oszlopok + levezető trigger + visszatöltés + írásvédelem + a
+       hírlevél markdown-jelölése. Enélkül a beszélgetés-nézet a feladót LEVEZETI
+       (működik), de az új feladó-adatok nem tárolódnak; a hírlevél formázása a régi
+       sorokon a cím alapján ismerődik fel.
+
+- [ ] `2026-09-05-profil-pontossag.sql` — PENDING (ha a profil-ügynök elkészíti)
+       Indok: `pastor_profiles.avatar_source` + a régi szöveges szolgálati helyek egyszeri
+       átemelése a strukturált táblába.
+
 ---
 
 ## ✅ LEFUTOTT – pénzügy-átvilágítás (2026-08-27 / 2026-08-28)

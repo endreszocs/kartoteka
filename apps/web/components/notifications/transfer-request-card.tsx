@@ -123,15 +123,17 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
   // Státusz-jelölő
   const statusBadge =
     notification.status === 'accepted' ? (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+      // 2026-09-05 (H8): `-500/12` alfás színcsalád + dark szövegpár — a `bg-*-100`
+      // pirulákat a sötét téma nem írta felül, világos foltok maradtak.
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/12 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
         <Check className="size-3.5" /> Elfogadva
       </span>
     ) : notification.status === 'rejected' ? (
-      <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">
+      <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/12 px-2.5 py-1 text-xs font-semibold text-rose-700 dark:text-rose-300">
         <X className="size-3.5" /> Elutasítva
       </span>
     ) : (
-      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700">
+      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/14 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:text-amber-300">
         Várja a választ
       </span>
     )
@@ -149,17 +151,20 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
        */
       ref={mode === 'inbound' ? lathatoRef : undefined}
       onMouseEnter={mode === 'inbound' ? handleMarkRead : undefined}
+      /* 2026-09-05 (D6): a `?ful=kerelmek&kerelem=<id>` mélylink ide görget. DB-azonosító. */
+      id={`kerelem-${notification.id}`}
       className="overflow-hidden rounded-[1.5rem] bg-card ring-1 ring-border shadow-[0_18px_40px_-30px_rgba(124,58,237,0.25)]"
     >
-      {/* Fejléc — forrás → cél */}
-      <div className="border-b border-violet-100 bg-gradient-to-br from-violet-50/60 to-rose-50/60 px-5 py-3">
+      {/* Fejléc — forrás → cél. Token-alapú (2026-09-05, H8): a `border-violet-100` és
+          a `-50` gradiens sötét témában világos csík maradt. */}
+      <div className="border-b border-border/70 bg-gradient-to-br from-violet-500/10 to-rose-500/10 px-5 py-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <Building2 className="size-4 text-violet-600" />
-            <span className="font-semibold text-slate-800">{sourceName}</span>
-            <ArrowRight className="size-4 text-violet-400" />
-            <Building2 className="size-4 text-rose-600" />
-            <span className="font-semibold text-slate-800">{targetName}</span>
+            <Building2 className="size-4 text-violet-700 dark:text-violet-300" />
+            <span className="font-semibold text-foreground">{sourceName}</span>
+            <ArrowRight className="size-4 text-muted-foreground" />
+            <Building2 className="size-4 text-rose-700 dark:text-rose-300" />
+            <span className="font-semibold text-foreground">{targetName}</span>
           </div>
           {statusBadge}
         </div>
@@ -168,19 +173,19 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
       {/* Tag-adatok */}
       <div className="px-5 py-4">
         <div className="flex items-start gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/12 text-violet-700 ring-1 ring-violet-500/20 dark:text-violet-300 dark:ring-violet-400/25">
             <User className="size-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-base font-semibold text-slate-800">
+            <p className="text-base font-semibold text-foreground">
               {memberName}
               {member?.szcs_nev && member.szcs_nev !== member.csaladnev && (
-                <span className="ml-2 text-sm font-normal text-slate-500">
+                <span className="ml-2 text-sm font-normal text-muted-foreground">
                   (sz. {member.szcs_nev})
                 </span>
               )}
             </p>
-            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
               {member?.sz_datum && (
                 <span className="inline-flex items-center gap-1">
                   <Calendar className="size-3.5" />
@@ -199,13 +204,13 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
               )}
             </div>
             {member?.cim && (
-              <p className="mt-1.5 inline-flex items-center gap-1 text-xs text-slate-500">
+              <p className="mt-1.5 inline-flex items-center gap-1 text-xs text-muted-foreground">
                 <MapPin className="size-3.5" />
                 {member.cim}
               </p>
             )}
             {member?.megjegyzes && (
-              <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              <p className="mt-2 rounded-lg bg-muted/60 px-3 py-2 text-xs text-foreground">
                 {member.megjegyzes}
               </p>
             )}
@@ -234,7 +239,7 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
 
       {/* Cselekvés-gombok (inbound esetén) */}
       {mode === 'inbound' && notification.status === 'pending' && (
-        <div className="border-t border-violet-100 bg-slate-50/40 px-5 py-3">
+        <div className="border-t border-border/70 bg-muted/40 px-5 py-3">
           {showRejectInput ? (
             <div className="space-y-2">
               <input
@@ -242,7 +247,7 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
                 value={rejectNote}
                 onChange={(e) => setRejectNote(e.target.value)}
                 placeholder="Elutasítás oka (opcionális, de hasznos a forrás-lelkésznek)…"
-                className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm shadow-sm focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-200"
+                className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-500/30"
                 maxLength={500}
                 autoFocus
               />
@@ -251,7 +256,7 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
                   type="button"
                   onClick={handleReject}
                   disabled={isResponding}
-                  className="rounded-full bg-red-600 hover:bg-red-700"
+                  className="min-h-11 rounded-full bg-red-600 hover:bg-red-700"
                 >
                   {isResponding ? (
                     <span className="inline-flex items-center"><Loader2 className="mr-1.5 size-4 animate-spin" />Elutasítás…</span>
@@ -267,7 +272,7 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
                     setRejectNote('')
                   }}
                   disabled={isResponding}
-                  className="rounded-full"
+                  className="min-h-11 rounded-full"
                 >
                   Mégsem
                 </Button>
@@ -279,7 +284,7 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
                 type="button"
                 onClick={handleAccept}
                 disabled={isResponding}
-                className="rounded-full bg-emerald-600 hover:bg-emerald-700"
+                className="min-h-11 rounded-full bg-emerald-600 hover:bg-emerald-700"
               >
                 {isResponding ? (
                   <span className="inline-flex items-center"><Loader2 className="mr-1.5 size-4 animate-spin" />Elfogadás…</span>
@@ -292,12 +297,12 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
                 variant="outline"
                 onClick={handleReject}
                 disabled={isResponding}
-                className="rounded-full border-red-200 text-red-700 hover:bg-red-50"
+                className="min-h-11 rounded-full border-rose-500/40 text-rose-700 hover:bg-rose-500/10 dark:text-rose-300"
               >
                 <X className="mr-1.5 size-4" />
                 Elutasítom
               </Button>
-              <p className="ml-auto text-xs text-slate-500">
+              <p className="ml-auto text-xs text-muted-foreground">
                 Elfogadáskor a tag az új gyülekezet tagja lesz.
               </p>
             </div>

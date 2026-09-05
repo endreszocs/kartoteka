@@ -91,8 +91,10 @@ import { ExcelSetupWizard } from '../../components/excel-setup-wizard'
 import { SessionStatusIndicator } from '../../components/session-status-indicator'
 import { SettingsDialog } from '../../components/settings-dialog'
 import { SyncStatusIndicator } from '../../components/sync-status-indicator'
+import { jelolExplicitKijelentkezes } from '../auth-gate'
 import { getDesktopSupabase } from '../supabase'
-import { getDesktopUser } from '../desktop-user'
+import { clearLastUser, getDesktopUser } from '../desktop-user'
+import { clearPin, clearRememberOffline } from '../auth-pin'
 import { getDbStatus } from '../local-db'
 import {
   getLocalOwnCongregation,
@@ -159,6 +161,11 @@ export function DesktopShell({ children }: DesktopShellProps) {
   // P3-20 (audit 2026-08-28): beragadt ('blocked') Excel-főkönyv-sorok —
   // állandó, kézzel zárható sáv, a Beállítások → Könyvelés felé mutatva.
   const [excelBlocked, setExcelBlocked] = useState<number>(0)
+  // desk-firstrun-5 (2026-09-05): a helyi titkosított adatbázis NEM nyílt meg
+  // (keyring / SQLCipher hiba) — eddig a shell 3 mp után némán feladta, és a
+  // sáv közben hamis zöld „Friss adatok"-at mutatott. Állandó hibasáv az
+  // `init_error` szövegével + Újrapróbálás.
+  const [dbHiba, setDbHiba] = useState<string | null>(null)
   useEffect(() => {
     function onExcelBlocked(e: Event) {
       const darab = Number((e as CustomEvent<{ darab?: number }>).detail?.darab) || 0
@@ -217,7 +224,21 @@ export function DesktopShell({ children }: DesktopShellProps) {
         }
         await new Promise((resolve) => setTimeout(resolve, 150))
       }
-      if (!mounted || !dbReady) return
+      if (!mounted) return
+      if (!dbReady) {
+        const status = await getDbStatus().catch((err: unknown) => ({
+          opened: false,
+          init_error: err instanceof Error ? err.message : String(err),
+        }))
+        if (mounted) {
+          setDbHiba(
+            status.init_error ??
+              'A helyi adatbázis nem nyílt meg 3 másodpercen belül (a kulcstár vagy a SQLCipher nem válaszol).',
+          )
+        }
+        return
+      }
+      setDbHiba(null)
 
       // 2. Lokális cache olvasás
       const [localP, localC] = await Promise.all([
@@ -260,11 +281,27 @@ export function DesktopShell({ children }: DesktopShellProps) {
     }
   }, [user])
 
-  // Sign-out: Supabase signOut + redirect a login-ra
+  // Sign-out: Supabase signOut + redirect a login-ra.
+  // 2026-09-05 (desk-auth-5): az EXPLICIT kijelentkezést jelöljük a signOut
+  // ELŐTT — csak ilyenkor törli az AuthGate a lastUser / „Emlékezz" jelzőket;
+  // a könyvtári SIGNED_OUT (lejárt refresh) PIN-módba esik vissza.
   const handleSignOut = useCallback(async () => {
+    jelolExplicitKijelentkezes()
+    // 2026-09-05 (brief D3): az EXPLICIT kijelentkezés a gép „gazdátlanítása" —
+    // a PIN (és a hozzá kötött tulajdonos), a „Emlékezz erre a gépre" jelző és
+    // az utolsó ismert felhasználó is törlődik, különben a következő belépő az
+    // előző lelkész PIN-jével / cache-ével találkozna. A helyi tükör marad
+    // (a tulajdonos-ellenőrzés dönt róla a következő belépéskor).
+    try {
+      await clearPin()
+    } catch (err) {
+      console.error('[desktop-shell] a PIN törlése kijelentkezéskor nem sikerült:', err)
+    }
+    clearRememberOffline()
+    clearLastUser()
     const supabase = getDesktopSupabase()
     await supabase.auth.signOut()
-    navigate('/login', { replace: true })
+    navigate('/elso-inditas', { replace: true })
   }, [navigate])
 
   // Minimal fallback profile, ha a session megvan, de a lokális profil-cache
@@ -378,14 +415,40 @@ export function DesktopShell({ children }: DesktopShellProps) {
         extraOperativeItems={DESKTOP_EXTRA_OPERATIVE_ITEMS}
         // 2026-06-11 (Endre): a session/szinkron jelvények a HEADERBEN élnek —
         // a korábbi lebegő (fixed) pozíció kitakarta a modulok tartalmát.
+        // 2026-09-05 (desk-sync-22): md ALATT is látszanak — kompakt alakban
+        // (a komponensek maguk rejtik a feliratot; az orchestrator hookja
+        // EGYSZER mountolódik, ezért nem duplázzuk a sávot két törésponton).
         headerExtra={
-          <div className="hidden items-center gap-2 md:flex">
+          <div className="flex items-center gap-1.5 md:gap-2">
             <AutoSyncStatusBar position="inline" />
             <SyncStatusIndicator position="inline" />
-            <SessionStatusIndicator position="inline" />
+            <div className="hidden md:flex">
+              <SessionStatusIndicator position="inline" />
+            </div>
           </div>
         }
       >
+        {dbHiba && (
+          <div
+            role="alert"
+            className="mb-4 flex items-start justify-between gap-3 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-foreground"
+          >
+            <div>
+              <strong>A helyi titkosított adatbázis nem nyílt meg.</strong> A gépen tárolt
+              adatok és a szinkron addig nem működnek. Hiba: {dbHiba}
+              <span className="block text-xs text-muted-foreground">
+                Adatbázis-fájl: %APPDATA%\com.erek.kartoteka\kartoteka.db
+              </span>
+            </div>
+            <button
+              type="button"
+              className="min-h-11 shrink-0 rounded-md border border-border bg-card px-3 text-xs font-medium hover:bg-secondary"
+              onClick={() => window.location.reload()}
+            >
+              Újrapróbálás
+            </button>
+          </div>
+        )}
         {excelElteres && (
           <div
             role="alert"

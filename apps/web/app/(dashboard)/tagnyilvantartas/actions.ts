@@ -241,8 +241,6 @@ export async function getMembers(): Promise<{
     if (p.id_szemely) paidPersonIds.push(p.id_szemely)
     if (p.id_csalad) paidFamilyIds.push(p.id_csalad)
   })
-  const paidPersonSet = new Set(paidPersonIds)
-  const paidFamilySet = new Set(paidFamilyIds)
 
   // "Bármikor fizetett egyházfenntartást" — Set
   // Minden olyan szemely_id, akinek volt valaha egyházfenntartási befizetése,
@@ -856,6 +854,7 @@ export async function saveMember(data: MemberInput) {
 
   /** Az egyseg_id mező kihagyása a retry-hoz (oszlop-drift-biztos út). */
   const memberDataEgysegNelkul = () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- kihagyó destrukturálás
     const { egyseg_id: _egysegId, ...tobbi } = memberData
     return tobbi
   }
@@ -1841,6 +1840,7 @@ export async function updateMemberConsents(
   if (error && /nev_publikalas_consent/.test(error.message || '')) {
     // Migráció előtti kecses visszaesés — a többi hozzájárulás mentése nem
     // hiúsulhat meg az új oszlop hiányán.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- kihagyó destrukturálás
     const { nev_publikalas_consent: _n, nev_publikalas_consent_at: _na, ...regi } = payload
     const retry = await supabase.from('szemely').update(regi).eq('id', szemelyId).eq('congregation_id', congregationId)
     error = retry.error
@@ -2055,15 +2055,19 @@ export async function getUpcomingNameDays() {
     return { honap: d.getMonth() + 1, nap: d.getDate() }
   })
   const months = [...new Set(pairs.map(p => p.honap))]
+  // ⚠️ 2026-09-05: a nevnap.honap/nap oszlopok VARCHAR-ok. A korábbi
+  // `r.honap === p.honap` (sztring ⇄ szám, szigorú egyenlőség) SOHA nem volt
+  // igaz, ezért az „E heti névnapok" mindig üres volt (a felmérés P1-találata).
+  // A szűrő sztringként, az egyeztetés Number()-rel megy.
   const { data } = await supabase
     .from('nevnap')
     .select('honap, nap, nev1, nev2, nev3')
-    .in('honap', months)
+    .in('honap', months.map(String))
 
-  type NevnapRow = { honap: number; nap: number; nev1: string | null; nev2: string | null; nev3: string | null }
+  type NevnapRow = { honap: string | number; nap: string | number; nev1: string | null; nev2: string | null; nev3: string | null }
   const rows = (data || []) as NevnapRow[]
   return pairs.map(p => {
-    const row = rows.find(r => r.honap === p.honap && r.nap === p.nap)
+    const row = rows.find(r => Number(r.honap) === p.honap && Number(r.nap) === p.nap)
     return {
       honap: p.honap,
       nap: p.nap,

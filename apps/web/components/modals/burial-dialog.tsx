@@ -20,6 +20,8 @@ import {
 } from '@/lib/constants/emleklap-templates'
 import { formatHungarianDate } from '@/lib/utils/emleklap-data-mapper'
 import { toast } from 'sonner'
+// 2026-09-05: HELYI „ma" — az UTC-s toISOString() éjfél és hajnali 3 között az előző napot adta.
+import { todayYmd } from '@/lib/utils/program-day'
 
 const FIELD_INPUT_CLASS = 'bg-white shadow-sm border-slate-300'
 
@@ -27,6 +29,18 @@ interface BurialDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   congregationName?: string
+  /**
+   * 2026-09-05 (naptár ⇄ anyakönyv, D1): a naptár-csempéről indított
+   * anyakönyvezés a TERVEZETT program napjával nyitja a dialógust. Csak ÚJ
+   * rögzítésnél számít; szerkesztéskor a bejegyzés saját dátuma az úr.
+   */
+  initialDate?: string | null
+  /**
+   * Sikeres mentés után a bejegyzés `id`-jával hívódik (a bezárás ELŐTT) — a
+   * naptár ezzel köti a programot a bejegyzéshez. Az Anyakönyv fülön nincs
+   * megadva, ott a viselkedés betűre a korábbi.
+   */
+  onSaved?: (id: number) => void
   editEntry?: {
     id: number
     hdatum?: string
@@ -54,7 +68,7 @@ function calculateAge(birthDate: string | null | undefined, deathDate: string | 
   } catch { return '' }
 }
 
-export function BurialDialog({ open, onOpenChange, congregationName = '', editEntry }: BurialDialogProps) {
+export function BurialDialog({ open, onOpenChange, congregationName = '', editEntry, initialDate, onSaved }: BurialDialogProps) {
   const [loading, setLoading] = useState(false)
   const [person, setPerson] = useState<MemberSearchResult | null>(null)
   const [hdatum, setHdatum] = useState('')
@@ -141,7 +155,8 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
         return
       }
       setPerson(null)
-      setHdatum(''); setTdatum(''); setHoka(''); setOkirat('')
+      // 2026-09-05: a naptárból a TEMETÉS napja jön (a program napja); a halál napja üres marad.
+      setHdatum(''); setTdatum(initialDate || ''); setHoka(''); setOkirat('')
       // 2026-08-25 (Endre): új rögzítésnél a munkanapló-kapcsoló ALAPBÓL BE.
       setLelkesz(''); setMegj(''); setMunkanaploba(true)
       setFuneralPlace(''); setFuneralTime('14:00')
@@ -152,12 +167,12 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
       setVerseReference('Jób 1,21')
       setRelativeRelation('egyháztagunk és hitbeli testvérünk')
       setMourners('Gyászolják:\nSzerető családja és mindazok,\nakik ismerték és tisztelték')
-      getNextEgyhaziSzam('burial', new Date().getFullYear()).then(v => {
+      getNextEgyhaziSzam('burial', Number((initialDate || '').slice(0, 4)) || new Date().getFullYear()).then(v => {
         if (!cancelled) setEgyhaziSzam(v)
       })
     })
     return () => { cancelled = true }
-  }, [open, editEntry])
+  }, [open, editEntry, initialDate])
 
   // 2026-05-30: élő gyászjelentés-preview
   const template: EmleklapTemplate = EMLEKLAP_TEMPLATES_MAP['temetes-erek']
@@ -209,9 +224,9 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
 
   // 2026-08-25: a mentés eredménye a munkanapló-előtöltést is hozza (ha a
   // kapcsoló BE volt) — a hívó ezzel nyitja meg a munkanapló-rögzítőt.
-  async function handleSubmit(): Promise<{ ok: boolean; worklogEntry: WorklogEntry | null }> {
-    if (!person) { toast.error('Válasszon személyt!'); return { ok: false, worklogEntry: null } }
-    if (!hdatum || !tdatum) { toast.error('A halál és temetés dátuma kötelező!'); return { ok: false, worklogEntry: null } }
+  async function handleSubmit(): Promise<{ ok: boolean; id: number | null; worklogEntry: WorklogEntry | null }> {
+    if (!person) { toast.error('Válasszon személyt!'); return { ok: false, id: null, worklogEntry: null } }
+    if (!hdatum || !tdatum) { toast.error('A halál és temetés dátuma kötelező!'); return { ok: false, id: null, worklogEntry: null } }
     setLoading(true)
     const result = await saveBurial({
       id: editEntry?.id,
@@ -236,7 +251,7 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
       mourners: mourners || '', // üres string is OK — skip esetén üres sor jelenik meg
     })
     setLoading(false)
-    if (result.error) { toast.error(result.error); return { ok: false, worklogEntry: null } }
+    if (result.error) { toast.error(result.error); return { ok: false, id: null, worklogEntry: null } }
     // 2026-08-04 (PR-42): ha a tag „elhunyt" jelölése vagy a családi/háztartási
     // lezárás nem sikerült, azt eddig SEMMI nem mutatta — a lelkész azt hitte,
     // minden rendben. Most külön figyelmeztetés jelenik meg.
@@ -247,6 +262,8 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
     }
     return {
       ok: true,
+      // 2026-09-05: a bejegyzés id-ja a hívónak (naptár ⇄ anyakönyv kötés).
+      id: 'id' in result && typeof result.id === 'number' ? result.id : null,
       worklogEntry: 'worklogEntry' in result && result.worklogEntry
         ? (result.worklogEntry as WorklogEntry)
         : null,
@@ -271,6 +288,7 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
   async function handleSaveOnly() {
     const res = await handleSubmit()
     if (!res.ok) return
+    if (res.id != null) onSaved?.(res.id)
     onOpenChange(false)
     maybeOpenWorklog(res.worklogEntry)
   }
@@ -278,6 +296,7 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
   async function handleSaveAndPrint() {
     const res = await handleSubmit()
     if (!res.ok) return
+    if (res.id != null) onSaved?.(res.id)
     setTimeout(() => {
       handlePrint()
       setTimeout(() => {
@@ -305,6 +324,10 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
     win.document.close()
   }
 
+  // 2026-09-05: a jövőbeli dátum NEM tiltott (a naptárból a tervezett napra
+  // nyílik a dialógus), csak JELEZZÜK — az anyakönyv a megtörtént eseményt rögzíti.
+  const jovobeli = !!tdatum && tdatum > todayYmd()
+
   return (
     <>
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -331,6 +354,11 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
               <div className="space-y-1.5"><Label>Halál dátuma *</Label><Input type="date" value={hdatum} onChange={e => setHdatum(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
               <div className="space-y-1.5"><Label>Temetés dátuma *</Label><Input type="date" value={tdatum} onChange={e => setTdatum(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
             </div>
+            {jovobeli && (
+              <p className="text-[11px] font-medium text-destructive">
+                ⚠️ A dátum a jövőben van — az anyakönyv a MEGTÖRTÉNT eseményt rögzíti. Ha még csak tervezed az alkalmat, a naptárban programként is rögzítheted, és a megtörténte után anyakönyvezheted.
+              </p>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">

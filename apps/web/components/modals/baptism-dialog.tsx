@@ -27,11 +27,25 @@ import {
   formatMotherNameForEmleklap,
 } from '@/lib/utils/emleklap-data-mapper'
 import { toast } from 'sonner'
+// 2026-09-05: HELYI „ma" — az UTC-s toISOString() éjfél és hajnali 3 között az előző napot adta.
+import { todayYmd } from '@/lib/utils/program-day'
 
 interface BaptismDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   congregationName: string
+  /**
+   * 2026-09-05 (naptár ⇄ anyakönyv, D1): a naptár-csempéről indított
+   * anyakönyvezés a TERVEZETT program napjával nyitja a dialógust. Csak ÚJ
+   * rögzítésnél számít; szerkesztéskor a bejegyzés saját dátuma az úr.
+   */
+  initialDate?: string | null
+  /**
+   * Sikeres mentés után a bejegyzés `id`-jával hívódik (a bezárás ELŐTT) — a
+   * naptár ezzel köti a programot a bejegyzéshez. Az Anyakönyv fülön nincs
+   * megadva, ott a viselkedés betűre a korábbi.
+   */
+  onSaved?: (id: number) => void
   editEntry?: {
     id: number
     datum?: string
@@ -52,7 +66,7 @@ interface BaptismDialogProps {
 // a MemberSearchSelect (apa/anya) megjelenéséhez.
 const FIELD_INPUT_CLASS = 'bg-white shadow-sm border-slate-300'
 
-export function BaptismDialog({ open, onOpenChange, congregationName, editEntry }: BaptismDialogProps) {
+export function BaptismDialog({ open, onOpenChange, congregationName, editEntry, initialDate, onSaved }: BaptismDialogProps) {
   const [loading, setLoading] = useState(false)
   const [selectedPerson, setSelectedPerson] = useState<MemberSearchResult | null>(null)
   const [familyAutoLoaded, setFamilyAutoLoaded] = useState(false)
@@ -157,8 +171,9 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
       setSelectedPerson(null)
       setFather(null); setMother(null); setFamilyAutoLoaded(false)
       setApjaneveText(null); setAnyjaneveText(null); setParentDiag(null)
-      const today = new Date().toISOString().slice(0, 10)
-      setDatum(today); setOkirat(''); setLelkesz(''); setKeresztszulok('')
+      // 2026-09-05: a naptárból a tervezett program napja, különben a HELYI mai nap.
+      const kezdoDatum = initialDate || todayYmd()
+      setDatum(kezdoDatum); setOkirat(''); setLelkesz(''); setKeresztszulok('')
       // 2026-08-25 (Endre): új rögzítésnél a munkanapló-kapcsoló ALAPBÓL BE —
       // a kazuália szinte mindig elvégzett szolgálat is.
       setAlapige(''); setMegjegyzes(''); setMunkanaploba(true)
@@ -168,12 +183,12 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
         const savedGondnok = localStorage.getItem('kartoteka.emleklap.gondnokName')
         if (savedGondnok) setGondnok(savedGondnok)
       } catch { /* SSR / private mode */ }
-      getNextEgyhaziSzam('baptism', new Date().getFullYear()).then(value => {
+      getNextEgyhaziSzam('baptism', Number(kezdoDatum.slice(0, 4)) || new Date().getFullYear()).then(value => {
         if (!cancelled) setEgyhaziSzam(value)
       })
     })
     return () => { cancelled = true }
-  }, [open, editEntry])
+  }, [open, editEntry, initialDate])
 
   useEffect(() => {
     // 2026-05-30: szerkesztés módban is futtatjuk az auto-load-ot, hogy a
@@ -370,9 +385,9 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
 
   // 2026-08-25: a mentés eredménye a munkanapló-előtöltést is hozza (ha a
   // kapcsoló BE volt) — a hívó ezzel nyitja meg a munkanapló-rögzítőt.
-  async function handleSubmit(): Promise<{ ok: boolean; worklogEntry: WorklogEntry | null }> {
-    if (!selectedPerson) { toast.error('Válasszon személyt!'); return { ok: false, worklogEntry: null } }
-    if (!datum) { toast.error('A dátum kötelező!'); return { ok: false, worklogEntry: null } }
+  async function handleSubmit(): Promise<{ ok: boolean; id: number | null; worklogEntry: WorklogEntry | null }> {
+    if (!selectedPerson) { toast.error('Válasszon személyt!'); return { ok: false, id: null, worklogEntry: null } }
+    if (!datum) { toast.error('A dátum kötelező!'); return { ok: false, id: null, worklogEntry: null } }
     setLoading(true)
     const fatherName = father ? `${father.csaladnev || ''} ${father.k_nev || ''}`.trim() : ''
     // 2026-05-30: az anya neve CSAK akkor formázva, ha a felhasználó kiválasztotta.
@@ -423,13 +438,15 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
     setLoading(false)
     if (result.error) {
       toast.error(result.error)
-      return { ok: false, worklogEntry: null }
+      return { ok: false, id: null, worklogEntry: null }
     }
     toast.success('Keresztelés rögzítve!')
     // 2026-08-01 (PR-18): dupla-tagsági figyelmeztetés az auto-család őrtől
     if ('warning' in result && result.warning) toast.warning(result.warning, { duration: 9000 })
     return {
       ok: true,
+      // 2026-09-05: a bejegyzés id-ja a hívónak (naptár ⇄ anyakönyv kötés).
+      id: 'id' in result && typeof result.id === 'number' ? result.id : null,
       worklogEntry: 'worklogEntry' in result && result.worklogEntry
         ? (result.worklogEntry as WorklogEntry)
         : null,
@@ -455,6 +472,7 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
   async function handleSaveOnly() {
     const res = await handleSubmit()
     if (!res.ok) return
+    if (res.id != null) onSaved?.(res.id)
     onOpenChange(false)
     maybeOpenWorklog(res.worklogEntry)
   }
@@ -489,6 +507,7 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
     }
     const res = await handleSubmit()
     if (!res.ok) return
+    if (res.id != null) onSaved?.(res.id)
     // Várunk egy tick-et, hogy a fieldValues a friss state-tel frissüljön a print előtt
     setTimeout(() => {
       handlePrint()
@@ -522,6 +541,10 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
     </head><body>${html}<script>window.onload = () => { setTimeout(() => window.print(), 200); };</script></body></html>`)
     win.document.close()
   }
+
+  // 2026-09-05: a jövőbeli dátum NEM tiltott (a naptárból a tervezett napra
+  // nyílik a dialógus), csak JELEZZÜK — az anyakönyv a megtörtént eseményt rögzíti.
+  const jovobeli = !!datum && datum > todayYmd()
 
   return (
     <>
@@ -698,6 +721,11 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
                   <Input type="date" value={datum} onChange={e => setDatum(e.target.value)} className={FIELD_INPUT_CLASS} />
                 </div>
               </div>
+              {jovobeli && (
+                <p className="text-[11px] font-medium text-destructive">
+                  ⚠️ A dátum a jövőben van — az anyakönyv a MEGTÖRTÉNT eseményt rögzíti. Ha még csak tervezed az alkalmat, a naptárban programként is rögzítheted, és a megtörténte után anyakönyvezheted.
+                </p>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5"><Label>Lelkész</Label><Input value={lelkesz} onChange={e => setLelkesz(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
                 <div className="space-y-1.5"><Label>Keresztszülők</Label><Input value={keresztszulok} onChange={e => setKeresztszulok(e.target.value)} className={FIELD_INPUT_CLASS} /></div>

@@ -10,6 +10,8 @@ import {
   getScopedCongregationIdsResult,
 } from '@/lib/auth/admin-scope'
 import { canReadDioceseScope, resolveDioceseReadScopeIds } from '@/lib/auth/level-scope'
+import { feladoMezok } from '@/lib/notifications/felado'
+import { insertErtesites } from '@/lib/notifications/ertesites-insert'
 
 /**
  * profile_congregations hozzárendelések kezelése — admin / kerületi admin oldali actions.
@@ -340,6 +342,7 @@ export async function createAssignment(args: {
     const notif = await sendPastorNotification(supabase, {
       congregationId: args.congregationId,
       assignmentId: result.assignment_id,
+      targetProfileId: args.profileId,
       targetFullName: targetProfile?.full_name ?? null,
       targetEmail: targetProfile?.email ?? null,
       roleScope: args.roleScope,
@@ -422,6 +425,8 @@ async function sendPastorNotification(
   args: {
     congregationId: string
     assignmentId: string
+    /** A hozzáférést kérő profil — ő az üzenet FELADÓJA (2026-09-05). */
+    targetProfileId: string
     targetFullName: string | null
     targetEmail: string | null
     roleScope: AssignmentRoleScope
@@ -445,22 +450,25 @@ async function sendPastorNotification(
   // 2026-06-07: az insert HIBÁJÁT is ellenőrizzük — eddig némán elbukhatott
   // (a lelkész nem kapott értesítést, és senki nem tudott róla). Most a hívó
   // figyelmeztetést tud adni az adminnak.
-  const { error: notifErr } = await supabase.from('ertesitesek').insert({
-    user_id: pastor.id,
-    congregation_id: args.congregationId,
-    cim: `Hozzáférési kérés: ${roleLabel}`,
-    uzenet:
-      `${targetName} ${roleLabel} szerepkörben szeretne hozzáférni a gyülekezeted pénzügyi adataihoz. ` +
-      `Indok: "${args.reason}". ` +
-      `A te engedélyed nélkül nem fogja látni a gyülekezet adatait. ` +
-      `Nézd át a kérést a Profilom oldaladon.`,
-    tipus: 'info',
-    hivatkozas: '/profile/kapcsolatok',
-  })
-  if (notifErr) {
-    console.warn('[createAssignment] lelkész-értesítés insert hiba:', notifErr.message)
-    return { ok: false }
-  }
+  const ertesites = await insertErtesites(
+    supabase,
+    {
+      user_id: pastor.id,
+      congregation_id: args.congregationId,
+      cim: `Hozzáférési kérés: ${roleLabel}`,
+      uzenet:
+        `${targetName} ${roleLabel} szerepkörben szeretne hozzáférni a gyülekezeted pénzügyi adataihoz. ` +
+        `Indok: "${args.reason}". ` +
+        `A te engedélyed nélkül nem fogja látni a gyülekezet adatait. ` +
+        `Nézd át a kérést a Profilom oldaladon.`,
+      tipus: 'info',
+      hivatkozas: '/profile/kapcsolatok',
+      // A feladó a hozzáférést kérő felhasználó (a nevében kéri az admin).
+      ...feladoMezok('felhasznalo', targetName, args.targetProfileId),
+    },
+    { forras: 'admin-hozzarendeles' },
+  )
+  if (ertesites.error) return { ok: false }
   return { ok: true }
 }
 

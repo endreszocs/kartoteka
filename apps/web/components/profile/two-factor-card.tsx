@@ -174,23 +174,23 @@ export function TwoFactorCard() {
     <div className="card-raised space-y-4 p-5">
       <div className="flex items-center gap-2">
         <ShieldCheck className="h-5 w-5 text-emerald-600" />
-        <h2 className="font-heading text-lg text-slate-800">Kétlépcsős belépés (2FA)</h2>
+        <h2 className="font-heading text-lg text-foreground">Kétlépcsős belépés (2FA)</h2>
       </div>
 
       {allapot.fazis === 'betolt' && (
-        <div className="flex items-center gap-2 text-sm text-slate-500">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Betöltés…
         </div>
       )}
 
       {allapot.fazis === 'ki' && (
-        <div className="space-y-3 text-sm text-slate-700">
+        <div className="space-y-3 text-sm text-foreground">
           <p>
             A kétlépcsős belépés a jelszó mellé egy <strong>második zárat</strong> tesz a fiókodra:
             belépéskor a telefonod hitelesítő alkalmazása (Google Authenticator, Microsoft
             Authenticator vagy Aegis) 6 számjegyű, 30 másodpercenként változó kódját is be kell írni.
           </p>
-          <ul className="list-disc space-y-1 pl-5 text-slate-600">
+          <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
             <li>A bekapcsolás egyszeri, kb. 2 perc; belépéskor ez +5 másodperc.</li>
             <li>Nem kell hozzá SMS és internet sem a telefonon — külföldön is ugyanúgy működik.</li>
             <li>Kapsz 8 nyomtatható mentőkódot — ha a telefon elveszne, ezekkel akkor is bejutsz.</li>
@@ -204,12 +204,14 @@ export function TwoFactorCard() {
       )}
 
       {allapot.fazis === 'enroll' && (
-        <div className="space-y-3 text-sm text-slate-700">
+        <div className="space-y-3 text-sm text-foreground">
           <p>
             <strong>1. lépés:</strong> nyisd meg a telefonodon a hitelesítő alkalmazást, és olvasd be
             ezt a QR-kódot:
           </p>
-          <div className="flex justify-center rounded-xl border border-slate-200 bg-white p-3">
+          {/* A QR-doboz SZÁNDÉKOSAN fehér (nem token): az SVG-QR háttere átlátszó,
+              sötét kártyán a telefon kamerája nem olvasná be. */}
+          <div className="flex justify-center rounded-xl border border-border bg-white p-3">
             {/* A Supabase SVG-QR-t ad — adat-URI-ként jelenítjük meg. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -223,7 +225,7 @@ export function TwoFactorCard() {
               height={190}
             />
           </div>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-muted-foreground">
             Ha a QR nem olvasható, kézzel is beírhatod az appba: <code className="select-all">{allapot.secret}</code>
           </p>
           <p>
@@ -247,14 +249,14 @@ export function TwoFactorCard() {
       )}
 
       {allapot.fazis === 'mentokodok' && (
-        <div className="space-y-3 text-sm text-slate-700">
-          <p className="font-semibold text-emerald-700">A kétlépcsős belépés bekapcsolt. ✅</p>
+        <div className="space-y-3 text-sm text-foreground">
+          <p className="font-semibold text-emerald-700 dark:text-emerald-300">A kétlépcsős belépés bekapcsolt. ✅</p>
           <p>
             Ezek a <strong>mentőkódjaid</strong> — mindegyik egyszer használható, és ha a telefonod
             elveszne, ezekkel akkor is be tudsz lépni. <strong>MOST mentsd el</strong> (nyomtasd ki
             vagy írd fel) — később nem jelennek meg újra:
           </p>
-          <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 font-mono text-base sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-muted p-3 font-mono text-base sm:grid-cols-4">
             {allapot.kodok.map((k) => (
               <span key={k} className="select-all">{k}</span>
             ))}
@@ -281,9 +283,9 @@ export function TwoFactorCard() {
       )}
 
       {allapot.fazis === 'be' && (
-        <div className="space-y-3 text-sm text-slate-700">
-          <p className="font-semibold text-emerald-700">A kétlépcsős belépés BE van kapcsolva. ✅</p>
-          <p className="text-slate-600">
+        <div className="space-y-3 text-sm text-foreground">
+          <p className="font-semibold text-emerald-700 dark:text-emerald-300">A kétlépcsős belépés BE van kapcsolva. ✅</p>
+          <p className="text-muted-foreground">
             Mentőkódok: <strong>{allapot.szabadKod} szabad</strong>
             {allapot.elhasznaltKod > 0 ? ` · ${allapot.elhasznaltKod} elhasznált` : ''}. Ha elfogytak
             vagy elvesztek, generálj újakat.
@@ -296,7 +298,7 @@ export function TwoFactorCard() {
               variant="outline"
               onClick={kikapcsol}
               disabled={dolgozik}
-              className="gap-2 border-red-300 text-red-700 hover:bg-red-50"
+              className="gap-2 border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950/40"
             >
               <ShieldOff className="h-4 w-4" /> Kikapcsolás
             </Button>

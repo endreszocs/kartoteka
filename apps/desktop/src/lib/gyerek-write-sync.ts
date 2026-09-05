@@ -10,6 +10,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getDesktopSupabase } from './supabase'
 import { getTauriSqliteBackend } from './tauri-sqlite-backend'
+import { getVerifiedSession } from './verified-session'
+import { FutoOr, withSyncTimeout } from './write-sync-registry'
 
 const MAX_ATTEMPTS = 5
 const BACKOFF_MS_BY_ATTEMPT: Record<number, number> = {
@@ -41,10 +43,11 @@ export async function pushPendingGyerek(
     errors: [],
   }
 
-  try {
-    const sessionRes = await supabase.auth.getSession()
-    if (!sessionRes.data.session) return result
-  } catch {
+  // 2026-09-05: a repó közös őre (`getVerifiedSession`) — lejárat + FIÓK-
+  // EGYEZŐSÉG (a csupasz getSession más fiókkal is felküldte volna a sort).
+  const verified = await getVerifiedSession()
+  if (!verified.ok) {
+    if (verified.reason === 'user-mismatch') result.errors.push(verified.message)
     return result
   }
 
@@ -169,57 +172,51 @@ function pushErrorDedup(list: string[], msg: string): void {
 // Auto-trigger háttér-pusher
 // ─────────────────────────────────────────────────────────────────────────
 
-let pusherInterval: ReturnType<typeof setInterval> | null = null
-let onlineListenerAttached = false
-let inFlight = false
+/**
+ * A futó push őre — a TÉNYLEGES befejezésig tart, nem az időkorlátig (bíráló
+ * P1, 2026-09-05): a gyerek-insertnek nincs dup-védelme, két párhuzamos kör
+ * ugyanazt a gyermek-sort kétszer szúrta volna be. Ld. `FutoOr`.
+ */
+const futoOr = new FutoOr<GyerekPushResult>()
 
-async function runOnceGuarded(): Promise<void> {
-  if (inFlight) return
+/** Egy push indítása — vagy a már futó megosztása. */
+function inditPush(ignoreBackoff: boolean): Promise<GyerekPushResult> {
+  return futoOr.futtat(() => pushPendingGyerek(getDesktopSupabase(), ignoreBackoff))
+}
+
+/**
+ * Egy őrzött kör: saját visszalépéssel, 30 mp-es időkorláttal. Sosem dob.
+ * 2026-09-05: EXPORTÁLT — a `write-sync-registry` pollja hívja (nem a
+ * dialógus mountjától függ többé — desk-sync-2); a saját listener kikerült.
+ */
+export async function runGyerekSyncGuarded(): Promise<void> {
+  if (futoOr.fut) return
   if (typeof navigator !== 'undefined' && !navigator.onLine) return
-  inFlight = true
   try {
-    await pushPendingGyerek()
-  } finally {
-    inFlight = false
+    await withSyncTimeout(inditPush(false), 'Gyermek-szinkron')
+  } catch (err) {
+    // Időtúllépés VAGY hiba: a push a háttérben az őr alatt fut tovább —
+    // a következő kör NEM indít újat.
+    console.warn(
+      '[gyerek-write-sync] a háttér-kör hibára futott:',
+      err instanceof Error ? err.message : String(err),
+    )
   }
 }
 
+/**
+ * Kompatibilitási belépő (family-detail-dialog): egyetlen azonnali őrzött
+ * kör. A triggerkészlet a `write-sync-registry`-ben él.
+ */
 export function startGyerekAutoSync(): void {
   if (typeof window === 'undefined') return
-
-  if (!onlineListenerAttached) {
-    window.addEventListener('online', () => {
-      void runOnceGuarded()
-    })
-    onlineListenerAttached = true
-  }
-
-  if (!pusherInterval) {
-    pusherInterval = setInterval(() => {
-      void runOnceGuarded()
-    }, 30_000)
-  }
-
-  void runOnceGuarded()
+  void runGyerekSyncGuarded()
 }
 
+/**
+ * Manuális push (a visszalépést ignorálja). Ha már fut egy kör (időtúllépés
+ * után is), NEM indít újat — ugyanazt várja meg, időkorláttal.
+ */
 export async function runGyerekSyncManually(): Promise<GyerekPushResult> {
-  if (inFlight) {
-    while (inFlight) {
-      await new Promise((r) => setTimeout(r, 100))
-    }
-    return {
-      attempted: 0,
-      succeeded: 0,
-      retrying: 0,
-      conflicts: 0,
-      errors: [],
-    }
-  }
-  inFlight = true
-  try {
-    return await pushPendingGyerek(getDesktopSupabase(), true)
-  } finally {
-    inFlight = false
-  }
+  return withSyncTimeout(inditPush(true), 'Gyermek-szinkron')
 }

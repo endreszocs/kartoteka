@@ -115,6 +115,68 @@ if (regiVilag === valNyers) {
   )
 }
 
+// ── 2026-09-05: új típusok + sorrend-szabályok ───────────────────────────
+// P5   az 5 új típus (anyakönyvi alkalmak + szabadság) átmegy a sémán
+// P5n  a RÉGI (16 elemű) PROGRAM_TYPES-mutánson a 'szabadsag' BUKIK
+// P6   ismetlodes_vege < datum BUKIK (a sorozat 0 alkalommal bomlott ki, a
+//      program minden nézetből némán eltűnt)
+// P6n  a sorrend-szabály nélküli mutánson ugyanez ÁTMEGY — az őrszem nem vak
+// P7   egynapos alkalomnál ido_befejezes < ido_kezdes BUKIK
+// P7b  többnapos (virrasztás) alkalomnál az éjszakába nyúlás ENGEDETT
+for (const tipus of ['kereszteles', 'eskuvo', 'konfirmacio', 'temetes', 'szabadsag']) {
+  assert(schema.safeParse({ ...UJ_PROGRAM, tipus }).success, `P5: az új '${tipus}' típus átmegy a sémán`)
+}
+{
+  const constNyers = fs.readFileSync(CONST_SRC, 'utf8')
+  const regiTipusok = constNyers.replace(/\n\s*'kereszteles', 'eskuvo', 'konfirmacio', 'temetes', 'szabadsag',\n/, '\n')
+  if (regiTipusok === constNyers) {
+    assert(false, 'P5n: a PROGRAM_TYPES-mutáns NEM különbözik — a negatív asszert vak')
+  } else {
+    const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'kartoteka-program-mut-'))
+    try {
+      fs.writeFileSync(path.join(tmp2, 'dashboard-const.cjs'), t(regiTipusok))
+      fs.writeFileSync(
+        path.join(tmp2, 'dashboard-val.cjs'),
+        t(valNyers)
+          .replace(/require\(["']@\/lib\/constants\/dashboard["']\)/g, `require(${JSON.stringify(path.join(tmp2, 'dashboard-const.cjs'))})`)
+          .replace(/require\(["']zod["']\)/g, `require(${JSON.stringify(path.join(ROOT, 'node_modules/zod'))})`),
+      )
+      const regiSchema2 = require_(path.join(tmp2, 'dashboard-val.cjs')).programSchema
+      assert(!regiSchema2.safeParse({ ...UJ_PROGRAM, tipus: 'szabadsag' }).success, "P5n: a RÉGI típuslistán a 'szabadsag' BUKIK — az őrszem tud pirosra váltani")
+    } finally {
+      fs.rmSync(tmp2, { recursive: true, force: true })
+    }
+  }
+}
+assert(
+  !schema.safeParse({ ...UJ_PROGRAM, datum_vege: '', ismetlodes_tipus: 'heti', ismetlodes_vege: '2026-08-01' }).success,
+  'P6: ismetlodes_vege < datum BUKIK',
+)
+assert(
+  schema.safeParse({ ...UJ_PROGRAM, datum_vege: '', ismetlodes_tipus: 'heti', ismetlodes_vege: '2026-12-31' }).success,
+  'P6b: ismetlodes_vege >= datum átmegy',
+)
+{
+  const mutans = valNyers.replace(/if \(data\.ismetlodes_tipus && data\.ismetlodes_vege && data\.ismetlodes_vege < data\.datum\) \{[\s\S]*?\n  \}\n/, '')
+  if (mutans === valNyers) {
+    assert(false, 'P6n: a sorrend-mutáns NEM különbözik — a negatív asszert vak')
+  } else {
+    const mutSchema = betoltSchema(mutans)
+    assert(
+      mutSchema.safeParse({ ...UJ_PROGRAM, datum_vege: '', ismetlodes_tipus: 'heti', ismetlodes_vege: '2026-08-01' }).success,
+      'P6n: a szabály nélküli mutánson a rossz sorozat-vége ÁTMEGY — az őrszem nem vak',
+    )
+  }
+}
+assert(
+  !schema.safeParse({ ...UJ_PROGRAM, datum_vege: '', ido_kezdes: '20:00', ido_befejezes: '08:00' }).success,
+  'P7: egynapos alkalomnál a kezdés utáni befejezés kötelező (20:00–08:00 BUKIK)',
+)
+assert(
+  schema.safeParse({ ...UJ_PROGRAM, datum: '2026-09-04', datum_vege: '2026-09-05', ido_kezdes: '20:00', ido_befejezes: '08:00' }).success,
+  'P7b: többnapos (virrasztás) alkalomnál az éjszakába nyúlás ENGEDETT',
+)
+
 // D — a dialógus hangos onInvalid-ja (néma validációs bukás tilos)
 function kommentNelkul(kod) {
   return kod.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map((s) => {

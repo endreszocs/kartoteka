@@ -5,6 +5,8 @@ import { selectAllPaged } from '@kartoteka/supabase-client'
 import { z } from 'zod'
 import { programSchema, batchRowSchema, type ProgramInput } from '@/lib/validations/dashboard'
 import type { Program } from '@/lib/constants/dashboard'
+import { isAnyakonyviProgramTipus, isMaganProgramTipus } from '@/lib/constants/dashboard'
+import { PROGRAM_TIPUS_ANYAKONYV_TABLA } from '@/lib/calendar/naptar-retegek-types'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { logAuditEvent } from '@/lib/audit/log'
 import { isMissingDeletedColumn } from '@/lib/worklog/registry-sync'
@@ -177,7 +179,10 @@ function buildProgramRecord(d: ProgramInput): Record<string, unknown> {
     ismetlodes_tipus: d.ismetlodes_tipus || null,
     // 2026-08-26 (5. kör): a sorozat záró napja + weboldal-publikálás.
     ismetlodes_vege: d.ismetlodes_tipus ? d.ismetlodes_vege || null : null,
-    publikus: d.publikus === true,
+    // 2026-09-05: MAGÁN típus (szabadság, anyakönyvi alkalom) SOHA nem publikus —
+    // a DB-trigger is kikényszeríti, a nyilvános RPC-k is kizárják; itt a
+    // felület kapuja. A három kapu EGYÜTT fail-closed.
+    publikus: d.publikus === true && !isMaganProgramTipus(d.tipus),
     'ismétlődő': !!d.ismetlodes_tipus,
     egyedi_tipus_nev: d.tipus === 'egyeb' ? (d.egyedi_tipus_nev || null) : null,
     egyedi_emoji: d.tipus === 'egyeb' ? (d.egyedi_emoji || null) : null,
@@ -408,6 +413,7 @@ export async function createImahetNaplosorok(input: {
   let ins = await supabase.from('munkanaplo').insert(records).select('id')
   if (ins.error && isMissingDeletedColumn(ins.error)) {
     // A `deleted` oszlop még nem létezik (migráció előtt) → oszlop nélkül újra.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- kihagyó destrukturálás
     const deletedNelkul = records.map(({ deleted: _d, ...tobbi }) => tobbi)
     ins = await supabase.from('munkanaplo').insert(deletedNelkul).select('id')
   }
@@ -470,4 +476,103 @@ export async function saveBatchPrograms(records: ProgramInput[]) {
 
   revalidatePath('/dashboard')
   return { success: true, count: dbRecords.length }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 2026-09-05 — TERVEZETT ANYAKÖNYVI ALKALOM ⇄ MEGTÖRTÉNT ANYAKÖNYVI BEJEGYZÉS
+// ─────────────────────────────────────────────────────────────────────────
+// A naptárból rögzített keresztelő/esküvő/konfirmáció/temetés PROGRAM (terv).
+// Amikor a lelkész anyakönyvezi (a registry-dialógus menti a sort), a program
+// egyetlen kapcsolatot kap az anyakönyvi sorhoz, és „teljesített" lesz. A naptár
+// ettől kezdve a programot mutatja „anyakönyvezve" jelzéssel, az anyakönyvi
+// réteg pedig NEM mutatja külön ugyanazt az eseményt — nincs duplikátum.
+//
+// Az anyakönyv a TÉNY, a program a TERV: az összekötés sosem másol adatot.
+
+export async function kapcsolProgramAnyakonyvhoz(input: {
+  programId: string
+  anyakonyvId: number
+}): Promise<{ ok: boolean; error?: string }> {
+  const { supabase, congregationId } = await getEffectiveCongregationContext()
+  if (!congregationId) return { ok: false, error: 'Nincs aktív gyülekezet kiválasztva.' }
+  if (!/^[0-9a-f-]{36}$/i.test(input.programId) || !Number.isInteger(input.anyakonyvId) || input.anyakonyvId <= 0) {
+    return { ok: false, error: 'Érvénytelen azonosító.' }
+  }
+
+  const { data: program, error: readError } = await supabase
+    .from('gyulekezeti_programok')
+    .select('id, tipus, anyakonyv_id')
+    .eq('id', input.programId)
+    .eq('congregation_id', congregationId)
+    .maybeSingle()
+  if (readError) return { ok: false, error: `A program nem olvasható: ${readError.message}` }
+  const p = program as { id: string; tipus: string; anyakonyv_id?: number | null } | null
+  if (!p) return { ok: false, error: 'A program nem található ebben a gyülekezetben.' }
+  if (!isAnyakonyviProgramTipus(p.tipus)) {
+    return { ok: false, error: 'Csak keresztelő/esküvő/konfirmáció/temetés típusú program köthető anyakönyvi bejegyzéshez.' }
+  }
+  if (p.anyakonyv_id && p.anyakonyv_id !== input.anyakonyvId) {
+    return { ok: false, error: 'Ez a program már egy MÁSIK anyakönyvi bejegyzéshez van kötve.' }
+  }
+
+  const tabla = PROGRAM_TIPUS_ANYAKONYV_TABLA[p.tipus]
+  const { data: frissitve, error } = await supabase
+    .from('gyulekezeti_programok')
+    .update({
+      anyakonyv_tabla: tabla,
+      anyakonyv_id: input.anyakonyvId,
+      teljesitett: true,
+      teljesites_datum: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', input.programId)
+    .eq('congregation_id', congregationId)
+    .select('id')
+    .maybeSingle()
+
+  if (error) {
+    // 23505 = az anyakönyvi sorhoz MÁR tartozik program (részleges egyedi index).
+    if (error.code === '23505') {
+      return { ok: false, error: 'Ehhez az anyakönyvi bejegyzéshez már tartozik egy másik program.' }
+    }
+    if (/anyakonyv_tabla|anyakonyv_id/.test(error.message)) {
+      return { ok: false, error: 'Az anyakönyvi összekötés még nincs bekapcsolva az adatbázisban — futtasd le a 2026-09-05-naptar-anyakonyv-szabadsag-nevnap.sql fájlt.' }
+    }
+    return { ok: false, error: `Az összekötés nem sikerült: ${error.message}` }
+  }
+  // NÉMA SIKER KIZÁRÁSA: 0 sort érintő UPDATE (RLS) is hibátlan választ ad.
+  if (!frissitve) return { ok: false, error: 'Az összekötés nem sikerült (nincs jogosultság a programhoz).' }
+
+  await logAuditEvent(
+    {
+      action: 'program.anyakonyv_osszekotes',
+      targetTable: 'gyulekezeti_programok',
+      targetId: input.programId,
+      metadata: { anyakonyv_tabla: tabla, anyakonyv_id: input.anyakonyvId },
+    },
+    supabase,
+  )
+  revalidatePath('/dashboard')
+  return { ok: true }
+}
+
+/** Az összekötés bontása (pl. a bejegyzést tévedésből kötötték ide). A program marad. */
+export async function bontProgramAnyakonyv(programId: string): Promise<{ ok: boolean; error?: string }> {
+  const { supabase, congregationId } = await getEffectiveCongregationContext()
+  if (!congregationId) return { ok: false, error: 'Nincs aktív gyülekezet kiválasztva.' }
+  const { data, error } = await supabase
+    .from('gyulekezeti_programok')
+    .update({ anyakonyv_tabla: null, anyakonyv_id: null, updated_at: new Date().toISOString() })
+    .eq('id', programId)
+    .eq('congregation_id', congregationId)
+    .select('id')
+    .maybeSingle()
+  if (error) return { ok: false, error: `A bontás nem sikerült: ${error.message}` }
+  if (!data) return { ok: false, error: 'A bontás nem sikerült (nincs jogosultság a programhoz).' }
+  await logAuditEvent(
+    { action: 'program.anyakonyv_bontas', targetTable: 'gyulekezeti_programok', targetId: programId },
+    supabase,
+  )
+  revalidatePath('/dashboard')
+  return { ok: true }
 }

@@ -106,6 +106,8 @@ import {
   type DioceseFelterjesztesSor,
   type DioceseFelterjesztesTipus,
 } from '@/lib/finance/diocese-felterjesztes'
+import { feladoMezok } from '@/lib/notifications/felado'
+import { insertErtesites } from '@/lib/notifications/ertesites-insert'
 import { isMissingColumnError } from '@/lib/utils/schema-errors'
 // A visszaküldés indoklásának küszöbe és MAGYAR hibaszövege — KÜLÖN fájlban,
 // mert ez a modul `'use server'`, abból nem-async érték nem exportálható. Így a
@@ -431,6 +433,8 @@ async function ertesitsdAMegyet(
   supabase: Supa,
   args: {
     dioceseId: string
+    /** A küldő egyházkerület — ő az üzenet FELADÓJA (2026-09-05). */
+    districtId: string
     cim: string
     uzenet: string
     tipus: 'info' | 'success' | 'warning'
@@ -467,6 +471,20 @@ async function ertesitsdAMegyet(
       return
     }
 
+    // 2026-09-05: a FELADÓ az egyházkerület (névvel — a régi levezetés a
+    // `/dashboard-egyhazmegye` hivatkozásból „egyházmegyét" következtetett volna).
+    // A név feloldása fail-soft: ha nem jön össze, a típus-címke marad.
+    const { data: kerulet } = await supabase
+      .from('districts')
+      .select('name')
+      .eq('id', args.districtId)
+      .maybeSingle()
+    const feladoAdat = feladoMezok(
+      'egyhazkerulet',
+      (kerulet as { name?: string | null } | null)?.name ?? null,
+      args.districtId,
+    )
+
     const sorok = [...cimzettek].map((userId) => ({
       user_id: userId,
       // Nincs gyülekezet: a címzett megyei tisztségviselő, az irat megyei irat.
@@ -475,16 +493,17 @@ async function ertesitsdAMegyet(
       uzenet: args.uzenet,
       tipus: args.tipus,
       hivatkozas: '/dashboard-egyhazmegye',
+      ...feladoAdat,
     }))
-    const { error } = await supabase.from('ertesitesek').insert(sorok)
+    const { error } = await insertErtesites(supabase, sorok, { forras: 'kerulet-felterjesztes' })
     if (error) {
-      // HANGOS napló — a supabase-js NEM dob, tehát try/catch nem fogná meg.
+      // HANGOS napló — a segéd már naplózott, de itt a VALÓSZÍNŰ OK is kell.
       console.error(
         '[kerulet/felterjesztes] az értesítés beszúrása elbukott. Valószínű ok: az ' +
           '`ertesitesek_szint_insert` policy `congregation_id IS NOT NULL`-t vár, a ' +
           'kerület → megye értesítésnek viszont nincs gyülekezete. Az S3 SQL-nek külön ' +
           'kerületi INSERT-policy-t kell adnia. Részlet:',
-        error.message,
+        error,
       )
     }
   } catch (e) {
@@ -814,6 +833,7 @@ export async function atvetelNyugtazas(id: string): Promise<FelterjesztesMuvelet
 
   await ertesitsdAMegyet(access.supabase, {
     dioceseId: String(sor.diocese_id),
+    districtId,
     cim: `Átvéve az egyházkerületben: ${megnevezes}`,
     uzenet:
       `Az egyházkerület átvette a(z) ${megnevezes} felterjesztést. ` +
@@ -920,6 +940,7 @@ export async function visszakuldes(
 
   await ertesitsdAMegyet(access.supabase, {
     dioceseId: String(sor.diocese_id),
+    districtId,
     cim: `Visszaküldve javításra: ${megnevezes}`,
     uzenet:
       `Az egyházkerület javításra visszaküldte a(z) ${megnevezes} felterjesztést. ` +
@@ -1087,6 +1108,7 @@ export async function feloldasElbiralas(
 
   await ertesitsdAMegyet(access.supabase, {
     dioceseId: String(sor.diocese_id),
+    districtId,
     cim:
       dontes === 'jovahagy'
         ? `Feloldás jóváhagyva: ${megnevezes}`

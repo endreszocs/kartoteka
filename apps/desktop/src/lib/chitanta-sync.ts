@@ -2,11 +2,13 @@
  * chitanta-sync — offline-kiállított chitanțák push-szinkronizációja.
  *
  * A-M7.2d2c (2026-04-24) — a `chitantak_local` + outbox sorok feltöltése
- * a szerverre, amint a gép online. Három triggere van:
+ * a szerverre, amint a gép online. Triggerei 2026-09-05 óta a
+ * `write-sync-registry` KÖZÖS készletéből jönnek (nincs saját listener):
  *
- *   1) Online-váltás (`window.addEventListener('online')`) — azonnal push
- *   2) Periodikus poll (30s-onként, ha online) — a háttérben folyamatosan
- *   3) Manuális: a lelkész „Sync most" gombja (lásd RecentChitantasSection)
+ *   1) Online-váltás — azonnali „most" kör (visszalépés nélkül)
+ *   2) Periodikus poll (30 s-onként, ha online) — a háttérben folyamatosan
+ *   3) Lokális mentés után (notifyLocalWriteCommitted, 1,5 s összevonás)
+ *   4) Manuális: a lelkész „Sync most" gombja (lásd RecentChitantasSection)
  *
  * A pusher egyszerre max 50 mutation-t dolgoz fel (konfigurálható), hogy a
  * hálózat-spike-okat szétossza. Exponential backoff-ot NEM implementálunk
@@ -30,6 +32,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getDesktopSupabase } from './supabase'
 import { getTauriSqliteBackend } from './tauri-sqlite-backend'
 import { getVerifiedSession } from './verified-session'
+import { FutoOr, withSyncTimeout } from './write-sync-registry'
 
 const MAX_ATTEMPTS = 5
 
@@ -128,7 +131,8 @@ export async function pushPendingChitantas(
 
   let mutations: Awaited<ReturnType<typeof backend.getPendingMutations>>
   try {
-    mutations = await backend.getPendingMutations(50)
+    // desk-sync-8: tábla-szűrő az SQL-ben — az 50-es ablak ne éheztesse ki ezt a sort.
+    mutations = await backend.getPendingMutations(50, 'chitanta')
   } catch (err) {
     result.errors.push(
       `Outbox olvasási hiba: ${err instanceof Error ? err.message : 'ismeretlen'}`,
@@ -303,10 +307,14 @@ function pushErrorDedup(list: string[], msg: string): void {
 //  Auto-trigger háttér-pusher
 // ─────────────────────────────────────────────────────────────────────────
 
-let pusherInterval: ReturnType<typeof setInterval> | null = null
-let onlineListenerAttached = false
 let lastRunAt: string | null = null
-let inFlight = false
+/**
+ * A futó push őre — a TÉNYLEGES befejezésig tart, nem az időkorlátig (bíráló
+ * P1, 2026-09-05). A nyugtát a 23505 (nyugtaszám-egyediség) védi a duplától,
+ * de egy párhuzamos második kör a tárcából ÚJ számot húzott volna ugyanarra
+ * a nyugtára → hézag a sorszámozásban. Ld. `FutoOr`.
+ */
+const futoOr = new FutoOr<ChitantaPushResult>()
 
 /**
  * A legutóbbi push eredménye — a UI sync-indicator-ja ebből olvas.
@@ -324,54 +332,53 @@ export interface SyncStatus {
 
 export function getChitantaSyncStatus(): SyncStatus {
   return {
-    running: inFlight,
+    running: futoOr.fut,
     lastRunAt,
     lastResult,
   }
 }
 
+/** Egy push indítása — vagy a már futó megosztása. Az eredmény-cache a VALÓDI végén frissül. */
+function inditPush(ignoreBackoff: boolean): Promise<ChitantaPushResult> {
+  return futoOr.futtat(
+    () => pushPendingChitantas(getDesktopSupabase(), ignoreBackoff),
+    (r) => {
+      lastResult = r
+      lastRunAt = new Date().toISOString()
+    },
+  )
+}
+
 /**
- * Indít egy push-szál-t, ha nincs már folyamatban. Idempotens.
+ * Egy őrzött kör: saját visszalépéssel, 30 mp-es időkorláttal. Sosem dob.
+ *
+ * 2026-09-05: EXPORTÁLT — a `write-sync-registry` 30 mp-es pollja hívja; a
+ * korábbi saját `online` listener + interval innen KIKERÜLT (nyolc külön
+ * triggerkészlet helyett egy). Az időkorlát a HÍVÓ várakozását szabja meg;
+ * az őr a push tényleges végéig tart (desk-sync-18 + bíráló P1).
  */
-async function runOnceGuarded(): Promise<void> {
-  if (inFlight) return
+export async function runChitantaSyncGuarded(): Promise<void> {
+  if (futoOr.fut) return
   if (typeof navigator !== 'undefined' && !navigator.onLine) return
-  inFlight = true
   try {
-    lastResult = await pushPendingChitantas()
-    lastRunAt = new Date().toISOString()
-  } finally {
-    inFlight = false
+    await withSyncTimeout(inditPush(false), 'Nyugta-szinkron')
+  } catch (err) {
+    // Időtúllépés VAGY hiba: a push a háttérben az őr alatt fut tovább —
+    // a következő kör NEM indít újat.
+    const msg = err instanceof Error ? err.message : String(err)
+    console.warn('[chitanta-sync] a háttér-kör hibára futott:', msg)
+    lastResult = { attempted: 0, succeeded: 0, retrying: 0, conflicts: 0, errors: [msg] }
   }
 }
 
 /**
- * Beállítja az auto-triggereket: online-event + 30s periodic poll.
- * Idempotens — többszöri hívás nem duplikálja a listener-t.
- *
- * Az `App.tsx` (vagy egy top-level provider) hívja egyszer az app
- * indulásakor.
+ * Kompatibilitási belépő: egyetlen azonnali őrzött kör. A triggerkészlet
+ * (online-esemény, poll, lokális mentés) a `write-sync-registry`-ben él —
+ * itt NINCS listener és NINCS interval.
  */
 export function startChitantaAutoSync(): void {
   if (typeof window === 'undefined') return
-
-  // Online-váltás → azonnali push
-  if (!onlineListenerAttached) {
-    window.addEventListener('online', () => {
-      void runOnceGuarded()
-    })
-    onlineListenerAttached = true
-  }
-
-  // Periodic poll — 30 mp
-  if (!pusherInterval) {
-    pusherInterval = setInterval(() => {
-      void runOnceGuarded()
-    }, 30_000)
-  }
-
-  // Első futás az induláskor (ha épp online)
-  void runOnceGuarded()
+  void runChitantaSyncGuarded()
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -508,7 +515,11 @@ export async function resolveChitantaConflict(
     // 6) Trigger sync (a háttérben) — nem várjuk meg, azonnal visszatérünk
     //    (a user látni fogja a „sync most" gombbal a visszajelzést, vagy
     //    a 30s-es poll megcsinálja).
-    void runChitantaSyncManually()
+    //    Az időtúllépés / hiba itt sem néma (konzol), de a hívót nem buktatja
+    //    el — a felületen a sync-jelvény és a „Szinkron most" gomb mutatja.
+    runChitantaSyncManually().catch((err: unknown) => {
+      console.warn('[chitanta-sync] a mentés utáni háttér-push jelzett:', err instanceof Error ? err.message : String(err))
+    })
 
     return {
       success: true,
@@ -525,35 +536,17 @@ export async function resolveChitantaConflict(
 }
 
 /**
- * Manuális push-kiváltás (pl. „Sync most" gomb). Ugyanaz a guard,
- * mint az automatikusnál — ha már fut, visszaadja a folyamatban lévő
- * eredményét.
+ * Manuális push-kiváltás (pl. „Sync most" gomb). Ugyanaz a guard, mint az
+ * automatikusnál — ha már fut (időtúllépés után is), NEM indít újat: a
+ * folyamatban lévő eredményét várja meg, időkorláttal.
+ *
+ * A-M7.2e — a manuális hívás ignorálja az exp-backoff-ot (a user explicit
+ * kéri: „most próbáld"). 30 mp-es időkorlát: a kézi gomb sem ragadhat be a
+ * végtelenségig — időtúllépésnél a hívó hibát kap, ami a felületen látszik.
  *
  * Promise-t ad vissza, hogy a UI meg tudja várni és frissíteni tudja
  * a listát utána.
  */
 export async function runChitantaSyncManually(): Promise<ChitantaPushResult> {
-  if (inFlight) {
-    // Már fut — várjuk meg (egyszerű poll-lal, 100ms)
-    while (inFlight) {
-      await new Promise((r) => setTimeout(r, 100))
-    }
-    return lastResult ?? {
-      attempted: 0,
-      succeeded: 0,
-      retrying: 0,
-      conflicts: 0,
-      errors: [],
-    }
-  }
-  inFlight = true
-  try {
-    // A-M7.2e — manuális hívás ignorálja az exp-backoff-ot
-    // (a user explicit kéri: "most próbáld").
-    lastResult = await pushPendingChitantas(getDesktopSupabase(), true)
-    lastRunAt = new Date().toISOString()
-    return lastResult
-  } finally {
-    inFlight = false
-  }
+  return withSyncTimeout(inditPush(true), 'Nyugta-szinkron')
 }

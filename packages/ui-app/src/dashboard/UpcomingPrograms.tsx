@@ -14,15 +14,22 @@
  * a szerkesztés/teljesítés/törlés a webes irányítópulton érhető el — erről a
  * kártya alján jelzés látható.
  *
- * Az ismétlődő programokat (heti/kétheti/havi) az
+ * Az ismétlődő programokat (heti/kétheti/havi/évi) az
  * `expandUpcomingProgramOccurrences` helper bontja tényleges alkalmakra —
  * ugyanazzal a logikával, mint a webes `lib/utils/program-recurrence.ts`.
+ *
+ * 2026-09-05 (paritás-javítás, cal-ux-8/19): a tükör eddig NEM ismerte az
+ * 'evi' ismétlődést (az évente visszatérő alkalom csak az első évben látszott),
+ * sem az `ismetlodes_vege` záró napot (a lezárt heti sorozat itt tovább futott,
+ * a weben már nem), és az 5 új programtípus (anyakönyvi alkalmak + szabadság)
+ * címkéje/színe/ikonja is hiányzott.
  */
 
 import {
   Baby, BookOpen, CalendarDays, Check, Church, ClipboardList, Clock, Flag, Flower,
   Globe, HandHeart, Handshake, HeartHandshake, House, MapPin, Megaphone, Mic, Music,
   PartyPopper, Pin, Repeat, Smile, Star, Target, Tent,
+  Droplets, Heart, Cross, Flower2, TreePalm,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -42,6 +49,9 @@ const PROG_TIPUS_LABELS: Record<string, string> = {
   latogatas: 'Látogatás', unnep: 'Ünnep', tabor: 'Tábor',
   evangelizacio: 'Evangélizáció', diakoniai: 'Diakónia', noszovetseg: 'Nőszövetség',
   egyeb: 'Egyéb',
+  // 2026-09-05: anyakönyvi alkalmak + szabadság (a webes dashboard.ts tükre)
+  kereszteles: 'Keresztelő', eskuvo: 'Esküvő', konfirmacio: 'Konfirmáció',
+  temetes: 'Temetés', szabadsag: 'Szabadság',
 }
 
 const PROG_TIPUS_COLOR: Record<string, string> = {
@@ -49,6 +59,7 @@ const PROG_TIPUS_COLOR: Record<string, string> = {
   gyerekprogram: '#14b8a6', konferencia: '#ef4444', hangverseny: '#6366f1', kozossegi: '#10b981',
   presbiteri: '#6b7280', latogatas: '#f97316', unnep: '#eab308', tabor: '#22c55e',
   evangelizacio: '#d946ef', diakoniai: '#f43f5e', noszovetseg: '#ec4899', egyeb: '#94a3b8',
+  kereszteles: '#0ea5e9', eskuvo: '#e11d48', konfirmacio: '#7c3aed', temetes: '#475569', szabadsag: '#84cc16',
 }
 
 // A webes program-icons.tsx PROG_TIPUS_ICON tükre (egységes lucide ikonrendszer)
@@ -57,10 +68,11 @@ const PROG_TIPUS_ICON: Record<string, LucideIcon> = {
   gyerekprogram: Baby, konferencia: Mic, hangverseny: Music, kozossegi: Handshake,
   presbiteri: ClipboardList, latogatas: House, unnep: PartyPopper, tabor: Tent,
   evangelizacio: Megaphone, diakoniai: HeartHandshake, noszovetseg: Flower, egyeb: Pin,
+  kereszteles: Droplets, eskuvo: Heart, konfirmacio: Cross, temetes: Flower2, szabadsag: TreePalm,
 }
 
 const ISMETLODES_LABELS: Record<string, string> = {
-  heti: 'Heti', ketheti: 'Kétheti', havi: 'Havi',
+  heti: 'Heti', ketheti: 'Kétheti', havi: 'Havi', evi: 'Évente',
 }
 
 // ── Típusok ──────────────────────────────────────────────────────────────
@@ -79,6 +91,8 @@ export interface UpcomingProgramEntry {
   tipus: string
   prioritas?: string | null
   ismetlodes_tipus?: string | null
+  /** A sorozat utolsó napja (YYYY-MM-DD) — 2026-09-05 óta a tükör is vágja vele a horizontot. */
+  ismetlodes_vege?: string | null
   egyedi_tipus_nev?: string | null
   egyedi_emoji?: string | null
   /** Teljesítve — a webes agenda áthúzva, halványítva mutatja. */
@@ -140,8 +154,10 @@ function progColor(p: UpcomingProgramEntry): string {
 // ── Ismétlődés-kibontás (a webes lib/utils/program-recurrence.ts tükre) ──
 
 const STEP_DAYS: Record<string, number> = { heti: 7, ketheti: 14 }
-/** Védőkorlát elszabadult ciklus ellen (heti × 1 év ≈ 53). */
-const MAX_OCCURRENCES = 120
+/** Védőkorlát elszabadult ciklus ellen — a webes értékkel azonos (400 ≈ 7,5 év
+ *  heti ritmusban): a 120-as korlát egy 2019-ben indult heti sorozatot a mai
+ *  ablak ELÉRÉSE előtt vágott el, így az némán eltűnt a közelgőkből. */
+const MAX_OCCURRENCES = 400
 
 /** 'YYYY-MM-DD' → n nappal eltolva (UTC-matek, TZ-független). */
 function addDays(dateStr: string, n: number): string {
@@ -185,7 +201,8 @@ export function expandUpcomingProgramOccurrences(
 
   for (const p of programs) {
     const rec = p.ismetlodes_tipus
-    const isRecurring = rec === 'heti' || rec === 'ketheti' || rec === 'havi'
+    // 2026-09-05: + 'evi' (a webes kibontóval azonos négy ritmus)
+    const isRecurring = rec === 'heti' || rec === 'ketheti' || rec === 'havi' || rec === 'evi'
 
     if (!isRecurring || !p.datum) {
       result.push(p)
@@ -194,24 +211,33 @@ export function expandUpcomingProgramOccurrences(
 
     const spanDays = p.datum_vege ? Math.max(0, dayDiff(p.datum, p.datum_vege)) : 0
     // Horizont: az ablak vége (évhatáron átívelő 14 napos ablakot is fedi)
-    const horizon = windowEnd > `${p.datum.slice(0, 4)}-12-31`
+    let horizon = windowEnd > `${p.datum.slice(0, 4)}-12-31`
       ? windowEnd
       : `${p.datum.slice(0, 4)}-12-31`
+    // 2026-09-05: a sorozat SAJÁT záró napja (ismetlodes_vege) is vágja a
+    // horizontot — a weben lezárt sorozat a desktopon sem futhat tovább.
+    if (p.ismetlodes_vege && p.ismetlodes_vege < horizon) horizon = p.ismetlodes_vege
 
-    let cur = p.datum
-    let count = 0
-    while (cur <= horizon && count < MAX_OCCURRENCES) {
+    // Index-alapú léptetés (a webes kibontó szabálya): a havi/évi alkalom
+    // mindig az EREDETI naptól számítódik, így a jan. 31-i kezdés febr. 28.
+    // után márc. 31-re áll vissza (láncolt léptetéssel 28-án ragadt volna).
+    for (let i = 0; i < MAX_OCCURRENCES; i++) {
+      const cur =
+        rec === 'havi' ? addMonths(p.datum, i)
+        : rec === 'evi' ? addMonths(p.datum, i * 12)
+        : addDays(p.datum, i * STEP_DAYS[rec])
+      if (cur > horizon) break
       result.push({
         ...p,
         datum: cur,
         datum_vege: spanDays > 0 ? addDays(cur, spanDays) : null,
       })
-      cur = rec === 'havi' ? addMonths(cur, 1) : addDays(cur, STEP_DAYS[rec])
-      count++
     }
   }
 
-  // Ablak-szűrés: az alkalom érinti-e a [ma, ma+daysAhead] tartományt
+  // Ablak-szűrés: az alkalom érinti-e a [ma, ma+daysAhead] tartományt.
+  // A MÁR ELKEZDŐDÖTT többnapos alkalom (pl. egy hete tartó szabadság) is
+  // benne marad: a záró nap ((datum_vege ?? datum) >= ma) dönt, nem a kezdő.
   return result
     .filter((p) => {
       const start = p.datum

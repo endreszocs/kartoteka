@@ -18,6 +18,7 @@ import { BelsomozgasPage } from './pages/belsomozgas-page'
 import { ChitantaPage } from './pages/chitanta-page'
 import { ChitantaTombokPage } from './pages/chitanta-tombok-page'
 import { DashboardPage } from './pages/dashboard-page'
+import { ElsoInditasPage } from './pages/elso-inditas-page'
 import { FamiliesPage } from './pages/families-page'
 import { KiadasPage } from './pages/kiadas-page'
 import { MembersPage } from './pages/members-page'
@@ -48,6 +49,10 @@ function App() {
   return (
     <HashRouter>
       <Routes>
+        {/* 2026-09-05: ELSŐ INDÍTÁS varázsló — belépés a webes fiókkal (Google is),
+            gyülekezet megerősítése, PIN, első szinkron. Nyilvános route: ide a
+            kapu küldi azt, akinek se munkamenete, se PIN-je. */}
+        <Route path="/elso-inditas" element={<ElsoInditasPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/pin-entry" element={<PinEntryPage />} />
         <Route path="/pin-setup" element={<PinSetupPage />} />

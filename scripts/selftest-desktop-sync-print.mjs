@@ -7,7 +7,9 @@
  *   (1) P3-18 a desktop print-út TARTALOM-alapú készenlétet vár (nem fix
  *       300 ms), és a data-sheet-count lapszám-őr csonka nyomtatás helyett
  *       hangosan megáll;
- *   (2) P3-19 a sync-badge ÉV-FÜGGETLENÜL számol (countLocalPendingPenzugyOsszes);
+ *   (2) P3-19 a sync-badge ÉV-FÜGGETLENÜL számol — 2026-09-05 óta a KÖZÖS
+ *       `szamolFuggoSorokat()` (local-mirror-owner.ts) számolóval, amelyben
+ *       nincs év-szűrő (a régi countLocalPendingPenzugyOsszes megszűnt);
  *   (3) P3-21 a három pénzügyi pusher hálózati hibánál NEM billen végleges
  *       „ütközés"-re (plafonos örök retry) — konfliktus csak nem-hálózati
  *       tartós hibára jár;
@@ -25,7 +27,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(__dirname, '..')
 const PRINT = path.join(REPO, 'apps', 'desktop', 'src', 'lib', 'print-html.ts')
 const BADGE = path.join(REPO, 'apps', 'desktop', 'src', 'components', 'sync-status-indicator.tsx')
-const BACKEND = path.join(REPO, 'apps', 'desktop', 'src', 'lib', 'tauri-sqlite-backend.ts')
+// A badge közös számolója (2026-09-05 óta) — a tükör-tulajdonos váltással
+// megosztott forrás, NEM a tauri-sqlite-backend.
+const COUNTER = path.join(REPO, 'apps', 'desktop', 'src', 'lib', 'local-mirror-owner.ts')
 const PUSHERS = [
   path.join(REPO, 'apps', 'desktop', 'src', 'lib', 'befizetes-write-sync.ts'),
   path.join(REPO, 'apps', 'desktop', 'src', 'lib', 'kiadas-write-sync.ts'),
@@ -61,17 +65,31 @@ function ellenoriz(files) {
     hibak.push('P3-18: nincs data-sheet-count lapszám-őr a desktop printben')
   }
 
-  // (2) P3-19 — badge év-független
+  // (2) P3-19 — badge év-független.
+  // 2026-09-05 (desktop szinkron-kör): a badge számolója a KÖZÖS
+  // `szamolFuggoSorokat()` (local-mirror-owner.ts) — ugyanaz a forrás, amit a
+  // tükör-tulajdonos váltás is használ (egy igazságforrás). A régi
+  // `countLocalPendingPenzugyOsszes` backend-metódus megszűnt; az őr ezért a
+  // közös számoló TÖRZSÉT méri: számolja a befizetés/kiadás pending-táblákat,
+  // és NINCS benne év-szűrő (fizetettev / strftime('%Y') / currentYear).
   const b = stripComments(files.get(BADGE))
-  if (!/countLocalPendingPenzugyOsszes/.test(b)) {
-    hibak.push('P3-19: a sync-badge nem az év-független számolót hívja')
+  if (!/szamolFuggoSorokat\(\)/.test(b)) {
+    hibak.push('P3-19: a sync-badge nem a közös, év-független számolót (szamolFuggoSorokat) hívja')
   }
   if (/listLocalPendingBefizetes\(congregationId, currentYear\)/.test(b)) {
     hibak.push('P3-19: a badge visszatért az év-szűrt listázásra')
   }
-  const be = stripComments(files.get(BACKEND))
-  if (!/countLocalPendingPenzugyOsszes/.test(be)) {
-    hibak.push('P3-19: a backendből hiányzik a countLocalPendingPenzugyOsszes')
+  const co = stripComments(files.get(COUNTER))
+  const szamoloTorzs = (co.match(/export async function szamolFuggoSorokat\(\)[\s\S]*?\n\}\n/) || [])[0]
+  if (!szamoloTorzs) {
+    hibak.push('P3-19: a local-mirror-owner.ts-ből hiányzik a szamolFuggoSorokat számoló')
+  } else {
+    if (!/befizetes_pending_local/.test(szamoloTorzs) || !/kiadas_pending_local/.test(szamoloTorzs)) {
+      hibak.push('P3-19: a közös számoló nem nézi a befizetés/kiadás pending-táblákat')
+    }
+    if (/fizetettev|strftime\('%Y'|currentYear|fizetett_ev/.test(szamoloTorzs)) {
+      hibak.push('P3-19: a közös számolóba év-szűrő került — a múlt évi rekedt tétel újra láthatatlan')
+    }
   }
 
   // (3) P3-21 — pusherek hálózati osztályozása. A KAPU maga kell (\b + a
@@ -105,7 +123,7 @@ function ellenoriz(files) {
 
 function beolvas() {
   const m = new Map()
-  for (const fp of [PRINT, BADGE, BACKEND, ...PUSHERS, BEF_PAGE, CARGO, TAURI_CONF]) {
+  for (const fp of [PRINT, BADGE, COUNTER, ...PUSHERS, BEF_PAGE, CARGO, TAURI_CONF]) {
     m.set(fp, fs.readFileSync(fp, 'utf8'))
   }
   return m
@@ -132,14 +150,33 @@ if (hibak.length === 0) {
   else if (ellenoriz(m1).length === 0) bukik('M1: a tartalom-készenlét kilövésére NEM bukik — vak')
   else pass('M1 mutáns (print tartalom-készenlét kilőve) → az őr elbuktatja')
 
-  // M2: a badge visszabontása év-szűrt listázásra
+  // M2: a badge visszabontása év-szűrt listázásra (a RÉGI világ)
   const m2 = beolvas()
   const b2 = m2.get(BADGE)
-  const b2mut = b2.replace(/countLocalPendingPenzugyOsszes\(congregationId\)/, 'listLocalPendingBefizetes(congregationId, currentYear)')
+  // A HÍVÁST cseréljük (`await szamolFuggoSorokat()`), nem az első szöveges
+  // előfordulást — a fejléc-komment is említi a nevet, és a komment-csere
+  // mellett az élő hívás megmaradna (vak mutáns).
+  const b2mut = b2.replace(
+    /await szamolFuggoSorokat\(\)/,
+    'await backend.listLocalPendingBefizetes(congregationId, currentYear)',
+  )
   m2.set(BADGE, b2mut)
   if (b2mut === b2) bukik('M2 mutáció nem változtatott (fail-closed)')
   else if (ellenoriz(m2).length === 0) bukik('M2: a badge év-szűrt visszabontására NEM bukik — vak')
   else pass('M2 mutáns (badge év-szűrt vissza) → az őr elbuktatja')
+
+  // M2b: év-szűrő becsempészése a KÖZÖS számoló SQL-jébe (a múlt évi rekedt
+  // tétel újra láthatatlan lenne) — az őrnek a számoló törzsét is mérnie kell.
+  const m2b = beolvas()
+  const c2 = m2b.get(COUNTER)
+  const c2mut = c2.replace(
+    /FROM befizetes_pending_local WHERE sync_state = 'conflict'/,
+    "FROM befizetes_pending_local WHERE sync_state = 'conflict' AND fizetettev = strftime('%Y','now')",
+  )
+  m2b.set(COUNTER, c2mut)
+  if (c2mut === c2) bukik('M2b mutáció nem változtatott (fail-closed)')
+  else if (ellenoriz(m2b).length === 0) bukik('M2b: a számolóba csempészett év-szűrőre NEM bukik — vak')
+  else pass('M2b mutáns (év-szűrő a közös számolóban) → az őr elbuktatja')
 
   // M3: a hálózati kapu hatástalanítása (mindig konfliktusra billen — a RÉGI világ)
   const m3 = beolvas()

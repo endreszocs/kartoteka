@@ -6,6 +6,8 @@ import {
   getTvaPlafonbaSzamitoCelok,
 } from '@/lib/finance/tva-plafon'
 import type { TvaPlafonResult } from '@/lib/finance/tva-plafon-constants'
+import { feladoMezok } from '@/lib/notifications/felado'
+import { hianyzoOszlopNeve, insertErtesites } from '@/lib/notifications/ertesites-insert'
 import { getCongregationOfficials, getDioceseOfficials } from '@/lib/profiles/officials'
 
 /**
@@ -113,8 +115,21 @@ export async function listTvaPlafonbaSzamitoCelok(): Promise<{
 
 /**
  * Ha a TVA-plafon átlépés (piros szint) történt, értesítést küld
- * a gyülekezet lelkészének. Deduplikáció: egy évben csak egy értesítés
- * a `hivatkozas = 'tva-plafon-atlepes-{year}'` alapján.
+ * a gyülekezet lelkészének. Deduplikáció: egy évben csak egy értesítés.
+ *
+ * 2026-09-05 (H7): A DEDUP-KULCS KÜLÖN MEZŐBE KÖLTÖZÖTT.
+ * ─────────────────────────────────────────────────────
+ * Eddig az ELSŐ címzett sora a `hivatkozas` mezőben hordozta a kulcsot
+ * (`tva-plafon-atlepes-<év>`), ami NEM útvonal → nála a „Megnyitás" gomb
+ * hiányzott, a többi címzett viszont `/penzugy`-re kattinthatott. Mostantól:
+ *   · a kulcs a `megjegyzes` gépi JSON-mezőben él: {"kind":"tva-plafon","ev":2026}
+ *     (ugyanaz a minta, mint az ANAF-csengő `kind='oblio-spv-…'` sorai);
+ *   · a `hivatkozas` MINDEN soron `/penzugy`;
+ *   · a dedup-ellenőrzés a RÉGI kulcsot is nézi (a 2026-09-05 előtti sorok),
+ *     hogy a frissítés napján se menjen ki duplán;
+ *   · ha a `megjegyzes` oszlop még nincs meg (a 2026-09-03-as ANAF SQL nem
+ *     futott), a cím évszáma a tartalék-kulcs — a beszúró segéd az oszlopot
+ *     ilyenkor elhagyja, de a duplázás így is kizárt.
  *
  * A widget hívja a dashboard betöltésekor, ha a szint 'piros'. Nem változtatja
  * az állapotot, ha már létezik értesítés az évre.
@@ -141,7 +156,9 @@ export async function notifyTvaPlafonOverflow(year: number): Promise<{
     return { success: true, notified: false }
   }
 
-  const hivatkozas = `tva-plafon-atlepes-${year}`
+  const dedupKulcs = JSON.stringify({ kind: 'tva-plafon', ev: year })
+  const regiKulcs = `tva-plafon-atlepes-${year}`
+  const cimElotag = `TVA-plafon átlépve (${year})`
 
   // 2. A gyülekezet lelkészének (és a SAJÁT egyházmegyéje esperesének) lekérdezése
   //
@@ -179,22 +196,48 @@ export async function notifyTvaPlafonOverflow(year: number): Promise<{
     return { success: true, notified: false }
   }
 
-  // 3. Dedup ellenőrzés — ha már van értesítés ebben a gyülekezetben erre az évre,
-  //    nem küldünk újat
-  const { data: existing } = await supabase
+  // 3. Dedup-ellenőrzés — három lépcsőben, mind FAIL-CLOSED (hiba = nem küldünk):
+  //    (a) a régi kulcs a hivatkozásban (2026-09-05 előtti sorok);
+  //    (b) az új kulcs a megjegyzésben;
+  //    (c) ha a megjegyzes oszlop hiányzik: a cím évszáma.
+  const { data: regi, error: regiHiba } = await supabase
     .from('ertesitesek')
     .select('id')
     .eq('congregation_id', congregationId)
-    .eq('hivatkozas', hivatkozas)
+    .eq('hivatkozas', regiKulcs)
     .limit(1)
     .maybeSingle()
+  if (regiHiba) return { success: false, error: `A korábbi TVA-értesítés ellenőrzése nem sikerült: ${regiHiba.message}` }
+  if (regi?.id) return { success: true, notified: false }
 
-  if (existing?.id) {
+  const { data: uj, error: ujHiba } = await supabase
+    .from('ertesitesek')
+    .select('id')
+    .eq('congregation_id', congregationId)
+    .eq('megjegyzes', dedupKulcs)
+    .limit(1)
+    .maybeSingle()
+  if (ujHiba) {
+    if (hianyzoOszlopNeve(ujHiba) !== 'megjegyzes') {
+      return { success: false, error: `A korábbi TVA-értesítés ellenőrzése nem sikerült: ${ujHiba.message}` }
+    }
+    // Nincs megjegyzes oszlop → a cím évszáma a tartalék-kulcs.
+    const { data: cimSzerint, error: cimHiba } = await supabase
+      .from('ertesitesek')
+      .select('id')
+      .eq('congregation_id', congregationId)
+      .like('cim', `${cimElotag}%`)
+      .limit(1)
+      .maybeSingle()
+    if (cimHiba) return { success: false, error: `A korábbi TVA-értesítés ellenőrzése nem sikerült: ${cimHiba.message}` }
+    if (cimSzerint?.id) return { success: true, notified: false }
+  } else if (uj?.id) {
     return { success: true, notified: false }
   }
 
-  // 4. Új értesítés létrehozása minden érintett címzettnek
-  const cim = `TVA-plafon átlépve (${year}): ${tvaResult.szamoltForgalomRon.toLocaleString('hu-HU')} RON`
+  // 4. Új értesítés létrehozása minden érintett címzettnek — a hivatkozás
+  //    MINDENKINÉL `/penzugy` (link), a dedup-kulcs a megjegyzésben.
+  const cim = `${cimElotag}: ${tvaResult.szamoltForgalomRon.toLocaleString('hu-HU')} RON`
   const uzenet =
     `A gyülekezet ${year}-ben meghaladta a TVA-alany plafont (395 000 RON). ` +
     `A román törvény szerint 10 napon belül a könyvelőnek be kell nyújtania a 010-es nyomtatványt az ANAF-hoz. ` +
@@ -208,17 +251,13 @@ export async function notifyTvaPlafonOverflow(year: number): Promise<{
     uzenet,
     tipus: 'warning',
     hivatkozas: '/penzugy',
+    megjegyzes: dedupKulcs,
+    // Gépi riasztás — a feladó a rendszer, nem a lelkész, aki a widgetet megnyitotta.
+    ...feladoMezok('rendszer'),
   }))
 
-  // Közös hivatkozás-flagel egy ertesitesek-et a dedup-hoz (az első sor)
-  // A többi hasonló, de különböző user_id-val. Mind ugyanazt a hivatkozás-szöveget
-  // kapja, amit a dedup-nál ellenőrzünk:
-  const firstWithFlag = { ...rows[0], hivatkozas }
-  const rest = rows.slice(1)
-
-  const { error } = await supabase.from('ertesitesek').insert([firstWithFlag, ...rest])
-
-  if (error) return { success: false, error: error.message }
+  const eredmeny = await insertErtesites(supabase, rows, { forras: 'tva-plafon' })
+  if (eredmeny.error) return { success: false, error: eredmeny.error }
 
   return { success: true, notified: true }
 }

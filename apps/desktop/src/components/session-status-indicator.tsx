@@ -4,7 +4,12 @@ import type { Session } from '@supabase/supabase-js'
 
 import { SessionStatusBadge } from '@kartoteka/ui-app'
 
-import { getDesktopSupabase } from '../lib/supabase'
+import {
+  getDesktopSupabase,
+  getUtolsoKulcstarHiba,
+  KULCSTAR_HIBA_ESEMENY,
+  type KulcstarHiba,
+} from '../lib/supabase'
 import { analyzeSession, type SessionInfo } from '../lib/session-state'
 
 /**
@@ -20,12 +25,21 @@ import { analyzeSession, type SessionInfo } from '../lib/session-state'
  *   - 🟠 Offline         — PIN-mode, nincs net (változtatások később szinkronizálnak)
  *   - 🟡 Hamarosan lejár — refresh token ≤ 7 nap múlva lejár
  *   - 🟤 Kijelentkezve   — (ritkán látható, mert az auth-gate /login-ra terel)
+ *   - 🟠 Kulcstár-hiba   — (2026-09-05) a session nem menthető az OS-kulcstárba:
+ *                          a munkamenet ettől még él, de a következő indításkor
+ *                          újra össze kell kapcsolni. A Windows Credential
+ *                          Manager 2560 bájtos plafonja miatt ez hónapokig NÉMA
+ *                          volt (csak a konzol látta) — ezért felülírja a zöld
+ *                          „Online"-t, és a Fiók / Kapcsolat fülre visz.
  */
 export function SessionStatusIndicator({ position = 'fixed' }: { position?: 'fixed' | 'inline' } = {}) {
   const navigate = useNavigate()
   const [session, setSession] = useState<Session | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [, setTick] = useState(0)
+  // A folyamat indulása óta észlelt utolsó kulcstár-hiba (a mount ELŐTTI
+  // hibát a lekérdező adja, a későbbit az egyszeri window-esemény).
+  const [kulcstarHiba, setKulcstarHiba] = useState<KulcstarHiba | null>(() => getUtolsoKulcstarHiba())
 
   useEffect(() => {
     let mounted = true
@@ -45,13 +59,26 @@ export function SessionStatusIndicator({ position = 'fixed' }: { position?: 'fix
     })
 
     const id = window.setInterval(() => {
-      if (mounted) setTick((t) => t + 1)
+      if (mounted) {
+        setTick((t) => t + 1)
+        // Az esemény csak az ELSŐ hibánál sül el — a perces tick a későbbi
+        // (pl. frissült üzenetű) hibát is felveszi.
+        setKulcstarHiba(getUtolsoKulcstarHiba())
+      }
     }, 60_000)
+
+    const onKulcstarHiba = (e: Event) => {
+      if (!mounted) return
+      const detail = (e as CustomEvent<KulcstarHiba>).detail
+      setKulcstarHiba(detail ?? getUtolsoKulcstarHiba())
+    }
+    window.addEventListener(KULCSTAR_HIBA_ESEMENY, onKulcstarHiba)
 
     return () => {
       mounted = false
       subscription.unsubscribe()
       window.clearInterval(id)
+      window.removeEventListener(KULCSTAR_HIBA_ESEMENY, onKulcstarHiba)
     }
   }, [])
 
@@ -60,6 +87,22 @@ export function SessionStatusIndicator({ position = 'fixed' }: { position?: 'fix
   const info: SessionInfo = analyzeSession(session)
 
   if (info.kind === 'signed-out') return null
+
+  if (kulcstarHiba && session) {
+    // Élő session + kulcstár-hiba: a legfontosabb üzenet nyer. A teljes Rust-
+    // szöveg a title-ben/aria-label-ben olvasható (a jelvény vágja).
+    return (
+      <SessionStatusBadge
+        tone="orange"
+        label={`A munkamenet nem tud a kulcstárba menteni — ${kulcstarHiba.uzenet}`}
+        isOnline={false}
+        position={position}
+        onClick={() =>
+          window.dispatchEvent(new CustomEvent('kartoteka:open-settings', { detail: { tab: 'fiok' } }))
+        }
+      />
+    )
+  }
 
   return (
     <SessionStatusBadge
