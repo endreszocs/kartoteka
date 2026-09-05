@@ -13,7 +13,7 @@ KELL FOLYTATNI. Az előző kör lapja: `KARTOTEKA-desktop-naptar-ertesites-profi
 | Cél-verziók | web **0.9.230** (az `origin/main` közben `e5f96e05` v0.9.229-re ment: PR #233 betöltés-jelző + #234 GYIK-súgó + #232 docs → merge kell PR előtt, várható ütközés: `apps/web/package.json`, `docs/CHANGELOG.md`, gyökér `package.json` lánc), desktop **0.9.14** (package.json + tauri.conf.json + Cargo.toml — a `selftest-desktop-sync-print` M4 őre a hármas egyezést méri) |
 | Asztali build 0.9.13 | **ELKÉSZÜLT** (2026-09-05 15:23, a `naptar-desktop-kor` fából, detached `d8a5d4d6`): `C:\kartoteka-target\release\bundle\nsis\Kartotéka_0.9.13_x64-setup.exe` (30,16 MB) + `.sig`, `msi\Kartotéka_0.9.13_x64_hu-HU.msi` (33,38 MB) + `.sig`, `nsis\latest.json`; Authenticode: EREK Kartoteka Developer (önaláírt, ugyanaz, mint a korábbi kiadásoknál), DigiCert időbélyeg; updater Ed25519-aláírás kész. **FELTÖLTVE ÉS KIADVA** (Endre „igen!"-jével, 2026-09-05 18:46Z): `updater/windows-x86_64/Kartoteka_0.9.13_x64-setup.exe` (30,16 MB, HTTP 200) + `latest.json` (version 0.9.13, kiadási jegyzettel) — az asztali appok a Frissítés-ellenőrzéssel megkapják |
 | Endre engedélyei | „mehet!" (a kör indítására); az asztali buildet a koordinátor készíti; a FELTÖLTÉS (updater-bucket) külön kérdés |
-| Commit | MÉG NINCS |
+| Commit | `ca7dc847` (a kör) + `2b343d7c` (merge origin/main v0.9.229) + `ea1132aa` (állapot-lap) — **PR #235 nyitva:** https://github.com/endreszocs/kartoteka/pull/235 |
 
 ## 1. A kör tartalma (5 ügynök, diszjunkt fájl-tulajdon)
 
