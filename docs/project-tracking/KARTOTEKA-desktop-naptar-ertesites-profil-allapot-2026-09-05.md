@@ -24,7 +24,7 @@ A lap két részből áll: a **kézzel írt** kontextus/folytatási recept (ez),
 
 | Terület | Mi készült | Fájlok |
 |---|---|---|
-| SQL (Endre futtatja, PENDING a `_RUN_LOG`-ban) | asztali kapcsolás táblája (kizart_titok besorolás); 5 új programtípus CHECK + anyakönyvi link oszlopok + magán-típus trigger + nyilvános RPC-k kizárása + `naptar_szemely_alap/nevnapok/naptar_nev_kulcs` + lelkészi feed V2; értesítés-feladó oszlopok + trigger + írásvédelem + backfill | `migration-docs/sql/2026-09-05-desktop-kapcsolas.sql`, `2026-09-05-naptar-anyakonyv-szabadsag-nevnap.sql`, `2026-09-05-ertesitesek-felado.sql` |
+| SQL — **mind a 4 LEFUTOTT élesben 2026-09-05** (rácsok tiszták, `_RUN_LOG`) | asztali kapcsolás táblája (kizart_titok besorolás); 5 új programtípus CHECK + anyakönyvi link oszlopok + magán-típus trigger + nyilvános RPC-k kizárása + `naptar_szemely_alap/nevnapok/naptar_nev_kulcs` + lelkészi feed V2; értesítés-feladó oszlopok + trigger + írásvédelem + backfill | `migration-docs/sql/2026-09-05-desktop-kapcsolas.sql`, `2026-09-05-naptar-anyakonyv-szabadsag-nevnap.sql`, `2026-09-05-ertesitesek-felado.sql` |
 | Közös kód-aritmetika | kód/hash/ellenőrző kód egy helyen | `packages/supabase-client/src/desktop-kapcsolas-kod.ts` (+index export) |
 | Asztali session-tároló P0 | a keyring-adapter él (nyers supabase-js az asztali ágon) | `packages/supabase-client/src/browser.ts` |
 | Web device-flow | szerver-réteg, 3 API-útvonal, jóváhagyó oldal + panel + kezdőlapi sáv, Biztonság-kártya + akciók, middleware public-route | `apps/web/lib/desktop-kapcsolas/szerver.ts`, `apps/web/app/api/desktop-kapcsolas/{inditas,allapot,nyit}/route.ts`, `apps/web/app/(dashboard)/desktop-kapcsolas/{page,actions}.tsx`, `apps/web/components/desktop/*`, `apps/web/components/profile/desktop-eszkozok-card.tsx`, `apps/web/app/(dashboard)/profile/biztonsag/{actions,page}.tsx`, `apps/web/lib/supabase/middleware.ts`, `apps/web/app/(dashboard)/layout.tsx` |
@@ -134,7 +134,7 @@ Fájl-tulajdon (ki mihez nyúlhat — ütközés-mentes párhuzamos munka):
    5. merge után újra typecheck + a teljes `npm run selftest`;
    6. commit (csak a saját fájlok; `Co-Authored-By: Claude Fable 5.1`) → `git push origin HEAD` → `gh pr create --base main` (a main-re push BLOKKOLT, csak PR);
    7. memória-frissítés + a zárójelentés Endrének (a nyitott kérdésekkel).
-5. **Endre teendői (nem kód):** a 3 (4) SQL futtatása a `_RUN_LOG` sorrendjében; új asztali build (0.9.13, aláírt); a briefek nyitott kérdései (lásd a memóriában).
+5. **Endre teendői (nem kód):** ~~a 4 SQL futtatása~~ — **LEFUTOTT 2026-09-05** (mind a 4 rács tiszta); a PR-merge engedélye MEGADVA (a koordinátor mergeli); HÁTRA: új asztali build (0.9.13, aláírt); a briefek nyitott kérdései (lásd a memóriában); Realtime-ellenőrző SQL.
 
 ## 4. Ismert kockázatok / döntések, amiket NEM szabad elfelejteni
 

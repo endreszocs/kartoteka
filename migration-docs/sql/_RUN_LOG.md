@@ -19,36 +19,32 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
-## 🔴 PENDING – asztali első indítás + naptár + értesítések (2026-09-05)
+## ✅ LEFUTOTT – asztali első indítás + naptár + értesítések + profil (2026-09-05)
 
-Futtatási SORREND (mind idempotens, a végén EGY ellenőrző rács — csak az utolsó rács látszik a szerkesztőben):
+Mind a 4 fájl ebben a sorrendben futott le (Endre, 2026-09-05), az ellenőrző rácsok tiszták:
 
-- [ ] `2026-09-05-desktop-kapcsolas.sql` — PENDING
-       Indok: az asztali alkalmazás webes fiókkal (Google-lel is) való összekapcsolásának
-       táblája (device-flow). Enélkül az asztali „Összekapcsolás" 503-at ad, a
-       Profil → Biztonság eszközlistája hibát mutat. ÚJ TÁBLA → `kizart_titok`
-       mentés-besorolással (a fájl teszi be).
+- [x] 2026-09-05 — **`2026-09-05-desktop-kapcsolas.sql`** ✅ LEFUTOTT
+       Rács 8/8 ✅: tábla, RLS, 2 policy (own_select/own_delete), anon-nak nincs joga,
+       authenticated SELECT+DELETE igen / INSERT+UPDATE nem, mentés-besorolás `kizart_titok`,
+       takarító függvény, besorolatlan élő tábla NINCS.
 
-- [ ] `2026-09-05-naptar-anyakonyv-szabadsag-nevnap.sql` — PENDING
-       Indok: az 5 új programtípus (keresztelő/esküvő/konfirmáció/temetés/szabadság)
-       CHECK-je, az anyakönyvi kapcsolat oszlopai, a magán-típus kapu (trigger + a
-       nyilvános RPC-k), a közös személy-alap/névnap-egyeztető függvények és a lelkészi
-       feed V2. Enélkül: az új típusú program mentése 23514-gyel bukik, a születésnapos/
-       névnapos réteg „még nincs bekapcsolva" üzenetet ad (fail-soft), az anyakönyvezés
-       összekötése hibát jelez.
+- [x] 2026-09-05 — **`2026-09-05-naptar-anyakonyv-szabadsag-nevnap.sql`** ✅ LEFUTOTT
+       Rács 15/15 ✅: az 5 új típus a CHECK-ben (a régi 16 megmaradt), anyakönyvi link-oszlopok +
+       részleges egyedi index, magán-típus trigger, 0 publikus magán program, public_site_events
+       V1/V2 + public_calendar_feed kizár, `naptar_nev_kulcs` próba („Özv. Kovács-Nagy" →
+       „ozv.kovacsnagy"), `naptar_szemely_alap/nevnapok` (anon NEM, authenticated IGEN),
+       `lelkeszi_naptar_feed` V2 csak service_role, névnap-egyeztetés próba (Anna Mária → Anna).
 
-- [ ] `2026-09-05-ertesitesek-felado.sql` — PENDING
-       Indok: a feladó-oszlopok + levezető trigger + visszatöltés + írásvédelem + a
-       hírlevél markdown-jelölése. Enélkül a beszélgetés-nézet a feladót LEVEZETI
-       (működik), de az új feladó-adatok nem tárolódnak; a hírlevél formázása a régi
-       sorokon a cím alapján ismerődik fel.
+- [x] 2026-09-05 — **`2026-09-05-ertesitesek-felado.sql`** ✅ LEFUTOTT
+       Rács 10/10 ✅: feladó-oszlopok + CHECK, levezető függvény + INSERT-trigger, 0 feladó
+       nélküli sor, eloszlás: rendszergazda=76 · rendszer=12 · felhasznalo=1; index; írásvédelmi
+       UPDATE-trigger; 64 hírlevél-sor markdown; mentés: `globalis_predikatum` az ertesitesek-en.
 
-- [ ] `2026-09-05-profil-pontossag.sql` — PENDING
-       Indok: `pastor_profiles.avatar_source` (a profilkép forrása: feltöltött / Google) + a
-       régi szöveges szolgálati helyek egyszeri átemelése a strukturált `pastor_service_history`
-       táblába + a sürgősségi telefonba tévedésből beírt SAJÁT telefonszámok takarítása.
-       Enélkül: a profil-dialógus Google-fotó/feltöltött kép választása nem tárolódik (a régi
-       photo_url-logika marad), a Szolgálat fül a legacy szöveget mutatja.
+- [x] 2026-09-05 — **`2026-09-05-profil-pontossag.sql`** ✅ LEFUTOTT
+       Rács ✅: `avatar_source` oszlop + CHECK, logos saját profilkép-mappa policy-k, 2 szolgálati
+       előzmény-sor átemelve (0 maradt strukturált sor nélkül), 0 „sürgősségi telefon = saját
+       telefon". Tájékoztató: 2 profilnál `profiles.email ≠ auth.users.email` (a felület ⚠️-t
+       mutat), 0 diocese-eltérés, 6 avatar_url / 6 picture / 0 explicit avatar-döntés.
 
 ---
 
