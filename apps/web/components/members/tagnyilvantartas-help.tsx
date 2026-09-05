@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Crown,
   HandCoins,
+  HelpCircle,
   HomeIcon,
   Info,
   MapPin,
@@ -15,6 +16,8 @@ import {
   Users,
   Vote,
 } from 'lucide-react'
+
+import { GyikContent } from './tagnyilvantartas-gyik'
 
 /**
  * Súgó az élet-szerű tagnyilvántartási kérdésekhez. Apple Settings-stílusú
@@ -36,6 +39,12 @@ const CATEGORIES: HelpCategory[] = [
     label: 'Általános',
     Icon: Info,
     short: 'Mit szolgál a Tagnyilvántartás',
+  },
+  {
+    id: 'gyik',
+    label: 'Gyakori kérdések',
+    Icon: HelpCircle,
+    short: 'A lelkipásztor 38 válasza: mi a helyes eljárás',
   },
   {
     id: 'membership',
@@ -171,6 +180,7 @@ export function TagnyilvantartasHelp() {
 
           <div className="prose-content space-y-5 text-sm leading-relaxed text-slate-700">
             {active === 'general' && <GeneralContent />}
+            {active === 'gyik' && <GyikContent />}
             {active === 'membership' && <MembershipContent />}
             {active === 'families' && <FamiliesContent />}
             {active === 'fees' && <FeesContent />}

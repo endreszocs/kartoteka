@@ -23,6 +23,33 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-09-05] — Gyakori kérdések a Tagnyilvántartás súgójában: a lelkipásztor 38 válasza az anyakönyvezés és a tagnyilvántartás szabályairól
+<!-- key: 2026-09-05-tagnyilvantartas-gyik -->
+<!-- category: improvement -->
+<!-- version: 0.9.229 (web) -->
+<!-- targets: lelkipásztorok és gyülekezeti adminisztrátorok (Tagnyilvántartás → Súgó → Gyakori kérdések) -->
+
+### ✨ Új funkciók
+
+- **Gyakori kérdések rovat a Tagnyilvántartás súgójában**: a szeptemberi átvilágítás
+  38 kérdésére adott válasz most a súgóban olvasható, négy csoportban: az anyakönyv
+  lezárása, helyesbítése és érvénytelenítése; az egyházi sorszám képzése (például
+  hogy a decemberi haláleset januári temetése melyik év kötetébe kerül); a nevek,
+  a kivonat és a hiányos adatok kezelése; a tagnyilvántartás állapotai, a családi
+  karton és az átjelentkezés. Minden válasz a helyes egyházi eljárást írja le.
+- **Őszinte állapot-jelzés minden kérdésnél**: „Így működik", „Részben kész" vagy
+  „Fejlesztés alatt" mutatja, hogy a rendszer ma követi-e a szabályt, és a
+  „Ma:" sor megmondja, mi hiányzik még. A rovat így egyszerre útmutató a
+  lelkésznek és nyilvános ütemterv a következő javításokhoz.
+
+### 🛠 Fejlesztőknek
+
+- A válaszok döntési jegyzőkönyve: `docs/2026-09-05-anyakonyv-tagnyilvantartas-dontesek.md`.
+- Új őrszem: `npm run selftest:tagnyilvantartas-gyik` (valódian betölti a rovat adatait,
+  mutáns-negatívokkal).
+
+---
+
 ## [2026-09-05] — Asztali első indítás Google-fiókkal, újratervezett éves naptár, beszélgetés-nézetű értesítések, pontos profil
 <!-- key: 2026-09-05-desktop-naptar-ertesites-profil -->
 <!-- category: feature -->
