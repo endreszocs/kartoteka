@@ -13,7 +13,7 @@ A lap két részből áll: a **kézzel írt** kontextus/folytatási recept (ez),
 | Munkafa | `C:\Users\endre\Documents\APPS\Egyházi APP\KARTOTEKA\.claude\worktrees\naptar-desktop-kor` |
 | Ág | `feat/naptar-desktop-ertesites-profil` (bázis `9955de0a`; **origin/main azóta `3beda25f` v0.9.226** → merge kell PR előtt) |
 | Verziók az ágon | web **0.9.227** (a main 0.9.226-ja után), desktop **0.9.13** (package.json + tauri.conf.json + Cargo.toml) |
-| Commit | **MÉG NINCS** — minden változás a munkafában, commitálatlanul (`git status`) |
+| Commit | `7cb3d9f8` (a kör) + `8a0d0dc2` (merge origin/main) — **PR #231 nyitva:** https://github.com/endreszocs/kartoteka/pull/231 |
 | Endre 4 pontja | 1 desktop első indítás + szinkron · 2 naptár (éves nyomtatvány, anyakönyv, születésnapos, szabadság, reszponzív) · 3 értesítések Apple-chat · 4 profil-audit |
 | Workflow-scriptek | `…\workflows\scripts\kartoteka-4-terulet-felmeres-wf_c3d780f0-278.js` (felmérés), `…\workflows\scripts\kartoteka-4-terulet-megvalositas-wf_0e95eba8-c8c.js` (megvalósítás) |
 | Felmérés eredménye | scratchpad `felmeres/<lencse>.json` (11 db) + `felmeres/brief-{desktop,napt-r,ertesites,profil}.md` |
@@ -93,7 +93,11 @@ A lap két részből áll: a **kézzel írt** kontextus/folytatási recept (ez),
       - Realtime-publikáció ellenőrző SQL Endrének: `SELECT * FROM pg_publication_tables WHERE pubname='supabase_realtime' AND tablename='ertesitesek'`;
       - élőben nem igazolt: Windows Credential Manager darabolt round-trip, böngészős 375 px ellenőrzés (értesítés-nézet, profil-dialógus),
         a nyomtatvány-tördelés konstansai egy valós évvel.
-- [ ] Merge `origin/main` (v0.9.226) → typecheck + teljes selftest → commit → push → PR.
+- [x] **Merge `origin/main` (v0.9.226) → commit → push → PR — KÉSZ**: commit `7cb3d9f8` (a kör, 176 fájl) + merge-commit `8a0d0dc2`
+      (3 ütközés: gyökér `package.json` lánc = a main 132 tagja + az ág 11 őrszeme; `apps/web/package.json` 0.9.227; CHANGELOG mindkettő,
+      az új felül). Merge után: typecheck 11/11 · lint 0 hiba · **143/143 őrszem** · web build 85/85 oldal.
+      **PR: https://github.com/endreszocs/kartoteka/pull/231** (main-re push blokkolt — Endre mergeli). Squash-merge után a következő
+      kör előtt `git reset --hard origin/main` (ismert munkamódszer).
 
 ## 2. AZ ÜGYNÖKÖK MUNKÁJA — a státuszt az AUTO-szakasz mutatja
 
